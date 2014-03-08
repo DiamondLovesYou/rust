@@ -16,10 +16,9 @@ Runtime type reflection
 
 #[allow(missing_doc)];
 
-use unstable::intrinsics::{Disr, Opaque, TyDesc, TyVisitor};
-use libc::c_void;
+use intrinsics::{Disr, Opaque, TyDesc, TyVisitor};
 use mem;
-use unstable::raw;
+use raw;
 
 /**
  * Trait for visitor that wishes to reflect on data. To use this, create a
@@ -28,7 +27,7 @@ use unstable::raw;
  * then build a MovePtrAdaptor wrapped around your struct.
  */
 pub trait MovePtr {
-    fn move_ptr(&mut self, adjustment: |*c_void| -> *c_void);
+    fn move_ptr(&mut self, adjustment: |*u8| -> *u8);
     fn push_ptr(&mut self);
     fn pop_ptr(&mut self);
 }
@@ -50,12 +49,12 @@ pub fn MovePtrAdaptor<V:TyVisitor + MovePtr>(v: V) -> MovePtrAdaptor<V> {
 impl<V:TyVisitor + MovePtr> MovePtrAdaptor<V> {
     #[inline]
     pub fn bump(&mut self, sz: uint) {
-        self.inner.move_ptr(|p| ((p as uint) + sz) as *c_void)
+        self.inner.move_ptr(|p| ((p as uint) + sz) as *u8)
     }
 
     #[inline]
     pub fn align(&mut self, a: uint) {
-        self.inner.move_ptr(|p| align(p as uint, a) as *c_void)
+        self.inner.move_ptr(|p| align(p as uint, a) as *u8)
     }
 
     #[inline]
@@ -67,6 +66,8 @@ impl<V:TyVisitor + MovePtr> MovePtrAdaptor<V> {
     pub fn bump_past<T>(&mut self) {
         self.bump(mem::size_of::<T>());
     }
+
+    pub fn unwrap(self) -> V { self.inner }
 }
 
 /// Abstract type-directed pointer-movement using the MovePtr trait
@@ -184,9 +185,6 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
     }
 
     fn visit_estr_box(&mut self) -> bool {
-        self.align_to::<@str>();
-        if ! self.inner.visit_estr_box() { return false; }
-        self.bump_past::<@str>();
         true
     }
 
@@ -254,10 +252,7 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
         true
     }
 
-    fn visit_evec_box(&mut self, mtbl: uint, inner: *TyDesc) -> bool {
-        self.align_to::<@[u8]>();
-        if ! self.inner.visit_evec_box(mtbl, inner) { return false; }
-        self.bump_past::<@[u8]>();
+    fn visit_evec_box(&mut self, _mtbl: uint, _inner: *TyDesc) -> bool {
         true
     }
 
@@ -429,9 +424,9 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
     }
 
     fn visit_trait(&mut self, name: &str) -> bool {
-        self.align_to::<@TyVisitor>();
+        self.align_to::<~TyVisitor>();
         if ! self.inner.visit_trait(name) { return false; }
-        self.bump_past::<@TyVisitor>();
+        self.bump_past::<~TyVisitor>();
         true
     }
 
@@ -444,27 +439,6 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
         self.align_to::<&'static u8>();
         if ! self.inner.visit_self() { return false; }
         self.align_to::<&'static u8>();
-        true
-    }
-
-    fn visit_type(&mut self) -> bool {
-        if ! self.inner.visit_type() { return false; }
-        true
-    }
-
-    fn visit_opaque_box(&mut self) -> bool {
-        self.align_to::<@u8>();
-        if ! self.inner.visit_opaque_box() { return false; }
-        self.bump_past::<@u8>();
-        true
-    }
-
-    fn visit_closure_ptr(&mut self, ck: uint) -> bool {
-        self.align_to::<proc()>();
-        if ! self.inner.visit_closure_ptr(ck) {
-            return false
-        }
-        self.bump_past::<proc()>();
         true
     }
 }

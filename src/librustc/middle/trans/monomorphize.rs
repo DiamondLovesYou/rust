@@ -33,8 +33,7 @@ pub fn monomorphic_fn(ccx: @CrateContext,
                       vtables: Option<typeck::vtable_res>,
                       self_vtables: Option<typeck::vtable_param_res>,
                       ref_id: Option<ast::NodeId>)
-    -> (ValueRef, bool)
-{
+    -> (ValueRef, bool) {
     debug!("monomorphic_fn(\
             fn_id={}, \
             real_substs={}, \
@@ -94,60 +93,34 @@ pub fn monomorphic_fn(ccx: @CrateContext,
     // calling a static provided method. This is sort of unfortunate.
     let mut is_static_provided = None;
 
-    let map_node = {
-        session::expect(
-            ccx.sess,
-            ccx.tcx.items.find(fn_id.node),
-            || format!("While monomorphizing {:?}, couldn't find it in the \
-                        item map (may have attempted to monomorphize an item \
-                        defined in a different crate?)", fn_id))
-    };
+    let map_node = session::expect(
+        ccx.sess,
+        ccx.tcx.map.find(fn_id.node),
+        || format!("while monomorphizing {:?}, couldn't find it in the \
+                    item map (may have attempted to monomorphize an item \
+                    defined in a different crate?)", fn_id));
 
-    // Get the path so that we can create a symbol
-    let (pt, name, span) = match map_node {
-      ast_map::NodeItem(i, pt) => (pt, i.ident, i.span),
-      ast_map::NodeVariant(ref v, enm, pt) => (pt, (*v).node.name, enm.span),
-      ast_map::NodeMethod(m, _, pt) => (pt, m.ident, m.span),
-      ast_map::NodeForeignItem(i, abis, _, pt) if abis.is_intrinsic()
-      => (pt, i.ident, i.span),
-      ast_map::NodeForeignItem(..) => {
-        // Foreign externs don't have to be monomorphized.
-        return (get_item_val(ccx, fn_id.node), true);
-      }
-      ast_map::NodeTraitMethod(method, _, pt) => {
-          match *method {
-              ast::Provided(m) => {
-                // If this is a static provided method, indicate that
-                // and stash the number of params on the method.
-                if m.explicit_self.node == ast::SelfStatic {
-                    is_static_provided = Some(m.generics.ty_params.len());
+    match map_node {
+        ast_map::NodeForeignItem(_) => {
+            if !ccx.tcx.map.get_foreign_abis(fn_id.node).is_intrinsic() {
+                // Foreign externs don't have to be monomorphized.
+                return (get_item_val(ccx, fn_id.node), true);
+            }
+        }
+        ast_map::NodeTraitMethod(method) => {
+            match *method {
+                ast::Provided(m) => {
+                    // If this is a static provided method, indicate that
+                    // and stash the number of params on the method.
+                    if m.explicit_self.node == ast::SelfStatic {
+                        is_static_provided = Some(m.generics.ty_params.len());
+                    }
                 }
-
-                (pt, m.ident, m.span)
-              }
-              ast::Required(_) => {
-                ccx.tcx.sess.bug("Can't monomorphize a required trait method")
-              }
-          }
-      }
-      ast_map::NodeExpr(..) => {
-        ccx.tcx.sess.bug("Can't monomorphize an expr")
-      }
-      ast_map::NodeStmt(..) => {
-        ccx.tcx.sess.bug("Can't monomorphize a stmt")
-      }
-      ast_map::NodeArg(..) => ccx.tcx.sess.bug("Can't monomorphize an arg"),
-      ast_map::NodeBlock(..) => {
-          ccx.tcx.sess.bug("Can't monomorphize a block")
-      }
-      ast_map::NodeLocal(..) => {
-          ccx.tcx.sess.bug("Can't monomorphize a local")
-      }
-      ast_map::NodeCalleeScope(..) => {
-          ccx.tcx.sess.bug("Can't monomorphize a callee-scope")
-      }
-      ast_map::NodeStructCtor(_, i, pt) => (pt, i.ident, i.span)
-    };
+                _ => {}
+            }
+        }
+        _ => {}
+    }
 
     debug!("monomorphic_fn about to subst into {}", llitem_ty.repr(ccx.tcx));
     let mono_ty = match is_static_provided {
@@ -169,10 +142,8 @@ pub fn monomorphic_fn(ccx: @CrateContext,
             // This is a bit unfortunate.
 
             let idx = psubsts.tys.len() - num_method_ty_params;
-            let substs =
-                (psubsts.tys.slice(0, idx) +
-                 &[psubsts.self_ty.unwrap()] +
-                 psubsts.tys.tailn(idx));
+            let substs = psubsts.tys.slice(0, idx) +
+                &[psubsts.self_ty.unwrap()] + psubsts.tys.tailn(idx);
             debug!("static default: changed substitution to {}",
                    substs.repr(ccx.tcx));
 
@@ -202,122 +173,115 @@ pub fn monomorphic_fn(ccx: @CrateContext,
         // to be causing an infinite expansion.
         if depth > 30 {
             ccx.sess.span_fatal(
-                span, "overly deep expansion of inlined function");
+                ccx.tcx.map.span(fn_id.node),
+                "overly deep expansion of inlined function");
         }
         monomorphizing.get().insert(fn_id, depth + 1);
     }
 
-    let (_, elt) = gensym_name(ccx.sess.str_of(name));
-    let mut pt = (*pt).clone();
-    pt.push(elt);
-    let s = mangle_exported_name(ccx, pt.clone(), mono_ty);
+    let s = ccx.tcx.map.with_path(fn_id.node, |path| {
+        mangle_exported_name(ccx, path, mono_ty, fn_id.node)
+    });
     debug!("monomorphize_fn mangled to {}", s);
 
-    let mk_lldecl = |self_ty| {
-        let lldecl = decl_internal_rust_fn(ccx, self_ty, f.sig.inputs, f.sig.output, s);
+    let mk_lldecl = || {
+        let lldecl = decl_internal_rust_fn(ccx, false,
+                                           f.sig.inputs,
+                                           f.sig.output, s);
         let mut monomorphized = ccx.monomorphized.borrow_mut();
         monomorphized.get().insert(hash_id, lldecl);
         lldecl
     };
 
     let lldecl = match map_node {
-      ast_map::NodeItem(i, _) => {
-          match *i {
-            ast::Item {
-                node: ast::ItemFn(decl, _, _, _, body),
-                ..
-            } => {
-                let d = mk_lldecl(None);
-                set_llvm_fn_attrs(i.attrs, d);
-                trans_fn(ccx,
-                         pt,
-                         decl,
-                         body,
-                         d,
-                         None,
-                         Some(psubsts),
-                         fn_id.node,
-                         []);
-                d
-            }
-            _ => {
-              ccx.tcx.sess.bug("Can't monomorphize this kind of item")
-            }
-          }
-      }
-      ast_map::NodeForeignItem(i, _, _, _) => {
-          let d = mk_lldecl(None);
-          intrinsic::trans_intrinsic(ccx, d, i, pt, psubsts, i.attrs,
-                                     ref_id);
-          d
-      }
-      ast_map::NodeVariant(v, enum_item, _) => {
-        let tvs = ty::enum_variants(ccx.tcx, local_def(enum_item.id));
-        let this_tv = *tvs.iter().find(|tv| { tv.id.node == fn_id.node}).unwrap();
-        let d = mk_lldecl(None);
-        set_inline_hint(d);
-        match v.node.kind {
-            ast::TupleVariantKind(ref args) => {
-                trans_enum_variant(ccx,
-                                   enum_item.id,
-                                   v,
-                                   (*args).clone(),
-                                   this_tv.disr_val,
-                                   Some(psubsts),
-                                   d);
-            }
-            ast::StructVariantKind(_) =>
-                ccx.tcx.sess.bug("can't monomorphize struct variants"),
-        }
-        d
-      }
-      ast_map::NodeMethod(mth, _, _) => {
-        meth::trans_method(ccx, pt, mth, Some(psubsts), |self_ty| {
-            let d = mk_lldecl(self_ty);
-            set_llvm_fn_attrs(mth.attrs, d);
-            d
-        })
-      }
-      ast_map::NodeTraitMethod(method, _, pt) => {
-          match *method {
-              ast::Provided(mth) => {
-                meth::trans_method(ccx,
-                                   (*pt).clone(),
-                                   mth,
-                                   Some(psubsts),
-                                   |self_ty| {
-                    let d = mk_lldecl(self_ty);
-                    set_llvm_fn_attrs(mth.attrs, d);
-                    d
-                })
+        ast_map::NodeItem(i) => {
+            match *i {
+              ast::Item {
+                  node: ast::ItemFn(decl, _, _, _, body),
+                  ..
+              } => {
+                  let d = mk_lldecl();
+                  set_llvm_fn_attrs(i.attrs.as_slice(), d);
+                  trans_fn(ccx, decl, body, d, Some(psubsts), fn_id.node, []);
+                  d
               }
               _ => {
-                ccx.tcx.sess.bug(format!("Can't monomorphize a {:?}",
-                                         map_node))
+                ccx.tcx.sess.bug("Can't monomorphize this kind of item")
               }
-          }
-      }
-      ast_map::NodeStructCtor(struct_def, _, _) => {
-        let d = mk_lldecl(None);
-        set_inline_hint(d);
-        base::trans_tuple_struct(ccx,
-                                 struct_def.fields,
-                                 struct_def.ctor_id.expect("ast-mapped tuple struct \
-                                                            didn't have a ctor id"),
-                                 Some(psubsts),
-                                 d);
-        d
-      }
+            }
+        }
+        ast_map::NodeForeignItem(i) => {
+            let simple = intrinsic::get_simple_intrinsic(ccx, i);
+            match simple {
+                Some(decl) => decl,
+                None => {
+                    let d = mk_lldecl();
+                    intrinsic::trans_intrinsic(ccx, d, i, psubsts, ref_id);
+                    d
+                }
+            }
+        }
+        ast_map::NodeVariant(v) => {
+            let parent = ccx.tcx.map.get_parent(fn_id.node);
+            let tvs = ty::enum_variants(ccx.tcx, local_def(parent));
+            let this_tv = *tvs.iter().find(|tv| { tv.id.node == fn_id.node}).unwrap();
+            let d = mk_lldecl();
+            set_inline_hint(d);
+            match v.node.kind {
+                ast::TupleVariantKind(ref args) => {
+                    trans_enum_variant(ccx,
+                                       parent,
+                                       v,
+                                       args.as_slice(),
+                                       this_tv.disr_val,
+                                       Some(psubsts),
+                                       d);
+                }
+                ast::StructVariantKind(_) =>
+                    ccx.tcx.sess.bug("can't monomorphize struct variants"),
+            }
+            d
+        }
+        ast_map::NodeMethod(mth) => {
+            let d = mk_lldecl();
+            set_llvm_fn_attrs(mth.attrs.as_slice(), d);
+            trans_fn(ccx, mth.decl, mth.body, d, Some(psubsts), mth.id, []);
+            d
+        }
+        ast_map::NodeTraitMethod(method) => {
+            match *method {
+                ast::Provided(mth) => {
+                    let d = mk_lldecl();
+                    set_llvm_fn_attrs(mth.attrs.as_slice(), d);
+                    trans_fn(ccx, mth.decl, mth.body, d, Some(psubsts), mth.id, []);
+                    d
+                }
+                _ => {
+                    ccx.tcx.sess.bug(format!("can't monomorphize a {:?}",
+                                             map_node))
+                }
+            }
+        }
+        ast_map::NodeStructCtor(struct_def) => {
+            let d = mk_lldecl();
+            set_inline_hint(d);
+            base::trans_tuple_struct(ccx,
+                                     struct_def.fields.as_slice(),
+                                     struct_def.ctor_id.expect("ast-mapped tuple struct \
+                                                                didn't have a ctor id"),
+                                     Some(psubsts),
+                                     d);
+            d
+        }
 
-      // Ugh -- but this ensures any new variants won't be forgotten
-      ast_map::NodeExpr(..) |
-      ast_map::NodeStmt(..) |
-      ast_map::NodeArg(..) |
-      ast_map::NodeBlock(..) |
-      ast_map::NodeCalleeScope(..) |
-      ast_map::NodeLocal(..) => {
-        ccx.tcx.sess.bug(format!("Can't monomorphize a {:?}", map_node))
-      }
+        // Ugh -- but this ensures any new variants won't be forgotten
+        ast_map::NodeExpr(..) |
+        ast_map::NodeStmt(..) |
+        ast_map::NodeArg(..) |
+        ast_map::NodeBlock(..) |
+        ast_map::NodeLocal(..) => {
+            ccx.tcx.sess.bug(format!("can't monomorphize a {:?}", map_node))
+        }
     };
 
     {

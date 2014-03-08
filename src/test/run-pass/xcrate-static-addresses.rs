@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,21 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-fast
+// ignore-fast
 // aux-build:xcrate_static_addresses.rs
 
-extern mod xcrate_static_addresses;
+extern crate xcrate_static_addresses;
 
 use other = xcrate_static_addresses;
 
 pub fn main() {
     other::verify_same(&other::global);
     other::verify_same2(other::global2);
-
-    // Previously this fail'd because there were two addresses that were being
-    // used when declaring constants.
-    other::test::cond.trap(|_| {
-    }).inside(|| {
-        other::raise();
-    })
 }

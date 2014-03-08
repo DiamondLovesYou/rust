@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-android: FIXME(#10381)
+// ignore-android: FIXME(#10381)
 
 // This test case checks if function arguments already have the correct value when breaking at the
 // first line of the function, that is if the function prologue has already been executed at the
@@ -16,7 +16,7 @@
 // before the arguments have been properly loaded when setting the breakpoint via the function name.
 // Therefore the setup here sets them using line numbers (so be careful when changing this file).
 
-// compile-flags:-Z extra-debug-info
+// compile-flags:-g
 // debugger:set print pretty off
 // debugger:break function-arg-initialization.rs:139
 // debugger:break function-arg-initialization.rs:154

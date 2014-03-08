@@ -27,21 +27,21 @@ use util::ppaux::bound_region_to_str;
 
 use syntax::ast::{Onceness, Purity};
 
-pub struct Sub(CombineFields);  // "subtype", "subregion" etc
+pub struct Sub<'f>(CombineFields<'f>);  // "subtype", "subregion" etc
 
-impl Sub {
-    pub fn get_ref<'a>(&'a self) -> &'a CombineFields { let Sub(ref v) = *self; v }
+impl<'f> Sub<'f> {
+    pub fn get_ref<'a>(&'a self) -> &'a CombineFields<'f> { let Sub(ref v) = *self; v }
 }
 
-impl Combine for Sub {
-    fn infcx(&self) -> @InferCtxt { self.get_ref().infcx }
+impl<'f> Combine for Sub<'f> {
+    fn infcx<'a>(&'a self) -> &'a InferCtxt { self.get_ref().infcx }
     fn tag(&self) -> ~str { ~"sub" }
     fn a_is_expected(&self) -> bool { self.get_ref().a_is_expected }
     fn trace(&self) -> TypeTrace { self.get_ref().trace }
 
-    fn sub(&self) -> Sub { Sub(*self.get_ref()) }
-    fn lub(&self) -> Lub { Lub(*self.get_ref()) }
-    fn glb(&self) -> Glb { Glb(*self.get_ref()) }
+    fn sub<'a>(&'a self) -> Sub<'a> { Sub(*self.get_ref()) }
+    fn lub<'a>(&'a self) -> Lub<'a> { Lub(*self.get_ref()) }
+    fn glb<'a>(&'a self) -> Glb<'a> { Glb(*self.get_ref()) }
 
     fn contratys(&self, a: ty::t, b: ty::t) -> cres<ty::t> {
         let opp = CombineFields {
@@ -171,8 +171,8 @@ impl Combine for Sub {
 
         // Second, we instantiate each bound region in the supertype with a
         // fresh concrete region.
-        let (skol_map, _, b_sig) = {
-            replace_bound_regions_in_fn_sig(self.get_ref().infcx.tcx, None, b, |br| {
+        let (skol_map, b_sig) = {
+            replace_bound_regions_in_fn_sig(self.get_ref().infcx.tcx, b, |br| {
                 let skol = self.get_ref().infcx.region_vars.new_skolemized(br);
                 debug!("Bound region {} skolemized to {:?}",
                        bound_region_to_str(self.get_ref().infcx.tcx, "", false, br),

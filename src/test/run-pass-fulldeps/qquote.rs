@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,11 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-pretty
-// xfail-test
+// ignore-pretty
+// ignore-test
 
-extern mod extra;
-extern mod syntax;
+#[feature(quote)];
+
+extern crate extra;
+extern crate syntax;
 
 use std::io::*;
 
@@ -75,11 +77,11 @@ fn main() {
 
 fn check_pp<T>(cx: fake_ext_ctxt,
                expr: T, f: |pprust::ps, T|, expect: ~str) {
-    let s = do io::with_str_writer |wr| {
+    let s = io::with_str_writer(|wr| {
         let pp = pprust::rust_printer(wr, cx.parse_sess().interner);
         f(pp, expr);
         pp::eof(pp.s);
-    };
+    });
     stdout().write_line(s);
     if expect != ~"" {
         error!("expect: '%s', got: '%s'", expect, s);

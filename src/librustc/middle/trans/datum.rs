@@ -82,7 +82,7 @@ impl Drop for Rvalue {
     fn drop(&mut self) { }
 }
 
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum RvalueMode {
     /// `val` is a pointer to the actual value (and thus has type *T)
     ByRef,
@@ -480,9 +480,9 @@ impl Datum<Expr> {
          * no cleanup scheduled).
          */
 
-        let mut bcx = bcx;
         self.match_kind(
             |l| {
+                let mut bcx = bcx;
                 match l.appropriate_rvalue_mode(bcx.ccx()) {
                     ByRef => {
                         let scratch = rvalue_scratch_datum(bcx, l.ty, name);
@@ -491,7 +491,7 @@ impl Datum<Expr> {
                     }
                     ByValue => {
                         let v = load(bcx, l.val, l.ty);
-                        l.kind.post_store(bcx, l.val, l.ty);
+                        bcx = l.kind.post_store(bcx, l.val, l.ty);
                         DatumBlock(bcx, Datum(v, l.ty, Rvalue(ByValue)))
                     }
                 }
@@ -528,49 +528,8 @@ impl Datum<Lvalue> {
         }
     }
 
-    pub fn get_vec_base_and_byte_len<'a>(
-                                     &self,
-                                     mut bcx: &'a Block<'a>,
-                                     span: Span,
-                                     expr_id: ast::NodeId,
-                                     derefs: uint)
-                                     -> (&'a Block<'a>, ValueRef, ValueRef) {
-        //! Converts a vector into the slice pair. Performs rooting
-        //! and write guards checks.
-
-        // only imp't for @[] and @str, but harmless
-        bcx = write_guard::root_and_write_guard(self, bcx, span, expr_id, derefs);
-        let (base, len) = self.get_vec_base_and_byte_len_no_root(bcx);
-        (bcx, base, len)
-    }
-
-    pub fn get_vec_base_and_byte_len_no_root(&self, bcx: &Block)
-                                             -> (ValueRef, ValueRef) {
-        //! Converts a vector into the slice pair. Des not root
-        //! nor perform write guard checks.
-
-        tvec::get_base_and_byte_len(bcx, self.val, self.ty)
-    }
-
-    pub fn get_vec_base_and_len<'a>(&self,
-                                    mut bcx: &'a Block<'a>,
-                                    span: Span,
-                                    expr_id: ast::NodeId,
-                                    derefs: uint)
-                                    -> (&'a Block<'a>, ValueRef, ValueRef) {
-        //! Converts a vector into the slice pair. Performs rooting
-        //! and write guards checks.
-
-        // only imp't for @[] and @str, but harmless
-        bcx = write_guard::root_and_write_guard(self, bcx, span, expr_id, derefs);
-        let (base, len) = self.get_vec_base_and_len_no_root(bcx);
-        (bcx, base, len)
-    }
-
-    pub fn get_vec_base_and_len_no_root<'a>(&self, bcx: &'a Block<'a>)
-                                            -> (ValueRef, ValueRef) {
-        //! Converts a vector into the slice pair. Des not root
-        //! nor perform write guard checks.
+    pub fn get_vec_base_and_len<'a>(&self, bcx: &'a Block<'a>) -> (ValueRef, ValueRef) {
+        //! Converts a vector into the slice pair.
 
         tvec::get_base_and_len(bcx, self.val, self.ty)
     }
@@ -586,7 +545,11 @@ fn load<'a>(bcx: &'a Block<'a>, llptr: ValueRef, ty: ty::t) -> ValueRef {
     if type_is_zero_size(bcx.ccx(), ty) {
         C_undef(type_of::type_of(bcx.ccx(), ty))
     } else if ty::type_is_bool(ty) {
-        LoadRangeAssert(bcx, llptr, 0, 2, lib::llvm::True)
+        LoadRangeAssert(bcx, llptr, 0, 2, lib::llvm::False)
+    } else if ty::type_is_char(ty) {
+        // a char is a unicode codepoint, and so takes values from 0
+        // to 0x10FFFF inclusive only.
+        LoadRangeAssert(bcx, llptr, 0, 0x10FFFF + 1, lib::llvm::False)
     } else {
         Load(bcx, llptr)
     }

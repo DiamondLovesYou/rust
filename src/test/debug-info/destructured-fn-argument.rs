@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-android: FIXME(#10381)
+// ignore-android: FIXME(#10381)
 
-// compile-flags:-Z extra-debug-info
+// compile-flags:-g
 // debugger:rbreak zzz
 // debugger:run
 
@@ -232,7 +232,8 @@ fn different_order_of_struct_fields(Struct { b: s, a: t }: Struct ) {
 }
 
 fn complex_nesting(((u,   v  ), ((w,   (x,   Struct { a: y, b: z})), Struct { a: ae, b: oe }), ue ):
-                   ((i16, i32), ((i64, (i32, Struct,             )), Struct                 ), u16)) {
+                   ((i16, i32), ((i64, (i32, Struct,             )), Struct                 ), u16))
+{
     zzz();
 }
 

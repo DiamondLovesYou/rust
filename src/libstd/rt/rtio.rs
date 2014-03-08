@@ -10,19 +10,19 @@
 
 use c_str::CString;
 use cast;
-use comm::{SharedChan, Port};
+use comm::{Chan, Port};
 use libc::c_int;
 use libc;
 use ops::Drop;
 use option::{Option, Some, None};
 use path::Path;
-use result::{Result, Ok, Err};
+use result::{Result, Err};
 use rt::task::Task;
 use rt::local::Local;
 
 use ai = io::net::addrinfo;
 use io;
-use io::IoError;
+use io::{IoError, IoResult};
 use io::net::ip::{IpAddr, SocketAddr};
 use io::process::{ProcessConfig, ProcessExit};
 use io::signal::Signum;
@@ -41,6 +41,7 @@ pub trait EventLoop {
 
     /// The asynchronous I/O services. Not all event loops may provide one.
     fn io<'a>(&'a mut self) -> Option<&'a mut IoFactory>;
+    fn has_active_io(&self) -> bool;
 }
 
 pub trait RemoteCallback {
@@ -86,7 +87,7 @@ pub struct LocalIo<'a> {
 #[unsafe_destructor]
 impl<'a> Drop for LocalIo<'a> {
     fn drop(&mut self) {
-        // XXX(pcwalton): Do nothing here for now, but eventually we may want
+        // FIXME(pcwalton): Do nothing here for now, but eventually we may want
         // something. For now this serves to make `LocalIo` noncopyable.
     }
 }
@@ -116,23 +117,12 @@ impl<'a> LocalIo<'a> {
         return ret;
     }
 
-    pub fn maybe_raise<T>(f: |io: &mut IoFactory| -> Result<T, IoError>)
-        -> Option<T>
+    pub fn maybe_raise<T>(f: |io: &mut IoFactory| -> IoResult<T>)
+        -> IoResult<T>
     {
         match LocalIo::borrow() {
-            None => {
-                io::io_error::cond.raise(io::standard_error(io::IoUnavailable));
-                None
-            }
-            Some(mut io) => {
-                match f(io.get()) {
-                    Ok(t) => Some(t),
-                    Err(ioerr) => {
-                        io::io_error::cond.raise(ioerr);
-                        None
-                    }
-                }
-            }
+            None => Err(io::standard_error(io::IoUnavailable)),
+            Some(mut io) => f(io.get()),
         }
     }
 
@@ -143,7 +133,7 @@ impl<'a> LocalIo<'a> {
     /// Returns the underlying I/O factory as a trait reference.
     #[inline]
     pub fn get<'a>(&'a mut self) -> &'a mut IoFactory {
-        // XXX(pcwalton): I think this is actually sound? Could borrow check
+        // FIXME(pcwalton): I think this is actually sound? Could borrow check
         // allow this safely?
         unsafe {
             cast::transmute_copy(&self.factory)
@@ -189,10 +179,11 @@ pub trait IoFactory {
     fn timer_init(&mut self) -> Result<~RtioTimer, IoError>;
     fn spawn(&mut self, config: ProcessConfig)
             -> Result<(~RtioProcess, ~[Option<~RtioPipe>]), IoError>;
+    fn kill(&mut self, pid: libc::pid_t, signal: int) -> Result<(), IoError>;
     fn pipe_open(&mut self, fd: c_int) -> Result<~RtioPipe, IoError>;
     fn tty_open(&mut self, fd: c_int, readable: bool)
             -> Result<~RtioTTY, IoError>;
-    fn signal(&mut self, signal: Signum, channel: SharedChan<Signum>)
+    fn signal(&mut self, signal: Signum, channel: Chan<Signum>)
         -> Result<~RtioSignal, IoError>;
 }
 
@@ -214,6 +205,7 @@ pub trait RtioTcpStream : RtioSocket {
     fn nodelay(&mut self) -> Result<(), IoError>;
     fn keepalive(&mut self, delay_in_seconds: uint) -> Result<(), IoError>;
     fn letdie(&mut self) -> Result<(), IoError>;
+    fn clone(&self) -> ~RtioTcpStream;
 }
 
 pub trait RtioSocket {
@@ -235,6 +227,8 @@ pub trait RtioUdpSocket : RtioSocket {
 
     fn hear_broadcasts(&mut self) -> Result<(), IoError>;
     fn ignore_broadcasts(&mut self) -> Result<(), IoError>;
+
+    fn clone(&self) -> ~RtioUdpSocket;
 }
 
 pub trait RtioTimer {
@@ -264,6 +258,7 @@ pub trait RtioProcess {
 pub trait RtioPipe {
     fn read(&mut self, buf: &mut [u8]) -> Result<uint, IoError>;
     fn write(&mut self, buf: &[u8]) -> Result<(), IoError>;
+    fn clone(&self) -> ~RtioPipe;
 }
 
 pub trait RtioUnixListener {

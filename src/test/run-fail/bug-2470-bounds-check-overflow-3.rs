@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test
+// ignore-test
 // error-pattern:index out of bounds
 
 use std::u64;
@@ -23,7 +23,7 @@ fn main() {
 
     // This test is only meaningful on 32-bit hosts.
 
-    let idx = u64::max_value & !(u64::max_value >> 1u);
+    let idx = u64::MAX & !(u64::MAX >> 1u);
     error!("ov3 idx = 0x%8.8x%8.8x",
            (idx >> 32) as uint,
            idx as uint);

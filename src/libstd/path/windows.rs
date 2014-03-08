@@ -17,11 +17,11 @@ use clone::Clone;
 use container::Container;
 use cmp::Eq;
 use from_str::FromStr;
-use iter::{AdditiveIterator, DoubleEndedIterator, Extendable, Invert, Iterator, Map};
+use hash::{Hash, sip};
+use iter::{AdditiveIterator, DoubleEndedIterator, Extendable, Rev, Iterator, Map};
 use option::{Option, Some, None};
 use str;
 use str::{CharSplits, OwnedStr, Str, StrVector, StrSlice};
-use to_bytes::IterBytes;
 use vec::{Vector, OwnedVector, ImmutableVector};
 use super::{contains_nul, BytesContainer, GenericPath, GenericPathUnsafe};
 
@@ -35,7 +35,7 @@ pub type StrComponents<'a> = Map<'a, &'a str, Option<&'a str>,
 ///
 /// Each component is yielded as Option<&str> for compatibility with PosixPath, but
 /// every component in WindowsPath is guaranteed to be Some.
-pub type RevStrComponents<'a> = Invert<Map<'a, &'a str, Option<&'a str>,
+pub type RevStrComponents<'a> = Rev<Map<'a, &'a str, Option<&'a str>,
                                                  CharSplits<'a, char>>>;
 
 /// Iterator that yields successive components of a Path as &[u8]
@@ -112,10 +112,10 @@ impl ToCStr for Path {
     }
 }
 
-impl IterBytes for Path {
+impl Hash for Path {
     #[inline]
-    fn iter_bytes(&self, lsb0: bool, f: |&[u8]| -> bool) -> bool {
-        self.repr.iter_bytes(lsb0, f)
+    fn hash(&self, s: &mut sip::SipState) {
+        self.repr.hash(s)
     }
 }
 
@@ -571,8 +571,8 @@ impl GenericPath for Path {
 
     fn ends_with_path(&self, child: &Path) -> bool {
         if !child.is_relative() { return false; }
-        let mut selfit = self.str_components().invert();
-        let mut childit = child.str_components().invert();
+        let mut selfit = self.str_components().rev();
+        let mut childit = child.str_components().rev();
         loop {
             match (selfit.next(), childit.next()) {
                 (Some(a), Some(b)) => if a != b { return false; },
@@ -590,7 +590,7 @@ impl Path {
     ///
     /// # Failure
     ///
-    /// Raises the `null_byte` condition if the vector contains a NUL.
+    /// Fails the task if the vector contains a NUL.
     /// Fails if invalid UTF-8.
     #[inline]
     pub fn new<T: BytesContainer>(path: T) -> Path {
@@ -628,7 +628,7 @@ impl Path {
     /// Returns an iterator that yields each component of the path in reverse as an Option<&str>
     /// See str_components() for details.
     pub fn rev_str_components<'a>(&'a self) -> RevStrComponents<'a> {
-        self.str_components().invert()
+        self.str_components().rev()
     }
 
     /// Returns an iterator that yields each component of the path in turn as a &[u8].
@@ -865,10 +865,42 @@ pub fn prefix(path: &Path) -> Option<PathPrefix> {
     path.prefix
 }
 
-/// Returns whether the Path's prefix is a verbatim prefix, i.e. \\?\
+/// Returns whether the Path's prefix is a verbatim prefix, i.e. `\\?\`
 #[inline]
 pub fn is_verbatim(path: &Path) -> bool {
     prefix_is_verbatim(path.prefix)
+}
+
+/// Returns the non-verbatim equivalent of the input path, if possible.
+/// If the input path is a device namespace path, None is returned.
+/// If the input path is not verbatim, it is returned as-is.
+/// If the input path is verbatim, but the same path can be expressed as
+/// non-verbatim, the non-verbatim version is returned.
+/// Otherwise, None is returned.
+pub fn make_non_verbatim(path: &Path) -> Option<Path> {
+    let new_path = match path.prefix {
+        Some(VerbatimPrefix(_)) | Some(DeviceNSPrefix(_)) => return None,
+        Some(UNCPrefix(_,_)) | Some(DiskPrefix) | None => return Some(path.clone()),
+        Some(VerbatimDiskPrefix) => {
+            // \\?\D:\
+            Path::new(path.repr.slice_from(4))
+        }
+        Some(VerbatimUNCPrefix(_,_)) => {
+            // \\?\UNC\server\share
+            Path::new(format!(r"\\{}", path.repr.slice_from(7)))
+        }
+    };
+    if new_path.prefix.is_none() {
+        // \\?\UNC\server is a VerbatimUNCPrefix
+        // but \\server is nothing
+        return None;
+    }
+    // now ensure normalization didn't change anything
+    if path.repr.slice_from(path.prefix_len()) == new_path.repr.slice_from(new_path.prefix_len()) {
+        Some(new_path)
+    } else {
+        None
+    }
 }
 
 /// The standard path separator character
@@ -926,7 +958,6 @@ pub enum PathPrefix {
     DiskPrefix
 }
 
-// FIXME (#8169): Make private once visibility is fixed
 fn parse_prefix<'a>(mut path: &'a str) -> Option<PathPrefix> {
     if path.starts_with("\\\\") {
         // \\
@@ -1066,13 +1097,13 @@ mod tests {
         (s: $path:expr, $exp:expr) => (
             {
                 let path = $path;
-                assert_eq!(path.as_str(), Some($exp));
+                assert!(path.as_str() == Some($exp));
             }
         );
         (v: $path:expr, $exp:expr) => (
             {
                 let path = $path;
-                assert_eq!(path.as_vec(), $exp);
+                assert!(path.as_vec() == $exp);
             }
         )
     )
@@ -1239,92 +1270,30 @@ mod tests {
 
     #[test]
     fn test_opt_paths() {
-        assert_eq!(Path::new_opt(b!("foo\\bar", 0)), None);
-        assert_eq!(Path::new_opt(b!("foo\\bar", 0x80)), None);
+        assert!(Path::new_opt(b!("foo\\bar", 0)) == None);
+        assert!(Path::new_opt(b!("foo\\bar", 0x80)) == None);
         t!(v: Path::new_opt(b!("foo\\bar")).unwrap(), b!("foo\\bar"));
-        assert_eq!(Path::new_opt("foo\\bar\0"), None);
+        assert!(Path::new_opt("foo\\bar\0") == None);
         t!(s: Path::new_opt("foo\\bar").unwrap(), "foo\\bar");
     }
 
     #[test]
     fn test_null_byte() {
-        use path::null_byte::cond;
-
-        let mut handled = false;
-        let mut p = cond.trap(|v| {
-            handled = true;
-            assert_eq!(v.as_slice(), b!("foo\\bar", 0));
-            (b!("\\bar").to_owned())
-        }).inside(|| {
-            Path::new(b!("foo\\bar", 0))
-        });
-        assert!(handled);
-        assert_eq!(p.as_vec(), b!("\\bar"));
-
-        handled = false;
-        cond.trap(|v| {
-            handled = true;
-            assert_eq!(v.as_slice(), b!("f", 0, "o"));
-            (b!("foo").to_owned())
-        }).inside(|| {
-            p.set_filename(b!("f", 0, "o"))
-        });
-        assert!(handled);
-        assert_eq!(p.as_vec(), b!("\\foo"));
-
-        handled = false;
-        cond.trap(|v| {
-            handled = true;
-            assert_eq!(v.as_slice(), b!("f", 0, "o"));
-            (b!("foo").to_owned())
-        }).inside(|| {
-            p.push(b!("f", 0, "o"));
-        });
-        assert!(handled);
-        assert_eq!(p.as_vec(), b!("\\foo\\foo"));
-    }
-
-    #[test]
-    fn test_null_byte_fail() {
-        use path::null_byte::cond;
         use task;
+        let result = task::try(proc() {
+            Path::new(b!("foo/bar", 0))
+        });
+        assert!(result.is_err());
 
-        macro_rules! t(
-            ($name:expr => $code:block) => (
-                {
-                    let mut t = task::task();
-                    t.name($name);
-                    let res = do t.try $code;
-                    assert!(res.is_err());
-                }
-            )
-        )
+        let result = task::try(proc() {
+            Path::new("test").set_filename(b!("f", 0, "o"))
+        });
+        assert!(result.is_err());
 
-        t!(~"from_vec() w\\nul" => {
-            cond.trap(|_| {
-                (b!("null", 0).to_owned())
-            }).inside(|| {
-                Path::new(b!("foo\\bar", 0))
-            });
-        })
-
-        t!(~"set_filename w\\nul" => {
-            let mut p = Path::new(b!("foo\\bar"));
-            cond.trap(|_| {
-                (b!("null", 0).to_owned())
-            }).inside(|| {
-                p.set_filename(b!("foo", 0))
-            });
-        })
-
-        t!(~"push w\\nul" => {
-            let mut p = Path::new(b!("foo\\bar"));
-            cond.trap(|_| {
-                (b!("null", 0).to_owned())
-            }).inside(|| {
-                p.push(b!("foo", 0))
-            });
-        })
+        let result = task::try(proc() {
+            Path::new("test").push(b!("f", 0, "o"));
+        });
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1340,20 +1309,12 @@ mod tests {
         let path = Path::new(b!("\\"));
         assert_eq!(path.filename_display().to_str(), ~"");
 
-        let mut called = false;
         let path = Path::new("foo");
-        path.display().with_str(|s| {
-            assert_eq!(s, "foo");
-            called = true;
-        });
-        assert!(called);
-        called = false;
+        let mo = path.display().as_maybe_owned();
+        assert_eq!(mo.as_slice(), "foo");
         let path = Path::new(b!("\\"));
-        path.filename_display().with_str(|s| {
-            assert_eq!(s, "");
-            called = true;
-        });
-        assert!(called);
+        let mo = path.filename_display().as_maybe_owned();
+        assert_eq!(mo.as_slice(), "");
     }
 
     #[test]
@@ -1382,7 +1343,7 @@ mod tests {
                 {
                     let path = $path;
                     let path = Path::new(path);
-                    assert_eq!(path.$op(), Some($exp));
+                    assert!(path.$op() == Some($exp));
                 }
             );
             (s: $path:expr, $op:ident, $exp:expr, opt) => (
@@ -1390,14 +1351,14 @@ mod tests {
                     let path = $path;
                     let path = Path::new(path);
                     let left = path.$op();
-                    assert_eq!(left, $exp);
+                    assert!(left == $exp);
                 }
             );
             (v: $path:expr, $op:ident, $exp:expr) => (
                 {
                     let path = $path;
                     let path = Path::new(path);
-                    assert_eq!(path.$op(), $exp);
+                    assert!(path.$op() == $exp);
                 }
             )
         )
@@ -1503,12 +1464,12 @@ mod tests {
         macro_rules! t(
             (s: $path:expr, $join:expr) => (
                 {
-                    let path = ($path);
-                    let join = ($join);
+                    let path = $path;
+                    let join = $join;
                     let mut p1 = Path::new(path);
                     let p2 = p1.clone();
                     p1.push(join);
-                    assert_eq!(p1, p2.join(join));
+                    assert!(p1 == p2.join(join));
                 }
             )
         )
@@ -1522,9 +1483,9 @@ mod tests {
 
         // we do want to check one odd case though to ensure the prefix is re-parsed
         let mut p = Path::new("\\\\?\\C:");
-        assert_eq!(prefix(&p), Some(VerbatimPrefix(2)));
+        assert!(prefix(&p) == Some(VerbatimPrefix(2)));
         p.push("foo");
-        assert_eq!(prefix(&p), Some(VerbatimDiskPrefix));
+        assert!(prefix(&p) == Some(VerbatimDiskPrefix));
         assert_eq!(p.as_str(), Some("\\\\?\\C:\\foo"));
 
         // and another with verbatim non-normalized paths
@@ -1587,8 +1548,6 @@ mod tests {
 
     #[test]
     fn test_push_many() {
-        use to_man = at_vec::to_managed_move;
-
         macro_rules! t(
             (s: $path:expr, $push:expr, $exp:expr) => (
                 {
@@ -1610,12 +1569,9 @@ mod tests {
         t!(s: "a\\b\\c", ["d", "\\e"], "\\e");
         t!(s: "a\\b\\c", ["d", "\\e", "f"], "\\e\\f");
         t!(s: "a\\b\\c", [~"d", ~"e"], "a\\b\\c\\d\\e");
-        t!(s: "a\\b\\c", [@"d", @"e"], "a\\b\\c\\d\\e");
         t!(v: b!("a\\b\\c"), [b!("d"), b!("e")], b!("a\\b\\c\\d\\e"));
         t!(v: b!("a\\b\\c"), [b!("d"), b!("\\e"), b!("f")], b!("\\e\\f"));
         t!(v: b!("a\\b\\c"), [b!("d").to_owned(), b!("e").to_owned()], b!("a\\b\\c\\d\\e"));
-        t!(v: b!("a\\b\\c"), [to_man(b!("d").to_owned()), to_man(b!("e").to_owned())],
-              b!("a\\b\\c\\d\\e"));
     }
 
     #[test]
@@ -1630,7 +1586,7 @@ mod tests {
                     assert!(p.as_str() == Some(left),
                         "`{}`.pop() failed; expected remainder `{}`, found `{}`",
                         pstr, left, p.as_str().unwrap());
-                    assert_eq!(result, $right);
+                    assert!(result == $right);
                 }
             );
             (v: [$($path:expr),+], [$($left:expr),+], $right:expr) => (
@@ -1638,7 +1594,7 @@ mod tests {
                     let mut p = Path::new(b!($($path),+));
                     let result = p.pop();
                     assert_eq!(p.as_vec(), b!($($left),+));
-                    assert_eq!(result, $right);
+                    assert!(result == $right);
                 }
             )
         )
@@ -1681,16 +1637,16 @@ mod tests {
 
     #[test]
     fn test_root_path() {
-        assert_eq!(Path::new("a\\b\\c").root_path(), None);
-        assert_eq!(Path::new("\\a\\b\\c").root_path(), Some(Path::new("\\")));
-        assert_eq!(Path::new("C:a").root_path(), Some(Path::new("C:")));
-        assert_eq!(Path::new("C:\\a").root_path(), Some(Path::new("C:\\")));
-        assert_eq!(Path::new("\\\\a\\b\\c").root_path(), Some(Path::new("\\\\a\\b")));
-        assert_eq!(Path::new("\\\\?\\a\\b").root_path(), Some(Path::new("\\\\?\\a")));
-        assert_eq!(Path::new("\\\\?\\C:\\a").root_path(), Some(Path::new("\\\\?\\C:\\")));
-        assert_eq!(Path::new("\\\\?\\UNC\\a\\b\\c").root_path(),
-                   Some(Path::new("\\\\?\\UNC\\a\\b")));
-        assert_eq!(Path::new("\\\\.\\a\\b").root_path(), Some(Path::new("\\\\.\\a")));
+        assert!(Path::new("a\\b\\c").root_path() == None);
+        assert!(Path::new("\\a\\b\\c").root_path() == Some(Path::new("\\")));
+        assert!(Path::new("C:a").root_path() == Some(Path::new("C:")));
+        assert!(Path::new("C:\\a").root_path() == Some(Path::new("C:\\")));
+        assert!(Path::new("\\\\a\\b\\c").root_path() == Some(Path::new("\\\\a\\b")));
+        assert!(Path::new("\\\\?\\a\\b").root_path() == Some(Path::new("\\\\?\\a")));
+        assert!(Path::new("\\\\?\\C:\\a").root_path() == Some(Path::new("\\\\?\\C:\\")));
+        assert!(Path::new("\\\\?\\UNC\\a\\b\\c").root_path() ==
+                Some(Path::new("\\\\?\\UNC\\a\\b")));
+        assert!(Path::new("\\\\.\\a\\b").root_path() == Some(Path::new("\\\\.\\a")));
     }
 
     #[test]
@@ -1732,8 +1688,6 @@ mod tests {
 
     #[test]
     fn test_join_many() {
-        use to_man = at_vec::to_managed_move;
-
         macro_rules! t(
             (s: $path:expr, $join:expr, $exp:expr) => (
                 {
@@ -1755,11 +1709,8 @@ mod tests {
         t!(s: "a\\b\\c", ["..", "d"], "a\\b\\d");
         t!(s: "a\\b\\c", ["d", "\\e", "f"], "\\e\\f");
         t!(s: "a\\b\\c", [~"d", ~"e"], "a\\b\\c\\d\\e");
-        t!(s: "a\\b\\c", [@"d", @"e"], "a\\b\\c\\d\\e");
         t!(v: b!("a\\b\\c"), [b!("d"), b!("e")], b!("a\\b\\c\\d\\e"));
         t!(v: b!("a\\b\\c"), [b!("d").to_owned(), b!("e").to_owned()], b!("a\\b\\c\\d\\e"));
-        t!(v: b!("a\\b\\c"), [to_man(b!("d").to_owned()), to_man(b!("e").to_owned())],
-              b!("a\\b\\c\\d\\e"));
     }
 
     #[test]
@@ -1857,7 +1808,7 @@ mod tests {
                     let mut p1 = Path::new(path);
                     p1.$set(arg);
                     let p2 = Path::new(path);
-                    assert_eq!(p1, p2.$with(arg));
+                    assert!(p1 == p2.$with(arg));
                 }
             );
             (v: $path:expr, $set:ident, $with:ident, $arg:expr) => (
@@ -1867,7 +1818,7 @@ mod tests {
                     let mut p1 = Path::new(path);
                     p1.$set(arg);
                     let p2 = Path::new(path);
-                    assert_eq!(p1, p2.$with(arg));
+                    assert!(p1 == p2.$with(arg));
                 }
             )
         )
@@ -1919,10 +1870,10 @@ mod tests {
             (v: $path:expr, $filename:expr, $dirname:expr, $filestem:expr, $ext:expr) => (
                 {
                     let path = $path;
-                    assert_eq!(path.filename(), $filename);
-                    assert_eq!(path.dirname(), $dirname);
-                    assert_eq!(path.filestem(), $filestem);
-                    assert_eq!(path.extension(), $ext);
+                    assert!(path.filename() == $filename);
+                    assert!(path.dirname() == $dirname);
+                    assert!(path.filestem() == $filestem);
+                    assert!(path.extension() == $ext);
                 }
             )
         )
@@ -2364,5 +2315,39 @@ mod tests {
         t!(s: "a\\b\\c", [b!("a"), b!("b"), b!("c")]);
         t!(s: ".", [b!(".")]);
         // since this is really a wrapper around str_components, those tests suffice
+    }
+
+    #[test]
+    fn test_make_non_verbatim() {
+        macro_rules! t(
+            ($path:expr, $exp:expr) => (
+                {
+                    let path = Path::new($path);
+                    let exp: Option<&str> = $exp;
+                    let exp = exp.map(|s| Path::new(s));
+                    assert!(make_non_verbatim(&path) == exp);
+                }
+            )
+        )
+
+        t!(r"\a\b\c", Some(r"\a\b\c"));
+        t!(r"a\b\c", Some(r"a\b\c"));
+        t!(r"C:\a\b\c", Some(r"C:\a\b\c"));
+        t!(r"C:a\b\c", Some(r"C:a\b\c"));
+        t!(r"\\server\share\foo", Some(r"\\server\share\foo"));
+        t!(r"\\.\foo", None);
+        t!(r"\\?\foo", None);
+        t!(r"\\?\C:", None);
+        t!(r"\\?\C:foo", None);
+        t!(r"\\?\C:\", Some(r"C:\"));
+        t!(r"\\?\C:\foo", Some(r"C:\foo"));
+        t!(r"\\?\C:\foo\bar\baz", Some(r"C:\foo\bar\baz"));
+        t!(r"\\?\C:\foo\.\bar\baz", None);
+        t!(r"\\?\C:\foo\bar\..\baz", None);
+        t!(r"\\?\C:\foo\bar\..", None);
+        t!(r"\\?\UNC\server\share\foo", Some(r"\\server\share\foo"));
+        t!(r"\\?\UNC\server\share", Some(r"\\server\share"));
+        t!(r"\\?\UNC\server", None);
+        t!(r"\\?\UNC\server\", None);
     }
 }

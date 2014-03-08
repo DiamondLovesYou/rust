@@ -59,19 +59,19 @@ This `for` loop syntax can be applied to any iterator over any type.
 ## Iteration protocol and more
 
 More detailed information about iterators can be found in the [container
-tutorial](http://static.rust-lang.org/doc/master/tutorial-container.html) with
+guide](http://static.rust-lang.org/doc/master/guide-container.html) with
 the rest of the rust manuals.
 
 */
 
 use cmp;
-use num::{Zero, One, Integer, CheckedAdd, CheckedSub, Saturating, ToPrimitive};
+use num::{Zero, One, CheckedAdd, CheckedSub, Saturating, ToPrimitive, Int};
 use option::{Option, Some, None};
 use ops::{Add, Mul, Sub};
 use cmp::{Eq, Ord};
 use clone::Clone;
 use uint;
-use util;
+use mem;
 
 /// Conversion from an `Iterator`
 pub trait FromIterator<A> {
@@ -213,7 +213,7 @@ pub trait Iterator<A> {
 
 
     /// Creates an iterator that has a `.peek()` method
-    /// that returns a optional reference to the next element.
+    /// that returns an optional reference to the next element.
     ///
     /// # Example
     ///
@@ -670,21 +670,21 @@ pub trait DoubleEndedIterator<A>: Iterator<A> {
     /// Yield an element from the end of the range, returning `None` if the range is empty.
     fn next_back(&mut self) -> Option<A>;
 
-    /// Flip the direction of the iterator
+    /// Change the direction of the iterator
     ///
-    /// The inverted iterator flips the ends on an iterator that can already
+    /// The flipped iterator swaps the ends on an iterator that can already
     /// be iterated from the front and from the back.
     ///
     ///
-    /// If the iterator also implements RandomAccessIterator, the inverted
+    /// If the iterator also implements RandomAccessIterator, the flipped
     /// iterator is also random access, with the indices starting at the back
     /// of the original iterator.
     ///
-    /// Note: Random access with inverted indices still only applies to the first
-    /// `uint::max_value` elements of the original iterator.
+    /// Note: Random access with flipped indices still only applies to the first
+    /// `uint::MAX` elements of the original iterator.
     #[inline]
-    fn invert(self) -> Invert<Self> {
-        Invert{iter: self}
+    fn rev(self) -> Rev<Self> {
+        Rev{iter: self}
     }
 }
 
@@ -701,7 +701,7 @@ impl<'a, A, T: DoubleEndedIterator<&'a mut A>> MutableDoubleEndedIterator for T 
     fn reverse_(&mut self) {
         loop {
             match (self.next(), self.next_back()) {
-                (Some(x), Some(y)) => util::swap(x, y),
+                (Some(x), Some(y)) => mem::swap(x, y),
                 _ => break
             }
         }
@@ -713,7 +713,7 @@ impl<'a, A, T: DoubleEndedIterator<&'a mut A>> MutableDoubleEndedIterator for T 
 ///
 /// A `RandomAccessIterator` should be either infinite or a `DoubleEndedIterator`.
 pub trait RandomAccessIterator<A>: Iterator<A> {
-    /// Return the number of indexable elements. At most `std::uint::max_value`
+    /// Return the number of indexable elements. At most `std::uint::MAX`
     /// elements are indexable, even if the iterator represents a longer range.
     fn indexable(&self) -> uint;
 
@@ -759,30 +759,30 @@ pub trait ExactSize<A> : DoubleEndedIterator<A> {
 // Adaptors that may overflow in `size_hint` are not, i.e. `Chain`.
 impl<A, T: ExactSize<A>> ExactSize<(uint, A)> for Enumerate<T> {}
 impl<'a, A, T: ExactSize<A>> ExactSize<A> for Inspect<'a, A, T> {}
-impl<A, T: ExactSize<A>> ExactSize<A> for Invert<T> {}
+impl<A, T: ExactSize<A>> ExactSize<A> for Rev<T> {}
 impl<'a, A, B, T: ExactSize<A>> ExactSize<B> for Map<'a, A, B, T> {}
 impl<A, B, T: ExactSize<A>, U: ExactSize<B>> ExactSize<(A, B)> for Zip<T, U> {}
 
 /// An double-ended iterator with the direction inverted
 #[deriving(Clone)]
-pub struct Invert<T> {
+pub struct Rev<T> {
     priv iter: T
 }
 
-impl<A, T: DoubleEndedIterator<A>> Iterator<A> for Invert<T> {
+impl<A, T: DoubleEndedIterator<A>> Iterator<A> for Rev<T> {
     #[inline]
     fn next(&mut self) -> Option<A> { self.iter.next_back() }
     #[inline]
     fn size_hint(&self) -> (uint, Option<uint>) { self.iter.size_hint() }
 }
 
-impl<A, T: DoubleEndedIterator<A>> DoubleEndedIterator<A> for Invert<T> {
+impl<A, T: DoubleEndedIterator<A>> DoubleEndedIterator<A> for Rev<T> {
     #[inline]
     fn next_back(&mut self) -> Option<A> { self.iter.next() }
 }
 
 impl<A, T: DoubleEndedIterator<A> + RandomAccessIterator<A>> RandomAccessIterator<A>
-    for Invert<T> {
+    for Rev<T> {
     #[inline]
     fn indexable(&self) -> uint { self.iter.indexable() }
     #[inline]
@@ -882,6 +882,39 @@ pub trait OrdIterator<A> {
     /// assert!(a.iter().min().unwrap() == &1);
     /// ```
     fn min(&mut self) -> Option<A>;
+
+    /// `min_max` finds the minimum and maximum elements in the iterator.
+    ///
+    /// The return type `MinMaxResult` is an enum of three variants:
+    /// - `NoElements` if the iterator is empty.
+    /// - `OneElement(x)` if the iterator has exactly one element.
+    /// - `MinMax(x, y)` is returned otherwise, where `x <= y`. Two values are equal if and only if
+    /// there is more than one element in the iterator and all elements are equal.
+    ///
+    /// On an iterator of length `n`, `min_max` does `1.5 * n` comparisons,
+    /// and so faster than calling `min` and `max separately which does `2 * n` comparisons.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::iter::{NoElements, OneElement, MinMax};
+    ///
+    /// let v: [int, ..0] = [];
+    /// assert_eq!(v.iter().min_max(), NoElements);
+    ///
+    /// let v = [1i];
+    /// assert!(v.iter().min_max() == OneElement(&1));
+    ///
+    /// let v = [1i, 2, 3, 4, 5];
+    /// assert!(v.iter().min_max() == MinMax(&1, &5));
+    ///
+    /// let v = [1i, 2, 3, 4, 5, 6];
+    /// assert!(v.iter().min_max() == MinMax(&1, &6));
+    ///
+    /// let v = [1i, 1, 1, 1];
+    /// assert!(v.iter().min_max() == MinMax(&1, &1));
+    /// ```
+    fn min_max(&mut self) -> MinMaxResult<A>;
 }
 
 impl<A: Ord, T: Iterator<A>> OrdIterator<A> for T {
@@ -903,6 +936,91 @@ impl<A: Ord, T: Iterator<A>> OrdIterator<A> for T {
                 Some(y) => Some(cmp::min(x, y))
             }
         })
+    }
+
+    fn min_max(&mut self) -> MinMaxResult<A> {
+        let (mut min, mut max) = match self.next() {
+            None => return NoElements,
+            Some(x) => {
+                match self.next() {
+                    None => return OneElement(x),
+                    Some(y) => if x < y {(x, y)} else {(y,x)}
+                }
+            }
+        };
+
+        loop {
+            // `first` and `second` are the two next elements we want to look at.
+            // We first compare `first` and `second` (#1). The smaller one is then compared to
+            // current mininum (#2). The larger one is compared to current maximum (#3). This
+            // way we do 3 comparisons for 2 elements.
+            let first = match self.next() {
+                None => break,
+                Some(x) => x
+            };
+            let second = match self.next() {
+                None => {
+                    if first < min {
+                        min = first;
+                    } else if first > max {
+                        max = first;
+                    }
+                    break;
+                }
+                Some(x) => x
+            };
+            if first < second {
+                if first < min {min = first;}
+                if max < second {max = second;}
+            } else {
+                if second < min {min = second;}
+                if max < first {max = first;}
+            }
+        }
+
+        MinMax(min, max)
+    }
+}
+
+/// `MinMaxResult` is an enum returned by `min_max`. See `OrdIterator::min_max` for more detail.
+#[deriving(Clone, Eq, Show)]
+pub enum MinMaxResult<T> {
+    /// Empty iterator
+    NoElements,
+
+    /// Iterator with one element, so the minimum and maximum are the same
+    OneElement(T),
+
+    /// More than one element in the iterator, the first element is not larger than the second
+    MinMax(T, T)
+}
+
+impl<T: Clone> MinMaxResult<T> {
+    /// `into_option` creates an `Option` of type `(T,T)`. The returned `Option` has variant
+    /// `None` if and only if the `MinMaxResult` has variant `NoElements`. Otherwise variant
+    /// `Some(x,y)` is returned where `x <= y`. If `MinMaxResult` has variant `OneElement(x)`,
+    /// performing this operation will make one clone of `x`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::iter::{NoElements, OneElement, MinMax, MinMaxResult};
+    ///
+    /// let r: MinMaxResult<int> = NoElements;
+    /// assert_eq!(r.into_option(), None)
+    ///
+    /// let r = OneElement(1);
+    /// assert_eq!(r.into_option(), Some((1,1)));
+    ///
+    /// let r = MinMax(1,2);
+    /// assert_eq!(r.into_option(), Some((1,2)));
+    /// ```
+    pub fn into_option(self) -> Option<(T,T)> {
+        match self {
+            NoElements => None,
+            OneElement(x) => Some((x.clone(), x)),
+            MinMax(x, y) => Some((x, y))
+        }
     }
 }
 
@@ -952,7 +1070,7 @@ impl<A, T: Clone + Iterator<A>> Iterator<A> for Cycle<T> {
         match self.orig.size_hint() {
             sz @ (0, Some(0)) => sz,
             (0, _) => (0, None),
-            _ => (uint::max_value, None)
+            _ => (uint::MAX, None)
         }
     }
 }
@@ -961,7 +1079,7 @@ impl<A, T: Clone + RandomAccessIterator<A>> RandomAccessIterator<A> for Cycle<T>
     #[inline]
     fn indexable(&self) -> uint {
         if self.orig.indexable() > 0 {
-            uint::max_value
+            uint::MAX
         } else {
             0
         }
@@ -1366,7 +1484,7 @@ impl<'a, A, T: Iterator<A>> Peekable<A, T> {
     /// Check whether peekable iterator is empty or not.
     #[inline]
     pub fn is_empty(&mut self) -> bool {
-        self.peek().is_some()
+        self.peek().is_none()
     }
 }
 
@@ -1823,7 +1941,7 @@ impl<A: Add<A, A> + Clone> Iterator<A> for Counter<A> {
 
     #[inline]
     fn size_hint(&self) -> (uint, Option<uint>) {
-        (uint::max_value, None) // Too bad we can't specify an infinite lower bound
+        (uint::MAX, None) // Too bad we can't specify an infinite lower bound
     }
 }
 
@@ -1887,9 +2005,9 @@ impl<A: Add<A, A> + Ord + Clone + ToPrimitive> Iterator<A> for Range<A> {
     }
 }
 
-/// `Integer` is required to ensure the range will be the same regardless of
+/// `Int` is required to ensure the range will be the same regardless of
 /// the direction it is consumed.
-impl<A: Integer + Ord + Clone + ToPrimitive> DoubleEndedIterator<A> for Range<A> {
+impl<A: Int + Ord + Clone + ToPrimitive> DoubleEndedIterator<A> for Range<A> {
     #[inline]
     fn next_back(&mut self) -> Option<A> {
         if self.stop > self.state {
@@ -1947,7 +2065,7 @@ impl<A: Add<A, A> + Eq + Ord + Clone + ToPrimitive> Iterator<A> for RangeInclusi
     }
 }
 
-impl<A: Sub<A, A> + Integer + Ord + Clone + ToPrimitive> DoubleEndedIterator<A>
+impl<A: Sub<A, A> + Int + Ord + Clone + ToPrimitive> DoubleEndedIterator<A>
     for RangeInclusive<A> {
     #[inline]
     fn next_back(&mut self) -> Option<A> {
@@ -2049,7 +2167,7 @@ impl<A: Clone> Iterator<A> for Repeat<A> {
     #[inline]
     fn next(&mut self) -> Option<A> { self.idx(0) }
     #[inline]
-    fn size_hint(&self) -> (uint, Option<uint>) { (uint::max_value, None) }
+    fn size_hint(&self) -> (uint, Option<uint>) { (uint::MAX, None) }
 }
 
 impl<A: Clone> DoubleEndedIterator<A> for Repeat<A> {
@@ -2059,7 +2177,7 @@ impl<A: Clone> DoubleEndedIterator<A> for Repeat<A> {
 
 impl<A: Clone> RandomAccessIterator<A> for Repeat<A> {
     #[inline]
-    fn indexable(&self) -> uint { uint::max_value }
+    fn indexable(&self) -> uint { uint::MAX }
     #[inline]
     fn idx(&self, _: uint) -> Option<A> { Some(self.element.clone()) }
 }
@@ -2263,7 +2381,7 @@ mod tests {
     #[test]
     fn test_filter_map() {
         let mut it = count(0u, 1u).take(10)
-            .filter_map(|x| if x.is_even() { Some(x*x) } else { None });
+            .filter_map(|x| if x % 2 == 0 { Some(x*x) } else { None });
         assert_eq!(it.collect::<~[uint]>(), ~[0*0, 2*2, 4*4, 6*6, 8*8]);
     }
 
@@ -2389,7 +2507,7 @@ mod tests {
                    .collect::<~[uint]>();
 
         assert_eq!(n, xs.len());
-        assert_eq!(xs, ys.as_slice());
+        assert_eq!(xs.as_slice(), ys.as_slice());
     }
 
     #[test]
@@ -2417,7 +2535,7 @@ mod tests {
     fn test_cycle() {
         let cycle_len = 3;
         let it = count(0u, 1).take(cycle_len).cycle();
-        assert_eq!(it.size_hint(), (uint::max_value, None));
+        assert_eq!(it.size_hint(), (uint::MAX, None));
         for (i, x) in it.take(100).enumerate() {
             assert_eq!(i % cycle_len, x);
         }
@@ -2489,19 +2607,19 @@ mod tests {
         let v2 = &[10, 11, 12];
         let vi = v.iter();
 
-        assert_eq!(c.size_hint(), (uint::max_value, None));
+        assert_eq!(c.size_hint(), (uint::MAX, None));
         assert_eq!(vi.size_hint(), (10, Some(10)));
 
         assert_eq!(c.take(5).size_hint(), (5, Some(5)));
-        assert_eq!(c.skip(5).size_hint().second(), None);
+        assert_eq!(c.skip(5).size_hint().val1(), None);
         assert_eq!(c.take_while(|_| false).size_hint(), (0, None));
         assert_eq!(c.skip_while(|_| false).size_hint(), (0, None));
-        assert_eq!(c.enumerate().size_hint(), (uint::max_value, None));
-        assert_eq!(c.chain(vi.map(|&i| i)).size_hint(), (uint::max_value, None));
+        assert_eq!(c.enumerate().size_hint(), (uint::MAX, None));
+        assert_eq!(c.chain(vi.map(|&i| i)).size_hint(), (uint::MAX, None));
         assert_eq!(c.zip(vi).size_hint(), (10, Some(10)));
         assert_eq!(c.scan(0, |_,_| Some(0)).size_hint(), (0, None));
         assert_eq!(c.filter(|_| false).size_hint(), (0, None));
-        assert_eq!(c.map(|_| 0).size_hint(), (uint::max_value, None));
+        assert_eq!(c.map(|_| 0).size_hint(), (uint::MAX, None));
         assert_eq!(c.filter_map(|_| Some(0)).size_hint(), (0, None));
 
         assert_eq!(vi.take(5).size_hint(), (5, Some(5)));
@@ -2530,7 +2648,7 @@ mod tests {
     fn test_all() {
         let v: ~&[int] = ~&[1, 2, 3, 4, 5];
         assert!(v.iter().all(|&x| x < 10));
-        assert!(!v.iter().all(|&x| x.is_even()));
+        assert!(!v.iter().all(|&x| x % 2 == 0));
         assert!(!v.iter().all(|&x| x > 100));
         assert!(v.slice(0, 0).iter().all(|_| fail!()));
     }
@@ -2539,7 +2657,7 @@ mod tests {
     fn test_any() {
         let v: ~&[int] = ~&[1, 2, 3, 4, 5];
         assert!(v.iter().any(|&x| x < 10));
-        assert!(v.iter().any(|&x| x.is_even()));
+        assert!(v.iter().any(|&x| x % 2 == 0));
         assert!(!v.iter().any(|&x| x > 100));
         assert!(!v.slice(0, 0).iter().any(|_| fail!()));
     }
@@ -2590,12 +2708,12 @@ mod tests {
     }
 
     #[test]
-    fn test_invert() {
+    fn test_rev() {
         let xs = [2, 4, 6, 8, 10, 12, 14, 16];
         let mut it = xs.iter();
         it.next();
         it.next();
-        assert_eq!(it.invert().map(|&x| x).collect::<~[int]>(), ~[16, 14, 12, 10, 8, 6]);
+        assert_eq!(it.rev().map(|&x| x).collect::<~[int]>(), ~[16, 14, 12, 10, 8, 6]);
     }
 
     #[test]
@@ -2662,7 +2780,7 @@ mod tests {
     fn test_double_ended_chain() {
         let xs = [1, 2, 3, 4, 5];
         let ys = ~[7, 9, 11];
-        let mut it = xs.iter().chain(ys.iter()).invert();
+        let mut it = xs.iter().chain(ys.iter()).rev();
         assert_eq!(it.next().unwrap(), &11)
         assert_eq!(it.next().unwrap(), &9)
         assert_eq!(it.next_back().unwrap(), &1)
@@ -2706,11 +2824,11 @@ mod tests {
         assert_eq!(len, b.indexable());
         let mut n = 0;
         for (i, elt) in a.enumerate() {
-            assert_eq!(Some(elt), b.idx(i));
+            assert!(Some(elt) == b.idx(i));
             n += 1;
         }
         assert_eq!(n, len);
-        assert_eq!(None, b.idx(n));
+        assert!(None == b.idx(n));
         // call recursively to check after picking off an element
         if len > 0 {
             b.next();
@@ -2764,10 +2882,10 @@ mod tests {
     }
 
     #[test]
-    fn test_random_access_invert() {
+    fn test_random_access_rev() {
         let xs = [1, 2, 3, 4, 5];
-        check_randacc_iter(xs.iter().invert(), xs.len());
-        let mut it = xs.iter().invert();
+        check_randacc_iter(xs.iter().rev(), xs.len());
+        let mut it = xs.iter().rev();
         it.next();
         it.next_back();
         it.next();
@@ -2833,13 +2951,13 @@ mod tests {
 
     #[test]
     fn test_double_ended_range() {
-        assert_eq!(range(11i, 14).invert().collect::<~[int]>(), ~[13i, 12, 11]);
-        for _ in range(10i, 0).invert() {
+        assert_eq!(range(11i, 14).rev().collect::<~[int]>(), ~[13i, 12, 11]);
+        for _ in range(10i, 0).rev() {
             fail!("unreachable");
         }
 
-        assert_eq!(range(11u, 14).invert().collect::<~[uint]>(), ~[13u, 12, 11]);
-        for _ in range(10u, 0).invert() {
+        assert_eq!(range(11u, 14).rev().collect::<~[uint]>(), ~[13u, 12, 11]);
+        for _ in range(10u, 0).rev() {
             fail!("unreachable");
         }
     }
@@ -2886,15 +3004,15 @@ mod tests {
 
         assert_eq!(range(0i, 5).collect::<~[int]>(), ~[0i, 1, 2, 3, 4]);
         assert_eq!(range(-10i, -1).collect::<~[int]>(), ~[-10, -9, -8, -7, -6, -5, -4, -3, -2]);
-        assert_eq!(range(0i, 5).invert().collect::<~[int]>(), ~[4, 3, 2, 1, 0]);
+        assert_eq!(range(0i, 5).rev().collect::<~[int]>(), ~[4, 3, 2, 1, 0]);
         assert_eq!(range(200, -5).collect::<~[int]>(), ~[]);
-        assert_eq!(range(200, -5).invert().collect::<~[int]>(), ~[]);
+        assert_eq!(range(200, -5).rev().collect::<~[int]>(), ~[]);
         assert_eq!(range(200, 200).collect::<~[int]>(), ~[]);
-        assert_eq!(range(200, 200).invert().collect::<~[int]>(), ~[]);
+        assert_eq!(range(200, 200).rev().collect::<~[int]>(), ~[]);
 
         assert_eq!(range(0i, 100).size_hint(), (100, Some(100)));
         // this test is only meaningful when sizeof uint < sizeof u64
-        assert_eq!(range(uint::max_value - 1, uint::max_value).size_hint(), (1, Some(1)));
+        assert_eq!(range(uint::MAX - 1, uint::MAX).size_hint(), (1, Some(1)));
         assert_eq!(range(-10i, -1).size_hint(), (9, Some(9)));
         assert_eq!(range(Foo, Foo).size_hint(), (0, None));
     }
@@ -2902,11 +3020,11 @@ mod tests {
     #[test]
     fn test_range_inclusive() {
         assert_eq!(range_inclusive(0i, 5).collect::<~[int]>(), ~[0i, 1, 2, 3, 4, 5]);
-        assert_eq!(range_inclusive(0i, 5).invert().collect::<~[int]>(), ~[5i, 4, 3, 2, 1, 0]);
+        assert_eq!(range_inclusive(0i, 5).rev().collect::<~[int]>(), ~[5i, 4, 3, 2, 1, 0]);
         assert_eq!(range_inclusive(200, -5).collect::<~[int]>(), ~[]);
-        assert_eq!(range_inclusive(200, -5).invert().collect::<~[int]>(), ~[]);
+        assert_eq!(range_inclusive(200, -5).rev().collect::<~[int]>(), ~[]);
         assert_eq!(range_inclusive(200, 200).collect::<~[int]>(), ~[200]);
-        assert_eq!(range_inclusive(200, 200).invert().collect::<~[int]>(), ~[200]);
+        assert_eq!(range_inclusive(200, 200).rev().collect::<~[int]>(), ~[200]);
     }
 
     #[test]
@@ -2933,14 +3051,45 @@ mod tests {
     fn test_reverse() {
         let mut ys = [1, 2, 3, 4, 5];
         ys.mut_iter().reverse_();
-        assert_eq!(ys, [5, 4, 3, 2, 1]);
+        assert!(ys == [5, 4, 3, 2, 1]);
     }
 
+    #[test]
     fn test_peekable_is_empty() {
         let a = [1];
         let mut it = a.iter().peekable();
         assert!( !it.is_empty() );
         it.next();
         assert!( it.is_empty() );
+    }
+
+    #[test]
+    fn test_min_max() {
+        let v: [int, ..0] = [];
+        assert_eq!(v.iter().min_max(), NoElements);
+
+        let v = [1i];
+        assert!(v.iter().min_max() == OneElement(&1));
+
+        let v = [1i, 2, 3, 4, 5];
+        assert!(v.iter().min_max() == MinMax(&1, &5));
+
+        let v = [1i, 2, 3, 4, 5, 6];
+        assert!(v.iter().min_max() == MinMax(&1, &6));
+
+        let v = [1i, 1, 1, 1];
+        assert!(v.iter().min_max() == MinMax(&1, &1));
+    }
+
+    #[test]
+    fn test_MinMaxResult() {
+        let r: MinMaxResult<int> = NoElements;
+        assert_eq!(r.into_option(), None)
+
+        let r = OneElement(1);
+        assert_eq!(r.into_option(), Some((1,1)));
+
+        let r = MinMax(1,2);
+        assert_eq!(r.into_option(), Some((1,2)));
     }
 }

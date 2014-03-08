@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern mod extra;
+extern crate extra;
 
 use std::task::spawn;
 use std::os;
@@ -26,8 +26,8 @@ fn main() {
         100000
     };
 
-    n.times(|| {
-        do spawn || {};
-    })
+    for _ in range(0, n) {
+        spawn(proc() {});
+    }
 
 }

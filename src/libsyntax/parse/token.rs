@@ -9,18 +9,23 @@
 // except according to those terms.
 
 use ast;
-use ast::{P, Name, Mrk};
+use ast::{P, Ident, Name, Mrk};
 use ast_util;
+use ext::mtwt;
 use parse::token;
-use util::interner::StrInterner;
+use util::interner::{RcStr, StrInterner};
 use util::interner;
 
+use serialize::{Decodable, Decoder, Encodable, Encoder};
 use std::cast;
 use std::char;
+use std::fmt;
 use std::local_data;
+use std::path::BytesContainer;
+use std::vec_ng::Vec;
 
 #[allow(non_camel_case_types)]
-#[deriving(Clone, Encodable, Decodable, Eq, IterBytes)]
+#[deriving(Clone, Encodable, Decodable, Eq, Hash, Show)]
 pub enum BinOp {
     PLUS,
     MINUS,
@@ -35,7 +40,7 @@ pub enum BinOp {
 }
 
 #[allow(non_camel_case_types)]
-#[deriving(Clone, Encodable, Decodable, Eq, IterBytes)]
+#[deriving(Clone, Encodable, Decodable, Eq, Hash, Show)]
 pub enum Token {
     /* Expression-operator symbols. */
     EQ,
@@ -99,7 +104,7 @@ pub enum Token {
     EOF,
 }
 
-#[deriving(Clone, Encodable, Decodable, Eq, IterBytes)]
+#[deriving(Clone, Encodable, Decodable, Eq, Hash)]
 /// For interpolation during macro expansion.
 pub enum Nonterminal {
     NtItem(@ast::Item),
@@ -112,7 +117,25 @@ pub enum Nonterminal {
     NtAttr(@ast::Attribute), // #[foo]
     NtPath(~ast::Path),
     NtTT(  @ast::TokenTree), // needs @ed to break a circularity
-    NtMatchers(~[ast::Matcher])
+    NtMatchers(Vec<ast::Matcher> )
+}
+
+impl fmt::Show for Nonterminal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            NtItem(..) => f.pad("NtItem(..)"),
+            NtBlock(..) => f.pad("NtBlock(..)"),
+            NtStmt(..) => f.pad("NtStmt(..)"),
+            NtPat(..) => f.pad("NtPat(..)"),
+            NtExpr(..) => f.pad("NtExpr(..)"),
+            NtTy(..) => f.pad("NtTy(..)"),
+            NtIdent(..) => f.pad("NtIdent(..)"),
+            NtAttr(..) => f.pad("NtAttr(..)"),
+            NtPath(..) => f.pad("NtPath(..)"),
+            NtTT(..) => f.pad("NtTT(..)"),
+            NtMatchers(..) => f.pad("NtMatchers(..)"),
+        }
+    }
 }
 
 pub fn binop_to_str(o: BinOp) -> ~str {
@@ -130,7 +153,7 @@ pub fn binop_to_str(o: BinOp) -> ~str {
     }
 }
 
-pub fn to_str(input: @IdentInterner, t: &Token) -> ~str {
+pub fn to_str(t: &Token) -> ~str {
     match *t {
       EQ => ~"=",
       LT => ~"<",
@@ -184,38 +207,42 @@ pub fn to_str(input: @IdentInterner, t: &Token) -> ~str {
           u.to_str() + ast_util::uint_ty_to_str(t)
       }
       LIT_INT_UNSUFFIXED(i) => { i.to_str() }
-      LIT_FLOAT(ref s, t) => {
-        let mut body = ident_to_str(s).to_owned();
+      LIT_FLOAT(s, t) => {
+        let mut body = get_ident(s).get().to_str();
         if body.ends_with(".") {
             body.push_char('0');  // `10.f` is not a float literal
         }
         body + ast_util::float_ty_to_str(t)
       }
-      LIT_FLOAT_UNSUFFIXED(ref s) => {
-        let mut body = ident_to_str(s).to_owned();
+      LIT_FLOAT_UNSUFFIXED(s) => {
+        let mut body = get_ident(s).get().to_str();
         if body.ends_with(".") {
             body.push_char('0');  // `10.f` is not a float literal
         }
         body
       }
-      LIT_STR(ref s) => { format!("\"{}\"", ident_to_str(s).escape_default()) }
-      LIT_STR_RAW(ref s, n) => {
+      LIT_STR(s) => {
+          format!("\"{}\"", get_ident(s).get().escape_default())
+      }
+      LIT_STR_RAW(s, n) => {
           format!("r{delim}\"{string}\"{delim}",
-                  delim="#".repeat(n), string=ident_to_str(s))
+                  delim="#".repeat(n), string=get_ident(s))
       }
 
       /* Name components */
-      IDENT(s, _) => input.get(s.name).to_owned(),
-      LIFETIME(s) => format!("'{}", input.get(s.name)),
+      IDENT(s, _) => get_ident(s).get().to_str(),
+      LIFETIME(s) => {
+          format!("'{}", get_ident(s))
+      }
       UNDERSCORE => ~"_",
 
       /* Other */
-      DOC_COMMENT(ref s) => ident_to_str(s).to_owned(),
+      DOC_COMMENT(s) => get_ident(s).get().to_str(),
       EOF => ~"<eof>",
       INTERPOLATED(ref nt) => {
         match nt {
-            &NtExpr(e) => ::print::pprust::expr_to_str(e, input),
-            &NtAttr(e) => ::print::pprust::attribute_to_str(e, input),
+            &NtExpr(e) => ::print::pprust::expr_to_str(e),
+            &NtAttr(e) => ::print::pprust::attribute_to_str(e),
             _ => {
                 ~"an interpolated " +
                     match *nt {
@@ -383,101 +410,93 @@ macro_rules! declare_special_idents_and_keywords {(
         }
     }
 
-    fn mk_fresh_ident_interner() -> @IdentInterner {
+    fn mk_fresh_ident_interner() -> IdentInterner {
         // The indices here must correspond to the numbers in
         // special_idents, in Keyword to_ident(), and in static
         // constants below.
-        let init_vec = ~[
-            $( $si_str, )*
-            $( $sk_str, )*
-            $( $rk_str, )*
-        ];
-
-        @interner::StrInterner::prefill(init_vec)
+        let mut init_vec = Vec::new();
+        $(init_vec.push($si_str);)*
+        $(init_vec.push($sk_str);)*
+        $(init_vec.push($rk_str);)*
+        interner::StrInterner::prefill(init_vec.as_slice())
     }
 }}
 
 // If the special idents get renumbered, remember to modify these two as appropriate
-static SELF_KEYWORD_NAME: Name = 3;
-static STATIC_KEYWORD_NAME: Name = 10;
+static SELF_KEYWORD_NAME: Name = 1;
+static STATIC_KEYWORD_NAME: Name = 2;
 
 declare_special_idents_and_keywords! {
     pub mod special_idents {
         // These ones are statics
-
-        (0,                          anon,                   "anon");
-        (1,                          invalid,                "");       // ''
-        (2,                          clownshoes_extensions,  "__extensions__");
-
-        (super::SELF_KEYWORD_NAME,   self_,                  "self"); // 'self'
+        (0,                          invalid,                "");
+        (super::SELF_KEYWORD_NAME,   self_,                  "self");
+        (super::STATIC_KEYWORD_NAME, statik,                 "static");
 
         // for matcher NTs
-        (4,                          tt,                     "tt");
-        (5,                          matchers,               "matchers");
+        (3,                          tt,                     "tt");
+        (4,                          matchers,               "matchers");
 
         // outside of libsyntax
-        (6,                          arg,                    "arg");
-        (7,                          clownshoe_abi,          "__rust_abi");
-        (8,                          main,                   "main");
-        (9,                          opaque,                 "<opaque>");
-        (super::STATIC_KEYWORD_NAME, statik,                 "static");
-        (11,                         clownshoes_foreign_mod, "__foreign_mod__");
-        (12,                         unnamed_field,          "<unnamed_field>");
-        (13,                         type_self,              "Self"); // `Self`
+        (5,                          clownshoe_abi,          "__rust_abi");
+        (6,                          opaque,                 "<opaque>");
+        (7,                          unnamed_field,          "<unnamed_field>");
+        (8,                          type_self,              "Self");
     }
 
     pub mod keywords {
         // These ones are variants of the Keyword enum
 
         'strict:
-        (14,                         As,         "as");
-        (15,                         Break,      "break");
-        (16,                         Const,      "const");
-        (17,                         Do,         "do");
-        (18,                         Else,       "else");
-        (19,                         Enum,       "enum");
-        (20,                         Extern,     "extern");
-        (21,                         False,      "false");
-        (22,                         Fn,         "fn");
-        (23,                         For,        "for");
-        (24,                         If,         "if");
-        (25,                         Impl,       "impl");
-        (26,                         In,         "in");
-        (27,                         Let,        "let");
-        (28,                         __LogLevel, "__log_level");
-        (29,                         Loop,       "loop");
-        (30,                         Match,      "match");
-        (31,                         Mod,        "mod");
-        (32,                         Mut,        "mut");
-        (33,                         Once,       "once");
-        (34,                         Priv,       "priv");
-        (35,                         Pub,        "pub");
-        (36,                         Ref,        "ref");
-        (37,                         Return,     "return");
+        (9,                          As,         "as");
+        (10,                         Break,      "break");
+        (11,                         Const,      "const");
+        (12,                         Crate,      "crate");
+        (13,                         Else,       "else");
+        (14,                         Enum,       "enum");
+        (15,                         Extern,     "extern");
+        (16,                         False,      "false");
+        (17,                         Fn,         "fn");
+        (18,                         For,        "for");
+        (19,                         If,         "if");
+        (20,                         Impl,       "impl");
+        (21,                         In,         "in");
+        (22,                         Let,        "let");
+        (23,                         __LogLevel, "__log_level");
+        (24,                         Loop,       "loop");
+        (25,                         Match,      "match");
+        (26,                         Mod,        "mod");
+        (27,                         Mut,        "mut");
+        (28,                         Once,       "once");
+        (29,                         Priv,       "priv");
+        (30,                         Pub,        "pub");
+        (31,                         Ref,        "ref");
+        (32,                         Return,     "return");
         // Static and Self are also special idents (prefill de-dupes)
         (super::STATIC_KEYWORD_NAME, Static,     "static");
         (super::SELF_KEYWORD_NAME,   Self,       "self");
-        (38,                         Struct,     "struct");
-        (39,                         Super,      "super");
-        (40,                         True,       "true");
-        (41,                         Trait,      "trait");
-        (42,                         Type,       "type");
-        (43,                         Unsafe,     "unsafe");
-        (44,                         Use,        "use");
-        (45,                         While,      "while");
-        (46,                         Continue,   "continue");
-        (47,                         Proc,       "proc");
-        (48,                         Box,        "box");
+        (33,                         Struct,     "struct");
+        (34,                         Super,      "super");
+        (35,                         True,       "true");
+        (36,                         Trait,      "trait");
+        (37,                         Type,       "type");
+        (38,                         Unsafe,     "unsafe");
+        (39,                         Use,        "use");
+        (40,                         While,      "while");
+        (41,                         Continue,   "continue");
+        (42,                         Proc,       "proc");
+        (43,                         Box,        "box");
 
         'reserved:
-        (49,                         Alignof,    "alignof");
-        (50,                         Be,         "be");
-        (51,                         Offsetof,   "offsetof");
-        (52,                         Pure,       "pure");
-        (53,                         Sizeof,     "sizeof");
-        (54,                         Typeof,     "typeof");
-        (55,                         Unsized,    "unsized");
-        (56,                         Yield,      "yield");
+        (44,                         Alignof,    "alignof");
+        (45,                         Be,         "be");
+        (46,                         Offsetof,   "offsetof");
+        (47,                         Pure,       "pure");
+        (48,                         Sizeof,     "sizeof");
+        (49,                         Typeof,     "typeof");
+        (50,                         Unsized,    "unsized");
+        (51,                         Yield,      "yield");
+        (52,                         Do,         "do");
     }
 }
 
@@ -515,59 +534,137 @@ pub type IdentInterner = StrInterner;
 // if an interner exists in TLS, return it. Otherwise, prepare a
 // fresh one.
 pub fn get_ident_interner() -> @IdentInterner {
-    local_data_key!(key: @@::parse::token::IdentInterner)
+    local_data_key!(key: @::parse::token::IdentInterner)
     match local_data::get(key, |k| k.map(|k| *k)) {
-        Some(interner) => *interner,
+        Some(interner) => interner,
         None => {
-            let interner = mk_fresh_ident_interner();
-            local_data::set(key, @interner);
+            let interner = @mk_fresh_ident_interner();
+            local_data::set(key, interner);
             interner
         }
     }
 }
 
-/* for when we don't care about the contents; doesn't interact with TLD or
-   serialization */
-pub fn mk_fake_ident_interner() -> @IdentInterner {
-    @interner::StrInterner::new()
+/// Represents a string stored in the task-local interner. Because the
+/// interner lives for the life of the task, this can be safely treated as an
+/// immortal string, as long as it never crosses between tasks.
+///
+/// FIXME(pcwalton): You must be careful about what you do in the destructors
+/// of objects stored in TLS, because they may run after the interner is
+/// destroyed. In particular, they must not access string contents. This can
+/// be fixed in the future by just leaking all strings until task death
+/// somehow.
+#[deriving(Clone, Eq, Hash, Ord, TotalEq, TotalOrd)]
+pub struct InternedString {
+    priv string: RcStr,
 }
 
-// maps a string to its interned representation
-pub fn intern(str : &str) -> Name {
+impl InternedString {
+    #[inline]
+    pub fn new(string: &'static str) -> InternedString {
+        InternedString {
+            string: RcStr::new(string),
+        }
+    }
+
+    #[inline]
+    fn new_from_rc_str(string: RcStr) -> InternedString {
+        InternedString {
+            string: string,
+        }
+    }
+
+    #[inline]
+    pub fn get<'a>(&'a self) -> &'a str {
+        self.string.as_slice()
+    }
+}
+
+impl BytesContainer for InternedString {
+    fn container_as_bytes<'a>(&'a self) -> &'a [u8] {
+        // FIXME(pcwalton): This is a workaround for the incorrect signature
+        // of `BytesContainer`, which is itself a workaround for the lack of
+        // DST.
+        unsafe {
+            let this = self.get();
+            cast::transmute(this.container_as_bytes())
+        }
+    }
+}
+
+impl fmt::Show for InternedString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "{}", self.string.as_slice())
+    }
+}
+
+impl<'a> Equiv<&'a str> for InternedString {
+    fn equiv(&self, other: & &'a str) -> bool {
+        (*other) == self.string.as_slice()
+    }
+}
+
+impl<D:Decoder> Decodable<D> for InternedString {
+    fn decode(d: &mut D) -> InternedString {
+        get_name(get_ident_interner().intern(d.read_str()))
+    }
+}
+
+impl<E:Encoder> Encodable<E> for InternedString {
+    fn encode(&self, e: &mut E) {
+        e.emit_str(self.string.as_slice())
+    }
+}
+
+/// Returns the string contents of a name, using the task-local interner.
+#[inline]
+pub fn get_name(name: Name) -> InternedString {
     let interner = get_ident_interner();
-    interner.intern(str)
+    InternedString::new_from_rc_str(interner.get(name))
 }
 
-// gensyms a new uint, using the current interner
-pub fn gensym(str : &str) -> Name {
-    let interner = get_ident_interner();
-    interner.gensym(str)
+/// Returns the string contents of an identifier, using the task-local
+/// interner.
+#[inline]
+pub fn get_ident(ident: Ident) -> InternedString {
+    get_name(ident.name)
 }
 
-// map an interned representation back to a string
-pub fn interner_get(name : Name) -> @str {
-    get_ident_interner().get(name)
+/// Interns and returns the string contents of an identifier, using the
+/// task-local interner.
+#[inline]
+pub fn intern_and_get_ident(s: &str) -> InternedString {
+    get_name(intern(s))
 }
 
-// maps an identifier to the string that it corresponds to
-pub fn ident_to_str(id : &ast::Ident) -> @str {
-    interner_get(id.name)
+/// Maps a string to its interned representation.
+#[inline]
+pub fn intern(s: &str) -> Name {
+    get_ident_interner().intern(s)
 }
 
-// maps a string to an identifier with an empty syntax context
-pub fn str_to_ident(str : &str) -> ast::Ident {
-    ast::Ident::new(intern(str))
+/// gensym's a new uint, using the current interner.
+#[inline]
+pub fn gensym(s: &str) -> Name {
+    get_ident_interner().gensym(s)
 }
 
-// maps a string to a gensym'ed identifier
-pub fn gensym_ident(str : &str) -> ast::Ident {
-    ast::Ident::new(gensym(str))
+/// Maps a string to an identifier with an empty syntax context.
+#[inline]
+pub fn str_to_ident(s: &str) -> ast::Ident {
+    ast::Ident::new(intern(s))
+}
+
+/// Maps a string to a gensym'ed identifier.
+#[inline]
+pub fn gensym_ident(s: &str) -> ast::Ident {
+    ast::Ident::new(gensym(s))
 }
 
 // create a fresh name that maps to the same string as the old one.
 // note that this guarantees that str_ptr_eq(ident_to_str(src),interner_get(fresh_name(src)));
 // that is, that the new name and the old one are connected to ptr_eq strings.
-pub fn fresh_name(src : &ast::Ident) -> Name {
+pub fn fresh_name(src: &ast::Ident) -> Name {
     let interner = get_ident_interner();
     interner.gensym_copy(src.name)
     // following: debug version. Could work in final except that it's incompatible with
@@ -575,28 +672,6 @@ pub fn fresh_name(src : &ast::Ident) -> Name {
     // locations. Also definitely destroys the guarantee given above about ptr_eq.
     /*let num = rand::rng().gen_uint_range(0,0xffff);
     gensym(format!("{}_{}",ident_to_str(src),num))*/
-}
-
-// it looks like there oughta be a str_ptr_eq fn, but no one bothered to implement it?
-
-// determine whether two @str values are pointer-equal
-pub fn str_ptr_eq(a : @str, b : @str) -> bool {
-    unsafe {
-        let p : uint = cast::transmute(a);
-        let q : uint = cast::transmute(b);
-        let result = p == q;
-        // got to transmute them back, to make sure the ref count is correct:
-        let _junk1 : @str = cast::transmute(p);
-        let _junk2 : @str = cast::transmute(q);
-        result
-    }
-}
-
-// return true when two identifiers refer (through the intern table) to the same ptr_eq
-// string. This is used to compare identifiers in places where hygienic comparison is
-// not wanted (i.e. not lexical vars).
-pub fn ident_spelling_eq(a : &ast::Ident, b : &ast::Ident) -> bool {
-    str_ptr_eq(interner_get(a.name),interner_get(b.name))
 }
 
 // create a fresh mark.
@@ -647,8 +722,8 @@ pub fn is_reserved_keyword(tok: &Token) -> bool {
 
 pub fn mtwt_token_eq(t1 : &Token, t2 : &Token) -> bool {
     match (t1,t2) {
-        (&IDENT(id1,_),&IDENT(id2,_)) =>
-        ast_util::mtwt_resolve(id1) == ast_util::mtwt_resolve(id2),
+        (&IDENT(id1,_),&IDENT(id2,_)) | (&LIFETIME(id1),&LIFETIME(id2)) =>
+            mtwt::resolve(id1) == mtwt::resolve(id2),
         _ => *t1 == *t2
     }
 }
@@ -658,10 +733,10 @@ pub fn mtwt_token_eq(t1 : &Token, t2 : &Token) -> bool {
 mod test {
     use super::*;
     use ast;
-    use ast_util;
+    use ext::mtwt;
 
     fn mark_ident(id : ast::Ident, m : ast::Mrk) -> ast::Ident {
-        ast::Ident{name:id.name,ctxt:ast_util::new_mark(m,id.ctxt)}
+        ast::Ident{name:id.name,ctxt:mtwt::new_mark(m,id.ctxt)}
     }
 
     #[test] fn mtwt_token_eq_test() {
@@ -670,23 +745,4 @@ mod test {
         let a1 = mark_ident(a,92);
         assert!(mtwt_token_eq(&IDENT(a,true),&IDENT(a1,false)));
     }
-
-
-    #[test] fn str_ptr_eq_tests(){
-        let a = @"abc";
-        let b = @"abc";
-        let c = a;
-        assert!(str_ptr_eq(a,c));
-        assert!(!str_ptr_eq(a,b));
-    }
-
-    #[test] fn fresh_name_pointer_sharing() {
-        let ghi = str_to_ident("ghi");
-        assert_eq!(ident_to_str(&ghi),@"ghi");
-        assert!(str_ptr_eq(ident_to_str(&ghi),ident_to_str(&ghi)))
-        let fresh = ast::Ident::new(fresh_name(&ghi));
-        assert_eq!(ident_to_str(&fresh),@"ghi");
-        assert!(str_ptr_eq(ident_to_str(&ghi),ident_to_str(&fresh)));
-    }
-
 }

@@ -24,9 +24,8 @@ pub fn expand_trace_macros(cx: &mut ExtCtxt,
     let cfg = cx.cfg();
     let tt_rdr = new_tt_reader(cx.parse_sess().span_diagnostic,
                                None,
-                               tt.to_owned());
-    let rdr = tt_rdr as @Reader;
-    let mut rust_parser = Parser(sess, cfg.clone(), rdr.dup());
+                               tt.iter().map(|x| (*x).clone()).collect());
+    let mut rust_parser = Parser(sess, cfg.clone(), tt_rdr.dup());
 
     if rust_parser.is_keyword(keywords::True) {
         cx.set_trace_macros(true);
@@ -34,12 +33,12 @@ pub fn expand_trace_macros(cx: &mut ExtCtxt,
         cx.set_trace_macros(false);
     } else {
         cx.span_err(sp, "trace_macros! only accepts `true` or `false`");
-        return base::MacResult::dummy_expr();
+        return base::MacResult::dummy_expr(sp);
     }
 
     rust_parser.bump();
 
-    let mut rust_parser = Parser(sess, cfg, rdr.dup());
+    let mut rust_parser = Parser(sess, cfg, tt_rdr.dup());
     let result = rust_parser.parse_expr();
     base::MRExpr(result)
 }

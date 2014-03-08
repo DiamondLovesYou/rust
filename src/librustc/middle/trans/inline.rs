@@ -14,11 +14,8 @@ use middle::astencode;
 use middle::trans::base::{push_ctxt, trans_item, get_item_val, trans_fn};
 use middle::trans::common::*;
 use middle::ty;
-use util::ppaux::ty_to_str;
 
-use std::vec;
 use syntax::ast;
-use syntax::ast_map::PathName;
 use syntax::ast_util::local_def;
 use syntax::attr;
 
@@ -46,9 +43,7 @@ pub fn maybe_instantiate_inline(ccx: @CrateContext, fn_id: ast::DefId)
     let csearch_result =
         csearch::maybe_get_item_ast(
             ccx.tcx, fn_id,
-            |a,b,c,d| {
-                astencode::decode_inlined_item(a, b, ccx.maps, c.clone(), d)
-            });
+            |a,b,c,d| astencode::decode_inlined_item(a, b, ccx.maps, c, d));
     return match csearch_result {
         csearch::not_found => {
             let mut external = ccx.external.borrow_mut();
@@ -79,7 +74,7 @@ pub fn maybe_instantiate_inline(ccx: @CrateContext, fn_id: ast::DefId)
                     let g = get_item_val(ccx, item.id);
                     // see the comment in get_item_val() as to why this check is
                     // performed here.
-                    if !attr::contains_name(item.attrs,
+                    if !attr::contains_name(item.attrs.as_slice(),
                                             "address_insignificant") {
                         SetLinkage(g, AvailableExternallyLinkage);
                     }
@@ -153,32 +148,12 @@ pub fn maybe_instantiate_inline(ccx: @CrateContext, fn_id: ast::DefId)
 
             let impl_tpt = ty::lookup_item_type(ccx.tcx, impl_did);
             let num_type_params =
-                impl_tpt.generics.type_param_defs.len() +
+                impl_tpt.generics.type_param_defs().len() +
                 mth.generics.ty_params.len();
 
           if num_type_params == 0 {
               let llfn = get_item_val(ccx, mth.id);
-              let path = vec::append_one(
-                  ty::item_path(ccx.tcx, impl_did), PathName(mth.ident));
-              let self_kind = match mth.explicit_self.node {
-                  ast::SelfStatic => None,
-                  _ => {
-                      let self_ty = ty::node_id_to_type(ccx.tcx,
-                                                        mth.self_id);
-                      debug!("calling inline trans_fn with self_ty {}",
-                             ty_to_str(ccx.tcx, self_ty));
-                      Some(self_ty)
-                  }
-              };
-              trans_fn(ccx,
-                       path,
-                       mth.decl,
-                       mth.body,
-                       llfn,
-                       self_kind,
-                       None,
-                       mth.id,
-                       []);
+              trans_fn(ccx, mth.decl, mth.body, llfn, None, mth.id, []);
           }
           local_def(mth.id)
         }

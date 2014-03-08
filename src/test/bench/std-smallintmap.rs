@@ -10,9 +10,10 @@
 
 // Microbenchmark for the smallintmap library
 
-extern mod extra;
+extern crate collections;
+extern crate time;
 
-use extra::smallintmap::SmallIntMap;
+use collections::SmallIntMap;
 use std::os;
 use std::uint;
 
@@ -45,11 +46,11 @@ fn main() {
 
     for _ in range(0u, rep) {
         let mut map = SmallIntMap::new();
-        let start = extra::time::precise_time_s();
+        let start = time::precise_time_s();
         append_sequential(0u, max, &mut map);
-        let mid = extra::time::precise_time_s();
+        let mid = time::precise_time_s();
         check_sequential(0u, max, &map);
-        let end = extra::time::precise_time_s();
+        let end = time::precise_time_s();
 
         checkf += (end - mid) as f64;
         appendf += (mid - start) as f64;

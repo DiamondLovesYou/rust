@@ -8,15 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern: cannot infer an appropriate lifetime
-extern mod extra;
-use extra::sync;
+// error-pattern: cannot infer
+extern crate sync;
+use sync::RWLock;
 fn main() {
-    let x = ~sync::RWLock::new();
+    let x = ~RWLock::new();
     let mut y = None;
     x.write_downgrade(|write_mode| {
         y = Some(x.downgrade(write_mode));
     })
     // Adding this line causes a method unification failure instead
-    // do (&option::unwrap(y)).read { }
+    // (&option::unwrap(y)).read(proc() { });
 }

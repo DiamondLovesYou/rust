@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -25,83 +25,26 @@ Rust extras are part of the standard Rust distribution.
 #[license = "MIT/ASL2"];
 #[crate_type = "rlib"];
 #[crate_type = "dylib"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk.png",
+#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://static.rust-lang.org/doc/master")];
 
-#[feature(macro_rules, globs, managed_boxes)];
+#[feature(macro_rules, globs, managed_boxes, asm)];
 
 #[deny(non_camel_case_types)];
 #[deny(missing_doc)];
 
+extern crate sync;
+extern crate serialize;
+extern crate collections;
+extern crate time;
+
 // Utility modules
-
 pub mod c_vec;
-
-// Concurrency
-
-pub mod sync;
-pub mod arc;
-pub mod comm;
-pub mod future;
-pub mod task_pool;
-
-// Collections
-
-pub mod container;
-pub mod bitv;
-pub mod list;
-pub mod ringbuf;
-pub mod priority_queue;
-pub mod smallintmap;
-
-pub mod dlist;
-pub mod treemap;
-pub mod btree;
-pub mod lru_cache;
-
-// And ... other stuff
-
 pub mod url;
-pub mod ebml;
-pub mod getopts;
-pub mod json;
 pub mod tempfile;
-pub mod glob;
-pub mod term;
-pub mod time;
-pub mod arena;
-pub mod base64;
 pub mod workcache;
-pub mod enum_set;
-#[path="num/bigint.rs"]
-pub mod bigint;
-#[path="num/rational.rs"]
-pub mod rational;
-#[path="num/complex.rs"]
-pub mod complex;
 pub mod stats;
-pub mod semver;
-pub mod flate;
-pub mod hex;
-pub mod uuid;
-
 
 #[cfg(unicode)]
 mod unicode;
-
-pub mod terminfo;
-
-// Compiler support modules
-
-pub mod test;
-pub mod serialize;
-
-// A curious inner-module that's not exported that contains the binding
-// 'extra' so that macro-expanded references to extra::serialize and such
-// can be resolved within libextra.
-#[doc(hidden)]
-pub mod extra {
-    pub use serialize;
-    pub use test;
-}

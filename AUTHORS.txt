@@ -7,6 +7,7 @@ Adrien Tétar <adri-from-59@hotmail.fr>
 Alan Andrade <alan.andradec@gmail.com>
 Aleksander Balicki <balicki.aleksander@gmail.com>
 Alex Crichton <alex@alexcrichton.com>
+Alex Lyon <arcterus@mail.com>
 Alex Rønne Petersen <alex@lycus.org>
 Alexander Stavonin <a.stavonin@gmail.com>
 Alexandros Tasos <sdi1100085@di.uoa.gr>
@@ -351,7 +352,7 @@ Vincent Belliard <vincent@famillebelliard.fr>
 Vivek Galatage <vivekgalatage@gmail.com>
 Volker Mische <volker.mische@gmail.com>
 Wade Mealing <wmealing@gmail.com>
-William Ting <william.h.ting@gmail.com>
+William Ting <io@williamting.com>
 Yasuhiro Fujii <y-fujii@mimosa-pudica.net>
 Young-il Choi <duddlf.choi@samsung.com>
 Youngmin Yoo <youngmin.yoo@samsung.com>

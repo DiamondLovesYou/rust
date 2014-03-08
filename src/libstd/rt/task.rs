@@ -14,10 +14,10 @@
 //! to implement this.
 
 use any::AnyOwnExt;
-use borrow;
 use cast;
 use cleanup;
 use clone::Clone;
+use comm::Chan;
 use io::Writer;
 use iter::{Iterator, Take};
 use local_data;
@@ -31,7 +31,7 @@ use rt::local::Local;
 use rt::local_heap::LocalHeap;
 use rt::rtio::LocalIo;
 use rt::unwind::Unwinder;
-use send_str::SendStr;
+use str::SendStr;
 use sync::arc::UnsafeArc;
 use sync::atomics::{AtomicUint, SeqCst};
 use task::{TaskResult, TaskOpts};
@@ -68,11 +68,17 @@ pub enum BlockedTask {
     Shared(UnsafeArc<AtomicUint>),
 }
 
+pub enum DeathAction {
+    /// Action to be done with the exit code. If set, also makes the task wait
+    /// until all its watched children exit before collecting the status.
+    Execute(proc(TaskResult)),
+    /// A channel to send the result of the task on when the task exits
+    SendMessage(Chan<TaskResult>),
+}
+
 /// Per-task state related to task death, killing, failure, etc.
 pub struct Death {
-    // Action to be done with the exit code. If set, also makes the task wait
-    // until all its watched children exit before collecting the status.
-    on_exit: Option<proc(TaskResult)>,
+    on_exit: Option<DeathAction>,
 }
 
 pub struct BlockedTasks {
@@ -120,6 +126,7 @@ impl Task {
 
             // Run the task main function, then do some cleanup.
             f.finally(|| {
+                #[allow(unused_must_use)]
                 fn close_outputs() {
                     let mut task = Local::borrow(None::<Task>);
                     let logger = task.get().logger.take();
@@ -127,8 +134,8 @@ impl Task {
                     let stdout = task.get().stdout.take();
                     drop(task);
                     drop(logger); // loggers are responsible for flushing
-                    match stdout { Some(mut w) => w.flush(), None => {} }
-                    match stderr { Some(mut w) => w.flush(), None => {} }
+                    match stdout { Some(mut w) => { w.flush(); }, None => {} }
+                    match stderr { Some(mut w) => { w.flush(); }, None => {} }
                 }
 
                 // First, flush/destroy the user stdout/logger because these
@@ -212,7 +219,7 @@ impl Task {
         // pretty sketchy and involves shuffling vtables of trait objects
         // around, but it gets the job done.
         //
-        // XXX: This function is a serious code smell and should be avoided at
+        // FIXME: This function is a serious code smell and should be avoided at
         //      all costs. I have yet to think of a method to avoid this
         //      function, and I would be saddened if more usage of the function
         //      crops up.
@@ -247,12 +254,12 @@ impl Task {
         ops.deschedule(amt, self, f)
     }
 
-    /// Wakes up a previously blocked task, optionally specifiying whether the
+    /// Wakes up a previously blocked task, optionally specifying whether the
     /// current task can accept a change in scheduling. This function can only
     /// be called on tasks that were previously blocked in `deschedule`.
-    pub fn reawaken(mut ~self, can_resched: bool) {
+    pub fn reawaken(mut ~self) {
         let ops = self.imp.take_unwrap();
-        ops.reawaken(self, can_resched);
+        ops.reawaken(self);
     }
 
     /// Yields control of this task to another task. This function will
@@ -283,11 +290,17 @@ impl Task {
     pub fn stack_bounds(&self) -> (uint, uint) {
         self.imp.get_ref().stack_bounds()
     }
+
+    /// Returns whether it is legal for this task to block the OS thread that it
+    /// is running on.
+    pub fn can_block(&self) -> bool {
+        self.imp.get_ref().can_block()
+    }
 }
 
 impl Drop for Task {
     fn drop(&mut self) {
-        rtdebug!("called drop for a task: {}", borrow::to_uint(self));
+        rtdebug!("called drop for a task: {}", self as *mut Task as uint);
         rtassert!(self.destroyed);
     }
 }
@@ -375,7 +388,8 @@ impl Death {
     /// Collect failure exit codes from children and propagate them to a parent.
     pub fn collect_failure(&mut self, result: TaskResult) {
         match self.on_exit.take() {
-            Some(f) => f(result),
+            Some(Execute(f)) => f(result),
+            Some(SendMessage(ch)) => { ch.try_send(result); }
             None => {}
         }
     }
@@ -443,7 +457,7 @@ mod test {
 
     #[test]
     fn comm_shared_chan() {
-        let (port, chan) = SharedChan::new();
+        let (port, chan) = Chan::new();
         chan.send(10);
         assert!(port.recv() == 10);
     }

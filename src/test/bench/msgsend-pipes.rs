@@ -14,7 +14,7 @@
 //
 // I *think* it's the same, more or less.
 
-extern mod extra;
+extern crate time;
 
 use std::os;
 use std::task;
@@ -52,39 +52,39 @@ fn run(args: &[~str]) {
     let size = from_str::<uint>(args[1]).unwrap();
     let workers = from_str::<uint>(args[2]).unwrap();
     let num_bytes = 100;
-    let start = extra::time::precise_time_s();
+    let start = time::precise_time_s();
     let mut worker_results = ~[];
     let from_parent = if workers == 1 {
         let (from_parent, to_child) = Chan::new();
         let mut builder = task::task();
         worker_results.push(builder.future_result());
-        do builder.spawn {
+        builder.spawn(proc() {
             for _ in range(0u, size / workers) {
                 //error!("worker {:?}: sending {:?} bytes", i, num_bytes);
                 to_child.send(bytes(num_bytes));
             }
             //error!("worker {:?} exiting", i);
-        };
+        });
         from_parent
     } else {
-        let (from_parent, to_child) = SharedChan::new();
+        let (from_parent, to_child) = Chan::new();
         for _ in range(0u, workers) {
             let to_child = to_child.clone();
             let mut builder = task::task();
             worker_results.push(builder.future_result());
-            do builder.spawn {
+            builder.spawn(proc() {
                 for _ in range(0u, size / workers) {
                     //error!("worker {:?}: sending {:?} bytes", i, num_bytes);
                     to_child.send(bytes(num_bytes));
                 }
                 //error!("worker {:?} exiting", i);
-            };
+            });
         }
         from_parent
     };
-    do task::spawn || {
+    task::spawn(proc() {
         server(&from_parent, &to_parent);
-    }
+    });
 
     for r in worker_results.iter() {
         r.recv();
@@ -94,7 +94,7 @@ fn run(args: &[~str]) {
     //to_child.send(stop);
     //move_out(to_child);
     let result = from_child.recv();
-    let end = extra::time::precise_time_s();
+    let end = time::precise_time_s();
     let elapsed = end - start;
     print!("Count is {:?}\n", result);
     print!("Test took {:?} seconds\n", elapsed);

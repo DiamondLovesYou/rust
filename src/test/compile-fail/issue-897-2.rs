@@ -1,8 +1,4 @@
-// xfail-test
-// xfail'd because the lint pass doesn't know to ignore standard library
-// stuff.
-
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -19,4 +15,5 @@ fn f() -> ! {
     return g();
     g(); //~ ERROR: unreachable statement
 }
-fn main() { }
+
+fn main() { f() }

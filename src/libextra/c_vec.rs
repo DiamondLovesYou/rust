@@ -35,7 +35,9 @@
  * if necessary.
  */
 
+use std::cast;
 use std::ptr;
+use std::raw;
 
 /**
  * The type representing a foreign chunk of memory
@@ -111,6 +113,20 @@ impl <T> CVec<T> {
         }
     }
 
+    /// View the stored data as a slice.
+    pub fn as_slice<'a>(&'a self) -> &'a [T] {
+        unsafe {
+            cast::transmute(raw::Slice { data: self.base as *T, len: self.len })
+        }
+    }
+
+    /// View the stored data as a mutable slice.
+    pub fn as_mut_slice<'a>(&'a mut self) -> &'a mut [T] {
+        unsafe {
+            cast::transmute(raw::Slice { data: self.base as *T, len: self.len })
+        }
+    }
+
     /**
      * Retrieves an element at a given index
      *
@@ -119,7 +135,7 @@ impl <T> CVec<T> {
     pub fn get<'a>(&'a self, ofs: uint) -> &'a T {
         assert!(ofs < self.len);
         unsafe {
-            &*ptr::mut_offset(self.base, ofs as int)
+            &*self.base.offset(ofs as int)
         }
     }
 
@@ -131,7 +147,7 @@ impl <T> CVec<T> {
     pub fn get_mut<'a>(&'a mut self, ofs: uint) -> &'a mut T {
         assert!(ofs < self.len);
         unsafe {
-            &mut *ptr::mut_offset(self.base, ofs as int)
+            &mut *self.base.offset(ofs as int)
         }
     }
 
@@ -172,7 +188,7 @@ mod tests {
             let mem = malloc_raw(n);
 
             CVec::new_with_dtor(mem as *mut u8, n,
-                proc() { libc::free(mem as *c_void); })
+                proc() { libc::free(mem as *mut c_void); })
         }
     }
 

@@ -1,3 +1,4 @@
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -7,12 +8,21 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern mod extra;
+// file at the top-level directory of this distribution and at
+// http://rust-lang.org/COPYRIGHT.
+//
+// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// option. This file may not be copied, modified, or distributed
+// except according to those terms.
+
+extern crate extra;
 
 use std::os;
 use std::uint;
 
-// This is a simple bench that creates M pairs of of tasks. These
+// This is a simple bench that creates M pairs of tasks. These
 // tasks ping-pong back and forth over a pair of streams. This is a
 // cannonical message-passing benchmark as it heavily strains message
 // passing and almost nothing else.
@@ -26,28 +36,28 @@ fn ping_pong_bench(n: uint, m: uint) {
         // Create a stream B->A
         let (pb,cb) = Chan::<()>::new();
 
-        do spawn() || {
+        spawn(proc() {
             let chan = ca;
             let port = pb;
-            n.times(|| {
+            for _ in range(0, n) {
                 chan.send(());
                 port.recv();
-            })
-        }
+            }
+        });
 
-        do spawn() || {
+        spawn(proc() {
             let chan = cb;
             let port = pa;
-            n.times(|| {
+            for _ in range(0, n) {
                 port.recv();
                 chan.send(());
-            })
-        }
+            }
+        });
     }
 
-    m.times(|| {
+    for _ in range(0, m) {
         run_pair(n)
-    })
+    }
 }
 
 

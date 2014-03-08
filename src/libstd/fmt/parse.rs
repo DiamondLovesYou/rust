@@ -19,8 +19,6 @@ use prelude::*;
 use char;
 use str;
 
-condition! { pub parse_error: ~str -> (); }
-
 /// A piece is a portion of the format string which represents the next part to
 /// emit. These are emitted as a stream by the `Parser` class.
 #[deriving(Eq)]
@@ -123,7 +121,7 @@ pub enum Method<'a> {
 }
 
 /// A selector for what pluralization a plural method should take
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum PluralSelector {
     /// One of the plural keywords should be used
     Keyword(PluralKeyword),
@@ -145,7 +143,7 @@ pub struct PluralArm<'a> {
 /// specially placed in the `Plural` variant of `Method`
 ///
 /// http://www.icu-project.org/apiref/icu4c/classicu_1_1PluralRules.html
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash)]
 #[allow(missing_doc)]
 pub enum PluralKeyword {
     Zero, One, Two, Few, Many
@@ -170,6 +168,8 @@ pub struct Parser<'a> {
     priv input: &'a str,
     priv cur: str::CharOffsets<'a>,
     priv depth: uint,
+    /// Error messages accumulated during parsing
+    errors: ~[~str],
 }
 
 impl<'a> Iterator<Piece<'a>> for Parser<'a> {
@@ -207,14 +207,15 @@ impl<'a> Parser<'a> {
             input: s,
             cur: s.char_indices(),
             depth: 0,
+            errors: ~[],
         }
     }
 
     /// Notifies of an error. The message doesn't actually need to be of type
     /// ~str, but I think it does when this eventually uses conditions so it
     /// might as well start using it now.
-    fn err(&self, msg: &str) {
-        parse_error::cond.raise("invalid format string: " + msg);
+    fn err(&mut self, msg: &str) {
+        self.errors.push(msg.to_owned());
     }
 
     /// Optionally consumes the specified character. If the character is not at
@@ -656,7 +657,7 @@ mod tests {
 
     fn same(fmt: &'static str, p: ~[Piece<'static>]) {
         let mut parser = Parser::new(fmt);
-        assert_eq!(p, parser.collect());
+        assert!(p == parser.collect());
     }
 
     fn fmtdflt() -> FormatSpec<'static> {
@@ -671,7 +672,9 @@ mod tests {
     }
 
     fn musterr(s: &str) {
-        Parser::new(s).next();
+        let mut p = Parser::new(s);
+        p.next();
+        assert!(p.errors.len() != 0);
     }
 
     #[test]
@@ -684,12 +687,12 @@ mod tests {
         same("\\}", ~[String("}")]);
     }
 
-    #[test] #[should_fail] fn invalid01() { musterr("{") }
-    #[test] #[should_fail] fn invalid02() { musterr("\\") }
-    #[test] #[should_fail] fn invalid03() { musterr("\\a") }
-    #[test] #[should_fail] fn invalid04() { musterr("{3a}") }
-    #[test] #[should_fail] fn invalid05() { musterr("{:|}") }
-    #[test] #[should_fail] fn invalid06() { musterr("{:>>>}") }
+    #[test] fn invalid01() { musterr("{") }
+    #[test] fn invalid02() { musterr("\\") }
+    #[test] fn invalid03() { musterr("\\a") }
+    #[test] fn invalid04() { musterr("{3a}") }
+    #[test] fn invalid05() { musterr("{:|}") }
+    #[test] fn invalid06() { musterr("{:>>>}") }
 
     #[test]
     fn format_nothing() {
@@ -916,36 +919,16 @@ mod tests {
         })]);
     }
 
-    #[test] #[should_fail] fn badselect01() {
-        musterr("{select, }")
-    }
-    #[test] #[should_fail] fn badselect02() {
-        musterr("{1, select}")
-    }
-    #[test] #[should_fail] fn badselect03() {
-        musterr("{1, select, }")
-    }
-    #[test] #[should_fail] fn badselect04() {
-        musterr("{1, select, a {}}")
-    }
-    #[test] #[should_fail] fn badselect05() {
-        musterr("{1, select, other }}")
-    }
-    #[test] #[should_fail] fn badselect06() {
-        musterr("{1, select, other {}")
-    }
-    #[test] #[should_fail] fn badselect07() {
-        musterr("{select, other {}")
-    }
-    #[test] #[should_fail] fn badselect08() {
-        musterr("{1 select, other {}")
-    }
-    #[test] #[should_fail] fn badselect09() {
-        musterr("{:d select, other {}")
-    }
-    #[test] #[should_fail] fn badselect10() {
-        musterr("{1:d select, other {}")
-    }
+    #[test] fn badselect01() { musterr("{select, }") }
+    #[test] fn badselect02() { musterr("{1, select}") }
+    #[test] fn badselect03() { musterr("{1, select, }") }
+    #[test] fn badselect04() { musterr("{1, select, a {}}") }
+    #[test] fn badselect05() { musterr("{1, select, other }}") }
+    #[test] fn badselect06() { musterr("{1, select, other {}") }
+    #[test] fn badselect07() { musterr("{select, other {}") }
+    #[test] fn badselect08() { musterr("{1 select, other {}") }
+    #[test] fn badselect09() { musterr("{:d select, other {}") }
+    #[test] fn badselect10() { musterr("{1:d select, other {}") }
 
     #[test]
     fn plural_simple() {

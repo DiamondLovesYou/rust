@@ -10,22 +10,19 @@
 
 //! Operations on managed box types
 
-use ptr::to_unsafe_ptr;
-
 #[cfg(not(test))] use cmp::*;
 
 /// Returns the refcount of a shared box (as just before calling this)
 #[inline]
 pub fn refcount<T>(t: @T) -> uint {
-    use unstable::raw::Repr;
+    use raw::Repr;
     unsafe { (*t.repr()).ref_count - 1 }
 }
 
 /// Determine if two shared boxes point to the same object
 #[inline]
 pub fn ptr_eq<T>(a: @T, b: @T) -> bool {
-    let (a_ptr, b_ptr): (*T, *T) = (to_unsafe_ptr(&*a), to_unsafe_ptr(&*b));
-    a_ptr == b_ptr
+    &*a as *T == &*b as *T
 }
 
 #[cfg(not(test))]

@@ -1,6 +1,6 @@
-// xfail-fast
+// ignore-fast
 
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -10,7 +10,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[deriving(Eq, Clone, IterBytes)]
+use std::hash::hash;
+
+#[deriving(Eq, Clone, Hash)]
 struct Foo {
     bar: uint,
     baz: int
@@ -21,5 +23,5 @@ pub fn main() {
 
     a == a;    // check for Eq impl w/o testing its correctness
     a.clone(); // check for Clone impl w/o testing its correctness
-    a.hash();  // check for IterBytes impl w/o testing its correctness
+    hash(&a);  // check for Hash impl w/o testing its correctness
 }

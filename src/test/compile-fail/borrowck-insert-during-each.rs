@@ -8,7 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::hashmap::HashSet;
+extern crate collections;
+use collections::HashSet;
 
 struct Foo {
   n: HashSet<int>,
@@ -23,9 +24,10 @@ impl Foo {
 }
 
 fn bar(f: &mut Foo) {
-  f.foo(|a| {
-    f.n.insert(*a); //~ ERROR cannot borrow
-  })
+  f.foo(
+        |a| { //~ ERROR closure requires unique access to `f`
+            f.n.insert(*a);
+        })
 }
 
 fn main() {

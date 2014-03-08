@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-android: FIXME(#10381)
+// ignore-android: FIXME(#10381)
 
 // This test case checks if function arguments already have the correct value when breaking at the
 // beginning of a function. Functions with the #[no_split_stack] attribute have the same prologue as
@@ -16,7 +16,7 @@
 // consequence, and as opposed to regular Rust functions, we can set the breakpoints via the
 // function name (and don't have to fall back on using line numbers).
 
-// compile-flags:-Z extra-debug-info
+// compile-flags:-g
 // debugger:set print pretty off
 // debugger:rbreak immediate_args
 // debugger:rbreak binding
@@ -244,6 +244,3 @@ fn main() {
     while_expr(40, 41, 42);
     loop_expr(43, 44, 45);
 }
-
-
-

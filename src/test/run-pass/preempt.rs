@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,11 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test
+// ignore-test
 // This checks that preemption works.
 
 // note: halfway done porting to modern rust
-extern mod extra;
+extern crate extra;
 
 use std::comm;
 use extra::comm;
@@ -29,9 +29,9 @@ pub fn main() {
     let (port, chan) = stream();
 
     info!("main started");
-    do spawn {
+    spawn(proc() {
         starve_main(port);
-    };
+    });
     let mut i: int = 0;
     info!("main waiting for alive signal");
     chan.send(i);

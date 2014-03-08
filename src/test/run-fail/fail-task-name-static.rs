@@ -11,9 +11,7 @@
 // error-pattern:task 'static name' failed at 'test'
 
 fn main() {
-    let mut t = ::std::task::task();
-    t.name("static name");
-    do t.try {
+    ::std::task::task().named("static name").try(proc() {
         fail!("test");
-    }.unwrap()
+    }).unwrap()
 }

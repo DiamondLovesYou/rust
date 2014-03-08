@@ -19,18 +19,19 @@
 
 use driver::session;
 use std::cell::RefCell;
-use std::hashmap::HashMap;
+use util::nodemap::NodeMap;
 use syntax::ast;
 use syntax::codemap::Span;
 use syntax::opt_vec::OptVec;
 use syntax::parse::token::special_idents;
+use syntax::parse::token;
 use syntax::print::pprust::{lifetime_to_str};
 use syntax::visit;
 use syntax::visit::Visitor;
 
 // maps the id of each lifetime reference to the lifetime decl
 // that it corresponds to
-pub type NamedRegionMap = HashMap<ast::NodeId, ast::DefRegion>;
+pub type NamedRegionMap = NodeMap<ast::DefRegion>;
 
 struct LifetimeContext {
     sess: session::Session,
@@ -44,13 +45,13 @@ enum ScopeChain<'a> {
     RootScope
 }
 
-pub fn crate(sess: session::Session, crate: &ast::Crate)
+pub fn krate(sess: session::Session, krate: &ast::Crate)
              -> @RefCell<NamedRegionMap> {
     let mut ctxt = LifetimeContext {
         sess: sess,
-        named_region_map: @RefCell::new(HashMap::new())
+        named_region_map: @RefCell::new(NodeMap::new())
     };
-    visit::walk_crate(&mut ctxt, crate, &RootScope);
+    visit::walk_crate(&mut ctxt, krate, &RootScope);
     sess.abort_if_errors();
     ctxt.named_region_map
 }
@@ -144,7 +145,7 @@ impl<'a> Visitor<&'a ScopeChain<'a>> for LifetimeContext {
     fn visit_lifetime_ref(&mut self,
                           lifetime_ref: &ast::Lifetime,
                           scope: &'a ScopeChain<'a>) {
-        if lifetime_ref.ident == special_idents::statik {
+        if lifetime_ref.ident == special_idents::statik.name {
             self.insert_lifetime(lifetime_ref, ast::DefStaticRegion);
             return;
         }
@@ -261,7 +262,7 @@ impl LifetimeContext {
         self.sess.span_err(
             lifetime_ref.span,
             format!("use of undeclared lifetime name `'{}`",
-                    self.sess.str_of(lifetime_ref.ident)));
+                    token::get_name(lifetime_ref.ident)));
     }
 
     fn check_lifetime_names(&self, lifetimes: &OptVec<ast::Lifetime>) {
@@ -270,11 +271,11 @@ impl LifetimeContext {
 
             let special_idents = [special_idents::statik];
             for lifetime in lifetimes.iter() {
-                if special_idents.iter().any(|&i| i == lifetime.ident) {
+                if special_idents.iter().any(|&i| i.name == lifetime.ident) {
                     self.sess.span_err(
                         lifetime.span,
                         format!("illegal lifetime parameter name: `{}`",
-                                self.sess.str_of(lifetime.ident)));
+                                token::get_name(lifetime.ident)));
                 }
             }
 
@@ -286,7 +287,7 @@ impl LifetimeContext {
                         lifetime_j.span,
                         format!("lifetime name `'{}` declared twice in \
                                 the same scope",
-                                self.sess.str_of(lifetime_j.ident)));
+                                token::get_name(lifetime_j.ident)));
                 }
             }
         }
@@ -297,13 +298,12 @@ impl LifetimeContext {
                        def: ast::DefRegion) {
         if lifetime_ref.id == ast::DUMMY_NODE_ID {
             self.sess.span_bug(lifetime_ref.span,
-                               "Lifetime reference not renumbered, \
+                               "lifetime reference not renumbered, \
                                probably a bug in syntax::fold");
         }
 
         debug!("lifetime_ref={} id={} resolved to {:?}",
-                lifetime_to_str(lifetime_ref,
-                                self.sess.intr()),
+                lifetime_to_str(lifetime_ref),
                 lifetime_ref.id,
                 def);
         let mut named_region_map = self.named_region_map.borrow_mut();

@@ -30,14 +30,12 @@ pub fn main() {
 
     ([1]).test_imm();
     (~[1]).test_imm();
-    (@[1]).test_imm();
     (&[1]).test_imm();
     ("test").test_imm();
     (~"test").test_imm();
-    (@"test").test_imm();
     (&"test").test_imm();
 
-    // XXX: Other types of mutable vecs don't currently exist
+    // FIXME: Other types of mutable vecs don't currently exist
 
     // NB: We don't do this double autoreffing for &mut self because that would
     // allow creating a mutable pointer to a temporary, which would be a source

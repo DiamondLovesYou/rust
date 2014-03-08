@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-android doesn't terminate?
+// ignore-android doesn't terminate?
 
 use std::iter::range_step;
 use std::io::{stdin, stdout, File};
@@ -36,11 +36,12 @@ fn make_complements() -> [u8, ..256] {
 
 fn main() {
     let complements = make_complements();
-    let mut data = if std::os::getenv("RUST_BENCH").is_some() {
+    let data = if std::os::getenv("RUST_BENCH").is_some() {
         File::open(&Path::new("shootout-k-nucleotide.data")).read_to_end()
     } else {
         stdin().read_to_end()
     };
+    let mut data = data.unwrap();
 
     for seq in data.mut_split(|c| *c == '>' as u8) {
         // skip header and last \n

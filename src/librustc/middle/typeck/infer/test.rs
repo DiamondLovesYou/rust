@@ -23,18 +23,15 @@ use middle::lang_items::{LanguageItems, language_items};
 use middle::ty::{FnTyBase, FnMeta, FnSig};
 use util::ppaux::ty_to_str;
 
-use extra::getopts::groups::{optopt, optmulti, optflag, optflagopt, getopts};
-use extra::getopts::groups;
-use extra::getopts::{opt_present};
-use extra::getopts;
-use extra::getopts;
 use extra::oldmap::HashMap;
+use getopts::{optopt, optmulti, optflag, optflagopt, getopts};
+use getopts::opt_present;
 use syntax::codemap::DUMMY_SP;
 use syntax::parse::parse_crate_from_source_str;
 use syntax::{ast, attr, parse};
 
 struct Env {
-    crate: @ast::Crate,
+    krate: @ast::Crate,
     tcx: ty::ctxt,
     infcx: infer::infer_ctxt,
     err_messages: @DVec<~str>
@@ -52,7 +49,7 @@ fn setup_env(test_name: &str, source_string: &str) -> Env {
     let matches = getopts(~[~"-Z", ~"verbose"], optgroups()).get();
     let diag = diagnostic::collect(messages);
     let sessopts = build_session_options(~"rustc", &matches, diag);
-    let sess = build_session(sessopts, diag);
+    let sess = build_session(sessopts, None, diag);
     let cfg = build_configuration(sess, ~"whatever", str_input(~""));
     let dm = HashMap();
     let amap = HashMap();
@@ -62,7 +59,7 @@ fn setup_env(test_name: &str, source_string: &str) -> Env {
     let lang_items = LanguageItems::new();
 
     let parse_sess = parse::new_parse_sess(None);
-    let crate = parse_crate_from_source_str(
+    let krate = parse_crate_from_source_str(
         test_name.to_str(), @source_string.to_str(),
         cfg, parse_sess);
 
@@ -71,7 +68,7 @@ fn setup_env(test_name: &str, source_string: &str) -> Env {
 
     let infcx = infer::new_infer_ctxt(tcx);
 
-    return Env {crate: crate,
+    return Env {krate: krate,
                 tcx: tcx,
                 infcx: infcx,
                 err_messages: messages};
@@ -97,10 +94,10 @@ impl Env {
     }
 
     pub fn lookup_item(&self, names: &[~str]) -> ast::node_id {
-        return match search_mod(self, &self.crate.node.module, 0, names) {
+        return match search_mod(self, &self.krate.node.module, 0, names) {
             Some(id) => id,
             None => {
-                fail!("No item found: `%s`", names.connect("::"));
+                fail!("no item found: `%s`", names.connect("::"));
             }
         };
 
@@ -233,7 +230,7 @@ impl Env {
             for msg in self.err_messages.iter() {
                 debug!("Error encountered: %s", *msg);
             }
-            format!("Resolving regions encountered %u errors but expected %u!",
+            format!("resolving regions encountered %u errors but expected %u!",
                  self.err_messages.len(),
                  exp_count);
         }
@@ -243,7 +240,7 @@ impl Env {
     pub fn check_lub(&self, t1: ty::t, t2: ty::t, t_lub: ty::t) {
         match self.lub().tys(t1, t2) {
             Err(e) => {
-                fail!("Unexpected error computing LUB: %?", e)
+                fail!("unexpected error computing LUB: %?", e)
             }
             Ok(t) => {
                 self.assert_eq(t, t_lub);
@@ -265,7 +262,7 @@ impl Env {
                self.ty_to_str(t_glb));
         match self.glb().tys(t1, t2) {
             Err(e) => {
-                fail!("Unexpected error computing LUB: %?", e)
+                fail!("unexpected error computing LUB: %?", e)
             }
             Ok(t) => {
                 self.assert_eq(t, t_glb);
@@ -284,7 +281,7 @@ impl Env {
         match self.lub().tys(t1, t2) {
             Err(_) => {}
             Ok(t) => {
-                fail!("Unexpected success computing LUB: %?", self.ty_to_str(t))
+                fail!("unexpected success computing LUB: %?", self.ty_to_str(t))
             }
         }
     }
@@ -294,7 +291,7 @@ impl Env {
         match self.glb().tys(t1, t2) {
             Err(_) => {}
             Ok(t) => {
-                fail!("Unexpected success computing GLB: %?", self.ty_to_str(t))
+                fail!("unexpected success computing GLB: %?", self.ty_to_str(t))
             }
         }
     }

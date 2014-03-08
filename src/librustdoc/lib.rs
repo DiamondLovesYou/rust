@@ -12,28 +12,32 @@
 #[desc = "rustdoc, the Rust documentation extractor"];
 #[license = "MIT/ASL2"];
 #[crate_type = "dylib"];
+#[crate_type = "rlib"];
 
 #[feature(globs, struct_variant, managed_boxes)];
 
-extern mod syntax;
-extern mod rustc;
-extern mod extra;
+extern crate syntax;
+extern crate rustc;
+extern crate extra;
+extern crate serialize;
+extern crate sync;
+extern crate getopts;
+extern crate collections;
+extern crate testing = "test";
+extern crate time;
 
 use std::local_data;
 use std::io;
 use std::io::{File, MemWriter};
 use std::str;
-use extra::getopts;
-use extra::getopts::groups;
-use extra::json;
-use extra::serialize::{Decodable, Encodable};
-use extra::time;
+use serialize::{json, Decodable, Encodable};
 
 pub mod clean;
 pub mod core;
 pub mod doctree;
 pub mod fold;
 pub mod html {
+    pub mod highlight;
     pub mod escape;
     pub mod format;
     pub mod layout;
@@ -48,7 +52,7 @@ pub mod test;
 pub static SCHEMA_VERSION: &'static str = "0.8.1";
 
 type Pass = (&'static str,                                      // name
-             extern fn(clean::Crate) -> plugins::PluginResult,  // fn
+             fn(clean::Crate) -> plugins::PluginResult,         // fn
              &'static str);                                     // description
 
 static PASSES: &'static [Pass] = &[
@@ -78,8 +82,8 @@ pub fn main() {
     std::os::set_exit_status(main_args(std::os::args()));
 }
 
-pub fn opts() -> ~[groups::OptGroup] {
-    use extra::getopts::groups::*;
+pub fn opts() -> ~[getopts::OptGroup] {
+    use getopts::*;
     ~[
         optflag("h", "help", "show this help message"),
         optflag("", "version", "print rustdoc's version"),
@@ -105,11 +109,11 @@ pub fn opts() -> ~[groups::OptGroup] {
 }
 
 pub fn usage(argv0: &str) {
-    println!("{}", groups::usage(format!("{} [options] <input>", argv0), opts()));
+    println!("{}", getopts::usage(format!("{} [options] <input>", argv0), opts()));
 }
 
 pub fn main_args(args: &[~str]) -> int {
-    let matches = match groups::getopts(args.tail(), opts()) {
+    let matches = match getopts::getopts(args.tail(), opts()) {
         Ok(m) => m,
         Err(err) => {
             println!("{}", err.to_err_msg());
@@ -149,7 +153,7 @@ pub fn main_args(args: &[~str]) -> int {
         return 0;
     }
 
-    let (crate, res) = match acquire_input(input, &matches) {
+    let (krate, res) = match acquire_input(input, &matches) {
         Ok(pair) => pair,
         Err(s) => {
             println!("input error: {}", s);
@@ -162,10 +166,16 @@ pub fn main_args(args: &[~str]) -> int {
     let output = matches.opt_str("o").map(|s| Path::new(s));
     match matches.opt_str("w") {
         Some(~"html") | None => {
-            html::render::run(crate, output.unwrap_or(Path::new("doc")))
+            match html::render::run(krate, output.unwrap_or(Path::new("doc"))) {
+                Ok(()) => {}
+                Err(e) => fail!("failed to generate documentation: {}", e),
+            }
         }
         Some(~"json") => {
-            json_output(crate, res, output.unwrap_or(Path::new("doc.json")))
+            match json_output(krate, res, output.unwrap_or(Path::new("doc.json"))) {
+                Ok(()) => {}
+                Err(e) => fail!("failed to write json: {}", e),
+            }
         }
         Some(s) => {
             println!("unknown output format: {}", s);
@@ -211,16 +221,16 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
     let cfgs = matches.opt_strs("cfg");
     let cr = Path::new(cratefile);
     info!("starting to run rustc");
-    let (crate, analysis) = do std::task::try {
+    let (krate, analysis) = std::task::try(proc() {
         let cr = cr;
         core::run_core(libs.move_iter().collect(), cfgs, &cr)
-    }.unwrap();
+    }).unwrap();
     info!("finished with rustc");
     local_data::set(analysiskey, analysis);
 
     // Process all of the crate attributes, extracting plugin metadata along
     // with the passes which we are supposed to run.
-    match crate.module.get_ref().doc_list() {
+    match krate.module.get_ref().doc_list() {
         Some(nested) => {
             for inner in nested.iter() {
                 match *inner {
@@ -254,7 +264,7 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
     let mut pm = plugins::PluginManager::new(Path::new(path));
     for pass in passes.iter() {
         let plugin = match PASSES.iter().position(|&(p, _, _)| p == *pass) {
-            Some(i) => PASSES[i].n1(),
+            Some(i) => PASSES[i].val1(),
             None => {
                 error!("unknown pass {}, skipping", *pass);
                 continue
@@ -269,15 +279,15 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
 
     // Run everything!
     info!("Executing passes/plugins");
-    return pm.run_plugins(crate);
+    return pm.run_plugins(krate);
 }
 
 /// This input format purely deserializes the json output file. No passes are
 /// run over the deserialized output.
 fn json_input(input: &str) -> Result<Output, ~str> {
     let mut input = match File::open(&Path::new(input)) {
-        Some(f) => f,
-        None => return Err(format!("couldn't open {} for reading", input)),
+        Ok(f) => f,
+        Err(e) => return Err(format!("couldn't open {}: {}", input, e)),
     };
     match json::from_reader(&mut input) {
         Err(s) => Err(s.to_str()),
@@ -294,17 +304,17 @@ fn json_input(input: &str) -> Result<Output, ~str> {
                 Some(..) => return Err(~"malformed json"),
                 None => return Err(~"expected a schema version"),
             }
-            let crate = match obj.pop(&~"crate") {
+            let krate = match obj.pop(&~"crate") {
                 Some(json) => {
                     let mut d = json::Decoder::new(json);
                     Decodable::decode(&mut d)
                 }
                 None => return Err(~"malformed json"),
             };
-            // XXX: this should read from the "plugins" field, but currently
+            // FIXME: this should read from the "plugins" field, but currently
             //      Json doesn't implement decodable...
             let plugin_output = ~[];
-            Ok((crate, plugin_output))
+            Ok((krate, plugin_output))
         }
         Ok(..) => Err(~"malformed json input: expected an object at the top"),
     }
@@ -312,13 +322,14 @@ fn json_input(input: &str) -> Result<Output, ~str> {
 
 /// Outputs the crate/plugin json as a giant json blob at the specified
 /// destination.
-fn json_output(crate: clean::Crate, res: ~[plugins::PluginJson], dst: Path) {
+fn json_output(krate: clean::Crate, res: ~[plugins::PluginJson],
+               dst: Path) -> io::IoResult<()> {
     // {
     //   "schema": version,
     //   "crate": { parsed crate ... },
     //   "plugins": { output of plugins ... }
     // }
-    let mut json = ~extra::treemap::TreeMap::new();
+    let mut json = ~collections::TreeMap::new();
     json.insert(~"schema", json::String(SCHEMA_VERSION.to_owned()));
     let plugins_json = ~res.move_iter().filter_map(|opt| opt).collect();
 
@@ -328,18 +339,19 @@ fn json_output(crate: clean::Crate, res: ~[plugins::PluginJson], dst: Path) {
         let mut w = MemWriter::new();
         {
             let mut encoder = json::Encoder::new(&mut w as &mut io::Writer);
-            crate.encode(&mut encoder);
+            krate.encode(&mut encoder);
         }
         str::from_utf8_owned(w.unwrap()).unwrap()
     };
     let crate_json = match json::from_str(crate_json_str) {
         Ok(j) => j,
-        Err(_) => fail!("Rust generated JSON is invalid??")
+        Err(e) => fail!("Rust generated JSON is invalid: {:?}", e)
     };
 
     json.insert(~"crate", crate_json);
     json.insert(~"plugins", json::Object(plugins_json));
 
-    let mut file = File::create(&dst).unwrap();
-    json::Object(json).to_writer(&mut file);
+    let mut file = try!(File::create(&dst));
+    try!(json::Object(json).to_writer(&mut file));
+    Ok(())
 }

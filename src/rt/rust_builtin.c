@@ -279,9 +279,14 @@ rust_opendir(char *dirname) {
     return opendir(dirname);
 }
 
-struct dirent*
-rust_readdir(DIR *dirp) {
-    return readdir(dirp);
+int
+rust_readdir_r(DIR *dirp, struct dirent *entry, struct dirent **result) {
+    return readdir_r(dirp, entry, result);
+}
+
+int
+rust_dirent_t_size() {
+    return sizeof(struct dirent);
 }
 
 #else
@@ -292,6 +297,10 @@ rust_opendir() {
 
 void
 rust_readdir() {
+}
+
+void
+rust_dirent_t_size() {
 }
 
 #endif
@@ -434,26 +443,6 @@ void
 rust_win32_rand_release() {
     abort();
 }
-
-#endif
-
-#if defined(__WIN32__)
-
-int
-rust_crit_section_size() { return sizeof(CRITICAL_SECTION); }
-int
-rust_pthread_mutex_t_size() { return 0; }
-int
-rust_pthread_cond_t_size() { return 0; }
-
-#else
-
-int
-rust_crit_section_size() { return 0; }
-int
-rust_pthread_mutex_t_size() { return sizeof(pthread_mutex_t); }
-int
-rust_pthread_cond_t_size() { return sizeof(pthread_cond_t); }
 
 #endif
 

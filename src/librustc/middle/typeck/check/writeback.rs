@@ -16,13 +16,13 @@
 use middle::pat_util;
 use middle::ty;
 use middle::typeck::astconv::AstConv;
-use middle::typeck::check::{FnCtxt, SelfInfo};
+use middle::typeck::check::FnCtxt;
 use middle::typeck::infer::{force_all, resolve_all, resolve_region};
 use middle::typeck::infer::resolve_type;
 use middle::typeck::infer;
+use middle::typeck::MethodCallee;
 use middle::typeck::{vtable_res, vtable_origin};
 use middle::typeck::{vtable_static, vtable_param};
-use middle::typeck::method_map_entry;
 use middle::typeck::write_substs_to_tcx;
 use middle::typeck::write_ty_to_tcx;
 use util::ppaux;
@@ -62,48 +62,54 @@ fn resolve_type_vars_in_types(fcx: @FnCtxt, sp: Span, tys: &[ty::t])
     })
 }
 
-fn resolve_method_map_entry(fcx: @FnCtxt, sp: Span, id: ast::NodeId) {
+fn resolve_method_map_entry(wbcx: &mut WbCtxt, sp: Span, id: ast::NodeId) {
+    let fcx = wbcx.fcx;
+    let tcx = fcx.ccx.tcx;
+
     // Resolve any method map entry
-    let method_map_entry_opt = {
-        let method_map = fcx.inh.method_map.borrow();
-        method_map.get().find_copy(&id)
-    };
-    match method_map_entry_opt {
-        None => {}
-        Some(mme) => {
-            {
-                let r = resolve_type_vars_in_type(fcx, sp, mme.self_ty);
-                for t in r.iter() {
-                    let method_map = fcx.ccx.method_map;
-                    let new_entry = method_map_entry { self_ty: *t, ..mme };
-                    debug!("writeback::resolve_method_map_entry(id={:?}, \
-                            new_entry={:?})",
-                           id, new_entry);
-                    let mut method_map = method_map.borrow_mut();
-                    method_map.get().insert(id, new_entry);
+    match fcx.inh.method_map.borrow().get().find(&id) {
+        Some(method) => {
+            debug!("writeback::resolve_method_map_entry(id={:?}, entry={:?})",
+                   id, method.repr(tcx));
+            let method_ty = match resolve_type_vars_in_type(fcx, sp, method.ty) {
+                Some(t) => t,
+                None => {
+                    wbcx.success = false;
+                    return;
+                }
+            };
+            let mut new_tps = ~[];
+            for &subst in method.substs.tps.iter() {
+                match resolve_type_vars_in_type(fcx, sp, subst) {
+                    Some(t) => new_tps.push(t),
+                    None => { wbcx.success = false; return; }
                 }
             }
+            let new_method = MethodCallee {
+                origin: method.origin,
+                ty: method_ty,
+                substs: ty::substs {
+                    tps: new_tps,
+                    regions: ty::ErasedRegions,
+                    self_ty: None
+                }
+            };
+            fcx.ccx.method_map.borrow_mut().get().insert(id, new_method);
         }
+        None => {}
     }
 }
 
 fn resolve_vtable_map_entry(fcx: @FnCtxt, sp: Span, id: ast::NodeId) {
-    // Resolve any method map entry
-    {
-        let origins_opt = {
-            let vtable_map = fcx.inh.vtable_map.borrow();
-            vtable_map.get().find_copy(&id)
-        };
-        match origins_opt {
-            None => {}
-            Some(origins) => {
-                let r_origins = resolve_origins(fcx, sp, origins);
-                let mut vtable_map = fcx.ccx.vtable_map.borrow_mut();
-                vtable_map.get().insert(id, r_origins);
-                debug!("writeback::resolve_vtable_map_entry(id={}, vtables={:?})",
-                       id, r_origins.repr(fcx.tcx()));
-            }
+    // Resolve any vtable map entry
+    match fcx.inh.vtable_map.borrow().get().find_copy(&id) {
+        Some(origins) => {
+            let r_origins = resolve_origins(fcx, sp, origins);
+            fcx.ccx.vtable_map.borrow_mut().get().insert(id, r_origins);
+            debug!("writeback::resolve_vtable_map_entry(id={}, vtables={:?})",
+                    id, r_origins.repr(fcx.tcx()));
         }
+        None => {}
     }
 
     fn resolve_origins(fcx: @FnCtxt, sp: Span,
@@ -148,19 +154,33 @@ fn resolve_type_vars_for_node(wbcx: &mut WbCtxt, sp: Span, id: ast::NodeId)
                                          resolve_all | force_all) {
                         Err(e) => {
                             // This should not, I think, happen:
-                            fcx.ccx.tcx.sess.span_err(
+                            tcx.sess.span_err(
                                 sp,
                                 format!("cannot resolve bound for closure: \
                                          {}",
                                         infer::fixup_err_to_str(e)));
                         }
                         Ok(r1) => {
+                            // FIXME(eddyb) #2190 Allow only statically resolved
+                            // bare functions to coerce to a closure to avoid
+                            // constructing (slower) indirect call wrappers.
+                            {
+                                let def_map = tcx.def_map.borrow();
+                                match def_map.get().find(&id) {
+                                    Some(&ast::DefFn(..)) |
+                                    Some(&ast::DefStaticMethod(..)) |
+                                    Some(&ast::DefVariant(..)) |
+                                    Some(&ast::DefStruct(_)) => {}
+                                    _ => tcx.sess.span_err(sp,
+                                            "cannot coerce non-statically resolved bare fn")
+                                }
+                            }
+
                             let resolved_adj = @ty::AutoAddEnv(r1, s);
                             debug!("Adjustments for node {}: {:?}",
                                    id,
                                    resolved_adj);
-                            let mut adjustments = fcx.tcx()
-                                                     .adjustments
+                            let mut adjustments = tcx.adjustments
                                                      .borrow_mut();
                             adjustments.get().insert(id, resolved_adj);
                         }
@@ -175,7 +195,7 @@ fn resolve_type_vars_for_node(wbcx: &mut WbCtxt, sp: Span, id: ast::NodeId)
                             Ok(r1) => r1,
                             Err(e) => {
                                 // This should not, I think, happen.
-                                fcx.ccx.tcx.sess.span_err(
+                                tcx.sess.span_err(
                                     sp,
                                     format!("cannot resolve scope of borrow: \
                                              {}",
@@ -195,13 +215,13 @@ fn resolve_type_vars_for_node(wbcx: &mut WbCtxt, sp: Span, id: ast::NodeId)
                         autoref: resolved_autoref,
                     });
                     debug!("Adjustments for node {}: {:?}", id, resolved_adj);
-                    let mut adjustments = fcx.tcx().adjustments.borrow_mut();
+                    let mut adjustments = tcx.adjustments.borrow_mut();
                     adjustments.get().insert(id, resolved_adj);
                 }
 
                 ty::AutoObject(..) => {
                     debug!("Adjustments for node {}: {:?}", id, adjustment);
-                    let mut adjustments = fcx.tcx().adjustments.borrow_mut();
+                    let mut adjustments = tcx.adjustments.borrow_mut();
                     adjustments.get().insert(id, adjustment);
                 }
             }
@@ -237,21 +257,6 @@ fn resolve_type_vars_for_node(wbcx: &mut WbCtxt, sp: Span, id: ast::NodeId)
     }
 }
 
-fn maybe_resolve_type_vars_for_node(wbcx: &mut WbCtxt,
-                                    sp: Span,
-                                    id: ast::NodeId)
-                                 -> Option<ty::t> {
-    let contained = {
-        let node_types = wbcx.fcx.inh.node_types.borrow();
-        node_types.get().contains_key(&id)
-    };
-    if contained {
-        resolve_type_vars_for_node(wbcx, sp, id)
-    } else {
-        None
-    }
-}
-
 struct WbCtxt {
     fcx: @FnCtxt,
 
@@ -272,22 +277,8 @@ fn visit_expr(e: &ast::Expr, wbcx: &mut WbCtxt) {
     }
 
     resolve_type_vars_for_node(wbcx, e.span, e.id);
-
-    resolve_method_map_entry(wbcx.fcx, e.span, e.id);
-    {
-        let r = e.get_callee_id();
-        for callee_id in r.iter() {
-            resolve_method_map_entry(wbcx.fcx, e.span, *callee_id);
-        }
-    }
-
+    resolve_method_map_entry(wbcx, e.span, e.id);
     resolve_vtable_map_entry(wbcx.fcx, e.span, e.id);
-    {
-        let r = e.get_callee_id();
-        for callee_id in r.iter() {
-            resolve_vtable_map_entry(wbcx.fcx, e.span, *callee_id);
-        }
-    }
 
     match e.node {
         ast::ExprFnBlock(ref decl, _) | ast::ExprProc(ref decl, _) => {
@@ -295,20 +286,7 @@ fn visit_expr(e: &ast::Expr, wbcx: &mut WbCtxt) {
                 let _ = resolve_type_vars_for_node(wbcx, e.span, input.id);
             }
         }
-
-        ast::ExprBinary(callee_id, _, _, _) |
-        ast::ExprUnary(callee_id, _, _) |
-        ast::ExprAssignOp(callee_id, _, _, _) |
-        ast::ExprIndex(callee_id, _, _) => {
-            maybe_resolve_type_vars_for_node(wbcx, e.span, callee_id);
-        }
-
-        ast::ExprMethodCall(callee_id, _, _, _, _, _) => {
-            // We must always have written in a callee ID type for these.
-            resolve_type_vars_for_node(wbcx, e.span, callee_id);
-        }
-
-        _ => ()
+        _ => {}
     }
 
     visit::walk_expr(wbcx, e, ());
@@ -330,7 +308,7 @@ fn visit_pat(p: &ast::Pat, wbcx: &mut WbCtxt) {
 
     resolve_type_vars_for_node(wbcx, p.span, p.id);
     debug!("Type for pattern binding {} (id {}) resolved to {}",
-           pat_to_str(p, wbcx.fcx.ccx.tcx.sess.intr()), p.id,
+           pat_to_str(p), p.id,
            wbcx.fcx.infcx().ty_to_str(
                ty::node_id_to_type(wbcx.fcx.ccx.tcx,
                                    p.id)));
@@ -343,7 +321,7 @@ fn visit_local(l: &ast::Local, wbcx: &mut WbCtxt) {
     match resolve_type(wbcx.fcx.infcx(), var_ty, resolve_all | force_all) {
         Ok(lty) => {
             debug!("Type for local {} (id {}) resolved to {}",
-                   pat_to_str(l.pat, wbcx.fcx.tcx().sess.intr()),
+                   pat_to_str(l.pat),
                    l.id,
                    wbcx.fcx.infcx().ty_to_str(lty));
             write_ty_to_tcx(wbcx.fcx.ccx.tcx, l.id, lty);
@@ -374,25 +352,53 @@ impl Visitor<()> for WbCtxt {
     fn visit_ty(&mut self, _t: &ast::Ty, _: ()) {}
 }
 
+fn resolve_upvar_borrow_map(wbcx: &mut WbCtxt) {
+    if !wbcx.success {
+        return;
+    }
+
+    let fcx = wbcx.fcx;
+    let tcx = fcx.tcx();
+    let upvar_borrow_map = fcx.inh.upvar_borrow_map.borrow();
+    for (upvar_id, upvar_borrow) in upvar_borrow_map.get().iter() {
+        let r = upvar_borrow.region;
+        match resolve_region(fcx.infcx(), r, resolve_all | force_all) {
+            Ok(r) => {
+                let new_upvar_borrow = ty::UpvarBorrow {
+                    kind: upvar_borrow.kind,
+                    region: r
+                };
+                debug!("Upvar borrow for {} resolved to {}",
+                       upvar_id.repr(tcx), new_upvar_borrow.repr(tcx));
+                let mut tcx_upvar_borrow_map = tcx.upvar_borrow_map.borrow_mut();
+                tcx_upvar_borrow_map.get().insert(*upvar_id, new_upvar_borrow);
+            }
+            Err(e) => {
+                let span = ty::expr_span(tcx, upvar_id.closure_expr_id);
+                fcx.ccx.tcx.sess.span_err(
+                    span, format!("cannot resolve lifetime for \
+                                  captured variable `{}`: {}",
+                                  ty::local_var_name_str(tcx, upvar_id.var_id).get().to_str(),
+                                  infer::fixup_err_to_str(e)));
+                wbcx.success = false;
+            }
+        };
+    }
+}
+
 pub fn resolve_type_vars_in_expr(fcx: @FnCtxt, e: &ast::Expr) -> bool {
     let mut wbcx = WbCtxt { fcx: fcx, success: true };
     let wbcx = &mut wbcx;
     wbcx.visit_expr(e, ());
+    resolve_upvar_borrow_map(wbcx);
     return wbcx.success;
 }
 
-pub fn resolve_type_vars_in_fn(fcx: @FnCtxt,
-                               decl: &ast::FnDecl,
-                               blk: &ast::Block,
-                               self_info: Option<SelfInfo>) -> bool {
+pub fn resolve_type_vars_in_fn(fcx: @FnCtxt, decl: &ast::FnDecl,
+                               blk: &ast::Block) -> bool {
     let mut wbcx = WbCtxt { fcx: fcx, success: true };
     let wbcx = &mut wbcx;
     wbcx.visit_block(blk, ());
-    for self_info in self_info.iter() {
-        resolve_type_vars_for_node(wbcx,
-                                   self_info.span,
-                                   self_info.self_id);
-    }
     for arg in decl.inputs.iter() {
         wbcx.visit_pat(arg.pat, ());
         // Privacy needs the type for the whole pattern, not just each binding
@@ -400,5 +406,6 @@ pub fn resolve_type_vars_in_fn(fcx: @FnCtxt,
             resolve_type_vars_for_node(wbcx, arg.pat.span, arg.pat.id);
         }
     }
+    resolve_upvar_borrow_map(wbcx);
     return wbcx.success;
 }

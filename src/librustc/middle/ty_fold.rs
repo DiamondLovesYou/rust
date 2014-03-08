@@ -187,9 +187,7 @@ pub fn super_fold_sty<T:TypeFolder>(this: &mut T,
             ty::ty_str(this.fold_vstore(vst))
         }
         ty::ty_nil | ty::ty_bot | ty::ty_bool | ty::ty_char |
-        ty::ty_int(_) | ty::ty_uint(_) |
-        ty::ty_float(_) | ty::ty_type |
-        ty::ty_opaque_closure_ptr(_) |
+        ty::ty_int(_) | ty::ty_uint(_) | ty::ty_float(_) |
         ty::ty_err | ty::ty_infer(_) |
         ty::ty_param(..) | ty::ty_self(_) => {
             (*sty).clone()
@@ -203,7 +201,6 @@ pub fn super_fold_vstore<T:TypeFolder>(this: &mut T,
     match vstore {
         ty::vstore_fixed(i) => ty::vstore_fixed(i),
         ty::vstore_uniq => ty::vstore_uniq,
-        ty::vstore_box => ty::vstore_box,
         ty::vstore_slice(r) => ty::vstore_slice(this.fold_region(r)),
     }
 }
@@ -213,7 +210,6 @@ pub fn super_fold_trait_store<T:TypeFolder>(this: &mut T,
                                             -> ty::TraitStore {
     match trait_store {
         ty::UniqTraitStore      => ty::UniqTraitStore,
-        ty::BoxTraitStore       => ty::BoxTraitStore,
         ty::RegionTraitStore(r) => ty::RegionTraitStore(this.fold_region(r)),
     }
 }

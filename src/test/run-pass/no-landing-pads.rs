@@ -9,7 +9,7 @@
 // except according to those terms.
 
 // compile-flags: -Z no-landing-pads
-// xfail-fast
+// ignore-fast
 
 use std::task;
 
@@ -24,9 +24,9 @@ impl Drop for A {
 }
 
 fn main() {
-    do task::try::<()> {
+    task::try::<()>(proc() {
         let _a = A;
         fail!();
-    };
+    });
     assert!(unsafe { !HIT });
 }

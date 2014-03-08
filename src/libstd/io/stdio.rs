@@ -8,16 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/*!
+/*! Non-blocking access to stdin, stdout, and stderr.
 
-This modules provides bindings to the local event loop's TTY interface, using it
-to have synchronous, but non-blocking versions of stdio. These handles can be
-inspected for information about terminal dimensions or related information
-about the stream or terminal that it is attached to.
+This module provides bindings to the local event loop's TTY interface, using it
+to offer synchronous but non-blocking versions of stdio. These handles can be
+inspected for information about terminal dimensions or for related information
+about the stream or terminal to which it is attached.
 
 # Example
 
 ```rust
+# #[allow(unused_must_use)];
 use std::io;
 
 let mut out = io::stdout();
@@ -28,9 +29,10 @@ out.write(bytes!("Hello, world!"));
 
 use container::Container;
 use fmt;
-use io::{Reader, Writer, io_error, IoError, OtherIoError,
-         standard_error, EndOfFile, LineBufferedWriter};
+use io::{Reader, Writer, IoResult, IoError, OtherIoError,
+         standard_error, EndOfFile, LineBufferedWriter, BufferedReader};
 use libc;
+use mem::replace;
 use option::{Option, Some, None};
 use prelude::drop;
 use result::{Ok, Err};
@@ -38,7 +40,6 @@ use rt::local::Local;
 use rt::rtio::{DontClose, IoFactory, LocalIo, RtioFileStream, RtioTTY};
 use rt::task::Task;
 use str::StrSlice;
-use util;
 use vec::ImmutableVector;
 
 // And so begins the tale of acquiring a uv handle to a stdio stream on all
@@ -85,25 +86,62 @@ fn src<T>(fd: libc::c_int, readable: bool, f: |StdSource| -> T) -> T {
 
 /// Creates a new non-blocking handle to the stdin of the current process.
 ///
-/// See `stdout()` for notes about this function.
-pub fn stdin() -> StdReader {
+/// The returned handled is buffered by default with a `BufferedReader`. If
+/// buffered access is not desired, the `stdin_raw` function is provided to
+/// provided unbuffered access to stdin.
+///
+/// Care should be taken when creating multiple handles to the stdin of a
+/// process. Beause this is a buffered reader by default, it's possible for
+/// pending input to be unconsumed in one reader and unavailable to other
+/// readers. It is recommended that only one handle at a time is created for the
+/// stdin of a process.
+///
+/// See `stdout()` for more notes about this function.
+pub fn stdin() -> BufferedReader<StdReader> {
+    BufferedReader::new(stdin_raw())
+}
+
+/// Creates a new non-blocking handle to the stdin of the current process.
+///
+/// Unlike `stdin()`, the returned reader is *not* a buffered reader.
+///
+/// See `stdout()` for more notes about this function.
+pub fn stdin_raw() -> StdReader {
     src(libc::STDIN_FILENO, true, |src| StdReader { inner: src })
 }
 
-/// Creates a new non-blocking handle to the stdout of the current process.
+/// Creates a line-buffered handle to the stdout of the current process.
 ///
 /// Note that this is a fairly expensive operation in that at least one memory
 /// allocation is performed. Additionally, this must be called from a runtime
 /// task context because the stream returned will be a non-blocking object using
 /// the local scheduler to perform the I/O.
-pub fn stdout() -> StdWriter {
+///
+/// Care should be taken when creating multiple handles to an output stream for
+/// a single process. While usage is still safe, the output may be surprising if
+/// no synchronization is performed to ensure a sane output.
+pub fn stdout() -> LineBufferedWriter<StdWriter> {
+    LineBufferedWriter::new(stdout_raw())
+}
+
+/// Creates an unbuffered handle to the stdout of the current process
+///
+/// See notes in `stdout()` for more information.
+pub fn stdout_raw() -> StdWriter {
     src(libc::STDOUT_FILENO, false, |src| StdWriter { inner: src })
 }
 
-/// Creates a new non-blocking handle to the stderr of the current process.
+/// Creates a line-buffered handle to the stderr of the current process.
 ///
 /// See `stdout()` for notes about this function.
-pub fn stderr() -> StdWriter {
+pub fn stderr() -> LineBufferedWriter<StdWriter> {
+    LineBufferedWriter::new(stderr_raw())
+}
+
+/// Creates an unbuffered handle to the stderr of the current process
+///
+/// See notes in `stdout()` for more information.
+pub fn stderr_raw() -> StdWriter {
     src(libc::STDERR_FILENO, false, |src| StdWriter { inner: src })
 }
 
@@ -114,7 +152,8 @@ fn reset_helper(w: ~Writer,
     match f(t.get(), w) {
         Some(mut w) => {
             drop(t);
-            w.flush();
+            // FIXME: is failing right here?
+            w.flush().unwrap();
             Some(w)
         }
         None => None
@@ -130,7 +169,7 @@ fn reset_helper(w: ~Writer,
 /// Note that this does not need to be called for all new tasks; the default
 /// output handle is to the process's stdout stream.
 pub fn set_stdout(stdout: ~Writer) -> Option<~Writer> {
-    reset_helper(stdout, |t, w| util::replace(&mut t.stdout, Some(w)))
+    reset_helper(stdout, |t, w| replace(&mut t.stdout, Some(w)))
 }
 
 /// Resets the task-local stderr handle to the specified writer
@@ -142,7 +181,7 @@ pub fn set_stdout(stdout: ~Writer) -> Option<~Writer> {
 /// Note that this does not need to be called for all new tasks; the default
 /// output handle is to the process's stderr stream.
 pub fn set_stderr(stderr: ~Writer) -> Option<~Writer> {
-    reset_helper(stderr, |t, w| util::replace(&mut t.stderr, Some(w)))
+    reset_helper(stderr, |t, w| replace(&mut t.stderr, Some(w)))
 }
 
 // Helper to access the local task's stdout handle
@@ -155,9 +194,9 @@ pub fn set_stderr(stderr: ~Writer) -> Option<~Writer> {
 //          // io1 aliases io2
 //      })
 //  })
-fn with_task_stdout(f: |&mut Writer|) {
+fn with_task_stdout(f: |&mut Writer| -> IoResult<()> ) {
     let task: Option<~Task> = Local::try_take();
-    match task {
+    let result = match task {
         Some(mut task) => {
             // Printing may run arbitrary code, so ensure that the task is in
             // TLS to allow all std services. Note that this means a print while
@@ -167,9 +206,9 @@ fn with_task_stdout(f: |&mut Writer|) {
             Local::put(task);
 
             if my_stdout.is_none() {
-                my_stdout = Some(~LineBufferedWriter::new(stdout()) as ~Writer);
+                my_stdout = Some(~stdout() as ~Writer);
             }
-            f(*my_stdout.get_mut_ref());
+            let ret = f(*my_stdout.get_mut_ref());
 
             // Note that we need to be careful when putting the stdout handle
             // back into the task. If the handle was set to `Some` while
@@ -181,25 +220,32 @@ fn with_task_stdout(f: |&mut Writer|) {
             // temporarily take the task, swap the handles, put the task in TLS,
             // and only then drop the previous handle.
             let mut t = Local::borrow(None::<Task>);
-            let prev = util::replace(&mut t.get().stdout, my_stdout);
+            let prev = replace(&mut t.get().stdout, my_stdout);
             drop(t);
             drop(prev);
+            ret
         }
 
         None => {
             struct Stdout;
             impl Writer for Stdout {
-                fn write(&mut self, data: &[u8]) {
+                fn write(&mut self, data: &[u8]) -> IoResult<()> {
                     unsafe {
                         libc::write(libc::STDOUT_FILENO,
                                     data.as_ptr() as *libc::c_void,
                                     data.len() as libc::size_t);
                     }
+                    Ok(()) // just ignore the results
                 }
             }
             let mut io = Stdout;
-            f(&mut io as &mut Writer);
+            f(&mut io as &mut Writer)
         }
+    };
+
+    match result {
+        Ok(()) => {}
+        Err(e) => fail!("failed printing to stdout: {}", e),
     }
 }
 
@@ -226,8 +272,7 @@ pub fn print(s: &str) {
 /// `\n` character is printed to the console after the string.
 pub fn println(s: &str) {
     with_task_stdout(|io| {
-        io.write(s.as_bytes());
-        io.write(['\n' as u8]);
+        io.write(s.as_bytes()).and_then(|()| io.write(['\n' as u8]))
     })
 }
 
@@ -249,7 +294,7 @@ pub struct StdReader {
 }
 
 impl Reader for StdReader {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
         let ret = match self.inner {
             TTY(ref mut tty) => tty.read(buf),
             File(ref mut file) => file.read(buf).map(|i| i as uint),
@@ -260,15 +305,8 @@ impl Reader for StdReader {
             // return an actual EOF error, but apparently for stdin it's a
             // little different. Hence, here we convert a 0 length read to an
             // end-of-file indicator so the caller knows to stop reading.
-            Ok(0) => {
-                io_error::cond.raise(standard_error(EndOfFile));
-                None
-            }
-            Ok(amt) => Some(amt),
-            Err(e) => {
-                io_error::cond.raise(e);
-                None
-            }
+            Ok(0) => { Err(standard_error(EndOfFile)) }
+            ret @ Ok(..) | ret @ Err(..) => ret,
         }
     }
 }
@@ -283,30 +321,21 @@ impl StdWriter {
     /// when the writer is attached to something like a terminal, this is used
     /// to fetch the dimensions of the terminal.
     ///
-    /// If successful, returns Some((width, height)).
+    /// If successful, returns `Ok((width, height))`.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// This function will raise on the `io_error` condition if an error
-    /// happens.
-    pub fn winsize(&mut self) -> Option<(int, int)> {
+    /// This function will return an error if the output stream is not actually
+    /// connected to a TTY instance, or if querying the TTY instance fails.
+    pub fn winsize(&mut self) -> IoResult<(int, int)> {
         match self.inner {
-            TTY(ref mut tty) => {
-                match tty.get_winsize() {
-                    Ok(p) => Some(p),
-                    Err(e) => {
-                        io_error::cond.raise(e);
-                        None
-                    }
-                }
-            }
+            TTY(ref mut tty) => tty.get_winsize(),
             File(..) => {
-                io_error::cond.raise(IoError {
+                Err(IoError {
                     kind: OtherIoError,
                     desc: "stream is not a tty",
                     detail: None,
-                });
-                None
+                })
             }
         }
     }
@@ -314,24 +343,19 @@ impl StdWriter {
     /// Controls whether this output stream is a "raw stream" or simply a normal
     /// stream.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// This function will raise on the `io_error` condition if an error
-    /// happens.
-    pub fn set_raw(&mut self, raw: bool) {
+    /// This function will return an error if the output stream is not actually
+    /// connected to a TTY instance, or if querying the TTY instance fails.
+    pub fn set_raw(&mut self, raw: bool) -> IoResult<()> {
         match self.inner {
-            TTY(ref mut tty) => {
-                match tty.set_raw(raw) {
-                    Ok(()) => {},
-                    Err(e) => io_error::cond.raise(e),
-                }
-            }
+            TTY(ref mut tty) => tty.set_raw(raw),
             File(..) => {
-                io_error::cond.raise(IoError {
+                Err(IoError {
                     kind: OtherIoError,
                     desc: "stream is not a tty",
                     detail: None,
-                });
+                })
             }
         }
     }
@@ -346,14 +370,10 @@ impl StdWriter {
 }
 
 impl Writer for StdWriter {
-    fn write(&mut self, buf: &[u8]) {
-        let ret = match self.inner {
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> {
+        match self.inner {
             TTY(ref mut tty) => tty.write(buf),
             File(ref mut file) => file.write(buf),
-        };
-        match ret {
-            Ok(()) => {}
-            Err(e) => io_error::cond.raise(e)
         }
     }
 }
@@ -372,11 +392,11 @@ mod tests {
 
         let (p, c) = Chan::new();
         let (mut r, w) = (PortReader::new(p), ChanWriter::new(c));
-        do spawn {
+        spawn(proc() {
             set_stdout(~w as ~Writer);
             println!("hello!");
-        }
-        assert_eq!(r.read_to_str(), ~"hello!\n");
+        });
+        assert_eq!(r.read_to_str().unwrap(), ~"hello!\n");
     })
 
     iotest!(fn capture_stderr() {
@@ -384,11 +404,11 @@ mod tests {
 
         let (p, c) = Chan::new();
         let (mut r, w) = (PortReader::new(p), ChanWriter::new(c));
-        do spawn {
+        spawn(proc() {
             set_stderr(~w as ~Writer);
             fail!("my special message");
-        }
-        let s = r.read_to_str();
+        });
+        let s = r.read_to_str().unwrap();
         assert!(s.contains("my special message"));
     })
 }

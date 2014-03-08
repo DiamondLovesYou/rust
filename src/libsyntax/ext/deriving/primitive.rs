@@ -14,28 +14,31 @@ use codemap::Span;
 use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
+use parse::token::InternedString;
 
-pub fn expand_deriving_from_primitive(cx: &ExtCtxt,
+use std::vec_ng::Vec;
+
+pub fn expand_deriving_from_primitive(cx: &mut ExtCtxt,
                                       span: Span,
                                       mitem: @MetaItem,
-                                      in_items: ~[@Item]) -> ~[@Item] {
+                                      item: @Item,
+                                      push: |@Item|) {
     let trait_def = TraitDef {
-        cx: cx, span: span,
-
-        path: Path::new(~["std", "num", "FromPrimitive"]),
-        additional_bounds: ~[],
+        span: span,
+        attributes: Vec::new(),
+        path: Path::new(vec!("std", "num", "FromPrimitive")),
+        additional_bounds: Vec::new(),
         generics: LifetimeBounds::empty(),
-        methods: ~[
+        methods: vec!(
             MethodDef {
                 name: "from_i64",
                 generics: LifetimeBounds::empty(),
                 explicit_self: None,
-                args: ~[
-                    Literal(Path::new(~["i64"])),
-                ],
-                ret_ty: Literal(Path::new_(~["std", "option", "Option"],
+                args: vec!(
+                    Literal(Path::new(vec!("i64")))),
+                ret_ty: Literal(Path::new_(vec!("std", "option", "Option"),
                                            None,
-                                           ~[~Self],
+                                           vec!(~Self),
                                            true)),
                 // liable to cause code-bloat
                 inline: true,
@@ -46,51 +49,53 @@ pub fn expand_deriving_from_primitive(cx: &ExtCtxt,
                 name: "from_u64",
                 generics: LifetimeBounds::empty(),
                 explicit_self: None,
-                args: ~[
-                    Literal(Path::new(~["u64"])),
-                ],
-                ret_ty: Literal(Path::new_(~["std", "option", "Option"],
+                args: vec!(
+                    Literal(Path::new(vec!("u64")))),
+                ret_ty: Literal(Path::new_(vec!("std", "option", "Option"),
                                            None,
-                                           ~[~Self],
+                                           vec!(~Self),
                                            true)),
                 // liable to cause code-bloat
                 inline: true,
                 const_nonmatching: false,
                 combine_substructure: |c, s, sub| cs_from("u64", c, s, sub),
-            },
-        ]
+            })
     };
 
-    trait_def.expand(mitem, in_items)
+    trait_def.expand(cx, mitem, item, push)
 }
 
-fn cs_from(name: &str, cx: &ExtCtxt, span: Span, substr: &Substructure) -> @Expr {
+fn cs_from(name: &str, cx: &mut ExtCtxt, trait_span: Span, substr: &Substructure) -> @Expr {
     let n = match substr.nonself_args {
         [n] => n,
-        _ => cx.span_bug(span, "Incorrect number of arguments in `deriving(FromPrimitive)`")
+        _ => cx.span_bug(trait_span, "incorrect number of arguments in `deriving(FromPrimitive)`")
     };
 
     match *substr.fields {
         StaticStruct(..) => {
-            cx.span_err(span, "`FromPrimitive` cannot be derived for structs");
-            return cx.expr_fail(span, @"");
+            cx.span_err(trait_span, "`FromPrimitive` cannot be derived for structs");
+            return cx.expr_fail(trait_span, InternedString::new(""));
         }
         StaticEnum(enum_def, _) => {
             if enum_def.variants.is_empty() {
-                cx.span_err(span, "`FromPrimitive` cannot be derived for enums with no variants");
-                return cx.expr_fail(span, @"");
+                cx.span_err(trait_span,
+                            "`FromPrimitive` cannot be derived for enums with no variants");
+                return cx.expr_fail(trait_span, InternedString::new(""));
             }
 
-            let mut arms = ~[];
+            let mut arms = Vec::new();
 
             for variant in enum_def.variants.iter() {
                 match variant.node.kind {
                     ast::TupleVariantKind(ref args) => {
                         if !args.is_empty() {
-                            cx.span_err(span, "`FromPrimitive` cannot be derived for \
-                                               enum variants with arguments");
-                            return cx.expr_fail(span, @"");
+                            cx.span_err(trait_span,
+                                        "`FromPrimitive` cannot be derived for \
+                                        enum variants with arguments");
+                            return cx.expr_fail(trait_span,
+                                                InternedString::new(""));
                         }
+                        let span = variant.span;
 
                         // expr for `$n == $variant as $name`
                         let variant = cx.expr_ident(span, variant.node.name);
@@ -103,31 +108,33 @@ fn cs_from(name: &str, cx: &ExtCtxt, span: Span, substr: &Substructure) -> @Expr
 
                         // arm for `_ if $guard => $body`
                         let arm = ast::Arm {
-                            pats: ~[cx.pat_wild(span)],
+                            pats: vec!(cx.pat_wild(span)),
                             guard: Some(guard),
-                            body: cx.block_expr(body),
+                            body: body,
                         };
 
                         arms.push(arm);
                     }
                     ast::StructVariantKind(_) => {
-                        cx.span_err(span, "`FromPrimitive` cannot be derived for enums \
-                                           with struct variants");
-                        return cx.expr_fail(span, @"");
+                        cx.span_err(trait_span,
+                                    "`FromPrimitive` cannot be derived for enums \
+                                    with struct variants");
+                        return cx.expr_fail(trait_span,
+                                            InternedString::new(""));
                     }
                 }
             }
 
             // arm for `_ => None`
             let arm = ast::Arm {
-                pats: ~[cx.pat_wild(span)],
+                pats: vec!(cx.pat_wild(trait_span)),
                 guard: None,
-                body: cx.block_expr(cx.expr_none(span)),
+                body: cx.expr_none(trait_span),
             };
             arms.push(arm);
 
-            cx.expr_match(span, n, arms)
+            cx.expr_match(trait_span, n, arms)
         }
-        _ => cx.bug("expected StaticEnum in deriving(FromPrimitive)")
+        _ => cx.span_bug(trait_span, "expected StaticEnum in deriving(FromPrimitive)")
     }
 }

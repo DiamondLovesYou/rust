@@ -24,9 +24,10 @@ Most of the documentation on regions can be found in
 use driver::session::Session;
 use middle::ty::{FreeRegion};
 use middle::ty;
+use util::nodemap::NodeMap;
 
 use std::cell::RefCell;
-use std::hashmap::{HashMap, HashSet};
+use collections::{HashMap, HashSet};
 use syntax::codemap::Span;
 use syntax::{ast, visit};
 use syntax::visit::{Visitor, FnKind};
@@ -36,25 +37,48 @@ use syntax::ast_util::{stmt_id};
 /**
 The region maps encode information about region relationships.
 
-- `scope_map` maps from:
-  - an expression to the expression or block encoding the maximum
-    (static) lifetime of a value produced by that expression.  This is
-    generally the innermost call, statement, match, or block.
-  - a variable or binding id to the block in which that variable is declared.
-- `free_region_map` maps from:
-  - a free region `a` to a list of free regions `bs` such that
-    `a <= b for all b in bs`
+- `scope_map` maps from a scope id to the enclosing scope id; this is
+  usually corresponding to the lexical nesting, though in the case of
+  closures the parent scope is the innermost conditinal expression or repeating
+  block
+
+- `var_map` maps from a variable or binding id to the block in which
+  that variable is declared.
+
+- `free_region_map` maps from a free region `a` to a list of free
+  regions `bs` such that `a <= b for all b in bs`
   - the free region map is populated during type check as we check
     each function. See the function `relate_free_regions` for
     more information.
-- `temporary_scopes` includes scopes where cleanups for temporaries occur.
-  These are statements and loop/fn bodies.
+
+- `rvalue_scopes` includes entries for those expressions whose cleanup
+  scope is larger than the default. The map goes from the expression
+  id to the cleanup scope id. For rvalues not present in this table,
+  the appropriate cleanup scope is the innermost enclosing statement,
+  conditional expression, or repeating block (see `terminating_scopes`).
+
+- `terminating_scopes` is a set containing the ids of each statement,
+  or conditional/repeating expression. These scopes are calling "terminating
+  scopes" because, when attempting to find the scope of a temporary, by
+  default we search up the enclosing scopes until we encounter the
+  terminating scope. A conditional/repeating
+  expression is one which is not guaranteed to execute exactly once
+  upon entering the parent scope. This could be because the expression
+  only executes conditionally, such as the expression `b` in `a && b`,
+  or because the expression may execute many times, such as a loop
+  body. The reason that we distinguish such expressions is that, upon
+  exiting the parent scope, we cannot statically know how many times
+  the expression executed, and thus if the expression creates
+  temporaries we cannot know statically how many such temporaries we
+  would have to cleanup. Therefore we ensure that the temporaries never
+  outlast the conditional/repeating expression, preventing the need
+  for dynamic checks and/or arbitrary amounts of stack space.
 */
 pub struct RegionMaps {
-    priv scope_map: RefCell<HashMap<ast::NodeId, ast::NodeId>>,
-    priv var_map: RefCell<HashMap<ast::NodeId, ast::NodeId>>,
+    priv scope_map: RefCell<NodeMap<ast::NodeId>>,
+    priv var_map: RefCell<NodeMap<ast::NodeId>>,
     priv free_region_map: RefCell<HashMap<FreeRegion, ~[FreeRegion]>>,
-    priv rvalue_scopes: RefCell<HashMap<ast::NodeId, ast::NodeId>>,
+    priv rvalue_scopes: RefCell<NodeMap<ast::NodeId>>,
     priv terminating_scopes: RefCell<HashSet<ast::NodeId>>,
 }
 
@@ -142,7 +166,7 @@ impl RegionMaps {
         let scope_map = self.scope_map.borrow();
         match scope_map.get().find(&id) {
             Some(&r) => r,
-            None => { fail!("No enclosing scope for id {}", id); }
+            None => { fail!("no enclosing scope for id {}", id); }
         }
     }
 
@@ -154,7 +178,7 @@ impl RegionMaps {
         let var_map = self.var_map.borrow();
         match var_map.get().find(&var_id) {
             Some(&r) => r,
-            None => { fail!("No enclosing scope for id {}", var_id); }
+            None => { fail!("no enclosing scope for id {}", var_id); }
         }
     }
 
@@ -172,7 +196,14 @@ impl RegionMaps {
         }
 
         // else, locate the innermost terminating scope
-        let mut id = self.encl_scope(expr_id);
+        // if there's one. Static items, for instance, won't
+        // have an enclusing scope, hence no scope will be
+        // returned.
+        let mut id = match self.opt_encl_scope(expr_id) {
+            Some(i) => i,
+            None => { return None; }
+        };
+
         let terminating_scopes = self.terminating_scopes.borrow();
         while !terminating_scopes.get().contains(&id) {
             match self.opt_encl_scope(id) {
@@ -482,8 +513,8 @@ fn resolve_expr(visitor: &mut RegionResolutionVisitor,
         // scopes, meaning that temporaries cannot outlive them.
         // This ensures fixed size stacks.
 
-        ast::ExprBinary(_, ast::BiAnd, _, r) |
-        ast::ExprBinary(_, ast::BiOr, _, r) => {
+        ast::ExprBinary(ast::BiAnd, _, r) |
+        ast::ExprBinary(ast::BiOr, _, r) => {
             // For shortcircuiting operators, mark the RHS as a terminating
             // scope since it only executes conditionally.
             visitor.region_maps.mark_as_terminating_scope(r.id);
@@ -494,12 +525,17 @@ fn resolve_expr(visitor: &mut RegionResolutionVisitor,
             visitor.region_maps.mark_as_terminating_scope(otherwise.id);
         }
 
-        ast::ExprIf(_, then, None) => {
+        ast::ExprIf(expr, then, None) => {
+            visitor.region_maps.mark_as_terminating_scope(expr.id);
             visitor.region_maps.mark_as_terminating_scope(then.id);
         }
 
-        ast::ExprLoop(body, _) |
-        ast::ExprWhile(_, body) => {
+        ast::ExprLoop(body, _) => {
+            visitor.region_maps.mark_as_terminating_scope(body.id);
+        }
+
+        ast::ExprWhile(expr, body) => {
+            visitor.region_maps.mark_as_terminating_scope(expr.id);
             visitor.region_maps.mark_as_terminating_scope(body.id);
         }
 
@@ -547,7 +583,7 @@ fn resolve_local(visitor: &mut RegionResolutionVisitor,
         None => {
             visitor.sess.span_bug(
                 local.span,
-                "Local without enclosing block");
+                "local without enclosing block");
         }
     };
 
@@ -721,7 +757,7 @@ fn resolve_local(visitor: &mut RegionResolutionVisitor,
                         visitor, subexpr, blk_id);
                 }
             }
-            ast::ExprUnary(_, ast::UnUniq, subexpr) => {
+            ast::ExprUnary(ast::UnUniq, subexpr) => {
                 record_rvalue_scope_if_borrow_expr(visitor, subexpr, blk_id);
             }
             ast::ExprCast(subexpr, _) |
@@ -776,9 +812,9 @@ fn resolve_local(visitor: &mut RegionResolutionVisitor,
 
             match expr.node {
                 ast::ExprAddrOf(_, ref subexpr) |
-                ast::ExprUnary(_, ast::UnDeref, ref subexpr) |
+                ast::ExprUnary(ast::UnDeref, ref subexpr) |
                 ast::ExprField(ref subexpr, _, _) |
-                ast::ExprIndex(_, ref subexpr, _) |
+                ast::ExprIndex(ref subexpr, _) |
                 ast::ExprParen(ref subexpr) => {
                     let subexpr: &'a @Expr = subexpr; // FIXME(#11586)
                     expr = &**subexpr;
@@ -820,12 +856,6 @@ fn resolve_fn(visitor: &mut RegionResolutionVisitor,
     // The arguments and `self` are parented to the body of the fn.
     let decl_cx = Context {parent: Some(body.id),
                            var_parent: Some(body.id)};
-    match *fk {
-        visit::FkMethod(_, _, method) => {
-            visitor.region_maps.record_var_scope(method.self_id, body.id);
-        }
-        _ => {}
-    }
     visit::walk_fn_decl(visitor, decl, decl_cx);
 
     // The body of the fn itself is either a root scope (top-level fn)
@@ -834,7 +864,16 @@ fn resolve_fn(visitor: &mut RegionResolutionVisitor,
         visit::FkItemFn(..) | visit::FkMethod(..) => {
             Context {parent: None, var_parent: None, ..cx}
         }
-        visit::FkFnBlock(..) => cx
+        visit::FkFnBlock(..) => {
+            // FIXME(#3696) -- at present we are place the closure body
+            // within the region hierarchy exactly where it appears lexically.
+            // This is wrong because the closure may live longer
+            // than the enclosing expression. We should probably fix this,
+            // but the correct fix is a bit subtle, and I am also not sure
+            // that the present approach is unsound -- it may not permit
+            // any illegal programs. See issue for more details.
+            cx
+        }
     };
     visitor.visit_block(body, body_cx);
 }
@@ -870,12 +909,12 @@ impl<'a> Visitor<Context> for RegionResolutionVisitor<'a> {
     }
 }
 
-pub fn resolve_crate(sess: Session, crate: &ast::Crate) -> RegionMaps {
+pub fn resolve_crate(sess: Session, krate: &ast::Crate) -> RegionMaps {
     let maps = RegionMaps {
-        scope_map: RefCell::new(HashMap::new()),
-        var_map: RefCell::new(HashMap::new()),
+        scope_map: RefCell::new(NodeMap::new()),
+        var_map: RefCell::new(NodeMap::new()),
         free_region_map: RefCell::new(HashMap::new()),
-        rvalue_scopes: RefCell::new(HashMap::new()),
+        rvalue_scopes: RefCell::new(NodeMap::new()),
         terminating_scopes: RefCell::new(HashSet::new()),
     };
     {
@@ -884,7 +923,7 @@ pub fn resolve_crate(sess: Session, crate: &ast::Crate) -> RegionMaps {
             region_maps: &maps
         };
         let cx = Context { parent: None, var_parent: None };
-        visit::walk_crate(&mut visitor, crate, cx);
+        visit::walk_crate(&mut visitor, krate, cx);
     }
     return maps;
 }

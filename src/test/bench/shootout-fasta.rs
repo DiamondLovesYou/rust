@@ -16,7 +16,7 @@
 
 use std::io;
 use std::io::{BufferedWriter, File};
-use std::num::min;
+use std::cmp::min;
 use std::os;
 
 static LINE_LENGTH: uint = 60;
@@ -51,7 +51,7 @@ impl<'a> Iterator<u8> for AAGen<'a> {
     fn next(&mut self) -> Option<u8> {
         let r = self.rng.gen();
         self.data.iter()
-            .skip_while(|pc| pc.n0() < r)
+            .skip_while(|pc| pc.val0() < r)
             .map(|&(_, c)| c)
             .next()
     }
@@ -117,6 +117,6 @@ fn main() {
         let mut file = BufferedWriter::new(File::create(&Path::new("./shootout-fasta.data")));
         run(&mut file);
     } else {
-        run(&mut BufferedWriter::new(io::stdout()));
+        run(&mut io::stdout());
     }
 }

@@ -14,23 +14,32 @@
 //! (bundled into the rust runtime). This module self-contains the C bindings
 //! and necessary legwork to render markdown, and exposes all of the
 //! functionality through a unit-struct, `Markdown`, which has an implementation
-//! of `fmt::Default`. Example usage:
+//! of `fmt::Show`. Example usage:
 //!
-//! ```rust
+//! ```rust,ignore
+//! use rustdoc::html::markdown::Markdown;
+//!
 //! let s = "My *markdown* _text_";
 //! let html = format!("{}", Markdown(s));
 //! // ... something using html
 //! ```
 
+#[allow(non_camel_case_types)];
+
 use std::cast;
 use std::fmt;
+use std::intrinsics;
 use std::io;
 use std::libc;
+use std::local_data;
+use std::mem;
 use std::str;
-use std::unstable::intrinsics;
 use std::vec;
+use collections::HashMap;
 
-/// A unit struct which has the `fmt::Default` trait implemented. When
+use html::highlight;
+
+/// A unit struct which has the `fmt::Show` trait implemented. When
 /// formatted, this struct will emit the HTML corresponding to the rendered
 /// version of the contained markdown string.
 pub struct Markdown<'a>(&'a str);
@@ -45,8 +54,11 @@ static MKDEXT_STRIKETHROUGH: libc::c_uint = 1 << 4;
 type sd_markdown = libc::c_void;  // this is opaque to us
 
 struct sd_callbacks {
-    blockcode: extern "C" fn(*buf, *buf, *buf, *libc::c_void),
-    other: [libc::size_t, ..25],
+    blockcode: Option<extern "C" fn(*buf, *buf, *buf, *libc::c_void)>,
+    blockquote: Option<extern "C" fn(*buf, *buf, *libc::c_void)>,
+    blockhtml: Option<extern "C" fn(*buf, *buf, *libc::c_void)>,
+    header: Option<extern "C" fn(*buf, *buf, libc::c_int, *libc::c_void)>,
+    other: [libc::size_t, ..22],
 }
 
 struct html_toc_data {
@@ -90,6 +102,7 @@ extern {
     fn sd_markdown_free(md: *sd_markdown);
 
     fn bufnew(unit: libc::size_t) -> *buf;
+    fn bufputs(b: *buf, c: *libc::c_char);
     fn bufrelease(b: *buf);
 
 }
@@ -107,7 +120,9 @@ fn stripped_filtered_line<'a>(s: &'a str) -> Option<&'a str> {
     }
 }
 
-pub fn render(w: &mut io::Writer, s: &str) {
+local_data_key!(used_header_map: HashMap<~str, uint>)
+
+pub fn render(w: &mut io::Writer, s: &str) -> fmt::Result {
     extern fn block(ob: *buf, text: *buf, lang: *buf, opaque: *libc::c_void) {
         unsafe {
             let my_opaque: &my_opaque = cast::transmute(opaque);
@@ -122,9 +137,68 @@ pub fn render(w: &mut io::Writer, s: &str) {
                     asize: text.len() as libc::size_t,
                     unit: 0,
                 };
-                (my_opaque.dfltblk)(ob, &buf, lang, opaque);
+                let rendered = if lang.is_null() {
+                    false
+                } else {
+                    vec::raw::buf_as_slice((*lang).data,
+                                           (*lang).size as uint, |rlang| {
+                        let rlang = str::from_utf8(rlang).unwrap();
+                        if rlang.contains("notrust") {
+                            (my_opaque.dfltblk)(ob, &buf, lang, opaque);
+                            true
+                        } else {
+                            false
+                        }
+                    })
+                };
+
+                if !rendered {
+                    let output = highlight::highlight(text, None).to_c_str();
+                    output.with_ref(|r| {
+                        bufputs(ob, r)
+                    })
+                }
             })
         }
+    }
+
+    extern fn header(ob: *buf, text: *buf, level: libc::c_int,
+                     _opaque: *libc::c_void) {
+        // sundown does this, we may as well too
+        "\n".with_c_str(|p| unsafe { bufputs(ob, p) });
+
+        // Extract the text provided
+        let s = if text.is_null() {
+            ~""
+        } else {
+            unsafe {
+                str::raw::from_buf_len((*text).data, (*text).size as uint)
+            }
+        };
+
+        // Transform the contents of the header into a hyphenated string
+        let id = s.words().map(|s| {
+            match s.to_ascii_opt() {
+                Some(s) => s.to_lower().into_str(),
+                None => s.to_owned()
+            }
+        }).to_owned_vec().connect("-");
+
+        // Make sure our hyphenated ID is unique for this page
+        let id = local_data::get_mut(used_header_map, |map| {
+            let map = map.unwrap();
+            match map.find_mut(&id) {
+                None => {}
+                Some(a) => { *a += 1; return format!("{}-{}", id, *a - 1) }
+            }
+            map.insert(id.clone(), 1);
+            id.clone()
+        });
+
+        // Render the HTML
+        let text = format!(r#"<h{lvl} id="{id}">{}</h{lvl}>"#,
+                           s, lvl = level, id = id);
+        text.with_c_str(|p| unsafe { bufputs(ob, p) });
     }
 
     // This code is all lifted from examples/sundown.c in the sundown repo
@@ -142,14 +216,15 @@ pub fn render(w: &mut io::Writer, s: &str) {
             flags: 0,
             link_attributes: None,
         };
-        let mut callbacks: sd_callbacks = intrinsics::init();
+        let mut callbacks: sd_callbacks = mem::init();
 
         sdhtml_renderer(&callbacks, &options, 0);
         let opaque = my_opaque {
             opt: options,
-            dfltblk: callbacks.blockcode,
+            dfltblk: callbacks.blockcode.unwrap(),
         };
-        callbacks.blockcode = block;
+        callbacks.blockcode = Some(block);
+        callbacks.header = Some(header);
         let markdown = sd_markdown_new(extensions, 16, &callbacks,
                                        &opaque as *my_opaque as *libc::c_void);
 
@@ -157,32 +232,36 @@ pub fn render(w: &mut io::Writer, s: &str) {
         sd_markdown_render(ob, s.as_ptr(), s.len() as libc::size_t, markdown);
         sd_markdown_free(markdown);
 
-        vec::raw::buf_as_slice((*ob).data, (*ob).size as uint, |buf| {
-            w.write(buf);
+        let ret = vec::raw::buf_as_slice((*ob).data, (*ob).size as uint, |buf| {
+            w.write(buf)
         });
 
         bufrelease(ob);
+        ret
     }
 }
 
 pub fn find_testable_code(doc: &str, tests: &mut ::test::Collector) {
     extern fn block(_ob: *buf, text: *buf, lang: *buf, opaque: *libc::c_void) {
         unsafe {
-            if text.is_null() || lang.is_null() { return }
-            let (test, shouldfail, ignore) =
+            if text.is_null() { return }
+            let (shouldfail, ignore) = if lang.is_null() {
+                (false, false)
+            } else {
                 vec::raw::buf_as_slice((*lang).data,
                                        (*lang).size as uint, |lang| {
                     let s = str::from_utf8(lang).unwrap();
-                    (s.contains("rust"), s.contains("should_fail"),
-                     s.contains("ignore"))
-                });
-            if !test { return }
+                    (s.contains("should_fail"), s.contains("ignore") ||
+                                                s.contains("notrust"))
+                })
+            };
+            if ignore { return }
             vec::raw::buf_as_slice((*text).data, (*text).size as uint, |text| {
                 let tests: &mut ::test::Collector = intrinsics::transmute(opaque);
                 let text = str::from_utf8(text).unwrap();
                 let mut lines = text.lines().map(|l| stripped_filtered_line(l).unwrap_or(l));
                 let text = lines.to_owned_vec().connect("\n");
-                tests.add_test(text, ignore, shouldfail);
+                tests.add_test(text, shouldfail);
             })
         }
     }
@@ -193,8 +272,11 @@ pub fn find_testable_code(doc: &str, tests: &mut ::test::Collector) {
                          MKDEXT_FENCED_CODE | MKDEXT_AUTOLINK |
                          MKDEXT_STRIKETHROUGH;
         let callbacks = sd_callbacks {
-            blockcode: block,
-            other: intrinsics::init()
+            blockcode: Some(block),
+            blockquote: None,
+            blockhtml: None,
+            header: None,
+            other: mem::init()
         };
 
         let tests = tests as *mut ::test::Collector as *libc::c_void;
@@ -207,11 +289,23 @@ pub fn find_testable_code(doc: &str, tests: &mut ::test::Collector) {
     }
 }
 
-impl<'a> fmt::Default for Markdown<'a> {
-    fn fmt(md: &Markdown<'a>, fmt: &mut fmt::Formatter) {
-        let Markdown(md) = *md;
+/// By default this markdown renderer generates anchors for each header in the
+/// rendered document. The anchor name is the contents of the header spearated
+/// by hyphens, and a task-local map is used to disambiguate among duplicate
+/// headers (numbers are appended).
+///
+/// This method will reset the local table for these headers. This is typically
+/// used at the beginning of rendering an entire HTML page to reset from the
+/// previous state (if any).
+pub fn reset_headers() {
+    local_data::set(used_header_map, HashMap::new())
+}
+
+impl<'a> fmt::Show for Markdown<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        let Markdown(md) = *self;
         // This is actually common enough to special-case
-        if md.len() == 0 { return; }
-        render(fmt.buf, md.as_slice());
+        if md.len() == 0 { return Ok(()) }
+        render(fmt.buf, md.as_slice())
     }
 }

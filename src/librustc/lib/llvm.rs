@@ -9,10 +9,11 @@
 // except according to those terms.
 
 #[allow(non_uppercase_pattern_statics)];
+#[allow(non_camel_case_types)];
 
 use std::c_str::ToCStr;
 use std::cell::RefCell;
-use std::hashmap::HashMap;
+use collections::HashMap;
 use std::libc::{c_uint, c_ushort, c_void, free};
 use std::str::raw::from_c_str;
 
@@ -1493,6 +1494,11 @@ pub mod llvm {
                              Dialect: c_uint)
                              -> ValueRef;
 
+        pub static LLVMRustDebugMetadataVersion: u32;
+
+        pub fn LLVMRustAddModuleFlag(M: ModuleRef,
+                                     name: *c_char,
+                                     value: u32);
 
         pub fn LLVMDIBuilderCreate(M: ModuleRef) -> DIBuilderRef;
 
@@ -1728,7 +1734,8 @@ pub mod llvm {
                                            Reloc: RelocMode,
                                            Level: CodeGenOptLevel,
                                            EnableSegstk: bool,
-                                           UseSoftFP: bool) -> TargetMachineRef;
+                                           UseSoftFP: bool,
+                                           NoFramePointerElim: bool) -> TargetMachineRef;
         pub fn LLVMRustDisposeTargetMachine(T: TargetMachineRef);
         pub fn LLVMRustAddAnalysisPasses(T: TargetMachineRef,
                                          PM: PassManagerRef,
@@ -1762,28 +1769,31 @@ pub mod llvm {
         pub fn LLVMRustArchiveReadSection(AR: ArchiveRef, name: *c_char,
                                           out_len: *mut size_t) -> *c_char;
         pub fn LLVMRustDestroyArchive(AR: ArchiveRef);
+
+        pub fn LLVMRustSetDLLExportStorageClass(V: ValueRef);
+        pub fn LLVMVersionMinor() -> c_int;
     }
 }
 
-pub fn SetInstructionCallConv(Instr: ValueRef, CC: CallConv) {
+pub fn SetInstructionCallConv(instr: ValueRef, cc: CallConv) {
     unsafe {
-        llvm::LLVMSetInstructionCallConv(Instr, CC as c_uint);
+        llvm::LLVMSetInstructionCallConv(instr, cc as c_uint);
     }
 }
-pub fn SetFunctionCallConv(Fn: ValueRef, CC: CallConv) {
+pub fn SetFunctionCallConv(fn_: ValueRef, cc: CallConv) {
     unsafe {
-        llvm::LLVMSetFunctionCallConv(Fn, CC as c_uint);
+        llvm::LLVMSetFunctionCallConv(fn_, cc as c_uint);
     }
 }
-pub fn SetLinkage(Global: ValueRef, Link: Linkage) {
+pub fn SetLinkage(global: ValueRef, link: Linkage) {
     unsafe {
-        llvm::LLVMSetLinkage(Global, Link as c_uint);
+        llvm::LLVMSetLinkage(global, link as c_uint);
     }
 }
 
-pub fn SetUnnamedAddr(Global: ValueRef, Unnamed: bool) {
+pub fn SetUnnamedAddr(global: ValueRef, unnamed: bool) {
     unsafe {
-        llvm::LLVMSetUnnamedAddr(Global, Unnamed as Bool);
+        llvm::LLVMSetUnnamedAddr(global, unnamed as Bool);
     }
 }
 
@@ -1793,20 +1803,20 @@ pub fn set_thread_local(global: ValueRef, is_thread_local: bool) {
     }
 }
 
-pub fn ConstICmp(Pred: IntPredicate, V1: ValueRef, V2: ValueRef) -> ValueRef {
+pub fn ConstICmp(pred: IntPredicate, v1: ValueRef, v2: ValueRef) -> ValueRef {
     unsafe {
-        llvm::LLVMConstICmp(Pred as c_ushort, V1, V2)
+        llvm::LLVMConstICmp(pred as c_ushort, v1, v2)
     }
 }
-pub fn ConstFCmp(Pred: RealPredicate, V1: ValueRef, V2: ValueRef) -> ValueRef {
+pub fn ConstFCmp(pred: RealPredicate, v1: ValueRef, v2: ValueRef) -> ValueRef {
     unsafe {
-        llvm::LLVMConstFCmp(Pred as c_ushort, V1, V2)
+        llvm::LLVMConstFCmp(pred as c_ushort, v1, v2)
     }
 }
 
-pub fn SetFunctionAttribute(Fn: ValueRef, attr: Attribute) {
+pub fn SetFunctionAttribute(fn_: ValueRef, attr: Attribute) {
     unsafe {
-        llvm::LLVMAddFunctionAttr(Fn, attr as c_uint)
+        llvm::LLVMAddFunctionAttr(fn_, attr as c_uint)
     }
 }
 /* Memory-managed object interface to type handles. */
@@ -1836,7 +1846,7 @@ impl TypeNames {
         unsafe {
             let s = llvm::LLVMTypeToString(ty.to_ref());
             let ret = from_c_str(s);
-            free(s as *c_void);
+            free(s as *mut c_void);
             ret
         }
     }
@@ -1850,7 +1860,7 @@ impl TypeNames {
         unsafe {
             let s = llvm::LLVMValueToString(val);
             let ret = from_c_str(s);
-            free(s as *c_void);
+            free(s as *mut c_void);
             ret
         }
     }
@@ -1859,20 +1869,20 @@ impl TypeNames {
 /* Memory-managed interface to target data. */
 
 pub struct target_data_res {
-    TD: TargetDataRef,
+    td: TargetDataRef,
 }
 
 impl Drop for target_data_res {
     fn drop(&mut self) {
         unsafe {
-            llvm::LLVMDisposeTargetData(self.TD);
+            llvm::LLVMDisposeTargetData(self.td);
         }
     }
 }
 
-pub fn target_data_res(TD: TargetDataRef) -> target_data_res {
+pub fn target_data_res(td: TargetDataRef) -> target_data_res {
     target_data_res {
-        TD: TD
+        td: td
     }
 }
 
@@ -1895,20 +1905,20 @@ pub fn mk_target_data(string_rep: &str) -> TargetData {
 /* Memory-managed interface to pass managers. */
 
 pub struct pass_manager_res {
-    PM: PassManagerRef,
+    pm: PassManagerRef,
 }
 
 impl Drop for pass_manager_res {
     fn drop(&mut self) {
         unsafe {
-            llvm::LLVMDisposePassManager(self.PM);
+            llvm::LLVMDisposePassManager(self.pm);
         }
     }
 }
 
-pub fn pass_manager_res(PM: PassManagerRef) -> pass_manager_res {
+pub fn pass_manager_res(pm: PassManagerRef) -> pass_manager_res {
     pass_manager_res {
-        PM: PM
+        pm: pm
     }
 }
 
@@ -1962,20 +1972,20 @@ impl Drop for ObjectFile {
 /* Memory-managed interface to section iterators. */
 
 pub struct section_iter_res {
-    SI: SectionIteratorRef,
+    si: SectionIteratorRef,
 }
 
 impl Drop for section_iter_res {
     fn drop(&mut self) {
         unsafe {
-            llvm::LLVMDisposeSectionIterator(self.SI);
+            llvm::LLVMDisposeSectionIterator(self.si);
         }
     }
 }
 
-pub fn section_iter_res(SI: SectionIteratorRef) -> section_iter_res {
+pub fn section_iter_res(si: SectionIteratorRef) -> section_iter_res {
     section_iter_res {
-        SI: SI
+        si: si
     }
 }
 

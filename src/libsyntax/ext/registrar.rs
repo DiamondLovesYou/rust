@@ -15,15 +15,18 @@ use diagnostic;
 use visit;
 use visit::Visitor;
 
+use std::vec_ng::Vec;
+
 struct MacroRegistrarContext {
-    registrars: ~[(ast::NodeId, Span)],
+    registrars: Vec<(ast::NodeId, Span)> ,
 }
 
 impl Visitor<()> for MacroRegistrarContext {
     fn visit_item(&mut self, item: &ast::Item, _: ()) {
         match item.node {
             ast::ItemFn(..) => {
-                if attr::contains_name(item.attrs, "macro_registrar") {
+                if attr::contains_name(item.attrs.as_slice(),
+                                       "macro_registrar") {
                     self.registrars.push((item.id, item.span));
                 }
             }
@@ -35,21 +38,21 @@ impl Visitor<()> for MacroRegistrarContext {
 }
 
 pub fn find_macro_registrar(diagnostic: @diagnostic::SpanHandler,
-                            crate: &ast::Crate) -> Option<ast::DefId> {
-    let mut ctx = MacroRegistrarContext { registrars: ~[] };
-    visit::walk_crate(&mut ctx, crate, ());
+                            krate: &ast::Crate) -> Option<ast::DefId> {
+    let mut ctx = MacroRegistrarContext { registrars: Vec::new() };
+    visit::walk_crate(&mut ctx, krate, ());
 
     match ctx.registrars.len() {
         0 => None,
         1 => {
             let (node_id, _) = ctx.registrars.pop().unwrap();
             Some(ast::DefId {
-                crate: ast::LOCAL_CRATE,
+                krate: ast::LOCAL_CRATE,
                 node: node_id
             })
         },
         _ => {
-            diagnostic.handler().err("Multiple macro registration functions found");
+            diagnostic.handler().err("multiple macro registration functions found");
             for &(_, span) in ctx.registrars.iter() {
                 diagnostic.span_note(span, "one is here");
             }

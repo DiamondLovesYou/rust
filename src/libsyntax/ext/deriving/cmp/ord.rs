@@ -15,18 +15,21 @@ use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
 
-pub fn expand_deriving_ord(cx: &ExtCtxt,
+use std::vec_ng::Vec;
+
+pub fn expand_deriving_ord(cx: &mut ExtCtxt,
                            span: Span,
                            mitem: @MetaItem,
-                           in_items: ~[@Item]) -> ~[@Item] {
+                           item: @Item,
+                           push: |@Item|) {
     macro_rules! md (
         ($name:expr, $op:expr, $equal:expr) => {
             MethodDef {
                 name: $name,
                 generics: LifetimeBounds::empty(),
                 explicit_self: borrowed_explicit_self(),
-                args: ~[borrowed_self()],
-                ret_ty: Literal(Path::new(~["bool"])),
+                args: vec!(borrowed_self()),
+                ret_ty: Literal(Path::new(vec!("bool"))),
                 inline: true,
                 const_nonmatching: false,
                 combine_substructure: |cx, span, substr| cs_op($op, $equal, cx, span, substr)
@@ -35,23 +38,23 @@ pub fn expand_deriving_ord(cx: &ExtCtxt,
     );
 
     let trait_def = TraitDef {
-        cx: cx, span: span,
-
-        path: Path::new(~["std", "cmp", "Ord"]),
-        additional_bounds: ~[],
+        span: span,
+        attributes: Vec::new(),
+        path: Path::new(vec!("std", "cmp", "Ord")),
+        additional_bounds: Vec::new(),
         generics: LifetimeBounds::empty(),
-        methods: ~[
+        methods: vec!(
             md!("lt", true, false),
             md!("le", true, true),
             md!("gt", false, false),
             md!("ge", false, true)
-        ]
+        )
     };
-    trait_def.expand(mitem, in_items)
+    trait_def.expand(cx, mitem, item, push)
 }
 
 /// Strict inequality.
-fn cs_op(less: bool, equal: bool, cx: &ExtCtxt, span: Span, substr: &Substructure) -> @Expr {
+fn cs_op(less: bool, equal: bool, cx: &mut ExtCtxt, span: Span, substr: &Substructure) -> @Expr {
     let op = if less {ast::BiLt} else {ast::BiGt};
     cs_fold(
         false, // need foldr,
@@ -75,17 +78,13 @@ fn cs_op(less: bool, equal: bool, cx: &ExtCtxt, span: Span, substr: &Substructur
             */
             let other_f = match other_fs {
                 [o_f] => o_f,
-                _ => cx.span_bug(span, "Not exactly 2 arguments in `deriving(Ord)`")
+                _ => cx.span_bug(span, "not exactly 2 arguments in `deriving(Ord)`")
             };
 
-            let cmp = cx.expr_binary(span, op,
-                                     cx.expr_deref(span, self_f),
-                                     cx.expr_deref(span, other_f));
+            let cmp = cx.expr_binary(span, op, self_f, other_f);
 
             let not_cmp = cx.expr_unary(span, ast::UnNot,
-                                        cx.expr_binary(span, op,
-                                                       cx.expr_deref(span, other_f),
-                                                       cx.expr_deref(span, self_f)));
+                                        cx.expr_binary(span, op, other_f, self_f));
 
             let and = cx.expr_binary(span, ast::BiAnd, not_cmp, subexpr);
             cx.expr_binary(span, ast::BiOr, cmp, and)
@@ -103,7 +102,7 @@ fn cs_op(less: bool, equal: bool, cx: &ExtCtxt, span: Span, substr: &Substructur
                                  } else {
                                      self_var > other_var
                                  }),
-                _ => cx.span_bug(span, "Not exactly 2 arguments in `deriving(Ord)`")
+                _ => cx.span_bug(span, "not exactly 2 arguments in `deriving(Ord)`")
             }
         },
         cx, span, substr)

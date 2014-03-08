@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -51,6 +51,7 @@
 
 
 use middle::const_eval;
+use middle::subst::Subst;
 use middle::ty::{substs};
 use middle::ty::{ty_param_substs_and_ty};
 use middle::ty;
@@ -59,13 +60,12 @@ use middle::typeck::rscope::{RegionScope};
 use middle::typeck::lookup_def_tcx;
 use util::ppaux::Repr;
 
-use std::vec;
+use std::vec_ng::Vec;
 use syntax::abi::AbiSet;
-use syntax::{ast, ast_map, ast_util};
+use syntax::{ast, ast_util};
 use syntax::codemap::Span;
 use syntax::opt_vec::OptVec;
 use syntax::opt_vec;
-use syntax::parse::token;
 use syntax::print::pprust::{lifetime_to_str, path_to_str};
 
 pub trait AstConv {
@@ -109,9 +109,8 @@ pub fn ast_region_to_region(tcx: ty::ctxt, lifetime: &ast::Lifetime)
     };
 
     debug!("ast_region_to_region(lifetime={} id={}) yields {}",
-            lifetime_to_str(lifetime, tcx.sess.intr()),
-            lifetime.id,
-            r.repr(tcx));
+            lifetime_to_str(lifetime),
+            lifetime.id, r.repr(tcx));
 
     r
 }
@@ -144,8 +143,7 @@ fn opt_ast_region_to_region<AC:AstConv,RS:RegionScope>(
     };
 
     debug!("opt_ast_region_to_region(opt_lifetime={:?}) yields {}",
-            opt_lifetime.as_ref().map(
-                |e| lifetime_to_str(e, this.tcx().sess.intr())),
+            opt_lifetime.as_ref().map(|e| lifetime_to_str(e)),
             r.repr(this.tcx()));
 
     r
@@ -169,7 +167,7 @@ fn ast_path_substs<AC:AstConv,RS:RegionScope>(
     // If the type is parameterized by the this region, then replace this
     // region with the current anon region binding (in other words,
     // whatever & would get replaced with).
-    let expected_num_region_params = decl_generics.region_param_defs.len();
+    let expected_num_region_params = decl_generics.region_param_defs().len();
     let supplied_num_region_params = path.segments.last().unwrap().lifetimes.len();
     let regions = if expected_num_region_params == supplied_num_region_params {
         path.segments.last().unwrap().lifetimes.map(
@@ -188,33 +186,63 @@ fn ast_path_substs<AC:AstConv,RS:RegionScope>(
         }
 
         match anon_regions {
-            Ok(v) => opt_vec::from(v),
-            Err(()) => opt_vec::from(vec::from_fn(expected_num_region_params,
+            Ok(v) => opt_vec::from(v.move_iter().collect()),
+            Err(()) => opt_vec::from(Vec::from_fn(expected_num_region_params,
                                                   |_| ty::ReStatic)) // hokey
         }
     };
 
     // Convert the type parameters supplied by the user.
-    let supplied_type_parameter_count =
-        path.segments.iter().flat_map(|s| s.types.iter()).len();
-    if decl_generics.type_param_defs.len() != supplied_type_parameter_count {
-        this.tcx().sess.span_fatal(
-            path.span,
-            format!("wrong number of type arguments: expected {} but found {}",
-                 decl_generics.type_param_defs.len(),
-                 supplied_type_parameter_count));
+    let supplied_ty_param_count = path.segments.iter().flat_map(|s| s.types.iter()).len();
+    let formal_ty_param_count = decl_generics.type_param_defs().len();
+    let required_ty_param_count = decl_generics.type_param_defs().iter()
+                                               .take_while(|x| x.default.is_none())
+                                               .len();
+    if supplied_ty_param_count < required_ty_param_count {
+        let expected = if required_ty_param_count < formal_ty_param_count {
+            "expected at least"
+        } else {
+            "expected"
+        };
+        this.tcx().sess.span_fatal(path.span,
+            format!("wrong number of type arguments: {} {} but found {}",
+                expected, required_ty_param_count, supplied_ty_param_count));
+    } else if supplied_ty_param_count > formal_ty_param_count {
+        let expected = if required_ty_param_count < formal_ty_param_count {
+            "expected at most"
+        } else {
+            "expected"
+        };
+        this.tcx().sess.span_fatal(path.span,
+            format!("wrong number of type arguments: {} {} but found {}",
+                expected, formal_ty_param_count, supplied_ty_param_count));
     }
-    let tps = path.segments
-                  .iter()
-                  .flat_map(|s| s.types.iter())
-                  .map(|&a_t| ast_ty_to_ty(this, rscope, a_t))
-                  .collect();
 
-    substs {
+    if supplied_ty_param_count > required_ty_param_count
+        && !this.tcx().sess.features.default_type_params.get() {
+        this.tcx().sess.span_err(path.span, "default type parameters are \
+                                             experimental and possibly buggy");
+        this.tcx().sess.span_note(path.span, "add #[feature(default_type_params)] \
+                                              to the crate attributes to enable");
+    }
+
+    let tps = path.segments.iter().flat_map(|s| s.types.iter())
+                            .map(|&a_t| ast_ty_to_ty(this, rscope, a_t))
+                            .collect();
+
+    let mut substs = substs {
         regions: ty::NonerasedRegions(regions),
         self_ty: self_ty,
         tps: tps
+    };
+
+    for param in decl_generics.type_param_defs()
+                              .slice_from(supplied_ty_param_count).iter() {
+        let ty = param.default.unwrap().subst_spanned(tcx, &substs, Some(path.span));
+        substs.tps.push(ty);
     }
+
+    substs
 }
 
 pub fn ast_path_to_substs_and_ty<AC:AstConv,
@@ -276,6 +304,73 @@ pub fn ast_path_to_ty<AC:AstConv,RS:RegionScope>(
 pub static NO_REGIONS: uint = 1;
 pub static NO_TPS: uint = 2;
 
+fn check_path_args(tcx: ty::ctxt,
+                   path: &ast::Path,
+                   flags: uint) {
+    if (flags & NO_TPS) != 0u {
+        if !path.segments.iter().all(|s| s.types.is_empty()) {
+            tcx.sess.span_err(
+                path.span,
+                "type parameters are not allowed on this type");
+        }
+    }
+
+    if (flags & NO_REGIONS) != 0u {
+        if !path.segments.last().unwrap().lifetimes.is_empty() {
+            tcx.sess.span_err(
+                path.span,
+                "region parameters are not allowed on this type");
+        }
+    }
+}
+
+pub fn ast_ty_to_prim_ty(tcx: ty::ctxt, ast_ty: &ast::Ty) -> Option<ty::t> {
+    match ast_ty.node {
+        ast::TyPath(ref path, _, id) => {
+            let def_map = tcx.def_map.borrow();
+            let a_def = match def_map.get().find(&id) {
+                None => tcx.sess.span_fatal(
+                    ast_ty.span, format!("unbound path {}", path_to_str(path))),
+                Some(&d) => d
+            };
+            match a_def {
+                ast::DefPrimTy(nty) => {
+                    match nty {
+                        ast::TyBool => {
+                            check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                            Some(ty::mk_bool())
+                        }
+                        ast::TyChar => {
+                            check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                            Some(ty::mk_char())
+                        }
+                        ast::TyInt(it) => {
+                            check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                            Some(ty::mk_mach_int(it))
+                        }
+                        ast::TyUint(uit) => {
+                            check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                            Some(ty::mk_mach_uint(uit))
+                        }
+                        ast::TyFloat(ft) => {
+                            check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                            Some(ty::mk_mach_float(ft))
+                        }
+                        ast::TyStr => {
+                            tcx.sess.span_err(ast_ty.span,
+                                              "bare `str` is not a type");
+                            // return /something/ so they can at least get more errors
+                            Some(ty::mk_str(tcx, ty::vstore_uniq))
+                        }
+                    }
+                }
+                _ => None
+            }
+        }
+        _ => None
+    }
+}
+
 // Parses the programmer's textual representation of a type into our
 // internal notion of a type.
 pub fn ast_ty_to_ty<AC:AstConv, RS:RegionScope>(
@@ -293,25 +388,43 @@ pub fn ast_ty_to_ty<AC:AstConv, RS:RegionScope>(
         ty::mt {ty: ast_ty_to_ty(this, rscope, mt.ty), mutbl: mt.mutbl}
     }
 
-    // Handle @, ~, and & being able to mean strs and vecs.
-    // If a_seq_ty is a str or a vec, make it an str/vec.
+    enum PointerTy {
+        Box,
+        VStore(ty::vstore)
+    }
+    impl PointerTy {
+        fn expect_vstore(&self, tcx: ty::ctxt, span: Span, ty: &str) -> ty::vstore {
+            match *self {
+                Box => {
+                    tcx.sess.span_err(span, format!("managed {} are not supported", ty));
+                    // everything can be ~, so this is a worth substitute
+                    ty::vstore_uniq
+                }
+                VStore(vst) => vst
+            }
+        }
+    }
+
+    // Handle ~, and & being able to mean strs and vecs.
+    // If a_seq_ty is a str or a vec, make it a str/vec.
     // Also handle first-class trait types.
     fn mk_pointer<AC:AstConv,
                   RS:RegionScope>(
                   this: &AC,
                   rscope: &RS,
                   a_seq_ty: &ast::MutTy,
-                  vst: ty::vstore,
+                  ptr_ty: PointerTy,
                   constr: |ty::mt| -> ty::t)
                   -> ty::t {
         let tcx = this.tcx();
-        debug!("mk_pointer(vst={:?})", vst);
+        debug!("mk_pointer(ptr_ty={:?})", ptr_ty);
 
         match a_seq_ty.ty.node {
             ast::TyVec(ty) => {
+                let vst = ptr_ty.expect_vstore(tcx, a_seq_ty.ty.span, "vectors");
                 let mut mt = ast_ty_to_mt(this, rscope, ty);
                 if a_seq_ty.mutbl == ast::MutMutable {
-                    mt = ty::mt { ty: mt.ty, mutbl: a_seq_ty.mutbl };
+                    mt.mutbl = ast::MutMutable;
                 }
                 debug!("&[]: vst={:?}", vst);
                 return ty::mk_vec(tcx, mt, vst);
@@ -322,25 +435,26 @@ pub fn ast_ty_to_ty<AC:AstConv, RS:RegionScope>(
                 // will run after this as long as the path isn't a trait.
                 let def_map = tcx.def_map.borrow();
                 match def_map.get().find(&id) {
-                    Some(&ast::DefPrimTy(ast::TyStr)) if a_seq_ty.mutbl == ast::MutImmutable => {
+                    Some(&ast::DefPrimTy(ast::TyStr)) if
+                            a_seq_ty.mutbl == ast::MutImmutable => {
                         check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                        let vst = ptr_ty.expect_vstore(tcx, path.span, "strings");
                         return ty::mk_str(tcx, vst);
                     }
                     Some(&ast::DefTrait(trait_def_id)) => {
                         let result = ast_path_to_trait_ref(
                             this, rscope, trait_def_id, None, path);
-                        let trait_store = match vst {
-                            ty::vstore_box => ty::BoxTraitStore,
-                            ty::vstore_uniq => ty::UniqTraitStore,
-                            ty::vstore_slice(r) => {
+                        let trait_store = match ptr_ty {
+                            VStore(ty::vstore_uniq) => ty::UniqTraitStore,
+                            VStore(ty::vstore_slice(r)) => {
                                 ty::RegionTraitStore(r)
                             }
-                            ty::vstore_fixed(..) => {
+                            _ => {
                                 tcx.sess.span_err(
                                     path.span,
-                                    "@trait, ~trait or &trait are the only supported \
+                                    "~trait or &trait are the only supported \
                                      forms of casting-to-trait");
-                                ty::BoxTraitStore
+                                return ty::mk_err();
                             }
                         };
                         let bounds = conv_builtin_bounds(this.tcx(), bounds, trait_store);
@@ -361,26 +475,6 @@ pub fn ast_ty_to_ty<AC:AstConv, RS:RegionScope>(
         return constr(seq_ty);
     }
 
-    fn check_path_args(tcx: ty::ctxt,
-                       path: &ast::Path,
-                       flags: uint) {
-        if (flags & NO_TPS) != 0u {
-            if !path.segments.iter().all(|s| s.types.is_empty()) {
-                tcx.sess.span_err(
-                    path.span,
-                    "type parameters are not allowed on this type");
-            }
-        }
-
-        if (flags & NO_REGIONS) != 0u {
-            if !path.segments.last().unwrap().lifetimes.is_empty() {
-                tcx.sess.span_err(
-                    path.span,
-                    "region parameters are not allowed on this type");
-            }
-        }
-    }
-
     let tcx = this.tcx();
 
     {
@@ -398,204 +492,171 @@ pub fn ast_ty_to_ty<AC:AstConv, RS:RegionScope>(
         ast_ty_to_ty_cache.get().insert(ast_ty.id, ty::atttce_unresolved);
     }
 
-
-    let typ = match ast_ty.node {
-      ast::TyNil => ty::mk_nil(),
-      ast::TyBot => ty::mk_bot(),
-      ast::TyBox(ty) => {
-        let mt = ast::MutTy { ty: ty, mutbl: ast::MutImmutable };
-        mk_pointer(this, rscope, &mt, ty::vstore_box,
-                   |tmt| ty::mk_box(tcx, tmt.ty))
-      }
-      ast::TyUniq(ty) => {
-        let mt = ast::MutTy { ty: ty, mutbl: ast::MutImmutable };
-        mk_pointer(this, rscope, &mt, ty::vstore_uniq,
-                   |tmt| ty::mk_uniq(tcx, tmt.ty))
-      }
-      ast::TyVec(ty) => {
-        tcx.sess.span_err(ast_ty.span, "bare `[]` is not a type");
-        // return /something/ so they can at least get more errors
-        ty::mk_vec(tcx, ast_ty_to_mt(this, rscope, ty), ty::vstore_uniq)
-      }
-      ast::TyPtr(ref mt) => {
-        ty::mk_ptr(tcx, ast_mt_to_mt(this, rscope, mt))
-      }
-      ast::TyRptr(ref region, ref mt) => {
-        let r = opt_ast_region_to_region(this, rscope, ast_ty.span, region);
-        debug!("ty_rptr r={}", r.repr(this.tcx()));
-        mk_pointer(this, rscope, mt, ty::vstore_slice(r),
-                   |tmt| ty::mk_rptr(tcx, r, tmt))
-      }
-      ast::TyTup(ref fields) => {
-        let flds = fields.map(|&t| ast_ty_to_ty(this, rscope, t));
-        ty::mk_tup(tcx, flds)
-      }
-      ast::TyBareFn(ref bf) => {
-          if bf.decl.variadic && !bf.abis.is_c() {
-            tcx.sess.span_err(ast_ty.span, "variadic function must have C calling convention");
-          }
-          ty::mk_bare_fn(tcx, ty_of_bare_fn(this, ast_ty.id, bf.purity,
-                                            bf.abis, bf.decl))
-      }
-      ast::TyClosure(ref f) => {
-        if f.sigil == ast::ManagedSigil {
-            tcx.sess.span_err(ast_ty.span,
-                              "managed closures are not supported");
-        }
-
-          let bounds = conv_builtin_bounds(this.tcx(), &f.bounds, match f.sigil {
-              // Use corresponding trait store to figure out default bounds
-              // if none were specified.
-              ast::BorrowedSigil => ty::RegionTraitStore(ty::ReEmpty), // dummy region
-              ast::OwnedSigil    => ty::UniqTraitStore,
-              ast::ManagedSigil  => ty::BoxTraitStore,
-          });
-          let fn_decl = ty_of_closure(this,
-                                      rscope,
-                                      ast_ty.id,
-                                      f.sigil,
-                                      f.purity,
-                                      f.onceness,
-                                      bounds,
-                                      &f.region,
-                                      f.decl,
-                                      None,
-                                      ast_ty.span);
-          ty::mk_closure(tcx, fn_decl)
-      }
-      ast::TyPath(ref path, ref bounds, id) => {
-        let def_map = tcx.def_map.borrow();
-        let a_def = match def_map.get().find(&id) {
-          None => tcx.sess.span_fatal(
-              ast_ty.span, format!("unbound path {}",
-                                path_to_str(path, tcx.sess.intr()))),
-          Some(&d) => d
-        };
-        // Kind bounds on path types are only supported for traits.
-        match a_def {
-            // But don't emit the error if the user meant to do a trait anyway.
-            ast::DefTrait(..) => { },
-            _ if bounds.is_some() =>
-                tcx.sess.span_err(ast_ty.span,
-                    "kind bounds can only be used on trait types"),
-            _ => { },
-        }
-        match a_def {
-          ast::DefTrait(_) => {
-              let path_str = path_to_str(path, tcx.sess.intr());
-              tcx.sess.span_err(
-                  ast_ty.span,
-                  format!("reference to trait `{}` where a type is expected; \
-                        try `@{}`, `~{}`, or `&{}`",
-                       path_str, path_str, path_str, path_str));
-              ty::mk_err()
-          }
-          ast::DefTy(did) | ast::DefStruct(did) => {
-            ast_path_to_ty(this, rscope, did, path).ty
-          }
-          ast::DefPrimTy(nty) => {
-            match nty {
-              ast::TyBool => {
-                check_path_args(tcx, path, NO_TPS | NO_REGIONS);
-                ty::mk_bool()
-              }
-              ast::TyChar => {
-                check_path_args(tcx, path, NO_TPS | NO_REGIONS);
-                ty::mk_char()
-              }
-              ast::TyInt(it) => {
-                check_path_args(tcx, path, NO_TPS | NO_REGIONS);
-                ty::mk_mach_int(it)
-              }
-              ast::TyUint(uit) => {
-                check_path_args(tcx, path, NO_TPS | NO_REGIONS);
-                ty::mk_mach_uint(uit)
-              }
-              ast::TyFloat(ft) => {
-                check_path_args(tcx, path, NO_TPS | NO_REGIONS);
-                ty::mk_mach_float(ft)
-              }
-              ast::TyStr => {
-                tcx.sess.span_err(ast_ty.span,
-                                  "bare `str` is not a type");
+    let typ = ast_ty_to_prim_ty(tcx, ast_ty).unwrap_or_else(|| match ast_ty.node {
+            ast::TyNil => ty::mk_nil(),
+            ast::TyBot => ty::mk_bot(),
+            ast::TyBox(ty) => {
+                let mt = ast::MutTy { ty: ty, mutbl: ast::MutImmutable };
+                mk_pointer(this, rscope, &mt, Box, |tmt| ty::mk_box(tcx, tmt.ty))
+            }
+            ast::TyUniq(ty) => {
+                let mt = ast::MutTy { ty: ty, mutbl: ast::MutImmutable };
+                mk_pointer(this, rscope, &mt, VStore(ty::vstore_uniq),
+                           |tmt| ty::mk_uniq(tcx, tmt.ty))
+            }
+            ast::TyVec(ty) => {
+                tcx.sess.span_err(ast_ty.span, "bare `[]` is not a type");
                 // return /something/ so they can at least get more errors
-                ty::mk_str(tcx, ty::vstore_uniq)
-              }
+                ty::mk_vec(tcx, ast_ty_to_mt(this, rscope, ty), ty::vstore_uniq)
             }
-          }
-          ast::DefTyParam(id, n) => {
-            check_path_args(tcx, path, NO_TPS | NO_REGIONS);
-            ty::mk_param(tcx, n, id)
-          }
-          ast::DefSelfTy(id) => {
-            // n.b.: resolve guarantees that the this type only appears in a
-            // trait, which we rely upon in various places when creating
-            // substs
-            check_path_args(tcx, path, NO_TPS | NO_REGIONS);
-            let did = ast_util::local_def(id);
-            ty::mk_self(tcx, did)
-          }
-          ast::DefMod(id) => {
-            tcx.sess.span_fatal(ast_ty.span,
-                                format!("found module name used as a type: {}",
-                                        ast_map::node_id_to_str(tcx.items, id.node,
-                                        token::get_ident_interner())));
-          }
-          _ => {
-            tcx.sess.span_fatal(ast_ty.span,
-                                format!("found value name used as a type: {:?}", a_def));
-          }
-        }
-      }
-      ast::TyFixedLengthVec(ty, e) => {
-        match const_eval::eval_const_expr_partial(&tcx, e) {
-          Ok(ref r) => {
-            match *r {
-              const_eval::const_int(i) =>
-                ty::mk_vec(tcx, ast_ty_to_mt(this, rscope, ty),
-                           ty::vstore_fixed(i as uint)),
-              const_eval::const_uint(i) =>
-                ty::mk_vec(tcx, ast_ty_to_mt(this, rscope, ty),
-                           ty::vstore_fixed(i as uint)),
-              _ => {
-                tcx.sess.span_fatal(
-                    ast_ty.span, "expected constant expr for vector length");
-              }
+            ast::TyPtr(ref mt) => {
+                ty::mk_ptr(tcx, ast_mt_to_mt(this, rscope, mt))
             }
-          }
-          Err(ref r) => {
-            tcx.sess.span_fatal(
-                ast_ty.span,
-                format!("expected constant expr for vector length: {}", *r));
-          }
-        }
-      }
-      ast::TyTypeof(_e) => {
-          tcx.sess.span_bug(ast_ty.span, "typeof is reserved but unimplemented");
-      }
-      ast::TyInfer => {
-        // ty_infer should only appear as the type of arguments or return
-        // values in a fn_expr, or as the type of local variables.  Both of
-        // these cases are handled specially and should not descend into this
-        // routine.
-        this.tcx().sess.span_bug(
-            ast_ty.span,
-            "found `ty_infer` in unexpected place");
-      }
-    };
+            ast::TyRptr(ref region, ref mt) => {
+                let r = opt_ast_region_to_region(this, rscope, ast_ty.span, region);
+                debug!("ty_rptr r={}", r.repr(this.tcx()));
+                mk_pointer(this, rscope, mt, VStore(ty::vstore_slice(r)),
+                           |tmt| ty::mk_rptr(tcx, r, tmt))
+            }
+            ast::TyTup(ref fields) => {
+                let flds = fields.iter()
+                                 .map(|&t| ast_ty_to_ty(this, rscope, t))
+                                 .collect();
+                ty::mk_tup(tcx, flds)
+            }
+            ast::TyBareFn(ref bf) => {
+                if bf.decl.variadic && !bf.abis.is_c() {
+                    tcx.sess.span_err(ast_ty.span,
+                                      "variadic function must have C calling convention");
+                }
+                ty::mk_bare_fn(tcx, ty_of_bare_fn(this, ast_ty.id, bf.purity,
+                                                  bf.abis, bf.decl))
+            }
+            ast::TyClosure(ref f) => {
+                if f.sigil == ast::ManagedSigil {
+                    tcx.sess.span_err(ast_ty.span,
+                                      "managed closures are not supported");
+                }
+
+                let bounds = conv_builtin_bounds(this.tcx(), &f.bounds, match f.sigil {
+                        // Use corresponding trait store to figure out default bounds
+                        // if none were specified.
+                        ast::BorrowedSigil => ty::RegionTraitStore(ty::ReEmpty), // dummy region
+                        ast::OwnedSigil    => ty::UniqTraitStore,
+                        ast::ManagedSigil  => return ty::mk_err()
+                    });
+                let fn_decl = ty_of_closure(this,
+                                            rscope,
+                                            ast_ty.id,
+                                            f.sigil,
+                                            f.purity,
+                                            f.onceness,
+                                            bounds,
+                                            &f.region,
+                                            f.decl,
+                                            None,
+                                            ast_ty.span);
+                ty::mk_closure(tcx, fn_decl)
+            }
+            ast::TyPath(ref path, ref bounds, id) => {
+                let def_map = tcx.def_map.borrow();
+                let a_def = match def_map.get().find(&id) {
+                    None => tcx.sess.span_fatal(
+                        ast_ty.span, format!("unbound path {}", path_to_str(path))),
+                    Some(&d) => d
+                };
+                // Kind bounds on path types are only supported for traits.
+                match a_def {
+                    // But don't emit the error if the user meant to do a trait anyway.
+                    ast::DefTrait(..) => { },
+                    _ if bounds.is_some() =>
+                        tcx.sess.span_err(ast_ty.span,
+                                          "kind bounds can only be used on trait types"),
+                    _ => { },
+                }
+                match a_def {
+                    ast::DefTrait(_) => {
+                        let path_str = path_to_str(path);
+                        tcx.sess.span_err(
+                            ast_ty.span,
+                            format!("reference to trait `{}` where a type is expected; \
+                                    try `@{}`, `~{}`, or `&{}`",
+                                    path_str, path_str, path_str, path_str));
+                        ty::mk_err()
+                    }
+                    ast::DefTy(did) | ast::DefStruct(did) => {
+                        ast_path_to_ty(this, rscope, did, path).ty
+                    }
+                    ast::DefTyParam(id, n) => {
+                        check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                        ty::mk_param(tcx, n, id)
+                    }
+                    ast::DefSelfTy(id) => {
+                        // n.b.: resolve guarantees that the this type only appears in a
+                        // trait, which we rely upon in various places when creating
+                        // substs
+                        check_path_args(tcx, path, NO_TPS | NO_REGIONS);
+                        let did = ast_util::local_def(id);
+                        ty::mk_self(tcx, did)
+                    }
+                    ast::DefMod(id) => {
+                        tcx.sess.span_fatal(ast_ty.span,
+                            format!("found module name used as a type: {}",
+                                    tcx.map.node_to_str(id.node)));
+                    }
+                    ast::DefPrimTy(_) => {
+                        fail!("DefPrimTy arm missed in previous ast_ty_to_prim_ty call");
+                    }
+                    _ => {
+                        tcx.sess.span_fatal(ast_ty.span,
+                            format!("found value name used as a type: {:?}", a_def));
+                    }
+                }
+            }
+            ast::TyFixedLengthVec(ty, e) => {
+                match const_eval::eval_const_expr_partial(&tcx, e) {
+                    Ok(ref r) => {
+                        match *r {
+                            const_eval::const_int(i) =>
+                                ty::mk_vec(tcx, ast_ty_to_mt(this, rscope, ty),
+                                           ty::vstore_fixed(i as uint)),
+                            const_eval::const_uint(i) =>
+                                ty::mk_vec(tcx, ast_ty_to_mt(this, rscope, ty),
+                                           ty::vstore_fixed(i as uint)),
+                            _ => {
+                                tcx.sess.span_fatal(
+                                    ast_ty.span, "expected constant expr for vector length");
+                            }
+                        }
+                    }
+                    Err(ref r) => {
+                        tcx.sess.span_fatal(
+                            ast_ty.span,
+                            format!("expected constant expr for vector length: {}", *r));
+                    }
+                }
+            }
+            ast::TyTypeof(_e) => {
+                tcx.sess.span_bug(ast_ty.span, "typeof is reserved but unimplemented");
+            }
+            ast::TyInfer => {
+                // ty_infer should only appear as the type of arguments or return
+                // values in a fn_expr, or as the type of local variables.  Both of
+                // these cases are handled specially and should not descend into this
+                // routine.
+                this.tcx().sess.span_bug(
+                    ast_ty.span,
+                    "found `ty_infer` in unexpected place");
+            }
+        });
 
     let mut ast_ty_to_ty_cache = tcx.ast_ty_to_ty_cache.borrow_mut();
     ast_ty_to_ty_cache.get().insert(ast_ty.id, ty::atttce_resolved(typ));
     return typ;
 }
 
-pub fn ty_of_arg<AC:AstConv,
-                 RS:RegionScope>(
-                 this: &AC,
-                 rscope: &RS,
-                 a: &ast::Arg,
-                 expected_ty: Option<ty::t>)
-                 -> ty::t {
+pub fn ty_of_arg<AC: AstConv, RS: RegionScope>(this: &AC, rscope: &RS, a: &ast::Arg,
+                                               expected_ty: Option<ty::t>) -> ty::t {
     match a.ty.node {
         ast::TyInfer if expected_ty.is_some() => expected_ty.unwrap(),
         ast::TyInfer => this.ty_infer(a.ty.span),
@@ -614,91 +675,75 @@ pub fn ty_of_method<AC:AstConv>(
     purity: ast::Purity,
     untransformed_self_ty: ty::t,
     explicit_self: ast::ExplicitSelf,
-    decl: &ast::FnDecl) -> (Option<ty::t>, ty::BareFnTy)
-{
-    let self_info = SelfInfo {
+    decl: &ast::FnDecl) -> ty::BareFnTy {
+    ty_of_method_or_bare_fn(this, id, purity, AbiSet::Rust(), Some(SelfInfo {
         untransformed_self_ty: untransformed_self_ty,
         explicit_self: explicit_self
-    };
-    let (a, b) = ty_of_method_or_bare_fn(
-        this, id, purity, AbiSet::Rust(), Some(&self_info), decl);
-    (a.unwrap(), b)
+    }), decl)
 }
 
-pub fn ty_of_bare_fn<AC:AstConv>(
-    this: &AC,
-    id: ast::NodeId,
-    purity: ast::Purity,
-    abi: AbiSet,
-    decl: &ast::FnDecl) -> ty::BareFnTy
-{
-    let (_, b) = ty_of_method_or_bare_fn(this, id, purity,
-                                         abi, None, decl);
-    b
+pub fn ty_of_bare_fn<AC:AstConv>(this: &AC, id: ast::NodeId,
+                                 purity: ast::Purity, abi: AbiSet,
+                                 decl: &ast::FnDecl) -> ty::BareFnTy {
+    ty_of_method_or_bare_fn(this, id, purity, abi, None, decl)
 }
 
-fn ty_of_method_or_bare_fn<AC:AstConv>(
-    this: &AC,
-    id: ast::NodeId,
-    purity: ast::Purity,
-    abi: AbiSet,
-    opt_self_info: Option<&SelfInfo>,
-    decl: &ast::FnDecl) -> (Option<Option<ty::t>>, ty::BareFnTy)
-{
+fn ty_of_method_or_bare_fn<AC:AstConv>(this: &AC, id: ast::NodeId,
+                                       purity: ast::Purity, abi: AbiSet,
+                                       opt_self_info: Option<SelfInfo>,
+                                       decl: &ast::FnDecl) -> ty::BareFnTy {
     debug!("ty_of_method_or_bare_fn");
 
     // new region names that appear inside of the fn decl are bound to
     // that function type
     let rb = rscope::BindingRscope::new(id);
 
-    let opt_transformed_self_ty = opt_self_info.map(|self_info| {
-        transform_self_ty(this, &rb, self_info)
-    });
-
-    let input_tys = decl.inputs.map(|a| ty_of_arg(this, &rb, a, None));
-
-    let output_ty = match decl.output.node {
-        ast::TyInfer => this.ty_infer(decl.output.span),
-        _ => ast_ty_to_ty(this, &rb, decl.output)
-    };
-
-    return (opt_transformed_self_ty,
-            ty::BareFnTy {
-                purity: purity,
-                abis: abi,
-                sig: ty::FnSig {binder_id: id,
-                                inputs: input_tys,
-                                output: output_ty,
-                                variadic: decl.variadic}
-            });
-
-    fn transform_self_ty<AC:AstConv,RS:RegionScope>(
-        this: &AC,
-        rscope: &RS,
-        self_info: &SelfInfo) -> Option<ty::t>
-    {
+    let self_ty = opt_self_info.and_then(|self_info| {
         match self_info.explicit_self.node {
             ast::SelfStatic => None,
-            ast::SelfValue(_) => {
+            ast::SelfValue => {
                 Some(self_info.untransformed_self_ty)
             }
             ast::SelfRegion(ref lifetime, mutability) => {
                 let region =
-                    opt_ast_region_to_region(this, rscope,
+                    opt_ast_region_to_region(this, &rb,
                                              self_info.explicit_self.span,
                                              lifetime);
                 Some(ty::mk_rptr(this.tcx(), region,
                                  ty::mt {ty: self_info.untransformed_self_ty,
                                          mutbl: mutability}))
             }
-            ast::SelfBox => {
-                Some(ty::mk_box(this.tcx(), self_info.untransformed_self_ty))
-            }
-            ast::SelfUniq(_) => {
+            ast::SelfUniq => {
                 Some(ty::mk_uniq(this.tcx(), self_info.untransformed_self_ty))
             }
         }
-    }
+    });
+
+    // HACK(eddyb) replace the fake self type in the AST with the actual type.
+    let input_tys = if self_ty.is_some() {
+        decl.inputs.slice_from(1)
+    } else {
+        decl.inputs.as_slice()
+    };
+    let input_tys = input_tys.iter().map(|a| ty_of_arg(this, &rb, a, None));
+
+    let self_and_input_tys = self_ty.move_iter().chain(input_tys).collect();
+
+    let output_ty = match decl.output.node {
+        ast::TyInfer => this.ty_infer(decl.output.span),
+        _ => ast_ty_to_ty(this, &rb, decl.output)
+    };
+
+    return ty::BareFnTy {
+        purity: purity,
+        abis: abi,
+        sig: ty::FnSig {
+            binder_id: id,
+            inputs: self_and_input_tys,
+            output: output_ty,
+            variadic: decl.variadic
+        }
+    };
 }
 
 pub fn ty_of_closure<AC:AstConv,RS:RegionScope>(
@@ -815,9 +860,7 @@ fn conv_builtin_bounds(tcx: ty::ctxt, ast_bounds: &Option<OptVec<ast::TyParamBou
         (&None, ty::UniqTraitStore) => {
             let mut set = ty::EmptyBuiltinBounds(); set.add(ty::BoundSend); set
         }
-        // @Trait is sugar for @Trait:'static.
         // &'static Trait is sugar for &'static Trait:'static.
-        (&None, ty::BoxTraitStore) |
         (&None, ty::RegionTraitStore(ty::ReStatic)) => {
             let mut set = ty::EmptyBuiltinBounds(); set.add(ty::BoundStatic); set
         }

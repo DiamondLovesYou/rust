@@ -16,20 +16,21 @@ use metadata::cstore;
 use util::common::time;
 
 use std::libc;
+use flate;
 
 pub fn run(sess: session::Session, llmod: ModuleRef,
            tm: TargetMachineRef, reachable: &[~str]) {
-    if sess.prefer_dynamic() {
+    if sess.opts.cg.prefer_dynamic {
         sess.err("cannot prefer dynamic linking when performing LTO");
         sess.note("only 'staticlib' and 'bin' outputs are supported with LTO");
         sess.abort_if_errors();
     }
 
     // Make sure we actually can run LTO
-    let outputs = sess.outputs.borrow();
-    for output in outputs.get().iter() {
-        match *output {
-            session::OutputExecutable | session::OutputStaticlib => {}
+    let crate_types = sess.crate_types.borrow();
+    for crate_type in crate_types.get().iter() {
+        match *crate_type {
+            session::CrateTypeExecutable | session::CrateTypeStaticlib => {}
             _ => {
                 sess.fatal("lto can only be run for executables and \
                             static library outputs");
@@ -42,7 +43,7 @@ pub fn run(sess: session::Session, llmod: ModuleRef,
     // module that we've got.
     let crates = sess.cstore.get_used_crates(cstore::RequireStatic);
     for (cnum, path) in crates.move_iter() {
-        let name = sess.cstore.get_crate_data(cnum).name;
+        let name = sess.cstore.get_crate_data(cnum).name.clone();
         let path = match path {
             Some(p) => p,
             None => {
@@ -55,7 +56,9 @@ pub fn run(sess: session::Session, llmod: ModuleRef,
         let bc = time(sess.time_passes(), format!("read {}.bc", name), (), |_|
                       archive.read(format!("{}.bc", name)));
         let bc = bc.expect("missing bytecode in archive!");
-        let ptr = bc.as_ptr();
+        let bc = time(sess.time_passes(), format!("inflate {}.bc", name), (), |_|
+                      flate::inflate_bytes(bc));
+        let ptr = bc.as_slice().as_ptr();
         debug!("linking {}", name);
         time(sess.time_passes(), format!("ll link {}", name), (), |()| unsafe {
             if !llvm::LLVMRustLinkInExternalBitcode(llmod,

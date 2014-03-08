@@ -1,6 +1,6 @@
-// xfail-fast
+// ignore-fast
 
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -14,10 +14,10 @@
 
 /// Map representation
 
-extern mod extra;
+extern crate extra;
 
 use std::io;
-use std::to_str;
+use std::fmt;
 
 enum square {
     bot,
@@ -30,9 +30,9 @@ enum square {
     empty
 }
 
-impl to_str::ToStr for square {
-    fn to_str(&self) -> ~str {
-        match *self {
+impl fmt::Show for square {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "{}", match *self {
           bot => { ~"R" }
           wall => { ~"#" }
           rock => { ~"*" }
@@ -41,7 +41,7 @@ impl to_str::ToStr for square {
           open_lift => { ~"O" }
           earth => { ~"." }
           empty => { ~" " }
-        }
+        })
     }
 }
 

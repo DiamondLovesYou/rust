@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test
+// ignore-test
 // error-pattern:index out of bounds
 
 use std::uint;
@@ -21,7 +21,7 @@ fn main() {
     // length (in bytes), because the scaling of the index will cause it to
     // wrap around to a small number.
 
-    let idx = uint::max_value & !(uint::max_value >> 1u);
+    let idx = uint::MAX & !(uint::MAX >> 1u);
     error!("ov2 idx = 0x%x", idx);
 
     // This should fail.

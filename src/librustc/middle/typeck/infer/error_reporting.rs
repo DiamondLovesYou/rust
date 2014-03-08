@@ -77,33 +77,33 @@ use util::ppaux::bound_region_to_str;
 use util::ppaux::note_and_explain_region;
 
 pub trait ErrorReporting {
-    fn report_region_errors(@self,
+    fn report_region_errors(&self,
                             errors: &OptVec<RegionResolutionError>);
 
-    fn report_and_explain_type_error(@self,
+    fn report_and_explain_type_error(&self,
                                      trace: TypeTrace,
                                      terr: &ty::type_err);
 
-    fn values_str(@self, values: &ValuePairs) -> Option<~str>;
+    fn values_str(&self, values: &ValuePairs) -> Option<~str>;
 
     fn expected_found_str<T:UserString+Resolvable>(
-        @self,
+        &self,
         exp_found: &ty::expected_found<T>)
         -> Option<~str>;
 
-    fn report_concrete_failure(@self,
+    fn report_concrete_failure(&self,
                                origin: SubregionOrigin,
                                sub: Region,
                                sup: Region);
 
-    fn report_sub_sup_conflict(@self,
+    fn report_sub_sup_conflict(&self,
                                var_origin: RegionVariableOrigin,
                                sub_origin: SubregionOrigin,
                                sub_region: Region,
                                sup_origin: SubregionOrigin,
                                sup_region: Region);
 
-    fn report_sup_sup_conflict(@self,
+    fn report_sup_sup_conflict(&self,
                                var_origin: RegionVariableOrigin,
                                origin1: SubregionOrigin,
                                region1: Region,
@@ -112,15 +112,15 @@ pub trait ErrorReporting {
 }
 
 trait ErrorReportingHelpers {
-    fn report_inference_failure(@self,
+    fn report_inference_failure(&self,
                                 var_origin: RegionVariableOrigin);
 
-    fn note_region_origin(@self,
+    fn note_region_origin(&self,
                           origin: SubregionOrigin);
 }
 
 impl ErrorReporting for InferCtxt {
-    fn report_region_errors(@self,
+    fn report_region_errors(&self,
                             errors: &OptVec<RegionResolutionError>) {
         for error in errors.iter() {
             match *error {
@@ -147,11 +147,9 @@ impl ErrorReporting for InferCtxt {
         }
     }
 
-    fn report_and_explain_type_error(@self,
+    fn report_and_explain_type_error(&self,
                                      trace: TypeTrace,
                                      terr: &ty::type_err) {
-        let tcx = self.tcx;
-
         let expected_found_str = match self.values_str(&trace.values) {
             Some(v) => v,
             None => {
@@ -174,12 +172,12 @@ impl ErrorReporting for InferCtxt {
             format!("{}: {} ({})",
                  message_root_str,
                  expected_found_str,
-                 ty::type_err_to_str(tcx, terr)));
+                 ty::type_err_to_str(self.tcx, terr)));
 
         ty::note_and_explain_type_err(self.tcx, terr);
     }
 
-    fn values_str(@self, values: &ValuePairs) -> Option<~str> {
+    fn values_str(&self, values: &ValuePairs) -> Option<~str> {
         /*!
          * Returns a string of the form "expected `{}` but found `{}`",
          * or None if this is a derived error.
@@ -195,7 +193,7 @@ impl ErrorReporting for InferCtxt {
     }
 
     fn expected_found_str<T:UserString+Resolvable>(
-        @self,
+        &self,
         exp_found: &ty::expected_found<T>)
         -> Option<~str>
     {
@@ -214,7 +212,7 @@ impl ErrorReporting for InferCtxt {
                   found.user_string(self.tcx)))
     }
 
-    fn report_concrete_failure(@self,
+    fn report_concrete_failure(&self,
                                origin: SubregionOrigin,
                                sub: Region,
                                sup: Region) {
@@ -236,6 +234,24 @@ impl ErrorReporting for InferCtxt {
                 note_and_explain_region(
                     self.tcx,
                     "...but the borrowed content is only valid for ",
+                    sup,
+                    "");
+            }
+            infer::ReborrowUpvar(span, ref upvar_id) => {
+                self.tcx.sess.span_err(
+                    span,
+                    format!("lifetime of borrowed pointer outlives \
+                            lifetime of captured variable `{}`...",
+                            ty::local_var_name_str(self.tcx, upvar_id.var_id).get().to_str()));
+                note_and_explain_region(
+                    self.tcx,
+                    "...the borrowed pointer is valid for ",
+                    sub,
+                    "...");
+                note_and_explain_region(
+                    self.tcx,
+                    format!("...but `{}` is only valid for ",
+                            ty::local_var_name_str(self.tcx, upvar_id.var_id).get().to_str()),
                     sup,
                     "");
             }
@@ -274,10 +290,12 @@ impl ErrorReporting for InferCtxt {
                     sup,
                     "");
             }
-            infer::FreeVariable(span) => {
+            infer::FreeVariable(span, id) => {
                 self.tcx.sess.span_err(
                     span,
-                    "captured variable does not outlive the enclosing closure");
+                    format!("captured variable `{}` does not \
+                            outlive the enclosing closure",
+                            ty::local_var_name_str(self.tcx, id).get().to_str()));
                 note_and_explain_region(
                     self.tcx,
                     "captured variable is valid for ",
@@ -400,7 +418,7 @@ impl ErrorReporting for InferCtxt {
         }
     }
 
-    fn report_sub_sup_conflict(@self,
+    fn report_sub_sup_conflict(&self,
                                var_origin: RegionVariableOrigin,
                                sub_origin: SubregionOrigin,
                                sub_region: Region,
@@ -425,7 +443,7 @@ impl ErrorReporting for InferCtxt {
         self.note_region_origin(sub_origin);
     }
 
-    fn report_sup_sup_conflict(@self,
+    fn report_sup_sup_conflict(&self,
                                var_origin: RegionVariableOrigin,
                                origin1: SubregionOrigin,
                                region1: Region,
@@ -452,7 +470,7 @@ impl ErrorReporting for InferCtxt {
 }
 
 impl ErrorReportingHelpers for InferCtxt {
-    fn report_inference_failure(@self,
+    fn report_inference_failure(&self,
                                 var_origin: RegionVariableOrigin) {
         let var_description = match var_origin {
             infer::MiscVariable(_) => ~"",
@@ -475,6 +493,10 @@ impl ErrorReportingHelpers for InferCtxt {
             infer::BoundRegionInCoherence(..) => {
                 format!(" for coherence check")
             }
+            infer::UpvarRegion(ref upvar_id, _) => {
+                format!(" for capture of `{}` by closure",
+                        ty::local_var_name_str(self.tcx, upvar_id.var_id).get().to_str())
+            }
         };
 
         self.tcx.sess.span_err(
@@ -484,7 +506,7 @@ impl ErrorReportingHelpers for InferCtxt {
                     var_description));
     }
 
-    fn note_region_origin(@self, origin: SubregionOrigin) {
+    fn note_region_origin(&self, origin: SubregionOrigin) {
         match origin {
             infer::Subtype(ref trace) => {
                 let desc = match trace.origin {
@@ -535,6 +557,12 @@ impl ErrorReportingHelpers for InferCtxt {
                     "...so that reference does not outlive \
                     borrowed content");
             }
+            infer::ReborrowUpvar(span, ref upvar_id) => {
+                self.tcx.sess.span_note(
+                    span,
+                    format!("...so that closure can access `{}`",
+                            ty::local_var_name_str(self.tcx, upvar_id.var_id).get().to_str()))
+            }
             infer::InfStackClosure(span) => {
                 self.tcx.sess.span_note(
                     span,
@@ -551,11 +579,12 @@ impl ErrorReportingHelpers for InferCtxt {
                     "...so that pointer is not dereferenced \
                     outside its lifetime");
             }
-            infer::FreeVariable(span) => {
+            infer::FreeVariable(span, id) => {
                 self.tcx.sess.span_note(
                     span,
-                    "...so that captured variable does not outlive the \
-                    enclosing closure");
+                    format!("...so that captured variable `{}` \
+                            does not outlive the enclosing closure",
+                            ty::local_var_name_str(self.tcx, id).get().to_str()));
             }
             infer::IndexSlice(span) => {
                 self.tcx.sess.span_note(
@@ -611,12 +640,12 @@ impl ErrorReportingHelpers for InferCtxt {
 }
 
 trait Resolvable {
-    fn resolve(&self, infcx: @InferCtxt) -> Self;
+    fn resolve(&self, infcx: &InferCtxt) -> Self;
     fn contains_error(&self) -> bool;
 }
 
 impl Resolvable for ty::t {
-    fn resolve(&self, infcx: @InferCtxt) -> ty::t {
+    fn resolve(&self, infcx: &InferCtxt) -> ty::t {
         infcx.resolve_type_vars_if_possible(*self)
     }
     fn contains_error(&self) -> bool {
@@ -625,7 +654,7 @@ impl Resolvable for ty::t {
 }
 
 impl Resolvable for @ty::TraitRef {
-    fn resolve(&self, infcx: @InferCtxt) -> @ty::TraitRef {
+    fn resolve(&self, infcx: &InferCtxt) -> @ty::TraitRef {
         @infcx.resolve_type_vars_in_trait_ref_if_possible(*self)
     }
     fn contains_error(&self) -> bool {

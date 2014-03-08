@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,10 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#[allow(non_camel_case_types)];
+
 //! Code that is useful in various trans modules.
 
-
-use driver::session;
 use driver::session::Session;
 use lib::llvm::{ValueRef, BasicBlockRef, BuilderRef};
 use lib::llvm::{True, False, Bool};
@@ -29,20 +29,19 @@ use middle::ty::substs;
 use middle::ty;
 use middle::typeck;
 use util::ppaux::Repr;
+use util::nodemap::NodeMap;
 
-
-use extra::arena::TypedArena;
+use arena::TypedArena;
 use std::c_str::ToCStr;
-use std::cast::transmute;
-use std::cast;
 use std::cell::{Cell, RefCell};
-use std::hashmap::HashMap;
+use collections::HashMap;
 use std::libc::{c_uint, c_longlong, c_ulonglong, c_char};
-use syntax::ast::{Ident};
-use syntax::ast_map::{Path, PathElem, PathPrettyName};
+use syntax::ast::Ident;
+use syntax::ast;
+use syntax::ast_map::{PathElem, PathName};
 use syntax::codemap::Span;
+use syntax::parse::token::InternedString;
 use syntax::parse::token;
-use syntax::{ast, ast_map};
 
 pub use middle::trans::context::CrateContext;
 
@@ -102,10 +101,8 @@ pub fn return_type_is_void(ccx: &CrateContext, ty: ty::t) -> bool {
     ty::type_is_nil(ty) || ty::type_is_bot(ty) || ty::type_is_empty(ccx.tcx, ty)
 }
 
-pub fn gensym_name(name: &str) -> (Ident, PathElem) {
-    let name = token::gensym(name);
-    let ident = Ident::new(name);
-    (ident, PathPrettyName(ident, name as u64))
+pub fn gensym_name(name: &str) -> PathElem {
+    PathName(token::gensym(name))
 }
 
 pub struct tydesc_info {
@@ -114,8 +111,6 @@ pub struct tydesc_info {
     size: ValueRef,
     align: ValueRef,
     name: ValueRef,
-    take_glue: Cell<Option<ValueRef>>,
-    drop_glue: Cell<Option<ValueRef>>,
     visit_glue: Cell<Option<ValueRef>>,
 }
 
@@ -170,20 +165,20 @@ pub struct Stats {
 }
 
 pub struct BuilderRef_res {
-    B: BuilderRef,
+    b: BuilderRef,
 }
 
 impl Drop for BuilderRef_res {
     fn drop(&mut self) {
         unsafe {
-            llvm::LLVMDisposeBuilder(self.B);
+            llvm::LLVMDisposeBuilder(self.b);
         }
     }
 }
 
-pub fn BuilderRef_res(B: BuilderRef) -> BuilderRef_res {
+pub fn BuilderRef_res(b: BuilderRef) -> BuilderRef_res {
     BuilderRef_res {
-        B: B
+        b: b
     }
 }
 
@@ -218,8 +213,8 @@ impl Repr for param_substs {
 }
 
 // work around bizarre resolve errors
-type RvalueDatum = datum::Datum<datum::Rvalue>;
-type LvalueDatum = datum::Datum<datum::Lvalue>;
+pub type RvalueDatum = datum::Datum<datum::Rvalue>;
+pub type LvalueDatum = datum::Datum<datum::Lvalue>;
 
 // Function context.  Every LLVM function we create will have one of
 // these.
@@ -230,9 +225,8 @@ pub struct FunctionContext<'a> {
     // section of the executable we're generating.
     llfn: ValueRef,
 
-    // The implicit environment argument that arrives in the function we're
-    // creating.
-    llenv: Cell<ValueRef>,
+    // The environment argument in a closure.
+    llenv: Option<ValueRef>,
 
     // The place to store the return value. If the return type is immediate,
     // this is an alloca in the function. Otherwise, it's the hidden first
@@ -250,14 +244,6 @@ pub struct FunctionContext<'a> {
     alloca_insert_pt: Cell<Option<ValueRef>>,
     llreturn: Cell<Option<BasicBlockRef>>,
 
-    // The 'self' value currently in use in this function, if there
-    // is one.
-    //
-    // NB: This is the type of the self *variable*, not the self *type*. The
-    // self type is set only for default methods, while the self variable is
-    // set for all methods.
-    llself: Cell<Option<LvalueDatum>>,
-
     // The a value alloca'd for calls to upcalls.rust_personality. Used when
     // outputting the resume instruction.
     personality: Cell<Option<ValueRef>>,
@@ -268,14 +254,14 @@ pub struct FunctionContext<'a> {
     caller_expects_out_pointer: bool,
 
     // Maps arguments to allocas created for them in llallocas.
-    llargs: RefCell<HashMap<ast::NodeId, LvalueDatum>>,
+    llargs: RefCell<NodeMap<LvalueDatum>>,
 
     // Maps the def_ids for local variables to the allocas created for
     // them in llallocas.
-    lllocals: RefCell<HashMap<ast::NodeId, LvalueDatum>>,
+    lllocals: RefCell<NodeMap<LvalueDatum>>,
 
     // Same as above, but for closure upvars
-    llupvars: RefCell<HashMap<ast::NodeId, ValueRef>>,
+    llupvars: RefCell<NodeMap<ValueRef>>,
 
     // The NodeId of the function, or -1 if it doesn't correspond to
     // a user-defined function.
@@ -288,10 +274,9 @@ pub struct FunctionContext<'a> {
     // The source span and nesting context where this function comes from, for
     // error reporting and symbol generation.
     span: Option<Span>,
-    path: Path,
 
     // The arena that blocks are allocated from.
-    block_arena: TypedArena<Block<'a>>,
+    block_arena: &'a TypedArena<Block<'a>>,
 
     // This function's enclosing crate context.
     ccx: @CrateContext,
@@ -305,10 +290,11 @@ pub struct FunctionContext<'a> {
 
 impl<'a> FunctionContext<'a> {
     pub fn arg_pos(&self, arg: uint) -> uint {
-        if self.caller_expects_out_pointer {
-            arg + 2u
+        let arg = self.env_arg_pos() + arg;
+        if self.llenv.is_some() {
+            arg + 1
         } else {
-            arg + 1u
+            arg
         }
     }
 
@@ -455,12 +441,12 @@ impl<'a> Block<'a> {
     }
     pub fn sess(&self) -> Session { self.fcx.ccx.sess }
 
-    pub fn ident(&self, ident: Ident) -> @str {
-        token::ident_to_str(&ident)
+    pub fn ident(&self, ident: Ident) -> ~str {
+        token::get_ident(ident).get().to_str()
     }
 
     pub fn node_id_to_str(&self, id: ast::NodeId) -> ~str {
-        ast_map::node_id_to_str(self.tcx().items, id, self.sess().intr())
+        self.tcx().map.node_to_str(id)
     }
 
     pub fn expr_to_str(&self, e: &ast::Expr) -> ~str {
@@ -481,7 +467,7 @@ impl<'a> Block<'a> {
             Some(&v) => v,
             None => {
                 self.tcx().sess.bug(format!(
-                    "No def associated with node id {:?}", nid));
+                    "no def associated with node id {:?}", nid));
             }
         }
     }
@@ -527,19 +513,6 @@ pub fn val_ty(v: ValueRef) -> Type {
     unsafe {
         Type::from_ref(llvm::LLVMTypeOf(v))
     }
-}
-
-// Let T be the content of a box @T.  tuplify_box_ty(t) returns the
-// representation of @T as a tuple (i.e., the ty::t version of what T_box()
-// returns).
-pub fn tuplify_box_ty(tcx: ty::ctxt, t: ty::t) -> ty::t {
-    let ptr = ty::mk_ptr(
-        tcx,
-        ty::mt {ty: ty::mk_i8(), mutbl: ast::MutImmutable}
-    );
-    return ty::mk_tup(tcx, ~[ty::mk_uint(), ty::mk_type(tcx),
-                         ptr, ptr,
-                         t]);
 }
 
 // LLVM constant constructors.
@@ -606,18 +579,19 @@ pub fn C_u8(i: uint) -> ValueRef {
 
 // This is a 'c-like' raw string, which differs from
 // our boxed-and-length-annotated strings.
-pub fn C_cstr(cx: &CrateContext, s: @str) -> ValueRef {
+pub fn C_cstr(cx: &CrateContext, s: InternedString) -> ValueRef {
     unsafe {
         {
             let const_cstr_cache = cx.const_cstr_cache.borrow();
-            match const_cstr_cache.get().find_equiv(&s) {
+            match const_cstr_cache.get().find(&s) {
                 Some(&llval) => return llval,
                 None => ()
             }
         }
 
         let sc = llvm::LLVMConstStringInContext(cx.llcx,
-                                                s.as_ptr() as *c_char, s.len() as c_uint,
+                                                s.get().as_ptr() as *c_char,
+                                                s.get().len() as c_uint,
                                                 False);
 
         let gsym = token::gensym("str");
@@ -636,9 +610,9 @@ pub fn C_cstr(cx: &CrateContext, s: @str) -> ValueRef {
 
 // NB: Do not use `do_spill_noroot` to make this into a constant string, or
 // you will be kicked off fast isel. See issue #4352 for an example of this.
-pub fn C_str_slice(cx: &CrateContext, s: @str) -> ValueRef {
+pub fn C_str_slice(cx: &CrateContext, s: InternedString) -> ValueRef {
     unsafe {
-        let len = s.len();
+        let len = s.get().len();
         let cs = llvm::LLVMConstPointerCast(C_cstr(cx, s), Type::i8p().to_ref());
         C_struct([cs, C_uint(cx, len)], false)
     }
@@ -681,9 +655,9 @@ pub fn C_struct(elts: &[ValueRef], packed: bool) -> ValueRef {
     }
 }
 
-pub fn C_named_struct(T: Type, elts: &[ValueRef]) -> ValueRef {
+pub fn C_named_struct(t: Type, elts: &[ValueRef]) -> ValueRef {
     unsafe {
-        llvm::LLVMConstNamedStruct(T.to_ref(), elts.as_ptr(), elts.len() as c_uint)
+        llvm::LLVMConstNamedStruct(t.to_ref(), elts.as_ptr(), elts.len() as c_uint)
     }
 }
 
@@ -695,7 +669,7 @@ pub fn C_array(ty: Type, elts: &[ValueRef]) -> ValueRef {
 
 pub fn C_bytes(bytes: &[u8]) -> ValueRef {
     unsafe {
-        let ptr = cast::transmute(bytes.as_ptr());
+        let ptr = bytes.as_ptr() as *c_char;
         return llvm::LLVMConstStringInContext(base::task_llcx(), ptr, bytes.len() as c_uint, True);
     }
 }
@@ -749,7 +723,7 @@ pub fn is_null(val: ValueRef) -> bool {
 }
 
 // Used to identify cached monomorphized functions and vtables
-#[deriving(Eq,IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum mono_param_id {
     mono_precise(ty::t, Option<@~[mono_id]>),
     mono_any,
@@ -759,7 +733,7 @@ pub enum mono_param_id {
               datum::RvalueMode),
 }
 
-#[deriving(Eq,IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum MonoDataClass {
     MonoBits,    // Anything not treated differently from arbitrary integer data
     MonoNonNull, // Non-null pointers (used for optional-pointer optimization)
@@ -775,15 +749,13 @@ pub fn mono_data_classify(t: ty::t) -> MonoDataClass {
         ty::ty_float(_) => MonoFloat,
         ty::ty_rptr(..) | ty::ty_uniq(..) | ty::ty_box(..) |
         ty::ty_str(ty::vstore_uniq) | ty::ty_vec(_, ty::vstore_uniq) |
-        ty::ty_str(ty::vstore_box) | ty::ty_vec(_, ty::vstore_box) |
         ty::ty_bare_fn(..) => MonoNonNull,
         // Is that everything?  Would closures or slices qualify?
         _ => MonoBits
     }
 }
 
-
-#[deriving(Eq,IterBytes)]
+#[deriving(Eq, Hash)]
 pub struct mono_id_ {
     def: ast::DefId,
     params: ~[mono_param_id]
@@ -805,25 +777,6 @@ pub fn align_to(cx: &Block, off: ValueRef, align: ValueRef) -> ValueRef {
     let mask = build::Sub(cx, align, C_int(cx.ccx(), 1));
     let bumped = build::Add(cx, off, mask);
     return build::And(cx, bumped, build::Not(cx, mask));
-}
-
-pub fn path_str(sess: session::Session, p: &[PathElem]) -> ~str {
-    let mut r = ~"";
-    let mut first = true;
-    for e in p.iter() {
-        match *e {
-            ast_map::PathName(s) | ast_map::PathMod(s) |
-            ast_map::PathPrettyName(s, _) => {
-                if first {
-                    first = false
-                } else {
-                    r.push_str("::")
-                }
-                r.push_str(sess.str_of(s));
-            }
-        }
-    }
-    r
 }
 
 pub fn monomorphize_type(bcx: &Block, t: ty::t) -> ty::t {
@@ -855,13 +808,17 @@ pub fn expr_ty_adjusted(bcx: &Block, ex: &ast::Expr) -> ty::t {
     monomorphize_type(bcx, t)
 }
 
-pub fn node_id_type_params(bcx: &Block, id: ast::NodeId) -> ~[ty::t] {
+pub fn node_id_type_params(bcx: &Block, id: ast::NodeId, is_method: bool) -> ~[ty::t] {
     let tcx = bcx.tcx();
-    let params = ty::node_id_to_type_params(tcx, id);
+    let params = if is_method {
+        bcx.ccx().maps.method_map.borrow().get().get(&id).substs.tps.clone()
+    } else {
+        ty::node_id_to_type_params(tcx, id)
+    };
 
     if !params.iter().all(|t| !ty::type_needs_infer(*t)) {
         bcx.sess().bug(
-            format!("Type parameters for node {} include inference types: {}",
+            format!("type parameters for node {} include inference types: {}",
                  id, params.map(|t| bcx.ty_to_str(*t)).connect(",")));
     }
 
@@ -979,7 +936,8 @@ pub fn dummy_substs(tps: ~[ty::t]) -> ty::substs {
 pub fn filename_and_line_num_from_span(bcx: &Block, span: Span)
                                        -> (ValueRef, ValueRef) {
     let loc = bcx.sess().parse_sess.cm.lookup_char_pos(span.lo);
-    let filename_cstr = C_cstr(bcx.ccx(), loc.file.name);
+    let filename_cstr = C_cstr(bcx.ccx(),
+                               token::intern_and_get_ident(loc.file.name));
     let filename = build::PointerCast(bcx, filename_cstr, Type::i8p());
     let line = C_int(bcx.ccx(), loc.line as int);
     (filename, line)

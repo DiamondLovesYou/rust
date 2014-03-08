@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test
+// ignore-test
+
 use std::io;
 
 struct Point {
@@ -22,11 +23,11 @@ impl ToStr for Point { //~ ERROR implements a method not defined in the trait
     }
 
     fn to_str(&self) -> ~str {
-        fmt!("(%f, %f)", self.x, self.y)
+        format!("({}, {})", self.x, self.y)
     }
 }
 
 fn main() {
-    let p = Point::new(0.0f, 0.0f);
+    let p = Point::new(0.0, 0.0);
     println!("{}", p.to_str());
 }

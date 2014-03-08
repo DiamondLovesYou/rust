@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern mod extra;
+extern crate extra;
 
 use std::task;
 
@@ -20,9 +20,9 @@ fn test00() {
     let i: int = 0;
     let mut builder = task::task();
     let mut result = builder.future_result();
-    do builder.spawn {
+    builder.spawn(proc() {
         start(i)
-    }
+    });
 
     // Sleep long enough for the task to finish.
     let mut i = 0;

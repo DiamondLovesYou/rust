@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,25 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-fast check-fast doesn't like 'extern mod extra'
-// xfail-win32 TempDir may cause IoError on windows: #10462
+// ignore-fast check-fast doesn't like 'extern crate extra'
+// ignore-win32 TempDir may cause IoError on windows: #10462
 
-extern mod extra;
+#[feature(macro_rules)];
 
-use extra::glob::glob;
+extern crate extra;
+extern crate glob;
+
+use glob::glob;
 use extra::tempfile::TempDir;
 use std::unstable::finally::Finally;
 use std::{os, unstable};
 use std::io;
+
+macro_rules! assert_eq ( ($e1:expr, $e2:expr) => (
+    if $e1 != $e2 {
+        fail!("{} != {}", stringify!($e1), stringify!($e2))
+    }
+) )
 
 pub fn main() {
     fn mk_file(path: &str, directory: bool) {

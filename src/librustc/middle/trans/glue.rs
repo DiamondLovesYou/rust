@@ -15,32 +15,32 @@
 
 use back::abi;
 use back::link::*;
-use lib;
 use lib::llvm::{llvm, ValueRef, True};
+use lib;
 use middle::lang_items::{FreeFnLangItem, ExchangeFreeFnLangItem};
 use middle::trans::adt;
 use middle::trans::base::*;
+use middle::trans::build::*;
 use middle::trans::callee;
 use middle::trans::cleanup;
 use middle::trans::cleanup::CleanupMethods;
-use middle::trans::closure;
 use middle::trans::common::*;
-use middle::trans::build::*;
 use middle::trans::expr;
 use middle::trans::machine::*;
 use middle::trans::reflect;
 use middle::trans::tvec;
-use middle::trans::type_of::type_of;
-use middle::ty;
-use util::ppaux;
-use util::ppaux::ty_to_short_str;
-
 use middle::trans::type_::Type;
+use middle::trans::type_of::{type_of, sizing_type_of};
+use middle::ty;
+use util::ppaux::ty_to_short_str;
+use util::ppaux;
 
+use arena::TypedArena;
 use std::c_str::ToCStr;
 use std::cell::Cell;
 use std::libc::c_uint;
 use syntax::ast;
+use syntax::parse::token;
 
 pub fn trans_free<'a>(cx: &'a Block<'a>, v: ValueRef) -> &'a Block<'a> {
     let _icx = push_ctxt("trans_free");
@@ -59,24 +59,63 @@ pub fn trans_exchange_free<'a>(cx: &'a Block<'a>, v: ValueRef)
         Some(expr::Ignore)).bcx
 }
 
-pub fn take_ty<'a>(cx: &'a Block<'a>, v: ValueRef, t: ty::t)
+pub fn take_ty<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
                -> &'a Block<'a> {
     // NB: v is an *alias* of type t here, not a direct value.
     let _icx = push_ctxt("take_ty");
-    if ty::type_needs_drop(cx.tcx(), t) {
-        return call_tydesc_glue(cx, v, t, abi::tydesc_field_take_glue);
+    match ty::get(t).sty {
+        ty::ty_box(_) => incr_refcnt_of_boxed(bcx, v),
+        _ if ty::type_is_structural(t)
+          && ty::type_needs_drop(bcx.tcx(), t) => {
+            iter_structural_ty(bcx, v, t, take_ty)
+        }
+        _ => bcx
     }
-    return cx;
 }
 
-pub fn drop_ty<'a>(cx: &'a Block<'a>, v: ValueRef, t: ty::t)
+fn get_drop_glue_type(ccx: &CrateContext, t: ty::t) -> ty::t {
+    let tcx = ccx.tcx;
+    if !ty::type_needs_drop(tcx, t) {
+        return ty::mk_i8();
+    }
+    match ty::get(t).sty {
+        ty::ty_box(typ) if !ty::type_needs_drop(tcx, typ) =>
+            ty::mk_box(tcx, ty::mk_i8()),
+
+        ty::ty_uniq(typ) if !ty::type_needs_drop(tcx, typ) => {
+            let llty = sizing_type_of(ccx, typ);
+            // Unique boxes do not allocate for zero-size types. The standard library may assume
+            // that `free` is never called on the pointer returned for `~ZeroSizeType`.
+            if llsize_of_alloc(ccx, llty) == 0 {
+                ty::mk_i8()
+            } else {
+                ty::mk_uniq(tcx, ty::mk_i8())
+            }
+        }
+
+        ty::ty_vec(mt, ty::vstore_uniq) if !ty::type_needs_drop(tcx, mt.ty) =>
+            ty::mk_uniq(tcx, ty::mk_i8()),
+
+        _ => t
+    }
+}
+
+pub fn drop_ty<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
                -> &'a Block<'a> {
     // NB: v is an *alias* of type t here, not a direct value.
     let _icx = push_ctxt("drop_ty");
-    if ty::type_needs_drop(cx.tcx(), t) {
-        return call_tydesc_glue(cx, v, t, abi::tydesc_field_drop_glue);
+    let ccx = bcx.ccx();
+    if ty::type_needs_drop(bcx.tcx(), t) {
+        let glue = get_drop_glue(ccx, t);
+        let glue_type = get_drop_glue_type(ccx, t);
+        let ptr = if glue_type != t {
+            PointerCast(bcx, v, type_of(ccx, glue_type).ptr_to())
+        } else {
+            v
+        };
+        Call(bcx, glue, [ptr], []);
     }
-    return cx;
+    bcx
 }
 
 pub fn drop_ty_immediate<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
@@ -87,126 +126,49 @@ pub fn drop_ty_immediate<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
     drop_ty(bcx, vp, t)
 }
 
-pub fn lazily_emit_all_tydesc_glue(ccx: @CrateContext,
-                                   static_ti: @tydesc_info) {
-    lazily_emit_tydesc_glue(ccx, abi::tydesc_field_take_glue, static_ti);
-    lazily_emit_tydesc_glue(ccx, abi::tydesc_field_drop_glue, static_ti);
-    lazily_emit_tydesc_glue(ccx, abi::tydesc_field_visit_glue, static_ti);
+pub fn get_drop_glue(ccx: @CrateContext, t: ty::t) -> ValueRef {
+    let t = get_drop_glue_type(ccx, t);
+    {
+        let drop_glues = ccx.drop_glues.borrow();
+        match drop_glues.get().find(&t) {
+            Some(&glue) => return glue,
+            _ => { }
+        }
+    }
+
+    let llfnty = Type::glue_fn(type_of(ccx, t).ptr_to());
+    let glue = declare_generic_glue(ccx, t, llfnty, "drop");
+
+    {
+        let mut drop_glues = ccx.drop_glues.borrow_mut();
+        drop_glues.get().insert(t, glue);
+    }
+
+    make_generic_glue(ccx, t, glue, make_drop_glue, "drop");
+
+    glue
 }
 
-fn simplified_glue_type(tcx: ty::ctxt, field: uint, t: ty::t) -> ty::t {
-    if (field == abi::tydesc_field_take_glue || field == abi::tydesc_field_drop_glue)
-        && !ty::type_needs_drop(tcx, t) {
-        return ty::mk_nil();
-    }
-
-    if field == abi::tydesc_field_take_glue {
-        match ty::get(t).sty {
-            ty::ty_str(ty::vstore_uniq) |  ty::ty_vec(_, ty::vstore_uniq) |
-            ty::ty_unboxed_vec(..) | ty::ty_uniq(..) => return ty::mk_nil(),
-            _ => {}
-        }
-    }
-
-    if field == abi::tydesc_field_take_glue && ty::type_is_boxed(t) {
-        return ty::mk_box(tcx, ty::mk_nil());
-    }
-
-    if field == abi::tydesc_field_drop_glue {
-        match ty::get(t).sty {
-            ty::ty_box(typ)
-                if !ty::type_needs_drop(tcx, typ) =>
-            return ty::mk_box(tcx, ty::mk_nil()),
-
-            ty::ty_vec(mt, ty::vstore_box)
-                if !ty::type_needs_drop(tcx, mt.ty) =>
-            return ty::mk_box(tcx, ty::mk_nil()),
-
-            ty::ty_uniq(typ)
-                if !ty::type_needs_drop(tcx, typ) =>
-            return ty::mk_uniq(tcx, ty::mk_nil()),
-
-            ty::ty_vec(mt, ty::vstore_uniq)
-                if !ty::type_needs_drop(tcx, mt.ty) =>
-            return ty::mk_uniq(tcx, ty::mk_nil()),
-
-            _ => {}
-        }
-    }
-
-    t
-}
-
-fn lazily_emit_tydesc_glue(ccx: @CrateContext, field: uint, ti: @tydesc_info) {
-    let _icx = push_ctxt("lazily_emit_tydesc_glue");
-
-    let simpl = simplified_glue_type(ccx.tcx, field, ti.ty);
-    if simpl != ti.ty {
-        let _icx = push_ctxt("lazily_emit_simplified_tydesc_glue");
-        let simpl_ti = get_tydesc(ccx, simpl);
-        lazily_emit_tydesc_glue(ccx, field, simpl_ti);
-
-        if field == abi::tydesc_field_take_glue {
-            ti.take_glue.set(simpl_ti.take_glue.get());
-        } else if field == abi::tydesc_field_drop_glue {
-            ti.drop_glue.set(simpl_ti.drop_glue.get());
-        } else if field == abi::tydesc_field_visit_glue {
-            ti.visit_glue.set(simpl_ti.visit_glue.get());
-        }
-
-        return;
-    }
+pub fn lazily_emit_visit_glue(ccx: @CrateContext, ti: @tydesc_info) {
+    let _icx = push_ctxt("lazily_emit_visit_glue");
 
     let llfnty = Type::glue_fn(type_of(ccx, ti.ty).ptr_to());
 
-    if field == abi::tydesc_field_take_glue {
-        match ti.take_glue.get() {
-          Some(_) => (),
-          None => {
-            debug!("+++ lazily_emit_tydesc_glue TAKE {}",
-                   ppaux::ty_to_str(ccx.tcx, ti.ty));
-            let glue_fn = declare_generic_glue(ccx, ti.ty, llfnty, "take");
-            ti.take_glue.set(Some(glue_fn));
-            make_generic_glue(ccx, ti.ty, glue_fn, make_take_glue, "take");
-            debug!("--- lazily_emit_tydesc_glue TAKE {}",
-                   ppaux::ty_to_str(ccx.tcx, ti.ty));
-          }
-        }
-    } else if field == abi::tydesc_field_drop_glue {
-        match ti.drop_glue.get() {
-          Some(_) => (),
-          None => {
-            debug!("+++ lazily_emit_tydesc_glue DROP {}",
-                   ppaux::ty_to_str(ccx.tcx, ti.ty));
-            let glue_fn = declare_generic_glue(ccx, ti.ty, llfnty, "drop");
-            ti.drop_glue.set(Some(glue_fn));
-            make_generic_glue(ccx, ti.ty, glue_fn, make_drop_glue, "drop");
-            debug!("--- lazily_emit_tydesc_glue DROP {}",
-                   ppaux::ty_to_str(ccx.tcx, ti.ty));
-          }
-        }
-    } else if field == abi::tydesc_field_visit_glue {
-        match ti.visit_glue.get() {
-          Some(_) => (),
-          None => {
-            debug!("+++ lazily_emit_tydesc_glue VISIT {}",
-                   ppaux::ty_to_str(ccx.tcx, ti.ty));
+    match ti.visit_glue.get() {
+        Some(_) => (),
+        None => {
+            debug!("+++ lazily_emit_tydesc_glue VISIT {}", ppaux::ty_to_str(ccx.tcx, ti.ty));
             let glue_fn = declare_generic_glue(ccx, ti.ty, llfnty, "visit");
             ti.visit_glue.set(Some(glue_fn));
             make_generic_glue(ccx, ti.ty, glue_fn, make_visit_glue, "visit");
-            debug!("--- lazily_emit_tydesc_glue VISIT {}",
-                   ppaux::ty_to_str(ccx.tcx, ti.ty));
-          }
+            debug!("--- lazily_emit_tydesc_glue VISIT {}", ppaux::ty_to_str(ccx.tcx, ti.ty));
         }
     }
 }
 
 // See [Note-arg-mode]
-pub fn call_tydesc_glue_full(bcx: &Block,
-                             v: ValueRef,
-                             tydesc: ValueRef,
-                             field: uint,
-                             static_ti: Option<@tydesc_info>) {
+pub fn call_visit_glue(bcx: &Block, v: ValueRef, tydesc: ValueRef,
+                       static_ti: Option<@tydesc_info>) {
     let _icx = push_ctxt("call_tydesc_glue_full");
     let ccx = bcx.ccx();
     // NB: Don't short-circuit even if this block is unreachable because
@@ -214,57 +176,32 @@ pub fn call_tydesc_glue_full(bcx: &Block,
     if bcx.unreachable.get() && !ccx.sess.no_landing_pads() { return; }
 
     let static_glue_fn = match static_ti {
-      None => None,
-      Some(sti) => {
-        lazily_emit_tydesc_glue(ccx, field, sti);
-        if field == abi::tydesc_field_take_glue {
-            sti.take_glue.get()
-        } else if field == abi::tydesc_field_drop_glue {
-            sti.drop_glue.get()
-        } else if field == abi::tydesc_field_visit_glue {
+        None => None,
+        Some(sti) => {
+            lazily_emit_visit_glue(ccx, sti);
             sti.visit_glue.get()
-        } else {
-            None
         }
-      }
     };
 
-    // When static type info is available, avoid casting parameter unless the
-    // glue is using a simplified type, because the function already has the
-    // right type. Otherwise cast to generic pointer.
-    let llrawptr = if static_ti.is_none() || static_glue_fn.is_none() {
+    // When static type info is available, avoid casting to a generic pointer.
+    let llrawptr = if static_glue_fn.is_none() {
         PointerCast(bcx, v, Type::i8p())
     } else {
-        let ty = static_ti.unwrap().ty;
-        let simpl = simplified_glue_type(ccx.tcx, field, ty);
-        if simpl != ty {
-            PointerCast(bcx, v, type_of(ccx, simpl).ptr_to())
-        } else {
-            v
-        }
+        v
     };
 
     let llfn = {
         match static_glue_fn {
-          None => {
-            // Select out the glue function to call from the tydesc
-            let llfnptr = GEPi(bcx, tydesc, [0u, field]);
-            Load(bcx, llfnptr)
-          }
-          Some(sgf) => sgf
+            None => {
+                // Select out the glue function to call from the tydesc
+                let llfnptr = GEPi(bcx, tydesc, [0u, abi::tydesc_field_visit_glue]);
+                Load(bcx, llfnptr)
+            }
+            Some(sgf) => sgf
         }
     };
 
-    Call(bcx, llfn, [C_null(Type::nil().ptr_to()), llrawptr], []);
-}
-
-// See [Note-arg-mode]
-fn call_tydesc_glue<'a>(cx: &'a Block<'a>, v: ValueRef, t: ty::t, field: uint)
-                    -> &'a Block<'a> {
-    let _icx = push_ctxt("call_tydesc_glue");
-    let ti = get_tydesc(cx.ccx(), t);
-    call_tydesc_glue_full(cx, v, ti.tydesc, field, Some(ti));
-    cx
+    Call(bcx, llfn, [llrawptr], []);
 }
 
 fn make_visit_glue<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
@@ -283,43 +220,7 @@ fn make_visit_glue<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
     bcx
 }
 
-pub fn make_free_glue<'a>(bcx: &'a Block<'a>,
-                          v: ValueRef,
-                          t: ty::t)
-                          -> &'a Block<'a> {
-    // NB: v0 is an *alias* of type t here, not a direct value.
-    let _icx = push_ctxt("make_free_glue");
-    match ty::get(t).sty {
-      ty::ty_box(body_ty) => {
-        let v = Load(bcx, v);
-        let body = GEPi(bcx, v, [0u, abi::box_field_body]);
-        let bcx = drop_ty(bcx, body, body_ty);
-        trans_free(bcx, v)
-      }
-      ty::ty_uniq(content_ty) => {
-        let llbox = Load(bcx, v);
-        let not_null = IsNotNull(bcx, llbox);
-        with_cond(bcx, not_null, |bcx| {
-                    let bcx = drop_ty(bcx, llbox, content_ty);
-                    trans_exchange_free(bcx, llbox)
-                })
-      }
-      ty::ty_vec(_, ty::vstore_uniq) | ty::ty_str(ty::vstore_uniq) |
-      ty::ty_vec(_, ty::vstore_box) | ty::ty_str(ty::vstore_box) => {
-        make_free_glue(bcx, v, tvec::expand_boxed_vec_ty(bcx.tcx(), t))
-      }
-      ty::ty_closure(_) => {
-        closure::make_closure_glue(bcx, v, t, make_free_glue)
-      }
-      ty::ty_opaque_closure_ptr(ck) => {
-        closure::make_opaque_cbox_free_glue(bcx, ck, v)
-      }
-      _ => bcx
-    }
-}
-
-pub fn trans_struct_drop_flag<'a>(
-                              bcx: &'a Block<'a>,
+fn trans_struct_drop_flag<'a>(bcx: &'a Block<'a>,
                               t: ty::t,
                               v0: ValueRef,
                               dtor_did: ast::DefId,
@@ -333,8 +234,7 @@ pub fn trans_struct_drop_flag<'a>(
     })
 }
 
-pub fn trans_struct_drop<'a>(
-                         bcx: &'a Block<'a>,
+fn trans_struct_drop<'a>(bcx: &'a Block<'a>,
                          t: ty::t,
                          v0: ValueRef,
                          dtor_did: ast::DefId,
@@ -380,77 +280,82 @@ pub fn trans_struct_drop<'a>(
     bcx.fcx.pop_and_trans_custom_cleanup_scope(bcx, field_scope)
 }
 
-pub fn make_drop_glue<'a>(bcx: &'a Block<'a>, v0: ValueRef, t: ty::t)
-                      -> &'a Block<'a> {
+fn make_drop_glue<'a>(bcx: &'a Block<'a>, v0: ValueRef, t: ty::t) -> &'a Block<'a> {
     // NB: v0 is an *alias* of type t here, not a direct value.
     let _icx = push_ctxt("make_drop_glue");
     let ccx = bcx.ccx();
     match ty::get(t).sty {
-      ty::ty_box(_) |
-      ty::ty_str(ty::vstore_box) | ty::ty_vec(_, ty::vstore_box) => {
-        decr_refcnt_maybe_free(bcx, v0, Some(t))
-      }
-      ty::ty_uniq(_) |
-      ty::ty_vec(_, ty::vstore_uniq) | ty::ty_str(ty::vstore_uniq) => {
-        make_free_glue(bcx, v0, t)
-      }
-      ty::ty_unboxed_vec(_) => {
-        tvec::make_drop_glue_unboxed(bcx, v0, t)
-      }
-      ty::ty_struct(did, ref substs) => {
-        let tcx = bcx.tcx();
-        match ty::ty_dtor(tcx, did) {
-          ty::TraitDtor(dtor, true) => {
-            trans_struct_drop_flag(bcx, t, v0, dtor, did, substs)
-          }
-          ty::TraitDtor(dtor, false) => {
-            trans_struct_drop(bcx, t, v0, dtor, did, substs)
-          }
-          ty::NoDtor => {
-            // No dtor? Just the default case
-            iter_structural_ty(bcx, v0, t, drop_ty)
-          }
+        ty::ty_box(body_ty) => {
+            decr_refcnt_maybe_free(bcx, v0, body_ty)
         }
-      }
-      ty::ty_closure(_) => {
-        closure::make_closure_glue(bcx, v0, t, drop_ty)
-      }
-      ty::ty_trait(_, _, ty::BoxTraitStore, _, _) => {
-          let llbox_ptr = GEPi(bcx, v0, [0u, abi::trt_field_box]);
-          decr_refcnt_maybe_free(bcx, llbox_ptr, None)
-      }
-      ty::ty_trait(_, _, ty::UniqTraitStore, _, _) => {
-          let lluniquevalue = GEPi(bcx, v0, [0, abi::trt_field_box]);
-          // Only drop the value when it is non-null
-          with_cond(bcx, IsNotNull(bcx, Load(bcx, lluniquevalue)), |bcx| {
-              let llvtable = Load(bcx, GEPi(bcx, v0, [0, abi::trt_field_vtable]));
+        ty::ty_uniq(content_ty) => {
+            let llbox = Load(bcx, v0);
+            let not_null = IsNotNull(bcx, llbox);
+            with_cond(bcx, not_null, |bcx| {
+                let bcx = drop_ty(bcx, llbox, content_ty);
+                trans_exchange_free(bcx, llbox)
+            })
+        }
+        ty::ty_vec(_, ty::vstore_uniq) | ty::ty_str(ty::vstore_uniq) => {
+            make_drop_glue(bcx, v0, tvec::expand_boxed_vec_ty(bcx.tcx(), t))
+        }
+        ty::ty_unboxed_vec(_) => {
+            tvec::make_drop_glue_unboxed(bcx, v0, t)
+        }
+        ty::ty_struct(did, ref substs) => {
+            let tcx = bcx.tcx();
+            match ty::ty_dtor(tcx, did) {
+                ty::TraitDtor(dtor, true) => {
+                    trans_struct_drop_flag(bcx, t, v0, dtor, did, substs)
+                }
+                ty::TraitDtor(dtor, false) => {
+                    trans_struct_drop(bcx, t, v0, dtor, did, substs)
+                }
+                ty::NoDtor => {
+                    // No dtor? Just the default case
+                    iter_structural_ty(bcx, v0, t, drop_ty)
+                }
+            }
+        }
+        ty::ty_trait(_, _, ty::UniqTraitStore, _, _) => {
+            let lluniquevalue = GEPi(bcx, v0, [0, abi::trt_field_box]);
+            // Only drop the value when it is non-null
+            with_cond(bcx, IsNotNull(bcx, Load(bcx, lluniquevalue)), |bcx| {
+                let dtor_ptr = Load(bcx, GEPi(bcx, v0, [0, abi::trt_field_vtable]));
+                let dtor = Load(bcx, dtor_ptr);
+                Call(bcx, dtor, [PointerCast(bcx, lluniquevalue, Type::i8p())], []);
+                bcx
+            })
+        }
+        ty::ty_closure(ref f) if f.sigil == ast::OwnedSigil => {
+            let box_cell_v = GEPi(bcx, v0, [0u, abi::fn_field_box]);
+            let env = Load(bcx, box_cell_v);
+            let env_ptr_ty = Type::at_box(ccx, Type::i8()).ptr_to();
+            let env = PointerCast(bcx, env, env_ptr_ty);
+            with_cond(bcx, IsNotNull(bcx, env), |bcx| {
+                let dtor_ptr = GEPi(bcx, env, [0u, abi::box_field_tydesc]);
+                let dtor = Load(bcx, dtor_ptr);
+                let cdata = GEPi(bcx, env, [0u, abi::box_field_body]);
+                Call(bcx, dtor, [PointerCast(bcx, cdata, Type::i8p())], []);
 
-              // Cast the vtable to a pointer to a pointer to a tydesc.
-              let llvtable = PointerCast(bcx, llvtable,
-                                         ccx.tydesc_type.ptr_to().ptr_to());
-              let lltydesc = Load(bcx, llvtable);
-              call_tydesc_glue_full(bcx,
-                                    lluniquevalue,
-                                    lltydesc,
-                                    abi::tydesc_field_drop_glue,
-                                    None);
-              bcx
-          })
-      }
-      ty::ty_opaque_closure_ptr(ck) => {
-        closure::make_opaque_cbox_drop_glue(bcx, ck, v0)
-      }
-      _ => {
-        if ty::type_needs_drop(ccx.tcx, t) &&
-            ty::type_is_structural(t) {
-            iter_structural_ty(bcx, v0, t, drop_ty)
-        } else { bcx }
-      }
+                // Free the environment itself
+                trans_exchange_free(bcx, env)
+            })
+        }
+        _ => {
+            if ty::type_needs_drop(ccx.tcx, t) &&
+                ty::type_is_structural(t) {
+                iter_structural_ty(bcx, v0, t, drop_ty)
+            } else {
+                bcx
+            }
+        }
     }
 }
 
-fn decr_refcnt_maybe_free<'a>(bcx: &'a Block<'a>, box_ptr_ptr: ValueRef,
-                              t: Option<ty::t>) -> &'a Block<'a> {
+fn decr_refcnt_maybe_free<'a>(bcx: &'a Block<'a>,
+                              box_ptr_ptr: ValueRef,
+                              t: ty::t) -> &'a Block<'a> {
     let _icx = push_ctxt("decr_refcnt_maybe_free");
     let fcx = bcx.fcx;
     let ccx = bcx.ccx();
@@ -468,71 +373,25 @@ fn decr_refcnt_maybe_free<'a>(bcx: &'a Block<'a>, box_ptr_ptr: ValueRef,
     Store(decr_bcx, rc, rc_ptr);
     CondBr(decr_bcx, IsNull(decr_bcx, rc), free_bcx.llbb, next_bcx.llbb);
 
-    let free_bcx = match t {
-        Some(t) => make_free_glue(free_bcx, box_ptr_ptr, t),
-        None => {
-            let v = Load(free_bcx, box_ptr_ptr);
-            let td = Load(free_bcx, GEPi(free_bcx, v, [0u, abi::box_field_tydesc]));
-            let valptr = GEPi(free_bcx, v, [0u, abi::box_field_body]);
-            // Generate code that, dynamically, indexes into the
-            // tydesc and calls the drop glue that got set dynamically
-            call_tydesc_glue_full(free_bcx, valptr, td, abi::tydesc_field_drop_glue, None);
-            trans_free(free_bcx, v)
-        }
-    };
+    let v = Load(free_bcx, box_ptr_ptr);
+    let body = GEPi(free_bcx, v, [0u, abi::box_field_body]);
+    let free_bcx = drop_ty(free_bcx, body, t);
+    let free_bcx = trans_free(free_bcx, v);
     Br(free_bcx, next_bcx.llbb);
 
     next_bcx
 }
 
-fn make_take_glue<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t) -> &'a Block<'a> {
-    let _icx = push_ctxt("make_take_glue");
-    // NB: v is a *pointer* to type t here, not a direct value.
-    match ty::get(t).sty {
-      ty::ty_box(_) |
-      ty::ty_vec(_, ty::vstore_box) | ty::ty_str(ty::vstore_box) => {
-        incr_refcnt_of_boxed(bcx, Load(bcx, v)); bcx
-      }
-      ty::ty_vec(_, ty::vstore_slice(_))
-      | ty::ty_str(ty::vstore_slice(_)) => {
-        bcx
-      }
-      ty::ty_closure(_) => bcx,
-      ty::ty_trait(_, _, ty::BoxTraitStore, _, _) => {
-        let llbox = Load(bcx, GEPi(bcx, v, [0u, abi::trt_field_box]));
-        incr_refcnt_of_boxed(bcx, llbox);
-        bcx
-      }
-      ty::ty_trait(_, _, ty::UniqTraitStore, _, _) => {
-          let lluniquevalue = GEPi(bcx, v, [0, abi::trt_field_box]);
-          let llvtable = Load(bcx, GEPi(bcx, v, [0, abi::trt_field_vtable]));
-
-          // Cast the vtable to a pointer to a pointer to a tydesc.
-          let llvtable = PointerCast(bcx, llvtable,
-                                     bcx.ccx().tydesc_type.ptr_to().ptr_to());
-          let lltydesc = Load(bcx, llvtable);
-          call_tydesc_glue_full(bcx,
-                                lluniquevalue,
-                                lltydesc,
-                                abi::tydesc_field_take_glue,
-                                None);
-          bcx
-      }
-      ty::ty_opaque_closure_ptr(_) => bcx,
-      _ if ty::type_is_structural(t) => {
-        iter_structural_ty(bcx, v, t, take_ty)
-      }
-      _ => bcx
-    }
-}
-
-fn incr_refcnt_of_boxed(cx: &Block, box_ptr: ValueRef) {
+fn incr_refcnt_of_boxed<'a>(bcx: &'a Block<'a>,
+                            box_ptr_ptr: ValueRef) -> &'a Block<'a> {
     let _icx = push_ctxt("incr_refcnt_of_boxed");
-    let ccx = cx.ccx();
-    let rc_ptr = GEPi(cx, box_ptr, [0u, abi::box_field_refcnt]);
-    let rc = Load(cx, rc_ptr);
-    let rc = Add(cx, rc, C_int(ccx, 1));
-    Store(cx, rc, rc_ptr);
+    let ccx = bcx.ccx();
+    let box_ptr = Load(bcx, box_ptr_ptr);
+    let rc_ptr = GEPi(bcx, box_ptr, [0u, abi::box_field_refcnt]);
+    let rc = Load(bcx, rc_ptr);
+    let rc = Add(bcx, rc, C_int(ccx, 1));
+    Store(bcx, rc, rc_ptr);
+    bcx
 }
 
 
@@ -551,16 +410,17 @@ pub fn declare_tydesc(ccx: &CrateContext, t: ty::t) -> @tydesc_info {
 
     let llsize = llsize_of(ccx, llty);
     let llalign = llalign_of(ccx, llty);
-    let name = mangle_internal_name_by_type_and_seq(ccx, t, "tydesc").to_managed();
-    note_unique_llvm_symbol(ccx, name);
+    let name = mangle_internal_name_by_type_and_seq(ccx, t, "tydesc");
     debug!("+++ declare_tydesc {} {}", ppaux::ty_to_str(ccx.tcx, t), name);
     let gvar = name.with_c_str(|buf| {
         unsafe {
             llvm::LLVMAddGlobal(ccx.llmod, ccx.tydesc_type.to_ref(), buf)
         }
     });
+    note_unique_llvm_symbol(ccx, name);
 
-    let ty_name = C_str_slice(ccx, ppaux::ty_to_str(ccx.tcx, t).to_managed());
+    let ty_name = token::intern_and_get_ident(ppaux::ty_to_str(ccx.tcx, t));
+    let ty_name = C_str_slice(ccx, ty_name);
 
     let inf = @tydesc_info {
         ty: t,
@@ -568,8 +428,6 @@ pub fn declare_tydesc(ccx: &CrateContext, t: ty::t) -> @tydesc_info {
         size: llsize,
         align: llalign,
         name: ty_name,
-        take_glue: Cell::new(None),
-        drop_glue: Cell::new(None),
         visit_glue: Cell::new(None),
     };
     debug!("--- declare_tydesc {}", ppaux::ty_to_str(ccx.tcx, t));
@@ -579,23 +437,27 @@ pub fn declare_tydesc(ccx: &CrateContext, t: ty::t) -> @tydesc_info {
 fn declare_generic_glue(ccx: &CrateContext, t: ty::t, llfnty: Type,
                         name: &str) -> ValueRef {
     let _icx = push_ctxt("declare_generic_glue");
-    let fn_nm = mangle_internal_name_by_type_and_seq(ccx, t, (~"glue_" + name)).to_managed();
+    let fn_nm = mangle_internal_name_by_type_and_seq(ccx, t, ~"glue_" + name);
     debug!("{} is for type {}", fn_nm, ppaux::ty_to_str(ccx.tcx, t));
-    note_unique_llvm_symbol(ccx, fn_nm);
     let llfn = decl_cdecl_fn(ccx.llmod, fn_nm, llfnty, ty::mk_nil());
+    note_unique_llvm_symbol(ccx, fn_nm);
     return llfn;
 }
 
-pub type glue_helper<'a> =
-    'a |&'a Block<'a>, ValueRef, ty::t| -> &'a Block<'a>;
-
-fn make_generic_glue(ccx: @CrateContext, t: ty::t, llfn: ValueRef,
-                     helper: glue_helper, name: &str) -> ValueRef {
+fn make_generic_glue(ccx: @CrateContext,
+                     t: ty::t,
+                     llfn: ValueRef,
+                     helper: <'a> |&'a Block<'a>, ValueRef, ty::t|
+                                  -> &'a Block<'a>,
+                     name: &str)
+                     -> ValueRef {
     let _icx = push_ctxt("make_generic_glue");
     let glue_name = format!("glue {} {}", name, ty_to_short_str(ccx.tcx, t));
     let _s = StatRecorder::new(ccx, glue_name);
 
-    let fcx = new_fn_ctxt(ccx, ~[], llfn, ty::mk_nil(), None);
+    let arena = TypedArena::new();
+    let fcx = new_fn_ctxt(ccx, llfn, -1, false, ty::mk_nil(), None, None, &arena);
+
     init_function(&fcx, false, ty::mk_nil(), None);
 
     lib::llvm::SetLinkage(llfn, lib::llvm::InternalLinkage);
@@ -611,13 +473,12 @@ fn make_generic_glue(ccx: @CrateContext, t: ty::t, llfn: ValueRef,
     let bcx = fcx.entry_bcx.get().unwrap();
     let llrawptr0 = unsafe { llvm::LLVMGetParam(llfn, fcx.arg_pos(0) as c_uint) };
     let bcx = helper(bcx, llrawptr0, t);
-
     finish_fn(&fcx, bcx);
 
     llfn
 }
 
-pub fn emit_tydescs(ccx: &CrateContext) {
+pub fn emit_tydescs(ccx: @CrateContext) {
     let _icx = push_ctxt("emit_tydescs");
     // As of this point, allow no more tydescs to be created.
     ccx.finished_tydescs.set(true);
@@ -630,36 +491,10 @@ pub fn emit_tydescs(ccx: &CrateContext) {
         // before being put into the tydesc because we only have a singleton
         // tydesc type. Then we'll recast each function to its real type when
         // calling it.
-        let take_glue =
-            match ti.take_glue.get() {
-              None => {
-                  ccx.stats.n_null_glues.set(ccx.stats.n_null_glues.get() +
-                                             1);
-                  C_null(glue_fn_ty)
-              }
-              Some(v) => {
-                unsafe {
-                    ccx.stats.n_real_glues.set(ccx.stats.n_real_glues.get() +
-                                               1);
-                    llvm::LLVMConstPointerCast(v, glue_fn_ty.to_ref())
-                }
-              }
-            };
-        let drop_glue =
-            match ti.drop_glue.get() {
-              None => {
-                  ccx.stats.n_null_glues.set(ccx.stats.n_null_glues.get() +
-                                             1u);
-                  C_null(glue_fn_ty)
-              }
-              Some(v) => {
-                unsafe {
-                    ccx.stats.n_real_glues.set(ccx.stats.n_real_glues.get() +
-                                               1);
-                    llvm::LLVMConstPointerCast(v, glue_fn_ty.to_ref())
-                }
-              }
-            };
+        let drop_glue = unsafe {
+            llvm::LLVMConstPointerCast(get_drop_glue(ccx, ti.ty), glue_fn_ty.to_ref())
+        };
+        ccx.stats.n_real_glues.set(ccx.stats.n_real_glues.get() + 1);
         let visit_glue =
             match ti.visit_glue.get() {
               None => {
@@ -679,7 +514,6 @@ pub fn emit_tydescs(ccx: &CrateContext) {
         let tydesc = C_named_struct(ccx.tydesc_type,
                                     [ti.size, // size
                                      ti.align, // align
-                                     take_glue, // take_glue
                                      drop_glue, // drop_glue
                                      visit_glue, // visit_glue
                                      ti.name]); // name

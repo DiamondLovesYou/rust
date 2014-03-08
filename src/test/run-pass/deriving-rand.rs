@@ -1,5 +1,5 @@
-// xfail-fast #6330
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// ignore-fast #6330
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -34,10 +34,10 @@ enum D {
 
 pub fn main() {
     // check there's no segfaults
-    20.times(|| {
+    for _ in range(0, 20) {
         rand::random::<A>();
         rand::random::<B>();
         rand::random::<C>();
         rand::random::<D>();
-    })
+    }
 }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/*! Synchronous I/O
+// FIXME: cover these topics:
+//        path, reader, writer, stream, raii (close not needed),
+//        stdio, print!, println!, file access, process spawning,
+//        error handling
 
-This module defines the Rust interface for synchronous I/O.
-It models byte-oriented input and output with the Reader and Writer traits.
-Types that implement both `Reader` and `Writer` are called 'streams',
-and automatically implement the `Stream` trait.
-Implementations are provided for common I/O streams like
-file, TCP, UDP, Unix domain sockets.
-Readers and Writers may be composed to add capabilities like string
-parsing, encoding, and compression.
+
+/*! I/O, including files, networking, timers, and processes
+
+`std::io` provides Rust's basic I/O types,
+for reading and writing to files, TCP, UDP,
+and other types of sockets and pipes,
+manipulating the file system, spawning processes and signal handling.
 
 # Examples
 
@@ -26,12 +28,9 @@ Some examples of obvious things you might want to do
 * Read lines from stdin
 
     ```rust
-    use std::io::BufferedReader;
-    use std::io::stdin;
+    use std::io;
 
-    # let _g = ::std::io::ignore_io_error();
-    let mut stdin = BufferedReader::new(stdin());
-    for line in stdin.lines() {
+    for line in io::stdin().lines() {
         print!("{}", line);
     }
     ```
@@ -41,16 +40,15 @@ Some examples of obvious things you might want to do
     ```rust
     use std::io::File;
 
-    # let _g = ::std::io::ignore_io_error();
     let contents = File::open(&Path::new("message.txt")).read_to_end();
     ```
 
 * Write a line to a file
 
     ```rust
+    # #[allow(unused_must_use)];
     use std::io::File;
 
-    # let _g = ::std::io::ignore_io_error();
     let mut file = File::create(&Path::new("message.txt"));
     file.write(bytes!("hello, file!\n"));
     # drop(file);
@@ -63,7 +61,6 @@ Some examples of obvious things you might want to do
     use std::io::BufferedReader;
     use std::io::File;
 
-    # let _g = ::std::io::ignore_io_error();
     let path = Path::new("message.txt");
     let mut file = BufferedReader::new(File::open(&path));
     for line in file.lines() {
@@ -77,232 +74,122 @@ Some examples of obvious things you might want to do
     use std::io::BufferedReader;
     use std::io::File;
 
-    # let _g = ::std::io::ignore_io_error();
     let path = Path::new("message.txt");
     let mut file = BufferedReader::new(File::open(&path));
     let lines: ~[~str] = file.lines().collect();
     ```
 
-* Make an simple HTTP request
-  XXX This needs more improvement: TcpStream constructor taking &str,
-  `write_str` and `write_line` methods.
+* Make a simple TCP client connection and request
 
     ```rust,should_fail
+    # #[allow(unused_must_use)];
     use std::io::net::ip::SocketAddr;
     use std::io::net::tcp::TcpStream;
 
-    # let _g = ::std::io::ignore_io_error();
     let addr = from_str::<SocketAddr>("127.0.0.1:8080").unwrap();
     let mut socket = TcpStream::connect(addr).unwrap();
     socket.write(bytes!("GET / HTTP/1.0\n\n"));
     let response = socket.read_to_end();
     ```
 
-* Connect based on URL? Requires thinking about where the URL type lives
-  and how to make protocol handlers extensible, e.g. the "tcp" protocol
-  yields a `TcpStream`.
-  XXX this is not implemented now.
+* Make a simple TCP server
 
     ```rust
-    // connect("tcp://localhost:8080");
+    # fn main() { }
+    # fn foo() {
+    # #[allow(unused_must_use, dead_code)];
+    use std::io::net::tcp::TcpListener;
+    use std::io::net::ip::{Ipv4Addr, SocketAddr};
+    use std::io::{Acceptor, Listener};
+
+    let addr = SocketAddr { ip: Ipv4Addr(127, 0, 0, 1), port: 80 };
+    let listener = TcpListener::bind(addr);
+
+    // bind the listener to the specified address
+    let mut acceptor = listener.listen();
+
+    // accept connections and process them
+    # fn handle_client<T>(_: T) {}
+    for stream in acceptor.incoming() {
+        spawn(proc() {
+            handle_client(stream);
+        });
+    }
+
+    // close the socket server
+    drop(acceptor);
+    # }
     ```
 
-# Terms
-
-* Reader - An I/O source, reads bytes into a buffer
-* Writer - An I/O sink, writes bytes from a buffer
-* Stream - Typical I/O sources like files and sockets are both Readers and Writers,
-  and are collectively referred to a `streams`.
-  such as encoding or decoding
-
-# Blocking and synchrony
-
-When discussing I/O you often hear the terms 'synchronous' and
-'asynchronous', along with 'blocking' and 'non-blocking' compared and
-contrasted. A synchronous I/O interface performs each I/O operation to
-completion before proceeding to the next. Synchronous interfaces are
-usually used in imperative style as a sequence of commands. An
-asynchronous interface allows multiple I/O requests to be issued
-simultaneously, without waiting for each to complete before proceeding
-to the next.
-
-Asynchronous interfaces are used to achieve 'non-blocking' I/O. In
-traditional single-threaded systems, performing a synchronous I/O
-operation means that the program stops all activity (it 'blocks')
-until the I/O is complete. Blocking is bad for performance when
-there are other computations that could be done.
-
-Asynchronous interfaces are most often associated with the callback
-(continuation-passing) style popularised by node.js. Such systems rely
-on all computations being run inside an event loop which maintains a
-list of all pending I/O events; when one completes the registered
-callback is run and the code that made the I/O request continues.
-Such interfaces achieve non-blocking at the expense of being more
-difficult to reason about.
-
-Rust's I/O interface is synchronous - easy to read - and non-blocking by default.
-
-Remember that Rust tasks are 'green threads', lightweight threads that
-are multiplexed onto a single operating system thread. If that system
-thread blocks then no other task may proceed. Rust tasks are
-relatively cheap to create, so as long as other tasks are free to
-execute then non-blocking code may be written by simply creating a new
-task.
-
-When discussing blocking in regards to Rust's I/O model, we are
-concerned with whether performing I/O blocks other Rust tasks from
-proceeding. In other words, when a task calls `read`, it must then
-wait (or 'sleep', or 'block') until the call to `read` is complete.
-During this time, other tasks may or may not be executed, depending on
-how `read` is implemented.
-
-
-Rust's default I/O implementation is non-blocking; by cooperating
-directly with the task scheduler it arranges to never block progress
-of *other* tasks. Under the hood, Rust uses asynchronous I/O via a
-per-scheduler (and hence per-thread) event loop. Synchronous I/O
-requests are implemented by descheduling the running task and
-performing an asynchronous request; the task is only resumed once the
-asynchronous request completes.
 
 # Error Handling
 
 I/O is an area where nearly every operation can result in unexpected
-errors. It should allow errors to be handled efficiently.
-It needs to be convenient to use I/O when you don't care
-about dealing with specific errors.
+errors. Errors should be painfully visible when they happen, and handling them
+should be easy to work with. It should be convenient to handle specific I/O
+errors, and it should also be convenient to not deal with I/O errors.
 
 Rust's I/O employs a combination of techniques to reduce boilerplate
 while still providing feedback about errors. The basic strategy:
 
-* Errors are fatal by default, resulting in task failure
-* Errors raise the `io_error` condition which provides an opportunity to inspect
-  an IoError object containing details.
-* Return values must have a sensible null or zero value which is returned
-  if a condition is handled successfully. This may be an `Option`, an empty
-  vector, or other designated error value.
-* Common traits are implemented for `Option`, e.g. `impl<R: Reader> Reader for Option<R>`,
-  so that nullable values do not have to be 'unwrapped' before use.
+* All I/O operations return `IoResult<T>` which is equivalent to
+  `Result<T, IoError>`. The `Result` type is defined in the `std::result`
+  module.
+* If the `Result` type goes unused, then the compiler will by default emit a
+  warning about the unused result. This is because `Result` has the
+  `#[must_use]` attribute.
+* Common traits are implemented for `IoResult`, e.g.
+  `impl<R: Reader> Reader for IoResult<R>`, so that error values do not have
+  to be 'unwrapped' before use.
 
 These features combine in the API to allow for expressions like
 `File::create(&Path::new("diary.txt")).write(bytes!("Met a girl.\n"))`
 without having to worry about whether "diary.txt" exists or whether
 the write succeeds. As written, if either `new` or `write_line`
-encounters an error the task will fail.
+encounters an error then the result of the entire expression will
+be an error.
 
 If you wanted to handle the error though you might write:
 
 ```rust
+# #[allow(unused_must_use)];
 use std::io::File;
-use std::io::{IoError, io_error};
 
-let mut error = None;
-io_error::cond.trap(|e: IoError| {
-    error = Some(e);
-}).inside(|| {
-    File::create(&Path::new("diary.txt")).write(bytes!("Met a girl.\n"));
-});
-
-if error.is_some() {
-    println!("failed to write my diary");
+match File::create(&Path::new("diary.txt")).write(bytes!("Met a girl.\n")) {
+    Ok(()) => (), // succeeded
+    Err(e) => println!("failed to write to my diary: {}", e),
 }
+
 # ::std::io::fs::unlink(&Path::new("diary.txt"));
 ```
 
-XXX: Need better condition handling syntax
-
-In this case the condition handler will have the opportunity to
-inspect the IoError raised by either the call to `new` or the call to
-`write_line`, but then execution will continue.
-
-So what actually happens if `new` encounters an error? To understand
-that it's important to know that what `new` returns is not a `File`
-but an `Option<File>`.  If the file does not open, and the condition
-is handled, then `new` will simply return `None`. Because there is an
-implementation of `Writer` (the trait required ultimately required for
-types to implement `write_line`) there is no need to inspect or unwrap
-the `Option<File>` and we simply call `write_line` on it.  If `new`
-returned a `None` then the followup call to `write_line` will also
-raise an error.
-
-## Concerns about this strategy
-
-This structure will encourage a programming style that is prone
-to errors similar to null pointer dereferences.
-In particular code written to ignore errors and expect conditions to be unhandled
-will start passing around null or zero objects when wrapped in a condition handler.
-
-* XXX: How should we use condition handlers that return values?
-* XXX: Should EOF raise default conditions when EOF is not an error?
-
-# Issues with i/o scheduler affinity, work stealing, task pinning
-
-# Resource management
-
-* `close` vs. RAII
-
-# Paths, URLs and overloaded constructors
-
-
-
-# Scope
-
-In scope for core
-
-* Url?
-
-Some I/O things don't belong in core
-
-  - url
-  - net - `fn connect`
-    - http
-  - flate
-
-Out of scope
-
-* Async I/O. We'll probably want it eventually
-
-
-# XXX Questions and issues
-
-* Should default constructors take `Path` or `&str`? `Path` makes simple cases verbose.
-  Overloading would be nice.
-* Add overloading for Path and &str and Url &str
-* stdin/err/out
-* print, println, etc.
-* fsync
-* relationship with filesystem querying, Directory, File types etc.
-* Rename Reader/Writer to ByteReader/Writer, make Reader/Writer generic?
-* Can Port and Chan be implementations of a generic Reader<T>/Writer<T>?
-* Trait for things that are both readers and writers, Stream?
-* How to handle newline conversion
-* String conversion
-* open vs. connect for generic stream opening
-* Do we need `close` at all? dtors might be good enough
-* How does I/O relate to the Iterator trait?
-* std::base64 filters
-* Using conditions is a big unknown since we don't have much experience with them
-* Too many uses of OtherIoError
+So what actually happens if `create` encounters an error?
+It's important to know that what `new` returns is not a `File`
+but an `IoResult<File>`.  If the file does not open, then `new` will simply
+return `Err(..)`. Because there is an implementation of `Writer` (the trait
+required ultimately required for types to implement `write_line`) there is no
+need to inspect or unwrap the `IoResult<File>` and we simply call `write_line`
+on it. If `new` returned an `Err(..)` then the followup call to `write_line`
+will also return an error.
 
 */
 
-#[allow(missing_doc)];
+#[deny(unused_must_use)];
 
 use cast;
 use char::Char;
-use condition::Guard;
 use container::Container;
+use fmt;
 use int;
 use iter::Iterator;
 use option::{Option, Some, None};
 use path::Path;
 use result::{Ok, Err, Result};
-use str;
 use str::{StrSlice, OwnedStr};
-use to_str::ToStr;
+use str;
 use uint;
-use unstable::finally::Finally;
-use vec::{OwnedVector, MutableVector, ImmutableVector, OwnedCopyableVector};
+use unstable::finally::try_finally;
+use vec::{OwnedVector, MutableVector, ImmutableVector, OwnedCloneableVector};
 use vec;
 
 // Reexports
@@ -319,53 +206,39 @@ pub use self::net::tcp::TcpListener;
 pub use self::net::tcp::TcpStream;
 pub use self::net::udp::UdpStream;
 pub use self::pipe::PipeStream;
-pub use self::process::Process;
+pub use self::process::{Process, ProcessConfig};
 
 pub use self::mem::{MemReader, BufReader, MemWriter, BufWriter};
 pub use self::buffered::{BufferedReader, BufferedWriter, BufferedStream,
                          LineBufferedWriter};
 pub use self::comm_adapters::{PortReader, ChanWriter};
 
-/// Various utility functions useful for writing I/O tests
 pub mod test;
 
-/// Synchronous, non-blocking filesystem operations.
 pub mod fs;
 
-/// Synchronous, in-memory I/O.
 pub mod pipe;
 
-/// Child process management.
 pub mod process;
 
-/// Synchronous, non-blocking network I/O.
 pub mod net;
 
-/// Readers and Writers for memory buffers and strings.
 mod mem;
 
-/// Non-blocking access to stdin, stdout, stderr
 pub mod stdio;
 
-/// Implementations for Option
-mod option;
+mod result;
 
-/// Extension traits
 pub mod extensions;
 
-/// Basic Timer
 pub mod timer;
 
-/// Buffered I/O wrappers
 mod buffered;
 
-/// Signal handling
 pub mod signal;
 
-/// Utility implementations of Reader and Writer
 pub mod util;
 
-/// Adapatation of Chan/Port types to a Writer/Reader type.
 mod comm_adapters;
 
 /// The default buffer size for various I/O operations
@@ -373,34 +246,38 @@ mod comm_adapters;
 // https://groups.google.com/forum/#!topic/libuv/oQO1HJAIDdA
 static DEFAULT_BUF_SIZE: uint = 1024 * 64;
 
+/// A convenient typedef of the return value of any I/O action.
+pub type IoResult<T> = Result<T, IoError>;
+
 /// The type passed to I/O condition handlers to indicate error
 ///
-/// # XXX
+/// # FIXME
 ///
 /// Is something like this sufficient? It's kind of archaic
+#[deriving(Eq, Clone)]
 pub struct IoError {
+    /// An enumeration which can be matched against for determining the flavor
+    /// of error.
     kind: IoErrorKind,
+    /// A human-readable description about the error
     desc: &'static str,
+    /// Detailed information about this error, not always available
     detail: Option<~str>
 }
 
-// FIXME: #8242 implementing manually because deriving doesn't work for some reason
-impl ToStr for IoError {
-    fn to_str(&self) -> ~str {
-        let mut s = ~"IoError { kind: ";
-        s.push_str(self.kind.to_str());
-        s.push_str(", desc: ");
-        s.push_str(self.desc);
-        s.push_str(", detail: ");
-        s.push_str(self.detail.to_str());
-        s.push_str(" }");
-        s
+impl fmt::Show for IoError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        try!(fmt.buf.write_str(self.desc));
+        match self.detail {
+            Some(ref s) => write!(fmt.buf, " ({})", *s),
+            None => Ok(())
+        }
     }
 }
 
-#[deriving(Eq)]
+#[deriving(Eq, Clone, Show)]
+#[allow(missing_doc)]
 pub enum IoErrorKind {
-    PreviousIoError,
     OtherIoError,
     EndOfFile,
     FileNotFound,
@@ -420,210 +297,145 @@ pub enum IoErrorKind {
     InvalidInput,
 }
 
-// FIXME: #8242 implementing manually because deriving doesn't work for some reason
-impl ToStr for IoErrorKind {
-    fn to_str(&self) -> ~str {
-        match *self {
-            PreviousIoError => ~"PreviousIoError",
-            OtherIoError => ~"OtherIoError",
-            EndOfFile => ~"EndOfFile",
-            FileNotFound => ~"FileNotFound",
-            PermissionDenied => ~"PermissionDenied",
-            ConnectionFailed => ~"ConnectionFailed",
-            Closed => ~"Closed",
-            ConnectionRefused => ~"ConnectionRefused",
-            ConnectionReset => ~"ConnectionReset",
-            NotConnected => ~"NotConnected",
-            BrokenPipe => ~"BrokenPipe",
-            PathAlreadyExists => ~"PathAlreadyExists",
-            PathDoesntExist => ~"PathDoesntExist",
-            MismatchedFileTypeForOperation => ~"MismatchedFileTypeForOperation",
-            IoUnavailable => ~"IoUnavailable",
-            ResourceUnavailable => ~"ResourceUnavailable",
-            ConnectionAborted => ~"ConnectionAborted",
-            InvalidInput => ~"InvalidInput",
-        }
-    }
-}
-
-// XXX: Can't put doc comments on macros
-// Raised by `I/O` operations on error.
-condition! {
-    pub io_error: IoError -> ();
-}
-
-/// Helper for wrapper calls where you want to
-/// ignore any io_errors that might be raised
-pub fn ignore_io_error() -> Guard<'static,IoError,()> {
-    io_error::cond.trap(|_| {
-        // just swallow the error.. downstream users
-        // who can make a decision based on a None result
-        // won't care
-    }).guard()
-}
-
-/// Helper for catching an I/O error and wrapping it in a Result object. The
-/// return result will be the last I/O error that happened or the result of the
-/// closure if no error occurred.
-pub fn result<T>(cb: || -> T) -> Result<T, IoError> {
-    let mut err = None;
-    let ret = io_error::cond.trap(|e| {
-        if err.is_none() {
-            err = Some(e);
-        }
-    }).inside(cb);
-    match err {
-        Some(e) => Err(e),
-        None => Ok(ret),
-    }
-}
-
+/// A trait for objects which are byte-oriented streams. Readers are defined by
+/// one method, `read`. This function will block until data is available,
+/// filling in the provided buffer with any data read.
+///
+/// Readers are intended to be composable with one another. Many objects
+/// throughout the I/O and related libraries take and provide types which
+/// implement the `Reader` trait.
 pub trait Reader {
 
-    // Only two methods which need to get implemented for this trait
+    // Only method which need to get implemented for this trait
 
     /// Read bytes, up to the length of `buf` and place them in `buf`.
     /// Returns the number of bytes read. The number of bytes read my
-    /// be less than the number requested, even 0. Returns `None` on EOF.
+    /// be less than the number requested, even 0. Returns `Err` on EOF.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// Raises the `io_error` condition on error. If the condition
-    /// is handled then no guarantee is made about the number of bytes
-    /// read and the contents of `buf`. If the condition is handled
-    /// returns `None` (XXX see below).
-    ///
-    /// # XXX
-    ///
-    /// * Should raise_default error on eof?
-    /// * If the condition is handled it should still return the bytes read,
-    ///   in which case there's no need to return Option - but then you *have*
-    ///   to install a handler to detect eof.
-    ///
-    /// This doesn't take a `len` argument like the old `read`.
-    /// Will people often need to slice their vectors to call this
-    /// and will that be annoying?
-    /// Is it actually possible for 0 bytes to be read successfully?
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint>;
+    /// If an error occurs during this I/O operation, then it is returned as
+    /// `Err(IoError)`. Note that end-of-file is considered an error, and can be
+    /// inspected for in the error's `kind` field. Also note that reading 0
+    /// bytes is not considered an error in all circumstances
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint>;
 
     // Convenient helper methods based on the above methods
 
-    /// Reads a single byte. Returns `None` on EOF.
-    ///
-    /// # Failure
-    ///
-    /// Raises the same conditions as the `read` method. Returns
-    /// `None` if the condition is handled.
-    fn read_byte(&mut self) -> Option<u8> {
+    /// Reads a single byte. Returns `Err` on EOF.
+    fn read_byte(&mut self) -> IoResult<u8> {
         let mut buf = [0];
-        match self.read(buf) {
-            Some(0) => {
-                debug!("read 0 bytes. trying again");
-                self.read_byte()
+        loop {
+            match self.read(buf) {
+                Ok(0) => {
+                    debug!("read 0 bytes. trying again");
+                }
+                Ok(1) => return Ok(buf[0]),
+                Ok(_) => unreachable!(),
+                Err(e) => return Err(e)
             }
-            Some(1) => Some(buf[0]),
-            Some(_) => unreachable!(),
-            None => None
         }
     }
 
     /// Reads `len` bytes and appends them to a vector.
     ///
     /// May push fewer than the requested number of bytes on error
-    /// or EOF. Returns true on success, false on EOF or error.
-    ///
-    /// # Failure
-    ///
-    /// Raises the same conditions as `read`. Additionally raises `io_error`
-    /// on EOF. If `io_error` is handled then `push_bytes` may push less
-    /// than the requested number of bytes.
-    fn push_bytes(&mut self, buf: &mut ~[u8], len: uint) {
-        unsafe {
-            let start_len = buf.len();
-            let mut total_read = 0;
+    /// or EOF. If `Ok(())` is returned, then all of the requested bytes were
+    /// pushed on to the vector, otherwise the amount `len` bytes couldn't be
+    /// read (an error was encountered), and the error is returned.
+    fn push_bytes(&mut self, buf: &mut ~[u8], len: uint) -> IoResult<()> {
+        struct State<'a> {
+            buf: &'a mut ~[u8],
+            total_read: uint
+        }
 
-            buf.reserve_additional(len);
-            buf.set_len(start_len + len);
+        let start_len = buf.len();
+        let mut s = State { buf: buf, total_read: 0 };
 
-            (|| {
-                while total_read < len {
-                    let len = buf.len();
-                    let slice = buf.mut_slice(start_len + total_read, len);
+        s.buf.reserve_additional(len);
+        unsafe { s.buf.set_len(start_len + len); }
+
+        try_finally(
+            &mut s, (),
+            |s, _| {
+                while s.total_read < len {
+                    let len = s.buf.len();
+                    let slice = s.buf.mut_slice(start_len + s.total_read, len);
                     match self.read(slice) {
-                        Some(nread) => {
-                            total_read += nread;
+                        Ok(nread) => {
+                            s.total_read += nread;
                         }
-                        None => {
-                            io_error::cond.raise(standard_error(EndOfFile));
-                            break;
-                        }
+                        Err(e) => return Err(e)
                     }
                 }
-            }).finally(|| buf.set_len(start_len + total_read))
-        }
+                Ok(())
+            },
+            |s| unsafe { s.buf.set_len(start_len + s.total_read) })
     }
 
     /// Reads `len` bytes and gives you back a new vector of length `len`
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// Raises the same conditions as `read`. Additionally raises `io_error`
-    /// on EOF. If `io_error` is handled then the returned vector may
-    /// contain less than the requested number of bytes.
-    fn read_bytes(&mut self, len: uint) -> ~[u8] {
+    /// Fails with the same conditions as `read`. Additionally returns error
+    /// on EOF. Note that if an error is returned, then some number of bytes may
+    /// have already been consumed from the underlying reader, and they are lost
+    /// (not returned as part of the error). If this is unacceptable, then it is
+    /// recommended to use the `push_bytes` or `read` methods.
+    fn read_bytes(&mut self, len: uint) -> IoResult<~[u8]> {
         let mut buf = vec::with_capacity(len);
-        self.push_bytes(&mut buf, len);
-        return buf;
+        match self.push_bytes(&mut buf, len) {
+            Ok(()) => Ok(buf),
+            Err(e) => Err(e),
+        }
     }
 
     /// Reads all remaining bytes from the stream.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// Raises the same conditions as the `read` method except for
-    /// `EndOfFile` which is swallowed.
-    fn read_to_end(&mut self) -> ~[u8] {
+    /// Returns any non-EOF error immediately. Previously read bytes are
+    /// discarded when an error is returned.
+    ///
+    /// When EOF is encountered, all bytes read up to that point are returned.
+    fn read_to_end(&mut self) -> IoResult<~[u8]> {
         let mut buf = vec::with_capacity(DEFAULT_BUF_SIZE);
-        let mut keep_reading = true;
-        io_error::cond.trap(|e| {
-            if e.kind == EndOfFile {
-                keep_reading = false;
-            } else {
-                io_error::cond.raise(e)
+        loop {
+            match self.push_bytes(&mut buf, DEFAULT_BUF_SIZE) {
+                Ok(()) => {}
+                Err(ref e) if e.kind == EndOfFile => break,
+                Err(e) => return Err(e)
             }
-        }).inside(|| {
-            while keep_reading {
-                self.push_bytes(&mut buf, DEFAULT_BUF_SIZE)
-            }
-        });
-        return buf;
+        }
+        return Ok(buf);
     }
 
     /// Reads all of the remaining bytes of this stream, interpreting them as a
     /// UTF-8 encoded stream. The corresponding string is returned.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// This function will raise all the same conditions as the `read` method,
-    /// along with raising a condition if the input is not valid UTF-8.
-    fn read_to_str(&mut self) -> ~str {
-        match str::from_utf8_owned(self.read_to_end()) {
-            Some(s) => s,
-            None => {
-                io_error::cond.raise(standard_error(InvalidInput));
-                ~""
+    /// This function returns all of the same errors as `read_to_end` with an
+    /// additional error if the reader's contents are not a valid sequence of
+    /// UTF-8 bytes.
+    fn read_to_str(&mut self) -> IoResult<~str> {
+        self.read_to_end().and_then(|s| {
+            match str::from_utf8_owned(s) {
+                Some(s) => Ok(s),
+                None => Err(standard_error(InvalidInput)),
             }
-        }
+        })
     }
 
     /// Create an iterator that reads a single byte on
     /// each iteration, until EOF.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// Raises the same conditions as the `read` method, for
-    /// each call to its `.next()` method.
-    /// Ends the iteration if the condition is handled.
+    /// The iterator protocol causes all specifics about errors encountered to
+    /// be swallowed. All errors will be signified by returning `None` from the
+    /// iterator. If this is undesirable, it is recommended to use the
+    /// `read_byte` method.
     fn bytes<'r>(&'r mut self) -> extensions::Bytes<'r, Self> {
         extensions::Bytes::new(self)
     }
@@ -633,225 +445,259 @@ pub trait Reader {
     /// Reads `n` little-endian unsigned integer bytes.
     ///
     /// `n` must be between 1 and 8, inclusive.
-    fn read_le_uint_n(&mut self, nbytes: uint) -> u64 {
+    fn read_le_uint_n(&mut self, nbytes: uint) -> IoResult<u64> {
         assert!(nbytes > 0 && nbytes <= 8);
 
         let mut val = 0u64;
         let mut pos = 0;
         let mut i = nbytes;
         while i > 0 {
-            val += (self.read_u8() as u64) << pos;
+            val += (try!(self.read_u8()) as u64) << pos;
             pos += 8;
             i -= 1;
         }
-        val
+        Ok(val)
     }
 
     /// Reads `n` little-endian signed integer bytes.
     ///
     /// `n` must be between 1 and 8, inclusive.
-    fn read_le_int_n(&mut self, nbytes: uint) -> i64 {
-        extend_sign(self.read_le_uint_n(nbytes), nbytes)
+    fn read_le_int_n(&mut self, nbytes: uint) -> IoResult<i64> {
+        self.read_le_uint_n(nbytes).map(|i| extend_sign(i, nbytes))
     }
 
     /// Reads `n` big-endian unsigned integer bytes.
     ///
     /// `n` must be between 1 and 8, inclusive.
-    fn read_be_uint_n(&mut self, nbytes: uint) -> u64 {
+    fn read_be_uint_n(&mut self, nbytes: uint) -> IoResult<u64> {
         assert!(nbytes > 0 && nbytes <= 8);
 
         let mut val = 0u64;
         let mut i = nbytes;
         while i > 0 {
             i -= 1;
-            val += (self.read_u8() as u64) << i * 8;
+            val += (try!(self.read_u8()) as u64) << i * 8;
         }
-        val
+        Ok(val)
     }
 
     /// Reads `n` big-endian signed integer bytes.
     ///
     /// `n` must be between 1 and 8, inclusive.
-    fn read_be_int_n(&mut self, nbytes: uint) -> i64 {
-        extend_sign(self.read_be_uint_n(nbytes), nbytes)
+    fn read_be_int_n(&mut self, nbytes: uint) -> IoResult<i64> {
+        self.read_be_uint_n(nbytes).map(|i| extend_sign(i, nbytes))
     }
 
     /// Reads a little-endian unsigned integer.
     ///
     /// The number of bytes returned is system-dependant.
-    fn read_le_uint(&mut self) -> uint {
-        self.read_le_uint_n(uint::bytes) as uint
+    fn read_le_uint(&mut self) -> IoResult<uint> {
+        self.read_le_uint_n(uint::BYTES).map(|i| i as uint)
     }
 
     /// Reads a little-endian integer.
     ///
     /// The number of bytes returned is system-dependant.
-    fn read_le_int(&mut self) -> int {
-        self.read_le_int_n(int::bytes) as int
+    fn read_le_int(&mut self) -> IoResult<int> {
+        self.read_le_int_n(int::BYTES).map(|i| i as int)
     }
 
     /// Reads a big-endian unsigned integer.
     ///
     /// The number of bytes returned is system-dependant.
-    fn read_be_uint(&mut self) -> uint {
-        self.read_be_uint_n(uint::bytes) as uint
+    fn read_be_uint(&mut self) -> IoResult<uint> {
+        self.read_be_uint_n(uint::BYTES).map(|i| i as uint)
     }
 
     /// Reads a big-endian integer.
     ///
     /// The number of bytes returned is system-dependant.
-    fn read_be_int(&mut self) -> int {
-        self.read_be_int_n(int::bytes) as int
+    fn read_be_int(&mut self) -> IoResult<int> {
+        self.read_be_int_n(int::BYTES).map(|i| i as int)
     }
 
     /// Reads a big-endian `u64`.
     ///
     /// `u64`s are 8 bytes long.
-    fn read_be_u64(&mut self) -> u64 {
+    fn read_be_u64(&mut self) -> IoResult<u64> {
         self.read_be_uint_n(8)
     }
 
     /// Reads a big-endian `u32`.
     ///
     /// `u32`s are 4 bytes long.
-    fn read_be_u32(&mut self) -> u32 {
-        self.read_be_uint_n(4) as u32
+    fn read_be_u32(&mut self) -> IoResult<u32> {
+        self.read_be_uint_n(4).map(|i| i as u32)
     }
 
     /// Reads a big-endian `u16`.
     ///
     /// `u16`s are 2 bytes long.
-    fn read_be_u16(&mut self) -> u16 {
-        self.read_be_uint_n(2) as u16
+    fn read_be_u16(&mut self) -> IoResult<u16> {
+        self.read_be_uint_n(2).map(|i| i as u16)
     }
 
     /// Reads a big-endian `i64`.
     ///
     /// `i64`s are 8 bytes long.
-    fn read_be_i64(&mut self) -> i64 {
+    fn read_be_i64(&mut self) -> IoResult<i64> {
         self.read_be_int_n(8)
     }
 
     /// Reads a big-endian `i32`.
     ///
     /// `i32`s are 4 bytes long.
-    fn read_be_i32(&mut self) -> i32 {
-        self.read_be_int_n(4) as i32
+    fn read_be_i32(&mut self) -> IoResult<i32> {
+        self.read_be_int_n(4).map(|i| i as i32)
     }
 
     /// Reads a big-endian `i16`.
     ///
     /// `i16`s are 2 bytes long.
-    fn read_be_i16(&mut self) -> i16 {
-        self.read_be_int_n(2) as i16
+    fn read_be_i16(&mut self) -> IoResult<i16> {
+        self.read_be_int_n(2).map(|i| i as i16)
     }
 
     /// Reads a big-endian `f64`.
     ///
     /// `f64`s are 8 byte, IEEE754 double-precision floating point numbers.
-    fn read_be_f64(&mut self) -> f64 {
-        unsafe {
-            cast::transmute::<u64, f64>(self.read_be_u64())
-        }
+    fn read_be_f64(&mut self) -> IoResult<f64> {
+        self.read_be_u64().map(|i| unsafe {
+            cast::transmute::<u64, f64>(i)
+        })
     }
 
     /// Reads a big-endian `f32`.
     ///
     /// `f32`s are 4 byte, IEEE754 single-precision floating point numbers.
-    fn read_be_f32(&mut self) -> f32 {
-        unsafe {
-            cast::transmute::<u32, f32>(self.read_be_u32())
-        }
+    fn read_be_f32(&mut self) -> IoResult<f32> {
+        self.read_be_u32().map(|i| unsafe {
+            cast::transmute::<u32, f32>(i)
+        })
     }
 
     /// Reads a little-endian `u64`.
     ///
     /// `u64`s are 8 bytes long.
-    fn read_le_u64(&mut self) -> u64 {
+    fn read_le_u64(&mut self) -> IoResult<u64> {
         self.read_le_uint_n(8)
     }
 
     /// Reads a little-endian `u32`.
     ///
     /// `u32`s are 4 bytes long.
-    fn read_le_u32(&mut self) -> u32 {
-        self.read_le_uint_n(4) as u32
+    fn read_le_u32(&mut self) -> IoResult<u32> {
+        self.read_le_uint_n(4).map(|i| i as u32)
     }
 
     /// Reads a little-endian `u16`.
     ///
     /// `u16`s are 2 bytes long.
-    fn read_le_u16(&mut self) -> u16 {
-        self.read_le_uint_n(2) as u16
+    fn read_le_u16(&mut self) -> IoResult<u16> {
+        self.read_le_uint_n(2).map(|i| i as u16)
     }
 
     /// Reads a little-endian `i64`.
     ///
     /// `i64`s are 8 bytes long.
-    fn read_le_i64(&mut self) -> i64 {
+    fn read_le_i64(&mut self) -> IoResult<i64> {
         self.read_le_int_n(8)
     }
 
     /// Reads a little-endian `i32`.
     ///
     /// `i32`s are 4 bytes long.
-    fn read_le_i32(&mut self) -> i32 {
-        self.read_le_int_n(4) as i32
+    fn read_le_i32(&mut self) -> IoResult<i32> {
+        self.read_le_int_n(4).map(|i| i as i32)
     }
 
     /// Reads a little-endian `i16`.
     ///
     /// `i16`s are 2 bytes long.
-    fn read_le_i16(&mut self) -> i16 {
-        self.read_le_int_n(2) as i16
+    fn read_le_i16(&mut self) -> IoResult<i16> {
+        self.read_le_int_n(2).map(|i| i as i16)
     }
 
     /// Reads a little-endian `f64`.
     ///
     /// `f64`s are 8 byte, IEEE754 double-precision floating point numbers.
-    fn read_le_f64(&mut self) -> f64 {
-        unsafe {
-            cast::transmute::<u64, f64>(self.read_le_u64())
-        }
+    fn read_le_f64(&mut self) -> IoResult<f64> {
+        self.read_le_u64().map(|i| unsafe {
+            cast::transmute::<u64, f64>(i)
+        })
     }
 
     /// Reads a little-endian `f32`.
     ///
     /// `f32`s are 4 byte, IEEE754 single-precision floating point numbers.
-    fn read_le_f32(&mut self) -> f32 {
-        unsafe {
-            cast::transmute::<u32, f32>(self.read_le_u32())
-        }
+    fn read_le_f32(&mut self) -> IoResult<f32> {
+        self.read_le_u32().map(|i| unsafe {
+            cast::transmute::<u32, f32>(i)
+        })
     }
 
     /// Read a u8.
     ///
     /// `u8`s are 1 byte.
-    fn read_u8(&mut self) -> u8 {
-        match self.read_byte() {
-            Some(b) => b,
-            None => 0
-        }
+    fn read_u8(&mut self) -> IoResult<u8> {
+        self.read_byte()
     }
 
     /// Read an i8.
     ///
     /// `i8`s are 1 byte.
-    fn read_i8(&mut self) -> i8 {
-        match self.read_byte() {
-            Some(b) => b as i8,
-            None => 0
-        }
+    fn read_i8(&mut self) -> IoResult<i8> {
+        self.read_byte().map(|i| i as i8)
     }
 
+    /// Creates a wrapper around a mutable reference to the reader.
+    ///
+    /// This is useful to allow applying adaptors while still
+    /// retaining ownership of the original value.
+    fn by_ref<'a>(&'a mut self) -> RefReader<'a, Self> {
+        RefReader { inner: self }
+    }
 }
 
 impl Reader for ~Reader {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> { self.read(buf) }
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
 }
 
 impl<'a> Reader for &'a mut Reader {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> { self.read(buf) }
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
+}
+
+/// A `RefReader` is a struct implementing `Reader` which contains a reference
+/// to another reader. This is often useful when composing streams.
+///
+/// # Example
+///
+/// ```
+/// # fn main() {}
+/// # fn process_input<R: Reader>(r: R) {}
+/// # fn foo() {
+/// use std::io;
+/// use std::io::util::LimitReader;
+///
+/// let mut stream = io::stdin();
+///
+/// // Only allow the function to process at most one kilobyte of input
+/// {
+///     let stream = LimitReader::new(stream.by_ref(), 1024);
+///     process_input(stream);
+/// }
+///
+/// // 'stream' is still available for use here
+///
+/// # }
+/// ```
+pub struct RefReader<'a, R> {
+    /// The underlying reader which this is referencing
+    inner: &'a mut R
+}
+
+impl<'a, R: Reader> Reader for RefReader<'a, R> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.inner.read(buf) }
 }
 
 fn extend_sign(val: u64, nbytes: uint) -> i64 {
@@ -859,20 +705,33 @@ fn extend_sign(val: u64, nbytes: uint) -> i64 {
     (val << shift) as i64 >> shift
 }
 
+/// A trait for objects which are byte-oriented streams. Writers are defined by
+/// one method, `write`. This function will block until the provided buffer of
+/// bytes has been entirely written, and it will return any failurs which occur.
+///
+/// Another commonly overriden method is the `flush` method for writers such as
+/// buffered writers.
+///
+/// Writers are intended to be composable with one another. Many objects
+/// throughout the I/O and related libraries take and provide types which
+/// implement the `Writer` trait.
 pub trait Writer {
-    /// Write the given buffer
+    /// Write the entirety of a given buffer
     ///
-    /// # Failure
+    /// # Errors
     ///
-    /// Raises the `io_error` condition on error
-    fn write(&mut self, buf: &[u8]);
+    /// If an error happens during the I/O operation, the error is returned as
+    /// `Err`. Note that it is considered an error if the entire buffer could
+    /// not be written, and if an error is returned then it is unknown how much
+    /// data (if any) was actually written.
+    fn write(&mut self, buf: &[u8]) -> IoResult<()>;
 
     /// Flush this output stream, ensuring that all intermediately buffered
     /// contents reach their destination.
     ///
     /// This is by default a no-op and implementers of the `Writer` trait should
     /// decide whether their stream needs to be buffered or not.
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> IoResult<()> { Ok(()) }
 
     /// Write a rust string into this sink.
     ///
@@ -880,8 +739,8 @@ pub trait Writer {
     /// If other encodings are desired, it is recommended to compose this stream
     /// with another performing the conversion, or to use `write` with a
     /// converted byte-array instead.
-    fn write_str(&mut self, s: &str) {
-        self.write(s.as_bytes());
+    fn write_str(&mut self, s: &str) -> IoResult<()> {
+        self.write(s.as_bytes())
     }
 
     /// Writes a string into this sink, and then writes a literal newline (`\n`)
@@ -891,125 +750,124 @@ pub trait Writer {
     ///
     /// If other encodings or line ending flavors are desired, it is recommended
     /// that the `write` method is used specifically instead.
-    fn write_line(&mut self, s: &str) {
-        self.write_str(s);
-        self.write(['\n' as u8]);
+    fn write_line(&mut self, s: &str) -> IoResult<()> {
+        self.write_str(s).and_then(|()| self.write(['\n' as u8]))
     }
 
     /// Write a single char, encoded as UTF-8.
-    fn write_char(&mut self, c: char) {
+    fn write_char(&mut self, c: char) -> IoResult<()> {
         let mut buf = [0u8, ..4];
         let n = c.encode_utf8(buf.as_mut_slice());
-        self.write(buf.slice_to(n));
+        self.write(buf.slice_to(n))
     }
 
     /// Write the result of passing n through `int::to_str_bytes`.
-    fn write_int(&mut self, n: int) {
-        int::to_str_bytes(n, 10u, |bytes| self.write(bytes))
+    fn write_int(&mut self, n: int) -> IoResult<()> {
+        write!(self, "{:d}", n)
     }
 
     /// Write the result of passing n through `uint::to_str_bytes`.
-    fn write_uint(&mut self, n: uint) {
-        uint::to_str_bytes(n, 10u, |bytes| self.write(bytes))
+    fn write_uint(&mut self, n: uint) -> IoResult<()> {
+        write!(self, "{:u}", n)
     }
 
     /// Write a little-endian uint (number of bytes depends on system).
-    fn write_le_uint(&mut self, n: uint) {
-        extensions::u64_to_le_bytes(n as u64, uint::bytes, |v| self.write(v))
+    fn write_le_uint(&mut self, n: uint) -> IoResult<()> {
+        extensions::u64_to_le_bytes(n as u64, uint::BYTES, |v| self.write(v))
     }
 
     /// Write a little-endian int (number of bytes depends on system).
-    fn write_le_int(&mut self, n: int) {
-        extensions::u64_to_le_bytes(n as u64, int::bytes, |v| self.write(v))
+    fn write_le_int(&mut self, n: int) -> IoResult<()> {
+        extensions::u64_to_le_bytes(n as u64, int::BYTES, |v| self.write(v))
     }
 
     /// Write a big-endian uint (number of bytes depends on system).
-    fn write_be_uint(&mut self, n: uint) {
-        extensions::u64_to_be_bytes(n as u64, uint::bytes, |v| self.write(v))
+    fn write_be_uint(&mut self, n: uint) -> IoResult<()> {
+        extensions::u64_to_be_bytes(n as u64, uint::BYTES, |v| self.write(v))
     }
 
     /// Write a big-endian int (number of bytes depends on system).
-    fn write_be_int(&mut self, n: int) {
-        extensions::u64_to_be_bytes(n as u64, int::bytes, |v| self.write(v))
+    fn write_be_int(&mut self, n: int) -> IoResult<()> {
+        extensions::u64_to_be_bytes(n as u64, int::BYTES, |v| self.write(v))
     }
 
     /// Write a big-endian u64 (8 bytes).
-    fn write_be_u64(&mut self, n: u64) {
+    fn write_be_u64(&mut self, n: u64) -> IoResult<()> {
         extensions::u64_to_be_bytes(n, 8u, |v| self.write(v))
     }
 
     /// Write a big-endian u32 (4 bytes).
-    fn write_be_u32(&mut self, n: u32) {
+    fn write_be_u32(&mut self, n: u32) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a big-endian u16 (2 bytes).
-    fn write_be_u16(&mut self, n: u16) {
+    fn write_be_u16(&mut self, n: u16) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a big-endian i64 (8 bytes).
-    fn write_be_i64(&mut self, n: i64) {
+    fn write_be_i64(&mut self, n: i64) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 8u, |v| self.write(v))
     }
 
     /// Write a big-endian i32 (4 bytes).
-    fn write_be_i32(&mut self, n: i32) {
+    fn write_be_i32(&mut self, n: i32) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a big-endian i16 (2 bytes).
-    fn write_be_i16(&mut self, n: i16) {
+    fn write_be_i16(&mut self, n: i16) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a big-endian IEEE754 double-precision floating-point (8 bytes).
-    fn write_be_f64(&mut self, f: f64) {
+    fn write_be_f64(&mut self, f: f64) -> IoResult<()> {
         unsafe {
             self.write_be_u64(cast::transmute(f))
         }
     }
 
     /// Write a big-endian IEEE754 single-precision floating-point (4 bytes).
-    fn write_be_f32(&mut self, f: f32) {
+    fn write_be_f32(&mut self, f: f32) -> IoResult<()> {
         unsafe {
             self.write_be_u32(cast::transmute(f))
         }
     }
 
     /// Write a little-endian u64 (8 bytes).
-    fn write_le_u64(&mut self, n: u64) {
+    fn write_le_u64(&mut self, n: u64) -> IoResult<()> {
         extensions::u64_to_le_bytes(n, 8u, |v| self.write(v))
     }
 
     /// Write a little-endian u32 (4 bytes).
-    fn write_le_u32(&mut self, n: u32) {
+    fn write_le_u32(&mut self, n: u32) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a little-endian u16 (2 bytes).
-    fn write_le_u16(&mut self, n: u16) {
+    fn write_le_u16(&mut self, n: u16) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a little-endian i64 (8 bytes).
-    fn write_le_i64(&mut self, n: i64) {
+    fn write_le_i64(&mut self, n: i64) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 8u, |v| self.write(v))
     }
 
     /// Write a little-endian i32 (4 bytes).
-    fn write_le_i32(&mut self, n: i32) {
+    fn write_le_i32(&mut self, n: i32) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a little-endian i16 (2 bytes).
-    fn write_le_i16(&mut self, n: i16) {
+    fn write_le_i16(&mut self, n: i16) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a little-endian IEEE754 double-precision floating-point
     /// (8 bytes).
-    fn write_le_f64(&mut self, f: f64) {
+    fn write_le_f64(&mut self, f: f64) -> IoResult<()> {
         unsafe {
             self.write_le_u64(cast::transmute(f))
         }
@@ -1017,33 +875,78 @@ pub trait Writer {
 
     /// Write a little-endian IEEE754 single-precision floating-point
     /// (4 bytes).
-    fn write_le_f32(&mut self, f: f32) {
+    fn write_le_f32(&mut self, f: f32) -> IoResult<()> {
         unsafe {
             self.write_le_u32(cast::transmute(f))
         }
     }
 
     /// Write a u8 (1 byte).
-    fn write_u8(&mut self, n: u8) {
+    fn write_u8(&mut self, n: u8) -> IoResult<()> {
         self.write([n])
     }
 
     /// Write a i8 (1 byte).
-    fn write_i8(&mut self, n: i8) {
+    fn write_i8(&mut self, n: i8) -> IoResult<()> {
         self.write([n as u8])
+    }
+
+    /// Creates a wrapper around a mutable reference to the writer.
+    ///
+    /// This is useful to allow applying wrappers while still
+    /// retaining ownership of the original value.
+    fn by_ref<'a>(&'a mut self) -> RefWriter<'a, Self> {
+        RefWriter { inner: self }
     }
 }
 
 impl Writer for ~Writer {
-    fn write(&mut self, buf: &[u8]) { self.write(buf) }
-    fn flush(&mut self) { self.flush() }
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
+    fn flush(&mut self) -> IoResult<()> { self.flush() }
 }
 
 impl<'a> Writer for &'a mut Writer {
-    fn write(&mut self, buf: &[u8]) { self.write(buf) }
-    fn flush(&mut self) { self.flush() }
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
+    fn flush(&mut self) -> IoResult<()> { self.flush() }
 }
 
+/// A `RefWriter` is a struct implementing `Writer` which contains a reference
+/// to another writer. This is often useful when composing streams.
+///
+/// # Example
+///
+/// ```
+/// # fn main() {}
+/// # fn process_input<R: Reader>(r: R) {}
+/// # fn foo () {
+/// use std::io::util::TeeReader;
+/// use std::io::{stdin, MemWriter};
+///
+/// let mut output = MemWriter::new();
+///
+/// {
+///     // Don't give ownership of 'output' to the 'tee'. Instead we keep a
+///     // handle to it in the outer scope
+///     let mut tee = TeeReader::new(stdin(), output.by_ref());
+///     process_input(tee);
+/// }
+///
+/// println!("input processed: {}", output.unwrap());
+/// # }
+/// ```
+pub struct RefWriter<'a, W> {
+    /// The underlying writer which this is referencing
+    inner: &'a mut W
+}
+
+impl<'a, W: Writer> Writer for RefWriter<'a, W> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.inner.write(buf) }
+    fn flush(&mut self) -> IoResult<()> { self.inner.flush() }
+}
+
+
+/// A Stream is a readable and a writable object. Data written is typically
+/// received by the object which reads receive data from.
 pub trait Stream: Reader + Writer { }
 
 impl<T: Reader + Writer> Stream for T {}
@@ -1057,18 +960,42 @@ impl<T: Reader + Writer> Stream for T {}
 /// an iteration, but continue to yield elements if iteration
 /// is attempted again.
 ///
-/// # Failure
+/// # Error
 ///
-/// Raises the same conditions as the `read` method except for `EndOfFile`
-/// which is swallowed.
-/// Iteration yields `None` if the condition is handled.
+/// This iterator will swallow all I/O errors, transforming `Err` values to
+/// `None`. If errors need to be handled, it is recommended to use the
+/// `read_line` method directly.
 pub struct Lines<'r, T> {
     priv buffer: &'r mut T,
 }
 
 impl<'r, T: Buffer> Iterator<~str> for Lines<'r, T> {
     fn next(&mut self) -> Option<~str> {
-        self.buffer.read_line()
+        self.buffer.read_line().ok()
+    }
+}
+
+/// An iterator that reads a utf8-encoded character on each iteration,
+/// until `.read_char()` returns `None`.
+///
+/// # Notes about the Iteration Protocol
+///
+/// The `Chars` may yield `None` and thus terminate
+/// an iteration, but continue to yield elements if iteration
+/// is attempted again.
+///
+/// # Error
+///
+/// This iterator will swallow all I/O errors, transforming `Err` values to
+/// `None`. If errors need to be handled, it is recommended to use the
+/// `read_char` method directly.
+pub struct Chars<'r, T> {
+    priv buffer: &'r mut T
+}
+
+impl<'r, T: Buffer> Iterator<char> for Chars<'r, T> {
+    fn next(&mut self) -> Option<char> {
+        self.buffer.read_char().ok()
     }
 }
 
@@ -1085,11 +1012,12 @@ pub trait Buffer: Reader {
     /// consumed from this buffer returned to ensure that the bytes are never
     /// returned twice.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// This function will raise on the `io_error` condition if a read error is
-    /// encountered.
-    fn fill<'a>(&'a mut self) -> &'a [u8];
+    /// This function will return an I/O error if the underlying reader was
+    /// read, but returned an error. Note that it is not an error to return a
+    /// 0-length buffer.
+    fn fill<'a>(&'a mut self) -> IoResult<&'a [u8]>;
 
     /// Tells this buffer that `amt` bytes have been consumed from the buffer,
     /// so they should no longer be returned in calls to `fill` or `read`.
@@ -1102,113 +1030,135 @@ pub trait Buffer: Reader {
     /// # Example
     ///
     /// ```rust
-    /// use std::io::{BufferedReader, stdin};
-    /// # let _g = ::std::io::ignore_io_error();
+    /// use std::io;
     ///
-    /// let mut reader = BufferedReader::new(stdin());
-    ///
-    /// let input = reader.read_line().unwrap_or(~"nothing");
+    /// let mut reader = io::stdin();
+    /// let input = reader.read_line().ok().unwrap_or(~"nothing");
     /// ```
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// This function will raise on the `io_error` condition (except for
-    /// `EndOfFile` which is swallowed) if a read error is encountered.
-    /// The task will also fail if sequence of bytes leading up to
-    /// the newline character are not valid UTF-8.
-    fn read_line(&mut self) -> Option<~str> {
-        self.read_until('\n' as u8).map(|line| str::from_utf8_owned(line).unwrap())
+    /// This function has the same error semantics as `read_until`:
+    ///
+    /// * All non-EOF errors will be returned immediately
+    /// * If an error is returned previously consumed bytes are lost
+    /// * EOF is only returned if no bytes have been read
+    /// * Reach EOF may mean that the delimiter is not present in the return
+    ///   value
+    ///
+    /// Additionally, this function can fail if the line of input read is not a
+    /// valid UTF-8 sequence of bytes.
+    fn read_line(&mut self) -> IoResult<~str> {
+        self.read_until('\n' as u8).and_then(|line|
+            match str::from_utf8_owned(line) {
+                Some(s) => Ok(s),
+                None => Err(standard_error(InvalidInput)),
+            }
+        )
     }
 
     /// Create an iterator that reads a line on each iteration until EOF.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// Iterator raises the same conditions as the `read` method
-    /// except for `EndOfFile`.
+    /// This iterator will transform all error values to `None`, discarding the
+    /// cause of the error. If this is undesirable, it is recommended to call
+    /// `read_line` directly.
     fn lines<'r>(&'r mut self) -> Lines<'r, Self> {
-        Lines {
-            buffer: self,
-        }
+        Lines { buffer: self }
     }
 
     /// Reads a sequence of bytes leading up to a specified delimiter. Once the
     /// specified byte is encountered, reading ceases and the bytes up to and
     /// including the delimiter are returned.
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// This function will raise on the `io_error` condition if a read error is
-    /// encountered, except that `EndOfFile` is swallowed.
-    fn read_until(&mut self, byte: u8) -> Option<~[u8]> {
+    /// If any I/O error is encountered other than EOF, the error is immediately
+    /// returned. Note that this may discard bytes which have already been read,
+    /// and those bytes will *not* be returned. It is recommended to use other
+    /// methods if this case is worrying.
+    ///
+    /// If EOF is encountered, then this function will return EOF if 0 bytes
+    /// have been read, otherwise the pending byte buffer is returned. This
+    /// is the reason that the byte buffer returned may not always contain the
+    /// delimiter.
+    fn read_until(&mut self, byte: u8) -> IoResult<~[u8]> {
         let mut res = ~[];
 
-        io_error::cond.trap(|e| {
-            if e.kind != EndOfFile {
-                io_error::cond.raise(e);
-            }
-        }).inside(|| {
-            let mut used;
-            loop {
-                {
-                    let available = self.fill();
-                    match available.iter().position(|&b| b == byte) {
-                        Some(i) => {
-                            res.push_all(available.slice_to(i + 1));
-                            used = i + 1;
-                            break
-                        }
-                        None => {
-                            res.push_all(available);
-                            used = available.len();
-                        }
+        let mut used;
+        loop {
+            {
+                let available = match self.fill() {
+                    Ok(n) => n,
+                    Err(ref e) if res.len() > 0 && e.kind == EndOfFile => {
+                        used = 0;
+                        break
+                    }
+                    Err(e) => return Err(e)
+                };
+                match available.iter().position(|&b| b == byte) {
+                    Some(i) => {
+                        res.push_all(available.slice_to(i + 1));
+                        used = i + 1;
+                        break
+                    }
+                    None => {
+                        res.push_all(available);
+                        used = available.len();
                     }
                 }
-                if used == 0 {
-                    break
-                }
-                self.consume(used);
             }
             self.consume(used);
-        });
-        return if res.len() == 0 {None} else {Some(res)};
-
+        }
+        self.consume(used);
+        Ok(res)
     }
 
     /// Reads the next utf8-encoded character from the underlying stream.
     ///
-    /// This will return `None` if the following sequence of bytes in the
-    /// stream are not a valid utf8-sequence, or if an I/O error is encountered.
+    /// # Error
     ///
-    /// # Failure
-    ///
-    /// This function will raise on the `io_error` condition if a read error is
-    /// encountered.
-    fn read_char(&mut self) -> Option<char> {
-        let width = {
-            let available = self.fill();
-            if available.len() == 0 { return None } // read error
-            str::utf8_char_width(available[0])
-        };
-        if width == 0 { return None } // not uf8
-        let mut buf = [0, ..4];
+    /// If an I/O error occurs, or EOF, then this function will return `Err`.
+    /// This function will also return error if the stream does not contain a
+    /// valid utf-8 encoded codepoint as the next few bytes in the stream.
+    fn read_char(&mut self) -> IoResult<char> {
+        let first_byte = try!(self.read_byte());
+        let width = str::utf8_char_width(first_byte);
+        if width == 1 { return Ok(first_byte as char) }
+        if width == 0 { return Err(standard_error(InvalidInput)) } // not utf8
+        let mut buf = [first_byte, 0, 0, 0];
         {
-            let mut start = 0;
-            loop {
-                match self.read(buf.mut_slice(start, width)) {
-                    Some(n) if n == width - start => break,
-                    Some(n) if n < width - start => { start += n; }
-                    Some(..) | None => return None // read error
+            let mut start = 1;
+            while start < width {
+                match try!(self.read(buf.mut_slice(start, width))) {
+                    n if n == width - start => break,
+                    n if n < width - start => { start += n; }
+                    _ => return Err(standard_error(InvalidInput)),
                 }
             }
         }
         match str::from_utf8(buf.slice_to(width)) {
-            Some(s) => Some(s.char_at(0)),
-            None => None
+            Some(s) => Ok(s.char_at(0)),
+            None => Err(standard_error(InvalidInput))
         }
+    }
+
+    /// Create an iterator that reads a utf8-encoded character on each iteration
+    /// until EOF.
+    ///
+    /// # Error
+    ///
+    /// This iterator will transform all error values to `None`, discarding the
+    /// cause of the error. If this is undesirable, it is recommended to call
+    /// `read_char` directly.
+    fn chars<'r>(&'r mut self) -> Chars<'r, Self> {
+        Chars { buffer: self }
     }
 }
 
+/// When seeking, the resulting cursor is offset from a base by the offset given
+/// to the `seek` function. The base used is specified by this enumeration.
 pub enum SeekStyle {
     /// Seek from the beginning of the stream
     SeekSet,
@@ -1218,44 +1168,53 @@ pub enum SeekStyle {
     SeekCur,
 }
 
-/// # XXX
-/// * Are `u64` and `i64` the right choices?
+/// An object implementing `Seek` internally has some form of cursor which can
+/// be moved within a stream of bytes. The stream typically has a fixed size,
+/// allowing seeking relative to either end.
 pub trait Seek {
     /// Return position of file cursor in the stream
-    fn tell(&self) -> u64;
+    fn tell(&self) -> IoResult<u64>;
 
     /// Seek to an offset in a stream
     ///
-    /// A successful seek clears the EOF indicator.
+    /// A successful seek clears the EOF indicator. Seeking beyond EOF is
+    /// allowed, but seeking before position 0 is not allowed.
     ///
-    /// # XXX
+    /// # Errors
     ///
-    /// * What is the behavior when seeking past the end of a stream?
-    fn seek(&mut self, pos: i64, style: SeekStyle);
+    /// * Seeking to a negative offset is considered an error
+    /// * Seeking past the end of the stream does not modify the underlying
+    ///   stream, but the next write may cause the previous data to be filled in
+    ///   with a bit pattern.
+    fn seek(&mut self, pos: i64, style: SeekStyle) -> IoResult<()>;
 }
 
-/// A listener is a value that can consume itself to start listening for connections.
+/// A listener is a value that can consume itself to start listening for
+/// connections.
+///
 /// Doing so produces some sort of Acceptor.
 pub trait Listener<T, A: Acceptor<T>> {
     /// Spin up the listener and start queuing incoming connections
     ///
-    /// # Failure
+    /// # Error
     ///
-    /// Raises `io_error` condition. If the condition is handled,
-    /// then `listen` returns `None`.
-    fn listen(self) -> Option<A>;
+    /// Returns `Err` if this listener could not be bound to listen for
+    /// connections. In all cases, this listener is consumed.
+    fn listen(self) -> IoResult<A>;
 }
 
 /// An acceptor is a value that presents incoming connections
 pub trait Acceptor<T> {
     /// Wait for and accept an incoming connection
     ///
-    /// # Failure
-    /// Raise `io_error` condition. If the condition is handled,
-    /// then `accept` returns `None`.
-    fn accept(&mut self) -> Option<T>;
+    /// # Error
+    ///
+    /// Returns `Err` if an I/O error is encountered.
+    fn accept(&mut self) -> IoResult<T>;
 
-    /// Create an iterator over incoming connection attempts
+    /// Create an iterator over incoming connection attempts.
+    ///
+    /// Note that I/O errors will be yielded by the iterator itself.
     fn incoming<'r>(&'r mut self) -> IncomingConnections<'r, Self> {
         IncomingConnections { inc: self }
     }
@@ -1264,23 +1223,33 @@ pub trait Acceptor<T> {
 /// An infinite iterator over incoming connection attempts.
 /// Calling `next` will block the task until a connection is attempted.
 ///
-/// Since connection attempts can continue forever, this iterator always returns Some.
-/// The Some contains another Option representing whether the connection attempt was succesful.
-/// A successful connection will be wrapped in Some.
-/// A failed connection is represented as a None and raises a condition.
-struct IncomingConnections<'a, A> {
+/// Since connection attempts can continue forever, this iterator always returns
+/// `Some`. The `Some` contains the `IoResult` representing whether the
+/// connection attempt was successful.  A successful connection will be wrapped
+/// in `Ok`. A failed connection is represented as an `Err`.
+pub struct IncomingConnections<'a, A> {
     priv inc: &'a mut A,
 }
 
-impl<'a, T, A: Acceptor<T>> Iterator<Option<T>> for IncomingConnections<'a, A> {
-    fn next(&mut self) -> Option<Option<T>> {
+impl<'a, T, A: Acceptor<T>> Iterator<IoResult<T>> for IncomingConnections<'a, A> {
+    fn next(&mut self) -> Option<IoResult<T>> {
         Some(self.inc.accept())
     }
 }
 
+/// Creates a standard error for a commonly used flavor of error. The `detail`
+/// field of the returned error will always be `None`.
+///
+/// # Example
+///
+/// ```
+/// use std::io;
+///
+/// let eof = io::standard_error(io::EndOfFile);
+/// let einval = io::standard_error(io::InvalidInput);
+/// ```
 pub fn standard_error(kind: IoErrorKind) -> IoError {
     let desc = match kind {
-        PreviousIoError => "failing due to previous I/O error",
         EndOfFile => "end of file",
         IoUnavailable => "I/O is unavailable",
         InvalidInput => "invalid input",
@@ -1290,14 +1259,6 @@ pub fn standard_error(kind: IoErrorKind) -> IoError {
         kind: kind,
         desc: desc,
         detail: None,
-    }
-}
-
-pub fn placeholder_error() -> IoError {
-    IoError {
-        kind: OtherIoError,
-        desc: "Placeholder error. You shouldn't be seeing this",
-        detail: None
     }
 }
 
@@ -1314,24 +1275,55 @@ pub enum FileMode {
 }
 
 /// Access permissions with which the file should be opened. `File`s
-/// opened with `Read` will raise an `io_error` condition if written to.
+/// opened with `Read` will return an error if written to.
 pub enum FileAccess {
+    /// Read-only access, requests to write will result in an error
     Read,
+    /// Write-only access, requests to read will result in an error
     Write,
+    /// Read-write access, no requests are denied by default
     ReadWrite,
 }
 
 /// Different kinds of files which can be identified by a call to stat
-#[deriving(Eq)]
+#[deriving(Eq, Show)]
 pub enum FileType {
+    /// This is a normal file, corresponding to `S_IFREG`
     TypeFile,
+
+    /// This file is a directory, corresponding to `S_IFDIR`
     TypeDirectory,
+
+    /// This file is a named pipe, corresponding to `S_IFIFO`
     TypeNamedPipe,
+
+    /// This file is a block device, corresponding to `S_IFBLK`
     TypeBlockSpecial,
+
+    /// This file is a symbolic link to another file, corresponding to `S_IFLNK`
     TypeSymlink,
+
+    /// The type of this file is not recognized as one of the other categories
     TypeUnknown,
 }
 
+/// A structure used to describe metadata information about a file. This
+/// structure is created through the `stat` method on a `Path`.
+///
+/// # Example
+///
+/// ```
+/// # fn main() {}
+/// # fn foo() {
+/// let info = match Path::new("foo.txt").stat() {
+///     Ok(stat) => stat,
+///     Err(e) => fail!("couldn't read foo.txt: {}", e),
+/// };
+///
+/// println!("path: {}", info.path.display());
+/// println!("byte size: {}", info.size);
+/// # }
+/// ```
 pub struct FileStat {
     /// The path that this stat structure is describing
     path: Path,
@@ -1372,6 +1364,7 @@ pub struct FileStat {
 /// structure. This information is not necessarily platform independent, and may
 /// have different meanings or no meaning at all on some platforms.
 #[unstable]
+#[allow(missing_doc)]
 pub struct UnstableFileStat {
     device: u64,
     inode: u64,

@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-android: FIXME(#10381)
+// ignore-android: FIXME(#10381)
 
-// compile-flags:-Z extra-debug-info
+// compile-flags:-g
 // debugger:rbreak zzz
 // debugger:run
 // debugger:finish
@@ -31,26 +31,26 @@
 #[allow(unused_variable)];
 
 fn function_one() {
-	let a = 10101;
-	zzz();
+    let a = 10101;
+    zzz();
 }
 
 fn function_two() {
-	let b = 20202;
-	zzz();
+    let b = 20202;
+    zzz();
 }
 
 
 fn function_three() {
-	let c = 30303;
-	zzz();
+    let c = 30303;
+    zzz();
 }
 
 
 fn main() {
-	function_one();
-	function_two();
-	function_three();
+    function_one();
+    function_two();
+    function_three();
 }
 
 fn zzz() {()}

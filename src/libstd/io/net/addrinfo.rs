@@ -17,8 +17,11 @@ getaddrinfo()
 
 */
 
-use option::{Option, Some, None};
+#[allow(missing_doc)];
+
+use io::IoResult;
 use io::net::ip::{SocketAddr, IpAddr};
+use option::{Option, Some, None};
 use rt::rtio::{IoFactory, LocalIo};
 use vec::ImmutableVector;
 
@@ -69,11 +72,7 @@ pub struct Info {
 
 /// Easy name resolution. Given a hostname, returns the list of IP addresses for
 /// that hostname.
-///
-/// # Failure
-///
-/// On failure, this will raise on the `io_error` condition.
-pub fn get_host_addresses(host: &str) -> Option<~[IpAddr]> {
+pub fn get_host_addresses(host: &str) -> IoResult<~[IpAddr]> {
     lookup(Some(host), None, None).map(|a| a.map(|i| i.address.ip))
 }
 
@@ -87,26 +86,18 @@ pub fn get_host_addresses(host: &str) -> Option<~[IpAddr]> {
 /// * hint - see the hint structure, and "man -s 3 getaddrinfo", for how this
 ///          controls lookup
 ///
-/// # Failure
-///
-/// On failure, this will raise on the `io_error` condition.
-///
-/// XXX: this is not public because the `Hint` structure is not ready for public
+/// FIXME: this is not public because the `Hint` structure is not ready for public
 ///      consumption just yet.
 fn lookup(hostname: Option<&str>, servname: Option<&str>, hint: Option<Hint>)
-          -> Option<~[Info]> {
+          -> IoResult<~[Info]> {
     LocalIo::maybe_raise(|io| io.get_host_addresses(hostname, servname, hint))
 }
 
-#[cfg(test)]
+// Ignored on android since we cannot give tcp/ip
+// permission without help of apk
+#[cfg(test, not(target_os = "android"))]
 mod test {
-    use io::net::ip::Ipv4Addr;
-    use prelude::*;
-    use super::*;
-
-    #[test]
-    #[ignore(cfg(target_os="android"))] // cannot give tcp/ip permission without help of apk
-    fn dns_smoke_test() {
+    iotest!(fn dns_smoke_test() {
         let ipaddrs = get_host_addresses("localhost").unwrap();
         let mut found_local = false;
         let local_addr = &Ipv4Addr(127, 0, 0, 1);
@@ -114,5 +105,11 @@ mod test {
             found_local = found_local || addr == local_addr;
         }
         assert!(found_local);
-    }
+    })
+
+    iotest!(fn issue_10663() {
+        // Something should happen here, but this certainly shouldn't cause
+        // everything to die. The actual outcome we don't care too much about.
+        get_host_addresses("example.com").unwrap();
+    } #[ignore])
 }

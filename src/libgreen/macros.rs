@@ -8,14 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// XXX: this file probably shouldn't exist
+// FIXME: this file probably shouldn't exist
 
 #[macro_escape];
 
 use std::fmt;
 
 // Indicates whether we should perform expensive sanity checks, including rtassert!
-// XXX: Once the runtime matures remove the `true` below to turn off rtassert, etc.
+// FIXME: Once the runtime matures remove the `true` below to turn off rtassert, etc.
 pub static ENFORCE_SANITY: bool = true || !cfg!(rtopt) || cfg!(rtdebug) || cfg!(rtassert);
 
 macro_rules! rterrln (
@@ -56,16 +56,17 @@ pub fn dumb_println(args: &fmt::Arguments) {
 
     struct Stderr;
     impl io::Writer for Stderr {
-        fn write(&mut self, data: &[u8]) {
+        fn write(&mut self, data: &[u8]) -> io::IoResult<()> {
             unsafe {
                 libc::write(libc::STDERR_FILENO,
                             data.as_ptr() as *libc::c_void,
                             data.len() as libc::size_t);
             }
+            Ok(()) // just ignore the result
         }
     }
     let mut w = Stderr;
-    fmt::writeln(&mut w as &mut io::Writer, args);
+    let _ = fmt::writeln(&mut w as &mut io::Writer, args);
 }
 
 pub fn abort(msg: &str) -> ! {
@@ -123,7 +124,7 @@ memory and partly incapable of presentation to others.",
     abort();
 
     fn abort() -> ! {
-        use std::unstable::intrinsics;
+        use std::intrinsics;
         unsafe { intrinsics::abort() }
     }
 }

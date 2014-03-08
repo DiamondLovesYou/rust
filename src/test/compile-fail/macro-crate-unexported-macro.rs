@@ -9,13 +9,14 @@
 // except according to those terms.
 
 // aux-build:macro_crate_test.rs
-// xfail-stage1
-// xfail-android
+// ignore-stage1
+// ignore-android
+// ignore-cross-compile #12102
 
 #[feature(phase)];
 
 #[phase(syntax)]
-extern mod macro_crate_test;
+extern crate macro_crate_test;
 
 fn main() {
     assert_eq!(3, unexported_macro!()); //~ ERROR macro undefined: 'unexported_macro'

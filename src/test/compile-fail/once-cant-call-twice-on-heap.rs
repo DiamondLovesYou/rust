@@ -12,8 +12,8 @@
 // This program would segfault if it were legal.
 
 #[feature(once_fns)];
-extern mod extra;
-use extra::arc;
+extern crate sync;
+use sync::Arc;
 
 fn foo(blk: proc()) {
     blk();
@@ -21,9 +21,9 @@ fn foo(blk: proc()) {
 }
 
 fn main() {
-    let x = arc::Arc::new(true);
-    do foo {
+    let x = Arc::new(true);
+    foo(proc() {
         assert!(*x.get());
         drop(x);
-    }
+    });
 }

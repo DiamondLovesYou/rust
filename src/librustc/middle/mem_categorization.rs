@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -22,7 +22,7 @@
  * forms):
  *
  *     E = rvalue    // some computed rvalue
- *       | x         // address of a local variable, arg, or upvar
+ *       | x         // address of a local variable or argument
  *       | *E        // deref of a ptr
  *       | E.comp    // access to an interior component
  *
@@ -44,13 +44,26 @@
  * themselves.  For example, auto-derefs are explicit.  Also, an index a[b] is
  * decomposed into two operations: a derefence to reach the array data and
  * then an index to jump forward to the relevant item.
+ *
+ * ## By-reference upvars
+ *
+ * One part of the translation which may be non-obvious is that we translate
+ * closure upvars into the dereference of a borrowed pointer; this more closely
+ * resembles the runtime translation. So, for example, if we had:
+ *
+ *     let mut x = 3;
+ *     let y = 5;
+ *     let inc = || x += y;
+ *
+ * Then when we categorize `x` (*within* the closure) we would yield a
+ * result of `*x'`, effectively, where `x'` is a `cat_upvar` reference
+ * tied to `x`. The type of `x'` will be a borrowed pointer.
  */
 
+#[allow(non_camel_case_types)];
 
 use middle::ty;
-use middle::typeck;
 use util::ppaux::{ty_to_str, region_ptr_to_str, Repr};
-use util::common::indenter;
 
 use syntax::ast::{MutImmutable, MutMutable};
 use syntax::ast;
@@ -63,16 +76,15 @@ pub enum categorization {
     cat_rvalue(ty::Region),            // temporary val, argument is its scope
     cat_static_item,
     cat_copied_upvar(CopiedUpvar),     // upvar copied into @fn or ~fn env
-    cat_stack_upvar(cmt),              // by ref upvar from ||
+    cat_upvar(ty::UpvarId, ty::UpvarBorrow), // by ref upvar from stack closure
     cat_local(ast::NodeId),            // local variable
     cat_arg(ast::NodeId),              // formal argument
     cat_deref(cmt, uint, PointerKind), // deref of a ptr
     cat_interior(cmt, InteriorKind),   // something interior: field, tuple, etc
-    cat_downcast(cmt),                 // selects a particular enum variant (..)
+    cat_downcast(cmt),                 // selects a particular enum variant (*1)
     cat_discr(cmt, ast::NodeId),       // match discriminant (see preserve())
-    cat_self(ast::NodeId),             // explicit `self`
 
-    // (..) downcast is only required if the enum has more than one variant
+    // (*1) downcast is only required if the enum has more than one variant
 }
 
 #[deriving(Eq)]
@@ -82,40 +94,40 @@ pub struct CopiedUpvar {
 }
 
 // different kinds of pointers:
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum PointerKind {
-    uniq_ptr,
-    gc_ptr,
-    region_ptr(ast::Mutability, ty::Region),
-    unsafe_ptr(ast::Mutability)
+    OwnedPtr,
+    GcPtr,
+    BorrowedPtr(ty::BorrowKind, ty::Region),
+    UnsafePtr(ast::Mutability),
 }
 
 // We use the term "interior" to mean "something reachable from the
 // base without a pointer dereference", e.g. a field
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum InteriorKind {
     InteriorField(FieldName),
     InteriorElement(ElementKind),
 }
 
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum FieldName {
     NamedField(ast::Name),
     PositionalField(uint)
 }
 
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash)]
 pub enum ElementKind {
     VecElement,
     StrElement,
     OtherElement,
 }
 
-#[deriving(Eq, IterBytes)]
+#[deriving(Eq, Hash, Show)]
 pub enum MutabilityCategory {
     McImmutable, // Immutable.
     McDeclared,  // Directly declared as mutable.
-    McInherited  // Inherited from the fact that owner is mutable.
+    McInherited, // Inherited from the fact that owner is mutable.
 }
 
 // `cmt`: "Category, Mutability, and Type".
@@ -160,33 +172,32 @@ pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
         ty::ty_vec(_, ty::vstore_uniq) |
         ty::ty_str(ty::vstore_uniq) |
         ty::ty_closure(ty::ClosureTy {sigil: ast::OwnedSigil, ..}) => {
-            Some(deref_ptr(uniq_ptr))
+            Some(deref_ptr(OwnedPtr))
         }
 
         ty::ty_rptr(r, mt) |
         ty::ty_vec(mt, ty::vstore_slice(r)) => {
-            Some(deref_ptr(region_ptr(mt.mutbl, r)))
+            let kind = ty::BorrowKind::from_mutbl(mt.mutbl);
+            Some(deref_ptr(BorrowedPtr(kind, r)))
         }
 
         ty::ty_trait(_, _, ty::RegionTraitStore(r), m, _) => {
-            Some(deref_ptr(region_ptr(m, r)))
+            let kind = ty::BorrowKind::from_mutbl(m);
+            Some(deref_ptr(BorrowedPtr(kind, r)))
         }
 
         ty::ty_str(ty::vstore_slice(r)) |
         ty::ty_closure(ty::ClosureTy {sigil: ast::BorrowedSigil,
                                       region: r, ..}) => {
-            Some(deref_ptr(region_ptr(ast::MutImmutable, r)))
+            Some(deref_ptr(BorrowedPtr(ty::ImmBorrow, r)))
         }
 
-        ty::ty_box(_) |
-        ty::ty_vec(_, ty::vstore_box) |
-        ty::ty_trait(_, _, ty::BoxTraitStore, _, _) |
-        ty::ty_str(ty::vstore_box) => {
-            Some(deref_ptr(gc_ptr))
+        ty::ty_box(..) => {
+            Some(deref_ptr(GcPtr))
         }
 
         ty::ty_ptr(ref mt) => {
-            Some(deref_ptr(unsafe_ptr(mt.mutbl)))
+            Some(deref_ptr(UnsafePtr(mt.mutbl)))
         }
 
         ty::ty_enum(..) |
@@ -214,53 +225,7 @@ pub fn deref_kind(tcx: ty::ctxt, t: ty::t) -> deref_kind {
     }
 }
 
-pub fn cat_expr(tcx: ty::ctxt,
-                method_map: typeck::method_map,
-                expr: &ast::Expr)
-             -> cmt {
-    let mcx = &mem_categorization_ctxt {
-        tcx: tcx, method_map: method_map
-    };
-    return mcx.cat_expr(expr);
-}
-
-pub fn cat_expr_unadjusted(tcx: ty::ctxt,
-                           method_map: typeck::method_map,
-                           expr: &ast::Expr)
-                        -> cmt {
-    let mcx = &mem_categorization_ctxt {
-        tcx: tcx, method_map: method_map
-    };
-    return mcx.cat_expr_unadjusted(expr);
-}
-
-pub fn cat_expr_autoderefd(
-    tcx: ty::ctxt,
-    method_map: typeck::method_map,
-    expr: &ast::Expr,
-    autoderefs: uint) -> cmt
-{
-    let mcx = &mem_categorization_ctxt {
-        tcx: tcx, method_map: method_map
-    };
-    return mcx.cat_expr_autoderefd(expr, autoderefs);
-}
-
-pub fn cat_def(
-    tcx: ty::ctxt,
-    method_map: typeck::method_map,
-    expr_id: ast::NodeId,
-    expr_span: Span,
-    expr_ty: ty::t,
-    def: ast::Def) -> cmt {
-
-    let mcx = &mem_categorization_ctxt {
-        tcx: tcx, method_map: method_map
-    };
-    return mcx.cat_def(expr_id, expr_span, expr_ty, def);
-}
-
-pub trait ast_node {
+trait ast_node {
     fn id(&self) -> ast::NodeId;
     fn span(&self) -> Span;
 }
@@ -275,15 +240,38 @@ impl ast_node for ast::Pat {
     fn span(&self) -> Span { self.span }
 }
 
-pub struct mem_categorization_ctxt {
-    tcx: ty::ctxt,
-    method_map: typeck::method_map,
+pub struct MemCategorizationContext<TYPER> {
+    typer: TYPER
 }
 
-impl ToStr for MutabilityCategory {
-    fn to_str(&self) -> ~str {
-        format!("{:?}", *self)
-    }
+pub type McResult<T> = Result<T, ()>;
+
+/**
+ * The `Typer` trait provides the interface for the mem-categorization
+ * module to the results of the type check. It can be used to query
+ * the type assigned to an expression node, to inquire after adjustments,
+ * and so on.
+ *
+ * This interface is needed because mem-categorization is used from
+ * two places: `regionck` and `borrowck`. `regionck` executes before
+ * type inference is complete, and hence derives types and so on from
+ * intermediate tables.  This also implies that type errors can occur,
+ * and hence `node_ty()` and friends return a `Result` type -- any
+ * error will propagate back up through the mem-categorization
+ * routines.
+ *
+ * In the borrow checker, in contrast, type checking is complete and we
+ * know that no errors have occurred, so we simply consult the tcx and we
+ * can be sure that only `Ok` results will occur.
+ */
+pub trait Typer {
+    fn tcx(&self) -> ty::ctxt;
+    fn node_ty(&mut self, id: ast::NodeId) -> McResult<ty::t>;
+    fn node_method_ty(&mut self, id: ast::NodeId) -> Option<ty::t>;
+    fn adjustment(&mut self, node_id: ast::NodeId) -> Option<@ty::AutoAdjustment>;
+    fn is_method_call(&mut self, id: ast::NodeId) -> bool;
+    fn temporary_scope(&mut self, rvalue_id: ast::NodeId) -> Option<ast::NodeId>;
+    fn upvar_borrow(&mut self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow;
 }
 
 impl MutabilityCategory {
@@ -294,18 +282,45 @@ impl MutabilityCategory {
         }
     }
 
+    pub fn from_borrow_kind(borrow_kind: ty::BorrowKind) -> MutabilityCategory {
+        match borrow_kind {
+            ty::ImmBorrow => McImmutable,
+            ty::UniqueImmBorrow => McImmutable,
+            ty::MutBorrow => McDeclared,
+        }
+    }
+
+    pub fn from_pointer_kind(base_mutbl: MutabilityCategory,
+                             ptr: PointerKind) -> MutabilityCategory {
+        match ptr {
+            OwnedPtr => {
+                base_mutbl.inherit()
+            }
+            BorrowedPtr(borrow_kind, _) => {
+                MutabilityCategory::from_borrow_kind(borrow_kind)
+            }
+            GcPtr => {
+                McImmutable
+            }
+            UnsafePtr(m) => {
+                MutabilityCategory::from_mutbl(m)
+            }
+        }
+    }
+
     pub fn inherit(&self) -> MutabilityCategory {
         match *self {
             McImmutable => McImmutable,
             McDeclared => McInherited,
-            McInherited => McInherited
+            McInherited => McInherited,
         }
     }
 
     pub fn is_mutable(&self) -> bool {
         match *self {
             McImmutable => false,
-            McDeclared | McInherited => true
+            McInherited => true,
+            McDeclared => true,
         }
     }
 
@@ -324,55 +339,78 @@ impl MutabilityCategory {
     }
 }
 
-impl mem_categorization_ctxt {
-    pub fn expr_ty(&self, expr: &ast::Expr) -> ty::t {
-        ty::expr_ty(self.tcx, expr)
+macro_rules! if_ok(
+    ($inp: expr) => (
+        match $inp {
+            Ok(v) => { v }
+            Err(e) => { return Err(e); }
+        }
+    )
+)
+
+impl<TYPER:Typer> MemCategorizationContext<TYPER> {
+    fn tcx(&self) -> ty::ctxt {
+        self.typer.tcx()
     }
 
-    pub fn pat_ty(&self, pat: &ast::Pat) -> ty::t {
-        ty::node_id_to_type(self.tcx, pat.id)
+    fn adjustment(&mut self, id: ast::NodeId) -> Option<@ty::AutoAdjustment> {
+        self.typer.adjustment(id)
     }
 
-    pub fn cat_expr(&self, expr: &ast::Expr) -> cmt {
-        let adjustments = self.tcx.adjustments.borrow();
-        match adjustments.get().find(&expr.id) {
+    fn expr_ty(&mut self, expr: &ast::Expr) -> McResult<ty::t> {
+        self.typer.node_ty(expr.id)
+    }
+
+    fn expr_ty_adjusted(&mut self, expr: &ast::Expr) -> McResult<ty::t> {
+        let unadjusted_ty = if_ok!(self.expr_ty(expr));
+        let adjustment = self.adjustment(expr.id);
+        Ok(ty::adjust_ty(self.tcx(), expr.span, unadjusted_ty, adjustment))
+    }
+
+    fn node_ty(&mut self, id: ast::NodeId) -> McResult<ty::t> {
+        self.typer.node_ty(id)
+    }
+
+    fn pat_ty(&mut self, pat: @ast::Pat) -> McResult<ty::t> {
+        self.typer.node_ty(pat.id)
+    }
+
+    pub fn cat_expr(&mut self, expr: &ast::Expr) -> McResult<cmt> {
+        match self.adjustment(expr.id) {
             None => {
                 // No adjustments.
                 self.cat_expr_unadjusted(expr)
             }
 
             Some(adjustment) => {
-                match **adjustment {
+                match *adjustment {
                     ty::AutoObject(..) => {
                         // Implicity casts a concrete object to trait object
                         // so just patch up the type
-                        let expr_ty = ty::expr_ty_adjusted(self.tcx, expr);
-                        @cmt_ {
-                            ty: expr_ty,
-                            ..*self.cat_expr_unadjusted(expr)
-                        }
+                        let expr_ty = if_ok!(self.expr_ty_adjusted(expr));
+                        let expr_cmt = if_ok!(self.cat_expr_unadjusted(expr));
+                        Ok(@cmt_ {ty: expr_ty, ..*expr_cmt})
                     }
 
                     ty::AutoAddEnv(..) => {
                         // Convert a bare fn to a closure by adding NULL env.
                         // Result is an rvalue.
-                        let expr_ty = ty::expr_ty_adjusted(self.tcx, expr);
-                        self.cat_rvalue_node(expr, expr_ty)
+                        let expr_ty = if_ok!(self.expr_ty_adjusted(expr));
+                        Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty))
                     }
 
-                    ty::AutoDerefRef(ty::AutoDerefRef {
-                        autoref: Some(_),
-                    ..}) => {
+                    ty::AutoDerefRef(
+                        ty::AutoDerefRef {
+                            autoref: Some(_), ..}) => {
                         // Equivalent to &*expr or something similar.
                         // Result is an rvalue.
-                        let expr_ty = ty::expr_ty_adjusted(self.tcx, expr);
-                        self.cat_rvalue_node(expr, expr_ty)
+                        let expr_ty = if_ok!(self.expr_ty_adjusted(expr));
+                        Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty))
                     }
 
-                    ty::AutoDerefRef(ty::AutoDerefRef {
-                            autoref: None,
-                            autoderefs: autoderefs
-                    }) => {
+                    ty::AutoDerefRef(
+                        ty::AutoDerefRef {
+                            autoref: None, autoderefs: autoderefs}) => {
                         // Equivalent to *expr or something similar.
                         self.cat_expr_autoderefd(expr, autoderefs)
                     }
@@ -381,53 +419,51 @@ impl mem_categorization_ctxt {
         }
     }
 
-    pub fn cat_expr_autoderefd(&self, expr: &ast::Expr, autoderefs: uint)
-                               -> cmt {
-        let mut cmt = self.cat_expr_unadjusted(expr);
+    pub fn cat_expr_autoderefd(&mut self, expr: &ast::Expr, autoderefs: uint)
+                               -> McResult<cmt> {
+        let mut cmt = if_ok!(self.cat_expr_unadjusted(expr));
         for deref in range(1u, autoderefs + 1) {
             cmt = self.cat_deref(expr, cmt, deref);
         }
-        return cmt;
+        return Ok(cmt);
     }
 
-    pub fn cat_expr_unadjusted(&self, expr: &ast::Expr) -> cmt {
-        debug!("cat_expr: id={} expr={}",
-               expr.id, pprust::expr_to_str(expr, self.tcx.sess.intr()));
+    pub fn cat_expr_unadjusted(&mut self, expr: &ast::Expr) -> McResult<cmt> {
+        debug!("cat_expr: id={} expr={}", expr.id, expr.repr(self.tcx()));
 
-        let expr_ty = self.expr_ty(expr);
+        let expr_ty = if_ok!(self.expr_ty(expr));
         match expr.node {
-          ast::ExprUnary(_, ast::UnDeref, e_base) => {
-            let method_map = self.method_map.borrow();
-            if method_map.get().contains_key(&expr.id) {
-                return self.cat_rvalue_node(expr, expr_ty);
-            }
-
-            let base_cmt = self.cat_expr(e_base);
-            self.cat_deref(expr, base_cmt, 0)
+          ast::ExprUnary(ast::UnDeref, e_base) => {
+            let base_cmt = match self.typer.node_method_ty(expr.id) {
+                Some(method_ty) => {
+                    let ref_ty = ty::ty_fn_ret(method_ty);
+                    self.cat_rvalue_node(expr.id(), expr.span(), ref_ty)
+                }
+                None => if_ok!(self.cat_expr(e_base))
+            };
+            Ok(self.cat_deref(expr, base_cmt, 0))
           }
 
           ast::ExprField(base, f_name, _) => {
             // Method calls are now a special syntactic form,
             // so `a.b` should always be a field.
-            let method_map = self.method_map.borrow();
-            assert!(!method_map.get().contains_key(&expr.id));
+            assert!(!self.typer.is_method_call(expr.id));
 
-            let base_cmt = self.cat_expr(base);
-            self.cat_field(expr, base_cmt, f_name, self.expr_ty(expr))
+            let base_cmt = if_ok!(self.cat_expr(base));
+            Ok(self.cat_field(expr, base_cmt, f_name, expr_ty))
           }
 
-          ast::ExprIndex(_, base, _) => {
-            let method_map = self.method_map.borrow();
-            if method_map.get().contains_key(&expr.id) {
-                return self.cat_rvalue_node(expr, expr_ty);
+          ast::ExprIndex(base, _) => {
+            if self.typer.is_method_call(expr.id) {
+                return Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty));
             }
 
-            let base_cmt = self.cat_expr(base);
-            self.cat_index(expr, base_cmt, 0)
+            let base_cmt = if_ok!(self.cat_expr(base));
+            Ok(self.cat_index(expr, base_cmt, 0))
           }
 
-          ast::ExprPath(_) | ast::ExprSelf => {
-            let def_map = self.tcx.def_map.borrow();
+          ast::ExprPath(_) => {
+            let def_map = self.tcx().def_map.borrow();
             let def = def_map.get().get_copy(&expr.id);
             self.cat_def(expr.id, expr.span, expr_ty, def)
           }
@@ -437,7 +473,7 @@ impl mem_categorization_ctxt {
           ast::ExprAddrOf(..) | ast::ExprCall(..) |
           ast::ExprAssign(..) | ast::ExprAssignOp(..) |
           ast::ExprFnBlock(..) | ast::ExprProc(..) | ast::ExprRet(..) |
-          ast::ExprDoBody(..) | ast::ExprUnary(..) |
+          ast::ExprUnary(..) |
           ast::ExprMethodCall(..) | ast::ExprCast(..) | ast::ExprVstore(..) |
           ast::ExprVec(..) | ast::ExprTup(..) | ast::ExprIf(..) |
           ast::ExprLogLevel | ast::ExprBinary(..) | ast::ExprWhile(..) |
@@ -445,44 +481,48 @@ impl mem_categorization_ctxt {
           ast::ExprLit(..) | ast::ExprBreak(..) | ast::ExprMac(..) |
           ast::ExprAgain(..) | ast::ExprStruct(..) | ast::ExprRepeat(..) |
           ast::ExprInlineAsm(..) | ast::ExprBox(..) => {
-            return self.cat_rvalue_node(expr, expr_ty);
+            Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty))
           }
 
           ast::ExprForLoop(..) => fail!("non-desugared expr_for_loop")
         }
     }
 
-    pub fn cat_def(&self,
+    pub fn cat_def(&mut self,
                    id: ast::NodeId,
                    span: Span,
                    expr_ty: ty::t,
                    def: ast::Def)
-                   -> cmt {
+                   -> McResult<cmt> {
+        debug!("cat_def: id={} expr={}",
+               id, expr_ty.repr(self.tcx()));
+
         match def {
+          ast::DefStruct(..) | ast::DefVariant(..) => {
+                Ok(self.cat_rvalue_node(id, span, expr_ty))
+          }
           ast::DefFn(..) | ast::DefStaticMethod(..) | ast::DefMod(_) |
           ast::DefForeignMod(_) | ast::DefStatic(_, false) |
-          ast::DefUse(_) | ast::DefVariant(..) |
-          ast::DefTrait(_) | ast::DefTy(_) | ast::DefPrimTy(_) |
-          ast::DefTyParam(..) | ast::DefStruct(..) |
-          ast::DefTyParamBinder(..) | ast::DefRegion(_) |
+          ast::DefUse(_) | ast::DefTrait(_) | ast::DefTy(_) | ast::DefPrimTy(_) |
+          ast::DefTyParam(..) | ast::DefTyParamBinder(..) | ast::DefRegion(_) |
           ast::DefLabel(_) | ast::DefSelfTy(..) | ast::DefMethod(..) => {
-              @cmt_ {
+              Ok(@cmt_ {
                   id:id,
                   span:span,
                   cat:cat_static_item,
                   mutbl: McImmutable,
                   ty:expr_ty
-              }
+              })
           }
 
           ast::DefStatic(_, true) => {
-              @cmt_ {
+              Ok(@cmt_ {
                   id:id,
                   span:span,
                   cat:cat_static_item,
                   mutbl: McDeclared,
                   ty:expr_ty
-              }
+              })
           }
 
           ast::DefArg(vid, binding_mode) => {
@@ -494,27 +534,17 @@ impl mem_categorization_ctxt {
                 ast::BindByValue(ast::MutMutable) => McDeclared,
                 _ => McImmutable
             };
-            @cmt_ {
+            Ok(@cmt_ {
                 id: id,
                 span: span,
                 cat: cat_arg(vid),
                 mutbl: m,
                 ty:expr_ty
-            }
+            })
           }
 
-          ast::DefSelf(self_id, mutbl) => {
-            @cmt_ {
-                id:id,
-                span:span,
-                cat:cat_self(self_id),
-                mutbl: if mutbl { McDeclared } else { McImmutable },
-                ty:expr_ty
-            }
-          }
-
-          ast::DefUpvar(upvar_id, inner, fn_node_id, _) => {
-              let ty = ty::node_id_to_type(self.tcx, fn_node_id);
+          ast::DefUpvar(var_id, _, fn_node_id, _) => {
+              let ty = if_ok!(self.node_ty(fn_node_id));
               match ty::get(ty).sty {
                   ty::ty_closure(ref closure_ty) => {
                       // Decide whether to use implicit reference or by copy/move
@@ -532,33 +562,25 @@ impl mem_categorization_ctxt {
 
                       };
                       if var_is_refd {
-                          let upvar_cmt =
-                              self.cat_def(id, span, expr_ty, *inner);
-                          @cmt_ {
-                              id:id,
-                              span:span,
-                              cat:cat_stack_upvar(upvar_cmt),
-                              mutbl:upvar_cmt.mutbl.inherit(),
-                              ty:upvar_cmt.ty
-                          }
+                          self.cat_upvar(id, span, var_id, fn_node_id)
                       } else {
                           // FIXME #2152 allow mutation of moved upvars
-                          @cmt_ {
+                          Ok(@cmt_ {
                               id:id,
                               span:span,
                               cat:cat_copied_upvar(CopiedUpvar {
-                                  upvar_id: upvar_id,
+                                  upvar_id: var_id,
                                   onceness: closure_ty.onceness}),
                               mutbl:McImmutable,
                               ty:expr_ty
-                          }
+                          })
                       }
                   }
                   _ => {
-                      self.tcx.sess.span_bug(
+                      self.tcx().sess.span_bug(
                           span,
-                          format!("Upvar of non-closure {:?} - {}",
-                               fn_node_id, ty.repr(self.tcx)));
+                          format!("Upvar of non-closure {} - {}",
+                                  fn_node_id, ty.repr(self.tcx())));
                   }
               }
           }
@@ -571,32 +593,83 @@ impl mem_categorization_ctxt {
                 _ => McImmutable
             };
 
-            @cmt_ {
+            Ok(@cmt_ {
                 id: id,
                 span: span,
                 cat: cat_local(vid),
                 mutbl: m,
                 ty: expr_ty
-            }
+            })
           }
         }
     }
 
-    pub fn cat_rvalue_node<N:ast_node>(&self,
-                                       node: &N,
-                                       expr_ty: ty::t) -> cmt {
-        match self.tcx.region_maps.temporary_scope(node.id()) {
+    fn cat_upvar(&mut self,
+                 id: ast::NodeId,
+                 span: Span,
+                 var_id: ast::NodeId,
+                 fn_node_id: ast::NodeId)
+                 -> McResult<cmt> {
+        /*!
+         * Upvars through a closure are in fact indirect
+         * references. That is, when a closure refers to a
+         * variable from a parent stack frame like `x = 10`,
+         * that is equivalent to `*x_ = 10` where `x_` is a
+         * borrowed pointer (`&mut x`) created when the closure
+         * was created and store in the environment. This
+         * equivalence is expose in the mem-categorization.
+         */
+
+        let upvar_id = ty::UpvarId { var_id: var_id,
+                                     closure_expr_id: fn_node_id };
+
+        let upvar_borrow = self.typer.upvar_borrow(upvar_id);
+
+        let var_ty = if_ok!(self.node_ty(var_id));
+
+        // We can't actually represent the types of all upvars
+        // as user-describable types, since upvars support const
+        // and unique-imm borrows! Therefore, we cheat, and just
+        // give err type. Nobody should be inspecting this type anyhow.
+        let upvar_ty = ty::mk_err();
+
+        let base_cmt = @cmt_ {
+            id:id,
+            span:span,
+            cat:cat_upvar(upvar_id, upvar_borrow),
+            mutbl:McImmutable,
+            ty:upvar_ty,
+        };
+
+        let ptr = BorrowedPtr(upvar_borrow.kind, upvar_borrow.region);
+
+        let deref_cmt = @cmt_ {
+            id:id,
+            span:span,
+            cat:cat_deref(base_cmt, 0, ptr),
+            mutbl:MutabilityCategory::from_borrow_kind(upvar_borrow.kind),
+            ty:var_ty,
+        };
+
+        Ok(deref_cmt)
+    }
+
+    pub fn cat_rvalue_node(&mut self,
+                           id: ast::NodeId,
+                           span: Span,
+                           expr_ty: ty::t)
+                           -> cmt {
+        match self.typer.temporary_scope(id) {
             Some(scope) => {
-                self.cat_rvalue(node.id(), node.span(),
-                                ty::ReScope(scope), expr_ty)
+                self.cat_rvalue(id, span, ty::ReScope(scope), expr_ty)
             }
             None => {
-                self.cat_rvalue(node.id(), node.span(), ty::ReStatic, expr_ty)
+                self.cat_rvalue(id, span, ty::ReStatic, expr_ty)
             }
         }
     }
 
-    pub fn cat_rvalue(&self,
+    pub fn cat_rvalue(&mut self,
                       cmt_id: ast::NodeId,
                       span: Span,
                       temp_scope: ty::Region,
@@ -614,7 +687,7 @@ impl mem_categorization_ctxt {
     /// component is inherited from the base it is a part of. For
     /// example, a record field is mutable if it is declared mutable
     /// or if the container is mutable.
-    pub fn inherited_mutability(&self,
+    pub fn inherited_mutability(&mut self,
                                 base_m: MutabilityCategory,
                                 interior_m: ast::Mutability)
                                 -> MutabilityCategory {
@@ -624,7 +697,7 @@ impl mem_categorization_ctxt {
         }
     }
 
-    pub fn cat_field<N:ast_node>(&self,
+    pub fn cat_field<N:ast_node>(&mut self,
                                  node: &N,
                                  base_cmt: cmt,
                                  f_name: ast::Ident,
@@ -639,7 +712,7 @@ impl mem_categorization_ctxt {
         }
     }
 
-    pub fn cat_deref_fn_or_obj<N:ast_node>(&self,
+    pub fn cat_deref_fn_or_obj<N:ast_node>(&mut self,
                                            node: &N,
                                            base_cmt: cmt,
                                            deref_cnt: uint)
@@ -650,11 +723,11 @@ impl mem_categorization_ctxt {
         // know what type lies at the other end, so we just call it
         // `()` (the empty tuple).
 
-        let opaque_ty = ty::mk_tup(self.tcx, ~[]);
+        let opaque_ty = ty::mk_tup(self.tcx(), ~[]);
         return self.cat_deref_common(node, base_cmt, deref_cnt, opaque_ty);
     }
 
-    pub fn cat_deref<N:ast_node>(&self,
+    pub fn cat_deref<N:ast_node>(&mut self,
                                  node: &N,
                                  base_cmt: cmt,
                                  deref_cnt: uint)
@@ -662,37 +735,28 @@ impl mem_categorization_ctxt {
         let mt = match ty::deref(base_cmt.ty, true) {
             Some(mt) => mt,
             None => {
-                self.tcx.sess.span_bug(
+                self.tcx().sess.span_bug(
                     node.span(),
                     format!("Explicit deref of non-derefable type: {}",
-                         ty_to_str(self.tcx, base_cmt.ty)));
+                            base_cmt.ty.repr(self.tcx())));
             }
         };
 
         return self.cat_deref_common(node, base_cmt, deref_cnt, mt.ty);
     }
 
-    pub fn cat_deref_common<N:ast_node>(&self,
+    pub fn cat_deref_common<N:ast_node>(&mut self,
                                         node: &N,
                                         base_cmt: cmt,
                                         deref_cnt: uint,
                                         deref_ty: ty::t)
                                         -> cmt {
-        match deref_kind(self.tcx, base_cmt.ty) {
+        match deref_kind(self.tcx(), base_cmt.ty) {
             deref_ptr(ptr) => {
                 // for unique ptrs, we inherit mutability from the
                 // owning reference.
-                let m = match ptr {
-                    uniq_ptr => {
-                        base_cmt.mutbl.inherit()
-                    }
-                    gc_ptr => {
-                        McImmutable
-                    }
-                    region_ptr(m, _) | unsafe_ptr(m) => {
-                        MutabilityCategory::from_mutbl(m)
-                    }
-                };
+                let m = MutabilityCategory::from_pointer_kind(base_cmt.mutbl,
+                                                              ptr);
 
                 @cmt_ {
                     id:node.id(),
@@ -716,7 +780,7 @@ impl mem_categorization_ctxt {
         }
     }
 
-    pub fn cat_index<N:ast_node>(&self,
+    pub fn cat_index<N:ast_node>(&mut self,
                                  elt: &N,
                                  base_cmt: cmt,
                                  derefs: uint)
@@ -755,28 +819,18 @@ impl mem_categorization_ctxt {
         let element_ty = match ty::index(base_cmt.ty) {
           Some(ref mt) => mt.ty,
           None => {
-            self.tcx.sess.span_bug(
+            self.tcx().sess.span_bug(
                 elt.span(),
                 format!("Explicit index of non-index type `{}`",
-                     ty_to_str(self.tcx, base_cmt.ty)));
+                     base_cmt.ty.repr(self.tcx())));
           }
         };
 
-        return match deref_kind(self.tcx, base_cmt.ty) {
+        return match deref_kind(self.tcx(), base_cmt.ty) {
           deref_ptr(ptr) => {
             // for unique ptrs, we inherit mutability from the
             // owning reference.
-            let m = match ptr {
-                uniq_ptr => {
-                    base_cmt.mutbl.inherit()
-                }
-                gc_ptr => {
-                    McImmutable
-                }
-                region_ptr(m, _) | unsafe_ptr(m) => {
-                    MutabilityCategory::from_mutbl(m)
-                }
-            };
+            let m = MutabilityCategory::from_pointer_kind(base_cmt.mutbl, ptr);
 
             // the deref is explicit in the resulting cmt
             let deref_cmt = @cmt_ {
@@ -787,7 +841,7 @@ impl mem_categorization_ctxt {
                 ty:element_ty
             };
 
-            interior(elt, deref_cmt, base_cmt.ty, m, element_ty)
+            interior(elt, deref_cmt, base_cmt.ty, m.inherit(), element_ty)
           }
 
           deref_interior(_) => {
@@ -813,7 +867,57 @@ impl mem_categorization_ctxt {
         }
     }
 
-    pub fn cat_imm_interior<N:ast_node>(&self,
+    pub fn cat_slice_pattern(&mut self,
+                             vec_cmt: cmt,
+                             slice_pat: @ast::Pat)
+                             -> McResult<(cmt, ast::Mutability, ty::Region)> {
+        /*!
+         * Given a pattern P like: `[_, ..Q, _]`, where `vec_cmt` is
+         * the cmt for `P`, `slice_pat` is the pattern `Q`, returns:
+         * - a cmt for `Q`
+         * - the mutability and region of the slice `Q`
+         *
+         * These last two bits of info happen to be things that
+         * borrowck needs.
+         */
+
+        let slice_ty = if_ok!(self.node_ty(slice_pat.id));
+        let (slice_mutbl, slice_r) = vec_slice_info(self.tcx(),
+                                                    slice_pat,
+                                                    slice_ty);
+        let cmt_slice = self.cat_index(slice_pat, vec_cmt, 0);
+        return Ok((cmt_slice, slice_mutbl, slice_r));
+
+        fn vec_slice_info(tcx: ty::ctxt,
+                          pat: @ast::Pat,
+                          slice_ty: ty::t)
+                          -> (ast::Mutability, ty::Region) {
+            /*!
+             * In a pattern like [a, b, ..c], normally `c` has slice type,
+             * but if you have [a, b, ..ref c], then the type of `ref c`
+             * will be `&&[]`, so to extract the slice details we have
+             * to recurse through rptrs.
+             */
+
+            match ty::get(slice_ty).sty {
+                ty::ty_vec(slice_mt, ty::vstore_slice(slice_r)) => {
+                    (slice_mt.mutbl, slice_r)
+                }
+
+                ty::ty_rptr(_, ref mt) => {
+                    vec_slice_info(tcx, pat, mt.ty)
+                }
+
+                _ => {
+                    tcx.sess.span_bug(
+                        pat.span,
+                        format!("Type of slice pattern is not a slice"));
+                }
+            }
+        }
+    }
+
+    pub fn cat_imm_interior<N:ast_node>(&mut self,
                                         node: &N,
                                         base_cmt: cmt,
                                         interior_ty: ty::t,
@@ -828,7 +932,7 @@ impl mem_categorization_ctxt {
         }
     }
 
-    pub fn cat_downcast<N:ast_node>(&self,
+    pub fn cat_downcast<N:ast_node>(&mut self,
                                     node: &N,
                                     base_cmt: cmt,
                                     downcast_ty: ty::t)
@@ -842,10 +946,13 @@ impl mem_categorization_ctxt {
         }
     }
 
-    pub fn cat_pattern(&self,
+    pub fn cat_pattern(&mut self,
                        cmt: cmt,
-                       pat: &ast::Pat,
-                       op: |cmt, &ast::Pat|) {
+                       pat: @ast::Pat,
+                       op: |&mut MemCategorizationContext<TYPER>,
+                            cmt,
+                            @ast::Pat|)
+                       -> McResult<()> {
         // Here, `cmt` is the categorization for the value being
         // matched and pat is the pattern it is being matched against.
         //
@@ -858,7 +965,7 @@ impl mem_categorization_ctxt {
         // we can be sure that the binding will remain valid for the
         // duration of the arm.
         //
-        // (..) There is subtlety concerning the correspondence between
+        // (*2) There is subtlety concerning the correspondence between
         // pattern ids and types as compared to *expression* ids and
         // types. This is explained briefly. on the definition of the
         // type `cmt`, so go off and read what it says there, then
@@ -868,7 +975,8 @@ impl mem_categorization_ctxt {
         // In general, the id of the cmt should be the node that
         // "produces" the value---patterns aren't executable code
         // exactly, but I consider them to "execute" when they match a
-        // value. So if you have something like:
+        // value, and I consider them to produce the value that was
+        // matched. So if you have something like:
         //
         //     let x = @@3;
         //     match x {
@@ -890,13 +998,12 @@ impl mem_categorization_ctxt {
         // step out of sync again. So you'll see below that we always
         // get the type of the *subpattern* and use that.
 
-        let tcx = self.tcx;
+        let tcx = self.tcx();
         debug!("cat_pattern: id={} pat={} cmt={}",
-               pat.id, pprust::pat_to_str(pat, tcx.sess.intr()),
+               pat.id, pprust::pat_to_str(pat),
                cmt.repr(tcx));
-        let _i = indenter();
 
-        op(cmt, pat);
+        op(self, cmt, pat);
 
         match pat.node {
           ast::PatWild | ast::PatWildMulti => {
@@ -907,13 +1014,13 @@ impl mem_categorization_ctxt {
             // variant(..)
           }
           ast::PatEnum(_, Some(ref subpats)) => {
-            let def_map = self.tcx.def_map.borrow();
+            let def_map = self.tcx().def_map.borrow();
             match def_map.get().find(&pat.id) {
                 Some(&ast::DefVariant(enum_did, _, _)) => {
                     // variant(x, y, z)
 
                     let downcast_cmt = {
-                        if ty::enum_is_univariant(tcx, enum_did) {
+                        if ty::enum_is_univariant(self.tcx(), enum_did) {
                             cmt // univariant, no downcast needed
                         } else {
                             self.cat_downcast(pat, cmt, cmt.ty)
@@ -921,34 +1028,34 @@ impl mem_categorization_ctxt {
                     };
 
                     for (i, &subpat) in subpats.iter().enumerate() {
-                        let subpat_ty = self.pat_ty(subpat); // see (..)
+                        let subpat_ty = if_ok!(self.pat_ty(subpat)); // see (*2)
 
                         let subcmt =
                             self.cat_imm_interior(
                                 pat, downcast_cmt, subpat_ty,
                                 InteriorField(PositionalField(i)));
 
-                        self.cat_pattern(subcmt, subpat, |x,y| op(x,y));
+                        if_ok!(self.cat_pattern(subcmt, subpat, |x,y,z| op(x,y,z)));
                     }
                 }
                 Some(&ast::DefFn(..)) |
                 Some(&ast::DefStruct(..)) => {
                     for (i, &subpat) in subpats.iter().enumerate() {
-                        let subpat_ty = self.pat_ty(subpat); // see (..)
+                        let subpat_ty = if_ok!(self.pat_ty(subpat)); // see (*2)
                         let cmt_field =
                             self.cat_imm_interior(
                                 pat, cmt, subpat_ty,
                                 InteriorField(PositionalField(i)));
-                        self.cat_pattern(cmt_field, subpat, |x,y| op(x,y));
+                        if_ok!(self.cat_pattern(cmt_field, subpat, |x,y,z| op(x,y,z)));
                     }
                 }
                 Some(&ast::DefStatic(..)) => {
                     for &subpat in subpats.iter() {
-                        self.cat_pattern(cmt, subpat, |x,y| op(x,y));
+                        if_ok!(self.cat_pattern(cmt, subpat, |x,y,z| op(x,y,z)));
                     }
                 }
                 _ => {
-                    self.tcx.sess.span_bug(
+                    self.tcx().sess.span_bug(
                         pat.span,
                         "enum pattern didn't resolve to enum or struct");
                 }
@@ -956,7 +1063,7 @@ impl mem_categorization_ctxt {
           }
 
           ast::PatIdent(_, _, Some(subpat)) => {
-              self.cat_pattern(cmt, subpat, op);
+              if_ok!(self.cat_pattern(cmt, subpat, op));
           }
 
           ast::PatIdent(_, _, None) => {
@@ -966,42 +1073,42 @@ impl mem_categorization_ctxt {
           ast::PatStruct(_, ref field_pats, _) => {
             // {f1: p1, ..., fN: pN}
             for fp in field_pats.iter() {
-                let field_ty = self.pat_ty(fp.pat); // see (..)
+                let field_ty = if_ok!(self.pat_ty(fp.pat)); // see (*2)
                 let cmt_field = self.cat_field(pat, cmt, fp.ident, field_ty);
-                self.cat_pattern(cmt_field, fp.pat, |x,y| op(x,y));
+                if_ok!(self.cat_pattern(cmt_field, fp.pat, |x,y,z| op(x,y,z)));
             }
           }
 
           ast::PatTup(ref subpats) => {
             // (p1, ..., pN)
             for (i, &subpat) in subpats.iter().enumerate() {
-                let subpat_ty = self.pat_ty(subpat); // see (..)
+                let subpat_ty = if_ok!(self.pat_ty(subpat)); // see (*2)
                 let subcmt =
                     self.cat_imm_interior(
                         pat, cmt, subpat_ty,
                         InteriorField(PositionalField(i)));
-                self.cat_pattern(subcmt, subpat, |x,y| op(x,y));
+                if_ok!(self.cat_pattern(subcmt, subpat, |x,y,z| op(x,y,z)));
             }
           }
 
           ast::PatUniq(subpat) | ast::PatRegion(subpat) => {
             // @p1, ~p1
             let subcmt = self.cat_deref(pat, cmt, 0);
-            self.cat_pattern(subcmt, subpat, op);
+            if_ok!(self.cat_pattern(subcmt, subpat, op));
           }
 
           ast::PatVec(ref before, slice, ref after) => {
               let elt_cmt = self.cat_index(pat, cmt, 0);
               for &before_pat in before.iter() {
-                  self.cat_pattern(elt_cmt, before_pat, |x,y| op(x,y));
+                  if_ok!(self.cat_pattern(elt_cmt, before_pat, |x,y,z| op(x,y,z)));
               }
               for &slice_pat in slice.iter() {
-                  let slice_ty = self.pat_ty(slice_pat);
-                  let slice_cmt = self.cat_rvalue_node(pat, slice_ty);
-                  self.cat_pattern(slice_cmt, slice_pat, |x,y| op(x,y));
+                  let slice_ty = if_ok!(self.pat_ty(slice_pat));
+                  let slice_cmt = self.cat_rvalue_node(pat.id(), pat.span(), slice_ty);
+                  if_ok!(self.cat_pattern(slice_cmt, slice_pat, |x,y,z| op(x,y,z)));
               }
               for &after_pat in after.iter() {
-                  self.cat_pattern(elt_cmt, after_pat, |x,y| op(x,y));
+                  if_ok!(self.cat_pattern(elt_cmt, after_pat, |x,y,z| op(x,y,z)));
               }
           }
 
@@ -1009,9 +1116,11 @@ impl mem_categorization_ctxt {
               /*always ok*/
           }
         }
+
+        Ok(())
     }
 
-    pub fn mut_to_str(&self, mutbl: ast::Mutability) -> ~str {
+    pub fn mut_to_str(&mut self, mutbl: ast::Mutability) -> ~str {
         match mutbl {
           MutMutable => ~"mutable",
           MutImmutable => ~"immutable"
@@ -1032,14 +1141,18 @@ impl mem_categorization_ctxt {
           cat_local(_) => {
               ~"local variable"
           }
-          cat_self(_) => {
-              ~"self value"
-          }
           cat_arg(..) => {
               ~"argument"
           }
-          cat_deref(_, _, pk) => {
-              format!("dereference of {} pointer", ptr_sigil(pk))
+          cat_deref(base, _, pk) => {
+              match base.cat {
+                  cat_upvar(..) => {
+                      format!("captured outer variable")
+                  }
+                  _ => {
+                      format!("dereference of `{}`-pointer", ptr_sigil(pk))
+                  }
+              }
           }
           cat_interior(_, InteriorField(NamedField(_))) => {
               ~"field"
@@ -1056,7 +1169,7 @@ impl mem_categorization_ctxt {
           cat_interior(_, InteriorElement(OtherElement)) => {
               ~"indexed content"
           }
-          cat_stack_upvar(_) => {
+          cat_upvar(..) => {
               ~"captured outer variable"
           }
           cat_discr(cmt, _) => {
@@ -1069,7 +1182,7 @@ impl mem_categorization_ctxt {
     }
 
     pub fn region_to_str(&self, r: ty::Region) -> ~str {
-        region_ptr_to_str(self.tcx, r)
+        region_ptr_to_str(self.tcx(), r)
     }
 }
 
@@ -1114,12 +1227,14 @@ pub fn field_mutbl(tcx: ty::ctxt,
 
 pub enum AliasableReason {
     AliasableManaged,
-    AliasableBorrowed(ast::Mutability),
-    AliasableOther
+    AliasableBorrowed,
+    AliasableOther,
+    AliasableStatic,
+    AliasableStaticMut,
 }
 
 impl cmt_ {
-    pub fn guarantor(@self) -> cmt {
+    pub fn guarantor(self) -> cmt {
         //! Returns `self` after stripping away any owned pointer derefs or
         //! interior content. The return value is basically the `cmt` which
         //! determines how long the value in `self` remains live.
@@ -1129,25 +1244,20 @@ impl cmt_ {
             cat_static_item |
             cat_copied_upvar(..) |
             cat_local(..) |
-            cat_self(..) |
             cat_arg(..) |
-            cat_deref(_, _, unsafe_ptr(..)) |
-            cat_deref(_, _, gc_ptr) |
-            cat_deref(_, _, region_ptr(..)) => {
-                self
+            cat_deref(_, _, UnsafePtr(..)) |
+            cat_deref(_, _, GcPtr(..)) |
+            cat_deref(_, _, BorrowedPtr(..)) |
+            cat_upvar(..) => {
+                @self
             }
             cat_downcast(b) |
-            cat_stack_upvar(b) |
             cat_discr(b, _) |
             cat_interior(b, _) |
-            cat_deref(b, _, uniq_ptr) => {
+            cat_deref(b, _, OwnedPtr) => {
                 b.guarantor()
             }
         }
-    }
-
-    pub fn is_freely_aliasable(&self) -> bool {
-        self.freely_aliasable().is_some()
     }
 
     pub fn freely_aliasable(&self) -> Option<AliasableReason> {
@@ -1161,35 +1271,43 @@ impl cmt_ {
         // aliased and eventually recused.
 
         match self.cat {
+            cat_deref(b, _, BorrowedPtr(ty::MutBorrow, _)) |
+            cat_deref(b, _, BorrowedPtr(ty::UniqueImmBorrow, _)) |
+            cat_downcast(b) |
+            cat_deref(b, _, OwnedPtr) |
+            cat_interior(b, _) |
+            cat_discr(b, _) => {
+                // Aliasability depends on base cmt
+                b.freely_aliasable()
+            }
+
             cat_copied_upvar(CopiedUpvar {onceness: ast::Once, ..}) |
             cat_rvalue(..) |
             cat_local(..) |
+            cat_upvar(..) |
             cat_arg(_) |
-            cat_self(..) |
-            cat_deref(_, _, unsafe_ptr(..)) | // of course it is aliasable, but...
-            cat_deref(_, _, region_ptr(MutMutable, _)) => {
+            cat_deref(_, _, UnsafePtr(..)) => { // yes, it's aliasable, but...
                 None
             }
 
-            cat_copied_upvar(CopiedUpvar {onceness: ast::Many, ..}) |
-            cat_static_item(..) => {
+            cat_copied_upvar(CopiedUpvar {onceness: ast::Many, ..}) => {
                 Some(AliasableOther)
             }
 
-            cat_deref(_, _, gc_ptr) => {
+            cat_static_item(..) => {
+                if self.mutbl.is_mutable() {
+                    Some(AliasableStaticMut)
+                } else {
+                    Some(AliasableStatic)
+                }
+            }
+
+            cat_deref(_, _, GcPtr) => {
                 Some(AliasableManaged)
             }
 
-            cat_deref(_, _, region_ptr(m @ MutImmutable, _)) => {
-                Some(AliasableBorrowed(m))
-            }
-
-            cat_downcast(..) |
-            cat_stack_upvar(..) |
-            cat_deref(_, _, uniq_ptr) |
-            cat_interior(..) |
-            cat_discr(..) => {
-                None
+            cat_deref(_, _, BorrowedPtr(ty::ImmBorrow, _)) => {
+                Some(AliasableBorrowed)
             }
         }
     }
@@ -1212,13 +1330,15 @@ impl Repr for categorization {
             cat_rvalue(..) |
             cat_copied_upvar(..) |
             cat_local(..) |
-            cat_self(..) |
+            cat_upvar(..) |
             cat_arg(..) => {
                 format!("{:?}", *self)
             }
             cat_deref(cmt, derefs, ptr) => {
-                format!("{}->({}, {})", cmt.cat.repr(tcx),
-                     ptr_sigil(ptr), derefs)
+                format!("{}-{}{}->",
+                        cmt.cat.repr(tcx),
+                        ptr_sigil(ptr),
+                        derefs)
             }
             cat_interior(cmt, interior) => {
                 format!("{}.{}",
@@ -1228,7 +1348,6 @@ impl Repr for categorization {
             cat_downcast(cmt) => {
                 format!("{}->(enum)", cmt.cat.repr(tcx))
             }
-            cat_stack_upvar(cmt) |
             cat_discr(cmt, _) => {
                 cmt.cat.repr(tcx)
             }
@@ -1236,19 +1355,23 @@ impl Repr for categorization {
     }
 }
 
-pub fn ptr_sigil(ptr: PointerKind) -> ~str {
+pub fn ptr_sigil(ptr: PointerKind) -> &'static str {
     match ptr {
-        uniq_ptr => ~"~",
-        gc_ptr => ~"@",
-        region_ptr(_, _) => ~"&",
-        unsafe_ptr(_) => ~"*"
+        OwnedPtr => "~",
+        GcPtr => "@",
+        BorrowedPtr(ty::ImmBorrow, _) => "&",
+        BorrowedPtr(ty::MutBorrow, _) => "&mut",
+        BorrowedPtr(ty::UniqueImmBorrow, _) => "&unique",
+        UnsafePtr(_) => "*"
     }
 }
 
 impl Repr for InteriorKind {
     fn repr(&self, _tcx: ty::ctxt) -> ~str {
         match *self {
-            InteriorField(NamedField(fld)) => token::interner_get(fld).to_owned(),
+            InteriorField(NamedField(fld)) => {
+                token::get_name(fld).get().to_str()
+            }
             InteriorField(PositionalField(i)) => format!("\\#{:?}", i),
             InteriorElement(_) => ~"[]",
         }

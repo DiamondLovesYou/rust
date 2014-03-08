@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,17 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test arcs no longer unwrap
+// ignore-test arcs no longer unwrap
 
-extern mod extra;
+extern crate sync;
 
 use std::from_str::FromStr;
 use std::iter::count;
-use std::num::min;
+use std::cmp::min;
 use std::os;
 use std::vec::from_elem;
-use extra::arc::Arc;
-use extra::arc::RWArc;
+use sync::Arc;
+use sync::RWArc;
 
 fn A(i: uint, j: uint) -> f64 {
     ((i + j) * (i + j + 1) / 2 + i + 1) as f64
@@ -41,13 +41,13 @@ fn mult(v: RWArc<~[f64]>, out: RWArc<~[f64]>, f: fn(&~[f64], uint) -> f64) {
         let w = wait.clone();
         let v = v.clone();
         let out = out.clone();
-        do spawn {
+        spawn(proc() {
             for i in range(chk, min(len, chk + chunk)) {
                 let val = v.read(|v| f(v, i));
                 out.write(|out| out[i] = val);
             }
             let _ = w;
-        }
+        });
     }
     let _ = wait.unwrap();
 }

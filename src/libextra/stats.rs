@@ -10,11 +10,11 @@
 
 #[allow(missing_doc)];
 
-use std::cmp;
-use std::hashmap;
+use std::hash::Hash;
 use std::io;
+use std::mem;
 use std::num;
-use std::util;
+use collections::hashmap;
 
 // NB: this can probably be rewritten in terms of num::Num
 // to be less f64-specific.
@@ -103,7 +103,7 @@ pub trait Stats {
     fn median_abs_dev_pct(self) -> f64;
 
     /// Percentile: the value below which `pct` percent of the values in `self` fall. For example,
-    /// percentile(95.0) will return the value `v` such that that 95% of the samples `s` in `self`
+    /// percentile(95.0) will return the value `v` such that 95% of the samples `s` in `self`
     /// satisfy `s <= v`.
     ///
     /// Calculated by linear interpolation between closest ranks.
@@ -178,7 +178,7 @@ impl<'a> Stats for &'a [f64] {
             for i in range(0, partials.len()) {
                 let mut y = partials[i];
                 if num::abs(x) < num::abs(y) {
-                    util::swap(&mut x, &mut y);
+                    mem::swap(&mut x, &mut y);
                 }
                 // Rounded `x+y` is stored in `hi` with round-off stored in
                 // `lo`. Together `hi+lo` are exactly equal to `x+y`.
@@ -202,12 +202,12 @@ impl<'a> Stats for &'a [f64] {
 
     fn min(self) -> f64 {
         assert!(self.len() != 0);
-        self.iter().fold(self[0], |p,q| cmp::min(p, *q))
+        self.iter().fold(self[0], |p, q| p.min(*q))
     }
 
     fn max(self) -> f64 {
         assert!(self.len() != 0);
-        self.iter().fold(self[0], |p,q| cmp::max(p, *q))
+        self.iter().fold(self[0], |p, q| p.max(*q))
     }
 
     fn mean(self) -> f64 {
@@ -322,14 +322,15 @@ pub fn winsorize(samples: &mut [f64], pct: f64) {
 }
 
 /// Render writes the min, max and quartiles of the provided `Summary` to the provided `Writer`.
-pub fn write_5_number_summary(w: &mut io::Writer, s: &Summary) {
+pub fn write_5_number_summary(w: &mut io::Writer,
+                              s: &Summary) -> io::IoResult<()> {
     let (q1,q2,q3) = s.quartiles;
     write!(w, "(min={}, q1={}, med={}, q3={}, max={})",
                      s.min,
                      q1,
                      q2,
                      q3,
-                     s.max);
+                     s.max)
 }
 
 /// Render a boxplot to the provided writer. The boxplot shows the min, max and quartiles of the
@@ -340,11 +341,12 @@ pub fn write_5_number_summary(w: &mut io::Writer, s: &Summary) {
 /// As an example, the summary with 5-number-summary `(min=15, q1=17, med=20, q3=24, max=31)` might
 /// display as:
 ///
-/// ~~~~
+/// ~~~~ignore
 ///   10 |        [--****#******----------]          | 40
 /// ~~~~
 
-pub fn write_boxplot(w: &mut io::Writer, s: &Summary, width_hint: uint) {
+pub fn write_boxplot(w: &mut io::Writer, s: &Summary,
+                     width_hint: uint) -> io::IoResult<()> {
 
     let (q1,q2,q3) = s.quartiles;
 
@@ -374,48 +376,49 @@ pub fn write_boxplot(w: &mut io::Writer, s: &Summary, width_hint: uint) {
     let range_width = width_hint - overhead_width;;
     let char_step = range / (range_width as f64);
 
-    write!(w, "{} |", lostr);
+    try!(write!(w, "{} |", lostr));
 
     let mut c = 0;
     let mut v = lo;
 
     while c < range_width && v < s.min {
-        write!(w, " ");
+        try!(write!(w, " "));
         v += char_step;
         c += 1;
     }
-    write!(w, "[");
+    try!(write!(w, "["));
     c += 1;
     while c < range_width && v < q1 {
-        write!(w, "-");
+        try!(write!(w, "-"));
         v += char_step;
         c += 1;
     }
     while c < range_width && v < q2 {
-        write!(w, "*");
+        try!(write!(w, "*"));
         v += char_step;
         c += 1;
     }
-    write!(w, r"\#");
+    try!(write!(w, r"\#"));
     c += 1;
     while c < range_width && v < q3 {
-        write!(w, "*");
+        try!(write!(w, "*"));
         v += char_step;
         c += 1;
     }
     while c < range_width && v < s.max {
-        write!(w, "-");
+        try!(write!(w, "-"));
         v += char_step;
         c += 1;
     }
-    write!(w, "]");
+    try!(write!(w, "]"));
     while c < range_width {
-        write!(w, " ");
+        try!(write!(w, " "));
         v += char_step;
         c += 1;
     }
 
-    write!(w, "| {}", histr);
+    try!(write!(w, "| {}", histr));
+    Ok(())
 }
 
 /// Returns a HashMap with the number of occurrences of every element in the
@@ -438,6 +441,7 @@ mod tests {
     use stats::write_boxplot;
     use std::io;
     use std::str;
+    use std::f64;
 
     macro_rules! assert_approx_eq(
         ($a:expr, $b:expr) => ({
@@ -453,11 +457,11 @@ mod tests {
 
         let mut w = io::stdout();
         let w = &mut w as &mut io::Writer;
-        write!(w, "\n");
-        write_5_number_summary(w, &summ2);
-        write!(w, "\n");
-        write_boxplot(w, &summ2, 50);
-        write!(w, "\n");
+        (write!(w, "\n")).unwrap();
+        write_5_number_summary(w, &summ2).unwrap();
+        (write!(w, "\n")).unwrap();
+        write_boxplot(w, &summ2, 50).unwrap();
+        (write!(w, "\n")).unwrap();
 
         assert_eq!(summ.sum, summ2.sum);
         assert_eq!(summ.min, summ2.min);
@@ -475,6 +479,14 @@ mod tests {
 
         assert_eq!(summ.quartiles, summ2.quartiles);
         assert_eq!(summ.iqr, summ2.iqr);
+    }
+
+    #[test]
+    fn test_min_max_nan() {
+        let xs = &[1.0, 2.0, f64::NAN, 3.0, 4.0];
+        let summary = Summary::new(xs);
+        assert_eq!(summary.min, 1.0);
+        assert_eq!(summary.max, 4.0);
     }
 
     #[test]
@@ -1000,7 +1012,7 @@ mod tests {
         fn t(s: &Summary, expected: ~str) {
             use std::io::MemWriter;
             let mut m = MemWriter::new();
-            write_boxplot(&mut m as &mut io::Writer, s, 30);
+            write_boxplot(&mut m as &mut io::Writer, s, 30).unwrap();
             let out = str::from_utf8_owned(m.unwrap()).unwrap();
             assert_eq!(out, expected);
         }
@@ -1022,7 +1034,8 @@ mod tests {
 
 #[cfg(test)]
 mod bench {
-    use extra::test::BenchHarness;
+    extern crate test;
+    use self::test::BenchHarness;
     use std::vec;
     use stats::Stats;
 

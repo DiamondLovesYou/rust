@@ -382,6 +382,7 @@ opt ccache 0 "invoke gcc/clang via ccache to reuse object files between builds"
 opt local-rust 0 "use an installed rustc rather than downloading a snapshot"
 opt pax-flags 0 "apply PaX flags to rustc binaries (required for GRSecurity/PaX-patched kernels)"
 opt inject-std-version 1 "inject the current compiler version of libstd into programs"
+opt rpath 1 "build rpaths into rustc itself"
 valopt prefix "/usr/local" "set installation prefix"
 valopt local-rust-root "/usr/local" "set prefix for local rust binary"
 valopt llvm-root "" "set LLVM root"
@@ -603,7 +604,7 @@ then
     LLVM_VERSION=$($LLVM_CONFIG --version)
 
     case $LLVM_VERSION in
-        (3.[2-4]svn|3.[2-4])
+        (3.[2-5]svn|3.[2-5])
             msg "found ok version of LLVM: $LLVM_VERSION"
             ;;
         (*)
@@ -625,7 +626,7 @@ then
                       | cut -d ' ' -f 2)
 
     case $CFG_CLANG_VERSION in
-        (3.0svn | 3.0 | 3.1* | 3.2* | 3.3* | 3.4* )
+        (3.0svn | 3.0 | 3.1* | 3.2* | 3.3* | 3.4* | 3.5* )
         step_msg "found ok version of CLANG: $CFG_CLANG_VERSION"
         CFG_C_COMPILER="clang"
         ;;
@@ -802,7 +803,6 @@ do
     make_dir $h/test/doc-guide-pointers
     make_dir $h/test/doc-guide-container
     make_dir $h/test/doc-guide-tasks
-    make_dir $h/test/doc-guide-conditions
     make_dir $h/test/doc-complement-cheatsheet
     make_dir $h/test/doc-rust
 done
@@ -915,6 +915,10 @@ do
         LLVM_OPTS="$LLVM_OPTS --disable-terminfo"
         # Try to have LLVM pull in as few dependencies as possible (#9397)
         LLVM_OPTS="$LLVM_OPTS --disable-zlib --disable-libffi"
+        # LLVM says it needs a "new" clang/gcc, but we seem to get by ok with
+        # older versions on the bots. Get by for a little longer by asking it to
+        # not do version detection
+        LLVM_OPTS="$LLVM_OPTS --disable-compiler-version-checks"
 
         # Use win32 native thread/lock apis instead of pthread wrapper.
         # (llvm's configure tries to find pthread first, so we have to disable it explicitly.)
@@ -1066,12 +1070,6 @@ then
     putvar CFG_PANDOC
 fi
 
-if head -n 1 ${CFG_SRC_DIR}src/snapshots.txt | grep -q '^T'
-then
-    CFG_IN_TRANSITION=1
-    putvar CFG_IN_TRANSITION
-fi
-
 # Valgrind is only reliable on Linux. On Windows it doesn't work at all, and
 # on the Mac the dynamic linker causes Valgrind to emit a huge stream of
 # errors.
@@ -1104,3 +1102,5 @@ rm -f config.tmp
 touch config.stamp
 
 step_msg "complete"
+msg "run \`make help\`"
+msg

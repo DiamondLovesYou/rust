@@ -16,10 +16,10 @@
 // their associated scopes.  In phase two, checking loans, we will then make
 // sure that all of these loans are honored.
 
-
 use middle::borrowck::*;
 use middle::borrowck::move_data::MoveData;
 use mc = middle::mem_categorization;
+use middle::moves;
 use middle::pat_util;
 use middle::ty::{ty_region};
 use middle::ty;
@@ -28,6 +28,7 @@ use util::ppaux::{Repr};
 
 use std::cell::RefCell;
 use syntax::ast;
+use syntax::ast_util;
 use syntax::ast_util::IdRange;
 use syntax::codemap::Span;
 use syntax::print::pprust;
@@ -127,22 +128,15 @@ fn add_pat_to_id_range(this: &mut GatherLoanCtxt,
     visit::walk_pat(this, p, ());
 }
 
-fn gather_loans_in_fn(this: &mut GatherLoanCtxt, fk: &FnKind,
-                      decl: &ast::FnDecl, body: &ast::Block,
-                      sp: Span, id: ast::NodeId) {
-    match fk {
-        &visit::FkItemFn(..) | &visit::FkMethod(..) => {
-            fail!("cannot occur, due to visit_item override");
-        }
-
-        // Visit closures as part of the containing item.
-        &visit::FkFnBlock(..) => {
-            this.push_repeating_id(body.id);
-            visit::walk_fn(this, fk, decl, body, sp, id, ());
-            this.pop_repeating_id(body.id);
-            this.gather_fn_arg_patterns(decl, body);
-        }
-    }
+fn gather_loans_in_fn(_v: &mut GatherLoanCtxt,
+                      _fk: &FnKind,
+                      _decl: &ast::FnDecl,
+                      _body: &ast::Block,
+                      _sp: Span,
+                      _id: ast::NodeId) {
+    // Do not visit closures or fn items here, the outer loop in
+    // borrowck/mod will visit them for us in turn.
+    return;
 }
 
 fn gather_loans_in_block(this: &mut GatherLoanCtxt,
@@ -166,16 +160,8 @@ fn gather_loans_in_local(this: &mut GatherLoanCtxt,
             })
         }
         Some(init) => {
-            // Variable declarations with initializers are considered "assigns":
-            let tcx = this.bccx.tcx;
-            pat_util::pat_bindings(tcx.def_map, local.pat, |_, id, span, _| {
-                gather_moves::gather_assignment(this.bccx,
-                                                &this.move_data,
-                                                id,
-                                                span,
-                                                @LpVar(id),
-                                                id);
-            });
+            // Variable declarations with initializers are considered "assigns",
+            // which is handled by `gather_pat`:
             let init_cmt = this.bccx.cat_expr(init);
             this.gather_pat(init_cmt, local.pat, None);
         }
@@ -191,24 +177,13 @@ fn gather_loans_in_expr(this: &mut GatherLoanCtxt,
     let tcx = bccx.tcx;
 
     debug!("gather_loans_in_expr(expr={:?}/{})",
-           ex.id, pprust::expr_to_str(ex, tcx.sess.intr()));
+           ex.id, pprust::expr_to_str(ex));
 
     this.id_range.add(ex.id);
 
-    {
-        let r = ex.get_callee_id();
-        for callee_id in r.iter() {
-            this.id_range.add(*callee_id);
-        }
-    }
-
     // If this expression is borrowed, have to ensure it remains valid:
-    {
-        let adjustments = tcx.adjustments.borrow();
-        let r = adjustments.get().find(&ex.id);
-        for &adjustments in r.iter() {
-            this.guarantee_adjustments(ex, *adjustments);
-        }
+    for &adjustments in tcx.adjustments.borrow().get().find(&ex.id).iter() {
+        this.guarantee_adjustments(ex, *adjustments);
     }
 
     // If this expression is a move, gather it:
@@ -232,13 +207,14 @@ fn gather_loans_in_expr(this: &mut GatherLoanCtxt,
             this.guarantee_valid(ex.id,
                                  ex.span,
                                  base_cmt,
-                                 LoanMutability::from_ast_mutability(mutbl),
-                                 scope_r);
+                                 mutbl,
+                                 scope_r,
+                                 AddrOf);
         }
         visit::walk_expr(this, ex, ());
       }
 
-      ast::ExprAssign(l, _) | ast::ExprAssignOp(_, _, l, _) => {
+      ast::ExprAssign(l, _) | ast::ExprAssignOp(_, l, _) => {
           let l_cmt = this.bccx.cat_expr(l);
           match opt_loan_path(l_cmt) {
               Some(l_lp) => {
@@ -265,8 +241,8 @@ fn gather_loans_in_expr(this: &mut GatherLoanCtxt,
         visit::walk_expr(this, ex, ());
       }
 
-      ast::ExprIndex(_, _, arg) |
-      ast::ExprBinary(_, _, _, arg)
+      ast::ExprIndex(_, arg) |
+      ast::ExprBinary(_, _, arg)
       if method_map.get().contains_key(&ex.id) => {
           // Arguments in method calls are always passed by ref.
           //
@@ -278,8 +254,9 @@ fn gather_loans_in_expr(this: &mut GatherLoanCtxt,
           this.guarantee_valid(arg.id,
                                arg.span,
                                arg_cmt,
-                               ImmutableMutability,
-                               scope_r);
+                               ast::MutImmutable,
+                               scope_r,
+                               AutoRef);
           visit::walk_expr(this, ex, ());
       }
 
@@ -305,6 +282,7 @@ fn gather_loans_in_expr(this: &mut GatherLoanCtxt,
 
       ast::ExprFnBlock(..) | ast::ExprProc(..) => {
           gather_moves::gather_captures(this.bccx, &this.move_data, ex);
+          this.guarantee_captures(ex);
           visit::walk_expr(this, ex, ());
       }
 
@@ -367,76 +345,124 @@ impl<'a> GatherLoanCtxt<'a> {
                 ty::AutoDerefRef {
                     autoref: Some(ref autoref),
                     autoderefs: autoderefs}) => {
-                let mcx = &mc::mem_categorization_ctxt {
-                    tcx: self.tcx(),
-                    method_map: self.bccx.method_map};
-                let cmt = mcx.cat_expr_autoderefd(expr, autoderefs);
+                let mut mc = self.bccx.mc();
+                let cmt = match mc.cat_expr_autoderefd(expr, autoderefs) {
+                    Ok(v) => v,
+                    Err(()) => self.tcx().sess.span_bug(expr.span, "Err from mc")
+                };
                 debug!("after autoderef, cmt={}", cmt.repr(self.tcx()));
 
                 match *autoref {
                     ty::AutoPtr(r, m) => {
-                        let loan_mutability =
-                            LoanMutability::from_ast_mutability(m);
                         self.guarantee_valid(expr.id,
                                              expr.span,
                                              cmt,
-                                             loan_mutability,
-                                             r)
+                                             m,
+                                             r,
+                                             AutoRef)
                     }
                     ty::AutoBorrowVec(r, m) | ty::AutoBorrowVecRef(r, m) => {
-                        let cmt_index = mcx.cat_index(expr, cmt, autoderefs+1);
-                        let loan_mutability =
-                            LoanMutability::from_ast_mutability(m);
+                        let cmt_index = mc.cat_index(expr, cmt, autoderefs+1);
                         self.guarantee_valid(expr.id,
                                              expr.span,
                                              cmt_index,
-                                             loan_mutability,
-                                             r)
+                                             m,
+                                             r,
+                                             AutoRef)
                     }
                     ty::AutoBorrowFn(r) => {
-                        let cmt_deref = mcx.cat_deref_fn_or_obj(expr, cmt, 0);
+                        let cmt_deref = mc.cat_deref_fn_or_obj(expr, cmt, 0);
                         self.guarantee_valid(expr.id,
                                              expr.span,
                                              cmt_deref,
-                                             ImmutableMutability,
-                                             r)
+                                             ast::MutImmutable,
+                                             r,
+                                             AutoRef)
                     }
                     ty::AutoBorrowObj(r, m) => {
-                        let cmt_deref = mcx.cat_deref_fn_or_obj(expr, cmt, 0);
-                        let loan_mutability =
-                            LoanMutability::from_ast_mutability(m);
+                        let cmt_deref = mc.cat_deref_fn_or_obj(expr, cmt, 0);
                         self.guarantee_valid(expr.id,
                                              expr.span,
                                              cmt_deref,
-                                             loan_mutability,
-                                             r)
+                                             m,
+                                             r,
+                                             AutoRef)
                     }
                     ty::AutoUnsafe(_) => {}
                 }
             }
 
             ty::AutoObject(..) => {
-                // XXX: Handle @Trait to &Trait casts here?
+                // FIXME: Handle ~Trait to &Trait casts here?
             }
         }
     }
 
-    // Guarantees that addr_of(cmt) will be valid for the duration of
-    // `static_scope_r`, or reports an error.  This may entail taking
-    // out loans, which will be added to the `req_loan_map`.  This can
-    // also entail "rooting" GC'd pointers, which means ensuring
-    // dynamically that they are not freed.
+    fn guarantee_captures(&mut self,
+                          closure_expr: &ast::Expr) {
+        let capture_map = self.bccx.capture_map.borrow();
+        let captured_vars = capture_map.get().get(&closure_expr.id);
+        for captured_var in captured_vars.borrow().iter() {
+            match captured_var.mode {
+                moves::CapCopy | moves::CapMove => { continue; }
+                moves::CapRef => { }
+            }
+
+            let var_id = ast_util::def_id_of_def(captured_var.def).node;
+            let var_cmt = self.bccx.cat_captured_var(closure_expr.id,
+                                                     closure_expr.span,
+                                                     captured_var);
+
+            // Lookup the kind of borrow the callee requires
+            let upvar_id = ty::UpvarId { var_id: var_id,
+                                         closure_expr_id: closure_expr.id };
+            let upvar_borrow_map = self.tcx().upvar_borrow_map.borrow();
+            let upvar_borrow = upvar_borrow_map.get().get_copy(&upvar_id);
+
+            self.guarantee_valid_kind(closure_expr.id,
+                                      closure_expr.span,
+                                      var_cmt,
+                                      upvar_borrow.kind,
+                                      upvar_borrow.region,
+                                      ClosureCapture(captured_var.span));
+        }
+    }
+
     pub fn guarantee_valid(&mut self,
                            borrow_id: ast::NodeId,
                            borrow_span: Span,
                            cmt: mc::cmt,
-                           req_mutbl: LoanMutability,
-                           loan_region: ty::Region) {
+                           req_mutbl: ast::Mutability,
+                           loan_region: ty::Region,
+                           cause: LoanCause) {
+        self.guarantee_valid_kind(borrow_id,
+                                  borrow_span,
+                                  cmt,
+                                  ty::BorrowKind::from_mutbl(req_mutbl),
+                                  loan_region,
+                                  cause);
+    }
+
+    fn guarantee_valid_kind(&mut self,
+                            borrow_id: ast::NodeId,
+                            borrow_span: Span,
+                            cmt: mc::cmt,
+                            req_kind: ty::BorrowKind,
+                            loan_region: ty::Region,
+                            cause: LoanCause) {
+        /*!
+         * Guarantees that `addr_of(cmt)` will be valid for the duration of
+         * `static_scope_r`, or reports an error.  This may entail taking
+         * out loans, which will be added to the `req_loan_map`.  This can
+         * also entail "rooting" GC'd pointers, which means ensuring
+         * dynamically that they are not freed.
+         */
+
         debug!("guarantee_valid(borrow_id={:?}, cmt={}, \
                 req_mutbl={:?}, loan_region={:?})",
                borrow_id,
                cmt.repr(self.tcx()),
-               req_mutbl,
+               req_kind,
                loan_region);
 
         // a loan for the empty region can never be dereferenced, so
@@ -450,21 +476,28 @@ impl<'a> GatherLoanCtxt<'a> {
         // Check that the lifetime of the borrow does not exceed
         // the lifetime of the data being borrowed.
         if lifetime::guarantee_lifetime(self.bccx, self.item_ub, root_ub,
-                                        borrow_span, cmt, loan_region,
-                                        req_mutbl).is_err() {
+                                        borrow_span, cause, cmt, loan_region,
+                                        req_kind).is_err() {
             return; // reported an error, no sense in reporting more.
         }
 
         // Check that we don't allow mutable borrows of non-mutable data.
-        if check_mutability(self.bccx, borrow_span, cmt, req_mutbl).is_err() {
+        if check_mutability(self.bccx, borrow_span, cause,
+                            cmt, req_kind).is_err() {
+            return; // reported an error, no sense in reporting more.
+        }
+
+        // Check that we don't allow mutable borrows of aliasable data.
+        if check_aliasability(self.bccx, borrow_span, cause,
+                              cmt, req_kind).is_err() {
             return; // reported an error, no sense in reporting more.
         }
 
         // Compute the restrictions that are required to enforce the
         // loan is safe.
         let restr = restrictions::compute_restrictions(
-            self.bccx, borrow_span,
-            cmt, loan_region, self.restriction_set(req_mutbl));
+            self.bccx, borrow_span, cause,
+            cmt, loan_region, self.restriction_set(req_kind));
 
         // Create the loan record (if needed).
         let loan = match restr {
@@ -496,7 +529,7 @@ impl<'a> GatherLoanCtxt<'a> {
                     ty::ReInfer(..) => {
                         self.tcx().sess.span_bug(
                             cmt.span,
-                            format!("Invalid borrow lifetime: {:?}", loan_region));
+                            format!("invalid borrow lifetime: {:?}", loan_region));
                     }
                 };
                 debug!("loan_scope = {:?}", loan_scope);
@@ -507,7 +540,7 @@ impl<'a> GatherLoanCtxt<'a> {
                 let kill_scope = self.compute_kill_scope(loan_scope, loan_path);
                 debug!("kill_scope = {:?}", kill_scope);
 
-                if req_mutbl == MutableMutability {
+                if req_kind == ty::MutBorrow {
                     self.mark_loan_path_as_mutated(loan_path);
                 }
 
@@ -516,11 +549,12 @@ impl<'a> GatherLoanCtxt<'a> {
                     index: all_loans.get().len(),
                     loan_path: loan_path,
                     cmt: cmt,
-                    mutbl: req_mutbl,
+                    kind: req_kind,
                     gen_scope: gen_scope,
                     kill_scope: kill_scope,
                     span: borrow_span,
-                    restrictions: restrictions
+                    restrictions: restrictions,
+                    cause: cause,
                 }
             }
         };
@@ -563,44 +597,93 @@ impl<'a> GatherLoanCtxt<'a> {
 
         fn check_mutability(bccx: &BorrowckCtxt,
                             borrow_span: Span,
+                            cause: LoanCause,
                             cmt: mc::cmt,
-                            req_mutbl: LoanMutability) -> Result<(),()> {
+                            req_kind: ty::BorrowKind)
+                            -> Result<(),()> {
             //! Implements the M-* rules in doc.rs.
 
-            match req_mutbl {
-                ConstMutability => {
-                    // Data of any mutability can be lent as const.
-                    Ok(())
+            match req_kind {
+                ty::UniqueImmBorrow | ty::ImmBorrow => {
+                    match cmt.mutbl {
+                        // I am intentionally leaving this here to help
+                        // refactoring if, in the future, we should add new
+                        // kinds of mutability.
+                        mc::McImmutable | mc::McDeclared | mc::McInherited => {
+                            // both imm and mut data can be lent as imm;
+                            // for mutable data, this is a freeze
+                            Ok(())
+                        }
+                    }
                 }
 
-                ImmutableMutability => {
-                    // both imm and mut data can be lent as imm;
-                    // for mutable data, this is a freeze
-                    Ok(())
-                }
-
-                MutableMutability => {
+                ty::MutBorrow => {
                     // Only mutable data can be lent as mutable.
                     if !cmt.mutbl.is_mutable() {
-                        Err(bccx.report(BckError {span: borrow_span,
-                                                  cmt: cmt,
-                                                  code: err_mutbl(req_mutbl)}))
+                        Err(bccx.report(BckError { span: borrow_span,
+                                                   cause: cause,
+                                                   cmt: cmt,
+                                                   code: err_mutbl }))
                     } else {
                         Ok(())
                     }
                 }
             }
         }
+
+        fn check_aliasability(bccx: &BorrowckCtxt,
+                              borrow_span: Span,
+                              loan_cause: LoanCause,
+                              cmt: mc::cmt,
+                              req_kind: ty::BorrowKind)
+                              -> Result<(),()> {
+            //! Implements the A-* rules in doc.rs.
+
+            match req_kind {
+                ty::ImmBorrow => {
+                    Ok(())
+                }
+
+                ty::UniqueImmBorrow | ty::MutBorrow => {
+                    // Check for those cases where we cannot control
+                    // the aliasing and make sure that we are not
+                    // being asked to.
+                    match cmt.freely_aliasable() {
+                        None => {
+                            Ok(())
+                        }
+                        Some(mc::AliasableStaticMut) => {
+                            // This is nasty, but we ignore the
+                            // aliasing rules if the data is based in
+                            // a `static mut`, since those are always
+                            // unsafe. At your own peril and all that.
+                            Ok(())
+                        }
+                        Some(alias_cause) => {
+                            bccx.report_aliasability_violation(
+                                borrow_span,
+                                BorrowViolation(loan_cause),
+                                alias_cause);
+                            Err(())
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    pub fn restriction_set(&self, req_mutbl: LoanMutability)
-                           -> RestrictionSet {
-        match req_mutbl {
-            ConstMutability => RESTR_EMPTY,
-            ImmutableMutability => RESTR_EMPTY | RESTR_MUTATE | RESTR_CLAIM,
-            MutableMutability => {
-                RESTR_EMPTY | RESTR_MUTATE | RESTR_CLAIM | RESTR_FREEZE
-            }
+    fn restriction_set(&self, req_kind: ty::BorrowKind) -> RestrictionSet {
+        match req_kind {
+            // If borrowing data as immutable, no mutation allowed:
+            ty::ImmBorrow => RESTR_MUTATE,
+
+            // If borrowing data as mutable, no mutation nor other
+            // borrows allowed:
+            ty::MutBorrow => RESTR_MUTATE | RESTR_FREEZE,
+
+            // If borrowing data as unique imm, no mutation nor other
+            // borrows allowed:
+            ty::UniqueImmBorrow => RESTR_MUTATE | RESTR_FREEZE,
         }
     }
 
@@ -682,11 +765,11 @@ impl<'a> GatherLoanCtxt<'a> {
          * `gather_pat()`.
          */
 
-        let mc_ctxt = self.bccx.mc_ctxt();
+        let mut mc = self.bccx.mc();
         for arg in decl.inputs.iter() {
             let arg_ty = ty::node_id_to_type(self.tcx(), arg.pat.id);
 
-            let arg_cmt = mc_ctxt.cat_rvalue(
+            let arg_cmt = mc.cat_rvalue(
                 arg.id,
                 arg.pat.span,
                 ty::ReScope(body.id), // Args live only as long as the fn body.
@@ -698,7 +781,7 @@ impl<'a> GatherLoanCtxt<'a> {
 
     fn gather_pat(&mut self,
                   discr_cmt: mc::cmt,
-                  root_pat: &ast::Pat,
+                  root_pat: @ast::Pat,
                   arm_match_ids: Option<(ast::NodeId, ast::NodeId)>) {
         /*!
          * Walks patterns, examining the bindings to determine if they
@@ -709,6 +792,17 @@ impl<'a> GatherLoanCtxt<'a> {
         self.bccx.cat_pattern(discr_cmt, root_pat, |cmt, pat| {
             match pat.node {
               ast::PatIdent(bm, _, _) if self.pat_is_binding(pat) => {
+                // Each match binding is effectively an assignment.
+                let tcx = self.bccx.tcx;
+                pat_util::pat_bindings(tcx.def_map, pat, |_, id, span, _| {
+                    gather_moves::gather_assignment(self.bccx,
+                                                    &self.move_data,
+                                                    id,
+                                                    span,
+                                                    @LpVar(id),
+                                                    id);
+                });
+
                 match bm {
                   ast::BindByRef(mutbl) => {
                     // ref x or ref x @ p --- creates a ptr which must
@@ -737,13 +831,12 @@ impl<'a> GatherLoanCtxt<'a> {
                             }
                         }
                     };
-                    let loan_mutability =
-                        LoanMutability::from_ast_mutability(mutbl);
                     self.guarantee_valid(pat.id,
                                          pat.span,
                                          cmt_discr,
-                                         loan_mutability,
-                                         scope_r);
+                                         mutbl,
+                                         scope_r,
+                                         RefBinding);
                   }
                   ast::BindByValue(_) => {
                       // No borrows here, but there may be moves
@@ -760,14 +853,15 @@ impl<'a> GatherLoanCtxt<'a> {
                   // original vector.  This is effectively a borrow of
                   // the elements of the vector being matched.
 
-                  let slice_ty = ty::node_id_to_type(self.tcx(),
-                                                     slice_pat.id);
-                  let (slice_mutbl, slice_r) =
-                      self.vec_slice_info(slice_pat, slice_ty);
-                  let mcx = self.bccx.mc_ctxt();
-                  let cmt_index = mcx.cat_index(slice_pat, cmt, 0);
-                  let slice_loan_mutability =
-                    LoanMutability::from_ast_mutability(slice_mutbl);
+                  let (slice_cmt, slice_borrow_kind, slice_r) = {
+                      match self.bccx.mc().cat_slice_pattern(cmt, slice_pat) {
+                          Ok(v) => v,
+                          Err(()) => {
+                              self.tcx().sess.span_bug(slice_pat.span,
+                                                       "Err from mc")
+                          }
+                      }
+                  };
 
                   // Note: We declare here that the borrow occurs upon
                   // entering the `[...]` pattern. This implies that
@@ -786,43 +880,14 @@ impl<'a> GatherLoanCtxt<'a> {
                   // trans do the right thing, and it would only work
                   // for `~` vectors. It seems simpler to just require
                   // that people call `vec.pop()` or `vec.unshift()`.
-                  self.guarantee_valid(pat.id,
-                                       pat.span,
-                                       cmt_index,
-                                       slice_loan_mutability,
-                                       slice_r);
+                  self.guarantee_valid(pat.id, pat.span,
+                                       slice_cmt, slice_borrow_kind, slice_r,
+                                       RefBinding);
               }
 
               _ => {}
             }
         })
-    }
-
-    pub fn vec_slice_info(&self, pat: &ast::Pat, slice_ty: ty::t)
-                          -> (ast::Mutability, ty::Region) {
-        /*!
-         *
-         * In a pattern like [a, b, ..c], normally `c` has slice type,
-         * but if you have [a, b, ..ref c], then the type of `ref c`
-         * will be `&&[]`, so to extract the slice details we have
-         * to recurse through rptrs.
-         */
-
-        match ty::get(slice_ty).sty {
-            ty::ty_vec(slice_mt, ty::vstore_slice(slice_r)) => {
-                (slice_mt.mutbl, slice_r)
-            }
-
-            ty::ty_rptr(_, ref mt) => {
-                self.vec_slice_info(pat, mt.ty)
-            }
-
-            _ => {
-                self.tcx().sess.span_bug(
-                    pat.span,
-                    format!("Type of slice pattern is not a slice"));
-            }
-        }
     }
 
     pub fn pat_is_binding(&self, pat: &ast::Pat) -> bool {

@@ -15,40 +15,60 @@ Synchronous Timers
 This module exposes the functionality to create timers, block the current task,
 and create ports which will receive notifications after a period of time.
 
-# Example
-
-```rust,ignore
-
-use std::io::Timer;
-
-let mut timer = Timer::new().unwrap();
-timer.sleep(10); // block the task for awhile
-
-let timeout = timer.oneshot(10);
-// do some work
-timeout.recv(); // wait for the timeout to expire
-
-let periodic = timer.periodic(10);
-loop {
-    periodic.recv();
-    // this loop is only executed once every 10ms
-}
-
-```
-
 */
 
 use comm::Port;
-use option::Option;
 use rt::rtio::{IoFactory, LocalIo, RtioTimer};
+use io::IoResult;
 
+/// A synchronous timer object
+///
+/// Values of this type can be used to put the current task to sleep for a
+/// period of time. Handles to this timer can also be created in the form of
+/// ports which will receive notifications over time.
+///
+/// # Example
+///
+/// ```
+/// # fn main() {}
+/// # fn foo() {
+/// use std::io::Timer;
+///
+/// let mut timer = Timer::new().unwrap();
+/// timer.sleep(10); // block the task for awhile
+///
+/// let timeout = timer.oneshot(10);
+/// // do some work
+/// timeout.recv(); // wait for the timeout to expire
+///
+/// let periodic = timer.periodic(10);
+/// loop {
+///     periodic.recv();
+///     // this loop is only executed once every 10ms
+/// }
+/// # }
+/// ```
+///
+/// If only sleeping is necessary, then a convenience api is provided through
+/// the `io::timer` module.
+///
+/// ```
+/// # fn main() {}
+/// # fn foo() {
+/// use std::io::timer;
+///
+/// // Put this task to sleep for 5 seconds
+/// timer::sleep(5000);
+/// # }
+/// ```
 pub struct Timer {
     priv obj: ~RtioTimer
 }
 
 /// Sleep the current task for `msecs` milliseconds.
 pub fn sleep(msecs: u64) {
-    let mut timer = Timer::new().expect("timer::sleep: could not create a Timer");
+    let timer = Timer::new();
+    let mut timer = timer.ok().expect("timer::sleep: could not create a Timer");
 
     timer.sleep(msecs)
 }
@@ -57,7 +77,7 @@ impl Timer {
     /// Creates a new timer which can be used to put the current task to sleep
     /// for a number of milliseconds, or to possibly create channels which will
     /// get notified after an amount of time has passed.
-    pub fn new() -> Option<Timer> {
+    pub fn new() -> IoResult<Timer> {
         LocalIo::maybe_raise(|io| io.timer_init().map(|t| Timer { obj: t }))
     }
 
@@ -96,61 +116,177 @@ impl Timer {
 
 #[cfg(test)]
 mod test {
-    use prelude::*;
-    use super::*;
-
-    #[test]
-    fn test_io_timer_sleep_simple() {
+    iotest!(fn test_io_timer_sleep_simple() {
         let mut timer = Timer::new().unwrap();
         timer.sleep(1);
-    }
+    })
 
-    #[test]
-    fn test_io_timer_sleep_oneshot() {
+    iotest!(fn test_io_timer_sleep_oneshot() {
         let mut timer = Timer::new().unwrap();
         timer.oneshot(1).recv();
-    }
+    })
 
-    #[test]
-    fn test_io_timer_sleep_oneshot_forget() {
+    iotest!(fn test_io_timer_sleep_oneshot_forget() {
         let mut timer = Timer::new().unwrap();
         timer.oneshot(100000000000);
-    }
+    })
 
-    #[test]
-    fn oneshot_twice() {
+    iotest!(fn oneshot_twice() {
         let mut timer = Timer::new().unwrap();
         let port1 = timer.oneshot(10000);
         let port = timer.oneshot(1);
         port.recv();
-        assert!(port1.recv_opt().is_none());
-    }
+        assert_eq!(port1.recv_opt(), None);
+    })
 
-    #[test]
-    fn test_io_timer_oneshot_then_sleep() {
+    iotest!(fn test_io_timer_oneshot_then_sleep() {
         let mut timer = Timer::new().unwrap();
         let port = timer.oneshot(100000000000);
         timer.sleep(1); // this should invalidate the port
-        assert!(port.recv_opt().is_none());
-    }
 
-    #[test]
-    fn test_io_timer_sleep_periodic() {
+        assert_eq!(port.recv_opt(), None);
+    })
+
+    iotest!(fn test_io_timer_sleep_periodic() {
         let mut timer = Timer::new().unwrap();
         let port = timer.periodic(1);
         port.recv();
         port.recv();
         port.recv();
-    }
+    })
 
-    #[test]
-    fn test_io_timer_sleep_periodic_forget() {
+    iotest!(fn test_io_timer_sleep_periodic_forget() {
         let mut timer = Timer::new().unwrap();
         timer.periodic(100000000000);
-    }
+    })
 
-    #[test]
-    fn test_io_timer_sleep_standalone() {
+    iotest!(fn test_io_timer_sleep_standalone() {
         sleep(1)
-    }
+    })
+
+    iotest!(fn oneshot() {
+        let mut timer = Timer::new().unwrap();
+
+        let port = timer.oneshot(1);
+        port.recv();
+        assert!(port.recv_opt().is_none());
+
+        let port = timer.oneshot(1);
+        port.recv();
+        assert!(port.recv_opt().is_none());
+    })
+
+    iotest!(fn override() {
+        let mut timer = Timer::new().unwrap();
+        let oport = timer.oneshot(100);
+        let pport = timer.periodic(100);
+        timer.sleep(1);
+        assert_eq!(oport.recv_opt(), None);
+        assert_eq!(pport.recv_opt(), None);
+        timer.oneshot(1).recv();
+    })
+
+    iotest!(fn period() {
+        let mut timer = Timer::new().unwrap();
+        let port = timer.periodic(1);
+        port.recv();
+        port.recv();
+        let port2 = timer.periodic(1);
+        port2.recv();
+        port2.recv();
+    })
+
+    iotest!(fn sleep() {
+        let mut timer = Timer::new().unwrap();
+        timer.sleep(1);
+        timer.sleep(1);
+    })
+
+    iotest!(fn oneshot_fail() {
+        let mut timer = Timer::new().unwrap();
+        let _port = timer.oneshot(1);
+        fail!();
+    } #[should_fail])
+
+    iotest!(fn period_fail() {
+        let mut timer = Timer::new().unwrap();
+        let _port = timer.periodic(1);
+        fail!();
+    } #[should_fail])
+
+    iotest!(fn normal_fail() {
+        let _timer = Timer::new().unwrap();
+        fail!();
+    } #[should_fail])
+
+    iotest!(fn closing_channel_during_drop_doesnt_kill_everything() {
+        // see issue #10375
+        let mut timer = Timer::new().unwrap();
+        let timer_port = timer.periodic(1000);
+
+        spawn(proc() {
+            timer_port.recv_opt();
+        });
+
+        // when we drop the TimerWatcher we're going to destroy the channel,
+        // which must wake up the task on the other end
+    })
+
+    iotest!(fn reset_doesnt_switch_tasks() {
+        // similar test to the one above.
+        let mut timer = Timer::new().unwrap();
+        let timer_port = timer.periodic(1000);
+
+        spawn(proc() {
+            timer_port.recv_opt();
+        });
+
+        timer.oneshot(1);
+    })
+
+    iotest!(fn reset_doesnt_switch_tasks2() {
+        // similar test to the one above.
+        let mut timer = Timer::new().unwrap();
+        let timer_port = timer.periodic(1000);
+
+        spawn(proc() {
+            timer_port.recv_opt();
+        });
+
+        timer.sleep(1);
+    })
+
+    iotest!(fn sender_goes_away_oneshot() {
+        let port = {
+            let mut timer = Timer::new().unwrap();
+            timer.oneshot(1000)
+        };
+        assert_eq!(port.recv_opt(), None);
+    })
+
+    iotest!(fn sender_goes_away_period() {
+        let port = {
+            let mut timer = Timer::new().unwrap();
+            timer.periodic(1000)
+        };
+        assert_eq!(port.recv_opt(), None);
+    })
+
+    iotest!(fn receiver_goes_away_oneshot() {
+        let mut timer1 = Timer::new().unwrap();
+        timer1.oneshot(1);
+        let mut timer2 = Timer::new().unwrap();
+        // while sleeping, the prevous timer should fire and not have its
+        // callback do something terrible.
+        timer2.sleep(2);
+    })
+
+    iotest!(fn receiver_goes_away_period() {
+        let mut timer1 = Timer::new().unwrap();
+        timer1.periodic(1);
+        let mut timer2 = Timer::new().unwrap();
+        // while sleeping, the prevous timer should fire and not have its
+        // callback do something terrible.
+        timer2.sleep(2);
+    })
 }

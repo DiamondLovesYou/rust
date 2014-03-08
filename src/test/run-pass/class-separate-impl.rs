@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,11 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+// ignore-fast
 
-// xfail-fast
+use std::fmt;
+
 struct cat {
-    priv meows : uint,
+    meows : uint,
 
     how_hungry : int,
     name : ~str,
@@ -52,19 +53,19 @@ fn cat(in_x : uint, in_y : int, in_name: ~str) -> cat {
     }
 }
 
-impl ToStr for cat {
-    fn to_str(&self) -> ~str {
-        self.name.clone()
+impl fmt::Show for cat {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "{}", self.name)
     }
 }
 
-fn print_out(thing: @ToStr, expected: ~str) {
+fn print_out(thing: ~ToStr, expected: ~str) {
   let actual = thing.to_str();
   info!("{}", actual);
   assert_eq!(actual, expected);
 }
 
 pub fn main() {
-  let nyan : @ToStr = @cat(0u, 2, ~"nyan") as @ToStr;
+  let nyan: ~ToStr = ~cat(0u, 2, ~"nyan") as ~ToStr;
   print_out(nyan, ~"nyan");
 }

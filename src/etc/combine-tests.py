@@ -1,7 +1,14 @@
-#!/usr/bin/env python
-# xfail-license
+# Copyright 2011-2014 The Rust Project Developers. See the COPYRIGHT
+# file at the top-level directory of this distribution and at
+# http://rust-lang.org/COPYRIGHT.
+#
+# Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+# http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+# <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+# option. This file may not be copied, modified, or distributed
+# except according to those terms.
 
-# this combines all the working run-pass tests into a single large crate so we
+# This combines all the working run-pass tests into a single large crate so we
 # can run it "fast": spawning zillions of windows processes is our major build
 # bottleneck (and it doesn't hurt to run faster on other platforms as well).
 
@@ -29,9 +36,9 @@ for t in os.listdir(run_pass):
             t.startswith(".") or t.startswith("#") or t.startswith("~")):
         f = codecs.open(os.path.join(run_pass, t), "r", "utf8")
         s = f.read()
-        if not ("xfail-test" in s or
-                "xfail-fast" in s or
-                "xfail-win32" in s):
+        if not ("ignore-test" in s or
+                "ignore-fast" in s or
+                "ignore-win32" in s):
             if not "pub fn main" in s and "fn main" in s:
                 print("Warning: no public entry point in " + t)
             stage2_tests.append(t)
@@ -48,6 +55,8 @@ c.write(
 #[crate_id=\"run_pass_stage2#0.1\"];
 #[feature(globs, macro_rules, struct_variant, managed_boxes)];
 #[allow(warnings)];
+extern crate collections;
+extern crate extra;
 """
 )
 for t in stage2_tests:
@@ -64,11 +73,12 @@ d.write(
 """
 // AUTO-GENERATED FILE: DO NOT EDIT
 #[feature(globs, managed_boxes)];
-extern mod extra;
-extern mod run_pass_stage2;
+extern crate extra;
+extern crate run_pass_stage2;
 use run_pass_stage2::*;
 use std::io;
 use std::io::Writer;
+#[allow(warnings)]
 fn main() {
     let mut out = io::stdout();
 """

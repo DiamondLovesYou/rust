@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test
-type foo = Option<int>;
-
-fn bar(_t: foo) {}
+fn let_in<T>(x: T, f: |T|) {}
 
 fn main() {
-    // we used to print foo<int>:
-    bar(Some(3u)); //~ ERROR mismatched types: expected `foo`
+    let_in(3u, |i| { assert!(i == 3i); });
+    //~^ ERROR expected `uint` but found `int`
+
+    let_in(3i, |i| { assert!(i == 3u); });
+    //~^ ERROR expected `int` but found `uint`
 }

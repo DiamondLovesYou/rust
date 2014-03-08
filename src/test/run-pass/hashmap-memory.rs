@@ -1,6 +1,6 @@
-// xfail-fast
+// ignore-fast
 
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -12,6 +12,8 @@
 
 #[feature(managed_boxes)];
 
+extern crate collections;
+
 /**
    A somewhat reduced test case to expose some Valgrind issues.
 
@@ -21,7 +23,7 @@
 pub fn map(filename: ~str, emit: map_reduce::putter) { emit(filename, ~"1"); }
 
 mod map_reduce {
-    use std::hashmap::HashMap;
+    use collections::HashMap;
     use std::str;
     use std::task;
 
@@ -31,7 +33,7 @@ mod map_reduce {
 
     enum ctrl_proto { find_reducer(~[u8], Chan<int>), mapper_done, }
 
-    fn start_mappers(ctrl: SharedChan<ctrl_proto>, inputs: ~[~str]) {
+    fn start_mappers(ctrl: Chan<ctrl_proto>, inputs: ~[~str]) {
         for i in inputs.iter() {
             let ctrl = ctrl.clone();
             let i = i.clone();
@@ -39,11 +41,11 @@ mod map_reduce {
         }
     }
 
-    fn map_task(ctrl: SharedChan<ctrl_proto>, input: ~str) {
+    fn map_task(ctrl: Chan<ctrl_proto>, input: ~str) {
         let mut intermediates = HashMap::new();
 
         fn emit(im: &mut HashMap<~str, int>,
-                ctrl: SharedChan<ctrl_proto>, key: ~str,
+                ctrl: Chan<ctrl_proto>, key: ~str,
                 _val: ~str) {
             if im.contains_key(&key) {
                 return;
@@ -63,7 +65,7 @@ mod map_reduce {
     }
 
     pub fn map_reduce(inputs: ~[~str]) {
-        let (ctrl_port, ctrl_chan) = SharedChan::new();
+        let (ctrl_port, ctrl_chan) = Chan::new();
 
         // This task becomes the master control task. It spawns others
         // to do the rest.

@@ -9,12 +9,13 @@
 // except according to those terms.
 
 #[allow(missing_doc)];
+#[allow(visible_private_types)];
 
-use json;
-use json::ToJson;
+use serialize::json;
+use serialize::json::ToJson;
 use serialize::{Encoder, Encodable, Decoder, Decodable};
-use arc::{Arc,RWArc};
-use treemap::TreeMap;
+use sync::{Arc,RWArc};
+use collections::TreeMap;
 use std::str;
 use std::io;
 use std::io::{File, MemWriter};
@@ -172,20 +173,19 @@ impl Database {
     }
 
     // FIXME #4330: This should have &mut self and should set self.db_dirty to false.
-    fn save(&self) {
+    fn save(&self) -> io::IoResult<()> {
         let mut f = File::create(&self.db_filename);
-        self.db_cache.to_json().to_pretty_writer(&mut f);
+        self.db_cache.to_json().to_pretty_writer(&mut f)
     }
 
     fn load(&mut self) {
         assert!(!self.db_dirty);
         assert!(self.db_filename.exists());
-        match io::result(|| File::open(&self.db_filename)) {
+        match File::open(&self.db_filename) {
             Err(e) => fail!("Couldn't load workcache database {}: {}",
                             self.db_filename.display(),
-                            e.desc),
-            Ok(r) => {
-                let mut stream = r.unwrap();
+                            e),
+            Ok(mut stream) => {
                 match json::from_reader(&mut stream) {
                     Err(e) => fail!("Couldn't parse workcache database (from file {}): {}",
                                     self.db_filename.display(), e.to_str()),
@@ -203,7 +203,8 @@ impl Database {
 impl Drop for Database {
     fn drop(&mut self) {
         if self.db_dirty {
-            self.save();
+            // FIXME: is failing the right thing to do here
+            self.save().unwrap();
         }
     }
 }
@@ -413,15 +414,15 @@ impl<'a> Prep<'a> {
                 let (port, chan) = Chan::new();
                 let blk = bo.take_unwrap();
 
-                // XXX: What happens if the task fails?
-                do spawn {
+                // FIXME: What happens if the task fails?
+                spawn(proc() {
                     let mut exe = Exec {
                         discovered_inputs: WorkMap::new(),
                         discovered_outputs: WorkMap::new(),
                     };
                     let v = blk(&mut exe);
                     chan.send((exe, v));
-                }
+                });
                 Work::from_task(self, port)
             }
         }
@@ -464,8 +465,8 @@ impl<'a, T:Send +
 #[test]
 #[cfg(not(target_os="android"))] // FIXME(#10455)
 fn test() {
-    use std::{os, run};
-    use std::io::fs;
+    use std::os;
+    use std::io::{fs, Process};
     use std::str::from_utf8_owned;
 
     // Create a path to a new file 'filename' in the directory in which
@@ -473,13 +474,13 @@ fn test() {
     fn make_path(filename: ~str) -> Path {
         let pth = os::self_exe_path().expect("workcache::test failed").with_filename(filename);
         if pth.exists() {
-            fs::unlink(&pth);
+            fs::unlink(&pth).unwrap();
         }
         return pth;
     }
 
     let pth = make_path(~"foo.c");
-    File::create(&pth).write(bytes!("int main() { return 0; }"));
+    File::create(&pth).write(bytes!("int main() { return 0; }")).unwrap();
 
     let db_path = make_path(~"db.json");
 
@@ -491,23 +492,24 @@ fn test() {
         let subcx = cx.clone();
         let pth = pth.clone();
 
-        let file_content = from_utf8_owned(File::open(&pth).read_to_end()).unwrap();
+        let contents = File::open(&pth).read_to_end().unwrap();
+        let file_content = from_utf8_owned(contents).unwrap();
 
         // FIXME (#9639): This needs to handle non-utf8 paths
         prep.declare_input("file", pth.as_str().unwrap(), file_content);
-        do prep.exec |_exe| {
+        prep.exec(proc(_exe) {
             let out = make_path(~"foo.o");
             // FIXME (#9639): This needs to handle non-utf8 paths
-            run::process_status("gcc", [pth.as_str().unwrap().to_owned(),
-                                        ~"-o",
-                                        out.as_str().unwrap().to_owned()]);
+            Process::status("gcc", [pth.as_str().unwrap().to_owned(),
+                                    ~"-o",
+                                    out.as_str().unwrap().to_owned()]).unwrap();
 
             let _proof_of_concept = subcx.prep("subfn");
             // Could run sub-rules inside here.
 
             // FIXME (#9639): This needs to handle non-utf8 paths
             out.as_str().unwrap().to_owned()
-        }
+        })
     });
 
     println!("{}", s);

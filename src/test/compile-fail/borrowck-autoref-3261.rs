@@ -10,10 +10,10 @@
 
 enum Either<T, U> { Left(T), Right(U) }
 
-struct X(Either<(uint,uint),extern fn()>);
+struct X(Either<(uint,uint), fn()>);
 
 impl X {
-    pub fn with(&self, blk: |x: &Either<(uint,uint),extern fn()>|) {
+    pub fn with(&self, blk: |x: &Either<(uint,uint), fn()>|) {
         let X(ref e) = *self;
         blk(e)
     }
@@ -21,13 +21,14 @@ impl X {
 
 fn main() {
     let mut x = X(Right(main));
-    (&mut x).with(|opt| {
-        match opt {
-            &Right(ref f) => {
-                x = X(Left((0,0))); //~ ERROR cannot assign to `x`
-                (*f)()
-            },
-            _ => fail!()
-        }
-    })
+    (&mut x).with(
+        |opt| { //~ ERROR cannot borrow `x` as mutable more than once at a time
+            match opt {
+                &Right(ref f) => {
+                    x = X(Left((0,0)));
+                    (*f)()
+                },
+                _ => fail!()
+            }
+        })
 }

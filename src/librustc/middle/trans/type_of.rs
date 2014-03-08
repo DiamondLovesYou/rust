@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#[allow(non_camel_case_types)];
 
 use middle::trans::adt;
 use middle::trans::common::*;
@@ -38,15 +39,8 @@ pub fn type_of_explicit_arg(ccx: &CrateContext, arg_ty: ty::t) -> Type {
     }
 }
 
-pub fn type_of_explicit_args(ccx: &CrateContext,
-                             inputs: &[ty::t]) -> ~[Type] {
-    inputs.map(|&arg_ty| type_of_explicit_arg(ccx, arg_ty))
-}
-
-pub fn type_of_rust_fn(cx: &CrateContext,
-                       self_ty: Option<ty::t>,
-                       inputs: &[ty::t],
-                       output: ty::t) -> Type {
+pub fn type_of_rust_fn(cx: &CrateContext, has_env: bool,
+                       inputs: &[ty::t], output: ty::t) -> Type {
     let mut atys: ~[Type] = ~[];
 
     // Arg 0: Output pointer.
@@ -58,14 +52,13 @@ pub fn type_of_rust_fn(cx: &CrateContext,
     }
 
     // Arg 1: Environment
-    let env = match self_ty {
-        Some(t) => type_of_explicit_arg(cx, t),
-        None => Type::opaque_box(cx).ptr_to()
-    };
-    atys.push(env);
+    if has_env {
+        atys.push(Type::i8p());
+    }
 
     // ... then explicit args.
-    atys.push_all(type_of_explicit_args(cx, inputs));
+    let mut input_tys = inputs.iter().map(|&arg_ty| type_of_explicit_arg(cx, arg_ty));
+    atys.extend(&mut input_tys);
 
     // Use the output as the actual return value if it's immediate.
     if use_out_pointer || return_type_is_void(cx, output) {
@@ -76,14 +69,14 @@ pub fn type_of_rust_fn(cx: &CrateContext,
 }
 
 // Given a function type and a count of ty params, construct an llvm type
-pub fn type_of_fn_from_ty(cx: &CrateContext, self_ty: Option<ty::t>, fty: ty::t) -> Type {
-    return match ty::get(fty).sty {
+pub fn type_of_fn_from_ty(cx: &CrateContext, fty: ty::t) -> Type {
+    match ty::get(fty).sty {
         ty::ty_closure(ref f) => {
-            type_of_rust_fn(cx, None, f.sig.inputs, f.sig.output)
+            type_of_rust_fn(cx, true, f.sig.inputs, f.sig.output)
         }
         ty::ty_bare_fn(ref f) => {
             if f.abis.is_rust() || f.abis.is_intrinsic() {
-                type_of_rust_fn(cx, self_ty, f.sig.inputs, f.sig.output)
+                type_of_rust_fn(cx, false, f.sig.inputs, f.sig.output)
             } else {
                 foreign::lltype_for_foreign_fn(cx, fty)
             }
@@ -91,7 +84,7 @@ pub fn type_of_fn_from_ty(cx: &CrateContext, self_ty: Option<ty::t>, fty: ty::t)
         _ => {
             cx.sess.bug("type_of_fn_from_ty given non-closure, non-bare-fn")
         }
-    };
+    }
 }
 
 // A "sizing type" is an LLVM type, the size and alignment of which are
@@ -123,15 +116,11 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
         ty::ty_float(t) => Type::float_from_ty(t),
 
         ty::ty_str(ty::vstore_uniq) |
-        ty::ty_str(ty::vstore_box) |
         ty::ty_vec(_, ty::vstore_uniq) |
-        ty::ty_vec(_, ty::vstore_box) |
         ty::ty_box(..) |
         ty::ty_uniq(..) |
         ty::ty_ptr(..) |
-        ty::ty_rptr(..) |
-        ty::ty_type |
-        ty::ty_opaque_closure_ptr(..) => Type::i8p(),
+        ty::ty_rptr(..) => Type::i8p(),
 
         ty::ty_str(ty::vstore_slice(..)) |
         ty::ty_vec(_, ty::vstore_slice(..)) => {
@@ -140,7 +129,7 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
 
         ty::ty_bare_fn(..) => Type::i8p(),
         ty::ty_closure(..) => Type::struct_([Type::i8p(), Type::i8p()], false),
-        ty::ty_trait(_, _, store, _, _) => Type::opaque_trait(cx, store),
+        ty::ty_trait(..) => Type::opaque_trait(),
 
         ty::ty_str(ty::vstore_fixed(size)) => Type::array(&Type::i8(), size as u64),
         ty::ty_vec(mt, ty::vstore_fixed(size)) => {
@@ -230,19 +219,8 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
         let name = llvm_type_name(cx, an_enum, did, substs.tps);
         adt::incomplete_type_of(cx, repr, name)
       }
-      ty::ty_str(ty::vstore_box) => {
-        Type::smart_ptr(cx,
-                        &Type::vec(cx.sess.targ_cfg.arch,
-                                   &Type::i8())).ptr_to()
-      }
-      ty::ty_vec(ref mt, ty::vstore_box) => {
-          let e_ty = type_of(cx, mt.ty);
-          let v_ty = Type::vec(cx.sess.targ_cfg.arch, &e_ty);
-          Type::smart_ptr(cx, &v_ty).ptr_to()
-      }
       ty::ty_box(typ) => {
-          let ty = type_of(cx, typ);
-          Type::smart_ptr(cx, &ty).ptr_to()
+          Type::at_box(cx, type_of(cx, typ)).ptr_to()
       }
       ty::ty_uniq(typ) => {
           type_of(cx, typ).ptr_to()
@@ -278,19 +256,17 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
       }
 
       ty::ty_bare_fn(_) => {
-          type_of_fn_from_ty(cx, None, t).ptr_to()
+          type_of_fn_from_ty(cx, t).ptr_to()
       }
       ty::ty_closure(_) => {
-          let ty = type_of_fn_from_ty(cx, None, t);
-          Type::func_pair(cx, &ty)
+          let fn_ty = type_of_fn_from_ty(cx, t).ptr_to();
+          Type::struct_([fn_ty, Type::i8p()], false)
       }
-      ty::ty_trait(_, _, store, _, _) => Type::opaque_trait(cx, store),
-      ty::ty_type => cx.tydesc_type.ptr_to(),
+      ty::ty_trait(..) => Type::opaque_trait(),
       ty::ty_tup(..) => {
           let repr = adt::represent_type(cx, t);
           adt::type_of(cx, repr)
       }
-      ty::ty_opaque_closure_ptr(_) => Type::opaque_box(cx).ptr_to(),
       ty::ty_struct(did, ref substs) => {
           if ty::type_is_simd(cx.tcx, t) {
               let et = ty::simd_type(cx.tcx, t);
@@ -344,11 +320,12 @@ pub fn llvm_type_name(cx: &CrateContext,
         an_enum => { "enum" }
     };
     let tstr = ppaux::parameterized(cx.tcx, ty::item_path_str(cx.tcx, did),
-                                    &ty::NonerasedRegions(opt_vec::Empty), tps);
-    if did.crate == 0 {
+                                    &ty::NonerasedRegions(opt_vec::Empty),
+                                    tps, did, false);
+    if did.krate == 0 {
         format!("{}.{}", name, tstr)
     } else {
-        format!("{}.{}[\\#{}]", name, tstr, did.crate)
+        format!("{}.{}[\\#{}]", name, tstr, did.krate)
     }
 }
 

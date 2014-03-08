@@ -10,7 +10,6 @@
 
 use std::c_str::CString;
 use std::cast;
-use std::comm::SharedChan;
 use std::io::IoError;
 use std::io::net::ip::SocketAddr;
 use std::io::process::ProcessConfig;
@@ -71,7 +70,7 @@ impl Drop for UvEventLoop {
         // after the loop has been closed because during the closing of the loop
         // the handle is required to be used apparently.
         let handle = self.uvio.handle_pool.get_ref().handle();
-        self.uvio.handle_pool.take();
+        drop(self.uvio.handle_pool.take());
         self.uvio.loop_.close();
         unsafe { uvll::free_handle(handle) }
     }
@@ -100,6 +99,10 @@ impl rtio::EventLoop for UvEventLoop {
         let factory = &mut self.uvio as &mut rtio::IoFactory;
         Some(factory)
     }
+
+    fn has_active_io(&self) -> bool {
+        self.uvio.loop_.get_blockers() > 0
+    }
 }
 
 #[cfg(not(test))]
@@ -111,16 +114,16 @@ pub fn new_loop() -> ~rtio::EventLoop {
 #[test]
 fn test_callback_run_once() {
     use std::rt::rtio::EventLoop;
-    do run_in_bare_thread {
+    run_in_bare_thread(proc() {
         let mut event_loop = UvEventLoop::new();
         let mut count = 0;
         let count_ptr: *mut int = &mut count;
-        do event_loop.callback {
+        event_loop.callback(proc() {
             unsafe { *count_ptr += 1 }
-        }
+        });
         event_loop.run();
         assert_eq!(count, 1);
-    }
+    });
 }
 
 pub struct UvIoFactory {
@@ -274,6 +277,10 @@ impl IoFactory for UvIoFactory {
         }
     }
 
+    fn kill(&mut self, pid: libc::pid_t, signum: int) -> Result<(), IoError> {
+        Process::kill(pid, signum).map_err(uv_error_to_io_error)
+    }
+
     fn unix_bind(&mut self, path: &CString) -> Result<~rtio::RtioUnixListener, IoError>
     {
         match PipeListener::bind(self, path) {
@@ -304,7 +311,7 @@ impl IoFactory for UvIoFactory {
         }
     }
 
-    fn signal(&mut self, signum: Signum, channel: SharedChan<Signum>)
+    fn signal(&mut self, signum: Signum, channel: Chan<Signum>)
         -> Result<~rtio::RtioSignal, IoError> {
         match SignalWatcher::new(self, signum, channel) {
             Ok(s) => Ok(s as ~rtio::RtioSignal),

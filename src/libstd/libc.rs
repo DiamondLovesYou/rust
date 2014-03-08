@@ -65,6 +65,7 @@
 #[allow(non_camel_case_types)];
 #[allow(non_uppercase_statics)];
 #[allow(missing_doc)];
+#[allow(uppercase_variables)];
 
 // Initial glob-exports mean that all the contents of all the modules
 // wind up exported, if you're interested in writing platform-specific code.
@@ -159,7 +160,7 @@ pub use libc::funcs::c95::stdio::{fread, freopen, fseek, fsetpos, ftell};
 pub use libc::funcs::c95::stdio::{fwrite, perror, puts, remove, rewind};
 pub use libc::funcs::c95::stdio::{setbuf, setvbuf, tmpfile, ungetc};
 
-pub use libc::funcs::c95::stdlib::{abs, atof, atoi, calloc, exit};
+pub use libc::funcs::c95::stdlib::{abs, atof, atoi, calloc, exit, _exit};
 pub use libc::funcs::c95::stdlib::{free, getenv, labs, malloc, rand};
 pub use libc::funcs::c95::stdlib::{realloc, srand, strtod, strtol};
 pub use libc::funcs::c95::stdlib::{strtoul, system};
@@ -267,7 +268,7 @@ pub mod types {
                 pub enum timezone {}
             }
             pub mod bsd44 {
-                use libc::types::os::arch::c95::c_uint;
+                use libc::types::os::arch::c95::{c_char, c_int, c_uint};
 
                 pub type socklen_t = u32;
                 pub type sa_family_t = u16;
@@ -308,6 +309,20 @@ pub mod types {
                 pub struct ip6_mreq {
                     ipv6mr_multiaddr: in6_addr,
                     ipv6mr_interface: c_uint,
+                }
+                pub struct addrinfo {
+                    ai_flags: c_int,
+                    ai_family: c_int,
+                    ai_socktype: c_int,
+                    ai_protocol: c_int,
+                    ai_addrlen: socklen_t,
+                    ai_addr: *sockaddr,
+                    ai_canonname: *c_char,
+                    ai_next: *addrinfo
+                }
+                pub struct sockaddr_un {
+                    sun_family: sa_family_t,
+                    sun_path: [c_char, ..108]
                 }
             }
         }
@@ -624,7 +639,7 @@ pub mod types {
                 pub enum timezone {}
             }
             pub mod bsd44 {
-                use libc::types::os::arch::c95::c_uint;
+                use libc::types::os::arch::c95::{c_char, c_int, c_uint};
 
                 pub type socklen_t = u32;
                 pub type sa_family_t = u8;
@@ -670,6 +685,21 @@ pub mod types {
                 pub struct ip6_mreq {
                     ipv6mr_multiaddr: in6_addr,
                     ipv6mr_interface: c_uint,
+                }
+                pub struct addrinfo {
+                    ai_flags: c_int,
+                    ai_family: c_int,
+                    ai_socktype: c_int,
+                    ai_protocol: c_int,
+                    ai_addrlen: socklen_t,
+                    ai_canonname: *c_char,
+                    ai_addr: *sockaddr,
+                    ai_next: *addrinfo
+                }
+                pub struct sockaddr_un {
+                    sun_len: u8,
+                    sun_family: sa_family_t,
+                    sun_path: [c_char, ..104]
                 }
             }
         }
@@ -811,7 +841,7 @@ pub mod types {
             }
 
             pub mod bsd44 {
-                use libc::types::os::arch::c95::{c_int, c_uint};
+                use libc::types::os::arch::c95::{c_char, c_int, c_uint, size_t};
 
                 pub type SOCKET = c_uint;
                 pub type socklen_t = c_int;
@@ -853,6 +883,20 @@ pub mod types {
                 pub struct ip6_mreq {
                     ipv6mr_multiaddr: in6_addr,
                     ipv6mr_interface: c_uint,
+                }
+                pub struct addrinfo {
+                    ai_flags: c_int,
+                    ai_family: c_int,
+                    ai_socktype: c_int,
+                    ai_protocol: c_int,
+                    ai_addrlen: size_t,
+                    ai_canonname: *c_char,
+                    ai_addr: *sockaddr,
+                    ai_next: *addrinfo
+                }
+                pub struct sockaddr_un {
+                    sun_family: sa_family_t,
+                    sun_path: [c_char, ..108]
                 }
             }
         }
@@ -930,6 +974,8 @@ pub mod types {
             }
             pub mod extra {
                 use ptr;
+                use libc::consts::os::extra::{MAX_PROTOCOL_CHAIN,
+                                              WSAPROTOCOL_LEN};
                 use libc::types::common::c95::c_void;
                 use libc::types::os::arch::c95::{c_char, c_int, c_uint, size_t};
                 use libc::types::os::arch::c95::{c_long, c_ulong};
@@ -938,6 +984,7 @@ pub mod types {
 
                 pub type BOOL = c_int;
                 pub type BYTE = u8;
+                pub type BOOLEAN = BYTE;
                 pub type CCHAR = c_char;
                 pub type CHAR = c_char;
 
@@ -1076,6 +1123,47 @@ pub mod types {
                 }
 
                 pub type LPFILETIME = *mut FILETIME;
+
+                pub struct GUID {
+                    Data1: DWORD,
+                    Data2: DWORD,
+                    Data3: DWORD,
+                    Data4: [BYTE, ..8],
+                }
+
+                pub struct WSAPROTOCOLCHAIN {
+                    ChainLen: c_int,
+                    ChainEntries: [DWORD, ..MAX_PROTOCOL_CHAIN],
+                }
+
+                pub type LPWSAPROTOCOLCHAIN = *mut WSAPROTOCOLCHAIN;
+
+                pub struct WSAPROTOCOL_INFO {
+                    dwServiceFlags1: DWORD,
+                    dwServiceFlags2: DWORD,
+                    dwServiceFlags3: DWORD,
+                    dwServiceFlags4: DWORD,
+                    dwProviderFlags: DWORD,
+                    ProviderId: GUID,
+                    dwCatalogEntryId: DWORD,
+                    ProtocolChain: WSAPROTOCOLCHAIN,
+                    iVersion: c_int,
+                    iAddressFamily: c_int,
+                    iMaxSockAddr: c_int,
+                    iMinSockAddr: c_int,
+                    iSocketType: c_int,
+                    iProtocol: c_int,
+                    iProtocolMaxOffset: c_int,
+                    iNetworkByteOrder: c_int,
+                    iSecurityScheme: c_int,
+                    dwMessageSize: DWORD,
+                    dwProviderReserved: DWORD,
+                    szProtocol: [u8, ..WSAPROTOCOL_LEN+1],
+                }
+
+                pub type LPWSAPROTOCOL_INFO = *mut WSAPROTOCOL_INFO;
+
+                pub type GROUP = c_uint;
             }
         }
     }
@@ -1121,7 +1209,7 @@ pub mod types {
             }
 
             pub mod bsd44 {
-                use libc::types::os::arch::c95::{c_int, c_uint};
+                use libc::types::os::arch::c95::{c_char, c_int, c_uint};
 
                 pub type socklen_t = c_int;
                 pub type sa_family_t = u8;
@@ -1167,6 +1255,21 @@ pub mod types {
                 pub struct ip6_mreq {
                     ipv6mr_multiaddr: in6_addr,
                     ipv6mr_interface: c_uint,
+                }
+                pub struct addrinfo {
+                    ai_flags: c_int,
+                    ai_family: c_int,
+                    ai_socktype: c_int,
+                    ai_protocol: c_int,
+                    ai_addrlen: socklen_t,
+                    ai_canonname: *c_char,
+                    ai_addr: *sockaddr,
+                    ai_next: *addrinfo
+                }
+                pub struct sockaddr_un {
+                    sun_len: u8,
+                    sun_family: sa_family_t,
+                    sun_path: [c_char, ..104]
                 }
             }
         }
@@ -1507,6 +1610,7 @@ pub mod consts {
             pub static SOL_SOCKET: c_int = 0xffff;
             pub static SO_KEEPALIVE: c_int = 8;
             pub static SO_BROADCAST: c_int = 32;
+            pub static SO_REUSEADDR: c_int = 4;
         }
         pub mod extra {
             use libc::types::os::arch::c95::c_int;
@@ -1520,11 +1624,20 @@ pub mod consts {
             pub static O_NOINHERIT: c_int = 128;
 
             pub static ERROR_SUCCESS : c_int = 0;
+            pub static ERROR_INVALID_FUNCTION: c_int = 1;
+            pub static ERROR_FILE_NOT_FOUND: c_int = 2;
+            pub static ERROR_ACCESS_DENIED: c_int = 5;
             pub static ERROR_INVALID_HANDLE : c_int = 6;
+            pub static ERROR_BROKEN_PIPE: c_int = 109;
             pub static ERROR_DISK_FULL : c_int = 112;
             pub static ERROR_INSUFFICIENT_BUFFER : c_int = 122;
+            pub static ERROR_INVALID_NAME : c_int = 123;
             pub static ERROR_ALREADY_EXISTS : c_int = 183;
+            pub static ERROR_PIPE_BUSY: c_int = 231;
+            pub static ERROR_NO_DATA: c_int = 232;
             pub static ERROR_INVALID_ADDRESS : c_int = 487;
+            pub static ERROR_PIPE_CONNECTED: c_int = 535;
+            pub static ERROR_IO_PENDING: c_int = 997;
             pub static ERROR_FILE_INVALID : c_int = 1006;
             pub static INVALID_HANDLE_VALUE : c_int = -1;
 
@@ -1634,6 +1747,10 @@ pub mod consts {
             pub static OPEN_EXISTING: DWORD = 3;
             pub static TRUNCATE_EXISTING: DWORD = 5;
 
+            pub static FILE_APPEND_DATA: DWORD = 0x00000004;
+            pub static FILE_READ_DATA: DWORD = 0x00000001;
+            pub static FILE_WRITE_DATA: DWORD = 0x00000002;
+
             pub static FILE_ATTRIBUTE_ARCHIVE: DWORD = 0x20;
             pub static FILE_ATTRIBUTE_COMPRESSED: DWORD = 0x800;
             pub static FILE_ATTRIBUTE_DEVICE: DWORD = 0x40;
@@ -1663,6 +1780,7 @@ pub mod consts {
             pub static FILE_FLAG_SESSION_AWARE: DWORD = 0x00800000;
             pub static FILE_FLAG_SEQUENTIAL_SCAN: DWORD = 0x08000000;
             pub static FILE_FLAG_WRITE_THROUGH: DWORD = 0x80000000;
+            pub static FILE_FLAG_FIRST_PIPE_INSTANCE: DWORD = 0x00080000;
 
             pub static FILE_NAME_NORMALIZED: DWORD = 0x0;
             pub static FILE_NAME_OPENED: DWORD = 0x8;
@@ -1676,10 +1794,44 @@ pub mod consts {
             pub static GENERIC_WRITE: DWORD = 0x40000000;
             pub static GENERIC_EXECUTE: DWORD = 0x20000000;
             pub static GENERIC_ALL: DWORD = 0x10000000;
+            pub static FILE_WRITE_ATTRIBUTES: DWORD = 0x00000100;
+            pub static FILE_READ_ATTRIBUTES: DWORD = 0x00000080;
+
+            pub static STANDARD_RIGHTS_READ: DWORD = 0x20000;
+            pub static STANDARD_RIGHTS_WRITE: DWORD = 0x20000;
+            pub static FILE_WRITE_EA: DWORD = 0x00000010;
+            pub static FILE_READ_EA: DWORD = 0x00000008;
+            pub static FILE_GENERIC_READ: DWORD =
+                STANDARD_RIGHTS_READ | FILE_READ_DATA |
+                FILE_READ_ATTRIBUTES | FILE_READ_EA | SYNCHRONIZE;
+            pub static FILE_GENERIC_WRITE: DWORD =
+                STANDARD_RIGHTS_WRITE | FILE_WRITE_DATA |
+                FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | FILE_APPEND_DATA |
+                SYNCHRONIZE;
 
             pub static FILE_BEGIN: DWORD = 0;
             pub static FILE_CURRENT: DWORD = 1;
             pub static FILE_END: DWORD = 2;
+
+            pub static MAX_PROTOCOL_CHAIN: DWORD = 7;
+            pub static WSAPROTOCOL_LEN: DWORD = 255;
+            pub static INVALID_SOCKET: DWORD = !0;
+
+            pub static DETACHED_PROCESS: DWORD = 0x00000008;
+            pub static CREATE_NEW_PROCESS_GROUP: DWORD = 0x00000200;
+
+            pub static PIPE_ACCESS_DUPLEX: DWORD = 0x00000003;
+            pub static PIPE_ACCESS_INBOUND: DWORD = 0x00000001;
+            pub static PIPE_ACCESS_OUTBOUND: DWORD = 0x00000002;
+            pub static PIPE_TYPE_BYTE: DWORD = 0x00000000;
+            pub static PIPE_TYPE_MESSAGE: DWORD = 0x00000004;
+            pub static PIPE_READMODE_BYTE: DWORD = 0x00000000;
+            pub static PIPE_READMODE_MESSAGE: DWORD = 0x00000002;
+            pub static PIPE_WAIT: DWORD = 0x00000000;
+            pub static PIPE_NOWAIT: DWORD = 0x00000001;
+            pub static PIPE_ACCEPT_REMOTE_CLIENTS: DWORD = 0x00000000;
+            pub static PIPE_REJECT_REMOTE_CLIENTS: DWORD = 0x00000008;
+            pub static PIPE_UNLIMITED_INSTANCES: DWORD = 255;
         }
         pub mod sysconf {
         }
@@ -2133,7 +2285,7 @@ pub mod consts {
             pub static EDQUOT: c_int = 1133;
         }
         pub mod posix01 {
-            use libc::types::os::arch::c95::c_int;
+            use libc::types::os::arch::c95::{c_int, size_t};
 
             pub static SIGTRAP : c_int = 5;
 
@@ -2187,6 +2339,17 @@ pub mod consts {
             pub static PTHREAD_CREATE_JOINABLE: c_int = 0;
             pub static PTHREAD_CREATE_DETACHED: c_int = 1;
 
+            #[cfg(target_os = "android")]
+            pub static PTHREAD_STACK_MIN: size_t = 8192;
+
+            #[cfg(target_arch = "arm", target_os = "linux")]
+            #[cfg(target_arch = "x86", target_os = "linux")]
+            #[cfg(target_arch = "x86_64", target_os = "linux")]
+            pub static PTHREAD_STACK_MIN: size_t = 16384;
+
+            #[cfg(target_arch = "mips", target_os = "linux")]
+            pub static PTHREAD_STACK_MIN: size_t = 131072;
+
             pub static CLOCK_REALTIME: c_int = 0;
             pub static CLOCK_MONOTONIC: c_int = 1;
         }
@@ -2207,6 +2370,7 @@ pub mod consts {
             pub static MADV_UNMERGEABLE : c_int = 13;
             pub static MADV_HWPOISON : c_int = 100;
 
+            pub static AF_UNIX: c_int = 1;
             pub static AF_INET: c_int = 2;
             pub static AF_INET6: c_int = 10;
             pub static SOCK_STREAM: c_int = 1;
@@ -2226,6 +2390,7 @@ pub mod consts {
             pub static SOL_SOCKET: c_int = 1;
             pub static SO_KEEPALIVE: c_int = 9;
             pub static SO_BROADCAST: c_int = 6;
+            pub static SO_REUSEADDR: c_int = 2;
         }
         #[cfg(target_arch = "x86")]
         #[cfg(target_arch = "x86_64")]
@@ -2566,7 +2731,7 @@ pub mod consts {
             pub static ELAST : c_int = 99;
         }
         pub mod posix01 {
-            use libc::types::os::arch::c95::c_int;
+            use libc::types::os::arch::c95::{c_int, size_t};
 
             pub static SIGTRAP : c_int = 5;
 
@@ -2620,6 +2785,14 @@ pub mod consts {
             pub static PTHREAD_CREATE_JOINABLE: c_int = 0;
             pub static PTHREAD_CREATE_DETACHED: c_int = 1;
 
+            #[cfg(target_arch = "arm")]
+            pub static PTHREAD_STACK_MIN: size_t = 4096;
+
+            #[cfg(target_arch = "mips")]
+            #[cfg(target_arch = "x86")]
+            #[cfg(target_arch = "x86_64")]
+            pub static PTHREAD_STACK_MIN: size_t = 2048;
+
             pub static CLOCK_REALTIME: c_int = 0;
             pub static CLOCK_MONOTONIC: c_int = 4;
         }
@@ -2649,6 +2822,7 @@ pub mod consts {
 
             pub static AF_INET: c_int = 2;
             pub static AF_INET6: c_int = 28;
+            pub static AF_UNIX: c_int = 1;
             pub static SOCK_STREAM: c_int = 1;
             pub static SOCK_DGRAM: c_int = 2;
             pub static IPPROTO_TCP: c_int = 6;
@@ -2667,6 +2841,7 @@ pub mod consts {
             pub static SOL_SOCKET: c_int = 0xffff;
             pub static SO_KEEPALIVE: c_int = 0x0008;
             pub static SO_BROADCAST: c_int = 0x0020;
+            pub static SO_REUSEADDR: c_int = 0x0004;
         }
         pub mod extra {
             use libc::types::os::arch::c95::c_int;
@@ -2823,6 +2998,7 @@ pub mod consts {
             pub static MAP_PRIVATE : c_int = 0x0002;
             pub static MAP_FIXED : c_int = 0x0010;
             pub static MAP_ANON : c_int = 0x1000;
+            pub static MAP_STACK : c_int = 0;
 
             pub static MAP_FAILED : *c_void = -1 as *c_void;
 
@@ -2946,7 +3122,7 @@ pub mod consts {
             pub static ELAST : c_int = 106;
         }
         pub mod posix01 {
-            use libc::types::os::arch::c95::c_int;
+            use libc::types::os::arch::c95::{c_int, size_t};
 
             pub static SIGTRAP : c_int = 5;
 
@@ -2999,6 +3175,7 @@ pub mod consts {
 
             pub static PTHREAD_CREATE_JOINABLE: c_int = 1;
             pub static PTHREAD_CREATE_DETACHED: c_int = 2;
+            pub static PTHREAD_STACK_MIN: size_t = 8192;
         }
         pub mod posix08 {
         }
@@ -3022,6 +3199,7 @@ pub mod consts {
             pub static MINCORE_REFERENCED_OTHER : c_int = 0x8;
             pub static MINCORE_MODIFIED_OTHER : c_int = 0x10;
 
+            pub static AF_UNIX: c_int = 1;
             pub static AF_INET: c_int = 2;
             pub static AF_INET6: c_int = 30;
             pub static SOCK_STREAM: c_int = 1;
@@ -3042,6 +3220,7 @@ pub mod consts {
             pub static SOL_SOCKET: c_int = 0xffff;
             pub static SO_KEEPALIVE: c_int = 0x0008;
             pub static SO_BROADCAST: c_int = 0x0020;
+            pub static SO_REUSEADDR: c_int = 0x0004;
         }
         pub mod extra {
             use libc::types::os::arch::c95::c_int;
@@ -3225,8 +3404,9 @@ pub mod funcs {
                 pub fn calloc(nobj: size_t, size: size_t) -> *c_void;
                 pub fn malloc(size: size_t) -> *mut c_void;
                 pub fn realloc(p: *mut c_void, size: size_t) -> *mut c_void;
-                pub fn free(p: *c_void);
+                pub fn free(p: *mut c_void);
                 pub fn exit(status: c_int) -> !;
+                pub fn _exit(status: c_int) -> !;
                 // Omitted: atexit.
                 pub fn system(s: *c_char) -> c_int;
                 pub fn getenv(s: *c_char) -> *c_char;
@@ -3478,13 +3658,16 @@ pub mod funcs {
             pub unsafe fn opendir(dirname: *c_char) -> *DIR {
                 rust_opendir(dirname)
             }
-            pub unsafe fn readdir(dirp: *DIR) -> *dirent_t {
-                rust_readdir(dirp)
+            pub unsafe fn readdir_r(dirp: *DIR,
+                                    entry: *mut dirent_t,
+                                    result: *mut *mut dirent_t) -> c_int {
+                rust_readdir_r(dirp, entry, result)
             }
 
             extern {
                 fn rust_opendir(dirname: *c_char) -> *DIR;
-                fn rust_readdir(dirp: *DIR) -> *dirent_t;
+                fn rust_readdir_r(dirp: *DIR, entry: *mut dirent_t,
+                                  result: *mut *mut dirent_t) -> c_int;
             }
 
             extern {
@@ -3500,6 +3683,7 @@ pub mod funcs {
             use libc::types::common::c95::c_void;
             use libc::types::os::arch::c95::{c_char, c_int, c_long, c_uint};
             use libc::types::os::arch::c95::{size_t};
+            use libc::types::os::common::posix01::timespec;
             use libc::types::os::arch::posix01::utimbuf;
             use libc::types::os::arch::posix88::{gid_t, off_t, pid_t};
             use libc::types::os::arch::posix88::{ssize_t, uid_t};
@@ -3548,6 +3732,8 @@ pub mod funcs {
                 pub fn setsid() -> pid_t;
                 pub fn setuid(uid: uid_t) -> c_int;
                 pub fn sleep(secs: c_uint) -> c_uint;
+                pub fn usleep(secs: c_uint) -> c_int;
+                pub fn nanosleep(rqtp: *timespec, rmtp: *mut timespec) -> c_int;
                 pub fn sysconf(name: c_int) -> c_long;
                 pub fn tcgetpgrp(fd: c_int) -> pid_t;
                 pub fn ttyname(fd: c_int) -> *c_char;
@@ -3871,15 +4057,16 @@ pub mod funcs {
 
         pub mod kernel32 {
             use libc::types::os::arch::c95::{c_uint};
-            use libc::types::os::arch::extra::{BOOL, DWORD, SIZE_T, HMODULE};
-            use libc::types::os::arch::extra::{LPCWSTR, LPWSTR, LPCSTR, LPSTR, LPCH,
-                                               LPDWORD, LPVOID,
-                                               LPCVOID, LPOVERLAPPED};
-            use libc::types::os::arch::extra::{LPSECURITY_ATTRIBUTES, LPSTARTUPINFO,
+            use libc::types::os::arch::extra::{BOOL, DWORD, SIZE_T, HMODULE,
+                                               LPCWSTR, LPWSTR, LPCSTR, LPSTR,
+                                               LPCH, LPDWORD, LPVOID,
+                                               LPCVOID, LPOVERLAPPED,
+                                               LPSECURITY_ATTRIBUTES,
+                                               LPSTARTUPINFO,
                                                LPPROCESS_INFORMATION,
                                                LPMEMORY_BASIC_INFORMATION,
-                                               LPSYSTEM_INFO};
-            use libc::types::os::arch::extra::{HANDLE, LPHANDLE, LARGE_INTEGER,
+                                               LPSYSTEM_INFO, BOOLEAN,
+                                               HANDLE, LPHANDLE, LARGE_INTEGER,
                                                PLARGE_INTEGER, LPFILETIME};
 
             extern "system" {
@@ -3992,7 +4179,7 @@ pub mod funcs {
                                    dwFlags: DWORD) -> BOOL;
                 pub fn CreateSymbolicLinkW(lpSymlinkFileName: LPCWSTR,
                                            lpTargetFileName: LPCWSTR,
-                                           dwFlags: DWORD) -> BOOL;
+                                           dwFlags: DWORD) -> BOOLEAN;
                 pub fn CreateHardLinkW(lpSymlinkFileName: LPCWSTR,
                                        lpTargetFileName: LPCWSTR,
                                        lpSecurityAttributes: LPSECURITY_ATTRIBUTES)
@@ -4032,11 +4219,42 @@ pub mod funcs {
                             lpFrequency: *mut LARGE_INTEGER) -> BOOL;
                 pub fn QueryPerformanceCounter(
                             lpPerformanceCount: *mut LARGE_INTEGER) -> BOOL;
+
+                pub fn GetCurrentProcessId() -> DWORD;
+                pub fn CreateNamedPipeW(
+                            lpName: LPCWSTR,
+                            dwOpenMode: DWORD,
+                            dwPipeMode: DWORD,
+                            nMaxInstances: DWORD,
+                            nOutBufferSize: DWORD,
+                            nInBufferSize: DWORD,
+                            nDefaultTimeOut: DWORD,
+                            lpSecurityAttributes: LPSECURITY_ATTRIBUTES
+                            ) -> HANDLE;
+                pub fn ConnectNamedPipe(hNamedPipe: HANDLE,
+                                        lpOverlapped: LPOVERLAPPED) -> BOOL;
+                pub fn WaitNamedPipeW(lpNamedPipeName: LPCWSTR,
+                                      nTimeOut: DWORD) -> BOOL;
+                pub fn SetNamedPipeHandleState(hNamedPipe: HANDLE,
+                                               lpMode: LPDWORD,
+                                               lpMaxCollectionCount: LPDWORD,
+                                               lpCollectDataTimeout: LPDWORD)
+                                                            -> BOOL;
+                pub fn CreateEventW(lpEventAttributes: LPSECURITY_ATTRIBUTES,
+                                    bManualReset: BOOL,
+                                    bInitialState: BOOL,
+                                    lpName: LPCWSTR) -> HANDLE;
+                pub fn GetOverlappedResult(hFile: HANDLE,
+                                           lpOverlapped: LPOVERLAPPED,
+                                           lpNumberOfBytesTransferred: LPDWORD,
+                                           bWait: BOOL) -> BOOL;
+                pub fn DisconnectNamedPipe(hNamedPipe: HANDLE) -> BOOL;
             }
         }
 
         pub mod msvcrt {
             use libc::types::os::arch::c95::{c_int, c_long};
+            use libc::types::os::arch::c99::intptr_t;
 
             #[nolink]
             extern {
@@ -4045,6 +4263,10 @@ pub mod funcs {
 
                 #[link_name = "_get_osfhandle"]
                 pub fn get_osfhandle(fd: c_int) -> c_long;
+
+                #[link_name = "_open_osfhandle"]
+                pub fn open_osfhandle(osfhandle: intptr_t,
+                                      flags: c_int) -> c_int;
             }
         }
     }

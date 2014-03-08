@@ -30,7 +30,7 @@
 #[allow(non_camel_case_types)]; // C types
 
 use std::libc::{size_t, c_int, c_uint, c_void, c_char, c_double};
-use std::libc::{ssize_t, sockaddr, free};
+use std::libc::{ssize_t, sockaddr, free, addrinfo};
 use std::libc;
 use std::rt::global_heap::malloc_raw;
 
@@ -249,45 +249,6 @@ pub type uv_signal_cb = extern "C" fn(handle: *uv_signal_t,
                                       signum: c_int);
 pub type uv_fs_cb = extern "C" fn(req: *uv_fs_t);
 
-// XXX: This is a standard C type. Could probably be defined in libc
-#[cfg(target_os = "android")]
-#[cfg(target_os = "linux")]
-pub struct addrinfo {
-    ai_flags: c_int,
-    ai_family: c_int,
-    ai_socktype: c_int,
-    ai_protocol: c_int,
-    ai_addrlen: libc::socklen_t,
-    ai_addr: *sockaddr,
-    ai_canonname: *char,
-    ai_next: *addrinfo
-}
-
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "freebsd")]
-pub struct addrinfo {
-    ai_flags: c_int,
-    ai_family: c_int,
-    ai_socktype: c_int,
-    ai_protocol: c_int,
-    ai_addrlen: libc::socklen_t,
-    ai_canonname: *char,
-    ai_addr: *sockaddr,
-    ai_next: *addrinfo
-}
-
-#[cfg(windows)]
-pub struct addrinfo {
-    ai_flags: c_int,
-    ai_family: c_int,
-    ai_socktype: c_int,
-    ai_protocol: c_int,
-    ai_addrlen: size_t,
-    ai_canonname: *char,
-    ai_addr: *sockaddr,
-    ai_next: *addrinfo
-}
-
 #[cfg(unix)] pub type uv_uid_t = libc::types::os::arch::posix88::uid_t;
 #[cfg(unix)] pub type uv_gid_t = libc::types::os::arch::posix88::gid_t;
 #[cfg(windows)] pub type uv_uid_t = libc::c_uchar;
@@ -373,7 +334,7 @@ pub unsafe fn malloc_handle(handle: uv_handle_type) -> *c_void {
 }
 
 pub unsafe fn free_handle(v: *c_void) {
-    free(v)
+    free(v as *mut c_void)
 }
 
 pub unsafe fn malloc_req(req: uv_req_type) -> *c_void {
@@ -383,7 +344,7 @@ pub unsafe fn malloc_req(req: uv_req_type) -> *c_void {
 }
 
 pub unsafe fn free_req(v: *c_void) {
-    free(v)
+    free(v as *mut c_void)
 }
 
 #[test]
@@ -400,7 +361,7 @@ fn request_sanity_check() {
     }
 }
 
-// XXX Event loops ignore SIGPIPE by default.
+// FIXME Event loops ignore SIGPIPE by default.
 pub unsafe fn loop_new() -> *c_void {
     return rust_uv_loop_new();
 }
@@ -684,6 +645,7 @@ extern {
     pub fn uv_spawn(loop_ptr: *uv_loop_t, outptr: *uv_process_t,
                     options: *uv_process_options_t) -> c_int;
     pub fn uv_process_kill(p: *uv_process_t, signum: c_int) -> c_int;
+    pub fn uv_kill(pid: c_int, signum: c_int) -> c_int;
 
     // pipes
     pub fn uv_pipe_init(l: *uv_loop_t, p: *uv_pipe_t, ipc: c_int) -> c_int;

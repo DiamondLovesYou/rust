@@ -10,22 +10,28 @@
 
 //! Types dealing with dynamic mutability
 
-use prelude::*;
 use cast;
-use util::NonCopyable;
+use clone::{Clone, DeepClone};
+use cmp::Eq;
+use fmt;
+use kinds::{marker, Pod};
+use ops::{Deref, DerefMut, Drop};
+use option::{None, Option, Some};
 
 /// A mutable memory location that admits only `Pod` data.
-#[no_freeze]
-#[deriving(Clone)]
 pub struct Cell<T> {
     priv value: T,
+    priv marker1: marker::InvariantType<T>,
+    priv marker2: marker::NoFreeze,
 }
 
-impl<T: ::kinds::Pod> Cell<T> {
+impl<T:Pod> Cell<T> {
     /// Creates a new `Cell` containing the given value.
     pub fn new(value: T) -> Cell<T> {
         Cell {
             value: value,
+            marker1: marker::InvariantType::<T>,
+            marker2: marker::NoFreeze,
         }
     }
 
@@ -44,12 +50,31 @@ impl<T: ::kinds::Pod> Cell<T> {
     }
 }
 
+impl<T:Pod> Clone for Cell<T> {
+    fn clone(&self) -> Cell<T> {
+        Cell::new(self.get())
+    }
+}
+
+impl<T:Eq + Pod> Eq for Cell<T> {
+    fn eq(&self, other: &Cell<T>) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl<T: fmt::Show> fmt::Show for Cell<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, r"Cell \{ value: {} \}", self.value)
+    }
+}
+
 /// A mutable memory location with dynamically checked borrow rules
-#[no_freeze]
 pub struct RefCell<T> {
     priv value: T,
     priv borrow: BorrowFlag,
-    priv nc: NonCopyable
+    priv marker1: marker::InvariantType<T>,
+    priv marker2: marker::NoFreeze,
+    priv marker3: marker::NoPod,
 }
 
 // Values [1, MAX-1] represent the number of `Ref` active
@@ -62,9 +87,11 @@ impl<T> RefCell<T> {
     /// Create a new `RefCell` containing `value`
     pub fn new(value: T) -> RefCell<T> {
         RefCell {
+            marker1: marker::InvariantType::<T>,
+            marker2: marker::NoFreeze,
+            marker3: marker::NoPod,
             value: value,
             borrow: UNUSED,
-            nc: NonCopyable
         }
     }
 
@@ -231,6 +258,13 @@ impl<'b, T> Ref<'b, T> {
     }
 }
 
+impl<'b, T> Deref<T> for Ref<'b, T> {
+    #[inline]
+    fn deref<'a>(&'a self) -> &'a T {
+        &self.parent.value
+    }
+}
+
 /// Wraps a mutable borrowed reference to a value in a `RefCell` box.
 pub struct RefMut<'b, T> {
     priv parent: &'b mut RefCell<T>
@@ -252,6 +286,20 @@ impl<'b, T> RefMut<'b, T> {
     }
 }
 
+impl<'b, T> Deref<T> for RefMut<'b, T> {
+    #[inline]
+    fn deref<'a>(&'a self) -> &'a T {
+        &self.parent.value
+    }
+}
+
+impl<'b, T> DerefMut<T> for RefMut<'b, T> {
+    #[inline]
+    fn deref_mut<'a>(&'a mut self) -> &'a mut T {
+        &mut self.parent.value
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -259,11 +307,14 @@ mod test {
     #[test]
     fn smoketest_cell() {
         let x = Cell::new(10);
+        assert_eq!(x, Cell::new(10));
         assert_eq!(x.get(), 10);
         x.set(20);
+        assert_eq!(x, Cell::new(20));
         assert_eq!(x.get(), 20);
 
         let y = Cell::new((30, 40));
+        assert_eq!(y, Cell::new((30, 40)));
         assert_eq!(y.get(), (30, 40));
     }
 

@@ -16,10 +16,10 @@
 //! loop if no other one is provided (and M:N scheduling is desired).
 
 use std::cast;
+use std::mem::replace;
 use std::rt::rtio::{EventLoop, IoFactory, RemoteCallback, PausableIdleCallback,
                     Callback};
 use std::unstable::sync::Exclusive;
-use std::util;
 
 /// This is the only exported function from this module.
 pub fn event_loop() -> ~EventLoop {
@@ -50,7 +50,7 @@ impl BasicLoop {
     /// Process everything in the work queue (continually)
     fn work(&mut self) {
         while self.work.len() > 0 {
-            for work in util::replace(&mut self.work, ~[]).move_iter() {
+            for work in replace(&mut self.work, ~[]).move_iter() {
                 work();
             }
         }
@@ -60,7 +60,7 @@ impl BasicLoop {
         let messages = unsafe {
             self.messages.with(|messages| {
                 if messages.len() > 0 {
-                    Some(util::replace(messages, ~[]))
+                    Some(replace(messages, ~[]))
                 } else {
                     None
                 }
@@ -139,7 +139,7 @@ impl EventLoop for BasicLoop {
         self.work.push(f);
     }
 
-    // XXX: Seems like a really weird requirement to have an event loop provide.
+    // FIXME: Seems like a really weird requirement to have an event loop provide.
     fn pausable_idle_callback(&mut self, cb: ~Callback) -> ~PausableIdleCallback {
         let callback = ~BasicPausable::new(self, cb);
         rtassert!(self.idle.is_none());
@@ -158,6 +158,8 @@ impl EventLoop for BasicLoop {
     }
 
     fn io<'a>(&'a mut self) -> Option<&'a mut IoFactory> { None }
+
+    fn has_active_io(&self) -> bool { false }
 }
 
 struct BasicRemote {
@@ -247,18 +249,18 @@ mod test {
 
     #[test]
     fn smoke() {
-        do run {}
+        run(proc() {});
     }
 
     #[test]
     fn some_channels() {
-        do run {
+        run(proc() {
             let (p, c) = Chan::new();
-            do spawn {
+            spawn(proc() {
                 c.send(());
-            }
+            });
             p.recv();
-        }
+        });
     }
 
     #[test]
@@ -269,13 +271,13 @@ mod test {
         });
 
         for _ in range(0, 20) {
-            do pool.spawn(TaskOpts::new()) {
+            pool.spawn(TaskOpts::new(), proc() {
                 let (p, c) = Chan::new();
-                do spawn {
+                spawn(proc() {
                     c.send(());
-                }
+                });
                 p.recv();
-            }
+            });
         }
 
         pool.shutdown();

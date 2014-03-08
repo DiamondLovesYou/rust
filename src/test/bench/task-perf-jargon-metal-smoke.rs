@@ -1,6 +1,6 @@
-// xfail-pretty
+// ignore-pretty
 
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -10,7 +10,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test performance of a task "spawn ladder", in which children task have many
+// Test performance of a task "spawn ladder", in which children task have
 // many ancestor taskgroups, but with only a few such groups alive at a time.
 // Each child task has to enlist as a descendant in each of its ancestor
 // groups, but that shouldn't have to happen for already-dead groups.
@@ -26,7 +26,7 @@ fn child_generation(gens_left: uint, c: comm::Chan<()>) {
     // This used to be O(n^2) in the number of generations that ever existed.
     // With this code, only as many generations are alive at a time as tasks
     // alive at a time,
-    do spawn {
+    spawn(proc() {
         if gens_left & 1 == 1 {
             task::deschedule(); // shake things up a bit
         }
@@ -35,7 +35,7 @@ fn child_generation(gens_left: uint, c: comm::Chan<()>) {
         } else {
             c.send(())
         }
-    }
+    });
 }
 
 fn main() {

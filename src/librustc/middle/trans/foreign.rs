@@ -27,11 +27,11 @@ use middle::ty::FnSig;
 use middle::ty;
 use std::cmp;
 use std::libc::c_uint;
-use std::vec;
 use syntax::abi::{Cdecl, Aapcs, C, AbiSet, Win64};
 use syntax::abi::{RustIntrinsic, Rust, Stdcall, Fastcall, System};
 use syntax::codemap::Span;
-use syntax::parse::token::special_idents;
+use syntax::parse::token::{InternedString, special_idents};
+use syntax::parse::token;
 use syntax::{ast};
 use syntax::{attr, ast_map};
 use util::ppaux::{Repr, UserString};
@@ -80,17 +80,17 @@ pub fn llvm_calling_convention(ccx: &CrateContext,
         match abi {
             RustIntrinsic => {
                 // Intrinsics are emitted by monomorphic fn
-                ccx.sess.bug(format!("Asked to register intrinsic fn"));
+                ccx.sess.bug(format!("asked to register intrinsic fn"));
             }
 
             Rust => {
                 // FIXME(#3678) Implement linking to foreign fns with Rust ABI
                 ccx.sess.unimpl(
-                    format!("Foreign functions with Rust ABI"));
+                    format!("foreign functions with Rust ABI"));
             }
 
             // It's the ABI's job to select this, not us.
-            System => ccx.sess.bug("System abi should be selected elsewhere"),
+            System => ccx.sess.bug("system abi should be selected elsewhere"),
 
             Stdcall => lib::llvm::X86StdcallCallConv,
             Fastcall => lib::llvm::X86FastcallCallConv,
@@ -105,9 +105,7 @@ pub fn llvm_calling_convention(ccx: &CrateContext,
 }
 
 
-pub fn register_foreign_item_fn(ccx: @CrateContext,
-                                abis: AbiSet,
-                                path: &ast_map::Path,
+pub fn register_foreign_item_fn(ccx: @CrateContext, abis: AbiSet,
                                 foreign_item: @ast::ForeignItem) -> ValueRef {
     /*!
      * Registers a foreign function found in a library.
@@ -116,26 +114,23 @@ pub fn register_foreign_item_fn(ccx: @CrateContext,
 
     debug!("register_foreign_item_fn(abis={}, \
             path={}, \
-            foreign_item.id={:?})",
+            foreign_item.id={})",
            abis.repr(ccx.tcx),
-           path.repr(ccx.tcx),
+           ccx.tcx.map.path_to_str(foreign_item.id),
            foreign_item.id);
 
     let cc = match llvm_calling_convention(ccx, abis) {
         Some(cc) => cc,
         None => {
             ccx.sess.span_fatal(foreign_item.span,
-                format!("ABI `{}` has no suitable ABI \
-                      for target architecture \
-                      in module {}",
-                     abis.user_string(ccx.tcx),
-                     ast_map::path_to_str(*path,
-                                          ccx.sess.intr())));
+                format!("ABI `{}` has no suitable calling convention \
+                      for target architecture",
+                      abis.user_string(ccx.tcx)));
         }
     };
 
     // Register the function as a C extern fn
-    let lname = link_name(ccx, foreign_item);
+    let lname = link_name(foreign_item);
     let tys = foreign_types_for_id(ccx, foreign_item.id);
 
     // Make sure the calling convention is right for variadic functions
@@ -150,12 +145,16 @@ pub fn register_foreign_item_fn(ccx: @CrateContext,
     let llfn;
     {
         let mut externs = ccx.externs.borrow_mut();
-        llfn = base::get_extern_fn(externs.get(), ccx.llmod, lname,
-                                   cc, llfn_ty, tys.fn_sig.output);
+        llfn = base::get_extern_fn(externs.get(),
+                                   ccx.llmod,
+                                   lname.get(),
+                                   cc,
+                                   llfn_ty,
+                                   tys.fn_sig.output);
     };
     add_argument_attributes(&tys, llfn);
 
-    return llfn;
+    llfn
 }
 
 pub fn trans_native_call<'a>(
@@ -341,40 +340,29 @@ pub fn trans_native_call<'a>(
             let llalign = cmp::min(llforeign_align, llrust_align);
             debug!("llrust_size={:?}", llrust_size);
             base::call_memcpy(bcx, llretptr_i8, llscratch_i8,
-                              C_uint(ccx, llrust_size), llalign as u32);
+                              C_uint(ccx, llrust_size as uint), llalign as u32);
         }
     }
 
     return bcx;
 }
 
-pub fn trans_foreign_mod(ccx: @CrateContext,
-                         foreign_mod: &ast::ForeignMod) {
+pub fn trans_foreign_mod(ccx: @CrateContext, foreign_mod: &ast::ForeignMod) {
     let _icx = push_ctxt("foreign::trans_foreign_mod");
     for &foreign_item in foreign_mod.items.iter() {
         match foreign_item.node {
             ast::ForeignItemFn(..) => {
-                let (abis, mut path) =
-                    match ccx.tcx.items.get(foreign_item.id) {
-                        ast_map::NodeForeignItem(_, abis, _, path) => {
-                            (abis, (*path).clone())
-                        }
-                        _ => {
-                            fail!("Unable to find foreign item in tcx.items \
-                                   table.")
-                        }
-                    };
+                let abis = foreign_mod.abis;
                 if !(abis.is_rust() || abis.is_intrinsic()) {
-                    path.push(ast_map::PathName(foreign_item.ident));
-                    register_foreign_item_fn(ccx, abis, &path, foreign_item);
+                    register_foreign_item_fn(ccx, abis, foreign_item);
                 }
             }
-            _ => ()
+            _ => {}
         }
 
-        let lname = link_name(ccx, foreign_item);
+        let lname = link_name(foreign_item);
         let mut item_symbols = ccx.item_symbols.borrow_mut();
-        item_symbols.get().insert(foreign_item.id, lname.to_owned());
+        item_symbols.get().insert(foreign_item.id, lname.get().to_owned());
     }
 }
 
@@ -428,7 +416,6 @@ pub fn register_rust_fn_with_foreign_abi(ccx: @CrateContext,
 }
 
 pub fn trans_rust_fn_with_foreign_abi(ccx: @CrateContext,
-                                      path: &ast_map::Path,
                                       decl: &ast::FnDecl,
                                       body: &ast::Block,
                                       attrs: &[ast::Attribute],
@@ -439,14 +426,13 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: @CrateContext,
 
     unsafe { // unsafe because we call LLVM operations
         // Build up the Rust function (`foo0` above).
-        let llrustfn = build_rust_fn(ccx, path, decl, body, attrs, id);
+        let llrustfn = build_rust_fn(ccx, decl, body, attrs, id);
 
         // Build up the foreign wrapper (`foo` above).
         return build_wrap_fn(ccx, llrustfn, llwrapfn, &tys);
     }
 
     fn build_rust_fn(ccx: @CrateContext,
-                     path: &ast_map::Path,
                      decl: &ast::FnDecl,
                      body: &ast::Block,
                      attrs: &[ast::Attribute],
@@ -455,10 +441,11 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: @CrateContext,
         let _icx = push_ctxt("foreign::foreign::build_rust_fn");
         let tcx = ccx.tcx;
         let t = ty::node_id_to_type(tcx, id);
-        let ps = link::mangle_internal_name_by_path(
-            ccx, vec::append_one((*path).clone(), ast_map::PathName(
-                special_idents::clownshoe_abi
-            )));
+
+        let ps = ccx.tcx.map.with_path(id, |path| {
+            let abi = Some(ast_map::PathName(special_idents::clownshoe_abi.name));
+            link::mangle(path.chain(abi.move_iter()), None, None)
+        });
 
         // Compute the type that the function would have if it were just a
         // normal Rust function. This will be the type of the wrappee fn.
@@ -470,28 +457,19 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: @CrateContext,
             _ => {
                 ccx.sess.bug(format!("build_rust_fn: extern fn {} has ty {}, \
                                   expected a bare fn ty",
-                                  path.repr(tcx),
+                                  ccx.tcx.map.path_to_str(id),
                                   t.repr(tcx)));
             }
         };
 
-        debug!("build_rust_fn: path={} id={:?} t={}",
-               path.repr(tcx),
-               id,
-               t.repr(tcx));
+        debug!("build_rust_fn: path={} id={} t={}",
+               ccx.tcx.map.path_to_str(id),
+               id, t.repr(tcx));
 
-        let llfndecl = base::decl_internal_rust_fn(ccx, None, f.sig.inputs, f.sig.output, ps);
-        base::set_llvm_fn_attrs(attrs, llfndecl);
-        base::trans_fn(ccx,
-                       (*path).clone(),
-                       decl,
-                       body,
-                       llfndecl,
-                       None,
-                       None,
-                       id,
-                       []);
-        return llfndecl;
+        let llfn = base::decl_internal_rust_fn(ccx, false, f.sig.inputs, f.sig.output, ps);
+        base::set_llvm_fn_attrs(attrs, llfn);
+        base::trans_fn(ccx, decl, body, llfn, None, id, []);
+        llfn
     }
 
     unsafe fn build_wrap_fn(ccx: @CrateContext,
@@ -521,7 +499,7 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: @CrateContext,
             "the block".with_c_str(
                 |s| llvm::LLVMAppendBasicBlockInContext(ccx.llcx, llwrapfn, s));
 
-        let builder = ccx.builder.B;
+        let builder = ccx.builder.b;
         llvm::LLVMPositionBuilderAtEnd(builder, the_block);
 
         // Array for the arguments we will pass to the rust function.
@@ -596,11 +574,6 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: @CrateContext,
             // value that the Rust fn returns.
             return_alloca = None;
         };
-
-        // Push an (null) env pointer
-        let env_pointer = base::null_env_ptr(ccx);
-        debug!("env pointer={}", ccx.tn.val_to_str(env_pointer));
-        llrust_args.push(env_pointer);
 
         // Build up the arguments to the call to the rust function.
         // Careful to adapt for cases where the native convention uses
@@ -739,10 +712,11 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: @CrateContext,
 // This code is kind of a confused mess and needs to be reworked given
 // the massive simplifications that have occurred.
 
-pub fn link_name(ccx: &CrateContext, i: @ast::ForeignItem) -> @str {
-     match attr::first_attr_value_str_by_name(i.attrs, "link_name") {
-        None => ccx.sess.str_of(i.ident),
-        Some(ln) => ln,
+pub fn link_name(i: @ast::ForeignItem) -> InternedString {
+     match attr::first_attr_value_str_by_name(i.attrs.as_slice(),
+                                              "link_name") {
+        None => token::get_ident(i.ident),
+        Some(ln) => ln.clone(),
     }
 }
 

@@ -1,6 +1,6 @@
-// xfail-pretty
+// ignore-pretty
 
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -30,9 +30,6 @@ pub fn main() {
     assert_eq!(15u16.add(&6u16), 21u16);
     assert_eq!(15u32.add(&6u32), 21u32);
     assert_eq!(15u64.add(&6u64), 21u64);
-
-    // times
-     15u.times(|| {});
 
 // floats
     // num

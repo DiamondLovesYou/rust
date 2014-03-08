@@ -11,16 +11,17 @@
 //! A small module implementing a simple "runtime" used for bootstrapping a rust
 //! scheduler pool and then interacting with it.
 
+use std::any::Any;
 use std::cast;
 use std::rt::Runtime;
 use std::rt::local::Local;
 use std::rt::rtio;
 use std::rt::task::{Task, BlockedTask};
 use std::task::TaskOpts;
-use std::unstable::sync::LittleLock;
+use std::unstable::mutex::NativeMutex;
 
 struct SimpleTask {
-    lock: LittleLock,
+    lock: NativeMutex,
     awoken: bool,
 }
 
@@ -54,14 +55,14 @@ impl Runtime for SimpleTask {
         }
         Local::put(cur_task);
     }
-    fn reawaken(mut ~self, mut to_wake: ~Task, _can_resched: bool) {
+    fn reawaken(mut ~self, mut to_wake: ~Task) {
         let me = &mut *self as *mut SimpleTask;
         to_wake.put_runtime(self as ~Runtime);
         unsafe {
             cast::forget(to_wake);
-            let _l = (*me).lock.lock();
+            let mut guard = (*me).lock.lock();
             (*me).awoken = true;
-            (*me).lock.signal();
+            guard.signal();
         }
     }
 
@@ -76,13 +77,14 @@ impl Runtime for SimpleTask {
     }
     fn local_io<'a>(&'a mut self) -> Option<rtio::LocalIo<'a>> { None }
     fn stack_bounds(&self) -> (uint, uint) { fail!() }
+    fn can_block(&self) -> bool { true }
     fn wrap(~self) -> ~Any { fail!() }
 }
 
 pub fn task() -> ~Task {
     let mut task = ~Task::new();
     task.put_runtime(~SimpleTask {
-        lock: LittleLock::new(),
+        lock: unsafe {NativeMutex::new()},
         awoken: false,
     } as ~Runtime);
     return task;

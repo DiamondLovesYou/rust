@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -53,7 +53,7 @@ use syntax::visit::Visitor;
 #[deriving(Clone)]
 pub struct Context {
     tcx: ty::ctxt,
-    method_map: typeck::method_map,
+    method_map: typeck::MethodMap,
 }
 
 impl Visitor<()> for Context {
@@ -76,13 +76,13 @@ impl Visitor<()> for Context {
 }
 
 pub fn check_crate(tcx: ty::ctxt,
-                   method_map: typeck::method_map,
-                   crate: &Crate) {
+                   method_map: typeck::MethodMap,
+                   krate: &Crate) {
     let mut ctx = Context {
         tcx: tcx,
         method_map: method_map,
     };
-    visit::walk_crate(&mut ctx, crate, ());
+    visit::walk_crate(&mut ctx, krate, ());
     tcx.sess.abort_if_errors();
 }
 
@@ -160,7 +160,7 @@ fn check_impl_of_trait(cx: &mut Context, it: &Item, trait_ref: &TraitRef, self_t
 }
 
 fn check_item(cx: &mut Context, item: &Item) {
-    if !attr::contains_name(item.attrs, "unsafe_destructor") {
+    if !attr::contains_name(item.attrs.as_slice(), "unsafe_destructor") {
         match item.node {
             ItemImpl(_, Some(ref trait_ref), self_type, _) => {
                 check_impl_of_trait(cx, item, trait_ref, self_type);
@@ -183,9 +183,6 @@ fn with_appropriate_checker(cx: &Context,
         // moved in or copied in.
         let id = ast_util::def_id_of_def(fv.def).node;
         let var_t = ty::node_id_to_type(cx.tcx, id);
-
-        // check that only immutable variables are implicitly copied in
-        check_imm_free_var(cx, fv.def, fv.span);
 
         check_freevar_bounds(cx, fv.span, var_t, bounds, None);
     }
@@ -264,23 +261,24 @@ fn check_fn(
 }
 
 pub fn check_expr(cx: &mut Context, e: &Expr) {
-    debug!("kind::check_expr({})", expr_to_str(e, cx.tcx.sess.intr()));
+    debug!("kind::check_expr({})", expr_to_str(e));
 
     // Handle any kind bounds on type parameters
-    let type_parameter_id = match e.get_callee_id() {
-        Some(callee_id) => callee_id,
-        None => e.id,
-    };
     {
+        let method_map = cx.method_map.borrow();
+        let method = method_map.get().find(&e.id);
         let node_type_substs = cx.tcx.node_type_substs.borrow();
-        let r = node_type_substs.get().find(&type_parameter_id);
+        let r = match method {
+            Some(method) => Some(&method.substs.tps),
+            None => node_type_substs.get().find(&e.id)
+        };
         for ts in r.iter() {
             let def_map = cx.tcx.def_map.borrow();
             let type_param_defs = match e.node {
               ExprPath(_) => {
                 let did = ast_util::def_id_of_def(def_map.get()
                                                          .get_copy(&e.id));
-                ty::lookup_item_type(cx.tcx, did).generics.type_param_defs
+                ty::lookup_item_type(cx.tcx, did).generics.type_param_defs.clone()
               }
               _ => {
                 // Type substitutions should only occur on paths and
@@ -288,10 +286,18 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
 
                 // Even though the callee_id may have been the id with
                 // node_type_substs, e.id is correct here.
-                ty::method_call_type_param_defs(cx.tcx, cx.method_map, e.id).expect(
-                    "non path/method call expr has type substs??")
+                match method {
+                    Some(method) => {
+                        ty::method_call_type_param_defs(cx.tcx, method.origin)
+                    }
+                    None => {
+                        cx.tcx.sess.span_bug(e.span,
+                            "non path/method call expr has type substs??");
+                    }
+                }
               }
             };
+            let type_param_defs = type_param_defs.borrow();
             if ts.len() != type_param_defs.len() {
                 // Fail earlier to make debugging easier
                 fail!("internal error: in kind::check_expr, length \
@@ -301,15 +307,15 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
                       type_param_defs.repr(cx.tcx));
             }
             for (&ty, type_param_def) in ts.iter().zip(type_param_defs.iter()) {
-                check_typaram_bounds(cx, type_parameter_id, e.span, ty, type_param_def)
+                check_typaram_bounds(cx, e.span, ty, type_param_def)
             }
         }
     }
 
     match e.node {
-        ExprUnary(_, UnBox, interior) => {
+        ExprUnary(UnBox, interior) => {
             let interior_type = ty::expr_ty(cx.tcx, interior);
-            let _ = check_durable(cx.tcx, interior_type, interior.span);
+            let _ = check_static(cx.tcx, interior_type, interior.span);
         }
         ExprCast(source, _) => {
             let source_ty = ty::expr_ty(cx.tcx, source);
@@ -365,10 +371,10 @@ fn check_ty(cx: &mut Context, aty: &Ty) {
             for ts in r.iter() {
                 let def_map = cx.tcx.def_map.borrow();
                 let did = ast_util::def_id_of_def(def_map.get().get_copy(&id));
-                let type_param_defs =
-                    ty::lookup_item_type(cx.tcx, did).generics.type_param_defs;
+                let generics = ty::lookup_item_type(cx.tcx, did).generics;
+                let type_param_defs = generics.type_param_defs();
                 for (&ty, type_param_def) in ts.iter().zip(type_param_defs.iter()) {
-                    check_typaram_bounds(cx, aty.id, aty.span, ty, type_param_def)
+                    check_typaram_bounds(cx, aty.span, ty, type_param_def)
                 }
             }
         }
@@ -395,11 +401,9 @@ pub fn check_builtin_bounds(cx: &Context,
 }
 
 pub fn check_typaram_bounds(cx: &Context,
-                    _type_parameter_id: NodeId,
-                    sp: Span,
-                    ty: ty::t,
-                    type_param_def: &ty::TypeParameterDef)
-{
+                            sp: Span,
+                            ty: ty::t,
+                            type_param_def: &ty::TypeParameterDef) {
     check_builtin_bounds(cx,
                          ty,
                          type_param_def.bounds.builtin_bounds,
@@ -447,24 +451,6 @@ pub fn check_trait_cast_bounds(cx: &Context, sp: Span, ty: ty::t,
     });
 }
 
-fn check_imm_free_var(cx: &Context, def: Def, sp: Span) {
-    match def {
-        DefLocal(_, BindByValue(MutMutable)) => {
-            cx.tcx.sess.span_err(
-                sp,
-                "mutable variables cannot be implicitly captured");
-        }
-        DefLocal(..) | DefArg(..) => { /* ok */ }
-        DefUpvar(_, def1, _, _) => { check_imm_free_var(cx, *def1, sp); }
-        DefBinding(..) | DefSelf(..) => { /*ok*/ }
-        _ => {
-            cx.tcx.sess.span_bug(
-                sp,
-                format!("unknown def for free variable: {:?}", def));
-        }
-    }
-}
-
 fn check_copy(cx: &Context, ty: ty::t, sp: Span, reason: &str) {
     debug!("type_contents({})={}",
            ty_to_str(cx.tcx, ty),
@@ -488,13 +474,13 @@ pub fn check_send(cx: &Context, ty: ty::t, sp: Span) -> bool {
     }
 }
 
-// note: also used from middle::typeck::regionck!
-pub fn check_durable(tcx: ty::ctxt, ty: ty::t, sp: Span) -> bool {
+pub fn check_static(tcx: ty::ctxt, ty: ty::t, sp: Span) -> bool {
     if !ty::type_is_static(tcx, ty) {
         match ty::get(ty).sty {
           ty::ty_param(..) => {
-            tcx.sess.span_err(sp, "value may contain references; \
-                                   add `'static` bound");
+            tcx.sess.span_err(sp,
+                format!("value may contain references; \
+                         add `'static` bound to `{}`", ty_to_str(tcx, ty)));
           }
           _ => {
             tcx.sess.span_err(sp, "value may contain references");
@@ -506,7 +492,7 @@ pub fn check_durable(tcx: ty::ctxt, ty: ty::t, sp: Span) -> bool {
     }
 }
 
-/// This is rather subtle.  When we are casting a value to a instantiated
+/// This is rather subtle.  When we are casting a value to an instantiated
 /// trait like `a as trait<'r>`, regionck already ensures that any references
 /// that appear in the type of `a` are bounded by `'r` (ed.: rem
 /// FIXME(#5723)).  However, it is possible that there are *type parameters*
@@ -537,7 +523,7 @@ pub fn check_cast_for_escaping_regions(
     target_ty: ty::t,
     source_span: Span)
 {
-    // Determine what type we are casting to; if it is not an trait, then no
+    // Determine what type we are casting to; if it is not a trait, then no
     // worries.
     match ty::get(target_ty).sty {
         ty::ty_trait(..) => {}
@@ -592,7 +578,7 @@ pub fn check_cast_for_escaping_regions(
                     if target_params.iter().any(|x| x == &source_param) {
                         /* case (2) */
                     } else {
-                        check_durable(cx.tcx, ty, source_span); /* case (3) */
+                        check_static(cx.tcx, ty, source_span); /* case (3) */
                     }
                 }
                 _ => {}

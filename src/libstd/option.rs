@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -42,16 +42,13 @@ use clone::Clone;
 use clone::DeepClone;
 use cmp::{Eq, TotalEq, TotalOrd};
 use default::Default;
-use fmt;
 use iter::{Iterator, DoubleEndedIterator, FromIterator, ExactSize};
 use kinds::Send;
-use str::OwnedStr;
-use to_str::ToStr;
-use util;
+use mem;
 use vec;
 
 /// The option type
-#[deriving(Clone, DeepClone, Eq, Ord, TotalEq, TotalOrd, ToStr)]
+#[deriving(Clone, DeepClone, Eq, Ord, TotalEq, TotalOrd, Show)]
 pub enum Option<T> {
     /// No value
     None,
@@ -121,7 +118,7 @@ impl<T> Option<T> {
     // Getting to contained values
     /////////////////////////////////////////////////////////////////////////
 
-    /// Unwraps a option, yielding the content of a `Some`
+    /// Unwraps an option, yielding the content of a `Some`
     /// Fails if the value is a `None` with a custom failure message provided by `msg`.
     #[inline]
     pub fn expect<M: Any + Send>(self, msg: M) -> T {
@@ -285,7 +282,7 @@ impl<T> Option<T> {
     /// Take the value out of the option, leaving a `None` in its place.
     #[inline]
     pub fn take(&mut self) -> Option<T> {
-        util::replace(self, None)
+        mem::replace(self, None)
     }
 
     /// Filters an optional value using a given function.
@@ -380,16 +377,6 @@ impl<T: Default> Option<T> {
 // Trait implementations
 /////////////////////////////////////////////////////////////////////////////
 
-impl<T: fmt::Default> fmt::Default for Option<T> {
-    #[inline]
-    fn fmt(s: &Option<T>, f: &mut fmt::Formatter) {
-        match *s {
-            Some(ref t) => write!(f.buf, "Some({})", *t),
-            None        => write!(f.buf, "None")
-        }
-    }
-}
-
 impl<T> Default for Option<T> {
     #[inline]
     fn default() -> Option<T> { None }
@@ -441,7 +428,7 @@ impl<A> ExactSize<A> for Item<A> {}
 /// checking for overflow:
 ///
 ///     fn inc_conditionally(x: uint) -> Option<uint> {
-///         if x == uint::max_value { return None; }
+///         if x == uint::MAX { return None; }
 ///         else { return Some(x+1u); }
 ///     }
 ///     let v = [1u, 2, 3];
@@ -480,7 +467,7 @@ mod tests {
 
     use iter::range;
     use str::StrSlice;
-    use util;
+    use kinds::marker;
     use vec::ImmutableVector;
 
     #[test]
@@ -551,7 +538,7 @@ mod tests {
 
     #[test] #[should_fail]
     fn test_option_too_much_dance() {
-        let mut y = Some(util::NonCopyable);
+        let mut y = Some(marker::NoPod);
         let _y2 = y.take_unwrap();
         let _y3 = y.take_unwrap();
     }

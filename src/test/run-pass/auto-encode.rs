@@ -1,6 +1,4 @@
-// xfail-fast
-
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -10,36 +8,37 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test FIXME(#5121)
+// ignore-test FIXME(#5121)
+// ignore-fast
 
 #[feature(managed_boxes)];
 
-extern mod extra;
+extern crate time;
+extern crate serialize;
 
 // These tests used to be separate files, but I wanted to refactor all
 // the common code.
 
 use std::hashmap::{HashMap, HashSet};
 
-use EBReader = extra::ebml::reader;
-use EBWriter = extra::ebml::writer;
+use EBReader = serialize::ebml::reader;
+use EBWriter = serialize::ebml::writer;
 use std::cmp::Eq;
 use std::cmp;
 use std::io;
-use extra::serialize::{Decodable, Encodable};
-use extra::time;
+use serialize::{Decodable, Encodable};
 
-fn test_ebml<'a, A:
+fn test_ebml<'a, 'b, A:
     Eq +
-    Encodable<EBWriter::Encoder> +
-    Decodable<EBReader::Decoder<'a>>
+    Encodable<EBWriter::Encoder<'a>> +
+    Decodable<EBReader::Decoder<'b>>
 >(a1: &A) {
     let mut wr = std::io::MemWriter::new();
     let mut ebml_w = EBWriter::Encoder(&mut wr);
     a1.encode(&mut ebml_w);
     let bytes = wr.get_ref();
 
-    let d: extra::ebml::Doc<'a> = EBReader::Doc(bytes);
+    let d: serialize::ebml::Doc<'a> = EBReader::Doc(bytes);
     let mut decoder: EBReader::Decoder<'a> = EBReader::Decoder(d);
     let a2: A = Decodable::decode(&mut decoder);
     assert!(*a1 == a2);
@@ -142,9 +141,6 @@ pub fn main() {
     test_ebml(a);
 
     let a = &Point {x: 3u, y: 5u};
-    test_ebml(a);
-
-    let a = &@[1u, 2u, 3u];
     test_ebml(a);
 
     let a = &Top(22u);

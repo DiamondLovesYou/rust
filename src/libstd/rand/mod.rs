@@ -69,6 +69,7 @@ use cast;
 use cmp::Ord;
 use container::Container;
 use iter::{Iterator, range};
+use kinds::marker;
 use local_data;
 use prelude::*;
 use str;
@@ -543,7 +544,6 @@ impl reseeding::Reseeder<StdRng> for TaskRngReseeder {
 static TASK_RNG_RESEED_THRESHOLD: uint = 32_768;
 type TaskRngInner = reseeding::ReseedingRng<StdRng, TaskRngReseeder>;
 /// The task-local RNG.
-#[no_send]
 pub struct TaskRng {
     // This points into TLS (specifically, it points to the endpoint
     // of a ~ stored in TLS, to make it robust against TLS moving
@@ -554,7 +554,8 @@ pub struct TaskRng {
     // The use of unsafe code here is OK if the invariants above are
     // satisfied; and it allows us to avoid (unnecessarily) using a
     // GC'd or RC'd pointer.
-    priv rng: *mut TaskRngInner
+    priv rng: *mut TaskRngInner,
+    priv marker: marker::NoSend,
 }
 
 // used to make space in TLS for a random number generator
@@ -581,9 +582,9 @@ pub fn task_rng() -> TaskRng {
 
             local_data::set(TASK_RNG_KEY, rng);
 
-            TaskRng { rng: ptr }
+            TaskRng { rng: ptr, marker: marker::NoSend }
         }
-        Some(rng) => TaskRng { rng: &mut **rng }
+        Some(rng) => TaskRng { rng: &mut **rng, marker: marker::NoSend }
     })
 }
 
@@ -802,11 +803,11 @@ mod test {
 
     #[test]
     fn test_sample() {
-        let MIN_VAL = 1;
-        let MAX_VAL = 100;
+        let min_val = 1;
+        let max_val = 100;
 
         let mut r = rng();
-        let vals = range(MIN_VAL, MAX_VAL).to_owned_vec();
+        let vals = range(min_val, max_val).to_owned_vec();
         let small_sample = r.sample(vals.iter(), 5);
         let large_sample = r.sample(vals.iter(), vals.len() + 5);
 
@@ -814,7 +815,7 @@ mod test {
         assert_eq!(large_sample.len(), vals.len());
 
         assert!(small_sample.iter().all(|e| {
-            **e >= MIN_VAL && **e <= MAX_VAL
+            **e >= min_val && **e <= max_val
         }));
     }
 
@@ -844,8 +845,9 @@ static RAND_BENCH_N: u64 = 100;
 
 #[cfg(test)]
 mod bench {
+    extern crate test;
+    use self::test::BenchHarness;
     use prelude::*;
-    use extra::test::BenchHarness;
     use rand::{XorShiftRng, StdRng, IsaacRng, Isaac64Rng, Rng, RAND_BENCH_N};
     use mem::size_of;
 

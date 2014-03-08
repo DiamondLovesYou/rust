@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,11 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::hashmap::HashSet;
+use std::cmp;
+use collections::HashSet;
 use std::local_data;
-use std::num;
 use std::uint;
 use syntax::ast;
+use rustc::util::nodemap::NodeSet;
 
 use clean;
 use clean::Item;
@@ -21,43 +22,75 @@ use fold;
 use fold::DocFolder;
 
 /// Strip items marked `#[doc(hidden)]`
-pub fn strip_hidden(crate: clean::Crate) -> plugins::PluginResult {
-    struct Stripper;
-    impl fold::DocFolder for Stripper {
-        fn fold_item(&mut self, i: Item) -> Option<Item> {
-            for attr in i.attrs.iter() {
-                match attr {
-                    &clean::List(~"doc", ref l) => {
-                        for innerattr in l.iter() {
-                            match innerattr {
-                                &clean::Word(ref s) if "hidden" == *s => {
-                                    debug!("found one in strip_hidden; removing");
-                                    return None;
-                                },
-                                _ => (),
+pub fn strip_hidden(krate: clean::Crate) -> plugins::PluginResult {
+    let mut stripped = HashSet::new();
+
+    // strip all #[doc(hidden)] items
+    let krate = {
+        struct Stripper<'a> {
+            stripped: &'a mut HashSet<ast::NodeId>
+        };
+        impl<'a> fold::DocFolder for Stripper<'a> {
+            fn fold_item(&mut self, i: Item) -> Option<Item> {
+                for attr in i.attrs.iter() {
+                    match attr {
+                        &clean::List(~"doc", ref l) => {
+                            for innerattr in l.iter() {
+                                match innerattr {
+                                    &clean::Word(ref s) if "hidden" == *s => {
+                                        debug!("found one in strip_hidden; removing");
+                                        self.stripped.insert(i.id);
+                                        return None;
+                                    },
+                                    _ => (),
+                                }
                             }
-                        }
-                    },
-                    _ => ()
+                        },
+                        _ => ()
+                    }
                 }
+                self.fold_item_recur(i)
             }
-            self.fold_item_recur(i)
         }
-    }
-    let mut stripper = Stripper;
-    let crate = stripper.fold_crate(crate);
-    (crate, None)
+        let mut stripper = Stripper{ stripped: &mut stripped };
+        stripper.fold_crate(krate)
+    };
+
+    // strip any traits implemented on stripped items
+    let krate = {
+        struct ImplStripper<'a> {
+            stripped: &'a mut HashSet<ast::NodeId>
+        };
+        impl<'a> fold::DocFolder for ImplStripper<'a> {
+            fn fold_item(&mut self, i: Item) -> Option<Item> {
+                match i.inner {
+                    clean::ImplItem(clean::Impl{ for_: clean::ResolvedPath{ id: for_id, .. },
+                                                 .. }) => {
+                        if self.stripped.contains(&for_id) {
+                            return None;
+                        }
+                    }
+                    _ => {}
+                }
+                self.fold_item_recur(i)
+            }
+        }
+        let mut stripper = ImplStripper{ stripped: &mut stripped };
+        stripper.fold_crate(krate)
+    };
+
+    (krate, None)
 }
 
 /// Strip private items from the point of view of a crate or externally from a
 /// crate, specified by the `xcrate` flag.
-pub fn strip_private(crate: clean::Crate) -> plugins::PluginResult {
+pub fn strip_private(krate: clean::Crate) -> plugins::PluginResult {
     // This stripper collects all *retained* nodes.
     let mut retained = HashSet::new();
     let exported_items = local_data::get(super::analysiskey, |analysis| {
         analysis.unwrap().exported_items.clone()
     });
-    let mut crate = crate;
+    let mut krate = krate;
 
     // strip all private items
     {
@@ -65,20 +98,20 @@ pub fn strip_private(crate: clean::Crate) -> plugins::PluginResult {
             retained: &mut retained,
             exported_items: &exported_items,
         };
-        crate = stripper.fold_crate(crate);
+        krate = stripper.fold_crate(krate);
     }
 
     // strip all private implementations of traits
     {
         let mut stripper = ImplStripper(&retained);
-        crate = stripper.fold_crate(crate);
+        krate = stripper.fold_crate(krate);
     }
-    (crate, None)
+    (krate, None)
 }
 
 struct Stripper<'a> {
     retained: &'a mut HashSet<ast::NodeId>,
-    exported_items: &'a HashSet<ast::NodeId>,
+    exported_items: &'a NodeSet,
 }
 
 impl<'a> fold::DocFolder for Stripper<'a> {
@@ -110,8 +143,16 @@ impl<'a> fold::DocFolder for Stripper<'a> {
             // handled below
             clean::ModuleItem(..) => {}
 
-            // impls/tymethods have no control over privacy
-            clean::ImplItem(..) | clean::TyMethodItem(..) => {}
+            // trait impls for private items should be stripped
+            clean::ImplItem(clean::Impl{ for_: clean::ResolvedPath{ id: ref for_id, .. }, .. }) => {
+                if !self.exported_items.contains(for_id) {
+                    return None;
+                }
+            }
+            clean::ImplItem(..) => {}
+
+            // tymethods/macros have no control over privacy
+            clean::MacroItem(..) | clean::TyMethodItem(..) => {}
         }
 
         let fastreturn = match i.inner {
@@ -174,7 +215,7 @@ impl<'a> fold::DocFolder for ImplStripper<'a> {
 }
 
 
-pub fn unindent_comments(crate: clean::Crate) -> plugins::PluginResult {
+pub fn unindent_comments(krate: clean::Crate) -> plugins::PluginResult {
     struct CommentCleaner;
     impl fold::DocFolder for CommentCleaner {
         fn fold_item(&mut self, i: Item) -> Option<Item> {
@@ -192,11 +233,11 @@ pub fn unindent_comments(crate: clean::Crate) -> plugins::PluginResult {
         }
     }
     let mut cleaner = CommentCleaner;
-    let crate = cleaner.fold_crate(crate);
-    (crate, None)
+    let krate = cleaner.fold_crate(krate);
+    (krate, None)
 }
 
-pub fn collapse_docs(crate: clean::Crate) -> plugins::PluginResult {
+pub fn collapse_docs(krate: clean::Crate) -> plugins::PluginResult {
     struct Collapser;
     impl fold::DocFolder for Collapser {
         fn fold_item(&mut self, i: Item) -> Option<Item> {
@@ -223,15 +264,15 @@ pub fn collapse_docs(crate: clean::Crate) -> plugins::PluginResult {
         }
     }
     let mut collapser = Collapser;
-    let crate = collapser.fold_crate(crate);
-    (crate, None)
+    let krate = collapser.fold_crate(krate);
+    (krate, None)
 }
 
 pub fn unindent(s: &str) -> ~str {
     let lines = s.lines_any().collect::<~[&str]>();
     let mut saw_first_line = false;
     let mut saw_second_line = false;
-    let min_indent = lines.iter().fold(uint::max_value, |min_indent, line| {
+    let min_indent = lines.iter().fold(uint::MAX, |min_indent, line| {
 
         // After we see the first non-whitespace line, look at
         // the line we have. If it is not whitespace, and therefore
@@ -243,7 +284,7 @@ pub fn unindent(s: &str) -> ~str {
             !line.is_whitespace();
 
         let min_indent = if ignore_previous_indents {
-            uint::max_value
+            uint::MAX
         } else {
             min_indent
         };
@@ -267,24 +308,23 @@ pub fn unindent(s: &str) -> ~str {
                     false
                 }
             });
-            num::min(min_indent, spaces)
+            cmp::min(min_indent, spaces)
         }
     });
 
-    match lines {
-        [head, .. tail] => {
-            let mut unindented = ~[ head.trim() ];
-            unindented.push_all(tail.map(|&line| {
-                if line.is_whitespace() {
-                    line
-                } else {
-                    assert!(line.len() >= min_indent);
-                    line.slice_from(min_indent)
-                }
-            }));
-            unindented.connect("\n")
-        }
-        [] => s.to_owned()
+    if lines.len() >= 1 {
+        let mut unindented = ~[ lines[0].trim() ];
+        unindented.push_all(lines.tail().map(|&line| {
+            if line.is_whitespace() {
+                line
+            } else {
+                assert!(line.len() >= min_indent);
+                line.slice_from(min_indent)
+            }
+        }));
+        unindented.connect("\n")
+    } else {
+        s.to_owned()
     }
 }
 

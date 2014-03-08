@@ -22,13 +22,16 @@ instances as clients.
 
 */
 
+#[allow(missing_doc)];
+
 use prelude::*;
 
 use c_str::ToCStr;
+use clone::Clone;
 use rt::rtio::{IoFactory, LocalIo, RtioUnixListener};
 use rt::rtio::{RtioUnixAcceptor, RtioPipe};
 use io::pipe::PipeStream;
-use io::{io_error, Listener, Acceptor, Reader, Writer};
+use io::{Listener, Acceptor, Reader, Writer, IoResult};
 
 /// A stream which communicates over a named pipe.
 pub struct UnixStream {
@@ -45,32 +48,35 @@ impl UnixStream {
     ///
     /// The returned stream will be closed when the object falls out of scope.
     ///
-    /// # Failure
-    ///
-    /// This function will raise on the `io_error` condition if the connection
-    /// could not be made.
-    ///
     /// # Example
     ///
-    ///     use std::io::net::unix::UnixStream;
+    /// ```rust
+    /// # #[allow(unused_must_use)];
+    /// use std::io::net::unix::UnixStream;
     ///
-    ///     let server = Path("path/to/my/socket");
-    ///     let mut stream = UnixStream::connect(&server);
-    ///     stream.write([1, 2, 3]);
-    ///
-    pub fn connect<P: ToCStr>(path: &P) -> Option<UnixStream> {
+    /// let server = Path::new("path/to/my/socket");
+    /// let mut stream = UnixStream::connect(&server);
+    /// stream.write([1, 2, 3]);
+    /// ```
+    pub fn connect<P: ToCStr>(path: &P) -> IoResult<UnixStream> {
         LocalIo::maybe_raise(|io| {
             io.unix_connect(&path.to_c_str()).map(UnixStream::new)
         })
     }
 }
 
+impl Clone for UnixStream {
+    fn clone(&self) -> UnixStream {
+        UnixStream { obj: self.obj.clone() }
+    }
+}
+
 impl Reader for UnixStream {
-    fn read(&mut self, buf: &mut [u8]) -> Option<uint> { self.obj.read(buf) }
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.obj.read(buf) }
 }
 
 impl Writer for UnixStream {
-    fn write(&mut self, buf: &[u8]) { self.obj.write(buf) }
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.obj.write(buf) }
 }
 
 pub struct UnixListener {
@@ -84,23 +90,23 @@ impl UnixListener {
     ///
     /// This listener will be closed when it falls out of scope.
     ///
-    /// # Failure
-    ///
-    /// This function will raise on the `io_error` condition if the specified
-    /// path could not be bound.
-    ///
     /// # Example
     ///
-    ///     use std::io::net::unix::UnixListener;
+    /// ```
+    /// # fn main() {}
+    /// # fn foo() {
+    /// # #[allow(unused_must_use)];
+    /// use std::io::net::unix::UnixListener;
+    /// use std::io::{Listener, Acceptor};
     ///
-    ///     let server = Path("path/to/my/socket");
-    ///     let mut stream = UnixListener::bind(&server);
-    ///     for client in stream.incoming() {
-    ///         let mut client = client;
-    ///         client.write([1, 2, 3, 4]);
-    ///     }
-    ///
-    pub fn bind<P: ToCStr>(path: &P) -> Option<UnixListener> {
+    /// let server = Path::new("/path/to/my/socket");
+    /// let stream = UnixListener::bind(&server);
+    /// for mut client in stream.listen().incoming() {
+    ///     client.write([1, 2, 3, 4]);
+    /// }
+    /// # }
+    /// ```
+    pub fn bind<P: ToCStr>(path: &P) -> IoResult<UnixListener> {
         LocalIo::maybe_raise(|io| {
             io.unix_bind(&path.to_c_str()).map(|s| UnixListener { obj: s })
         })
@@ -108,14 +114,8 @@ impl UnixListener {
 }
 
 impl Listener<UnixStream, UnixAcceptor> for UnixListener {
-    fn listen(self) -> Option<UnixAcceptor> {
-        match self.obj.listen() {
-            Ok(acceptor) => Some(UnixAcceptor { obj: acceptor }),
-            Err(ioerr) => {
-                io_error::cond.raise(ioerr);
-                None
-            }
-        }
+    fn listen(self) -> IoResult<UnixAcceptor> {
+        self.obj.listen().map(|obj| UnixAcceptor { obj: obj })
     }
 }
 
@@ -124,14 +124,8 @@ pub struct UnixAcceptor {
 }
 
 impl Acceptor<UnixStream> for UnixAcceptor {
-    fn accept(&mut self) -> Option<UnixStream> {
-        match self.obj.accept() {
-            Ok(s) => Some(UnixStream::new(s)),
-            Err(ioerr) => {
-                io_error::cond.raise(ioerr);
-                None
-            }
-        }
+    fn accept(&mut self) -> IoResult<UnixStream> {
+        self.obj.accept().map(UnixStream::new)
     }
 }
 
@@ -142,118 +136,220 @@ mod tests {
     use io::*;
     use io::test::*;
 
-    fn smalltest(server: proc(UnixStream), client: proc(UnixStream)) {
+    pub fn smalltest(server: proc(UnixStream), client: proc(UnixStream)) {
         let path1 = next_test_unix();
         let path2 = path1.clone();
-        let (port, chan) = Chan::new();
-
-        do spawn {
-            port.recv();
-            client(UnixStream::connect(&path2).unwrap());
-        }
 
         let mut acceptor = UnixListener::bind(&path1).listen();
-        chan.send(());
-        server(acceptor.accept().unwrap());
-    }
 
-    #[test]
-    fn bind_error() {
-        let mut called = false;
-        io_error::cond.trap(|e| {
-            assert!(e.kind == PermissionDenied);
-            called = true;
-        }).inside(|| {
-            let listener = UnixListener::bind(&("path/to/nowhere"));
-            assert!(listener.is_none());
+        spawn(proc() {
+            match UnixStream::connect(&path2) {
+                Ok(c) => client(c),
+                Err(e) => fail!("failed connect: {}", e),
+            }
         });
-        assert!(called);
+
+        match acceptor.accept() {
+            Ok(c) => server(c),
+            Err(e) => fail!("failed accept: {}", e),
+        }
     }
 
-    #[test]
-    fn connect_error() {
-        let mut called = false;
-        io_error::cond.trap(|e| {
-            assert_eq!(e.kind,
-                       if cfg!(windows) {OtherIoError} else {FileNotFound});
-            called = true;
-        }).inside(|| {
-            let stream = UnixStream::connect(&("path/to/nowhere"));
-            assert!(stream.is_none());
-        });
-        assert!(called);
-    }
+    iotest!(fn bind_error() {
+        let path = "path/to/nowhere";
+        match UnixListener::bind(&path) {
+            Ok(..) => fail!(),
+            Err(e) => {
+                assert!(e.kind == PermissionDenied || e.kind == FileNotFound ||
+                        e.kind == InvalidInput);
+            }
+        }
+    })
 
-    #[test]
-    fn smoke() {
+    iotest!(fn connect_error() {
+        let path = if cfg!(windows) {
+            r"\\.\pipe\this_should_not_exist_ever"
+        } else {
+            "path/to/nowhere"
+        };
+        match UnixStream::connect(&path) {
+            Ok(..) => fail!(),
+            Err(e) => {
+                assert!(e.kind == FileNotFound || e.kind == OtherIoError);
+            }
+        }
+    })
+
+    iotest!(fn smoke() {
         smalltest(proc(mut server) {
             let mut buf = [0];
-            server.read(buf);
+            server.read(buf).unwrap();
             assert!(buf[0] == 99);
         }, proc(mut client) {
-            client.write([99]);
+            client.write([99]).unwrap();
         })
-    }
+    })
 
-    #[test]
-    fn read_eof() {
+    iotest!(fn read_eof() {
         smalltest(proc(mut server) {
             let mut buf = [0];
-            assert!(server.read(buf).is_none());
-            assert!(server.read(buf).is_none());
+            assert!(server.read(buf).is_err());
+            assert!(server.read(buf).is_err());
         }, proc(_client) {
             // drop the client
         })
-    }
+    } #[ignore(cfg(windows))]) // FIXME(#12516)
 
-    #[test]
-    fn write_begone() {
+    iotest!(fn write_begone() {
         smalltest(proc(mut server) {
             let buf = [0];
-            let mut stop = false;
-            while !stop{
-                io_error::cond.trap(|e| {
-                    assert!(e.kind == BrokenPipe || e.kind == NotConnected,
-                            "unknown error {:?}", e);
-                    stop = true;
-                }).inside(|| {
-                    server.write(buf);
-                })
+            loop {
+                match server.write(buf) {
+                    Ok(..) => {}
+                    Err(e) => {
+                        assert!(e.kind == BrokenPipe ||
+                                e.kind == NotConnected ||
+                                e.kind == ConnectionReset,
+                                "unknown error {:?}", e);
+                        break;
+                    }
+                }
             }
         }, proc(_client) {
             // drop the client
         })
-    }
+    })
 
-    #[test]
-    fn accept_lots() {
+    iotest!(fn accept_lots() {
         let times = 10;
         let path1 = next_test_unix();
         let path2 = path1.clone();
         let (port, chan) = Chan::new();
 
-        do spawn {
+        spawn(proc() {
             port.recv();
-            times.times(|| {
+            for _ in range(0, times) {
                 let mut stream = UnixStream::connect(&path2);
-                stream.write([100]);
-            })
-        }
+                match stream.write([100]) {
+                    Ok(..) => {}
+                    Err(e) => fail!("failed write: {}", e)
+                }
+            }
+        });
 
-        let mut acceptor = UnixListener::bind(&path1).listen();
+        let mut acceptor = match UnixListener::bind(&path1).listen() {
+            Ok(a) => a,
+            Err(e) => fail!("failed listen: {}", e),
+        };
         chan.send(());
-        times.times(|| {
+        for _ in range(0, times) {
             let mut client = acceptor.accept();
             let mut buf = [0];
-            client.read(buf);
+            match client.read(buf) {
+                Ok(..) => {}
+                Err(e) => fail!("failed read/accept: {}", e),
+            }
             assert_eq!(buf[0], 100);
-        })
-    }
+        }
+    })
 
-    #[test]
-    fn path_exists() {
+    #[cfg(unix)]
+    iotest!(fn path_exists() {
         let path = next_test_unix();
         let _acceptor = UnixListener::bind(&path).listen();
         assert!(path.exists());
-    }
+    })
+
+    iotest!(fn unix_clone_smoke() {
+        let addr = next_test_unix();
+        let mut acceptor = UnixListener::bind(&addr).listen();
+
+        spawn(proc() {
+            let mut s = UnixStream::connect(&addr);
+            let mut buf = [0, 0];
+            debug!("client reading");
+            assert_eq!(s.read(buf), Ok(1));
+            assert_eq!(buf[0], 1);
+            debug!("client writing");
+            s.write([2]).unwrap();
+            debug!("client dropping");
+        });
+
+        let mut s1 = acceptor.accept().unwrap();
+        let s2 = s1.clone();
+
+        let (p1, c1) = Chan::new();
+        let (p2, c2) = Chan::new();
+        spawn(proc() {
+            let mut s2 = s2;
+            p1.recv();
+            debug!("writer writing");
+            s2.write([1]).unwrap();
+            debug!("writer done");
+            c2.send(());
+        });
+        c1.send(());
+        let mut buf = [0, 0];
+        debug!("reader reading");
+        assert_eq!(s1.read(buf), Ok(1));
+        debug!("reader done");
+        p2.recv();
+    })
+
+    iotest!(fn unix_clone_two_read() {
+        let addr = next_test_unix();
+        let mut acceptor = UnixListener::bind(&addr).listen();
+        let (p, c) = Chan::new();
+        let c2 = c.clone();
+
+        spawn(proc() {
+            let mut s = UnixStream::connect(&addr);
+            s.write([1]).unwrap();
+            p.recv();
+            s.write([2]).unwrap();
+            p.recv();
+        });
+
+        let mut s1 = acceptor.accept().unwrap();
+        let s2 = s1.clone();
+
+        let (p, done) = Chan::new();
+        spawn(proc() {
+            let mut s2 = s2;
+            let mut buf = [0, 0];
+            s2.read(buf).unwrap();
+            c2.send(());
+            done.send(());
+        });
+        let mut buf = [0, 0];
+        s1.read(buf).unwrap();
+        c.send(());
+
+        p.recv();
+    })
+
+    iotest!(fn unix_clone_two_write() {
+        let addr = next_test_unix();
+        let mut acceptor = UnixListener::bind(&addr).listen();
+
+        spawn(proc() {
+            let mut s = UnixStream::connect(&addr);
+            let mut buf = [0, 1];
+            s.read(buf).unwrap();
+            s.read(buf).unwrap();
+        });
+
+        let mut s1 = acceptor.accept().unwrap();
+        let s2 = s1.clone();
+
+        let (p, done) = Chan::new();
+        spawn(proc() {
+            let mut s2 = s2;
+            s2.write([1]).unwrap();
+            done.send(());
+        });
+        s1.write([2]).unwrap();
+
+        p.recv();
+    })
 }

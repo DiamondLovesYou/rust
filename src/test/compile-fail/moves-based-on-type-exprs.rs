@@ -1,3 +1,13 @@
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// file at the top-level directory of this distribution and at
+// http://rust-lang.org/COPYRIGHT.
+//
+// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// option. This file may not be copied, modified, or distributed
+// except according to those terms.
+
 // Tests that references to move-by-default values trigger moves when
 // they occur as part of various kinds of expressions.
 
@@ -69,12 +79,6 @@ fn f70() {
 fn f80() {
     let x = ~"hi";
     let _y = ~[x];
-    touch(&x); //~ ERROR use of moved value: `x`
-}
-
-fn f90() {
-    let x = ~"hi";
-    let _y = @[x];
     touch(&x); //~ ERROR use of moved value: `x`
 }
 

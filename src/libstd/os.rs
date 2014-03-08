@@ -28,25 +28,37 @@
 
 #[allow(missing_doc)];
 
+#[cfg(target_os = "macos")]
+#[cfg(windows)]
+use iter::range;
+
 use clone::Clone;
 use container::Container;
-#[cfg(target_os = "macos")]
-use iter::range;
 use libc;
-use libc::{c_char, c_void, c_int, size_t};
-use option::{Some, None};
+use libc::{c_char, c_void, c_int};
+use option::{Some, None, Option};
 use os;
-use prelude::*;
+use ops::Drop;
+use result::{Err, Ok, Result};
 use ptr;
 use str;
-use to_str;
-use unstable::finally::Finally;
+use str::{Str, StrSlice};
+use fmt;
 use sync::atomics::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
+use path::{Path, GenericPath};
+use iter::Iterator;
+use vec::{Vector, CloneableVector, ImmutableVector, MutableVector, OwnedVector};
+use ptr::RawPtr;
+
+#[cfg(unix)]
+use c_str::ToCStr;
+#[cfg(windows)]
+use str::OwnedStr;
 
 /// Delegates to the libc close() function, returning the same return value.
-pub fn close(fd: c_int) -> c_int {
+pub fn close(fd: int) -> int {
     unsafe {
-        libc::close(fd)
+        libc::close(fd as c_int) as int
     }
 }
 
@@ -57,9 +69,9 @@ static BUF_BYTES : uint = 2048u;
 pub fn getcwd() -> Path {
     use c_str::CString;
 
-    let mut buf = [0 as libc::c_char, ..BUF_BYTES];
+    let mut buf = [0 as c_char, ..BUF_BYTES];
     unsafe {
-        if libc::getcwd(buf.as_mut_ptr(), buf.len() as size_t).is_null() {
+        if libc::getcwd(buf.as_mut_ptr(), buf.len() as libc::size_t).is_null() {
             fail!()
         }
         Path::new(CString::new(buf.as_ptr(), false))
@@ -76,7 +88,8 @@ pub fn getcwd() -> Path {
             fail!();
         }
     }
-    Path::new(str::from_utf16(buf))
+    Path::new(str::from_utf16(str::truncate_utf16_at_nul(buf))
+              .expect("GetCurrentDirectoryW returned invalid UTF-16"))
 }
 
 #[cfg(windows)]
@@ -100,19 +113,26 @@ pub mod win32 {
             let mut done = false;
             while !done {
                 let mut buf = vec::from_elem(n as uint, 0u16);
-                let k = f(buf.as_mut_ptr(), TMPBUF_SZ as DWORD);
+                let k = f(buf.as_mut_ptr(), n);
                 if k == (0 as DWORD) {
                     done = true;
                 } else if k == n &&
                           libc::GetLastError() ==
                           libc::ERROR_INSUFFICIENT_BUFFER as DWORD {
-                    n *= (2 as DWORD);
+                    n *= 2 as DWORD;
+                } else if k >= n {
+                    n = k;
                 } else {
                     done = true;
                 }
                 if k != 0 && done {
                     let sub = buf.slice(0, k as uint);
-                    res = option::Some(str::from_utf16(sub));
+                    // We want to explicitly catch the case when the
+                    // closure returned invalid UTF-16, rather than
+                    // set `res` to None and continue.
+                    let s = str::from_utf16(sub)
+                        .expect("fill_utf16_buf_and_decode: closure created invalid UTF-16");
+                    res = option::Some(s)
                 }
             }
             return res;
@@ -132,25 +152,35 @@ Accessing environment variables is not generally threadsafe.
 Serialize access through a global lock.
 */
 fn with_env_lock<T>(f: || -> T) -> T {
-    use unstable::mutex::{Mutex, MUTEX_INIT};
-    use unstable::finally::Finally;
+    use unstable::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
 
-    static mut lock: Mutex = MUTEX_INIT;
+    static mut lock: StaticNativeMutex = NATIVE_MUTEX_INIT;
 
     unsafe {
-        return (|| {
-            lock.lock();
-            f()
-        }).finally(|| lock.unlock());
+        let _guard = lock.lock();
+        f()
     }
 }
 
 /// Returns a vector of (variable, value) pairs for all the environment
 /// variables of the current process.
+///
+/// Invalid UTF-8 bytes are replaced with \uFFFD. See `str::from_utf8_lossy()`
+/// for details.
 pub fn env() -> ~[(~str,~str)] {
+    env_as_bytes().move_iter().map(|(k,v)| {
+        let k = str::from_utf8_lossy(k).into_owned();
+        let v = str::from_utf8_lossy(v).into_owned();
+        (k,v)
+    }).collect()
+}
+
+/// Returns a vector of (variable, value) byte-vector pairs for all the
+/// environment variables of the current process.
+pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
     unsafe {
         #[cfg(windows)]
-        unsafe fn get_env_pairs() -> ~[~str] {
+        unsafe fn get_env_pairs() -> ~[~[u8]] {
             use c_str;
             use str::StrSlice;
 
@@ -164,16 +194,18 @@ pub fn env() -> ~[(~str,~str)] {
                        os::last_os_error());
             }
             let mut result = ~[];
-            c_str::from_c_multistring(ch as *libc::c_char, None, |cstr| {
-                result.push(cstr.as_str().unwrap().to_owned());
+            c_str::from_c_multistring(ch as *c_char, None, |cstr| {
+                result.push(cstr.as_bytes_no_nul().to_owned());
             });
             FreeEnvironmentStringsA(ch);
             result
         }
         #[cfg(unix)]
-        unsafe fn get_env_pairs() -> ~[~str] {
+        unsafe fn get_env_pairs() -> ~[~[u8]] {
+            use c_str::CString;
+
             extern {
-                fn rust_env_pairs() -> **libc::c_char;
+                fn rust_env_pairs() -> **c_char;
             }
             let environ = rust_env_pairs();
             if environ as uint == 0 {
@@ -182,20 +214,19 @@ pub fn env() -> ~[(~str,~str)] {
             }
             let mut result = ~[];
             ptr::array_each(environ, |e| {
-                let env_pair = str::raw::from_c_str(e);
-                debug!("get_env_pairs: {}", env_pair);
+                let env_pair = CString::new(e, false).as_bytes_no_nul().to_owned();
                 result.push(env_pair);
             });
             result
         }
 
-        fn env_convert(input: ~[~str]) -> ~[(~str, ~str)] {
+        fn env_convert(input: ~[~[u8]]) -> ~[(~[u8], ~[u8])] {
             let mut pairs = ~[];
             for p in input.iter() {
-                let vs: ~[&str] = p.splitn('=', 1).collect();
-                debug!("splitting: len: {}", vs.len());
-                assert_eq!(vs.len(), 2);
-                pairs.push((vs[0].to_owned(), vs[1].to_owned()));
+                let vs: ~[&[u8]] = p.splitn(1, |b| *b == '=' as u8).collect();
+                let key = vs[0].to_owned();
+                let val = if vs.len() < 2 { ~[] } else { vs[1].to_owned() };
+                pairs.push((key, val));
             }
             pairs
         }
@@ -209,14 +240,34 @@ pub fn env() -> ~[(~str,~str)] {
 #[cfg(unix)]
 /// Fetches the environment variable `n` from the current process, returning
 /// None if the variable isn't set.
+///
+/// Any invalid UTF-8 bytes in the value are replaced by \uFFFD. See
+/// `str::from_utf8_lossy()` for details.
+///
+/// # Failure
+///
+/// Fails if `n` has any interior NULs.
 pub fn getenv(n: &str) -> Option<~str> {
+    getenv_as_bytes(n).map(|v| str::from_utf8_lossy(v).into_owned())
+}
+
+#[cfg(unix)]
+/// Fetches the environment variable `n` byte vector from the current process,
+/// returning None if the variable isn't set.
+///
+/// # Failure
+///
+/// Fails if `n` has any interior NULs.
+pub fn getenv_as_bytes(n: &str) -> Option<~[u8]> {
+    use c_str::CString;
+
     unsafe {
         with_env_lock(|| {
             let s = n.with_c_str(|buf| libc::getenv(buf));
             if s.is_null() {
                 None
             } else {
-                Some(str::raw::from_c_str(s))
+                Some(CString::new(s, false).as_bytes_no_nul().to_owned())
             }
         })
     }
@@ -238,10 +289,21 @@ pub fn getenv(n: &str) -> Option<~str> {
     }
 }
 
+#[cfg(windows)]
+/// Fetches the environment variable `n` byte vector from the current process,
+/// returning None if the variable isn't set.
+pub fn getenv_as_bytes(n: &str) -> Option<~[u8]> {
+    getenv(n).map(|s| s.into_bytes())
+}
+
 
 #[cfg(unix)]
 /// Sets the environment variable `n` to the value `v` for the currently running
 /// process
+///
+/// # Failure
+///
+/// Fails if `n` or `v` have any interior NULs.
 pub fn setenv(n: &str, v: &str) {
     unsafe {
         with_env_lock(|| {
@@ -272,6 +334,10 @@ pub fn setenv(n: &str, v: &str) {
 }
 
 /// Remove a variable from the environment entirely
+///
+/// # Failure
+///
+/// Fails (on unix) if `n` has any interior NULs.
 pub fn unsetenv(n: &str) {
     #[cfg(unix)]
     fn _unsetenv(n: &str) {
@@ -306,9 +372,9 @@ pub struct Pipe {
 #[cfg(unix)]
 pub fn pipe() -> Pipe {
     unsafe {
-        let mut fds = Pipe {input: 0 as c_int,
-                            out: 0 as c_int };
-        assert_eq!(libc::pipe(&mut fds.input), (0 as c_int));
+        let mut fds = Pipe {input: 0,
+                            out: 0};
+        assert_eq!(libc::pipe(&mut fds.input), 0);
         return Pipe {input: fds.input, out: fds.out};
     }
 }
@@ -321,13 +387,13 @@ pub fn pipe() -> Pipe {
         // fully understand. Here we explicitly make the pipe non-inheritable,
         // which means to pass it to a subprocess they need to be duplicated
         // first, as in std::run.
-        let mut fds = Pipe {input: 0 as c_int,
-                    out: 0 as c_int };
+        let mut fds = Pipe {input: 0,
+                    out: 0};
         let res = libc::pipe(&mut fds.input, 1024 as ::libc::c_uint,
                              (libc::O_BINARY | libc::O_NOINHERIT) as c_int);
-        assert_eq!(res, 0 as c_int);
-        assert!((fds.input != -1 as c_int && fds.input != 0 as c_int));
-        assert!((fds.out != -1 as c_int && fds.input != 0 as c_int));
+        assert_eq!(res, 0);
+        assert!((fds.input != -1 && fds.input != 0 ));
+        assert!((fds.out != -1 && fds.input != 0));
         return Pipe {input: fds.input, out: fds.out};
     }
 }
@@ -337,9 +403,9 @@ pub fn dll_filename(base: &str) -> ~str {
     format!("{}{}{}", consts::DLL_PREFIX, base, consts::DLL_SUFFIX)
 }
 
-/// Optionally returns the filesystem path to the current executable which is
+/// Optionally returns the filesystem path of the current executable which is
 /// running. If any failure occurs, None is returned.
-pub fn self_exe_path() -> Option<Path> {
+pub fn self_exe_name() -> Option<Path> {
 
     #[cfg(target_os = "freebsd")]
     fn load_self() -> Option<~[u8]> {
@@ -350,14 +416,16 @@ pub fn self_exe_path() -> Option<Path> {
             let mib = ~[CTL_KERN as c_int,
                         KERN_PROC as c_int,
                         KERN_PROC_PATHNAME as c_int, -1 as c_int];
-            let mut sz: size_t = 0;
+            let mut sz: libc::size_t = 0;
             let err = sysctl(mib.as_ptr(), mib.len() as ::libc::c_uint,
-                             ptr::mut_null(), &mut sz, ptr::null(), 0u as size_t);
+                             ptr::mut_null(), &mut sz, ptr::null(),
+                             0u as libc::size_t);
             if err != 0 { return None; }
             if sz == 0 { return None; }
             let mut v: ~[u8] = vec::with_capacity(sz as uint);
             let err = sysctl(mib.as_ptr(), mib.len() as ::libc::c_uint,
-                             v.as_mut_ptr() as *mut c_void, &mut sz, ptr::null(), 0u as size_t);
+                             v.as_mut_ptr() as *mut c_void, &mut sz, ptr::null(),
+                             0u as libc::size_t);
             if err != 0 { return None; }
             if sz == 0 { return None; }
             v.set_len(sz as uint - 1); // chop off trailing NUL
@@ -370,9 +438,9 @@ pub fn self_exe_path() -> Option<Path> {
     fn load_self() -> Option<~[u8]> {
         use std::io;
 
-        match io::result(|| io::fs::readlink(&Path::new("/proc/self/exe"))) {
-            Ok(Some(path)) => Some(path.as_vec().to_owned()),
-            Ok(None) | Err(..) => None
+        match io::fs::readlink(&Path::new("/proc/self/exe")) {
+            Ok(path) => Some(path.as_vec().to_owned()),
+            Err(..) => None
         }
     }
 
@@ -394,6 +462,8 @@ pub fn self_exe_path() -> Option<Path> {
 
     #[cfg(windows)]
     fn load_self() -> Option<~[u8]> {
+        use str::OwnedStr;
+
         unsafe {
             use os::win32::fill_utf16_buf_and_decode;
             fill_utf16_buf_and_decode(|buf, sz| {
@@ -402,7 +472,14 @@ pub fn self_exe_path() -> Option<Path> {
         }
     }
 
-    load_self().and_then(|path| Path::new_opt(path).map(|mut p| { p.pop(); p }))
+    load_self().and_then(Path::new_opt)
+}
+
+/// Optionally returns the filesystem path to the current executable which is
+/// running. Like self_exe_name() but without the binary's name.
+/// If any failure occurs, None is returned.
+pub fn self_exe_path() -> Option<Path> {
+    self_exe_name().map(|mut p| { p.pop(); p })
 }
 
 /**
@@ -586,12 +663,12 @@ pub fn last_os_error() -> ~str {
         #[cfg(target_os = "macos")]
         #[cfg(target_os = "android")]
         #[cfg(target_os = "freebsd")]
-        fn strerror_r(errnum: c_int, buf: *mut c_char, buflen: size_t)
+        fn strerror_r(errnum: c_int, buf: *mut c_char, buflen: libc::size_t)
                       -> c_int {
             #[nolink]
             extern {
-                fn strerror_r(errnum: c_int, buf: *mut c_char, buflen: size_t)
-                              -> c_int;
+                fn strerror_r(errnum: c_int, buf: *mut c_char,
+                              buflen: libc::size_t) -> c_int;
             }
             unsafe {
                 strerror_r(errnum, buf, buflen)
@@ -602,12 +679,13 @@ pub fn last_os_error() -> ~str {
         // and requires macros to instead use the POSIX compliant variant.
         // So we just use __xpg_strerror_r which is always POSIX compliant
         #[cfg(target_os = "linux")]
-        fn strerror_r(errnum: c_int, buf: *mut c_char, buflen: size_t) -> c_int {
+        fn strerror_r(errnum: c_int, buf: *mut c_char,
+                      buflen: libc::size_t) -> c_int {
             #[nolink]
             extern {
                 fn __xpg_strerror_r(errnum: c_int,
                                     buf: *mut c_char,
-                                    buflen: size_t)
+                                    buflen: libc::size_t)
                                     -> c_int;
             }
             unsafe {
@@ -619,7 +697,7 @@ pub fn last_os_error() -> ~str {
 
         let p = buf.as_mut_ptr();
         unsafe {
-            if strerror_r(errno() as c_int, p, buf.len() as size_t) < 0 {
+            if strerror_r(errno() as c_int, p, buf.len() as libc::size_t) < 0 {
                 fail!("strerror_r failure");
             }
 
@@ -669,7 +747,8 @@ pub fn last_os_error() -> ~str {
                 fail!("[{}] FormatMessage failure", errno());
             }
 
-            str::from_utf16(buf)
+            str::from_utf16(str::truncate_utf16_at_nul(buf))
+                .expect("FormatMessageW returned invalid UTF-16")
         }
     }
 
@@ -699,10 +778,12 @@ pub fn get_exit_status() -> int {
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn load_argc_and_argv(argc: c_int, argv: **c_char) -> ~[~str] {
+unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> ~[~[u8]] {
+    use c_str::CString;
+
     let mut args = ~[];
     for i in range(0u, argc as uint) {
-        args.push(str::raw::from_c_str(*argv.offset(i as int)));
+        args.push(CString::new(*argv.offset(i as int), false).as_bytes_no_nul().to_owned())
     }
     args
 }
@@ -713,9 +794,9 @@ unsafe fn load_argc_and_argv(argc: c_int, argv: **c_char) -> ~[~str] {
  * Returns a list of the command line arguments.
  */
 #[cfg(target_os = "macos")]
-fn real_args() -> ~[~str] {
+fn real_args_as_bytes() -> ~[~[u8]] {
     unsafe {
-        let (argc, argv) = (*_NSGetArgc() as c_int,
+        let (argc, argv) = (*_NSGetArgc() as int,
                             *_NSGetArgv() as **c_char);
         load_argc_and_argv(argc, argv)
     }
@@ -724,13 +805,18 @@ fn real_args() -> ~[~str] {
 #[cfg(target_os = "linux")]
 #[cfg(target_os = "android")]
 #[cfg(target_os = "freebsd")]
-fn real_args() -> ~[~str] {
+fn real_args_as_bytes() -> ~[~[u8]] {
     use rt;
 
     match rt::args::clone() {
         Some(args) => args,
         None => fail!("process arguments not initialized")
     }
+}
+
+#[cfg(not(windows))]
+fn real_args() -> ~[~str] {
+    real_args_as_bytes().move_iter().map(|v| str::from_utf8_lossy(v).into_owned()).collect()
 }
 
 #[cfg(windows)]
@@ -751,8 +837,10 @@ fn real_args() -> ~[~str] {
             while *ptr.offset(len as int) != 0 { len += 1; }
 
             // Push it onto the list.
-            args.push(vec::raw::buf_as_slice(ptr, len,
-                                             str::from_utf16));
+            let opt_s = vec::raw::buf_as_slice(ptr, len, |buf| {
+                    str::from_utf16(str::truncate_utf16_at_nul(buf))
+                });
+            args.push(opt_s.expect("CommandLineToArgvW returned invalid UTF-16"));
         }
     }
 
@@ -761,6 +849,11 @@ fn real_args() -> ~[~str] {
     }
 
     return args;
+}
+
+#[cfg(windows)]
+fn real_args_as_bytes() -> ~[~[u8]] {
+    real_args().move_iter().map(|s| s.into_bytes()).collect()
 }
 
 type LPCWSTR = *u16;
@@ -780,8 +873,17 @@ extern "system" {
 
 /// Returns the arguments which this program was started with (normally passed
 /// via the command line).
+///
+/// The arguments are interpreted as utf-8, with invalid bytes replaced with \uFFFD.
+/// See `str::from_utf8_lossy` for details.
 pub fn args() -> ~[~str] {
     real_args()
+}
+
+/// Returns the arguments which this program was started with (normally passed
+/// via the command line) as byte vectors.
+pub fn args_as_bytes() -> ~[~[u8]] {
+    real_args_as_bytes()
 }
 
 #[cfg(target_os = "macos")]
@@ -822,29 +924,31 @@ pub fn page_size() -> uint {
     }
 }
 
-/// A memory mapped file or chunk of memory. This is a very system-specific interface to the OS's
-/// memory mapping facilities (`mmap` on POSIX, `VirtualAlloc`/`CreateFileMapping` on win32). It
-/// makes no attempt at abstracting platform differences, besides in error values returned. Consider
+/// A memory mapped file or chunk of memory. This is a very system-specific
+/// interface to the OS's memory mapping facilities (`mmap` on POSIX,
+/// `VirtualAlloc`/`CreateFileMapping` on win32). It makes no attempt at
+/// abstracting platform differences, besides in error values returned. Consider
 /// yourself warned.
 ///
-/// The memory map is released (unmapped) when the destructor is run, so don't let it leave scope by
-/// accident if you want it to stick around.
+/// The memory map is released (unmapped) when the destructor is run, so don't
+/// let it leave scope by accident if you want it to stick around.
 pub struct MemoryMap {
     /// Pointer to the memory created or modified by this map.
     data: *mut u8,
     /// Number of bytes this map applies to
-    len: size_t,
+    len: uint,
     /// Type of mapping
     kind: MemoryMapKind
 }
 
 /// Type of memory map
 pub enum MemoryMapKind {
-    /// Memory-mapped file. On Windows, the inner pointer is a handle to the mapping, and
-    /// corresponds to `CreateFileMapping`. Elsewhere, it is null.
-    MapFile(*c_void),
-    /// Virtual memory map. Usually used to change the permissions of a given chunk of memory.
-    /// Corresponds to `VirtualAlloc` on Windows.
+    /// Virtual memory map. Usually used to change the permissions of a given
+    /// chunk of memory.  Corresponds to `VirtualAlloc` on Windows.
+    MapFile(*u8),
+    /// Virtual memory map. Usually used to change the permissions of a given
+    /// chunk of memory, or for allocation. Corresponds to `VirtualAlloc` on
+    /// Windows.
     MapVirtual
 }
 
@@ -856,82 +960,117 @@ pub enum MapOption {
     MapWritable,
     /// The memory should be executable
     MapExecutable,
-    /// Create a map for a specific address range. Corresponds to `MAP_FIXED` on POSIX.
-    MapAddr(*c_void),
+    /// Create a map for a specific address range. Corresponds to `MAP_FIXED` on
+    /// POSIX.
+    MapAddr(*u8),
     /// Create a memory mapping for a file with a given fd.
     MapFd(c_int),
-    /// When using `MapFd`, the start of the map is `uint` bytes from the start of the file.
-    MapOffset(uint)
+    /// When using `MapFd`, the start of the map is `uint` bytes from the start
+    /// of the file.
+    MapOffset(uint),
+    /// On POSIX, this can be used to specify the default flags passed to
+    /// `mmap`. By default it uses `MAP_PRIVATE` and, if not using `MapFd`,
+    /// `MAP_ANON`. This will override both of those. This is platform-specific
+    /// (the exact values used) and ignored on Windows.
+    MapNonStandardFlags(c_int),
 }
 
 /// Possible errors when creating a map.
 pub enum MapError {
     /// ## The following are POSIX-specific
     ///
-    /// fd was not open for reading or, if using `MapWritable`, was not open for writing.
+    /// fd was not open for reading or, if using `MapWritable`, was not open for
+    /// writing.
     ErrFdNotAvail,
     /// fd was not valid
     ErrInvalidFd,
-    /// Either the address given by `MapAddr` or offset given by `MapOffset` was not a multiple of
-    /// `MemoryMap::granularity` (unaligned to page size).
+    /// Either the address given by `MapAddr` or offset given by `MapOffset` was
+    /// not a multiple of `MemoryMap::granularity` (unaligned to page size).
     ErrUnaligned,
     /// With `MapFd`, the fd does not support mapping.
     ErrNoMapSupport,
-    /// If using `MapAddr`, the address + `min_len` was outside of the process's address space. If
-    /// using `MapFd`, the target of the fd didn't have enough resources to fulfill the request.
+    /// If using `MapAddr`, the address + `min_len` was outside of the process's
+    /// address space. If using `MapFd`, the target of the fd didn't have enough
+    /// resources to fulfill the request.
     ErrNoMem,
+    /// A zero-length map was requested. This is invalid according to
+    /// [POSIX](http://pubs.opengroup.org/onlinepubs/9699919799/functions/mmap.html).
+    /// Not all platforms obey this, but this wrapper does.
+    ErrZeroLength,
     /// Unrecognized error. The inner value is the unrecognized errno.
-    ErrUnknown(libc::c_int),
+    ErrUnknown(int),
     /// ## The following are win32-specific
     ///
-    /// Unsupported combination of protection flags (`MapReadable`/`MapWritable`/`MapExecutable`).
+    /// Unsupported combination of protection flags
+    /// (`MapReadable`/`MapWritable`/`MapExecutable`).
     ErrUnsupProt,
-    /// When using `MapFd`, `MapOffset` was given (Windows does not support this at all)
+    /// When using `MapFd`, `MapOffset` was given (Windows does not support this
+    /// at all)
     ErrUnsupOffset,
     /// When using `MapFd`, there was already a mapping to the file.
     ErrAlreadyExists,
-    /// Unrecognized error from `VirtualAlloc`. The inner value is the return value of GetLastError.
+    /// Unrecognized error from `VirtualAlloc`. The inner value is the return
+    /// value of GetLastError.
     ErrVirtualAlloc(uint),
-    /// Unrecognized error from `CreateFileMapping`. The inner value is the return value of
-    /// `GetLastError`.
+    /// Unrecognized error from `CreateFileMapping`. The inner value is the
+    /// return value of `GetLastError`.
     ErrCreateFileMappingW(uint),
-    /// Unrecognized error from `MapViewOfFile`. The inner value is the return value of
-    /// `GetLastError`.
+    /// Unrecognized error from `MapViewOfFile`. The inner value is the return
+    /// value of `GetLastError`.
     ErrMapViewOfFile(uint)
 }
 
-impl to_str::ToStr for MapError {
-    fn to_str(&self) -> ~str {
-        match *self {
-            ErrFdNotAvail => ~"fd not available for reading or writing",
-            ErrInvalidFd => ~"Invalid fd",
-            ErrUnaligned => ~"Unaligned address, invalid flags, \
-                              negative length or unaligned offset",
-            ErrNoMapSupport=> ~"File doesn't support mapping",
-            ErrNoMem => ~"Invalid address, or not enough available memory",
-            ErrUnknown(code) => format!("Unknown error={}", code),
-            ErrUnsupProt => ~"Protection mode unsupported",
-            ErrUnsupOffset => ~"Offset in virtual memory mode is unsupported",
-            ErrAlreadyExists => ~"File mapping for specified file already exists",
-            ErrVirtualAlloc(code) => format!("VirtualAlloc failure={}", code),
-            ErrCreateFileMappingW(code) => format!("CreateFileMappingW failure={}", code),
-            ErrMapViewOfFile(code) => format!("MapViewOfFile failure={}", code)
-        }
+impl fmt::Show for MapError {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        let str = match *self {
+            ErrFdNotAvail => "fd not available for reading or writing",
+            ErrInvalidFd => "Invalid fd",
+            ErrUnaligned => {
+                "Unaligned address, invalid flags, negative length or \
+                 unaligned offset"
+            }
+            ErrNoMapSupport=> "File doesn't support mapping",
+            ErrNoMem => "Invalid address, or not enough available memory",
+            ErrUnsupProt => "Protection mode unsupported",
+            ErrUnsupOffset => "Offset in virtual memory mode is unsupported",
+            ErrAlreadyExists => "File mapping for specified file already exists",
+            ErrZeroLength => "Zero-length mapping not allowed",
+            ErrUnknown(code) => {
+                return write!(out.buf, "Unknown error = {}", code)
+            },
+            ErrVirtualAlloc(code) => {
+                return write!(out.buf, "VirtualAlloc failure = {}", code)
+            },
+            ErrCreateFileMappingW(code) => {
+                return write!(out.buf, "CreateFileMappingW failure = {}", code)
+            },
+            ErrMapViewOfFile(code) => {
+                return write!(out.buf, "MapViewOfFile failure = {}", code)
+            }
+        };
+        write!(out.buf, "{}", str)
     }
 }
 
 #[cfg(unix)]
 impl MemoryMap {
-    /// Create a new mapping with the given `options`, at least `min_len` bytes long.
+    /// Create a new mapping with the given `options`, at least `min_len` bytes
+    /// long. `min_len` must be greater than zero; see the note on
+    /// `ErrZeroLength`.
     pub fn new(min_len: uint, options: &[MapOption]) -> Result<MemoryMap, MapError> {
         use libc::off_t;
+        use cmp::Equiv;
 
-        let mut addr: *c_void = ptr::null();
-        let mut prot: c_int = 0;
-        let mut flags: c_int = libc::MAP_PRIVATE;
-        let mut fd: c_int = -1;
-        let mut offset: off_t = 0;
-        let len = round_up(min_len, page_size()) as size_t;
+        if min_len == 0 {
+            return Err(ErrZeroLength)
+        }
+        let mut addr: *u8 = ptr::null();
+        let mut prot = 0;
+        let mut flags = libc::MAP_PRIVATE;
+        let mut fd = -1;
+        let mut offset = 0;
+        let mut custom_flags = false;
+        let len = round_up(min_len, page_size());
 
         for &o in options.iter() {
             match o {
@@ -946,13 +1085,15 @@ impl MemoryMap {
                     flags |= libc::MAP_FILE;
                     fd = fd_;
                 },
-                MapOffset(offset_) => { offset = offset_ as off_t; }
+                MapOffset(offset_) => { offset = offset_ as off_t; },
+                MapNonStandardFlags(f) => { custom_flags = true; flags = f },
             }
         }
-        if fd == -1 { flags |= libc::MAP_ANON; }
+        if fd == -1 && !custom_flags { flags |= libc::MAP_ANON; }
 
         let r = unsafe {
-            libc::mmap(addr, len, prot, flags, fd, offset)
+            libc::mmap(addr as *c_void, len as libc::size_t, prot, flags, fd,
+                       offset)
         };
         if r.equiv(&libc::MAP_FAILED) {
             Err(match errno() as c_int {
@@ -961,7 +1102,7 @@ impl MemoryMap {
                 libc::EINVAL => ErrUnaligned,
                 libc::ENODEV => ErrNoMapSupport,
                 libc::ENOMEM => ErrNoMem,
-                code => ErrUnknown(code)
+                code => ErrUnknown(code as int)
             })
         } else {
             Ok(MemoryMap {
@@ -976,7 +1117,8 @@ impl MemoryMap {
         }
     }
 
-    /// Granularity that the offset or address must be for `MapOffset` and `MapAddr` respectively.
+    /// Granularity that the offset or address must be for `MapOffset` and
+    /// `MapAddr` respectively.
     pub fn granularity() -> uint {
         page_size()
     }
@@ -986,8 +1128,10 @@ impl MemoryMap {
 impl Drop for MemoryMap {
     /// Unmap the mapping. Fails the task if `munmap` fails.
     fn drop(&mut self) {
+        if self.len == 0 { /* workaround for dummy_stack */ return; }
+
         unsafe {
-            match libc::munmap(self.data as *c_void, self.len) {
+            match libc::munmap(self.data as *c_void, self.len as libc::size_t) {
                 0 => (),
                 -1 => match errno() as c_int {
                     libc::EINVAL => error!("invalid addr or len"),
@@ -1011,7 +1155,7 @@ impl MemoryMap {
         let mut executable = false;
         let mut fd: c_int = -1;
         let mut offset: uint = 0;
-        let len = round_up(min_len, page_size()) as SIZE_T;
+        let len = round_up(min_len, page_size());
 
         for &o in options.iter() {
             match o {
@@ -1020,7 +1164,11 @@ impl MemoryMap {
                 MapExecutable => { executable = true; }
                 MapAddr(addr_) => { lpAddress = addr_ as LPVOID; },
                 MapFd(fd_) => { fd = fd_; },
-                MapOffset(offset_) => { offset = offset_; }
+                MapOffset(offset_) => { offset = offset_; },
+                MapNonStandardFlags(f) => {
+                    info!("MemoryMap::new: MapNonStandardFlags used on \
+                           Windows: {}", f)
+                }
             }
         }
 
@@ -1040,7 +1188,7 @@ impl MemoryMap {
             }
             let r = unsafe {
                 libc::VirtualAlloc(lpAddress,
-                                   len,
+                                   len as SIZE_T,
                                    libc::MEM_COMMIT | libc::MEM_RESERVE,
                                    flProtect)
             };
@@ -1085,7 +1233,7 @@ impl MemoryMap {
                     _ => Ok(MemoryMap {
                        data: r as *mut u8,
                        len: len,
-                       kind: MapFile(mapping as *c_void)
+                       kind: MapFile(mapping as *u8)
                     })
                 }
             }
@@ -1106,18 +1254,18 @@ impl MemoryMap {
 
 #[cfg(windows)]
 impl Drop for MemoryMap {
-    /// Unmap the mapping. Fails the task if any of `VirtualFree`, `UnmapViewOfFile`, or
-    /// `CloseHandle` fail.
+    /// Unmap the mapping. Fails the task if any of `VirtualFree`,
+    /// `UnmapViewOfFile`, or `CloseHandle` fail.
     fn drop(&mut self) {
         use libc::types::os::arch::extra::{LPCVOID, HANDLE};
         use libc::consts::os::extra::FALSE;
+        if self.len == 0 { return }
 
         unsafe {
             match self.kind {
                 MapVirtual => {
-                    if libc::VirtualFree(self.data as *mut c_void,
-                                         self.len,
-                                         libc::MEM_RELEASE) == FALSE {
+                    if libc::VirtualFree(self.data as *mut c_void, 0,
+                                         libc::MEM_RELEASE) == 0 {
                         error!("VirtualFree failed: {}", errno());
                     }
                 },
@@ -1311,6 +1459,17 @@ mod tests {
     }
 
     #[test]
+    fn test_self_exe_name() {
+        let path = os::self_exe_name();
+        assert!(path.is_some());
+        let path = path.unwrap();
+        debug!("{:?}", path.clone());
+
+        // Hard to test this function
+        assert!(path.is_absolute());
+    }
+
+    #[test]
     fn test_self_exe_path() {
         let path = os::self_exe_path();
         assert!(path.is_some());
@@ -1335,6 +1494,16 @@ mod tests {
             // from env() but not visible from getenv().
             assert!(v2.is_none() || v2 == option::Some(v));
         }
+    }
+
+    #[test]
+    fn test_env_set_get_huge() {
+        let n = make_rand_name();
+        let s = "x".repeat(10000);
+        setenv(n, s);
+        assert_eq!(getenv(n), Some(s));
+        unsetenv(n);
+        assert_eq!(getenv(n), None);
     }
 
     #[test]
@@ -1366,7 +1535,7 @@ mod tests {
         let oldhome = getenv("HOME");
 
         setenv("HOME", "/home/MountainView");
-        assert_eq!(os::homedir(), Some(Path::new("/home/MountainView")));
+        assert!(os::homedir() == Some(Path::new("/home/MountainView")));
 
         setenv("HOME", "");
         assert!(os::homedir().is_none());
@@ -1387,16 +1556,16 @@ mod tests {
         assert!(os::homedir().is_none());
 
         setenv("HOME", "/home/MountainView");
-        assert_eq!(os::homedir(), Some(Path::new("/home/MountainView")));
+        assert!(os::homedir() == Some(Path::new("/home/MountainView")));
 
         setenv("HOME", "");
 
         setenv("USERPROFILE", "/home/MountainView");
-        assert_eq!(os::homedir(), Some(Path::new("/home/MountainView")));
+        assert!(os::homedir() == Some(Path::new("/home/MountainView")));
 
         setenv("HOME", "/home/MountainView");
         setenv("USERPROFILE", "/home/PaloAlto");
-        assert_eq!(os::homedir(), Some(Path::new("/home/MountainView")));
+        assert!(os::homedir() == Some(Path::new("/home/MountainView")));
 
         for s in oldhome.iter() { setenv("HOME", *s) }
         for s in olduserprofile.iter() { setenv("USERPROFILE", *s) }
@@ -1411,7 +1580,7 @@ mod tests {
             os::MapWritable
         ]) {
             Ok(chunk) => chunk,
-            Err(msg) => fail!(msg.to_str())
+            Err(msg) => fail!("{}", msg)
         };
         assert!(chunk.len >= 16);
 
@@ -1426,7 +1595,6 @@ mod tests {
         use result::{Ok, Err};
         use os::*;
         use libc::*;
-        use io;
         use io::fs;
 
         #[cfg(unix)]
@@ -1461,7 +1629,7 @@ mod tests {
             MapOffset(size / 2)
         ]) {
             Ok(chunk) => chunk,
-            Err(msg) => fail!(msg.to_str())
+            Err(msg) => fail!("{}", msg)
         };
         assert!(chunk.len > 0);
 
@@ -1470,9 +1638,9 @@ mod tests {
             assert!(*chunk.data == 0xbe);
             close(fd);
         }
+        drop(chunk);
 
-        let _guard = io::ignore_io_error();
-        fs::unlink(&path);
+        fs::unlink(&path).unwrap();
     }
 
     // More recursive_mkdir tests are in extra::tempfile

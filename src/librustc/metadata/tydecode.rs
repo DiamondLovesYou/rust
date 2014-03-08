@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -14,6 +14,7 @@
 // tjc note: Would be great to have a `match check` macro equivalent
 // for some of these
 
+#[allow(non_camel_case_types)];
 
 use middle::ty;
 
@@ -24,6 +25,7 @@ use syntax::abi;
 use syntax::ast;
 use syntax::ast::*;
 use syntax::opt_vec;
+use syntax::parse::token;
 
 // Compact string representation for ty::t values. API ty_str &
 // parse_from_str. Extra parameters are for converting to/from def_ids in the
@@ -52,12 +54,12 @@ pub enum DefIdSource {
     // Identifies a region parameter (`fn foo<'X>() { ... }`).
     RegionParameter,
 }
-type conv_did<'a> =
+pub type conv_did<'a> =
     'a |source: DefIdSource, ast::DefId| -> ast::DefId;
 
 pub struct PState<'a> {
     data: &'a [u8],
-    crate: ast::CrateNum,
+    krate: ast::CrateNum,
     pos: uint,
     tcx: ty::ctxt
 }
@@ -97,15 +99,15 @@ pub fn parse_ident(st: &mut PState, last: char) -> ast::Ident {
 
 fn parse_ident_(st: &mut PState, is_last: |char| -> bool) -> ast::Ident {
     scan(st, is_last, |bytes| {
-            st.tcx.sess.ident_of(str::from_utf8(bytes).unwrap())
-        })
+        token::str_to_ident(str::from_utf8(bytes).unwrap())
+    })
 }
 
 pub fn parse_state_from_data<'a>(data: &'a [u8], crate_num: ast::CrateNum,
                              pos: uint, tcx: ty::ctxt) -> PState<'a> {
     PState {
         data: data,
-        crate: crate_num,
+        krate: crate_num,
         pos: pos,
         tcx: tcx
     }
@@ -156,7 +158,6 @@ fn parse_vstore(st: &mut PState, conv: conv_did) -> ty::vstore {
 
     match next(st) {
       '~' => ty::vstore_uniq,
-      '@' => ty::vstore_box,
       '&' => ty::vstore_slice(parse_region(st, conv)),
       c => st.tcx.sess.bug(format!("parse_vstore(): bad input '{}'", c))
     }
@@ -165,7 +166,6 @@ fn parse_vstore(st: &mut PState, conv: conv_did) -> ty::vstore {
 fn parse_trait_store(st: &mut PState, conv: conv_did) -> ty::TraitStore {
     match next(st) {
         '~' => ty::UniqTraitStore,
-        '@' => ty::BoxTraitStore,
         '&' => ty::RegionTraitStore(parse_region(st, conv)),
         c => st.tcx.sess.bug(format!("parse_trait_store(): bad input '{}'", c))
     }
@@ -213,8 +213,8 @@ fn parse_bound_region(st: &mut PState, conv: conv_did) -> ty::BoundRegion {
         }
         '[' => {
             let def = parse_def(st, RegionParameter, |x,y| conv(x,y));
-            let ident = st.tcx.sess.ident_of(parse_str(st, ']'));
-            ty::BrNamed(def, ident)
+            let ident = token::str_to_ident(parse_str(st, ']'));
+            ty::BrNamed(def, ident.name)
         }
         'f' => {
             let id = parse_uint(st);
@@ -241,8 +241,8 @@ fn parse_region(st: &mut PState, conv: conv_did) -> ty::Region {
         assert_eq!(next(st), '|');
         let index = parse_uint(st);
         assert_eq!(next(st), '|');
-        let nm = st.tcx.sess.ident_of(parse_str(st, ']'));
-        ty::ReEarlyBound(node_id, index, nm)
+        let nm = token::str_to_ident(parse_str(st, ']'));
+        ty::ReEarlyBound(node_id, index, nm.name)
       }
       'f' => {
         assert_eq!(next(st), '[');
@@ -373,17 +373,12 @@ fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
       'F' => {
         return ty::mk_bare_fn(st.tcx, parse_bare_fn_ty(st, |x,y| conv(x,y)));
       }
-      'Y' => return ty::mk_type(st.tcx),
-      'C' => {
-        let sigil = parse_sigil(st);
-        return ty::mk_opaque_closure_ptr(st.tcx, sigil);
-      }
       '#' => {
         let pos = parse_hex(st);
         assert_eq!(next(st), ':');
         let len = parse_hex(st);
         assert_eq!(next(st), '#');
-        let key = ty::creader_cache_key {cnum: st.crate,
+        let key = ty::creader_cache_key {cnum: st.krate,
                                          pos: pos,
                                          len: len };
 
@@ -533,7 +528,7 @@ fn parse_sig(st: &mut PState, conv: conv_did) -> ty::FnSig {
     let variadic = match next(st) {
         'V' => true,
         'N' => false,
-        r => fail!(format!("Bad variadic: {}", r)),
+        r => fail!(format!("bad variadic: {}", r)),
     };
     let ret_ty = parse_ty(st, |x,y| conv(x,y));
     ty::FnSig {binder_id: id,
@@ -565,7 +560,7 @@ pub fn parse_def_id(buf: &[u8]) -> ast::DefId {
        None => fail!("internal error: parse_def_id: id expected, but found {:?}",
                      def_part)
     };
-    ast::DefId { crate: crate_num, node: def_num }
+    ast::DefId { krate: crate_num, node: def_num }
 }
 
 pub fn parse_type_param_def_data(data: &[u8], start: uint,
@@ -577,9 +572,12 @@ pub fn parse_type_param_def_data(data: &[u8], start: uint,
 }
 
 fn parse_type_param_def(st: &mut PState, conv: conv_did) -> ty::TypeParameterDef {
-    ty::TypeParameterDef {ident: parse_ident(st, ':'),
-                          def_id: parse_def(st, NominalType, |x,y| conv(x,y)),
-                          bounds: @parse_bounds(st, |x,y| conv(x,y))}
+    ty::TypeParameterDef {
+        ident: parse_ident(st, ':'),
+        def_id: parse_def(st, NominalType, |x,y| conv(x,y)),
+        bounds: @parse_bounds(st, |x,y| conv(x,y)),
+        default: parse_opt(st, |st| parse_ty(st, |x,y| conv(x,y)))
+    }
 }
 
 fn parse_bounds(st: &mut PState, conv: conv_did) -> ty::ParamBounds {

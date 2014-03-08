@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,30 +8,24 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-android: FIXME(#10381)
+// ignore-android: FIXME(#10381)
 
 #[feature(managed_boxes)];
 
-// compile-flags:-Z extra-debug-info
+// compile-flags:-g
 // debugger:rbreak zzz
 // debugger:run
 // debugger:finish
 
-// debugger:print managed->val.fill
-// check:$1 = 24
-// debugger:print *((uint64_t[3]*)(managed->val.elements))
-// check:$2 = {7, 8, 9}
-
 // debugger:print unique->fill
-// check:$3 = 32
+// check:$1 = 32
 // debugger:print *((uint64_t[4]*)(unique->elements))
-// check:$4 = {10, 11, 12, 13}
+// check:$2 = {10, 11, 12, 13}
 
 #[allow(unused_variable)];
 
 fn main() {
 
-    let managed: @[i64] = @[7, 8, 9];
     let unique: ~[i64] = ~[10, 11, 12, 13];
 
     zzz();

@@ -10,7 +10,7 @@
 
 #[allow(non_uppercase_pattern_statics)];
 
-use back::abi;
+use arena::TypedArena;
 use lib::llvm::{SequentiallyConsistent, Acquire, Release, Xchg};
 use lib::llvm::{ValueRef, Pointer, Array, Struct};
 use lib;
@@ -18,37 +18,76 @@ use middle::trans::base::*;
 use middle::trans::build::*;
 use middle::trans::common::*;
 use middle::trans::datum::*;
+use middle::trans::glue;
 use middle::trans::type_of::*;
 use middle::trans::type_of;
 use middle::trans::machine;
-use middle::trans::glue;
+use middle::trans::machine::llsize_of;
+use middle::trans::type_::Type;
 use middle::ty;
 use syntax::ast;
 use syntax::ast_map;
+use syntax::parse::token;
 use util::ppaux::ty_to_str;
-use middle::trans::machine::llsize_of;
-use middle::trans::type_::Type;
+
+pub fn get_simple_intrinsic(ccx: @CrateContext, item: &ast::ForeignItem) -> Option<ValueRef> {
+    let name = match token::get_ident(item.ident).get() {
+        "sqrtf32" => "llvm.sqrt.f32",
+        "sqrtf64" => "llvm.sqrt.f64",
+        "powif32" => "llvm.powi.f32",
+        "powif64" => "llvm.powi.f64",
+        "sinf32" => "llvm.sin.f32",
+        "sinf64" => "llvm.sin.f64",
+        "cosf32" => "llvm.cos.f32",
+        "cosf64" => "llvm.cos.f64",
+        "powf32" => "llvm.pow.f32",
+        "powf64" => "llvm.pow.f64",
+        "expf32" => "llvm.exp.f32",
+        "expf64" => "llvm.exp.f64",
+        "exp2f32" => "llvm.exp2.f32",
+        "exp2f64" => "llvm.exp2.f64",
+        "logf32" => "llvm.log.f32",
+        "logf64" => "llvm.log.f64",
+        "log10f32" => "llvm.log10.f32",
+        "log10f64" => "llvm.log10.f64",
+        "log2f32" => "llvm.log2.f32",
+        "log2f64" => "llvm.log2.f64",
+        "fmaf32" => "llvm.fma.f32",
+        "fmaf64" => "llvm.fma.f64",
+        "fabsf32" => "llvm.fabs.f32",
+        "fabsf64" => "llvm.fabs.f64",
+        "copysignf32" => "llvm.copysign.f32",
+        "copysignf64" => "llvm.copysign.f64",
+        "floorf32" => "llvm.floor.f32",
+        "floorf64" => "llvm.floor.f64",
+        "ceilf32" => "llvm.ceil.f32",
+        "ceilf64" => "llvm.ceil.f64",
+        "truncf32" => "llvm.trunc.f32",
+        "truncf64" => "llvm.trunc.f64",
+        "rintf32" => "llvm.rint.f32",
+        "rintf64" => "llvm.rint.f64",
+        "nearbyintf32" => "llvm.nearbyint.f32",
+        "nearbyintf64" => "llvm.nearbyint.f64",
+        "roundf32" => "llvm.round.f32",
+        "roundf64" => "llvm.round.f64",
+        "ctpop8" => "llvm.ctpop.i8",
+        "ctpop16" => "llvm.ctpop.i16",
+        "ctpop32" => "llvm.ctpop.i32",
+        "ctpop64" => "llvm.ctpop.i64",
+        "bswap16" => "llvm.bswap.i16",
+        "bswap32" => "llvm.bswap.i32",
+        "bswap64" => "llvm.bswap.i64",
+        _ => return None
+    };
+    Some(ccx.intrinsics.get_copy(&name))
+}
 
 pub fn trans_intrinsic(ccx: @CrateContext,
                        decl: ValueRef,
                        item: &ast::ForeignItem,
-                       path: ast_map::Path,
                        substs: @param_substs,
-                       _attributes: &[ast::Attribute],
                        ref_id: Option<ast::NodeId>) {
-    debug!("trans_intrinsic(item.ident={})", ccx.sess.str_of(item.ident));
-
-    fn simple_llvm_intrinsic(bcx: &Block, name: &'static str, num_args: uint) {
-        assert!(num_args <= 4);
-        let mut args = [0 as ValueRef, ..4];
-        let first_real_arg = bcx.fcx.arg_pos(0u);
-        for i in range(0u, num_args) {
-            args[i] = get_param(bcx.fcx.llfn, first_real_arg + i);
-        }
-        let llfn = bcx.ccx().intrinsics.get_copy(&name);
-        let llcall = Call(bcx, llfn, args.slice(0, num_args), []);
-        Ret(bcx, llcall);
-    }
+    debug!("trans_intrinsic(item.ident={})", token::get_ident(item.ident));
 
     fn with_overflow_instrinsic(bcx: &Block, name: &'static str, t: ty::t) {
         let first_real_arg = bcx.fcx.arg_pos(0u);
@@ -153,13 +192,9 @@ pub fn trans_intrinsic(ccx: @CrateContext,
 
     let output_type = ty::ty_fn_ret(ty::node_id_to_type(ccx.tcx, item.id));
 
-    let fcx = new_fn_ctxt_detailed(ccx,
-                                   path,
-                                   decl,
-                                   item.id,
-                                   output_type,
-                                   Some(substs),
-                                   Some(item.span));
+    let arena = TypedArena::new();
+    let fcx = new_fn_ctxt(ccx, decl, item.id, false, output_type,
+                          Some(substs), Some(item.span), &arena);
     init_function(&fcx, true, output_type, Some(substs));
 
     set_always_inline(fcx.llfn);
@@ -167,13 +202,12 @@ pub fn trans_intrinsic(ccx: @CrateContext,
     let mut bcx = fcx.entry_bcx.get().unwrap();
     let first_real_arg = fcx.arg_pos(0u);
 
-    let nm = ccx.sess.str_of(item.ident);
-    let name = nm.as_slice();
+    let name = token::get_ident(item.ident);
 
     // This requires that atomic intrinsics follow a specific naming pattern:
     // "atomic_<operation>[_<ordering>], and no ordering means SeqCst
-    if name.starts_with("atomic_") {
-        let split : ~[&str] = name.split('_').collect();
+    if name.get().starts_with("atomic_") {
+        let split: ~[&str] = name.get().split('_').collect();
         assert!(split.len() >= 2, "Atomic intrinsic not correct format");
         let order = if split.len() == 2 {
             lib::llvm::SequentiallyConsistent
@@ -183,7 +217,7 @@ pub fn trans_intrinsic(ccx: @CrateContext,
                 "acq"     => lib::llvm::Acquire,
                 "rel"     => lib::llvm::Release,
                 "acqrel"  => lib::llvm::AcquireRelease,
-                _ => ccx.sess.fatal("Unknown ordering in atomic intrinsic")
+                _ => ccx.sess.fatal("unknown ordering in atomic intrinsic")
             }
         };
 
@@ -224,7 +258,7 @@ pub fn trans_intrinsic(ccx: @CrateContext,
                     "min"   => lib::llvm::Min,
                     "umax"  => lib::llvm::UMax,
                     "umin"  => lib::llvm::UMin,
-                    _ => ccx.sess.fatal("Unknown atomic operation")
+                    _ => ccx.sess.fatal("unknown atomic operation")
                 };
 
                 let old = AtomicRMW(bcx, atom_op, get_param(decl, first_real_arg),
@@ -238,7 +272,7 @@ pub fn trans_intrinsic(ccx: @CrateContext,
         return;
     }
 
-    match name {
+    match name.get() {
         "abort" => {
             let llfn = bcx.ccx().intrinsics.get_copy(&("llvm.trap"));
             Call(bcx, llfn, [], []);
@@ -252,7 +286,7 @@ pub fn trans_intrinsic(ccx: @CrateContext,
         "size_of" => {
             let tp_ty = substs.tys[0];
             let lltp_ty = type_of::type_of(ccx, tp_ty);
-            Ret(bcx, C_uint(ccx, machine::llsize_of_real(ccx, lltp_ty)));
+            Ret(bcx, C_uint(ccx, machine::llsize_of_real(ccx, lltp_ty) as uint));
         }
         "move_val_init" => {
             // Create a datum reflecting the value being moved.
@@ -271,17 +305,17 @@ pub fn trans_intrinsic(ccx: @CrateContext,
         "min_align_of" => {
             let tp_ty = substs.tys[0];
             let lltp_ty = type_of::type_of(ccx, tp_ty);
-            Ret(bcx, C_uint(ccx, machine::llalign_of_min(ccx, lltp_ty)));
+            Ret(bcx, C_uint(ccx, machine::llalign_of_min(ccx, lltp_ty) as uint));
         }
         "pref_align_of"=> {
             let tp_ty = substs.tys[0];
             let lltp_ty = type_of::type_of(ccx, tp_ty);
-            Ret(bcx, C_uint(ccx, machine::llalign_of_pref(ccx, lltp_ty)));
+            Ret(bcx, C_uint(ccx, machine::llalign_of_pref(ccx, lltp_ty) as uint));
         }
         "get_tydesc" => {
             let tp_ty = substs.tys[0];
             let static_ti = get_tydesc(ccx, tp_ty);
-            glue::lazily_emit_all_tydesc_glue(ccx, static_ti);
+            glue::lazily_emit_visit_glue(ccx, static_ti);
 
             // FIXME (#3730): ideally this shouldn't need a cast,
             // but there's a circularity between translating rust types to llvm
@@ -292,8 +326,10 @@ pub fn trans_intrinsic(ccx: @CrateContext,
             Ret(bcx, td);
         }
         "type_id" => {
-            let hash = ty::hash_crate_independent(ccx.tcx, substs.tys[0],
-                                                  ccx.link_meta.crate_hash);
+            let hash = ty::hash_crate_independent(
+                ccx.tcx,
+                substs.tys[0],
+                &ccx.link_meta.crate_hash);
             // NB: This needs to be kept in lockstep with the TypeId struct in
             //     libstd/unstable/intrinsics.rs
             let val = C_named_struct(type_of::type_of(ccx, output_type), [C_u64(hash)]);
@@ -336,23 +372,18 @@ pub fn trans_intrinsic(ccx: @CrateContext,
             let in_type_size = machine::llbitsize_of_real(ccx, llintype);
             let out_type_size = machine::llbitsize_of_real(ccx, llouttype);
             if in_type_size != out_type_size {
-                let sp = {
-                    match ccx.tcx.items.get(ref_id.unwrap()) {
-                        ast_map::NodeExpr(e) => e.span,
-                        _ => fail!("transmute has non-expr arg"),
-                    }
+                let sp = match ccx.tcx.map.get(ref_id.unwrap()) {
+                    ast_map::NodeExpr(e) => e.span,
+                    _ => fail!("transmute has non-expr arg"),
                 };
-                let pluralize = |n| if 1u == n { "" } else { "s" };
                 ccx.sess.span_fatal(sp,
-                                    format!("transmute called on types with \
-                                          different sizes: {} ({} bit{}) to \
-                                          {} ({} bit{})",
-                                         ty_to_str(ccx.tcx, in_type),
-                                         in_type_size,
-                                         pluralize(in_type_size),
-                                         ty_to_str(ccx.tcx, out_type),
-                                         out_type_size,
-                                         pluralize(out_type_size)));
+                    format!("transmute called on types with different sizes: \
+                             {intype} ({insize, plural, =1{# bit} other{# bits}}) to \
+                             {outtype} ({outsize, plural, =1{# bit} other{# bits}})",
+                            intype = ty_to_str(ccx.tcx, in_type),
+                            insize = in_type_size as uint,
+                            outtype = ty_to_str(ccx.tcx, out_type),
+                            outsize = out_type_size as uint));
             }
 
             if !return_type_is_void(ccx, out_type) {
@@ -412,20 +443,8 @@ pub fn trans_intrinsic(ccx: @CrateContext,
             let td = get_param(decl, first_real_arg);
             let visitor = get_param(decl, first_real_arg + 1u);
             let td = PointerCast(bcx, td, ccx.tydesc_type.ptr_to());
-            glue::call_tydesc_glue_full(bcx, visitor, td,
-                                        abi::tydesc_field_visit_glue, None);
+            glue::call_visit_glue(bcx, visitor, td, None);
             RetVoid(bcx);
-        }
-        "morestack_addr" => {
-            // XXX This is a hack to grab the address of this particular
-            // native function. There should be a general in-language
-            // way to do this
-            let llfty = type_of_rust_fn(bcx.ccx(), None, [], ty::mk_nil());
-            let morestack_addr = decl_cdecl_fn(bcx.ccx().llmod, "__morestack",
-                                               llfty, ty::mk_nil());
-            let morestack_addr = PointerCast(bcx, morestack_addr,
-                                             Type::nil().ptr_to());
-            Ret(bcx, morestack_addr);
         }
         "offset" => {
             let ptr = get_param(decl, first_real_arg);
@@ -436,48 +455,6 @@ pub fn trans_intrinsic(ccx: @CrateContext,
         "copy_nonoverlapping_memory" => copy_intrinsic(bcx, false, substs.tys[0]),
         "copy_memory" => copy_intrinsic(bcx, true, substs.tys[0]),
         "set_memory" => memset_intrinsic(bcx, substs.tys[0]),
-        "sqrtf32" => simple_llvm_intrinsic(bcx, "llvm.sqrt.f32", 1),
-        "sqrtf64" => simple_llvm_intrinsic(bcx, "llvm.sqrt.f64", 1),
-        "powif32" => simple_llvm_intrinsic(bcx, "llvm.powi.f32", 2),
-        "powif64" => simple_llvm_intrinsic(bcx, "llvm.powi.f64", 2),
-        "sinf32" => simple_llvm_intrinsic(bcx, "llvm.sin.f32", 1),
-        "sinf64" => simple_llvm_intrinsic(bcx, "llvm.sin.f64", 1),
-        "cosf32" => simple_llvm_intrinsic(bcx, "llvm.cos.f32", 1),
-        "cosf64" => simple_llvm_intrinsic(bcx, "llvm.cos.f64", 1),
-        "powf32" => simple_llvm_intrinsic(bcx, "llvm.pow.f32", 2),
-        "powf64" => simple_llvm_intrinsic(bcx, "llvm.pow.f64", 2),
-        "expf32" => simple_llvm_intrinsic(bcx, "llvm.exp.f32", 1),
-        "expf64" => simple_llvm_intrinsic(bcx, "llvm.exp.f64", 1),
-        "exp2f32" => simple_llvm_intrinsic(bcx, "llvm.exp2.f32", 1),
-        "exp2f64" => simple_llvm_intrinsic(bcx, "llvm.exp2.f64", 1),
-        "logf32" => simple_llvm_intrinsic(bcx, "llvm.log.f32", 1),
-        "logf64" => simple_llvm_intrinsic(bcx, "llvm.log.f64", 1),
-        "log10f32" => simple_llvm_intrinsic(bcx, "llvm.log10.f32", 1),
-        "log10f64" => simple_llvm_intrinsic(bcx, "llvm.log10.f64", 1),
-        "log2f32" => simple_llvm_intrinsic(bcx, "llvm.log2.f32", 1),
-        "log2f64" => simple_llvm_intrinsic(bcx, "llvm.log2.f64", 1),
-        "fmaf32" => simple_llvm_intrinsic(bcx, "llvm.fma.f32", 3),
-        "fmaf64" => simple_llvm_intrinsic(bcx, "llvm.fma.f64", 3),
-        "fabsf32" => simple_llvm_intrinsic(bcx, "llvm.fabs.f32", 1),
-        "fabsf64" => simple_llvm_intrinsic(bcx, "llvm.fabs.f64", 1),
-        "copysignf32" => simple_llvm_intrinsic(bcx, "llvm.copysign.f32", 2),
-        "copysignf64" => simple_llvm_intrinsic(bcx, "llvm.copysign.f64", 2),
-        "floorf32" => simple_llvm_intrinsic(bcx, "llvm.floor.f32", 1),
-        "floorf64" => simple_llvm_intrinsic(bcx, "llvm.floor.f64", 1),
-        "ceilf32" => simple_llvm_intrinsic(bcx, "llvm.ceil.f32", 1),
-        "ceilf64" => simple_llvm_intrinsic(bcx, "llvm.ceil.f64", 1),
-        "truncf32" => simple_llvm_intrinsic(bcx, "llvm.trunc.f32", 1),
-        "truncf64" => simple_llvm_intrinsic(bcx, "llvm.trunc.f64", 1),
-        "rintf32" => simple_llvm_intrinsic(bcx, "llvm.rint.f32", 1),
-        "rintf64" => simple_llvm_intrinsic(bcx, "llvm.rint.f64", 1),
-        "nearbyintf32" => simple_llvm_intrinsic(bcx, "llvm.nearbyint.f32", 1),
-        "nearbyintf64" => simple_llvm_intrinsic(bcx, "llvm.nearbyint.f64", 1),
-        "roundf32" => simple_llvm_intrinsic(bcx, "llvm.round.f32", 1),
-        "roundf64" => simple_llvm_intrinsic(bcx, "llvm.round.f64", 1),
-        "ctpop8" => simple_llvm_intrinsic(bcx, "llvm.ctpop.i8", 1),
-        "ctpop16" => simple_llvm_intrinsic(bcx, "llvm.ctpop.i16", 1),
-        "ctpop32" => simple_llvm_intrinsic(bcx, "llvm.ctpop.i32", 1),
-        "ctpop64" => simple_llvm_intrinsic(bcx, "llvm.ctpop.i64", 1),
         "ctlz8" => count_zeros_intrinsic(bcx, "llvm.ctlz.i8"),
         "ctlz16" => count_zeros_intrinsic(bcx, "llvm.ctlz.i16"),
         "ctlz32" => count_zeros_intrinsic(bcx, "llvm.ctlz.i32"),
@@ -486,9 +463,6 @@ pub fn trans_intrinsic(ccx: @CrateContext,
         "cttz16" => count_zeros_intrinsic(bcx, "llvm.cttz.i16"),
         "cttz32" => count_zeros_intrinsic(bcx, "llvm.cttz.i32"),
         "cttz64" => count_zeros_intrinsic(bcx, "llvm.cttz.i64"),
-        "bswap16" => simple_llvm_intrinsic(bcx, "llvm.bswap.i16", 1),
-        "bswap32" => simple_llvm_intrinsic(bcx, "llvm.bswap.i32", 1),
-        "bswap64" => simple_llvm_intrinsic(bcx, "llvm.bswap.i64", 1),
 
         "volatile_load" => volatile_load_intrinsic(bcx),
         "volatile_store" => volatile_store_intrinsic(bcx),

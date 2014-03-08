@@ -40,13 +40,16 @@ via `close` and `delete` methods.
 #[crate_type = "dylib"];
 
 #[feature(macro_rules)];
+#[deny(unused_result, unused_must_use)];
+#[allow(visible_private_types)];
 
-#[cfg(test)] extern mod green;
+#[cfg(test)] extern crate green;
 
 use std::cast;
-use std::io;
+use std::fmt;
 use std::io::IoError;
-use std::libc::c_int;
+use std::io;
+use std::libc::{c_int, c_void};
 use std::ptr::null;
 use std::ptr;
 use std::rt::local::Local;
@@ -67,8 +70,10 @@ pub use self::tty::TtyWatcher;
 
 mod macros;
 
-mod queue;
+mod access;
 mod homing;
+mod queue;
+mod rc;
 
 /// The implementation of `rtio` for libuv
 pub mod uvio;
@@ -91,6 +96,10 @@ pub mod stream;
 /// A type that wraps a uv handle
 pub trait UvHandle<T> {
     fn uv_handle(&self) -> *T;
+
+    fn uv_loop(&self) -> Loop {
+        Loop::wrap(unsafe { uvll::get_loop_for_uv_handle(self.uv_handle()) })
+    }
 
     // FIXME(#8888) dummy self
     fn alloc(_: Option<Self>, ty: uvll::uv_handle_type) -> *T {
@@ -133,7 +142,7 @@ pub trait UvHandle<T> {
             uvll::uv_close(self.uv_handle() as *uvll::uv_handle_t, close_cb);
             uvll::set_data_for_uv_handle(self.uv_handle(), ptr::null::<()>());
 
-            wait_until_woken_after(&mut slot, || {
+            wait_until_woken_after(&mut slot, &self.uv_loop(), || {
                 uvll::set_data_for_uv_handle(self.uv_handle(), &slot);
             })
         }
@@ -192,22 +201,26 @@ impl Drop for ForbidUnwind {
     }
 }
 
-fn wait_until_woken_after(slot: *mut Option<BlockedTask>, f: ||) {
+fn wait_until_woken_after(slot: *mut Option<BlockedTask>,
+                          loop_: &Loop,
+                          f: ||) {
     let _f = ForbidUnwind::new("wait_until_woken_after");
     unsafe {
         assert!((*slot).is_none());
         let task: ~Task = Local::take();
+        loop_.modify_blockers(1);
         task.deschedule(1, |task| {
             *slot = Some(task);
             f();
             Ok(())
         });
+        loop_.modify_blockers(-1);
     }
 }
 
 fn wakeup(slot: &mut Option<BlockedTask>) {
     assert!(slot.is_some());
-    slot.take_unwrap().wake().map(|t| t.reawaken(true));
+    let _ = slot.take_unwrap().wake().map(|t| t.reawaken());
 }
 
 pub struct Request {
@@ -259,7 +272,7 @@ impl Drop for Request {
     }
 }
 
-/// XXX: Loop(*handle) is buggy with destructors. Normal structs
+/// FIXME: Loop(*handle) is buggy with destructors. Normal structs
 /// with dtors may not be destructured, but tuple structs can,
 /// but the results are not correct.
 pub struct Loop {
@@ -270,21 +283,35 @@ impl Loop {
     pub fn new() -> Loop {
         let handle = unsafe { uvll::loop_new() };
         assert!(handle.is_not_null());
+        unsafe { uvll::set_data_for_uv_loop(handle, 0 as *c_void) }
         Loop::wrap(handle)
     }
 
     pub fn wrap(handle: *uvll::uv_loop_t) -> Loop { Loop { handle: handle } }
 
     pub fn run(&mut self) {
-        unsafe { uvll::uv_run(self.handle, uvll::RUN_DEFAULT) };
+        assert_eq!(unsafe { uvll::uv_run(self.handle, uvll::RUN_DEFAULT) }, 0);
     }
 
     pub fn close(&mut self) {
         unsafe { uvll::uv_loop_delete(self.handle) };
     }
+
+    // The 'data' field of the uv_loop_t is used to count the number of tasks
+    // that are currently blocked waiting for I/O to complete.
+    fn modify_blockers(&self, amt: uint) {
+        unsafe {
+            let cur = uvll::get_data_for_uv_loop(self.handle) as uint;
+            uvll::set_data_for_uv_loop(self.handle, (cur + amt) as *c_void)
+        }
+    }
+
+    fn get_blockers(&self) -> uint {
+        unsafe { uvll::get_data_for_uv_loop(self.handle) as uint }
+    }
 }
 
-// XXX: Need to define the error constants like EOF so they can be
+// FIXME: Need to define the error constants like EOF so they can be
 // compared to the UvError type
 
 pub struct UvError(c_int);
@@ -314,9 +341,9 @@ impl UvError {
     }
 }
 
-impl ToStr for UvError {
-    fn to_str(&self) -> ~str {
-        format!("{}: {}", self.name(), self.desc())
+impl fmt::Show for UvError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f.buf, "{}: {}", self.name(), self.desc())
     }
 }
 
@@ -349,7 +376,7 @@ pub fn uv_error_to_io_error(uverr: UvError) -> IoError {
             uvll::EADDRNOTAVAIL => io::ConnectionRefused,
             err => {
                 uvdebug!("uverr.code {}", err as int);
-                // XXX: Need to map remaining uv error types
+                // FIXME: Need to map remaining uv error types
                 io::OtherIoError
             }
         };
@@ -408,7 +435,6 @@ fn local_loop() -> &'static mut uvio::UvIoFactory {
 #[cfg(test)]
 mod test {
     use std::cast::transmute;
-    use std::ptr;
     use std::unstable::run_in_bare_thread;
 
     use super::{slice_to_uv_buf, Loop};
@@ -423,7 +449,7 @@ mod test {
         unsafe {
             let base = transmute::<*u8, *mut u8>(buf.base);
             (*base) = 1;
-            (*ptr::mut_offset(base, 1)) = 2;
+            (*base.offset(1)) = 2;
         }
 
         assert!(slice[0] == 1);
@@ -433,10 +459,10 @@ mod test {
 
     #[test]
     fn loop_smoke_test() {
-        do run_in_bare_thread {
+        run_in_bare_thread(proc() {
             let mut loop_ = Loop::new();
             loop_.run();
             loop_.close();
-        }
+        });
     }
 }

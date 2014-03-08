@@ -8,13 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern mod extra;
+extern crate num;
 
 use std::from_str::FromStr;
 use std::num::One;
 use std::num::Zero;
 use std::num::FromPrimitive;
-use extra::bigint::BigInt;
+use num::Integer;
+use num::bigint::BigInt;
 
 struct Context {
     numer: BigInt,

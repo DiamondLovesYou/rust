@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,10 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-fast
+// ignore-fast
 
 use std::cmp;
 
+#[deriving(Show)]
 enum cat_type { tuxedo, tabby, tortoiseshell }
 
 impl cmp::Eq for cat_type {
@@ -27,7 +28,7 @@ impl cmp::Eq for cat_type {
 // ok: T should be in scope when resolving the trait ref for map
 struct cat<T> {
     // Yes, you can have negative meows
-    priv meows : int,
+    meows : int,
 
     how_hungry : int,
     name : T,

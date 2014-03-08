@@ -18,7 +18,7 @@ use syntax::codemap::Span;
 use syntax::opt_vec::OptVec;
 
 /// Defines strategies for handling regions that are omitted.  For
-/// example, if one writes the type `&Foo`, then the lifetime of of
+/// example, if one writes the type `&Foo`, then the lifetime of
 /// this reference has been omitted. When converting this
 /// type, the generic functions in astconv will invoke `anon_regions`
 /// on the provided region-scope to decide how to translate this
@@ -76,7 +76,7 @@ impl RegionScope for BindingRscope {
 
 pub fn bound_type_regions(defs: &[ty::RegionParameterDef])
                           -> OptVec<ty::Region> {
-    assert!(defs.iter().all(|def| def.def_id.crate == ast::LOCAL_CRATE));
+    assert!(defs.iter().all(|def| def.def_id.krate == ast::LOCAL_CRATE));
     defs.iter().enumerate().map(
         |(i, def)| ty::ReEarlyBound(def.def_id.node, i, def.ident)).collect()
 }

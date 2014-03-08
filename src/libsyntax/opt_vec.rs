@@ -15,19 +15,21 @@
  * other useful things like `push()` and `len()`.
  */
 
+use std::default::Default;
 use std::vec;
+use std::vec_ng::Vec;
 
-#[deriving(Clone, Encodable, Decodable, IterBytes)]
+#[deriving(Clone, Encodable, Decodable, Hash)]
 pub enum OptVec<T> {
     Empty,
-    Vec(~[T])
+    Vec(Vec<T> )
 }
 
 pub fn with<T>(t: T) -> OptVec<T> {
-    Vec(~[t])
+    Vec(vec!(t))
 }
 
-pub fn from<T>(t: ~[T]) -> OptVec<T> {
+pub fn from<T>(t: Vec<T> ) -> OptVec<T> {
     if t.len() == 0 {
         Empty
     } else {
@@ -43,7 +45,7 @@ impl<T> OptVec<T> {
                 return;
             }
             Empty => {
-                *self = Vec(~[t]);
+                *self = Vec(vec!(t));
             }
         }
     }
@@ -62,10 +64,10 @@ impl<T> OptVec<T> {
         }
     }
 
-    pub fn mut_last<'a>(&'a mut self) -> &'a mut T {
+    pub fn mut_last<'a>(&'a mut self) -> Option<&'a mut T> {
         match *self {
             Vec(ref mut v) => v.mut_last(),
-            Empty => fail!("mut_last on empty opt_vec")
+            Empty => None
         }
     }
 
@@ -85,8 +87,8 @@ impl<T> OptVec<T> {
 
     pub fn get<'a>(&'a self, i: uint) -> &'a T {
         match *self {
-            Empty => fail!("Invalid index {}", i),
-            Vec(ref v) => &v[i]
+            Empty => fail!("invalid index {}", i),
+            Vec(ref v) => v.get(i)
         }
     }
 
@@ -103,7 +105,7 @@ impl<T> OptVec<T> {
 
     pub fn swap_remove(&mut self, index: uint) {
         match *self {
-            Empty => { fail!("Index out of bounds"); }
+            Empty => { fail!("index out of bounds"); }
             Vec(ref mut v) => {
                 assert!(index < v.len());
                 v.swap_remove(index);
@@ -120,11 +122,11 @@ impl<T> OptVec<T> {
     }
 
     #[inline]
-    pub fn map_to_vec<B>(&self, op: |&T| -> B) -> ~[B] {
+    pub fn map_to_vec<B>(&self, op: |&T| -> B) -> Vec<B> {
         self.iter().map(op).collect()
     }
 
-    pub fn mapi_to_vec<B>(&self, op: |uint, &T| -> B) -> ~[B] {
+    pub fn mapi_to_vec<B>(&self, op: |uint, &T| -> B) -> Vec<B> {
         let mut index = 0;
         self.map_to_vec(|a| {
             let i = index;
@@ -134,19 +136,19 @@ impl<T> OptVec<T> {
     }
 }
 
-pub fn take_vec<T>(v: OptVec<T>) -> ~[T] {
+pub fn take_vec<T>(v: OptVec<T>) -> Vec<T> {
     match v {
-        Empty => ~[],
+        Empty => Vec::new(),
         Vec(v) => v
     }
 }
 
 impl<T:Clone> OptVec<T> {
     pub fn prepend(&self, t: T) -> OptVec<T> {
-        let mut v0 = ~[t];
+        let mut v0 = vec!(t);
         match *self {
             Empty => {}
-            Vec(ref v1) => { v0.push_all(*v1); }
+            Vec(ref v1) => { v0.push_all(v1.as_slice()); }
         }
         return Vec(v0);
     }

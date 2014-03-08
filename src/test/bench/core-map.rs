@@ -8,14 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern mod extra;
+extern crate collections;
+extern crate time;
 
-use extra::time;
-use extra::treemap::TreeMap;
-use std::hashmap::{HashMap, HashSet};
+use collections::{TrieMap, TreeMap, HashMap, HashSet};
 use std::os;
 use std::rand::{Rng, IsaacRng, SeedableRng};
-use std::trie::TrieMap;
 use std::uint;
 use std::vec;
 
@@ -52,13 +50,13 @@ fn descending<M: MutableMap<uint, uint>>(map: &mut M, n_keys: uint) {
     println!(" Descending integers:");
 
     timed("insert", || {
-        for i in range(0, n_keys).invert() {
+        for i in range(0, n_keys).rev() {
             map.insert(i, i + 1);
         }
     });
 
     timed("search", || {
-        for i in range(0, n_keys).invert() {
+        for i in range(0, n_keys).rev() {
             assert_eq!(map.find(&i).unwrap(), &(i + 1));
         }
     });

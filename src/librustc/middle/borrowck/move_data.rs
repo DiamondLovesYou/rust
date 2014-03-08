@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -16,8 +16,8 @@ comments in the section "Moves and initialization" and in `doc.rs`.
 */
 
 use std::cell::RefCell;
-use std::hashmap::{HashMap, HashSet};
 use std::uint;
+use collections::{HashMap, HashSet};
 use middle::borrowck::*;
 use middle::dataflow::DataFlowContext;
 use middle::dataflow::DataFlowOperator;
@@ -80,7 +80,7 @@ impl Clone for MovePathIndex {
 }
 
 static InvalidMovePathIndex: MovePathIndex =
-    MovePathIndex(uint::max_value);
+    MovePathIndex(uint::MAX);
 
 /// Index into `MoveData.moves`, used like a pointer
 #[deriving(Eq)]
@@ -93,7 +93,7 @@ impl MoveIndex {
 }
 
 static InvalidMoveIndex: MoveIndex =
-    MoveIndex(uint::max_value);
+    MoveIndex(uint::MAX);
 
 pub struct MovePath {
     /// Loan path corresponding to this move path
@@ -148,7 +148,7 @@ pub struct Assignment {
 
 pub struct MoveDataFlowOperator;
 
-/// XXX(pcwalton): Should just be #[deriving(Clone)], but that doesn't work
+/// FIXME(pcwalton): Should just be #[deriving(Clone)], but that doesn't work
 /// yet on unit structs.
 impl Clone for MoveDataFlowOperator {
     fn clone(&self) -> MoveDataFlowOperator {
@@ -160,7 +160,7 @@ pub type MoveDataFlow = DataFlowContext<MoveDataFlowOperator>;
 
 pub struct AssignDataFlowOperator;
 
-/// XXX(pcwalton): Should just be #[deriving(Clone)], but that doesn't work
+/// FIXME(pcwalton): Should just be #[deriving(Clone)], but that doesn't work
 /// yet on unit structs.
 impl Clone for AssignDataFlowOperator {
     fn clone(&self) -> AssignDataFlowOperator {
@@ -494,7 +494,7 @@ impl MoveData {
                         dfcx_assign.add_kill(kill_id, assignment_index);
                     }
                     LpExtend(..) => {
-                        tcx.sess.bug("Var assignment for non var path");
+                        tcx.sess.bug("var assignment for non var path");
                     }
                 }
             }
@@ -565,7 +565,7 @@ impl MoveData {
 impl FlowedMoveData {
     pub fn new(move_data: MoveData,
                tcx: ty::ctxt,
-               method_map: typeck::method_map,
+               method_map: typeck::MethodMap,
                id_range: ast_util::IdRange,
                body: &ast::Block)
                -> FlowedMoveData {
@@ -722,11 +722,6 @@ impl DataFlowOperator for MoveDataFlowOperator {
     fn join(&self, succ: uint, pred: uint) -> uint {
         succ | pred // moves from both preds are in scope
     }
-
-    #[inline]
-    fn walk_closures(&self) -> bool {
-        true
-    }
 }
 
 impl DataFlowOperator for AssignDataFlowOperator {
@@ -738,10 +733,5 @@ impl DataFlowOperator for AssignDataFlowOperator {
     #[inline]
     fn join(&self, succ: uint, pred: uint) -> uint {
         succ | pred // moves from both preds are in scope
-    }
-
-    #[inline]
-    fn walk_closures(&self) -> bool {
-        true
     }
 }

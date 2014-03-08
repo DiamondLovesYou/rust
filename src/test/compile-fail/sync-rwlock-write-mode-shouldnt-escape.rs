@@ -9,14 +9,14 @@
 // except according to those terms.
 
 // error-pattern: lifetime of variable does not enclose its declaration
-extern mod extra;
-use extra::sync;
+extern crate sync;
+use sync::RWLock;
 fn main() {
-    let x = ~sync::RWLock::new();
+    let x = ~RWLock::new();
     let mut y = None;
     x.write_downgrade(|write_mode| {
         y = Some(write_mode);
     });
     // Adding this line causes a method unification failure instead
-    // do (&option::unwrap(y)).write { }
+    // (&option::unwrap(y)).write(proc() { })
 }

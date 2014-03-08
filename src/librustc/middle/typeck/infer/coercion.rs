@@ -67,7 +67,7 @@ we may want to adjust precisely when coercions occur.
 
 use middle::ty::{AutoPtr, AutoBorrowVec, AutoBorrowFn, AutoBorrowObj};
 use middle::ty::{AutoDerefRef};
-use middle::ty::{vstore_slice, vstore_box, vstore_uniq};
+use middle::ty::{vstore_slice, vstore_uniq};
 use middle::ty::{mt};
 use middle::ty;
 use middle::typeck::infer::{CoerceResult, resolve_type, Coercion};
@@ -83,10 +83,10 @@ use syntax::ast;
 // Note: Coerce is not actually a combiner, in that it does not
 // conform to the same interface, though it performs a similar
 // function.
-pub struct Coerce(CombineFields);
+pub struct Coerce<'f>(CombineFields<'f>);
 
-impl Coerce {
-    pub fn get_ref<'a>(&'a self) -> &'a CombineFields {
+impl<'f> Coerce<'f> {
+    pub fn get_ref<'a>(&'a self) -> &'a CombineFields<'f> {
         let Coerce(ref v) = *self; v
     }
 
@@ -129,23 +129,6 @@ impl Coerce {
                 return self.unpack_actual_value(a, |sty_a| {
                     self.coerce_unsafe_ptr(a, sty_a, b, mt_b)
                 });
-            }
-
-            ty::ty_trait(def_id, ref substs, ty::BoxTraitStore, m, bounds) => {
-                let result = self.unpack_actual_value(a, |sty_a| {
-                    match *sty_a {
-                        ty::ty_box(..) => {
-                            self.coerce_object(a, sty_a, b, def_id, substs,
-                                               ty::BoxTraitStore, m, bounds)
-                        }
-                        _ => Err(ty::terr_mismatch)
-                    }
-                });
-
-                match result {
-                    Ok(t) => return Ok(t),
-                    Err(..) => {}
-                }
             }
 
             ty::ty_trait(def_id, ref substs, ty::UniqTraitStore, m, bounds) => {
@@ -219,7 +202,7 @@ impl Coerce {
             Err(e) => {
                 self.get_ref().infcx.tcx.sess.span_bug(
                     self.get_ref().trace.origin.span(),
-                    format!("Failed to resolve even without \
+                    format!("failed to resolve even without \
                           any force options: {:?}", e));
             }
         }
@@ -272,7 +255,6 @@ impl Coerce {
                b.inf_str(self.get_ref().infcx));
 
         match *sty_a {
-            ty::ty_str(vstore_box) |
             ty::ty_str(vstore_uniq) => {}
             _ => {
                 return self.subtype(a, b);
@@ -385,48 +367,37 @@ impl Coerce {
         })))
     }
 
-    pub fn coerce_from_bare_fn(&self,
-                               a: ty::t,
-                               fn_ty_a: &ty::BareFnTy,
-                               b: ty::t)
-                               -> CoerceResult {
-        self.unpack_actual_value(b, |sty_b| {
-            self.coerce_from_bare_fn_post_unpack(a, fn_ty_a, b, sty_b)
-        })
-    }
-
-    pub fn coerce_from_bare_fn_post_unpack(&self,
-                                           a: ty::t,
-                                           fn_ty_a: &ty::BareFnTy,
-                                           b: ty::t,
-                                           sty_b: &ty::sty)
-                                           -> CoerceResult {
+    fn coerce_from_bare_fn(&self, a: ty::t, fn_ty_a: &ty::BareFnTy, b: ty::t)
+                           -> CoerceResult {
         /*!
          *
          * Attempts to coerce from a bare Rust function (`extern
-         * "rust" fn`) into a closure.
+         * "Rust" fn`) into a closure or a `proc`.
          */
 
-        debug!("coerce_from_bare_fn(a={}, b={})",
-               a.inf_str(self.get_ref().infcx), b.inf_str(self.get_ref().infcx));
+        self.unpack_actual_value(b, |sty_b| {
 
-        if !fn_ty_a.abis.is_rust() || fn_ty_a.purity != ast::ImpureFn {
-            return self.subtype(a, b);
-        }
+            debug!("coerce_from_bare_fn(a={}, b={})",
+                   a.inf_str(self.get_ref().infcx), b.inf_str(self.get_ref().infcx));
 
-        let fn_ty_b = match *sty_b {
-            ty::ty_closure(ref f) => (*f).clone(),
-            _ => return self.subtype(a, b),
-        };
+            if !fn_ty_a.abis.is_rust() || fn_ty_a.purity != ast::ImpureFn {
+                return self.subtype(a, b);
+            }
 
-        let adj = @ty::AutoAddEnv(fn_ty_b.region, fn_ty_b.sigil);
-        let a_closure = ty::mk_closure(self.get_ref().infcx.tcx,
-                                       ty::ClosureTy {
-                                            sig: fn_ty_a.sig.clone(),
-                                            ..fn_ty_b
-                                       });
-        if_ok!(self.subtype(a_closure, b));
-        Ok(Some(adj))
+            let fn_ty_b = match *sty_b {
+                ty::ty_closure(ref f) => (*f).clone(),
+                _ => return self.subtype(a, b)
+            };
+
+            let adj = @ty::AutoAddEnv(fn_ty_b.region, fn_ty_b.sigil);
+            let a_closure = ty::mk_closure(self.get_ref().infcx.tcx,
+                                           ty::ClosureTy {
+                                                sig: fn_ty_a.sig.clone(),
+                                                ..fn_ty_b
+                                           });
+            if_ok!(self.subtype(a_closure, b));
+            Ok(Some(adj))
+        })
     }
 
     pub fn coerce_unsafe_ptr(&self,
@@ -474,7 +445,6 @@ impl Coerce {
                b.inf_str(self.get_ref().infcx));
 
         let (sigil, region) = match trait_store {
-            ty::BoxTraitStore => (ast::ManagedSigil, None),
             ty::UniqTraitStore => (ast::OwnedSigil, None),
             ty::RegionTraitStore(region) => (ast::BorrowedSigil, Some(region))
         };

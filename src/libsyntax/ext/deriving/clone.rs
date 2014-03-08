@@ -14,51 +14,53 @@ use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
 
-pub fn expand_deriving_clone(cx: &ExtCtxt,
+use std::vec_ng::Vec;
+
+pub fn expand_deriving_clone(cx: &mut ExtCtxt,
                              span: Span,
                              mitem: @MetaItem,
-                             in_items: ~[@Item])
-                          -> ~[@Item] {
+                             item: @Item,
+                             push: |@Item|) {
     let trait_def = TraitDef {
-        cx: cx, span: span,
-
-        path: Path::new(~["std", "clone", "Clone"]),
-        additional_bounds: ~[],
+        span: span,
+        attributes: Vec::new(),
+        path: Path::new(vec!("std", "clone", "Clone")),
+        additional_bounds: Vec::new(),
         generics: LifetimeBounds::empty(),
-        methods: ~[
+        methods: vec!(
             MethodDef {
                 name: "clone",
                 generics: LifetimeBounds::empty(),
                 explicit_self: borrowed_explicit_self(),
-                args: ~[],
+                args: Vec::new(),
                 ret_ty: Self,
                 inline: true,
                 const_nonmatching: false,
                 combine_substructure: |c, s, sub| cs_clone("Clone", c, s, sub)
             }
-        ]
+        )
     };
 
-    trait_def.expand(mitem, in_items)
+    trait_def.expand(cx, mitem, item, push)
 }
 
-pub fn expand_deriving_deep_clone(cx: &ExtCtxt,
+pub fn expand_deriving_deep_clone(cx: &mut ExtCtxt,
                                   span: Span,
                                   mitem: @MetaItem,
-                                  in_items: ~[@Item])
-    -> ~[@Item] {
+                                  item: @Item,
+                                  push: |@Item|) {
     let trait_def = TraitDef {
-        cx: cx, span: span,
-
-        path: Path::new(~["std", "clone", "DeepClone"]),
-        additional_bounds: ~[],
+        span: span,
+        attributes: Vec::new(),
+        path: Path::new(vec!("std", "clone", "DeepClone")),
+        additional_bounds: Vec::new(),
         generics: LifetimeBounds::empty(),
-        methods: ~[
+        methods: vec!(
             MethodDef {
                 name: "deep_clone",
                 generics: LifetimeBounds::empty(),
                 explicit_self: borrowed_explicit_self(),
-                args: ~[],
+                args: Vec::new(),
                 ret_ty: Self,
                 inline: true,
                 const_nonmatching: false,
@@ -66,21 +68,21 @@ pub fn expand_deriving_deep_clone(cx: &ExtCtxt,
                 // call deep_clone (not clone) here.
                 combine_substructure: |c, s, sub| cs_clone("DeepClone", c, s, sub)
             }
-        ]
+        )
     };
 
-    trait_def.expand(mitem, in_items)
+    trait_def.expand(cx, mitem, item, push)
 }
 
 fn cs_clone(
     name: &str,
-    cx: &ExtCtxt, span: Span,
+    cx: &mut ExtCtxt, trait_span: Span,
     substr: &Substructure) -> @Expr {
     let clone_ident = substr.method_ident;
     let ctor_ident;
     let all_fields;
-    let subcall = |field|
-        cx.expr_method_call(span, field, clone_ident, ~[]);
+    let subcall = |field: &FieldInfo|
+        cx.expr_method_call(field.span, field.self_, clone_ident, Vec::new());
 
     match *substr.fields {
         Struct(ref af) => {
@@ -91,38 +93,35 @@ fn cs_clone(
             ctor_ident = variant.node.name;
             all_fields = af;
         },
-        EnumNonMatching(..) => cx.span_bug(span,
-                                          format!("Non-matching enum variants in `deriving({})`",
-                                               name)),
-        StaticEnum(..) | StaticStruct(..) => cx.span_bug(span,
-                                                       format!("Static method in `deriving({})`",
-                                                            name))
+        EnumNonMatching(..) => cx.span_bug(trait_span,
+                                           format!("non-matching enum variants in `deriving({})`",
+                                                  name)),
+        StaticEnum(..) | StaticStruct(..) => cx.span_bug(trait_span,
+                                                         format!("static method in `deriving({})`",
+                                                                 name))
     }
 
-    match *all_fields {
-        [FieldInfo { name: None, .. }, ..] => {
-            // enum-like
-            let subcalls = all_fields.map(|field| subcall(field.self_));
-            cx.expr_call_ident(span, ctor_ident, subcalls)
-        },
-        _ => {
-            // struct-like
-            let fields = all_fields.map(|field| {
-                let ident = match field.name {
-                    Some(i) => i,
-                    None => cx.span_bug(span,
-                                        format!("unnamed field in normal struct in `deriving({})`",
-                                             name))
-                };
-                cx.field_imm(span, ident, subcall(field.self_))
-            });
+    if all_fields.len() >= 1 && all_fields.get(0).name.is_none() {
+        // enum-like
+        let subcalls = all_fields.map(subcall);
+        cx.expr_call_ident(trait_span, ctor_ident, subcalls)
+    } else {
+        // struct-like
+        let fields = all_fields.map(|field| {
+            let ident = match field.name {
+                Some(i) => i,
+                None => cx.span_bug(trait_span,
+                                    format!("unnamed field in normal struct in `deriving({})`",
+                                            name))
+            };
+            cx.field_imm(field.span, ident, subcall(field))
+        });
 
-            if fields.is_empty() {
-                // no fields, so construct like `None`
-                cx.expr_ident(span, ctor_ident)
-            } else {
-                cx.expr_struct_ident(span, ctor_ident, fields)
-            }
+        if fields.is_empty() {
+            // no fields, so construct like `None`
+            cx.expr_ident(trait_span, ctor_ident)
+        } else {
+            cx.expr_struct_ident(trait_span, ctor_ident, fields)
         }
     }
 }

@@ -10,6 +10,21 @@ Source layout:
 | `libgreen/`         | The M:N runtime library                                   |
 | `libnative/`        | The 1:1 runtime library                                   |
 | `libsyntax/`        | The Rust parser and pretty-printer                        |
+| `libcollections/`   | A collection of useful data structures and containers     |
+| `libnum/`           | Extended number support library (complex, rational, etc)  |
+| `libtest/`          | Rust's test-runner code                                   |
+| ------------------- | --------------------------------------------------------- |
+| `libarena/`         | The arena (a fast but limited) memory allocator           |
+| `libflate/`         | Simple compression library                                |
+| `libfourcc/`        | Data format identifier library                            |
+| `libgetopts/`       | Get command-line-options library                          |
+| `libglob/`          | Unix glob patterns library                                |
+| `libsemver/`        | Rust's semantic versioning library                        |
+| `libserialize/`     | Encode-Decode types library                               |
+| `libsync/`          | Concurrency mechanisms and primitives                     |
+| `libterm/`          | ANSI color library for terminals                          |
+| `libtime/`          | Time operations library                                   |
+| `libuuid/`          | UUID's handling code                                      |
 | ------------------- | --------------------------------------------------------- |
 | `rt/`               | The runtime system                                        |
 | `rt/rust_*.c`       | - Some of the runtime services                            |
@@ -30,10 +45,14 @@ Source layout:
 | `test/auxiliary`    | - Dependencies of tests                                   |
 | ------------------- | --------------------------------------------------------- |
 | `librustdoc/`       | The Rust API documentation tool                           |
-| `librustpkg/`       | The package manager and build system                      |
 | `libuv/`            | The libuv submodule                                       |
+| `librustuv/`        | Rust libuv support code                                   |
 | ------------------- | --------------------------------------------------------- |
 | `llvm/`             | The LLVM submodule                                        |
 | `rustllvm/`         | LLVM support code                                         |
 | ------------------- | --------------------------------------------------------- |
 | `etc/`              | Scripts, editors support, misc                            |
+
+
+NOTE: This list (especially the second part of the table which contains modules and libraries)
+is highly volatile and subject to change.

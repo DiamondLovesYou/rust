@@ -8,8 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// This file was auto-generated using 'src/etc/generate-keyword-tests.py do'
-
 fn main() {
-    let do = "foo"; //~ error: ident
+    let do = "bar"; //~ error: ident
 }

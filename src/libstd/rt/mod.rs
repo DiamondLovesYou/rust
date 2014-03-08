@@ -41,20 +41,17 @@ out of `rt` as development proceeds.
 Several modules in `core` are clients of `rt`:
 
 * `std::task` - The user-facing interface to the Rust task model.
-* `std::task::local_data` - The interface to local data.
+* `std::local_data` - The interface to local data.
 * `std::gc` - The garbage collector.
 * `std::unstable::lang` - Miscellaneous lang items, some of which rely on `std::rt`.
-* `std::condition` - Uses local data.
 * `std::cleanup` - Local heap destruction.
 * `std::io` - In the future `std::io` will use an `rt` implementation.
 * `std::logging`
-* `std::pipes`
 * `std::comm`
-* `std::stackwalk`
 
 */
 
-// XXX: this should not be here.
+// FIXME: this should not be here.
 #[allow(missing_doc)];
 
 use any::Any;
@@ -71,11 +68,12 @@ use self::task::{Task, BlockedTask};
 pub use self::util::default_sched_threads;
 
 // Export unwinding facilities used by the failure macros
-pub use self::unwind::{begin_unwind, begin_unwind_raw};
+pub use self::unwind::{begin_unwind, begin_unwind_raw, begin_unwind_fmt};
 
-// XXX: these probably shouldn't be public...
+// FIXME: these probably shouldn't be public...
 #[doc(hidden)]
 pub mod shouldnt_be_public {
+    #[cfg(not(test))]
     pub use super::local_ptr::native::maybe_tls_key;
     #[cfg(not(windows), not(target_os = "android"))]
     pub use super::local_ptr::compiled::RT_TLS_PTR;
@@ -127,6 +125,15 @@ mod util;
 // Global command line argument storage
 pub mod args;
 
+// Support for running procedures when a program has exited.
+mod at_exit_imp;
+
+// Bookkeeping for task counts
+pub mod bookkeeping;
+
+// Stack overflow protection
+pub mod stack;
+
 /// The default error code of the rust runtime if the main task fails instead
 /// of exiting cleanly.
 pub static DEFAULT_ERROR_CODE: int = 101;
@@ -145,7 +152,7 @@ pub trait Runtime {
     fn maybe_yield(~self, cur_task: ~Task);
     fn deschedule(~self, times: uint, cur_task: ~Task,
                   f: |BlockedTask| -> Result<(), BlockedTask>);
-    fn reawaken(~self, to_wake: ~Task, can_resched: bool);
+    fn reawaken(~self, to_wake: ~Task);
 
     // Miscellaneous calls which are very different depending on what context
     // you're in.
@@ -153,8 +160,9 @@ pub trait Runtime {
     fn local_io<'a>(&'a mut self) -> Option<rtio::LocalIo<'a>>;
     /// The (low, high) edges of the current stack.
     fn stack_bounds(&self) -> (uint, uint); // (lo, hi)
+    fn can_block(&self) -> bool;
 
-    // XXX: This is a serious code smell and this should not exist at all.
+    // FIXME: This is a serious code smell and this should not exist at all.
     fn wrap(~self) -> ~Any;
 }
 
@@ -164,14 +172,32 @@ pub trait Runtime {
 /// the crate's logging flags, registering GC
 /// metadata, and storing the process arguments.
 pub fn init(argc: int, argv: **u8) {
-    // XXX: Derefing these pointers is not safe.
+    // FIXME: Derefing these pointers is not safe.
     // Need to propagate the unsafety to `start`.
     unsafe {
         args::init(argc, argv);
         env::init();
         logging::init();
         local_ptr::init();
+        at_exit_imp::init();
     }
+}
+
+/// Enqueues a procedure to run when the runtime is cleaned up
+///
+/// The procedure passed to this function will be executed as part of the
+/// runtime cleanup phase. For normal rust programs, this means that it will run
+/// after all other tasks have exited.
+///
+/// The procedure is *not* executed with a local `Task` available to it, so
+/// primitives like logging, I/O, channels, spawning, etc, are *not* available.
+/// This is meant for "bare bones" usage to clean up runtime details, this is
+/// not meant as a general-purpose "let's clean everything up" function.
+///
+/// It is forbidden for procedures to register more `at_exit` handlers when they
+/// are running, and doing so will lead to a process abort.
+pub fn at_exit(f: proc()) {
+    at_exit_imp::push(f);
 }
 
 /// One-time runtime cleanup.
@@ -184,6 +210,8 @@ pub fn init(argc: int, argv: **u8) {
 /// Invoking cleanup while portions of the runtime are still in use may cause
 /// undefined behavior.
 pub unsafe fn cleanup() {
+    bookkeeping::wait_for_other_tasks();
+    at_exit_imp::run();
     args::cleanup();
     local_ptr::cleanup();
 }

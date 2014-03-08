@@ -18,13 +18,13 @@ fn iterate<'a, T>(x: T, f: 'a |&T| -> T) -> Iterate<'a, T> {
     Iterate {f: f, next: x}
 }
 struct Iterate<'a, T> {
-    priv f: 'a |&T| -> T,
-    priv next: T
+    f: 'a |&T| -> T,
+    next: T
 }
 impl<'a, T> Iterator<T> for Iterate<'a, T> {
     fn next(&mut self) -> Option<T> {
         let mut res = (self.f)(&self.next);
-        std::util::swap(&mut res, &mut self.next);
+        std::mem::swap(&mut res, &mut self.next);
         Some(res)
     }
 }
@@ -35,7 +35,7 @@ enum List<'a, T> {
     Cons(T, &'a List<'a, T>)
 }
 struct ListIterator<'a, T> {
-    priv cur: &'a List<'a, T>
+    cur: &'a List<'a, T>
 }
 impl<'a, T> List<'a, T> {
     fn iter(&'a self) -> ListIterator<'a, T> {
@@ -220,7 +220,7 @@ fn handle_sol(raw_sol: &List<u64>, data: &mut Data) -> bool {
     // reverse order, i.e. the board rotated by half a turn.
     data.nb += 2;
     let sol1 = to_utf8(raw_sol);
-    let sol2: ~str = sol1.chars().invert().collect();
+    let sol2: ~str = sol1.chars().rev().collect();
 
     if data.nb == 2 {
         data.min = sol1.clone();

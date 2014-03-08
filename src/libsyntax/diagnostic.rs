@@ -11,20 +11,22 @@
 use codemap::{Pos, Span};
 use codemap;
 
-use std::cell::Cell;
+use std::cell::{RefCell, Cell};
+use std::fmt;
 use std::io;
-use std::io::stdio::StdWriter;
-use std::local_data;
-use extra::term;
+use std::iter::range;
+use term;
 
 static BUG_REPORT_URL: &'static str =
     "http://static.rust-lang.org/doc/master/complement-bugreport.html";
+// maximum number of lines we will print for each error; arbitrary.
+static MAX_LINES: uint = 6u;
 
 pub trait Emitter {
-    fn emit(&self,
-            cmsp: Option<(&codemap::CodeMap, Span)>,
-            msg: &str,
-            lvl: Level);
+    fn emit(&mut self, cmsp: Option<(&codemap::CodeMap, Span)>,
+            msg: &str, lvl: Level);
+    fn custom_emit(&mut self, cm: &codemap::CodeMap,
+                   sp: Span, msg: &str, lvl: Level);
 }
 
 /// This structure is used to signify that a task has failed with a fatal error
@@ -41,27 +43,30 @@ pub struct SpanHandler {
 }
 
 impl SpanHandler {
-    pub fn span_fatal(@self, sp: Span, msg: &str) -> ! {
+    pub fn span_fatal(&self, sp: Span, msg: &str) -> ! {
         self.handler.emit(Some((&*self.cm, sp)), msg, Fatal);
         fail!(FatalError);
     }
-    pub fn span_err(@self, sp: Span, msg: &str) {
+    pub fn span_err(&self, sp: Span, msg: &str) {
         self.handler.emit(Some((&*self.cm, sp)), msg, Error);
         self.handler.bump_err_count();
     }
-    pub fn span_warn(@self, sp: Span, msg: &str) {
+    pub fn span_warn(&self, sp: Span, msg: &str) {
         self.handler.emit(Some((&*self.cm, sp)), msg, Warning);
     }
-    pub fn span_note(@self, sp: Span, msg: &str) {
+    pub fn span_note(&self, sp: Span, msg: &str) {
         self.handler.emit(Some((&*self.cm, sp)), msg, Note);
     }
-    pub fn span_bug(@self, sp: Span, msg: &str) -> ! {
+    pub fn span_end_note(&self, sp: Span, msg: &str) {
+        self.handler.custom_emit(&*self.cm, sp, msg, Note);
+    }
+    pub fn span_bug(&self, sp: Span, msg: &str) -> ! {
         self.span_fatal(sp, ice_msg(msg));
     }
-    pub fn span_unimpl(@self, sp: Span, msg: &str) -> ! {
+    pub fn span_unimpl(&self, sp: Span, msg: &str) -> ! {
         self.span_bug(sp, ~"unimplemented " + msg);
     }
-    pub fn handler(@self) -> @Handler {
+    pub fn handler(&self) -> @Handler {
         self.handler
     }
 }
@@ -71,28 +76,28 @@ impl SpanHandler {
 // others log errors for later reporting.
 pub struct Handler {
     err_count: Cell<uint>,
-    emit: @Emitter,
+    emit: RefCell<~Emitter>,
 }
 
 impl Handler {
-    pub fn fatal(@self, msg: &str) -> ! {
-        self.emit.emit(None, msg, Fatal);
+    pub fn fatal(&self, msg: &str) -> ! {
+        self.emit.borrow_mut().get().emit(None, msg, Fatal);
         fail!(FatalError);
     }
-    pub fn err(@self, msg: &str) {
-        self.emit.emit(None, msg, Error);
+    pub fn err(&self, msg: &str) {
+        self.emit.borrow_mut().get().emit(None, msg, Error);
         self.bump_err_count();
     }
-    pub fn bump_err_count(@self) {
+    pub fn bump_err_count(&self) {
         self.err_count.set(self.err_count.get() + 1u);
     }
-    pub fn err_count(@self) -> uint {
+    pub fn err_count(&self) -> uint {
         self.err_count.get()
     }
-    pub fn has_errors(@self) -> bool {
+    pub fn has_errors(&self) -> bool {
         self.err_count.get()> 0u
     }
-    pub fn abort_if_errors(@self) {
+    pub fn abort_if_errors(&self) {
         let s;
         match self.err_count.get() {
           0u => return,
@@ -104,23 +109,27 @@ impl Handler {
         }
         self.fatal(s);
     }
-    pub fn warn(@self, msg: &str) {
-        self.emit.emit(None, msg, Warning);
+    pub fn warn(&self, msg: &str) {
+        self.emit.borrow_mut().get().emit(None, msg, Warning);
     }
-    pub fn note(@self, msg: &str) {
-        self.emit.emit(None, msg, Note);
+    pub fn note(&self, msg: &str) {
+        self.emit.borrow_mut().get().emit(None, msg, Note);
     }
-    pub fn bug(@self, msg: &str) -> ! {
+    pub fn bug(&self, msg: &str) -> ! {
         self.fatal(ice_msg(msg));
     }
-    pub fn unimpl(@self, msg: &str) -> ! {
+    pub fn unimpl(&self, msg: &str) -> ! {
         self.bug(~"unimplemented " + msg);
     }
-    pub fn emit(@self,
-            cmsp: Option<(&codemap::CodeMap, Span)>,
-            msg: &str,
-            lvl: Level) {
-        self.emit.emit(cmsp, msg, lvl);
+    pub fn emit(&self,
+                cmsp: Option<(&codemap::CodeMap, Span)>,
+                msg: &str,
+                lvl: Level) {
+        self.emit.borrow_mut().get().emit(cmsp, msg, lvl);
+    }
+    pub fn custom_emit(&self, cm: &codemap::CodeMap,
+                       sp: Span, msg: &str, lvl: Level) {
+        self.emit.borrow_mut().get().custom_emit(cm, sp, msg, lvl);
     }
 }
 
@@ -137,15 +146,14 @@ pub fn mk_span_handler(handler: @Handler, cm: @codemap::CodeMap)
     }
 }
 
-pub fn mk_handler(emitter: Option<@Emitter>) -> @Handler {
-    let emit: @Emitter = match emitter {
-        Some(e) => e,
-        None => @DefaultEmitter as @Emitter
-    };
+pub fn default_handler() -> @Handler {
+    mk_handler(~EmitterWriter::stderr())
+}
 
+pub fn mk_handler(e: ~Emitter) -> @Handler {
     @Handler {
         err_count: Cell::new(0),
-        emit: emit,
+        emit: RefCell::new(e),
     }
 }
 
@@ -157,12 +165,14 @@ pub enum Level {
     Note,
 }
 
-impl ToStr for Level {
-    fn to_str(&self) -> ~str {
+impl fmt::Show for Level {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use std::fmt::Show;
+
         match *self {
-            Fatal | Error => ~"error",
-            Warning => ~"warning",
-            Note => ~"note"
+            Fatal | Error => "error".fmt(f),
+            Warning => "warning".fmt(f),
+            Note => "note".fmt(f),
         }
     }
 }
@@ -177,105 +187,137 @@ impl Level {
     }
 }
 
-fn print_maybe_styled(msg: &str, color: term::attr::Attr) {
-    local_data_key!(tls_terminal: ~Option<term::Terminal<StdWriter>>)
-
-    fn is_stderr_screen() -> bool {
-        use std::libc;
-        unsafe { libc::isatty(libc::STDERR_FILENO) != 0 }
-    }
-    fn write_pretty<T: Writer>(term: &mut term::Terminal<T>, s: &str, c: term::attr::Attr) {
-        term.attr(c);
-        term.write(s.as_bytes());
-        term.reset();
-    }
-
-    if is_stderr_screen() {
-        local_data::get_mut(tls_terminal, |term| {
-            match term {
-                Some(term) => {
-                    match **term {
-                        Some(ref mut term) => write_pretty(term, msg, color),
-                        None => io::stderr().write(msg.as_bytes())
-                    }
-                }
-                None => {
-                    let t = ~match term::Terminal::new(io::stderr()) {
-                        Ok(mut term) => {
-                            write_pretty(&mut term, msg, color);
-                            Some(term)
-                        }
-                        Err(_) => {
-                            io::stderr().write(msg.as_bytes());
-                            None
-                        }
-                    };
-                    local_data::set(tls_terminal, t);
-                }
-            }
-        });
-    } else {
-        io::stderr().write(msg.as_bytes());
-    }
-}
-
-fn print_diagnostic(topic: &str, lvl: Level, msg: &str) {
-    let mut stderr = io::stderr();
-
-    if !topic.is_empty() {
-        write!(&mut stderr as &mut io::Writer, "{} ", topic);
-    }
-
-    print_maybe_styled(format!("{}: ", lvl.to_str()),
-                       term::attr::ForegroundColor(lvl.color()));
-    print_maybe_styled(format!("{}\n", msg), term::attr::Bold);
-}
-
-pub struct DefaultEmitter;
-
-impl Emitter for DefaultEmitter {
-    fn emit(&self,
-            cmsp: Option<(&codemap::CodeMap, Span)>,
-            msg: &str,
-            lvl: Level) {
-        match cmsp {
-            Some((cm, sp)) => {
-                let sp = cm.adjust_span(sp);
-                let ss = cm.span_to_str(sp);
-                let lines = cm.span_to_lines(sp);
-                print_diagnostic(ss, lvl, msg);
-                highlight_lines(cm, sp, lvl, lines);
-                print_macro_backtrace(cm, sp);
-            }
-            None => print_diagnostic("", lvl, msg),
+fn print_maybe_styled(w: &mut EmitterWriter,
+                      msg: &str,
+                      color: term::attr::Attr) -> io::IoResult<()> {
+    match w.dst {
+        Terminal(ref mut t) => {
+            try!(t.attr(color));
+            try!(t.write_str(msg));
+            try!(t.reset());
+            Ok(())
+        }
+        Raw(ref mut w) => {
+            w.write_str(msg)
         }
     }
 }
 
-fn highlight_lines(cm: &codemap::CodeMap,
+fn print_diagnostic(dst: &mut EmitterWriter,
+                    topic: &str, lvl: Level, msg: &str) -> io::IoResult<()> {
+    if !topic.is_empty() {
+        try!(write!(&mut dst.dst, "{} ", topic));
+    }
+
+    try!(print_maybe_styled(dst, format!("{}: ", lvl.to_str()),
+                            term::attr::ForegroundColor(lvl.color())));
+    try!(print_maybe_styled(dst, format!("{}\n", msg), term::attr::Bold));
+    Ok(())
+}
+
+pub struct EmitterWriter {
+    priv dst: Destination,
+}
+
+enum Destination {
+    Terminal(term::Terminal<io::stdio::StdWriter>),
+    Raw(~Writer),
+}
+
+impl EmitterWriter {
+    pub fn stderr() -> EmitterWriter {
+        let stderr = io::stderr();
+        if stderr.get_ref().isatty() {
+            let dst = match term::Terminal::new(stderr.unwrap()) {
+                Ok(t) => Terminal(t),
+                Err(..) => Raw(~io::stderr()),
+            };
+            EmitterWriter { dst: dst }
+        } else {
+            EmitterWriter { dst: Raw(~stderr) }
+        }
+    }
+
+    pub fn new(dst: ~Writer) -> EmitterWriter {
+        EmitterWriter { dst: Raw(dst) }
+    }
+}
+
+impl Writer for Destination {
+    fn write(&mut self, bytes: &[u8]) -> io::IoResult<()> {
+        match *self {
+            Terminal(ref mut t) => t.write(bytes),
+            Raw(ref mut w) => w.write(bytes),
+        }
+    }
+}
+
+impl Emitter for EmitterWriter {
+    fn emit(&mut self,
+            cmsp: Option<(&codemap::CodeMap, Span)>,
+            msg: &str,
+            lvl: Level) {
+        let error = match cmsp {
+            Some((cm, sp)) => emit(self, cm, sp, msg, lvl, false),
+            None => print_diagnostic(self, "", lvl, msg),
+        };
+
+        match error {
+            Ok(()) => {}
+            Err(e) => fail!("failed to print diagnostics: {}", e),
+        }
+    }
+
+    fn custom_emit(&mut self, cm: &codemap::CodeMap,
+                   sp: Span, msg: &str, lvl: Level) {
+        match emit(self, cm, sp, msg, lvl, true) {
+            Ok(()) => {}
+            Err(e) => fail!("failed to print diagnostics: {}", e),
+        }
+    }
+}
+
+fn emit(dst: &mut EmitterWriter, cm: &codemap::CodeMap, sp: Span,
+        msg: &str, lvl: Level, custom: bool) -> io::IoResult<()> {
+    let ss = cm.span_to_str(sp);
+    let lines = cm.span_to_lines(sp);
+    if custom {
+        // we want to tell compiletest/runtest to look at the last line of the
+        // span (since `custom_highlight_lines` displays an arrow to the end of
+        // the span)
+        let span_end = Span { lo: sp.hi, hi: sp.hi, expn_info: sp.expn_info};
+        let ses = cm.span_to_str(span_end);
+        try!(print_diagnostic(dst, ses, lvl, msg));
+        try!(custom_highlight_lines(dst, cm, sp, lvl, lines));
+    } else {
+        try!(print_diagnostic(dst, ss, lvl, msg));
+        try!(highlight_lines(dst, cm, sp, lvl, lines));
+    }
+    print_macro_backtrace(dst, cm, sp)
+}
+
+fn highlight_lines(err: &mut EmitterWriter,
+                   cm: &codemap::CodeMap,
                    sp: Span,
                    lvl: Level,
-                   lines: &codemap::FileLines) {
+                   lines: &codemap::FileLines) -> io::IoResult<()> {
     let fm = lines.file;
-    let mut err = io::stderr();
-    let err = &mut err as &mut io::Writer;
 
-    // arbitrarily only print up to six lines of the error
-    let max_lines = 6u;
     let mut elided = false;
     let mut display_lines = lines.lines.as_slice();
-    if display_lines.len() > max_lines {
-        display_lines = display_lines.slice(0u, max_lines);
+    if display_lines.len() > MAX_LINES {
+        display_lines = display_lines.slice(0u, MAX_LINES);
         elided = true;
     }
     // Print the offending lines
     for line in display_lines.iter() {
-        write!(err, "{}:{} {}\n", fm.name, *line + 1, fm.get_line(*line as int));
+        try!(write!(&mut err.dst, "{}:{} {}\n", fm.name, *line + 1,
+                    fm.get_line(*line as int)));
     }
     if elided {
         let last_line = display_lines[display_lines.len() - 1u];
         let s = format!("{}:{} ", fm.name, last_line + 1u);
-        write!(err, "{0:1$}...\n", "", s.len());
+        try!(write!(&mut err.dst, "{0:1$}...\n", "", s.len()));
     }
 
     // FIXME (#3260)
@@ -283,7 +325,7 @@ fn highlight_lines(cm: &codemap::CodeMap,
     if lines.lines.len() == 1u {
         let lo = cm.lookup_char_pos(sp.lo);
         let mut digits = 0u;
-        let mut num = (lines.lines[0] + 1u) / 10u;
+        let mut num = (*lines.lines.get(0) + 1u) / 10u;
 
         // how many digits must be indent past?
         while num > 0u { num /= 10u; digits += 1u; }
@@ -294,44 +336,87 @@ fn highlight_lines(cm: &codemap::CodeMap,
         // Skip is the number of characters we need to skip because they are
         // part of the 'filename:line ' part of the previous line.
         let skip = fm.name.len() + digits + 3u;
-        skip.times(|| s.push_char(' '));
-        let orig = fm.get_line(lines.lines[0] as int);
+        for _ in range(0, skip) { s.push_char(' '); }
+        let orig = fm.get_line(*lines.lines.get(0) as int);
         for pos in range(0u, left-skip) {
-            let curChar = (orig[pos] as char);
+            let cur_char = orig[pos] as char;
             // Whenever a tab occurs on the previous line, we insert one on
             // the error-point-squiggly-line as well (instead of a space).
             // That way the squiggly line will usually appear in the correct
             // position.
-            match curChar {
+            match cur_char {
                 '\t' => s.push_char('\t'),
                 _ => s.push_char(' '),
             };
         }
-        write!(err, "{}", s);
+        try!(write!(&mut err.dst, "{}", s));
         let mut s = ~"^";
         let hi = cm.lookup_char_pos(sp.hi);
         if hi.col != lo.col {
             // the ^ already takes up one space
             let num_squigglies = hi.col.to_uint()-lo.col.to_uint()-1u;
-            num_squigglies.times(|| s.push_char('~'));
+            for _ in range(0, num_squigglies) { s.push_char('~'); }
         }
-        print_maybe_styled(s + "\n", term::attr::ForegroundColor(lvl.color()));
+        try!(print_maybe_styled(err, s + "\n",
+                                term::attr::ForegroundColor(lvl.color())));
     }
+    Ok(())
 }
 
-fn print_macro_backtrace(cm: &codemap::CodeMap, sp: Span) {
+// Here are the differences between this and the normal `highlight_lines`:
+// `custom_highlight_lines` will always put arrow on the last byte of the
+// span (instead of the first byte). Also, when the span is too long (more
+// than 6 lines), `custom_highlight_lines` will print the first line, then
+// dot dot dot, then last line, whereas `highlight_lines` prints the first
+// six lines.
+fn custom_highlight_lines(w: &mut EmitterWriter,
+                          cm: &codemap::CodeMap,
+                          sp: Span,
+                          lvl: Level,
+                          lines: &codemap::FileLines) -> io::IoResult<()> {
+    let fm = lines.file;
+
+    let lines = lines.lines.as_slice();
+    if lines.len() > MAX_LINES {
+        try!(write!(&mut w.dst, "{}:{} {}\n", fm.name,
+                    lines[0] + 1, fm.get_line(lines[0] as int)));
+        try!(write!(&mut w.dst, "...\n"));
+        let last_line = lines[lines.len()-1];
+        try!(write!(&mut w.dst, "{}:{} {}\n", fm.name,
+                    last_line + 1, fm.get_line(last_line as int)));
+    } else {
+        for line in lines.iter() {
+            try!(write!(&mut w.dst, "{}:{} {}\n", fm.name,
+                        *line + 1, fm.get_line(*line as int)));
+        }
+    }
+    let last_line_start = format!("{}:{} ", fm.name, lines[lines.len()-1]+1);
+    let hi = cm.lookup_char_pos(sp.hi);
+    // Span seems to use half-opened interval, so subtract 1
+    let skip = last_line_start.len() + hi.col.to_uint() - 1;
+    let mut s = ~"";
+    for _ in range(0, skip) { s.push_char(' '); }
+    s.push_char('^');
+    print_maybe_styled(w, s + "\n", term::attr::ForegroundColor(lvl.color()))
+}
+
+fn print_macro_backtrace(w: &mut EmitterWriter,
+                         cm: &codemap::CodeMap,
+                         sp: Span) -> io::IoResult<()> {
     for ei in sp.expn_info.iter() {
         let ss = ei.callee.span.as_ref().map_or(~"", |span| cm.span_to_str(*span));
         let (pre, post) = match ei.callee.format {
             codemap::MacroAttribute => ("#[", "]"),
             codemap::MacroBang => ("", "!")
         };
-        print_diagnostic(ss, Note,
-                         format!("in expansion of {}{}{}", pre, ei.callee.name, post));
+        try!(print_diagnostic(w, ss, Note,
+                              format!("in expansion of {}{}{}", pre,
+                                      ei.callee.name, post)));
         let ss = cm.span_to_str(ei.call_site);
-        print_diagnostic(ss, Note, "expansion site");
-        print_macro_backtrace(cm, ei.call_site);
+        try!(print_diagnostic(w, ss, Note, "expansion site"));
+        try!(print_macro_backtrace(w, cm, ei.call_site));
     }
+    Ok(())
 }
 
 pub fn expect<T:Clone>(diag: @SpanHandler, opt: Option<T>, msg: || -> ~str)

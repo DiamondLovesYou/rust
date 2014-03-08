@@ -10,19 +10,21 @@
 
 /*!
 
-The compiler code necessary to implement the #[deriving(Encodable)]
-(and Decodable, in decodable.rs) extension.  The idea here is that
-type-defining items may be tagged with #[deriving(Encodable,
-Decodable)].
+The compiler code necessary to implement the `#[deriving(Encodable)]`
+(and `Decodable`, in decodable.rs) extension.  The idea here is that
+type-defining items may be tagged with `#[deriving(Encodable, Decodable)]`.
 
 For example, a type like:
 
-    #[deriving(Encodable, Decodable)]
-    struct Node {id: uint}
+```ignore
+#[deriving(Encodable, Decodable)]
+struct Node { id: uint }
+```
 
 would generate two implementations like:
 
-impl<S:extra::serialize::Encoder> Encodable<S> for Node {
+```ignore
+impl<S:serialize::Encoder> Encodable<S> for Node {
     fn encode(&self, s: &S) {
         s.emit_struct("Node", 1, || {
             s.emit_field("id", 0, || s.emit_uint(self.id))
@@ -39,15 +41,19 @@ impl<D:Decoder> Decodable for node_id {
         })
     }
 }
+```
 
 Other interesting scenarios are whe the item has type parameters or
 references other non-built-in types.  A type definition like:
 
-    #[deriving(Encodable, Decodable)]
-    struct spanned<T> {node: T, span: Span}
+```ignore
+#[deriving(Encodable, Decodable)]
+struct spanned<T> { node: T, span: Span }
+```
 
 would yield functions like:
 
+```ignore
     impl<
         S: Encoder,
         T: Encodable<S>
@@ -73,78 +79,93 @@ would yield functions like:
             })
         }
     }
+```
 */
 
-use ast::{MetaItem, Item, Expr, MutImmutable, MutMutable};
+use ast::{MetaItem, Item, Expr, MutMutable};
 use codemap::Span;
 use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
+use parse::token;
 
-pub fn expand_deriving_encodable(cx: &ExtCtxt,
+use std::vec_ng::Vec;
+
+pub fn expand_deriving_encodable(cx: &mut ExtCtxt,
                                  span: Span,
                                  mitem: @MetaItem,
-                                 in_items: ~[@Item]) -> ~[@Item] {
+                                 item: @Item,
+                                 push: |@Item|) {
     let trait_def = TraitDef {
-        cx: cx, span: span,
-
-        path: Path::new_(~["extra", "serialize", "Encodable"], None,
-                         ~[~Literal(Path::new_local("__E"))], true),
-        additional_bounds: ~[],
+        span: span,
+        attributes: Vec::new(),
+        path: Path::new_(vec!("serialize", "Encodable"), None,
+                         vec!(~Literal(Path::new_local("__E"))), true),
+        additional_bounds: Vec::new(),
         generics: LifetimeBounds {
-            lifetimes: ~[],
-            bounds: ~[("__E", ~[Path::new(~["extra", "serialize", "Encoder"])])],
+            lifetimes: Vec::new(),
+            bounds: vec!(("__E", vec!(Path::new(vec!("serialize", "Encoder"))))),
         },
-        methods: ~[
+        methods: vec!(
             MethodDef {
                 name: "encode",
                 generics: LifetimeBounds::empty(),
-                explicit_self: Some(Some(Borrowed(None, MutImmutable))),
-                args: ~[Ptr(~Literal(Path::new_local("__E")),
-                            Borrowed(None, MutMutable))],
+                explicit_self: borrowed_explicit_self(),
+                args: vec!(Ptr(~Literal(Path::new_local("__E")),
+                            Borrowed(None, MutMutable))),
                 ret_ty: nil_ty(),
                 inline: false,
                 const_nonmatching: true,
                 combine_substructure: encodable_substructure,
-            },
-        ]
+            })
     };
 
-    trait_def.expand(mitem, in_items)
+    trait_def.expand(cx, mitem, item, push)
 }
 
-fn encodable_substructure(cx: &ExtCtxt, span: Span,
+fn encodable_substructure(cx: &mut ExtCtxt, trait_span: Span,
                           substr: &Substructure) -> @Expr {
     let encoder = substr.nonself_args[0];
     // throw an underscore in front to suppress unused variable warnings
     let blkarg = cx.ident_of("_e");
-    let blkencoder = cx.expr_ident(span, blkarg);
+    let blkencoder = cx.expr_ident(trait_span, blkarg);
     let encode = cx.ident_of("encode");
 
     return match *substr.fields {
         Struct(ref fields) => {
             let emit_struct_field = cx.ident_of("emit_struct_field");
-            let mut stmts = ~[];
-            for (i, f) in fields.iter().enumerate() {
-                let name = match f.name {
-                    Some(id) => cx.str_of(id),
-                    None => format!("_field{}", i).to_managed()
+            let mut stmts = Vec::new();
+            for (i, &FieldInfo {
+                    name,
+                    self_,
+                    span,
+                    ..
+                }) in fields.iter().enumerate() {
+                let name = match name {
+                    Some(id) => token::get_ident(id),
+                    None => {
+                        token::intern_and_get_ident(format!("_field{}", i))
+                    }
                 };
-                let enc = cx.expr_method_call(span, f.self_, encode, ~[blkencoder]);
+                let enc = cx.expr_method_call(span, self_, encode, vec!(blkencoder));
                 let lambda = cx.lambda_expr_1(span, enc, blkarg);
                 let call = cx.expr_method_call(span, blkencoder,
                                                emit_struct_field,
-                                               ~[cx.expr_str(span, name),
+                                               vec!(cx.expr_str(span, name),
                                                  cx.expr_uint(span, i),
-                                                 lambda]);
+                                                 lambda));
                 stmts.push(cx.stmt_expr(call));
             }
 
-            let blk = cx.lambda_stmts_1(span, stmts, blkarg);
-            cx.expr_method_call(span, encoder, cx.ident_of("emit_struct"),
-                                ~[cx.expr_str(span, cx.str_of(substr.type_ident)),
-                                  cx.expr_uint(span, fields.len()),
-                                  blk])
+            let blk = cx.lambda_stmts_1(trait_span, stmts, blkarg);
+            cx.expr_method_call(trait_span,
+                                encoder,
+                                cx.ident_of("emit_struct"),
+                                vec!(
+                cx.expr_str(trait_span, token::get_ident(substr.type_ident)),
+                cx.expr_uint(trait_span, fields.len()),
+                blk
+            ))
         }
 
         EnumMatching(idx, variant, ref fields) => {
@@ -152,35 +173,37 @@ fn encodable_substructure(cx: &ExtCtxt, span: Span,
             // so we need to generate a unique local variable to take the
             // mutable loan out on, otherwise we get conflicts which don't
             // actually exist.
-            let me = cx.stmt_let(span, false, blkarg, encoder);
-            let encoder = cx.expr_ident(span, blkarg);
+            let me = cx.stmt_let(trait_span, false, blkarg, encoder);
+            let encoder = cx.expr_ident(trait_span, blkarg);
             let emit_variant_arg = cx.ident_of("emit_enum_variant_arg");
-            let mut stmts = ~[];
-            for (i, f) in fields.iter().enumerate() {
-                let enc = cx.expr_method_call(span, f.self_, encode, ~[blkencoder]);
+            let mut stmts = Vec::new();
+            for (i, &FieldInfo { self_, span, .. }) in fields.iter().enumerate() {
+                let enc = cx.expr_method_call(span, self_, encode, vec!(blkencoder));
                 let lambda = cx.lambda_expr_1(span, enc, blkarg);
                 let call = cx.expr_method_call(span, blkencoder,
                                                emit_variant_arg,
-                                               ~[cx.expr_uint(span, i),
-                                                 lambda]);
+                                               vec!(cx.expr_uint(span, i),
+                                                 lambda));
                 stmts.push(cx.stmt_expr(call));
             }
 
-            let blk = cx.lambda_stmts_1(span, stmts, blkarg);
-            let name = cx.expr_str(span, cx.str_of(variant.node.name));
-            let call = cx.expr_method_call(span, blkencoder,
+            let blk = cx.lambda_stmts_1(trait_span, stmts, blkarg);
+            let name = cx.expr_str(trait_span, token::get_ident(variant.node.name));
+            let call = cx.expr_method_call(trait_span, blkencoder,
                                            cx.ident_of("emit_enum_variant"),
-                                           ~[name,
-                                             cx.expr_uint(span, idx),
-                                             cx.expr_uint(span, fields.len()),
-                                             blk]);
-            let blk = cx.lambda_expr_1(span, call, blkarg);
-            let ret = cx.expr_method_call(span, encoder,
+                                           vec!(name,
+                                             cx.expr_uint(trait_span, idx),
+                                             cx.expr_uint(trait_span, fields.len()),
+                                             blk));
+            let blk = cx.lambda_expr_1(trait_span, call, blkarg);
+            let ret = cx.expr_method_call(trait_span,
+                                          encoder,
                                           cx.ident_of("emit_enum"),
-                                          ~[cx.expr_str(span,
-                                            cx.str_of(substr.type_ident)),
-                                            blk]);
-            cx.expr_block(cx.block(span, ~[me], Some(ret)))
+                                          vec!(
+                cx.expr_str(trait_span, token::get_ident(substr.type_ident)),
+                blk
+            ));
+            cx.expr_block(cx.block(trait_span, vec!(me), Some(ret)))
         }
 
         _ => cx.bug("expected Struct or EnumMatching in deriving(Encodable)")

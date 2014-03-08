@@ -38,8 +38,8 @@ pub fn trans_inline_asm<'a>(bcx: &'a Block<'a>, ia: &ast::InlineAsm)
     let temp_scope = fcx.push_custom_cleanup_scope();
 
     // Prepare the output operands
-    let outputs = ia.outputs.map(|&(c, out)| {
-        constraints.push(c);
+    let outputs = ia.outputs.map(|&(ref c, out)| {
+        constraints.push((*c).clone());
 
         let out_datum = unpack_datum!(bcx, expr::trans(bcx, out));
         output_types.push(type_of::type_of(bcx.ccx(), out_datum.ty));
@@ -48,8 +48,8 @@ pub fn trans_inline_asm<'a>(bcx: &'a Block<'a>, ia: &ast::InlineAsm)
     });
 
     // Now the input operands
-    let inputs = ia.inputs.map(|&(c, input)| {
-        constraints.push(c);
+    let inputs = ia.inputs.map(|&(ref c, input)| {
+        constraints.push((*c).clone());
 
         unpack_result!(bcx, {
             callee::trans_arg_expr(bcx,
@@ -63,13 +63,13 @@ pub fn trans_inline_asm<'a>(bcx: &'a Block<'a>, ia: &ast::InlineAsm)
     // no failure occurred preparing operands, no need to cleanup
     fcx.pop_custom_cleanup_scope(temp_scope);
 
-    let mut constraints = constraints.connect(",");
+    let mut constraints = constraints.map(|s| s.get().to_str()).connect(",");
 
     let mut clobbers = getClobbers();
-    if !ia.clobbers.is_empty() && !clobbers.is_empty() {
-        clobbers = format!("{},{}", ia.clobbers, clobbers);
+    if !ia.clobbers.get().is_empty() && !clobbers.is_empty() {
+        clobbers = format!("{},{}", ia.clobbers.get(), clobbers);
     } else {
-        clobbers.push_str(ia.clobbers);
+        clobbers.push_str(ia.clobbers.get());
     }
 
     // Add the clobbers to our constraints list
@@ -82,12 +82,12 @@ pub fn trans_inline_asm<'a>(bcx: &'a Block<'a>, ia: &ast::InlineAsm)
 
     debug!("Asm Constraints: {:?}", constraints);
 
-    let numOutputs = outputs.len();
+    let num_outputs = outputs.len();
 
     // Depending on how many outputs we have, the return type is different
-    let output_type = if numOutputs == 0 {
+    let output_type = if num_outputs == 0 {
         Type::void()
-    } else if numOutputs == 1 {
+    } else if num_outputs == 1 {
         output_types[0]
     } else {
         Type::struct_(output_types, false)
@@ -98,15 +98,22 @@ pub fn trans_inline_asm<'a>(bcx: &'a Block<'a>, ia: &ast::InlineAsm)
         ast::AsmIntel => lib::llvm::AD_Intel
     };
 
-    let r = ia.asm.with_c_str(|a| {
+    let r = ia.asm.get().with_c_str(|a| {
         constraints.with_c_str(|c| {
-            InlineAsmCall(bcx, a, c, inputs, output_type, ia.volatile, ia.alignstack, dialect)
+            InlineAsmCall(bcx,
+                          a,
+                          c,
+                          inputs.as_slice(),
+                          output_type,
+                          ia.volatile,
+                          ia.alignstack,
+                          dialect)
         })
     });
 
     // Again, based on how many outputs we have
-    if numOutputs == 1 {
-        Store(bcx, r, outputs[0]);
+    if num_outputs == 1 {
+        Store(bcx, r, *outputs.get(0));
     } else {
         for (i, o) in outputs.iter().enumerate() {
             let v = ExtractValue(bcx, r, i);

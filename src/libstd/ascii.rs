@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -10,30 +10,30 @@
 
 //! Operations on ASCII strings and characters
 
-use to_str::{ToStr,IntoStr};
+use to_str::{IntoStr};
 use str;
 use str::Str;
 use str::StrSlice;
 use str::OwnedStr;
 use container::Container;
 use cast;
+use fmt;
 use iter::Iterator;
 use vec::{ImmutableVector, MutableVector, Vector};
-use to_bytes::IterBytes;
 use option::{Option, Some, None};
 
 /// Datatype to hold one ascii character. It wraps a `u8`, with the highest bit always zero.
-#[deriving(Clone, Eq, Ord, TotalOrd, TotalEq)]
+#[deriving(Clone, Eq, Ord, TotalOrd, TotalEq, Hash)]
 pub struct Ascii { priv chr: u8 }
 
 impl Ascii {
-    /// Converts a ascii character into a `u8`.
+    /// Converts an ascii character into a `u8`.
     #[inline]
     pub fn to_byte(self) -> u8 {
         self.chr
     }
 
-    /// Converts a ascii character into a `char`.
+    /// Converts an ascii character into a `char`.
     #[inline]
     pub fn to_char(self) -> char {
         self.chr as char
@@ -126,11 +126,9 @@ impl Ascii {
     }
 }
 
-impl ToStr for Ascii {
-    #[inline]
-    fn to_str(&self) -> ~str {
-        // self.chr is always a valid utf8 byte, no need for the check
-        unsafe { str::raw::from_byte(self.chr) }
+impl<'a> fmt::Show for Ascii {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (self.chr as char).fmt(f)
     }
 }
 
@@ -307,16 +305,9 @@ impl IntoStr for ~[Ascii] {
     }
 }
 
-impl IterBytes for Ascii {
-    #[inline]
-    fn iter_bytes(&self, _lsb0: bool, f: |buf: &[u8]| -> bool) -> bool {
-        f([self.to_byte()])
-    }
-}
-
-/// Trait to convert to a owned byte array by consuming self
+/// Trait to convert to an owned byte array by consuming self
 pub trait IntoBytes {
-    /// Converts to a owned byte array by consuming self
+    /// Converts to an owned byte array by consuming self
     fn into_bytes(self) -> ~[u8];
 }
 
@@ -484,7 +475,7 @@ mod tests {
     use char::from_u32;
 
     macro_rules! v2ascii (
-        ( [$($e:expr),*]) => ( [$(Ascii{chr:$e}),*]);
+        ( [$($e:expr),*]) => (&[$(Ascii{chr:$e}),*]);
         (&[$($e:expr),*]) => (&[$(Ascii{chr:$e}),*]);
         (~[$($e:expr),*]) => (~[$(Ascii{chr:$e}),*]);
     )
@@ -698,5 +689,9 @@ mod tests {
         assert_eq!(s, ~"t");
     }
 
-
+    #[test]
+    fn test_show() {
+        let c = Ascii { chr: 't' as u8 };
+        assert_eq!(format!("{}", c), ~"t");
+    }
 }

@@ -66,28 +66,20 @@ use cast;
 use container::Container;
 use iter::{Iterator, range};
 use libc;
+use kinds::marker;
 use ops::Drop;
+use cmp::Eq;
+use clone::Clone;
+use mem;
 use option::{Option, Some, None};
 use ptr::RawPtr;
 use ptr;
 use str::StrSlice;
 use str;
-use vec::{CopyableVector, ImmutableVector, MutableVector};
+use vec::{ImmutableVector, MutableVector};
 use vec;
-use unstable::intrinsics;
-
-/// Resolution options for the `null_byte` condition
-pub enum NullByteResolution {
-    /// Truncate at the null byte
-    Truncate,
-    /// Use a replacement byte
-    ReplaceWith(libc::c_char)
-}
-
-condition! {
-    // This should be &[u8] but there's a lifetime issue (#5370).
-    pub null_byte: (~[u8]) -> NullByteResolution;
-}
+use rt::global_heap::malloc_raw;
+use raw::Slice;
 
 /// The representation of a C String.
 ///
@@ -96,6 +88,36 @@ condition! {
 pub struct CString {
     priv buf: *libc::c_char,
     priv owns_buffer_: bool,
+}
+
+impl Clone for CString {
+    /// Clone this CString into a new, uniquely owned CString. For safety
+    /// reasons, this is always a deep clone, rather than the usual shallow
+    /// clone.
+    fn clone(&self) -> CString {
+        if self.buf.is_null() {
+            CString { buf: self.buf, owns_buffer_: self.owns_buffer_ }
+        } else {
+            let len = self.len() + 1;
+            let buf = unsafe { malloc_raw(len) } as *mut libc::c_char;
+            unsafe { ptr::copy_nonoverlapping_memory(buf, self.buf, len); }
+            CString { buf: buf as *libc::c_char, owns_buffer_: true }
+        }
+    }
+}
+
+impl Eq for CString {
+    fn eq(&self, other: &CString) -> bool {
+        if self.buf as uint == other.buf as uint {
+            true
+        } else if self.buf.is_null() || other.buf.is_null() {
+            false
+        } else {
+            unsafe {
+                libc::strcmp(self.buf, other.buf) == 0
+            }
+        }
+    }
 }
 
 impl CString {
@@ -148,6 +170,7 @@ impl CString {
     }
 
     /// Converts the CString into a `&[u8]` without copying.
+    /// Includes the terminating NUL byte.
     ///
     /// # Failure
     ///
@@ -156,25 +179,46 @@ impl CString {
     pub fn as_bytes<'a>(&'a self) -> &'a [u8] {
         if self.buf.is_null() { fail!("CString is null!"); }
         unsafe {
-            cast::transmute((self.buf, self.len() + 1))
+            cast::transmute(Slice { data: self.buf, len: self.len() + 1 })
+        }
+    }
+
+    /// Converts the CString into a `&[u8]` without copying.
+    /// Does not include the terminating NUL byte.
+    ///
+    /// # Failure
+    ///
+    /// Fails if the CString is null.
+    #[inline]
+    pub fn as_bytes_no_nul<'a>(&'a self) -> &'a [u8] {
+        if self.buf.is_null() { fail!("CString is null!"); }
+        unsafe {
+            cast::transmute(Slice { data: self.buf, len: self.len() })
         }
     }
 
     /// Converts the CString into a `&str` without copying.
-    /// Returns None if the CString is not UTF-8 or is null.
+    /// Returns None if the CString is not UTF-8.
+    ///
+    /// # Failure
+    ///
+    /// Fails if the CString is null.
     #[inline]
     pub fn as_str<'a>(&'a self) -> Option<&'a str> {
-        if self.buf.is_null() { return None; }
-        let buf = self.as_bytes();
-        let buf = buf.slice_to(buf.len()-1); // chop off the trailing NUL
+        let buf = self.as_bytes_no_nul();
         str::from_utf8(buf)
     }
 
     /// Return a CString iterator.
+    ///
+    /// # Failure
+    ///
+    /// Fails if the CString is null.
     pub fn iter<'a>(&'a self) -> CChars<'a> {
+        if self.buf.is_null() { fail!("CString is null!"); }
         CChars {
             ptr: self.buf,
-            lifetime: unsafe { cast::transmute(self.buf) },
+            marker: marker::ContravariantLifetime,
         }
     }
 }
@@ -183,15 +227,21 @@ impl Drop for CString {
     fn drop(&mut self) {
         if self.owns_buffer_ {
             unsafe {
-                libc::free(self.buf as *libc::c_void)
+                libc::free(self.buf as *mut libc::c_void)
             }
         }
     }
 }
 
 impl Container for CString {
+    /// Return the number of bytes in the CString (not including the NUL terminator).
+    ///
+    /// # Failure
+    ///
+    /// Fails if the CString is null.
     #[inline]
     fn len(&self) -> uint {
+        if self.buf.is_null() { fail!("CString is null!"); }
         unsafe {
             ptr::position(self.buf, |c| *c == 0)
         }
@@ -204,7 +254,7 @@ pub trait ToCStr {
     ///
     /// # Failure
     ///
-    /// Raises the `null_byte` condition if the receiver has an interior null.
+    /// Fails the task if the receiver has an interior null.
     fn to_c_str(&self) -> CString;
 
     /// Unsafe variant of `to_c_str()` that doesn't check for nulls.
@@ -225,7 +275,7 @@ pub trait ToCStr {
     ///
     /// # Failure
     ///
-    /// Raises the `null_byte` condition if the receiver has an interior null.
+    /// Fails the task if the receiver has an interior null.
     #[inline]
     fn with_c_str<T>(&self, f: |*libc::c_char| -> T) -> T {
         self.to_c_str().with_ref(f)
@@ -272,13 +322,10 @@ impl<'a> ToCStr for &'a [u8] {
 
     unsafe fn to_c_str_unchecked(&self) -> CString {
         let self_len = self.len();
-        let buf = libc::malloc(self_len as libc::size_t + 1) as *mut u8;
-        if buf.is_null() {
-            fail!("failed to allocate memory!");
-        }
+        let buf = malloc_raw(self_len + 1);
 
         ptr::copy_memory(buf, self.as_ptr(), self_len);
-        *ptr::mut_offset(buf, self_len as int) = 0;
+        *buf.offset(self_len as int) = 0;
 
         CString::new(buf as *libc::c_char, true)
     }
@@ -295,7 +342,7 @@ impl<'a> ToCStr for &'a [u8] {
 // Unsafe function that handles possibly copying the &[u8] into a stack array.
 unsafe fn with_c_str<T>(v: &[u8], checked: bool, f: |*libc::c_char| -> T) -> T {
     if v.len() < BUF_LEN {
-        let mut buf: [u8, .. BUF_LEN] = intrinsics::uninit();
+        let mut buf: [u8, .. BUF_LEN] = mem::uninit();
         vec::bytes::copy_memory(buf, v);
         buf[v.len()] = 0;
 
@@ -317,12 +364,7 @@ fn check_for_null(v: &[u8], buf: *mut libc::c_char) {
     for i in range(0, v.len()) {
         unsafe {
             let p = buf.offset(i as int);
-            if *p == 0 {
-                match null_byte::cond.raise(v.to_owned()) {
-                    Truncate => break,
-                    ReplaceWith(c) => *p = c
-                }
-            }
+            assert!(*p != 0);
         }
     }
 }
@@ -332,7 +374,7 @@ fn check_for_null(v: &[u8], buf: *mut libc::c_char) {
 /// Use with the `std::iter` module.
 pub struct CChars<'a> {
     priv ptr: *libc::c_char,
-    priv lifetime: &'a libc::c_char, // FIXME: #5922
+    priv marker: marker::ContravariantLifetime<'a>,
 }
 
 impl<'a> Iterator<libc::c_char> for CChars<'a> {
@@ -341,7 +383,7 @@ impl<'a> Iterator<libc::c_char> for CChars<'a> {
         if ch == 0 {
             None
         } else {
-            self.ptr = unsafe { ptr::offset(self.ptr, 1) };
+            self.ptr = unsafe { self.ptr.offset(1) };
             Some(ch)
         }
     }
@@ -390,7 +432,7 @@ mod tests {
             let expected = ["zero", "one"];
             let mut it = expected.iter();
             let result = from_c_multistring(ptr as *libc::c_char, None, |c| {
-                let cbytes = c.as_bytes().slice_to(c.len());
+                let cbytes = c.as_bytes_no_nul();
                 assert_eq!(cbytes, it.next().unwrap().as_bytes());
             });
             assert_eq!(result, 2);
@@ -402,18 +444,18 @@ mod tests {
     fn test_str_to_c_str() {
         "".to_c_str().with_ref(|buf| {
             unsafe {
-                assert_eq!(*ptr::offset(buf, 0), 0);
+                assert_eq!(*buf.offset(0), 0);
             }
         });
 
         "hello".to_c_str().with_ref(|buf| {
             unsafe {
-                assert_eq!(*ptr::offset(buf, 0), 'h' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 1), 'e' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 2), 'l' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 3), 'l' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 4), 'o' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 5), 0);
+                assert_eq!(*buf.offset(0), 'h' as libc::c_char);
+                assert_eq!(*buf.offset(1), 'e' as libc::c_char);
+                assert_eq!(*buf.offset(2), 'l' as libc::c_char);
+                assert_eq!(*buf.offset(3), 'l' as libc::c_char);
+                assert_eq!(*buf.offset(4), 'o' as libc::c_char);
+                assert_eq!(*buf.offset(5), 0);
             }
         })
     }
@@ -423,28 +465,28 @@ mod tests {
         let b: &[u8] = [];
         b.to_c_str().with_ref(|buf| {
             unsafe {
-                assert_eq!(*ptr::offset(buf, 0), 0);
+                assert_eq!(*buf.offset(0), 0);
             }
         });
 
         let _ = bytes!("hello").to_c_str().with_ref(|buf| {
             unsafe {
-                assert_eq!(*ptr::offset(buf, 0), 'h' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 1), 'e' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 2), 'l' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 3), 'l' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 4), 'o' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 5), 0);
+                assert_eq!(*buf.offset(0), 'h' as libc::c_char);
+                assert_eq!(*buf.offset(1), 'e' as libc::c_char);
+                assert_eq!(*buf.offset(2), 'l' as libc::c_char);
+                assert_eq!(*buf.offset(3), 'l' as libc::c_char);
+                assert_eq!(*buf.offset(4), 'o' as libc::c_char);
+                assert_eq!(*buf.offset(5), 0);
             }
         });
 
         let _ = bytes!("foo", 0xff).to_c_str().with_ref(|buf| {
             unsafe {
-                assert_eq!(*ptr::offset(buf, 0), 'f' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 1), 'o' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 2), 'o' as libc::c_char);
-                assert_eq!(*ptr::offset(buf, 3), 0xff as i8);
-                assert_eq!(*ptr::offset(buf, 4), 0);
+                assert_eq!(*buf.offset(0), 'f' as libc::c_char);
+                assert_eq!(*buf.offset(1), 'o' as libc::c_char);
+                assert_eq!(*buf.offset(2), 'o' as libc::c_char);
+                assert_eq!(*buf.offset(3), 0xff as i8);
+                assert_eq!(*buf.offset(4), 0);
             }
         });
     }
@@ -459,7 +501,7 @@ mod tests {
     #[test]
     fn test_unwrap() {
         let c_str = "hello".to_c_str();
-        unsafe { libc::free(c_str.unwrap() as *libc::c_void) }
+        unsafe { libc::free(c_str.unwrap() as *mut libc::c_void) }
     }
 
     #[test]
@@ -496,29 +538,8 @@ mod tests {
 
     #[test]
     fn test_to_c_str_fail() {
-        use c_str::null_byte::cond;
-
-        let mut error_happened = false;
-        cond.trap(|err| {
-            assert_eq!(err, bytes!("he", 0, "llo").to_owned())
-            error_happened = true;
-            Truncate
-        }).inside(|| "he\x00llo".to_c_str());
-        assert!(error_happened);
-
-        cond.trap(|_| {
-            ReplaceWith('?' as libc::c_char)
-        }).inside(|| "he\x00llo".to_c_str()).with_ref(|buf| {
-            unsafe {
-                assert_eq!(*buf.offset(0), 'h' as libc::c_char);
-                assert_eq!(*buf.offset(1), 'e' as libc::c_char);
-                assert_eq!(*buf.offset(2), '?' as libc::c_char);
-                assert_eq!(*buf.offset(3), 'l' as libc::c_char);
-                assert_eq!(*buf.offset(4), 'l' as libc::c_char);
-                assert_eq!(*buf.offset(5), 'o' as libc::c_char);
-                assert_eq!(*buf.offset(6), 0);
-            }
-        })
+        use task;
+        assert!(task::try(proc() { "he\x00llo".to_c_str() }).is_err());
     }
 
     #[test]
@@ -547,10 +568,28 @@ mod tests {
     }
 
     #[test]
+    fn test_as_bytes_no_nul() {
+        let c_str = "hello".to_c_str();
+        assert_eq!(c_str.as_bytes_no_nul(), bytes!("hello"));
+        let c_str = "".to_c_str();
+        let exp: &[u8] = [];
+        assert_eq!(c_str.as_bytes_no_nul(), exp);
+        let c_str = bytes!("foo", 0xff).to_c_str();
+        assert_eq!(c_str.as_bytes_no_nul(), bytes!("foo", 0xff));
+    }
+
+    #[test]
     #[should_fail]
     fn test_as_bytes_fail() {
         let c_str = unsafe { CString::new(ptr::null(), false) };
         c_str.as_bytes();
+    }
+
+    #[test]
+    #[should_fail]
+    fn test_as_bytes_no_nul_fail() {
+        let c_str = unsafe { CString::new(ptr::null(), false) };
+        c_str.as_bytes_no_nul();
     }
 
     #[test]
@@ -561,17 +600,74 @@ mod tests {
         assert_eq!(c_str.as_str(), Some(""));
         let c_str = bytes!("foo", 0xff).to_c_str();
         assert_eq!(c_str.as_str(), None);
+    }
+
+    #[test]
+    #[should_fail]
+    fn test_as_str_fail() {
         let c_str = unsafe { CString::new(ptr::null(), false) };
-        assert_eq!(c_str.as_str(), None);
+        c_str.as_str();
+    }
+
+    #[test]
+    #[should_fail]
+    fn test_len_fail() {
+        let c_str = unsafe { CString::new(ptr::null(), false) };
+        c_str.len();
+    }
+
+    #[test]
+    #[should_fail]
+    fn test_iter_fail() {
+        let c_str = unsafe { CString::new(ptr::null(), false) };
+        c_str.iter();
+    }
+
+    #[test]
+    fn test_clone() {
+        let a = "hello".to_c_str();
+        let b = a.clone();
+        assert!(a == b);
+    }
+
+    #[test]
+    fn test_clone_noleak() {
+        fn foo(f: |c: &CString|) {
+            let s = ~"test";
+            let c = s.to_c_str();
+            // give the closure a non-owned CString
+            let mut c_ = c.with_ref(|c| unsafe { CString::new(c, false) } );
+            f(&c_);
+            // muck with the buffer for later printing
+            c_.with_mut_ref(|c| unsafe { *c = 'X' as libc::c_char } );
+        }
+
+        let mut c_: Option<CString> = None;
+        foo(|c| {
+            c_ = Some(c.clone());
+            c.clone();
+            // force a copy, reading the memory
+            c.as_bytes().to_owned();
+        });
+        let c_ = c_.unwrap();
+        // force a copy, reading the memory
+        c_.as_bytes().to_owned();
+    }
+
+    #[test]
+    fn test_clone_eq_null() {
+        let x = unsafe { CString::new(ptr::null(), false) };
+        let y = x.clone();
+        assert!(x == y);
     }
 }
 
 #[cfg(test)]
 mod bench {
-    use extra::test::BenchHarness;
+    extern crate test;
+    use self::test::BenchHarness;
     use libc;
     use prelude::*;
-    use ptr;
 
     #[inline]
     fn check(s: &str, c_str: *libc::c_char) {
@@ -579,8 +675,8 @@ mod bench {
         for i in range(0, s.len()) {
             unsafe {
                 assert_eq!(
-                    *ptr::offset(s_buf, i as int) as libc::c_char,
-                    *ptr::offset(c_str, i as int));
+                    *s_buf.offset(i as int) as libc::c_char,
+                    *c_str.offset(i as int));
             }
         }
     }

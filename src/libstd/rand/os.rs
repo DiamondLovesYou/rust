@@ -62,7 +62,7 @@ impl OSRng {
     pub fn new() -> OSRng {
         use path::Path;
         let reader = File::open(&Path::new("/dev/urandom"));
-        let reader = reader.expect("Error opening /dev/urandom");
+        let reader = reader.ok().expect("Error opening /dev/urandom");
         let reader_rng = ReaderRng::new(reader);
 
         OSRng { inner: reader_rng }
@@ -159,7 +159,7 @@ mod test {
         for _ in range(0, 20) {
             let (p, c) = Chan::new();
             chans.push(c);
-            do task::spawn {
+            task::spawn(proc() {
                 // wait until all the tasks are ready to go.
                 p.recv();
 
@@ -177,7 +177,7 @@ mod test {
                     r.fill_bytes(v);
                     task::deschedule();
                 }
-            }
+            })
         }
 
         // start all the tasks

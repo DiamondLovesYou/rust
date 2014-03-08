@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-fast
+// ignore-fast
 
-extern mod extra;
+extern crate extra;
 
 use extra::tempfile;
 use std::io::File;
@@ -21,8 +21,8 @@ pub fn main() {
 
     {
         match File::create(&path) {
-            None => unreachable!(),
-            Some(f) => {
+            Err(..) => unreachable!(),
+            Ok(f) => {
                 let mut f = f;
                 for _ in range(0u, 1000) {
                     f.write([0]);
@@ -32,5 +32,5 @@ pub fn main() {
     }
 
     assert!(path.exists());
-    assert_eq!(path.stat().size, 1000);
+    assert_eq!(path.stat().unwrap().size, 1000);
 }

@@ -72,7 +72,7 @@ totaleq_impl!(uint)
 
 totaleq_impl!(char)
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, Eq, Show)]
 pub enum Ordering { Less = -1, Equal = 0, Greater = 1 }
 
 /// Trait for types that form a total order
@@ -169,6 +169,8 @@ pub trait Ord {
     fn gt(&self, other: &Self) -> bool {  other.lt(self) }
     #[inline]
     fn ge(&self, other: &Self) -> bool { !self.lt(other) }
+
+    // FIXME (#12068): Add min/max/clamp default methods
 }
 
 /// The equivalence relation. Two values may be equivalent even if they are

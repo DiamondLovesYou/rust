@@ -130,15 +130,15 @@ and so on.
 use middle::pat_util::{pat_bindings};
 use middle::freevars;
 use middle::ty;
-use middle::typeck::method_map;
+use middle::typeck::MethodMap;
 use util::ppaux;
 use util::ppaux::Repr;
 use util::common::indenter;
 use util::ppaux::UserString;
+use util::nodemap::{NodeMap, NodeSet};
 
-use std::at_vec;
 use std::cell::RefCell;
-use std::hashmap::{HashSet, HashMap};
+use std::rc::Rc;
 use syntax::ast::*;
 use syntax::ast_util;
 use syntax::visit;
@@ -159,9 +159,9 @@ pub struct CaptureVar {
     mode: CaptureMode // How variable is being accessed
 }
 
-pub type CaptureMap = @RefCell<HashMap<NodeId, @[CaptureVar]>>;
+pub type CaptureMap = @RefCell<NodeMap<Rc<~[CaptureVar]>>>;
 
-pub type MovesMap = @RefCell<HashSet<NodeId>>;
+pub type MovesMap = @RefCell<NodeSet>;
 
 /**
  * Set of variable node-ids that are moved.
@@ -169,7 +169,7 @@ pub type MovesMap = @RefCell<HashSet<NodeId>>;
  * Note: The `VariableMovesMap` stores expression ids that
  * are moves, whereas this set stores the ids of the variables
  * that are moved at some point */
-pub type MovedVariablesSet = @RefCell<HashSet<NodeId>>;
+pub type MovedVariablesSet = @RefCell<NodeSet>;
 
 /** See the section Output on the module comment for explanation. */
 #[deriving(Clone)]
@@ -182,7 +182,7 @@ pub struct MoveMaps {
 #[deriving(Clone)]
 struct VisitContext {
     tcx: ty::ctxt,
-    method_map: method_map,
+    method_map: MethodMap,
     move_maps: MoveMaps
 }
 
@@ -208,29 +208,28 @@ impl visit::Visitor<()> for VisitContext {
 }
 
 pub fn compute_moves(tcx: ty::ctxt,
-                     method_map: method_map,
-                     crate: &Crate) -> MoveMaps
+                     method_map: MethodMap,
+                     krate: &Crate) -> MoveMaps
 {
     let mut visit_cx = VisitContext {
         tcx: tcx,
         method_map: method_map,
         move_maps: MoveMaps {
-            moves_map: @RefCell::new(HashSet::new()),
-            capture_map: @RefCell::new(HashMap::new()),
-            moved_variables_set: @RefCell::new(HashSet::new())
+            moves_map: @RefCell::new(NodeSet::new()),
+            capture_map: @RefCell::new(NodeMap::new()),
+            moved_variables_set: @RefCell::new(NodeSet::new())
         }
     };
     let visit_cx = &mut visit_cx;
-    visit::walk_crate(visit_cx, crate, ());
+    visit::walk_crate(visit_cx, krate, ());
     return visit_cx.move_maps;
 }
 
 pub fn moved_variable_node_id_from_def(def: Def) -> Option<NodeId> {
     match def {
-      DefBinding(nid, _) |
-      DefArg(nid, _) |
-      DefLocal(nid, _) |
-      DefSelf(nid, _) => Some(nid),
+        DefBinding(nid, _) |
+        DefArg(nid, _) |
+        DefLocal(nid, _) => Some(nid),
 
       _ => None
     }
@@ -344,7 +343,7 @@ impl VisitContext {
         debug!("comp_mode = {:?}", comp_mode);
 
         match expr.node {
-            ExprPath(..) | ExprSelf => {
+            ExprPath(..) => {
                 match comp_mode {
                     Move => {
                         let def_map = self.tcx.def_map.borrow();
@@ -362,7 +361,7 @@ impl VisitContext {
                 }
             }
 
-            ExprUnary(_, UnDeref, base) => {       // *base
+            ExprUnary(UnDeref, base) => {      // *base
                 if !self.use_overloaded_operator(expr, base, [])
                 {
                     // Moving out of *base moves out of base.
@@ -370,12 +369,12 @@ impl VisitContext {
                 }
             }
 
-            ExprField(base, _, _) => {        // base.f
+            ExprField(base, _, _) => {         // base.f
                 // Moving out of base.f moves out of base.
                 self.use_expr(base, comp_mode);
             }
 
-            ExprIndex(_, lhs, rhs) => {          // lhs[rhs]
+            ExprIndex(lhs, rhs) => {           // lhs[rhs]
                 if !self.use_overloaded_operator(expr, lhs, [rhs])
                 {
                     self.use_expr(lhs, comp_mode);
@@ -383,7 +382,7 @@ impl VisitContext {
                 }
             }
 
-            ExprCall(callee, ref args, _) => {    // callee(args)
+            ExprCall(callee, ref args) => {    // callee(args)
                 // Figure out whether the called function is consumed.
                 let mode = match ty::get(ty::expr_ty(self.tcx, callee)).sty {
                     ty::ty_closure(ref cty) => {
@@ -410,14 +409,11 @@ impl VisitContext {
                     }
                 }
                 self.use_expr(callee, mode);
-                self.use_fn_args(callee.id, *args);
+                self.use_fn_args(args.as_slice());
             }
 
-            ExprMethodCall(callee_id, rcvr, _, _, ref args, _) => { // callee.m(args)
-                // Implicit self is equivalent to & mode, but every
-                // other kind should be + mode.
-                self.use_receiver(rcvr);
-                self.use_fn_args(callee_id, *args);
+            ExprMethodCall(_, _, ref args) => { // callee.m(args)
+                self.use_fn_args(args.as_slice());
             }
 
             ExprStruct(_, ref fields, opt_with) => {
@@ -472,7 +468,7 @@ impl VisitContext {
             }
 
             ExprTup(ref exprs) => {
-                self.consume_exprs(*exprs);
+                self.consume_exprs(exprs.as_slice());
             }
 
             ExprIf(cond_expr, then_blk, opt_else_expr) => {
@@ -501,7 +497,7 @@ impl VisitContext {
             }
 
             ExprVec(ref exprs, _) => {
-                self.consume_exprs(*exprs);
+                self.consume_exprs(exprs.as_slice());
             }
 
             ExprAddrOf(_, base) => {   // &base
@@ -525,14 +521,14 @@ impl VisitContext {
 
             ExprForLoop(..) => fail!("non-desugared expr_for_loop"),
 
-            ExprUnary(_, _, lhs) => {
+            ExprUnary(_, lhs) => {
                 if !self.use_overloaded_operator(expr, lhs, [])
                 {
                     self.consume_expr(lhs);
                 }
             }
 
-            ExprBinary(_, _, lhs, rhs) => {
+            ExprBinary(_, lhs, rhs) => {
                 if !self.use_overloaded_operator(expr, lhs, [rhs])
                 {
                     self.consume_expr(lhs);
@@ -559,7 +555,7 @@ impl VisitContext {
                 self.consume_expr(base);
             }
 
-            ExprAssignOp(_, _, lhs, rhs) => {
+            ExprAssignOp(_, lhs, rhs) => {
                 // FIXME(#4712) --- Overloaded operators?
                 //
                 // if !self.use_overloaded_operator(expr, DoDerefArgs, lhs, [rhs])
@@ -572,10 +568,6 @@ impl VisitContext {
             ExprRepeat(base, count, _) => {
                 self.consume_expr(base);
                 self.consume_expr(count);
-            }
-
-            ExprDoBody(base) => {
-                self.use_expr(base, comp_mode);
             }
 
             ExprFnBlock(ref decl, body) |
@@ -620,7 +612,7 @@ impl VisitContext {
             return false;
         }
 
-        self.use_receiver(receiver_expr);
+        self.use_fn_arg(receiver_expr);
 
         // for overloaded operatrs, we are always passing in a
         // reference, so it's always read mode:
@@ -640,7 +632,7 @@ impl VisitContext {
             self.consume_expr(*guard);
         }
 
-        self.consume_block(arm.body);
+        self.consume_expr(arm.body);
     }
 
     pub fn use_pat(&mut self, pat: @Pat) {
@@ -675,13 +667,7 @@ impl VisitContext {
         })
     }
 
-    pub fn use_receiver(&mut self,
-                        receiver_expr: @Expr) {
-        self.use_fn_arg(receiver_expr);
-    }
-
     pub fn use_fn_args(&mut self,
-                       _: NodeId,
                        arg_exprs: &[@Expr]) {
         //! Uses the argument expressions.
         for arg_expr in arg_exprs.iter() {
@@ -694,23 +680,22 @@ impl VisitContext {
         self.consume_expr(arg_expr)
     }
 
-    pub fn compute_captures(&mut self, fn_expr_id: NodeId) -> @[CaptureVar] {
+    pub fn compute_captures(&mut self, fn_expr_id: NodeId) -> Rc<~[CaptureVar]> {
         debug!("compute_capture_vars(fn_expr_id={:?})", fn_expr_id);
         let _indenter = indenter();
 
         let fn_ty = ty::node_id_to_type(self.tcx, fn_expr_id);
         let sigil = ty::ty_closure_sigil(fn_ty);
         let freevars = freevars::get_freevars(self.tcx, fn_expr_id);
-        if sigil == BorrowedSigil {
+        let v = if sigil == BorrowedSigil {
             // || captures everything by ref
-            at_vec::from_fn(freevars.len(), |i| {
-                let fvar = &freevars[i];
-                CaptureVar {def: fvar.def, span: fvar.span, mode: CapRef}
-            })
+            freevars.iter()
+                    .map(|fvar| CaptureVar {def: fvar.def, span: fvar.span, mode: CapRef})
+                    .collect()
         } else {
             // @fn() and ~fn() capture by copy or by move depending on type
-            at_vec::from_fn(freevars.len(), |i| {
-                let fvar = &freevars[i];
+            freevars.iter()
+                    .map(|fvar| {
                 let fvar_def_id = ast_util::def_id_of_def(fvar.def).node;
                 let fvar_ty = ty::node_id_to_type(self.tcx, fvar_def_id);
                 debug!("fvar_def_id={:?} fvar_ty={}",
@@ -721,7 +706,9 @@ impl VisitContext {
                     CapCopy
                 };
                 CaptureVar {def: fvar.def, span: fvar.span, mode:mode}
-            })
-        }
+
+                }).collect()
+        };
+        Rc::new(v)
     }
 }

@@ -16,8 +16,8 @@ use std::vec;
 use middle::borrowck::*;
 use mc = middle::mem_categorization;
 use middle::ty;
-use syntax::ast::{MutImmutable, MutMutable};
 use syntax::codemap::Span;
+use util::ppaux::Repr;
 
 pub enum RestrictionResult {
     Safe,
@@ -26,12 +26,14 @@ pub enum RestrictionResult {
 
 pub fn compute_restrictions(bccx: &BorrowckCtxt,
                             span: Span,
+                            cause: LoanCause,
                             cmt: mc::cmt,
                             loan_region: ty::Region,
                             restr: RestrictionSet) -> RestrictionResult {
     let ctxt = RestrictionsContext {
         bccx: bccx,
         span: span,
+        cause: cause,
         cmt_original: cmt,
         loan_region: loan_region,
     };
@@ -47,21 +49,16 @@ struct RestrictionsContext<'a> {
     span: Span,
     cmt_original: mc::cmt,
     loan_region: ty::Region,
+    cause: LoanCause,
 }
 
 impl<'a> RestrictionsContext<'a> {
     fn restrict(&self,
                 cmt: mc::cmt,
                 restrictions: RestrictionSet) -> RestrictionResult {
-
-        // Check for those cases where we cannot control the aliasing
-        // and make sure that we are not being asked to.
-        match cmt.freely_aliasable() {
-            None => {}
-            Some(cause) => {
-                self.check_aliasing_permitted(cause, restrictions);
-            }
-        }
+        debug!("restrict(cmt={}, restrictions={})",
+               cmt.repr(self.bccx.tcx),
+               restrictions.repr(self.bccx.tcx));
 
         match cmt.cat {
             mc::cat_rvalue(..) => {
@@ -75,7 +72,7 @@ impl<'a> RestrictionsContext<'a> {
 
             mc::cat_local(local_id) |
             mc::cat_arg(local_id) |
-            mc::cat_self(local_id) => {
+            mc::cat_upvar(ty::UpvarId {var_id: local_id, ..}, _) => {
                 // R-Variable
                 let lp = @LpVar(local_id);
                 SafeIf(lp, ~[Restriction {loan_path: lp,
@@ -88,7 +85,7 @@ impl<'a> RestrictionsContext<'a> {
                 // could cause the type of the memory to change.
                 self.restrict(
                     cmt_base,
-                    restrictions | RESTR_MUTATE | RESTR_CLAIM)
+                    restrictions | RESTR_MUTATE)
             }
 
             mc::cat_interior(cmt_base, i) => {
@@ -101,7 +98,7 @@ impl<'a> RestrictionsContext<'a> {
                 self.extend(result, cmt.mutbl, LpInterior(i), restrictions)
             }
 
-            mc::cat_deref(cmt_base, _, pk @ mc::uniq_ptr) => {
+            mc::cat_deref(cmt_base, _, pk @ mc::OwnedPtr) => {
                 // R-Deref-Send-Pointer
                 //
                 // When we borrow the interior of an owned pointer, we
@@ -109,7 +106,7 @@ impl<'a> RestrictionsContext<'a> {
                 // would cause the unique pointer to be freed.
                 let result = self.restrict(
                     cmt_base,
-                    restrictions | RESTR_MUTATE | RESTR_CLAIM);
+                    restrictions | RESTR_MUTATE);
                 self.extend(result, cmt.mutbl, LpDeref(pk), restrictions)
             }
 
@@ -118,12 +115,14 @@ impl<'a> RestrictionsContext<'a> {
                 Safe
             }
 
-            mc::cat_deref(cmt_base, _, mc::region_ptr(MutImmutable, lt)) => {
+            mc::cat_deref(cmt_base, _, mc::BorrowedPtr(ty::ImmBorrow, lt)) |
+            mc::cat_deref(cmt_base, _, mc::BorrowedPtr(ty::UniqueImmBorrow, lt)) => {
                 // R-Deref-Imm-Borrowed
                 if !self.bccx.is_subregion_of(self.loan_region, lt) {
                     self.bccx.report(
                         BckError {
                             span: self.span,
+                            cause: self.cause,
                             cmt: cmt_base,
                             code: err_borrowed_pointer_too_short(
                                 self.loan_region, lt, restrictions)});
@@ -132,17 +131,18 @@ impl<'a> RestrictionsContext<'a> {
                 Safe
             }
 
-            mc::cat_deref(_, _, mc::gc_ptr) => {
+            mc::cat_deref(_, _, mc::GcPtr) => {
                 // R-Deref-Imm-Managed
                 Safe
             }
 
-            mc::cat_deref(cmt_base, _, pk @ mc::region_ptr(MutMutable, lt)) => {
+            mc::cat_deref(cmt_base, _, pk @ mc::BorrowedPtr(ty::MutBorrow, lt)) => {
                 // R-Deref-Mut-Borrowed
                 if !self.bccx.is_subregion_of(self.loan_region, lt) {
                     self.bccx.report(
                         BckError {
                             span: self.span,
+                            cause: self.cause,
                             cmt: cmt_base,
                             code: err_borrowed_pointer_too_short(
                                 self.loan_region, lt, restrictions)});
@@ -153,12 +153,11 @@ impl<'a> RestrictionsContext<'a> {
                 self.extend(result, cmt.mutbl, LpDeref(pk), restrictions)
             }
 
-            mc::cat_deref(_, _, mc::unsafe_ptr(..)) => {
+            mc::cat_deref(_, _, mc::UnsafePtr(..)) => {
                 // We are very trusting when working with unsafe pointers.
                 Safe
             }
 
-            mc::cat_stack_upvar(cmt_base) |
             mc::cat_discr(cmt_base, _) => {
                 self.restrict(cmt_base, restrictions)
             }
@@ -178,30 +177,6 @@ impl<'a> RestrictionsContext<'a> {
                                            Restriction {loan_path: lp,
                                                         set: restrictions}))
             }
-        }
-    }
-
-    fn check_aliasing_permitted(&self,
-                                cause: mc::AliasableReason,
-                                restrictions: RestrictionSet) {
-        //! This method is invoked when the current `cmt` is something
-        //! where aliasing cannot be controlled. It reports an error if
-        //! the restrictions required that it not be aliased; currently
-        //! this only occurs when re-borrowing an `&mut` pointer.
-        //!
-        //! NB: To be 100% consistent, we should report an error if
-        //! RESTR_FREEZE is found, because we cannot prevent freezing,
-        //! nor would we want to. However, we do not report such an
-        //! error, because this restriction only occurs when the user
-        //! is creating an `&mut` pointer to immutable or read-only
-        //! data, and there is already another piece of code that
-        //! checks for this condition.
-
-        if restrictions.intersects(RESTR_ALIAS) {
-            self.bccx.report_aliasability_violation(
-                self.span,
-                BorrowViolation,
-                cause);
         }
     }
 }

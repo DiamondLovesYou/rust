@@ -8,12 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[no_freeze]
-enum Foo { A }
+use std::kinds::marker;
+
+enum Foo { A(marker::NoFreeze) }
 
 fn bar<T: Freeze>(_: T) {}
 
 fn main() {
-    let x = A;
-    bar(x); //~ ERROR instantiating a type parameter with an incompatible type `Foo`, which does not fulfill `Freeze`
+    let x = A(marker::NoFreeze);
+    bar(x);
+    //~^ ERROR instantiating a type parameter with an incompatible type `Foo`,
+    //         which does not fulfill `Freeze`
 }

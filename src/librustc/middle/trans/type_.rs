@@ -13,8 +13,6 @@
 use lib::llvm::{llvm, TypeRef, Bool, False, True, TypeKind};
 use lib::llvm::{Float, Double, X86_FP80, PPC_FP128, FP128};
 
-use middle::ty;
-
 use middle::trans::context::CrateContext;
 use middle::trans::base;
 
@@ -27,7 +25,7 @@ use std::cast;
 
 use std::libc::{c_uint};
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, Eq, Show)]
 pub struct Type {
     priv rf: TypeRef
 }
@@ -160,10 +158,6 @@ impl Type {
                                    args.len() as c_uint, True))
     }
 
-    pub fn func_pair(cx: &CrateContext, fn_ty: &Type) -> Type {
-        Type::struct_([fn_ty.ptr_to(), Type::opaque_cbox_ptr(cx)], false)
-    }
-
     pub fn ptr(ty: Type) -> Type {
         ty!(llvm::LLVMPointerType(ty.to_ref(), 0 as c_uint))
     }
@@ -184,7 +178,7 @@ impl Type {
     }
 
     pub fn vtable() -> Type {
-        Type::array(&Type::i8().ptr_to(), 1)
+        Type::array(&Type::i8p().ptr_to(), 1)
     }
 
     pub fn generic_glue_fn(cx: &CrateContext) -> Type {
@@ -200,8 +194,7 @@ impl Type {
     }
 
     pub fn glue_fn(t: Type) -> Type {
-        Type::func([ Type::nil().ptr_to(), t ],
-            &Type::void())
+        Type::func([t], &Type::void())
     }
 
     pub fn tydesc(arch: Architecture) -> Type {
@@ -213,11 +206,9 @@ impl Type {
         // Must mirror:
         //
         // std::unstable::intrinsics::TyDesc
-        // type_desc in rt
 
         let elems = [int_ty,     // size
                      int_ty,     // align
-                     glue_fn_ty, // take
                      glue_fn_ty, // drop
                      glue_fn_ty, // visit
                      Type::struct_([Type::i8p(), Type::int(arch)], false)]; // name
@@ -244,42 +235,17 @@ impl Type {
         Type::vec(arch, &Type::i8())
     }
 
-    #[inline]
-    pub fn box_header_fields(ctx: &CrateContext) -> ~[Type] {
-        ~[
-            ctx.int_type, ctx.tydesc_type.ptr_to(),
-            Type::i8().ptr_to(), Type::i8().ptr_to()
-        ]
+    // The box pointed to by @T.
+    pub fn at_box(ctx: &CrateContext, ty: Type) -> Type {
+        Type::struct_([
+            ctx.int_type, Type::glue_fn(Type::i8p()).ptr_to(),
+            Type::i8p(), Type::i8p(), ty
+        ], false)
     }
 
-    pub fn box_header(ctx: &CrateContext) -> Type {
-        Type::struct_(Type::box_header_fields(ctx), false)
-    }
-
-    pub fn smart_ptr(ctx: &CrateContext, ty: &Type) -> Type {
-        Type::struct_(Type::box_header_fields(ctx) + &[*ty], false)
-    }
-
-    pub fn opaque() -> Type {
-        Type::i8()
-    }
-
-    pub fn opaque_box(ctx: &CrateContext) -> Type {
-        Type::smart_ptr(ctx, &Type::opaque())
-    }
-
-    pub fn opaque_cbox_ptr(cx: &CrateContext) -> Type {
-        Type::opaque_box(cx).ptr_to()
-    }
-
-    pub fn opaque_trait(ctx: &CrateContext, store: ty::TraitStore) -> Type {
-        let tydesc_ptr = ctx.tydesc_type.ptr_to();
-        let box_ty = match store {
-            ty::BoxTraitStore => Type::opaque_box(ctx),
-            ty::UniqTraitStore => Type::i8(),
-            ty::RegionTraitStore(..) => Type::i8()
-        };
-        Type::struct_([tydesc_ptr, box_ty.ptr_to()], false)
+    pub fn opaque_trait() -> Type {
+        let vtable = Type::glue_fn(Type::i8p()).ptr_to().ptr_to();
+        Type::struct_([vtable, Type::i8p()], false)
     }
 
     pub fn kind(&self) -> TypeKind {

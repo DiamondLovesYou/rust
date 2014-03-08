@@ -13,26 +13,27 @@ use lib::llvm::{ValueRef, llvm};
 use middle::trans::adt;
 use middle::trans::base::*;
 use middle::trans::build::*;
-use middle::trans::callee::{ArgVals, DontAutorefArg};
+use middle::trans::callee::ArgVals;
 use middle::trans::callee;
 use middle::trans::common::*;
 use middle::trans::datum::*;
 use middle::trans::glue;
 use middle::trans::machine;
 use middle::trans::meth;
+use middle::trans::type_::Type;
 use middle::trans::type_of::*;
 use middle::ty;
 use util::ppaux::ty_to_str;
 
+use arena::TypedArena;
 use std::libc::c_uint;
 use std::option::{Some,None};
 use std::vec;
 use syntax::ast::DefId;
 use syntax::ast;
-use syntax::ast_map::PathName;
-use syntax::parse::token::special_idents;
-
-use middle::trans::type_::Type;
+use syntax::ast_map;
+use syntax::parse::token::{InternedString, special_idents};
+use syntax::parse::token;
 
 pub struct Reflector<'a> {
     visitor_val: ValueRef,
@@ -55,14 +56,14 @@ impl<'a> Reflector<'a> {
         C_bool(b)
     }
 
-    pub fn c_slice(&mut self, s: @str) -> ValueRef {
+    pub fn c_slice(&mut self, s: InternedString) -> ValueRef {
         // We're careful to not use first class aggregates here because that
         // will kick us off fast isel. (Issue #4352.)
         let bcx = self.bcx;
         let str_vstore = ty::vstore_slice(ty::ReStatic);
         let str_ty = ty::mk_str(bcx.tcx(), str_vstore);
         let scratch = rvalue_scratch_datum(bcx, str_ty, "");
-        let len = C_uint(bcx.ccx(), s.len());
+        let len = C_uint(bcx.ccx(), s.get().len());
         let c_str = PointerCast(bcx, C_cstr(bcx.ccx(), s), Type::i8p());
         Store(bcx, c_str, GEPi(bcx, scratch.val, [ 0, 0 ]));
         Store(bcx, len, GEPi(bcx, scratch.val, [ 0, 1 ]));
@@ -73,14 +74,14 @@ impl<'a> Reflector<'a> {
         let tr = type_of(self.bcx.ccx(), t);
         let s = machine::llsize_of_real(self.bcx.ccx(), tr);
         let a = machine::llalign_of_min(self.bcx.ccx(), tr);
-        return ~[self.c_uint(s),
-             self.c_uint(a)];
+        return ~[self.c_uint(s as uint),
+             self.c_uint(a as uint)];
     }
 
     pub fn c_tydesc(&mut self, t: ty::t) -> ValueRef {
         let bcx = self.bcx;
         let static_ti = get_tydesc(bcx.ccx(), t);
-        glue::lazily_emit_all_tydesc_glue(bcx.ccx(), static_ti);
+        glue::lazily_emit_visit_glue(bcx.ccx(), static_ti);
         PointerCast(bcx, static_ti.tydesc, self.tydesc_ty.ptr_to())
     }
 
@@ -93,8 +94,8 @@ impl<'a> Reflector<'a> {
         let fcx = self.bcx.fcx;
         let tcx = self.bcx.tcx();
         let mth_idx = ty::method_idx(
-            tcx.sess.ident_of(~"visit_" + ty_name),
-            *self.visitor_methods).expect(format!("Couldn't find visit method \
+            token::str_to_ident(~"visit_" + ty_name),
+            *self.visitor_methods).expect(format!("couldn't find visit method \
                                                 for {}", ty_name));
         let mth_ty =
             ty::mk_bare_fn(tcx, self.visitor_methods[mth_idx].fty.clone());
@@ -104,14 +105,13 @@ impl<'a> Reflector<'a> {
         for (i, a) in args.iter().enumerate() {
             debug!("arg {}: {}", i, bcx.val_to_str(*a));
         }
-        let bool_ty = ty::mk_bool();
         let result = unpack_result!(bcx, callee::trans_call_inner(
-            self.bcx, None, mth_ty, bool_ty,
+            self.bcx, None, mth_ty,
             |bcx, _| meth::trans_trait_callee_from_llval(bcx,
                                                          mth_ty,
                                                          mth_idx,
                                                          v),
-            ArgVals(args), None, DontAutorefArg));
+            ArgVals(args), None));
         let result = bool_to_i1(bcx, result);
         let next_bcx = fcx.new_temp_block("next");
         CondBr(bcx, result, next_bcx.llbb, self.final_bcx.llbb);
@@ -139,7 +139,6 @@ impl<'a> Reflector<'a> {
             }
             ty::vstore_slice(_) => (~"slice", ~[]),
             ty::vstore_uniq => (~"uniq", ~[]),
-            ty::vstore_box => (~"box", ~[])
         }
     }
 
@@ -259,15 +258,19 @@ impl<'a> Reflector<'a> {
                         fields[0].ident.name != special_idents::unnamed_field.name;
               }
 
-              let extra = ~[self.c_slice(ty_to_str(tcx, t).to_managed()),
-                            self.c_bool(named_fields),
-                            self.c_uint(fields.len())] + self.c_size_and_align(t);
+              let extra = ~[
+                  self.c_slice(token::intern_and_get_ident(ty_to_str(tcx,
+                                                                     t))),
+                  self.c_bool(named_fields),
+                  self.c_uint(fields.len())
+              ] + self.c_size_and_align(t);
               self.bracketed("class", extra, |this| {
                   for (i, field) in fields.iter().enumerate() {
-                      let extra = ~[this.c_uint(i),
-                                    this.c_slice(bcx.ccx().sess.str_of(field.ident)),
-                                    this.c_bool(named_fields)]
-                          + this.c_mt(&field.mt);
+                      let extra = ~[
+                        this.c_uint(i),
+                        this.c_slice(token::get_ident(field.ident)),
+                        this.c_bool(named_fields)
+                      ] + this.c_mt(&field.mt);
                       this.visit("class_field", extra);
                   }
               })
@@ -287,17 +290,13 @@ impl<'a> Reflector<'a> {
                                                            mutbl: ast::MutImmutable });
 
             let make_get_disr = || {
-                let sub_path = bcx.fcx.path + &[PathName(special_idents::anon)];
-                let sym = mangle_internal_name_by_path_and_seq(ccx,
-                                                               sub_path,
-                                                               "get_disr");
+                let sym = mangle_internal_name_by_path_and_seq(
+                    ast_map::Values([].iter()).chain(None), "get_disr");
 
-                let llfdecl = decl_internal_rust_fn(ccx, None, [opaqueptrty], ty::mk_u64(), sym);
-                let fcx = new_fn_ctxt(ccx,
-                                      ~[],
-                                      llfdecl,
-                                      ty::mk_u64(),
-                                      None);
+                let llfdecl = decl_internal_rust_fn(ccx, false, [opaqueptrty], ty::mk_u64(), sym);
+                let arena = TypedArena::new();
+                let fcx = new_fn_ctxt(ccx, llfdecl, -1, false,
+                                      ty::mk_u64(), None, None, &arena);
                 init_function(&fcx, false, ty::mk_u64(), None);
 
                 let arg = unsafe {
@@ -324,7 +323,7 @@ impl<'a> Reflector<'a> {
                 + self.c_size_and_align(t);
             self.bracketed("enum", enum_args, |this| {
                 for (i, v) in variants.iter().enumerate() {
-                    let name = ccx.sess.str_of(v.name);
+                    let name = token::get_ident(v.name);
                     let variant_args = ~[this.c_uint(i),
                                          C_u64(v.disr_val),
                                          this.c_uint(v.args.len()),
@@ -346,7 +345,9 @@ impl<'a> Reflector<'a> {
           }
 
           ty::ty_trait(_, _, _, _, _) => {
-              let extra = [self.c_slice(ty_to_str(tcx, t).to_managed())];
+              let extra = [
+                  self.c_slice(token::intern_and_get_ident(ty_to_str(tcx, t)))
+              ];
               self.visit("trait", extra);
           }
 
@@ -357,13 +358,7 @@ impl<'a> Reflector<'a> {
               let extra = ~[self.c_uint(p.idx)];
               self.visit("param", extra)
           }
-          ty::ty_self(..) => self.leaf("self"),
-          ty::ty_type => self.leaf("type"),
-          ty::ty_opaque_closure_ptr(ck) => {
-              let ckval = ast_sigil_constant(ck);
-              let extra = ~[self.c_uint(ckval)];
-              self.visit("closure_ptr", extra)
-          }
+          ty::ty_self(..) => self.leaf("self")
         }
     }
 

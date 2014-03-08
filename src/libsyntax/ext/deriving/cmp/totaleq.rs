@@ -14,33 +14,36 @@ use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
 
-pub fn expand_deriving_totaleq(cx: &ExtCtxt,
+use std::vec_ng::Vec;
+
+pub fn expand_deriving_totaleq(cx: &mut ExtCtxt,
                                span: Span,
                                mitem: @MetaItem,
-                               in_items: ~[@Item]) -> ~[@Item] {
-    fn cs_equals(cx: &ExtCtxt, span: Span, substr: &Substructure) -> @Expr {
+                               item: @Item,
+                               push: |@Item|) {
+    fn cs_equals(cx: &mut ExtCtxt, span: Span, substr: &Substructure) -> @Expr {
         cs_and(|cx, span, _, _| cx.expr_bool(span, false),
                cx, span, substr)
     }
 
     let trait_def = TraitDef {
-        cx: cx, span: span,
-
-        path: Path::new(~["std", "cmp", "TotalEq"]),
-        additional_bounds: ~[],
+        span: span,
+        attributes: Vec::new(),
+        path: Path::new(vec!("std", "cmp", "TotalEq")),
+        additional_bounds: Vec::new(),
         generics: LifetimeBounds::empty(),
-        methods: ~[
+        methods: vec!(
             MethodDef {
                 name: "equals",
                 generics: LifetimeBounds::empty(),
                 explicit_self: borrowed_explicit_self(),
-                args: ~[borrowed_self()],
-                ret_ty: Literal(Path::new(~["bool"])),
+                args: vec!(borrowed_self()),
+                ret_ty: Literal(Path::new(vec!("bool"))),
                 inline: true,
                 const_nonmatching: true,
                 combine_substructure: cs_equals
             }
-        ]
+        )
     };
-    trait_def.expand(mitem, in_items)
+    trait_def.expand(cx, mitem, item, push)
 }

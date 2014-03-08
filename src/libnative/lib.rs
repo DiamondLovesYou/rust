@@ -8,19 +8,48 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! The native runtime crate
+//! The native I/O and threading crate
 //!
 //! This crate contains an implementation of 1:1 scheduling for a "native"
 //! runtime. In addition, all I/O provided by this crate is the thread blocking
 //! version of I/O.
+//!
+//! # Starting with libnative
+//!
+//! ```rust
+//! extern crate native;
+//!
+//! #[start]
+//! fn start(argc: int, argv: **u8) -> int { native::start(argc, argv, main) }
+//!
+//! fn main() {
+//!     // this code is running on the main OS thread
+//! }
+//! ```
+//!
+//! # Force spawning a native task
+//!
+//! ```rust
+//! extern crate native;
+//!
+//! fn main() {
+//!     // We're not sure whether this main function is run in 1:1 or M:N mode.
+//!
+//!     native::task::spawn(proc() {
+//!         // this code is guaranteed to be run on a native thread
+//!     });
+//! }
+//! ```
 
 #[crate_id = "native#0.10-pre"];
 #[license = "MIT/ASL2"];
 #[crate_type = "rlib"];
 #[crate_type = "dylib"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk.png",
+#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://static.rust-lang.org/doc/master")];
+#[deny(unused_result, unused_must_use)];
+#[allow(non_camel_case_types)];
 
 // NB this crate explicitly does *not* allow glob imports, please seriously
 //    consider whether they're needed before adding that feature here (the
@@ -29,7 +58,6 @@
 use std::os;
 use std::rt;
 
-mod bookkeeping;
 pub mod io;
 pub mod task;
 
@@ -61,9 +89,10 @@ pub fn start(argc: int, argv: **u8, main: proc()) -> int {
     rt::init(argc, argv);
     let mut exit_code = None;
     let mut main = Some(main);
-    task::new((my_stack_bottom, my_stack_top)).run(|| {
+    let t = task::new((my_stack_bottom, my_stack_top)).run(|| {
         exit_code = Some(run(main.take_unwrap()));
     });
+    drop(t);
     unsafe { rt::cleanup(); }
     // If the exit code wasn't set, then the task block must have failed.
     return exit_code.unwrap_or(rt::DEFAULT_ERROR_CODE);
@@ -75,6 +104,5 @@ pub fn start(argc: int, argv: **u8, main: proc()) -> int {
 /// number of arguments.
 pub fn run(main: proc()) -> int {
     main();
-    bookkeeping::wait_for_other_tasks();
     os::get_exit_status()
 }

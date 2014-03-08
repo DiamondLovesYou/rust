@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -11,19 +11,19 @@
 // This actually tests a lot more than just encodable/decodable, but it gets the
 // job done at least
 
-// xfail-fast
-// xfail-test FIXME(#5121)
+// ignore-fast
+// ignore-test FIXME(#5121)
 
 #[feature(struct_variant, managed_boxes)];
 
-extern mod extra;
+extern crate serialize;
 
 use std::io::MemWriter;
 use std::rand::{random, Rand};
-use extra::serialize::{Encodable, Decodable};
-use extra::ebml;
-use extra::ebml::writer::Encoder;
-use extra::ebml::reader::Decoder;
+use serialize::{Encodable, Decodable};
+use serialize::ebml;
+use serialize::ebml::writer::Encoder;
+use serialize::ebml::reader::Decoder;
 
 #[deriving(Encodable, Decodable, Eq, Rand)]
 struct A;
@@ -54,7 +54,7 @@ struct G<T> {
     t: T
 }
 
-fn roundtrip<'a, T: Rand + Eq + Encodable<Encoder> +
+fn roundtrip<'a, T: Rand + Eq + Encodable<Encoder<'a>> +
                     Decodable<Decoder<'a>>>() {
     let obj: T = random();
     let mut w = MemWriter::new();
@@ -72,9 +72,9 @@ pub fn main() {
     roundtrip::<C>();
     roundtrip::<D>();
 
-    20.times(|| {
+    for _ in range(0, 20) {
         roundtrip::<E>();
         roundtrip::<F>();
         roundtrip::<G<int>>();
-    })
+    }
 }

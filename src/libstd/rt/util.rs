@@ -11,16 +11,18 @@
 use container::Container;
 use fmt;
 use from_str::FromStr;
+use io::IoResult;
 use iter::Iterator;
 use libc;
 use option::{Some, None, Option};
 use os;
+use result::Ok;
 use str::StrSlice;
 use unstable::running_on_valgrind;
 use vec::ImmutableVector;
 
 // Indicates whether we should perform expensive sanity checks, including rtassert!
-// XXX: Once the runtime matures remove the `true` below to turn off rtassert, etc.
+// FIXME: Once the runtime matures remove the `true` below to turn off rtassert, etc.
 pub static ENFORCE_SANITY: bool = true || !cfg!(rtopt) || cfg!(rtdebug) || cfg!(rtassert);
 
 /// Get the number of cores available
@@ -70,20 +72,20 @@ pub fn default_sched_threads() -> uint {
 
 pub fn dumb_println(args: &fmt::Arguments) {
     use io;
-    use libc;
 
     struct Stderr;
     impl io::Writer for Stderr {
-        fn write(&mut self, data: &[u8]) {
+        fn write(&mut self, data: &[u8]) -> IoResult<()> {
             unsafe {
                 libc::write(libc::STDERR_FILENO,
                             data.as_ptr() as *libc::c_void,
                             data.len() as libc::size_t);
             }
+            Ok(()) // yes, we're lying
         }
     }
     let mut w = Stderr;
-    fmt::writeln(&mut w as &mut io::Writer, args);
+    let _ = fmt::writeln(&mut w as &mut io::Writer, args);
 }
 
 pub fn abort(msg: &str) -> ! {
@@ -141,7 +143,7 @@ memory and partly incapable of presentation to others.",
     abort();
 
     fn abort() -> ! {
-        use std::unstable::intrinsics;
+        use intrinsics;
         unsafe { intrinsics::abort() }
     }
 }

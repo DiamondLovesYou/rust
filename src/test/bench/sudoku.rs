@@ -1,6 +1,6 @@
-// xfail-pretty
+// ignore-pretty
 
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -12,13 +12,13 @@
 
 #[feature(managed_boxes)];
 
-extern mod extra;
+extern crate extra;
 
 use std::io;
 use std::io::stdio::StdReader;
 use std::io::BufferedReader;
 use std::os;
-use std::unstable::intrinsics::cttz16;
+use std::intrinsics::cttz16;
 use std::vec;
 
 // Computes a single solution to a given 9x9 sudoku
@@ -278,7 +278,7 @@ fn main() {
     let mut sudoku = if use_default {
         Sudoku::from_vec(&DEFAULT_SUDOKU)
     } else {
-        Sudoku::read(BufferedReader::new(io::stdin()))
+        Sudoku::read(io::stdin())
     };
     sudoku.solve();
     sudoku.write(&mut io::stdout());

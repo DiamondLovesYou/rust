@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test linked failure
+// ignore-test linked failure
 // error-pattern:explicit failure
 // Testing that runtime failure doesn't cause callbacks to abort abnormally.
 // Instead the failure will be delivered after the callbacks return.
@@ -41,11 +41,11 @@ fn count(n: uint) -> uint {
 }
 
 fn main() {
-    do 10u.times {
-        do task::spawn {
+    for _ in range(0, 10u) {
+        task::spawn(proc() {
             let result = count(5u);
             info!("result = %?", result);
             fail!();
-        };
+        });
     }
 }

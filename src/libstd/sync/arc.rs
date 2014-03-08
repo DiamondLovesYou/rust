@@ -80,7 +80,8 @@ impl<T: Send> UnsafeArc<T> {
     #[inline]
     pub fn get(&self) -> *mut T {
         unsafe {
-            assert!((*self.data).count.load(Relaxed) > 0);
+            // FIXME(#12049): this needs some sort of debug assertion
+            if cfg!(test) { assert!((*self.data).count.load(Relaxed) > 0); }
             return &mut (*self.data).data as *mut T;
         }
     }
@@ -90,8 +91,17 @@ impl<T: Send> UnsafeArc<T> {
     #[inline]
     pub fn get_immut(&self) -> *T {
         unsafe {
-            assert!((*self.data).count.load(Relaxed) > 0);
+            // FIXME(#12049): this needs some sort of debug assertion
+            if cfg!(test) { assert!((*self.data).count.load(Relaxed) > 0); }
             return &(*self.data).data as *T;
+        }
+    }
+
+    /// checks if this is the only reference to the arc protected data
+    #[inline]
+    pub fn is_owned(&self) -> bool {
+        unsafe {
+            (*self.data).count.load(Relaxed) == 1
         }
     }
 }
@@ -101,7 +111,8 @@ impl<T: Send> Clone for UnsafeArc<T> {
         unsafe {
             // This barrier might be unnecessary, but I'm not sure...
             let old_count = (*self.data).count.fetch_add(1, Acquire);
-            assert!(old_count >= 1);
+            // FIXME(#12049): this needs some sort of debug assertion
+            if cfg!(test) { assert!(old_count >= 1); }
             return UnsafeArc { data: self.data };
         }
     }
@@ -119,7 +130,8 @@ impl<T> Drop for UnsafeArc<T>{
             // Must be acquire+release, not just release, to make sure this
             // doesn't get reordered to after the unwrapper pointer load.
             let old_count = (*self.data).count.fetch_sub(1, SeqCst);
-            assert!(old_count >= 1);
+            // FIXME(#12049): this needs some sort of debug assertion
+            if cfg!(test) { assert!(old_count >= 1); }
             if old_count == 1 {
                 let _: ~ArcData<T> = cast::transmute(self.data);
             }

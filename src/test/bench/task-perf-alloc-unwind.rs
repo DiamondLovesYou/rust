@@ -10,10 +10,11 @@
 
 #[feature(managed_boxes)];
 
-extern mod extra;
+extern crate collections;
+extern crate time;
 
-use extra::list::{List, Cons, Nil};
-use extra::time::precise_time_s;
+use collections::list::{List, Cons, Nil};
+use time::precise_time_s;
 use std::os;
 use std::task;
 
@@ -34,9 +35,9 @@ fn main() {
 fn run(repeat: int, depth: int) {
     for _ in range(0, repeat) {
         info!("starting {:.4f}", precise_time_s());
-        do task::try {
+        task::try(proc() {
             recurse_or_fail(depth, None)
-        };
+        });
         info!("stopping {:.4f}", precise_time_s());
     }
 }
@@ -89,8 +90,8 @@ fn recurse_or_fail(depth: int, st: Option<State>) {
             State {
                 managed: @Cons((), st.managed),
                 unique: ~Cons((), @*st.unique),
-                tuple: (@Cons((), st.tuple.first()),
-                        ~Cons((), @*st.tuple.second())),
+                tuple: (@Cons((), st.tuple.ref0().clone()),
+                        ~Cons((), @*st.tuple.ref1().clone())),
                 vec: st.vec + &[@Cons((), *st.vec.last().unwrap())],
                 res: r(@Cons((), st.res._l))
             }

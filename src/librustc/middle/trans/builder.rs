@@ -15,32 +15,28 @@ use lib::llvm::{Opcode, IntPredicate, RealPredicate, False};
 use lib::llvm::{ValueRef, BasicBlockRef, BuilderRef, ModuleRef};
 use middle::trans::base;
 use middle::trans::common::*;
-use middle::trans::machine::llalign_of_min;
+use middle::trans::machine::llalign_of_pref;
 use middle::trans::type_::Type;
-use std::cast;
-use std::hashmap::HashMap;
 use std::libc::{c_uint, c_ulonglong, c_char};
+use collections::HashMap;
 use syntax::codemap::Span;
-use std::ptr::is_not_null;
 
-pub struct Builder {
+pub struct Builder<'a> {
     llbuilder: BuilderRef,
-    ccx: @CrateContext,
+    ccx: &'a CrateContext,
 }
 
 // This is a really awful way to get a zero-length c-string, but better (and a
 // lot more efficient) than doing str::as_c_str("", ...) every time.
 pub fn noname() -> *c_char {
-    unsafe {
-        static cnull: uint = 0u;
-        cast::transmute(&cnull)
-    }
+    static cnull: c_char = 0;
+    &cnull as *c_char
 }
 
-impl Builder {
-    pub fn new(ccx: @CrateContext) -> Builder {
+impl<'a> Builder<'a> {
+    pub fn new(ccx: &'a CrateContext) -> Builder<'a> {
         Builder {
-            llbuilder: ccx.builder.B,
+            llbuilder: ccx.builder.b,
             ccx: ccx,
         }
     }
@@ -366,37 +362,37 @@ impl Builder {
         }
     }
 
-    pub fn neg(&self, V: ValueRef) -> ValueRef {
+    pub fn neg(&self, v: ValueRef) -> ValueRef {
         self.count_insn("neg");
         unsafe {
-            llvm::LLVMBuildNeg(self.llbuilder, V, noname())
+            llvm::LLVMBuildNeg(self.llbuilder, v, noname())
         }
     }
 
-    pub fn nswneg(&self, V: ValueRef) -> ValueRef {
+    pub fn nswneg(&self, v: ValueRef) -> ValueRef {
         self.count_insn("nswneg");
         unsafe {
-            llvm::LLVMBuildNSWNeg(self.llbuilder, V, noname())
+            llvm::LLVMBuildNSWNeg(self.llbuilder, v, noname())
         }
     }
 
-    pub fn nuwneg(&self, V: ValueRef) -> ValueRef {
+    pub fn nuwneg(&self, v: ValueRef) -> ValueRef {
         self.count_insn("nuwneg");
         unsafe {
-            llvm::LLVMBuildNUWNeg(self.llbuilder, V, noname())
+            llvm::LLVMBuildNUWNeg(self.llbuilder, v, noname())
         }
     }
-    pub fn fneg(&self, V: ValueRef) -> ValueRef {
+    pub fn fneg(&self, v: ValueRef) -> ValueRef {
         self.count_insn("fneg");
         unsafe {
-            llvm::LLVMBuildFNeg(self.llbuilder, V, noname())
+            llvm::LLVMBuildFNeg(self.llbuilder, v, noname())
         }
     }
 
-    pub fn not(&self, V: ValueRef) -> ValueRef {
+    pub fn not(&self, v: ValueRef) -> ValueRef {
         self.count_insn("not");
         unsafe {
-            llvm::LLVMBuildNot(self.llbuilder, V, noname())
+            llvm::LLVMBuildNot(self.llbuilder, v, noname())
         }
     }
 
@@ -461,8 +457,10 @@ impl Builder {
     pub fn atomic_load(&self, ptr: ValueRef, order: AtomicOrdering) -> ValueRef {
         self.count_insn("load.atomic");
         unsafe {
-            let align = llalign_of_min(self.ccx, self.ccx.int_type);
-            llvm::LLVMBuildAtomicLoad(self.llbuilder, ptr, noname(), order, align as c_uint)
+            let ty = Type::from_ref(llvm::LLVMTypeOf(ptr));
+            let align = llalign_of_pref(self.ccx, ty.element_type());
+            llvm::LLVMBuildAtomicLoad(self.llbuilder, ptr, noname(), order,
+                                      align as c_uint)
         }
     }
 
@@ -490,7 +488,7 @@ impl Builder {
         debug!("Store {} -> {}",
                self.ccx.tn.val_to_str(val),
                self.ccx.tn.val_to_str(ptr));
-        assert!(is_not_null(self.llbuilder));
+        assert!(self.llbuilder.is_not_null());
         self.count_insn("store");
         unsafe {
             llvm::LLVMBuildStore(self.llbuilder, val, ptr);
@@ -501,7 +499,7 @@ impl Builder {
         debug!("Store {} -> {}",
                self.ccx.tn.val_to_str(val),
                self.ccx.tn.val_to_str(ptr));
-        assert!(is_not_null(self.llbuilder));
+        assert!(self.llbuilder.is_not_null());
         self.count_insn("store.volatile");
         unsafe {
             let insn = llvm::LLVMBuildStore(self.llbuilder, val, ptr);
@@ -514,8 +512,9 @@ impl Builder {
                self.ccx.tn.val_to_str(val),
                self.ccx.tn.val_to_str(ptr));
         self.count_insn("store.atomic");
-        let align = llalign_of_min(self.ccx, self.ccx.int_type);
         unsafe {
+            let ty = Type::from_ref(llvm::LLVMTypeOf(ptr));
+            let align = llalign_of_pref(self.ccx, ty.element_type());
             llvm::LLVMBuildAtomicStore(self.llbuilder, val, ptr, order, align as c_uint);
         }
     }
@@ -562,17 +561,17 @@ impl Builder {
         }
     }
 
-    pub fn global_string(&self, _Str: *c_char) -> ValueRef {
+    pub fn global_string(&self, _str: *c_char) -> ValueRef {
         self.count_insn("globalstring");
         unsafe {
-            llvm::LLVMBuildGlobalString(self.llbuilder, _Str, noname())
+            llvm::LLVMBuildGlobalString(self.llbuilder, _str, noname())
         }
     }
 
-    pub fn global_string_ptr(&self, _Str: *c_char) -> ValueRef {
+    pub fn global_string_ptr(&self, _str: *c_char) -> ValueRef {
         self.count_insn("globalstringptr");
         unsafe {
-            llvm::LLVMBuildGlobalStringPtr(self.llbuilder, _Str, noname())
+            llvm::LLVMBuildGlobalStringPtr(self.llbuilder, _str, noname())
         }
     }
 
@@ -797,6 +796,11 @@ impl Builder {
     pub fn call(&self, llfn: ValueRef, args: &[ValueRef],
                 attributes: &[(uint, lib::llvm::Attribute)]) -> ValueRef {
         self.count_insn("call");
+
+        debug!("Call {} with args ({})",
+               self.ccx.tn.val_to_str(llfn),
+               args.map(|&v| self.ccx.tn.val_to_str(v)).connect(", "));
+
         unsafe {
             let v = llvm::LLVMBuildCall(self.llbuilder, llfn, args.as_ptr(),
                                         args.len() as c_uint, noname());
@@ -853,9 +857,9 @@ impl Builder {
     pub fn vector_splat(&self, num_elts: uint, elt: ValueRef) -> ValueRef {
         unsafe {
             let elt_ty = val_ty(elt);
-            let Undef = llvm::LLVMGetUndef(Type::vector(&elt_ty, num_elts as u64).to_ref());
-            let vec = self.insert_element(Undef, elt, C_i32(0));
-            self.shuffle_vector(vec, Undef, C_null(Type::vector(&Type::i32(), num_elts as u64)))
+            let undef = llvm::LLVMGetUndef(Type::vector(&elt_ty, num_elts as u64).to_ref());
+            let vec = self.insert_element(undef, elt, C_i32(0));
+            self.shuffle_vector(vec, undef, C_null(Type::vector(&Type::i32(), num_elts as u64)))
         }
     }
 
@@ -898,17 +902,17 @@ impl Builder {
 
     pub fn trap(&self) {
         unsafe {
-            let BB: BasicBlockRef = llvm::LLVMGetInsertBlock(self.llbuilder);
-            let FN: ValueRef = llvm::LLVMGetBasicBlockParent(BB);
-            let M: ModuleRef = llvm::LLVMGetGlobalParent(FN);
-            let T: ValueRef = "llvm.trap".with_c_str(|buf| {
-                llvm::LLVMGetNamedFunction(M, buf)
+            let bb: BasicBlockRef = llvm::LLVMGetInsertBlock(self.llbuilder);
+            let fn_: ValueRef = llvm::LLVMGetBasicBlockParent(bb);
+            let m: ModuleRef = llvm::LLVMGetGlobalParent(fn_);
+            let t: ValueRef = "llvm.trap".with_c_str(|buf| {
+                llvm::LLVMGetNamedFunction(m, buf)
             });
-            assert!((T as int != 0));
+            assert!((t as int != 0));
             let args: &[ValueRef] = [];
             self.count_insn("trap");
             llvm::LLVMBuildCall(
-                self.llbuilder, T, args.as_ptr(), args.len() as c_uint, noname());
+                self.llbuilder, t, args.as_ptr(), args.len() as c_uint, noname());
         }
     }
 

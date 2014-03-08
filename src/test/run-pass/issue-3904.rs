@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,29 +8,28 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// xfail-test
-type ErrPrinter = |&str, &str|;
+type ErrPrinter<'a> = 'a |&str, &str|;
 
 fn example_err(prog: &str, arg: &str) {
     println!("{}: {}", prog, arg)
 }
 
-fn exit(+print: ErrPrinter, prog: &str, arg: &str) {
+fn exit(print: ErrPrinter, prog: &str, arg: &str) {
     print(prog, arg);
 }
 
-struct X {
-    err: ErrPrinter
+struct X<'a> {
+    err: ErrPrinter<'a>
 }
 
-impl X {
-    pub fn boom() {
+impl<'a> X<'a> {
+    pub fn boom(self) {
         exit(self.err, "prog", "arg");
     }
 }
 
 pub fn main(){
-    let val = &X{
+    let val = X {
         err: example_err,
     };
     val.boom();

@@ -10,17 +10,17 @@
 
 use clean;
 
-use extra;
+use serialize::json;
 use dl = std::unstable::dynamic_lib;
 
-pub type PluginJson = Option<(~str, extra::json::Json)>;
+pub type PluginJson = Option<(~str, json::Json)>;
 pub type PluginResult = (clean::Crate, PluginJson);
-pub type plugin_callback = extern fn (clean::Crate) -> PluginResult;
+pub type PluginCallback = fn (clean::Crate) -> PluginResult;
 
 /// Manages loading and running of plugins
 pub struct PluginManager {
     priv dylibs: ~[dl::DynamicLibrary],
-    priv callbacks: ~[plugin_callback],
+    priv callbacks: ~[PluginCallback],
     /// The directory plugins will be loaded from
     prefix: Path,
 }
@@ -53,19 +53,19 @@ impl PluginManager {
     ///
     /// This is to run passes over the cleaned crate. Plugins run this way
     /// correspond to the A-aux tag on Github.
-    pub fn add_plugin(&mut self, plugin: plugin_callback) {
+    pub fn add_plugin(&mut self, plugin: PluginCallback) {
         self.callbacks.push(plugin);
     }
     /// Run all the loaded plugins over the crate, returning their results
-    pub fn run_plugins(&self, crate: clean::Crate) -> (clean::Crate, ~[PluginJson]) {
+    pub fn run_plugins(&self, krate: clean::Crate) -> (clean::Crate, ~[PluginJson]) {
         let mut out_json = ~[];
-        let mut crate = crate;
+        let mut krate = krate;
         for &callback in self.callbacks.iter() {
-            let (c, res) = callback(crate);
-            crate = c;
+            let (c, res) = callback(krate);
+            krate = c;
             out_json.push(res);
         }
-        (crate, out_json)
+        (krate, out_json)
     }
 }
 

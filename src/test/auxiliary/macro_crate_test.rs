@@ -10,9 +10,9 @@
 
 // force-host
 
-#[feature(globs, macro_registrar, macro_rules)];
+#[feature(globs, macro_registrar, macro_rules, quote)];
 
-extern mod syntax;
+extern crate syntax;
 
 use syntax::ast::{Name, TokenTree};
 use syntax::codemap::Span;
@@ -27,8 +27,8 @@ macro_rules! unexported_macro (() => (3))
 #[macro_registrar]
 pub fn macro_registrar(register: |Name, SyntaxExtension|) {
     register(token::intern("make_a_1"),
-        NormalTT(~SyntaxExpanderTT {
-            expander: SyntaxExpanderTTExpanderWithoutContext(expand_make_a_1),
+        NormalTT(~BasicMacroExpander {
+            expander: expand_make_a_1,
             span: None,
         },
         None));
