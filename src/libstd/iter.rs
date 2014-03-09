@@ -1757,7 +1757,7 @@ impl<'a,
 
 /// An iterator that yields `None` forever after the underlying iterator
 /// yields `None` once.
-#[deriving(Clone, DeepClone)]
+#[deriving(Clone)]
 pub struct Fuse<T> {
     priv iter: T,
     priv done: bool
@@ -1946,7 +1946,7 @@ impl<A: Add<A, A> + Clone> Iterator<A> for Counter<A> {
 }
 
 /// An iterator over the range [start, stop)
-#[deriving(Clone, DeepClone)]
+#[deriving(Clone)]
 pub struct Range<A> {
     priv state: A,
     priv stop: A,
@@ -2020,7 +2020,7 @@ impl<A: Int + Ord + Clone + ToPrimitive> DoubleEndedIterator<A> for Range<A> {
 }
 
 /// An iterator over the range [start, stop]
-#[deriving(Clone, DeepClone)]
+#[deriving(Clone)]
 pub struct RangeInclusive<A> {
     priv range: Range<A>,
     priv done: bool
@@ -2033,7 +2033,7 @@ pub fn range_inclusive<A: Add<A, A> + Ord + Clone + One + ToPrimitive>(start: A,
     RangeInclusive{range: range(start, stop), done: false}
 }
 
-impl<A: Add<A, A> + Eq + Ord + Clone + ToPrimitive> Iterator<A> for RangeInclusive<A> {
+impl<A: Add<A, A> + Ord + Clone + ToPrimitive> Iterator<A> for RangeInclusive<A> {
     #[inline]
     fn next(&mut self) -> Option<A> {
         match self.range.next() {
@@ -2083,7 +2083,7 @@ impl<A: Sub<A, A> + Int + Ord + Clone + ToPrimitive> DoubleEndedIterator<A>
 }
 
 /// An iterator over the range [start, stop) by `step`. It handles overflow by stopping.
-#[deriving(Clone, DeepClone)]
+#[deriving(Clone)]
 pub struct RangeStep<A> {
     priv state: A,
     priv stop: A,
@@ -2115,7 +2115,7 @@ impl<A: CheckedAdd + Ord + Clone> Iterator<A> for RangeStep<A> {
 }
 
 /// An iterator over the range [start, stop] by `step`. It handles overflow by stopping.
-#[deriving(Clone, DeepClone)]
+#[deriving(Clone)]
 pub struct RangeStepInclusive<A> {
     priv state: A,
     priv stop: A,
@@ -2150,7 +2150,7 @@ impl<A: CheckedAdd + Ord + Clone + Eq> Iterator<A> for RangeStepInclusive<A> {
 }
 
 /// An iterator that repeats an element endlessly
-#[deriving(Clone, DeepClone)]
+#[deriving(Clone)]
 pub struct Repeat<A> {
     priv element: A
 }
@@ -2244,7 +2244,7 @@ pub mod order {
     }
 
     /// Return `a` < `b` lexicographically (Using partial order, `Ord`)
-    pub fn lt<A: Eq + Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
+    pub fn lt<A: Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return false,
@@ -2256,7 +2256,7 @@ pub mod order {
     }
 
     /// Return `a` <= `b` lexicographically (Using partial order, `Ord`)
-    pub fn le<A: Eq + Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
+    pub fn le<A: Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return true,
@@ -2268,7 +2268,7 @@ pub mod order {
     }
 
     /// Return `a` > `b` lexicographically (Using partial order, `Ord`)
-    pub fn gt<A: Eq + Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
+    pub fn gt<A: Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return false,
@@ -2280,7 +2280,7 @@ pub mod order {
     }
 
     /// Return `a` >= `b` lexicographically (Using partial order, `Ord`)
-    pub fn ge<A: Eq + Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
+    pub fn ge<A: Ord, T: Iterator<A>>(mut a: T, mut b: T) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return true,
@@ -2975,6 +2975,12 @@ mod tests {
         impl Add<Foo, Foo> for Foo {
             fn add(&self, _: &Foo) -> Foo {
                 Foo
+            }
+        }
+
+        impl Eq for Foo {
+            fn eq(&self, _: &Foo) -> bool {
+                true
             }
         }
 

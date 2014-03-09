@@ -44,7 +44,7 @@ pub fn run(input: &str, matches: &getopts::Matches) -> int {
     let sessopts = @session::Options {
         maybe_sysroot: Some(@os::self_exe_path().unwrap().dir_path()),
         addl_lib_search_paths: libs,
-        crate_types: ~[session::CrateTypeDylib],
+        crate_types: vec!(session::CrateTypeDylib),
         .. (*session::basic_options()).clone()
     };
 
@@ -98,7 +98,8 @@ pub fn run(input: &str, matches: &getopts::Matches) -> int {
     0
 }
 
-fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool) {
+fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
+           no_run: bool) {
     let test = maketest(test, cratename);
     let parsesess = parse::new_parse_sess();
     let input = driver::StrInput(test);
@@ -106,8 +107,8 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool) 
     let sessopts = @session::Options {
         maybe_sysroot: Some(@os::self_exe_path().unwrap().dir_path()),
         addl_lib_search_paths: @RefCell::new(libs),
-        crate_types: ~[session::CrateTypeExecutable],
-        output_types: ~[link::OutputTypeExe],
+        crate_types: vec!(session::CrateTypeExecutable),
+        output_types: vec!(link::OutputTypeExe),
         cg: session::CodegenOptions {
             prefer_dynamic: true,
             .. session::basic_codegen_options()
@@ -151,6 +152,8 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool) 
     let out = Some(outdir.path().clone());
     let cfg = driver::build_configuration(sess);
     driver::compile_input(sess, cfg, &input, &out, &None);
+
+    if no_run { return }
 
     // Run the code!
     let exe = outdir.path().join("rust_out");
@@ -203,7 +206,7 @@ pub struct Collector {
 }
 
 impl Collector {
-    pub fn add_test(&mut self, test: &str, should_fail: bool) {
+    pub fn add_test(&mut self, test: &str, should_fail: bool, no_run: bool) {
         let test = test.to_owned();
         let name = format!("{}_{}", self.names.connect("::"), self.cnt);
         self.cnt += 1;
@@ -218,7 +221,7 @@ impl Collector {
                 should_fail: false, // compiler failures are test failures
             },
             testfn: testing::DynTestFn(proc() {
-                runtest(test, cratename, libs, should_fail);
+                runtest(test, cratename, libs, should_fail, no_run);
             }),
         });
     }

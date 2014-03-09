@@ -27,6 +27,7 @@ use syntax::{ast, ast_map, ast_util};
 use std::cell::RefCell;
 use collections::HashMap;
 use std::rc::Rc;
+use std::vec_ng::Vec;
 
 //
 // This pass classifies expressions by their constant-ness.
@@ -321,7 +322,7 @@ pub enum const_val {
     const_int(i64),
     const_uint(u64),
     const_str(InternedString),
-    const_binary(Rc<~[u8]>),
+    const_binary(Rc<Vec<u8> >),
     const_bool(bool)
 }
 
@@ -525,7 +526,7 @@ pub fn lit_to_const(lit: &Lit) -> const_val {
     }
 }
 
-fn compare_vals<T : Eq + Ord>(a: T, b: T) -> Option<int> {
+fn compare_vals<T: Ord>(a: T, b: T) -> Option<int> {
     Some(if a == b { 0 } else if a < b { -1 } else { 1 })
 }
 pub fn compare_const_vals(a: &const_val, b: &const_val) -> Option<int> {
