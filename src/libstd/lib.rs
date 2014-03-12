@@ -52,10 +52,9 @@
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://static.rust-lang.org/doc/master")];
 
-#[feature(macro_rules, globs, asm, managed_boxes, thread_local, link_args, simd)];
+#[feature(macro_rules, globs, asm, managed_boxes, thread_local, link_args,
+          simd, linkage, default_type_params)];
 
-// Turn on default type parameters.
-#[feature(default_type_params)];
 // NOTE remove the following two attributes after the next snapshot.
 #[allow(unrecognized_lint)];
 #[allow(default_type_param_usage)];
@@ -74,7 +73,8 @@
 #[cfg(test)] extern crate native;
 #[cfg(test)] extern crate green;
 
-// Make extra accessible for benchmarking
+// Make extra and rand accessible for benchmarking/testcases
+#[cfg(test)] extern crate rand;
 #[cfg(test)] extern crate extra = "extra";
 
 // Make std testable by not duplicating lang items. See #2912
@@ -174,7 +174,6 @@ pub mod c_str;
 pub mod os;
 pub mod io;
 pub mod path;
-pub mod rand;
 pub mod cast;
 pub mod fmt;
 pub mod cleanup;

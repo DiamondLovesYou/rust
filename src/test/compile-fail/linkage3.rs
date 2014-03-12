@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,10 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn force(f: ||) { f(); }
-fn main() {
-    let x: int;
-    force(|| {
-        info!("{}", x); //~ ERROR capture of possibly uninitialized variable: `x`
-    });
+#[feature(linkage)];
+
+extern {
+    #[linkage = "foo"] static foo: *i32;
+    //~^ ERROR: invalid linkage specified
 }
+
+fn main() {
+    println!("{}", foo);
+}
+

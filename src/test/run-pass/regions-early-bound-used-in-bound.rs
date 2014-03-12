@@ -8,9 +8,28 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn test() {
-    let w: ~[int];
-    w[5] = 0; //~ ERROR use of possibly uninitialized variable: `w`
+// Tests that you can use a fn lifetime parameter as part of
+// the value for a type parameter in a bound.
+
+trait GetRef<'a, T> {
+    fn get(&self) -> &'a T;
 }
 
-fn main() { test(); }
+struct Box<'a, T> {
+    t: &'a T
+}
+
+impl<'a,T:Clone> GetRef<'a,T> for Box<'a,T> {
+    fn get(&self) -> &'a T {
+        self.t
+    }
+}
+
+fn add<'a,G:GetRef<'a, int>>(g1: G, g2: G) -> int {
+    *g1.get() + *g2.get()
+}
+
+pub fn main() {
+    let b1 = Box { t: &3 };
+    assert_eq!(add(b1, b1), 6);
+}
