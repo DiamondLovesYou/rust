@@ -3331,7 +3331,6 @@ pub mod funcs {
     // or anything. The same is not true of POSIX.
 
     pub mod c95 {
-        #[nolink]
         pub mod ctype {
             use libc::types::os::arch::c95::{c_char, c_int};
 
@@ -3352,7 +3351,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod stdio {
             use libc::types::common::c95::{FILE, c_void, fpos_t};
             use libc::types::os::arch::c95::{c_char, c_int, c_long, size_t};
@@ -3408,7 +3406,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod stdlib {
             use libc::types::common::c95::c_void;
             use libc::types::os::arch::c95::{c_char, c_double, c_int};
@@ -3441,7 +3438,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod string {
             use libc::types::common::c95::c_void;
             use libc::types::os::arch::c95::{c_char, c_int, size_t};
@@ -3486,7 +3482,6 @@ pub mod funcs {
 
     #[cfg(target_os = "win32")]
     pub mod posix88 {
-        #[nolink]
         pub mod stat_ {
             use libc::types::os::common::posix01::{stat, utimbuf};
             use libc::types::os::arch::c95::{c_int, c_char, wchar_t};
@@ -3511,7 +3506,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod stdio {
             use libc::types::common::c95::FILE;
             use libc::types::os::arch::c95::{c_int, c_char};
@@ -3528,7 +3522,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod fcntl {
             use libc::types::os::arch::c95::{c_int, c_char, wchar_t};
             extern {
@@ -3543,12 +3536,10 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod dirent {
             // Not supplied at all.
         }
 
-        #[nolink]
         pub mod unistd {
             use libc::types::common::c95::c_void;
             use libc::types::os::arch::c95::{c_int, c_uint, c_char,
@@ -3616,7 +3607,6 @@ pub mod funcs {
             use libc::types::os::arch::posix01::stat;
             use libc::types::os::arch::posix88::mode_t;
 
-            #[nolink]
             extern {
                 pub fn chmod(path: *c_char, mode: mode_t) -> c_int;
                 pub fn fchmod(fd: c_int, mode: mode_t) -> c_int;
@@ -3646,7 +3636,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod stdio {
             use libc::types::common::c95::FILE;
             use libc::types::os::arch::c95::{c_char, c_int};
@@ -3659,7 +3648,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod fcntl {
             use libc::types::os::arch::c95::{c_char, c_int};
             use libc::types::os::arch::posix88::mode_t;
@@ -3672,7 +3660,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod dirent {
             use libc::types::common::posix88::{DIR, dirent_t};
             use libc::types::os::arch::c95::{c_char, c_int, c_long};
@@ -3706,7 +3693,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod unistd {
             use libc::types::common::c95::c_void;
             use libc::types::os::arch::c95::{c_char, c_int, c_long, c_uint};
@@ -3777,7 +3763,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod signal {
             use libc::types::os::arch::c95::{c_int};
             use libc::types::os::arch::posix88::{pid_t};
@@ -3787,7 +3772,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod mman {
             use libc::types::common::c95::{c_void};
             use libc::types::os::arch::c95::{size_t, c_int, c_char};
@@ -3826,7 +3810,6 @@ pub mod funcs {
     #[cfg(target_os = "freebsd")]
     #[cfg(target_os = "nacl")]
     pub mod posix01 {
-        #[nolink]
         pub mod stat_ {
             use libc::types::os::arch::c95::{c_char, c_int};
             use libc::types::os::arch::posix01::stat;
@@ -3844,7 +3827,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod unistd {
             use libc::types::os::arch::c95::{c_char, c_int, size_t};
             use libc::types::os::arch::posix88::{ssize_t, off_t};
@@ -3872,7 +3854,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod wait {
             use libc::types::os::arch::c95::{c_int};
             use libc::types::os::arch::posix88::{pid_t};
@@ -3883,7 +3864,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod glob {
             use libc::types::os::arch::c95::{c_char, c_int};
             use libc::types::os::common::posix01::{glob_t};
@@ -3898,7 +3878,6 @@ pub mod funcs {
             }
         }
 
-        #[nolink]
         pub mod mman {
             use libc::types::common::c95::{c_void};
             use libc::types::os::arch::c95::{c_int, size_t};
@@ -4065,7 +4044,6 @@ pub mod funcs {
     }
 
     #[cfg(target_os = "macos")]
-    #[nolink]
     pub mod extra {
         use libc::types::os::arch::c95::{c_char, c_int};
 
@@ -4290,7 +4268,6 @@ pub mod funcs {
             use libc::types::os::arch::c95::{c_int, c_long};
             use libc::types::os::arch::c99::intptr_t;
 
-            #[nolink]
             extern {
                 #[link_name = "_commit"]
                 pub fn commit(fd: c_int) -> c_int;
