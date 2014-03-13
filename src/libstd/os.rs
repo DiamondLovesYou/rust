@@ -642,7 +642,6 @@ pub fn errno() -> int {
 
     #[cfg(target_os = "nacl", target_libc = "newlib")]
     fn errno_location() -> *c_int {
-        #[nolink]
         extern {
             fn __errno() -> *c_int;
         }
