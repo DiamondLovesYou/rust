@@ -107,6 +107,7 @@ pub mod back {
     pub mod abi;
     pub mod archive;
     pub mod arm;
+    pub mod le32;
     pub mod link;
     pub mod lto;
     pub mod mips;

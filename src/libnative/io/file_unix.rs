@@ -414,8 +414,17 @@ pub fn chown(p: &CString, uid: int, gid: int) -> IoResult<()> {
 }
 
 pub fn readlink(p: &CString) -> IoResult<Path> {
+    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    fn pathconf(p: *libc::c_char) -> i64 {
+        unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) }
+    }
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    fn pathconf(_: *libc::c_char) -> i64 {
+        unsafe { libc::sysconf(libc::_PC_NAME_MAX) as i64 }
+    }
+
     let p = p.with_ref(|p| p);
-    let mut len = unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) };
+    let mut len = pathconf(p);
     if len == -1 {
         len = 1024; // FIXME: read PATH_MAX from C ffi?
     }
@@ -460,14 +469,18 @@ fn mkstat(stat: &libc::stat, path: &CString) -> io::FileStat {
         _ => io::TypeUnknown,
     };
 
-    #[cfg(not(target_os = "linux"), not(target_os = "android"))]
+    #[cfg(not(target_os = "linux"), not(target_os = "android"),
+          not(target_os = "nacl", target_libc = "newlib"))]
     fn flags(stat: &libc::stat) -> u64 { stat.st_flags as u64 }
     #[cfg(target_os = "linux")] #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
     fn flags(_stat: &libc::stat) -> u64 { 0 }
 
-    #[cfg(not(target_os = "linux"), not(target_os = "android"))]
+    #[cfg(not(target_os = "linux"), not(target_os = "android"),
+          not(target_os = "nacl", target_libc = "newlib"))]
     fn gen(stat: &libc::stat) -> u64 { stat.st_gen as u64 }
     #[cfg(target_os = "linux")] #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
     fn gen(_stat: &libc::stat) -> u64 { 0 }
 
     io::FileStat {

@@ -388,6 +388,8 @@ valopt local-rust-root "/usr/local" "set prefix for local rust binary"
 valopt llvm-root "" "set LLVM root"
 valopt android-cross-path "/opt/ndk_standalone" "Android NDK standalone path"
 valopt mingw32-cross-path "" "MinGW32 cross compiler path"
+valopt nacl-cross-path  "" "NaCl Pepper sdk path (should be something like \"nacl_sdk/pepper_[0-9]+/\")"
+valopt emscripten-cross-path "" "Emscripten checkout path (should point to where emcc lives)"
 
 valopt build "${DEFAULT_BUILD}" "GNUs ./configure syntax LLVM build triple"
 valopt host "${CFG_BUILD}" "GNUs ./configure syntax LLVM host triples"
@@ -694,6 +696,49 @@ do
                 err "NDK $CFG_ANDROID_CROSS_PATH/bin/arm-linux-androideabi-ar not found"
             fi
             ;;
+
+	*-unknown-nacl)
+	    if [ -z "$CFG_NACL_CROSS_PATH" ]
+	    then
+		err "I need the NaCl SDK path! (use --nacl-cross-path)"
+	    fi
+
+	    # use an absolute path.
+	    CFG_NACL_CROSS_PATH=`readlink -m $CFG_NACL_CROSS_PATH`
+
+	    # quick and dirty check for cross existence
+	    case $CFG_OSTYPE in
+		apple-darwin)
+		    PNACL_TOOLCHAIN_PATH=$CFG_NACL_CROSS_PATH/toolchain/mac_pnacl/bin
+		    ;;
+		pc-mingw32)
+		    PNACL_TOOLCHAIN_PATH=$CFG_NACL_CROSS_PATH/toolchain/win_pnacl/bin
+		    ;;
+		unknown-linux-gnu)
+		    PNACL_TOOLCHAIN_PATH=$CFG_NACL_CROSS_PATH/toolchain/linux_pnacl/bin
+		    ;;
+		*)
+		    err "The PNaCl toolchain only supports Mac, Windows, and Linux hosts currently. :("
+		    ;;
+	    esac
+	    if [ ! -f $PNACL_TOOLCHAIN_PATH/pnacl-clang++ ]
+	    then
+		err "Could not find pnacl-clang++ in the provided NaCl SDK dir: $CFG_PNACL_TOOLCHAIN_PATH/pnacl-clang++"
+	    fi
+	    ;;
+	le32-emscripten-nacl)
+	    if [ -z "$CFG_EMSCRIPTEN_CROSS_PATH" ]
+	    then
+		err "I need your Emscripten checkout! (--emscripten-cross-path)"
+	    fi
+
+	    CFG_EMSCRIPTEN_CROSS_PATH=`readlink -m $CFG_EMSCRIPTEN_CROSS_PATH`
+
+	    if [ ! -f $CFG_EMSCRIPTEN_CROSS_PATH/emcc ]
+	    then
+		err "Could not find emcc in the provided Emscripten dir: $CFG_EMSCRIPTEN_CROSS_PATH/emcc"
+	    fi
+	    ;;
 
         arm-apple-darwin)
             if [ $CFG_OSTYPE != apple-darwin ]
@@ -1044,6 +1089,8 @@ putvar CFG_LIBDIR_RELATIVE
 putvar CFG_DISABLE_MANAGE_SUBMODULES
 putvar CFG_ANDROID_CROSS_PATH
 putvar CFG_MINGW32_CROSS_PATH
+putvar CFG_NACL_CROSS_PATH
+putvar CFG_EMSCRIPTEN_CROSS_PATH
 putvar CFG_MANDIR
 putvar CFG_DISABLE_INJECT_STD_VERSION
 

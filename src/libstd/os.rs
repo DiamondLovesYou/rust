@@ -459,6 +459,11 @@ pub fn self_exe_name() -> Option<Path> {
             Some(v)
         }
     }
+    #[cfg(target_os = "nacl")]
+    fn load_self() -> Option<~[u8]> {
+        // FIXME
+        None
+    }
 
     #[cfg(windows)]
     fn load_self() -> Option<~[u8]> {
@@ -626,6 +631,7 @@ pub fn errno() -> int {
 
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl", target_libc = "glibc")]
     fn errno_location() -> *c_int {
         #[nolink]
         extern {
@@ -633,6 +639,17 @@ pub fn errno() -> int {
         }
         unsafe {
             __errno_location()
+        }
+    }
+
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    fn errno_location() -> *c_int {
+        #[nolink]
+        extern {
+            fn __errno() -> *c_int;
+        }
+        unsafe {
+            __errno()
         }
     }
 
@@ -679,6 +696,7 @@ pub fn last_os_error() -> ~str {
         // and requires macros to instead use the POSIX compliant variant.
         // So we just use __xpg_strerror_r which is always POSIX compliant
         #[cfg(target_os = "linux")]
+        #[cfg(target_os = "nacl")]
         fn strerror_r(errnum: c_int, buf: *mut c_char,
                       buflen: libc::size_t) -> c_int {
             #[nolink]
@@ -805,6 +823,7 @@ fn real_args_as_bytes() -> ~[~[u8]] {
 #[cfg(target_os = "linux")]
 #[cfg(target_os = "android")]
 #[cfg(target_os = "freebsd")]
+#[cfg(target_os = "nacl")]
 fn real_args_as_bytes() -> ~[~[u8]] {
     use rt;
 
@@ -1299,6 +1318,12 @@ pub mod consts {
     #[cfg(target_os = "linux")]
     pub use os::consts::linux::*;
 
+    #[cfg(target_os = "nacl", target_arch = "le32")]
+    pub use os::consts::pnacl::*;
+
+    #[cfg(target_os = "nacl", not(target_arch = "le32"))]
+    pub use os::consts::nacl::*;
+
     #[cfg(target_os = "android")]
     pub use os::consts::android::*;
 
@@ -1352,6 +1377,23 @@ pub mod consts {
         pub static EXE_EXTENSION: &'static str = "";
     }
 
+    pub mod pnacl {
+        pub static SYSNAME: &'static str = "nacl";
+        pub static DLL_PREFIX: &'static str = "lib";
+        pub static DLL_SUFFIX: &'static str = ".pso";
+        pub static DLL_EXTENSION: &'static str = "pso";
+        pub static EXE_SUFFIX: &'static str = ".pexe";
+        pub static EXE_EXTENSION: &'static str = "pexe";
+    }
+    pub mod nacl {
+        pub static SYSNAME: &'static str = "nacl";
+        pub static DLL_PREFIX: &'static str = "lib";
+        pub static DLL_SUFFIX: &'static str = ".so";
+        pub static DLL_EXTENSION: &'static str = "so";
+        pub static EXE_SUFFIX: &'static str = ".nexe";
+        pub static EXE_EXTENSION: &'static str = "nexe";
+    }
+
     pub mod android {
         pub static SYSNAME: &'static str = "android";
         pub static DLL_PREFIX: &'static str = "lib";
@@ -1382,6 +1424,9 @@ pub mod consts {
     }
     pub mod mips {
         pub static ARCH: &'static str = "mips";
+    }
+    pub mod le32 {
+        pub static ARCH: &'static str = "le32";
     }
 }
 

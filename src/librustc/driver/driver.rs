@@ -10,7 +10,7 @@
 
 
 use back::link;
-use back::{arm, x86, x86_64, mips};
+use back::{arm, x86, x86_64, mips, le32};
 use driver::session::{Aggressive, CrateTypeExecutable, CrateType,
                       FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
 use driver::session::{Session, Session_, No, Less, Default};
@@ -87,6 +87,7 @@ pub fn default_configuration(sess: Session) ->
         abi::OsLinux =>   InternedString::new("linux"),
         abi::OsAndroid => InternedString::new("android"),
         abi::OsFreebsd => InternedString::new("freebsd"),
+        abi::OsNaCl =>    InternedString::new("nacl"),
     };
 
     // ARM is bi-endian, however using NDK seems to default
@@ -95,7 +96,8 @@ pub fn default_configuration(sess: Session) ->
         abi::X86 =>    ("little", "x86",    "32"),
         abi::X86_64 => ("little", "x86_64", "64"),
         abi::Arm =>    ("little", "arm",    "32"),
-        abi::Mips =>   ("big",    "mips",   "32")
+        abi::Mips =>   ("big",    "mips",   "32"),
+        abi::Le32 =>   ("little", "le32",   "32"),
     };
 
     let fam = match sess.targ_cfg.os {
@@ -415,17 +417,29 @@ pub fn phase_4_translate_to_llvm(sess: Session,
 pub fn phase_5_run_llvm_passes(sess: Session,
                                trans: &CrateTranslation,
                                outputs: &OutputFilenames) {
-    if sess.opts.cg.no_integrated_as {
-        let output_type = link::OutputTypeAssembly;
+    if sess.opts.cg.no_integrated_as || sess.linker_eats_ll() {
+        let output_type = if !sess.targeting_pnacl() { link::OutputTypeAssembly }
+                          else                       { link::OutputTypeLlvmAssembly };
 
         time(sess.time_passes(), "LLVM passes", (), |_|
             link::write::run_passes(sess, trans, [output_type], outputs));
 
-        link::write::run_assembler(sess, outputs);
+        let assembly = outputs.temp_path(output_type);
+        let object = outputs.path(link::OutputTypeObject);
+        link::write::run_assembler(sess, &assembly, &object);
+
+        if sess.targeting_pnacl() {
+            let assembly = outputs.with_extension("metadata.ll");
+            let object = outputs.with_extension("metadata.o");
+            link::write::run_assembler(sess, &assembly, &object);
+        }
 
         // Remove assembly source, unless --save-temps was specified
         if !sess.opts.cg.save_temps {
-            fs::unlink(&outputs.temp_path(link::OutputTypeAssembly)).unwrap();
+            fs::unlink(&outputs.temp_path(output_type)).unwrap();
+            if sess.targeting_pnacl() {
+                fs::unlink(&outputs.with_extension("metadata.ll")).unwrap();
+            }
         }
     } else {
         time(sess.time_passes(), "LLVM passes", (), |_|
@@ -694,7 +708,8 @@ static os_names : &'static [(&'static str, abi::Os)] = &'static [
     ("darwin",  abi::OsMacos),
     ("android", abi::OsAndroid),
     ("linux",   abi::OsLinux),
-    ("freebsd", abi::OsFreebsd)];
+    ("freebsd", abi::OsFreebsd),
+    ("nacl",    abi::OsNaCl)];
 
 pub fn get_arch(triple: &str) -> Option<abi::Architecture> {
     for &(arch, abi) in architecture_abis.iter() {
@@ -715,7 +730,9 @@ static architecture_abis : &'static [(&'static str, abi::Architecture)] = &'stat
     ("xscale", abi::Arm),
     ("thumb",  abi::Arm),
 
-    ("mips",   abi::Mips)];
+    ("mips",   abi::Mips),
+
+    ("le32",   abi::Le32)];
 
 pub fn build_target_config(sopts: @session::Options)
                            -> @session::Config {
@@ -728,6 +745,7 @@ pub fn build_target_config(sopts: @session::Options)
       None => early_error("unknown architecture: " + sopts.target_triple)
     };
     let (int_type, uint_type) = match arch {
+      abi::Le32 => (ast::TyI32, ast::TyU32),
       abi::X86 => (ast::TyI32, ast::TyU32),
       abi::X86_64 => (ast::TyI64, ast::TyU64),
       abi::Arm => (ast::TyI32, ast::TyU32),
@@ -735,6 +753,7 @@ pub fn build_target_config(sopts: @session::Options)
     };
     let target_triple = sopts.target_triple.clone();
     let target_strs = match arch {
+      abi::Le32 => le32::get_target_strs(target_triple, os),
       abi::X86 => x86::get_target_strs(target_triple, os),
       abi::X86_64 => x86_64::get_target_strs(target_triple, os),
       abi::Arm => arm::get_target_strs(target_triple, os),

@@ -314,6 +314,7 @@ mod imp {
     }
 
     #[cfg(target_os = "linux")]
+    #[cfg(target_os = "nacl", target_libc = "glibc")]
     mod os {
         use libc;
 
@@ -350,6 +351,7 @@ mod imp {
         };
     }
     #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
     mod os {
         use libc;
 

@@ -169,7 +169,7 @@ define DEF_PREPARE_TARGET_N
 prepare-target-$(2)-host-$(3)-$(1): PREPARE_WORKING_SOURCE_LIB_DIR=$$(PREPARE_SOURCE_LIB_DIR)/$$(CFG_RUSTLIBDIR)/$(2)/lib
 prepare-target-$(2)-host-$(3)-$(1): PREPARE_WORKING_DEST_LIB_DIR=$$(PREPARE_DEST_LIB_DIR)/$$(CFG_RUSTLIBDIR)/$(2)/lib
 prepare-target-$(2)-host-$(3)-$(1): prepare-maybe-clean \
-        $$(foreach crate,$$(TARGET_CRATES), \
+        $$(foreach crate, $$(filter-out $$(DISABLED_CRATES_$(2)), $$(TARGET_CRATES)), \
           $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(crate)) \
         $$(if $$(findstring $(2),$$(CFG_HOST)), \
           $$(foreach crate,$$(HOST_CRATES), \
@@ -182,8 +182,9 @@ prepare-target-$(2)-host-$(3)-$(1): prepare-maybe-clean \
       $$(if $$(findstring $(2), $$(PREPARE_TARGETS)),\
         $$(if $$(findstring $(3), $$(PREPARE_HOST)),\
           $$(call PREPARE_DIR,$$(PREPARE_WORKING_DEST_LIB_DIR))\
-          $$(foreach crate,$$(TARGET_CRATES),\
-            $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$(2),$$(crate)))\
+          $$(foreach crate,$$(filter-out $$(DISABLED_CRATES_$(2)), $$(TARGET_CRATES)),\
+            $$(if $$(SHARED_LIBS_DISABLED_$(2)),,\
+	      $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$(2),$$(crate))))\
             $$(call PREPARE_LIB,$$(call CFG_RLIB_GLOB,$$(crate))))\
           $$(if $$(findstring $(2),$$(CFG_HOST)),\
             $$(foreach crate,$$(HOST_CRATES),\

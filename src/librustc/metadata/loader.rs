@@ -42,7 +42,8 @@ pub enum Os {
     OsWin32,
     OsLinux,
     OsAndroid,
-    OsFreebsd
+    OsFreebsd,
+    OsNaCl,
 }
 
 pub struct Context<'a> {
@@ -348,6 +349,7 @@ impl<'a> Context<'a> {
             OsLinux => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
             OsAndroid => (android::DLL_PREFIX, android::DLL_SUFFIX),
             OsFreebsd => (freebsd::DLL_PREFIX, freebsd::DLL_SUFFIX),
+            OsNaCl => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
         }
     }
 }
@@ -471,7 +473,8 @@ pub fn meta_section_name(os: Os) -> &'static str {
         OsWin32 => ".note.rustc",
         OsLinux => ".note.rustc",
         OsAndroid => ".note.rustc",
-        OsFreebsd => ".note.rustc"
+        OsFreebsd => ".note.rustc",
+        OsNaCl => ".note.rustc",
     }
 }
 
@@ -481,7 +484,8 @@ pub fn read_meta_section_name(os: Os) -> &'static str {
         OsWin32 => ".note.rustc",
         OsLinux => ".note.rustc",
         OsAndroid => ".note.rustc",
-        OsFreebsd => ".note.rustc"
+        OsFreebsd => ".note.rustc",
+        OsNaCl => ".note.rustc",
     }
 }
 

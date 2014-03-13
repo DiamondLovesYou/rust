@@ -59,7 +59,7 @@ use middle::ty;
 use middle::ty::Disr;
 use std::vec_ng::Vec;
 use std::vec_ng;
-use syntax::abi::{X86, X86_64, Arm, Mips};
+use syntax::abi::{X86, X86_64, Arm, Mips, Le32};
 use syntax::ast;
 use syntax::attr;
 use syntax::attr::IntType;
@@ -330,7 +330,7 @@ fn range_to_inttype(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> IntTyp
         }
         attr::ReprExtern => {
             attempts = match cx.sess.targ_cfg.arch {
-                X86 | X86_64 => at_least_32,
+                X86 | X86_64 | Le32 => at_least_32,
                 // WARNING: the ARM EABI has two variants; the one corresponding to `at_least_32`
                 // appears to be used on Linux and NetBSD, but some systems may use the variant
                 // corresponding to `choose_shortest`.  However, we don't run on those yet...?

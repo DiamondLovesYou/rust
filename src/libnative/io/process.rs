@@ -9,9 +9,13 @@
 // except according to those terms.
 
 use std::io;
-use std::libc::{pid_t, c_void, c_int};
+use std::libc::pid_t;
+#[cfg(not(target_os = "nacl"))]
+use std::libc::c_void;
+use std::libc::c_int;
 use std::libc;
 use std::os;
+#[cfg(not(target_os = "nacl"))]
 use std::ptr;
 use std::rt::rtio;
 use p = std::io::process;
@@ -20,7 +24,7 @@ use super::IoResult;
 use super::file;
 
 #[cfg(windows)] use std::cast;
-#[cfg(not(windows))] use super::retry;
+#[cfg(not(windows), not(target_os = "nacl"))] use super::retry;
 
 /**
  * A value representing a child process.
@@ -404,7 +408,7 @@ fn make_command_line(prog: &str, args: &[~str]) -> ~str {
     }
 }
 
-#[cfg(unix)]
+#[cfg(unix, not(target_os = "nacl"))]
 fn spawn_process_os(config: p::ProcessConfig,
                     env: Option<~[(~str, ~str)]>,
                     dir: Option<&Path>,
@@ -569,8 +573,21 @@ fn spawn_process_os(config: p::ProcessConfig,
         })
     }
 }
+#[cfg(unix, target_os = "nacl")]
+fn spawn_process_os(_config: p::ProcessConfig,
+                    _env: Option<~[(~str, ~str)]>,
+                    _dir: Option<&Path>,
+                    _in_fd: c_int,
+                    _out_fd: c_int,
+                    _err_fd: c_int) -> IoResult<SpawnProcessResult> {
+    Err(io::IoError {
+            kind: io::PermissionDenied,
+            desc: "disallowed operation",
+            detail: None,
+        })
+}
 
-#[cfg(unix)]
+#[cfg(unix, not(target_os = "nacl"))]
 fn with_argv<T>(prog: &str, args: &[~str], cb: |**libc::c_char| -> T) -> T {
     use std::vec;
 
@@ -596,7 +613,7 @@ fn with_argv<T>(prog: &str, args: &[~str], cb: |**libc::c_char| -> T) -> T {
     cb(ptrs.as_ptr())
 }
 
-#[cfg(unix)]
+#[cfg(unix, not(target_os = "nacl"))]
 fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: |*c_void| -> T) -> T {
     use std::vec;
 
@@ -644,7 +661,7 @@ fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: |*mut c_void| -> T) -> T {
         _ => cb(ptr::mut_null())
     }
 }
-
+#[cfg(not(target_os = "nacl"))]
 fn with_dirp<T>(d: Option<&Path>, cb: |*libc::c_char| -> T) -> T {
     match d {
       Some(dir) => dir.with_c_str(|buf| cb(buf)),
@@ -674,6 +691,7 @@ fn free_handle(_handle: *()) {
  * operate on a none-existent process or, even worse, on a newer process
  * with the same id.
  */
+#[cfg(not(target_os = "nacl"))]
 fn waitpid(pid: pid_t) -> p::ProcessExit {
     return waitpid_os(pid);
 
@@ -754,6 +772,12 @@ fn waitpid(pid: pid_t) -> p::ProcessExit {
             }
         }
     }
+}
+// it's impossible to create child processes in Native Client, so this should never
+// be called.
+#[cfg(target_os = "nacl")]
+fn waitpid(_pid: pid_t) -> p::ProcessExit {
+    unreachable!()
 }
 
 #[cfg(test)]

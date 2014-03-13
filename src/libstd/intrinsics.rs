@@ -42,6 +42,9 @@ A quick refresher on memory ordering:
 */
 
 #[allow(missing_doc)];
+#[allow(unused_imports)];
+
+use cmath::{c_float, c_double};
 
 // This is needed to prevent duplicate lang item definitions.
 #[cfg(test)]
@@ -339,6 +342,44 @@ extern "rust-intrinsic" {
     pub fn powif32(a: f32, x: i32) -> f32;
     pub fn powif64(a: f64, x: i32) -> f64;
 
+    pub fn copysignf32(x: f32, y: f32) -> f32;
+    pub fn copysignf64(x: f64, y: f64) -> f64;
+
+    pub fn ceilf32(x: f32) -> f32;
+    pub fn ceilf64(x: f64) -> f64;
+
+    pub fn truncf32(x: f32) -> f32;
+    pub fn truncf64(x: f64) -> f64;
+
+    pub fn rintf32(x: f32) -> f32;
+    pub fn rintf64(x: f64) -> f64;
+
+    pub fn nearbyintf32(x: f32) -> f32;
+    pub fn nearbyintf64(x: f64) -> f64;
+
+    pub fn roundf32(x: f32) -> f32;
+    pub fn roundf64(x: f64) -> f64;
+
+    pub fn ctpop32(x: i32) -> i32;
+    pub fn ctpop64(x: i64) -> i64;
+
+    pub fn ctlz32(x: i32) -> i32;
+    pub fn ctlz64(x: i64) -> i64;
+
+    pub fn cttz32(x: i32) -> i32;
+    pub fn cttz64(x: i64) -> i64;
+
+    pub fn bswap16(x: i16) -> i16;
+    pub fn bswap32(x: i32) -> i32;
+    pub fn bswap64(x: i64) -> i64;
+}
+/// The following intrinsics are disallowed on PNaCl:
+/// We sneakily redirect some of them to libm, while the
+/// *.with.overflow functions are just written with manual checks.
+/// They're in all likelyhood slower, but they're effective.
+#[cfg(not(target_os = "nacl", target_arch = "le32"))]
+extern "rust-intrinsic" {
+
     pub fn sinf32(x: f32) -> f32;
     pub fn sinf64(x: f64) -> f64;
 
@@ -369,45 +410,17 @@ extern "rust-intrinsic" {
     pub fn fabsf32(x: f32) -> f32;
     pub fn fabsf64(x: f64) -> f64;
 
-    pub fn copysignf32(x: f32, y: f32) -> f32;
-    pub fn copysignf64(x: f64, y: f64) -> f64;
-
     pub fn floorf32(x: f32) -> f32;
     pub fn floorf64(x: f64) -> f64;
 
-    pub fn ceilf32(x: f32) -> f32;
-    pub fn ceilf64(x: f64) -> f64;
-
-    pub fn truncf32(x: f32) -> f32;
-    pub fn truncf64(x: f64) -> f64;
-
-    pub fn rintf32(x: f32) -> f32;
-    pub fn rintf64(x: f64) -> f64;
-
-    pub fn nearbyintf32(x: f32) -> f32;
-    pub fn nearbyintf64(x: f64) -> f64;
-
-    pub fn roundf32(x: f32) -> f32;
-    pub fn roundf64(x: f64) -> f64;
-
     pub fn ctpop8(x: i8) -> i8;
     pub fn ctpop16(x: i16) -> i16;
-    pub fn ctpop32(x: i32) -> i32;
-    pub fn ctpop64(x: i64) -> i64;
 
     pub fn ctlz8(x: i8) -> i8;
     pub fn ctlz16(x: i16) -> i16;
-    pub fn ctlz32(x: i32) -> i32;
-    pub fn ctlz64(x: i64) -> i64;
 
     pub fn cttz8(x: i8) -> i8;
     pub fn cttz16(x: i16) -> i16;
-    pub fn cttz32(x: i32) -> i32;
-    pub fn cttz64(x: i64) -> i64;
-
-    pub fn bswap16(x: i16) -> i16;
-    pub fn bswap32(x: i32) -> i32;
-    pub fn bswap64(x: i64) -> i64;
 
     pub fn i8_add_with_overflow(x: i8, y: i8) -> (i8, bool);
     pub fn i16_add_with_overflow(x: i16, y: i16) -> (i16, bool);
@@ -439,7 +452,163 @@ extern "rust-intrinsic" {
     pub fn u32_mul_with_overflow(x: u32, y: u32) -> (u32, bool);
     pub fn u64_mul_with_overflow(x: u64, y: u64) -> (u64, bool);
 }
+/// We mark these as unsafe to emulate the "unsafety" of the regular ol' intrinsics.
+macro_rules! _def_fun(
+    ($intrinsic_name:ident => $libm_name:ident ($arg_ty:ty) -> $ret_ty:ty) => {
+        #[cfg(target_os = "nacl", target_arch = "le32")]
+        #[inline] pub unsafe fn $intrinsic_name(x: $arg_ty) -> $ret_ty {
+            extern {
+                fn $libm_name(_: $arg_ty) -> $ret_ty;
+            }
+            return $libm_name(x);
+        }
+    };
+    ($intrinsic_name:ident => $libm_name:ident ($arg_ty:ty, $arg_ty1:ty) -> $ret_ty:ty) => {
+        #[cfg(target_os = "nacl", target_arch = "le32")]
+        #[inline] pub unsafe fn $intrinsic_name(x: $arg_ty, y: $arg_ty1) -> $ret_ty {
+            extern {
+                fn $libm_name(_: $arg_ty, _: $arg_ty1) -> $ret_ty;
+            }
+            return $libm_name(x, y);
+        }
+    };
+    ($intrinsic_name:ident => $libm_name:ident ($arg_ty:ty, $arg_ty1:ty, $arg_ty2:ty)
+                                                -> $ret_ty:ty) => {
+        #[cfg(target_os = "nacl", target_arch = "le32")]
+        #[inline] pub unsafe fn $intrinsic_name(x: $arg_ty, y: $arg_ty, z: $arg_ty) -> $ret_ty {
+            extern {
+                fn $libm_name(_: $arg_ty, _: $arg_ty1, _: $arg_ty2) -> $ret_ty;
+            }
+            return $libm_name(x, y, z);
+        }
+    };
+)
+_def_fun!(sinf32   => sinf   (f32) -> f32)
+_def_fun!(sinf64   => sin    (f64) -> f64)
 
+_def_fun!(cosf32   => cosf   (f32) -> f32)
+_def_fun!(cosf64   => cos    (f64) -> f64)
+
+_def_fun!(powf32   => powf   (f32, f32) -> f32)
+_def_fun!(powf64   => pow    (f64, f64) -> f64)
+
+_def_fun!(expf32   => expf   (f32) -> f32)
+_def_fun!(expf64   => exp    (f64) -> f64)
+
+_def_fun!(exp2f32  => exp2f  (f32) -> f32)
+_def_fun!(exp2f64  => exp2   (f64) -> f64)
+
+_def_fun!(logf32   => logf   (f32) -> f32)
+_def_fun!(logf64   => log    (f64) -> f64)
+
+_def_fun!(log10f32 => log10f (f32) -> f32)
+_def_fun!(log10f64 => log10  (f64) -> f64)
+
+_def_fun!(log2f32  => log2f  (f32) -> f32)
+_def_fun!(log2f64  => log2   (f64) -> f64)
+
+_def_fun!(fmaf32   => fmaf   (f32, f32, f32) -> f32)
+_def_fun!(fmaf64   => fma    (f64, f64, f64) -> f64)
+
+_def_fun!(fabsf32  => fabsf  (f32) -> f32)
+_def_fun!(fabsf64  => fabs   (f64) -> f64)
+
+_def_fun!(floorf32 => floorf (f32) -> f32)
+_def_fun!(floorf64 => floor  (f64) -> f64)
+
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn ctpop8(x: i8) -> i8 { ctpop32(x as i32) as i8 }
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn ctpop16(x: i16) -> i16 { ctpop32(x as i32) as i16 }
+
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn ctlz8(x: i8) -> i8 { ctlz32(x as i32) as i8 }
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn ctlz16(x: i16) -> i16 { ctlz32(x as i32) as i16 }
+
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn cttz8(x: i8) -> i8 { cttz32(x as i32) as i8 }
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn cttz16(x: i16) -> i16 { cttz32(x as i32) as i16 }
+
+macro_rules! add_with_overflow(
+    ($ty:ty, $id:ident) => (
+        #[cfg(target_os = "nacl", target_arch = "le32")]
+        pub unsafe fn $id (x: $ty,
+                           y: $ty) -> ($ty,
+                                       bool) {
+            let result = x + y;
+            (result, if y > 0 {
+                    result < x
+                } else if y == 0 {
+                    false
+                } else {
+                    result > x
+                })
+        }
+    )
+)
+macro_rules! sub_with_overflow(
+    ($ty:ty, $id:ident) => (
+        #[cfg(target_os = "nacl", target_arch = "le32")]
+        pub unsafe fn $id (x: $ty,
+                           y: $ty) -> ($ty,
+                                       bool) {
+            let result = x - y;
+            (result, if y > 0 {
+                    result > x
+                } else if y == 0 {
+                    false
+                } else {
+                    result < x
+                })
+        }
+    )
+)
+macro_rules! mul_with_overflow(
+    ($ty:ty, $id:ident) => (
+        #[cfg(target_os = "nacl", target_arch = "le32")]
+        pub unsafe fn $id (x: $ty,
+                           y: $ty) -> ($ty,
+                                       bool) {
+            let result = x * y;
+            (result, if y > 0 {
+                    result < x
+                } else if y == 0 {
+                    false
+                } else {
+                    result > x
+                })
+        }
+    )
+)
+
+add_with_overflow!(i8,  i8_add_with_overflow )
+add_with_overflow!(i16, i16_add_with_overflow)
+add_with_overflow!(i32, i32_add_with_overflow)
+add_with_overflow!(i64, i64_add_with_overflow)
+add_with_overflow!(u8,  u8_add_with_overflow )
+add_with_overflow!(u16, u16_add_with_overflow)
+add_with_overflow!(u32, u32_add_with_overflow)
+add_with_overflow!(u64, u64_add_with_overflow)
+
+sub_with_overflow!(i8,  i8_sub_with_overflow )
+sub_with_overflow!(i16, i16_sub_with_overflow)
+sub_with_overflow!(i32, i32_sub_with_overflow)
+sub_with_overflow!(i64, i64_sub_with_overflow)
+sub_with_overflow!(u8,  u8_sub_with_overflow )
+sub_with_overflow!(u16, u16_sub_with_overflow)
+sub_with_overflow!(u32, u32_sub_with_overflow)
+sub_with_overflow!(u64, u64_sub_with_overflow)
+
+mul_with_overflow!(i8,  i8_mul_with_overflow )
+mul_with_overflow!(i16, i16_mul_with_overflow)
+mul_with_overflow!(i32, i32_mul_with_overflow)
+mul_with_overflow!(i64, i64_mul_with_overflow)
+mul_with_overflow!(u8,  u8_mul_with_overflow )
+mul_with_overflow!(u16, u16_mul_with_overflow)
+mul_with_overflow!(u32, u32_mul_with_overflow)
+mul_with_overflow!(u64, u64_mul_with_overflow)
 
 /// `TypeId` represents a globally unique identifier for a type
 #[lang="type_id"] // This needs to be kept in lockstep with the code in trans/intrinsic.rs and

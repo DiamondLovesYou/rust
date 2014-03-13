@@ -74,6 +74,7 @@ pub mod pipe;
 #[path = "pipe_win32.rs"]
 pub mod pipe;
 
+#[cfg(not(target_os = "nacl"))]
 mod timer_helper;
 
 pub type IoResult<T> = Result<T, IoError>;
@@ -309,8 +310,17 @@ impl rtio::IoFactory for IoFactory {
     }
 
     // misc
+    #[cfg(not(target_os = "nacl"))]
     fn timer_init(&mut self) -> IoResult<~RtioTimer> {
         timer::Timer::new().map(|t| ~t as ~RtioTimer)
+    }
+    #[cfg(target_os = "nacl")]
+    fn timer_init(&mut self) -> IoResult<~RtioTimer> {
+        Err(IoError {
+                kind: io::ResourceUnavailable,
+                desc: "synchronous interfaces aren't supported",
+                detail: None,
+            })
     }
     fn spawn(&mut self, config: ProcessConfig)
             -> IoResult<(~RtioProcess, ~[Option<~RtioPipe>])> {

@@ -153,7 +153,8 @@ impl CrateContext {
             let td = mk_target_data(sess.targ_cfg.target_strs.data_layout);
             let tn = TypeNames::new();
 
-            let mut intrinsics = base::declare_intrinsics(llmod);
+            let mut intrinsics = base::declare_intrinsics(llmod,
+                                                          sess.targeting_pnacl());
             if sess.opts.debuginfo != NoDebugInfo {
                 base::declare_dbg_intrinsics(llmod, &mut intrinsics);
             }

@@ -247,3 +247,28 @@ pub mod dl {
         fn FreeLibrary(handle: *libc::c_void);
     }
 }
+
+#[cfg(target_os = "nacl")]
+pub mod dl {
+    use ptr;
+    use path;
+    use result::{Result, Err};
+    use libc;
+
+    pub unsafe fn open_external(_filename: &path::Path) -> *u8 {
+        ptr::null()
+    }
+
+    pub unsafe fn open_internal() -> *u8 {
+        ptr::null()
+    }
+
+    pub fn check_for_errors_in<T>(_f: || -> T) -> Result<T, ~str> {
+        Err(~"PNaCl doesn't support shared objects")
+    }
+
+    pub unsafe fn symbol(_handle: *u8, _symbol: *libc::c_char) -> *u8 {
+        ptr::null()
+    }
+    pub unsafe fn close(_handle: *u8) { }
+}

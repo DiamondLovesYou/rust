@@ -108,6 +108,7 @@ pub mod write {
     use std::libc::{c_uint, c_int};
     use std::str;
     use std::vec_ng::Vec;
+    use std::path;
 
     // On android, we by default compile for armv7 processors. This enables
     // things like double word CAS instructions (rather than emulating them)
@@ -179,12 +180,33 @@ pub mod write {
             let fpm = llvm::LLVMCreateFunctionPassManagerForModule(llmod);
             let mpm = llvm::LLVMCreatePassManager();
 
-            // If we're verifying or linting, add them to the function pass
-            // manager.
             let addpass = |pass: &str| {
                 pass.with_c_str(|s| llvm::LLVMRustAddPass(fpm, s))
             };
+            let addpass_mpm = |pass: &str| {
+                pass.with_c_str(|s| llvm::LLVMRustAddPass(mpm, s))
+            };
+            // If we're verifying or linting, add them to the function pass
+            // manager.
             if !sess.no_verify() { assert!(addpass("verify")); }
+
+            if sess.targeting_pnacl() {
+                // I choose to add these by string to retain what little compatiblity
+                // we have left with upstream LLVM
+                addpass_mpm("lowerinvoke");
+                addpass_mpm("simplifycfg");
+                addpass_mpm("lower-expect");
+                addpass_mpm("rewrite-llvm-intrinsic-calls");
+                addpass_mpm("expand-arith-with-overflow");
+                addpass_mpm("promote-simple-structs");
+                addpass_mpm("promote-returned-structures");
+                addpass_mpm("promote-structure-arguments");
+                addpass_mpm("expand-struct-regs");
+                addpass_mpm("expand-varargs");
+                addpass_mpm("nacl-expand-ctors");
+                addpass_mpm("resolve-aliases");
+                addpass_mpm("nacl-expand-tls");
+            }
 
             if !sess.opts.cg.no_prepopulate_passes {
                 llvm::LLVMRustAddAnalysisPasses(tm, fpm, llmod);
@@ -198,6 +220,34 @@ pub mod write {
                         sess.warn(format!("unknown pass {}, ignoring", *pass));
                     }
                 })
+            }
+
+            if sess.targeting_pnacl() {
+                // I choose to add these by string to retain what little compatiblity
+                // we have left with upstream LLVM
+                addpass_mpm("rewrite-pnacl-library-calls");
+                addpass_mpm("expand-byval");
+                addpass_mpm("expand-small-arguments");
+                addpass_mpm("nacl-promote-i1-ops");
+                addpass_mpm("canonicalize-mem-intrinsics");
+                addpass_mpm("strip-metadata");
+                addpass_mpm("flatten-globals");
+                addpass_mpm("expand-constant-expr");
+                addpass_mpm("nacl-promote-ints");
+                addpass_mpm("expand-getelementptr");
+                addpass_mpm("nacl-rewrite-atomics");
+                addpass_mpm("remove-asm-memory");
+                addpass_mpm("replace-ptrs-with-ints");
+                addpass_mpm("nacl-strip-attributes");
+                addpass_mpm("strip-dead-prototypes");
+                addpass_mpm("die");
+                addpass_mpm("dce");
+                addpass_mpm("replace-aggregates-with-ints");
+                addpass_mpm("die");
+
+                // until PNaCl supports vectorized IR, we need to ensure
+                // emitted IR doesn't use SIMD types/ops/etc
+                addpass_mpm("scalarizer");
             }
 
             // Finally, run the actual optimization passes
@@ -267,6 +317,13 @@ pub mod write {
                             with_codegen(tm, llmod, |cpm| {
                                 llvm::LLVMRustPrintModule(cpm, llmod, output);
                             })
+                        });
+                        output.with_extension("metadata.ll").with_c_str(|output| {
+                            with_codegen(tm, trans.metadata_module, |cpm| {
+                                llvm::LLVMRustPrintModule(cpm,
+                                                          trans.metadata_module,
+                                                          output);
+                            })
                         })
                     }
                     OutputTypeAssembly => {
@@ -325,10 +382,10 @@ pub mod write {
         }
     }
 
-    pub fn run_assembler(sess: Session, outputs: &OutputFilenames) {
+    pub fn run_assembler(sess: Session,
+                         assembly: &path::Path,
+                         object:   &path::Path) {
         let cc = super::get_cc_prog(sess);
-        let assembly = outputs.temp_path(OutputTypeAssembly);
-        let object = outputs.path(OutputTypeObject);
 
         // FIXME (#9639): This needs to handle non-utf8 paths
         let args = [
@@ -752,7 +809,7 @@ pub fn get_ar_prog(sess: Session) -> ~str {
 
 fn get_system_tool(sess: Session, tool: &str) -> ~str {
     match sess.targ_cfg.os {
-        abi::OsAndroid => match sess.opts.cg.android_cross_path {
+        abi::OsAndroid => match sess.opts.cg.cross_path {
             Some(ref path) => {
                 let tool_str = match tool {
                     "cc" => "gcc",
@@ -764,6 +821,12 @@ fn get_system_tool(sess: Session, tool: &str) -> ~str {
                 sess.fatal(format!("need Android NDK path for the '{}' tool \
                                     (-C android-cross-path)", tool))
             }
+        },
+        abi::OsNaCl => match tool {
+            "cc" => sess.get_nacl_tool_path("cc", "emcc", "gcc", "clang"),
+            "c++" => sess.get_nacl_tool_path("c++", "em++", "g++", "clang++"),
+            "ar" => sess.get_nacl_tool_path("ar", "emar", "ar", "ar"),
+            _ => sess.get_nacl_tool_path(tool, tool, tool, tool),
         },
         _ => tool.to_owned(),
     }
@@ -787,8 +850,12 @@ pub fn link_binary(sess: Session,
     let mut out_filenames = Vec::new();
     let crate_types = sess.crate_types.borrow();
     for &crate_type in crate_types.get().iter() {
-        let out_file = link_binary_output(sess, trans, crate_type, outputs, id);
-        out_filenames.push(out_file);
+        if sess.targeting_pnacl() && crate_type == session::CrateTypeDylib {
+            sess.warn("skipping dylib output; PNaCl doesn't support it");
+        } else {
+            let out_file = link_binary_output(sess, trans, crate_type, outputs, id);
+            out_filenames.push(out_file);
+        }
     }
 
     // Remove the temporary object file and metadata if we aren't saving temps
@@ -824,6 +891,8 @@ pub fn filename_for_input(sess: &Session, crate_type: session::CrateType,
                 abi::OsLinux => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
                 abi::OsAndroid => (android::DLL_PREFIX, android::DLL_SUFFIX),
                 abi::OsFreebsd => (freebsd::DLL_PREFIX, freebsd::DLL_SUFFIX),
+                // FIXME: These are merely placeholders.
+                abi::OsNaCl => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
             };
             out_filename.with_filename(format!("{}{}{}", prefix, libname, suffix))
         }
@@ -991,7 +1060,9 @@ fn link_rlib(sess: Session,
 // metadata file).
 fn link_staticlib(sess: Session, obj_filename: &Path, out_filename: &Path) {
     let mut a = link_rlib(sess, None, obj_filename, out_filename);
-    a.add_native_library("morestack").unwrap();
+    if !sess.targeting_pnacl() {
+        a.add_native_library("morestack").unwrap();
+    }
     a.add_native_library("compiler-rt").unwrap();
 
     let crates = sess.cstore.get_used_crates(cstore::RequireStatic);
@@ -1104,7 +1175,7 @@ fn link_args(sess: Session,
     // subset we wanted.
     //
     // FIXME(#11937) we should invoke the system linker directly
-    if sess.targ_cfg.os != abi::OsWin32 {
+    if sess.targ_cfg.os != abi::OsWin32 && !sess.targeting_pnacl() {
         args.push(~"-nodefaultlibs");
     }
 
@@ -1205,7 +1276,10 @@ fn link_args(sess: Session,
     }
 
     // Stack growth requires statically linking a __morestack function
-    args.push(~"-lmorestack");
+    // But not whilst targeting PNaCl
+    if !sess.targeting_pnacl() {
+        args.push(~"-lmorestack");
+    }
     // compiler-rt contains implementations of low-level LLVM helpers
     // It should go before platform and user libraries, so it has first dibs
     // at resolving symbols that also appear in libgcc.

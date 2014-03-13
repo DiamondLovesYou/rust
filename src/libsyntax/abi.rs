@@ -13,7 +13,7 @@ use std::vec_ng::Vec;
 use std::fmt::Show;
 
 #[deriving(Eq)]
-pub enum Os { OsWin32, OsMacos, OsLinux, OsAndroid, OsFreebsd, }
+pub enum Os { OsWin32, OsMacos, OsLinux, OsAndroid, OsFreebsd, OsNaCl }
 
 #[deriving(Eq, Hash)]
 pub enum Abi {
@@ -43,7 +43,8 @@ pub enum Architecture {
     X86,
     X86_64,
     Arm,
-    Mips
+    Mips,
+    Le32,
 }
 
 static IntelBits: u32 = (1 << (X86 as uint)) | (1 << (X86_64 as uint));

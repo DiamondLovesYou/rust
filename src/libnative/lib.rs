@@ -106,3 +106,8 @@ pub fn run(main: proc()) -> int {
     main();
     os::get_exit_status()
 }
+
+#[cfg(target_os = "nacl", target_libc = "newlib")]
+#[link(name = "nacl_io", kind = "static")] extern {}
+#[cfg(target_os = "nacl", target_libc = "newlib")]
+#[link(name = "c++", kind = "static")] extern {}

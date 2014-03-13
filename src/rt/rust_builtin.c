@@ -25,6 +25,11 @@
 #include <signal.h>
 #include <unistd.h>
 #include <pthread.h>
+
+#if _POSIX_C_SOURCE < 1
+#include <errno.h>
+#endif
+
 #else
 #include <windows.h>
 #include <wincrypt.h>
@@ -78,6 +83,11 @@ extern char **environ;
 char**
 rust_env_pairs() {
     return 0;
+}
+#elif defined(__native_client__) && !(defined(__arm__) || defined(__pnacl__))
+char**
+rust_env_pairs() {
+    return __environ;
 }
 #else
 char**
@@ -207,11 +217,19 @@ struct tm* LOCALTIME(const time_t *clock, struct tm *result) {
 }
 #define TIMEGM(result) mktime((result)) - _timezone
 #endif
+
 #else
+
 #define TZSET() tzset()
 #define GMTIME(clock, result) gmtime_r((clock), (result))
 #define LOCALTIME(clock, result) localtime_r((clock), (result))
+
+#ifdef __pnacl__
+#define TIMEGM(result) mktime((result)) - _timezone
+#else
 #define TIMEGM(result) timegm(result)
+#endif
+
 #endif
 
 void
@@ -250,6 +268,9 @@ rust_localtime(int64_t sec, int32_t nsec, rust_tm *timeptr) {
         WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, buffer, sizeof(buffer), NULL, NULL);
         zone = buffer;
     }
+#elif defined(__pnacl__)
+    const int32_t gmtoff = _timezone;
+    zone = _tzname[0];
 #else
     int32_t gmtoff = tm.tm_gmtoff;
     zone = tm.tm_zone;
@@ -280,13 +301,32 @@ rust_opendir(char *dirname) {
 }
 
 int
-rust_readdir_r(DIR *dirp, struct dirent *entry, struct dirent **result) {
-    return readdir_r(dirp, entry, result);
+rust_dirent_t_size() {
+    return sizeof(struct dirent);
 }
 
 int
-rust_dirent_t_size() {
-    return sizeof(struct dirent);
+rust_readdir_r(DIR *dirp, struct dirent *entry, struct dirent **result) {
+#if _POSIX_C_SOURCE < 1
+    /// C disgusts me. Sigh.
+    /// This is needed for newlib on PNaCl/NaCl.
+    if(result == NULL || entry == NULL || dirp == NULL) {
+        errno = EBADF;
+        return EBADF;
+    }
+
+    errno = 0;
+    struct dirent* next_entry = readdir(dirp);
+    if(next_entry == NULL) {
+        *result = NULL;
+    } else {
+        memcpy(entry, next_entry, rust_dirent_t_size());
+        *result = next_entry;
+    }
+    return 0;
+#else
+    return readdir_r(dirp, entry, result);
+#endif
 }
 
 #else

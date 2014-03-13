@@ -132,6 +132,9 @@ mod libunwind {
     #[cfg(target_arch = "arm")]
     pub static unwinder_private_data_size: int = 20;
 
+    #[cfg(target_os = "nacl", target_arch = "le32")]
+    pub static unwinder_private_data_size: int = 16;
+
     pub struct _Unwind_Exception {
         exception_class: _Unwind_Exception_Class,
         exception_cleanup: _Unwind_Exception_Cleanup_Fn,

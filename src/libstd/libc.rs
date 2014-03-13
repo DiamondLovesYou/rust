@@ -234,6 +234,7 @@ pub mod types {
 
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl")]
     pub mod os {
         pub mod common {
             pub mod posix01 {
@@ -330,6 +331,7 @@ pub mod types {
         #[cfg(target_arch = "x86")]
         #[cfg(target_arch = "arm")]
         #[cfg(target_arch = "mips")]
+        #[cfg(target_arch = "le32")]
         pub mod arch {
             pub mod c95 {
                 pub type c_char = i8;
@@ -358,6 +360,7 @@ pub mod types {
             }
             #[cfg(target_arch = "x86")]
             #[cfg(target_arch = "mips")]
+            #[cfg(target_arch = "le32")]
             pub mod posix88 {
                 pub type off_t = i32;
                 pub type dev_t = u64;
@@ -382,6 +385,7 @@ pub mod types {
                 pub type ssize_t = i32;
             }
             #[cfg(target_arch = "x86")]
+            #[cfg(target_arch = "le32")]
             pub mod posix01 {
                 use libc::types::os::arch::c95::{c_short, c_long, time_t};
                 use libc::types::os::arch::posix88::{dev_t, gid_t, ino_t};
@@ -1840,6 +1844,7 @@ pub mod consts {
 
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl")]
     pub mod os {
         pub mod c95 {
             use libc::types::os::arch::c95::{c_int, c_uint};
@@ -1865,6 +1870,7 @@ pub mod consts {
         #[cfg(target_arch = "x86")]
         #[cfg(target_arch = "x86_64")]
         #[cfg(target_arch = "arm")]
+        #[cfg(target_arch = "le32")]
         pub mod posix88 {
             use libc::types::os::arch::c95::c_int;
             use libc::types::common::c95::c_void;
@@ -2341,10 +2347,16 @@ pub mod consts {
 
             #[cfg(target_os = "android")]
             pub static PTHREAD_STACK_MIN: size_t = 8192;
+            #[cfg(target_os = "nacl", target_arch = "le32")]
+            #[cfg(target_os = "nacl", target_arch = "arm")]
+            pub static PTHREAD_STACK_MIN: size_t = 1024;
 
             #[cfg(target_arch = "arm", target_os = "linux")]
             #[cfg(target_arch = "x86", target_os = "linux")]
             #[cfg(target_arch = "x86_64", target_os = "linux")]
+            #[cfg(not(target_arch = "le32"),
+                  not(target_arch = "arm"),
+                  target_os = "nacl")]
             pub static PTHREAD_STACK_MIN: size_t = 16384;
 
             #[cfg(target_arch = "mips", target_os = "linux")]
@@ -2395,6 +2407,7 @@ pub mod consts {
         #[cfg(target_arch = "x86")]
         #[cfg(target_arch = "x86_64")]
         #[cfg(target_arch = "arm")]
+        #[cfg(target_arch = "le32")]
         pub mod extra {
             use libc::types::os::arch::c95::c_int;
 
@@ -2441,6 +2454,7 @@ pub mod consts {
             pub static MAP_STACK : c_int = 0x020000;
         }
         #[cfg(target_os = "linux")]
+        #[cfg(target_os = "nacl", target_libc = "glibc")]
         pub mod sysconf {
             use libc::types::os::arch::c95::c_int;
 
@@ -2500,6 +2514,14 @@ pub mod consts {
             pub static _SC_XBS5_ILP32_OFF32 : c_int = 125;
             pub static _SC_XBS5_ILP32_OFFBIG : c_int = 126;
             pub static _SC_XBS5_LPBIG_OFFBIG : c_int = 128;
+        }
+        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        pub mod sysconf {
+            use libc::types::os::arch::c95::c_int;
+
+            pub static _SC_SENDMSG_MAX_SIZE : c_int = 0;
+            pub static _SC_NPROCESSORS_ONLN : c_int = 1;
+            pub static _SC_PAGESIZE : c_int = 2;
         }
         #[cfg(target_os = "android")]
         pub mod sysconf {
@@ -2792,6 +2814,9 @@ pub mod consts {
             #[cfg(target_arch = "x86")]
             #[cfg(target_arch = "x86_64")]
             pub static PTHREAD_STACK_MIN: size_t = 2048;
+
+            #[cfg(target_arch = "le32")]
+            pub static PTHREAD_STACK_MIN: size_t = 1024;
 
             pub static CLOCK_REALTIME: c_int = 0;
             pub static CLOCK_MONOTONIC: c_int = 4;
@@ -3584,6 +3609,7 @@ pub mod funcs {
     #[cfg(target_os = "android")]
     #[cfg(target_os = "macos")]
     #[cfg(target_os = "freebsd")]
+    #[cfg(target_os = "nacl")]
     pub mod posix88 {
         pub mod stat_ {
             use libc::types::os::arch::c95::{c_char, c_int};
@@ -3598,6 +3624,7 @@ pub mod funcs {
                 #[cfg(target_os = "linux")]
                 #[cfg(target_os = "freebsd")]
                 #[cfg(target_os = "android")]
+                #[cfg(target_os = "nacl")]
                 pub fn fstat(fildes: c_int, buf: *mut stat) -> c_int;
 
                 #[cfg(target_os = "macos")]
@@ -3610,6 +3637,7 @@ pub mod funcs {
                 #[cfg(target_os = "linux")]
                 #[cfg(target_os = "freebsd")]
                 #[cfg(target_os = "android")]
+                #[cfg(target_os = "nacl")]
                 pub fn stat(path: *c_char, buf: *mut stat) -> c_int;
 
                 #[cfg(target_os = "macos")]
@@ -3721,6 +3749,7 @@ pub mod funcs {
                 pub fn link(src: *c_char, dst: *c_char) -> c_int;
                 pub fn lseek(fd: c_int, offset: off_t, whence: c_int)
                              -> off_t;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn pathconf(path: *c_char, name: c_int) -> c_long;
                 pub fn pause() -> c_int;
                 pub fn pipe(fds: *mut c_int) -> c_int;
@@ -3795,6 +3824,7 @@ pub mod funcs {
     #[cfg(target_os = "android")]
     #[cfg(target_os = "macos")]
     #[cfg(target_os = "freebsd")]
+    #[cfg(target_os = "nacl")]
     pub mod posix01 {
         #[nolink]
         pub mod stat_ {
@@ -3805,6 +3835,7 @@ pub mod funcs {
                 #[cfg(target_os = "linux")]
                 #[cfg(target_os = "freebsd")]
                 #[cfg(target_os = "android")]
+                #[cfg(target_os = "nacl")]
                 pub fn lstat(path: *c_char, buf: *mut stat) -> c_int;
 
                 #[cfg(target_os = "macos")]
@@ -3902,6 +3933,7 @@ pub mod funcs {
     #[cfg(target_os = "android")]
     #[cfg(target_os = "macos")]
     #[cfg(target_os = "freebsd")]
+    #[cfg(target_os = "nacl")]
     pub mod posix08 {
         pub mod unistd {
         }
@@ -4013,6 +4045,7 @@ pub mod funcs {
 
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl")]
     pub mod bsd44 {
         use libc::types::common::c95::{c_void};
         use libc::types::os::arch::c95::{c_uchar, c_int, size_t};
@@ -4048,6 +4081,7 @@ pub mod funcs {
 
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl")]
     pub mod extra {
     }
 

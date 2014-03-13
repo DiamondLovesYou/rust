@@ -532,6 +532,143 @@ CFG_LDPATH_x86_64-unknown-freebsd :=
 CFG_RUN_x86_64-unknown-freebsd=$(2)
 CFG_RUN_TARG_x86_64-unknown-freebsd=$(call CFG_RUN_x86_64-unknown-freebsd,,$(2))
 
+ifeq ($(CFG_OSTYPE),pc-mingw32)
+  NACL_TOOLCHAIN_OS_PATH:=win
+else ifeq ($(CFG_OSTYPE),apple-darwin)
+  NACL_TOOLCHAIN_OS_PATH:=mac
+else
+  NACL_TOOLCHAIN_OS_PATH:=linux
+endif
+
+# le32-unknown-nacl (portable, PNaCl)
+CC_le32-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-clang
+CXX_le32-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-clang++
+CPP_le32-unknown-nacl=$(CXX_le32-unknown-nacl) -E
+AR_le32-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-ar
+CFG_LIB_NAME_le32-unknown-nacl=lib$(1).so
+CFG_STATIC_LIB_NAME_le32-unknown-nacl=lib$(1).a
+CFG_LIB_GLOB_le32-unknown-nacl=lib$(1)-*.so
+CFG_LIB_DSYM_GLOB_le32-unknown-nacl=lib$(1)-*.dylib.dSYM
+CFG_GCCISH_CFLAGS_le32-unknown-nacl := -Wall -Werror -fPIC -I$(CFG_NACL_CROSS_PATH)/include -I$(CFG_NACL_CROSS_PATH)/include/pnacl -D_POSIX_READER_WRITER_LOCKS -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0
+CFG_GCCISH_CXXFLAGS_le32-unknown-nacl := -fno-rtti
+CFG_GCCISH_LINK_FLAGS_le32-unknown-nacl := -static -fPIC -ldl -pthread  -lm -lrt
+CFG_GCCISH_DEF_FLAG_le32-unknown-nacl := -Wl,--export-dynamic,--dynamic-list=
+CFG_GCCISH_PRE_LIB_FLAGS_le32-unknown-nacl := -Wl,-no-whole-archive
+CFG_GCCISH_POST_LIB_FLAGS_le32-unknown-nacl :=
+CFG_DEF_SUFFIX_le32-unknown-nacl := .le32.nacl.def
+CFG_INSTALL_NAME_le32-unknown-nacl =
+CFG_LIBUV_LINK_FLAGS_le32-unknown-nacl =
+CFG_DISABLE_LIBUV_le32-unknown-nacl := 1
+CFG_LLVM_BUILD_ENV_le32-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
+CFG_EXE_SUFFIX_le32-unknown-nacl = .pexe
+CFG_WINDOWSY_le32-unknown-nacl :=
+CFG_UNIXY_le32-unknown-nacl := 1
+CFG_PATH_MUNGE_le32-unknown-nacl := true
+CFG_LDPATH_le32-unknown-nacl :=
+CFG_RUN_le32-unknown-nacl=$(2)
+CFG_RUN_TARG_le32-unknown-nacl=$(call CFG_RUN_le32-unknown-nacl,,$(2))
+TOOLCHAIN_PROVIDES_COMPRT_le32-unknown-nacl := 1
+# libuv uses quite a bit of C functions that newlib doesn't implement.
+# Last time I tried to build libuv for newlib it was a mess.
+# Obviously, this additionally disables libgreen.
+DISABLED_CRATES_le32-unknown-nacl := rustuv green
+SHARED_LIBS_DISABLED_le32-unknown-nacl := 1
+RUNTIME_CFLAGS_le32-unknown-nacl:= -I$(CFG_NACL_CROSS_PATH)/include/pnacl
+RUNTIME_DISABLE_ASM_le32-unknown-nacl := 1
+RUSTC_FLAGS_le32-unknown-nacl:=
+RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=pnacl --cfg "target_libc=\"newlib\"" -L $(CFG_NACL_CROSS_PATH)/lib/pnacl/Release -L $(CFG_NACL_CROSS_PATH)/toolchain/linux_pnacl/usr/lib/
+
+# i686-unknown-nacl (non-portable)
+CC_i686-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/i686-nacl-gcc
+CXX_i686-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/i686-nacl-g++
+CPP_i686-unknown-nacl=$(CXX_i686-unknown-nacl) -E
+AR_i686-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/i686-nacl-ar
+CFG_LIB_NAME_i686-unknown-nacl=lib$(1).so
+CFG_STATIC_LIB_NAME_i686-unknown-nacl=lib$(1).a
+CFG_LIB_GLOB_i686-unknown-nacl=lib$(1)-*.so
+CFG_LIB_DSYM_GLOB_i686-unknown-nacl=lib$(1)-*.dylib.dSYM
+CFG_GCCISH_CFLAGS_i686-unknown-nacl := -Wall -Werror -g -fPIC -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0
+CFG_GCCISH_CXXFLAGS_i686-unknown-nacl := -fno-rtti
+CFG_GCCISH_LINK_FLAGS_i686-unknown-nacl := -static -fPIC -ldl -pthread  -lrt -g
+CFG_GCCISH_DEF_FLAG_i686-unknown-nacl := -Wl,--export-dynamic,--dynamic-list=
+CFG_GCCISH_PRE_LIB_FLAGS_i686-unknown-nacl := -Wl,-no-whole-archive
+CFG_GCCISH_POST_LIB_FLAGS_i686-unknown-nacl :=
+CFG_DEF_SUFFIX_i686-unknown-nacl := .i686.nacl.def
+CFG_INSTALL_NAME_i686-unknown-nacl =
+CFG_LIBUV_LINK_FLAGS_i686-unknown-nacl = -lnacl_io
+CFG_LLVM_BUILD_ENV_i686-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
+CFG_EXE_SUFFIX_i686-unknown-nacl = .nexe
+CFG_WINDOWSY_i686-unknown-nacl :=
+CFG_UNIXY_i686-unknown-nacl := 1
+CFG_PATH_MUNGE_i686-unknown-nacl := true
+CFG_LDPATH_i686-unknown-nacl :=
+CFG_RUN_i686-unknown-nacl=$(2)
+CFG_RUN_TARG_i686-unknown-nacl=$(call CFG_RUN_i686-unknown-nacl,,$(2))
+SHARED_LIBS_DISABLED_i686-unknown-nacl := 1
+RUSTC_FLAGS_i686-unknown-nacl:=
+RUSTC_CROSS_FLAGS_i686-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=nacl --cfg "target_libc=\"glibc\"" -L $(CFG_NACL_CROSS_PATH)/lib/pnacl/Release
+
+# x86_64-unknown-nacl (non-portable)
+CC_x86_64-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/x86_64-nacl-gcc
+CXX_x86_64-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/x86_64-nacl-g++
+CPP_x86_64-unknown-nacl=$(CXX_x86_64-unknown-nacl) -E
+AR_x86_64-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/x86_64-nacl-ar
+CFG_LIB_NAME_x86_64-unknown-nacl=lib$(1).so
+CFG_STATIC_LIB_NAME_x86_64-unknown-nacl=lib$(1).a
+CFG_LIB_GLOB_x86_64-unknown-nacl=lib$(1)-*.so
+CFG_LIB_DSYM_GLOB_x86_64-unknown-nacl=lib$(1)-*.dylib.dSYM
+CFG_GCCISH_CFLAGS_x86_64-unknown-nacl := -Wall -g -fPIC -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0
+CFG_GCCISH_CXXFLAGS_x86_64-unknown-nacl := -fno-rtti
+CFG_GCCISH_LINK_FLAGS_x86_64-unknown-nacl := -static -fPIC -ldl -pthread  -lrt -g
+CFG_GCCISH_DEF_FLAG_x86_64-unknown-nacl := -Wl,--export-dynamic,--dynamic-list=
+CFG_GCCISH_PRE_LIB_FLAGS_x86_64-unknown-nacl := -Wl,-no-whole-archive
+CFG_GCCISH_POST_LIB_FLAGS_x86_64-unknown-nacl :=
+CFG_DEF_SUFFIX_x86_64-unknown-nacl := .x86_64.nacl.def
+CFG_INSTALL_NAME_x86_64-unknown-nacl =
+CFG_LIBUV_LINK_FLAGS_x86_64-unknown-nacl = -lnacl_io
+CFG_LLVM_BUILD_ENV_x86_64-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
+CFG_EXE_SUFFIX_x86_64-unknown-nacl = .nexe
+CFG_WINDOWSY_x86_64-unknown-nacl :=
+CFG_UNIXY_x86_64-unknown-nacl := 1
+CFG_PATH_MUNGE_x86_64-unknown-nacl := true
+CFG_LDPATH_x86_64-unknown-nacl :=
+CFG_RUN_x86_64-unknown-nacl=$(2)
+CFG_RUN_TARG_x86_64-unknown-nacl=$(call CFG_RUN_x86_64-unknown-nacl,,$(2))
+SHARED_LIBS_DISABLED_x86_64-unknown-nacl := 1
+RUSTC_FLAGS_x86_64-unknown-nacl:=
+RUSTC_CROSS_FLAGS_x86_64-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=nacl --cfg "target_libc=\"glibc\""
+
+# arm-unknown-nacl (non-portable)
+CC_arm-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_arm_newlib/bin/arm-nacl-gcc
+CXX_arm-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_arm_newlib/bin/arm-nacl-g++
+CPP_arm-unknown-nacl=$(CXX_arm-unknown-nacl) -E
+AR_arm-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_arm_newlib/bin/arm-nacl-ar
+CFG_LIB_NAME_arm-unknown-nacl=lib$(1).so
+CFG_STATIC_LIB_NAME_arm-unknown-nacl=lib$(1).a
+CFG_LIB_GLOB_arm-unknown-nacl=lib$(1)-*.so
+CFG_LIB_DSYM_GLOB_arm-unknown-nacl=lib$(1)-*.dylib.dSYM
+CFG_GCCISH_CFLAGS_arm-unknown-nacl := -Wall -Werror -g -fPIC -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0
+CFG_GCCISH_CXXFLAGS_arm-unknown-nacl := -fno-rtti
+CFG_GCCISH_LINK_FLAGS_arm-unknown-nacl := -static -fPIC -ldl -pthread  -lrt -g
+CFG_GCCISH_DEF_FLAG_arm-unknown-nacl := -Wl,--export-dynamic,--dynamic-list=
+CFG_GCCISH_PRE_LIB_FLAGS_arm-unknown-nacl := -Wl,-no-whole-archive
+CFG_GCCISH_POST_LIB_FLAGS_arm-unknown-nacl :=
+CFG_DEF_SUFFIX_arm-unknown-nacl := .arm.nacl.def
+CFG_INSTALL_NAME_arm-unknown-nacl =
+CFG_LIBUV_LINK_FLAGS_arm-unknown-nacl = -lnacl_io
+CFG_DISABLE_LIBUV_arm-unknown-nacl := 1
+CFG_LLVM_BUILD_ENV_arm-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
+CFG_EXE_SUFFIX_arm-unknown-nacl = .nexe
+CFG_WINDOWSY_arm-unknown-nacl :=
+CFG_UNIXY_arm-unknown-nacl := 1
+CFG_PATH_MUNGE_arm-unknown-nacl := true
+CFG_LDPATH_arm-unknown-nacl :=
+CFG_RUN_arm-unknown-nacl=$(2)
+CFG_RUN_TARG_arm-unknown-nacl=$(call CFG_RUN_arm-unknown-nacl,,$(2))
+SHARED_LIBS_DISABLED_arm-unknown-nacl := 1
+RUSTC_FLAGS_arm-unknown-nacl:=
+RUSTC_CROSS_FLAGS_arm-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=nacl --cfg "target_libc=\"newlib\""
+
 ifeq ($(CFG_CCACHE_CPP2),1)
   CCACHE_CPP2=1
   export CCACHE_CPP

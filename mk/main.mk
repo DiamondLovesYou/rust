@@ -210,7 +210,7 @@ endif
 
 # FIXME: x86-ism
 LLVM_COMPONENTS=x86 arm mips ipo bitreader bitwriter linker asmparser jit mcjit \
-                interpreter instrumentation
+                interpreter instrumentation NaClTransforms NaClAnalysis
 
 # Only build these LLVM tools
 LLVM_TOOLS=bugpoint llc llvm-ar llvm-as llvm-dis llvm-mc opt llvm-extract
@@ -310,8 +310,9 @@ TSREQ$(1)_T_$(2)_H_$(3) = \
 # target
 SREQ$(1)_T_$(2)_H_$(3) = \
 	$$(TSREQ$(1)_T_$(2)_H_$(3)) \
-	$$(foreach dep,$$(TARGET_CRATES),\
-	    $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(dep))
+	$$(foreach dep, \
+		$$(filter-out $$(DISABLED_CRATES_$(2)),$$(TARGET_CRATES)),\
+	    	$$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(dep))
 
 # Prerequisites for a working stageN compiler and complete set of target
 # libraries

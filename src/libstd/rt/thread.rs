@@ -256,9 +256,12 @@ mod imp {
 
     #[cfg(target_os = "macos")]
     #[cfg(target_os = "android")]
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
     pub unsafe fn yield_now() { assert_eq!(sched_yield(), 0); }
 
-    #[cfg(not(target_os = "macos"), not(target_os = "android"))]
+    #[cfg(not(target_os = "macos"),
+          not(target_os = "android"),
+          not(target_os = "nacl", target_libc = "newlib"))]
     pub unsafe fn yield_now() { assert_eq!(pthread_yield(), 0); }
 
     // glibc >= 2.15 has a __pthread_get_minstack() function that returns
@@ -310,8 +313,11 @@ mod imp {
 
         #[cfg(target_os = "macos")]
         #[cfg(target_os = "android")]
+        #[cfg(target_os = "nacl", target_libc = "newlib")]
         fn sched_yield() -> libc::c_int;
-        #[cfg(not(target_os = "macos"), not(target_os = "android"))]
+        #[cfg(not(target_os = "macos"),
+              not(target_os = "android"),
+              not(target_os = "nacl", target_libc = "newlib"))]
         fn pthread_yield() -> libc::c_int;
     }
 }

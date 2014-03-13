@@ -28,6 +28,7 @@ use syntax;
 
 use std::cell::{Cell, RefCell};
 use std::vec_ng::Vec;
+use std::from_str::FromStr;
 use collections::{HashMap,HashSet};
 
 pub struct Config {
@@ -118,6 +119,22 @@ pub enum DebugInfoLevel {
     NoDebugInfo,
     LimitedDebugInfo,
     FullDebugInfo,
+}
+#[deriving(Clone, Eq)]
+pub enum NaClFlavor_ {
+    NaClFlavor,
+    PNaClFlavor,
+    EmscriptenFlavor,
+}
+impl FromStr for NaClFlavor_ {
+    fn from_str(s: &str) -> Option<NaClFlavor_> {
+        match s {
+            "nacl" => Some(NaClFlavor),
+            "pnacl" => Some(PNaClFlavor),
+            "emscripten" => Some(EmscriptenFlavor),
+            _ => None,
+        }
+    }
 }
 
 #[deriving(Clone)]
@@ -312,6 +329,71 @@ impl Session_ {
     pub fn show_span(&self) -> bool {
         self.debugging_opt(SHOW_SPAN)
     }
+
+    pub fn no_morestack(&self) -> bool {
+        (match self.opts.cg.nacl_flavor {
+            None => false,
+            Some(NaClFlavor) => false,
+            Some(_) => true,
+        }) && self.targ_cfg.target_strs.target_triple == ~"le32-unknown-nacl"
+    }
+    // true if we should feed our generated ll to our "linker"
+    // used for Emscripten && PNaCl
+    pub fn linker_eats_ll(&self) -> bool {
+        (match self.opts.cg.nacl_flavor {
+            None => false,
+            Some(NaClFlavor) => false,
+            Some(_) => true,
+        }) && self.targ_cfg.target_strs.target_triple == ~"le32-unknown-nacl"
+    }
+
+    pub fn get_nacl_tool_path(&self,
+                              toolname: &str,
+                              em_suffix: &str,
+                              nacl_suffix: &str,
+                              pnacl_suffix: &str) -> ~str {
+        let toolchain = match self.opts.cg.cross_path {
+            None => self.fatal(format!("need cross toolchain path for the '{}' tool \
+                                    (-C cross-path) for this target", toolname)),
+            Some(ref p) => Path::new(p.clone()),
+        };
+        match self.opts.cg.nacl_flavor {
+            Some(EmscriptenFlavor) => toolchain.join(em_suffix),
+            Some(_) => {
+                let (arch_libc, prefix) = match self.targ_cfg.arch {
+                    abi::X86 =>    (~"x86_newlib", ~"i686-nacl-"),
+                    abi::X86_64 => (~"x86_newlib", ~"x86_64-nacl-"),
+                    abi::Arm =>    (~"arm_newlib", ~"arm-nacl-"),
+                    abi::Le32 =>   (~"pnacl",      ~"pnacl-"),
+                    abi::Mips =>   self.fatal("PNaCl/NaCl can't target the Mips arch"),
+                };
+                let post_toolchain = format!("{}_{}",
+                                             get_os_for_nacl_toolchain(self),
+                                             arch_libc);
+                let tool_name = format!("{}{}",
+                                        prefix,
+                                        match self.opts.cg.nacl_flavor {
+                                            Some(EmscriptenFlavor) | None => unreachable!(),
+                                            Some(NaClFlavor) => nacl_suffix,
+                                            Some(PNaClFlavor) => pnacl_suffix,
+                                        });
+                toolchain.join_many([~"toolchain",
+                                     post_toolchain,
+                                     ~"bin",
+                                     tool_name])
+            }
+            None => self.bug("get_nacl_tool_path called without NaCl flavor"),
+        }.as_str().unwrap().to_owned()
+    }
+
+    /// Shortcut to test if we need to do special things because we are targeting PNaCl.
+    pub fn targeting_pnacl(&self) -> bool {
+        (match self.opts.cg.nacl_flavor {
+            Some(PNaClFlavor) => true,
+            _ => false,
+        }) && self.targ_cfg.target_strs.target_triple == ~"le32-unknown-nacl"
+    }
+
 }
 
 /// Some reasonable defaults
@@ -365,6 +447,7 @@ macro_rules! cgoptions(
 
     mod cgsetters {
         use super::CodegenOptions;
+        use std::from_str::FromStr;
 
         $(
             pub fn $opt(cg: &mut CodegenOptions, v: Option<&str>) -> bool {
@@ -405,7 +488,10 @@ macro_rules! cgoptions(
                 None => false,
             }
         }
-
+        fn parse_from_str<T: FromStr>(slot: &mut Option<T>, v: Option<&str>) -> bool {
+            *slot = v.and_then(|s| from_str(s) );
+            slot.is_some()
+        }
     }
 ) )
 
@@ -426,7 +512,7 @@ cgoptions!(
         "a list of arguments to pass to llvm (space separated)"),
     save_temps: bool = (false, parse_bool,
         "save all temporary output files during compilation"),
-    android_cross_path: Option<~str> = (None, parse_opt_string,
+    cross_path: Option<~str> = (None, parse_opt_string,
         "the path to the Android NDK"),
     no_rpath: bool = (false, parse_bool,
         "disables setting the rpath in libs/exes"),
@@ -444,6 +530,9 @@ cgoptions!(
         "prefer dynamic linking to static linking"),
     no_integrated_as: bool = (false, parse_bool,
         "use an external assembler rather than LLVM's integrated one"),
+    nacl_flavor: Option<NaClFlavor_> = (None, parse_from_str,
+        "use with =pnacl, =nacl, or =emscripten.
+         Only applicable when coupled with a PNaCl, NaCl, or Emscripten cross"),
 )
 
 // Seems out of place, but it uses session, so I'm putting it here
@@ -529,6 +618,18 @@ pub fn sess_os_to_meta_os(os: abi::Os) -> metadata::loader::Os {
         abi::OsLinux => loader::OsLinux,
         abi::OsAndroid => loader::OsAndroid,
         abi::OsMacos => loader::OsMacos,
-        abi::OsFreebsd => loader::OsFreebsd
+        abi::OsFreebsd => loader::OsFreebsd,
+        abi::OsNaCl => loader::OsNaCl,
     }
+}
+
+#[cfg(windows)]
+fn get_os_for_nacl_toolchain(_sess: &Session_) -> ~str { ~"win" }
+#[cfg(target_os = "linux")]
+fn get_os_for_nacl_toolchain(_sess: &Session_) -> ~str { ~"linux" }
+#[cfg(target_os = "macos")]
+fn get_os_for_nacl_toolchain(_sess: &Session_) -> ~str { ~"mac" }
+#[cfg(not(windows, target_os = "linux", target_os = "macos"))]
+fn get_os_for_nacl_toolchain(sess: &Session_) -> ! {
+    sess.fatal("NaCl/PNaCl toolchain unsupported on this OS (update this if that's changed)");
 }

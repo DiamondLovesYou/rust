@@ -204,6 +204,9 @@ pub unsafe fn record_sp_limit(limit: uint) {
             fn record_sp_limit(limit: *c_void);
         }
     }
+
+    #[cfg(target_arch = "le32")] #[inline(always)]
+    unsafe fn target_record_sp_limit(_limit: uint) { }
 }
 
 /// The counterpart of the function above, this function will fetch the current
@@ -277,5 +280,10 @@ pub unsafe fn get_sp_limit() -> uint {
         extern {
             fn get_sp_limit() -> *c_void;
         }
+    }
+
+    #[cfg(target_arch = "le32")] #[inline(always)]
+    unsafe fn target_get_sp_limit() -> uint {
+        return 0;
     }
 }

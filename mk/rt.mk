@@ -48,16 +48,20 @@ NATIVE_DEPS_sundown_$(1) := sundown/src/autolink.c \
 			sundown/html/houdini_html_e.c \
 			sundown/html/html_smartypants.c \
 			sundown/html/html.c
+ifneq ($$(CFG_DISABLE_LIBUV_$(1)), 1)
 NATIVE_DEPS_uv_support_$(1) := rust_uv.c
+endif
 NATIVE_DEPS_miniz_$(1) = miniz.c
 NATIVE_DEPS_rustrt_$(1) := rust_builtin.c \
 			rust_android_dummy.c \
 			rust_test_helpers.c \
-			rust_try.ll \
-			arch/$$(HOST_$(1))/record_sp.S
+			rust_try.ll
+ifneq ($$(RUNTIME_DISABLE_ASM_$(1)), 1)
+NATIVE_DEPS_rustrt_$(1)	+= arch/$$(HOST_$(1))/record_sp.S
 NATIVE_DEPS_morestack_$(1) := arch/$$(HOST_$(1))/morestack.S
 NATIVE_DEPS_context_switch_$(1) := \
 			arch/$$(HOST_$(1))/_context.S
+endif
 
 ################################################################################
 # You shouldn't find it that necessary to edit anything below this line.
@@ -68,12 +72,21 @@ NATIVE_DEPS_context_switch_$(1) := \
 
 RT_OUTPUT_DIR_$(1) := $(1)/rt
 
+ifneq ($(1), le32-unknown-nacl)
 $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll $$(MKFILE_DEPS) \
 	    $$(LLVM_CONFIG_$$(CFG_BUILD))
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
 	$$(Q)$$(LLC_$$(CFG_BUILD)) $$(CFG_LLC_FLAGS_$(1)) \
 	    -filetype=obj -mtriple=$(1) -relocation-model=pic -o $$@ $$<
+else
+# le32-unknown-nacl doesn't have a target machine, so llc chokes.
+$$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll $$(MKFILE_DEPS) \
+	    $$(LLVM_CONFIG_$$(CFG_BUILD))
+	@mkdir -p $$(@D)
+	@$$(call E, compile: $$@)
+	$$(Q)$$(CC_$(1)) -c -filetype=obj -fPIC -o $$@ $$<
+endif
 
 $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.c $$(MKFILE_DEPS)
 	@mkdir -p $$(@D)
@@ -172,6 +185,7 @@ LIBUV_MAKEFILE_$(1) := $$(CFG_BUILD_DIR)$$(RT_OUTPUT_DIR_$(1))/libuv/Makefile
 
 LIBUV_STAMP_$(1) = $$(LIBUV_DIR_$(1))/libuv-auto-clean-stamp
 
+ifneq ($$(CFG_DISABLE_LIBUV_$(1)),1)
 $$(LIBUV_STAMP_$(1)): $(S)src/rt/libuv-auto-clean-trigger
 	$$(Q)rm -rf $$(LIBUV_DIR_$(1))
 	$$(Q)mkdir -p $$(@D)
@@ -216,6 +230,7 @@ $$(LIBUV_DIR_$(1))/Release/libuv.a: $$(LIBUV_DEPS) $$(LIBUV_MAKEFILE_$(1)) \
 		NO_LOAD="$$(LIBUV_NO_LOAD)" \
 		V=$$(VERBOSE)
 
+endif
 endif
 
 ################################################################################
