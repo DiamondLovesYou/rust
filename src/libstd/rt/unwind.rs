@@ -74,9 +74,6 @@ use intrinsics;
 
 use uw = rt::libunwind;
 
-    #[cfg(target_os = "nacl", target_arch = "le32")]
-    pub static unwinder_private_data_size: int = 16;
-
 pub struct Unwinder {
     priv unwinding: bool,
     priv cause: Option<~Any>

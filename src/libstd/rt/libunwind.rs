@@ -65,6 +65,9 @@ pub static unwinder_private_data_size: int = 2;
 #[cfg(target_arch = "arm")]
 pub static unwinder_private_data_size: int = 20;
 
+#[cfg(target_os = "nacl", target_arch = "le32")]
+pub static unwinder_private_data_size: int = 16;
+
 pub struct _Unwind_Exception {
     exception_class: _Unwind_Exception_Class,
     exception_cleanup: _Unwind_Exception_Cleanup_Fn,
@@ -84,6 +87,7 @@ pub type _Unwind_Trace_Fn =
 #[cfg(target_os = "linux")]
 #[cfg(target_os = "freebsd")]
 #[cfg(target_os = "win32")]
+#[cfg(target_os = "nacl", target_libc = "glibc")]
 #[link(name = "gcc_s")]
 extern {}
 
@@ -100,7 +104,8 @@ extern "C" {
                 -> _Unwind_Reason_Code;
     #[cfg(not(target_os = "android"))]
     pub fn _Unwind_GetIP(ctx: *_Unwind_Context) -> libc::uintptr_t;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(target_os = "android"),
+          not(target_os = "nacl", target_libc = "newlib"))]
     pub fn _Unwind_FindEnclosingFunction(pc: *libc::c_void) -> *libc::c_void;
 }
 
@@ -151,6 +156,7 @@ pub unsafe fn _Unwind_GetIP(ctx: *_Unwind_Context) -> libc::uintptr_t {
 
 // This function also doesn't exist on android, so make it a no-op
 #[cfg(target_os = "android")]
+#[cfg(target_os = "nacl", target_libc = "newlib")]
 pub unsafe fn _Unwind_FindEnclosingFunction(pc: *libc::c_void) -> *libc::c_void{
     pc
 }
