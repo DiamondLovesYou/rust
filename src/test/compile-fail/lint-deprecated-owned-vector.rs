@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,21 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that a class with only sendable fields can be sent
+#[deny(deprecated_owned_vector)];
 
-struct foo {
-  i: int,
-  j: char,
-}
-
-fn foo(i:int, j: char) -> foo {
-    foo {
-        i: i,
-        j: j
-    }
-}
-
-pub fn main() {
-    let (tx, rx) = channel();
-    tx.send(foo(42, 'c'));
+fn main() {
+    ~[1]; //~ ERROR use of deprecated `~[]`
+    //~^ ERROR use of deprecated `~[]`
+    std::vec::with_capacity::<int>(10); //~ ERROR use of deprecated `~[]`
 }

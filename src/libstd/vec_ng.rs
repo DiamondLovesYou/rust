@@ -8,8 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Migrate documentation over from `std::vec` when it is removed.
-#[doc(hidden)];
+// Migrate documentation over from `std::vec` progressively.  (This is
+// shown in docs so that people have something to refer too, even if
+// the page is rather empty.)
+#[allow(missing_doc)];
 
 use cast::{forget, transmute};
 use clone::Clone;
@@ -399,6 +401,11 @@ impl<T> Vec<T> {
         self.insert(0, element)
     }
 
+    #[inline]
+    pub fn shift(&mut self) -> Option<T> {
+        self.remove(0)
+    }
+
     pub fn insert(&mut self, index: uint, element: T) {
         let len = self.len();
         assert!(index <= len);
@@ -418,6 +425,30 @@ impl<T> Vec<T> {
                 move_val_init(&mut *p, element);
             }
             self.set_len(len + 1);
+        }
+    }
+
+    fn remove(&mut self, index: uint) -> Option<T> {
+        let len = self.len();
+        if index < len {
+            unsafe { // infallible
+                let ret;
+                {
+                    let slice = self.as_mut_slice();
+                    // the place we are taking from.
+                    let ptr = slice.as_mut_ptr().offset(index as int);
+                    // copy it out, unsafely having a copy of the value on
+                    // the stack and in the vector at the same time.
+                    ret = Some(ptr::read(ptr as *T));
+
+                    // Shift everything down to fill in that spot.
+                    ptr::copy_memory(ptr, &*ptr.offset(1), len - index - 1);
+                }
+                self.set_len(len - 1);
+                ret
+            }
+        } else {
+            None
         }
     }
 

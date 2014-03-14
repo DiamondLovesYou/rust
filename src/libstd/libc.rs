@@ -1615,6 +1615,10 @@ pub mod consts {
             pub static SO_KEEPALIVE: c_int = 8;
             pub static SO_BROADCAST: c_int = 32;
             pub static SO_REUSEADDR: c_int = 4;
+
+            pub static SHUT_RD: c_int = 0;
+            pub static SHUT_WR: c_int = 1;
+            pub static SHUT_RDWR: c_int = 2;
         }
         pub mod extra {
             use libc::types::os::arch::c95::c_int;
@@ -2403,6 +2407,10 @@ pub mod consts {
             pub static SO_KEEPALIVE: c_int = 9;
             pub static SO_BROADCAST: c_int = 6;
             pub static SO_REUSEADDR: c_int = 2;
+
+            pub static SHUT_RD: c_int = 0;
+            pub static SHUT_WR: c_int = 1;
+            pub static SHUT_RDWR: c_int = 2;
         }
         #[cfg(target_arch = "x86")]
         #[cfg(target_arch = "x86_64")]
@@ -2867,6 +2875,10 @@ pub mod consts {
             pub static SO_KEEPALIVE: c_int = 0x0008;
             pub static SO_BROADCAST: c_int = 0x0020;
             pub static SO_REUSEADDR: c_int = 0x0004;
+
+            pub static SHUT_RD: c_int = 0;
+            pub static SHUT_WR: c_int = 1;
+            pub static SHUT_RDWR: c_int = 2;
         }
         pub mod extra {
             use libc::types::os::arch::c95::c_int;
@@ -3246,6 +3258,10 @@ pub mod consts {
             pub static SO_KEEPALIVE: c_int = 0x0008;
             pub static SO_BROADCAST: c_int = 0x0020;
             pub static SO_REUSEADDR: c_int = 0x0004;
+
+            pub static SHUT_RD: c_int = 0;
+            pub static SHUT_WR: c_int = 1;
+            pub static SHUT_RDWR: c_int = 2;
         }
         pub mod extra {
             use libc::types::os::arch::c95::c_int;
@@ -3950,6 +3966,7 @@ pub mod funcs {
             pub fn sendto(socket: c_int, buf: *c_void, len: size_t,
                           flags: c_int, addr: *sockaddr,
                           addrlen: socklen_t) -> ssize_t;
+            pub fn shutdown(socket: c_int, how: c_int) -> c_int;
         }
     }
 
@@ -3986,6 +4003,7 @@ pub mod funcs {
             pub fn sendto(socket: SOCKET, buf: *c_void, len: c_int,
                           flags: c_int, addr: *sockaddr,
                           addrlen: c_int) -> c_int;
+            pub fn shutdown(socket: SOCKET, how: c_int) -> c_int;
         }
     }
 

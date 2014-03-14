@@ -116,12 +116,12 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
     //
     // The basic idea is to not use a default_handler() for rustc, and then also
     // not print things by default to the actual stderr.
-    let (p, c) = Chan::new();
-    let w1 = io::ChanWriter::new(c);
+    let (tx, rx) = channel();
+    let w1 = io::ChanWriter::new(tx);
     let w2 = w1.clone();
     let old = io::stdio::set_stderr(~w1);
     spawn(proc() {
-        let mut p = io::PortReader::new(p);
+        let mut p = io::ChanReader::new(rx);
         let mut err = old.unwrap_or(~io::stderr() as ~Writer);
         io::util::copy(&mut p, &mut err).unwrap();
     });
@@ -166,6 +166,9 @@ fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> ~str {
     let mut prog = ~r"
 #[deny(warnings)];
 #[allow(unused_variable, dead_assignment, unused_mut, attribute_usage, dead_code)];
+
+// FIXME: remove when ~[] disappears from tests.
+#[allow(deprecated_owned_vector)];
 ";
 
     if loose_feature_gating {

@@ -9,56 +9,6 @@
 // except according to those terms.
 
 //! Unordered containers, implemented as hash-tables (`HashSet` and `HashMap` types)
-//!
-//! The tables use a keyed hash with new random keys generated for each container, so the ordering
-//! of a set of keys in a hash table is randomized.
-//!
-//! This is currently implemented with robin hood hashing, as described in [1][2][3].
-//!
-//! # Example
-//!
-//! ```rust
-//! use collections::HashMap;
-//!
-//! // type inference lets us omit an explicit type signature (which
-//! // would be `HashMap<&str, &str>` in this example).
-//! let mut book_reviews = HashMap::new();
-//!
-//! // review some books.
-//! book_reviews.insert("Adventures of Hucklebury Fin",      "My favorite book.");
-//! book_reviews.insert("Grimms' Fairy Tales",               "Masterpiece.");
-//! book_reviews.insert("Pride and Prejudice",               "Very enjoyable.");
-//! book_reviews.insert("The Adventures of Sherlock Holmes", "Eye lyked it alot.");
-//!
-//! // check for a specific one.
-//! if !book_reviews.contains_key(& &"Les Misérables") {
-//!     println!("We've got {} reviews, but Les Misérables ain't one.",
-//!              book_reviews.len());
-//! }
-//!
-//! // oops, this review has a lot of spelling mistakes, let's delete it.
-//! book_reviews.remove(& &"The Adventures of Sherlock Holmes");
-//!
-//! // look up the values associated with some keys.
-//! let to_find = ["Pride and Prejudice", "Alice's Adventure in Wonderland"];
-//! for book in to_find.iter() {
-//!     match book_reviews.find(book) {
-//!         Some(review) => println!("{}: {}", *book, *review),
-//!         None => println!("{} is unreviewed.", *book)
-//!     }
-//! }
-//!
-//! // iterate over everything.
-//! for (book, review) in book_reviews.iter() {
-//!     println!("{}: \"{}\"", *book, *review);
-//! }
-//! ```
-//!
-//! Relevant papers/articles:
-//!
-//! [1]: Pedro Celis. ["Robin Hood Hashing"](https://cs.uwaterloo.ca/research/tr/1986/CS-86-14.pdf)
-//! [2]: (http://codecapsule.com/2013/11/11/robin-hood-hashing/)
-//! [3]: (http://codecapsule.com/2013/11/17/robin-hood-hashing-backward-shift-deletion/)
 
 use std::container::{Container, Mutable, Map, MutableMap, Set, MutableSet};
 use std::clone::Clone;
@@ -667,14 +617,64 @@ static INITIAL_LOAD_FACTOR: Fraction = (9, 10);
 // `table::RawTable::new`, but I'm not confident it works for all sane alignments,
 // especially if a type needs more alignment than `malloc` provides.
 
-/// A hash map implementation which uses linear probing with Robin Hood bucket
-/// stealing.
+/// A hash map implementation which uses linear probing with Robin
+/// Hood bucket stealing.
 ///
 /// The hashes are all keyed by the task-local random number generator
-/// on creation by default. This can be overriden with one of the constructors.
+/// on creation by default, this means the ordering of the keys is
+/// randomized, but makes the tables more resistant to
+/// denial-of-service attacks (Hash DoS). This behaviour can be
+/// overriden with one of the constructors.
 ///
 /// It is required that the keys implement the `Eq` and `Hash` traits, although
 /// this can frequently be achieved by using `#[deriving(Eq, Hash)]`.
+///
+/// Relevant papers/articles:
+///
+/// 1. Pedro Celis. ["Robin Hood Hashing"](https://cs.uwaterloo.ca/research/tr/1986/CS-86-14.pdf)
+/// 2. Emmanuel Goossaert. ["Robin Hood
+///    hashing"](http://codecapsule.com/2013/11/11/robin-hood-hashing/)
+/// 3. Emmanuel Goossaert. ["Robin Hood hashing: backward shift
+///    deletion"](http://codecapsule.com/2013/11/17/robin-hood-hashing-backward-shift-deletion/)
+///
+/// # Example
+///
+/// ```rust
+/// use collections::HashMap;
+///
+/// // type inference lets us omit an explicit type signature (which
+/// // would be `HashMap<&str, &str>` in this example).
+/// let mut book_reviews = HashMap::new();
+///
+/// // review some books.
+/// book_reviews.insert("Adventures of Hucklebury Fin",      "My favorite book.");
+/// book_reviews.insert("Grimms' Fairy Tales",               "Masterpiece.");
+/// book_reviews.insert("Pride and Prejudice",               "Very enjoyable.");
+/// book_reviews.insert("The Adventures of Sherlock Holmes", "Eye lyked it alot.");
+///
+/// // check for a specific one.
+/// if !book_reviews.contains_key(& &"Les Misérables") {
+///     println!("We've got {} reviews, but Les Misérables ain't one.",
+///              book_reviews.len());
+/// }
+///
+/// // oops, this review has a lot of spelling mistakes, let's delete it.
+/// book_reviews.remove(& &"The Adventures of Sherlock Holmes");
+///
+/// // look up the values associated with some keys.
+/// let to_find = ["Pride and Prejudice", "Alice's Adventure in Wonderland"];
+/// for book in to_find.iter() {
+///     match book_reviews.find(book) {
+///         Some(review) => println!("{}: {}", *book, *review),
+///         None => println!("{} is unreviewed.", *book)
+///     }
+/// }
+///
+/// // iterate over everything.
+/// for (book, review) in book_reviews.iter() {
+///     println!("{}: \"{}\"", *book, *review);
+/// }
+/// ```
 #[deriving(Clone)]
 pub struct HashMap<K, V, H = sip::SipHasher> {
     // All hashes are keyed on these values, to prevent hash collision attacks.
@@ -1069,41 +1069,49 @@ impl<K: Eq + Hash<S>, V, S, H: Hasher<S>> HashMap<K, V, H> {
     /// so we have some sort of upper bound on the number of probes to do.
     ///
     /// 'hash', 'k', and 'v' are the elements to robin hood into the hashtable.
-    fn robin_hood(&mut self, index: table::FullIndex, dib_param: uint,
-                  hash: table::SafeHash, k: K, v: V) {
-        let (old_hash, old_key, old_val) = {
-            let (old_hash_ref, old_key_ref, old_val_ref) = self.table.read_all_mut(&index);
+    fn robin_hood(&mut self, mut index: table::FullIndex, mut dib_param: uint,
+                  mut hash: table::SafeHash, mut k: K, mut v: V) {
+        'outer: loop {
+            let (old_hash, old_key, old_val) = {
+                let (old_hash_ref, old_key_ref, old_val_ref) =
+                        self.table.read_all_mut(&index);
 
-            let old_hash = replace(old_hash_ref, hash);
-            let old_key  = replace(old_key_ref,  k);
-            let old_val  = replace(old_val_ref,  v);
+                let old_hash = replace(old_hash_ref, hash);
+                let old_key  = replace(old_key_ref,  k);
+                let old_val  = replace(old_val_ref,  v);
 
-            (old_hash, old_key, old_val)
-        };
-
-        let mut probe = self.probe_next(index.raw_index());
-
-        for dib in range(dib_param + 1, self.table.size()) {
-            let full_index = match self.table.peek(probe) {
-                table::Empty(idx) => {
-                    // Finally. A hole!
-                    self.table.put(idx, old_hash, old_key, old_val);
-                    return;
-                },
-                table::Full(idx) => idx
+                (old_hash, old_key, old_val)
             };
 
-            let probe_dib = self.bucket_distance(&full_index);
+            let mut probe = self.probe_next(index.raw_index());
 
-            if probe_dib < dib {
-                // Robin hood! Steal the spot. This had better be tail call.
-                return self.robin_hood(full_index, probe_dib, old_hash, old_key, old_val);
+            for dib in range(dib_param + 1, self.table.size()) {
+                let full_index = match self.table.peek(probe) {
+                    table::Empty(idx) => {
+                        // Finally. A hole!
+                        self.table.put(idx, old_hash, old_key, old_val);
+                        return;
+                    },
+                    table::Full(idx) => idx
+                };
+
+                let probe_dib = self.bucket_distance(&full_index);
+
+                // Robin hood! Steal the spot.
+                if probe_dib < dib {
+                    index = full_index;
+                    dib_param = probe_dib;
+                    hash = old_hash;
+                    k = old_key;
+                    v = old_val;
+                    continue 'outer;
+                }
+
+                probe = self.probe_next(probe);
             }
 
-            probe = self.probe_next(probe);
+            fail!("HashMap fatal error: 100% load factor?");
         }
-
-        fail!("HashMap fatal error: 100% load factor?");
     }
 
     /// Manually insert a pre-hashed key-value pair, without first checking
@@ -1948,7 +1956,6 @@ mod test_map {
 
 #[cfg(test)]
 mod test_set {
-    use super::HashMap;
     use super::HashSet;
     use std::container::Container;
     use std::vec::ImmutableEqVector;
@@ -2193,7 +2200,6 @@ mod test_set {
 mod bench {
     extern crate test;
     use self::test::BenchHarness;
-    use std::iter;
     use std::iter::{range_inclusive};
 
     #[bench]
