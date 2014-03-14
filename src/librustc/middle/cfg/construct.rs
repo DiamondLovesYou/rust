@@ -368,7 +368,7 @@ impl<'a> CFGBuilder<'a> {
                 self.call(expr, pred, e, [])
             }
 
-            ast::ExprTup(ref exprs) => {
+            ast::ExprTup(ref exprs) | ast::ExprSimd(ref exprs) => {
                 self.straightline(expr, pred, exprs.as_slice())
             }
 
@@ -377,6 +377,14 @@ impl<'a> CFGBuilder<'a> {
                 let field_exprs: Vec<@ast::Expr> =
                     fields.iter().map(|f| f.expr).collect();
                 self.straightline(expr, base_exit, field_exprs.as_slice())
+            }
+            ast::ExprSwizzle(left, opt_right, ref mask) => {
+                let exprs = vec::build(Some(3), |push| {
+                        push(left);
+                        opt_right.iter().advance(|&r| { push(r); true });
+                        mask.iter().advance(|&m| { push(m); true });
+                    });
+                self.straightline(expr, pred, exprs)
             }
 
             ast::ExprRepeat(elem, count, _) => {
