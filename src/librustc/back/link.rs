@@ -193,19 +193,20 @@ pub mod write {
             if sess.targeting_pnacl() {
                 // I choose to add these by string to retain what little compatiblity
                 // we have left with upstream LLVM
-                addpass_mpm("lowerinvoke");
-                addpass_mpm("simplifycfg");
-                addpass_mpm("lower-expect");
-                addpass_mpm("rewrite-llvm-intrinsic-calls");
-                addpass_mpm("expand-arith-with-overflow");
-                addpass_mpm("promote-simple-structs");
-                addpass_mpm("promote-returned-structures");
-                addpass_mpm("promote-structure-arguments");
-                addpass_mpm("expand-struct-regs");
-                addpass_mpm("expand-varargs");
-                addpass_mpm("nacl-expand-ctors");
-                addpass_mpm("resolve-aliases");
-                addpass_mpm("nacl-expand-tls");
+                assert!(addpass_mpm("lowerinvoke"));
+                assert!(addpass_mpm("simplifycfg"));
+                assert!(addpass_mpm("lower-expect"));
+                assert!(addpass_mpm("rewrite-llvm-intrinsic-calls"));
+                assert!(addpass_mpm("expand-arith-with-overflow"));
+                assert!(addpass_mpm("replace-vectors-with-arrays"));
+                assert!(addpass_mpm("promote-simple-structs"));
+                assert!(addpass_mpm("promote-returned-structures"));
+                assert!(addpass_mpm("promote-structure-arguments"));
+                assert!(addpass_mpm("expand-struct-regs"));
+                assert!(addpass_mpm("expand-varargs"));
+                assert!(addpass_mpm("nacl-expand-ctors"));
+                assert!(addpass_mpm("resolve-aliases"));
+                assert!(addpass_mpm("nacl-expand-tls"));
             }
 
             if !sess.opts.cg.no_prepopulate_passes {
@@ -225,29 +226,24 @@ pub mod write {
             if sess.targeting_pnacl() {
                 // I choose to add these by string to retain what little compatiblity
                 // we have left with upstream LLVM
-                addpass_mpm("rewrite-pnacl-library-calls");
-                addpass_mpm("expand-byval");
-                addpass_mpm("expand-small-arguments");
-                addpass_mpm("nacl-promote-i1-ops");
-                addpass_mpm("canonicalize-mem-intrinsics");
-                addpass_mpm("strip-metadata");
-                addpass_mpm("flatten-globals");
-                addpass_mpm("expand-constant-expr");
-                addpass_mpm("nacl-promote-ints");
-                addpass_mpm("expand-getelementptr");
-                addpass_mpm("nacl-rewrite-atomics");
-                addpass_mpm("remove-asm-memory");
-                addpass_mpm("replace-ptrs-with-ints");
-                addpass_mpm("nacl-strip-attributes");
-                addpass_mpm("strip-dead-prototypes");
-                addpass_mpm("die");
-                addpass_mpm("dce");
-                addpass_mpm("replace-aggregates-with-ints");
-                addpass_mpm("die");
-
-                // until PNaCl supports vectorized IR, we need to ensure
-                // emitted IR doesn't use SIMD types/ops/etc
-                addpass_mpm("scalarizer");
+                assert!(addpass_mpm("rewrite-pnacl-library-calls"));
+                assert!(addpass_mpm("expand-byval"));
+                assert!(addpass_mpm("expand-small-arguments"));
+                assert!(addpass_mpm("nacl-promote-i1-ops"));
+                assert!(addpass_mpm("canonicalize-mem-intrinsics"));
+                assert!(addpass_mpm("strip-metadata"));
+                assert!(addpass_mpm("flatten-globals"));
+                assert!(addpass_mpm("expand-constant-expr"));
+                assert!(addpass_mpm("nacl-promote-ints"));
+                assert!(addpass_mpm("expand-getelementptr"));
+                assert!(addpass_mpm("nacl-rewrite-atomics"));
+                assert!(addpass_mpm("remove-asm-memory"));
+                assert!(addpass_mpm("replace-ptrs-with-ints"));
+                assert!(addpass_mpm("nacl-strip-attributes"));
+                assert!(addpass_mpm("strip-dead-prototypes"));
+                assert!(addpass_mpm("die"));
+                assert!(addpass_mpm("dce"));
+                assert!(addpass_mpm("die"));
             }
 
             // Finally, run the actual optimization passes
