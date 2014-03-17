@@ -1145,14 +1145,8 @@ impl Drop for MemoryMap {
         if self.len == 0 { /* workaround for dummy_stack */ return; }
 
         unsafe {
-            match libc::munmap(self.data as *c_void, self.len as libc::size_t) {
-                0 => (),
-                -1 => match errno() as c_int {
-                    libc::EINVAL => error!("invalid addr or len"),
-                    e => error!("unknown errno={}", e)
-                },
-                r => error!("Unexpected result {}", r)
-            }
+            // FIXME: what to do if this fails?
+            let _ = libc::munmap(self.data as *c_void, self.len as libc::size_t);
         }
     }
 }
@@ -1179,10 +1173,7 @@ impl MemoryMap {
                 MapAddr(addr_) => { lpAddress = addr_ as LPVOID; },
                 MapFd(fd_) => { fd = fd_; },
                 MapOffset(offset_) => { offset = offset_; },
-                MapNonStandardFlags(f) => {
-                    info!("MemoryMap::new: MapNonStandardFlags used on \
-                           Windows: {}", f)
-                }
+                MapNonStandardFlags(..) => {}
             }
         }
 
@@ -1280,15 +1271,15 @@ impl Drop for MemoryMap {
                 MapVirtual => {
                     if libc::VirtualFree(self.data as *mut c_void, 0,
                                          libc::MEM_RELEASE) == 0 {
-                        error!("VirtualFree failed: {}", errno());
+                        println!("VirtualFree failed: {}", errno());
                     }
                 },
                 MapFile(mapping) => {
                     if libc::UnmapViewOfFile(self.data as LPCVOID) == FALSE {
-                        error!("UnmapViewOfFile failed: {}", errno());
+                        println!("UnmapViewOfFile failed: {}", errno());
                     }
                     if libc::CloseHandle(mapping as HANDLE) == FALSE {
-                        error!("CloseHandle failed: {}", errno());
+                        println!("CloseHandle failed: {}", errno());
                     }
                 }
             }
@@ -1435,7 +1426,6 @@ mod tests {
     use os;
     use rand::Rng;
     use rand;
-
 
     #[test]
     pub fn last_os_error() {

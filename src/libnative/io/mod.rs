@@ -113,10 +113,7 @@ fn translate_error(errno: i32, detail: bool) -> IoError {
             libc::ERROR_INVALID_FUNCTION => (io::InvalidInput,
                                              "illegal operation on a directory"),
 
-            x => {
-                debug!("ignoring {}: {}", x, os::last_os_error());
-                (io::OtherIoError, "unknown error")
-            }
+            _ => (io::OtherIoError, "unknown error")
         }
     }
 
@@ -142,10 +139,7 @@ fn translate_error(errno: i32, detail: bool) -> IoError {
             x if x == libc::EAGAIN || x == libc::EWOULDBLOCK =>
                 (io::ResourceUnavailable, "resource temporarily unavailable"),
 
-            x => {
-                debug!("ignoring {}: {}", x, os::last_os_error());
-                (io::OtherIoError, "unknown error")
-            }
+            _ => (io::OtherIoError, "unknown error")
         }
     }
 
