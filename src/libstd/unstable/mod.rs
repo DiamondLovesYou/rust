@@ -16,6 +16,7 @@ use libc::uintptr_t;
 pub mod dynamic_lib;
 
 pub mod finally;
+#[cfg(not(target_os = "nacl", target_arch = "le32"))]
 pub mod simd;
 pub mod sync;
 pub mod mutex;

@@ -486,6 +486,20 @@ rust_win32_rand_release() {
 
 #endif
 
+#ifdef __pnacl__
+char* gai_strerror(int code) {
+    return "";
+}
+int getaddrinfo(char* x, char* y, void* z, void** w) {
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)w;
+    return -1;
+}
+void freeaddrinfo(void* ptr) { (void)ptr; }
+#endif
+
 //
 // Local Variables:
 // mode: C++

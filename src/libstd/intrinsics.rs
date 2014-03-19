@@ -339,8 +339,38 @@ extern "rust-intrinsic" {
     pub fn sqrtf32(x: f32) -> f32;
     pub fn sqrtf64(x: f64) -> f64;
 
-    pub fn powif32(a: f32, x: i32) -> f32;
-    pub fn powif64(a: f64, x: i32) -> f64;
+    pub fn sinf32(x: f32) -> f32;
+    pub fn sinf64(x: f64) -> f64;
+
+    pub fn cosf32(x: f32) -> f32;
+    pub fn cosf64(x: f64) -> f64;
+
+    pub fn powf32(a: f32, x: f32) -> f32;
+    pub fn powf64(a: f64, x: f64) -> f64;
+
+    pub fn expf32(x: f32) -> f32;
+    pub fn expf64(x: f64) -> f64;
+
+    pub fn exp2f32(x: f32) -> f32;
+    pub fn exp2f64(x: f64) -> f64;
+
+    pub fn logf32(x: f32) -> f32;
+    pub fn logf64(x: f64) -> f64;
+
+    pub fn log10f32(x: f32) -> f32;
+    pub fn log10f64(x: f64) -> f64;
+
+    pub fn log2f32(x: f32) -> f32;
+    pub fn log2f64(x: f64) -> f64;
+
+    pub fn fmaf32(a: f32, b: f32, c: f32) -> f32;
+    pub fn fmaf64(a: f64, b: f64, c: f64) -> f64;
+
+    pub fn fabsf32(x: f32) -> f32;
+    pub fn fabsf64(x: f64) -> f64;
+
+    pub fn floorf32(x: f32) -> f32;
+    pub fn floorf64(x: f64) -> f64;
 
     pub fn copysignf32(x: f32, y: f32) -> f32;
     pub fn copysignf64(x: f64, y: f64) -> f64;
@@ -380,38 +410,8 @@ extern "rust-intrinsic" {
 #[cfg(not(target_os = "nacl", target_arch = "le32"))]
 extern "rust-intrinsic" {
 
-    pub fn sinf32(x: f32) -> f32;
-    pub fn sinf64(x: f64) -> f64;
-
-    pub fn cosf32(x: f32) -> f32;
-    pub fn cosf64(x: f64) -> f64;
-
-    pub fn powf32(a: f32, x: f32) -> f32;
-    pub fn powf64(a: f64, x: f64) -> f64;
-
-    pub fn expf32(x: f32) -> f32;
-    pub fn expf64(x: f64) -> f64;
-
-    pub fn exp2f32(x: f32) -> f32;
-    pub fn exp2f64(x: f64) -> f64;
-
-    pub fn logf32(x: f32) -> f32;
-    pub fn logf64(x: f64) -> f64;
-
-    pub fn log10f32(x: f32) -> f32;
-    pub fn log10f64(x: f64) -> f64;
-
-    pub fn log2f32(x: f32) -> f32;
-    pub fn log2f64(x: f64) -> f64;
-
-    pub fn fmaf32(a: f32, b: f32, c: f32) -> f32;
-    pub fn fmaf64(a: f64, b: f64, c: f64) -> f64;
-
-    pub fn fabsf32(x: f32) -> f32;
-    pub fn fabsf64(x: f64) -> f64;
-
-    pub fn floorf32(x: f32) -> f32;
-    pub fn floorf64(x: f64) -> f64;
+    pub fn powif32(a: f32, x: i32) -> f32;
+    pub fn powif64(a: f64, x: i32) -> f64;
 
     pub fn ctpop8(x: i8) -> i8;
     pub fn ctpop16(x: i16) -> i16;
@@ -483,7 +483,7 @@ macro_rules! _def_fun(
         }
     };
 )
-_def_fun!(sinf32   => sinf   (f32) -> f32)
+/*_def_fun!(sinf32   => sinf   (f32) -> f32)
 _def_fun!(sinf64   => sin    (f64) -> f64)
 
 _def_fun!(cosf32   => cosf   (f32) -> f32)
@@ -514,7 +514,12 @@ _def_fun!(fabsf32  => fabsf  (f32) -> f32)
 _def_fun!(fabsf64  => fabs   (f64) -> f64)
 
 _def_fun!(floorf32 => floorf (f32) -> f32)
-_def_fun!(floorf64 => floor  (f64) -> f64)
+_def_fun!(floorf64 => floor  (f64) -> f64)*/
+
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn powif32(a: f32, x: i32) -> f32 { powf64(a as f64, x as f64) as f32 }
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[inline] pub unsafe fn powif64(a: f64, x: i32) -> f64 { powf64(a, x as f64) }
 
 #[cfg(target_os = "nacl", target_arch = "le32")]
 #[inline] pub unsafe fn ctpop8(x: i8) -> i8 { ctpop32(x as i32) as i8 }

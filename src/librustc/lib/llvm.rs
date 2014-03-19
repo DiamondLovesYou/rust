@@ -1752,6 +1752,8 @@ pub mod llvm {
         pub fn LLVMRustPrintModule(PM: PassManagerRef,
                                    M: ModuleRef,
                                    Output: *c_char);
+        pub fn LLVMRustAddPrinterPass(PM: PassManagerRef,
+                                      Output: *c_char);
         pub fn LLVMRustSetLLVMOptions(Argc: c_int, Argv: **c_char);
         pub fn LLVMRustPrintPasses();
         pub fn LLVMRustSetNormalizedTarget(M: ModuleRef, triple: *c_char);

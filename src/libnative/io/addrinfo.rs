@@ -84,6 +84,7 @@ impl GetAddrInfoRequest {
     }
 }
 
+#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
 extern "system" {
     fn getaddrinfo(node: *c_char, service: *c_char,
                    hints: *libc::addrinfo, res: *mut *mut libc::addrinfo) -> c_int;
@@ -92,6 +93,18 @@ extern "system" {
     fn gai_strerror(errcode: c_int) -> *c_char;
     #[cfg(windows)]
     fn WSAGetLastError() -> c_int;
+}
+#[cfg(target_os = "nacl", target_libc = "newlib")]
+unsafe fn getaddrinfo(_node: *c_char, _service: *c_char,
+                      _hints: *libc::addrinfo, _res: *mut *mut libc::addrinfo) -> c_int {
+    -1 as i32
+}
+#[cfg(target_os = "nacl", target_libc = "newlib")]
+unsafe fn freeaddrinfo(_res: *mut libc::addrinfo) {}
+#[cfg(target_os = "nacl", target_libc = "newlib")]
+unsafe fn gai_strerror(_errcode: c_int) -> *c_char {
+    static EMPTY: &'static str = "";
+    EMPTY.as_ptr() as *c_char
 }
 
 #[cfg(windows)]

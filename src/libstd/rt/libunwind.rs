@@ -127,6 +127,7 @@ extern "C" {
 // definition of _Unwind_GetIP.
 #[cfg(target_os = "android")]
 #[cfg(target_os = "linux", target_arch = "arm")]
+#[cfg(target_os = "nacl", target_libc = "newlib")]
 pub unsafe fn _Unwind_GetIP(ctx: *_Unwind_Context) -> libc::uintptr_t {
     #[repr(C)]
     enum _Unwind_VRS_Result {

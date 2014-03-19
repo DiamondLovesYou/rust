@@ -243,6 +243,26 @@ LLVMRustPrintModule(LLVMPassManagerRef PMR,
 
   PM->run(*unwrap(M));
 }
+extern "C" void
+LLVMRustAddPrinterPass(LLVMPassManagerRef PMR,
+		       const char* path) {
+  PassManager *PM = unwrap<PassManager>(PMR);
+  std::string ErrorInfo;
+
+#if LLVM_VERSION_MINOR >= 4
+  raw_fd_ostream* OS = new raw_fd_ostream(path, ErrorInfo, sys::fs::F_None);
+#else
+  raw_fd_ostream* OS = new raw_fd_ostream(path, ErrorInfo, raw_fd_ostream::F_Binary);
+#endif
+
+  formatted_raw_ostream* FOS = new formatted_raw_ostream(*OS, true);
+
+#if LLVM_VERSION_MINOR >= 5
+  PM->add(createPrintModulePass(*FOS));
+#else
+  PM->add(createPrintModulePass(FOS));
+#endif
+}
 
 extern "C" void
 LLVMRustPrintPasses() {
