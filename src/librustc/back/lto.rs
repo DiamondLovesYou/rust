@@ -11,7 +11,7 @@
 use back::archive::ArchiveRO;
 use back::link;
 use driver::session;
-use lib::llvm::{ModuleRef, TargetMachineRef, llvm, True, False};
+use lib::llvm::{ModuleRef, TargetMachineRef, llvm, False, True};
 use metadata::cstore;
 use util::common::time;
 
@@ -98,9 +98,13 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
         let builder = llvm::LLVMPassManagerBuilderCreate();
         llvm::LLVMPassManagerBuilderPopulateLTOPassManager(builder, pm,
             /* Internalize = */ False,
-            /* RunInliner = */ True);
+            /* RunInliner = */ if sess.opts.optimize != session::No { True } else { False });
         llvm::LLVMPassManagerBuilderDispose(builder);
 
+        if sess.targeting_pnacl() {
+            // Ensure attributes don't sneak in:
+            "nacl-strip-attributes".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+        }
         "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
 
         time(sess.time_passes(), "LTO pases", (), |()|

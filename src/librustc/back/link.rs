@@ -193,52 +193,6 @@ pub mod write {
             // manager.
             if !sess.no_verify() { assert!(addpass("verify")); }
 
-            if sess.targeting_pnacl() {
-                // 
-                // For each of our upstream dependencies, find the corresponding rlib and
-                // load the bitcode from the archive. Then merge it into the current LLVM
-                // module that we've got.
-                let crates = sess.cstore.get_used_crates(cstore::RequireStatic);
-                for (cnum, path) in crates.move_iter() {
-                    let name = sess.cstore.get_crate_data(cnum).name.clone();
-                    let path = match path {
-                        Some(p) => p,
-                        None => {
-                            sess.fatal(format!("could not find rlib for: `{}`", name));
-                        }
-                    };
-
-                    let archive = ArchiveRO::open(&path).expect("wanted an rlib");
-                    debug!("reading {}", name);
-                    let bc = time(sess.time_passes(), format!("read {}.bc", name), (), |_|
-                                  archive.read(format!("{}.bc", name)));
-                    let bc = bc.expect("missing bytecode in archive!");
-                    let bc = time(sess.time_passes(), format!("inflate {}.bc", name), (), |_|
-                                  flate::inflate_bytes(bc));
-                    let ptr = bc.as_slice().as_ptr();
-                    debug!("linking {}", name);
-                    time(sess.time_passes(), format!("ll link {}", name), (), |()| {
-                        if !llvm::LLVMRustLinkInExternalBitcode(llmod,
-                                                                ptr as *libc::c_char,
-                                                                bc.len() as libc::size_t) {
-                            link::llvm_err(sess, format!("failed to load bc of `{}`", name));
-                        }
-                    });
-                }
-
-                // Internalize everything but the reachable symbols of the current module
-                let cstrs = trans.reachable.map(|s| s.to_c_str());
-                let arr = cstrs.map(|c| c.with_ref(|p| p));
-                let ptr = arr.as_ptr();
-                llvm::LLVMRustRunRestrictionPass(llmod, ptr as **libc::c_char,
-                                                 arr.len() as libc::size_t);
-               
-                output.with_extension("half-lto.ll").with_c_str(|buf| {
-                    llvm::LLVMRustAddPrinterPass(mpm, buf);
-                });
-                if !sess.no_verify() { assert!(addpass_mpm("verify")); }
-            }
-
             if sess.targeting_pnacl() && !sess.opts.cg.no_prepopulate_passes {
                 // I choose to add these by string to retain what little compatiblity
                 // we have left with upstream LLVM
@@ -248,15 +202,7 @@ pub mod write {
                 assert!(addpass_mpm("rewrite-llvm-intrinsic-calls"));
                 assert!(addpass_mpm("expand-arith-with-overflow"));
                 assert!(addpass_mpm("replace-vectors-with-arrays"));
-                if !sess.no_verify() { assert!(addpass_mpm("verify")); }
-                output.with_extension("pre-promote-simple-structs.ll").with_c_str(|buf| {
-                    llvm::LLVMRustAddPrinterPass(mpm, buf);
-                });
                 assert!(addpass_mpm("promote-simple-structs"));
-                output.with_extension("post-promote-simple-structs.ll").with_c_str(|buf| {
-                    llvm::LLVMRustAddPrinterPass(mpm, buf);
-                });
-                if !sess.no_verify() { assert!(addpass_mpm("verify")); }
                 assert!(addpass_mpm("promote-returned-structures"));
                 assert!(addpass_mpm("promote-structure-arguments"));
                 assert!(addpass_mpm("expand-struct-regs"));
@@ -270,15 +216,6 @@ pub mod write {
                 llvm::LLVMRustAddAnalysisPasses(tm, fpm, llmod);
                 llvm::LLVMRustAddAnalysisPasses(tm, mpm, llmod);
                 populate_llvm_passes(fpm, mpm, llmod, opt_level);
-
-                if sess.lto() && sess.targeting_pnacl() {
-                    let builder = llvm::LLVMPassManagerBuilderCreate();
-                    llvm::LLVMPassManagerBuilderPopulateLTOPassManager(builder,
-                                                                       mpm,
-                                                                       /* Internalize = */ False,
-                                                                       /* RunInliner = */ False);
-                    llvm::LLVMPassManagerBuilderDispose(builder);
-                }
             }
 
             for pass in sess.opts.cg.passes.iter() {
@@ -314,8 +251,6 @@ pub mod write {
                 }
             }
 
-            if !sess.no_verify() { assert!(addpass_mpm("verify")); }
-
             // Finally, run the actual optimization passes
             time(sess.time_passes(), "llvm function passes", (), |()|
                  llvm::LLVMRustRunFunctionPassManager(fpm, llmod));
@@ -338,7 +273,7 @@ pub mod write {
                 })
             }
 
-            if sess.lto() && !sess.targeting_pnacl() {
+            if sess.lto() {
                 time(sess.time_passes(), "all lto passes", (), |()|
                      lto::run(sess, llmod, tm, trans.reachable.as_slice()));
 
