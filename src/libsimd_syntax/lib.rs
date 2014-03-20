@@ -31,7 +31,7 @@ use syntax::parse::common::{seq_sep_trailing_allowed};
 use syntax::parse::attr::ParserAttr;
 
 use std::option::{Option, Some, None};
-use std::vec_ng::Vec;
+use std::vec::Vec;
 
 #[macro_registrar]
 pub fn macro_registrar(register: |Name, SyntaxExtension|) {

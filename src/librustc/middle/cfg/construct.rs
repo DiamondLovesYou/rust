@@ -379,12 +379,14 @@ impl<'a> CFGBuilder<'a> {
                 self.straightline(expr, base_exit, field_exprs.as_slice())
             }
             ast::ExprSwizzle(left, opt_right, ref mask) => {
-                let exprs = vec::build(Some(3), |push| {
-                        push(left);
-                        opt_right.iter().advance(|&r| { push(r); true });
-                        mask.iter().advance(|&m| { push(m); true });
-                    });
-                self.straightline(expr, pred, exprs)
+                let exprs = {
+                    let mut exprs = Vec::new();
+                    exprs.push(left);
+                    opt_right.iter().advance(|&r| { exprs.push(r); true });
+                    mask.iter().advance(|&m| { exprs.push(m); true });
+                    exprs
+                };
+                self.straightline(expr, pred, exprs.as_slice())
             }
 
             ast::ExprRepeat(elem, count, _) => {

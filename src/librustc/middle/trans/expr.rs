@@ -498,17 +498,19 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
                           else                      { right_size };
                 let max = if left_size > right_size { left_size }
                           else                      { right_size };
-                let new_mask = vec::build(Some(max), |push| {
-                        for m in iter::range(0, min) {
-                           push(C_i32(ccx, m as i32));
-                        }
-                        for _ in iter::range(min, max) {
-                            // these may safely be any valid index because
-                            // we remove any possiblity of accessing these in typeck.
-                            push(C_i32(ccx, 0));
-                        }
-                    });
-                let new_mask_vector = C_vector(ccx, new_mask);
+                let new_mask = {
+                    let mut mask = Vec::new();
+                    for m in iter::range(0, min) {
+                        mask.push(C_i32(ccx, m as i32));
+                    }
+                    for _ in iter::range(min, max) {
+                        // these may safely be any valid index because
+                        // we remove any possiblity of accessing these in typeck.
+                        mask.push(C_i32(ccx, 0));
+                    }
+                    mask
+                };
+                let new_mask_vector = C_vector(ccx, new_mask.as_slice());
 
                 if left_size < right_size {
                     let delta = right_size - left_size;
@@ -520,7 +522,7 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
                                     else              { m         };
                             C_i32(ccx, m as i32)
                         }).to_owned_vec();
-                    let mask = C_vector(ccx, mask);
+                    let mask = C_vector(ccx, mask.as_slice());
                     let left_llval = ShuffleVector(bcx,
                                                    left_llval,
                                                    C_undef(type_of::type_of(ccx,
