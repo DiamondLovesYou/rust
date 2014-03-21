@@ -92,18 +92,14 @@ pub mod write {
     use back::link::{OutputTypeAssembly, OutputTypeBitcode};
     use back::link::{OutputTypeExe, OutputTypeLlvmAssembly};
     use back::link::{OutputTypeObject};
-    use back::link;
-    use back::archive::ArchiveRO;
     use driver::driver::{CrateTranslation, OutputFilenames};
     use driver::session::{NoDebugInfo, Session};
     use driver::session;
-    use metadata::cstore;
     use lib::llvm::llvm;
-    use lib::llvm::{ModuleRef, TargetMachineRef, PassManagerRef, False};
+    use lib::llvm::{ModuleRef, TargetMachineRef, PassManagerRef};
     use lib;
     use util::common::time;
     use syntax::abi;
-    use flate;
 
     use std::c_str::ToCStr;
     use std::io::Process;
@@ -111,7 +107,6 @@ pub mod write {
     use std::str;
     use std::vec_ng::Vec;
     use std::path;
-    use std::libc;
 
     // On android, we by default compile for armv7 processors. This enables
     // things like double word CAS instructions (rather than emulating them)
