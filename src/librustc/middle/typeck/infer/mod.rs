@@ -677,7 +677,7 @@ impl<'a> InferCtxt<'a> {
         let mut var_counter = self.md_var_counter.get();
         let mut var_bindings = self.md_var_bindings.borrow_mut();
         let result = ty::MDVid(next_simple_var(&mut var_counter,
-                                               var_bindings.get()));
+                                               &mut *var_bindings));
         self.md_var_counter.set(var_counter);
         result
     }
