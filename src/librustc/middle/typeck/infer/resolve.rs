@@ -67,13 +67,13 @@ pub static resolve_fvar: uint        = 0b000000001000;
 pub static resolve_mdvar: uint       = 0b000000010000;
 pub static resolve_fnvar: uint       = 0b000000100000;
 pub static resolve_all: uint         = 0b000000111111;
-pub static force_tvar: uint          = 0b00000100000;
-pub static force_rvar: uint          = 0b00001000000;
-pub static force_ivar: uint          = 0b00010000000;
-pub static force_fvar: uint          = 0b00100000000;
-pub static force_mdvar: uint         = 0b01000000000;
-pub static force_fnvar: uint         = 0b10000000000;
-pub static force_all: uint           = 0b11111100000;
+pub static force_tvar: uint          = 0b000001000000;
+pub static force_rvar: uint          = 0b000010000000;
+pub static force_ivar: uint          = 0b000100000000;
+pub static force_fvar: uint          = 0b001000000000;
+pub static force_mdvar: uint         = 0b010000000000;
+pub static force_fnvar: uint         = 0b100000000000;
+pub static force_all: uint           = 0b111111000000;
 
 pub static not_regions: uint         = !(force_rvar | resolve_rvar);
 
