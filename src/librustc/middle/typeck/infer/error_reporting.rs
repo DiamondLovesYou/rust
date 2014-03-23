@@ -76,13 +76,10 @@ use middle::typeck::infer::region_inference::ProcessedErrors;
 use middle::typeck::infer::region_inference::SameRegions;
 use std::cell::{Cell, RefCell};
 use std::char::from_u32;
-use std::vec_ng::Vec;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util;
 use syntax::ast_util::name_to_dummy_lifetime;
-use syntax::opt_vec;
-use syntax::opt_vec::OptVec;
 use syntax::parse::token;
 use syntax::print::pprust;
 use util::ppaux::UserString;
@@ -91,10 +88,10 @@ use util::ppaux::note_and_explain_region;
 
 pub trait ErrorReporting {
     fn report_region_errors(&self,
-                            errors: &OptVec<RegionResolutionError>);
+                            errors: &Vec<RegionResolutionError>);
 
-    fn process_errors(&self, errors: &OptVec<RegionResolutionError>)
-                      -> OptVec<RegionResolutionError>;
+    fn process_errors(&self, errors: &Vec<RegionResolutionError>)
+                      -> Vec<RegionResolutionError>;
 
     fn report_type_error(&self, trace: TypeTrace, terr: &ty::type_err);
 
@@ -152,7 +149,7 @@ trait ErrorReportingHelpers {
 
 impl<'a> ErrorReporting for InferCtxt<'a> {
     fn report_region_errors(&self,
-                            errors: &OptVec<RegionResolutionError>) {
+                            errors: &Vec<RegionResolutionError>) {
         let p_errors = self.process_errors(errors);
         let errors = if p_errors.is_empty() { errors } else { &p_errors };
         for error in errors.iter() {
@@ -196,12 +193,12 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
     // complete view of what lifetimes should be the same.
     // If the return value is an empty vector, it means that processing
     // failed (so the return value of this method should not be used)
-    fn process_errors(&self, errors: &OptVec<RegionResolutionError>)
-                      -> OptVec<RegionResolutionError> {
+    fn process_errors(&self, errors: &Vec<RegionResolutionError>)
+                      -> Vec<RegionResolutionError> {
         let mut var_origins = Vec::new();
         let mut trace_origins = Vec::new();
         let mut same_regions = Vec::new();
-        let mut processed_errors = opt_vec::Empty;
+        let mut processed_errors = Vec::new();
         for error in errors.iter() {
             match *error {
                 ConcreteFailure(origin, sub, sup) => {
@@ -240,7 +237,7 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
                 // declaration, we want to make sure that they are, in fact,
                 // from the same scope
                 if sr.scope_id != common_scope_id {
-                    return opt_vec::Empty;
+                    return vec!();
                 }
             }
             let pe = ProcessedErrors(var_origins, trace_origins, same_regions);
@@ -760,8 +757,7 @@ impl<'a> Rebuilder<'a> {
 
     fn offset_cur_anon(&self) {
         let mut anon = self.cur_anon.get();
-        let inserted_anons = self.inserted_anons.borrow();
-        while inserted_anons.get().contains(&anon) {
+        while self.inserted_anons.borrow().contains(&anon) {
             anon += 1;
         }
         self.cur_anon.set(anon);
@@ -773,8 +769,7 @@ impl<'a> Rebuilder<'a> {
     }
 
     fn track_anon(&self, anon: uint) {
-        let mut inserted_anons = self.inserted_anons.borrow_mut();
-        inserted_anons.get().insert(anon);
+        self.inserted_anons.borrow_mut().insert(anon);
     }
 
     fn rebuild_generics(&self,
@@ -848,8 +843,7 @@ impl<'a> Rebuilder<'a> {
                     ty_queue.push(mut_ty.ty);
                 }
                 ast::TyPath(ref path, _, id) => {
-                    let def_map = self.tcx.def_map.borrow();
-                    let a_def = match def_map.get().find(&id) {
+                    let a_def = match self.tcx.def_map.borrow().find(&id) {
                         None => self.tcx.sess.fatal(format!("unbound path {}",
                                                     pprust::path_to_str(path))),
                         Some(&d) => d
@@ -1261,8 +1255,7 @@ impl LifeGiver {
             if !self.taken.contains(&s) {
                 lifetime = name_to_dummy_lifetime(
                                     token::str_to_ident(s.as_slice()).name);
-                let mut generated = self.generated.borrow_mut();
-                generated.get().push(lifetime);
+                self.generated.borrow_mut().push(lifetime);
                 break;
             }
             self.inc_counter();

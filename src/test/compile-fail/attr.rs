@@ -8,13 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+fn main() {}
 
-pub fn main() {
-    let v: ~[int] = ~[ 1, ..5 ];
-    println!("{}", v[0]);
-    println!("{}", v[1]);
-    println!("{}", v[2]);
-    println!("{}", v[3]);
-    println!("{}", v[4]);
-}
+#![lang(foo)] //~ ERROR an inner attribute is not permitted in this context
+fn foo() {}

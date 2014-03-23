@@ -27,7 +27,7 @@ use std::option::{Option, Some, None};
 use rand;
 use rand::Rng;
 use std::result::{Ok, Err};
-use std::vec::{ImmutableVector};
+use std::slice::ImmutableVector;
 
 mod table {
     use std::clone::Clone;
@@ -1575,7 +1575,7 @@ mod test_map {
     use super::HashMap;
     use std::iter::{Iterator,range_inclusive,range_step_inclusive};
     use std::local_data;
-    use std::vec_ng;
+    use std::vec;
 
     #[test]
     fn test_create_capacity_zero() {
@@ -1599,7 +1599,7 @@ mod test_map {
         assert_eq!(*m.find(&2).unwrap(), 4);
     }
 
-    local_data_key!(drop_vector: vec_ng::Vec<int>)
+    local_data_key!(drop_vector: vec::Vec<int>)
 
     #[deriving(Hash, Eq)]
     struct Dropable {
@@ -1625,7 +1625,7 @@ mod test_map {
 
     #[test]
     fn test_drops() {
-        local_data::set(drop_vector, vec_ng::Vec::from_elem(200, 0));
+        local_data::set(drop_vector, vec::Vec::from_elem(200, 0));
 
         {
             let mut m = HashMap::new();
@@ -1958,7 +1958,7 @@ mod test_map {
 mod test_set {
     use super::HashSet;
     use std::container::Container;
-    use std::vec::ImmutableEqVector;
+    use std::slice::ImmutableEqVector;
 
     #[test]
     fn test_disjoint() {

@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,12 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::repr;
+#[crate_type = "dylib"];
 
-pub fn main() {
-    let act = repr::repr_to_str(&~[1, 2, 3]);
-    assert_eq!(~"~[1, 2, 3]", act);
-
-    let act = format!("{:?}/{:6?}", ~[1, 2, 3], ~"hi");
-    assert_eq!(act, ~"~[1, 2, 3]/~\"hi\" ");
-}
+pub fn foo() {}

@@ -51,21 +51,14 @@
 #[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://static.rust-lang.org/doc/master")];
-
 #[feature(macro_rules, globs, asm, managed_boxes, thread_local, link_args,
           simd, linkage, default_type_params, phase)];
-
-// NOTE remove the following two attributes after the next snapshot.
-#[allow(unrecognized_lint)];
-#[allow(default_type_param_usage)];
 
 // Don't link to std. We are std.
 #[no_std];
 
-#[deny(non_camel_case_types)];
 #[deny(missing_doc)];
-#[allow(unknown_features)];
-#[allow(deprecated_owned_vector)];
+#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
 
 // When testing libstd, bring in libuv as the I/O backend so tests can print
 // things and all of the std::io tests have an I/O interface to run on top
@@ -83,6 +76,20 @@
 #[cfg(test)] pub use kinds = realstd::kinds;
 #[cfg(test)] pub use ops = realstd::ops;
 #[cfg(test)] pub use cmp = realstd::cmp;
+#[cfg(test)] pub use ty = realstd::ty;
+
+#[cfg(stage0)]
+pub use vec_ng = vec;
+
+// Run tests with libgreen instead of libnative.
+//
+// FIXME: This egregiously hacks around starting the test runner in a different
+//        threading mode than the default by reaching into the auto-generated
+//        '__test' module.
+#[cfg(test)] #[start]
+fn start(argc: int, argv: **u8) -> int {
+    green::start(argc, argv, __test::main)
+}
 
 pub mod macros;
 
@@ -119,8 +126,8 @@ pub mod bool;
 pub mod char;
 pub mod tuple;
 
+pub mod slice;
 pub mod vec;
-pub mod vec_ng;
 pub mod str;
 
 pub mod ascii;
@@ -138,6 +145,7 @@ pub mod gc;
 #[cfg(not(test))] pub mod kinds;
 #[cfg(not(test))] pub mod ops;
 #[cfg(not(test))] pub mod cmp;
+#[cfg(not(test))] pub mod ty;
 
 
 /* Common traits */
@@ -226,5 +234,6 @@ mod std {
     pub use rt;
     pub use str;
     pub use to_str;
+    pub use ty;
     pub use unstable;
 }

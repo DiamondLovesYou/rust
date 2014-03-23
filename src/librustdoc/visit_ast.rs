@@ -11,7 +11,6 @@
 //! Rust AST Visitor. Extracts useful information and massages it into a form
 //! usable for clean
 
-use std::vec_ng::Vec;
 use syntax::abi::AbiSet;
 use syntax::ast;
 use syntax::ast_util;
@@ -23,7 +22,7 @@ use doctree::*;
 
 pub struct RustdocVisitor<'a> {
     module: Module,
-    attrs: ~[ast::Attribute],
+    attrs: Vec<ast::Attribute> ,
     cx: &'a core::DocContext,
     analysis: Option<&'a core::CrateAnalysis>,
 }
@@ -33,7 +32,7 @@ impl<'a> RustdocVisitor<'a> {
                    analysis: Option<&'b core::CrateAnalysis>) -> RustdocVisitor<'b> {
         RustdocVisitor {
             module: Module::new(None),
-            attrs: ~[],
+            attrs: Vec::new(),
             cx: cx,
             analysis: analysis,
         }
@@ -73,7 +72,7 @@ impl<'a> RustdocVisitor<'a> {
     pub fn visit_enum_def(&mut self, it: &ast::Item, def: &ast::EnumDef,
                           params: &ast::Generics) -> Enum {
         debug!("Visiting enum");
-        let mut vars: ~[Variant] = ~[];
+        let mut vars: Vec<Variant> = Vec::new();
         for x in def.variants.iter() {
             vars.push(Variant {
                 name: x.node.name,
@@ -111,7 +110,7 @@ impl<'a> RustdocVisitor<'a> {
         }
     }
 
-    pub fn visit_mod_contents(&mut self, span: Span, attrs: ~[ast::Attribute],
+    pub fn visit_mod_contents(&mut self, span: Span, attrs: Vec<ast::Attribute> ,
                               vis: ast::Visibility, id: ast::NodeId,
                               m: &ast::Mod,
                               name: Option<ast::Ident>) -> Module {
@@ -187,7 +186,7 @@ impl<'a> RustdocVisitor<'a> {
             core::Typed(ref tcx) => tcx,
             core::NotTyped(_) => return false
         };
-        let def = ast_util::def_id_of_def(*tcx.def_map.borrow().get().get(&id));
+        let def = ast_util::def_id_of_def(*tcx.def_map.borrow().get(&id));
         if !ast_util::is_local(def) { return false }
         let analysis = match self.analysis {
             Some(analysis) => analysis, None => return false

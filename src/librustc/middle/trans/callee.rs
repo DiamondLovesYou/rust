@@ -16,7 +16,7 @@
  * closure.
  */
 
-use std::vec;
+use std::slice;
 
 use back::abi;
 use driver::session;
@@ -49,8 +49,7 @@ use util::ppaux::Repr;
 
 use middle::trans::type_::Type;
 
-use std::vec_ng::Vec;
-use std::vec_ng;
+use std::vec;
 use syntax::ast;
 use syntax::abi::AbiSet;
 use syntax::ast_map;
@@ -230,10 +229,10 @@ fn resolve_default_method_vtables(bcx: &Block,
                 vtables.len() - num_method_vtables;
             vtables.tailn(num_impl_type_parameters).to_owned()
         },
-        None => vec::from_elem(num_method_vtables, @Vec::new())
+        None => slice::from_elem(num_method_vtables, @Vec::new())
     };
 
-    let param_vtables = @(vec_ng::append((*trait_vtables_fixed).clone(),
+    let param_vtables = @(vec::append((*trait_vtables_fixed).clone(),
                                           method_vtables));
 
     let self_vtables = resolve_param_vtables_under_param_substs(
@@ -400,7 +399,7 @@ pub fn trans_fn_ref_with_vtables(
             let ref_ty = match node {
                 ExprId(id) => node_id_type(bcx, id),
                 MethodCall(method_call) => {
-                    let t = bcx.ccx().maps.method_map.borrow().get().get(&method_call).ty;
+                    let t = bcx.ccx().maps.method_map.borrow().get(&method_call).ty;
                     monomorphize_type(bcx, t)
                 }
             };
@@ -483,7 +482,7 @@ pub fn trans_method_call<'a>(
     let _icx = push_ctxt("trans_method_call");
     debug!("trans_method_call(call_ex={})", call_ex.repr(bcx.tcx()));
     let method_call = MethodCall::expr(call_ex.id);
-    let method_ty = bcx.ccx().maps.method_map.borrow().get().get(&method_call).ty;
+    let method_ty = bcx.ccx().maps.method_map.borrow().get(&method_call).ty;
     trans_call_inner(
         bcx,
         Some(common::expr_info(call_ex)),

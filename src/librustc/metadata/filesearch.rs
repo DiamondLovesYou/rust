@@ -13,7 +13,6 @@
 use std::cell::RefCell;
 use std::os;
 use std::io::fs;
-use std::vec_ng::Vec;
 use collections::HashSet;
 
 pub enum FileMatch { FileMatches, FileDoesntMatch }
@@ -37,10 +36,9 @@ impl<'a> FileSearch<'a> {
         let mut visited_dirs = HashSet::new();
         let mut found = false;
 
-        let addl_lib_search_paths = self.addl_lib_search_paths.borrow();
         debug!("filesearch: searching additional lib search paths [{:?}]",
-               addl_lib_search_paths.get().len());
-        for path in addl_lib_search_paths.get().iter() {
+               self.addl_lib_search_paths.borrow().len());
+        for path in self.addl_lib_search_paths.borrow().iter() {
             match f(path) {
                 FileMatches => found = true,
                 FileDoesntMatch => ()

@@ -20,7 +20,7 @@ generally useful to many Rust programs.
 */
 
 // Reexported core operators
-pub use kinds::{Freeze, Pod, Send, Sized};
+pub use kinds::{Pod, Send, Sized, Share};
 pub use ops::{Add, Sub, Mul, Div, Rem, Neg, Not};
 pub use ops::{BitAnd, BitOr, BitXor};
 pub use ops::{Drop, Deref, DerefMut};
@@ -55,10 +55,11 @@ pub use to_str::{ToStr, IntoStr};
 pub use tuple::{Tuple1, Tuple2, Tuple3, Tuple4};
 pub use tuple::{Tuple5, Tuple6, Tuple7, Tuple8};
 pub use tuple::{Tuple9, Tuple10, Tuple11, Tuple12};
-pub use vec::{ImmutableEqVector, ImmutableTotalOrdVector, ImmutableCloneableVector};
-pub use vec::{OwnedVector, OwnedCloneableVector, OwnedEqVector};
-pub use vec::{MutableVector, MutableTotalOrdVector};
-pub use vec::{Vector, VectorVector, CloneableVector, ImmutableVector};
+pub use slice::{ImmutableEqVector, ImmutableTotalOrdVector, ImmutableCloneableVector};
+pub use slice::{OwnedVector, OwnedCloneableVector, OwnedEqVector};
+pub use slice::{MutableVector, MutableTotalOrdVector};
+pub use slice::{Vector, VectorVector, CloneableVector, ImmutableVector};
+pub use vec::Vec;
 
 // Reexported runtime types
 pub use comm::{channel, Sender, Receiver};

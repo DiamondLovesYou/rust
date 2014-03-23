@@ -32,7 +32,6 @@ use util::small_vector::SmallVector;
 use std::cast;
 use std::unstable::dynamic_lib::DynamicLibrary;
 use std::os;
-use std::vec_ng::Vec;
 
 pub fn expand_expr(e: @ast::Expr, fld: &mut MacroExpander) -> @ast::Expr {
     match e.node {
@@ -264,7 +263,7 @@ pub fn expand_item(it: @ast::Item, fld: &mut MacroExpander)
     let it = expand_item_modifiers(it, fld);
 
     let mut decorator_items = SmallVector::zero();
-    for attr in it.attrs.rev_iter() {
+    for attr in it.attrs.iter().rev() {
         let mname = attr.name();
 
         match fld.extsbox.find(&intern(mname.get())) {
@@ -978,8 +977,6 @@ mod test {
     use util::parser_testing::{string_to_pat, strs_to_idents};
     use visit;
     use visit::Visitor;
-
-    use std::vec_ng::Vec;
 
     // a visitor that extracts the paths
     // from a given thingy and puts them in a mutable

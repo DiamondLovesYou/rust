@@ -174,7 +174,7 @@
 // NB this does *not* include globs, please keep it that way.
 #[feature(macro_rules, phase)];
 #[allow(visible_private_types)];
-#[allow(deprecated_owned_vector)];
+#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
 
 #[cfg(test)] #[phase(syntax, link)] extern crate log;
 extern crate rand;
@@ -188,7 +188,7 @@ use std::rt;
 use std::sync::atomics::{SeqCst, AtomicUint, INIT_ATOMIC_UINT};
 use std::sync::deque;
 use std::task::TaskOpts;
-use std::vec;
+use std::slice;
 use std::sync::arc::UnsafeArc;
 
 use sched::{Shutdown, Scheduler, SchedHandle, TaskFromFriend, NewNeighbor};
@@ -209,7 +209,7 @@ pub mod stack;
 pub mod task;
 
 #[lang = "start"]
-#[cfg(not(test))]
+#[cfg(not(test), stage0)]
 pub fn lang_start(main: *u8, argc: int, argv: **u8) -> int {
     use std::cast;
     start(argc, argv, proc() {
@@ -356,8 +356,8 @@ impl SchedPool {
 
         // Create a work queue for each scheduler, ntimes. Create an extra
         // for the main thread if that flag is set. We won't steal from it.
-        let arr = vec::from_fn(nscheds, |_| pool.deque_pool.deque());
-        let (workers, stealers) = vec::unzip(arr.move_iter());
+        let arr = slice::from_fn(nscheds, |_| pool.deque_pool.deque());
+        let (workers, stealers) = slice::unzip(arr.move_iter());
         pool.stealers = stealers;
 
         // Now that we've got all our work queues, create one scheduler per

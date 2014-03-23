@@ -37,8 +37,7 @@ use std::io::fs;
 use std::io::MemReader;
 use std::mem::drop;
 use std::os;
-use std::vec_ng::Vec;
-use std::vec_ng;
+use std::vec;
 use getopts::{optopt, optmulti, optflag, optflagopt};
 use getopts;
 use syntax::ast;
@@ -140,7 +139,7 @@ pub fn build_configuration(sess: &Session) -> ast::CrateConfig {
     } else {
         InternedString::new("nogc")
     });
-    return vec_ng::append(user_cfg.move_iter().collect(),
+    return vec::append(user_cfg.move_iter().collect(),
                           default_cfg.as_slice());
 }
 
@@ -188,7 +187,7 @@ pub fn phase_1_parse_input(sess: &Session, cfg: ast::CrateConfig, input: &Input)
     });
 
     if sess.opts.debugging_opts & session::AST_JSON_NOEXPAND != 0 {
-        let mut stdout = io::stdout();
+        let mut stdout = io::BufferedWriter::new(io::stdout());
         let mut json = json::PrettyEncoder::new(&mut stdout);
         krate.encode(&mut json);
     }
@@ -263,7 +262,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
          front::assign_node_ids_and_map::assign_node_ids_and_map(sess, krate));
 
     if sess.opts.debugging_opts & session::AST_JSON != 0 {
-        let mut stdout = io::stdout();
+        let mut stdout = io::BufferedWriter::new(io::stdout());
         let mut json = json::PrettyEncoder::new(&mut stdout);
         krate.encode(&mut json);
     }
@@ -307,16 +306,19 @@ pub fn phase_3_run_analysis_passes(sess: Session,
         time(time_passes, "resolution", (), |_|
              middle::resolve::resolve_crate(&sess, lang_items, krate));
 
+    // Discard MTWT tables that aren't required past resolution.
+    syntax::ext::mtwt::clear_tables();
+
     let named_region_map = time(time_passes, "lifetime resolution", (),
                                 |_| middle::resolve_lifetime::krate(&sess, krate));
 
     time(time_passes, "looking for entry point", (),
          |_| middle::entry::find_entry_point(&sess, krate, &ast_map));
 
-    sess.macro_registrar_fn.with_mut(|r| *r =
+    *sess.macro_registrar_fn.borrow_mut() =
         time(time_passes, "looking for macro registrar", (), |_|
             syntax::ext::registrar::find_macro_registrar(
-                sess.diagnostic(), krate)));
+                sess.diagnostic(), krate));
 
     let freevars = time(time_passes, "freevar finding", (), |_|
                         freevars::annotate_freevars(def_map, krate));
@@ -524,8 +526,7 @@ fn write_out_deps(sess: &Session,
         let file = outputs.path(*output_type);
         match *output_type {
             link::OutputTypeExe => {
-                let crate_types = sess.crate_types.borrow();
-                for output in crate_types.get().iter() {
+                for output in sess.crate_types.borrow().iter() {
                     let p = link::filename_for_input(sess, *output, &id, &file);
                     out_filenames.push(p);
                 }
@@ -554,10 +555,10 @@ fn write_out_deps(sess: &Session,
 
     // Build a list of files used to compile the output and
     // write Makefile-compatible dependency rules
-    let files: Vec<~str> = sess.codemap().files.borrow().get()
+    let files: Vec<~str> = sess.codemap().files.borrow()
                                .iter().filter_map(|fmap| {
-                                    if fmap.deref().is_real_file() {
-                                        Some(fmap.deref().name.clone())
+                                    if fmap.is_real_file() {
+                                        Some(fmap.name.clone())
                                     } else {
                                         None
                                     }
@@ -599,6 +600,10 @@ pub fn compile_input(sess: Session, cfg: ast::CrateConfig, input: &Input,
         if stop_after_phase_3(&analysis.ty_cx.sess) { return; }
         let (tcx, trans) = phase_4_translate_to_llvm(expanded_crate,
                                                      analysis, &outputs);
+
+        // Discard interned strings as they are no longer required.
+        token::get_ident_interner().clear();
+
         (outputs, trans, tcx.sess)
     };
     phase_5_run_llvm_passes(&sess, &trans, &outputs);
@@ -610,7 +615,7 @@ struct IdentifiedAnnotation;
 
 impl pprust::PpAnn for IdentifiedAnnotation {
     fn pre(&self,
-           s: &mut pprust::State<IdentifiedAnnotation>,
+           s: &mut pprust::State,
            node: pprust::AnnNode) -> io::IoResult<()> {
         match node {
             pprust::NodeExpr(_) => s.popen(),
@@ -618,7 +623,7 @@ impl pprust::PpAnn for IdentifiedAnnotation {
         }
     }
     fn post(&self,
-            s: &mut pprust::State<IdentifiedAnnotation>,
+            s: &mut pprust::State,
             node: pprust::AnnNode) -> io::IoResult<()> {
         match node {
             pprust::NodeItem(item) => {
@@ -648,7 +653,7 @@ struct TypedAnnotation {
 
 impl pprust::PpAnn for TypedAnnotation {
     fn pre(&self,
-           s: &mut pprust::State<TypedAnnotation>,
+           s: &mut pprust::State,
            node: pprust::AnnNode) -> io::IoResult<()> {
         match node {
             pprust::NodeExpr(_) => s.popen(),
@@ -656,7 +661,7 @@ impl pprust::PpAnn for TypedAnnotation {
         }
     }
     fn post(&self,
-            s: &mut pprust::State<TypedAnnotation>,
+            s: &mut pprust::State,
             node: pprust::AnnNode) -> io::IoResult<()> {
         let tcx = &self.analysis.ty_cx;
         match node {
@@ -691,7 +696,7 @@ pub fn pretty_print_input(sess: Session,
     };
 
     let src_name = source_name(input);
-    let src = sess.codemap().get_filemap(src_name).deref().src.as_bytes().to_owned();
+    let src = sess.codemap().get_filemap(src_name).src.as_bytes().to_owned();
     let mut rdr = MemReader::new(src);
 
     match ppm {
@@ -847,10 +852,10 @@ pub fn build_session_options(matches: &getopts::Matches) -> session::Options {
 
         let level_short = level_name.slice_chars(0, 1);
         let level_short = level_short.to_ascii().to_upper().into_str();
-        let flags = vec_ng::append(matches.opt_strs(level_short)
+        let flags = vec::append(matches.opt_strs(level_short)
                                           .move_iter()
                                           .collect(),
-                                   matches.opt_strs(level_name));
+                                   matches.opt_strs(level_name).as_slice());
         for lint_name in flags.iter() {
             let lint_name = lint_name.replace("-", "_");
             match lint_dict.find_equiv(&lint_name) {

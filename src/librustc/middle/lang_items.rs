@@ -13,7 +13,7 @@
 // Language items are items that represent concepts intrinsic to the language
 // itself. Examples are:
 //
-// * Traits that specify "kinds"; e.g. "Freeze", "Send".
+// * Traits that specify "kinds"; e.g. "Share", "Send".
 //
 // * Traits that represent operators; e.g. "Add", "Sub", "Index".
 //
@@ -22,7 +22,7 @@
 
 use driver::session::Session;
 use metadata::csearch::each_lang_item;
-use middle::ty::{BuiltinBound, BoundFreeze, BoundPod, BoundSend, BoundSized};
+use middle::ty;
 use syntax::ast;
 use syntax::ast_util::local_def;
 use syntax::attr::AttrMetaMethods;
@@ -32,8 +32,7 @@ use syntax::visit;
 
 use collections::HashMap;
 use std::iter::Enumerate;
-use std::vec;
-use std::vec_ng::Vec;
+use std::slice;
 
 // The actual lang items defined come at the end of this file in one handy table.
 // So you probably just want to nip down to the end.
@@ -60,7 +59,7 @@ impl LanguageItems {
         }
     }
 
-    pub fn items<'a>(&'a self) -> Enumerate<vec::Items<'a, Option<ast::DefId>>> {
+    pub fn items<'a>(&'a self) -> Enumerate<slice::Items<'a, Option<ast::DefId>>> {
         self.items.iter().enumerate()
     }
 
@@ -82,15 +81,15 @@ impl LanguageItems {
         }
     }
 
-    pub fn to_builtin_kind(&self, id: ast::DefId) -> Option<BuiltinBound> {
-        if Some(id) == self.freeze_trait() {
-            Some(BoundFreeze)
-        } else if Some(id) == self.send_trait() {
-            Some(BoundSend)
+    pub fn to_builtin_kind(&self, id: ast::DefId) -> Option<ty::BuiltinBound> {
+        if Some(id) == self.send_trait() {
+            Some(ty::BoundSend)
         } else if Some(id) == self.sized_trait() {
-            Some(BoundSized)
+            Some(ty::BoundSized)
         } else if Some(id) == self.pod_trait() {
-            Some(BoundPod)
+            Some(ty::BoundPod)
+        } else if Some(id) == self.share_trait() {
+            Some(ty::BoundShare)
         } else {
             None
         }
@@ -209,10 +208,10 @@ pub fn collect_language_items(krate: &ast::Crate,
 
 lets_do_this! {
 //  Variant name,                    Name,                      Method name;
-    FreezeTraitLangItem,             "freeze",                  freeze_trait;
     SendTraitLangItem,               "send",                    send_trait;
     SizedTraitLangItem,              "sized",                   sized_trait;
     PodTraitLangItem,                "pod",                     pod_trait;
+    ShareTraitLangItem,              "share",                   share_trait;
 
     DropTraitLangItem,               "drop",                    drop_trait;
 
@@ -229,6 +228,8 @@ lets_do_this! {
     ShlTraitLangItem,                "shl",                     shl_trait;
     ShrTraitLangItem,                "shr",                     shr_trait;
     IndexTraitLangItem,              "index",                   index_trait;
+
+    UnsafeTypeLangItem,              "unsafe",                  unsafe_type;
 
     DerefTraitLangItem,              "deref",                   deref_trait;
     DerefMutTraitLangItem,           "deref_mut",               deref_mut_trait;
@@ -271,8 +272,8 @@ lets_do_this! {
     ContravariantLifetimeItem,       "contravariant_lifetime",  contravariant_lifetime;
     InvariantLifetimeItem,           "invariant_lifetime",      invariant_lifetime;
 
-    NoFreezeItem,                    "no_freeze_bound",         no_freeze_bound;
     NoSendItem,                      "no_send_bound",           no_send_bound;
     NoPodItem,                       "no_pod_bound",            no_pod_bound;
+    NoShareItem,                     "no_share_bound",          no_share_bound;
     ManagedItem,                     "managed_bound",           managed_bound;
 }

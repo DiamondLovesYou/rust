@@ -23,7 +23,6 @@ use middle::borrowck::*;
 use middle::moves;
 use middle::ty;
 use middle::typeck::MethodCall;
-use std::vec_ng::Vec;
 use syntax::ast;
 use syntax::ast_util;
 use syntax::codemap::Span;
@@ -379,11 +378,7 @@ impl<'a> CheckLoanCtxt<'a> {
     pub fn check_assignment(&self, expr: &ast::Expr) {
         // We don't use cat_expr() here because we don't want to treat
         // auto-ref'd parameters in overloaded operators as rvalues.
-        let adj = {
-            let adjustments = self.bccx.tcx.adjustments.borrow();
-            adjustments.get().find_copy(&expr.id)
-        };
-        let cmt = match adj {
+        let cmt = match self.bccx.tcx.adjustments.borrow().find_copy(&expr.id) {
             None => self.bccx.cat_expr_unadjusted(expr),
             Some(adj) => self.bccx.cat_expr_autoderefd(expr, adj)
         };
@@ -453,10 +448,7 @@ impl<'a> CheckLoanCtxt<'a> {
                        cmt.repr(this.tcx()));
                 match cmt.cat {
                     mc::cat_local(id) | mc::cat_arg(id) => {
-                        let mut used_mut_nodes = this.tcx()
-                                                     .used_mut_nodes
-                                                     .borrow_mut();
-                        used_mut_nodes.get().insert(id);
+                        this.tcx().used_mut_nodes.borrow_mut().insert(id);
                         return;
                     }
 
@@ -518,11 +510,11 @@ impl<'a> CheckLoanCtxt<'a> {
                                             expr: &ast::Expr,
                                             cmt: mc::cmt)
                                             -> bool {
-            match cmt.freely_aliasable() {
+            match cmt.freely_aliasable(this.tcx()) {
                 None => {
                     return true;
                 }
-                Some(mc::AliasableStaticMut) => {
+                Some(mc::AliasableStaticMut(..)) => {
                     return true;
                 }
                 Some(cause) => {
@@ -718,7 +710,7 @@ impl<'a> CheckLoanCtxt<'a> {
     fn check_captured_variables(&self,
                                 closure_id: ast::NodeId,
                                 span: Span) {
-        for cap_var in self.bccx.capture_map.get(&closure_id).deref().iter() {
+        for cap_var in self.bccx.capture_map.get(&closure_id).iter() {
             let var_id = ast_util::def_id_of_def(cap_var.def).node;
             let var_path = @LpVar(var_id);
             self.check_if_path_is_moved(closure_id, span,
@@ -840,11 +832,11 @@ fn check_loans_in_expr<'a>(this: &mut CheckLoanCtxt<'a>,
         this.check_call(expr, None, expr.span, args.as_slice());
       }
       ast::ExprIndex(_, rval) | ast::ExprBinary(_, _, rval)
-      if method_map.get().contains_key(&MethodCall::expr(expr.id)) => {
+      if method_map.contains_key(&MethodCall::expr(expr.id)) => {
         this.check_call(expr, None, expr.span, [rval]);
       }
       ast::ExprUnary(_, _) | ast::ExprIndex(_, _)
-      if method_map.get().contains_key(&MethodCall::expr(expr.id)) => {
+      if method_map.contains_key(&MethodCall::expr(expr.id)) => {
         this.check_call(expr, None, expr.span, []);
       }
       ast::ExprInlineAsm(ref ia) => {

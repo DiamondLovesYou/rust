@@ -9,7 +9,6 @@
 // except according to those terms.
 
 use std::cmp;
-use std::vec_ng::Vec;
 
 #[deriving(Show, Clone)]
 pub struct LogDirective {

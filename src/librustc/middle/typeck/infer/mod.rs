@@ -39,12 +39,11 @@ use middle::typeck::infer::unify::{ValsAndBindings, Root};
 use middle::typeck::infer::error_reporting::ErrorReporting;
 use std::cell::{Cell, RefCell};
 use std::result;
-use std::vec_ng::Vec;
 use syntax::ast::{MutImmutable, MutMutable};
 use syntax::ast;
 use syntax::codemap;
 use syntax::codemap::Span;
-use syntax::opt_vec::OptVec;
+use syntax::owned_slice::OwnedSlice;
 use util::common::indent;
 use util::ppaux::{bound_region_to_str, ty_to_str, trait_ref_to_str, Repr};
 
@@ -531,25 +530,21 @@ impl<'a> InferCtxt<'a> {
     }
 
     pub fn start_snapshot(&self) -> Snapshot {
-        let ty_var_bindings = self.ty_var_bindings.borrow();
-        let int_var_bindings = self.int_var_bindings.borrow();
-        let float_var_bindings = self.float_var_bindings.borrow();
         Snapshot {
-            ty_var_bindings_len: ty_var_bindings.get().bindings.len(),
-            int_var_bindings_len: int_var_bindings.get().bindings.len(),
-            float_var_bindings_len: float_var_bindings.get().bindings.len(),
+            ty_var_bindings_len: self.ty_var_bindings.borrow().bindings.len(),
+            int_var_bindings_len: self.int_var_bindings.borrow().bindings.len(),
+            float_var_bindings_len: self.float_var_bindings.borrow().bindings.len(),
             region_vars_snapshot: self.region_vars.start_snapshot(),
         }
     }
 
     pub fn rollback_to(&self, snapshot: &Snapshot) {
         debug!("rollback!");
-        let mut ty_var_bindings = self.ty_var_bindings.borrow_mut();
-        let mut int_var_bindings = self.int_var_bindings.borrow_mut();
-        let mut float_var_bindings = self.float_var_bindings.borrow_mut();
-        rollback_to(ty_var_bindings.get(), snapshot.ty_var_bindings_len);
-        rollback_to(int_var_bindings.get(), snapshot.int_var_bindings_len);
-        rollback_to(float_var_bindings.get(),
+        rollback_to(&mut *self.ty_var_bindings.borrow_mut(),
+                    snapshot.ty_var_bindings_len);
+        rollback_to(&mut *self.int_var_bindings.borrow_mut(),
+                    snapshot.int_var_bindings_len);
+        rollback_to(&mut *self.float_var_bindings.borrow_mut(),
                     snapshot.float_var_bindings_len);
 
         self.region_vars.rollback_to(snapshot.region_vars_snapshot);
@@ -563,10 +558,8 @@ impl<'a> InferCtxt<'a> {
         indent(|| {
             let r = self.try(|| f());
 
-            let mut ty_var_bindings = self.ty_var_bindings.borrow_mut();
-            let mut int_var_bindings = self.int_var_bindings.borrow_mut();
-            ty_var_bindings.get().bindings.truncate(0);
-            int_var_bindings.get().bindings.truncate(0);
+            self.ty_var_bindings.borrow_mut().bindings.truncate(0);
+            self.int_var_bindings.borrow_mut().bindings.truncate(0);
             self.region_vars.commit();
             r
         })
@@ -615,7 +608,7 @@ impl<'a> InferCtxt<'a> {
         self.ty_var_counter.set(id + 1);
         {
             let mut ty_var_bindings = self.ty_var_bindings.borrow_mut();
-            let vals = &mut ty_var_bindings.get().vals;
+            let vals = &mut ty_var_bindings.vals;
             vals.insert(id, Root(Bounds { lb: None, ub: None }, 0u));
         }
         return TyVid(id);
@@ -633,7 +626,7 @@ impl<'a> InferCtxt<'a> {
         let mut int_var_counter = self.int_var_counter.get();
         let mut int_var_bindings = self.int_var_bindings.borrow_mut();
         let result = IntVid(next_simple_var(&mut int_var_counter,
-                                            int_var_bindings.get()));
+                                            &mut *int_var_bindings));
         self.int_var_counter.set(int_var_counter);
         result
     }
@@ -646,7 +639,7 @@ impl<'a> InferCtxt<'a> {
         let mut float_var_counter = self.float_var_counter.get();
         let mut float_var_bindings = self.float_var_bindings.borrow_mut();
         let result = FloatVid(next_simple_var(&mut float_var_counter,
-                                              float_var_bindings.get()));
+                                              &mut *float_var_bindings));
         self.float_var_counter.set(float_var_counter);
         result
     }
@@ -669,7 +662,7 @@ impl<'a> InferCtxt<'a> {
     pub fn region_vars_for_defs(&self,
                                 span: Span,
                                 defs: &[ty::RegionParameterDef])
-                                -> OptVec<ty::Region> {
+                                -> OwnedSlice<ty::Region> {
         defs.iter()
             .map(|d| self.next_region_var(EarlyBoundRegion(span, d.name)))
             .collect()
@@ -719,7 +712,7 @@ impl<'a> InferCtxt<'a> {
                                   ty::EmptyBuiltinBounds());
         let dummy1 = self.resolve_type_vars_if_possible(dummy0);
         match ty::get(dummy1).sty {
-            ty::ty_trait(ref def_id, ref substs, _, _, _) => {
+            ty::ty_trait(~ty::TyTrait { ref def_id, ref substs, .. }) => {
                 ty::TraitRef {
                     def_id: *def_id,
                     substs: (*substs).clone(),
@@ -976,4 +969,3 @@ impl Repr for RegionVariableOrigin {
         }
     }
 }
-

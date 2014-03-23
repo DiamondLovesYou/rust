@@ -20,12 +20,11 @@ use middle::ty;
 
 use std::str;
 use std::uint;
-use std::vec_ng::Vec;
 use syntax::abi::AbiSet;
 use syntax::abi;
 use syntax::ast;
 use syntax::ast::*;
-use syntax::opt_vec;
+use syntax::owned_slice::OwnedSlice;
 use syntax::parse::token;
 
 // Compact string representation for ty::t values. API ty_str &
@@ -193,13 +192,13 @@ fn parse_region_substs(st: &mut PState, conv: conv_did) -> ty::RegionSubsts {
     match next(st) {
         'e' => ty::ErasedRegions,
         'n' => {
-            let mut regions = opt_vec::Empty;
+            let mut regions = vec!();
             while peek(st) != '.' {
                 let r = parse_region(st, |x,y| conv(x,y));
                 regions.push(r);
             }
             assert_eq!(next(st), '.');
-            ty::NonerasedRegions(regions)
+            ty::NonerasedRegions(OwnedSlice::from_vec(regions))
         }
         _ => fail!("parse_bound_region: bad input")
     }
@@ -383,23 +382,17 @@ fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
                                          pos: pos,
                                          len: len };
 
-        let tt_opt = {
-            let rcache = st.tcx.rcache.borrow();
-            rcache.get().find_copy(&key)
-        };
-        match tt_opt {
+        match st.tcx.rcache.borrow().find_copy(&key) {
           Some(tt) => return tt,
-          None => {
-            let mut ps = PState {
-                pos: pos,
-                .. *st
-            };
-            let tt = parse_ty(&mut ps, |x,y| conv(x,y));
-            let mut rcache = st.tcx.rcache.borrow_mut();
-            rcache.get().insert(key, tt);
-            return tt;
-          }
+          None => {}
         }
+        let mut ps = PState {
+            pos: pos,
+            .. *st
+        };
+        let tt = parse_ty(&mut ps, |x,y| conv(x,y));
+        st.tcx.rcache.borrow_mut().insert(key, tt);
+        return tt;
       }
       '"' => {
         let _ = parse_def(st, TypeWithId, |x,y| conv(x,y));
@@ -591,9 +584,6 @@ fn parse_bounds(st: &mut PState, conv: conv_did) -> ty::ParamBounds {
             'S' => {
                 param_bounds.builtin_bounds.add(ty::BoundSend);
             }
-            'K' => {
-                param_bounds.builtin_bounds.add(ty::BoundFreeze);
-            }
             'O' => {
                 param_bounds.builtin_bounds.add(ty::BoundStatic);
             }
@@ -602,6 +592,9 @@ fn parse_bounds(st: &mut PState, conv: conv_did) -> ty::ParamBounds {
             }
             'P' => {
                 param_bounds.builtin_bounds.add(ty::BoundPod);
+            }
+            'T' => {
+                param_bounds.builtin_bounds.add(ty::BoundShare);
             }
             'I' => {
                 param_bounds.trait_bounds.push(@parse_trait_ref(st, |x,y| conv(x,y)));

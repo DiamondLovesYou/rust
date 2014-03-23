@@ -16,7 +16,6 @@ use middle::trans::cabi_x86_64;
 use middle::trans::cabi_arm;
 use middle::trans::cabi_mips;
 use middle::trans::type_::Type;
-use std::vec_ng::Vec;
 use syntax::abi::{X86, X86_64, Arm, Mips, Le32};
 
 #[deriving(Clone, Eq)]
@@ -25,7 +24,9 @@ pub enum ArgKind {
     /// LLVM type or by coercing to another specified type
     Direct,
     /// Pass the argument indirectly via a hidden pointer
-    Indirect
+    Indirect,
+    /// Ignore the argument (useful for empty struct)
+    Ignore,
 }
 
 /// Information about how a specific C type
@@ -68,12 +69,26 @@ impl ArgType {
         }
     }
 
+    pub fn ignore(ty: Type) -> ArgType {
+        ArgType {
+            kind: Ignore,
+            ty: ty,
+            cast: None,
+            pad: None,
+            attr: None,
+        }
+    }
+
     pub fn is_direct(&self) -> bool {
         return self.kind == Direct;
     }
 
     pub fn is_indirect(&self) -> bool {
         return self.kind == Indirect;
+    }
+
+    pub fn is_ignore(&self) -> bool {
+        return self.kind == Ignore;
     }
 }
 

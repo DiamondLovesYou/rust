@@ -23,15 +23,13 @@ use middle::ty::{ty_uniq, ty_trait, ty_int, ty_uint, ty_unboxed_vec, ty_infer};
 use middle::ty;
 use middle::typeck;
 
-use std::vec_ng::Vec;
 use syntax::abi::AbiSet;
 use syntax::ast_map;
 use syntax::codemap::{Span, Pos};
 use syntax::parse::token;
 use syntax::print::pprust;
 use syntax::{ast, ast_util};
-use syntax::opt_vec;
-use syntax::opt_vec::OptVec;
+use syntax::owned_slice::OwnedSlice;
 
 /// Produces a string suitable for debugging output.
 pub trait Repr {
@@ -453,7 +451,7 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
         ~"(" + strs.connect(",") + ")"
       }
       ty_closure(ref f) => {
-          closure_to_str(cx, f)
+          closure_to_str(cx, *f)
       }
       ty_bare_fn(ref f) => {
           bare_fn_to_str(cx, f.purity, f.abis, None, &f.sig)
@@ -461,9 +459,7 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
       ty_infer(infer_ty) => infer_ty.to_str(),
       ty_err => ~"[type error]",
       ty_param(param_ty {idx: id, def_id: did}) => {
-          let ty_param_defs = cx.ty_param_defs.borrow();
-          let param_def = ty_param_defs.get().find(&did.node);
-          let ident = match param_def {
+          let ident = match cx.ty_param_defs.borrow().find(&did.node) {
               Some(def) => token::get_ident(def.ident).get().to_str(),
               // This should not happen...
               None => format!("BUG[{:?}]", id)
@@ -484,7 +480,9 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
                       did,
                       false)
       }
-      ty_trait(did, ref substs, s, mutbl, ref bounds) => {
+      ty_trait(~ty::TyTrait {
+          def_id: did, ref substs, store: s, mutability: mutbl, ref bounds
+      }) => {
         let base = ty::item_path_str(cx, did);
         let ty = parameterized(cx, base, &substs.regions,
                                substs.tps.as_slice(), did, true);
@@ -605,12 +603,9 @@ impl<'a, T:Repr> Repr for &'a [T] {
     }
 }
 
-impl<T:Repr> Repr for OptVec<T> {
+impl<T:Repr> Repr for OwnedSlice<T> {
     fn repr(&self, tcx: &ctxt) -> ~str {
-        match *self {
-            opt_vec::Empty => ~"[]",
-            opt_vec::Vec(ref v) => repr_vec(tcx, v.as_slice())
-        }
+        repr_vec(tcx, self.as_slice())
     }
 }
 
@@ -669,9 +664,9 @@ impl Repr for ty::ParamBounds {
             res.push(match b {
                 ty::BoundStatic => ~"'static",
                 ty::BoundSend => ~"Send",
-                ty::BoundFreeze => ~"Freeze",
                 ty::BoundSized => ~"Sized",
                 ty::BoundPod => ~"Pod",
+                ty::BoundShare => ~"Share",
             });
         }
         for t in self.trait_bounds.iter() {
@@ -956,9 +951,9 @@ impl UserString for ty::BuiltinBound {
         match *self {
             ty::BoundStatic => ~"'static",
             ty::BoundSend => ~"Send",
-            ty::BoundFreeze => ~"Freeze",
             ty::BoundSized => ~"Sized",
             ty::BoundPod => ~"Pod",
+            ty::BoundShare => ~"Share",
         }
     }
 }

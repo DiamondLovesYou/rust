@@ -36,10 +36,9 @@
 use std::fmt;
 use std::local_data;
 use std::io;
-use std::io::{fs, File, BufferedWriter};
+use std::io::{fs, File, BufferedWriter, MemWriter, BufferedReader};
 use std::str;
-use std::vec;
-use std::vec_ng::Vec;
+use std::slice;
 use collections::{HashMap, HashSet};
 
 use sync::Arc;
@@ -69,7 +68,7 @@ use html::highlight;
 pub struct Context {
     /// Current hierarchy of components leading down to what's currently being
     /// rendered
-    current: ~[~str],
+    current: Vec<~str> ,
     /// String representation of how to get back to the root path of the 'doc/'
     /// folder in terms of a relative URL.
     root_path: ~str,
@@ -84,7 +83,7 @@ pub struct Context {
     /// functions), and the value is the list of containers belonging to this
     /// header. This map will change depending on the surrounding context of the
     /// page.
-    sidebar: HashMap<~str, ~[~str]>,
+    sidebar: HashMap<~str, Vec<~str> >,
     /// This flag indicates whether [src] links should be generated or not. If
     /// the source files are present in the html rendering, then this will be
     /// `true`.
@@ -117,8 +116,8 @@ pub enum Implementor {
 ///
 /// This structure purposefully does not implement `Clone` because it's intended
 /// to be a fairly large and expensive structure to clone. Instead this adheres
-/// to both `Send` and `Freeze` so it may be stored in a `Arc` instance and
-/// shared among the various rendering tasks.
+/// to `Send` so it may be stored in a `Arc` instance and shared among the various
+/// rendering tasks.
 pub struct Cache {
     /// Mapping of typaram ids to the name of the type parameter. This is used
     /// when pretty-printing a type (so pretty printing doesn't have to
@@ -131,14 +130,14 @@ pub struct Cache {
     ///
     /// The values of the map are a list of implementations and documentation
     /// found on that implementation.
-    impls: HashMap<ast::NodeId, ~[(clean::Impl, Option<~str>)]>,
+    impls: HashMap<ast::NodeId, Vec<(clean::Impl, Option<~str>)> >,
 
     /// Maintains a mapping of local crate node ids to the fully qualified name
     /// and "short type description" of that node. This is used when generating
     /// URLs when a type is being linked to. External paths are not located in
     /// this map because the `External` type itself has all the information
     /// necessary.
-    paths: HashMap<ast::NodeId, (~[~str], &'static str)>,
+    paths: HashMap<ast::NodeId, (Vec<~str> , &'static str)>,
 
     /// This map contains information about all known traits of this crate.
     /// Implementations of a crate should inherit the documentation of the
@@ -149,16 +148,16 @@ pub struct Cache {
     /// When rendering traits, it's often useful to be able to list all
     /// implementors of the trait, and this mapping is exactly, that: a mapping
     /// of trait ids to the list of known implementors of the trait
-    implementors: HashMap<ast::NodeId, ~[Implementor]>,
+    implementors: HashMap<ast::NodeId, Vec<Implementor> >,
 
     /// Cache of where external crate documentation can be found.
     extern_locations: HashMap<ast::CrateNum, ExternalLocation>,
 
     // Private fields only used when initially crawling a crate to build a cache
 
-    priv stack: ~[~str],
-    priv parent_stack: ~[ast::NodeId],
-    priv search_index: ~[IndexItem],
+    priv stack: Vec<~str> ,
+    priv parent_stack: Vec<ast::NodeId> ,
+    priv search_index: Vec<IndexItem> ,
     priv privmod: bool,
     priv public_items: NodeSet,
 
@@ -203,13 +202,13 @@ struct IndexItem {
 // TLS keys used to carry information around during rendering.
 
 local_data_key!(pub cache_key: Arc<Cache>)
-local_data_key!(pub current_location_key: ~[~str])
+local_data_key!(pub current_location_key: Vec<~str> )
 
 /// Generates the documentation for `crate` into the directory `dst`
 pub fn run(mut krate: clean::Crate, dst: Path) -> io::IoResult<()> {
     let mut cx = Context {
         dst: dst,
-        current: ~[],
+        current: Vec::new(),
         root_path: ~"",
         sidebar: HashMap::new(),
         layout: layout::Layout {
@@ -251,9 +250,9 @@ pub fn run(mut krate: clean::Crate, dst: Path) -> io::IoResult<()> {
             paths: HashMap::new(),
             traits: HashMap::new(),
             implementors: HashMap::new(),
-            stack: ~[],
-            parent_stack: ~[],
-            search_index: ~[],
+            stack: Vec::new(),
+            parent_stack: Vec::new(),
+            search_index: Vec::new(),
             extern_locations: HashMap::new(),
             privmod: false,
             public_items: public_items,
@@ -283,48 +282,75 @@ pub fn run(mut krate: clean::Crate, dst: Path) -> io::IoResult<()> {
         };
     }
 
-    // Add all the static files
-    let mut dst = cx.dst.join(krate.name.as_slice());
-    try!(mkdir(&dst));
-    try!(write(dst.join("jquery.js"),
-                 include_str!("static/jquery-2.1.0.min.js")));
-    try!(write(dst.join("main.js"), include_str!("static/main.js")));
-    try!(write(dst.join("main.css"), include_str!("static/main.css")));
-    try!(write(dst.join("normalize.css"),
-                 include_str!("static/normalize.css")));
-
     // Publish the search index
-    {
-        dst.push("search-index.js");
-        let mut w = BufferedWriter::new(File::create(&dst).unwrap());
-        let w = &mut w as &mut Writer;
-        try!(write!(w, "var searchIndex = ["));
+    let index = {
+        let mut w = MemWriter::new();
+        try!(write!(&mut w, "searchIndex['{}'] = [", krate.name));
         for (i, item) in cache.search_index.iter().enumerate() {
             if i > 0 {
-                try!(write!(w, ","));
+                try!(write!(&mut w, ","));
             }
-            try!(write!(w, "\\{ty:\"{}\",name:\"{}\",path:\"{}\",desc:{}",
-                          item.ty, item.name, item.path,
-                          item.desc.to_json().to_str()));
+            try!(write!(&mut w, "\\{ty:\"{}\",name:\"{}\",path:\"{}\",desc:{}",
+                        item.ty, item.name, item.path,
+                        item.desc.to_json().to_str()));
             match item.parent {
                 Some(id) => {
-                    try!(write!(w, ",parent:'{}'", id));
+                    try!(write!(&mut w, ",parent:'{}'", id));
                 }
                 None => {}
             }
-            try!(write!(w, "\\}"));
+            try!(write!(&mut w, "\\}"));
         }
-        try!(write!(w, "];"));
-        try!(write!(w, "var allPaths = \\{"));
+        try!(write!(&mut w, "];"));
+        try!(write!(&mut w, "allPaths['{}'] = \\{", krate.name));
         for (i, (&id, &(ref fqp, short))) in cache.paths.iter().enumerate() {
             if i > 0 {
-                try!(write!(w, ","));
+                try!(write!(&mut w, ","));
             }
-            try!(write!(w, "'{}':\\{type:'{}',name:'{}'\\}",
-                          id, short, *fqp.last().unwrap()));
+            try!(write!(&mut w, "'{}':\\{type:'{}',name:'{}'\\}",
+                        id, short, *fqp.last().unwrap()));
         }
-        try!(write!(w, "\\};"));
-        try!(w.flush());
+        try!(write!(&mut w, "\\};"));
+
+        str::from_utf8_owned(w.unwrap()).unwrap()
+    };
+
+    // Write out the shared files. Note that these are shared among all rustdoc
+    // docs placed in the output directory, so this needs to be a synchronized
+    // operation with respect to all other rustdocs running around.
+    {
+        try!(mkdir(&cx.dst));
+        let _lock = ::flock::Lock::new(&cx.dst.join(".lock"));
+
+        // Add all the static files. These may already exist, but we just
+        // overwrite them anyway to make sure that they're fresh and up-to-date.
+        try!(write(cx.dst.join("jquery.js"),
+                   include_str!("static/jquery-2.1.0.min.js")));
+        try!(write(cx.dst.join("main.js"), include_str!("static/main.js")));
+        try!(write(cx.dst.join("main.css"), include_str!("static/main.css")));
+        try!(write(cx.dst.join("normalize.css"),
+                   include_str!("static/normalize.css")));
+
+        // Update the search index
+        let dst = cx.dst.join("search-index.js");
+        let mut all_indexes = Vec::new();
+        all_indexes.push(index);
+        if dst.exists() {
+            for line in BufferedReader::new(File::open(&dst)).lines() {
+                let line = try!(line);
+                if !line.starts_with("searchIndex") { continue }
+                if line.starts_with(format!("searchIndex['{}']", krate.name)) {
+                    continue
+                }
+                all_indexes.push(line);
+            }
+        }
+        let mut w = try!(File::create(&dst));
+        try!(writeln!(&mut w, r"var searchIndex = \{\}; var allPaths = \{\};"));
+        for index in all_indexes.iter() {
+            try!(writeln!(&mut w, "{}", *index));
+        }
+        try!(writeln!(&mut w, "initSearch(searchIndex);"));
     }
 
     // Render all source files (this may turn into a giant no-op)
@@ -463,6 +489,13 @@ impl<'a> SourceCollector<'a> {
         };
         let contents = str::from_utf8_owned(contents).unwrap();
 
+        // Remove the utf-8 BOM if any
+        let contents = if contents.starts_with("\ufeff") {
+            contents.as_slice().slice_from(3)
+        } else {
+            contents.as_slice()
+        };
+
         // Create the intermediate directories
         let mut cur = self.dst.clone();
         let mut root_path = ~"../../";
@@ -482,7 +515,7 @@ impl<'a> SourceCollector<'a> {
             root_path: root_path,
         };
         try!(layout::render(&mut w as &mut Writer, &self.cx.layout,
-                              &page, &(""), &Source(contents.as_slice())));
+                              &page, &(""), &Source(contents)));
         try!(w.flush());
         return Ok(());
     }
@@ -530,7 +563,7 @@ impl DocFolder for Cache {
                 match i.trait_ {
                     Some(clean::ResolvedPath{ id, .. }) => {
                         let v = self.implementors.find_or_insert_with(id, |_|{
-                            ~[]
+                            Vec::new()
                         });
                         match i.for_ {
                             clean::ResolvedPath{..} => {
@@ -661,7 +694,7 @@ impl DocFolder for Cache {
                         match i.for_ {
                             clean::ResolvedPath { id, .. } => {
                                 let v = self.impls.find_or_insert_with(id, |_| {
-                                    ~[]
+                                    Vec::new()
                                 });
                                 // extract relevant documentation for this impl
                                 match attrs.move_iter().find(|a| {
@@ -754,7 +787,7 @@ impl Context {
         // using a rwarc makes this parallelizable in the future
         local_data::set(cache_key, Arc::new(cache));
 
-        let mut work = ~[(self, item)];
+        let mut work = vec!((self, item));
         loop {
             match work.pop() {
                 Some((mut cx, item)) => try!(cx.item(item, |cx, item| {
@@ -886,7 +919,7 @@ impl<'a> fmt::Show for Item<'a> {
         }
 
         if self.cx.include_sources {
-            let mut path = ~[];
+            let mut path = Vec::new();
             clean_srcpath(self.item.source.filename.as_bytes(), |component| {
                 path.push(component.to_owned());
             });
@@ -933,8 +966,9 @@ impl<'a> fmt::Show for Item<'a> {
                       shortty(self.item), self.item.name.get_ref().as_slice()));
 
         match self.item.inner {
-            clean::ModuleItem(ref m) => item_module(fmt.buf, self.cx,
-                                                    self.item, m.items),
+            clean::ModuleItem(ref m) => {
+                item_module(fmt.buf, self.cx, self.item, m.items.as_slice())
+            }
             clean::FunctionItem(ref f) | clean::ForeignFunctionItem(ref f) =>
                 item_function(fmt.buf, self.item, f),
             clean::TraitItem(ref t) => item_trait(fmt.buf, self.item, t),
@@ -992,7 +1026,7 @@ fn item_module(w: &mut Writer, cx: &Context,
                item: &clean::Item, items: &[clean::Item]) -> fmt::Result {
     try!(document(w, item));
     debug!("{:?}", items);
-    let mut indices = vec::from_fn(items.len(), |i| i);
+    let mut indices = slice::from_fn(items.len(), |i| i);
 
     fn cmp(i1: &clean::Item, i2: &clean::Item, idx1: uint, idx2: uint) -> Ordering {
         if shortty(i1) == shortty(i2) {
@@ -1286,8 +1320,14 @@ fn render_method(w: &mut Writer, meth: &clean::Item) -> fmt::Result {
 fn item_struct(w: &mut Writer, it: &clean::Item,
                s: &clean::Struct) -> fmt::Result {
     try!(write!(w, "<pre class='rust struct'>"));
-    try!(render_struct(w, it, Some(&s.generics), s.struct_type, s.fields,
-                         s.fields_stripped, "", true));
+    try!(render_struct(w,
+                       it,
+                       Some(&s.generics),
+                       s.struct_type,
+                       s.fields.as_slice(),
+                       s.fields_stripped,
+                       "",
+                       true));
     try!(write!(w, "</pre>"));
 
     try!(document(w, it));
@@ -1335,9 +1375,14 @@ fn item_enum(w: &mut Writer, it: &clean::Item, e: &clean::Enum) -> fmt::Result {
                             try!(write!(w, ")"));
                         }
                         clean::StructVariant(ref s) => {
-                            try!(render_struct(w, v, None, s.struct_type,
-                                                 s.fields, s.fields_stripped,
-                                                 "    ", false));
+                            try!(render_struct(w,
+                                               v,
+                                               None,
+                                               s.struct_type,
+                                               s.fields.as_slice(),
+                                               s.fields_stripped,
+                                               "    ",
+                                               false));
                         }
                     }
                 }
@@ -1646,7 +1691,7 @@ impl<'a> fmt::Show for Sidebar<'a> {
     }
 }
 
-fn build_sidebar(m: &clean::Module) -> HashMap<~str, ~[~str]> {
+fn build_sidebar(m: &clean::Module) -> HashMap<~str, Vec<~str> > {
     let mut map = HashMap::new();
     for item in m.items.iter() {
         let short = shortty(item);
@@ -1654,12 +1699,12 @@ fn build_sidebar(m: &clean::Module) -> HashMap<~str, ~[~str]> {
             None => continue,
             Some(ref s) => s.to_owned(),
         };
-        let v = map.find_or_insert_with(short.to_owned(), |_| ~[]);
+        let v = map.find_or_insert_with(short.to_owned(), |_| Vec::new());
         v.push(myname);
     }
 
     for (_, items) in map.mut_iter() {
-        items.sort();
+        items.as_mut_slice().sort();
     }
     return map;
 }

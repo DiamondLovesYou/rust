@@ -19,9 +19,9 @@ use front::std_inject::with_version;
 use metadata::creader::Loader;
 
 use std::cell::RefCell;
+use std::slice;
+use std::vec::Vec;
 use std::vec;
-use std::vec_ng::Vec;
-use std::vec_ng;
 use syntax::ast_util::*;
 use syntax::attr::AttrMetaMethods;
 use syntax::attr;
@@ -31,7 +31,7 @@ use syntax::ext::base::ExtCtxt;
 use syntax::ext::expand::ExpansionConfig;
 use syntax::fold::Folder;
 use syntax::fold;
-use syntax::opt_vec;
+use syntax::owned_slice::OwnedSlice;
 use syntax::parse::token::InternedString;
 use syntax::parse::token;
 use syntax::print::pprust;
@@ -88,17 +88,13 @@ impl<'a> fold::Folder for TestHarnessGenerator<'a> {
     }
 
     fn fold_item(&mut self, i: @ast::Item) -> SmallVector<@ast::Item> {
-        {
-            let mut path = self.cx.path.borrow_mut();
-            path.get().push(i.ident);
-        }
+        self.cx.path.borrow_mut().push(i.ident);
         debug!("current path: {}",
                ast_util::path_name_i(self.cx.path.get().as_slice()));
 
-        if is_test_fn(&self.cx, i) || is_bench_fn(i) {
+        if is_test_fn(&self.cx, i) || is_bench_fn(&self.cx, i) {
             match i.node {
-                ast::ItemFn(_, purity, _, _, _)
-                    if purity == ast::UnsafeFn => {
+                ast::ItemFn(_, ast::UnsafeFn, _, _, _) => {
                     let sess = self.cx.sess;
                     sess.span_fatal(i.span,
                                     "unsafe functions cannot be used for \
@@ -109,14 +105,11 @@ impl<'a> fold::Folder for TestHarnessGenerator<'a> {
                     let test = Test {
                         span: i.span,
                         path: self.cx.path.get(),
-                        bench: is_bench_fn(i),
+                        bench: is_bench_fn(&self.cx, i),
                         ignore: is_ignored(&self.cx, i),
                         should_fail: should_fail(i)
                     };
-                    {
-                        let mut testfns = self.cx.testfns.borrow_mut();
-                        testfns.get().push(test);
-                    }
+                    self.cx.testfns.borrow_mut().push(test);
                     // debug!("have {} test/bench functions",
                     //        cx.testfns.len());
                 }
@@ -124,10 +117,7 @@ impl<'a> fold::Folder for TestHarnessGenerator<'a> {
         }
 
         let res = fold::noop_fold_item(i, self);
-        {
-            let mut path = self.cx.path.borrow_mut();
-            path.get().pop();
-        }
+        self.cx.path.borrow_mut().pop();
         res
     }
 
@@ -233,7 +223,7 @@ fn is_test_fn(cx: &TestCtxt, i: @ast::Item) -> bool {
     return has_test_attr && has_test_signature(i);
 }
 
-fn is_bench_fn(i: @ast::Item) -> bool {
+fn is_bench_fn(cx: &TestCtxt, i: @ast::Item) -> bool {
     let has_bench_attr = attr::contains_name(i.attrs.as_slice(), "bench");
 
     fn has_test_signature(i: @ast::Item) -> bool {
@@ -252,6 +242,12 @@ fn is_bench_fn(i: @ast::Item) -> bool {
             }
           _ => false
         }
+    }
+
+    if has_bench_attr && !has_test_signature(i) {
+        let sess = cx.sess;
+        sess.span_err(i.span, "functions used as benches must have signature \
+                      `fn(&mut BenchHarness) -> ()`");
     }
 
     return has_bench_attr && has_test_signature(i);
@@ -276,7 +272,7 @@ fn should_fail(i: @ast::Item) -> bool {
 fn add_test_module(cx: &TestCtxt, m: &ast::Mod) -> ast::Mod {
     let testmod = mk_test_module(cx);
     ast::Mod {
-        items: vec_ng::append_one(m.items.clone(), testmod),
+        items: vec::append_one(m.items.clone(), testmod),
         ..(*m).clone()
     }
 }
@@ -372,7 +368,7 @@ fn path_node(ids: Vec<ast::Ident> ) -> ast::Path {
         segments: ids.move_iter().map(|identifier| ast::PathSegment {
             identifier: identifier,
             lifetimes: Vec::new(),
-            types: opt_vec::Empty,
+            types: OwnedSlice::empty(),
         }).collect()
     }
 }
@@ -384,7 +380,7 @@ fn path_node_global(ids: Vec<ast::Ident> ) -> ast::Path {
         segments: ids.move_iter().map(|identifier| ast::PathSegment {
             identifier: identifier,
             lifetimes: Vec::new(),
-            types: opt_vec::Empty,
+            types: OwnedSlice::empty(),
         }).collect()
     }
 }
@@ -409,12 +405,9 @@ fn is_test_crate(krate: &ast::Crate) -> bool {
 
 fn mk_test_descs(cx: &TestCtxt) -> @ast::Expr {
     let mut descs = Vec::new();
-    {
-        let testfns = cx.testfns.borrow();
-        debug!("building test vector from {} tests", testfns.get().len());
-        for test in testfns.get().iter() {
-            descs.push(mk_test_desc_and_fn_rec(cx, test));
-        }
+    debug!("building test vector from {} tests", cx.testfns.borrow().len());
+    for test in cx.testfns.borrow().iter() {
+        descs.push(mk_test_desc_and_fn_rec(cx, test));
     }
 
     let inner_expr = @ast::Expr {

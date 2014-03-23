@@ -66,12 +66,11 @@
 use container::Container;
 use io::Writer;
 use iter::Iterator;
-use ops::Deref;
 use option::{Option, Some, None};
 use rc::Rc;
 use str::{Str, StrSlice};
-use vec::{Vector, ImmutableVector};
-use vec_ng::Vec;
+use slice::{Vector, ImmutableVector};
+use vec::Vec;
 
 /// Reexport the `sip::hash` function as our default hasher.
 pub use hash = self::sip::hash;
@@ -247,7 +246,7 @@ impl<S: Writer, T: Hash<S>> Hash<S> for @T {
 impl<S: Writer, T: Hash<S>> Hash<S> for Rc<T> {
     #[inline]
     fn hash(&self, state: &mut S) {
-        self.deref().hash(state);
+        (**self).hash(state);
     }
 }
 
@@ -293,7 +292,7 @@ mod tests {
     use iter::{Iterator};
     use option::{Some, None};
     use result::Ok;
-    use vec::ImmutableVector;
+    use slice::ImmutableVector;
 
     use super::{Hash, Hasher};
 

@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,12 +8,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern:attempted access of field `some_field_name` on type `~[int]`
-// issue #367
+// Test that duplicate methods in impls are not allowed
 
-fn f() {
-    let v = ~[1i];
-    println!("{}", v.some_field_name); //type error
+struct Foo;
+
+trait Bar {
+    fn bar(&self) -> int;
 }
 
-fn main() { }
+impl Bar for Foo {
+    fn bar(&self) -> int {1}
+    fn bar(&self) -> int {2} //~ ERROR duplicate method
+}
+
+fn main() {
+    println!("{}", Foo.bar());
+}

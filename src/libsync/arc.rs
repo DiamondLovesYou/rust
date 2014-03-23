@@ -21,11 +21,11 @@
  * extern crate sync;
  * extern crate rand;
  *
- * use std::vec;
+ * use std::slice;
  * use sync::Arc;
  *
  * fn main() {
- *     let numbers = vec::from_fn(100, |i| (i as f32) * rand::random());
+ *     let numbers = slice::from_fn(100, |i| (i as f32) * rand::random());
  *     let shared_numbers = Arc::new(numbers);
  *
  *     for _ in range(0, 10) {
@@ -53,6 +53,9 @@ use std::cast;
 use std::kinds::marker;
 use std::sync::arc::UnsafeArc;
 use std::task;
+
+#[cfg(stage0)]
+use std::kinds::Share;
 
 /// As sync::condvar, a mechanism for unlock-and-descheduling and
 /// signaling, for use with the Arc types.
@@ -122,7 +125,7 @@ pub struct Arc<T> { priv x: UnsafeArc<T> }
  * Access the underlying data in an atomically reference counted
  * wrapper.
  */
-impl<T:Freeze+Send> Arc<T> {
+impl<T: Share + Send> Arc<T> {
     /// Create an atomically reference counted wrapper.
     #[inline]
     pub fn new(data: T) -> Arc<T> {
@@ -135,7 +138,7 @@ impl<T:Freeze+Send> Arc<T> {
     }
 }
 
-impl<T:Freeze + Send> Clone for Arc<T> {
+impl<T: Share + Send> Clone for Arc<T> {
     /**
     * Duplicate an atomically reference counted wrapper.
     *
@@ -159,7 +162,6 @@ struct MutexArcInner<T> { lock: Mutex, failed: bool, data: T }
 /// An Arc with mutable data protected by a blocking mutex.
 pub struct MutexArc<T> {
     priv x: UnsafeArc<MutexArcInner<T>>,
-    priv marker: marker::NoFreeze,
 }
 
 impl<T:Send> Clone for MutexArc<T> {
@@ -168,8 +170,7 @@ impl<T:Send> Clone for MutexArc<T> {
     fn clone(&self) -> MutexArc<T> {
         // NB: Cloning the underlying mutex is not necessary. Its reference
         // count would be exactly the same as the shared state's.
-        MutexArc { x: self.x.clone(),
-                   marker: marker::NoFreeze, }
+        MutexArc { x: self.x.clone() }
     }
 }
 
@@ -188,8 +189,7 @@ impl<T:Send> MutexArc<T> {
             lock: Mutex::new_with_condvars(num_condvars),
             failed: false, data: user_data
         };
-        MutexArc { x: UnsafeArc::new(data),
-                   marker: marker::NoFreeze, }
+        MutexArc { x: UnsafeArc::new(data) }
     }
 
     /**
@@ -294,20 +294,22 @@ struct RWArcInner<T> { lock: RWLock, failed: bool, data: T }
  */
 pub struct RWArc<T> {
     priv x: UnsafeArc<RWArcInner<T>>,
-    priv marker: marker::NoFreeze,
+    priv marker: marker::NoShare,
 }
 
-impl<T:Freeze + Send> Clone for RWArc<T> {
+impl<T: Share + Send> Clone for RWArc<T> {
     /// Duplicate a rwlock-protected Arc. See arc::clone for more details.
     #[inline]
     fn clone(&self) -> RWArc<T> {
-        RWArc { x: self.x.clone(),
-                marker: marker::NoFreeze, }
+        RWArc {
+            x: self.x.clone(),
+            marker: marker::NoShare
+        }
     }
 
 }
 
-impl<T:Freeze + Send> RWArc<T> {
+impl<T: Share + Send> RWArc<T> {
     /// Create a reader/writer Arc with the supplied data.
     pub fn new(user_data: T) -> RWArc<T> {
         RWArc::new_with_condvars(user_data, 1)
@@ -322,8 +324,10 @@ impl<T:Freeze + Send> RWArc<T> {
             lock: RWLock::new_with_condvars(num_condvars),
             failed: false, data: user_data
         };
-        RWArc { x: UnsafeArc::new(data),
-                marker: marker::NoFreeze, }
+        RWArc {
+            x: UnsafeArc::new(data),
+            marker: marker::NoShare
+        }
     }
 
     /**
@@ -454,7 +458,7 @@ impl<T:Freeze + Send> RWArc<T> {
 // lock it. This wraps the unsafety, with the justification that the 'lock'
 // field is never overwritten; only 'failed' and 'data'.
 #[doc(hidden)]
-fn borrow_rwlock<T:Freeze + Send>(state: *mut RWArcInner<T>) -> *RWLock {
+fn borrow_rwlock<T: Share + Send>(state: *mut RWArcInner<T>) -> *RWLock {
     unsafe { cast::transmute(&(*state).lock) }
 }
 
@@ -471,7 +475,7 @@ pub struct RWReadMode<'a, T> {
     priv token: sync::RWLockReadMode<'a>,
 }
 
-impl<'a, T:Freeze + Send> RWWriteMode<'a, T> {
+impl<'a, T: Share + Send> RWWriteMode<'a, T> {
     /// Access the pre-downgrade RWArc in write mode.
     pub fn write<U>(&mut self, blk: |x: &mut T| -> U) -> U {
         match *self {
@@ -510,7 +514,7 @@ impl<'a, T:Freeze + Send> RWWriteMode<'a, T> {
     }
 }
 
-impl<'a, T:Freeze + Send> RWReadMode<'a, T> {
+impl<'a, T: Share + Send> RWReadMode<'a, T> {
     /// Access the post-downgrade rwlock in read mode.
     pub fn read<U>(&self, blk: |x: &T| -> U) -> U {
         match *self {
@@ -534,7 +538,7 @@ pub struct CowArc<T> { priv x: UnsafeArc<T> }
 /// mutation of the contents if there is only a single reference to
 /// the data. If there are multiple references the data is automatically
 /// cloned and the task modifies the cloned data in place of the shared data.
-impl<T:Clone+Send+Freeze> CowArc<T> {
+impl<T: Clone + Send + Share> CowArc<T> {
     /// Create a copy-on-write atomically reference counted wrapper
     #[inline]
     pub fn new(data: T) -> CowArc<T> {
@@ -558,7 +562,7 @@ impl<T:Clone+Send+Freeze> CowArc<T> {
     }
 }
 
-impl<T:Clone+Send+Freeze> Clone for CowArc<T> {
+impl<T: Clone + Send + Share> Clone for CowArc<T> {
     /// Duplicate a Copy-on-write Arc. See arc::clone for more details.
     fn clone(&self) -> CowArc<T> {
         CowArc { x: self.x.clone() }
@@ -580,22 +584,22 @@ mod tests {
 
     #[test]
     fn manually_share_arc() {
-        let v = ~[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let v = vec!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         let arc_v = Arc::new(v);
 
         let (tx, rx) = channel();
 
         task::spawn(proc() {
-            let arc_v: Arc<~[int]> = rx.recv();
+            let arc_v: Arc<Vec<int>> = rx.recv();
 
             let v = arc_v.get().clone();
-            assert_eq!(v[3], 4);
+            assert_eq!(*v.get(3), 4);
         });
 
         tx.send(arc_v.clone());
 
-        assert_eq!(arc_v.get()[2], 3);
-        assert_eq!(arc_v.get()[4], 5);
+        assert_eq!(*arc_v.get().get(2), 3);
+        assert_eq!(*arc_v.get().get(4), 5);
 
         info!("{:?}", arc_v);
     }
@@ -797,7 +801,7 @@ mod tests {
         });
 
         // Readers try to catch the writer in the act
-        let mut children = ~[];
+        let mut children = Vec::new();
         for _ in range(0, 5) {
             let arc3 = arc.clone();
             let mut builder = task::task();
@@ -851,7 +855,7 @@ mod tests {
         let arc = RWArc::new(0);
 
         // Reader tasks
-        let mut reader_convos = ~[];
+        let mut reader_convos = Vec::new();
         for _ in range(0, 10) {
             let ((tx1, rx1), (tx2, rx2)) = (channel(), channel());
             reader_convos.push((tx1, rx2));

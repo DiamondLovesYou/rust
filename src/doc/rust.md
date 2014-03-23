@@ -1019,7 +1019,7 @@ never invoking this behaviour or exposing an API making it possible for it to oc
 
 * Data races
 * Dereferencing a null/dangling raw pointer
-* Mutating an immutable value/reference, if it is not marked as non-`Freeze`
+* Mutating an immutable value/reference
 * Reads of [undef](http://llvm.org/docs/LangRef.html#undefined-values) (uninitialized) memory
 * Breaking the [pointer aliasing rules](http://llvm.org/docs/LangRef.html#pointer-aliasing-rules)
   with raw pointers (a subset of the rules used by C)
@@ -2033,7 +2033,7 @@ Supported traits for `deriving` are:
 
 * Comparison traits: `Eq`, `TotalEq`, `Ord`, `TotalOrd`.
 * Serialization: `Encodable`, `Decodable`. These require `serialize`.
-* `Clone` and `DeepClone`, to perform (deep) copies.
+* `Clone`, to create `T` from `&T` via a copy.
 * `Hash`, to iterate over the bytes in a data type.
 * `Rand`, to create a random instance of a data type.
 * `Default`, to create an empty instance of a data type.
@@ -3136,8 +3136,12 @@ machine.
 
 The types `char` and `str` hold textual data.
 
-A value of type `char` is a Unicode character,
-represented as a 32-bit unsigned word holding a UCS-4 codepoint.
+A value of type `char` is a [Unicode scalar value](
+http://www.unicode.org/glossary/#unicode_scalar_value)
+(ie. a code point that is not a surrogate),
+represented as a 32-bit unsigned word in the 0x0000 to 0xD7FF 
+or 0xE000 to 0x10FFFF range.
+A `[char]` vector is effectively an UCS-4 / UTF-32 string.
 
 A value of type `str` is a Unicode string,
 represented as a vector of 8-bit unsigned bytes holding a sequence of UTF-8 codepoints.
@@ -3430,10 +3434,6 @@ call to the method `make_string`.
 Types in Rust are categorized into kinds, based on various properties of the components of the type.
 The kinds are:
 
-`Freeze`
-  : Types of this kind are deeply immutable;
-    they contain no mutable memory locations
-    directly or indirectly via pointers.
 `Send`
   : Types of this kind can be safely sent between tasks.
     This kind includes scalars, owning pointers, owned closures, and

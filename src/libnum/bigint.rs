@@ -28,8 +28,7 @@ use rand::Rng;
 use std::str;
 use std::uint;
 use std::{i64, u64};
-use std::vec_ng;
-use std::vec_ng::Vec;
+use std::vec;
 
 /**
 A `BigDigit` is a `BigUint`'s composing element.
@@ -117,7 +116,7 @@ impl TotalOrd for BigUint {
         if s_len < o_len { return Less; }
         if s_len > o_len { return Greater;  }
 
-        for (&self_i, &other_i) in self.data.rev_iter().zip(other.data.rev_iter()) {
+        for (&self_i, &other_i) in self.data.iter().rev().zip(other.data.iter().rev()) {
             if self_i < other_i { return Less; }
             if self_i > other_i { return Greater; }
         }
@@ -753,7 +752,7 @@ impl BigUint {
     fn shl_unit(&self, n_unit: uint) -> BigUint {
         if n_unit == 0 || self.is_zero() { return (*self).clone(); }
 
-        return BigUint::new(vec_ng::append(Vec::from_elem(n_unit, ZERO_BIG_DIGIT),
+        return BigUint::new(vec::append(Vec::from_elem(n_unit, ZERO_BIG_DIGIT),
                                            self.data.as_slice()));
     }
 
@@ -788,7 +787,7 @@ impl BigUint {
 
         let mut borrow = 0;
         let mut shifted_rev = Vec::with_capacity(self.data.len());
-        for elem in self.data.rev_iter() {
+        for elem in self.data.iter().rev() {
             shifted_rev.push((*elem >> n_bits) | borrow);
             borrow = *elem << (BigDigit::bits - n_bits);
         }
@@ -1461,7 +1460,6 @@ mod biguint_tests {
     use std::num::CheckedDiv;
     use rand::{task_rng};
     use std::u64;
-    use std::vec_ng::Vec;
 
     #[test]
     fn test_from_slice() {
@@ -2195,7 +2193,6 @@ mod bigint_tests {
     use std::num::{ToPrimitive, FromPrimitive};
     use rand::{task_rng};
     use std::u64;
-    use std::vec_ng::Vec;
 
     #[test]
     fn test_from_biguint() {

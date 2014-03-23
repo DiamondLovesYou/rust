@@ -57,8 +57,7 @@ use middle::trans::type_::Type;
 use middle::trans::type_of;
 use middle::ty;
 use middle::ty::Disr;
-use std::vec_ng::Vec;
-use std::vec_ng;
+use std::vec;
 use syntax::abi::{X86, X86_64, Arm, Mips, Le32};
 use syntax::ast;
 use syntax::attr;
@@ -119,18 +118,14 @@ pub fn represent_node(bcx: &Block, node: ast::NodeId) -> @Repr {
 /// Decides how to represent a given type.
 pub fn represent_type(cx: &CrateContext, t: ty::t) -> @Repr {
     debug!("Representing: {}", ty_to_str(cx.tcx(), t));
-    {
-        let adt_reprs = cx.adt_reprs.borrow();
-        match adt_reprs.get().find(&t) {
-            Some(repr) => return *repr,
-            None => {}
-        }
+    match cx.adt_reprs.borrow().find(&t) {
+        Some(repr) => return *repr,
+        None => {}
     }
 
     let repr = @represent_type_uncached(cx, t);
     debug!("Represented as: {:?}", repr)
-    let mut adt_reprs = cx.adt_reprs.borrow_mut();
-    adt_reprs.get().insert(t, repr);
+    cx.adt_reprs.borrow_mut().insert(t, repr);
     return repr;
 }
 
@@ -226,7 +221,7 @@ fn represent_type_uncached(cx: &CrateContext, t: ty::t) -> Repr {
             return General(ity, cases.map(|c| {
                 let discr = vec!(ty_of_inttype(ity));
                 mk_struct(cx,
-                          vec_ng::append(discr, c.tys.as_slice()).as_slice(),
+                          vec::append(discr, c.tys.as_slice()).as_slice(),
                           false)
             }))
         }
@@ -758,10 +753,10 @@ pub fn trans_const(ccx: &CrateContext, r: &Repr, discr: Disr,
             let lldiscr = C_integral(ll_inttype(ccx, ity), discr as u64, true);
             let contents = build_const_struct(ccx,
                                               case,
-                                              vec_ng::append(
+                                              vec::append(
                                                   vec!(lldiscr),
                                                   vals).as_slice());
-            C_struct(ccx, vec_ng::append(
+            C_struct(ccx, vec::append(
                         contents,
                         &[padding(ccx, max_sz - case.size)]).as_slice(),
                      false)

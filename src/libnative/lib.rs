@@ -50,7 +50,7 @@
       html_root_url = "http://static.rust-lang.org/doc/master")];
 #[deny(unused_result, unused_must_use)];
 #[allow(non_camel_case_types)];
-#[allow(deprecated_owned_vector)];
+#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
 
 // NB this crate explicitly does *not* allow glob imports, please seriously
 //    consider whether they're needed before adding that feature here (the
@@ -58,6 +58,7 @@
 
 use std::os;
 use std::rt;
+use std::str;
 
 pub mod io;
 pub mod task;
@@ -67,6 +68,16 @@ pub mod task;
 static OS_DEFAULT_STACK_ESTIMATE: uint = 1 << 20;
 #[cfg(unix, not(android))]
 static OS_DEFAULT_STACK_ESTIMATE: uint = 2 * (1 << 20);
+
+#[lang = "start"]
+#[cfg(not(test), not(stage0))]
+pub fn lang_start(main: *u8, argc: int, argv: **u8) -> int {
+    use std::cast;
+    start(argc, argv, proc() {
+        let main: extern "Rust" fn() = unsafe { cast::transmute(main) };
+        main();
+    })
+}
 
 /// Executes the given procedure after initializing the runtime with the given
 /// argc/argv.
@@ -90,7 +101,12 @@ pub fn start(argc: int, argv: **u8, main: proc()) -> int {
     rt::init(argc, argv);
     let mut exit_code = None;
     let mut main = Some(main);
-    let t = task::new((my_stack_bottom, my_stack_top)).run(|| {
+    let mut task = task::new((my_stack_bottom, my_stack_top));
+    task.name = Some(str::Slice("<main>"));
+    let t = task.run(|| {
+        unsafe {
+            rt::stack::record_stack_bounds(my_stack_bottom, my_stack_top);
+        }
         exit_code = Some(run(main.take_unwrap()));
     });
     drop(t);

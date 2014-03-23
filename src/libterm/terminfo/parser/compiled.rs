@@ -12,10 +12,9 @@
 
 /// ncurses-compatible compiled terminfo format parsing (term(5))
 
-
-use std::{vec, str};
-use std::io;
 use collections::HashMap;
+use std::io;
+use std::str;
 use super::super::TermInfo;
 
 // These are the orders ncurses uses in its compiled format (as of 5.9). Not sure if portable.
@@ -208,12 +207,12 @@ pub fn parse(file: &mut io::Reader,
     }
 
     // don't read NUL
-    let bytes = try!(file.read_bytes(names_bytes as uint - 1));
+    let bytes = try!(file.read_exact(names_bytes as uint - 1));
     let names_str = match str::from_utf8_owned(bytes) {
         Some(s) => s, None => return Err(~"input not utf-8"),
     };
 
-    let term_names: ~[~str] = names_str.split('|').map(|s| s.to_owned()).collect();
+    let term_names: Vec<~str> = names_str.split('|').map(|s| s.to_owned()).collect();
 
     try!(file.read_byte()); // consume NUL
 
@@ -246,12 +245,12 @@ pub fn parse(file: &mut io::Reader,
     let mut string_map = HashMap::new();
 
     if string_offsets_count != 0 {
-        let mut string_offsets = vec::with_capacity(10);
+        let mut string_offsets = Vec::with_capacity(10);
         for _ in range(0, string_offsets_count) {
             string_offsets.push(try!(file.read_le_u16()));
         }
 
-        let string_table = try!(file.read_bytes(string_table_bytes as uint));
+        let string_table = try!(file.read_exact(string_table_bytes as uint));
 
         if string_table.len() != string_table_bytes as uint {
             return Err(~"error: hit EOF before end of string table");
@@ -272,7 +271,7 @@ pub fn parse(file: &mut io::Reader,
             if offset == 0xFFFE {
                 // undocumented: FFFE indicates cap@, which means the capability is not present
                 // unsure if the handling for this is correct
-                string_map.insert(name.to_owned(), ~[]);
+                string_map.insert(name.to_owned(), Vec::new());
                 continue;
             }
 
@@ -283,8 +282,9 @@ pub fn parse(file: &mut io::Reader,
             match nulpos {
                 Some(len) => {
                     string_map.insert(name.to_owned(),
-                                      string_table.slice(offset as uint,
-                                                         offset as uint + len).to_owned())
+                                      Vec::from_slice(
+                                          string_table.slice(offset as uint,
+                                          offset as uint + len)))
                 },
                 None => {
                     return Err(~"invalid file: missing NUL in string_table");
@@ -300,12 +300,12 @@ pub fn parse(file: &mut io::Reader,
 /// Create a dummy TermInfo struct for msys terminals
 pub fn msys_terminfo() -> ~TermInfo {
     let mut strings = HashMap::new();
-    strings.insert(~"sgr0", bytes!("\x1b[0m").to_owned());
-    strings.insert(~"bold", bytes!("\x1b[1m").to_owned());
-    strings.insert(~"setaf", bytes!("\x1b[3%p1%dm").to_owned());
-    strings.insert(~"setab", bytes!("\x1b[4%p1%dm").to_owned());
+    strings.insert(~"sgr0", Vec::from_slice(bytes!("\x1b[0m")));
+    strings.insert(~"bold", Vec::from_slice(bytes!("\x1b[1m")));
+    strings.insert(~"setaf", Vec::from_slice(bytes!("\x1b[3%p1%dm")));
+    strings.insert(~"setab", Vec::from_slice(bytes!("\x1b[4%p1%dm")));
     ~TermInfo {
-        names: ~[~"cygwin"], // msys is a fork of an older cygwin version
+        names: vec!(~"cygwin"), // msys is a fork of an older cygwin version
         bools: HashMap::new(),
         numbers: HashMap::new(),
         strings: strings

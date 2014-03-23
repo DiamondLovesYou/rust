@@ -225,8 +225,7 @@ use util::ppaux::{Repr, vec_map_to_str};
 
 use collections::HashMap;
 use std::cell::Cell;
-use std::vec_ng::Vec;
-use std::vec_ng;
+use std::vec;
 use syntax::ast;
 use syntax::ast::Ident;
 use syntax::ast_util::path_to_ident;
@@ -356,8 +355,8 @@ fn trans_opt<'a>(bcx: &'a Block<'a>, o: &Opt) -> opt_result<'a> {
 
 fn variant_opt(bcx: &Block, pat_id: ast::NodeId) -> Opt {
     let ccx = bcx.ccx();
-    let def_map = ccx.tcx.def_map.borrow();
-    match def_map.get().get_copy(&pat_id) {
+    let def = ccx.tcx.def_map.borrow().get_copy(&pat_id);
+    match def {
         ast::DefVariant(enum_id, var_id, _) => {
             let variants = ty::enum_variants(ccx.tcx(), enum_id);
             for v in (*variants).iter() {
@@ -463,9 +462,9 @@ fn expand_nested_bindings<'r,'b>(
     m.iter().map(|br| {
         match br.pats.get(col).node {
             ast::PatIdent(_, ref path, Some(inner)) => {
-                let pats = vec_ng::append(
+                let pats = vec::append(
                     Vec::from_slice(br.pats.slice(0u, col)),
-                    vec_ng::append(vec!(inner),
+                    vec::append(vec!(inner),
                                 br.pats.slice(col + 1u,
                                            br.pats.len())).as_slice());
 
@@ -513,8 +512,8 @@ fn enter_match<'r,'b>(
         match e(*br.pats.get(col)) {
             Some(sub) => {
                 let pats =
-                    vec_ng::append(
-                        vec_ng::append(sub, br.pats.slice(0u, col)),
+                    vec::append(
+                        vec::append(sub, br.pats.slice(0u, col)),
                         br.pats.slice(col + 1u, br.pats.len()));
 
                 let this = *br.pats.get(col);
@@ -637,10 +636,7 @@ fn enter_opt<'r,'b>(
         let answer = match p.node {
             ast::PatEnum(..) |
             ast::PatIdent(_, _, None) if pat_is_const(tcx.def_map, p) => {
-                let const_def = {
-                    let def_map = tcx.def_map.borrow();
-                    def_map.get().get_copy(&p.id)
-                };
+                let const_def = tcx.def_map.borrow().get_copy(&p.id);
                 let const_def_id = ast_util::def_id_of_def(const_def);
                 if opt_eq(tcx, &lit(ConstLit(const_def_id)), opt) {
                     Some(Vec::new())
@@ -679,11 +675,7 @@ fn enter_opt<'r,'b>(
                 if opt_eq(tcx, &variant_opt(bcx, p.id), opt) {
                     // Look up the struct variant ID.
                     let struct_id;
-                    let defn = {
-                        let def_map = tcx.def_map.borrow();
-                        def_map.get().get_copy(&p.id)
-                    };
-                    match defn {
+                    match tcx.def_map.borrow().get_copy(&p.id) {
                         ast::DefVariant(_, found_struct_id, _) => {
                             struct_id = found_struct_id;
                         }
@@ -965,10 +957,7 @@ fn get_options(bcx: &Block, m: &[Match], col: uint) -> Vec<Opt> {
             ast::PatIdent(..) => {
                 // This is one of: an enum variant, a unit-like struct, or a
                 // variable binding.
-                let opt_def = {
-                    let def_map = ccx.tcx.def_map.borrow();
-                    def_map.get().find_copy(&cur.id)
-                };
+                let opt_def = ccx.tcx.def_map.borrow().find_copy(&cur.id);
                 match opt_def {
                     Some(ast::DefVariant(..)) => {
                         add_to_set(ccx.tcx(), &mut found,
@@ -988,10 +977,7 @@ fn get_options(bcx: &Block, m: &[Match], col: uint) -> Vec<Opt> {
             ast::PatEnum(..) | ast::PatStruct(..) => {
                 // This could be one of: a tuple-like enum variant, a
                 // struct-like enum variant, or a struct.
-                let opt_def = {
-                    let def_map = ccx.tcx.def_map.borrow();
-                    def_map.get().find_copy(&cur.id)
-                };
+                let opt_def = ccx.tcx.def_map.borrow().find_copy(&cur.id);
                 match opt_def {
                     Some(ast::DefFn(..)) |
                     Some(ast::DefVariant(..)) => {
@@ -1148,8 +1134,7 @@ fn pats_require_rooting(bcx: &Block, m: &[Match], col: uint) -> bool {
     m.iter().any(|br| {
         let pat_id = br.pats.get(col).id;
         let key = root_map_key {id: pat_id, derefs: 0u };
-        let root_map = bcx.ccx().maps.root_map.borrow();
-        root_map.get().contains_key(&key)
+        bcx.ccx().maps.root_map.borrow().contains_key(&key)
     })
 }
 
@@ -1185,8 +1170,7 @@ fn any_tuple_struct_pat(bcx: &Block, m: &[Match], col: uint) -> bool {
         let pat = *br.pats.get(col);
         match pat.node {
             ast::PatEnum(_, Some(_)) => {
-                let def_map = bcx.tcx().def_map.borrow();
-                match def_map.get().find(&pat.id) {
+                match bcx.tcx().def_map.borrow().find(&pat.id) {
                     Some(&ast::DefFn(..)) |
                     Some(&ast::DefStruct(..)) => true,
                     _ => false
@@ -1388,13 +1372,10 @@ fn insert_lllocals<'a>(bcx: &'a Block<'a>,
         let datum = Datum(llval, binding_info.ty, Lvalue);
         fcx.schedule_drop_mem(cleanup_scope, llval, binding_info.ty);
 
-        {
-            debug!("binding {:?} to {}",
-                   binding_info.id,
-                   bcx.val_to_str(llval));
-            let mut llmap = bcx.fcx.lllocals.borrow_mut();
-            llmap.get().insert(binding_info.id, datum);
-        }
+        debug!("binding {:?} to {}",
+               binding_info.id,
+               bcx.val_to_str(llval));
+        bcx.fcx.lllocals.borrow_mut().insert(binding_info.id, datum);
 
         if bcx.sess().opts.debuginfo == FullDebugInfo {
             debuginfo::create_match_binding_metadata(bcx,
@@ -1459,8 +1440,7 @@ fn compile_guard<'r,
                 }
                 TrByRef => {}
             }
-            let mut lllocals = bcx.fcx.lllocals.borrow_mut();
-            lllocals.get().remove(&binding_info.id);
+            bcx.fcx.lllocals.borrow_mut().remove(&binding_info.id);
         }
         return bcx;
     }
@@ -1537,7 +1517,7 @@ fn compile_submatch_continue<'r,
     let tcx = bcx.tcx();
     let dm = tcx.def_map;
 
-    let vals_left = vec_ng::append(Vec::from_slice(vals.slice(0u, col)),
+    let vals_left = vec::append(Vec::from_slice(vals.slice(0u, col)),
                                    vals.slice(col + 1u, vals.len()));
     let ccx = bcx.fcx.ccx;
     let mut pat_id = 0;
@@ -1570,7 +1550,7 @@ fn compile_submatch_continue<'r,
                                             col,
                                             rec_fields.as_slice(),
                                             val).as_slice(),
-                        vec_ng::append(rec_vals,
+                        vec::append(rec_vals,
                                        vals_left.as_slice()).as_slice(),
                         chk);
             });
@@ -1596,7 +1576,7 @@ fn compile_submatch_continue<'r,
                                    col,
                                    val,
                                    n_tup_elts).as_slice(),
-                         vec_ng::append(tup_vals,
+                         vec::append(tup_vals,
                                         vals_left.as_slice()).as_slice(),
                          chk);
         return;
@@ -1622,7 +1602,7 @@ fn compile_submatch_continue<'r,
         compile_submatch(bcx,
                          enter_tuple_struct(bcx, dm, m, col, val,
                                             struct_element_count).as_slice(),
-                         vec_ng::append(llstructvals,
+                         vec::append(llstructvals,
                                         vals_left.as_slice()).as_slice(),
                          chk);
         return;
@@ -1632,7 +1612,7 @@ fn compile_submatch_continue<'r,
         let llbox = Load(bcx, val);
         compile_submatch(bcx,
                          enter_uniq(bcx, dm, m, col, val).as_slice(),
-                         vec_ng::append(vec!(llbox),
+                         vec::append(vec!(llbox),
                                         vals_left.as_slice()).as_slice(),
                          chk);
         return;
@@ -1642,7 +1622,7 @@ fn compile_submatch_continue<'r,
         let loaded_val = Load(bcx, val);
         compile_submatch(bcx,
                          enter_region(bcx, dm, m, col, val).as_slice(),
-                         vec_ng::append(vec!(loaded_val),
+                         vec::append(vec!(loaded_val),
                                         vals_left.as_slice()).as_slice(),
                          chk);
         return;
@@ -1824,7 +1804,7 @@ fn compile_submatch_continue<'r,
             lit(_) | range(_, _) => ()
         }
         let opt_ms = enter_opt(opt_cx, m, opt, col, size, val);
-        let opt_vals = vec_ng::append(unpacked, vals_left.as_slice());
+        let opt_vals = vec::append(unpacked, vals_left.as_slice());
 
         match branch_chk {
             None => {
@@ -2097,8 +2077,8 @@ pub fn store_arg<'a>(mut bcx: &'a Block<'a>,
                 // already put it in a temporary alloca and gave it up, unless
                 // we emit extra-debug-info, which requires local allocas :(.
                 let arg_val = arg.add_clean(bcx.fcx, arg_scope);
-                let mut llmap = bcx.fcx.llargs.borrow_mut();
-                llmap.get().insert(pat.id, Datum(arg_val, arg_ty, Lvalue));
+                bcx.fcx.llargs.borrow_mut()
+                   .insert(pat.id, Datum(arg_val, arg_ty, Lvalue));
                 bcx
             } else {
                 mk_binding_alloca(
@@ -2144,7 +2124,7 @@ fn mk_binding_alloca<'a,A>(bcx: &'a Block<'a>,
         BindLocal => bcx.fcx.lllocals.borrow_mut(),
         BindArgument => bcx.fcx.llargs.borrow_mut()
     };
-    llmap.get().insert(p_id, datum);
+    llmap.insert(p_id, datum);
     bcx
 }
 
@@ -2220,9 +2200,9 @@ fn bind_irrefutable_pat<'a>(
             }
         }
         ast::PatEnum(_, ref sub_pats) => {
-            let def_map = bcx.tcx().def_map.borrow();
-            match def_map.get().find(&pat.id) {
-                Some(&ast::DefVariant(enum_id, var_id, _)) => {
+            let opt_def = bcx.tcx().def_map.borrow().find_copy(&pat.id);
+            match opt_def {
+                Some(ast::DefVariant(enum_id, var_id, _)) => {
                     let repr = adt::represent_node(bcx, pat.id);
                     let vinfo = ty::enum_variant_with_id(ccx.tcx(),
                                                          enum_id,
@@ -2239,8 +2219,8 @@ fn bind_irrefutable_pat<'a>(
                         }
                     }
                 }
-                Some(&ast::DefFn(..)) |
-                Some(&ast::DefStruct(..)) => {
+                Some(ast::DefFn(..)) |
+                Some(ast::DefStruct(..)) => {
                     match *sub_pats {
                         None => {
                             // This is a unit-like struct. Nothing to do here.
@@ -2258,7 +2238,7 @@ fn bind_irrefutable_pat<'a>(
                         }
                     }
                 }
-                Some(&ast::DefStatic(_, false)) => {
+                Some(ast::DefStatic(_, false)) => {
                 }
                 _ => {
                     // Nothing to do here.

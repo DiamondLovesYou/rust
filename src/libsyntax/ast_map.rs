@@ -20,9 +20,8 @@ use util::small_vector::SmallVector;
 
 use std::cell::RefCell;
 use std::iter;
-use std::vec;
+use std::slice;
 use std::fmt;
-use std::vec_ng::Vec;
 
 #[deriving(Clone, Eq)]
 pub enum PathElem {
@@ -41,7 +40,7 @@ impl PathElem {
 impl fmt::Show for PathElem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let slot = token::get_name(self.name());
-        write!(f.buf, "{}", slot.get())
+        write!(f.buf, "{}", slot)
     }
 }
 
@@ -65,9 +64,9 @@ impl<'a> Iterator<PathElem> for LinkedPath<'a> {
     }
 }
 
-// HACK(eddyb) move this into libstd (value wrapper for vec::Items).
+// HACK(eddyb) move this into libstd (value wrapper for slice::Items).
 #[deriving(Clone)]
-pub struct Values<'a, T>(vec::Items<'a, T>);
+pub struct Values<'a, T>(slice::Items<'a, T>);
 
 impl<'a, T: Pod> Iterator<T> for Values<'a, T> {
     fn next(&mut self) -> Option<T> {
@@ -191,8 +190,8 @@ pub struct Map {
 impl Map {
     fn find_entry(&self, id: NodeId) -> Option<MapEntry> {
         let map = self.map.borrow();
-        if map.get().len() > id as uint {
-            Some(*map.get().get(id as uint))
+        if map.len() > id as uint {
+            Some(*map.get(id as uint))
         } else {
             None
         }
@@ -396,8 +395,7 @@ pub struct Ctx<'a, F> {
 
 impl<'a, F> Ctx<'a, F> {
     fn insert(&self, id: NodeId, entry: MapEntry) {
-        let mut map = self.map.map.borrow_mut();
-        map.get().grow_set(id as uint, &NotPresent, entry);
+        (*self.map.map.borrow_mut()).grow_set(id as uint, &NotPresent, entry);
     }
 }
 
@@ -541,7 +539,7 @@ pub fn map_crate<F: FoldOps>(krate: Crate, fold_ops: F) -> (Crate, Map) {
         let map = map.map.borrow();
         // This only makes sense for ordered stores; note the
         // enumerate to count the number of entries.
-        let (entries_less_1, _) = map.get().iter().filter(|&x| {
+        let (entries_less_1, _) = (*map).iter().filter(|&x| {
             match *x {
                 NotPresent => false,
                 _ => true
@@ -549,7 +547,7 @@ pub fn map_crate<F: FoldOps>(krate: Crate, fold_ops: F) -> (Crate, Map) {
         }).enumerate().last().expect("AST map was empty after folding?");
 
         let entries = entries_less_1 + 1;
-        let vector_length = map.get().len();
+        let vector_length = (*map).len();
         debug!("The AST map has {} entries with a maximum of {}: occupancy {:.1}%",
               entries, vector_length, (entries as f64 / vector_length as f64) * 100.);
     }

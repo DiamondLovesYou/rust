@@ -114,7 +114,7 @@ if logging is disabled, none of the components of the log will be executed.
       html_root_url = "http://static.rust-lang.org/doc/master")];
 
 #[feature(macro_rules)];
-#[deny(missing_doc)];
+#[deny(missing_doc, deprecated_owned_vector)];
 
 extern crate sync;
 
@@ -125,8 +125,7 @@ use std::io;
 use std::local_data;
 use std::os;
 use std::rt;
-use std::vec;
-use std::vec_ng::Vec;
+use std::slice;
 
 use sync::one::{Once, ONCE_INIT};
 
@@ -247,7 +246,7 @@ pub fn mod_enabled(level: u32, module: &str) -> bool {
 }
 
 fn enabled(level: u32, module: &str,
-           iter: vec::Items<directive::LogDirective>) -> bool {
+           iter: slice::Items<directive::LogDirective>) -> bool {
     // Search for the longest match, the vector is assumed to be pre-sorted.
     for directive in iter.rev() {
         match directive.name {

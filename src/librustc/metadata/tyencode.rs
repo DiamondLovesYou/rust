@@ -19,7 +19,6 @@ use std::io;
 use std::io::MemWriter;
 use std::str;
 use std::fmt;
-use std::vec_ng::Vec;
 
 use middle::ty::param_ty;
 use middle::ty;
@@ -64,37 +63,27 @@ fn mywrite(w: &mut MemWriter, fmt: &fmt::Arguments) {
 pub fn enc_ty(w: &mut MemWriter, cx: &ctxt, t: ty::t) {
     match cx.abbrevs {
       ac_no_abbrevs => {
-          let result_str_opt;
-          {
-              let short_names_cache = cx.tcx.short_names_cache.borrow();
-              result_str_opt = short_names_cache.get()
-                                                .find(&t)
-                                                .map(|result| {
-                                                    (*result).clone()
-                                                });
-          }
+          let result_str_opt = cx.tcx.short_names_cache.borrow()
+                                            .find(&t)
+                                            .map(|result| {
+                                                (*result).clone()
+                                            });
           let result_str = match result_str_opt {
             Some(s) => s,
             None => {
                 let wr = &mut MemWriter::new();
                 enc_sty(wr, cx, &ty::get(t).sty);
                 let s = str::from_utf8(wr.get_ref()).unwrap();
-                let mut short_names_cache = cx.tcx
-                                              .short_names_cache
-                                              .borrow_mut();
-                short_names_cache.get().insert(t, s.to_str());
+                cx.tcx.short_names_cache.borrow_mut().insert(t, s.to_str());
                 s.to_str()
             }
           };
           w.write(result_str.as_bytes());
       }
       ac_use_abbrevs(abbrevs) => {
-          {
-              let mut abbrevs = abbrevs.borrow_mut();
-              match abbrevs.get().find(&t) {
-                  Some(a) => { w.write(a.s.as_bytes()); return; }
-                  None => {}
-              }
+          match abbrevs.borrow_mut().find(&t) {
+              Some(a) => { w.write(a.s.as_bytes()); return; }
+              None => {}
           }
           let pos = w.tell().unwrap();
           enc_sty(w, cx, &ty::get(t).sty);
@@ -113,10 +102,7 @@ pub fn enc_ty(w: &mut MemWriter, cx: &ctxt, t: ty::t) {
               let a = ty_abbrev { pos: pos as uint,
                                   len: len as uint,
                                   s: s };
-              {
-                  let mut abbrevs = abbrevs.borrow_mut();
-                  abbrevs.get().insert(t, a);
-              }
+              abbrevs.borrow_mut().insert(t, a);
           }
           return;
       }
@@ -280,11 +266,11 @@ fn enc_sty(w: &mut MemWriter, cx: &ctxt, st: &ty::sty) {
             enc_substs(w, cx, substs);
             mywrite!(w, "]");
         }
-        ty::ty_trait(def, ref substs, store, mt, bounds) => {
-            mywrite!(w, "x[{}|", (cx.ds)(def));
+        ty::ty_trait(~ty::TyTrait { def_id, ref substs, store, mutability, bounds }) => {
+            mywrite!(w, "x[{}|", (cx.ds)(def_id));
             enc_substs(w, cx, substs);
             enc_trait_store(w, cx, store);
-            enc_mutability(w, mt);
+            enc_mutability(w, mutability);
             let bounds = ty::ParamBounds {builtin_bounds: bounds,
                                           trait_bounds: Vec::new()};
             enc_bounds(w, cx, &bounds);
@@ -315,7 +301,7 @@ fn enc_sty(w: &mut MemWriter, cx: &ctxt, st: &ty::sty) {
         ty::ty_unboxed_vec(mt) => { mywrite!(w, "U"); enc_mt(w, cx, mt); }
         ty::ty_closure(ref f) => {
             mywrite!(w, "f");
-            enc_closure_ty(w, cx, f);
+            enc_closure_ty(w, cx, *f);
         }
         ty::ty_bare_fn(ref f) => {
             mywrite!(w, "F");
@@ -406,10 +392,10 @@ fn enc_bounds(w: &mut MemWriter, cx: &ctxt, bs: &ty::ParamBounds) {
     for bound in bs.builtin_bounds.iter() {
         match bound {
             ty::BoundSend => mywrite!(w, "S"),
-            ty::BoundFreeze => mywrite!(w, "K"),
             ty::BoundStatic => mywrite!(w, "O"),
             ty::BoundSized => mywrite!(w, "Z"),
             ty::BoundPod => mywrite!(w, "P"),
+            ty::BoundShare => mywrite!(w, "T"),
         }
     }
 

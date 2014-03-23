@@ -589,12 +589,12 @@ fn spawn_process_os(_config: p::ProcessConfig,
 
 #[cfg(unix, not(target_os = "nacl"))]
 fn with_argv<T>(prog: &str, args: &[~str], cb: |**libc::c_char| -> T) -> T {
-    use std::vec;
+    use std::slice;
 
     // We can't directly convert `str`s into `*char`s, as someone needs to hold
     // a reference to the intermediary byte buffers. So first build an array to
     // hold all the ~[u8] byte strings.
-    let mut tmps = vec::with_capacity(args.len() + 1);
+    let mut tmps = slice::with_capacity(args.len() + 1);
 
     tmps.push(prog.to_c_str());
 
@@ -615,14 +615,14 @@ fn with_argv<T>(prog: &str, args: &[~str], cb: |**libc::c_char| -> T) -> T {
 
 #[cfg(unix, not(target_os = "nacl"))]
 fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: |*c_void| -> T) -> T {
-    use std::vec;
+    use std::slice;
 
     // On posixy systems we can pass a char** for envp, which is a
     // null-terminated array of "k=v\n" strings. Like `with_argv`, we have to
     // have a temporary buffer to hold the intermediary `~[u8]` byte strings.
     match env {
         Some(env) => {
-            let mut tmps = vec::with_capacity(env.len());
+            let mut tmps = slice::with_capacity(env.len());
 
             for pair in env.iter() {
                 let kv = format!("{}={}", *pair.ref0(), *pair.ref1());

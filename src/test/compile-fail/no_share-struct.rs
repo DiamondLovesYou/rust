@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,8 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-enum State { ST_NULL, ST_WHITESPACE = 1 }
+use std::kinds::marker;
 
-pub fn main() {
-    ~[ST_NULL, ..(ST_WHITESPACE as uint)];
+struct Foo { a: int, m: marker::NoShare }
+
+fn bar<T: Share>(_: T) {}
+
+fn main() {
+    let x = Foo { a: 5, m: marker::NoShare };
+    bar(x);
+    //~^ ERROR instantiating a type parameter with an incompatible type `Foo`,
+    //         which does not fulfill `Share`
 }

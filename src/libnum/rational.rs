@@ -16,7 +16,6 @@ use std::cmp;
 use std::fmt;
 use std::from_str::FromStr;
 use std::num::{Zero,One,ToStrRadix,FromStrRadix,Round};
-use std::vec_ng::Vec;
 use bigint::{BigInt, BigUint, Sign, Plus, Minus};
 
 /// Represents the ratio between 2 numbers.
@@ -300,9 +299,9 @@ impl<T: FromStr + Clone + Integer + Ord>
         if split.len() < 2 {
             return None
         }
-        let a_option: Option<T> = FromStr::from_str(split.as_slice()[0]);
+        let a_option: Option<T> = FromStr::from_str(*split.get(0));
         a_option.and_then(|a| {
-            let b_option: Option<T> = FromStr::from_str(split.as_slice()[1]);
+            let b_option: Option<T> = FromStr::from_str(*split.get(1));
             b_option.and_then(|b| {
                 Some(Ratio::new(a.clone(), b.clone()))
             })
@@ -317,11 +316,12 @@ impl<T: FromStrRadix + Clone + Integer + Ord>
         if split.len() < 2 {
             None
         } else {
-            let a_option: Option<T> = FromStrRadix::from_str_radix(split.as_slice()[0],
-                                                                   radix);
+            let a_option: Option<T> = FromStrRadix::from_str_radix(
+                *split.get(0),
+                radix);
             a_option.and_then(|a| {
                 let b_option: Option<T> =
-                    FromStrRadix::from_str_radix(split.as_slice()[1], radix);
+                    FromStrRadix::from_str_radix(*split.get(1), radix);
                 b_option.and_then(|b| {
                     Some(Ratio::new(a.clone(), b.clone()))
                 })

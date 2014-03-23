@@ -19,8 +19,7 @@
 
 use std::io;
 use std::uint;
-use std::vec;
-use std::vec_ng::Vec;
+use std::slice;
 use syntax::ast;
 use syntax::ast_util;
 use syntax::ast_util::IdRange;
@@ -85,7 +84,7 @@ struct LoopScope<'a> {
 
 impl<'a, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, O> {
     fn pre(&self,
-           ps: &mut pprust::State<DataFlowContext<'a, O>>,
+           ps: &mut pprust::State,
            node: pprust::AnnNode) -> io::IoResult<()> {
         let id = match node {
             pprust::NodeExpr(expr) => expr.id,
@@ -332,7 +331,7 @@ impl<'a, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, O> {
                 changed: true
             };
 
-            let mut temp = vec::from_elem(self.words_per_id, 0u);
+            let mut temp = slice::from_elem(self.words_per_id, 0u);
             let mut loop_scopes = Vec::new();
 
             while propcx.changed {
@@ -783,8 +782,7 @@ impl<'a, 'b, O:DataFlowOperator> PropagationContext<'a, 'b, O> {
             }
 
             Some(_) => {
-                let def_map = self.tcx().def_map.borrow();
-                match def_map.get().find(&expr.id) {
+                match self.tcx().def_map.borrow().find(&expr.id) {
                     Some(&ast::DefLabel(loop_id)) => {
                         match loop_scopes.iter().position(|l| l.loop_id == loop_id) {
                             Some(i) => i,
@@ -810,7 +808,7 @@ impl<'a, 'b, O:DataFlowOperator> PropagationContext<'a, 'b, O> {
 
     fn is_method_call(&self, expr: &ast::Expr) -> bool {
         let method_call = typeck::MethodCall::expr(expr.id);
-        self.dfcx.method_map.borrow().get().contains_key(&method_call)
+        self.dfcx.method_map.borrow().contains_key(&method_call)
     }
 
     fn reset(&mut self, bits: &mut [uint]) {

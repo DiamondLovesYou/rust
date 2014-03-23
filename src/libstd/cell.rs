@@ -17,35 +17,34 @@ use fmt;
 use kinds::{marker, Pod};
 use ops::{Deref, DerefMut, Drop};
 use option::{None, Option, Some};
+use ty::Unsafe;
 
 /// A mutable memory location that admits only `Pod` data.
 pub struct Cell<T> {
-    priv value: T,
-    priv marker1: marker::InvariantType<T>,
-    priv marker2: marker::NoFreeze,
+    priv value: Unsafe<T>,
+    priv noshare: marker::NoShare,
 }
 
 impl<T:Pod> Cell<T> {
     /// Creates a new `Cell` containing the given value.
     pub fn new(value: T) -> Cell<T> {
         Cell {
-            value: value,
-            marker1: marker::InvariantType::<T>,
-            marker2: marker::NoFreeze,
+            value: Unsafe::new(value),
+            noshare: marker::NoShare,
         }
     }
 
     /// Returns a copy of the contained value.
     #[inline]
     pub fn get(&self) -> T {
-        self.value
+        unsafe{ *self.value.get() }
     }
 
     /// Sets the contained value.
     #[inline]
     pub fn set(&self, value: T) {
         unsafe {
-            *cast::transmute_mut(&self.value) = value
+            *self.value.get() = value;
         }
     }
 }
@@ -64,17 +63,16 @@ impl<T:Eq + Pod> Eq for Cell<T> {
 
 impl<T: fmt::Show> fmt::Show for Cell<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, r"Cell \{ value: {} \}", self.value)
+        write!(f.buf, r"Cell \{ value: {} \}", unsafe{*&self.value.get()})
     }
 }
 
 /// A mutable memory location with dynamically checked borrow rules
 pub struct RefCell<T> {
-    priv value: T,
+    priv value: Unsafe<T>,
     priv borrow: BorrowFlag,
-    priv marker1: marker::InvariantType<T>,
-    priv marker2: marker::NoFreeze,
-    priv marker3: marker::NoPod,
+    priv nopod: marker::NoPod,
+    priv noshare: marker::NoShare,
 }
 
 // Values [1, MAX-1] represent the number of `Ref` active
@@ -87,10 +85,9 @@ impl<T> RefCell<T> {
     /// Create a new `RefCell` containing `value`
     pub fn new(value: T) -> RefCell<T> {
         RefCell {
-            marker1: marker::InvariantType::<T>,
-            marker2: marker::NoFreeze,
-            marker3: marker::NoPod,
-            value: value,
+            value: Unsafe::new(value),
+            nopod: marker::NoPod,
+            noshare: marker::NoShare,
             borrow: UNUSED,
         }
     }
@@ -98,7 +95,7 @@ impl<T> RefCell<T> {
     /// Consumes the `RefCell`, returning the wrapped value.
     pub fn unwrap(self) -> T {
         assert!(self.borrow == UNUSED);
-        self.value
+        unsafe{self.value.unwrap()}
     }
 
     unsafe fn as_mut<'a>(&'a self) -> &'a mut RefCell<T> {
@@ -168,28 +165,6 @@ impl<T> RefCell<T> {
         }
     }
 
-    /// Immutably borrows the wrapped value and applies `blk` to it.
-    ///
-    /// # Failure
-    ///
-    /// Fails if the value is currently mutably borrowed.
-    #[inline]
-    pub fn with<U>(&self, blk: |&T| -> U) -> U {
-        let ptr = self.borrow();
-        blk(ptr.get())
-    }
-
-    /// Mutably borrows the wrapped value and applies `blk` to it.
-    ///
-    /// # Failure
-    ///
-    /// Fails if the value is currently borrowed.
-    #[inline]
-    pub fn with_mut<U>(&self, blk: |&mut T| -> U) -> U {
-        let mut ptr = self.borrow_mut();
-        blk(ptr.get())
-    }
-
     /// Sets the value, replacing what was there.
     ///
     /// # Failure
@@ -197,8 +172,7 @@ impl<T> RefCell<T> {
     /// Fails if the value is currently borrowed.
     #[inline]
     pub fn set(&self, value: T) {
-        let mut reference = self.borrow_mut();
-        *reference.get() = value
+        *self.borrow_mut() = value;
     }
 }
 
@@ -210,23 +184,19 @@ impl<T:Clone> RefCell<T> {
     /// Fails if the value is currently mutably borrowed.
     #[inline]
     pub fn get(&self) -> T {
-        let reference = self.borrow();
-        (*reference.get()).clone()
+        (*self.borrow()).clone()
     }
 }
 
 impl<T: Clone> Clone for RefCell<T> {
     fn clone(&self) -> RefCell<T> {
-        let x = self.borrow();
-        RefCell::new(x.get().clone())
+        RefCell::new(self.get())
     }
 }
 
 impl<T: Eq> Eq for RefCell<T> {
     fn eq(&self, other: &RefCell<T>) -> bool {
-        let a = self.borrow();
-        let b = other.borrow();
-        a.get() == b.get()
+        *self.borrow() == *other.borrow()
     }
 }
 
@@ -243,18 +213,10 @@ impl<'b, T> Drop for Ref<'b, T> {
     }
 }
 
-impl<'b, T> Ref<'b, T> {
-    /// Retrieve an immutable reference to the stored value.
-    #[inline]
-    pub fn get<'a>(&'a self) -> &'a T {
-        &self.parent.value
-    }
-}
-
 impl<'b, T> Deref<T> for Ref<'b, T> {
     #[inline]
     fn deref<'a>(&'a self) -> &'a T {
-        &self.parent.value
+        unsafe{ &*self.parent.value.get() }
     }
 }
 
@@ -271,25 +233,17 @@ impl<'b, T> Drop for RefMut<'b, T> {
     }
 }
 
-impl<'b, T> RefMut<'b, T> {
-    /// Retrieve a mutable reference to the stored value.
-    #[inline]
-    pub fn get<'a>(&'a mut self) -> &'a mut T {
-        &mut self.parent.value
-    }
-}
-
 impl<'b, T> Deref<T> for RefMut<'b, T> {
     #[inline]
     fn deref<'a>(&'a self) -> &'a T {
-        &self.parent.value
+        unsafe{ &*self.parent.value.get() }
     }
 }
 
 impl<'b, T> DerefMut<T> for RefMut<'b, T> {
     #[inline]
     fn deref_mut<'a>(&'a mut self) -> &'a mut T {
-        &mut self.parent.value
+        unsafe{ &mut *self.parent.value.get() }
     }
 }
 
@@ -365,43 +319,6 @@ mod test {
             let _b2 = x.borrow();
         }
         assert!(x.try_borrow_mut().is_none());
-    }
-
-    #[test]
-    fn with_ok() {
-        let x = RefCell::new(0);
-        assert_eq!(1, x.with(|x| *x+1));
-    }
-
-    #[test]
-    #[should_fail]
-    fn mut_borrow_with() {
-        let x = RefCell::new(0);
-        let _b1 = x.borrow_mut();
-        x.with(|x| *x+1);
-    }
-
-    #[test]
-    fn borrow_with() {
-        let x = RefCell::new(0);
-        let _b1 = x.borrow();
-        assert_eq!(1, x.with(|x| *x+1));
-    }
-
-    #[test]
-    fn with_mut_ok() {
-        let x = RefCell::new(0);
-        x.with_mut(|x| *x += 1);
-        let b = x.borrow();
-        assert_eq!(1, *b.get());
-    }
-
-    #[test]
-    #[should_fail]
-    fn borrow_with_mut() {
-        let x = RefCell::new(0);
-        let _b = x.borrow();
-        x.with_mut(|x| *x += 1);
     }
 
     #[test]

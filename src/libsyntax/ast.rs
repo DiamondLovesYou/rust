@@ -13,7 +13,7 @@
 use codemap::{Span, Spanned, DUMMY_SP};
 use abi::AbiSet;
 use ast_util;
-use opt_vec::OptVec;
+use owned_slice::OwnedSlice;
 use parse::token::{InternedString, special_idents, str_to_ident};
 use parse::token;
 
@@ -21,7 +21,6 @@ use std::fmt;
 use std::fmt::Show;
 use std::option::Option;
 use std::rc::Rc;
-use std::vec_ng::Vec;
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 
 /// A pointer abstraction. FIXME(eddyb) #10676 use Rc<T> in the future.
@@ -144,7 +143,7 @@ pub struct PathSegment {
     /// The lifetime parameters for this path segment.
     lifetimes: Vec<Lifetime>,
     /// The type parameters for this path segment, if present.
-    types: OptVec<P<Ty>>,
+    types: OwnedSlice<P<Ty>>,
 }
 
 pub type CrateNum = u32;
@@ -170,7 +169,7 @@ pub static DUMMY_NODE_ID: NodeId = -1;
 // The AST represents all type param bounds as types.
 // typeck::collect::compute_bounds matches these against
 // the "special" built-in traits (see middle::lang_items) and
-// detects Copy, Send, Send, and Freeze.
+// detects Copy, Send and Share.
 #[deriving(Clone, Eq, Encodable, Decodable, Hash)]
 pub enum TyParamBound {
     TraitTyParamBound(TraitRef),
@@ -181,14 +180,14 @@ pub enum TyParamBound {
 pub struct TyParam {
     ident: Ident,
     id: NodeId,
-    bounds: OptVec<TyParamBound>,
+    bounds: OwnedSlice<TyParamBound>,
     default: Option<P<Ty>>
 }
 
 #[deriving(Clone, Eq, Encodable, Decodable, Hash)]
 pub struct Generics {
     lifetimes: Vec<Lifetime>,
-    ty_params: OptVec<TyParam>,
+    ty_params: OwnedSlice<TyParam>,
 }
 
 impl Generics {
@@ -520,7 +519,7 @@ pub enum Expr_ {
     ExprIndex(@Expr, @Expr),
 
     /// Expression that looks like a "name". For example,
-    /// `std::vec::from_elem::<uint>` is an ExprPath that's the "name" part
+    /// `std::slice::from_elem::<uint>` is an ExprPath that's the "name" part
     /// of a function call.
     ExprPath(Path),
 
@@ -800,7 +799,7 @@ pub struct ClosureTy {
     // implement issue #7264. None means "fn()", which means infer a default
     // bound based on pointer sigil during typeck. Some(Empty) means "fn:()",
     // which means use no bounds (e.g., not even Owned on a ~fn()).
-    bounds: Option<OptVec<TyParamBound>>,
+    bounds: Option<OwnedSlice<TyParamBound>>,
 }
 
 #[deriving(Eq, Encodable, Decodable, Hash)]
@@ -824,7 +823,7 @@ pub enum Ty_ {
     TyClosure(@ClosureTy),
     TyBareFn(@BareFnTy),
     TyTup(Vec<P<Ty>> ),
-    TyPath(Path, Option<OptVec<TyParamBound>>, NodeId), // for #7264; see above
+    TyPath(Path, Option<OwnedSlice<TyParamBound>>, NodeId), // for #7264; see above
     TyTypeof(@Expr),
     // TyInfer means the type should be inferred instead of it having been
     // specified. This can appear anywhere in a type.
@@ -1156,16 +1155,6 @@ mod test {
     use serialize;
     use codemap::*;
     use super::*;
-
-    use std::vec_ng::Vec;
-
-    fn is_freeze<T: Freeze>() {}
-
-    // Assert that the AST remains Freeze (#10693).
-    #[test]
-    fn ast_is_freeze() {
-        is_freeze::<Item>();
-    }
 
     // are ASTs encodable?
     #[test]

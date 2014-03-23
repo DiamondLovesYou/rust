@@ -19,7 +19,6 @@ use middle::typeck;
 use util::nodemap::NodeSet;
 
 use collections::HashSet;
-use std::vec_ng::Vec;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util::{local_def, def_id_of_def, is_local};
@@ -76,8 +75,7 @@ impl<'a> MarkSymbolVisitor<'a> {
     }
 
     fn lookup_and_handle_definition(&mut self, id: &ast::NodeId) {
-        let def_map = self.tcx.def_map.borrow();
-        let def = match def_map.get().find(id) {
+        let def = match self.tcx.def_map.borrow().find(id) {
             Some(&def) => def,
             None => return
         };
@@ -95,7 +93,7 @@ impl<'a> MarkSymbolVisitor<'a> {
     fn lookup_and_handle_method(&mut self, id: ast::NodeId,
                                 span: codemap::Span) {
         let method_call = typeck::MethodCall::expr(id);
-        match self.method_map.borrow().get().find(&method_call) {
+        match self.method_map.borrow().find(&method_call) {
             Some(method) => {
                 match method.origin {
                     typeck::MethodStatic(def_id) => {
@@ -343,12 +341,10 @@ impl<'a> DeadVisitor<'a> {
         // method of a private type is used, but the type itself is never
         // called directly.
         let def_id = local_def(id);
-        let inherent_impls = self.tcx.inherent_impls.borrow();
-        match inherent_impls.get().find(&def_id) {
+        match self.tcx.inherent_impls.borrow().find(&def_id) {
             None => (),
             Some(ref impl_list) => {
-                let impl_list = impl_list.borrow();
-                for impl_ in impl_list.get().iter() {
+                for impl_ in impl_list.borrow().iter() {
                     for method in impl_.methods.iter() {
                         if self.live_symbols.contains(&method.def_id.node) {
                             return true;

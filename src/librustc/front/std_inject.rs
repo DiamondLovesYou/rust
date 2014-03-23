@@ -11,15 +11,14 @@
 
 use driver::session::Session;
 
-use std::vec_ng::Vec;
-use std::vec_ng;
+use std::vec;
 use syntax::ast;
 use syntax::attr;
 use syntax::codemap::DUMMY_SP;
 use syntax::codemap;
 use syntax::fold::Folder;
 use syntax::fold;
-use syntax::opt_vec;
+use syntax::owned_slice::OwnedSlice;
 use syntax::parse::token::InternedString;
 use syntax::parse::token;
 use syntax::util::small_vector::SmallVector;
@@ -47,8 +46,8 @@ fn use_std(krate: &ast::Crate) -> bool {
     !attr::contains_name(krate.attrs.as_slice(), "no_std")
 }
 
-fn use_uv(krate: &ast::Crate) -> bool {
-    !attr::contains_name(krate.attrs.as_slice(), "no_uv")
+fn use_start(krate: &ast::Crate) -> bool {
+    !attr::contains_name(krate.attrs.as_slice(), "no_start")
 }
 
 fn no_prelude(attrs: &[ast::Attribute]) -> bool {
@@ -88,18 +87,10 @@ impl<'a> fold::Folder for StandardLibraryInjector<'a> {
             span: DUMMY_SP
         });
 
-        if use_uv(&krate) && !self.sess.building_library.get() {
+        if use_start(&krate) && !self.sess.building_library.get() {
             vis.push(ast::ViewItem {
-                node: ast::ViewItemExternCrate(token::str_to_ident("green"),
-                                             with_version("green"),
-                                             ast::DUMMY_NODE_ID),
-                attrs: Vec::new(),
-                vis: ast::Inherited,
-                span: DUMMY_SP
-            });
-            vis.push(ast::ViewItem {
-                node: ast::ViewItemExternCrate(token::str_to_ident("rustuv"),
-                                             with_version("rustuv"),
+                node: ast::ViewItemExternCrate(token::str_to_ident("native"),
+                                             with_version("native"),
                                              ast::DUMMY_NODE_ID),
                 attrs: Vec::new(),
                 vis: ast::Inherited,
@@ -165,12 +156,12 @@ impl<'a> fold::Folder for PreludeInjector<'a> {
                 ast::PathSegment {
                     identifier: token::str_to_ident("std"),
                     lifetimes: Vec::new(),
-                    types: opt_vec::Empty,
+                    types: OwnedSlice::empty(),
                 },
                 ast::PathSegment {
                     identifier: token::str_to_ident("prelude"),
                     lifetimes: Vec::new(),
-                    types: opt_vec::Empty,
+                    types: OwnedSlice::empty(),
                 }),
         };
 
@@ -182,7 +173,7 @@ impl<'a> fold::Folder for PreludeInjector<'a> {
             span: DUMMY_SP,
         };
 
-        let vis = vec_ng::append(vec!(vi2), module.view_items.as_slice());
+        let vis = vec::append(vec!(vi2), module.view_items.as_slice());
 
         // FIXME #2543: Bad copy.
         let new_module = ast::Mod {

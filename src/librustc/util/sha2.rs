@@ -14,8 +14,7 @@
 
 use std::iter::range_step;
 use std::num::Zero;
-use std::vec::bytes::{MutableByteVector, copy_memory};
-use std::vec_ng::Vec;
+use std::slice::bytes::{MutableByteVector, copy_memory};
 use serialize::hex::ToHex;
 
 /// Write a u32 into a vector, which must be 4 bytes long. The value is written in big-endian
@@ -528,8 +527,7 @@ mod tests {
 
     use super::{Digest, Sha256, FixedBuffer};
     use std::num::Bounded;
-    use std::vec;
-    use std::vec_ng::Vec;
+    use std::slice;
     use self::rand::isaac::IsaacRng;
     use self::rand::Rng;
     use serialize::hex::FromHex;
@@ -604,7 +602,7 @@ mod tests {
     /// correct.
     fn test_digest_1million_random<D: Digest>(digest: &mut D, blocksize: uint, expected: &str) {
         let total_size = 1000000;
-        let buffer = vec::from_elem(blocksize * 2, 'a' as u8);
+        let buffer = slice::from_elem(blocksize * 2, 'a' as u8);
         let mut rng = IsaacRng::new_unseeded();
         let mut count = 0;
 

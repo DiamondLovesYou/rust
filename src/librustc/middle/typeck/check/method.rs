@@ -97,14 +97,14 @@ use util::ppaux::Repr;
 
 use collections::HashSet;
 use std::result;
-use std::vec_ng::Vec;
-use std::vec_ng;
+use std::vec;
 use syntax::ast::{DefId, SelfValue, SelfRegion};
 use syntax::ast::{SelfUniq, SelfStatic};
 use syntax::ast::{MutMutable, MutImmutable};
 use syntax::ast;
 use syntax::codemap::Span;
 use syntax::parse::token;
+use syntax::owned_slice::OwnedSlice;
 
 #[deriving(Eq)]
 pub enum CheckTraitsFlag {
@@ -417,9 +417,9 @@ impl<'a> LookupContext<'a> {
         let span = self.self_expr.map_or(self.span, |e| e.span);
         check::autoderef(self.fcx, span, self_ty, None, PreferMutLvalue, |self_ty, _| {
             match get(self_ty).sty {
-                ty_trait(did, ref substs, _, _, _) => {
-                    self.push_inherent_candidates_from_object(did, substs);
-                    self.push_inherent_impl_candidates_for_type(did);
+                ty_trait(~TyTrait { def_id, ref substs, .. }) => {
+                    self.push_inherent_candidates_from_object(def_id, substs);
+                    self.push_inherent_impl_candidates_for_type(def_id);
                 }
                 ty_enum(did, _) | ty_struct(did, _) => {
                     if self.check_traits == CheckTraitsAndInherentMethods {
@@ -466,8 +466,8 @@ impl<'a> LookupContext<'a> {
         ty::populate_implementations_for_trait_if_necessary(self.tcx(), trait_did);
 
         // Look for explicit implementations.
-        for impl_infos in self.tcx().trait_impls.borrow().get().find(&trait_did).iter() {
-            for impl_info in impl_infos.borrow().get().iter() {
+        for impl_infos in self.tcx().trait_impls.borrow().find(&trait_did).iter() {
+            for impl_info in impl_infos.borrow().iter() {
                 self.push_candidates_from_impl(*impl_info, true);
             }
         }
@@ -641,8 +641,8 @@ impl<'a> LookupContext<'a> {
         // metadata if necessary.
         ty::populate_implementations_for_type_if_necessary(self.tcx(), did);
 
-        for impl_infos in self.tcx().inherent_impls.borrow().get().find(&did).iter() {
-            for impl_info in impl_infos.borrow().get().iter() {
+        for impl_infos in self.tcx().inherent_impls.borrow().find(&did).iter() {
+            for impl_info in impl_infos.borrow().iter() {
                 self.push_candidates_from_impl(*impl_info, false);
             }
         }
@@ -775,10 +775,12 @@ impl<'a> LookupContext<'a> {
                      autoderefs: autoderefs,
                      autoref: Some(ty::AutoBorrowVec(region, self_mt.mutbl))})
             }
-            ty::ty_trait(did, ref substs, ty::RegionTraitStore(_), mutbl, bounds) => {
+            ty::ty_trait(~ty::TyTrait {
+                def_id, ref substs, store: ty::RegionTraitStore(_), mutability: mutbl, bounds
+            }) => {
                 let region =
                     self.infcx().next_region_var(infer::Autoref(self.span));
-                (ty::mk_trait(tcx, did, substs.clone(),
+                (ty::mk_trait(tcx, def_id, substs.clone(),
                               ty::RegionTraitStore(region),
                               mutbl, bounds),
                  ty::AutoDerefRef {
@@ -860,7 +862,7 @@ impl<'a> LookupContext<'a> {
                     })
             }
 
-            ty_trait(trt_did, trt_substs, _, _, b) => {
+            ty_trait(~ty::TyTrait { def_id: trt_did, substs: trt_substs, bounds: b, .. }) => {
                 // Coerce ~/@/&Trait instances to &Trait.
 
                 self.search_for_some_kind_of_autorefd_method(
@@ -1101,14 +1103,14 @@ impl<'a> LookupContext<'a> {
 
         // Determine values for the early-bound lifetime parameters.
         // FIXME -- permit users to manually specify lifetimes
-        let mut all_regions = match candidate.rcvr_substs.regions {
-            NonerasedRegions(ref v) => v.clone(),
+        let mut all_regions: Vec<Region> = match candidate.rcvr_substs.regions {
+            NonerasedRegions(ref v) => v.iter().map(|r| r.clone()).collect(),
             ErasedRegions => tcx.sess.span_bug(self.span, "ErasedRegions")
         };
         let m_regions =
             self.fcx.infcx().region_vars_for_defs(
                 self.span,
-                candidate.method_ty.generics.region_param_defs.deref().as_slice());
+                candidate.method_ty.generics.region_param_defs.as_slice());
         for &r in m_regions.iter() {
             all_regions.push(r);
         }
@@ -1116,9 +1118,9 @@ impl<'a> LookupContext<'a> {
         // Construct the full set of type parameters for the method,
         // which is equal to the class tps + the method tps.
         let all_substs = substs {
-            tps: vec_ng::append(candidate.rcvr_substs.tps.clone(),
+            tps: vec::append(candidate.rcvr_substs.tps.clone(),
                                 m_substs.as_slice()),
-            regions: NonerasedRegions(all_regions),
+            regions: NonerasedRegions(OwnedSlice::from_vec(all_regions)),
             self_ty: candidate.rcvr_substs.self_ty,
         };
 
@@ -1257,17 +1259,14 @@ impl<'a> LookupContext<'a> {
         let bad;
         match candidate.origin {
             MethodStatic(method_id) => {
-                let destructors = self.tcx().destructors.borrow();
-                bad = destructors.get().contains(&method_id);
+                bad = self.tcx().destructors.borrow().contains(&method_id);
             }
             // FIXME: does this properly enforce this on everything now
             // that self has been merged in? -sully
             MethodParam(MethodParam { trait_id: trait_id, .. }) |
             MethodObject(MethodObject { trait_id: trait_id, .. }) => {
-                let destructor_for_type = self.tcx()
-                                              .destructor_for_type
-                                              .borrow();
-                bad = destructor_for_type.get().contains_key(&trait_id);
+                bad = self.tcx().destructor_for_type.borrow()
+                          .contains_key(&trait_id);
             }
         }
 
@@ -1301,7 +1300,9 @@ impl<'a> LookupContext<'a> {
                         rcvr_matches_ty(self.fcx, mt.ty, candidate)
                     }
 
-                    ty::ty_trait(self_did, _, RegionTraitStore(_), self_m, _) => {
+                    ty::ty_trait(~ty::TyTrait {
+                        def_id: self_did, store: RegionTraitStore(_), mutability: self_m, ..
+                    }) => {
                         mutability_matches(self_m, m) &&
                         rcvr_matches_object(self_did, candidate)
                     }
@@ -1317,7 +1318,9 @@ impl<'a> LookupContext<'a> {
                         rcvr_matches_ty(self.fcx, typ, candidate)
                     }
 
-                    ty::ty_trait(self_did, _, UniqTraitStore, _, _) => {
+                    ty::ty_trait(~ty::TyTrait {
+                        def_id: self_did, store: UniqTraitStore, ..
+                    }) => {
                         rcvr_matches_object(self_did, candidate)
                     }
 

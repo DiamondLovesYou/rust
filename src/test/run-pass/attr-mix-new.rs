@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,14 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::rc::Rc;
-use std::cell::RefCell;
-
-fn bar<T: Freeze>(_: T) {}
-
-fn main() {
-    let x = Rc::new(RefCell::new(5));
-    bar(x);
-    //~^ ERROR instantiating a type parameter with an incompatible type
-    //         `std::rc::Rc<std::cell::RefCell<int>>`, which does not fulfill `Freeze`
+#[foo(bar)]
+mod foo {
+  #![feature(globs)]
 }
+
+pub fn main() {}

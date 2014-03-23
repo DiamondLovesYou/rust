@@ -35,13 +35,13 @@
 #[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://static.rust-lang.org/doc/master")];
+#[deny(deprecated_owned_vector)];
 
 use std::char;
 use std::cmp;
 use std::fmt;
 use std::fmt::Show;
 use std::option::{Option, Some, None};
-use std::vec_ng::Vec;
 
 /// An identifier in the pre-release or build metadata. If the identifier can
 /// be parsed as a decimal value, it will be represented with `Numeric`.

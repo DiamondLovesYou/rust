@@ -10,9 +10,9 @@
 
 use std::kinds::marker;
 
-fn foo<P:Freeze>(p: P) { }
+fn foo<P: Share>(p: P) { }
 
 fn main()
 {
-    foo(marker::NoFreeze); //~ ERROR does not fulfill `Freeze`
+    foo(marker::NoShare); //~ ERROR does not fulfill `Share`
 }

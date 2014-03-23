@@ -66,7 +66,6 @@ use middle::ty;
 use middle::typeck;
 use util::ppaux::{ty_to_str, region_ptr_to_str, Repr};
 
-use std::vec_ng::Vec;
 use syntax::ast::{MutImmutable, MutMutable};
 use syntax::ast;
 use syntax::codemap::Span;
@@ -170,10 +169,10 @@ pub enum deref_kind {
 pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
     match ty::get(t).sty {
         ty::ty_uniq(_) |
-        ty::ty_trait(_, _, ty::UniqTraitStore, _, _) |
+        ty::ty_trait(~ty::TyTrait { store: ty::UniqTraitStore, .. }) |
         ty::ty_vec(_, ty::vstore_uniq) |
         ty::ty_str(ty::vstore_uniq) |
-        ty::ty_closure(ty::ClosureTy {sigil: ast::OwnedSigil, ..}) => {
+        ty::ty_closure(~ty::ClosureTy {sigil: ast::OwnedSigil, ..}) => {
             Some(deref_ptr(OwnedPtr))
         }
 
@@ -183,13 +182,13 @@ pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
             Some(deref_ptr(BorrowedPtr(kind, r)))
         }
 
-        ty::ty_trait(_, _, ty::RegionTraitStore(r), m, _) => {
+        ty::ty_trait(~ty::TyTrait { store: ty::RegionTraitStore(r), mutability: m, .. }) => {
             let kind = ty::BorrowKind::from_mutbl(m);
             Some(deref_ptr(BorrowedPtr(kind, r)))
         }
 
         ty::ty_str(ty::vstore_slice(r)) |
-        ty::ty_closure(ty::ClosureTy {sigil: ast::BorrowedSigil,
+        ty::ty_closure(~ty::ClosureTy {sigil: ast::BorrowedSigil,
                                       region: r, ..}) => {
             Some(deref_ptr(BorrowedPtr(ty::ImmBorrow, r)))
         }
@@ -456,8 +455,7 @@ impl<TYPER:Typer> MemCategorizationContext<TYPER> {
           }
 
           ast::ExprPath(_) => {
-            let def_map = self.tcx().def_map.borrow();
-            let def = def_map.get().get_copy(&expr.id);
+            let def = self.tcx().def_map.borrow().get_copy(&expr.id);
             self.cat_def(expr.id, expr.span, expr_ty, def)
           }
 
@@ -1011,8 +1009,7 @@ impl<TYPER:Typer> MemCategorizationContext<TYPER> {
             // variant(..)
           }
           ast::PatEnum(_, Some(ref subpats)) => {
-            let def_map = self.tcx().def_map.borrow();
-            match def_map.get().find(&pat.id) {
+            match self.tcx().def_map.borrow().find(&pat.id) {
                 Some(&ast::DefVariant(enum_did, _, _)) => {
                     // variant(x, y, z)
 
@@ -1203,8 +1200,7 @@ pub fn field_mutbl(tcx: &ty::ctxt,
         }
       }
       ty::ty_enum(..) => {
-        let def_map = tcx.def_map.borrow();
-        match def_map.get().get_copy(&node_id) {
+        match tcx.def_map.borrow().get_copy(&node_id) {
           ast::DefVariant(_, variant_id, _) => {
             let r = ty::lookup_struct_fields(tcx, variant_id);
             for fld in r.iter() {
@@ -1222,12 +1218,17 @@ pub fn field_mutbl(tcx: &ty::ctxt,
     return None;
 }
 
+pub enum InteriorSafety {
+    InteriorUnsafe,
+    InteriorSafe
+}
+
 pub enum AliasableReason {
     AliasableManaged,
     AliasableBorrowed,
     AliasableOther,
-    AliasableStatic,
-    AliasableStaticMut,
+    AliasableStatic(InteriorSafety),
+    AliasableStaticMut(InteriorSafety),
 }
 
 impl cmt_ {
@@ -1257,7 +1258,7 @@ impl cmt_ {
         }
     }
 
-    pub fn freely_aliasable(&self) -> Option<AliasableReason> {
+    pub fn freely_aliasable(&self, ctxt: &ty::ctxt) -> Option<AliasableReason> {
         /*!
          * Returns `Some(_)` if this lvalue represents a freely aliasable
          * pointer type.
@@ -1275,7 +1276,7 @@ impl cmt_ {
             cat_interior(b, _) |
             cat_discr(b, _) => {
                 // Aliasability depends on base cmt
-                b.freely_aliasable()
+                b.freely_aliasable(ctxt)
             }
 
             cat_copied_upvar(CopiedUpvar {onceness: ast::Once, ..}) |
@@ -1292,10 +1293,16 @@ impl cmt_ {
             }
 
             cat_static_item(..) => {
-                if self.mutbl.is_mutable() {
-                    Some(AliasableStaticMut)
+                let int_safe = if ty::type_interior_is_unsafe(ctxt, self.ty) {
+                    InteriorUnsafe
                 } else {
-                    Some(AliasableStatic)
+                    InteriorSafe
+                };
+
+                if self.mutbl.is_mutable() {
+                    Some(AliasableStaticMut(int_safe))
+                } else {
+                    Some(AliasableStatic(int_safe))
                 }
             }
 

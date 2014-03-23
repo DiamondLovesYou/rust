@@ -12,10 +12,8 @@ use middle::cfg::*;
 use middle::graph;
 use middle::typeck;
 use middle::ty;
-use std::vec_ng::Vec;
 use syntax::ast;
 use syntax::ast_util;
-use syntax::opt_vec;
 use util::nodemap::NodeMap;
 
 struct CFGBuilder<'a> {
@@ -471,7 +469,7 @@ impl<'a> CFGBuilder<'a> {
     fn add_contained_edge(&mut self,
                           source: CFGIndex,
                           target: CFGIndex) {
-        let data = CFGEdgeData {exiting_scopes: opt_vec::Empty};
+        let data = CFGEdgeData {exiting_scopes: vec!() };
         self.graph.add_edge(source, target, data);
     }
 
@@ -480,9 +478,10 @@ impl<'a> CFGBuilder<'a> {
                         from_index: CFGIndex,
                         to_loop: LoopScope,
                         to_index: CFGIndex) {
-        let mut data = CFGEdgeData {exiting_scopes: opt_vec::Empty};
+        let mut data = CFGEdgeData {exiting_scopes: vec!() };
         let mut scope_id = from_expr.id;
         while scope_id != to_loop.loop_id {
+
             data.exiting_scopes.push(scope_id);
             scope_id = self.tcx.region_maps.encl_scope(scope_id);
         }
@@ -498,8 +497,7 @@ impl<'a> CFGBuilder<'a> {
             }
 
             Some(_) => {
-                let def_map = self.tcx.def_map.borrow();
-                match def_map.get().find(&expr.id) {
+                match self.tcx.def_map.borrow().find(&expr.id) {
                     Some(&ast::DefLabel(loop_id)) => {
                         for l in self.loop_scopes.iter() {
                             if l.loop_id == loop_id {
@@ -523,6 +521,6 @@ impl<'a> CFGBuilder<'a> {
 
     fn is_method_call(&self, expr: &ast::Expr) -> bool {
         let method_call = typeck::MethodCall::expr(expr.id);
-        self.method_map.borrow().get().contains_key(&method_call)
+        self.method_map.borrow().contains_key(&method_call)
     }
 }

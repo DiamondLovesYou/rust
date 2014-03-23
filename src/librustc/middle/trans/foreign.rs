@@ -27,7 +27,6 @@ use middle::ty::FnSig;
 use middle::ty;
 use std::cmp;
 use std::libc::c_uint;
-use std::vec_ng::Vec;
 use syntax::abi::{Cdecl, Aapcs, C, AbiSet, Win64};
 use syntax::abi::{RustIntrinsic, Rust, Stdcall, Fastcall, System};
 use syntax::codemap::Span;
@@ -121,8 +120,6 @@ pub fn llvm_linkage_by_name(name: &str) -> Option<Linkage> {
         "extern_weak" => Some(lib::llvm::ExternalWeakLinkage),
         "external" => Some(lib::llvm::ExternalLinkage),
         "internal" => Some(lib::llvm::InternalLinkage),
-        "linker_private" => Some(lib::llvm::LinkerPrivateLinkage),
-        "linker_private_weak" => Some(lib::llvm::LinkerPrivateWeakLinkage),
         "linkonce" => Some(lib::llvm::LinkOnceAnyLinkage),
         "linkonce_odr" => Some(lib::llvm::LinkOnceODRLinkage),
         "private" => Some(lib::llvm::PrivateLinkage),
@@ -242,16 +239,12 @@ pub fn register_foreign_item_fn(ccx: &CrateContext, abis: AbiSet,
     // Create the LLVM value for the C extern fn
     let llfn_ty = lltype_for_fn_from_foreign_types(ccx, &tys);
 
-    let llfn;
-    {
-        let mut externs = ccx.externs.borrow_mut();
-        llfn = base::get_extern_fn(externs.get(),
+    let llfn = base::get_extern_fn(&mut *ccx.externs.borrow_mut(),
                                    ccx.llmod,
                                    lname.get(),
                                    cc,
                                    llfn_ty,
                                    tys.fn_sig.output);
-    };
     add_argument_attributes(&tys, llfn);
 
     llfn
@@ -326,6 +319,10 @@ pub fn trans_native_call<'a>(
 
     for (i, &llarg_rust) in llargs_rust.iter().enumerate() {
         let mut llarg_rust = llarg_rust;
+
+        if arg_tys[i].is_ignore() {
+            continue;
+        }
 
         // Does Rust pass this argument by pointer?
         let rust_indirect = type_of::arg_is_indirect(ccx,
@@ -469,8 +466,8 @@ pub fn trans_foreign_mod(ccx: &CrateContext, foreign_mod: &ast::ForeignMod) {
         }
 
         let lname = link_name(foreign_item);
-        let mut item_symbols = ccx.item_symbols.borrow_mut();
-        item_symbols.get().insert(foreign_item.id, lname.get().to_owned());
+        ccx.item_symbols.borrow_mut().insert(foreign_item.id,
+                                             lname.get().to_owned());
     }
 }
 
@@ -903,6 +900,9 @@ fn lltype_for_fn_from_foreign_types(ccx: &CrateContext, tys: &ForeignTypes) -> T
     };
 
     for &arg_ty in tys.fn_ty.arg_tys.iter() {
+        if arg_ty.is_ignore() {
+            continue;
+        }
         // add padding
         match arg_ty.pad {
             Some(ty) => llargument_tys.push(ty),
@@ -951,6 +951,9 @@ fn add_argument_attributes(tys: &ForeignTypes,
     }
 
     for &arg_ty in tys.fn_ty.arg_tys.iter() {
+        if arg_ty.is_ignore() {
+            continue;
+        }
         // skip padding
         if arg_ty.pad.is_some() { i += 1; }
 

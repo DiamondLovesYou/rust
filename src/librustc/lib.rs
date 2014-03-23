@@ -28,9 +28,9 @@ This API is completely unstable and subject to change.
       html_root_url = "http://static.rust-lang.org/doc/master")];
 
 #[allow(deprecated)];
-#[allow(deprecated_owned_vector)];
-#[feature(macro_rules, globs, struct_variant, managed_boxes)];
-#[feature(quote, default_type_params, phase)];
+#[feature(macro_rules, globs, struct_variant, managed_boxes, quote,
+          default_type_params, phase)];
+#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
 
 extern crate flate;
 extern crate arena;
@@ -55,8 +55,7 @@ use std::io;
 use std::os;
 use std::str;
 use std::task;
-use std::vec_ng::Vec;
-use std::vec_ng;
+use std::vec;
 use syntax::ast;
 use syntax::diagnostic::Emitter;
 use syntax::diagnostic;
@@ -242,10 +241,10 @@ pub fn run_compiler(args: &[~str]) {
         return;
     }
 
-    let lint_flags = vec_ng::append(matches.opt_strs("W")
+    let lint_flags = vec::append(matches.opt_strs("W")
                                            .move_iter()
                                            .collect(),
-                                    matches.opt_strs("warn"));
+                                    matches.opt_strs("warn").as_slice());
     if lint_flags.iter().any(|x| x == &~"help") {
         describe_warnings();
         return;
@@ -275,7 +274,7 @@ pub fn run_compiler(args: &[~str]) {
     let (input, input_file_path) = match matches.free.len() {
       0u => d::early_error("no input filename given"),
       1u => {
-        let ifile = matches.free[0].as_slice();
+        let ifile = matches.free.get(0).as_slice();
         if ifile == "-" {
             let contents = io::stdin().read_to_end().unwrap();
             let src = str::from_utf8_owned(contents).unwrap();

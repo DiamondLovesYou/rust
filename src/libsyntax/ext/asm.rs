@@ -20,8 +20,6 @@ use parse;
 use parse::token::InternedString;
 use parse::token;
 
-use std::vec_ng::Vec;
-
 enum State {
     Asm,
     Outputs,

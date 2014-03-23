@@ -28,7 +28,6 @@ use syntax::{abi, ast, codemap};
 use syntax;
 
 use std::cell::{Cell, RefCell};
-use std::vec_ng::Vec;
 use collections::HashSet;
 use std::from_str::FromStr;
 
@@ -271,11 +270,11 @@ impl Session {
                     sp: Span,
                     msg: ~str) {
         let mut lints = self.lints.borrow_mut();
-        match lints.get().find_mut(&id) {
+        match lints.find_mut(&id) {
             Some(arr) => { arr.push((lint, sp, msg)); return; }
             None => {}
         }
-        lints.get().insert(id, vec!((lint, sp, msg)));
+        lints.insert(id, vec!((lint, sp, msg)));
     }
     pub fn next_node_id(&self) -> ast::NodeId {
         self.reserve_node_ids(1)
@@ -495,7 +494,7 @@ macro_rules! cgoptions(
             }
         }
 
-        fn parse_list(slot: &mut ::std::vec_ng::Vec<~str>, v: Option<&str>)
+        fn parse_list(slot: &mut Vec<~str>, v: Option<&str>)
                       -> bool {
             match v {
                 Some(s) => {

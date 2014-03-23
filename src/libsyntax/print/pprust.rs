@@ -12,8 +12,7 @@ use abi::AbiSet;
 use ast::{P, RegionTyParamBound, TraitTyParamBound, Required, Provided};
 use ast;
 use ast_util;
-use opt_vec::OptVec;
-use opt_vec;
+use owned_slice::OwnedSlice;
 use attr::{AttrMetaMethods, AttributeMethods};
 use codemap::{CodeMap, BytePos};
 use codemap;
@@ -32,7 +31,6 @@ use std::char;
 use std::str;
 use std::io;
 use std::io::{IoResult, MemWriter};
-use std::vec_ng::Vec;
 
 // The &mut State is stored here to prevent recursive type.
 pub enum AnnNode<'a> {
@@ -43,8 +41,8 @@ pub enum AnnNode<'a> {
 }
 
 pub trait PpAnn {
-    fn pre(&self, _state: &mut State<Self>, _node: AnnNode) -> IoResult<()> { Ok(()) }
-    fn post(&self, _state: &mut State<Self>, _node: AnnNode) -> IoResult<()> { Ok(()) }
+    fn pre(&self, _state: &mut State, _node: AnnNode) -> IoResult<()> { Ok(()) }
+    fn post(&self, _state: &mut State, _node: AnnNode) -> IoResult<()> { Ok(()) }
 }
 
 pub struct NoAnn;
@@ -56,7 +54,7 @@ pub struct CurrentCommentAndLiteral {
     cur_lit: uint,
 }
 
-pub struct State<'a, A> {
+pub struct State<'a> {
     s: pp::Printer,
     cm: Option<&'a CodeMap>,
     intr: @token::IdentInterner,
@@ -64,15 +62,16 @@ pub struct State<'a, A> {
     literals: Option<Vec<comments::Literal> >,
     cur_cmnt_and_lit: CurrentCommentAndLiteral,
     boxes: RefCell<Vec<pp::Breaks> >,
-    ann: &'a A
+    ann: &'a PpAnn
 }
 
-pub fn rust_printer(writer: ~io::Writer) -> State<'static, NoAnn> {
+pub fn rust_printer(writer: ~io::Writer) -> State<'static> {
     static NO_ANN: NoAnn = NoAnn;
     rust_printer_annotated(writer, &NO_ANN)
 }
 
-pub fn rust_printer_annotated<'a, A: PpAnn>(writer: ~io::Writer, ann: &'a A) -> State<'a, A> {
+pub fn rust_printer_annotated<'a>(writer: ~io::Writer,
+                                  ann: &'a PpAnn) -> State<'a> {
     State {
         s: pp::mk_printer(writer, default_columns),
         cm: None,
@@ -95,14 +94,14 @@ pub static default_columns: uint = 78u;
 // Requires you to pass an input filename and reader so that
 // it can scan the input text for comments and literals to
 // copy forward.
-pub fn print_crate<'a, A: PpAnn>(cm: &'a CodeMap,
-                                 span_diagnostic: &diagnostic::SpanHandler,
-                                 krate: &ast::Crate,
-                                 filename: ~str,
-                                 input: &mut io::Reader,
-                                 out: ~io::Writer,
-                                 ann: &'a A,
-                                 is_expanded: bool) -> IoResult<()> {
+pub fn print_crate<'a>(cm: &'a CodeMap,
+                       span_diagnostic: &diagnostic::SpanHandler,
+                       krate: &ast::Crate,
+                       filename: ~str,
+                       input: &mut io::Reader,
+                       out: ~io::Writer,
+                       ann: &'a PpAnn,
+                       is_expanded: bool) -> IoResult<()> {
     let (cmnts, lits) = comments::gather_comments_and_literals(
         span_diagnostic,
         filename,
@@ -133,7 +132,7 @@ pub fn print_crate<'a, A: PpAnn>(cm: &'a CodeMap,
     eof(&mut s.s)
 }
 
-pub fn to_str(f: |&mut State<NoAnn>| -> IoResult<()>) -> ~str {
+pub fn to_str(f: |&mut State| -> IoResult<()>) -> ~str {
     let mut s = rust_printer(~MemWriter::new());
     f(&mut s).unwrap();
     eof(&mut s.s).unwrap();
@@ -237,25 +236,25 @@ pub fn visibility_qualified(vis: ast::Visibility, s: &str) -> ~str {
     }
 }
 
-impl<'a, A: PpAnn> State<'a, A> {
+impl<'a> State<'a> {
     pub fn ibox(&mut self, u: uint) -> IoResult<()> {
-        self.boxes.borrow_mut().get().push(pp::Inconsistent);
+        self.boxes.borrow_mut().push(pp::Inconsistent);
         pp::ibox(&mut self.s, u)
     }
 
     pub fn end(&mut self) -> IoResult<()> {
-        self.boxes.borrow_mut().get().pop().unwrap();
+        self.boxes.borrow_mut().pop().unwrap();
         pp::end(&mut self.s)
     }
 
     pub fn cbox(&mut self, u: uint) -> IoResult<()> {
-        self.boxes.borrow_mut().get().push(pp::Consistent);
+        self.boxes.borrow_mut().push(pp::Consistent);
         pp::cbox(&mut self.s, u)
     }
 
     // "raw box"
     pub fn rbox(&mut self, u: uint, b: pp::Breaks) -> IoResult<()> {
-        self.boxes.borrow_mut().get().push(b);
+        self.boxes.borrow_mut().push(b);
         pp::rbox(&mut self.s, u, b)
     }
 
@@ -323,7 +322,7 @@ impl<'a, A: PpAnn> State<'a, A> {
     }
 
     pub fn in_cbox(&mut self) -> bool {
-        match self.boxes.borrow().get().last() {
+        match self.boxes.borrow().last() {
             Some(&last_box) => last_box == pp::Consistent,
             None => false
         }
@@ -365,7 +364,7 @@ impl<'a, A: PpAnn> State<'a, A> {
     }
 
     pub fn commasep<T>(&mut self, b: Breaks, elts: &[T],
-                       op: |&mut State<A>, &T| -> IoResult<()>)
+                       op: |&mut State, &T| -> IoResult<()>)
         -> IoResult<()> {
         try!(self.rbox(0u, b));
         let mut first = true;
@@ -381,7 +380,7 @@ impl<'a, A: PpAnn> State<'a, A> {
                          &mut self,
                          b: Breaks,
                          elts: &[T],
-                         op: |&mut State<A>, &T| -> IoResult<()>,
+                         op: |&mut State, &T| -> IoResult<()>,
                          get_span: |&T| -> codemap::Span) -> IoResult<()> {
         try!(self.rbox(0u, b));
         let len = elts.len();
@@ -478,7 +477,7 @@ impl<'a, A: PpAnn> State<'a, A> {
             ast::TyBareFn(f) => {
                 let generics = ast::Generics {
                     lifetimes: f.lifetimes.clone(),
-                    ty_params: opt_vec::Empty
+                    ty_params: OwnedSlice::empty()
                 };
                 try!(self.print_ty_fn(Some(f.abis), None, &None,
                                    f.purity, ast::Many, f.decl, None, &None,
@@ -487,7 +486,7 @@ impl<'a, A: PpAnn> State<'a, A> {
             ast::TyClosure(f) => {
                 let generics = ast::Generics {
                     lifetimes: f.lifetimes.clone(),
-                    ty_params: opt_vec::Empty
+                    ty_params: OwnedSlice::empty()
                 };
                 try!(self.print_ty_fn(None, Some(f.sigil), &f.region,
                                    f.purity, f.onceness, f.decl, None, &f.bounds,
@@ -1518,7 +1517,7 @@ impl<'a, A: PpAnn> State<'a, A> {
     fn print_path_(&mut self,
                    path: &ast::Path,
                    colons_before_params: bool,
-                   opt_bounds: &Option<OptVec<ast::TyParamBound>>)
+                   opt_bounds: &Option<OwnedSlice<ast::TyParamBound>>)
         -> IoResult<()> {
         try!(self.maybe_print_comment(path.span.lo));
         if path.global {
@@ -1564,7 +1563,7 @@ impl<'a, A: PpAnn> State<'a, A> {
                     }
                     try!(self.commasep(
                         Inconsistent,
-                        segment.types.map_to_vec(|&t| t).as_slice(),
+                        segment.types.as_slice(),
                         |s, ty| s.print_type_ref(ty)));
                 }
 
@@ -1580,7 +1579,7 @@ impl<'a, A: PpAnn> State<'a, A> {
     }
 
     fn print_bounded_path(&mut self, path: &ast::Path,
-                          bounds: &Option<OptVec<ast::TyParamBound>>)
+                          bounds: &Option<OwnedSlice<ast::TyParamBound>>)
         -> IoResult<()> {
         self.print_path_(path, false, bounds)
     }
@@ -1826,7 +1825,7 @@ impl<'a, A: PpAnn> State<'a, A> {
         self.maybe_print_comment(decl.output.span.lo)
     }
 
-    pub fn print_bounds(&mut self, bounds: &OptVec<ast::TyParamBound>,
+    pub fn print_bounds(&mut self, bounds: &OwnedSlice<ast::TyParamBound>,
                         print_colon_anyway: bool) -> IoResult<()> {
         if !bounds.is_empty() {
             try!(word(&mut self.s, ":"));
@@ -2028,7 +2027,7 @@ impl<'a, A: PpAnn> State<'a, A> {
                        onceness: ast::Onceness,
                        decl: &ast::FnDecl,
                        id: Option<ast::Ident>,
-                       opt_bounds: &Option<OptVec<ast::TyParamBound>>,
+                       opt_bounds: &Option<OwnedSlice<ast::TyParamBound>>,
                        generics: Option<&ast::Generics>,
                        opt_explicit_self: Option<ast::ExplicitSelf_>)
         -> IoResult<()> {
@@ -2187,7 +2186,7 @@ impl<'a, A: PpAnn> State<'a, A> {
             ast::LitBinary(ref arr) => {
                 try!(self.ibox(indent_unit));
                 try!(word(&mut self.s, "["));
-                try!(self.commasep_cmnt(Inconsistent, arr.deref().as_slice(),
+                try!(self.commasep_cmnt(Inconsistent, arr.as_slice(),
                                         |s, u| word(&mut s.s, format!("{}", *u)),
                                         |_| lit.span));
                 try!(word(&mut self.s, "]"));
@@ -2390,8 +2389,6 @@ mod test {
     use ast_util;
     use codemap;
     use parse::token;
-
-    use std::vec_ng::Vec;
 
     #[test]
     fn test_fun_to_str() {

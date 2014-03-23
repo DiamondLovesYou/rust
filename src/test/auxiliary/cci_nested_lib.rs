@@ -19,12 +19,12 @@ pub struct Entry<A,B> {
 
 pub struct alist<A,B> {
     eq_fn: extern "Rust" fn(A,A) -> bool,
-    data: @RefCell<~[Entry<A,B>]>,
+    data: @RefCell<Vec<Entry<A,B>> >,
 }
 
 pub fn alist_add<A:'static,B:'static>(lst: &alist<A,B>, k: A, v: B) {
     let mut data = lst.data.borrow_mut();
-    data.get().push(Entry{key:k, value:v});
+    (*data).push(Entry{key:k, value:v});
 }
 
 pub fn alist_get<A:Clone + 'static,
@@ -34,7 +34,7 @@ pub fn alist_get<A:Clone + 'static,
                  -> B {
     let eq_fn = lst.eq_fn;
     let data = lst.data.borrow();
-    for entry in data.get().iter() {
+    for entry in (*data).iter() {
         if eq_fn(entry.key.clone(), k.clone()) {
             return entry.value.clone();
         }
@@ -47,7 +47,7 @@ pub fn new_int_alist<B:'static>() -> alist<int, B> {
     fn eq_int(a: int, b: int) -> bool { a == b }
     return alist {
         eq_fn: eq_int,
-        data: @RefCell::new(~[]),
+        data: @RefCell::new(Vec::new()),
     };
 }
 
@@ -57,6 +57,6 @@ pub fn new_int_alist_2<B:'static>() -> alist<int, B> {
     fn eq_int(a: int, b: int) -> bool { a == b }
     return alist {
         eq_fn: eq_int,
-        data: @RefCell::new(~[]),
+        data: @RefCell::new(Vec::new()),
     };
 }

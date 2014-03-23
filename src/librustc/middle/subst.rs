@@ -16,9 +16,8 @@ use middle::ty_fold::TypeFolder;
 use util::ppaux::Repr;
 
 use std::rc::Rc;
-use std::vec_ng::Vec;
 use syntax::codemap::Span;
-use syntax::opt_vec::OptVec;
+use syntax::owned_slice::OwnedSlice;
 
 ///////////////////////////////////////////////////////////////////////////
 // Public trait `Subst`
@@ -142,14 +141,14 @@ impl<T:Subst> Subst for Rc<T> {
     fn subst_spanned(&self, tcx: &ty::ctxt,
                      substs: &ty::substs,
                      span: Option<Span>) -> Rc<T> {
-        Rc::new(self.deref().subst_spanned(tcx, substs, span))
+        Rc::new((**self).subst_spanned(tcx, substs, span))
     }
 }
 
-impl<T:Subst> Subst for OptVec<T> {
+impl<T:Subst> Subst for OwnedSlice<T> {
     fn subst_spanned(&self, tcx: &ty::ctxt,
                      substs: &ty::substs,
-                     span: Option<Span>) -> OptVec<T> {
+                     span: Option<Span>) -> OwnedSlice<T> {
         self.map(|t| t.subst_spanned(tcx, substs, span))
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,8 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+// compile-flags: --test
 
-static x: ~[int] = ~[123, 456]; //~ ERROR: static items are not allowed to have owned pointers
+//! Test that makes sure wrongly-typed bench functions aren't ignored
 
-fn main() {}
+#[bench]
+fn foo() { } //~ ERROR functions used as benches
+
+#[bench]
+fn bar(x: int, y: int) { } //~ ERROR functions used as benches

@@ -62,7 +62,6 @@
  */
 
 use std::io;
-use std::vec_ng::Vec;
 
 #[deriving(Clone, Eq)]
 pub enum Breaks {

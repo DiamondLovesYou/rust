@@ -89,8 +89,6 @@ use ext::build::AstBuilder;
 use ext::deriving::generic::*;
 use parse::token;
 
-use std::vec_ng::Vec;
-
 pub fn expand_deriving_encodable(cx: &mut ExtCtxt,
                                  span: Span,
                                  mitem: @MetaItem,

@@ -116,7 +116,6 @@ use std::io;
 use std::rc::Rc;
 use std::str;
 use std::uint;
-use std::vec_ng::Vec;
 use syntax::ast::*;
 use syntax::codemap::Span;
 use syntax::parse::token::special_idents;
@@ -456,7 +455,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
     match expr.node {
       // live nodes required for uses or definitions of variables:
       ExprPath(_) => {
-        let def = ir.tcx.def_map.borrow().get().get_copy(&expr.id);
+        let def = ir.tcx.def_map.borrow().get_copy(&expr.id);
         debug!("expr {}: path that leads to {:?}", expr.id, def);
         if moves::moved_variable_node_id_from_def(def).is_some() {
             ir.add_live_node_for_node(expr.id, ExprNode(expr.span));
@@ -473,7 +472,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
         // in better error messages than just pointing at the closure
         // construction site.
         let mut call_caps = Vec::new();
-        for cv in ir.capture_map.get(&expr.id).deref().iter() {
+        for cv in ir.capture_map.get(&expr.id).iter() {
             match moves::moved_variable_node_id_from_def(cv.def) {
               Some(rv) => {
                 let cv_ln = ir.add_live_node(FreeVarNode(cv.span));
@@ -708,7 +707,7 @@ impl<'a> Liveness<'a> {
             Some(_) => {
                 // Refers to a labeled loop. Use the results of resolve
                 // to find with one
-                match self.ir.tcx.def_map.borrow().get().find(&id) {
+                match self.ir.tcx.def_map.borrow().find(&id) {
                     Some(&DefLabel(loop_id)) => loop_id,
                     _ => self.ir.tcx.sess.span_bug(sp, "label on break/loop \
                                                         doesn't refer to a loop")
@@ -879,7 +878,7 @@ impl<'a> Liveness<'a> {
     fn propagate_through_block(&mut self, blk: &Block, succ: LiveNode)
                                -> LiveNode {
         let succ = self.propagate_through_opt_expr(blk.expr, succ);
-        blk.stmts.rev_iter().fold(succ, |succ, stmt| {
+        blk.stmts.iter().rev().fold(succ, |succ, stmt| {
             self.propagate_through_stmt(*stmt, succ)
         })
     }
@@ -980,7 +979,7 @@ impl<'a> Liveness<'a> {
                         this.ir.tcx.sess.span_bug(expr.span, "no registered caps");
                      }
                  };
-                 caps.deref().rev_iter().fold(succ, |succ, cap| {
+                 caps.iter().rev().fold(succ, |succ, cap| {
                      this.init_from_succ(cap.ln, succ);
                      let var = this.variable(cap.var_nid, expr.span);
                      this.acc(cap.ln, var, ACC_READ | ACC_USE);
@@ -1121,7 +1120,7 @@ impl<'a> Liveness<'a> {
 
           ExprStruct(_, ref fields, with_expr) => {
             let succ = self.propagate_through_opt_expr(with_expr, succ);
-            fields.rev_iter().fold(succ, |succ, field| {
+            fields.iter().rev().fold(succ, |succ, field| {
                 self.propagate_through_expr(field.expr, succ)
             })
           }
@@ -1173,14 +1172,14 @@ impl<'a> Liveness<'a> {
           }
 
           ExprInlineAsm(ref ia) => {
-            let succ = ia.outputs.rev_iter().fold(succ, |succ, &(_, expr)| {
+            let succ = ia.outputs.iter().rev().fold(succ, |succ, &(_, expr)| {
                 // see comment on lvalues in
                 // propagate_through_lvalue_components()
                 let succ = self.write_lvalue(expr, succ, ACC_WRITE);
                 self.propagate_through_lvalue_components(expr, succ)
             });
             // Inputs are executed first. Propagate last because of rev order
-            ia.inputs.rev_iter().fold(succ, |succ, &(_, expr)| {
+            ia.inputs.iter().rev().fold(succ, |succ, &(_, expr)| {
                 self.propagate_through_expr(expr, succ)
             })
           }
@@ -1275,7 +1274,7 @@ impl<'a> Liveness<'a> {
 
     fn access_path(&mut self, expr: &Expr, succ: LiveNode, acc: uint)
                    -> LiveNode {
-        let def = self.ir.tcx.def_map.borrow().get().get_copy(&expr.id);
+        let def = self.ir.tcx.def_map.borrow().get_copy(&expr.id);
         match moves::moved_variable_node_id_from_def(def) {
           Some(nid) => {
             let ln = self.live_node(expr.id, expr.span);
@@ -1491,7 +1490,7 @@ impl<'a> Liveness<'a> {
     fn check_lvalue(&mut self, expr: &Expr) {
         match expr.node {
           ExprPath(_) => {
-            match self.ir.tcx.def_map.borrow().get().get_copy(&expr.id) {
+            match self.ir.tcx.def_map.borrow().get_copy(&expr.id) {
               DefLocal(nid, _) => {
                 // Assignment to an immutable variable or argument: only legal
                 // if there is no later assignment. If this local is actually

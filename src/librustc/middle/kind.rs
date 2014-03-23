@@ -16,11 +16,10 @@ use middle::typeck;
 use util::ppaux::{Repr, ty_to_str};
 use util::ppaux::UserString;
 
-use std::vec_ng::Vec;
 use syntax::ast::*;
 use syntax::attr;
 use syntax::codemap::Span;
-use syntax::opt_vec;
+use syntax::owned_slice::OwnedSlice;
 use syntax::print::pprust::expr_to_str;
 use syntax::{visit,ast_util};
 use syntax::visit::Visitor;
@@ -31,20 +30,14 @@ use syntax::visit::Visitor;
 // kind is noncopyable. The noncopyable kind can be extended with any number
 // of the following attributes.
 //
-//  send: Things that can be sent on channels or included in spawned closures.
-//  freeze: Things thare are deeply immutable. They are guaranteed never to
-//    change, and can be safely shared without copying between tasks.
+//  Send: Things that can be sent on channels or included in spawned closures. It
+//  includes scalar types as well as classes and unique types containing only
+//  sendable types.
 //  'static: Things that do not contain references.
-//
-// Send includes scalar types as well as classes and unique types containing
-// only sendable types.
-//
-// Freeze include scalar types, things without non-const fields, and pointers
-// to freezable things.
 //
 // This pass ensures that type parameters are only instantiated with types
 // whose kinds are equal or less general than the way the type parameter was
-// annotated (with the `Send` or `Freeze` bound).
+// annotated (with the `Send` bound).
 //
 // It also verifies that noncopyable kinds are not copied. Sendability is not
 // applied, since none of our language primitives send. Instead, the sending
@@ -93,7 +86,7 @@ fn check_struct_safe_for_destructor(cx: &mut Context,
     let struct_tpt = ty::lookup_item_type(cx.tcx, struct_did);
     if !struct_tpt.generics.has_type_params() {
         let struct_ty = ty::mk_struct(cx.tcx, struct_did, ty::substs {
-            regions: ty::NonerasedRegions(opt_vec::Empty),
+            regions: ty::NonerasedRegions(OwnedSlice::empty()),
             self_ty: None,
             tps: Vec::new()
         });
@@ -118,18 +111,13 @@ fn check_struct_safe_for_destructor(cx: &mut Context,
 }
 
 fn check_impl_of_trait(cx: &mut Context, it: &Item, trait_ref: &TraitRef, self_type: &Ty) {
-    let def_map = cx.tcx.def_map.borrow();
-    let ast_trait_def = def_map.get()
-                               .find(&trait_ref.ref_id)
-                               .expect("trait ref not in def map!");
-    let trait_def_id = ast_util::def_id_of_def(*ast_trait_def);
-    let trait_def;
-    {
-        let trait_defs = cx.tcx.trait_defs.borrow();
-        trait_def = *trait_defs.get()
-                               .find(&trait_def_id)
-                               .expect("trait def not in trait-defs map!");
-    }
+    let ast_trait_def = *cx.tcx.def_map.borrow()
+                              .find(&trait_ref.ref_id)
+                              .expect("trait ref not in def map!");
+    let trait_def_id = ast_util::def_id_of_def(ast_trait_def);
+    let trait_def = *cx.tcx.trait_defs.borrow()
+                           .find(&trait_def_id)
+                           .expect("trait def not in trait-defs map!");
 
     // If this trait has builtin-kind supertraits, meet them.
     let self_ty: ty::t = ty::node_id_to_type(cx.tcx, it.id);
@@ -148,7 +136,7 @@ fn check_impl_of_trait(cx: &mut Context, it: &Item, trait_ref: &TraitRef, self_t
         match self_type.node {
             TyPath(_, ref bounds, path_node_id) => {
                 assert!(bounds.is_none());
-                let struct_def = def_map.get().get_copy(&path_node_id);
+                let struct_def = cx.tcx.def_map.borrow().get_copy(&path_node_id);
                 let struct_did = ast_util::def_id_of_def(struct_def);
                 check_struct_safe_for_destructor(cx, self_type.span, struct_did);
             }
@@ -208,21 +196,21 @@ fn with_appropriate_checker(cx: &Context,
 
     let fty = ty::node_id_to_type(cx.tcx, id);
     match ty::get(fty).sty {
-        ty::ty_closure(ty::ClosureTy {
+        ty::ty_closure(~ty::ClosureTy {
             sigil: OwnedSigil,
             bounds: bounds,
             ..
         }) => {
             b(|cx, fv| check_for_uniq(cx, fv, bounds))
         }
-        ty::ty_closure(ty::ClosureTy {
+        ty::ty_closure(~ty::ClosureTy {
             sigil: ManagedSigil,
             ..
         }) => {
             // can't happen
             fail!("internal error: saw closure with managed sigil (@fn)");
         }
-        ty::ty_closure(ty::ClosureTy {
+        ty::ty_closure(~ty::ClosureTy {
             sigil: BorrowedSigil,
             bounds: bounds,
             region: region,
@@ -267,18 +255,17 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
     // Handle any kind bounds on type parameters
     {
         let method_map = cx.method_map.borrow();
-        let method = method_map.get().find(&typeck::MethodCall::expr(e.id));
+        let method = method_map.find(&typeck::MethodCall::expr(e.id));
         let node_type_substs = cx.tcx.node_type_substs.borrow();
         let r = match method {
             Some(method) => Some(&method.substs.tps),
-            None => node_type_substs.get().find(&e.id)
+            None => node_type_substs.find(&e.id)
         };
         for ts in r.iter() {
             let def_map = cx.tcx.def_map.borrow();
             let type_param_defs = match e.node {
               ExprPath(_) => {
-                let did = ast_util::def_id_of_def(def_map.get()
-                                                         .get_copy(&e.id));
+                let did = ast_util::def_id_of_def(def_map.get_copy(&e.id));
                 ty::lookup_item_type(cx.tcx, did).generics.type_param_defs.clone()
               }
               _ => {
@@ -298,7 +285,6 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
                 }
               }
             };
-            let type_param_defs = type_param_defs.deref();
             if ts.len() != type_param_defs.len() {
                 // Fail earlier to make debugging easier
                 fail!("internal error: in kind::check_expr, length \
@@ -335,14 +321,13 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
     }
 
     // Search for auto-adjustments to find trait coercions.
-    let adjustments = cx.tcx.adjustments.borrow();
-    match adjustments.get().find(&e.id) {
+    match cx.tcx.adjustments.borrow().find(&e.id) {
         Some(adjustment) => {
             match **adjustment {
                 ty::AutoObject(..) => {
                     let source_ty = ty::expr_ty(cx.tcx, e);
                     let target_ty = ty::expr_ty_adjusted(cx.tcx, e,
-                                                         cx.method_map.borrow().get());
+                                                         &*cx.method_map.borrow());
                     check_trait_cast(cx, source_ty, target_ty, e.span);
                 }
                 ty::AutoAddEnv(..) |
@@ -358,7 +343,7 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
 fn check_trait_cast(cx: &mut Context, source_ty: ty::t, target_ty: ty::t, span: Span) {
     check_cast_for_escaping_regions(cx, source_ty, target_ty, span);
     match ty::get(target_ty).sty {
-        ty::ty_trait(_, _, _, _, bounds) => {
+        ty::ty_trait(~ty::TyTrait { bounds, .. }) => {
             check_trait_cast_bounds(cx, span, source_ty, bounds);
         }
         _ => {}
@@ -369,10 +354,10 @@ fn check_ty(cx: &mut Context, aty: &Ty) {
     match aty.node {
         TyPath(_, _, id) => {
             let node_type_substs = cx.tcx.node_type_substs.borrow();
-            let r = node_type_substs.get().find(&id);
+            let r = node_type_substs.find(&id);
             for ts in r.iter() {
                 let def_map = cx.tcx.def_map.borrow();
-                let did = ast_util::def_id_of_def(def_map.get().get_copy(&id));
+                let did = ast_util::def_id_of_def(def_map.get_copy(&id));
                 let generics = ty::lookup_item_type(cx.tcx, did).generics;
                 let type_param_defs = generics.type_param_defs();
                 for (&ty, type_param_def) in ts.iter().zip(type_param_defs.iter()) {

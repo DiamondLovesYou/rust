@@ -15,8 +15,6 @@ use diagnostic;
 use visit;
 use visit::Visitor;
 
-use std::vec_ng::Vec;
-
 struct MacroRegistrarContext {
     registrars: Vec<(ast::NodeId, Span)> ,
 }

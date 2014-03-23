@@ -197,10 +197,9 @@ use arena;
 use arena::Arena;
 use middle::ty;
 use std::fmt;
-use std::vec_ng::Vec;
 use syntax::ast;
 use syntax::ast_util;
-use syntax::opt_vec;
+use syntax::owned_slice::OwnedSlice;
 use syntax::visit;
 use syntax::visit::Visitor;
 use util::ppaux::Repr;
@@ -287,8 +286,8 @@ fn determine_parameters_to_be_inferred<'a>(tcx: &'a ty::ctxt,
         // cache and share the variance struct used for items with
         // no type/region parameters
         empty_variances: @ty::ItemVariances { self_param: None,
-                                              type_params: opt_vec::Empty,
-                                              region_params: opt_vec::Empty }
+                                              type_params: OwnedSlice::empty(),
+                                              region_params: OwnedSlice::empty() }
     };
 
     visit::walk_crate(&mut terms_cx, krate, ());
@@ -360,10 +359,7 @@ impl<'a> Visitor<()> for TermsContext<'a> {
                 // "invalid item id" from "item id with no
                 // parameters".
                 if self.num_inferred() == inferreds_on_entry {
-                    let mut item_variance_map = self.tcx
-                                                    .item_variance_map
-                                                    .borrow_mut();
-                    let newly_added = item_variance_map.get().insert(
+                    let newly_added = self.tcx.item_variance_map.borrow_mut().insert(
                         ast_util::local_def(item.id),
                         self.empty_variances);
                     assert!(newly_added);
@@ -675,7 +671,7 @@ impl<'a> ConstraintContext<'a> {
                                                  substs, variance);
             }
 
-            ty::ty_trait(def_id, ref substs, _, _, _) => {
+            ty::ty_trait(~ty::TyTrait { def_id, ref substs, .. }) => {
                 let trait_def = ty::lookup_trait_def(self.tcx(), def_id);
                 self.add_constraints_from_substs(def_id, &trait_def.generics,
                                                  substs, variance);
@@ -705,7 +701,7 @@ impl<'a> ConstraintContext<'a> {
                 self.add_constraints_from_sig(sig, variance);
             }
 
-            ty::ty_closure(ty::ClosureTy { sig: ref sig, region, .. }) => {
+            ty::ty_closure(~ty::ClosureTy { sig: ref sig, region, .. }) => {
                 let contra = self.contravariant(variance);
                 self.add_constraints_from_region(region, contra);
                 self.add_constraints_from_sig(sig, variance);
@@ -905,32 +901,33 @@ impl<'a> SolveContext<'a> {
         let num_inferred = self.terms_cx.num_inferred();
         while index < num_inferred {
             let item_id = inferred_infos.get(index).item_id;
-            let mut item_variances = ty::ItemVariances {
-                self_param: None,
-                type_params: opt_vec::Empty,
-                region_params: opt_vec::Empty
-            };
+            let mut self_param = None;
+            let mut type_params = vec!();
+            let mut region_params = vec!();
+
             while index < num_inferred &&
                   inferred_infos.get(index).item_id == item_id {
                 let info = inferred_infos.get(index);
                 match info.kind {
                     SelfParam => {
-                        assert!(item_variances.self_param.is_none());
-                        item_variances.self_param =
-                            Some(*solutions.get(index));
+                        assert!(self_param.is_none());
+                        self_param = Some(*solutions.get(index));
                     }
                     TypeParam => {
-                        item_variances.type_params
-                                      .push(*solutions.get(index));
+                        type_params.push(*solutions.get(index));
                     }
                     RegionParam => {
-                        item_variances.region_params
-                                      .push(*solutions.get(index));
+                        region_params.push(*solutions.get(index));
                     }
                 }
                 index += 1;
             }
 
+            let item_variances = ty::ItemVariances {
+                self_param: self_param,
+                type_params: OwnedSlice::from_vec(type_params),
+                region_params: OwnedSlice::from_vec(region_params)
+            };
             debug!("item_id={} item_variances={}",
                     item_id,
                     item_variances.repr(tcx));
@@ -944,9 +941,8 @@ impl<'a> SolveContext<'a> {
                 tcx.sess.span_err(tcx.map.span(item_id), found);
             }
 
-            let mut item_variance_map = tcx.item_variance_map.borrow_mut();
-            let newly_added = item_variance_map.get().insert(item_def_id,
-                                                             @item_variances);
+            let newly_added = tcx.item_variance_map.borrow_mut()
+                                 .insert(item_def_id, @item_variances);
             assert!(newly_added);
         }
     }

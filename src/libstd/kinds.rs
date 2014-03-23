@@ -26,12 +26,6 @@ pub trait Send {
     // empty.
 }
 
-/// Types that are either immutable or have inherited mutability.
-#[lang="freeze"]
-pub trait Freeze {
-    // empty.
-}
-
 /// Types with a constant size known at compile-time.
 #[lang="sized"]
 pub trait Sized {
@@ -44,6 +38,22 @@ pub trait Sized {
 #[lang="pod"]
 pub trait Pod {
     // Empty.
+}
+
+/// Types that can be safely shared between threads, hence thread-safe.
+#[cfg(stage0)]
+pub trait Share {
+    // Empty
+}
+
+#[cfg(stage0)]
+impl<T> Share for T {}
+
+/// Types that can be safely shared between threads, hence thread-safe.
+#[cfg(not(stage0))]
+#[lang="share"]
+pub trait Share {
+    // Empty
 }
 
 /// Marker types are special types that are used with unsafe code to
@@ -209,14 +219,6 @@ pub mod marker {
     #[deriving(Eq,Clone)]
     pub struct InvariantLifetime<'a>;
 
-    /// A type which is considered "not freezable", meaning that
-    /// its contents could change even if stored in an immutable
-    /// context or it is the referent of an `&T` pointer. This is
-    /// typically embedded in other types, such as `Cell`.
-    #[lang="no_freeze_bound"]
-    #[deriving(Eq,Clone)]
-    pub struct NoFreeze;
-
     /// A type which is considered "not sendable", meaning that it cannot
     /// be safely sent between tasks, even if it is owned. This is
     /// typically embedded in other types, such as `Gc`, to ensure that
@@ -231,6 +233,13 @@ pub mod marker {
     #[lang="no_pod_bound"]
     #[deriving(Eq,Clone)]
     pub struct NoPod;
+
+    /// A type which is considered "not sharable", meaning that
+    /// its contents are not threadsafe, hence they cannot be
+    /// shared between tasks.
+    #[lang="no_share_bound"]
+    #[deriving(Eq,Clone)]
+    pub struct NoShare;
 
     /// A type which is considered managed by the GC. This is typically
     /// embedded in other types.
