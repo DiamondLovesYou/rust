@@ -26,6 +26,7 @@ use std::container::Container;
 use std::cast;
 
 pub trait Simd<PrimitiveTy> {
+    fn smear(value: PrimitiveTy) -> Self;
     fn every(self, value: PrimitiveTy) -> bool;
     fn any(self, value: PrimitiveTy) -> bool;
 
@@ -89,6 +90,9 @@ macro_rules! _def(
         def_type_simd!( #[allow(non_camel_case_types)]
                         pub type $ident = <$prim, ..$len>)
         impl Simd<$prim> for $ident {
+            #[inline] fn smear(value: $prim) -> $ident {
+                smear_simd!(value, ..$len)
+            }
             #[inline] fn every(self, value: $prim) -> bool {
                 for i in iter::range(0u, $len as uint) {
                     if self[i] != value {

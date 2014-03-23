@@ -53,8 +53,45 @@ pub fn macro_registrar(register: |Name, SyntaxExtension|) {
                 span: None,
             },
                       None));
+    register(token::intern("smear_simd"),
+             NormalTT(~BasicMacroExpander {
+                expander: make_smear,
+                span: None,
+            },
+                      None));
 }
+fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
+    let mut parser =
+        tts_to_parser(cx.parse_sess(),
+                      tts.to_owned().move_iter().collect(),
+                      cx.cfg());
+    let value = cx.expand_expr(parser.parse_expr());
+    parser.expect(&token::COMMA);
+    parser.expect(&token::DOTDOT);
+    let count = match parser.token {
+        token::LIT_INT_UNSUFFIXED(count) => count,
+        token::INTERPOLATED(token::NtExpr(expr)) => match *expr {
+            Expr {
+                node: ast::ExprLit(lit),
+                ..
+            } => match *lit {
+                Spanned {
+                    node: ast::LitIntUnsuffixed(count),
+                    ..
+                } => count,
+                _ => parser.unexpected(),
+            },
+            _ => parser.unexpected(),
+        },
+        _ => parser.unexpected(),
+    };
 
+    MRExpr(@Expr {
+        id: DUMMY_NODE_ID,
+        span: sp,
+        node: ExprSimd(Vec::from_elem(count as uint, value)),
+    })
+}
 fn make_simd(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
     let elements = match get_exprs_from_tts(cx, sp, tts) {
         Some(e) => e,
