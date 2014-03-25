@@ -19,7 +19,6 @@ extern crate simd_syntax;
 extern crate simd;
 
 use simd::BoolSimd;
-use simd::f32x4;
 
 #[simd]
 struct RGBA {
@@ -36,11 +35,11 @@ fn main() {
     let rev_v = swizzle_simd!(v -> (3, 2, 1, 0));
     let gather_rev = gather_simd!(8.0, 4.0, 2.0, 1.0);
     let cond = rev_v == gather_rev;
-    assert!(cond.every_true());
+    assert!(cond.all_true());
     assert!((swizzle_simd!(v -> (0, 1, 2, 3,
                                  3, 2, 1, 0)) ==
              gather_simd!(1.0, 2.0, 4.0, 8.0,
-                          8.0, 4.0, 2.0, 1.0)).every_true());
+                          8.0, 4.0, 2.0, 1.0)).all_true());
     assert_eq!(swizzle_simd!(v -> (0))[0], 1.0);
 
     assert_eq!(swizzle_simd!(v -> (const_expr - 2))[0], 8.0);
@@ -51,5 +50,5 @@ fn main() {
                      a: 4.0f32 };
 
     assert!((swizzle_simd!(rgba -> (3, 2, 1, 0)) ==
-             gather_simd!(4.0, 3.0, 2.0, 1.0)).every_true());
+             gather_simd!(4.0, 3.0, 2.0, 1.0)).all_true());
 }

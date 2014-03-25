@@ -476,7 +476,7 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
                 let m = const_eval::eval_positive_integer(tcx, m, "swizzle mask");
                 C_i32(ccx, m as i32)
             });
-        C_vector(ccx, mask.as_slice())
+        C_vector(ccx, &mask)
     };
 
     let left_ty = expr_ty_adjusted(bcx, left);
@@ -510,19 +510,19 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
                     }
                     mask
                 };
-                let new_mask_vector = C_vector(ccx, new_mask.as_slice());
+                let new_mask_vector = C_vector(ccx, &new_mask);
 
                 if left_size < right_size {
                     let delta = right_size - left_size;
-                    let mask = mask.iter().map(|&m| {
+                    let mask = mask.map(|&m| {
                             let m = const_eval::eval_positive_integer(bcx.tcx(),
                                                                       m,
                                                                       "swizzle mask");
                             let m = if m >= left_size { m + delta }
                                     else              { m         };
                             C_i32(ccx, m as i32)
-                        }).to_owned_vec();
-                    let mask = C_vector(ccx, mask.as_slice());
+                        });
+                    let mask = C_vector(ccx, &mask);
                     let left_llval = ShuffleVector(bcx,
                                                    left_llval,
                                                    C_undef(type_of::type_of(ccx,

@@ -3244,10 +3244,10 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                     });
 
 
-                let mask = mask.iter().map(|&m| {
+                let mask = mask.map(|&m| {
                         check_expr(fcx, m);
                         (const_eval::eval_positive_integer(fcx, m, "swizzle mask"), m)
-                    }).to_owned_vec();
+                    });
 
                 if !ty::type_is_simd(tcx, left_ty) {
                     fcx.type_error_message(left.span,

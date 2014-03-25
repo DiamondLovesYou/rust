@@ -27,7 +27,7 @@ use std::cast;
 
 pub trait Simd<PrimitiveTy> {
     fn smear(value: PrimitiveTy) -> Self;
-    fn every(self, value: PrimitiveTy) -> bool;
+    fn all(self, value: PrimitiveTy) -> bool;
     fn any(self, value: PrimitiveTy) -> bool;
 
     fn iter<'a>(&'a self) -> Items<'a, PrimitiveTy>;
@@ -39,14 +39,14 @@ pub trait Simd<PrimitiveTy> {
     fn len(&self) -> uint;
 }
 pub trait BoolSimd {
-    fn every_true(self) -> bool;
-    fn every_false(self) -> bool;
+    fn all_true(self) -> bool;
+    fn all_false(self) -> bool;
     fn any_true(self) -> bool;
     fn any_false(self) -> bool;
 }
 impl<T: Simd<bool>> BoolSimd for T {
-    #[inline] fn every_true(self) -> bool { self.every(true) }
-    #[inline] fn every_false(self) -> bool { self.every(false) }
+    #[inline] fn all_true(self) -> bool { self.all(true) }
+    #[inline] fn all_false(self) -> bool { self.all(false) }
     #[inline] fn any_true(self) -> bool { self.any(true) }
     #[inline] fn any_false(self) -> bool { self.any(false) }
 }
@@ -93,7 +93,7 @@ macro_rules! _def(
             #[inline] fn smear(value: $prim) -> $ident {
                 smear_simd!(value, ..$len)
             }
-            #[inline] fn every(self, value: $prim) -> bool {
+            #[inline] fn all(self, value: $prim) -> bool {
                 for i in iter::range(0u, $len as uint) {
                     if self[i] != value {
                         return false;
