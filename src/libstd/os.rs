@@ -251,7 +251,7 @@ pub fn getenv(n: &str) -> Option<~str> {
     getenv_as_bytes(n).map(|v| str::from_utf8_lossy(v).into_owned())
 }
 
-#[cfg(unix)]
+#[cfg(unix, not(target_os = "nacl"))]
 /// Fetches the environment variable `n` byte vector from the current process,
 /// returning None if the variable isn't set.
 ///
@@ -272,6 +272,15 @@ pub fn getenv_as_bytes(n: &str) -> Option<~[u8]> {
         })
     }
 }
+
+#[cfg(unix, target_os = "nacl")]
+/// Fetches the environment variable `n` byte vector from the current process,
+/// returning None if the variable isn't set.
+///
+/// # Failure
+///
+/// Fails if `n` has any interior NULs.
+pub fn getenv_as_bytes(_: &str) -> Option<~[u8]> { None }
 
 #[cfg(windows)]
 /// Fetches the environment variable `n` from the current process, returning

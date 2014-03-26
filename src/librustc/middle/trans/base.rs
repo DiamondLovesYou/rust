@@ -2149,11 +2149,11 @@ pub fn p2i(ccx: &CrateContext, v: ValueRef) -> ValueRef {
 pub fn declare_intrinsics(ccx: &mut CrateContext) {
     macro_rules! ifn (
         ($name:expr fn() -> $ret:expr if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
-	    if $is_pnacl == $is_supported_in_pnacl {
-            	let name = $name;
-            	// HACK(eddyb) dummy output type, shouln't affect anything.
-            	let f = decl_cdecl_fn(ccx.llmod, name, Type::func([], &$ret), ty::mk_nil());
-            	ccx.intrinsics.insert(name, f);
+            if $is_pnacl == $is_supported_in_pnacl {
+                let name = $name;
+                // HACK(eddyb) dummy output type, shouln't affect anything.
+                let f = decl_cdecl_fn(ccx.llmod, name, Type::func([], &$ret), ty::mk_nil());
+                ccx.intrinsics.insert(name, f);
             }
         });
         ($name:expr fn() -> $ret:expr) => (ifn!($name fn() -> $ret if (true) == (true)));

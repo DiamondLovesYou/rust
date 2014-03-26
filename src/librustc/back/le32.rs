@@ -12,7 +12,7 @@ use back::target_strs;
 use driver::session::sess_os_to_meta_os;
 use metadata::loader::meta_section_name;
 use syntax::abi;
-use std::vec_ng::Vec;
+use std::vec::Vec;
 
 pub fn get_target_strs(target_triple: ~str, target_os: abi::Os) -> target_strs::t {
     return target_strs::t {

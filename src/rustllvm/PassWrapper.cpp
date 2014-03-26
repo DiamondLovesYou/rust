@@ -245,7 +245,7 @@ LLVMRustPrintModule(LLVMPassManagerRef PMR,
 }
 extern "C" void
 LLVMRustAddPrinterPass(LLVMPassManagerRef PMR,
-		       const char* path) {
+                       const char* path) {
   PassManager *PM = unwrap<PassManager>(PMR);
   std::string ErrorInfo;
 
