@@ -238,10 +238,8 @@ pub mod write {
                 assert!(addpass_mpm("nacl-strip-attributes"));
                 assert!(addpass_mpm("strip-dead-prototypes"));
                 assert!(addpass_mpm("replace-aggregates-with-ints"));
-                if opt_level != lib::llvm::CodeGenLevelNone {
-                    assert!(addpass_mpm("die"));
-                    assert!(addpass_mpm("dce"));
-                }
+                assert!(addpass_mpm("die"));
+                assert!(addpass_mpm("dce"));
             }
 
             // Finally, run the actual optimization passes
