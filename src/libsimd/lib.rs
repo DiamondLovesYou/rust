@@ -8,15 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[crate_id = "simd#0.10-pre"];
-#[crate_type = "dylib"];
-#[crate_type = "rlib"];
-#[license = "MIT/ASL2"];
-#[comment = "A link-time library to facilitate access to SIMD types & operations"];
+#![crate_id = "simd#0.10-pre"]
+#![crate_type = "dylib"]
+#![crate_type = "rlib"]
+#![license = "MIT/ASL2"]
+#![comment = "A link-time library to facilitate access to SIMD types & operations"]
 
-#[feature(macro_registrar, simd, phase, macro_rules)];
-#[allow(experimental)];
-#[experimental];
+#![feature(macro_registrar, simd, phase, macro_rules)]
+#![allow(experimental)]
+#![experimental]
 
 #[phase(syntax)]
 extern crate simd_syntax;
@@ -50,13 +50,14 @@ impl<T: Simd<bool>> BoolSimd for T {
     #[inline] fn any_true(self) -> bool { self.any(true) }
     #[inline] fn any_false(self) -> bool { self.any(false) }
 }
-
+#[allow(raw_pointer_deriving)]
 #[deriving(Eq, Clone)]
 pub struct Items<'a, ElemT> {
     priv vec: *ElemT,
     priv pos: uint,
     priv len: uint,
 }
+#[allow(raw_pointer_deriving)]
 #[deriving(Eq, Clone)]
 pub struct MutItems<'a, ElemT> {
     priv vec: *mut ElemT,

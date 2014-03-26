@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(simd, phase)];
+#![feature(simd, phase)]
 
 #[phase(syntax)]
 extern crate simd_syntax;

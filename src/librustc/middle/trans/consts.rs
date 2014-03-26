@@ -674,10 +674,11 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr,
           }
           ast::ExprParen(e) => { const_expr(cx, e, is_local) }
           ast::ExprSimd(ref exprs) => {
+              use std::iter::Iterator;
               let (vals, inlinables) = slice::unzip(exprs.iter().map(|&expr| {
                   const_expr(cx, expr, is_local)
               }));
-              let vals = FromIterator::from_iterator(&mut vals.move_iter());
+              let vals = Vec::from_slice(vals);
               (C_vector(cx, &vals), inlinables.move_iter().all(|v| v ))
           }
           ast::ExprSwizzle(left, opt_right, ref mask) => {

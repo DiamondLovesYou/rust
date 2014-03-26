@@ -11,8 +11,8 @@
 
 // checks that struct simd types are not implicitly indexable.
 
-#[feature(simd)];
-#[allow(experimental)];
+#![feature(simd)]
+#![allow(experimental)]
 
 #[simd]
 struct RGBA {
@@ -25,7 +25,7 @@ struct RGBA {
 #[inline(never)]
 fn index(v: &mut RGBA) {
     v[0] = 10.0f32;
-    //~^ ERROR
+    //~^ ERROR cannot index a value of type `RGBA`
 }
 
 

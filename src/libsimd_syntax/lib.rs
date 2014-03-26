@@ -8,13 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[crate_id = "simd_syntax#0.10-pre"];
-#[crate_type = "dylib"];
-#[license = "MIT/ASL2"];
-#[comment = "A parse-time library to facilitate access to SIMD types & operations"];
+#![crate_id = "simd_syntax#0.10-pre"]
+#![crate_type = "dylib"]
+#![license = "MIT/ASL2"]
+#![comment = "A parse-time library to facilitate access to SIMD types & operations"]
 
-#[feature(macro_registrar, managed_boxes)];
-#[allow(deprecated_owned_vector)];
+#![feature(macro_registrar, managed_boxes)]
+#![allow(deprecated_owned_vector)]
 
 extern crate syntax;
 
@@ -153,10 +153,6 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResul
         let mut cont = true;
         while cont {
             match parser.token {
-                token::INTERPOLATED(token::NtAttr(attr)) => {
-                    parser.bump();
-                    attrs.push(*attr);
-                }
                 token::POUND => {
                     let lo = parser.span.lo;
                     parser.bump();
@@ -221,7 +217,7 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResul
                     keywords::Struct => ast::ItemStruct(@ast::StructDef {
                             fields: Vec::from_elem(1,
                                                    respan(inner.span, ast::StructField_ {
-                                        kind: ast::UnnamedField,
+                                        kind: ast::UnnamedField(ast::Public),
                                         id: ast::DUMMY_NODE_ID,
                                         ty: inner,
                                         attrs: Vec::new(),

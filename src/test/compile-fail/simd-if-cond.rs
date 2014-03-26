@@ -11,8 +11,8 @@
 // force-host
 // xfail-stage1
 
-#[feature(simd, phase)];
-#[allow(experimental)];
+#![feature(simd, phase)]
+#![allow(experimental)]
 #[phase(syntax)]
 extern crate simd_syntax;
 extern crate simd;
