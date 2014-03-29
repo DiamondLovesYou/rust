@@ -509,6 +509,7 @@ impl<'a> State<'a> {
             ast::TyInfer => {
                 try!(word(&mut self.s, "_"));
             }
+        ast::TySimd(..) => fail!("can't pretty print simd types"),
         }
         self.end()
     }
@@ -1173,6 +1174,25 @@ impl<'a> State<'a> {
                     try!(word(&mut self.s, ","));
                 }
                 try!(self.pclose());
+            }
+            ast::ExprSimd(ref exprs) => {
+                try!(word(&mut self.s, "gather_simd!("));
+                try!(self.commasep_exprs(Inconsistent, exprs.as_slice()));
+                try!(word(&mut self.s, ")"));
+            }
+            ast::ExprSwizzle(left, right_opt, ref mask) => {
+                try!(word(&mut self.s, "swizzle_simd!("));
+                try!(self.print_expr(left));
+                match right_opt {
+                    Some(right) => {
+                        try!(self.word_space(".."));
+                        try!(self.print_expr(right));
+                    }
+                    None => {}
+                };
+                try!(word(&mut self.s, " -> ("));
+                try!(self.commasep_exprs(Inconsistent, mask.as_slice()));
+                try!(word(&mut self.s, ")"));
             }
             ast::ExprCall(func, ref args) => {
                 try!(self.print_expr(func));

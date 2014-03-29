@@ -700,6 +700,7 @@ impl Clean<Type> for ast::Ty {
             TyClosure(ref c) => Closure(~c.clean()),
             TyBareFn(ref barefn) => BareFunction(~barefn.clean()),
             TyBot => Bottom,
+            TySimd(t, ref count) => FixedVector(~t.clean(), count.span.to_str()),
             ref x => fail!("Unimplemented type {:?}", x),
         }
     }

@@ -4019,7 +4019,7 @@ impl<'a> Parser<'a> {
     }
 
     // parse visiility: PUB, PRIV, or nothing
-    fn parse_visibility(&mut self) -> Visibility {
+    pub fn parse_visibility(&mut self) -> Visibility {
         if self.eat_keyword(keywords::Pub) { Public }
         else if self.eat_keyword(keywords::Priv) { Private }
         else { Inherited }
