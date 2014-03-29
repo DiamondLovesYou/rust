@@ -83,6 +83,7 @@ pub fn parse_config(args: Vec<~str> ) -> config {
           optopt("", "host", "the host to build for", "HOST"),
           optopt("", "adb-path", "path to the android debugger", "PATH"),
           optopt("", "adb-test-dir", "path to tests for the android debugger", "PATH"),
+          optopt("", "nacl-cross-path", "path to NaCl Pepper sdk", "PATH"),
           optopt("", "test-shard", "run shard A, of B shards, worth of the testsuite", "A.B"),
           optflag("h", "help", "show this message"));
 
@@ -150,6 +151,7 @@ pub fn parse_config(args: Vec<~str> ) -> config {
             "arm-linux-androideabi" == opt_str2(matches.opt_str("target")) &&
             "(none)" != opt_str2(matches.opt_str("adb-test-dir")) &&
             !opt_str2(matches.opt_str("adb-test-dir")).is_empty(),
+        nacl_cross_path: matches.opt_str("nacl-cross-path").map(|s| Path::new(s) ),
         test_shard: test::opt_shard(matches.opt_str("test-shard")),
         verbose: matches.opt_present("verbose")
     }

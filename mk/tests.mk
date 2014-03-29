@@ -298,13 +298,13 @@ check-stage$(1)-T-$(2)-H-$(3)-exec:     				\
 ifneq ($$(findstring $(2),$$(CFG_HOST)),)
 
 check-stage$(1)-T-$(2)-H-$(3)-crates-exec: \
-	$$(foreach crate,$$(TEST_CRATES), \
+	$$(foreach crate,$(filter-out $$(DISABLED_CRATES_$(2)),$$(TEST_CRATES)), \
            check-stage$(1)-T-$(2)-H-$(3)-$$(crate)-exec)
 
 else
 
 check-stage$(1)-T-$(2)-H-$(3)-crates-exec: \
-	$$(foreach crate,$$(TEST_TARGET_CRATES), \
+	$$(foreach crate,$(filter-out $$(DISABLED_CRATES_$(2)),$$(TEST_TARGET_CRATES)), \
            check-stage$(1)-T-$(2)-H-$(3)-$$(crate)-exec)
 
 endif
@@ -561,9 +561,10 @@ CTEST_COMMON_ARGS$(1)-T-$(2)-H-$(3) :=						\
         --host $(3)                                       \
         --adb-path=$(CFG_ADB)                          \
         --adb-test-dir=$(CFG_ADB_TEST_DIR)                  \
+	--nacl-cross-path=$(CFG_NACL_CROSS_PATH)                            \
         --host-rustcflags "$(RUSTC_FLAGS_$(3)) $$(CTEST_RUSTC_FLAGS) -L $$(RT_OUTPUT_DIR_$(2))" \
         --target-rustcflags "$(RUSTC_FLAGS_$(2)) $$(CTEST_RUSTC_FLAGS) -L $$(RT_OUTPUT_DIR_$(2))" \
-        $$(CTEST_TESTARGS)
+        $$(CTEST_TESTARGS) $$(CTEST_TARGETARGS_$(2))
 
 CTEST_DEPS_rpass_$(1)-T-$(2)-H-$(3) = $$(RPASS_TESTS)
 CTEST_DEPS_rpass_full_$(1)-T-$(2)-H-$(3) = $$(RPASS_FULL_TESTS) $$(TLIBRUSTC_DEFAULT$(1)_T_$(2)_H_$(3))

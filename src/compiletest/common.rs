@@ -101,7 +101,16 @@ pub struct config {
     // status whether android device available or not
     adb_device_status: bool,
 
+    // NaCl Pepper SDK path
+    nacl_cross_path: Option<Path>,
+
     // Explain what's going on
     verbose: bool
 
+}
+
+impl config {
+    pub fn targeting_nacl(&self) -> bool {
+        self.target.ends_with("-unknown-nacl")
+    }
 }

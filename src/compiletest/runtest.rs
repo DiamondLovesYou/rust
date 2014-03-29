@@ -369,6 +369,9 @@ fn run_debuginfo_test(config: &config, props: &TestProps, testfile: &Path) {
             process.signal_kill().unwrap();
         }
 
+        "le32-unknown-nacl" => {
+        }
+
         _=> {
             // write debugger script
             let script_str = [~"set charset UTF-8",
@@ -726,7 +729,7 @@ fn compose_and_run_compiler(
     for rel_ab in props.aux_builds.iter() {
         let abs_ab = config.aux_base.join(rel_ab.as_slice());
         let aux_props = load_props(&abs_ab);
-        let crate_type = if aux_props.no_prefer_dynamic {
+        let crate_type = if aux_props.no_prefer_dynamic && !config.targeting_nacl() {
             Vec::new()
         } else {
             vec!(~"--crate-type=dylib")
@@ -807,7 +810,7 @@ fn make_compile_args(config: &config,
         ThisFile(path) => { args.push(~"-o"); path }
         ThisDirectory(path) => { args.push(~"--out-dir"); path }
     };
-    args.push(path.as_str().unwrap().to_owned());
+    args.push(os::getcwd().join(path).as_str().unwrap().to_owned());
     if props.force_host {
         args.push_all_move(split_maybe_args(&config.host_rustcflags));
     } else {
