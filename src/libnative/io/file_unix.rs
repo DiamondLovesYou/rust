@@ -413,7 +413,7 @@ pub fn chown(p: &CString, uid: int, gid: int) -> IoResult<()> {
 pub fn readlink(p: &CString) -> IoResult<Path> {
     #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
     fn pathconf(p: *libc::c_char) -> i64 {
-        unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) }
+        unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) as i64 }
     }
     #[cfg(target_os = "nacl", target_libc = "newlib")]
     fn pathconf(_: *libc::c_char) -> i64 {
