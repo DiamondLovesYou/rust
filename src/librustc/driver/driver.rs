@@ -443,7 +443,7 @@ pub fn phase_5_run_llvm_passes(sess: &Session,
             link::write::run_passes(sess, trans, [output_type], outputs));
 
         let assembly = outputs.temp_path(output_type);
-        let object = outputs.path(link::OutputTypeObject);
+        let object = outputs.temp_path(link::OutputTypeObject);
         link::write::run_assembler(sess, &assembly, &object);
 
         if sess.targeting_pnacl() {

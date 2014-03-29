@@ -303,8 +303,8 @@ pub mod write {
                             llvm::LLVMWriteBitcodeToFile(llmod, buf);
                         })
                     }
-                    OutputTypeLlvmAssembly => {
-                        path.with_c_str(|output| {
+                    OutputTypeLlvmAssembly if sess.targeting_pnacl() => {
+                        output.temp_path(*output_type).with_c_str(|output| {
                             with_codegen(tm, llmod, |cpm| {
                                 llvm::LLVMRustPrintModule(cpm, llmod, output);
                             })
@@ -314,6 +314,13 @@ pub mod write {
                                 llvm::LLVMRustPrintModule(cpm,
                                                           trans.metadata_module,
                                                           output);
+                            })
+                        })
+                    }
+                    OutputTypeLlvmAssembly => {
+                        path.with_c_str(|output| {
+                            with_codegen(tm, llmod, |cpm| {
+                                llvm::LLVMRustPrintModule(cpm, llmod, output);
                             })
                         })
                     }
