@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types)]
 
 use middle::trans::adt;
 use middle::trans::common::*;
@@ -57,8 +57,8 @@ pub fn type_of_rust_fn(cx: &CrateContext, has_env: bool,
     }
 
     // ... then explicit args.
-    let mut input_tys = inputs.iter().map(|&arg_ty| type_of_explicit_arg(cx, arg_ty));
-    atys.extend(&mut input_tys);
+    let input_tys = inputs.iter().map(|&arg_ty| type_of_explicit_arg(cx, arg_ty));
+    atys.extend(input_tys);
 
     // Use the output as the actual return value if it's immediate.
     if use_out_pointer || return_type_is_void(cx, output) {

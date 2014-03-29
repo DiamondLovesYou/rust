@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,15 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern: lifetime of variable does not enclose its declaration
-extern crate sync;
-use sync::RWLock;
+// ignore-fast feature doesn't work
+#[feature(trace_macros, log_syntax)];
+
+// make sure these macros can be used as in the various places that
+// macros can occur.
+
+// items
+trace_macros!(false)
+log_syntax!()
+
 fn main() {
-    let x = ~RWLock::new();
-    let mut y = None;
-    x.write_downgrade(|write_mode| {
-        y = Some(write_mode);
-    });
-    // Adding this line causes a method unification failure instead
-    // (&option::unwrap(y)).write(proc() { })
+
+    // statements
+    trace_macros!(false);
+    log_syntax!();
+
+    // expressions
+    (trace_macros!(false),
+     log_syntax!());
 }

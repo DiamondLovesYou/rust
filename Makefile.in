@@ -177,10 +177,10 @@ include config.mk
 
 # Just a few macros used everywhere
 include $(CFG_SRC_DIR)mk/util.mk
-# All crates and their dependencies
-include $(CFG_SRC_DIR)mk/crates.mk
 # Reconfiguring when the makefiles or submodules change
 include $(CFG_SRC_DIR)mk/reconfig.mk
+# All crates and their dependencies
+include $(CFG_SRC_DIR)mk/crates.mk
 # Various bits of setup, common macros, and top-level rules
 include $(CFG_SRC_DIR)mk/main.mk
 # C and assembly components that are not LLVM
@@ -232,17 +232,18 @@ ifneq ($(strip $(findstring prepare,$(MAKECMDGOALS)) \
   include $(CFG_SRC_DIR)mk/prepare.mk
 endif
 
+# Source and binary distribution artifacts
+ifneq ($(strip $(findstring dist,$(MAKECMDGOALS)) \
+               $(findstring install,$(MAKECMDGOALS)) \
+               $(findstring clean,$(MAKECMDGOALS))),)
+  CFG_INFO := $(info cfg: including dist rules)
+  include $(CFG_SRC_DIR)mk/dist.mk
+endif
+
 # (Unix) Installation from the build directory
 ifneq ($(findstring install,$(MAKECMDGOALS)),)
   CFG_INFO := $(info cfg: including install rules)
   include $(CFG_SRC_DIR)mk/install.mk
-endif
-
-# Source and binary distribution artifacts
-ifneq ($(strip $(findstring dist,$(MAKECMDGOALS)) \
-               $(findstring clean,$(MAKECMDGOALS))),)
-  CFG_INFO := $(info cfg: including dist rules)
-  include $(CFG_SRC_DIR)mk/dist.mk
 endif
 
 # Cleaning

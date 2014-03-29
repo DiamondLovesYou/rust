@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[macro_escape];
+#![macro_escape]
 
 use abi;
 use abi::AbiSet;
@@ -77,10 +77,10 @@ use parse::token;
 use parse::{new_sub_parser_from_file, ParseSess};
 use owned_slice::OwnedSlice;
 
-use std::cell::Cell;
 use collections::HashSet;
 use std::kinds::marker;
 use std::mem::replace;
+use std::rc::Rc;
 use std::vec;
 
 #[allow(non_camel_case_types)]
@@ -110,13 +110,6 @@ pub enum PathParsingMode {
     /// set of type parameters only; e.g. `foo::bar<'a>::Baz:X+Y<T>` This
     /// form does not use extra double colons.
     LifetimeAndTypesAndBounds,
-}
-
-/// A pair of a path segment and group of type parameter bounds. (See `ast.rs`
-/// for the definition of a path segment.)
-struct PathSegmentAndBoundSet {
-    segment: ast::PathSegment,
-    bound_set: Option<OwnedSlice<TyParamBound>>,
 }
 
 /// A path paired with optional type bounds.
@@ -282,7 +275,7 @@ struct ParsedItemsAndViewItems {
 
 /* ident is handled by common.rs */
 
-pub fn Parser<'a>(sess: &'a ParseSess, cfg: ast::CrateConfig, rdr: ~Reader:)
+pub fn Parser<'a>(sess: &'a ParseSess, cfg: ast::CrateConfig, mut rdr: ~Reader:)
               -> Parser<'a> {
     let tok0 = rdr.next_token();
     let span = tok0.sp;
@@ -314,7 +307,7 @@ pub fn Parser<'a>(sess: &'a ParseSess, cfg: ast::CrateConfig, rdr: ~Reader:)
         obsolete_set: HashSet::new(),
         mod_path_stack: Vec::new(),
         open_braces: Vec::new(),
-        nopod: marker::NoPod
+        nocopy: marker::NoCopy
     }
 }
 
@@ -336,7 +329,7 @@ pub struct Parser<'a> {
     restriction: restriction,
     quote_depth: uint, // not (yet) related to the quasiquoter
     reader: ~Reader:,
-    interner: @token::IdentInterner,
+    interner: Rc<token::IdentInterner>,
     /// The set of seen errors about obsolete syntax. Used to suppress
     /// extra detail when the same error is seen twice
     obsolete_set: HashSet<ObsoleteSyntax>,
@@ -345,7 +338,7 @@ pub struct Parser<'a> {
     /// Stack of spans of open delimiters. Used for error message.
     open_braces: Vec<Span> ,
     /* do not copy the parser; its state is tied to outside state */
-    priv nopod: marker::NoPod
+    priv nocopy: marker::NoCopy
 }
 
 fn is_plain_ident_or_underscore(t: &token::Token) -> bool {
@@ -818,6 +811,9 @@ impl<'a> Parser<'a> {
     }
     pub fn warn(&mut self, m: &str) {
         self.sess.span_diagnostic.span_warn(self.span, m)
+    }
+    pub fn span_warn(&mut self, sp: Span, m: &str) {
+        self.sess.span_diagnostic.span_warn(sp, m)
     }
     pub fn span_err(&mut self, sp: Span, m: &str) {
         self.sess.span_diagnostic.span_err(sp, m)
@@ -1515,24 +1511,14 @@ impl<'a> Parser<'a> {
             // First, parse an identifier.
             let identifier = self.parse_ident();
 
-            // Next, parse a colon and bounded type parameters, if applicable.
-            let bound_set = if mode == LifetimeAndTypesAndBounds {
-                self.parse_optional_ty_param_bounds()
-            } else {
-                None
-            };
-
             // Parse the '::' before type parameters if it's required. If
             // it is required and wasn't present, then we're done.
             if mode == LifetimeAndTypesWithColons &&
                     !self.eat(&token::MOD_SEP) {
-                segments.push(PathSegmentAndBoundSet {
-                    segment: ast::PathSegment {
-                        identifier: identifier,
-                        lifetimes: Vec::new(),
-                        types: OwnedSlice::empty(),
-                    },
-                    bound_set: bound_set
+                segments.push(ast::PathSegment {
+                    identifier: identifier,
+                    lifetimes: Vec::new(),
+                    types: OwnedSlice::empty(),
                 });
                 break
             }
@@ -1549,13 +1535,10 @@ impl<'a> Parser<'a> {
             };
 
             // Assemble and push the result.
-            segments.push(PathSegmentAndBoundSet {
-                segment: ast::PathSegment {
-                    identifier: identifier,
-                    lifetimes: lifetimes,
-                    types: types,
-                },
-                bound_set: bound_set
+            segments.push(ast::PathSegment {
+                identifier: identifier,
+                lifetimes: lifetimes,
+                types: types,
             });
 
             // We're done if we don't see a '::', unless the mode required
@@ -1568,42 +1551,25 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // Next, parse a colon and bounded type parameters, if applicable.
+        let bounds = if mode == LifetimeAndTypesAndBounds {
+            self.parse_optional_ty_param_bounds()
+        } else {
+            None
+        };
+
         // Assemble the span.
         let span = mk_sp(lo, self.last_span.hi);
 
-        // Assemble the path segments.
-        let mut path_segments = Vec::new();
-        let mut bounds = None;
-        let last_segment_index = segments.len() - 1;
-        for (i, segment_and_bounds) in segments.move_iter().enumerate() {
-            let PathSegmentAndBoundSet {
-                segment: segment,
-                bound_set: bound_set
-            } = segment_and_bounds;
-            path_segments.push(segment);
-
-            if bound_set.is_some() {
-                if i != last_segment_index {
-                    self.span_err(span,
-                                  "type parameter bounds are allowed only \
-                                   before the last segment in a path")
-                }
-
-                bounds = bound_set
-            }
-        }
-
         // Assemble the result.
-        let path_and_bounds = PathAndBounds {
+        PathAndBounds {
             path: ast::Path {
                 span: span,
                 global: is_global,
-                segments: path_segments,
+                segments: segments,
             },
             bounds: bounds,
-        };
-
-        path_and_bounds
+        }
     }
 
     /// parses 0 or 1 lifetime
@@ -2139,7 +2105,7 @@ impl<'a> Parser<'a> {
                     let seq = match seq {
                         Spanned { node, .. } => node,
                     };
-                    TTSeq(mk_sp(sp.lo, p.span.hi), @seq, s, z)
+                    TTSeq(mk_sp(sp.lo, p.span.hi), Rc::new(seq), s, z)
                 } else {
                     TTNonterminal(sp, p.parse_ident())
                 }
@@ -2182,7 +2148,7 @@ impl<'a> Parser<'a> {
                 result.push(parse_any_tt_tok(self));
                 self.open_braces.pop().unwrap();
 
-                TTDelim(@result)
+                TTDelim(Rc::new(result))
             }
             _ => parse_non_delim_tt_tok(self)
         }
@@ -2202,12 +2168,12 @@ impl<'a> Parser<'a> {
         // unification of Matcher's and TokenTree's would vastly improve
         // the interpolation of Matcher's
         maybe_whole!(self, NtMatchers);
-        let name_idx = @Cell::new(0u);
+        let mut name_idx = 0u;
         match self.token {
             token::LBRACE | token::LPAREN | token::LBRACKET => {
                 let other_delimiter = token::flip_delimiter(&self.token);
                 self.bump();
-                self.parse_matcher_subseq_upto(name_idx, &other_delimiter)
+                self.parse_matcher_subseq_upto(&mut name_idx, &other_delimiter)
             }
             _ => self.fatal("expected open delimiter")
         }
@@ -2217,7 +2183,7 @@ impl<'a> Parser<'a> {
     // Otherwise, `$( ( )` would be a valid Matcher, and `$( () )` would be
     // invalid. It's similar to common::parse_seq.
     pub fn parse_matcher_subseq_upto(&mut self,
-                                     name_idx: @Cell<uint>,
+                                     name_idx: &mut uint,
                                      ket: &token::Token)
                                      -> Vec<Matcher> {
         let mut ret_val = Vec::new();
@@ -2234,13 +2200,13 @@ impl<'a> Parser<'a> {
         return ret_val;
     }
 
-    pub fn parse_matcher(&mut self, name_idx: @Cell<uint>) -> Matcher {
+    pub fn parse_matcher(&mut self, name_idx: &mut uint) -> Matcher {
         let lo = self.span.lo;
 
         let m = if self.token == token::DOLLAR {
             self.bump();
             if self.token == token::LPAREN {
-                let name_idx_lo = name_idx.get();
+                let name_idx_lo = *name_idx;
                 self.bump();
                 let ms = self.parse_matcher_subseq_upto(name_idx,
                                                         &token::RPAREN);
@@ -2248,13 +2214,13 @@ impl<'a> Parser<'a> {
                     self.fatal("repetition body must be nonempty");
                 }
                 let (sep, zerok) = self.parse_sep_and_zerok();
-                MatchSeq(ms, sep, zerok, name_idx_lo, name_idx.get())
+                MatchSeq(ms, sep, zerok, name_idx_lo, *name_idx)
             } else {
                 let bound_to = self.parse_ident();
                 self.expect(&token::COLON);
                 let nt_name = self.parse_ident();
-                let m = MatchNonterminal(bound_to, nt_name, name_idx.get());
-                name_idx.set(name_idx.get() + 1u);
+                let m = MatchNonterminal(bound_to, nt_name, *name_idx);
+                *name_idx += 1;
                 m
             }
         } else {
@@ -3986,7 +3952,7 @@ impl<'a> Parser<'a> {
                 let attrs = p.parse_outer_attributes();
                 let lo = p.span.lo;
                 let struct_field_ = ast::StructField_ {
-                    kind: UnnamedField,
+                    kind: UnnamedField(p.parse_visibility()),
                     id: ast::DUMMY_NODE_ID,
                     ty: p.parse_ty(false),
                     attrs: attrs,

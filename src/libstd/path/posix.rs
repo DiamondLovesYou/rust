@@ -13,7 +13,7 @@
 use container::Container;
 use c_str::{CString, ToCStr};
 use clone::Clone;
-use cmp::Eq;
+use cmp::{Eq, TotalEq};
 use from_str::FromStr;
 use io::Writer;
 use iter::{AdditiveIterator, Extendable, Iterator, Map};
@@ -68,6 +68,8 @@ impl Eq for Path {
         self.repr == other.repr
     }
 }
+
+impl TotalEq for Path {}
 
 impl FromStr for Path {
     fn from_str(s: &str) -> Option<Path> {
@@ -275,7 +277,7 @@ impl GenericPath for Path {
                     (None, None) => break,
                     (Some(a), None) => {
                         comps.push(a);
-                        comps.extend(&mut ita);
+                        comps.extend(ita.by_ref());
                         break;
                     }
                     (None, _) => comps.push(dot_dot_static),
@@ -288,7 +290,7 @@ impl GenericPath for Path {
                             comps.push(dot_dot_static);
                         }
                         comps.push(a);
-                        comps.extend(&mut ita);
+                        comps.extend(ita.by_ref());
                         break;
                     }
                 }
@@ -1177,13 +1179,13 @@ mod tests {
             (s: $path:expr, $exp:expr) => (
                 {
                     let path = Path::new($path);
-                    let comps = path.components().to_owned_vec();
+                    let comps = path.components().collect::<~[&[u8]]>();
                     let exp: &[&str] = $exp;
-                    let exps = exp.iter().map(|x| x.as_bytes()).to_owned_vec();
+                    let exps = exp.iter().map(|x| x.as_bytes()).collect::<~[&[u8]]>();
                     assert!(comps == exps, "components: Expected {:?}, found {:?}",
                             comps, exps);
-                    let comps = path.rev_components().to_owned_vec();
-                    let exps = exps.move_rev_iter().to_owned_vec();
+                    let comps = path.rev_components().collect::<~[&[u8]]>();
+                    let exps = exps.move_rev_iter().collect::<~[&[u8]]>();
                     assert!(comps == exps, "rev_components: Expected {:?}, found {:?}",
                             comps, exps);
                 }
@@ -1191,12 +1193,12 @@ mod tests {
             (v: [$($arg:expr),+], [$([$($exp:expr),*]),*]) => (
                 {
                     let path = Path::new(b!($($arg),+));
-                    let comps = path.components().to_owned_vec();
+                    let comps = path.components().collect::<~[&[u8]]>();
                     let exp: &[&[u8]] = [$(b!($($exp),*)),*];
                     assert!(comps.as_slice() == exp, "components: Expected {:?}, found {:?}",
                             comps.as_slice(), exp);
-                    let comps = path.rev_components().to_owned_vec();
-                    let exp = exp.rev_iter().map(|&x|x).to_owned_vec();
+                    let comps = path.rev_components().collect::<~[&[u8]]>();
+                    let exp = exp.rev_iter().map(|&x|x).collect::<~[&[u8]]>();
                     assert!(comps.as_slice() == exp,
                             "rev_components: Expected {:?}, found {:?}",
                             comps.as_slice(), exp);
@@ -1226,13 +1228,13 @@ mod tests {
             (v: [$($arg:expr),+], $exp:expr) => (
                 {
                     let path = Path::new(b!($($arg),+));
-                    let comps = path.str_components().to_owned_vec();
+                    let comps = path.str_components().collect::<~[Option<&str>]>();
                     let exp: &[Option<&str>] = $exp;
                     assert!(comps.as_slice() == exp,
                             "str_components: Expected {:?}, found {:?}",
                             comps.as_slice(), exp);
-                    let comps = path.rev_str_components().to_owned_vec();
-                    let exp = exp.rev_iter().map(|&x|x).to_owned_vec();
+                    let comps = path.rev_str_components().collect::<~[Option<&str>]>();
+                    let exp = exp.rev_iter().map(|&x|x).collect::<~[Option<&str>]>();
                     assert!(comps.as_slice() == exp,
                             "rev_str_components: Expected {:?}, found {:?}",
                             comps.as_slice(), exp);

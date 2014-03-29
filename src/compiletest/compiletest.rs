@@ -8,12 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[crate_type = "bin"];
-#[feature(phase)];
+#![crate_type = "bin"]
+#![feature(phase)]
 
-#[allow(non_camel_case_types)];
-#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
-#[deny(warnings)];
+#![allow(non_camel_case_types)]
+#![deny(warnings)]
 
 extern crate test;
 extern crate getopts;
@@ -44,7 +43,9 @@ pub mod common;
 pub mod errors;
 
 #[start]
-fn start(argc: int, argv: **u8) -> int { green::start(argc, argv, main) }
+fn start(argc: int, argv: **u8) -> int {
+    green::start(argc, argv, rustuv::event_loop, main)
+}
 
 pub fn main() {
     let args = os::args();

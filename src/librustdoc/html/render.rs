@@ -1205,8 +1205,8 @@ fn item_trait(w: &mut Writer, it: &clean::Item,
                   it.name.get_ref().as_slice(),
                   t.generics,
                   parents));
-    let required = t.methods.iter().filter(|m| m.is_req()).to_owned_vec();
-    let provided = t.methods.iter().filter(|m| !m.is_req()).to_owned_vec();
+    let required = t.methods.iter().filter(|m| m.is_req()).collect::<~[&clean::TraitMethod]>();
+    let provided = t.methods.iter().filter(|m| !m.is_req()).collect::<~[&clean::TraitMethod]>();
 
     if t.methods.len() == 0 {
         try!(write!(w, "\\{ \\}"));
@@ -1265,7 +1265,7 @@ fn item_trait(w: &mut Writer, it: &clean::Item,
     }
 
     local_data::get(cache_key, |cache| {
-        let cache = cache.unwrap().get();
+        let cache = cache.unwrap();
         match cache.implementors.find(&it.id) {
             Some(implementors) => {
                 try!(write!(w, "
@@ -1496,17 +1496,17 @@ fn render_struct(w: &mut Writer, it: &clean::Item,
 
 fn render_methods(w: &mut Writer, it: &clean::Item) -> fmt::Result {
     local_data::get(cache_key, |cache| {
-        let c = cache.unwrap().get();
+        let c = cache.unwrap();
         match c.impls.find(&it.id) {
             Some(v) => {
                 let mut non_trait = v.iter().filter(|p| {
                     p.ref0().trait_.is_none()
                 });
-                let non_trait = non_trait.to_owned_vec();
+                let non_trait = non_trait.collect::<~[&(clean::Impl, Option<~str>)]>();
                 let mut traits = v.iter().filter(|p| {
                     p.ref0().trait_.is_some()
                 });
-                let traits = traits.to_owned_vec();
+                let traits = traits.collect::<~[&(clean::Impl, Option<~str>)]>();
 
                 if non_trait.len() > 0 {
                     try!(write!(w, "<h2 id='methods'>Methods</h2>"));
@@ -1517,8 +1517,22 @@ fn render_methods(w: &mut Writer, it: &clean::Item) -> fmt::Result {
                 if traits.len() > 0 {
                     try!(write!(w, "<h2 id='implementations'>Trait \
                                       Implementations</h2>"));
-                    for &(ref i, ref dox) in traits.move_iter() {
-                        try!(render_impl(w, i, dox));
+                    let mut any_derived = false;
+                    for & &(ref i, ref dox) in traits.iter() {
+                        if !i.derived {
+                            try!(render_impl(w, i, dox));
+                        } else {
+                            any_derived = true;
+                        }
+                    }
+                    if any_derived {
+                        try!(write!(w, "<h3 id='derived_implementations'>Derived Implementations \
+                                    </h3>"));
+                        for &(ref i, ref dox) in traits.move_iter() {
+                            if i.derived {
+                                try!(render_impl(w, i, dox));
+                            }
+                        }
                     }
                 }
             }
@@ -1576,7 +1590,7 @@ fn render_impl(w: &mut Writer, i: &clean::Impl,
             Some(id) => id,
         };
         try!(local_data::get(cache_key, |cache| {
-            let cache = cache.unwrap().get();
+            let cache = cache.unwrap();
             match cache.traits.find(&trait_id) {
                 Some(t) => {
                     let name = meth.name.clone();
@@ -1606,7 +1620,7 @@ fn render_impl(w: &mut Writer, i: &clean::Impl,
         None => {}
         Some(id) => {
             try!(local_data::get(cache_key, |cache| {
-                let cache = cache.unwrap().get();
+                let cache = cache.unwrap();
                 match cache.traits.find(&id) {
                     Some(t) => {
                         for method in t.methods.iter() {

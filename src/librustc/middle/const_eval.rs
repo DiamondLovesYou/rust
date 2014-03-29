@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types)]
 
 use metadata::csearch;
 use middle::astencode;
@@ -129,7 +129,7 @@ pub fn lookup_variant_by_id(tcx: &ty::ctxt,
         let maps = astencode::Maps {
             root_map: @RefCell::new(HashMap::new()),
             method_map: @RefCell::new(FnvHashMap::new()),
-            vtable_map: @RefCell::new(NodeMap::new()),
+            vtable_map: @RefCell::new(FnvHashMap::new()),
             capture_map: RefCell::new(NodeMap::new())
         };
         let e = match csearch::maybe_get_item_ast(tcx, enum_def,
@@ -170,7 +170,7 @@ pub fn lookup_const_by_id(tcx: &ty::ctxt, def_id: ast::DefId)
         let maps = astencode::Maps {
             root_map: @RefCell::new(HashMap::new()),
             method_map: @RefCell::new(FnvHashMap::new()),
-            vtable_map: @RefCell::new(NodeMap::new()),
+            vtable_map: @RefCell::new(FnvHashMap::new()),
             capture_map: RefCell::new(NodeMap::new())
         };
         let e = match csearch::maybe_get_item_ast(tcx, def_id,

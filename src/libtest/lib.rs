@@ -23,17 +23,17 @@
 // running tests while providing a base that other test frameworks may
 // build off of.
 
-#[crate_id = "test#0.10-pre"];
-#[comment = "Rust internal test library only used by rustc"];
-#[license = "MIT/ASL2"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
+#![crate_id = "test#0.10-pre"]
+#![comment = "Rust internal test library only used by rustc"]
+#![license = "MIT/ASL2"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_root_url = "http://static.rust-lang.org/doc/master")]
 
-#[feature(asm, macro_rules)];
-#[deny(deprecated_owned_vector)];
+#![feature(asm, macro_rules)]
+#![deny(deprecated_owned_vector)]
 
 extern crate collections;
 extern crate getopts;
@@ -46,7 +46,7 @@ use stats::Stats;
 use time::precise_time_ns;
 use getopts::{OptGroup, optflag, optopt};
 use serialize::{json, Decodable};
-use serialize::json::ToJson;
+use serialize::json::{Json, ToJson};
 use term::Terminal;
 use term::color::{Color, RED, YELLOW, GREEN, CYAN};
 
@@ -123,7 +123,7 @@ pub enum TestFn {
     StaticTestFn(fn()),
     StaticBenchFn(fn(&mut BenchHarness)),
     StaticMetricFn(proc(&mut MetricMap)),
-    DynTestFn(proc()),
+    DynTestFn(proc:Send()),
     DynMetricFn(proc(&mut MetricMap)),
     DynBenchFn(~TDynBenchFn)
 }
@@ -948,7 +948,7 @@ pub fn run_test(force_ignore: bool,
     #[allow(deprecated_owned_vector)]
     fn run_test_inner(desc: TestDesc,
                       monitor_ch: Sender<MonitorMsg>,
-                      testfn: proc()) {
+                      testfn: proc:Send()) {
         spawn(proc() {
             let (tx, rx) = channel();
             let mut reader = ChanReader::new(rx);
@@ -958,8 +958,8 @@ pub fn run_test(force_ignore: bool,
                 DynTestName(ref name) => name.clone().into_maybe_owned(),
                 StaticTestName(name) => name.into_maybe_owned(),
             });
-            task.opts.stdout = Some(~stdout as ~Writer);
-            task.opts.stderr = Some(~stderr as ~Writer);
+            task.opts.stdout = Some(~stdout as ~Writer:Send);
+            task.opts.stderr = Some(~stderr as ~Writer:Send);
             let result_future = task.future_result();
             task.spawn(testfn);
 
@@ -1018,6 +1018,7 @@ impl ToJson for Metric {
     }
 }
 
+
 impl MetricMap {
 
     pub fn new() -> MetricMap {
@@ -1035,7 +1036,10 @@ impl MetricMap {
         let mut f = File::open(p).unwrap();
         let value = json::from_reader(&mut f as &mut io::Reader).unwrap();
         let mut decoder = json::Decoder::new(value);
-        MetricMap(Decodable::decode(&mut decoder))
+        MetricMap(match Decodable::decode(&mut decoder) {
+            Ok(t) => t,
+            Err(e) => fail!("failure decoding JSON: {}", e)
+        })
     }
 
     /// Write MetricDiff to a file.

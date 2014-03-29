@@ -62,16 +62,15 @@ println!("{:?}", tuple_ptr)
 ```
 */
 
-#[crate_id = "rand#0.10-pre"];
-#[license = "MIT/ASL2"];
-#[crate_type = "dylib"];
-#[crate_type = "rlib"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
+#![crate_id = "rand#0.10-pre"]
+#![license = "MIT/ASL2"]
+#![crate_type = "dylib"]
+#![crate_type = "rlib"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk.png",
+       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_root_url = "http://static.rust-lang.org/doc/master")]
 
-#[feature(macro_rules, managed_boxes, phase)];
-#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
+#![feature(macro_rules, managed_boxes, phase)]
 
 #[cfg(test)]
 #[phase(syntax, link)] extern crate log;
@@ -826,7 +825,7 @@ mod test {
         let max_val = 100;
 
         let mut r = task_rng();
-        let vals = range(min_val, max_val).to_owned_vec();
+        let vals = range(min_val, max_val).collect::<~[int]>();
         let small_sample = r.sample(vals.iter(), 5);
         let large_sample = r.sample(vals.iter(), vals.len() + 5);
 

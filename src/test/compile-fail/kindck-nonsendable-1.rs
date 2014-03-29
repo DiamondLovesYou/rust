@@ -8,13 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 fn foo(_x: @uint) {}
 
 fn main() {
     let x = @3u;
-    let _: proc() = proc() foo(x); //~ ERROR does not fulfill `Send`
-    let _: proc() = proc() foo(x); //~ ERROR does not fulfill `Send`
-    let _: proc() = proc() foo(x); //~ ERROR does not fulfill `Send`
+    let _: proc:Send() = proc() foo(x); //~ ERROR does not fulfill `Send`
+    let _: proc:Send() = proc() foo(x); //~ ERROR does not fulfill `Send`
+    let _: proc:Send() = proc() foo(x); //~ ERROR does not fulfill `Send`
+    let _: proc() = proc() foo(x);
 }

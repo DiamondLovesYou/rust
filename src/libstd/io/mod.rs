@@ -208,7 +208,7 @@ responding to errors that may occur while attempting to read the numbers.
 
 */
 
-#[deny(unused_must_use)];
+#![deny(unused_must_use)]
 
 use cast;
 use char::Char;
@@ -300,25 +300,44 @@ impl fmt::Show for IoError {
     }
 }
 
+/// A list specifying general categories of I/O error.
 #[deriving(Eq, Clone, Show)]
-#[allow(missing_doc)]
 pub enum IoErrorKind {
+    /// Any I/O error not part of this list.
     OtherIoError,
+    /// The operation could not complete because end of file was reached.
     EndOfFile,
+    /// The file was not found.
     FileNotFound,
+    /// The file permissions disallowed access to this file.
     PermissionDenied,
+    /// A network connection failed for some reason not specified in this list.
     ConnectionFailed,
+    /// The network operation failed because the network connection was cloesd.
     Closed,
+    /// The connection was refused by the remote server.
     ConnectionRefused,
+    /// The connection was reset by the remote server.
     ConnectionReset,
+    /// The connection was aborted (terminated) by the remote server.
     ConnectionAborted,
+    /// The network operation failed because it was not connected yet.
     NotConnected,
+    /// The operation failed because a pipe was closed.
     BrokenPipe,
+    /// A file already existed with that name.
     PathAlreadyExists,
+    /// No file exists at that location.
     PathDoesntExist,
+    /// The path did not specify the type of file that this operation required. For example,
+    /// attempting to copy a directory with the `fs::copy()` operation will fail with this error.
     MismatchedFileTypeForOperation,
+    /// The operation temporarily failed (for example, because a signal was received), and retrying
+    /// may succeed.
     ResourceUnavailable,
+    /// No I/O functionality is available for this task.
     IoUnavailable,
+    /// A parameter was incorrect in a way that caused an I/O error not part of this list.
     InvalidInput,
 }
 
@@ -358,6 +377,23 @@ pub trait Reader {
                 Err(e) => return Err(e)
             }
         }
+    }
+
+    /// Fills the provided slice with bytes from this reader
+    ///
+    /// This will continue to call `read` until the slice has been completely
+    /// filled with bytes.
+    ///
+    /// # Error
+    ///
+    /// If an error occurs at any point, that error is returned, and no further
+    /// bytes are read.
+    fn fill(&mut self, buf: &mut [u8]) -> IoResult<()> {
+        let mut read = 0;
+        while read < buf.len() {
+            read += try!(self.read(buf.mut_slice_from(read)));
+        }
+        Ok(())
     }
 
     /// Reads exactly `len` bytes and appends them to a vector.
@@ -1045,7 +1081,7 @@ pub trait Buffer: Reader {
     /// This function will return an I/O error if the underlying reader was
     /// read, but returned an error. Note that it is not an error to return a
     /// 0-length buffer.
-    fn fill<'a>(&'a mut self) -> IoResult<&'a [u8]>;
+    fn fill_buf<'a>(&'a mut self) -> IoResult<&'a [u8]>;
 
     /// Tells this buffer that `amt` bytes have been consumed from the buffer,
     /// so they should no longer be returned in calls to `fill` or `read`.
@@ -1116,7 +1152,7 @@ pub trait Buffer: Reader {
         let mut used;
         loop {
             {
-                let available = match self.fill() {
+                let available = match self.fill_buf() {
                     Ok(n) => n,
                     Err(ref e) if res.len() > 0 && e.kind == EndOfFile => {
                         used = 0;
@@ -1391,18 +1427,27 @@ pub struct FileStat {
 /// structure. This information is not necessarily platform independent, and may
 /// have different meanings or no meaning at all on some platforms.
 #[unstable]
-#[allow(missing_doc)]
 #[deriving(Hash)]
 pub struct UnstableFileStat {
+    /// The ID of the device containing the file.
     device: u64,
+    /// The file serial number.
     inode: u64,
+    /// The device ID.
     rdev: u64,
+    /// The number of hard links to this file.
     nlink: u64,
+    /// The user ID of the file.
     uid: u64,
+    /// The group ID of the file.
     gid: u64,
+    /// The optimal block size for I/O.
     blksize: u64,
+    /// The blocks allocated for this file.
     blocks: u64,
+    /// User-defined flags for the file.
     flags: u64,
+    /// The file generation number.
     gen: u64,
 }
 

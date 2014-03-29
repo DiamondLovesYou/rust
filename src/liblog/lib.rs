@@ -105,16 +105,16 @@ if logging is disabled, none of the components of the log will be executed.
 
 */
 
-#[crate_id = "log#0.10-pre"];
-#[license = "MIT/ASL2"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
+#![crate_id = "log#0.10-pre"]
+#![license = "MIT/ASL2"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_root_url = "http://static.rust-lang.org/doc/master")]
 
-#[feature(macro_rules)];
-#[deny(missing_doc, deprecated_owned_vector)];
+#![feature(macro_rules)]
+#![deny(missing_doc, deprecated_owned_vector)]
 
 extern crate sync;
 
@@ -156,7 +156,7 @@ pub static WARN: u32 = 2;
 /// Error log level
 pub static ERROR: u32 = 1;
 
-local_data_key!(local_logger: ~Logger)
+local_data_key!(local_logger: ~Logger:Send)
 
 /// A trait used to represent an interface to a task-local logger. Each task
 /// can have its own custom logger which can respond to logging messages
@@ -203,7 +203,7 @@ pub fn log(level: u32, args: &fmt::Arguments) {
     // frob the slot while we're doing the logging. This will destroy any logger
     // set during logging.
     let mut logger = local_data::pop(local_logger).unwrap_or_else(|| {
-        ~DefaultLogger { handle: io::stderr() } as ~Logger
+        ~DefaultLogger { handle: io::stderr() } as ~Logger:Send
     });
     logger.log(level, args);
     local_data::set(local_logger, logger);
@@ -217,7 +217,7 @@ pub fn log_level() -> u32 { unsafe { LOG_LEVEL } }
 
 /// Replaces the task-local logger with the specified logger, returning the old
 /// logger.
-pub fn set_logger(logger: ~Logger) -> Option<~Logger> {
+pub fn set_logger(logger: ~Logger:Send) -> Option<~Logger:Send> {
     let prev = local_data::pop(local_logger);
     local_data::set(local_logger, logger);
     return prev;

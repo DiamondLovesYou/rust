@@ -28,6 +28,7 @@ use middle::trans::inline;
 use middle::trans::machine;
 use middle::trans::type_::Type;
 use middle::trans::type_of;
+use middle::trans::debuginfo;
 use middle::ty;
 use util::ppaux::{Repr, ty_to_str};
 
@@ -538,7 +539,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr,
               };
 
               expr::with_field_tys(tcx, ety, Some(e.id), |discr, field_tys| {
-                  let cs = field_tys.iter().enumerate()
+                  let (cs, inlineable) = slice::unzip(field_tys.iter().enumerate()
                       .map(|(ix, &field_ty)| {
                       match fs.iter().find(|f| field_ty.ident.name == f.ident.node.name) {
                           Some(f) => const_expr(cx, (*f).expr, is_local),
@@ -552,8 +553,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr,
                               }
                           }
                       }
-                  }).to_owned_vec();
-                  let (cs, inlineable) = slice::unzip(cs.move_iter());
+                  }));
                   (adt::trans_const(cx, repr, discr, cs),
                    inlineable.iter().fold(true, |a, &b| a && b))
               })
@@ -689,5 +689,6 @@ pub fn trans_const(ccx: &CrateContext, m: ast::Mutability, id: ast::NodeId) {
         if m != ast::MutMutable {
             llvm::LLVMSetGlobalConstant(g, True);
         }
+        debuginfo::create_global_var_metadata(ccx, id, g);
     }
 }

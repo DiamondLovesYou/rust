@@ -41,8 +41,8 @@ fn run_ar(sess: &Session, args: &str, cwd: Option<&Path>,
     let ar = get_ar_prog(sess);
 
     let mut args = vec!(args.to_owned());
-    let mut paths = paths.iter().map(|p| p.as_str().unwrap().to_owned());
-    args.extend(&mut paths);
+    let paths = paths.iter().map(|p| p.as_str().unwrap().to_owned());
+    args.extend(paths);
     debug!("{} {}", ar, args.connect(" "));
     match cwd {
         Some(p) => { debug!("inside {}", p.display()); }
@@ -91,7 +91,7 @@ impl<'a> Archive<'a> {
     pub fn read(&self, file: &str) -> Vec<u8> {
         // Apparently if "ar p" is used on windows, it generates a corrupt file
         // which has bad headers and LLVM will immediately choke on it
-        if cfg!(windows) && cfg!(windows) { // FIXME(#10734) double-and
+        if cfg!(windows) {
             let loc = TempDir::new("rsar").unwrap();
             let archive = os::make_absolute(&self.dst);
             run_ar(self.sess, "x", Some(loc.path()), [&archive,
@@ -190,7 +190,7 @@ impl<'a> Archive<'a> {
 
         // Finally, add all the renamed files to this archive
         let mut args = vec!(&self.dst);
-        args.extend(&mut inputs.iter());
+        args.extend(inputs.iter());
         run_ar(self.sess, "r", None, args.as_slice());
         Ok(())
     }

@@ -33,7 +33,7 @@
 //! modify the Context visitor appropriately. If you're adding lints from the
 //! Context itself, span_lint should be used instead of add_lint.
 
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types)]
 
 use driver::session;
 use metadata::csearch;
@@ -115,6 +115,8 @@ pub enum Lint {
     DeprecatedOwnedVector,
 
     Warnings,
+
+    RawPointerDeriving,
 }
 
 pub fn level_to_str(lv: level) -> &'static str {
@@ -405,6 +407,13 @@ static lint_table: &'static [(&'static str, LintSpec)] = &[
         lint: DeprecatedOwnedVector,
         desc: "use of a `~[T]` vector",
         default: allow,
+    }),
+
+    ("raw_pointer_deriving",
+     LintSpec {
+        lint: RawPointerDeriving,
+        desc: "uses of #[deriving] with raw pointers are rarely correct",
+        default: warn,
     }),
 ];
 
@@ -959,6 +968,37 @@ fn check_heap_item(cx: &Context, it: &ast::Item) {
     }
 }
 
+struct RawPtrDerivingVisitor<'a> {
+    cx: &'a Context<'a>
+}
+
+impl<'a> Visitor<()> for RawPtrDerivingVisitor<'a> {
+    fn visit_ty(&mut self, ty: &ast::Ty, _: ()) {
+        static MSG: &'static str = "use of `#[deriving]` with a raw pointer";
+        match ty.node {
+            ast::TyPtr(..) => self.cx.span_lint(RawPointerDeriving, ty.span, MSG),
+            _ => {}
+        }
+        visit::walk_ty(self, ty, ());
+    }
+    // explicit override to a no-op to reduce code bloat
+    fn visit_expr(&mut self, _: &ast::Expr, _: ()) {}
+    fn visit_block(&mut self, _: &ast::Block, _: ()) {}
+}
+
+fn check_raw_ptr_deriving(cx: &Context, item: &ast::Item) {
+    if !attr::contains_name(item.attrs.as_slice(), "deriving") {
+        return
+    }
+    match item.node {
+        ast::ItemStruct(..) | ast::ItemEnum(..) => {
+            let mut visitor = RawPtrDerivingVisitor { cx: cx };
+            visit::walk_item(&mut visitor, item, ());
+        }
+        _ => {}
+    }
+}
+
 static crate_attrs: &'static [&'static str] = &[
     "crate_type", "feature", "no_start", "no_main", "no_std", "crate_id",
     "desc", "comment", "license", "copyright", // not used in rustc now
@@ -980,7 +1020,7 @@ static other_attrs: &'static [&'static str] = &[
     "thread_local", // for statics
     "allow", "deny", "forbid", "warn", // lint options
     "deprecated", "experimental", "unstable", "stable", "locked", "frozen", //item stability
-    "crate_map", "cfg", "doc", "export_name", "link_section",
+    "cfg", "doc", "export_name", "link_section",
     "no_mangle", "static_assert", "unsafe_no_drop_flag", "packed",
     "simd", "repr", "deriving", "unsafe_destructor", "link", "phase",
     "macro_export", "must_use", "automatically_derived",
@@ -1585,6 +1625,7 @@ impl<'a> Visitor<()> for Context<'a> {
             check_heap_item(cx, it);
             check_missing_doc_item(cx, it);
             check_attrs_usage(cx, it.attrs.as_slice());
+            check_raw_ptr_deriving(cx, it);
 
             cx.visit_ids(|v| v.visit_item(it, ()));
 

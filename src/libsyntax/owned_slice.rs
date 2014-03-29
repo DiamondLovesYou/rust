@@ -119,24 +119,29 @@ impl<T: Eq> Eq for OwnedSlice<T> {
     }
 }
 
+impl<T: TotalEq> TotalEq for OwnedSlice<T> {}
+
 impl<T> Container for OwnedSlice<T> {
     fn len(&self) -> uint { self.len }
 }
 
 impl<T> FromIterator<T> for OwnedSlice<T> {
-    fn from_iterator<I: Iterator<T>>(iter: &mut I) -> OwnedSlice<T> {
+    fn from_iterator<I: Iterator<T>>(mut iter: I) -> OwnedSlice<T> {
         OwnedSlice::from_vec(iter.collect())
     }
 }
 
-impl<S: Encoder, T: Encodable<S>> Encodable<S> for OwnedSlice<T> {
-    fn encode(&self, s: &mut S) {
+impl<S: Encoder<E>, T: Encodable<S, E>, E> Encodable<S, E> for OwnedSlice<T> {
+    fn encode(&self, s: &mut S) -> Result<(), E> {
        self.as_slice().encode(s)
     }
 }
 
-impl<D: Decoder, T: Decodable<D>> Decodable<D> for OwnedSlice<T> {
-    fn decode(d: &mut D) -> OwnedSlice<T> {
-        OwnedSlice::from_vec(Decodable::decode(d))
+impl<D: Decoder<E>, T: Decodable<D, E>, E> Decodable<D, E> for OwnedSlice<T> {
+    fn decode(d: &mut D) -> Result<OwnedSlice<T>, E> {
+        Ok(OwnedSlice::from_vec(match Decodable::decode(d) {
+            Ok(t) => t,
+            Err(e) => return Err(e)
+        }))
     }
 }

@@ -10,7 +10,7 @@
 
 /*! See doc.rs for a thorough explanation of the borrow checker */
 
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types)]
 
 use mc = middle::mem_categorization;
 use middle::ty;
@@ -205,7 +205,7 @@ pub struct BorrowStats {
 //
 // Note that there is no entry with derefs:3---the type of that expression
 // is T, which is not a box.
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub struct root_map_key {
     id: ast::NodeId,
     derefs: uint
@@ -243,13 +243,13 @@ pub enum LoanCause {
     RefBinding,
 }
 
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum LoanPath {
     LpVar(ast::NodeId),               // `x` in doc.rs
     LpExtend(@LoanPath, mc::MutabilityCategory, LoanPathElem)
 }
 
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum LoanPathElem {
     LpDeref(mc::PointerKind),    // `*LV` in doc.rs
     LpInterior(mc::InteriorKind) // `LV.f` in doc.rs

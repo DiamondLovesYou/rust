@@ -10,8 +10,8 @@
 
 // Type encoding
 
-#[allow(unused_must_use)]; // as with encoding, everything is a no-fail MemWriter
-#[allow(non_camel_case_types)];
+#![allow(unused_must_use)] // as with encoding, everything is a no-fail MemWriter
+#![allow(non_camel_case_types)]
 
 use std::cell::RefCell;
 use collections::HashMap;
@@ -394,7 +394,7 @@ fn enc_bounds(w: &mut MemWriter, cx: &ctxt, bs: &ty::ParamBounds) {
             ty::BoundSend => mywrite!(w, "S"),
             ty::BoundStatic => mywrite!(w, "O"),
             ty::BoundSized => mywrite!(w, "Z"),
-            ty::BoundPod => mywrite!(w, "P"),
+            ty::BoundCopy => mywrite!(w, "P"),
             ty::BoundShare => mywrite!(w, "T"),
         }
     }

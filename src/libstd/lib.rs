@@ -43,22 +43,21 @@
 //!
 //!     use std::prelude::*;
 
-#[crate_id = "std#0.10-pre"];
-#[comment = "The Rust standard library"];
-#[license = "MIT/ASL2"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
-#[feature(macro_rules, globs, asm, managed_boxes, thread_local, link_args,
-          simd, linkage, default_type_params, phase)];
+#![crate_id = "std#0.10-pre"]
+#![comment = "The Rust standard library"]
+#![license = "MIT/ASL2"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_root_url = "http://static.rust-lang.org/doc/master")]
+#![feature(macro_rules, globs, asm, managed_boxes, thread_local, link_args,
+           simd, linkage, default_type_params, phase)]
 
 // Don't link to std. We are std.
-#[no_std];
+#![no_std]
 
-#[deny(missing_doc)];
-#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
+#![deny(missing_doc)]
 
 // When testing libstd, bring in libuv as the I/O backend so tests can print
 // things and all of the std::io tests have an I/O interface to run on top
@@ -78,9 +77,6 @@
 #[cfg(test)] pub use cmp = realstd::cmp;
 #[cfg(test)] pub use ty = realstd::ty;
 
-#[cfg(stage0)]
-pub use vec_ng = vec;
-
 // Run tests with libgreen instead of libnative.
 //
 // FIXME: This egregiously hacks around starting the test runner in a different
@@ -88,7 +84,7 @@ pub use vec_ng = vec;
 //        '__test' module.
 #[cfg(test)] #[start]
 fn start(argc: int, argv: **u8) -> int {
-    green::start(argc, argv, __test::main)
+    green::start(argc, argv, rustuv::event_loop, __test::main)
 }
 
 pub mod macros;
@@ -134,7 +130,7 @@ pub mod ascii;
 
 pub mod ptr;
 pub mod owned;
-pub mod managed;
+mod managed;
 mod reference;
 pub mod rc;
 pub mod gc;

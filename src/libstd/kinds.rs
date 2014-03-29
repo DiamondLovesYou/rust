@@ -33,24 +33,56 @@ pub trait Sized {
 }
 
 /// Types that can be copied by simply copying bits (i.e. `memcpy`).
-///
-/// The name "POD" stands for "Plain Old Data" and is borrowed from C++.
-#[lang="pod"]
-pub trait Pod {
+#[lang="copy"]
+pub trait Copy {
     // Empty.
 }
 
-/// Types that can be safely shared between threads, hence thread-safe.
-#[cfg(stage0)]
-pub trait Share {
-    // Empty
-}
-
-#[cfg(stage0)]
-impl<T> Share for T {}
-
-/// Types that can be safely shared between threads, hence thread-safe.
-#[cfg(not(stage0))]
+/// Types that can be safely shared between tasks when aliased.
+///
+/// The precise definition is: a type `T` is `Share` if `&T` is
+/// thread-safe. In other words, there is no possibility of data races
+/// when passing `&T` references between tasks.
+///
+/// As one would expect, primitive types like `u8` and `f64` are all
+/// `Share`, and so are simple aggregate types containing them (like
+/// tuples, structs and enums). More instances of basic `Share` types
+/// include "immutable" types like `&T` and those with simple
+/// inherited mutability, such as `~T`, `Vec<T>` and most other
+/// collection types. (Generic parameters need to be `Share` for their
+/// container to be `Share`.)
+///
+/// A somewhat surprising consequence of the definition is `&mut T` is
+/// `Share` (if `T` is `Share`) even though it seems that it might
+/// provide unsynchronised mutation. The trick is a mutable reference
+/// stored in an aliasable reference (that is, `& &mut T`) becomes
+/// read-only, as if it were a `& &T`, hence there is no risk of a data
+/// race.
+///
+/// Types that are not `Share` are those that have "interior
+/// mutability" in a non-thread-safe way, such as `Cell` and `RefCell`
+/// in `std::cell`. These types allow for mutation of their contents
+/// even when in an immutable, aliasable slot, e.g. the contents of
+/// `&Cell<T>` can be `.set`, and do not ensure data races are
+/// impossible, hence they cannot be `Share`. A higher level example
+/// of a non-`Share` type is the reference counted pointer
+/// `std::rc::Rc`, because any reference `&Rc<T>` can clone a new
+/// reference, which modifies the reference counts in a non-atomic
+/// way.
+///
+/// For cases when one does need thread-safe interior mutability,
+/// types like the atomics in `std::sync` and `Mutex` & `RWLock` in
+/// the `sync` crate do ensure that any mutation cannot cause data
+/// races.  Hence these types are `Share`.
+///
+/// Users writing their own types with interior mutability (or anything
+/// else that is not thread-safe) should use the `NoShare` marker type
+/// (from `std::kinds::marker`) to ensure that the compiler doesn't
+/// consider the user-defined type to be `Share`.  Any types with
+/// interior mutability must also use the `std::ty::Unsafe` wrapper
+/// around the value(s) which can be mutated when behind a `&`
+/// reference; not doing this is undefined behaviour (for example,
+/// `transmute`-ing from `&T` to `&mut T` is illegal).
 #[lang="share"]
 pub trait Share {
     // Empty
@@ -230,9 +262,9 @@ pub mod marker {
     /// A type which is considered "not POD", meaning that it is not
     /// implicitly copyable. This is typically embedded in other types to
     /// ensure that they are never copied, even if they lack a destructor.
-    #[lang="no_pod_bound"]
+    #[lang="no_copy_bound"]
     #[deriving(Eq,Clone)]
-    pub struct NoPod;
+    pub struct NoCopy;
 
     /// A type which is considered "not sharable", meaning that
     /// its contents are not threadsafe, hence they cannot be

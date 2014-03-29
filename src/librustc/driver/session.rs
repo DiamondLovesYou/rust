@@ -542,8 +542,6 @@ cgoptions!(
         "don't run LLVM's SLP vectorization pass"),
     soft_float: bool = (false, parse_bool,
         "generate software floating point library calls"),
-    gen_crate_map: bool = (false, parse_bool,
-        "force generation of a toplevel crate map"),
     prefer_dynamic: bool = (false, parse_bool,
         "prefer dynamic linking to static linking"),
     no_integrated_as: bool = (false, parse_bool,
@@ -590,7 +588,7 @@ pub fn collect_crate_types(session: &Session,
         return vec!(CrateTypeExecutable)
     }
     let mut base = session.opts.crate_types.clone();
-    let mut iter = attrs.iter().filter_map(|a| {
+    let iter = attrs.iter().filter_map(|a| {
         if a.name().equiv(&("crate_type")) {
             match a.value_str() {
                 Some(ref n) if n.equiv(&("rlib")) => Some(CrateTypeRlib),
@@ -619,7 +617,7 @@ pub fn collect_crate_types(session: &Session,
             None
         }
     });
-    base.extend(&mut iter);
+    base.extend(iter);
     if base.len() == 0 {
         base.push(CrateTypeExecutable);
     }

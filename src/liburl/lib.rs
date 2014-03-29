@@ -10,14 +10,14 @@
 
 //! Types/fns concerning URLs (see RFC 3986)
 
-#[crate_id = "url#0.10-pre"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
-#[license = "MIT/ASL2"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
-#[feature(default_type_params)];
+#![crate_id = "url#0.10-pre"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
+#![license = "MIT/ASL2"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_root_url = "http://static.rust-lang.org/doc/master")]
+#![feature(default_type_params)]
 
 extern crate collections;
 
@@ -48,7 +48,7 @@ use collections::HashMap;
 ///                 fragment: Some(~"quz") };
 /// // https://username@example.com:8080/foo/bar?baz=qux#quz
 /// ```
-#[deriving(Clone, Eq)]
+#[deriving(Clone, Eq, TotalEq)]
 pub struct Url {
     /// The scheme part of a URL, such as `https` in the above example.
     scheme: ~str,
@@ -79,7 +79,7 @@ pub struct Path {
 }
 
 /// An optional subcomponent of a URI authority component.
-#[deriving(Clone, Eq)]
+#[deriving(Clone, Eq, TotalEq)]
 pub struct UserInfo {
     /// The user name.
     user: ~str,

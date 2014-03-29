@@ -8,13 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[crate_id = "rustdoc#0.10-pre"];
-#[desc = "rustdoc, the Rust documentation extractor"];
-#[license = "MIT/ASL2"];
-#[crate_type = "dylib"];
-#[crate_type = "rlib"];
+#![crate_id = "rustdoc#0.10-pre"]
+#![desc = "rustdoc, the Rust documentation extractor"]
+#![license = "MIT/ASL2"]
+#![crate_type = "dylib"]
+#![crate_type = "rlib"]
 
-#[feature(globs, struct_variant, managed_boxes, macro_rules, phase)];
+#![feature(globs, struct_variant, managed_boxes, macro_rules, phase)]
 
 extern crate syntax;
 extern crate rustc;
@@ -352,7 +352,7 @@ fn json_input(input: &str) -> Result<Output, ~str> {
             let krate = match obj.pop(&~"crate") {
                 Some(json) => {
                     let mut d = json::Decoder::new(json);
-                    Decodable::decode(&mut d)
+                    Decodable::decode(&mut d).unwrap()
                 }
                 None => return Err(~"malformed json"),
             };
@@ -384,7 +384,7 @@ fn json_output(krate: clean::Crate, res: Vec<plugins::PluginJson> ,
         let mut w = MemWriter::new();
         {
             let mut encoder = json::Encoder::new(&mut w as &mut io::Writer);
-            krate.encode(&mut encoder);
+            krate.encode(&mut encoder).unwrap();
         }
         str::from_utf8_owned(w.unwrap()).unwrap()
     };

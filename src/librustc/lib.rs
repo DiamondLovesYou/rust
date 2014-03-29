@@ -18,19 +18,18 @@ This API is completely unstable and subject to change.
 
 */
 
-#[crate_id = "rustc#0.10-pre"];
-#[comment = "The Rust compiler"];
-#[license = "MIT/ASL2"];
-#[crate_type = "dylib"];
-#[crate_type = "rlib"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+#![crate_id = "rustc#0.10-pre"]
+#![comment = "The Rust compiler"]
+#![license = "MIT/ASL2"]
+#![crate_type = "dylib"]
+#![crate_type = "rlib"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
+      html_root_url = "http://static.rust-lang.org/doc/master")]
 
-#[allow(deprecated)];
-#[feature(macro_rules, globs, struct_variant, managed_boxes, quote,
-          default_type_params, phase)];
-#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
+#![allow(deprecated)]
+#![feature(macro_rules, globs, struct_variant, managed_boxes, quote,
+           default_type_params, phase)]
 
 extern crate flate;
 extern crate arena;
@@ -367,7 +366,7 @@ fn parse_crate_attrs(sess: &session::Session, input: &d::Input) ->
 ///
 /// The diagnostic emitter yielded to the procedure should be used for reporting
 /// errors of the compiler.
-pub fn monitor(f: proc()) {
+pub fn monitor(f: proc:Send()) {
     // FIXME: This is a hack for newsched since it doesn't support split stacks.
     // rustc needs a lot of stack! When optimizations are disabled, it needs
     // even *more* stack than usual as well.
@@ -389,7 +388,7 @@ pub fn monitor(f: proc()) {
     let mut r = io::ChanReader::new(rx);
 
     match task_builder.try(proc() {
-        io::stdio::set_stderr(~w as ~io::Writer);
+        io::stdio::set_stderr(~w);
         f()
     }) {
         Ok(()) => { /* fallthrough */ }
@@ -427,7 +426,7 @@ pub fn monitor(f: proc()) {
             // Fail so the process returns a failure code, but don't pollute the
             // output with some unnecessary failure messages, we've already
             // printed everything that we needed to.
-            io::stdio::set_stderr(~io::util::NullWriter as ~io::Writer);
+            io::stdio::set_stderr(~io::util::NullWriter);
             fail!();
         }
     }

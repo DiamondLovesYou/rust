@@ -66,10 +66,10 @@ mod imp {
     use cast;
     use clone::Clone;
     use option::{Option, Some, None};
-    use ptr::RawPtr;
     use iter::Iterator;
     use unstable::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
     use mem;
+    #[cfg(not(test))] use ptr::RawPtr;
 
     static mut global_args_ptr: uint = 0;
     static mut lock: StaticNativeMutex = NATIVE_MUTEX_INIT;
@@ -124,6 +124,7 @@ mod imp {
     #[cfg(not(test))]
     unsafe fn load_argc_and_argv(argc: int, argv: **u8) -> ~[~[u8]] {
         use c_str::CString;
+        use ptr::RawPtr;
         use {slice, libc};
         use slice::CloneableVector;
 

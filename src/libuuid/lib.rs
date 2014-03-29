@@ -54,19 +54,15 @@ Examples of string representations:
 
 */
 
-#[crate_id = "uuid#0.10-pre"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
-#[license = "MIT/ASL2"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
+#![crate_id = "uuid#0.10-pre"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
+#![license = "MIT/ASL2"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_root_url = "http://static.rust-lang.org/doc/master")]
 
-#[feature(default_type_params)];
-
-// NOTE remove the following two attributes after the next snapshot.
-#[allow(unrecognized_lint)];
-#[allow(default_type_param_usage)];
+#![feature(default_type_params)]
 
 // test harness access
 #[cfg(test)]
@@ -491,27 +487,20 @@ impl Eq for Uuid {
     }
 }
 
-/// Test two UUIDs for equality
-///
-/// UUIDs are equal only when they are byte-for-byte identical
-impl TotalEq for Uuid {
-    fn equals(&self, other: &Uuid) -> bool {
-        self.bytes == other.bytes
-    }
-}
+impl TotalEq for Uuid {}
 
 // FIXME #9845: Test these more thoroughly
-impl<T: Encoder> Encodable<T> for Uuid {
+impl<T: Encoder<E>, E> Encodable<T, E> for Uuid {
     /// Encode a UUID as a hypenated string
-    fn encode(&self, e: &mut T) {
-        e.emit_str(self.to_hyphenated_str());
+    fn encode(&self, e: &mut T) -> Result<(), E> {
+        e.emit_str(self.to_hyphenated_str())
     }
 }
 
-impl<T: Decoder> Decodable<T> for Uuid {
+impl<T: Decoder<E>, E> Decodable<T, E> for Uuid {
     /// Decode a UUID from a string
-    fn decode(d: &mut T) -> Uuid {
-        from_str(d.read_str()).unwrap()
+    fn decode(d: &mut T) -> Result<Uuid, E> {
+        Ok(from_str(try!(d.read_str())).unwrap())
     }
 }
 
@@ -808,9 +797,9 @@ mod test {
 
         let u = Uuid::new_v4();
         let mut wr = MemWriter::new();
-        u.encode(&mut ebml::writer::Encoder(&mut wr));
+        let _ = u.encode(&mut ebml::writer::Encoder(&mut wr));
         let doc = ebml::reader::Doc(wr.get_ref());
-        let u2 = Decodable::decode(&mut ebml::reader::Decoder(doc));
+        let u2 = Decodable::decode(&mut ebml::reader::Decoder(doc)).unwrap();
         assert_eq!(u, u2);
     }
 

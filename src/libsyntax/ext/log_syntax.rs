@@ -10,26 +10,20 @@
 
 use ast;
 use codemap;
-use ext::base::*;
 use ext::base;
 use print;
 
-pub fn expand_syntax_ext(cx: &mut ExtCtxt,
+use std::rc::Rc;
+
+pub fn expand_syntax_ext(cx: &mut base::ExtCtxt,
                          sp: codemap::Span,
                          tt: &[ast::TokenTree])
                       -> base::MacResult {
 
     cx.print_backtrace();
     println!("{}", print::pprust::tt_to_str(&ast::TTDelim(
-                @tt.iter().map(|x| (*x).clone()).collect())));
+                Rc::new(tt.iter().map(|x| (*x).clone()).collect()))));
 
-    //trivial expression
-    MRExpr(@ast::Expr {
-        id: ast::DUMMY_NODE_ID,
-        node: ast::ExprLit(@codemap::Spanned {
-            node: ast::LitNil,
-            span: sp
-        }),
-        span: sp,
-    })
+    // any so that `log_syntax` can be invoked as an expression and item.
+    base::MacResult::dummy_any(sp)
 }

@@ -13,11 +13,11 @@
 #[feature(macro_rules)];
 
 macro_rules! compiles_fine {
-    ($at:attr) => {
+    (#[$at:meta]) => {
         // test that the different types of attributes work
         #[attribute]
         /// Documentation!
-        $at
+        #[$at]
 
         // check that the attributes are recognised by requiring this
         // to be removed to avoid a compile error

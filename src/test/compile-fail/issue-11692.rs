@@ -15,5 +15,4 @@ fn main() {
 
     concat!(test!());
     //~^ ERROR: macro undefined: 'test'
-    //~^^ ERROR: expected a literal
 }

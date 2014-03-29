@@ -87,10 +87,10 @@ impl<T: Clone + Integer + Ord>
     fn reduce(&mut self) {
         let g : T = self.numer.gcd(&self.denom);
 
-        // FIXME(#6050): overloaded operators force moves with generic types
+        // FIXME(#5992): assignment operator overloads
         // self.numer /= g;
         self.numer = self.numer / g;
-        // FIXME(#6050): overloaded operators force moves with generic types
+        // FIXME(#5992): assignment operator overloads
         // self.denom /= g;
         self.denom = self.denom / g;
 
@@ -147,20 +147,20 @@ macro_rules! cmp_impl {
         cmp_impl!(impl $imp, $($method -> bool),+)
     };
     // return something other than a Ratio<T>
-    (impl $imp:ident, $($method:ident -> $res:ty),+) => {
+    (impl $imp:ident, $($method:ident -> $res:ty),*) => {
         impl<T: Mul<T,T> + $imp> $imp for Ratio<T> {
             $(
                 #[inline]
                 fn $method(&self, other: &Ratio<T>) -> $res {
                     (self.numer * other.denom). $method (&(self.denom*other.numer))
                 }
-            )+
+            )*
         }
     };
 }
 cmp_impl!(impl Eq, eq, ne)
-cmp_impl!(impl TotalEq, equals)
 cmp_impl!(impl Ord, lt, gt, le, ge)
+cmp_impl!(impl TotalEq, )
 cmp_impl!(impl TotalOrd, cmp -> cmp::Ordering)
 
 /* Arithmetic */

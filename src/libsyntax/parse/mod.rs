@@ -288,11 +288,10 @@ mod test {
     use util::parser_testing::{string_to_expr, string_to_item};
     use util::parser_testing::string_to_stmt;
 
-    #[cfg(test)]
-    fn to_json_str<'a, E: Encodable<json::Encoder<'a>>>(val: &E) -> ~str {
+    fn to_json_str<'a, E: Encodable<json::Encoder<'a>, io::IoError>>(val: &E) -> ~str {
         let mut writer = MemWriter::new();
         let mut encoder = json::Encoder::new(&mut writer as &mut io::Writer);
-        val.encode(&mut encoder);
+        let _ = val.encode(&mut encoder);
         str::from_utf8_owned(writer.unwrap()).unwrap()
     }
 
@@ -357,13 +356,13 @@ mod test {
             [ast::TTTok(_,_),
              ast::TTTok(_,token::NOT),
              ast::TTTok(_,_),
-             ast::TTDelim(delim_elts)] => {
+             ast::TTDelim(ref delim_elts)] => {
                 let delim_elts: &[ast::TokenTree] = delim_elts.as_slice();
                 match delim_elts {
                     [ast::TTTok(_,token::LPAREN),
-                     ast::TTDelim(first_set),
+                     ast::TTDelim(ref first_set),
                      ast::TTTok(_,token::FAT_ARROW),
-                     ast::TTDelim(second_set),
+                     ast::TTDelim(ref second_set),
                      ast::TTTok(_,token::RPAREN)] => {
                         let first_set: &[ast::TokenTree] =
                             first_set.as_slice();

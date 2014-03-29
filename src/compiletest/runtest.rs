@@ -337,7 +337,7 @@ fn run_debuginfo_test(config: &config, props: &TestProps, testfile: &Path) {
                 }
             }
 
-            if tool_path.equals(&~"") {
+            if tool_path.is_empty() {
                 fatal(~"cannot found android cross path");
             }
 
@@ -455,7 +455,7 @@ fn run_debuginfo_test(config: &config, props: &TestProps, testfile: &Path) {
         let options_to_remove = [~"-O", ~"-g", ~"--debuginfo"];
         let new_options = split_maybe_args(options).move_iter()
                                                    .filter(|x| !options_to_remove.contains(x))
-                                                   .to_owned_vec()
+                                                   .collect::<~[~str]>()
                                                    .connect(" ");
         Some(new_options)
     }

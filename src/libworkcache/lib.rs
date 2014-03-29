@@ -8,15 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[crate_id = "workcache#0.10-pre"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
-#[license = "MIT/ASL2"];
-#[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
-#[feature(phase)];
-#[allow(visible_private_types)];
+#![crate_id = "workcache#0.10-pre"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
+#![license = "MIT/ASL2"]
+#![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_root_url = "http://static.rust-lang.org/doc/master")]
+#![feature(phase)]
+#![allow(visible_private_types)]
 
 #[phase(syntax, link)] extern crate log;
 extern crate serialize;
@@ -26,7 +26,7 @@ extern crate sync;
 use serialize::json;
 use serialize::json::ToJson;
 use serialize::{Encoder, Encodable, Decoder, Decodable};
-use sync::{Arc,RWArc};
+use sync::{Arc, RWLock};
 use collections::TreeMap;
 use std::str;
 use std::io;
@@ -203,7 +203,7 @@ impl Database {
                                     self.db_filename.display(), e.to_str()),
                     Ok(r) => {
                         let mut decoder = json::Decoder::new(r);
-                        self.db_cache = Decodable::decode(&mut decoder);
+                        self.db_cache = Decodable::decode(&mut decoder).unwrap();
                     }
                 }
             }
@@ -225,7 +225,7 @@ pub type FreshnessMap = TreeMap<~str,extern fn(&str,&str)->bool>;
 
 #[deriving(Clone)]
 pub struct Context {
-    db: RWArc<Database>,
+    db: Arc<RWLock<Database>>,
     priv cfg: Arc<json::Object>,
     /// Map from kinds (source, exe, url, etc.) to a freshness function.
     /// The freshness function takes a name (e.g. file path) and value
@@ -252,29 +252,29 @@ enum Work<'a, T> {
     WorkFromTask(&'a Prep<'a>, Receiver<(Exec, T)>),
 }
 
-fn json_encode<'a, T:Encodable<json::Encoder<'a>>>(t: &T) -> ~str {
+fn json_encode<'a, T:Encodable<json::Encoder<'a>, io::IoError>>(t: &T) -> ~str {
     let mut writer = MemWriter::new();
     let mut encoder = json::Encoder::new(&mut writer as &mut io::Writer);
-    t.encode(&mut encoder);
+    let _ = t.encode(&mut encoder);
     str::from_utf8_owned(writer.unwrap()).unwrap()
 }
 
 // FIXME(#5121)
-fn json_decode<T:Decodable<json::Decoder>>(s: &str) -> T {
+fn json_decode<T:Decodable<json::Decoder, json::Error>>(s: &str) -> T {
     debug!("json decoding: {}", s);
     let j = json::from_str(s).unwrap();
     let mut decoder = json::Decoder::new(j);
-    Decodable::decode(&mut decoder)
+    Decodable::decode(&mut decoder).unwrap()
 }
 
 impl Context {
 
-    pub fn new(db: RWArc<Database>,
+    pub fn new(db: Arc<RWLock<Database>>,
                cfg: Arc<json::Object>) -> Context {
         Context::new_with_freshness(db, cfg, Arc::new(TreeMap::new()))
     }
 
-    pub fn new_with_freshness(db: RWArc<Database>,
+    pub fn new_with_freshness(db: Arc<RWLock<Database>>,
                               cfg: Arc<json::Object>,
                               freshness: Arc<FreshnessMap>) -> Context {
         Context {
@@ -364,7 +364,7 @@ impl<'a> Prep<'a> {
     fn is_fresh(&self, cat: &str, kind: &str,
                 name: &str, val: &str) -> bool {
         let k = kind.to_owned();
-        let f = self.ctxt.freshness.get().find(&k);
+        let f = self.ctxt.freshness.deref().find(&k);
         debug!("freshness for: {}/{}/{}/{}", cat, kind, name, val)
         let fresh = match f {
             None => fail!("missing freshness-function for '{}'", kind),
@@ -392,23 +392,24 @@ impl<'a> Prep<'a> {
     }
 
     pub fn exec<'a, T:Send +
-        Encodable<json::Encoder<'a>> +
-        Decodable<json::Decoder>>(
-            &'a self, blk: proc(&mut Exec) -> T) -> T {
+        Encodable<json::Encoder<'a>, io::IoError> +
+        Decodable<json::Decoder, json::Error>>(
+            &'a self, blk: proc:Send(&mut Exec) -> T) -> T {
         self.exec_work(blk).unwrap()
     }
 
     fn exec_work<'a, T:Send +
-        Encodable<json::Encoder<'a>> +
-        Decodable<json::Decoder>>( // FIXME(#5121)
-            &'a self, blk: proc(&mut Exec) -> T) -> Work<'a, T> {
+        Encodable<json::Encoder<'a>, io::IoError> +
+        Decodable<json::Decoder, json::Error>>( // FIXME(#5121)
+            &'a self, blk: proc:Send(&mut Exec) -> T) -> Work<'a, T> {
         let mut bo = Some(blk);
 
         debug!("exec_work: looking up {} and {:?}", self.fn_name,
                self.declared_inputs);
-        let cached = self.ctxt.db.read(|db| {
-            db.prepare(self.fn_name, &self.declared_inputs)
-        });
+        let cached = {
+            let db = self.ctxt.db.deref().read();
+            db.deref().prepare(self.fn_name, &self.declared_inputs)
+        };
 
         match cached {
             Some((ref disc_in, ref disc_out, ref res))
@@ -442,8 +443,8 @@ impl<'a> Prep<'a> {
 }
 
 impl<'a, T:Send +
-       Encodable<json::Encoder<'a>> +
-       Decodable<json::Decoder>>
+       Encodable<json::Encoder<'a>, io::IoError> +
+       Decodable<json::Decoder, json::Error>>
     Work<'a, T> { // FIXME(#5121)
 
     pub fn from_value(elt: T) -> Work<'a, T> {
@@ -460,13 +461,12 @@ impl<'a, T:Send +
             WorkFromTask(prep, port) => {
                 let (exe, v) = port.recv();
                 let s = json_encode(&v);
-                prep.ctxt.db.write(|db| {
-                    db.cache(prep.fn_name,
-                             &prep.declared_inputs,
-                             &exe.discovered_inputs,
-                             &exe.discovered_outputs,
-                             s)
-                });
+                let mut db = prep.ctxt.db.deref().write();
+                db.deref_mut().cache(prep.fn_name,
+                                     &prep.declared_inputs,
+                                     &exe.discovered_inputs,
+                                     &exe.discovered_outputs,
+                                     s);
                 v
             }
         }
@@ -496,7 +496,7 @@ fn test() {
 
     let db_path = make_path(~"db.json");
 
-    let cx = Context::new(RWArc::new(Database::new(db_path)),
+    let cx = Context::new(Arc::new(RWLock::new(Database::new(db_path))),
                           Arc::new(TreeMap::new()));
 
     let s = cx.with_prep("test1", |prep| {

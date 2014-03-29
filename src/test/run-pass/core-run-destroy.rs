@@ -22,6 +22,12 @@ extern crate native;
 extern crate green;
 extern crate rustuv;
 
+use std::io::Process;
+
+macro_rules! succeed( ($e:expr) => (
+    match $e { Ok(..) => {}, Err(e) => fail!("failure: {}", e) }
+) )
+
 macro_rules! iotest (
     { fn $name:ident() $b:block $($a:attr)* } => (
         mod $name {
@@ -49,32 +55,33 @@ macro_rules! iotest (
 
 #[cfg(test)] #[start]
 fn start(argc: int, argv: **u8) -> int {
-    green::start(argc, argv, __test::main)
+    green::start(argc, argv, rustuv::event_loop, __test::main)
 }
 
 iotest!(fn test_destroy_once() {
-    #[cfg(not(target_os="android"))]
-    static mut PROG: &'static str = "echo";
-
-    #[cfg(target_os="android")]
-    static mut PROG: &'static str = "ls"; // android don't have echo binary
-
-    let mut p = unsafe {Process::new(PROG, []).unwrap()};
-    p.signal_exit().unwrap(); // this shouldn't crash (and nor should the destructor)
+    let mut p = sleeper();
+    match p.signal_exit() {
+        Ok(()) => {}
+        Err(e) => fail!("error: {}", e),
+    }
 })
 
-iotest!(fn test_destroy_twice() {
-    #[cfg(not(target_os="android"))]
-    static mut PROG: &'static str = "echo";
-    #[cfg(target_os="android")]
-    static mut PROG: &'static str = "ls"; // android don't have echo binary
+#[cfg(unix)]
+pub fn sleeper() -> Process {
+    Process::new("sleep", [~"1000"]).unwrap()
+}
+#[cfg(windows)]
+pub fn sleeper() -> Process {
+    // There's a `timeout` command on windows, but it doesn't like having
+    // its output piped, so instead just ping ourselves a few times with
+    // gaps inbetweeen so we're sure this process is alive for awhile
+    Process::new("ping", [~"127.0.0.1", ~"-n", ~"1000"]).unwrap()
+}
 
-    let mut p = match unsafe{Process::new(PROG, [])} {
-        Ok(p) => p,
-        Err(e) => fail!("wut: {}", e),
-    };
-    p.signal_exit().unwrap(); // this shouldnt crash...
-    p.signal_exit().unwrap(); // ...and nor should this (and nor should the destructor)
+iotest!(fn test_destroy_twice() {
+    let mut p = sleeper();
+    succeed!(p.signal_exit()); // this shouldnt crash...
+    let _ = p.signal_exit(); // ...and nor should this (and nor should the destructor)
 })
 
 pub fn test_destroy_actually_kills(force: bool) {

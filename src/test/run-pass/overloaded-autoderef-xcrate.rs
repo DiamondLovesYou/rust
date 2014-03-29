@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,15 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern: lifetime of variable does not enclose its declaration
-extern crate sync;
-use sync::Mutex;
+// ignore-fast
+// aux-build:overloaded_autoderef_xc.rs
+
+extern crate overloaded_autoderef_xc;
 
 fn main() {
-    let m = ~sync::Mutex::new();
-    let mut cond = None;
-    m.lock_cond(|c| {
-        cond = Some(c);
-    });
-    cond.unwrap().signal();
+    assert!(overloaded_autoderef_xc::check(5, 5));
 }

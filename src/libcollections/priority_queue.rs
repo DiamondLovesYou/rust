@@ -10,7 +10,7 @@
 
 //! A priority queue implemented with a binary heap
 
-#[allow(missing_doc)];
+#![allow(missing_doc)]
 
 use std::clone::Clone;
 use std::mem::{move_val_init, init, replace, swap};
@@ -193,22 +193,21 @@ impl<'a, T> Iterator<&'a T> for Items<'a, T> {
 }
 
 impl<T: Ord> FromIterator<T> for PriorityQueue<T> {
-    fn from_iterator<Iter: Iterator<T>>(iter: &mut Iter) -> PriorityQueue<T> {
+    fn from_iterator<Iter: Iterator<T>>(iter: Iter) -> PriorityQueue<T> {
         let mut q = PriorityQueue::new();
         q.extend(iter);
-
         q
     }
 }
 
 impl<T: Ord> Extendable<T> for PriorityQueue<T> {
-    fn extend<Iter: Iterator<T>>(&mut self, iter: &mut Iter) {
+    fn extend<Iter: Iterator<T>>(&mut self, mut iter: Iter) {
         let (lower, _) = iter.size_hint();
 
         let len = self.capacity();
         self.reserve(len + lower);
 
-        for elem in *iter {
+        for elem in iter {
             self.push(elem);
         }
     }

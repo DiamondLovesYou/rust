@@ -26,6 +26,15 @@ use super::file;
 #[cfg(windows)] use std::cast;
 #[cfg(not(windows), not(target_os = "nacl"))] use super::retry;
 
+#[cfg(target_os = "nacl")]
+fn permission_denied() -> io::IoError {
+    io::IoError {
+        kind: io::PermissionDenied,
+        desc: "NaCl doesn't allow separate processes",
+        detail: None,
+    }
+}
+
 /**
  * A value representing a child process.
  *
@@ -136,8 +145,20 @@ impl rtio::RtioProcess for Process {
             }
         }
     }
-
+    #[cfg(not(target_os = "nacl"))]
     fn kill(&mut self, signum: int) -> Result<(), io::IoError> {
+        // On linux (and possibly other unices), a process that has exited will
+        // continue to accept signals because it is "defunct". The delivery of
+        // signals will only fail once the child has been reaped. For this
+        // reason, if the process hasn't exited yet, then we attempt to collect
+        // their status with WNOHANG.
+        if self.exit_code.is_none() {
+            match waitpid_nowait(self.pid) {
+                Some(code) => { self.exit_code = Some(code); }
+                None => {}
+            }
+        }
+
         // if the process has finished, and therefore had waitpid called,
         // and we kill it, then on unix we might ending up killing a
         // newer process that happens to have the same (re-used) id
@@ -150,6 +171,10 @@ impl rtio::RtioProcess for Process {
             None => {}
         }
         return unsafe { killpid(self.pid, signum) };
+    }
+    #[cfg(target_os = "nacl")]
+    fn kill(&mut self, _signum: int) -> Result<(), io::IoError> {
+        Err(permission_denied())
     }
 }
 
@@ -450,128 +475,125 @@ fn spawn_process_os(config: p::ProcessConfig,
         assert_eq!(ret, 0);
     }
 
-    let pipe = os::pipe();
-    let mut input = file::FileDesc::new(pipe.input, true);
-    let mut output = file::FileDesc::new(pipe.out, true);
+    let dirp = dir.map(|p| p.to_c_str());
+    let dirp = dirp.as_ref().map(|c| c.with_ref(|p| p)).unwrap_or(ptr::null());
 
-    unsafe { set_cloexec(output.fd()) };
+    with_envp(env, proc(envp) {
+        with_argv(config.program, config.args, proc(argv) unsafe {
+            let pipe = os::pipe();
+            let mut input = file::FileDesc::new(pipe.input, true);
+            let mut output = file::FileDesc::new(pipe.out, true);
 
-    unsafe {
-        let pid = fork();
-        if pid < 0 {
-            fail!("failure in fork: {}", os::last_os_error());
-        } else if pid > 0 {
-            drop(output);
-            let mut bytes = [0, ..4];
-            return match input.inner_read(bytes) {
-                Ok(4) => {
-                    let errno = (bytes[0] << 24) as i32 |
-                                (bytes[1] << 16) as i32 |
-                                (bytes[2] <<  8) as i32 |
-                                (bytes[3] <<  0) as i32;
-                    Err(super::translate_error(errno, false))
-                }
-                Err(e) => {
-                    assert!(e.kind == io::BrokenPipe ||
-                            e.kind == io::EndOfFile,
-                            "unexpected error: {}", e);
-                    Ok(SpawnProcessResult {
-                        pid: pid,
-                        handle: ptr::null()
-                    })
-                }
-                Ok(..) => fail!("short read on the cloexec pipe"),
-            };
-        }
-        drop(input);
+            set_cloexec(output.fd());
 
-        fn fail(output: &mut file::FileDesc) -> ! {
-            let errno = os::errno();
-            let bytes = [
-                (errno << 24) as u8,
-                (errno << 16) as u8,
-                (errno <<  8) as u8,
-                (errno <<  0) as u8,
-            ];
-            assert!(output.inner_write(bytes).is_ok());
-            unsafe { libc::_exit(1) }
-        }
-
-        rustrt::rust_unset_sigprocmask();
-
-        if in_fd == -1 {
-            let _ = libc::close(libc::STDIN_FILENO);
-        } else if retry(|| dup2(in_fd, 0)) == -1 {
-            fail(&mut output);
-        }
-        if out_fd == -1 {
-            let _ = libc::close(libc::STDOUT_FILENO);
-        } else if retry(|| dup2(out_fd, 1)) == -1 {
-            fail(&mut output);
-        }
-        if err_fd == -1 {
-            let _ = libc::close(libc::STDERR_FILENO);
-        } else if retry(|| dup2(err_fd, 2)) == -1 {
-            fail(&mut output);
-        }
-        // close all other fds
-        for fd in range(3, getdtablesize()).rev() {
-            if fd != output.fd() {
-                let _ = close(fd as c_int);
+            let pid = fork();
+            if pid < 0 {
+                fail!("failure in fork: {}", os::last_os_error());
+            } else if pid > 0 {
+                drop(output);
+                let mut bytes = [0, ..4];
+                return match input.inner_read(bytes) {
+                    Ok(4) => {
+                        let errno = (bytes[0] << 24) as i32 |
+                                    (bytes[1] << 16) as i32 |
+                                    (bytes[2] <<  8) as i32 |
+                                    (bytes[3] <<  0) as i32;
+                        Err(super::translate_error(errno, false))
+                    }
+                    Err(e) => {
+                        assert!(e.kind == io::BrokenPipe ||
+                                e.kind == io::EndOfFile,
+                                "unexpected error: {}", e);
+                        Ok(SpawnProcessResult {
+                            pid: pid,
+                            handle: ptr::null()
+                        })
+                    }
+                    Ok(..) => fail!("short read on the cloexec pipe"),
+                };
             }
-        }
+            drop(input);
 
-        match config.gid {
-            Some(u) => {
-                if libc::setgid(u as libc::gid_t) != 0 {
-                    fail(&mut output);
+            fn fail(output: &mut file::FileDesc) -> ! {
+                let errno = os::errno();
+                let bytes = [
+                    (errno << 24) as u8,
+                    (errno << 16) as u8,
+                    (errno <<  8) as u8,
+                    (errno <<  0) as u8,
+                ];
+                assert!(output.inner_write(bytes).is_ok());
+                unsafe { libc::_exit(1) }
+            }
+
+            rustrt::rust_unset_sigprocmask();
+
+            if in_fd == -1 {
+                let _ = libc::close(libc::STDIN_FILENO);
+            } else if retry(|| dup2(in_fd, 0)) == -1 {
+                fail(&mut output);
+            }
+            if out_fd == -1 {
+                let _ = libc::close(libc::STDOUT_FILENO);
+            } else if retry(|| dup2(out_fd, 1)) == -1 {
+                fail(&mut output);
+            }
+            if err_fd == -1 {
+                let _ = libc::close(libc::STDERR_FILENO);
+            } else if retry(|| dup2(err_fd, 2)) == -1 {
+                fail(&mut output);
+            }
+            // close all other fds
+            for fd in range(3, getdtablesize()).rev() {
+                if fd != output.fd() {
+                    let _ = close(fd as c_int);
                 }
             }
-            None => {}
-        }
-        match config.uid {
-            Some(u) => {
-                // When dropping privileges from root, the `setgroups` call will
-                // remove any extraneous groups. If we don't call this, then
-                // even though our uid has dropped, we may still have groups
-                // that enable us to do super-user things. This will fail if we
-                // aren't root, so don't bother checking the return value, this
-                // is just done as an optimistic privilege dropping function.
-                extern {
-                    fn setgroups(ngroups: libc::c_int,
-                                 ptr: *libc::c_void) -> libc::c_int;
-                }
-                let _ = setgroups(0, 0 as *libc::c_void);
 
-                if libc::setuid(u as libc::uid_t) != 0 {
-                    fail(&mut output);
+            match config.gid {
+                Some(u) => {
+                    if libc::setgid(u as libc::gid_t) != 0 {
+                        fail(&mut output);
+                    }
                 }
+                None => {}
             }
-            None => {}
-        }
-        if config.detach {
-            // Don't check the error of setsid because it fails if we're the
-            // process leader already. We just forked so it shouldn't return
-            // error, but ignore it anyway.
-            let _ = libc::setsid();
-        }
+            match config.uid {
+                Some(u) => {
+                    // When dropping privileges from root, the `setgroups` call will
+                    // remove any extraneous groups. If we don't call this, then
+                    // even though our uid has dropped, we may still have groups
+                    // that enable us to do super-user things. This will fail if we
+                    // aren't root, so don't bother checking the return value, this
+                    // is just done as an optimistic privilege dropping function.
+                    extern {
+                        fn setgroups(ngroups: libc::c_int,
+                                     ptr: *libc::c_void) -> libc::c_int;
+                    }
+                    let _ = setgroups(0, 0 as *libc::c_void);
 
-        with_dirp(dir, |dirp| {
+                    if libc::setuid(u as libc::uid_t) != 0 {
+                        fail(&mut output);
+                    }
+                }
+                None => {}
+            }
+            if config.detach {
+                // Don't check the error of setsid because it fails if we're the
+                // process leader already. We just forked so it shouldn't return
+                // error, but ignore it anyway.
+                let _ = libc::setsid();
+            }
             if !dirp.is_null() && chdir(dirp) == -1 {
                 fail(&mut output);
             }
-        });
-
-        with_envp(env, |envp| {
             if !envp.is_null() {
                 set_environ(envp);
             }
-            with_argv(config.program, config.args, |argv| {
-                let _ = execvp(*argv, argv);
-                fail(&mut output);
-            })
+            let _ = execvp(*argv, argv);
+            fail(&mut output);
         })
-    }
+    })
 }
 #[cfg(unix, target_os = "nacl")]
 fn spawn_process_os(_config: p::ProcessConfig,
@@ -580,15 +602,11 @@ fn spawn_process_os(_config: p::ProcessConfig,
                     _in_fd: c_int,
                     _out_fd: c_int,
                     _err_fd: c_int) -> IoResult<SpawnProcessResult> {
-    Err(io::IoError {
-            kind: io::PermissionDenied,
-            desc: "disallowed operation",
-            detail: None,
-        })
+    Err(permission_denied())
 }
 
 #[cfg(unix, not(target_os = "nacl"))]
-fn with_argv<T>(prog: &str, args: &[~str], cb: |**libc::c_char| -> T) -> T {
+fn with_argv<T>(prog: &str, args: &[~str], cb: proc:(**libc::c_char) -> T) -> T {
     use std::slice;
 
     // We can't directly convert `str`s into `*char`s, as someone needs to hold
@@ -614,7 +632,7 @@ fn with_argv<T>(prog: &str, args: &[~str], cb: |**libc::c_char| -> T) -> T {
 }
 
 #[cfg(unix, not(target_os = "nacl"))]
-fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: |*c_void| -> T) -> T {
+fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: proc:(*c_void) -> T) -> T {
     use std::slice;
 
     // On posixy systems we can pass a char** for envp, which is a
@@ -661,7 +679,8 @@ fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: |*mut c_void| -> T) -> T {
         _ => cb(ptr::mut_null())
     }
 }
-#[cfg(not(target_os = "nacl"))]
+
+#[cfg(windows)]
 fn with_dirp<T>(d: Option<&Path>, cb: |*libc::c_char| -> T) -> T {
     match d {
       Some(dir) => dir.with_c_str(|buf| cb(buf)),
@@ -679,6 +698,31 @@ fn free_handle(handle: *()) {
 #[cfg(unix)]
 fn free_handle(_handle: *()) {
     // unix has no process handle object, just a pid
+}
+
+#[cfg(unix, not(target_os = "nacl"))]
+fn translate_status(status: c_int) -> p::ProcessExit {
+    #[cfg(target_os = "linux")]
+    #[cfg(target_os = "android")]
+    mod imp {
+        pub fn WIFEXITED(status: i32) -> bool { (status & 0xff) == 0 }
+        pub fn WEXITSTATUS(status: i32) -> i32 { (status >> 8) & 0xff }
+        pub fn WTERMSIG(status: i32) -> i32 { status & 0x7f }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "freebsd")]
+    mod imp {
+        pub fn WIFEXITED(status: i32) -> bool { (status & 0x7f) == 0 }
+        pub fn WEXITSTATUS(status: i32) -> i32 { status >> 8 }
+        pub fn WTERMSIG(status: i32) -> i32 { status & 0o177 }
+    }
+
+    if imp::WIFEXITED(status) {
+        p::ExitStatus(imp::WEXITSTATUS(status) as int)
+    } else {
+        p::ExitSignal(imp::WTERMSIG(status) as int)
+    }
 }
 
 /**
@@ -743,33 +787,32 @@ fn waitpid(pid: pid_t) -> p::ProcessExit {
     #[cfg(unix)]
     fn waitpid_os(pid: pid_t) -> p::ProcessExit {
         use std::libc::funcs::posix01::wait;
-
-        #[cfg(target_os = "linux")]
-        #[cfg(target_os = "android")]
-        mod imp {
-            pub fn WIFEXITED(status: i32) -> bool { (status & 0xff) == 0 }
-            pub fn WEXITSTATUS(status: i32) -> i32 { (status >> 8) & 0xff }
-            pub fn WTERMSIG(status: i32) -> i32 { status & 0x7f }
-        }
-
-        #[cfg(target_os = "macos")]
-        #[cfg(target_os = "freebsd")]
-        mod imp {
-            pub fn WIFEXITED(status: i32) -> bool { (status & 0x7f) == 0 }
-            pub fn WEXITSTATUS(status: i32) -> i32 { status >> 8 }
-            pub fn WTERMSIG(status: i32) -> i32 { status & 0o177 }
-        }
-
         let mut status = 0 as c_int;
         match retry(|| unsafe { wait::waitpid(pid, &mut status, 0) }) {
             -1 => fail!("unknown waitpid error: {}", super::last_error()),
-            _ => {
-                if imp::WIFEXITED(status) {
-                    p::ExitStatus(imp::WEXITSTATUS(status) as int)
-                } else {
-                    p::ExitSignal(imp::WTERMSIG(status) as int)
-                }
-            }
+            _ => translate_status(status),
+        }
+    }
+}
+
+#[cfg(not(target_os = "nacl"))]
+fn waitpid_nowait(pid: pid_t) -> Option<p::ProcessExit> {
+    return waitpid_os(pid);
+
+    // This code path isn't necessary on windows
+    #[cfg(windows)]
+    fn waitpid_os(_pid: pid_t) -> Option<p::ProcessExit> { None }
+
+    #[cfg(unix)]
+    fn waitpid_os(pid: pid_t) -> Option<p::ProcessExit> {
+        use std::libc::funcs::posix01::wait;
+        let mut status = 0 as c_int;
+        match retry(|| unsafe {
+            wait::waitpid(pid, &mut status, libc::WNOHANG)
+        }) {
+            n if n == pid => Some(translate_status(status)),
+            0 => None,
+            n => fail!("unknown waitpid error `{}`: {}", n, super::last_error()),
         }
     }
 }

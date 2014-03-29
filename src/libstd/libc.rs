@@ -62,10 +62,10 @@
 * dissolved.
 */
 
-#[allow(non_camel_case_types)];
-#[allow(non_uppercase_statics)];
-#[allow(missing_doc)];
-#[allow(uppercase_variables)];
+#![allow(non_camel_case_types)]
+#![allow(non_uppercase_statics)]
+#![allow(missing_doc)]
+#![allow(uppercase_variables)]
 
 // Initial glob-exports mean that all the contents of all the modules
 // wind up exported, if you're interested in writing platform-specific code.
@@ -267,6 +267,8 @@ pub mod types {
                 }
 
                 pub enum timezone {}
+
+                pub type sighandler_t = size_t;
             }
             pub mod bsd44 {
                 use libc::types::os::arch::c95::{c_char, c_int, c_uint};
@@ -641,6 +643,8 @@ pub mod types {
                 }
 
                 pub enum timezone {}
+
+                pub type sighandler_t = size_t;
             }
             pub mod bsd44 {
                 use libc::types::os::arch::c95::{c_char, c_int, c_uint};
@@ -1210,6 +1214,8 @@ pub mod types {
                 }
 
                 pub enum timezone {}
+
+                pub type sighandler_t = size_t;
             }
 
             pub mod bsd44 {
@@ -2298,6 +2304,8 @@ pub mod consts {
             use libc::types::os::arch::c95::{c_int, size_t};
 
             pub static SIGTRAP : c_int = 5;
+            pub static SIGPIPE: c_int = 13;
+            pub static SIG_IGN: size_t = 1;
 
             pub static GLOB_ERR      : c_int = 1 << 0;
             pub static GLOB_MARK     : c_int = 1 << 1;
@@ -2368,6 +2376,8 @@ pub mod consts {
 
             pub static CLOCK_REALTIME: c_int = 0;
             pub static CLOCK_MONOTONIC: c_int = 1;
+
+            pub static WNOHANG: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -2763,6 +2773,8 @@ pub mod consts {
             use libc::types::os::arch::c95::{c_int, size_t};
 
             pub static SIGTRAP : c_int = 5;
+            pub static SIGPIPE: c_int = 13;
+            pub static SIG_IGN: size_t = 1;
 
             pub static GLOB_APPEND   : c_int = 0x0001;
             pub static GLOB_DOOFFS   : c_int = 0x0002;
@@ -2827,6 +2839,8 @@ pub mod consts {
 
             pub static CLOCK_REALTIME: c_int = 0;
             pub static CLOCK_MONOTONIC: c_int = 4;
+
+            pub static WNOHANG: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -3161,6 +3175,8 @@ pub mod consts {
             use libc::types::os::arch::c95::{c_int, size_t};
 
             pub static SIGTRAP : c_int = 5;
+            pub static SIGPIPE: c_int = 13;
+            pub static SIG_IGN: size_t = 1;
 
             pub static GLOB_APPEND   : c_int = 0x0001;
             pub static GLOB_DOOFFS   : c_int = 0x0002;
@@ -3212,6 +3228,8 @@ pub mod consts {
             pub static PTHREAD_CREATE_JOINABLE: c_int = 1;
             pub static PTHREAD_CREATE_DETACHED: c_int = 2;
             pub static PTHREAD_STACK_MIN: size_t = 8192;
+
+            pub static WNOHANG: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -3866,6 +3884,24 @@ pub mod funcs {
                 pub fn symlink(path1: *c_char, path2: *c_char) -> c_int;
 
                 pub fn ftruncate(fd: c_int, length: off_t) -> c_int;
+            }
+        }
+
+        pub mod signal {
+            use libc::types::os::arch::c95::c_int;
+            use libc::types::os::common::posix01::sighandler_t;
+
+            #[cfg(not(target_os = "android"))]
+            extern {
+                pub fn signal(signum: c_int,
+                              handler: sighandler_t) -> sighandler_t;
+            }
+
+            #[cfg(target_os = "android")]
+            extern {
+                #[link_name = "bsd_signal"]
+                pub fn signal(signum: c_int,
+                              handler: sighandler_t) -> sighandler_t;
             }
         }
 

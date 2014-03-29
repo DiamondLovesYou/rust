@@ -13,7 +13,7 @@
 //! This module contains functions for querying the size and alignment of
 //! types, initializing and manipulating memory.
 
-#[allow(missing_doc)]; // FIXME
+#![allow(missing_doc)] // FIXME
 
 use cast;
 use ptr;
@@ -79,7 +79,7 @@ pub fn pref_align_of_val<T>(_val: &T) -> uint {
 /// Create a value initialized to zero.
 ///
 /// `init` is unsafe because it returns a zeroed-out datum,
-/// which is unsafe unless T is Pod.
+/// which is unsafe unless T is Copy.
 #[inline]
 pub unsafe fn init<T>() -> T {
     intrinsics::init()

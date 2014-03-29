@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,10 +8,20 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern crate sync;
-use sync::RWArc;
+#[allow(dead_code)];
 
-fn main() {
-    let arc1  = RWArc::new(true);
-    let _arc2 = RWArc::new(arc1); //~ ERROR instantiating a type parameter with an incompatible type
+trait A<T> {}
+trait B<T, U> {}
+trait C<'a, U> {}
+
+mod foo {
+    pub trait D<'a, T> {}
 }
+
+fn foo1<T>(_: &A<T>: Send) {}
+fn foo2<T>(_: ~A<T>: Send + Share) {}
+fn foo3<T>(_: ~B<int, uint>: 'static) {}
+fn foo4<'a, T>(_: ~C<'a, T>: 'static + Send) {}
+fn foo5<'a, T>(_: ~foo::D<'a, T>: 'static + Send) {}
+
+pub fn main() {}

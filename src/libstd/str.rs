@@ -937,7 +937,7 @@ impl<'a> Iterator<UTF16Item> for UTF16Items<'a> {
 ///          0x0073, 0xDD1E, 0x0069, 0x0063,
 ///          0xD834];
 ///
-/// assert_eq!(str::utf16_items(v).to_owned_vec(),
+/// assert_eq!(str::utf16_items(v).collect::<~[_]>(),
 ///            ~[ScalarValue('𝄞'),
 ///              ScalarValue('m'), ScalarValue('u'), ScalarValue('s'),
 ///              LoneSurrogate(0xDD1E),
@@ -1262,16 +1262,11 @@ impl<'a> IntoMaybeOwned<'a> for MaybeOwned<'a> {
 impl<'a> Eq for MaybeOwned<'a> {
     #[inline]
     fn eq(&self, other: &MaybeOwned) -> bool {
-        self.as_slice().equals(&other.as_slice())
+        self.as_slice() == other.as_slice()
     }
 }
 
-impl<'a> TotalEq for MaybeOwned<'a> {
-    #[inline]
-    fn equals(&self, other: &MaybeOwned) -> bool {
-        self.as_slice().equals(&other.as_slice())
-    }
-}
+impl<'a> TotalEq for MaybeOwned<'a> {}
 
 impl<'a> Ord for MaybeOwned<'a> {
     #[inline]
@@ -1290,7 +1285,7 @@ impl<'a> TotalOrd for MaybeOwned<'a> {
 impl<'a, S: Str> Equiv<S> for MaybeOwned<'a> {
     #[inline]
     fn equiv(&self, other: &S) -> bool {
-        self.as_slice().equals(&other.as_slice())
+        self.as_slice() == other.as_slice()
     }
 }
 
@@ -1577,19 +1572,9 @@ pub mod traits {
         }
     }
 
-    impl<'a> TotalEq for &'a str {
-        #[inline]
-        fn equals(&self, other: & &'a str) -> bool {
-            eq_slice((*self), (*other))
-        }
-    }
+    impl<'a> TotalEq for &'a str {}
 
-    impl TotalEq for ~str {
-        #[inline]
-        fn equals(&self, other: &~str) -> bool {
-            eq_slice((*self), (*other))
-        }
-    }
+    impl TotalEq for ~str {}
 
     impl<'a> Ord for &'a str {
         #[inline]
@@ -3034,7 +3019,7 @@ impl Clone for ~str {
 
 impl FromIterator<char> for ~str {
     #[inline]
-    fn from_iterator<T: Iterator<char>>(iterator: &mut T) -> ~str {
+    fn from_iterator<T: Iterator<char>>(iterator: T) -> ~str {
         let (lower, _) = iterator.size_hint();
         let mut buf = with_capacity(lower);
         buf.extend(iterator);
@@ -3044,11 +3029,11 @@ impl FromIterator<char> for ~str {
 
 impl Extendable<char> for ~str {
     #[inline]
-    fn extend<T: Iterator<char>>(&mut self, iterator: &mut T) {
+    fn extend<T: Iterator<char>>(&mut self, mut iterator: T) {
         let (lower, _) = iterator.size_hint();
         let reserve = lower + self.len();
         self.reserve(reserve);
-        for ch in *iterator {
+        for ch in iterator {
             self.push_char(ch)
         }
     }
@@ -3234,7 +3219,7 @@ mod tests {
         let mut cpy = data.clone();
         let other = "abc";
         let mut it = other.chars();
-        cpy.extend(&mut it);
+        cpy.extend(it);
         assert_eq!(cpy, data + other);
     }
 
@@ -4023,7 +4008,7 @@ mod tests {
 
     #[test]
     fn test_add() {
-        #[allow(unnecessary_allocation)];
+        #![allow(unnecessary_allocation)]
         macro_rules! t (
             ($s1:expr, $s2:expr, $e:expr) => { {
                 let s1 = $s1;
@@ -4450,11 +4435,9 @@ mod tests {
         assert_eq!(Owned(~""), Default::default());
 
         assert!(s.cmp(&o) == Equal);
-        assert!(s.equals(&o));
         assert!(s.equiv(&o));
 
         assert!(o.cmp(&s) == Equal);
-        assert!(o.equals(&s));
         assert!(o.equiv(&s));
     }
 

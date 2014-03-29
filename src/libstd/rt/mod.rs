@@ -52,9 +52,10 @@ Several modules in `core` are clients of `rt`:
 */
 
 // FIXME: this should not be here.
-#[allow(missing_doc)];
+#![allow(missing_doc)]
 
 use any::Any;
+use kinds::Send;
 use option::Option;
 use result::Result;
 use task::TaskOpts;
@@ -103,9 +104,6 @@ pub mod env;
 
 /// The local, managed heap
 pub mod local_heap;
-
-/// Crate map
-pub mod crate_map;
 
 /// The runtime needs to be able to put a pointer into thread-local storage.
 pub mod local_ptr;
@@ -159,7 +157,7 @@ pub trait Runtime {
 
     // Miscellaneous calls which are very different depending on what context
     // you're in.
-    fn spawn_sibling(~self, cur_task: ~Task, opts: TaskOpts, f: proc());
+    fn spawn_sibling(~self, cur_task: ~Task, opts: TaskOpts, f: proc:Send());
     fn local_io<'a>(&'a mut self) -> Option<rtio::LocalIo<'a>>;
     /// The (low, high) edges of the current stack.
     fn stack_bounds(&self) -> (uint, uint); // (lo, hi)
@@ -198,7 +196,7 @@ pub fn init(argc: int, argv: **u8) {
 ///
 /// It is forbidden for procedures to register more `at_exit` handlers when they
 /// are running, and doing so will lead to a process abort.
-pub fn at_exit(f: proc()) {
+pub fn at_exit(f: proc:Send()) {
     at_exit_imp::push(f);
 }
 

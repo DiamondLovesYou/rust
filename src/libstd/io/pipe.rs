@@ -13,15 +13,17 @@
 //! Currently these aren't particularly useful, there only exists bindings
 //! enough so that pipes can be created to child processes.
 
-#[allow(missing_doc)];
+#![allow(missing_doc)]
 
 use prelude::*;
 use io::IoResult;
 use libc;
 use rt::rtio::{RtioPipe, LocalIo};
 
+/// A synchronous, in-memory pipe.
 pub struct PipeStream {
-    priv obj: ~RtioPipe,
+    /// The internal, opaque runtime pipe object.
+    priv obj: ~RtioPipe:Send,
 }
 
 impl PipeStream {
@@ -49,7 +51,7 @@ impl PipeStream {
     }
 
     #[doc(hidden)]
-    pub fn new(inner: ~RtioPipe) -> PipeStream {
+    pub fn new(inner: ~RtioPipe:Send) -> PipeStream {
         PipeStream { obj: inner }
     }
 }

@@ -11,7 +11,7 @@
 // Testing guarantees provided by once functions.
 // This program would segfault if it were legal.
 
-#[feature(once_fns)];
+#![feature(once_fns)]
 extern crate sync;
 use sync::Arc;
 
@@ -23,7 +23,7 @@ fn foo(blk: proc()) {
 fn main() {
     let x = Arc::new(true);
     foo(proc() {
-        assert!(*x.get());
+        assert!(*x);
         drop(x);
     });
 }

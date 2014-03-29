@@ -20,7 +20,7 @@ generally useful to many Rust programs.
 */
 
 // Reexported core operators
-pub use kinds::{Pod, Send, Sized, Share};
+pub use kinds::{Copy, Send, Sized, Share};
 pub use ops::{Add, Sub, Mul, Div, Rem, Neg, Not};
 pub use ops::{BitAnd, BitOr, BitXor};
 pub use ops::{Drop, Deref, DerefMut};
@@ -62,7 +62,7 @@ pub use slice::{Vector, VectorVector, CloneableVector, ImmutableVector};
 pub use vec::Vec;
 
 // Reexported runtime types
-pub use comm::{channel, Sender, Receiver};
+pub use comm::{sync_channel, channel, SyncSender, Sender, Receiver};
 pub use task::spawn;
 
 // Reexported statics

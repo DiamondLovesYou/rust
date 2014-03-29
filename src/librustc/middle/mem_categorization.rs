@@ -60,7 +60,7 @@
  * tied to `x`. The type of `x'` will be a borrowed pointer.
  */
 
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types)]
 
 use middle::ty;
 use middle::typeck;
@@ -95,7 +95,7 @@ pub struct CopiedUpvar {
 }
 
 // different kinds of pointers:
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum PointerKind {
     OwnedPtr,
     GcPtr,
@@ -105,26 +105,26 @@ pub enum PointerKind {
 
 // We use the term "interior" to mean "something reachable from the
 // base without a pointer dereference", e.g. a field
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum InteriorKind {
     InteriorField(FieldName),
     InteriorElement(ElementKind),
 }
 
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum FieldName {
     NamedField(ast::Name),
     PositionalField(uint)
 }
 
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum ElementKind {
     VecElement,
     StrElement,
     OtherElement,
 }
 
-#[deriving(Eq, Hash, Show)]
+#[deriving(Eq, TotalEq, Hash, Show)]
 pub enum MutabilityCategory {
     McImmutable, // Immutable.
     McDeclared,  // Directly declared as mutable.

@@ -99,7 +99,7 @@ There are a number of free functions that create or take vectors, for example:
 
 */
 
-#[warn(non_camel_case_types)];
+#![warn(non_camel_case_types)]
 
 use cast;
 use cast::transmute;
@@ -436,7 +436,7 @@ impl ElementSwaps {
             emit_reset: true,
             sdir: range(0, length)
                     .map(|i| SizeDirection{ size: i, dir: Neg })
-                    .to_owned_vec()
+                    .collect::<~[_]>()
         }
     }
 }
@@ -649,17 +649,9 @@ pub mod traits {
         fn ne(&self, other: &~[T]) -> bool { !self.eq(other) }
     }
 
-    impl<'a,T:TotalEq> TotalEq for &'a [T] {
-        fn equals(&self, other: & &'a [T]) -> bool {
-            self.len() == other.len() &&
-                order::equals(self.iter(), other.iter())
-        }
-    }
+    impl<'a,T:TotalEq> TotalEq for &'a [T] {}
 
-    impl<T:TotalEq> TotalEq for ~[T] {
-        #[inline]
-        fn equals(&self, other: &~[T]) -> bool { self.as_slice().equals(&other.as_slice()) }
-    }
+    impl<T:TotalEq> TotalEq for ~[T] {}
 
     impl<'a,T:Eq, V: Vector<T>> Equiv<V> for &'a [T] {
         #[inline]
@@ -2312,12 +2304,12 @@ impl<'a,T> MutableVector<'a, T> for &'a mut [T] {
                 MutItems{ptr: p,
                          end: (p as uint + self.len()) as *mut T,
                          marker: marker::ContravariantLifetime::<'a>,
-                         marker2: marker::NoPod}
+                         marker2: marker::NoCopy}
             } else {
                 MutItems{ptr: p,
                          end: p.offset(self.len() as int),
                          marker: marker::ContravariantLifetime::<'a>,
-                         marker2: marker::NoPod}
+                         marker2: marker::NoCopy}
             }
         }
     }
@@ -2678,7 +2670,7 @@ pub struct MutItems<'a, T> {
     priv ptr: *mut T,
     priv end: *mut T,
     priv marker: marker::ContravariantLifetime<'a>,
-    priv marker2: marker::NoPod
+    priv marker2: marker::NoCopy
 }
 
 macro_rules! iterator {
@@ -2927,10 +2919,10 @@ impl<T> Drop for MoveItems<T> {
 pub type RevMoveItems<T> = Rev<MoveItems<T>>;
 
 impl<A> FromIterator<A> for ~[A] {
-    fn from_iterator<T: Iterator<A>>(iterator: &mut T) -> ~[A] {
+    fn from_iterator<T: Iterator<A>>(mut iterator: T) -> ~[A] {
         let (lower, _) = iterator.size_hint();
         let mut xs = with_capacity(lower);
-        for x in *iterator {
+        for x in iterator {
             xs.push(x);
         }
         xs
@@ -2938,11 +2930,11 @@ impl<A> FromIterator<A> for ~[A] {
 }
 
 impl<A> Extendable<A> for ~[A] {
-    fn extend<T: Iterator<A>>(&mut self, iterator: &mut T) {
+    fn extend<T: Iterator<A>>(&mut self, mut iterator: T) {
         let (lower, _) = iterator.size_hint();
         let len = self.len();
         self.reserve_exact(len + lower);
-        for x in *iterator {
+        for x in iterator {
             self.push(x);
         }
     }
@@ -3539,7 +3531,7 @@ mod tests {
                         let n = task_rng().gen::<uint>() % 10;
                         counts[n] += 1;
                         (n, counts[n])
-                    }).to_owned_vec();
+                    }).collect::<~[(uint, int)]>();
 
                 // only sort on the first element, so an unstable sort
                 // may mix up the counts.
@@ -4207,7 +4199,7 @@ mod tests {
         assert_eq!(xs.capacity(), 128);
         xs.shrink_to_fit();
         assert_eq!(xs.capacity(), 100);
-        assert_eq!(xs, range(0, 100).to_owned_vec());
+        assert_eq!(xs, range(0, 100).collect::<~[_]>());
     }
 
     #[test]

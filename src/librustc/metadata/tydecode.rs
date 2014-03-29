@@ -14,7 +14,7 @@
 // tjc note: Would be great to have a `match check` macro equivalent
 // for some of these
 
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types)]
 
 use middle::ty;
 
@@ -591,7 +591,7 @@ fn parse_bounds(st: &mut PState, conv: conv_did) -> ty::ParamBounds {
                 param_bounds.builtin_bounds.add(ty::BoundSized);
             }
             'P' => {
-                param_bounds.builtin_bounds.add(ty::BoundPod);
+                param_bounds.builtin_bounds.add(ty::BoundCopy);
             }
             'T' => {
                 param_bounds.builtin_bounds.add(ty::BoundShare);

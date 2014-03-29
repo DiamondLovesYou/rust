@@ -365,10 +365,10 @@ impl<'a> TraitDef<'a> {
         let mut ty_params = ty_params.into_vec();
 
         // Copy the lifetimes
-        lifetimes.extend(&mut generics.lifetimes.iter().map(|l| *l));
+        lifetimes.extend(generics.lifetimes.iter().map(|l| *l));
 
         // Create the type parameters.
-        ty_params.extend(&mut generics.ty_params.iter().map(|ty_param| {
+        ty_params.extend(generics.ty_params.iter().map(|ty_param| {
             // I don't think this can be moved out of the loop, since
             // a TyParamBound requires an ast id
             let mut bounds =
@@ -1007,7 +1007,7 @@ impl<'a> TraitDef<'a> {
             let sp = self.set_expn_info(cx, field.span);
             match field.node.kind {
                 ast::NamedField(ident, _) => named_idents.push((ident, sp)),
-                ast::UnnamedField => just_spans.push(sp),
+                ast::UnnamedField(..) => just_spans.push(sp),
             }
         }
 
@@ -1061,8 +1061,8 @@ impl<'a> TraitDef<'a> {
                     struct_type = Record;
                     Some(ident)
                 }
-                ast::UnnamedField if (struct_type == Unknown ||
-                                      struct_type == Tuple) => {
+                ast::UnnamedField(..) if (struct_type == Unknown ||
+                                          struct_type == Tuple) => {
                     struct_type = Tuple;
                     None
                 }

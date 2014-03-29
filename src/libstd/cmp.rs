@@ -20,7 +20,7 @@ and `Eq` to overload the `==` and `!=` operators.
 
 */
 
-#[allow(missing_doc)];
+#![allow(missing_doc)]
 
 /**
 * Trait for values that can be compared for equality and inequality.
@@ -43,19 +43,21 @@ pub trait Eq {
 
 /// Trait for equality comparisons where `a == b` and `a != b` are strict inverses.
 pub trait TotalEq: Eq {
-    /// This method must return the same value as `eq`. It exists to prevent
-    /// deriving `TotalEq` from fields not implementing the `TotalEq` trait.
-    fn equals(&self, other: &Self) -> bool {
-        self.eq(other)
-    }
+    // FIXME #13101: this method is used solely by #[deriving] to
+    // assert that every component of a type implements #[deriving]
+    // itself, the current deriving infrastructure means doing this
+    // assertion without using a method on this trait is nearly
+    // impossible.
+    //
+    // This should never be implemented by hand.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn assert_receiver_is_total_eq(&self) {}
 }
 
 macro_rules! totaleq_impl(
     ($t:ty) => {
-        impl TotalEq for $t {
-            #[inline]
-            fn equals(&self, other: &$t) -> bool { *self == *other }
-        }
+        impl TotalEq for $t {}
     }
 )
 
@@ -84,12 +86,7 @@ pub trait TotalOrd: TotalEq + Ord {
     fn cmp(&self, other: &Self) -> Ordering;
 }
 
-impl TotalEq for Ordering {
-    #[inline]
-    fn equals(&self, other: &Ordering) -> bool {
-        *self == *other
-    }
-}
+impl TotalEq for Ordering {}
 impl TotalOrd for Ordering {
     #[inline]
     fn cmp(&self, other: &Ordering) -> Ordering {
@@ -192,12 +189,6 @@ mod test {
         assert_eq!(5.cmp(&5), Equal);
         assert_eq!((-5).cmp(&12), Less);
         assert_eq!(12.cmp(-5), Greater);
-    }
-
-    #[test]
-    fn test_int_totaleq() {
-        assert!(5.equals(&5));
-        assert!(!2.equals(&17));
     }
 
     #[test]

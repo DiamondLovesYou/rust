@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern: lifetime of variable does not enclose its declaration
-extern crate sync;
-use sync::RWLock;
-fn main() {
-    let x = ~RWLock::new();
-    let mut y = None;
-    x.write_downgrade(|write_mode| {
-        (&write_mode).write_cond(|cond| {
-            y = Some(cond);
-        })
-    });
-    y.unwrap().wait();
+use std::kinds::marker;
+
+fn foo<P:Copy>(p: P) { }
+
+fn main()
+{
+    foo(marker::NoCopy); //~ ERROR does not fulfill
 }

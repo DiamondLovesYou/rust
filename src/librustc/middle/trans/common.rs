@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[allow(non_camel_case_types)];
+#![allow(non_camel_case_types)]
 
 //! Code that is useful in various trans modules.
 
@@ -710,7 +710,7 @@ pub fn is_null(val: ValueRef) -> bool {
 }
 
 // Used to identify cached monomorphized functions and vtables
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum mono_param_id {
     mono_precise(ty::t, Option<@Vec<mono_id> >),
     mono_any,
@@ -720,7 +720,7 @@ pub enum mono_param_id {
               datum::RvalueMode),
 }
 
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub enum MonoDataClass {
     MonoBits,    // Anything not treated differently from arbitrary integer data
     MonoNonNull, // Non-null pointers (used for optional-pointer optimization)
@@ -742,7 +742,7 @@ pub fn mono_data_classify(t: ty::t) -> MonoDataClass {
     }
 }
 
-#[deriving(Eq, Hash)]
+#[deriving(Eq, TotalEq, Hash)]
 pub struct mono_id_ {
     def: ast::DefId,
     params: Vec<mono_param_id> }
@@ -829,7 +829,7 @@ pub fn node_id_type_params(bcx: &Block, node: ExprOrMethodCall) -> Vec<ty::t> {
     }
 }
 
-pub fn node_vtables(bcx: &Block, id: ast::NodeId)
+pub fn node_vtables(bcx: &Block, id: typeck::MethodCall)
                  -> Option<typeck::vtable_res> {
     let vtable_map = bcx.ccx().maps.vtable_map.borrow();
     let raw_vtables = vtable_map.find(&id);

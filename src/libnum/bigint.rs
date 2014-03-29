@@ -92,15 +92,11 @@ pub struct BigUint {
 
 impl Eq for BigUint {
     #[inline]
-    fn eq(&self, other: &BigUint) -> bool { self.equals(other) }
-}
-
-impl TotalEq for BigUint {
-    #[inline]
-    fn equals(&self, other: &BigUint) -> bool {
+    fn eq(&self, other: &BigUint) -> bool {
         match self.cmp(other) { Equal => true, _ => false }
     }
 }
+impl TotalEq for BigUint {}
 
 impl Ord for BigUint {
     #[inline]
@@ -410,11 +406,11 @@ impl Integer for BigUint {
                 let mut d0 = d0;
                 let mut prod = b * d0;
                 while prod > m {
-                    // FIXME(#6050): overloaded operators force moves with generic types
+                    // FIXME(#5992): assignment operator overloads
                     // d0 -= d_unit
                     d0   = d0 - d_unit;
-                    // FIXME(#6050): overloaded operators force moves with generic types
-                    // prod = prod - b_unit;
+                    // FIXME(#5992): assignment operator overloads
+                    // prod -= b_unit;
                     prod = prod - b_unit
                 }
                 if d0.is_zero() {
@@ -422,10 +418,10 @@ impl Integer for BigUint {
                     continue;
                 }
                 n = 1;
-                // FIXME(#6102): Assignment operator for BigInt causes ICE
+                // FIXME(#5992): assignment operator overloads
                 // d += d0;
                 d = d + d0;
-                // FIXME(#6102): Assignment operator for BigInt causes ICE
+                // FIXME(#5992): assignment operator overloads
                 // m -= prod;
                 m = m - prod;
             }
@@ -728,8 +724,7 @@ impl BigUint {
                     let d: Option<BigUint> = FromPrimitive::from_uint(d);
                     match d {
                         Some(d) => {
-                            // FIXME(#6102): Assignment operator for BigInt
-                            // causes ICE:
+                            // FIXME(#5992): assignment operator overloads
                             // n += d * power;
                             n = n + d * power;
                         }
@@ -742,7 +737,7 @@ impl BigUint {
                 return Some(n);
             }
             end -= unit_len;
-            // FIXME(#6050): overloaded operators force moves with generic types
+            // FIXME(#5992): assignment operator overloads
             // power *= base_num;
             power = power * base_num;
         }
@@ -852,30 +847,8 @@ fn get_radix_base(radix: uint) -> (uint, uint) {
 }
 
 /// A Sign is a `BigInt`'s composing element.
-#[deriving(Eq, Clone, Show)]
+#[deriving(Eq, Ord, TotalEq, TotalOrd, Clone, Show)]
 pub enum Sign { Minus, Zero, Plus }
-
-impl Ord for Sign {
-    #[inline]
-    fn lt(&self, other: &Sign) -> bool {
-        match self.cmp(other) { Less => true, _ => false}
-    }
-}
-
-impl TotalEq for Sign {
-    #[inline]
-    fn equals(&self, other: &Sign) -> bool { *self == *other }
-}
-impl TotalOrd for Sign {
-    #[inline]
-    fn cmp(&self, other: &Sign) -> Ordering {
-        match (*self, *other) {
-          (Minus, Minus) | (Zero,  Zero) | (Plus, Plus) => Equal,
-          (Minus, Zero)  | (Minus, Plus) | (Zero, Plus) => Less,
-          _                                             => Greater
-        }
-    }
-}
 
 impl Neg<Sign> for Sign {
     /// Negate Sign value.
@@ -898,15 +871,12 @@ pub struct BigInt {
 
 impl Eq for BigInt {
     #[inline]
-    fn eq(&self, other: &BigInt) -> bool { self.equals(other) }
-}
-
-impl TotalEq for BigInt {
-    #[inline]
-    fn equals(&self, other: &BigInt) -> bool {
+    fn eq(&self, other: &BigInt) -> bool {
         match self.cmp(other) { Equal => true, _ => false }
     }
 }
+
+impl TotalEq for BigInt {}
 
 impl Ord for BigInt {
     #[inline]
@@ -2097,7 +2067,7 @@ mod biguint_tests {
         fn factor(n: uint) -> BigUint {
             let mut f: BigUint = One::one();
             for i in range(2, n + 1) {
-                // FIXME(#6102): Assignment operator for BigInt causes ICE
+                // FIXME(#5992): assignment operator overloads
                 // f *= FromPrimitive::from_uint(i);
                 f = f * FromPrimitive::from_uint(i).unwrap();
             }
@@ -2215,7 +2185,7 @@ mod bigint_tests {
             nums.push(BigInt::from_slice(Minus, *s));
         }
         nums.push(Zero::zero());
-        nums.extend(&mut vs.iter().map(|s| BigInt::from_slice(Plus, *s)));
+        nums.extend(vs.iter().map(|s| BigInt::from_slice(Plus, *s)));
 
         for (i, ni) in nums.iter().enumerate() {
             for (j0, nj) in nums.slice(i, nums.len()).iter().enumerate() {

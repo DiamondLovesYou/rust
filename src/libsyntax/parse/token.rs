@@ -22,9 +22,10 @@ use std::char;
 use std::fmt;
 use std::local_data;
 use std::path::BytesContainer;
+use std::rc::Rc;
 
 #[allow(non_camel_case_types)]
-#[deriving(Clone, Encodable, Decodable, Eq, Hash, Show)]
+#[deriving(Clone, Encodable, Decodable, Eq, TotalEq, Hash, Show)]
 pub enum BinOp {
     PLUS,
     MINUS,
@@ -39,7 +40,7 @@ pub enum BinOp {
 }
 
 #[allow(non_camel_case_types)]
-#[deriving(Clone, Encodable, Decodable, Eq, Hash, Show)]
+#[deriving(Clone, Encodable, Decodable, Eq, TotalEq, Hash, Show)]
 pub enum Token {
     /* Expression-operator symbols. */
     EQ,
@@ -103,7 +104,7 @@ pub enum Token {
     EOF,
 }
 
-#[deriving(Clone, Encodable, Decodable, Eq, Hash)]
+#[deriving(Clone, Encodable, Decodable, Eq, TotalEq, Hash)]
 /// For interpolation during macro expansion.
 pub enum Nonterminal {
     NtItem(@ast::Item),
@@ -113,7 +114,7 @@ pub enum Nonterminal {
     NtExpr(@ast::Expr),
     NtTy(  P<ast::Ty>),
     NtIdent(~ast::Ident, bool),
-    NtAttr(@ast::Attribute), // #[foo]
+    NtMeta(@ast::MetaItem), // stuff inside brackets for attributes
     NtPath(~ast::Path),
     NtTT(  @ast::TokenTree), // needs @ed to break a circularity
     NtMatchers(Vec<ast::Matcher> )
@@ -129,7 +130,7 @@ impl fmt::Show for Nonterminal {
             NtExpr(..) => f.pad("NtExpr(..)"),
             NtTy(..) => f.pad("NtTy(..)"),
             NtIdent(..) => f.pad("NtIdent(..)"),
-            NtAttr(..) => f.pad("NtAttr(..)"),
+            NtMeta(..) => f.pad("NtMeta(..)"),
             NtPath(..) => f.pad("NtPath(..)"),
             NtTT(..) => f.pad("NtTT(..)"),
             NtMatchers(..) => f.pad("NtMatchers(..)"),
@@ -241,7 +242,7 @@ pub fn to_str(t: &Token) -> ~str {
       INTERPOLATED(ref nt) => {
         match nt {
             &NtExpr(e) => ::print::pprust::expr_to_str(e),
-            &NtAttr(e) => ::print::pprust::attribute_to_str(e),
+            &NtMeta(e) => ::print::pprust::meta_item_to_str(e),
             _ => {
                 ~"an interpolated " +
                     match *nt {
@@ -249,7 +250,7 @@ pub fn to_str(t: &Token) -> ~str {
                         NtBlock(..) => ~"block",
                         NtStmt(..) => ~"statement",
                         NtPat(..) => ~"pattern",
-                        NtAttr(..) => fail!("should have been handled"),
+                        NtMeta(..) => fail!("should have been handled"),
                         NtExpr(..) => fail!("should have been handled above"),
                         NtTy(..) => ~"type",
                         NtIdent(..) => ~"identifier",
@@ -531,13 +532,14 @@ pub type IdentInterner = StrInterner;
 
 // if an interner exists in TLS, return it. Otherwise, prepare a
 // fresh one.
-pub fn get_ident_interner() -> @IdentInterner {
-    local_data_key!(key: @::parse::token::IdentInterner)
-    match local_data::get(key, |k| k.map(|k| *k)) {
+// FIXME(eddyb) #8726 This should probably use a task-local reference.
+pub fn get_ident_interner() -> Rc<IdentInterner> {
+    local_data_key!(key: Rc<::parse::token::IdentInterner>)
+    match local_data::get(key, |k| k.map(|k| k.clone())) {
         Some(interner) => interner,
         None => {
-            let interner = @mk_fresh_ident_interner();
-            local_data::set(key, interner);
+            let interner = Rc::new(mk_fresh_ident_interner());
+            local_data::set(key, interner.clone());
             interner
         }
     }
@@ -602,15 +604,15 @@ impl<'a> Equiv<&'a str> for InternedString {
     }
 }
 
-impl<D:Decoder> Decodable<D> for InternedString {
-    fn decode(d: &mut D) -> InternedString {
-        get_name(get_ident_interner().intern(d.read_str()))
+impl<D:Decoder<E>, E> Decodable<D, E> for InternedString {
+    fn decode(d: &mut D) -> Result<InternedString, E> {
+        Ok(get_name(get_ident_interner().intern(try!(d.read_str()))))
     }
 }
 
-impl<E:Encoder> Encodable<E> for InternedString {
-    fn encode(&self, e: &mut E) {
-        e.emit_str(self.string.as_slice())
+impl<S:Encoder<E>, E> Encodable<S, E> for InternedString {
+    fn encode(&self, s: &mut S) -> Result<(), E> {
+        s.emit_str(self.string.as_slice())
     }
 }
 

@@ -28,7 +28,7 @@ pub struct Interner<T> {
 }
 
 // when traits can extend traits, we should extend index<Name,T> to get []
-impl<T: Eq + Hash + Clone + 'static> Interner<T> {
+impl<T: TotalEq + Hash + Clone + 'static> Interner<T> {
     pub fn new() -> Interner<T> {
         Interner {
             map: RefCell::new(HashMap::new()),
@@ -95,11 +95,7 @@ pub struct RcStr {
     priv string: Rc<~str>,
 }
 
-impl TotalEq for RcStr {
-    fn equals(&self, other: &RcStr) -> bool {
-        self.as_slice().equals(&other.as_slice())
-    }
-}
+impl TotalEq for RcStr {}
 
 impl TotalOrd for RcStr {
     fn cmp(&self, other: &RcStr) -> Ordering {

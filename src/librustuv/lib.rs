@@ -34,15 +34,14 @@ via `close` and `delete` methods.
 
 */
 
-#[crate_id = "rustuv#0.10-pre"];
-#[license = "MIT/ASL2"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
+#![crate_id = "rustuv#0.10-pre"]
+#![license = "MIT/ASL2"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
 
-#[feature(macro_rules)];
-#[deny(unused_result, unused_must_use)];
-#[allow(visible_private_types)];
-#[allow(deprecated_owned_vector)]; // NOTE: remove after stage0
+#![feature(macro_rules)]
+#![deny(unused_result, unused_must_use)]
+#![allow(visible_private_types)]
 
 #[cfg(test)] extern crate green;
 #[cfg(test)] extern crate realrustuv = "rustuv";
@@ -55,6 +54,7 @@ use std::libc::{c_int, c_void};
 use std::ptr::null;
 use std::ptr;
 use std::rt::local::Local;
+use std::rt::rtio;
 use std::rt::task::{BlockedTask, Task};
 use std::str::raw::from_c_str;
 use std::str;
@@ -77,7 +77,7 @@ pub use self::tty::TtyWatcher;
 //        '__test' module.
 #[cfg(test)] #[start]
 fn start(argc: int, argv: **u8) -> int {
-    green::start(argc, argv, __test::main)
+    green::start(argc, argv, event_loop, __test::main)
 }
 
 mod macros;
@@ -104,6 +104,31 @@ pub mod pipe;
 pub mod tty;
 pub mod signal;
 pub mod stream;
+
+/// Creates a new event loop which is powered by libuv
+///
+/// This function is used in tandem with libgreen's `PoolConfig` type as a value
+/// for the `event_loop_factory` field. Using this function as the event loop
+/// factory will power programs with libuv and enable green threading.
+///
+/// # Example
+///
+/// ```
+/// extern crate rustuv;
+/// extern crate green;
+///
+/// #[start]
+/// fn start(argc: int, argv: **u8) -> int {
+///     green::start(argc, argv, rustuv::event_loop, main)
+/// }
+///
+/// fn main() {
+///     // this code is running inside of a green task powered by libuv
+/// }
+/// ```
+pub fn event_loop() -> ~rtio::EventLoop:Send {
+    ~uvio::UvEventLoop::new() as ~rtio::EventLoop:Send
+}
 
 /// A type that wraps a uv handle
 pub trait UvHandle<T> {
