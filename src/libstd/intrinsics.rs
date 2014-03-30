@@ -42,7 +42,7 @@ A quick refresher on memory ordering:
 */
 
 #![allow(missing_doc)]
-#[allow(unused_imports)];
+#![allow(unused_imports)]
 
 use cmath::{c_float, c_double};
 

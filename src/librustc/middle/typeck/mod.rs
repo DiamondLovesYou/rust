@@ -72,7 +72,6 @@ use util::nodemap::{DefIdMap, FnvHashMap};
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use collections::List;
 use syntax::codemap::Span;
 use syntax::print::pprust::*;
 use syntax::{ast, ast_map, abi};
@@ -259,7 +258,7 @@ pub fn write_substs_to_tcx(tcx: &ty::ctxt,
                            substs: Vec<ty::t> ) {
     if substs.len() > 0u {
         debug!("write_substs_to_tcx({}, {:?})", node_id,
-               substs.map(|t| ppaux::ty_to_str(tcx, *t)));
+               substs.iter().map(|t| ppaux::ty_to_str(tcx, *t)).collect::<Vec<~str>>());
         assert!(substs.iter().all(|t| !ty::type_needs_infer(*t)));
 
         tcx.node_type_substs.borrow_mut().insert(node_id, substs);
@@ -327,7 +326,7 @@ pub fn require_same_types(tcx: &ty::ctxt,
 
 // a list of mapping from in-scope-region-names ("isr") to the
 // corresponding ty::Region
-pub type isr_alist = @List<(ty::BoundRegion, ty::Region)>;
+pub type isr_alist = @Vec<(ty::BoundRegion, ty::Region)>;
 
 trait get_region<'a, T:'static> {
     fn get(&'a self, br: ty::BoundRegion) -> ty::Region;

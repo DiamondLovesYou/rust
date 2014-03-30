@@ -687,10 +687,10 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr,
               let (left_llval, left_inlinable) = const_expr(cx, left, is_local);
 
               let get_ll_mask = || {
-                  let mask = mask.map(|&m| {
+                  let mask = mask.iter().map(|&m| {
                       let m = const_eval::eval_positive_integer(cx.tcx(), m, "swizzle mask");
                       C_i32(cx, m as i32)
-                  });
+                  }).collect();
                   C_vector(cx, &mask)
               };
 
@@ -729,14 +729,14 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr,
 
                           if left_size < right_size {
                               let delta = right_size - left_size;
-                              let mask = mask.map(|&m| {
+                              let mask = mask.iter().map(|&m| {
                                   let m = const_eval::eval_positive_integer(cx.tcx(),
                                                                             m,
                                                                             "swizzle mask");
                                   let m = if m >= left_size { m + delta }
                                   else                      { m         };
                                   C_i32(cx, m as i32)
-                              });
+                              }).collect();
                               let mask = C_vector(cx, &mask);
                               let left_llval = llvm::LLVMConstShuffleVector
                                   (left_llval,

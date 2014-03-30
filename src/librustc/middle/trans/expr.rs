@@ -472,10 +472,10 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
     let tcx = bcx.tcx();
     let ccx = bcx.ccx();
     let get_ll_mask = || {
-        let mask = mask.map(|&m| {
+        let mask = mask.iter().map(|&m| {
                 let m = const_eval::eval_positive_integer(tcx, m, "swizzle mask");
                 C_i32(ccx, m as i32)
-            });
+            }).collect();
         C_vector(ccx, &mask)
     };
 
@@ -514,14 +514,14 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
 
                 if left_size < right_size {
                     let delta = right_size - left_size;
-                    let mask = mask.map(|&m| {
+                    let mask = mask.iter().map(|&m| {
                             let m = const_eval::eval_positive_integer(bcx.tcx(),
                                                                       m,
                                                                       "swizzle mask");
                             let m = if m >= left_size { m + delta }
                                     else              { m         };
                             C_i32(ccx, m as i32)
-                        });
+                        }).collect();
                     let mask = C_vector(ccx, &mask);
                     let left_llval = ShuffleVector(bcx,
                                                    left_llval,
@@ -1110,7 +1110,7 @@ fn trans_rec_or_struct<'a>(
     with_field_tys(tcx, ty, Some(id), |discr, field_tys| {
         let mut need_base = slice::from_elem(field_tys.len(), true);
 
-        let numbered_fields = fields.map(|field| {
+        let numbered_fields = fields.iter().map(|field| {
             let opt_pos =
                 field_tys.iter().position(|field_ty|
                                           field_ty.ident.name == field.ident.node.name);
@@ -1124,7 +1124,7 @@ fn trans_rec_or_struct<'a>(
                                       "Couldn't find field in struct type")
                 }
             }
-        });
+        }).collect::<Vec<_>>();
         let optbase = match base {
             Some(base_expr) => {
                 let mut leftovers = Vec::new();
@@ -1145,7 +1145,7 @@ fn trans_rec_or_struct<'a>(
         };
 
         let repr = adt::represent_type(bcx.ccx(), ty);
-        trans_adt(bcx, repr, discr, numbered_fields, optbase, dest)
+        trans_adt(bcx, repr, discr, numbered_fields.as_slice(), optbase, dest)
     })
 }
 

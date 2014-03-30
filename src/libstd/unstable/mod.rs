@@ -9,7 +9,7 @@
 // except according to those terms.
 
 #![doc(hidden)]
-#[allow(missing_doc)];
+#![allow(missing_doc)]
 
 use prelude::*;
 use libc::uintptr_t;
