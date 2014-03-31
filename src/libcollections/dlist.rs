@@ -13,7 +13,7 @@
 //! The DList allows pushing and popping elements at either end.
 //!
 //! DList implements the trait Deque. It should be imported with `use
-//! extra::container::Deque`.
+//! collections::deque::Deque`.
 
 
 // DList is constructed like a singly-linked list over the field `next`.
@@ -582,7 +582,7 @@ impl<A> DoubleEndedIterator<A> for MoveItems<A> {
 }
 
 impl<A> FromIterator<A> for DList<A> {
-    fn from_iterator<T: Iterator<A>>(iterator: T) -> DList<A> {
+    fn from_iter<T: Iterator<A>>(iterator: T) -> DList<A> {
         let mut ret = DList::new();
         ret.extend(iterator);
         ret
