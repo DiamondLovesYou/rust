@@ -30,6 +30,7 @@ use util::ppaux;
 use util::nodemap::{NodeMap, NodeSet};
 
 use serialize::{json, Encodable};
+use collections::HashSet;
 
 use std::cell::{Cell, RefCell};
 use std::io;
@@ -571,6 +572,38 @@ fn write_out_deps(sess: &Session,
     }
     Ok(())
 }
+struct SyntaxExtFileSearch {
+    sysroot: Path,
+    addl_lib_search_paths: RefCell<HashSet<Path>>,
+    target_triple: ~str,
+}
+impl SyntaxExtFileSearch {
+    // Create a loader solely for the host. This is used for
+    // syntax phase crates referenced by our crate. We do this in order to
+    // prevent errors from having multiple crates in -L paths later on
+    // (particularly problematic when targeting non-host targets).
+    // We accomplish this with this minor hack. More specifically,
+    // we use a bogus sysroot and add the path for rustc's set of libs
+    // (ie /usr/local/lib/ on Unix) to addl_lib_search_paths.
+    fn new(sess: &Session) -> SyntaxExtFileSearch {
+        SyntaxExtFileSearch {
+            addl_lib_search_paths: RefCell::new
+                ({
+                    let mut set = (*sess.opts.addl_lib_search_paths.borrow()).clone();
+                    set.insert(filesearch::get_host_lib_path(sess.sysroot()));
+                    set
+                }),
+            sysroot: Path::new("/dev/null"),
+            target_triple: sess.opts.target_triple.clone(),
+        }
+    }
+    // Create a filesearch object for passing to metadata subsystems.
+    fn filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
+        filesearch::FileSearch::new(&self.sysroot,
+                                    self.target_triple,
+                                    &self.addl_lib_search_paths)
+    }
+}
 
 pub fn compile_input(sess: Session, cfg: ast::CrateConfig, input: &Input,
                      outdir: &Option<Path>, output: &Option<Path>) {
@@ -586,7 +619,10 @@ pub fn compile_input(sess: Session, cfg: ast::CrateConfig, input: &Input,
                                                  output,
                                                  krate.attrs.as_slice(),
                                                  &sess);
-            let loader = &mut Loader::new(&sess);
+            let syntax_filesearch = SyntaxExtFileSearch::new(&sess);
+            let loader = &mut Loader::new(&sess,
+                                          host_triple(),
+                                          syntax_filesearch.filesearch());
             let id = link::find_crate_id(krate.attrs.as_slice(),
                                          outputs.out_filestem);
             let (expanded_crate, ast_map) = phase_2_configure_and_expand(&sess, loader,
@@ -688,7 +724,7 @@ pub fn pretty_print_input(sess: Session,
 
     let (krate, ast_map, is_expanded) = match ppm {
         PpmExpanded | PpmExpandedIdentified | PpmTyped => {
-            let loader = &mut Loader::new(&sess);
+            let loader = &mut Loader::new(&sess, host_triple(), sess.filesearch());
             let (krate, ast_map) = phase_2_configure_and_expand(&sess, loader,
                                                                 krate, &id);
             (krate, Some(ast_map), true)

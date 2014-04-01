@@ -1724,6 +1724,11 @@ fn encode_crate_id(ebml_w: &mut Encoder, crate_id: &CrateId) {
     ebml_w.writer.write(crate_id.to_str().as_bytes());
     ebml_w.end_tag();
 }
+fn encode_crate_triple(ebml_w: &mut Encoder, triple: &str) {
+    ebml_w.start_tag(tag_crate_triple);
+    ebml_w.writer.write(triple.as_bytes());
+    ebml_w.end_tag();
+}
 
 // NB: Increment this as you change the metadata encoding version.
 pub static metadata_encoding_version : &'static [u8] =
@@ -1785,6 +1790,7 @@ fn encode_metadata_inner(wr: &mut MemWriter, parms: EncodeParams, krate: &Crate)
 
     encode_crate_id(&mut ebml_w, &ecx.link_meta.crateid);
     encode_hash(&mut ebml_w, &ecx.link_meta.crate_hash);
+    encode_crate_triple(&mut ebml_w, ecx.link_meta.crate_triple);
 
     let mut i = ebml_w.writer.tell().unwrap();
     let crate_attrs = synthesize_crate_attrs(&ecx, krate);

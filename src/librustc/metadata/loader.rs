@@ -17,6 +17,7 @@ use lib::llvm::{False, llvm, ObjectFile, mk_section_iter};
 use metadata::cstore::{MetadataBlob, MetadataVec, MetadataArchive};
 use metadata::decoder;
 use metadata::encoder;
+use metadata::filesearch;
 use metadata::filesearch::{FileMatches, FileDoesntMatch};
 use syntax::codemap::Span;
 use syntax::diagnostic::SpanHandler;
@@ -54,6 +55,7 @@ pub struct Context<'a> {
     id_hash: &'a str,
     hash: Option<&'a Svh>,
     os: Os,
+    triple: ~str,
     intr: Rc<IdentInterner>,
     rejected_via_hash: bool,
 }
@@ -83,8 +85,10 @@ fn realpath(p: &Path) -> Path {
 }
 
 impl<'a> Context<'a> {
-    pub fn load_library_crate(&mut self, root_ident: Option<&str>) -> Library {
-        match self.find_library_crate() {
+    pub fn load_library_crate<'a>(&mut self,
+                                  root_ident: Option<&str>,
+                                  filesearch: &filesearch::FileSearch<'a>) -> Library {
+        match self.find_library_crate(filesearch) {
             Some(t) => t,
             None => {
                 self.sess.abort_if_errors();
@@ -110,8 +114,8 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn find_library_crate(&mut self) -> Option<Library> {
-        let filesearch = self.sess.filesearch();
+    fn find_library_crate<'a>(&mut self,
+                              filesearch: &filesearch::FileSearch<'a>) -> Option<Library> {
         let (dyprefix, dysuffix) = self.dylibname();
 
         // want: crate_name.dir_part() + prefix + crate_name.file_part + "-"
@@ -331,6 +335,22 @@ impl<'a> Context<'a> {
         match decoder::maybe_get_crate_id(crate_data) {
             Some(ref id) if self.crate_id.matches(id) => {}
             _ => return false
+        }
+        match decoder::maybe_get_crate_triple(crate_data) {
+            Some(ref triple) if self.triple == *triple => {}
+            Some(ref triple) => {
+                info!("{} (crate triple) != {} (current triple)",
+                      triple,
+                      self.triple);
+                return false;
+            },
+
+            // We could be loading a crate that wasn't built with target
+            // triple metadata. In that case, just act like we found matching
+            // triples for the crate.
+            None => {
+                info!("crate target triple absent");
+            }
         }
         let hash = match decoder::maybe_get_crate_hash(crate_data) {
             Some(hash) => hash, None => return false

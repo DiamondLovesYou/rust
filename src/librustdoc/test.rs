@@ -56,8 +56,13 @@ pub fn run(input: &str, libs: HashSet<Path>, mut test_args: Vec<~str>) -> int {
 
     let cfg = driver::build_configuration(&sess);
     let krate = driver::phase_1_parse_input(&sess, cfg, &input);
-    let (krate, _) = driver::phase_2_configure_and_expand(&sess, &mut Loader::new(&sess), krate,
-                                                          &from_str("rustdoc-test").unwrap());
+    let (krate, _) = driver::phase_2_configure_and_expand
+        (&sess,
+         &mut Loader::new(&sess,
+                          sess.opts.target_triple.clone(),
+                          sess.filesearch()),
+         krate,
+         &from_str("rustdoc-test").unwrap());
 
     let ctx = @core::DocContext {
         krate: krate,

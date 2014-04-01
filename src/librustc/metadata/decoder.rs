@@ -1171,6 +1171,18 @@ pub fn get_crate_id(data: &[u8]) -> CrateId {
     from_str(hashdoc.as_str_slice()).unwrap()
 }
 
+pub fn maybe_get_crate_triple(data: &[u8]) -> Option<~str> {
+    let cratedoc = reader::Doc(data);
+    reader::maybe_get_doc(cratedoc, tag_crate_triple).and_then(|doc| {
+        from_str(doc.as_str_slice())
+    })
+}
+pub fn get_crate_triple(data: &[u8]) -> ~str {
+    let cratedoc = reader::Doc(data);
+    let doc = reader::get_doc(cratedoc, tag_crate_triple);
+    from_str(doc.as_str_slice()).unwrap()
+}
+
 pub fn list_crate_metadata(bytes: &[u8], out: &mut io::Writer) -> io::IoResult<()> {
     let hash = get_crate_hash(bytes);
     let md = reader::Doc(bytes);

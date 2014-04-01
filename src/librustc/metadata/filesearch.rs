@@ -182,6 +182,10 @@ pub fn get_or_default_sysroot() -> Path {
     }
 }
 
+pub fn get_host_lib_path(sysroot: &Path) -> Path {
+    sysroot.join(find_libdir(sysroot))
+}
+
 #[cfg(windows)]
 static PATH_ENTRY_SEPARATOR: &'static str = ";";
 #[cfg(not(windows))]

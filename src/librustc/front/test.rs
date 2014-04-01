@@ -153,7 +153,12 @@ impl<'a> fold::Folder for TestHarnessGenerator<'a> {
 
 fn generate_test_harness(sess: &Session, krate: ast::Crate)
                          -> ast::Crate {
-    let loader = &mut Loader::new(sess);
+    let loader = &mut Loader::new(sess,
+                                  sess.targ_cfg
+                                      .target_strs
+                                      .target_triple
+                                      .clone(),
+                                  sess.filesearch());
     let mut cx: TestCtxt = TestCtxt {
         sess: sess,
         ext_cx: ExtCtxt::new(&sess.parse_sess, sess.opts.cfg.clone(),

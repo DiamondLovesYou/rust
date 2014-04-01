@@ -331,14 +331,16 @@ impl Session {
     pub fn show_span(&self) -> bool {
         self.debugging_opt(SHOW_SPAN)
     }
-    pub fn filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
-        let sysroot = match self.opts.maybe_sysroot {
+    pub fn sysroot<'a>(&'a self) -> &'a Path {
+        match self.opts.maybe_sysroot {
             Some(ref sysroot) => sysroot,
             None => self.default_sysroot.as_ref()
                         .expect("missing sysroot and default_sysroot in Session")
-        };
+        }
+    }
+    pub fn filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
         filesearch::FileSearch::new(
-            sysroot,
+            self.sysroot(),
             self.opts.target_triple,
             &self.opts.addl_lib_search_paths)
     }

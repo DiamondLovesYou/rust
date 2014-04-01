@@ -2465,7 +2465,9 @@ pub fn trans_crate(krate: ast::Crate,
         }
     }
 
-    let link_meta = link::build_link_meta(&krate, output.out_filestem);
+    let link_meta = link::build_link_meta(&krate,
+                                          output.out_filestem,
+                                          tcx.sess.opts.target_triple.clone());
 
     // Append ".rs" to crate name as LLVM module identifier.
     //

@@ -21,6 +21,7 @@ use metadata::cstore;
 use metadata::decoder;
 use metadata::loader;
 use metadata::loader::Os;
+use metadata::filesearch;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -45,7 +46,9 @@ pub fn read_crates(sess: &Session,
                    intr: Rc<IdentInterner>) {
     let mut e = Env {
         sess: sess,
+        filesearch: sess.filesearch(),
         os: os,
+        target_triple: sess.targ_cfg.target_strs.target_triple.clone(),
         crate_cache: @RefCell::new(Vec::new()),
         next_crate_num: 1,
         intr: intr
@@ -75,6 +78,7 @@ struct cache_entry {
     span: Span,
     hash: Svh,
     crate_id: CrateId,
+    triple: Option<~str>,
 }
 
 fn dump_crates(crate_cache: &[cache_entry]) {
@@ -112,7 +116,9 @@ fn warn_if_multiple_versions(e: &mut Env,
 
 struct Env<'a> {
     sess: &'a Session,
+    filesearch: filesearch::FileSearch<'a>,
     os: loader::Os,
+    target_triple: ~str,
     crate_cache: @RefCell<Vec<cache_entry>>,
     next_crate_num: ast::CrateNum,
     intr: Rc<IdentInterner>
@@ -269,7 +275,13 @@ fn visit_item(e: &Env, i: &ast::Item) {
 fn existing_match(e: &Env, crate_id: &CrateId,
                   hash: Option<&Svh>) -> Option<ast::CrateNum> {
     for c in e.crate_cache.borrow().iter() {
-        if !crate_id.matches(&c.crate_id) { continue }
+        if !crate_id.matches(&c.crate_id) ||
+            match c.triple {
+                Some(ref triple) if *triple != e.target_triple => true,
+                _ => false,
+            } {
+            continue
+        }
         match hash {
             Some(hash) if *hash != c.hash => {}
             Some(..) | None => return Some(c.cnum)
@@ -296,15 +308,17 @@ fn resolve_crate(e: &mut Env,
                 id_hash: id_hash,
                 hash: hash.map(|a| &*a),
                 os: e.os,
+                triple: e.target_triple.clone(),
                 intr: e.intr.clone(),
                 rejected_via_hash: false,
             };
             let loader::Library {
                 dylib, rlib, metadata
-            } = load_ctxt.load_library_crate(root_ident);
+            } = load_ctxt.load_library_crate(root_ident, &e.filesearch);
 
             let crate_id = decoder::get_crate_id(metadata.as_slice());
             let hash = decoder::get_crate_hash(metadata.as_slice());
+            let triple = decoder::maybe_get_crate_triple(metadata.as_slice());
 
             // Claim this crate number and cache it
             let cnum = e.next_crate_num;
@@ -313,6 +327,7 @@ fn resolve_crate(e: &mut Env,
                 span: span,
                 hash: hash,
                 crate_id: crate_id,
+                triple: triple,
             });
             e.next_crate_num += 1;
 
@@ -375,13 +390,17 @@ pub struct Loader<'a> {
 }
 
 impl<'a> Loader<'a> {
-    pub fn new(sess: &'a Session) -> Loader<'a> {
+    pub fn new(sess: &'a Session,
+               target: ~str,
+               filesearch: filesearch::FileSearch<'a>) -> Loader<'a> {
         let os = driver::get_os(driver::host_triple()).unwrap();
         let os = session::sess_os_to_meta_os(os);
         Loader {
             env: Env {
                 sess: sess,
+                filesearch: filesearch,
                 os: os,
+                target_triple: target,
                 crate_cache: @RefCell::new(Vec::new()),
                 next_crate_num: 1,
                 intr: token::get_ident_interner(),
