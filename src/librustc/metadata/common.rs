@@ -211,7 +211,7 @@ pub static tag_crate_triple: uint = 0x66;
 
 #[deriving(Clone, Show)]
 pub struct LinkMeta {
-    crateid: CrateId,
-    crate_hash: Svh,
-    crate_triple: ~str,
+    pub crateid: CrateId,
+    pub crate_hash: Svh,
+    pub crate_triple: ~str,
 }

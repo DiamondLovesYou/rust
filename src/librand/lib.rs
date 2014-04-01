@@ -72,10 +72,13 @@ println!("{:?}", tuple_ptr)
 
 #![feature(macro_rules, managed_boxes, phase)]
 
+#![allow(visible_private_types)] // NOTE: remove after a stage0 snap
+
 #[cfg(test)]
 #[phase(syntax, link)] extern crate log;
 
 use std::cast;
+use std::io::IoResult;
 use std::kinds::marker;
 use std::local_data;
 use std::str;
@@ -401,18 +404,18 @@ pub trait SeedableRng<Seed>: Rng {
 /// appropriate.
 #[deprecated="use `task_rng` or `StdRng::new`"]
 pub fn rng() -> StdRng {
-    StdRng::new()
+    StdRng::new().unwrap()
 }
 
 /// The standard RNG. This is designed to be efficient on the current
 /// platform.
 #[cfg(not(target_word_size="64"))]
-pub struct StdRng { priv rng: IsaacRng }
+pub struct StdRng { rng: IsaacRng }
 
 /// The standard RNG. This is designed to be efficient on the current
 /// platform.
 #[cfg(target_word_size="64")]
-pub struct StdRng { priv rng: Isaac64Rng }
+pub struct StdRng { rng: Isaac64Rng }
 
 impl StdRng {
     /// Create a randomly seeded instance of `StdRng`.
@@ -423,9 +426,12 @@ impl StdRng {
     /// number of random numbers, or doesn't need the utmost speed for
     /// generating each number, `task_rng` and/or `random` may be more
     /// appropriate.
+    ///
+    /// Reading the randomness from the OS may fail, and any error is
+    /// propagated via the `IoResult` return value.
     #[cfg(not(target_word_size="64"))]
-    pub fn new() -> StdRng {
-        StdRng { rng: IsaacRng::new() }
+    pub fn new() -> IoResult<StdRng> {
+        IsaacRng::new().map(|r| StdRng { rng: r })
     }
     /// Create a randomly seeded instance of `StdRng`.
     ///
@@ -435,9 +441,12 @@ impl StdRng {
     /// number of random numbers, or doesn't need the utmost speed for
     /// generating each number, `task_rng` and/or `random` may be more
     /// appropriate.
+    ///
+    /// Reading the randomness from the OS may fail, and any error is
+    /// propagated via the `IoResult` return value.
     #[cfg(target_word_size="64")]
-    pub fn new() -> StdRng {
-        StdRng { rng: Isaac64Rng::new() }
+    pub fn new() -> IoResult<StdRng> {
+        Isaac64Rng::new().map(|r| StdRng { rng: r })
     }
 }
 
@@ -475,7 +484,10 @@ impl<'a> SeedableRng<&'a [uint]> for StdRng {
 /// This will read randomness from the operating system to seed the
 /// generator.
 pub fn weak_rng() -> XorShiftRng {
-    XorShiftRng::new()
+    match XorShiftRng::new() {
+        Ok(r) => r,
+        Err(e) => fail!("weak_rng: failed to create seeded RNG: {}", e)
+    }
 }
 
 /// An Xorshift[1] random number
@@ -489,10 +501,10 @@ pub fn weak_rng() -> XorShiftRng {
 /// RNGs"](http://www.jstatsoft.org/v08/i14/paper). *Journal of
 /// Statistical Software*. Vol. 8 (Issue 14).
 pub struct XorShiftRng {
-    priv x: u32,
-    priv y: u32,
-    priv z: u32,
-    priv w: u32,
+    x: u32,
+    y: u32,
+    z: u32,
+    w: u32,
 }
 
 impl Rng for XorShiftRng {
@@ -537,10 +549,10 @@ impl SeedableRng<[u32, .. 4]> for XorShiftRng {
 
 impl XorShiftRng {
     /// Create an xor shift random number generator with a random seed.
-    pub fn new() -> XorShiftRng {
+    pub fn new() -> IoResult<XorShiftRng> {
         let mut s = [0u8, ..16];
+        let mut r = try!(OSRng::new());
         loop {
-            let mut r = OSRng::new();
             r.fill_bytes(s);
 
             if !s.iter().all(|x| *x == 0) {
@@ -548,7 +560,7 @@ impl XorShiftRng {
             }
         }
         let s: [u32, ..4] = unsafe { cast::transmute(s) };
-        SeedableRng::from_seed(s)
+        Ok(SeedableRng::from_seed(s))
     }
 }
 
@@ -557,7 +569,10 @@ struct TaskRngReseeder;
 
 impl reseeding::Reseeder<StdRng> for TaskRngReseeder {
     fn reseed(&mut self, rng: &mut StdRng) {
-        *rng = StdRng::new();
+        *rng = match StdRng::new() {
+            Ok(r) => r,
+            Err(e) => fail!("could not reseed task_rng: {}", e)
+        }
     }
 }
 static TASK_RNG_RESEED_THRESHOLD: uint = 32_768;
@@ -573,8 +588,8 @@ pub struct TaskRng {
     // The use of unsafe code here is OK if the invariants above are
     // satisfied; and it allows us to avoid (unnecessarily) using a
     // GC'd or RC'd pointer.
-    priv rng: *mut TaskRngInner,
-    priv marker: marker::NoSend,
+    rng: *mut TaskRngInner,
+    marker: marker::NoSend,
 }
 
 // used to make space in TLS for a random number generator
@@ -594,7 +609,11 @@ local_data_key!(TASK_RNG_KEY: ~TaskRngInner)
 pub fn task_rng() -> TaskRng {
     local_data::get_mut(TASK_RNG_KEY, |rng| match rng {
         None => {
-            let mut rng = ~reseeding::ReseedingRng::new(StdRng::new(),
+            let r = match StdRng::new() {
+                Ok(r) => r,
+                Err(e) => fail!("could not initialize task_rng: {}", e)
+            };
+            let mut rng = ~reseeding::ReseedingRng::new(r,
                                                         TASK_RNG_RESEED_THRESHOLD,
                                                         TaskRngReseeder);
             let ptr = &mut *rng as *mut TaskRngInner;
@@ -677,7 +696,7 @@ pub struct Closed01<F>(F);
 #[cfg(test)]
 mod test {
     use std::slice;
-    use super::{Rng, task_rng, random, OSRng, SeedableRng, StdRng};
+    use super::{Rng, task_rng, random, SeedableRng, StdRng};
 
     struct ConstRng { i: u64 }
     impl Rng for ConstRng {
@@ -839,7 +858,7 @@ mod test {
 
     #[test]
     fn test_std_rng_seeded() {
-        let s = OSRng::new().gen_vec::<uint>(256);
+        let s = task_rng().gen_vec::<uint>(256);
         let mut ra: StdRng = SeedableRng::from_seed(s.as_slice());
         let mut rb: StdRng = SeedableRng::from_seed(s.as_slice());
         assert_eq!(ra.gen_ascii_str(100u), rb.gen_ascii_str(100u));
@@ -847,7 +866,7 @@ mod test {
 
     #[test]
     fn test_std_rng_reseed() {
-        let s = OSRng::new().gen_vec::<uint>(256);
+        let s = task_rng().gen_vec::<uint>(256);
         let mut r: StdRng = SeedableRng::from_seed(s.as_slice());
         let string1 = r.gen_ascii_str(100);
 
@@ -870,7 +889,7 @@ mod bench {
 
     #[bench]
     fn rand_xorshift(bh: &mut BenchHarness) {
-        let mut rng = XorShiftRng::new();
+        let mut rng = XorShiftRng::new().unwrap();
         bh.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
@@ -881,7 +900,7 @@ mod bench {
 
     #[bench]
     fn rand_isaac(bh: &mut BenchHarness) {
-        let mut rng = IsaacRng::new();
+        let mut rng = IsaacRng::new().unwrap();
         bh.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
@@ -892,7 +911,7 @@ mod bench {
 
     #[bench]
     fn rand_isaac64(bh: &mut BenchHarness) {
-        let mut rng = Isaac64Rng::new();
+        let mut rng = Isaac64Rng::new().unwrap();
         bh.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
@@ -903,7 +922,7 @@ mod bench {
 
     #[bench]
     fn rand_std(bh: &mut BenchHarness) {
-        let mut rng = StdRng::new();
+        let mut rng = StdRng::new().unwrap();
         bh.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
@@ -914,7 +933,7 @@ mod bench {
 
     #[bench]
     fn rand_shuffle_100(bh: &mut BenchHarness) {
-        let mut rng = XorShiftRng::new();
+        let mut rng = XorShiftRng::new().unwrap();
         let x : &mut[uint] = [1,..100];
         bh.iter(|| {
             rng.shuffle_mut(x);

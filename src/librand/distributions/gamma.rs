@@ -236,11 +236,11 @@ impl IndependentSample<f64> for ChiSquared {
 /// println!("{} is from an F(2, 32) distribution", v)
 /// ```
 pub struct FisherF {
-    priv numer: ChiSquared,
-    priv denom: ChiSquared,
+    numer: ChiSquared,
+    denom: ChiSquared,
     // denom_dof / numer_dof so that this can just be a straight
     // multiplication, rather than a division.
-    priv dof_ratio: f64,
+    dof_ratio: f64,
 }
 
 impl FisherF {
@@ -279,8 +279,8 @@ impl IndependentSample<f64> for FisherF {
 /// println!("{} is from a t(11) distribution", v)
 /// ```
 pub struct StudentT {
-    priv chi: ChiSquared,
-    priv dof: f64
+    chi: ChiSquared,
+    dof: f64
 }
 
 impl StudentT {
@@ -370,14 +370,14 @@ mod bench {
     use self::test::BenchHarness;
     use std::mem::size_of;
     use distributions::IndependentSample;
-    use {StdRng, RAND_BENCH_N};
+    use {XorShiftRng, RAND_BENCH_N};
     use super::Gamma;
 
 
     #[bench]
     fn bench_gamma_large_shape(bh: &mut BenchHarness) {
         let gamma = Gamma::new(10., 1.0);
-        let mut rng = StdRng::new();
+        let mut rng = XorShiftRng::new().unwrap();
 
         bh.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
@@ -390,7 +390,7 @@ mod bench {
     #[bench]
     fn bench_gamma_small_shape(bh: &mut BenchHarness) {
         let gamma = Gamma::new(0.1, 1.0);
-        let mut rng = StdRng::new();
+        let mut rng = XorShiftRng::new().unwrap();
 
         bh.iter(|| {
             for _ in range(0, RAND_BENCH_N) {

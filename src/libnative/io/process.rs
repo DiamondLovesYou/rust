@@ -44,15 +44,15 @@ fn permission_denied() -> io::IoError {
  */
 pub struct Process {
     /// The unique id of the process (this should never be negative).
-    priv pid: pid_t,
+    pid: pid_t,
 
     /// A handle to the process - on unix this will always be NULL, but on
     /// windows it will be a HANDLE to the process, which will prevent the
     /// pid being re-used until the handle is closed.
-    priv handle: *(),
+    handle: *(),
 
     /// None until finish() is called.
-    priv exit_code: Option<p::ProcessExit>,
+    exit_code: Option<p::ProcessExit>,
 }
 
 impl Process {
@@ -498,7 +498,7 @@ fn spawn_process_os(config: p::ProcessConfig,
                                     (bytes[1] << 16) as i32 |
                                     (bytes[2] <<  8) as i32 |
                                     (bytes[3] <<  0) as i32;
-                        Err(super::translate_error(errno, false))
+                        Err(io::IoError::from_errno(errno as uint, false))
                     }
                     Err(e) => {
                         assert!(e.kind == io::BrokenPipe ||

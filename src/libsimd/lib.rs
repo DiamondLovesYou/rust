@@ -53,16 +53,16 @@ impl<T: Simd<bool>> BoolSimd for T {
 #[allow(raw_pointer_deriving)]
 #[deriving(Eq, Clone)]
 pub struct Items<'a, ElemT> {
-    priv vec: *ElemT,
-    priv pos: uint,
-    priv len: uint,
+    vec: *ElemT,
+    pos: uint,
+    len: uint,
 }
 #[allow(raw_pointer_deriving)]
 #[deriving(Eq, Clone)]
 pub struct MutItems<'a, ElemT> {
-    priv vec: *mut ElemT,
-    priv pos: uint,
-    priv len: uint,
+    vec: *mut ElemT,
+    pos: uint,
+    len: uint,
 }
 
 impl<'a, ElemT> iter::Iterator<&'a ElemT> for Items<'a, ElemT> {

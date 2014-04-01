@@ -298,7 +298,7 @@ fn spaces(n: uint) -> ~str {
 
 /// A structure for implementing serialization to JSON.
 pub struct Encoder<'a> {
-    priv wr: &'a mut io::Writer,
+    wr: &'a mut io::Writer,
 }
 
 impl<'a> Encoder<'a> {
@@ -504,8 +504,8 @@ impl<'a> ::Encoder<io::IoError> for Encoder<'a> {
 /// Another encoder for JSON, but prints out human-readable JSON instead of
 /// compact data
 pub struct PrettyEncoder<'a> {
-    priv wr: &'a mut io::Writer,
-    priv indent: uint,
+    wr: &'a mut io::Writer,
+    indent: uint,
 }
 
 impl<'a> PrettyEncoder<'a> {
@@ -732,8 +732,8 @@ impl<'a> ::Encoder<io::IoError> for PrettyEncoder<'a> {
     }
 }
 
-impl<E: ::Encoder<io::IoError>> Encodable<E, io::IoError> for Json {
-    fn encode(&self, e: &mut E) -> EncodeResult {
+impl<E: ::Encoder<S>, S> Encodable<E, S> for Json {
+    fn encode(&self, e: &mut E) -> Result<(), S> {
         match *self {
             Number(v) => v.encode(e),
             String(ref v) => v.encode(e),
@@ -899,10 +899,10 @@ impl Json {
 }
 
 pub struct Parser<T> {
-    priv rdr: T,
-    priv ch: Option<char>,
-    priv line: uint,
-    priv col: uint,
+    rdr: T,
+    ch: Option<char>,
+    line: uint,
+    col: uint,
 }
 
 impl<T: Iterator<char>> Parser<T> {
@@ -1298,7 +1298,7 @@ pub fn from_str(s: &str) -> DecodeResult<Json> {
 
 /// A structure to decode JSON to values in rust.
 pub struct Decoder {
-    priv stack: ~[Json],
+    stack: ~[Json],
 }
 
 impl Decoder {

@@ -109,10 +109,8 @@ unsafe fn gai_strerror(_errcode: c_int) -> *c_char {
 
 #[cfg(windows)]
 fn get_error(_: c_int) -> IoError {
-    use super::translate_error;
-
     unsafe {
-        translate_error(WSAGetLastError() as i32, true)
+        IoError::from_errno(WSAGetLastError() as uint, true)
     }
 }
 

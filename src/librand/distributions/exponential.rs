@@ -66,7 +66,7 @@ impl Rand for Exp1 {
 /// ```
 pub struct Exp {
     /// `lambda` stored as `1/lambda`, since this is what we scale by.
-    priv lambda_inverse: f64
+    lambda_inverse: f64
 }
 
 impl Exp {
@@ -126,7 +126,7 @@ mod bench {
 
     #[bench]
     fn rand_exp(bh: &mut BenchHarness) {
-        let mut rng = XorShiftRng::new();
+        let mut rng = XorShiftRng::new().unwrap();
         let mut exp = Exp::new(2.71828 * 3.14159);
 
         bh.iter(|| {
