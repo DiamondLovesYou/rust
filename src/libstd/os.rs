@@ -1464,7 +1464,7 @@ pub mod consts {
         pub static EXE_SUFFIX: &'static str = ".nexe";
         pub static EXE_EXTENSION: &'static str = "nexe";
     }
-    
+
     /// Constants for Android systems.
     pub mod android {
         /// A string describing the specific operating system in use: in this
