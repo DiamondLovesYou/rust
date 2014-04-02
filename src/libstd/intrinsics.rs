@@ -44,7 +44,8 @@ A quick refresher on memory ordering:
 #![allow(missing_doc)]
 #![allow(unused_imports)]
 
-use cmath::{c_float, c_double};
+use f32;
+use f64;
 
 // This is needed to prevent duplicate lang item definitions.
 #[cfg(test)]
