@@ -510,27 +510,6 @@ fn check_fn<'a>(ccx: &'a CrateCtxt<'a>,
     fcx
 }
 
-pub fn check_no_duplicate_fields(tcx: &ty::ctxt,
-                                 fields: Vec<(ast::Ident, Span)>) {
-    let mut field_names = HashMap::new();
-
-    for p in fields.iter() {
-        let (id, sp) = *p;
-        let orig_sp = field_names.find(&id).map(|x| *x);
-        match orig_sp {
-            Some(orig_sp) => {
-                tcx.sess.span_err(sp, format!("duplicate field name {} in record type declaration",
-                                              token::get_ident(id)));
-                tcx.sess.span_note(orig_sp, "first declaration of this field occurred here");
-                break;
-            }
-            None => {
-                field_names.insert(id, sp);
-            }
-        }
-    }
-}
-
 pub fn check_struct(ccx: &CrateCtxt, id: ast::NodeId, span: Span) {
     let tcx = ccx.tcx;
 
@@ -1010,10 +989,6 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    pub fn block_region(&self) -> ty::Region {
-        ty::ReScope(self.region_lb.get())
-    }
-
     #[inline]
     pub fn write_ty(&self, node_id: ast::NodeId, ty: ty::t) {
         debug!("write_ty({}, {}) in fcx {}",
@@ -1100,18 +1075,6 @@ impl<'a> FnCtxt<'a> {
         }
     }
 
-    pub fn node_ty_substs(&self, id: ast::NodeId) -> ty::substs {
-        match self.inh.node_type_substs.borrow().find(&id) {
-            Some(ts) => (*ts).clone(),
-            None => {
-                self.tcx().sess.bug(
-                    format!("no type substs for node {}: {} in fcx {}",
-                            id, self.tcx().map.node_to_str(id),
-                            self.tag()));
-            }
-        }
-    }
-
     pub fn method_ty_substs(&self, id: ast::NodeId) -> ty::substs {
         match self.inh.method_map.borrow().find(&MethodCall::expr(id)) {
             Some(method) => method.substs.clone(),
@@ -1165,11 +1128,6 @@ impl<'a> FnCtxt<'a> {
                 Ok(())
             }
         }
-    }
-
-    pub fn can_mk_assignty(&self, sub: ty::t, sup: ty::t)
-                           -> Result<(), ty::type_err> {
-        infer::can_mk_coercety(self.infcx(), sub, sup)
     }
 
     pub fn mk_eqty(&self,
@@ -3345,7 +3303,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                           lvalue_pref, |base_t, _| ty::index(tcx, base_t));
               match field_ty {
                   Some(mt) => {
-                      require_integral(fcx, idx.span, idx_t);
+                      check_expr_has_type(fcx, idx, ty::mk_uint());
                       fcx.write_ty(id, mt.ty);
                       fcx.write_autoderef_adjustment(base.id, autoderefs);
                   }
@@ -3387,6 +3345,15 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
            });
 
     unifier();
+}
+
+pub fn require_uint(fcx: &FnCtxt, sp: Span, t: ty::t) {
+    if !type_is_uint(fcx, sp, t) {
+        fcx.type_error_message(sp, |actual| {
+            format!("mismatched types: expected `uint` type but found `{}`",
+                 actual)
+        }, t, None);
+    }
 }
 
 pub fn require_integral(fcx: &FnCtxt, sp: Span, t: ty::t) {
@@ -3492,10 +3459,6 @@ pub fn check_block_no_value(fcx: &FnCtxt, blk: &ast::Block)  {
         let nilty = ty::mk_nil();
         demand::suptype(fcx, blk.span, nilty, blkty);
     }
-}
-
-pub fn check_block(fcx0: &FnCtxt, blk: &ast::Block)  {
-    check_block_with_expected(fcx0, blk, None)
 }
 
 pub fn check_block_with_expected(fcx: &FnCtxt,
@@ -4061,6 +4024,11 @@ pub fn structure_of<'a>(fcx: &FnCtxt, sp: Span, typ: ty::t)
 pub fn type_is_integral(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
     let typ_s = structurally_resolved_type(fcx, sp, typ);
     return ty::type_is_integral(typ_s);
+}
+
+pub fn type_is_uint(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
+    let typ_s = structurally_resolved_type(fcx, sp, typ);
+    return ty::type_is_uint(typ_s);
 }
 
 pub fn type_is_scalar(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {

@@ -52,7 +52,7 @@ use middle::ty::{type_is_bot, IntType, UintType};
 use middle::ty;
 use middle::ty_fold;
 use middle::typeck::infer::{Bounds, cyclic_ty, fixup_err, fres, InferCtxt};
-use middle::typeck::infer::{region_var_bound_by_region_var, unresolved_ty};
+use middle::typeck::infer::unresolved_ty;
 use middle::typeck::infer::to_str::InferStr;
 use middle::typeck::infer::unify::{Root, UnifyInferCtxtMethods};
 use util::common::{indent, indenter};
@@ -60,20 +60,20 @@ use util::ppaux::ty_to_str;
 
 use syntax::ast;
 
-pub static resolve_nested_tvar: uint = 0b000000000001;
-pub static resolve_rvar: uint        = 0b000000000010;
-pub static resolve_ivar: uint        = 0b000000000100;
-pub static resolve_fvar: uint        = 0b000000001000;
-pub static resolve_mdvar: uint       = 0b000000010000;
-pub static resolve_fnvar: uint       = 0b000000100000;
-pub static resolve_all: uint         = 0b000000111111;
-pub static force_tvar: uint          = 0b000001000000;
-pub static force_rvar: uint          = 0b000010000000;
-pub static force_ivar: uint          = 0b000100000000;
-pub static force_fvar: uint          = 0b001000000000;
-pub static force_mdvar: uint         = 0b010000000000;
-pub static force_fnvar: uint         = 0b100000000000;
-pub static force_all: uint           = 0b111111000000;
+pub static resolve_nested_tvar: uint = 0b00000000000001;
+pub static resolve_rvar: uint        = 0b00000000000010;
+pub static resolve_ivar: uint        = 0b00000000000100;
+pub static resolve_fvar: uint        = 0b00000000001000;
+pub static resolve_mdvar: uint       = 0b00000000010000;
+pub static resolve_fnvar: uint       = 0b00000000100000;
+pub static resolve_all: uint         = 0b00000000111111;
+pub static force_tvar: uint          = 0b00000010000000;
+pub static force_rvar: uint          = 0b00000100000000;
+pub static force_ivar: uint          = 0b00001000000000;
+pub static force_fvar: uint          = 0b00010000000000;
+pub static force_mdvar: uint         = 0b00100000000000;
+pub static force_fnvar: uint         = 0b01000000000000;
+pub static force_all: uint           = 0b01111110000000;
 
 pub static not_regions: uint         = !(force_rvar | resolve_rvar);
 
@@ -207,15 +207,6 @@ impl<'a> ResolveState<'a> {
             return ty::ReInfer(ty::ReVar(rid));
         }
         self.infcx.region_vars.resolve_var(rid)
-    }
-
-    pub fn assert_not_rvar(&mut self, rid: RegionVid, r: ty::Region) {
-        match r {
-          ty::ReInfer(ty::ReVar(rid2)) => {
-            self.err = Some(region_var_bound_by_region_var(rid, rid2));
-          }
-          _ => { }
-        }
     }
 
     pub fn resolve_ty_var(&mut self, vid: TyVid) -> ty::t {

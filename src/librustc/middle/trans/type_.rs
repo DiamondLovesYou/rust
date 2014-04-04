@@ -21,7 +21,6 @@ use syntax::abi;
 
 use std::c_str::ToCStr;
 use std::cast;
-use std::slice;
 
 use std::libc::{c_uint};
 
@@ -137,10 +136,6 @@ impl Type {
         }
     }
 
-    pub fn size_t(ccx: &CrateContext) -> Type {
-        Type::int(ccx)
-    }
-
     pub fn func(args: &[Type], ret: &Type) -> Type {
         let vec : &[TypeRef] = unsafe { cast::transmute(args) };
         ty!(llvm::LLVMFunctionType(ret.to_ref(), vec.as_ptr(),
@@ -151,10 +146,6 @@ impl Type {
         let vec : &[TypeRef] = unsafe { cast::transmute(args) };
         ty!(llvm::LLVMFunctionType(ret.to_ref(), vec.as_ptr(),
                                    args.len() as c_uint, True))
-    }
-
-    pub fn ptr(ty: Type) -> Type {
-        ty!(llvm::LLVMPointerType(ty.to_ref(), 0 as c_uint))
     }
 
     pub fn struct_(ccx: &CrateContext, els: &[Type], packed: bool) -> Type {
@@ -259,17 +250,6 @@ impl Type {
 
     pub fn ptr_to(&self) -> Type {
         ty!(llvm::LLVMPointerType(self.to_ref(), 0))
-    }
-
-    pub fn get_field(&self, idx: uint) -> Type {
-        unsafe {
-            let num_fields = llvm::LLVMCountStructElementTypes(self.to_ref()) as uint;
-            let mut elems = slice::from_elem(num_fields, 0 as TypeRef);
-
-            llvm::LLVMGetStructElementTypes(self.to_ref(), elems.as_mut_ptr());
-
-            Type::from_ref(elems[idx])
-        }
     }
 
     pub fn is_packed(&self) -> bool {

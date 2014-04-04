@@ -522,13 +522,6 @@ pub fn compare_lit_exprs(tcx: &ty::ctxt, a: &Expr, b: &Expr) -> Option<int> {
     compare_const_vals(&eval_const_expr(tcx, a), &eval_const_expr(tcx, b))
 }
 
-pub fn lit_expr_eq(tcx: &ty::ctxt, a: &Expr, b: &Expr) -> Option<bool> {
-    compare_lit_exprs(tcx, a, b).map(|val| val == 0)
-}
-
-pub fn lit_eq(a: &Lit, b: &Lit) -> Option<bool> {
-    compare_const_vals(&lit_to_const(a), &lit_to_const(b)).map(|val| val == 0)
-}
 
 // Returns the evaluated positive integer for the provided expression, or reports error
 pub fn eval_positive_integer<T: ty::ExprTyProvider>(tcx: &T,
