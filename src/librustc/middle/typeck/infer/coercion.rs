@@ -77,13 +77,14 @@ use middle::typeck::infer::to_str::InferStr;
 use middle::typeck::infer::resolve::try_resolve_tvar_shallow;
 use util::common::indenter;
 
+use syntax::abi;
 use syntax::ast::MutImmutable;
 use syntax::ast;
 
 // Note: Coerce is not actually a combiner, in that it does not
 // conform to the same interface, though it performs a similar
 // function.
-pub struct Coerce<'f>(CombineFields<'f>);
+pub struct Coerce<'f>(pub CombineFields<'f>);
 
 impl<'f> Coerce<'f> {
     pub fn get_ref<'a>(&'a self) -> &'a CombineFields<'f> {
@@ -384,7 +385,7 @@ impl<'f> Coerce<'f> {
             debug!("coerce_from_bare_fn(a={}, b={})",
                    a.inf_str(self.get_ref().infcx), b.inf_str(self.get_ref().infcx));
 
-            if !fn_ty_a.abis.is_rust() || fn_ty_a.purity != ast::ImpureFn {
+            if fn_ty_a.abi != abi::Rust || fn_ty_a.purity != ast::ImpureFn {
                 return self.subtype(a, b);
             }
 

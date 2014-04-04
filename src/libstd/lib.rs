@@ -43,7 +43,7 @@
 //!
 //!     use std::prelude::*;
 
-#![crate_id = "std#0.10-pre"]
+#![crate_id = "std#0.11-pre"]
 #![comment = "The Rust standard library"]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
@@ -232,4 +232,5 @@ mod std {
     pub use to_str;
     pub use ty;
     pub use unstable;
+    pub use vec;
 }

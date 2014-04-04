@@ -11,7 +11,7 @@
 // The Rust abstract syntax tree.
 
 use codemap::{Span, Spanned, DUMMY_SP};
-use abi::AbiSet;
+use abi::Abi;
 use ast_util;
 use owned_slice::OwnedSlice;
 use parse::token::{InternedString, special_idents, str_to_ident};
@@ -493,10 +493,10 @@ pub enum Expr_ {
     ExprVstore(@Expr, ExprVstore),
     // First expr is the place; second expr is the value.
     ExprBox(@Expr, @Expr),
-    ExprVec(Vec<@Expr> , Mutability),
-    ExprCall(@Expr, Vec<@Expr> ),
-    ExprMethodCall(Ident, Vec<P<Ty>> , Vec<@Expr> ),
-    ExprTup(Vec<@Expr> ),
+    ExprVec(Vec<@Expr>, Mutability),
+    ExprCall(@Expr, Vec<@Expr>),
+    ExprMethodCall(Ident, Vec<P<Ty>>, Vec<@Expr>),
+    ExprTup(Vec<@Expr>),
     // Because ty::ty_simd isn't an accessible type from source.
     // Its intended consumption is through a syntax extension.
     ExprSimd(Vec<@Expr>),
@@ -516,14 +516,14 @@ pub enum Expr_ {
     // Conditionless loop (can be exited with break, cont, or ret)
     // FIXME #6993: change to Option<Name>
     ExprLoop(P<Block>, Option<Ident>),
-    ExprMatch(@Expr, Vec<Arm> ),
+    ExprMatch(@Expr, Vec<Arm>),
     ExprFnBlock(P<FnDecl>, P<Block>),
     ExprProc(P<FnDecl>, P<Block>),
     ExprBlock(P<Block>),
 
     ExprAssign(@Expr, @Expr),
     ExprAssignOp(BinOp, @Expr, @Expr),
-    ExprField(@Expr, Ident, Vec<P<Ty>> ),
+    ExprField(@Expr, Ident, Vec<P<Ty>>),
     ExprIndex(@Expr, @Expr),
 
     /// Expression that looks like a "name". For example,
@@ -828,7 +828,7 @@ pub struct ClosureTy {
 #[deriving(Eq, TotalEq, Encodable, Decodable, Hash)]
 pub struct BareFnTy {
     pub purity: Purity,
-    pub abis: AbiSet,
+    pub abi: Abi,
     pub lifetimes: Vec<Lifetime>,
     pub decl: P<FnDecl>
 }
@@ -966,7 +966,7 @@ pub struct Mod {
 
 #[deriving(Clone, Eq, TotalEq, Encodable, Decodable, Hash)]
 pub struct ForeignMod {
-    pub abis: AbiSet,
+    pub abi: Abi,
     pub view_items: Vec<ViewItem>,
     pub items: Vec<@ForeignItem>,
 }
@@ -1144,7 +1144,7 @@ pub struct Item {
 #[deriving(Clone, Eq, TotalEq, Encodable, Decodable, Hash)]
 pub enum Item_ {
     ItemStatic(P<Ty>, Mutability, @Expr),
-    ItemFn(P<FnDecl>, Purity, AbiSet, Generics, P<Block>),
+    ItemFn(P<FnDecl>, Purity, Abi, Generics, P<Block>),
     ItemMod(Mod),
     ItemForeignMod(ForeignMod),
     ItemTy(P<Ty>, Generics),
