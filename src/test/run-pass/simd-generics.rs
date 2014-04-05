@@ -10,8 +10,8 @@
 
 // ignore-fast
 
-#[feature(simd, phase)];
-#[allow(experimental)];
+#![feature(simd, phase)]
+#![allow(experimental)]
 #[phase(syntax)] extern crate simd_syntax;
 
 use std::ops;
