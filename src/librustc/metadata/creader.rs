@@ -22,6 +22,7 @@ use metadata::decoder;
 use metadata::loader;
 use metadata::loader::Os;
 use metadata::filesearch;
+use metadata::loader::CratePaths;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -147,7 +148,7 @@ fn visit_view_item(e: &mut Env, i: &ast::ViewItem) {
 
     match extract_crate_info(e, i) {
         Some(info) => {
-            let cnum = resolve_crate(e, None, info.ident, &info.crate_id, None,
+            let cnum = resolve_crate(e, &None, info.ident, &info.crate_id, None,
                                      i.span);
             e.sess.cstore.add_extern_mod_stmt_cnum(info.id, cnum);
         }
@@ -290,13 +291,13 @@ fn existing_match(e: &Env, crate_id: &CrateId,
     None
 }
 
-fn resolve_crate(e: &mut Env,
-                 root_ident: Option<&str>,
-                 ident: &str,
-                 crate_id: &CrateId,
-                 hash: Option<&Svh>,
-                 span: Span)
-              -> ast::CrateNum {
+fn resolve_crate<'a>(e: &mut Env,
+                     root: &Option<CratePaths>,
+                     ident: &str,
+                     crate_id: &CrateId,
+                     hash: Option<&Svh>,
+                     span: Span)
+                     -> ast::CrateNum {
     match existing_match(e, crate_id, hash) {
         None => {
             let id_hash = link::crate_id_hash(crate_id);
@@ -310,11 +311,11 @@ fn resolve_crate(e: &mut Env,
                 os: e.os,
                 triple: e.target_triple.clone(),
                 intr: e.intr.clone(),
-                rejected_via_hash: false,
+                rejected_via_hash: vec!(),
             };
             let loader::Library {
                 dylib, rlib, metadata
-            } = load_ctxt.load_library_crate(root_ident, &e.filesearch);
+            } = load_ctxt.load_library_crate(root, &e.filesearch);
 
             let crate_id = decoder::get_crate_id(metadata.as_slice());
             let hash = decoder::get_crate_hash(metadata.as_slice());
@@ -331,15 +332,22 @@ fn resolve_crate(e: &mut Env,
             });
             e.next_crate_num += 1;
 
-            // Maintain a reference to the top most crate.
-            let root_crate = match root_ident {
-                Some(c) => c,
-                None => load_ctxt.ident.clone()
+            // Stash paths for top-most crate locally if necessary.
+            let crate_paths = if root.is_none() {
+                Some(CratePaths {
+                    ident: load_ctxt.ident.to_owned(),
+                    dylib: dylib.clone(),
+                    rlib:  rlib.clone(),
+                })
+            } else {
+                None
             };
+            // Maintain a reference to the top most crate.
+            let root = if root.is_some() { root } else { &crate_paths };
 
             // Now resolve the crates referenced by this crate
             let cnum_map = resolve_crate_deps(e,
-            Some(root_crate),
+            root,
             metadata.as_slice(),
             span);
 
@@ -364,7 +372,7 @@ fn resolve_crate(e: &mut Env,
 
 // Go through the crate metadata and load any crates that it references
 fn resolve_crate_deps(e: &mut Env,
-                      root_ident: Option<&str>,
+                      root: &Option<CratePaths>,
                       cdata: &[u8], span : Span)
                    -> cstore::cnum_map {
     debug!("resolving deps of external crate");
@@ -375,7 +383,7 @@ fn resolve_crate_deps(e: &mut Env,
     for dep in r.iter() {
         let extrn_cnum = dep.cnum;
         debug!("resolving dep crate {} hash: `{}`", dep.crate_id, dep.hash);
-        let local_cnum = resolve_crate(e, root_ident,
+        let local_cnum = resolve_crate(e, root,
                                        dep.crate_id.name.as_slice(),
                                        &dep.crate_id,
                                        Some(&dep.hash),
@@ -412,7 +420,7 @@ impl<'a> Loader<'a> {
 impl<'a> CrateLoader for Loader<'a> {
     fn load_crate(&mut self, krate: &ast::ViewItem) -> MacroCrate {
         let info = extract_crate_info(&self.env, krate).unwrap();
-        let cnum = resolve_crate(&mut self.env, None, info.ident,
+        let cnum = resolve_crate(&mut self.env, &None, info.ident,
                                  &info.crate_id, None, krate.span);
         let library = self.env.sess.cstore.get_used_crate_source(cnum).unwrap();
         MacroCrate {
