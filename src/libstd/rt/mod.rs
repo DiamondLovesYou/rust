@@ -106,7 +106,7 @@ pub mod env;
 pub mod local_heap;
 
 /// The runtime needs to be able to put a pointer into thread-local storage.
-pub mod local_ptr;
+mod local_ptr;
 
 /// Bindings to pthread/windows thread-local storage.
 mod thread_local_storage;
