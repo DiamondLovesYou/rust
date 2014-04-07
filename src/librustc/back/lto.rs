@@ -89,27 +89,31 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
     // This code is based off the code found in llvm's LTO code generator:
     //      tools/lto/LTOCodeGenerator.cpp
     debug!("running the pass manager");
-    unsafe {
-        let pm = llvm::LLVMCreatePassManager();
-        llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
-        "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
+    if !sess.opts.cg.no_prepopulate_passes {
+        unsafe {
+            let pm = llvm::LLVMCreatePassManager();
+            llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
+            "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
 
-        let builder = llvm::LLVMPassManagerBuilderCreate();
-        llvm::LLVMPassManagerBuilderPopulateLTOPassManager(builder, pm,
-            /* Internalize = */ False,
-            /* RunInliner = */ if sess.opts.optimize != session::No { True } else { False });
-        llvm::LLVMPassManagerBuilderDispose(builder);
+            let builder = llvm::LLVMPassManagerBuilderCreate();
+            llvm::LLVMPassManagerBuilderPopulateLTOPassManager
+                (builder,
+                 pm,
+                 /* Internalize = */ False,
+                 /* RunInliner = */ if sess.opts.optimize != session::No { True } else { False });
+            llvm::LLVMPassManagerBuilderDispose(builder);
 
-        if sess.targeting_pnacl() {
-            // Ensure attributes don't sneak in:
-            "nacl-strip-attributes".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+            if sess.targeting_pnacl() {
+                // Ensure attributes don't sneak in:
+                "nacl-strip-attributes".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+            }
+            "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
+
+            time(sess.time_passes(), "LTO pases", (), |()|
+                 llvm::LLVMRunPassManager(pm, llmod));
+
+            llvm::LLVMDisposePassManager(pm);
         }
-        "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
-
-        time(sess.time_passes(), "LTO pases", (), |()|
-             llvm::LLVMRunPassManager(pm, llmod));
-
-        llvm::LLVMDisposePassManager(pm);
     }
     debug!("lto done");
 }
