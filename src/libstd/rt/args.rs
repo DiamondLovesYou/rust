@@ -164,9 +164,29 @@ mod imp {
     }
 }
 
+#[cfg(target_os = "nacl",  not(test))]
+mod imp {
+    use option::{Option, None};
+    pub unsafe fn init(_argc: int, _argv: **u8) {
+    }
+
+    pub fn cleanup() {
+    }
+
+    pub fn take() -> Option<~[~[u8]]> {
+        None
+    }
+
+    pub fn put(_args: ~[~[u8]]) {
+    }
+
+    pub fn clone() -> Option<~[~[u8]]> {
+        None
+    }
+}
+
 #[cfg(target_os = "macos", not(test))]
 #[cfg(target_os = "win32", not(test))]
-#[cfg(target_os = "nacl",  not(test))]
 mod imp {
     use option::Option;
 
