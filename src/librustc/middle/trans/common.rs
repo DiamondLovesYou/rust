@@ -31,9 +31,10 @@ use util::nodemap::NodeMap;
 
 use arena::TypedArena;
 use collections::HashMap;
+use libc::{c_uint, c_longlong, c_ulonglong, c_char};
 use std::c_str::ToCStr;
 use std::cell::{Cell, RefCell};
-use std::libc::{c_uint, c_longlong, c_ulonglong, c_char};
+use std::vec::Vec;
 use syntax::ast::Ident;
 use syntax::ast;
 use syntax::ast_map::{PathElem, PathName};
@@ -383,14 +384,6 @@ impl<'a> FunctionContext<'a> {
         }
         return out;
     }
-}
-
-// Heap selectors. Indicate which heap something should go on.
-#[deriving(Eq)]
-pub enum heap {
-    heap_managed,
-    heap_exchange,
-    heap_exchange_closure
 }
 
 // Basic block context.  We create a block context for each basic block

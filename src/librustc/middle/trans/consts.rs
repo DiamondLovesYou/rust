@@ -33,10 +33,10 @@ use middle::ty;
 use util::ppaux::{Repr, ty_to_str};
 
 use std::c_str::ToCStr;
-use std::libc::c_uint;
 use std::slice;
 use std::vec::Vec;
 use std::iter;
+use libc::c_uint;
 use syntax::{ast, ast_util};
 
 pub fn const_lit(cx: &CrateContext, e: &ast::Expr, lit: ast::Lit)

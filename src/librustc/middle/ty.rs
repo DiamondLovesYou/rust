@@ -754,9 +754,6 @@ pub enum sty {
     ty_err, // Also only used during inference/typeck, to represent
             // the type of an erroneous expression (helps cut down
             // on non-useful type error messages)
-
-    // "Fake" types, used for trans purposes
-    ty_unboxed_vec(mt),
 }
 
 #[deriving(Clone, Eq, TotalEq, Hash)]
@@ -1287,8 +1284,7 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
       &ty_box(tt) | &ty_uniq(tt) => {
         flags |= get(tt).flags
       }
-      &ty_vec(ref m, _) | &ty_ptr(ref m) |
-      &ty_unboxed_vec(ref m) => {
+      &ty_vec(ref m, _) | &ty_ptr(ref m) => {
         flags |= get(m.ty).flags;
       }
       &ty_rptr(r, ref m) => {
@@ -1460,13 +1456,6 @@ pub fn mk_vec(cx: &ctxt, tm: mt, t: vstore) -> t {
     mk_t(cx, ty_vec(tm, t))
 }
 
-pub fn mk_unboxed_vec(cx: &ctxt, tm: mt) -> t {
-    mk_t(cx, ty_unboxed_vec(tm))
-}
-pub fn mk_mut_unboxed_vec(cx: &ctxt, ty: t) -> t {
-    mk_t(cx, ty_unboxed_vec(mt {ty: ty, mutbl: ast::MutImmutable}))
-}
-
 pub fn mk_tup(cx: &ctxt, ts: Vec<t>) -> t { mk_t(cx, ty_tup(ts)) }
 
 pub fn mk_closure(cx: &ctxt, fty: ClosureTy) -> t {
@@ -1559,8 +1548,7 @@ pub fn maybe_walk_ty(ty: t, f: |t| -> bool) {
         ty_str(_) | ty_self(_) |
         ty_infer(_) | ty_param(_) | ty_err => {}
         ty_box(ty) | ty_uniq(ty) | ty_simd(ty, _) => maybe_walk_ty(ty, f),
-        ty_vec(ref tm, _) | ty_unboxed_vec(ref tm) | ty_ptr(ref tm) |
-        ty_rptr(_, ref tm) => {
+        ty_vec(ref tm, _) | ty_ptr(ref tm) | ty_rptr(_, ref tm) => {
             maybe_walk_ty(tm.ty, f);
         }
         ty_enum(_, ref substs) | ty_struct(_, ref substs) |
@@ -1731,10 +1719,10 @@ pub fn type_is_simd_strict(_: &ctxt, ty: t) -> bool {
 
 pub fn sequence_element_type(cx: &ctxt, ty: t) -> t {
     match get(ty).sty {
-      ty_str(_) => return mk_mach_uint(ast::TyU8),
-      ty_vec(mt, _) | ty_unboxed_vec(mt) => return mt.ty,
+        ty_str(_) => mk_mach_uint(ast::TyU8),
+        ty_vec(mt, _) => mt.ty,
       ty_simd(t, _) => return t,
-      _ => cx.sess.bug("sequence_element_type called on non-sequence value"),
+        _ => cx.sess.bug("sequence_element_type called on non-sequence value"),
     }
 }
 
@@ -2038,6 +2026,10 @@ impl TypeContents {
         self.intersects(TC::InteriorUnsafe)
     }
 
+    pub fn interior_unsized(&self) -> bool {
+        self.intersects(TC::InteriorUnsized)
+    }
+
     pub fn moves_by_default(&self, _: &ctxt) -> bool {
         self.intersects(TC::Moves)
     }
@@ -2292,7 +2284,6 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
                 // times.
                 TC::All
             }
-            ty_unboxed_vec(mt) => TC::InteriorUnsized | tc_mt(cx, mt, cache),
 
             ty_err => {
                 cx.sess.bug("asked to compute contents of error type");
@@ -2481,8 +2472,7 @@ pub fn is_instantiable(cx: &ctxt, r_ty: t) -> bool {
             ty_err |
             ty_param(_) |
             ty_self(_) |
-            ty_vec(_, _) |
-            ty_unboxed_vec(_) => {
+            ty_vec(_, _) => {
                 false
             }
             ty_box(typ) | ty_uniq(typ) => {
@@ -3445,7 +3435,6 @@ pub fn ty_sort_str(cx: &ctxt, t: t) -> ~str {
         ty_box(_) => ~"@-ptr",
         ty_uniq(_) => ~"~-ptr",
         ty_vec(_, _) => ~"vector",
-        ty_unboxed_vec(_) => ~"unboxed vector",
         ty_ptr(_) => ~"*-ptr",
         ty_rptr(_, _) => ~"&-ptr",
         ty_bare_fn(_) => ~"extern fn",
@@ -4816,10 +4805,6 @@ pub fn hash_crate_independent(tcx: &ctxt, t: t, svh: &Svh) -> u64 {
             }
             ty_infer(_) => unreachable!(),
             ty_err => byte!(23),
-            ty_unboxed_vec(m) => {
-                byte!(24);
-                mt(&mut state, m);
-            }
             ty_simd(t, n) => {
                 byte!(27);
                 hash!(&t);

@@ -26,7 +26,7 @@ use middle::ty;
 use util::ppaux::ty_to_str;
 
 use arena::TypedArena;
-use std::libc::c_uint;
+use libc::c_uint;
 use syntax::ast::DefId;
 use syntax::ast;
 use syntax::ast_map;
@@ -162,11 +162,6 @@ impl<'a> Reflector<'a> {
           ty::ty_uint(ast::TyU64) => self.leaf("u64"),
           ty::ty_float(ast::TyF32) => self.leaf("f32"),
           ty::ty_float(ast::TyF64) => self.leaf("f64"),
-
-          ty::ty_unboxed_vec(ref mt) => {
-              let values = self.c_mt(mt);
-              self.visit("vec", values.as_slice())
-          }
 
           // Should rename to str_*/vec_*.
           ty::ty_str(vst) => {

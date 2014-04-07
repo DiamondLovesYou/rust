@@ -9,11 +9,11 @@
 // except according to those terms.
 
 use std::io;
-use std::libc::pid_t;
+use libc::pid_t;
 #[cfg(not(target_os = "nacl"))]
-use std::libc::c_void;
-use std::libc::c_int;
-use std::libc;
+use libc::c_void;
+use libc::c_int;
+use libc;
 use std::os;
 #[cfg(not(target_os = "nacl"))]
 use std::ptr;
@@ -240,20 +240,20 @@ fn spawn_process_os(config: p::ProcessConfig,
                     dir: Option<&Path>,
                     in_fd: c_int, out_fd: c_int,
                     err_fd: c_int) -> IoResult<SpawnProcessResult> {
-    use std::libc::types::os::arch::extra::{DWORD, HANDLE, STARTUPINFO};
-    use std::libc::consts::os::extra::{
+    use libc::types::os::arch::extra::{DWORD, HANDLE, STARTUPINFO};
+    use libc::consts::os::extra::{
         TRUE, FALSE,
         STARTF_USESTDHANDLES,
         INVALID_HANDLE_VALUE,
         DUPLICATE_SAME_ACCESS
     };
-    use std::libc::funcs::extra::kernel32::{
+    use libc::funcs::extra::kernel32::{
         GetCurrentProcess,
         DuplicateHandle,
         CloseHandle,
         CreateProcessA
     };
-    use std::libc::funcs::extra::msvcrt::get_osfhandle;
+    use libc::funcs::extra::msvcrt::get_osfhandle;
 
     use std::mem;
 
@@ -439,9 +439,9 @@ fn spawn_process_os(config: p::ProcessConfig,
                     dir: Option<&Path>,
                     in_fd: c_int, out_fd: c_int,
                     err_fd: c_int) -> IoResult<SpawnProcessResult> {
-    use std::libc::funcs::posix88::unistd::{fork, dup2, close, chdir, execvp};
-    use std::libc::funcs::bsd44::getdtablesize;
-    use std::libc::c_ulong;
+    use libc::funcs::posix88::unistd::{fork, dup2, close, chdir, execvp};
+    use libc::funcs::bsd44::getdtablesize;
+    use libc::c_ulong;
 
     mod rustrt {
         extern {
@@ -743,8 +743,8 @@ fn waitpid(pid: pid_t) -> p::ProcessExit {
 
     #[cfg(windows)]
     fn waitpid_os(pid: pid_t) -> p::ProcessExit {
-        use std::libc::types::os::arch::extra::DWORD;
-        use std::libc::consts::os::extra::{
+        use libc::types::os::arch::extra::DWORD;
+        use libc::consts::os::extra::{
             SYNCHRONIZE,
             PROCESS_QUERY_INFORMATION,
             FALSE,
@@ -752,7 +752,7 @@ fn waitpid(pid: pid_t) -> p::ProcessExit {
             INFINITE,
             WAIT_FAILED
         };
-        use std::libc::funcs::extra::kernel32::{
+        use libc::funcs::extra::kernel32::{
             OpenProcess,
             GetExitCodeProcess,
             CloseHandle,
@@ -788,7 +788,7 @@ fn waitpid(pid: pid_t) -> p::ProcessExit {
 
     #[cfg(unix)]
     fn waitpid_os(pid: pid_t) -> p::ProcessExit {
-        use std::libc::funcs::posix01::wait;
+        use libc::funcs::posix01::wait;
         let mut status = 0 as c_int;
         match retry(|| unsafe { wait::waitpid(pid, &mut status, 0) }) {
             -1 => fail!("unknown waitpid error: {}", super::last_error()),
@@ -807,7 +807,7 @@ fn waitpid_nowait(pid: pid_t) -> Option<p::ProcessExit> {
 
     #[cfg(unix)]
     fn waitpid_os(pid: pid_t) -> Option<p::ProcessExit> {
-        use std::libc::funcs::posix01::wait;
+        use libc::funcs::posix01::wait;
         let mut status = 0 as c_int;
         match retry(|| unsafe {
             wait::waitpid(pid, &mut status, libc::WNOHANG)
