@@ -153,13 +153,26 @@ pub mod write {
                              (sess.targ_cfg.os == abi::OsMacos &&
                               sess.targ_cfg.arch == abi::X86_64);
 
+            let reloc_model = match sess.opts.cg.relocation_model.as_slice() {
+                "pic" => lib::llvm::RelocPIC,
+                "static" => lib::llvm::RelocStatic,
+                "default" => lib::llvm::RelocDefault,
+                "dynamic-no-pic" => lib::llvm::RelocDynamicNoPic,
+                _ => {
+                    sess.err(format!("{} is not a valid relocation mode",
+                             sess.opts.cg.relocation_model));
+                    sess.abort_if_errors();
+                    return;
+                }
+            };
+
             let tm = sess.targ_cfg.target_strs.target_triple.with_c_str(|t| {
                 sess.opts.cg.target_cpu.with_c_str(|cpu| {
                     target_feature(sess).with_c_str(|features| {
                         llvm::LLVMRustCreateTargetMachine(
                             t, cpu, features,
                             lib::llvm::CodeModelDefault,
-                            lib::llvm::RelocPIC,
+                            reloc_model,
                             opt_level,
                             true,
                             use_softfp,
@@ -397,7 +410,9 @@ pub mod write {
                 if !prog.status.success() {
                     sess.err(format!("linking with `{}` failed: {}", cc, prog.status));
                     sess.note(format!("{} arguments: '{}'", cc, args.connect("' '")));
-                    sess.note(str::from_utf8_owned(prog.error + prog.output).unwrap());
+                    let mut note = prog.error.clone();
+                    note.push_all(prog.output.as_slice());
+                    sess.note(str::from_utf8(note.as_slice()).unwrap().to_owned());
                     sess.abort_if_errors();
                 }
             },
@@ -1008,7 +1023,8 @@ fn link_rlib<'a>(sess: &'a Session,
             let bc = obj_filename.with_extension("bc");
             let bc_deflated = obj_filename.with_extension("bc.deflate");
             match fs::File::open(&bc).read_to_end().and_then(|data| {
-                fs::File::create(&bc_deflated).write(flate::deflate_bytes(data).as_slice())
+                fs::File::create(&bc_deflated)
+                    .write(flate::deflate_bytes(data.as_slice()).as_slice())
             }) {
                 Ok(()) => {}
                 Err(e) => {
@@ -1106,7 +1122,9 @@ fn link_natively(sess: &Session, dylib: bool, obj_filename: &Path,
             if !prog.status.success() {
                 sess.err(format!("linking with `{}` failed: {}", cc_prog, prog.status));
                 sess.note(format!("{} arguments: '{}'", cc_prog, cc_args.connect("' '")));
-                sess.note(str::from_utf8_owned(prog.error + prog.output).unwrap());
+                let mut output = prog.error.clone();
+                output.push_all(prog.output.as_slice());
+                sess.note(str::from_utf8(output.as_slice()).unwrap().to_owned());
                 sess.abort_if_errors();
             }
         },

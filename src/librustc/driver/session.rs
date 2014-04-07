@@ -551,6 +551,8 @@ cgoptions!(
         "prefer dynamic linking to static linking"),
     no_integrated_as: bool = (false, parse_bool,
         "use an external assembler rather than LLVM's integrated one"),
+    relocation_model: ~str = (~"pic", parse_string,
+         "choose the relocation model to use (llc -relocation-model for details)"),
     nacl_flavor: Option<NaClFlavor_> = (None, parse_from_str,
         "use with =pnacl, =nacl, or =emscripten.
          Only applicable when coupled with a PNaCl, NaCl, or Emscripten cross"),
