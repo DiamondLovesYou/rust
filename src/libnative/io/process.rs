@@ -53,6 +53,9 @@ pub struct Process {
 
     /// None until finish() is called.
     exit_code: Option<p::ProcessExit>,
+
+    /// Manually delivered signal
+    exit_signal: Option<int>,
 }
 
 impl Process {
@@ -120,7 +123,12 @@ impl Process {
 
         match res {
             Ok(res) => {
-                Ok((Process { pid: res.pid, handle: res.handle, exit_code: None },
+                Ok((Process {
+                        pid: res.pid,
+                        handle: res.handle,
+                        exit_code: None,
+                        exit_signal: None,
+                    },
                     ret_io))
             }
             Err(e) => Err(e)
@@ -140,6 +148,14 @@ impl rtio::RtioProcess for Process {
             Some(code) => code,
             None => {
                 let code = waitpid(self.pid);
+                // On windows, waitpid will never return a signal. If a signal
+                // was successfully delivered to the process, however, we can
+                // consider it as having died via a signal.
+                let code = match self.exit_signal {
+                    None => code,
+                    Some(signal) if cfg!(windows) => p::ExitSignal(signal),
+                    Some(..) => code,
+                };
                 self.exit_code = Some(code);
                 code
             }
@@ -170,7 +186,14 @@ impl rtio::RtioProcess for Process {
             }),
             None => {}
         }
-        return unsafe { killpid(self.pid, signum) };
+
+        // A successfully delivered signal that isn't 0 (just a poll for being
+        // alive) is recorded for windows (see wait())
+        match unsafe { killpid(self.pid, signum) } {
+            Ok(()) if signum == 0 => Ok(()),
+            Ok(()) => { self.exit_signal = Some(signum); Ok(()) }
+            Err(e) => Err(e),
+        }
     }
     #[cfg(target_os = "nacl")]
     fn kill(&mut self, _signum: int) -> Result<(), io::IoError> {
@@ -273,31 +296,37 @@ fn spawn_process_os(config: p::ProcessConfig,
 
         let cur_proc = GetCurrentProcess();
 
-        let orig_std_in = get_osfhandle(in_fd) as HANDLE;
-        if orig_std_in == INVALID_HANDLE_VALUE as HANDLE {
-            fail!("failure in get_osfhandle: {}", os::last_os_error());
-        }
-        if DuplicateHandle(cur_proc, orig_std_in, cur_proc, &mut si.hStdInput,
-                           0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
-            fail!("failure in DuplicateHandle: {}", os::last_os_error());
-        }
-
-        let orig_std_out = get_osfhandle(out_fd) as HANDLE;
-        if orig_std_out == INVALID_HANDLE_VALUE as HANDLE {
-            fail!("failure in get_osfhandle: {}", os::last_os_error());
-        }
-        if DuplicateHandle(cur_proc, orig_std_out, cur_proc, &mut si.hStdOutput,
-                           0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
-            fail!("failure in DuplicateHandle: {}", os::last_os_error());
+        if in_fd != -1 {
+            let orig_std_in = get_osfhandle(in_fd) as HANDLE;
+            if orig_std_in == INVALID_HANDLE_VALUE as HANDLE {
+                fail!("failure in get_osfhandle: {}", os::last_os_error());
+            }
+            if DuplicateHandle(cur_proc, orig_std_in, cur_proc, &mut si.hStdInput,
+                               0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
+                fail!("failure in DuplicateHandle: {}", os::last_os_error());
+            }
         }
 
-        let orig_std_err = get_osfhandle(err_fd) as HANDLE;
-        if orig_std_err == INVALID_HANDLE_VALUE as HANDLE {
-            fail!("failure in get_osfhandle: {}", os::last_os_error());
+        if out_fd != -1 {
+            let orig_std_out = get_osfhandle(out_fd) as HANDLE;
+            if orig_std_out == INVALID_HANDLE_VALUE as HANDLE {
+                fail!("failure in get_osfhandle: {}", os::last_os_error());
+            }
+            if DuplicateHandle(cur_proc, orig_std_out, cur_proc, &mut si.hStdOutput,
+                               0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
+                fail!("failure in DuplicateHandle: {}", os::last_os_error());
+            }
         }
-        if DuplicateHandle(cur_proc, orig_std_err, cur_proc, &mut si.hStdError,
-                           0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
-            fail!("failure in DuplicateHandle: {}", os::last_os_error());
+
+        if err_fd != -1 {
+            let orig_std_err = get_osfhandle(err_fd) as HANDLE;
+            if orig_std_err == INVALID_HANDLE_VALUE as HANDLE {
+                fail!("failure in get_osfhandle: {}", os::last_os_error());
+            }
+            if DuplicateHandle(cur_proc, orig_std_err, cur_proc, &mut si.hStdError,
+                               0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
+                fail!("failure in DuplicateHandle: {}", os::last_os_error());
+            }
         }
 
         let cmd = make_command_line(config.program, config.args);
@@ -324,9 +353,9 @@ fn spawn_process_os(config: p::ProcessConfig,
             })
         });
 
-        assert!(CloseHandle(si.hStdInput) != 0);
-        assert!(CloseHandle(si.hStdOutput) != 0);
-        assert!(CloseHandle(si.hStdError) != 0);
+        if in_fd != -1 { assert!(CloseHandle(si.hStdInput) != 0); }
+        if out_fd != -1 { assert!(CloseHandle(si.hStdOutput) != 0); }
+        if err_fd != -1 { assert!(CloseHandle(si.hStdError) != 0); }
 
         match create_err {
             Some(err) => return Err(err),
