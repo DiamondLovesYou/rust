@@ -1334,12 +1334,22 @@ fn link_args(sess: &Session,
     // used to resolve symbols from the object file we just created, as well as
     // any system static libraries that may be expecting gcc instead. Most
     // symbols in libgcc also appear in compiler-rt.
+    args.push(~"-lcompiler-rt");
+
     if sess.targeting_pnacl() {
         // PNaCl needs an explicit -lm in order to avoid linker errors.
         args.push(~"-lm");
+        // Add the NaCl IRT shims so the user can use pnacl-translate to create
+        // an image runable with sel_ldr:
+        args.push(~"-lnacl");
+
+        // Only libgreen adds this, even though std also uses pthread Stuff.
+        args.push(~"-lpthread");
 
         // add -L locations for nacl_io:
-        let pnacl_lib = if sess.opts.debuginfo == session::FullDebugInfo {
+        // We do this here instead of in libnative where libnacl_io is imported
+        // because we need access to various rustc session vars.
+        let pnacl_lib = if sess.opts.optimize == session::No {
             "lib/pnacl/Debug"
         } else {
             "lib/pnacl/Release"
@@ -1359,7 +1369,6 @@ fn link_args(sess: &Session,
             args.push(~"-g");
         }
     }
-    args.push(~"-lcompiler-rt");
 
     // Finally add all the linker arguments provided on the command line along
     // with any #[link_args] attributes found inside the crate
