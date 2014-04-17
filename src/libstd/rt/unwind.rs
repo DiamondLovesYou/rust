@@ -99,6 +99,7 @@ impl Unwinder {
             let closure: Closure = cast::transmute(f);
             let ep = rust_try(try_fn, closure.code as *c_void,
                               closure.env as *c_void);
+            let ep: *uw::_Unwind_Exception = cast::transmute(ep);
             if !ep.is_null() {
                 rtdebug!("caught {}", (*ep).exception_class);
                 uw::_Unwind_DeleteException(ep);
@@ -120,9 +121,13 @@ impl Unwinder {
             // When f(...) returns normally, the return value is null.
             // When f(...) throws, the return value is a pointer to the caught
             // exception object.
+            // Note: for PNaCl this MUST return *c_void. Otherwise, -promote-returned-structs
+            // will move the return to a sret argument, shifting the other parameters to
+            // unexpected positions. The result is that rust_try tries to call a pointer
+            // which points to someplace on our stack. Not good, to say the least.
             fn rust_try(f: extern "C" fn(*c_void, *c_void),
                         code: *c_void,
-                        data: *c_void) -> *uw::_Unwind_Exception;
+                        data: *c_void) -> *c_void;
         }
     }
 
