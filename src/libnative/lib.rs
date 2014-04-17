@@ -107,8 +107,8 @@ pub fn start(argc: int, argv: **u8, main: proc()) -> int {
     //
     // Hence, we set SIGPIPE to ignore when the program starts up in order to
     // prevent this problem.
-    #[cfg(windows)] fn ignore_sigpipe() {}
-    #[cfg(unix)] fn ignore_sigpipe() {
+    #[cfg(windows)] #[cfg(target_os = "nacl")] fn ignore_sigpipe() {}
+    #[cfg(unix, not(target_os = "nacl"))] fn ignore_sigpipe() {
         use libc;
         use libc::funcs::posix01::signal::signal;
         unsafe {
