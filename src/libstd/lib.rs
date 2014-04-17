@@ -62,10 +62,16 @@
 
 // When testing libstd, bring in libuv as the I/O backend so tests can print
 // things and all of the std::io tests have an I/O interface to run on top
-// of
-#[cfg(test)] extern crate rustuv;
+// of. Sadly, libuv uses a boatload of Glibc functions that Newlibc just
+// doesn't implement.
+#[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
+extern crate rustuv;
 #[cfg(test)] extern crate native;
-#[cfg(test)] extern crate green;
+
+// libgreen doesn't exist for le32-unknown-nacl targets:
+#[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
+extern crate green;
+
 #[cfg(test)] #[phase(syntax, link)] extern crate log;
 
 // Make and rand accessible for benchmarking/testcases
@@ -81,14 +87,21 @@ extern crate libc;
 #[cfg(test)] pub use cmp = realstd::cmp;
 #[cfg(test)] pub use ty = realstd::ty;
 
-// Run tests with libgreen instead of libnative.
+// Run tests with libgreen instead of libnative, but not while targeting a 
+// platform using Newlibc.
 //
 // FIXME: This egregiously hacks around starting the test runner in a different
 //        threading mode than the default by reaching into the auto-generated
 //        '__test' module.
-#[cfg(test)] #[start]
+#[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
+#[start]
 fn start(argc: int, argv: **u8) -> int {
     green::start(argc, argv, rustuv::event_loop, __test::main)
+}
+#[cfg(test, target_os = "nacl", target_libc = "newlib")]
+#[start]
+fn start(argc: int, argv: **u8) -> int {
+    native::start(argc, argv, __test::main)
 }
 
 pub mod macros;
