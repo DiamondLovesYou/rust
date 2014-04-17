@@ -682,7 +682,14 @@ fn compile_test_(config: &config, props: &TestProps,
                  testfile: &Path, extra_args: &[~str]) -> ProcRes {
     let aux_dir = aux_output_dir_name(config, testfile);
     // FIXME (#9639): This needs to handle non-utf8 paths
-    let link_args = vec!(~"-L", aux_dir.as_str().unwrap().to_owned());
+    let link_args = vec!(~"-L",
+                         aux_dir.as_str().unwrap().to_owned());
+    let link_args = if config.targeting_pnacl() {
+        // As a result of the way we link in rustc, targeting pnacl requires use of LTO.
+        link_args.append(vec!(~"-Z", ~"lto").as_slice())
+    } else {
+        link_args
+    };
     let args = make_compile_args(config,
                                  props,
                                  link_args.append(extra_args),
@@ -699,6 +706,10 @@ fn exec_compiled_test(config: &config, props: &TestProps,
 
         "arm-linux-androideabi" => {
             _arm_exec_compiled_test(config, props, testfile, env)
+        }
+
+        "le32-unknown-nacl" => {
+            pnacl_exec_compiled_test(config, props, testfile, env)
         }
 
         _=> {
@@ -730,6 +741,8 @@ fn compose_and_run_compiler(
         let aux_props = load_props(&abs_ab);
         let crate_type = if aux_props.no_prefer_dynamic && !config.targeting_nacl() {
             Vec::new()
+        } else if config.targeting_nacl() {
+            vec!(~"--crate-type=rlib")
         } else {
             vec!(~"--crate-type=dylib")
         };
@@ -800,7 +813,7 @@ fn make_compile_args(config: &config,
                      ~"-L", config.build_base.as_str().unwrap().to_owned(),
                      ~"--target=" + target);
     args.push_all(extras.as_slice());
-    if !props.no_prefer_dynamic {
+    if !props.no_prefer_dynamic && !config.targeting_nacl() {
         args.push(~"-C");
         args.push(~"prefer-dynamic");
     }
@@ -1083,6 +1096,81 @@ fn _arm_push_aux_shared_library(config: &config, testfile: &Path) {
                     copy_result.out, copy_result.err);
             }
         }
+    }
+}
+
+fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
+                            testfile: &Path, env: Vec<(~str, ~str)> ) -> ProcRes {
+    use std::os::consts::ARCH;
+    use std::os::make_absolute;
+    use std::io::process::{ExitStatus};
+    let cross_path = config.nacl_cross_path
+        .clone()
+        .expect("need the NaCl SDK path!");
+    let pnacl_translate = cross_path.join_many([~"toolchain",
+                                                toolchain_prefix() + "_pnacl",
+                                                ~"bin",
+                                                ~"pnacl-translate"]);
+
+    let pexe_path = make_absolute(&output_base_name(config, testfile));
+    let nexe_path = 
+        // add an extension, don't replace it:
+        Path::new(pexe_path.display().to_str() + ".nexe");
+    
+    let pnacl_trans_args = vec!(~"-O0",
+                                ~"-arch",
+                                ARCH.to_str(),
+                                ~"-o",
+                                nexe_path.display().to_str(),
+                                pexe_path.display().to_str(),
+                                ~"--allow-llvm-bitcode-input");
+    let procsrv::Result { out: stdout, err: stderr, status: status } =
+        procsrv::run("",
+                     pnacl_translate.display().to_str(),
+                     pnacl_trans_args.as_slice(),
+                     env.clone(),
+                     None)
+        .expect(format!("failed to exec `{}`", pnacl_translate.display()));
+    match status {
+        ExitStatus(0) => (),
+        _ => {
+            return ProcRes {
+                status: status,
+                stdout: stdout,
+                stderr: stderr,
+                cmdline: format!("{} {}",
+                                 pnacl_translate.display(),
+                                 pnacl_trans_args.connect(" ")),
+            };
+        }
+    }
+
+    let sel_ldr = cross_path.join_many(["tools",
+                                        "sel_ldr.py"]);
+    let sel_ldr_args = vec!(~"--debug-libs", ~"-v", ~"--", nexe_path.display().to_str());
+    let ProcArgs {
+        args: run_args,
+        ..
+    } = make_run_args(config, props, testfile);
+    let sel_ldr_args = sel_ldr_args.append(run_args.as_slice());
+    let procsrv::Result{ out: stdout, err: stderr, status: status } =
+        procsrv::run("",
+                     sel_ldr.display().to_str(),
+                     sel_ldr_args.as_slice(),
+                     env,
+                     None).unwrap();
+    return ProcRes {
+        status: status,
+        stdout: stdout,
+        stderr: stderr,
+        cmdline: make_cmdline("",
+                              sel_ldr.display().to_str(),
+                              sel_ldr_args.as_slice()),
+    };
+
+    #[cfg(target_os = "linux")]
+    fn toolchain_prefix() -> &'static str {
+        "linux"
     }
 }
 

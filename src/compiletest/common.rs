@@ -113,4 +113,7 @@ impl config {
     pub fn targeting_nacl(&self) -> bool {
         self.target.ends_with("-unknown-nacl")
     }
+    pub fn targeting_pnacl(&self) -> bool {
+        "le32-unknown-nacl" == self.target
+    }
 }
