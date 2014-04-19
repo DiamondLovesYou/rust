@@ -1123,7 +1123,9 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
                                 ~"-o",
                                 nexe_path.display().to_str(),
                                 pexe_path.display().to_str(),
-                                ~"--allow-llvm-bitcode-input");
+                                ~"--pnacl-allow-zerocost-eh",
+                                ~"--allow-llvm-bitcode-input",
+                                ~"--pnacl-driver-verbose");
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
                      pnacl_translate.display().to_str(),

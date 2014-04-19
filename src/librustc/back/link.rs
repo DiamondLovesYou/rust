@@ -202,8 +202,6 @@ pub mod write {
             if sess.targeting_pnacl() && !sess.opts.cg.no_prepopulate_passes {
                 // I choose to add these by string to retain what little compatiblity
                 // we have left with upstream LLVM
-                assert!(addpass_mpm("lowerinvoke"));
-                assert!(addpass_mpm("simplifycfg"));
                 assert!(addpass_mpm("lower-expect"));
                 assert!(addpass_mpm("rewrite-llvm-intrinsic-calls"));
                 assert!(addpass_mpm("expand-arith-with-overflow"));
@@ -1368,6 +1366,9 @@ fn link_args(sess: &Session,
         if sess.opts.debuginfo != session::NoDebugInfo {
             args.push(~"-g");
         }
+
+        // fail!() needs exception handling to function properly.
+        args.push(~"--pnacl-exceptions=zerocost");
     }
 
     // Finally add all the linker arguments provided on the command line along
