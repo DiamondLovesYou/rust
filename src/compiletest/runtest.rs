@@ -1117,6 +1117,18 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
         // add an extension, don't replace it:
         Path::new(pexe_path.display().to_str() + ".nexe");
 
+    let native_lib_path = match ARCH {
+        "x86_64" => cross_path.join_many([~"toolchain",
+                                          toolchain_prefix() + "_x86_newlib",
+                                          ~"x86_64-nacl",
+                                          ~"lib"]),
+        "x86"    => cross_path.join_many([~"toolchain",
+                                          toolchain_prefix() + "_x86_newlib",
+                                          ~"x86_64-nacl",
+                                          ~"lib32"]),
+        _ => fail!("unknown arch (FIXME): `{}`", ARCH),
+    };
+    let native_lib_path = native_lib_path.display().to_str();
     let pnacl_trans_args = vec!(~"-O0",
                                 ~"-arch",
                                 ARCH.to_str(),
@@ -1125,7 +1137,13 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
                                 pexe_path.display().to_str(),
                                 ~"--pnacl-allow-zerocost-eh",
                                 ~"--allow-llvm-bitcode-input",
-                                ~"--pnacl-driver-verbose");
+                                ~"--pnacl-driver-verbose",
+                                ~"-translate-fast",
+                                // until https://code.google.com/p/chromium/issues/detail?id=343594
+                                // lands in the SDKs, all frem instructions will cause unresolved
+                                // references to fmodf/fmod. libg is for errno referenced in fmod.
+                                ~"-Wl," + native_lib_path + "/libm.a",
+                                ~"-Wl," + native_lib_path + "/libg.a");
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
                      pnacl_translate.display().to_str(),
