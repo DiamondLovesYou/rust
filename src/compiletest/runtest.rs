@@ -1113,10 +1113,10 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
                                                 ~"pnacl-translate"]);
 
     let pexe_path = make_absolute(&output_base_name(config, testfile));
-    let nexe_path = 
+    let nexe_path =
         // add an extension, don't replace it:
         Path::new(pexe_path.display().to_str() + ".nexe");
-    
+
     let pnacl_trans_args = vec!(~"-O0",
                                 ~"-arch",
                                 ARCH.to_str(),

@@ -87,7 +87,7 @@ extern crate libc;
 #[cfg(test)] pub use cmp = realstd::cmp;
 #[cfg(test)] pub use ty = realstd::ty;
 
-// Run tests with libgreen instead of libnative, but not while targeting a 
+// Run tests with libgreen instead of libnative, but not while targeting a
 // platform using Newlibc.
 //
 // FIXME: This egregiously hacks around starting the test runner in a different
