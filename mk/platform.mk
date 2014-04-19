@@ -541,10 +541,11 @@ else
 endif
 
 # le32-unknown-nacl (portable, PNaCl)
-CC_le32-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-clang
-CXX_le32-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-clang++
+CROSS_PREFIX_le32-unknown-nacl:=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-
+CC_le32-unknown-nacl=clang
+CXX_le32-unknown-nacl=clang++
 CPP_le32-unknown-nacl=$(CXX_le32-unknown-nacl) -E
-AR_le32-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-ar
+AR_le32-unknown-nacl=ar
 CFG_LIB_NAME_le32-unknown-nacl=lib$(1).so
 CFG_STATIC_LIB_NAME_le32-unknown-nacl=lib$(1).a
 CFG_LIB_GLOB_le32-unknown-nacl=lib$(1)-*.so
