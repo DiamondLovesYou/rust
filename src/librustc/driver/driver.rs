@@ -618,9 +618,14 @@ pub fn compile_input(sess: Session, cfg: ast::CrateConfig, input: &Input,
                                                  krate.attrs.as_slice(),
                                                  &sess);
             let syntax_filesearch = SyntaxExtFileSearch::new(&sess);
+            let host_triple = host_triple();
             let loader = &mut Loader::new(&sess,
-                                          host_triple(),
-                                          syntax_filesearch.filesearch());
+                                          host_triple.clone(),
+                                          if host_triple != sess.opts.target_triple {
+                                              syntax_filesearch.filesearch()
+                                          } else {
+                                              sess.filesearch()
+                                          });
             let id = link::find_crate_id(krate.attrs.as_slice(),
                                          outputs.out_filestem);
             let (expanded_crate, ast_map) = phase_2_configure_and_expand(&sess, loader,
