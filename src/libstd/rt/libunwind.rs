@@ -66,9 +66,16 @@ pub static unwinder_private_data_size: int = 20;
 #[cfg(target_arch = "mips")]
 pub static unwinder_private_data_size: int = 2;
 
-#[cfg(target_os = "nacl", target_arch = "le32")]
-pub static unwinder_private_data_size: int = 16;
+#[cfg(target_os = "nacl", not(target_arch = "arm"))]
+pub static unwinder_private_data_size: int = 2;
+#[cfg(target_os = "nacl", target_arch = "arm")]
+pub static unwinder_private_data_size: int =
+    5 + // unwinder_cache
+    6 + // barrier_cache
+    4 + // cleanup_cache
+    4;  // pr_cache
 
+// FIXME: NaCl Arm alignment (should be 8)
 pub struct _Unwind_Exception {
     pub exception_class: _Unwind_Exception_Class,
     pub exception_cleanup: _Unwind_Exception_Cleanup_Fn,
