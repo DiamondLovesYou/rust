@@ -235,7 +235,6 @@ pub mod write {
                 // we have left with upstream LLVM
                 assert!(addpass_mpm("rewrite-pnacl-library-calls"));
                 assert!(addpass_mpm("expand-byval"));
-                assert!(addpass_mpm("expand-small-arguments"));
                 assert!(addpass_mpm("nacl-promote-i1-ops"));
                 assert!(addpass_mpm("canonicalize-mem-intrinsics"));
                 assert!(addpass_mpm("strip-metadata"));
