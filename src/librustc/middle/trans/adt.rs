@@ -103,6 +103,7 @@ pub enum Repr {
 }
 
 /// For structs, and struct-like parts of anything fancier.
+#[deriving(Show)]
 pub struct Struct {
     pub size: u64,
     pub align: u64,
@@ -431,9 +432,19 @@ fn generic_type_of(cx: &CrateContext, r: &Repr, name: Option<&str>, sizing: bool
             // of the size.
             //
             // FIXME #10604: this breaks when vector types are present.
+            debug!("generic_type_of on General: ity={} sts={}", ity, sts);
             let size = sts.iter().map(|st| st.size).max().unwrap();
             let most_aligned = sts.iter().max_by(|st| st.align).unwrap();
             let align = most_aligned.align;
+            let align = if align > 8 && cx.sess().targeting_pnacl() {
+                // On PNaCl, we have no way to represent any alignment larger
+                // than 8 (well, we do, but the common 16 byte vector is out).
+                // Fortunately, due to PNaCl's restricted IR, we don't have to
+                // worry about alignment (I think).
+                8
+            } else {
+                align
+            };
             let discr_ty = ll_inttype(cx, ity);
             let discr_size = machine::llsize_of_alloc(cx, discr_ty) as u64;
             let align_units = (size + align - 1) / align - 1;
@@ -447,6 +458,13 @@ fn generic_type_of(cx: &CrateContext, r: &Repr, name: Option<&str>, sizing: bool
                                                               align_units),
                 _ => fail!("unsupported enum alignment: {:?}", align)
             };
+
+            // This check will fail in the presence of SIMD types while
+            // targeting PNaCl. This is because the DataLayout PNaCl uses
+            // specifies that vectors of 128 bits get an alignment of only 32
+            // bits, preventing us from using them to force alignment.
+            // However, on PNaCl, it shouldn't matter anyway, hence the hack
+            // above.
             assert_eq!(machine::llalign_of_min(cx, pad_ty) as u64, align);
             assert_eq!(align % discr_size, 0);
             let fields = vec!(discr_ty,
