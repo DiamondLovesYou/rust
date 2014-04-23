@@ -1331,9 +1331,13 @@ fn link_args(sess: &Session,
     // used to resolve symbols from the object file we just created, as well as
     // any system static libraries that may be expecting gcc instead. Most
     // symbols in libgcc also appear in compiler-rt.
-    args.push(~"-lcompiler-rt");
-
-    if sess.targeting_pnacl() {
+    if !sess.targeting_pnacl() {
+        // compile-rt uses target machine dependant builtins, like
+        // __builtin_eh_return_data_regno, which pnacl-clang replaces with
+        // -1, breaking things like __gcc_personality_v0. Fortunately, PNaCl provides
+        // its own compile-rt during translation time, so we just omit it here.
+        args.push(~"-lcompiler-rt");
+    } else {
         // PNaCl needs an explicit -lm in order to avoid linker errors.
         args.push(~"-lm");
         // Add the NaCl IRT shims so the user can use pnacl-translate to create
@@ -1367,7 +1371,7 @@ fn link_args(sess: &Session,
         }
 
         // fail!() needs exception handling to function properly.
-        args.push(~"--pnacl-exceptions=zerocost");
+        args.push(~"--pnacl-exceptions=sjlj");
     }
 
     // Finally add all the linker arguments provided on the command line along
