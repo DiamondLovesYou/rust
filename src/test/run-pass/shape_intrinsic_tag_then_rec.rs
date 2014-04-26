@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 // Exercises a bug in the shape code that was exposed
 // on x86_64: when there is a enum embedded in an
@@ -59,7 +59,7 @@ pub fn main() {
     let t: @ty = @Spanned { data: 3u, span: sp };
     let p_: Path_ = Path_ {
         global: true,
-        idents: vec!(~"hi"),
+        idents: vec!("hi".to_owned()),
         types: vec!(t),
     };
     let p: path = Spanned { data: p_, span: sp };

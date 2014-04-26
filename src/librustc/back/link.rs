@@ -18,7 +18,7 @@ use lib::llvm::llvm;
 use lib::llvm::ModuleRef;
 use lib;
 use metadata::common::LinkMeta;
-use metadata::{encoder, cstore, filesearch, csearch};
+use metadata::{encoder, cstore, filesearch, csearch, loader};
 use middle::trans::context::CrateContext;
 use middle::trans::common::gensym_name;
 use middle::ty;
@@ -28,11 +28,11 @@ use util::sha2::{Digest, Sha256};
 
 use std::c_str::{ToCStr, CString};
 use std::char;
-use std::os::consts::{macos, freebsd, linux, android, win32};
+use std::io::{fs, TempDir, Process};
+use std::io;
 use std::ptr;
 use std::str;
-use std::io;
-use std::io::{fs, TempDir, Process};
+use std::strbuf::StrBuf;
 use flate;
 use serialize::hex::ToHex;
 use syntax::abi;
@@ -59,7 +59,7 @@ pub fn llvm_err(sess: &Session, msg: ~str) -> ! {
         if cstr == ptr::null() {
             sess.fatal(msg);
         } else {
-            let err = CString::new(cstr, false);
+            let err = CString::new(cstr, true);
             let err = str::from_utf8_lossy(err.as_bytes());
             sess.fatal(msg + ": " + err.as_slice());
         }
@@ -78,7 +78,7 @@ pub fn WriteOutputFile(
             let result = llvm::LLVMRustWriteOutputFile(
                     target, pm, m, output, file_type);
             if !result {
-                llvm_err(sess, ~"could not write output");
+                llvm_err(sess, "could not write output".to_owned());
             }
         })
     }
@@ -397,8 +397,8 @@ pub mod write {
 
         // FIXME (#9639): This needs to handle non-utf8 paths
         let args = [
-            ~"-c",
-            ~"-o", object.as_str().unwrap().to_owned(),
+            "-c".to_owned(),
+            "-o".to_owned(), object.as_str().unwrap().to_owned(),
             assembly.as_str().unwrap().to_owned()];
 
         debug!("{} '{}'", cc, args.connect("' '"));
@@ -578,7 +578,10 @@ pub mod write {
 
 pub fn find_crate_id(attrs: &[ast::Attribute], out_filestem: &str) -> CrateId {
     match attr::find_crateid(attrs) {
-        None => from_str(out_filestem).unwrap(),
+        None => from_str(out_filestem).unwrap_or_else(|| {
+            let mut s = out_filestem.chars().filter(|c| c.is_XID_continue());
+            from_str(s.collect::<~str>()).or(from_str("rust-out")).unwrap()
+        }),
         Some(s) => s,
     }
 }
@@ -593,12 +596,10 @@ pub fn crate_id_hash(crate_id: &CrateId) -> ~str {
 }
 
 pub fn build_link_meta(krate: &ast::Crate,
-                       out_filestem: &str,
-                       target_triple: ~str) -> LinkMeta {
+                       out_filestem: &str) -> LinkMeta {
     let r = LinkMeta {
         crateid: find_crate_id(krate.attrs.as_slice(), out_filestem),
         crate_hash: Svh::calculate(krate),
-        crate_triple: target_triple,
     };
     info!("{}", r);
     return r;
@@ -612,8 +613,11 @@ fn truncated_hash_result(symbol_hasher: &mut Sha256) -> ~str {
 
 
 // This calculates STH for a symbol, as defined above
-fn symbol_hash(tcx: &ty::ctxt, symbol_hasher: &mut Sha256,
-               t: ty::t, link_meta: &LinkMeta) -> ~str {
+fn symbol_hash(tcx: &ty::ctxt,
+               symbol_hasher: &mut Sha256,
+               t: ty::t,
+               link_meta: &LinkMeta)
+               -> ~str {
     // NB: do *not* use abbrevs here as we want the symbol names
     // to be independent of one another in the crate.
 
@@ -623,10 +627,10 @@ fn symbol_hash(tcx: &ty::ctxt, symbol_hasher: &mut Sha256,
     symbol_hasher.input_str(link_meta.crate_hash.as_str());
     symbol_hasher.input_str("-");
     symbol_hasher.input_str(encoder::encoded_ty(tcx, t));
-    let mut hash = truncated_hash_result(symbol_hasher);
     // Prefix with 'h' so that it never blends into adjacent digits
-    hash.unshift_char('h');
-    hash
+    let mut hash = StrBuf::from_str("h");
+    hash.push_str(truncated_hash_result(symbol_hasher));
+    hash.into_owned()
 }
 
 fn get_symbol_hash(ccx: &CrateContext, t: ty::t) -> ~str {
@@ -646,7 +650,7 @@ fn get_symbol_hash(ccx: &CrateContext, t: ty::t) -> ~str {
 // gas doesn't!
 // gas accepts the following characters in symbols: a-z, A-Z, 0-9, ., _, $
 pub fn sanitize(s: &str) -> ~str {
-    let mut result = ~"";
+    let mut result = StrBuf::new();
     for c in s.chars() {
         match c {
             // Escape these with $ sequences
@@ -671,19 +675,20 @@ pub fn sanitize(s: &str) -> ~str {
             | '_' | '.' | '$' => result.push_char(c),
 
             _ => {
-                let mut tstr = ~"";
+                let mut tstr = StrBuf::new();
                 char::escape_unicode(c, |c| tstr.push_char(c));
                 result.push_char('$');
-                result.push_str(tstr.slice_from(1));
+                result.push_str(tstr.as_slice().slice_from(1));
             }
         }
     }
 
     // Underscore-qualify anything that didn't start as an ident.
+    let result = result.into_owned();
     if result.len() > 0u &&
         result[0] != '_' as u8 &&
         ! char::is_XID_start(result[0] as char) {
-        return ~"_" + result;
+        return "_".to_owned() + result;
     }
 
     return result;
@@ -706,9 +711,9 @@ pub fn mangle<PI: Iterator<PathElem>>(mut path: PI,
     // To be able to work on all platforms and get *some* reasonable output, we
     // use C++ name-mangling.
 
-    let mut n = ~"_ZN"; // _Z == Begin name-sequence, N == nested
+    let mut n = StrBuf::from_str("_ZN"); // _Z == Begin name-sequence, N == nested
 
-    fn push(n: &mut ~str, s: &str) {
+    fn push(n: &mut StrBuf, s: &str) {
         let sani = sanitize(s);
         n.push_str(format!("{}{}", sani.len(), sani));
     }
@@ -728,7 +733,7 @@ pub fn mangle<PI: Iterator<PathElem>>(mut path: PI,
     }
 
     n.push_char('E'); // End name-sequence.
-    n
+    n.into_owned()
 }
 
 pub fn exported_name(path: PathElems, hash: &str, vers: &str) -> ~str {
@@ -745,7 +750,7 @@ pub fn exported_name(path: PathElems, hash: &str, vers: &str) -> ~str {
 
 pub fn mangle_exported_name(ccx: &CrateContext, path: PathElems,
                             t: ty::t, id: ast::NodeId) -> ~str {
-    let mut hash = get_symbol_hash(ccx, t);
+    let mut hash = StrBuf::from_owned_str(get_symbol_hash(ccx, t));
 
     // Paths can be completely identical for different nodes,
     // e.g. `fn foo() { { fn a() {} } { fn a() {} } }`, so we
@@ -765,7 +770,9 @@ pub fn mangle_exported_name(ccx: &CrateContext, path: PathElems,
     hash.push_char(EXTRA_CHARS[extra2] as char);
     hash.push_char(EXTRA_CHARS[extra3] as char);
 
-    exported_name(path, hash, ccx.link_meta.crateid.version_or_default())
+    exported_name(path,
+                  hash.as_slice(),
+                  ccx.link_meta.crateid.version_or_default())
 }
 
 pub fn mangle_internal_name_by_type_and_seq(ccx: &CrateContext,
@@ -797,7 +804,7 @@ pub fn get_cc_prog(sess: &Session) -> ~str {
     // instead of hard-coded gcc.
     // For win32, there is no cc command, so we add a condition to make it use gcc.
     match sess.targ_cfg.os {
-        abi::OsWin32 => return ~"gcc",
+        abi::OsWin32 => return "gcc".to_owned(),
         _ => {},
     }
 
@@ -891,13 +898,13 @@ pub fn filename_for_input(sess: &Session, crate_type: session::CrateType,
         }
         session::CrateTypeDylib => {
             let (prefix, suffix) = match sess.targ_cfg.os {
-                abi::OsWin32 => (win32::DLL_PREFIX, win32::DLL_SUFFIX),
-                abi::OsMacos => (macos::DLL_PREFIX, macos::DLL_SUFFIX),
-                abi::OsLinux => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
-                abi::OsAndroid => (android::DLL_PREFIX, android::DLL_SUFFIX),
-                abi::OsFreebsd => (freebsd::DLL_PREFIX, freebsd::DLL_SUFFIX),
+                abi::OsWin32 => (loader::WIN32_DLL_PREFIX, loader::WIN32_DLL_SUFFIX),
+                abi::OsMacos => (loader::MACOS_DLL_PREFIX, loader::MACOS_DLL_SUFFIX),
+                abi::OsLinux => (loader::LINUX_DLL_PREFIX, loader::LINUX_DLL_SUFFIX),
+                abi::OsAndroid => (loader::ANDROID_DLL_PREFIX, loader::ANDROID_DLL_SUFFIX),
+                abi::OsFreebsd => (loader::FREEBSD_DLL_PREFIX, loader::FREEBSD_DLL_SUFFIX),
                 // FIXME: These are merely placeholders.
-                abi::OsNaCl => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
+                abi::OsNaCl => (loader::NACL_DLL_PREFIX, loader::NACL_DLL_SUFFIX),
             };
             out_filename.with_filename(format!("{}{}{}", prefix, libname, suffix))
         }
@@ -1023,11 +1030,14 @@ fn link_rlib<'a>(sess: &'a Session,
             let bc_deflated = obj_filename.with_extension("bc.deflate");
             match fs::File::open(&bc).read_to_end().and_then(|data| {
                 fs::File::create(&bc_deflated)
-                    .write(flate::deflate_bytes(data.as_slice()).as_slice())
+                    .write(match flate::deflate_bytes(data.as_slice()) {
+                        Some(compressed) => compressed,
+                        None => sess.fatal("failed to compress bytecode")
+                     }.as_slice())
             }) {
                 Ok(()) => {}
                 Err(e) => {
-                    sess.err(format!("failed to compress bytecode: {}", e));
+                    sess.err(format!("failed to write compressed bytecode: {}", e));
                     sess.abort_if_errors()
                 }
             }
@@ -1158,14 +1168,14 @@ fn link_args(sess: &Session,
     // The default library location, we need this to find the runtime.
     // The location of crates will be determined as needed.
     // FIXME (#9639): This needs to handle non-utf8 paths
-    let lib_path = sess.filesearch().get_target_lib_path();
-    let stage: ~str = ~"-L" + lib_path.as_str().unwrap();
+    let lib_path = sess.target_filesearch().get_lib_path();
+    let stage: ~str = "-L".to_owned() + lib_path.as_str().unwrap();
 
     let mut args = vec!(stage);
 
     // FIXME (#9639): This needs to handle non-utf8 paths
     args.push_all([
-        ~"-o", out_filename.as_str().unwrap().to_owned(),
+        "-o".to_owned(), out_filename.as_str().unwrap().to_owned(),
         obj_filename.as_str().unwrap().to_owned()]);
 
     // Stack growth requires statically linking a __morestack function. Note
@@ -1183,7 +1193,7 @@ fn link_args(sess: &Session,
     // line, but inserting this farther to the left makes the
     // "rust_stack_exhausted" symbol an outstanding undefined symbol, which
     // flags libstd as a required library (or whatever provides the symbol).
-    args.push(~"-lmorestack");
+    args.push("-lmorestack".to_owned());
 
     // When linking a dynamic library, we put the metadata into a section of the
     // executable. This metadata is in a separate object file from the main
@@ -1201,14 +1211,14 @@ fn link_args(sess: &Session,
     //
     // FIXME(#11937) we should invoke the system linker directly
     if sess.targ_cfg.os != abi::OsWin32 && !sess.targeting_pnacl() {
-        args.push(~"-nodefaultlibs");
+        args.push("-nodefaultlibs".to_owned());
     }
 
     if sess.targ_cfg.os == abi::OsLinux {
         // GNU-style linkers will use this to omit linking to libraries which
         // don't actually fulfill any relocations, but only for libraries which
         // follow this flag. Thus, use it before specifying libraries to link to.
-        args.push(~"-Wl,--as-needed");
+        args.push("-Wl,--as-needed".to_owned());
 
         // GNU-style linkers support optimization with -O. --gc-sections
         // removes metadata and potentially other useful things, so don't
@@ -1216,7 +1226,7 @@ fn link_args(sess: &Session,
         // do.
         if sess.opts.optimize == session::Default ||
            sess.opts.optimize == session::Aggressive {
-            args.push(~"-Wl,-O1");
+            args.push("-Wl,-O1".to_owned());
         }
     }
 
@@ -1224,7 +1234,7 @@ fn link_args(sess: &Session,
         // Make sure that we link to the dynamic libgcc, otherwise cross-module
         // DWARF stack unwinding will not work.
         // This behavior may be overridden by --link-args "-static-libgcc"
-        args.push(~"-shared-libgcc");
+        args.push("-shared-libgcc".to_owned());
 
         // And here, we see obscure linker flags #45. On windows, it has been
         // found to be necessary to have this flag to compile liblibc.
@@ -1241,7 +1251,7 @@ fn link_args(sess: &Session,
         // actually creates "invalid" objects [1] [2], but only for some
         // introspection tools, not in terms of whether it can be loaded.
         //
-        // Long story shory, passing this flag forces the linker to *not*
+        // Long story short, passing this flag forces the linker to *not*
         // truncate section names (so we can find the metadata section after
         // it's compiled). The real kicker is that rust compiled just fine on
         // windows for quite a long time *without* this flag, so I have no idea
@@ -1251,13 +1261,13 @@ fn link_args(sess: &Session,
         //
         // [1] - https://sourceware.org/bugzilla/show_bug.cgi?id=13130
         // [2] - https://code.google.com/p/go/issues/detail?id=2139
-        args.push(~"-Wl,--enable-long-section-names");
+        args.push("-Wl,--enable-long-section-names".to_owned());
     }
 
     if sess.targ_cfg.os == abi::OsAndroid {
         // Many of the symbols defined in compiler-rt are also defined in libgcc.
         // Android linker doesn't like that by default.
-        args.push(~"-Wl,--allow-multiple-definition");
+        args.push("-Wl,--allow-multiple-definition".to_owned());
     }
 
     // Take careful note of the ordering of the arguments we pass to the linker
@@ -1302,22 +1312,22 @@ fn link_args(sess: &Session,
     if dylib {
         // On mac we need to tell the linker to let this library be rpathed
         if sess.targ_cfg.os == abi::OsMacos {
-            args.push(~"-dynamiclib");
-            args.push(~"-Wl,-dylib");
+            args.push("-dynamiclib".to_owned());
+            args.push("-Wl,-dylib".to_owned());
             // FIXME (#9639): This needs to handle non-utf8 paths
             if !sess.opts.cg.no_rpath {
-                args.push(~"-Wl,-install_name,@rpath/" +
+                args.push("-Wl,-install_name,@rpath/".to_owned() +
                           out_filename.filename_str().unwrap());
             }
         } else {
-            args.push(~"-shared")
+            args.push("-shared".to_owned())
         }
     }
 
     if sess.targ_cfg.os == abi::OsFreebsd {
-        args.push_all([~"-L/usr/local/lib",
-                       ~"-L/usr/local/lib/gcc46",
-                       ~"-L/usr/local/lib/gcc44"]);
+        args.push_all(["-L/usr/local/lib".to_owned(),
+                       "-L/usr/local/lib/gcc46".to_owned(),
+                       "-L/usr/local/lib/gcc44".to_owned()]);
     }
 
     // FIXME (#2397): At some point we want to rpath our guesses as to
@@ -1336,16 +1346,16 @@ fn link_args(sess: &Session,
         // __builtin_eh_return_data_regno, which pnacl-clang replaces with
         // -1, breaking things like __gcc_personality_v0. Fortunately, PNaCl provides
         // its own compile-rt during translation time, so we just omit it here.
-        args.push(~"-lcompiler-rt");
+        args.push("-lcompiler-rt".to_owned());
     } else {
         // PNaCl needs an explicit -lm in order to avoid linker errors.
-        args.push(~"-lm");
+        args.push("-lm".to_owned());
         // Add the NaCl IRT shims so the user can use pnacl-translate to create
         // an image runable with sel_ldr:
-        args.push(~"-lnacl");
+        args.push("-lnacl".to_owned());
 
         // Only libgreen adds this, even though std also uses pthread Stuff.
-        args.push(~"-lpthread");
+        args.push("-lpthread".to_owned());
 
         // add -L locations for nacl_io:
         // We do this here instead of in libnative where libnacl_io is imported
@@ -1357,21 +1367,21 @@ fn link_args(sess: &Session,
         };
         let cross_path = sess.opts.cg.cross_path.clone();
         args.push
-            (~"-L" + Path::new(cross_path.expect("need cross path"))
+            ("-L".to_owned() + Path::new(cross_path.expect("need cross path"))
              .join(pnacl_lib)
              .display()
              .to_str());
         if sess.opts.optimize == session::No {
-            args.push(~"-O0");
+            args.push("-O0".to_owned());
         } else {
-            args.push(~"-Os");
+            args.push("-Os".to_owned());
         }
         if sess.opts.debuginfo != session::NoDebugInfo {
-            args.push(~"-g");
+            args.push("-g".to_owned());
         }
 
         // fail!() needs exception handling to function properly.
-        args.push(~"--pnacl-exceptions=sjlj");
+        args.push("--pnacl-exceptions=sjlj".to_owned());
     }
 
     // Finally add all the linker arguments provided on the command line along
@@ -1406,16 +1416,32 @@ fn add_local_native_libraries(args: &mut Vec<~str>, sess: &Session) {
         args.push("-L" + path.as_str().unwrap().to_owned());
     }
 
+    // Some platforms take hints about whether a library is static or dynamic.
+    // For those that support this, we ensure we pass the option if the library
+    // was flagged "static" (most defaults are dynamic) to ensure that if
+    // libfoo.a and libfoo.so both exist that the right one is chosen.
+    let takes_hints = sess.targ_cfg.os != abi::OsMacos;
+
     for &(ref l, kind) in sess.cstore.get_used_libraries().borrow().iter() {
         match kind {
             cstore::NativeUnknown | cstore::NativeStatic => {
+                if takes_hints {
+                    if kind == cstore::NativeStatic {
+                        args.push("-Wl,-Bstatic".to_owned());
+                    } else {
+                        args.push("-Wl,-Bdynamic".to_owned());
+                    }
+                }
                 args.push("-l" + *l);
             }
             cstore::NativeFramework => {
-                args.push(~"-framework");
+                args.push("-framework".to_owned());
                 args.push(l.to_owned());
             }
         }
+    }
+    if takes_hints {
+        args.push("-Wl,-Bdynamic".to_owned());
     }
 }
 
@@ -1583,7 +1609,7 @@ fn add_upstream_rust_crates(args: &mut Vec<~str>, sess: &Session,
 }
 
 // Link in all of our upstream crates' native dependencies. Remember that
-// all of these upstream native depenencies are all non-static
+// all of these upstream native dependencies are all non-static
 // dependencies. We've got two cases then:
 //
 // 1. The upstream crate is an rlib. In this case we *must* link in the
@@ -1595,20 +1621,29 @@ fn add_upstream_rust_crates(args: &mut Vec<~str>, sess: &Session,
 //    crate as well.
 //
 // The use case for this is a little subtle. In theory the native
-// dependencies of a crate a purely an implementation detail of the crate
+// dependencies of a crate are purely an implementation detail of the crate
 // itself, but the problem arises with generic and inlined functions. If a
 // generic function calls a native function, then the generic function must
 // be instantiated in the target crate, meaning that the native symbol must
 // also be resolved in the target crate.
 fn add_upstream_native_libraries(args: &mut Vec<~str>, sess: &Session) {
-    let cstore = &sess.cstore;
-    cstore.iter_crate_data(|cnum, _| {
-        let libs = csearch::get_native_libraries(cstore, cnum);
+    // Be sure to use a topological sorting of crates because there may be
+    // interdependencies between native libraries. When passing -nodefaultlibs,
+    // for example, almost all native libraries depend on libc, so we have to
+    // make sure that's all the way at the right (liblibc is near the base of
+    // the dependency chain).
+    //
+    // This passes RequireStatic, but the actual requirement doesn't matter,
+    // we're just getting an ordering of crate numbers, we're not worried about
+    // the paths.
+    let crates = sess.cstore.get_used_crates(cstore::RequireStatic);
+    for (cnum, _) in crates.move_iter() {
+        let libs = csearch::get_native_libraries(&sess.cstore, cnum);
         for &(kind, ref lib) in libs.iter() {
             match kind {
                 cstore::NativeUnknown => args.push("-l" + *lib),
                 cstore::NativeFramework => {
-                    args.push(~"-framework");
+                    args.push("-framework".to_owned());
                     args.push(lib.to_owned());
                 }
                 cstore::NativeStatic => {
@@ -1616,5 +1651,5 @@ fn add_upstream_native_libraries(args: &mut Vec<~str>, sess: &Session) {
                 }
             }
         }
-    });
+    }
 }

@@ -27,10 +27,12 @@
 use clone::Clone;
 use container::Container;
 use default::Default;
+use int;
 use io::{IoResult, Writer};
 use iter::Iterator;
 use result::Ok;
 use slice::ImmutableVector;
+use uint;
 
 use super::{Hash, Hasher};
 
@@ -43,7 +45,7 @@ pub struct SipState {
     v1: u64,
     v2: u64,
     v3: u64,
-    tail: [u8, ..8], // unprocessed bytes
+    tail: u64, // unprocessed bytes le
     ntail: uint,  // how many bytes in tail are valid
 }
 
@@ -60,7 +62,17 @@ macro_rules! u8to64_le (
      $buf[4+$i] as u64 << 32 |
      $buf[5+$i] as u64 << 40 |
      $buf[6+$i] as u64 << 48 |
-     $buf[7+$i] as u64 << 56)
+     $buf[7+$i] as u64 << 56);
+    ($buf:expr, $i:expr, $len:expr) =>
+    ({
+        let mut t = 0;
+        let mut out = 0u64;
+        while t < $len {
+            out |= $buf[t+$i] as u64 << t*8;
+            t += 1;
+        }
+        out
+    });
 )
 
 macro_rules! rotl (
@@ -98,7 +110,7 @@ impl SipState {
             v1: 0,
             v2: 0,
             v3: 0,
-            tail: [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+            tail: 0,
             ntail: 0,
         };
         state.reset();
@@ -124,15 +136,7 @@ impl SipState {
         let mut v2 = self.v2;
         let mut v3 = self.v3;
 
-        let mut b : u64 = (self.length as u64 & 0xff) << 56;
-
-        if self.ntail > 0 { b |= self.tail[0] as u64 <<  0; }
-        if self.ntail > 1 { b |= self.tail[1] as u64 <<  8; }
-        if self.ntail > 2 { b |= self.tail[2] as u64 << 16; }
-        if self.ntail > 3 { b |= self.tail[3] as u64 << 24; }
-        if self.ntail > 4 { b |= self.tail[4] as u64 << 32; }
-        if self.ntail > 5 { b |= self.tail[5] as u64 << 40; }
-        if self.ntail > 6 { b |= self.tail[6] as u64 << 48; }
+        let b: u64 = ((self.length as u64 & 0xff) << 56) | self.tail;
 
         v3 ^= b;
         compress!(v0, v1, v2, v3);
@@ -147,7 +151,37 @@ impl SipState {
 
         v0 ^ v1 ^ v2 ^ v3
     }
+
+    #[inline]
+    fn write_le(&mut self, n: u64, size: uint) {
+        self.tail |= n << 8*self.ntail;
+        self.ntail += size;
+
+        if self.ntail >= 8 {
+            let m = self.tail;
+
+            self.v3 ^= m;
+            compress!(self.v0, self.v1, self.v2, self.v3);
+            compress!(self.v0, self.v1, self.v2, self.v3);
+            self.v0 ^= m;
+
+            self.ntail -= 8;
+            if self.ntail == 0 {
+                self.tail = 0;
+            } else {
+                self.tail = n >> 64 - 8*self.ntail;
+            }
+        }
+    }
 }
+
+macro_rules! make_write_le(
+    ($this:expr, $n:expr, $size:expr) => ({
+          $this.write_le($n as u64, $size);
+          $this.length += $size;
+          Ok(())
+    })
+)
 
 impl Writer for SipState {
     #[inline]
@@ -159,24 +193,13 @@ impl Writer for SipState {
 
         if self.ntail != 0 {
             needed = 8 - self.ntail;
-
             if length < needed {
-                let mut t = 0;
-                while t < length {
-                    self.tail[self.ntail+t] = msg[t];
-                    t += 1;
-                }
+                self.tail |= u8to64_le!(msg, 0, length) << 8*self.ntail;
                 self.ntail += length;
                 return Ok(());
             }
 
-            let mut t = 0;
-            while t < needed {
-                self.tail[self.ntail+t] = msg[t];
-                t += 1;
-            }
-
-            let m = u8to64_le!(self.tail, 0);
+            let m = self.tail | u8to64_le!(msg, 0, needed) << 8*self.ntail;
 
             self.v3 ^= m;
             compress!(self.v0, self.v1, self.v2, self.v3);
@@ -203,15 +226,62 @@ impl Writer for SipState {
             i += 8;
         }
 
-        let mut t = 0u;
-        while t < left {
-            self.tail[t] = msg[i+t];
-            t += 1
-        }
+        self.tail = u8to64_le!(msg, i, left);
         self.ntail = left;
 
         Ok(())
     }
+
+    #[inline]
+    fn write_u8(&mut self, n: u8) -> IoResult<()> {
+        make_write_le!(self, n, 1)
+    }
+
+    #[inline]
+    fn write_le_u16(&mut self, n: u16) -> IoResult<()> {
+        make_write_le!(self, n, 2)
+    }
+
+    #[inline]
+    fn write_le_u32(&mut self, n: u32) -> IoResult<()> {
+        make_write_le!(self, n, 4)
+    }
+
+    #[inline]
+    fn write_le_u64(&mut self, n: u64) -> IoResult<()> {
+        make_write_le!(self, n, 8)
+    }
+
+    #[inline]
+    fn write_le_uint(&mut self, n: uint) -> IoResult<()> {
+        make_write_le!(self, n, uint::BYTES)
+    }
+
+    #[inline]
+    fn write_i8(&mut self, n: i8) -> IoResult<()> {
+        make_write_le!(self, n, 1)
+    }
+
+    #[inline]
+    fn write_le_i16(&mut self, n: i16) -> IoResult<()> {
+        make_write_le!(self, n, 2)
+    }
+
+    #[inline]
+    fn write_le_i32(&mut self, n: i32) -> IoResult<()> {
+        make_write_le!(self, n, 4)
+    }
+
+    #[inline]
+    fn write_le_i64(&mut self, n: i64) -> IoResult<()> {
+        make_write_le!(self, n, 8)
+    }
+
+    #[inline]
+    fn write_le_int(&mut self, n: int) -> IoResult<()> {
+        make_write_le!(self, n, int::BYTES)
+    }
+
 }
 
 impl Clone for SipState {
@@ -284,16 +354,18 @@ pub fn hash_with_keys<T: Hash<SipState>>(k0: u64, k1: u64, value: &T) -> u64 {
     state.result()
 }
 
+
+
 #[cfg(test)]
 mod tests {
     extern crate test;
-    use io::Writer;
-    use iter::Iterator;
+    use prelude::*;
     use num::ToStrRadix;
     use option::{Some, None};
-    use str::{Str, OwnedStr};
-    use slice::{Vector, ImmutableVector, OwnedVector};
-    use self::test::BenchHarness;
+    use str::{Str,StrSlice};
+    use strbuf::StrBuf;
+    use slice::{Vector, ImmutableVector};
+    use self::test::Bencher;
 
     use super::super::Hash;
     use super::{SipState, hash, hash_with_keys};
@@ -381,17 +453,17 @@ mod tests {
 
         let k0 = 0x_07_06_05_04_03_02_01_00_u64;
         let k1 = 0x_0f_0e_0d_0c_0b_0a_09_08_u64;
-        let mut buf : ~[u8] = ~[];
+        let mut buf = Vec::new();
         let mut t = 0;
         let mut state_inc = SipState::new_with_keys(k0, k1);
         let mut state_full = SipState::new_with_keys(k0, k1);
 
         fn to_hex_str(r: &[u8, ..8]) -> ~str {
-            let mut s = ~"";
+            let mut s = StrBuf::new();
             for b in r.iter() {
                 s.push_str((*b as uint).to_str_radix(16u));
             }
-            s
+            s.into_owned()
         }
 
         fn result_bytes(h: u64) -> ~[u8] {
@@ -408,11 +480,11 @@ mod tests {
 
         fn result_str(h: u64) -> ~str {
             let r = result_bytes(h);
-            let mut s = ~"";
+            let mut s = StrBuf::new();
             for b in r.iter() {
                 s.push_str((*b as uint).to_str_radix(16u));
             }
-            s
+            s.into_owned()
         }
 
         while t < 64 {
@@ -423,7 +495,7 @@ mod tests {
             assert_eq!(vec, out);
 
             state_full.reset();
-            state_full.write(buf);
+            state_full.write(buf.as_slice());
             let f = result_str(state_full.result());
             let i = result_str(state_inc.result());
             let v = to_hex_str(&vecs[t]);
@@ -516,37 +588,66 @@ mod tests {
     }
 
     #[bench]
-    fn bench_str(bh: &mut BenchHarness) {
+    fn bench_str_under_8_bytes(b: &mut Bencher) {
         let s = "foo";
-        bh.iter(|| {
+        b.iter(|| {
             assert_eq!(hash(&s), 16262950014981195938);
         })
     }
 
-    struct Compound {
-        x: u8,
-        y: u16,
-        z: ~str,
-    }
-
-    impl<S: Writer> Hash<S> for Compound {
-        #[inline]
-        fn hash(&self, state: &mut S) {
-            self.x.hash(state);
-            self.y.hash(state);
-            self.z.hash(state);
-        }
+    #[bench]
+    fn bench_str_of_8_bytes(b: &mut Bencher) {
+        let s = "foobar78";
+        b.iter(|| {
+            assert_eq!(hash(&s), 4898293253460910787);
+        })
     }
 
     #[bench]
-    fn bench_compound_1(bh: &mut BenchHarness) {
+    fn bench_str_over_8_bytes(b: &mut Bencher) {
+        let s = "foobarbaz0";
+        b.iter(|| {
+            assert_eq!(hash(&s), 10581415515220175264);
+        })
+    }
+
+    #[bench]
+    fn bench_long_str(b: &mut Bencher) {
+        let s = "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor \
+incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud \
+exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute \
+irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla \
+pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui \
+officia deserunt mollit anim id est laborum.";
+        b.iter(|| {
+            assert_eq!(hash(&s), 17717065544121360093);
+        })
+    }
+
+    #[bench]
+    fn bench_u64(b: &mut Bencher) {
+        let u = 16262950014981195938u64;
+        b.iter(|| {
+            assert_eq!(hash(&u), 5254097107239593357);
+        })
+    }
+
+    #[deriving(Hash)]
+    struct Compound {
+        x: u8,
+        y: u64,
+        z: ~str,
+    }
+
+    #[bench]
+    fn bench_compound_1(b: &mut Bencher) {
         let compound = Compound {
             x: 1,
             y: 2,
-            z: ~"foobarbaz",
+            z: "foobarbaz".to_owned(),
         };
-        bh.iter(|| {
-            assert_eq!(hash(&compound), 3581836382593270478);
+        b.iter(|| {
+            assert_eq!(hash(&compound), 15783192367317361799);
         })
     }
 }

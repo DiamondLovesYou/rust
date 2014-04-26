@@ -177,6 +177,8 @@ StaticEnum(<ast::EnumDef of C>, ~[(<ident of C0>, <span of C0>, Unnamed(~[<span 
 
 */
 
+use std::cell::RefCell;
+
 use ast;
 use ast::{P, EnumDef, Expr, Ident, Generics, StructDef};
 use ast_util;
@@ -227,14 +229,13 @@ pub struct MethodDef<'a> {
     /// Return type
     pub ret_ty: Ty<'a>,
 
-    /// Whether to mark this as #[inline]
-    pub inline: bool,
+    pub attributes: Vec<ast::Attribute>,
 
     /// if the value of the nonmatching enums is independent of the
     /// actual enum variants, i.e. can use _ => .. match.
     pub const_nonmatching: bool,
 
-    pub combine_substructure: CombineSubstructureFunc<'a>,
+    pub combine_substructure: RefCell<CombineSubstructureFunc<'a>>,
 }
 
 /// All the data about the data structure/method being derived upon.
@@ -303,7 +304,7 @@ Combine the values of all the fields together. The last argument is
 all the fields of all the structures, see above for details.
 */
 pub type CombineSubstructureFunc<'a> =
-    'a |&mut ExtCtxt, Span, &Substructure| -> @Expr;
+    |&mut ExtCtxt, Span, &Substructure|: 'a -> @Expr;
 
 /**
 Deal with non-matching enum variants, the arguments are a list
@@ -311,11 +312,16 @@ representing each variant: (variant index, ast::Variant instance,
 [variant fields]), and a list of the nonself args of the type
 */
 pub type EnumNonMatchFunc<'a> =
-    'a |&mut ExtCtxt,
+    |&mut ExtCtxt,
            Span,
            &[(uint, P<ast::Variant>, Vec<(Span, Option<Ident>, @Expr)> )],
-           &[@Expr]|
+           &[@Expr]|: 'a
            -> @Expr;
+
+pub fn combine_substructure<'a>(f: CombineSubstructureFunc<'a>)
+    -> RefCell<CombineSubstructureFunc<'a>> {
+    RefCell::new(f)
+}
 
 
 impl<'a> TraitDef<'a> {
@@ -380,7 +386,11 @@ impl<'a> TraitDef<'a> {
             // require the current trait
             bounds.push(cx.typarambound(trait_path.clone()));
 
-            cx.typaram(ty_param.ident, OwnedSlice::from_vec(bounds), None)
+            cx.typaram(self.span,
+                       ty_param.ident,
+                       ty_param.sized,
+                       OwnedSlice::from_vec(bounds),
+                       None)
         }));
         let trait_generics = Generics {
             lifetimes: lifetimes,
@@ -505,8 +515,9 @@ impl<'a> MethodDef<'a> {
             nonself_args: nonself_args,
             fields: fields
         };
-        (self.combine_substructure)(cx, trait_.span,
-                                    &substructure)
+        let mut f = self.combine_substructure.borrow_mut();
+        let f: &mut CombineSubstructureFunc = &mut *f;
+        (*f)(cx, trait_.span, &substructure)
     }
 
     fn get_ret_ty(&self,
@@ -600,26 +611,13 @@ impl<'a> MethodDef<'a> {
         let fn_decl = cx.fn_decl(args, ret_type);
         let body_block = cx.block_expr(body);
 
-        let attrs = if self.inline {
-            vec!(
-                cx
-                      .attribute(trait_.span,
-                                 cx
-                                       .meta_word(trait_.span,
-                                                  InternedString::new(
-                                                      "inline")))
-            )
-        } else {
-            Vec::new()
-        };
-
         // Create the method.
         @ast::Method {
             ident: method_ident,
-            attrs: attrs,
+            attrs: self.attributes.clone(),
             generics: fn_generics,
             explicit_self: explicit_self,
-            purity: ast::ImpureFn,
+            fn_style: ast::NormalFn,
             decl: fn_decl,
             body: body_block,
             id: ast::DUMMY_NODE_ID,
@@ -810,26 +808,25 @@ impl<'a> MethodDef<'a> {
                                 "no self match on an enum in \
                                 generic `deriving`");
             }
+
+            // `ref` inside let matches is buggy. Causes havoc wih rusc.
+            // let (variant_index, ref self_vec) = matches_so_far[0];
+            let (variant, self_vec) = match matches_so_far.get(0) {
+                &(_, v, ref s) => (v, s)
+            };
+
             // we currently have a vec of vecs, where each
             // subvec is the fields of one of the arguments,
             // but if the variants all match, we want this as
             // vec of tuples, where each tuple represents a
             // field.
 
-            let substructure;
-
             // most arms don't have matching variants, so do a
             // quick check to see if they match (even though
             // this means iterating twice) instead of being
             // optimistic and doing a pile of allocations etc.
-            match matching {
+            let substructure = match matching {
                 Some(variant_index) => {
-                    // `ref` inside let matches is buggy. Causes havoc wih rusc.
-                    // let (variant_index, ref self_vec) = matches_so_far[0];
-                    let (variant, self_vec) = match matches_so_far.get(0) {
-                        &(_, v, ref s) => (v, s)
-                    };
-
                     let mut enum_matching_fields = Vec::from_elem(self_vec.len(), Vec::new());
 
                     for triple in matches_so_far.tail().iter() {
@@ -852,19 +849,19 @@ impl<'a> MethodDef<'a> {
                             other: (*other).clone()
                         }
                     }).collect();
-                    substructure = EnumMatching(variant_index, variant, field_tuples);
+                    EnumMatching(variant_index, variant, field_tuples)
                 }
                 None => {
-                    substructure = EnumNonMatching(matches_so_far.as_slice());
+                    EnumNonMatching(matches_so_far.as_slice())
                 }
-            }
+            };
             self.call_substructure_method(cx, trait_, type_ident,
                                           self_args, nonself_args,
                                           &substructure)
 
         } else {  // there are still matches to create
             let current_match_str = if match_count == 0 {
-                ~"__self"
+                "__self".to_owned()
             } else {
                 format!("__arg_{}", match_count)
             };

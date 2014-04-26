@@ -153,12 +153,7 @@ impl<'a> fold::Folder for TestHarnessGenerator<'a> {
 
 fn generate_test_harness(sess: &Session, krate: ast::Crate)
                          -> ast::Crate {
-    let loader = &mut Loader::new(sess,
-                                  sess.targ_cfg
-                                      .target_strs
-                                      .target_triple
-                                      .clone(),
-                                  sess.filesearch());
+    let loader = &mut Loader::new(sess);
     let mut cx: TestCtxt = TestCtxt {
         sess: sess,
         ext_cx: ExtCtxt::new(&sess.parse_sess, sess.opts.cfg.clone(),
@@ -176,7 +171,7 @@ fn generate_test_harness(sess: &Session, krate: ast::Crate)
     cx.ext_cx.bt_push(ExpnInfo {
         call_site: DUMMY_SP,
         callee: NameAndSpan {
-            name: ~"test",
+            name: "test".to_owned(),
             format: MacroAttribute,
             span: None
         }
@@ -252,7 +247,7 @@ fn is_bench_fn(cx: &TestCtxt, i: @ast::Item) -> bool {
     if has_bench_attr && !has_test_signature(i) {
         let sess = cx.sess;
         sess.span_err(i.span, "functions used as benches must have signature \
-                      `fn(&mut BenchHarness) -> ()`");
+                      `fn(&mut Bencher) -> ()`");
     }
 
     return has_bench_attr && has_test_signature(i);
@@ -302,20 +297,22 @@ mod __test {
 
 fn mk_std(cx: &TestCtxt) -> ast::ViewItem {
     let id_test = token::str_to_ident("test");
-    let vi = if cx.is_test_crate {
-        ast::ViewItemUse(
+    let (vi, vis) = if cx.is_test_crate {
+        (ast::ViewItemUse(
             vec!(@nospan(ast::ViewPathSimple(id_test,
                                              path_node(vec!(id_test)),
-                                             ast::DUMMY_NODE_ID))))
+                                             ast::DUMMY_NODE_ID)))),
+         ast::Public)
     } else {
-        ast::ViewItemExternCrate(id_test,
+        (ast::ViewItemExternCrate(id_test,
                                with_version("test"),
-                               ast::DUMMY_NODE_ID)
+                               ast::DUMMY_NODE_ID),
+         ast::Inherited)
     };
     ast::ViewItem {
         node: vi,
         attrs: Vec::new(),
-        vis: ast::Inherited,
+        vis: vis,
         span: DUMMY_SP
     }
 }

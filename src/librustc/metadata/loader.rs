@@ -17,11 +17,9 @@ use lib::llvm::{False, llvm, ObjectFile, mk_section_iter};
 use metadata::cstore::{MetadataBlob, MetadataVec, MetadataArchive};
 use metadata::decoder;
 use metadata::encoder;
-use metadata::filesearch;
-use metadata::filesearch::{FileMatches, FileDoesntMatch};
+use metadata::filesearch::{FileSearch, FileMatches, FileDoesntMatch};
 use syntax::codemap::Span;
 use syntax::diagnostic::SpanHandler;
-use syntax::parse::token::IdentInterner;
 use syntax::crateid::CrateId;
 use syntax::attr::AttrMetaMethods;
 
@@ -29,15 +27,31 @@ use std::c_str::ToCStr;
 use std::cast;
 use std::cmp;
 use std::io;
-use std::os::consts::{macos, freebsd, linux, android, win32};
 use std::ptr;
-use std::rc::Rc;
 use std::slice;
 use std::str;
 
 use collections::{HashMap, HashSet};
 use flate;
 use time;
+
+pub static MACOS_DLL_PREFIX: &'static str = "lib";
+pub static MACOS_DLL_SUFFIX: &'static str = ".dylib";
+
+pub static WIN32_DLL_PREFIX: &'static str = "";
+pub static WIN32_DLL_SUFFIX: &'static str = ".dll";
+
+pub static LINUX_DLL_PREFIX: &'static str = "lib";
+pub static LINUX_DLL_SUFFIX: &'static str = ".so";
+
+pub static FREEBSD_DLL_PREFIX: &'static str = "lib";
+pub static FREEBSD_DLL_SUFFIX: &'static str = ".so";
+
+pub static ANDROID_DLL_PREFIX: &'static str = "lib";
+pub static ANDROID_DLL_SUFFIX: &'static str = ".so";
+
+pub static NACL_DLL_PREFIX: &'static str = "lib";
+pub static NACL_DLL_SUFFIX: &'static str = ".so";
 
 pub enum Os {
     OsMacos,
@@ -48,8 +62,9 @@ pub enum Os {
     OsNaCl,
 }
 
-pub struct HashMismatch {
+pub struct CrateMismatch {
     path: Path,
+    got: ~str,
 }
 
 pub struct Context<'a> {
@@ -59,10 +74,12 @@ pub struct Context<'a> {
     pub crate_id: &'a CrateId,
     pub id_hash: &'a str,
     pub hash: Option<&'a Svh>,
+    pub triple: &'a str,
     pub os: Os,
-    pub triple: ~str,
-    pub intr: Rc<IdentInterner>,
-    pub rejected_via_hash: Vec<HashMismatch>
+    pub filesearch: FileSearch<'a>,
+    pub root: &'a Option<CratePaths>,
+    pub rejected_via_hash: Vec<CrateMismatch>,
+    pub rejected_via_triple: Vec<CrateMismatch>,
 }
 
 pub struct Library {
@@ -107,54 +124,69 @@ fn realpath(p: &Path) -> Path {
 }
 
 impl<'a> Context<'a> {
-    pub fn load_library_crate<'a>(&mut self,
-                                  root: &Option<CratePaths>,
-                                  filesearch: &filesearch::FileSearch<'a>) -> Library {
-        match self.find_library_crate(filesearch) {
+    pub fn maybe_load_library_crate(&mut self) -> Option<Library> {
+        self.find_library_crate()
+    }
+
+    pub fn load_library_crate(&mut self) -> Library {
+        match self.find_library_crate() {
             Some(t) => t,
             None => {
-                self.sess.abort_if_errors();
-                let message = if self.rejected_via_hash.len() > 0 {
-                    format!("found possibly newer version of crate `{}`",
-                            self.ident)
-                } else {
-                    format!("can't find crate for `{}`", self.ident)
-                };
-                let message = match root {
-                    &None => message,
-                    &Some(ref r) => format!("{} which `{}` depends on",
-                                            message, r.ident)
-                };
-                self.sess.span_err(self.span, message);
-
-                if self.rejected_via_hash.len() > 0 {
-                    self.sess.span_note(self.span, "perhaps this crate needs \
-                                                    to be recompiled?");
-                    let mismatches = self.rejected_via_hash.iter();
-                    for (i, &HashMismatch{ ref path }) in mismatches.enumerate() {
-                        self.sess.fileline_note(self.span,
-                            format!("crate `{}` path \\#{}: {}",
-                                    self.ident, i+1, path.display()));
-                    }
-                    match root {
-                        &None => {}
-                        &Some(ref r) => {
-                            for (i, path) in r.paths().iter().enumerate() {
-                                self.sess.fileline_note(self.span,
-                                    format!("crate `{}` path \\#{}: {}",
-                                            r.ident, i+1, path.display()));
-                            }
-                        }
-                    }
-                }
-                self.sess.abort_if_errors();
+                self.report_load_errs();
                 unreachable!()
             }
         }
     }
 
-    fn find_library_crate<'a>(&mut self,
-                              filesearch: &filesearch::FileSearch<'a>) -> Option<Library> {
+pub fn report_load_errs(&mut self) {
+        let message = if self.rejected_via_hash.len() > 0 {
+            format!("found possibly newer version of crate `{}`",
+                    self.ident)
+        } else if self.rejected_via_triple.len() > 0 {
+            format!("found incorrect triple for crate `{}`", self.ident)
+        } else {
+            format!("can't find crate for `{}`", self.ident)
+        };
+        let message = match self.root {
+            &None => message,
+            &Some(ref r) => format!("{} which `{}` depends on",
+                                    message, r.ident)
+        };
+        self.sess.span_err(self.span, message);
+
+        let mismatches = self.rejected_via_triple.iter();
+        if self.rejected_via_triple.len() > 0 {
+            self.sess.span_note(self.span, format!("expected triple of {}", self.triple));
+            for (i, &CrateMismatch{ ref path, ref got }) in mismatches.enumerate() {
+                self.sess.fileline_note(self.span,
+                    format!("crate `{}` path \\#{}, triple {}: {}",
+                            self.ident, i+1, got, path.display()));
+            }
+        }
+        if self.rejected_via_hash.len() > 0 {
+            self.sess.span_note(self.span, "perhaps this crate needs \
+                                            to be recompiled?");
+            let mismatches = self.rejected_via_hash.iter();
+            for (i, &CrateMismatch{ ref path, .. }) in mismatches.enumerate() {
+                self.sess.fileline_note(self.span,
+                    format!("crate `{}` path \\#{}: {}",
+                            self.ident, i+1, path.display()));
+            }
+            match self.root {
+                &None => {}
+                &Some(ref r) => {
+                    for (i, path) in r.paths().iter().enumerate() {
+                        self.sess.fileline_note(self.span,
+                            format!("crate `{}` path \\#{}: {}",
+                                    r.ident, i+1, path.display()));
+                    }
+                }
+            }
+        }
+        self.sess.abort_if_errors();
+    }
+
+fn find_library_crate(&mut self) -> Option<Library> {
         let (dyprefix, dysuffix) = self.dylibname();
 
         // want: crate_name.dir_part() + prefix + crate_name.file_part + "-"
@@ -176,11 +208,12 @@ impl<'a> Context<'a> {
         // of the crate id (path/name/id).
         //
         // The goal of this step is to look at as little metadata as possible.
-        filesearch.search(|path| {
+        self.filesearch.search(|path| {
             let file = match path.filename_str() {
                 None => return FileDoesntMatch,
                 Some(file) => file,
             };
+            info!("file: {}", file);
             if file.starts_with(rlib_prefix) && file.ends_with(".rlib") {
                 info!("rlib candidate: {}", path.display());
                 match self.try_match(file, rlib_prefix, ".rlib") {
@@ -227,7 +260,7 @@ impl<'a> Context<'a> {
         //
         // A Library candidate is created if the metadata for the set of
         // libraries corresponds to the crate id and hash criteria that this
-        // serach is being performed for.
+        // search is being performed for.
         let mut libraries = Vec::new();
         for (_hash, (rlibs, dylibs)) in candidates.move_iter() {
             let mut metadata = None;
@@ -283,12 +316,12 @@ impl<'a> Context<'a> {
     // rlib/dylib).
     //
     // The return value is `None` if `file` doesn't look like a rust-generated
-    // library, or if a specific version was requested and it doens't match the
+    // library, or if a specific version was requested and it doesn't match the
     // apparent file's version.
     //
     // If everything checks out, then `Some(hash)` is returned where `hash` is
     // the listed hash in the filename itself.
-    fn try_match(&self, file: &str, prefix: &str, suffix: &str) -> Option<~str>{
+fn try_match(&self, file: &str, prefix: &str, suffix: &str) -> Option<~str>{
         let middle = file.slice(prefix.len(), file.len() - suffix.len());
         debug!("matching -- {}, middle: {}", file, middle);
         let mut parts = middle.splitn('-', 1);
@@ -322,14 +355,22 @@ impl<'a> Context<'a> {
     // read the metadata from it if `*slot` is `None`. If the metadata couldn't
     // be read, it is assumed that the file isn't a valid rust library (no
     // errors are emitted).
-    //
-    // FIXME(#10786): for an optimization, we only read one of the library's
-    //                metadata sections. In theory we should read both, but
-    //                reading dylib metadata is quite slow.
-    fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
+fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
                    slot: &mut Option<MetadataBlob>) -> Option<Path> {
         let mut ret = None::<Path>;
         let mut error = 0;
+
+        if slot.is_some() {
+            // FIXME(#10786): for an optimization, we only read one of the
+            //                library's metadata sections. In theory we should
+            //                read both, but reading dylib metadata is quite
+            //                slow.
+            if m.len() == 0 {
+                return None
+            } else if m.len() == 1 {
+                return Some(m.move_iter().next().unwrap())
+            }
+        }
 
         for lib in m.move_iter() {
             info!("{} reading metadata from: {}", flavor, lib.display());
@@ -373,32 +414,30 @@ impl<'a> Context<'a> {
     fn crate_matches(&mut self, crate_data: &[u8], libpath: &Path) -> bool {
         match decoder::maybe_get_crate_id(crate_data) {
             Some(ref id) if self.crate_id.matches(id) => {}
-            _ => return false
-        }
-        match decoder::maybe_get_crate_triple(crate_data) {
-            Some(ref triple) if self.triple == *triple => {}
-            Some(ref triple) => {
-                info!("{} (crate triple) != {} (current triple)",
-                      triple,
-                      self.triple);
-                return false;
-            },
-
-            // We could be loading a crate that wasn't built with target
-            // triple metadata. In that case, just act like we found matching
-            // triples for the crate.
-            None => {
-                info!("crate target triple absent");
-            }
+            _ => { info!("Rejecting via crate_id"); return false }
         }
         let hash = match decoder::maybe_get_crate_hash(crate_data) {
-            Some(hash) => hash, None => return false
+            Some(hash) => hash, None => {
+                info!("Rejecting via lack of crate hash");
+                return false;
+            }
         };
+
+        let triple = decoder::get_crate_triple(crate_data);
+        if triple.as_slice() != self.triple {
+            info!("Rejecting via crate triple: expected {} got {}", self.triple, triple);
+            self.rejected_via_triple.push(CrateMismatch{ path: libpath.clone(),
+                                                         got: triple.to_owned() });
+            return false;
+        }
+
         match self.hash {
             None => true,
             Some(myhash) => {
                 if *myhash != hash {
-                    self.rejected_via_hash.push(HashMismatch{ path: libpath.clone() });
+                    info!("Rejecting via hash: expected {} got {}", *myhash, hash);
+                    self.rejected_via_hash.push(CrateMismatch{ path: libpath.clone(),
+                                                               got: myhash.as_str().to_owned() });
                     false
                 } else {
                     true
@@ -407,18 +446,20 @@ impl<'a> Context<'a> {
         }
     }
 
+
     // Returns the corresponding (prefix, suffix) that files need to have for
     // dynamic libraries
     fn dylibname(&self) -> (&'static str, &'static str) {
         match self.os {
-            OsWin32 => (win32::DLL_PREFIX, win32::DLL_SUFFIX),
-            OsMacos => (macos::DLL_PREFIX, macos::DLL_SUFFIX),
-            OsLinux => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
-            OsAndroid => (android::DLL_PREFIX, android::DLL_SUFFIX),
-            OsFreebsd => (freebsd::DLL_PREFIX, freebsd::DLL_SUFFIX),
-            OsNaCl => (linux::DLL_PREFIX, linux::DLL_SUFFIX),
+            OsWin32 => (WIN32_DLL_PREFIX, WIN32_DLL_SUFFIX),
+            OsMacos => (MACOS_DLL_PREFIX, MACOS_DLL_SUFFIX),
+            OsLinux => (LINUX_DLL_PREFIX, LINUX_DLL_SUFFIX),
+            OsAndroid => (ANDROID_DLL_PREFIX, ANDROID_DLL_SUFFIX),
+            OsFreebsd => (FREEBSD_DLL_PREFIX, FREEBSD_DLL_SUFFIX),
+            OsNaCl => (NACL_DLL_PREFIX, NACL_DLL_SUFFIX),
         }
     }
+
 }
 
 pub fn note_crateid_attr(diag: &SpanHandler, crateid: &CrateId) {
@@ -516,14 +557,17 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, ~st
                 let version_ok = slice::raw::buf_as_slice(cvbuf, minsz,
                     |buf0| buf0 == encoder::metadata_encoding_version);
                 if !version_ok { return Err(format!("incompatible metadata version found: '{}'",
-                                                    filename.display()));}
+                                                    filename.display())); }
 
                 let cvbuf1 = cvbuf.offset(vlen as int);
                 debug!("inflating {} bytes of compressed metadata",
                        csz - vlen);
                 slice::raw::buf_as_slice(cvbuf1, csz-vlen, |bytes| {
-                    let inflated = flate::inflate_bytes(bytes);
-                    found = Ok(MetadataVec(inflated));
+                    match flate::inflate_bytes(bytes) {
+                        Some(inflated) => found = Ok(MetadataVec(inflated)),
+                        None => found = Err(format!("failed to decompress metadata for: '{}'",
+                                                    filename.display()))
+                    }
                 });
                 if found.is_ok() {
                     return found;

@@ -53,6 +53,7 @@ use std::i16;
 use std::i32;
 use std::i64;
 use std::i8;
+use std::rc::Rc;
 use std::to_str::ToStr;
 use std::u16;
 use std::u32;
@@ -423,23 +424,16 @@ static lint_table: &'static [(&'static str, LintSpec)] = &[
   '-' to '_' in command-line flags
  */
 pub fn get_lint_dict() -> LintDict {
-    let mut map = HashMap::new();
-    for &(k, v) in lint_table.iter() {
-        map.insert(k, v);
-    }
-    return map;
+    lint_table.iter().map(|&(k, v)| (k, v)).collect()
 }
 
 struct Context<'a> {
     // All known lint modes (string versions)
-    dict: @LintDict,
+    dict: LintDict,
     // Current levels of each lint warning
     cur: SmallIntMap<(level, LintSource)>,
     // context we're checking in (used to access fields like sess)
     tcx: &'a ty::ctxt,
-    // maps from an expression id that corresponds to a method call to the
-    // details of the method to be invoked
-    method_map: typeck::MethodMap,
     // Items exported by the crate; used by the missing_doc lint.
     exported_items: &'a privacy::ExportedItems,
     // The id of the current `ast::StructDef` being walked.
@@ -685,7 +679,7 @@ impl<'a> AstConv for Context<'a>{
         ty::lookup_item_type(self.tcx, id)
     }
 
-    fn get_trait_def(&self, id: ast::DefId) -> @ty::TraitDef {
+    fn get_trait_def(&self, id: ast::DefId) -> Rc<ty::TraitDef> {
         ty::lookup_trait_def(self.tcx, id)
     }
 
@@ -917,12 +911,9 @@ fn check_heap_type(cx: &Context, span: Span, ty: ty::t) {
                 ty::ty_box(_) => {
                     n_box += 1;
                 }
-                ty::ty_uniq(_) | ty::ty_str(ty::vstore_uniq) |
-                ty::ty_vec(_, ty::vstore_uniq) |
-                ty::ty_trait(~ty::TyTrait { store: ty::UniqTraitStore, .. }) => {
-                    n_uniq += 1;
-                }
-                ty::ty_closure(ref c) if c.sigil == ast::OwnedSigil => {
+                ty::ty_uniq(_) | ty::ty_str(ty::VstoreUniq) |
+                ty::ty_trait(~ty::TyTrait { store: ty::UniqTraitStore, .. }) |
+                ty::ty_closure(~ty::ClosureTy { store: ty::UniqTraitStore, .. }) => {
                     n_uniq += 1;
                 }
 
@@ -1063,7 +1054,7 @@ fn check_attrs_usage(cx: &Context, attrs: &[ast::Attribute]) {
             if name.equiv(crate_attr) {
                 let msg = match attr.node.style {
                     ast::AttrOuter => "crate-level attribute should be an inner attribute: \
-                                       add semicolon at end",
+                                       add an exclamation mark: #![foo]",
                     ast::AttrInner => "crate-level attribute should be in the root module",
                 };
                 cx.span_lint(AttributeUsage, attr.span, msg);
@@ -1158,10 +1149,13 @@ fn check_unused_result(cx: &Context, s: &ast::Stmt) {
 fn check_deprecated_owned_vector(cx: &Context, e: &ast::Expr) {
     let t = ty::expr_ty(cx.tcx, e);
     match ty::get(t).sty {
-        ty::ty_vec(_, ty::vstore_uniq) => {
-            cx.span_lint(DeprecatedOwnedVector, e.span,
-                         "use of deprecated `~[]` vector; replaced by `std::vec::Vec`")
-        }
+        ty::ty_uniq(t) => match ty::get(t).sty {
+            ty::ty_vec(_, None) => {
+                cx.span_lint(DeprecatedOwnedVector, e.span,
+                             "use of deprecated `~[]` vector; replaced by `std::vec::Vec`")
+            }
+            _ => {}
+        },
         _ => {}
     }
 }
@@ -1170,7 +1164,7 @@ fn check_item_non_camel_case_types(cx: &Context, it: &ast::Item) {
     fn is_camel_case(ident: ast::Ident) -> bool {
         let ident = token::get_ident(ident);
         assert!(!ident.get().is_empty());
-        let ident = ident.get().trim_chars(&'_');
+        let ident = ident.get().trim_chars('_');
 
         // start with a non-lowercase letter rather than non-uppercase
         // ones (some scripts don't have a concept of upper/lowercase)
@@ -1340,7 +1334,7 @@ fn check_unsafe_block(cx: &Context, e: &ast::Expr) {
 fn check_unused_mut_pat(cx: &Context, p: &ast::Pat) {
     match p.node {
         ast::PatIdent(ast::BindByValue(ast::MutMutable),
-                      ref path, _) if pat_util::pat_is_binding(cx.tcx.def_map, p)=> {
+                      ref path, _) if pat_util::pat_is_binding(&cx.tcx.def_map, p) => {
             // `let mut _a = 1;` doesn't need a warning.
             let initial_underscore = if path.segments.len() == 1 {
                 token::get_ident(path.segments
@@ -1390,7 +1384,7 @@ fn check_unnecessary_allocation(cx: &Context, e: &ast::Expr) {
         cx.span_lint(UnnecessaryAllocation, e.span, msg);
     };
 
-    match cx.tcx.adjustments.borrow().find_copy(&e.id) {
+    match cx.tcx.adjustments.borrow().find(&e.id) {
         Some(adjustment) => {
             match *adjustment {
                 ty::AutoDerefRef(ty::AutoDerefRef { autoref, .. }) => {
@@ -1472,7 +1466,7 @@ fn check_missing_doc_method(cx: &Context, m: &ast::Method) {
         node: m.id
     };
 
-    match cx.tcx.methods.borrow().find(&did).map(|method| *method) {
+    match cx.tcx.methods.borrow().find_copy(&did) {
         None => cx.tcx.sess.span_bug(m.span, "missing method descriptor?!"),
         Some(md) => {
             match md.container {
@@ -1537,7 +1531,7 @@ fn check_stability(cx: &Context, e: &ast::Expr) {
         }
         ast::ExprMethodCall(..) => {
             let method_call = typeck::MethodCall::expr(e.id);
-            match cx.method_map.borrow().find(&method_call) {
+            match cx.tcx.method_map.borrow().find(&method_call) {
                 Some(method) => {
                     match method.origin {
                         typeck::MethodStatic(def_id) => {
@@ -1644,6 +1638,9 @@ impl<'a> Visitor<()> for Context<'a> {
     fn visit_view_item(&mut self, i: &ast::ViewItem, _: ()) {
         self.with_lint_attrs(i.attrs.as_slice(), |cx| {
             check_attrs_usage(cx, i.attrs.as_slice());
+
+            cx.visit_ids(|v| v.visit_view_item(i, ()));
+
             visit::walk_view_item(cx, i, ());
         })
     }
@@ -1775,14 +1772,12 @@ impl<'a> IdVisitingOperation for Context<'a> {
 }
 
 pub fn check_crate(tcx: &ty::ctxt,
-                   method_map: typeck::MethodMap,
                    exported_items: &privacy::ExportedItems,
                    krate: &ast::Crate) {
     let mut cx = Context {
-        dict: @get_lint_dict(),
+        dict: get_lint_dict(),
         cur: SmallIntMap::new(),
         tcx: tcx,
-        method_map: method_map,
         exported_items: exported_items,
         cur_struct_def_id: -1,
         is_doc_hidden: false,
@@ -1793,7 +1788,9 @@ pub fn check_crate(tcx: &ty::ctxt,
     // Install default lint levels, followed by the command line levels, and
     // then actually visit the whole crate.
     for (_, spec) in cx.dict.iter() {
-        cx.set_level(spec.lint, spec.default, Default);
+        if spec.default != allow {
+            cx.cur.insert(spec.lint as uint, (spec.default, Default));
+        }
     }
     for &(lint, level) in tcx.sess.opts.lint_opts.iter() {
         cx.set_level(lint, level, CommandLine);

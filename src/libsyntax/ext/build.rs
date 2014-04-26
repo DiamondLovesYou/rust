@@ -12,7 +12,7 @@ use abi;
 use ast::{P, Ident};
 use ast;
 use ast_util;
-use codemap::{Span, respan, DUMMY_SP};
+use codemap::{Span, respan, Spanned, DUMMY_SP};
 use ext::base::ExtCtxt;
 use ext::quote::rt::*;
 use fold::Folder;
@@ -66,7 +66,9 @@ pub trait AstBuilder {
     fn strip_bounds(&self, bounds: &Generics) -> Generics;
 
     fn typaram(&self,
+               span: Span,
                id: ast::Ident,
+               sized: ast::Sized,
                bounds: OwnedSlice<ast::TyParamBound>,
                default: Option<P<ast::Ty>>) -> ast::TyParam;
 
@@ -368,14 +370,18 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
     }
 
     fn typaram(&self,
+               span: Span,
                id: ast::Ident,
+               sized: ast::Sized,
                bounds: OwnedSlice<ast::TyParamBound>,
                default: Option<P<ast::Ty>>) -> ast::TyParam {
         ast::TyParam {
             ident: id,
             id: ast::DUMMY_NODE_ID,
+            sized: sized,
             bounds: bounds,
-            default: default
+            default: default,
+            span: span
         }
     }
 
@@ -542,8 +548,9 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
                         expr: @ast::Expr,
                         ident: ast::Ident,
                         mut args: Vec<@ast::Expr> ) -> @ast::Expr {
+        let id = Spanned { node: ident, span: span };
         args.unshift(expr);
-        self.expr(span, ast::ExprMethodCall(ident, Vec::new(), args))
+        self.expr(span, ast::ExprMethodCall(id, Vec::new(), args))
     }
     fn expr_block(&self, b: P<ast::Block>) -> @ast::Expr {
         self.expr(b.span, ast::ExprBlock(b))
@@ -720,6 +727,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn arm(&self, _span: Span, pats: Vec<@ast::Pat> , expr: @ast::Expr) -> ast::Arm {
         ast::Arm {
+            attrs: vec!(),
             pats: pats,
             guard: None,
             body: expr
@@ -825,7 +833,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
                   name,
                   Vec::new(),
                   ast::ItemFn(self.fn_decl(inputs, output),
-                              ast::ImpureFn,
+                              ast::NormalFn,
                               abi::Rust,
                               generics,
                               body))

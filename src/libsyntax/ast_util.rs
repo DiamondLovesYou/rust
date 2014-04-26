@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -21,6 +21,7 @@ use visit;
 
 use std::cell::Cell;
 use std::cmp;
+use std::strbuf::StrBuf;
 use std::u32;
 
 pub fn path_name_i(idents: &[Ident]) -> ~str {
@@ -131,13 +132,21 @@ pub fn is_path(e: @Expr) -> bool {
     return match e.node { ExprPath(_) => true, _ => false };
 }
 
-pub fn int_ty_to_str(t: IntTy) -> ~str {
-    match t {
-        TyI => ~"",
-        TyI8 => ~"i8",
-        TyI16 => ~"i16",
-        TyI32 => ~"i32",
-        TyI64 => ~"i64"
+// Get a string representation of a signed int type, with its value.
+// We want to avoid "45int" and "-3int" in favor of "45" and "-3"
+pub fn int_ty_to_str(t: IntTy, val: Option<i64>) -> ~str {
+    let s = match t {
+        TyI if val.is_some() => "",
+        TyI => "int",
+        TyI8 => "i8",
+        TyI16 => "i16",
+        TyI32 => "i32",
+        TyI64 => "i64"
+    };
+
+    match val {
+        Some(n) => format!("{}{}", n, s),
+        None => s.to_owned()
     }
 }
 
@@ -150,13 +159,21 @@ pub fn int_ty_max(t: IntTy) -> u64 {
     }
 }
 
-pub fn uint_ty_to_str(t: UintTy) -> ~str {
-    match t {
-        TyU => ~"u",
-        TyU8 => ~"u8",
-        TyU16 => ~"u16",
-        TyU32 => ~"u32",
-        TyU64 => ~"u64"
+// Get a string representation of an unsigned int type, with its value.
+// We want to avoid "42uint" in favor of "42u"
+pub fn uint_ty_to_str(t: UintTy, val: Option<u64>) -> ~str {
+    let s = match t {
+        TyU if val.is_some() => "u",
+        TyU => "uint",
+        TyU8 => "u8",
+        TyU16 => "u16",
+        TyU32 => "u32",
+        TyU64 => "u64"
+    };
+
+    match val {
+        Some(n) => format!("{}{}", n, s),
+        None => s.to_owned()
     }
 }
 
@@ -170,7 +187,7 @@ pub fn uint_ty_max(t: UintTy) -> u64 {
 }
 
 pub fn float_ty_to_str(t: FloatTy) -> ~str {
-    match t { TyF32 => ~"f32", TyF64 => ~"f64" }
+    match t { TyF32 => "f32".to_owned(), TyF64 => "f64".to_owned(), TyF128 => "f128".to_owned() }
 }
 
 pub fn is_call_expr(e: @Expr) -> bool {
@@ -235,7 +252,7 @@ pub fn unguarded_pat(a: &Arm) -> Option<Vec<@Pat> > {
 /// listed as `__extensions__::method_name::hash`, with no indication
 /// of the type).
 pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: &Ty) -> Ident {
-    let mut pretty = pprust::ty_to_str(ty);
+    let mut pretty = StrBuf::from_owned_str(pprust::ty_to_str(ty));
     match *trait_ref {
         Some(ref trait_ref) => {
             pretty.push_char('.');
@@ -243,7 +260,7 @@ pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: &Ty) -> Ident {
         }
         None => {}
     }
-    token::gensym_ident(pretty)
+    token::gensym_ident(pretty.as_slice())
 }
 
 pub fn public_methods(ms: Vec<@Method> ) -> Vec<@Method> {
@@ -264,7 +281,7 @@ pub fn trait_method_to_ty_method(method: &TraitMethod) -> TypeMethod {
             TypeMethod {
                 ident: m.ident,
                 attrs: m.attrs.clone(),
-                purity: m.purity,
+                fn_style: m.fn_style,
                 decl: m.decl,
                 generics: m.generics.clone(),
                 explicit_self: m.explicit_self,
@@ -379,6 +396,13 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
     }
 
     fn visit_view_item(&mut self, view_item: &ViewItem, env: ()) {
+        if !self.pass_through_items {
+            if self.visited_outermost {
+                return;
+            } else {
+                self.visited_outermost = true;
+            }
+        }
         match view_item.node {
             ViewItemExternCrate(_, _, node_id) => {
                 self.operation.visit_id(node_id)
@@ -400,7 +424,8 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
                 }
             }
         }
-        visit::walk_view_item(self, view_item, env)
+        visit::walk_view_item(self, view_item, env);
+        self.visited_outermost = false;
     }
 
     fn visit_foreign_item(&mut self, foreign_item: &ForeignItem, env: ()) {
@@ -613,7 +638,7 @@ pub trait EachViewItem {
 }
 
 struct EachViewItemData<'a> {
-    callback: 'a |&ast::ViewItem| -> bool,
+    callback: |&ast::ViewItem|: 'a -> bool,
 }
 
 impl<'a> Visitor<()> for EachViewItemData<'a> {

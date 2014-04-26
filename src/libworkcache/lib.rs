@@ -17,6 +17,7 @@
        html_root_url = "http://static.rust-lang.org/doc/master")]
 #![feature(phase)]
 #![allow(visible_private_types)]
+#![deny(deprecated_owned_vector)]
 
 #[phase(syntax, link)] extern crate log;
 extern crate serialize;
@@ -319,8 +320,8 @@ impl Exec {
     }
 
     // returns pairs of (kind, name)
-    pub fn lookup_discovered_inputs(&self) -> ~[(~str, ~str)] {
-        let mut rs = ~[];
+    pub fn lookup_discovered_inputs(&self) -> Vec<(~str, ~str)> {
+        let mut rs = vec![];
         let WorkMap(ref discovered_inputs) = self.discovered_inputs;
         for (k, v) in discovered_inputs.iter() {
             let KindMap(ref vmap) = *v;
@@ -341,8 +342,8 @@ impl<'a> Prep<'a> {
         }
     }
 
-    pub fn lookup_declared_inputs(&self) -> ~[~str] {
-        let mut rs = ~[];
+    pub fn lookup_declared_inputs(&self) -> Vec<~str> {
+        let mut rs = vec![];
         let WorkMap(ref declared_inputs) = self.declared_inputs;
         for (_, v) in declared_inputs.iter() {
             let KindMap(ref vmap) = *v;
@@ -394,14 +395,14 @@ impl<'a> Prep<'a> {
     pub fn exec<'a, T:Send +
         Encodable<json::Encoder<'a>, io::IoError> +
         Decodable<json::Decoder, json::Error>>(
-            &'a self, blk: proc:Send(&mut Exec) -> T) -> T {
+            &'a self, blk: proc(&mut Exec):Send -> T) -> T {
         self.exec_work(blk).unwrap()
     }
 
     fn exec_work<'a, T:Send +
         Encodable<json::Encoder<'a>, io::IoError> +
         Decodable<json::Decoder, json::Error>>( // FIXME(#5121)
-            &'a self, blk: proc:Send(&mut Exec) -> T) -> Work<'a, T> {
+            &'a self, blk: proc(&mut Exec):Send -> T) -> Work<'a, T> {
         let mut bo = Some(blk);
 
         debug!("exec_work: looking up {} and {:?}", self.fn_name,
@@ -491,10 +492,10 @@ fn test() {
         return pth;
     }
 
-    let pth = make_path(~"foo.c");
+    let pth = make_path("foo.c".to_owned());
     File::create(&pth).write(bytes!("int main() { return 0; }")).unwrap();
 
-    let db_path = make_path(~"db.json");
+    let db_path = make_path("db.json".to_owned());
 
     let cx = Context::new(Arc::new(RWLock::new(Database::new(db_path))),
                           Arc::new(TreeMap::new()));
@@ -510,10 +511,11 @@ fn test() {
         // FIXME (#9639): This needs to handle non-utf8 paths
         prep.declare_input("file", pth.as_str().unwrap(), file_content);
         prep.exec(proc(_exe) {
-            let out = make_path(~"foo.o");
+            let out = make_path("foo.o".to_owned());
+            let compiler = if cfg!(windows) {"gcc"} else {"cc"};
             // FIXME (#9639): This needs to handle non-utf8 paths
-            Process::status("gcc", [pth.as_str().unwrap().to_owned(),
-                                    ~"-o",
+            Process::status(compiler, [pth.as_str().unwrap().to_owned(),
+                                    "-o".to_owned(),
                                     out.as_str().unwrap().to_owned()]).unwrap();
 
             let _proof_of_concept = subcx.prep("subfn");

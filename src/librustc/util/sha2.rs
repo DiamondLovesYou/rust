@@ -20,23 +20,21 @@ use serialize::hex::ToHex;
 /// Write a u32 into a vector, which must be 4 bytes long. The value is written in big-endian
 /// format.
 fn write_u32_be(dst: &mut[u8], input: u32) {
-    use std::cast::transmute;
     use std::mem::to_be32;
     assert!(dst.len() == 4);
     unsafe {
-        let x: *mut i32 = transmute(dst.unsafe_mut_ref(0));
-        *x = to_be32(input as i32);
+        let x = dst.unsafe_mut_ref(0) as *mut _ as *mut u32;
+        *x = to_be32(input);
     }
 }
 
 /// Read a vector of bytes into a vector of u32s. The values are read in big-endian format.
 fn read_u32v_be(dst: &mut[u32], input: &[u8]) {
-    use std::cast::transmute;
     use std::mem::to_be32;
     assert!(dst.len() * 4 == input.len());
     unsafe {
-        let mut x: *mut i32 = transmute(dst.unsafe_mut_ref(0));
-        let mut y: *i32 = transmute(input.unsafe_ref(0));
+        let mut x = dst.unsafe_mut_ref(0) as *mut _ as *mut u32;
+        let mut y = input.unsafe_ref(0) as *_ as *u32;
         for _ in range(0, dst.len()) {
             *x = to_be32(*y);
             x = x.offset(1);
@@ -148,14 +146,14 @@ impl FixedBuffer for FixedBuffer64 {
             }
         }
 
-        // While we have at least a full buffer size chunks's worth of data, process that data
+        // While we have at least a full buffer size chunk's worth of data, process that data
         // without copying it into the buffer
         while input.len() - i >= size {
             func(input.slice(i, i + size));
             i += size;
         }
 
-        // Copy any input data into the buffer. At this point in the method, the ammount of
+        // Copy any input data into the buffer. At this point in the method, the amount of
         // data left in the input vector will be less than the buffer size and the buffer will
         // be empty.
         let input_remaining = input.len() - i;
@@ -527,7 +525,6 @@ mod tests {
 
     use super::{Digest, Sha256, FixedBuffer};
     use std::num::Bounded;
-    use std::slice;
     use self::rand::isaac::IsaacRng;
     use self::rand::Rng;
     use serialize::hex::FromHex;
@@ -579,16 +576,19 @@ mod tests {
         // Examples from wikipedia
         let wikipedia_tests = vec!(
             Test {
-                input: ~"",
-                output_str: ~"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                input: "".to_owned(),
+                output_str: "e3b0c44298fc1c149afb\
+            f4c8996fb92427ae41e4649b934ca495991b7852b855".to_owned()
             },
             Test {
-                input: ~"The quick brown fox jumps over the lazy dog",
-                output_str: ~"d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"
+                input: "The quick brown fox jumps over the lazy dog".to_owned(),
+                output_str: "d7a8fbb307d7809469ca\
+            9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592".to_owned()
             },
             Test {
-                input: ~"The quick brown fox jumps over the lazy dog.",
-                output_str: ~"ef537f25c895bfa782526529a9b63d97aa631564d5d789c2b765448c8635fb6c"
+                input: "The quick brown fox jumps over the lazy dog.".to_owned(),
+                output_str: "ef537f25c895bfa78252\
+            6529a9b63d97aa631564d5d789c2b765448c8635fb6c".to_owned()
             });
 
         let tests = wikipedia_tests;
@@ -602,7 +602,7 @@ mod tests {
     /// correct.
     fn test_digest_1million_random<D: Digest>(digest: &mut D, blocksize: uint, expected: &str) {
         let total_size = 1000000;
-        let buffer = slice::from_elem(blocksize * 2, 'a' as u8);
+        let buffer = Vec::from_elem(blocksize * 2, 'a' as u8);
         let mut rng = IsaacRng::new_unseeded();
         let mut count = 0;
 
@@ -641,36 +641,36 @@ mod tests {
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use super::{Sha256, FixedBuffer, Digest};
 
     #[bench]
-    pub fn sha256_10(bh: &mut BenchHarness) {
+    pub fn sha256_10(b: &mut Bencher) {
         let mut sh = Sha256::new();
         let bytes = [1u8, ..10];
-        bh.iter(|| {
+        b.iter(|| {
             sh.input(bytes);
         });
-        bh.bytes = bytes.len() as u64;
+        b.bytes = bytes.len() as u64;
     }
 
     #[bench]
-    pub fn sha256_1k(bh: &mut BenchHarness) {
+    pub fn sha256_1k(b: &mut Bencher) {
         let mut sh = Sha256::new();
         let bytes = [1u8, ..1024];
-        bh.iter(|| {
+        b.iter(|| {
             sh.input(bytes);
         });
-        bh.bytes = bytes.len() as u64;
+        b.bytes = bytes.len() as u64;
     }
 
     #[bench]
-    pub fn sha256_64k(bh: &mut BenchHarness) {
+    pub fn sha256_64k(b: &mut Bencher) {
         let mut sh = Sha256::new();
         let bytes = [1u8, ..65536];
-        bh.iter(|| {
+        b.iter(|| {
             sh.input(bytes);
         });
-        bh.bytes = bytes.len() as u64;
+        b.bytes = bytes.len() as u64;
     }
 }

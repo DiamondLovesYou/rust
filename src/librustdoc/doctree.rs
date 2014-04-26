@@ -41,7 +41,7 @@ impl Module {
         Module {
             name       : name,
             id: 0,
-            vis: ast::Private,
+            vis: ast::Inherited,
             where: syntax::codemap::DUMMY_SP,
             attrs      : Vec::new(),
             structs    : Vec::new(),
@@ -113,7 +113,7 @@ pub struct Function {
     pub id: NodeId,
     pub name: Ident,
     pub vis: ast::Visibility,
-    pub purity: ast::Purity,
+    pub fn_style: ast::FnStyle,
     pub where: Span,
     pub generics: ast::Generics,
 }

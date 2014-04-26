@@ -319,22 +319,21 @@ pub unsafe fn local_free(ptr: *u8) {
 }
 
 pub fn live_allocs() -> *mut Box {
-    let mut task = Local::borrow(None::<Task>);
-    task.get().heap.live_allocs
+    Local::borrow(None::<Task>).heap.live_allocs
 }
 
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
 
     #[bench]
-    fn alloc_managed_small(bh: &mut BenchHarness) {
-        bh.iter(|| { @10; });
+    fn alloc_managed_small(b: &mut Bencher) {
+        b.iter(|| { @10; });
     }
 
     #[bench]
-    fn alloc_managed_big(bh: &mut BenchHarness) {
-        bh.iter(|| { @([10, ..1000]); });
+    fn alloc_managed_big(b: &mut Bencher) {
+        b.iter(|| { @([10, ..1000]); });
     }
 }

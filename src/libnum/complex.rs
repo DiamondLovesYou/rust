@@ -82,7 +82,7 @@ impl<T: Clone + Float> Cmplx<T> {
     /// Calculate |self|
     #[inline]
     pub fn norm(&self) -> T {
-        self.re.hypot(&self.im)
+        self.re.hypot(self.im)
     }
 }
 
@@ -90,7 +90,7 @@ impl<T: Clone + Float> Cmplx<T> {
     /// Calculate the principal Arg of self.
     #[inline]
     pub fn arg(&self) -> T {
-        self.im.atan2(&self.re)
+        self.im.atan2(self.re)
     }
     /// Convert to polar form (r, theta), such that `self = r * exp(i
     /// * theta)`
@@ -351,12 +351,12 @@ mod test {
         fn test(c : Complex64, s: ~str) {
             assert_eq!(c.to_str(), s);
         }
-        test(_0_0i, ~"0+0i");
-        test(_1_0i, ~"1+0i");
-        test(_0_1i, ~"0+1i");
-        test(_1_1i, ~"1+1i");
-        test(_neg1_1i, ~"-1+1i");
-        test(-_neg1_1i, ~"1-1i");
-        test(_05_05i, ~"0.5+0.5i");
+        test(_0_0i, "0+0i".to_owned());
+        test(_1_0i, "1+0i".to_owned());
+        test(_0_1i, "0+1i".to_owned());
+        test(_1_1i, "1+1i".to_owned());
+        test(_neg1_1i, "-1+1i".to_owned());
+        test(-_neg1_1i, "1-1i".to_owned());
+        test(_05_05i, "0.5+0.5i".to_owned());
     }
 }

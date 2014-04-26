@@ -24,6 +24,7 @@ use super::IoResult;
 use super::file;
 
 #[cfg(windows)] use std::cast;
+#[cfg(windows)] use std::strbuf::StrBuf;
 #[cfg(not(windows), not(target_os = "nacl"))] use super::retry;
 
 #[cfg(target_os = "nacl")]
@@ -86,7 +87,7 @@ impl Process {
             return Err(super::unimpl());
         }
 
-        fn get_io(io: p::StdioContainer, ret: &mut ~[Option<file::FileDesc>])
+        fn get_io(io: p::StdioContainer, ret: &mut Vec<Option<file::FileDesc>>)
             -> (Option<os::Pipe>, c_int)
         {
             match io {
@@ -105,7 +106,7 @@ impl Process {
             }
         }
 
-        let mut ret_io = ~[];
+        let mut ret_io = Vec::new();
         let (in_pipe, in_fd) = get_io(config.stdin, &mut ret_io);
         let (out_pipe, out_fd) = get_io(config.stdout, &mut ret_io);
         let (err_pipe, err_fd) = get_io(config.stderr, &mut ret_io);
@@ -129,7 +130,7 @@ impl Process {
                         exit_code: None,
                         exit_signal: None,
                     },
-                    ret_io))
+                    ret_io.move_iter().collect()))
             }
             Err(e) => Err(e)
         }
@@ -412,15 +413,15 @@ fn zeroed_process_information() -> libc::types::os::arch::extra::PROCESS_INFORMA
 
 #[cfg(windows)]
 fn make_command_line(prog: &str, args: &[~str]) -> ~str {
-    let mut cmd = ~"";
+    let mut cmd = StrBuf::new();
     append_arg(&mut cmd, prog);
     for arg in args.iter() {
         cmd.push_char(' ');
         append_arg(&mut cmd, *arg);
     }
-    return cmd;
+    return cmd.into_owned();
 
-    fn append_arg(cmd: &mut ~str, arg: &str) {
+    fn append_arg(cmd: &mut StrBuf, arg: &str) {
         let quote = arg.chars().any(|c| c == ' ' || c == '\t');
         if quote {
             cmd.push_char('"');
@@ -433,7 +434,7 @@ fn make_command_line(prog: &str, args: &[~str]) -> ~str {
         }
     }
 
-    fn append_char_at(cmd: &mut ~str, arg: &str, i: uint) {
+    fn append_char_at(cmd: &mut StrBuf, arg: &str, i: uint) {
         match arg[i] as char {
             '"' => {
                 // Escape quotes.
@@ -470,7 +471,7 @@ fn spawn_process_os(config: p::ProcessConfig,
                     err_fd: c_int) -> IoResult<SpawnProcessResult> {
     use libc::funcs::posix88::unistd::{fork, dup2, close, chdir, execvp};
     use libc::funcs::bsd44::getdtablesize;
-    use libc::c_ulong;
+    use io::c;
 
     mod rustrt {
         extern {
@@ -491,16 +492,7 @@ fn spawn_process_os(config: p::ProcessConfig,
     }
 
     unsafe fn set_cloexec(fd: c_int) {
-        extern { fn ioctl(fd: c_int, req: c_ulong) -> c_int; }
-
-        #[cfg(target_os = "macos")]
-        #[cfg(target_os = "freebsd")]
-        static FIOCLEX: c_ulong = 0x20006601;
-        #[cfg(target_os = "linux")]
-        #[cfg(target_os = "android")]
-        static FIOCLEX: c_ulong = 0x5451;
-
-        let ret = ioctl(fd, FIOCLEX);
+        let ret = c::ioctl(fd, c::FIOCLEX);
         assert_eq!(ret, 0);
     }
 
@@ -541,7 +533,37 @@ fn spawn_process_os(config: p::ProcessConfig,
                     Ok(..) => fail!("short read on the cloexec pipe"),
                 };
             }
-            drop(input);
+            // And at this point we've reached a special time in the life of the
+            // child. The child must now be considered hamstrung and unable to
+            // do anything other than syscalls really. Consider the following
+            // scenario:
+            //
+            //      1. Thread A of process 1 grabs the malloc() mutex
+            //      2. Thread B of process 1 forks(), creating thread C
+            //      3. Thread C of process 2 then attempts to malloc()
+            //      4. The memory of process 2 is the same as the memory of
+            //         process 1, so the mutex is locked.
+            //
+            // This situation looks a lot like deadlock, right? It turns out
+            // that this is what pthread_atfork() takes care of, which is
+            // presumably implemented across platforms. The first thing that
+            // threads to *before* forking is to do things like grab the malloc
+            // mutex, and then after the fork they unlock it.
+            //
+            // Despite this information, libnative's spawn has been witnessed to
+            // deadlock on both OSX and FreeBSD. I'm not entirely sure why, but
+            // all collected backtraces point at malloc/free traffic in the
+            // child spawned process.
+            //
+            // For this reason, the block of code below should contain 0
+            // invocations of either malloc of free (or their related friends).
+            //
+            // As an example of not having malloc/free traffic, we don't close
+            // this file descriptor by dropping the FileDesc (which contains an
+            // allocation). Instead we just close it manually. This will never
+            // have the drop glue anyway because this code never returns (the
+            // child will either exec() or invoke libc::exit)
+            let _ = libc::close(input.fd());
 
             fn fail(output: &mut file::FileDesc) -> ! {
                 let errno = os::errno();
@@ -635,13 +657,11 @@ fn spawn_process_os(_config: p::ProcessConfig,
 }
 
 #[cfg(unix, not(target_os = "nacl"))]
-fn with_argv<T>(prog: &str, args: &[~str], cb: proc:(**libc::c_char) -> T) -> T {
-    use std::slice;
-
+fn with_argv<T>(prog: &str, args: &[~str], cb: proc(**libc::c_char) -> T) -> T {
     // We can't directly convert `str`s into `*char`s, as someone needs to hold
     // a reference to the intermediary byte buffers. So first build an array to
     // hold all the ~[u8] byte strings.
-    let mut tmps = slice::with_capacity(args.len() + 1);
+    let mut tmps = Vec::with_capacity(args.len() + 1);
 
     tmps.push(prog.to_c_str());
 
@@ -661,15 +681,13 @@ fn with_argv<T>(prog: &str, args: &[~str], cb: proc:(**libc::c_char) -> T) -> T 
 }
 
 #[cfg(unix, not(target_os = "nacl"))]
-fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: proc:(*c_void) -> T) -> T {
-    use std::slice;
-
+fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: proc(*c_void) -> T) -> T {
     // On posixy systems we can pass a char** for envp, which is a
     // null-terminated array of "k=v\n" strings. Like `with_argv`, we have to
     // have a temporary buffer to hold the intermediary `~[u8]` byte strings.
     match env {
         Some(env) => {
-            let mut tmps = slice::with_capacity(env.len());
+            let mut tmps = Vec::with_capacity(env.len());
 
             for pair in env.iter() {
                 let kv = format!("{}={}", *pair.ref0(), *pair.ref1());
@@ -695,7 +713,7 @@ fn with_envp<T>(env: Option<~[(~str, ~str)]>, cb: |*mut c_void| -> T) -> T {
     // \0 to terminate.
     match env {
         Some(env) => {
-            let mut blk = ~[];
+            let mut blk = Vec::new();
 
             for pair in env.iter() {
                 let kv = format!("{}={}", *pair.ref0(), *pair.ref1());
@@ -861,20 +879,20 @@ mod tests {
     fn test_make_command_line() {
         use super::make_command_line;
         assert_eq!(
-            make_command_line("prog", [~"aaa", ~"bbb", ~"ccc"]),
-            ~"prog aaa bbb ccc"
+            make_command_line("prog", ["aaa".to_owned(), "bbb".to_owned(), "ccc".to_owned()]),
+            "prog aaa bbb ccc".to_owned()
         );
         assert_eq!(
-            make_command_line("C:\\Program Files\\blah\\blah.exe", [~"aaa"]),
-            ~"\"C:\\Program Files\\blah\\blah.exe\" aaa"
+            make_command_line("C:\\Program Files\\blah\\blah.exe", ["aaa".to_owned()]),
+            "\"C:\\Program Files\\blah\\blah.exe\" aaa".to_owned()
         );
         assert_eq!(
-            make_command_line("C:\\Program Files\\test", [~"aa\"bb"]),
-            ~"\"C:\\Program Files\\test\" aa\\\"bb"
+            make_command_line("C:\\Program Files\\test", ["aa\"bb".to_owned()]),
+            "\"C:\\Program Files\\test\" aa\\\"bb".to_owned()
         );
         assert_eq!(
-            make_command_line("echo", [~"a b c"]),
-            ~"echo \"a b c\""
+            make_command_line("echo", ["a b c".to_owned()]),
+            "echo \"a b c\"".to_owned()
         );
     }
 }

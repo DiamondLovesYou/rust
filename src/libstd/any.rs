@@ -164,6 +164,7 @@ impl<'a> fmt::Show for &'a Any {
 mod tests {
     use prelude::*;
     use super::*;
+    use str::StrSlice;
 
     #[deriving(Eq, Show)]
     struct Test;
@@ -290,13 +291,13 @@ mod tests {
     fn test_show() {
         let a = ~8u as ~Any;
         let b = ~Test as ~Any;
-        assert_eq!(format!("{}", a), ~"~Any");
-        assert_eq!(format!("{}", b), ~"~Any");
+        assert_eq!(format!("{}", a), "~Any".to_owned());
+        assert_eq!(format!("{}", b), "~Any".to_owned());
 
         let a = &8u as &Any;
         let b = &Test as &Any;
-        assert_eq!(format!("{}", a), ~"&Any");
-        assert_eq!(format!("{}", b), ~"&Any");
+        assert_eq!(format!("{}", a), "&Any".to_owned());
+        assert_eq!(format!("{}", b), "&Any".to_owned());
     }
 }
 
@@ -306,11 +307,11 @@ mod bench {
 
     use any::{Any, AnyRefExt};
     use option::Some;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
 
     #[bench]
-    fn bench_as_ref(bh: &mut BenchHarness) {
-        bh.iter(|| {
+    fn bench_as_ref(b: &mut Bencher) {
+        b.iter(|| {
             let mut x = 0; let mut y = &mut x as &mut Any;
             test::black_box(&mut y);
             test::black_box(y.as_ref::<int>() == Some(&0));

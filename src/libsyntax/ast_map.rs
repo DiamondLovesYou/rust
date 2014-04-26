@@ -19,9 +19,10 @@ use print::pprust;
 use util::small_vector::SmallVector;
 
 use std::cell::RefCell;
+use std::fmt;
 use std::iter;
 use std::slice;
-use std::fmt;
+use std::strbuf::StrBuf;
 
 #[deriving(Clone, Eq)]
 pub enum PathElem {
@@ -81,14 +82,14 @@ pub type PathElems<'a, 'b> = iter::Chain<Values<'a, PathElem>, LinkedPath<'b>>;
 pub fn path_to_str<PI: Iterator<PathElem>>(mut path: PI) -> ~str {
     let itr = token::get_ident_interner();
 
-    path.fold(~"", |mut s, e| {
+    path.fold(StrBuf::new(), |mut s, e| {
         let e = itr.get(e.name());
         if !s.is_empty() {
             s.push_str("::");
         }
         s.push_str(e.as_slice());
         s
-    })
+    }).into_owned()
 }
 
 #[deriving(Clone)]
@@ -106,6 +107,8 @@ pub enum Node {
 
     /// NodeStructCtor represents a tuple struct.
     NodeStructCtor(@StructDef),
+
+    NodeLifetime(@Lifetime),
 }
 
 // The odd layout is to bring down the total size.
@@ -126,6 +129,7 @@ enum MapEntry {
     EntryLocal(NodeId, @Pat),
     EntryBlock(NodeId, P<Block>),
     EntryStructCtor(NodeId, @StructDef),
+    EntryLifetime(NodeId, @Lifetime),
 
     // Roots for node trees.
     RootCrate,
@@ -152,6 +156,7 @@ impl MapEntry {
             EntryLocal(id, _) => id,
             EntryBlock(id, _) => id,
             EntryStructCtor(id, _) => id,
+            EntryLifetime(id, _) => id,
             _ => return None
         })
     }
@@ -169,6 +174,7 @@ impl MapEntry {
             EntryLocal(_, p) => NodeLocal(p),
             EntryBlock(_, p) => NodeBlock(p),
             EntryStructCtor(_, p) => NodeStructCtor(p),
+            EntryLifetime(_, p) => NodeLifetime(p),
             _ => return None
         })
     }
@@ -212,6 +218,8 @@ impl Map {
         self.find_entry(id).and_then(|x| x.to_node())
     }
 
+    /// Retrieve the parent NodeId for `id`, or `id` itself if no
+    /// parent is registered in this map.
     pub fn get_parent(&self, id: NodeId) -> NodeId {
         self.find_entry(id).and_then(|x| x.parent()).unwrap_or(id)
     }
@@ -254,6 +262,31 @@ impl Map {
         match self.find(id) {
             Some(NodeItem(item)) => item,
             _ => fail!("expected item, found {}", self.node_to_str(id))
+        }
+    }
+
+    pub fn expect_struct(&self, id: NodeId) -> @StructDef {
+        match self.find(id) {
+            Some(NodeItem(i)) => {
+                match i.node {
+                    ItemStruct(struct_def, _) => struct_def,
+                    _ => fail!("struct ID bound to non-struct")
+                }
+            }
+            Some(NodeVariant(ref variant)) => {
+                match (*variant).node.kind {
+                    StructVariantKind(struct_def) => struct_def,
+                    _ => fail!("struct ID bound to enum variant that isn't struct-like"),
+                }
+            }
+            _ => fail!(format!("expected struct, found {}", self.node_to_str(id))),
+        }
+    }
+
+    pub fn expect_variant(&self, id: NodeId) -> P<Variant> {
+        match self.find(id) {
+            Some(NodeVariant(variant)) => variant,
+            _ => fail!(format!("expected variant, found {}", self.node_to_str(id))),
         }
     }
 
@@ -330,14 +363,15 @@ impl Map {
     }
 
     pub fn with_attrs<T>(&self, id: NodeId, f: |Option<&[Attribute]>| -> T) -> T {
-        let attrs = match self.get(id) {
-            NodeItem(i) => Some(i.attrs.as_slice()),
-            NodeForeignItem(fi) => Some(fi.attrs.as_slice()),
-            NodeTraitMethod(tm) => match *tm {
+        let node = self.get(id);
+        let attrs = match node {
+            NodeItem(ref i) => Some(i.attrs.as_slice()),
+            NodeForeignItem(ref fi) => Some(fi.attrs.as_slice()),
+            NodeTraitMethod(ref tm) => match **tm {
                 Required(ref type_m) => Some(type_m.attrs.as_slice()),
-                Provided(m) => Some(m.attrs.as_slice())
+                Provided(ref m) => Some(m.attrs.as_slice())
             },
-            NodeMethod(m) => Some(m.attrs.as_slice()),
+            NodeMethod(ref m) => Some(m.attrs.as_slice()),
             NodeVariant(ref v) => Some(v.node.attrs.as_slice()),
             // unit/tuple structs take the attributes straight from
             // the struct definition.
@@ -445,7 +479,7 @@ impl<'a, F: FoldOps> Folder for Ctx<'a, F> {
                     None => {}
                 }
             }
-            ItemTrait(_, ref traits, ref methods) => {
+            ItemTrait(_, _, ref traits, ref methods) => {
                 for t in traits.iter() {
                     self.insert(t.ref_id, EntryItem(self.parent, i));
                 }
@@ -499,6 +533,15 @@ impl<'a, F: FoldOps> Folder for Ctx<'a, F> {
         SmallVector::one(stmt)
     }
 
+    fn fold_type_method(&mut self, m: &TypeMethod) -> TypeMethod {
+        let parent = self.parent;
+        self.parent = DUMMY_NODE_ID;
+        let m = fold::noop_fold_type_method(m, self);
+        assert_eq!(self.parent, m.id);
+        self.parent = parent;
+        m
+    }
+
     fn fold_method(&mut self, m: @Method) -> @Method {
         let parent = self.parent;
         self.parent = DUMMY_NODE_ID;
@@ -520,6 +563,12 @@ impl<'a, F: FoldOps> Folder for Ctx<'a, F> {
         let block = fold::noop_fold_block(block, self);
         self.insert(block.id, EntryBlock(self.parent, block));
         block
+    }
+
+    fn fold_lifetime(&mut self, lifetime: &Lifetime) -> Lifetime {
+        let lifetime = fold::noop_fold_lifetime(lifetime, self);
+        self.insert(lifetime.id, EntryLifetime(self.parent, @lifetime));
+        lifetime
     }
 }
 
@@ -656,6 +705,9 @@ fn node_id_to_str(map: &Map, id: NodeId) -> ~str {
         }
         Some(NodeStructCtor(_)) => {
             format!("struct_ctor {} (id={})", map.path_to_str(id), id)
+        }
+        Some(NodeLifetime(ref l)) => {
+            format!("lifetime {} (id={})", pprust::lifetime_to_str(*l), id)
         }
         None => {
             format!("unknown node (id={})", id)

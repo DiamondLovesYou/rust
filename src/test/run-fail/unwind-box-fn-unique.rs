@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 // error-pattern:fail
 
@@ -18,7 +18,7 @@ fn failfn() {
 
 fn main() {
     let y = ~0;
-    let x: @proc:Send() = @(proc() {
+    let x: @proc():Send = @(proc() {
         println!("{:?}", y.clone());
     });
     failfn();

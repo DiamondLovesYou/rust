@@ -99,6 +99,8 @@ pub trait TyVisitor {
 
     fn visit_f32(&mut self) -> bool;
     fn visit_f64(&mut self) -> bool;
+    #[cfg(not(stage0))]
+    fn visit_f128(&mut self) -> bool;
 
     fn visit_char(&mut self) -> bool;
 
@@ -271,10 +273,6 @@ extern "rust-intrinsic" {
     /// Execute a breakpoint trap, for inspection by a debugger.
     pub fn breakpoint();
 
-    pub fn volatile_load<T>(src: *T) -> T;
-    pub fn volatile_store<T>(dst: *mut T, val: T);
-
-
     /// The size of a type in bytes.
     ///
     /// This is the exact number of bytes in memory taken up by a
@@ -348,6 +346,33 @@ extern "rust-intrinsic" {
     /// `min_align_of::<T>()`
     pub fn set_memory<T>(dst: *mut T, val: u8, count: uint);
 
+    /// Equivalent to the appropriate `llvm.memcpy.p0i8.0i8.*` intrinsic, with
+    /// a size of `count` * `size_of::<T>()` and an alignment of
+    /// `min_align_of::<T>()`
+    ///
+    /// The volatile parameter parameter is set to `true`, so it will not be optimized out.
+    #[cfg(not(stage0))]
+    pub fn volatile_copy_nonoverlapping_memory<T>(dst: *mut T, src: *T, count: uint);
+    /// Equivalent to the appropriate `llvm.memmove.p0i8.0i8.*` intrinsic, with
+    /// a size of `count` * `size_of::<T>()` and an alignment of
+    /// `min_align_of::<T>()`
+    ///
+    /// The volatile parameter parameter is set to `true`, so it will not be optimized out.
+    #[cfg(not(stage0))]
+    pub fn volatile_copy_memory<T>(dst: *mut T, src: *T, count: uint);
+    /// Equivalent to the appropriate `llvm.memset.p0i8.*` intrinsic, with a
+    /// size of `count` * `size_of::<T>()` and an alignment of
+    /// `min_align_of::<T>()`.
+    ///
+    /// The volatile parameter parameter is set to `true`, so it will not be optimized out.
+    #[cfg(not(stage0))]
+    pub fn volatile_set_memory<T>(dst: *mut T, val: u8, count: uint);
+
+    /// Perform a volatile load from the `src` pointer.
+    pub fn volatile_load<T>(src: *T) -> T;
+    /// Perform a volatile store to the `dst` pointer.
+    pub fn volatile_store<T>(dst: *mut T, val: T);
+
     pub fn sqrtf32(x: f32) -> f32;
     pub fn sqrtf64(x: f64) -> f64;
 
@@ -402,18 +427,18 @@ extern "rust-intrinsic" {
     pub fn roundf32(x: f32) -> f32;
     pub fn roundf64(x: f64) -> f64;
 
-    pub fn ctpop32(x: i32) -> i32;
-    pub fn ctpop64(x: i64) -> i64;
+    pub fn ctpop32(x: u32) -> u32;
+    pub fn ctpop64(x: u64) -> u64;
 
-    pub fn ctlz32(x: i32) -> i32;
-    pub fn ctlz64(x: i64) -> i64;
+    pub fn ctlz32(x: u32) -> u32;
+    pub fn ctlz64(x: u64) -> u64;
 
-    pub fn cttz32(x: i32) -> i32;
-    pub fn cttz64(x: i64) -> i64;
+    pub fn cttz32(x: u32) -> u32;
+    pub fn cttz64(x: u64) -> u64;
 
-    pub fn bswap16(x: i16) -> i16;
-    pub fn bswap32(x: i32) -> i32;
-    pub fn bswap64(x: i64) -> i64;
+    pub fn bswap16(x: u16) -> u16;
+    pub fn bswap32(x: u32) -> u32;
+    pub fn bswap64(x: u64) -> u64;
 }
 /// The following intrinsics are disallowed on PNaCl:
 /// We sneakily redirect some of them to libm, while the
@@ -425,14 +450,14 @@ extern "rust-intrinsic" {
     pub fn powif32(a: f32, x: i32) -> f32;
     pub fn powif64(a: f64, x: i32) -> f64;
 
-    pub fn ctpop8(x: i8) -> i8;
-    pub fn ctpop16(x: i16) -> i16;
+    pub fn ctpop8(x: u8) -> u8;
+    pub fn ctpop16(x: u16) -> u16;
 
-    pub fn ctlz8(x: i8) -> i8;
-    pub fn ctlz16(x: i16) -> i16;
+    pub fn ctlz8(x: u8) -> u8;
+    pub fn ctlz16(x: u16) -> u16;
 
-    pub fn cttz8(x: i8) -> i8;
-    pub fn cttz16(x: i16) -> i16;
+    pub fn cttz8(x: u8) -> u8;
+    pub fn cttz16(x: u16) -> u16;
 
     pub fn i8_add_with_overflow(x: i8, y: i8) -> (i8, bool);
     pub fn i16_add_with_overflow(x: i16, y: i16) -> (i16, bool);
@@ -534,19 +559,19 @@ _def_fun!(floorf64 => floor  (f64) -> f64)*/
 #[inline] pub unsafe fn powif64(a: f64, x: i32) -> f64 { powf64(a, x as f64) }
 
 #[cfg(target_os = "nacl", target_arch = "le32")]
-#[inline] pub unsafe fn ctpop8(x: i8) -> i8 { ctpop32(x as i32) as i8 }
+#[inline] pub unsafe fn ctpop8(x: u8) -> u8 { ctpop32(x as u32) as u8 }
 #[cfg(target_os = "nacl", target_arch = "le32")]
-#[inline] pub unsafe fn ctpop16(x: i16) -> i16 { ctpop32(x as i32) as i16 }
+#[inline] pub unsafe fn ctpop16(x: u16) -> u16 { ctpop32(x as u32) as u16 }
 
 #[cfg(target_os = "nacl", target_arch = "le32")]
-#[inline] pub unsafe fn ctlz8(x: i8) -> i8 { ctlz32(x as i32) as i8 }
+#[inline] pub unsafe fn ctlz8(x: u8) -> u8 { ctlz32(x as u32) as u8 }
 #[cfg(target_os = "nacl", target_arch = "le32")]
-#[inline] pub unsafe fn ctlz16(x: i16) -> i16 { ctlz32(x as i32) as i16 }
+#[inline] pub unsafe fn ctlz16(x: u16) -> u16 { ctlz32(x as u32) as u16 }
 
 #[cfg(target_os = "nacl", target_arch = "le32")]
-#[inline] pub unsafe fn cttz8(x: i8) -> i8 { cttz32(x as i32) as i8 }
+#[inline] pub unsafe fn cttz8(x: u8) -> u8 { cttz32(x as u32) as u8 }
 #[cfg(target_os = "nacl", target_arch = "le32")]
-#[inline] pub unsafe fn cttz16(x: i16) -> i16 { cttz32(x as i32) as i16 }
+#[inline] pub unsafe fn cttz16(x: u16) -> u16 { cttz32(x as u32) as u16 }
 
 macro_rules! add_with_overflow(
     ($ty:ty, $id:ident) => (

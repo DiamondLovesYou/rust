@@ -116,15 +116,18 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
         ty::ty_uint(t) => Type::uint_from_ty(cx, t),
         ty::ty_float(t) => Type::float_from_ty(cx, t),
 
-        ty::ty_str(ty::vstore_uniq) |
-        ty::ty_vec(_, ty::vstore_uniq) |
+        ty::ty_str(ty::VstoreUniq) |
         ty::ty_box(..) |
         ty::ty_uniq(..) |
-        ty::ty_ptr(..) |
-        ty::ty_rptr(..) => Type::i8p(cx),
+        ty::ty_ptr(..) => Type::i8p(cx),
+        ty::ty_rptr(_, mt) => {
+            match ty::get(mt.ty).sty {
+                ty::ty_vec(_, None) => Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false),
+                _ => Type::i8p(cx),
+            }
+        }
 
-        ty::ty_str(ty::vstore_slice(..)) |
-        ty::ty_vec(_, ty::vstore_slice(..)) => {
+        ty::ty_str(ty::VstoreSlice(..)) => {
             Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false)
         }
 
@@ -132,14 +135,14 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
         ty::ty_closure(..) => Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false),
         ty::ty_trait(..) => Type::opaque_trait(cx),
 
-        ty::ty_str(ty::vstore_fixed(size)) => Type::array(&Type::i8(cx), size as u64),
-        ty::ty_vec(mt, ty::vstore_fixed(size)) => {
+        ty::ty_str(ty::VstoreFixed(size)) => Type::array(&Type::i8(cx), size as u64),
+        ty::ty_vec(mt, Some(size)) => {
             Type::array(&sizing_type_of(cx, mt.ty), size as u64)
         }
 
         ty::ty_tup(..) | ty::ty_enum(..) => {
             let repr = adt::represent_type(cx, t);
-            adt::sizing_type_of(cx, repr)
+            adt::sizing_type_of(cx, &*repr)
         }
 
         ty::ty_struct(..) => {
@@ -149,15 +152,15 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
                 Type::vector(&type_of(cx, et), n as u64)
             } else {
                 let repr = adt::represent_type(cx, t);
-                adt::sizing_type_of(cx, repr)
+                adt::sizing_type_of(cx, &*repr)
             }
         }
 
         ty::ty_simd(t, n) => {
             Type::vector(&type_of(cx, t), n as u64)
         }
-
-        ty::ty_self(_) | ty::ty_infer(..) | ty::ty_param(..) | ty::ty_err(..) => {
+        ty::ty_self(_) | ty::ty_infer(..) | ty::ty_param(..) |
+        ty::ty_err(..) | ty::ty_vec(_, None) => {
             cx.sess().bug(format!("fictitious type {:?} in sizing_type_of()",
                                   ty::get(t).sty))
         }
@@ -203,7 +206,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
       ty::ty_int(t) => Type::int_from_ty(cx, t),
       ty::ty_uint(t) => Type::uint_from_ty(cx, t),
       ty::ty_float(t) => Type::float_from_ty(cx, t),
-      ty::ty_str(ty::vstore_uniq) => {
+      ty::ty_str(ty::VstoreUniq) => {
         Type::vec(cx, &Type::i8(cx)).ptr_to()
       }
       ty::ty_enum(did, ref substs) => {
@@ -213,36 +216,39 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
         // of the enum's variants refers to the enum itself.
         let repr = adt::represent_type(cx, t);
         let name = llvm_type_name(cx, an_enum, did, substs.tps.as_slice());
-        adt::incomplete_type_of(cx, repr, name)
+        adt::incomplete_type_of(cx, &*repr, name)
       }
       ty::ty_box(typ) => {
           Type::at_box(cx, type_of(cx, typ)).ptr_to()
       }
       ty::ty_uniq(typ) => {
-          type_of(cx, typ).ptr_to()
-      }
-      ty::ty_vec(ref mt, ty::vstore_uniq) => {
-          Type::vec(cx, &type_of(cx, mt.ty)).ptr_to()
+          match ty::get(typ).sty {
+              ty::ty_vec(mt, None) => Type::vec(cx, &type_of(cx, mt.ty)).ptr_to(),
+              _ => type_of(cx, typ).ptr_to(),
+          }
       }
       ty::ty_ptr(ref mt) => type_of(cx, mt.ty).ptr_to(),
-      ty::ty_rptr(_, ref mt) => type_of(cx, mt.ty).ptr_to(),
-
-      ty::ty_vec(ref mt, ty::vstore_slice(_)) => {
-          let p_ty = type_of(cx, mt.ty).ptr_to();
-          let u_ty = Type::uint_from_ty(cx, ast::TyU);
-          Type::struct_(cx, [p_ty, u_ty], false)
+      ty::ty_rptr(_, ref mt) => {
+          match ty::get(mt.ty).sty {
+              ty::ty_vec(mt, None) => {
+                  let p_ty = type_of(cx, mt.ty).ptr_to();
+                  let u_ty = Type::uint_from_ty(cx, ast::TyU);
+                  Type::struct_(cx, [p_ty, u_ty], false)
+              }
+              _ => type_of(cx, mt.ty).ptr_to(),
+          }
       }
 
-      ty::ty_str(ty::vstore_slice(_)) => {
+      ty::ty_str(ty::VstoreSlice(..)) => {
           // This means we get a nicer name in the output
           cx.tn.find_type("str_slice").unwrap()
       }
 
-      ty::ty_str(ty::vstore_fixed(n)) => {
+      ty::ty_str(ty::VstoreFixed(n)) => {
           Type::array(&Type::i8(cx), (n + 1u) as u64)
       }
 
-      ty::ty_vec(ref mt, ty::vstore_fixed(n)) => {
+      ty::ty_vec(ref mt, Some(n)) => {
           Type::array(&type_of(cx, mt.ty), n as u64)
       }
 
@@ -256,7 +262,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
       ty::ty_trait(..) => Type::opaque_trait(cx),
       ty::ty_tup(..) => {
           let repr = adt::represent_type(cx, t);
-          adt::type_of(cx, repr)
+          adt::type_of(cx, &*repr)
       }
       ty::ty_struct(did, ref substs) => {
           if ty::type_is_simd(cx.tcx(), t) {
@@ -272,13 +278,15 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
                                         a_struct,
                                         did,
                                         substs.tps.as_slice());
-              adt::incomplete_type_of(cx, repr, name)
+              adt::incomplete_type_of(cx, &*repr, name)
           }
       }
       ty::ty_simd(t, n) => {
           Type::vector(&type_of(cx, t), n as u64)
       }
-      ty::ty_self(..) => cx.sess().unimpl("type_of: ty_self"),
+
+      ty::ty_vec(_, None) => cx.sess().bug("type_of with unszied ty_vec"),
+      ty::ty_self(..) => cx.sess().unimpl("type_of with ty_self"),
       ty::ty_infer(..) => cx.sess().bug("type_of with ty_infer"),
       ty::ty_param(..) => cx.sess().bug("type_of with ty_param"),
       ty::ty_err(..) => cx.sess().bug("type_of with ty_err")
@@ -295,7 +303,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
     match ty::get(t).sty {
         ty::ty_enum(..) | ty::ty_struct(..) if !ty::type_is_simd(cx.tcx(), t) => {
             let repr = adt::represent_type(cx, t);
-            adt::finish_type_of(cx, repr, &mut llty);
+            adt::finish_type_of(cx, &*repr, &mut llty);
         }
         _ => ()
     }

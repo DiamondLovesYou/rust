@@ -24,12 +24,12 @@
 /// which is transmitted.
 ///
 /// The multi-argument form of this macro fails with a string and has the
-/// `format!` sytnax for building a string.
+/// `format!` syntax for building a string.
 ///
 /// # Example
 ///
 /// ```should_fail
-/// # #[allow(unreachable_code)];
+/// # #![allow(unreachable_code)]
 /// fail!();
 /// fail!("this is a terrible mistake!");
 /// fail!(4); // fail with the value of 4 to be collected elsewhere
@@ -117,13 +117,15 @@ macro_rules! assert(
 #[macro_export]
 macro_rules! assert_eq(
     ($given:expr , $expected:expr) => ({
-        let given_val = &($given);
-        let expected_val = &($expected);
-        // check both directions of equality....
-        if !((*given_val == *expected_val) &&
-             (*expected_val == *given_val)) {
-            fail!("assertion failed: `(left == right) && (right == left)` \
-                   (left: `{}`, right: `{}`)", *given_val, *expected_val)
+        match (&($given), &($expected)) {
+            (given_val, expected_val) => {
+                // check both directions of equality....
+                if !((*given_val == *expected_val) &&
+                     (*expected_val == *given_val)) {
+                    fail!("assertion failed: `(left == right) && (right == left)` \
+                           (left: `{}`, right: `{}`)", *given_val, *expected_val)
+                }
+            }
         }
     })
 )
@@ -186,7 +188,7 @@ macro_rules! format(
 /// # Example
 ///
 /// ```
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::MemWriter;
 ///
 /// let mut w = MemWriter::new();
@@ -273,7 +275,8 @@ macro_rules! vec(
         let mut _temp = ::std::vec::Vec::new();
         $(_temp.push($e);)*
         _temp
-    })
+    });
+    ($($e:expr),+,) => (vec!($($e),+))
 )
 
 

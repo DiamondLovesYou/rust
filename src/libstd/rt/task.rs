@@ -70,7 +70,7 @@ pub enum BlockedTask {
 pub enum DeathAction {
     /// Action to be done with the exit code. If set, also makes the task wait
     /// until all its watched children exit before collecting the status.
-    Execute(proc:Send(TaskResult)),
+    Execute(proc(TaskResult):Send),
     /// A channel to send the result of the task on when the task exits
     SendMessage(Sender<TaskResult>),
 }
@@ -109,7 +109,7 @@ impl Task {
     /// This function is *not* meant to be abused as a "try/catch" block. This
     /// is meant to be used at the absolute boundaries of a task's lifetime, and
     /// only for that purpose.
-    pub fn run(~self, f: ||) -> ~Task {
+    pub fn run(~self, mut f: ||) -> ~Task {
         // Need to put ourselves into TLS, but also need access to the unwinder.
         // Unsafely get a handle to the task so we can continue to use it after
         // putting it in tls (so we can invoke the unwinder).
@@ -127,8 +127,8 @@ impl Task {
                 #[allow(unused_must_use)]
                 fn close_outputs() {
                     let mut task = Local::borrow(None::<Task>);
-                    let stderr = task.get().stderr.take();
-                    let stdout = task.get().stdout.take();
+                    let stderr = task.stderr.take();
+                    let stdout = task.stdout.take();
                     drop(task);
                     match stdout { Some(mut w) => { w.flush(); }, None => {} }
                     match stderr { Some(mut w) => { w.flush(); }, None => {} }
@@ -159,8 +159,7 @@ impl Task {
                 // be intertwined, and miraculously work for now...
                 let mut task = Local::borrow(None::<Task>);
                 let storage_map = {
-                    let task = task.get();
-                    let LocalStorage(ref mut optmap) = task.storage;
+                    let &LocalStorage(ref mut optmap) = &mut task.storage;
                     optmap.take()
                 };
                 drop(task);
@@ -236,7 +235,7 @@ impl Task {
 
     /// Spawns a sibling to this task. The newly spawned task is configured with
     /// the `opts` structure and will run `f` as the body of its code.
-    pub fn spawn_sibling(mut ~self, opts: TaskOpts, f: proc:Send()) {
+    pub fn spawn_sibling(mut ~self, opts: TaskOpts, f: proc():Send) {
         let ops = self.imp.take_unwrap();
         ops.spawn_sibling(self, opts, f)
     }
@@ -332,8 +331,7 @@ impl BlockedTask {
     }
 
     /// Converts one blocked task handle to a list of many handles to the same.
-    pub fn make_selectable(self, num_handles: uint) -> Take<BlockedTasks>
-    {
+    pub fn make_selectable(self, num_handles: uint) -> Take<BlockedTasks> {
         let arc = match self {
             Owned(task) => {
                 let flag = unsafe { AtomicUint::new(cast::transmute(task)) };
@@ -385,7 +383,7 @@ impl Death {
     pub fn collect_failure(&mut self, result: TaskResult) {
         match self.on_exit.take() {
             Some(Execute(f)) => f(result),
-            Some(SendMessage(ch)) => { ch.try_send(result); }
+            Some(SendMessage(ch)) => { let _ = ch.send_opt(result); }
             None => {}
         }
     }
@@ -415,11 +413,11 @@ mod test {
     fn tls() {
         use local_data;
         local_data_key!(key: @~str)
-        local_data::set(key, @~"data");
-        assert!(*local_data::get(key, |k| k.map(|k| *k)).unwrap() == ~"data");
+        local_data::set(key, @"data".to_owned());
+        assert!(*local_data::get(key, |k| k.map(|k| *k)).unwrap() == "data".to_owned());
         local_data_key!(key2: @~str)
-        local_data::set(key2, @~"data");
-        assert!(*local_data::get(key2, |k| k.map(|k| *k)).unwrap() == ~"data");
+        local_data::set(key2, @"data".to_owned());
+        assert!(*local_data::get(key2, |k| k.map(|k| *k)).unwrap() == "data".to_owned());
     }
 
     #[test]

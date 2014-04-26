@@ -49,17 +49,16 @@ pub trait TypeFolder {
                        -> ty::BareFnTy {
         ty::BareFnTy { sig: self.fold_sig(&fty.sig),
                        abi: fty.abi,
-                       purity: fty.purity }
+                       fn_style: fty.fn_style }
     }
 
     fn fold_closure_ty(&mut self,
                        fty: &ty::ClosureTy)
                        -> ty::ClosureTy {
         ty::ClosureTy {
-            region: self.fold_region(fty.region),
+            store: self.fold_trait_store(fty.store),
             sig: self.fold_sig(&fty.sig),
-            purity: fty.purity,
-            sigil: fty.sigil,
+            fn_style: fty.fn_style,
             onceness: fty.onceness,
             bounds: fty.bounds,
         }
@@ -69,7 +68,7 @@ pub trait TypeFolder {
         r
     }
 
-    fn fold_vstore(&mut self, vstore: ty::vstore) -> ty::vstore {
+    fn fold_vstore(&mut self, vstore: ty::Vstore) -> ty::Vstore {
         super_fold_vstore(self, vstore)
     }
 
@@ -148,18 +147,17 @@ pub fn super_fold_sty<T:TypeFolder>(this: &mut T,
         ty::ty_ptr(ref tm) => {
             ty::ty_ptr(this.fold_mt(tm))
         }
-        ty::ty_vec(ref tm, vst) => {
-            ty::ty_vec(this.fold_mt(tm), this.fold_vstore(vst))
+        ty::ty_vec(ref tm, sz) => {
+            ty::ty_vec(this.fold_mt(tm), sz)
         }
         ty::ty_enum(tid, ref substs) => {
             ty::ty_enum(tid, this.fold_substs(substs))
         }
-        ty::ty_trait(~ty::TyTrait { def_id, ref substs, store, mutability, bounds }) => {
+        ty::ty_trait(~ty::TyTrait { def_id, ref substs, store, bounds }) => {
             ty::ty_trait(~ty::TyTrait{
                 def_id: def_id,
                 substs: this.fold_substs(substs),
                 store: this.fold_trait_store(store),
-                mutability: mutability,
                 bounds: bounds
             })
         }
@@ -194,12 +192,12 @@ pub fn super_fold_sty<T:TypeFolder>(this: &mut T,
 }
 
 pub fn super_fold_vstore<T:TypeFolder>(this: &mut T,
-                                       vstore: ty::vstore)
-                                       -> ty::vstore {
+                                       vstore: ty::Vstore)
+                                       -> ty::Vstore {
     match vstore {
-        ty::vstore_fixed(i) => ty::vstore_fixed(i),
-        ty::vstore_uniq => ty::vstore_uniq,
-        ty::vstore_slice(r) => ty::vstore_slice(this.fold_region(r)),
+        ty::VstoreFixed(i) => ty::VstoreFixed(i),
+        ty::VstoreUniq => ty::VstoreUniq,
+        ty::VstoreSlice(r) => ty::VstoreSlice(this.fold_region(r)),
     }
 }
 
@@ -207,8 +205,10 @@ pub fn super_fold_trait_store<T:TypeFolder>(this: &mut T,
                                             trait_store: ty::TraitStore)
                                             -> ty::TraitStore {
     match trait_store {
-        ty::UniqTraitStore      => ty::UniqTraitStore,
-        ty::RegionTraitStore(r) => ty::RegionTraitStore(this.fold_region(r)),
+        ty::UniqTraitStore => ty::UniqTraitStore,
+        ty::RegionTraitStore(r, m) => {
+            ty::RegionTraitStore(this.fold_region(r), m)
+        }
     }
 }
 
@@ -217,7 +217,7 @@ pub fn super_fold_trait_store<T:TypeFolder>(this: &mut T,
 
 pub struct BottomUpFolder<'a> {
     pub tcx: &'a ty::ctxt,
-    pub fldop: 'a |ty::t| -> ty::t,
+    pub fldop: |ty::t|: 'a -> ty::t,
 }
 
 impl<'a> TypeFolder for BottomUpFolder<'a> {
@@ -234,14 +234,14 @@ impl<'a> TypeFolder for BottomUpFolder<'a> {
 
 pub struct RegionFolder<'a> {
     tcx: &'a ty::ctxt,
-    fld_t: 'a |ty::t| -> ty::t,
-    fld_r: 'a |ty::Region| -> ty::Region,
+    fld_t: |ty::t|: 'a -> ty::t,
+    fld_r: |ty::Region|: 'a -> ty::Region,
 }
 
 impl<'a> RegionFolder<'a> {
     pub fn general(tcx: &'a ty::ctxt,
-                   fld_r: 'a |ty::Region| -> ty::Region,
-                   fld_t: 'a |ty::t| -> ty::t)
+                   fld_r: |ty::Region|: 'a -> ty::Region,
+                   fld_t: |ty::t|: 'a -> ty::t)
                    -> RegionFolder<'a> {
         RegionFolder {
             tcx: tcx,
@@ -250,7 +250,7 @@ impl<'a> RegionFolder<'a> {
         }
     }
 
-    pub fn regions(tcx: &'a ty::ctxt, fld_r: 'a |ty::Region| -> ty::Region)
+    pub fn regions(tcx: &'a ty::ctxt, fld_r: |ty::Region|: 'a -> ty::Region)
                    -> RegionFolder<'a> {
         fn noop(t: ty::t) -> ty::t { t }
 

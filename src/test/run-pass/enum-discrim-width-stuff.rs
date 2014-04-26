@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(macro_rules)];
+#![feature(macro_rules)]
 
 macro_rules! check {
     ($m:ident, $t:ty, $v:expr) => {{
@@ -23,8 +23,8 @@ macro_rules! check {
                 assert_eq!(size_of::<E>(), size_of::<$t>());
                 assert_eq!(V as $t, $v);
                 assert_eq!(C as $t, $v);
-                assert_eq!(format!("{:?}", V), ~"V");
-                assert_eq!(format!("{:?}", C), ~"V");
+                assert_eq!(format!("{:?}", V), "V".to_owned());
+                assert_eq!(format!("{:?}", C), "V".to_owned());
             }
         }
         $m::check();

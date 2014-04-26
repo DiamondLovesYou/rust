@@ -24,12 +24,13 @@ use rustc::metadata::cstore;
 use rustc::metadata::csearch;
 use rustc::metadata::decoder;
 
+use std::local_data;
+use std::strbuf::StrBuf;
 use std;
 
 use core;
 use doctree;
 use visit_ast;
-use std::local_data;
 
 pub trait Clean<T> {
     fn clean(&self) -> T;
@@ -201,7 +202,7 @@ impl Clean<Item> for doctree::Module {
         let name = if self.name.is_some() {
             self.name.unwrap().clean()
         } else {
-            ~""
+            "".to_owned()
         };
         let mut foreigns = Vec::new();
         for subforeigns in self.foreigns.clean().move_iter() {
@@ -356,7 +357,7 @@ impl Clean<Generics> for ast::Generics {
 pub struct Method {
     pub generics: Generics,
     pub self_: SelfTy,
-    pub purity: ast::Purity,
+    pub fn_style: ast::FnStyle,
     pub decl: FnDecl,
 }
 
@@ -383,7 +384,7 @@ impl Clean<Item> for ast::Method {
             inner: MethodItem(Method {
                 generics: self.generics.clean(),
                 self_: self.explicit_self.clean(),
-                purity: self.purity.clone(),
+                fn_style: self.fn_style.clone(),
                 decl: decl,
             }),
         }
@@ -392,7 +393,7 @@ impl Clean<Item> for ast::Method {
 
 #[deriving(Clone, Encodable, Decodable)]
 pub struct TyMethod {
-    pub purity: ast::Purity,
+    pub fn_style: ast::FnStyle,
     pub decl: FnDecl,
     pub generics: Generics,
     pub self_: SelfTy,
@@ -419,7 +420,7 @@ impl Clean<Item> for ast::TypeMethod {
             id: self.id,
             visibility: None,
             inner: TyMethodItem(TyMethod {
-                purity: self.purity.clone(),
+                fn_style: self.fn_style.clone(),
                 decl: decl,
                 self_: self.explicit_self.clean(),
                 generics: self.generics.clean(),
@@ -451,7 +452,7 @@ impl Clean<SelfTy> for ast::ExplicitSelf {
 pub struct Function {
     pub decl: FnDecl,
     pub generics: Generics,
-    pub purity: ast::Purity,
+    pub fn_style: ast::FnStyle,
 }
 
 impl Clean<Item> for doctree::Function {
@@ -465,7 +466,7 @@ impl Clean<Item> for doctree::Function {
             inner: FunctionItem(Function {
                 decl: self.decl.clean(),
                 generics: self.generics.clean(),
-                purity: self.purity,
+                fn_style: self.fn_style,
             }),
         }
     }
@@ -473,24 +474,20 @@ impl Clean<Item> for doctree::Function {
 
 #[deriving(Clone, Encodable, Decodable)]
 pub struct ClosureDecl {
-    pub sigil: ast::Sigil,
-    pub region: Option<Lifetime>,
     pub lifetimes: Vec<Lifetime>,
     pub decl: FnDecl,
     pub onceness: ast::Onceness,
-    pub purity: ast::Purity,
+    pub fn_style: ast::FnStyle,
     pub bounds: Vec<TyParamBound>,
 }
 
 impl Clean<ClosureDecl> for ast::ClosureTy {
     fn clean(&self) -> ClosureDecl {
         ClosureDecl {
-            sigil: self.sigil,
-            region: self.region.clean(),
             lifetimes: self.lifetimes.clean().move_iter().collect(),
             decl: self.decl.clean(),
             onceness: self.onceness,
-            purity: self.purity,
+            fn_style: self.fn_style,
             bounds: match self.bounds {
                 Some(ref x) => x.clean().move_iter().collect(),
                 None        => Vec::new()
@@ -651,10 +648,11 @@ pub enum Type {
     Self(ast::NodeId),
     /// Primitives are just the fixed-size numeric types (plus int/uint/float), and char.
     Primitive(ast::PrimTy),
-    Closure(~ClosureDecl),
+    Closure(~ClosureDecl, Option<Lifetime>),
+    Proc(~ClosureDecl),
     /// extern "ABI" fn
     BareFunction(~BareFunctionDecl),
-    Tuple(Vec<Type> ),
+    Tuple(Vec<Type>),
     Vector(~Type),
     FixedVector(~Type, ~str),
     String,
@@ -686,7 +684,8 @@ impl Clean<Type> for ast::Ty {
     fn clean(&self) -> Type {
         use syntax::ast::*;
         debug!("cleaning type `{:?}`", self);
-        let codemap = local_data::get(super::ctxtkey, |x| *x.unwrap()).sess().codemap();
+        let ctxt = local_data::get(super::ctxtkey, |x| *x.unwrap());
+        let codemap = ctxt.sess().codemap();
         debug!("span corresponds to `{}`", codemap.span_to_str(self.span));
         match self.node {
             TyNil => Unit,
@@ -705,7 +704,8 @@ impl Clean<Type> for ast::Ty {
                              tpbs.clean().map(|x| x.move_iter().collect()),
                              id)
             }
-            TyClosure(ref c) => Closure(~c.clean()),
+            TyClosure(ref c, region) => Closure(~c.clean(), region.clean()),
+            TyProc(ref c) => Proc(~c.clean()),
             TyBareFn(ref barefn) => BareFunction(~barefn.clean()),
             TyBot => Bottom,
             TySimd(t, ref count) => FixedVector(~t.clean(), count.span.to_str()),
@@ -715,25 +715,24 @@ impl Clean<Type> for ast::Ty {
 }
 
 #[deriving(Clone, Encodable, Decodable)]
-pub struct StructField {
-    pub type_: Type,
+pub enum StructField {
+    HiddenStructField,
+    TypedStructField(Type),
 }
 
 impl Clean<Item> for ast::StructField {
     fn clean(&self) -> Item {
         let (name, vis) = match self.node.kind {
-            ast::NamedField(id, vis) => (Some(id), Some(vis)),
-            _ => (None, None)
+            ast::NamedField(id, vis) => (Some(id), vis),
+            ast::UnnamedField(vis) => (None, vis)
         };
         Item {
             name: name.clean(),
             attrs: self.node.attrs.clean().move_iter().collect(),
             source: self.span.clean(),
-            visibility: vis,
+            visibility: Some(vis),
             id: self.node.id,
-            inner: StructFieldItem(StructField {
-                type_: self.node.ty.clean(),
-            }),
+            inner: StructFieldItem(TypedStructField(self.node.ty.clean())),
         }
     }
 }
@@ -839,7 +838,7 @@ impl Clean<Item> for doctree::Variant {
 #[deriving(Clone, Encodable, Decodable)]
 pub enum VariantKind {
     CLikeVariant,
-    TupleVariant(Vec<Type> ),
+    TupleVariant(Vec<Type>),
     StructVariant(VariantStruct),
 }
 
@@ -869,7 +868,8 @@ pub struct Span {
 
 impl Clean<Span> for syntax::codemap::Span {
     fn clean(&self) -> Span {
-        let cm = local_data::get(super::ctxtkey, |x| *x.unwrap()).sess().codemap();
+        let ctxt = local_data::get(super::ctxtkey, |x| *x.unwrap());
+        let cm = ctxt.sess().codemap();
         let filename = cm.span_to_filename(*self);
         let lo = cm.lookup_char_pos(self.lo);
         let hi = cm.lookup_char_pos(self.hi);
@@ -918,7 +918,7 @@ impl Clean<PathSegment> for ast::PathSegment {
 fn path_to_str(p: &ast::Path) -> ~str {
     use syntax::parse::token;
 
-    let mut s = ~"";
+    let mut s = StrBuf::new();
     let mut first = true;
     for i in p.segments.iter().map(|x| token::get_ident(x.identifier)) {
         if !first || p.global {
@@ -928,7 +928,7 @@ fn path_to_str(p: &ast::Path) -> ~str {
         }
         s.push_str(i.get());
     }
-    s
+    s.into_owned()
 }
 
 impl Clean<~str> for ast::Ident {
@@ -961,7 +961,7 @@ impl Clean<Item> for doctree::Typedef {
 
 #[deriving(Clone, Encodable, Decodable)]
 pub struct BareFunctionDecl {
-    pub purity: ast::Purity,
+    pub fn_style: ast::FnStyle,
     pub generics: Generics,
     pub decl: FnDecl,
     pub abi: ~str,
@@ -970,7 +970,7 @@ pub struct BareFunctionDecl {
 impl Clean<BareFunctionDecl> for ast::BareFnTy {
     fn clean(&self) -> BareFunctionDecl {
         BareFunctionDecl {
-            purity: self.purity,
+            fn_style: self.fn_style,
             generics: Generics {
                 lifetimes: self.lifetimes.clean().move_iter().collect(),
                 type_params: Vec::new(),
@@ -1165,14 +1165,14 @@ impl Clean<Item> for ast::ForeignItem {
                 ForeignFunctionItem(Function {
                     decl: decl.clean(),
                     generics: generics.clean(),
-                    purity: ast::ExternFn,
+                    fn_style: ast::ExternFn,
                 })
             }
             ast::ForeignItemStatic(ref ty, mutbl) => {
                 ForeignStaticItem(Static {
                     type_: ty.clean(),
                     mutability: if mutbl {Mutable} else {Immutable},
-                    expr: ~"",
+                    expr: "".to_owned(),
                 })
             }
         };
@@ -1196,10 +1196,11 @@ trait ToSource {
 impl ToSource for syntax::codemap::Span {
     fn to_src(&self) -> ~str {
         debug!("converting span {:?} to snippet", self.clean());
-        let cm = local_data::get(super::ctxtkey, |x| x.unwrap().clone()).sess().codemap().clone();
+        let ctxt = local_data::get(super::ctxtkey, |x| x.unwrap().clone());
+        let cm = ctxt.sess().codemap().clone();
         let sn = match cm.span_to_snippet(*self) {
             Some(x) => x,
-            None    => ~""
+            None    => "".to_owned()
         };
         debug!("got snippet {}", sn);
         sn
@@ -1210,14 +1211,14 @@ fn lit_to_str(lit: &ast::Lit) -> ~str {
     match lit.node {
         ast::LitStr(ref st, _) => st.get().to_owned(),
         ast::LitBinary(ref data) => format!("{:?}", data.as_slice()),
-        ast::LitChar(c) => ~"'" + std::char::from_u32(c).unwrap().to_str() + "'",
+        ast::LitChar(c) => "'".to_owned() + std::char::from_u32(c).unwrap().to_str() + "'",
         ast::LitInt(i, _t) => i.to_str(),
         ast::LitUint(u, _t) => u.to_str(),
         ast::LitIntUnsuffixed(i) => i.to_str(),
         ast::LitFloat(ref f, _t) => f.get().to_str(),
         ast::LitFloatUnsuffixed(ref f) => f.get().to_str(),
         ast::LitBool(b) => b.to_str(),
-        ast::LitNil => ~"",
+        ast::LitNil => "".to_owned(),
     }
 }
 
@@ -1226,19 +1227,19 @@ fn name_from_pat(p: &ast::Pat) -> ~str {
     debug!("Trying to get a name from pattern: {:?}", p);
 
     match p.node {
-        PatWild => ~"_",
-        PatWildMulti => ~"..",
+        PatWild => "_".to_owned(),
+        PatWildMulti => "..".to_owned(),
         PatIdent(_, ref p, _) => path_to_str(p),
         PatEnum(ref p, _) => path_to_str(p),
         PatStruct(..) => fail!("tried to get argument name from pat_struct, \
                                 which is not allowed in function arguments"),
-        PatTup(..) => ~"(tuple arg NYI)",
+        PatTup(..) => "(tuple arg NYI)".to_owned(),
         PatUniq(p) => name_from_pat(p),
         PatRegion(p) => name_from_pat(p),
         PatLit(..) => {
             warn!("tried to get argument name from PatLit, \
                   which is silly in function arguments");
-            ~"()"
+            "()".to_owned()
         },
         PatRange(..) => fail!("tried to get argument name from PatRange, \
                               which is not allowed in function arguments"),

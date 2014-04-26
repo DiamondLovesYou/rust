@@ -36,7 +36,7 @@ impl<D:Decoder> Decodable for node_id {
     fn decode(d: &D) -> Node {
         d.read_struct("Node", 1, || {
             Node {
-                id: d.read_field(~"x", 0, || decode(d))
+                id: d.read_field("x".to_owned(), 0, || decode(d))
             }
         })
     }
@@ -73,8 +73,8 @@ would yield functions like:
         fn decode(d: &D) -> spanned<T> {
             d.read_rec(|| {
                 {
-                    node: d.read_field(~"node", 0, || decode(d)),
-                    span: d.read_field(~"span", 1, || decode(d)),
+                    node: d.read_field("node".to_owned(), 0, || decode(d)),
+                    span: d.read_field("span".to_owned(), 1, || decode(d)),
                 }
             })
         }
@@ -82,6 +82,7 @@ would yield functions like:
 ```
 */
 
+use ast;
 use ast::{MetaItem, Item, Expr, ExprRet, MutMutable, LitNil};
 use codemap::Span;
 use ext::base::ExtCtxt;
@@ -103,10 +104,10 @@ pub fn expand_deriving_encodable(cx: &mut ExtCtxt,
         additional_bounds: Vec::new(),
         generics: LifetimeBounds {
             lifetimes: Vec::new(),
-            bounds: vec!(("__S", vec!(Path::new_(
+            bounds: vec!(("__S", ast::StaticSize, vec!(Path::new_(
                             vec!("serialize", "Encoder"), None,
                             vec!(~Literal(Path::new_local("__E"))), true))),
-                         ("__E", vec!()))
+                         ("__E", ast::StaticSize, vec!()))
         },
         methods: vec!(
             MethodDef {
@@ -120,9 +121,11 @@ pub fn expand_deriving_encodable(cx: &mut ExtCtxt,
                                            vec!(~Tuple(Vec::new()),
                                                 ~Literal(Path::new_local("__E"))),
                                            true)),
-                inline: false,
+                attributes: Vec::new(),
                 const_nonmatching: true,
-                combine_substructure: encodable_substructure,
+                combine_substructure: combine_substructure(|a, b, c| {
+                    encodable_substructure(a, b, c)
+                }),
             })
     };
 

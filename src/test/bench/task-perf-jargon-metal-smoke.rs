@@ -41,16 +41,16 @@ fn child_generation(gens_left: uint, tx: comm::Sender<()>) {
 fn main() {
     let args = os::args();
     let args = if os::getenv("RUST_BENCH").is_some() {
-        vec!(~"", ~"100000")
+        vec!("".to_owned(), "100000".to_owned())
     } else if args.len() <= 1 {
-        vec!(~"", ~"100")
+        vec!("".to_owned(), "100".to_owned())
     } else {
         args.clone().move_iter().collect()
     };
 
     let (tx, rx) = channel();
     child_generation(from_str::<uint>(*args.get(1)).unwrap(), tx);
-    if rx.recv_opt().is_none() {
+    if rx.recv_opt().is_err() {
         fail!("it happened when we slumbered");
     }
 }

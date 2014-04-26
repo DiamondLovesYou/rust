@@ -156,7 +156,7 @@ pub trait Iterator<A> {
     /// assert!(it.next().is_none());
     /// ```
     #[inline]
-    fn map<'r, B>(self, f: 'r |A| -> B) -> Map<'r, A, B, Self> {
+    fn map<'r, B>(self, f: |A|: 'r -> B) -> Map<'r, A, B, Self> {
         Map{iter: self, f: f}
     }
 
@@ -173,7 +173,7 @@ pub trait Iterator<A> {
     /// assert!(it.next().is_none());
     /// ```
     #[inline]
-    fn filter<'r>(self, predicate: 'r |&A| -> bool) -> Filter<'r, A, Self> {
+    fn filter<'r>(self, predicate: |&A|: 'r -> bool) -> Filter<'r, A, Self> {
         Filter{iter: self, predicate: predicate}
     }
 
@@ -190,7 +190,7 @@ pub trait Iterator<A> {
     /// assert!(it.next().is_none());
     /// ```
     #[inline]
-    fn filter_map<'r, B>(self, f: 'r |A| -> Option<B>) -> FilterMap<'r, A, B, Self> {
+    fn filter_map<'r, B>(self, f: |A|: 'r -> Option<B>) -> FilterMap<'r, A, B, Self> {
         FilterMap { iter: self, f: f }
     }
 
@@ -249,7 +249,7 @@ pub trait Iterator<A> {
     /// assert!(it.next().is_none());
     /// ```
     #[inline]
-    fn skip_while<'r>(self, predicate: 'r |&A| -> bool) -> SkipWhile<'r, A, Self> {
+    fn skip_while<'r>(self, predicate: |&A|: 'r -> bool) -> SkipWhile<'r, A, Self> {
         SkipWhile{iter: self, flag: false, predicate: predicate}
     }
 
@@ -267,7 +267,7 @@ pub trait Iterator<A> {
     /// assert!(it.next().is_none());
     /// ```
     #[inline]
-    fn take_while<'r>(self, predicate: 'r |&A| -> bool) -> TakeWhile<'r, A, Self> {
+    fn take_while<'r>(self, predicate: |&A|: 'r -> bool) -> TakeWhile<'r, A, Self> {
         TakeWhile{iter: self, flag: false, predicate: predicate}
     }
 
@@ -327,7 +327,7 @@ pub trait Iterator<A> {
     /// assert!(it.next().is_none());
     /// ```
     #[inline]
-    fn scan<'r, St, B>(self, initial_state: St, f: 'r |&mut St, A| -> Option<B>)
+    fn scan<'r, St, B>(self, initial_state: St, f: |&mut St, A|: 'r -> Option<B>)
         -> Scan<'r, A, B, Self, St> {
         Scan{iter: self, f: f, state: initial_state}
     }
@@ -351,7 +351,7 @@ pub trait Iterator<A> {
     /// }
     /// ```
     #[inline]
-    fn flat_map<'r, B, U: Iterator<B>>(self, f: 'r |A| -> U)
+    fn flat_map<'r, B, U: Iterator<B>>(self, f: |A|: 'r -> U)
         -> FlatMap<'r, A, Self, U> {
         FlatMap{iter: self, f: f, frontiter: None, backiter: None }
     }
@@ -405,7 +405,7 @@ pub trait Iterator<A> {
     /// println!("{}", sum);
     /// ```
     #[inline]
-    fn inspect<'r>(self, f: 'r |&A|) -> Inspect<'r, A, Self> {
+    fn inspect<'r>(self, f: |&A|: 'r) -> Inspect<'r, A, Self> {
         Inspect{iter: self, f: f}
     }
 
@@ -703,7 +703,7 @@ pub trait RandomAccessIterator<A>: Iterator<A> {
     fn indexable(&self) -> uint;
 
     /// Return an element at an index
-    fn idx(&self, index: uint) -> Option<A>;
+    fn idx(&mut self, index: uint) -> Option<A>;
 }
 
 /// An iterator that knows its exact length
@@ -771,8 +771,9 @@ impl<A, T: DoubleEndedIterator<A> + RandomAccessIterator<A>> RandomAccessIterato
     #[inline]
     fn indexable(&self) -> uint { self.iter.indexable() }
     #[inline]
-    fn idx(&self, index: uint) -> Option<A> {
-        self.iter.idx(self.indexable() - index - 1)
+    fn idx(&mut self, index: uint) -> Option<A> {
+        let amt = self.indexable();
+        self.iter.idx(amt - index - 1)
     }
 }
 
@@ -937,7 +938,7 @@ impl<A: TotalOrd, T: Iterator<A>> OrdIterator<A> for T {
         loop {
             // `first` and `second` are the two next elements we want to look at.
             // We first compare `first` and `second` (#1). The smaller one is then compared to
-            // current mininum (#2). The larger one is compared to current maximum (#3). This
+            // current minimum (#2). The larger one is compared to current maximum (#3). This
             // way we do 3 comparisons for 2 elements.
             let first = match self.next() {
                 None => break,
@@ -1071,7 +1072,7 @@ impl<A, T: Clone + RandomAccessIterator<A>> RandomAccessIterator<A> for Cycle<T>
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<A> {
+    fn idx(&mut self, index: uint) -> Option<A> {
         let liter = self.iter.indexable();
         let lorig = self.orig.indexable();
         if lorig == 0 {
@@ -1143,7 +1144,7 @@ for Chain<T, U> {
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<A> {
+    fn idx(&mut self, index: uint) -> Option<A> {
         let len = self.a.indexable();
         if index < len {
             self.a.idx(index)
@@ -1221,7 +1222,7 @@ RandomAccessIterator<(A, B)> for Zip<T, U> {
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<(A, B)> {
+    fn idx(&mut self, index: uint) -> Option<(A, B)> {
         match self.a.idx(index) {
             None => None,
             Some(x) => match self.b.idx(index) {
@@ -1235,12 +1236,12 @@ RandomAccessIterator<(A, B)> for Zip<T, U> {
 /// An iterator which maps the values of `iter` with `f`
 pub struct Map<'a, A, B, T> {
     iter: T,
-    f: 'a |A| -> B
+    f: |A|: 'a -> B
 }
 
 impl<'a, A, B, T> Map<'a, A, B, T> {
     #[inline]
-    fn do_map(&self, elt: Option<A>) -> Option<B> {
+    fn do_map(&mut self, elt: Option<A>) -> Option<B> {
         match elt {
             Some(a) => Some((self.f)(a)),
             _ => None
@@ -1276,15 +1277,16 @@ impl<'a, A, B, T: RandomAccessIterator<A>> RandomAccessIterator<B> for Map<'a, A
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<B> {
-        self.do_map(self.iter.idx(index))
+    fn idx(&mut self, index: uint) -> Option<B> {
+        let elt = self.iter.idx(index);
+        self.do_map(elt)
     }
 }
 
 /// An iterator which filters the elements of `iter` with `predicate`
 pub struct Filter<'a, A, T> {
     iter: T,
-    predicate: 'a |&A| -> bool
+    predicate: |&A|: 'a -> bool
 }
 
 impl<'a, A, T: Iterator<A>> Iterator<A> for Filter<'a, A, T> {
@@ -1328,7 +1330,7 @@ impl<'a, A, T: DoubleEndedIterator<A>> DoubleEndedIterator<A> for Filter<'a, A, 
 /// An iterator which uses `f` to both filter and map elements from `iter`
 pub struct FilterMap<'a, A, B, T> {
     iter: T,
-    f: 'a |A| -> Option<B>
+    f: |A|: 'a -> Option<B>
 }
 
 impl<'a, A, B, T: Iterator<A>> Iterator<B> for FilterMap<'a, A, B, T> {
@@ -1415,7 +1417,7 @@ impl<A, T: RandomAccessIterator<A>> RandomAccessIterator<(uint, A)> for Enumerat
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<(uint, A)> {
+    fn idx(&mut self, index: uint) -> Option<(uint, A)> {
         match self.iter.idx(index) {
             Some(a) => Some((self.count + index, a)),
             _ => None,
@@ -1477,7 +1479,7 @@ impl<'a, A, T: Iterator<A>> Peekable<A, T> {
 pub struct SkipWhile<'a, A, T> {
     iter: T,
     flag: bool,
-    predicate: 'a |&A| -> bool
+    predicate: |&A|: 'a -> bool
 }
 
 impl<'a, A, T: Iterator<A>> Iterator<A> for SkipWhile<'a, A, T> {
@@ -1515,7 +1517,7 @@ impl<'a, A, T: Iterator<A>> Iterator<A> for SkipWhile<'a, A, T> {
 pub struct TakeWhile<'a, A, T> {
     iter: T,
     flag: bool,
-    predicate: 'a |&A| -> bool
+    predicate: |&A|: 'a -> bool
 }
 
 impl<'a, A, T: Iterator<A>> Iterator<A> for TakeWhile<'a, A, T> {
@@ -1600,7 +1602,7 @@ impl<A, T: RandomAccessIterator<A>> RandomAccessIterator<A> for Skip<T> {
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<A> {
+    fn idx(&mut self, index: uint) -> Option<A> {
         if index >= self.indexable() {
             None
         } else {
@@ -1649,7 +1651,7 @@ impl<A, T: RandomAccessIterator<A>> RandomAccessIterator<A> for Take<T> {
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<A> {
+    fn idx(&mut self, index: uint) -> Option<A> {
         if index >= self.n {
             None
         } else {
@@ -1662,7 +1664,7 @@ impl<A, T: RandomAccessIterator<A>> RandomAccessIterator<A> for Take<T> {
 /// An iterator to maintain state while iterating another iterator
 pub struct Scan<'a, A, B, T, St> {
     iter: T,
-    f: 'a |&mut St, A| -> Option<B>,
+    f: |&mut St, A|: 'a -> Option<B>,
 
     /// The current internal state to be passed to the closure next.
     pub state: St,
@@ -1686,7 +1688,7 @@ impl<'a, A, B, T: Iterator<A>, St> Iterator<B> for Scan<'a, A, B, T, St> {
 ///
 pub struct FlatMap<'a, A, T, U> {
     iter: T,
-    f: 'a |A| -> U,
+    f: |A|: 'a -> U,
     frontiter: Option<U>,
     backiter: Option<U>,
 }
@@ -1799,7 +1801,7 @@ impl<A, T: RandomAccessIterator<A>> RandomAccessIterator<A> for Fuse<T> {
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<A> {
+    fn idx(&mut self, index: uint) -> Option<A> {
         self.iter.idx(index)
     }
 }
@@ -1817,12 +1819,12 @@ impl<T> Fuse<T> {
 /// element before yielding it.
 pub struct Inspect<'a, A, T> {
     iter: T,
-    f: 'a |&A|
+    f: |&A|: 'a
 }
 
 impl<'a, A, T> Inspect<'a, A, T> {
     #[inline]
-    fn do_inspect(&self, elt: Option<A>) -> Option<A> {
+    fn do_inspect(&mut self, elt: Option<A>) -> Option<A> {
         match elt {
             Some(ref a) => (self.f)(a),
             None => ()
@@ -1862,14 +1864,15 @@ for Inspect<'a, A, T> {
     }
 
     #[inline]
-    fn idx(&self, index: uint) -> Option<A> {
-        self.do_inspect(self.iter.idx(index))
+    fn idx(&mut self, index: uint) -> Option<A> {
+        let element = self.iter.idx(index);
+        self.do_inspect(element)
     }
 }
 
 /// An iterator which just modifies the contained state throughout iteration.
 pub struct Unfold<'a, A, St> {
-    f: 'a |&mut St| -> Option<A>,
+    f: |&mut St|: 'a -> Option<A>,
     /// Internal state that will be yielded on the next iteration
     pub state: St,
 }
@@ -1878,7 +1881,7 @@ impl<'a, A, St> Unfold<'a, A, St> {
     /// Creates a new iterator with the specified closure as the "iterator
     /// function" and an initial state to eventually pass to the iterator
     #[inline]
-    pub fn new<'a>(initial_state: St, f: 'a |&mut St| -> Option<A>)
+    pub fn new<'a>(initial_state: St, f: |&mut St|: 'a -> Option<A>)
                -> Unfold<'a, A, St> {
         Unfold {
             f: f,
@@ -2164,7 +2167,7 @@ impl<A: Clone> RandomAccessIterator<A> for Repeat<A> {
     #[inline]
     fn indexable(&self) -> uint { uint::MAX }
     #[inline]
-    fn idx(&self, _: uint) -> Option<A> { Some(self.element.clone()) }
+    fn idx(&mut self, _: uint) -> Option<A> { Some(self.element.clone()) }
 }
 
 /// Functions for lexicographical ordering of sequences.
@@ -2907,7 +2910,7 @@ mod tests {
         let xs = [1, 2, 3, 4, 5];
 
         // test .map and .inspect that don't implement Clone
-        let it = xs.iter().inspect(|_| {});
+        let mut it = xs.iter().inspect(|_| {});
         assert_eq!(xs.len(), it.indexable());
         for (i, elt) in xs.iter().enumerate() {
             assert_eq!(Some(elt), it.idx(i));
@@ -2919,7 +2922,7 @@ mod tests {
     fn test_random_access_map() {
         let xs = [1, 2, 3, 4, 5];
 
-        let it = xs.iter().map(|x| *x);
+        let mut it = xs.iter().map(|x| *x);
         assert_eq!(xs.len(), it.indexable());
         for (i, elt) in xs.iter().enumerate() {
             assert_eq!(Some(*elt), it.idx(i));

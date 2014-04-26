@@ -17,11 +17,11 @@
 
 use std::iter::{Enumerate, FilterMap, Rev};
 use std::mem::replace;
-use std::slice;
+use std::{vec, slice};
 
 #[allow(missing_doc)]
 pub struct SmallIntMap<T> {
-    v: ~[Option<T>],
+    v: Vec<Option<T>>,
 }
 
 impl<V> Container for SmallIntMap<V> {
@@ -45,7 +45,7 @@ impl<V> Map<uint, V> for SmallIntMap<V> {
     /// Return a reference to the value corresponding to the key
     fn find<'a>(&'a self, key: &uint) -> Option<&'a V> {
         if *key < self.v.len() {
-            match self.v[*key] {
+            match *self.v.get(*key) {
               Some(ref value) => Some(value),
               None => None
             }
@@ -59,7 +59,7 @@ impl<V> MutableMap<uint, V> for SmallIntMap<V> {
     /// Return a mutable reference to the value corresponding to the key
     fn find_mut<'a>(&'a mut self, key: &uint) -> Option<&'a mut V> {
         if *key < self.v.len() {
-            match self.v[*key] {
+            match *self.v.get_mut(*key) {
               Some(ref mut value) => Some(value),
               None => None
             }
@@ -77,7 +77,7 @@ impl<V> MutableMap<uint, V> for SmallIntMap<V> {
         if len <= key {
             self.v.grow_fn(key - len + 1, |_| None);
         }
-        self.v[key] = Some(value);
+        *self.v.get_mut(key) = Some(value);
         !exists
     }
 
@@ -104,17 +104,17 @@ impl<V> MutableMap<uint, V> for SmallIntMap<V> {
         if *key >= self.v.len() {
             return None;
         }
-        self.v[*key].take()
+        self.v.get_mut(*key).take()
     }
 }
 
 impl<V> SmallIntMap<V> {
     /// Create an empty SmallIntMap
-    pub fn new() -> SmallIntMap<V> { SmallIntMap{v: ~[]} }
+    pub fn new() -> SmallIntMap<V> { SmallIntMap{v: vec!()} }
 
     /// Create an empty SmallIntMap with capacity `capacity`
     pub fn with_capacity(capacity: uint) -> SmallIntMap<V> {
-        SmallIntMap { v: slice::with_capacity(capacity) }
+        SmallIntMap { v: Vec::with_capacity(capacity) }
     }
 
     pub fn get<'a>(&'a self, key: &uint) -> &'a V {
@@ -158,9 +158,9 @@ impl<V> SmallIntMap<V> {
     /// Empties the hash map, moving all values into the specified closure
     pub fn move_iter(&mut self)
         -> FilterMap<(uint, Option<V>), (uint, V),
-                Enumerate<slice::MoveItems<Option<V>>>>
+                Enumerate<vec::MoveItems<Option<V>>>>
     {
-        let values = replace(&mut self.v, ~[]);
+        let values = replace(&mut self.v, vec!());
         values.move_iter().enumerate().filter_map(|(i, v)| {
             v.map(|v| (i, v))
         })
@@ -476,59 +476,59 @@ mod test_map {
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use super::SmallIntMap;
     use deque::bench::{insert_rand_n, insert_seq_n, find_rand_n, find_seq_n};
 
     // Find seq
     #[bench]
-    pub fn insert_rand_100(bh: &mut BenchHarness) {
+    pub fn insert_rand_100(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        insert_rand_n(100, &mut m, bh);
+        insert_rand_n(100, &mut m, b);
     }
 
     #[bench]
-    pub fn insert_rand_10_000(bh: &mut BenchHarness) {
+    pub fn insert_rand_10_000(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        insert_rand_n(10_000, &mut m, bh);
+        insert_rand_n(10_000, &mut m, b);
     }
 
     // Insert seq
     #[bench]
-    pub fn insert_seq_100(bh: &mut BenchHarness) {
+    pub fn insert_seq_100(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        insert_seq_n(100, &mut m, bh);
+        insert_seq_n(100, &mut m, b);
     }
 
     #[bench]
-    pub fn insert_seq_10_000(bh: &mut BenchHarness) {
+    pub fn insert_seq_10_000(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        insert_seq_n(10_000, &mut m, bh);
+        insert_seq_n(10_000, &mut m, b);
     }
 
     // Find rand
     #[bench]
-    pub fn find_rand_100(bh: &mut BenchHarness) {
+    pub fn find_rand_100(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        find_rand_n(100, &mut m, bh);
+        find_rand_n(100, &mut m, b);
     }
 
     #[bench]
-    pub fn find_rand_10_000(bh: &mut BenchHarness) {
+    pub fn find_rand_10_000(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        find_rand_n(10_000, &mut m, bh);
+        find_rand_n(10_000, &mut m, b);
     }
 
     // Find seq
     #[bench]
-    pub fn find_seq_100(bh: &mut BenchHarness) {
+    pub fn find_seq_100(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        find_seq_n(100, &mut m, bh);
+        find_seq_n(100, &mut m, b);
     }
 
     #[bench]
-    pub fn find_seq_10_000(bh: &mut BenchHarness) {
+    pub fn find_seq_10_000(b: &mut Bencher) {
         let mut m : SmallIntMap<uint> = SmallIntMap::new();
-        find_seq_n(10_000, &mut m, bh);
+        find_seq_n(10_000, &mut m, b);
     }
 }

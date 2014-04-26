@@ -20,6 +20,7 @@ use path::Path;
 use result::Err;
 use rt::local::Local;
 use rt::task::Task;
+use vec::Vec;
 
 use ai = io::net::addrinfo;
 use io;
@@ -36,7 +37,7 @@ pub trait Callback {
 
 pub trait EventLoop {
     fn run(&mut self);
-    fn callback(&mut self, arg: proc:Send());
+    fn callback(&mut self, arg: proc():Send);
     fn pausable_idle_callback(&mut self,
                               ~Callback:Send) -> ~PausableIdleCallback:Send;
     fn remote_callback(&mut self, ~Callback:Send) -> ~RemoteCallback:Send;
@@ -145,12 +146,14 @@ impl<'a> LocalIo<'a> {
 
 pub trait IoFactory {
     // networking
-    fn tcp_connect(&mut self, addr: SocketAddr) -> IoResult<~RtioTcpStream:Send>;
+    fn tcp_connect(&mut self, addr: SocketAddr,
+                   timeout: Option<u64>) -> IoResult<~RtioTcpStream:Send>;
     fn tcp_bind(&mut self, addr: SocketAddr) -> IoResult<~RtioTcpListener:Send>;
     fn udp_bind(&mut self, addr: SocketAddr) -> IoResult<~RtioUdpSocket:Send>;
     fn unix_bind(&mut self, path: &CString)
         -> IoResult<~RtioUnixListener:Send>;
-    fn unix_connect(&mut self, path: &CString) -> IoResult<~RtioPipe:Send>;
+    fn unix_connect(&mut self, path: &CString,
+                    timeout: Option<u64>) -> IoResult<~RtioPipe:Send>;
     fn get_host_addresses(&mut self, host: Option<&str>, servname: Option<&str>,
                           hint: Option<ai::Hint>) -> IoResult<~[ai::Info]>;
 
@@ -168,7 +171,7 @@ pub trait IoFactory {
     fn fs_rmdir(&mut self, path: &CString) -> IoResult<()>;
     fn fs_rename(&mut self, path: &CString, to: &CString) -> IoResult<()>;
     fn fs_readdir(&mut self, path: &CString, flags: c_int) ->
-        IoResult<~[Path]>;
+        IoResult<Vec<Path>>;
     fn fs_lstat(&mut self, path: &CString) -> IoResult<FileStat>;
     fn fs_chown(&mut self, path: &CString, uid: int, gid: int) ->
         IoResult<()>;
@@ -198,6 +201,7 @@ pub trait RtioTcpAcceptor : RtioSocket {
     fn accept(&mut self) -> IoResult<~RtioTcpStream:Send>;
     fn accept_simultaneously(&mut self) -> IoResult<()>;
     fn dont_accept_simultaneously(&mut self) -> IoResult<()>;
+    fn set_timeout(&mut self, timeout: Option<u64>);
 }
 
 pub trait RtioTcpStream : RtioSocket {
@@ -271,6 +275,7 @@ pub trait RtioUnixListener {
 
 pub trait RtioUnixAcceptor {
     fn accept(&mut self) -> IoResult<~RtioPipe:Send>;
+    fn set_timeout(&mut self, timeout: Option<u64>);
 }
 
 pub trait RtioTTY {

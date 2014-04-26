@@ -20,8 +20,9 @@ use middle::resolve;
 use middle::trans::adt;
 use middle::trans::base;
 use middle::trans::builder::Builder;
-use middle::trans::common::{mono_id,ExternMap,tydesc_info,BuilderRef_res,Stats};
+use middle::trans::common::{ExternMap,tydesc_info,BuilderRef_res};
 use middle::trans::debuginfo;
+use middle::trans::monomorphize::MonoId;
 use middle::trans::type_::Type;
 use middle::ty;
 use util::sha2::Sha256;
@@ -30,9 +31,25 @@ use util::nodemap::{NodeMap, NodeSet, DefIdMap};
 use std::cell::{Cell, RefCell};
 use std::c_str::ToCStr;
 use std::ptr;
+use std::rc::Rc;
 use collections::{HashMap, HashSet};
 use syntax::ast;
 use syntax::parse::token::InternedString;
+
+pub struct Stats {
+    pub n_static_tydescs: Cell<uint>,
+    pub n_glues_created: Cell<uint>,
+    pub n_null_glues: Cell<uint>,
+    pub n_real_glues: Cell<uint>,
+    pub n_fns: Cell<uint>,
+    pub n_monos: Cell<uint>,
+    pub n_inlines: Cell<uint>,
+    pub n_closures: Cell<uint>,
+    pub n_llvm_insns: Cell<uint>,
+    pub llvm_insns: RefCell<HashMap<~str, uint>>,
+    // (ident, time-in-ms, llvm-instructions)
+    pub fn_stats: RefCell<Vec<(~str, uint, uint)> >,
+}
 
 pub struct CrateContext {
     pub llmod: ModuleRef,
@@ -41,14 +58,13 @@ pub struct CrateContext {
     pub td: TargetData,
     pub tn: TypeNames,
     pub externs: RefCell<ExternMap>,
-    pub intrinsics: HashMap<&'static str, ValueRef>,
     pub item_vals: RefCell<NodeMap<ValueRef>>,
     pub exp_map2: resolve::ExportMap2,
     pub reachable: NodeSet,
     pub item_symbols: RefCell<NodeMap<~str>>,
     pub link_meta: LinkMeta,
     pub drop_glues: RefCell<HashMap<ty::t, ValueRef>>,
-    pub tydescs: RefCell<HashMap<ty::t, @tydesc_info>>,
+    pub tydescs: RefCell<HashMap<ty::t, Rc<tydesc_info>>>,
     /// Set when running emit_tydescs to enforce that no more tydescs are
     /// created.
     pub finished_tydescs: Cell<bool>,
@@ -62,10 +78,10 @@ pub struct CrateContext {
     /// that is generated
     pub non_inlineable_statics: RefCell<NodeSet>,
     /// Cache instances of monomorphized functions
-    pub monomorphized: RefCell<HashMap<mono_id, ValueRef>>,
+    pub monomorphized: RefCell<HashMap<MonoId, ValueRef>>,
     pub monomorphizing: RefCell<DefIdMap<uint>>,
     /// Cache generated vtables
-    pub vtables: RefCell<HashMap<(ty::t, mono_id), ValueRef>>,
+    pub vtables: RefCell<HashMap<(ty::t, MonoId), ValueRef>>,
     /// Cache of constant strings,
     pub const_cstr_cache: RefCell<HashMap<InternedString, ValueRef>>,
 
@@ -92,13 +108,13 @@ pub struct CrateContext {
 
     pub lltypes: RefCell<HashMap<ty::t, Type>>,
     pub llsizingtypes: RefCell<HashMap<ty::t, Type>>,
-    pub adt_reprs: RefCell<HashMap<ty::t, @adt::Repr>>,
+    pub adt_reprs: RefCell<HashMap<ty::t, Rc<adt::Repr>>>,
     pub symbol_hasher: RefCell<Sha256>,
     pub type_hashcodes: RefCell<HashMap<ty::t, ~str>>,
     pub all_llvm_symbols: RefCell<HashSet<~str>>,
     pub tcx: ty::ctxt,
     pub maps: astencode::Maps,
-    pub stats: @Stats,
+    pub stats: Stats,
     pub int_type: Type,
     pub opaque_vec_type: Type,
     pub builder: BuilderRef_res,
@@ -107,6 +123,8 @@ pub struct CrateContext {
     /// is not emitted by LLVM's GC pass when no functions use GC.
     pub uses_gc: bool,
     pub dbg_cx: Option<debuginfo::CrateDebugContext>,
+
+    intrinsics: RefCell<HashMap<&'static str, ValueRef>>,
 }
 
 impl CrateContext {
@@ -150,7 +168,6 @@ impl CrateContext {
                 td: td,
                 tn: TypeNames::new(),
                 externs: RefCell::new(HashMap::new()),
-                intrinsics: HashMap::new(),
                 item_vals: RefCell::new(NodeMap::new()),
                 exp_map2: emap2,
                 reachable: reachable,
@@ -179,7 +196,7 @@ impl CrateContext {
                 all_llvm_symbols: RefCell::new(HashSet::new()),
                 tcx: tcx,
                 maps: maps,
-                stats: @Stats {
+                stats: Stats {
                     n_static_tydescs: Cell::new(0u),
                     n_glues_created: Cell::new(0u),
                     n_null_glues: Cell::new(0u),
@@ -197,6 +214,7 @@ impl CrateContext {
                 builder: BuilderRef_res(llvm::LLVMCreateBuilderInContext(llcx)),
                 uses_gc: false,
                 dbg_cx: dbg_cx,
+                intrinsics: RefCell::new(HashMap::new()),
             };
 
             ccx.int_type = Type::int(&ccx);
@@ -207,8 +225,6 @@ impl CrateContext {
             let mut str_slice_ty = Type::named_struct(&ccx, "str_slice");
             str_slice_ty.set_struct_body([Type::i8p(&ccx), ccx.int_type], false);
             ccx.tn.associate_type("str_slice", &str_slice_ty);
-
-            base::declare_intrinsics(&mut ccx);
 
             if ccx.sess().count_llvm_insns() {
                 base::init_insn_ctxt()
@@ -233,4 +249,222 @@ impl CrateContext {
     pub fn tydesc_type(&self) -> Type {
         self.tn.find_type("tydesc").unwrap()
     }
+
+    pub fn get_intrinsic(&self, key: & &'static str) -> ValueRef {
+        match self.intrinsics.borrow().find_copy(key) {
+            Some(v) => return v,
+            _ => {}
+        }
+        match declare_intrinsic(self, key) {
+            Some(v) => return v,
+            None => fail!()
+        }
+    }
+}
+
+pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<ValueRef> {
+    macro_rules! ifn (
+        ($name:expr fn() -> $ret:expr if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
+            if $is_pnacl == $is_supported_in_pnacl && *key == $name {
+                let name = $name;
+                // HACK(eddyb) dummy output type, shouln't affect anything.
+                let f = base::decl_cdecl_fn(ccx.llmod, name, Type::func([], &$ret), ty::mk_nil());
+                ccx.intrinsics.borrow_mut().insert(name, f);
+                return Some(f);
+            }
+        });
+        ($name:expr fn() -> $ret:expr) => (ifn!($name fn() -> $ret if (true) == (true)));
+        ($name:expr fn($($arg:expr),+) -> $ret:expr
+         if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
+             if $is_pnacl == $is_supported_in_pnacl && *key == $name {
+                 let name = $name;
+                 // HACK(eddyb) dummy output type, shouln't affect anything.
+                 let f = base::decl_cdecl_fn(ccx.llmod, name,
+                                             Type::func([$($arg),+], &$ret), ty::mk_nil());
+                 ccx.intrinsics.borrow_mut().insert(name, f);
+                 return Some(f);
+             }
+        });
+        ($name:expr fn($($arg:expr),+) -> $ret:expr) =>
+            (ifn!($name fn($($arg),+) -> $ret if (true) == (true)))
+    )
+    macro_rules! mk_struct (
+        ($($field_ty:expr),*) => (Type::struct_(ccx, [$($field_ty),*], false))
+    )
+
+    let i8p = Type::i8p(ccx);
+    let void = Type::void(ccx);
+    let i1 = Type::i1(ccx);
+    let t_i8 = Type::i8(ccx);
+    let t_i16 = Type::i16(ccx);
+    let t_i32 = Type::i32(ccx);
+    let t_i64 = Type::i64(ccx);
+    let t_f32 = Type::f32(ccx);
+    let t_f64 = Type::f64(ccx);
+
+    ifn!("llvm.memcpy.p0i8.p0i8.i32" fn(i8p, i8p, t_i32, t_i32, i1) -> void);
+    ifn!("llvm.memcpy.p0i8.p0i8.i64" fn(i8p, i8p, t_i64, t_i32, i1) -> void);
+    ifn!("llvm.memmove.p0i8.p0i8.i32" fn(i8p, i8p, t_i32, t_i32, i1) -> void);
+    ifn!("llvm.memmove.p0i8.p0i8.i64" fn(i8p, i8p, t_i64, t_i32, i1) -> void);
+    ifn!("llvm.memset.p0i8.i32" fn(i8p, t_i8, t_i32, t_i32, i1) -> void);
+    ifn!("llvm.memset.p0i8.i64" fn(i8p, t_i8, t_i64, t_i32, i1) -> void);
+
+    ifn!("llvm.trap" fn() -> void);
+    ifn!("llvm.debugtrap" fn() -> void);
+    ifn!("llvm.frameaddress" fn(t_i32) -> i8p
+         if (ccx.sess().targeting_pnacl()) == (false));
+
+    ifn!("llvm.powi.f32" fn(t_f32, t_i32) -> t_f32);
+    ifn!("llvm.powi.f64" fn(t_f64, t_i32) -> t_f64);
+
+    ifn!("llvm.sqrt.f32" fn(t_f32) -> t_f32);
+    ifn!("llvm.sqrt.f64" fn(t_f64) -> t_f64);
+
+    ifn!("llvm.ctpop.i8" fn(t_i8) -> t_i8
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ctpop.i16" fn(t_i16) -> t_i16
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ctpop.i32" fn(t_i32) -> t_i32);
+    ifn!("llvm.ctpop.i64" fn(t_i64) -> t_i64);
+
+    ifn!("llvm.ctlz.i8" fn(t_i8 , i1) -> t_i8
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ctlz.i16" fn(t_i16, i1) -> t_i16
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ctlz.i32" fn(t_i32, i1) -> t_i32);
+    ifn!("llvm.ctlz.i64" fn(t_i64, i1) -> t_i64);
+
+    ifn!("llvm.cttz.i8" fn(t_i8 , i1) -> t_i8
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.cttz.i16" fn(t_i16, i1) -> t_i16
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.cttz.i32" fn(t_i32, i1) -> t_i32);
+    ifn!("llvm.cttz.i64" fn(t_i64, i1) -> t_i64);
+
+    ifn!("llvm.bswap.i16" fn(t_i16) -> t_i16);
+    ifn!("llvm.bswap.i32" fn(t_i32) -> t_i32);
+    ifn!("llvm.bswap.i64" fn(t_i64) -> t_i64);
+
+    ifn!("llvm.sadd.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.sadd.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.sadd.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.sadd.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+
+    ifn!("llvm.uadd.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.uadd.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.uadd.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.uadd.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+
+    ifn!("llvm.ssub.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ssub.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ssub.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ssub.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+
+    ifn!("llvm.usub.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.usub.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.usub.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.usub.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+
+    ifn!("llvm.smul.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.smul.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.smul.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.smul.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+
+    ifn!("llvm.umul.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.umul.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.umul.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.umul.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
+         if (ccx.sess().targeting_pnacl()) == (false));
+
+    ifn!("llvm.expect.i1" fn(i1, i1) -> i1);
+
+    // Some intrinsics were introduced in later versions of LLVM, but they have
+    // fallbacks in libc or libm and such. Currently, all of these intrinsics
+    // were introduced in LLVM 3.4, so we case on that.
+    // Additionally, PNaCl disallows quite a large percentage of LLVM's intrinsics,
+    // so when targeting PNaCl we redirect these functions to their libm counterparts.
+    macro_rules! compatible_ifn (
+        ($name:expr, $cname:ident ($($arg:expr),*) -> $ret:expr) => ({
+            let name = $name;
+            if unsafe { llvm::LLVMVersionMinor() >= 4 } && !ccx.sess().targeting_pnacl() {
+                ifn!(name fn($($arg),*) -> $ret);
+            } else if *key == $name {
+                let f = base::decl_cdecl_fn(ccx.llmod, stringify!($cname),
+                                            Type::func([$($arg),*], &$ret),
+                                            ty::mk_nil());
+                ccx.intrinsics.borrow_mut().insert(name, f);
+                return Some(f);
+            }
+        })
+    )
+
+    compatible_ifn!("llvm.copysign.f32", copysignf(t_f32, t_f32) -> t_f32);
+    compatible_ifn!("llvm.copysign.f64", copysign(t_f64, t_f64) -> t_f64);
+    compatible_ifn!("llvm.round.f32", roundf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.round.f64", round(t_f64) -> t_f64);
+
+    compatible_ifn!("llvm.pow.f32",  powf(t_f32, t_f32) -> t_f32);
+    compatible_ifn!("llvm.pow.f64",  pow (t_f64, t_f64) -> t_f64);
+
+    compatible_ifn!("llvm.sin.f32",  sinf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.sin.f64",  sin (t_f64) -> t_f64);
+    compatible_ifn!("llvm.cos.f32",  cosf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.cos.f64",  cos (t_f64) -> t_f64);
+    compatible_ifn!("llvm.exp.f32",  expf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.exp.f64",  exp (t_f64) -> t_f64);
+    compatible_ifn!("llvm.exp2.f32", exp2f(t_f32) -> t_f32);
+    compatible_ifn!("llvm.exp2.f64", exp2(t_f64) -> t_f64);
+    compatible_ifn!("llvm.log.f32",  logf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.log.f64",  log (t_f64) -> t_f64);
+    compatible_ifn!("llvm.log10.f32",log10f(t_f32) -> t_f32);
+    compatible_ifn!("llvm.log10.f64",log10(t_f64) -> t_f64);
+    compatible_ifn!("llvm.log2.f32", log2f(t_f32) -> t_f32);
+    compatible_ifn!("llvm.log2.f64", log2(t_f64) -> t_f64);
+
+    compatible_ifn!("llvm.fma.f32",  fmaf(t_f32, t_f32, t_f32) -> t_f32);
+    compatible_ifn!("llvm.fma.f64",  fma (t_f64, t_f64, t_f64) -> t_f64);
+
+    compatible_ifn!("llvm.fabs.f32", fabsf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.fabs.f64", fabs(t_f64) -> t_f64);
+
+    compatible_ifn!("llvm.floor.f32",floorf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.floor.f64",floor(t_f64) -> t_f64);
+    compatible_ifn!("llvm.ceil.f32", ceilf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.ceil.f64", ceil(t_f64) -> t_f64);
+    compatible_ifn!("llvm.trunc.f32",truncf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.trunc.f64",trunc(t_f64) -> t_f64);
+
+    compatible_ifn!("llvm.rint.f32", rintf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.rint.f64", rint(t_f64) -> t_f64);
+    compatible_ifn!("llvm.nearbyint.f32", nearbyintf(t_f32) -> t_f32);
+    compatible_ifn!("llvm.nearbyint.f64", nearbyint(t_f64) -> t_f64);
+
+    if ccx.sess().opts.debuginfo != NoDebugInfo {
+        ifn!("llvm.dbg.declare" fn(Type::metadata(ccx), Type::metadata(ccx)) -> void);
+        ifn!("llvm.dbg.value" fn(Type::metadata(ccx), t_i64, Type::metadata(ccx)) -> void);
+    }
+    return None;
 }

@@ -40,12 +40,12 @@ There are five macros that the logging subsystem uses:
 * `warn!(...)` - a macro hard-wired to the log level of `WARN`
 * `error!(...)` - a macro hard-wired to the log level of `ERROR`
 
-All of these macros use std::the same style of syntax as the `format!` syntax
+All of these macros use the same style of syntax as the `format!` syntax
 extension. Details about the syntax can be found in the documentation of
 `std::fmt` along with the Rust tutorial/manual.
 
 If you want to check at runtime if a given logging level is enabled (e.g. if the
-information you would want to log is expensive to produce), you can use std::the
+information you would want to log is expensive to produce), you can use the
 following macro:
 
 * `log_enabled!(level)` - returns true if logging of the given level is enabled
@@ -63,7 +63,7 @@ path::to::module=log_level
 
 The path to the module is rooted in the name of the crate it was compiled for,
 so if your program is contained in a file `hello.rs`, for example, to turn on
-logging for this file you would use std::a value of `RUST_LOG=hello`.
+logging for this file you would use a value of `RUST_LOG=hello`.
 Furthermore, this path is a prefix-search, so all modules nested in the
 specified module will also have logging enabled.
 
@@ -305,8 +305,8 @@ mod tests {
 
     #[test]
     fn match_full_path() {
-        let dirs = [LogDirective { name: Some(~"crate2"), level: 3 },
-                    LogDirective { name: Some(~"crate1::mod1"), level: 2 }];
+        let dirs = [LogDirective { name: Some("crate2".to_owned()), level: 3 },
+                    LogDirective { name: Some("crate1::mod1".to_owned()), level: 2 }];
         assert!(enabled(2, "crate1::mod1", dirs.iter()));
         assert!(!enabled(3, "crate1::mod1", dirs.iter()));
         assert!(enabled(3, "crate2", dirs.iter()));
@@ -315,23 +315,23 @@ mod tests {
 
     #[test]
     fn no_match() {
-        let dirs = [LogDirective { name: Some(~"crate2"), level: 3 },
-                    LogDirective { name: Some(~"crate1::mod1"), level: 2 }];
+        let dirs = [LogDirective { name: Some("crate2".to_owned()), level: 3 },
+                    LogDirective { name: Some("crate1::mod1".to_owned()), level: 2 }];
         assert!(!enabled(2, "crate3", dirs.iter()));
     }
 
     #[test]
     fn match_beginning() {
-        let dirs = [LogDirective { name: Some(~"crate2"), level: 3 },
-                    LogDirective { name: Some(~"crate1::mod1"), level: 2 }];
+        let dirs = [LogDirective { name: Some("crate2".to_owned()), level: 3 },
+                    LogDirective { name: Some("crate1::mod1".to_owned()), level: 2 }];
         assert!(enabled(3, "crate2::mod1", dirs.iter()));
     }
 
     #[test]
     fn match_beginning_longest_match() {
-        let dirs = [LogDirective { name: Some(~"crate2"), level: 3 },
-                    LogDirective { name: Some(~"crate2::mod"), level: 4 },
-                    LogDirective { name: Some(~"crate1::mod1"), level: 2 }];
+        let dirs = [LogDirective { name: Some("crate2".to_owned()), level: 3 },
+                    LogDirective { name: Some("crate2::mod".to_owned()), level: 4 },
+                    LogDirective { name: Some("crate1::mod1".to_owned()), level: 2 }];
         assert!(enabled(4, "crate2::mod1", dirs.iter()));
         assert!(!enabled(4, "crate2", dirs.iter()));
     }
@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn match_default() {
         let dirs = [LogDirective { name: None, level: 3 },
-                    LogDirective { name: Some(~"crate1::mod1"), level: 2 }];
+                    LogDirective { name: Some("crate1::mod1".to_owned()), level: 2 }];
         assert!(enabled(2, "crate1::mod1", dirs.iter()));
         assert!(enabled(3, "crate2::mod2", dirs.iter()));
     }
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn zero_level() {
         let dirs = [LogDirective { name: None, level: 3 },
-                    LogDirective { name: Some(~"crate1::mod1"), level: 0 }];
+                    LogDirective { name: Some("crate1::mod1".to_owned()), level: 0 }];
         assert!(!enabled(1, "crate1::mod1", dirs.iter()));
         assert!(enabled(3, "crate2::mod2", dirs.iter()));
     }

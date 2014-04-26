@@ -8,15 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use libc;
 use std::cast;
 use std::io::net::ip;
 use std::io;
-use libc;
 use std::mem;
 use std::rt::rtio;
 use std::sync::arc::UnsafeArc;
 
 use super::{IoResult, retry, keep_going};
+use super::c;
+use super::util;
 
 ////////////////////////////////////////////////////////////////////////////////
 // sockaddr and misc bindings
@@ -26,10 +28,10 @@ use super::{IoResult, retry, keep_going};
 #[cfg(unix)]    pub type sock_t = super::file::fd_t;
 
 pub fn htons(u: u16) -> u16 {
-    mem::to_be16(u as i16) as u16
+    mem::to_be16(u)
 }
 pub fn ntohs(u: u16) -> u16 {
-    mem::from_be16(u as i16) as u16
+    mem::from_be16(u)
 }
 
 enum InAddr {
@@ -115,12 +117,26 @@ fn setsockopt<T>(fd: sock_t, opt: libc::c_int, val: libc::c_int,
     }
 }
 
+pub fn getsockopt<T: Copy>(fd: sock_t, opt: libc::c_int,
+                           val: libc::c_int) -> IoResult<T> {
+    unsafe {
+        let mut slot: T = mem::init();
+        let mut len = mem::size_of::<T>() as libc::socklen_t;
+        let ret = c::getsockopt(fd, opt, val,
+                                &mut slot as *mut _ as *mut _,
+                                &mut len);
+        if ret != 0 {
+            Err(last_error())
+        } else {
+            assert!(len as uint == mem::size_of::<T>());
+            Ok(slot)
+        }
+    }
+}
+
 #[cfg(windows)]
 fn last_error() -> io::IoError {
-    extern "system" {
-        fn WSAGetLastError() -> libc::c_int;
-    }
-    io::IoError::from_errno(unsafe { WSAGetLastError() } as uint, true)
+    io::IoError::from_errno(unsafe { c::WSAGetLastError() } as uint, true)
 }
 
 #[cfg(not(windows))]
@@ -197,24 +213,6 @@ pub fn init() {}
 
 #[cfg(windows)]
 pub fn init() {
-    static WSADESCRIPTION_LEN: uint = 256;
-    static WSASYS_STATUS_LEN: uint = 128;
-    struct WSADATA {
-        wVersion: libc::WORD,
-        wHighVersion: libc::WORD,
-        szDescription: [u8, ..WSADESCRIPTION_LEN + 1],
-        szSystemStatus: [u8, ..WSASYS_STATUS_LEN + 1],
-        iMaxSockets: u16,
-        iMaxUdpDg: u16,
-        lpVendorInfo: *u8,
-    }
-    type LPWSADATA = *mut WSADATA;
-
-    #[link(name = "ws2_32")]
-    extern "system" {
-        fn WSAStartup(wVersionRequested: libc::WORD,
-                       lpWSAData: LPWSADATA) -> libc::c_int;
-    }
 
     unsafe {
         use std::unstable::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
@@ -223,9 +221,9 @@ pub fn init() {
 
         let _guard = LOCK.lock();
         if !INITIALIZED {
-            let mut data: WSADATA = mem::init();
-            let ret = WSAStartup(0x202,      // version 2.2
-                                 &mut data);
+            let mut data: c::WSADATA = mem::init();
+            let ret = c::WSAStartup(0x202,      // version 2.2
+                                    &mut data);
             assert_eq!(ret, 0);
             INITIALIZED = true;
         }
@@ -245,21 +243,26 @@ struct Inner {
 }
 
 impl TcpStream {
-    pub fn connect(addr: ip::SocketAddr) -> IoResult<TcpStream> {
-        unsafe {
-            socket(addr, libc::SOCK_STREAM).and_then(|fd| {
-                let (addr, len) = addr_to_sockaddr(addr);
-                let addrp = &addr as *libc::sockaddr_storage;
-                let inner = Inner { fd: fd };
-                let ret = TcpStream { inner: UnsafeArc::new(inner) };
-                match retry(|| {
-                    libc::connect(fd, addrp as *libc::sockaddr,
-                                  len as libc::socklen_t)
-                }) {
+    pub fn connect(addr: ip::SocketAddr,
+                   timeout: Option<u64>) -> IoResult<TcpStream> {
+        let fd = try!(socket(addr, libc::SOCK_STREAM));
+        let (addr, len) = addr_to_sockaddr(addr);
+        let inner = Inner { fd: fd };
+        let ret = TcpStream { inner: UnsafeArc::new(inner) };
+
+        let len = len as libc::socklen_t;
+        let addrp = &addr as *_ as *libc::sockaddr;
+        match timeout {
+            Some(timeout) => {
+                try!(util::connect_timeout(fd, addrp, len, timeout));
+                Ok(ret)
+            },
+            None => {
+                match retry(|| unsafe { libc::connect(fd, addrp, len) }) {
                     -1 => Err(last_error()),
                     _ => Ok(ret),
                 }
-            })
+            }
         }
     }
 
@@ -373,7 +376,7 @@ impl Drop for Inner {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct TcpListener {
-    inner: UnsafeArc<Inner>,
+    inner: Inner,
 }
 
 impl TcpListener {
@@ -383,7 +386,7 @@ impl TcpListener {
                 let (addr, len) = addr_to_sockaddr(addr);
                 let addrp = &addr as *libc::sockaddr_storage;
                 let inner = Inner { fd: fd };
-                let ret = TcpListener { inner: UnsafeArc::new(inner) };
+                let ret = TcpListener { inner: inner };
                 // On platforms with Berkeley-derived sockets, this allows
                 // to quickly rebind a socket, without needing to wait for
                 // the OS to clean up the previous one.
@@ -404,15 +407,12 @@ impl TcpListener {
         }
     }
 
-    pub fn fd(&self) -> sock_t {
-        // This is just a read-only arc so the unsafety is fine
-        unsafe { (*self.inner.get()).fd }
-    }
+    pub fn fd(&self) -> sock_t { self.inner.fd }
 
     pub fn native_listen(self, backlog: int) -> IoResult<TcpAcceptor> {
         match unsafe { libc::listen(self.fd(), backlog as libc::c_int) } {
             -1 => Err(last_error()),
-            _ => Ok(TcpAcceptor { listener: self })
+            _ => Ok(TcpAcceptor { listener: self, deadline: 0 })
         }
     }
 }
@@ -431,12 +431,16 @@ impl rtio::RtioSocket for TcpListener {
 
 pub struct TcpAcceptor {
     listener: TcpListener,
+    deadline: u64,
 }
 
 impl TcpAcceptor {
     pub fn fd(&self) -> sock_t { self.listener.fd() }
 
     pub fn native_accept(&mut self) -> IoResult<TcpStream> {
+        if self.deadline != 0 {
+            try!(util::accept_deadline(self.fd(), self.deadline));
+        }
         unsafe {
             let mut storage: libc::sockaddr_storage = mem::init();
             let storagep = &mut storage as *mut libc::sockaddr_storage;
@@ -467,6 +471,22 @@ impl rtio::RtioTcpAcceptor for TcpAcceptor {
 
     fn accept_simultaneously(&mut self) -> IoResult<()> { Ok(()) }
     fn dont_accept_simultaneously(&mut self) -> IoResult<()> { Ok(()) }
+    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    fn set_timeout(&mut self, timeout: Option<u64>) {
+        self.deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
+    }
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    fn set_timeout(&mut self, timeout: Option<u64>) {
+        use std::{mem, ptr};
+        self.deadline = timeout.map(|a| {
+            let b = unsafe {
+                let mut now: libc::timeval = mem::init();
+                assert_eq!(c::gettimeofday(&mut now, ptr::null()), 0);
+                (now.tv_sec as u64) * 1000 + (now.tv_usec as u64) / 1000
+            };
+            b + a
+        }).unwrap_or(0)
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

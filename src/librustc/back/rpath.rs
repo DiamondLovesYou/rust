@@ -12,9 +12,10 @@
 use driver::session::Session;
 use metadata::cstore;
 use metadata::filesearch;
+use util::fs;
 
 use collections::HashSet;
-use std::{os, slice};
+use std::os;
 use syntax::abi;
 
 fn not_win32(os: abi::Os) -> bool {
@@ -32,33 +33,24 @@ pub fn get_rpath_flags(sess: &Session, out_filename: &Path) -> Vec<~str> {
     let mut flags = Vec::new();
 
     if sess.targ_cfg.os == abi::OsFreebsd {
-        flags.push_all([~"-Wl,-rpath,/usr/local/lib/gcc46",
-                        ~"-Wl,-rpath,/usr/local/lib/gcc44",
-                        ~"-Wl,-z,origin"]);
+        flags.push_all(["-Wl,-rpath,/usr/local/lib/gcc46".to_owned(),
+                        "-Wl,-rpath,/usr/local/lib/gcc44".to_owned(),
+                        "-Wl,-z,origin".to_owned()]);
     }
 
     debug!("preparing the RPATH!");
 
-    let sysroot = sess.filesearch().sysroot;
+    let sysroot = sess.sysroot();
     let output = out_filename;
     let libs = sess.cstore.get_used_crates(cstore::RequireDynamic);
-    let libs = libs.move_iter().filter_map(|(_, l)| l.map(|p| p.clone())).collect();
-    // We don't currently rpath extern libraries, but we know
-    // where rustrt is and we know every rust program needs it
-    let libs = slice::append_one(libs, get_sysroot_absolute_rt_lib(sess));
+    let libs = libs.move_iter().filter_map(|(_, l)| {
+        l.map(|p| p.clone())
+    }).collect::<~[_]>();
 
     let rpaths = get_rpaths(os, sysroot, output, libs,
                             sess.opts.target_triple);
     flags.push_all(rpaths_to_flags(rpaths.as_slice()).as_slice());
     flags
-}
-
-fn get_sysroot_absolute_rt_lib(sess: &Session) -> Path {
-    let sysroot = sess.filesearch().sysroot;
-    let r = filesearch::relative_target_lib_path(sysroot, sess.opts.target_triple);
-    let mut p = sysroot.join(&r);
-    p.push(os::dll_filename("rustrt"));
-    p
 }
 
 pub fn rpaths_to_flags(rpaths: &[~str]) -> Vec<~str> {
@@ -87,10 +79,6 @@ fn get_rpaths(os: abi::Os,
     // crates they depend on.
     let rel_rpaths = get_rpaths_relative_to_output(os, output, libs);
 
-    // Make backup absolute paths to the libraries. Binaries can
-    // be moved as long as the crates they link against don't move.
-    let abs_rpaths = get_absolute_rpaths(libs);
-
     // And a final backup rpath to the global library location.
     let fallback_rpaths = vec!(get_install_prefix_rpath(sysroot, target_triple));
 
@@ -102,11 +90,9 @@ fn get_rpaths(os: abi::Os,
     }
 
     log_rpaths("relative", rel_rpaths.as_slice());
-    log_rpaths("absolute", abs_rpaths.as_slice());
     log_rpaths("fallback", fallback_rpaths.as_slice());
 
     let mut rpaths = rel_rpaths;
-    rpaths.push_all(abs_rpaths.as_slice());
     rpaths.push_all(fallback_rpaths.as_slice());
 
     // Remove duplicates
@@ -136,25 +122,14 @@ pub fn get_rpath_relative_to_output(os: abi::Os,
         abi::OsWin32 => unreachable!()
     };
 
-    let mut lib = os::make_absolute(lib);
+    let mut lib = fs::realpath(&os::make_absolute(lib)).unwrap();
     lib.pop();
-    let mut output = os::make_absolute(output);
+    let mut output = fs::realpath(&os::make_absolute(output)).unwrap();
     output.pop();
     let relative = lib.path_relative_from(&output);
     let relative = relative.expect("could not create rpath relative to output");
     // FIXME (#9639): This needs to handle non-utf8 paths
     prefix+"/"+relative.as_str().expect("non-utf8 component in path")
-}
-
-fn get_absolute_rpaths(libs: &[Path]) -> Vec<~str> {
-    libs.iter().map(|a| get_absolute_rpath(a)).collect()
-}
-
-pub fn get_absolute_rpath(lib: &Path) -> ~str {
-    let mut p = os::make_absolute(lib);
-    p.pop();
-    // FIXME (#9639): This needs to handle non-utf8 paths
-    p.as_str().expect("non-utf8 component in rpath").to_owned()
 }
 
 pub fn get_install_prefix_rpath(sysroot: &Path, target_triple: &str) -> ~str {
@@ -181,17 +156,15 @@ pub fn minimize_rpaths(rpaths: &[~str]) -> Vec<~str> {
 
 #[cfg(unix, test)]
 mod test {
-    use std::os;
-
-    use back::rpath::{get_absolute_rpath, get_install_prefix_rpath};
+    use back::rpath::get_install_prefix_rpath;
     use back::rpath::{minimize_rpaths, rpaths_to_flags, get_rpath_relative_to_output};
     use syntax::abi;
     use metadata::filesearch;
 
     #[test]
     fn test_rpaths_to_flags() {
-        let flags = rpaths_to_flags([~"path1", ~"path2"]);
-        assert_eq!(flags, vec!(~"-Wl,-rpath,path1", ~"-Wl,-rpath,path2"));
+        let flags = rpaths_to_flags(["path1".to_owned(), "path2".to_owned()]);
+        assert_eq!(flags, vec!("-Wl,-rpath,path1".to_owned(), "-Wl,-rpath,path2".to_owned()));
     }
 
     #[test]
@@ -217,17 +190,18 @@ mod test {
 
     #[test]
     fn test_minimize1() {
-        let res = minimize_rpaths([~"rpath1", ~"rpath2", ~"rpath1"]);
-        assert!(res.as_slice() == [~"rpath1", ~"rpath2"]);
+        let res = minimize_rpaths(["rpath1".to_owned(), "rpath2".to_owned(), "rpath1".to_owned()]);
+        assert!(res.as_slice() == ["rpath1".to_owned(), "rpath2".to_owned()]);
     }
 
     #[test]
     fn test_minimize2() {
-        let res = minimize_rpaths([~"1a", ~"2",  ~"2",
-                                   ~"1a", ~"4a", ~"1a",
-                                   ~"2",  ~"3",  ~"4a",
-                                   ~"3"]);
-        assert!(res.as_slice() == [~"1a", ~"2", ~"4a", ~"3"]);
+        let res = minimize_rpaths(["1a".to_owned(), "2".to_owned(),  "2".to_owned(),
+                                   "1a".to_owned(), "4a".to_owned(), "1a".to_owned(),
+                                   "2".to_owned(),  "3".to_owned(),  "4a".to_owned(),
+                                   "3".to_owned()]);
+        assert!(res.as_slice() == ["1a".to_owned(), "2".to_owned(), "4a".to_owned(),
+                                   "3".to_owned()]);
     }
 
     #[test]
@@ -257,16 +231,5 @@ mod test {
                                                &Path::new("bin/rustc"),
                                                &Path::new("lib/libstd.so"));
         assert_eq!(res.as_slice(), "@loader_path/../lib");
-    }
-
-    #[test]
-    fn test_get_absolute_rpath() {
-        let res = get_absolute_rpath(&Path::new("lib/libstd.so"));
-        let lib = os::make_absolute(&Path::new("lib"));
-        debug!("test_get_absolute_rpath: {} vs. {}",
-               res.to_str(), lib.display());
-
-        // FIXME (#9639): This needs to handle non-utf8 paths
-        assert_eq!(res.as_slice(), lib.as_str().expect("non-utf8 component in path"));
     }
 }

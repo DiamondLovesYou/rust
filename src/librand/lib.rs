@@ -80,7 +80,7 @@ use std::cast;
 use std::io::IoResult;
 use std::kinds::marker;
 use std::local_data;
-use std::str;
+use std::strbuf::StrBuf;
 
 pub use isaac::{IsaacRng, Isaac64Rng};
 pub use os::OSRng;
@@ -258,11 +258,11 @@ pub trait Rng {
         static GEN_ASCII_STR_CHARSET: &'static [u8] = bytes!("ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                                                              abcdefghijklmnopqrstuvwxyz\
                                                              0123456789");
-        let mut s = str::with_capacity(len);
+        let mut s = StrBuf::with_capacity(len);
         for _ in range(0, len) {
             s.push_char(self.choose(GEN_ASCII_STR_CHARSET) as char)
         }
-        s
+        s.into_owned()
     }
 
     /// Choose an item randomly, failing if `values` is empty.
@@ -801,7 +801,7 @@ mod test {
     #[test]
     fn test_shuffle() {
         let mut r = task_rng();
-        let mut empty: &mut [int] = &mut [];
+        let empty: &mut [int] = &mut [];
         r.shuffle(empty);
         let mut one = [1];
         r.shuffle(one);
@@ -883,59 +883,59 @@ static RAND_BENCH_N: u64 = 100;
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use {XorShiftRng, StdRng, IsaacRng, Isaac64Rng, Rng, RAND_BENCH_N};
     use std::mem::size_of;
 
     #[bench]
-    fn rand_xorshift(bh: &mut BenchHarness) {
+    fn rand_xorshift(b: &mut Bencher) {
         let mut rng = XorShiftRng::new().unwrap();
-        bh.iter(|| {
+        b.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
             }
         });
-        bh.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
+        b.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
     }
 
     #[bench]
-    fn rand_isaac(bh: &mut BenchHarness) {
+    fn rand_isaac(b: &mut Bencher) {
         let mut rng = IsaacRng::new().unwrap();
-        bh.iter(|| {
+        b.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
             }
         });
-        bh.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
+        b.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
     }
 
     #[bench]
-    fn rand_isaac64(bh: &mut BenchHarness) {
+    fn rand_isaac64(b: &mut Bencher) {
         let mut rng = Isaac64Rng::new().unwrap();
-        bh.iter(|| {
+        b.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
             }
         });
-        bh.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
+        b.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
     }
 
     #[bench]
-    fn rand_std(bh: &mut BenchHarness) {
+    fn rand_std(b: &mut Bencher) {
         let mut rng = StdRng::new().unwrap();
-        bh.iter(|| {
+        b.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
             }
         });
-        bh.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
+        b.bytes = size_of::<uint>() as u64 * RAND_BENCH_N;
     }
 
     #[bench]
-    fn rand_shuffle_100(bh: &mut BenchHarness) {
+    fn rand_shuffle_100(b: &mut Bencher) {
         let mut rng = XorShiftRng::new().unwrap();
         let x : &mut[uint] = [1,..100];
-        bh.iter(|| {
+        b.iter(|| {
             rng.shuffle(x);
         })
     }

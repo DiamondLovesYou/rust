@@ -46,7 +46,7 @@ Some examples of obvious things you might want to do
 * Write a line to a file
 
     ```rust
-    # #[allow(unused_must_use)];
+    # #![allow(unused_must_use)]
     use std::io::File;
 
     let mut file = File::create(&Path::new("message.txt"));
@@ -82,7 +82,7 @@ Some examples of obvious things you might want to do
 * Make a simple TCP client connection and request
 
     ```rust,should_fail
-    # #[allow(unused_must_use)];
+    # #![allow(unused_must_use)]
     use std::io::net::ip::SocketAddr;
     use std::io::net::tcp::TcpStream;
 
@@ -97,8 +97,8 @@ Some examples of obvious things you might want to do
     ```rust
     # fn main() { }
     # fn foo() {
-    # #[allow(unused_must_use, dead_code)];
-    use std::io::net::tcp::TcpListener;
+    # #![allow(dead_code)]
+    use std::io::{TcpListener, TcpStream};
     use std::io::net::ip::{Ipv4Addr, SocketAddr};
     use std::io::{Acceptor, Listener};
 
@@ -108,12 +108,19 @@ Some examples of obvious things you might want to do
     // bind the listener to the specified address
     let mut acceptor = listener.listen();
 
-    // accept connections and process them
-    # fn handle_client<T>(_: T) {}
+    fn handle_client(mut stream: TcpStream) {
+        // ...
+    # &mut stream; // silence unused mutability/variable warning
+    }
+    // accept connections and process them, spawning a new tasks for each one
     for stream in acceptor.incoming() {
-        spawn(proc() {
-            handle_client(stream);
-        });
+        match stream {
+            Err(e) => { /* connection failed */ }
+            Ok(stream) => spawn(proc() {
+                // connection succeeded
+                handle_client(stream)
+            })
+        }
     }
 
     // close the socket server
@@ -152,7 +159,7 @@ be an error.
 If you wanted to handle the error though you might write:
 
 ```rust
-# #[allow(unused_must_use)];
+# #![allow(unused_must_use)]
 use std::io::File;
 
 match File::create(&Path::new("diary.txt")).write(bytes!("Met a girl.\n")) {
@@ -221,11 +228,11 @@ use os;
 use option::{Option, Some, None};
 use path::Path;
 use result::{Ok, Err, Result};
-use str::{StrSlice, OwnedStr};
+use str::StrSlice;
 use str;
 use uint;
 use unstable::finally::try_finally;
-use slice::{Vector, OwnedVector, MutableVector, ImmutableVector, OwnedCloneableVector};
+use slice::{Vector, MutableVector, ImmutableVector};
 use vec::Vec;
 
 // Reexports
@@ -423,6 +430,8 @@ pub enum IoErrorKind {
     IoUnavailable,
     /// A parameter was incorrect in a way that caused an I/O error not part of this list.
     InvalidInput,
+    /// The I/O operation's timeout expired, causing it to be canceled.
+    TimedOut,
 }
 
 /// A trait for objects which are byte-oriented streams. Readers are defined by
@@ -632,28 +641,28 @@ pub trait Reader {
 
     /// Reads a little-endian unsigned integer.
     ///
-    /// The number of bytes returned is system-dependant.
+    /// The number of bytes returned is system-dependent.
     fn read_le_uint(&mut self) -> IoResult<uint> {
         self.read_le_uint_n(uint::BYTES).map(|i| i as uint)
     }
 
     /// Reads a little-endian integer.
     ///
-    /// The number of bytes returned is system-dependant.
+    /// The number of bytes returned is system-dependent.
     fn read_le_int(&mut self) -> IoResult<int> {
         self.read_le_int_n(int::BYTES).map(|i| i as int)
     }
 
     /// Reads a big-endian unsigned integer.
     ///
-    /// The number of bytes returned is system-dependant.
+    /// The number of bytes returned is system-dependent.
     fn read_be_uint(&mut self) -> IoResult<uint> {
         self.read_be_uint_n(uint::BYTES).map(|i| i as uint)
     }
 
     /// Reads a big-endian integer.
     ///
-    /// The number of bytes returned is system-dependant.
+    /// The number of bytes returned is system-dependent.
     fn read_be_int(&mut self) -> IoResult<int> {
         self.read_be_int_n(int::BYTES).map(|i| i as int)
     }
@@ -1181,7 +1190,7 @@ pub trait Buffer: Reader {
     /// use std::io;
     ///
     /// let mut reader = io::stdin();
-    /// let input = reader.read_line().ok().unwrap_or(~"nothing");
+    /// let input = reader.read_line().ok().unwrap_or("nothing".to_owned());
     /// ```
     ///
     /// # Error

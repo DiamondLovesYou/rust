@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -16,22 +16,25 @@
 //! them in the future to instead emit any format desired.
 
 use std::fmt;
-use std::local_data;
 use std::io;
+use std::local_data;
+use std::strbuf::StrBuf;
 
 use syntax::ast;
 use syntax::ast_util;
 
 use clean;
+use html::item_type;
+use html::item_type::ItemType;
 use html::render;
 use html::render::{cache_key, current_location_key};
 
 /// Helper to render an optional visibility with a space after it (if the
 /// visibility is preset)
 pub struct VisSpace(pub Option<ast::Visibility>);
-/// Similarly to VisSpace, this structure is used to render a purity with a
+/// Similarly to VisSpace, this structure is used to render a function style with a
 /// space after it.
-pub struct PuritySpace(pub ast::Purity);
+pub struct FnStyleSpace(pub ast::FnStyle);
 /// Wrapper struct for properly emitting a method declaration.
 pub struct Method<'a>(pub &'a clean::SelfTy, pub &'a clean::FnDecl);
 
@@ -41,9 +44,9 @@ impl VisSpace {
     }
 }
 
-impl PuritySpace {
-    pub fn get(&self) -> ast::Purity {
-        let PuritySpace(v) = *self; v
+impl FnStyleSpace {
+    pub fn get(&self) -> ast::FnStyle {
+        let FnStyleSpace(v) = *self; v
     }
 }
 
@@ -171,21 +174,21 @@ fn external_path(w: &mut io::Writer, p: &clean::Path, print_all: bool,
         },
         |_cache| {
             Some((Vec::from_slice(fqn), match kind {
-                clean::TypeStruct => "struct",
-                clean::TypeEnum => "enum",
-                clean::TypeFunction => "fn",
-                clean::TypeTrait => "trait",
+                clean::TypeStruct => item_type::Struct,
+                clean::TypeEnum => item_type::Enum,
+                clean::TypeFunction => item_type::Function,
+                clean::TypeTrait => item_type::Trait,
             }))
         })
 }
 
 fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
         root: |&render::Cache, &[~str]| -> Option<~str>,
-        info: |&render::Cache| -> Option<(Vec<~str> , &'static str)>)
+        info: |&render::Cache| -> Option<(Vec<~str> , ItemType)>)
     -> fmt::Result
 {
     // The generics will get written to both the title and link
-    let mut generics = ~"";
+    let mut generics = StrBuf::new();
     let last = path.segments.last().unwrap();
     if last.lifetimes.len() > 0 || last.types.len() > 0 {
         let mut counter = 0;
@@ -211,7 +214,7 @@ fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
             let cache = cache.unwrap();
             let abs_root = root(&**cache, loc.as_slice());
             let rel_root = match path.segments.get(0).name.as_slice() {
-                "self" => Some(~"./"),
+                "self" => Some("./".to_owned()),
                 _ => None,
             };
 
@@ -219,7 +222,7 @@ fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
                 let amt = path.segments.len() - 1;
                 match rel_root {
                     Some(root) => {
-                        let mut root = root;
+                        let mut root = StrBuf::from_str(root);
                         for seg in path.segments.slice_to(amt).iter() {
                             if "super" == seg.name || "self" == seg.name {
                                 try!(write!(w, "{}::", seg.name));
@@ -228,7 +231,7 @@ fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
                                 root.push_str("/");
                                 try!(write!(w, "<a class='mod'
                                                     href='{}index.html'>{}</a>::",
-                                              root,
+                                              root.as_slice(),
                                               seg.name));
                             }
                         }
@@ -244,19 +247,19 @@ fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
             match info(&**cache) {
                 // This is a documented path, link to it!
                 Some((ref fqp, shortty)) if abs_root.is_some() => {
-                    let mut url = abs_root.unwrap();
+                    let mut url = StrBuf::from_str(abs_root.unwrap());
                     let to_link = fqp.slice_to(fqp.len() - 1);
                     for component in to_link.iter() {
                         url.push_str(*component);
                         url.push_str("/");
                     }
                     match shortty {
-                        "mod" => {
+                        item_type::Module => {
                             url.push_str(*fqp.last().unwrap());
                             url.push_str("/index.html");
                         }
                         _ => {
-                            url.push_str(shortty);
+                            url.push_str(shortty.to_static_str());
                             url.push_str(".");
                             url.push_str(*fqp.last().unwrap());
                             url.push_str(".html");
@@ -271,25 +274,24 @@ fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
                     try!(write!(w, "{}", last.name));
                 }
             }
-            try!(write!(w, "{}", generics));
+            try!(write!(w, "{}", generics.as_slice()));
             Ok(())
         })
     })
 }
 
 /// Helper to render type parameters
-fn typarams(w: &mut io::Writer,
+fn tybounds(w: &mut io::Writer,
             typarams: &Option<Vec<clean::TyParamBound> >) -> fmt::Result {
     match *typarams {
         Some(ref params) => {
-            try!(write!(w, "&lt;"));
+            try!(write!(w, ":"));
             for (i, param) in params.iter().enumerate() {
                 if i > 0 {
-                    try!(write!(w, ", "));
+                    try!(write!(w, " + "));
                 }
                 try!(write!(w, "{}", *param));
             }
-            try!(write!(w, "&gt;"));
             Ok(())
         }
         None => Ok(())
@@ -307,13 +309,13 @@ impl fmt::Show for clean::Type {
             }
             clean::ResolvedPath{id, typarams: ref tp, path: ref path} => {
                 try!(resolved_path(f.buf, id, path, false));
-                typarams(f.buf, tp)
+                tybounds(f.buf, tp)
             }
             clean::ExternalPath{path: ref path, typarams: ref tp,
                                 fqn: ref fqn, kind, krate} => {
                 try!(external_path(f.buf, path, false, fqn.as_slice(), kind,
                                      krate))
-                typarams(f.buf, tp)
+                tybounds(f.buf, tp)
             }
             clean::Self(..) => f.buf.write("Self".as_bytes()),
             clean::Primitive(prim) => {
@@ -330,35 +332,74 @@ impl fmt::Show for clean::Type {
                     ast::TyUint(ast::TyU64) => "u64",
                     ast::TyFloat(ast::TyF32) => "f32",
                     ast::TyFloat(ast::TyF64) => "f64",
+                    ast::TyFloat(ast::TyF128) => "f128",
                     ast::TyStr => "str",
                     ast::TyBool => "bool",
                     ast::TyChar => "char",
                 };
                 f.buf.write(s.as_bytes())
             }
-            clean::Closure(ref decl) => {
-                let region = match decl.region {
-                    Some(ref region) => format!("{} ", *region),
-                    None => ~"",
-                };
-
-                write!(f.buf, "{}{}{arrow, select, yes{ -&gt; {ret}} other{}}",
-                       PuritySpace(decl.purity),
-                       match decl.sigil {
-                           ast::OwnedSigil => format!("proc({})", decl.decl.inputs),
-                           ast::BorrowedSigil => format!("{}|{}|", region, decl.decl.inputs),
-                           ast::ManagedSigil => format!("@{}fn({})", region, decl.decl.inputs),
+            clean::Closure(ref decl, ref region) => {
+                write!(f.buf, "{style}{lifetimes}|{args}|{bounds}\
+                               {arrow, select, yes{ -&gt; {ret}} other{}}",
+                       style = FnStyleSpace(decl.fn_style),
+                       lifetimes = if decl.lifetimes.len() == 0 {
+                           "".to_owned()
+                       } else {
+                           format!("&lt;{:#}&gt;", decl.lifetimes)
+                       },
+                       args = decl.decl.inputs,
+                       arrow = match decl.decl.output { clean::Unit => "no", _ => "yes" },
+                       ret = decl.decl.output,
+                       bounds = {
+                           let mut ret = StrBuf::new();
+                           match *region {
+                               Some(ref lt) => {
+                                   ret.push_str(format!(": {}", *lt));
+                               }
+                               None => {}
+                           }
+                           for bound in decl.bounds.iter() {
+                                match *bound {
+                                    clean::RegionBound => {}
+                                    clean::TraitBound(ref t) => {
+                                        if ret.len() == 0 {
+                                            ret.push_str(": ");
+                                        } else {
+                                            ret.push_str(" + ");
+                                        }
+                                        ret.push_str(format!("{}", *t));
+                                    }
+                                }
+                           }
+                           ret.into_owned()
+                       })
+            }
+            clean::Proc(ref decl) => {
+                write!(f.buf, "{style}{lifetimes}proc({args}){bounds}\
+                               {arrow, select, yes{ -&gt; {ret}} other{}}",
+                       style = FnStyleSpace(decl.fn_style),
+                       lifetimes = if decl.lifetimes.len() == 0 {
+                           "".to_owned()
+                       } else {
+                           format!("&lt;{:#}&gt;", decl.lifetimes)
+                       },
+                       args = decl.decl.inputs,
+                       bounds = if decl.bounds.len() == 0 {
+                           "".to_owned()
+                       } else {
+                           let mut m = decl.bounds.iter().map(|s| s.to_str());
+                           ": " + m.collect::<~[~str]>().connect(" + ")
                        },
                        arrow = match decl.decl.output { clean::Unit => "no", _ => "yes" },
                        ret = decl.decl.output)
-                // FIXME: where are bounds and lifetimes printed?!
             }
             clean::BareFunction(ref decl) => {
                 write!(f.buf, "{}{}fn{}{}",
-                       PuritySpace(decl.purity),
+                       FnStyleSpace(decl.fn_style),
                        match decl.abi {
-                           ref x if "" == *x => ~"",
-                           ref x if "\"Rust\"" == *x => ~"",
+                           ref x if "" == *x => "".to_owned(),
+                           ref x if "\"Rust\"" == *x => "".to_owned(),
                            ref s => " " + *s + " ",
                        },
                        decl.generics,
@@ -392,7 +433,7 @@ impl fmt::Show for clean::Type {
                        }, **t)
             }
             clean::BorrowedRef{ lifetime: ref l, mutability, type_: ref ty} => {
-                let lt = match *l { Some(ref l) => format!("{} ", *l), _ => ~"" };
+                let lt = match *l { Some(ref l) => format!("{} ", *l), _ => "".to_owned() };
                 write!(f.buf, "&amp;{}{}{}",
                        lt,
                        match mutability {
@@ -430,7 +471,7 @@ impl fmt::Show for clean::FnDecl {
 impl<'a> fmt::Show for Method<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let Method(selfty, d) = *self;
-        let mut args = ~"";
+        let mut args = StrBuf::new();
         match *selfty {
             clean::SelfStatic => {},
             clean::SelfValue => args.push_str("self"),
@@ -455,7 +496,8 @@ impl<'a> fmt::Show for Method<'a> {
             }
             args.push_str(format!("{}", input.type_));
         }
-        write!(f.buf, "({args}){arrow, select, yes{ -&gt; {ret}} other{}}",
+        write!(f.buf,
+               "({args}){arrow, select, yes{ -&gt; {ret}} other{}}",
                args = args,
                arrow = match d.output { clean::Unit => "no", _ => "yes" },
                ret = d.output)
@@ -466,18 +508,17 @@ impl fmt::Show for VisSpace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.get() {
             Some(ast::Public) => write!(f.buf, "pub "),
-            Some(ast::Private) => write!(f.buf, "priv "),
             Some(ast::Inherited) | None => Ok(())
         }
     }
 }
 
-impl fmt::Show for PuritySpace {
+impl fmt::Show for FnStyleSpace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.get() {
             ast::UnsafeFn => write!(f.buf, "unsafe "),
             ast::ExternFn => write!(f.buf, "extern "),
-            ast::ImpureFn => Ok(())
+            ast::NormalFn => Ok(())
         }
     }
 }

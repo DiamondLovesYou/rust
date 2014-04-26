@@ -37,8 +37,10 @@ pub fn size_of_val<T>(_val: &T) -> uint {
 /// Useful for building structures containing variable-length arrays.
 #[inline]
 pub fn nonzero_size_of<T>() -> uint {
-    let s = size_of::<T>();
-    if s == 0 { 1 } else { s }
+    match size_of::<T>() {
+        0 => 1,
+        x => x
+    }
 }
 
 /// Returns the size in bytes of the type of the value that `_val` points to.
@@ -99,129 +101,128 @@ pub unsafe fn move_val_init<T>(dst: &mut T, src: T) {
     intrinsics::move_val_init(dst, src)
 }
 
-/// Convert an i16 to little endian from the target's endianness.
+/// Convert an u16 to little endian from the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn to_le16(x: i16) -> i16 { x }
+#[cfg(target_endian = "little")] #[inline] pub fn to_le16(x: u16) -> u16 { x }
 
-/// Convert an i16 to little endian from the target's endianness.
+/// Convert an u16 to little endian from the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn to_le16(x: i16) -> i16 { unsafe { bswap16(x) } }
+#[cfg(target_endian = "big")]    #[inline] pub fn to_le16(x: u16) -> u16 { unsafe { bswap16(x) } }
 
-/// Convert an i32 to little endian from the target's endianness.
+/// Convert an u32 to little endian from the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn to_le32(x: i32) -> i32 { x }
+#[cfg(target_endian = "little")] #[inline] pub fn to_le32(x: u32) -> u32 { x }
 
-/// Convert an i32 to little endian from the target's endianness.
+/// Convert an u32 to little endian from the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn to_le32(x: i32) -> i32 { unsafe { bswap32(x) } }
+#[cfg(target_endian = "big")]    #[inline] pub fn to_le32(x: u32) -> u32 { unsafe { bswap32(x) } }
 
-/// Convert an i64 to little endian from the target's endianness.
+/// Convert an u64 to little endian from the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn to_le64(x: i64) -> i64 { x }
+#[cfg(target_endian = "little")] #[inline] pub fn to_le64(x: u64) -> u64 { x }
 
-/// Convert an i64 to little endian from the target's endianness.
+/// Convert an u64 to little endian from the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn to_le64(x: i64) -> i64 { unsafe { bswap64(x) } }
+#[cfg(target_endian = "big")]    #[inline] pub fn to_le64(x: u64) -> u64 { unsafe { bswap64(x) } }
 
 
-/// Convert an i16 to big endian from the target's endianness.
+/// Convert an u16 to big endian from the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn to_be16(x: i16) -> i16 { unsafe { bswap16(x) } }
+#[cfg(target_endian = "little")] #[inline] pub fn to_be16(x: u16) -> u16 { unsafe { bswap16(x) } }
 
-/// Convert an i16 to big endian from the target's endianness.
+/// Convert an u16 to big endian from the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn to_be16(x: i16) -> i16 { x }
+#[cfg(target_endian = "big")]    #[inline] pub fn to_be16(x: u16) -> u16 { x }
 
-/// Convert an i32 to big endian from the target's endianness.
+/// Convert an u32 to big endian from the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn to_be32(x: i32) -> i32 { unsafe { bswap32(x) } }
+#[cfg(target_endian = "little")] #[inline] pub fn to_be32(x: u32) -> u32 { unsafe { bswap32(x) } }
 
-/// Convert an i32 to big endian from the target's endianness.
+/// Convert an u32 to big endian from the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn to_be32(x: i32) -> i32 { x }
+#[cfg(target_endian = "big")]    #[inline] pub fn to_be32(x: u32) -> u32 { x }
 
-/// Convert an i64 to big endian from the target's endianness.
+/// Convert an u64 to big endian from the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn to_be64(x: i64) -> i64 { unsafe { bswap64(x) } }
+#[cfg(target_endian = "little")] #[inline] pub fn to_be64(x: u64) -> u64 { unsafe { bswap64(x) } }
 
-/// Convert an i64 to big endian from the target's endianness.
+/// Convert an u64 to big endian from the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn to_be64(x: i64) -> i64 { x }
+#[cfg(target_endian = "big")]    #[inline] pub fn to_be64(x: u64) -> u64 { x }
 
 
-/// Convert an i16 from little endian to the target's endianness.
+/// Convert an u16 from little endian to the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn from_le16(x: i16) -> i16 { x }
+#[cfg(target_endian = "little")] #[inline] pub fn from_le16(x: u16) -> u16 { x }
 
-/// Convert an i16 from little endian to the target's endianness.
+/// Convert an u16 from little endian to the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn from_le16(x: i16) -> i16 { unsafe { bswap16(x) } }
+#[cfg(target_endian = "big")]    #[inline] pub fn from_le16(x: u16) -> u16 { unsafe { bswap16(x) } }
 
-/// Convert an i32 from little endian to the target's endianness.
+/// Convert an u32 from little endian to the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn from_le32(x: i32) -> i32 { x }
+#[cfg(target_endian = "little")] #[inline] pub fn from_le32(x: u32) -> u32 { x }
 
-/// Convert an i32 from little endian to the target's endianness.
+/// Convert an u32 from little endian to the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn from_le32(x: i32) -> i32 { unsafe { bswap32(x) } }
+#[cfg(target_endian = "big")]    #[inline] pub fn from_le32(x: u32) -> u32 { unsafe { bswap32(x) } }
 
-/// Convert an i64 from little endian to the target's endianness.
+/// Convert an u64 from little endian to the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn from_le64(x: i64) -> i64 { x }
+#[cfg(target_endian = "little")] #[inline] pub fn from_le64(x: u64) -> u64 { x }
 
-/// Convert an i64 from little endian to the target's endianness.
+/// Convert an u64 from little endian to the target's endianness.
 ///
 /// On little endian, this is a no-op.  On big endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn from_le64(x: i64) -> i64 { unsafe { bswap64(x) } }
+#[cfg(target_endian = "big")]    #[inline] pub fn from_le64(x: u64) -> u64 { unsafe { bswap64(x) } }
 
 
-/// Convert an i16 from big endian to the target's endianness.
+/// Convert an u16 from big endian to the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn from_be16(x: i16) -> i16 { unsafe { bswap16(x) } }
+#[cfg(target_endian = "little")] #[inline] pub fn from_be16(x: u16) -> u16 { unsafe { bswap16(x) } }
 
-/// Convert an i16 from big endian to the target's endianness.
+/// Convert an u16 from big endian to the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn from_be16(x: i16) -> i16 { x }
+#[cfg(target_endian = "big")]    #[inline] pub fn from_be16(x: u16) -> u16 { x }
 
-/// Convert an i32 from big endian to the target's endianness.
+/// Convert an u32 from big endian to the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn from_be32(x: i32) -> i32 { unsafe { bswap32(x) } }
+#[cfg(target_endian = "little")] #[inline] pub fn from_be32(x: u32) -> u32 { unsafe { bswap32(x) } }
 
-/// Convert an i32 from big endian to the target's endianness.
+/// Convert an u32 from big endian to the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn from_be32(x: i32) -> i32 { x }
+#[cfg(target_endian = "big")]    #[inline] pub fn from_be32(x: u32) -> u32 { x }
 
-/// Convert an i64 from big endian to the target's endianness.
+/// Convert an u64 from big endian to the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "little")] #[inline] pub fn from_be64(x: i64) -> i64 { unsafe { bswap64(x) } }
+#[cfg(target_endian = "little")] #[inline] pub fn from_be64(x: u64) -> u64 { unsafe { bswap64(x) } }
 
-/// Convert an i64 from big endian to the target's endianness.
+/// Convert an u64 from big endian to the target's endianness.
 ///
 /// On big endian, this is a no-op.  On little endian, the bytes are swapped.
-#[cfg(target_endian = "big")]    #[inline] pub fn from_be64(x: i64) -> i64 { x }
-
+#[cfg(target_endian = "big")]    #[inline] pub fn from_be64(x: u64) -> u64 { x }
 
 /**
  * Swap the values at two mutable locations of the same type, without
@@ -238,7 +239,7 @@ pub fn swap<T>(x: &mut T, y: &mut T) {
         ptr::copy_nonoverlapping_memory(x, &*y, 1);
         ptr::copy_nonoverlapping_memory(y, &t, 1);
 
-        // y and t now point to the same thing, but we need to completely forget `tmp`
+        // y and t now point to the same thing, but we need to completely forget `t`
         // because it's no longer relevant.
         cast::forget(t);
     }
@@ -262,6 +263,7 @@ pub fn drop<T>(_x: T) { }
 mod tests {
     use mem::*;
     use option::{Some,None};
+    use str::StrSlice;
 
     #[test]
     fn size_of_basic() {
@@ -352,18 +354,19 @@ mod tests {
 
     #[test]
     fn test_replace() {
-        let mut x = Some(~"test");
+        let mut x = Some("test".to_owned());
         let y = replace(&mut x, None);
         assert!(x.is_none());
         assert!(y.is_some());
     }
 }
 
+// FIXME #13642 (these benchmarks should be in another place)
 /// Completely miscellaneous language-construct benchmarks.
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use option::{Some,None};
 
     // Static/dynamic method dispatch
@@ -383,18 +386,18 @@ mod bench {
     }
 
     #[bench]
-    fn trait_vtable_method_call(bh: &mut BenchHarness) {
+    fn trait_vtable_method_call(b: &mut Bencher) {
         let s = Struct { field: 10 };
         let t = &s as &Trait;
-        bh.iter(|| {
+        b.iter(|| {
             t.method()
         });
     }
 
     #[bench]
-    fn trait_static_method_call(bh: &mut BenchHarness) {
+    fn trait_static_method_call(b: &mut Bencher) {
         let s = Struct { field: 10 };
-        bh.iter(|| {
+        b.iter(|| {
             s.method()
         });
     }
@@ -402,9 +405,9 @@ mod bench {
     // Overhead of various match forms
 
     #[bench]
-    fn match_option_some(bh: &mut BenchHarness) {
+    fn match_option_some(b: &mut Bencher) {
         let x = Some(10);
-        bh.iter(|| {
+        b.iter(|| {
             match x {
                 Some(y) => y,
                 None => 11
@@ -413,9 +416,9 @@ mod bench {
     }
 
     #[bench]
-    fn match_vec_pattern(bh: &mut BenchHarness) {
+    fn match_vec_pattern(b: &mut Bencher) {
         let x = [1,2,3,4,5,6];
-        bh.iter(|| {
+        b.iter(|| {
             match x {
                 [1,2,3,..] => 10,
                 _ => 11

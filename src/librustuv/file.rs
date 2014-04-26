@@ -12,7 +12,7 @@ use std::c_str::CString;
 use std::c_str;
 use std::cast::transmute;
 use std::cast;
-use libc::{c_int, c_char, c_void, size_t, ssize_t};
+use libc::{c_int, c_char, c_void, ssize_t};
 use libc;
 use std::rt::task::BlockedTask;
 use std::io::{FileStat, IoError};
@@ -86,14 +86,12 @@ impl FsRequest {
             } else {
                 offset + written as i64
             };
+            let uvbuf = uvll::uv_buf_t {
+                base: buf.slice_from(written as uint).as_ptr(),
+                len: (buf.len() - written) as uvll::uv_buf_len_t,
+            };
             match execute(|req, cb| unsafe {
-                uvll::uv_fs_write(loop_.handle,
-                                  req,
-                                  fd,
-                                  buf.as_ptr().offset(written as int) as *c_void,
-                                  (buf.len() - written) as size_t,
-                                  offset,
-                                  cb)
+                uvll::uv_fs_write(loop_.handle, req, fd, &uvbuf, 1, offset, cb)
             }).map(|req| req.get_result()) {
                 Err(e) => return Err(e),
                 Ok(n) => { written += n as uint; }
@@ -106,9 +104,11 @@ impl FsRequest {
         -> Result<int, UvError>
     {
         execute(|req, cb| unsafe {
-            uvll::uv_fs_read(loop_.handle, req,
-                             fd, buf.as_ptr() as *c_void,
-                             buf.len() as size_t, offset, cb)
+            let uvbuf = uvll::uv_buf_t {
+                base: buf.as_ptr(),
+                len: buf.len() as uvll::uv_buf_len_t,
+            };
+            uvll::uv_fs_read(loop_.handle, req, fd, &uvbuf, 1, offset, cb)
         }).map(|req| {
             req.get_result() as int
         })
@@ -152,13 +152,13 @@ impl FsRequest {
     }
 
     pub fn readdir(loop_: &Loop, path: &CString, flags: c_int)
-        -> Result<~[Path], UvError>
+        -> Result<Vec<Path>, UvError>
     {
         execute(|req, cb| unsafe {
             uvll::uv_fs_readdir(loop_.handle,
                                 req, path.with_ref(|p| p), flags, cb)
         }).map(|req| unsafe {
-            let mut paths = ~[];
+            let mut paths = vec!();
             let path = CString::new(path.with_ref(|p| p), false);
             let parent = Path::new(path);
             let _ = c_str::from_c_multistring(req.get_ptr() as *libc::c_char,
@@ -469,7 +469,6 @@ mod test {
     use libc::{O_CREAT, O_RDWR, O_RDONLY, S_IWUSR, S_IRUSR};
     use std::io;
     use std::str;
-    use std::slice;
     use super::FsRequest;
     use super::super::Loop;
     use super::super::local_loop;
@@ -505,8 +504,8 @@ mod test {
             let fd = result.fd;
 
             // read
-            let mut read_mem = slice::from_elem(1000, 0u8);
-            let result = FsRequest::read(l(), fd, read_mem, 0);
+            let mut read_mem = Vec::from_elem(1000, 0u8);
+            let result = FsRequest::read(l(), fd, read_mem.as_mut_slice(), 0);
             assert!(result.is_ok());
 
             let nread = result.unwrap();

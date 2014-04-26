@@ -18,13 +18,13 @@ use middle::typeck;
 use middle::moves;
 use middle::dataflow::DataFlowContext;
 use middle::dataflow::DataFlowOperator;
-use util::nodemap::NodeSet;
+use util::nodemap::{NodeMap, NodeSet};
 use util::ppaux::{note_and_explain_region, Repr, UserString};
 
 use std::cell::{Cell, RefCell};
-use collections::HashMap;
 use std::ops::{BitOr, BitAnd};
-use std::result::{Result};
+use std::rc::Rc;
+use std::strbuf::StrBuf;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util;
@@ -75,19 +75,13 @@ impl<'a> Visitor<()> for BorrowckCtxt<'a> {
 }
 
 pub fn check_crate(tcx: &ty::ctxt,
-                   method_map: typeck::MethodMap,
                    moves_map: &NodeSet,
-                   moved_variables_set: &NodeSet,
                    capture_map: &moves::CaptureMap,
-                   krate: &ast::Crate)
-                   -> root_map {
+                   krate: &ast::Crate) {
     let mut bccx = BorrowckCtxt {
         tcx: tcx,
-        method_map: method_map,
         moves_map: moves_map,
-        moved_variables_set: moved_variables_set,
         capture_map: capture_map,
-        root_map: root_map(),
         stats: @BorrowStats {
             loaned_paths_same: Cell::new(0),
             loaned_paths_imm: Cell::new(0),
@@ -95,25 +89,22 @@ pub fn check_crate(tcx: &ty::ctxt,
             guaranteed_paths: Cell::new(0),
         }
     };
-    let bccx = &mut bccx;
 
-    visit::walk_crate(bccx, krate, ());
+    visit::walk_crate(&mut bccx, krate, ());
 
     if tcx.sess.borrowck_stats() {
         println!("--- borrowck stats ---");
         println!("paths requiring guarantees: {}",
                  bccx.stats.guaranteed_paths.get());
         println!("paths requiring loans     : {}",
-                 make_stat(bccx, bccx.stats.loaned_paths_same.get()));
+                 make_stat(&bccx, bccx.stats.loaned_paths_same.get()));
         println!("paths requiring imm loans : {}",
-                 make_stat(bccx, bccx.stats.loaned_paths_imm.get()));
+                 make_stat(&bccx, bccx.stats.loaned_paths_imm.get()));
         println!("stable paths              : {}",
-                 make_stat(bccx, bccx.stats.stable_paths.get()));
+                 make_stat(&bccx, bccx.stats.stable_paths.get()));
     }
 
-    return bccx.root_map;
-
-    fn make_stat(bccx: &mut BorrowckCtxt, stat: uint) -> ~str {
+    fn make_stat(bccx: &BorrowckCtxt, stat: uint) -> ~str {
         let stat_f = stat as f64;
         let total = bccx.stats.guaranteed_paths.get() as f64;
         format!("{} ({:.0f}%)", stat  , stat_f * 100.0 / total)
@@ -148,7 +139,6 @@ fn borrowck_fn(this: &mut BorrowckCtxt,
         gather_loans::gather_loans_in_fn(this, decl, body);
     let mut loan_dfcx =
         DataFlowContext::new(this.tcx,
-                             this.method_map,
                              LoanDataFlowOperator,
                              id_range,
                              all_loans.len());
@@ -160,7 +150,6 @@ fn borrowck_fn(this: &mut BorrowckCtxt,
 
     let flowed_moves = move_data::FlowedMoveData::new(move_data,
                                                       this.tcx,
-                                                      this.method_map,
                                                       id_range,
                                                       body);
 
@@ -175,11 +164,8 @@ fn borrowck_fn(this: &mut BorrowckCtxt,
 
 pub struct BorrowckCtxt<'a> {
     tcx: &'a ty::ctxt,
-    method_map: typeck::MethodMap,
     moves_map: &'a NodeSet,
-    moved_variables_set: &'a NodeSet,
     capture_map: &'a moves::CaptureMap,
-    root_map: root_map,
 
     // Statistics:
     stats: @BorrowStats
@@ -190,25 +176,6 @@ pub struct BorrowStats {
     loaned_paths_imm: Cell<uint>,
     stable_paths: Cell<uint>,
     guaranteed_paths: Cell<uint>,
-}
-
-// The keys to the root map combine the `id` of the deref expression
-// with the number of types that it is *autodereferenced*. So, for
-// example, imagine I have a variable `x: @@@T` and an expression
-// `(*x).f`.  This will have 3 derefs, one explicit and then two
-// autoderefs. These are the relevant `root_map_key` values that could
-// appear:
-//
-//    {id:*x, derefs:0} --> roots `x` (type: @@@T, due to explicit deref)
-//    {id:*x, derefs:1} --> roots `*x` (type: @@T, due to autoderef #1)
-//    {id:*x, derefs:2} --> roots `**x` (type: @T, due to autoderef #2)
-//
-// Note that there is no entry with derefs:3---the type of that expression
-// is T, which is not a box.
-#[deriving(Eq, TotalEq, Hash)]
-pub struct root_map_key {
-    pub id: ast::NodeId,
-    pub derefs: uint
 }
 
 pub type BckResult<T> = Result<T, BckError>;
@@ -225,10 +192,10 @@ pub enum PartialTotal {
 /// Record of a loan that was issued.
 pub struct Loan {
     index: uint,
-    loan_path: @LoanPath,
+    loan_path: Rc<LoanPath>,
     cmt: mc::cmt,
     kind: ty::BorrowKind,
-    restrictions: Vec<Restriction> ,
+    restrictions: Vec<Restriction>,
     gen_scope: ast::NodeId,
     kill_scope: ast::NodeId,
     span: Span,
@@ -241,12 +208,13 @@ pub enum LoanCause {
     AddrOf,
     AutoRef,
     RefBinding,
+    ClosureInvocation,
 }
 
 #[deriving(Eq, TotalEq, Hash)]
 pub enum LoanPath {
     LpVar(ast::NodeId),               // `x` in doc.rs
-    LpExtend(@LoanPath, mc::MutabilityCategory, LoanPathElem)
+    LpExtend(Rc<LoanPath>, mc::MutabilityCategory, LoanPathElem)
 }
 
 #[deriving(Eq, TotalEq, Hash)]
@@ -259,12 +227,12 @@ impl LoanPath {
     pub fn node_id(&self) -> ast::NodeId {
         match *self {
             LpVar(local_id) => local_id,
-            LpExtend(base, _, _) => base.node_id()
+            LpExtend(ref base, _, _) => base.node_id()
         }
     }
 }
 
-pub fn opt_loan_path(cmt: mc::cmt) -> Option<@LoanPath> {
+pub fn opt_loan_path(cmt: &mc::cmt) -> Option<Rc<LoanPath>> {
     //! Computes the `LoanPath` (if any) for a `cmt`.
     //! Note that this logic is somewhat duplicated in
     //! the method `compute()` found in `gather_loans::restrictions`,
@@ -274,30 +242,31 @@ pub fn opt_loan_path(cmt: mc::cmt) -> Option<@LoanPath> {
     match cmt.cat {
         mc::cat_rvalue(..) |
         mc::cat_static_item |
-        mc::cat_copied_upvar(_) => {
+        mc::cat_copied_upvar(mc::CopiedUpvar { onceness: ast::Many, .. }) => {
             None
         }
 
         mc::cat_local(id) |
         mc::cat_arg(id) |
+        mc::cat_copied_upvar(mc::CopiedUpvar { upvar_id: id, .. }) |
         mc::cat_upvar(ty::UpvarId {var_id: id, ..}, _) => {
-            Some(@LpVar(id))
+            Some(Rc::new(LpVar(id)))
         }
 
-        mc::cat_deref(cmt_base, _, pk) => {
+        mc::cat_deref(ref cmt_base, _, pk) => {
             opt_loan_path(cmt_base).map(|lp| {
-                @LpExtend(lp, cmt.mutbl, LpDeref(pk))
+                Rc::new(LpExtend(lp, cmt.mutbl, LpDeref(pk)))
             })
         }
 
-        mc::cat_interior(cmt_base, ik) => {
+        mc::cat_interior(ref cmt_base, ik) => {
             opt_loan_path(cmt_base).map(|lp| {
-                @LpExtend(lp, cmt.mutbl, LpInterior(ik))
+                Rc::new(LpExtend(lp, cmt.mutbl, LpInterior(ik)))
             })
         }
 
-        mc::cat_downcast(cmt_base) |
-        mc::cat_discr(cmt_base, _) => {
+        mc::cat_downcast(ref cmt_base) |
+        mc::cat_discr(ref cmt_base, _) => {
             opt_loan_path(cmt_base)
         }
     }
@@ -317,7 +286,7 @@ pub fn opt_loan_path(cmt: mc::cmt) -> Option<@LoanPath> {
 // because the restriction against moves is implied.
 
 pub struct Restriction {
-    loan_path: @LoanPath,
+    loan_path: Rc<LoanPath>,
     set: RestrictionSet
 }
 
@@ -356,42 +325,12 @@ impl Repr for RestrictionSet {
 }
 
 ///////////////////////////////////////////////////////////////////////////
-// Rooting of managed boxes
-//
-// When we borrow the interior of a managed box, it is sometimes
-// necessary to *root* the box, meaning to stash a copy of the box
-// somewhere that the garbage collector will find it. This ensures
-// that the box is not collected for the lifetime of the borrow.
-//
-// As part of this rooting, we sometimes also freeze the box at
-// runtime, meaning that we dynamically detect when the box is
-// borrowed in incompatible ways.
-//
-// Both of these actions are driven through the `root_map`, which maps
-// from a node to the dynamic rooting action that should be taken when
-// that node executes. The node is identified through a
-// `root_map_key`, which pairs a node-id and a deref count---the
-// problem is that sometimes the box that needs to be rooted is only
-// uncovered after a certain number of auto-derefs.
-
-pub struct RootInfo {
-    pub scope: ast::NodeId,
-}
-
-pub type root_map = @RefCell<HashMap<root_map_key, RootInfo>>;
-
-pub fn root_map() -> root_map {
-    return @RefCell::new(HashMap::new());
-}
-
-///////////////////////////////////////////////////////////////////////////
 // Errors
 
 // Errors that can occur
 #[deriving(Eq)]
 pub enum bckerr_code {
     err_mutbl,
-    err_out_of_root_scope(ty::Region, ty::Region), // superscope, subscope
     err_out_of_scope(ty::Region, ty::Region), // superscope, subscope
     err_borrowed_pointer_too_short(
         ty::Region, ty::Region, RestrictionSet), // loan, ptr
@@ -435,12 +374,9 @@ impl<'a> BorrowckCtxt<'a> {
         self.moves_map.contains(&id)
     }
 
-    pub fn mc(&self) -> mc::MemCategorizationContext<TcxTyper<'a>> {
+    pub fn mc(&self) -> mc::MemCategorizationContext<&'a ty::ctxt> {
         mc::MemCategorizationContext {
-            typer: TcxTyper {
-                tcx: self.tcx,
-                method_map: self.method_map
-            }
+            typer: self.tcx,
         }
     }
 
@@ -514,14 +450,16 @@ impl<'a> BorrowckCtxt<'a> {
     }
 
     pub fn cat_discr(&self, cmt: mc::cmt, match_id: ast::NodeId) -> mc::cmt {
-        @mc::cmt_ {cat:mc::cat_discr(cmt, match_id),
-                   mutbl:cmt.mutbl.inherit(),
-                   ..*cmt}
+        Rc::new(mc::cmt_ {
+            cat: mc::cat_discr(cmt.clone(), match_id),
+            mutbl: cmt.mutbl.inherit(),
+            ..*cmt
+        })
     }
 
     pub fn cat_pattern(&self,
                        cmt: mc::cmt,
-                       pat: @ast::Pat,
+                       pat: &ast::Pat,
                        op: |mc::cmt, &ast::Pat|) {
         let r = self.mc().cat_pattern(cmt, pat, |_,x,y| op(x,y));
         assert!(r.is_ok());
@@ -530,7 +468,7 @@ impl<'a> BorrowckCtxt<'a> {
     pub fn report(&self, err: BckError) {
         self.span_err(
             err.span,
-            self.bckerr_to_str(err));
+            self.bckerr_to_str(&err));
         self.note_and_explain_bckerr(err);
     }
 
@@ -539,7 +477,7 @@ impl<'a> BorrowckCtxt<'a> {
                                      use_kind: MovedValueUseKind,
                                      lp: &LoanPath,
                                      move: &move_data::Move,
-                                     moved_lp: @LoanPath) {
+                                     moved_lp: &LoanPath) {
         let verb = match use_kind {
             MovedInUse => "use",
             MovedInCapture => "capture",
@@ -570,8 +508,7 @@ impl<'a> BorrowckCtxt<'a> {
             move_data::MoveExpr => {
                 let (expr_ty, expr_span) = match self.tcx.map.find(move.id) {
                     Some(ast_map::NodeExpr(expr)) => {
-                        (ty::expr_ty_adjusted(self.tcx, expr,
-                                              &*self.method_map.borrow()), expr.span)
+                        (ty::expr_ty_adjusted(self.tcx, expr), expr.span)
                     }
                     r => self.tcx.sess.bug(format!("MoveExpr({:?}) maps to {:?}, not Expr",
                                                    move.id, r))
@@ -597,8 +534,7 @@ impl<'a> BorrowckCtxt<'a> {
             move_data::Captured => {
                 let (expr_ty, expr_span) = match self.tcx.map.find(move.id) {
                     Some(ast_map::NodeExpr(expr)) => {
-                        (ty::expr_ty_adjusted(self.tcx, expr,
-                                              &*self.method_map.borrow()), expr.span)
+                        (ty::expr_ty_adjusted(self.tcx, expr), expr.span)
                     }
                     r => self.tcx.sess.bug(format!("Captured({:?}) maps to {:?}, not Expr",
                                                    move.id, r))
@@ -618,7 +554,7 @@ impl<'a> BorrowckCtxt<'a> {
         fn move_suggestion(tcx: &ty::ctxt, ty: ty::t, default_msg: &'static str)
                           -> &'static str {
             match ty::get(ty).sty {
-                ty::ty_closure(ref cty) if cty.sigil == ast::BorrowedSigil =>
+                ty::ty_closure(~ty::ClosureTy { store: ty::RegionTraitStore(..), .. }) =>
                     "a non-copyable stack closure (capture it in a new closure, \
                      e.g. `|x| f(x)`, to override)",
                 _ if ty::type_moves_by_default(tcx, ty) =>
@@ -654,17 +590,17 @@ impl<'a> BorrowckCtxt<'a> {
         self.tcx.sess.span_end_note(s, m);
     }
 
-    pub fn bckerr_to_str(&self, err: BckError) -> ~str {
+    pub fn bckerr_to_str(&self, err: &BckError) -> ~str {
         match err.code {
             err_mutbl => {
-                let descr = match opt_loan_path(err.cmt) {
+                let descr = match opt_loan_path(&err.cmt) {
                     None => format!("{} {}",
                                     err.cmt.mutbl.to_user_str(),
-                                    self.cmt_to_str(err.cmt)),
+                                    self.cmt_to_str(&*err.cmt)),
                     Some(lp) => format!("{} {} `{}`",
                                         err.cmt.mutbl.to_user_str(),
-                                        self.cmt_to_str(err.cmt),
-                                        self.loan_path_to_str(lp)),
+                                        self.cmt_to_str(&*err.cmt),
+                                        self.loan_path_to_str(&*lp)),
                 };
 
                 match err.cause {
@@ -674,22 +610,23 @@ impl<'a> BorrowckCtxt<'a> {
                     AddrOf | RefBinding | AutoRef => {
                         format!("cannot borrow {} as mutable", descr)
                     }
+                    ClosureInvocation => {
+                        self.tcx.sess.span_bug(err.span,
+                            "err_mutbl with a closure invocation");
+                    }
                 }
             }
-            err_out_of_root_scope(..) => {
-                format!("cannot root managed value long enough")
-            }
             err_out_of_scope(..) => {
-                let msg = match opt_loan_path(err.cmt) {
+                let msg = match opt_loan_path(&err.cmt) {
                     None => format!("borrowed value"),
-                    Some(lp) => format!("`{}`", self.loan_path_to_str(lp)),
+                    Some(lp) => format!("`{}`", self.loan_path_to_str(&*lp)),
                 };
                 format!("{} does not live long enough", msg)
             }
             err_borrowed_pointer_too_short(..) => {
-                let descr = match opt_loan_path(err.cmt) {
-                    Some(lp) => format!("`{}`", self.loan_path_to_str(lp)),
-                    None => self.cmt_to_str(err.cmt),
+                let descr = match opt_loan_path(&err.cmt) {
+                    Some(lp) => format!("`{}`", self.loan_path_to_str(&*lp)),
+                    None => self.cmt_to_str(&*err.cmt),
                 };
 
                 format!("lifetime of {} is too short to guarantee \
@@ -721,6 +658,10 @@ impl<'a> BorrowckCtxt<'a> {
             BorrowViolation(AutoRef) |
             BorrowViolation(RefBinding) => {
                 "cannot borrow data mutably"
+            }
+
+            BorrowViolation(ClosureInvocation) => {
+                "closure invocation"
             }
         };
 
@@ -754,19 +695,6 @@ impl<'a> BorrowckCtxt<'a> {
         match code {
             err_mutbl(..) => { }
 
-            err_out_of_root_scope(super_scope, sub_scope) => {
-                note_and_explain_region(
-                    self.tcx,
-                    "managed value would have to be rooted for ",
-                    sub_scope,
-                    "...");
-                note_and_explain_region(
-                    self.tcx,
-                    "...but can only be rooted for ",
-                    super_scope,
-                    "");
-            }
-
             err_out_of_scope(super_scope, sub_scope) => {
                 note_and_explain_region(
                     self.tcx,
@@ -781,9 +709,9 @@ impl<'a> BorrowckCtxt<'a> {
             }
 
             err_borrowed_pointer_too_short(loan_scope, ptr_scope, _) => {
-                let descr = match opt_loan_path(err.cmt) {
-                    Some(lp) => format!("`{}`", self.loan_path_to_str(lp)),
-                    None => self.cmt_to_str(err.cmt),
+                let descr = match opt_loan_path(&err.cmt) {
+                    Some(lp) => format!("`{}`", self.loan_path_to_str(&*lp)),
+                    None => self.cmt_to_str(&*err.cmt),
                 };
                 note_and_explain_region(
                     self.tcx,
@@ -801,14 +729,14 @@ impl<'a> BorrowckCtxt<'a> {
 
     pub fn append_loan_path_to_str(&self,
                                    loan_path: &LoanPath,
-                                   out: &mut ~str) {
+                                   out: &mut StrBuf) {
         match *loan_path {
             LpVar(id) => {
                 out.push_str(ty::local_var_name_str(self.tcx, id).get());
             }
 
-            LpExtend(lp_base, _, LpInterior(mc::InteriorField(fname))) => {
-                self.append_autoderefd_loan_path_to_str(lp_base, out);
+            LpExtend(ref lp_base, _, LpInterior(mc::InteriorField(fname))) => {
+                self.append_autoderefd_loan_path_to_str(&**lp_base, out);
                 match fname {
                     mc::NamedField(fname) => {
                         out.push_char('.');
@@ -821,27 +749,27 @@ impl<'a> BorrowckCtxt<'a> {
                 }
             }
 
-            LpExtend(lp_base, _, LpInterior(mc::InteriorElement(_))) => {
-                self.append_autoderefd_loan_path_to_str(lp_base, out);
+            LpExtend(ref lp_base, _, LpInterior(mc::InteriorElement(_))) => {
+                self.append_autoderefd_loan_path_to_str(&**lp_base, out);
                 out.push_str("[..]");
             }
 
-            LpExtend(lp_base, _, LpDeref(_)) => {
+            LpExtend(ref lp_base, _, LpDeref(_)) => {
                 out.push_char('*');
-                self.append_loan_path_to_str(lp_base, out);
+                self.append_loan_path_to_str(&**lp_base, out);
             }
         }
     }
 
     pub fn append_autoderefd_loan_path_to_str(&self,
                                               loan_path: &LoanPath,
-                                              out: &mut ~str) {
+                                              out: &mut StrBuf) {
         match *loan_path {
-            LpExtend(lp_base, _, LpDeref(_)) => {
+            LpExtend(ref lp_base, _, LpDeref(_)) => {
                 // For a path like `(*x).f` or `(*x)[3]`, autoderef
                 // rules would normally allow users to omit the `*x`.
                 // So just serialize such paths to `x.f` or x[3]` respectively.
-                self.append_autoderefd_loan_path_to_str(lp_base, out)
+                self.append_autoderefd_loan_path_to_str(&**lp_base, out)
             }
 
             LpVar(..) | LpExtend(_, _, LpInterior(..)) => {
@@ -851,12 +779,12 @@ impl<'a> BorrowckCtxt<'a> {
     }
 
     pub fn loan_path_to_str(&self, loan_path: &LoanPath) -> ~str {
-        let mut result = ~"";
+        let mut result = StrBuf::new();
         self.append_loan_path_to_str(loan_path, &mut result);
-        result
+        result.into_owned()
     }
 
-    pub fn cmt_to_str(&self, cmt: mc::cmt) -> ~str {
+    pub fn cmt_to_str(&self, cmt: &mc::cmt_) -> ~str {
         self.mc().cmt_to_str(cmt)
     }
 }
@@ -900,11 +828,11 @@ impl Repr for LoanPath {
                 format!("$({})", tcx.map.node_to_str(id))
             }
 
-            &LpExtend(lp, _, LpDeref(_)) => {
+            &LpExtend(ref lp, _, LpDeref(_)) => {
                 format!("{}.*", lp.repr(tcx))
             }
 
-            &LpExtend(lp, _, LpInterior(ref interior)) => {
+            &LpExtend(ref lp, _, LpInterior(ref interior)) => {
                 format!("{}.{}", lp.repr(tcx), interior.repr(tcx))
             }
         }
@@ -913,37 +841,32 @@ impl Repr for LoanPath {
 
 ///////////////////////////////////////////////////////////////////////////
 
-pub struct TcxTyper<'a> {
-    tcx: &'a ty::ctxt,
-    method_map: typeck::MethodMap,
-}
-
-impl<'a> mc::Typer for TcxTyper<'a> {
+impl<'a> mc::Typer for &'a ty::ctxt {
     fn tcx<'a>(&'a self) -> &'a ty::ctxt {
-        self.tcx
+        *self
     }
 
-    fn node_ty(&mut self, id: ast::NodeId) -> mc::McResult<ty::t> {
-        Ok(ty::node_id_to_type(self.tcx, id))
+    fn node_ty(&self, id: ast::NodeId) -> mc::McResult<ty::t> {
+        Ok(ty::node_id_to_type(*self, id))
     }
 
     fn node_method_ty(&self, method_call: typeck::MethodCall) -> Option<ty::t> {
         self.method_map.borrow().find(&method_call).map(|method| method.ty)
     }
 
-    fn adjustment(&mut self, id: ast::NodeId) -> Option<@ty::AutoAdjustment> {
-        self.tcx.adjustments.borrow().find_copy(&id)
+    fn adjustments<'a>(&'a self) -> &'a RefCell<NodeMap<ty::AutoAdjustment>> {
+        &self.adjustments
     }
 
-    fn is_method_call(&mut self, id: ast::NodeId) -> bool {
+    fn is_method_call(&self, id: ast::NodeId) -> bool {
         self.method_map.borrow().contains_key(&typeck::MethodCall::expr(id))
     }
 
-    fn temporary_scope(&mut self, id: ast::NodeId) -> Option<ast::NodeId> {
-        self.tcx.region_maps.temporary_scope(id)
+    fn temporary_scope(&self, id: ast::NodeId) -> Option<ast::NodeId> {
+        self.region_maps.temporary_scope(id)
     }
 
-    fn upvar_borrow(&mut self, id: ty::UpvarId) -> ty::UpvarBorrow {
-        self.tcx.upvar_borrow_map.borrow().get_copy(&id)
+    fn upvar_borrow(&self, id: ty::UpvarId) -> ty::UpvarBorrow {
+        self.upvar_borrow_map.borrow().get_copy(&id)
     }
 }

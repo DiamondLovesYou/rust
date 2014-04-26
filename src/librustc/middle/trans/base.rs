@@ -75,6 +75,7 @@ use libc::c_uint;
 use std::c_str::ToCStr;
 use std::cell::{Cell, RefCell};
 use std::local_data;
+use std::rc::Rc;
 use syntax::abi::{X86, X86_64, Arm, Mips, Rust, RustIntrinsic};
 use syntax::abi::Le32;
 use syntax::ast_util::{local_def, is_local};
@@ -189,7 +190,7 @@ fn decl_fn(llmod: ModuleRef, name: &str, cc: lib::llvm::CallConv,
         // FIXME #6750 ~Trait cannot be directly marked as
         // noalias because the actual object pointer is nested.
         ty::ty_uniq(..) | // ty::ty_trait(_, _, ty::UniqTraitStore, _, _) |
-        ty::ty_vec(_, ty::vstore_uniq) | ty::ty_str(ty::vstore_uniq) => {
+        ty::ty_str(ty::VstoreUniq) => {
             unsafe {
                 llvm::LLVMAddReturnAttribute(llfn, lib::llvm::NoAliasAttribute as c_uint);
             }
@@ -200,6 +201,7 @@ fn decl_fn(llmod: ModuleRef, name: &str, cc: lib::llvm::CallConv,
     lib::llvm::SetFunctionCallConv(llfn, cc);
     // Function addresses in Rust are never significant, allowing functions to be merged.
     lib::llvm::SetUnnamedAddr(llfn, true);
+    set_split_stack(llfn);
 
     llfn
 }
@@ -260,8 +262,8 @@ pub fn decl_rust_fn(ccx: &CrateContext, has_env: bool,
             // FIXME #6750 ~Trait cannot be directly marked as
             // noalias because the actual object pointer is nested.
             ty::ty_uniq(..) | // ty::ty_trait(_, _, ty::UniqTraitStore, _, _) |
-            ty::ty_vec(_, ty::vstore_uniq) | ty::ty_str(ty::vstore_uniq) |
-            ty::ty_closure(~ty::ClosureTy {sigil: ast::OwnedSigil, ..}) => {
+            ty::ty_str(ty::VstoreUniq) |
+            ty::ty_closure(~ty::ClosureTy {store: ty::UniqTraitStore, ..}) => {
                 unsafe {
                     llvm::LLVMAddAttribute(llarg, lib::llvm::NoAliasAttribute as c_uint);
                 }
@@ -398,17 +400,17 @@ pub fn malloc_raw_dyn_managed<'a>(
 
 // Type descriptor and type glue stuff
 
-pub fn get_tydesc(ccx: &CrateContext, t: ty::t) -> @tydesc_info {
+pub fn get_tydesc(ccx: &CrateContext, t: ty::t) -> Rc<tydesc_info> {
     match ccx.tydescs.borrow().find(&t) {
-        Some(&inf) => return inf,
+        Some(inf) => return inf.clone(),
         _ => { }
     }
 
     ccx.stats.n_static_tydescs.set(ccx.stats.n_static_tydescs.get() + 1u);
-    let inf = glue::declare_tydesc(ccx, t);
+    let inf = Rc::new(glue::declare_tydesc(ccx, t));
 
-    ccx.tydescs.borrow_mut().insert(t, inf);
-    return inf;
+    ccx.tydescs.borrow_mut().insert(t, inf.clone());
+    inf
 }
 
 #[allow(dead_code)] // useful
@@ -447,7 +449,7 @@ pub fn set_llvm_fn_attrs(attrs: &[ast::Attribute], llfn: ValueRef) {
 
     // Add the no-split-stack attribute if requested
     if contains_name(attrs, "no_split_stack") {
-        set_no_split_stack(llfn);
+        unset_split_stack(llfn);
     }
 
     if contains_name(attrs, "cold") {
@@ -459,9 +461,15 @@ pub fn set_always_inline(f: ValueRef) {
     lib::llvm::SetFunctionAttribute(f, lib::llvm::AlwaysInlineAttribute)
 }
 
-pub fn set_no_split_stack(f: ValueRef) {
-    "no-split-stack".with_c_str(|buf| {
+pub fn set_split_stack(f: ValueRef) {
+    "split-stack".with_c_str(|buf| {
         unsafe { llvm::LLVMAddFunctionAttrString(f, buf); }
+    })
+}
+
+pub fn unset_split_stack(f: ValueRef) {
+    "split-stack".with_c_str(|buf| {
+        unsafe { llvm::LLVMRemoveFunctionAttrString(f, buf); }
     })
 }
 
@@ -469,7 +477,7 @@ pub fn set_no_split_stack(f: ValueRef) {
 // silently mangles such symbols, breaking our linkage model.
 pub fn note_unique_llvm_symbol(ccx: &CrateContext, sym: ~str) {
     if ccx.all_llvm_symbols.borrow().contains(&sym) {
-        ccx.sess().bug(~"duplicate LLVM symbol: " + sym);
+        ccx.sess().bug("duplicate LLVM symbol: ".to_owned() + sym);
     }
     ccx.all_llvm_symbols.borrow_mut().insert(sym);
 }
@@ -634,7 +642,7 @@ pub fn compare_scalar_values<'a>(
 }
 
 pub type val_and_ty_fn<'r,'b> =
-    'r |&'b Block<'b>, ValueRef, ty::t| -> &'b Block<'b>;
+    |&'b Block<'b>, ValueRef, ty::t|: 'r -> &'b Block<'b>;
 
 // Iterates through the elements of a structural type.
 pub fn iter_structural_ty<'r,
@@ -651,7 +659,7 @@ pub fn iter_structural_ty<'r,
                     cx: &'b Block<'b>,
                     repr: &adt::Repr,
                     av: ValueRef,
-                    variant: @ty::VariantInfo,
+                    variant: &ty::VariantInfo,
                     tps: &[ty::t],
                     f: val_and_ty_fn<'r,'b>)
                     -> &'b Block<'b> {
@@ -673,21 +681,25 @@ pub fn iter_structural_ty<'r,
           let repr = adt::represent_type(cx.ccx(), t);
           expr::with_field_tys(cx.tcx(), t, None, |discr, field_tys| {
               for (i, field_ty) in field_tys.iter().enumerate() {
-                  let llfld_a = adt::trans_field_ptr(cx, repr, av, discr, i);
+                  let llfld_a = adt::trans_field_ptr(cx, &*repr, av, discr, i);
                   cx = f(cx, llfld_a, field_ty.mt.ty);
               }
           })
       }
-      ty::ty_str(ty::vstore_fixed(_)) |
-      ty::ty_vec(_, ty::vstore_fixed(_)) => {
-        let (base, len) = tvec::get_base_and_byte_len(cx, av, t);
+      ty::ty_str(ty::VstoreFixed(n)) => {
         let unit_ty = ty::sequence_element_type(cx.tcx(), t);
+        let (base, len) = tvec::get_fixed_base_and_byte_len(cx, av, unit_ty, n);
+        cx = tvec::iter_vec_raw(cx, base, unit_ty, len, f);
+      }
+      ty::ty_vec(_, Some(n)) => {
+        let unit_ty = ty::sequence_element_type(cx.tcx(), t);
+        let (base, len) = tvec::get_fixed_base_and_byte_len(cx, av, unit_ty, n);
         cx = tvec::iter_vec_raw(cx, base, unit_ty, len, f);
       }
       ty::ty_tup(ref args) => {
           let repr = adt::represent_type(cx.ccx(), t);
           for (i, arg) in args.iter().enumerate() {
-              let llfld_a = adt::trans_field_ptr(cx, repr, av, 0, i);
+              let llfld_a = adt::trans_field_ptr(cx, &*repr, av, 0, i);
               cx = f(cx, llfld_a, *arg);
           }
       }
@@ -702,9 +714,9 @@ pub fn iter_structural_ty<'r,
           // NB: we must hit the discriminant first so that structural
           // comparison know not to proceed when the discriminants differ.
 
-          match adt::trans_switch(cx, repr, av) {
+          match adt::trans_switch(cx, &*repr, av) {
               (_match::single, None) => {
-                  cx = iter_variant(cx, repr, av, *variants.get(0),
+                  cx = iter_variant(cx, &*repr, av, &**variants.get(0),
                                     substs.tps.as_slice(), f);
               }
               (_match::switch, Some(lldiscrim_a)) => {
@@ -717,9 +729,9 @@ pub fn iter_structural_ty<'r,
 
                   for variant in (*variants).iter() {
                       let variant_cx =
-                          fcx.new_temp_block(~"enum-iter-variant-" +
+                          fcx.new_temp_block("enum-iter-variant-".to_owned() +
                                              variant.disr_val.to_str());
-                      match adt::trans_case(cx, repr, variant.disr_val) {
+                      match adt::trans_case(cx, &*repr, variant.disr_val) {
                           _match::single_result(r) => {
                               AddCase(llswitch, r.val, variant_cx.llbb)
                           }
@@ -728,9 +740,9 @@ pub fn iter_structural_ty<'r,
                       }
                       let variant_cx =
                           iter_variant(variant_cx,
-                                       repr,
+                                       &*repr,
                                        av,
-                                       *variant,
+                                       &**variant,
                                        substs.tps.as_slice(),
                                        |x,y,z| f(x,y,z));
                       Br(variant_cx, next_cx.llbb);
@@ -816,7 +828,7 @@ pub fn fail_if_zero<'a>(
         ICmp(cx, lib::llvm::IntEQ, rhs, zero)
       }
       _ => {
-        cx.sess().bug(~"fail-if-zero on unexpected type: " +
+        cx.sess().bug("fail-if-zero on unexpected type: ".to_owned() +
                       ty_to_str(cx.tcx(), rhs_t));
       }
     };
@@ -957,7 +969,7 @@ pub fn init_local<'a>(bcx: &'a Block<'a>, local: &ast::Local)
         // Handle let _ = e; just like e;
         match local.init {
             Some(init) => {
-              return expr::trans_into(bcx, init, expr::Ignore);
+                return controlflow::trans_stmt_semi(bcx, init)
             }
             None => { return bcx; }
         }
@@ -999,7 +1011,7 @@ pub fn call_memcpy(cx: &Block, dst: ValueRef, src: ValueRef, n_bytes: ValueRef, 
         Le32 => "llvm.memcpy.p0i8.p0i8.i32",
         X86_64 => "llvm.memcpy.p0i8.p0i8.i64"
     };
-    let memcpy = ccx.intrinsics.get_copy(&key);
+    let memcpy = ccx.get_intrinsic(&key);
     let src_ptr = PointerCast(cx, src, Type::i8p(ccx));
     let dst_ptr = PointerCast(cx, dst, Type::i8p(ccx));
     let size = IntCast(cx, n_bytes, ccx.int_type);
@@ -1045,7 +1057,7 @@ fn memzero(b: &Builder, llptr: ValueRef, ty: Type) {
         X86_64 => "llvm.memset.p0i8.i64"
     };
 
-    let llintrinsicfn = ccx.intrinsics.get_copy(&intrinsic_key);
+    let llintrinsicfn = ccx.get_intrinsic(&intrinsic_key);
     let llptr = b.pointercast(llptr, Type::i8(ccx).ptr_to());
     let llzeroval = C_u8(ccx, 0);
     let size = machine::llsize_of(ccx, ty);
@@ -1124,15 +1136,15 @@ pub fn new_fn_ctxt<'a>(ccx: &'a CrateContext,
                        id: ast::NodeId,
                        has_env: bool,
                        output_type: ty::t,
-                       param_substs: Option<@param_substs>,
+                       param_substs: Option<&'a param_substs>,
                        sp: Option<Span>,
                        block_arena: &'a TypedArena<Block<'a>>)
                        -> FunctionContext<'a> {
     for p in param_substs.iter() { p.validate(); }
 
     debug!("new_fn_ctxt(path={}, id={}, param_substs={})",
-           if id == -1 { ~"" } else { ccx.tcx.map.path_to_str(id) },
-           id, param_substs.repr(ccx.tcx()));
+           if id == -1 { "".to_owned() } else { ccx.tcx.map.path_to_str(id) },
+           id, param_substs.map(|s| s.repr(ccx.tcx())));
 
     let substd_output_type = match param_substs {
         None => output_type,
@@ -1178,11 +1190,9 @@ pub fn new_fn_ctxt<'a>(ccx: &'a CrateContext,
 
 /// Performs setup on a newly created function, creating the entry scope block
 /// and allocating space for the return pointer.
-pub fn init_function<'a>(
-                     fcx: &'a FunctionContext<'a>,
-                     skip_retptr: bool,
-                     output_type: ty::t,
-                     param_substs: Option<@param_substs>) {
+pub fn init_function<'a>(fcx: &'a FunctionContext<'a>,
+                         skip_retptr: bool,
+                         output_type: ty::t) {
     let entry_bcx = fcx.new_temp_block("entry-block");
 
     *fcx.entry_bcx.borrow_mut() = Some(entry_bcx);
@@ -1194,7 +1204,9 @@ pub fn init_function<'a>(
         llvm::LLVMGetFirstInstruction(entry_bcx.llbb)
     }));
 
-    let substd_output_type = match param_substs {
+    // This shouldn't need to recompute the return type,
+    // as new_fn_ctxt did it already.
+    let substd_output_type = match fcx.param_substs {
         None => output_type,
         Some(substs) => {
             ty::subst_tps(fcx.ccx.tcx(),
@@ -1341,7 +1353,7 @@ pub fn trans_closure(ccx: &CrateContext,
                      decl: &ast::FnDecl,
                      body: &ast::Block,
                      llfndecl: ValueRef,
-                     param_substs: Option<@param_substs>,
+                     param_substs: Option<&param_substs>,
                      id: ast::NodeId,
                      _attributes: &[ast::Attribute],
                      output_type: ty::t,
@@ -1352,7 +1364,7 @@ pub fn trans_closure(ccx: &CrateContext,
     set_uwtable(llfndecl);
 
     debug!("trans_closure(..., param_substs={})",
-           param_substs.repr(ccx.tcx()));
+           param_substs.map(|s| s.repr(ccx.tcx())));
 
     let has_env = match ty::get(ty::node_id_to_type(ccx.tcx(), id)).sty {
         ty::ty_closure(_) => true,
@@ -1365,10 +1377,10 @@ pub fn trans_closure(ccx: &CrateContext,
                           id,
                           has_env,
                           output_type,
-                          param_substs,
+                          param_substs.map(|s| &*s),
                           Some(body.span),
                           &arena);
-    init_function(&fcx, false, output_type, param_substs);
+    init_function(&fcx, false, output_type);
 
     // cleanup scope for the incoming arguments
     let arg_scope = fcx.push_custom_cleanup_scope();
@@ -1441,11 +1453,11 @@ pub fn trans_fn(ccx: &CrateContext,
                 decl: &ast::FnDecl,
                 body: &ast::Block,
                 llfndecl: ValueRef,
-                param_substs: Option<@param_substs>,
+                param_substs: Option<&param_substs>,
                 id: ast::NodeId,
                 attrs: &[ast::Attribute]) {
     let _s = StatRecorder::new(ccx, ccx.tcx.map.path_to_str(id));
-    debug!("trans_fn(param_substs={})", param_substs.repr(ccx.tcx()));
+    debug!("trans_fn(param_substs={})", param_substs.map(|s| s.repr(ccx.tcx())));
     let _icx = push_ctxt("trans_fn");
     let output_type = ty::ty_fn_ret(ty::node_id_to_type(ccx.tcx(), id));
     trans_closure(ccx, decl, body, llfndecl,
@@ -1457,7 +1469,7 @@ pub fn trans_enum_variant(ccx: &CrateContext,
                           variant: &ast::Variant,
                           _args: &[ast::VariantArg],
                           disr: ty::Disr,
-                          param_substs: Option<@param_substs>,
+                          param_substs: Option<&param_substs>,
                           llfndecl: ValueRef) {
     let _icx = push_ctxt("trans_enum_variant");
 
@@ -1472,7 +1484,7 @@ pub fn trans_enum_variant(ccx: &CrateContext,
 pub fn trans_tuple_struct(ccx: &CrateContext,
                           _fields: &[ast::StructField],
                           ctor_id: ast::NodeId,
-                          param_substs: Option<@param_substs>,
+                          param_substs: Option<&param_substs>,
                           llfndecl: ValueRef) {
     let _icx = push_ctxt("trans_tuple_struct");
 
@@ -1487,24 +1499,20 @@ pub fn trans_tuple_struct(ccx: &CrateContext,
 fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
                                            ctor_id: ast::NodeId,
                                            disr: ty::Disr,
-                                           param_substs: Option<@param_substs>,
+                                           param_substs: Option<&param_substs>,
                                            llfndecl: ValueRef) {
-    let no_substs: &[ty::t] = [];
-    let ty_param_substs = match param_substs {
-        Some(ref substs) => {
-            let v: &[ty::t] = substs.tys.as_slice();
-            v
-        }
-        None => {
-            let v: &[ty::t] = no_substs;
-            v
-        }
-    };
+    let ctor_ty = {
+        let no_substs: &[ty::t] = [];
+        let ty_param_substs: &[ty::t] = match param_substs {
+            Some(substs) => substs.tys.as_slice(),
+            None => no_substs
+        };
 
-    let ctor_ty = ty::subst_tps(ccx.tcx(),
-                                ty_param_substs,
-                                None,
-                                ty::node_id_to_type(ccx.tcx(), ctor_id));
+        ty::subst_tps(ccx.tcx(),
+                      ty_param_substs,
+                      None,
+                      ty::node_id_to_type(ccx.tcx(), ctor_id))
+    };
 
     let result_ty = match ty::get(ctor_ty).sty {
         ty::ty_bare_fn(ref bft) => bft.sig.output,
@@ -1516,8 +1524,8 @@ fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
 
     let arena = TypedArena::new();
     let fcx = new_fn_ctxt(ccx, llfndecl, ctor_id, false, result_ty,
-                          param_substs, None, &arena);
-    init_function(&fcx, false, result_ty, param_substs);
+                          param_substs.map(|s| &*s), None, &arena);
+    init_function(&fcx, false, result_ty);
 
     let arg_tys = ty::ty_fn_args(ctor_ty);
 
@@ -1527,10 +1535,10 @@ fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
 
     if !type_is_zero_size(fcx.ccx, result_ty) {
         let repr = adt::represent_type(ccx, result_ty);
-        adt::trans_start_init(bcx, repr, fcx.llretptr.get().unwrap(), disr);
+        adt::trans_start_init(bcx, &*repr, fcx.llretptr.get().unwrap(), disr);
         for (i, arg_datum) in arg_datums.move_iter().enumerate() {
             let lldestptr = adt::trans_field_ptr(bcx,
-                                                 repr,
+                                                 &*repr,
                                                  fcx.llretptr.get().unwrap(),
                                                  disr,
                                                  i);
@@ -1541,11 +1549,11 @@ fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
     finish_fn(&fcx, bcx);
 }
 
-pub fn trans_enum_def(ccx: &CrateContext, enum_definition: &ast::EnumDef,
-                      id: ast::NodeId, vi: @Vec<@ty::VariantInfo>,
-                      i: &mut uint) {
+fn trans_enum_def(ccx: &CrateContext, enum_definition: &ast::EnumDef,
+                  id: ast::NodeId, vi: &[Rc<ty::VariantInfo>],
+                  i: &mut uint) {
     for &variant in enum_definition.variants.iter() {
-        let disr_val = vi.get(*i).disr_val;
+        let disr_val = vi[*i].disr_val;
         *i += 1;
 
         match variant.node.kind {
@@ -1577,8 +1585,8 @@ impl<'a> Visitor<()> for TransItemVisitor<'a> {
 pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
     let _icx = push_ctxt("trans_item");
     match item.node {
-      ast::ItemFn(decl, purity, _abi, ref generics, body) => {
-        if purity == ast::ExternFn  {
+      ast::ItemFn(decl, fn_style, _abi, ref generics, body) => {
+        if fn_style == ast::ExternFn  {
             let llfndecl = get_item_val(ccx, item.id);
             foreign::trans_rust_fn_with_foreign_abi(
                 ccx, decl, body, item.attrs.as_slice(), llfndecl, item.id);
@@ -1608,7 +1616,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
         if !generics.is_type_parameterized() {
             let vi = ty::enum_variants(ccx.tcx(), local_def(item.id));
             let mut i = 0;
-            trans_enum_def(ccx, enum_definition, item.id, vi, &mut i);
+            trans_enum_def(ccx, enum_definition, item.id, vi.as_slice(), &mut i);
         }
       }
       ast::ItemStatic(_, m, expr) => {
@@ -1922,8 +1930,8 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
                     }
                 }
 
-                ast::ItemFn(_, purity, _, _, _) => {
-                    let llfn = if purity != ast::ExternFn {
+                ast::ItemFn(_, fn_style, _, _, _) => {
+                    let llfn = if fn_style != ast::ExternFn {
                         register_fn(ccx, i.span, sym, i.id, ty)
                     } else {
                         foreign::register_rust_fn_with_foreign_abi(ccx,
@@ -2066,223 +2074,15 @@ pub fn p2i(ccx: &CrateContext, v: ValueRef) -> ValueRef {
     }
 }
 
-
-pub fn declare_intrinsics(ccx: &mut CrateContext) {
-    macro_rules! ifn (
-        ($name:expr fn() -> $ret:expr if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
-            if $is_pnacl == $is_supported_in_pnacl {
-                let name = $name;
-                // HACK(eddyb) dummy output type, shouln't affect anything.
-                let f = decl_cdecl_fn(ccx.llmod, name, Type::func([], &$ret), ty::mk_nil());
-                ccx.intrinsics.insert(name, f);
-            }
-        });
-        ($name:expr fn() -> $ret:expr) => (ifn!($name fn() -> $ret if (true) == (true)));
-        ($name:expr fn($($arg:expr),+) -> $ret:expr
-         if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
-             if $is_pnacl == $is_supported_in_pnacl {
-                 let name = $name;
-                 // HACK(eddyb) dummy output type, shouln't affect anything.
-                 let f = decl_cdecl_fn(ccx.llmod, name,
-                                       Type::func([$($arg),+], &$ret), ty::mk_nil());
-                 ccx.intrinsics.insert(name, f);
-             }
-        });
-        ($name:expr fn($($arg:expr),+) -> $ret:expr) =>
-            (ifn!($name fn($($arg),+) -> $ret if (true) == (true)))
-    )
-    macro_rules! mk_struct (
-        ($($field_ty:expr),*) => (Type::struct_(ccx, [$($field_ty),*], false))
-    )
-
-    let i8p = Type::i8p(ccx);
-    let void = Type::void(ccx);
-    let i1 = Type::i1(ccx);
-    let t_i8 = Type::i8(ccx);
-    let t_i16 = Type::i16(ccx);
-    let t_i32 = Type::i32(ccx);
-    let t_i64 = Type::i64(ccx);
-    let t_f32 = Type::f32(ccx);
-    let t_f64 = Type::f64(ccx);
-
-    ifn!("llvm.memcpy.p0i8.p0i8.i32" fn(i8p, i8p, t_i32, t_i32, i1) -> void);
-    ifn!("llvm.memcpy.p0i8.p0i8.i64" fn(i8p, i8p, t_i64, t_i32, i1) -> void);
-    ifn!("llvm.memmove.p0i8.p0i8.i32" fn(i8p, i8p, t_i32, t_i32, i1) -> void);
-    ifn!("llvm.memmove.p0i8.p0i8.i64" fn(i8p, i8p, t_i64, t_i32, i1) -> void);
-    ifn!("llvm.memset.p0i8.i32" fn(i8p, t_i8, t_i32, t_i32, i1) -> void);
-    ifn!("llvm.memset.p0i8.i64" fn(i8p, t_i8, t_i64, t_i32, i1) -> void);
-
-    ifn!("llvm.trap" fn() -> void);
-    ifn!("llvm.debugtrap" fn() -> void);
-    ifn!("llvm.frameaddress" fn(t_i32) -> i8p
-         if (ccx.sess().targeting_pnacl()) == (false));
-
-    ifn!("llvm.powi.f32" fn(t_f32, t_i32) -> t_f32);
-    ifn!("llvm.powi.f64" fn(t_f64, t_i32) -> t_f64);
-
-    ifn!("llvm.sqrt.f32" fn(t_f32) -> t_f32);
-    ifn!("llvm.sqrt.f64" fn(t_f64) -> t_f64);
-
-    ifn!("llvm.ctpop.i8" fn(t_i8) -> t_i8
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctpop.i16" fn(t_i16) -> t_i16
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctpop.i32" fn(t_i32) -> t_i32);
-    ifn!("llvm.ctpop.i64" fn(t_i64) -> t_i64);
-
-    ifn!("llvm.ctlz.i8" fn(t_i8 , i1) -> t_i8
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctlz.i16" fn(t_i16, i1) -> t_i16
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctlz.i32" fn(t_i32, i1) -> t_i32);
-    ifn!("llvm.ctlz.i64" fn(t_i64, i1) -> t_i64);
-
-    ifn!("llvm.cttz.i8" fn(t_i8 , i1) -> t_i8
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.cttz.i16" fn(t_i16, i1) -> t_i16
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.cttz.i32" fn(t_i32, i1) -> t_i32);
-    ifn!("llvm.cttz.i64" fn(t_i64, i1) -> t_i64);
-
-    ifn!("llvm.bswap.i16" fn(t_i16) -> t_i16);
-    ifn!("llvm.bswap.i32" fn(t_i32) -> t_i32);
-    ifn!("llvm.bswap.i64" fn(t_i64) -> t_i64);
-
-    ifn!("llvm.sadd.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.sadd.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.sadd.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.sadd.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-
-    ifn!("llvm.uadd.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.uadd.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.uadd.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.uadd.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-
-    ifn!("llvm.ssub.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ssub.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ssub.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ssub.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-
-    ifn!("llvm.usub.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.usub.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.usub.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.usub.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-
-    ifn!("llvm.smul.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.smul.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.smul.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.smul.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-
-    ifn!("llvm.umul.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.umul.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.umul.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.umul.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-
-    ifn!("llvm.expect.i1" fn(i1, i1) -> i1);
-
-    // Some intrinsics were introduced in later versions of LLVM, but they have
-    // fallbacks in libc or libm and such. Currently, all of these intrinsics
-    // were introduced in LLVM 3.4, so we case on that.
-    // Additionally, PNaCl disallows quite a large percentage of LLVM's intrinsics,
-    // so when targeting PNaCl we redirect these functions to their libm counterparts.
-    macro_rules! compatible_ifn (
-        ($name:expr, $cname:ident ($($arg:expr),*) -> $ret:expr) => ({
-            let name = $name;
-            if unsafe { llvm::LLVMVersionMinor() >= 4 } && !ccx.sess().targeting_pnacl() {
-                ifn!(name fn($($arg),*) -> $ret);
-            } else {
-                let f = decl_cdecl_fn(ccx.llmod, stringify!($cname),
-                                      Type::func([$($arg),*], &$ret),
-                                      ty::mk_nil());
-                ccx.intrinsics.insert(name, f);
-            }
-        })
-    )
-
-    compatible_ifn!("llvm.copysign.f32", copysignf(t_f32, t_f32) -> t_f32);
-    compatible_ifn!("llvm.copysign.f64", copysign(t_f64, t_f64) -> t_f64);
-    compatible_ifn!("llvm.round.f32", roundf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.round.f64", round(t_f64) -> t_f64);
-
-    compatible_ifn!("llvm.pow.f32",  powf(t_f32, t_f32) -> t_f32);
-    compatible_ifn!("llvm.pow.f64",  pow (t_f64, t_f64) -> t_f64);
-
-    compatible_ifn!("llvm.sin.f32",  sinf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.sin.f64",  sin (t_f64) -> t_f64);
-    compatible_ifn!("llvm.cos.f32",  cosf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.cos.f64",  cos (t_f64) -> t_f64);
-    compatible_ifn!("llvm.exp.f32",  expf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.exp.f64",  exp (t_f64) -> t_f64);
-    compatible_ifn!("llvm.exp2.f32", exp2f(t_f32) -> t_f32);
-    compatible_ifn!("llvm.exp2.f64", exp2(t_f64) -> t_f64);
-    compatible_ifn!("llvm.log.f32",  logf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.log.f64",  log (t_f64) -> t_f64);
-    compatible_ifn!("llvm.log10.f32",log10f(t_f32) -> t_f32);
-    compatible_ifn!("llvm.log10.f64",log10(t_f64) -> t_f64);
-    compatible_ifn!("llvm.log2.f32", log2f(t_f32) -> t_f32);
-    compatible_ifn!("llvm.log2.f64", log2(t_f64) -> t_f64);
-
-    compatible_ifn!("llvm.fma.f32",  fmaf(t_f32, t_f32, t_f32) -> t_f32);
-    compatible_ifn!("llvm.fma.f64",  fma (t_f64, t_f64, t_f64) -> t_f64);
-
-    compatible_ifn!("llvm.fabs.f32", fabsf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.fabs.f64", fabs(t_f64) -> t_f64);
-
-    compatible_ifn!("llvm.floor.f32",floorf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.floor.f64",floor(t_f64) -> t_f64);
-    compatible_ifn!("llvm.ceil.f32", ceilf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.ceil.f64", ceil(t_f64) -> t_f64);
-    compatible_ifn!("llvm.trunc.f32",truncf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.trunc.f64",trunc(t_f64) -> t_f64);
-
-    compatible_ifn!("llvm.rint.f32", rintf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.rint.f64", rint(t_f64) -> t_f64);
-    compatible_ifn!("llvm.nearbyint.f32", nearbyintf(t_f32) -> t_f32);
-    compatible_ifn!("llvm.nearbyint.f64", nearbyint(t_f64) -> t_f64);
-
-    if ccx.sess().opts.debuginfo != NoDebugInfo {
-        ifn!("llvm.dbg.declare" fn(Type::metadata(ccx), Type::metadata(ccx)) -> void);
-        ifn!("llvm.dbg.value" fn(Type::metadata(ccx), t_i64, Type::metadata(ccx)) -> void);
-    }
-}
-
 pub fn crate_ctxt_to_encode_parms<'r>(cx: &'r CrateContext, ie: encoder::EncodeInlinedItem<'r>)
     -> encoder::EncodeParams<'r> {
-
-        let diag = cx.sess().diagnostic();
-        let item_symbols = &cx.item_symbols;
-        let link_meta = &cx.link_meta;
         encoder::EncodeParams {
-            diag: diag,
+            diag: cx.sess().diagnostic(),
             tcx: cx.tcx(),
-            reexports2: cx.exp_map2,
-            item_symbols: item_symbols,
+            reexports2: &cx.exp_map2,
+            item_symbols: &cx.item_symbols,
             non_inlineable_statics: &cx.non_inlineable_statics,
-            link_meta: link_meta,
+            link_meta: &cx.link_meta,
             cstore: &cx.sess().cstore,
             encode_inlined_item: ie,
         }
@@ -2301,7 +2101,10 @@ pub fn write_metadata(cx: &CrateContext, krate: &ast::Crate) -> Vec<u8> {
     let encode_parms = crate_ctxt_to_encode_parms(cx, encode_inlined_item);
     let metadata = encoder::encode_metadata(encode_parms, krate);
     let compressed = encoder::metadata_encoding_version +
-                        flate::deflate_bytes(metadata.as_slice()).as_slice();
+                        match flate::deflate_bytes(metadata.as_slice()) {
+                            Some(compressed) => compressed,
+                            None => cx.sess().fatal(format!("failed to compress metadata", ))
+                        }.as_slice();
     let llmeta = C_bytes(cx, compressed);
     let llconst = C_struct(cx, [llmeta], false);
     let name = format!("rust_metadata_{}_{}_{}", cx.link_meta.crateid.name,
@@ -2343,9 +2146,7 @@ pub fn trans_crate(krate: ast::Crate,
         }
     }
 
-    let link_meta = link::build_link_meta(&krate,
-                                          output.out_filestem,
-                                          tcx.sess.opts.target_triple.clone());
+    let link_meta = link::build_link_meta(&krate, output.out_filestem);
 
     // Append ".rs" to crate name as LLVM module identifier.
     //
@@ -2414,10 +2215,12 @@ pub fn trans_crate(krate: ast::Crate,
     // symbol. This symbol is required for use by the libmorestack library that
     // we link in, so we must ensure that this symbol is not internalized (if
     // defined in the crate).
-    reachable.push(~"main");
-    reachable.push(~"rust_stack_exhausted");
-    reachable.push(~"rust_eh_personality"); // referenced from .eh_frame section on some platforms
-    reachable.push(~"rust_eh_personality_catch"); // referenced from rt/rust_try.ll
+    reachable.push("main".to_owned());
+    reachable.push("rust_stack_exhausted".to_owned());
+
+    // referenced from .eh_frame section on some platforms
+    reachable.push("rust_eh_personality".to_owned());
+    reachable.push("rust_eh_personality_catch".to_owned()); // referenced from rt/rust_try.ll
 
     let metadata_module = ccx.metadata_llmod;
 

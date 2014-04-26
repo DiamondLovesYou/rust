@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 trait noisy {
   fn speak(&mut self) -> int;
@@ -93,7 +93,7 @@ fn annoy_neighbors(critter: &mut noisy) {
 }
 
 pub fn main() {
-  let mut nyan: cat = cat(0u, 2, ~"nyan");
+  let mut nyan: cat = cat(0u, 2, "nyan".to_owned());
   let mut whitefang: dog = dog();
   annoy_neighbors(&mut nyan);
   annoy_neighbors(&mut whitefang);

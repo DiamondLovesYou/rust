@@ -18,8 +18,8 @@
 
 
 use std::io;
+use std::strbuf::StrBuf;
 use std::uint;
-use std::slice;
 use syntax::ast;
 use syntax::ast_util;
 use syntax::ast_util::IdRange;
@@ -32,7 +32,6 @@ use util::nodemap::NodeMap;
 #[deriving(Clone)]
 pub struct DataFlowContext<'a, O> {
     tcx: &'a ty::ctxt,
-    method_map: typeck::MethodMap,
 
     /// the data flow operator
     oper: O,
@@ -103,14 +102,14 @@ impl<'a, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, O> {
             let gens_str = if gens.iter().any(|&u| u != 0) {
                 format!(" gen: {}", bits_to_str(gens))
             } else {
-                ~""
+                "".to_owned()
             };
 
             let kills = self.kills.slice(start, end);
             let kills_str = if kills.iter().any(|&u| u != 0) {
                 format!(" kill: {}", bits_to_str(kills))
             } else {
-                ~""
+                "".to_owned()
             };
 
             try!(ps.synth_comment(format!("id {}: {}{}{}", id, entry_str,
@@ -123,7 +122,6 @@ impl<'a, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, O> {
 
 impl<'a, O:DataFlowOperator> DataFlowContext<'a, O> {
     pub fn new(tcx: &'a ty::ctxt,
-               method_map: typeck::MethodMap,
                oper: O,
                id_range: IdRange,
                bits_per_id: uint) -> DataFlowContext<'a, O> {
@@ -138,7 +136,6 @@ impl<'a, O:DataFlowOperator> DataFlowContext<'a, O> {
 
         DataFlowContext {
             tcx: tcx,
-            method_map: method_map,
             words_per_id: words_per_id,
             nodeid_to_bitset: NodeMap::new(),
             bits_per_id: bits_per_id,
@@ -307,13 +304,13 @@ impl<'a, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, O> {
                 changed: true
             };
 
-            let mut temp = slice::from_elem(self.words_per_id, 0u);
+            let mut temp = Vec::from_elem(self.words_per_id, 0u);
             let mut loop_scopes = Vec::new();
 
             while propcx.changed {
                 propcx.changed = false;
-                propcx.reset(temp);
-                propcx.walk_block(blk, temp, &mut loop_scopes);
+                propcx.reset(temp.as_mut_slice());
+                propcx.walk_block(blk, temp.as_mut_slice(), &mut loop_scopes);
             }
         }
 
@@ -789,7 +786,7 @@ impl<'a, 'b, O:DataFlowOperator> PropagationContext<'a, 'b, O> {
 
     fn is_method_call(&self, expr: &ast::Expr) -> bool {
         let method_call = typeck::MethodCall::expr(expr.id);
-        self.dfcx.method_map.borrow().contains_key(&method_call)
+        self.dfcx.tcx.method_map.borrow().contains_key(&method_call)
     }
 
     fn reset(&mut self, bits: &mut [uint]) {
@@ -837,7 +834,7 @@ fn mut_bits_to_str(words: &mut [uint]) -> ~str {
 }
 
 fn bits_to_str(words: &[uint]) -> ~str {
-    let mut result = ~"";
+    let mut result = StrBuf::new();
     let mut sep = '[';
 
     // Note: this is a little endian printout of bytes.
@@ -852,7 +849,7 @@ fn bits_to_str(words: &[uint]) -> ~str {
         }
     }
     result.push_char(']');
-    return result;
+    return result.into_owned();
 }
 
 fn copy_bits(in_vec: &[uint], out_vec: &mut [uint]) -> bool {

@@ -8,13 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use libc::c_int;
 use std::mem;
 use std::rt::rtio::RtioTimer;
 use std::rt::task::BlockedTask;
 
 use homing::{HomeHandle, HomingIO};
-use super::{UvHandle, ForbidUnwind, ForbidSwitch, wait_until_woken_after};
+use super::{UvHandle, ForbidUnwind, ForbidSwitch, wait_until_woken_after, Loop};
 use uvio::UvIoFactory;
 use uvll;
 
@@ -34,28 +33,35 @@ pub enum NextAction {
 
 impl TimerWatcher {
     pub fn new(io: &mut UvIoFactory) -> ~TimerWatcher {
+        let handle = io.make_handle();
+        let me = ~TimerWatcher::new_home(&io.loop_, handle);
+        me.install()
+    }
+
+    pub fn new_home(loop_: &Loop, home: HomeHandle) -> TimerWatcher {
         let handle = UvHandle::alloc(None::<TimerWatcher>, uvll::UV_TIMER);
-        assert_eq!(unsafe {
-            uvll::uv_timer_init(io.uv_loop(), handle)
-        }, 0);
-        let me = ~TimerWatcher {
+        assert_eq!(unsafe { uvll::uv_timer_init(loop_.handle, handle) }, 0);
+        TimerWatcher {
             handle: handle,
             action: None,
             blocker: None,
-            home: io.make_handle(),
+            home: home,
             id: 0,
-        };
-        return me.install();
+        }
     }
 
-    fn start(&mut self, msecs: u64, period: u64) {
+    pub fn start(&mut self, f: uvll::uv_timer_cb, msecs: u64, period: u64) {
         assert_eq!(unsafe {
-            uvll::uv_timer_start(self.handle, timer_cb, msecs, period)
+            uvll::uv_timer_start(self.handle, f, msecs, period)
         }, 0)
     }
 
-    fn stop(&mut self) {
+    pub fn stop(&mut self) {
         assert_eq!(unsafe { uvll::uv_timer_stop(self.handle) }, 0)
+    }
+
+    pub unsafe fn set_data<T>(&mut self, data: *T) {
+        uvll::set_data_for_uv_handle(self.handle, data);
     }
 }
 
@@ -92,7 +98,7 @@ impl RtioTimer for TimerWatcher {
 
         self.action = Some(WakeTask);
         wait_until_woken_after(&mut self.blocker, &self.uv_loop(), || {
-            self.start(msecs, 0);
+            self.start(timer_cb, msecs, 0);
         });
         self.stop();
     }
@@ -106,7 +112,7 @@ impl RtioTimer for TimerWatcher {
             let _m = self.fire_homing_missile();
             self.id += 1;
             self.stop();
-            self.start(msecs, 0);
+            self.start(timer_cb, msecs, 0);
             mem::replace(&mut self.action, Some(SendOnce(tx)))
         };
 
@@ -122,7 +128,7 @@ impl RtioTimer for TimerWatcher {
             let _m = self.fire_homing_missile();
             self.id += 1;
             self.stop();
-            self.start(msecs, msecs);
+            self.start(timer_cb, msecs, msecs);
             mem::replace(&mut self.action, Some(SendMany(tx, self.id)))
         };
 
@@ -130,9 +136,8 @@ impl RtioTimer for TimerWatcher {
     }
 }
 
-extern fn timer_cb(handle: *uvll::uv_timer_t, status: c_int) {
+extern fn timer_cb(handle: *uvll::uv_timer_t) {
     let _f = ForbidSwitch::new("timer callback can't switch");
-    assert_eq!(status, 0);
     let timer: &mut TimerWatcher = unsafe { UvHandle::from_uv_handle(&handle) };
 
     match timer.action.take_unwrap() {
@@ -140,9 +145,9 @@ extern fn timer_cb(handle: *uvll::uv_timer_t, status: c_int) {
             let task = timer.blocker.take_unwrap();
             let _ = task.wake().map(|t| t.reawaken());
         }
-        SendOnce(chan) => { let _ = chan.try_send(()); }
+        SendOnce(chan) => { let _ = chan.send_opt(()); }
         SendMany(chan, id) => {
-            let _ = chan.try_send(());
+            let _ = chan.send_opt(());
 
             // Note that the above operation could have performed some form of
             // scheduling. This means that the timer may have decided to insert
@@ -196,8 +201,8 @@ mod test {
         let oport = timer.oneshot(1);
         let pport = timer.period(1);
         timer.sleep(1);
-        assert_eq!(oport.recv_opt(), None);
-        assert_eq!(pport.recv_opt(), None);
+        assert_eq!(oport.recv_opt(), Err(()));
+        assert_eq!(pport.recv_opt(), Err(()));
         timer.oneshot(1).recv();
     }
 
@@ -284,7 +289,7 @@ mod test {
             let mut timer = TimerWatcher::new(local_loop());
             timer.oneshot(1000)
         };
-        assert_eq!(port.recv_opt(), None);
+        assert_eq!(port.recv_opt(), Err(()));
     }
 
     #[test]
@@ -293,7 +298,7 @@ mod test {
             let mut timer = TimerWatcher::new(local_loop());
             timer.period(1000)
         };
-        assert_eq!(port.recv_opt(), None);
+        assert_eq!(port.recv_opt(), Err(()));
     }
 
     #[test]

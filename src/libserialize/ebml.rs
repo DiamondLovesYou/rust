@@ -179,8 +179,8 @@ pub mod reader {
         ];
 
         unsafe {
-            let ptr = data.as_ptr().offset(start as int) as *i32;
-            let val = from_be32(*ptr) as u32;
+            let ptr = data.as_ptr().offset(start as int) as *u32;
+            let val = from_be32(*ptr);
 
             let i = (val >> 28u) as uint;
             let (shift, mask) = SHIFT_MASK_TABLE[i];
@@ -636,7 +636,7 @@ pub mod writer {
     // ebml writing
     pub struct Encoder<'a, W> {
         pub writer: &'a mut W,
-        size_positions: ~[uint],
+        size_positions: Vec<uint>,
     }
 
     fn write_sized_vuint<W: Writer>(w: &mut W, n: uint, size: uint) -> EncodeResult {
@@ -668,10 +668,9 @@ pub mod writer {
     }
 
     pub fn Encoder<'a, W: Writer + Seek>(w: &'a mut W) -> Encoder<'a, W> {
-        let size_positions: ~[uint] = ~[];
         Encoder {
             writer: w,
-            size_positions: size_positions,
+            size_positions: vec!(),
         }
     }
 
@@ -1095,51 +1094,48 @@ mod tests {
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use ebml::reader;
 
     #[bench]
-    pub fn vuint_at_A_aligned(bh: &mut BenchHarness) {
-        use std::slice;
-        let data = slice::from_fn(4*100, |i| {
+    pub fn vuint_at_A_aligned(b: &mut Bencher) {
+        let data = Vec::from_fn(4*100, |i| {
             match i % 2 {
               0 => 0x80u8,
               _ => i as u8,
             }
         });
         let mut sum = 0u;
-        bh.iter(|| {
+        b.iter(|| {
             let mut i = 0;
             while i < data.len() {
-                sum += reader::vuint_at(data, i).unwrap().val;
+                sum += reader::vuint_at(data.as_slice(), i).unwrap().val;
                 i += 4;
             }
         });
     }
 
     #[bench]
-    pub fn vuint_at_A_unaligned(bh: &mut BenchHarness) {
-        use std::slice;
-        let data = slice::from_fn(4*100+1, |i| {
+    pub fn vuint_at_A_unaligned(b: &mut Bencher) {
+        let data = Vec::from_fn(4*100+1, |i| {
             match i % 2 {
               1 => 0x80u8,
               _ => i as u8
             }
         });
         let mut sum = 0u;
-        bh.iter(|| {
+        b.iter(|| {
             let mut i = 1;
             while i < data.len() {
-                sum += reader::vuint_at(data, i).unwrap().val;
+                sum += reader::vuint_at(data.as_slice(), i).unwrap().val;
                 i += 4;
             }
         });
     }
 
     #[bench]
-    pub fn vuint_at_D_aligned(bh: &mut BenchHarness) {
-        use std::slice;
-        let data = slice::from_fn(4*100, |i| {
+    pub fn vuint_at_D_aligned(b: &mut Bencher) {
+        let data = Vec::from_fn(4*100, |i| {
             match i % 4 {
               0 => 0x10u8,
               3 => i as u8,
@@ -1147,19 +1143,18 @@ mod bench {
             }
         });
         let mut sum = 0u;
-        bh.iter(|| {
+        b.iter(|| {
             let mut i = 0;
             while i < data.len() {
-                sum += reader::vuint_at(data, i).unwrap().val;
+                sum += reader::vuint_at(data.as_slice(), i).unwrap().val;
                 i += 4;
             }
         });
     }
 
     #[bench]
-    pub fn vuint_at_D_unaligned(bh: &mut BenchHarness) {
-        use std::slice;
-        let data = slice::from_fn(4*100+1, |i| {
+    pub fn vuint_at_D_unaligned(b: &mut Bencher) {
+        let data = Vec::from_fn(4*100+1, |i| {
             match i % 4 {
               1 => 0x10u8,
               0 => i as u8,
@@ -1167,10 +1162,10 @@ mod bench {
             }
         });
         let mut sum = 0u;
-        bh.iter(|| {
+        b.iter(|| {
             let mut i = 1;
             while i < data.len() {
-                sum += reader::vuint_at(data, i).unwrap().val;
+                sum += reader::vuint_at(data.as_slice(), i).unwrap().val;
                 i += 4;
             }
         });

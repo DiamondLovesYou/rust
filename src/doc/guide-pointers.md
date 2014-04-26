@@ -250,7 +250,7 @@ struct.
 # Managed Pointers
 
 > **Note**: the `@` form of managed pointers is deprecated and behind a
-> feature gate (it requires a `#[feature(managed_pointers)];` attribute on
+> feature gate (it requires a `#![feature(managed_pointers)]` attribute on
 > the crate root; remember the semicolon!). There are replacements, currently 
 > there is `std::rc::Rc` and `std::gc::Gc` for shared ownership via reference
 > counting and garbage collection respectively.
@@ -430,8 +430,9 @@ great detail, so if you want the full details, check that out.
 # Returning Pointers
 
 We've talked a lot about functions that accept various kinds of pointers, but
-what about returning them? Here's the rule of thumb: only return a unique or
-managed pointer if you were given one in the first place.
+what about returning them? In general, it is better to let the caller decide
+how to use a function's output, instead of assuming a certain type of pointer
+is best.
 
 What does that mean? Don't do this:
 

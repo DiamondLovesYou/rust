@@ -48,6 +48,7 @@ use str::{Str, SendStr, IntoMaybeOwned};
 
 #[cfg(test)] use any::{AnyOwnExt, AnyRefExt};
 #[cfg(test)] use result;
+#[cfg(test)] use str::StrSlice;
 
 /// Indicates the manner in which a task exited.
 ///
@@ -86,23 +87,21 @@ pub struct TaskOpts {
 pub struct TaskBuilder {
     /// Options to spawn the new task with
     pub opts: TaskOpts,
-    gen_body: Option<proc:Send(v: proc:Send()) -> proc:Send()>,
+    gen_body: Option<proc(v: proc():Send):Send -> proc():Send>,
     nocopy: Option<marker::NoCopy>,
 }
 
-/**
- * Generate the base configuration for spawning a task, off of which more
- * configuration methods can be chained.
- */
-pub fn task() -> TaskBuilder {
-    TaskBuilder {
-        opts: TaskOpts::new(),
-        gen_body: None,
-        nocopy: None,
-    }
-}
-
 impl TaskBuilder {
+     /// Generate the base configuration for spawning a task, off of which more
+     /// configuration methods can be chained.
+    pub fn new() -> TaskBuilder {
+        TaskBuilder {
+            opts: TaskOpts::new(),
+            gen_body: None,
+            nocopy: None,
+        }
+    }
+
     /// Get a future representing the exit status of the task.
     ///
     /// Taking the value of the future will block until the child task
@@ -151,7 +150,7 @@ impl TaskBuilder {
      * existing body generator to the new body generator.
      */
     pub fn with_wrapper(mut self,
-                        wrapper: proc:Send(v: proc:Send()) -> proc:Send())
+                        wrapper: proc(v: proc():Send):Send -> proc():Send)
         -> TaskBuilder
     {
         self.gen_body = match self.gen_body.take() {
@@ -168,7 +167,7 @@ impl TaskBuilder {
      * the provided unique closure. The task has the properties and behavior
      * specified by the task_builder.
      */
-    pub fn spawn(mut self, f: proc:Send()) {
+    pub fn spawn(mut self, f: proc():Send) {
         let gen_body = self.gen_body.take();
         let f = match gen_body {
             Some(gen) => gen(f),
@@ -191,7 +190,7 @@ impl TaskBuilder {
      * # Failure
      * Fails if a future_result was already set for this task.
      */
-    pub fn try<T:Send>(mut self, f: proc:Send() -> T) -> Result<T, ~Any:Send> {
+    pub fn try<T:Send>(mut self, f: proc():Send -> T) -> Result<T, ~Any:Send> {
         let (tx, rx) = channel();
 
         let result = self.future_result();
@@ -232,22 +231,17 @@ impl TaskOpts {
 /// Sets up a new task with its own call stack and schedules it to run
 /// the provided unique closure.
 ///
-/// This function is equivalent to `task().spawn(f)`.
-pub fn spawn(f: proc:Send()) {
-    let task = task();
-    task.spawn(f)
+/// This function is equivalent to `TaskBuilder::new().spawn(f)`.
+pub fn spawn(f: proc():Send) {
+    TaskBuilder::new().spawn(f)
 }
 
-pub fn try<T:Send>(f: proc:Send() -> T) -> Result<T, ~Any:Send> {
-    /*!
-     * Execute a function in another task and return either the return value
-     * of the function or result::err.
-     *
-     * This is equivalent to task().try.
-     */
-
-    let task = task();
-    task.try(f)
+/// Execute a function in another task and return either the return value of
+/// the function or an error if the task failed
+///
+/// This is equivalent to TaskBuilder::new().try
+pub fn try<T:Send>(f: proc():Send -> T) -> Result<T, ~Any:Send> {
+    TaskBuilder::new().try(f)
 }
 
 
@@ -257,8 +251,8 @@ pub fn try<T:Send>(f: proc:Send() -> T) -> Result<T, ~Any:Send> {
 pub fn with_task_name<U>(blk: |Option<&str>| -> U) -> U {
     use rt::task::Task;
 
-    let mut task = Local::borrow(None::<Task>);
-    match task.get().name {
+    let task = Local::borrow(None::<Task>);
+    match task.name {
         Some(ref name) => blk(Some(name.as_slice())),
         None => blk(None)
     }
@@ -276,11 +270,8 @@ pub fn deschedule() {
 
 pub fn failing() -> bool {
     //! True if the running task has failed
-
     use rt::task::Task;
-
-    let mut local = Local::borrow(None::<Task>);
-    local.get().unwinder.unwinding()
+    Local::borrow(None::<Task>).unwinder.unwinding()
 }
 
 // The following 8 tests test the following 2^3 combinations:
@@ -300,7 +291,7 @@ fn test_unnamed_task() {
 
 #[test]
 fn test_owned_named_task() {
-    task().named(~"ada lovelace").spawn(proc() {
+    TaskBuilder::new().named("ada lovelace".to_owned()).spawn(proc() {
         with_task_name(|name| {
             assert!(name.unwrap() == "ada lovelace");
         })
@@ -309,7 +300,7 @@ fn test_owned_named_task() {
 
 #[test]
 fn test_static_named_task() {
-    task().named("ada lovelace").spawn(proc() {
+    TaskBuilder::new().named("ada lovelace").spawn(proc() {
         with_task_name(|name| {
             assert!(name.unwrap() == "ada lovelace");
         })
@@ -318,7 +309,7 @@ fn test_static_named_task() {
 
 #[test]
 fn test_send_named_task() {
-    task().named("ada lovelace".into_maybe_owned()).spawn(proc() {
+    TaskBuilder::new().named("ada lovelace".into_maybe_owned()).spawn(proc() {
         with_task_name(|name| {
             assert!(name.unwrap() == "ada lovelace");
         })
@@ -328,7 +319,7 @@ fn test_send_named_task() {
 #[test]
 fn test_run_basic() {
     let (tx, rx) = channel();
-    task().spawn(proc() {
+    TaskBuilder::new().spawn(proc() {
         tx.send(());
     });
     rx.recv();
@@ -337,8 +328,8 @@ fn test_run_basic() {
 #[test]
 fn test_with_wrapper() {
     let (tx, rx) = channel();
-    task().with_wrapper(proc(body) {
-        let result: proc:Send() = proc() {
+    TaskBuilder::new().with_wrapper(proc(body) {
+        let result: proc():Send = proc() {
             body();
             tx.send(());
         };
@@ -349,12 +340,12 @@ fn test_with_wrapper() {
 
 #[test]
 fn test_future_result() {
-    let mut builder = task();
+    let mut builder = TaskBuilder::new();
     let result = builder.future_result();
     builder.spawn(proc() {});
     assert!(result.recv().is_ok());
 
-    let mut builder = task();
+    let mut builder = TaskBuilder::new();
     let result = builder.future_result();
     builder.spawn(proc() {
         fail!();
@@ -364,7 +355,7 @@ fn test_future_result() {
 
 #[test] #[should_fail]
 fn test_back_to_the_future_result() {
-    let mut builder = task();
+    let mut builder = TaskBuilder::new();
     builder.future_result();
     builder.future_result();
 }
@@ -372,7 +363,7 @@ fn test_back_to_the_future_result() {
 #[test]
 fn test_try_success() {
     match try(proc() {
-        ~"Success!"
+        "Success!".to_owned()
     }).as_ref().map(|s| s.as_slice()) {
         result::Ok("Success!") => (),
         _ => fail!()
@@ -424,7 +415,7 @@ fn test_spawn_sched_childs_on_default_sched() {
 }
 
 #[cfg(test)]
-fn avoid_copying_the_body(spawnfn: |v: proc:Send()|) {
+fn avoid_copying_the_body(spawnfn: |v: proc():Send|) {
     let (tx, rx) = channel::<uint>();
 
     let x = ~1;
@@ -447,7 +438,7 @@ fn test_avoid_copying_the_body_spawn() {
 #[test]
 fn test_avoid_copying_the_body_task_spawn() {
     avoid_copying_the_body(|f| {
-        let builder = task();
+        let builder = TaskBuilder::new();
         builder.spawn(proc() {
             f();
         });
@@ -470,14 +461,14 @@ fn test_child_doesnt_ref_parent() {
     // (well, it would if the constant were 8000+ - I lowered it to be more
     // valgrind-friendly. try this at home, instead..!)
     static generations: uint = 16;
-    fn child_no(x: uint) -> proc:Send() {
+    fn child_no(x: uint) -> proc():Send {
         return proc() {
             if x < generations {
-                task().spawn(child_no(x+1));
+                TaskBuilder::new().spawn(child_no(x+1));
             }
         }
     }
-    task().spawn(child_no(0));
+    TaskBuilder::new().spawn(child_no(0));
 }
 
 #[test]
@@ -502,12 +493,12 @@ fn test_try_fail_message_static_str() {
 #[test]
 fn test_try_fail_message_owned_str() {
     match try(proc() {
-        fail!(~"owned string");
+        fail!("owned string".to_owned());
     }) {
         Err(e) => {
             type T = ~str;
             assert!(e.is::<T>());
-            assert_eq!(*e.move::<T>().unwrap(), ~"owned string");
+            assert_eq!(*e.move::<T>().unwrap(), "owned string".to_owned());
         }
         Ok(()) => fail!()
     }

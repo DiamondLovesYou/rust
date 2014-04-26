@@ -27,10 +27,11 @@ use print::pp;
 
 use std::cast;
 use std::char;
-use std::str;
-use std::io;
 use std::io::{IoResult, MemWriter};
+use std::io;
 use std::rc::Rc;
+use std::str;
+use std::strbuf::StrBuf;
 
 pub enum AnnNode<'a> {
     NodeBlock(&'a ast::Block),
@@ -182,15 +183,27 @@ pub fn generics_to_str(generics: &ast::Generics) -> ~str {
     to_str(|s| s.print_generics(generics))
 }
 
+pub fn ty_method_to_str(p: &ast::TypeMethod) -> ~str {
+    to_str(|s| s.print_ty_method(p))
+}
+
+pub fn method_to_str(p: &ast::Method) -> ~str {
+    to_str(|s| s.print_method(p))
+}
+
+pub fn fn_block_to_str(p: &ast::FnDecl) -> ~str {
+    to_str(|s| s.print_fn_block_args(p))
+}
+
 pub fn path_to_str(p: &ast::Path) -> ~str {
     to_str(|s| s.print_path(p, false))
 }
 
-pub fn fun_to_str(decl: &ast::FnDecl, purity: ast::Purity, name: ast::Ident,
+pub fn fun_to_str(decl: &ast::FnDecl, fn_style: ast::FnStyle, name: ast::Ident,
                   opt_explicit_self: Option<ast::ExplicitSelf_>,
                   generics: &ast::Generics) -> ~str {
     to_str(|s| {
-        try!(s.print_fn(decl, Some(purity), abi::Rust,
+        try!(s.print_fn(decl, Some(fn_style), abi::Rust,
                         name, generics, opt_explicit_self, ast::Inherited));
         try!(s.end()); // Close the head box
         s.end() // Close the outer box
@@ -229,7 +242,6 @@ pub fn variant_to_str(var: &ast::Variant) -> ~str {
 
 pub fn visibility_qualified(vis: ast::Visibility, s: &str) -> ~str {
     match vis {
-        ast::Private => format!("priv {}", s),
         ast::Public => format!("pub {}", s),
         ast::Inherited => s.to_owned()
     }
@@ -479,17 +491,26 @@ impl<'a> State<'a> {
                     ty_params: OwnedSlice::empty()
                 };
                 try!(self.print_ty_fn(Some(f.abi), None, &None,
-                                   f.purity, ast::Many, f.decl, None, &None,
+                                   f.fn_style, ast::Many, f.decl, None, &None,
                                    Some(&generics), None));
             }
-            ast::TyClosure(f) => {
+            ast::TyClosure(f, ref region) => {
                 let generics = ast::Generics {
                     lifetimes: f.lifetimes.clone(),
                     ty_params: OwnedSlice::empty()
                 };
-                try!(self.print_ty_fn(None, Some(f.sigil), &f.region,
-                                   f.purity, f.onceness, f.decl, None, &f.bounds,
-                                   Some(&generics), None));
+                try!(self.print_ty_fn(None, Some('&'), region, f.fn_style,
+                                      f.onceness, f.decl, None, &f.bounds,
+                                      Some(&generics), None));
+            }
+            ast::TyProc(f) => {
+                let generics = ast::Generics {
+                    lifetimes: f.lifetimes.clone(),
+                    ty_params: OwnedSlice::empty()
+                };
+                try!(self.print_ty_fn(None, Some('~'), &None, f.fn_style,
+                                      f.onceness, f.decl, None, &f.bounds,
+                                      Some(&generics), None));
             }
             ast::TyPath(ref path, ref bounds, _) => {
                 try!(self.print_bounded_path(path, bounds));
@@ -568,10 +589,10 @@ impl<'a> State<'a> {
                 try!(word(&mut self.s, ";"));
                 try!(self.end()); // end the outer cbox
             }
-            ast::ItemFn(decl, purity, abi, ref typarams, body) => {
+            ast::ItemFn(decl, fn_style, abi, ref typarams, body) => {
                 try!(self.print_fn(
                     decl,
-                    Some(purity),
+                    Some(fn_style),
                     abi,
                     item.ident,
                     typarams,
@@ -620,6 +641,9 @@ impl<'a> State<'a> {
                 ));
             }
             ast::ItemStruct(struct_def, ref generics) => {
+                if struct_def.is_virtual {
+                    try!(self.word_space("virtual"));
+                }
                 try!(self.head(visibility_qualified(item.vis, "struct")));
                 try!(self.print_struct(struct_def, generics, item.ident, item.span));
             }
@@ -650,10 +674,14 @@ impl<'a> State<'a> {
                 }
                 try!(self.bclose(item.span));
             }
-            ast::ItemTrait(ref generics, ref traits, ref methods) => {
+            ast::ItemTrait(ref generics, ref sized, ref traits, ref methods) => {
                 try!(self.head(visibility_qualified(item.vis, "trait")));
                 try!(self.print_ident(item.ident));
                 try!(self.print_generics(generics));
+                if *sized == ast::DynSize {
+                    try!(space(&mut self.s));
+                    try!(word(&mut self.s, "for type"));
+                }
                 if traits.len() != 0u {
                     try!(word(&mut self.s, ":"));
                     for (i, trait_) in traits.iter().enumerate() {
@@ -722,7 +750,6 @@ impl<'a> State<'a> {
 
     pub fn print_visibility(&mut self, vis: ast::Visibility) -> IoResult<()> {
         match vis {
-            ast::Private => self.word_nbsp("priv"),
             ast::Public => self.word_nbsp("pub"),
             ast::Inherited => Ok(())
         }
@@ -735,6 +762,13 @@ impl<'a> State<'a> {
                         span: codemap::Span) -> IoResult<()> {
         try!(self.print_ident(ident));
         try!(self.print_generics(generics));
+        match struct_def.super_struct {
+            Some(t) => {
+                try!(self.word_space(":"));
+                try!(self.print_type(t));
+            },
+            None => {},
+        }
         if ast_util::struct_def_is_tuple_like(struct_def) {
             if !struct_def.fields.is_empty() {
                 try!(self.popen());
@@ -862,7 +896,7 @@ impl<'a> State<'a> {
         try!(self.print_ty_fn(None,
                               None,
                               &None,
-                              m.purity,
+                              m.fn_style,
                               ast::Many,
                               m.decl,
                               Some(m.ident),
@@ -884,7 +918,7 @@ impl<'a> State<'a> {
         try!(self.hardbreak_if_not_bol());
         try!(self.maybe_print_comment(meth.span.lo));
         try!(self.print_outer_attributes(meth.attrs.as_slice()));
-        try!(self.print_fn(meth.decl, Some(meth.purity), abi::Rust,
+        try!(self.print_fn(meth.decl, Some(meth.fn_style), abi::Rust,
                         meth.ident, &meth.generics, Some(meth.explicit_self.node),
                         meth.vis));
         try!(word(&mut self.s, " "));
@@ -1194,7 +1228,7 @@ impl<'a> State<'a> {
                 let base_args = args.slice_from(1);
                 try!(self.print_expr(*args.get(0)));
                 try!(word(&mut self.s, "."));
-                try!(self.print_ident(ident));
+                try!(self.print_ident(ident.node));
                 if tys.len() > 0u {
                     try!(word(&mut self.s, "::<"));
                     try!(self.commasep(Inconsistent, tys.as_slice(),
@@ -1272,9 +1306,14 @@ impl<'a> State<'a> {
                 try!(self.bopen());
                 let len = arms.len();
                 for (i, arm) in arms.iter().enumerate() {
-                    try!(space(&mut self.s));
+                    // I have no idea why this check is necessary, but here it
+                    // is :(
+                    if arm.attrs.is_empty() {
+                        try!(space(&mut self.s));
+                    }
                     try!(self.cbox(indent_unit));
                     try!(self.ibox(0u));
+                    try!(self.print_outer_attributes(arm.attrs.as_slice()));
                     let mut first = true;
                     for p in arm.pats.iter() {
                         if first {
@@ -1323,17 +1362,20 @@ impl<'a> State<'a> {
                 try!(self.print_fn_block_args(decl));
                 try!(space(&mut self.s));
                 // }
-                assert!(body.stmts.is_empty());
-                assert!(body.expr.is_some());
-                // we extract the block, so as not to create another set of boxes
-                match body.expr.unwrap().node {
-                    ast::ExprBlock(blk) => {
-                        try!(self.print_block_unclosed(blk));
-                    }
-                    _ => {
-                        // this is a bare expression
-                        try!(self.print_expr(body.expr.unwrap()));
-                        try!(self.end()); // need to close a box
+
+                if !body.stmts.is_empty() || !body.expr.is_some() {
+                    try!(self.print_block_unclosed(body));
+                } else {
+                    // we extract the block, so as not to create another set of boxes
+                    match body.expr.unwrap().node {
+                        ast::ExprBlock(blk) => {
+                            try!(self.print_block_unclosed(blk));
+                        }
+                        _ => {
+                            // this is a bare expression
+                            try!(self.print_expr(body.expr.unwrap()));
+                            try!(self.end()); // need to close a box
+                        }
                     }
                 }
                 // a box will be closed by print_expr, but we didn't want an overall
@@ -1728,15 +1770,14 @@ impl<'a> State<'a> {
 
     pub fn print_fn(&mut self,
                     decl: &ast::FnDecl,
-                    purity: Option<ast::Purity>,
+                    fn_style: Option<ast::FnStyle>,
                     abi: abi::Abi,
                     name: ast::Ident,
                     generics: &ast::Generics,
                     opt_explicit_self: Option<ast::ExplicitSelf_>,
                     vis: ast::Visibility) -> IoResult<()> {
         try!(self.head(""));
-        try!(self.print_fn_header_info(opt_explicit_self, purity, abi,
-                                       ast::Many, None, vis));
+        try!(self.print_fn_header_info(opt_explicit_self, fn_style, abi, vis));
         try!(self.nbsp());
         try!(self.print_ident(name));
         try!(self.print_generics(generics));
@@ -1898,6 +1939,9 @@ impl<'a> State<'a> {
                     } else {
                         let idx = idx - generics.lifetimes.len();
                         let param = generics.ty_params.get(idx);
+                        if param.sized == ast::DynSize {
+                            try!(s.word_space("type"));
+                        }
                         try!(s.print_ident(param.ident));
                         try!(s.print_bounds(&None, &param.bounds, false));
                         match param.default {
@@ -2042,9 +2086,9 @@ impl<'a> State<'a> {
 
     pub fn print_ty_fn(&mut self,
                        opt_abi: Option<abi::Abi>,
-                       opt_sigil: Option<ast::Sigil>,
+                       opt_sigil: Option<char>,
                        opt_region: &Option<ast::Lifetime>,
-                       purity: ast::Purity,
+                       fn_style: ast::FnStyle,
                        onceness: ast::Onceness,
                        decl: &ast::FnDecl,
                        id: Option<ast::Ident>,
@@ -2056,16 +2100,16 @@ impl<'a> State<'a> {
 
         // Duplicates the logic in `print_fn_header_info()`.  This is because that
         // function prints the sigil in the wrong place.  That should be fixed.
-        if opt_sigil == Some(ast::OwnedSigil) && onceness == ast::Once {
+        if opt_sigil == Some('~') && onceness == ast::Once {
             try!(word(&mut self.s, "proc"));
-        } else if opt_sigil == Some(ast::BorrowedSigil) {
+        } else if opt_sigil == Some('&') {
             try!(self.print_extern_opt_abi(opt_abi));
-            try!(self.print_purity(purity));
+            try!(self.print_fn_style(fn_style));
             try!(self.print_onceness(onceness));
         } else {
+            assert!(opt_sigil.is_none());
             try!(self.print_opt_abi_and_extern_if_nondefault(opt_abi));
-            try!(self.print_opt_sigil(opt_sigil));
-            try!(self.print_purity(purity));
+            try!(self.print_fn_style(fn_style));
             try!(self.print_onceness(onceness));
             try!(word(&mut self.s, "fn"));
         }
@@ -2081,7 +2125,7 @@ impl<'a> State<'a> {
         match generics { Some(g) => try!(self.print_generics(g)), _ => () }
         try!(zerobreak(&mut self.s));
 
-        if opt_sigil == Some(ast::BorrowedSigil) {
+        if opt_sigil == Some('&') {
             try!(word(&mut self.s, "|"));
         } else {
             try!(self.popen());
@@ -2089,7 +2133,7 @@ impl<'a> State<'a> {
 
         try!(self.print_fn_args(decl, opt_explicit_self));
 
-        if opt_sigil == Some(ast::BorrowedSigil) {
+        if opt_sigil == Some('&') {
             try!(word(&mut self.s, "|"));
         } else {
             if decl.variadic {
@@ -2176,16 +2220,16 @@ impl<'a> State<'a> {
         match lit.node {
             ast::LitStr(ref st, style) => self.print_string(st.get(), style),
             ast::LitChar(ch) => {
-                let mut res = ~"'";
+                let mut res = StrBuf::from_str("'");
                 char::from_u32(ch).unwrap().escape_default(|c| res.push_char(c));
                 res.push_char('\'');
-                word(&mut self.s, res)
+                word(&mut self.s, res.into_owned())
             }
             ast::LitInt(i, t) => {
-                word(&mut self.s, format!("{}{}", i, ast_util::int_ty_to_str(t)))
+                word(&mut self.s, ast_util::int_ty_to_str(t, Some(i)))
             }
             ast::LitUint(u, t) => {
-                word(&mut self.s, format!("{}{}", u, ast_util::uint_ty_to_str(t)))
+                word(&mut self.s, ast_util::uint_ty_to_str(t, Some(u)))
             }
             ast::LitIntUnsuffixed(i) => {
                 word(&mut self.s, format!("{}", i))
@@ -2314,10 +2358,10 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn print_opt_purity(&mut self,
-                            opt_purity: Option<ast::Purity>) -> IoResult<()> {
-        match opt_purity {
-            Some(purity) => self.print_purity(purity),
+    pub fn print_opt_fn_style(&mut self,
+                            opt_fn_style: Option<ast::FnStyle>) -> IoResult<()> {
+        match opt_fn_style {
+            Some(fn_style) => self.print_fn_style(fn_style),
             None => Ok(())
         }
     }
@@ -2346,22 +2390,10 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn print_opt_sigil(&mut self,
-                           opt_sigil: Option<ast::Sigil>) -> IoResult<()> {
-        match opt_sigil {
-            Some(ast::BorrowedSigil) => word(&mut self.s, "&"),
-            Some(ast::OwnedSigil) => word(&mut self.s, "~"),
-            Some(ast::ManagedSigil) => word(&mut self.s, "@"),
-            None => Ok(())
-        }
-    }
-
     pub fn print_fn_header_info(&mut self,
                                 _opt_explicit_self: Option<ast::ExplicitSelf_>,
-                                opt_purity: Option<ast::Purity>,
+                                opt_fn_style: Option<ast::FnStyle>,
                                 abi: abi::Abi,
-                                onceness: ast::Onceness,
-                                opt_sigil: Option<ast::Sigil>,
                                 vis: ast::Visibility) -> IoResult<()> {
         try!(word(&mut self.s, visibility_qualified(vis, "")));
 
@@ -2369,21 +2401,19 @@ impl<'a> State<'a> {
             try!(self.word_nbsp("extern"));
             try!(self.word_nbsp(abi.to_str()));
 
-            if opt_purity != Some(ast::ExternFn) {
-                try!(self.print_opt_purity(opt_purity));
+            if opt_fn_style != Some(ast::ExternFn) {
+                try!(self.print_opt_fn_style(opt_fn_style));
             }
         } else {
-            try!(self.print_opt_purity(opt_purity));
+            try!(self.print_opt_fn_style(opt_fn_style));
         }
 
-        try!(self.print_onceness(onceness));
-        try!(word(&mut self.s, "fn"));
-        self.print_opt_sigil(opt_sigil)
+        word(&mut self.s, "fn")
     }
 
-    pub fn print_purity(&mut self, p: ast::Purity) -> IoResult<()> {
-        match p {
-            ast::ImpureFn => Ok(()),
+    pub fn print_fn_style(&mut self, s: ast::FnStyle) -> IoResult<()> {
+        match s {
+            ast::NormalFn => Ok(()),
             ast::UnsafeFn => self.word_nbsp("unsafe"),
             ast::ExternFn => self.word_nbsp("extern")
         }
@@ -2419,9 +2449,9 @@ mod test {
             variadic: false
         };
         let generics = ast_util::empty_generics();
-        assert_eq!(&fun_to_str(&decl, ast::ImpureFn, abba_ident,
+        assert_eq!(&fun_to_str(&decl, ast::NormalFn, abba_ident,
                                None, &generics),
-                   &~"fn abba()");
+                   &"fn abba()".to_owned());
     }
 
     #[test]
@@ -2439,6 +2469,6 @@ mod test {
         });
 
         let varstr = variant_to_str(&var);
-        assert_eq!(&varstr,&~"pub principal_skinner");
+        assert_eq!(&varstr,&"pub principal_skinner".to_owned());
     }
 }

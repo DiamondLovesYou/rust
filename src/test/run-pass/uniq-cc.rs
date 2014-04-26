@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 use std::cell::RefCell;
 
@@ -20,7 +20,7 @@ enum maybe_pointy {
 struct Pointy {
     a : maybe_pointy,
     c : ~int,
-    d : proc:Send()->(),
+    d : proc():Send->(),
 }
 
 fn empty_pointy() -> @RefCell<Pointy> {

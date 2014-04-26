@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 // Test cyclic detector when using trait instances.
 
@@ -28,8 +28,8 @@ trait to_str {
 impl<T:to_str> to_str for Option<T> {
     fn to_str_(&self) -> ~str {
         match *self {
-          None => { ~"none" }
-          Some(ref t) => { ~"some(" + t.to_str_() + ~")" }
+          None => { "none".to_owned() }
+          Some(ref t) => { "some(".to_owned() + t.to_str_() + ")".to_owned() }
         }
     }
 }
@@ -57,7 +57,7 @@ pub fn main() {
     let t2 = Tree(@RefCell::new(TreeR{left: Some(t1),
                                       right: Some(t1),
                                       val: ~2 as ~to_str:Send}));
-    let expected = ~"[2, some([1, none, none]), some([1, none, none])]";
+    let expected = "[2, some([1, none, none]), some([1, none, none])]".to_owned();
     assert!(t2.to_str_() == expected);
     assert!(foo(t2) == expected);
 

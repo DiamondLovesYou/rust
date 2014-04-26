@@ -28,10 +28,6 @@
 
 #![allow(missing_doc)]
 
-#[cfg(target_os = "macos")]
-#[cfg(windows)]
-use iter::range;
-
 use clone::Clone;
 use container::Container;
 use libc;
@@ -49,6 +45,7 @@ use path::{Path, GenericPath};
 use iter::Iterator;
 use slice::{Vector, CloneableVector, ImmutableVector, MutableVector, OwnedVector};
 use ptr::RawPtr;
+use vec::Vec;
 
 #[cfg(unix)]
 use c_str::ToCStr;
@@ -96,15 +93,16 @@ pub fn getcwd() -> Path {
 
 #[cfg(windows)]
 pub mod win32 {
+    use iter::Iterator;
     use libc::types::os::arch::extra::DWORD;
     use libc;
     use option::{None, Option};
     use option;
     use os::TMPBUF_SZ;
+    use slice::{MutableVector, ImmutableVector, OwnedVector};
     use str::StrSlice;
     use str;
-    use slice::{MutableVector, ImmutableVector, OwnedVector};
-    use slice;
+    use vec::Vec;
 
     pub fn fill_utf16_buf_and_decode(f: |*mut u16, DWORD| -> DWORD)
         -> Option<~str> {
@@ -114,7 +112,7 @@ pub mod win32 {
             let mut res = None;
             let mut done = false;
             while !done {
-                let mut buf = slice::from_elem(n as uint, 0u16);
+                let mut buf = Vec::from_elem(n as uint, 0u16);
                 let k = f(buf.as_mut_ptr(), n);
                 if k == (0 as DWORD) {
                     done = true;
@@ -142,7 +140,7 @@ pub mod win32 {
     }
 
     pub fn as_utf16_p<T>(s: &str, f: |*u16| -> T) -> T {
-        let mut t = s.to_utf16();
+        let mut t = s.to_utf16().move_iter().collect::<Vec<u16>>();
         // Null terminate before passing on.
         t.push(0u16);
         f(t.as_ptr())
@@ -182,7 +180,7 @@ pub fn env() -> ~[(~str,~str)] {
 pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
     unsafe {
         #[cfg(windows)]
-        unsafe fn get_env_pairs() -> ~[~[u8]] {
+        unsafe fn get_env_pairs() -> Vec<~[u8]> {
             use c_str;
             use str::StrSlice;
 
@@ -195,7 +193,7 @@ pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
                 fail!("os::env() failure getting env string from OS: {}",
                        os::last_os_error());
             }
-            let mut result = ~[];
+            let mut result = Vec::new();
             c_str::from_c_multistring(ch as *c_char, None, |cstr| {
                 result.push(cstr.as_bytes_no_nul().to_owned());
             });
@@ -203,7 +201,7 @@ pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
             result
         }
         #[cfg(unix)]
-        unsafe fn get_env_pairs() -> ~[~[u8]] {
+        unsafe fn get_env_pairs() -> Vec<~[u8]> {
             use c_str::CString;
 
             extern {
@@ -214,7 +212,7 @@ pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
                 fail!("os::env() failure getting env string from OS: {}",
                        os::last_os_error());
             }
-            let mut result = ~[];
+            let mut result = Vec::new();
             ptr::array_each(environ, |e| {
                 let env_pair = CString::new(e, false).as_bytes_no_nul().to_owned();
                 result.push(env_pair);
@@ -222,8 +220,8 @@ pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
             result
         }
 
-        fn env_convert(input: ~[~[u8]]) -> ~[(~[u8], ~[u8])] {
-            let mut pairs = ~[];
+        fn env_convert(input: Vec<~[u8]>) -> Vec<(~[u8], ~[u8])> {
+            let mut pairs = Vec::new();
             for p in input.iter() {
                 let vs: ~[&[u8]] = p.splitn(1, |b| *b == '=' as u8).collect();
                 let key = vs[0].to_owned();
@@ -234,7 +232,7 @@ pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
         }
         with_env_lock(|| {
             let unparsed_environ = get_env_pairs();
-            env_convert(unparsed_environ)
+            env_convert(unparsed_environ).move_iter().collect()
         })
     }
 }
@@ -430,7 +428,6 @@ pub fn self_exe_name() -> Option<Path> {
         unsafe {
             use libc::funcs::bsd44::*;
             use libc::consts::os::extra::*;
-            use slice;
             let mib = ~[CTL_KERN as c_int,
                         KERN_PROC as c_int,
                         KERN_PROC_PATHNAME as c_int, -1 as c_int];
@@ -440,14 +437,14 @@ pub fn self_exe_name() -> Option<Path> {
                              0u as libc::size_t);
             if err != 0 { return None; }
             if sz == 0 { return None; }
-            let mut v: ~[u8] = slice::with_capacity(sz as uint);
+            let mut v: Vec<u8> = Vec::with_capacity(sz as uint);
             let err = sysctl(mib.as_ptr(), mib.len() as ::libc::c_uint,
                              v.as_mut_ptr() as *mut c_void, &mut sz, ptr::null(),
                              0u as libc::size_t);
             if err != 0 { return None; }
             if sz == 0 { return None; }
             v.set_len(sz as uint - 1); // chop off trailing NUL
-            Some(v)
+            Some(v.move_iter().collect())
         }
     }
 
@@ -466,15 +463,14 @@ pub fn self_exe_name() -> Option<Path> {
     fn load_self() -> Option<~[u8]> {
         unsafe {
             use libc::funcs::extra::_NSGetExecutablePath;
-            use slice;
             let mut sz: u32 = 0;
             _NSGetExecutablePath(ptr::mut_null(), &mut sz);
             if sz == 0 { return None; }
-            let mut v: ~[u8] = slice::with_capacity(sz as uint);
+            let mut v: Vec<u8> = Vec::with_capacity(sz as uint);
             let err = _NSGetExecutablePath(v.as_mut_ptr() as *mut i8, &mut sz);
             if err != 0 { return None; }
             v.set_len(sz as uint - 1); // chop off trailing NUL
-            Some(v)
+            Some(v.move_iter().collect())
         }
     }
     #[cfg(target_os = "nacl")]
@@ -821,11 +817,9 @@ pub fn get_exit_status() -> int {
 unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> ~[~[u8]] {
     use c_str::CString;
 
-    let mut args = ~[];
-    for i in range(0u, argc as uint) {
-        args.push(CString::new(*argv.offset(i as int), false).as_bytes_no_nul().to_owned())
-    }
-    args
+    Vec::from_fn(argc as uint, |i| {
+        CString::new(*argv.offset(i as int), false).as_bytes_no_nul().to_owned()
+    }).move_iter().collect()
 }
 
 /**
@@ -869,27 +863,24 @@ fn real_args() -> ~[~str] {
     let lpCmdLine = unsafe { GetCommandLineW() };
     let szArgList = unsafe { CommandLineToArgvW(lpCmdLine, lpArgCount) };
 
-    let mut args = ~[];
-    for i in range(0u, nArgs as uint) {
-        unsafe {
-            // Determine the length of this argument.
-            let ptr = *szArgList.offset(i as int);
-            let mut len = 0;
-            while *ptr.offset(len as int) != 0 { len += 1; }
+    let args = Vec::from_fn(nArgs as uint, |i| unsafe {
+        // Determine the length of this argument.
+        let ptr = *szArgList.offset(i as int);
+        let mut len = 0;
+        while *ptr.offset(len as int) != 0 { len += 1; }
 
-            // Push it onto the list.
-            let opt_s = slice::raw::buf_as_slice(ptr, len, |buf| {
-                    str::from_utf16(str::truncate_utf16_at_nul(buf))
-                });
-            args.push(opt_s.expect("CommandLineToArgvW returned invalid UTF-16"));
-        }
-    }
+        // Push it onto the list.
+        let opt_s = slice::raw::buf_as_slice(ptr, len, |buf| {
+            str::from_utf16(str::truncate_utf16_at_nul(buf))
+        });
+        opt_s.expect("CommandLineToArgvW returned invalid UTF-16")
+    });
 
     unsafe {
         LocalFree(szArgList as *c_void);
     }
 
-    return args;
+    return args.move_iter().collect();
 }
 
 #[cfg(windows)]
@@ -1318,239 +1309,245 @@ impl Drop for MemoryMap {
     }
 }
 
-/// Various useful system-specific constants.
+#[cfg(target_os = "linux")]
 pub mod consts {
-    #[cfg(unix)]
-    pub use os::consts::unix::*;
+    pub use std::os::arch_consts::ARCH;
 
-    #[cfg(windows)]
-    pub use os::consts::windows::*;
+    pub static FAMILY: &'static str = "unix";
 
-    #[cfg(target_os = "macos")]
-    pub use os::consts::macos::*;
+    /// A string describing the specific operating system in use: in this
+    /// case, `linux`.
+    pub static SYSNAME: &'static str = "linux";
 
-    #[cfg(target_os = "freebsd")]
-    pub use os::consts::freebsd::*;
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub static DLL_PREFIX: &'static str = "lib";
 
-    #[cfg(target_os = "linux")]
-    pub use os::consts::linux::*;
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub static DLL_SUFFIX: &'static str = ".so";
 
-    #[cfg(target_os = "nacl", target_arch = "le32")]
-    pub use os::consts::pnacl::*;
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub static DLL_EXTENSION: &'static str = "so";
 
-    #[cfg(target_os = "nacl", not(target_arch = "le32"))]
-    pub use os::consts::nacl::*;
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, the empty string.
+    pub static EXE_SUFFIX: &'static str = "";
 
-    #[cfg(target_os = "android")]
-    pub use os::consts::android::*;
-
-    #[cfg(target_os = "win32")]
-    pub use os::consts::win32::*;
-
-    #[cfg(target_arch = "x86")]
-    pub use os::consts::x86::*;
-
-    #[cfg(target_arch = "x86_64")]
-    pub use os::consts::x86_64::*;
-
-    #[cfg(target_arch = "arm")]
-    pub use os::consts::arm::*;
-
-    #[cfg(target_arch = "mips")]
-    pub use os::consts::mips::*;
-
-    /// Constants for Unix systems.
-    pub mod unix {
-        /// A string describing the family that this operating system belongs
-        /// to: in this case, `unix`.
-        pub static FAMILY: &'static str = "unix";
-    }
-
-    /// Constants for Windows systems.
-    pub mod windows {
-        /// A string describing the family that this operating system belongs
-        /// to: in this case, `windows`.
-        pub static FAMILY: &'static str = "windows";
-    }
-
-    /// Constants for Mac OS systems.
-    pub mod macos {
-        /// A string describing the specific operating system in use: in this
-        /// case, `macos`.
-        pub static SYSNAME: &'static str = "macos";
-
-        /// Specifies the filename prefix used for shared libraries on this
-        /// platform: in this case, `lib`.
-        pub static DLL_PREFIX: &'static str = "lib";
-
-        /// Specifies the filename suffix used for shared libraries on this
-        /// platform: in this case, `.dylib`.
-        pub static DLL_SUFFIX: &'static str = ".dylib";
-
-        /// Specifies the file extension used for shared libraries on this
-        /// platform that goes after the dot: in this case, `dylib`.
-        pub static DLL_EXTENSION: &'static str = "dylib";
-
-        /// Specifies the filename suffix used for executable binaries on this
-        /// platform: in this case, the empty string.
-        pub static EXE_SUFFIX: &'static str = "";
-
-        /// Specifies the file extension, if any, used for executable binaries
-        /// on this platform: in this case, the empty string.
-        pub static EXE_EXTENSION: &'static str = "";
-    }
-
-    /// Constants for FreeBSD systems.
-    pub mod freebsd {
-        /// A string describing the specific operating system in use: in this
-        /// case, `freebsd`.
-        pub static SYSNAME: &'static str = "freebsd";
-
-        /// Specifies the filename prefix used for shared libraries on this
-        /// platform: in this case, `lib`.
-        pub static DLL_PREFIX: &'static str = "lib";
-
-        /// Specifies the filename suffix used for shared libraries on this
-        /// platform: in this case, `.so`.
-        pub static DLL_SUFFIX: &'static str = ".so";
-
-        /// Specifies the file extension used for shared libraries on this
-        /// platform that goes after the dot: in this case, `so`.
-        pub static DLL_EXTENSION: &'static str = "so";
-
-        /// Specifies the filename suffix used for executable binaries on this
-        /// platform: in this case, the empty string.
-        pub static EXE_SUFFIX: &'static str = "";
-
-        /// Specifies the file extension, if any, used for executable binaries
-        /// on this platform: in this case, the empty string.
-        pub static EXE_EXTENSION: &'static str = "";
-    }
-
-    /// Constants for GNU/Linux systems.
-    pub mod linux {
-        /// A string describing the specific operating system in use: in this
-        /// case, `linux`.
-        pub static SYSNAME: &'static str = "linux";
-
-        /// Specifies the filename prefix used for shared libraries on this
-        /// platform: in this case, `lib`.
-        pub static DLL_PREFIX: &'static str = "lib";
-
-        /// Specifies the filename suffix used for shared libraries on this
-        /// platform: in this case, `.so`.
-        pub static DLL_SUFFIX: &'static str = ".so";
-
-        /// Specifies the file extension used for shared libraries on this
-        /// platform that goes after the dot: in this case, `so`.
-        pub static DLL_EXTENSION: &'static str = "so";
-
-        /// Specifies the filename suffix used for executable binaries on this
-        /// platform: in this case, the empty string.
-        pub static EXE_SUFFIX: &'static str = "";
-
-        /// Specifies the file extension, if any, used for executable binaries
-        /// on this platform: in this case, the empty string.
-        pub static EXE_EXTENSION: &'static str = "";
-    }
-
-    pub mod pnacl {
-        pub static SYSNAME: &'static str = "nacl";
-        pub static DLL_PREFIX: &'static str = "lib";
-        pub static DLL_SUFFIX: &'static str = ".pso";
-        pub static DLL_EXTENSION: &'static str = "pso";
-        pub static EXE_SUFFIX: &'static str = ".pexe";
-        pub static EXE_EXTENSION: &'static str = "pexe";
-    }
-    pub mod nacl {
-        pub static SYSNAME: &'static str = "nacl";
-        pub static DLL_PREFIX: &'static str = "lib";
-        pub static DLL_SUFFIX: &'static str = ".so";
-        pub static DLL_EXTENSION: &'static str = "so";
-        pub static EXE_SUFFIX: &'static str = ".nexe";
-        pub static EXE_EXTENSION: &'static str = "nexe";
-    }
-
-    /// Constants for Android systems.
-    pub mod android {
-        /// A string describing the specific operating system in use: in this
-        /// case, `android`.
-        pub static SYSNAME: &'static str = "android";
-
-        /// Specifies the filename prefix used for shared libraries on this
-        /// platform: in this case, `lib`.
-        pub static DLL_PREFIX: &'static str = "lib";
-
-        /// Specifies the filename suffix used for shared libraries on this
-        /// platform: in this case, `.so`.
-        pub static DLL_SUFFIX: &'static str = ".so";
-
-        /// Specifies the file extension used for shared libraries on this
-        /// platform that goes after the dot: in this case, `so`.
-        pub static DLL_EXTENSION: &'static str = "so";
-
-        /// Specifies the filename suffix used for executable binaries on this
-        /// platform: in this case, the empty string.
-        pub static EXE_SUFFIX: &'static str = "";
-
-        /// Specifies the file extension, if any, used for executable binaries
-        /// on this platform: in this case, the empty string.
-        pub static EXE_EXTENSION: &'static str = "";
-    }
-
-    /// Constants for 32-bit or 64-bit Windows systems.
-    pub mod win32 {
-        /// A string describing the specific operating system in use: in this
-        /// case, `win32`.
-        pub static SYSNAME: &'static str = "win32";
-
-        /// Specifies the filename prefix used for shared libraries on this
-        /// platform: in this case, the empty string.
-        pub static DLL_PREFIX: &'static str = "";
-
-        /// Specifies the filename suffix used for shared libraries on this
-        /// platform: in this case, `.dll`.
-        pub static DLL_SUFFIX: &'static str = ".dll";
-
-        /// Specifies the file extension used for shared libraries on this
-        /// platform that goes after the dot: in this case, `dll`.
-        pub static DLL_EXTENSION: &'static str = "dll";
-
-        /// Specifies the filename suffix used for executable binaries on this
-        /// platform: in this case, `.exe`.
-        pub static EXE_SUFFIX: &'static str = ".exe";
-
-        /// Specifies the file extension, if any, used for executable binaries
-        /// on this platform: in this case, `exe`.
-        pub static EXE_EXTENSION: &'static str = "exe";
-    }
-
-    /// Constants for Intel Architecture-32 (x86) architectures.
-    pub mod x86 {
-        /// A string describing the architecture in use: in this case, `x86`.
-        pub static ARCH: &'static str = "x86";
-    }
-    /// Constants for Intel 64/AMD64 (x86-64) architectures.
-    pub mod x86_64 {
-        /// A string describing the architecture in use: in this case,
-        /// `x86_64`.
-        pub static ARCH: &'static str = "x86_64";
-    }
-    /// Constants for Advanced RISC Machine (ARM) architectures.
-    pub mod arm {
-        /// A string describing the architecture in use: in this case, `ARM`.
-        pub static ARCH: &'static str = "arm";
-    }
-    /// Constants for Microprocessor without Interlocked Pipeline Stages
-    /// (MIPS) architectures.
-    pub mod mips {
-        /// A string describing the architecture in use: in this case, `MIPS`.
-        pub static ARCH: &'static str = "mips";
-    }
-    pub mod le32 {
-        pub static ARCH: &'static str = "le32";
-    }
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, the empty string.
+    pub static EXE_EXTENSION: &'static str = "";
 }
+
+#[cfg(target_os = "macos")]
+pub mod consts {
+    pub use std::os::arch_consts::ARCH;
+
+    pub static FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `macos`.
+    pub static SYSNAME: &'static str = "macos";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub static DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.dylib`.
+    pub static DLL_SUFFIX: &'static str = ".dylib";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `dylib`.
+    pub static DLL_EXTENSION: &'static str = "dylib";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, the empty string.
+    pub static EXE_SUFFIX: &'static str = "";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, the empty string.
+    pub static EXE_EXTENSION: &'static str = "";
+}
+
+#[cfg(target_os = "freebsd")]
+pub mod consts {
+    pub use std::os::arch_consts::ARCH;
+
+    pub static FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `freebsd`.
+    pub static SYSNAME: &'static str = "freebsd";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub static DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub static DLL_SUFFIX: &'static str = ".so";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub static DLL_EXTENSION: &'static str = "so";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, the empty string.
+    pub static EXE_SUFFIX: &'static str = "";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, the empty string.
+    pub static EXE_EXTENSION: &'static str = "";
+}
+
+#[cfg(target_os = "android")]
+pub mod consts {
+    pub use std::os::arch_consts::ARCH;
+
+    pub static FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `android`.
+    pub static SYSNAME: &'static str = "android";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub static DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub static DLL_SUFFIX: &'static str = ".so";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub static DLL_EXTENSION: &'static str = "so";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, the empty string.
+    pub static EXE_SUFFIX: &'static str = "";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, the empty string.
+    pub static EXE_EXTENSION: &'static str = "";
+}
+#[cfg(target_os = "nacl", not(target_arch = "le32"))]
+pub mod consts {
+    pub use std::os::arch_consts::ARCH;
+
+    pub static FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `nacl`.
+    pub static SYSNAME: &'static str = "nacl";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub static DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub static DLL_SUFFIX: &'static str = ".so";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub static DLL_EXTENSION: &'static str = "so";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, `.nexe`.
+    pub static EXE_SUFFIX: &'static str = ".nexe";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, `nexe`.
+    pub static EXE_EXTENSION: &'static str = "nexe";
+}
+#[cfg(target_os = "nacl", target_arch = "le32")]
+pub mod consts {
+    pub use std::os::arch_consts::ARCH;
+
+    pub static FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `pnacl`.
+    pub static SYSNAME: &'static str = "pnacl";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub static DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub static DLL_SUFFIX: &'static str = ".pso";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub static DLL_EXTENSION: &'static str = "pso";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, `.pexe`.
+    pub static EXE_SUFFIX: &'static str = ".pexe";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, `pexe`.
+    pub static EXE_EXTENSION: &'static str = "pexe";
+}
+
+#[cfg(target_os = "win32")]
+pub mod consts {
+    pub use std::os::arch_consts::ARCH;
+
+    pub static FAMILY: &'static str = "windows";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `win32`.
+    pub static SYSNAME: &'static str = "win32";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, the empty string.
+    pub static DLL_PREFIX: &'static str = "";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.dll`.
+    pub static DLL_SUFFIX: &'static str = ".dll";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `dll`.
+    pub static DLL_EXTENSION: &'static str = "dll";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, `.exe`.
+    pub static EXE_SUFFIX: &'static str = ".exe";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, `exe`.
+    pub static EXE_EXTENSION: &'static str = "exe";
+}
+
+#[cfg(target_arch = "x86")]
+mod arch_consts {
+    pub static ARCH: &'static str = "x86";
+}
+
+#[cfg(target_arch = "x86_64")]
+mod arch_consts {
+    pub static ARCH: &'static str = "x86_64";
+}
+
+#[cfg(target_arch = "arm")]
+mod arch_consts {
+    pub static ARCH: &'static str = "arm";
+}
+
+#[cfg(target_arch = "mips")]
+mod arch_consts {
+    pub static ARCH: &'static str = "mips";
+}
+#[cfg(target_arch = "le32")]
+pub mod arch_consts {
+    pub static ARCH: &'static str = "le32";
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -1576,7 +1573,7 @@ mod tests {
 
     fn make_rand_name() -> ~str {
         let mut rng = rand::task_rng();
-        let n = ~"TEST" + rng.gen_ascii_str(10u);
+        let n = "TEST".to_owned() + rng.gen_ascii_str(10u);
         assert!(getenv(n).is_none());
         n
     }
@@ -1585,7 +1582,7 @@ mod tests {
     fn test_setenv() {
         let n = make_rand_name();
         setenv(n, "VALUE");
-        assert_eq!(getenv(n), option::Some(~"VALUE"));
+        assert_eq!(getenv(n), option::Some("VALUE".to_owned()));
     }
 
     #[test]
@@ -1602,9 +1599,9 @@ mod tests {
         let n = make_rand_name();
         setenv(n, "1");
         setenv(n, "2");
-        assert_eq!(getenv(n), option::Some(~"2"));
+        assert_eq!(getenv(n), option::Some("2".to_owned()));
         setenv(n, "");
-        assert_eq!(getenv(n), option::Some(~""));
+        assert_eq!(getenv(n), option::Some("".to_owned()));
     }
 
     // Windows GetEnvironmentVariable requires some extra work to make sure
@@ -1612,7 +1609,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_getenv_big() {
-        let mut s = ~"";
+        let mut s = "".to_owned();
         let mut i = 0;
         while i < 100 {
             s = s + "aaaaaaaaaa";
@@ -1678,10 +1675,10 @@ mod tests {
 
         let mut e = env();
         setenv(n, "VALUE");
-        assert!(!e.contains(&(n.clone(), ~"VALUE")));
+        assert!(!e.contains(&(n.clone(), "VALUE".to_owned())));
 
         e = env();
-        assert!(e.contains(&(n, ~"VALUE")));
+        assert!(e.contains(&(n, "VALUE".to_owned())));
     }
 
     #[test]

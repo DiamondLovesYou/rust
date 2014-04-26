@@ -24,6 +24,7 @@ extern crate time;
 use std::os;
 use std::result::{Ok, Err};
 use std::task;
+use std::task::TaskBuilder;
 use std::uint;
 
 fn fib(n: int) -> int {
@@ -77,7 +78,7 @@ fn stress_task(id: int) {
 fn stress(num_tasks: int) {
     let mut results = Vec::new();
     for i in range(0, num_tasks) {
-        let mut builder = task::task();
+        let mut builder = TaskBuilder::new();
         results.push(builder.future_result());
         builder.spawn(proc() {
             stress_task(i);
@@ -91,9 +92,9 @@ fn stress(num_tasks: int) {
 fn main() {
     let args = os::args();
     let args = if os::getenv("RUST_BENCH").is_some() {
-        vec!(~"", ~"20")
+        vec!("".to_owned(), "20".to_owned())
     } else if args.len() <= 1u {
-        vec!(~"", ~"8")
+        vec!("".to_owned(), "8".to_owned())
     } else {
         args.move_iter().collect()
     };

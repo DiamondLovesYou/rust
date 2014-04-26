@@ -21,7 +21,7 @@ use option::{Option, Some, None};
 use result::{Ok, Err};
 use io;
 use io::{IoError, IoResult, Reader};
-use slice::{OwnedVector, ImmutableVector};
+use slice::{ImmutableVector, Vector};
 use ptr::RawPtr;
 
 /// An iterator that reads a single byte on each iteration,
@@ -83,12 +83,12 @@ pub fn u64_to_le_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
     assert!(size <= 8u);
     match size {
       1u => f(&[n as u8]),
-      2u => f(unsafe { transmute::<i16, [u8, ..2]>(to_le16(n as i16)) }),
-      4u => f(unsafe { transmute::<i32, [u8, ..4]>(to_le32(n as i32)) }),
-      8u => f(unsafe { transmute::<i64, [u8, ..8]>(to_le64(n as i64)) }),
+      2u => f(unsafe { transmute::<_, [u8, ..2]>(to_le16(n as u16)) }),
+      4u => f(unsafe { transmute::<_, [u8, ..4]>(to_le32(n as u32)) }),
+      8u => f(unsafe { transmute::<_, [u8, ..8]>(to_le64(n)) }),
       _ => {
 
-        let mut bytes: ~[u8] = ~[];
+        let mut bytes = vec!();
         let mut i = size;
         let mut n = n;
         while i > 0u {
@@ -96,7 +96,7 @@ pub fn u64_to_le_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
             n >>= 8_u64;
             i -= 1u;
         }
-        f(bytes)
+        f(bytes.as_slice())
       }
     }
 }
@@ -123,18 +123,18 @@ pub fn u64_to_be_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
     assert!(size <= 8u);
     match size {
       1u => f(&[n as u8]),
-      2u => f(unsafe { transmute::<i16, [u8, ..2]>(to_be16(n as i16)) }),
-      4u => f(unsafe { transmute::<i32, [u8, ..4]>(to_be32(n as i32)) }),
-      8u => f(unsafe { transmute::<i64, [u8, ..8]>(to_be64(n as i64)) }),
+      2u => f(unsafe { transmute::<_, [u8, ..2]>(to_be16(n as u16)) }),
+      4u => f(unsafe { transmute::<_, [u8, ..4]>(to_be32(n as u32)) }),
+      8u => f(unsafe { transmute::<_, [u8, ..8]>(to_be64(n)) }),
       _ => {
-        let mut bytes: ~[u8] = ~[];
+        let mut bytes = vec!();
         let mut i = size;
         while i > 0u {
             let shift = ((i - 1u) * 8u) as u64;
             bytes.push((n >> shift) as u8);
             i -= 1u;
         }
-        f(bytes)
+        f(bytes.as_slice())
       }
     }
 }
@@ -166,7 +166,7 @@ pub fn u64_from_be_bytes(data: &[u8], start: uint, size: uint) -> u64 {
         let ptr = data.as_ptr().offset(start as int);
         let out = buf.as_mut_ptr();
         copy_nonoverlapping_memory(out.offset((8 - size) as int), ptr, size);
-        from_be64(*(out as *i64)) as u64
+        from_be64(*(out as *u64))
     }
 }
 
@@ -503,21 +503,22 @@ mod test {
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+
     use container::Container;
+    use prelude::*;
+    use self::test::Bencher;
 
     macro_rules! u64_from_be_bytes_bench_impl(
         ($size:expr, $stride:expr, $start_index:expr) =>
         ({
-            use slice;
             use super::u64_from_be_bytes;
 
-            let data = slice::from_fn($stride*100+$start_index, |i| i as u8);
+            let data = Vec::from_fn($stride*100+$start_index, |i| i as u8);
             let mut sum = 0u64;
-            bh.iter(|| {
+            b.iter(|| {
                 let mut i = $start_index;
                 while i < data.len() {
-                    sum += u64_from_be_bytes(data, i, $size);
+                    sum += u64_from_be_bytes(data.as_slice(), i, $size);
                     i += $stride;
                 }
             });
@@ -525,32 +526,32 @@ mod bench {
     )
 
     #[bench]
-    fn u64_from_be_bytes_4_aligned(bh: &mut BenchHarness) {
+    fn u64_from_be_bytes_4_aligned(b: &mut Bencher) {
         u64_from_be_bytes_bench_impl!(4, 4, 0);
     }
 
     #[bench]
-    fn u64_from_be_bytes_4_unaligned(bh: &mut BenchHarness) {
+    fn u64_from_be_bytes_4_unaligned(b: &mut Bencher) {
         u64_from_be_bytes_bench_impl!(4, 4, 1);
     }
 
     #[bench]
-    fn u64_from_be_bytes_7_aligned(bh: &mut BenchHarness) {
+    fn u64_from_be_bytes_7_aligned(b: &mut Bencher) {
         u64_from_be_bytes_bench_impl!(7, 8, 0);
     }
 
     #[bench]
-    fn u64_from_be_bytes_7_unaligned(bh: &mut BenchHarness) {
+    fn u64_from_be_bytes_7_unaligned(b: &mut Bencher) {
         u64_from_be_bytes_bench_impl!(7, 8, 1);
     }
 
     #[bench]
-    fn u64_from_be_bytes_8_aligned(bh: &mut BenchHarness) {
+    fn u64_from_be_bytes_8_aligned(b: &mut Bencher) {
         u64_from_be_bytes_bench_impl!(8, 8, 0);
     }
 
     #[bench]
-    fn u64_from_be_bytes_8_unaligned(bh: &mut BenchHarness) {
+    fn u64_from_be_bytes_8_unaligned(b: &mut Bencher) {
         u64_from_be_bytes_bench_impl!(8, 8, 1);
     }
 }

@@ -231,11 +231,10 @@ impl<T: Send> Mutex<T> {
     }
 }
 
-// FIXME(#13042): these should both have T: Send
-impl<'a, T> Deref<T> for MutexGuard<'a, T> {
+impl<'a, T: Send> Deref<T> for MutexGuard<'a, T> {
     fn deref<'a>(&'a self) -> &'a T { &*self.data }
 }
-impl<'a, T> DerefMut<T> for MutexGuard<'a, T> {
+impl<'a, T: Send> DerefMut<T> for MutexGuard<'a, T> {
     fn deref_mut<'a>(&'a mut self) -> &'a mut T { &mut *self.data }
 }
 
@@ -363,14 +362,13 @@ impl<'a, T: Send + Share> RWLockWriteGuard<'a, T> {
     }
 }
 
-// FIXME(#13042): these should all have T: Send + Share
-impl<'a, T> Deref<T> for RWLockReadGuard<'a, T> {
+impl<'a, T: Send + Share> Deref<T> for RWLockReadGuard<'a, T> {
     fn deref<'a>(&'a self) -> &'a T { self.data }
 }
-impl<'a, T> Deref<T> for RWLockWriteGuard<'a, T> {
+impl<'a, T: Send + Share> Deref<T> for RWLockWriteGuard<'a, T> {
     fn deref<'a>(&'a self) -> &'a T { &*self.data }
 }
-impl<'a, T> DerefMut<T> for RWLockWriteGuard<'a, T> {
+impl<'a, T: Send + Share> DerefMut<T> for RWLockWriteGuard<'a, T> {
     fn deref_mut<'a>(&'a mut self) -> &'a mut T { &mut *self.data }
 }
 
@@ -447,6 +445,7 @@ impl Barrier {
 mod tests {
     use std::comm::Empty;
     use std::task;
+    use std::task::TaskBuilder;
 
     use arc::Arc;
     use super::{Mutex, Barrier, RWLock};
@@ -616,7 +615,7 @@ mod tests {
         let mut children = Vec::new();
         for _ in range(0, 5) {
             let arc3 = arc.clone();
-            let mut builder = task::task();
+            let mut builder = TaskBuilder::new();
             children.push(builder.future_result());
             builder.spawn(proc() {
                 let lock = arc3.read();
@@ -802,7 +801,7 @@ mod tests {
         // At this point, all spawned tasks should be blocked,
         // so we shouldn't get anything from the port
         assert!(match rx.try_recv() {
-            Empty => true,
+            Err(Empty) => true,
             _ => false,
         });
 

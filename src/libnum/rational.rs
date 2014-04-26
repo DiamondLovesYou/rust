@@ -15,7 +15,7 @@ use Integer;
 use std::cmp;
 use std::fmt;
 use std::from_str::FromStr;
-use std::num::{Zero,One,ToStrRadix,FromStrRadix,Round};
+use std::num::{Zero, One, ToStrRadix, FromStrRadix};
 use bigint::{BigInt, BigUint, Sign, Plus, Minus};
 
 /// Represents the ratio between 2 numbers.
@@ -112,6 +112,40 @@ impl<T: Clone + Integer + Ord>
     #[inline]
     pub fn recip(&self) -> Ratio<T> {
         Ratio::new_raw(self.denom.clone(), self.numer.clone())
+    }
+
+    pub fn floor(&self) -> Ratio<T> {
+        if *self < Zero::zero() {
+            Ratio::from_integer((self.numer - self.denom + One::one()) / self.denom)
+        } else {
+            Ratio::from_integer(self.numer / self.denom)
+        }
+    }
+
+    pub fn ceil(&self) -> Ratio<T> {
+        if *self < Zero::zero() {
+            Ratio::from_integer(self.numer / self.denom)
+        } else {
+            Ratio::from_integer((self.numer + self.denom - One::one()) / self.denom)
+        }
+    }
+
+    #[inline]
+    pub fn round(&self) -> Ratio<T> {
+        if *self < Zero::zero() {
+            Ratio::from_integer((self.numer - self.denom + One::one()) / self.denom)
+        } else {
+            Ratio::from_integer((self.numer + self.denom - One::one()) / self.denom)
+        }
+    }
+
+    #[inline]
+    pub fn trunc(&self) -> Ratio<T> {
+        Ratio::from_integer(self.numer / self.denom)
+    }
+
+    pub fn fract(&self) -> Ratio<T> {
+        Ratio::new_raw(self.numer % self.denom, self.denom.clone())
     }
 }
 
@@ -237,45 +271,6 @@ impl<T: Clone + Integer + Ord>
 
 impl<T: Clone + Integer + Ord>
     Num for Ratio<T> {}
-
-/* Utils */
-impl<T: Clone + Integer + Ord>
-    Round for Ratio<T> {
-
-    fn floor(&self) -> Ratio<T> {
-        if *self < Zero::zero() {
-            Ratio::from_integer((self.numer - self.denom + One::one()) / self.denom)
-        } else {
-            Ratio::from_integer(self.numer / self.denom)
-        }
-    }
-
-    fn ceil(&self) -> Ratio<T> {
-        if *self < Zero::zero() {
-            Ratio::from_integer(self.numer / self.denom)
-        } else {
-            Ratio::from_integer((self.numer + self.denom - One::one()) / self.denom)
-        }
-    }
-
-    #[inline]
-    fn round(&self) -> Ratio<T> {
-        if *self < Zero::zero() {
-            Ratio::from_integer((self.numer - self.denom + One::one()) / self.denom)
-        } else {
-            Ratio::from_integer((self.numer + self.denom - One::one()) / self.denom)
-        }
-    }
-
-    #[inline]
-    fn trunc(&self) -> Ratio<T> {
-        Ratio::from_integer(self.numer / self.denom)
-    }
-
-    fn fract(&self) -> Ratio<T> {
-        Ratio::new_raw(self.numer % self.denom, self.denom.clone())
-    }
-}
 
 /* String conversions */
 impl<T: fmt::Show> fmt::Show for Ratio<T> {
@@ -564,12 +559,12 @@ mod test {
             assert_eq!(FromStr::from_str(s), Some(r));
             assert_eq!(r.to_str(), s);
         }
-        test(_1, ~"1/1");
-        test(_0, ~"0/1");
-        test(_1_2, ~"1/2");
-        test(_3_2, ~"3/2");
-        test(_2, ~"2/1");
-        test(_neg1_2, ~"-1/2");
+        test(_1, "1/1".to_owned());
+        test(_0, "0/1".to_owned());
+        test(_1_2, "1/2".to_owned());
+        test(_3_2, "3/2".to_owned());
+        test(_2, "2/1".to_owned());
+        test(_neg1_2, "-1/2".to_owned());
     }
     #[test]
     fn test_from_str_fail() {
@@ -593,23 +588,23 @@ mod test {
         fn test3(r: Rational, s: ~str) { test(r, s, 3) }
         fn test16(r: Rational, s: ~str) { test(r, s, 16) }
 
-        test3(_1, ~"1/1");
-        test3(_0, ~"0/1");
-        test3(_1_2, ~"1/2");
-        test3(_3_2, ~"10/2");
-        test3(_2, ~"2/1");
-        test3(_neg1_2, ~"-1/2");
-        test3(_neg1_2 / _2, ~"-1/11");
+        test3(_1, "1/1".to_owned());
+        test3(_0, "0/1".to_owned());
+        test3(_1_2, "1/2".to_owned());
+        test3(_3_2, "10/2".to_owned());
+        test3(_2, "2/1".to_owned());
+        test3(_neg1_2, "-1/2".to_owned());
+        test3(_neg1_2 / _2, "-1/11".to_owned());
 
-        test16(_1, ~"1/1");
-        test16(_0, ~"0/1");
-        test16(_1_2, ~"1/2");
-        test16(_3_2, ~"3/2");
-        test16(_2, ~"2/1");
-        test16(_neg1_2, ~"-1/2");
-        test16(_neg1_2 / _2, ~"-1/4");
-        test16(Ratio::new(13,15), ~"d/f");
-        test16(_1_2*_1_2*_1_2*_1_2, ~"1/10");
+        test16(_1, "1/1".to_owned());
+        test16(_0, "0/1".to_owned());
+        test16(_1_2, "1/2".to_owned());
+        test16(_3_2, "3/2".to_owned());
+        test16(_2, "2/1".to_owned());
+        test16(_neg1_2, "-1/2".to_owned());
+        test16(_neg1_2 / _2, "-1/4".to_owned());
+        test16(Ratio::new(13,15), "d/f".to_owned());
+        test16(_1_2*_1_2*_1_2*_1_2, "1/10".to_owned());
     }
 
     #[test]
@@ -636,19 +631,19 @@ mod test {
 
         // f32
         test(3.14159265359f32, ("13176795", "4194304"));
-        test(2f32.powf(&100.), ("1267650600228229401496703205376", "1"));
-        test(-2f32.powf(&100.), ("-1267650600228229401496703205376", "1"));
-        test(1.0 / 2f32.powf(&100.), ("1", "1267650600228229401496703205376"));
+        test(2f32.powf(100.), ("1267650600228229401496703205376", "1"));
+        test(-2f32.powf(100.), ("-1267650600228229401496703205376", "1"));
+        test(1.0 / 2f32.powf(100.), ("1", "1267650600228229401496703205376"));
         test(684729.48391f32, ("1369459", "2"));
         test(-8573.5918555f32, ("-4389679", "512"));
 
         // f64
         test(3.14159265359f64, ("3537118876014453", "1125899906842624"));
-        test(2f64.powf(&100.), ("1267650600228229401496703205376", "1"));
-        test(-2f64.powf(&100.), ("-1267650600228229401496703205376", "1"));
+        test(2f64.powf(100.), ("1267650600228229401496703205376", "1"));
+        test(-2f64.powf(100.), ("-1267650600228229401496703205376", "1"));
         test(684729.48391f64, ("367611342500051", "536870912"));
         test(-8573.5918555, ("-4713381968463931", "549755813888"));
-        test(1.0 / 2f64.powf(&100.), ("1", "1267650600228229401496703205376"));
+        test(1.0 / 2f64.powf(100.), ("1", "1267650600228229401496703205376"));
     }
 
     #[test]

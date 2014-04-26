@@ -23,7 +23,7 @@ use libc::{O_CREAT, O_APPEND, O_TRUNC, O_RDWR, O_RDONLY, O_WRONLY, S_IRUSR,
 use libc;
 use std::path::Path;
 use std::rt::rtio;
-use std::rt::rtio::IoFactory;
+use std::rt::rtio::{IoFactory, EventLoop};
 use ai = std::io::net::addrinfo;
 
 #[cfg(test)] use std::unstable::run_in_bare_thread;
@@ -69,14 +69,20 @@ impl Drop for UvEventLoop {
         // the loop is free'd (use-after-free). We also must free the uv handle
         // after the loop has been closed because during the closing of the loop
         // the handle is required to be used apparently.
+        //
+        // Lastly, after we've closed the pool of handles we pump the event loop
+        // one last time to run any closing callbacks to make sure the loop
+        // shuts down cleanly.
         let handle = self.uvio.handle_pool.get_ref().handle();
         drop(self.uvio.handle_pool.take());
+        self.run();
+
         self.uvio.loop_.close();
         unsafe { uvll::free_handle(handle) }
     }
 }
 
-impl rtio::EventLoop for UvEventLoop {
+impl EventLoop for UvEventLoop {
     fn run(&mut self) {
         self.uvio.loop_.run();
     }
@@ -110,7 +116,6 @@ impl rtio::EventLoop for UvEventLoop {
 
 #[test]
 fn test_callback_run_once() {
-    use std::rt::rtio::EventLoop;
     run_in_bare_thread(proc() {
         let mut event_loop = UvEventLoop::new();
         let mut count = 0;
@@ -143,10 +148,10 @@ impl IoFactory for UvIoFactory {
     // Connect to an address and return a new stream
     // NB: This blocks the task waiting on the connection.
     // It would probably be better to return a future
-    fn tcp_connect(&mut self, addr: SocketAddr)
+    fn tcp_connect(&mut self, addr: SocketAddr, timeout: Option<u64>)
         -> Result<~rtio::RtioTcpStream:Send, IoError>
     {
-        match TcpWatcher::connect(self, addr) {
+        match TcpWatcher::connect(self, addr, timeout) {
             Ok(t) => Ok(~t as ~rtio::RtioTcpStream:Send),
             Err(e) => Err(uv_error_to_io_error(e)),
         }
@@ -234,7 +239,7 @@ impl IoFactory for UvIoFactory {
         r.map_err(uv_error_to_io_error)
     }
     fn fs_readdir(&mut self, path: &CString, flags: c_int)
-        -> Result<~[Path], IoError>
+        -> Result<Vec<Path>, IoError>
     {
         let r = FsRequest::readdir(&self.loop_, path, flags);
         r.map_err(uv_error_to_io_error)
@@ -286,8 +291,9 @@ impl IoFactory for UvIoFactory {
         }
     }
 
-    fn unix_connect(&mut self, path: &CString) -> Result<~rtio::RtioPipe:Send, IoError> {
-        match PipeWatcher::connect(self, path) {
+    fn unix_connect(&mut self, path: &CString,
+                    timeout: Option<u64>) -> Result<~rtio::RtioPipe:Send, IoError> {
+        match PipeWatcher::connect(self, path, timeout) {
             Ok(p) => Ok(~p as ~rtio::RtioPipe:Send),
             Err(e) => Err(uv_error_to_io_error(e)),
         }

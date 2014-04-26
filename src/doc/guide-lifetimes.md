@@ -236,7 +236,7 @@ it. It would violate memory safety for the box that was originally
 assigned to `x` to be garbage-collected, since a non-heap
 pointer *`y`* still points into it.
 
-> ***Note:*** Our current implementation implements the garbage collector
+> *Note:* Our current implementation implements the garbage collector
 > using reference counting and cycle detection.
 
 For this reason, whenever an `&` expression borrows the interior of a
@@ -561,7 +561,7 @@ points at a static constant).
 
 Lifetimes can be named and referenced. For example, the special lifetime
 `'static`, which does not go out of scope, can be used to create global
-variables and communicate between tasks (see the manual for usecases).
+variables and communicate between tasks (see the manual for use cases).
 
 ## Parameter Lifetimes
 
@@ -674,7 +674,7 @@ Named lifetime notation can also be used to control the flow of execution:
 }
 ~~~
 
-> ***Note:*** Labelled breaks are not currently supported within `while` loops.
+> *Note:* Labelled breaks are not currently supported within `while` loops.
 
 Named labels are hygienic and can be used safely within macros.
 See the macros guide section on hygiene for more details.

@@ -109,7 +109,7 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
             let i: uint = from_str(s.slice_to(s.len() - rest.len())).unwrap();
             s = rest.slice_from(i);
             rest = rest.slice_to(i);
-            loop {
+            while rest.len() > 0 {
                 if rest.starts_with("$") {
                     macro_rules! demangle(
                         ($($pat:expr => $demangled:expr),*) => ({
@@ -144,8 +144,12 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
                         "$x5d" => "]"
                     )
                 } else {
-                    try!(writer.write_str(rest));
-                    break;
+                    let idx = match rest.find('$') {
+                        None => rest.len(),
+                        Some(i) => i,
+                    };
+                    try!(writer.write_str(rest.slice_to(idx)));
+                    rest = rest.slice_from(idx);
                 }
             }
         }
@@ -661,6 +665,89 @@ mod imp {
         }
     }
 
+    #[cfg(target_arch = "x86_64")]
+    mod arch {
+        use libc::{c_longlong, c_ulonglong};
+        use libc::types::os::arch::extra::{WORD, DWORD, DWORDLONG};
+
+        pub struct CONTEXT {
+            P1Home: DWORDLONG,
+            P2Home: DWORDLONG,
+            P3Home: DWORDLONG,
+            P4Home: DWORDLONG,
+            P5Home: DWORDLONG,
+            P6Home: DWORDLONG,
+
+            ContextFlags: DWORD,
+            MxCsr: DWORD,
+
+            SegCs: WORD,
+            SegDs: WORD,
+            SegEs: WORD,
+            SegFs: WORD,
+            SegGs: WORD,
+            SegSs: WORD,
+            EFlags: DWORD,
+
+            Dr0: DWORDLONG,
+            Dr1: DWORDLONG,
+            Dr2: DWORDLONG,
+            Dr3: DWORDLONG,
+            Dr6: DWORDLONG,
+            Dr7: DWORDLONG,
+
+            Rax: DWORDLONG,
+            Rcx: DWORDLONG,
+            Rdx: DWORDLONG,
+            Rbx: DWORDLONG,
+            Rsp: DWORDLONG,
+            Rbp: DWORDLONG,
+            Rsi: DWORDLONG,
+            Rdi: DWORDLONG,
+            R8:  DWORDLONG,
+            R9:  DWORDLONG,
+            R10: DWORDLONG,
+            R11: DWORDLONG,
+            R12: DWORDLONG,
+            R13: DWORDLONG,
+            R14: DWORDLONG,
+            R15: DWORDLONG,
+
+            Rip: DWORDLONG,
+
+            FltSave: FLOATING_SAVE_AREA,
+
+            VectorRegister: [M128A, .. 26],
+            VectorControl: DWORDLONG,
+
+            DebugControl: DWORDLONG,
+            LastBranchToRip: DWORDLONG,
+            LastBranchFromRip: DWORDLONG,
+            LastExceptionToRip: DWORDLONG,
+            LastExceptionFromRip: DWORDLONG,
+        }
+
+        pub struct M128A {
+            Low:  c_ulonglong,
+            High: c_longlong
+        }
+
+        pub struct FLOATING_SAVE_AREA {
+            _Dummy: [u8, ..512] // FIXME: Fill this out
+        }
+
+        pub fn init_frame(frame: &mut super::STACKFRAME64,
+                          ctx: &CONTEXT) -> DWORD {
+            frame.AddrPC.Offset = ctx.Rip as u64;
+            frame.AddrPC.Mode = super::AddrModeFlat;
+            frame.AddrStack.Offset = ctx.Rsp as u64;
+            frame.AddrStack.Mode = super::AddrModeFlat;
+            frame.AddrFrame.Offset = ctx.Rbp as u64;
+            frame.AddrFrame.Mode = super::AddrModeFlat;
+            super::IMAGE_FILE_MACHINE_AMD64
+        }
+    }
+
     struct Cleanup {
         handle: libc::HANDLE,
         SymCleanup: SymCleanupFn,
@@ -773,5 +860,11 @@ mod test {
         t!("_ZN8$UP$testE", "~test");
         t!("_ZN8$UP$test4foobE", "~test::foob");
         t!("_ZN8$x20test4foobE", " test::foob");
+    }
+
+    #[test]
+    fn demangle_many_dollars() {
+        t!("_ZN12test$x20test4foobE", "test test::foob");
+        t!("_ZN12test$UP$test4foobE", "test~test::foob");
     }
 }

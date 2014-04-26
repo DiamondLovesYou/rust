@@ -23,7 +23,7 @@ use syntax::ast::{P, Item, TokenTree, Ty, TySimd};
 use syntax::{ast, ast_util};
 use syntax::codemap::{respan, mk_sp};
 use syntax::ext::base::{get_exprs_from_tts, SyntaxExtension, BasicMacroExpander};
-use syntax::ext::base::{ExtCtxt, MacResult, MRExpr, MRItem, NormalTT};
+use syntax::ext::base::{ExtCtxt, MacResult, MacExpr, MacItem, NormalTT, DummyResult};
 use syntax::codemap::{Span, Spanned};
 use syntax::parse::{parser, token, tts_to_parser};
 use syntax::parse::token::keywords;
@@ -60,7 +60,7 @@ pub fn macro_registrar(register: |Name, SyntaxExtension|) {
             },
                       None));
 }
-fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
+fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
     let mut parser =
         tts_to_parser(cx.parse_sess(),
                       tts.to_owned().move_iter().collect(),
@@ -86,23 +86,23 @@ fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
         _ => parser.unexpected(),
     };
 
-    MRExpr(@Expr {
+    MacExpr::new(@Expr {
         id: DUMMY_NODE_ID,
         span: sp,
         node: ExprSimd(Vec::from_elem(count as uint, value)),
     })
 }
-fn make_simd(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
+fn make_simd(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
     let elements = match get_exprs_from_tts(cx, sp, tts) {
         Some(e) => e,
         None => {
             cx.span_err(sp, "SIMD gather with zero elements");
-            return MacResult::dummy_expr(sp);
+            return DummyResult::any(sp);
         }
     };
-    MRExpr(@Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSimd(elements)})
+    MacExpr::new(@Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSimd(elements)})
 }
-fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
+fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
 
     let parse_simd_ty = |cx: &mut ExtCtxt,
                          parser: &mut parser::Parser,
@@ -187,7 +187,7 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResul
         parser.span_err(sp,
                         format!("expected `type` or `struct` but found `{}`",
                                 token_str));
-        return MacResult::dummy_expr(sp);
+        return DummyResult::any(sp);
     }
 
     let ident = parser.parse_ident();
@@ -215,26 +215,27 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResul
                 id: ast::DUMMY_NODE_ID,
                 node: match ty_type {
                     keywords::Struct => ast::ItemStruct(@ast::StructDef {
-                            fields: Vec::from_elem(1,
-                                                   respan(inner.span, ast::StructField_ {
-                                        kind: ast::UnnamedField(ast::Public),
-                                        id: ast::DUMMY_NODE_ID,
-                                        ty: inner,
-                                        attrs: Vec::new(),
-                                    })),
-                            ctor_id: Some(ast::DUMMY_NODE_ID),
-                        }, ast_util::empty_generics()),
+                        fields: Vec::from_elem(1, respan(inner.span, ast::StructField_ {
+                            kind: ast::UnnamedField(ast::Public),
+                            id: ast::DUMMY_NODE_ID,
+                            ty: inner,
+                            attrs: Vec::new(),
+                        })),
+                        ctor_id: Some(ast::DUMMY_NODE_ID),
+                        super_struct: None,
+                        is_virtual: false,
+                    }, ast_util::empty_generics()),
                     keywords::Type => ast::ItemTy(inner, ast_util::empty_generics()),
                     _ => unreachable!(),
                 },
                 span: sp,
             };
-            MRItem(@item)
+            MacItem::new(@item)
         }
-        None => MacResult::dummy_expr(sp)
+        None => DummyResult::any(sp)
     }
 }
-fn make_swizzle(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
+fn make_swizzle(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
     let mut parser = tts_to_parser(cx.parse_sess(),
                                    tts.to_owned().move_iter().collect(),
                                    cx.cfg());
@@ -250,5 +251,5 @@ fn make_swizzle(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> MacResult {
             cx.expand_expr(s.parse_expr())
         });
 
-    MRExpr(@Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSwizzle(left, opt_right, mask)})
+    MacExpr::new(@Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSwizzle(left, opt_right, mask)})
 }

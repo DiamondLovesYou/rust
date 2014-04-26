@@ -8,12 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::cmp;
 use collections::HashSet;
+use rustc::util::nodemap::NodeSet;
+use std::cmp;
 use std::local_data;
+use std::strbuf::StrBuf;
 use std::uint;
 use syntax::ast;
-use rustc::util::nodemap::NodeSet;
 
 use clean;
 use clean::Item;
@@ -128,9 +129,18 @@ impl<'a> fold::DocFolder for Stripper<'a> {
                 }
             }
 
-            clean::ViewItemItem(..) | clean::StructFieldItem(..) => {
+            clean::ViewItemItem(..) => {
                 if i.visibility != Some(ast::Public) {
                     return None
+                }
+            }
+
+            clean::StructFieldItem(..) => {
+                if i.visibility != Some(ast::Public) {
+                    return Some(clean::Item {
+                        inner: clean::StructFieldItem(clean::HiddenStructField),
+                        ..i
+                    })
                 }
             }
 
@@ -218,7 +228,7 @@ pub fn unindent_comments(krate: clean::Crate) -> plugins::PluginResult {
             for attr in i.attrs.iter() {
                 match attr {
                     &clean::NameValue(ref x, ref s) if "doc" == *x => avec.push(
-                        clean::NameValue(~"doc", unindent(*s))),
+                        clean::NameValue("doc".to_owned(), unindent(*s))),
                     x => avec.push(x.clone())
                 }
             }
@@ -235,7 +245,7 @@ pub fn collapse_docs(krate: clean::Crate) -> plugins::PluginResult {
     struct Collapser;
     impl fold::DocFolder for Collapser {
         fn fold_item(&mut self, i: Item) -> Option<Item> {
-            let mut docstr = ~"";
+            let mut docstr = StrBuf::new();
             let mut i = i;
             for attr in i.attrs.iter() {
                 match *attr {
@@ -250,8 +260,8 @@ pub fn collapse_docs(krate: clean::Crate) -> plugins::PluginResult {
                 &clean::NameValue(ref x, _) if "doc" == *x => false,
                 _ => true
             }).map(|x| x.clone()).collect();
-            if "" != docstr {
-                a.push(clean::NameValue(~"doc", docstr));
+            if docstr.len() > 0 {
+                a.push(clean::NameValue("doc".to_owned(), docstr.into_owned()));
             }
             i.attrs = a;
             self.fold_item_recur(i)
@@ -328,25 +338,25 @@ mod unindent_tests {
 
     #[test]
     fn should_unindent() {
-        let s = ~"    line1\n    line2";
+        let s = "    line1\n    line2".to_owned();
         let r = unindent(s);
-        assert_eq!(r, ~"line1\nline2");
+        assert_eq!(r, "line1\nline2".to_owned());
     }
 
     #[test]
     fn should_unindent_multiple_paragraphs() {
-        let s = ~"    line1\n\n    line2";
+        let s = "    line1\n\n    line2".to_owned();
         let r = unindent(s);
-        assert_eq!(r, ~"line1\n\nline2");
+        assert_eq!(r, "line1\n\nline2".to_owned());
     }
 
     #[test]
     fn should_leave_multiple_indent_levels() {
         // Line 2 is indented another level beyond the
         // base indentation and should be preserved
-        let s = ~"    line1\n\n        line2";
+        let s = "    line1\n\n        line2".to_owned();
         let r = unindent(s);
-        assert_eq!(r, ~"line1\n\n    line2");
+        assert_eq!(r, "line1\n\n    line2".to_owned());
     }
 
     #[test]
@@ -356,15 +366,15 @@ mod unindent_tests {
         //
         // #[doc = "Start way over here
         //          and continue here"]
-        let s = ~"line1\n    line2";
+        let s = "line1\n    line2".to_owned();
         let r = unindent(s);
-        assert_eq!(r, ~"line1\nline2");
+        assert_eq!(r, "line1\nline2".to_owned());
     }
 
     #[test]
     fn should_not_ignore_first_line_indent_in_a_single_line_para() {
-        let s = ~"line1\n\n    line2";
+        let s = "line1\n\n    line2".to_owned();
         let r = unindent(s);
-        assert_eq!(r, ~"line1\n\n    line2");
+        assert_eq!(r, "line1\n\n    line2".to_owned());
     }
 }

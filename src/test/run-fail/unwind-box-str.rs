@@ -10,14 +10,14 @@
 
 // error-pattern:fail
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 fn failfn() {
     fail!();
 }
 
 fn main() {
-    let x = @~"hi";
+    let x = @"hi".to_owned();
     failfn();
     println!("{:?}", x);
 }

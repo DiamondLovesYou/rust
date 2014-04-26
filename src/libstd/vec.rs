@@ -7,6 +7,7 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
+
 //! An owned, growable vector.
 
 use cast::{forget, transmute};
@@ -28,7 +29,7 @@ use ptr;
 use rt::global_heap::{malloc_raw, realloc_raw};
 use raw::Slice;
 use slice::{ImmutableEqVector, ImmutableVector, Items, MutItems, MutableVector};
-use slice::{MutableTotalOrdVector, Vector};
+use slice::{MutableTotalOrdVector, OwnedVector, Vector};
 
 /// An owned, growable vector.
 ///
@@ -134,7 +135,7 @@ impl<T> Vec<T> {
         Vec { len: length, cap: capacity, ptr: ptr }
     }
 
-    /// Consumes the `Vec`, partitioning it based on a predcate.
+    /// Consumes the `Vec`, partitioning it based on a predicate.
     ///
     /// Partitions the `Vec` into two `Vec`s `(A,B)`, where all elements of `A`
     /// satisfy `f` and all elements of `B` do not. The order of elements is
@@ -278,7 +279,7 @@ impl<T: Clone> Vec<T> {
         *self.get_mut(index) = value;
     }
 
-    /// Partitions a vector based on a predcate.
+    /// Partitions a vector based on a predicate.
     ///
     /// Clones the elements of the vector, partitioning them into two `Vec`s
     /// `(A,B)`, where all elements of `A` satisfy `f` and all elements of `B`
@@ -310,7 +311,23 @@ impl<T: Clone> Vec<T> {
 
 impl<T:Clone> Clone for Vec<T> {
     fn clone(&self) -> Vec<T> {
-        self.iter().map(|x| x.clone()).collect()
+        let len = self.len;
+        let mut vector = Vec::with_capacity(len);
+        // Unsafe code so this can be optimised to a memcpy (or something
+        // similarly fast) when T is Copy. LLVM is easily confused, so any
+        // extra operations during the loop can prevent this optimisation
+        {
+            let this_slice = self.as_slice();
+            while vector.len < len {
+                unsafe {
+                    mem::move_val_init(
+                        vector.as_mut_slice().unsafe_mut_ref(vector.len),
+                        this_slice.unsafe_ref(vector.len).clone());
+                }
+                vector.len += 1;
+            }
+        }
+        vector
     }
 
     fn clone_from(&mut self, other: &Vec<T>) {
@@ -597,8 +614,9 @@ impl<T> Vec<T> {
     /// ```
     #[inline]
     pub fn as_mut_slice<'a>(&'a mut self) -> &'a mut [T] {
-        let slice = Slice { data: self.ptr as *T, len: self.len };
-        unsafe { transmute(slice) }
+        unsafe {
+            transmute(Slice { data: self.as_mut_ptr() as *T, len: self.len })
+        }
     }
 
     /// Creates a consuming iterator, that is, one that moves each
@@ -608,7 +626,7 @@ impl<T> Vec<T> {
     /// # Example
     ///
     /// ```rust
-    /// let v = vec!(~"a", ~"b");
+    /// let v = vec!("a".to_owned(), "b".to_owned());
     /// for s in v.move_iter() {
     ///     // s has type ~str, not &~str
     ///     println!("{}", s);
@@ -812,13 +830,13 @@ impl<T> Vec<T> {
     ///
     /// # Example
     /// ```rust
-    /// let mut v = vec!(~"foo", ~"bar", ~"baz", ~"qux");
+    /// let mut v = vec!("foo".to_owned(), "bar".to_owned(), "baz".to_owned(), "qux".to_owned());
     ///
-    /// assert_eq!(v.swap_remove(1), Some(~"bar"));
-    /// assert_eq!(v, vec!(~"foo", ~"qux", ~"baz"));
+    /// assert_eq!(v.swap_remove(1), Some("bar".to_owned()));
+    /// assert_eq!(v, vec!("foo".to_owned(), "qux".to_owned(), "baz".to_owned()));
     ///
-    /// assert_eq!(v.swap_remove(0), Some(~"foo"));
-    /// assert_eq!(v, vec!(~"baz", ~"qux"));
+    /// assert_eq!(v.swap_remove(0), Some("foo".to_owned()));
+    /// assert_eq!(v, vec!("baz".to_owned(), "qux".to_owned()));
     ///
     /// assert_eq!(v.swap_remove(2), None);
     /// ```
@@ -1121,7 +1139,15 @@ impl<T> Vec<T> {
     /// would also make any pointers to it invalid.
     #[inline]
     pub fn as_ptr(&self) -> *T {
-        self.as_slice().as_ptr()
+        // If we have a 0-sized vector, then the base pointer should not be NULL
+        // because an iterator over the slice will attempt to yield the base
+        // pointer as the first element in the vector, but this will end up
+        // being Some(NULL) which is optimized to None.
+        if mem::size_of::<T>() == 0 {
+            1 as *T
+        } else {
+            self.ptr as *T
+        }
     }
 
     /// Returns a mutable unsafe pointer to the vector's buffer.
@@ -1133,7 +1159,12 @@ impl<T> Vec<T> {
     /// would also make any pointers to it invalid.
     #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut T {
-        self.as_mut_slice().as_mut_ptr()
+        // see above for the 0-size check
+        if mem::size_of::<T>() == 0 {
+            1 as *mut T
+        } else {
+            self.ptr
+        }
     }
 
     /// Retains only the elements specified by the predicate.
@@ -1334,8 +1365,7 @@ impl<T> Vector<T> for Vec<T> {
     /// ```
     #[inline]
     fn as_slice<'a>(&'a self) -> &'a [T] {
-        let slice = Slice { data: self.ptr as *T, len: self.len };
-        unsafe { transmute(slice) }
+        unsafe { transmute(Slice { data: self.as_ptr(), len: self.len }) }
     }
 }
 
@@ -1574,6 +1604,7 @@ mod tests {
         assert_eq!(v, three)
     }
 
+    #[test]
     fn test_grow_fn() {
         let mut v = Vec::from_slice([0u, 1]);
         v.grow_fn(3, |i| i);
@@ -1585,5 +1616,36 @@ mod tests {
         let mut vec = Vec::from_slice([1u, 2, 3, 4]);
         vec.retain(|x| x%2 == 0);
         assert!(vec == Vec::from_slice([2u, 4]));
+    }
+
+    #[test]
+    fn zero_sized_values() {
+        let mut v = Vec::new();
+        assert_eq!(v.len(), 0);
+        v.push(());
+        assert_eq!(v.len(), 1);
+        v.push(());
+        assert_eq!(v.len(), 2);
+        assert_eq!(v.pop(), Some(()));
+        assert_eq!(v.pop(), Some(()));
+        assert_eq!(v.pop(), None);
+
+        assert_eq!(v.iter().len(), 0);
+        v.push(());
+        assert_eq!(v.iter().len(), 1);
+        v.push(());
+        assert_eq!(v.iter().len(), 2);
+
+        for &() in v.iter() {}
+
+        assert_eq!(v.mut_iter().len(), 2);
+        v.push(());
+        assert_eq!(v.mut_iter().len(), 3);
+        v.push(());
+        assert_eq!(v.mut_iter().len(), 4);
+
+        for &() in v.mut_iter() {}
+        unsafe { v.set_len(0); }
+        assert_eq!(v.mut_iter().len(), 0);
     }
 }

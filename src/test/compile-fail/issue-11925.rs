@@ -11,7 +11,7 @@
 fn main() {
     let r = {
         let x = ~42;
-        let f = proc() &x; //~ ERROR: borrowed value does not live long enough
+        let f = proc() &x; //~ ERROR: `x` does not live long enough
         f()
     };
 

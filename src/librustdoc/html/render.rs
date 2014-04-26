@@ -33,13 +33,13 @@
 //! These tasks are not parallelized (they haven't been a bottleneck yet), and
 //! both occur before the crate is rendered.
 
-use std::fmt;
-use std::local_data;
-use std::io;
-use std::io::{fs, File, BufferedWriter, MemWriter, BufferedReader};
-use std::str;
-use std::slice;
 use collections::{HashMap, HashSet};
+use std::fmt;
+use std::io::{fs, File, BufferedWriter, MemWriter, BufferedReader};
+use std::io;
+use std::local_data;
+use std::str;
+use std::strbuf::StrBuf;
 
 use sync::Arc;
 use serialize::json::ToJson;
@@ -51,7 +51,9 @@ use rustc::util::nodemap::NodeSet;
 use clean;
 use doctree;
 use fold::DocFolder;
-use html::format::{VisSpace, Method, PuritySpace};
+use html::item_type;
+use html::item_type::{ItemType, shortty};
+use html::format::{VisSpace, Method, FnStyleSpace};
 use html::layout;
 use html::markdown;
 use html::markdown::Markdown;
@@ -71,7 +73,7 @@ pub struct Context {
     pub current: Vec<~str> ,
     /// String representation of how to get back to the root path of the 'doc/'
     /// folder in terms of a relative URL.
-    pub root_path: ~str,
+    pub root_path: StrBuf,
     /// The current destination folder of where HTML artifacts should be placed.
     /// This changes as the context descends into the module hierarchy.
     pub dst: Path,
@@ -137,7 +139,7 @@ pub struct Cache {
     /// URLs when a type is being linked to. External paths are not located in
     /// this map because the `External` type itself has all the information
     /// necessary.
-    pub paths: HashMap<ast::NodeId, (Vec<~str> , &'static str)>,
+    pub paths: HashMap<ast::NodeId, (Vec<~str> , ItemType)>,
 
     /// This map contains information about all known traits of this crate.
     /// Implementations of a crate should inherit the documentation of the
@@ -192,7 +194,7 @@ struct Sidebar<'a> { cx: &'a Context, item: &'a clean::Item, }
 /// Struct representing one entry in the JS search index. These are all emitted
 /// by hand to a large JS file at the end of cache-creation.
 struct IndexItem {
-    ty: &'static str,
+    ty: ItemType,
     name: ~str,
     path: ~str,
     desc: ~str,
@@ -209,11 +211,11 @@ pub fn run(mut krate: clean::Crate, dst: Path) -> io::IoResult<()> {
     let mut cx = Context {
         dst: dst,
         current: Vec::new(),
-        root_path: ~"",
+        root_path: StrBuf::new(),
         sidebar: HashMap::new(),
         layout: layout::Layout {
-            logo: ~"",
-            favicon: ~"",
+            logo: "".to_owned(),
+            favicon: "".to_owned(),
             krate: krate.name.clone(),
         },
         include_sources: true,
@@ -261,11 +263,15 @@ pub fn run(mut krate: clean::Crate, dst: Path) -> io::IoResult<()> {
     });
     cache.stack.push(krate.name.clone());
     krate = cache.fold_crate(krate);
+
+    let mut nodeid_to_pathid = HashMap::new();
+    let mut pathid_to_nodeid = Vec::new();
     {
+        let Cache { search_index: ref mut index,
+                    orphan_methods: ref meths, paths: ref mut paths, ..} = cache;
+
         // Attach all orphan methods to the type's definition if the type
         // has since been learned.
-        let Cache { search_index: ref mut index,
-                    orphan_methods: ref meths, paths: ref paths, ..} = cache;
         for &(ref pid, ref item) in meths.iter() {
             match paths.find(pid) {
                 Some(&(ref fqp, _)) => {
@@ -280,37 +286,68 @@ pub fn run(mut krate: clean::Crate, dst: Path) -> io::IoResult<()> {
                 None => {}
             }
         };
+
+        // Reduce `NodeId` in paths into smaller sequential numbers,
+        // and prune the paths that do not appear in the index.
+        for item in index.iter() {
+            match item.parent {
+                Some(nodeid) => {
+                    if !nodeid_to_pathid.contains_key(&nodeid) {
+                        let pathid = pathid_to_nodeid.len();
+                        nodeid_to_pathid.insert(nodeid, pathid);
+                        pathid_to_nodeid.push(nodeid);
+                    }
+                }
+                None => {}
+            }
+        }
+        assert_eq!(nodeid_to_pathid.len(), pathid_to_nodeid.len());
     }
 
     // Publish the search index
     let index = {
         let mut w = MemWriter::new();
-        try!(write!(&mut w, "searchIndex['{}'] = [", krate.name));
+        try!(write!(&mut w, r#"searchIndex['{}'] = \{"items":["#, krate.name));
+
+        let mut lastpath = "".to_owned();
         for (i, item) in cache.search_index.iter().enumerate() {
+            // Omit the path if it is same to that of the prior item.
+            let path;
+            if lastpath == item.path {
+                path = "";
+            } else {
+                lastpath = item.path.clone();
+                path = item.path.as_slice();
+            };
+
             if i > 0 {
                 try!(write!(&mut w, ","));
             }
-            try!(write!(&mut w, "\\{ty:\"{}\",name:\"{}\",path:\"{}\",desc:{}",
-                        item.ty, item.name, item.path,
+            try!(write!(&mut w, r#"[{:u},"{}","{}",{}"#,
+                        item.ty, item.name, path,
                         item.desc.to_json().to_str()));
             match item.parent {
-                Some(id) => {
-                    try!(write!(&mut w, ",parent:'{}'", id));
+                Some(nodeid) => {
+                    let pathid = *nodeid_to_pathid.find(&nodeid).unwrap();
+                    try!(write!(&mut w, ",{}", pathid));
                 }
                 None => {}
             }
-            try!(write!(&mut w, "\\}"));
+            try!(write!(&mut w, "]"));
         }
-        try!(write!(&mut w, "];"));
-        try!(write!(&mut w, "allPaths['{}'] = \\{", krate.name));
-        for (i, (&id, &(ref fqp, short))) in cache.paths.iter().enumerate() {
+
+        try!(write!(&mut w, r#"],"paths":["#));
+
+        for (i, &nodeid) in pathid_to_nodeid.iter().enumerate() {
+            let &(ref fqp, short) = cache.paths.find(&nodeid).unwrap();
             if i > 0 {
                 try!(write!(&mut w, ","));
             }
-            try!(write!(&mut w, "'{}':\\{type:'{}',name:'{}'\\}",
-                        id, short, *fqp.last().unwrap()));
+            try!(write!(&mut w, r#"[{:u},"{}"]"#,
+                        short, *fqp.last().unwrap()));
         }
-        try!(write!(&mut w, "\\};"));
+
+        try!(write!(&mut w, r"]\};"));
 
         str::from_utf8(w.unwrap().as_slice()).unwrap().to_owned()
     };
@@ -346,7 +383,7 @@ pub fn run(mut krate: clean::Crate, dst: Path) -> io::IoResult<()> {
             }
         }
         let mut w = try!(File::create(&dst));
-        try!(writeln!(&mut w, r"var searchIndex = \{\}; var allPaths = \{\};"));
+        try!(writeln!(&mut w, r"var searchIndex = \{\};"));
         for index in all_indexes.iter() {
             try!(writeln!(&mut w, "{}", *index));
         }
@@ -498,7 +535,7 @@ impl<'a> SourceCollector<'a> {
 
         // Create the intermediate directories
         let mut cur = self.dst.clone();
-        let mut root_path = ~"../../";
+        let mut root_path = StrBuf::from_str("../../");
         clean_srcpath(p.dirname(), |component| {
             cur.push(component);
             mkdir(&cur).unwrap();
@@ -512,7 +549,7 @@ impl<'a> SourceCollector<'a> {
         let page = layout::Page {
             title: title,
             ty: "source",
-            root_path: root_path,
+            root_path: root_path.as_slice(),
         };
         try!(layout::render(&mut w as &mut Writer, &self.cx.layout,
                               &page, &(""), &Source(contents)));
@@ -599,12 +636,13 @@ impl DocFolder for Cache {
                         } else {
                             let last = self.parent_stack.last().unwrap();
                             let path = match self.paths.find(last) {
-                                Some(&(_, "trait")) =>
+                                Some(&(_, item_type::Trait)) =>
                                     Some(self.stack.slice_to(self.stack.len() - 1)),
                                 // The current stack not necessarily has correlation for
                                 // where the type was defined. On the other hand,
                                 // `paths` always has the right information if present.
-                                Some(&(ref fqp, "struct")) | Some(&(ref fqp, "enum")) =>
+                                Some(&(ref fqp, item_type::Struct)) |
+                                Some(&(ref fqp, item_type::Enum)) =>
                                     Some(fqp.slice_to(fqp.len() - 1)),
                                 Some(..) => Some(self.stack.as_slice()),
                                 None => None
@@ -664,7 +702,7 @@ impl DocFolder for Cache {
             clean::VariantItem(..) => {
                 let mut stack = self.stack.clone();
                 stack.pop();
-                self.paths.insert(item.id, (stack, "enum"));
+                self.paths.insert(item.id, (stack, item_type::Enum));
             }
             _ => {}
         }
@@ -813,16 +851,18 @@ impl Context {
             // does make formatting *a lot* nicer.
             local_data::set(current_location_key, cx.current.clone());
 
-            let mut title = cx.current.connect("::");
+            let mut title = StrBuf::from_str(cx.current.connect("::"));
             if pushname {
-                if title.len() > 0 { title.push_str("::"); }
+                if title.len() > 0 {
+                    title.push_str("::");
+                }
                 title.push_str(*it.name.get_ref());
             }
             title.push_str(" - Rust");
             let page = layout::Page {
-                ty: shortty(it),
-                root_path: cx.root_path,
-                title: title,
+                ty: shortty(it).to_static_str(),
+                root_path: cx.root_path.as_slice(),
+                title: title.as_slice(),
             };
 
             markdown::reset_headers();
@@ -874,27 +914,6 @@ impl Context {
     }
 }
 
-fn shortty(item: &clean::Item) -> &'static str {
-    match item.inner {
-        clean::ModuleItem(..)          => "mod",
-        clean::StructItem(..)          => "struct",
-        clean::EnumItem(..)            => "enum",
-        clean::FunctionItem(..)        => "fn",
-        clean::TypedefItem(..)         => "typedef",
-        clean::StaticItem(..)          => "static",
-        clean::TraitItem(..)           => "trait",
-        clean::ImplItem(..)            => "impl",
-        clean::ViewItemItem(..)        => "viewitem",
-        clean::TyMethodItem(..)        => "tymethod",
-        clean::MethodItem(..)          => "method",
-        clean::StructFieldItem(..)     => "structfield",
-        clean::VariantItem(..)         => "variant",
-        clean::ForeignFunctionItem(..) => "ffi",
-        clean::ForeignStaticItem(..)   => "ffs",
-        clean::MacroItem(..)           => "macro",
-    }
-}
-
 impl<'a> Item<'a> {
     fn ismodule(&self) -> bool {
         match self.item.inner {
@@ -905,41 +924,8 @@ impl<'a> Item<'a> {
 
 impl<'a> fmt::Show for Item<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match attr::find_stability(self.item.attrs.iter()) {
-            Some(ref stability) => {
-                try!(write!(fmt.buf,
-                       "<a class='stability {lvl}' title='{reason}'>{lvl}</a>",
-                       lvl = stability.level.to_str(),
-                       reason = match stability.text {
-                           Some(ref s) => (*s).clone(),
-                           None => InternedString::new(""),
-                       }));
-            }
-            None => {}
-        }
-
-        if self.cx.include_sources {
-            let mut path = Vec::new();
-            clean_srcpath(self.item.source.filename.as_bytes(), |component| {
-                path.push(component.to_owned());
-            });
-            let href = if self.item.source.loline == self.item.source.hiline {
-                format!("{}", self.item.source.loline)
-            } else {
-                format!("{}-{}", self.item.source.loline, self.item.source.hiline)
-            };
-            try!(write!(fmt.buf,
-                          "<a class='source'
-                              href='{root}src/{krate}/{path}.html\\#{href}'>\
-                              [src]</a>",
-                          root = self.cx.root_path,
-                          krate = self.cx.layout.krate,
-                          path = path.connect("/"),
-                          href = href));
-        }
-
         // Write the breadcrumb trail header for the top
-        try!(write!(fmt.buf, "<h1 class='fqn'>"));
+        try!(write!(fmt.buf, "\n<h1 class='fqn'>"));
         match self.item.inner {
             clean::ModuleItem(ref m) => if m.is_crate {
                     try!(write!(fmt.buf, "Crate "));
@@ -955,15 +941,51 @@ impl<'a> fmt::Show for Item<'a> {
         let cur = self.cx.current.as_slice();
         let amt = if self.ismodule() { cur.len() - 1 } else { cur.len() };
         for (i, component) in cur.iter().enumerate().take(amt) {
-            let mut trail = ~"";
+            let mut trail = StrBuf::new();
             for _ in range(0, cur.len() - i - 1) {
                 trail.push_str("../");
             }
             try!(write!(fmt.buf, "<a href='{}index.html'>{}</a>::",
                           trail, component.as_slice()));
         }
-        try!(write!(fmt.buf, "<a class='{}' href=''>{}</a></h1>",
+        try!(write!(fmt.buf, "<a class='{}' href=''>{}</a>",
                       shortty(self.item), self.item.name.get_ref().as_slice()));
+
+        // Write stability attributes
+        match attr::find_stability(self.item.attrs.iter()) {
+            Some(ref stability) => {
+                try!(write!(fmt.buf,
+                       "<a class='stability {lvl}' title='{reason}'>{lvl}</a>",
+                       lvl = stability.level.to_str(),
+                       reason = match stability.text {
+                           Some(ref s) => (*s).clone(),
+                           None => InternedString::new(""),
+                       }));
+            }
+            None => {}
+        }
+
+        // Write `src` tag
+        if self.cx.include_sources {
+            let mut path = Vec::new();
+            clean_srcpath(self.item.source.filename.as_bytes(), |component| {
+                path.push(component.to_owned());
+            });
+            let href = if self.item.source.loline == self.item.source.hiline {
+                format!("{}", self.item.source.loline)
+            } else {
+                format!("{}-{}", self.item.source.loline, self.item.source.hiline)
+            };
+            try!(write!(fmt.buf,
+                          "<a class='source' \
+                              href='{root}src/{krate}/{path}.html\\#{href}'>\
+                              [src]</a>",
+                          root = self.cx.root_path,
+                          krate = self.cx.layout.krate,
+                          path = path.connect("/"),
+                          href = href));
+        }
+        try!(write!(fmt.buf, "</h1>\n"));
 
         match self.item.inner {
             clean::ModuleItem(ref m) => {
@@ -984,15 +1006,15 @@ impl<'a> fmt::Show for Item<'a> {
 fn item_path(item: &clean::Item) -> ~str {
     match item.inner {
         clean::ModuleItem(..) => *item.name.get_ref() + "/index.html",
-        _ => shortty(item) + "." + *item.name.get_ref() + ".html"
+        _ => shortty(item).to_static_str() + "." + *item.name.get_ref() + ".html"
     }
 }
 
 fn full_path(cx: &Context, item: &clean::Item) -> ~str {
-    let mut s = cx.current.connect("::");
+    let mut s = StrBuf::from_str(cx.current.connect("::"));
     s.push_str("::");
     s.push_str(item.name.get_ref().as_slice());
-    return s;
+    return s.into_owned();
 }
 
 fn blank<'a>(s: Option<&'a str>) -> &'a str {
@@ -1026,7 +1048,7 @@ fn item_module(w: &mut Writer, cx: &Context,
                item: &clean::Item, items: &[clean::Item]) -> fmt::Result {
     try!(document(w, item));
     debug!("{:?}", items);
-    let mut indices = slice::from_fn(items.len(), |i| i);
+    let mut indices = Vec::from_fn(items.len(), |i| i);
 
     fn cmp(i1: &clean::Item, i2: &clean::Item, idx1: uint, idx2: uint) -> Ordering {
         if shortty(i1) == shortty(i2) {
@@ -1070,13 +1092,13 @@ fn item_module(w: &mut Writer, cx: &Context,
     indices.sort_by(|&i1, &i2| cmp(&items[i1], &items[i2], i1, i2));
 
     debug!("{:?}", indices);
-    let mut curty = "";
+    let mut curty = None;
     for &idx in indices.iter() {
         let myitem = &items[idx];
 
-        let myty = shortty(myitem);
+        let myty = Some(shortty(myitem));
         if myty != curty {
-            if curty != "" {
+            if curty.is_some() {
                 try!(write!(w, "</table>"));
             }
             curty = myty;
@@ -1178,10 +1200,10 @@ fn item_module(w: &mut Writer, cx: &Context,
 
 fn item_function(w: &mut Writer, it: &clean::Item,
                  f: &clean::Function) -> fmt::Result {
-    try!(write!(w, "<pre class='rust fn'>{vis}{purity}fn \
+    try!(write!(w, "<pre class='rust fn'>{vis}{fn_style}fn \
                     {name}{generics}{decl}</pre>",
            vis = VisSpace(it.visibility),
-           purity = PuritySpace(f.purity),
+           fn_style = FnStyleSpace(f.fn_style),
            name = it.name.get_ref().as_slice(),
            generics = f.generics,
            decl = f.decl));
@@ -1190,7 +1212,7 @@ fn item_function(w: &mut Writer, it: &clean::Item,
 
 fn item_trait(w: &mut Writer, it: &clean::Item,
               t: &clean::Trait) -> fmt::Result {
-    let mut parents = ~"";
+    let mut parents = StrBuf::new();
     if t.parents.len() > 0 {
         parents.push_str(": ");
         for (i, p) in t.parents.iter().enumerate() {
@@ -1205,8 +1227,8 @@ fn item_trait(w: &mut Writer, it: &clean::Item,
                   it.name.get_ref().as_slice(),
                   t.generics,
                   parents));
-    let required = t.methods.iter().filter(|m| m.is_req()).collect::<~[&clean::TraitMethod]>();
-    let provided = t.methods.iter().filter(|m| !m.is_req()).collect::<~[&clean::TraitMethod]>();
+    let required = t.methods.iter().filter(|m| m.is_req()).collect::<Vec<&clean::TraitMethod>>();
+    let provided = t.methods.iter().filter(|m| !m.is_req()).collect::<Vec<&clean::TraitMethod>>();
 
     if t.methods.len() == 0 {
         try!(write!(w, "\\{ \\}"));
@@ -1292,12 +1314,12 @@ fn item_trait(w: &mut Writer, it: &clean::Item,
 }
 
 fn render_method(w: &mut Writer, meth: &clean::Item) -> fmt::Result {
-    fn fun(w: &mut Writer, it: &clean::Item, purity: ast::Purity,
+    fn fun(w: &mut Writer, it: &clean::Item, fn_style: ast::FnStyle,
            g: &clean::Generics, selfty: &clean::SelfTy,
            d: &clean::FnDecl) -> fmt::Result {
         write!(w, "{}fn <a href='\\#{ty}.{name}' class='fnname'>{name}</a>\
                    {generics}{decl}",
-               match purity {
+               match fn_style {
                    ast::UnsafeFn => "unsafe ",
                    _ => "",
                },
@@ -1308,10 +1330,10 @@ fn render_method(w: &mut Writer, meth: &clean::Item) -> fmt::Result {
     }
     match meth.inner {
         clean::TyMethodItem(ref m) => {
-            fun(w, meth, m.purity, &m.generics, &m.self_, &m.decl)
+            fun(w, meth, m.fn_style, &m.generics, &m.self_, &m.decl)
         }
         clean::MethodItem(ref m) => {
-            fun(w, meth, m.purity, &m.generics, &m.self_, &m.decl)
+            fun(w, meth, m.fn_style, &m.generics, &m.self_, &m.decl)
         }
         _ => unreachable!()
     }
@@ -1325,16 +1347,22 @@ fn item_struct(w: &mut Writer, it: &clean::Item,
                        Some(&s.generics),
                        s.struct_type,
                        s.fields.as_slice(),
-                       s.fields_stripped,
                        "",
                        true));
     try!(write!(w, "</pre>"));
 
     try!(document(w, it));
+    let mut fields = s.fields.iter().filter(|f| {
+        match f.inner {
+            clean::StructFieldItem(clean::HiddenStructField) => false,
+            clean::StructFieldItem(clean::TypedStructField(..)) => true,
+            _ => false,
+        }
+    }).peekable();
     match s.struct_type {
-        doctree::Plain if s.fields.len() > 0 => {
+        doctree::Plain if fields.peek().is_some() => {
             try!(write!(w, "<h2 class='fields'>Fields</h2>\n<table>"));
-            for field in s.fields.iter() {
+            for field in fields {
                 try!(write!(w, "<tr><td id='structfield.{name}'>\
                                   <code>{name}</code></td><td>",
                               name = field.name.get_ref().as_slice()));
@@ -1380,7 +1408,6 @@ fn item_enum(w: &mut Writer, it: &clean::Item, e: &clean::Enum) -> fmt::Result {
                                                None,
                                                s.struct_type,
                                                s.fields.as_slice(),
-                                               s.fields_stripped,
                                                "    ",
                                                false));
                         }
@@ -1409,9 +1436,18 @@ fn item_enum(w: &mut Writer, it: &clean::Item, e: &clean::Enum) -> fmt::Result {
                 clean::VariantItem(ref var) => {
                     match var.kind {
                         clean::StructVariant(ref s) => {
+                            let mut fields = s.fields.iter().filter(|f| {
+                                match f.inner {
+                                    clean::StructFieldItem(ref t) => match *t {
+                                        clean::HiddenStructField => false,
+                                        clean::TypedStructField(..) => true,
+                                    },
+                                    _ => false,
+                                }
+                            });
                             try!(write!(w, "<h3 class='fields'>Fields</h3>\n
                                               <table>"));
-                            for field in s.fields.iter() {
+                            for field in fields {
                                 try!(write!(w, "<tr><td \
                                                   id='variant.{v}.field.{f}'>\
                                                   <code>{f}</code></td><td>",
@@ -1440,7 +1476,6 @@ fn render_struct(w: &mut Writer, it: &clean::Item,
                  g: Option<&clean::Generics>,
                  ty: doctree::StructType,
                  fields: &[clean::Item],
-                 fields_stripped: bool,
                  tab: &str,
                  structhead: bool) -> fmt::Result {
     try!(write!(w, "{}{}{}",
@@ -1454,17 +1489,21 @@ fn render_struct(w: &mut Writer, it: &clean::Item,
     match ty {
         doctree::Plain => {
             try!(write!(w, " \\{\n{}", tab));
+            let mut fields_stripped = false;
             for field in fields.iter() {
                 match field.inner {
-                    clean::StructFieldItem(ref ty) => {
+                    clean::StructFieldItem(clean::HiddenStructField) => {
+                        fields_stripped = true;
+                    }
+                    clean::StructFieldItem(clean::TypedStructField(ref ty)) => {
                         try!(write!(w, "    {}{}: {},\n{}",
                                       VisSpace(field.visibility),
                                       field.name.get_ref().as_slice(),
-                                      ty.type_,
+                                      *ty,
                                       tab));
                     }
-                    _ => unreachable!()
-                }
+                    _ => unreachable!(),
+                };
             }
 
             if fields_stripped {
@@ -1479,8 +1518,11 @@ fn render_struct(w: &mut Writer, it: &clean::Item,
                     try!(write!(w, ", "));
                 }
                 match field.inner {
-                    clean::StructFieldItem(ref field) => {
-                        try!(write!(w, "{}", field.type_));
+                    clean::StructFieldItem(clean::HiddenStructField) => {
+                        try!(write!(w, "_"))
+                    }
+                    clean::StructFieldItem(clean::TypedStructField(ref ty)) => {
+                        try!(write!(w, "{}{}", VisSpace(field.visibility), *ty))
                     }
                     _ => unreachable!()
                 }
@@ -1502,11 +1544,11 @@ fn render_methods(w: &mut Writer, it: &clean::Item) -> fmt::Result {
                 let mut non_trait = v.iter().filter(|p| {
                     p.ref0().trait_.is_none()
                 });
-                let non_trait = non_trait.collect::<~[&(clean::Impl, Option<~str>)]>();
+                let non_trait = non_trait.collect::<Vec<&(clean::Impl, Option<~str>)>>();
                 let mut traits = v.iter().filter(|p| {
                     p.ref0().trait_.is_some()
                 });
-                let traits = traits.collect::<~[&(clean::Impl, Option<~str>)]>();
+                let traits = traits.collect::<Vec<&(clean::Impl, Option<~str>)>>();
 
                 if non_trait.len() > 0 {
                     try!(write!(w, "<h2 id='methods'>Methods</h2>"));
@@ -1664,7 +1706,9 @@ impl<'a> fmt::Show for Sidebar<'a> {
                 try!(write!(fmt.buf, "&\\#8203;::"));
             }
             try!(write!(fmt.buf, "<a href='{}index.html'>{}</a>",
-                          cx.root_path.slice_to((cx.current.len() - i - 1) * 3),
+                          cx.root_path
+                            .as_slice()
+                            .slice_to((cx.current.len() - i - 1) * 3),
                           *name));
         }
         try!(write!(fmt.buf, "</p>"));
@@ -1677,8 +1721,9 @@ impl<'a> fmt::Show for Sidebar<'a> {
             };
             try!(write!(w, "<div class='block {}'><h2>{}</h2>", short, longty));
             for item in items.iter() {
+                let curty = shortty(cur).to_static_str();
                 let class = if cur.name.get_ref() == item &&
-                               short == shortty(cur) { "current" } else { "" };
+                               short == curty { "current" } else { "" };
                 try!(write!(w, "<a class='{ty} {class}' href='{curty, select,
                                 mod{../}
                                 other{}
@@ -1689,7 +1734,7 @@ impl<'a> fmt::Show for Sidebar<'a> {
                        ty = short,
                        tysel = short,
                        class = class,
-                       curty = shortty(cur),
+                       curty = curty,
                        name = item.as_slice()));
             }
             try!(write!(w, "</div>"));
@@ -1708,7 +1753,7 @@ impl<'a> fmt::Show for Sidebar<'a> {
 fn build_sidebar(m: &clean::Module) -> HashMap<~str, Vec<~str> > {
     let mut map = HashMap::new();
     for item in m.items.iter() {
-        let short = shortty(item);
+        let short = shortty(item).to_static_str();
         let myname = match item.name {
             None => continue,
             Some(ref s) => s.to_owned(),

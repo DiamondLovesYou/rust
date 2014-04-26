@@ -7,6 +7,7 @@
 li {list-style-type: none; }
 </style>
 
+* [A 30-minute Intro to Rust](intro.html)
 * [The Rust tutorial](tutorial.html)  (* [PDF](tutorial.pdf))
 * [The Rust reference manual](rust.html) (* [PDF](rust.pdf))
 
@@ -40,6 +41,7 @@ li {list-style-type: none; }
 * [The `native` 1:1 threading runtime](native/index.html)
 * [The `num` arbitrary precision numerics library](num/index.html)
 * [The `rand` library for random numbers and distributions](rand/index.html)
+* [The `regex` library for regular expressions](regex/index.html)
 * [The `rustc` compiler](rustc/index.html)
 * [The `rustuv` M:N I/O library](rustuv/index.html)
 * [The `semver` version collation library](semver/index.html)

@@ -29,7 +29,7 @@ let x: int = 42;
 let y: ~str = format!("{:t}", x);   // binary
 let y: ~str = format!("{:o}", x);   // octal
 let y: ~str = format!("{:x}", x);   // lowercase hexadecimal
-let y: ~str = format!("{:X}", x);   // uppercase hexidecimal
+let y: ~str = format!("{:X}", x);   // uppercase hexadecimal
 ~~~
 
 **String to int, in non-base-10**
@@ -152,7 +152,7 @@ struct Foo {
 }
 
 struct FooClosure<'a> {
-    myfunc: 'a |int, uint| -> i32
+    myfunc: |int, uint|: 'a -> i32
 }
 
 fn a(a: int, b: uint) -> i32 {
@@ -194,25 +194,25 @@ fn open(Door(name): Door<Closed>) -> Door<Open> {
     Door::<Open>(name)
 }
 
-let _ = close(Door::<Open>(~"front"));
+let _ = close(Door::<Open>("front".to_owned()));
 ~~~
 
 Attempting to close a closed door is prevented statically:
 
 ~~~ {.ignore}
-let _ = close(Door::<Closed>(~"front")); // error: mismatched types: expected `main::Door<main::Open>` but found `main::Door<main::Closed>`
+let _ = close(Door::<Closed>("front".to_owned())); // error: mismatched types: expected `main::Door<main::Open>` but found `main::Door<main::Closed>`
 ~~~
 
 # FFI (Foreign Function Interface)
 
 ## C function signature conversions
 
-Description            C signature                                    Equivalent Rust signature
----------------------- ---------------------------------------------- ------------------------------------------
-no parameters          `void foo(void);`                              `fn foo();`
-return value           `int foo(void);`                               `fn foo() -> c_int;`
-function parameters    `void foo(int x, int y);`                      `fn foo(x: c_int, y: c_int);`
-in-out pointers        `void foo(const int* in_ptr, int* out_ptr);`   `fn foo(in_ptr: *c_int, out_ptr: *mut c_int);`
+| Description         | C signature                                   | Equivalent Rust signature                      |
+|---------------------|-----------------------------------------------|------------------------------------------------|
+| no parameters       | `void foo(void);`                             | `fn foo();`                                    |
+| return value        | `int foo(void);`                              | `fn foo() -> c_int;`                           |
+| function parameters | `void foo(int x, int y);`                     | `fn foo(x: c_int, y: c_int);`                  |
+| in-out pointers     | `void foo(const int* in_ptr, int* out_ptr);`  | `fn foo(in_ptr: *c_int, out_ptr: *mut c_int);` |
 
 Note: The Rust signatures should be wrapped in an `extern "ABI" { ... }` block.
 

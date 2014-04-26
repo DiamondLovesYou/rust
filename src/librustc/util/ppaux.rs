@@ -9,7 +9,6 @@
 // except according to those terms.
 
 
-use metadata::encoder;
 use middle::ty::{ReSkolemized, ReVar};
 use middle::ty::{BoundRegion, BrAnon, BrNamed};
 use middle::ty::{BrFresh, ctxt};
@@ -23,6 +22,8 @@ use middle::ty::{ty_uniq, ty_trait, ty_int, ty_uint, ty_infer};
 use middle::ty;
 use middle::typeck;
 
+use std::rc::Rc;
+use std::strbuf::StrBuf;
 use syntax::abi;
 use syntax::ast_map;
 use syntax::codemap::{Span, Pos};
@@ -117,9 +118,9 @@ pub fn explain_region_and_span(cx: &ctxt, region: ty::Region)
         }
       }
 
-      ReStatic => { (~"the static lifetime", None) }
+      ReStatic => { ("the static lifetime".to_owned(), None) }
 
-      ReEmpty => { (~"the empty lifetime", None) }
+      ReEmpty => { ("the empty lifetime".to_owned(), None) }
 
       // I believe these cases should not occur (except when debugging,
       // perhaps)
@@ -191,42 +192,20 @@ pub fn region_to_str(cx: &ctxt, prefix: &str, space: bool, region: Region) -> ~s
 
 pub fn mutability_to_str(m: ast::Mutability) -> ~str {
     match m {
-        ast::MutMutable => ~"mut ",
-        ast::MutImmutable => ~"",
+        ast::MutMutable => "mut ".to_owned(),
+        ast::MutImmutable => "".to_owned(),
     }
 }
 
 pub fn mt_to_str(cx: &ctxt, m: &mt) -> ~str {
-    mt_to_str_wrapped(cx, "", m, "")
-}
-
-pub fn mt_to_str_wrapped(cx: &ctxt, before: &str, m: &mt, after: &str) -> ~str {
-    let mstr = mutability_to_str(m.mutbl);
-    return format!("{}{}{}{}", mstr, before, ty_to_str(cx, m.ty), after);
-}
-
-pub fn vstore_to_str(cx: &ctxt, vs: ty::vstore) -> ~str {
-    match vs {
-      ty::vstore_fixed(n) => format!("{}", n),
-      ty::vstore_uniq => ~"~",
-      ty::vstore_slice(r) => region_ptr_to_str(cx, r)
-    }
+    format!("{}{}", mutability_to_str(m.mutbl), ty_to_str(cx, m.ty))
 }
 
 pub fn trait_store_to_str(cx: &ctxt, s: ty::TraitStore) -> ~str {
     match s {
-      ty::UniqTraitStore => ~"~",
-      ty::RegionTraitStore(r) => region_ptr_to_str(cx, r)
-    }
-}
-
-pub fn vstore_ty_to_str(cx: &ctxt, mt: &mt, vs: ty::vstore) -> ~str {
-    match vs {
-        ty::vstore_fixed(_) => {
-            format!("[{}, .. {}]", mt_to_str(cx, mt), vstore_to_str(cx, vs))
-        }
-        _ => {
-            format!("{}{}", vstore_to_str(cx, vs), mt_to_str_wrapped(cx, "[", mt, "]"))
+        ty::UniqTraitStore => "~".to_owned(),
+        ty::RegionTraitStore(r, m) => {
+            format!("{}{}", region_ptr_to_str(cx, r), mutability_to_str(m))
         }
     }
 }
@@ -252,21 +231,21 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
         ty_to_str(cx, input)
     }
     fn bare_fn_to_str(cx: &ctxt,
-                      purity: ast::Purity,
+                      fn_style: ast::FnStyle,
                       abi: abi::Abi,
                       ident: Option<ast::Ident>,
                       sig: &ty::FnSig)
                       -> ~str {
         let mut s = if abi == abi::Rust {
-            ~""
+            StrBuf::new()
         } else {
-            format!("extern {} ", abi.to_str())
+            StrBuf::from_owned_str(format!("extern {} ", abi.to_str()))
         };
 
-        match purity {
-            ast::ImpureFn => {}
+        match fn_style {
+            ast::NormalFn => {}
             _ => {
-                s.push_str(purity.to_str());
+                s.push_str(fn_style.to_str());
                 s.push_char(' ');
             }
         };
@@ -283,76 +262,52 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
 
         push_sig_to_str(cx, &mut s, '(', ')', sig);
 
-        return s;
+        s.into_owned()
     }
+
     fn closure_to_str(cx: &ctxt, cty: &ty::ClosureTy) -> ~str {
-        let is_proc =
-            (cty.sigil, cty.onceness) == (ast::OwnedSigil, ast::Once);
-        let is_borrowed_closure = cty.sigil == ast::BorrowedSigil;
+        let mut s = StrBuf::new();
 
-        let mut s = if is_proc || is_borrowed_closure {
-            ~""
-        } else {
-            cty.sigil.to_str()
-        };
-
-        match (cty.sigil, cty.region) {
-            (ast::ManagedSigil, ty::ReStatic) |
-            (ast::OwnedSigil, ty::ReStatic) => {}
-
-            (_, region) => {
+        match cty.store {
+            ty::UniqTraitStore => {}
+            ty::RegionTraitStore(region, _) => {
                 s.push_str(region_to_str(cx, "", true, region));
             }
         }
 
-        match cty.purity {
-            ast::ImpureFn => {}
+        match cty.fn_style {
+            ast::NormalFn => {}
             _ => {
-                s.push_str(cty.purity.to_str());
+                s.push_str(cty.fn_style.to_str());
                 s.push_char(' ');
             }
         };
 
-        if is_proc {
-            s.push_str("proc");
-        } else {
-            match cty.onceness {
-                ast::Many => {}
-                ast::Once => {
-                    s.push_str(cty.onceness.to_str());
-                    s.push_char(' ');
+        match cty.store {
+            ty::UniqTraitStore => {
+                assert_eq!(cty.onceness, ast::Once);
+                s.push_str("proc");
+                push_sig_to_str(cx, &mut s, '(', ')', &cty.sig);
+            }
+            ty::RegionTraitStore(..) => {
+                match cty.onceness {
+                    ast::Many => {}
+                    ast::Once => s.push_str("once ")
                 }
-            };
-
-            if !is_borrowed_closure {
-                s.push_str("fn");
+                push_sig_to_str(cx, &mut s, '|', '|', &cty.sig);
             }
         }
 
-        if !is_borrowed_closure {
-            // Print bounds before `fn` if this is not a borrowed closure.
-            if !cty.bounds.is_empty() {
-                s.push_str(":");
-                s.push_str(cty.bounds.repr(cx));
-            }
-
-            push_sig_to_str(cx, &mut s, '(', ')', &cty.sig);
-        } else {
-            // Print bounds after the signature if this is a borrowed closure.
-            push_sig_to_str(cx, &mut s, '|', '|', &cty.sig);
-
-            if is_borrowed_closure {
-                if !cty.bounds.is_empty() {
-                    s.push_str(":");
-                    s.push_str(cty.bounds.repr(cx));
-                }
-            }
+        if !cty.bounds.is_empty() {
+            s.push_str(":");
+            s.push_str(cty.bounds.repr(cx));
         }
 
-        return s;
+        s.into_owned()
     }
+
     fn push_sig_to_str(cx: &ctxt,
-                       s: &mut ~str,
+                       s: &mut StrBuf,
                        bra: char,
                        ket: char,
                        sig: &ty::FnSig) {
@@ -382,39 +337,38 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
 
     // pretty print the structural type representation:
     return match ty::get(typ).sty {
-      ty_nil => ~"()",
-      ty_bot => ~"!",
-      ty_bool => ~"bool",
-      ty_char => ~"char",
-      ty_int(ast::TyI) => ~"int",
-      ty_int(t) => ast_util::int_ty_to_str(t),
-      ty_uint(ast::TyU) => ~"uint",
-      ty_uint(t) => ast_util::uint_ty_to_str(t),
+      ty_nil => "()".to_owned(),
+      ty_bot => "!".to_owned(),
+      ty_bool => "bool".to_owned(),
+      ty_char => "char".to_owned(),
+      ty_int(t) => ast_util::int_ty_to_str(t, None),
+      ty_uint(t) => ast_util::uint_ty_to_str(t, None),
       ty_float(t) => ast_util::float_ty_to_str(t),
-      ty_box(typ) => ~"@" + ty_to_str(cx, typ),
-      ty_uniq(typ) => ~"~" + ty_to_str(cx, typ),
-      ty_ptr(ref tm) => ~"*" + mt_to_str(cx, tm),
+      ty_box(typ) => "@".to_owned() + ty_to_str(cx, typ),
+      ty_uniq(typ) => "~".to_owned() + ty_to_str(cx, typ),
+      ty_ptr(ref tm) => "*".to_owned() + mt_to_str(cx, tm),
       ty_rptr(r, ref tm) => {
         region_ptr_to_str(cx, r) + mt_to_str(cx, tm)
       }
       ty_tup(ref elems) => {
         let strs: Vec<~str> = elems.iter().map(|elem| ty_to_str(cx, *elem)).collect();
-        ~"(" + strs.connect(",") + ")"
+        "(".to_owned() + strs.connect(",") + ")"
       }
       ty_simd(t, count) => format!("<{:s}, ..{:u}>", ty_to_str(cx, t), count),
       ty_closure(ref f) => {
           closure_to_str(cx, *f)
       }
       ty_bare_fn(ref f) => {
-          bare_fn_to_str(cx, f.purity, f.abi, None, &f.sig)
+          bare_fn_to_str(cx, f.fn_style, f.abi, None, &f.sig)
       }
       ty_infer(infer_ty) => infer_ty.to_str(),
-      ty_err => ~"[type error]",
+      ty_err => "[type error]".to_owned(),
       ty_param(param_ty {idx: id, def_id: did}) => {
           let ident = match cx.ty_param_defs.borrow().find(&did.node) {
               Some(def) => token::get_ident(def.ident).get().to_str(),
-              // This should not happen...
-              None => format!("BUG[{:?}]", id)
+              // This can only happen when a type mismatch error happens and
+              // the actual type has more type parameters than the expected one.
+              None => format!("<generic \\#{}>", id)
           };
           if !cx.sess.verbose() {
               ident
@@ -422,7 +376,7 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
             format!("{}:{:?}", ident, did)
           }
       }
-      ty_self(..) => ~"Self",
+      ty_self(..) => "Self".to_owned(),
       ty_enum(did, ref substs) | ty_struct(did, ref substs) => {
         let base = ty::item_path_str(cx, did);
         parameterized(cx,
@@ -433,20 +387,32 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> ~str {
                       false)
       }
       ty_trait(~ty::TyTrait {
-          def_id: did, ref substs, store: s, mutability: mutbl, ref bounds
+          def_id: did, ref substs, store, ref bounds
       }) => {
         let base = ty::item_path_str(cx, did);
         let ty = parameterized(cx, base, &substs.regions,
                                substs.tps.as_slice(), did, true);
         let bound_sep = if bounds.is_empty() { "" } else { ":" };
         let bound_str = bounds.repr(cx);
-        format!("{}{}{}{}{}", trait_store_to_str(cx, s), mutability_to_str(mutbl), ty,
-                           bound_sep, bound_str)
+        format!("{}{}{}{}", trait_store_to_str(cx, store), ty, bound_sep, bound_str)
       }
-      ty_vec(ref mt, vs) => {
-        vstore_ty_to_str(cx, mt, vs)
+      ty_str(vs) => {
+        match vs {
+            ty::VstoreFixed(n) => format!("str/{}", n),
+            ty::VstoreUniq => "~str".to_owned(),
+            ty::VstoreSlice(r) => format!("{}str", region_ptr_to_str(cx, r))
+        }
       }
-      ty_str(vs) => format!("{}{}", vstore_to_str(cx, vs), "str")
+      ty_vec(ref mt, sz) => {
+          match sz {
+              Some(n) => {
+                  format!("[{}, .. {}]", mt_to_str(cx, mt), n)
+              }
+              None => {
+                  format!("[{}]", ty_to_str(cx, mt.ty))
+              }
+          }
+      }
     }
 }
 
@@ -504,7 +470,7 @@ pub fn parameterized(cx: &ctxt,
 }
 
 pub fn ty_to_short_str(cx: &ctxt, typ: t) -> ~str {
-    let mut s = encoder::encoded_ty(cx, typ);
+    let mut s = typ.repr(cx);
     if s.len() >= 32u { s = s.slice(0u, 32u).to_owned(); }
     return s;
 }
@@ -512,7 +478,7 @@ pub fn ty_to_short_str(cx: &ctxt, typ: t) -> ~str {
 impl<T:Repr> Repr for Option<T> {
     fn repr(&self, tcx: &ctxt) -> ~str {
         match self {
-            &None => ~"None",
+            &None => "None".to_owned(),
             &Some(ref t) => t.repr(tcx),
         }
     }
@@ -529,7 +495,13 @@ impl<T:Repr,U:Repr> Repr for Result<T,U> {
 
 impl Repr for () {
     fn repr(&self, _tcx: &ctxt) -> ~str {
-        ~"()"
+        "()".to_owned()
+    }
+}
+
+impl<T:Repr> Repr for Rc<T> {
+    fn repr(&self, tcx: &ctxt) -> ~str {
+        (&**self).repr(tcx)
     }
 }
 
@@ -603,7 +575,7 @@ impl Repr for ty::substs {
 impl Repr for ty::RegionSubsts {
     fn repr(&self, tcx: &ctxt) -> ~str {
         match *self {
-            ty::ErasedRegions => ~"erased",
+            ty::ErasedRegions => "erased".to_owned(),
             ty::NonerasedRegions(ref regions) => regions.repr(tcx)
         }
     }
@@ -614,11 +586,11 @@ impl Repr for ty::ParamBounds {
         let mut res = Vec::new();
         for b in self.builtin_bounds.iter() {
             res.push(match b {
-                ty::BoundStatic => ~"'static",
-                ty::BoundSend => ~"Send",
-                ty::BoundSized => ~"Sized",
-                ty::BoundCopy => ~"Pod",
-                ty::BoundShare => ~"Share",
+                ty::BoundStatic => "'static".to_owned(),
+                ty::BoundSend => "Send".to_owned(),
+                ty::BoundSized => "Sized".to_owned(),
+                ty::BoundCopy => "Pod".to_owned(),
+                ty::BoundShare => "Share".to_owned(),
             });
         }
         for t in self.trait_bounds.iter() {
@@ -813,8 +785,8 @@ impl Repr for ast::Visibility {
 
 impl Repr for ty::BareFnTy {
     fn repr(&self, tcx: &ctxt) -> ~str {
-        format!("BareFnTy \\{purity: {:?}, abi: {}, sig: {}\\}",
-             self.purity,
+        format!("BareFnTy \\{fn_style: {:?}, abi: {}, sig: {}\\}",
+             self.fn_style,
              self.abi.to_str(),
              self.sig.repr(tcx))
     }
@@ -879,16 +851,17 @@ impl Repr for ty::RegionVid {
 
 impl Repr for ty::TraitStore {
     fn repr(&self, tcx: &ctxt) -> ~str {
-        match self {
-            &ty::UniqTraitStore => ~"~Trait",
-            &ty::RegionTraitStore(r) => format!("&{} Trait", r.repr(tcx))
-        }
+        trait_store_to_str(tcx, *self)
     }
 }
 
-impl Repr for ty::vstore {
+impl Repr for ty::Vstore {
     fn repr(&self, tcx: &ctxt) -> ~str {
-        vstore_to_str(tcx, *self)
+        match *self {
+            ty::VstoreFixed(n) => format!("{}", n),
+            ty::VstoreUniq => "~".to_owned(),
+            ty::VstoreSlice(r) => region_ptr_to_str(tcx, r)
+        }
     }
 }
 
@@ -901,11 +874,11 @@ impl Repr for ty::BuiltinBound {
 impl UserString for ty::BuiltinBound {
     fn user_string(&self, _tcx: &ctxt) -> ~str {
         match *self {
-            ty::BoundStatic => ~"'static",
-            ty::BoundSend => ~"Send",
-            ty::BoundSized => ~"Sized",
-            ty::BoundCopy => ~"Pod",
-            ty::BoundShare => ~"Share",
+            ty::BoundStatic => "'static".to_owned(),
+            ty::BoundSend => "Send".to_owned(),
+            ty::BoundSized => "Sized".to_owned(),
+            ty::BoundCopy => "Pod".to_owned(),
+            ty::BoundShare => "Share".to_owned(),
         }
     }
 }
@@ -922,7 +895,7 @@ impl Repr for Span {
     }
 }
 
-impl<A:UserString> UserString for @A {
+impl<A:UserString> UserString for Rc<A> {
     fn user_string(&self, tcx: &ctxt) -> ~str {
         let this: &A = &**self;
         this.user_string(tcx)
@@ -931,7 +904,7 @@ impl<A:UserString> UserString for @A {
 
 impl UserString for ty::BuiltinBounds {
     fn user_string(&self, tcx: &ctxt) -> ~str {
-        if self.is_empty() { ~"<no-bounds>" } else {
+        if self.is_empty() { "<no-bounds>".to_owned() } else {
             let mut result = Vec::new();
             for bb in self.iter() {
                 result.push(bb.user_string(tcx));

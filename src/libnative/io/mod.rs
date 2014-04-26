@@ -44,6 +44,7 @@ pub use self::process::Process;
 pub mod addrinfo;
 pub mod net;
 pub mod process;
+mod util;
 
 #[cfg(unix)]
 #[path = "file_unix.rs"]
@@ -55,18 +56,15 @@ pub mod file;
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "freebsd")]
 #[cfg(target_os = "android")]
-#[path = "timer_other.rs"]
-pub mod timer;
-
 #[cfg(target_os = "linux")]
-#[path = "timer_timerfd.rs"]
+#[path = "timer_unix.rs"]
 pub mod timer;
 
 #[cfg(target_os = "win32")]
 #[path = "timer_win32.rs"]
 pub mod timer;
 
-#[cfg(unix)]
+#[cfg(unix, not(target_os = "nacl", target_libc = "newlib"))]
 #[path = "pipe_unix.rs"]
 pub mod pipe;
 
@@ -74,8 +72,10 @@ pub mod pipe;
 #[path = "pipe_win32.rs"]
 pub mod pipe;
 
-#[cfg(not(target_os = "nacl"))]
-mod timer_helper;
+#[cfg(unix)] #[path = "c_unix.rs"]  mod c;
+#[cfg(windows)] #[path = "c_win32.rs"] mod c;
+
+#[cfg(not(target_os = "nacl"))] mod timer_helper;
 
 pub type IoResult<T> = Result<T, IoError>;
 
@@ -165,8 +165,9 @@ impl IoFactory {
 
 impl rtio::IoFactory for IoFactory {
     // networking
-    fn tcp_connect(&mut self, addr: SocketAddr) -> IoResult<~RtioTcpStream:Send> {
-        net::TcpStream::connect(addr).map(|s| ~s as ~RtioTcpStream:Send)
+    fn tcp_connect(&mut self, addr: SocketAddr,
+                   timeout: Option<u64>) -> IoResult<~RtioTcpStream:Send> {
+        net::TcpStream::connect(addr, timeout).map(|s| ~s as ~RtioTcpStream:Send)
     }
     fn tcp_bind(&mut self, addr: SocketAddr) -> IoResult<~RtioTcpListener:Send> {
         net::TcpListener::bind(addr).map(|s| ~s as ~RtioTcpListener:Send)
@@ -174,11 +175,26 @@ impl rtio::IoFactory for IoFactory {
     fn udp_bind(&mut self, addr: SocketAddr) -> IoResult<~RtioUdpSocket:Send> {
         net::UdpSocket::bind(addr).map(|u| ~u as ~RtioUdpSocket:Send)
     }
+    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
     fn unix_bind(&mut self, path: &CString) -> IoResult<~RtioUnixListener:Send> {
         pipe::UnixListener::bind(path).map(|s| ~s as ~RtioUnixListener:Send)
     }
-    fn unix_connect(&mut self, path: &CString) -> IoResult<~RtioPipe:Send> {
-        pipe::UnixStream::connect(path).map(|s| ~s as ~RtioPipe:Send)
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    fn unix_bind(&mut self, _path: &CString) -> IoResult<~RtioUnixListener:Send> {
+        // FIXME nacl_io doesn't emulate the C funs needed for this.
+        Err(unimpl())
+    }
+    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    fn unix_connect(&mut self, path: &CString,
+                    timeout: Option<u64>) -> IoResult<~RtioPipe:Send> {
+        pipe::UnixStream::connect(path, timeout).map(|s| ~s as ~RtioPipe:Send)
+    }
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    fn unix_connect(&mut self,
+                    _path: &CString,
+                    _timeout: Option<u64>) -> IoResult<~RtioPipe:Send> {
+        // FIXME nacl_io doesn't emulate the C funs needed for this.
+        Err(unimpl())
     }
     fn get_host_addresses(&mut self, host: Option<&str>, servname: Option<&str>,
                           hint: Option<ai::Hint>) -> IoResult<~[ai::Info]> {
@@ -218,7 +234,7 @@ impl rtio::IoFactory for IoFactory {
     fn fs_rename(&mut self, path: &CString, to: &CString) -> IoResult<()> {
         file::rename(path, to)
     }
-    fn fs_readdir(&mut self, path: &CString, _flags: c_int) -> IoResult<~[Path]> {
+    fn fs_readdir(&mut self, path: &CString, _flags: c_int) -> IoResult<Vec<Path>> {
         file::readdir(path)
     }
     fn fs_lstat(&mut self, path: &CString) -> IoResult<io::FileStat> {

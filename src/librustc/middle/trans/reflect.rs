@@ -25,6 +25,7 @@ use middle::trans::type_of::*;
 use middle::ty;
 use util::ppaux::ty_to_str;
 
+use std::rc::Rc;
 use arena::TypedArena;
 use libc::c_uint;
 use syntax::ast::DefId;
@@ -33,15 +34,15 @@ use syntax::ast_map;
 use syntax::parse::token::{InternedString, special_idents};
 use syntax::parse::token;
 
-pub struct Reflector<'a> {
+pub struct Reflector<'a, 'b> {
     visitor_val: ValueRef,
-    visitor_methods: @Vec<@ty::Method> ,
-    final_bcx: &'a Block<'a>,
+    visitor_methods: &'a [Rc<ty::Method>],
+    final_bcx: &'b Block<'b>,
     tydesc_ty: Type,
-    bcx: &'a Block<'a>
+    bcx: &'b Block<'b>
 }
 
-impl<'a> Reflector<'a> {
+impl<'a, 'b> Reflector<'a, 'b> {
     pub fn c_uint(&mut self, u: uint) -> ValueRef {
         C_uint(self.bcx.ccx(), u)
     }
@@ -54,7 +55,7 @@ impl<'a> Reflector<'a> {
         // We're careful to not use first class aggregates here because that
         // will kick us off fast isel. (Issue #4352.)
         let bcx = self.bcx;
-        let str_vstore = ty::vstore_slice(ty::ReStatic);
+        let str_vstore = ty::VstoreSlice(ty::ReStatic);
         let str_ty = ty::mk_str(bcx.tcx(), str_vstore);
         let scratch = rvalue_scratch_datum(bcx, str_ty, "");
         let len = C_uint(bcx.ccx(), s.get().len());
@@ -75,7 +76,7 @@ impl<'a> Reflector<'a> {
     pub fn c_tydesc(&mut self, t: ty::t) -> ValueRef {
         let bcx = self.bcx;
         let static_ti = get_tydesc(bcx.ccx(), t);
-        glue::lazily_emit_visit_glue(bcx.ccx(), static_ti);
+        glue::lazily_emit_visit_glue(bcx.ccx(), &*static_ti);
         PointerCast(bcx, static_ti.tydesc, self.tydesc_ty.ptr_to())
     }
 
@@ -87,12 +88,12 @@ impl<'a> Reflector<'a> {
     pub fn visit(&mut self, ty_name: &str, args: &[ValueRef]) {
         let fcx = self.bcx.fcx;
         let tcx = self.bcx.tcx();
-        let mth_idx = ty::method_idx(token::str_to_ident(~"visit_" + ty_name),
+        let mth_idx = ty::method_idx(token::str_to_ident("visit_".to_owned() + ty_name),
                                      self.visitor_methods.as_slice()).expect(
                 format!("couldn't find visit method for {}", ty_name));
         let mth_ty =
             ty::mk_bare_fn(tcx,
-                           self.visitor_methods.get(mth_idx).fty.clone());
+                           self.visitor_methods[mth_idx].fty.clone());
         let v = self.visitor_val;
         debug!("passing {} args:", args.len());
         let mut bcx = self.bcx;
@@ -123,15 +124,15 @@ impl<'a> Reflector<'a> {
 
     pub fn vstore_name_and_extra(&mut self,
                                  t: ty::t,
-                                 vstore: ty::vstore)
+                                 vstore: ty::Vstore)
                                  -> (~str, Vec<ValueRef> ) {
         match vstore {
-            ty::vstore_fixed(n) => {
+            ty::VstoreFixed(n) => {
                 let extra = (vec!(self.c_uint(n))).append(self.c_size_and_align(t).as_slice());
-                (~"fixed", extra)
+                ("fixed".to_owned(), extra)
             }
-            ty::vstore_slice(_) => (~"slice", Vec::new()),
-            ty::vstore_uniq => (~"uniq", Vec::new()),
+            ty::VstoreSlice(..) => ("slice".to_owned(), Vec::new()),
+            ty::VstoreUniq => ("uniq".to_owned(), Vec::new()),
         }
     }
 
@@ -162,17 +163,19 @@ impl<'a> Reflector<'a> {
           ty::ty_uint(ast::TyU64) => self.leaf("u64"),
           ty::ty_float(ast::TyF32) => self.leaf("f32"),
           ty::ty_float(ast::TyF64) => self.leaf("f64"),
+          ty::ty_float(ast::TyF128) => self.leaf("f128"),
 
           // Should rename to str_*/vec_*.
           ty::ty_str(vst) => {
               let (name, extra) = self.vstore_name_and_extra(t, vst);
-              self.visit(~"estr_" + name, extra.as_slice())
+              self.visit("estr_".to_owned() + name, extra.as_slice())
           }
-          ty::ty_vec(ref mt, vst) => {
-              let (name, extra) = self.vstore_name_and_extra(t, vst);
+          ty::ty_vec(ref mt, Some(sz)) => {
+              let extra = (vec!(self.c_uint(sz))).append(self.c_size_and_align(t).as_slice());
               let extra = extra.append(self.c_mt(mt).as_slice());
-              self.visit(~"evec_" + name, extra.as_slice())
+              self.visit("evec_fixed".to_owned(), extra.as_slice())
           }
+          ty::ty_vec(..) => fail!("unexpected unsized vec"),
           // Should remove mt from box and uniq.
           ty::ty_box(typ) => {
               let extra = self.c_mt(&ty::mt {
@@ -182,19 +185,37 @@ impl<'a> Reflector<'a> {
               self.visit("box", extra.as_slice())
           }
           ty::ty_uniq(typ) => {
-              let extra = self.c_mt(&ty::mt {
-                  ty: typ,
-                  mutbl: ast::MutImmutable,
-              });
-              self.visit("uniq", extra.as_slice())
+              match ty::get(typ).sty {
+                  ty::ty_vec(ref mt, None) => {
+                      let (name, extra) = (~"uniq", Vec::new());
+                      let extra = extra.append(self.c_mt(mt).as_slice());
+                      self.visit(~"evec_" + name, extra.as_slice())
+                  }
+                  _ => {
+                      let extra = self.c_mt(&ty::mt {
+                          ty: typ,
+                          mutbl: ast::MutImmutable,
+                      });
+                      self.visit("uniq", extra.as_slice())
+                  }
+              }
           }
           ty::ty_ptr(ref mt) => {
               let extra = self.c_mt(mt);
               self.visit("ptr", extra.as_slice())
           }
           ty::ty_rptr(_, ref mt) => {
-              let extra = self.c_mt(mt);
-              self.visit("rptr", extra.as_slice())
+              match ty::get(mt.ty).sty {
+                  ty::ty_vec(ref mt, None) => {
+                      let (name, extra) = (~"slice", Vec::new());
+                      let extra = extra.append(self.c_mt(mt).as_slice());
+                      self.visit(~"evec_" + name, extra.as_slice())
+                  }
+                  _ => {
+                      let extra = self.c_mt(mt);
+                      self.visit("rptr", extra.as_slice())
+                  }
+              }
           }
 
           ty::ty_tup(ref tys) => {
@@ -211,8 +232,11 @@ impl<'a> Reflector<'a> {
           // FIXME (#2594): fetch constants out of intrinsic
           // FIXME (#4809): visitor should break out bare fns from other fns
           ty::ty_closure(ref fty) => {
-            let pureval = ast_purity_constant(fty.purity);
-            let sigilval = ast_sigil_constant(fty.sigil);
+            let pureval = ast_fn_style_constant(fty.fn_style);
+            let sigilval = match fty.store {
+                ty::UniqTraitStore => 2u,
+                ty::RegionTraitStore(..) => 4u,
+            };
             let retval = if ty::type_is_bot(fty.sig.output) {0u} else {1u};
             let extra = vec!(self.c_uint(pureval),
                           self.c_uint(sigilval),
@@ -226,7 +250,7 @@ impl<'a> Reflector<'a> {
           // FIXME (#2594): fetch constants out of intrinsic:: for the
           // numbers.
           ty::ty_bare_fn(ref fty) => {
-            let pureval = ast_purity_constant(fty.purity);
+            let pureval = ast_fn_style_constant(fty.fn_style);
             let sigilval = 0u;
             let retval = if ty::type_is_bot(fty.sig.output) {0u} else {1u};
             let extra = vec!(self.c_uint(pureval),
@@ -292,7 +316,7 @@ impl<'a> Reflector<'a> {
                 let arena = TypedArena::new();
                 let fcx = new_fn_ctxt(ccx, llfdecl, -1, false,
                                       ty::mk_u64(), None, None, &arena);
-                init_function(&fcx, false, ty::mk_u64(), None);
+                init_function(&fcx, false, ty::mk_u64());
 
                 let arg = unsafe {
                     //
@@ -304,7 +328,7 @@ impl<'a> Reflector<'a> {
                 };
                 let bcx = fcx.entry_bcx.borrow().clone().unwrap();
                 let arg = BitCast(bcx, arg, llptrty);
-                let ret = adt::trans_get_discr(bcx, repr, arg, Some(Type::i64(ccx)));
+                let ret = adt::trans_get_discr(bcx, &*repr, arg, Some(Type::i64(ccx)));
                 Store(bcx, ret, fcx.llretptr.get().unwrap());
                 match fcx.llreturn.get() {
                     Some(llreturn) => Br(bcx, llreturn),
@@ -329,7 +353,7 @@ impl<'a> Reflector<'a> {
                         for (j, a) in v.args.iter().enumerate() {
                             let bcx = this.bcx;
                             let null = C_null(llptrty);
-                            let ptr = adt::trans_field_ptr(bcx, repr, null, v.disr_val, j);
+                            let ptr = adt::trans_field_ptr(bcx, &*repr, null, v.disr_val, j);
                             let offset = p2i(ccx, ptr);
                             let field_args = [this.c_uint(j),
                                                offset,
@@ -386,9 +410,10 @@ pub fn emit_calls_to_trait_visit_ty<'a>(
     let final = fcx.new_temp_block("final");
     let tydesc_ty = ty::get_tydesc_ty(bcx.tcx()).unwrap();
     let tydesc_ty = type_of(bcx.ccx(), tydesc_ty);
+    let visitor_methods = ty::trait_methods(bcx.tcx(), visitor_trait_id);
     let mut r = Reflector {
         visitor_val: visitor_val,
-        visitor_methods: ty::trait_methods(bcx.tcx(), visitor_trait_id),
+        visitor_methods: visitor_methods.as_slice(),
         final_bcx: final,
         tydesc_ty: tydesc_ty,
         bcx: bcx
@@ -398,18 +423,10 @@ pub fn emit_calls_to_trait_visit_ty<'a>(
     return final;
 }
 
-pub fn ast_sigil_constant(sigil: ast::Sigil) -> uint {
-    match sigil {
-        ast::OwnedSigil => 2u,
-        ast::ManagedSigil => 3u,
-        ast::BorrowedSigil => 4u,
-    }
-}
-
-pub fn ast_purity_constant(purity: ast::Purity) -> uint {
-    match purity {
+pub fn ast_fn_style_constant(fn_style: ast::FnStyle) -> uint {
+    match fn_style {
         ast::UnsafeFn => 1u,
-        ast::ImpureFn => 2u,
+        ast::NormalFn => 2u,
         ast::ExternFn => 3u
     }
 }

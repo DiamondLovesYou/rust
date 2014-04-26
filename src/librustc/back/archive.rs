@@ -104,7 +104,7 @@ impl<'a> Archive<'a> {
     pub fn add_rlib(&mut self, rlib: &Path, name: &str,
                     lto: bool) -> io::IoResult<()> {
         let object = format!("{}.o", name);
-        let bytecode = format!("{}.bc", name);
+        let bytecode = format!("{}.bc.deflate", name);
         let mut ignore = vec!(METADATA_FILENAME, bytecode.as_slice());
         if lto {
             ignore.push(object.as_slice());
@@ -184,7 +184,7 @@ impl<'a> Archive<'a> {
         let unixlibname = format!("lib{}.a", name);
 
         let mut rustpath = filesearch::rust_path();
-        rustpath.push(self.sess.filesearch().get_target_lib_path());
+        rustpath.push(self.sess.target_filesearch().get_lib_path());
         let search = self.sess.opts.addl_lib_search_paths.borrow();
         for path in search.iter().chain(rustpath.iter()) {
             debug!("looking for {} inside {}", name, path.display());

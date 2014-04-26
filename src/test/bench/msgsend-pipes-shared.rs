@@ -23,6 +23,7 @@ extern crate time;
 use std::comm;
 use std::os;
 use std::task;
+use std::task::TaskBuilder;
 use std::uint;
 
 fn move_out<T>(_x: T) {}
@@ -38,12 +39,12 @@ fn server(requests: &Receiver<request>, responses: &Sender<uint>) {
     let mut done = false;
     while !done {
         match requests.recv_opt() {
-          Some(get_count) => { responses.send(count.clone()); }
-          Some(bytes(b)) => {
+          Ok(get_count) => { responses.send(count.clone()); }
+          Ok(bytes(b)) => {
             //println!("server: received {:?} bytes", b);
             count += b;
           }
-          None => { done = true; }
+          Err(..) => { done = true; }
           _ => { }
         }
     }
@@ -62,7 +63,7 @@ fn run(args: &[~str]) {
     let mut worker_results = Vec::new();
     for _ in range(0u, workers) {
         let to_child = to_child.clone();
-        let mut builder = task::task();
+        let mut builder = TaskBuilder::new();
         worker_results.push(builder.future_result());
         builder.spawn(proc() {
             for _ in range(0u, size / workers) {
@@ -96,9 +97,9 @@ fn run(args: &[~str]) {
 fn main() {
     let args = os::args();
     let args = if os::getenv("RUST_BENCH").is_some() {
-        vec!(~"", ~"1000000", ~"10000")
+        vec!("".to_owned(), "1000000".to_owned(), "10000".to_owned())
     } else if args.len() <= 1u {
-        vec!(~"", ~"10000", ~"4")
+        vec!("".to_owned(), "10000".to_owned(), "4".to_owned())
     } else {
         args.clone().move_iter().collect()
     };

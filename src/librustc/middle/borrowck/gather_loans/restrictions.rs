@@ -18,9 +18,11 @@ use middle::ty;
 use syntax::codemap::Span;
 use util::ppaux::Repr;
 
+use std::rc::Rc;
+
 pub enum RestrictionResult {
     Safe,
-    SafeIf(@LoanPath, Vec<Restriction> )
+    SafeIf(Rc<LoanPath>, Vec<Restriction>)
 }
 
 pub fn compute_restrictions(bccx: &BorrowckCtxt,
@@ -33,7 +35,7 @@ pub fn compute_restrictions(bccx: &BorrowckCtxt,
         bccx: bccx,
         span: span,
         cause: cause,
-        cmt_original: cmt,
+        cmt_original: cmt.clone(),
         loan_region: loan_region,
     };
 
@@ -59,7 +61,7 @@ impl<'a> RestrictionsContext<'a> {
                cmt.repr(self.bccx.tcx),
                restrictions.repr(self.bccx.tcx));
 
-        match cmt.cat {
+        match cmt.cat.clone() {
             mc::cat_rvalue(..) => {
                 // Effectively, rvalues are stored into a
                 // non-aliasable temporary on the stack. Since they
@@ -73,9 +75,11 @@ impl<'a> RestrictionsContext<'a> {
             mc::cat_arg(local_id) |
             mc::cat_upvar(ty::UpvarId {var_id: local_id, ..}, _) => {
                 // R-Variable
-                let lp = @LpVar(local_id);
-                SafeIf(lp, vec!(Restriction {loan_path: lp,
-                                          set: restrictions}))
+                let lp = Rc::new(LpVar(local_id));
+                SafeIf(lp.clone(), vec!(Restriction {
+                    loan_path: lp,
+                    set: restrictions
+                }))
             }
 
             mc::cat_downcast(cmt_base) => {
@@ -97,12 +101,18 @@ impl<'a> RestrictionsContext<'a> {
                 self.extend(result, cmt.mutbl, LpInterior(i), restrictions)
             }
 
-            mc::cat_deref(cmt_base, _, pk @ mc::OwnedPtr) => {
+            mc::cat_deref(cmt_base, _, pk @ mc::OwnedPtr) |
+            mc::cat_deref(cmt_base, _, pk @ mc::GcPtr) => {
                 // R-Deref-Send-Pointer
                 //
                 // When we borrow the interior of an owned pointer, we
                 // cannot permit the base to be mutated, because that
                 // would cause the unique pointer to be freed.
+                //
+                // For a managed pointer, the rules are basically the
+                // same, because this could be the last ref.
+                // Eventually we should make these non-special and
+                // just rely on Deref<T> implementation.
                 let result = self.restrict(
                     cmt_base,
                     restrictions | RESTR_MUTATE);
@@ -127,11 +137,6 @@ impl<'a> RestrictionsContext<'a> {
                                 self.loan_region, lt, restrictions)});
                     return Safe;
                 }
-                Safe
-            }
-
-            mc::cat_deref(_, _, mc::GcPtr) => {
-                // R-Deref-Imm-Managed
                 Safe
             }
 
@@ -170,9 +175,13 @@ impl<'a> RestrictionsContext<'a> {
               restrictions: RestrictionSet) -> RestrictionResult {
         match result {
             Safe => Safe,
-            SafeIf(base_lp, base_vec) => {
-                let lp = @LpExtend(base_lp, mc, elem);
-                SafeIf(lp, base_vec.append_one(Restriction { loan_path: lp, set: restrictions }))
+            SafeIf(base_lp, mut base_vec) => {
+                let lp = Rc::new(LpExtend(base_lp, mc, elem));
+                base_vec.push(Restriction {
+                    loan_path: lp.clone(),
+                    set: restrictions
+                });
+                SafeIf(lp, base_vec)
             }
         }
     }

@@ -165,7 +165,7 @@ pub fn trans_slice_vstore<'a>(
         let fixed_ty = ty::mk_vec(bcx.tcx(),
                                   ty::mt {ty: vt.unit_ty,
                                           mutbl: ast::MutMutable},
-                                  ty::vstore_fixed(count));
+                                  Some(count));
         let llfixed_ty = type_of::type_of(bcx.ccx(), fixed_ty).ptr_to();
         let llfixed_casted = BitCast(bcx, llfixed, llfixed_ty);
         let cleanup_scope = cleanup::temporary_scope(bcx.tcx(), content_expr.id);
@@ -228,7 +228,7 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
                              content_expr: &ast::Expr)
                              -> DatumBlock<'a, Expr> {
     /*!
-     * ~[...] and ~"..." allocate boxes in the exchange heap and write
+     * ~[...] and "...".to_owned() allocate boxes in the exchange heap and write
      * the array elements into them.
      */
 
@@ -236,7 +236,7 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
     let fcx = bcx.fcx;
     let ccx = fcx.ccx;
 
-    // Handle ~"".
+    // Handle "".to_owned().
     match content_expr.node {
         ast::ExprLit(lit) => {
             match lit.node {
@@ -244,7 +244,7 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
                     let llptrval = C_cstr(ccx, (*s).clone(), false);
                     let llptrval = PointerCast(bcx, llptrval, Type::i8p(ccx));
                     let llsizeval = C_uint(ccx, s.get().len());
-                    let typ = ty::mk_str(bcx.tcx(), ty::vstore_uniq);
+                    let typ = ty::mk_str(bcx.tcx(), ty::VstoreUniq);
                     let lldestval = rvalue_scratch_datum(bcx,
                                                          typ,
                                                          "");
@@ -445,10 +445,28 @@ pub fn elements_required(bcx: &Block, content_expr: &ast::Expr) -> uint {
     }
 }
 
-pub fn get_base_and_byte_len(bcx: &Block,
-                             llval: ValueRef,
-                             vec_ty: ty::t)
-                             -> (ValueRef, ValueRef) {
+pub fn get_fixed_base_and_byte_len(bcx: &Block,
+                                   llval: ValueRef,
+                                   unit_ty: ty::t,
+                                   vec_length: uint)
+                                   -> (ValueRef, ValueRef) {
+    /*!
+     * Converts a fixed-length vector into the slice pair.
+     * The vector should be stored in `llval` which should be by ref.
+     */
+
+    let ccx = bcx.ccx();
+    let vt = vec_types(bcx, unit_ty);
+
+    let base = GEPi(bcx, llval, [0u, 0u]);
+    let len = Mul(bcx, C_uint(ccx, vec_length), vt.llunit_size);
+    (base, len)
+}
+
+pub fn get_base_and_byte_len_for_vec(bcx: &Block,
+                                     llval: ValueRef,
+                                     vec_ty: ty::t)
+                                     -> (ValueRef, ValueRef) {
     /*!
      * Converts a vector into the slice pair.  The vector should be
      * stored in `llval` which should be by ref. If you have a datum,
@@ -459,29 +477,18 @@ pub fn get_base_and_byte_len(bcx: &Block,
     let ccx = bcx.ccx();
     let vt = vec_types(bcx, ty::sequence_element_type(bcx.tcx(), vec_ty));
 
-    let vstore = match ty::get(vec_ty).sty {
-        ty::ty_str(vst) | ty::ty_vec(_, vst) => vst,
-        _ => ty::vstore_uniq
+    let size = match ty::get(vec_ty).sty {
+        ty::ty_vec(_, size) => size,
+        _ => ccx.sess().bug("non-vector in get_base_and_byte_len_for_vec"),
     };
 
-    match vstore {
-        ty::vstore_fixed(n) => {
+    match size {
+        Some(n) => {
             let base = GEPi(bcx, llval, [0u, 0u]);
             let len = Mul(bcx, C_uint(ccx, n), vt.llunit_size);
             (base, len)
         }
-        ty::vstore_slice(_) => {
-            assert!(!type_is_immediate(bcx.ccx(), vec_ty));
-            let base = Load(bcx, GEPi(bcx, llval, [0u, abi::slice_elt_base]));
-            let count = Load(bcx, GEPi(bcx, llval, [0u, abi::slice_elt_len]));
-            let len = Mul(bcx, count, vt.llunit_size);
-            (base, len)
-        }
-        ty::vstore_uniq => {
-            assert!(type_is_immediate(bcx.ccx(), vec_ty));
-            let body = Load(bcx, llval);
-            (get_dataptr(bcx, body), get_fill(bcx, body))
-        }
+        None => ccx.sess().bug("unsized vector in get_base_and_byte_len_for_vec")
     }
 }
 
@@ -501,22 +508,31 @@ pub fn get_base_and_len(bcx: &Block,
     let vt = vec_types(bcx, ty::sequence_element_type(bcx.tcx(), vec_ty));
 
     let vstore = match ty::get(vec_ty).sty {
-        ty::ty_str(vst) | ty::ty_vec(_, vst) => vst,
-        _ => ty::vstore_uniq
+        ty::ty_str(vst) => vst,
+        ty::ty_vec(_, Some(n)) => ty::VstoreFixed(n),
+        ty::ty_rptr(r, mt) => match ty::get(mt.ty).sty {
+            ty::ty_vec(_, None) => ty::VstoreSlice(r),
+            _ => ccx.sess().bug("unexpected type (ty_rptr) in get_base_and_len"),
+        },
+        ty::ty_uniq(t) => match ty::get(t).sty {
+            ty::ty_vec(_, None) => ty::VstoreUniq,
+            _ => ccx.sess().bug("unexpected type (ty_uniq) in get_base_and_len"),
+        },
+        _ => ccx.sess().bug("unexpected type in get_base_and_len"),
     };
 
     match vstore {
-        ty::vstore_fixed(n) => {
+        ty::VstoreFixed(n) => {
             let base = GEPi(bcx, llval, [0u, 0u]);
             (base, C_uint(ccx, n))
         }
-        ty::vstore_slice(_) => {
+        ty::VstoreSlice(..) => {
             assert!(!type_is_immediate(bcx.ccx(), vec_ty));
             let base = Load(bcx, GEPi(bcx, llval, [0u, abi::slice_elt_base]));
             let count = Load(bcx, GEPi(bcx, llval, [0u, abi::slice_elt_len]));
             (base, count)
         }
-        ty::vstore_uniq => {
+        ty::VstoreUniq => {
             assert!(type_is_immediate(bcx.ccx(), vec_ty));
             let body = Load(bcx, llval);
             (get_dataptr(bcx, body), UDiv(bcx, get_fill(bcx, body), vt.llunit_size))
@@ -525,7 +541,7 @@ pub fn get_base_and_len(bcx: &Block,
 }
 
 pub type iter_vec_block<'r,'b> =
-    'r |&'b Block<'b>, ValueRef, ty::t| -> &'b Block<'b>;
+    |&'b Block<'b>, ValueRef, ty::t|: 'r -> &'b Block<'b>;
 
 pub fn iter_vec_loop<'r,
                      'b>(

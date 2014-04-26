@@ -11,9 +11,12 @@
 // ignore-android see #10393 #13206
 // ignore-pretty
 
-use std::ascii::OwnedStrAsciiExt;
-use std::str;
+extern crate sync;
+
+use std::strbuf::StrBuf;
 use std::slice;
+use sync::Arc;
+use sync::Future;
 
 static TABLE: [u8, ..4] = [ 'A' as u8, 'C' as u8, 'G' as u8, 'T' as u8 ];
 static TABLE_SIZE: uint = 2 << 16;
@@ -49,8 +52,7 @@ impl Code {
         string.bytes().fold(Code(0u64), |a, b| a.push_char(b))
     }
 
-    // FIXME: Inefficient.
-    fn unpack(&self, frame: uint) -> ~str {
+    fn unpack(&self, frame: uint) -> StrBuf {
         let mut key = self.hash();
         let mut result = Vec::new();
         for _ in range(0, frame) {
@@ -59,7 +61,7 @@ impl Code {
         }
 
         result.reverse();
-        str::from_utf8_owned(result.move_iter().collect()).unwrap()
+        StrBuf::from_utf8(result).unwrap()
     }
 }
 
@@ -204,10 +206,9 @@ fn unpack_symbol(c: u8) -> u8 {
     TABLE[c as uint]
 }
 
-fn generate_frequencies(frequencies: &mut Table,
-                        mut input: &[u8],
-                        frame: uint) {
-    if input.len() < frame { return; }
+fn generate_frequencies(mut input: &[u8], frame: uint) -> Table {
+    let mut frequencies = Table::new();
+    if input.len() < frame { return frequencies; }
     let mut code = Code(0);
 
     // Pull first frame.
@@ -222,6 +223,7 @@ fn generate_frequencies(frequencies: &mut Table,
         frequencies.lookup(code, BumpCallback);
         input = input.slice_from(1);
     }
+    frequencies
 }
 
 fn print_frequencies(frequencies: &Table, frame: uint) {
@@ -238,7 +240,7 @@ fn print_frequencies(frequencies: &Table, frame: uint) {
 
     for &(count, key) in vector.iter().rev() {
         println!("{} {:.3f}",
-                 key.unpack(frame),
+                 key.unpack(frame).as_slice(),
                  (count as f32 * 100.0) / (total_count as f32));
     }
     println!("");
@@ -248,14 +250,17 @@ fn print_occurrences(frequencies: &mut Table, occurrence: &'static str) {
     frequencies.lookup(Code::pack(occurrence), PrintCallback(occurrence))
 }
 
-fn get_sequence<R: Buffer>(r: &mut R, key: &str) -> ~[u8] {
-    let mut res = ~"";
+fn get_sequence<R: Buffer>(r: &mut R, key: &str) -> Vec<u8> {
+    let mut res = Vec::new();
     for l in r.lines().map(|l| l.ok().unwrap())
         .skip_while(|l| key != l.slice_to(key.len())).skip(1)
     {
-        res.push_str(l.trim());
+        res.push_all(l.trim().as_bytes());
     }
-    res.into_ascii_upper().into_bytes()
+    for b in res.mut_iter() {
+        *b = b.to_ascii().to_upper().to_byte();
+    }
+    res
 }
 
 fn main() {
@@ -265,20 +270,21 @@ fn main() {
     } else {
         get_sequence(&mut std::io::stdin(), ">THREE")
     };
+    let input = Arc::new(input);
 
-    let mut frequencies = Table::new();
-    generate_frequencies(&mut frequencies, input, 1);
-    print_frequencies(&frequencies, 1);
+    let nb_freqs: Vec<(uint, Future<Table>)> = range(1u, 3).map(|i| {
+        let input = input.clone();
+        (i, Future::spawn(proc() generate_frequencies(input.as_slice(), i)))
+    }).collect();
+    let occ_freqs: Vec<Future<Table>> = OCCURRENCES.iter().map(|&occ| {
+        let input = input.clone();
+        Future::spawn(proc() generate_frequencies(input.as_slice(), occ.len()))
+    }).collect();
 
-    frequencies = Table::new();
-    generate_frequencies(&mut frequencies, input, 2);
-    print_frequencies(&frequencies, 2);
-
-    for occurrence in OCCURRENCES.iter() {
-        frequencies = Table::new();
-        generate_frequencies(&mut frequencies,
-                             input,
-                             occurrence.len());
-        print_occurrences(&mut frequencies, *occurrence);
+    for (i, freq) in nb_freqs.move_iter() {
+        print_frequencies(&freq.unwrap(), i);
+    }
+    for (&occ, freq) in OCCURRENCES.iter().zip(occ_freqs.move_iter()) {
+        print_occurrences(&mut freq.unwrap(), occ);
     }
 }

@@ -120,7 +120,7 @@ impl Drop for Addrinfo {
 }
 
 fn each_ai_flag(_f: |c_int, ai::Flag|) {
-    /* XXX: do we really want to support these?
+    /* FIXME: do we really want to support these?
     unsafe {
         f(uvll::rust_AI_ADDRCONFIG(), ai::AddrConfig);
         f(uvll::rust_AI_ALL(), ai::All);
@@ -138,7 +138,7 @@ pub fn accum_addrinfo(addr: &Addrinfo) -> ~[ai::Info] {
     unsafe {
         let mut addr = addr.handle;
 
-        let mut addrs = ~[];
+        let mut addrs = Vec::new();
         loop {
             let rustaddr = net::sockaddr_to_addr(cast::transmute((*addr).ai_addr),
                                                  (*addr).ai_addrlen as uint);
@@ -150,7 +150,7 @@ pub fn accum_addrinfo(addr: &Addrinfo) -> ~[ai::Info] {
                 }
             });
 
-            /* XXX: do we really want to support these
+            /* FIXME: do we really want to support these
             let protocol = match (*addr).ai_protocol {
                 p if p == uvll::rust_IPPROTO_UDP() => Some(ai::UDP),
                 p if p == uvll::rust_IPPROTO_TCP() => Some(ai::TCP),
@@ -180,6 +180,6 @@ pub fn accum_addrinfo(addr: &Addrinfo) -> ~[ai::Info] {
             }
         }
 
-        return addrs;
+        return addrs.move_iter().collect();
     }
 }

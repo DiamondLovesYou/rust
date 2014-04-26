@@ -76,11 +76,14 @@ use middle::typeck::infer::region_inference::ProcessedErrors;
 use middle::typeck::infer::region_inference::SameRegions;
 use std::cell::{Cell, RefCell};
 use std::char::from_u32;
+use std::rc::Rc;
+use std::strbuf::StrBuf;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util;
 use syntax::ast_util::name_to_dummy_lifetime;
 use syntax::owned_slice::OwnedSlice;
+use syntax::codemap;
 use syntax::parse::token;
 use syntax::print::pprust;
 use util::ppaux::UserString;
@@ -142,10 +145,12 @@ trait ErrorReportingHelpers {
                           origin: SubregionOrigin);
 
     fn give_expl_lifetime_param(&self,
-                                inputs: Vec<ast::Arg>,
-                                output: ast::P<ast::Ty>,
-                                item: ast::P<ast::Item>,
-                                generics: ast::Generics);
+                                decl: &ast::FnDecl,
+                                fn_style: ast::FnStyle,
+                                ident: ast::Ident,
+                                opt_explicit_self: Option<ast::ExplicitSelf_>,
+                                generics: &ast::Generics,
+                                span: codemap::Span);
 }
 
 impl<'a> ErrorReporting for InferCtxt<'a> {
@@ -154,7 +159,7 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
         let p_errors = self.process_errors(errors);
         let errors = if p_errors.is_empty() { errors } else { &p_errors };
         for error in errors.iter() {
-            match *error {
+            match error.clone() {
                 ConcreteFailure(origin, sub, sup) => {
                     self.report_concrete_failure(origin, sub, sup);
                 }
@@ -202,7 +207,7 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
         let mut same_regions = Vec::new();
         let mut processed_errors = Vec::new();
         for error in errors.iter() {
-            match *error {
+            match error.clone() {
                 ConcreteFailure(origin, sub, sup) => {
                     debug!("processing ConcreteFailure")
                     let trace = match origin {
@@ -259,6 +264,19 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
             scope_id: ast::NodeId
         }
 
+        impl FreeRegionsFromSameFn {
+            fn new(sub_fr: ty::FreeRegion,
+                   sup_fr: ty::FreeRegion,
+                   scope_id: ast::NodeId)
+                   -> FreeRegionsFromSameFn {
+                FreeRegionsFromSameFn {
+                    sub_fr: sub_fr,
+                    sup_fr: sup_fr,
+                    scope_id: scope_id
+                }
+            }
+        }
+
         fn free_regions_from_same_fn(tcx: &ty::ctxt,
                                      sub: Region,
                                      sup: Region)
@@ -279,16 +297,13 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
             match parent_node {
                 Some(node) => match node {
                     ast_map::NodeItem(item) => match item.node {
-                        // FIXME: handle method
                         ast::ItemFn(..) => {
-                            let fr_from_same_fn = FreeRegionsFromSameFn {
-                                sub_fr: fr1,
-                                sup_fr: fr2,
-                                scope_id: scope_id
-                            };
-                            Some(fr_from_same_fn)
+                            Some(FreeRegionsFromSameFn::new(fr1, fr2, scope_id))
                         },
                         _ => None
+                    },
+                    ast_map::NodeMethod(..) => {
+                        Some(FreeRegionsFromSameFn::new(fr1, fr2, scope_id))
                     },
                     _ => None
                 },
@@ -647,10 +662,10 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
                                same_regions: &[SameRegions]) {
         self.give_suggestion(same_regions);
         for vo in var_origins.iter() {
-            self.report_inference_failure(*vo);
+            self.report_inference_failure(vo.clone());
         }
-        for &(trace, terr) in trace_origins.iter() {
-            self.report_type_error(trace, &terr);
+        for &(ref trace, terr) in trace_origins.iter() {
+            self.report_type_error(trace.clone(), &terr);
         }
     }
 
@@ -659,23 +674,32 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
         let parent = self.tcx.map.get_parent(scope_id);
         let parent_node = self.tcx.map.find(parent);
         let node_inner = match parent_node {
-            Some(node) => match node {
-                ast_map::NodeItem(item) => match item.node {
-                    // FIXME: handling method
-                    ast::ItemFn(ref fn_decl, _, _, ref gen, _) => {
-                        Some((item, fn_decl, gen))
-                    },
-                    _ => None
+            Some(ref node) => match *node {
+                ast_map::NodeItem(ref item) => {
+                    match item.node {
+                        ast::ItemFn(ref fn_decl, ref pur, _, ref gen, _) => {
+                            Some((fn_decl, gen, *pur, item.ident, None, item.span))
+                        },
+                        _ => None
+                    }
+                }
+                ast_map::NodeMethod(ref m) => {
+                    Some((&m.decl, &m.generics, m.fn_style,
+                          m.ident, Some(m.explicit_self.node), m.span))
                 },
                 _ => None
             },
             None => None
         };
-        let (item, fn_decl, generics) = node_inner.expect("expect item fn");
-        let rebuilder = Rebuilder::new(self.tcx, *fn_decl,
-                                       generics, same_regions);
-        let (inputs, output, generics) = rebuilder.rebuild();
-        self.give_expl_lifetime_param(inputs, output, item, generics);
+        let (fn_decl, generics, fn_style, ident, expl_self, span)
+                                    = node_inner.expect("expect item fn");
+        let taken = lifetimes_in_scope(self.tcx, scope_id);
+        let life_giver = LifeGiver::with_taken(taken.as_slice());
+        let rebuilder = Rebuilder::new(self.tcx, *fn_decl, expl_self,
+                                       generics, same_regions, &life_giver);
+        let (fn_decl, expl_self, generics) = rebuilder.rebuild();
+        self.give_expl_lifetime_param(&fn_decl, fn_style, ident,
+                                      expl_self, &generics, span);
     }
 }
 
@@ -693,40 +717,58 @@ struct RebuildPathInfo<'a> {
 struct Rebuilder<'a> {
     tcx: &'a ty::ctxt,
     fn_decl: ast::P<ast::FnDecl>,
+    expl_self_opt: Option<ast::ExplicitSelf_>,
     generics: &'a ast::Generics,
     same_regions: &'a [SameRegions],
-    life_giver: LifeGiver,
+    life_giver: &'a LifeGiver,
     cur_anon: Cell<uint>,
     inserted_anons: RefCell<HashSet<uint>>,
+}
+
+enum FreshOrKept {
+    Fresh,
+    Kept
 }
 
 impl<'a> Rebuilder<'a> {
     fn new(tcx: &'a ty::ctxt,
            fn_decl: ast::P<ast::FnDecl>,
+           expl_self_opt: Option<ast::ExplicitSelf_>,
            generics: &'a ast::Generics,
-           same_regions: &'a [SameRegions])
+           same_regions: &'a [SameRegions],
+           life_giver: &'a LifeGiver)
            -> Rebuilder<'a> {
         Rebuilder {
             tcx: tcx,
             fn_decl: fn_decl,
+            expl_self_opt: expl_self_opt,
             generics: generics,
             same_regions: same_regions,
-            life_giver: LifeGiver::with_taken(generics.lifetimes.as_slice()),
+            life_giver: life_giver,
             cur_anon: Cell::new(0),
             inserted_anons: RefCell::new(HashSet::new()),
         }
     }
 
-    fn rebuild(&self) -> (Vec<ast::Arg>, ast::P<ast::Ty>, ast::Generics) {
+    fn rebuild(&self)
+               -> (ast::FnDecl, Option<ast::ExplicitSelf_>, ast::Generics) {
+        let mut expl_self_opt = self.expl_self_opt;
         let mut inputs = self.fn_decl.inputs.clone();
         let mut output = self.fn_decl.output;
         let mut ty_params = self.generics.ty_params.clone();
+        let mut kept_lifetimes = HashSet::new();
         for sr in self.same_regions.iter() {
             self.cur_anon.set(0);
             self.offset_cur_anon();
             let (anon_nums, region_names) =
                                 self.extract_anon_nums_and_names(sr);
-            let lifetime = self.life_giver.give_lifetime();
+            let (lifetime, fresh_or_kept) = self.pick_lifetime(&region_names);
+            match fresh_or_kept {
+                Kept => { kept_lifetimes.insert(lifetime.name); }
+                _ => ()
+            }
+            expl_self_opt = self.rebuild_expl_self(expl_self_opt, lifetime,
+                                                   &anon_nums, &region_names);
             inputs = self.rebuild_args_ty(inputs.as_slice(), lifetime,
                                           &anon_nums, &region_names);
             output = self.rebuild_arg_ty_or_output(output, lifetime,
@@ -734,12 +776,39 @@ impl<'a> Rebuilder<'a> {
             ty_params = self.rebuild_ty_params(ty_params, lifetime,
                                                &region_names);
         }
-        let generated_lifetimes = self.life_giver.get_generated_lifetimes();
+        let fresh_lifetimes = self.life_giver.get_generated_lifetimes();
         let all_region_names = self.extract_all_region_names();
         let generics = self.rebuild_generics(self.generics,
-                                             generated_lifetimes,
-                                             &all_region_names, ty_params);
-        (inputs, output, generics)
+                                             &fresh_lifetimes,
+                                             &kept_lifetimes,
+                                             &all_region_names,
+                                             ty_params);
+        let new_fn_decl = ast::FnDecl {
+            inputs: inputs,
+            output: output,
+            cf: self.fn_decl.cf,
+            variadic: self.fn_decl.variadic
+        };
+        (new_fn_decl, expl_self_opt, generics)
+    }
+
+    fn pick_lifetime(&self,
+                     region_names: &HashSet<ast::Name>)
+                     -> (ast::Lifetime, FreshOrKept) {
+        if region_names.len() > 0 {
+            // It's not necessary to convert the set of region names to a
+            // vector of string and then sort them. However, it makes the
+            // choice of lifetime name deterministic and thus easier to test.
+            let mut names = Vec::new();
+            for rn in region_names.iter() {
+                let lt_name = token::get_name(*rn).get().to_owned();
+                names.push(lt_name);
+            }
+            names.sort();
+            let name = token::str_to_ident(names.get(0).as_slice()).name;
+            return (name_to_dummy_lifetime(name), Kept);
+        }
+        return (self.life_giver.give_lifetime(), Fresh);
     }
 
     fn extract_anon_nums_and_names(&self, same_regions: &SameRegions)
@@ -811,6 +880,8 @@ impl<'a> Rebuilder<'a> {
                 id: ty_param.id,
                 bounds: bounds,
                 default: ty_param.default,
+                span: ty_param.span,
+                sized: ty_param.sized,
             }
         })
     }
@@ -848,9 +919,38 @@ impl<'a> Rebuilder<'a> {
         })
     }
 
+    fn rebuild_expl_self(&self,
+                         expl_self_opt: Option<ast::ExplicitSelf_>,
+                         lifetime: ast::Lifetime,
+                         anon_nums: &HashSet<uint>,
+                         region_names: &HashSet<ast::Name>)
+                         -> Option<ast::ExplicitSelf_> {
+        match expl_self_opt {
+            Some(expl_self) => match expl_self {
+                ast::SelfRegion(lt_opt, muta) => match lt_opt {
+                    Some(lt) => if region_names.contains(&lt.name) {
+                        return Some(ast::SelfRegion(Some(lifetime), muta));
+                    },
+                    None => {
+                        let anon = self.cur_anon.get();
+                        self.inc_and_offset_cur_anon(1);
+                        if anon_nums.contains(&anon) {
+                            self.track_anon(anon);
+                            return Some(ast::SelfRegion(Some(lifetime), muta));
+                        }
+                    }
+                },
+                _ => ()
+            },
+            None => ()
+        }
+        expl_self_opt
+    }
+
     fn rebuild_generics(&self,
                         generics: &ast::Generics,
-                        add: Vec<ast::Lifetime>,
+                        add: &Vec<ast::Lifetime>,
+                        keep: &HashSet<ast::Name>,
                         remove: &HashSet<ast::Name>,
                         ty_params: OwnedSlice<ast::TyParam>)
                         -> ast::Generics {
@@ -859,7 +959,7 @@ impl<'a> Rebuilder<'a> {
             lifetimes.push(*lt);
         }
         for lt in generics.lifetimes.iter() {
-            if !remove.contains(&lt.name) {
+            if keep.contains(&lt.name) || !remove.contains(&lt.name) {
                 lifetimes.push((*lt).clone());
             }
         }
@@ -1098,40 +1198,28 @@ impl<'a> Rebuilder<'a> {
 
 impl<'a> ErrorReportingHelpers for InferCtxt<'a> {
     fn give_expl_lifetime_param(&self,
-                                inputs: Vec<ast::Arg>,
-                                output: ast::P<ast::Ty>,
-                                item: ast::P<ast::Item>,
-                                generics: ast::Generics) {
-        let (fn_decl, purity, ident) = match item.node {
-            // FIXME: handling method
-            ast::ItemFn(ref fn_decl, ref purity, _, _, _) => {
-                (fn_decl, purity, item.ident)
-            },
-            _ => fail!("Expect function or method")
-
-        };
-        let fd = ast::FnDecl {
-            inputs: inputs,
-            output: output,
-            cf: fn_decl.cf,
-            variadic: fn_decl.variadic
-        };
-        let suggested_fn =
-            pprust::fun_to_str(&fd, *purity, ident, None, &generics);
+                                decl: &ast::FnDecl,
+                                fn_style: ast::FnStyle,
+                                ident: ast::Ident,
+                                opt_explicit_self: Option<ast::ExplicitSelf_>,
+                                generics: &ast::Generics,
+                                span: codemap::Span) {
+        let suggested_fn = pprust::fun_to_str(decl, fn_style, ident,
+                                              opt_explicit_self, generics);
         let msg = format!("consider using an explicit lifetime \
                            parameter as shown: {}", suggested_fn);
-        self.tcx.sess.span_note(item.span, msg);
+        self.tcx.sess.span_note(span, msg);
     }
 
     fn report_inference_failure(&self,
                                 var_origin: RegionVariableOrigin) {
         let var_description = match var_origin {
-            infer::MiscVariable(_) => ~"",
-            infer::PatternRegion(_) => ~" for pattern",
-            infer::AddrOfRegion(_) => ~" for borrow expression",
-            infer::AddrOfSlice(_) => ~" for slice expression",
-            infer::Autoref(_) => ~" for autoref",
-            infer::Coercion(_) => ~" for automatic coercion",
+            infer::MiscVariable(_) => "".to_owned(),
+            infer::PatternRegion(_) => " for pattern".to_owned(),
+            infer::AddrOfRegion(_) => " for borrow expression".to_owned(),
+            infer::AddrOfSlice(_) => " for slice expression".to_owned(),
+            infer::Autoref(_) => " for autoref".to_owned(),
+            infer::Coercion(_) => " for automatic coercion".to_owned(),
             infer::LateBoundRegion(_, br) => {
                 format!(" for {}in function call",
                         bound_region_to_str(self.tcx, "lifetime parameter ", true, br))
@@ -1308,13 +1396,54 @@ impl Resolvable for ty::t {
     }
 }
 
-impl Resolvable for @ty::TraitRef {
-    fn resolve(&self, infcx: &InferCtxt) -> @ty::TraitRef {
-        @infcx.resolve_type_vars_in_trait_ref_if_possible(*self)
+impl Resolvable for Rc<ty::TraitRef> {
+    fn resolve(&self, infcx: &InferCtxt) -> Rc<ty::TraitRef> {
+        Rc::new(infcx.resolve_type_vars_in_trait_ref_if_possible(&**self))
     }
     fn contains_error(&self) -> bool {
-        ty::trait_ref_contains_error(*self)
+        ty::trait_ref_contains_error(&**self)
     }
+}
+
+fn lifetimes_in_scope(tcx: &ty::ctxt,
+                      scope_id: ast::NodeId)
+                      -> Vec<ast::Lifetime> {
+    let mut taken = Vec::new();
+    let parent = tcx.map.get_parent(scope_id);
+    let method_id_opt = match tcx.map.find(parent) {
+        Some(node) => match node {
+            ast_map::NodeItem(item) => match item.node {
+                ast::ItemFn(_, _, _, ref gen, _) => {
+                    taken.push_all(gen.lifetimes.as_slice());
+                    None
+                },
+                _ => None
+            },
+            ast_map::NodeMethod(m) => {
+                taken.push_all(m.generics.lifetimes.as_slice());
+                Some(m.id)
+            },
+            _ => None
+        },
+        None => None
+    };
+    if method_id_opt.is_some() {
+        let method_id = method_id_opt.unwrap();
+        let parent = tcx.map.get_parent(method_id);
+        match tcx.map.find(parent) {
+            Some(node) => match node {
+                ast_map::NodeItem(item) => match item.node {
+                    ast::ItemImpl(ref gen, _, _, _) => {
+                        taken.push_all(gen.lifetimes.as_slice());
+                    }
+                    _ => ()
+                },
+                _ => ()
+            },
+            None => ()
+        }
+    }
+    return taken;
 }
 
 // LifeGiver is responsible for generating fresh lifetime names
@@ -1325,7 +1454,6 @@ struct LifeGiver {
 }
 
 impl LifeGiver {
-    // FIXME: `taken` needs to include names from higher scope, too
     fn with_taken(taken: &[ast::Lifetime]) -> LifeGiver {
         let mut taken_ = HashSet::new();
         for lt in taken.iter() {
@@ -1361,13 +1489,13 @@ impl LifeGiver {
 
         // 0 .. 25 generates a .. z, 26 .. 51 generates aa .. zz, and so on
         fn num_to_str(counter: uint) -> ~str {
-            let mut s = ~"";
+            let mut s = StrBuf::new();
             let (n, r) = (counter/26 + 1, counter % 26);
             let letter: char = from_u32((r+97) as u32).unwrap();
             for _ in range(0, n) {
                 s.push_char(letter);
             }
-            return s;
+            s.into_owned()
         }
     }
 

@@ -23,12 +23,13 @@
 
 use cast;
 use clone::Clone;
+use iter::Iterator;
 use kinds::Send;
 use ops::Drop;
 use ptr::RawPtr;
 use sync::atomics::{fence, AtomicUint, Relaxed, Acquire, Release};
-use slice;
 use ty::Unsafe;
+use vec::Vec;
 
 /// An atomically reference counted pointer.
 ///
@@ -73,7 +74,8 @@ impl<T: Send> UnsafeArc<T> {
                 ~[] // need to free data here
             } else {
                 let ptr = new_inner(data, num_handles);
-                slice::from_fn(num_handles, |_| UnsafeArc { data: ptr })
+                let v = Vec::from_fn(num_handles, |_| UnsafeArc { data: ptr });
+                v.move_iter().collect()
             }
         }
     }
@@ -179,12 +181,12 @@ mod tests {
     #[test]
     fn arclike_newN() {
         // Tests that the many-refcounts-at-once constructors don't leak.
-        let _ = UnsafeArc::new2(~~"hello");
-        let x = UnsafeArc::newN(~~"hello", 0);
+        let _ = UnsafeArc::new2("hello".to_owned().to_owned());
+        let x = UnsafeArc::newN("hello".to_owned().to_owned(), 0);
         assert_eq!(x.len(), 0)
-        let x = UnsafeArc::newN(~~"hello", 1);
+        let x = UnsafeArc::newN("hello".to_owned().to_owned(), 1);
         assert_eq!(x.len(), 1)
-        let x = UnsafeArc::newN(~~"hello", 10);
+        let x = UnsafeArc::newN("hello".to_owned().to_owned(), 10);
         assert_eq!(x.len(), 10)
     }
 }

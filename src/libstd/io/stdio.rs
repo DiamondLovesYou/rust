@@ -18,7 +18,7 @@ about the stream or terminal to which it is attached.
 # Example
 
 ```rust
-# #[allow(unused_must_use)];
+# #![allow(unused_must_use)]
 use std::io;
 
 let mut out = io::stdout();
@@ -27,7 +27,6 @@ out.write(bytes!("Hello, world!"));
 
 */
 
-use container::Container;
 use fmt;
 use io::{Reader, Writer, IoResult, IoError, OtherIoError,
          standard_error, EndOfFile, LineBufferedWriter, BufferedReader};
@@ -37,11 +36,11 @@ use mem::replace;
 use option::{Option, Some, None};
 use prelude::drop;
 use result::{Ok, Err};
+use rt;
 use rt::local::Local;
 use rt::rtio::{DontClose, IoFactory, LocalIo, RtioFileStream, RtioTTY};
 use rt::task::Task;
 use str::StrSlice;
-use slice::ImmutableVector;
 
 // And so begins the tale of acquiring a uv handle to a stdio stream on all
 // platforms in all situations. Our story begins by splitting the world into two
@@ -99,7 +98,15 @@ fn src<T>(fd: libc::c_int, readable: bool, f: |StdSource| -> T) -> T {
 ///
 /// See `stdout()` for more notes about this function.
 pub fn stdin() -> BufferedReader<StdReader> {
-    BufferedReader::new(stdin_raw())
+    // The default buffer capacity is 64k, but apparently windows doesn't like
+    // 64k reads on stdin. See #13304 for details, but the idea is that on
+    // windows we use a slighly smaller buffer that's been seen to be
+    // acceptable.
+    if cfg!(windows) {
+        BufferedReader::with_capacity(8 * 1024, stdin_raw())
+    } else {
+        BufferedReader::new(stdin_raw())
+    }
 }
 
 /// Creates a new non-blocking handle to the stdin of the current process.
@@ -152,7 +159,7 @@ fn reset_helper(w: ~Writer:Send,
 {
     let mut t = Local::borrow(None::<Task>);
     // Be sure to flush any pending output from the writer
-    match f(t.get(), w) {
+    match f(&mut *t, w) {
         Some(mut w) => {
             drop(t);
             // FIXME: is failing right here?
@@ -222,26 +229,13 @@ fn with_task_stdout(f: |&mut Writer| -> IoResult<()> ) {
             // To protect against this, we do a little dance in which we
             // temporarily take the task, swap the handles, put the task in TLS,
             // and only then drop the previous handle.
-            let mut t = Local::borrow(None::<Task>);
-            let prev = replace(&mut t.get().stdout, my_stdout);
-            drop(t);
+            let prev = replace(&mut Local::borrow(None::<Task>).stdout, my_stdout);
             drop(prev);
             ret
         }
 
         None => {
-            struct Stdout;
-            impl Writer for Stdout {
-                fn write(&mut self, data: &[u8]) -> IoResult<()> {
-                    unsafe {
-                        libc::write(libc::STDOUT_FILENO,
-                                    data.as_ptr() as *libc::c_void,
-                                    data.len() as libc::size_t);
-                    }
-                    Ok(()) // just ignore the results
-                }
-            }
-            let mut io = Stdout;
+            let mut io = rt::Stdout;
             f(&mut io as &mut Writer)
         }
     };
@@ -405,7 +399,7 @@ mod tests {
             set_stdout(~w);
             println!("hello!");
         });
-        assert_eq!(r.read_to_str().unwrap(), ~"hello!\n");
+        assert_eq!(r.read_to_str().unwrap(), "hello!\n".to_owned());
     })
 
     iotest!(fn capture_stderr() {

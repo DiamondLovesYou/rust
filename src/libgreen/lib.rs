@@ -144,6 +144,19 @@
 //! }
 //! ```
 //!
+//! The above code can also be shortened with a macro from libgreen.
+//!
+//! ```
+//! #![feature(phase)]
+//! #[phase(syntax)] extern crate green;
+//!
+//! green_start!(main)
+//!
+//! fn main() {
+//!     // run inside of a green pool
+//! }
+//! ```
+//!
 //! # Using a scheduler pool
 //!
 //! ```rust
@@ -195,6 +208,7 @@
 // NB this does *not* include globs, please keep it that way.
 #![feature(macro_rules, phase)]
 #![allow(visible_private_types)]
+#![deny(deprecated_owned_vector)]
 
 #[cfg(test)] #[phase(syntax, link)] extern crate log;
 #[cfg(test)] extern crate rustuv;
@@ -209,7 +223,6 @@ use std::rt;
 use std::sync::atomics::{SeqCst, AtomicUint, INIT_ATOMIC_UINT};
 use std::sync::deque;
 use std::task::TaskOpts;
-use std::slice;
 use std::sync::arc::UnsafeArc;
 
 use sched::{Shutdown, Scheduler, SchedHandle, TaskFromFriend, NewNeighbor};
@@ -228,6 +241,33 @@ pub mod sched;
 pub mod sleeper_list;
 pub mod stack;
 pub mod task;
+
+/// A helper macro for booting a program with libgreen
+///
+/// # Example
+///
+/// ```
+/// #![feature(phase)]
+/// #[phase(syntax)] extern crate green;
+///
+/// green_start!(main)
+///
+/// fn main() {
+///     // running with libgreen
+/// }
+/// ```
+#[macro_export]
+macro_rules! green_start( ($f:ident) => (
+    mod __start {
+        extern crate green;
+        extern crate rustuv;
+
+        #[start]
+        fn start(argc: int, argv: **u8) -> int {
+            green::start(argc, argv, rustuv::event_loop, super::$f)
+        }
+    }
+) )
 
 /// Set up a default runtime configuration, given compiler-supplied arguments.
 ///
@@ -249,7 +289,7 @@ pub mod task;
 /// error.
 pub fn start(argc: int, argv: **u8,
              event_loop_factory: fn() -> ~rtio::EventLoop:Send,
-             main: proc()) -> int {
+             main: proc():Send) -> int {
     rt::init(argc, argv);
     let mut main = Some(main);
     let mut ret = None;
@@ -270,7 +310,7 @@ pub fn start(argc: int, argv: **u8,
 /// This function will not return until all schedulers in the associated pool
 /// have returned.
 pub fn run(event_loop_factory: fn() -> ~rtio::EventLoop:Send,
-           main: proc()) -> int {
+           main: proc():Send) -> int {
     // Create a scheduler pool and spawn the main task into this pool. We will
     // get notified over a channel when the main task exits.
     let mut cfg = PoolConfig::new();
@@ -318,9 +358,9 @@ impl PoolConfig {
 /// used to keep the pool alive and also reap the status from the pool.
 pub struct SchedPool {
     id: uint,
-    threads: ~[Thread<()>],
-    handles: ~[SchedHandle],
-    stealers: ~[deque::Stealer<~task::GreenTask>],
+    threads: Vec<Thread<()>>,
+    handles: Vec<SchedHandle>,
+    stealers: Vec<deque::Stealer<~task::GreenTask>>,
     next_friend: uint,
     stack_pool: StackPool,
     deque_pool: deque::BufferPool<~task::GreenTask>,
@@ -356,9 +396,9 @@ impl SchedPool {
         // The pool of schedulers that will be returned from this function
         let (p, state) = TaskState::new();
         let mut pool = SchedPool {
-            threads: ~[],
-            handles: ~[],
-            stealers: ~[],
+            threads: vec![],
+            handles: vec![],
+            stealers: vec![],
             id: unsafe { POOL_ID.fetch_add(1, SeqCst) },
             sleepers: SleeperList::new(),
             stack_pool: StackPool::new(),
@@ -371,8 +411,14 @@ impl SchedPool {
 
         // Create a work queue for each scheduler, ntimes. Create an extra
         // for the main thread if that flag is set. We won't steal from it.
-        let arr = slice::from_fn(nscheds, |_| pool.deque_pool.deque());
-        let (workers, stealers) = slice::unzip(arr.move_iter());
+        let mut workers = Vec::with_capacity(nscheds);
+        let mut stealers = Vec::with_capacity(nscheds);
+
+        for _ in range(0, nscheds) {
+            let (w, s) = pool.deque_pool.deque();
+            workers.push(w);
+            stealers.push(s);
+        }
         pool.stealers = stealers;
 
         // Now that we've got all our work queues, create one scheduler per
@@ -399,7 +445,7 @@ impl SchedPool {
     /// This is useful to create a task which can then be sent to a specific
     /// scheduler created by `spawn_sched` (and possibly pin it to that
     /// scheduler).
-    pub fn task(&mut self, opts: TaskOpts, f: proc()) -> ~GreenTask {
+    pub fn task(&mut self, opts: TaskOpts, f: proc():Send) -> ~GreenTask {
         GreenTask::configure(&mut self.stack_pool, opts, f)
     }
 
@@ -409,7 +455,7 @@ impl SchedPool {
     /// New tasks are spawned in a round-robin fashion to the schedulers in this
     /// pool, but tasks can certainly migrate among schedulers once they're in
     /// the pool.
-    pub fn spawn(&mut self, opts: TaskOpts, f: proc()) {
+    pub fn spawn(&mut self, opts: TaskOpts, f: proc():Send) {
         let task = self.task(opts, f);
 
         // Figure out someone to send this task to
@@ -420,7 +466,7 @@ impl SchedPool {
         }
 
         // Jettison the task away!
-        self.handles[idx].send(TaskFromFriend(task));
+        self.handles.get_mut(idx).send(TaskFromFriend(task));
     }
 
     /// Spawns a new scheduler into this M:N pool. A handle is returned to the
@@ -466,7 +512,7 @@ impl SchedPool {
     /// This only waits for all tasks in *this pool* of schedulers to exit, any
     /// native tasks or extern pools will not be waited on
     pub fn shutdown(mut self) {
-        self.stealers = ~[];
+        self.stealers = vec![];
 
         // Wait for everyone to exit. We may have reached a 0-task count
         // multiple times in the past, meaning there could be several buffered
@@ -478,10 +524,10 @@ impl SchedPool {
         }
 
         // Now that everyone's gone, tell everything to shut down.
-        for mut handle in replace(&mut self.handles, ~[]).move_iter() {
+        for mut handle in replace(&mut self.handles, vec![]).move_iter() {
             handle.send(Shutdown);
         }
-        for thread in replace(&mut self.threads, ~[]).move_iter() {
+        for thread in replace(&mut self.threads, vec![]).move_iter() {
             thread.join();
         }
     }

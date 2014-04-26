@@ -8,11 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use ast;
 use ast::{MetaItem, Item, Expr, MutMutable};
 use codemap::Span;
 use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
+use parse::token::InternedString;
 
 pub fn expand_deriving_hash(cx: &mut ExtCtxt,
                             span: Span,
@@ -25,7 +27,7 @@ pub fn expand_deriving_hash(cx: &mut ExtCtxt,
                     vec!(~Literal(Path::new_local("__S"))), true),
          LifetimeBounds {
              lifetimes: Vec::new(),
-             bounds: vec!(("__S", vec!(Path::new(vec!("std", "io", "Writer"))))),
+             bounds: vec!(("__S", ast::StaticSize, vec!(Path::new(vec!("std", "io", "Writer"))))),
          },
          Path::new_local("__S"))
     } else {
@@ -33,6 +35,8 @@ pub fn expand_deriving_hash(cx: &mut ExtCtxt,
          LifetimeBounds::empty(),
          Path::new(vec!("std", "hash", "sip", "SipState")))
     };
+    let inline = cx.meta_word(span, InternedString::new("inline"));
+    let attrs = vec!(cx.attribute(span, inline));
     let hash_trait_def = TraitDef {
         span: span,
         attributes: Vec::new(),
@@ -46,9 +50,11 @@ pub fn expand_deriving_hash(cx: &mut ExtCtxt,
                 explicit_self: borrowed_explicit_self(),
                 args: vec!(Ptr(~Literal(args), Borrowed(None, MutMutable))),
                 ret_ty: nil_ty(),
-                inline: true,
+                attributes: attrs,
                 const_nonmatching: false,
-                combine_substructure: hash_substructure
+                combine_substructure: combine_substructure(|a, b, c| {
+                    hash_substructure(a, b, c)
+                })
             }
         )
     };

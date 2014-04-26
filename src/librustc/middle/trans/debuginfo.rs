@@ -57,7 +57,7 @@ For example, the following simple type for a singly-linked list...
 ```
 struct List {
     value: int,
-    tail: Option<@List>,
+    tail: Option<~List>,
 }
 ```
 
@@ -66,8 +66,8 @@ will generate the following callstack with a naive DFS algorithm:
 ```
 describe(t = List)
   describe(t = int)
-  describe(t = Option<@List>)
-    describe(t = @List)
+  describe(t = Option<~List>)
+    describe(t = ~List)
       describe(t = List) // at the beginning again...
       ...
 ```
@@ -130,6 +130,7 @@ use driver::session::{FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
 use lib::llvm::llvm;
 use lib::llvm::{ModuleRef, ContextRef, ValueRef};
 use lib::llvm::debuginfo::*;
+use metadata::csearch;
 use middle::trans::adt;
 use middle::trans::common::*;
 use middle::trans::datum::{Datum, Lvalue};
@@ -143,12 +144,13 @@ use util::ppaux;
 
 use std::c_str::{CString, ToCStr};
 use std::cell::{Cell, RefCell};
+use std::rc::{Rc, Weak};
 use collections::HashMap;
 use collections::HashSet;
 use libc::{c_uint, c_ulonglong, c_longlong};
 use std::ptr;
+use std::strbuf::StrBuf;
 use std::sync::atomics;
-use std::slice;
 use syntax::codemap::{Span, Pos};
 use syntax::{abi, ast, codemap, ast_util, ast_map};
 use syntax::owned_slice::OwnedSlice;
@@ -178,7 +180,8 @@ pub struct CrateDebugContext {
     current_debug_location: Cell<DebugLocation>,
     created_files: RefCell<HashMap<~str, DIFile>>,
     created_types: RefCell<HashMap<uint, DIType>>,
-    namespace_map: RefCell<HashMap<Vec<ast::Name> , @NamespaceTreeNode>>,
+    created_enum_disr_types: RefCell<HashMap<ast::DefId, DIType>>,
+    namespace_map: RefCell<HashMap<Vec<ast::Name>, Rc<NamespaceTreeNode>>>,
     // This collection is used to assert that composite types (structs, enums, ...) have their
     // members only set once:
     composite_types_completed: RefCell<HashSet<DIType>>,
@@ -196,21 +199,26 @@ impl CrateDebugContext {
             current_debug_location: Cell::new(UnknownLocation),
             created_files: RefCell::new(HashMap::new()),
             created_types: RefCell::new(HashMap::new()),
+            created_enum_disr_types: RefCell::new(HashMap::new()),
             namespace_map: RefCell::new(HashMap::new()),
             composite_types_completed: RefCell::new(HashSet::new()),
         };
     }
 }
 
-pub enum FunctionDebugContext {
-    priv FunctionDebugContext(~FunctionDebugContextData),
-    priv DebugInfoDisabled,
-    priv FunctionWithoutDebugInfo,
+pub struct FunctionDebugContext {
+    repr: FunctionDebugContextRepr,
+}
+
+enum FunctionDebugContextRepr {
+    FunctionDebugContext(~FunctionDebugContextData),
+    DebugInfoDisabled,
+    FunctionWithoutDebugInfo,
 }
 
 impl FunctionDebugContext {
     fn get_ref<'a>(&'a self, cx: &CrateContext, span: Span) -> &'a FunctionDebugContextData {
-        match *self {
+        match self.repr {
             FunctionDebugContext(~ref data) => data,
             DebugInfoDisabled => {
                 cx.sess().span_bug(span, FunctionDebugContext::debuginfo_disabled_message());
@@ -271,6 +279,12 @@ pub fn finalize(cx: &CrateContext) {
         if cx.sess().targ_cfg.os == abi::OsMacos {
             "Dwarf Version".with_c_str(
                 |s| llvm::LLVMRustAddModuleFlag(cx.llmod, s, 2));
+        } else {
+            // FIXME(#13611) this is a kludge fix because the linux bots have
+            //               gdb 7.4 which doesn't understand dwarf4, we should
+            //               do something more graceful here.
+            "Dwarf Version".with_c_str(
+                |s| llvm::LLVMRustAddModuleFlag(cx.llmod, s, 3));
         }
 
         // Prevent bitcode readers from deleting the debug info.
@@ -287,6 +301,13 @@ pub fn create_global_var_metadata(cx: &CrateContext,
                                   node_id: ast::NodeId,
                                   global: ValueRef) {
     if cx.dbg_cx.is_none() {
+        return;
+    }
+
+    // Don't create debuginfo for globals inlined from other crates. The other crate should already
+    // contain debuginfo for it. More importantly, the global might not even exist in un-inlined
+    // form anywhere which would lead to a linker errors.
+    if cx.external_srcs.borrow().contains_key(&node_id) {
         return;
     }
 
@@ -349,7 +370,7 @@ pub fn create_local_var_metadata(bcx: &Block, local: &ast::Local) {
     }
 
     let cx = bcx.ccx();
-    let def_map = cx.tcx.def_map;
+    let def_map = &cx.tcx.def_map;
 
     pat_util::pat_bindings(def_map, local.pat, |_, node_id, span, path_ref| {
         let var_ident = ast_util::path_to_ident(path_ref);
@@ -383,7 +404,7 @@ pub fn create_captured_var_metadata(bcx: &Block,
                                     env_data_type: ty::t,
                                     env_pointer: ValueRef,
                                     env_index: uint,
-                                    closure_sigil: ast::Sigil,
+                                    closure_store: ty::TraitStore,
                                     span: Span) {
     if fn_should_be_ignored(bcx.fcx) {
         return;
@@ -432,11 +453,11 @@ pub fn create_captured_var_metadata(bcx: &Block,
          llvm::LLVMDIBuilderCreateOpDeref(Type::i64(cx).to_ref())]
     };
 
-    let address_op_count = match closure_sigil {
-        ast::BorrowedSigil => {
+    let address_op_count = match closure_store {
+        ty::RegionTraitStore(..) => {
             address_operations.len()
         }
-        ast::ManagedSigil | ast::OwnedSigil => {
+        ty::UniqTraitStore => {
             address_operations.len() - 1
         }
     };
@@ -489,7 +510,7 @@ pub fn create_argument_metadata(bcx: &Block, arg: &ast::Arg) {
     let fcx = bcx.fcx;
     let cx = fcx.ccx;
 
-    let def_map = cx.tcx.def_map;
+    let def_map = &cx.tcx.def_map;
     let scope_metadata = bcx.fcx.debug_context.get_ref(cx, arg.pat.span).fn_metadata;
 
     pat_util::pat_bindings(def_map, arg.pat, |_, node_id, span, path_ref| {
@@ -533,21 +554,26 @@ pub fn create_argument_metadata(bcx: &Block, arg: &ast::Arg) {
 pub fn set_source_location(fcx: &FunctionContext,
                            node_id: ast::NodeId,
                            span: Span) {
-    if fn_should_be_ignored(fcx) {
-        return;
-    }
+    match fcx.debug_context.repr {
+        DebugInfoDisabled => return,
+        FunctionWithoutDebugInfo => {
+            set_debug_location(fcx.ccx, UnknownLocation);
+            return;
+        }
+        FunctionDebugContext(~ref function_debug_context) => {
+            let cx = fcx.ccx;
 
-    let cx = fcx.ccx;
+            debug!("set_source_location: {}", cx.sess().codemap().span_to_str(span));
 
-    debug!("set_source_location: {}", cx.sess().codemap().span_to_str(span));
+            if function_debug_context.source_locations_enabled.get() {
+                let loc = span_start(cx, span);
+                let scope = scope_metadata(fcx, node_id, span);
 
-    if fcx.debug_context.get_ref(cx, span).source_locations_enabled.get() {
-        let loc = span_start(cx, span);
-        let scope = scope_metadata(fcx, node_id, span);
-
-        set_debug_location(cx, DebugLocation::new(scope, loc.line, loc.col.to_uint()));
-    } else {
-        set_debug_location(cx, UnknownLocation);
+                set_debug_location(cx, DebugLocation::new(scope, loc.line, loc.col.to_uint()));
+            } else {
+                set_debug_location(cx, UnknownLocation);
+            }
+        }
     }
 }
 
@@ -569,7 +595,7 @@ pub fn clear_source_location(fcx: &FunctionContext) {
 /// and must therefore be called before the first real statement/expression of the function is
 /// translated.
 pub fn start_emitting_source_locations(fcx: &FunctionContext) {
-    match fcx.debug_context {
+    match fcx.debug_context.repr {
         FunctionDebugContext(~ref data) => {
             data.source_locations_enabled.set(true)
         },
@@ -584,14 +610,18 @@ pub fn start_emitting_source_locations(fcx: &FunctionContext) {
 /// indicates why no debuginfo should be created for the function.
 pub fn create_function_debug_context(cx: &CrateContext,
                                      fn_ast_id: ast::NodeId,
-                                     param_substs: Option<@param_substs>,
+                                     param_substs: Option<&param_substs>,
                                      llfn: ValueRef) -> FunctionDebugContext {
     if cx.sess().opts.debuginfo == NoDebugInfo {
-        return DebugInfoDisabled;
+        return FunctionDebugContext { repr: DebugInfoDisabled };
     }
 
+    // Clear the debug location so we don't assign them in the function prelude. Do this here
+    // already, in case we do an early exit from this function.
+    set_debug_location(cx, UnknownLocation);
+
     if fn_ast_id == -1 {
-        return FunctionWithoutDebugInfo;
+        return FunctionDebugContext { repr: FunctionWithoutDebugInfo };
     }
 
     let empty_generics = ast::Generics { lifetimes: Vec::new(), ty_params: OwnedSlice::empty() };
@@ -610,7 +640,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
                 }
             }
         }
-        ast_map::NodeMethod(method) => {
+        ast_map::NodeMethod(ref method) => {
             (method.ident,
              method.decl,
              &method.generics,
@@ -637,9 +667,9 @@ pub fn create_function_debug_context(cx: &CrateContext,
                         "create_function_debug_context: expected an expr_fn_block here")
             }
         }
-        ast_map::NodeTraitMethod(trait_method) => {
-            match *trait_method {
-                ast::Provided(method) => {
+        ast_map::NodeTraitMethod(ref trait_method) => {
+            match **trait_method {
+                ast::Provided(ref method) => {
                     (method.ident,
                      method.decl,
                      &method.generics,
@@ -658,7 +688,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
         ast_map::NodeForeignItem(..) |
         ast_map::NodeVariant(..) |
         ast_map::NodeStructCtor(..) => {
-            return FunctionWithoutDebugInfo;
+            return FunctionDebugContext { repr: FunctionWithoutDebugInfo };
         }
         _ => cx.sess().bug(format!("create_function_debug_context: \
                                     unexpected sort of node: {:?}", fnitem))
@@ -666,7 +696,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
 
     // This can be the case for functions inlined from another crate
     if span == codemap::DUMMY_SP {
-        return FunctionWithoutDebugInfo;
+        return FunctionDebugContext { repr: FunctionWithoutDebugInfo };
     }
 
     let loc = span_start(cx, span);
@@ -678,7 +708,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
     };
 
     // get_template_parameters() will append a `<...>` clause to the function name if necessary.
-    let mut function_name = token::get_ident(ident).get().to_str();
+    let mut function_name = StrBuf::from_str(token::get_ident(ident).get());
     let template_parameters = get_template_parameters(cx,
                                                       generics,
                                                       param_substs,
@@ -690,11 +720,12 @@ pub fn create_function_debug_context(cx: &CrateContext,
     // ast_map, or construct a path using the enclosing function).
     let (linkage_name, containing_scope) = if has_path {
         let namespace_node = namespace_for_item(cx, ast_util::local_def(fn_ast_id));
-        let linkage_name = namespace_node.mangled_name_of_contained_item(function_name);
+        let linkage_name = namespace_node.mangled_name_of_contained_item(
+            function_name.as_slice());
         let containing_scope = namespace_node.scope;
         (linkage_name, containing_scope)
     } else {
-        (function_name.clone(), file_metadata)
+        (function_name.as_slice().to_owned(), file_metadata)
     };
 
     // Clang sets this parameter to the opening brace of the function's block, so let's do this too.
@@ -702,7 +733,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
 
     let is_local_to_unit = is_node_local_to_unit(cx, fn_ast_id);
 
-    let fn_metadata = function_name.with_c_str(|function_name| {
+    let fn_metadata = function_name.as_slice().with_c_str(|function_name| {
                           linkage_name.with_c_str(|linkage_name| {
             unsafe {
                 llvm::LLVMDIBuilderCreateFunction(
@@ -740,21 +771,18 @@ pub fn create_function_debug_context(cx: &CrateContext,
                        fn_metadata,
                        &mut *fn_debug_context.scope_map.borrow_mut());
 
-    // Clear the debug location so we don't assign them in the function prelude
-    set_debug_location(cx, UnknownLocation);
-
-    return FunctionDebugContext(fn_debug_context);
+    return FunctionDebugContext { repr: FunctionDebugContext(fn_debug_context) };
 
     fn get_function_signature(cx: &CrateContext,
                               fn_ast_id: ast::NodeId,
                               fn_decl: &ast::FnDecl,
-                              param_substs: Option<@param_substs>,
+                              param_substs: Option<&param_substs>,
                               error_span: Span) -> DIArray {
         if cx.sess().opts.debuginfo == LimitedDebugInfo {
             return create_DIArray(DIB(cx), []);
         }
 
-        let mut signature = slice::with_capacity(fn_decl.inputs.len() + 1);
+        let mut signature = Vec::with_capacity(fn_decl.inputs.len() + 1);
 
         // Return type -- llvm::DIBuilder wants this at index 0
         match fn_decl.output.node {
@@ -796,15 +824,15 @@ pub fn create_function_debug_context(cx: &CrateContext,
             signature.push(type_metadata(cx, arg_type, codemap::DUMMY_SP));
         }
 
-        return create_DIArray(DIB(cx), signature);
+        return create_DIArray(DIB(cx), signature.as_slice());
     }
 
     fn get_template_parameters(cx: &CrateContext,
                                generics: &ast::Generics,
-                               param_substs: Option<@param_substs>,
+                               param_substs: Option<&param_substs>,
                                file_metadata: DIFile,
-                               name_to_append_suffix_to: &mut ~str)
-                            -> DIArray {
+                               name_to_append_suffix_to: &mut StrBuf)
+                               -> DIArray {
         let self_type = match param_substs {
             Some(param_substs) => param_substs.self_ty,
             _ => None
@@ -939,7 +967,7 @@ fn compile_unit_metadata(cx: &CrateContext) {
                             // prepend "./" if necessary
                             let dotdot = bytes!("..");
                             let prefix = &[dotdot[0], ::std::path::SEP_BYTE];
-                            let mut path_bytes = p.as_vec().to_owned();
+                            let mut path_bytes = Vec::from_slice(p.as_vec());
 
                             if path_bytes.slice_to(2) != prefix &&
                                path_bytes.slice_to(2) != dotdot {
@@ -947,7 +975,7 @@ fn compile_unit_metadata(cx: &CrateContext) {
                                 path_bytes.insert(1, prefix[1]);
                             }
 
-                            path_bytes.to_c_str()
+                            path_bytes.as_slice().to_c_str()
                         }
                     _ => fallback_path(cx)
                 }
@@ -1122,27 +1150,28 @@ fn basic_type_metadata(cx: &CrateContext, t: ty::t) -> DIType {
     debug!("basic_type_metadata: {:?}", ty::get(t));
 
     let (name, encoding) = match ty::get(t).sty {
-        ty::ty_nil => (~"()", DW_ATE_unsigned),
-        ty::ty_bot => (~"!", DW_ATE_unsigned),
-        ty::ty_bool => (~"bool", DW_ATE_boolean),
-        ty::ty_char => (~"char", DW_ATE_unsigned_char),
+        ty::ty_nil => ("()".to_owned(), DW_ATE_unsigned),
+        ty::ty_bot => ("!".to_owned(), DW_ATE_unsigned),
+        ty::ty_bool => ("bool".to_owned(), DW_ATE_boolean),
+        ty::ty_char => ("char".to_owned(), DW_ATE_unsigned_char),
         ty::ty_int(int_ty) => match int_ty {
-            ast::TyI => (~"int", DW_ATE_signed),
-            ast::TyI8 => (~"i8", DW_ATE_signed),
-            ast::TyI16 => (~"i16", DW_ATE_signed),
-            ast::TyI32 => (~"i32", DW_ATE_signed),
-            ast::TyI64 => (~"i64", DW_ATE_signed)
+            ast::TyI => ("int".to_owned(), DW_ATE_signed),
+            ast::TyI8 => ("i8".to_owned(), DW_ATE_signed),
+            ast::TyI16 => ("i16".to_owned(), DW_ATE_signed),
+            ast::TyI32 => ("i32".to_owned(), DW_ATE_signed),
+            ast::TyI64 => ("i64".to_owned(), DW_ATE_signed)
         },
         ty::ty_uint(uint_ty) => match uint_ty {
-            ast::TyU => (~"uint", DW_ATE_unsigned),
-            ast::TyU8 => (~"u8", DW_ATE_unsigned),
-            ast::TyU16 => (~"u16", DW_ATE_unsigned),
-            ast::TyU32 => (~"u32", DW_ATE_unsigned),
-            ast::TyU64 => (~"u64", DW_ATE_unsigned)
+            ast::TyU => ("uint".to_owned(), DW_ATE_unsigned),
+            ast::TyU8 => ("u8".to_owned(), DW_ATE_unsigned),
+            ast::TyU16 => ("u16".to_owned(), DW_ATE_unsigned),
+            ast::TyU32 => ("u32".to_owned(), DW_ATE_unsigned),
+            ast::TyU64 => ("u64".to_owned(), DW_ATE_unsigned)
         },
         ty::ty_float(float_ty) => match float_ty {
-            ast::TyF32 => (~"f32", DW_ATE_float),
-            ast::TyF64 => (~"f64", DW_ATE_float)
+            ast::TyF32 => ("f32".to_owned(), DW_ATE_float),
+            ast::TyF64 => ("f64".to_owned(), DW_ATE_float),
+            ast::TyF128 => ("f128".to_owned(), DW_ATE_float)
         },
         _ => cx.sess().bug("debuginfo::basic_type_metadata - t is invalid type")
     };
@@ -1220,7 +1249,7 @@ impl StructMemberDescriptionFactory {
                                   -> Vec<MemberDescription> {
         self.fields.iter().map(|field| {
             let name = if field.ident.name == special_idents::unnamed_field.name {
-                ~""
+                "".to_owned()
             } else {
                 token::get_ident(field.ident).get().to_str()
             };
@@ -1323,7 +1352,7 @@ impl TupleMemberDescriptionFactory {
                                   -> Vec<MemberDescription> {
         self.component_types.iter().map(|&component_type| {
             MemberDescription {
-                name: ~"",
+                name: "".to_owned(),
                 llvm_type: type_of::type_of(cx, component_type),
                 type_metadata: type_metadata(cx, component_type, self.span),
                 offset: ComputedMemberOffset,
@@ -1361,8 +1390,8 @@ fn prepare_tuple_metadata(cx: &CrateContext,
 }
 
 struct GeneralMemberDescriptionFactory {
-    type_rep: @adt::Repr,
-    variants: @Vec<@ty::VariantInfo> ,
+    type_rep: Rc<adt::Repr>,
+    variants: Rc<Vec<Rc<ty::VariantInfo>>>,
     discriminant_type_metadata: ValueRef,
     containing_scope: DIScope,
     file_metadata: DIFile,
@@ -1385,7 +1414,7 @@ impl GeneralMemberDescriptionFactory {
                 let (variant_type_metadata, variant_llvm_type, member_desc_factory) =
                     describe_enum_variant(cx,
                                           struct_def,
-                                          *self.variants.get(i),
+                                          &**self.variants.get(i),
                                           Some(self.discriminant_type_metadata),
                                           self.containing_scope,
                                           self.file_metadata,
@@ -1401,7 +1430,7 @@ impl GeneralMemberDescriptionFactory {
                                               self.file_metadata,
                                               codemap::DUMMY_SP);
                 MemberDescription {
-                    name: ~"",
+                    name: "".to_owned(),
                     llvm_type: variant_llvm_type,
                     type_metadata: variant_type_metadata,
                     offset: FixedMemberOffset { bytes: 0 },
@@ -1470,12 +1499,12 @@ fn describe_enum_variant(cx: &CrateContext,
         Some(ref names) => {
             names.iter().map(|ident| token::get_ident(*ident).get().to_str()).collect()
         }
-        None => variant_info.args.iter().map(|_| ~"").collect()
+        None => variant_info.args.iter().map(|_| "".to_owned()).collect()
     };
 
     // If this is not a univariant enum, there is also the (unnamed) discriminant field
     if discriminant_type_metadata.is_some() {
-        arg_names.insert(0, ~"");
+        arg_names.insert(0, "".to_owned());
     }
 
     // Build an array of (field name, field type) pairs to be captured in the factory closure.
@@ -1536,24 +1565,45 @@ fn prepare_enum_metadata(cx: &CrateContext,
         .collect();
 
     let discriminant_type_metadata = |inttype| {
-        let discriminant_llvm_type = adt::ll_inttype(cx, inttype);
-        let (discriminant_size, discriminant_align) = size_and_align_of(cx, discriminant_llvm_type);
-        let discriminant_base_type_metadata = type_metadata(cx, adt::ty_of_inttype(inttype),
-                                                            codemap::DUMMY_SP);
-        enum_name.with_c_str(|enum_name| {
-            unsafe {
-                llvm::LLVMDIBuilderCreateEnumerationType(
-                    DIB(cx),
-                    containing_scope,
-                    enum_name,
-                    file_metadata,
-                    loc.line as c_uint,
-                    bytes_to_bits(discriminant_size),
-                    bytes_to_bits(discriminant_align),
-                    create_DIArray(DIB(cx), enumerators_metadata.as_slice()),
-                    discriminant_base_type_metadata)
+        // We can reuse the type of the discriminant for all monomorphized instances of an enum
+        // because it doesn't depend on any type parameters. The def_id, uniquely identifying the
+        // enum's polytype acts as key in this cache.
+        let cached_discriminant_type_metadata = debug_context(cx).created_enum_disr_types
+                                                                 .borrow()
+                                                                 .find_copy(&enum_def_id);
+        match cached_discriminant_type_metadata {
+            Some(discriminant_type_metadata) => discriminant_type_metadata,
+            None => {
+                let discriminant_llvm_type = adt::ll_inttype(cx, inttype);
+                let (discriminant_size, discriminant_align) =
+                    size_and_align_of(cx, discriminant_llvm_type);
+                let discriminant_base_type_metadata = type_metadata(cx,
+                                                                    adt::ty_of_inttype(inttype),
+                                                                    codemap::DUMMY_SP);
+                let discriminant_name = get_enum_discriminant_name(cx, enum_def_id);
+
+                let discriminant_type_metadata = discriminant_name.get().with_c_str(|name| {
+                    unsafe {
+                        llvm::LLVMDIBuilderCreateEnumerationType(
+                            DIB(cx),
+                            containing_scope,
+                            name,
+                            file_metadata,
+                            loc.line as c_uint,
+                            bytes_to_bits(discriminant_size),
+                            bytes_to_bits(discriminant_align),
+                            create_DIArray(DIB(cx), enumerators_metadata.as_slice()),
+                            discriminant_base_type_metadata)
+                    }
+                });
+
+                debug_context(cx).created_enum_disr_types
+                                 .borrow_mut()
+                                 .insert(enum_def_id, discriminant_type_metadata);
+
+                discriminant_type_metadata
             }
-        })
+        }
     };
 
     let type_rep = adt::represent_type(cx, enum_type);
@@ -1569,7 +1619,7 @@ fn prepare_enum_metadata(cx: &CrateContext,
                  member_description_factory) =
                     describe_enum_variant(cx,
                                           struct_def,
-                                          *variants.get(0),
+                                          &**variants.get(0),
                                           None,
                                           containing_scope,
                                           file_metadata,
@@ -1613,7 +1663,7 @@ fn prepare_enum_metadata(cx: &CrateContext,
                 llvm_type: enum_llvm_type,
                 file_metadata: file_metadata,
                 member_description_factory: GeneralMD(GeneralMemberDescriptionFactory {
-                    type_rep: type_rep,
+                    type_rep: type_rep.clone(),
                     variants: variants,
                     discriminant_type_metadata: discriminant_type_metadata,
                     containing_scope: containing_scope,
@@ -1628,7 +1678,7 @@ fn prepare_enum_metadata(cx: &CrateContext,
                  member_description_factory) =
                     describe_enum_variant(cx,
                                           struct_def,
-                                          *variants.get(nndiscr as uint),
+                                          &**variants.get(nndiscr as uint),
                                           None,
                                           containing_scope,
                                           file_metadata,
@@ -1642,6 +1692,16 @@ fn prepare_enum_metadata(cx: &CrateContext,
             }
         }
     };
+
+    fn get_enum_discriminant_name(cx: &CrateContext, def_id: ast::DefId) -> token::InternedString {
+        let name = if def_id.krate == ast::LOCAL_CRATE {
+            cx.tcx.map.get_path_elem(def_id.node).name()
+        } else {
+            csearch::get_item_path(&cx.tcx, def_id).last().unwrap().name()
+        };
+
+        token::get_name(name)
+    }
 }
 
 enum MemberOffset {
@@ -1795,7 +1855,7 @@ fn boxed_type_metadata(cx: &CrateContext,
                     -> DICompositeType {
     let box_type_name = match content_type_name {
         Some(content_type_name) => format!("Boxed<{}>", content_type_name),
-        None                    => ~"BoxedType"
+        None                    => "BoxedType".to_owned()
     };
 
     let box_llvm_type = Type::at_box(cx, content_llvm_type);
@@ -1810,31 +1870,31 @@ fn boxed_type_metadata(cx: &CrateContext,
 
     let member_descriptions = [
         MemberDescription {
-            name: ~"refcnt",
+            name: "refcnt".to_owned(),
             llvm_type: *member_llvm_types.get(0),
             type_metadata: type_metadata(cx, int_type, codemap::DUMMY_SP),
             offset: ComputedMemberOffset,
         },
         MemberDescription {
-            name: ~"drop_glue",
+            name: "drop_glue".to_owned(),
             llvm_type: *member_llvm_types.get(1),
             type_metadata: nil_pointer_type_metadata,
             offset: ComputedMemberOffset,
         },
         MemberDescription {
-            name: ~"prev",
+            name: "prev".to_owned(),
             llvm_type: *member_llvm_types.get(2),
             type_metadata: nil_pointer_type_metadata,
             offset: ComputedMemberOffset,
         },
         MemberDescription {
-            name: ~"next",
+            name: "next".to_owned(),
             llvm_type: *member_llvm_types.get(3),
             type_metadata: nil_pointer_type_metadata,
             offset: ComputedMemberOffset,
         },
         MemberDescription {
-            name: ~"val",
+            name: "val".to_owned(),
             llvm_type: *member_llvm_types.get(4),
             type_metadata: content_type_metadata,
             offset: ComputedMemberOffset,
@@ -1921,19 +1981,19 @@ fn vec_metadata(cx: &CrateContext,
 
     let member_descriptions = [
         MemberDescription {
-            name: ~"fill",
+            name: "fill".to_owned(),
             llvm_type: *member_llvm_types.get(0),
             type_metadata: int_type_metadata,
             offset: ComputedMemberOffset,
         },
         MemberDescription {
-            name: ~"alloc",
+            name: "alloc".to_owned(),
             llvm_type: *member_llvm_types.get(1),
             type_metadata: int_type_metadata,
             offset: ComputedMemberOffset,
         },
         MemberDescription {
-            name: ~"elements",
+            name: "elements".to_owned(),
             llvm_type: *member_llvm_types.get(2),
             type_metadata: array_type_metadata,
             offset: ComputedMemberOffset,
@@ -1978,13 +2038,13 @@ fn vec_slice_metadata(cx: &CrateContext,
 
     let member_descriptions = [
         MemberDescription {
-            name: ~"data_ptr",
+            name: "data_ptr".to_owned(),
             llvm_type: *member_llvm_types.get(0),
             type_metadata: type_metadata(cx, data_ptr_type, span),
             offset: ComputedMemberOffset,
         },
         MemberDescription {
-            name: ~"length",
+            name: "length".to_owned(),
             llvm_type: *member_llvm_types.get(1),
             type_metadata: type_metadata(cx, ty::mk_uint(), span),
             offset: ComputedMemberOffset,
@@ -2049,7 +2109,6 @@ fn trait_metadata(cx: &CrateContext,
                   trait_type: ty::t,
                   substs: &ty::substs,
                   trait_store: ty::TraitStore,
-                  mutability: ast::Mutability,
                   _: &ty::BuiltinBounds)
                -> DIType {
     // The implementation provided here is a stub. It makes sure that the trait type is
@@ -2058,7 +2117,6 @@ fn trait_metadata(cx: &CrateContext,
     let last = ty::with_path(cx.tcx(), def_id, |mut path| path.last().unwrap());
     let ident_string = token::get_name(last.name());
     let name = ppaux::trait_store_to_str(cx.tcx(), trait_store) +
-               ppaux::mutability_to_str(mutability) +
                ident_string.get();
     // Add type and region parameters
     let name = ppaux::parameterized(cx.tcx(), name, &substs.regions,
@@ -2071,13 +2129,13 @@ fn trait_metadata(cx: &CrateContext,
 
     let trait_llvm_type = type_of::type_of(cx, trait_type);
 
-    return composite_type_metadata(cx,
-                                   trait_llvm_type,
-                                   name,
-                                   [],
-                                   containing_scope,
-                                   file_metadata,
-                                   definition_span);
+    composite_type_metadata(cx,
+                            trait_llvm_type,
+                            name,
+                            [],
+                            containing_scope,
+                            file_metadata,
+                            definition_span)
 }
 
 fn type_metadata(cx: &CrateContext,
@@ -2128,14 +2186,14 @@ fn type_metadata(cx: &CrateContext,
         ty::ty_str(ref vstore) => {
             let i8_t = ty::mk_i8();
             match *vstore {
-                ty::vstore_fixed(len) => {
+                ty::VstoreFixed(len) => {
                     fixed_vec_metadata(cx, i8_t, len, usage_site_span)
                 },
-                ty::vstore_uniq  => {
+                ty::VstoreUniq  => {
                     let vec_metadata = vec_metadata(cx, i8_t, usage_site_span);
                     pointer_type_metadata(cx, t, vec_metadata)
                 }
-                ty::vstore_slice(_region) => {
+                ty::VstoreSlice(..) => {
                     vec_slice_metadata(cx, t, i8_t, usage_site_span)
                 }
             }
@@ -2146,27 +2204,27 @@ fn type_metadata(cx: &CrateContext,
         ty::ty_box(typ) => {
             create_pointer_to_box_metadata(cx, t, typ)
         },
-        ty::ty_vec(ref mt, ref vstore) => {
-            match *vstore {
-                ty::vstore_fixed(len) => {
-                    fixed_vec_metadata(cx, mt.ty, len, usage_site_span)
-                }
-                ty::vstore_uniq => {
+        ty::ty_vec(ref mt, Some(len)) => fixed_vec_metadata(cx, mt.ty, len, usage_site_span),
+        ty::ty_uniq(typ) => {
+            match ty::get(typ).sty {
+                ty::ty_vec(ref mt, None) => {
                     let vec_metadata = vec_metadata(cx, mt.ty, usage_site_span);
                     pointer_type_metadata(cx, t, vec_metadata)
                 }
-                ty::vstore_slice(_) => {
-                    vec_slice_metadata(cx, t, mt.ty, usage_site_span)
+                _ => {
+                    let pointee = type_metadata(cx, typ, usage_site_span);
+                    pointer_type_metadata(cx, t, pointee)
                 }
             }
-        },
-        ty::ty_uniq(typ) => {
-            let pointee = type_metadata(cx, typ, usage_site_span);
-            pointer_type_metadata(cx, t, pointee)
         }
         ty::ty_ptr(ref mt) | ty::ty_rptr(_, ref mt) => {
-            let pointee = type_metadata(cx, mt.ty, usage_site_span);
-            pointer_type_metadata(cx, t, pointee)
+            match ty::get(mt.ty).sty {
+                ty::ty_vec(ref mt, None) => vec_slice_metadata(cx, t, mt.ty, usage_site_span),
+                _ => {
+                    let pointee = type_metadata(cx, mt.ty, usage_site_span);
+                    pointer_type_metadata(cx, t, pointee)
+                }
+            }
         },
         ty::ty_bare_fn(ref barefnty) => {
             subroutine_type_metadata(cx, &barefnty.sig, usage_site_span)
@@ -2174,10 +2232,8 @@ fn type_metadata(cx: &CrateContext,
         ty::ty_closure(ref closurety) => {
             subroutine_type_metadata(cx, &closurety.sig, usage_site_span)
         },
-        ty::ty_trait(~ty::TyTrait { def_id, ref substs,
-                                store: trait_store, mutability,
-                                ref bounds }) => {
-            trait_metadata(cx, def_id, t, substs, trait_store, mutability, bounds)
+        ty::ty_trait(~ty::TyTrait { def_id, ref substs, store, ref bounds }) => {
+            trait_metadata(cx, def_id, t, substs, store, bounds)
         },
         ty::ty_struct(def_id, ref substs) if !ty::type_is_simd(&cx.tcx, t) => {
             prepare_struct_metadata(cx, t, def_id, substs, usage_site_span).finalize(cx)
@@ -2289,7 +2345,7 @@ fn DIB(cx: &CrateContext) -> DIBuilderRef {
 }
 
 fn fn_should_be_ignored(fcx: &FunctionContext) -> bool {
-    match fcx.debug_context {
+    match fcx.debug_context.repr {
         FunctionDebugContext(_) => false,
         _ => true
     }
@@ -2326,7 +2382,7 @@ fn populate_scope_map(cx: &CrateContext,
                       fn_entry_block: &ast::Block,
                       fn_metadata: DISubprogram,
                       scope_map: &mut HashMap<ast::NodeId, DIScope>) {
-    let def_map = cx.tcx.def_map;
+    let def_map = &cx.tcx.def_map;
 
     struct ScopeStackEntry {
         scope_metadata: DIScope,
@@ -2372,7 +2428,8 @@ fn populate_scope_map(cx: &CrateContext,
                 parent_scope,
                 file_metadata,
                 loc.line as c_uint,
-                loc.col.to_uint() as c_uint)
+                loc.col.to_uint() as c_uint,
+                0)
         };
 
         scope_stack.push(ScopeStackEntry { scope_metadata: scope_metadata, ident: None });
@@ -2438,7 +2495,7 @@ fn populate_scope_map(cx: &CrateContext,
                     scope_stack: &mut Vec<ScopeStackEntry> ,
                     scope_map: &mut HashMap<ast::NodeId, DIScope>) {
 
-        let def_map = cx.tcx.def_map;
+        let def_map = &cx.tcx.def_map;
 
         // Unfortunately, we cannot just use pat_util::pat_bindings() or ast_util::walk_pat() here
         // because we have to visit *all* nodes in order to put them into the scope map. The above
@@ -2447,7 +2504,7 @@ fn populate_scope_map(cx: &CrateContext,
             ast::PatIdent(_, ref path_ref, ref sub_pat_opt) => {
 
                 // Check if this is a binding. If so we need to put it on the scope stack and maybe
-                // introduce an articial scope
+                // introduce an artificial scope
                 if pat_util::pat_is_binding(def_map, pat) {
 
                     let ident = ast_util::path_to_ident(path_ref);
@@ -2489,7 +2546,8 @@ fn populate_scope_map(cx: &CrateContext,
                                 parent_scope,
                                 file_metadata,
                                 loc.line as c_uint,
-                                loc.col.to_uint() as c_uint)
+                                loc.col.to_uint() as c_uint,
+                                0)
                         };
 
                         scope_stack.push(ScopeStackEntry {
@@ -2788,14 +2846,14 @@ fn populate_scope_map(cx: &CrateContext,
 struct NamespaceTreeNode {
     name: ast::Name,
     scope: DIScope,
-    parent: Option<@NamespaceTreeNode>,
+    parent: Option<Weak<NamespaceTreeNode>>,
 }
 
 impl NamespaceTreeNode {
     fn mangled_name_of_contained_item(&self, item_name: &str) -> ~str {
-        fn fill_nested(node: &NamespaceTreeNode, output: &mut ~str) {
+        fn fill_nested(node: &NamespaceTreeNode, output: &mut StrBuf) {
             match node.parent {
-                Some(parent) => fill_nested(parent, output),
+                Some(ref parent) => fill_nested(&*parent.upgrade().unwrap(), output),
                 None => {}
             }
             let string = token::get_name(node.name);
@@ -2803,16 +2861,16 @@ impl NamespaceTreeNode {
             output.push_str(string.get());
         }
 
-        let mut name = ~"_ZN";
+        let mut name = StrBuf::from_str("_ZN");
         fill_nested(self, &mut name);
         name.push_str(format!("{}", item_name.len()));
         name.push_str(item_name);
         name.push_char('E');
-        name
+        name.into_owned()
     }
 }
 
-fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> @NamespaceTreeNode {
+fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTreeNode> {
     ty::with_path(cx.tcx(), def_id, |path| {
         // prepend crate name if not already present
         let krate = if def_id.krate == ast::LOCAL_CRATE {
@@ -2824,7 +2882,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> @NamespaceTreeNo
         let mut path = krate.move_iter().chain(path).peekable();
 
         let mut current_key = Vec::new();
-        let mut parent_node: Option<@NamespaceTreeNode> = None;
+        let mut parent_node: Option<Rc<NamespaceTreeNode>> = None;
 
         // Create/Lookup namespace for each element of the path.
         loop {
@@ -2848,7 +2906,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> @NamespaceTreeNo
                 None => {
                     // create and insert
                     let parent_scope = match parent_node {
-                        Some(node) => node.scope,
+                        Some(ref node) => node.scope,
                         None => ptr::null()
                     };
                     let namespace_name = token::get_name(name);
@@ -2865,14 +2923,14 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> @NamespaceTreeNo
                         }
                     });
 
-                    let node = @NamespaceTreeNode {
+                    let node = Rc::new(NamespaceTreeNode {
                         name: name,
                         scope: scope,
-                        parent: parent_node,
-                    };
+                        parent: parent_node.map(|parent| parent.downgrade()),
+                    });
 
                     debug_context(cx).namespace_map.borrow_mut()
-                                     .insert(current_key.clone(), node);
+                                     .insert(current_key.clone(), node.clone());
 
                     node
                 }

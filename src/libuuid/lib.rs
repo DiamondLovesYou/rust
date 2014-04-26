@@ -220,9 +220,9 @@ impl Uuid {
                 data4: [0, ..8]
         };
 
-        fields.data1 = to_be32(d1 as i32) as u32;
-        fields.data2 = to_be16(d2 as i16) as u16;
-        fields.data3 = to_be16(d3 as i16) as u16;
+        fields.data1 = to_be32(d1);
+        fields.data2 = to_be16(d2);
+        fields.data3 = to_be16(d3);
         slice::bytes::copy_memory(fields.data4, d4);
 
         unsafe {
@@ -343,9 +343,9 @@ impl Uuid {
         unsafe {
             uf = transmute_copy(&self.bytes);
         }
-        uf.data1 = to_be32(uf.data1 as i32) as u32;
-        uf.data2 = to_be16(uf.data2 as i16) as u16;
-        uf.data3 = to_be16(uf.data3 as i16) as u16;
+        uf.data1 = to_be32(uf.data1);
+        uf.data2 = to_be16(uf.data2);
+        uf.data3 = to_be16(uf.data3);
         let s = format!("{:08x}-{:04x}-{:04x}-{:02x}{:02x}-\
                          {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
             uf.data1,
@@ -727,7 +727,7 @@ mod test {
 
         let u = Uuid::from_fields(d1, d2, d3, d4.as_slice());
 
-        let expected = ~"a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8";
+        let expected = "a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8".to_owned();
         let result = u.to_simple_str();
         assert!(result == expected);
     }
@@ -738,7 +738,7 @@ mod test {
                    0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8 );
 
         let u = Uuid::from_bytes(b.as_slice()).unwrap();
-        let expected = ~"a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8";
+        let expected = "a1a2a3a4b1b2c1c2d1d2d3d4d5d6d7d8".to_owned();
 
         assert!(u.to_simple_str() == expected);
     }
@@ -818,28 +818,28 @@ mod test {
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use super::Uuid;
 
     #[bench]
-    pub fn create_uuids(bh: &mut BenchHarness) {
-        bh.iter(|| {
+    pub fn create_uuids(b: &mut Bencher) {
+        b.iter(|| {
             Uuid::new_v4();
         })
     }
 
     #[bench]
-    pub fn uuid_to_str(bh: &mut BenchHarness) {
+    pub fn uuid_to_str(b: &mut Bencher) {
         let u = Uuid::new_v4();
-        bh.iter(|| {
+        b.iter(|| {
             u.to_str();
         })
     }
 
     #[bench]
-    pub fn parse_str(bh: &mut BenchHarness) {
+    pub fn parse_str(b: &mut Bencher) {
         let s = "urn:uuid:F9168C5E-CEB2-4faa-B6BF-329BF39FA1E4";
-        bh.iter(|| {
+        b.iter(|| {
             Uuid::parse_string(s).unwrap();
         })
     }

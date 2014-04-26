@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -28,8 +28,7 @@ pub unsafe fn transmute_copy<T, U>(src: &T) -> U {
  * Move a thing into the void
  *
  * The forget function will take ownership of the provided value but neglect
- * to run any required cleanup or memory-management operations on it. This
- * can be used for various acts of magick.
+ * to run any required cleanup or memory-management operations on it.
  */
 #[inline]
 pub unsafe fn forget<T>(thing: T) { intrinsics::forget(thing); }
@@ -63,9 +62,9 @@ pub unsafe fn transmute<L, G>(thing: L) -> G {
 #[inline]
 pub unsafe fn transmute_mut<'a,T>(ptr: &'a T) -> &'a mut T { transmute(ptr) }
 
-/// Coerce a reference to have an arbitrary associated region.
+/// Coerce a reference to have an arbitrary associated lifetime.
 #[inline]
-pub unsafe fn transmute_region<'a,'b,T>(ptr: &'a T) -> &'b T {
+pub unsafe fn transmute_lifetime<'a,'b,T>(ptr: &'a T) -> &'b T {
     transmute(ptr)
 }
 
@@ -75,28 +74,28 @@ pub unsafe fn transmute_mut_unsafe<T>(ptr: *T) -> *mut T {
     transmute(ptr)
 }
 
-/// Coerce a mutable reference to have an arbitrary associated region.
+/// Coerce a mutable reference to have an arbitrary associated lifetime.
 #[inline]
-pub unsafe fn transmute_mut_region<'a,'b,T>(ptr: &'a mut T) -> &'b mut T {
+pub unsafe fn transmute_mut_lifetime<'a,'b,T>(ptr: &'a mut T) -> &'b mut T {
     transmute(ptr)
 }
 
 /// Transforms lifetime of the second pointer to match the first.
 #[inline]
 pub unsafe fn copy_lifetime<'a,S,T>(_ptr: &'a S, ptr: &T) -> &'a T {
-    transmute_region(ptr)
+    transmute_lifetime(ptr)
 }
 
 /// Transforms lifetime of the second pointer to match the first.
 #[inline]
 pub unsafe fn copy_mut_lifetime<'a,S,T>(_ptr: &'a mut S, ptr: &mut T) -> &'a mut T {
-    transmute_mut_region(ptr)
+    transmute_mut_lifetime(ptr)
 }
 
 /// Transforms lifetime of the second pointer to match the first.
 #[inline]
 pub unsafe fn copy_lifetime_vec<'a,S,T>(_ptr: &'a [S], ptr: &T) -> &'a T {
-    transmute_region(ptr)
+    transmute_lifetime(ptr)
 }
 
 
@@ -108,6 +107,7 @@ pub unsafe fn copy_lifetime_vec<'a,S,T>(_ptr: &'a [S], ptr: &T) -> &'a T {
 mod tests {
     use cast::{bump_box_refcount, transmute};
     use raw;
+    use str::StrSlice;
 
     #[test]
     fn test_transmute_copy() {
@@ -117,13 +117,13 @@ mod tests {
     #[test]
     fn test_bump_managed_refcount() {
         unsafe {
-            let managed = @~"box box box";      // refcount 1
+            let managed = @"box box box".to_owned();      // refcount 1
             bump_box_refcount(managed);     // refcount 2
             let ptr: *int = transmute(managed); // refcount 2
             let _box1: @~str = ::cast::transmute_copy(&ptr);
             let _box2: @~str = ::cast::transmute_copy(&ptr);
-            assert!(*_box1 == ~"box box box");
-            assert!(*_box2 == ~"box box box");
+            assert!(*_box1 == "box box box".to_owned());
+            assert!(*_box2 == "box box box".to_owned());
             // Will destroy _box1 and _box2. Without the bump, this would
             // use-after-free. With too many bumps, it would leak.
         }
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn test_transmute2() {
         unsafe {
-            assert_eq!(~[76u8], transmute(~"L"));
+            assert_eq!(~[76u8], transmute("L".to_owned()));
         }
     }
 }

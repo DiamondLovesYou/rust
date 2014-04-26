@@ -71,6 +71,8 @@ pub use self::util::default_sched_threads;
 // Export unwinding facilities used by the failure macros
 pub use self::unwind::{begin_unwind, begin_unwind_raw, begin_unwind_fmt};
 
+pub use self::util::{Stdio, Stdout, Stderr};
+
 // FIXME: these probably shouldn't be public...
 #[doc(hidden)]
 pub mod shouldnt_be_public {
@@ -157,7 +159,7 @@ pub trait Runtime {
 
     // Miscellaneous calls which are very different depending on what context
     // you're in.
-    fn spawn_sibling(~self, cur_task: ~Task, opts: TaskOpts, f: proc:Send());
+    fn spawn_sibling(~self, cur_task: ~Task, opts: TaskOpts, f: proc():Send);
     fn local_io<'a>(&'a mut self) -> Option<rtio::LocalIo<'a>>;
     /// The (low, high) edges of the current stack.
     fn stack_bounds(&self) -> (uint, uint); // (lo, hi)
@@ -196,7 +198,7 @@ pub fn init(argc: int, argv: **u8) {
 ///
 /// It is forbidden for procedures to register more `at_exit` handlers when they
 /// are running, and doing so will lead to a process abort.
-pub fn at_exit(f: proc:Send()) {
+pub fn at_exit(f: proc():Send) {
     at_exit_imp::push(f);
 }
 

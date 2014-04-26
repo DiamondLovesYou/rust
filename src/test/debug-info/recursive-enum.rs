@@ -16,7 +16,7 @@
 // Test whether compiling a recursive enum definition crashes debug info generation. The test case
 // is taken from issue #11083.
 
-#[allow(unused_variable)];
+#![allow(unused_variable)]
 
 pub struct Window<'a> {
     callbacks: WindowCallbacks<'a>
@@ -26,7 +26,7 @@ struct WindowCallbacks<'a> {
     pos_callback: Option<WindowPosCallback<'a>>,
 }
 
-pub type WindowPosCallback<'a> = 'a |&Window, i32, i32|;
+pub type WindowPosCallback<'a> = |&Window, i32, i32|: 'a;
 
 fn main() {
     let x = WindowCallbacks { pos_callback: None };

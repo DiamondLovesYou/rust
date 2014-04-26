@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 // Tests for match as expressions resulting in boxed types
 fn test_box() {
@@ -17,9 +17,9 @@ fn test_box() {
 }
 
 fn test_str() {
-    let res = match true { true => { ~"happy" },
+    let res = match true { true => { "happy".to_owned() },
                          _ => fail!("not happy at all") };
-    assert_eq!(res, ~"happy");
+    assert_eq!(res, "happy".to_owned());
 }
 
 pub fn main() { test_box(); test_str(); }

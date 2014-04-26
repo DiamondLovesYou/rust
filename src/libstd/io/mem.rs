@@ -17,7 +17,7 @@ use result::{Err, Ok};
 use io;
 use io::{Reader, Writer, Seek, Buffer, IoError, SeekStyle, IoResult};
 use slice;
-use slice::{Vector, ImmutableVector, MutableVector, OwnedCloneableVector};
+use slice::{Vector, ImmutableVector, MutableVector};
 use vec::Vec;
 
 fn combine(seek: SeekStyle, cur: uint, end: uint, offset: i64) -> IoResult<u64> {
@@ -44,7 +44,7 @@ fn combine(seek: SeekStyle, cur: uint, end: uint, offset: i64) -> IoResult<u64> 
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::MemWriter;
 ///
 /// let mut w = MemWriter::new();
@@ -125,7 +125,7 @@ impl Seek for MemWriter {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::MemReader;
 ///
 /// let mut r = MemReader::new(vec!(0, 1, 2));
@@ -209,7 +209,7 @@ impl Buffer for MemReader {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::BufWriter;
 ///
 /// let mut buf = [0, ..4];
@@ -237,7 +237,7 @@ impl<'a> BufWriter<'a> {
 
 impl<'a> Writer for BufWriter<'a> {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
-        // raises a condition if the entire write does not fit in the buffer
+        // return an error if the entire write does not fit in the buffer
         let max_size = self.buf.len();
         if self.pos >= max_size || (self.pos + buf.len()) > max_size {
             return Err(IoError {
@@ -267,7 +267,7 @@ impl<'a> Seek for BufWriter<'a> {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::BufReader;
 ///
 /// let mut buf = [0, 1, 2, 3];
@@ -339,6 +339,7 @@ mod test {
     use super::*;
     use io::*;
     use io;
+    use str::StrSlice;
 
     #[test]
     fn test_mem_writer() {
@@ -496,7 +497,7 @@ mod test {
         writer.write_line("testing").unwrap();
         writer.write_str("testing").unwrap();
         let mut r = BufReader::new(writer.get_ref());
-        assert_eq!(r.read_to_str().unwrap(), ~"testingtesting\ntesting");
+        assert_eq!(r.read_to_str().unwrap(), "testingtesting\ntesting".to_owned());
     }
 
     #[test]
@@ -506,7 +507,7 @@ mod test {
         writer.write_char('\n').unwrap();
         writer.write_char('ệ').unwrap();
         let mut r = BufReader::new(writer.get_ref());
-        assert_eq!(r.read_to_str().unwrap(), ~"a\nệ");
+        assert_eq!(r.read_to_str().unwrap(), "a\nệ".to_owned());
     }
 
     #[test]

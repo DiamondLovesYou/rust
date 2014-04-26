@@ -29,7 +29,7 @@ use owned_slice::OwnedSlice;
 
 pub enum FnKind<'a> {
     // fn foo() or extern "Abi" fn foo()
-    FkItemFn(Ident, &'a Generics, Purity, Abi),
+    FkItemFn(Ident, &'a Generics, FnStyle, Abi),
 
     // fn foo(&self)
     FkMethod(Ident, &'a Generics, &'a Method),
@@ -207,8 +207,8 @@ pub fn walk_item<E: Clone, V: Visitor<E>>(visitor: &mut V, item: &Item, env: E) 
             visitor.visit_ty(typ, env.clone());
             visitor.visit_expr(expr, env);
         }
-        ItemFn(declaration, purity, abi, ref generics, body) => {
-            visitor.visit_fn(&FkItemFn(item.ident, generics, purity, abi),
+        ItemFn(declaration, fn_style, abi, ref generics, body) => {
+            visitor.visit_fn(&FkItemFn(item.ident, generics, fn_style, abi),
                              declaration,
                              body,
                              item.span,
@@ -257,7 +257,7 @@ pub fn walk_item<E: Clone, V: Visitor<E>>(visitor: &mut V, item: &Item, env: E) 
                                      item.id,
                                      env)
         }
-        ItemTrait(ref generics, ref trait_paths, ref methods) => {
+        ItemTrait(ref generics, _, ref trait_paths, ref methods) => {
             visitor.visit_generics(generics, env.clone());
             for trait_path in trait_paths.iter() {
                 visitor.visit_path(&trait_path.path,
@@ -328,7 +328,7 @@ pub fn walk_ty<E: Clone, V: Visitor<E>>(visitor: &mut V, typ: &Ty, env: E) {
                 visitor.visit_ty(tuple_element_type, env.clone())
             }
         }
-        TyClosure(ref function_declaration) => {
+        TyClosure(ref function_declaration, ref region) => {
             for argument in function_declaration.decl.inputs.iter() {
                 visitor.visit_ty(argument.ty, env.clone())
             }
@@ -338,8 +338,19 @@ pub fn walk_ty<E: Clone, V: Visitor<E>>(visitor: &mut V, typ: &Ty, env: E) {
             }
             visitor.visit_opt_lifetime_ref(
                 typ.span,
-                &function_declaration.region,
+                region,
                 env.clone());
+            walk_lifetime_decls(visitor, &function_declaration.lifetimes,
+                                env.clone());
+        }
+        TyProc(ref function_declaration) => {
+            for argument in function_declaration.decl.inputs.iter() {
+                visitor.visit_ty(argument.ty, env.clone())
+            }
+            visitor.visit_ty(function_declaration.decl.output, env.clone());
+            for bounds in function_declaration.bounds.iter() {
+                walk_ty_param_bounds(visitor, bounds, env.clone())
+            }
             walk_lifetime_decls(visitor, &function_declaration.lifetimes,
                                 env.clone());
         }
@@ -564,6 +575,10 @@ pub fn walk_struct_def<E: Clone, V: Visitor<E>>(visitor: &mut V,
                                                 _: &Generics,
                                                 _: NodeId,
                                                 env: E) {
+    match struct_definition.super_struct {
+        Some(t) => visitor.visit_ty(t, env.clone()),
+        None => {},
+    }
     for field in struct_definition.fields.iter() {
         visitor.visit_struct_field(field, env.clone())
     }

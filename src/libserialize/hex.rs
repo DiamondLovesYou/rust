@@ -10,7 +10,6 @@
 
 //! Hex binary-to-text encoding
 use std::str;
-use std::slice;
 use std::fmt;
 
 /// A trait for converting a value to hexadecimal encoding
@@ -39,14 +38,14 @@ impl<'a> ToHex for &'a [u8] {
      * ```
      */
     fn to_hex(&self) -> ~str {
-        let mut v = slice::with_capacity(self.len() * 2);
+        let mut v = Vec::with_capacity(self.len() * 2);
         for &byte in self.iter() {
             v.push(CHARS[(byte >> 4) as uint]);
             v.push(CHARS[(byte & 0xf) as uint]);
         }
 
         unsafe {
-            str::raw::from_utf8_owned(v)
+            str::raw::from_utf8_owned(v.move_iter().collect())
         }
     }
 }
@@ -106,7 +105,7 @@ impl<'a> FromHex for &'a str {
      */
     fn from_hex(&self) -> Result<~[u8], FromHexError> {
         // This may be an overestimate if there is any whitespace
-        let mut b = slice::with_capacity(self.len() / 2);
+        let mut b = Vec::with_capacity(self.len() / 2);
         let mut modulus = 0;
         let mut buf = 0u8;
 
@@ -132,7 +131,7 @@ impl<'a> FromHex for &'a str {
         }
 
         match modulus {
-            0 => Ok(b),
+            0 => Ok(b.move_iter().collect()),
             _ => Err(InvalidHexLength),
         }
     }
@@ -141,12 +140,12 @@ impl<'a> FromHex for &'a str {
 #[cfg(test)]
 mod tests {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use hex::{FromHex, ToHex};
 
     #[test]
     pub fn test_to_hex() {
-        assert_eq!("foobar".as_bytes().to_hex(), ~"666f6f626172");
+        assert_eq!("foobar".as_bytes().to_hex(), "666f6f626172".to_owned());
     }
 
     #[test]
@@ -190,23 +189,23 @@ mod tests {
     }
 
     #[bench]
-    pub fn bench_to_hex(bh: & mut BenchHarness) {
+    pub fn bench_to_hex(b: &mut Bencher) {
         let s = "イロハニホヘト チリヌルヲ ワカヨタレソ ツネナラム \
                  ウヰノオクヤマ ケフコエテ アサキユメミシ ヱヒモセスン";
-        bh.iter(|| {
+        b.iter(|| {
             s.as_bytes().to_hex();
         });
-        bh.bytes = s.len() as u64;
+        b.bytes = s.len() as u64;
     }
 
     #[bench]
-    pub fn bench_from_hex(bh: & mut BenchHarness) {
+    pub fn bench_from_hex(b: &mut Bencher) {
         let s = "イロハニホヘト チリヌルヲ ワカヨタレソ ツネナラム \
                  ウヰノオクヤマ ケフコエテ アサキユメミシ ヱヒモセスン";
-        let b = s.as_bytes().to_hex();
-        bh.iter(|| {
-            b.from_hex().unwrap();
+        let sb = s.as_bytes().to_hex();
+        b.iter(|| {
+            sb.from_hex().unwrap();
         });
-        bh.bytes = b.len() as u64;
+        b.bytes = sb.len() as u64;
     }
 }

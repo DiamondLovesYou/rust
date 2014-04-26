@@ -46,14 +46,14 @@ fn main() {
 
         {
             let _ = write!(&mut File::create(&main_file).unwrap(),
-                           r"\#[feature(non_ascii_idents)]; fn main() \{ {} \}",
+                           r"\#![feature(non_ascii_idents)] fn main() \{ {} \}",
                            // random string of length n
                            range(0, n).map(|_| random_char()).collect::<~str>());
         }
 
         // rustc is passed to us with --out-dir and -L etc., so we
         // can't exec it directly
-        let result = Process::output("sh", [~"-c", rustc + " " + main_file_str]).unwrap();
+        let result = Process::output("sh", ["-c".to_owned(), rustc + " " + main_file_str]).unwrap();
 
         let err = str::from_utf8_lossy(result.error.as_slice());
 

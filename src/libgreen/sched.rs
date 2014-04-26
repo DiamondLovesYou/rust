@@ -49,7 +49,7 @@ pub struct Scheduler {
     work_queue: deque::Worker<~GreenTask>,
     /// Work queues for the other schedulers. These are created by
     /// cloning the core work queues.
-    work_queues: ~[deque::Stealer<~GreenTask>],
+    work_queues: Vec<deque::Stealer<~GreenTask>>,
     /// The queue of incoming messages from other schedulers.
     /// These are enqueued by SchedHandles after which a remote callback
     /// is triggered to handle the message.
@@ -125,7 +125,7 @@ impl Scheduler {
     pub fn new(pool_id: uint,
                event_loop: ~EventLoop:Send,
                work_queue: deque::Worker<~GreenTask>,
-               work_queues: ~[deque::Stealer<~GreenTask>],
+               work_queues: Vec<deque::Stealer<~GreenTask>>,
                sleeper_list: SleeperList,
                state: TaskState)
         -> Scheduler {
@@ -138,7 +138,7 @@ impl Scheduler {
     pub fn new_special(pool_id: uint,
                        event_loop: ~EventLoop:Send,
                        work_queue: deque::Worker<~GreenTask>,
-                       work_queues: ~[deque::Stealer<~GreenTask>],
+                       work_queues: Vec<deque::Stealer<~GreenTask>>,
                        sleeper_list: SleeperList,
                        run_anything: bool,
                        friend: Option<SchedHandle>,
@@ -502,7 +502,7 @@ impl Scheduler {
         let len = work_queues.len();
         let start_index = self.rng.gen_range(0, len);
         for index in range(0, len).map(|i| (i + start_index) % len) {
-            match work_queues[index].steal() {
+            match work_queues.get_mut(index).steal() {
                 deque::Data(task) => {
                     rtdebug!("found task by stealing");
                     return Some(task)
@@ -630,7 +630,7 @@ impl Scheduler {
         unsafe {
 
             let sched: &mut Scheduler =
-                cast::transmute_mut_region(*next_task.sched.get_mut_ref());
+                cast::transmute_mut_lifetime(*next_task.sched.get_mut_ref());
 
             let current_task: &mut GreenTask = match sched.cleanup_job {
                 Some(CleanupJob { task: ref mut task, .. }) => &mut **task,
@@ -681,8 +681,8 @@ impl Scheduler {
         let next_task_context =
                 &mut next_task.coroutine.get_mut_ref().saved_context;
         unsafe {
-            (cast::transmute_mut_region(current_task_context),
-             cast::transmute_mut_region(next_task_context))
+            (cast::transmute_mut_lifetime(current_task_context),
+             cast::transmute_mut_lifetime(next_task_context))
         }
     }
 
@@ -1011,7 +1011,6 @@ fn new_sched_rng() -> XorShiftRng {
 mod test {
     use rustuv;
 
-    use std::comm;
     use std::task::TaskOpts;
     use std::rt::task::Task;
     use std::rt::local::Local;
@@ -1028,7 +1027,7 @@ mod test {
         })
     }
 
-    fn run(f: proc()) {
+    fn run(f: proc():Send) {
         let mut pool = pool();
         pool.spawn(TaskOpts::new(), f);
         pool.shutdown();
@@ -1036,10 +1035,10 @@ mod test {
 
     fn sched_id() -> uint {
         let mut task = Local::borrow(None::<Task>);
-        match task.get().maybe_take_runtime::<GreenTask>() {
+        match task.maybe_take_runtime::<GreenTask>() {
             Some(green) => {
                 let ret = green.sched.get_ref().sched_id();
-                task.get().put_runtime(green);
+                task.put_runtime(green);
                 return ret;
             }
             None => fail!()
@@ -1137,7 +1136,7 @@ mod test {
             let mut pool = BufferPool::new();
             let (normal_worker, normal_stealer) = pool.deque();
             let (special_worker, special_stealer) = pool.deque();
-            let queues = ~[normal_stealer, special_stealer];
+            let queues = vec![normal_stealer, special_stealer];
             let (_p, state) = TaskState::new();
 
             // Our normal scheduler
@@ -1326,7 +1325,7 @@ mod test {
     #[test]
     fn multithreading() {
         run(proc() {
-            let mut rxs = ~[];
+            let mut rxs = vec![];
             for _ in range(0, 10) {
                 let (tx, rx) = channel();
                 spawn(proc() {
@@ -1428,7 +1427,7 @@ mod test {
             // This task should not be able to starve the sender;
             // The sender should get stolen to another thread.
             spawn(proc() {
-                while rx.try_recv() != comm::Data(()) { }
+                while rx.try_recv().is_err() { }
             });
 
             tx.send(());
@@ -1445,7 +1444,7 @@ mod test {
             // This task should not be able to starve the other task.
             // The sends should eventually yield.
             spawn(proc() {
-                while rx1.try_recv() != comm::Data(()) {
+                while rx1.try_recv().is_err() {
                     tx2.send(());
                 }
             });
@@ -1499,7 +1498,7 @@ mod test {
                     let mut val = 20;
                     while val > 0 {
                         val = po.recv();
-                        ch.try_send(val - 1);
+                        let _ = ch.send_opt(val - 1);
                     }
                 }
 

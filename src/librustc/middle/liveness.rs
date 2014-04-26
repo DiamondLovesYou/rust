@@ -106,7 +106,6 @@
 use middle::lint::{UnusedVariable, DeadAssignment};
 use middle::pat_util;
 use middle::ty;
-use middle::typeck;
 use middle::moves;
 use util::nodemap::NodeMap;
 
@@ -117,7 +116,7 @@ use std::rc::Rc;
 use std::str;
 use std::uint;
 use syntax::ast::*;
-use syntax::codemap::Span;
+use syntax::codemap::{BytePos, original_sp, Span};
 use syntax::parse::token::special_idents;
 use syntax::parse::token;
 use syntax::print::pprust::{expr_to_str, block_to_str};
@@ -157,7 +156,7 @@ fn live_node_kind_to_str(lnk: LiveNodeKind, cx: &ty::ctxt) -> ~str {
         FreeVarNode(s) => format!("Free var node [{}]", cm.span_to_str(s)),
         ExprNode(s)    => format!("Expr node [{}]", cm.span_to_str(s)),
         VarDefNode(s)  => format!("Var def node [{}]", cm.span_to_str(s)),
-        ExitNode       => ~"Exit node"
+        ExitNode       => "Exit node".to_owned()
     }
 }
 
@@ -171,10 +170,9 @@ impl<'a> Visitor<()> for IrMaps<'a> {
 }
 
 pub fn check_crate(tcx: &ty::ctxt,
-                   method_map: typeck::MethodMap,
                    capture_map: &moves::CaptureMap,
                    krate: &Crate) {
-    visit::walk_crate(&mut IrMaps(tcx, method_map, capture_map), krate, ());
+    visit::walk_crate(&mut IrMaps(tcx, capture_map), krate, ());
     tcx.sess.abort_if_errors();
 }
 
@@ -247,7 +245,6 @@ enum VarKind {
 
 struct IrMaps<'a> {
     tcx: &'a ty::ctxt,
-    method_map: typeck::MethodMap,
     capture_map: &'a moves::CaptureMap,
 
     num_live_nodes: uint,
@@ -260,12 +257,10 @@ struct IrMaps<'a> {
 }
 
 fn IrMaps<'a>(tcx: &'a ty::ctxt,
-              method_map: typeck::MethodMap,
               capture_map: &'a moves::CaptureMap)
               -> IrMaps<'a> {
     IrMaps {
         tcx: tcx,
-        method_map: method_map,
         capture_map: capture_map,
         num_live_nodes: 0,
         num_vars: 0,
@@ -328,7 +323,7 @@ impl<'a> IrMaps<'a> {
             &Local(LocalInfo { ident: nm, .. }) | &Arg(_, nm) => {
                 token::get_ident(nm).get().to_str()
             },
-            &ImplicitRet => ~"<implicit-ret>"
+            &ImplicitRet => "<implicit-ret>".to_owned()
         }
     }
 
@@ -366,14 +361,14 @@ fn visit_fn(ir: &mut IrMaps,
     let _i = ::util::common::indenter();
 
     // swap in a new set of IR maps for this function body:
-    let mut fn_maps = IrMaps(ir.tcx, ir.method_map, ir.capture_map);
+    let mut fn_maps = IrMaps(ir.tcx, ir.capture_map);
 
     unsafe {
         debug!("creating fn_maps: {}", transmute::<&IrMaps, *IrMaps>(&fn_maps));
     }
 
     for arg in decl.inputs.iter() {
-        pat_util::pat_bindings(ir.tcx.def_map,
+        pat_util::pat_bindings(&ir.tcx.def_map,
                                arg.pat,
                                |_bm, arg_id, _x, path| {
             debug!("adding argument {}", arg_id);
@@ -407,7 +402,7 @@ fn visit_fn(ir: &mut IrMaps,
 }
 
 fn visit_local(ir: &mut IrMaps, local: &Local) {
-    pat_util::pat_bindings(ir.tcx.def_map, local.pat, |bm, p_id, sp, path| {
+    pat_util::pat_bindings(&ir.tcx.def_map, local.pat, |bm, p_id, sp, path| {
         debug!("adding local variable {}", p_id);
         let name = ast_util::path_to_ident(path);
         ir.add_live_node_for_node(p_id, VarDefNode(sp));
@@ -431,7 +426,7 @@ fn visit_local(ir: &mut IrMaps, local: &Local) {
 
 fn visit_arm(ir: &mut IrMaps, arm: &Arm) {
     for pat in arm.pats.iter() {
-        pat_util::pat_bindings(ir.tcx.def_map, *pat, |bm, p_id, sp, path| {
+        pat_util::pat_bindings(&ir.tcx.def_map, *pat, |bm, p_id, sp, path| {
             debug!("adding local variable {} from match with bm {:?}",
                    p_id, bm);
             let name = ast_util::path_to_ident(path);
@@ -480,7 +475,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
                     // var must be dead afterwards
                     moves::CapMove => true,
 
-                    // var can stil be used
+                    // var can still be used
                     moves::CapCopy | moves::CapRef => false
                 };
                 call_caps.push(CaptureInfo {ln: cv_ln,
@@ -602,7 +597,7 @@ impl<'a> Liveness<'a> {
     fn pat_bindings(&mut self,
                     pat: &Pat,
                     f: |&mut Liveness<'a>, LiveNode, Variable, Span, NodeId|) {
-        pat_util::pat_bindings(self.ir.tcx.def_map, pat, |_bm, p_id, sp, _n| {
+        pat_util::pat_bindings(&self.ir.tcx.def_map, pat, |_bm, p_id, sp, _n| {
             let ln = self.live_node(p_id, sp);
             let var = self.variable(p_id, sp);
             f(self, ln, var, sp, p_id);
@@ -614,7 +609,7 @@ impl<'a> Liveness<'a> {
                          f: |&mut Liveness<'a>, LiveNode, Variable, Span, NodeId|) {
         // only consider the first pattern; any later patterns must have
         // the same bindings, and we also consider the first pattern to be
-        // the "authoratative" set of ids
+        // the "authoritative" set of ids
         if !pats.is_empty() {
             self.pat_bindings(pats[0], f)
         }
@@ -1480,10 +1475,11 @@ impl<'a> Liveness<'a> {
                 };
                 if ends_with_stmt {
                     let last_stmt = body.stmts.last().unwrap();
+                    let original_span = original_sp(last_stmt.span, sp);
                     let span_semicolon = Span {
-                        lo: last_stmt.span.hi,
-                        hi: last_stmt.span.hi,
-                        expn_info: last_stmt.span.expn_info
+                        lo: original_span.hi - BytePos(1),
+                        hi: original_span.hi,
+                        expn_info: original_span.expn_info
                     };
                     self.ir.tcx.sess.span_note(
                         span_semicolon, "consider removing this semicolon:");
@@ -1535,7 +1531,7 @@ impl<'a> Liveness<'a> {
 
     fn warn_about_unused_args(&self, decl: &FnDecl, entry_ln: LiveNode) {
         for arg in decl.inputs.iter() {
-            pat_util::pat_bindings(self.ir.tcx.def_map,
+            pat_util::pat_bindings(&self.ir.tcx.def_map,
                                    arg.pat,
                                    |_bm, p_id, sp, path| {
                 let var = self.variable(p_id, sp);

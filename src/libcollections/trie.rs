@@ -141,7 +141,7 @@ impl<T> TrieMap<T> {
 // (with many different `x`) below, so we need to optionally pass mut
 // as a tt, but the only thing we can do with a `tt` is pass them to
 // other macros, so this takes the `& <mutability> <operand>` token
-// sequence and forces their evalutation as an expression. (see also
+// sequence and forces their evaluation as an expression. (see also
 // `item!` below.)
 macro_rules! addr { ($e:expr) => { $e } }
 
@@ -774,7 +774,7 @@ mod test_map {
 
     #[test]
     fn test_from_iter() {
-        let xs = ~[(1u, 1i), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
+        let xs = vec![(1u, 1i), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)];
 
         let map: TrieMap<int> = xs.iter().map(|&x| x).collect();
 
@@ -913,39 +913,39 @@ mod bench_map {
     extern crate test;
     use super::TrieMap;
     use rand::{weak_rng, Rng};
-    use self::test::BenchHarness;
+    use self::test::Bencher;
 
     #[bench]
-    fn bench_iter_small(bh: &mut BenchHarness) {
+    fn bench_iter_small(b: &mut Bencher) {
         let mut m = TrieMap::<uint>::new();
         let mut rng = weak_rng();
         for _ in range(0, 20) {
             m.insert(rng.gen(), rng.gen());
         }
 
-        bh.iter(|| for _ in m.iter() {})
+        b.iter(|| for _ in m.iter() {})
     }
 
     #[bench]
-    fn bench_iter_large(bh: &mut BenchHarness) {
+    fn bench_iter_large(b: &mut Bencher) {
         let mut m = TrieMap::<uint>::new();
         let mut rng = weak_rng();
         for _ in range(0, 1000) {
             m.insert(rng.gen(), rng.gen());
         }
 
-        bh.iter(|| for _ in m.iter() {})
+        b.iter(|| for _ in m.iter() {})
     }
 
     #[bench]
-    fn bench_lower_bound(bh: &mut BenchHarness) {
+    fn bench_lower_bound(b: &mut Bencher) {
         let mut m = TrieMap::<uint>::new();
         let mut rng = weak_rng();
         for _ in range(0, 1000) {
             m.insert(rng.gen(), rng.gen());
         }
 
-        bh.iter(|| {
+        b.iter(|| {
                 for _ in range(0, 10) {
                     m.lower_bound(rng.gen());
                 }
@@ -953,14 +953,14 @@ mod bench_map {
     }
 
     #[bench]
-    fn bench_upper_bound(bh: &mut BenchHarness) {
+    fn bench_upper_bound(b: &mut Bencher) {
         let mut m = TrieMap::<uint>::new();
         let mut rng = weak_rng();
         for _ in range(0, 1000) {
             m.insert(rng.gen(), rng.gen());
         }
 
-        bh.iter(|| {
+        b.iter(|| {
                 for _ in range(0, 10) {
                     m.upper_bound(rng.gen());
                 }
@@ -968,22 +968,22 @@ mod bench_map {
     }
 
     #[bench]
-    fn bench_insert_large(bh: &mut BenchHarness) {
+    fn bench_insert_large(b: &mut Bencher) {
         let mut m = TrieMap::<[uint, .. 10]>::new();
         let mut rng = weak_rng();
 
-        bh.iter(|| {
+        b.iter(|| {
                 for _ in range(0, 1000) {
                     m.insert(rng.gen(), [1, .. 10]);
                 }
             })
     }
     #[bench]
-    fn bench_insert_large_low_bits(bh: &mut BenchHarness) {
+    fn bench_insert_large_low_bits(b: &mut Bencher) {
         let mut m = TrieMap::<[uint, .. 10]>::new();
         let mut rng = weak_rng();
 
-        bh.iter(|| {
+        b.iter(|| {
                 for _ in range(0, 1000) {
                     // only have the last few bits set.
                     m.insert(rng.gen::<uint>() & 0xff_ff, [1, .. 10]);
@@ -992,22 +992,22 @@ mod bench_map {
     }
 
     #[bench]
-    fn bench_insert_small(bh: &mut BenchHarness) {
+    fn bench_insert_small(b: &mut Bencher) {
         let mut m = TrieMap::<()>::new();
         let mut rng = weak_rng();
 
-        bh.iter(|| {
+        b.iter(|| {
                 for _ in range(0, 1000) {
                     m.insert(rng.gen(), ());
                 }
             })
     }
     #[bench]
-    fn bench_insert_small_low_bits(bh: &mut BenchHarness) {
+    fn bench_insert_small_low_bits(b: &mut Bencher) {
         let mut m = TrieMap::<()>::new();
         let mut rng = weak_rng();
 
-        bh.iter(|| {
+        b.iter(|| {
                 for _ in range(0, 1000) {
                     // only have the last few bits set.
                     m.insert(rng.gen::<uint>() & 0xff_ff, ());
@@ -1042,7 +1042,7 @@ mod test_set {
 
     #[test]
     fn test_from_iter() {
-        let xs = ~[9u, 8, 7, 6, 5, 4, 3, 2, 1];
+        let xs = vec![9u, 8, 7, 6, 5, 4, 3, 2, 1];
 
         let set: TrieSet = xs.iter().map(|&x| x).collect();
 

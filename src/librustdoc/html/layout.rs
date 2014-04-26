@@ -32,14 +32,17 @@ pub fn render<T: fmt::Show, S: fmt::Show>(
 r##"<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8" />
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="The {krate} library documentation.">
+
     <title>{title}</title>
 
-    <link href='http://fonts.googleapis.com/css?family=Oswald:700|Inconsolata:400,700'
+    <link href='http://fonts.googleapis.com/css?family=Source+Code+Pro:400,600'
           rel='stylesheet' type='text/css'>
     <link rel="stylesheet" type="text/css" href="{root_path}main.css">
 
-    {favicon, select, none{} other{<link rel="shortcut icon" href="#" />}}
+    {favicon, select, none{} other{<link rel="shortcut icon" href="#">}}
 </head>
 <body>
     <!--[if lte IE 8]>
@@ -51,7 +54,7 @@ r##"<!DOCTYPE html>
 
     <section class="sidebar">
         {logo, select, none{} other{
-            <a href='{root_path}{krate}/index.html'><img src='#' alt=''/></a>
+            <a href='{root_path}{krate}/index.html'><img src='#' alt='' width='100'></a>
         }}
 
         {sidebar}
@@ -59,12 +62,11 @@ r##"<!DOCTYPE html>
 
     <nav class="sub">
         <form class="search-form js-only">
-            <button class="do-search">Search</button>
             <div class="search-container">
                 <input class="search-input" name="search"
                        autocomplete="off"
                        placeholder="Search documentation..."
-                       type="search" />
+                       type="search">
             </div>
         </form>
     </nav>
@@ -113,8 +115,7 @@ r##"<!DOCTYPE html>
     <script src="{root_path}main.js"></script>
     <script async src="{root_path}search-index.js"></script>
 </body>
-</html>
-"##,
+</html>"##,
     content   = *t,
     root_path = page.root_path,
     ty        = page.ty,

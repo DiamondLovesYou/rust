@@ -34,12 +34,12 @@ arguments directly while performing minimal allocations.
 Some examples of the `format!` extension are:
 
 ```rust
-format!("Hello");                 // => ~"Hello"
-format!("Hello, {:s}!", "world"); // => ~"Hello, world!"
-format!("The number is {:d}", 1); // => ~"The number is 1"
-format!("{:?}", ~[3, 4]);         // => ~"~[3, 4]"
-format!("{value}", value=4);      // => ~"4"
-format!("{} {}", 1, 2);           // => ~"1 2"
+format!("Hello");                 // => "Hello".to_owned()
+format!("Hello, {:s}!", "world"); // => "Hello, world!".to_owned()
+format!("The number is {:d}", 1); // => "The number is 1".to_owned()
+format!("{:?}", ~[3, 4]);         // => "~[3, 4]".to_owned()
+format!("{value}", value=4);      // => "4".to_owned()
+format!("{} {}", 1, 2);           // => "1 2".to_owned()
 ```
 
 From these, you can see that the first argument is a format string. It is
@@ -62,7 +62,7 @@ iterator over the argument. Each time a "next argument" specifier is seen, the
 iterator advances. This leads to behavior like this:
 
 ```rust
-format!("{1} {} {0} {}", 1, 2); // => ~"2 1 1 2"
+format!("{1} {} {0} {}", 1, 2); // => "2 1 1 2".to_owned()
 ```
 
 The internal iterator over the argument has not been advanced by the time the
@@ -89,9 +89,9 @@ identifier '=' expression
 For example, the following `format!` expressions all use named argument:
 
 ```rust
-format!("{argument}", argument = "test");       // => ~"test"
-format!("{name} {}", 1, name = 2);              // => ~"2 1"
-format!("{a:s} {c:d} {b:?}", a="a", b=(), c=3); // => ~"a 3 ()"
+format!("{argument}", argument = "test");       // => "test".to_owned()
+format!("{name} {}", 1, name = 2);              // => "2 1".to_owned()
+format!("{a:s} {c:d} {b:?}", a="a", b=(), c=3); // => "a 3 ()".to_owned()
 ```
 
 It is illegal to put positional parameters (those without names) after arguments
@@ -250,7 +250,7 @@ strings and instead directly write the output. Under the hood, this function is
 actually invoking the `write` function defined in this module. Example usage is:
 
 ```rust
-# #[allow(unused_must_use)];
+# #![allow(unused_must_use)]
 use std::io;
 
 let mut w = io::MemWriter::new();
@@ -276,16 +276,22 @@ references information on the stack. Under the hood, all of
 the related macros are implemented in terms of this. First
 off, some example usage is:
 
-```ignore
+```
 use std::fmt;
+use std::io;
 
-# fn lol<T>() -> T { fail!() }
-# let my_writer: &mut ::std::io::Writer = lol();
-# let my_fn: fn(&fmt::Arguments) = lol();
-
+# #[allow(unused_must_use)]
+# fn main() {
 format_args!(fmt::format, "this returns {}", "~str");
-format_args!(|args| { fmt::write(my_writer, args) }, "some {}", "args");
-format_args!(my_fn, "format {}", "string");
+
+let some_writer: &mut io::Writer = &mut io::stdout();
+format_args!(|args| { fmt::write(some_writer, args) }, "print with a {}", "closure");
+
+fn my_fmt_fn(args: &fmt::Arguments) {
+    fmt::write(&mut io::stdout(), args);
+}
+format_args!(my_fmt_fn, "or a {} too", "function");
+# }
 ```
 
 The first argument of the `format_args!` macro is a function (or closure) which
@@ -324,7 +330,7 @@ to reference the string value of the argument which was selected upon. As an
 example:
 
 ```rust
-format!("{0, select, other{#}}", "hello"); // => ~"hello"
+format!("{0, select, other{#}}", "hello"); // => "hello".to_owned()
 ```
 
 This example is the equivalent of `{0:s}` essentially.
@@ -693,7 +699,7 @@ uniform_fn_call_workaround! {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::fmt;
 /// use std::io;
 ///
@@ -765,7 +771,7 @@ pub unsafe fn write_unsafe(output: &mut io::Writer,
 /// use std::fmt;
 ///
 /// let s = format_args!(fmt::format, "Hello, {}!", "world");
-/// assert_eq!(s, ~"Hello, world!");
+/// assert_eq!(s, "Hello, world!".to_owned());
 /// ```
 pub fn format(args: &Arguments) -> ~str {
     unsafe { format_unsafe(args.fmt, args.args) }

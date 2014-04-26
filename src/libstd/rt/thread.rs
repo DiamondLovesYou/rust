@@ -68,13 +68,13 @@ impl Thread<()> {
     /// to finish executing. This means that even if `join` is not explicitly
     /// called, when the `Thread` falls out of scope its destructor will block
     /// waiting for the OS thread.
-    pub fn start<T: Send>(main: proc:Send() -> T) -> Thread<T> {
+    pub fn start<T: Send>(main: proc():Send -> T) -> Thread<T> {
         Thread::start_stack(DEFAULT_STACK_SIZE, main)
     }
 
     /// Performs the same functionality as `start`, but specifies an explicit
     /// stack size for the new thread.
-    pub fn start_stack<T: Send>(stack: uint, main: proc:Send() -> T) -> Thread<T> {
+    pub fn start_stack<T: Send>(stack: uint, main: proc():Send -> T) -> Thread<T> {
 
         // We need the address of the packet to fill in to be stable so when
         // `main` fills it in it's still valid, so allocate an extra ~ box to do
@@ -99,13 +99,13 @@ impl Thread<()> {
     /// This corresponds to creating threads in the 'detached' state on unix
     /// systems. Note that platforms may not keep the main program alive even if
     /// there are detached thread still running around.
-    pub fn spawn(main: proc:Send()) {
+    pub fn spawn(main: proc():Send) {
         Thread::spawn_stack(DEFAULT_STACK_SIZE, main)
     }
 
     /// Performs the same functionality as `spawn`, but explicitly specifies a
     /// stack size for the new thread.
-    pub fn spawn_stack(stack: uint, main: proc:Send()) {
+    pub fn spawn_stack(stack: uint, main: proc():Send) {
         unsafe {
             let handle = imp::create(stack, ~main);
             imp::detach(handle);
@@ -150,13 +150,14 @@ mod imp {
     use libc;
     use libc::types::os::arch::extra::{LPSECURITY_ATTRIBUTES, SIZE_T, BOOL,
                                        LPVOID, DWORD, LPDWORD, HANDLE};
+    use os;
     use ptr;
     use rt::stack::RED_ZONE;
 
     pub type rust_thread = HANDLE;
     pub type rust_thread_return = DWORD;
 
-    pub unsafe fn create(stack: uint, p: ~proc:Send()) -> rust_thread {
+    pub unsafe fn create(stack: uint, p: ~proc():Send) -> rust_thread {
         let arg: *mut libc::c_void = cast::transmute(p);
         // FIXME On UNIX, we guard against stack sizes that are too small but
         // that's because pthreads enforces that stacks are at least
@@ -168,8 +169,15 @@ mod imp {
         // kernel does, might as well make it explicit.  With the current
         // 20 kB red zone, that makes for a 64 kB minimum stack.
         let stack_size = (cmp::max(stack, RED_ZONE) + 0xfffe) & (-0xfffe - 1);
-        CreateThread(ptr::mut_null(), stack_size as libc::size_t,
-                     super::thread_start, arg, 0, ptr::mut_null())
+        let ret = CreateThread(ptr::mut_null(), stack_size as libc::size_t,
+                               super::thread_start, arg, 0, ptr::mut_null());
+
+        if ret as uint == 0 {
+            // be sure to not leak the closure
+            let _p: ~proc():Send = cast::transmute(arg);
+            fail!("failed to spawn native thread: {}", os::last_os_error());
+        }
+        return ret;
     }
 
     pub unsafe fn join(native: rust_thread) {
@@ -215,7 +223,7 @@ mod imp {
     pub type rust_thread = libc::pthread_t;
     pub type rust_thread_return = *u8;
 
-    pub unsafe fn create(stack: uint, p: ~proc:Send()) -> rust_thread {
+    pub unsafe fn create(stack: uint, p: ~proc():Send) -> rust_thread {
         let mut native: libc::pthread_t = mem::uninit();
         let mut attr: libc::pthread_attr_t = mem::uninit();
         assert_eq!(pthread_attr_init(&mut attr), 0);
@@ -243,8 +251,14 @@ mod imp {
         };
 
         let arg: *libc::c_void = cast::transmute(p);
-        assert_eq!(pthread_create(&mut native, &attr,
-                                  super::thread_start, arg), 0);
+        let ret = pthread_create(&mut native, &attr, super::thread_start, arg);
+        assert_eq!(pthread_attr_destroy(&mut attr), 0);
+
+        if ret != 0 {
+            // be sure to not leak the closure
+            let _p: ~proc():Send = cast::transmute(arg);
+            fail!("failed to spawn native thread: {}", os::last_os_error());
+        }
         native
     }
 
@@ -306,6 +320,7 @@ mod imp {
         fn pthread_join(native: libc::pthread_t,
                         value: **libc::c_void) -> libc::c_int;
         fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc::c_int;
+        fn pthread_attr_destroy(attr: *mut libc::pthread_attr_t) -> libc::c_int;
         fn pthread_attr_setstacksize(attr: *mut libc::pthread_attr_t,
                                      stack_size: libc::size_t) -> libc::c_int;
         fn pthread_attr_setdetachstate(attr: *mut libc::pthread_attr_t,

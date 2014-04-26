@@ -11,6 +11,7 @@
 //! Table-of-contents creation.
 
 use std::fmt;
+use std::strbuf::StrBuf;
 
 /// A (recursive) table of contents
 #[deriving(Eq)]
@@ -136,11 +137,11 @@ impl TocBuilder {
         {
             let (toc_level, toc) = match self.chain.last() {
                 None => {
-                    sec_number = ~"";
+                    sec_number = StrBuf::new();
                     (0, &self.top_level)
                 }
                 Some(entry) => {
-                    sec_number = entry.sec_number.clone();
+                    sec_number = StrBuf::from_str(entry.sec_number.clone());
                     sec_number.push_str(".");
                     (entry.level, &entry.children)
                 }
@@ -156,12 +157,12 @@ impl TocBuilder {
         }
 
         self.chain.push(TocEntry {
-                level: level,
-                name: name,
-                sec_number: sec_number,
-                id: id,
-                children: Toc { entries: Vec::new() }
-            });
+            level: level,
+            name: name,
+            sec_number: sec_number.into_owned(),
+            id: id,
+            children: Toc { entries: Vec::new() }
+        });
 
         // get the thing we just pushed, so we can borrow the string
         // out of it with the right lifetime
@@ -199,7 +200,7 @@ mod test {
         // there's been no macro mistake.
         macro_rules! push {
             ($level: expr, $name: expr) => {
-                assert_eq!(builder.push($level, $name.to_owned(), ~""), $name);
+                assert_eq!(builder.push($level, $name.to_owned(), "".to_owned()), $name);
             }
         }
         push!(2, "0.1");
@@ -239,7 +240,7 @@ mod test {
                                 level: $level,
                                 name: $name.to_owned(),
                                 sec_number: $name.to_owned(),
-                                id: ~"",
+                                id: "".to_owned(),
                                 children: toc!($($sub),*)
                             }
                             ),*

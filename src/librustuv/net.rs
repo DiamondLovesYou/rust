@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use std::cast;
-use std::io::IoError;
+use std::io::{IoError, IoResult};
 use std::io::net::ip;
 use libc::{size_t, ssize_t, c_int, c_void, c_uint};
 use libc;
@@ -25,6 +25,7 @@ use stream::StreamWatcher;
 use super::{Loop, Request, UvError, Buf, status_to_io_result,
             uv_error_to_io_error, UvHandle, slice_to_uv_buf,
             wait_until_woken_after, wakeup};
+use timer::TimerWatcher;
 use uvio::UvIoFactory;
 use uvll;
 
@@ -32,8 +33,8 @@ use uvll;
 /// Generic functions related to dealing with sockaddr things
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn htons(u: u16) -> u16 { mem::to_be16(u as i16) as u16 }
-pub fn ntohs(u: u16) -> u16 { mem::from_be16(u as i16) as u16 }
+pub fn htons(u: u16) -> u16 { mem::to_be16(u) }
+pub fn ntohs(u: u16) -> u16 { mem::from_be16(u) }
 
 pub fn sockaddr_to_addr(storage: &libc::sockaddr_storage,
                         len: uint) -> ip::SocketAddr {
@@ -144,6 +145,190 @@ fn socket_name(sk: SocketNameKind,
         n => Err(uv_error_to_io_error(UvError(n)))
     }
 }
+////////////////////////////////////////////////////////////////////////////////
+// Helpers for handling timeouts, shared for pipes/tcp
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct ConnectCtx {
+    pub status: c_int,
+    pub task: Option<BlockedTask>,
+    pub timer: Option<~TimerWatcher>,
+}
+
+pub struct AcceptTimeout {
+    timer: Option<TimerWatcher>,
+    timeout_tx: Option<Sender<()>>,
+    timeout_rx: Option<Receiver<()>>,
+}
+
+impl ConnectCtx {
+    pub fn connect<T>(
+        mut self, obj: T, timeout: Option<u64>, io: &mut UvIoFactory,
+        f: |&Request, &T, uvll::uv_connect_cb| -> libc::c_int
+    ) -> Result<T, UvError> {
+        let mut req = Request::new(uvll::UV_CONNECT);
+        let r = f(&req, &obj, connect_cb);
+        return match r {
+            0 => {
+                req.defuse(); // uv callback now owns this request
+                match timeout {
+                    Some(t) => {
+                        let mut timer = TimerWatcher::new(io);
+                        timer.start(timer_cb, t, 0);
+                        self.timer = Some(timer);
+                    }
+                    None => {}
+                }
+                wait_until_woken_after(&mut self.task, &io.loop_, || {
+                    let data = &self as *_;
+                    match self.timer {
+                        Some(ref mut timer) => unsafe { timer.set_data(data) },
+                        None => {}
+                    }
+                    req.set_data(data);
+                });
+                // Make sure an erroneously fired callback doesn't have access
+                // to the context any more.
+                req.set_data(0 as *int);
+
+                // If we failed because of a timeout, drop the TcpWatcher as
+                // soon as possible because it's data is now set to null and we
+                // want to cancel the callback ASAP.
+                match self.status {
+                    0 => Ok(obj),
+                    n => { drop(obj); Err(UvError(n)) }
+                }
+            }
+            n => Err(UvError(n))
+        };
+
+        extern fn timer_cb(handle: *uvll::uv_timer_t) {
+            // Don't close the corresponding tcp request, just wake up the task
+            // and let RAII take care of the pending watcher.
+            let cx: &mut ConnectCtx = unsafe {
+                &mut *(uvll::get_data_for_uv_handle(handle) as *mut ConnectCtx)
+            };
+            cx.status = uvll::ECANCELED;
+            wakeup(&mut cx.task);
+        }
+
+        extern fn connect_cb(req: *uvll::uv_connect_t, status: c_int) {
+            // This callback can be invoked with ECANCELED if the watcher is
+            // closed by the timeout callback. In that case we just want to free
+            // the request and be along our merry way.
+            let req = Request::wrap(req);
+            if status == uvll::ECANCELED { return }
+
+            // Apparently on windows when the handle is closed this callback may
+            // not be invoked with ECANCELED but rather another error code.
+            // Either ways, if the data is null, then our timeout has expired
+            // and there's nothing we can do.
+            let data = unsafe { uvll::get_data_for_req(req.handle) };
+            if data.is_null() { return }
+
+            let cx: &mut ConnectCtx = unsafe { &mut *(data as *mut ConnectCtx) };
+            cx.status = status;
+            match cx.timer {
+                Some(ref mut t) => t.stop(),
+                None => {}
+            }
+            // Note that the timer callback doesn't cancel the connect request
+            // (that's the job of uv_close()), so it's possible for this
+            // callback to get triggered after the timeout callback fires, but
+            // before the task wakes up. In that case, we did indeed
+            // successfully connect, but we don't need to wake someone up. We
+            // updated the status above (correctly so), and the task will pick
+            // up on this when it wakes up.
+            if cx.task.is_some() {
+                wakeup(&mut cx.task);
+            }
+        }
+    }
+}
+
+impl AcceptTimeout {
+    pub fn new() -> AcceptTimeout {
+        AcceptTimeout { timer: None, timeout_tx: None, timeout_rx: None }
+    }
+
+    pub fn accept<T: Send>(&mut self, c: &Receiver<IoResult<T>>) -> IoResult<T> {
+        match self.timeout_rx {
+            None => c.recv(),
+            Some(ref rx) => {
+                use std::comm::Select;
+
+                // Poll the incoming channel first (don't rely on the order of
+                // select just yet). If someone's pending then we should return
+                // them immediately.
+                match c.try_recv() {
+                    Ok(data) => return data,
+                    Err(..) => {}
+                }
+
+                // Use select to figure out which channel gets ready first. We
+                // do some custom handling of select to ensure that we never
+                // actually drain the timeout channel (we'll keep seeing the
+                // timeout message in the future).
+                let s = Select::new();
+                let mut timeout = s.handle(rx);
+                let mut data = s.handle(c);
+                unsafe {
+                    timeout.add();
+                    data.add();
+                }
+                if s.wait() == timeout.id() {
+                    Err(uv_error_to_io_error(UvError(uvll::ECANCELED)))
+                } else {
+                    c.recv()
+                }
+            }
+        }
+    }
+
+    pub fn clear(&mut self) {
+        // Clear any previous timeout by dropping the timer and transmission
+        // channels
+        drop((self.timer.take(),
+              self.timeout_tx.take(),
+              self.timeout_rx.take()))
+    }
+
+    pub fn set_timeout<U, T: UvHandle<U> + HomingIO>(
+        &mut self, ms: u64, t: &mut T
+    ) {
+        // If we have a timeout, lazily initialize the timer which will be used
+        // to fire when the timeout runs out.
+        if self.timer.is_none() {
+            let _m = t.fire_homing_missile();
+            let loop_ = Loop::wrap(unsafe {
+                uvll::get_loop_for_uv_handle(t.uv_handle())
+            });
+            let mut timer = TimerWatcher::new_home(&loop_, t.home().clone());
+            unsafe {
+                timer.set_data(self as *mut _ as *AcceptTimeout);
+            }
+            self.timer = Some(timer);
+        }
+
+        // Once we've got a timer, stop any previous timeout, reset it for the
+        // current one, and install some new channels to send/receive data on
+        let timer = self.timer.get_mut_ref();
+        timer.stop();
+        timer.start(timer_cb, ms, 0);
+        let (tx, rx) = channel();
+        self.timeout_tx = Some(tx);
+        self.timeout_rx = Some(rx);
+
+        extern fn timer_cb(timer: *uvll::uv_timer_t) {
+            let acceptor: &mut AcceptTimeout = unsafe {
+                &mut *(uvll::get_data_for_uv_handle(timer) as *mut AcceptTimeout)
+            };
+            // This send can never fail because if this timer is active then the
+            // receiving channel is guaranteed to be alive
+            acceptor.timeout_tx.get_ref().send(());
+        }
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TCP implementation
@@ -173,6 +358,7 @@ pub struct TcpListener {
 
 pub struct TcpAcceptor {
     listener: ~TcpListener,
+    timeout: AcceptTimeout,
 }
 
 // TCP watchers (clients/streams)
@@ -198,42 +384,16 @@ impl TcpWatcher {
         }
     }
 
-    pub fn connect(io: &mut UvIoFactory, address: ip::SocketAddr)
-        -> Result<TcpWatcher, UvError>
-    {
-        struct Ctx { status: c_int, task: Option<BlockedTask> }
-
+    pub fn connect(io: &mut UvIoFactory,
+                   address: ip::SocketAddr,
+                   timeout: Option<u64>) -> Result<TcpWatcher, UvError> {
         let tcp = TcpWatcher::new(io);
+        let cx = ConnectCtx { status: -1, task: None, timer: None };
         let (addr, _len) = addr_to_sockaddr(address);
-        let mut req = Request::new(uvll::UV_CONNECT);
-        let result = unsafe {
-            let addr_p = &addr as *libc::sockaddr_storage;
-            uvll::uv_tcp_connect(req.handle, tcp.handle,
-                                 addr_p as *libc::sockaddr,
-                                 connect_cb)
-        };
-        return match result {
-            0 => {
-                req.defuse(); // uv callback now owns this request
-                let mut cx = Ctx { status: 0, task: None };
-                wait_until_woken_after(&mut cx.task, &io.loop_, || {
-                    req.set_data(&cx);
-                });
-                match cx.status {
-                    0 => Ok(tcp),
-                    n => Err(UvError(n)),
-                }
-            }
-            n => Err(UvError(n))
-        };
-
-        extern fn connect_cb(req: *uvll::uv_connect_t, status: c_int) {
-            let req = Request::wrap(req);
-            assert!(status != uvll::ECANCELED);
-            let cx: &mut Ctx = unsafe { req.get_data() };
-            cx.status = status;
-            wakeup(&mut cx.task);
-        }
+        let addr_p = &addr as *_ as *libc::sockaddr;
+        cx.connect(tcp, timeout, io, |req, tcp, cb| {
+            unsafe { uvll::uv_tcp_connect(req.handle, tcp.handle, addr_p, cb) }
+        })
     }
 }
 
@@ -399,7 +559,10 @@ impl rtio::RtioSocket for TcpListener {
 impl rtio::RtioTcpListener for TcpListener {
     fn listen(~self) -> Result<~rtio::RtioTcpAcceptor:Send, IoError> {
         // create the acceptor object from ourselves
-        let mut acceptor = ~TcpAcceptor { listener: self };
+        let mut acceptor = ~TcpAcceptor {
+            listener: self,
+            timeout: AcceptTimeout::new(),
+        };
 
         let _m = acceptor.fire_homing_missile();
         // FIXME: the 128 backlog should be configurable
@@ -449,7 +612,7 @@ impl rtio::RtioSocket for TcpAcceptor {
 
 impl rtio::RtioTcpAcceptor for TcpAcceptor {
     fn accept(&mut self) -> Result<~rtio::RtioTcpStream:Send, IoError> {
-        self.listener.incoming.recv()
+        self.timeout.accept(&self.listener.incoming)
     }
 
     fn accept_simultaneously(&mut self) -> Result<(), IoError> {
@@ -464,6 +627,13 @@ impl rtio::RtioTcpAcceptor for TcpAcceptor {
         status_to_io_result(unsafe {
             uvll::uv_tcp_simultaneous_accepts(self.listener.handle, 0)
         })
+    }
+
+    fn set_timeout(&mut self, ms: Option<u64>) {
+        match ms {
+            None => self.timeout.clear(),
+            Some(ms) => self.timeout.set_timeout(ms, &mut *self.listener),
+        }
     }
 }
 
@@ -741,17 +911,17 @@ mod test {
 
     #[test]
     fn connect_close_ip4() {
-        match TcpWatcher::connect(local_loop(), next_test_ip4()) {
+        match TcpWatcher::connect(local_loop(), next_test_ip4(), None) {
             Ok(..) => fail!(),
-            Err(e) => assert_eq!(e.name(), ~"ECONNREFUSED"),
+            Err(e) => assert_eq!(e.name(), "ECONNREFUSED".to_owned()),
         }
     }
 
     #[test]
     fn connect_close_ip6() {
-        match TcpWatcher::connect(local_loop(), next_test_ip6()) {
+        match TcpWatcher::connect(local_loop(), next_test_ip6(), None) {
             Ok(..) => fail!(),
-            Err(e) => assert_eq!(e.name(), ~"ECONNREFUSED"),
+            Err(e) => assert_eq!(e.name(), "ECONNREFUSED".to_owned()),
         }
     }
 
@@ -799,7 +969,7 @@ mod test {
         });
 
         rx.recv();
-        let mut w = match TcpWatcher::connect(local_loop(), addr) {
+        let mut w = match TcpWatcher::connect(local_loop(), addr, None) {
             Ok(w) => w, Err(e) => fail!("{:?}", e)
         };
         match w.write([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
@@ -835,7 +1005,7 @@ mod test {
         });
 
         rx.recv();
-        let mut w = match TcpWatcher::connect(local_loop(), addr) {
+        let mut w = match TcpWatcher::connect(local_loop(), addr, None) {
             Ok(w) => w, Err(e) => fail!("{:?}", e)
         };
         match w.write([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
@@ -928,7 +1098,7 @@ mod test {
         });
 
         rx.recv();
-        let mut stream = TcpWatcher::connect(local_loop(), addr).unwrap();
+        let mut stream = TcpWatcher::connect(local_loop(), addr, None).unwrap();
         let mut buf = [0, .. 2048];
         let mut total_bytes_read = 0;
         while total_bytes_read < MAX {
@@ -1036,7 +1206,7 @@ mod test {
 
         spawn(proc() {
             let rx = rx.recv();
-            let mut stream = TcpWatcher::connect(local_loop(), addr).unwrap();
+            let mut stream = TcpWatcher::connect(local_loop(), addr, None).unwrap();
             stream.write([0, 1, 2, 3, 4, 5, 6, 7]).unwrap();
             stream.write([0, 1, 2, 3, 4, 5, 6, 7]).unwrap();
             rx.recv();
@@ -1065,7 +1235,7 @@ mod test {
             }
             reads += 1;
 
-            tx2.try_send(());
+            let _ = tx2.send_opt(());
         }
 
         // Make sure we had multiple reads
@@ -1088,9 +1258,9 @@ mod test {
             }
         });
 
-        let mut stream = TcpWatcher::connect(local_loop(), addr);
+        let mut stream = TcpWatcher::connect(local_loop(), addr, None);
         while stream.is_err() {
-            stream = TcpWatcher::connect(local_loop(), addr);
+            stream = TcpWatcher::connect(local_loop(), addr, None);
         }
         stream.unwrap().write([0, 1, 2, 3, 4, 5, 6, 7]).unwrap();
     }
@@ -1115,7 +1285,7 @@ mod test {
             drop(w.accept().unwrap());
         });
         rx.recv();
-        let _w = TcpWatcher::connect(local_loop(), addr).unwrap();
+        let _w = TcpWatcher::connect(local_loop(), addr, None).unwrap();
         fail!();
     }
 

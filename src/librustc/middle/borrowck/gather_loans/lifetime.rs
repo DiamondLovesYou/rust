@@ -39,9 +39,9 @@ pub fn guarantee_lifetime(bccx: &BorrowckCtxt,
                                          cause: cause,
                                          loan_region: loan_region,
                                          loan_kind: loan_kind,
-                                         cmt_original: cmt,
+                                         cmt_original: cmt.clone(),
                                          root_scope_id: root_scope_id};
-    ctxt.check(cmt, None)
+    ctxt.check(&cmt, None)
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -65,11 +65,8 @@ struct GuaranteeLifetimeContext<'a> {
 }
 
 impl<'a> GuaranteeLifetimeContext<'a> {
-    fn tcx(&self) -> &'a ty::ctxt {
-        self.bccx.tcx
-    }
 
-    fn check(&self, cmt: mc::cmt, discr_scope: Option<ast::NodeId>) -> R {
+    fn check(&self, cmt: &mc::cmt, discr_scope: Option<ast::NodeId>) -> R {
         //! Main routine. Walks down `cmt` until we find the "guarantor".
         debug!("guarantee_lifetime.check(cmt={}, loan_region={})",
                cmt.repr(self.bccx.tcx),
@@ -83,41 +80,21 @@ impl<'a> GuaranteeLifetimeContext<'a> {
             mc::cat_upvar(..) |
             mc::cat_deref(_, _, mc::BorrowedPtr(..)) |  // L-Deref-Borrowed
             mc::cat_deref(_, _, mc::UnsafePtr(..)) => {
-                let scope = self.scope(cmt);
-                self.check_scope(scope)
+                self.check_scope(self.scope(cmt))
             }
 
             mc::cat_static_item => {
                 Ok(())
             }
 
-            mc::cat_deref(base, derefs, mc::GcPtr) => {
-                let base_scope = self.scope(base);
-
-                // L-Deref-Managed-Imm-User-Root
-                let omit_root =
-                    self.bccx.is_subregion_of(self.loan_region, base_scope) &&
-                    self.is_rvalue_or_immutable(base) &&
-                    !self.is_moved(base);
-
-                if !omit_root {
-                    // L-Deref-Managed-Imm-Compiler-Root
-                    // L-Deref-Managed-Mut-Compiler-Root
-                    self.check_root(cmt, base, derefs, discr_scope)
-                } else {
-                    debug!("omitting root, base={}, base_scope={:?}",
-                           base.repr(self.tcx()), base_scope);
-                    Ok(())
-                }
-            }
-
-            mc::cat_downcast(base) |
-            mc::cat_deref(base, _, mc::OwnedPtr) |     // L-Deref-Send
-            mc::cat_interior(base, _) => {             // L-Field
+            mc::cat_downcast(ref base) |
+            mc::cat_deref(ref base, _, mc::OwnedPtr) |     // L-Deref-Send
+            mc::cat_interior(ref base, _) |                // L-Field
+            mc::cat_deref(ref base, _, mc::GcPtr) => {
                 self.check(base, discr_scope)
             }
 
-            mc::cat_discr(base, new_discr_scope) => {
+            mc::cat_discr(ref base, new_discr_scope) => {
                 // Subtle: in a match, we must ensure that each binding
                 // variable remains valid for the duration of the arm in
                 // which it appears, presuming that this arm is taken.
@@ -175,74 +152,6 @@ impl<'a> GuaranteeLifetimeContext<'a> {
         }
     }
 
-    fn is_rvalue_or_immutable(&self,
-                              cmt: mc::cmt) -> bool {
-        //! We can omit the root on an `@T` value if the location
-        //! that holds the box is either (1) an rvalue, in which case
-        //! it is in a non-user-accessible temporary, or (2) an immutable
-        //! lvalue.
-
-        cmt.mutbl.is_immutable() || match cmt.guarantor().cat {
-            mc::cat_rvalue(..) => true,
-            _ => false
-        }
-    }
-
-    fn check_root(&self,
-                  cmt_deref: mc::cmt,
-                  cmt_base: mc::cmt,
-                  derefs: uint,
-                  discr_scope: Option<ast::NodeId>) -> R {
-        debug!("check_root(cmt_deref={}, cmt_base={}, derefs={:?}, \
-                discr_scope={:?})",
-               cmt_deref.repr(self.tcx()),
-               cmt_base.repr(self.tcx()),
-               derefs,
-               discr_scope);
-
-        // Make sure that the loan does not exceed the maximum time
-        // that we can root the value, dynamically.
-        let root_region = ty::ReScope(self.root_scope_id);
-        if !self.bccx.is_subregion_of(self.loan_region, root_region) {
-            return Err(self.report_error(
-                err_out_of_root_scope(root_region, self.loan_region)));
-        }
-
-        // Extract the scope id that indicates how long the rooting is required
-        let root_scope = match self.loan_region {
-            ty::ReScope(id) => id,
-            _ => {
-                // the check above should fail for anything is not ReScope
-                self.bccx.tcx.sess.span_bug(
-                    cmt_base.span,
-                    format!("cannot issue root for scope region: {:?}",
-                         self.loan_region));
-            }
-        };
-
-        // If inside of a match arm, expand the rooting to the entire
-        // match. See the detailed discussion in `check()` above.
-        let root_scope = match discr_scope {
-            None => root_scope,
-            Some(id) => {
-                if self.bccx.is_subscope_of(root_scope, id) {
-                    id
-                } else {
-                    root_scope
-                }
-            }
-        };
-
-        // Add a record of what is required
-        let rm_key = root_map_key {id: cmt_deref.id, derefs: derefs};
-        let root_info = RootInfo {scope: root_scope};
-
-        self.bccx.root_map.borrow_mut().insert(rm_key, root_info);
-
-        debug!("root_key: {:?} root_info: {:?}", rm_key, root_info);
-        Ok(())
-    }
-
     fn check_scope(&self, max_scope: ty::Region) -> R {
         //! Reports an error if `loan_region` is larger than `valid_scope`
 
@@ -253,33 +162,7 @@ impl<'a> GuaranteeLifetimeContext<'a> {
         }
     }
 
-    fn is_moved(&self, cmt: mc::cmt) -> bool {
-        //! True if `cmt` is something that is potentially moved
-        //! out of the current stack frame.
-
-        match cmt.guarantor().cat {
-            mc::cat_local(id) |
-            mc::cat_arg(id) => {
-                self.bccx.moved_variables_set.contains(&id)
-            }
-            mc::cat_rvalue(..) |
-            mc::cat_static_item |
-            mc::cat_copied_upvar(..) |
-            mc::cat_deref(..) |
-            mc::cat_upvar(..) => {
-                false
-            }
-            r @ mc::cat_downcast(..) |
-            r @ mc::cat_interior(..) |
-            r @ mc::cat_discr(..) => {
-                self.tcx().sess.span_bug(
-                    cmt.span,
-                    format!("illegal guarantor category: {:?}", r));
-            }
-        }
-    }
-
-    fn scope(&self, cmt: mc::cmt) -> ty::Region {
+    fn scope(&self, cmt: &mc::cmt) -> ty::Region {
         //! Returns the maximal region scope for the which the
         //! lvalue `cmt` is guaranteed to be valid without any
         //! rooting etc, and presuming `cmt` is not mutated.
@@ -307,18 +190,18 @@ impl<'a> GuaranteeLifetimeContext<'a> {
             mc::cat_deref(_, _, mc::BorrowedPtr(_, r)) => {
                 r
             }
-            mc::cat_downcast(cmt) |
-            mc::cat_deref(cmt, _, mc::OwnedPtr) |
-            mc::cat_deref(cmt, _, mc::GcPtr) |
-            mc::cat_interior(cmt, _) |
-            mc::cat_discr(cmt, _) => {
+            mc::cat_downcast(ref cmt) |
+            mc::cat_deref(ref cmt, _, mc::OwnedPtr) |
+            mc::cat_deref(ref cmt, _, mc::GcPtr) |
+            mc::cat_interior(ref cmt, _) |
+            mc::cat_discr(ref cmt, _) => {
                 self.scope(cmt)
             }
         }
     }
 
     fn report_error(&self, code: bckerr_code) {
-        self.bccx.report(BckError { cmt: self.cmt_original,
+        self.bccx.report(BckError { cmt: self.cmt_original.clone(),
                                     span: self.span,
                                     cause: self.cause,
                                     code: code });

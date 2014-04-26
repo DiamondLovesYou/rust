@@ -20,7 +20,6 @@
 //! Other than that, the implementation is pretty straightforward in terms of
 //! the other two implementations of timers with nothing *that* new showing up.
 
-use std::comm::Data;
 use libc;
 use std::ptr;
 use std::rt::rtio;
@@ -40,8 +39,8 @@ pub enum Req {
 }
 
 fn helper(input: libc::HANDLE, messages: Receiver<Req>) {
-    let mut objs = ~[input];
-    let mut chans = ~[];
+    let mut objs = vec![input];
+    let mut chans = vec![];
 
     'outer: loop {
         let idx = unsafe {
@@ -54,11 +53,11 @@ fn helper(input: libc::HANDLE, messages: Receiver<Req>) {
         if idx == 0 {
             loop {
                 match messages.try_recv() {
-                    Data(NewTimer(obj, c, one)) => {
+                    Ok(NewTimer(obj, c, one)) => {
                         objs.push(obj);
                         chans.push((c, one));
                     }
-                    Data(RemoveTimer(obj, c)) => {
+                    Ok(RemoveTimer(obj, c)) => {
                         c.send(());
                         match objs.iter().position(|&o| o == obj) {
                             Some(i) => {
@@ -68,7 +67,7 @@ fn helper(input: libc::HANDLE, messages: Receiver<Req>) {
                             None => {}
                         }
                     }
-                    Data(Shutdown) => {
+                    Ok(Shutdown) => {
                         assert_eq!(objs.len(), 1);
                         assert_eq!(chans.len(), 0);
                         break 'outer;
@@ -78,8 +77,8 @@ fn helper(input: libc::HANDLE, messages: Receiver<Req>) {
             }
         } else {
             let remove = {
-                match &chans[idx as uint - 1] {
-                    &(ref c, oneshot) => !c.try_send(()) || oneshot
+                match chans.get(idx as uint - 1) {
+                    &(ref c, oneshot) => c.send_opt(()).is_err() || oneshot
                 }
             };
             if remove {
@@ -88,6 +87,17 @@ fn helper(input: libc::HANDLE, messages: Receiver<Req>) {
             }
         }
     }
+}
+
+// returns the current time (in milliseconds)
+pub fn now() -> u64 {
+    let mut ticks_per_s = 0;
+    assert_eq!(unsafe { libc::QueryPerformanceFrequency(&mut ticks_per_s) }, 1);
+    let ticks_per_s = if ticks_per_s == 0 {1} else {ticks_per_s};
+    let mut ticks = 0;
+    assert_eq!(unsafe { libc::QueryPerformanceCounter(&mut ticks) }, 1);
+
+    return (ticks as u64 * 1000) / (ticks_per_s as u64);
 }
 
 impl Timer {

@@ -28,7 +28,8 @@ use mem::drop;
 use option::{Some, None};
 use result::{Ok, Err};
 use rt::rtio::{IoFactory, LocalIo, RtioSignal};
-use slice::{ImmutableVector, OwnedVector};
+use slice::ImmutableVector;
+use vec::Vec;
 
 /// Signals that can be sent and received
 #[repr(int)]
@@ -80,7 +81,7 @@ pub enum Signum {
 /// ```
 pub struct Listener {
     /// A map from signums to handles to keep the handles in memory
-    handles: ~[(Signum, ~RtioSignal:Send)],
+    handles: Vec<(Signum, ~RtioSignal:Send)>,
     /// This is where all the handles send signums, which are received by
     /// the clients from the receiver.
     tx: Sender<Signum>,
@@ -99,7 +100,7 @@ impl Listener {
         Listener {
             tx: tx,
             rx: rx,
-            handles: ~[],
+            handles: vec!(),
         }
     }
 
@@ -148,6 +149,7 @@ impl Listener {
 
 #[cfg(test, unix)]
 mod test_unix {
+    use prelude::*;
     use libc;
     use comm::Empty;
     use io::timer;
@@ -198,7 +200,7 @@ mod test_unix {
         s2.unregister(Interrupt);
         sigint();
         timer::sleep(10);
-        assert_eq!(s2.rx.try_recv(), Empty);
+        assert_eq!(s2.rx.try_recv(), Err(Empty));
     }
 }
 

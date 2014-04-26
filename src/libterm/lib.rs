@@ -129,24 +129,25 @@ impl<T: Writer> Terminal<T> {
     pub fn new(out: T) -> Result<Terminal<T>, ~str> {
         let term = match os::getenv("TERM") {
             Some(t) => t,
-            None => return Err(~"TERM environment variable undefined")
+            None => return Err("TERM environment variable undefined".to_owned())
         };
 
-        let entry = open(term);
-        if entry.is_err() {
-            if "cygwin" == term { // msys terminal
-                return Ok(Terminal {out: out, ti: msys_terminfo(), num_colors: 8});
+        let mut file = match open(term) {
+            Ok(file) => file,
+            Err(err) => {
+                if "cygwin" == term { // msys terminal
+                    return Ok(Terminal {
+                        out: out,
+                        ti: msys_terminfo(),
+                        num_colors: 8
+                    });
+                }
+                return Err(err);
             }
-            return Err(entry.unwrap_err());
-        }
+        };
 
-        let mut file = entry.unwrap();
-        let ti = parse(&mut file, false);
-        if ti.is_err() {
-            return Err(ti.unwrap_err());
-        }
+        let inf = try!(parse(&mut file, false));
 
-        let inf = ti.unwrap();
         let nc = if inf.strings.find_equiv(&("setaf")).is_some()
                  && inf.strings.find_equiv(&("setab")).is_some() {
                      inf.numbers.find_equiv(&("colors")).map_or(0, |&n| n)
@@ -250,7 +251,7 @@ impl<T: Writer> Terminal<T> {
                 cap = self.ti.strings.find_equiv(&("op"));
             }
         }
-        let s = cap.map_or(Err(~"can't find terminfo capability `sgr0`"), |op| {
+        let s = cap.map_or(Err("can't find terminfo capability `sgr0`".to_owned()), |op| {
             expand(op.as_slice(), [], &mut Variables::new())
         });
         if s.is_ok() {

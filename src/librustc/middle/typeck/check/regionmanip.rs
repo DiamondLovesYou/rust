@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// #[warn(deprecated_mode)];
+// #![warn(deprecated_mode)]
 
 use middle::ty;
 use middle::ty_fold;
@@ -86,7 +86,7 @@ pub fn relate_nested_regions(tcx: &ty::ctxt,
     struct RegionRelator<'a> {
         tcx: &'a ty::ctxt,
         stack: Vec<ty::Region>,
-        relate_op: 'a |ty::Region, ty::Region|,
+        relate_op: |ty::Region, ty::Region|: 'a,
     }
 
     // FIXME(#10151) -- Define more precisely when a region is
@@ -100,11 +100,10 @@ pub fn relate_nested_regions(tcx: &ty::ctxt,
 
         fn fold_ty(&mut self, ty: ty::t) -> ty::t {
             match ty::get(ty).sty {
-                ty::ty_rptr(r, ref mt) |
-                ty::ty_vec(ref mt, ty::vstore_slice(r)) => {
+                ty::ty_rptr(r, ty::mt {ty, ..}) => {
                     self.relate(r);
                     self.stack.push(r);
-                    ty_fold::super_fold_ty(self, mt.ty);
+                    ty_fold::super_fold_ty(self, ty);
                     self.stack.pop().unwrap();
                 }
 

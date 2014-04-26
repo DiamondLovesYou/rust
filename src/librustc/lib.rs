@@ -55,7 +55,7 @@ use std::cmp;
 use std::io;
 use std::os;
 use std::str;
-use std::task;
+use std::task::TaskBuilder;
 use syntax::ast;
 use syntax::diagnostic::Emitter;
 use syntax::diagnostic;
@@ -128,6 +128,7 @@ pub mod util {
     pub mod ppaux;
     pub mod sha2;
     pub mod nodemap;
+    pub mod fs;
 }
 
 pub mod lib {
@@ -223,13 +224,13 @@ pub fn describe_codegen_flags() {
 }
 
 pub fn run_compiler(args: &[~str]) {
-    let mut args = args.to_owned();
+    let mut args = Vec::from_slice(args);
     let binary = args.shift().unwrap();
 
     if args.is_empty() { usage(binary); return; }
 
     let matches =
-        &match getopts::getopts(args, d::optgroups().as_slice()) {
+        &match getopts::getopts(args.as_slice(), d::optgroups().as_slice()) {
           Ok(m) => m,
           Err(f) => {
             d::early_error(f.to_err_msg());
@@ -243,24 +244,24 @@ pub fn run_compiler(args: &[~str]) {
 
     let lint_flags = matches.opt_strs("W").move_iter().collect::<Vec<_>>().append(
                                     matches.opt_strs("warn").as_slice());
-    if lint_flags.iter().any(|x| x == &~"help") {
+    if lint_flags.iter().any(|x| x == &"help".to_owned()) {
         describe_warnings();
         return;
     }
 
     let r = matches.opt_strs("Z");
-    if r.iter().any(|x| x == &~"help") {
+    if r.iter().any(|x| x == &"help".to_owned()) {
         describe_debug_flags();
         return;
     }
 
     let cg_flags = matches.opt_strs("C");
-    if cg_flags.iter().any(|x| x == &~"help") {
+    if cg_flags.iter().any(|x| x == &"help".to_owned()) {
         describe_codegen_flags();
         return;
     }
 
-    if cg_flags.contains(&~"passes=list") {
+    if cg_flags.contains(&"passes=list".to_owned()) {
         unsafe { lib::llvm::llvm::LLVMRustPrintPasses(); }
         return;
     }
@@ -294,13 +295,13 @@ pub fn run_compiler(args: &[~str]) {
     });
     match pretty {
         Some::<d::PpMode>(ppm) => {
-            d::pretty_print_input(sess, cfg, &input, ppm);
+            d::pretty_print_input(sess, cfg, &input, ppm, ofile);
             return;
         }
         None::<d::PpMode> => {/* continue */ }
     }
-    let ls = matches.opt_present("ls");
-    if ls {
+
+    if r.contains(&~"ls") {
         match input {
             d::FileInput(ref ifile) => {
                 let mut stdout = io::stdout();
@@ -365,7 +366,7 @@ fn parse_crate_attrs(sess: &session::Session, input: &d::Input) ->
 ///
 /// The diagnostic emitter yielded to the procedure should be used for reporting
 /// errors of the compiler.
-pub fn monitor(f: proc:Send()) {
+pub fn monitor(f: proc():Send) {
     // FIXME: This is a hack for newsched since it doesn't support split stacks.
     // rustc needs a lot of stack! When optimizations are disabled, it needs
     // even *more* stack than usual as well.
@@ -374,7 +375,7 @@ pub fn monitor(f: proc:Send()) {
     #[cfg(not(rtopt))]
     static STACK_SIZE: uint = 20000000; // 20MB
 
-    let mut task_builder = task::task().named("rustc");
+    let mut task_builder = TaskBuilder::new().named("rustc");
 
     // FIXME: Hacks on hacks. If the env is trying to override the stack size
     // then *don't* set it explicitly.
@@ -406,9 +407,9 @@ pub fn monitor(f: proc:Send()) {
                 }
 
                 let xs = [
-                    ~"the compiler hit an unexpected failure path. this is a bug.",
+                    "the compiler hit an unexpected failure path. this is a bug.".to_owned(),
                     "we would appreciate a bug report: " + BUG_REPORT_URL,
-                    ~"run with `RUST_BACKTRACE=1` for a backtrace",
+                    "run with `RUST_BACKTRACE=1` for a backtrace".to_owned(),
                 ];
                 for note in xs.iter() {
                     emitter.emit(None, *note, diagnostic::Note)

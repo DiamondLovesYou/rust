@@ -10,7 +10,7 @@
 
 // A test of the macro system. Can we do HTML literals?
 
-#[feature(macro_rules)];
+#![feature(macro_rules)]
 
 
 /*
@@ -66,7 +66,7 @@ macro_rules! parse_node (
     ) => (
         parse_node!(
             [$(: $tags ($(:$tag_nodes),*))*];
-            [$(:$nodes,)* :text(~".")];
+            [$(:$nodes,)* :text(".".to_owned())];
             $($rest)*
         )
     );

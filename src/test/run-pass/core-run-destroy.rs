@@ -15,7 +15,7 @@
 // memory, which makes for some *confusing* logs. That's why these are here
 // instead of in std.
 
-#[feature(macro_rules)];
+#![feature(macro_rules)]
 extern crate libc;
 
 extern crate native;
@@ -31,7 +31,7 @@ macro_rules! succeed( ($e:expr) => (
 macro_rules! iotest (
     { fn $name:ident() $b:block $($a:attr)* } => (
         mod $name {
-            #[allow(unused_imports)];
+            #![allow(unused_imports)]
 
             use std::io::timer;
             use libc;
@@ -68,14 +68,14 @@ iotest!(fn test_destroy_once() {
 
 #[cfg(unix)]
 pub fn sleeper() -> Process {
-    Process::new("sleep", [~"1000"]).unwrap()
+    Process::new("sleep", ["1000".to_owned()]).unwrap()
 }
 #[cfg(windows)]
 pub fn sleeper() -> Process {
     // There's a `timeout` command on windows, but it doesn't like having
     // its output piped, so instead just ping ourselves a few times with
     // gaps inbetweeen so we're sure this process is alive for awhile
-    Process::new("ping", [~"127.0.0.1", ~"-n", ~"1000"]).unwrap()
+    Process::new("ping", ["127.0.0.1".to_owned(), "-n".to_owned(), "1000".to_owned()]).unwrap()
 }
 
 iotest!(fn test_destroy_twice() {

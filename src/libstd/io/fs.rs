@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -28,7 +28,7 @@ particular bits of it, etc.
 # Example
 
 ```rust
-# #[allow(unused_must_use)];
+# #![allow(unused_must_use)]
 use std::io::{File, fs};
 
 let path = Path::new("foo.txt");
@@ -162,7 +162,7 @@ impl File {
     /// # Example
     ///
     /// ```rust
-    /// # #[allow(unused_must_use)];
+    /// # #![allow(unused_must_use)]
     /// use std::io::File;
     ///
     /// let mut f = File::create(&Path::new("foo.txt"));
@@ -220,7 +220,7 @@ impl File {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::fs;
 ///
 /// let p = Path::new("/some/file/path.txt");
@@ -243,10 +243,6 @@ pub fn unlink(path: &Path) -> IoResult<()> {
 /// Given a path, query the file system to get information about a file,
 /// directory, etc. This function will traverse symlinks to query
 /// information about the destination file.
-///
-/// Returns a fully-filled out stat structure on success, and on failure it
-/// will return a dummy stat structure (it is expected that the condition
-/// raised is handled as well).
 ///
 /// # Example
 ///
@@ -290,7 +286,7 @@ pub fn lstat(path: &Path) -> IoResult<FileStat> {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::fs;
 ///
 /// fs::rename(&Path::new("foo"), &Path::new("bar"));
@@ -314,7 +310,7 @@ pub fn rename(from: &Path, to: &Path) -> IoResult<()> {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::fs;
 ///
 /// fs::copy(&Path::new("foo.txt"), &Path::new("bar.txt"));
@@ -364,7 +360,7 @@ pub fn copy(from: &Path, to: &Path) -> IoResult<()> {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io;
 /// use std::io::fs;
 ///
@@ -416,7 +412,7 @@ pub fn readlink(path: &Path) -> IoResult<Path> {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io;
 /// use std::io::fs;
 ///
@@ -437,7 +433,7 @@ pub fn mkdir(path: &Path, mode: FilePermission) -> IoResult<()> {
 /// # Example
 ///
 /// ```rust
-/// # #[allow(unused_must_use)];
+/// # #![allow(unused_must_use)]
 /// use std::io::fs;
 ///
 /// let p = Path::new("/some/dir");
@@ -483,7 +479,7 @@ pub fn rmdir(path: &Path) -> IoResult<()> {
 /// Will return an error if the provided `from` doesn't exist, the process lacks
 /// permissions to view the contents or if the `path` points at a non-directory
 /// file
-pub fn readdir(path: &Path) -> IoResult<~[Path]> {
+pub fn readdir(path: &Path) -> IoResult<Vec<Path>> {
     LocalIo::maybe_raise(|io| {
         io.fs_readdir(&path.to_c_str(), 0)
     })
@@ -491,19 +487,20 @@ pub fn readdir(path: &Path) -> IoResult<~[Path]> {
 
 /// Returns an iterator which will recursively walk the directory structure
 /// rooted at `path`. The path given will not be iterated over, and this will
-/// perform iteration in a top-down order.
+/// perform iteration in some top-down order.  The contents of unreadable
+/// subdirectories are ignored.
 pub fn walk_dir(path: &Path) -> IoResult<Directories> {
     Ok(Directories { stack: try!(readdir(path)) })
 }
 
 /// An iterator which walks over a directory
 pub struct Directories {
-    stack: ~[Path],
+    stack: Vec<Path>,
 }
 
 impl Iterator<Path> for Directories {
     fn next(&mut self) -> Option<Path> {
-        match self.stack.shift() {
+        match self.stack.pop() {
             Some(path) => {
                 if path.is_dir() {
                     match readdir(&path) {
@@ -651,18 +648,21 @@ impl Seek for File {
 impl path::Path {
     /// Get information on the file, directory, etc at this path.
     ///
-    /// Consult the `file::stat` documentation for more info.
+    /// Consult the `fs::stat` documentation for more info.
     ///
     /// This call preserves identical runtime/error semantics with `file::stat`.
     pub fn stat(&self) -> IoResult<FileStat> { stat(self) }
 
+    /// Get information on the file, directory, etc at this path, not following
+    /// symlinks.
+    ///
+    /// Consult the `fs::lstat` documentation for more info.
+    ///
+    /// This call preserves identical runtime/error semantics with `file::lstat`.
+    pub fn lstat(&self) -> IoResult<FileStat> { lstat(self) }
+
     /// Boolean value indicator whether the underlying file exists on the local
-    /// filesystem. This will return true if the path points to either a
-    /// directory or a file.
-    ///
-    /// # Error
-    ///
-    /// Will not raise a condition
+    /// filesystem. Returns false in exactly the cases where `fs::stat` fails.
     pub fn exists(&self) -> bool {
         self.stat().is_ok()
     }
@@ -670,11 +670,7 @@ impl path::Path {
     /// Whether the underlying implementation (be it a file path, or something
     /// else) points at a "regular file" on the FS. Will return false for paths
     /// to non-existent locations or directories or other non-regular files
-    /// (named pipes, etc).
-    ///
-    /// # Error
-    ///
-    /// Will not raise a condition
+    /// (named pipes, etc). Follows links when making this determination.
     pub fn is_file(&self) -> bool {
         match self.stat() {
             Ok(s) => s.kind == io::TypeFile,
@@ -682,14 +678,11 @@ impl path::Path {
         }
     }
 
-    /// Whether the underlying implementation (be it a file path,
-    /// or something else) is pointing at a directory in the underlying FS.
-    /// Will return false for paths to non-existent locations or if the item is
-    /// not a directory (eg files, named pipes, links, etc)
-    ///
-    /// # Error
-    ///
-    /// Will not raise a condition
+    /// Whether the underlying implementation (be it a file path, or something
+    /// else) is pointing at a directory in the underlying FS. Will return
+    /// false for paths to non-existent locations or if the item is not a
+    /// directory (eg files, named pipes, etc). Follows links when making this
+    /// determination.
     pub fn is_dir(&self) -> bool {
         match self.stat() {
             Ok(s) => s.kind == io::TypeDirectory,
@@ -711,6 +704,7 @@ mod test {
     use path::Path;
     use io;
     use ops::Drop;
+    use str::StrSlice;
 
     macro_rules! check( ($e:expr) => (
         match $e {
@@ -896,8 +890,10 @@ mod test {
             let msg = "hw";
             fs.write(msg.as_bytes()).unwrap();
         }
-        let stat_res = check!(stat(filename));
-        assert_eq!(stat_res.kind, io::TypeFile);
+        let stat_res_fn = check!(stat(filename));
+        assert_eq!(stat_res_fn.kind, io::TypeFile);
+        let stat_res_meth = check!(filename.stat());
+        assert_eq!(stat_res_meth.kind, io::TypeFile);
         check!(unlink(filename));
     })
 
@@ -905,8 +901,10 @@ mod test {
         let tmpdir = tmpdir();
         let filename = &tmpdir.join("file_stat_correct_on_is_dir");
         check!(mkdir(filename, io::UserRWX));
-        let stat_res = check!(filename.stat());
-        assert!(stat_res.kind == io::TypeDirectory);
+        let stat_res_fn = check!(stat(filename));
+        assert!(stat_res_fn.kind == io::TypeDirectory);
+        let stat_res_meth = check!(filename.stat());
+        assert!(stat_res_meth.kind == io::TypeDirectory);
         check!(rmdir(filename));
     })
 
@@ -967,6 +965,32 @@ mod test {
             check!(unlink(f));
         }
         check!(rmdir(dir));
+    })
+
+    iotest!(fn file_test_walk_dir() {
+        let tmpdir = tmpdir();
+        let dir = &tmpdir.join("walk_dir");
+        check!(mkdir(dir, io::UserRWX));
+
+        let dir1 = &dir.join("01/02/03");
+        check!(mkdir_recursive(dir1, io::UserRWX));
+        check!(File::create(&dir1.join("04")));
+
+        let dir2 = &dir.join("11/12/13");
+        check!(mkdir_recursive(dir2, io::UserRWX));
+        check!(File::create(&dir2.join("14")));
+
+        let mut files = check!(walk_dir(dir));
+        let mut cur = [0u8, .. 2];
+        for f in files {
+            let stem = f.filestem_str().unwrap();
+            let root = stem[0] - ('0' as u8);
+            let name = stem[1] - ('0' as u8);
+            assert!(cur[root as uint] < name);
+            cur[root as uint] = name;
+        }
+
+        check!(rmdir_recursive(dir));
     })
 
     iotest!(fn recursive_mkdir() {
@@ -1111,6 +1135,7 @@ mod test {
         check!(symlink(&input, &out));
         if cfg!(not(windows)) {
             assert_eq!(check!(lstat(&out)).kind, io::TypeSymlink);
+            assert_eq!(check!(out.lstat()).kind, io::TypeSymlink);
         }
         assert_eq!(check!(stat(&out)).size, check!(stat(&input)).size);
         assert_eq!(check!(File::open(&out).read_to_end()),
@@ -1142,9 +1167,12 @@ mod test {
         check!(link(&input, &out));
         if cfg!(not(windows)) {
             assert_eq!(check!(lstat(&out)).kind, io::TypeFile);
+            assert_eq!(check!(out.lstat()).kind, io::TypeFile);
             assert_eq!(check!(stat(&out)).unstable.nlink, 2);
+            assert_eq!(check!(out.stat()).unstable.nlink, 2);
         }
         assert_eq!(check!(stat(&out)).size, check!(stat(&input)).size);
+        assert_eq!(check!(stat(&out)).size, check!(input.stat()).size);
         assert_eq!(check!(File::open(&out).read_to_end()),
                    (Vec::from_slice(bytes!("foobar"))));
 

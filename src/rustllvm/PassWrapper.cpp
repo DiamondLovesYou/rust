@@ -110,13 +110,15 @@ LLVMRustCreateTargetMachine(const char *triple,
     const llvm::Target *TheTarget = TargetRegistry::lookupTarget(Trip.getTriple(),
                                                                  Error);
     if (TheTarget == NULL) {
-        LLVMRustError = Error.c_str();
+        LLVMRustSetLastError(Error.c_str());
         return NULL;
     }
 
     TargetOptions Options;
     Options.NoFramePointerElim = NoFramePointerElim;
+#if LLVM_VERSION_MINOR < 5
     Options.EnableSegmentedStacks = EnableSegmentedStacks;
+#endif
     Options.FloatABIType = FloatABI::Default;
     Options.UseSoftFloat = UseSoftFloat;
     if (UseSoftFloat) {
@@ -146,8 +148,11 @@ LLVMRustAddAnalysisPasses(LLVMTargetMachineRef TM,
                           LLVMPassManagerRef PMR,
                           LLVMModuleRef M) {
     PassManagerBase *PM = unwrap(PMR);
+#if LLVM_VERSION_MINOR >= 5
+    PM->add(new DataLayoutPass(unwrap(M)));
+#else
     PM->add(new DataLayout(unwrap(M)));
-
+#endif
     if(TM != NULL) {
       unwrap(TM)->addAnalysisPasses(*PM);
     }
@@ -210,7 +215,7 @@ LLVMRustWriteOutputFile(LLVMTargetMachineRef Target,
   raw_fd_ostream OS(path, ErrorInfo, raw_fd_ostream::F_Binary);
 #endif
   if (ErrorInfo != "") {
-    LLVMRustError = ErrorInfo.c_str();
+    LLVMRustSetLastError(ErrorInfo.c_str());
     return false;
   }
   formatted_raw_ostream FOS(OS);

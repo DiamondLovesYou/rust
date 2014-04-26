@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
-#[crate_id="req"];
-#[crate_type = "lib"];
+#![feature(managed_boxes)]
+#![crate_id="req"]
+#![crate_type = "lib"]
 
 extern crate collections;
 
@@ -21,5 +21,5 @@ pub type header_map = HashMap<~str, @RefCell<Vec<@~str>>>;
 
 // the unused ty param is necessary so this gets monomorphized
 pub fn request<T>(req: &header_map) {
-  let _x = (**((**req.get(&~"METHOD")).clone()).borrow().clone().get(0)).clone();
+  let _x = (**((**req.get(&"METHOD".to_owned())).clone()).borrow().clone().get(0)).clone();
 }

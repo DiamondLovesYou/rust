@@ -15,16 +15,11 @@
 
 extern crate collections;
 
-use std::cmp::Ord;
-use std::comm;
 use collections::HashMap;
 use std::mem::replace;
 use std::option;
 use std::os;
-use std::io;
-use std::str;
-use std::task;
-use std::vec;
+use std::strbuf::StrBuf;
 
 fn f64_cmp(x: f64, y: f64) -> Ordering {
     // arbitrarily decide that NaNs are larger than everything.
@@ -63,19 +58,16 @@ fn sort_and_fmt(mm: &HashMap<Vec<u8> , uint>, total: uint) -> ~str {
 
    let pairs_sorted = sortKV(pairs);
 
-   let mut buffer = ~"";
-
+   let mut buffer = StrBuf::new();
    for &(ref k, v) in pairs_sorted.iter() {
-       unsafe {
-           buffer.push_str(format!("{} {:0.3f}\n",
-                                   k.as_slice()
-                                    .to_ascii()
-                                    .to_upper()
-                                    .into_str(), v));
-       }
+       buffer.push_str(format!("{} {:0.3f}\n",
+                               k.as_slice()
+                               .to_ascii()
+                               .to_upper()
+                               .into_str(), v));
    }
 
-   return buffer;
+   return buffer.into_owned();
 }
 
 // given a map, search for the frequency of a pattern
@@ -137,12 +129,13 @@ fn make_sequence_processor(sz: uint,
    let buffer = match sz {
        1u => { sort_and_fmt(&freqs, total) }
        2u => { sort_and_fmt(&freqs, total) }
-       3u => { format!("{}\t{}", find(&freqs, ~"GGT"), "GGT") }
-       4u => { format!("{}\t{}", find(&freqs, ~"GGTA"), "GGTA") }
-       6u => { format!("{}\t{}", find(&freqs, ~"GGTATT"), "GGTATT") }
-      12u => { format!("{}\t{}", find(&freqs, ~"GGTATTTTAATT"), "GGTATTTTAATT") }
-      18u => { format!("{}\t{}", find(&freqs, ~"GGTATTTTAATTTATAGT"), "GGTATTTTAATTTATAGT") }
-        _ => { ~"" }
+       3u => { format!("{}\t{}", find(&freqs, "GGT".to_owned()), "GGT") }
+       4u => { format!("{}\t{}", find(&freqs, "GGTA".to_owned()), "GGTA") }
+       6u => { format!("{}\t{}", find(&freqs, "GGTATT".to_owned()), "GGTATT") }
+      12u => { format!("{}\t{}", find(&freqs, "GGTATTTTAATT".to_owned()), "GGTATTTTAATT") }
+      18u => { format!("{}\t{}", find(&freqs, "GGTATTTTAATTTATAGT".to_owned()),
+                       "GGTATTTTAATTTATAGT") }
+        _ => { "".to_owned() }
    };
 
     to_parent.send(buffer);

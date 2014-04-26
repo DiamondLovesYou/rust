@@ -107,9 +107,9 @@ impl<'a> Parser<'a> {
     }
 
     // Return result of first successful parser
-    fn read_or<T>(&mut self, parsers: &[|&mut Parser| -> Option<T>])
+    fn read_or<T>(&mut self, parsers: &mut [|&mut Parser| -> Option<T>])
                -> Option<T> {
-        for pf in parsers.iter() {
+        for pf in parsers.mut_iter() {
             match self.read_atomically(|p: &mut Parser| (*pf)(p)) {
                 Some(r) => return Some(r),
                 None => {}
@@ -305,7 +305,7 @@ impl<'a> Parser<'a> {
     fn read_ip_addr(&mut self) -> Option<IpAddr> {
         let ipv4_addr = |p: &mut Parser| p.read_ipv4_addr();
         let ipv6_addr = |p: &mut Parser| p.read_ipv6_addr();
-        self.read_or([ipv4_addr, ipv6_addr])
+        self.read_or(&mut [ipv4_addr, ipv6_addr])
     }
 
     fn read_socket_addr(&mut self) -> Option<SocketAddr> {
@@ -318,7 +318,7 @@ impl<'a> Parser<'a> {
                 p.read_seq_3::<char, IpAddr, char>(open_br, ip_addr, clos_br)
                         .map(|t| match t { (_, ip, _) => ip })
             };
-            p.read_or([ipv4_p, ipv6_p])
+            p.read_or(&mut [ipv4_p, ipv6_p])
         };
         let colon = |p: &mut Parser| p.read_given_char(':');
         let port  = |p: &mut Parser| p.read_number(10, 5, 0x10000).map(|n| n as u16);
@@ -445,7 +445,8 @@ mod test {
     #[test]
     fn ipv6_addr_to_str() {
         let a1 = Ipv6Addr(0, 0, 0, 0, 0, 0xffff, 0xc000, 0x280);
-        assert!(a1.to_str() == ~"::ffff:192.0.2.128" || a1.to_str() == ~"::FFFF:192.0.2.128");
-        assert_eq!(Ipv6Addr(8, 9, 10, 11, 12, 13, 14, 15).to_str(), ~"8:9:a:b:c:d:e:f");
+        assert!(a1.to_str() == "::ffff:192.0.2.128".to_owned() ||
+                a1.to_str() == "::FFFF:192.0.2.128".to_owned());
+        assert_eq!(Ipv6Addr(8, 9, 10, 11, 12, 13, 14, 15).to_str(), "8:9:a:b:c:d:e:f".to_owned());
     }
 }

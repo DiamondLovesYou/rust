@@ -50,13 +50,13 @@ fn ops() -> ~Ops {
 }
 
 /// Spawns a function with the default configuration
-pub fn spawn(f: proc:Send()) {
+pub fn spawn(f: proc():Send) {
     spawn_opts(TaskOpts::new(), f)
 }
 
 /// Spawns a new task given the configuration options and a procedure to run
 /// inside the task.
-pub fn spawn_opts(opts: TaskOpts, f: proc:Send()) {
+pub fn spawn_opts(opts: TaskOpts, f: proc():Send) {
     let TaskOpts {
         notify_chan, name, stack_size,
         stderr, stdout,
@@ -201,19 +201,30 @@ impl rt::Runtime for Ops {
                     Err(task) => { cast::forget(task.wake()); }
                 }
             } else {
-                let mut iter = task.make_selectable(times);
+                let iter = task.make_selectable(times);
                 let guard = (*me).lock.lock();
                 (*me).awoken = false;
-                let success = iter.all(|task| {
-                    match f(task) {
-                        Ok(()) => true,
-                        Err(task) => {
-                            cast::forget(task.wake());
-                            false
+
+                // Apply the given closure to all of the "selectable tasks",
+                // bailing on the first one that produces an error. Note that
+                // care must be taken such that when an error is occurred, we
+                // may not own the task, so we may still have to wait for the
+                // task to become available. In other words, if task.wake()
+                // returns `None`, then someone else has ownership and we must
+                // wait for their signal.
+                match iter.map(f).filter_map(|a| a.err()).next() {
+                    None => {}
+                    Some(task) => {
+                        match task.wake() {
+                            Some(task) => {
+                                cast::forget(task);
+                                (*me).awoken = true;
+                            }
+                            None => {}
                         }
                     }
-                });
-                while success && !(*me).awoken {
+                }
+                while !(*me).awoken {
                     guard.wait();
                 }
             }
@@ -238,7 +249,7 @@ impl rt::Runtime for Ops {
         }
     }
 
-    fn spawn_sibling(~self, mut cur_task: ~Task, opts: TaskOpts, f: proc:Send()) {
+    fn spawn_sibling(~self, mut cur_task: ~Task, opts: TaskOpts, f: proc():Send) {
         cur_task.put_runtime(self);
         Local::put(cur_task);
 
@@ -274,7 +285,7 @@ mod tests {
             let _tx = tx;
             fail!()
         });
-        assert_eq!(rx.recv_opt(), None);
+        assert_eq!(rx.recv_opt(), Err(()));
     }
 
     #[test]

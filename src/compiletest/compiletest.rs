@@ -94,7 +94,7 @@ pub fn parse_config(args: Vec<~str> ) -> config {
     assert!(!args.is_empty());
     let argv0 = (*args.get(0)).clone();
     let args_ = args.tail();
-    if *args.get(1) == ~"-h" || *args.get(1) == ~"--help" {
+    if *args.get(1) == "-h".to_owned() || *args.get(1) == "--help".to_owned() {
         let message = format!("Usage: {} [OPTIONS] [TESTNAME...]", argv0);
         println!("{}", getopts::usage(message, groups.as_slice()));
         println!("");
@@ -183,7 +183,7 @@ pub fn log_config(config: &config) {
     logv(c, format!("adb_test_dir: {}", config.adb_test_dir));
     logv(c, format!("adb_device_status: {}", config.adb_device_status));
     match config.test_shard {
-        None => logv(c, ~"test_shard: (all)"),
+        None => logv(c, "test_shard: (all)".to_owned()),
         Some((a,b)) => logv(c, format!("test_shard: {}.{}", a, b))
     }
     logv(c, format!("verbose: {}", config.verbose));
@@ -201,7 +201,7 @@ pub fn opt_str<'a>(maybestr: &'a Option<~str>) -> &'a str {
 }
 
 pub fn opt_str2(maybestr: Option<~str>) -> ~str {
-    match maybestr { None => ~"(none)", Some(s) => { s } }
+    match maybestr { None => "(none)".to_owned(), Some(s) => { s } }
 }
 
 pub fn str_mode(s: ~str) -> mode {
@@ -218,17 +218,17 @@ pub fn str_mode(s: ~str) -> mode {
 
 pub fn mode_str(mode: mode) -> ~str {
     match mode {
-      mode_compile_fail => ~"compile-fail",
-      mode_run_fail => ~"run-fail",
-      mode_run_pass => ~"run-pass",
-      mode_pretty => ~"pretty",
-      mode_debug_info => ~"debug-info",
-      mode_codegen => ~"codegen",
+      mode_compile_fail => "compile-fail".to_owned(),
+      mode_run_fail => "run-fail".to_owned(),
+      mode_run_pass => "run-pass".to_owned(),
+      mode_pretty => "pretty".to_owned(),
+      mode_debug_info => "debug-info".to_owned(),
+      mode_codegen => "codegen".to_owned(),
     }
 }
 
 pub fn run_tests(config: &config) {
-    if config.target == ~"arm-linux-androideabi" {
+    if config.target == "arm-linux-androideabi".to_owned() {
         match config.mode{
             mode_debug_info => {
                 println!("arm-linux-androideabi debug-info \
@@ -269,7 +269,8 @@ pub fn test_opts(config: &config) -> test::TestOpts {
         ratchet_metrics: config.ratchet_metrics.clone(),
         ratchet_noise_percent: config.ratchet_noise_percent.clone(),
         save_metrics: config.save_metrics.clone(),
-        test_shard: config.test_shard.clone()
+        test_shard: config.test_shard.clone(),
+        nocapture: false,
     }
 }
 
@@ -298,10 +299,10 @@ pub fn is_test(config: &config, testfile: &Path) -> bool {
     // Pretty-printer does not work with .rc files yet
     let valid_extensions =
         match config.mode {
-          mode_pretty => vec!(~".rs"),
-          _ => vec!(~".rc", ~".rs")
+          mode_pretty => vec!(".rs".to_owned()),
+          _ => vec!(".rc".to_owned(), ".rs".to_owned())
         };
-    let invalid_prefixes = vec!(~".", ~"#", ~"~");
+    let invalid_prefixes = vec!(".".to_owned(), "#".to_owned(), "~".to_owned());
     let name = testfile.filename_str().unwrap();
 
     let mut valid = false;

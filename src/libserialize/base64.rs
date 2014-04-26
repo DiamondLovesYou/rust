@@ -79,7 +79,7 @@ impl<'a> ToBase64 for &'a [u8] {
             UrlSafe => URLSAFE_CHARS
         };
 
-        let mut v: ~[u8] = ~[];
+        let mut v = Vec::new();
         let mut i = 0;
         let mut cur_length = 0;
         let len = self.len();
@@ -146,7 +146,7 @@ impl<'a> ToBase64 for &'a [u8] {
         }
 
         unsafe {
-            str::raw::from_utf8_owned(v)
+            str::raw::from_utf8_owned(v.move_iter().collect())
         }
     }
 }
@@ -208,7 +208,7 @@ impl<'a> FromBase64 for &'a str {
      * ```
      */
     fn from_base64(&self) -> Result<~[u8], FromBase64Error> {
-        let mut r = ~[];
+        let mut r = Vec::new();
         let mut buf: u32 = 0;
         let mut modulus = 0;
 
@@ -256,7 +256,7 @@ impl<'a> FromBase64 for &'a str {
             _ => return Err(InvalidBase64Length),
         }
 
-        Ok(r)
+        Ok(r.move_iter().collect())
     }
 }
 
@@ -264,18 +264,18 @@ impl<'a> FromBase64 for &'a str {
 mod tests {
     extern crate test;
     extern crate rand;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use base64::{Config, FromBase64, ToBase64, STANDARD, URL_SAFE};
 
     #[test]
     fn test_to_base64_basic() {
-        assert_eq!("".as_bytes().to_base64(STANDARD), ~"");
-        assert_eq!("f".as_bytes().to_base64(STANDARD), ~"Zg==");
-        assert_eq!("fo".as_bytes().to_base64(STANDARD), ~"Zm8=");
-        assert_eq!("foo".as_bytes().to_base64(STANDARD), ~"Zm9v");
-        assert_eq!("foob".as_bytes().to_base64(STANDARD), ~"Zm9vYg==");
-        assert_eq!("fooba".as_bytes().to_base64(STANDARD), ~"Zm9vYmE=");
-        assert_eq!("foobar".as_bytes().to_base64(STANDARD), ~"Zm9vYmFy");
+        assert_eq!("".as_bytes().to_base64(STANDARD), "".to_owned());
+        assert_eq!("f".as_bytes().to_base64(STANDARD), "Zg==".to_owned());
+        assert_eq!("fo".as_bytes().to_base64(STANDARD), "Zm8=".to_owned());
+        assert_eq!("foo".as_bytes().to_base64(STANDARD), "Zm9v".to_owned());
+        assert_eq!("foob".as_bytes().to_base64(STANDARD), "Zm9vYg==".to_owned());
+        assert_eq!("fooba".as_bytes().to_base64(STANDARD), "Zm9vYmE=".to_owned());
+        assert_eq!("foobar".as_bytes().to_base64(STANDARD), "Zm9vYmFy".to_owned());
     }
 
     #[test]
@@ -284,19 +284,19 @@ mod tests {
                 .contains("\r\n"));
         assert_eq!("foobar".as_bytes().to_base64(Config {line_length: Some(4),
                                                          ..STANDARD}),
-                   ~"Zm9v\r\nYmFy");
+                   "Zm9v\r\nYmFy".to_owned());
     }
 
     #[test]
     fn test_to_base64_padding() {
-        assert_eq!("f".as_bytes().to_base64(Config {pad: false, ..STANDARD}), ~"Zg");
-        assert_eq!("fo".as_bytes().to_base64(Config {pad: false, ..STANDARD}), ~"Zm8");
+        assert_eq!("f".as_bytes().to_base64(Config {pad: false, ..STANDARD}), "Zg".to_owned());
+        assert_eq!("fo".as_bytes().to_base64(Config {pad: false, ..STANDARD}), "Zm8".to_owned());
     }
 
     #[test]
     fn test_to_base64_url_safe() {
-        assert_eq!([251, 255].to_base64(URL_SAFE), ~"-_8");
-        assert_eq!([251, 255].to_base64(STANDARD), ~"+/8=");
+        assert_eq!([251, 255].to_base64(URL_SAFE), "-_8".to_owned());
+        assert_eq!([251, 255].to_base64(STANDARD), "+/8=".to_owned());
     }
 
     #[test]
@@ -337,34 +337,34 @@ mod tests {
     #[test]
     fn test_base64_random() {
         use self::rand::{task_rng, random, Rng};
-        use std::slice;
 
         for _ in range(0, 1000) {
             let times = task_rng().gen_range(1u, 100);
-            let v = slice::from_fn(times, |_| random::<u8>());
-            assert_eq!(v.to_base64(STANDARD).from_base64().unwrap(), v);
+            let v = Vec::from_fn(times, |_| random::<u8>());
+            assert_eq!(v.as_slice().to_base64(STANDARD).from_base64().unwrap(),
+                       v.as_slice().to_owned());
         }
     }
 
     #[bench]
-    pub fn bench_to_base64(bh: & mut BenchHarness) {
+    pub fn bench_to_base64(b: &mut Bencher) {
         let s = "イロハニホヘト チリヌルヲ ワカヨタレソ ツネナラム \
                  ウヰノオクヤマ ケフコエテ アサキユメミシ ヱヒモセスン";
-        bh.iter(|| {
+        b.iter(|| {
             s.as_bytes().to_base64(STANDARD);
         });
-        bh.bytes = s.len() as u64;
+        b.bytes = s.len() as u64;
     }
 
     #[bench]
-    pub fn bench_from_base64(bh: & mut BenchHarness) {
+    pub fn bench_from_base64(b: &mut Bencher) {
         let s = "イロハニホヘト チリヌルヲ ワカヨタレソ ツネナラム \
                  ウヰノオクヤマ ケフコエテ アサキユメミシ ヱヒモセスン";
-        let b = s.as_bytes().to_base64(STANDARD);
-        bh.iter(|| {
-            b.from_base64().unwrap();
+        let sb = s.as_bytes().to_base64(STANDARD);
+        b.iter(|| {
+            sb.from_base64().unwrap();
         });
-        bh.bytes = b.len() as u64;
+        b.bytes = sb.len() as u64;
     }
 
 }

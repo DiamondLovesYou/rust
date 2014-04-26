@@ -11,7 +11,7 @@
 //! Support code for rustc's built in unit-test and micro-benchmarking
 //! framework.
 //!
-//! Almost all user code will only be interested in `BenchHarness` and
+//! Almost all user code will only be interested in `Bencher` and
 //! `black_box`. All other interactions (such as writing tests and
 //! benchmarks themselves) should be done via the `#[test]` and
 //! `#[bench]` attributes.
@@ -59,11 +59,12 @@ use std::io::{File, ChanReader, ChanWriter};
 use std::io;
 use std::os;
 use std::str;
-use std::task;
+use std::strbuf::StrBuf;
+use std::task::TaskBuilder;
 
 // to be used by rustc to compile tests in libtest
 pub mod test {
-    pub use {BenchHarness, TestName, TestResult, TestDesc,
+    pub use {Bencher, TestName, TestResult, TestDesc,
              TestDescAndFn, TestOpts, TrFailed, TrIgnored, TrOk,
              Metric, MetricMap, MetricAdded, MetricRemoved,
              MetricChange, Improvement, Regression, LikelyNoise,
@@ -99,20 +100,26 @@ enum NamePadding { PadNone, PadOnLeft, PadOnRight }
 impl TestDesc {
     fn padded_name(&self, column_count: uint, align: NamePadding) -> ~str {
         use std::num::Saturating;
-        let name = self.name.to_str();
+        let mut name = StrBuf::from_str(self.name.to_str());
         let fill = column_count.saturating_sub(name.len());
-        let pad = " ".repeat(fill);
+        let mut pad = StrBuf::from_owned_str(" ".repeat(fill));
         match align {
-            PadNone => name,
-            PadOnLeft => pad.append(name),
-            PadOnRight => name.append(pad),
+            PadNone => name.into_owned(),
+            PadOnLeft => {
+                pad.push_str(name.as_slice());
+                pad.into_owned()
+            }
+            PadOnRight => {
+                name.push_str(pad.as_slice());
+                name.into_owned()
+            }
         }
     }
 }
 
 /// Represents a benchmark function.
 pub trait TDynBenchFn {
-    fn run(&self, harness: &mut BenchHarness);
+    fn run(&self, harness: &mut Bencher);
 }
 
 // A function that runs a test. If the function returns successfully,
@@ -121,9 +128,9 @@ pub trait TDynBenchFn {
 // to support isolation of tests into tasks.
 pub enum TestFn {
     StaticTestFn(fn()),
-    StaticBenchFn(fn(&mut BenchHarness)),
+    StaticBenchFn(fn(&mut Bencher)),
     StaticMetricFn(proc(&mut MetricMap)),
-    DynTestFn(proc:Send()),
+    DynTestFn(proc():Send),
     DynMetricFn(proc(&mut MetricMap)),
     DynBenchFn(~TDynBenchFn)
 }
@@ -146,7 +153,7 @@ impl TestFn {
 /// This is feed into functions marked with `#[bench]` to allow for
 /// set-up & tear-down before running a piece of code repeatedly via a
 /// call to `iter`.
-pub struct BenchHarness {
+pub struct Bencher {
     iterations: u64,
     ns_start: u64,
     ns_end: u64,
@@ -250,7 +257,26 @@ pub struct TestOpts {
     pub ratchet_noise_percent: Option<f64>,
     pub save_metrics: Option<Path>,
     pub test_shard: Option<(uint,uint)>,
-    pub logfile: Option<Path>
+    pub logfile: Option<Path>,
+    pub nocapture: bool,
+}
+
+impl TestOpts {
+    #[cfg(test)]
+    fn new() -> TestOpts {
+        TestOpts {
+            filter: None,
+            run_ignored: false,
+            run_tests: false,
+            run_benchmarks: false,
+            ratchet_metrics: None,
+            ratchet_noise_percent: None,
+            save_metrics: None,
+            test_shard: None,
+            logfile: None,
+            nocapture: false,
+        }
+    }
 }
 
 /// Result of parsing the options.
@@ -273,7 +299,9 @@ fn optgroups() -> Vec<getopts::OptGroup> {
       getopts::optopt("", "logfile", "Write logs to the specified file instead \
                           of stdout", "PATH"),
       getopts::optopt("", "test-shard", "run shard A, of B shards, worth of the testsuite",
-                     "A.B"))
+                     "A.B"),
+      getopts::optflag("", "nocapture", "don't capture stdout/stderr of each \
+                                         task, allow printing directly"))
 }
 
 fn usage(binary: &str, helpstr: &str) {
@@ -288,12 +316,16 @@ have a substring match, only those tests are run.
 By default, all tests are run in parallel. This can be altered with the
 RUST_TEST_TASKS environment variable when running tests (set it to 1).
 
+All tests have their standard output and standard error captured by default.
+This can be overridden with the --nocapture flag or the RUST_TEST_NOCAPTURE=1
+environment variable. Logging is not captured by default.
+
 Test Attributes:
 
     #[test]        - Indicates a function is a test to be run. This function
                      takes no arguments.
     #[bench]       - Indicates a function is a benchmark to be run. This
-                     function takes one argument (test::BenchHarness).
+                     function takes one argument (test::Bencher).
     #[should_fail] - This function (also labeled with #[test]) will only pass if
                      the code causes a failure (an assertion failure or fail!)
     #[ignore]      - When applied to a function which is already attributed as a
@@ -344,6 +376,11 @@ pub fn parse_opts(args: &[~str]) -> Option<OptRes> {
     let test_shard = matches.opt_str("test-shard");
     let test_shard = opt_shard(test_shard);
 
+    let mut nocapture = matches.opt_present("nocapture");
+    if !nocapture {
+        nocapture = os::getenv("RUST_TEST_NOCAPTURE").is_some();
+    }
+
     let test_opts = TestOpts {
         filter: filter,
         run_ignored: run_ignored,
@@ -353,7 +390,8 @@ pub fn parse_opts(args: &[~str]) -> Option<OptRes> {
         ratchet_noise_percent: ratchet_noise_percent,
         save_metrics: save_metrics,
         test_shard: test_shard,
-        logfile: logfile
+        logfile: logfile,
+        nocapture: nocapture,
     };
 
     Some(Ok(test_opts))
@@ -529,9 +567,9 @@ impl<T: Writer> ConsoleTestState<T> {
             None => Ok(()),
             Some(ref mut o) => {
                 let s = format!("{} {}\n", match *result {
-                        TrOk => ~"ok",
-                        TrFailed => ~"failed",
-                        TrIgnored => ~"ignored",
+                        TrOk => "ok".to_owned(),
+                        TrFailed => "failed".to_owned(),
+                        TrIgnored => "ignored".to_owned(),
                         TrMetrics(ref mm) => fmt_metrics(mm),
                         TrBench(ref bs) => fmt_bench_samples(bs)
                     }, test.name.to_str());
@@ -543,7 +581,7 @@ impl<T: Writer> ConsoleTestState<T> {
     pub fn write_failures(&mut self) -> io::IoResult<()> {
         try!(self.write_plain("\nfailures:\n"));
         let mut failures = Vec::new();
-        let mut fail_out  = ~"";
+        let mut fail_out = StrBuf::new();
         for &(ref f, ref stdout) in self.failures.iter() {
             failures.push(f.name.to_str());
             if stdout.len() > 0 {
@@ -556,7 +594,7 @@ impl<T: Writer> ConsoleTestState<T> {
         }
         if fail_out.len() > 0 {
             try!(self.write_plain("\n"));
-            try!(self.write_plain(fail_out));
+            try!(self.write_plain(fail_out.as_slice()));
         }
 
         try!(self.write_plain("\nfailures:\n"));
@@ -836,7 +874,7 @@ fn run_tests(opts: &TestOpts,
                 // that hang forever.
                 try!(callback(TeWait(test.desc.clone(), test.testfn.padding())));
             }
-            run_test(!opts.run_tests, test, tx.clone());
+            run_test(opts, !opts.run_tests, test, tx.clone());
             pending += 1;
         }
 
@@ -852,7 +890,7 @@ fn run_tests(opts: &TestOpts,
     // (this includes metric fns)
     for b in filtered_benchs_and_metrics.move_iter() {
         try!(callback(TeWait(b.desc.clone(), b.testfn.padding())));
-        run_test(!opts.run_benchmarks, b, tx.clone());
+        run_test(opts, !opts.run_benchmarks, b, tx.clone());
         let (test, result, stdout) = rx.recv();
         try!(callback(TeResult(test, result, stdout)));
     }
@@ -886,7 +924,7 @@ pub fn filter_tests(
     } else {
         let filter_str = match opts.filter {
           Some(ref f) => (*f).clone(),
-          None => ~""
+          None => "".to_owned()
         };
 
         fn filter_fn(test: TestDescAndFn, filter_str: &str) ->
@@ -934,7 +972,8 @@ pub fn filter_tests(
     }
 }
 
-pub fn run_test(force_ignore: bool,
+pub fn run_test(opts: &TestOpts,
+                force_ignore: bool,
                 test: TestDescAndFn,
                 monitor_ch: Sender<MonitorMsg>) {
 
@@ -948,18 +987,23 @@ pub fn run_test(force_ignore: bool,
     #[allow(deprecated_owned_vector)]
     fn run_test_inner(desc: TestDesc,
                       monitor_ch: Sender<MonitorMsg>,
-                      testfn: proc:Send()) {
+                      nocapture: bool,
+                      testfn: proc():Send) {
         spawn(proc() {
             let (tx, rx) = channel();
             let mut reader = ChanReader::new(rx);
             let stdout = ChanWriter::new(tx.clone());
             let stderr = ChanWriter::new(tx);
-            let mut task = task::task().named(match desc.name {
+            let mut task = TaskBuilder::new().named(match desc.name {
                 DynTestName(ref name) => name.clone().into_maybe_owned(),
                 StaticTestName(name) => name.into_maybe_owned(),
             });
-            task.opts.stdout = Some(~stdout as ~Writer:Send);
-            task.opts.stderr = Some(~stderr as ~Writer:Send);
+            if nocapture {
+                drop((stdout, stderr));
+            } else {
+                task.opts.stdout = Some(~stdout as ~Writer:Send);
+                task.opts.stderr = Some(~stderr as ~Writer:Send);
+            }
             let result_future = task.future_result();
             task.spawn(testfn);
 
@@ -993,8 +1037,9 @@ pub fn run_test(force_ignore: bool,
             monitor_ch.send((desc, TrMetrics(mm), Vec::new()));
             return;
         }
-        DynTestFn(f) => run_test_inner(desc, monitor_ch, f),
-        StaticTestFn(f) => run_test_inner(desc, monitor_ch, proc() f())
+        DynTestFn(f) => run_test_inner(desc, monitor_ch, opts.nocapture, f),
+        StaticTestFn(f) => run_test_inner(desc, monitor_ch, opts.nocapture,
+                                          proc() f())
     }
 }
 
@@ -1012,8 +1057,8 @@ fn calc_result(desc: &TestDesc, task_succeeded: bool) -> TestResult {
 impl ToJson for Metric {
     fn to_json(&self) -> json::Json {
         let mut map = ~TreeMap::new();
-        map.insert(~"value", json::Number(self.value));
-        map.insert(~"noise", json::Number(self.noise));
+        map.insert("value".to_owned(), json::Number(self.value));
+        map.insert("noise".to_owned(), json::Number(self.noise));
         json::Object(map)
     }
 }
@@ -1171,7 +1216,7 @@ pub fn black_box<T>(dummy: T) {
 }
 
 
-impl BenchHarness {
+impl Bencher {
     /// Callback for benchmark functions to run in their body.
     pub fn iter<T>(&mut self, inner: || -> T) {
         self.ns_start = precise_time_ns();
@@ -1198,13 +1243,13 @@ impl BenchHarness {
         }
     }
 
-    pub fn bench_n(&mut self, n: u64, f: |&mut BenchHarness|) {
+    pub fn bench_n(&mut self, n: u64, f: |&mut Bencher|) {
         self.iterations = n;
         f(self);
     }
 
     // This is a more statistics-driven benchmark algorithm
-    pub fn auto_bench(&mut self, f: |&mut BenchHarness|) -> stats::Summary {
+    pub fn auto_bench(&mut self, f: |&mut Bencher|) -> stats::Summary {
 
         // Initial bench run to get ballpark figure.
         let mut n = 1_u64;
@@ -1269,10 +1314,10 @@ impl BenchHarness {
 
 pub mod bench {
     use std::cmp;
-    use super::{BenchHarness, BenchSamples};
+    use super::{Bencher, BenchSamples};
 
-    pub fn benchmark(f: |&mut BenchHarness|) -> BenchSamples {
-        let mut bs = BenchHarness {
+    pub fn benchmark(f: |&mut Bencher|) -> BenchSamples {
+        let mut bs = Bencher {
             iterations: 0,
             ns_start: 0,
             ns_end: 0,
@@ -1313,7 +1358,7 @@ mod tests {
             testfn: DynTestFn(proc() f()),
         };
         let (tx, rx) = channel();
-        run_test(false, desc, tx);
+        run_test(&TestOpts::new(), false, desc, tx);
         let (_, res, _) = rx.recv();
         assert!(res != TrOk);
     }
@@ -1330,7 +1375,7 @@ mod tests {
             testfn: DynTestFn(proc() f()),
         };
         let (tx, rx) = channel();
-        run_test(false, desc, tx);
+        run_test(&TestOpts::new(), false, desc, tx);
         let (_, res, _) = rx.recv();
         assert!(res == TrIgnored);
     }
@@ -1347,7 +1392,7 @@ mod tests {
             testfn: DynTestFn(proc() f()),
         };
         let (tx, rx) = channel();
-        run_test(false, desc, tx);
+        run_test(&TestOpts::new(), false, desc, tx);
         let (_, res, _) = rx.recv();
         assert!(res == TrOk);
     }
@@ -1364,14 +1409,14 @@ mod tests {
             testfn: DynTestFn(proc() f()),
         };
         let (tx, rx) = channel();
-        run_test(false, desc, tx);
+        run_test(&TestOpts::new(), false, desc, tx);
         let (_, res, _) = rx.recv();
         assert!(res == TrFailed);
     }
 
     #[test]
     fn first_free_arg_should_be_a_filter() {
-        let args = vec!(~"progname", ~"filter");
+        let args = vec!("progname".to_owned(), "filter".to_owned());
         let opts = match parse_opts(args.as_slice()) {
             Some(Ok(o)) => o,
             _ => fail!("Malformed arg in first_free_arg_should_be_a_filter")
@@ -1381,7 +1426,7 @@ mod tests {
 
     #[test]
     fn parse_ignored_flag() {
-        let args = vec!(~"progname", ~"filter", ~"--ignored");
+        let args = vec!("progname".to_owned(), "filter".to_owned(), "--ignored".to_owned());
         let opts = match parse_opts(args.as_slice()) {
             Some(Ok(o)) => o,
             _ => fail!("Malformed arg in parse_ignored_flag")
@@ -1394,17 +1439,9 @@ mod tests {
         // When we run ignored tests the test filter should filter out all the
         // unignored tests and flip the ignore flag on the rest to false
 
-        let opts = TestOpts {
-            filter: None,
-            run_ignored: true,
-            logfile: None,
-            run_tests: true,
-            run_benchmarks: false,
-            ratchet_noise_percent: None,
-            ratchet_metrics: None,
-            save_metrics: None,
-            test_shard: None
-        };
+        let mut opts = TestOpts::new();
+        opts.run_tests = true;
+        opts.run_ignored = true;
 
         let tests = vec!(
             TestDescAndFn {
@@ -1426,31 +1463,22 @@ mod tests {
         let filtered = filter_tests(&opts, tests);
 
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered.get(0).desc.name.to_str(), ~"1");
+        assert_eq!(filtered.get(0).desc.name.to_str(), "1".to_owned());
         assert!(filtered.get(0).desc.ignore == false);
     }
 
     #[test]
     pub fn sort_tests() {
-        let opts = TestOpts {
-            filter: None,
-            run_ignored: false,
-            logfile: None,
-            run_tests: true,
-            run_benchmarks: false,
-            ratchet_noise_percent: None,
-            ratchet_metrics: None,
-            save_metrics: None,
-            test_shard: None
-        };
+        let mut opts = TestOpts::new();
+        opts.run_tests = true;
 
         let names =
-            vec!(~"sha1::test", ~"int::test_to_str", ~"int::test_pow",
-             ~"test::do_not_run_ignored_tests",
-             ~"test::ignored_tests_result_in_ignored",
-             ~"test::first_free_arg_should_be_a_filter",
-             ~"test::parse_ignored_flag", ~"test::filter_for_ignored_option",
-             ~"test::sort_tests");
+            vec!("sha1::test".to_owned(), "int::test_to_str".to_owned(), "int::test_pow".to_owned(),
+             "test::do_not_run_ignored_tests".to_owned(),
+             "test::ignored_tests_result_in_ignored".to_owned(),
+             "test::first_free_arg_should_be_a_filter".to_owned(),
+             "test::parse_ignored_flag".to_owned(), "test::filter_for_ignored_option".to_owned(),
+             "test::sort_tests".to_owned());
         let tests =
         {
             fn testfn() { }
@@ -1471,13 +1499,13 @@ mod tests {
         let filtered = filter_tests(&opts, tests);
 
         let expected =
-            vec!(~"int::test_pow", ~"int::test_to_str", ~"sha1::test",
-              ~"test::do_not_run_ignored_tests",
-              ~"test::filter_for_ignored_option",
-              ~"test::first_free_arg_should_be_a_filter",
-              ~"test::ignored_tests_result_in_ignored",
-              ~"test::parse_ignored_flag",
-              ~"test::sort_tests");
+            vec!("int::test_pow".to_owned(), "int::test_to_str".to_owned(), "sha1::test".to_owned(),
+              "test::do_not_run_ignored_tests".to_owned(),
+              "test::filter_for_ignored_option".to_owned(),
+              "test::first_free_arg_should_be_a_filter".to_owned(),
+              "test::ignored_tests_result_in_ignored".to_owned(),
+              "test::parse_ignored_flag".to_owned(),
+              "test::sort_tests".to_owned());
 
         for (a, b) in expected.iter().zip(filtered.iter()) {
             assert!(*a == b.desc.name.to_str());
@@ -1508,28 +1536,32 @@ mod tests {
 
         let diff1 = m2.compare_to_old(&m1, None);
 
-        assert_eq!(*(diff1.find(&~"in-both-noise").unwrap()), LikelyNoise);
-        assert_eq!(*(diff1.find(&~"in-first-noise").unwrap()), MetricRemoved);
-        assert_eq!(*(diff1.find(&~"in-second-noise").unwrap()), MetricAdded);
-        assert_eq!(*(diff1.find(&~"in-both-want-downwards-but-regressed").unwrap()),
+        assert_eq!(*(diff1.find(&"in-both-noise".to_owned()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff1.find(&"in-first-noise".to_owned()).unwrap()), MetricRemoved);
+        assert_eq!(*(diff1.find(&"in-second-noise".to_owned()).unwrap()), MetricAdded);
+        assert_eq!(*(diff1.find(&"in-both-want-downwards-but-regressed".to_owned()).unwrap()),
                    Regression(100.0));
-        assert_eq!(*(diff1.find(&~"in-both-want-downwards-and-improved").unwrap()),
+        assert_eq!(*(diff1.find(&"in-both-want-downwards-and-improved".to_owned()).unwrap()),
                    Improvement(50.0));
-        assert_eq!(*(diff1.find(&~"in-both-want-upwards-but-regressed").unwrap()),
+        assert_eq!(*(diff1.find(&"in-both-want-upwards-but-regressed".to_owned()).unwrap()),
                    Regression(50.0));
-        assert_eq!(*(diff1.find(&~"in-both-want-upwards-and-improved").unwrap()),
+        assert_eq!(*(diff1.find(&"in-both-want-upwards-and-improved".to_owned()).unwrap()),
                    Improvement(100.0));
         assert_eq!(diff1.len(), 7);
 
         let diff2 = m2.compare_to_old(&m1, Some(200.0));
 
-        assert_eq!(*(diff2.find(&~"in-both-noise").unwrap()), LikelyNoise);
-        assert_eq!(*(diff2.find(&~"in-first-noise").unwrap()), MetricRemoved);
-        assert_eq!(*(diff2.find(&~"in-second-noise").unwrap()), MetricAdded);
-        assert_eq!(*(diff2.find(&~"in-both-want-downwards-but-regressed").unwrap()), LikelyNoise);
-        assert_eq!(*(diff2.find(&~"in-both-want-downwards-and-improved").unwrap()), LikelyNoise);
-        assert_eq!(*(diff2.find(&~"in-both-want-upwards-but-regressed").unwrap()), LikelyNoise);
-        assert_eq!(*(diff2.find(&~"in-both-want-upwards-and-improved").unwrap()), LikelyNoise);
+        assert_eq!(*(diff2.find(&"in-both-noise".to_owned()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff2.find(&"in-first-noise".to_owned()).unwrap()), MetricRemoved);
+        assert_eq!(*(diff2.find(&"in-second-noise".to_owned()).unwrap()), MetricAdded);
+        assert_eq!(*(diff2.find(&"in-both-want-downwards-but-regressed".to_owned()).unwrap()),
+                   LikelyNoise);
+        assert_eq!(*(diff2.find(&"in-both-want-downwards-and-improved".to_owned()).unwrap()),
+                   LikelyNoise);
+        assert_eq!(*(diff2.find(&"in-both-want-upwards-but-regressed".to_owned()).unwrap()),
+                   LikelyNoise);
+        assert_eq!(*(diff2.find(&"in-both-want-upwards-and-improved".to_owned()).unwrap()),
+                   LikelyNoise);
         assert_eq!(diff2.len(), 7);
     }
 
@@ -1553,29 +1585,29 @@ mod tests {
         let (diff1, ok1) = m2.ratchet(&pth, None);
         assert_eq!(ok1, false);
         assert_eq!(diff1.len(), 2);
-        assert_eq!(*(diff1.find(&~"runtime").unwrap()), Regression(10.0));
-        assert_eq!(*(diff1.find(&~"throughput").unwrap()), LikelyNoise);
+        assert_eq!(*(diff1.find(&"runtime".to_owned()).unwrap()), Regression(10.0));
+        assert_eq!(*(diff1.find(&"throughput".to_owned()).unwrap()), LikelyNoise);
 
         // Check that it was not rewritten.
         let m3 = MetricMap::load(&pth);
         let MetricMap(m3) = m3;
         assert_eq!(m3.len(), 2);
-        assert_eq!(*(m3.find(&~"runtime").unwrap()), Metric::new(1000.0, 2.0));
-        assert_eq!(*(m3.find(&~"throughput").unwrap()), Metric::new(50.0, 2.0));
+        assert_eq!(*(m3.find(&"runtime".to_owned()).unwrap()), Metric::new(1000.0, 2.0));
+        assert_eq!(*(m3.find(&"throughput".to_owned()).unwrap()), Metric::new(50.0, 2.0));
 
         // Ask for a ratchet with an explicit noise-percentage override,
         // that should advance.
         let (diff2, ok2) = m2.ratchet(&pth, Some(10.0));
         assert_eq!(ok2, true);
         assert_eq!(diff2.len(), 2);
-        assert_eq!(*(diff2.find(&~"runtime").unwrap()), LikelyNoise);
-        assert_eq!(*(diff2.find(&~"throughput").unwrap()), LikelyNoise);
+        assert_eq!(*(diff2.find(&"runtime".to_owned()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff2.find(&"throughput".to_owned()).unwrap()), LikelyNoise);
 
         // Check that it was rewritten.
         let m4 = MetricMap::load(&pth);
         let MetricMap(m4) = m4;
         assert_eq!(m4.len(), 2);
-        assert_eq!(*(m4.find(&~"runtime").unwrap()), Metric::new(1100.0, 2.0));
-        assert_eq!(*(m4.find(&~"throughput").unwrap()), Metric::new(50.0, 2.0));
+        assert_eq!(*(m4.find(&"runtime".to_owned()).unwrap()), Metric::new(1100.0, 2.0));
+        assert_eq!(*(m4.find(&"throughput".to_owned()).unwrap()), Metric::new(50.0, 2.0));
     }
 }

@@ -25,7 +25,7 @@ use std::num::CheckedDiv;
 use std::num::{Bitwise, ToPrimitive, FromPrimitive};
 use std::num::{Zero, One, ToStrRadix, FromStrRadix};
 use rand::Rng;
-use std::str;
+use std::strbuf::StrBuf;
 use std::uint;
 use std::{i64, u64};
 
@@ -665,14 +665,14 @@ impl ToStrRadix for BigUint {
         }
 
         fn fill_concat(v: &[BigDigit], radix: uint, l: uint) -> ~str {
-            if v.is_empty() { return ~"0" }
-            let mut s = str::with_capacity(v.len() * l);
+            if v.is_empty() { return "0".to_owned() }
+            let mut s = StrBuf::with_capacity(v.len() * l);
             for n in v.rev_iter() {
                 let ss = (*n as uint).to_str_radix(radix);
                 s.push_str("0".repeat(l - ss.len()));
                 s.push_str(ss);
             }
-            s.trim_left_chars(&'0').to_owned()
+            s.as_slice().trim_left_chars('0').to_owned()
         }
     }
 }
@@ -1268,8 +1268,8 @@ impl ToStrRadix for BigInt {
     fn to_str_radix(&self, radix: uint) -> ~str {
         match self.sign {
             Plus  => self.data.to_str_radix(radix),
-            Zero  => ~"0",
-            Minus => ~"-" + self.data.to_str_radix(radix)
+            Zero  => "0".to_owned(),
+            Minus => "-".to_owned() + self.data.to_str_radix(radix)
         }
     }
 }
@@ -1974,55 +1974,55 @@ mod biguint_tests {
     fn to_str_pairs() -> Vec<(BigUint, Vec<(uint, ~str)>)> {
         let bits = BigDigit::bits;
         vec!(( Zero::zero(), vec!(
-            (2, ~"0"), (3, ~"0")
+            (2, "0".to_owned()), (3, "0".to_owned())
         )), ( BigUint::from_slice([ 0xff ]), vec!(
-            (2,  ~"11111111"),
-            (3,  ~"100110"),
-            (4,  ~"3333"),
-            (5,  ~"2010"),
-            (6,  ~"1103"),
-            (7,  ~"513"),
-            (8,  ~"377"),
-            (9,  ~"313"),
-            (10, ~"255"),
-            (11, ~"212"),
-            (12, ~"193"),
-            (13, ~"168"),
-            (14, ~"143"),
-            (15, ~"120"),
-            (16, ~"ff")
+            (2,  "11111111".to_owned()),
+            (3,  "100110".to_owned()),
+            (4,  "3333".to_owned()),
+            (5,  "2010".to_owned()),
+            (6,  "1103".to_owned()),
+            (7,  "513".to_owned()),
+            (8,  "377".to_owned()),
+            (9,  "313".to_owned()),
+            (10, "255".to_owned()),
+            (11, "212".to_owned()),
+            (12, "193".to_owned()),
+            (13, "168".to_owned()),
+            (14, "143".to_owned()),
+            (15, "120".to_owned()),
+            (16, "ff".to_owned())
         )), ( BigUint::from_slice([ 0xfff ]), vec!(
-            (2,  ~"111111111111"),
-            (4,  ~"333333"),
-            (16, ~"fff")
+            (2,  "111111111111".to_owned()),
+            (4,  "333333".to_owned()),
+            (16, "fff".to_owned())
         )), ( BigUint::from_slice([ 1, 2 ]), vec!(
             (2,
-             ~"10" +
+             "10".to_owned() +
              "0".repeat(bits - 1) + "1"),
             (4,
-             ~"2" +
+             "2".to_owned() +
              "0".repeat(bits / 2 - 1) + "1"),
             (10, match bits {
-                32 => ~"8589934593", 16 => ~"131073", _ => fail!()
+                32 => "8589934593".to_owned(), 16 => "131073".to_owned(), _ => fail!()
             }),
             (16,
-             ~"2" +
+             "2".to_owned() +
              "0".repeat(bits / 4 - 1) + "1")
         )), ( BigUint::from_slice([ 1, 2, 3 ]), vec!(
             (2,
-             ~"11" +
+             "11".to_owned() +
              "0".repeat(bits - 2) + "10" +
              "0".repeat(bits - 1) + "1"),
             (4,
-             ~"3" +
+             "3".to_owned() +
              "0".repeat(bits / 2 - 1) + "2" +
              "0".repeat(bits / 2 - 1) + "1"),
             (10, match bits {
-                32 => ~"55340232229718589441",
-                16 => ~"12885032961",
+                32 => "55340232229718589441".to_owned(),
+                16 => "12885032961".to_owned(),
                 _ => fail!()
             }),
-            (16, ~"3" +
+            (16, "3".to_owned() +
              "0".repeat(bits / 4 - 1) + "2" +
              "0".repeat(bits / 4 - 1) + "1")
         )) )
@@ -2742,7 +2742,7 @@ mod bigint_tests {
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use super::BigUint;
     use std::iter;
     use std::mem::replace;
@@ -2767,35 +2767,35 @@ mod bench {
     }
 
     #[bench]
-    fn factorial_100(bh: &mut BenchHarness) {
-        bh.iter(|| {
+    fn factorial_100(b: &mut Bencher) {
+        b.iter(|| {
             factorial(100);
         });
     }
 
     #[bench]
-    fn fib_100(bh: &mut BenchHarness) {
-        bh.iter(|| {
+    fn fib_100(b: &mut Bencher) {
+        b.iter(|| {
             fib(100);
         });
     }
 
     #[bench]
-    fn to_str(bh: &mut BenchHarness) {
+    fn to_str(b: &mut Bencher) {
         let fac = factorial(100);
         let fib = fib(100);
-        bh.iter(|| {
+        b.iter(|| {
             fac.to_str();
         });
-        bh.iter(|| {
+        b.iter(|| {
             fib.to_str();
         });
     }
 
     #[bench]
-    fn shr(bh: &mut BenchHarness) {
+    fn shr(b: &mut Bencher) {
         let n = { let one : BigUint = One::one(); one << 1000 };
-        bh.iter(|| {
+        b.iter(|| {
             let mut m = n.clone();
             for _ in range(0, 10) {
                 m = m >> 1;

@@ -26,7 +26,7 @@
 
 extern crate collections;
 
-use std::cast::{transmute, transmute_mut, transmute_mut_region};
+use std::cast::{transmute, transmute_mut, transmute_mut_lifetime};
 use std::cast;
 use std::cell::{Cell, RefCell};
 use std::mem;
@@ -186,7 +186,7 @@ impl Arena {
     #[inline]
     fn alloc_copy_inner(&mut self, n_bytes: uint, align: uint) -> *u8 {
         unsafe {
-            let this = transmute_mut_region(self);
+            let this = transmute_mut_lifetime(self);
             let start = round_up(this.copy_head.fill.get(), align);
             let end = start + n_bytes;
             if end > self.chunk_size() {
@@ -233,7 +233,7 @@ impl Arena {
             let after_tydesc;
 
             {
-                let head = transmute_mut_region(&mut self.head);
+                let head = transmute_mut_lifetime(&mut self.head);
 
                 tydesc_start = head.fill.get();
                 after_tydesc = head.fill.get() + mem::size_of::<*TyDesc>();
@@ -245,7 +245,7 @@ impl Arena {
                 return self.alloc_noncopy_grow(n_bytes, align);
             }
 
-            let head = transmute_mut_region(&mut self.head);
+            let head = transmute_mut_lifetime(&mut self.head);
             head.fill.set(round_up(end, mem::pref_align_of::<*TyDesc>()));
 
             //debug!("idx = {}, size = {}, align = {}, fill = {}",
@@ -481,9 +481,7 @@ impl<T> Drop for TypedArena<T> {
 #[cfg(test)]
 mod tests {
     extern crate test;
-
-
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use super::{Arena, TypedArena};
 
     struct Point {
@@ -505,9 +503,9 @@ mod tests {
     }
 
     #[bench]
-    pub fn bench_copy(bh: &mut BenchHarness) {
+    pub fn bench_copy(b: &mut Bencher) {
         let arena = TypedArena::new();
-        bh.iter(|| {
+        b.iter(|| {
             arena.alloc(Point {
                 x: 1,
                 y: 2,
@@ -517,8 +515,8 @@ mod tests {
     }
 
     #[bench]
-    pub fn bench_copy_nonarena(bh: &mut BenchHarness) {
-        bh.iter(|| {
+    pub fn bench_copy_nonarena(b: &mut Bencher) {
+        b.iter(|| {
             ~Point {
                 x: 1,
                 y: 2,
@@ -528,9 +526,9 @@ mod tests {
     }
 
     #[bench]
-    pub fn bench_copy_old_arena(bh: &mut BenchHarness) {
+    pub fn bench_copy_old_arena(b: &mut Bencher) {
         let arena = Arena::new();
-        bh.iter(|| {
+        b.iter(|| {
             arena.alloc(|| {
                 Point {
                     x: 1,
@@ -551,39 +549,39 @@ mod tests {
         let arena = TypedArena::new();
         for _ in range(0, 100000) {
             arena.alloc(Noncopy {
-                string: ~"hello world",
+                string: "hello world".to_owned(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             });
         }
     }
 
     #[bench]
-    pub fn bench_noncopy(bh: &mut BenchHarness) {
+    pub fn bench_noncopy(b: &mut Bencher) {
         let arena = TypedArena::new();
-        bh.iter(|| {
+        b.iter(|| {
             arena.alloc(Noncopy {
-                string: ~"hello world",
+                string: "hello world".to_owned(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             })
         })
     }
 
     #[bench]
-    pub fn bench_noncopy_nonarena(bh: &mut BenchHarness) {
-        bh.iter(|| {
+    pub fn bench_noncopy_nonarena(b: &mut Bencher) {
+        b.iter(|| {
             ~Noncopy {
-                string: ~"hello world",
+                string: "hello world".to_owned(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             }
         })
     }
 
     #[bench]
-    pub fn bench_noncopy_old_arena(bh: &mut BenchHarness) {
+    pub fn bench_noncopy_old_arena(b: &mut Bencher) {
         let arena = Arena::new();
-        bh.iter(|| {
+        b.iter(|| {
             arena.alloc(|| Noncopy {
-                string: ~"hello world",
+                string: "hello world".to_owned(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             })
         })

@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -13,7 +13,7 @@ use syntax::{ast, fold, attr};
 use syntax::codemap;
 
 struct Context<'a> {
-    in_cfg: 'a |attrs: &[ast::Attribute]| -> bool,
+    in_cfg: |attrs: &[ast::Attribute]|: 'a -> bool,
 }
 
 // Support conditional compilation by transforming the AST, stripping out
@@ -36,6 +36,9 @@ impl<'a> fold::Folder for Context<'a> {
     fn fold_item_underscore(&mut self, item: &ast::Item_) -> ast::Item_ {
         fold_item_underscore(self, item)
     }
+    fn fold_expr(&mut self, expr: @ast::Expr) -> @ast::Expr {
+        fold_expr(self, expr)
+    }
 }
 
 pub fn strip_items(krate: ast::Crate,
@@ -47,7 +50,7 @@ pub fn strip_items(krate: ast::Crate,
     ctxt.fold_crate(krate)
 }
 
-fn filter_view_item<'r>(cx: &Context, view_item: &'r ast::ViewItem)
+fn filter_view_item<'r>(cx: &mut Context, view_item: &'r ast::ViewItem)
                         -> Option<&'r ast::ViewItem> {
     if view_item_in_cfg(cx, view_item) {
         Some(view_item)
@@ -72,7 +75,7 @@ fn fold_mod(cx: &mut Context, m: &ast::Mod) -> ast::Mod {
     }
 }
 
-fn filter_foreign_item(cx: &Context, item: @ast::ForeignItem)
+fn filter_foreign_item(cx: &mut Context, item: @ast::ForeignItem)
                        -> Option<@ast::ForeignItem> {
     if foreign_item_in_cfg(cx, item) {
         Some(item)
@@ -103,12 +106,12 @@ fn fold_item_underscore(cx: &mut Context, item: &ast::Item_) -> ast::Item_ {
                 .map(|x| *x).collect();
             ast::ItemImpl((*a).clone(), (*b).clone(), c, methods)
         }
-        ast::ItemTrait(ref a, ref b, ref methods) => {
+        ast::ItemTrait(ref a, b, ref c, ref methods) => {
             let methods = methods.iter()
                                  .filter(|m| trait_method_in_cfg(cx, *m) )
                                  .map(|x| (*x).clone())
                                  .collect();
-            ast::ItemTrait((*a).clone(), (*b).clone(), methods)
+            ast::ItemTrait((*a).clone(), b, (*c).clone(), methods)
         }
         ast::ItemStruct(def, ref generics) => {
             ast::ItemStruct(fold_struct(cx, def), generics.clone())
@@ -144,17 +147,19 @@ fn fold_item_underscore(cx: &mut Context, item: &ast::Item_) -> ast::Item_ {
     fold::noop_fold_item_underscore(&item, cx)
 }
 
-fn fold_struct(cx: &Context, def: &ast::StructDef) -> @ast::StructDef {
+fn fold_struct(cx: &mut Context, def: &ast::StructDef) -> @ast::StructDef {
     let mut fields = def.fields.iter().map(|c| c.clone()).filter(|m| {
         (cx.in_cfg)(m.node.attrs.as_slice())
     });
     @ast::StructDef {
         fields: fields.collect(),
         ctor_id: def.ctor_id,
+        super_struct: def.super_struct.clone(),
+        is_virtual: def.is_virtual,
     }
 }
 
-fn retain_stmt(cx: &Context, stmt: @ast::Stmt) -> bool {
+fn retain_stmt(cx: &mut Context, stmt: @ast::Stmt) -> bool {
     match stmt.node {
       ast::StmtDecl(decl, _) => {
         match decl.node {
@@ -187,23 +192,41 @@ fn fold_block(cx: &mut Context, b: ast::P<ast::Block>) -> ast::P<ast::Block> {
     })
 }
 
-fn item_in_cfg(cx: &Context, item: &ast::Item) -> bool {
+fn fold_expr(cx: &mut Context, expr: @ast::Expr) -> @ast::Expr {
+    let expr = match expr.node {
+        ast::ExprMatch(ref m, ref arms) => {
+            let arms = arms.iter()
+                .filter(|a| (cx.in_cfg)(a.attrs.as_slice()))
+                .map(|a| a.clone())
+                .collect();
+            @ast::Expr {
+                id: expr.id,
+                span: expr.span.clone(),
+                node: ast::ExprMatch(m.clone(), arms),
+            }
+        }
+        _ => expr.clone()
+    };
+    fold::noop_fold_expr(expr, cx)
+}
+
+fn item_in_cfg(cx: &mut Context, item: &ast::Item) -> bool {
     return (cx.in_cfg)(item.attrs.as_slice());
 }
 
-fn foreign_item_in_cfg(cx: &Context, item: &ast::ForeignItem) -> bool {
+fn foreign_item_in_cfg(cx: &mut Context, item: &ast::ForeignItem) -> bool {
     return (cx.in_cfg)(item.attrs.as_slice());
 }
 
-fn view_item_in_cfg(cx: &Context, item: &ast::ViewItem) -> bool {
+fn view_item_in_cfg(cx: &mut Context, item: &ast::ViewItem) -> bool {
     return (cx.in_cfg)(item.attrs.as_slice());
 }
 
-fn method_in_cfg(cx: &Context, meth: &ast::Method) -> bool {
+fn method_in_cfg(cx: &mut Context, meth: &ast::Method) -> bool {
     return (cx.in_cfg)(meth.attrs.as_slice());
 }
 
-fn trait_method_in_cfg(cx: &Context, meth: &ast::TraitMethod) -> bool {
+fn trait_method_in_cfg(cx: &mut Context, meth: &ast::TraitMethod) -> bool {
     match *meth {
         ast::Required(ref meth) => (cx.in_cfg)(meth.attrs.as_slice()),
         ast::Provided(meth) => (cx.in_cfg)(meth.attrs.as_slice())

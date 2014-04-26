@@ -70,7 +70,8 @@ debugging_opts!(
         PRINT_LLVM_PASSES,
         LTO,
         AST_JSON,
-        AST_JSON_NOEXPAND
+        AST_JSON_NOEXPAND,
+        LS
     ]
     0
 )
@@ -103,7 +104,8 @@ pub fn debugging_opts_map() -> Vec<(&'static str, &'static str, u64)> {
       PRINT_LLVM_PASSES),
      ("lto", "Perform LLVM link-time optimizations", LTO),
      ("ast-json", "Print the AST as JSON and halt", AST_JSON),
-     ("ast-json-noexpand", "Print the pre-expansion AST as JSON and halt", AST_JSON_NOEXPAND))
+     ("ast-json-noexpand", "Print the pre-expansion AST as JSON and halt", AST_JSON_NOEXPAND),
+     ("ls", "List the symbols defined by a library crate", LS))
 }
 
 #[deriving(Clone, Eq)]
@@ -198,7 +200,7 @@ pub struct Session {
     // For a library crate, this is always none
     pub entry_fn: RefCell<Option<(NodeId, codemap::Span)>>,
     pub entry_type: Cell<Option<EntryFnType>>,
-    pub macro_registrar_fn: RefCell<Option<ast::DefId>>,
+    pub macro_registrar_fn: Cell<Option<ast::NodeId>>,
     pub default_sysroot: Option<Path>,
     pub building_library: Cell<bool>,
     // The name of the root source file of the crate, in the local file system. The path is always
@@ -336,15 +338,21 @@ impl Session {
     }
     pub fn sysroot<'a>(&'a self) -> &'a Path {
         match self.opts.maybe_sysroot {
-            Some(ref sysroot) => sysroot,
+            Some (ref sysroot) => sysroot,
             None => self.default_sysroot.as_ref()
                         .expect("missing sysroot and default_sysroot in Session")
         }
     }
-    pub fn filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
+    pub fn target_filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
         filesearch::FileSearch::new(
             self.sysroot(),
             self.opts.target_triple,
+            &self.opts.addl_lib_search_paths)
+    }
+    pub fn host_filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
+        filesearch::FileSearch::new(
+            self.sysroot(),
+            host_triple(),
             &self.opts.addl_lib_search_paths)
     }
 
@@ -430,7 +438,7 @@ pub fn basic_options() -> Options {
         output_types: Vec::new(),
         addl_lib_search_paths: RefCell::new(HashSet::new()),
         maybe_sysroot: None,
-        target_triple: host_triple(),
+        target_triple: host_triple().to_owned(),
         cfg: Vec::new(),
         test: false,
         parse_only: false,
@@ -525,9 +533,9 @@ cgoptions!(
         "system linker to link outputs with"),
     link_args: Vec<~str> = (Vec::new(), parse_list,
         "extra arguments to pass to the linker (space separated)"),
-    target_cpu: ~str = (~"generic", parse_string,
+    target_cpu: ~str = ("generic".to_owned(), parse_string,
         "select target processor (llc -mcpu=help for details)"),
-    target_feature: ~str = (~"", parse_string,
+    target_feature: ~str = ("".to_owned(), parse_string,
         "target specific attributes (llc -mattr=help for details)"),
     passes: Vec<~str> = (Vec::new(), parse_list,
         "a list of extra LLVM passes to run (space separated)"),
@@ -551,7 +559,7 @@ cgoptions!(
         "prefer dynamic linking to static linking"),
     no_integrated_as: bool = (false, parse_bool,
         "use an external assembler rather than LLVM's integrated one"),
-    relocation_model: ~str = (~"pic", parse_string,
+    relocation_model: ~str = ("pic".to_owned(), parse_string,
          "choose the relocation model to use (llc -relocation-model for details)"),
     nacl_flavor: Option<NaClFlavor_> = (None, parse_from_str,
         "use with =pnacl, =nacl, or =emscripten.
@@ -594,43 +602,51 @@ pub fn collect_crate_types(session: &Session,
     if session.opts.test {
         return vec!(CrateTypeExecutable)
     }
+
+    // Only check command line flags if present. If no types are specified by
+    // command line, then reuse the empty `base` Vec to hold the types that
+    // will be found in crate attributes.
     let mut base = session.opts.crate_types.clone();
-    let iter = attrs.iter().filter_map(|a| {
-        if a.name().equiv(&("crate_type")) {
-            match a.value_str() {
-                Some(ref n) if n.equiv(&("rlib")) => Some(CrateTypeRlib),
-                Some(ref n) if n.equiv(&("dylib")) => Some(CrateTypeDylib),
-                Some(ref n) if n.equiv(&("lib")) => {
-                    Some(default_lib_output())
+    if base.len() > 0 {
+        return base
+    } else {
+        let iter = attrs.iter().filter_map(|a| {
+            if a.name().equiv(&("crate_type")) {
+                match a.value_str() {
+                    Some(ref n) if n.equiv(&("rlib")) => Some(CrateTypeRlib),
+                    Some(ref n) if n.equiv(&("dylib")) => Some(CrateTypeDylib),
+                    Some(ref n) if n.equiv(&("lib")) => {
+                        Some(default_lib_output())
+                    }
+                    Some(ref n) if n.equiv(&("staticlib")) => {
+                        Some(CrateTypeStaticlib)
+                    }
+                    Some(ref n) if n.equiv(&("bin")) => Some(CrateTypeExecutable),
+                    Some(_) => {
+                        session.add_lint(lint::UnknownCrateType,
+                                         ast::CRATE_NODE_ID,
+                                         a.span,
+                                         "invalid `crate_type` value".to_owned());
+                        None
+                    }
+                    _ => {
+                        session.add_lint(lint::UnknownCrateType, ast::CRATE_NODE_ID,
+                                        a.span, "`crate_type` requires a value".to_owned());
+                        None
+                    }
                 }
-                Some(ref n) if n.equiv(&("staticlib")) => {
-                    Some(CrateTypeStaticlib)
-                }
-                Some(ref n) if n.equiv(&("bin")) => Some(CrateTypeExecutable),
-                Some(_) => {
-                    session.add_lint(lint::UnknownCrateType,
-                                     ast::CRATE_NODE_ID,
-                                     a.span,
-                                     ~"invalid `crate_type` value");
-                    None
-                }
-                _ => {
-                    session.add_lint(lint::UnknownCrateType, ast::CRATE_NODE_ID,
-                                    a.span, ~"`crate_type` requires a value");
-                    None
-                }
+            } else {
+                None
             }
-        } else {
-            None
+        });
+        base.extend(iter);
+        if base.len() == 0 {
+            base.push(CrateTypeExecutable);
         }
-    });
-    base.extend(iter);
-    if base.len() == 0 {
-        base.push(CrateTypeExecutable);
+        base.as_mut_slice().sort();
+        base.dedup();
+        return base;
     }
-    base.as_mut_slice().sort();
-    base.dedup();
-    return base;
 }
 
 pub fn sess_os_to_meta_os(os: abi::Os) -> metadata::loader::Os {

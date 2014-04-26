@@ -15,6 +15,7 @@ use std::io::{Process, TempDir};
 use std::local_data;
 use std::os;
 use std::str;
+use std::strbuf::StrBuf;
 
 use collections::HashSet;
 use testing;
@@ -65,9 +66,7 @@ pub fn run(input: &str, cfgs: Vec<~str>,
     let krate = driver::phase_1_parse_input(&sess, cfg, &input);
     let (krate, _) = driver::phase_2_configure_and_expand
         (&sess,
-         &mut Loader::new(&sess,
-                          sess.opts.target_triple.clone(),
-                          sess.filesearch()),
+         &mut Loader::new(&sess),
          krate,
          &from_str("rustdoc-test").unwrap());
 
@@ -89,7 +88,7 @@ pub fn run(input: &str, cfgs: Vec<~str>,
                                        false);
     collector.fold_crate(krate);
 
-    test_args.unshift(~"rustdoctest");
+    test_args.unshift("rustdoctest".to_owned());
 
     testing::test_main(test_args.as_slice(),
                        collector.tests.move_iter().collect());
@@ -172,10 +171,10 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
 }
 
 fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> ~str {
-    let mut prog = ~r"
+    let mut prog = StrBuf::from_str(r"
 #![deny(warnings)]
 #![allow(unused_variable, dead_assignment, unused_mut, attribute_usage, dead_code)]
-";
+");
 
     if loose_feature_gating {
         // FIXME #12773: avoid inserting these when the tutorial & manual
@@ -196,7 +195,7 @@ fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> ~str {
         prog.push_str("\n}");
     }
 
-    return prog;
+    return prog.into_owned();
 }
 
 pub struct Collector {

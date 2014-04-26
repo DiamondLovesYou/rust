@@ -16,7 +16,7 @@
 //! enabled.
 //!
 //! Features are enabled in programs via the crate-level attributes of
-//! #[feature(...)] with a comma-separated list of features.
+//! #![feature(...)] with a comma-separated list of features.
 
 use middle::lint;
 
@@ -55,6 +55,9 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("default_type_params", Active),
     ("quote", Active),
     ("linkage", Active),
+    ("struct_inherit", Active),
+
+    ("quad_precision_float", Active),
 
     // These are used to test this portion of the compiler, they don't actually
     // mean anything
@@ -76,13 +79,15 @@ enum Status {
 
 /// A set of features to be used by later passes.
 pub struct Features {
-    pub default_type_params: Cell<bool>
+    pub default_type_params: Cell<bool>,
+    pub quad_precision_float: Cell<bool>
 }
 
 impl Features {
     pub fn new() -> Features {
         Features {
-            default_type_params: Cell::new(false)
+            default_type_params: Cell::new(false),
+            quad_precision_float: Cell::new(false)
         }
     }
 }
@@ -96,7 +101,7 @@ impl<'a> Context<'a> {
     fn gate_feature(&self, feature: &str, span: Span, explain: &str) {
         if !self.has_feature(feature) {
             self.sess.span_err(span, explain);
-            self.sess.span_note(span, format!("add \\#[feature({})] to the \
+            self.sess.span_note(span, format!("add \\#![feature({})] to the \
                                                   crate attributes to enable",
                                                  feature));
         }
@@ -190,10 +195,21 @@ impl<'a> Visitor<()> for Context<'a> {
                 }
             }
 
-            ast::ItemStruct(..) => {
+            ast::ItemStruct(struct_definition, _) => {
                 if attr::contains_name(i.attrs.as_slice(), "simd") {
                     self.gate_feature("simd", i.span,
                                       "SIMD types are experimental and possibly buggy");
+                }
+                match struct_definition.super_struct {
+                    Some(ref path) => self.gate_feature("struct_inherit", path.span,
+                                                        "struct inheritance is experimental \
+                                                         and possibly buggy"),
+                    None => {}
+                }
+                if struct_definition.is_virtual {
+                    self.gate_feature("struct_inherit", i.span,
+                                      "struct inheritance (`virtual` keyword) is \
+                                       experimental and possibly buggy");
                 }
             }
 
@@ -260,8 +276,7 @@ impl<'a> Visitor<()> for Context<'a> {
 
     fn visit_ty(&mut self, t: &ast::Ty, _: ()) {
         match t.node {
-            ast::TyClosure(closure) if closure.onceness == ast::Once &&
-                    closure.sigil != ast::OwnedSigil => {
+            ast::TyClosure(closure, _) if closure.onceness == ast::Once => {
                 self.gate_feature("once_fns", t.span,
                                   "once functions are \
                                    experimental and likely to be removed");
@@ -313,7 +328,7 @@ pub fn check_crate(sess: &Session, krate: &ast::Crate) {
         match attr.meta_item_list() {
             None => {
                 sess.span_err(attr.span, "malformed feature attribute, \
-                                          expected #[feature(...)]");
+                                          expected #![feature(...)]");
             }
             Some(list) => {
                 for &mi in list.iter() {
@@ -340,7 +355,7 @@ pub fn check_crate(sess: &Session, krate: &ast::Crate) {
                             sess.add_lint(lint::UnknownFeatures,
                                           ast::CRATE_NODE_ID,
                                           mi.span,
-                                          ~"unknown feature");
+                                          "unknown feature".to_owned());
                         }
                     }
                 }
@@ -353,4 +368,5 @@ pub fn check_crate(sess: &Session, krate: &ast::Crate) {
     sess.abort_if_errors();
 
     sess.features.default_type_params.set(cx.has_feature("default_type_params"));
+    sess.features.quad_precision_float.set(cx.has_feature("quad_precision_float"));
 }

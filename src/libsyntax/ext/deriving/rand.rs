@@ -32,7 +32,8 @@ pub fn expand_deriving_rand(cx: &mut ExtCtxt,
                 generics: LifetimeBounds {
                     lifetimes: Vec::new(),
                     bounds: vec!(("R",
-                               vec!( Path::new(vec!("rand", "Rng")) )))
+                                  ast::StaticSize,
+                                  vec!( Path::new(vec!("rand", "Rng")) )))
                 },
                 explicit_self: None,
                 args: vec!(
@@ -40,9 +41,11 @@ pub fn expand_deriving_rand(cx: &mut ExtCtxt,
                         Borrowed(None, ast::MutMutable))
                 ),
                 ret_ty: Self,
-                inline: false,
+                attributes: Vec::new(),
                 const_nonmatching: false,
-                combine_substructure: rand_substructure
+                combine_substructure: combine_substructure(|a, b, c| {
+                    rand_substructure(a, b, c)
+                })
             }
         )
     };

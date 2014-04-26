@@ -11,6 +11,9 @@
 #![feature(globs)]
 #![no_std] // makes debugging this test *a lot* easier (during resolve)
 
+#[lang="sized"]
+pub trait Sized {}
+
 mod bar {
     // shouln't bring in too much
     pub use self::glob::*;
@@ -38,7 +41,6 @@ mod bar {
     impl B for int { fn foo() -> int { 3 } }
 
     pub enum Enum {
-        priv Priv,
         Pub
     }
 
@@ -64,7 +66,6 @@ mod bar {
     }
 
     fn test() {
-        self::Priv;
         self::Pub;
         unsafe {
             epriv();
@@ -120,7 +121,6 @@ mod foo {
                                 //~^ NOTE: trait `B` is private
         ::lol();
 
-        ::bar::Priv; //~ ERROR: variant `Priv` is private
         ::bar::Pub;
 
         unsafe {

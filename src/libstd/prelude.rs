@@ -45,7 +45,7 @@ pub use iter::{FromIterator, Extendable};
 pub use iter::{Iterator, DoubleEndedIterator, RandomAccessIterator, CloneableIterator};
 pub use iter::{OrdIterator, MutableDoubleEndedIterator, ExactSize};
 pub use num::{Num, NumCast, CheckedAdd, CheckedSub, CheckedMul};
-pub use num::{Signed, Unsigned, Round};
+pub use num::{Signed, Unsigned};
 pub use num::{Primitive, Int, Float, ToPrimitive, FromPrimitive};
 pub use path::{GenericPath, Path, PosixPath, WindowsPath};
 pub use ptr::RawPtr;
@@ -56,9 +56,10 @@ pub use tuple::{Tuple1, Tuple2, Tuple3, Tuple4};
 pub use tuple::{Tuple5, Tuple6, Tuple7, Tuple8};
 pub use tuple::{Tuple9, Tuple10, Tuple11, Tuple12};
 pub use slice::{ImmutableEqVector, ImmutableTotalOrdVector, ImmutableCloneableVector};
-pub use slice::{OwnedVector, OwnedCloneableVector, OwnedEqVector};
+pub use slice::{OwnedVector};
 pub use slice::{MutableVector, MutableTotalOrdVector};
 pub use slice::{Vector, VectorVector, CloneableVector, ImmutableVector};
+pub use strbuf::StrBuf;
 pub use vec::Vec;
 
 // Reexported runtime types

@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[allow(unnecessary_allocation)];
-#[allow(unreachable_code)];
-#[allow(unused_variable)];
+#![allow(unnecessary_allocation)]
+#![allow(unreachable_code)]
+#![allow(unused_variable)]
 
 
 // error-pattern:so long
@@ -19,5 +19,5 @@ fn main() {
     let y = vec!(3);
     fail!("so long");
     x.push_all_move(y);
-    ~"good" + ~"bye";
+    "good".to_owned() + "bye".to_owned();
 }

@@ -30,7 +30,6 @@ use util::ppaux;
 use util::nodemap::{NodeMap, NodeSet};
 
 use serialize::{json, Encodable};
-use collections::HashSet;
 
 use std::cell::{Cell, RefCell};
 use std::io;
@@ -164,7 +163,7 @@ impl Input {
     fn filestem(&self) -> ~str {
         match *self {
             FileInput(ref ifile) => ifile.filestem_str().unwrap().to_str(),
-            StrInput(_) => ~"rust_out",
+            StrInput(_) => "rust_out".to_owned(),
         }
     }
 }
@@ -244,8 +243,6 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                                           cfg,
                                           krate)
     });
-    // dump the syntax-time crates
-    sess.cstore.reset();
 
     // strip again, in case expansion added anything with a #[cfg].
     krate = time(time_passes, "configuration 2", krate, |krate|
@@ -289,9 +286,7 @@ pub fn phase_3_run_analysis_passes(sess: Session,
     let time_passes = sess.time_passes();
 
     time(time_passes, "external crate/lib resolution", (), |_|
-         creader::read_crates(&sess, krate,
-                              session::sess_os_to_meta_os(sess.targ_cfg.os),
-                              token::get_ident_interner()));
+         creader::read_crates(&sess, krate));
 
     let lang_items = time(time_passes, "language item collection", (), |_|
                           middle::lang_items::collect_language_items(krate, &sess));
@@ -304,7 +299,7 @@ pub fn phase_3_run_analysis_passes(sess: Session,
         last_private_map: last_private_map
     } =
         time(time_passes, "resolution", (), |_|
-             middle::resolve::resolve_crate(&sess, lang_items, krate));
+             middle::resolve::resolve_crate(&sess, &lang_items, krate));
 
     // Discard MTWT tables that aren't required past resolution.
     syntax::ext::mtwt::clear_tables();
@@ -315,13 +310,13 @@ pub fn phase_3_run_analysis_passes(sess: Session,
     time(time_passes, "looking for entry point", (),
          |_| middle::entry::find_entry_point(&sess, krate, &ast_map));
 
-    *sess.macro_registrar_fn.borrow_mut() =
+    sess.macro_registrar_fn.set(
         time(time_passes, "looking for macro registrar", (), |_|
             syntax::ext::registrar::find_macro_registrar(
-                sess.diagnostic(), krate));
+                sess.diagnostic(), krate)));
 
     let freevars = time(time_passes, "freevar finding", (), |_|
-                        freevars::annotate_freevars(def_map, krate));
+                        freevars::annotate_freevars(&def_map, krate));
 
     let region_map = time(time_passes, "region resolution", (), |_|
                           middle::region::resolve_crate(&sess, krate));
@@ -333,7 +328,7 @@ pub fn phase_3_run_analysis_passes(sess: Session,
                             freevars, region_map, lang_items);
 
     // passes are timed inside typeck
-    let (method_map, vtable_map) = typeck::check_crate(&ty_cx, trait_map, krate);
+    typeck::check_crate(&ty_cx, trait_map, krate);
 
     time(time_passes, "check static items", (), |_|
          middle::check_static::check_crate(&ty_cx, krate));
@@ -343,56 +338,48 @@ pub fn phase_3_run_analysis_passes(sess: Session,
          middle::const_eval::process_crate(krate, &ty_cx));
 
     time(time_passes, "const checking", (), |_|
-         middle::check_const::check_crate(krate, def_map, method_map, &ty_cx));
+         middle::check_const::check_crate(krate, &ty_cx));
 
     let maps = (external_exports, last_private_map);
     let (exported_items, public_items) =
             time(time_passes, "privacy checking", maps, |(a, b)|
-                 middle::privacy::check_crate(&ty_cx, &method_map, &exp_map2,
-                                              a, b, krate));
+                 middle::privacy::check_crate(&ty_cx, &exp_map2, a, b, krate));
 
     time(time_passes, "effect checking", (), |_|
-         middle::effect::check_crate(&ty_cx, method_map, krate));
+         middle::effect::check_crate(&ty_cx, krate));
 
-    let middle::moves::MoveMaps {moves_map, moved_variables_set,
-                                 capture_map} =
+    let middle::moves::MoveMaps {moves_map, capture_map} =
         time(time_passes, "compute moves", (), |_|
-             middle::moves::compute_moves(&ty_cx, method_map, krate));
+             middle::moves::compute_moves(&ty_cx, krate));
 
     time(time_passes, "match checking", (), |_|
-         middle::check_match::check_crate(&ty_cx, method_map,
-                                          &moves_map, krate));
+         middle::check_match::check_crate(&ty_cx, &moves_map, krate));
 
     time(time_passes, "liveness checking", (), |_|
-         middle::liveness::check_crate(&ty_cx, method_map,
+         middle::liveness::check_crate(&ty_cx, &capture_map, krate));
+
+    time(time_passes, "borrow checking", (), |_|
+         middle::borrowck::check_crate(&ty_cx, &moves_map,
                                        &capture_map, krate));
 
-    let root_map =
-        time(time_passes, "borrow checking", (), |_|
-             middle::borrowck::check_crate(&ty_cx, method_map,
-                                           &moves_map, &moved_variables_set,
-                                           &capture_map, krate));
-
     drop(moves_map);
-    drop(moved_variables_set);
 
     time(time_passes, "kind checking", (), |_|
-         kind::check_crate(&ty_cx, method_map, krate));
+         kind::check_crate(&ty_cx, krate));
 
     let reachable_map =
         time(time_passes, "reachability checking", (), |_|
-             reachable::find_reachable(&ty_cx, method_map, &exported_items));
+             reachable::find_reachable(&ty_cx, &exported_items));
 
     time(time_passes, "death checking", (), |_| {
         middle::dead::check_crate(&ty_cx,
-                                  method_map,
                                   &exported_items,
                                   &reachable_map,
                                   krate)
     });
 
     time(time_passes, "lint checking", (), |_|
-         lint::check_crate(&ty_cx, method_map, &exported_items, krate));
+         lint::check_crate(&ty_cx, &exported_items, krate));
 
     CrateAnalysis {
         exp_map2: exp_map2,
@@ -400,9 +387,6 @@ pub fn phase_3_run_analysis_passes(sess: Session,
         exported_items: exported_items,
         public_items: public_items,
         maps: astencode::Maps {
-            root_map: root_map,
-            method_map: method_map,
-            vtable_map: vtable_map,
             capture_map: RefCell::new(capture_map)
         },
         reachable: reachable_map
@@ -518,7 +502,7 @@ pub fn stop_after_phase_5(sess: &Session) -> bool {
 fn write_out_deps(sess: &Session,
                   input: &Input,
                   outputs: &OutputFilenames,
-                  krate: &ast::Crate) -> io::IoResult<()> {
+                  krate: &ast::Crate) {
     let id = link::find_crate_id(krate.attrs.as_slice(), outputs.out_filestem);
 
     let mut out_filenames = Vec::new();
@@ -547,59 +531,33 @@ fn write_out_deps(sess: &Session,
             StrInput(..) => {
                 sess.warn("can not write --dep-info without a filename \
                            when compiling stdin.");
-                return Ok(());
+                return
             },
         },
-        _ => return Ok(()),
+        _ => return,
     };
 
-    // Build a list of files used to compile the output and
-    // write Makefile-compatible dependency rules
-    let files: Vec<~str> = sess.codemap().files.borrow()
-                               .iter().filter_map(|fmap| {
-                                    if fmap.is_real_file() {
-                                        Some(fmap.name.clone())
-                                    } else {
-                                        None
-                                    }
-                                }).collect();
-    let mut file = try!(io::File::create(&deps_filename));
-    for path in out_filenames.iter() {
-        try!(write!(&mut file as &mut Writer,
-                      "{}: {}\n\n", path.display(), files.connect(" ")));
-    }
-    Ok(())
-}
-struct SyntaxExtFileSearch {
-    sysroot: Path,
-    addl_lib_search_paths: RefCell<HashSet<Path>>,
-    target_triple: ~str,
-}
-impl SyntaxExtFileSearch {
-    // Create a loader solely for the host. This is used for
-    // syntax phase crates referenced by our crate. We do this in order to
-    // prevent errors from having multiple crates in -L paths later on
-    // (particularly problematic when targeting non-host targets).
-    // We accomplish this with this minor hack. More specifically,
-    // we use a bogus sysroot and add the path for rustc's set of libs
-    // (ie /usr/local/lib/ on Unix) to addl_lib_search_paths.
-    fn new(sess: &Session) -> SyntaxExtFileSearch {
-        SyntaxExtFileSearch {
-            addl_lib_search_paths: RefCell::new
-                ({
-                    let mut set = (*sess.opts.addl_lib_search_paths.borrow()).clone();
-                    set.insert(filesearch::get_host_lib_path(sess.sysroot()));
-                    set
-                }),
-            sysroot: Path::new("/dev/null"),
-            target_triple: sess.opts.target_triple.clone(),
+    let result = (|| {
+        // Build a list of files used to compile the output and
+        // write Makefile-compatible dependency rules
+        let files: Vec<~str> = sess.codemap().files.borrow()
+                                   .iter().filter(|fmap| fmap.is_real_file())
+                                   .map(|fmap| fmap.name.clone())
+                                   .collect();
+        let mut file = try!(io::File::create(&deps_filename));
+        for path in out_filenames.iter() {
+            try!(write!(&mut file as &mut Writer,
+                          "{}: {}\n\n", path.display(), files.connect(" ")));
         }
-    }
-    // Create a filesearch object for passing to metadata subsystems.
-    fn filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
-        filesearch::FileSearch::new(&self.sysroot,
-                                    self.target_triple,
-                                    &self.addl_lib_search_paths)
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {}
+        Err(e) => {
+            sess.fatal(format!("error writing dependencies to `{}`: {}",
+                               deps_filename.display(), e));
+        }
     }
 }
 
@@ -617,22 +575,14 @@ pub fn compile_input(sess: Session, cfg: ast::CrateConfig, input: &Input,
                                                  output,
                                                  krate.attrs.as_slice(),
                                                  &sess);
-            let syntax_filesearch = SyntaxExtFileSearch::new(&sess);
-            let host_triple = host_triple();
-            let loader = &mut Loader::new(&sess,
-                                          host_triple.clone(),
-                                          if host_triple != sess.opts.target_triple {
-                                              syntax_filesearch.filesearch()
-                                          } else {
-                                              sess.filesearch()
-                                          });
+            let loader = &mut Loader::new(&sess);
             let id = link::find_crate_id(krate.attrs.as_slice(),
                                          outputs.out_filestem);
             let (expanded_crate, ast_map) = phase_2_configure_and_expand(&sess, loader,
                                                                          krate, &id);
             (outputs, expanded_crate, ast_map)
         };
-        write_out_deps(&sess, input, &outputs, &expanded_crate).unwrap();
+        write_out_deps(&sess, input, &outputs, &expanded_crate);
 
         if stop_after_phase_2(&sess) { return; }
 
@@ -672,7 +622,7 @@ impl pprust::PpAnn for IdentifiedAnnotation {
             }
             pprust::NodeBlock(blk) => {
                 try!(pp::space(&mut s.s));
-                s.synth_comment(~"block " + blk.id.to_str())
+                s.synth_comment("block ".to_owned() + blk.id.to_str())
             }
             pprust::NodeExpr(expr) => {
                 try!(pp::space(&mut s.s));
@@ -681,7 +631,7 @@ impl pprust::PpAnn for IdentifiedAnnotation {
             }
             pprust::NodePat(pat) => {
                 try!(pp::space(&mut s.s));
-                s.synth_comment(~"pat " + pat.id.to_str())
+                s.synth_comment("pat ".to_owned() + pat.id.to_str())
             }
         }
     }
@@ -721,13 +671,14 @@ impl pprust::PpAnn for TypedAnnotation {
 pub fn pretty_print_input(sess: Session,
                           cfg: ast::CrateConfig,
                           input: &Input,
-                          ppm: PpMode) {
+                          ppm: PpMode,
+                          ofile: Option<Path>) {
     let krate = phase_1_parse_input(&sess, cfg, input);
     let id = link::find_crate_id(krate.attrs.as_slice(), input.filestem());
 
     let (krate, ast_map, is_expanded) = match ppm {
         PpmExpanded | PpmExpandedIdentified | PpmTyped => {
-            let loader = &mut Loader::new(&sess, host_triple(), sess.filesearch());
+            let loader = &mut Loader::new(&sess);
             let (krate, ast_map) = phase_2_configure_and_expand(&sess, loader,
                                                                 krate, &id);
             (krate, Some(ast_map), true)
@@ -739,6 +690,17 @@ pub fn pretty_print_input(sess: Session,
     let src = Vec::from_slice(sess.codemap().get_filemap(src_name).src.as_bytes());
     let mut rdr = MemReader::new(src);
 
+    let out = match ofile {
+        None => ~io::stdout() as ~Writer,
+        Some(p) => {
+            let r = io::File::create(&p);
+            match r {
+                Ok(w) => ~w as ~Writer,
+                Err(e) => fail!("print-print failed to open {} due to {}",
+                                p.display(), e),
+            }
+        }
+    };
     match ppm {
         PpmIdentified | PpmExpandedIdentified => {
             pprust::print_crate(sess.codemap(),
@@ -746,7 +708,7 @@ pub fn pretty_print_input(sess: Session,
                                 &krate,
                                 src_name,
                                 &mut rdr,
-                                ~io::stdout(),
+                                out,
                                 &IdentifiedAnnotation,
                                 is_expanded)
         }
@@ -761,7 +723,7 @@ pub fn pretty_print_input(sess: Session,
                                 &krate,
                                 src_name,
                                 &mut rdr,
-                                ~io::stdout(),
+                                out,
                                 &annotation,
                                 is_expanded)
         }
@@ -771,7 +733,7 @@ pub fn pretty_print_input(sess: Session,
                                 &krate,
                                 src_name,
                                 &mut rdr,
-                                ~io::stdout(),
+                                out,
                                 &pprust::NoAnn,
                                 is_expanded)
         }
@@ -850,7 +812,7 @@ pub fn build_target_config(sopts: &session::Options) -> session::Config {
     }
 }
 
-pub fn host_triple() -> ~str {
+pub fn host_triple() -> &'static str {
     // Get the host triple out of the build environment. This ensures that our
     // idea of the host triple is the same as for the set of libraries we've
     // actually built.  We can't just take LLVM's host triple because they
@@ -859,7 +821,7 @@ pub fn host_triple() -> ~str {
     // Instead of grabbing the host triple (for the current host), we grab (at
     // compile time) the target triple that this rustc is built with and
     // calling that (at runtime) the host triple.
-    (env!("CFG_COMPILER_HOST_TRIPLE")).to_owned()
+    env!("CFG_COMPILER_HOST_TRIPLE")
 }
 
 pub fn build_session_options(matches: &getopts::Matches) -> session::Options {
@@ -951,7 +913,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> session::Options {
     }
 
     let sysroot_opt = matches.opt_str("sysroot").map(|m| Path::new(m));
-    let target = matches.opt_str("target").unwrap_or(host_triple());
+    let target = matches.opt_str("target").unwrap_or(host_triple().to_owned());
     let opt_level = {
         if (debugging_opts & session::NO_OPT) != 0 {
             No
@@ -1104,7 +1066,7 @@ pub fn build_session_(sopts: session::Options,
         // For a library crate, this is always none
         entry_fn: RefCell::new(None),
         entry_type: Cell::new(None),
-        macro_registrar_fn: RefCell::new(None),
+        macro_registrar_fn: Cell::new(None),
         default_sysroot: default_sysroot,
         building_library: Cell::new(false),
         local_crate_source_file: local_crate_source_file,
@@ -1146,14 +1108,14 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
   optflag("", "crate-name", "Output the crate name and exit"),
   optflag("", "crate-file-name", "Output the file(s) that would be written if compilation \
           continued and exit"),
-  optflag("",  "ls",  "List the symbols defined by a library crate"),
   optflag("g",  "",  "Equivalent to --debuginfo=2"),
   optopt("",  "debuginfo",  "Emit DWARF debug info to the objects created:
          0 = no debug info,
          1 = line-tables only (for stacktraces and breakpoints),
          2 = full debug info with variable and type information (same as -g)", "LEVEL"),
   optflag("", "no-trans", "Run all passes except translation; no output"),
-  optflag("", "no-analysis", "Parse and expand the output, but run no analysis or produce output"),
+  optflag("", "no-analysis",
+          "Parse and expand the source, but run no analysis and produce no output"),
   optflag("O", "", "Equivalent to --opt-level=2"),
   optopt("o", "", "Write output to <filename>", "FILENAME"),
   optopt("", "opt-level", "Optimize with possible levels 0-3", "LEVEL"),
@@ -1166,7 +1128,9 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
               typed (crates expanded, with type annotations),
               or identified (fully parenthesized,
               AST nodes and blocks with IDs)", "TYPE"),
-  optflagopt("", "dep-info", "Output dependency info to <filename> after compiling", "FILENAME"),
+  optflagopt("", "dep-info",
+             "Output dependency info to <filename> after compiling, \
+              in a format suitable for use by Makefiles", "FILENAME"),
   optopt("", "sysroot", "Override the system root", "PATH"),
   optflag("", "test", "Build a test harness"),
   optopt("", "target", "Target triple cpu-manufacturer-kernel[-os]
@@ -1290,7 +1254,7 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test() {
         let matches =
-            &match getopts([~"--test"], optgroups().as_slice()) {
+            &match getopts(["--test".to_owned()], optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => fail!("test_switch_implies_cfg_test: {}", f.to_err_msg())
             };
@@ -1305,7 +1269,7 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test_unless_cfg_test() {
         let matches =
-            &match getopts([~"--test", ~"--cfg=test"],
+            &match getopts(["--test".to_owned(), "--cfg=test".to_owned()],
                            optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => {

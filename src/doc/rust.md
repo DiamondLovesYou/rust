@@ -96,9 +96,9 @@ The section [Special Unicode Productions](#special-unicode-productions) lists th
 
 ## String table productions
 
-Some rules in the grammar -- notably [unary
+Some rules in the grammar &mdash; notably [unary
 operators](#unary-operator-expressions), [binary
-operators](#binary-operator-expressions), and [keywords](#keywords) --
+operators](#binary-operator-expressions), and [keywords](#keywords) &mdash;
 are given in a simplified form: as a listing of a table of unquoted,
 printable whitespace-separated strings. These cases form a subset of
 the rules regarding the [token](#tokens) rule, and are assumed to be
@@ -295,7 +295,7 @@ Raw string literals do not process any escapes. They start with the character
 `U+0022` (double-quote) character. The _raw string body_ is not defined in the
 EBNF grammar above: it can contain any sequence of Unicode characters and is
 terminated only by another `U+0022` (double-quote) character, followed by the
-same number of `U+0023` (`#`) characters that preceeded the opening `U+0022`
+same number of `U+0023` (`#`) characters that preceded the opening `U+0022`
 (double-quote) character.
 
 All Unicode characters contained in the raw string body represent themselves,
@@ -432,7 +432,7 @@ operators](#binary-operator-expressions), or [keywords](#keywords).
 ## Paths
 
 ~~~~ {.notrust .ebnf .gram}
-expr_path : ident [ "::" expr_path_tail ] + ;
+expr_path : [ "::" ] ident [ "::" expr_path_tail ] + ;
 expr_path_tail : '<' type_expr [ ',' type_expr ] + '>'
                | expr_path ;
 
@@ -474,6 +474,51 @@ type T = HashMap<int,~str>;  // Type arguments used in a type expression
 let x = id::<int>(10);         // Type arguments used in a call expression
 # }
 ~~~~
+
+Paths can be denoted with various leading qualifiers to change the meaning of
+how it is resolved:
+
+* Paths starting with `::` are considered to be global paths where the
+  components of the path start being resolved from the crate root. Each
+  identifier in the path must resolve to an item.
+
+  ```rust
+  mod a {
+      pub fn foo() {}
+  }
+  mod b {
+      pub fn foo() {
+          ::a::foo(); // call a's foo function
+      }
+  }
+  # fn main() {}
+  ```
+
+* Paths starting with the keyword `super` begin resolution relative to the
+  parent module. Each further identifier must resolve to an item
+
+  ```rust
+  mod a {
+      pub fn foo() {}
+  }
+  mod b {
+      pub fn foo() {
+          super::a::foo(); // call a's foo function
+      }
+  }
+  # fn main() {}
+  ```
+
+* Paths starting with the keyword `self` begin resolution relative to the
+  current module. Each further identifier must resolve to an item.
+
+  ```rust
+  fn foo() {}
+  fn bar() {
+      self::foo();
+  }
+  # fn main() {}
+  ```
 
 # Syntax extensions
 
@@ -600,7 +645,7 @@ The processing of that source file may result in other source files being loaded
 Source files have the extension `.rs`.
 
 A Rust source file describes a module, the name and
-location of which -- in the module tree of the current crate -- are defined
+location of which &mdash; in the module tree of the current crate &mdash; are defined
 from outside the source file: either by an explicit `mod_item` in
 a referencing source file, or by the name of the crate itself.
 
@@ -664,7 +709,7 @@ Some items form an implicit scope for the declaration of sub-items. In other
 words, within a function or module, declarations of items can (in many cases)
 be mixed with the statements, control blocks, and similar artifacts that
 otherwise compose the item body. The meaning of these scoped items is the same
-as if the item was declared outside the scope -- it is still a static item --
+as if the item was declared outside the scope &mdash; it is still a static item &mdash;
 except that the item's *path name* within the module namespace is qualified by
 the name of the enclosing item, or is private to the enclosing item (in the
 case of functions).
@@ -1169,6 +1214,22 @@ struct Cookie;
 let c = [Cookie, Cookie, Cookie, Cookie];
 ~~~~
 
+By using the `struct_inherit` feature gate, structures may use single inheritance. A Structure may only
+inherit from a single other structure, called the _super-struct_. The inheriting structure (sub-struct)
+acts as if all fields in the super-struct were present in the sub-struct. Fields declared in a sub-struct
+must not have the same name as any field in any (transitive) super-struct. All fields (both declared
+and inherited) must be specified in any initializers. Inheritance between structures does not give
+subtyping or coercion. The super-struct and sub-struct must be defined in the same crate. The super-struct
+must be declared using the `virtual` keyword.
+For example:
+
+~~~~ {.ignore}
+virtual struct Sup { x: int }
+struct Sub : Sup { y: int }
+let s = Sub {x: 10, y: 11};
+let sx = s.x;
+~~~~
+
 ### Enumerations
 
 An _enumeration_ is a simultaneous definition of a nominal [enumerated type](#enumerated-types) as well as a set of *constructors*,
@@ -1196,8 +1257,8 @@ enum Animal {
     Cat { name: ~str, weight: f64 }
 }
 
-let mut a: Animal = Dog(~"Cocoa", 37.2);
-a = Cat{ name: ~"Spotty", weight: 2.7 };
+let mut a: Animal = Dog("Cocoa".to_owned(), 37.2);
+a = Cat{ name: "Spotty".to_owned(), weight: 2.7 };
 ~~~~
 
 In this example, `Cat` is a _struct-like enum variant_,
@@ -1287,7 +1348,6 @@ Traits are implemented for specific types through separate [implementations](#im
 ~~~~
 # type Surface = int;
 # type BoundingBox = int;
-
 trait Shape {
     fn draw(&self, Surface);
     fn bounding_box(&self) -> BoundingBox;
@@ -1318,7 +1378,6 @@ For example:
 ~~~~
 # type Surface = int;
 # trait Shape { fn draw(&self, Surface); }
-
 fn draw_twice<T: Shape>(surface: Surface, sh: T) {
     sh.draw(surface);
     sh.draw(surface);
@@ -1334,7 +1393,6 @@ to pointers to the trait name, used as a type.
 # trait Shape { }
 # impl Shape for int { }
 # let mycircle = 0;
-
 let myshape: ~Shape = ~mycircle as ~Shape;
 ~~~~
 
@@ -1395,7 +1453,6 @@ Likewise, supertrait methods may also be called on trait objects.
 # impl Shape for int { fn area(&self) -> f64 { 0.0 } }
 # impl Circle for int { fn radius(&self) -> f64 { 0.0 } }
 # let mycircle = 0;
-
 let mycircle: Circle = ~mycircle as ~Circle;
 let nonsense = mycircle.radius() * mycircle.area();
 ~~~~
@@ -1412,7 +1469,6 @@ Implementations are defined with the keyword `impl`.
 # struct BoundingBox {x: f64, y: f64, width: f64, height: f64};
 # trait Shape { fn draw(&self, Surface); fn bounding_box(&self) -> BoundingBox; }
 # fn do_draw_circle(s: Surface, c: Circle) { }
-
 struct Circle {
     radius: f64,
     center: Point,
@@ -1445,7 +1501,6 @@ Implementation parameters are written after the `impl` keyword.
 
 ~~~~
 # trait Seq<T> { }
-
 impl<T> Seq<T> for ~[T] {
    /* ... */
 }
@@ -1541,10 +1596,10 @@ pub struct Bar {
     field: int
 }
 
-// Declare a public enum with public and private variants
+// Declare a public enum with two public variants
 pub enum State {
     PubliclyAccessibleState,
-    priv PrivatelyAccessibleState
+    PubliclyAccessibleState2,
 }
 ~~~~
 
@@ -1685,7 +1740,7 @@ attr : ident [ '=' literal
              | '(' attr_list ')' ] ? ;
 ~~~~
 
-Static entities in Rust -- crates, modules and items -- may have _attributes_
+Static entities in Rust &mdash; crates, modules and items &mdash; may have _attributes_
 applied to them. Attributes in Rust are modeled on Attributes in ECMA-335,
 with the syntax coming from ECMA-334 (C#). An attribute is a general,
 free-form metadatum that is interpreted according to name, convention, and
@@ -1962,110 +2017,110 @@ A complete list of the built-in language items follows:
 
 #### Built-in Traits
 
-`send`
+* `send`
   : Able to be sent across task boundaries.
-`sized`
+* `sized`
   : Has a size known at compile time.
-`copy`
+* `copy`
   : Types that do not move ownership when used by-value.
-`share`
+* `share`
   : Able to be safely shared between tasks when aliased.
-`drop`
+* `drop`
   : Have destructors.
 
 #### Operators
 
 These language items are traits:
 
-`add`
+* `add`
   : Elements can be added (for example, integers and floats).
-`sub`
+* `sub`
   : Elements can be subtracted.
-`mul`
+* `mul`
   : Elements can be multiplied.
-`div`
+* `div`
   : Elements have a division operation.
-`rem`
+* `rem`
   : Elements have a remainder operation.
-`neg`
+* `neg`
   : Elements can be negated arithmetically.
-`not`
+* `not`
   : Elements can be negated logically.
-`bitxor`
+* `bitxor`
   : Elements have an exclusive-or operation.
-`bitand`
+* `bitand`
   : Elements have a bitwise `and` operation.
-`bitor`
+* `bitor`
   : Elements have a bitwise `or` operation.
-`shl`
+* `shl`
   : Elements have a left shift operation.
-`shr`
+* `shr`
   : Elements have a right shift operation.
-`index`
+* `index`
   : Elements can be indexed.
-`eq`
+* `eq`
   : Elements can be compared for equality.
-`ord`
+* `ord`
   : Elements have a partial ordering.
-`deref`
+* `deref`
   : `*` can be applied, yielding a reference to another type
-`deref_mut`
+* `deref_mut`
   : `*` can be applied, yielding a mutable reference to another type
 
 
 These are functions:
 
-`str_eq`
+* `str_eq`
   : Compare two strings (`&str`) for equality.
-`uniq_str_eq`
+* `uniq_str_eq`
   : Compare two owned strings (`~str`) for equality.
-`strdup_uniq`
+* `strdup_uniq`
   : Return a new unique string
     containing a copy of the contents of a unique string.
 
 #### Types
 
-`unsafe`
+* `unsafe`
   : A type whose contents can be mutated through an immutable reference
-`type_id`
+* `type_id`
   : The type returned by the `type_id` intrinsic.
 
 #### Marker types
 
 These types help drive the compiler's analysis
 
-`covariant_type`
+* `covariant_type`
   : The type parameter should be considered covariant
-`contravariant_type`
+* `contravariant_type`
   : The type parameter should be considered contravariant
-`invariant_type`
+* `invariant_type`
   : The type parameter should be considered invariant
-`covariant_lifetime`
+* `covariant_lifetime`
   : The lifetime parameter should be considered covariant
-`contravariant_lifetime`
+* `contravariant_lifetime`
   : The lifetime parameter should be considered contravariant
-`invariant_lifetime`
+* `invariant_lifetime`
   : The lifetime parameter should be considered invariant
-`no_send_bound`
+* `no_send_bound`
   : This type does not implement "send", even if eligible
-`no_copy_bound`
+* `no_copy_bound`
   : This type does not implement "copy", even if eligible
-`no_share_bound`
+* `no_share_bound`
   : This type does not implement "share", even if eligible
-`managed_bound`
+* `managed_bound`
   : This type implements "managed"
 
-`fail_`
+* `fail_`
   : Abort the program with an error.
-`fail_bounds_check`
+* `fail_bounds_check`
   : Abort the program with a bounds check error.
-`exchange_malloc`
+* `exchange_malloc`
   : Allocate memory on the exchange heap.
-`exchange_free`
+* `exchange_free`
   : Free memory that was allocated on the exchange heap.
-`malloc`
+* `malloc`
   : Allocate memory on the managed heap.
-`free`
+* `free`
   : Free memory that was allocated on the managed heap.
 
 > **Note:** This list is likely to become out of date. We should auto-generate it
@@ -2195,7 +2250,7 @@ fn main() {
 Certain aspects of Rust may be implemented in the compiler, but they're not
 necessarily ready for every-day use. These features are often of "prototype
 quality" or "almost production ready", but may not be stable enough to be
-considered a full-fleged language feature.
+considered a full-fledged language feature.
 
 For this reason, Rust recognizes a special crate-level attribute of the form:
 
@@ -2307,8 +2362,8 @@ The declared names may denote new slots or new items.
 #### Item declarations
 
 An _item declaration statement_ has a syntactic form identical to an
-[item](#items) declaration within a module. Declaring an item -- a function,
-enumeration, structure, type, static, trait, implementation or module -- locally
+[item](#items) declaration within a module. Declaring an item &mdash; a function,
+enumeration, structure, type, static, trait, implementation or module &mdash; locally
 within a statement block is simply a way of restricting its scope to a narrow
 region containing all of its uses; it is otherwise identical in meaning to
 declaring the item outside the statement block.
@@ -2573,9 +2628,9 @@ Rust defines six symbolic unary operators.
 They are all written as prefix operators,
 before the expression they apply to.
 
-`-`
+* `-`
   : Negation. May only be applied to numeric types.
-`*`
+* `*`
   : Dereference. When applied to a [pointer](#pointer-types) it denotes the pointed-to location.
     For pointers to mutable locations, the resulting [lvalue](#lvalues-rvalues-and-temporaries) can be assigned to.
     On non-pointer types, it calls the `deref` method of the `std::ops::Deref` trait, or the
@@ -2583,14 +2638,14 @@ before the expression they apply to.
     for an outer expression that will or could mutate the dereference), and produces the
     result of dereferencing the `&` or `&mut` borrowed pointer returned from the overload method.
 
-`!`
+* `!`
   : Logical negation. On the boolean type, this flips between `true` and
     `false`. On integer types, this inverts the individual bits in the
     two's complement representation of the value.
-`~`
+* `~`
   :  [Boxing](#pointer-types) operators. Allocate a box to hold the value they are applied to,
      and store the value in it. `~` creates an owned box.
-`&`
+* `&`
   : Borrow operator. Returns a reference, pointing to its operand.
     The operand of a borrow is statically proven to outlive the resulting pointer.
     If the borrow-checker cannot prove this, it is a compilation error.
@@ -2611,19 +2666,19 @@ defined in the `std::ops` module of the `std` library.
 This means that arithmetic operators can be overridden for user-defined types.
 The default meaning of the operators on standard types is given here.
 
-`+`
+* `+`
   : Addition and vector/string concatenation.
     Calls the `add` method on the `std::ops::Add` trait.
-`-`
+* `-`
   : Subtraction.
     Calls the `sub` method on the `std::ops::Sub` trait.
-`*`
+* `*`
   : Multiplication.
     Calls the `mul` method on the `std::ops::Mul` trait.
-`/`
+* `/`
   : Quotient.
     Calls the `div` method on the `std::ops::Div` trait.
-`%`
+* `%`
   : Remainder.
     Calls the `rem` method on the `std::ops::Rem` trait.
 
@@ -2634,19 +2689,19 @@ are syntactic sugar for calls to methods of built-in traits.
 This means that bitwise operators can be overridden for user-defined types.
 The default meaning of the operators on standard types is given here.
 
-`&`
+* `&`
   : And.
     Calls the `bitand` method of the `std::ops::BitAnd` trait.
-`|`
+* `|`
   : Inclusive or.
     Calls the `bitor` method of the `std::ops::BitOr` trait.
-`^`
+* `^`
   : Exclusive or.
     Calls the `bitxor` method of the `std::ops::BitXor` trait.
-`<<`
+* `<<`
   : Logical left shift.
     Calls the `shl` method of the `std::ops::Shl` trait.
-`>>`
+* `>>`
   : Logical right shift.
     Calls the `shr` method of the `std::ops::Shr` trait.
 
@@ -2667,22 +2722,22 @@ syntactic sugar for calls to built-in traits.
 This means that comparison operators can be overridden for user-defined types.
 The default meaning of the operators on standard types is given here.
 
-`==`
+* `==`
   : Equal to.
     Calls the `eq` method on the `std::cmp::Eq` trait.
-`!=`
+* `!=`
   : Unequal to.
     Calls the `ne` method on the `std::cmp::Eq` trait.
-`<`
+* `<`
   : Less than.
     Calls the `lt` method on the `std::cmp::Ord` trait.
-`>`
+* `>`
   : Greater than.
     Calls the `gt` method on the `std::cmp::Ord` trait.
-`<=`
+* `<=`
   : Less than or equal.
     Calls the `le` method on the `std::cmp::Ord` trait.
-`>=`
+* `>=`
   : Greater than or equal.
     Calls the `ge` method on the `std::cmp::Ord` trait.
 
@@ -3337,7 +3392,7 @@ but must be denoted by named reference to an [`enum` item](#enumerations).
 
 ### Recursive types
 
-Nominal types -- [enumerations](#enumerated-types) and [structures](#structure-types) -- may be recursive.
+Nominal types &mdash; [enumerations](#enumerated-types) and [structures](#structure-types) &mdash; may be recursive.
 That is, each `enum` constructor or `struct` field may refer, directly or indirectly, to the enclosing `enum` or `struct` type itself.
 Such recursion has restrictions:
 
@@ -3368,7 +3423,7 @@ All pointers in Rust are explicit first-class values.
 They can be copied, stored into data structures, and returned from functions.
 There are four varieties of pointer in Rust:
 
-Owning pointers (`~`)
+* Owning pointers (`~`)
   : These point to owned heap allocations (or "boxes") in the shared, inter-task heap.
     Each owned box has a single owning pointer; pointer and pointee retain a 1:1 relationship at all times.
     Owning pointers are written `~content`,
@@ -3377,7 +3432,7 @@ Owning pointers (`~`)
     it involves allocating a new owned box and copying the contents of the old box into the new box.
     Releasing an owning pointer immediately releases its corresponding owned box.
 
-References (`&`)
+* References (`&`)
   : These point to memory _owned by some other value_.
     References arise by (automatic) conversion from owning pointers, managed pointers,
     or by applying the borrowing operator `&` to some other value,
@@ -3390,7 +3445,7 @@ References (`&`)
     with the exception of temporary values,
     which are released when the last reference to them is released.
 
-Raw pointers (`*`)
+* Raw pointers (`*`)
   : Raw pointers are pointers without safety or liveness guarantees.
     Raw pointers are written `*content`,
     for example `*int` means a raw pointer to an integer.
@@ -3415,7 +3470,7 @@ fn add(x: int, y: int) -> int {
 
 let mut x = add(5,7);
 
-type Binop<'a> = 'a |int,int| -> int;
+type Binop<'a> = |int,int|: 'a -> int;
 let bo: Binop = add;
 x = bo(5,7);
 ~~~~
@@ -3465,7 +3520,7 @@ allocated on the heap (unlike closures). An example of creating and calling a
 procedure:
 
 ```rust
-let string = ~"Hello";
+let string = "Hello".to_owned();
 
 // Creates a new procedure, passing it to the `spawn` function.
 spawn(proc() {
@@ -3564,24 +3619,24 @@ call to the method `make_string`.
 Types in Rust are categorized into kinds, based on various properties of the components of the type.
 The kinds are:
 
-`Send`
+* `Send`
   : Types of this kind can be safely sent between tasks.
     This kind includes scalars, owning pointers, owned closures, and
     structural types containing only other owned types.
     All `Send` types are `'static`.
-`Copy`
+* `Copy`
   : Types of this kind consist of "Plain Old Data"
     which can be copied by simply moving bits.
     All values of this kind can be implicitly copied.
     This kind includes scalars and immutable references,
     as well as structural types containing other `Copy` types.
-`'static`
+* `'static`
   : Types of this kind do not contain any references (except for
     references with the `static` lifetime, which are allowed).
     This can be a useful guarantee for code
     that breaks borrowing assumptions
     using [`unsafe` operations](#unsafe-functions).
-`Drop`
+* `Drop`
   : This is not strictly a kind,
     but its presence interacts with kinds:
     the `Drop` trait provides a single method `drop`
@@ -3593,7 +3648,7 @@ The kinds are:
     before any of the values it owns run their destructors.
     Only `Send` types can implement `Drop`.
 
-_Default_
+* _Default_
   : Types with destructors, closure environments,
     and various other _non-first-class_ types,
     are not copyable at all.
@@ -3647,7 +3702,7 @@ entry to each function as the task executes. A stack allocation is reclaimed
 when control leaves the frame containing it.
 
 The _heap_ is a general term that describes two separate sets of boxes:
-managed boxes -- which may be subject to garbage collection -- and owned
+managed boxes &mdash; which may be subject to garbage collection &mdash; and owned
 boxes.  The lifetime of an allocation in the heap depends on the lifetime of
 the box values pointing to it. Since box values may themselves be passed in
 and out of frames, or stored in the heap, heap allocations may outlive the
@@ -3713,7 +3768,7 @@ initialized; this is enforced by the compiler.
 ### Owned boxes
 
 An  _owned box_ is a reference to a heap allocation holding another value, which is constructed
-by the prefix *tilde* sigil `~`
+by the prefix *tilde* sigil `~`.
 
 An example of an owned box type and value:
 
@@ -3748,7 +3803,7 @@ The runtime scheduler maps tasks to a certain number of operating-system threads
 By default, the scheduler chooses the number of threads based on
 the number of concurrent physical CPUs detected at startup.
 It's also possible to override this choice at runtime.
-When the number of tasks exceeds the number of threads -- which is likely --
+When the number of tasks exceeds the number of threads &mdash; which is likely &mdash;
 the scheduler multiplexes the tasks onto threads.^[
 This is an M:N scheduler,
 which is known to give suboptimal results for CPU-bound concurrency problems.
@@ -3787,14 +3842,14 @@ that cause transitions between the states. The lifecycle states of a task are:
 * failing
 * dead
 
-A task begins its lifecycle -- once it has been spawned -- in the *running*
+A task begins its lifecycle &mdash; once it has been spawned &mdash; in the *running*
 state. In this state it executes the statements of its entry function, and any
 functions called by the entry function.
 
 A task may transition from the *running* state to the *blocked*
 state any time it makes a blocking communication call. When the
-call can be completed -- when a message arrives at a sender, or a
-buffer opens to receive a message -- then the blocked task will
+call can be completed &mdash; when a message arrives at a sender, or a
+buffer opens to receive a message &mdash; then the blocked task will
 unblock and transition back to *running*.
 
 A task may transition to the *failing* state at any time, due being
@@ -3875,7 +3930,9 @@ link Rust crates together, and more information about native libraries can be
 found in the [ffi tutorial][ffi].
 
 In one session of compilation, the compiler can generate multiple artifacts
-through the usage of command line flags and the `crate_type` attribute.
+through the usage of either command line flags or the `crate_type` attribute.
+If one or more command line flag is specified, all `crate_type` attributes will
+be ignored in favor of only building the artifacts specified by command line.
 
 * `--crate-type=bin`, `#[crate_type = "bin"]` - A runnable executable will be
   produced.  This requires that there is a `main` function in the crate which
@@ -3918,7 +3975,10 @@ through the usage of command line flags and the `crate_type` attribute.
 
 Note that these outputs are stackable in the sense that if multiple are
 specified, then the compiler will produce each form of output at once without
-having to recompile.
+having to recompile. However, this only applies for outputs specified by the same
+method. If only `crate_type` attributes are specified, then they will all be
+built, but if one or more `--crate-type` command line flag is specified,
+then only those outputs will be built.
 
 With all these different kinds of outputs, if crate A depends on crate B, then
 the compiler could find B in various different forms throughout the system. The
@@ -3939,7 +3999,7 @@ dependencies will be used:
    could only be found in an `rlib` format. Remember that `staticlib` formats
    are always ignored by `rustc` for crate-linking purposes.
 
-2. If a static library is being produced, all upstream dependecies are
+2. If a static library is being produced, all upstream dependencies are
    required to be available in `rlib` formats. This requirement stems from the
    same reasons that a dynamic library must have all dynamic dependencies.
 
@@ -4005,10 +4065,6 @@ Note that when compiling source files that don't specify a
 crate name the crate is given a default name that matches the source file,
 with the extension removed. In that case, to turn on logging for a program
 compiled from, e.g. `helloworld.rs`, `RUST_LOG` should be set to `helloworld`.
-
-As a convenience, the logging spec can also be set to a special pseudo-crate,
-`::help`. In this case, when the application starts, the runtime will
-simply output a list of loaded modules containing log expressions, then exit.
 
 #### Logging Expressions
 

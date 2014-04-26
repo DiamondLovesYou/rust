@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 trait Foo {
     fn foo(&self) -> ~str;
@@ -28,5 +28,5 @@ impl Foo for uint {
 
 pub fn main() {
     let x = @3u;
-    assert_eq!(x.foo(), ~"@3");
+    assert_eq!(x.foo(), "@3".to_owned());
 }

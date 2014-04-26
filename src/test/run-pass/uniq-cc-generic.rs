@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[feature(managed_boxes)];
+#![feature(managed_boxes)]
 
 use std::cell::RefCell;
 
@@ -19,17 +19,17 @@ enum maybe_pointy {
 
 struct Pointy {
     a : maybe_pointy,
-    d : proc:Send() -> uint,
+    d : proc():Send -> uint,
 }
 
-fn make_uniq_closure<A:Send>(a: A) -> proc:Send() -> uint {
+fn make_uniq_closure<A:Send>(a: A) -> proc():Send -> uint {
     proc() { &a as *A as uint }
 }
 
 fn empty_pointy() -> @RefCell<Pointy> {
     return @RefCell::new(Pointy {
         a : none,
-        d : make_uniq_closure(~"hi")
+        d : make_uniq_closure("hi".to_owned())
     })
 }
 

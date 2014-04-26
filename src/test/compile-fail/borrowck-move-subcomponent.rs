@@ -13,6 +13,9 @@
 
 #![no_std]
 
+#[lang="sized"]
+pub trait Sized {}
+
 struct S {
   x : ~int
 }

@@ -79,13 +79,13 @@ pub fn get_simple_intrinsic(ccx: &CrateContext, item: &ast::ForeignItem) -> Opti
         "bswap64" => "llvm.bswap.i64",
         _ => return None
     };
-    Some(ccx.intrinsics.get_copy(&name))
+    Some(ccx.get_intrinsic(&name))
 }
 
 pub fn trans_intrinsic(ccx: &CrateContext,
                        decl: ValueRef,
                        item: &ast::ForeignItem,
-                       substs: @param_substs,
+                       substs: &param_substs,
                        ref_id: Option<ast::NodeId>) {
     debug!("trans_intrinsic(item.ident={})", token::get_ident(item.ident));
 
@@ -93,7 +93,7 @@ pub fn trans_intrinsic(ccx: &CrateContext,
         let first_real_arg = bcx.fcx.arg_pos(0u);
         let a = get_param(bcx.fcx.llfn, first_real_arg);
         let b = get_param(bcx.fcx.llfn, first_real_arg + 1);
-        let llfn = bcx.ccx().intrinsics.get_copy(&name);
+        let llfn = bcx.ccx().get_intrinsic(&name);
 
         // convert `i1` to a `bool`, and write to the out parameter
         let val = Call(bcx, llfn, [a, b], []);
@@ -129,7 +129,7 @@ pub fn trans_intrinsic(ccx: &CrateContext,
         RetVoid(bcx);
     }
 
-    fn copy_intrinsic(bcx: &Block, allow_overlap: bool, tp_ty: ty::t) {
+    fn copy_intrinsic(bcx: &Block, allow_overlap: bool, volatile: bool, tp_ty: ty::t) {
         let ccx = bcx.ccx();
         let lltp_ty = type_of::type_of(ccx, tp_ty);
         let align = C_i32(ccx, machine::llalign_of_min(ccx, lltp_ty) as i32);
@@ -154,13 +154,12 @@ pub fn trans_intrinsic(ccx: &CrateContext,
         let dst_ptr = PointerCast(bcx, get_param(decl, first_real_arg), Type::i8p(ccx));
         let src_ptr = PointerCast(bcx, get_param(decl, first_real_arg + 1), Type::i8p(ccx));
         let count = get_param(decl, first_real_arg + 2);
-        let volatile = C_i1(ccx, false);
-        let llfn = ccx.intrinsics.get_copy(&name);
-        Call(bcx, llfn, [dst_ptr, src_ptr, Mul(bcx, size, count), align, volatile], []);
+        let llfn = ccx.get_intrinsic(&name);
+        Call(bcx, llfn, [dst_ptr, src_ptr, Mul(bcx, size, count), align, C_i1(ccx, volatile)], []);
         RetVoid(bcx);
     }
 
-    fn memset_intrinsic(bcx: &Block, tp_ty: ty::t) {
+    fn memset_intrinsic(bcx: &Block, volatile: bool, tp_ty: ty::t) {
         let ccx = bcx.ccx();
         let lltp_ty = type_of::type_of(ccx, tp_ty);
         let align = C_i32(ccx, machine::llalign_of_min(ccx, lltp_ty) as i32);
@@ -176,16 +175,15 @@ pub fn trans_intrinsic(ccx: &CrateContext,
         let dst_ptr = PointerCast(bcx, get_param(decl, first_real_arg), Type::i8p(ccx));
         let val = get_param(decl, first_real_arg + 1);
         let count = get_param(decl, first_real_arg + 2);
-        let volatile = C_i1(ccx, false);
-        let llfn = ccx.intrinsics.get_copy(&name);
-        Call(bcx, llfn, [dst_ptr, val, Mul(bcx, size, count), align, volatile], []);
+        let llfn = ccx.get_intrinsic(&name);
+        Call(bcx, llfn, [dst_ptr, val, Mul(bcx, size, count), align, C_i1(ccx, volatile)], []);
         RetVoid(bcx);
     }
 
     fn count_zeros_intrinsic(bcx: &Block, name: &'static str) {
         let x = get_param(bcx.fcx.llfn, bcx.fcx.arg_pos(0u));
         let y = C_i1(bcx.ccx(), false);
-        let llfn = bcx.ccx().intrinsics.get_copy(&name);
+        let llfn = bcx.ccx().get_intrinsic(&name);
         let llcall = Call(bcx, llfn, [x, y], []);
         Ret(bcx, llcall);
     }
@@ -194,8 +192,8 @@ pub fn trans_intrinsic(ccx: &CrateContext,
 
     let arena = TypedArena::new();
     let fcx = new_fn_ctxt(ccx, decl, item.id, false, output_type,
-                          Some(substs), Some(item.span), &arena);
-    init_function(&fcx, true, output_type, Some(substs));
+                          Some(&*substs), Some(item.span), &arena);
+    init_function(&fcx, true, output_type);
 
     set_always_inline(fcx.llfn);
 
@@ -223,10 +221,23 @@ pub fn trans_intrinsic(ccx: &CrateContext,
 
         match *split.get(1) {
             "cxchg" => {
+                // See include/llvm/IR/Instructions.h for their implementation
+                // of this, I assume that it's good enough for us to use for
+                // now.
+                let strongest_failure_ordering = match order {
+                    lib::llvm::NotAtomic | lib::llvm::Unordered =>
+                        ccx.sess().fatal("cmpxchg must be atomic"),
+                    lib::llvm::Monotonic | lib::llvm::Release =>
+                        lib::llvm::Monotonic,
+                    lib::llvm::Acquire | lib::llvm::AcquireRelease =>
+                        lib::llvm::Acquire,
+                    lib::llvm::SequentiallyConsistent =>
+                        lib::llvm::SequentiallyConsistent,
+                };
                 let old = AtomicCmpXchg(bcx, get_param(decl, first_real_arg),
                                         get_param(decl, first_real_arg + 1u),
                                         get_param(decl, first_real_arg + 2u),
-                                        order);
+                                        order, strongest_failure_ordering);
                 Ret(bcx, old);
             }
             "load" => {
@@ -274,12 +285,12 @@ pub fn trans_intrinsic(ccx: &CrateContext,
 
     match name.get() {
         "abort" => {
-            let llfn = bcx.ccx().intrinsics.get_copy(&("llvm.trap"));
+            let llfn = bcx.ccx().get_intrinsic(&("llvm.trap"));
             Call(bcx, llfn, [], []);
             Unreachable(bcx);
         }
         "breakpoint" => {
-            let llfn = bcx.ccx().intrinsics.get_copy(&("llvm.debugtrap"));
+            let llfn = bcx.ccx().get_intrinsic(&("llvm.debugtrap"));
             Call(bcx, llfn, [], []);
             RetVoid(bcx);
         }
@@ -315,7 +326,7 @@ pub fn trans_intrinsic(ccx: &CrateContext,
         "get_tydesc" => {
             let tp_ty = *substs.tys.get(0);
             let static_ti = get_tydesc(ccx, tp_ty);
-            glue::lazily_emit_visit_glue(ccx, static_ti);
+            glue::lazily_emit_visit_glue(ccx, &*static_ti);
 
             // FIXME (#3730): ideally this shouldn't need a cast,
             // but there's a circularity between translating rust types to llvm
@@ -453,11 +464,15 @@ pub fn trans_intrinsic(ccx: &CrateContext,
             let lladdr = InBoundsGEP(bcx, ptr, [offset]);
             Ret(bcx, lladdr);
         }
-        "copy_nonoverlapping_memory" => {
-            copy_intrinsic(bcx, false, *substs.tys.get(0))
-        }
-        "copy_memory" => copy_intrinsic(bcx, true, *substs.tys.get(0)),
-        "set_memory" => memset_intrinsic(bcx, *substs.tys.get(0)),
+        "copy_nonoverlapping_memory" => copy_intrinsic(bcx, false, false, *substs.tys.get(0)),
+        "copy_memory" => copy_intrinsic(bcx, true, false, *substs.tys.get(0)),
+        "set_memory" => memset_intrinsic(bcx, false, *substs.tys.get(0)),
+
+        "volatile_copy_nonoverlapping_memory" =>
+            copy_intrinsic(bcx, false, true, *substs.tys.get(0)),
+        "volatile_copy_memory" => copy_intrinsic(bcx, true, true, *substs.tys.get(0)),
+        "volatile_set_memory" => memset_intrinsic(bcx, true, *substs.tys.get(0)),
+
         "ctlz8" => count_zeros_intrinsic(bcx, "llvm.ctlz.i8"),
         "ctlz16" => count_zeros_intrinsic(bcx, "llvm.ctlz.i16"),
         "ctlz32" => count_zeros_intrinsic(bcx, "llvm.ctlz.i32"),

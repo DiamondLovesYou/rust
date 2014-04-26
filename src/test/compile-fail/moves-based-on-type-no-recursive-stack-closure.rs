@@ -16,11 +16,11 @@ struct R<'a> {
     // This struct is needed to create the
     // otherwise infinite type of a fn that
     // accepts itself as argument:
-    c: 'a |&R, bool|
+    c: |&mut R, bool|: 'a
 }
 
 fn innocent_looking_victim() {
-    let mut x = Some(~"hello");
+    let mut x = Some("hello".to_owned());
     conspirator(|f, writer| {
         if writer {
             x = None;
@@ -28,6 +28,7 @@ fn innocent_looking_victim() {
             match x {
                 Some(ref msg) => {
                     (f.c)(f, true);
+                    //~^ ERROR: cannot borrow `*f` as mutable because
                     println!("{:?}", msg);
                 },
                 None => fail!("oops"),
@@ -36,9 +37,9 @@ fn innocent_looking_victim() {
     })
 }
 
-fn conspirator(f: |&R, bool|) {
-    let r = R {c: f};
-    f(&r, false) //~ ERROR use of moved value
+fn conspirator(f: |&mut R, bool|) {
+    let mut r = R {c: f};
+    f(&mut r, false) //~ ERROR use of moved value
 }
 
 fn main() { innocent_looking_victim() }

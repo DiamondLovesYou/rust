@@ -26,7 +26,7 @@
 # L10N_LANGS are the languages for which the docs have been
 # translated.
 ######################################################################
-DOCS := index tutorial guide-ffi guide-macros guide-lifetimes \
+DOCS := index intro tutorial guide-ffi guide-macros guide-lifetimes \
 	guide-tasks guide-container guide-pointers guide-testing \
 	guide-runtime complement-bugreport complement-cheatsheet \
 	complement-lang-faq complement-project-faq rust rustdoc \
@@ -138,6 +138,26 @@ doc/full-toc.inc: $(D)/full-toc.inc | doc/
 
 HTML_DEPS += doc/footer.inc
 doc/footer.inc: $(D)/footer.inc | doc/
+	@$(call E, cp: $@)
+	$(Q)cp -a $< $@ 2> /dev/null
+
+doc/FiraSans-Regular.woff: $(D)/FiraSans-Regular.woff | doc/
+	@$(call E, cp: $@)
+	$(Q)cp -a $< $@ 2> /dev/null
+
+doc/FiraSans-Medium.woff: $(D)/FiraSans-Medium.woff | doc/
+	@$(call E, cp: $@)
+	$(Q)cp -a $< $@ 2> /dev/null
+
+doc/Heuristica-Regular.woff: $(D)/Heuristica-Regular.woff | doc/
+	@$(call E, cp: $@)
+	$(Q)cp -a $< $@ 2> /dev/null
+
+doc/Heuristica-Italic.woff: $(D)/Heuristica-Italic.woff | doc/
+	@$(call E, cp: $@)
+	$(Q)cp -a $< $@ 2> /dev/null
+
+doc/Heuristica-Bold.woff: $(D)/Heuristica-Bold.woff | doc/
 	@$(call E, cp: $@)
 	$(Q)cp -a $< $@ 2> /dev/null
 
@@ -269,6 +289,7 @@ LIB_DOC_DEP_$(1) = $$(CRATEFILE_$(1)) $$(RSINPUTS_$(1))
 endif
 
 $(2) += doc/$(1)/index.html
+doc/$(1)/index.html: CFG_COMPILER_HOST_TRIPLE = $(CFG_TARGET)
 doc/$(1)/index.html: $$(LIB_DOC_DEP_$(1))
 	@$$(call E, rustdoc $$@)
 	$$(Q)$$(RUSTDOC) --cfg dox --cfg stage2 $$<

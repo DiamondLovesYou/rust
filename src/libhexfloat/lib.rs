@@ -53,7 +53,7 @@ use syntax::ast;
 use syntax::ast::Name;
 use syntax::codemap::{Span, mk_sp};
 use syntax::ext::base;
-use syntax::ext::base::{SyntaxExtension, BasicMacroExpander, NormalTT, ExtCtxt, MRExpr};
+use syntax::ext::base::{SyntaxExtension, BasicMacroExpander, NormalTT, ExtCtxt, MacExpr};
 use syntax::ext::build::AstBuilder;
 use syntax::parse;
 use syntax::parse::token;
@@ -74,30 +74,30 @@ fn hex_float_lit_err(s: &str) -> Option<(uint, ~str)> {
     let mut chars = s.chars().peekable();
     let mut i = 0;
     if chars.peek() == Some(&'-') { chars.next(); i+= 1 }
-    if chars.next() != Some('0') { return Some((i, ~"Expected '0'")); } i+=1;
-    if chars.next() != Some('x') { return Some((i, ~"Expected 'x'")); } i+=1;
+    if chars.next() != Some('0') { return Some((i, "Expected '0'".to_owned())); } i+=1;
+    if chars.next() != Some('x') { return Some((i, "Expected 'x'".to_owned())); } i+=1;
     let mut d_len = 0;
     for _ in chars.take_while(|c| c.is_digit_radix(16)) { chars.next(); i+=1; d_len += 1;}
-    if chars.next() != Some('.') { return Some((i, ~"Expected '.'")); } i+=1;
+    if chars.next() != Some('.') { return Some((i, "Expected '.'".to_owned())); } i+=1;
     let mut f_len = 0;
     for _ in chars.take_while(|c| c.is_digit_radix(16)) { chars.next(); i+=1; f_len += 1;}
     if d_len == 0 && f_len == 0 {
-        return Some((i, ~"Expected digits before or after decimal point"));
+        return Some((i, "Expected digits before or after decimal point".to_owned()));
     }
-    if chars.next() != Some('p') { return Some((i, ~"Expected 'p'")); } i+=1;
+    if chars.next() != Some('p') { return Some((i, "Expected 'p'".to_owned())); } i+=1;
     if chars.peek() == Some(&'-') { chars.next(); i+= 1 }
     let mut e_len = 0;
     for _ in chars.take_while(|c| c.is_digit()) { chars.next(); i+=1; e_len += 1}
     if e_len == 0 {
-        return Some((i, ~"Expected exponent digits"));
+        return Some((i, "Expected exponent digits".to_owned()));
     }
     match chars.next() {
         None => None,
-        Some(_) => Some((i, ~"Expected end of string"))
+        Some(_) => Some((i, "Expected end of string".to_owned()))
     }
 }
 
-pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> base::MacResult {
+pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> ~base::MacResult {
     let (expr, ty_lit) = parse_tts(cx, tts);
 
     let ty = match ty_lit {
@@ -105,6 +105,7 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
         Some(Ident{ident, span}) => match token::get_ident(ident).get() {
             "f32" => Some(ast::TyF32),
             "f64" => Some(ast::TyF64),
+            "f128" => Some(ast::TyF128),
             _ => {
                 cx.span_err(span, "invalid floating point type in hexfloat!");
                 None
@@ -121,12 +122,12 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
             }
             _ => {
                 cx.span_err(expr.span, "unsupported literal in hexfloat!");
-                return base::MacResult::dummy_expr(sp);
+                return base::DummyResult::expr(sp);
             }
         },
         _ => {
             cx.span_err(expr.span, "non-literal in hexfloat!");
-            return base::MacResult::dummy_expr(sp);
+            return base::DummyResult::expr(sp);
         }
     };
 
@@ -137,7 +138,7 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
                 let pos = expr.span.lo + syntax::codemap::Pos::from_uint(err_pos + 1);
                 let span = syntax::codemap::mk_sp(pos,pos);
                 cx.span_err(span, format!("invalid hex float literal in hexfloat!: {}", err_str));
-                return base::MacResult::dummy_expr(sp);
+                return base::DummyResult::expr(sp);
             }
             _ => ()
         }
@@ -147,7 +148,7 @@ pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> 
         None => ast::LitFloatUnsuffixed(s),
         Some (ty) => ast::LitFloat(s, ty)
     };
-    MRExpr(cx.expr_lit(sp, lit))
+    MacExpr::new(cx.expr_lit(sp, lit))
 }
 
 struct Ident {

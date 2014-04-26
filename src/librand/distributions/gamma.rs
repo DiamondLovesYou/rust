@@ -45,10 +45,14 @@ use super::{IndependentSample, Sample, Exp};
 /// for Generating Gamma Variables" *ACM Trans. Math. Softw.* 26, 3
 /// (September 2000),
 /// 363-372. DOI:[10.1145/358407.358414](http://doi.acm.org/10.1145/358407.358414)
-pub enum Gamma {
-    priv Large(GammaLargeShape),
-    priv One(Exp),
-    priv Small(GammaSmallShape)
+pub struct Gamma {
+    repr: GammaRepr,
+}
+
+enum GammaRepr {
+    Large(GammaLargeShape),
+    One(Exp),
+    Small(GammaSmallShape)
 }
 
 // These two helpers could be made public, but saving the
@@ -90,11 +94,12 @@ impl Gamma {
         assert!(shape > 0.0, "Gamma::new called with shape <= 0");
         assert!(scale > 0.0, "Gamma::new called with scale <= 0");
 
-        match shape {
+        let repr = match shape {
             1.0        => One(Exp::new(1.0 / scale)),
             0.0 .. 1.0 => Small(GammaSmallShape::new_raw(shape, scale)),
             _          => Large(GammaLargeShape::new_raw(shape, scale))
-        }
+        };
+        Gamma { repr: repr }
     }
 }
 
@@ -131,7 +136,7 @@ impl Sample<f64> for GammaLargeShape {
 
 impl IndependentSample<f64> for Gamma {
     fn ind_sample<R: Rng>(&self, rng: &mut R) -> f64 {
-        match *self {
+        match self.repr {
             Small(ref g) => g.ind_sample(rng),
             One(ref g) => g.ind_sample(rng),
             Large(ref g) => g.ind_sample(rng),
@@ -142,7 +147,7 @@ impl IndependentSample<f64> for GammaSmallShape {
     fn ind_sample<R: Rng>(&self, rng: &mut R) -> f64 {
         let Open01(u) = rng.gen::<Open01<f64>>();
 
-        self.large_shape.ind_sample(rng) * u.powf(&self.inv_shape)
+        self.large_shape.ind_sample(rng) * u.powf(self.inv_shape)
     }
 }
 impl IndependentSample<f64> for GammaLargeShape {
@@ -183,24 +188,29 @@ impl IndependentSample<f64> for GammaLargeShape {
 /// let v = chi.ind_sample(&mut rand::task_rng());
 /// println!("{} is from a χ²(11) distribution", v)
 /// ```
-pub enum ChiSquared {
+pub struct ChiSquared {
+    repr: ChiSquaredRepr,
+}
+
+enum ChiSquaredRepr {
     // k == 1, Gamma(alpha, ..) is particularly slow for alpha < 1,
     // e.g. when alpha = 1/2 as it would be for this case, so special-
     // casing and using the definition of N(0,1)^2 is faster.
-    priv DoFExactlyOne,
-    priv DoFAnythingElse(Gamma)
+    DoFExactlyOne,
+    DoFAnythingElse(Gamma),
 }
 
 impl ChiSquared {
     /// Create a new chi-squared distribution with degrees-of-freedom
     /// `k`. Fails if `k < 0`.
     pub fn new(k: f64) -> ChiSquared {
-        if k == 1.0 {
+        let repr = if k == 1.0 {
             DoFExactlyOne
         } else {
             assert!(k > 0.0, "ChiSquared::new called with `k` < 0");
             DoFAnythingElse(Gamma::new(0.5 * k, 2.0))
-        }
+        };
+        ChiSquared { repr: repr }
     }
 }
 impl Sample<f64> for ChiSquared {
@@ -208,7 +218,7 @@ impl Sample<f64> for ChiSquared {
 }
 impl IndependentSample<f64> for ChiSquared {
     fn ind_sample<R: Rng>(&self, rng: &mut R) -> f64 {
-        match *self {
+        match self.repr {
             DoFExactlyOne => {
                 // k == 1 => N(0,1)^2
                 let StandardNormal(norm) = rng.gen::<StandardNormal>();
@@ -366,7 +376,7 @@ mod test {
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use self::test::BenchHarness;
+    use self::test::Bencher;
     use std::mem::size_of;
     use distributions::IndependentSample;
     use {XorShiftRng, RAND_BENCH_N};
@@ -374,28 +384,28 @@ mod bench {
 
 
     #[bench]
-    fn bench_gamma_large_shape(bh: &mut BenchHarness) {
+    fn bench_gamma_large_shape(b: &mut Bencher) {
         let gamma = Gamma::new(10., 1.0);
         let mut rng = XorShiftRng::new().unwrap();
 
-        bh.iter(|| {
+        b.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 gamma.ind_sample(&mut rng);
             }
         });
-        bh.bytes = size_of::<f64>() as u64 * RAND_BENCH_N;
+        b.bytes = size_of::<f64>() as u64 * RAND_BENCH_N;
     }
 
     #[bench]
-    fn bench_gamma_small_shape(bh: &mut BenchHarness) {
+    fn bench_gamma_small_shape(b: &mut Bencher) {
         let gamma = Gamma::new(0.1, 1.0);
         let mut rng = XorShiftRng::new().unwrap();
 
-        bh.iter(|| {
+        b.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 gamma.ind_sample(&mut rng);
             }
         });
-        bh.bytes = size_of::<f64>() as u64 * RAND_BENCH_N;
+        b.bytes = size_of::<f64>() as u64 * RAND_BENCH_N;
     }
 }

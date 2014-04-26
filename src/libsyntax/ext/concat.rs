@@ -8,22 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::char;
-
 use ast;
 use codemap;
 use ext::base;
 use ext::build::AstBuilder;
 use parse::token;
 
+use std::char;
+use std::strbuf::StrBuf;
+
 pub fn expand_syntax_ext(cx: &mut base::ExtCtxt,
                          sp: codemap::Span,
-                         tts: &[ast::TokenTree]) -> base::MacResult {
+                         tts: &[ast::TokenTree]) -> ~base::MacResult {
     let es = match base::get_exprs_from_tts(cx, sp, tts) {
         Some(e) => e,
-        None => return base::MacResult::dummy_expr(sp)
+        None => return base::DummyResult::expr(sp)
     };
-    let mut accumulator = ~"";
+    let mut accumulator = StrBuf::new();
     for e in es.move_iter() {
         match e.node {
             ast::ExprLit(lit) => {
@@ -56,5 +57,7 @@ pub fn expand_syntax_ext(cx: &mut base::ExtCtxt,
             }
         }
     }
-    base::MRExpr(cx.expr_str(sp, token::intern_and_get_ident(accumulator)))
+    base::MacExpr::new(cx.expr_str(
+            sp,
+            token::intern_and_get_ident(accumulator.into_owned())))
 }

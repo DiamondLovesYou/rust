@@ -23,6 +23,7 @@ use std::fmt;
 use std::local_data;
 use std::path::BytesContainer;
 use std::rc::Rc;
+use std::strbuf::StrBuf;
 
 #[allow(non_camel_case_types)]
 #[deriving(Clone, Encodable, Decodable, Eq, TotalEq, Hash, Show)]
@@ -140,86 +141,83 @@ impl fmt::Show for Nonterminal {
 
 pub fn binop_to_str(o: BinOp) -> ~str {
     match o {
-      PLUS => ~"+",
-      MINUS => ~"-",
-      STAR => ~"*",
-      SLASH => ~"/",
-      PERCENT => ~"%",
-      CARET => ~"^",
-      AND => ~"&",
-      OR => ~"|",
-      SHL => ~"<<",
-      SHR => ~">>"
+      PLUS => "+".to_owned(),
+      MINUS => "-".to_owned(),
+      STAR => "*".to_owned(),
+      SLASH => "/".to_owned(),
+      PERCENT => "%".to_owned(),
+      CARET => "^".to_owned(),
+      AND => "&".to_owned(),
+      OR => "|".to_owned(),
+      SHL => "<<".to_owned(),
+      SHR => ">>".to_owned()
     }
 }
 
 pub fn to_str(t: &Token) -> ~str {
     match *t {
-      EQ => ~"=",
-      LT => ~"<",
-      LE => ~"<=",
-      EQEQ => ~"==",
-      NE => ~"!=",
-      GE => ~">=",
-      GT => ~">",
-      NOT => ~"!",
-      TILDE => ~"~",
-      OROR => ~"||",
-      ANDAND => ~"&&",
+      EQ => "=".to_owned(),
+      LT => "<".to_owned(),
+      LE => "<=".to_owned(),
+      EQEQ => "==".to_owned(),
+      NE => "!=".to_owned(),
+      GE => ">=".to_owned(),
+      GT => ">".to_owned(),
+      NOT => "!".to_owned(),
+      TILDE => "~".to_owned(),
+      OROR => "||".to_owned(),
+      ANDAND => "&&".to_owned(),
       BINOP(op) => binop_to_str(op),
       BINOPEQ(op) => binop_to_str(op) + "=",
 
       /* Structural symbols */
-      AT => ~"@",
-      DOT => ~".",
-      DOTDOT => ~"..",
-      DOTDOTDOT => ~"...",
-      COMMA => ~",",
-      SEMI => ~";",
-      COLON => ~":",
-      MOD_SEP => ~"::",
-      RARROW => ~"->",
-      LARROW => ~"<-",
-      DARROW => ~"<->",
-      FAT_ARROW => ~"=>",
-      LPAREN => ~"(",
-      RPAREN => ~")",
-      LBRACKET => ~"[",
-      RBRACKET => ~"]",
-      LBRACE => ~"{",
-      RBRACE => ~"}",
-      POUND => ~"#",
-      DOLLAR => ~"$",
+      AT => "@".to_owned(),
+      DOT => ".".to_owned(),
+      DOTDOT => "..".to_owned(),
+      DOTDOTDOT => "...".to_owned(),
+      COMMA => ",".to_owned(),
+      SEMI => ";".to_owned(),
+      COLON => ":".to_owned(),
+      MOD_SEP => "::".to_owned(),
+      RARROW => "->".to_owned(),
+      LARROW => "<-".to_owned(),
+      DARROW => "<->".to_owned(),
+      FAT_ARROW => "=>".to_owned(),
+      LPAREN => "(".to_owned(),
+      RPAREN => ")".to_owned(),
+      LBRACKET => "[".to_owned(),
+      RBRACKET => "]".to_owned(),
+      LBRACE => "{".to_owned(),
+      RBRACE => "}".to_owned(),
+      POUND => "#".to_owned(),
+      DOLLAR => "$".to_owned(),
 
       /* Literals */
       LIT_CHAR(c) => {
-          let mut res = ~"'";
+          let mut res = StrBuf::from_str("'");
           char::from_u32(c).unwrap().escape_default(|c| {
               res.push_char(c);
           });
           res.push_char('\'');
-          res
+          res.into_owned()
       }
-      LIT_INT(i, t) => {
-          i.to_str() + ast_util::int_ty_to_str(t)
-      }
-      LIT_UINT(u, t) => {
-          u.to_str() + ast_util::uint_ty_to_str(t)
-      }
+      LIT_INT(i, t) => ast_util::int_ty_to_str(t, Some(i)),
+      LIT_UINT(u, t) => ast_util::uint_ty_to_str(t, Some(u)),
       LIT_INT_UNSUFFIXED(i) => { i.to_str() }
       LIT_FLOAT(s, t) => {
-        let mut body = get_ident(s).get().to_str();
-        if body.ends_with(".") {
+        let mut body = StrBuf::from_str(get_ident(s).get());
+        if body.as_slice().ends_with(".") {
             body.push_char('0');  // `10.f` is not a float literal
         }
-        body + ast_util::float_ty_to_str(t)
+        body.push_str(ast_util::float_ty_to_str(t));
+        body.into_owned()
       }
       LIT_FLOAT_UNSUFFIXED(s) => {
-        let mut body = get_ident(s).get().to_str();
-        if body.ends_with(".") {
+        let mut body = StrBuf::from_str(get_ident(s).get());
+        if body.as_slice().ends_with(".") {
             body.push_char('0');  // `10.f` is not a float literal
         }
-        body
+        body.into_owned()
       }
       LIT_STR(s) => {
           format!("\"{}\"", get_ident(s).get().escape_default())
@@ -234,29 +232,29 @@ pub fn to_str(t: &Token) -> ~str {
       LIFETIME(s) => {
           format!("'{}", get_ident(s))
       }
-      UNDERSCORE => ~"_",
+      UNDERSCORE => "_".to_owned(),
 
       /* Other */
       DOC_COMMENT(s) => get_ident(s).get().to_str(),
-      EOF => ~"<eof>",
+      EOF => "<eof>".to_owned(),
       INTERPOLATED(ref nt) => {
         match nt {
             &NtExpr(e) => ::print::pprust::expr_to_str(e),
             &NtMeta(e) => ::print::pprust::meta_item_to_str(e),
             _ => {
-                ~"an interpolated " +
+                "an interpolated ".to_owned() +
                     match *nt {
-                        NtItem(..) => ~"item",
-                        NtBlock(..) => ~"block",
-                        NtStmt(..) => ~"statement",
-                        NtPat(..) => ~"pattern",
+                        NtItem(..) => "item".to_owned(),
+                        NtBlock(..) => "block".to_owned(),
+                        NtStmt(..) => "statement".to_owned(),
+                        NtPat(..) => "pattern".to_owned(),
                         NtMeta(..) => fail!("should have been handled"),
                         NtExpr(..) => fail!("should have been handled above"),
-                        NtTy(..) => ~"type",
-                        NtIdent(..) => ~"identifier",
-                        NtPath(..) => ~"path",
-                        NtTT(..) => ~"tt",
-                        NtMatchers(..) => ~"matcher sequence"
+                        NtTy(..) => "type".to_owned(),
+                        NtIdent(..) => "identifier".to_owned(),
+                        NtPath(..) => "path".to_owned(),
+                        NtTT(..) => "tt".to_owned(),
+                        NtMatchers(..) => "matcher sequence".to_owned()
                     }
             }
         }
@@ -463,20 +461,20 @@ declare_special_idents_and_keywords! {
         (25,                         Mod,        "mod");
         (26,                         Mut,        "mut");
         (27,                         Once,       "once");
-        (28,                         Priv,       "priv");
-        (29,                         Pub,        "pub");
-        (30,                         Ref,        "ref");
-        (31,                         Return,     "return");
+        (28,                         Pub,        "pub");
+        (29,                         Ref,        "ref");
+        (30,                         Return,     "return");
         // Static and Self are also special idents (prefill de-dupes)
         (super::STATIC_KEYWORD_NAME, Static,     "static");
         (super::SELF_KEYWORD_NAME,   Self,       "self");
-        (32,                         Struct,     "struct");
-        (33,                         Super,      "super");
-        (34,                         True,       "true");
-        (35,                         Trait,      "trait");
-        (36,                         Type,       "type");
-        (37,                         Unsafe,     "unsafe");
-        (38,                         Use,        "use");
+        (31,                         Struct,     "struct");
+        (32,                         Super,      "super");
+        (33,                         True,       "true");
+        (34,                         Trait,      "trait");
+        (35,                         Type,       "type");
+        (36,                         Unsafe,     "unsafe");
+        (37,                         Use,        "use");
+        (38,                         Virtual,    "virtual");
         (39,                         While,      "while");
         (40,                         Continue,   "continue");
         (41,                         Proc,       "proc");
@@ -486,12 +484,13 @@ declare_special_idents_and_keywords! {
         (43,                         Alignof,    "alignof");
         (44,                         Be,         "be");
         (45,                         Offsetof,   "offsetof");
-        (46,                         Pure,       "pure");
-        (47,                         Sizeof,     "sizeof");
-        (48,                         Typeof,     "typeof");
-        (49,                         Unsized,    "unsized");
-        (50,                         Yield,      "yield");
-        (51,                         Do,         "do");
+        (46,                         Priv,       "priv");
+        (47,                         Pure,       "pure");
+        (48,                         Sizeof,     "sizeof");
+        (49,                         Typeof,     "typeof");
+        (50,                         Unsized,    "unsized");
+        (51,                         Yield,      "yield");
+        (52,                         Do,         "do");
     }
 }
 

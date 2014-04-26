@@ -18,7 +18,6 @@ use libc::{c_int, c_void};
 use libc;
 use std::mem;
 use std::rt::rtio;
-use std::slice;
 
 use io::{IoResult, retry, keep_going};
 
@@ -340,11 +339,11 @@ pub fn mkdir(p: &CString, mode: io::FilePermission) -> IoResult<()> {
     }))
 }
 
-pub fn readdir(p: &CString) -> IoResult<~[Path]> {
+pub fn readdir(p: &CString) -> IoResult<Vec<Path>> {
     use libc::{dirent_t};
     use libc::{opendir, readdir_r, closedir};
 
-    fn prune(root: &CString, dirs: ~[Path]) -> ~[Path] {
+    fn prune(root: &CString, dirs: Vec<Path>) -> Vec<Path> {
         let root = unsafe { CString::new(root.with_ref(|p| p), false) };
         let root = Path::new(root);
 
@@ -365,7 +364,7 @@ pub fn readdir(p: &CString) -> IoResult<~[Path]> {
     let dir_ptr = p.with_ref(|buf| unsafe { opendir(buf) });
 
     if dir_ptr as uint != 0 {
-        let mut paths = ~[];
+        let mut paths = vec!();
         let mut entry_ptr = 0 as *mut dirent_t;
         while unsafe { readdir_r(dir_ptr, ptr, &mut entry_ptr) == 0 } {
             if entry_ptr.is_null() { break }
@@ -425,7 +424,7 @@ pub fn readlink(p: &CString) -> IoResult<Path> {
     if len == -1 {
         len = 1024; // FIXME: read PATH_MAX from C ffi?
     }
-    let mut buf = slice::with_capacity::<u8>(len as uint);
+    let mut buf: Vec<u8> = Vec::with_capacity(len as uint);
     match retry(|| unsafe {
         libc::readlink(p, buf.as_ptr() as *mut libc::c_char,
                        len as libc::size_t) as libc::c_int
@@ -584,4 +583,3 @@ mod tests {
         }
     }
 }
-

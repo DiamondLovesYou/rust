@@ -15,10 +15,10 @@ use ext::format;
 use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
-
 use parse::token;
 
 use collections::HashMap;
+use std::strbuf::StrBuf;
 
 pub fn expand_deriving_show(cx: &mut ExtCtxt,
                             span: Span,
@@ -42,9 +42,11 @@ pub fn expand_deriving_show(cx: &mut ExtCtxt,
                 explicit_self: borrowed_explicit_self(),
                 args: vec!(fmtr),
                 ret_ty: Literal(Path::new(vec!("std", "fmt", "Result"))),
-                inline: false,
+                attributes: Vec::new(),
                 const_nonmatching: false,
-                combine_substructure: show_substructure
+                combine_substructure: combine_substructure(|a, b, c| {
+                    show_substructure(a, b, c)
+                })
             }
         )
     };
@@ -68,7 +70,7 @@ fn show_substructure(cx: &mut ExtCtxt, span: Span,
         }
     };
 
-    let mut format_string = token::get_ident(name).get().to_owned();
+    let mut format_string = StrBuf::from_str(token::get_ident(name).get());
     // the internal fields we're actually formatting
     let mut exprs = Vec::new();
 
@@ -129,7 +131,7 @@ fn show_substructure(cx: &mut ExtCtxt, span: Span,
     let write_call = cx.expr_call_global(span, std_write, vec!(buf, cx.expr_ident(span, args)));
     let format_closure = cx.lambda_expr(span, vec!(args), write_call);
 
-    let s = token::intern_and_get_ident(format_string);
+    let s = token::intern_and_get_ident(format_string.as_slice());
     let format_string = cx.expr_str(span, s);
 
     // phew, not our responsibility any more!

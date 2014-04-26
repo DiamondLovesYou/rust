@@ -10,21 +10,21 @@
 
 // aux-build:cci_nested_lib.rs
 
-#[feature(globs, managed_boxes)];
+#![feature(globs, managed_boxes)]
 
 extern crate cci_nested_lib;
 use cci_nested_lib::*;
 
 pub fn main() {
     let lst = new_int_alist();
-    alist_add(&lst, 22, ~"hi");
-    alist_add(&lst, 44, ~"ho");
-    assert_eq!(alist_get(&lst, 22), ~"hi");
-    assert_eq!(alist_get(&lst, 44), ~"ho");
+    alist_add(&lst, 22, "hi".to_owned());
+    alist_add(&lst, 44, "ho".to_owned());
+    assert_eq!(alist_get(&lst, 22), "hi".to_owned());
+    assert_eq!(alist_get(&lst, 44), "ho".to_owned());
 
     let lst = new_int_alist_2();
-    alist_add(&lst, 22, ~"hi");
-    alist_add(&lst, 44, ~"ho");
-    assert_eq!(alist_get(&lst, 22), ~"hi");
-    assert_eq!(alist_get(&lst, 44), ~"ho");
+    alist_add(&lst, 22, "hi".to_owned());
+    alist_add(&lst, 44, "ho".to_owned());
+    assert_eq!(alist_get(&lst, 22), "hi".to_owned());
+    assert_eq!(alist_get(&lst, 44), "ho".to_owned());
 }
