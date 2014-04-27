@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![crate_id = "simd#0.10-pre"]
+#![crate_id = "simd#0.11-pre"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![license = "MIT/ASL2"]

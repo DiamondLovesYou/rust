@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![crate_id = "simd_syntax#0.10-pre"]
+#![crate_id = "simd_syntax#0.11-pre"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
 #![comment = "A parse-time library to facilitate access to SIMD types & operations"]
