@@ -8,7 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// FIXME #13793
-#[test]
-fn test_dummy() {
+fn main() {
+    let _x = match Some(1) {
+        _y @ Some(_) => 1,
+        None => 2,
+    };
 }

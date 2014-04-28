@@ -8,7 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// FIXME #13793
-#[test]
-fn test_dummy() {
+trait Foo {
+    fn foo(~self) { bar(self as ~Foo); }
 }
+
+fn bar(_b: ~Foo) { }
+
+fn main() {}

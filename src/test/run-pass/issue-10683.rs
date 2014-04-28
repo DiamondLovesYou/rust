@@ -8,7 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// FIXME #13793
-#[test]
-fn test_dummy() {
+use std::ascii::StrAsciiExt;
+
+static NAME: &'static str = "hello world";
+
+fn main() {
+    match NAME.to_ascii_lower().as_slice() {
+        "foo" => {}
+        _ => {}
+    }
 }

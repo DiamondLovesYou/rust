@@ -8,7 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// FIXME #13793
-#[test]
-fn test_dummy() {
+struct Test<'s> {
+    func: ||: 's,
+}
+
+fn main() {
+    let test = ~Test { func: proc() {} };
+    //~^ ERROR: expected `||` but found `proc()`
 }

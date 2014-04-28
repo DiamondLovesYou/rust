@@ -8,7 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// FIXME #13793
-#[test]
-fn test_dummy() {
+#![feature(managed_boxes)]
+
+fn main() {
+    fn f(_: proc()) {}
+    fn eat<T>(_: T) {}
+
+    let x = @1;
+    f(proc() { eat(x) });
 }
