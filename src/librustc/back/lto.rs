@@ -98,17 +98,22 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
             "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
 
-            let builder = llvm::LLVMPassManagerBuilderCreate();
-            llvm::LLVMPassManagerBuilderPopulateLTOPassManager
-                (builder,
-                 pm,
-                 /* Internalize = */ False,
-                 /* RunInliner = */ if sess.opts.optimize != session::No { True } else { False });
-            llvm::LLVMPassManagerBuilderDispose(builder);
+            if sess.opts.optimize != session::No {
+                let builder = llvm::LLVMPassManagerBuilderCreate();
+                llvm::LLVMPassManagerBuilderPopulateLTOPassManager
+                    (builder,
+                     pm,
+                     /* Internalize = */ False,
+                     /* RunInliner = */ True);
+                llvm::LLVMPassManagerBuilderDispose(builder);
+            }
 
             if sess.targeting_pnacl() {
                 // Ensure attributes don't sneak in:
                 "nacl-strip-attributes".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+                if sess.opts.optimize == session::No {
+                    "nacl-global-cleanup".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+                }
             }
             "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
 
