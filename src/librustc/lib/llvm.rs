@@ -308,7 +308,7 @@ pub mod llvm {
     use super::{CodeGenModel, RelocMode, CodeGenOptLevel};
     use super::debuginfo::*;
     use libc::{c_char, c_int, c_longlong, c_ushort, c_uint, c_ulonglong,
-                    size_t};
+               size_t, c_void, c_uchar};
 
     // Link to our native llvm bindings (things that we need to use the C++ api
     // for) and because llvm is written in C++ we need to link against libstdc++
@@ -1783,6 +1783,11 @@ pub mod llvm {
         pub fn LLVMRustOpenArchive(path: *c_char) -> ArchiveRef;
         pub fn LLVMRustArchiveReadSection(AR: ArchiveRef, name: *c_char,
                                           out_len: *mut size_t) -> *c_char;
+        pub fn LLVMRustArchiveReadAllChildren(AR: ArchiveRef,
+                                              callback: extern "C" fn(*c_uchar, size_t,
+                                                                      *c_uchar, size_t,
+                                                                      *mut c_void),
+                                              userdata: *mut c_void);
         pub fn LLVMRustDestroyArchive(AR: ArchiveRef);
 
         pub fn LLVMRustSetDLLExportStorageClass(V: ValueRef);

@@ -707,6 +707,30 @@ LLVMRustArchiveReadSection(Archive *ar, char *name, size_t *size) {
     }
     return NULL;
 }
+extern "C" void
+LLVMRustArchiveReadAllChildren(Archive *ar,
+			       void (*callback)(const char* name,   size_t name_len,
+						const char* buffer, size_t buffer_len,
+						void* userdata),
+			       void* userdata) {
+#if LLVM_VERSION_MINOR >= 5
+    Archive::child_iterator I   = ar->child_begin(),
+                            End = ar->child_end();
+#else
+    Archive::child_iterator I   = ar->begin_children(),
+                            End = ar->end_children();
+#endif
+    assert(callback != NULL);
+    for (; I != End; ++I) {
+      StringRef sect_name;
+      error_code err = I->getName(sect_name);
+      if (err) continue;
+      StringRef buffer = I->getBuffer();
+      (*callback)(sect_name.data(), sect_name.size(),
+		  buffer.data(),    buffer.size(),
+		  userdata);
+    }
+}
 
 extern "C" void
 LLVMRustDestroyArchive(Archive *ar) {

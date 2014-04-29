@@ -237,6 +237,33 @@ impl ArchiveRO {
             }
         }
     }
+    // Reads every child, running f on each.
+    pub fn foreach_child(&self, f: |&str, &[u8]|) {
+        use std::cast::transmute;
+        extern "C" fn cb(name: *libc::c_uchar,   name_len: libc::size_t,
+                         buffer: *libc::c_uchar, buffer_len: libc::size_t,
+                         f: *mut libc::c_void) {
+            use std::str::from_utf8_lossy;
+            use std::slice::raw::buf_as_slice;
+            use std::cast::transmute_copy;
+            let f: &|&str, &[u8]| = unsafe { transmute(f) };
+            unsafe {
+                buf_as_slice(name as *u8, name_len as uint, |name_buf| {
+                    let name = from_utf8_lossy(name_buf).into_owned();
+                    debug!("running f on `{}`", name);
+                    buf_as_slice(buffer, buffer_len as uint, |buf| {
+                        let f: |&str, &[u8]| = transmute_copy(f);
+                        f(name, buf);
+                    })
+                })
+            }
+        }
+        unsafe {
+            llvm::LLVMRustArchiveReadAllChildren(self.ptr,
+                                                 cb,
+                                                 transmute(&f));
+        }
+    }
 }
 
 impl Drop for ArchiveRO {
