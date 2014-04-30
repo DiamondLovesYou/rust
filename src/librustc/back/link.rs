@@ -448,7 +448,7 @@ pub mod write {
             if sess.time_llvm_passes() { add("-time-passes"); }
             if sess.print_llvm_passes() { add("-debug-pass=Structure"); }
 
-            if sess.opts.debuginfo != session::NoDebugInfo && sess.targeting_pnacl() {
+            if sess.targeting_pnacl() {
                 add("-pnaclabi-allow-debug-metadata");
             }
 
