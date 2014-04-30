@@ -2222,6 +2222,12 @@ pub fn trans_crate(krate: ast::Crate,
     reachable.push("rust_eh_personality".to_owned());
     reachable.push("rust_eh_personality_catch".to_owned()); // referenced from rt/rust_try.ll
 
+    if ccx.sess().targeting_pnacl() {
+        reachable.push("PPP_InitializeModule".to_owned());
+        reachable.push("PPP_GetInterface".to_owned());
+        reachable.push("PPP_ShutdownModule".to_owned());
+    }
+
     let metadata_module = ccx.metadata_llmod;
 
     (ccx.tcx, CrateTranslation {
