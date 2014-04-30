@@ -279,7 +279,7 @@ pub fn finalize(cx: &CrateContext) {
         if cx.sess().targ_cfg.os == abi::OsMacos {
             "Dwarf Version".with_c_str(
                 |s| llvm::LLVMRustAddModuleFlag(cx.llmod, s, 2));
-        } else {
+        } else if !cx.sess().targeting_pnacl() {
             // FIXME(#13611) this is a kludge fix because the linux bots have
             //               gdb 7.4 which doesn't understand dwarf4, we should
             //               do something more graceful here.
