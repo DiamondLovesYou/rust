@@ -226,7 +226,8 @@ endif
 
 # FIXME: x86-ism
 LLVM_COMPONENTS=x86 arm mips ipo bitreader bitwriter linker asmparser jit mcjit \
-                interpreter instrumentation NaClTransforms NaClAnalysis
+                interpreter instrumentation NaClTransforms NaClAnalysis NaClBitWriter \
+		NaClBitReader
 
 # Only build these LLVM tools
 LLVM_TOOLS=bugpoint llc llvm-ar llvm-as llvm-dis llvm-mc opt llvm-extract

@@ -11,6 +11,7 @@
 #include "rustllvm.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Bitcode/NaCl/NaClReaderWriter.h"
 
 //===----------------------------------------------------------------------===
 //
@@ -777,4 +778,23 @@ LLVMRustGetSectionName(LLVMSectionIteratorRef SI, const char **ptr) {
       report_fatal_error(ec.message());
     *ptr = ret.data();
     return ret.size();
+}
+
+extern "C" bool
+LLVMRustWritePNaClBitcode(LLVMModuleRef M,
+			  const char* Path,
+			  const bool AcceptSupportedOnly) {
+  std::string ErrorInfo;
+#if LLVM_VERSION_MINOR >= 4
+  raw_fd_ostream OS(Path, ErrorInfo, sys::fs::F_None);
+#else
+  raw_fd_ostream OS(Path, ErrorInfo, raw_fd_ostream::F_Binary);
+#endif
+  if (!ErrorInfo.empty()) {
+    LLVMRustSetLastError(ErrorInfo.c_str());
+    return false;
+  }
+
+  NaClWriteBitcodeToFile(unwrap(M), OS);
+  return true;
 }

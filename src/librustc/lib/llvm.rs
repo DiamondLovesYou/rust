@@ -1795,6 +1795,10 @@ pub mod llvm {
 
         pub fn LLVMRustGetSectionName(SI: SectionIteratorRef,
                                       data: *mut *c_char) -> c_int;
+
+        pub fn LLVMRustWritePNaClBitcode(M: ModuleRef,
+                                         Path: *c_char,
+                                         AcceptSupportedOnly: bool) -> bool;
     }
 }
 
