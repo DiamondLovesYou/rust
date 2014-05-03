@@ -86,13 +86,13 @@ pub mod middle {
     pub mod astencode;
     pub mod lang_items;
     pub mod privacy;
-    pub mod moves;
     pub mod entry;
     pub mod effect;
     pub mod reachable;
     pub mod graph;
     pub mod cfg;
     pub mod dead;
+    pub mod expr_use_visitor;
 }
 
 pub mod front {
@@ -301,7 +301,7 @@ pub fn run_compiler(args: &[~str]) {
         None::<d::PpMode> => {/* continue */ }
     }
 
-    if r.contains(&~"ls") {
+    if r.contains(&("ls".to_owned())) {
         match input {
             d::FileInput(ref ifile) => {
                 let mut stdout = io::stdout();
@@ -388,7 +388,7 @@ pub fn monitor(f: proc():Send) {
     let mut r = io::ChanReader::new(rx);
 
     match task_builder.try(proc() {
-        io::stdio::set_stderr(~w);
+        io::stdio::set_stderr(box w);
         f()
     }) {
         Ok(()) => { /* fallthrough */ }
@@ -426,7 +426,7 @@ pub fn monitor(f: proc():Send) {
             // Fail so the process returns a failure code, but don't pollute the
             // output with some unnecessary failure messages, we've already
             // printed everything that we needed to.
-            io::stdio::set_stderr(~io::util::NullWriter);
+            io::stdio::set_stderr(box io::util::NullWriter);
             fail!();
         }
     }

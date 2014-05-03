@@ -8,6 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+
+//! The global (exchange) heap.
+
 use libc::{c_void, size_t, free, malloc, realloc};
 use ptr::{RawPtr, mut_null};
 use intrinsics::abort;
@@ -122,14 +125,14 @@ mod bench {
     #[bench]
     fn alloc_owned_small(b: &mut Bencher) {
         b.iter(|| {
-            ~10
+            box 10
         })
     }
 
     #[bench]
     fn alloc_owned_big(b: &mut Bencher) {
         b.iter(|| {
-            ~[10, ..1000]
+            box [10, ..1000]
         })
     }
 }

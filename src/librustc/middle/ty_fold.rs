@@ -68,10 +68,6 @@ pub trait TypeFolder {
         r
     }
 
-    fn fold_vstore(&mut self, vstore: ty::Vstore) -> ty::Vstore {
-        super_fold_vstore(self, vstore)
-    }
-
     fn fold_trait_store(&mut self, s: ty::TraitStore) -> ty::TraitStore {
         super_fold_trait_store(self, s)
     }
@@ -154,7 +150,7 @@ pub fn super_fold_sty<T:TypeFolder>(this: &mut T,
             ty::ty_enum(tid, this.fold_substs(substs))
         }
         ty::ty_trait(~ty::TyTrait { def_id, ref substs, store, bounds }) => {
-            ty::ty_trait(~ty::TyTrait{
+            ty::ty_trait(box ty::TyTrait{
                 def_id: def_id,
                 substs: this.fold_substs(substs),
                 store: this.fold_trait_store(store),
@@ -168,7 +164,7 @@ pub fn super_fold_sty<T:TypeFolder>(this: &mut T,
             ty::ty_bare_fn(this.fold_bare_fn_ty(f))
         }
         ty::ty_closure(ref f) => {
-            ty::ty_closure(~this.fold_closure_ty(*f))
+            ty::ty_closure(box this.fold_closure_ty(*f))
         }
         ty::ty_rptr(r, ref tm) => {
             ty::ty_rptr(this.fold_region(r),
@@ -179,25 +175,12 @@ pub fn super_fold_sty<T:TypeFolder>(this: &mut T,
             ty::ty_struct(did,
                           this.fold_substs(substs))
         }
-        ty::ty_str(vst) => {
-            ty::ty_str(this.fold_vstore(vst))
-        }
-        ty::ty_nil | ty::ty_bot | ty::ty_bool | ty::ty_char |
+        ty::ty_nil | ty::ty_bot | ty::ty_bool | ty::ty_char | ty::ty_str |
         ty::ty_int(_) | ty::ty_uint(_) | ty::ty_float(_) |
         ty::ty_err | ty::ty_infer(_) |
         ty::ty_param(..) | ty::ty_self(_) | ty::ty_simd(..) => {
             (*sty).clone()
         }
-    }
-}
-
-pub fn super_fold_vstore<T:TypeFolder>(this: &mut T,
-                                       vstore: ty::Vstore)
-                                       -> ty::Vstore {
-    match vstore {
-        ty::VstoreFixed(i) => ty::VstoreFixed(i),
-        ty::VstoreUniq => ty::VstoreUniq,
-        ty::VstoreSlice(r) => ty::VstoreSlice(this.fold_region(r)),
     }
 }
 

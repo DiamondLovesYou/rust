@@ -169,6 +169,12 @@ pub mod write {
                              (sess.targ_cfg.os == abi::OsMacos &&
                               sess.targ_cfg.arch == abi::X86_64);
 
+            // OSX has -dead_strip, which doesn't rely on ffunction_sections
+            // FIXME(#13846) this should be enabled for windows
+            let ffunction_sections = sess.targ_cfg.os != abi::OsMacos &&
+                                     sess.targ_cfg.os != abi::OsWin32;
+            let fdata_sections = ffunction_sections;
+
             let reloc_model = match sess.opts.cg.relocation_model.as_slice() {
                 "pic" => lib::llvm::RelocPIC,
                 "static" => lib::llvm::RelocStatic,
@@ -188,9 +194,11 @@ pub mod write {
                             lib::llvm::CodeModelDefault,
                             reloc_model,
                             opt_level,
-                            true,
+                            true /* EnableSegstk */,
                             use_softfp,
-                            no_fp_elim
+                            no_fp_elim,
+                            ffunction_sections,
+                            fdata_sections,
                         )
                     })
                 })
@@ -1089,7 +1097,7 @@ pub fn link_pnacl_module(sess: &Session,
                          trans: &CrateTranslation,
                          outputs: &OutputFilenames,
                          id: &CrateId) {
-    // Note that we don't use pnacl-ld here. We want to avoid the costly post-link 
+    // Note that we don't use pnacl-ld here. We want to avoid the costly post-link
     // simplification passes pnacl-ld runs. Instead, since pnacl-ld's output is just bitcode,
     // what we do here is pull all of our 'native' dependencies into a (vary large)
     // module and run the LTO passes on it. Admittedly some-what hacky.
@@ -1118,7 +1126,7 @@ pub fn link_pnacl_module(sess: &Session,
     use collections::HashSet;
 
     let llmod = trans.module;
-    
+
     let native_dep_lib_path = Some({
         sess.pnacl_toolchain()
             .join("lib")
@@ -1359,7 +1367,6 @@ pub fn link_pnacl_module(sess: &Session,
                              false,
                              true);
 
-    
     if sess.opts.cg.save_temps {
         outputs.with_extension("post-opt.bc").with_c_str(|buf| unsafe {
             llvm::LLVMWriteBitcodeToFile(llmod, buf);
@@ -1745,20 +1752,38 @@ fn link_args(sess: &Session,
         args.push("-nodefaultlibs".to_owned());
     }
 
+    // If we're building a dylib, we don't use --gc-sections because LLVM has
+    // already done the best it can do, and we also don't want to eliminate the
+    // metadata. If we're building an executable, however, --gc-sections drops
+    // the size of hello world from 1.8MB to 597K, a 67% reduction.
+    if !dylib && sess.targ_cfg.os != abi::OsMacos {
+        args.push("-Wl,--gc-sections".to_owned());
+    }
+
     if sess.targ_cfg.os == abi::OsLinux {
         // GNU-style linkers will use this to omit linking to libraries which
         // don't actually fulfill any relocations, but only for libraries which
         // follow this flag. Thus, use it before specifying libraries to link to.
         args.push("-Wl,--as-needed".to_owned());
 
-        // GNU-style linkers support optimization with -O. --gc-sections
-        // removes metadata and potentially other useful things, so don't
-        // include it. GNU ld doesn't need a numeric argument, but other linkers
-        // do.
+        // GNU-style linkers support optimization with -O. GNU ld doesn't need a
+        // numeric argument, but other linkers do.
         if sess.opts.optimize == session::Default ||
            sess.opts.optimize == session::Aggressive {
             args.push("-Wl,-O1".to_owned());
         }
+    } else if sess.targ_cfg.os == abi::OsMacos {
+        // The dead_strip option to the linker specifies that functions and data
+        // unreachable by the entry point will be removed. This is quite useful
+        // with Rust's compilation model of compiling libraries at a time into
+        // one object file. For example, this brings hello world from 1.7MB to
+        // 458K.
+        //
+        // Note that this is done for both executables and dynamic libraries. We
+        // won't get much benefit from dylibs because LLVM will have already
+        // stripped away as much as it could. This has not been seen to impact
+        // link times negatively.
+        args.push("-Wl,-dead_strip".to_owned());
     }
 
     if sess.targ_cfg.os == abi::OsWin32 {
@@ -2013,7 +2038,7 @@ fn add_upstream_rust_crates(args: &mut Vec<~str>, sess: &Session,
             // If you opted in to dynamic linking and we decided to emit a
             // static output, you should probably be notified of such an event!
             sess.warn("dynamic linking was preferred, but dependencies \
-                       could not all be found in an dylib format.");
+                       could not all be found in a dylib format.");
             sess.warn("linking statically instead, using rlibs");
             add_static_crates(args, sess, tmpdir, deps)
         }

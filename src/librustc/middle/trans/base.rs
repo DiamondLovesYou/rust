@@ -189,8 +189,8 @@ fn decl_fn(llmod: ModuleRef, name: &str, cc: lib::llvm::CallConv,
         // `~` pointer return values never alias because ownership is transferred
         // FIXME #6750 ~Trait cannot be directly marked as
         // noalias because the actual object pointer is nested.
-        ty::ty_uniq(..) | // ty::ty_trait(_, _, ty::UniqTraitStore, _, _) |
-        ty::ty_str(ty::VstoreUniq) => {
+        ty::ty_uniq(..) // | ty::ty_trait(_, _, ty::UniqTraitStore, _, _)
+         => {
             unsafe {
                 llvm::LLVMAddReturnAttribute(llfn, lib::llvm::NoAliasAttribute as c_uint);
             }
@@ -262,7 +262,6 @@ pub fn decl_rust_fn(ccx: &CrateContext, has_env: bool,
             // FIXME #6750 ~Trait cannot be directly marked as
             // noalias because the actual object pointer is nested.
             ty::ty_uniq(..) | // ty::ty_trait(_, _, ty::UniqTraitStore, _, _) |
-            ty::ty_str(ty::VstoreUniq) |
             ty::ty_closure(~ty::ClosureTy {store: ty::UniqTraitStore, ..}) => {
                 unsafe {
                     llvm::LLVMAddAttribute(llarg, lib::llvm::NoAliasAttribute as c_uint);
@@ -641,6 +640,36 @@ pub fn compare_scalar_values<'a>(
     }
 }
 
+pub fn compare_simd_types(
+                    cx: &Block,
+                    lhs: ValueRef,
+                    rhs: ValueRef,
+                    t: ty::t,
+                    size: uint,
+                    op: ast::BinOp)
+                    -> ValueRef {
+    match ty::get(t).sty {
+        ty::ty_float(_) | ty::ty_uint(_) | ty::ty_int(_) => {
+            let cmp = match op {
+                ast::BiEq => lib::llvm::IntEQ,
+                ast::BiNe => lib::llvm::IntNE,
+                ast::BiLt => lib::llvm::IntSLT,
+                ast::BiLe => lib::llvm::IntSLE,
+                ast::BiGt => lib::llvm::IntSGT,
+                ast::BiGe => lib::llvm::IntSGE,
+                _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
+            };
+            let return_ty = Type::vector(&Type::bool(cx.ccx()), size as u64);
+            // LLVM outputs an `< size x i1 >`, so we need to perform a sign extension
+            // to get the correctly sized type. This will compile to a single instruction
+            // once the IR is converted to assembly if the SIMD instruction is supported
+            // by the target architecture.
+            SExt(cx, ICmp(cx, cmp, lhs, rhs), return_ty)
+        },
+        _ => cx.sess().bug("compare_simd_types: invalid SIMD type"),
+    }
+}
+
 pub type val_and_ty_fn<'r,'b> =
     |&'b Block<'b>, ValueRef, ty::t|: 'r -> &'b Block<'b>;
 
@@ -685,11 +714,6 @@ pub fn iter_structural_ty<'r,
                   cx = f(cx, llfld_a, field_ty.mt.ty);
               }
           })
-      }
-      ty::ty_str(ty::VstoreFixed(n)) => {
-        let unit_ty = ty::sequence_element_type(cx.tcx(), t);
-        let (base, len) = tvec::get_fixed_base_and_byte_len(cx, av, unit_ty, n);
-        cx = tvec::iter_vec_raw(cx, base, unit_ty, len, f);
       }
       ty::ty_vec(_, Some(n)) => {
         let unit_ty = ty::sequence_element_type(cx.tcx(), t);
@@ -2096,7 +2120,7 @@ pub fn write_metadata(cx: &CrateContext, krate: &ast::Crate) -> Vec<u8> {
     }
 
     let encode_inlined_item: encoder::EncodeInlinedItem =
-        |ecx, ebml_w, ii| astencode::encode_inlined_item(ecx, ebml_w, ii, &cx.maps);
+        |ecx, ebml_w, ii| astencode::encode_inlined_item(ecx, ebml_w, ii);
 
     let encode_parms = crate_ctxt_to_encode_parms(cx, encode_inlined_item);
     let metadata = encoder::encode_metadata(encode_parms, krate);
@@ -2126,7 +2150,7 @@ pub fn write_metadata(cx: &CrateContext, krate: &ast::Crate) -> Vec<u8> {
 pub fn trans_crate(krate: ast::Crate,
                    analysis: CrateAnalysis,
                    output: &OutputFilenames) -> (ty::ctxt, CrateTranslation) {
-    let CrateAnalysis { ty_cx: tcx, exp_map2, maps, reachable, .. } = analysis;
+    let CrateAnalysis { ty_cx: tcx, exp_map2, reachable, .. } = analysis;
 
     // Before we touch LLVM, make sure that multithreading is enabled.
     unsafe {
@@ -2158,7 +2182,7 @@ pub fn trans_crate(krate: ast::Crate,
     // 1. http://llvm.org/bugs/show_bug.cgi?id=11479
     let llmod_id = link_meta.crateid.name + ".rs";
 
-    let ccx = CrateContext::new(llmod_id, tcx, exp_map2, maps,
+    let ccx = CrateContext::new(llmod_id, tcx, exp_map2,
                                 Sha256::new(), link_meta, reachable);
     {
         let _icx = push_ctxt("text");

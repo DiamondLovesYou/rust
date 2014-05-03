@@ -362,7 +362,7 @@ impl Session {
             None => false,
             Some(NaClFlavor) => false,
             Some(_) => true,
-        }) && self.targ_cfg.target_strs.target_triple == ~"le32-unknown-nacl"
+        }) && self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_owned()
     }
     // true if we should feed our generated ll to our "linker"
     // used for Emscripten && PNaCl
@@ -371,7 +371,7 @@ impl Session {
             None => false,
             Some(NaClFlavor) => false,
             Some(_) => true,
-        }) && self.targ_cfg.target_strs.target_triple == ~"le32-unknown-nacl"
+        }) && self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_owned()
     }
 
     pub fn get_nacl_tool_path(&self,
@@ -383,10 +383,10 @@ impl Session {
             Some(EmscriptenFlavor) => toolchain.join(em_suffix),
             Some(_) => {
                 let (arch_libc, prefix) = match self.targ_cfg.arch {
-                    abi::X86 =>    (~"x86_newlib", ~"i686-nacl-"),
-                    abi::X86_64 => (~"x86_newlib", ~"x86_64-nacl-"),
-                    abi::Arm =>    (~"arm_newlib", ~"arm-nacl-"),
-                    abi::Le32 =>   (~"pnacl",      ~"pnacl-"),
+                    abi::X86 =>    ("x86_newlib", "i686-nacl-"),
+                    abi::X86_64 => ("x86_newlib", "x86_64-nacl-"),
+                    abi::Arm =>    ("arm_newlib", "arm-nacl-"),
+                    abi::Le32 =>   ("pnacl",      "pnacl-"),
                     abi::Mips =>   self.fatal("PNaCl/NaCl can't target the Mips arch"),
                 };
                 let post_toolchain = format!("{}_{}",
@@ -399,9 +399,9 @@ impl Session {
                                             Some(NaClFlavor) => nacl_suffix,
                                             Some(PNaClFlavor) => pnacl_suffix,
                                         });
-                toolchain.join_many([~"toolchain",
+                toolchain.join_many(["toolchain".to_owned(),
                                      post_toolchain,
-                                     ~"bin",
+                                     "bin".to_owned(),
                                      tool_name])
             }
             None => self.bug("get_nacl_tool_path called without NaCl flavor"),
@@ -418,7 +418,7 @@ impl Session {
 
     pub fn pnacl_toolchain(&self) -> Path {
         let tc = self.expect_cross_path();
-        tc.join_many([~"toolchain",
+        tc.join_many(["toolchain".to_owned(),
                       format!("{}_pnacl", get_os_for_nacl_toolchain(self))])
     }
 
@@ -427,7 +427,7 @@ impl Session {
         (match self.opts.cg.nacl_flavor {
             Some(PNaClFlavor) => true,
             _ => false,
-        }) && self.targ_cfg.target_strs.target_triple == ~"le32-unknown-nacl"
+        }) && self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_owned()
     }
     pub fn would_use_ppapi(&self) -> bool {
         match self.opts.cg.nacl_flavor {
@@ -721,11 +721,11 @@ pub fn sess_os_to_meta_os(os: abi::Os) -> metadata::loader::Os {
 }
 
 #[cfg(windows)]
-fn get_os_for_nacl_toolchain(_sess: &Session) -> ~str { ~"win" }
+fn get_os_for_nacl_toolchain(_sess: &Session) -> ~str { "win".to_owned() }
 #[cfg(target_os = "linux")]
-fn get_os_for_nacl_toolchain(_sess: &Session) -> ~str { ~"linux" }
+fn get_os_for_nacl_toolchain(_sess: &Session) -> ~str { "linux".to_owned() }
 #[cfg(target_os = "macos")]
-fn get_os_for_nacl_toolchain(_sess: &Session) -> ~str { ~"mac" }
+fn get_os_for_nacl_toolchain(_sess: &Session) -> ~str { "mac".to_owned() }
 #[cfg(not(windows),
       not(target_os = "linux"),
       not(target_os = "macos"))]

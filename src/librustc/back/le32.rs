@@ -16,11 +16,11 @@ use std::vec::Vec;
 
 pub fn get_target_strs(target_triple: ~str, target_os: abi::Os) -> target_strs::t {
     return target_strs::t {
-        module_asm: ~"",
+        module_asm: "".to_owned(),
 
         meta_sect_name: meta_section_name(sess_os_to_meta_os(target_os)).to_owned(),
 
-        data_layout: ~"e-i1:8:8-i8:8:8-i16:16:16-i32:32:32-" +
+        data_layout: "e-i1:8:8-i8:8:8-i16:16:16-i32:32:32-".to_owned() +
             "i64:64:64-f32:32:32-f64:64:64-p:32:32:32-v128:32:32",
 
         target_triple: target_triple,

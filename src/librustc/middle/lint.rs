@@ -91,6 +91,7 @@ pub enum Lint {
     AttributeUsage,
     UnknownFeatures,
     UnknownCrateType,
+    UnsignedNegate,
 
     ManagedHeapMemory,
     OwnedHeapMemory,
@@ -388,6 +389,13 @@ static lint_table: &'static [(&'static str, LintSpec)] = &[
         lint: UnknownCrateType,
         desc: "unknown crate type found in #[crate_type] directive",
         default: deny,
+    }),
+
+    ("unsigned_negate",
+    LintSpec {
+        lint: UnsignedNegate,
+        desc: "using an unary minus operator on unsigned type",
+        default: warn
     }),
 
     ("unused_must_use",
@@ -704,6 +712,29 @@ fn check_unused_casts(cx: &Context, e: &ast::Expr) {
 
 fn check_type_limits(cx: &Context, e: &ast::Expr) {
     return match e.node {
+        ast::ExprUnary(ast::UnNeg, ex) => {
+            match ex.node  {
+                ast::ExprLit(lit) => {
+                    match lit.node {
+                        ast::LitUint(..) => {
+                            cx.span_lint(UnsignedNegate, e.span,
+                                         "negation of unsigned int literal may be unintentional");
+                        },
+                        _ => ()
+                    }
+                },
+                _ => {
+                    let t = ty::expr_ty(cx.tcx, ex);
+                    match ty::get(t).sty {
+                        ty::ty_uint(_) => {
+                            cx.span_lint(UnsignedNegate, e.span,
+                                         "negation of unsigned int variable may be unintentional");
+                        },
+                        _ => ()
+                    }
+                }
+            }
+        },
         ast::ExprBinary(binop, l, r) => {
             if is_comparison(binop) && !check_limits(cx.tcx, binop, l, r) {
                 cx.span_lint(TypeLimits, e.span,
@@ -911,7 +942,7 @@ fn check_heap_type(cx: &Context, span: Span, ty: ty::t) {
                 ty::ty_box(_) => {
                     n_box += 1;
                 }
-                ty::ty_uniq(_) | ty::ty_str(ty::VstoreUniq) |
+                ty::ty_uniq(_) |
                 ty::ty_trait(~ty::TyTrait { store: ty::UniqTraitStore, .. }) |
                 ty::ty_closure(~ty::ClosureTy { store: ty::UniqTraitStore, .. }) => {
                     n_uniq += 1;
@@ -1036,7 +1067,7 @@ fn check_crate_attrs_usage(cx: &Context, attrs: &[ast::Attribute]) {
         if !iter.any(|other_attr| { name.equiv(other_attr) }) {
             cx.span_lint(AttributeUsage, attr.span, "unknown crate attribute");
         }
-        if name.equiv(& &"link") {
+        if name.equiv(&("link")) {
             cx.tcx.sess.span_err(attr.span,
                                  "obsolete crate `link` attribute");
             cx.tcx.sess.note("the link attribute has been superceded by the crate_id \

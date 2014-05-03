@@ -687,7 +687,9 @@ fn compile_test_(config: &config, props: &TestProps,
     let link_args = vec!("-L".to_owned(), aux_dir.as_str().unwrap().to_owned());
     let link_args = if config.targeting_pnacl() {
         // As a result of the way we link in rustc, targeting pnacl requires use of LTO.
-        link_args.append(vec!(~"-Z", ~"lto").as_slice())
+        link_args.append(vec!("-Z".to_owned(), "lto".to_owned(),
+                              // use stable pexes to save ourselves from toolchain bugs:
+                              "-C".to_owned(), "stable-pexe".to_owned()).as_slice())
     } else {
         link_args
     };
@@ -743,7 +745,7 @@ fn compose_and_run_compiler(
         let crate_type = if aux_props.no_prefer_dynamic && !config.targeting_nacl() {
             Vec::new()
         } else if config.targeting_nacl() {
-            vec!(~"--crate-type=rlib")
+            vec!("--crate-type=rlib".to_owned())
         } else {
             vec!("--crate-type=dylib".to_owned())
         };
@@ -1115,10 +1117,10 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
     let cross_path = config.nacl_cross_path
         .clone()
         .expect("need the NaCl SDK path!");
-    let pnacl_translate = cross_path.join_many([~"toolchain",
+    let pnacl_translate = cross_path.join_many(["toolchain".to_owned(),
                                                 toolchain_prefix() + "_pnacl",
-                                                ~"bin",
-                                                ~"pnacl-translate"]);
+                                                "bin".to_owned(),
+                                                "pnacl-translate".to_owned()]);
 
     let pexe_path = make_absolute(&output_base_name(config, testfile));
     let nexe_path =
@@ -1126,32 +1128,31 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
         Path::new(pexe_path.display().to_str() + ".nexe");
 
     let native_lib_path = match ARCH {
-        "x86_64" => cross_path.join_many([~"toolchain",
+        "x86_64" => cross_path.join_many(["toolchain".to_owned(),
                                           toolchain_prefix() + "_x86_newlib",
-                                          ~"x86_64-nacl",
-                                          ~"lib"]),
-        "x86"    => cross_path.join_many([~"toolchain",
+                                          "x86_64-nacl".to_owned(),
+                                          "lib".to_owned()]),
+        "x86"    => cross_path.join_many(["toolchain".to_owned(),
                                           toolchain_prefix() + "_x86_newlib",
-                                          ~"x86_64-nacl",
-                                          ~"lib32"]),
+                                          "x86_64-nacl".to_owned(),
+                                          "lib32".to_owned()]),
         _ => fail!("unknown arch (FIXME): `{}`", ARCH),
     };
     let native_lib_path = native_lib_path.display().to_str();
-    let pnacl_trans_args = vec!(~"-O0",
-                                ~"-arch",
+    let pnacl_trans_args = vec!("-O0".to_owned(),
+                                "-arch".to_owned(),
                                 ARCH.to_str(),
-                                ~"-o",
+                                "-o".to_owned(),
                                 nexe_path.display().to_str(),
                                 pexe_path.display().to_str(),
-                                ~"--pnacl-allow-zerocost-eh",
-                                ~"--allow-llvm-bitcode-input",
-                                ~"--pnacl-driver-verbose",
-                                ~"-translate-fast",
+                                "--allow-llvm-bitcode-input".to_owned(),
+                                "--pnacl-driver-verbose".to_owned(),
+                                "-translate-fast".to_owned(),
                                 // until https://code.google.com/p/chromium/issues/detail?id=343594
                                 // lands in the SDKs, all frem instructions will cause unresolved
                                 // references to fmodf/fmod. libg is for errno referenced in fmod.
-                                ~"-Wl," + native_lib_path + "/libm.a",
-                                ~"-Wl," + native_lib_path + "/libg.a");
+                                "-Wl,".to_owned() + native_lib_path + "/libm.a",
+                                "-Wl,".to_owned() + native_lib_path + "/libg.a");
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
                      pnacl_translate.display().to_str(),
@@ -1175,7 +1176,8 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
 
     let sel_ldr = cross_path.join_many(["tools",
                                         "sel_ldr.py"]);
-    let sel_ldr_args = vec!(~"--debug-libs", ~"-v", ~"--", nexe_path.display().to_str());
+    let sel_ldr_args = vec!("--debug-libs".to_owned(),
+                            "-v".to_owned(), "--".to_owned(), nexe_path.display().to_str());
     let ProcArgs {
         args: run_args,
         ..

@@ -45,7 +45,7 @@ struct ArcData<T> {
 }
 
 unsafe fn new_inner<T: Send>(data: T, refcount: uint) -> *mut ArcData<T> {
-    let data = ~ArcData {
+    let data = box ArcData {
                     count: AtomicUint::new(refcount),
                     data: Unsafe::new(data)
                  };
@@ -71,7 +71,7 @@ impl<T: Send> UnsafeArc<T> {
     pub fn newN(data: T, num_handles: uint) -> ~[UnsafeArc<T>] {
         unsafe {
             if num_handles == 0 {
-                ~[] // need to free data here
+                box [] // need to free data here
             } else {
                 let ptr = new_inner(data, num_handles);
                 let v = Vec::from_fn(num_handles, |_| UnsafeArc { data: ptr });
@@ -86,8 +86,7 @@ impl<T: Send> UnsafeArc<T> {
     #[inline]
     pub fn get(&self) -> *mut T {
         unsafe {
-            // FIXME(#12049): this needs some sort of debug assertion
-            if cfg!(test) { assert!((*self.data).count.load(Relaxed) > 0); }
+            debug_assert!((*self.data).count.load(Relaxed) > 0);
             return (*self.data).data.get();
         }
     }
@@ -97,8 +96,7 @@ impl<T: Send> UnsafeArc<T> {
     #[inline]
     pub fn get_immut(&self) -> *T {
         unsafe {
-            // FIXME(#12049): this needs some sort of debug assertion
-            if cfg!(test) { assert!((*self.data).count.load(Relaxed) > 0); }
+            debug_assert!((*self.data).count.load(Relaxed) > 0);
             return (*self.data).data.get() as *T;
         }
     }
@@ -125,8 +123,7 @@ impl<T: Send> Clone for UnsafeArc<T> {
             //  synchronization.
             // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
             let old_count = (*self.data).count.fetch_add(1, Relaxed);
-            // FIXME(#12049): this needs some sort of debug assertion
-            if cfg!(test) { assert!(old_count >= 1); }
+            debug_assert!(old_count >= 1);
             return UnsafeArc { data: self.data };
         }
     }
@@ -144,8 +141,7 @@ impl<T> Drop for UnsafeArc<T>{
             // Because `fetch_sub` is already atomic, we do not need to synchronize with other
             // threads unless we are going to delete the object.
             let old_count = (*self.data).count.fetch_sub(1, Release);
-            // FIXME(#12049): this needs some sort of debug assertion
-            if cfg!(test) { assert!(old_count >= 1); }
+            debug_assert!(old_count >= 1);
             if old_count == 1 {
                 // This fence is needed to prevent reordering of use of the data and deletion of
                 // the data. Because it is marked `Release`, the decreasing of the reference count

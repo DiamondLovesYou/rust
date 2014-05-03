@@ -13,6 +13,7 @@
 use back::svh::Svh;
 use driver::session::Session;
 use metadata::csearch;
+use mc = middle::mem_categorization;
 use middle::const_eval;
 use middle::lang_items::{ExchangeHeapLangItem, OpaqueStructLangItem};
 use middle::lang_items::{TyDescStructLangItem, TyVisitorTraitLangItem};
@@ -122,17 +123,6 @@ impl Method {
 pub struct mt {
     pub ty: t,
     pub mutbl: ast::Mutability,
-}
-
-#[deriving(Clone, Eq, TotalEq, Encodable, Decodable, Hash, Show)]
-/// Describes the "storage mode" of a str, whether it's fixed length or a slice.
-pub enum Vstore {
-    /// [T, ..N]
-    VstoreFixed(uint),
-    /// ~[T]
-    VstoreUniq,
-    /// &[T] and &mut [T]
-    VstoreSlice(Region)
 }
 
 #[deriving(Clone, Eq, TotalEq, Hash, Encodable, Decodable, Show)]
@@ -508,7 +498,7 @@ pub struct UpvarId {
     pub closure_expr_id: ast::NodeId,
 }
 
-#[deriving(Clone, Eq, TotalEq, Hash)]
+#[deriving(Clone, Eq, TotalEq, Hash, Show)]
 pub enum BorrowKind {
     /// Data must be immutable and is aliasable.
     ImmBorrow,
@@ -737,8 +727,8 @@ pub enum sty {
     ty_enum(DefId, substs),
     ty_box(t),
     ty_uniq(t),
-    ty_str(Vstore),
-    ty_vec(mt, Option<uint>),
+    ty_str,
+    ty_vec(mt, Option<uint>),  // Second field is length.
     ty_ptr(mt),
     ty_rptr(Region, mt),
     ty_bare_fn(BareFnTy),
@@ -819,7 +809,6 @@ pub enum type_err {
     terr_regions_no_overlap(Region, Region),
     terr_regions_insufficiently_polymorphic(BoundRegion, Region),
     terr_regions_overly_polymorphic(BoundRegion, Region),
-    terr_vstores_differ(terr_vstore_kind, expected_found<Vstore>),
     terr_trait_stores_differ(terr_vstore_kind, expected_found<TraitStore>),
     terr_sorts(expected_found<t>),
     terr_integer_as_char,
@@ -1258,11 +1247,8 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
         return f;
     }
     match &st {
-      &ty_str(VstoreSlice(r)) => {
-        flags |= rflags(r);
-      }
       &ty_nil | &ty_bool | &ty_char | &ty_int(_) | &ty_float(_) | &ty_uint(_) |
-      &ty_str(_) => {}
+      &ty_str => {}
       // You might think that we could just return ty_err for
       // any type containing ty_err as a component, and get
       // rid of the has_ty_err flag -- likewise for ty_bot (with
@@ -1321,7 +1307,7 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
       }
     }
 
-    let t = ~t_box_ {
+    let t = box t_box_ {
         sty: st,
         id: cx.next_id.get(),
         flags: flags,
@@ -1431,8 +1417,16 @@ pub fn mk_mach_float(tm: ast::FloatTy) -> t {
 #[inline]
 pub fn mk_char() -> t { mk_prim_t(&primitives::TY_CHAR) }
 
-pub fn mk_str(cx: &ctxt, v: Vstore) -> t {
-    mk_t(cx, ty_str(v))
+pub fn mk_str(cx: &ctxt) -> t {
+    mk_t(cx, ty_str)
+}
+
+pub fn mk_str_slice(cx: &ctxt, r: Region, m: ast::Mutability) -> t {
+    mk_rptr(cx, r,
+            mt {
+                ty: mk_t(cx, ty_str),
+                mutbl: m
+            })
 }
 
 pub fn mk_enum(cx: &ctxt, did: ast::DefId, substs: substs) -> t {
@@ -1482,7 +1476,7 @@ pub fn mk_slice(cx: &ctxt, r: Region, tm: mt) -> t {
 pub fn mk_tup(cx: &ctxt, ts: Vec<t>) -> t { mk_t(cx, ty_tup(ts)) }
 
 pub fn mk_closure(cx: &ctxt, fty: ClosureTy) -> t {
-    mk_t(cx, ty_closure(~fty))
+    mk_t(cx, ty_closure(box fty))
 }
 
 pub fn mk_bare_fn(cx: &ctxt, fty: BareFnTy) -> t {
@@ -1515,7 +1509,7 @@ pub fn mk_trait(cx: &ctxt,
                 bounds: BuiltinBounds)
              -> t {
     // take a copy of substs so that we own the vectors inside
-    let inner = ~TyTrait {
+    let inner = box TyTrait {
         def_id: did,
         substs: substs,
         store: store,
@@ -1566,7 +1560,7 @@ pub fn maybe_walk_ty(ty: t, f: |t| -> bool) {
     }
     match get(ty).sty {
         ty_nil | ty_bot | ty_bool | ty_char | ty_int(_) | ty_uint(_) | ty_float(_) |
-        ty_str(_) | ty_self(_) |
+        ty_str | ty_self(_) |
         ty_infer(_) | ty_param(_) | ty_err => {}
         ty_box(ty) | ty_uniq(ty) | ty_simd(ty, _) => maybe_walk_ty(ty, f),
         ty_ptr(ref tm) | ty_rptr(_, ref tm) | ty_vec(ref tm, _) => {
@@ -1707,7 +1701,7 @@ pub fn type_is_self(ty: t) -> bool {
 fn type_is_slice(ty:t) -> bool {
     match get(ty).sty {
         ty_rptr(_, mt) => match get(mt.ty).sty {
-            ty_vec(_, None) => true,
+            ty_vec(_, None) | ty_str => true,
             _ => false,
         },
         _ => false
@@ -1717,9 +1711,7 @@ fn type_is_slice(ty:t) -> bool {
 pub fn type_is_structural(ty: t) -> bool {
     match get(ty).sty {
       ty_struct(..) | ty_tup(_) | ty_enum(..) | ty_closure(_) | ty_trait(..) |
-      ty_vec(_, Some(_)) | ty_simd(..) |
-      ty_str(VstoreFixed(_)) | ty_str(VstoreSlice(_))
-      => true,
+      ty_vec(_, Some(_)) | ty_simd(..) => true,
       _ => type_is_slice(ty)
     }
 }
@@ -1749,12 +1741,12 @@ pub fn type_is_simd_strict(_: &ctxt, ty: t) -> bool {
 
 pub fn sequence_element_type(cx: &ctxt, ty: t) -> t {
     match get(ty).sty {
-        ty_str(_) => mk_mach_uint(ast::TyU8),
-        ty_vec(mt, _) => mt.ty,
+        ty_vec(mt, Some(_)) => mt.ty,
         ty_simd(t, _) => return t,
         ty_ptr(mt{ty: t, ..}) | ty_rptr(_, mt{ty: t, ..}) |
         ty_box(t) | ty_uniq(t) => match get(t).sty {
             ty_vec(mt, None) => mt.ty,
+            ty_str => mk_mach_uint(ast::TyU8),
             _ => cx.sess.bug("sequence_element_type called on non-sequence value"),
         },
         _ => cx.sess.bug("sequence_element_type called on non-sequence value"),
@@ -1811,7 +1803,7 @@ pub fn type_is_region_ptr(ty: t) -> bool {
         ty_rptr(_, mt) => match get(mt.ty).sty {
             // FIXME(nrc, DST) slices weren't regarded as rptrs, so we preserve this
             // odd behaviour for now. (But ~[] were unique. I have no idea why).
-            ty_vec(_, None) => false,
+            ty_vec(_, None) | ty_str => false,
             _ => true
         },
         _ => false
@@ -1827,7 +1819,7 @@ pub fn type_is_unsafe_ptr(ty: t) -> bool {
 
 pub fn type_is_unique(ty: t) -> bool {
     match get(ty).sty {
-        ty_uniq(_) | ty_str(VstoreUniq) => true,
+        ty_uniq(_) => true,
         _ => false
     }
 }
@@ -1900,8 +1892,7 @@ fn type_needs_unwind_cleanup_(cx: &ctxt, ty: t,
             }
             !needs_unwind_cleanup
           }
-          ty_uniq(_) |
-          ty_str(VstoreUniq) => {
+          ty_uniq(_) => {
             // Once we're inside a box, the annihilator will find
             // it and destroy it.
             if !encountered_box {
@@ -2210,12 +2201,8 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
         let result = match get(ty).sty {
             // Scalar and unique types are sendable, and durable
             ty_nil | ty_bot | ty_bool | ty_int(_) | ty_uint(_) | ty_float(_) |
-            ty_bare_fn(_) | ty::ty_char | ty_simd(..) => {
+            ty_bare_fn(_) | ty::ty_char | ty_str | ty_simd(..) => {
                 TC::None
-            }
-
-            ty_str(VstoreUniq) => {
-                TC::OwnsOwned
             }
 
             ty_closure(ref c) => {
@@ -2227,7 +2214,10 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
             }
 
             ty_uniq(typ) => {
-                tc_ty(cx, typ, cache).owned_pointer()
+                match get(typ).sty {
+                    ty_str => TC::OwnsOwned,
+                    _ => tc_ty(cx, typ, cache).owned_pointer(),
+                }
             }
 
             ty_trait(~ty::TyTrait { store, bounds, .. }) => {
@@ -2239,20 +2229,14 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
             }
 
             ty_rptr(r, ref mt) => {
-                tc_ty(cx, mt.ty, cache).reference(
-                    borrowed_contents(r, mt.mutbl))
+                match get(mt.ty).sty {
+                    ty_str => borrowed_contents(r, ast::MutImmutable),
+                    _ => tc_ty(cx, mt.ty, cache).reference(borrowed_contents(r, mt.mutbl)),
+                }
             }
 
             ty_vec(mt, _) => {
                 tc_mt(cx, mt, cache)
-            }
-
-            ty_str(VstoreSlice(r)) => {
-                borrowed_contents(r, ast::MutImmutable)
-            }
-
-            ty_str(VstoreFixed(_)) => {
-                TC::None
             }
 
             ty_struct(did, ref substs) => {
@@ -2484,7 +2468,7 @@ pub fn is_instantiable(cx: &ctxt, r_ty: t) -> bool {
             ty_int(_) |
             ty_uint(_) |
             ty_float(_) |
-            ty_str(_) |
+            ty_str |
             ty_bare_fn(_) |
             ty_closure(_) |
             ty_infer(_) |
@@ -2748,7 +2732,7 @@ pub fn deref(t: t, explicit: bool) -> Option<mt> {
     match get(t).sty {
         ty_box(typ) | ty_uniq(typ) => match get(typ).sty {
             // Don't deref ~[] etc., might need to generalise this to all DST.
-            ty_vec(_, None) => None,
+            ty_vec(_, None) | ty_str => None,
             _ => Some(mt {
                 ty: typ,
                 mutbl: ast::MutImmutable,
@@ -2756,7 +2740,7 @@ pub fn deref(t: t, explicit: bool) -> Option<mt> {
         },
         ty_rptr(_, mt) => match get(mt.ty).sty {
             // Don't deref &[], might need to generalise this to all DST.
-            ty_vec(_, None) => None,
+            ty_vec(_, None) | ty_str => None,
             _ => Some(mt),
         },
         ty_ptr(mt) if explicit => Some(mt),
@@ -2767,13 +2751,13 @@ pub fn deref(t: t, explicit: bool) -> Option<mt> {
 // Returns the type of t[i]
 pub fn index(cx: &ctxt, t: t) -> Option<mt> {
     match get(t).sty {
-        ty_vec(mt, _) => Some(mt),
+        ty_vec(mt, Some(_)) => Some(mt),
         ty_ptr(mt{ty: t, ..}) | ty_rptr(_, mt{ty: t, ..}) |
         ty_box(t) | ty_uniq(t) => match get(t).sty {
             ty_vec(mt, None) => Some(mt),
+            ty_str => Some(mt {ty: mk_u8(), mutbl: ast::MutImmutable}),
             _ => None,
         },
-        ty_str(_) => Some(mt {ty: mk_u8(), mutbl: ast::MutImmutable}),
         ty_simd(elmt, _) => Some(mt { ty: elmt, mutbl: ast::MutImmutable }),
         ty_infer(MDVar(_, ty, _)) => {
             Some(mt { ty: ty.to_infer(cx), mutbl: ast::MutImmutable })
@@ -2882,7 +2866,6 @@ pub fn ty_region(tcx: &ctxt,
                  ty: t) -> Region {
     match get(ty).sty {
         ty_rptr(r, _) => r,
-        ty_str(VstoreSlice(r)) => r,
         ref s => {
             tcx.sess.span_bug(
                 span,
@@ -3079,33 +3062,28 @@ pub fn adjust_ty(cx: &ctxt,
         None => unadjusted_ty
     };
 
-    fn borrow_vec(cx: &ctxt, span: Span,
-                  r: Region, m: ast::Mutability,
+    fn borrow_vec(cx: &ctxt,
+                  span: Span,
+                  r: Region,
+                  m: ast::Mutability,
                   ty: ty::t) -> ty::t {
         match get(ty).sty {
             ty_uniq(t) | ty_ptr(mt{ty: t, ..}) |
             ty_rptr(_, mt{ty: t, ..}) => match get(t).sty {
                 ty::ty_vec(mt, None) => ty::mk_slice(cx, r, ty::mt {ty: mt.ty, mutbl: m}),
-                ref s => {
+                ty::ty_str => ty::mk_str_slice(cx, r, m),
+                _ => {
                     cx.sess.span_bug(
                         span,
-                        format!("borrow-vec associated with bad sty: {:?}",
-                             s));
+                        format!("borrow-vec associated with bad sty: {:?}", get(ty).sty));
                 }
             },
-            ty_vec(mt, Some(_)) => {
-                ty::mk_slice(cx, r, ty::mt {ty: mt.ty, mutbl: m})
-            }
-
-            ty_str(_) => {
-                ty::mk_str(cx, VstoreSlice(r))
-            }
+            ty_vec(mt, Some(_)) => ty::mk_slice(cx, r, ty::mt {ty: mt.ty, mutbl: m}),
 
             ref s => {
                 cx.sess.span_bug(
                     span,
-                    format!("borrow-vec associated with bad sty: {:?}",
-                         s));
+                    format!("borrow-vec associated with bad sty: {:?}", s));
             }
         }
     }
@@ -3407,7 +3385,7 @@ pub fn param_tys_in_type(ty: t) -> Vec<param_ty> {
 pub fn ty_sort_str(cx: &ctxt, t: t) -> ~str {
     match get(t).sty {
         ty_nil | ty_bot | ty_bool | ty_char | ty_int(_) |
-        ty_uint(_) | ty_float(_) | ty_str(_) => {
+        ty_uint(_) | ty_float(_) | ty_str => {
             ::util::ppaux::ty_to_str(cx, t)
         }
 
@@ -3442,15 +3420,6 @@ pub fn type_err_to_str(cx: &ctxt, err: &type_err) -> ~str {
      * also invoke `note_and_explain_type_err()` afterwards
      * to present additional details, particularly when
      * it comes to lifetime-related errors. */
-
-    fn terr_vstore_kind_to_str(k: terr_vstore_kind) -> ~str {
-        match k {
-            terr_vec => "[]".to_owned(),
-            terr_str => "str".to_owned(),
-            terr_fn => "fn".to_owned(),
-            terr_trait => "trait".to_owned()
-        }
-    }
 
     fn tstore_to_closure(s: &TraitStore) -> ~str {
         match s {
@@ -3526,12 +3495,6 @@ pub fn type_err_to_str(cx: &ctxt, err: &type_err) -> ~str {
             format!("expected concrete lifetime, \
                   but found bound lifetime parameter {}",
                  bound_region_ptr_to_str(cx, br))
-        }
-        terr_vstores_differ(k, ref values) => {
-            format!("{} storage differs: expected `{}` but found `{}`",
-                 terr_vstore_kind_to_str(k),
-                 (*values).expected.repr(cx),
-                 (*values).found.repr(cx))
         }
         terr_trait_stores_differ(_, ref values) => {
             format!("trait storage differs: expected `{}` but found `{}`",
@@ -4306,13 +4269,6 @@ pub fn normalize_ty(cx: &ctxt, t: t) -> t {
             return t_norm;
         }
 
-        fn fold_vstore(&mut self, vstore: Vstore) -> Vstore {
-            match vstore {
-                VstoreFixed(..) | VstoreUniq => vstore,
-                VstoreSlice(_) => VstoreSlice(ReStatic)
-            }
-        }
-
         fn fold_region(&mut self, _: ty::Region) -> ty::Region {
             ty::ReStatic
         }
@@ -4660,9 +4616,8 @@ pub fn hash_crate_independent(tcx: &ctxt, t: t, svh: &Svh) -> u64 {
                 byte!(6);
                 hash!(f);
             }
-            ty_str(v) => {
+            ty_str => {
                 byte!(7);
-                hash!(v);
             }
             ty_enum(d, _) => {
                 byte!(8);
@@ -4878,5 +4833,35 @@ impl BorrowKind {
             ImmBorrow => "immutable",
             UniqueImmBorrow => "uniquely immutable",
         }
+    }
+}
+
+impl mc::Typer for ty::ctxt {
+    fn tcx<'a>(&'a self) -> &'a ty::ctxt {
+        self
+    }
+
+    fn node_ty(&self, id: ast::NodeId) -> mc::McResult<ty::t> {
+        Ok(ty::node_id_to_type(self, id))
+    }
+
+    fn node_method_ty(&self, method_call: typeck::MethodCall) -> Option<ty::t> {
+        self.method_map.borrow().find(&method_call).map(|method| method.ty)
+    }
+
+    fn adjustments<'a>(&'a self) -> &'a RefCell<NodeMap<ty::AutoAdjustment>> {
+        &self.adjustments
+    }
+
+    fn is_method_call(&self, id: ast::NodeId) -> bool {
+        self.method_map.borrow().contains_key(&typeck::MethodCall::expr(id))
+    }
+
+    fn temporary_scope(&self, rvalue_id: ast::NodeId) -> Option<ast::NodeId> {
+        self.region_maps.temporary_scope(rvalue_id)
+    }
+
+    fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow {
+        self.upvar_borrow_map.borrow().get_copy(&upvar_id)
     }
 }

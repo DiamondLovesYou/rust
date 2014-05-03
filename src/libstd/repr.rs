@@ -643,12 +643,12 @@ fn test_repr() {
     exact_test(&true, "true");
     exact_test(&false, "false");
     exact_test(&1.234, "1.234f64");
-    exact_test(&(&"hello"), "\"hello\"");
+    exact_test(&("hello"), "\"hello\"");
     // FIXME What do I do about this one?
     exact_test(&("he\u10f3llo".to_owned()), "~\"he\\u10f3llo\"");
 
     exact_test(&(@10), "@10");
-    exact_test(&(~10), "~10");
+    exact_test(&(box 10), "~10");
     exact_test(&(&10), "&10");
     let mut x = 10;
     exact_test(&(&mut x), "&mut 10");
@@ -657,7 +657,7 @@ fn test_repr() {
     exact_test(&(0 as *mut ()), "(0x0 as *mut ())");
 
     exact_test(&(1,), "(1,)");
-    exact_test(&(~["hi", "there"]),
+    exact_test(&(box ["hi", "there"]),
                "~[\"hi\", \"there\"]");
     exact_test(&(&["hi", "there"]),
                "&[\"hi\", \"there\"]");
@@ -665,7 +665,7 @@ fn test_repr() {
                "repr::P{a: 10, b: 1.234f64}");
     exact_test(&(@P{a:10, b:1.234}),
                "@repr::P{a: 10, b: 1.234f64}");
-    exact_test(&(~P{a:10, b:1.234}),
+    exact_test(&(box P{a:10, b:1.234}),
                "~repr::P{a: 10, b: 1.234f64}");
     exact_test(&(10u8, "hello".to_owned()),
                "(10u8, ~\"hello\")");
@@ -687,10 +687,10 @@ fn test_repr() {
     exact_test(&println, "fn(&str)");
     exact_test(&swap::<int>, "fn(&mut int, &mut int)");
     exact_test(&is_alphabetic, "fn(char) -> bool");
-    exact_test(&(~5 as ~ToStr), "~to_str::ToStr<no-bounds>");
+    exact_test(&(box 5 as ~ToStr), "~to_str::ToStr<no-bounds>");
 
     struct Foo;
-    exact_test(&(~[Foo, Foo]), "~[repr::test_repr::Foo, repr::test_repr::Foo]");
+    exact_test(&(box [Foo, Foo]), "~[repr::test_repr::Foo, repr::test_repr::Foo]");
 
     struct Bar(int, int);
     exact_test(&(Bar(2, 2)), "repr::test_repr::Bar(2, 2)");

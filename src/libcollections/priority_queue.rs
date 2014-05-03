@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -273,19 +273,19 @@ mod tests {
         let mut heap = PriorityQueue::from_vec(vec!(~2, ~4, ~9));
         assert_eq!(heap.len(), 3);
         assert!(*heap.top() == ~9);
-        heap.push(~11);
+        heap.push(box 11);
         assert_eq!(heap.len(), 4);
         assert!(*heap.top() == ~11);
-        heap.push(~5);
+        heap.push(box 5);
         assert_eq!(heap.len(), 5);
         assert!(*heap.top() == ~11);
-        heap.push(~27);
+        heap.push(box 27);
         assert_eq!(heap.len(), 6);
         assert!(*heap.top() == ~27);
-        heap.push(~3);
+        heap.push(box 3);
         assert_eq!(heap.len(), 7);
         assert!(*heap.top() == ~27);
-        heap.push(~103);
+        heap.push(box 103);
         assert_eq!(heap.len(), 8);
         assert!(*heap.top() == ~103);
     }
@@ -382,7 +382,7 @@ mod tests {
     fn test_from_iter() {
         let xs = vec!(9u, 8, 7, 6, 5, 4, 3, 2, 1);
 
-        let mut q: PriorityQueue<uint> = xs.as_slice().rev_iter().map(|&x| x).collect();
+        let mut q: PriorityQueue<uint> = xs.as_slice().iter().rev().map(|&x| x).collect();
 
         for &x in xs.iter() {
             assert_eq!(q.pop(), x);

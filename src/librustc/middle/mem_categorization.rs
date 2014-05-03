@@ -174,7 +174,6 @@ pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
     match ty::get(t).sty {
         ty::ty_uniq(_) |
         ty::ty_trait(~ty::TyTrait { store: ty::UniqTraitStore, .. }) |
-        ty::ty_str(ty::VstoreUniq) |
         ty::ty_closure(~ty::ClosureTy {store: ty::UniqTraitStore, ..}) => {
             Some(deref_ptr(OwnedPtr))
         }
@@ -188,7 +187,6 @@ pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
             Some(deref_ptr(BorrowedPtr(kind, r)))
         }
 
-        ty::ty_str(ty::VstoreSlice(r)) |
         ty::ty_closure(~ty::ClosureTy {store: ty::RegionTraitStore(r, _), ..}) => {
             Some(deref_ptr(BorrowedPtr(ty::ImmBorrow, r)))
         }
@@ -206,8 +204,7 @@ pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
             Some(deref_interior(InteriorField(PositionalField(0))))
         }
 
-        ty::ty_vec(_, Some(_)) |
-        ty::ty_str(ty::VstoreFixed(_)) | ty::ty_simd(..) => {
+        ty::ty_vec(_, Some(_)) | ty::ty_simd(..) => {
             Some(deref_interior(InteriorElement(element_kind(t))))
         }
 
@@ -241,8 +238,8 @@ impl ast_node for ast::Pat {
     fn span(&self) -> Span { self.span }
 }
 
-pub struct MemCategorizationContext<TYPER> {
-    pub typer: TYPER
+pub struct MemCategorizationContext<'t,TYPER> {
+    typer: &'t TYPER
 }
 
 pub type McResult<T> = Result<T, ()>;
@@ -349,8 +346,12 @@ macro_rules! if_ok(
     )
 )
 
-impl<TYPER:Typer> MemCategorizationContext<TYPER> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt {
+impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
+    pub fn new(typer: &'t TYPER) -> MemCategorizationContext<'t,TYPER> {
+        MemCategorizationContext { typer: typer }
+    }
+
+    fn tcx(&self) -> &'t ty::ctxt {
         self.typer.tcx()
     }
 
@@ -418,7 +419,9 @@ impl<TYPER:Typer> MemCategorizationContext<TYPER> {
         }
     }
 
-    pub fn cat_expr_autoderefd(&self, expr: &ast::Expr, autoderefs: uint)
+    pub fn cat_expr_autoderefd(&self,
+                               expr: &ast::Expr,
+                               autoderefs: uint)
                                -> McResult<cmt> {
         let mut cmt = if_ok!(self.cat_expr_unadjusted(expr));
         for deref in range(1u, autoderefs + 1) {
@@ -456,7 +459,9 @@ impl<TYPER:Typer> MemCategorizationContext<TYPER> {
             self.cat_def(expr.id, expr.span, expr_ty, def)
           }
 
-          ast::ExprParen(e) => self.cat_expr_unadjusted(e),
+          ast::ExprParen(e) => {
+            self.cat_expr(e)
+          }
 
           ast::ExprAddrOf(..) | ast::ExprCall(..) |
           ast::ExprAssign(..) | ast::ExprAssignOp(..) |
@@ -1307,10 +1312,10 @@ fn element_kind(t: ty::t) -> ElementKind {
         ty::ty_rptr(_, ty::mt{ty:ty, ..}) |
         ty::ty_uniq(ty) => match ty::get(ty).sty {
             ty::ty_vec(_, None) => VecElement,
+            ty::ty_str => StrElement,
             _ => OtherElement
         },
         ty::ty_vec(..) => VecElement,
-        ty::ty_str(..) => StrElement,
         _ => OtherElement
     }
 }

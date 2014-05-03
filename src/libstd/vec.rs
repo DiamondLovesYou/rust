@@ -242,7 +242,7 @@ impl<T: Clone> Vec<T> {
     ///
     /// ```rust
     /// let mut vec = vec!("hello");
-    /// vec.grow(2, & &"world");
+    /// vec.grow(2, &("world"));
     /// assert_eq!(vec, vec!("hello", "world", "world"));
     /// ```
     pub fn grow(&mut self, n: uint, value: &T) {
@@ -267,8 +267,8 @@ impl<T: Clone> Vec<T> {
     ///
     /// ```rust
     /// let mut vec = vec!("a", "b", "c");
-    /// vec.grow_set(1, & &"fill", "d");
-    /// vec.grow_set(4, & &"fill", "e");
+    /// vec.grow_set(1, &("fill"), "d");
+    /// vec.grow_set(4, &("fill"), "e");
     /// assert_eq!(vec, vec!("a", "d", "c", "fill", "e"));
     /// ```
     pub fn grow_set(&mut self, index: uint, initval: &T, value: T) {
@@ -1288,7 +1288,7 @@ impl<T:Eq> Vec<T> {
             //     +---+---+---+---+---+---+
             //           w
             //
-            // Comparing self[r] against self[w-1], tis is not a duplicate, so
+            // Comparing self[r] against self[w-1], this is not a duplicate, so
             // we swap self[r] and self[w] (no effect as r==w) and then increment both
             // r and w, leaving us with:
             //
@@ -1585,8 +1585,8 @@ mod tests {
     #[test]
     fn test_clone_from() {
         let mut v = vec!();
-        let three = vec!(~1, ~2, ~3);
-        let two = vec!(~4, ~5);
+        let three = vec!(box 1, box 2, box 3);
+        let two = vec!(box 4, box 5);
         // zero, long
         v.clone_from(&three);
         assert_eq!(v, three);

@@ -137,7 +137,7 @@ impl FromStr for ~str {
 /// Fails if invalid UTF-8
 pub fn from_byte(b: u8) -> ~str {
     assert!(b < 128u8);
-    unsafe { ::cast::transmute(~[b]) }
+    unsafe { ::cast::transmute(box [b]) }
 }
 
 /// Convert a char to a string
@@ -343,12 +343,10 @@ impl<'a> DoubleEndedIterator<(uint, char)> for CharOffsets<'a> {
     }
 }
 
-/// External iterator for a string's characters in reverse order.
-/// Use with the `std::iter` module.
+#[deprecated = "replaced by Rev<Chars<'a>>"]
 pub type RevChars<'a> = Rev<Chars<'a>>;
 
-/// External iterator for a string's characters and their byte offsets in reverse order.
-/// Use with the `std::iter` module.
+#[deprecated = "replaced by Rev<CharOffsets<'a>>"]
 pub type RevCharOffsets<'a> = Rev<CharOffsets<'a>>;
 
 /// External iterator for a string's bytes.
@@ -356,8 +354,7 @@ pub type RevCharOffsets<'a> = Rev<CharOffsets<'a>>;
 pub type Bytes<'a> =
     Map<'a, &'a u8, u8, slice::Items<'a, u8>>;
 
-/// External iterator for a string's bytes in reverse order.
-/// Use with the `std::iter` module.
+#[deprecated = "replaced by Rev<Bytes<'a>>"]
 pub type RevBytes<'a> = Rev<Bytes<'a>>;
 
 /// An iterator over the substrings of a string, separated by `sep`.
@@ -372,8 +369,7 @@ pub struct CharSplits<'a, Sep> {
     finished: bool,
 }
 
-/// An iterator over the substrings of a string, separated by `sep`,
-/// starting from the back of the string.
+#[deprecated = "replaced by Rev<CharSplits<'a, Sep>>"]
 pub type RevCharSplits<'a, Sep> = Rev<CharSplits<'a, Sep>>;
 
 /// An iterator over the substrings of a string, separated by `sep`,
@@ -462,7 +458,7 @@ for CharSplits<'a, Sep> {
                 }
             }
         } else {
-            for (idx, ch) in self.string.char_indices_rev() {
+            for (idx, ch) in self.string.char_indices().rev() {
                 if self.sep.matches(ch) {
                     next_split = Some((idx, self.string.char_range_at(idx).next));
                     break;
@@ -1391,7 +1387,7 @@ pub mod raw {
     }
 
     /// Converts a byte to a string.
-    pub unsafe fn from_byte(u: u8) -> ~str { from_utf8_owned(~[u]) }
+    pub unsafe fn from_byte(u: u8) -> ~str { from_utf8_owned(box [u]) }
 
     /// Form a slice from a C string. Unsafe because the caller must ensure the
     /// C string has the static lifetime, or else the return value may be
@@ -1452,7 +1448,7 @@ pub mod raw {
     #[test]
     fn test_from_buf_len() {
         unsafe {
-            let a = ~[65u8, 65u8, 65u8, 65u8, 65u8, 65u8, 65u8, 0u8];
+            let a = box [65u8, 65u8, 65u8, 65u8, 65u8, 65u8, 65u8, 0u8];
             let b = a.as_ptr();
             let c = from_buf_len(b, 3u);
             assert_eq!(c, "AAA".to_owned());
@@ -1626,21 +1622,23 @@ pub trait StrSlice<'a> {
     /// ```
     fn chars(&self) -> Chars<'a>;
 
-    /// An iterator over the characters of `self`, in reverse order.
-    fn chars_rev(&self) -> RevChars<'a>;
+    /// Do not use this - it is deprecated.
+    #[deprecated = "replaced by .chars().rev()"]
+    fn chars_rev(&self) -> Rev<Chars<'a>>;
 
     /// An iterator over the bytes of `self`
     fn bytes(&self) -> Bytes<'a>;
 
-    /// An iterator over the bytes of `self`, in reverse order
-    fn bytes_rev(&self) -> RevBytes<'a>;
+    /// Do not use this - it is deprecated.
+    #[deprecated = "replaced by .bytes().rev()"]
+    fn bytes_rev(&self) -> Rev<Bytes<'a>>;
 
     /// An iterator over the characters of `self` and their byte offsets.
     fn char_indices(&self) -> CharOffsets<'a>;
 
-    /// An iterator over the characters of `self` and their byte offsets,
-    /// in reverse order.
-    fn char_indices_rev(&self) -> RevCharOffsets<'a>;
+    /// Do not use this - it is deprecated.
+    #[deprecated = "replaced by .char_indices().rev()"]
+    fn char_indices_rev(&self) -> Rev<CharOffsets<'a>>;
 
     /// An iterator over substrings of `self`, separated by characters
     /// matched by `sep`.
@@ -1691,25 +1689,21 @@ pub trait StrSlice<'a> {
     ///
     /// let v: ~[&str] = "A..B..".split_terminator('.').collect();
     /// assert_eq!(v, ~["A", "", "B", ""]);
+    ///
+    /// let v: ~[&str] = "Mary had a little lamb".split(' ').rev().collect();
+    /// assert_eq!(v, ~["lamb", "little", "a", "had", "Mary"]);
+    ///
+    /// let v: ~[&str] = "abc1def2ghi".split(|c: char| c.is_digit()).rev().collect();
+    /// assert_eq!(v, ~["ghi", "def", "abc"]);
+    ///
+    /// let v: ~[&str] = "lionXXtigerXleopard".split('X').rev().collect();
+    /// assert_eq!(v, ~["leopard", "tiger", "", "lion"]);
     /// ```
     fn split_terminator<Sep: CharEq>(&self, sep: Sep) -> CharSplits<'a, Sep>;
 
-    /// An iterator over substrings of `self`, separated by characters
-    /// matched by `sep`, in reverse order.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let v: ~[&str] = "Mary had a little lamb".rsplit(' ').collect();
-    /// assert_eq!(v, ~["lamb", "little", "a", "had", "Mary"]);
-    ///
-    /// let v: ~[&str] = "abc1def2ghi".rsplit(|c: char| c.is_digit()).collect();
-    /// assert_eq!(v, ~["ghi", "def", "abc"]);
-    ///
-    /// let v: ~[&str] = "lionXXtigerXleopard".rsplit('X').collect();
-    /// assert_eq!(v, ~["leopard", "tiger", "", "lion"]);
-    /// ```
-    fn rsplit<Sep: CharEq>(&self, sep: Sep) -> RevCharSplits<'a, Sep>;
+    /// Do not use this - it is deprecated.
+    #[deprecated = "replaced by .split(sep).rev()"]
+    fn rsplit<Sep: CharEq>(&self, sep: Sep) -> Rev<CharSplits<'a, Sep>>;
 
     /// An iterator over substrings of `self`, separated by characters
     /// matched by `sep`, starting from the end of the string.
@@ -2031,12 +2025,12 @@ pub trait StrSlice<'a> {
     /// # Example
     ///
     /// ```rust
-    /// let s = ~"Do you know the muffin man,
-    /// The muffin man, the muffin man, ...";
+    /// let s = "Do you know the muffin man,
+    /// The muffin man, the muffin man, ...".to_owned();
     ///
     /// assert_eq!(s.replace("muffin man", "little lamb"),
-    ///            ~"Do you know the little lamb,
-    /// The little lamb, the little lamb, ...");
+    ///            "Do you know the little lamb,
+    /// The little lamb, the little lamb, ...".to_owned());
     ///
     /// // not found, so no change.
     /// assert_eq!(s.replace("cookie monster", "little lamb"), s);
@@ -2281,7 +2275,8 @@ impl<'a> StrSlice<'a> for &'a str {
     }
 
     #[inline]
-    fn chars_rev(&self) -> RevChars<'a> {
+    #[deprecated = "replaced by .chars().rev()"]
+    fn chars_rev(&self) -> Rev<Chars<'a>> {
         self.chars().rev()
     }
 
@@ -2291,7 +2286,8 @@ impl<'a> StrSlice<'a> for &'a str {
     }
 
     #[inline]
-    fn bytes_rev(&self) -> RevBytes<'a> {
+    #[deprecated = "replaced by .bytes().rev()"]
+    fn bytes_rev(&self) -> Rev<Bytes<'a>> {
         self.bytes().rev()
     }
 
@@ -2301,7 +2297,8 @@ impl<'a> StrSlice<'a> for &'a str {
     }
 
     #[inline]
-    fn char_indices_rev(&self) -> RevCharOffsets<'a> {
+    #[deprecated = "replaced by .char_indices().rev()"]
+    fn char_indices_rev(&self) -> Rev<CharOffsets<'a>> {
         self.char_indices().rev()
     }
 
@@ -2336,7 +2333,8 @@ impl<'a> StrSlice<'a> for &'a str {
     }
 
     #[inline]
-    fn rsplit<Sep: CharEq>(&self, sep: Sep) -> RevCharSplits<'a, Sep> {
+    #[deprecated = "replaced by .split(sep).rev()"]
+    fn rsplit<Sep: CharEq>(&self, sep: Sep) -> Rev<CharSplits<'a, Sep>> {
         self.split(sep).rev()
     }
 
@@ -2656,7 +2654,7 @@ impl<'a> StrSlice<'a> for &'a str {
         if search.only_ascii() {
             self.bytes().rposition(|b| search.matches(b as char))
         } else {
-            for (index, c) in self.char_indices_rev() {
+            for (index, c) in self.char_indices().rev() {
                 if search.matches(c) { return Some(index); }
             }
             None
@@ -3344,7 +3342,7 @@ mod tests {
     #[test]
     fn test_raw_from_c_str() {
         unsafe {
-            let a = ~[65, 65, 65, 65, 65, 65, 65, 0];
+            let a = box [65, 65, 65, 65, 65, 65, 65, 0];
             let b = a.as_ptr();
             let c = raw::from_c_str(b);
             assert_eq!(c, "AAAAAAA".to_owned());
@@ -3458,13 +3456,13 @@ mod tests {
     fn test_utf16() {
         let pairs =
             [("𐍅𐌿𐌻𐍆𐌹𐌻𐌰\n".to_owned(),
-              ~[0xd800_u16, 0xdf45_u16, 0xd800_u16, 0xdf3f_u16,
+              box [0xd800_u16, 0xdf45_u16, 0xd800_u16, 0xdf3f_u16,
                 0xd800_u16, 0xdf3b_u16, 0xd800_u16, 0xdf46_u16,
                 0xd800_u16, 0xdf39_u16, 0xd800_u16, 0xdf3b_u16,
                 0xd800_u16, 0xdf30_u16, 0x000a_u16]),
 
              ("𐐒𐑉𐐮𐑀𐐲𐑋 𐐏𐐲𐑍\n".to_owned(),
-              ~[0xd801_u16, 0xdc12_u16, 0xd801_u16,
+              box [0xd801_u16, 0xdc12_u16, 0xd801_u16,
                 0xdc49_u16, 0xd801_u16, 0xdc2e_u16, 0xd801_u16,
                 0xdc40_u16, 0xd801_u16, 0xdc32_u16, 0xd801_u16,
                 0xdc4b_u16, 0x0020_u16, 0xd801_u16, 0xdc0f_u16,
@@ -3472,7 +3470,7 @@ mod tests {
                 0x000a_u16]),
 
              ("𐌀𐌖𐌋𐌄𐌑𐌉·𐌌𐌄𐌕𐌄𐌋𐌉𐌑\n".to_owned(),
-              ~[0xd800_u16, 0xdf00_u16, 0xd800_u16, 0xdf16_u16,
+              box [0xd800_u16, 0xdf00_u16, 0xd800_u16, 0xdf16_u16,
                 0xd800_u16, 0xdf0b_u16, 0xd800_u16, 0xdf04_u16,
                 0xd800_u16, 0xdf11_u16, 0xd800_u16, 0xdf09_u16,
                 0x00b7_u16, 0xd800_u16, 0xdf0c_u16, 0xd800_u16,
@@ -3481,7 +3479,7 @@ mod tests {
                 0xdf09_u16, 0xd800_u16, 0xdf11_u16, 0x000a_u16 ]),
 
              ("𐒋𐒘𐒈𐒑𐒛𐒒 𐒕𐒓 𐒈𐒚𐒍 𐒏𐒜𐒒𐒖𐒆 𐒕𐒆\n".to_owned(),
-              ~[0xd801_u16, 0xdc8b_u16, 0xd801_u16, 0xdc98_u16,
+              box [0xd801_u16, 0xdc8b_u16, 0xd801_u16, 0xdc98_u16,
                 0xd801_u16, 0xdc88_u16, 0xd801_u16, 0xdc91_u16,
                 0xd801_u16, 0xdc9b_u16, 0xd801_u16, 0xdc92_u16,
                 0x0020_u16, 0xd801_u16, 0xdc95_u16, 0xd801_u16,
@@ -3494,7 +3492,7 @@ mod tests {
                 0x000a_u16 ]),
              // Issue #12318, even-numbered non-BMP planes
              ("\U00020000".to_owned(),
-              ~[0xD840, 0xDC00])];
+              box [0xD840, 0xDC00])];
 
         for p in pairs.iter() {
             let (s, u) = (*p).clone();
@@ -3560,7 +3558,7 @@ mod tests {
     #[test]
     fn test_char_at() {
         let s = "ศไทย中华Việt Nam".to_owned();
-        let v = ~['ศ','ไ','ท','ย','中','华','V','i','ệ','t',' ','N','a','m'];
+        let v = box ['ศ','ไ','ท','ย','中','华','V','i','ệ','t',' ','N','a','m'];
         let mut pos = 0;
         for ch in v.iter() {
             assert!(s.char_at(pos) == *ch);
@@ -3571,9 +3569,9 @@ mod tests {
     #[test]
     fn test_char_at_reverse() {
         let s = "ศไทย中华Việt Nam".to_owned();
-        let v = ~['ศ','ไ','ท','ย','中','华','V','i','ệ','t',' ','N','a','m'];
+        let v = box ['ศ','ไ','ท','ย','中','华','V','i','ệ','t',' ','N','a','m'];
         let mut pos = s.len();
-        for ch in v.rev_iter() {
+        for ch in v.iter().rev() {
             assert!(s.char_at_reverse(pos) == *ch);
             pos -= from_char(*ch).len();
         }
@@ -3606,11 +3604,11 @@ mod tests {
 
     #[test]
     fn test_total_ord() {
-        "1234".cmp(& &"123") == Greater;
-        "123".cmp(& &"1234") == Less;
-        "1234".cmp(& &"1234") == Equal;
-        "12345555".cmp(& &"123456") == Less;
-        "22".cmp(& &"1234") == Greater;
+        "1234".cmp(&("123")) == Greater;
+        "123".cmp(&("1234")) == Less;
+        "1234".cmp(&("1234")) == Equal;
+        "12345555".cmp(&("123456")) == Less;
+        "22".cmp(&("1234")) == Greater;
     }
 
     #[test]
@@ -3654,7 +3652,7 @@ mod tests {
     fn test_iterator() {
         use iter::*;
         let s = "ศไทย中华Việt Nam".to_owned();
-        let v = ~['ศ','ไ','ท','ย','中','华','V','i','ệ','t',' ','N','a','m'];
+        let v = box ['ศ','ไ','ท','ย','中','华','V','i','ệ','t',' ','N','a','m'];
 
         let mut pos = 0;
         let mut it = s.chars();
@@ -3670,10 +3668,10 @@ mod tests {
     fn test_rev_iterator() {
         use iter::*;
         let s = "ศไทย中华Việt Nam".to_owned();
-        let v = ~['m', 'a', 'N', ' ', 't', 'ệ','i','V','华','中','ย','ท','ไ','ศ'];
+        let v = box ['m', 'a', 'N', ' ', 't', 'ệ','i','V','华','中','ย','ท','ไ','ศ'];
 
         let mut pos = 0;
-        let mut it = s.chars_rev();
+        let mut it = s.chars().rev();
 
         for c in it {
             assert_eq!(c, v[pos]);
@@ -3716,7 +3714,7 @@ mod tests {
         ];
         let mut pos = v.len();
 
-        for b in s.bytes_rev() {
+        for b in s.bytes().rev() {
             pos -= 1;
             assert_eq!(b, v[pos]);
         }
@@ -3748,7 +3746,7 @@ mod tests {
         let v = ['m', 'a', 'N', ' ', 't', 'ệ','i','V','华','中','ย','ท','ไ','ศ'];
 
         let mut pos = 0;
-        let mut it = s.char_indices_rev();
+        let mut it = s.char_indices().rev();
 
         for c in it {
             assert_eq!(c, (p[pos], v[pos]));
@@ -3763,33 +3761,33 @@ mod tests {
         let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
         let split: ~[&str] = data.split(' ').collect();
-        assert_eq!( split, ~["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
+        assert_eq!( split, box ["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
 
-        let mut rsplit: ~[&str] = data.rsplit(' ').collect();
+        let mut rsplit: ~[&str] = data.split(' ').rev().collect();
         rsplit.reverse();
-        assert_eq!(rsplit, ~["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
+        assert_eq!(rsplit, box ["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
 
         let split: ~[&str] = data.split(|c: char| c == ' ').collect();
-        assert_eq!( split, ~["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
+        assert_eq!( split, box ["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
 
-        let mut rsplit: ~[&str] = data.rsplit(|c: char| c == ' ').collect();
+        let mut rsplit: ~[&str] = data.split(|c: char| c == ' ').rev().collect();
         rsplit.reverse();
-        assert_eq!(rsplit, ~["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
+        assert_eq!(rsplit, box ["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
 
         // Unicode
         let split: ~[&str] = data.split('ä').collect();
-        assert_eq!( split, ~["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
+        assert_eq!( split, box ["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
 
-        let mut rsplit: ~[&str] = data.rsplit('ä').collect();
+        let mut rsplit: ~[&str] = data.split('ä').rev().collect();
         rsplit.reverse();
-        assert_eq!(rsplit, ~["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
+        assert_eq!(rsplit, box ["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
 
         let split: ~[&str] = data.split(|c: char| c == 'ä').collect();
-        assert_eq!( split, ~["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
+        assert_eq!( split, box ["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
 
-        let mut rsplit: ~[&str] = data.rsplit(|c: char| c == 'ä').collect();
+        let mut rsplit: ~[&str] = data.split(|c: char| c == 'ä').rev().collect();
         rsplit.reverse();
-        assert_eq!(rsplit, ~["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
+        assert_eq!(rsplit, box ["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
     }
 
     #[test]
@@ -3797,17 +3795,17 @@ mod tests {
         let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
         let split: ~[&str] = data.splitn(' ', 3).collect();
-        assert_eq!(split, ~["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
+        assert_eq!(split, box ["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
 
         let split: ~[&str] = data.splitn(|c: char| c == ' ', 3).collect();
-        assert_eq!(split, ~["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
+        assert_eq!(split, box ["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
 
         // Unicode
         let split: ~[&str] = data.splitn('ä', 3).collect();
-        assert_eq!(split, ~["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
+        assert_eq!(split, box ["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
 
         let split: ~[&str] = data.splitn(|c: char| c == 'ä', 3).collect();
-        assert_eq!(split, ~["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
+        assert_eq!(split, box ["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
     }
 
     #[test]
@@ -3816,20 +3814,20 @@ mod tests {
 
         let mut split: ~[&str] = data.rsplitn(' ', 3).collect();
         split.reverse();
-        assert_eq!(split, ~["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
+        assert_eq!(split, box ["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
 
         let mut split: ~[&str] = data.rsplitn(|c: char| c == ' ', 3).collect();
         split.reverse();
-        assert_eq!(split, ~["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
+        assert_eq!(split, box ["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
 
         // Unicode
         let mut split: ~[&str] = data.rsplitn('ä', 3).collect();
         split.reverse();
-        assert_eq!(split, ~["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
+        assert_eq!(split, box ["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
 
         let mut split: ~[&str] = data.rsplitn(|c: char| c == 'ä', 3).collect();
         split.reverse();
-        assert_eq!(split, ~["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
+        assert_eq!(split, box ["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
     }
 
     #[test]
@@ -3837,10 +3835,10 @@ mod tests {
         let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
         let split: ~[&str] = data.split('\n').collect();
-        assert_eq!(split, ~["", "Märy häd ä little lämb", "Little lämb", ""]);
+        assert_eq!(split, box ["", "Märy häd ä little lämb", "Little lämb", ""]);
 
         let split: ~[&str] = data.split_terminator('\n').collect();
-        assert_eq!(split, ~["", "Märy häd ä little lämb", "Little lämb"]);
+        assert_eq!(split, box ["", "Märy häd ä little lämb", "Little lämb"]);
     }
 
     #[test]
@@ -3849,18 +3847,18 @@ mod tests {
 
         let mut split: ~[&str] = data.split('\n').rev().collect();
         split.reverse();
-        assert_eq!(split, ~["", "Märy häd ä little lämb", "Little lämb", ""]);
+        assert_eq!(split, box ["", "Märy häd ä little lämb", "Little lämb", ""]);
 
         let mut split: ~[&str] = data.split_terminator('\n').rev().collect();
         split.reverse();
-        assert_eq!(split, ~["", "Märy häd ä little lämb", "Little lämb"]);
+        assert_eq!(split, box ["", "Märy häd ä little lämb", "Little lämb"]);
     }
 
     #[test]
     fn test_words() {
         let data = "\n \tMäry   häd\tä  little lämb\nLittle lämb\n";
         let words: ~[&str] = data.words().collect();
-        assert_eq!(words, ~["Märy", "häd", "ä", "little", "lämb", "Little", "lämb"])
+        assert_eq!(words, box ["Märy", "häd", "ä", "little", "lämb", "Little", "lämb"])
     }
 
     #[test]
@@ -3895,11 +3893,11 @@ mod tests {
     fn test_lines() {
         let data = "\nMäry häd ä little lämb\n\nLittle lämb\n";
         let lines: ~[&str] = data.lines().collect();
-        assert_eq!(lines, ~["", "Märy häd ä little lämb", "", "Little lämb"]);
+        assert_eq!(lines, box ["", "Märy häd ä little lämb", "", "Little lämb"]);
 
         let data = "\nMäry häd ä little lämb\n\nLittle lämb"; // no trailing \n
         let lines: ~[&str] = data.lines().collect();
-        assert_eq!(lines, ~["", "Märy häd ä little lämb", "", "Little lämb"]);
+        assert_eq!(lines, box ["", "Märy häd ä little lämb", "", "Little lämb"]);
     }
 
     #[test]
@@ -3908,20 +3906,20 @@ mod tests {
             let v: ~[&str] = s.split_str(sep).collect();
             assert_eq!(v, u);
         }
-        t("--1233345--", "12345", ~["--1233345--"]);
-        t("abc::hello::there", "::", ~["abc", "hello", "there"]);
-        t("::hello::there", "::", ~["", "hello", "there"]);
-        t("hello::there::", "::", ~["hello", "there", ""]);
-        t("::hello::there::", "::", ~["", "hello", "there", ""]);
-        t("ประเทศไทย中华Việt Nam", "中华", ~["ประเทศไทย", "Việt Nam"]);
-        t("zzXXXzzYYYzz", "zz", ~["", "XXX", "YYY", ""]);
-        t("zzXXXzYYYz", "XXX", ~["zz", "zYYYz"]);
-        t(".XXX.YYY.", ".", ~["", "XXX", "YYY", ""]);
-        t("", ".", ~[""]);
-        t("zz", "zz", ~["",""]);
-        t("ok", "z", ~["ok"]);
-        t("zzz", "zz", ~["","z"]);
-        t("zzzzz", "zz", ~["","","z"]);
+        t("--1233345--", "12345", box ["--1233345--"]);
+        t("abc::hello::there", "::", box ["abc", "hello", "there"]);
+        t("::hello::there", "::", box ["", "hello", "there"]);
+        t("hello::there::", "::", box ["hello", "there", ""]);
+        t("::hello::there::", "::", box ["", "hello", "there", ""]);
+        t("ประเทศไทย中华Việt Nam", "中华", box ["ประเทศไทย", "Việt Nam"]);
+        t("zzXXXzzYYYzz", "zz", box ["", "XXX", "YYY", ""]);
+        t("zzXXXzYYYz", "XXX", box ["zz", "zYYYz"]);
+        t(".XXX.YYY.", ".", box ["", "XXX", "YYY", ""]);
+        t("", ".", box [""]);
+        t("zz", "zz", box ["",""]);
+        t("ok", "z", box ["ok"]);
+        t("zzz", "zz", box ["","z"]);
+        t("zzzzz", "zz", box ["","","z"]);
     }
 
     #[test]
@@ -4007,7 +4005,7 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-      let owned: Option<~str> = from_str(&"string");
+      let owned: Option<~str> = from_str("string");
       assert_eq!(owned, Some("string".to_owned()));
     }
 
@@ -4103,7 +4101,7 @@ mod bench {
         let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
         let len = s.char_len();
 
-        b.iter(|| assert_eq!(s.chars_rev().len(), len));
+        b.iter(|| assert_eq!(s.chars().rev().len(), len));
     }
 
     #[bench]
@@ -4119,7 +4117,7 @@ mod bench {
         let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
         let len = s.char_len();
 
-        b.iter(|| assert_eq!(s.char_indices_rev().len(), len));
+        b.iter(|| assert_eq!(s.char_indices().rev().len(), len));
     }
 
     #[bench]

@@ -834,7 +834,7 @@ fn insert<K: TotalOrd, V>(node: &mut Option<~TreeNode<K, V>>,
         }
       }
       None => {
-       *node = Some(~TreeNode::new(key, value));
+       *node = Some(box TreeNode::new(key, value));
         None
       }
     }
@@ -1651,10 +1651,10 @@ mod test_set {
 
         // FIXME: #5801: this needs a type hint to compile...
         let result: Option<(&uint, & &'static str)> = z.next();
-        assert_eq!(result.unwrap(), (&5u, & &"bar"));
+        assert_eq!(result.unwrap(), (&5u, &("bar")));
 
         let result: Option<(&uint, & &'static str)> = z.next();
-        assert_eq!(result.unwrap(), (&11u, & &"foo"));
+        assert_eq!(result.unwrap(), (&11u, &("foo")));
 
         let result: Option<(&uint, & &'static str)> = z.next();
         assert!(result.is_none());

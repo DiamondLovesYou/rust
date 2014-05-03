@@ -751,7 +751,7 @@ impl<'a> Parser<'a> {
         self.last_span = self.span;
         // Stash token for error recovery (sometimes; clone is not necessarily cheap).
         self.last_token = if is_ident_or_path(&self.token) {
-            Some(~self.token.clone())
+            Some(box self.token.clone())
         } else {
             None
         };
@@ -2779,28 +2779,11 @@ impl<'a> Parser<'a> {
             }
           }
           token::BINOP(token::AND) | token::ANDAND => {
-              // parse &pat
-              let lo = self.span.lo;
-              self.expect_and();
-              let sub = self.parse_pat();
-              hi = sub.span.hi;
-              // HACK: parse &"..." as a literal of a borrowed str
-              pat = match sub.node {
-                  PatLit(e) => {
-                      match e.node {
-                        ExprLit(lit) if lit_is_str(lit) => {
-                          let vst = @Expr {
-                              id: ast::DUMMY_NODE_ID,
-                              node: ExprVstore(e, ExprVstoreSlice),
-                              span: mk_sp(lo, hi)
-                          };
-                          PatLit(vst)
-                        }
-                        _ => PatRegion(sub),
-                      }
-                  }
-                  _ => PatRegion(sub),
-            };
+            // parse &pat
+            let lo = self.span.lo;
+            self.expect_and();
+            let sub = self.parse_pat();
+            pat = PatRegion(sub);
             hi = self.last_span.hi;
             return @ast::Pat {
                 id: ast::DUMMY_NODE_ID,
@@ -4036,7 +4019,8 @@ impl<'a> Parser<'a> {
     // attributes (of length 0 or 1), parse all of the items in a module
     fn parse_mod_items(&mut self,
                        term: token::Token,
-                       first_item_attrs: Vec<Attribute> )
+                       first_item_attrs: Vec<Attribute>,
+                       inner_lo: BytePos)
                        -> Mod {
         // parse all of the items up to closing or an attribute.
         // view items are legal here.
@@ -4081,7 +4065,11 @@ impl<'a> Parser<'a> {
             self.span_err(self.last_span, "expected item after attributes");
         }
 
-        ast::Mod { view_items: view_items, items: items }
+        ast::Mod {
+            inner: mk_sp(inner_lo, self.span.lo),
+            view_items: view_items,
+            items: items
+        }
     }
 
     fn parse_item_const(&mut self) -> ItemInfo {
@@ -4107,8 +4095,9 @@ impl<'a> Parser<'a> {
         } else {
             self.push_mod_path(id, outer_attrs);
             self.expect(&token::LBRACE);
+            let mod_inner_lo = self.span.lo;
             let (inner, next) = self.parse_inner_attrs_and_next();
-            let m = self.parse_mod_items(token::RBRACE, next);
+            let m = self.parse_mod_items(token::RBRACE, next, mod_inner_lo);
             self.expect(&token::RBRACE);
             self.pop_mod_path();
             (id, ItemMod(m), Some(inner))
@@ -4197,10 +4186,11 @@ impl<'a> Parser<'a> {
                                      self.cfg.clone(),
                                      &path,
                                      id_sp);
+        let mod_inner_lo = p0.span.lo;
         let (inner, next) = p0.parse_inner_attrs_and_next();
         let mod_attrs = outer_attrs.append(inner.as_slice());
         let first_item_outer_attrs = next;
-        let m0 = p0.parse_mod_items(token::EOF, first_item_outer_attrs);
+        let m0 = p0.parse_mod_items(token::EOF, first_item_outer_attrs, mod_inner_lo);
         self.sess.included_mod_stack.borrow_mut().pop();
         return (ast::ItemMod(m0), mod_attrs);
     }
@@ -5061,7 +5051,7 @@ impl<'a> Parser<'a> {
         let (inner, next) = self.parse_inner_attrs_and_next();
         let first_item_outer_attrs = next;
         // parse the items inside the crate:
-        let m = self.parse_mod_items(token::EOF, first_item_outer_attrs);
+        let m = self.parse_mod_items(token::EOF, first_item_outer_attrs, lo);
 
         ast::Crate {
             module: m,

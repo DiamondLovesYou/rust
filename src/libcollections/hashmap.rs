@@ -278,8 +278,7 @@ mod table {
         /// the appropriate types to pass on to most of the other functions in
         /// this module.
         pub fn peek(&self, index: uint) -> BucketState {
-            // FIXME #12049
-            if cfg!(test) { assert!(index < self.capacity) }
+            debug_assert!(index < self.capacity);
 
             let idx  = index as int;
             let hash = unsafe { *self.hashes.offset(idx) };
@@ -306,8 +305,7 @@ mod table {
             let idx = index.idx;
 
             unsafe {
-                // FIXME #12049
-                if cfg!(test) { assert!(*self.hashes.offset(idx) != EMPTY_BUCKET) }
+                debug_assert!(*self.hashes.offset(idx) != EMPTY_BUCKET);
                 (&'a *self.keys.offset(idx),
                  &'a *self.vals.offset(idx))
             }
@@ -319,8 +317,7 @@ mod table {
             let idx = index.idx;
 
             unsafe {
-                // FIXME #12049
-                if cfg!(test) { assert!(*self.hashes.offset(idx) != EMPTY_BUCKET) }
+                debug_assert!(*self.hashes.offset(idx) != EMPTY_BUCKET);
                 (&'a     *self.keys.offset(idx),
                  &'a mut *self.vals.offset(idx))
             }
@@ -332,8 +329,7 @@ mod table {
             let idx = index.idx;
 
             unsafe {
-                // FIXME #12049
-                if cfg!(test) { assert!(*self.hashes.offset(idx) != EMPTY_BUCKET) }
+                debug_assert!(*self.hashes.offset(idx) != EMPTY_BUCKET);
                 (transmute(self.hashes.offset(idx)),
                  &'a mut *self.keys.offset(idx),
                  &'a mut *self.vals.offset(idx))
@@ -351,8 +347,7 @@ mod table {
             let idx = index.idx;
 
             unsafe {
-                // FIXME #12049
-                if cfg!(test) { assert_eq!(*self.hashes.offset(idx), EMPTY_BUCKET) }
+                debug_assert_eq!(*self.hashes.offset(idx), EMPTY_BUCKET);
                 *self.hashes.offset(idx) = hash.inspect();
                 move_val_init(&mut *self.keys.offset(idx), k);
                 move_val_init(&mut *self.vals.offset(idx), v);
@@ -371,8 +366,7 @@ mod table {
             let idx  = index.idx;
 
             unsafe {
-                // FIXME #12049
-                if cfg!(test) { assert!(*self.hashes.offset(idx) != EMPTY_BUCKET) }
+                debug_assert!(*self.hashes.offset(idx) != EMPTY_BUCKET);
 
                 *self.hashes.offset(idx) = EMPTY_BUCKET;
 
@@ -698,13 +692,13 @@ static INITIAL_LOAD_FACTOR: Fraction = (9, 10);
 /// book_reviews.insert("The Adventures of Sherlock Holmes", "Eye lyked it alot.");
 ///
 /// // check for a specific one.
-/// if !book_reviews.contains_key(& &"Les Misérables") {
+/// if !book_reviews.contains_key(&("Les Misérables")) {
 ///     println!("We've got {} reviews, but Les Misérables ain't one.",
 ///              book_reviews.len());
 /// }
 ///
 /// // oops, this review has a lot of spelling mistakes, let's delete it.
-/// book_reviews.remove(& &"The Adventures of Sherlock Holmes");
+/// book_reviews.remove(&("The Adventures of Sherlock Holmes"));
 ///
 /// // look up the values associated with some keys.
 /// let to_find = ["Pride and Prejudice", "Alice's Adventure in Wonderland"];

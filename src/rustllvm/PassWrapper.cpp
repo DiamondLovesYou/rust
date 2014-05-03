@@ -104,7 +104,9 @@ LLVMRustCreateTargetMachine(const char *triple,
                             CodeGenOpt::Level OptLevel,
                             bool EnableSegmentedStacks,
                             bool UseSoftFloat,
-                            bool NoFramePointerElim) {
+                            bool NoFramePointerElim,
+                            bool FunctionSections,
+                            bool DataSections) {
     std::string Error;
     Triple Trip(Triple::normalize(triple));
     const llvm::Target *TheTarget = TargetRegistry::lookupTarget(Trip.getTriple(),
@@ -132,6 +134,8 @@ LLVMRustCreateTargetMachine(const char *triple,
                                                        RM,
                                                        CM,
                                                        OptLevel);
+    TM->setDataSections(DataSections);
+    TM->setFunctionSections(FunctionSections);
     return wrap(TM);
 }
 

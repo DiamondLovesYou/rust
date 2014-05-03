@@ -313,6 +313,18 @@ impl<E, D:Decoder<E>> Decodable<D, E> for ~str {
     }
 }
 
+impl<E, S:Encoder<E>> Encodable<S, E> for StrBuf {
+    fn encode(&self, s: &mut S) -> Result<(), E> {
+        s.emit_str(self.as_slice())
+    }
+}
+
+impl<E, D:Decoder<E>> Decodable<D, E> for StrBuf {
+    fn decode(d: &mut D) -> Result<StrBuf, E> {
+        Ok(StrBuf::from_str(try!(d.read_str())))
+    }
+}
+
 impl<E, S:Encoder<E>> Encodable<S, E> for f32 {
     fn encode(&self, s: &mut S) -> Result<(), E> {
         s.emit_f32(*self)
@@ -387,7 +399,7 @@ impl<E, S:Encoder<E>,T:Encodable<S, E>> Encodable<S, E> for ~T {
 
 impl<E, D:Decoder<E>,T:Decodable<D, E>> Decodable<D, E> for ~T {
     fn decode(d: &mut D) -> Result<~T, E> {
-        Ok(~try!(Decodable::decode(d)))
+        Ok(box try!(Decodable::decode(d)))
     }
 }
 

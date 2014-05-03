@@ -26,7 +26,6 @@ use rustc::metadata::decoder;
 
 use std::local_data;
 use std::strbuf::StrBuf;
-use std;
 
 use core;
 use doctree;
@@ -152,6 +151,21 @@ impl Item {
         return None;
     }
 
+    pub fn is_hidden_from_doc(&self) -> bool {
+        match self.doc_list() {
+            Some(ref l) => {
+                for innerattr in l.iter() {
+                    match *innerattr {
+                        Word(ref s) if "hidden" == *s => return true,
+                        _ => (),
+                    }
+                }
+            },
+            None => ()
+        }
+        return false;
+    }
+
     pub fn is_mod(&self) -> bool {
         match self.inner { ModuleItem(..) => true, _ => false }
     }
@@ -227,10 +241,27 @@ impl Clean<Item> for doctree::Module {
             self.view_items.clean().move_iter().collect(),
             self.macros.clean().move_iter().collect()
         );
+
+        // determine if we should display the inner contents or
+        // the outer `mod` item for the source code.
+        let where = {
+            let ctxt = local_data::get(super::ctxtkey, |x| *x.unwrap());
+            let cm = ctxt.sess().codemap();
+            let outer = cm.lookup_char_pos(self.where_outer.lo);
+            let inner = cm.lookup_char_pos(self.where_inner.lo);
+            if outer.file.start_pos == inner.file.start_pos {
+                // mod foo { ... }
+                self.where_outer
+            } else {
+                // mod foo; (and a separate FileMap for the contents)
+                self.where_inner
+            }
+        };
+
         Item {
             name: Some(name),
             attrs: self.attrs.clean(),
-            source: self.where.clean(),
+            source: where.clean(),
             visibility: self.vis.clean(),
             id: self.id,
             inner: ModuleItem(Module {
@@ -693,14 +724,14 @@ impl Clean<Type> for ast::Ty {
         debug!("span corresponds to `{}`", codemap.span_to_str(self.span));
         match self.node {
             TyNil => Unit,
-            TyPtr(ref m) => RawPointer(m.mutbl.clean(), ~m.ty.clean()),
+            TyPtr(ref m) => RawPointer(m.mutbl.clean(), box m.ty.clean()),
             TyRptr(ref l, ref m) =>
                 BorrowedRef {lifetime: l.clean(), mutability: m.mutbl.clean(),
-                             type_: ~m.ty.clean()},
-            TyBox(ty) => Managed(~ty.clean()),
-            TyUniq(ty) => Unique(~ty.clean()),
-            TyVec(ty) => Vector(~ty.clean()),
-            TyFixedLengthVec(ty, ref e) => FixedVector(~ty.clean(),
+                             type_: box m.ty.clean()},
+            TyBox(ty) => Managed(box ty.clean()),
+            TyUniq(ty) => Unique(box ty.clean()),
+            TyVec(ty) => Vector(box ty.clean()),
+            TyFixedLengthVec(ty, ref e) => FixedVector(box ty.clean(),
                                                        e.span.to_src()),
             TyTup(ref tys) => Tuple(tys.iter().map(|x| x.clean()).collect()),
             TyPath(ref p, ref tpbs, id) => {
@@ -708,9 +739,9 @@ impl Clean<Type> for ast::Ty {
                              tpbs.clean().map(|x| x.move_iter().collect()),
                              id)
             }
-            TyClosure(ref c, region) => Closure(~c.clean(), region.clean()),
-            TyProc(ref c) => Proc(~c.clean()),
-            TyBareFn(ref barefn) => BareFunction(~barefn.clean()),
+            TyClosure(ref c, region) => Closure(box c.clean(), region.clean()),
+            TyProc(ref c) => Proc(box c.clean()),
+            TyBareFn(ref barefn) => BareFunction(box barefn.clean()),
             TyBot => Bottom,
             TySimd(t, ref count) => FixedVector(~t.clean(), count.span.to_str()),
             ref x => fail!("Unimplemented type {:?}", x),
@@ -720,7 +751,7 @@ impl Clean<Type> for ast::Ty {
 
 #[deriving(Clone, Encodable, Decodable)]
 pub enum StructField {
-    HiddenStructField,
+    HiddenStructField, // inserted later by strip passes
     TypedStructField(Type),
 }
 
@@ -1215,7 +1246,7 @@ fn lit_to_str(lit: &ast::Lit) -> ~str {
     match lit.node {
         ast::LitStr(ref st, _) => st.get().to_owned(),
         ast::LitBinary(ref data) => format!("{:?}", data.as_slice()),
-        ast::LitChar(c) => "'".to_owned() + std::char::from_u32(c).unwrap().to_str() + "'",
+        ast::LitChar(c) => format!("'{}'", c),
         ast::LitInt(i, _t) => i.to_str(),
         ast::LitUint(u, _t) => u.to_str(),
         ast::LitIntUnsuffixed(i) => i.to_str(),

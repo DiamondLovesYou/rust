@@ -23,7 +23,7 @@ use metadata::{creader, filesearch};
 use metadata::cstore::CStore;
 use metadata::creader::Loader;
 use metadata;
-use middle::{trans, freevars, kind, ty, typeck, lint, astencode, reachable};
+use middle::{trans, freevars, kind, ty, typeck, lint, reachable};
 use middle;
 use util::common::time;
 use util::ppaux;
@@ -35,7 +35,6 @@ use std::cell::{Cell, RefCell};
 use std::io;
 use std::io::fs;
 use std::io::MemReader;
-use std::mem::drop;
 use std::os;
 use getopts::{optopt, optmulti, optflag, optflagopt};
 use getopts;
@@ -234,6 +233,14 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                  front::config::strip_unconfigured_items(krate));
 
     krate = time(time_passes, "expansion", krate, |krate| {
+        // Windows dlls do not have rpaths, so they don't know how to find their
+        // dependencies. It's up to use to tell the system where to find all the
+        // dependent dlls. Note that this uses cfg!(windows) as opposed to
+        // targ_cfg because syntax extensions are always loaded for the host
+        // compiler, not for the target.
+        if cfg!(windows) {
+            sess.host_filesearch().add_dylib_search_paths();
+        }
         let cfg = syntax::ext::expand::ExpansionConfig {
             loader: loader,
             deriving_hash_type_parameter: sess.features.default_type_params.get(),
@@ -272,7 +279,6 @@ pub struct CrateAnalysis {
     pub exported_items: middle::privacy::ExportedItems,
     pub public_items: middle::privacy::PublicItems,
     pub ty_cx: ty::ctxt,
-    pub maps: astencode::Maps,
     pub reachable: NodeSet,
 }
 
@@ -348,21 +354,14 @@ pub fn phase_3_run_analysis_passes(sess: Session,
     time(time_passes, "effect checking", (), |_|
          middle::effect::check_crate(&ty_cx, krate));
 
-    let middle::moves::MoveMaps {moves_map, capture_map} =
-        time(time_passes, "compute moves", (), |_|
-             middle::moves::compute_moves(&ty_cx, krate));
-
     time(time_passes, "match checking", (), |_|
-         middle::check_match::check_crate(&ty_cx, &moves_map, krate));
+         middle::check_match::check_crate(&ty_cx, krate));
 
     time(time_passes, "liveness checking", (), |_|
-         middle::liveness::check_crate(&ty_cx, &capture_map, krate));
+         middle::liveness::check_crate(&ty_cx, krate));
 
     time(time_passes, "borrow checking", (), |_|
-         middle::borrowck::check_crate(&ty_cx, &moves_map,
-                                       &capture_map, krate));
-
-    drop(moves_map);
+         middle::borrowck::check_crate(&ty_cx, krate));
 
     time(time_passes, "kind checking", (), |_|
          kind::check_crate(&ty_cx, krate));
@@ -386,9 +385,6 @@ pub fn phase_3_run_analysis_passes(sess: Session,
         ty_cx: ty_cx,
         exported_items: exported_items,
         public_items: public_items,
-        maps: astencode::Maps {
-            capture_map: RefCell::new(capture_map)
-        },
         reachable: reachable_map
     }
 }
@@ -703,11 +699,11 @@ pub fn pretty_print_input(sess: Session,
     let mut rdr = MemReader::new(src);
 
     let out = match ofile {
-        None => ~io::stdout() as ~Writer,
+        None => box io::stdout() as ~Writer,
         Some(p) => {
             let r = io::File::create(&p);
             match r {
-                Ok(w) => ~w as ~Writer,
+                Ok(w) => box w as ~Writer,
                 Err(e) => fail!("print-print failed to open {} due to {}",
                                 p.display(), e),
             }
@@ -833,7 +829,8 @@ pub fn host_triple() -> &'static str {
     // Instead of grabbing the host triple (for the current host), we grab (at
     // compile time) the target triple that this rustc is built with and
     // calling that (at runtime) the host triple.
-    env!("CFG_COMPILER_HOST_TRIPLE")
+    (option_env!("CFG_COMPILER_HOST_TRIPLE")).
+        expect("CFG_COMPILER_HOST_TRIPLE")
 }
 
 pub fn build_session_options(matches: &getopts::Matches) -> session::Options {
@@ -1093,16 +1090,16 @@ pub fn build_session_(sopts: session::Options,
 
 pub fn parse_pretty(sess: &Session, name: &str) -> PpMode {
     match name {
-      &"normal" => PpmNormal,
-      &"expanded" => PpmExpanded,
-      &"typed" => PpmTyped,
-      &"expanded,identified" => PpmExpandedIdentified,
-      &"identified" => PpmIdentified,
-      _ => {
-        sess.fatal("argument to `pretty` must be one of `normal`, \
-                    `expanded`, `typed`, `identified`, \
-                    or `expanded,identified`");
-      }
+        "normal" => PpmNormal,
+        "expanded" => PpmExpanded,
+        "typed" => PpmTyped,
+        "expanded,identified" => PpmExpandedIdentified,
+        "identified" => PpmIdentified,
+        _ => {
+            sess.fatal("argument to `pretty` must be one of `normal`, \
+                        `expanded`, `typed`, `identified`, \
+                        or `expanded,identified`");
+        }
     }
 }
 
