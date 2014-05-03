@@ -102,8 +102,8 @@ pub fn main() {
     fake_mutate(&mut v1);
     fake_mutate(&mut v2);
 
-    println!("{}", v1.iter().fold(~"v1:", |string, v| string + format!(" {}", v) ));
-    println!("{}", v2.iter().fold(~"v2:", |string, v| string + format!(" {}", v) ));
+    println!("{}", v1.iter().fold("v1:".to_owned(), |string, v| string + format!(" {}", v) ));
+    println!("{}", v2.iter().fold("v2:".to_owned(), |string, v| string + format!(" {}", v) ));
 
     let cond1 = v1 >  v2; assert_eq!(cond1.len(), 16);
     let cond2 = v1 >= v2; assert_eq!(cond2.len(), 16);
@@ -112,12 +112,12 @@ pub fn main() {
     let cond5 = v1 <= v2; assert_eq!(cond5.len(), 16);
     let cond6 = v1 <  v2; assert_eq!(cond6.len(), 16);
 
-    println!("{}", cond1.iter().enumerate().fold(~"cond1:", format_fold_f));
-    println!("{}", cond2.iter().enumerate().fold(~"cond2:", format_fold_f));
-    println!("{}", cond3.iter().enumerate().fold(~"cond3:", format_fold_f));
-    println!("{}", cond4.iter().enumerate().fold(~"cond4:", format_fold_f));
-    println!("{}", cond5.iter().enumerate().fold(~"cond5:", format_fold_f));
-    println!("{}", cond6.iter().enumerate().fold(~"cond6:", format_fold_f));
+    println!("{}", cond1.iter().enumerate().fold("cond1:".to_owned(), format_fold_f));
+    println!("{}", cond2.iter().enumerate().fold("cond2:".to_owned(), format_fold_f));
+    println!("{}", cond3.iter().enumerate().fold("cond3:".to_owned(), format_fold_f));
+    println!("{}", cond4.iter().enumerate().fold("cond4:".to_owned(), format_fold_f));
+    println!("{}", cond5.iter().enumerate().fold("cond5:".to_owned(), format_fold_f));
+    println!("{}", cond6.iter().enumerate().fold("cond6:".to_owned(), format_fold_f));
 
     assert!(cond1[0]  == false &&
             cond1[1]  == false &&
