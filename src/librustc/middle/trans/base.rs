@@ -646,11 +646,23 @@ pub fn compare_simd_types(
                     rhs: ValueRef,
                     t: ty::t,
                     size: uint,
-                    op: ast::BinOp)
-                    -> ValueRef {
-    match ty::get(t).sty {
-        ty::ty_float(_) | ty::ty_uint(_) | ty::ty_int(_) => {
-            let cmp = match op {
+                    op: ast::BinOp) -> ValueRef {
+    let return_ty = Type::vector(&Type::bool(cx.ccx()), size as u64);
+    let cmp = match ty::get(t).sty {
+        ty::ty_float(_) => {
+            let op = match op {
+                ast::BiEq => lib::llvm::RealOEQ,
+                ast::BiNe => lib::llvm::RealUNE,
+                ast::BiLt => lib::llvm::RealOLT,
+                ast::BiLe => lib::llvm::RealOLE,
+                ast::BiGt => lib::llvm::RealOGT,
+                ast::BiGe => lib::llvm::RealOGE,
+                _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
+            };
+            FCmp(cx, op, lhs, rhs)
+        }
+        ty::ty_uint(_) | ty::ty_int(_) => {
+            let op = match op {
                 ast::BiEq => lib::llvm::IntEQ,
                 ast::BiNe => lib::llvm::IntNE,
                 ast::BiLt => lib::llvm::IntSLT,
@@ -659,15 +671,16 @@ pub fn compare_simd_types(
                 ast::BiGe => lib::llvm::IntSGE,
                 _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
             };
-            let return_ty = Type::vector(&Type::bool(cx.ccx()), size as u64);
-            // LLVM outputs an `< size x i1 >`, so we need to perform a sign extension
-            // to get the correctly sized type. This will compile to a single instruction
-            // once the IR is converted to assembly if the SIMD instruction is supported
-            // by the target architecture.
-            SExt(cx, ICmp(cx, cmp, lhs, rhs), return_ty)
+            ICmp(cx, op, lhs, rhs)
         },
         _ => cx.sess().bug("compare_simd_types: invalid SIMD type"),
-    }
+    };
+
+    // LLVM outputs an `< size x i1 >`, so we need to perform a sign extension
+    // to get the correctly sized type. This will compile to a single instruction
+    // once the IR is converted to assembly if the SIMD instruction is supported
+    // by the target architecture.
+    SExt(cx, cmp, return_ty)
 }
 
 pub type val_and_ty_fn<'r,'b> =
