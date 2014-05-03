@@ -107,12 +107,14 @@ extern "C" {
     pub fn _Unwind_RaiseException(exception: *_Unwind_Exception)
                 -> _Unwind_Reason_Code;
     pub fn _Unwind_DeleteException(exception: *_Unwind_Exception);
+    #[cfg(not(target_os = "nacl", target_arch = "le32"))]
     pub fn _Unwind_Backtrace(trace: _Unwind_Trace_Fn,
                              trace_argument: *libc::c_void)
                 -> _Unwind_Reason_Code;
 
     #[cfg(not(target_os = "android"),
-          not(target_os = "linux", target_arch = "arm"))]
+          not(target_os = "linux", target_arch = "arm"),
+          not(target_os = "nacl",  target_arch = "le32"))]
     pub fn _Unwind_GetIP(ctx: *_Unwind_Context) -> libc::uintptr_t;
     #[cfg(not(target_os = "android"),
           not(target_os = "linux", target_arch = "arm"),
@@ -172,4 +174,16 @@ pub unsafe fn _Unwind_GetIP(ctx: *_Unwind_Context) -> libc::uintptr_t {
 #[cfg(target_os = "nacl", target_libc = "newlib")]
 pub unsafe fn _Unwind_FindEnclosingFunction(pc: *libc::c_void) -> *libc::c_void {
     pc
+}
+
+#[cfg(target_os = "nacl", target_arch = "le32")]
+pub unsafe fn _Unwind_Backtrace(_trace: _Unwind_Trace_Fn,
+                                _trace_argument: *libc::c_void) -> _Unwind_Reason_Code {
+    use rt::util::abort;
+    abort("_Unwind_Backtrace called: abort!")
+}
+#[cfg(target_os = "nacl", target_arch = "le32")]
+pub unsafe fn _Unwind_GetIP(_ctx: *_Unwind_Context) -> libc::uintptr_t {
+    use rt::util::abort;
+    abort("_Unwind_GetIP called: abort!")
 }
