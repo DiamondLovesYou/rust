@@ -596,9 +596,21 @@ pub fn compile_input(sess: Session, cfg: ast::CrateConfig, input: &Input,
 
         (outputs, trans, tcx.sess)
     };
-    phase_5_run_llvm_passes(&sess, &trans, &outputs);
-    if stop_after_phase_5(&sess) { return; }
-    phase_6_link_output(&sess, &trans, &outputs);
+    if !sess.targeting_pnacl() {
+        phase_5_run_llvm_passes(&sess, &trans, &outputs);
+        if stop_after_phase_5(&sess) { return; }
+        phase_6_link_output(&sess, &trans, &outputs);
+    } else {
+        link::link_outputs_for_pnacl(&sess,
+                                     &trans,
+                                     &outputs,
+                                     &trans.link.crateid);
+        unsafe {
+            llvm::LLVMDisposeModule(trans.metadata_module);
+            llvm::LLVMDisposeModule(trans.module);
+            llvm::LLVMContextDispose(trans.context);
+        }
+    }
 }
 
 struct IdentifiedAnnotation;

@@ -11,7 +11,8 @@
 use back::archive::ArchiveRO;
 use back::link;
 use driver::session;
-use lib::llvm::{ModuleRef, TargetMachineRef, llvm, False, True};
+use driver::session::Session;
+use lib::llvm::{ModuleRef, TargetMachineRef, llvm, False, True, PassManagerRef};
 use metadata::cstore;
 use util::common::time;
 
@@ -86,6 +87,14 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
         }
     }
 
+    run_passes(sess, llmod, tm, |_| (), |_| ());
+}
+
+pub fn run_passes(sess: &Session,
+                  llmod: ModuleRef,
+                  tm: TargetMachineRef,
+                  pre: |PassManagerRef|,
+                  post: |PassManagerRef|) {
     // Now we have one massive module inside of llmod. Time to run the
     // LTO-specific optimization passes that LLVM provides.
     //
@@ -96,7 +105,11 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
         unsafe {
             let pm = llvm::LLVMCreatePassManager();
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
-            "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
+            if !sess.no_verify() {
+                "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+            }
+
+            pre(pm);
 
             if sess.opts.optimize != session::No {
                 let builder = llvm::LLVMPassManagerBuilderCreate();
@@ -108,14 +121,11 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                 llvm::LLVMPassManagerBuilderDispose(builder);
             }
 
-            if sess.targeting_pnacl() {
-                // Ensure attributes don't sneak in:
-                "nacl-strip-attributes".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
-                if sess.opts.optimize == session::No {
-                    "nacl-global-cleanup".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
-                }
+            post(pm);
+
+            if !sess.no_verify() {
+                "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
             }
-            "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s));
 
             time(sess.time_passes(), "LTO pases", (), |()|
                  llvm::LLVMRunPassManager(pm, llmod));

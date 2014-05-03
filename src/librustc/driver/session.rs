@@ -11,6 +11,7 @@
 
 use back::target_strs;
 use back;
+use back::link::OutputType;
 use driver::driver::host_triple;
 use front;
 use metadata::filesearch;
@@ -374,15 +375,10 @@ impl Session {
     }
 
     pub fn get_nacl_tool_path(&self,
-                              toolname: &str,
                               em_suffix: &str,
                               nacl_suffix: &str,
                               pnacl_suffix: &str) -> ~str {
-        let toolchain = match self.opts.cg.cross_path {
-            None => self.fatal(format!("need cross toolchain path for the '{}' tool \
-                                    (-C cross-path) for this target", toolname)),
-            Some(ref p) => Path::new(p.clone()),
-        };
+        let toolchain = self.expect_cross_path();
         match self.opts.cg.nacl_flavor {
             Some(EmscriptenFlavor) => toolchain.join(em_suffix),
             Some(_) => {
@@ -412,6 +408,20 @@ impl Session {
         }.as_str().unwrap().to_owned()
     }
 
+    pub fn expect_cross_path(&self) -> Path {
+        match self.opts.cg.cross_path {
+            None => self.fatal("need cross path (-C cross-path) \
+                                for this target"),
+            Some(ref p) => Path::new(p.clone()),
+        }
+    }
+
+    pub fn pnacl_toolchain(&self) -> Path {
+        let tc = self.expect_cross_path();
+        tc.join_many([~"toolchain",
+                      format!("{}_pnacl", get_os_for_nacl_toolchain(self))])
+    }
+
     /// Shortcut to test if we need to do special things because we are targeting PNaCl.
     pub fn targeting_pnacl(&self) -> bool {
         (match self.opts.cg.nacl_flavor {
@@ -424,6 +434,45 @@ impl Session {
             Some(EmscriptenFlavor) | None => false,
             _ => true,
         }
+    }
+
+    // Emits a fatal error if path is not writeable.
+    pub fn check_writeable_output(&self, path: &Path, name: &str) {
+        use std::io;
+        let is_writeable = match path.stat() {
+            Err(..) => true,
+            Ok(m) => m.perm & io::UserWrite == io::UserWrite
+        };
+        if !is_writeable {
+            self.fatal(format!("`{}` file `{}` is not writeable -- check it's permissions.",
+                               name, path.display()));
+        }
+    }
+
+    // checks if we're saving temps or if we're emitting the specified type.
+    // If neither, the file is unlinked from the filesystem.
+    pub fn remove_temp(&self, path: &Path, t: OutputType) {
+        use std::io::fs;
+        if self.opts.cg.save_temps ||
+            self.opts.output_types.contains(&t) {
+            return;
+        }
+        match fs::unlink(path) {
+            Ok(..) => {}
+            Err(e) => {
+                // strictly speaking, this isn't a fatal error.
+                self.warn(format!("failed to remove `{}`: `{}`", path.display(), e));
+            }
+        }
+    }
+    // Create a 'temp' if we're either saving all temps, or --emit-ing that
+    // output type.
+    pub fn create_temp(&self, t: OutputType, f: ||) {
+        if self.opts.cg.save_temps ||
+            self.opts.output_types.contains(&t) {
+            return;
+        }
+        f()
     }
 }
 
@@ -564,6 +613,15 @@ cgoptions!(
     nacl_flavor: Option<NaClFlavor_> = (None, parse_from_str,
         "use with =pnacl, =nacl, or =emscripten.
          Only applicable when coupled with a PNaCl, NaCl, or Emscripten cross"),
+    extra_bitcode: Vec<~str> =
+        (Vec::new(),
+         parse_list,
+         "a list of bitcode files to include for linking (PNaCl bin output only)"),
+    stable_pexe: bool =
+        (false,
+         parse_bool,
+         "write finalized, stable PNaCl bitcode. PNaCl binaries only. Don't use \
+          if you'd like debugging info."),
 )
 
 // Seems out of place, but it uses session, so I'm putting it here
