@@ -1236,8 +1236,7 @@ pub fn link_pnacl_module(sess: &Session,
                                      "m".to_owned(),
                                      "pthread".to_owned(),
                                      "pnaclmm".to_owned(),
-                                     "nacl".to_owned(),
-                                     "ppapi_stub".to_owned()).move_iter());
+                                     "nacl".to_owned()).move_iter());
     debug!("linking implicit archives");
     {
         let libs: Vec<(~str, Path)> = possibly_abort(sess, {
