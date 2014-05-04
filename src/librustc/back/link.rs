@@ -1343,6 +1343,7 @@ pub fn link_pnacl_module(sess: &Session,
                                              |_| true );
                     false
                 });
+
             // add misc objects (like from libstd):
             let path = expect_rlib_path(sess, name, path);
             let crate_o = format!("{}.o", sess.cstore.get_crate_data(cnum).name);
@@ -1352,6 +1353,38 @@ pub fn link_pnacl_module(sess: &Session,
                                      &path,
                                      |cname| cname != crate_o);
         }
+        sess.abort_if_errors();
+
+        // Add libs from the current crate:
+        let borrow = sess.cstore.get_used_libraries().borrow();
+        (*borrow)
+            .iter()
+            .filter_map(|&(ref name, ref kind)| {
+                match kind {
+                    &cstore::NativeFramework => {
+                        sess.bug("can't link MacOS frameworks into PNaCl modules");
+                    }
+                    &cstore::NativeStatic | &cstore::NativeUnknown
+                        if !linked.contains(name) => {
+                            // Don't link archives twice:
+                            linked.insert(name.clone());
+                            let lib_path = search_for_native(lib_paths(),
+                                                             *name);
+                            maybe_lib(sess, *name, lib_path.map(|p| (name.clone(), p) ))
+                        }
+                    &cstore::NativeStatic | &cstore::NativeUnknown => { None }
+                }
+            })
+            // We need to explicitly specify the types here. Sadly we can't do
+            // that with for loops.
+            .position(|(name, path): (~str, Path)| {
+                link_archive_into_module(sess,
+                                         llmod,
+                                         name,
+                                         &path,
+                                         |_| true );
+                false
+            });
         sess.abort_if_errors();
     }
 
