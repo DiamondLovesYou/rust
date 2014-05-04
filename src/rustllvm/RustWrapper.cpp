@@ -710,10 +710,10 @@ LLVMRustArchiveReadSection(Archive *ar, char *name, size_t *size) {
 }
 extern "C" void
 LLVMRustArchiveReadAllChildren(Archive *ar,
-			       void (*callback)(const char* name,   size_t name_len,
-						const char* buffer, size_t buffer_len,
-						void* userdata),
-			       void* userdata) {
+                               void (*callback)(const char* name,   size_t name_len,
+                                                const char* buffer, size_t buffer_len,
+                                                void* userdata),
+                               void* userdata) {
 #if LLVM_VERSION_MINOR >= 5
     Archive::child_iterator I   = ar->child_begin(),
                             End = ar->child_end();
@@ -728,8 +728,8 @@ LLVMRustArchiveReadAllChildren(Archive *ar,
       if (err) continue;
       StringRef buffer = I->getBuffer();
       (*callback)(sect_name.data(), sect_name.size(),
-		  buffer.data(),    buffer.size(),
-		  userdata);
+                  buffer.data(),    buffer.size(),
+                  userdata);
     }
 }
 
@@ -782,8 +782,8 @@ LLVMRustGetSectionName(LLVMSectionIteratorRef SI, const char **ptr) {
 
 extern "C" bool
 LLVMRustWritePNaClBitcode(LLVMModuleRef M,
-			  const char* Path,
-			  const bool AcceptSupportedOnly) {
+                          const char* Path,
+                          const bool AcceptSupportedOnly) {
   std::string ErrorInfo;
 #if LLVM_VERSION_MINOR >= 4
   raw_fd_ostream OS(Path, ErrorInfo, sys::fs::F_None);
