@@ -1119,7 +1119,7 @@ mod test {
         check!(File::create(&input));
         check!(chmod(&input, io::UserRead));
         check!(copy(&input, &out));
-        assert!(check!(out.stat()).perm & io::UserWrite == 0);
+        assert!(!check!(out.stat()).perm.intersects(io::UserWrite));
 
         check!(chmod(&input, io::UserFile));
         check!(chmod(&out, io::UserFile));
@@ -1193,9 +1193,9 @@ mod test {
         let file = tmpdir.join("in.txt");
 
         check!(File::create(&file));
-        assert!(check!(stat(&file)).perm & io::UserWrite == io::UserWrite);
+        assert!(check!(stat(&file)).perm.contains(io::UserWrite));
         check!(chmod(&file, io::UserRead));
-        assert!(check!(stat(&file)).perm & io::UserWrite == 0);
+        assert!(!check!(stat(&file)).perm.contains(io::UserWrite));
 
         match chmod(&tmpdir.join("foo"), io::UserRWX) {
             Ok(..) => fail!("wanted a failure"),
@@ -1255,11 +1255,31 @@ mod test {
         match File::open_mode(&tmpdir.join("a"), io::Open, io::Read) {
             Ok(..) => fail!(), Err(..) => {}
         }
+
+        // Perform each one twice to make sure that it succeeds the second time
+        // (where the file exists)
         check!(File::open_mode(&tmpdir.join("b"), io::Open, io::Write));
+        assert!(tmpdir.join("b").exists());
+        check!(File::open_mode(&tmpdir.join("b"), io::Open, io::Write));
+
         check!(File::open_mode(&tmpdir.join("c"), io::Open, io::ReadWrite));
+        assert!(tmpdir.join("c").exists());
+        check!(File::open_mode(&tmpdir.join("c"), io::Open, io::ReadWrite));
+
         check!(File::open_mode(&tmpdir.join("d"), io::Append, io::Write));
+        assert!(tmpdir.join("d").exists());
+        check!(File::open_mode(&tmpdir.join("d"), io::Append, io::Write));
+
         check!(File::open_mode(&tmpdir.join("e"), io::Append, io::ReadWrite));
+        assert!(tmpdir.join("e").exists());
+        check!(File::open_mode(&tmpdir.join("e"), io::Append, io::ReadWrite));
+
         check!(File::open_mode(&tmpdir.join("f"), io::Truncate, io::Write));
+        assert!(tmpdir.join("f").exists());
+        check!(File::open_mode(&tmpdir.join("f"), io::Truncate, io::Write));
+
+        check!(File::open_mode(&tmpdir.join("g"), io::Truncate, io::ReadWrite));
+        assert!(tmpdir.join("g").exists());
         check!(File::open_mode(&tmpdir.join("g"), io::Truncate, io::ReadWrite));
 
         check!(File::create(&tmpdir.join("h")).write("foo".as_bytes()));

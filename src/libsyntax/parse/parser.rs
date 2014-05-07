@@ -12,7 +12,7 @@
 
 use abi;
 use ast::{BareFnTy, ClosureTy};
-use ast::{RegionTyParamBound, TraitTyParamBound};
+use ast::{StaticRegionTyParamBound, OtherRegionTyParamBound, TraitTyParamBound};
 use ast::{Provided, Public, FnStyle};
 use ast::{Mod, BiAdd, Arg, Arm, Attribute, BindByRef, BindByValue};
 use ast::{BiBitAnd, BiBitOr, BiBitXor, Block};
@@ -2867,6 +2867,19 @@ impl<'a> Parser<'a> {
             // parse ref pat
             let mutbl = self.parse_mutability();
             pat = self.parse_pat_ident(BindByRef(mutbl));
+        } else if self.eat_keyword(keywords::Box) {
+            // `box PAT`
+            //
+            // FIXME(#13910): Rename to `PatBox` and extend to full DST
+            // support.
+            let sub = self.parse_pat();
+            pat = PatUniq(sub);
+            hi = self.last_span.hi;
+            return @ast::Pat {
+                id: ast::DUMMY_NODE_ID,
+                node: pat,
+                span: mk_sp(lo, hi)
+            }
         } else {
             let can_be_enum_or_struct = self.look_ahead(1, |t| {
                 match *t {
@@ -3351,7 +3364,7 @@ impl<'a> Parser<'a> {
                 token::LIFETIME(lifetime) => {
                     let lifetime_interned_string = token::get_ident(lifetime);
                     if lifetime_interned_string.equiv(&("static")) {
-                        result.push(RegionTyParamBound);
+                        result.push(StaticRegionTyParamBound);
                         if allow_any_lifetime && ret_lifetime.is_none() {
                             ret_lifetime = Some(ast::Lifetime {
                                 id: ast::DUMMY_NODE_ID,
@@ -3366,8 +3379,7 @@ impl<'a> Parser<'a> {
                             name: lifetime.name
                         });
                     } else {
-                        self.span_err(self.span,
-                                      "`'static` is the only permissible region bound here");
+                        result.push(OtherRegionTyParamBound(self.span));
                     }
                     self.bump();
                 }

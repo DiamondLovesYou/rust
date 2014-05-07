@@ -788,10 +788,10 @@ fn check_type_limits(cx: &Context, e: &ast::Expr) {
     fn is_valid<T:cmp::Ord>(binop: ast::BinOp, v: T,
                             min: T, max: T) -> bool {
         match binop {
-            ast::BiLt => v <= max,
-            ast::BiLe => v < max,
-            ast::BiGt => v >= min,
-            ast::BiGe => v > min,
+            ast::BiLt => v >  min && v <= max,
+            ast::BiLe => v >= min && v <  max,
+            ast::BiGt => v >= min && v <  max,
+            ast::BiGe => v >  min && v <= max,
             ast::BiEq | ast::BiNe => v >= min && v <= max,
             _ => fail!()
         }
@@ -1270,7 +1270,7 @@ fn check_pat_uppercase_variable(cx: &Context, p: &ast::Pat) {
                     // last identifier alone is right choice for this lint.
                     let ident = path.segments.last().unwrap().identifier;
                     let s = token::get_ident(ident);
-                    if s.get().char_at(0).is_uppercase() {
+                    if s.get().len() > 0 && s.get().char_at(0).is_uppercase() {
                         cx.span_lint(
                             UppercaseVariables,
                             path.span,

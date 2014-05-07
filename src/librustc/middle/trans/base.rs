@@ -187,8 +187,6 @@ fn decl_fn(llmod: ModuleRef, name: &str, cc: lib::llvm::CallConv,
             }
         }
         // `~` pointer return values never alias because ownership is transferred
-        // FIXME #6750 ~Trait cannot be directly marked as
-        // noalias because the actual object pointer is nested.
         ty::ty_uniq(..) // | ty::ty_trait(_, _, ty::UniqTraitStore, _, _)
          => {
             unsafe {
@@ -259,23 +257,25 @@ pub fn decl_rust_fn(ccx: &CrateContext, has_env: bool,
         let llarg = unsafe { llvm::LLVMGetParam(llfn, (offset + i) as c_uint) };
         match ty::get(arg_ty).sty {
             // `~` pointer parameters never alias because ownership is transferred
-            // FIXME #6750 ~Trait cannot be directly marked as
-            // noalias because the actual object pointer is nested.
-            ty::ty_uniq(..) | // ty::ty_trait(_, _, ty::UniqTraitStore, _, _) |
-            ty::ty_closure(~ty::ClosureTy {store: ty::UniqTraitStore, ..}) => {
+            ty::ty_uniq(..) => {
                 unsafe {
                     llvm::LLVMAddAttribute(llarg, lib::llvm::NoAliasAttribute as c_uint);
                 }
-            },
-            // When a reference in an argument has no named lifetime, it's
-            // impossible for that reference to escape this function(ie, be
-            // returned).
+            }
+            // `&mut` pointer parameters never alias other parameters, or mutable global data
+            ty::ty_rptr(_, mt) if mt.mutbl == ast::MutMutable => {
+                unsafe {
+                    llvm::LLVMAddAttribute(llarg, lib::llvm::NoAliasAttribute as c_uint);
+                }
+            }
+            // When a reference in an argument has no named lifetime, it's impossible for that
+            // reference to escape this function (returned or stored beyond the call by a closure).
             ty::ty_rptr(ReLateBound(_, BrAnon(_)), _) => {
                 debug!("marking argument of {} as nocapture because of anonymous lifetime", name);
                 unsafe {
                     llvm::LLVMAddAttribute(llarg, lib::llvm::NoCaptureAttribute as c_uint);
                 }
-            },
+            }
             _ => {
                 // For non-immediate arguments the callee gets its own copy of
                 // the value on the stack, so there are no aliases
@@ -364,7 +364,7 @@ pub fn malloc_raw_dyn<'a>(bcx: &'a Block<'a>,
         None);
 
     let llty_ptr = type_of::type_of(ccx, ptr_ty);
-    rslt(r.bcx, PointerCast(r.bcx, r.val, llty_ptr))
+    Result::new(r.bcx, PointerCast(r.bcx, r.val, llty_ptr))
 }
 
 pub fn malloc_raw_dyn_managed<'a>(
@@ -394,7 +394,7 @@ pub fn malloc_raw_dyn_managed<'a>(
             llalign
         ],
         None);
-    rslt(r.bcx, PointerCast(r.bcx, r.val, llty))
+    Result::new(r.bcx, PointerCast(r.bcx, r.val, llty))
 }
 
 // Type descriptor and type glue stuff
@@ -554,7 +554,7 @@ pub fn compare_scalar_types<'a>(
                             t: ty::t,
                             op: ast::BinOp)
                             -> Result<'a> {
-    let f = |a| rslt(cx, compare_scalar_values(cx, lhs, rhs, a, op));
+    let f = |a| Result::new(cx, compare_scalar_values(cx, lhs, rhs, a, op));
 
     match ty::get(t).sty {
         ty::ty_nil => f(nil_type),
@@ -1729,7 +1729,7 @@ fn finish_register_fn(ccx: &CrateContext, sp: Span, sym: ~str, node_id: ast::Nod
         lib::llvm::SetLinkage(llfn, lib::llvm::InternalLinkage);
     }
 
-    if is_entry_fn(ccx.sess(), node_id) && !ccx.sess().building_library.get() {
+    if is_entry_fn(ccx.sess(), node_id) {
         create_entry_wrapper(ccx, sp, llfn);
     }
 }
@@ -2128,7 +2128,10 @@ pub fn crate_ctxt_to_encode_parms<'r>(cx: &'r CrateContext, ie: encoder::EncodeI
 pub fn write_metadata(cx: &CrateContext, krate: &ast::Crate) -> Vec<u8> {
     use flate;
 
-    if !cx.sess().building_library.get() {
+    let any_library = cx.sess().crate_types.borrow().iter().any(|ty| {
+        *ty != session::CrateTypeExecutable
+    });
+    if !any_library {
         return Vec::new()
     }
 

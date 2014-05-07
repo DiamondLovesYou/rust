@@ -283,7 +283,9 @@ impl FsRequest {
             path: path,
             size: stat.st_size as u64,
             kind: kind,
-            perm: (stat.st_mode as io::FilePermission) & io::AllPermissions,
+            perm: unsafe {
+                io::FilePermission::from_bits(stat.st_mode as u32) & io::AllPermissions
+            },
             created: to_msec(stat.st_birthtim),
             modified: to_msec(stat.st_mtim),
             accessed: to_msec(stat.st_atim),
@@ -445,7 +447,8 @@ impl rtio::RtioFileStream for FileWatcher {
     fn tell(&self) -> Result<u64, IoError> {
         use libc::SEEK_CUR;
         // this is temporary
-        let self_ = unsafe { cast::transmute_mut(self) };
+        // FIXME #13933: Remove/justify all `&T` to `&mut T` transmutes
+        let self_ = unsafe { cast::transmute::<&_, &mut FileWatcher>(self) };
         self_.seek_common(0, SEEK_CUR)
     }
     fn fsync(&mut self) -> Result<(), IoError> {

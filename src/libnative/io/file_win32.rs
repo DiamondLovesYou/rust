@@ -174,7 +174,8 @@ impl rtio::RtioFileStream for FileDesc {
     fn tell(&self) -> Result<u64, IoError> {
         // This transmute is fine because our seek implementation doesn't
         // actually use the mutable self at all.
-        unsafe { cast::transmute_mut(self).seek(0, io::SeekCur) }
+        // FIXME #13933: Remove/justify all `&T` to `&mut T` transmutes
+        unsafe { cast::transmute::<&_, &mut FileDesc>(self).seek(0, io::SeekCur) }
     }
 
     fn fsync(&mut self) -> Result<(), IoError> {
@@ -274,7 +275,7 @@ pub fn open(path: &CString, fm: io::FileMode, fa: io::FileAccess)
         (io::Truncate, io::Read) => libc::TRUNCATE_EXISTING,
         (io::Truncate, _) => libc::CREATE_ALWAYS,
         (io::Open, io::Read) => libc::OPEN_EXISTING,
-        (io::Open, _) => libc::CREATE_NEW,
+        (io::Open, _) => libc::OPEN_ALWAYS,
         (io::Append, io::Read) => {
             dwDesiredAccess |= libc::FILE_APPEND_DATA;
             libc::OPEN_EXISTING
@@ -391,7 +392,7 @@ pub fn rename(old: &CString, new: &CString) -> IoResult<()> {
 
 pub fn chmod(p: &CString, mode: io::FilePermission) -> IoResult<()> {
     super::mkerr_libc(as_utf16_p(p.as_str().unwrap(), |p| unsafe {
-        libc::wchmod(p, mode as libc::c_int)
+        libc::wchmod(p, mode.bits() as libc::c_int)
     }))
 }
 
@@ -470,7 +471,9 @@ fn mkstat(stat: &libc::stat, path: &CString) -> io::FileStat {
         path: Path::new(path),
         size: stat.st_size as u64,
         kind: kind,
-        perm: (stat.st_mode) as io::FilePermission & io::AllPermissions,
+        perm: unsafe {
+          io::FilePermission::from_bits(stat.st_mode as u32)  & io::AllPermissions
+        },
         created: stat.st_ctime as u64,
         modified: stat.st_mtime as u64,
         accessed: stat.st_atime as u64,
