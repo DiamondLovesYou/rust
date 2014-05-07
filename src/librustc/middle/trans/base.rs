@@ -680,7 +680,7 @@ pub fn compare_simd_types(
     // to get the correctly sized type. This will compile to a single instruction
     // once the IR is converted to assembly if the SIMD instruction is supported
     // by the target architecture.
-    SExt(cx, cmp, return_ty)
+    ZExt(cx, cmp, return_ty)
 }
 
 pub type val_and_ty_fn<'r,'b> =
