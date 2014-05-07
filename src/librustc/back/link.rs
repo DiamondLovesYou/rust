@@ -1119,7 +1119,7 @@ pub fn link_pnacl_module(sess: &Session,
     //
     // This function should not be called on non-exe outputs.
     use libc;
-    use lib::llvm::ModuleRef;
+    use lib::llvm::{ModuleRef, ContextRef};
     use back::lto;
     use std::io::File;
     use back::archive::ArchiveRO;
@@ -1198,23 +1198,43 @@ pub fn link_pnacl_module(sess: &Session,
         sess.abort_if_errors();
         d
     }
-    fn link_buf_into_module(sess: &Session, llmod: ModuleRef, name: &str, bc: &[u8]) {
+    fn link_buf_into_module(sess: &Session,
+                            ctxt:  ContextRef,
+                            llmod: Option<ModuleRef>,
+                            name: &str,
+                            bc: &[u8]) -> Option<ModuleRef> {
         use libc;
         debug!("inserting `{}` into module", name);
-        unsafe {
-            if !llvm::LLVMRustLinkInExternalBitcode(llmod,
-                                                    bc.as_ptr() as *libc::c_char,
-                                                    bc.len() as libc::size_t) {
-                llvm_warn(sess, format!("failed to link in external bitcode `{}`",
-                                        name));
-            }
+        match llmod {
+            Some(llmod) => unsafe {
+                if !llvm::LLVMRustLinkInExternalBitcode(llmod,
+                                                        bc.as_ptr() as *libc::c_char,
+                                                        bc.len() as libc::size_t) {
+                    llvm_warn(sess, format!("failed to link in external bitcode `{}`",
+                                            name));
+                }
+                Some(llmod)
+            },
+            None => unsafe {
+                let llmod = llvm::LLVMRustParseBitcode(ctxt,
+                                                       bc.as_ptr() as *libc::c_void,
+                                                       bc.len() as libc::size_t);
+                if llmod == ptr::null() {
+                    llvm_warn(sess, format!("failed to parse external bitcode `{}`",
+                                            name));
+                    None
+                } else {
+                    Some(llmod)
+                }
+            },
         }
     }
     fn link_archive_into_module(sess: &Session,
-                                llmod: ModuleRef,
+                                ctxt:  ContextRef,
+                                mut llmod: Option<ModuleRef>,
                                 name: &str,
                                 archive: &Path,
-                                filter: |&str| -> bool) {
+                                filter: |&str| -> bool) -> Option<ModuleRef> {
         debug!("inserting all objects in `{}` into module", archive.display());
         time(sess.time_passes(),
              format!("linking archive `{}`", name),
@@ -1223,11 +1243,28 @@ pub fn link_pnacl_module(sess: &Session,
                  let archive = ArchiveRO::open(archive).expect("maybe invalid archive?");
                  archive.foreach_child(|name, bc| {
                      if Path::new(name).extension_str() == Some("o") && filter(name) {
-                         link_buf_into_module(sess, llmod, name, bc);
+                         llmod = link_buf_into_module(sess, ctxt, llmod, name, bc);
                      }
                  });
              });
+        llmod
     }
+
+    let save_temp = |ext, llmod| {
+        if sess.opts.cg.save_temps {
+            outputs.with_extension(ext).with_c_str(|buf| unsafe {
+                llvm::LLVMWriteBitcodeToFile(llmod, buf);
+            })
+        }
+    };
+
+    // FIXME: Now that objects created with pnacl-clang are linked into a
+    // separate mod, there's no reason we can't attach bitcodes directly to
+    // whatever rlib uses them and run the PNaCl ABI passes on them once when
+    // they're built.
+    // Hopefully, once implemented this will finally bring the link time down
+    // enough for PNaCl crates that running the r-pass checks can complete in
+    // our lifetime.
 
     // # Pull all 'native' deps into our module:
     // ## implicit archives
@@ -1237,6 +1274,7 @@ pub fn link_pnacl_module(sess: &Session,
                                      "pthread".to_owned(),
                                      "pnaclmm".to_owned(),
                                      "nacl".to_owned()).move_iter());
+    let mut tc_mod = None;
     debug!("linking implicit archives");
     {
         let libs: Vec<(~str, Path)> = possibly_abort(sess, {
@@ -1249,13 +1287,14 @@ pub fn link_pnacl_module(sess: &Session,
                 })
                 .collect()
         });
-        for (name, path) in libs.move_iter() {
+        tc_mod = libs.move_iter().fold(tc_mod.take(), |m, (name, path)| {
             link_archive_into_module(sess,
-                                     llmod,
+                                     trans.context,
+                                     m,
                                      name,
                                      &path,
-                                     |_| true );
-        }
+                                     |_| true )
+        });
         sess.abort_if_errors();
     }
     // ## support bitcodes:
@@ -1286,37 +1325,42 @@ pub fn link_pnacl_module(sess: &Session,
                               }
                           } )
                  }));
-        for (name, bc) in iter {
+        tc_mod = iter.fold(tc_mod.take(), |m, (name, bc)| {
             let bc: Vec<u8> = bc;
             link_buf_into_module(sess,
-                                 llmod,
+                                 trans.context,
+                                 m,
                                  *name,
-                                 bc.as_slice());
-        }
-        for extra in sess.opts.cg.extra_bitcode.iter().map(|file| Path::new(file.clone()) ) {
-            match File::open(&extra).read_to_end() {
-                Ok(buf) => {
-                    link_buf_into_module(sess,
-                                         llmod,
-                                         extra.display().to_str(),
-                                         buf.as_slice());
+                                 bc.as_slice())
+        });
+
+        tc_mod = sess.opts.cg.extra_bitcode
+            .iter()
+            .map(|file| Path::new(file.clone()) )
+            .fold(tc_mod.take(), |m, extra| {
+                match File::open(&extra).read_to_end() {
+                    Ok(buf) => link_buf_into_module(sess,
+                                                    trans.context,
+                                                    m,
+                                                    extra.display().to_str(),
+                                                    buf.as_slice()),
+                    Err(e) => {
+                        sess.err(format!("error reading file `{}`: `{}`",
+                                         extra.display(), e));
+                        m
+                    }
                 }
-                Err(e) => {
-                    sess.err(format!("error reading file `{}`: `{}`",
-                                     extra.display(), e));
-                }
-            }
-        }
+            });
         sess.abort_if_errors();
     }
     // ## \#[link] archives plus objects in Rust creates:
     debug!("linking \\#[link] archives");
     {
         let crates = sess.cstore.get_used_crates(cstore::RequireStatic);
-        for (cnum, path) in crates.move_iter() {
+        tc_mod = crates.move_iter().fold(tc_mod.take(), |m, (cnum, path)| {
             let name = sess.cstore.get_crate_data(cnum).name.clone();
             let libs = csearch::get_native_libraries(&sess.cstore, cnum);
-            libs.move_iter()
+            let m = libs.move_iter()
                 .filter_map(|(kind, ref lib)| {
                     match kind {
                         cstore::NativeFramework => {
@@ -1335,29 +1379,33 @@ pub fn link_pnacl_module(sess: &Session,
                 })
                 // We need to explicitly specify the types here. Sadly we can't do
                 // that with for loops.
-                .position(|(name, path): (~str, Path)| {
+                .fold(m, |m, (name, path): (~str, Path)| {
                     link_archive_into_module(sess,
-                                             llmod,
+                                             trans.context,
+                                             m,
                                              name,
                                              &path,
-                                             |_| true );
-                    false
+                                             |_| true )
                 });
 
             // add misc objects (like from libstd):
+            // Note that these are C/C++ (or other langs if the user is exotic)
+            // objects, and should be treated like the other bc files we've
+            // 'linked' already into tc_mod.
             let path = expect_rlib_path(sess, name, path);
             let crate_o = format!("{}.o", sess.cstore.get_crate_data(cnum).name);
             link_archive_into_module(sess,
-                                     llmod,
+                                     trans.context,
+                                     m,
                                      name,
                                      &path,
-                                     |cname| cname != crate_o);
-        }
+                                     |cname| cname != crate_o)
+        });
         sess.abort_if_errors();
 
         // Add libs from the current crate:
         let borrow = sess.cstore.get_used_libraries().borrow();
-        (*borrow)
+        tc_mod = (*borrow)
             .iter()
             .filter_map(|&(ref name, ref kind)| {
                 match kind {
@@ -1375,17 +1423,25 @@ pub fn link_pnacl_module(sess: &Session,
                     &cstore::NativeStatic | &cstore::NativeUnknown => { None }
                 }
             })
-            // We need to explicitly specify the types here. Sadly we can't do
-            // that with for loops.
-            .position(|(name, path): (~str, Path)| {
+            .fold(tc_mod.take(), |m, (name, path): (~str, Path)| {
                 link_archive_into_module(sess,
-                                         llmod,
+                                         trans.context,
+                                         m,
                                          name,
                                          &path,
-                                         |_| true );
-                false
+                                         |_| true )
             });
         sess.abort_if_errors();
+    }
+
+    save_temp("tc-pre-debug-purge.bc", *tc_mod.get_ref());
+    // Prevent LLVM tools from stripping debugging info from our module:
+    unsafe {
+        llvm::LLVMRustStripDebugInfo(tc_mod.clone().unwrap());
+        save_temp("tc-post-debug-purge.bc", *tc_mod.get_ref());
+        if !llvm::LLVMRustLinkInModule(llmod, tc_mod.unwrap()) {
+            llvm_err(sess, "failed to merge our translated mod with the toolchain mod".to_owned());
+        }
     }
 
     // # Run the passes on our module:
@@ -1419,7 +1475,8 @@ pub fn link_pnacl_module(sess: &Session,
         // only add the crate object file:
         let obj_name = format!("{}.o", name);
         link_archive_into_module(sess,
-                                 llmod,
+                                 trans.context,
+                                 Some(llmod),
                                  name,
                                  &path,
                                  |name| name == obj_name );

@@ -1500,6 +1500,10 @@ pub mod llvm {
                                      name: *c_char,
                                      value: u32);
 
+        pub fn LLVMRustAddOverridingModuleFlag(M: ModuleRef,
+                                               name: *c_char,
+                                               value: u32);
+
         pub fn LLVMDIBuilderCreate(M: ModuleRef) -> DIBuilderRef;
 
         pub fn LLVMDIBuilderDispose(Builder: DIBuilderRef);
@@ -1777,6 +1781,8 @@ pub mod llvm {
         pub fn LLVMRustLinkInExternalBitcode(M: ModuleRef,
                                              bc: *c_char,
                                              len: size_t) -> bool;
+        pub fn LLVMRustLinkInModule(Dest: ModuleRef,
+                                    Src:  ModuleRef) -> bool;
         pub fn LLVMRustRunRestrictionPass(M: ModuleRef,
                                           syms: **c_char,
                                           len: size_t);
@@ -1798,9 +1804,14 @@ pub mod llvm {
         pub fn LLVMRustGetSectionName(SI: SectionIteratorRef,
                                       data: *mut *c_char) -> c_int;
 
+        pub fn LLVMRustParseBitcode(C: ContextRef,
+                                    P: *c_void,
+                                    L: size_t) -> ModuleRef;
+
         pub fn LLVMRustWritePNaClBitcode(M: ModuleRef,
                                          Path: *c_char,
                                          AcceptSupportedOnly: bool) -> bool;
+        pub fn LLVMRustStripDebugInfo(M: ModuleRef);
     }
 }
 

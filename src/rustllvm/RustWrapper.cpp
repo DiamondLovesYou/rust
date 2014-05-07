@@ -613,6 +613,19 @@ extern "C" char *LLVMValueToString(LLVMValueRef Value) {
     return strdup(os.str().data());
 }
 
+static bool MaterializeModule(Module* M) {
+  // LinkModules overrides the module materializer, orphaning any globalvalues
+  // still unmaterialized. This is here to force the loading of any lazy
+  // bitcode parsing.
+  const error_code ec = M->materializeAllPermanently();
+  if(ec) {
+    LLVMRustSetLastError(ec.message().c_str());
+    return false;
+  } else {
+    return true;
+  }
+}
+
 #if LLVM_VERSION_MINOR >= 5
 extern "C" bool
 LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
@@ -623,6 +636,10 @@ LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
         LLVMRustSetLastError(Src.getError().message().c_str());
         delete buf;
         return false;
+    }
+
+    if(!MaterializeModule(Dst)) {
+      return false;
     }
 
     std::string Err;
@@ -645,6 +662,10 @@ LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
         return false;
     }
 
+    if(!MaterializeModule(Dst)) {
+      return false;
+    }
+
     if (Linker::LinkModules(Dst, Src, Linker::DestroySource, &Err)) {
         LLVMRustSetLastError(Err.c_str());
         return false;
@@ -652,6 +673,19 @@ LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
     return true;
 }
 #endif
+
+extern "C" bool
+LLVMRustLinkInModule(LLVMModuleRef dest, LLVMModuleRef src) {
+  Module* Dest = unwrap(dest);
+  Module* Src  = unwrap(src);
+  std::string Err;
+  if(Linker::LinkModules(Dest, Src, Linker::DestroySource, &Err)) {
+    LLVMRustSetLastError(Err.c_str());
+    return false;
+  } else {
+    return true;
+  }
+}
 
 #if LLVM_VERSION_MINOR >= 5
 extern "C" void*
@@ -797,4 +831,27 @@ LLVMRustWritePNaClBitcode(LLVMModuleRef M,
 
   NaClWriteBitcodeToFile(unwrap(M), OS);
   return true;
+}
+extern "C" void
+LLVMRustAddOverridingModuleFlag(LLVMModuleRef M,
+                                const char *name,
+                                uint32_t value) {
+  unwrap(M)->addModuleFlag(Module::Override, name, value);
+}
+extern "C" LLVMModuleRef
+LLVMRustParseBitcode(LLVMContextRef ctxt, const void* bc, size_t len) {
+  MemoryBuffer* buf = MemoryBuffer::getMemBufferCopy
+    (StringRef(static_cast<const char*>(bc), len));
+  ErrorOr<Module *> Src = llvm::getLazyBitcodeModule(buf, *unwrap(ctxt));
+  if (!Src) {
+    LLVMRustSetLastError(Src.getError().message().c_str());
+    delete buf;
+    return NULL;
+  } else {
+    return wrap(*Src);
+  }
+}
+extern "C" void
+LLVMRustStripDebugInfo(LLVMModuleRef M) {
+  llvm::StripDebugInfo(*unwrap(M));
 }
