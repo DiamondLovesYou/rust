@@ -1127,32 +1127,14 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
         // add an extension, don't replace it:
         Path::new(pexe_path.display().to_str() + ".nexe");
 
-    let native_lib_path = match ARCH {
-        "x86_64" => cross_path.join_many(["toolchain".to_owned(),
-                                          toolchain_prefix() + "_x86_newlib",
-                                          "x86_64-nacl".to_owned(),
-                                          "lib".to_owned()]),
-        "x86"    => cross_path.join_many(["toolchain".to_owned(),
-                                          toolchain_prefix() + "_x86_newlib",
-                                          "x86_64-nacl".to_owned(),
-                                          "lib32".to_owned()]),
-        _ => fail!("unknown arch (FIXME): `{}`", ARCH),
-    };
-    let native_lib_path = native_lib_path.display().to_str();
     let pnacl_trans_args = vec!("-O0".to_owned(),
                                 "-arch".to_owned(),
                                 ARCH.to_str(),
                                 "-o".to_owned(),
                                 nexe_path.display().to_str(),
                                 pexe_path.display().to_str(),
-                                "--allow-llvm-bitcode-input".to_owned(),
                                 "--pnacl-driver-verbose".to_owned(),
-                                "-translate-fast".to_owned(),
-                                // until https://code.google.com/p/chromium/issues/detail?id=343594
-                                // lands in the SDKs, all frem instructions will cause unresolved
-                                // references to fmodf/fmod. libg is for errno referenced in fmod.
-                                "-Wl,".to_owned() + native_lib_path + "/libm.a",
-                                "-Wl,".to_owned() + native_lib_path + "/libg.a");
+                                "-translate-fast".to_owned());
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
                      pnacl_translate.display().to_str(),

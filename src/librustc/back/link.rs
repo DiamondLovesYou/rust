@@ -1242,7 +1242,10 @@ pub fn link_pnacl_module(sess: &Session,
              |()| {
                  let archive = ArchiveRO::open(archive).expect("maybe invalid archive?");
                  archive.foreach_child(|name, bc| {
-                     if Path::new(name).extension_str() == Some("o") && filter(name) {
+                     let name_path = Path::new(name);
+                     let name_ext_str = name_path.extension_str();
+                     if (name_ext_str == Some("o") || name_ext_str == Some("obj")) &&
+                         filter(name) {
                          llmod = link_buf_into_module(sess, ctxt, llmod, name, bc);
                      }
                  });
@@ -1270,6 +1273,7 @@ pub fn link_pnacl_module(sess: &Session,
     // ## implicit archives
     let mut linked: HashSet<~str> =
         FromIterator::from_iter(vec!("c".to_owned(),
+                                     "c++".to_owned(), // a temp hack to pull in __pnacl_eh_sjlj_*
                                      "m".to_owned(),
                                      "pthread".to_owned(),
                                      "pnaclmm".to_owned(),
@@ -1302,7 +1306,8 @@ pub fn link_pnacl_module(sess: &Session,
     {
         let bcs = vec!("crti.bc",
                        "crtbegin.bc",
-                       "sjlj_eh_redirect.bc");
+                       "sjlj_eh_redirect.bc",
+                       "unwind_stubs.bc");
         let mut iter = bcs
             .iter()
             .zip(bcs.iter()

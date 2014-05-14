@@ -235,6 +235,7 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
 /// to symbols. This is a bit of a hokey implementation as-is, but it works for
 /// all unix platforms we support right now, so it at least gets the job done.
 #[cfg(unix)]
+#[allow(unused_unsafe)]
 mod imp {
     use c_str::CString;
     use cast;

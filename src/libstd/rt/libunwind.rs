@@ -177,13 +177,18 @@ pub unsafe fn _Unwind_FindEnclosingFunction(pc: *libc::c_void) -> *libc::c_void 
 }
 
 #[cfg(target_os = "nacl", target_arch = "le32")]
-pub unsafe fn _Unwind_Backtrace(_trace: _Unwind_Trace_Fn,
-                                _trace_argument: *libc::c_void) -> _Unwind_Reason_Code {
+pub extern "C" fn _Unwind_Backtrace(_trace: _Unwind_Trace_Fn,
+                                    _trace_argument: *libc::c_void) -> _Unwind_Reason_Code {
     use rt::util::abort;
     abort("_Unwind_Backtrace called: abort!")
 }
 #[cfg(target_os = "nacl", target_arch = "le32")]
-pub unsafe fn _Unwind_GetIP(_ctx: *_Unwind_Context) -> libc::uintptr_t {
+pub extern "C" fn _Unwind_GetIP(_ctx: *_Unwind_Context) -> libc::uintptr_t {
+    use rt::util::abort;
+    abort("_Unwind_GetIP called: abort!")
+}
+#[cfg(target_os = "nacl", target_arch = "le32")]
+pub extern "C" fn _Unwind_GetIPInfo(_ctx: *_Unwind_Context) -> libc::uintptr_t {
     use rt::util::abort;
     abort("_Unwind_GetIP called: abort!")
 }
