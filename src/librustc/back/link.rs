@@ -1560,8 +1560,10 @@ pub fn link_pnacl_module(sess: &Session,
                         // Strip unsupported metadata:
                         "strip-metadata".with_c_str(|s| ap(s) );
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
-                        "verify-pnaclabi-module".with_c_str(|s| ap(s) );
-                        "verify-pnaclabi-functions".with_c_str(|s| ap(s) );
+                        if !sess.no_verify() {
+                            "verify-pnaclabi-module".with_c_str(|s| ap(s) );
+                            "verify-pnaclabi-functions".with_c_str(|s| ap(s) );
+                        }
                     });
 
     let out = match outputs.single_output_file {
