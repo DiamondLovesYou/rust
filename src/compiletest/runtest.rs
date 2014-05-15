@@ -1310,9 +1310,13 @@ fn pnacl_exec_compiled_test(config: &config, props: &TestProps,
         // add an extension, don't replace it:
         Path::new(pexe_path.display().to_str() + ".nexe");
 
+    let arch = match ARCH {
+        "x86" => "i686",
+        _ => ARCH,
+    };
     let pnacl_trans_args = vec!("-O0".to_owned(),
                                 "-arch".to_owned(),
-                                ARCH.to_str(),
+                                arch.to_str(),
                                 "-o".to_owned(),
                                 nexe_path.display().to_str(),
                                 pexe_path.display().to_str(),
