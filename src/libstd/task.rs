@@ -41,14 +41,17 @@ use comm::{Sender, Receiver, channel};
 use io::Writer;
 use kinds::{Send, marker};
 use option::{None, Some, Option};
+use owned::Box;
 use result::{Result, Ok, Err};
 use rt::local::Local;
 use rt::task::Task;
 use str::{Str, SendStr, IntoMaybeOwned};
 
-#[cfg(test)] use any::{AnyOwnExt, AnyRefExt};
+#[cfg(test)] use any::AnyRefExt;
+#[cfg(test)] use owned::AnyOwnExt;
+#[cfg(test)] use realstd::result::ResultUnwrap;
 #[cfg(test)] use result;
-#[cfg(test)] use str::StrSlice;
+#[cfg(test)] use str::StrAllocating;
 
 /// Indicates the manner in which a task exited.
 ///
@@ -56,7 +59,7 @@ use str::{Str, SendStr, IntoMaybeOwned};
 ///
 /// If you wish for this result's delivery to block until all
 /// children tasks complete, recommend using a result future.
-pub type TaskResult = Result<(), ~Any:Send>;
+pub type TaskResult = Result<(), Box<Any:Send>>;
 
 /// Task configuration options
 pub struct TaskOpts {
@@ -67,9 +70,9 @@ pub struct TaskOpts {
     /// The size of the stack for the spawned task
     pub stack_size: Option<uint>,
     /// Task-local stdout
-    pub stdout: Option<~Writer:Send>,
+    pub stdout: Option<Box<Writer:Send>>,
     /// Task-local stderr
-    pub stderr: Option<~Writer:Send>,
+    pub stderr: Option<Box<Writer:Send>>,
 }
 
 /**
@@ -173,7 +176,7 @@ impl TaskBuilder {
             Some(gen) => gen(f),
             None => f
         };
-        let t: ~Task = Local::take();
+        let t: Box<Task> = Local::take();
         t.spawn_sibling(self.opts, f);
     }
 
@@ -190,7 +193,8 @@ impl TaskBuilder {
      * # Failure
      * Fails if a future_result was already set for this task.
      */
-    pub fn try<T:Send>(mut self, f: proc():Send -> T) -> Result<T, ~Any:Send> {
+    pub fn try<T:Send>(mut self, f: proc():Send -> T)
+               -> Result<T, Box<Any:Send>> {
         let (tx, rx) = channel();
 
         let result = self.future_result();
@@ -240,7 +244,7 @@ pub fn spawn(f: proc():Send) {
 /// the function or an error if the task failed
 ///
 /// This is equivalent to TaskBuilder::new().try
-pub fn try<T:Send>(f: proc():Send -> T) -> Result<T, ~Any:Send> {
+pub fn try<T:Send>(f: proc():Send -> T) -> Result<T, Box<Any:Send>> {
     TaskBuilder::new().try(f)
 }
 
@@ -264,7 +268,7 @@ pub fn deschedule() {
     use rt::local::Local;
 
     // FIXME(#7544): Optimize this, since we know we won't block.
-    let task: ~Task = Local::take();
+    let task: Box<Task> = Local::take();
     task.yield_now();
 }
 
@@ -507,10 +511,10 @@ fn test_try_fail_message_owned_str() {
 #[test]
 fn test_try_fail_message_any() {
     match try(proc() {
-        fail!(box 413u16 as ~Any:Send);
+        fail!(box 413u16 as Box<Any:Send>);
     }) {
         Err(e) => {
-            type T = ~Any:Send;
+            type T = Box<Any:Send>;
             assert!(e.is::<T>());
             let any = e.move::<T>().unwrap();
             assert!(any.is::<u16>());

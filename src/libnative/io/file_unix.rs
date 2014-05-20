@@ -10,14 +10,14 @@
 
 //! Blocking posix-based file I/O
 
-use std::sync::arc::UnsafeArc;
+use libc::{c_int, c_void};
+use libc;
 use std::c_str::CString;
 use std::io::IoError;
 use std::io;
-use libc::{c_int, c_void};
-use libc;
 use std::mem;
 use std::rt::rtio;
+use std::sync::arc::UnsafeArc;
 
 use io::{IoResult, retry, keep_going};
 
@@ -166,6 +166,14 @@ impl rtio::RtioFileStream for FileDesc {
             libc::ftruncate(self.fd(), offset as libc::off_t)
         }))
     }
+
+    fn fstat(&mut self) -> IoResult<io::FileStat> {
+        let mut stat: libc::stat = unsafe { mem::uninit() };
+        match retry(|| unsafe { libc::fstat(self.fd(), &mut stat) }) {
+            0 => Ok(mkstat(&stat)),
+            _ => Err(super::last_error()),
+        }
+    }
 }
 
 impl rtio::RtioPipe for FileDesc {
@@ -175,9 +183,23 @@ impl rtio::RtioPipe for FileDesc {
     fn write(&mut self, buf: &[u8]) -> Result<(), IoError> {
         self.inner_write(buf)
     }
-    fn clone(&self) -> ~rtio::RtioPipe:Send {
-        box FileDesc { inner: self.inner.clone() } as ~rtio::RtioPipe:Send
+    fn clone(&self) -> Box<rtio::RtioPipe:Send> {
+        box FileDesc { inner: self.inner.clone() } as Box<rtio::RtioPipe:Send>
     }
+
+    // Only supported on named pipes currently. Note that this doesn't have an
+    // impact on the std::io primitives, this is never called via
+    // std::io::PipeStream. If the functionality is exposed in the future, then
+    // these methods will need to be implemented.
+    fn close_read(&mut self) -> Result<(), IoError> {
+        Err(io::standard_error(io::InvalidInput))
+    }
+    fn close_write(&mut self) -> Result<(), IoError> {
+        Err(io::standard_error(io::InvalidInput))
+    }
+    fn set_timeout(&mut self, _t: Option<u64>) {}
+    fn set_read_timeout(&mut self, _t: Option<u64>) {}
+    fn set_write_timeout(&mut self, _t: Option<u64>) {}
 }
 
 impl rtio::RtioTTY for FileDesc {
@@ -302,6 +324,10 @@ impl rtio::RtioFileStream for CFile {
     }
     fn truncate(&mut self, offset: i64) -> Result<(), IoError> {
         self.flush().and_then(|()| self.fd.truncate(offset))
+    }
+
+    fn fstat(&mut self) -> IoResult<io::FileStat> {
+        self.flush().and_then(|()| self.fd.fstat())
     }
 }
 
@@ -450,9 +476,7 @@ pub fn link(src: &CString, dst: &CString) -> IoResult<()> {
     }))
 }
 
-fn mkstat(stat: &libc::stat, path: &CString) -> io::FileStat {
-    let path = unsafe { CString::new(path.with_ref(|p| p), false) };
-
+fn mkstat(stat: &libc::stat) -> io::FileStat {
     // FileStat times are in milliseconds
     fn mktime(secs: u64, nsecs: u64) -> u64 { secs * 1000 + nsecs / 1000000 }
 
@@ -480,7 +504,6 @@ fn mkstat(stat: &libc::stat, path: &CString) -> io::FileStat {
     fn gen(_stat: &libc::stat) -> u64 { 0 }
 
     io::FileStat {
-        path: Path::new(path),
         size: stat.st_size as u64,
         kind: kind,
         perm: unsafe {
@@ -507,7 +530,7 @@ fn mkstat(stat: &libc::stat, path: &CString) -> io::FileStat {
 pub fn stat(p: &CString) -> IoResult<io::FileStat> {
     let mut stat: libc::stat = unsafe { mem::uninit() };
     match retry(|| unsafe { libc::stat(p.with_ref(|p| p), &mut stat) }) {
-        0 => Ok(mkstat(&stat, p)),
+        0 => Ok(mkstat(&stat)),
         _ => Err(super::last_error()),
     }
 }
@@ -515,7 +538,7 @@ pub fn stat(p: &CString) -> IoResult<io::FileStat> {
 pub fn lstat(p: &CString) -> IoResult<io::FileStat> {
     let mut stat: libc::stat = unsafe { mem::uninit() };
     match retry(|| unsafe { libc::lstat(p.with_ref(|p| p), &mut stat) }) {
-        0 => Ok(mkstat(&stat, p)),
+        0 => Ok(mkstat(&stat)),
         _ => Err(super::last_error()),
     }
 }

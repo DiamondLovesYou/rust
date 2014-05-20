@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use common::config;
+use common::Config;
 use common;
 use util;
 
@@ -26,8 +26,6 @@ pub struct TestProps {
     pub aux_builds: Vec<~str> ,
     // Environment settings to use during execution
     pub exec_env: Vec<(~str,~str)> ,
-    // Commands to be given to the debugger, when testing debug info
-    pub debugger_cmds: Vec<~str> ,
     // Lines to check if they appear in the expected debugger output
     pub check_lines: Vec<~str> ,
     // Flag to force a crate to be built with the host architecture
@@ -36,6 +34,8 @@ pub struct TestProps {
     pub check_stdout: bool,
     // Don't force a --crate-type=dylib flag on the command line
     pub no_prefer_dynamic: bool,
+    // Don't run --pretty expanded when running pretty printing tests
+    pub no_pretty_expanded: bool,
 }
 
 // Load any test directives embedded in the file
@@ -46,11 +46,11 @@ pub fn load_props(testfile: &Path) -> TestProps {
     let mut compile_flags = None;
     let mut run_flags = None;
     let mut pp_exact = None;
-    let mut debugger_cmds = Vec::new();
     let mut check_lines = Vec::new();
     let mut force_host = false;
     let mut check_stdout = false;
     let mut no_prefer_dynamic = false;
+    let mut no_pretty_expanded = false;
     iter_header(testfile, |ln| {
         match parse_error_pattern(ln) {
           Some(ep) => error_patterns.push(ep),
@@ -81,6 +81,10 @@ pub fn load_props(testfile: &Path) -> TestProps {
             no_prefer_dynamic = parse_no_prefer_dynamic(ln);
         }
 
+        if !no_pretty_expanded {
+            no_pretty_expanded = parse_no_pretty_expanded(ln);
+        }
+
         match parse_aux_build(ln) {
             Some(ab) => { aux_builds.push(ab); }
             None => {}
@@ -90,11 +94,6 @@ pub fn load_props(testfile: &Path) -> TestProps {
             Some(ee) => { exec_env.push(ee); }
             None => {}
         }
-
-        match parse_debugger_cmd(ln) {
-            Some(dc) => debugger_cmds.push(dc),
-            None => ()
-        };
 
         match parse_check_line(ln) {
             Some(cl) => check_lines.push(cl),
@@ -111,19 +110,19 @@ pub fn load_props(testfile: &Path) -> TestProps {
         pp_exact: pp_exact,
         aux_builds: aux_builds,
         exec_env: exec_env,
-        debugger_cmds: debugger_cmds,
         check_lines: check_lines,
         force_host: force_host,
         check_stdout: check_stdout,
         no_prefer_dynamic: no_prefer_dynamic,
+        no_pretty_expanded: no_pretty_expanded,
     }
 }
 
-pub fn is_test_ignored(config: &config, testfile: &Path) -> bool {
-    fn ignore_target(config: &config) -> ~str {
+pub fn is_test_ignored(config: &Config, testfile: &Path) -> bool {
+    fn ignore_target(config: &Config) -> ~str {
         "ignore-".to_owned() + util::get_os(config.target)
     }
-    fn ignore_stage(config: &config) -> ~str {
+    fn ignore_stage(config: &Config) -> ~str {
         "ignore-".to_owned() + config.stage_id.split('-').next().unwrap()
     }
 
@@ -131,7 +130,7 @@ pub fn is_test_ignored(config: &config, testfile: &Path) -> bool {
         if parse_name_directive(ln, "ignore-test") { false }
         else if parse_name_directive(ln, ignore_target(config)) { false }
         else if parse_name_directive(ln, ignore_stage(config)) { false }
-        else if config.mode == common::mode_pretty &&
+        else if config.mode == common::Pretty &&
             parse_name_directive(ln, "ignore-pretty") { false }
         else if config.target != config.host &&
             parse_name_directive(ln, "ignore-cross-compile") { false }
@@ -173,10 +172,6 @@ fn parse_run_flags(line: &str) -> Option<~str> {
     parse_name_value_directive(line, "run-flags".to_owned())
 }
 
-fn parse_debugger_cmd(line: &str) -> Option<~str> {
-    parse_name_value_directive(line, "debugger".to_owned())
-}
-
 fn parse_check_line(line: &str) -> Option<~str> {
     parse_name_value_directive(line, "check".to_owned())
 }
@@ -191,6 +186,10 @@ fn parse_check_stdout(line: &str) -> bool {
 
 fn parse_no_prefer_dynamic(line: &str) -> bool {
     parse_name_directive(line, "no-prefer-dynamic")
+}
+
+fn parse_no_pretty_expanded(line: &str) -> bool {
+    parse_name_directive(line, "no-pretty-expanded")
 }
 
 fn parse_exec_env(line: &str) -> Option<(~str, ~str)> {
@@ -226,7 +225,7 @@ fn parse_name_directive(line: &str, directive: &str) -> bool {
     line.contains(directive)
 }
 
-fn parse_name_value_directive(line: &str,
+pub fn parse_name_value_directive(line: &str,
                               directive: ~str) -> Option<~str> {
     let keycolon = directive + ":";
     match line.find_str(keycolon) {

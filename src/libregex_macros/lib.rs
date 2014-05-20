@@ -11,7 +11,7 @@
 //! This crate provides the `regex!` macro. Its use is documented in the
 //! `regex` crate.
 
-#![crate_id = "regex_macros#0.11-pre"]
+#![crate_id = "regex_macros#0.11.0-pre"]
 #![crate_type = "dylib"]
 #![experimental]
 #![license = "MIT/ASL2"]
@@ -49,7 +49,7 @@ use regex::native::{
 #[macro_registrar]
 #[doc(hidden)]
 pub fn macro_registrar(register: |ast::Name, SyntaxExtension|) {
-    let expander = ~BasicMacroExpander { expander: native, span: None };
+    let expander = box BasicMacroExpander { expander: native, span: None };
     register(token::intern("regex"), NormalTT(expander, None))
 }
 
@@ -76,7 +76,7 @@ pub fn macro_registrar(register: |ast::Name, SyntaxExtension|) {
 /// first before trying to understand the code generator. The implementation
 /// strategy is identical and vm.rs has comments and will be easier to follow.
 fn native(cx: &mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree])
-         -> ~MacResult {
+          -> Box<MacResult> {
     let regex = match parse(cx, tts) {
         Some(r) => r,
         // error is logged in 'parse' with cx.span_err

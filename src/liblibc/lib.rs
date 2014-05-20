@@ -9,7 +9,7 @@
 // except according to those terms.
 
 #![feature(globs)]
-#![crate_id = "libc#0.11-pre"]
+#![crate_id = "libc#0.11.0-pre"]
 #![experimental]
 #![no_std] // we don't need std, and we can't have std, since it doesn't exist
            // yet. std depends on us.
@@ -92,8 +92,8 @@ pub use types::os::common::bsd44::{addrinfo, in_addr, in6_addr, sockaddr_storage
 pub use types::os::common::bsd44::{ip_mreq, ip6_mreq, sockaddr, sockaddr_un};
 pub use types::os::common::bsd44::{sa_family_t, sockaddr_in, sockaddr_in6, socklen_t};
 pub use types::os::arch::c95::{c_char, c_double, c_float, c_int, c_uint};
-pub use types::os::arch::c95::{c_long, c_short, c_uchar, c_ulong};
-pub use types::os::arch::c95::{c_ushort, clock_t, ptrdiff_t};
+pub use types::os::arch::c95::{c_long, c_short, c_uchar, c_ulong, wchar_t};
+pub use types::os::arch::c95::{c_ushort, clock_t, ptrdiff_t, c_schar};
 pub use types::os::arch::c95::{size_t, time_t, suseconds_t};
 pub use types::os::arch::c99::{c_longlong, c_ulonglong};
 pub use types::os::arch::c99::{intptr_t, uintptr_t};
@@ -118,7 +118,7 @@ pub use consts::os::bsd44::{SOL_SOCKET, SO_KEEPALIVE, SO_ERROR};
 pub use consts::os::bsd44::{SO_REUSEADDR, SO_BROADCAST, SHUT_WR, IP_MULTICAST_LOOP};
 pub use consts::os::bsd44::{IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP};
 pub use consts::os::bsd44::{IPV6_ADD_MEMBERSHIP, IPV6_DROP_MEMBERSHIP};
-pub use consts::os::bsd44::{IP_MULTICAST_TTL, IP_TTL};
+pub use consts::os::bsd44::{IP_MULTICAST_TTL, IP_TTL, SHUT_RD};
 
 pub use funcs::c95::ctype::{isalnum, isalpha, iscntrl, isdigit};
 pub use funcs::c95::ctype::{islower, isprint, ispunct, isspace};
@@ -173,7 +173,7 @@ pub use funcs::bsd43::{shutdown};
 #[cfg(unix)] pub use consts::os::posix88::{EADDRINUSE, ENOENT, EISDIR, EAGAIN, EWOULDBLOCK};
 #[cfg(unix)] pub use consts::os::posix88::{ECANCELED, SIGINT, EINPROGRESS};
 #[cfg(unix)] pub use consts::os::posix88::{SIGTERM, SIGKILL, SIGPIPE, PROT_NONE};
-#[cfg(unix)] pub use consts::os::posix01::{SIG_IGN, WNOHANG};
+#[cfg(unix)] pub use consts::os::posix01::{SIG_IGN};
 #[cfg(unix)] pub use consts::os::bsd44::{AF_UNIX};
 
 #[cfg(unix)] pub use types::os::common::posix01::{pthread_t, timespec, timezone};
@@ -210,7 +210,7 @@ pub use funcs::posix88::unistd::pathconf;
 #[cfg(windows)] pub use consts::os::extra::{TRUE, FALSE, INFINITE};
 #[cfg(windows)] pub use consts::os::extra::{PROCESS_TERMINATE, PROCESS_QUERY_INFORMATION};
 #[cfg(windows)] pub use consts::os::extra::{STILL_ACTIVE, DETACHED_PROCESS};
-#[cfg(windows)] pub use consts::os::extra::{CREATE_NEW_PROCESS_GROUP};
+#[cfg(windows)] pub use consts::os::extra::{CREATE_NEW_PROCESS_GROUP, CREATE_UNICODE_ENVIRONMENT};
 #[cfg(windows)] pub use consts::os::extra::{FILE_BEGIN, FILE_END, FILE_CURRENT};
 #[cfg(windows)] pub use consts::os::extra::{FILE_GENERIC_READ, FILE_GENERIC_WRITE};
 #[cfg(windows)] pub use consts::os::extra::{FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_SHARE_DELETE};
@@ -228,6 +228,8 @@ pub use funcs::posix88::unistd::pathconf;
 #[cfg(windows)] pub use consts::os::extra::{FILE_WRITE_ATTRIBUTES, FILE_READ_ATTRIBUTES};
 #[cfg(windows)] pub use consts::os::extra::{ERROR_PIPE_BUSY, ERROR_IO_PENDING};
 #[cfg(windows)] pub use consts::os::extra::{ERROR_PIPE_CONNECTED, WAIT_OBJECT_0};
+#[cfg(windows)] pub use consts::os::extra::{ERROR_NOT_FOUND};
+#[cfg(windows)] pub use consts::os::extra::{ERROR_OPERATION_ABORTED};
 #[cfg(windows)] pub use types::os::common::bsd44::{SOCKET};
 #[cfg(windows)] pub use types::os::common::posix01::{stat, utimbuf};
 #[cfg(windows)] pub use types::os::arch::extra::{HANDLE, BOOL, LPSECURITY_ATTRIBUTES};
@@ -252,7 +254,6 @@ pub use funcs::posix88::unistd::pathconf;
 #[cfg(windows)] pub use funcs::extra::kernel32::{FlushFileBuffers, SetEndOfFile, CreateFileW};
 #[cfg(windows)] pub use funcs::extra::kernel32::{CreateDirectoryW, FindFirstFileW};
 #[cfg(windows)] pub use funcs::extra::kernel32::{FindNextFileW, FindClose, DeleteFileW};
-#[cfg(windows)] pub use funcs::extra::kernel32::{GetFinalPathNameByHandleW, CreateSymbolicLinkW};
 #[cfg(windows)] pub use funcs::extra::kernel32::{CreateHardLinkW, CreateEventW};
 #[cfg(windows)] pub use funcs::extra::kernel32::{FlushFileBuffers, CreateNamedPipeW};
 #[cfg(windows)] pub use funcs::extra::kernel32::{SetNamedPipeHandleState, WaitNamedPipeW};
@@ -433,8 +434,25 @@ pub mod types {
                     pub ai_socktype: c_int,
                     pub ai_protocol: c_int,
                     pub ai_addrlen: socklen_t,
+
+                    #[cfg(target_os = "linux")]
                     pub ai_addr: *sockaddr,
+
+                    #[cfg(target_os = "linux")]
                     pub ai_canonname: *c_char,
+
+                    #[cfg(target_os = "android")]
+                    pub ai_canonname: *c_char,
+
+                    #[cfg(target_os = "nacl")]
+                    pub ai_canonname: *c_char,
+
+                    #[cfg(target_os = "android")]
+                    pub ai_addr: *sockaddr,
+
+                    #[cfg(target_os = "nacl")]
+                    pub ai_addr: *sockaddr,
+
                     pub ai_next: *addrinfo,
                 }
                 pub struct sockaddr_un {
@@ -1740,6 +1758,7 @@ pub mod consts {
             pub static ERROR_INVALID_HANDLE : c_int = 6;
             pub static ERROR_BROKEN_PIPE: c_int = 109;
             pub static ERROR_DISK_FULL : c_int = 112;
+            pub static ERROR_CALL_NOT_IMPLEMENTED : c_int = 120;
             pub static ERROR_INSUFFICIENT_BUFFER : c_int = 122;
             pub static ERROR_INVALID_NAME : c_int = 123;
             pub static ERROR_ALREADY_EXISTS : c_int = 183;
@@ -1747,8 +1766,10 @@ pub mod consts {
             pub static ERROR_NO_DATA: c_int = 232;
             pub static ERROR_INVALID_ADDRESS : c_int = 487;
             pub static ERROR_PIPE_CONNECTED: c_int = 535;
+            pub static ERROR_OPERATION_ABORTED: c_int = 995;
             pub static ERROR_IO_PENDING: c_int = 997;
             pub static ERROR_FILE_INVALID : c_int = 1006;
+            pub static ERROR_NOT_FOUND: c_int = 1168;
             pub static INVALID_HANDLE_VALUE : c_int = -1;
 
             pub static DELETE : DWORD = 0x00010000;
@@ -1929,6 +1950,7 @@ pub mod consts {
 
             pub static DETACHED_PROCESS: DWORD = 0x00000008;
             pub static CREATE_NEW_PROCESS_GROUP: DWORD = 0x00000200;
+            pub static CREATE_UNICODE_ENVIRONMENT: DWORD = 0x00000400;
 
             pub static PIPE_ACCESS_DUPLEX: DWORD = 0x00000003;
             pub static PIPE_ACCESS_INBOUND: DWORD = 0x00000001;
@@ -2472,8 +2494,6 @@ pub mod consts {
 
             pub static CLOCK_REALTIME: c_int = 0;
             pub static CLOCK_MONOTONIC: c_int = 1;
-
-            pub static WNOHANG: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -2936,8 +2956,6 @@ pub mod consts {
 
             pub static CLOCK_REALTIME: c_int = 0;
             pub static CLOCK_MONOTONIC: c_int = 4;
-
-            pub static WNOHANG: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -3325,8 +3343,6 @@ pub mod consts {
             pub static PTHREAD_CREATE_JOINABLE: c_int = 1;
             pub static PTHREAD_CREATE_DETACHED: c_int = 2;
             pub static PTHREAD_STACK_MIN: size_t = 8192;
-
-            pub static WNOHANG: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -3998,16 +4014,6 @@ pub mod funcs {
             }
         }
 
-        pub mod wait {
-            use types::os::arch::c95::{c_int};
-            use types::os::arch::posix88::{pid_t};
-
-            extern {
-                pub fn waitpid(pid: pid_t, status: *mut c_int, options: c_int)
-                               -> pid_t;
-            }
-        }
-
         pub mod glob {
             use types::os::arch::c95::{c_char, c_int};
             use types::os::common::posix01::{glob_t};
@@ -4215,16 +4221,16 @@ pub mod funcs {
         pub mod kernel32 {
             use types::os::arch::c95::{c_uint};
             use types::os::arch::extra::{BOOL, DWORD, SIZE_T, HMODULE,
-                                               LPCWSTR, LPWSTR, LPCSTR, LPSTR,
-                                               LPCH, LPDWORD, LPVOID,
+                                               LPCWSTR, LPWSTR,
+                                               LPWCH, LPDWORD, LPVOID,
                                                LPCVOID, LPOVERLAPPED,
                                                LPSECURITY_ATTRIBUTES,
                                                LPSTARTUPINFO,
                                                LPPROCESS_INFORMATION,
                                                LPMEMORY_BASIC_INFORMATION,
-                                               LPSYSTEM_INFO, BOOLEAN,
-                                               HANDLE, LPHANDLE, LARGE_INTEGER,
-                                               PLARGE_INTEGER, LPFILETIME};
+                                               LPSYSTEM_INFO, HANDLE, LPHANDLE,
+                                               LARGE_INTEGER, PLARGE_INTEGER,
+                                               LPFILETIME};
 
             extern "system" {
                 pub fn GetEnvironmentVariableW(n: LPCWSTR,
@@ -4233,8 +4239,8 @@ pub mod funcs {
                                                -> DWORD;
                 pub fn SetEnvironmentVariableW(n: LPCWSTR, v: LPCWSTR)
                                                -> BOOL;
-                pub fn GetEnvironmentStringsA() -> LPCH;
-                pub fn FreeEnvironmentStringsA(env_ptr: LPCH) -> BOOL;
+                pub fn GetEnvironmentStringsW() -> LPWCH;
+                pub fn FreeEnvironmentStringsW(env_ptr: LPWCH) -> BOOL;
                 pub fn GetModuleFileNameW(hModule: HMODULE,
                                           lpFilename: LPWSTR,
                                           nSize: DWORD)
@@ -4273,8 +4279,8 @@ pub mod funcs {
                                    dwProcessId: DWORD)
                                    -> HANDLE;
                 pub fn GetCurrentProcess() -> HANDLE;
-                pub fn CreateProcessA(lpApplicationName: LPCSTR,
-                                      lpCommandLine: LPSTR,
+                pub fn CreateProcessW(lpApplicationName: LPCWSTR,
+                                      lpCommandLine: LPWSTR,
                                       lpProcessAttributes:
                                       LPSECURITY_ATTRIBUTES,
                                       lpThreadAttributes:
@@ -4282,7 +4288,7 @@ pub mod funcs {
                                       bInheritHandles: BOOL,
                                       dwCreationFlags: DWORD,
                                       lpEnvironment: LPVOID,
-                                      lpCurrentDirectory: LPCSTR,
+                                      lpCurrentDirectory: LPCWSTR,
                                       lpStartupInfo: LPSTARTUPINFO,
                                       lpProcessInformation:
                                       LPPROCESS_INFORMATION)
@@ -4334,9 +4340,6 @@ pub mod funcs {
                 pub fn MoveFileExW(lpExistingFileName: LPCWSTR,
                                    lpNewFileName: LPCWSTR,
                                    dwFlags: DWORD) -> BOOL;
-                pub fn CreateSymbolicLinkW(lpSymlinkFileName: LPCWSTR,
-                                           lpTargetFileName: LPCWSTR,
-                                           dwFlags: DWORD) -> BOOLEAN;
                 pub fn CreateHardLinkW(lpSymlinkFileName: LPCWSTR,
                                        lpTargetFileName: LPCWSTR,
                                        lpSecurityAttributes: LPSECURITY_ATTRIBUTES)
@@ -4349,10 +4352,6 @@ pub mod funcs {
                                    dwCreationDisposition: DWORD,
                                    dwFlagsAndAttributes: DWORD,
                                    hTemplateFile: HANDLE) -> HANDLE;
-                pub fn GetFinalPathNameByHandleW(hFile: HANDLE,
-                                                 lpszFilePath: LPCWSTR,
-                                                 cchFilePath: DWORD,
-                                                 dwFlags: DWORD) -> DWORD;
                 pub fn ReadFile(hFile: HANDLE,
                                 lpBuffer: LPVOID,
                                 nNumberOfBytesToRead: DWORD,

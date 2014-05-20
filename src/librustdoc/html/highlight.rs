@@ -25,16 +25,19 @@ use html::escape::Escape;
 use t = syntax::parse::token;
 
 /// Highlights some source code, returning the HTML output.
-pub fn highlight(src: &str, class: Option<&str>) -> ~str {
+pub fn highlight(src: &str, class: Option<&str>) -> StrBuf {
+    debug!("highlighting: ================\n{}\n==============", src);
     let sess = parse::new_parse_sess();
-    let fm = parse::string_to_filemap(&sess, src.to_owned(), "<stdin>".to_owned());
+    let fm = parse::string_to_filemap(&sess,
+                                      src.to_strbuf(),
+                                      "<stdin>".to_strbuf());
 
     let mut out = io::MemWriter::new();
     doit(&sess,
          lexer::new_string_reader(&sess.span_diagnostic, fm),
          class,
          &mut out).unwrap();
-    str::from_utf8_lossy(out.unwrap().as_slice()).into_owned()
+    str::from_utf8_lossy(out.unwrap().as_slice()).to_strbuf()
 }
 
 /// Exhausts the `lexer` writing the output into `out`.
@@ -70,11 +73,11 @@ fn doit(sess: &parse::ParseSess, mut lexer: lexer::StringReader, class: Option<&
                 hi: test,
                 expn_info: None,
             }).unwrap();
-            if snip.contains("/") {
+            if snip.as_slice().contains("/") {
                 try!(write!(out, "<span class='comment'>{}</span>",
-                              Escape(snip)));
+                              Escape(snip.as_slice())));
             } else {
-                try!(write!(out, "{}", Escape(snip)));
+                try!(write!(out, "{}", Escape(snip.as_slice())));
             }
         }
         last = next.sp.hi;
@@ -83,8 +86,8 @@ fn doit(sess: &parse::ParseSess, mut lexer: lexer::StringReader, class: Option<&
         let klass = match next.tok {
             // If this '&' token is directly adjacent to another token, assume
             // that it's the address-of operator instead of the and-operator.
-            // This allows us to give all pointers their own class (~ and @ are
-            // below).
+            // This allows us to give all pointers their own class (`Box` and
+            // `@` are below).
             t::BINOP(t::AND) if lexer.peek().sp.lo == next.sp.hi => "kw-2",
             t::AT | t::TILDE => "kw-2",
 
@@ -171,10 +174,10 @@ fn doit(sess: &parse::ParseSess, mut lexer: lexer::StringReader, class: Option<&
         // stringifying this token
         let snip = sess.span_diagnostic.cm.span_to_snippet(next.sp).unwrap();
         if klass == "" {
-            try!(write!(out, "{}", Escape(snip)));
+            try!(write!(out, "{}", Escape(snip.as_slice())));
         } else {
             try!(write!(out, "<span class='{}'>{}</span>", klass,
-                          Escape(snip)));
+                          Escape(snip.as_slice())));
         }
     }
 

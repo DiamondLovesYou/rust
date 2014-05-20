@@ -12,14 +12,14 @@ use std::cell::RefCell;
 use std::char;
 use std::io;
 use std::io::{Process, TempDir};
-use std::local_data;
 use std::os;
 use std::str;
 use std::strbuf::StrBuf;
 
-use collections::HashSet;
+use collections::{HashSet, HashMap};
 use testing;
 use rustc::back::link;
+use rustc::driver::config;
 use rustc::driver::driver;
 use rustc::driver::session;
 use rustc::metadata::creader::Loader;
@@ -36,16 +36,19 @@ use html::markdown;
 use passes;
 use visit_ast::RustdocVisitor;
 
-pub fn run(input: &str, cfgs: Vec<~str>,
-           libs: HashSet<Path>, mut test_args: Vec<~str>) -> int {
+pub fn run(input: &str,
+           cfgs: Vec<StrBuf>,
+           libs: HashSet<Path>,
+           mut test_args: Vec<StrBuf>)
+           -> int {
     let input_path = Path::new(input);
     let input = driver::FileInput(input_path.clone());
 
-    let sessopts = session::Options {
+    let sessopts = config::Options {
         maybe_sysroot: Some(os::self_exe_path().unwrap().dir_path()),
         addl_lib_search_paths: RefCell::new(libs.clone()),
-        crate_types: vec!(session::CrateTypeDylib),
-        ..session::basic_options().clone()
+        crate_types: vec!(config::CrateTypeDylib),
+        ..config::basic_options().clone()
     };
 
 
@@ -54,13 +57,13 @@ pub fn run(input: &str, cfgs: Vec<~str>,
     let span_diagnostic_handler =
     diagnostic::mk_span_handler(diagnostic_handler, codemap);
 
-    let sess = driver::build_session_(sessopts,
-                                      Some(input_path),
+    let sess = session::build_session_(sessopts,
+                                      Some(input_path.clone()),
                                       span_diagnostic_handler);
 
-    let mut cfg = driver::build_configuration(&sess);
+    let mut cfg = config::build_configuration(&sess);
     cfg.extend(cfgs.move_iter().map(|cfg_| {
-        let cfg_ = token::intern_and_get_ident(cfg_);
+        let cfg_ = token::intern_and_get_ident(cfg_.as_slice());
         @dummy_spanned(ast::MetaWord(cfg_))
     }));
     let krate = driver::phase_1_parse_input(&sess, cfg, &input);
@@ -73,8 +76,10 @@ pub fn run(input: &str, cfgs: Vec<~str>,
     let ctx = @core::DocContext {
         krate: krate,
         maybe_typed: core::NotTyped(sess),
+        src: input_path,
+        external_paths: RefCell::new(Some(HashMap::new())),
     };
-    local_data::set(super::ctxtkey, ctx);
+    super::ctxtkey.replace(Some(ctx));
 
     let mut v = RustdocVisitor::new(ctx, None);
     v.visit(&ctx.krate);
@@ -82,15 +87,18 @@ pub fn run(input: &str, cfgs: Vec<~str>,
     let (krate, _) = passes::unindent_comments(krate);
     let (krate, _) = passes::collapse_docs(krate);
 
-    let mut collector = Collector::new(krate.name.to_owned(),
+    let mut collector = Collector::new(krate.name.to_strbuf(),
                                        libs,
                                        false,
                                        false);
     collector.fold_crate(krate);
 
-    test_args.unshift("rustdoctest".to_owned());
+    test_args.unshift("rustdoctest".to_strbuf());
 
-    testing::test_main(test_args.as_slice(),
+    testing::test_main(test_args.move_iter()
+                                .map(|x| x.to_str())
+                                .collect::<Vec<_>>()
+                                .as_slice(),
                        collector.tests.move_iter().collect());
     0
 }
@@ -98,18 +106,19 @@ pub fn run(input: &str, cfgs: Vec<~str>,
 fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
            no_run: bool, loose_feature_gating: bool) {
     let test = maketest(test, cratename, loose_feature_gating);
-    let input = driver::StrInput(test);
+    let input = driver::StrInput(test.to_strbuf());
 
-    let sessopts = session::Options {
+    let sessopts = config::Options {
         maybe_sysroot: Some(os::self_exe_path().unwrap().dir_path()),
         addl_lib_search_paths: RefCell::new(libs),
-        crate_types: vec!(session::CrateTypeExecutable),
+        crate_types: vec!(config::CrateTypeExecutable),
         output_types: vec!(link::OutputTypeExe),
-        cg: session::CodegenOptions {
+        no_trans: no_run,
+        cg: config::CodegenOptions {
             prefer_dynamic: true,
-            .. session::basic_codegen_options()
+            .. config::basic_codegen_options()
         },
-        ..session::basic_options().clone()
+        ..config::basic_options().clone()
     };
 
     // Shuffle around a few input and output handles here. We're going to pass
@@ -129,7 +138,7 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
     let old = io::stdio::set_stderr(box w1);
     spawn(proc() {
         let mut p = io::ChanReader::new(rx);
-        let mut err = old.unwrap_or(box io::stderr() as ~Writer:Send);
+        let mut err = old.unwrap_or(box io::stderr() as Box<Writer:Send>);
         io::util::copy(&mut p, &mut err).unwrap();
     });
     let emitter = diagnostic::EmitterWriter::new(box w2);
@@ -140,13 +149,13 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
     let span_diagnostic_handler =
         diagnostic::mk_span_handler(diagnostic_handler, codemap);
 
-    let sess = driver::build_session_(sessopts,
+    let sess = session::build_session_(sessopts,
                                       None,
                                       span_diagnostic_handler);
 
     let outdir = TempDir::new("rustdoctest").expect("rustdoc needs a tempdir");
     let out = Some(outdir.path().clone());
-    let cfg = driver::build_configuration(&sess);
+    let cfg = config::build_configuration(&sess);
     driver::compile_input(sess, cfg, &input, &out, &None);
 
     if no_run { return }
@@ -170,7 +179,7 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
     }
 }
 
-fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> ~str {
+fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> StrBuf {
     let mut prog = StrBuf::from_str(r"
 #![deny(warnings)]
 #![allow(unused_variable, dead_assignment, unused_mut, attribute_usage, dead_code)]
@@ -195,23 +204,23 @@ fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> ~str {
         prog.push_str("\n}");
     }
 
-    return prog.into_owned();
+    return prog
 }
 
 pub struct Collector {
     pub tests: Vec<testing::TestDescAndFn>,
-    names: Vec<~str>,
+    names: Vec<StrBuf>,
     libs: HashSet<Path>,
     cnt: uint,
     use_headers: bool,
-    current_header: Option<~str>,
-    cratename: ~str,
+    current_header: Option<StrBuf>,
+    cratename: StrBuf,
 
     loose_feature_gating: bool
 }
 
 impl Collector {
-    pub fn new(cratename: ~str, libs: HashSet<Path>,
+    pub fn new(cratename: StrBuf, libs: HashSet<Path>,
                use_headers: bool, loose_feature_gating: bool) -> Collector {
         Collector {
             tests: Vec::new(),
@@ -226,7 +235,7 @@ impl Collector {
         }
     }
 
-    pub fn add_test(&mut self, test: ~str, should_fail: bool, no_run: bool, should_ignore: bool) {
+    pub fn add_test(&mut self, test: StrBuf, should_fail: bool, no_run: bool, should_ignore: bool) {
         let name = if self.use_headers {
             let s = self.current_header.as_ref().map(|s| s.as_slice()).unwrap_or("");
             format!("{}_{}", s, self.cnt)
@@ -245,7 +254,12 @@ impl Collector {
                 should_fail: false, // compiler failures are test failures
             },
             testfn: testing::DynTestFn(proc() {
-                runtest(test, cratename, libs, should_fail, no_run, loose_feature_gating);
+                runtest(test.as_slice(),
+                        cratename,
+                        libs,
+                        should_fail,
+                        no_run,
+                        loose_feature_gating);
             }),
         });
     }
@@ -261,7 +275,7 @@ impl Collector {
                     } else {
                         '_'
                     }
-                }).collect::<~str>();
+                }).collect::<StrBuf>();
 
             // new header => reset count.
             self.cnt = 0;
@@ -274,7 +288,7 @@ impl DocFolder for Collector {
     fn fold_item(&mut self, item: clean::Item) -> Option<clean::Item> {
         let pushed = match item.name {
             Some(ref name) if name.len() == 0 => false,
-            Some(ref name) => { self.names.push(name.to_owned()); true }
+            Some(ref name) => { self.names.push(name.to_strbuf()); true }
             None => false
         };
         match item.doc_value() {

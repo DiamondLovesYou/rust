@@ -20,10 +20,11 @@
 
 #[phase(syntax)]
 extern crate simd_syntax;
+extern crate core;
 
 use std::iter;
 use std::container::Container;
-use std::cast;
+use core::mem;
 
 pub trait Simd<PrimitiveTy> {
     fn smear(value: PrimitiveTy) -> Self;
@@ -71,7 +72,7 @@ impl<'a, ElemT> iter::Iterator<&'a ElemT> for Items<'a, ElemT> {
             None
         } else {
             self.pos += 1;
-            Some(unsafe { cast::transmute(self.vec.offset((self.pos - 1) as int)) })
+            Some(unsafe { mem::transmute(self.vec.offset((self.pos - 1) as int)) })
         }
     }
 }
@@ -81,7 +82,7 @@ impl<'a, ElemT> iter::Iterator<&'a mut ElemT> for MutItems<'a, ElemT> {
             None
         } else {
             self.pos += 1;
-            Some(unsafe { cast::transmute(self.vec.offset((self.pos - 1) as int)) })
+            Some(unsafe { mem::transmute(self.vec.offset((self.pos - 1) as int)) })
         }
     }
 }
@@ -113,14 +114,14 @@ macro_rules! _def(
 
             fn iter<'a>(&'a self) -> Items<'a, $prim> {
                 Items {
-                    vec: unsafe { cast::transmute(self) },
+                    vec: unsafe { mem::transmute(self) },
                     pos: 0,
                     len: $len,
                 }
             }
             fn mut_iter<'a>(&'a mut self) -> MutItems<'a, $prim> {
                 MutItems {
-                    vec: unsafe { cast::transmute(self) },
+                    vec: unsafe { mem::transmute(self) },
                     pos: 0,
                     len: $len,
                 }
@@ -129,7 +130,7 @@ macro_rules! _def(
             fn as_slice<'a>(&'a self) -> &'a [$prim] {
                 use std::raw::Slice;
                 unsafe {
-                    cast::transmute_copy(&Slice {
+                    mem::transmute_copy(&Slice {
                         data: self as *$ident as *$prim,
                         len: $len,
                     })
@@ -138,8 +139,8 @@ macro_rules! _def(
             fn as_mut_slice<'a>(&'a mut self) -> &'a mut [$prim] {
                 use std::raw::Slice;
                 unsafe {
-                    cast::transmute_copy(&Slice {
-                        data: cast::transmute::<*mut $prim, *$prim>
+                    mem::transmute_copy(&Slice {
+                        data: mem::transmute::<*mut $prim, *$prim>
                             (self as *mut $ident as *mut $prim),
                         len: $len,
                     })

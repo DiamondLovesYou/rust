@@ -31,14 +31,14 @@
 use clone::Clone;
 use container::Container;
 use libc;
-use libc::{c_char, c_void, c_int};
+use libc::{c_void, c_int};
 use option::{Some, None, Option};
 use os;
 use ops::Drop;
 use result::{Err, Ok, Result};
 use ptr;
 use str;
-use str::{Str, StrSlice};
+use str::{Str, StrSlice, StrAllocating};
 use fmt;
 use sync::atomics::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
 use path::{Path, GenericPath};
@@ -49,6 +49,8 @@ use vec::Vec;
 
 #[cfg(unix)]
 use c_str::ToCStr;
+#[cfg(unix)]
+use libc::c_char;
 #[cfg(windows)]
 use str::OwnedStr;
 
@@ -81,6 +83,8 @@ pub fn getcwd() -> Path {
 pub fn getcwd() -> Path {
     use libc::DWORD;
     use libc::GetCurrentDirectoryW;
+    use option::Expect;
+
     let mut buf = [0 as u16, ..BUF_BYTES];
     unsafe {
         if libc::GetCurrentDirectoryW(buf.len() as DWORD, buf.as_mut_ptr()) == 0 as DWORD {
@@ -93,14 +97,13 @@ pub fn getcwd() -> Path {
 
 #[cfg(windows)]
 pub mod win32 {
-    use iter::Iterator;
     use libc::types::os::arch::extra::DWORD;
     use libc;
-    use option::{None, Option};
+    use option::{None, Option, Expect};
     use option;
     use os::TMPBUF_SZ;
-    use slice::{MutableVector, ImmutableVector, OwnedVector};
-    use str::StrSlice;
+    use slice::{MutableVector, ImmutableVector};
+    use str::{StrSlice, StrAllocating};
     use str;
     use vec::Vec;
 
@@ -140,10 +143,14 @@ pub mod win32 {
     }
 
     pub fn as_utf16_p<T>(s: &str, f: |*u16| -> T) -> T {
-        let mut t = s.to_utf16().move_iter().collect::<Vec<u16>>();
+        as_mut_utf16_p(s, |t| { f(t as *u16) })
+    }
+
+    pub fn as_mut_utf16_p<T>(s: &str, f: |*mut u16| -> T) -> T {
+        let mut t = s.to_utf16();
         // Null terminate before passing on.
         t.push(0u16);
-        f(t.as_ptr())
+        f(t.as_mut_ptr())
     }
 }
 
@@ -167,7 +174,7 @@ fn with_env_lock<T>(f: || -> T) -> T {
 ///
 /// Invalid UTF-8 bytes are replaced with \uFFFD. See `str::from_utf8_lossy()`
 /// for details.
-pub fn env() -> ~[(~str,~str)] {
+pub fn env() -> Vec<(~str,~str)> {
     env_as_bytes().move_iter().map(|(k,v)| {
         let k = str::from_utf8_lossy(k).into_owned();
         let v = str::from_utf8_lossy(v).into_owned();
@@ -177,27 +184,46 @@ pub fn env() -> ~[(~str,~str)] {
 
 /// Returns a vector of (variable, value) byte-vector pairs for all the
 /// environment variables of the current process.
-pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
+pub fn env_as_bytes() -> Vec<(~[u8],~[u8])> {
     unsafe {
         #[cfg(windows)]
         unsafe fn get_env_pairs() -> Vec<~[u8]> {
-            use c_str;
-            use str::StrSlice;
+            use slice::raw;
 
             use libc::funcs::extra::kernel32::{
-                GetEnvironmentStringsA,
-                FreeEnvironmentStringsA
+                GetEnvironmentStringsW,
+                FreeEnvironmentStringsW
             };
-            let ch = GetEnvironmentStringsA();
+            let ch = GetEnvironmentStringsW();
             if ch as uint == 0 {
                 fail!("os::env() failure getting env string from OS: {}",
                        os::last_os_error());
             }
+            // Here, we lossily decode the string as UTF16.
+            //
+            // The docs suggest that the result should be in Unicode, but
+            // Windows doesn't guarantee it's actually UTF16 -- it doesn't
+            // validate the environment string passed to CreateProcess nor
+            // SetEnvironmentVariable.  Yet, it's unlikely that returning a
+            // raw u16 buffer would be of practical use since the result would
+            // be inherently platform-dependent and introduce additional
+            // complexity to this code.
+            //
+            // Using the non-Unicode version of GetEnvironmentStrings is even
+            // worse since the result is in an OEM code page.  Characters that
+            // can't be encoded in the code page would be turned into question
+            // marks.
             let mut result = Vec::new();
-            c_str::from_c_multistring(ch as *c_char, None, |cstr| {
-                result.push(cstr.as_bytes_no_nul().to_owned());
-            });
-            FreeEnvironmentStringsA(ch);
+            let mut i = 0;
+            while *ch.offset(i) != 0 {
+                let p = &*ch.offset(i);
+                let len = ptr::position(p, |c| *c == 0);
+                raw::buf_as_slice(p, len, |s| {
+                    result.push(str::from_utf16_lossy(s).into_bytes());
+                });
+                i += len as int + 1;
+            }
+            FreeEnvironmentStringsW(ch);
             result
         }
         #[cfg(unix)]
@@ -223,16 +249,16 @@ pub fn env_as_bytes() -> ~[(~[u8],~[u8])] {
         fn env_convert(input: Vec<~[u8]>) -> Vec<(~[u8], ~[u8])> {
             let mut pairs = Vec::new();
             for p in input.iter() {
-                let vs: ~[&[u8]] = p.splitn(1, |b| *b == '=' as u8).collect();
-                let key = vs[0].to_owned();
-                let val = if vs.len() < 2 { box [] } else { vs[1].to_owned() };
+                let mut it = p.splitn(1, |b| *b == '=' as u8);
+                let key = it.next().unwrap().to_owned();
+                let val = it.next().unwrap_or(&[]).to_owned();
                 pairs.push((key, val));
             }
             pairs
         }
         with_env_lock(|| {
             let unparsed_environ = get_env_pairs();
-            env_convert(unparsed_environ).move_iter().collect()
+            env_convert(unparsed_environ)
         })
     }
 }
@@ -424,7 +450,7 @@ pub fn dll_filename(base: &str) -> ~str {
 pub fn self_exe_name() -> Option<Path> {
 
     #[cfg(target_os = "freebsd")]
-    fn load_self() -> Option<~[u8]> {
+    fn load_self() -> Option<Vec<u8>> {
         unsafe {
             use libc::funcs::bsd44::*;
             use libc::consts::os::extra::*;
@@ -444,23 +470,23 @@ pub fn self_exe_name() -> Option<Path> {
             if err != 0 { return None; }
             if sz == 0 { return None; }
             v.set_len(sz as uint - 1); // chop off trailing NUL
-            Some(v.move_iter().collect())
+            Some(v)
         }
     }
 
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
-    fn load_self() -> Option<~[u8]> {
+    fn load_self() -> Option<Vec<u8>> {
         use std::io;
 
         match io::fs::readlink(&Path::new("/proc/self/exe")) {
-            Ok(path) => Some(path.as_vec().to_owned()),
+            Ok(path) => Some(path.into_vec()),
             Err(..) => None
         }
     }
 
     #[cfg(target_os = "macos")]
-    fn load_self() -> Option<~[u8]> {
+    fn load_self() -> Option<Vec<u8>> {
         unsafe {
             use libc::funcs::extra::_NSGetExecutablePath;
             let mut sz: u32 = 0;
@@ -470,7 +496,7 @@ pub fn self_exe_name() -> Option<Path> {
             let err = _NSGetExecutablePath(v.as_mut_ptr() as *mut i8, &mut sz);
             if err != 0 { return None; }
             v.set_len(sz as uint - 1); // chop off trailing NUL
-            Some(v.move_iter().collect())
+            Some(v)
         }
     }
     #[cfg(target_os = "nacl")]
@@ -480,14 +506,14 @@ pub fn self_exe_name() -> Option<Path> {
     }
 
     #[cfg(windows)]
-    fn load_self() -> Option<~[u8]> {
+    fn load_self() -> Option<Vec<u8>> {
         use str::OwnedStr;
 
         unsafe {
             use os::win32::fill_utf16_buf_and_decode;
             fill_utf16_buf_and_decode(|buf, sz| {
                 libc::GetModuleFileNameW(0u as libc::DWORD, buf, sz)
-            }).map(|s| s.into_bytes())
+            }).map(|s| s.into_strbuf().into_bytes())
         }
     }
 
@@ -542,9 +568,9 @@ pub fn homedir() -> Option<Path> {
  * Returns the path to a temporary directory.
  *
  * On Unix, returns the value of the 'TMPDIR' environment variable if it is
- * set and non-empty and '/tmp' otherwise.
- * On Android, there is no global temporary folder (it is usually allocated
- * per-app), hence returns '/data/tmp' which is commonly used.
+ * set, otherwise for non-Android it returns '/tmp'. If Android, since there
+ * is no global temporary folder (it is usually allocated per-app), we return
+ * '/data/local/tmp'.
  *
  * On Windows, returns the value of, in order, the 'TMP', 'TEMP',
  * 'USERPROFILE' environment variable  if any are set and not the empty
@@ -567,11 +593,13 @@ pub fn tmpdir() -> Path {
 
     #[cfg(unix)]
     fn lookup() -> Path {
-        if cfg!(target_os = "android") {
-            Path::new("/data/tmp")
+        let default = if cfg!(target_os = "android") {
+            Path::new("/data/local/tmp")
         } else {
-            getenv_nonempty("TMPDIR").unwrap_or(Path::new("/tmp"))
-        }
+            Path::new("/tmp")
+        };
+
+        getenv_nonempty("TMPDIR").unwrap_or(default)
     }
 
     #[cfg(windows)]
@@ -814,12 +842,12 @@ pub fn get_exit_status() -> int {
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> ~[~[u8]] {
+unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> Vec<~[u8]> {
     use c_str::CString;
 
     Vec::from_fn(argc as uint, |i| {
         CString::new(*argv.offset(i as int), false).as_bytes_no_nul().to_owned()
-    }).move_iter().collect()
+    })
 }
 
 /**
@@ -828,7 +856,7 @@ unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> ~[~[u8]] {
  * Returns a list of the command line arguments.
  */
 #[cfg(target_os = "macos")]
-fn real_args_as_bytes() -> ~[~[u8]] {
+fn real_args_as_bytes() -> Vec<~[u8]> {
     unsafe {
         let (argc, argv) = (*_NSGetArgc() as int,
                             *_NSGetArgv() as **c_char);
@@ -840,7 +868,7 @@ fn real_args_as_bytes() -> ~[~[u8]] {
 #[cfg(target_os = "android")]
 #[cfg(target_os = "freebsd")]
 #[cfg(target_os = "nacl")]
-fn real_args_as_bytes() -> ~[~[u8]] {
+fn real_args_as_bytes() -> Vec<~[u8]> {
     use rt;
 
     match rt::args::clone() {
@@ -850,13 +878,14 @@ fn real_args_as_bytes() -> ~[~[u8]] {
 }
 
 #[cfg(not(windows))]
-fn real_args() -> ~[~str] {
+fn real_args() -> Vec<~str> {
     real_args_as_bytes().move_iter().map(|v| str::from_utf8_lossy(v).into_owned()).collect()
 }
 
 #[cfg(windows)]
-fn real_args() -> ~[~str] {
+fn real_args() -> Vec<~str> {
     use slice;
+    use option::Expect;
 
     let mut nArgs: c_int = 0;
     let lpArgCount: *mut c_int = &mut nArgs;
@@ -880,11 +909,11 @@ fn real_args() -> ~[~str] {
         LocalFree(szArgList as *c_void);
     }
 
-    return args.move_iter().collect();
+    return args
 }
 
 #[cfg(windows)]
-fn real_args_as_bytes() -> ~[~[u8]] {
+fn real_args_as_bytes() -> Vec<~[u8]> {
     real_args().move_iter().map(|s| s.into_bytes()).collect()
 }
 
@@ -908,13 +937,13 @@ extern "system" {
 ///
 /// The arguments are interpreted as utf-8, with invalid bytes replaced with \uFFFD.
 /// See `str::from_utf8_lossy` for details.
-pub fn args() -> ~[~str] {
+pub fn args() -> Vec<~str> {
     real_args()
 }
 
 /// Returns the arguments which this program was started with (normally passed
 /// via the command line) as byte vectors.
-pub fn args_as_bytes() -> ~[~[u8]] {
+pub fn args_as_bytes() -> Vec<~[u8]> {
     real_args_as_bytes()
 }
 

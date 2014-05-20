@@ -21,11 +21,12 @@
 //! the underlying data will remain valid (not free'd) so long as the reference
 //! count is greater than one.
 
-use cast;
 use clone::Clone;
 use iter::Iterator;
 use kinds::Send;
+use mem;
 use ops::Drop;
+use owned::Box;
 use ptr::RawPtr;
 use sync::atomics::{fence, AtomicUint, Relaxed, Acquire, Release};
 use ty::Unsafe;
@@ -49,7 +50,7 @@ unsafe fn new_inner<T: Send>(data: T, refcount: uint) -> *mut ArcData<T> {
                     count: AtomicUint::new(refcount),
                     data: Unsafe::new(data)
                  };
-    cast::transmute(data)
+    mem::transmute(data)
 }
 
 impl<T: Send> UnsafeArc<T> {
@@ -68,14 +69,14 @@ impl<T: Send> UnsafeArc<T> {
 
     /// As new(), but returns a vector of as many pre-cloned handles as
     /// requested.
-    pub fn newN(data: T, num_handles: uint) -> ~[UnsafeArc<T>] {
+    pub fn newN(data: T, num_handles: uint) -> Vec<UnsafeArc<T>> {
         unsafe {
             if num_handles == 0 {
-                box [] // need to free data here
+                vec![] // need to free data here
             } else {
                 let ptr = new_inner(data, num_handles);
                 let v = Vec::from_fn(num_handles, |_| UnsafeArc { data: ptr });
-                v.move_iter().collect()
+                v
             }
         }
     }
@@ -157,7 +158,7 @@ impl<T> Drop for UnsafeArc<T>{
                 //  happened before), and an "acquire" operation before deleting the object.
                 // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
                 fence(Acquire);
-                let _: ~ArcData<T> = cast::transmute(self.data);
+                let _: Box<ArcData<T>> = mem::transmute(self.data);
             }
         }
     }

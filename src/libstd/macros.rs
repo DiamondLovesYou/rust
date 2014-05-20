@@ -19,9 +19,9 @@
 /// The entry point for failure of rust tasks.
 ///
 /// This macro is used to inject failure into a rust task, causing the task to
-/// unwind and fail entirely. Each task's failure can be reaped as the `~Any`
-/// type, and the single-argument form of the `fail!` macro will be the value
-/// which is transmitted.
+/// unwind and fail entirely. Each task's failure can be reaped as the
+/// `Box<Any>` type, and the single-argument form of the `fail!` macro will be
+/// the value which is transmitted.
 ///
 /// The multi-argument form of this macro fails with a string and has the
 /// `format!` syntax for building a string.
@@ -229,6 +229,14 @@ macro_rules! format(
     )
 )
 
+/// Temporary transitionary thing.
+#[macro_export]
+macro_rules! format_strbuf(
+    ($($arg:tt)*) => (
+        format_args!(::std::fmt::format_strbuf, $($arg)*)
+    )
+)
+
 /// Use the `format!` syntax to write data into a buffer of type `&mut Writer`.
 /// See `std::fmt` for more information.
 ///
@@ -289,12 +297,10 @@ macro_rules! println(
 /// # Example
 ///
 /// ```
-/// use std::local_data;
-///
 /// local_data_key!(my_integer: int)
 ///
-/// local_data::set(my_integer, 2);
-/// local_data::get(my_integer, |val| println!("{}", val.map(|i| *i)));
+/// my_integer.replace(Some(2));
+/// println!("{}", my_integer.get().map(|a| *a));
 /// ```
 #[macro_export]
 macro_rules! local_data_key(

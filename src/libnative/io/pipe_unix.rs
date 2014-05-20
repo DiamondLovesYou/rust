@@ -10,15 +10,17 @@
 
 use libc;
 use std::c_str::CString;
-use std::cast;
 use std::intrinsics;
 use std::io;
 use std::mem;
 use std::rt::rtio;
 use std::sync::arc::UnsafeArc;
+use std::unstable::mutex;
 
-use super::{IoResult, retry, keep_going};
+use super::{IoResult, retry};
+use super::net;
 use super::util;
+use super::c;
 use super::file::fd_t;
 
 fn unix_socket(ty: libc::c_int) -> IoResult<fd_t> {
@@ -33,7 +35,7 @@ fn addr_to_sockaddr_un(addr: &CString) -> IoResult<(libc::sockaddr_storage, uint
     assert!(mem::size_of::<libc::sockaddr_storage>() >=
             mem::size_of::<libc::sockaddr_un>());
     let mut storage: libc::sockaddr_storage = unsafe { intrinsics::init() };
-    let s: &mut libc::sockaddr_un = unsafe { cast::transmute(&mut storage) };
+    let s: &mut libc::sockaddr_un = unsafe { mem::transmute(&mut storage) };
 
     let len = addr.len();
     if len > s.sun_path.len() - 1 {
@@ -55,6 +57,13 @@ fn addr_to_sockaddr_un(addr: &CString) -> IoResult<(libc::sockaddr_storage, uint
 
 struct Inner {
     fd: fd_t,
+    lock: mutex::NativeMutex,
+}
+
+impl Inner {
+    fn new(fd: fd_t) -> Inner {
+        Inner { fd: fd, lock: unsafe { mutex::NativeMutex::new() } }
+    }
 }
 
 impl Drop for Inner {
@@ -64,7 +73,7 @@ impl Drop for Inner {
 fn connect(addr: &CString, ty: libc::c_int,
            timeout: Option<u64>) -> IoResult<Inner> {
     let (addr, len) = try!(addr_to_sockaddr_un(addr));
-    let inner = Inner { fd: try!(unix_socket(ty)) };
+    let inner = Inner::new(try!(unix_socket(ty)));
     let addrp = &addr as *_ as *libc::sockaddr;
     let len = len as libc::socklen_t;
 
@@ -84,7 +93,7 @@ fn connect(addr: &CString, ty: libc::c_int,
 
 fn bind(addr: &CString, ty: libc::c_int) -> IoResult<Inner> {
     let (addr, len) = try!(addr_to_sockaddr_un(addr));
-    let inner = Inner { fd: try!(unix_socket(ty)) };
+    let inner = Inner::new(try!(unix_socket(ty)));
     let addrp = &addr as *libc::sockaddr_storage;
     match unsafe {
         libc::bind(inner.fd, addrp as *libc::sockaddr, len as libc::socklen_t)
@@ -100,52 +109,92 @@ fn bind(addr: &CString, ty: libc::c_int) -> IoResult<Inner> {
 
 pub struct UnixStream {
     inner: UnsafeArc<Inner>,
+    read_deadline: u64,
+    write_deadline: u64,
 }
 
 impl UnixStream {
     pub fn connect(addr: &CString,
                    timeout: Option<u64>) -> IoResult<UnixStream> {
         connect(addr, libc::SOCK_STREAM, timeout).map(|inner| {
-            UnixStream { inner: UnsafeArc::new(inner) }
+            UnixStream::new(UnsafeArc::new(inner))
         })
     }
 
+    fn new(inner: UnsafeArc<Inner>) -> UnixStream {
+        UnixStream {
+            inner: inner,
+            read_deadline: 0,
+            write_deadline: 0,
+        }
+    }
+
     fn fd(&self) -> fd_t { unsafe { (*self.inner.get()).fd } }
+
+    #[cfg(target_os = "linux")]
+    fn lock_nonblocking(&self) {}
+
+    #[cfg(not(target_os = "linux"))]
+    fn lock_nonblocking<'a>(&'a self) -> net::Guard<'a> {
+        let ret = net::Guard {
+            fd: self.fd(),
+            guard: unsafe { (*self.inner.get()).lock.lock() },
+        };
+        assert!(util::set_nonblocking(self.fd(), true).is_ok());
+        ret
+    }
 }
 
 impl rtio::RtioPipe for UnixStream {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
-        let ret = retry(|| unsafe {
-            libc::recv(self.fd(),
-                       buf.as_ptr() as *mut libc::c_void,
+        let fd = self.fd();
+        let dolock = || self.lock_nonblocking();
+        let doread = |nb| unsafe {
+            let flags = if nb {c::MSG_DONTWAIT} else {0};
+            libc::recv(fd,
+                       buf.as_mut_ptr() as *mut libc::c_void,
                        buf.len() as libc::size_t,
-                       0) as libc::c_int
-        });
-        if ret == 0 {
-            Err(io::standard_error(io::EndOfFile))
-        } else if ret < 0 {
-            Err(super::last_error())
-        } else {
-            Ok(ret as uint)
-        }
+                       flags) as libc::c_int
+        };
+        net::read(fd, self.read_deadline, dolock, doread)
     }
 
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
-        let ret = keep_going(buf, |buf, len| unsafe {
-            libc::send(self.fd(),
+        let fd = self.fd();
+        let dolock = || self.lock_nonblocking();
+        let dowrite = |nb: bool, buf: *u8, len: uint| unsafe {
+            let flags = if nb {c::MSG_DONTWAIT} else {0};
+            libc::send(fd,
                        buf as *mut libc::c_void,
                        len as libc::size_t,
-                       0) as i64
-        });
-        if ret < 0 {
-            Err(super::last_error())
-        } else {
-            Ok(())
+                       flags) as i64
+        };
+        match net::write(fd, self.write_deadline, buf, true, dolock, dowrite) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e)
         }
     }
 
-    fn clone(&self) -> ~rtio::RtioPipe:Send {
-        box UnixStream { inner: self.inner.clone() } as ~rtio::RtioPipe:Send
+    fn clone(&self) -> Box<rtio::RtioPipe:Send> {
+        box UnixStream::new(self.inner.clone()) as Box<rtio::RtioPipe:Send>
+    }
+
+    fn close_write(&mut self) -> IoResult<()> {
+        super::mkerr_libc(unsafe { libc::shutdown(self.fd(), libc::SHUT_WR) })
+    }
+    fn close_read(&mut self) -> IoResult<()> {
+        super::mkerr_libc(unsafe { libc::shutdown(self.fd(), libc::SHUT_RD) })
+    }
+    fn set_timeout(&mut self, timeout: Option<u64>) {
+        let deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
+        self.read_deadline = deadline;
+        self.write_deadline = deadline;
+    }
+    fn set_read_timeout(&mut self, timeout: Option<u64>) {
+        self.read_deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
+    }
+    fn set_write_timeout(&mut self, timeout: Option<u64>) {
+        self.write_deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
     }
 }
 
@@ -176,8 +225,10 @@ impl UnixListener {
 }
 
 impl rtio::RtioUnixListener for UnixListener {
-    fn listen(~self) -> IoResult<~rtio::RtioUnixAcceptor:Send> {
-        self.native_listen(128).map(|a| box a as ~rtio::RtioUnixAcceptor:Send)
+    fn listen(~self) -> IoResult<Box<rtio::RtioUnixAcceptor:Send>> {
+        self.native_listen(128).map(|a| {
+            box a as Box<rtio::RtioUnixAcceptor:Send>
+        })
     }
 }
 
@@ -191,7 +242,7 @@ impl UnixAcceptor {
 
     pub fn native_accept(&mut self) -> IoResult<UnixStream> {
         if self.deadline != 0 {
-            try!(util::accept_deadline(self.fd(), self.deadline));
+            try!(util::await(self.fd(), Some(self.deadline), util::Readable));
         }
         let mut storage: libc::sockaddr_storage = unsafe { intrinsics::init() };
         let storagep = &mut storage as *mut libc::sockaddr_storage;
@@ -203,14 +254,14 @@ impl UnixAcceptor {
                          &mut size as *mut libc::socklen_t) as libc::c_int
         }) {
             -1 => Err(super::last_error()),
-            fd => Ok(UnixStream { inner: UnsafeArc::new(Inner { fd: fd }) })
+            fd => Ok(UnixStream::new(UnsafeArc::new(Inner::new(fd))))
         }
     }
 }
 
 impl rtio::RtioUnixAcceptor for UnixAcceptor {
-    fn accept(&mut self) -> IoResult<~rtio::RtioPipe:Send> {
-        self.native_accept().map(|s| box s as ~rtio::RtioPipe:Send)
+    fn accept(&mut self) -> IoResult<Box<rtio::RtioPipe:Send>> {
+        self.native_accept().map(|s| box s as Box<rtio::RtioPipe:Send>)
     }
     fn set_timeout(&mut self, timeout: Option<u64>) {
         self.deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);

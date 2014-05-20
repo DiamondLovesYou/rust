@@ -68,7 +68,7 @@ use middle::const_eval;
 use util::common::indenter;
 use util::ppaux::Repr;
 use util::nodemap::NodeMap;
-use middle::trans::machine::{llsize_of, llsize_of_alloc};
+use middle::trans::machine::{llalign_of_min, llsize_of, llsize_of_alloc};
 use middle::trans::type_::Type;
 
 use syntax::ast;
@@ -87,10 +87,10 @@ pub enum Dest {
 }
 
 impl Dest {
-    pub fn to_str(&self, ccx: &CrateContext) -> ~str {
+    pub fn to_str(&self, ccx: &CrateContext) -> StrBuf {
         match *self {
-            SaveIn(v) => format!("SaveIn({})", ccx.tn.val_to_str(v)),
-            Ignore => "Ignore".to_owned()
+            SaveIn(v) => format_strbuf!("SaveIn({})", ccx.tn.val_to_str(v)),
+            Ignore => "Ignore".to_strbuf()
         }
     }
 }
@@ -398,8 +398,8 @@ fn trans_datum_unadjusted<'a>(bcx: &'a Block<'a>,
             DatumBlock(bcx, datum)
         }
         ast::ExprBox(_, contents) => {
-            // Special case for `~T`. (The other case, for GC, is handled in
-            // `trans_rvalue_dps_unadjusted`.)
+            // Special case for `box T`. (The other case, for GC, is handled
+            // in `trans_rvalue_dps_unadjusted`.)
             let box_ty = expr_ty(bcx, expr);
             let contents_ty = expr_ty(bcx, contents);
             trans_uniq_expr(bcx, box_ty, contents, contents_ty)
@@ -661,7 +661,7 @@ fn trans_def<'a>(bcx: &'a Block<'a>,
                         let symbol = csearch::get_symbol(
                             &bcx.ccx().sess().cstore,
                             did);
-                        let llval = symbol.with_c_str(|buf| {
+                        let llval = symbol.as_slice().with_c_str(|buf| {
                                 llvm::LLVMAddGlobal(bcx.ccx().llmod,
                                                     llty.to_ref(),
                                                     buf)
@@ -1286,12 +1286,14 @@ fn trans_uniq_expr<'a>(bcx: &'a Block<'a>,
     let fcx = bcx.fcx;
     let llty = type_of::type_of(bcx.ccx(), contents_ty);
     let size = llsize_of(bcx.ccx(), llty);
+    let align = C_uint(bcx.ccx(), llalign_of_min(bcx.ccx(), llty) as uint);
     // We need to a make a pointer type because box_ty is ty_bot
-    // if content_ty is, e.g. ~fail!().
+    // if content_ty is, e.g. box fail!().
     let real_box_ty = ty::mk_uniq(bcx.tcx(), contents_ty);
-    let Result { bcx, val } = malloc_raw_dyn(bcx, real_box_ty, size);
-    // Unique boxes do not allocate for zero-size types. The standard library may assume
-    // that `free` is never called on the pointer returned for `~ZeroSizeType`.
+    let Result { bcx, val } = malloc_raw_dyn(bcx, real_box_ty, size, align);
+    // Unique boxes do not allocate for zero-size types. The standard library
+    // may assume that `free` is never called on the pointer returned for
+    // `Box<ZeroSizeType>`.
     let bcx = if llsize_of_alloc(bcx.ccx(), llty) == 0 {
         trans_into(bcx, contents, SaveIn(val))
     } else {
@@ -1890,8 +1892,8 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
          * Basically, the idea is to make the deref of an rvalue
          * result in an rvalue. This helps to avoid intermediate stack
          * slots in the resulting LLVM. The idea here is that, if the
-         * `~T` pointer is an rvalue, then we can schedule a *shallow*
-         * free of the `~T` pointer, and then return a ByRef rvalue
+         * `Box<T>` pointer is an rvalue, then we can schedule a *shallow*
+         * free of the `Box<T>` pointer, and then return a ByRef rvalue
          * into the pointer. Because the free is shallow, it is legit
          * to return an rvalue, because we know that the contents are
          * not yet scheduled to be freed. The language rules ensure that the

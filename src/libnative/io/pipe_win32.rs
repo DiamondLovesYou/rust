@@ -84,13 +84,17 @@
 //! the test suite passing (the suite is in libstd), and that's good enough for
 //! me!
 
-use std::c_str::CString;
 use libc;
+use std::c_str::CString;
+use std::intrinsics;
+use std::io;
 use std::os::win32::as_utf16_p;
+use std::os;
 use std::ptr;
 use std::rt::rtio;
 use std::sync::arc::UnsafeArc;
-use std::intrinsics;
+use std::sync::atomics;
+use std::unstable::mutex;
 
 use super::IoResult;
 use super::c;
@@ -124,6 +128,20 @@ impl Drop for Event {
 
 struct Inner {
     handle: libc::HANDLE,
+    lock: mutex::NativeMutex,
+    read_closed: atomics::AtomicBool,
+    write_closed: atomics::AtomicBool,
+}
+
+impl Inner {
+    fn new(handle: libc::HANDLE) -> Inner {
+        Inner {
+            handle: handle,
+            lock: unsafe { mutex::NativeMutex::new() },
+            read_closed: atomics::AtomicBool::new(false),
+            write_closed: atomics::AtomicBool::new(false),
+        }
+    }
 }
 
 impl Drop for Inner {
@@ -151,6 +169,27 @@ unsafe fn pipe(name: *u16, init: bool) -> libc::HANDLE {
     )
 }
 
+pub fn await(handle: libc::HANDLE, deadline: u64,
+             overlapped: &mut libc::OVERLAPPED) -> bool {
+    if deadline == 0 { return true }
+
+    // If we've got a timeout, use WaitForSingleObject in tandem with CancelIo
+    // to figure out if we should indeed get the result.
+    let now = ::io::timer::now();
+    let timeout = deadline < now || unsafe {
+        let ms = (deadline - now) as libc::DWORD;
+        let r = libc::WaitForSingleObject(overlapped.hEvent,
+                                          ms);
+        r != libc::WAIT_OBJECT_0
+    };
+    if timeout {
+        unsafe { let _ = c::CancelIo(handle); }
+        false
+    } else {
+        true
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Unix Streams
 ////////////////////////////////////////////////////////////////////////////////
@@ -159,6 +198,8 @@ pub struct UnixStream {
     inner: UnsafeArc<Inner>,
     write: Option<Event>,
     read: Option<Event>,
+    read_deadline: u64,
+    write_deadline: u64,
 }
 
 impl UnixStream {
@@ -218,7 +259,7 @@ impl UnixStream {
             loop {
                 match UnixStream::try_connect(p) {
                     Some(handle) => {
-                        let inner = Inner { handle: handle };
+                        let inner = Inner::new(handle);
                         let mut mode = libc::PIPE_TYPE_BYTE |
                                        libc::PIPE_READMODE_BYTE |
                                        libc::PIPE_WAIT;
@@ -235,6 +276,8 @@ impl UnixStream {
                                 inner: UnsafeArc::new(inner),
                                 read: None,
                                 write: None,
+                                read_deadline: 0,
+                                write_deadline: 0,
                             })
                         }
                     }
@@ -275,6 +318,24 @@ impl UnixStream {
     }
 
     fn handle(&self) -> libc::HANDLE { unsafe { (*self.inner.get()).handle } }
+
+    fn read_closed(&self) -> bool {
+        unsafe { (*self.inner.get()).read_closed.load(atomics::SeqCst) }
+    }
+
+    fn write_closed(&self) -> bool {
+        unsafe { (*self.inner.get()).write_closed.load(atomics::SeqCst) }
+    }
+
+    fn cancel_io(&self) -> IoResult<()> {
+        match unsafe { c::CancelIoEx(self.handle(), ptr::mut_null()) } {
+            0 if os::errno() == libc::ERROR_NOT_FOUND as uint => {
+                Ok(())
+            }
+            0 => Err(super::last_error()),
+            _ => Ok(())
+        }
+    }
 }
 
 impl rtio::RtioPipe for UnixStream {
@@ -287,6 +348,18 @@ impl rtio::RtioPipe for UnixStream {
         let mut overlapped: libc::OVERLAPPED = unsafe { intrinsics::init() };
         overlapped.hEvent = self.read.get_ref().handle();
 
+        // Pre-flight check to see if the reading half has been closed. This
+        // must be done before issuing the ReadFile request, but after we
+        // acquire the lock.
+        //
+        // See comments in close_read() about why this lock is necessary.
+        let guard = unsafe { (*self.inner.get()).lock.lock() };
+        if self.read_closed() {
+            return Err(io::standard_error(io::EndOfFile))
+        }
+
+        // Issue a nonblocking requests, succeeding quickly if it happened to
+        // succeed.
         let ret = unsafe {
             libc::ReadFile(self.handle(),
                            buf.as_ptr() as libc::LPVOID,
@@ -294,24 +367,48 @@ impl rtio::RtioPipe for UnixStream {
                            &mut bytes_read,
                            &mut overlapped)
         };
-        if ret == 0 {
-            let err = unsafe { libc::GetLastError() };
-            if err == libc::ERROR_IO_PENDING as libc::DWORD {
-                let ret = unsafe {
-                    libc::GetOverlappedResult(self.handle(),
-                                              &mut overlapped,
-                                              &mut bytes_read,
-                                              libc::TRUE)
-                };
-                if ret == 0 {
-                    return Err(super::last_error())
-                }
-            } else {
-                return Err(super::last_error())
-            }
+        if ret != 0 { return Ok(bytes_read as uint) }
+
+        // If our errno doesn't say that the I/O is pending, then we hit some
+        // legitimate error and reeturn immediately.
+        if os::errno() != libc::ERROR_IO_PENDING as uint {
+            return Err(super::last_error())
         }
 
-        Ok(bytes_read as uint)
+        // Now that we've issued a successful nonblocking request, we need to
+        // wait for it to finish. This can all be done outside the lock because
+        // we'll see any invocation of CancelIoEx. We also call this in a loop
+        // because we're woken up if the writing half is closed, we just need to
+        // realize that the reading half wasn't closed and we go right back to
+        // sleep.
+        drop(guard);
+        loop {
+            // Process a timeout if one is pending
+            let succeeded = await(self.handle(), self.read_deadline,
+                                  &mut overlapped);
+
+            let ret = unsafe {
+                libc::GetOverlappedResult(self.handle(),
+                                          &mut overlapped,
+                                          &mut bytes_read,
+                                          libc::TRUE)
+            };
+            // If we succeeded, or we failed for some reason other than
+            // CancelIoEx, return immediately
+            if ret != 0 { return Ok(bytes_read as uint) }
+            if os::errno() != libc::ERROR_OPERATION_ABORTED as uint {
+                return Err(super::last_error())
+            }
+
+            // If the reading half is now closed, then we're done. If we woke up
+            // because the writing half was closed, keep trying.
+            if !succeeded {
+                return Err(io::standard_error(io::TimedOut))
+            }
+            if self.read_closed() {
+                return Err(io::standard_error(io::EndOfFile))
+            }
+        }
     }
 
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
@@ -325,6 +422,17 @@ impl rtio::RtioPipe for UnixStream {
 
         while offset < buf.len() {
             let mut bytes_written = 0;
+
+            // This sequence below is quite similar to the one found in read().
+            // Some careful looping is done to ensure that if close_write() is
+            // invoked we bail out early, and if close_read() is invoked we keep
+            // going after we woke up.
+            //
+            // See comments in close_read() about why this lock is necessary.
+            let guard = unsafe { (*self.inner.get()).lock.lock() };
+            if self.write_closed() {
+                return Err(io::standard_error(io::BrokenPipe))
+            }
             let ret = unsafe {
                 libc::WriteFile(self.handle(),
                                 buf.slice_from(offset).as_ptr() as libc::LPVOID,
@@ -332,20 +440,45 @@ impl rtio::RtioPipe for UnixStream {
                                 &mut bytes_written,
                                 &mut overlapped)
             };
+            let err = os::errno();
+            drop(guard);
+
             if ret == 0 {
-                let err = unsafe { libc::GetLastError() };
-                if err == libc::ERROR_IO_PENDING as libc::DWORD {
-                    let ret = unsafe {
-                        libc::GetOverlappedResult(self.handle(),
-                                                  &mut overlapped,
-                                                  &mut bytes_written,
-                                                  libc::TRUE)
-                    };
-                    if ret == 0 {
+                if err != libc::ERROR_IO_PENDING as uint {
+                    return Err(io::IoError::from_errno(err, true));
+                }
+                // Process a timeout if one is pending
+                let succeeded = await(self.handle(), self.write_deadline,
+                                      &mut overlapped);
+                let ret = unsafe {
+                    libc::GetOverlappedResult(self.handle(),
+                                              &mut overlapped,
+                                              &mut bytes_written,
+                                              libc::TRUE)
+                };
+                // If we weren't aborted, this was a legit error, if we were
+                // aborted, then check to see if the write half was actually
+                // closed or whether we woke up from the read half closing.
+                if ret == 0 {
+                    if os::errno() != libc::ERROR_OPERATION_ABORTED as uint {
                         return Err(super::last_error())
                     }
-                } else {
-                    return Err(super::last_error())
+                    if !succeeded {
+                        let amt = offset + bytes_written as uint;
+                        return if amt > 0 {
+                            Err(io::IoError {
+                                kind: io::ShortWrite(amt),
+                                desc: "short write during write",
+                                detail: None,
+                            })
+                        } else {
+                            Err(util::timeout("write timed out"))
+                        }
+                    }
+                    if self.write_closed() {
+                        return Err(io::standard_error(io::BrokenPipe))
+                    }
+                    continue // retry
                 }
             }
             offset += bytes_written as uint;
@@ -353,12 +486,56 @@ impl rtio::RtioPipe for UnixStream {
         Ok(())
     }
 
-    fn clone(&self) -> ~rtio::RtioPipe:Send {
+    fn clone(&self) -> Box<rtio::RtioPipe:Send> {
         box UnixStream {
             inner: self.inner.clone(),
             read: None,
             write: None,
-        } as ~rtio::RtioPipe:Send
+            read_deadline: 0,
+            write_deadline: 0,
+        } as Box<rtio::RtioPipe:Send>
+    }
+
+    fn close_read(&mut self) -> IoResult<()> {
+        // On windows, there's no actual shutdown() method for pipes, so we're
+        // forced to emulate the behavior manually at the application level. To
+        // do this, we need to both cancel any pending requests, as well as
+        // prevent all future requests from succeeding. These two operations are
+        // not atomic with respect to one another, so we must use a lock to do
+        // so.
+        //
+        // The read() code looks like:
+        //
+        //      1. Make sure the pipe is still open
+        //      2. Submit a read request
+        //      3. Wait for the read request to finish
+        //
+        // The race this lock is preventing is if another thread invokes
+        // close_read() between steps 1 and 2. By atomically executing steps 1
+        // and 2 with a lock with respect to close_read(), we're guaranteed that
+        // no thread will erroneously sit in a read forever.
+        let _guard = unsafe { (*self.inner.get()).lock.lock() };
+        unsafe { (*self.inner.get()).read_closed.store(true, atomics::SeqCst) }
+        self.cancel_io()
+    }
+
+    fn close_write(&mut self) -> IoResult<()> {
+        // see comments in close_read() for why this lock is necessary
+        let _guard = unsafe { (*self.inner.get()).lock.lock() };
+        unsafe { (*self.inner.get()).write_closed.store(true, atomics::SeqCst) }
+        self.cancel_io()
+    }
+
+    fn set_timeout(&mut self, timeout: Option<u64>) {
+        let deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
+        self.read_deadline = deadline;
+        self.write_deadline = deadline;
+    }
+    fn set_read_timeout(&mut self, timeout: Option<u64>) {
+        self.read_deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
+    }
+    fn set_write_timeout(&mut self, timeout: Option<u64>) {
+        self.write_deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
     }
 }
 
@@ -402,8 +579,10 @@ impl Drop for UnixListener {
 }
 
 impl rtio::RtioUnixListener for UnixListener {
-    fn listen(~self) -> IoResult<~rtio::RtioUnixAcceptor:Send> {
-        self.native_listen().map(|a| box a as ~rtio::RtioUnixAcceptor:Send)
+    fn listen(~self) -> IoResult<Box<rtio::RtioUnixAcceptor:Send>> {
+        self.native_listen().map(|a| {
+            box a as Box<rtio::RtioUnixAcceptor:Send>
+        })
     }
 }
 
@@ -460,22 +639,8 @@ impl UnixAcceptor {
             let mut err = unsafe { libc::GetLastError() };
 
             if err == libc::ERROR_IO_PENDING as libc::DWORD {
-                // If we've got a timeout, use WaitForSingleObject in tandem
-                // with CancelIo to figure out if we should indeed get the
-                // result.
-                if self.deadline != 0 {
-                    let now = ::io::timer::now();
-                    let timeout = self.deadline < now || unsafe {
-                        let ms = (self.deadline - now) as libc::DWORD;
-                        let r = libc::WaitForSingleObject(overlapped.hEvent,
-                                                          ms);
-                        r != libc::WAIT_OBJECT_0
-                    };
-                    if timeout {
-                        unsafe { let _ = c::CancelIo(handle); }
-                        return Err(util::timeout("accept timed out"))
-                    }
-                }
+                // Process a timeout if one is pending
+                let _ = await(handle, self.deadline, &mut overlapped);
 
                 // This will block until the overlapped I/O is completed. The
                 // timeout was previously handled, so this will either block in
@@ -518,16 +683,18 @@ impl UnixAcceptor {
 
         // Transfer ownership of our handle into this stream
         Ok(UnixStream {
-            inner: UnsafeArc::new(Inner { handle: handle }),
+            inner: UnsafeArc::new(Inner::new(handle)),
             read: None,
             write: None,
+            read_deadline: 0,
+            write_deadline: 0,
         })
     }
 }
 
 impl rtio::RtioUnixAcceptor for UnixAcceptor {
-    fn accept(&mut self) -> IoResult<~rtio::RtioPipe:Send> {
-        self.native_accept().map(|s| box s as ~rtio::RtioPipe:Send)
+    fn accept(&mut self) -> IoResult<Box<rtio::RtioPipe:Send>> {
+        self.native_accept().map(|s| box s as Box<rtio::RtioPipe:Send>)
     }
     fn set_timeout(&mut self, timeout: Option<u64>) {
         self.deadline = timeout.map(|i| i + ::io::timer::now()).unwrap_or(0);

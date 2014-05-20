@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::cast;
+use std::mem;
 use std::rt::rtio::{Callback, RemoteCallback};
 use std::unstable::sync::Exclusive;
 
@@ -26,12 +26,12 @@ pub struct AsyncWatcher {
 }
 
 struct Payload {
-    callback: ~Callback:Send,
+    callback: Box<Callback:Send>,
     exit_flag: Exclusive<bool>,
 }
 
 impl AsyncWatcher {
-    pub fn new(loop_: &mut Loop, cb: ~Callback:Send) -> AsyncWatcher {
+    pub fn new(loop_: &mut Loop, cb: Box<Callback:Send>) -> AsyncWatcher {
         let handle = UvHandle::alloc(None::<AsyncWatcher>, uvll::UV_ASYNC);
         assert_eq!(unsafe {
             uvll::uv_async_init(loop_.handle, handle, async_cb)
@@ -39,7 +39,7 @@ impl AsyncWatcher {
         let flag = Exclusive::new(false);
         let payload = box Payload { callback: cb, exit_flag: flag.clone() };
         unsafe {
-            let payload: *u8 = cast::transmute(payload);
+            let payload: *u8 = mem::transmute(payload);
             uvll::set_data_for_uv_handle(handle, payload);
         }
         return AsyncWatcher { handle: handle, exit_flag: flag, };
@@ -55,7 +55,7 @@ impl UvHandle<uvll::uv_async_t> for AsyncWatcher {
 
 extern fn async_cb(handle: *uvll::uv_async_t) {
     let payload: &mut Payload = unsafe {
-        cast::transmute(uvll::get_data_for_uv_handle(handle))
+        mem::transmute(uvll::get_data_for_uv_handle(handle))
     };
 
     // The synchronization logic here is subtle. To review,
@@ -93,8 +93,8 @@ extern fn async_cb(handle: *uvll::uv_async_t) {
 
 extern fn close_cb(handle: *uvll::uv_handle_t) {
     // drop the payload
-    let _payload: ~Payload = unsafe {
-        cast::transmute(uvll::get_data_for_uv_handle(handle))
+    let _payload: Box<Payload> = unsafe {
+        mem::transmute(uvll::get_data_for_uv_handle(handle))
     };
     // and then free the handle
     unsafe { uvll::free_handle(handle) }

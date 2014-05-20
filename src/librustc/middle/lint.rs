@@ -46,6 +46,7 @@ use middle::typeck::astconv::{ast_ty_to_ty, AstConv};
 use middle::typeck::infer;
 use middle::typeck;
 use util::ppaux::{ty_to_str};
+use util::nodemap::NodeSet;
 
 use std::cmp;
 use collections::HashMap;
@@ -240,14 +241,14 @@ static lint_table: &'static [(&'static str, LintSpec)] = &[
     ("owned_heap_memory",
      LintSpec {
         lint: OwnedHeapMemory,
-        desc: "use of owned (~ type) heap memory",
+        desc: "use of owned (Box type) heap memory",
         default: allow
      }),
 
     ("heap_memory",
      LintSpec {
         lint: HeapMemory,
-        desc: "use of any (~ type or @ type) heap memory",
+        desc: "use of any (Box type or @ type) heap memory",
         default: allow
      }),
 
@@ -453,10 +454,13 @@ struct Context<'a> {
     // When recursing into an attributed node of the ast which modifies lint
     // levels, this stack keeps track of the previous lint levels of whatever
     // was modified.
-    lint_stack: Vec<(Lint, level, LintSource)> ,
+    lint_stack: Vec<(Lint, level, LintSource)>,
 
     // id of the last visited negated expression
-    negated_expr_id: ast::NodeId
+    negated_expr_id: ast::NodeId,
+
+    // ids of structs/enums which have been checked for raw_pointer_deriving
+    checked_raw_pointers: NodeSet,
 }
 
 impl<'a> Context<'a> {
@@ -943,8 +947,13 @@ fn check_heap_type(cx: &Context, span: Span, ty: ty::t) {
                     n_box += 1;
                 }
                 ty::ty_uniq(_) |
-                ty::ty_trait(~ty::TyTrait { store: ty::UniqTraitStore, .. }) |
-                ty::ty_closure(~ty::ClosureTy { store: ty::UniqTraitStore, .. }) => {
+                ty::ty_trait(box ty::TyTrait {
+                    store: ty::UniqTraitStore, ..
+                }) |
+                ty::ty_closure(box ty::ClosureTy {
+                    store: ty::UniqTraitStore,
+                    ..
+                }) => {
                     n_uniq += 1;
                 }
 
@@ -955,7 +964,7 @@ fn check_heap_type(cx: &Context, span: Span, ty: ty::t) {
 
         if n_uniq > 0 && lint != ManagedHeapMemory {
             let s = ty_to_str(cx.tcx, ty);
-            let m = format!("type uses owned (~ type) pointers: {}", s);
+            let m = format!("type uses owned (Box type) pointers: {}", s);
             cx.span_lint(lint, span, m);
         }
 
@@ -1009,10 +1018,26 @@ impl<'a> Visitor<()> for RawPtrDerivingVisitor<'a> {
     fn visit_block(&mut self, _: &ast::Block, _: ()) {}
 }
 
-fn check_raw_ptr_deriving(cx: &Context, item: &ast::Item) {
-    if !attr::contains_name(item.attrs.as_slice(), "deriving") {
+fn check_raw_ptr_deriving(cx: &mut Context, item: &ast::Item) {
+    if !attr::contains_name(item.attrs.as_slice(), "automatically_derived") {
         return
     }
+    let did = match item.node {
+        ast::ItemImpl(..) => {
+            match ty::get(ty::node_id_to_type(cx.tcx, item.id)).sty {
+                ty::ty_enum(did, _) => did,
+                ty::ty_struct(did, _) => did,
+                _ => return,
+            }
+        }
+        _ => return,
+    };
+    if !ast_util::is_local(did) { return }
+    let item = match cx.tcx.map.find(did.node) {
+        Some(ast_map::NodeItem(item)) => item,
+        _ => return,
+    };
+    if !cx.checked_raw_pointers.insert(item.id) { return }
     match item.node {
         ast::ItemStruct(..) | ast::ItemEnum(..) => {
             let mut visitor = RawPtrDerivingVisitor { cx: cx };
@@ -1362,28 +1387,38 @@ fn check_unsafe_block(cx: &Context, e: &ast::Expr) {
     }
 }
 
-fn check_unused_mut_pat(cx: &Context, p: &ast::Pat) {
-    match p.node {
-        ast::PatIdent(ast::BindByValue(ast::MutMutable),
-                      ref path, _) if pat_util::pat_is_binding(&cx.tcx.def_map, p) => {
-            // `let mut _a = 1;` doesn't need a warning.
-            let initial_underscore = if path.segments.len() == 1 {
-                token::get_ident(path.segments
-                                     .get(0)
-                                     .identifier).get().starts_with("_")
-            } else {
-                cx.tcx.sess.span_bug(p.span,
-                                     "mutable binding that doesn't consist \
-                                      of exactly one segment")
-            };
-
-            if !initial_underscore &&
-               !cx.tcx.used_mut_nodes.borrow().contains(&p.id) {
-                cx.span_lint(UnusedMut, p.span,
-                             "variable does not need to be mutable");
+fn check_unused_mut_pat(cx: &Context, pats: &[@ast::Pat]) {
+    // collect all mutable pattern and group their NodeIDs by their Identifier to
+    // avoid false warnings in match arms with multiple patterns
+    let mut mutables = HashMap::new();
+    for &p in pats.iter() {
+        pat_util::pat_bindings(&cx.tcx.def_map, p, |mode, id, _, path| {
+            match mode {
+                ast::BindByValue(ast::MutMutable) => {
+                    if path.segments.len() != 1 {
+                        cx.tcx.sess.span_bug(p.span,
+                                             "mutable binding that doesn't consist \
+                                              of exactly one segment");
+                    }
+                    let ident = path.segments.get(0).identifier;
+                    if !token::get_ident(ident).get().starts_with("_") {
+                        mutables.insert_or_update_with(ident.name as uint, vec!(id), |_, old| {
+                            old.push(id);
+                        });
+                    }
+                }
+                _ => {
+                }
             }
+        });
+    }
+
+    let used_mutables = cx.tcx.used_mut_nodes.borrow();
+    for (_, v) in mutables.iter() {
+        if !v.iter().any(|e| used_mutables.contains(e)) {
+            cx.span_lint(UnusedMut, cx.tcx.map.span(*v.get(0)),
+                         "variable does not need to be mutable");
         }
-        _ => ()
     }
 }
 
@@ -1679,7 +1714,6 @@ impl<'a> Visitor<()> for Context<'a> {
     fn visit_pat(&mut self, p: &ast::Pat, _: ()) {
         check_pat_non_uppercase_statics(self, p);
         check_pat_uppercase_variable(self, p);
-        check_unused_mut_pat(self, p);
 
         visit::walk_pat(self, p, ());
     }
@@ -1694,6 +1728,11 @@ impl<'a> Visitor<()> for Context<'a> {
             },
             ast::ExprParen(expr) => if self.negated_expr_id == e.id {
                 self.negated_expr_id = expr.id
+            },
+            ast::ExprMatch(_, ref arms) => {
+                for a in arms.iter() {
+                    check_unused_mut_pat(self, a.pats.as_slice());
+                }
             },
             _ => ()
         };
@@ -1718,14 +1757,30 @@ impl<'a> Visitor<()> for Context<'a> {
         check_unused_result(self, s);
         check_unnecessary_parens_stmt(self, s);
 
+        match s.node {
+            ast::StmtDecl(d, _) => {
+                match d.node {
+                    ast::DeclLocal(l) => {
+                        check_unused_mut_pat(self, &[l.pat]);
+                    },
+                    _ => {}
+                }
+            },
+            _ => {}
+        }
+
         visit::walk_stmt(self, s, ());
     }
 
     fn visit_fn(&mut self, fk: &visit::FnKind, decl: &ast::FnDecl,
                 body: &ast::Block, span: Span, id: ast::NodeId, _: ()) {
         let recurse = |this: &mut Context| {
-            visit::walk_fn(this, fk, decl, body, span, id, ());
+            visit::walk_fn(this, fk, decl, body, span, ());
         };
+
+        for a in decl.inputs.iter(){
+            check_unused_mut_pat(self, &[a.pat]);
+        }
 
         match *fk {
             visit::FkMethod(_, _, m) => {
@@ -1755,15 +1810,15 @@ impl<'a> Visitor<()> for Context<'a> {
 
     fn visit_struct_def(&mut self,
                         s: &ast::StructDef,
-                        i: ast::Ident,
-                        g: &ast::Generics,
+                        _: ast::Ident,
+                        _: &ast::Generics,
                         id: ast::NodeId,
                         _: ()) {
         check_struct_uppercase_variable(self, s);
 
         let old_id = self.cur_struct_def_id;
         self.cur_struct_def_id = id;
-        visit::walk_struct_def(self, s, i, g, id, ());
+        visit::walk_struct_def(self, s, ());
         self.cur_struct_def_id = old_id;
     }
 
@@ -1795,7 +1850,7 @@ impl<'a> IdVisitingOperation for Context<'a> {
             None => {}
             Some(l) => {
                 for (lint, span, msg) in l.move_iter() {
-                    self.span_lint(lint, span, msg)
+                    self.span_lint(lint, span, msg.as_slice())
                 }
             }
         }
@@ -1813,7 +1868,8 @@ pub fn check_crate(tcx: &ty::ctxt,
         cur_struct_def_id: -1,
         is_doc_hidden: false,
         lint_stack: Vec::new(),
-        negated_expr_id: -1
+        negated_expr_id: -1,
+        checked_raw_pointers: NodeSet::new(),
     };
 
     // Install default lint levels, followed by the command line levels, and

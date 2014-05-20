@@ -18,7 +18,7 @@ use uvio::UvIoFactory;
 use uvll;
 
 pub struct TimerWatcher {
-    handle: *uvll::uv_timer_t,
+    pub handle: *uvll::uv_timer_t,
     home: HomeHandle,
     action: Option<NextAction>,
     blocker: Option<BlockedTask>,
@@ -32,7 +32,7 @@ pub enum NextAction {
 }
 
 impl TimerWatcher {
-    pub fn new(io: &mut UvIoFactory) -> ~TimerWatcher {
+    pub fn new(io: &mut UvIoFactory) -> Box<TimerWatcher> {
         let handle = io.make_handle();
         let me = box TimerWatcher::new_home(&io.loop_, handle);
         me.install()

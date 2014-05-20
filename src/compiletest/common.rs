@@ -8,18 +8,52 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::from_str::FromStr;
+use std::fmt;
+
 #[deriving(Clone, Eq)]
-pub enum mode {
-    mode_compile_fail,
-    mode_run_fail,
-    mode_run_pass,
-    mode_pretty,
-    mode_debug_info,
-    mode_codegen
+pub enum Mode {
+    CompileFail,
+    RunFail,
+    RunPass,
+    Pretty,
+    DebugInfoGdb,
+    DebugInfoLldb,
+    Codegen
+}
+
+impl FromStr for Mode {
+    fn from_str(s: &str) -> Option<Mode> {
+        match s {
+          "compile-fail" => Some(CompileFail),
+          "run-fail" => Some(RunFail),
+          "run-pass" => Some(RunPass),
+          "pretty" => Some(Pretty),
+          "debuginfo-lldb" => Some(DebugInfoLldb),
+          "debuginfo-gdb" => Some(DebugInfoGdb),
+          "codegen" => Some(Codegen),
+          _ => None,
+        }
+    }
+}
+
+impl fmt::Show for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg = match *self {
+          CompileFail => "compile-fail",
+          RunFail => "run-fail",
+          RunPass => "run-pass",
+          Pretty => "pretty",
+          DebugInfoGdb => "debuginfo-gdb",
+          DebugInfoLldb => "debuginfo-lldb",
+          Codegen => "codegen",
+        };
+        write!(f.buf, "{}", msg)
+    }
 }
 
 #[deriving(Clone)]
-pub struct config {
+pub struct Config {
     // The library paths required for running the compiler
     pub compile_lib_path: ~str,
 
@@ -48,7 +82,7 @@ pub struct config {
     pub stage_id: ~str,
 
     // The test mode, compile-fail, run-fail, run-pass
-    pub mode: mode,
+    pub mode: Mode,
 
     // Run ignored tests
     pub run_ignored: bool,
@@ -92,6 +126,9 @@ pub struct config {
     // Host triple for the compiler being invoked
     pub host: ~str,
 
+    // Path to the android tools
+    pub android_cross_path: Path,
+
     // Extra parameter to run adb on arm-linux-androideabi
     pub adb_path: ~str,
 
@@ -100,6 +137,9 @@ pub struct config {
 
     // status whether android device available or not
     pub adb_device_status: bool,
+
+    // the path containing LLDB's Python module
+    pub lldb_python_dir: Option<~str>,
 
     // NaCl Pepper SDK path
     pub nacl_cross_path: Option<Path>,

@@ -23,7 +23,7 @@ pointers, and then storing the parent pointers as `Weak` pointers.
 
 */
 
-use cast::transmute;
+use mem::transmute;
 use cell::Cell;
 use clone::Clone;
 use cmp::{Eq, Ord, TotalEq, TotalOrd, Ordering};
@@ -32,7 +32,8 @@ use ops::{Deref, Drop};
 use option::{Option, Some, None};
 use ptr;
 use ptr::RawPtr;
-use rt::global_heap::exchange_free;
+use mem::{min_align_of, size_of};
+use rt::heap::deallocate;
 
 struct RcBox<T> {
     value: T,
@@ -104,7 +105,8 @@ impl<T> Drop for Rc<T> {
                     self.dec_weak();
 
                     if self.weak() == 0 {
-                        exchange_free(self.ptr as *u8)
+                        deallocate(self.ptr as *mut u8, size_of::<RcBox<T>>(),
+                                   min_align_of::<RcBox<T>>())
                     }
                 }
             }
@@ -177,7 +179,8 @@ impl<T> Drop for Weak<T> {
                 // the weak count starts at 1, and will only go to
                 // zero if all the strong pointers have disappeared.
                 if self.weak() == 0 {
-                    exchange_free(self.ptr as *u8)
+                    deallocate(self.ptr as *mut u8, size_of::<RcBox<T>>(),
+                               min_align_of::<RcBox<T>>())
                 }
             }
         }

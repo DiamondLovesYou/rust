@@ -30,7 +30,7 @@ use collections::HashMap;
 // ast::MacInvocTT.
 
 pub struct MacroDef {
-    pub name: ~str,
+    pub name: StrBuf,
     pub ext: SyntaxExtension
 }
 
@@ -50,19 +50,19 @@ pub trait MacroExpander {
               ecx: &mut ExtCtxt,
               span: Span,
               token_tree: &[ast::TokenTree])
-              -> ~MacResult;
+              -> Box<MacResult>;
 }
 
 pub type MacroExpanderFn =
     fn(ecx: &mut ExtCtxt, span: codemap::Span, token_tree: &[ast::TokenTree])
-       -> ~MacResult;
+       -> Box<MacResult>;
 
 impl MacroExpander for BasicMacroExpander {
     fn expand(&self,
               ecx: &mut ExtCtxt,
               span: Span,
               token_tree: &[ast::TokenTree])
-              -> ~MacResult {
+              -> Box<MacResult> {
         (self.expander)(ecx, span, token_tree)
     }
 }
@@ -78,7 +78,7 @@ pub trait IdentMacroExpander {
               sp: Span,
               ident: ast::Ident,
               token_tree: Vec<ast::TokenTree> )
-              -> ~MacResult;
+              -> Box<MacResult>;
 }
 
 impl IdentMacroExpander for BasicIdentMacroExpander {
@@ -87,13 +87,13 @@ impl IdentMacroExpander for BasicIdentMacroExpander {
               sp: Span,
               ident: ast::Ident,
               token_tree: Vec<ast::TokenTree> )
-              -> ~MacResult {
+              -> Box<MacResult> {
         (self.expander)(cx, sp, ident, token_tree)
     }
 }
 
 pub type IdentMacroExpanderFn =
-    fn(&mut ExtCtxt, Span, ast::Ident, Vec<ast::TokenTree> ) -> ~MacResult;
+    fn(&mut ExtCtxt, Span, ast::Ident, Vec<ast::TokenTree>) -> Box<MacResult>;
 
 pub type MacroCrateRegistrationFun =
     fn(|ast::Name, SyntaxExtension|);
@@ -130,8 +130,8 @@ pub struct MacExpr {
     e: @ast::Expr
 }
 impl MacExpr {
-    pub fn new(e: @ast::Expr) -> ~MacResult {
-        box MacExpr { e: e } as ~MacResult
+    pub fn new(e: @ast::Expr) -> Box<MacResult> {
+        box MacExpr { e: e } as Box<MacResult>
     }
 }
 impl MacResult for MacExpr {
@@ -144,8 +144,8 @@ pub struct MacItem {
     i: @ast::Item
 }
 impl MacItem {
-    pub fn new(i: @ast::Item) -> ~MacResult {
-        box MacItem { i: i } as ~MacResult
+    pub fn new(i: @ast::Item) -> Box<MacResult> {
+        box MacItem { i: i } as Box<MacResult>
     }
 }
 impl MacResult for MacItem {
@@ -173,8 +173,8 @@ impl DummyResult {
     ///
     /// Use this as a return value after hitting any errors and
     /// calling `span_err`.
-    pub fn any(sp: Span) -> ~MacResult {
-        box DummyResult { expr_only: false, span: sp } as ~MacResult
+    pub fn any(sp: Span) -> Box<MacResult> {
+        box DummyResult { expr_only: false, span: sp } as Box<MacResult>
     }
 
     /// Create a default MacResult that can only be an expression.
@@ -182,8 +182,8 @@ impl DummyResult {
     /// Use this for macros that must expand to an expression, so even
     /// if an error is encountered internally, the user will recieve
     /// an error that they also used it in the wrong place.
-    pub fn expr(sp: Span) -> ~MacResult {
-        box DummyResult { expr_only: true, span: sp } as ~MacResult
+    pub fn expr(sp: Span) -> Box<MacResult> {
+        box DummyResult { expr_only: true, span: sp } as Box<MacResult>
     }
 
     /// A plain dummy expression.
@@ -229,13 +229,13 @@ pub enum SyntaxExtension {
     /// A normal, function-like syntax extension.
     ///
     /// `bytes!` is a `NormalTT`.
-    NormalTT(~MacroExpander:'static, Option<Span>),
+    NormalTT(Box<MacroExpander:'static>, Option<Span>),
 
     /// A function-like syntax extension that has an extra ident before
     /// the block.
     ///
     /// `macro_rules!` is an `IdentTT`.
-    IdentTT(~IdentMacroExpander:'static, Option<Span>),
+    IdentTT(Box<IdentMacroExpander:'static>, Option<Span>),
 }
 
 pub struct BlockInfo {
@@ -361,8 +361,8 @@ pub fn syntax_expander_table() -> SyntaxEnv {
 
 pub struct MacroCrate {
     pub lib: Option<Path>,
-    pub macros: Vec<~str>,
-    pub registrar_symbol: Option<~str>,
+    pub macros: Vec<StrBuf>,
+    pub registrar_symbol: Option<StrBuf>,
 }
 
 pub trait CrateLoader {
@@ -425,7 +425,7 @@ impl<'a> ExtCtxt<'a> {
     pub fn mod_pop(&mut self) { self.mod_path.pop().unwrap(); }
     pub fn mod_path(&self) -> Vec<ast::Ident> {
         let mut v = Vec::new();
-        v.push(token::str_to_ident(self.ecfg.crate_id.name));
+        v.push(token::str_to_ident(self.ecfg.crate_id.name.as_slice()));
         v.extend(self.mod_path.iter().map(|a| *a));
         return v;
     }
@@ -540,14 +540,14 @@ pub fn get_single_str_from_tts(cx: &ExtCtxt,
                                sp: Span,
                                tts: &[ast::TokenTree],
                                name: &str)
-                               -> Option<~str> {
+                               -> Option<StrBuf> {
     if tts.len() != 1 {
         cx.span_err(sp, format!("{} takes 1 argument.", name));
     } else {
         match tts[0] {
             ast::TTTok(_, token::LIT_STR(ident))
             | ast::TTTok(_, token::LIT_STR_RAW(ident, _)) => {
-                return Some(token::get_ident(ident).get().to_str())
+                return Some(token::get_ident(ident).get().to_strbuf())
             }
             _ => cx.span_err(sp, format!("{} requires a string.", name)),
         }

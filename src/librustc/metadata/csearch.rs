@@ -32,7 +32,7 @@ pub struct StaticMethodInfo {
     pub vis: ast::Visibility,
 }
 
-pub fn get_symbol(cstore: &cstore::CStore, def: ast::DefId) -> ~str {
+pub fn get_symbol(cstore: &cstore::CStore, def: ast::DefId) -> StrBuf {
     let cdata = cstore.get_crate_data(def.krate);
     decoder::get_symbol(cdata.data(), def.node)
 }
@@ -86,7 +86,8 @@ pub fn get_item_path(tcx: &ty::ctxt, def: ast::DefId) -> Vec<ast_map::PathElem> 
 
     // FIXME #1920: This path is not always correct if the crate is not linked
     // into the root namespace.
-    (vec!(ast_map::PathMod(token::intern(cdata.name)))).append(path.as_slice())
+    (vec!(ast_map::PathMod(token::intern(cdata.name.as_slice())))).append(
+        path.as_slice())
 }
 
 pub enum found_ast {
@@ -207,12 +208,17 @@ pub fn get_field_type(tcx: &ty::ctxt, class_id: ast::DefId,
     let all_items = reader::get_doc(reader::Doc(cdata.data()), tag_items);
     let class_doc = expect(tcx.sess.diagnostic(),
                            decoder::maybe_find_item(class_id.node, all_items),
-                           || format!("get_field_type: class ID {:?} not found",
-                                   class_id) );
+                           || {
+        (format!("get_field_type: class ID {:?} not found",
+                 class_id)).to_strbuf()
+    });
     let the_field = expect(tcx.sess.diagnostic(),
         decoder::maybe_find_item(def.node, class_doc),
-        || format!("get_field_type: in class {:?}, field ID {:?} not found",
-                 class_id, def) );
+        || {
+            (format!("get_field_type: in class {:?}, field ID {:?} not found",
+                    class_id,
+                    def)).to_strbuf()
+        });
     let ty = decoder::item_type(def, the_field, tcx, &*cdata);
     ty::ty_param_bounds_and_ty {
         generics: ty::Generics {type_param_defs: Rc::new(Vec::new()),
@@ -240,7 +246,7 @@ pub fn get_impl_vtables(tcx: &ty::ctxt,
 
 pub fn get_native_libraries(cstore: &cstore::CStore,
                             crate_num: ast::CrateNum)
-                                -> Vec<(cstore::NativeLibaryKind, ~str)> {
+                                -> Vec<(cstore::NativeLibaryKind, StrBuf)> {
     let cdata = cstore.get_crate_data(crate_num);
     decoder::get_native_libraries(&*cdata)
 }
@@ -283,4 +289,12 @@ pub fn get_tuple_struct_definition_if_ctor(cstore: &cstore::CStore,
 {
     let cdata = cstore.get_crate_data(def_id.krate);
     decoder::get_tuple_struct_definition_if_ctor(&*cdata, def_id.node)
+}
+
+pub fn get_dylib_dependency_formats(cstore: &cstore::CStore,
+                                    cnum: ast::CrateNum)
+    -> Vec<(ast::CrateNum, cstore::LinkagePreference)>
+{
+    let cdata = cstore.get_crate_data(cnum);
+    decoder::get_dylib_dependency_formats(&*cdata)
 }

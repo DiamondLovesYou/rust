@@ -17,7 +17,6 @@
 #![allow(missing_doc)]
 #![doc(hidden)]
 
-use fmt::parse;
 use option::Option;
 
 pub enum Piece<'a> {
@@ -35,10 +34,17 @@ pub struct Argument<'a> {
 
 pub struct FormatSpec {
     pub fill: char,
-    pub align: parse::Alignment,
+    pub align: Alignment,
     pub flags: uint,
     pub precision: Count,
     pub width: Count,
+}
+
+#[deriving(Eq)]
+pub enum Alignment {
+    AlignLeft,
+    AlignRight,
+    AlignUnknown,
 }
 
 pub enum Count {
@@ -49,14 +55,29 @@ pub enum Position {
     ArgumentNext, ArgumentIs(uint)
 }
 
+pub enum Flag {
+    FlagSignPlus,
+    FlagSignMinus,
+    FlagAlternate,
+    FlagSignAwareZeroPad,
+}
+
 pub enum Method<'a> {
     Plural(Option<uint>, &'a [PluralArm<'a>], &'a [Piece<'a>]),
     Select(&'a [SelectArm<'a>], &'a [Piece<'a>]),
 }
 
 pub enum PluralSelector {
-    Keyword(parse::PluralKeyword),
+    Keyword(PluralKeyword),
     Literal(uint),
+}
+
+pub enum PluralKeyword {
+    Zero,
+    One,
+    Two,
+    Few,
+    Many,
 }
 
 pub struct PluralArm<'a> {

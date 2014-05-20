@@ -77,7 +77,7 @@ impl<'r, R: Reader> Iterator<IoResult<u8>> for Bytes<'r, R> {
 /// This function returns the value returned by the callback, for convenience.
 pub fn u64_to_le_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
     use mem::{to_le16, to_le32, to_le64};
-    use cast::transmute;
+    use mem::transmute;
 
     // LLVM fails to properly optimize this when using shifts instead of the to_le* intrinsics
     assert!(size <= 8u);
@@ -117,7 +117,7 @@ pub fn u64_to_le_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
 /// This function returns the value returned by the callback, for convenience.
 pub fn u64_to_be_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
     use mem::{to_be16, to_be32, to_be64};
-    use cast::transmute;
+    use mem::transmute;
 
     // LLVM fails to properly optimize this when using shifts instead of the to_be* intrinsics
     assert!(size <= 8u);
@@ -342,39 +342,39 @@ mod test {
     }
 
     #[test]
-    fn push_exact() {
-        let mut reader = MemReader::new(vec!(10, 11, 12, 13));
-        let mut buf = vec!(8, 9);
-        reader.push_exact(&mut buf, 4).unwrap();
-        assert!(buf == vec!(8, 9, 10, 11, 12, 13));
+    fn push_at_least() {
+        let mut reader = MemReader::new(vec![10, 11, 12, 13]);
+        let mut buf = vec![8, 9];
+        assert!(reader.push_at_least(4, 4, &mut buf).is_ok());
+        assert!(buf == vec![8, 9, 10, 11, 12, 13]);
     }
 
     #[test]
-    fn push_exact_partial() {
+    fn push_at_least_partial() {
         let mut reader = PartialReader {
             count: 0,
         };
-        let mut buf = vec!(8, 9);
-        reader.push_exact(&mut buf, 4).unwrap();
-        assert!(buf == vec!(8, 9, 10, 11, 12, 13));
+        let mut buf = vec![8, 9];
+        assert!(reader.push_at_least(4, 4, &mut buf).is_ok());
+        assert!(buf == vec![8, 9, 10, 11, 12, 13]);
     }
 
     #[test]
-    fn push_exact_eof() {
-        let mut reader = MemReader::new(vec!(10, 11));
-        let mut buf = vec!(8, 9);
-        assert!(reader.push_exact(&mut buf, 4).is_err());
-        assert!(buf == vec!(8, 9, 10, 11));
+    fn push_at_least_eof() {
+        let mut reader = MemReader::new(vec![10, 11]);
+        let mut buf = vec![8, 9];
+        assert!(reader.push_at_least(4, 4, &mut buf).is_err());
+        assert!(buf == vec![8, 9, 10, 11]);
     }
 
     #[test]
-    fn push_exact_error() {
+    fn push_at_least_error() {
         let mut reader = ErroringLaterReader {
             count: 0,
         };
-        let mut buf = vec!(8, 9);
-        assert!(reader.push_exact(&mut buf, 4).is_err());
-        assert!(buf == vec!(8, 9, 10));
+        let mut buf = vec![8, 9];
+        assert!(reader.push_at_least(4, 4, &mut buf).is_err());
+        assert!(buf == vec![8, 9, 10]);
     }
 
     #[test]

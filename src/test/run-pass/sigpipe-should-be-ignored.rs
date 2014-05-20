@@ -25,10 +25,11 @@ fn test() {
 
 fn main() {
     let args = os::args();
+    let args = args.as_slice();
     if args.len() > 1 && args[1].as_slice() == "test" {
         return test();
     }
 
     let mut p = Process::new(args[0], ["test".to_owned()]).unwrap();
-    assert!(p.wait().success());
+    assert!(p.wait().unwrap().success());
 }

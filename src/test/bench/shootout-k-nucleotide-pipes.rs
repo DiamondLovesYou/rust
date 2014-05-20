@@ -9,8 +9,8 @@
 // except according to those terms.
 
 // ignore-android: FIXME(#10393)
+// ignore-pretty very bad with line comments
 
-// ignore-pretty the `let to_child` line gets an extra newline
 // multi tasking k-nucleotide
 
 extern crate collections;
@@ -72,7 +72,7 @@ fn sort_and_fmt(mm: &HashMap<Vec<u8> , uint>, total: uint) -> ~str {
 
 // given a map, search for the frequency of a pattern
 fn find(mm: &HashMap<Vec<u8> , uint>, key: ~str) -> uint {
-   let key = key.into_ascii().to_lower().into_str();
+   let key = key.into_ascii().as_slice().to_lower().into_str();
    match mm.find_equiv(&key.as_bytes()) {
       option::None      => { return 0u; }
       option::Some(&num) => { return num; }
@@ -147,9 +147,9 @@ fn main() {
 
     let rdr = if os::getenv("RUST_BENCH").is_some() {
         let foo = include_bin!("shootout-k-nucleotide.data");
-        ~MemReader::new(Vec::from_slice(foo)) as ~Reader
+        box MemReader::new(Vec::from_slice(foo)) as Box<Reader>
     } else {
-        ~stdio::stdin() as ~Reader
+        box stdio::stdin() as Box<Reader>
     };
     let mut rdr = BufferedReader::new(rdr);
 

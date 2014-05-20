@@ -11,7 +11,6 @@
 //! Blocking win32-based file I/O
 
 use std::c_str::CString;
-use std::cast;
 use std::io::IoError;
 use std::io;
 use libc::{c_int, c_void};
@@ -22,7 +21,7 @@ use std::ptr;
 use std::rt::rtio;
 use std::str;
 use std::sync::arc::UnsafeArc;
-use std::slice;
+use std::vec;
 
 use io::IoResult;
 
@@ -175,7 +174,7 @@ impl rtio::RtioFileStream for FileDesc {
         // This transmute is fine because our seek implementation doesn't
         // actually use the mutable self at all.
         // FIXME #13933: Remove/justify all `&T` to `&mut T` transmutes
-        unsafe { cast::transmute::<&_, &mut FileDesc>(self).seek(0, io::SeekCur) }
+        unsafe { mem::transmute::<&_, &mut FileDesc>(self).seek(0, io::SeekCur) }
     }
 
     fn fsync(&mut self) -> Result<(), IoError> {
@@ -198,6 +197,14 @@ impl rtio::RtioFileStream for FileDesc {
         let _ = self.seek(orig_pos as i64, io::SeekSet);
         return ret;
     }
+
+    fn fstat(&mut self) -> IoResult<io::FileStat> {
+        let mut stat: libc::stat = unsafe { mem::uninit() };
+        match unsafe { libc::fstat(self.fd(), &mut stat) } {
+            0 => Ok(mkstat(&stat)),
+            _ => Err(super::last_error()),
+        }
+    }
 }
 
 impl rtio::RtioPipe for FileDesc {
@@ -207,9 +214,23 @@ impl rtio::RtioPipe for FileDesc {
     fn write(&mut self, buf: &[u8]) -> Result<(), IoError> {
         self.inner_write(buf)
     }
-    fn clone(&self) -> ~rtio::RtioPipe:Send {
-        box FileDesc { inner: self.inner.clone() } as ~rtio::RtioPipe:Send
+    fn clone(&self) -> Box<rtio::RtioPipe:Send> {
+        box FileDesc { inner: self.inner.clone() } as Box<rtio::RtioPipe:Send>
     }
+
+    // Only supported on named pipes currently. Note that this doesn't have an
+    // impact on the std::io primitives, this is never called via
+    // std::io::PipeStream. If the functionality is exposed in the future, then
+    // these methods will need to be implemented.
+    fn close_read(&mut self) -> IoResult<()> {
+        Err(io::standard_error(io::InvalidInput))
+    }
+    fn close_write(&mut self) -> IoResult<()> {
+        Err(io::standard_error(io::InvalidInput))
+    }
+    fn set_timeout(&mut self, _t: Option<u64>) {}
+    fn set_read_timeout(&mut self, _t: Option<u64>) {}
+    fn set_write_timeout(&mut self, _t: Option<u64>) {}
 }
 
 impl rtio::RtioTTY for FileDesc {
@@ -325,7 +346,7 @@ pub fn mkdir(p: &CString, _mode: io::FilePermission) -> IoResult<()> {
 }
 
 pub fn readdir(p: &CString) -> IoResult<Vec<Path>> {
-    use std::rt::global_heap::malloc_raw;
+    use std::rt::libc_heap::malloc_raw;
 
     fn prune(root: &CString, dirs: Vec<Path>) -> Vec<Path> {
         let root = unsafe { CString::new(root.with_ref(|p| p), false) };
@@ -354,8 +375,8 @@ pub fn readdir(p: &CString) -> IoResult<Vec<Path>> {
                 if fp_buf as uint == 0 {
                     fail!("os::list_dir() failure: got null ptr from wfd");
                 } else {
-                    let fp_vec = slice::from_buf(fp_buf, libc::wcslen(fp_buf) as uint);
-                    let fp_trimmed = str::truncate_utf16_at_nul(fp_vec);
+                    let fp_vec = vec::raw::from_buf(fp_buf, libc::wcslen(fp_buf) as uint);
+                    let fp_trimmed = str::truncate_utf16_at_nul(fp_vec.as_slice());
                     let fp_str = str::from_utf16(fp_trimmed)
                             .expect("rust_list_dir_wfd_fp_buf returned invalid UTF-16");
                     paths.push(Path::new(fp_str));
@@ -409,6 +430,7 @@ pub fn chown(_p: &CString, _uid: int, _gid: int) -> IoResult<()> {
 
 pub fn readlink(p: &CString) -> IoResult<Path> {
     // FIXME: I have a feeling that this reads intermediate symlinks as well.
+    use io::c::compat::kernel32::GetFinalPathNameByHandleW;
     let handle = unsafe {
         as_utf16_p(p.as_str().unwrap(), |p| {
             libc::CreateFileW(p,
@@ -426,10 +448,10 @@ pub fn readlink(p: &CString) -> IoResult<Path> {
     // Specify (sz - 1) because the documentation states that it's the size
     // without the null pointer
     let ret = fill_utf16_buf_and_decode(|buf, sz| unsafe {
-        libc::GetFinalPathNameByHandleW(handle,
-                                        buf as *u16,
-                                        sz - 1,
-                                        libc::VOLUME_NAME_DOS)
+        GetFinalPathNameByHandleW(handle,
+                                  buf as *u16,
+                                  sz - 1,
+                                  libc::VOLUME_NAME_DOS)
     });
     let ret = match ret {
         Some(ref s) if s.starts_with(r"\\?\") => Ok(Path::new(s.slice_from(4))),
@@ -441,9 +463,10 @@ pub fn readlink(p: &CString) -> IoResult<Path> {
 }
 
 pub fn symlink(src: &CString, dst: &CString) -> IoResult<()> {
+    use io::c::compat::kernel32::CreateSymbolicLinkW;
     super::mkerr_winbool(as_utf16_p(src.as_str().unwrap(), |src| {
         as_utf16_p(dst.as_str().unwrap(), |dst| {
-            unsafe { libc::CreateSymbolicLinkW(dst, src, 0) }
+            unsafe { CreateSymbolicLinkW(dst, src, 0) }
         }) as libc::BOOL
     }))
 }
@@ -456,8 +479,7 @@ pub fn link(src: &CString, dst: &CString) -> IoResult<()> {
     }))
 }
 
-fn mkstat(stat: &libc::stat, path: &CString) -> io::FileStat {
-    let path = unsafe { CString::new(path.with_ref(|p| p), false) };
+fn mkstat(stat: &libc::stat) -> io::FileStat {
     let kind = match (stat.st_mode as c_int) & libc::S_IFMT {
         libc::S_IFREG => io::TypeFile,
         libc::S_IFDIR => io::TypeDirectory,
@@ -468,7 +490,6 @@ fn mkstat(stat: &libc::stat, path: &CString) -> io::FileStat {
     };
 
     io::FileStat {
-        path: Path::new(path),
         size: stat.st_size as u64,
         kind: kind,
         perm: unsafe {
@@ -496,7 +517,7 @@ pub fn stat(p: &CString) -> IoResult<io::FileStat> {
     let mut stat: libc::stat = unsafe { mem::uninit() };
     as_utf16_p(p.as_str().unwrap(), |up| {
         match unsafe { libc::wstat(up, &mut stat) } {
-            0 => Ok(mkstat(&stat, p)),
+            0 => Ok(mkstat(&stat)),
             _ => Err(super::last_error()),
         }
     })

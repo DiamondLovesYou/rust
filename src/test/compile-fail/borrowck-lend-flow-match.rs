@@ -8,8 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-pretty -- comments are unfaithfully preserved
-
 #![allow(unused_variable)]
 #![allow(dead_assignment)]
 
@@ -37,24 +35,24 @@ fn guard() {
     // Here the guard performs a borrow. This borrow "infects" all
     // subsequent arms (but not the prior ones).
 
-    let mut a = ~3;
-    let mut b = ~4;
+    let mut a = box 3;
+    let mut b = box 4;
     let mut w = &*a;
     match 22 {
         _ if cond() => {
-            b = ~5;
+            b = box 5;
         }
 
         _ if link(&*b, &mut w) => {
-            b = ~6; //~ ERROR cannot assign
+            b = box 6; //~ ERROR cannot assign
         }
 
         _ => {
-            b = ~7; //~ ERROR cannot assign
+            b = box 7; //~ ERROR cannot assign
         }
     }
 
-    b = ~8; //~ ERROR cannot assign
+    b = box 8; //~ ERROR cannot assign
 }
 
 fn main() {}

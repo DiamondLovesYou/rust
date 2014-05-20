@@ -73,13 +73,13 @@ pub struct VecTypes {
 }
 
 impl VecTypes {
-    pub fn to_str(&self, ccx: &CrateContext) -> ~str {
-        format!("VecTypes \\{unit_ty={}, llunit_ty={}, llunit_size={}, \
-                 llunit_alloc_size={}\\}",
-             ty_to_str(ccx.tcx(), self.unit_ty),
-             ccx.tn.type_to_str(self.llunit_ty),
-             ccx.tn.val_to_str(self.llunit_size),
-             self.llunit_alloc_size)
+    pub fn to_str(&self, ccx: &CrateContext) -> StrBuf {
+        format_strbuf!("VecTypes \\{unit_ty={}, llunit_ty={}, \
+                        llunit_size={}, llunit_alloc_size={}\\}",
+                       ty_to_str(ccx.tcx(), self.unit_ty),
+                       ccx.tn.type_to_str(self.llunit_ty),
+                       ccx.tn.val_to_str(self.llunit_size),
+                       self.llunit_alloc_size)
     }
 }
 
@@ -278,7 +278,9 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
 
     let vecsize = Add(bcx, alloc, llsize_of(ccx, ccx.opaque_vec_type));
 
-    let Result { bcx: bcx, val: val } = malloc_raw_dyn(bcx, vec_ty, vecsize);
+    // ~[T] is not going to be changed to support alignment, since it's obsolete.
+    let align = C_uint(ccx, 8);
+    let Result { bcx: bcx, val: val } = malloc_raw_dyn(bcx, vec_ty, vecsize, align);
     Store(bcx, fill, GEPi(bcx, val, [0u, abi::vec_elt_fill]));
     Store(bcx, alloc, GEPi(bcx, val, [0u, abi::vec_elt_alloc]));
 

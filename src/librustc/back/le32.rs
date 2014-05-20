@@ -9,19 +9,19 @@
 // except according to those terms.
 
 use back::target_strs;
-use driver::session::sess_os_to_meta_os;
+use driver::config::cfg_os_to_meta_os;
 use metadata::loader::meta_section_name;
 use syntax::abi;
 use std::vec::Vec;
 
-pub fn get_target_strs(target_triple: ~str, target_os: abi::Os) -> target_strs::t {
+pub fn get_target_strs(target_triple: StrBuf, target_os: abi::Os) -> target_strs::t {
     return target_strs::t {
-        module_asm: "".to_owned(),
+        module_asm: "".to_strbuf(),
 
-        meta_sect_name: meta_section_name(sess_os_to_meta_os(target_os)).to_owned(),
+        meta_sect_name: meta_section_name(cfg_os_to_meta_os(target_os)).to_strbuf(),
 
-        data_layout: "e-i1:8:8-i8:8:8-i16:16:16-i32:32:32-".to_owned() +
-            "i64:64:64-f32:32:32-f64:64:64-p:32:32:32-v128:32:32",
+        data_layout: "e-i1:8:8-i8:8:8-i16:16:16-i32:32:32-\
+                      i64:64:64-f32:32:32-f64:64:64-p:32:32:32-v128:32:32".to_strbuf(),
 
         target_triple: target_triple,
 

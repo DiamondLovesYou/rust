@@ -113,7 +113,7 @@ pub struct MyStruct  {
 
 impl ToJson for MyStruct {
     fn to_json( &self ) -> json::Json {
-        let mut d = ~TreeMap::new();
+        let mut d = box TreeMap::new();
         d.insert("attr1".to_owned(), self.attr1.to_json());
         d.insert("attr2".to_owned(), self.attr2.to_json());
         json::Object(d)
@@ -166,14 +166,14 @@ use serialize::{json, Encodable, Decodable};
  pub struct TestStruct1  {
     data_int: u8,
     data_str: ~str,
-    data_vector: ~[u8],
+    data_vector: Vec<u8>,
  }
 
 // To serialize use the `json::str_encode` to encode an object in a string.
 // It calls the generated `Encodable` impl.
 fn main() {
     let to_encode_object = TestStruct1
-         {data_int: 1, data_str:"toto".to_owned(), data_vector:~[2,3,4,5]};
+         {data_int: 1, data_str:"toto".to_owned(), data_vector:vec![2,3,4,5]};
     let encoded_str: ~str = json::Encoder::str_encode(&to_encode_object);
 
     // To deserialize use the `json::from_str` and `json::Decoder`
@@ -201,12 +201,12 @@ use collections::TreeMap;
 pub struct TestStruct1  {
     data_int: u8,
     data_str: ~str,
-    data_vector: ~[u8],
+    data_vector: Vec<u8>,
 }
 
 impl ToJson for TestStruct1 {
     fn to_json( &self ) -> json::Json {
-        let mut d = ~TreeMap::new();
+        let mut d = box TreeMap::new();
         d.insert("data_int".to_owned(), self.data_int.to_json());
         d.insert("data_str".to_owned(), self.data_str.to_json());
         d.insert("data_vector".to_owned(), self.data_vector.to_json());
@@ -218,7 +218,7 @@ fn main() {
     // Serialization using our impl of to_json
 
     let test2: TestStruct1 = TestStruct1 {data_int: 1, data_str:"toto".to_owned(),
-                                          data_vector:~[2,3,4,5]};
+                                          data_vector:vec![2,3,4,5]};
     let tjson: json::Json = test2.to_json();
     let json_str: ~str = tjson.to_str();
 
@@ -232,21 +232,20 @@ fn main() {
 
 */
 
-use collections::HashMap;
 use std::char;
 use std::f64;
+use std::fmt;
 use std::io::MemWriter;
 use std::io;
-use std::num;
-use std::str;
-use std::str::ScalarValue;
-use std::strbuf::StrBuf;
-use std::fmt;
-use std::vec::Vec;
 use std::mem::swap;
+use std::num;
+use std::str::ScalarValue;
+use std::str;
+use std::strbuf::StrBuf;
+use std::vec::Vec;
 
 use Encodable;
-use collections::TreeMap;
+use collections::{HashMap, TreeMap};
 
 /// Represents a json value
 #[deriving(Clone, Eq)]
@@ -255,11 +254,11 @@ pub enum Json {
     String(~str),
     Boolean(bool),
     List(List),
-    Object(~Object),
+    Object(Box<Object>),
     Null,
 }
 
-pub type List = ~[Json];
+pub type List = Vec<Json>;
 pub type Object = TreeMap<~str, Json>;
 
 /// The errors that can arise while parsing a JSON stream.
@@ -1399,7 +1398,6 @@ impl<T: Iterator<char>> Parser<T> {
                     'n' => res.push_char('\n'),
                     'r' => res.push_char('\r'),
                     't' => res.push_char('\t'),
-//<<<<<<< HEAD
                     'u' => match try!(self.decode_hex_escape()) {
                         0xDC00 .. 0xDFFF => return self.error(LoneLeadingSurrogateInHexEscape),
 
@@ -2213,7 +2211,7 @@ impl<A:ToJson,B:ToJson> ToJson for (A, B) {
     fn to_json(&self) -> Json {
         match *self {
           (ref a, ref b) => {
-            List(box [a.to_json(), b.to_json()])
+            List(vec![a.to_json(), b.to_json()])
           }
         }
     }
@@ -2223,7 +2221,7 @@ impl<A:ToJson,B:ToJson,C:ToJson> ToJson for (A, B, C) {
     fn to_json(&self) -> Json {
         match *self {
           (ref a, ref b, ref c) => {
-            List(box [a.to_json(), b.to_json(), c.to_json()])
+            List(vec![a.to_json(), b.to_json(), c.to_json()])
           }
         }
     }
@@ -2300,12 +2298,12 @@ mod tests {
     struct Inner {
         a: (),
         b: uint,
-        c: ~[~str],
+        c: Vec<~str>,
     }
 
     #[deriving(Eq, Encodable, Decodable, Show)]
     struct Outer {
-        inner: ~[Inner],
+        inner: Vec<Inner>,
     }
 
     fn mk_object(items: &[(~str, Json)]) -> Json {
@@ -2362,22 +2360,22 @@ mod tests {
 
     #[test]
     fn test_write_list() {
-        assert_eq!(List(~[]).to_str(), "[]".to_owned());
-        assert_eq!(List(~[]).to_pretty_str(), "[]".to_owned());
+        assert_eq!(List(vec![]).to_str(), "[]".to_owned());
+        assert_eq!(List(vec![]).to_pretty_str(), "[]".to_owned());
 
-        assert_eq!(List(~[Boolean(true)]).to_str(), "[true]".to_owned());
+        assert_eq!(List(vec![Boolean(true)]).to_str(), "[true]".to_owned());
         assert_eq!(
-            List(~[Boolean(true)]).to_pretty_str(),
+            List(vec![Boolean(true)]).to_pretty_str(),
             "\
             [\n  \
                 true\n\
             ]".to_owned()
         );
 
-        let long_test_list = List(box [
+        let long_test_list = List(vec![
             Boolean(false),
             Null,
-            List(box [String("foo\nbar".to_owned()), Number(3.5)])]);
+            List(vec![String("foo\nbar".to_owned()), Number(3.5)])]);
 
         assert_eq!(long_test_list.to_str(),
             "[false,null,[\"foo\\nbar\",3.5]]".to_owned());
@@ -2413,7 +2411,7 @@ mod tests {
         );
 
         let complex_obj = mk_object([
-                ("b".to_owned(), List(box [
+                ("b".to_owned(), List(vec![
                     mk_object([("c".to_owned(), String("\x0c\r".to_owned()))]),
                     mk_object([("d".to_owned(), String("".to_owned()))])
                 ]))
@@ -2445,7 +2443,7 @@ mod tests {
 
         let a = mk_object([
             ("a".to_owned(), Boolean(true)),
-            ("b".to_owned(), List(box [
+            ("b".to_owned(), List(vec![
                 mk_object([("c".to_owned(), String("\x0c\r".to_owned()))]),
                 mk_object([("d".to_owned(), String("".to_owned()))])
             ]))
@@ -2680,44 +2678,44 @@ mod tests {
         assert_eq!(from_str("[1,]"),  Err(SyntaxError(InvalidSyntax,        1, 4)));
         assert_eq!(from_str("[6 7]"), Err(SyntaxError(InvalidSyntax,        1, 4)));
 
-        assert_eq!(from_str("[]"), Ok(List(~[])));
-        assert_eq!(from_str("[ ]"), Ok(List(~[])));
-        assert_eq!(from_str("[true]"), Ok(List(~[Boolean(true)])));
-        assert_eq!(from_str("[ false ]"), Ok(List(~[Boolean(false)])));
-        assert_eq!(from_str("[null]"), Ok(List(~[Null])));
+        assert_eq!(from_str("[]"), Ok(List(vec![])));
+        assert_eq!(from_str("[ ]"), Ok(List(vec![])));
+        assert_eq!(from_str("[true]"), Ok(List(vec![Boolean(true)])));
+        assert_eq!(from_str("[ false ]"), Ok(List(vec![Boolean(false)])));
+        assert_eq!(from_str("[null]"), Ok(List(vec![Null])));
         assert_eq!(from_str("[3, 1]"),
-                     Ok(List(~[Number(3.0), Number(1.0)])));
+                     Ok(List(vec![Number(3.0), Number(1.0)])));
         assert_eq!(from_str("\n[3, 2]\n"),
-                     Ok(List(~[Number(3.0), Number(2.0)])));
+                     Ok(List(vec![Number(3.0), Number(2.0)])));
         assert_eq!(from_str("[2, [4, 1]]"),
-               Ok(List(~[Number(2.0), List(~[Number(4.0), Number(1.0)])])));
+               Ok(List(vec![Number(2.0), List(vec![Number(4.0), Number(1.0)])])));
     }
 
     #[test]
     fn test_decode_list() {
         let mut decoder = Decoder::new(from_str("[]").unwrap());
-        let v: ~[()] = Decodable::decode(&mut decoder).unwrap();
-        assert_eq!(v, ~[]);
+        let v: Vec<()> = Decodable::decode(&mut decoder).unwrap();
+        assert_eq!(v, vec![]);
 
         let mut decoder = Decoder::new(from_str("[null]").unwrap());
-        let v: ~[()] = Decodable::decode(&mut decoder).unwrap();
-        assert_eq!(v, ~[()]);
+        let v: Vec<()> = Decodable::decode(&mut decoder).unwrap();
+        assert_eq!(v, vec![()]);
 
         let mut decoder = Decoder::new(from_str("[true]").unwrap());
-        let v: ~[bool] = Decodable::decode(&mut decoder).unwrap();
-        assert_eq!(v, ~[true]);
+        let v: Vec<bool> = Decodable::decode(&mut decoder).unwrap();
+        assert_eq!(v, vec![true]);
 
         let mut decoder = Decoder::new(from_str("[true]").unwrap());
-        let v: ~[bool] = Decodable::decode(&mut decoder).unwrap();
-        assert_eq!(v, ~[true]);
+        let v: Vec<bool> = Decodable::decode(&mut decoder).unwrap();
+        assert_eq!(v, vec![true]);
 
         let mut decoder = Decoder::new(from_str("[3, 1]").unwrap());
-        let v: ~[int] = Decodable::decode(&mut decoder).unwrap();
-        assert_eq!(v, ~[3, 1]);
+        let v: Vec<int> = Decodable::decode(&mut decoder).unwrap();
+        assert_eq!(v, vec![3, 1]);
 
         let mut decoder = Decoder::new(from_str("[[3], [1, 2]]").unwrap());
-        let v: ~[~[uint]] = Decodable::decode(&mut decoder).unwrap();
-        assert_eq!(v, ~[~[3], ~[1, 2]]);
+        let v: Vec<Vec<uint>> = Decodable::decode(&mut decoder).unwrap();
+        assert_eq!(v, vec![vec![3], vec![1, 2]]);
     }
 
     #[test]
@@ -2752,7 +2750,7 @@ mod tests {
                       "{\"a\" : 1.0 ,\"b\": [ true ]}").unwrap(),
                   mk_object([
                       ("a".to_owned(), Number(1.0)),
-                      ("b".to_owned(), List(~[Boolean(true)]))
+                      ("b".to_owned(), List(vec![Boolean(true)]))
                   ]));
         assert_eq!(from_str(
                       "{".to_owned() +
@@ -2765,7 +2763,7 @@ mod tests {
                       "}").unwrap(),
                   mk_object([
                       ("a".to_owned(), Number(1.0)),
-                      ("b".to_owned(), List(~[
+                      ("b".to_owned(), List(vec![
                           Boolean(true),
                           String("foo\nbar".to_owned()),
                           mk_object([
@@ -2787,8 +2785,8 @@ mod tests {
         assert_eq!(
             v,
             Outer {
-                inner: ~[
-                    Inner { a: (), b: 2, c: ~["abc".to_owned(), "xyz".to_owned()] }
+                inner: vec![
+                    Inner { a: (), b: 2, c: vec!["abc".to_owned(), "xyz".to_owned()] }
                 ]
             }
         );
@@ -2839,7 +2837,7 @@ mod tests {
         x: f64,
         y: bool,
         z: ~str,
-        w: ~[DecodeStruct]
+        w: Vec<DecodeStruct>
     }
     #[deriving(Decodable)]
     enum DecodeEnum {
@@ -3100,6 +3098,7 @@ mod tests {
         }
     }
     #[test]
+    #[ignore(cfg(target_word_size = "32"))] // FIXME(#14064)
     fn test_read_object_streaming() {
         assert_eq!(last_event("{ "),      Error(SyntaxError(EOFWhileParsingObject, 1, 3)));
         assert_eq!(last_event("{1"),      Error(SyntaxError(KeyMustBeAString,      1, 2)));
@@ -3171,6 +3170,7 @@ mod tests {
         );
     }
     #[test]
+    #[ignore(cfg(target_word_size = "32"))] // FIXME(#14064)
     fn test_read_list_streaming() {
         assert_stream_equal(
             "[]",

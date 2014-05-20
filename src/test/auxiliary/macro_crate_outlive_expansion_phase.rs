@@ -15,7 +15,6 @@
 extern crate syntax;
 
 use std::any::Any;
-use std::local_data;
 use syntax::ast::Name;
 use syntax::ext::base::SyntaxExtension;
 
@@ -29,7 +28,7 @@ impl Drop for Foo {
 
 #[macro_registrar]
 pub fn registrar(_: |Name, SyntaxExtension|) {
-    local_data_key!(foo: ~Any:Send);
-    local_data::set(foo, ~Foo { foo: 10 } as ~Any:Send);
+    local_data_key!(foo: Box<Any:Send>);
+    foo.replace(Some(box Foo { foo: 10 } as Box<Any:Send>));
 }
 

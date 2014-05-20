@@ -398,8 +398,7 @@ pub mod llvm {
         pub fn LLVMIsPackedStruct(StructTy: TypeRef) -> Bool;
 
         /* Operations on array, pointer, and vector types (sequence types) */
-        pub fn LLVMArrayType(ElementType: TypeRef, ElementCount: c_uint)
-                             -> TypeRef;
+        pub fn LLVMRustArrayType(ElementType: TypeRef, ElementCount: u64) -> TypeRef;
         pub fn LLVMPointerType(ElementType: TypeRef, AddressSpace: c_uint)
                                -> TypeRef;
         pub fn LLVMVectorType(ElementType: TypeRef, ElementCount: c_uint)
@@ -1862,7 +1861,7 @@ pub fn SetFunctionAttribute(fn_: ValueRef, attr: Attribute) {
 /* Memory-managed object interface to type handles. */
 
 pub struct TypeNames {
-    named_types: RefCell<HashMap<~str, TypeRef>>,
+    named_types: RefCell<HashMap<StrBuf, TypeRef>>,
 }
 
 impl TypeNames {
@@ -1873,33 +1872,34 @@ impl TypeNames {
     }
 
     pub fn associate_type(&self, s: &str, t: &Type) {
-        assert!(self.named_types.borrow_mut().insert(s.to_owned(), t.to_ref()));
+        assert!(self.named_types.borrow_mut().insert(s.to_strbuf(),
+                                                     t.to_ref()));
     }
 
     pub fn find_type(&self, s: &str) -> Option<Type> {
         self.named_types.borrow().find_equiv(&s).map(|x| Type::from_ref(*x))
     }
 
-    pub fn type_to_str(&self, ty: Type) -> ~str {
+    pub fn type_to_str(&self, ty: Type) -> StrBuf {
         unsafe {
             let s = llvm::LLVMTypeToString(ty.to_ref());
             let ret = from_c_str(s);
             free(s as *mut c_void);
-            ret
+            ret.to_strbuf()
         }
     }
 
-    pub fn types_to_str(&self, tys: &[Type]) -> ~str {
-        let strs: Vec<~str> = tys.iter().map(|t| self.type_to_str(*t)).collect();
-        format!("[{}]", strs.connect(","))
+    pub fn types_to_str(&self, tys: &[Type]) -> StrBuf {
+        let strs: Vec<StrBuf> = tys.iter().map(|t| self.type_to_str(*t)).collect();
+        format_strbuf!("[{}]", strs.connect(",").to_strbuf())
     }
 
-    pub fn val_to_str(&self, val: ValueRef) -> ~str {
+    pub fn val_to_str(&self, val: ValueRef) -> StrBuf {
         unsafe {
             let s = llvm::LLVMValueToString(val);
             let ret = from_c_str(s);
             free(s as *mut c_void);
-            ret
+            ret.to_strbuf()
         }
     }
 }

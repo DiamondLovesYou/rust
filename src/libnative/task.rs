@@ -15,7 +15,7 @@
 //! in order to spawn new tasks and deschedule the current task.
 
 use std::any::Any;
-use std::cast;
+use std::mem;
 use std::rt::bookkeeping;
 use std::rt::env;
 use std::rt::local::Local;
@@ -31,7 +31,7 @@ use io;
 use task;
 
 /// Creates a new Task which is ready to execute as a 1:1 task.
-pub fn new(stack_bounds: (uint, uint)) -> ~Task {
+pub fn new(stack_bounds: (uint, uint)) -> Box<Task> {
     let mut task = box Task::new();
     let mut ops = ops();
     ops.stack_bounds = stack_bounds;
@@ -39,7 +39,7 @@ pub fn new(stack_bounds: (uint, uint)) -> ~Task {
     return task;
 }
 
-fn ops() -> ~Ops {
+fn ops() -> Box<Ops> {
     box Ops {
         lock: unsafe { NativeMutex::new() },
         awoken: false,
@@ -119,22 +119,22 @@ struct Ops {
 }
 
 impl rt::Runtime for Ops {
-    fn yield_now(~self, mut cur_task: ~Task) {
+    fn yield_now(~self, mut cur_task: Box<Task>) {
         // put the task back in TLS and then invoke the OS thread yield
         cur_task.put_runtime(self);
         Local::put(cur_task);
         Thread::yield_now();
     }
 
-    fn maybe_yield(~self, mut cur_task: ~Task) {
+    fn maybe_yield(~self, mut cur_task: Box<Task>) {
         // just put the task back in TLS, on OS threads we never need to
         // opportunistically yield b/c the OS will do that for us (preemption)
         cur_task.put_runtime(self);
         Local::put(cur_task);
     }
 
-    fn wrap(~self) -> ~Any {
-        self as ~Any
+    fn wrap(~self) -> Box<Any> {
+        self as Box<Any>
     }
 
     fn stack_bounds(&self) -> (uint, uint) { self.stack_bounds }
@@ -159,8 +159,8 @@ impl rt::Runtime for Ops {
     // from the wakeup thread back to this thread about the task pointer, and
     // there's really no need to. In order to get around this, we cast the task
     // to a `uint` which is then used at the end of this function to cast back
-    // to a `~Task` object. Naturally, this looks like it violates ownership
-    // semantics in that there may be two `~Task` objects.
+    // to a `Box<Task>` object. Naturally, this looks like it violates
+    // ownership semantics in that there may be two `Box<Task>` objects.
     //
     // The fun part is that the wakeup half of this implementation knows to
     // "forget" the task on the other end. This means that the awakening half of
@@ -169,7 +169,7 @@ impl rt::Runtime for Ops {
     // for both tasks because these operations are all done inside of a mutex.
     //
     // You'll also find that if blocking fails (the `f` function hands the
-    // BlockedTask back to us), we will `cast::forget` the handles. The
+    // BlockedTask back to us), we will `mem::forget` the handles. The
     // reasoning for this is the same logic as above in that the task silently
     // transfers ownership via the `uint`, not through normal compiler
     // semantics.
@@ -180,7 +180,7 @@ impl rt::Runtime for Ops {
     // `awoken` field which indicates whether we were actually woken up via some
     // invocation of `reawaken`. This flag is only ever accessed inside the
     // lock, so there's no need to make it atomic.
-    fn deschedule(mut ~self, times: uint, mut cur_task: ~Task,
+    fn deschedule(mut ~self, times: uint, mut cur_task: Box<Task>,
                   f: |BlockedTask| -> Result<(), BlockedTask>) {
         let me = &mut *self as *mut Ops;
         cur_task.put_runtime(self);
@@ -198,7 +198,7 @@ impl rt::Runtime for Ops {
                             guard.wait();
                         }
                     }
-                    Err(task) => { cast::forget(task.wake()); }
+                    Err(task) => { mem::forget(task.wake()); }
                 }
             } else {
                 let iter = task.make_selectable(times);
@@ -217,7 +217,7 @@ impl rt::Runtime for Ops {
                     Some(task) => {
                         match task.wake() {
                             Some(task) => {
-                                cast::forget(task);
+                                mem::forget(task);
                                 (*me).awoken = true;
                             }
                             None => {}
@@ -229,7 +229,7 @@ impl rt::Runtime for Ops {
                 }
             }
             // re-acquire ownership of the task
-            cur_task = cast::transmute(cur_task_dupe);
+            cur_task = mem::transmute(cur_task_dupe);
         }
 
         // put the task back in TLS, and everything is as it once was.
@@ -238,18 +238,21 @@ impl rt::Runtime for Ops {
 
     // See the comments on `deschedule` for why the task is forgotten here, and
     // why it's valid to do so.
-    fn reawaken(mut ~self, mut to_wake: ~Task) {
+    fn reawaken(mut ~self, mut to_wake: Box<Task>) {
         unsafe {
             let me = &mut *self as *mut Ops;
             to_wake.put_runtime(self);
-            cast::forget(to_wake);
+            mem::forget(to_wake);
             let guard = (*me).lock.lock();
             (*me).awoken = true;
             guard.signal();
         }
     }
 
-    fn spawn_sibling(~self, mut cur_task: ~Task, opts: TaskOpts, f: proc():Send) {
+    fn spawn_sibling(~self,
+                     mut cur_task: Box<Task>,
+                     opts: TaskOpts,
+                     f: proc():Send) {
         cur_task.put_runtime(self);
         Local::put(cur_task);
 
@@ -342,7 +345,7 @@ mod tests {
         let (tx, rx) = channel();
         spawn(proc() {
             spawn(proc() {
-                let mut task: ~Task = Local::take();
+                let mut task: Box<Task> = Local::take();
                 match task.maybe_take_runtime::<Ops>() {
                     Some(ops) => {
                         task.put_runtime(ops);

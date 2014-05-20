@@ -40,6 +40,9 @@ pub enum ObsoleteSyntax {
     ObsoleteManagedPattern,
     ObsoleteManagedString,
     ObsoleteManagedVec,
+    ObsoleteOwnedType,
+    ObsoleteOwnedExpr,
+    ObsoleteOwnedPattern,
 }
 
 pub trait ParserObsoleteMethods {
@@ -120,11 +123,23 @@ impl<'a> ParserObsoleteMethods for Parser<'a> {
             ),
             ObsoleteManagedString => (
                 "managed string",
-                "use `Rc<~str>` instead of a managed string"
+                "use `Rc<StrBuf>` instead of a managed string"
             ),
             ObsoleteManagedVec => (
                 "managed vector",
                 "use `Rc<~[T]>` instead of a managed vector"
+            ),
+            ObsoleteOwnedType => (
+                "`~` notation for owned pointers",
+                "use `Box<T>` in `std::owned` instead"
+            ),
+            ObsoleteOwnedExpr => (
+                "`~` notation for owned pointer allocation",
+                "use the `box` operator instead of `~`"
+            ),
+            ObsoleteOwnedPattern => (
+                "`~` notation for owned pointer patterns",
+                "use the `box` operator instead of `~`"
             ),
         };
 

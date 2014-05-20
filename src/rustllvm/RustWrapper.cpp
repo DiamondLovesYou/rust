@@ -855,3 +855,9 @@ extern "C" void
 LLVMRustStripDebugInfo(LLVMModuleRef M) {
   llvm::StripDebugInfo(*unwrap(M));
 }
+
+// LLVMArrayType function does not support 64-bit ElementCount
+extern "C" LLVMTypeRef
+LLVMRustArrayType(LLVMTypeRef ElementType, uint64_t ElementCount) {
+    return wrap(ArrayType::get(unwrap(ElementType), ElementCount));
+}

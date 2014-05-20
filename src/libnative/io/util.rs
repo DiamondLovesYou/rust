@@ -12,10 +12,17 @@ use libc;
 use std::io::IoResult;
 #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
 use std::{mem, ptr, io};
+use std::os;
 
 #[cfg(not(target_os = "nacl", target_libc = "newlib"))] use super::c;
 use super::net;
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))] use super::{retry, last_error};
+use super::{retry, last_error};
+
+#[deriving(Show)]
+pub enum SocketStatus {
+    Readable,
+    Writable,
+}
 
 #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
 pub fn timeout(desc: &'static str) -> io::IoError {
@@ -30,6 +37,41 @@ pub fn ms_to_timeval(ms: u64) -> libc::timeval {
     libc::timeval {
         tv_sec: (ms / 1000) as libc::time_t,
         tv_usec: ((ms % 1000) * 1000) as libc::suseconds_t,
+    }
+}
+
+#[cfg(unix)]
+pub fn wouldblock() -> bool {
+    let err = os::errno();
+    err == libc::EWOULDBLOCK as int || err == libc::EAGAIN as int
+}
+
+#[cfg(windows)]
+pub fn wouldblock() -> bool {
+    let err = os::errno();
+    err == libc::WSAEWOULDBLOCK as uint
+}
+
+#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(target_os = "nacl", target_libc = "glibc")]
+pub fn set_nonblocking(fd: net::sock_t, nb: bool) -> IoResult<()> {
+    let set = nb as libc::c_int;
+    super::mkerr_libc(retry(|| unsafe { c::ioctl(fd, c::FIONBIO, &set) }))
+}
+
+#[cfg(target_os = "nacl", not(target_libc = "glibc"))]
+pub fn set_nonblocking(_fd: net::sock_t, _nb: bool) -> IoResult<()> {
+    use super::unavailable;
+    Err(unavailable())
+}
+
+#[cfg(windows)]
+pub fn set_nonblocking(fd: net::sock_t, nb: bool) -> IoResult<()> {
+    let mut set = nb as libc::c_ulong;
+    if unsafe { c::ioctlsocket(fd, c::FIONBIO, &mut set) != 0 } {
+        Err(last_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -81,22 +123,6 @@ pub fn connect_timeout(fd: net::sock_t,
     return ret;
 
     #[cfg(unix)]
-    fn set_nonblocking(fd: net::sock_t, nb: bool) -> IoResult<()> {
-        let set = nb as libc::c_int;
-        super::mkerr_libc(retry(|| unsafe { c::ioctl(fd, c::FIONBIO, &set) }))
-    }
-
-    #[cfg(windows)]
-    fn set_nonblocking(fd: net::sock_t, nb: bool) -> IoResult<()> {
-        let mut set = nb as libc::c_ulong;
-        if unsafe { c::ioctlsocket(fd, c::FIONBIO, &mut set) != 0 } {
-            Err(last_error())
-        } else {
-            Ok(())
-        }
-    }
-
-    #[cfg(unix)]
     fn await(fd: net::sock_t, set: &mut c::fd_set,
              timeout: u64) -> libc::c_int {
         let start = ::io::timer::now();
@@ -117,36 +143,43 @@ pub fn connect_timeout(fd: net::sock_t,
     }
 }
 #[cfg(target_os = "nacl", target_libc = "newlib")]
-pub fn connect_timeout(_fd: net::sock_t,
-                       _addrp: *libc::sockaddr,
-                       _len: libc::socklen_t,
-                       _timeout_ms: u64) -> IoResult<()> {
+pub fn await(_fd: net::sock_t,
+             _deadline: Option<u64>,
+             _status: SocketStatus) -> IoResult<()> {
     // FIXME Technically, this could be impl-ed using a delayed callback in ppapi,
     // but for the merge its a bit out of scope.
     Err(super::unimpl())
 }
+
 #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
-pub fn accept_deadline(fd: net::sock_t, deadline: u64) -> IoResult<()> {
+pub fn await(fd: net::sock_t, deadline: Option<u64>,
+             status: SocketStatus) -> IoResult<()> {
     let mut set: c::fd_set = unsafe { mem::init() };
     c::fd_set(&mut set, fd);
+    let (read, write) = match status {
+        Readable => (&set as *_, ptr::null()),
+        Writable => (ptr::null(), &set as *_),
+    };
+    let mut tv: libc::timeval = unsafe { mem::init() };
 
     match retry(|| {
-        // If we're past the deadline, then pass a 0 timeout to select() so
-        // we can poll the status of the socket.
         let now = ::io::timer::now();
-        let ms = if deadline < now {0} else {deadline - now};
-        let tv = ms_to_timeval(ms);
+        let tvp = match deadline {
+            None => ptr::null(),
+            Some(deadline) => {
+                // If we're past the deadline, then pass a 0 timeout to
+                // select() so we can poll the status
+                let ms = if deadline < now {0} else {deadline - now};
+                tv = ms_to_timeval(ms);
+                &tv as *_
+            }
+        };
         let n = if cfg!(windows) {1} else {fd as libc::c_int + 1};
-        unsafe { c::select(n, &set, ptr::null(), ptr::null(), &tv) }
+        let r = unsafe { c::select(n, read, write, ptr::null(), tvp) };
+        r
     }) {
         -1 => Err(last_error()),
-        0 => Err(timeout("accept timed out")),
-        _ => return Ok(()),
+        0 => Err(timeout("timed out")),
+        _ => Ok(()),
     }
-}
-
-#[cfg(target_os = "nacl", target_libc = "newlib")]
-pub fn accept_deadline(_fd: net::sock_t, _deadline: u64) -> IoResult<()> {
-    // FIXME Ditto from above.
-    Err(super::unimpl())
 }

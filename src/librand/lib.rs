@@ -30,20 +30,27 @@ after generating 32 KiB of random data.
 
 # Cryptographic security
 
-An application that requires random numbers for cryptographic purposes
-should prefer `OSRng`, which reads randomness from one of the source
-that the operating system provides (e.g. `/dev/urandom` on
-Unixes). The other random number generators provided by this module
-are either known to be insecure (`XorShiftRng`), or are not verified
-to be secure (`IsaacRng`, `Isaac64Rng` and `StdRng`).
+An application that requires an entropy source for cryptographic purposes
+must use `OSRng`, which reads randomness from the source that the operating
+system provides (e.g. `/dev/urandom` on Unixes or `CryptGenRandom()` on Windows).
+The other random number generators provided by this module are not suitable
+for such purposes.
 
-*Note*: on Linux, `/dev/random` is more secure than `/dev/urandom`,
-but it is a blocking RNG, and will wait until it has determined that
-it has collected enough entropy to fulfill a request for random
-data. It can be used with the `Rng` trait provided by this module by
-opening the file and passing it to `reader::ReaderRng`. Since it
-blocks, `/dev/random` should only be used to retrieve small amounts of
-randomness.
+*Note*: many Unix systems provide `/dev/random` as well as `/dev/urandom`.
+This module uses `/dev/urandom` for the following reasons:
+
+-   On Linux, `/dev/random` may block if entropy pool is empty; `/dev/urandom` will not block.
+    This does not mean that `/dev/random` provides better output than
+    `/dev/urandom`; the kernel internally runs a cryptographically secure pseudorandom
+    number generator (CSPRNG) based on entropy pool for random number generation,
+    so the "quality" of `/dev/random` is not better than `/dev/urandom` in most cases.
+    However, this means that `/dev/urandom` can yield somewhat predictable randomness
+    if the entropy pool is very small, such as immediately after first booting.
+    If an application likely to be run soon after first booting, or on a system with very
+    few entropy sources, one should consider using `/dev/random` via `ReaderRng`.
+-   On some systems (e.g. FreeBSD, OpenBSD and Mac OS X) there is no difference
+    between the two sources. (Also note that, on some systems e.g. FreeBSD, both `/dev/random`
+    and `/dev/urandom` may block once if the CSPRNG has not seeded yet.)
 
 # Examples
 
@@ -57,12 +64,12 @@ if rng.gen() { // bool
 ```
 
 ```rust
-let tuple_ptr = rand::random::<~(f64, char)>();
+let tuple_ptr = rand::random::<Box<(f64, char)>>();
 println!("{:?}", tuple_ptr)
 ```
 */
 
-#![crate_id = "rand#0.11-pre"]
+#![crate_id = "rand#0.11.0-pre"]
 #![license = "MIT/ASL2"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
@@ -76,10 +83,9 @@ println!("{:?}", tuple_ptr)
 #[cfg(test)]
 #[phase(syntax, link)] extern crate log;
 
-use std::cast;
 use std::io::IoResult;
 use std::kinds::marker;
-use std::local_data;
+use std::mem;
 use std::strbuf::StrBuf;
 
 pub use isaac::{IsaacRng, Isaac64Rng};
@@ -455,11 +461,11 @@ impl<'a> SeedableRng<&'a [uint]> for StdRng {
     fn reseed(&mut self, seed: &'a [uint]) {
         // the internal RNG can just be seeded from the above
         // randomness.
-        self.rng.reseed(unsafe {cast::transmute(seed)})
+        self.rng.reseed(unsafe {mem::transmute(seed)})
     }
 
     fn from_seed(seed: &'a [uint]) -> StdRng {
-        StdRng { rng: SeedableRng::from_seed(unsafe {cast::transmute(seed)}) }
+        StdRng { rng: SeedableRng::from_seed(unsafe {mem::transmute(seed)}) }
     }
 }
 
@@ -548,7 +554,7 @@ impl XorShiftRng {
                 break;
             }
         }
-        let s: [u32, ..4] = unsafe { cast::transmute(s) };
+        let s: [u32, ..4] = unsafe { mem::transmute(s) };
         Ok(SeedableRng::from_seed(s))
     }
 }
@@ -569,7 +575,7 @@ type TaskRngInner = reseeding::ReseedingRng<StdRng, TaskRngReseeder>;
 /// The task-local RNG.
 pub struct TaskRng {
     // This points into TLS (specifically, it points to the endpoint
-    // of a ~ stored in TLS, to make it robust against TLS moving
+    // of a Box stored in TLS, to make it robust against TLS moving
     // things internally) and so this struct cannot be legally
     // transferred between tasks *and* it's unsafe to deallocate the
     // RNG other than when a task is finished.
@@ -580,9 +586,6 @@ pub struct TaskRng {
     rng: *mut TaskRngInner,
     marker: marker::NoSend,
 }
-
-// used to make space in TLS for a random number generator
-local_data_key!(TASK_RNG_KEY: ~TaskRngInner)
 
 /// Retrieve the lazily-initialized task-local random number
 /// generator, seeded by the system. Intended to be used in method
@@ -596,7 +599,10 @@ local_data_key!(TASK_RNG_KEY: ~TaskRngInner)
 /// the same sequence always. If absolute consistency is required,
 /// explicitly select an RNG, e.g. `IsaacRng` or `Isaac64Rng`.
 pub fn task_rng() -> TaskRng {
-    local_data::get_mut(TASK_RNG_KEY, |rng| match rng {
+    // used to make space in TLS for a random number generator
+    local_data_key!(TASK_RNG_KEY: Box<TaskRngInner>)
+
+    match TASK_RNG_KEY.get() {
         None => {
             let r = match StdRng::new() {
                 Ok(r) => r,
@@ -607,12 +613,15 @@ pub fn task_rng() -> TaskRng {
                                                         TaskRngReseeder);
             let ptr = &mut *rng as *mut TaskRngInner;
 
-            local_data::set(TASK_RNG_KEY, rng);
+            TASK_RNG_KEY.replace(Some(rng));
 
             TaskRng { rng: ptr, marker: marker::NoSend }
         }
-        Some(rng) => TaskRng { rng: &mut **rng, marker: marker::NoSend }
-    })
+        Some(rng) => TaskRng {
+            rng: &**rng as *_ as *mut TaskRngInner,
+            marker: marker::NoSend
+        }
+    }
 }
 
 impl Rng for TaskRng {
@@ -833,7 +842,9 @@ mod test {
         let _f : f32 = random();
         let _o : Option<Option<i8>> = random();
         let _many : ((),
-                     (~uint, @int, ~Option<~(@u32, ~(@bool,))>),
+                     (Box<uint>,
+                      @int,
+                      Box<Option<Box<(@u32, Box<(@bool,)>)>>>),
                      (u8, i8, u16, i16, u32, i32, u64, i64),
                      (f32, (f64, (f64,)))) = random();
     }

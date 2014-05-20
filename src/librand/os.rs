@@ -61,8 +61,8 @@ mod imp {
     extern crate libc;
 
     use Rng;
-    use std::cast;
     use std::io::{IoResult, IoError};
+    use std::mem;
     use std::os;
     use std::rt::stack;
     use self::libc::{c_ulong, DWORD, BYTE, LPCSTR, BOOL};
@@ -109,6 +109,7 @@ mod imp {
                                      CRYPT_VERIFYCONTEXT | CRYPT_SILENT)
             };
 
+            // FIXME #13259:
             // It turns out that if we can't acquire a context with the
             // NTE_BAD_SIGNATURE error code, the documentation states:
             //
@@ -156,12 +157,12 @@ mod imp {
         fn next_u32(&mut self) -> u32 {
             let mut v = [0u8, .. 4];
             self.fill_bytes(v);
-            unsafe { cast::transmute(v) }
+            unsafe { mem::transmute(v) }
         }
         fn next_u64(&mut self) -> u64 {
             let mut v = [0u8, .. 8];
             self.fill_bytes(v);
-            unsafe { cast::transmute(v) }
+            unsafe { mem::transmute(v) }
         }
         fn fill_bytes(&mut self, v: &mut [u8]) {
             let ret = unsafe {

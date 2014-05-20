@@ -38,10 +38,11 @@
 // http://www.1024cores.net/home/lock-free-algorithms
 //                         /queues/non-intrusive-mpsc-node-based-queue
 
-use cast;
 use kinds::Send;
+use mem;
 use ops::Drop;
 use option::{Option, None, Some};
+use owned::Box;
 use ptr::RawPtr;
 use sync::atomics::{AtomicPtr, Release, Acquire, AcqRel, Relaxed};
 
@@ -73,7 +74,7 @@ pub struct Queue<T> {
 
 impl<T> Node<T> {
     unsafe fn new(v: Option<T>) -> *mut Node<T> {
-        cast::transmute(box Node {
+        mem::transmute(box Node {
             next: AtomicPtr::new(0 as *mut Node<T>),
             value: v,
         })
@@ -120,7 +121,7 @@ impl<T: Send> Queue<T> {
                 assert!((*tail).value.is_none());
                 assert!((*next).value.is_some());
                 let ret = (*next).value.take_unwrap();
-                let _: ~Node<T> = cast::transmute(tail);
+                let _: Box<Node<T>> = mem::transmute(tail);
                 return Data(ret);
             }
 
@@ -145,7 +146,7 @@ impl<T: Send> Drop for Queue<T> {
             let mut cur = self.tail;
             while !cur.is_null() {
                 let next = (*cur).next.load(Relaxed);
-                let _: ~Node<T> = cast::transmute(cur);
+                let _: Box<Node<T>> = mem::transmute(cur);
                 cur = next;
             }
         }

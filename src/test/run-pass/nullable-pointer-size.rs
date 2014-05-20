@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(macro_rules)]
+#![feature(macro_rules, managed_boxes)]
 
 use std::mem;
 
@@ -38,7 +38,7 @@ macro_rules! check_type {
 
 pub fn main() {
     check_type!(&'static int);
-    check_type!(~int);
+    check_type!(Box<int>);
     check_type!(@int);
     check_type!(~str);
     check_type!(extern fn());

@@ -15,7 +15,7 @@
 use back::link;
 use back::svh::Svh;
 use driver::session::Session;
-use driver::{driver, session};
+use driver::{driver, config};
 use metadata::cstore;
 use metadata::cstore::CStore;
 use metadata::decoder;
@@ -120,8 +120,11 @@ fn visit_view_item(e: &mut Env, i: &ast::ViewItem) {
 
     match extract_crate_info(e, i) {
         Some(info) => {
-            let (cnum, _, _) = resolve_crate(e, &None, info.ident,
-                                             &info.crate_id, None,
+            let (cnum, _, _) = resolve_crate(e,
+                                             &None,
+                                             info.ident.as_slice(),
+                                             &info.crate_id,
+                                             None,
                                              i.span);
             e.sess.cstore.add_extern_mod_stmt_cnum(info.id, cnum);
         }
@@ -130,7 +133,7 @@ fn visit_view_item(e: &mut Env, i: &ast::ViewItem) {
 }
 
 struct CrateInfo {
-    ident: ~str,
+    ident: StrBuf,
     crate_id: CrateId,
     id: ast::NodeId,
     should_link: bool,
@@ -156,7 +159,7 @@ fn extract_crate_info(e: &Env, i: &ast::ViewItem) -> Option<CrateInfo> {
                 None => from_str(ident.get().to_str()).unwrap()
             };
             Some(CrateInfo {
-                ident: ident.get().to_str(),
+                ident: ident.get().to_strbuf(),
                 crate_id: crate_id,
                 id: id,
                 should_link: should_link(i),
@@ -237,7 +240,9 @@ fn visit_item(e: &Env, i: &ast::Item) {
                         if n.get().is_empty() {
                             e.sess.span_err(m.span, "#[link(name = \"\")] given with empty name");
                         } else {
-                            e.sess.cstore.add_used_library(n.get().to_owned(), kind);
+                            e.sess
+                             .cstore
+                             .add_used_library(n.get().to_strbuf(), kind);
                         }
                     }
                     None => {}
@@ -279,7 +284,7 @@ fn register_crate<'a>(e: &mut Env,
     // Stash paths for top-most crate locally if necessary.
     let crate_paths = if root.is_none() {
         Some(CratePaths {
-            ident: ident.to_owned(),
+            ident: ident.to_strbuf(),
             dylib: lib.dylib.clone(),
             rlib:  lib.rlib.clone(),
         })
@@ -294,7 +299,7 @@ fn register_crate<'a>(e: &mut Env,
     let loader::Library{ dylib, rlib, metadata } = lib;
 
     let cmeta = Rc::new( cstore::crate_metadata {
-        name: crate_id.name.to_owned(),
+        name: crate_id.name.to_strbuf(),
         data: metadata,
         cnum_map: cnum_map,
         cnum: cnum,
@@ -328,10 +333,10 @@ fn resolve_crate<'a>(e: &mut Env,
                 span: span,
                 ident: ident,
                 crate_id: crate_id,
-                id_hash: id_hash,
+                id_hash: id_hash.as_slice(),
                 hash: hash.map(|a| &*a),
                 filesearch: e.sess.target_filesearch(),
-                os: session::sess_os_to_meta_os(e.sess.targ_cfg.os),
+                os: config::cfg_os_to_meta_os(e.sess.targ_cfg.os),
                 triple: e.sess.targ_cfg.target_strs.target_triple.as_slice(),
                 root: root,
                 rejected_via_hash: vec!(),
@@ -387,17 +392,17 @@ impl<'a> CrateLoader for Loader<'a> {
         let is_cross = target_triple != driver::host_triple();
         let mut should_link = info.should_link && !is_cross;
         let id_hash = link::crate_id_hash(&info.crate_id);
-        let os = driver::get_os(driver::host_triple()).unwrap();
+        let os = config::get_os(driver::host_triple()).unwrap();
         let mut load_ctxt = loader::Context {
             sess: self.env.sess,
             span: krate.span,
-            ident: info.ident,
+            ident: info.ident.as_slice(),
             crate_id: &info.crate_id,
-            id_hash: id_hash,
+            id_hash: id_hash.as_slice(),
             hash: None,
             filesearch: self.env.sess.host_filesearch(),
             triple: driver::host_triple(),
-            os: session::sess_os_to_meta_os(os),
+            os: config::cfg_os_to_meta_os(os),
             root: &None,
             rejected_via_hash: vec!(),
             rejected_via_triple: vec!(),
@@ -408,7 +413,7 @@ impl<'a> CrateLoader for Loader<'a> {
                 // try loading from target crates (only valid if there are
                 // no syntax extensions)
                 load_ctxt.triple = target_triple;
-                load_ctxt.os = session::sess_os_to_meta_os(self.env.sess.targ_cfg.os);
+                load_ctxt.os = config::cfg_os_to_meta_os(self.env.sess.targ_cfg.os);
                 load_ctxt.filesearch = self.env.sess.target_filesearch();
                 let lib = load_ctxt.load_library_crate();
                 if decoder::get_macro_registrar_fn(lib.metadata.as_slice()).is_some() {
@@ -428,11 +433,11 @@ impl<'a> CrateLoader for Loader<'a> {
         };
         let macros = decoder::get_exported_macros(library.metadata.as_slice());
         let registrar = decoder::get_macro_registrar_fn(library.metadata.as_slice()).map(|id| {
-            decoder::get_symbol(library.metadata.as_slice(), id)
+            decoder::get_symbol(library.metadata.as_slice(), id).to_strbuf()
         });
         let mc = MacroCrate {
             lib: library.dylib.clone(),
-            macros: macros.move_iter().collect(),
+            macros: macros.move_iter().map(|x| x.to_strbuf()).collect(),
             registrar_symbol: registrar,
         };
         if should_link {

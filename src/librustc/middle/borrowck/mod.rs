@@ -49,15 +49,8 @@ pub mod gather_loans;
 
 pub mod move_data;
 
+#[deriving(Clone)]
 pub struct LoanDataFlowOperator;
-
-/// FIXME(pcwalton): Should just be #[deriving(Clone)], but that doesn't work
-/// yet on unit structs.
-impl Clone for LoanDataFlowOperator {
-    fn clone(&self) -> LoanDataFlowOperator {
-        LoanDataFlowOperator
-    }
-}
 
 pub type LoanDataFlow<'a> = DataFlowContext<'a, LoanDataFlowOperator>;
 
@@ -98,10 +91,10 @@ pub fn check_crate(tcx: &ty::ctxt,
                  make_stat(&bccx, bccx.stats.stable_paths.get()));
     }
 
-    fn make_stat(bccx: &BorrowckCtxt, stat: uint) -> ~str {
+    fn make_stat(bccx: &BorrowckCtxt, stat: uint) -> StrBuf {
         let stat_f = stat as f64;
         let total = bccx.stats.guaranteed_paths.get() as f64;
-        format!("{} ({:.0f}%)", stat  , stat_f * 100.0 / total)
+        format_strbuf!("{} ({:.0f}%)", stat  , stat_f * 100.0 / total)
     }
 }
 
@@ -151,7 +144,7 @@ fn borrowck_fn(this: &mut BorrowckCtxt,
     check_loans::check_loans(this, &loan_dfcx, flowed_moves,
                              all_loans.as_slice(), body);
 
-    visit::walk_fn(this, fk, decl, body, sp, id, ());
+    visit::walk_fn(this, fk, decl, body, sp, ());
 }
 
 // ----------------------------------------------------------------------
@@ -303,8 +296,8 @@ impl BitAnd<RestrictionSet,RestrictionSet> for RestrictionSet {
 }
 
 impl Repr for RestrictionSet {
-    fn repr(&self, _tcx: &ty::ctxt) -> ~str {
-        format!("RestrictionSet(0x{:x})", self.bits as uint)
+    fn repr(&self, _tcx: &ty::ctxt) -> StrBuf {
+        format_strbuf!("RestrictionSet(0x{:x})", self.bits as uint)
     }
 }
 
@@ -447,7 +440,7 @@ impl<'a> BorrowckCtxt<'a> {
     pub fn report(&self, err: BckError) {
         self.span_err(
             err.span,
-            self.bckerr_to_str(&err));
+            self.bckerr_to_str(&err).as_slice());
         self.note_and_explain_bckerr(err);
     }
 
@@ -533,7 +526,10 @@ impl<'a> BorrowckCtxt<'a> {
         fn move_suggestion(tcx: &ty::ctxt, ty: ty::t, default_msg: &'static str)
                           -> &'static str {
             match ty::get(ty).sty {
-                ty::ty_closure(~ty::ClosureTy { store: ty::RegionTraitStore(..), .. }) =>
+                ty::ty_closure(box ty::ClosureTy {
+                        store: ty::RegionTraitStore(..),
+                        ..
+                    }) =>
                     "a non-copyable stack closure (capture it in a new closure, \
                      e.g. `|x| f(x)`, to override)",
                 _ if ty::type_moves_by_default(tcx, ty) =>
@@ -569,28 +565,32 @@ impl<'a> BorrowckCtxt<'a> {
         self.tcx.sess.span_end_note(s, m);
     }
 
-    pub fn bckerr_to_str(&self, err: &BckError) -> ~str {
+    pub fn bckerr_to_str(&self, err: &BckError) -> StrBuf {
         match err.code {
             err_mutbl => {
                 let descr = match opt_loan_path(&err.cmt) {
-                    None => format!("{} {}",
-                                    err.cmt.mutbl.to_user_str(),
-                                    self.cmt_to_str(&*err.cmt)),
-                    Some(lp) => format!("{} {} `{}`",
-                                        err.cmt.mutbl.to_user_str(),
-                                        self.cmt_to_str(&*err.cmt),
-                                        self.loan_path_to_str(&*lp)),
+                    None => {
+                        format_strbuf!("{} {}",
+                                       err.cmt.mutbl.to_user_str(),
+                                       self.cmt_to_str(&*err.cmt))
+                    }
+                    Some(lp) => {
+                        format_strbuf!("{} {} `{}`",
+                                       err.cmt.mutbl.to_user_str(),
+                                       self.cmt_to_str(&*err.cmt),
+                                       self.loan_path_to_str(&*lp))
+                    }
                 };
 
                 match err.cause {
                     euv::ClosureCapture(_) => {
-                        format!("closure cannot assign to {}", descr)
+                        format_strbuf!("closure cannot assign to {}", descr)
                     }
                     euv::OverloadedOperator |
                     euv::AddrOf |
                     euv::RefBinding |
                     euv::AutoRef => {
-                        format!("cannot borrow {} as mutable", descr)
+                        format_strbuf!("cannot borrow {} as mutable", descr)
                     }
                     euv::ClosureInvocation => {
                         self.tcx.sess.span_bug(err.span,
@@ -600,20 +600,24 @@ impl<'a> BorrowckCtxt<'a> {
             }
             err_out_of_scope(..) => {
                 let msg = match opt_loan_path(&err.cmt) {
-                    None => format!("borrowed value"),
-                    Some(lp) => format!("`{}`", self.loan_path_to_str(&*lp)),
+                    None => "borrowed value".to_strbuf(),
+                    Some(lp) => {
+                        format_strbuf!("`{}`", self.loan_path_to_str(&*lp))
+                    }
                 };
-                format!("{} does not live long enough", msg)
+                format_strbuf!("{} does not live long enough", msg)
             }
             err_borrowed_pointer_too_short(..) => {
                 let descr = match opt_loan_path(&err.cmt) {
-                    Some(lp) => format!("`{}`", self.loan_path_to_str(&*lp)),
+                    Some(lp) => {
+                        format_strbuf!("`{}`", self.loan_path_to_str(&*lp))
+                    }
                     None => self.cmt_to_str(&*err.cmt),
                 };
 
-                format!("lifetime of {} is too short to guarantee \
-                        its contents can be safely reborrowed",
-                        descr)
+                format_strbuf!("lifetime of {} is too short to guarantee \
+                                its contents can be safely reborrowed",
+                               descr)
             }
         }
     }
@@ -652,7 +656,8 @@ impl<'a> BorrowckCtxt<'a> {
             mc::AliasableOther => {
                 self.tcx.sess.span_err(
                     span,
-                    format!("{} in an aliasable location", prefix));
+                    format!("{} in an aliasable location",
+                             prefix));
             }
             mc::AliasableStatic(..) |
             mc::AliasableStaticMut(..) => {
@@ -693,7 +698,9 @@ impl<'a> BorrowckCtxt<'a> {
 
             err_borrowed_pointer_too_short(loan_scope, ptr_scope, _) => {
                 let descr = match opt_loan_path(&err.cmt) {
-                    Some(lp) => format!("`{}`", self.loan_path_to_str(&*lp)),
+                    Some(lp) => {
+                        format_strbuf!("`{}`", self.loan_path_to_str(&*lp))
+                    }
                     None => self.cmt_to_str(&*err.cmt),
                 };
                 note_and_explain_region(
@@ -761,13 +768,13 @@ impl<'a> BorrowckCtxt<'a> {
         }
     }
 
-    pub fn loan_path_to_str(&self, loan_path: &LoanPath) -> ~str {
+    pub fn loan_path_to_str(&self, loan_path: &LoanPath) -> StrBuf {
         let mut result = StrBuf::new();
         self.append_loan_path_to_str(loan_path, &mut result);
-        result.into_owned()
+        result
     }
 
-    pub fn cmt_to_str(&self, cmt: &mc::cmt_) -> ~str {
+    pub fn cmt_to_str(&self, cmt: &mc::cmt_) -> StrBuf {
         self.mc().cmt_to_str(cmt)
     }
 }
@@ -785,40 +792,41 @@ impl DataFlowOperator for LoanDataFlowOperator {
 }
 
 impl Repr for Loan {
-    fn repr(&self, tcx: &ty::ctxt) -> ~str {
-        format!("Loan_{:?}({}, {:?}, {:?}-{:?}, {})",
-             self.index,
-             self.loan_path.repr(tcx),
-             self.kind,
-             self.gen_scope,
-             self.kill_scope,
-             self.restrictions.repr(tcx))
+    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+        (format!("Loan_{:?}({}, {:?}, {:?}-{:?}, {})",
+                 self.index,
+                 self.loan_path.repr(tcx),
+                 self.kind,
+                 self.gen_scope,
+                 self.kill_scope,
+                 self.restrictions.repr(tcx))).to_strbuf()
     }
 }
 
 impl Repr for Restriction {
-    fn repr(&self, tcx: &ty::ctxt) -> ~str {
-        format!("Restriction({}, {:x})",
-             self.loan_path.repr(tcx),
-             self.set.bits as uint)
+    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+        (format!("Restriction({}, {:x})",
+                 self.loan_path.repr(tcx),
+                 self.set.bits as uint)).to_strbuf()
     }
 }
 
 impl Repr for LoanPath {
-    fn repr(&self, tcx: &ty::ctxt) -> ~str {
+    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
         match self {
             &LpVar(id) => {
-                format!("$({})", tcx.map.node_to_str(id))
+                (format!("$({})", tcx.map.node_to_str(id))).to_strbuf()
             }
 
             &LpExtend(ref lp, _, LpDeref(_)) => {
-                format!("{}.*", lp.repr(tcx))
+                (format!("{}.*", lp.repr(tcx))).to_strbuf()
             }
 
             &LpExtend(ref lp, _, LpInterior(ref interior)) => {
-                format!("{}.{}", lp.repr(tcx), interior.repr(tcx))
+                (format!("{}.{}",
+                         lp.repr(tcx),
+                         interior.repr(tcx))).to_strbuf()
             }
         }
     }
 }
-

@@ -24,11 +24,11 @@ use std::cmp;
 use std::strbuf::StrBuf;
 use std::u32;
 
-pub fn path_name_i(idents: &[Ident]) -> ~str {
+pub fn path_name_i(idents: &[Ident]) -> StrBuf {
     // FIXME: Bad copies (#2543 -- same for everything else that says "bad")
     idents.iter().map(|i| {
-        token::get_ident(*i).get().to_str()
-    }).collect::<Vec<~str>>().connect("::")
+        token::get_ident(*i).get().to_strbuf()
+    }).collect::<Vec<StrBuf>>().connect("::").to_strbuf()
 }
 
 // totally scary function: ignores all but the last element, should have
@@ -121,7 +121,7 @@ pub fn is_shift_binop(b: BinOp) -> bool {
 pub fn unop_to_str(op: UnOp) -> &'static str {
     match op {
       UnBox => "@",
-      UnUniq => "~",
+      UnUniq => "box() ",
       UnDeref => "*",
       UnNot => "!",
       UnNeg => "-",
@@ -132,11 +132,19 @@ pub fn is_path(e: @Expr) -> bool {
     return match e.node { ExprPath(_) => true, _ => false };
 }
 
+pub enum SuffixMode {
+    ForceSuffix,
+    AutoSuffix,
+}
+
 // Get a string representation of a signed int type, with its value.
 // We want to avoid "45int" and "-3int" in favor of "45" and "-3"
-pub fn int_ty_to_str(t: IntTy, val: Option<i64>) -> ~str {
+pub fn int_ty_to_str(t: IntTy, val: Option<i64>, mode: SuffixMode) -> StrBuf {
     let s = match t {
-        TyI if val.is_some() => "",
+        TyI if val.is_some() => match mode {
+            AutoSuffix => "",
+            ForceSuffix => "i",
+        },
         TyI => "int",
         TyI8 => "i8",
         TyI16 => "i16",
@@ -145,8 +153,11 @@ pub fn int_ty_to_str(t: IntTy, val: Option<i64>) -> ~str {
     };
 
     match val {
-        Some(n) => format!("{}{}", n, s),
-        None => s.to_owned()
+        // cast to a u64 so we can correctly print INT64_MIN. All integral types
+        // are parsed as u64, so we wouldn't want to print an extra negative
+        // sign.
+        Some(n) => format!("{}{}", n as u64, s).to_strbuf(),
+        None => s.to_strbuf()
     }
 }
 
@@ -161,9 +172,12 @@ pub fn int_ty_max(t: IntTy) -> u64 {
 
 // Get a string representation of an unsigned int type, with its value.
 // We want to avoid "42uint" in favor of "42u"
-pub fn uint_ty_to_str(t: UintTy, val: Option<u64>) -> ~str {
+pub fn uint_ty_to_str(t: UintTy, val: Option<u64>, mode: SuffixMode) -> StrBuf {
     let s = match t {
-        TyU if val.is_some() => "u",
+        TyU if val.is_some() => match mode {
+            AutoSuffix => "",
+            ForceSuffix => "u",
+        },
         TyU => "uint",
         TyU8 => "u8",
         TyU16 => "u16",
@@ -172,8 +186,8 @@ pub fn uint_ty_to_str(t: UintTy, val: Option<u64>) -> ~str {
     };
 
     match val {
-        Some(n) => format!("{}{}", n, s),
-        None => s.to_owned()
+        Some(n) => format!("{}{}", n, s).to_strbuf(),
+        None => s.to_strbuf()
     }
 }
 
@@ -186,8 +200,12 @@ pub fn uint_ty_max(t: UintTy) -> u64 {
     }
 }
 
-pub fn float_ty_to_str(t: FloatTy) -> ~str {
-    match t { TyF32 => "f32".to_owned(), TyF64 => "f64".to_owned(), TyF128 => "f128".to_owned() }
+pub fn float_ty_to_str(t: FloatTy) -> StrBuf {
+    match t {
+        TyF32 => "f32".to_strbuf(),
+        TyF64 => "f64".to_strbuf(),
+        TyF128 => "f128".to_strbuf(),
+    }
 }
 
 pub fn is_call_expr(e: @Expr) -> bool {
@@ -252,11 +270,11 @@ pub fn unguarded_pat(a: &Arm) -> Option<Vec<@Pat> > {
 /// listed as `__extensions__::method_name::hash`, with no indication
 /// of the type).
 pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: &Ty) -> Ident {
-    let mut pretty = StrBuf::from_owned_str(pprust::ty_to_str(ty));
+    let mut pretty = pprust::ty_to_str(ty);
     match *trait_ref {
         Some(ref trait_ref) => {
             pretty.push_char('.');
-            pretty.push_str(pprust::path_to_str(&trait_ref.path));
+            pretty.push_str(pprust::path_to_str(&trait_ref.path).as_slice());
         }
         None => {}
     }
@@ -528,7 +546,6 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
                         function_declaration,
                         block,
                         span,
-                        node_id,
                         env);
 
         if !self.pass_through_items {
@@ -546,13 +563,13 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
 
     fn visit_struct_def(&mut self,
                         struct_def: &StructDef,
-                        ident: ast::Ident,
-                        generics: &ast::Generics,
+                        _: ast::Ident,
+                        _: &ast::Generics,
                         id: NodeId,
                         _: ()) {
         self.operation.visit_id(id);
         struct_def.ctor_id.map(|ctor_id| self.operation.visit_id(ctor_id));
-        visit::walk_struct_def(self, struct_def, ident, generics, id, ());
+        visit::walk_struct_def(self, struct_def, ());
     }
 
     fn visit_trait_method(&mut self, tm: &ast::TraitMethod, _: ()) {

@@ -744,7 +744,7 @@ impl<'a> ConstraintContext<'a> {
                                                  substs, variance);
             }
 
-            ty::ty_trait(~ty::TyTrait { def_id, ref substs, .. }) => {
+            ty::ty_trait(box ty::TyTrait { def_id, ref substs, .. }) => {
                 let trait_def = ty::lookup_trait_def(self.tcx(), def_id);
                 self.add_constraints_from_substs(def_id, &trait_def.generics,
                                                  substs, variance);
@@ -771,11 +771,15 @@ impl<'a> ConstraintContext<'a> {
             }
 
             ty::ty_bare_fn(ty::BareFnTy { ref sig, .. }) |
-            ty::ty_closure(~ty::ClosureTy { ref sig, store: ty::UniqTraitStore, .. }) => {
+            ty::ty_closure(box ty::ClosureTy {
+                    ref sig,
+                    store: ty::UniqTraitStore,
+                    ..
+                }) => {
                 self.add_constraints_from_sig(sig, variance);
             }
 
-            ty::ty_closure(~ty::ClosureTy { ref sig,
+            ty::ty_closure(box ty::ClosureTy { ref sig,
                     store: ty::RegionTraitStore(region, _), .. }) => {
                 let contra = self.contravariant(variance);
                 self.add_constraints_from_region(region, contra);
@@ -1000,7 +1004,7 @@ impl<'a> SolveContext<'a> {
             // attribute and report an error with various results if found.
             if ty::has_attr(tcx, item_def_id, "rustc_variance") {
                 let found = item_variances.repr(tcx);
-                tcx.sess.span_err(tcx.map.span(item_id), found);
+                tcx.sess.span_err(tcx.map.span(item_id), found.as_slice());
             }
 
             let newly_added = tcx.item_variance_map.borrow_mut()

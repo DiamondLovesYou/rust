@@ -15,13 +15,14 @@
 // makes all other generics or inline functions that it references
 // reachable as well.
 
-use driver::session;
+use driver::config;
 use middle::ty;
 use middle::typeck;
 use middle::privacy;
 use util::nodemap::NodeSet;
 
 use collections::HashSet;
+use syntax::abi;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util::{def_id_of_def, is_local};
@@ -161,7 +162,7 @@ impl<'a> ReachableContext<'a> {
     // Creates a new reachability computation context.
     fn new(tcx: &'a ty::ctxt) -> ReachableContext<'a> {
         let any_library = tcx.sess.crate_types.borrow().iter().any(|ty| {
-            *ty != session::CrateTypeExecutable
+            *ty != config::CrateTypeExecutable
         });
         ReachableContext {
             tcx: tcx,
@@ -250,8 +251,10 @@ impl<'a> ReachableContext<'a> {
             match *node {
                 ast_map::NodeItem(item) => {
                     match item.node {
-                        ast::ItemFn(_, ast::ExternFn, _, _, _) => {
-                            self.reachable_symbols.insert(search_item);
+                        ast::ItemFn(_, _, abi, _, _) => {
+                            if abi != abi::Rust {
+                                self.reachable_symbols.insert(search_item);
+                            }
                         }
                         _ => {}
                     }

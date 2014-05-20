@@ -76,18 +76,16 @@ Some examples of obvious things you might want to do
 
     let path = Path::new("message.txt");
     let mut file = BufferedReader::new(File::open(&path));
-    let lines: ~[~str] = file.lines().map(|x| x.unwrap()).collect();
+    let lines: Vec<~str> = file.lines().map(|x| x.unwrap()).collect();
     ```
 
 * Make a simple TCP client connection and request
 
     ```rust,should_fail
     # #![allow(unused_must_use)]
-    use std::io::net::ip::SocketAddr;
     use std::io::net::tcp::TcpStream;
 
-    let addr = from_str::<SocketAddr>("127.0.0.1:8080").unwrap();
-    let mut socket = TcpStream::connect(addr).unwrap();
+    let mut socket = TcpStream::connect("127.0.0.1", 8080).unwrap();
     socket.write(bytes!("GET / HTTP/1.0\n\n"));
     let response = socket.read_to_end();
     ```
@@ -99,11 +97,9 @@ Some examples of obvious things you might want to do
     # fn foo() {
     # #![allow(dead_code)]
     use std::io::{TcpListener, TcpStream};
-    use std::io::net::ip::{Ipv4Addr, SocketAddr};
     use std::io::{Acceptor, Listener};
 
-    let addr = SocketAddr { ip: Ipv4Addr(127, 0, 0, 1), port: 80 };
-    let listener = TcpListener::bind(addr);
+    let listener = TcpListener::bind("127.0.0.1", 80);
 
     // bind the listener to the specified address
     let mut acceptor = listener.listen();
@@ -217,23 +213,22 @@ responding to errors that may occur while attempting to read the numbers.
 
 #![deny(unused_must_use)]
 
-use cast;
 use char::Char;
 use container::Container;
 use fmt;
 use int;
 use iter::Iterator;
 use libc;
-use ops::{BitOr, BitAnd, Sub};
-use os;
+use mem::transmute;
+use ops::{BitOr, BitAnd, Sub, Not};
 use option::{Option, Some, None};
-use path::Path;
+use os;
+use owned::Box;
 use result::{Ok, Err, Result};
-use str::StrSlice;
+use slice::{Vector, MutableVector, ImmutableVector};
+use str::{StrSlice, StrAllocating};
 use str;
 use uint;
-use unstable::finally::try_finally;
-use slice::{Vector, MutableVector, ImmutableVector};
 use vec::Vec;
 
 // Reexports
@@ -325,6 +320,8 @@ impl IoError {
                 libc::WSAEADDRNOTAVAIL => (ConnectionRefused, "address not available"),
                 libc::WSAEADDRINUSE => (ConnectionRefused, "address in use"),
                 libc::ERROR_BROKEN_PIPE => (EndOfFile, "the pipe has ended"),
+                libc::ERROR_OPERATION_ABORTED =>
+                    (TimedOut, "operation timed out"),
 
                 // libuv maps this error code to EISDIR. we do too. if it is found
                 // to be incorrect, we can add in some more machinery to only
@@ -433,7 +430,22 @@ pub enum IoErrorKind {
     InvalidInput,
     /// The I/O operation's timeout expired, causing it to be canceled.
     TimedOut,
+    /// This write operation failed to write all of its data.
+    ///
+    /// Normally the write() method on a Writer guarantees that all of its data
+    /// has been written, but some operations may be terminated after only
+    /// partially writing some data. An example of this is a timed out write
+    /// which successfully wrote a known number of bytes, but bailed out after
+    /// doing so.
+    ///
+    /// The payload contained as part of this variant is the number of bytes
+    /// which are known to have been successfully written.
+    ShortWrite(uint),
+    /// The Reader returned 0 bytes from `read()` too many times.
+    NoProgress,
 }
+
+static NO_PROGRESS_LIMIT: uint = 1000;
 
 /// A trait for objects which are byte-oriented streams. Readers are defined by
 /// one method, `read`. This function will block until data is available,
@@ -447,7 +459,7 @@ pub trait Reader {
     // Only method which need to get implemented for this trait
 
     /// Read bytes, up to the length of `buf` and place them in `buf`.
-    /// Returns the number of bytes read. The number of bytes read my
+    /// Returns the number of bytes read. The number of bytes read may
     /// be less than the number requested, even 0. Returns `Err` on EOF.
     ///
     /// # Error
@@ -456,74 +468,113 @@ pub trait Reader {
     /// `Err(IoError)`. Note that end-of-file is considered an error, and can be
     /// inspected for in the error's `kind` field. Also note that reading 0
     /// bytes is not considered an error in all circumstances
+    ///
+    /// # Implementaton Note
+    ///
+    /// When implementing this method on a new Reader, you are strongly encouraged
+    /// not to return 0 if you can avoid it.
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint>;
 
     // Convenient helper methods based on the above methods
 
-    /// Reads a single byte. Returns `Err` on EOF.
-    fn read_byte(&mut self) -> IoResult<u8> {
-        let mut buf = [0];
-        loop {
-            match self.read(buf) {
-                Ok(0) => {}
-                Ok(1) => return Ok(buf[0]),
-                Ok(_) => unreachable!(),
-                Err(e) => return Err(e)
-            }
-        }
-    }
-
-    /// Fills the provided slice with bytes from this reader
+    /// Reads at least `min` bytes and places them in `buf`.
+    /// Returns the number of bytes read.
     ///
-    /// This will continue to call `read` until the slice has been completely
-    /// filled with bytes.
+    /// This will continue to call `read` until at least `min` bytes have been
+    /// read. If `read` returns 0 too many times, `NoProgress` will be
+    /// returned.
     ///
     /// # Error
     ///
     /// If an error occurs at any point, that error is returned, and no further
     /// bytes are read.
-    fn fill(&mut self, buf: &mut [u8]) -> IoResult<()> {
-        let mut read = 0;
-        while read < buf.len() {
-            read += try!(self.read(buf.mut_slice_from(read)));
+    fn read_at_least(&mut self, min: uint, buf: &mut [u8]) -> IoResult<uint> {
+        if min > buf.len() {
+            return Err(IoError { detail: Some("the buffer is too short".to_owned()),
+                                 ..standard_error(InvalidInput) });
         }
-        Ok(())
+        let mut read = 0;
+        while read < min {
+            let mut zeroes = 0;
+            loop {
+                match self.read(buf.mut_slice_from(read)) {
+                    Ok(0) => {
+                        zeroes += 1;
+                        if zeroes >= NO_PROGRESS_LIMIT {
+                            return Err(standard_error(NoProgress));
+                        }
+                    }
+                    Ok(n) => {
+                        read += n;
+                        break;
+                    }
+                    err@Err(_) => return err
+                }
+            }
+        }
+        Ok(read)
     }
 
-    /// Reads exactly `len` bytes and appends them to a vector.
+    /// Reads a single byte. Returns `Err` on EOF.
+    fn read_byte(&mut self) -> IoResult<u8> {
+        let mut buf = [0];
+        try!(self.read_at_least(1, buf));
+        Ok(buf[0])
+    }
+
+    /// Reads up to `len` bytes and appends them to a vector.
+    /// Returns the number of bytes read. The number of bytes read may be
+    /// less than the number requested, even 0. Returns Err on EOF.
     ///
-    /// May push fewer than the requested number of bytes on error
-    /// or EOF. If `Ok(())` is returned, then all of the requested bytes were
-    /// pushed on to the vector, otherwise the amount `len` bytes couldn't be
-    /// read (an error was encountered), and the error is returned.
-    fn push_exact(&mut self, buf: &mut Vec<u8>, len: uint) -> IoResult<()> {
-        struct State<'a> {
-            buf: &'a mut Vec<u8>,
-            total_read: uint
+    /// # Error
+    ///
+    /// If an error occurs during this I/O operation, then it is returned
+    /// as `Err(IoError)`. See `read()` for more details.
+    fn push(&mut self, len: uint, buf: &mut Vec<u8>) -> IoResult<uint> {
+        let start_len = buf.len();
+        buf.reserve_additional(len);
+
+        let n = {
+            let s = unsafe { slice_vec_capacity(buf, start_len, start_len + len) };
+            try!(self.read(s))
+        };
+        unsafe { buf.set_len(start_len + n) };
+        Ok(n)
+    }
+
+    /// Reads at least `min` bytes, but no more than `len`, and appends them to
+    /// a vector.
+    /// Returns the number of bytes read.
+    ///
+    /// This will continue to call `read` until at least `min` bytes have been
+    /// read. If `read` returns 0 too many times, `NoProgress` will be
+    /// returned.
+    ///
+    /// # Error
+    ///
+    /// If an error occurs at any point, that error is returned, and no further
+    /// bytes are read.
+    fn push_at_least(&mut self, min: uint, len: uint, buf: &mut Vec<u8>) -> IoResult<uint> {
+        if min > len {
+            return Err(IoError { detail: Some("the buffer is too short".to_owned()),
+                                 ..standard_error(InvalidInput) });
         }
 
         let start_len = buf.len();
-        let mut s = State { buf: buf, total_read: 0 };
+        buf.reserve_additional(len);
 
-        s.buf.reserve_additional(len);
-        unsafe { s.buf.set_len(start_len + len); }
+        // we can't just use self.read_at_least(min, slice) because we need to push
+        // successful reads onto the vector before any returned errors.
 
-        try_finally(
-            &mut s, (),
-            |s, _| {
-                while s.total_read < len {
-                    let len = s.buf.len();
-                    let slice = s.buf.mut_slice(start_len + s.total_read, len);
-                    match self.read(slice) {
-                        Ok(nread) => {
-                            s.total_read += nread;
-                        }
-                        Err(e) => return Err(e)
-                    }
-                }
-                Ok(())
-            },
-            |s| unsafe { s.buf.set_len(start_len + s.total_read) })
+        let mut read = 0;
+        while read < min {
+            read += {
+                let s = unsafe { slice_vec_capacity(buf, start_len + read, start_len + len) };
+                try!(self.read_at_least(1, s))
+            };
+            unsafe { buf.set_len(start_len + read) };
+        }
+        Ok(read)
     }
 
     /// Reads exactly `len` bytes and gives you back a new vector of length
@@ -535,11 +586,11 @@ pub trait Reader {
     /// on EOF. Note that if an error is returned, then some number of bytes may
     /// have already been consumed from the underlying reader, and they are lost
     /// (not returned as part of the error). If this is unacceptable, then it is
-    /// recommended to use the `push_exact` or `read` methods.
+    /// recommended to use the `push_at_least` or `read` methods.
     fn read_exact(&mut self, len: uint) -> IoResult<Vec<u8>> {
         let mut buf = Vec::with_capacity(len);
-        match self.push_exact(&mut buf, len) {
-            Ok(()) => Ok(buf),
+        match self.push_at_least(len, len, &mut buf) {
+            Ok(_) => Ok(buf),
             Err(e) => Err(e),
         }
     }
@@ -555,8 +606,8 @@ pub trait Reader {
     fn read_to_end(&mut self) -> IoResult<Vec<u8>> {
         let mut buf = Vec::with_capacity(DEFAULT_BUF_SIZE);
         loop {
-            match self.push_exact(&mut buf, DEFAULT_BUF_SIZE) {
-                Ok(()) => {}
+            match self.push_at_least(1, DEFAULT_BUF_SIZE, &mut buf) {
+                Ok(_) => {}
                 Err(ref e) if e.kind == EndOfFile => break,
                 Err(e) => return Err(e)
             }
@@ -715,7 +766,7 @@ pub trait Reader {
     /// `f64`s are 8 byte, IEEE754 double-precision floating point numbers.
     fn read_be_f64(&mut self) -> IoResult<f64> {
         self.read_be_u64().map(|i| unsafe {
-            cast::transmute::<u64, f64>(i)
+            transmute::<u64, f64>(i)
         })
     }
 
@@ -724,7 +775,7 @@ pub trait Reader {
     /// `f32`s are 4 byte, IEEE754 single-precision floating point numbers.
     fn read_be_f32(&mut self) -> IoResult<f32> {
         self.read_be_u32().map(|i| unsafe {
-            cast::transmute::<u32, f32>(i)
+            transmute::<u32, f32>(i)
         })
     }
 
@@ -775,7 +826,7 @@ pub trait Reader {
     /// `f64`s are 8 byte, IEEE754 double-precision floating point numbers.
     fn read_le_f64(&mut self) -> IoResult<f64> {
         self.read_le_u64().map(|i| unsafe {
-            cast::transmute::<u64, f64>(i)
+            transmute::<u64, f64>(i)
         })
     }
 
@@ -784,7 +835,7 @@ pub trait Reader {
     /// `f32`s are 4 byte, IEEE754 single-precision floating point numbers.
     fn read_le_f32(&mut self) -> IoResult<f32> {
         self.read_le_u32().map(|i| unsafe {
-            cast::transmute::<u32, f32>(i)
+            transmute::<u32, f32>(i)
         })
     }
 
@@ -811,12 +862,35 @@ pub trait Reader {
     }
 }
 
-impl Reader for ~Reader {
+impl Reader for Box<Reader> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
 }
 
 impl<'a> Reader for &'a mut Reader {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
+}
+
+/// Returns a slice of `v` between `start` and `end`.
+///
+/// Similar to `slice()` except this function only bounds the sclie on the
+/// capacity of `v`, not the length.
+///
+/// # Failure
+///
+/// Fails when `start` or `end` point outside the capacity of `v`, or when
+/// `start` > `end`.
+// Private function here because we aren't sure if we want to expose this as
+// API yet. If so, it should be a method on Vec.
+unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -> &'a mut [T] {
+    use raw::Slice;
+    use ptr::RawPtr;
+
+    assert!(start <= end);
+    assert!(end <= v.capacity());
+    transmute(Slice {
+        data: v.as_ptr().offset(start as int),
+        len: end - start
+    })
 }
 
 /// A `RefReader` is a struct implementing `Reader` which contains a reference
@@ -850,6 +924,11 @@ pub struct RefReader<'a, R> {
 
 impl<'a, R: Reader> Reader for RefReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.inner.read(buf) }
+}
+
+impl<'a, R: Buffer> Buffer for RefReader<'a, R> {
+    fn fill_buf<'a>(&'a mut self) -> IoResult<&'a [u8]> { self.inner.fill_buf() }
+    fn consume(&mut self, amt: uint) { self.inner.consume(amt) }
 }
 
 fn extend_sign(val: u64, nbytes: uint) -> i64 {
@@ -976,14 +1055,14 @@ pub trait Writer {
     /// Write a big-endian IEEE754 double-precision floating-point (8 bytes).
     fn write_be_f64(&mut self, f: f64) -> IoResult<()> {
         unsafe {
-            self.write_be_u64(cast::transmute(f))
+            self.write_be_u64(transmute(f))
         }
     }
 
     /// Write a big-endian IEEE754 single-precision floating-point (4 bytes).
     fn write_be_f32(&mut self, f: f32) -> IoResult<()> {
         unsafe {
-            self.write_be_u32(cast::transmute(f))
+            self.write_be_u32(transmute(f))
         }
     }
 
@@ -1021,7 +1100,7 @@ pub trait Writer {
     /// (8 bytes).
     fn write_le_f64(&mut self, f: f64) -> IoResult<()> {
         unsafe {
-            self.write_le_u64(cast::transmute(f))
+            self.write_le_u64(transmute(f))
         }
     }
 
@@ -1029,7 +1108,7 @@ pub trait Writer {
     /// (4 bytes).
     fn write_le_f32(&mut self, f: f32) -> IoResult<()> {
         unsafe {
-            self.write_le_u32(cast::transmute(f))
+            self.write_le_u32(transmute(f))
         }
     }
 
@@ -1052,7 +1131,7 @@ pub trait Writer {
     }
 }
 
-impl Writer for ~Writer {
+impl Writer for Box<Writer> {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
     fn flush(&mut self) -> IoResult<()> { self.flush() }
 }
@@ -1178,7 +1257,7 @@ pub trait Buffer: Reader {
     fn fill_buf<'a>(&'a mut self) -> IoResult<&'a [u8]>;
 
     /// Tells this buffer that `amt` bytes have been consumed from the buffer,
-    /// so they should no longer be returned in calls to `fill` or `read`.
+    /// so they should no longer be returned in calls to `read`.
     fn consume(&mut self, amt: uint);
 
     /// Reads the next line of input, interpreted as a sequence of UTF-8
@@ -1423,7 +1502,9 @@ pub fn standard_error(kind: IoErrorKind) -> IoError {
         PathDoesntExist => "no such file",
         MismatchedFileTypeForOperation => "mismatched file type",
         ResourceUnavailable => "resource unavailable",
-        TimedOut => "operation timed out"
+        TimedOut => "operation timed out",
+        ShortWrite(..) => "short write",
+        NoProgress => "no progress",
     };
     IoError {
         kind: kind,
@@ -1490,14 +1571,11 @@ pub enum FileType {
 ///     Err(e) => fail!("couldn't read foo.txt: {}", e),
 /// };
 ///
-/// println!("path: {}", info.path.display());
 /// println!("byte size: {}", info.size);
 /// # }
 /// ```
 #[deriving(Hash)]
 pub struct FileStat {
-    /// The path that this stat structure is describing
-    pub path: Path,
     /// The size of the file, in bytes
     pub size: u64,
     /// The kind of file this path points to (directory, file, pipe, etc.)
@@ -1596,3 +1674,106 @@ on unix-like systems."]
         static AllPermissions = UserRWX.bits | GroupRWX.bits | OtherRWX.bits
     }
 )
+
+#[cfg(test)]
+mod tests {
+    use super::{IoResult, Reader, MemReader, NoProgress, InvalidInput};
+    use prelude::*;
+    use uint;
+
+    #[deriving(Clone, Eq, Show)]
+    enum BadReaderBehavior {
+        GoodBehavior(uint),
+        BadBehavior(uint)
+    }
+
+    struct BadReader<T> {
+        r: T,
+        behavior: Vec<BadReaderBehavior>,
+    }
+
+    impl<T: Reader> BadReader<T> {
+        fn new(r: T, behavior: Vec<BadReaderBehavior>) -> BadReader<T> {
+            BadReader { behavior: behavior, r: r }
+        }
+    }
+
+    impl<T: Reader> Reader for BadReader<T> {
+        fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
+            let BadReader { ref mut behavior, ref mut r } = *self;
+            loop {
+                if behavior.is_empty() {
+                    // fall back on good
+                    return r.read(buf);
+                }
+                match behavior.as_mut_slice()[0] {
+                    GoodBehavior(0) => (),
+                    GoodBehavior(ref mut x) => {
+                        *x -= 1;
+                        return r.read(buf);
+                    }
+                    BadBehavior(0) => (),
+                    BadBehavior(ref mut x) => {
+                        *x -= 1;
+                        return Ok(0);
+                    }
+                };
+                behavior.shift();
+            }
+        }
+    }
+
+    #[test]
+    fn test_read_at_least() {
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([GoodBehavior(uint::MAX)]));
+        let mut buf = [0u8, ..5];
+        assert!(r.read_at_least(1, buf).unwrap() >= 1);
+        assert!(r.read_exact(5).unwrap().len() == 5); // read_exact uses read_at_least
+        assert!(r.read_at_least(0, buf).is_ok());
+
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([BadBehavior(50), GoodBehavior(uint::MAX)]));
+        assert!(r.read_at_least(1, buf).unwrap() >= 1);
+
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([BadBehavior(1), GoodBehavior(1),
+                                                    BadBehavior(50), GoodBehavior(uint::MAX)]));
+        assert!(r.read_at_least(1, buf).unwrap() >= 1);
+        assert!(r.read_at_least(1, buf).unwrap() >= 1);
+
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([BadBehavior(uint::MAX)]));
+        assert_eq!(r.read_at_least(1, buf).unwrap_err().kind, NoProgress);
+
+        let mut r = MemReader::new(Vec::from_slice(bytes!("hello, world!")));
+        assert_eq!(r.read_at_least(5, buf).unwrap(), 5);
+        assert_eq!(r.read_at_least(6, buf).unwrap_err().kind, InvalidInput);
+    }
+
+    #[test]
+    fn test_push_at_least() {
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([GoodBehavior(uint::MAX)]));
+        let mut buf = Vec::new();
+        assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
+        assert!(r.push_at_least(0, 5, &mut buf).is_ok());
+
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([BadBehavior(50), GoodBehavior(uint::MAX)]));
+        assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
+
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([BadBehavior(1), GoodBehavior(1),
+                                                    BadBehavior(50), GoodBehavior(uint::MAX)]));
+        assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
+        assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
+
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+                                   Vec::from_slice([BadBehavior(uint::MAX)]));
+        assert_eq!(r.push_at_least(1, 5, &mut buf).unwrap_err().kind, NoProgress);
+
+        let mut r = MemReader::new(Vec::from_slice(bytes!("hello, world!")));
+        assert_eq!(r.push_at_least(5, 1, &mut buf).unwrap_err().kind, InvalidInput);
+    }
+}

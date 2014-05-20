@@ -11,12 +11,13 @@
 #![doc(hidden)]
 #![allow(missing_doc)]
 
-use prelude::*;
 use libc::uintptr_t;
+use kinds::Send;
+
+pub use core::finally;
 
 pub mod dynamic_lib;
 
-pub mod finally;
 #[cfg(not(target_os = "nacl", target_arch = "le32"))]
 pub mod simd;
 pub mod sync;

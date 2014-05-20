@@ -13,10 +13,11 @@
  * between tasks.
  */
 
-use std::cast;
+use std::mem;
 use std::ptr;
-use std::rt::global_heap;
+use std::rt::heap::deallocate;
 use std::sync::atomics;
+use std::mem::{min_align_of, size_of};
 
 /// An atomically reference counted wrapper for shared state.
 ///
@@ -75,7 +76,7 @@ impl<T: Share + Send> Arc<T> {
             weak: atomics::AtomicUint::new(1),
             data: data,
         };
-        Arc { x: unsafe { cast::transmute(x) } }
+        Arc { x: unsafe { mem::transmute(x) } }
     }
 
     #[inline]
@@ -148,7 +149,7 @@ impl<T: Send + Share + Clone> Arc<T> {
         // reference count is guaranteed to be 1 at this point, and we required
         // the Arc itself to be `mut`, so we're returning the only possible
         // reference to the inner data.
-        unsafe { cast::transmute::<&_, &mut _>(self.deref()) }
+        unsafe { mem::transmute::<&_, &mut _>(self.deref()) }
     }
 }
 
@@ -190,7 +191,8 @@ impl<T: Share + Send> Drop for Arc<T> {
 
         if self.inner().weak.fetch_sub(1, atomics::Release) == 1 {
             atomics::fence(atomics::Acquire);
-            unsafe { global_heap::exchange_free(self.x as *u8) }
+            unsafe { deallocate(self.x as *mut u8, size_of::<ArcInner<T>>(),
+                                min_align_of::<ArcInner<T>>()) }
         }
     }
 }
@@ -240,7 +242,8 @@ impl<T: Share + Send> Drop for Weak<T> {
         // the memory orderings
         if self.inner().weak.fetch_sub(1, atomics::Release) == 1 {
             atomics::fence(atomics::Acquire);
-            unsafe { global_heap::exchange_free(self.x as *u8) }
+            unsafe { deallocate(self.x as *mut u8, size_of::<ArcInner<T>>(),
+                                min_align_of::<ArcInner<T>>()) }
         }
     }
 }

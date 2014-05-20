@@ -12,6 +12,7 @@ use rustc;
 use rustc::{driver, middle};
 use rustc::metadata::creader::Loader;
 use rustc::middle::privacy;
+use rustc::middle::lint;
 
 use syntax::ast;
 use syntax::parse::token;
@@ -19,8 +20,7 @@ use syntax;
 
 use std::cell::RefCell;
 use std::os;
-use std::local_data;
-use collections::HashSet;
+use collections::{HashSet, HashMap};
 
 use visit_ast::RustdocVisitor;
 use clean;
@@ -31,9 +31,14 @@ pub enum MaybeTyped {
     NotTyped(driver::session::Session)
 }
 
+pub type ExternalPaths = RefCell<Option<HashMap<ast::DefId,
+                                                (Vec<StrBuf>, clean::TypeKind)>>>;
+
 pub struct DocContext {
     pub krate: ast::Crate,
-    pub maybe_typed: MaybeTyped
+    pub maybe_typed: MaybeTyped,
+    pub src: Path,
+    pub external_paths: ExternalPaths,
 }
 
 impl DocContext {
@@ -48,24 +53,27 @@ impl DocContext {
 pub struct CrateAnalysis {
     pub exported_items: privacy::ExportedItems,
     pub public_items: privacy::PublicItems,
+    pub external_paths: ExternalPaths,
 }
 
 /// Parses, resolves, and typechecks the given crate
-fn get_ast_and_resolve(cpath: &Path, libs: HashSet<Path>, cfgs: Vec<~str>)
+fn get_ast_and_resolve(cpath: &Path, libs: HashSet<Path>, cfgs: Vec<StrBuf>)
                        -> (DocContext, CrateAnalysis) {
     use syntax::codemap::dummy_spanned;
-    use rustc::driver::driver::{FileInput, build_configuration,
+    use rustc::driver::driver::{FileInput,
                                 phase_1_parse_input,
                                 phase_2_configure_and_expand,
                                 phase_3_run_analysis_passes};
+    use rustc::driver::config::build_configuration;
 
     let input = FileInput(cpath.clone());
 
-    let sessopts = driver::session::Options {
+    let sessopts = driver::config::Options {
         maybe_sysroot: Some(os::self_exe_path().unwrap().dir_path()),
         addl_lib_search_paths: RefCell::new(libs),
-        crate_types: vec!(driver::session::CrateTypeDylib),
-        ..rustc::driver::session::basic_options().clone()
+        crate_types: vec!(driver::config::CrateTypeDylib),
+        lint_opts: vec!((lint::Warnings, lint::allow)),
+        ..rustc::driver::config::basic_options().clone()
     };
 
 
@@ -74,13 +82,13 @@ fn get_ast_and_resolve(cpath: &Path, libs: HashSet<Path>, cfgs: Vec<~str>)
     let span_diagnostic_handler =
         syntax::diagnostic::mk_span_handler(diagnostic_handler, codemap);
 
-    let sess = driver::driver::build_session_(sessopts,
-                                              Some(cpath.clone()),
-                                              span_diagnostic_handler);
+    let sess = driver::session::build_session_(sessopts,
+                                               Some(cpath.clone()),
+                                               span_diagnostic_handler);
 
     let mut cfg = build_configuration(&sess);
     for cfg_ in cfgs.move_iter() {
-        let cfg_ = token::intern_and_get_ident(cfg_);
+        let cfg_ = token::intern_and_get_ident(cfg_.as_slice());
         cfg.push(@dummy_spanned(ast::MetaWord(cfg_)));
     }
 
@@ -96,18 +104,21 @@ fn get_ast_and_resolve(cpath: &Path, libs: HashSet<Path>, cfgs: Vec<~str>)
     debug!("crate: {:?}", krate);
     (DocContext {
         krate: krate,
-        maybe_typed: Typed(ty_cx)
+        maybe_typed: Typed(ty_cx),
+        src: cpath.clone(),
+        external_paths: RefCell::new(Some(HashMap::new())),
     }, CrateAnalysis {
         exported_items: exported_items,
         public_items: public_items,
+        external_paths: RefCell::new(None),
     })
 }
 
-pub fn run_core(libs: HashSet<Path>, cfgs: Vec<~str>, path: &Path)
+pub fn run_core(libs: HashSet<Path>, cfgs: Vec<StrBuf>, path: &Path)
                 -> (clean::Crate, CrateAnalysis) {
     let (ctxt, analysis) = get_ast_and_resolve(path, libs, cfgs);
     let ctxt = @ctxt;
-    local_data::set(super::ctxtkey, ctxt);
+    super::ctxtkey.replace(Some(ctxt));
 
     let krate = {
         let mut v = RustdocVisitor::new(ctxt, Some(&analysis));
@@ -115,5 +126,7 @@ pub fn run_core(libs: HashSet<Path>, cfgs: Vec<~str>, path: &Path)
         v.clean()
     };
 
+    let external_paths = ctxt.external_paths.borrow_mut().take();
+    *analysis.external_paths.borrow_mut() = external_paths;
     (krate, analysis)
 }

@@ -10,6 +10,8 @@
 
 // Binop corner cases
 
+#![feature(managed_boxes)]
+
 fn test_nil() {
     assert_eq!((), ());
     assert!((!(() != ())));
@@ -48,9 +50,9 @@ fn test_box() {
 
 fn test_ptr() {
     unsafe {
-        let p1: *u8 = ::std::cast::transmute(0);
-        let p2: *u8 = ::std::cast::transmute(0);
-        let p3: *u8 = ::std::cast::transmute(1);
+        let p1: *u8 = ::std::mem::transmute(0);
+        let p2: *u8 = ::std::mem::transmute(0);
+        let p3: *u8 = ::std::mem::transmute(1);
 
         assert_eq!(p1, p2);
         assert!(p1 != p3);
@@ -82,8 +84,8 @@ fn test_class() {
 
   unsafe {
   println!("q = {:x}, r = {:x}",
-         (::std::cast::transmute::<*p, uint>(&q)),
-         (::std::cast::transmute::<*p, uint>(&r)));
+         (::std::mem::transmute::<*p, uint>(&q)),
+         (::std::mem::transmute::<*p, uint>(&r)));
   }
   assert_eq!(q, r);
   r.y = 17;

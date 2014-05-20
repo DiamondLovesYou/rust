@@ -10,7 +10,7 @@
 
 //! Simple ANSI color library
 
-#![crate_id = "term#0.11-pre"]
+#![crate_id = "term#0.11.0-pre"]
 #![comment = "Simple ANSI color library"]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
@@ -114,7 +114,7 @@ fn cap_for_attr(attr: attr::Attr) -> &'static str {
 pub struct Terminal<T> {
     num_colors: u16,
     out: T,
-    ti: ~TermInfo
+    ti: Box<TermInfo>,
 }
 
 impl<T: Writer> Terminal<T> {

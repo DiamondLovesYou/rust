@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use lib::llvm::*;
-use driver::session::FullDebugInfo;
+use driver::config::FullDebugInfo;
 use middle::lang_items::{FailFnLangItem, FailBoundsCheckFnLangItem};
 use middle::trans::base::*;
 use middle::trans::build::*;
@@ -40,7 +40,7 @@ pub fn trans_stmt<'a>(cx: &'a Block<'a>,
     debug!("trans_stmt({})", s.repr(cx.tcx()));
 
     if cx.sess().asm_comments() {
-        add_span_comment(cx, s.span, s.repr(cx.tcx()));
+        add_span_comment(cx, s.span, s.repr(cx.tcx()).as_slice());
     }
 
     let mut bcx = cx;
@@ -345,7 +345,11 @@ pub fn trans_fail<'a>(
     let v_fail_str = C_cstr(ccx, fail_str, true);
     let _icx = push_ctxt("trans_fail_value");
     let loc = bcx.sess().codemap().lookup_char_pos(sp.lo);
-    let v_filename = C_cstr(ccx, token::intern_and_get_ident(loc.file.name), true);
+    let v_filename = C_cstr(ccx,
+                            token::intern_and_get_ident(loc.file
+                                                           .name
+                                                           .as_slice()),
+                            true);
     let v_line = loc.line as int;
     let v_str = PointerCast(bcx, v_fail_str, Type::i8p(ccx));
     let v_filename = PointerCast(bcx, v_filename, Type::i8p(ccx));

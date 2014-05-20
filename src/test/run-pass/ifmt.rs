@@ -8,8 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// no-pretty-expanded unnecessary unsafe block generated
 
-#![feature(macro_rules)]
+#![feature(macro_rules, managed_boxes)]
 #![deny(warnings)]
 #![allow(unused_must_use)]
 #![allow(deprecated_owned_vector)]
@@ -40,7 +41,7 @@ pub fn main() {
     t!(format!("{:?}", 1), "1");
     t!(format!("{:?}", A), "A");
     t!(format!("{:?}", ()), "()");
-    t!(format!("{:?}", @(~1, "foo")), "@(~1, \"foo\")");
+    t!(format!("{:?}", @(box 1, "foo")), "@(box 1, \"foo\")");
 
     // Various edge cases without formats
     t!(format!(""), "");
@@ -76,6 +77,7 @@ pub fn main() {
     t!(format!("{foo} {1} {bar} {0}", 0, 1, foo=2, bar=3), "2 1 3 0");
     t!(format!("{} {0}", "a"), "a a");
     t!(format!("{foo_bar}", foo_bar=1), "1");
+    t!(format!("{:d}", 5 + 5), "10");
 
     // Methods should probably work
     t!(format!("{0, plural, =1{a#} =2{b#} zero{c#} other{d#}}", 0u), "c0");
@@ -142,14 +144,14 @@ pub fn main() {
     test_order();
 
     // make sure that format! doesn't move out of local variables
-    let a = ~3;
+    let a = box 3;
     format!("{:?}", a);
     format!("{:?}", a);
 
     // make sure that format! doesn't cause spurious unused-unsafe warnings when
     // it's inside of an outer unsafe block
     unsafe {
-        let a: int = ::std::cast::transmute(3u);
+        let a: int = ::std::mem::transmute(3u);
         format!("{}", a);
     }
 

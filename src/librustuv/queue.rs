@@ -20,11 +20,11 @@
 
 #![allow(dead_code)]
 
-use std::cast;
 use libc::c_void;
+use std::mem;
 use std::rt::task::BlockedTask;
-use std::unstable::mutex::NativeMutex;
 use std::sync::arc::UnsafeArc;
+use std::unstable::mutex::NativeMutex;
 use mpsc = std::sync::mpsc_queue;
 
 use async::AsyncWatcher;
@@ -57,9 +57,9 @@ pub struct Queue {
 
 extern fn async_cb(handle: *uvll::uv_async_t) {
     let pool: &mut QueuePool = unsafe {
-        cast::transmute(uvll::get_data_for_uv_handle(handle))
+        mem::transmute(uvll::get_data_for_uv_handle(handle))
     };
-    let state: &mut State = unsafe { cast::transmute(pool.queue.get()) };
+    let state: &mut State = unsafe { mem::transmute(pool.queue.get()) };
 
     // Remember that there is no guarantee about how many times an async
     // callback is called with relation to the number of sends, so process the
@@ -107,7 +107,7 @@ extern fn async_cb(handle: *uvll::uv_async_t) {
 }
 
 impl QueuePool {
-    pub fn new(loop_: &mut Loop) -> ~QueuePool {
+    pub fn new(loop_: &mut Loop) -> Box<QueuePool> {
         let handle = UvHandle::alloc(None::<AsyncWatcher>, uvll::UV_ASYNC);
         let state = UnsafeArc::new(State {
             handle: handle,
@@ -183,7 +183,7 @@ impl Drop for Queue {
 impl Drop for State {
     fn drop(&mut self) {
         unsafe {
-            uvll::uv_close(self.handle, cast::transmute(0));
+            uvll::uv_close(self.handle, mem::transmute(0));
             // Note that this does *not* free the handle, that is the
             // responsibility of the caller because the uv loop must be closed
             // before we deallocate this uv handle.

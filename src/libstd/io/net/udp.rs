@@ -16,9 +16,11 @@
 //! datagram protocol.
 
 use clone::Clone;
-use io::net::ip::SocketAddr;
+use io::net::ip::{SocketAddr, IpAddr};
 use io::{Reader, Writer, IoResult};
 use kinds::Send;
+use owned::Box;
+use option::Option;
 use result::{Ok, Err};
 use rt::rtio::{RtioSocket, RtioUdpSocket, IoFactory, LocalIo};
 
@@ -54,7 +56,7 @@ use rt::rtio::{RtioSocket, RtioUdpSocket, IoFactory, LocalIo};
 /// drop(socket); // close the socket
 /// ```
 pub struct UdpSocket {
-    obj: ~RtioUdpSocket:Send
+    obj: Box<RtioUdpSocket:Send>,
 }
 
 impl UdpSocket {
@@ -94,6 +96,76 @@ impl UdpSocket {
     /// Returns the socket address that this socket was created from.
     pub fn socket_name(&mut self) -> IoResult<SocketAddr> {
         self.obj.socket_name()
+    }
+
+    /// Joins a multicast IP address (becomes a member of it)
+    #[experimental]
+    pub fn join_multicast(&mut self, multi: IpAddr) -> IoResult<()> {
+        self.obj.join_multicast(multi)
+    }
+
+    /// Leaves a multicast IP address (drops membership from it)
+    #[experimental]
+    pub fn leave_multicast(&mut self, multi: IpAddr) -> IoResult<()> {
+        self.obj.leave_multicast(multi)
+    }
+
+    /// Set the multicast loop flag to the specified value
+    ///
+    /// This lets multicast packets loop back to local sockets (if enabled)
+    #[experimental]
+    pub fn set_multicast_loop(&mut self, on: bool) -> IoResult<()> {
+        if on {
+            self.obj.loop_multicast_locally()
+        } else {
+            self.obj.dont_loop_multicast_locally()
+        }
+    }
+
+    /// Sets the multicast TTL
+    #[experimental]
+    pub fn set_multicast_ttl(&mut self, ttl: int) -> IoResult<()> {
+        self.obj.multicast_time_to_live(ttl)
+    }
+
+    /// Sets this socket's TTL
+    #[experimental]
+    pub fn set_ttl(&mut self, ttl: int) -> IoResult<()> {
+        self.obj.time_to_live(ttl)
+    }
+
+    /// Sets the broadcast flag on or off
+    #[experimental]
+    pub fn set_broadast(&mut self, broadcast: bool) -> IoResult<()> {
+        if broadcast {
+            self.obj.hear_broadcasts()
+        } else {
+            self.obj.ignore_broadcasts()
+        }
+    }
+
+    /// Sets the read/write timeout for this socket.
+    ///
+    /// For more information, see `TcpStream::set_timeout`
+    #[experimental = "the timeout argument may change in type and value"]
+    pub fn set_timeout(&mut self, timeout_ms: Option<u64>) {
+        self.obj.set_timeout(timeout_ms)
+    }
+
+    /// Sets the read timeout for this socket.
+    ///
+    /// For more information, see `TcpStream::set_timeout`
+    #[experimental = "the timeout argument may change in type and value"]
+    pub fn set_read_timeout(&mut self, timeout_ms: Option<u64>) {
+        self.obj.set_read_timeout(timeout_ms)
+    }
+
+    /// Sets the write timeout for this socket.
+    ///
+    /// For more information, see `TcpStream::set_timeout`
+    #[experimental = "the timeout argument may change in type and value"]
+    pub fn set_write_timeout(&mut self, timeout_ms: Option<u64>) {
+        self.obj.set_write_timeout(timeout_ms)
     }
 }
 
@@ -154,6 +226,7 @@ impl Writer for UdpStream {
 }
 
 #[cfg(test)]
+#[allow(experimental)]
 mod test {
     use super::*;
     use io::net::ip::{SocketAddr};
@@ -311,6 +384,8 @@ mod test {
     })
 
     pub fn socket_name(addr: SocketAddr) {
+        use result::ResultUnwrap;
+
         let server = UdpSocket::bind(addr);
 
         assert!(server.is_ok());
@@ -435,5 +510,57 @@ mod test {
 
         rx.recv();
         serv_rx.recv();
+    })
+
+    iotest!(fn recvfrom_timeout() {
+        let addr1 = next_test_ip4();
+        let addr2 = next_test_ip4();
+        let mut a = UdpSocket::bind(addr1).unwrap();
+
+        let (tx, rx) = channel();
+        let (tx2, rx2) = channel();
+        spawn(proc() {
+            let mut a = UdpSocket::bind(addr2).unwrap();
+            assert_eq!(a.recvfrom([0]), Ok((1, addr1)));
+            assert_eq!(a.sendto([0], addr1), Ok(()));
+            rx.recv();
+            assert_eq!(a.sendto([0], addr1), Ok(()));
+
+            tx2.send(());
+        });
+
+        // Make sure that reads time out, but writes can continue
+        a.set_read_timeout(Some(20));
+        assert_eq!(a.recvfrom([0]).err().unwrap().kind, TimedOut);
+        assert_eq!(a.recvfrom([0]).err().unwrap().kind, TimedOut);
+        assert_eq!(a.sendto([0], addr2), Ok(()));
+
+        // Cloned handles should be able to block
+        let mut a2 = a.clone();
+        assert_eq!(a2.recvfrom([0]), Ok((1, addr2)));
+
+        // Clearing the timeout should allow for receiving
+        a.set_timeout(None);
+        tx.send(());
+        assert_eq!(a2.recvfrom([0]), Ok((1, addr2)));
+
+        // Make sure the child didn't die
+        rx2.recv();
+    })
+
+    iotest!(fn sendto_timeout() {
+        let addr1 = next_test_ip4();
+        let addr2 = next_test_ip4();
+        let mut a = UdpSocket::bind(addr1).unwrap();
+        let _b = UdpSocket::bind(addr2).unwrap();
+
+        a.set_write_timeout(Some(1000));
+        for _ in range(0, 100) {
+            match a.sendto([0, ..4*1024], addr2) {
+                Ok(()) | Err(IoError { kind: ShortWrite(..), .. }) => {},
+                Err(IoError { kind: TimedOut, .. }) => break,
+                Err(e) => fail!("other error: {}", e),
+            }
+        }
     })
 }

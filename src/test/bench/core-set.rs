@@ -1,5 +1,3 @@
-// ignore-pretty
-
 // Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
@@ -9,6 +7,8 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
+
+// ignore-pretty very bad with line comments
 
 extern crate collections;
 extern crate rand;
@@ -155,6 +155,7 @@ fn empty_results() -> Results {
 
 fn main() {
     let args = os::args();
+    let args = args.as_slice();
     let num_keys = {
         if args.len() == 2 {
             from_str::<uint>(args[1]).unwrap()

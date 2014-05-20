@@ -38,7 +38,7 @@
 #   DEPS_<crate>
 #	These lists are the dependencies of the <crate> that is to be built.
 #	Rust dependencies are listed bare (i.e. std, green) and native
-#	dependencies have a "native:" prefix (i.e. native:sundown). All deps
+#	dependencies have a "native:" prefix (i.e. native:hoedown). All deps
 #	will be built before the crate itself is built.
 #
 #   TOOL_DEPS_<tool>/TOOL_SOURCE_<tool>
@@ -51,19 +51,20 @@
 
 TARGET_CRATES := libc std green rustuv native flate arena glob term semver \
                  uuid serialize sync getopts collections num test time rand \
-		 workcache url log regex graphviz simd
-HOST_CRATES := syntax rustc rustdoc fourcc hexfloat regex_macros simd_syntax
+		 workcache url log regex graphviz core simd
+HOST_CRATES := syntax rustc rustdoc fourcc hexfloat regex_macros fmt_macros simd_syntax
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
 TOOLS := compiletest rustdoc rustc
 
-DEPS_std := libc native:rustrt native:compiler-rt native:backtrace
+DEPS_core :=
+DEPS_std := core libc native:rustrt native:compiler-rt native:backtrace native:jemalloc
 DEPS_green := std rand native:context_switch
 DEPS_rustuv := std native:uv native:uv_support
 DEPS_native := std
-DEPS_syntax := std term serialize collections log
+DEPS_syntax := std term serialize collections log fmt_macros
 DEPS_rustc := syntax native:rustllvm flate arena serialize sync getopts \
               collections time log
-DEPS_rustdoc := rustc native:sundown serialize sync getopts collections \
+DEPS_rustdoc := rustc native:hoedown serialize sync getopts collections \
                 test time
 DEPS_flate := std native:miniz
 DEPS_arena := std collections
@@ -87,6 +88,7 @@ DEPS_workcache := std serialize collections log
 DEPS_log := std sync
 DEPS_regex := std collections
 DEPS_regex_macros = syntax std regex
+DEPS_fmt_macros = std
 DEPS_simd := std simd_syntax
 DEPS_simd_syntax := syntax std
 
@@ -96,6 +98,8 @@ TOOL_DEPS_rustc := rustc native
 TOOL_SOURCE_compiletest := $(S)src/compiletest/compiletest.rs
 TOOL_SOURCE_rustdoc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustc := $(S)src/driver/driver.rs
+
+ONLY_RLIB_core := 1
 
 ################################################################################
 # You should not need to edit below this line

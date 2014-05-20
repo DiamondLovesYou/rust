@@ -51,7 +51,7 @@
 //! fn main() {
 //!     let args = os::args();
 //!
-//!     let program = args[0].clone();
+//!     let program = args.get(0).clone();
 //!
 //!     let opts = [
 //!         optopt("o", "", "set output file name", "NAME"),
@@ -76,7 +76,7 @@
 //! }
 //! ~~~
 
-#![crate_id = "getopts#0.11-pre"]
+#![crate_id = "getopts#0.11.0-pre"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]

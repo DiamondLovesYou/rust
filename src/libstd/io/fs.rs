@@ -55,11 +55,12 @@ use container::Container;
 use iter::Iterator;
 use kinds::Send;
 use super::{Reader, Writer, Seek};
-use super::{SeekStyle, Read, Write, Open, IoError, Truncate,
-            FileMode, FileAccess, FileStat, IoResult, FilePermission};
+use super::{SeekStyle, Read, Write, Open, IoError, Truncate};
+use super::{FileMode, FileAccess, FileStat, IoResult, FilePermission};
 use rt::rtio::{RtioFileStream, IoFactory, LocalIo};
 use io;
 use option::{Some, None, Option};
+use owned::Box;
 use result::{Ok, Err};
 use path;
 use path::{Path, GenericPath};
@@ -78,7 +79,7 @@ use vec::Vec;
 /// configured at creation time, via the `FileAccess` parameter to
 /// `File::open_mode()`.
 pub struct File {
-    fd: ~RtioFileStream:Send,
+    fd: Box<RtioFileStream:Send>,
     path: Path,
     last_nread: int,
 }
@@ -212,6 +213,11 @@ impl File {
     /// `read`.
     pub fn eof(&self) -> bool {
         self.last_nread == 0
+    }
+
+    /// Queries information about the underlying file.
+    pub fn stat(&mut self) -> IoResult<FileStat> {
+        self.fd.fstat()
     }
 }
 
@@ -886,9 +892,12 @@ mod test {
         let tmpdir = tmpdir();
         let filename = &tmpdir.join("file_stat_correct_on_is_file.txt");
         {
-            let mut fs = File::open_mode(filename, Open, ReadWrite);
+            let mut fs = check!(File::open_mode(filename, Open, ReadWrite));
             let msg = "hw";
             fs.write(msg.as_bytes()).unwrap();
+
+            let fstat_res = check!(fs.stat());
+            assert_eq!(fstat_res.kind, io::TypeFile);
         }
         let stat_res_fn = check!(stat(filename));
         assert_eq!(stat_res_fn.kind, io::TypeFile);
@@ -1227,12 +1236,12 @@ mod test {
         check!(file.fsync());
 
         // Do some simple things with truncation
-        assert_eq!(check!(stat(&path)).size, 3);
+        assert_eq!(check!(file.stat()).size, 3);
         check!(file.truncate(10));
-        assert_eq!(check!(stat(&path)).size, 10);
+        assert_eq!(check!(file.stat()).size, 10);
         check!(file.write(bytes!("bar")));
         check!(file.fsync());
-        assert_eq!(check!(stat(&path)).size, 10);
+        assert_eq!(check!(file.stat()).size, 10);
         assert_eq!(check!(File::open(&path).read_to_end()),
                    (Vec::from_slice(bytes!("foobar", 0, 0, 0, 0))));
 
@@ -1240,10 +1249,10 @@ mod test {
         // Ensure that the intermediate zeroes are all filled in (we're seeked
         // past the end of the file).
         check!(file.truncate(2));
-        assert_eq!(check!(stat(&path)).size, 2);
+        assert_eq!(check!(file.stat()).size, 2);
         check!(file.write(bytes!("wut")));
         check!(file.fsync());
-        assert_eq!(check!(stat(&path)).size, 9);
+        assert_eq!(check!(file.stat()).size, 9);
         assert_eq!(check!(File::open(&path).read_to_end()),
                    (Vec::from_slice(bytes!("fo", 0, 0, 0, 0, "wut"))));
         drop(file);
@@ -1334,7 +1343,7 @@ mod test {
         use rand::{StdRng, Rng};
 
         let mut bytes = [0, ..1024];
-        StdRng::new().unwrap().fill_bytes(bytes);
+        StdRng::new().ok().unwrap().fill_bytes(bytes);
 
         let tmpdir = tmpdir();
 

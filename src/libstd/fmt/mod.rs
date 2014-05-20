@@ -484,27 +484,33 @@ will look like `"\\{"`.
 */
 
 use any;
-use cast;
+use cell::Cell;
 use char::Char;
+use cmp;
 use container::Container;
+use intrinsics::TypeId;
 use io::MemWriter;
 use io;
 use iter::{Iterator, range};
+use iter;
+use kinds::Copy;
+use mem;
 use num::Signed;
-use option::{Option,Some,None};
+use option::{Option, Some, None};
+use owned::Box;
 use repr;
-use result::{Ok, Err};
-use str::StrSlice;
-use str;
+use result::{Ok, Err, ResultUnwrap};
 use slice::{Vector, ImmutableVector};
 use slice;
+use str::{StrSlice, StrAllocating, UTF16Item, ScalarValue, LoneSurrogate};
+use str;
+use strbuf::StrBuf;
 
 pub use self::num::radix;
 pub use self::num::Radix;
 pub use self::num::RadixFmt;
 
 mod num;
-pub mod parse;
 pub mod rt;
 
 pub type Result = io::IoResult<()>;
@@ -518,7 +524,7 @@ pub struct Formatter<'a> {
     /// Character used as 'fill' whenever there is alignment
     pub fill: char,
     /// Boolean indication of whether the output should be left-aligned
-    pub align: parse::Alignment,
+    pub align: rt::Alignment,
     /// Optionally specified integer width that the output should be
     pub width: Option<uint>,
     /// Optionally specified precision for numeric types
@@ -547,7 +553,7 @@ impl<'a> Arguments<'a> {
     #[doc(hidden)] #[inline]
     pub unsafe fn new<'a>(fmt: &'static [rt::Piece<'static>],
                           args: &'a [Argument<'a>]) -> Arguments<'a> {
-        Arguments{ fmt: cast::transmute(fmt), args: args }
+        Arguments{ fmt: mem::transmute(fmt), args: args }
     }
 }
 
@@ -751,7 +757,7 @@ pub unsafe fn write_unsafe(output: &mut io::Writer,
         width: None,
         precision: None,
         buf: output,
-        align: parse::AlignUnknown,
+        align: rt::AlignUnknown,
         fill: ' ',
         args: args,
         curarg: args.iter(),
@@ -783,6 +789,11 @@ pub fn format(args: &Arguments) -> ~str {
     unsafe { format_unsafe(args.fmt, args.args) }
 }
 
+/// Temporary transitionary thing.
+pub fn format_strbuf(args: &Arguments) -> StrBuf {
+    unsafe { format_unsafe_strbuf(args.fmt, args.args) }
+}
+
 /// The unsafe version of the formatting function.
 ///
 /// This is currently an unsafe function because the types of all arguments
@@ -808,6 +819,14 @@ pub unsafe fn format_unsafe(fmt: &[rt::Piece], args: &[Argument]) -> ~str {
     let mut output = MemWriter::new();
     write_unsafe(&mut output as &mut io::Writer, fmt, args).unwrap();
     return str::from_utf8(output.unwrap().as_slice()).unwrap().to_owned();
+}
+
+/// Temporary transitionary thing.
+pub unsafe fn format_unsafe_strbuf(fmt: &[rt::Piece], args: &[Argument])
+                                   -> StrBuf {
+    let mut output = MemWriter::new();
+    write_unsafe(&mut output as &mut io::Writer, fmt, args).unwrap();
+    return str::from_utf8(output.unwrap().as_slice()).unwrap().into_strbuf();
 }
 
 impl<'a> Formatter<'a> {
@@ -865,7 +884,7 @@ impl<'a> Formatter<'a> {
             rt::Plural(offset, ref selectors, ref default) => {
                 // This is validated at compile-time to be a pointer to a
                 // '&uint' value.
-                let value: &uint = unsafe { cast::transmute(arg.value) };
+                let value: &uint = unsafe { mem::transmute(arg.value) };
                 let value = *value;
 
                 // First, attempt to match against explicit values without the
@@ -884,15 +903,15 @@ impl<'a> Formatter<'a> {
                 let value = value - match offset { Some(i) => i, None => 0 };
                 for s in selectors.iter() {
                     let run = match s.selector {
-                        rt::Keyword(parse::Zero) => value == 0,
-                        rt::Keyword(parse::One) => value == 1,
-                        rt::Keyword(parse::Two) => value == 2,
+                        rt::Keyword(rt::Zero) => value == 0,
+                        rt::Keyword(rt::One) => value == 1,
+                        rt::Keyword(rt::Two) => value == 2,
 
                         // FIXME: Few/Many should have a user-specified boundary
                         //      One possible option would be in the function
                         //      pointer of the 'arg: Argument' struct.
-                        rt::Keyword(parse::Few) => value < 8,
-                        rt::Keyword(parse::Many) => value >= 8,
+                        rt::Keyword(rt::Few) => value < 8,
+                        rt::Keyword(rt::Many) => value >= 8,
 
                         rt::Literal(..) => false
                     };
@@ -908,7 +927,7 @@ impl<'a> Formatter<'a> {
             rt::Select(ref selectors, ref default) => {
                 // This is validated at compile-time to be a pointer to a
                 // string slice,
-                let value: & &str = unsafe { cast::transmute(arg.value) };
+                let value: & &str = unsafe { mem::transmute(arg.value) };
                 let value = *value;
 
                 for s in selectors.iter() {
@@ -954,7 +973,7 @@ impl<'a> Formatter<'a> {
     /// This function will correctly account for the flags provided as well as
     /// the minimum width. It will not take precision into account.
     pub fn pad_integral(&mut self, is_positive: bool, prefix: &str, buf: &[u8]) -> Result {
-        use fmt::parse::{FlagAlternate, FlagSignPlus, FlagSignAwareZeroPad};
+        use fmt::rt::{FlagAlternate, FlagSignPlus, FlagSignAwareZeroPad};
 
         let mut width = buf.len();
 
@@ -994,11 +1013,11 @@ impl<'a> Formatter<'a> {
             Some(min) if self.flags & (1 << (FlagSignAwareZeroPad as uint)) != 0 => {
                 self.fill = '0';
                 try!(write_prefix(self));
-                self.with_padding(min - width, parse::AlignRight, |f| f.buf.write(buf))
+                self.with_padding(min - width, rt::AlignRight, |f| f.buf.write(buf))
             }
             // Otherwise, the sign and prefix goes after the padding
             Some(min) => {
-                self.with_padding(min - width, parse::AlignRight, |f| {
+                self.with_padding(min - width, rt::AlignRight, |f| {
                     try!(write_prefix(f)); f.buf.write(buf)
                 })
             }
@@ -1049,7 +1068,7 @@ impl<'a> Formatter<'a> {
             // If we're under both the maximum and the minimum width, then fill
             // up the minimum width with the specified string + some alignment.
             Some(width) => {
-                self.with_padding(width - s.len(), parse::AlignLeft, |me| {
+                self.with_padding(width - s.len(), rt::AlignLeft, |me| {
                     me.buf.write(s.as_bytes())
                 })
             }
@@ -1060,13 +1079,13 @@ impl<'a> Formatter<'a> {
     /// afterwards depending on whether right or left alingment is requested.
     fn with_padding(&mut self,
                     padding: uint,
-                    default: parse::Alignment,
+                    default: rt::Alignment,
                     f: |&mut Formatter| -> Result) -> Result {
         let align = match self.align {
-            parse::AlignUnknown => default,
-            parse::AlignLeft | parse::AlignRight => self.align
+            rt::AlignUnknown => default,
+            rt::AlignLeft | rt::AlignRight => self.align
         };
-        if align == parse::AlignLeft {
+        if align == rt::AlignLeft {
             try!(f(self));
         }
         let mut fill = [0u8, ..4];
@@ -1074,7 +1093,7 @@ impl<'a> Formatter<'a> {
         for _ in range(0, padding) {
             try!(self.buf.write(fill.slice_to(len)));
         }
-        if align == parse::AlignRight {
+        if align == rt::AlignRight {
             try!(f(self));
         }
         Ok(())
@@ -1088,8 +1107,8 @@ pub fn argument<'a, T>(f: extern "Rust" fn(&T, &mut Formatter) -> Result,
                        t: &'a T) -> Argument<'a> {
     unsafe {
         Argument {
-            formatter: cast::transmute(f),
-            value: cast::transmute(t)
+            formatter: mem::transmute(f),
+            value: mem::transmute(t)
         }
     }
 }
@@ -1113,7 +1132,7 @@ pub fn argumentuint<'a>(s: &'a uint) -> Argument<'a> {
 impl<T: Show> Show for @T {
     fn fmt(&self, f: &mut Formatter) -> Result { secret_show(&**self, f) }
 }
-impl<T: Show> Show for ~T {
+impl<T: Show> Show for Box<T> {
     fn fmt(&self, f: &mut Formatter) -> Result { secret_show(&**self, f) }
 }
 impl<'a, T: Show> Show for &'a T {
@@ -1136,7 +1155,7 @@ impl Char for char {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let mut utf8 = [0u8, ..4];
         let amt = self.encode_utf8(utf8);
-        let s: &str = unsafe { cast::transmute(utf8.slice_to(amt)) };
+        let s: &str = unsafe { mem::transmute(utf8.slice_to(amt)) };
         secret_string(&s, f)
     }
 }
@@ -1197,7 +1216,7 @@ impl<T> Poly for T {
 
 impl<T> Pointer for *T {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        f.flags |= 1 << (parse::FlagAlternate as uint);
+        f.flags |= 1 << (rt::FlagAlternate as uint);
         secret_lower_hex::<uint>(&(*self as uint), f)
     }
 }
@@ -1238,6 +1257,145 @@ impl<T> Show for *T {
 }
 impl<T> Show for *mut T {
     fn fmt(&self, f: &mut Formatter) -> Result { secret_pointer(self, f) }
+}
+
+macro_rules! peel(($name:ident, $($other:ident,)*) => (tuple!($($other,)*)))
+
+macro_rules! tuple (
+    () => ();
+    ( $($name:ident,)+ ) => (
+        impl<$($name:Show),*> Show for ($($name,)*) {
+            #[allow(uppercase_variables, dead_assignment)]
+            fn fmt(&self, f: &mut Formatter) -> Result {
+                try!(write!(f.buf, "("));
+                let ($(ref $name,)*) = *self;
+                let mut n = 0;
+                $(
+                    if n > 0 {
+                        try!(write!(f.buf, ", "));
+                    }
+                    try!(write!(f.buf, "{}", *$name));
+                    n += 1;
+                )*
+                if n == 1 {
+                    try!(write!(f.buf, ","));
+                }
+                write!(f.buf, ")")
+            }
+        }
+        peel!($($name,)*)
+    )
+)
+
+tuple! { T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, }
+
+impl Show for Box<any::Any> {
+    fn fmt(&self, f: &mut Formatter) -> Result { f.pad("Box<Any>") }
+}
+
+impl<'a> Show for &'a any::Any {
+    fn fmt(&self, f: &mut Formatter) -> Result { f.pad("&Any") }
+}
+
+impl<T: Show> Show for Option<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match *self {
+            Some(ref t) => write!(f.buf, "Some({})", *t),
+            None => write!(f.buf, "None"),
+        }
+    }
+}
+
+impl<T: Show, U: Show> Show for ::result::Result<T, U> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match *self {
+            Ok(ref t) => write!(f.buf, "Ok({})", *t),
+            Err(ref t) => write!(f.buf, "Err({})", *t),
+        }
+    }
+}
+
+impl<'a, T: Show> Show for &'a [T] {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        if f.flags & (1 << (rt::FlagAlternate as uint)) == 0 {
+            try!(write!(f.buf, "["));
+        }
+        let mut is_first = true;
+        for x in self.iter() {
+            if is_first {
+                is_first = false;
+            } else {
+                try!(write!(f.buf, ", "));
+            }
+            try!(write!(f.buf, "{}", *x))
+        }
+        if f.flags & (1 << (rt::FlagAlternate as uint)) == 0 {
+            try!(write!(f.buf, "]"));
+        }
+        Ok(())
+    }
+}
+
+impl<'a, T: Show> Show for &'a mut [T] {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        secret_show(&self.as_slice(), f)
+    }
+}
+
+impl<T: Show> Show for ~[T] {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        secret_show(&self.as_slice(), f)
+    }
+}
+
+impl Show for () {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        f.pad("()")
+    }
+}
+
+impl Show for TypeId {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f.buf, "TypeId \\{ {} \\}", self.hash())
+    }
+}
+
+impl<T: Show> Show for iter::MinMaxResult<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match *self {
+            iter::NoElements =>
+                write!(f.buf, "NoElements"),
+            iter::OneElement(ref t) =>
+                write!(f.buf, "OneElement({})", *t),
+            iter::MinMax(ref t1, ref t2) =>
+                write!(f.buf, "MinMax({}, {})", *t1, *t2),
+        }
+    }
+}
+
+impl Show for cmp::Ordering {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match *self {
+            cmp::Less => write!(f.buf, "Less"),
+            cmp::Greater => write!(f.buf, "Greater"),
+            cmp::Equal => write!(f.buf, "Equal"),
+        }
+    }
+}
+
+impl<T: Copy + Show> Show for Cell<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f.buf, r"Cell \{ value: {} \}", self.get())
+    }
+}
+
+impl Show for UTF16Item {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match *self {
+            ScalarValue(c) => write!(f.buf, "ScalarValue({})", c),
+            LoneSurrogate(u) => write!(f.buf, "LoneSurrogate({})", u),
+        }
+    }
 }
 
 // If you expected tests to be here, look instead at the run-pass/ifmt.rs test,

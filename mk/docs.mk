@@ -30,7 +30,7 @@ DOCS := index intro tutorial guide-ffi guide-macros guide-lifetimes \
 	guide-tasks guide-container guide-pointers guide-testing \
 	guide-runtime complement-bugreport complement-cheatsheet \
 	complement-lang-faq complement-project-faq rust rustdoc \
-	guide-unsafe
+	guide-unsafe not_found
 
 PDF_DOCS := tutorial rust
 
@@ -138,26 +138,6 @@ doc/full-toc.inc: $(D)/full-toc.inc | doc/
 
 HTML_DEPS += doc/footer.inc
 doc/footer.inc: $(D)/footer.inc | doc/
-	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
-
-doc/FiraSans-Regular.woff: $(D)/FiraSans-Regular.woff | doc/
-	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
-
-doc/FiraSans-Medium.woff: $(D)/FiraSans-Medium.woff | doc/
-	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
-
-doc/Heuristica-Regular.woff: $(D)/Heuristica-Regular.woff | doc/
-	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
-
-doc/Heuristica-Italic.woff: $(D)/Heuristica-Italic.woff | doc/
-	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
-
-doc/Heuristica-Bold.woff: $(D)/Heuristica-Bold.woff | doc/
 	@$(call E, cp: $@)
 	$(Q)cp -a $< $@ 2> /dev/null
 

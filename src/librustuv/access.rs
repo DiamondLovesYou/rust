@@ -14,10 +14,10 @@
 /// It is assumed that all invocations of this struct happen on the same thread
 /// (the uv event loop).
 
-use std::cast;
-use std::sync::arc::UnsafeArc;
-use std::rt::task::{BlockedTask, Task};
+use std::mem;
 use std::rt::local::Local;
+use std::rt::task::{BlockedTask, Task};
+use std::sync::arc::UnsafeArc;
 
 use homing::HomingMissile;
 
@@ -31,8 +31,9 @@ pub struct Guard<'a> {
 }
 
 struct Inner {
-    queue: Vec<BlockedTask>,
+    queue: Vec<(BlockedTask, uint)>,
     held: bool,
+    closed: bool,
 }
 
 impl Access {
@@ -41,20 +42,22 @@ impl Access {
             inner: UnsafeArc::new(Inner {
                 queue: vec![],
                 held: false,
+                closed: false,
             })
         }
     }
 
-    pub fn grant<'a>(&'a mut self, missile: HomingMissile) -> Guard<'a> {
+    pub fn grant<'a>(&'a mut self, token: uint,
+                     missile: HomingMissile) -> Guard<'a> {
         // This unsafety is actually OK because the homing missile argument
         // guarantees that we're on the same event loop as all the other objects
         // attempting to get access granted.
-        let inner: &mut Inner = unsafe { cast::transmute(self.inner.get()) };
+        let inner: &mut Inner = unsafe { &mut *self.inner.get() };
 
         if inner.held {
-            let t: ~Task = Local::take();
+            let t: Box<Task> = Local::take();
             t.deschedule(1, |task| {
-                inner.queue.push(task);
+                inner.queue.push((task, token));
                 Ok(())
             });
             assert!(inner.held);
@@ -64,11 +67,39 @@ impl Access {
 
         Guard { access: self, missile: Some(missile) }
     }
+
+    pub fn close(&self, _missile: &HomingMissile) {
+        // This unsafety is OK because with a homing missile we're guaranteed to
+        // be the only task looking at the `closed` flag (and are therefore
+        // allowed to modify it). Additionally, no atomics are necessary because
+        // everyone's running on the same thread and has already done the
+        // necessary synchronization to be running on this thread.
+        unsafe { (*self.inner.get()).closed = true; }
+    }
+
+    // Dequeue a blocked task with a specified token. This is unsafe because it
+    // is only safe to invoke while on the home event loop, and there is no
+    // guarantee that this i being invoked on the home event loop.
+    pub unsafe fn dequeue(&mut self, token: uint) -> Option<BlockedTask> {
+        let inner: &mut Inner = &mut *self.inner.get();
+        match inner.queue.iter().position(|&(_, t)| t == token) {
+            Some(i) => Some(inner.queue.remove(i).unwrap().val0()),
+            None => None,
+        }
+    }
 }
 
 impl Clone for Access {
     fn clone(&self) -> Access {
         Access { inner: self.inner.clone() }
+    }
+}
+
+impl<'a> Guard<'a> {
+    pub fn is_closed(&self) -> bool {
+        // See above for why this unsafety is ok, it just applies to the read
+        // instead of the write.
+        unsafe { (*self.access.inner.get()).closed }
     }
 }
 
@@ -79,7 +110,7 @@ impl<'a> Drop for Guard<'a> {
         // on the same I/O event loop, so this unsafety should be ok.
         assert!(self.missile.is_some());
         let inner: &mut Inner = unsafe {
-            cast::transmute(self.access.inner.get())
+            mem::transmute(self.access.inner.get())
         };
 
         match inner.queue.shift() {
@@ -92,9 +123,9 @@ impl<'a> Drop for Guard<'a> {
             // scheduled on this scheduler. Because we might be woken up on some
             // other scheduler, we drop our homing missile before we reawaken
             // the task.
-            Some(task) => {
+            Some((task, _)) => {
                 drop(self.missile.take());
-                let _ = task.wake().map(|t| t.reawaken());
+                task.reawaken();
             }
             None => { inner.held = false; }
         }

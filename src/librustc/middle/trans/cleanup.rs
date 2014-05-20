@@ -26,6 +26,7 @@ use middle::ty;
 use syntax::ast;
 use util::ppaux::Repr;
 
+
 pub struct CleanupScope<'a> {
     // The id of this cleanup scope. If the id is None,
     // this is a *temporary scope* that is pushed during trans to
@@ -35,7 +36,7 @@ pub struct CleanupScope<'a> {
     kind: CleanupScopeKind<'a>,
 
     // Cleanups to run upon scope exit.
-    cleanups: Vec<~Cleanup>,
+    cleanups: Vec<Box<Cleanup>>,
 
     cached_early_exits: Vec<CachedEarlyExit>,
     cached_landing_pad: Option<BasicBlockRef>,
@@ -248,7 +249,7 @@ impl<'a> CleanupMethods<'a> for FunctionContext<'a> {
                self.ccx.tn.val_to_str(val),
                ty.repr(self.ccx.tcx()));
 
-        self.schedule_clean(cleanup_scope, drop as ~Cleanup);
+        self.schedule_clean(cleanup_scope, drop as Box<Cleanup>);
     }
 
     fn schedule_drop_immediate(&self,
@@ -272,7 +273,7 @@ impl<'a> CleanupMethods<'a> for FunctionContext<'a> {
                self.ccx.tn.val_to_str(val),
                ty.repr(self.ccx.tcx()));
 
-        self.schedule_clean(cleanup_scope, drop as ~Cleanup);
+        self.schedule_clean(cleanup_scope, drop as Box<Cleanup>);
     }
 
     fn schedule_free_value(&self,
@@ -291,12 +292,12 @@ impl<'a> CleanupMethods<'a> for FunctionContext<'a> {
                self.ccx.tn.val_to_str(val),
                heap);
 
-        self.schedule_clean(cleanup_scope, drop as ~Cleanup);
+        self.schedule_clean(cleanup_scope, drop as Box<Cleanup>);
     }
 
     fn schedule_clean(&self,
                       cleanup_scope: ScopeId,
-                      cleanup: ~Cleanup) {
+                      cleanup: Box<Cleanup>) {
         match cleanup_scope {
             AstScope(id) => self.schedule_clean_in_ast_scope(id, cleanup),
             CustomScope(id) => self.schedule_clean_in_custom_scope(id, cleanup),
@@ -305,7 +306,7 @@ impl<'a> CleanupMethods<'a> for FunctionContext<'a> {
 
     fn schedule_clean_in_ast_scope(&self,
                                    cleanup_scope: ast::NodeId,
-                                   cleanup: ~Cleanup) {
+                                   cleanup: Box<Cleanup>) {
         /*!
          * Schedules a cleanup to occur upon exit from `cleanup_scope`.
          * If `cleanup_scope` is not provided, then the cleanup is scheduled
@@ -333,7 +334,7 @@ impl<'a> CleanupMethods<'a> for FunctionContext<'a> {
 
     fn schedule_clean_in_custom_scope(&self,
                                       custom_scope: CustomScopeIndex,
-                                      cleanup: ~Cleanup) {
+                                      cleanup: Box<Cleanup>) {
         /*!
          * Schedules a cleanup to occur in the top-most scope,
          * which must be a temporary scope.
@@ -598,7 +599,9 @@ impl<'a> CleanupHelperMethods<'a> for FunctionContext<'a> {
             {
                 let name = scope.block_name("clean");
                 debug!("generating cleanups for {}", name);
-                let bcx_in = self.new_block(label.is_unwind(), name, None);
+                let bcx_in = self.new_block(label.is_unwind(),
+                                            name.as_slice(),
+                                            None);
                 let mut bcx_out = bcx_in;
                 for cleanup in scope.cleanups.iter().rev() {
                     if cleanup_is_suitable_for(*cleanup, label) {
@@ -648,7 +651,7 @@ impl<'a> CleanupHelperMethods<'a> for FunctionContext<'a> {
                 Some(llbb) => { return llbb; }
                 None => {
                     let name = last_scope.block_name("unwind");
-                    pad_bcx = self.new_block(true, name, None);
+                    pad_bcx = self.new_block(true, name.as_slice(), None);
                     last_scope.cached_landing_pad = Some(pad_bcx.llbb);
                 }
             }
@@ -730,16 +733,16 @@ impl<'a> CleanupScope<'a> {
             self.cleanups.iter().any(|c| c.clean_on_unwind())
     }
 
-    fn block_name(&self, prefix: &str) -> ~str {
+    fn block_name(&self, prefix: &str) -> StrBuf {
         /*!
          * Returns a suitable name to use for the basic block that
          * handles this cleanup scope
          */
 
         match self.kind {
-            CustomScopeKind => format!("{}_custom_", prefix),
-            AstScopeKind(id) => format!("{}_ast_{}_", prefix, id),
-            LoopScopeKind(id, _) => format!("{}_loop_{}_", prefix, id),
+            CustomScopeKind => format_strbuf!("{}_custom_", prefix),
+            AstScopeKind(id) => format_strbuf!("{}_ast_{}_", prefix, id),
+            LoopScopeKind(id, _) => format_strbuf!("{}_loop_{}_", prefix, id),
         }
     }
 }
@@ -909,13 +912,13 @@ pub trait CleanupMethods<'a> {
                            heap: Heap);
     fn schedule_clean(&self,
                       cleanup_scope: ScopeId,
-                      cleanup: ~Cleanup);
+                      cleanup: Box<Cleanup>);
     fn schedule_clean_in_ast_scope(&self,
                                    cleanup_scope: ast::NodeId,
-                                   cleanup: ~Cleanup);
+                                   cleanup: Box<Cleanup>);
     fn schedule_clean_in_custom_scope(&self,
                                     custom_scope: CustomScopeIndex,
-                                    cleanup: ~Cleanup);
+                                    cleanup: Box<Cleanup>);
     fn needs_invoke(&self) -> bool;
     fn get_landing_pad(&'a self) -> BasicBlockRef;
 }

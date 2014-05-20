@@ -11,6 +11,7 @@
 use back::archive::ArchiveRO;
 use back::link;
 use driver::session;
+use driver::config;
 use driver::session::Session;
 use lib::llvm::{ModuleRef, TargetMachineRef, llvm, False, True, PassManagerRef};
 use metadata::cstore;
@@ -20,7 +21,7 @@ use libc;
 use flate;
 
 pub fn run(sess: &session::Session, llmod: ModuleRef,
-           tm: TargetMachineRef, reachable: &[~str]) {
+           tm: TargetMachineRef, reachable: &[StrBuf]) {
     if sess.opts.cg.prefer_dynamic {
         sess.err("cannot prefer dynamic linking when performing LTO");
         sess.note("only 'staticlib' and 'bin' outputs are supported with LTO");
@@ -30,7 +31,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
     // Make sure we actually can run LTO
     for crate_type in sess.crate_types.borrow().iter() {
         match *crate_type {
-            session::CrateTypeExecutable | session::CrateTypeStaticlib => {}
+            config::CrateTypeExecutable | config::CrateTypeStaticlib => {}
             _ => {
                 sess.fatal("lto can only be run for executables and \
                             static library outputs");
@@ -67,13 +68,16 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
             if !llvm::LLVMRustLinkInExternalBitcode(llmod,
                                                     ptr as *libc::c_char,
                                                     bc.len() as libc::size_t) {
-                link::llvm_err(sess, format!("failed to load bc of `{}`", name));
+                link::llvm_err(sess,
+                               (format_strbuf!("failed to load bc of `{}`",
+                                               name)));
             }
         });
     }
 
     // Internalize everything but the reachable symbols of the current module
-    let cstrs: Vec<::std::c_str::CString> = reachable.iter().map(|s| s.to_c_str()).collect();
+    let cstrs: Vec<::std::c_str::CString> =
+        reachable.iter().map(|s| s.as_slice().to_c_str()).collect();
     let arr: Vec<*i8> = cstrs.iter().map(|c| c.with_ref(|p| p)).collect();
     let ptr = arr.as_ptr();
     unsafe {
@@ -111,7 +115,7 @@ pub fn run_passes(sess: &Session,
 
             pre(pm);
 
-            if sess.opts.optimize != session::No {
+            if sess.opts.optimize != config::No {
                 let builder = llvm::LLVMPassManagerBuilderCreate();
                 llvm::LLVMPassManagerBuilderPopulateLTOPassManager
                     (builder,

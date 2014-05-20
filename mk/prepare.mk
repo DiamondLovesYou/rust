@@ -106,7 +106,8 @@ prepare-host-lib-$(1)-$(2)-$(3)-$(4): prepare-maybe-clean-$(4) \
                                  prepare-host-dirs-$(4)
 	$$(if $$(findstring $(2), $$(PREPARE_STAGE)),\
       $$(if $$(findstring $(3), $$(PREPARE_HOST)),\
-        $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$$(PREPARE_HOST),$(1))),),)
+        $$(if $$(findstring 1,$$(ONLY_RLIB_$(1))),,\
+          $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$$(PREPARE_HOST),$(1)))),),)
 endef
 
 
@@ -134,7 +135,8 @@ prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
           $$(call PREPARE_DIR,$$(PREPARE_WORKING_DEST_LIB_DIR))\
           $$(foreach crate,$$(filter-out $$(DISABLED_CRATES_$(2)), $$(TARGET_CRATES)),\
             $$(if $$(SHARED_LIBS_DISABLED_$(2)),,\
-	      $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$(2),$$(crate))))\
+	      $$(if $$(findstring 1, $$(ONLY_RLIB_$$(crate))),,\
+                $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$(2),$$(crate)))))\
             $$(call PREPARE_LIB,$$(call CFG_RLIB_GLOB,$$(crate))))\
           $$(if $$(findstring $(2),$$(CFG_HOST)),\
             $$(foreach crate,$$(HOST_CRATES),\

@@ -8,13 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(managed_boxes)]
+
 #[deriving(Eq, Show)]
 struct Point { x : int }
 
 pub fn main() {
     assert_eq!(14,14);
     assert_eq!("abc".to_owned(),"abc".to_owned());
-    assert_eq!(~Point{x:34},~Point{x:34});
+    assert_eq!(box Point{x:34},box Point{x:34});
     assert_eq!(&Point{x:34},&Point{x:34});
     assert_eq!(@Point{x:34},@Point{x:34});
 }

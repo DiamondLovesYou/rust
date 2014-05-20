@@ -8,10 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::io::IoError;
-use std::io::process;
 use libc::c_int;
 use libc;
+use std::io::IoError;
+use std::io::process;
 use std::ptr;
 use std::rt::rtio::RtioProcess;
 use std::rt::task::BlockedTask;
@@ -19,7 +19,8 @@ use std::rt::task::BlockedTask;
 use homing::{HomingIO, HomeHandle};
 use pipe::PipeWatcher;
 use super::{UvHandle, UvError, uv_error_to_io_error,
-            wait_until_woken_after, wakeup};
+            wait_until_woken_after, wakeup, Loop};
+use timer::TimerWatcher;
 use uvio::UvIoFactory;
 use uvll;
 
@@ -32,6 +33,16 @@ pub struct Process {
 
     /// Collected from the exit_cb
     exit_status: Option<process::ProcessExit>,
+
+    /// Lazily initialized timeout timer
+    timer: Option<Box<TimerWatcher>>,
+    timeout_state: TimeoutState,
+}
+
+enum TimeoutState {
+    NoTimeout,
+    TimeoutPending,
+    TimeoutElapsed,
 }
 
 impl Process {
@@ -40,7 +51,7 @@ impl Process {
     /// Returns either the corresponding process object or an error which
     /// occurred.
     pub fn spawn(io_loop: &mut UvIoFactory, config: process::ProcessConfig)
-                -> Result<(~Process, ~[Option<PipeWatcher>]), UvError>
+                -> Result<(Box<Process>, Vec<Option<PipeWatcher>>), UvError>
     {
         let cwd = config.cwd.map(|s| s.to_c_str());
         let mut io = vec![config.stdin, config.stdout, config.stderr];
@@ -92,6 +103,8 @@ impl Process {
                     home: io_loop.make_handle(),
                     to_wake: None,
                     exit_status: None,
+                    timer: None,
+                    timeout_state: NoTimeout,
                 };
                 match unsafe {
                     uvll::uv_spawn(io_loop.uv_loop(), handle, &options)
@@ -103,7 +116,7 @@ impl Process {
         });
 
         match ret {
-            Ok(p) => Ok((p, ret_io.move_iter().collect())),
+            Ok(p) => Ok((p, ret_io)),
             Err(e) => Err(e),
         }
     }
@@ -223,21 +236,71 @@ impl RtioProcess for Process {
         }
     }
 
-    fn wait(&mut self) -> process::ProcessExit {
+    fn wait(&mut self) -> Result<process::ProcessExit, IoError> {
         // Make sure (on the home scheduler) that we have an exit status listed
         let _m = self.fire_homing_missile();
         match self.exit_status {
-            Some(..) => {}
-            None => {
-                // If there's no exit code previously listed, then the
-                // process's exit callback has yet to be invoked. We just
-                // need to deschedule ourselves and wait to be reawoken.
-                wait_until_woken_after(&mut self.to_wake, &self.uv_loop(), || {});
-                assert!(self.exit_status.is_some());
-            }
+            Some(status) => return Ok(status),
+            None => {}
         }
 
-        self.exit_status.unwrap()
+        // If there's no exit code previously listed, then the process's exit
+        // callback has yet to be invoked. We just need to deschedule ourselves
+        // and wait to be reawoken.
+        match self.timeout_state {
+            NoTimeout | TimeoutPending => {
+                wait_until_woken_after(&mut self.to_wake, &self.uv_loop(), || {});
+            }
+            TimeoutElapsed => {}
+        }
+
+        // If there's still no exit status listed, then we timed out, and we
+        // need to return.
+        match self.exit_status {
+            Some(status) => Ok(status),
+            None => Err(uv_error_to_io_error(UvError(uvll::ECANCELED)))
+        }
+    }
+
+    fn set_timeout(&mut self, timeout: Option<u64>) {
+        let _m = self.fire_homing_missile();
+        self.timeout_state = NoTimeout;
+        let ms = match timeout {
+            Some(ms) => ms,
+            None => {
+                match self.timer {
+                    Some(ref mut timer) => timer.stop(),
+                    None => {}
+                }
+                return
+            }
+        };
+        if self.timer.is_none() {
+            let loop_ = Loop::wrap(unsafe {
+                uvll::get_loop_for_uv_handle(self.uv_handle())
+            });
+            let mut timer = box TimerWatcher::new_home(&loop_, self.home().clone());
+            unsafe {
+                timer.set_data(self as *mut _ as *Process);
+            }
+            self.timer = Some(timer);
+        }
+
+        let timer = self.timer.get_mut_ref();
+        timer.stop();
+        timer.start(timer_cb, ms, 0);
+        self.timeout_state = TimeoutPending;
+
+        extern fn timer_cb(timer: *uvll::uv_timer_t) {
+            let p: &mut Process = unsafe {
+                &mut *(uvll::get_data_for_uv_handle(timer) as *mut Process)
+            };
+            p.timeout_state = TimeoutElapsed;
+            match p.to_wake.take() {
+                Some(task) => { let _t = task.wake().map(|t| t.reawaken()); }
+                None => {}
+            }
+        }
     }
 }
 

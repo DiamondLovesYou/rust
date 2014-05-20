@@ -719,7 +719,8 @@ pub enum IntTy {
 
 impl fmt::Show for IntTy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}", ast_util::int_ty_to_str(*self, None))
+        write!(f.buf, "{}",
+               ast_util::int_ty_to_str(*self, None, ast_util::AutoSuffix))
     }
 }
 
@@ -734,7 +735,8 @@ pub enum UintTy {
 
 impl fmt::Show for UintTy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}", ast_util::uint_ty_to_str(*self, None))
+        write!(f.buf, "{}",
+               ast_util::uint_ty_to_str(*self, None, ast_util::AutoSuffix))
     }
 }
 
@@ -901,7 +903,6 @@ pub struct FnDecl {
 pub enum FnStyle {
     UnsafeFn, // declared with "unsafe fn"
     NormalFn, // declared with "fn"
-    ExternFn, // declared with "extern fn"
 }
 
 impl fmt::Show for FnStyle {
@@ -909,7 +910,6 @@ impl fmt::Show for FnStyle {
         match *self {
             NormalFn => "normal".fmt(f),
             UnsafeFn => "unsafe".fmt(f),
-            ExternFn => "extern".fmt(f),
         }
     }
 }

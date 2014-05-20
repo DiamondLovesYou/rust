@@ -34,7 +34,7 @@ via `close` and `delete` methods.
 
 */
 
-#![crate_id = "rustuv#0.11-pre"]
+#![crate_id = "rustuv#0.11.0-pre"]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
@@ -47,11 +47,11 @@ via `close` and `delete` methods.
 #[cfg(test)] extern crate realrustuv = "rustuv";
 extern crate libc;
 
-use std::cast;
+use libc::{c_int, c_void};
 use std::fmt;
 use std::io::IoError;
 use std::io;
-use libc::{c_int, c_void};
+use std::mem;
 use std::ptr::null;
 use std::ptr;
 use std::rt::local::Local;
@@ -84,6 +84,7 @@ fn start(argc: int, argv: **u8) -> int {
 mod macros;
 
 mod access;
+mod timeout;
 mod homing;
 mod queue;
 mod rc;
@@ -124,8 +125,8 @@ pub mod stream;
 ///     // this code is running inside of a green task powered by libuv
 /// }
 /// ```
-pub fn event_loop() -> ~rtio::EventLoop:Send {
-    box uvio::UvEventLoop::new() as ~rtio::EventLoop:Send
+pub fn event_loop() -> Box<rtio::EventLoop:Send> {
+    box uvio::UvEventLoop::new() as Box<rtio::EventLoop:Send>
 }
 
 /// A type that wraps a uv handle
@@ -146,12 +147,12 @@ pub trait UvHandle<T> {
     }
 
     unsafe fn from_uv_handle<'a>(h: &'a *T) -> &'a mut Self {
-        cast::transmute(uvll::get_data_for_uv_handle(*h))
+        mem::transmute(uvll::get_data_for_uv_handle(*h))
     }
 
-    fn install(~self) -> ~Self {
+    fn install(~self) -> Box<Self> {
         unsafe {
-            let myptr = cast::transmute::<&~Self, &*u8>(&self);
+            let myptr = mem::transmute::<&Box<Self>, &*u8>(&self);
             uvll::set_data_for_uv_handle(self.uv_handle(), *myptr);
         }
         self
@@ -187,7 +188,7 @@ pub trait UvHandle<T> {
                 let data = uvll::get_data_for_uv_handle(handle);
                 uvll::free_handle(handle);
                 if data == ptr::null() { return }
-                let slot: &mut Option<BlockedTask> = cast::transmute(data);
+                let slot: &mut Option<BlockedTask> = mem::transmute(data);
                 wakeup(slot);
             }
         }
@@ -242,7 +243,7 @@ fn wait_until_woken_after(slot: *mut Option<BlockedTask>,
     let _f = ForbidUnwind::new("wait_until_woken_after");
     unsafe {
         assert!((*slot).is_none());
-        let task: ~Task = Local::take();
+        let task: Box<Task> = Local::take();
         loop_.modify_blockers(1);
         task.deschedule(1, |task| {
             *slot = Some(task);
@@ -283,7 +284,7 @@ impl Request {
     pub unsafe fn get_data<T>(&self) -> &'static mut T {
         let data = uvll::get_data_for_req(self.handle);
         assert!(data != null());
-        cast::transmute(data)
+        mem::transmute(data)
     }
 
     // This function should be used when the request handle has been given to an
@@ -458,11 +459,11 @@ pub fn slice_to_uv_buf(v: &[u8]) -> Buf {
 #[cfg(test)]
 fn local_loop() -> &'static mut uvio::UvIoFactory {
     unsafe {
-        cast::transmute({
+        mem::transmute({
             let mut task = Local::borrow(None::<Task>);
             let mut io = task.local_io().unwrap();
             let (_vtable, uvio): (uint, &'static mut uvio::UvIoFactory) =
-                cast::transmute(io.get());
+                mem::transmute(io.get());
             uvio
         })
     }
@@ -470,7 +471,7 @@ fn local_loop() -> &'static mut uvio::UvIoFactory {
 
 #[cfg(test)]
 mod test {
-    use std::cast::transmute;
+    use std::mem::transmute;
     use std::unstable::run_in_bare_thread;
 
     use super::{slice_to_uv_buf, Loop};

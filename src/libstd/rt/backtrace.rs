@@ -129,7 +129,7 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
                     // see src/librustc/back/link.rs for these mappings
                     demangle! (
                         "$SP$" => "@",
-                        "$UP$" => "~",
+                        "$UP$" => "Box",
                         "$RP$" => "*",
                         "$BP$" => "&",
                         "$LT$" => "<",
@@ -238,9 +238,9 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
 #[allow(unused_unsafe)]
 mod imp {
     use c_str::CString;
-    use cast;
     use io::{IoResult, IoError, Writer};
     use libc;
+    use mem;
     use option::{Some, None, Option};
     use result::{Ok, Err};
     use unstable::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
@@ -281,7 +281,7 @@ mod imp {
 
         extern fn trace_fn(ctx: *uw::_Unwind_Context,
                            arg: *libc::c_void) -> uw::_Unwind_Reason_Code {
-            let cx: &mut Context = unsafe { cast::transmute(arg) };
+            let cx: &mut Context = unsafe { mem::transmute(arg) };
             let ip = unsafe { uw::_Unwind_GetIP(ctx) as *libc::c_void };
             // dladdr() on osx gets whiny when we use FindEnclosingFunction, and
             // it appears to work fine without it, so we only use
@@ -859,15 +859,15 @@ mod test {
 
     #[test]
     fn demangle_dollars() {
-        t!("_ZN4$UP$E", "~");
-        t!("_ZN8$UP$testE", "~test");
-        t!("_ZN8$UP$test4foobE", "~test::foob");
+        t!("_ZN4$UP$E", "Box");
+        t!("_ZN8$UP$testE", "Boxtest");
+        t!("_ZN8$UP$test4foobE", "Boxtest::foob");
         t!("_ZN8$x20test4foobE", " test::foob");
     }
 
     #[test]
     fn demangle_many_dollars() {
         t!("_ZN12test$x20test4foobE", "test test::foob");
-        t!("_ZN12test$UP$test4foobE", "test~test::foob");
+        t!("_ZN12test$UP$test4foobE", "testBoxtest::foob");
     }
 }

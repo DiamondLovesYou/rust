@@ -436,7 +436,7 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    use rt::global_heap::malloc_raw;
+    use rt::libc_heap::malloc_raw;
     use libc::{HANDLE, BOOL, LPSECURITY_ATTRIBUTES, c_void, DWORD, LPCSTR};
     use libc;
     use ptr;

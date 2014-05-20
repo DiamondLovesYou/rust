@@ -61,7 +61,7 @@ independently:
 
 #![allow(non_camel_case_types)]
 
-use driver::session;
+use driver::config;
 
 use middle::resolve;
 use middle::ty;
@@ -184,7 +184,7 @@ pub enum vtable_origin {
       from whence comes the vtable, and tys are the type substs.
       vtable_res is the vtable itself
      */
-    vtable_static(ast::DefId, Vec<ty::t>, vtable_res),
+    vtable_static(ast::DefId, ty::substs, vtable_res),
 
     /*
       Dynamic vtable, comes from a parameter that has a bound on it:
@@ -198,18 +198,18 @@ pub enum vtable_origin {
 }
 
 impl Repr for vtable_origin {
-    fn repr(&self, tcx: &ty::ctxt) -> ~str {
+    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
         match *self {
             vtable_static(def_id, ref tys, ref vtable_res) => {
-                format!("vtable_static({:?}:{}, {}, {})",
-                     def_id,
-                     ty::item_path_str(tcx, def_id),
-                     tys.repr(tcx),
-                     vtable_res.repr(tcx))
+                format_strbuf!("vtable_static({:?}:{}, {}, {})",
+                               def_id,
+                               ty::item_path_str(tcx, def_id),
+                               tys.repr(tcx),
+                               vtable_res.repr(tcx))
             }
 
             vtable_param(x, y) => {
-                format!("vtable_param({:?}, {:?})", x, y)
+                format_strbuf!("vtable_param({:?}, {:?})", x, y)
             }
         }
     }
@@ -230,10 +230,10 @@ pub struct impl_res {
 }
 
 impl Repr for impl_res {
-    fn repr(&self, tcx: &ty::ctxt) -> ~str {
-        format!("impl_res \\{trait_vtables={}, self_vtables={}\\}",
-             self.trait_vtables.repr(tcx),
-             self.self_vtables.repr(tcx))
+    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+        format_strbuf!("impl_res \\{trait_vtables={}, self_vtables={}\\}",
+                       self.trait_vtables.repr(tcx),
+                       self.self_vtables.repr(tcx))
     }
 }
 
@@ -253,13 +253,16 @@ pub fn write_ty_to_tcx(tcx: &ty::ctxt, node_id: ast::NodeId, ty: ty::t) {
 }
 pub fn write_substs_to_tcx(tcx: &ty::ctxt,
                            node_id: ast::NodeId,
-                           substs: Vec<ty::t> ) {
-    if substs.len() > 0u {
-        debug!("write_substs_to_tcx({}, {:?})", node_id,
-               substs.iter().map(|t| ppaux::ty_to_str(tcx, *t)).collect::<Vec<~str>>());
-        assert!(substs.iter().all(|t| !ty::type_needs_infer(*t)));
+                           item_substs: ty::ItemSubsts) {
+    if !item_substs.is_noop() {
+        debug!("write_substs_to_tcx({}, {})",
+               node_id,
+               item_substs.repr(tcx));
 
-        tcx.node_type_substs.borrow_mut().insert(node_id, substs);
+        assert!(item_substs.substs.tps.iter().
+                all(|t| !ty::type_needs_infer(*t)));
+
+        tcx.item_substs.borrow_mut().insert(node_id, item_substs);
     }
 }
 pub fn lookup_def_tcx(tcx:&ty::ctxt, sp: Span, id: ast::NodeId) -> ast::Def {
@@ -290,7 +293,7 @@ pub fn require_same_types(tcx: &ty::ctxt,
                           span: Span,
                           t1: ty::t,
                           t2: ty::t,
-                          msg: || -> ~str)
+                          msg: || -> StrBuf)
                           -> bool {
     let result = match maybe_infcx {
         None => {
@@ -305,8 +308,10 @@ pub fn require_same_types(tcx: &ty::ctxt,
     match result {
         Ok(_) => true,
         Err(ref terr) => {
-            tcx.sess.span_err(span, msg() + ": " +
-                              ty::type_err_to_str(tcx, terr));
+            tcx.sess.span_err(span,
+                              format!("{}: {}",
+                                      msg(),
+                                      ty::type_err_to_str(tcx, terr)));
             ty::note_and_explain_type_err(tcx, terr);
             false
         }
@@ -347,8 +352,10 @@ fn check_main_fn_ty(ccx: &CrateCtxt,
             });
 
             require_same_types(tcx, None, false, main_span, main_t, se_ty,
-                || format!("main function expects type: `{}`",
-                        ppaux::ty_to_str(ccx.tcx, se_ty)));
+                || {
+                    format_strbuf!("main function expects type: `{}`",
+                                   ppaux::ty_to_str(ccx.tcx, se_ty))
+                });
         }
         _ => {
             tcx.sess.span_bug(main_span,
@@ -396,7 +403,10 @@ fn check_start_fn_ty(ccx: &CrateCtxt,
             });
 
             require_same_types(tcx, None, false, start_span, start_t, se_ty,
-                || format!("start function expects type: `{}`", ppaux::ty_to_str(ccx.tcx, se_ty)));
+                || {
+                    format_strbuf!("start function expects type: `{}`",
+                                   ppaux::ty_to_str(ccx.tcx, se_ty))
+                });
 
         }
         _ => {
@@ -411,9 +421,9 @@ fn check_for_entry_fn(ccx: &CrateCtxt) {
     let tcx = ccx.tcx;
     match *tcx.sess.entry_fn.borrow() {
         Some((id, sp)) => match tcx.sess.entry_type.get() {
-            Some(session::EntryMain) => check_main_fn_ty(ccx, id, sp),
-            Some(session::EntryStart) => check_start_fn_ty(ccx, id, sp),
-            Some(session::EntryNone) => {}
+            Some(config::EntryMain) => check_main_fn_ty(ccx, id, sp),
+            Some(config::EntryStart) => check_start_fn_ty(ccx, id, sp),
+            Some(config::EntryNone) => {}
             None => tcx.sess.bug("entry function without a type")
         },
         None => {}

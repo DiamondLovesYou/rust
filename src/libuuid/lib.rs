@@ -35,7 +35,7 @@ fn main() {
     let uuid1 = Uuid::new_v4();
     println!("{}", uuid1.to_str());
 }
- ```
+```
 
 # Strings
 
@@ -54,7 +54,7 @@ Examples of string representations:
 
 */
 
-#![crate_id = "uuid#0.11-pre"]
+#![crate_id = "uuid#0.11.0-pre"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
@@ -71,7 +71,7 @@ extern crate test;
 extern crate rand;
 extern crate serialize;
 
-use std::cast::{transmute,transmute_copy};
+use std::mem::{transmute,transmute_copy};
 use std::char::Char;
 use std::default::Default;
 use std::fmt;
@@ -783,7 +783,7 @@ mod test {
     #[test]
     fn test_rand_rand() {
         let mut rng = rand::task_rng();
-        let u: ~Uuid = rand::Rand::rand(&mut rng);
+        let u: Box<Uuid> = rand::Rand::rand(&mut rng);
         let ub = u.as_bytes();
 
         assert!(ub.len() == 16);

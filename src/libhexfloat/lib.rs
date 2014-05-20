@@ -27,7 +27,7 @@ extern crate hexfloat;
 fn main() {
     let val = hexfloat!("0x1.ffffb4", f32);
 }
- ```
+```
 
 # References
 
@@ -36,7 +36,7 @@ fn main() {
 
 */
 
-#![crate_id = "hexfloat#0.11-pre"]
+#![crate_id = "hexfloat#0.11.0-pre"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
@@ -61,7 +61,7 @@ use syntax::parse::token;
 #[macro_registrar]
 pub fn macro_registrar(register: |Name, SyntaxExtension|) {
     register(token::intern("hexfloat"),
-        NormalTT(~BasicMacroExpander {
+        NormalTT(box BasicMacroExpander {
             expander: expand_syntax_ext,
             span: None,
         },
@@ -97,7 +97,8 @@ fn hex_float_lit_err(s: &str) -> Option<(uint, ~str)> {
     }
 }
 
-pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> ~base::MacResult {
+pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
+                         -> Box<base::MacResult> {
     let (expr, ty_lit) = parse_tts(cx, tts);
 
     let ty = match ty_lit {

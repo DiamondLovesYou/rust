@@ -168,7 +168,7 @@ fn generate_test_harness(sess: &Session, krate: ast::Crate)
     cx.ext_cx.bt_push(ExpnInfo {
         call_site: DUMMY_SP,
         callee: NameAndSpan {
-            name: "test".to_owned(),
+            name: "test".to_strbuf(),
             format: MacroAttribute,
             span: None
         }
@@ -282,7 +282,7 @@ mod __test {
   #![!resolve_unexported]
   extern crate test (name = "test", vers = "...");
   fn main() {
-    test::test_main_static(::os::args(), tests)
+    test::test_main_static(::os::args().as_slice(), tests)
   }
 
   static tests : &'static [test::TestDescAndFn] = &[
@@ -326,8 +326,8 @@ fn mk_test_module(cx: &TestCtxt) -> @ast::Item {
     let mainfn = (quote_item!(&cx.ext_cx,
         pub fn main() {
             #![main]
-            #![allow(deprecated_owned_vector)]
-            test::test_main_static(::std::os::args(), TESTS);
+            use std::slice::Vector;
+            test::test_main_static(::std::os::args().as_slice(), TESTS);
         }
     )).unwrap();
 
@@ -398,7 +398,7 @@ fn mk_tests(cx: &TestCtxt) -> @ast::Item {
 
 fn is_test_crate(krate: &ast::Crate) -> bool {
     match attr::find_crateid(krate.attrs.as_slice()) {
-        Some(ref s) if "test" == s.name => true,
+        Some(ref s) if "test" == s.name.as_slice() => true,
         _ => false
     }
 }
@@ -427,7 +427,7 @@ fn mk_test_desc_and_fn_rec(cx: &TestCtxt, test: &Test) -> @ast::Expr {
 
     let name_lit: ast::Lit =
         nospan(ast::LitStr(token::intern_and_get_ident(
-                    ast_util::path_name_i(path.as_slice())),
+                    ast_util::path_name_i(path.as_slice()).as_slice()),
                     ast::CookedStr));
 
     let name_expr = @ast::Expr {

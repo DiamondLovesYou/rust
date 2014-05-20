@@ -52,7 +52,7 @@ can be broken down into several distinct phases:
 
 While type checking a function, the intermediate types for the
 expressions, blocks, and so forth contained within the function are
-stored in `fcx.node_types` and `fcx.node_type_substs`.  These types
+stored in `fcx.node_types` and `fcx.item_substs`.  These types
 may contain unresolved type variables.  After type checking is
 complete, the functions in the writeback module are used to take the
 types from this table, resolve them, and then write them into their
@@ -161,7 +161,7 @@ pub struct Inherited<'a> {
 
     // Temporary tables:
     node_types: RefCell<NodeMap<ty::t>>,
-    node_type_substs: RefCell<NodeMap<ty::substs>>,
+    item_substs: RefCell<NodeMap<ty::ItemSubsts>>,
     adjustments: RefCell<NodeMap<ty::AutoAdjustment>>,
     method_map: MethodMap,
     vtable_map: vtable_map,
@@ -221,6 +221,10 @@ enum IsBinopAssignment{
 
 #[deriving(Clone)]
 pub struct FnCtxt<'a> {
+    // This flag is set to true if, during the writeback phase, we encounter
+    // a type error in this function.
+    writeback_errors: Cell<bool>,
+
     // Number of errors that had been reported when we started
     // checking this function. On exit, if we find that *more* errors
     // have been reported, we will skip regionck and other work that
@@ -264,7 +268,7 @@ impl<'a> Inherited<'a> {
             locals: RefCell::new(NodeMap::new()),
             param_env: param_env,
             node_types: RefCell::new(NodeMap::new()),
-            node_type_substs: RefCell::new(NodeMap::new()),
+            item_substs: RefCell::new(NodeMap::new()),
             adjustments: RefCell::new(NodeMap::new()),
             method_map: RefCell::new(FnvHashMap::new()),
             vtable_map: RefCell::new(FnvHashMap::new()),
@@ -280,6 +284,7 @@ fn blank_fn_ctxt<'a>(ccx: &'a CrateCtxt<'a>,
                      region_bnd: ast::NodeId)
                      -> FnCtxt<'a> {
     FnCtxt {
+        writeback_errors: Cell::new(false),
         err_count_on_creation: ccx.tcx.sess.err_count(),
         ret_ty: rty,
         ps: RefCell::new(FnStyleState::function(ast::NormalFn, 0)),
@@ -463,12 +468,13 @@ fn check_fn<'a>(ccx: &'a CrateCtxt<'a>,
     let ret_ty = fn_sig.output;
 
     debug!("check_fn(arg_tys={:?}, ret_ty={:?})",
-           arg_tys.iter().map(|&a| ppaux::ty_to_str(tcx, a)).collect::<Vec<~str>>(),
+           arg_tys.iter().map(|&a| ppaux::ty_to_str(tcx, a)).collect::<Vec<StrBuf>>(),
            ppaux::ty_to_str(tcx, ret_ty));
 
     // Create the function context.  This is either derived from scratch or,
     // in the case of function expressions, based on the outer context.
     let fcx = FnCtxt {
+        writeback_errors: Cell::new(false),
         err_count_on_creation: err_count_on_creation,
         ret_ty: ret_ty,
         ps: RefCell::new(FnStyleState::function(fn_style, id)),
@@ -1083,8 +1089,8 @@ impl<'a> RegionScope for infer::InferCtxt<'a> {
 }
 
 impl<'a> FnCtxt<'a> {
-    pub fn tag(&self) -> ~str {
-        format!("{}", self as *FnCtxt)
+    pub fn tag(&self) -> StrBuf {
+        format_strbuf!("{}", self as *FnCtxt)
     }
 
     pub fn local_ty(&self, span: Span, nid: ast::NodeId) -> ty::t {
@@ -1105,22 +1111,22 @@ impl<'a> FnCtxt<'a> {
         self.inh.node_types.borrow_mut().insert(node_id, ty);
     }
 
-    pub fn write_substs(&self, node_id: ast::NodeId, substs: ty::substs) {
-        if !ty::substs_is_noop(&substs) {
+    pub fn write_substs(&self, node_id: ast::NodeId, substs: ty::ItemSubsts) {
+        if !ty::substs_is_noop(&substs.substs) {
             debug!("write_substs({}, {}) in fcx {}",
                    node_id,
-                   ty::substs_to_str(self.tcx(), &substs),
+                   substs.repr(self.tcx()),
                    self.tag());
 
-            self.inh.node_type_substs.borrow_mut().insert(node_id, substs);
+            self.inh.item_substs.borrow_mut().insert(node_id, substs);
         }
     }
 
     pub fn write_ty_substs(&self,
                            node_id: ast::NodeId,
                            ty: ty::t,
-                           substs: ty::substs) {
-        let ty = ty::subst(self.tcx(), &substs, ty);
+                           substs: ty::ItemSubsts) {
+        let ty = ty::subst(self.tcx(), &substs.substs, ty);
         self.write_ty(node_id, ty);
         self.write_substs(node_id, substs);
     }
@@ -1158,7 +1164,7 @@ impl<'a> FnCtxt<'a> {
         ast_ty_to_ty(self, self.infcx(), ast_t)
     }
 
-    pub fn pat_to_str(&self, pat: &ast::Pat) -> ~str {
+    pub fn pat_to_str(&self, pat: &ast::Pat) -> StrBuf {
         pat.repr(self.tcx())
     }
 
@@ -1198,11 +1204,10 @@ impl<'a> FnCtxt<'a> {
 
     pub fn opt_node_ty_substs(&self,
                               id: ast::NodeId,
-                              f: |&ty::substs| -> bool)
-                              -> bool {
-        match self.inh.node_type_substs.borrow().find(&id) {
-            Some(s) => f(s),
-            None => true
+                              f: |&ty::ItemSubsts|) {
+        match self.inh.item_substs.borrow().find(&id) {
+            Some(s) => { f(s) }
+            None => { }
         }
     }
 
@@ -1266,7 +1271,7 @@ impl<'a> FnCtxt<'a> {
 
     pub fn type_error_message(&self,
                               sp: Span,
-                              mk_msg: |~str| -> ~str,
+                              mk_msg: |StrBuf| -> StrBuf,
                               actual_ty: ty::t,
                               err: Option<&ty::type_err>) {
         self.infcx().type_error_message(sp, mk_msg, actual_ty, err);
@@ -1782,7 +1787,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         };
 
         debug!("check_argument_types: formal_tys={:?}",
-               formal_tys.iter().map(|t| fcx.infcx().ty_to_str(*t)).collect::<Vec<~str>>());
+               formal_tys.iter().map(|t| fcx.infcx().ty_to_str(*t)).collect::<Vec<StrBuf>>());
 
         // Check the arguments.
         // We do this in a pretty awful way: first we typecheck any arguments
@@ -1858,18 +1863,24 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 match ty::get(arg_ty).sty {
                     ty::ty_float(ast::TyF32) => {
                         fcx.type_error_message(arg.span,
-                                |t| format!("can't pass an {} to variadic function, \
-                                             cast to c_double", t), arg_ty, None);
+                                               |t| {
+                            format_strbuf!("can't pass an {} to variadic \
+                                            function, cast to c_double", t)
+                        }, arg_ty, None);
                     }
                     ty::ty_int(ast::TyI8) | ty::ty_int(ast::TyI16) | ty::ty_bool => {
-                        fcx.type_error_message(arg.span,
-                                |t| format!("can't pass {} to variadic function, cast to c_int",
-                                            t), arg_ty, None);
+                        fcx.type_error_message(arg.span, |t| {
+                            format_strbuf!("can't pass {} to variadic \
+                                            function, cast to c_int",
+                                           t)
+                        }, arg_ty, None);
                     }
                     ty::ty_uint(ast::TyU8) | ty::ty_uint(ast::TyU16) => {
-                        fcx.type_error_message(arg.span,
-                                |t| format!("can't pass {} to variadic function, cast to c_uint",
-                                            t), arg_ty, None);
+                        fcx.type_error_message(arg.span, |t| {
+                            format_strbuf!("can't pass {} to variadic \
+                                            function, cast to c_uint",
+                                           t)
+                        }, arg_ty, None);
                     }
                     _ => {}
                 }
@@ -1912,11 +1923,11 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
 
         let fn_sig = match *fn_sty {
             ty::ty_bare_fn(ty::BareFnTy {sig: ref sig, ..}) |
-            ty::ty_closure(~ty::ClosureTy {sig: ref sig, ..}) => sig,
+            ty::ty_closure(box ty::ClosureTy {sig: ref sig, ..}) => sig,
             _ => {
                 fcx.type_error_message(call_expr.span, |actual| {
-                    format!("expected function but \
-                          found `{}`", actual) }, fn_ty, None);
+                    format_strbuf!("expected function but found `{}`", actual)
+                }, fn_ty, None);
                 &error_fn_sig
             }
         };
@@ -1969,8 +1980,10 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
 
                 fcx.type_error_message(method_name.span,
                   |actual| {
-                      format!("type `{}` does not implement any method in scope named `{}`",
-                              actual, token::get_ident(method_name.node))
+                      format_strbuf!("type `{}` does not implement any \
+                                      method in scope named `{}`",
+                                     actual,
+                                     token::get_ident(method_name.node))
                   },
                   expr_t,
                   None);
@@ -1979,12 +1992,16 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 fcx.write_error(expr.id);
 
                 // Check for potential static matches (missing self parameters)
-                method::lookup(fcx, expr, rcvr,
-                                    method_name.node.name,
-                                    expr_t, tps.as_slice(),
-                                    DontDerefArgs,
-                                    CheckTraitsAndInherentMethods,
-                                    DontAutoderefReceiver, ReportStaticMethods);
+                method::lookup(fcx,
+                               expr,
+                               rcvr,
+                               method_name.node.name,
+                               expr_t,
+                               tps.as_slice(),
+                               DontDerefArgs,
+                               CheckTraitsAndInherentMethods,
+                               DontAutoderefReceiver,
+                               ReportStaticMethods);
 
                 ty::mk_err()
             }
@@ -2134,12 +2151,15 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
             // type
             fcx.write_error(expr.id);
             fcx.write_error(rhs.id);
-            fcx.type_error_message(expr.span, |actual| {
-                format!("binary operation `{}` cannot be applied \
-                      to type `{}`",
-                     ast_util::binop_to_str(op), actual)},
-                                   lhs_t, None)
-
+            fcx.type_error_message(expr.span,
+                                   |actual| {
+                    format_strbuf!("binary operation `{}` cannot be applied \
+                                   to type `{}`",
+                                   ast_util::binop_to_str(op),
+                                   actual)
+                },
+                lhs_t,
+                None)
         }
 
         // Check for overloaded operators if not an assignment.
@@ -2148,10 +2168,12 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         } else {
             fcx.type_error_message(expr.span,
                                    |actual| {
-                                        format!("binary assignment operation \
-                                                `{}=` cannot be applied to type `{}`",
-                                                ast_util::binop_to_str(op),
-                                                actual)
+                                        format_strbuf!("binary assignment \
+                                                        operation `{}=` \
+                                                        cannot be applied to \
+                                                        type `{}`",
+                                                 ast_util::binop_to_str(op),
+                                                 actual)
                                    },
                                    lhs_t,
                                    None);
@@ -2198,8 +2220,10 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         lookup_op_method(fcx, ex, lhs_resolved_t, token::intern(name),
                          trait_did, [lhs_expr, rhs], DontAutoderefReceiver, || {
             fcx.type_error_message(ex.span, |actual| {
-                format!("binary operation `{}` cannot be applied to type `{}`",
-                    ast_util::binop_to_str(op), actual)
+                format_strbuf!("binary operation `{}` cannot be applied to \
+                                type `{}`",
+                               ast_util::binop_to_str(op),
+                               actual)
             }, lhs_resolved_t, None)
         })
     }
@@ -2214,7 +2238,10 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
        lookup_op_method(fcx, ex, rhs_t, token::intern(mname),
                         trait_did, [rhs_expr], DontAutoderefReceiver, || {
             fcx.type_error_message(ex.span, |actual| {
-                format!("cannot apply unary operator `{}` to type `{}`", op_str, actual)
+                format_strbuf!("cannot apply unary operator `{}` to type \
+                                `{}`",
+                               op_str,
+                               actual)
             }, rhs_t, None);
         })
     }
@@ -2373,8 +2400,10 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 fcx.type_error_message(
                     expr.span,
                     |actual| {
-                        format!("attempted to take value of method `{}` on type `{}`",
-                                token::get_name(field), actual)
+                        format_strbuf!("attempted to take value of method \
+                                        `{}` on type `{}`",
+                                       token::get_name(field),
+                                       actual)
                     },
                     expr_t, None);
 
@@ -2386,9 +2415,11 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 fcx.type_error_message(
                     expr.span,
                     |actual| {
-                        format!("attempted access of field `{}` on type `{}`, \
-                                 but no field with that name was found",
-                                token::get_name(field), actual)
+                        format_strbuf!("attempted access of field `{}` on \
+                                        type `{}`, but no field with that \
+                                        name was found",
+                                       token::get_name(field),
+                                       actual)
                     },
                     expr_t, None);
             }
@@ -2426,9 +2457,13 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                     fcx.type_error_message(
                       field.ident.span,
                       |actual| {
-                          format!("structure `{}` has no field named `{}`",
-                                  actual, token::get_ident(field.ident.node))
-                    }, struct_ty, None);
+                          format_strbuf!("structure `{}` has no field named \
+                                          `{}`",
+                                         actual,
+                                         token::get_ident(field.ident.node))
+                      },
+                      struct_ty,
+                      None);
                     error_happened = true;
                 }
                 Some((_, true)) => {
@@ -2685,7 +2720,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                            .require(GcLangItem) {
                                       Ok(id) => id,
                                       Err(msg) => {
-                                          tcx.sess.span_err(expr.span, msg);
+                                          tcx.sess.span_err(expr.span,
+                                                            msg.as_slice());
                                           ast::DefId {
                                               krate: ast::CRATE_NODE_ID,
                                               node: ast::DUMMY_NODE_ID,
@@ -2809,7 +2845,9 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                          no longer be dereferenced");
                                 } else {
                                     fcx.type_error_message(expr.span, |actual| {
-                                        format!("type `{}` cannot be dereferenced", actual)
+                                        format_strbuf!("type `{}` cannot be \
+                                                        dereferenced",
+                                                       actual)
                                     }, oprnd_t, None);
                                 }
                                 ty::mk_err()
@@ -3050,13 +3088,15 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 _ => {
                     if ty::type_is_nil(t_e) {
                         fcx.type_error_message(expr.span, |actual| {
-                            format!("cast from nil: `{}` as `{}`", actual,
-                                 fcx.infcx().ty_to_str(t_1))
+                            format_strbuf!("cast from nil: `{}` as `{}`",
+                                           actual,
+                                           fcx.infcx().ty_to_str(t_1))
                         }, t_e, None);
                     } else if ty::type_is_nil(t_1) {
                         fcx.type_error_message(expr.span, |actual| {
-                            format!("cast to nil: `{}` as `{}`", actual,
-                                 fcx.infcx().ty_to_str(t_1))
+                            format_strbuf!("cast to nil: `{}` as `{}`",
+                                           actual,
+                                           fcx.infcx().ty_to_str(t_1))
                         }, t_e, None);
                     }
 
@@ -3076,12 +3116,17 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                         let te = fcx.infcx().resolve_type_vars_if_possible(te);
                         if ty::get(te).sty != ty::ty_uint(ast::TyU8) {
                             fcx.type_error_message(expr.span, |actual| {
-                                format!("only `u8` can be cast as `char`, not `{}`", actual)
+                                format_strbuf!("only `u8` can be cast as \
+                                                `char`, not `{}`",
+                                               actual)
                             }, t_e, None);
                         }
                     } else if ty::get(t1).sty == ty::ty_bool {
-                        fcx.tcx().sess.span_err(expr.span,
-                                                "cannot cast as `bool`, compare with zero instead");
+                        fcx.tcx()
+                           .sess
+                           .span_err(expr.span,
+                                     "cannot cast as `bool`, compare with \
+                                      zero instead");
                     } else if type_is_region_ptr(fcx, expr.span, t_e) &&
                         type_is_unsafe_ptr(fcx, expr.span, t_1) {
 
@@ -3135,8 +3180,9 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                         record the issue number in this comment.
                         */
                         fcx.type_error_message(expr.span, |actual| {
-                            format!("non-scalar cast: `{}` as `{}`", actual,
-                                 fcx.infcx().ty_to_str(t_1))
+                            format_strbuf!("non-scalar cast: `{}` as `{}`",
+                                           actual,
+                                           fcx.infcx().ty_to_str(t_1))
                         }, t_e, None);
                     }
                 }
@@ -3329,8 +3375,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 if !ty::type_is_simd(tcx, left_ty) {
                     fcx.type_error_message(left.span,
                                            |actual| {
-                            format!("cannot swizzle non-SIMD type `{}`",
-                                    actual)
+                            format_strbuf!("cannot swizzle non-SIMD type `{}`",
+                                           actual)
                         },
                                            left_ty,
                                            None);
@@ -3343,8 +3389,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                         if !ty::type_is_simd(tcx, right_ty) {
                             fcx.type_error_message(opt_right.unwrap().span,
                                                    |actual| {
-                                    format!("cannot swizzle non-SIMD type `{}`",
-                                            actual)
+                                    format_strbuf!("cannot swizzle non-SIMD type `{}`",
+                                                   actual)
                                 },
                                                    right_ty,
                                                    None);
@@ -3354,15 +3400,16 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                                             right_ty) {
                             true
                         } else if left_inner != right_inner {
-                            fcx.type_error_message(opt_right.unwrap().span,
-                                                        |actual| {
-                                    format!("swizzle operands must be homogeneous \
-                                            with respect to their element types: \
-                                            expected `{}` but found `{}`",
-                                            left_inner.unwrap().to_str(), actual)
-                                },
-                                                        right_inner.unwrap(),
-                                                        None);
+                            fcx.type_error_message
+                                (opt_right.unwrap().span,
+                                 |actual| {
+                                     format_strbuf!("swizzle operands must be homogeneous \
+                                                    with respect to their element types: \
+                                                    expected `{}` but found `{}`",
+                                                    left_inner.unwrap().to_str(), actual)
+                                 },
+                                 right_inner.unwrap(),
+                                 None);
                             true
                         } else {
                             false
@@ -3441,9 +3488,12 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                                     || {
                         fcx.type_error_message(expr.span,
                                                |actual| {
-                                                format!("cannot index a value \
-                                                      of type `{}`",
-                                                     actual)
+                                                    format_strbuf!("cannot \
+                                                                    index a \
+                                                                    value of \
+                                                                    type \
+                                                                    `{}`",
+                                                                    actual)
                                                },
                                                base_t,
                                                None);
@@ -3461,7 +3511,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
            ppaux::ty_to_str(tcx, fcx.expr_ty(expr)),
            match expected {
                Some(t) => ppaux::ty_to_str(tcx, t),
-               _ => "empty".to_owned()
+               _ => "empty".to_strbuf()
            });
 
     unifier();
@@ -3470,8 +3520,9 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
 pub fn require_uint(fcx: &FnCtxt, sp: Span, t: ty::t) {
     if !type_is_uint(fcx, sp, t) {
         fcx.type_error_message(sp, |actual| {
-            format!("mismatched types: expected `uint` type but found `{}`",
-                 actual)
+            format_strbuf!("mismatched types: expected `uint` type but found \
+                           `{}`",
+                           actual)
         }, t, None);
     }
 }
@@ -3479,8 +3530,9 @@ pub fn require_uint(fcx: &FnCtxt, sp: Span, t: ty::t) {
 pub fn require_integral(fcx: &FnCtxt, sp: Span, t: ty::t) {
     if !type_is_integral(fcx, sp, t) {
         fcx.type_error_message(sp, |actual| {
-            format!("mismatched types: expected integral type but found `{}`",
-                 actual)
+            format_strbuf!("mismatched types: expected integral type but \
+                            found `{}`",
+                           actual)
         }, t, None);
     }
 }
@@ -3609,8 +3661,13 @@ pub fn check_block_with_expected(fcx: &FnCtxt,
                   ast::StmtExpr(_, _) | ast::StmtSemi(_, _) => true,
                   _ => false
                 } {
-                fcx.ccx.tcx.sess.add_lint(UnreachableCode, s_id, s.span,
-                                          "unreachable statement".to_owned());
+                fcx.ccx
+                   .tcx
+                   .sess
+                   .add_lint(UnreachableCode,
+                             s_id,
+                             s.span,
+                             "unreachable statement".to_strbuf());
                 warned = true;
             }
             if ty::type_is_bot(s_ty) {
@@ -3631,8 +3688,13 @@ pub fn check_block_with_expected(fcx: &FnCtxt,
             },
           Some(e) => {
             if any_bot && !warned {
-                fcx.ccx.tcx.sess.add_lint(UnreachableCode, e.id, e.span,
-                                          "unreachable expression".to_owned());
+                fcx.ccx
+                   .tcx
+                   .sess
+                   .add_lint(UnreachableCode,
+                             e.id,
+                             e.span,
+                             "unreachable expression".to_strbuf());
             }
             check_expr_with_opt_hint(fcx, e, expected);
               let ety = fcx.expr_ty(e);
@@ -3665,6 +3727,12 @@ pub fn check_const_with_ty(fcx: &FnCtxt,
                            _: Span,
                            e: &ast::Expr,
                            declty: ty::t) {
+    // Gather locals in statics (because of block expressions).
+    // This is technically uneccessary because locals in static items are forbidden,
+    // but prevents type checking from blowing up before const checking can properly
+    // emit a error.
+    GatherLocalsVisitor { fcx: fcx }.visit_expr(e, ());
+
     check_expr(fcx, e);
     let cty = fcx.expr_ty(e);
     demand::suptype(fcx, e.span, declty, cty);
@@ -4148,10 +4216,12 @@ pub fn instantiate_path(fcx: &FnCtxt,
         (tps, regions)
     };
 
-    fcx.write_ty_substs(node_id, tpt.ty, substs {
-        regions: regions,
-        self_ty: None,
-        tps: tps
+    let substs = substs { regions: regions,
+                          self_ty: None,
+                          tps: tps };
+
+    fcx.write_ty_substs(node_id, tpt.ty, ty::ItemSubsts {
+        substs: substs,
     });
 
     debug!("<<<");
@@ -4164,7 +4234,8 @@ pub fn structurally_resolved_type(fcx: &FnCtxt, sp: Span, tp: ty::t) -> ty::t {
         Ok(t_s) if !ty::type_is_ty_var(t_s) => t_s,
         _ => {
             fcx.type_error_message(sp, |_actual| {
-                "the type of this value must be known in this context".to_owned()
+                "the type of this value must be known in this \
+                 context".to_strbuf()
             }, tp, None);
             demand::suptype(fcx, sp, ty::mk_err(), tp);
             tp
@@ -4368,7 +4439,7 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
             "get_tydesc" => {
               let tydesc_ty = match ty::get_tydesc_ty(ccx.tcx) {
                   Ok(t) => t,
-                  Err(s) => { tcx.sess.span_fatal(it.span, s); }
+                  Err(s) => { tcx.sess.span_fatal(it.span, s.as_slice()); }
               };
               let td_ptr = ty::mk_ptr(ccx.tcx, ty::mt {
                   ty: tydesc_ty,
@@ -4384,18 +4455,20 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
                                                  tps: Vec::new(),
                                                  regions: ty::NonerasedRegions(OwnedSlice::empty())
                                                  }) ),
-                    Err(msg) => { tcx.sess.span_fatal(it.span, msg); }
+                    Err(msg) => {
+                        tcx.sess.span_fatal(it.span, msg.as_slice());
+                    }
                 }
             },
             "visit_tydesc" => {
               let tydesc_ty = match ty::get_tydesc_ty(ccx.tcx) {
                   Ok(t) => t,
-                  Err(s) => { tcx.sess.span_fatal(it.span, s); }
+                  Err(s) => { tcx.sess.span_fatal(it.span, s.as_slice()); }
               };
               let region = ty::ReLateBound(it.id, ty::BrAnon(0));
               let visitor_object_ty = match ty::visitor_object_ty(tcx, region) {
                   Ok((_, vot)) => vot,
-                  Err(s) => { tcx.sess.span_fatal(it.span, s); }
+                  Err(s) => { tcx.sess.span_fatal(it.span, s.as_slice()); }
               };
 
               let td_ptr = ty::mk_ptr(ccx.tcx, ty::mt {
@@ -4572,10 +4645,12 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
     let fty = ty::mk_bare_fn(tcx, ty::BareFnTy {
         fn_style: ast::UnsafeFn,
         abi: abi::RustIntrinsic,
-        sig: FnSig {binder_id: it.id,
-                    inputs: inputs,
-                    output: output,
-                    variadic: false}
+        sig: FnSig {
+            binder_id: it.id,
+            inputs: inputs,
+            output: output,
+            variadic: false,
+        }
     });
     let i_ty = ty::lookup_item_type(ccx.tcx, local_def(it.id));
     let i_n_tps = i_ty.generics.type_param_defs().len();
@@ -4584,10 +4659,15 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
                                          of type parameters: found {}, \
                                          expected {}", i_n_tps, n_tps));
     } else {
-        require_same_types(
-            tcx, None, false, it.span, i_ty.ty, fty,
-            || format!("intrinsic has wrong type: \
-                      expected `{}`",
-                     ppaux::ty_to_str(ccx.tcx, fty)));
+        require_same_types(tcx,
+                           None,
+                           false,
+                           it.span,
+                           i_ty.ty,
+                           fty,
+                           || {
+                format_strbuf!("intrinsic has wrong type: expected `{}`",
+                               ppaux::ty_to_str(ccx.tcx, fty))
+            });
     }
 }

@@ -36,31 +36,31 @@ use std::vec::Vec;
 #[macro_registrar]
 pub fn macro_registrar(register: |Name, SyntaxExtension|) {
     register(token::intern("gather_simd"),
-             NormalTT(~BasicMacroExpander {
+             NormalTT(box BasicMacroExpander {
                 expander: make_simd,
                 span: None,
-            },
+             },
                       None));
     register(token::intern("def_type_simd"),
-             NormalTT(~BasicMacroExpander {
-                expander: make_def_simd_type,
-                span: None,
-            },
+             NormalTT(box BasicMacroExpander {
+                 expander: make_def_simd_type,
+                 span: None,
+             },
                       None));
     register(token::intern("swizzle_simd"),
-             NormalTT(~BasicMacroExpander {
-                expander: make_swizzle,
-                span: None,
-            },
+             NormalTT(box BasicMacroExpander {
+                 expander: make_swizzle,
+                 span: None,
+             },
                       None));
     register(token::intern("smear_simd"),
-             NormalTT(~BasicMacroExpander {
-                expander: make_smear,
-                span: None,
-            },
+             NormalTT(box BasicMacroExpander {
+                 expander: make_smear,
+                 span: None,
+             },
                       None));
 }
-fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
+fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
     let mut parser =
         tts_to_parser(cx.parse_sess(),
                       tts.to_owned().move_iter().collect(),
@@ -92,7 +92,7 @@ fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
         node: ExprSimd(Vec::from_elem(count as uint, value)),
     })
 }
-fn make_simd(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
+fn make_simd(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
     let elements = match get_exprs_from_tts(cx, sp, tts) {
         Some(e) => e,
         None => {
@@ -102,7 +102,7 @@ fn make_simd(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
     };
     MacExpr::new(@Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSimd(elements)})
 }
-fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
+fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
 
     let parse_simd_ty = |cx: &mut ExtCtxt,
                          parser: &mut parser::Parser,
@@ -235,7 +235,7 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResu
         None => DummyResult::any(sp)
     }
 }
-fn make_swizzle(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> ~MacResult {
+fn make_swizzle(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
     let mut parser = tts_to_parser(cx.parse_sess(),
                                    tts.to_owned().move_iter().collect(),
                                    cx.cfg());

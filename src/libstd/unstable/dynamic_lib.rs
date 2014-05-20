@@ -17,14 +17,17 @@ A simple wrapper over the platform's dynamic library facilities
 */
 
 use c_str::ToCStr;
-use cast;
+use iter::Iterator;
+use mem;
 use ops::*;
 use option::*;
 use os;
 use path::GenericPath;
 use path;
 use result::*;
+use slice::{Vector,OwnedVector};
 use str;
+use vec::Vec;
 
 pub struct DynamicLibrary { handle: *u8}
 
@@ -73,8 +76,10 @@ impl DynamicLibrary {
             ("LD_LIBRARY_PATH", ':' as u8)
         };
         let newenv = os::getenv_as_bytes(envvar).unwrap_or(box []);
-        let newenv = newenv + &[sep] + path.as_vec();
-        os::setenv(envvar, str::from_utf8(newenv).unwrap());
+        let mut newenv = newenv.move_iter().collect::<Vec<_>>();
+        newenv.push_all(&[sep]);
+        newenv.push_all(path.as_vec());
+        os::setenv(envvar, str::from_utf8(newenv.as_slice()).unwrap());
     }
 
     /// Access the value at the symbol of the dynamic library
@@ -92,7 +97,7 @@ impl DynamicLibrary {
         // the destructor does not run.
         match maybe_symbol_value {
             Err(err) => Err(err),
-            Ok(symbol_value) => Ok(cast::transmute(symbol_value))
+            Ok(symbol_value) => Ok(mem::transmute(symbol_value))
         }
     }
 }
@@ -271,7 +276,6 @@ pub mod dl {
     use path;
     use result::{Result, Err};
     use libc;
-    use str::StrSlice;
 
     pub unsafe fn open_external(_filename: &path::Path) -> *u8 {
         ptr::null()
@@ -282,7 +286,7 @@ pub mod dl {
     }
 
     pub fn check_for_errors_in<T>(_f: || -> T) -> Result<T, ~str> {
-        Err("PNaCl doesn't support shared objects".to_owned())
+        Err(format!("PNaCl doesn't support shared objects"))
     }
 
     pub unsafe fn symbol(_handle: *u8, _symbol: *libc::c_char) -> *u8 {

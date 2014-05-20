@@ -15,14 +15,14 @@ use driver::session::Session;
 use metadata::filesearch;
 use lib::llvm::{ArchiveRef, llvm};
 
-use std::cast;
-use std::io;
-use std::io::{fs, TempDir};
 use libc;
-use std::os;
 use std::io::process::{ProcessConfig, Process, ProcessOutput};
-use std::str;
+use std::io::{fs, TempDir};
+use std::io;
+use std::mem;
+use std::os;
 use std::raw;
+use std::str;
 use syntax::abi;
 
 pub static METADATA_FILENAME: &'static str = "rust.metadata.bin";
@@ -54,8 +54,8 @@ fn run_ar(sess: &Session, args: &str, cwd: Option<&Path>,
         cwd: cwd.map(|a| &*a),
         .. ProcessConfig::new()
     }) {
-        Ok(mut prog) => {
-            let o = prog.wait_with_output();
+        Ok(prog) => {
+            let o = prog.wait_with_output().unwrap();
             if !o.status.success() {
                 sess.err(format!("{} {} failed with: {}", ar, args.connect(" "),
                                  o.status));
@@ -129,12 +129,12 @@ impl<'a> Archive<'a> {
     }
 
     /// Lists all files in an archive
-    pub fn files(&self) -> Vec<~str> {
+    pub fn files(&self) -> Vec<StrBuf> {
         let output = run_ar(self.sess, "t", None, [&self.dst]);
         let output = str::from_utf8(output.output.as_slice()).unwrap();
         // use lines_any because windows delimits output with `\r\n` instead of
         // just `\n`
-        output.lines_any().map(|s| s.to_owned()).collect()
+        output.lines_any().map(|s| s.to_strbuf()).collect()
     }
 
     fn add_archive(&mut self, archive: &Path, name: &str,
@@ -230,7 +230,7 @@ impl ArchiveRO {
             if ptr.is_null() {
                 None
             } else {
-                Some(cast::transmute(raw::Slice {
+                Some(mem::transmute(raw::Slice {
                     data: ptr,
                     len: size as uint,
                 }))
@@ -239,13 +239,13 @@ impl ArchiveRO {
     }
     // Reads every child, running f on each.
     pub fn foreach_child(&self, f: |&str, &[u8]|) {
-        use std::cast::transmute;
+        use std::mem::transmute;
         extern "C" fn cb(name: *libc::c_uchar,   name_len: libc::size_t,
                          buffer: *libc::c_uchar, buffer_len: libc::size_t,
                          f: *mut libc::c_void) {
             use std::str::from_utf8_lossy;
             use std::slice::raw::buf_as_slice;
-            use std::cast::transmute_copy;
+            use std::mem::transmute_copy;
             let f: &|&str, &[u8]| = unsafe { transmute(f) };
             unsafe {
                 buf_as_slice(name as *u8, name_len as uint, |name_buf| {

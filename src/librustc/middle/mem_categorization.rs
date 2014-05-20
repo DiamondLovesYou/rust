@@ -173,8 +173,8 @@ pub enum deref_kind {
 pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
     match ty::get(t).sty {
         ty::ty_uniq(_) |
-        ty::ty_trait(~ty::TyTrait { store: ty::UniqTraitStore, .. }) |
-        ty::ty_closure(~ty::ClosureTy {store: ty::UniqTraitStore, ..}) => {
+        ty::ty_trait(box ty::TyTrait { store: ty::UniqTraitStore, .. }) |
+        ty::ty_closure(box ty::ClosureTy {store: ty::UniqTraitStore, ..}) => {
             Some(deref_ptr(OwnedPtr))
         }
 
@@ -182,12 +182,18 @@ pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
             let kind = ty::BorrowKind::from_mutbl(mt.mutbl);
             Some(deref_ptr(BorrowedPtr(kind, r)))
         }
-        ty::ty_trait(~ty::TyTrait { store: ty::RegionTraitStore(r, mutbl), .. }) => {
+        ty::ty_trait(box ty::TyTrait {
+                store: ty::RegionTraitStore(r, mutbl),
+                ..
+            }) => {
             let kind = ty::BorrowKind::from_mutbl(mutbl);
             Some(deref_ptr(BorrowedPtr(kind, r)))
         }
 
-        ty::ty_closure(~ty::ClosureTy {store: ty::RegionTraitStore(r, _), ..}) => {
+        ty::ty_closure(box ty::ClosureTy {
+                store: ty::RegionTraitStore(r, _),
+                ..
+            }) => {
             Some(deref_ptr(BorrowedPtr(ty::ImmBorrow, r)))
         }
 
@@ -1088,50 +1094,51 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
         Ok(())
     }
 
-    pub fn cmt_to_str(&self, cmt: &cmt_) -> ~str {
+    pub fn cmt_to_str(&self, cmt: &cmt_) -> StrBuf {
         match cmt.cat {
           cat_static_item => {
-              "static item".to_owned()
+              "static item".to_strbuf()
           }
           cat_copied_upvar(_) => {
-              "captured outer variable in a proc".to_owned()
+              "captured outer variable in a proc".to_strbuf()
           }
           cat_rvalue(..) => {
-              "non-lvalue".to_owned()
+              "non-lvalue".to_strbuf()
           }
           cat_local(_) => {
-              "local variable".to_owned()
+              "local variable".to_strbuf()
           }
           cat_arg(..) => {
-              "argument".to_owned()
+              "argument".to_strbuf()
           }
           cat_deref(ref base, _, pk) => {
               match base.cat {
                   cat_upvar(..) => {
-                      format!("captured outer variable")
+                      "captured outer variable".to_strbuf()
                   }
                   _ => {
-                      format!("dereference of `{}`-pointer", ptr_sigil(pk))
+                      format_strbuf!("dereference of `{}`-pointer",
+                                     ptr_sigil(pk))
                   }
               }
           }
           cat_interior(_, InteriorField(NamedField(_))) => {
-              "field".to_owned()
+              "field".to_strbuf()
           }
           cat_interior(_, InteriorField(PositionalField(_))) => {
-              "anonymous field".to_owned()
+              "anonymous field".to_strbuf()
           }
           cat_interior(_, InteriorElement(VecElement)) => {
-              "vec content".to_owned()
+              "vec content".to_strbuf()
           }
           cat_interior(_, InteriorElement(StrElement)) => {
-              "str content".to_owned()
+              "str content".to_strbuf()
           }
           cat_interior(_, InteriorElement(OtherElement)) => {
-              "indexed content".to_owned()
+              "indexed content".to_strbuf()
           }
           cat_upvar(..) => {
-              "captured outer variable".to_owned()
+              "captured outer variable".to_strbuf()
           }
           cat_discr(ref cmt, _) => {
             self.cmt_to_str(&**cmt)
@@ -1243,17 +1250,17 @@ impl cmt_ {
 }
 
 impl Repr for cmt_ {
-    fn repr(&self, tcx: &ty::ctxt) -> ~str {
-        format!("\\{{} id:{} m:{:?} ty:{}\\}",
-             self.cat.repr(tcx),
-             self.id,
-             self.mutbl,
-             self.ty.repr(tcx))
+    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+        format_strbuf!("\\{{} id:{} m:{:?} ty:{}\\}",
+                       self.cat.repr(tcx),
+                       self.id,
+                       self.mutbl,
+                       self.ty.repr(tcx))
     }
 }
 
 impl Repr for categorization {
-    fn repr(&self, tcx: &ty::ctxt) -> ~str {
+    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
         match *self {
             cat_static_item |
             cat_rvalue(..) |
@@ -1261,21 +1268,19 @@ impl Repr for categorization {
             cat_local(..) |
             cat_upvar(..) |
             cat_arg(..) => {
-                format!("{:?}", *self)
+                format_strbuf!("{:?}", *self)
             }
             cat_deref(ref cmt, derefs, ptr) => {
-                format!("{}-{}{}->",
-                        cmt.cat.repr(tcx),
-                        ptr_sigil(ptr),
-                        derefs)
+                format_strbuf!("{}-{}{}->",
+                               cmt.cat.repr(tcx),
+                               ptr_sigil(ptr),
+                               derefs)
             }
             cat_interior(ref cmt, interior) => {
-                format!("{}.{}",
-                     cmt.cat.repr(tcx),
-                     interior.repr(tcx))
+                format_strbuf!("{}.{}", cmt.cat.repr(tcx), interior.repr(tcx))
             }
             cat_downcast(ref cmt) => {
-                format!("{}->(enum)", cmt.cat.repr(tcx))
+                format_strbuf!("{}->(enum)", cmt.cat.repr(tcx))
             }
             cat_discr(ref cmt, _) => {
                 cmt.cat.repr(tcx)
@@ -1296,13 +1301,13 @@ pub fn ptr_sigil(ptr: PointerKind) -> &'static str {
 }
 
 impl Repr for InteriorKind {
-    fn repr(&self, _tcx: &ty::ctxt) -> ~str {
+    fn repr(&self, _tcx: &ty::ctxt) -> StrBuf {
         match *self {
             InteriorField(NamedField(fld)) => {
-                token::get_name(fld).get().to_str()
+                token::get_name(fld).get().to_str().to_strbuf()
             }
-            InteriorField(PositionalField(i)) => format!("\\#{:?}", i),
-            InteriorElement(_) => "[]".to_owned(),
+            InteriorField(PositionalField(i)) => format_strbuf!("\\#{:?}", i),
+            InteriorElement(_) => "[]".to_strbuf(),
         }
     }
 }

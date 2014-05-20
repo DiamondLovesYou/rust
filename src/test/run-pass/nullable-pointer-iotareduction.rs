@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(macro_rules)]
+#![feature(macro_rules, managed_boxes)]
 
-use std::{option, cast};
+use std::{option, mem};
 
 // Iota-reduction is a rule in the Calculus of (Co-)Inductive Constructions,
 // which "says that a destructor applied to an object built from a constructor
@@ -74,12 +74,12 @@ macro_rules! check_type {
 
 pub fn main() {
     check_type!(&17: &int);
-    check_type!(~18: ~int);
+    check_type!(box 18: Box<int>);
     check_type!(@19: @int);
     check_type!("foo".to_owned(): ~str);
     check_type!(vec!(20, 22): Vec<int> );
-    let mint: uint = unsafe { cast::transmute(main) };
+    let mint: uint = unsafe { mem::transmute(main) };
     check_type!(main: fn(), |pthing| {
-        assert!(mint == unsafe { cast::transmute(*pthing) })
+        assert!(mint == unsafe { mem::transmute(*pthing) })
     });
 }

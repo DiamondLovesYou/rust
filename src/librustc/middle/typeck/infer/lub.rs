@@ -23,7 +23,7 @@ use middle::typeck::infer::fold_regions_in_sig;
 use middle::typeck::infer::{TypeTrace, Subtype};
 use collections::HashMap;
 use syntax::ast::{Many, Once, NodeId};
-use syntax::ast::{ExternFn, NormalFn, UnsafeFn};
+use syntax::ast::{NormalFn, UnsafeFn};
 use syntax::ast::{Onceness, FnStyle};
 use util::ppaux::mt_to_str;
 
@@ -35,7 +35,7 @@ impl<'f> Lub<'f> {
 
 impl<'f> Combine for Lub<'f> {
     fn infcx<'a>(&'a self) -> &'a InferCtxt<'a> { self.get_ref().infcx }
-    fn tag(&self) -> ~str { "lub".to_owned() }
+    fn tag(&self) -> StrBuf { "lub".to_strbuf() }
     fn a_is_expected(&self) -> bool { self.get_ref().a_is_expected }
     fn trace(&self) -> TypeTrace { self.get_ref().trace.clone() }
 
@@ -78,8 +78,7 @@ impl<'f> Combine for Lub<'f> {
     fn fn_styles(&self, a: FnStyle, b: FnStyle) -> cres<FnStyle> {
         match (a, b) {
           (UnsafeFn, _) | (_, UnsafeFn) => Ok(UnsafeFn),
-          (NormalFn, _) | (_, NormalFn) => Ok(NormalFn),
-          (ExternFn, ExternFn) => Ok(ExternFn),
+          (NormalFn, NormalFn) => Ok(NormalFn),
         }
     }
 

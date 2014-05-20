@@ -10,7 +10,7 @@
 
 #![allow(non_camel_case_types)]
 
-use std::cast;
+use std::mem;
 use syntax::crateid::CrateId;
 use back::svh::Svh;
 
@@ -128,7 +128,7 @@ pub enum astencode_tag { // Reserves 0x40 -- 0x5f
     tag_table_val = 0x45,
     tag_table_def = 0x46,
     tag_table_node_type = 0x47,
-    tag_table_node_type_subst = 0x48,
+    tag_table_item_subst = 0x48,
     tag_table_freevars = 0x49,
     tag_table_tcache = 0x4a,
     tag_table_param_defs = 0x4b,
@@ -147,7 +147,7 @@ impl astencode_tag {
     pub fn from_uint(value : uint) -> Option<astencode_tag> {
         let is_a_tag = first_astencode_tag <= value && value <= last_astencode_tag;
         if !is_a_tag { None } else {
-            Some(unsafe { cast::transmute(value) })
+            Some(unsafe { mem::transmute(value) })
         }
     }
 }
@@ -201,6 +201,8 @@ pub static tag_macro_registrar_fn: uint = 0x8b;
 pub static tag_exported_macros: uint = 0x8c;
 pub static tag_macro_def: uint = 0x8d;
 pub static tag_crate_triple: uint = 0x66;
+
+pub static tag_dylib_dependency_formats: uint = 0x67;
 
 #[deriving(Clone, Show)]
 pub struct LinkMeta {

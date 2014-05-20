@@ -10,6 +10,8 @@
 
 #![allow(dead_code)]
 
+#[cfg(test)]
+use owned::Box;
 #[cfg(unix)]
 use libc::c_int;
 #[cfg(unix)]
@@ -94,17 +96,17 @@ extern "system" {
 
 #[test]
 fn tls_smoke_test() {
-    use cast::transmute;
+    use mem::transmute;
     unsafe {
         let mut key = 0;
         let value = box 20;
         create(&mut key);
         set(key, transmute(value));
-        let value: ~int = transmute(get(key));
+        let value: Box<int> = transmute(get(key));
         assert_eq!(value, box 20);
         let value = box 30;
         set(key, transmute(value));
-        let value: ~int = transmute(get(key));
+        let value: Box<int> = transmute(get(key));
         assert_eq!(value, box 30);
     }
 }

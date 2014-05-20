@@ -52,15 +52,18 @@ use std::os;
 use std::ptr;
 use std::rt::rtio;
 use std::sync::atomics;
+use std::comm;
 
 use io::IoResult;
 use io::c;
 use io::file::FileDesc;
-use io::timer_helper;
+use io::helper_thread::Helper;
+
+helper_init!(static mut HELPER: Helper<Req>)
 
 pub struct Timer {
     id: uint,
-    inner: Option<~Inner>,
+    inner: Option<Box<Inner>>,
 }
 
 struct Inner {
@@ -74,14 +77,11 @@ struct Inner {
 #[allow(visible_private_types)]
 pub enum Req {
     // Add a new timer to the helper thread.
-    NewTimer(~Inner),
+    NewTimer(Box<Inner>),
 
     // Remove a timer based on its id and then send it back on the channel
     // provided
-    RemoveTimer(uint, Sender<~Inner>),
-
-    // Shut down the loop and then ACK this channel once it's shut down
-    Shutdown,
+    RemoveTimer(uint, Sender<Box<Inner>>),
 }
 
 // returns the current time (in milliseconds)
@@ -92,8 +92,8 @@ pub fn now() -> u64 {
         return (now.tv_sec as u64) * 1000 + (now.tv_usec as u64) / 1000;
     }
 }
-
-fn helper(input: libc::c_int, messages: Receiver<Req>) {
+#[cfg(not(target_os = "nacl", target_libc = "newlib"))] 
+fn helper(input: libc::c_int, messages: Receiver<Req>, _: ()) {
     let mut set: c::fd_set = unsafe { mem::init() };
 
     let mut fd = FileDesc::new(input, true);
@@ -102,11 +102,11 @@ fn helper(input: libc::c_int, messages: Receiver<Req>) {
     // active timers are those which are able to be selected upon (and it's a
     // sorted list, and dead timers are those which have expired, but ownership
     // hasn't yet been transferred back to the timer itself.
-    let mut active: Vec<~Inner> = vec![];
+    let mut active: Vec<Box<Inner>> = vec![];
     let mut dead = vec![];
 
     // inserts a timer into an array of timers (sorted by firing time)
-    fn insert(t: ~Inner, active: &mut Vec<~Inner>) {
+    fn insert(t: Box<Inner>, active: &mut Vec<Box<Inner>>) {
         match active.iter().position(|tm| tm.target > t.target) {
             Some(pos) => { active.insert(pos, t); }
             None => { active.push(t); }
@@ -114,7 +114,8 @@ fn helper(input: libc::c_int, messages: Receiver<Req>) {
     }
 
     // signals the first requests in the queue, possible re-enqueueing it.
-    fn signal(active: &mut Vec<~Inner>, dead: &mut Vec<(uint, ~Inner)>) {
+    fn signal(active: &mut Vec<Box<Inner>>,
+              dead: &mut Vec<(uint, Box<Inner>)>) {
         let mut timer = match active.shift() {
             Some(timer) => timer, None => return
         };
@@ -162,7 +163,7 @@ fn helper(input: libc::c_int, messages: Receiver<Req>) {
             1 => {
                 loop {
                     match messages.try_recv() {
-                        Ok(Shutdown) => {
+                        Err(comm::Disconnected) => {
                             assert!(active.len() == 0);
                             break 'outer;
                         }
@@ -200,8 +201,9 @@ fn helper(input: libc::c_int, messages: Receiver<Req>) {
 }
 
 impl Timer {
+    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
     pub fn new() -> IoResult<Timer> {
-        timer_helper::boot(helper);
+        unsafe { HELPER.boot(|| {}, helper); }
 
         static mut ID: atomics::AtomicUint = atomics::INIT_ATOMIC_UINT;
         let id = unsafe { ID.fetch_add(1, atomics::Relaxed) };
@@ -216,6 +218,10 @@ impl Timer {
             })
         })
     }
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    pub fn new() -> IoResult<Timer> {
+        Err(super::unavailable())
+    }
 
     pub fn sleep(ms: u64) {
         let mut to_sleep = libc::timespec {
@@ -229,12 +235,12 @@ impl Timer {
         }
     }
 
-    fn inner(&mut self) -> ~Inner {
+    fn inner(&mut self) -> Box<Inner> {
         match self.inner.take() {
             Some(i) => i,
             None => {
                 let (tx, rx) = channel();
-                timer_helper::send(RemoveTimer(self.id, tx));
+                unsafe { HELPER.send(RemoveTimer(self.id, tx)); }
                 rx.recv()
             }
         }
@@ -260,7 +266,7 @@ impl rtio::RtioTimer for Timer {
         inner.interval = msecs;
         inner.target = now + msecs;
 
-        timer_helper::send(NewTimer(inner));
+        unsafe { HELPER.send(NewTimer(inner)); }
         return rx;
     }
 
@@ -274,7 +280,7 @@ impl rtio::RtioTimer for Timer {
         inner.interval = msecs;
         inner.target = now + msecs;
 
-        timer_helper::send(NewTimer(inner));
+        unsafe { HELPER.send(NewTimer(inner)); }
         return rx;
     }
 }

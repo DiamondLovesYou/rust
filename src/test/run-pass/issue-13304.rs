@@ -25,6 +25,7 @@ fn start(argc: int, argv: **u8) -> int {
 
 fn main() {
     let args = os::args();
+    let args = args.as_slice();
     if args.len() > 1 && args[1].as_slice() == "child" {
         if args[2].as_slice() == "green" {
             child();
@@ -48,9 +49,10 @@ fn main() {
 
 fn parent(flavor: ~str) {
     let args = os::args();
+    let args = args.as_slice();
     let mut p = io::Process::new(args[0].as_slice(), ["child".to_owned(), flavor]).unwrap();
     p.stdin.get_mut_ref().write_str("test1\ntest2\ntest3").unwrap();
-    let out = p.wait_with_output();
+    let out = p.wait_with_output().unwrap();
     assert!(out.status.success());
     let s = str::from_utf8(out.output.as_slice()).unwrap();
     assert_eq!(s, "test1\n\ntest2\n\ntest3\n");

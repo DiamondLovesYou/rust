@@ -9,9 +9,9 @@
 // except according to those terms.
 
 use ai = std::io::net::addrinfo;
-use std::cast;
-use libc;
 use libc::c_int;
+use libc;
+use std::mem;
 use std::ptr::null;
 use std::rt::task::BlockedTask;
 
@@ -33,7 +33,7 @@ pub struct GetAddrInfoRequest;
 
 impl GetAddrInfoRequest {
     pub fn run(loop_: &Loop, node: Option<&str>, service: Option<&str>,
-               hints: Option<ai::Hint>) -> Result<~[ai::Info], UvError> {
+               hints: Option<ai::Hint>) -> Result<Vec<ai::Info>, UvError> {
         assert!(node.is_some() || service.is_some());
         let (_c_node, c_node_ptr) = match node {
             Some(n) => {
@@ -134,13 +134,13 @@ fn each_ai_flag(_f: |c_int, ai::Flag|) {
 }
 
 // Traverse the addrinfo linked list, producing a vector of Rust socket addresses
-pub fn accum_addrinfo(addr: &Addrinfo) -> ~[ai::Info] {
+pub fn accum_addrinfo(addr: &Addrinfo) -> Vec<ai::Info> {
     unsafe {
         let mut addr = addr.handle;
 
         let mut addrs = Vec::new();
         loop {
-            let rustaddr = net::sockaddr_to_addr(cast::transmute((*addr).ai_addr),
+            let rustaddr = net::sockaddr_to_addr(mem::transmute((*addr).ai_addr),
                                                  (*addr).ai_addrlen as uint);
 
             let mut flags = 0;
@@ -180,6 +180,6 @@ pub fn accum_addrinfo(addr: &Addrinfo) -> ~[ai::Info] {
             }
         }
 
-        return addrs.move_iter().collect();
+        addrs
     }
 }

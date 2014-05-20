@@ -21,24 +21,28 @@
 //! play. The only dependencies of these modules are the normal system libraries
 //! that you would find on the respective platform.
 
+#![allow(unused_imports, dead_code)] // NaCl disables a lot.
+
+use libc::c_int;
+use libc;
 use std::c_str::CString;
 use std::io;
 use std::io::IoError;
 use std::io::net::ip::SocketAddr;
 use std::io::process::ProcessConfig;
 use std::io::signal::Signum;
-use libc::c_int;
-use libc;
 use std::os;
 use std::rt::rtio;
-use std::rt::rtio::{RtioTcpStream, RtioTcpListener, RtioUdpSocket,
-                    RtioUnixListener, RtioPipe, RtioFileStream, RtioProcess,
-                    RtioSignal, RtioTTY, CloseBehavior, RtioTimer};
+use std::rt::rtio::{RtioTcpStream, RtioTcpListener, RtioUdpSocket};
+use std::rt::rtio::{RtioUnixListener, RtioPipe, RtioFileStream, RtioProcess};
+use std::rt::rtio::{RtioSignal, RtioTTY, CloseBehavior, RtioTimer};
 use ai = std::io::net::addrinfo;
 
 // Local re-exports
 pub use self::file::FileDesc;
 pub use self::process::Process;
+
+mod helper_thread;
 
 // Native I/O implementations
 pub mod addrinfo;
@@ -57,6 +61,7 @@ pub mod file;
 #[cfg(target_os = "freebsd")]
 #[cfg(target_os = "android")]
 #[cfg(target_os = "linux")]
+#[cfg(target_os = "nacl")]
 #[path = "timer_unix.rs"]
 pub mod timer;
 
@@ -75,14 +80,21 @@ pub mod pipe;
 #[cfg(unix)] #[path = "c_unix.rs"]  mod c;
 #[cfg(windows)] #[path = "c_win32.rs"] mod c;
 
-#[cfg(not(target_os = "nacl"))] mod timer_helper;
-
 pub type IoResult<T> = Result<T, IoError>;
 
 fn unimpl() -> IoError {
     IoError {
         kind: io::IoUnavailable,
         desc: "unimplemented I/O interface",
+        detail: None,
+    }
+}
+
+#[cfg(target_os = "nacl")]
+fn unavailable() -> IoError {
+    IoError {
+        kind: io::IoUnavailable,
+        desc: "unavailable I/O interface",
         detail: None,
     }
 }
@@ -166,53 +178,64 @@ impl IoFactory {
 impl rtio::IoFactory for IoFactory {
     // networking
     fn tcp_connect(&mut self, addr: SocketAddr,
-                   timeout: Option<u64>) -> IoResult<~RtioTcpStream:Send> {
-        net::TcpStream::connect(addr, timeout).map(|s| box s as ~RtioTcpStream:Send)
+                   timeout: Option<u64>) -> IoResult<Box<RtioTcpStream:Send>> {
+        net::TcpStream::connect(addr, timeout).map(|s| {
+            box s as Box<RtioTcpStream:Send>
+        })
     }
-    fn tcp_bind(&mut self, addr: SocketAddr) -> IoResult<~RtioTcpListener:Send> {
-        net::TcpListener::bind(addr).map(|s| box s as ~RtioTcpListener:Send)
+    fn tcp_bind(&mut self, addr: SocketAddr)
+                -> IoResult<Box<RtioTcpListener:Send>> {
+        net::TcpListener::bind(addr).map(|s| {
+            box s as Box<RtioTcpListener:Send>
+        })
     }
-    fn udp_bind(&mut self, addr: SocketAddr) -> IoResult<~RtioUdpSocket:Send> {
-        net::UdpSocket::bind(addr).map(|u| box u as ~RtioUdpSocket:Send)
+    fn udp_bind(&mut self, addr: SocketAddr)
+                -> IoResult<Box<RtioUdpSocket:Send>> {
+        net::UdpSocket::bind(addr).map(|u| box u as Box<RtioUdpSocket:Send>)
     }
     #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
-    fn unix_bind(&mut self, path: &CString) -> IoResult<~RtioUnixListener:Send> {
-        pipe::UnixListener::bind(path).map(|s| box s as ~RtioUnixListener:Send)
+    fn unix_bind(&mut self, path: &CString)
+                 -> IoResult<Box<RtioUnixListener:Send>> {
+        pipe::UnixListener::bind(path).map(|s| {
+            box s as Box<RtioUnixListener:Send>
+        })
     }
     #[cfg(target_os = "nacl", target_libc = "newlib")]
-    fn unix_bind(&mut self, _path: &CString) -> IoResult<~RtioUnixListener:Send> {
+    fn unix_bind(&mut self, _path: &CString) -> IoResult<Box<RtioUnixListener:Send>> {
         // FIXME nacl_io doesn't emulate the C funs needed for this.
         Err(unimpl())
     }
     #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
     fn unix_connect(&mut self, path: &CString,
-                    timeout: Option<u64>) -> IoResult<~RtioPipe:Send> {
-        pipe::UnixStream::connect(path, timeout).map(|s| box s as ~RtioPipe:Send)
+                    timeout: Option<u64>) -> IoResult<Box<RtioPipe:Send>> {
+        pipe::UnixStream::connect(path, timeout).map(|s| {
+            box s as Box<RtioPipe:Send>
+        })
     }
     #[cfg(target_os = "nacl", target_libc = "newlib")]
     fn unix_connect(&mut self,
                     _path: &CString,
-                    _timeout: Option<u64>) -> IoResult<~RtioPipe:Send> {
+                    _timeout: Option<u64>) -> IoResult<Box<RtioPipe:Send>> {
         // FIXME nacl_io doesn't emulate the C funs needed for this.
         Err(unimpl())
     }
     fn get_host_addresses(&mut self, host: Option<&str>, servname: Option<&str>,
-                          hint: Option<ai::Hint>) -> IoResult<~[ai::Info]> {
+                          hint: Option<ai::Hint>) -> IoResult<Vec<ai::Info>> {
         addrinfo::GetAddrInfoRequest::run(host, servname, hint)
     }
 
     // filesystem operations
-    fn fs_from_raw_fd(&mut self, fd: c_int,
-                      close: CloseBehavior) -> ~RtioFileStream:Send {
+    fn fs_from_raw_fd(&mut self, fd: c_int, close: CloseBehavior)
+                      -> Box<RtioFileStream:Send> {
         let close = match close {
             rtio::CloseSynchronously | rtio::CloseAsynchronously => true,
             rtio::DontClose => false
         };
-        box file::FileDesc::new(fd, close) as ~RtioFileStream:Send
+        box file::FileDesc::new(fd, close) as Box<RtioFileStream:Send>
     }
     fn fs_open(&mut self, path: &CString, fm: io::FileMode, fa: io::FileAccess)
-        -> IoResult<~RtioFileStream:Send> {
-        file::open(path, fm, fa).map(|fd| box fd as ~RtioFileStream:Send)
+        -> IoResult<Box<RtioFileStream:Send>> {
+        file::open(path, fm, fa).map(|fd| box fd as Box<RtioFileStream:Send>)
     }
     fn fs_unlink(&mut self, path: &CString) -> IoResult<()> {
         file::unlink(path)
@@ -259,11 +282,11 @@ impl rtio::IoFactory for IoFactory {
 
     // misc
     #[cfg(not(target_os = "nacl"))]
-    fn timer_init(&mut self) -> IoResult<~RtioTimer:Send> {
-        timer::Timer::new().map(|t| box t as ~RtioTimer:Send)
+    fn timer_init(&mut self) -> IoResult<Box<RtioTimer:Send>> {
+        timer::Timer::new().map(|t| box t as Box<RtioTimer:Send>)
     }
     #[cfg(target_os = "nacl")]
-    fn timer_init(&mut self) -> IoResult<~RtioTimer:Send> {
+    fn timer_init(&mut self) -> IoResult<Box<RtioTimer:Send>> {
         Err(IoError {
                 kind: io::ResourceUnavailable,
                 desc: "synchronous interfaces aren't supported",
@@ -271,23 +294,25 @@ impl rtio::IoFactory for IoFactory {
             })
     }
     fn spawn(&mut self, config: ProcessConfig)
-            -> IoResult<(~RtioProcess:Send, ~[Option<~RtioPipe:Send>])> {
+            -> IoResult<(Box<RtioProcess:Send>,
+                         Vec<Option<Box<RtioPipe:Send>>>)> {
         process::Process::spawn(config).map(|(p, io)| {
-            (box p as ~RtioProcess:Send,
-             io.move_iter().map(|p| p.map(|p| box p as ~RtioPipe:Send)).collect())
+            (box p as Box<RtioProcess:Send>,
+             io.move_iter().map(|p| p.map(|p| {
+                 box p as Box<RtioPipe:Send>
+             })).collect())
         })
     }
     fn kill(&mut self, pid: libc::pid_t, signum: int) -> IoResult<()> {
         process::Process::kill(pid, signum)
     }
-    fn pipe_open(&mut self, fd: c_int) -> IoResult<~RtioPipe:Send> {
-        Ok(box file::FileDesc::new(fd, true) as ~RtioPipe:Send)
+    fn pipe_open(&mut self, fd: c_int) -> IoResult<Box<RtioPipe:Send>> {
+        Ok(box file::FileDesc::new(fd, true) as Box<RtioPipe:Send>)
     }
     fn tty_open(&mut self, fd: c_int, _readable: bool)
-        -> IoResult<~RtioTTY:Send>
-    {
+                -> IoResult<Box<RtioTTY:Send>> {
         if unsafe { libc::isatty(fd) } != 0 {
-            Ok(box file::FileDesc::new(fd, true) as ~RtioTTY:Send)
+            Ok(box file::FileDesc::new(fd, true) as Box<RtioTTY:Send>)
         } else {
             Err(IoError {
                 kind: io::MismatchedFileTypeForOperation,
@@ -297,7 +322,7 @@ impl rtio::IoFactory for IoFactory {
         }
     }
     fn signal(&mut self, _signal: Signum, _channel: Sender<Signum>)
-        -> IoResult<~RtioSignal:Send> {
+              -> IoResult<Box<RtioSignal:Send>> {
         Err(unimpl())
     }
 }

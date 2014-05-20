@@ -48,20 +48,20 @@
 // FIXME: all atomic operations in this module use a SeqCst ordering. That is
 //      probably overkill
 
-use cast;
 use clone::Clone;
 use iter::{range, Iterator};
 use kinds::Send;
-use libc;
-use mem;
+use mem::{forget, min_align_of, size_of, transmute};
 use ops::Drop;
 use option::{Option, Some, None};
-use ptr;
+use owned::Box;
 use ptr::RawPtr;
+use ptr;
+use slice::ImmutableVector;
 use sync::arc::UnsafeArc;
 use sync::atomics::{AtomicInt, AtomicPtr, SeqCst};
 use unstable::sync::Exclusive;
-use slice::ImmutableVector;
+use rt::heap::{allocate, deallocate};
 use vec::Vec;
 
 // Once the queue is less than 1/K full, then it will be downsized. Note that
@@ -117,7 +117,7 @@ pub enum Stolen<T> {
 /// will only use this structure when allocating a new buffer or deallocating a
 /// previous one.
 pub struct BufferPool<T> {
-    pool: Exclusive<Vec<~Buffer<T>>>,
+    pool: Exclusive<Vec<Box<Buffer<T>>>>,
 }
 
 /// An internal buffer used by the chase-lev deque. This structure is actually
@@ -154,7 +154,7 @@ impl<T: Send> BufferPool<T> {
         (Worker { deque: a }, Stealer { deque: b })
     }
 
-    fn alloc(&mut self, bits: int) -> ~Buffer<T> {
+    fn alloc(&mut self, bits: int) -> Box<Buffer<T>> {
         unsafe {
             self.pool.with(|pool| {
                 match pool.iter().position(|x| x.size() >= (1 << bits)) {
@@ -165,7 +165,7 @@ impl<T: Send> BufferPool<T> {
         }
     }
 
-    fn free(&mut self, buf: ~Buffer<T>) {
+    fn free(&mut self, buf: Box<Buffer<T>>) {
         unsafe {
             let mut buf = Some(buf);
             self.pool.with(|pool| {
@@ -229,7 +229,7 @@ impl<T: Send> Deque<T> {
         Deque {
             bottom: AtomicInt::new(0),
             top: AtomicInt::new(0),
-            array: AtomicPtr::new(unsafe { cast::transmute(buf) }),
+            array: AtomicPtr::new(unsafe { transmute(buf) }),
             pool: pool,
         }
     }
@@ -271,7 +271,7 @@ impl<T: Send> Deque<T> {
             return Some(data);
         } else {
             self.bottom.store(t + 1, SeqCst);
-            cast::forget(data); // someone else stole this value
+            forget(data); // someone else stole this value
             return None;
         }
     }
@@ -293,7 +293,7 @@ impl<T: Send> Deque<T> {
         if self.top.compare_and_swap(t, t + 1, SeqCst) == t {
             Data(data)
         } else {
-            cast::forget(data); // someone else stole this value
+            forget(data); // someone else stole this value
             Abort
         }
     }
@@ -314,7 +314,7 @@ impl<T: Send> Deque<T> {
     // continue to be read after we flag this buffer for reclamation.
     unsafe fn swap_buffer(&mut self, b: int, old: *mut Buffer<T>,
                           buf: Buffer<T>) -> *mut Buffer<T> {
-        let newbuf: *mut Buffer<T> = cast::transmute(box buf);
+        let newbuf: *mut Buffer<T> = transmute(box buf);
         self.array.store(newbuf, SeqCst);
         let ss = (*newbuf).size();
         self.bottom.store(b + ss, SeqCst);
@@ -322,7 +322,7 @@ impl<T: Send> Deque<T> {
         if self.top.compare_and_swap(t, t + ss, SeqCst) != t {
             self.bottom.store(b, SeqCst);
         }
-        self.pool.free(cast::transmute(old));
+        self.pool.free(transmute(old));
         return newbuf;
     }
 }
@@ -339,15 +339,19 @@ impl<T: Send> Drop for Deque<T> {
         for i in range(t, b) {
             let _: T = unsafe { (*a).get(i) };
         }
-        self.pool.free(unsafe { cast::transmute(a) });
+        self.pool.free(unsafe { transmute(a) });
     }
+}
+
+#[inline]
+fn buffer_alloc_size<T>(log_size: int) -> uint {
+    (1 << log_size) * size_of::<T>()
 }
 
 impl<T: Send> Buffer<T> {
     unsafe fn new(log_size: int) -> Buffer<T> {
-        let size = (1 << log_size) * mem::size_of::<T>();
-        let buffer = libc::malloc(size as libc::size_t);
-        assert!(!buffer.is_null());
+        let size = buffer_alloc_size::<T>(log_size);
+        let buffer = allocate(size, min_align_of::<T>());
         Buffer {
             storage: buffer as *T,
             log_size: log_size,
@@ -372,7 +376,7 @@ impl<T: Send> Buffer<T> {
     unsafe fn put(&mut self, i: int, t: T) {
         let ptr = self.storage.offset(i & self.mask());
         ptr::copy_nonoverlapping_memory(ptr as *mut T, &t as *T, 1);
-        cast::forget(t);
+        forget(t);
     }
 
     // Again, unsafe because this has incredibly dubious ownership violations.
@@ -390,7 +394,8 @@ impl<T: Send> Buffer<T> {
 impl<T: Send> Drop for Buffer<T> {
     fn drop(&mut self) {
         // It is assumed that all buffers are empty on drop.
-        unsafe { libc::free(self.storage as *mut libc::c_void) }
+        let size = buffer_alloc_size::<T>(self.log_size);
+        unsafe { deallocate(self.storage as *mut u8, size, min_align_of::<T>()) }
     }
 }
 
@@ -399,13 +404,14 @@ mod tests {
     use prelude::*;
     use super::{Data, BufferPool, Abort, Empty, Worker, Stealer};
 
-    use cast;
+    use mem;
+    use owned::Box;
     use rt::thread::Thread;
     use rand;
     use rand::Rng;
     use sync::atomics::{AtomicBool, INIT_ATOMIC_BOOL, SeqCst,
                         AtomicUint, INIT_ATOMIC_UINT};
-    use slice;
+    use vec;
 
     #[test]
     fn smoke() {
@@ -471,7 +477,7 @@ mod tests {
         t.join();
     }
 
-    fn stampede(mut w: Worker<~int>, s: Stealer<~int>,
+    fn stampede(mut w: Worker<Box<int>>, s: Stealer<Box<int>>,
                 nthreads: int, amt: uint) {
         for _ in range(0, amt) {
             w.push(box 20);
@@ -486,7 +492,7 @@ mod tests {
                     let mut s = s;
                     while (*unsafe_remaining).load(SeqCst) > 0 {
                         match s.steal() {
-                            Data(~20) => {
+                            Data(box 20) => {
                                 (*unsafe_remaining).fetch_sub(1, SeqCst);
                             }
                             Data(..) => fail!(),
@@ -499,7 +505,7 @@ mod tests {
 
         while remaining.load(SeqCst) > 0 {
             match w.pop() {
-                Some(~20) => { remaining.fetch_sub(1, SeqCst); }
+                Some(box 20) => { remaining.fetch_sub(1, SeqCst); }
                 Some(..) => fail!(),
                 None => {}
             }
@@ -512,7 +518,7 @@ mod tests {
 
     #[test]
     fn run_stampede() {
-        let mut pool = BufferPool::<~int>::new();
+        let mut pool = BufferPool::<Box<int>>::new();
         let (w, s) = pool.deque();
         stampede(w, s, 8, 10000);
     }
@@ -520,7 +526,7 @@ mod tests {
     #[test]
     fn many_stampede() {
         static AMT: uint = 4;
-        let mut pool = BufferPool::<~int>::new();
+        let mut pool = BufferPool::<Box<int>>::new();
         let threads = range(0, AMT).map(|_| {
             let (w, s) = pool.deque();
             Thread::start(proc() {
@@ -601,11 +607,11 @@ mod tests {
         let mut pool = BufferPool::<(int, uint)>::new();
         let (mut w, s) = pool.deque();
 
-        let (threads, hits) = slice::unzip(range(0, NTHREADS).map(|_| {
+        let (threads, hits) = vec::unzip(range(0, NTHREADS).map(|_| {
             let s = s.clone();
             let unique_box = box AtomicUint::new(0);
             let thread_box = unsafe {
-                *cast::transmute::<&~AtomicUint,**mut AtomicUint>(&unique_box)
+                *mem::transmute::<&Box<AtomicUint>, **mut AtomicUint>(&unique_box)
             };
             (Thread::start(proc() {
                 unsafe {

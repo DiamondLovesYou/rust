@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-pretty very bad with line comments
+
 extern crate sync;
 
 use std::io;
@@ -65,6 +67,7 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
 
 fn main() {
     let args = std::os::args();
+    let args = args.as_slice();
     let res = if args.len() < 2 {
         println!("Test mode: do not dump the image because it's not utf8, \
                   which interferes with the test runner.");

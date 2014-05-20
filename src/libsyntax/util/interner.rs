@@ -15,11 +15,11 @@
 use ast::Name;
 
 use collections::HashMap;
-use std::cast;
 use std::cell::RefCell;
 use std::cmp::Equiv;
 use std::fmt;
 use std::hash::Hash;
+use std::mem;
 use std::rc::Rc;
 
 pub struct Interner<T> {
@@ -92,7 +92,7 @@ impl<T: TotalEq + Hash + Clone + 'static> Interner<T> {
 
 #[deriving(Clone, Eq, Hash, Ord)]
 pub struct RcStr {
-    string: Rc<~str>,
+    string: Rc<StrBuf>,
 }
 
 impl TotalEq for RcStr {}
@@ -106,13 +106,8 @@ impl TotalOrd for RcStr {
 impl Str for RcStr {
     #[inline]
     fn as_slice<'a>(&'a self) -> &'a str {
-        let s: &'a str = *self.string;
+        let s: &'a str = self.string.as_slice();
         s
-    }
-
-    #[inline]
-    fn into_owned(self) -> ~str {
-        self.string.to_owned()
     }
 }
 
@@ -126,7 +121,7 @@ impl fmt::Show for RcStr {
 impl RcStr {
     pub fn new(string: &str) -> RcStr {
         RcStr {
-            string: Rc::new(string.to_owned()),
+            string: Rc::new(string.to_strbuf()),
         }
     }
 }
@@ -203,7 +198,7 @@ impl StrInterner {
         let vect = self.vect.borrow();
         let s: &str = vect.get(idx as uint).as_slice();
         unsafe {
-            cast::transmute(s)
+            mem::transmute(s)
         }
     }
 

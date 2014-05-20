@@ -105,7 +105,7 @@ if logging is disabled, none of the components of the log will be executed.
 
 */
 
-#![crate_id = "log#0.11-pre"]
+#![crate_id = "log#0.11.0-pre"]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
@@ -118,11 +118,10 @@ if logging is disabled, none of the components of the log will be executed.
 
 extern crate sync;
 
-use std::cast;
 use std::fmt;
 use std::io::LineBufferedWriter;
 use std::io;
-use std::local_data;
+use std::mem;
 use std::os;
 use std::rt;
 use std::slice;
@@ -158,7 +157,7 @@ pub static WARN: u32 = 2;
 /// Error log level
 pub static ERROR: u32 = 1;
 
-local_data_key!(local_logger: ~Logger:Send)
+local_data_key!(local_logger: Box<Logger:Send>)
 
 /// A trait used to represent an interface to a task-local logger. Each task
 /// can have its own custom logger which can respond to logging messages
@@ -228,8 +227,8 @@ pub fn log(level: u32, loc: &'static LogLocation, args: &fmt::Arguments) {
     // Completely remove the local logger from TLS in case anyone attempts to
     // frob the slot while we're doing the logging. This will destroy any logger
     // set during logging.
-    let mut logger = local_data::pop(local_logger).unwrap_or_else(|| {
-        box DefaultLogger { handle: io::stderr() } as ~Logger:Send
+    let mut logger = local_logger.replace(None).unwrap_or_else(|| {
+        box DefaultLogger { handle: io::stderr() } as Box<Logger:Send>
     });
     logger.log(&LogRecord {
         level: LogLevel(level),
@@ -238,7 +237,7 @@ pub fn log(level: u32, loc: &'static LogLocation, args: &fmt::Arguments) {
         module_path: loc.module_path,
         line: loc.line,
     });
-    local_data::set(local_logger, logger);
+    local_logger.replace(Some(logger));
 }
 
 /// Getter for the global log level. This is a function so that it can be called
@@ -249,10 +248,8 @@ pub fn log_level() -> u32 { unsafe { LOG_LEVEL } }
 
 /// Replaces the task-local logger with the specified logger, returning the old
 /// logger.
-pub fn set_logger(logger: ~Logger:Send) -> Option<~Logger:Send> {
-    let prev = local_data::pop(local_logger);
-    local_data::set(local_logger, logger);
-    return prev;
+pub fn set_logger(logger: Box<Logger:Send>) -> Option<Box<Logger:Send>> {
+    local_logger.replace(Some(logger))
 }
 
 /// A LogRecord is created by the logging macros, and passed as the only
@@ -346,13 +343,13 @@ fn init() {
         LOG_LEVEL = max_level;
 
         assert!(DIRECTIVES.is_null());
-        DIRECTIVES = cast::transmute(box directives);
+        DIRECTIVES = mem::transmute(box directives);
 
         // Schedule the cleanup for this global for when the runtime exits.
         rt::at_exit(proc() {
             assert!(!DIRECTIVES.is_null());
-            let _directives: ~Vec<directive::LogDirective> =
-                cast::transmute(DIRECTIVES);
+            let _directives: Box<Vec<directive::LogDirective>> =
+                mem::transmute(DIRECTIVES);
             DIRECTIVES = 0 as *Vec<directive::LogDirective>;
         });
     }

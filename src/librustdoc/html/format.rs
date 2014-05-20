@@ -17,7 +17,6 @@
 
 use std::fmt;
 use std::io;
-use std::local_data;
 use std::strbuf::StrBuf;
 
 use syntax::ast;
@@ -147,44 +146,33 @@ impl fmt::Show for clean::Path {
 
 /// Used when rendering a `ResolvedPath` structure. This invokes the `path`
 /// rendering function with the necessary arguments for linking to a local path.
-fn resolved_path(w: &mut io::Writer, id: ast::NodeId, p: &clean::Path,
+fn resolved_path(w: &mut io::Writer, did: ast::DefId, p: &clean::Path,
                  print_all: bool) -> fmt::Result {
     path(w, p, print_all,
-        |_cache, loc| { Some("../".repeat(loc.len())) },
+        |cache, loc| {
+            if ast_util::is_local(did) {
+                Some(("../".repeat(loc.len())).to_strbuf())
+            } else {
+                match *cache.extern_locations.get(&did.krate) {
+                    render::Remote(ref s) => Some(s.to_strbuf()),
+                    render::Local => {
+                        Some(("../".repeat(loc.len())).to_strbuf())
+                    }
+                    render::Unknown => None,
+                }
+            }
+        },
         |cache| {
-            match cache.paths.find(&id) {
+            match cache.paths.find(&did) {
                 None => None,
                 Some(&(ref fqp, shortty)) => Some((fqp.clone(), shortty))
             }
         })
 }
 
-/// Used when rendering an `ExternalPath` structure. Like `resolved_path` this
-/// will invoke `path` with proper linking-style arguments.
-fn external_path(w: &mut io::Writer, p: &clean::Path, print_all: bool,
-                 fqn: &[~str], kind: clean::TypeKind,
-                 krate: ast::CrateNum) -> fmt::Result {
-    path(w, p, print_all,
-        |cache, loc| {
-            match *cache.extern_locations.get(&krate) {
-                render::Remote(ref s) => Some(s.clone()),
-                render::Local => Some("../".repeat(loc.len())),
-                render::Unknown => None,
-            }
-        },
-        |_cache| {
-            Some((Vec::from_slice(fqn), match kind {
-                clean::TypeStruct => item_type::Struct,
-                clean::TypeEnum => item_type::Enum,
-                clean::TypeFunction => item_type::Function,
-                clean::TypeTrait => item_type::Trait,
-            }))
-        })
-}
-
 fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
-        root: |&render::Cache, &[~str]| -> Option<~str>,
-        info: |&render::Cache| -> Option<(Vec<~str> , ItemType)>)
+        root: |&render::Cache, &[StrBuf]| -> Option<StrBuf>,
+        info: |&render::Cache| -> Option<(Vec<StrBuf> , ItemType)>)
     -> fmt::Result
 {
     // The generics will get written to both the title and link
@@ -206,78 +194,73 @@ fn path(w: &mut io::Writer, path: &clean::Path, print_all: bool,
         generics.push_str("&gt;");
     }
 
-    // Did someone say rightward-drift?
-    local_data::get(current_location_key, |loc| {
-        let loc = loc.unwrap();
+    let loc = current_location_key.get().unwrap();
+    let cache = cache_key.get().unwrap();
+    let abs_root = root(&**cache, loc.as_slice());
+    let rel_root = match path.segments.get(0).name.as_slice() {
+        "self" => Some("./".to_owned()),
+        _ => None,
+    };
 
-        local_data::get(cache_key, |cache| {
-            let cache = cache.unwrap();
-            let abs_root = root(&**cache, loc.as_slice());
-            let rel_root = match path.segments.get(0).name.as_slice() {
-                "self" => Some("./".to_owned()),
-                _ => None,
-            };
-
-            if print_all {
-                let amt = path.segments.len() - 1;
-                match rel_root {
-                    Some(root) => {
-                        let mut root = StrBuf::from_str(root);
-                        for seg in path.segments.slice_to(amt).iter() {
-                            if "super" == seg.name || "self" == seg.name {
-                                try!(write!(w, "{}::", seg.name));
-                            } else {
-                                root.push_str(seg.name);
-                                root.push_str("/");
-                                try!(write!(w, "<a class='mod'
-                                                    href='{}index.html'>{}</a>::",
-                                              root.as_slice(),
-                                              seg.name));
-                            }
-                        }
-                    }
-                    None => {
-                        for seg in path.segments.slice_to(amt).iter() {
-                            try!(write!(w, "{}::", seg.name));
-                        }
+    if print_all {
+        let amt = path.segments.len() - 1;
+        match rel_root {
+            Some(root) => {
+                let mut root = StrBuf::from_str(root);
+                for seg in path.segments.slice_to(amt).iter() {
+                    if "super" == seg.name.as_slice() ||
+                            "self" == seg.name.as_slice() {
+                        try!(write!(w, "{}::", seg.name));
+                    } else {
+                        root.push_str(seg.name.as_slice());
+                        root.push_str("/");
+                        try!(write!(w, "<a class='mod'
+                                            href='{}index.html'>{}</a>::",
+                                      root.as_slice(),
+                                      seg.name));
                     }
                 }
             }
-
-            match info(&**cache) {
-                // This is a documented path, link to it!
-                Some((ref fqp, shortty)) if abs_root.is_some() => {
-                    let mut url = StrBuf::from_str(abs_root.unwrap());
-                    let to_link = fqp.slice_to(fqp.len() - 1);
-                    for component in to_link.iter() {
-                        url.push_str(*component);
-                        url.push_str("/");
-                    }
-                    match shortty {
-                        item_type::Module => {
-                            url.push_str(*fqp.last().unwrap());
-                            url.push_str("/index.html");
-                        }
-                        _ => {
-                            url.push_str(shortty.to_static_str());
-                            url.push_str(".");
-                            url.push_str(*fqp.last().unwrap());
-                            url.push_str(".html");
-                        }
-                    }
-
-                    try!(write!(w, "<a class='{}' href='{}' title='{}'>{}</a>",
-                                  shortty, url, fqp.connect("::"), last.name));
+            None => {
+                for seg in path.segments.slice_to(amt).iter() {
+                    try!(write!(w, "{}::", seg.name));
                 }
+            }
+        }
+    }
 
+    match info(&**cache) {
+        // This is a documented path, link to it!
+        Some((ref fqp, shortty)) if abs_root.is_some() => {
+            let mut url = StrBuf::from_str(abs_root.unwrap().as_slice());
+            let to_link = fqp.slice_to(fqp.len() - 1);
+            for component in to_link.iter() {
+                url.push_str(component.as_slice());
+                url.push_str("/");
+            }
+            match shortty {
+                item_type::Module => {
+                    url.push_str(fqp.last().unwrap().as_slice());
+                    url.push_str("/index.html");
+                }
                 _ => {
-                    try!(write!(w, "{}", last.name));
+                    url.push_str(shortty.to_static_str());
+                    url.push_str(".");
+                    url.push_str(fqp.last().unwrap().as_slice());
+                    url.push_str(".html");
                 }
             }
-            try!(write!(w, "{}", generics.as_slice()));
-            Ok(())
-        })
-    })
+
+            try!(write!(w, "<a class='{}' href='{}' title='{}'>{}</a>",
+                          shortty, url, fqp.connect("::"), last.name));
+        }
+
+        _ => {
+            try!(write!(w, "{}", last.name));
+        }
+    }
+    try!(write!(w, "{}", generics.as_slice()));
+    Ok(())
 }
 
 /// Helper to render type parameters
@@ -302,20 +285,12 @@ impl fmt::Show for clean::Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             clean::TyParamBinder(id) | clean::Generic(id) => {
-                local_data::get(cache_key, |cache| {
-                    let m = cache.unwrap();
-                    f.buf.write(m.typarams.get(&id).as_bytes())
-                })
+                let m = cache_key.get().unwrap();
+                f.buf.write(m.typarams.get(&id).as_bytes())
             }
-            clean::ResolvedPath{id, typarams: ref tp, path: ref path} => {
-                try!(resolved_path(f.buf, id, path, false));
-                tybounds(f.buf, tp)
-            }
-            clean::ExternalPath{path: ref path, typarams: ref tp,
-                                fqn: ref fqn, kind, krate} => {
-                try!(external_path(f.buf, path, false, fqn.as_slice(), kind,
-                                     krate))
-                tybounds(f.buf, tp)
+            clean::ResolvedPath{ did, ref typarams, ref path} => {
+                try!(resolved_path(f.buf, did, path, false));
+                tybounds(f.buf, typarams)
             }
             clean::Self(..) => f.buf.write("Self".as_bytes()),
             clean::Primitive(prim) => {
@@ -380,16 +355,20 @@ impl fmt::Show for clean::Type {
                                {arrow, select, yes{ -&gt; {ret}} other{}}",
                        style = FnStyleSpace(decl.fn_style),
                        lifetimes = if decl.lifetimes.len() == 0 {
-                           "".to_owned()
+                           "".to_strbuf()
                        } else {
-                           format!("&lt;{:#}&gt;", decl.lifetimes)
+                           format_strbuf!("&lt;{:#}&gt;", decl.lifetimes)
                        },
                        args = decl.decl.inputs,
                        bounds = if decl.bounds.len() == 0 {
-                           "".to_owned()
+                           "".to_strbuf()
                        } else {
-                           let mut m = decl.bounds.iter().map(|s| s.to_str());
-                           ": " + m.collect::<~[~str]>().connect(" + ")
+                           let mut m = decl.bounds
+                                           .iter()
+                                           .map(|s| s.to_str().to_strbuf());
+                           format_strbuf!(
+                               ": {}",
+                               m.collect::<Vec<StrBuf>>().connect(" + "))
                        },
                        arrow = match decl.decl.output { clean::Unit => "no", _ => "yes" },
                        ret = decl.decl.output)
@@ -397,10 +376,10 @@ impl fmt::Show for clean::Type {
             clean::BareFunction(ref decl) => {
                 write!(f.buf, "{}{}fn{}{}",
                        FnStyleSpace(decl.fn_style),
-                       match decl.abi {
-                           ref x if "" == *x => "".to_owned(),
-                           ref x if "\"Rust\"" == *x => "".to_owned(),
-                           ref s => " " + *s + " ",
+                       match decl.abi.as_slice() {
+                           "" => " extern ".to_strbuf(),
+                           "\"Rust\"" => "".to_strbuf(),
+                           s => format_strbuf!(" extern {} ", s)
                        },
                        decl.generics,
                        decl.decl)
@@ -517,7 +496,6 @@ impl fmt::Show for FnStyleSpace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.get() {
             ast::UnsafeFn => write!(f.buf, "unsafe "),
-            ast::ExternFn => write!(f.buf, "extern "),
             ast::NormalFn => Ok(())
         }
     }
@@ -553,10 +531,7 @@ impl fmt::Show for clean::ViewPath {
 impl fmt::Show for clean::ImportSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.did {
-            // FIXME: shouldn't be restricted to just local imports
-            Some(did) if ast_util::is_local(did) => {
-                resolved_path(f.buf, did.node, &self.path, true)
-            }
+            Some(did) => resolved_path(f.buf, did, &self.path, true),
             _ => {
                 for (i, seg) in self.path.segments.iter().enumerate() {
                     if i > 0 {
@@ -573,8 +548,7 @@ impl fmt::Show for clean::ImportSource {
 impl fmt::Show for clean::ViewListIdent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.source {
-            // FIXME: shouldn't be limited to just local imports
-            Some(did) if ast_util::is_local(did) => {
+            Some(did) => {
                 let path = clean::Path {
                     global: false,
                     segments: vec!(clean::PathSegment {
@@ -583,7 +557,7 @@ impl fmt::Show for clean::ViewListIdent {
                         types: Vec::new(),
                     })
                 };
-                resolved_path(f.buf, did.node, &path, false)
+                resolved_path(f.buf, did, &path, false)
             }
             _ => write!(f.buf, "{}", self.name),
         }

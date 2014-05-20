@@ -31,7 +31,7 @@ fn main() {
     let little_val = fourcc!("foo ", little);
     assert_eq!(little_val, 0x21EEFFC0u32);
 }
- ```
+```
 
 # References
 
@@ -39,7 +39,7 @@ fn main() {
 
 */
 
-#![crate_id = "fourcc#0.11-pre"]
+#![crate_id = "fourcc#0.11.0-pre"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
@@ -66,14 +66,15 @@ use syntax::parse::token::InternedString;
 #[macro_registrar]
 pub fn macro_registrar(register: |Name, SyntaxExtension|) {
     register(token::intern("fourcc"),
-        NormalTT(~BasicMacroExpander {
+        NormalTT(box BasicMacroExpander {
             expander: expand_syntax_ext,
             span: None,
         },
         None));
 }
 
-pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree]) -> ~base::MacResult {
+pub fn expand_syntax_ext(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
+                         -> Box<base::MacResult> {
     let (expr, endian) = parse_tts(cx, tts);
 
     let little = match endian {

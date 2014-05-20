@@ -35,19 +35,20 @@
 # that's per-target so you're allowed to conditionally add files based on the
 # target.
 ################################################################################
-NATIVE_LIBS := rustrt sundown uv_support morestack miniz context_switch
+NATIVE_LIBS := rustrt hoedown uv_support morestack miniz context_switch
 
 # $(1) is the target triple
 define NATIVE_LIBRARIES
 
-NATIVE_DEPS_sundown_$(1) := sundown/src/autolink.c \
-			sundown/src/buffer.c \
-			sundown/src/stack.c \
-			sundown/src/markdown.c \
-			sundown/html/houdini_href_e.c \
-			sundown/html/houdini_html_e.c \
-			sundown/html/html_smartypants.c \
-			sundown/html/html.c
+NATIVE_DEPS_hoedown_$(1) := hoedown/src/autolink.c \
+			hoedown/src/buffer.c \
+			hoedown/src/document.c \
+			hoedown/src/escape.c \
+			hoedown/src/html.c \
+			hoedown/src/html_blocks.c \
+			hoedown/src/html_smartypants.c \
+			hoedown/src/stack.c \
+			hoedown/src/version.c
 ifneq ($$(CFG_DISABLE_LIBUV_$(1)), 1)
 NATIVE_DEPS_uv_support_$(1) := rust_uv.c
 endif
@@ -92,7 +93,7 @@ $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.c $$(MKFILE_DEPS)
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
 	$$(Q)$$(call CFG_COMPILE_C_$(1), $$@, \
-		-I $$(S)src/rt/sundown/src -I $$(S)src/rt/sundown/html \
+		-I $$(S)src/rt/hoedown/src \
 		-I $$(S)src/libuv/include -I $$(S)src/rt \
                  $$(RUNTIME_CFLAGS_$(1))) $$<
 
@@ -134,10 +135,13 @@ $(foreach lib,$(NATIVE_LIBS),					    \
 ################################################################################
 # Building third-party targets with external build systems
 #
-# The only current member of this section is libuv, but long ago this used to
-# also be occupied by jemalloc. This location is meant for dependencies which
-# have external build systems. It is still assumed that the output of each of
-# these steps is a static library in the correct location.
+# This location is meant for dependencies which have external build systems. It
+# is still assumed that the output of each of these steps is a static library
+# in the correct location.
+################################################################################
+
+################################################################################
+# libuv
 ################################################################################
 
 define DEF_LIBUV_ARCH_VAR
@@ -166,6 +170,11 @@ define DEF_THIRD_PARTY_TARGETS
 
 ifeq ($$(CFG_WINDOWSY_$(1)), 1)
   LIBUV_OSTYPE_$(1) := win
+  # This isn't necessarily a desired option, but it's harmless and works around
+  # what appears to be a mingw-w64 bug.
+  #
+  # https://sourceforge.net/p/mingw-w64/bugs/395/
+  JEMALLOC_ARGS_$(1) := --enable-lazy-lock
 else ifeq ($(OSTYPE_$(1)), apple-darwin)
   LIBUV_OSTYPE_$(1) := mac
 else ifeq ($(OSTYPE_$(1)), unknown-freebsd)
@@ -173,6 +182,7 @@ else ifeq ($(OSTYPE_$(1)), unknown-freebsd)
 else ifeq ($(OSTYPE_$(1)), linux-androideabi)
   LIBUV_OSTYPE_$(1) := android
   LIBUV_ARGS_$(1) := PLATFORM=android host=android OS=linux
+  JEMALLOC_ARGS_$(1) := --disable-tls
 else
   LIBUV_OSTYPE_$(1) := linux
 endif
@@ -233,6 +243,42 @@ $$(LIBUV_DIR_$(1))/Release/libuv.a: $$(LIBUV_DEPS) $$(LIBUV_MAKEFILE_$(1)) \
 
 endif
 endif
+
+################################################################################
+# jemalloc
+################################################################################
+
+ifdef CFG_ENABLE_FAST_MAKE
+JEMALLOC_DEPS := $(S)/.gitmodules
+else
+JEMALLOC_DEPS := $(wildcard \
+		   $(S)src/jemalloc/* \
+		   $(S)src/jemalloc/*/* \
+		   $(S)src/jemalloc/*/*/* \
+		   $(S)src/jemalloc/*/*/*/*)
+endif
+
+JEMALLOC_NAME_$(1) := $$(call CFG_STATIC_LIB_NAME_$(1),jemalloc)
+ifeq ($$(CFG_WINDOWSY_$(1)),1)
+  JEMALLOC_REAL_NAME_$(1) := $$(call CFG_STATIC_LIB_NAME_$(1),jemalloc_s)
+else
+  JEMALLOC_REAL_NAME_$(1) := $$(call CFG_STATIC_LIB_NAME_$(1),jemalloc_pic)
+endif
+JEMALLOC_LIB_$(1) := $$(RT_OUTPUT_DIR_$(1))/$$(JEMALLOC_NAME_$(1))
+JEMALLOC_BUILD_DIR_$(1) := $$(RT_OUTPUT_DIR_$(1))/jemalloc
+
+$$(JEMALLOC_LIB_$(1)): $$(JEMALLOC_DEPS) $$(MKFILE_DEPS)
+	@$$(call E, make: jemalloc)
+	cd "$$(JEMALLOC_BUILD_DIR_$(1))"; "$(S)src/jemalloc/configure" \
+		$$(JEMALLOC_ARGS_$(1)) --enable-cc-silence --with-jemalloc-prefix=je_ \
+		--disable-experimental --build=$(CFG_BUILD) --host=$(1) \
+		CC="$$(CC_$(1))" \
+		AR="$$(AR_$(1))" \
+		RANLIB="$$(AR_$(1)) s" \
+		CPPFLAGS="-I $(S)src/rt/" \
+		EXTRA_CFLAGS="$$(CFG_CFLAGS_$(1))"
+	$$(Q)$$(MAKE) -C "$$(JEMALLOC_BUILD_DIR_$(1))" build_lib_static
+	$$(Q)cp $$(JEMALLOC_BUILD_DIR_$(1))/lib/$$(JEMALLOC_REAL_NAME_$(1)) $$(JEMALLOC_LIB_$(1))
 
 ################################################################################
 # compiler-rt

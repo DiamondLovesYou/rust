@@ -95,7 +95,7 @@ impl MacroExpander for MacroRulesMacroExpander {
               cx: &mut ExtCtxt,
               sp: Span,
               arg: &[ast::TokenTree])
-              -> ~MacResult {
+              -> Box<MacResult> {
         generic_extension(cx,
                           sp,
                           self.name,
@@ -121,7 +121,7 @@ fn generic_extension(cx: &ExtCtxt,
                      arg: &[ast::TokenTree],
                      lhses: &[Rc<NamedMatch>],
                      rhses: &[Rc<NamedMatch>])
-                     -> ~MacResult {
+                     -> Box<MacResult> {
     if cx.trace_macros() {
         println!("{}! \\{ {} \\}",
                  token::get_ident(name),
@@ -132,7 +132,7 @@ fn generic_extension(cx: &ExtCtxt,
 
     // Which arm's failure should we report? (the one furthest along)
     let mut best_fail_spot = DUMMY_SP;
-    let mut best_fail_msg = "internal error: ran no matchers".to_owned();
+    let mut best_fail_msg = "internal error: ran no matchers".to_strbuf();
 
     for (i, lhs) in lhses.iter().enumerate() { // try each arm's matchers
         match **lhs {
@@ -171,19 +171,19 @@ fn generic_extension(cx: &ExtCtxt,
                 // Weird, but useful for X-macros.
                 return box ParserAnyMacro {
                     parser: RefCell::new(p),
-                } as ~MacResult
+                } as Box<MacResult>
               }
               Failure(sp, ref msg) => if sp.lo >= best_fail_spot.lo {
                 best_fail_spot = sp;
                 best_fail_msg = (*msg).clone();
               },
-              Error(sp, ref msg) => cx.span_fatal(sp, (*msg))
+              Error(sp, ref msg) => cx.span_fatal(sp, msg.as_slice())
             }
           }
           _ => cx.bug("non-matcher found in parsed lhses")
         }
     }
-    cx.span_fatal(best_fail_spot, best_fail_msg);
+    cx.span_fatal(best_fail_spot, best_fail_msg.as_slice());
 }
 
 // this procedure performs the expansion of the
@@ -193,7 +193,7 @@ pub fn add_new_extension(cx: &mut ExtCtxt,
                          sp: Span,
                          name: Ident,
                          arg: Vec<ast::TokenTree> )
-                         -> ~base::MacResult {
+                         -> Box<base::MacResult> {
     // these spans won't matter, anyways
     fn ms(m: Matcher_) -> Matcher {
         Spanned {
@@ -247,8 +247,8 @@ pub fn add_new_extension(cx: &mut ExtCtxt,
 
     box MacroRulesDefiner {
         def: RefCell::new(Some(MacroDef {
-            name: token::get_ident(name).to_str(),
+            name: token::get_ident(name).to_str().to_strbuf(),
             ext: NormalTT(exp, Some(sp))
         }))
-    } as ~MacResult
+    } as Box<MacResult>
 }

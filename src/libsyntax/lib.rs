@@ -18,7 +18,7 @@ This API is completely unstable and subject to change.
 
 */
 
-#![crate_id = "syntax#0.11-pre"]
+#![crate_id = "syntax#0.11.0-pre"]
 #![license = "MIT/ASL2"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
@@ -35,6 +35,7 @@ extern crate term;
 extern crate collections;
 #[phase(syntax, link)]
 extern crate log;
+extern crate fmt_macros;
 
 pub mod util {
     pub mod interner;

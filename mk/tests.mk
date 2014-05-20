@@ -220,26 +220,27 @@ ALL_CS := $(wildcard $(S)src/rt/*.cpp \
                      $(S)src/rt/*/*/*.cpp \
                      $(S)src/rustllvm/*.cpp)
 ALL_CS := $(filter-out $(S)src/rt/miniz.cpp \
-		       $(wildcard $(S)src/rt/sundown/src/*.c) \
-		       $(wildcard $(S)src/rt/sundown/html/*.c) \
+		       $(wildcard $(S)src/rt/hoedown/src/*.c) \
+		       $(wildcard $(S)src/rt/hoedown/bin/*.c) \
 	,$(ALL_CS))
 ALL_HS := $(wildcard $(S)src/rt/*.h \
                      $(S)src/rt/*/*.h \
                      $(S)src/rt/*/*/*.h \
                      $(S)src/rustllvm/*.h)
-ALL_HS := $(filter-out $(S)src/rt/vg/valgrind.h \
-                       $(S)src/rt/vg/memcheck.h \
+ALL_HS := $(filter-out $(S)src/rt/valgrind/valgrind.h \
+                       $(S)src/rt/valgrind/memcheck.h \
                        $(S)src/rt/msvc/typeof.h \
                        $(S)src/rt/msvc/stdint.h \
                        $(S)src/rt/msvc/inttypes.h \
-		       $(wildcard $(S)src/rt/sundown/src/*.h) \
-		       $(wildcard $(S)src/rt/sundown/html/*.h) \
+		       $(wildcard $(S)src/rt/hoedown/src/*.h) \
+		       $(wildcard $(S)src/rt/hoedown/bin/*.h) \
 	,$(ALL_HS))
 
 # Run the tidy script in multiple parts to avoid huge 'echo' commands
 tidy:
 		@$(call E, check: formatting)
 		$(Q)find $(S)src -name '*.r[sc]' \
+		| grep '^$(S)src/jemalloc' -v \
 		| grep '^$(S)src/libuv' -v \
 		| grep '^$(S)src/llvm' -v \
 		| grep '^$(S)src/gyp' -v \
@@ -264,8 +265,10 @@ tidy:
 		$(Q)find $(S)src -type f -perm +111 \
 		    -not -name '*.rs' -and -not -name '*.py' \
 		    -and -not -name '*.sh' \
-		| grep '^$(S)src/llvm' -v \
+		| grep '^$(S)src/jemalloc' -v \
 		| grep '^$(S)src/libuv' -v \
+		| grep '^$(S)src/llvm' -v \
+		| grep '^$(S)src/rt/hoedown' -v \
 		| grep '^$(S)src/gyp' -v \
 		| grep '^$(S)src/etc' -v \
 		| grep '^$(S)src/doc' -v \
@@ -287,11 +290,13 @@ check-stage$(1)-T-$(2)-H-$(3)-exec:     				\
 	check-stage$(1)-T-$(2)-H-$(3)-rfail-exec			\
 	check-stage$(1)-T-$(2)-H-$(3)-cfail-exec			\
 	check-stage$(1)-T-$(2)-H-$(3)-rpass-full-exec			\
+	check-stage$(1)-T-$(2)-H-$(3)-cfail-full-exec			\
 	check-stage$(1)-T-$(2)-H-$(3)-rmake-exec			\
         check-stage$(1)-T-$(2)-H-$(3)-crates-exec                       \
         check-stage$(1)-T-$(2)-H-$(3)-doc-crates-exec                   \
 	check-stage$(1)-T-$(2)-H-$(3)-bench-exec			\
-	check-stage$(1)-T-$(2)-H-$(3)-debuginfo-exec \
+	check-stage$(1)-T-$(2)-H-$(3)-debuginfo-gdb-exec \
+	check-stage$(1)-T-$(2)-H-$(3)-debuginfo-lldb-exec \
 	check-stage$(1)-T-$(2)-H-$(3)-codegen-exec \
 	check-stage$(1)-T-$(2)-H-$(3)-doc-exec \
 	check-stage$(1)-T-$(2)-H-$(3)-pretty-exec
@@ -456,13 +461,16 @@ RPASS_RC := $(wildcard $(S)src/test/run-pass/*.rc)
 RPASS_RS := $(wildcard $(S)src/test/run-pass/*.rs)
 RPASS_FULL_RC := $(wildcard $(S)src/test/run-pass-fulldeps/*.rc)
 RPASS_FULL_RS := $(wildcard $(S)src/test/run-pass-fulldeps/*.rs)
+CFAIL_FULL_RC := $(wildcard $(S)src/test/compile-fail-fulldeps/*.rc)
+CFAIL_FULL_RS := $(wildcard $(S)src/test/compile-fail-fulldeps/*.rs)
 RFAIL_RC := $(wildcard $(S)src/test/run-fail/*.rc)
 RFAIL_RS := $(wildcard $(S)src/test/run-fail/*.rs)
 CFAIL_RC := $(wildcard $(S)src/test/compile-fail/*.rc)
 CFAIL_RS := $(wildcard $(S)src/test/compile-fail/*.rs)
 BENCH_RS := $(wildcard $(S)src/test/bench/*.rs)
 PRETTY_RS := $(wildcard $(S)src/test/pretty/*.rs)
-DEBUGINFO_RS := $(wildcard $(S)src/test/debug-info/*.rs)
+DEBUGINFO_GDB_RS := $(wildcard $(S)src/test/debuginfo/*.rs)
+DEBUGINFO_LLDB_RS := $(wildcard $(S)src/test/debuginfo/*.rs)
 CODEGEN_RS := $(wildcard $(S)src/test/codegen/*.rs)
 CODEGEN_CC := $(wildcard $(S)src/test/codegen/*.cc)
 
@@ -472,12 +480,14 @@ PERF_RS := $(wildcard $(S)src/test/bench/*.rs)
 
 RPASS_TESTS := $(RPASS_RC) $(RPASS_RS)
 RPASS_FULL_TESTS := $(RPASS_FULL_RC) $(RPASS_FULL_RS)
+CFAIL_FULL_TESTS := $(CFAIL_FULL_RC) $(CFAIL_FULL_RS)
 RFAIL_TESTS := $(RFAIL_RC) $(RFAIL_RS)
 CFAIL_TESTS := $(CFAIL_RC) $(CFAIL_RS)
 BENCH_TESTS := $(BENCH_RS)
 PERF_TESTS := $(PERF_RS)
 PRETTY_TESTS := $(PRETTY_RS)
-DEBUGINFO_TESTS := $(DEBUGINFO_RS)
+DEBUGINFO_GDB_TESTS := $(DEBUGINFO_GDB_RS)
+DEBUGINFO_LLDB_TESTS := $(DEBUGINFO_LLDB_RS)
 CODEGEN_TESTS := $(CODEGEN_RS) $(CODEGEN_CC)
 
 CTEST_SRC_BASE_rpass = run-pass
@@ -489,6 +499,11 @@ CTEST_SRC_BASE_rpass-full = run-pass-fulldeps
 CTEST_BUILD_BASE_rpass-full = run-pass-fulldeps
 CTEST_MODE_rpass-full = run-pass
 CTEST_RUNTOOL_rpass-full = $(CTEST_RUNTOOL)
+
+CTEST_SRC_BASE_cfail-full = compile-fail-fulldeps
+CTEST_BUILD_BASE_cfail-full = compile-fail-fulldeps
+CTEST_MODE_cfail-full = compile-fail
+CTEST_RUNTOOL_cfail-full = $(CTEST_RUNTOOL)
 
 CTEST_SRC_BASE_rfail = run-fail
 CTEST_BUILD_BASE_rfail = run-fail
@@ -510,10 +525,15 @@ CTEST_BUILD_BASE_perf = perf
 CTEST_MODE_perf = run-pass
 CTEST_RUNTOOL_perf = $(CTEST_PERF_RUNTOOL)
 
-CTEST_SRC_BASE_debuginfo = debug-info
-CTEST_BUILD_BASE_debuginfo = debug-info
-CTEST_MODE_debuginfo = debug-info
-CTEST_RUNTOOL_debuginfo = $(CTEST_RUNTOOL)
+CTEST_SRC_BASE_debuginfo-gdb = debuginfo
+CTEST_BUILD_BASE_debuginfo-gdb = debuginfo-gdb
+CTEST_MODE_debuginfo-gdb = debuginfo-gdb
+CTEST_RUNTOOL_debuginfo-gdb = $(CTEST_RUNTOOL)
+
+CTEST_SRC_BASE_debuginfo-lldb = debuginfo
+CTEST_BUILD_BASE_debuginfo-lldb = debuginfo-lldb
+CTEST_MODE_debuginfo-lldb = debuginfo-lldb
+CTEST_RUNTOOL_debuginfo-lldb = $(CTEST_RUNTOOL)
 
 CTEST_SRC_BASE_codegen = codegen
 CTEST_BUILD_BASE_codegen = codegen
@@ -525,15 +545,22 @@ CTEST_RUNTOOL_codegen = $(CTEST_RUNTOOL)
 # during attempts to run those tests.
 
 ifeq ($(CFG_GDB),)
-CTEST_DISABLE_debuginfo = "no gdb found"
+CTEST_DISABLE_debuginfo-gdb = "no gdb found"
 endif
+
+ifeq ($(CFG_LLDB),)
+CTEST_DISABLE_debuginfo-lldb = "no lldb found"
+endif
+
+# Completely disable LLDB tests for now
+CTEST_DISABLE_debuginfo-lldb = "LLDB tests are not enabled yet"
 
 ifeq ($(CFG_CLANG),)
 CTEST_DISABLE_codegen = "no clang found"
 endif
 
 ifeq ($(CFG_OSTYPE),apple-darwin)
-CTEST_DISABLE_debuginfo = "gdb on darwing needs root"
+CTEST_DISABLE_debuginfo-gdb = "gdb on darwing needs root"
 endif
 
 # CTEST_DISABLE_NONSELFHOST_$(TEST_GROUP), if set, will cause that
@@ -580,20 +607,24 @@ CTEST_COMMON_ARGS$(1)-T-$(2)-H-$(3) :=						\
         --stage-id stage$(1)-$(2)							\
         --target $(2)                                       \
         --host $(3)                                       \
+        --android-cross-path=$(CFG_ANDROID_CROSS_PATH)    \
         --adb-path=$(CFG_ADB)                          \
         --adb-test-dir=$(CFG_ADB_TEST_DIR)                  \
 	--nacl-cross-path=$(CFG_NACL_CROSS_PATH)                            \
         --host-rustcflags "$(RUSTC_FLAGS_$(3)) $$(CTEST_RUSTC_FLAGS) -L $$(RT_OUTPUT_DIR_$(3))" \
+        --lldb-python-dir=$(CFG_LLDB_PYTHON_DIR) \
         --target-rustcflags "$(RUSTC_FLAGS_$(2)) $$(CTEST_RUSTC_FLAGS) -L $$(RT_OUTPUT_DIR_$(2))" \
         $$(CTEST_TESTARGS) $$(CTEST_TARGETARGS_$(2))
 
 CTEST_DEPS_rpass_$(1)-T-$(2)-H-$(3) = $$(RPASS_TESTS)
 CTEST_DEPS_rpass-full_$(1)-T-$(2)-H-$(3) = $$(RPASS_FULL_TESTS) $$(CSREQ$(1)_T_$(3)_H_$(3)) $$(SREQ$(1)_T_$(2)_H_$(3))
+CTEST_DEPS_cfail-full_$(1)-T-$(2)-H-$(3) = $$(CFAIL_FULL_TESTS) $$(CSREQ$(1)_T_$(3)_H_$(3)) $$(SREQ$(1)_T_$(2)_H_$(3))
 CTEST_DEPS_rfail_$(1)-T-$(2)-H-$(3) = $$(RFAIL_TESTS)
 CTEST_DEPS_cfail_$(1)-T-$(2)-H-$(3) = $$(CFAIL_TESTS)
 CTEST_DEPS_bench_$(1)-T-$(2)-H-$(3) = $$(BENCH_TESTS)
 CTEST_DEPS_perf_$(1)-T-$(2)-H-$(3) = $$(PERF_TESTS)
-CTEST_DEPS_debuginfo_$(1)-T-$(2)-H-$(3) = $$(DEBUGINFO_TESTS)
+CTEST_DEPS_debuginfo-gdb_$(1)-T-$(2)-H-$(3) = $$(DEBUGINFO_GDB_TESTS)
+CTEST_DEPS_debuginfo-lldb_$(1)-T-$(2)-H-$(3) = $$(DEBUGINFO_LLDB_TESTS)
 CTEST_DEPS_codegen_$(1)-T-$(2)-H-$(3) = $$(CODEGEN_TESTS)
 
 endef
@@ -657,7 +688,7 @@ endif
 
 endef
 
-CTEST_NAMES = rpass rpass-full rfail cfail bench perf debuginfo codegen
+CTEST_NAMES = rpass rpass-full cfail-full rfail cfail bench perf debuginfo-gdb debuginfo-lldb codegen
 
 $(foreach host,$(CFG_HOST), \
  $(eval $(foreach target,$(CFG_TARGET), \
@@ -800,12 +831,14 @@ TEST_GROUPS = \
 	$(foreach crate,$(TEST_DOC_CRATES),doc-crate-$(crate)) \
 	rpass \
 	rpass-full \
+	cfail-full \
 	rfail \
 	cfail \
 	bench \
 	perf \
 	rmake \
-	debuginfo \
+	debuginfo-gdb \
+	debuginfo-lldb \
 	codegen \
 	doc \
 	$(foreach docname,$(DOCS),doc-$(docname)) \

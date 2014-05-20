@@ -112,8 +112,11 @@ impl<'a, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, O> {
                 "".to_owned()
             };
 
-            try!(ps.synth_comment(format!("id {}: {}{}{}", id, entry_str,
-                                          gens_str, kills_str)));
+            try!(ps.synth_comment(format_strbuf!("id {}: {}{}{}",
+                                                 id,
+                                                 entry_str,
+                                                 gens_str,
+                                                 kills_str)));
             try!(pp::space(&mut ps.s));
         }
         Ok(())
@@ -321,7 +324,7 @@ impl<'a, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, O> {
         });
     }
 
-    fn pretty_print_to(&self, wr: ~io::Writer,
+    fn pretty_print_to(&self, wr: Box<io::Writer>,
                        blk: &ast::Block) -> io::IoResult<()> {
         let mut ps = pprust::rust_printer_annotated(wr, self);
         try!(ps.cbox(pprust::indent_unit));
@@ -829,11 +832,11 @@ impl<'a, 'b, O:DataFlowOperator> PropagationContext<'a, 'b, O> {
     }
 }
 
-fn mut_bits_to_str(words: &mut [uint]) -> ~str {
+fn mut_bits_to_str(words: &mut [uint]) -> StrBuf {
     bits_to_str(words)
 }
 
-fn bits_to_str(words: &[uint]) -> ~str {
+fn bits_to_str(words: &[uint]) -> StrBuf {
     let mut result = StrBuf::new();
     let mut sep = '[';
 
@@ -849,7 +852,7 @@ fn bits_to_str(words: &[uint]) -> ~str {
         }
     }
     result.push_char(']');
-    return result.into_owned();
+    return result
 }
 
 fn copy_bits(in_vec: &[uint], out_vec: &mut [uint]) -> bool {
@@ -889,8 +892,8 @@ fn set_bit(words: &mut [uint], bit: uint) -> bool {
     oldv != newv
 }
 
-fn bit_str(bit: uint) -> ~str {
+fn bit_str(bit: uint) -> StrBuf {
     let byte = bit >> 8;
     let lobits = 1 << (bit & 0xFF);
-    format!("[{}:{}-{:02x}]", bit, byte, lobits)
+    format_strbuf!("[{}:{}-{:02x}]", bit, byte, lobits)
 }

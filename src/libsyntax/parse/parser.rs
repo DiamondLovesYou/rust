@@ -27,7 +27,7 @@ use ast::{ExprLit, ExprLoop, ExprMac};
 use ast::{ExprMethodCall, ExprParen, ExprPath, ExprProc};
 use ast::{ExprRepeat, ExprRet, ExprStruct, ExprTup, ExprUnary};
 use ast::{ExprVec, ExprVstore, ExprVstoreSlice};
-use ast::{ExprVstoreMutSlice, ExprWhile, ExprForLoop, ExternFn, Field, FnDecl};
+use ast::{ExprVstoreMutSlice, ExprWhile, ExprForLoop, Field, FnDecl};
 use ast::{ExprVstoreUniq, Once, Many};
 use ast::{ForeignItem, ForeignItemStatic, ForeignItemFn, ForeignMod};
 use ast::{Ident, NormalFn, Inherited, Item, Item_, ItemStatic};
@@ -125,7 +125,11 @@ enum ItemOrViewItem {
     IoviViewItem(ViewItem)
 }
 
-/* The expr situation is not as complex as I thought it would be.
+
+// Possibly accept an `INTERPOLATED` expression (a pre-parsed expression
+// dropped into the token stream, which happens while parsing the
+// result of macro expansion)
+/* Placement of these is not as complex as I feared it would be.
 The important thing is to make sure that lookahead doesn't balk
 at INTERPOLATED tokens */
 macro_rules! maybe_whole_expr (
@@ -135,7 +139,7 @@ macro_rules! maybe_whole_expr (
                 INTERPOLATED(token::NtPath(ref pt)) => Some((**pt).clone()),
                 _ => None,
             };
-            let ret = match ($p).token {
+            let found = match ($p).token {
                 INTERPOLATED(token::NtExpr(e)) => {
                     Some(e)
                 }
@@ -145,7 +149,7 @@ macro_rules! maybe_whole_expr (
                 }
                 _ => None
             };
-            match ret {
+            match found {
                 Some(e) => {
                     $p.bump();
                     return e;
@@ -156,16 +160,17 @@ macro_rules! maybe_whole_expr (
     )
 )
 
+// As above, but for things other than expressions
 macro_rules! maybe_whole (
     ($p:expr, $constructor:ident) => (
         {
-            let __found__ = match ($p).token {
+            let found = match ($p).token {
                 INTERPOLATED(token::$constructor(_)) => {
                     Some(($p).bump_and_get())
                 }
                 _ => None
             };
-            match __found__ {
+            match found {
                 Some(INTERPOLATED(token::$constructor(x))) => {
                     return x.clone()
                 }
@@ -175,13 +180,13 @@ macro_rules! maybe_whole (
     );
     (no_clone $p:expr, $constructor:ident) => (
         {
-            let __found__ = match ($p).token {
+            let found = match ($p).token {
                 INTERPOLATED(token::$constructor(_)) => {
                     Some(($p).bump_and_get())
                 }
                 _ => None
             };
-            match __found__ {
+            match found {
                 Some(INTERPOLATED(token::$constructor(x))) => {
                     return x
                 }
@@ -191,13 +196,13 @@ macro_rules! maybe_whole (
     );
     (deref $p:expr, $constructor:ident) => (
         {
-            let __found__ = match ($p).token {
+            let found = match ($p).token {
                 INTERPOLATED(token::$constructor(_)) => {
                     Some(($p).bump_and_get())
                 }
                 _ => None
             };
-            match __found__ {
+            match found {
                 Some(INTERPOLATED(token::$constructor(x))) => {
                     return (*x).clone()
                 }
@@ -207,13 +212,13 @@ macro_rules! maybe_whole (
     );
     (Some $p:expr, $constructor:ident) => (
         {
-            let __found__ = match ($p).token {
+            let found = match ($p).token {
                 INTERPOLATED(token::$constructor(_)) => {
                     Some(($p).bump_and_get())
                 }
                 _ => None
             };
-            match __found__ {
+            match found {
                 Some(INTERPOLATED(token::$constructor(x))) => {
                     return Some(x.clone()),
                 }
@@ -223,13 +228,13 @@ macro_rules! maybe_whole (
     );
     (iovi $p:expr, $constructor:ident) => (
         {
-            let __found__ = match ($p).token {
+            let found = match ($p).token {
                 INTERPOLATED(token::$constructor(_)) => {
                     Some(($p).bump_and_get())
                 }
                 _ => None
             };
-            match __found__ {
+            match found {
                 Some(INTERPOLATED(token::$constructor(x))) => {
                     return IoviItem(x.clone())
                 }
@@ -239,13 +244,13 @@ macro_rules! maybe_whole (
     );
     (pair_empty $p:expr, $constructor:ident) => (
         {
-            let __found__ = match ($p).token {
+            let found = match ($p).token {
                 INTERPOLATED(token::$constructor(_)) => {
                     Some(($p).bump_and_get())
                 }
                 _ => None
             };
-            match __found__ {
+            match found {
                 Some(INTERPOLATED(token::$constructor(x))) => {
                     return (Vec::new(), x)
                 }
@@ -273,7 +278,10 @@ struct ParsedItemsAndViewItems {
 
 /* ident is handled by common.rs */
 
-pub fn Parser<'a>(sess: &'a ParseSess, cfg: ast::CrateConfig, mut rdr: ~Reader:)
+pub fn Parser<'a>(
+              sess: &'a ParseSess,
+              cfg: ast::CrateConfig,
+              mut rdr: Box<Reader:>)
               -> Parser<'a> {
     let tok0 = rdr.next_token();
     let span = tok0.sp;
@@ -318,14 +326,14 @@ pub struct Parser<'a> {
     pub last_span: Span,
     pub cfg: CrateConfig,
     // the previous token or None (only stashed sometimes).
-    pub last_token: Option<~token::Token>,
+    pub last_token: Option<Box<token::Token>>,
     pub buffer: [TokenAndSpan, ..4],
     pub buffer_start: int,
     pub buffer_end: int,
     pub tokens_consumed: uint,
     pub restriction: restriction,
     pub quote_depth: uint, // not (yet) related to the quasiquoter
-    pub reader: ~Reader:,
+    pub reader: Box<Reader:>,
     pub interner: Rc<token::IdentInterner>,
     /// The set of seen errors about obsolete syntax. Used to suppress
     /// extra detail when the same error is seen twice
@@ -342,12 +350,12 @@ fn is_plain_ident_or_underscore(t: &token::Token) -> bool {
 
 impl<'a> Parser<'a> {
     // convert a token to a string using self's reader
-    pub fn token_to_str(token: &token::Token) -> ~str {
+    pub fn token_to_str(token: &token::Token) -> StrBuf {
         token::to_str(token)
     }
 
     // convert the current token to a string using self's reader
-    pub fn this_token_to_str(&mut self) -> ~str {
+    pub fn this_token_to_str(&mut self) -> StrBuf {
         Parser::token_to_str(&self.token)
     }
 
@@ -382,11 +390,17 @@ impl<'a> Parser<'a> {
     pub fn expect_one_of(&mut self,
                          edible: &[token::Token],
                          inedible: &[token::Token]) {
-        fn tokens_to_str(tokens: &[token::Token]) -> ~str {
+        fn tokens_to_str(tokens: &[token::Token]) -> StrBuf {
             let mut i = tokens.iter();
             // This might be a sign we need a connect method on Iterator.
-            let b = i.next().map_or("".to_owned(), |t| Parser::token_to_str(t));
-            i.fold(b, |b,a| b + "`, `" + Parser::token_to_str(a))
+            let b = i.next()
+                     .map_or("".to_strbuf(), |t| Parser::token_to_str(t));
+            i.fold(b, |b,a| {
+                let mut b = b;
+                b.push_str("`, `");
+                b.push_str(Parser::token_to_str(a).as_slice());
+                b
+            })
         }
         if edible.contains(&self.token) {
             self.bump();
@@ -573,13 +587,61 @@ impl<'a> Parser<'a> {
                 self.replace_token(token::BINOP(token::OR), lo, self.span.hi)
             }
             _ => {
-                let token_str = self.this_token_to_str();
-                let found_token =
+                let found_token = self.this_token_to_str();
+                let token_str =
                     Parser::token_to_str(&token::BINOP(token::OR));
                 self.fatal(format!("expected `{}`, found `{}`",
-                                   found_token,
-                                   token_str))
+                                   token_str, found_token))
             }
+        }
+    }
+
+    // Attempt to consume a `<`. If `<<` is seen, replace it with a single
+    // `<` and continue. If a `<` is not seen, return false.
+    //
+    // This is meant to be used when parsing generics on a path to get the
+    // starting token. The `force` parameter is used to forcefully break up a
+    // `<<` token. If `force` is false, then `<<` is only broken when a lifetime
+    // shows up next. For example, consider the expression:
+    //
+    //      foo as bar << test
+    //
+    // The parser needs to know if `bar <<` is the start of a generic path or if
+    // it's a left-shift token. If `test` were a lifetime, then it's impossible
+    // for the token to be a left-shift, but if it's not a lifetime, then it's
+    // considered a left-shift.
+    //
+    // The reason for this is that the only current ambiguity with `<<` is when
+    // parsing closure types:
+    //
+    //      foo::<<'a> ||>();
+    //      impl Foo<<'a> ||>() { ... }
+    fn eat_lt(&mut self, force: bool) -> bool {
+        match self.token {
+            token::LT => { self.bump(); true }
+            token::BINOP(token::SHL) => {
+                let next_lifetime = self.look_ahead(1, |t| match *t {
+                    token::LIFETIME(..) => true,
+                    _ => false,
+                });
+                if force || next_lifetime {
+                    let lo = self.span.lo + BytePos(1);
+                    self.replace_token(token::LT, lo, self.span.hi);
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn expect_lt(&mut self) {
+        if !self.eat_lt(true) {
+            let found_token = self.this_token_to_str();
+            let token_str = Parser::token_to_str(&token::LT);
+            self.fatal(format!("expected `{}`, found `{}`",
+                               token_str, found_token))
         }
     }
 
@@ -881,25 +943,23 @@ impl<'a> Parser<'a> {
     pub fn parse_ty_bare_fn(&mut self) -> Ty_ {
         /*
 
-        [extern "ABI"] [unsafe] fn <'lt> (S) -> T
-                ^~~~^  ^~~~~~~^    ^~~~^ ^~^    ^
-                  |      |           |    |     |
-                  |      |           |    |   Return type
-                  |      |           |  Argument types
-                  |      |       Lifetimes
-                  |      |
-                  |    Function Style
-                 ABI
-
+        [unsafe] [extern "ABI"] fn <'lt> (S) -> T
+         ^~~~^           ^~~~^     ^~~~^ ^~^    ^
+           |               |         |    |     |
+           |               |         |    |   Return type
+           |               |         |  Argument types
+           |               |     Lifetimes
+           |              ABI
+        Function Style
         */
 
+        let fn_style = self.parse_unsafety();
         let abi = if self.eat_keyword(keywords::Extern) {
             self.parse_opt_abi().unwrap_or(abi::C)
         } else {
             abi::Rust
         };
 
-        let fn_style = self.parse_unsafety();
         self.expect_keyword(keywords::Fn);
         let (decl, lifetimes) = self.parse_ty_fn_decl(true);
         return TyBareFn(@BareFnTy {
@@ -1221,6 +1281,14 @@ impl<'a> Parser<'a> {
         } else if self.token == token::TILDE {
             // OWNED POINTER
             self.bump();
+            match self.token {
+                token::IDENT(ref ident, _)
+                        if "str" == token::get_ident(*ident).get() => {
+                    // This is OK (for now).
+                }
+                token::LBRACKET => {}   // Also OK.
+                _ => self.obsolete(self.last_span, ObsoleteOwnedType),
+            };
             TyUniq(self.parse_ty(false))
         } else if self.token == token::BINOP(token::STAR) {
             // STAR POINTER (bare pointer?)
@@ -1245,6 +1313,7 @@ impl<'a> Parser<'a> {
             self.expect_and();
             self.parse_borrowed_pointee()
         } else if self.is_keyword(keywords::Extern) ||
+                  self.is_keyword(keywords::Unsafe) ||
                 self.token_is_bare_fn_keyword() {
             // BARE FUNCTION
             self.parse_ty_bare_fn()
@@ -1445,7 +1514,7 @@ impl<'a> Parser<'a> {
             _ => None,
         };
         match found {
-            Some(INTERPOLATED(token::NtPath(~path))) => {
+            Some(INTERPOLATED(token::NtPath(box path))) => {
                 return PathAndBounds {
                     path: path,
                     bounds: None,
@@ -1479,7 +1548,7 @@ impl<'a> Parser<'a> {
 
             // Parse the `<` before the lifetime and types, if applicable.
             let (any_lifetime_or_types, lifetimes, types) = {
-                if mode != NoTypesAllowed && self.eat(&token::LT) {
+                if mode != NoTypesAllowed && self.eat_lt(false) {
                     let (lifetimes, types) =
                         self.parse_generic_values_after_lt();
                     (true, lifetimes, OwnedSlice::from_vec(types))
@@ -1927,7 +1996,7 @@ impl<'a> Parser<'a> {
                     hi = self.span.hi;
                     self.bump();
                     let (_, tys) = if self.eat(&token::MOD_SEP) {
-                        self.expect(&token::LT);
+                        self.expect_lt();
                         self.parse_generic_values_after_lt()
                     } else {
                         (Vec::new(), Vec::new())
@@ -2220,9 +2289,6 @@ impl<'a> Parser<'a> {
               ExprVec(..) if m == MutImmutable => {
                 ExprVstore(e, ExprVstoreSlice)
               }
-              ExprLit(lit) if lit_is_str(lit) && m == MutImmutable => {
-                ExprVstore(e, ExprVstoreSlice)
-              }
               ExprVec(..) if m == MutMutable => {
                 ExprVstore(e, ExprVstoreMutSlice)
               }
@@ -2258,9 +2324,13 @@ impl<'a> Parser<'a> {
             ex = match e.node {
               ExprVec(..) | ExprRepeat(..) => ExprVstore(e, ExprVstoreUniq),
               ExprLit(lit) if lit_is_str(lit) => {
+                  self.obsolete(self.last_span, ObsoleteOwnedExpr);
                   ExprVstore(e, ExprVstoreUniq)
               }
-              _ => self.mk_unary(UnUniq, e)
+              _ => {
+                  self.obsolete(self.last_span, ObsoleteOwnedExpr);
+                  self.mk_unary(UnUniq, e)
+              }
             };
           }
           token::IDENT(_, _) if self.is_keyword(keywords::Box) => {
@@ -2772,6 +2842,7 @@ impl<'a> Parser<'a> {
             let sub = self.parse_pat();
             pat = PatUniq(sub);
             hi = self.last_span.hi;
+            self.obsolete(self.last_span, ObsoleteOwnedPattern);
             return @ast::Pat {
                 id: ast::DUMMY_NODE_ID,
                 node: pat,
@@ -3877,7 +3948,7 @@ impl<'a> Parser<'a> {
         (ident, ItemImpl(generics, opt_trait, ty, meths), Some(inner_attrs))
     }
 
-    // parse a::B<~str,int>
+    // parse a::B<StrBuf,int>
     fn parse_trait_ref(&mut self) -> TraitRef {
         ast::TraitRef {
             path: self.parse_path(LifetimeAndTypesWithoutColons).path,
@@ -3885,7 +3956,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // parse B + C<~str,int> + D
+    // parse B + C<StrBuf,int> + D
     fn parse_trait_ref_list(&mut self, ket: &token::Token) -> Vec<TraitRef> {
         self.parse_seq_to_before_end(
             ket,
@@ -4167,14 +4238,11 @@ impl<'a> Parser<'a> {
             }
         };
 
-        self.eval_src_mod_from_path(file_path,
-                                    outer_attrs.iter().map(|x| *x).collect(),
-                                    id_sp)
+        self.eval_src_mod_from_path(file_path, id_sp)
     }
 
     fn eval_src_mod_from_path(&mut self,
                               path: Path,
-                              outer_attrs: Vec<ast::Attribute> ,
                               id_sp: Span) -> (ast::Item_, Vec<ast::Attribute> ) {
         let mut included_mod_stack = self.sess.included_mod_stack.borrow_mut();
         match included_mod_stack.iter().position(|p| *p == path) {
@@ -4199,8 +4267,7 @@ impl<'a> Parser<'a> {
                                      &path,
                                      id_sp);
         let mod_inner_lo = p0.span.lo;
-        let (inner, next) = p0.parse_inner_attrs_and_next();
-        let mod_attrs = outer_attrs.append(inner.as_slice());
+        let (mod_attrs, next) = p0.parse_inner_attrs_and_next();
         let first_item_outer_attrs = next;
         let m0 = p0.parse_mod_items(token::EOF, first_item_outer_attrs, mod_inner_lo);
         self.sess.included_mod_stack.borrow_mut().pop();
@@ -4551,7 +4618,7 @@ impl<'a> Parser<'a> {
                 // EXTERN FUNCTION ITEM
                 let abi = opt_abi.unwrap_or(abi::C);
                 let (ident, item_, extra_attrs) =
-                    self.parse_item_fn(ExternFn, abi);
+                    self.parse_item_fn(NormalFn, abi);
                 let item = self.mk_item(lo,
                                         self.last_span.hi,
                                         ident,
@@ -4605,9 +4672,14 @@ impl<'a> Parser<'a> {
             && self.look_ahead(1u, |t| *t != token::LBRACE) {
             // UNSAFE FUNCTION ITEM
             self.bump();
+            let abi = if self.eat_keyword(keywords::Extern) {
+                self.parse_opt_abi().unwrap_or(abi::C)
+            } else {
+                abi::Rust
+            };
             self.expect_keyword(keywords::Fn);
             let (ident, item_, extra_attrs) =
-                self.parse_item_fn(UnsafeFn, abi::Rust);
+                self.parse_item_fn(UnsafeFn, abi);
             let item = self.mk_item(lo,
                                     self.last_span.hi,
                                     ident,
