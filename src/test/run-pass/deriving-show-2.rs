@@ -17,7 +17,7 @@ enum A {}
 #[deriving(Show)]
 enum B { B1, B2, B3 }
 #[deriving(Show)]
-enum C { C1(int), C2(B), C3(~str) }
+enum C { C1(int), C2(B), C3(StrBuf) }
 #[deriving(Show)]
 enum D { D1{ a: int } }
 #[deriving(Show)]
@@ -36,7 +36,7 @@ struct J(Custom);
 struct Custom;
 impl fmt::Show for Custom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "yay")
+        write!(f, "yay")
     }
 }
 

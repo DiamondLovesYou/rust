@@ -11,18 +11,24 @@
 
 use back::link;
 use driver::session::Session;
-use driver::config;
+use driver::{config, PpMode};
+use driver::{PpmFlowGraph, PpmExpanded, PpmExpandedIdentified, PpmTyped};
+use driver::{PpmIdentified};
 use front;
 use lib::llvm::{ContextRef, ModuleRef};
 use metadata::common::LinkMeta;
 use metadata::creader;
 use metadata::creader::Loader;
+use middle::cfg;
+use middle::cfg::graphviz::LabelledCFG;
 use middle::{trans, freevars, kind, ty, typeck, lint, reachable};
 use middle::dependency_format;
 use middle;
 use util::common::time;
 use util::ppaux;
 use util::nodemap::{NodeSet};
+
+use dot = graphviz;
 
 use serialize::{json, Encodable};
 
@@ -369,6 +375,7 @@ pub struct CrateTranslation {
     pub metadata: Vec<u8>,
     pub reachable: Vec<StrBuf>,
     pub crate_formats: dependency_format::Dependencies,
+    pub no_builtins: bool,
 }
 
 /// Run the translation phase to LLVM, after which the AST and analysis can
@@ -398,22 +405,12 @@ pub fn phase_5_run_llvm_passes(sess: &Session,
         time(sess.time_passes(), "LLVM passes", (), |_|
             link::write::run_passes(sess, trans, [output_type], outputs));
 
-        let assembly = outputs.temp_path(output_type);
-        let object = outputs.temp_path(link::OutputTypeObject);
-        link::write::run_assembler(sess, &assembly, &object);
+        link::write::run_assembler(sess, outputs);
 
-        if sess.targeting_pnacl() {
-            let assembly = outputs.with_extension("metadata.ll");
-            let object = outputs.with_extension("metadata.o");
-            link::write::run_assembler(sess, &assembly, &object);
-        }
 
         // Remove assembly source, unless --save-temps was specified
         if !sess.opts.cg.save_temps {
             fs::unlink(&outputs.temp_path(output_type)).unwrap();
-            if sess.targeting_pnacl() {
-                fs::unlink(&outputs.with_extension("metadata.ll")).unwrap();
-            }
         }
     } else {
         time(sess.time_passes(), "LLVM passes", (), |_|
@@ -606,14 +603,14 @@ impl pprust::PpAnn for TypedAnnotation {
 pub fn pretty_print_input(sess: Session,
                           cfg: ast::CrateConfig,
                           input: &Input,
-                          ppm: ::driver::PpMode,
+                          ppm: PpMode,
                           ofile: Option<Path>) {
     let krate = phase_1_parse_input(&sess, cfg, input);
     let id = link::find_crate_id(krate.attrs.as_slice(),
                                  input.filestem().as_slice());
 
     let (krate, ast_map, is_expanded) = match ppm {
-        PpmExpanded | PpmExpandedIdentified | PpmTyped => {
+        PpmExpanded | PpmExpandedIdentified | PpmTyped | PpmFlowGraph(_) => {
             let loader = &mut Loader::new(&sess);
             let (krate, ast_map) = phase_2_configure_and_expand(&sess,
                                                                 loader,
@@ -668,6 +665,18 @@ pub fn pretty_print_input(sess: Session,
                                 &annotation,
                                 is_expanded)
         }
+        PpmFlowGraph(nodeid) => {
+            let ast_map = ast_map.expect("--pretty flowgraph missing ast_map");
+            let node = ast_map.find(nodeid).unwrap_or_else(|| {
+                fail!("--pretty flowgraph=id couldn't find id: {}", id)
+            });
+            let block = match node {
+                syntax::ast_map::NodeBlock(block) => block,
+                _ => fail!("--pretty=flowgraph needs block, got {:?}", node)
+            };
+            let analysis = phase_3_run_analysis_passes(sess, &krate, ast_map);
+            print_flowgraph(analysis, block, out)
+        }
         _ => {
             pprust::print_crate(sess.codemap(),
                                 sess.diagnostic(),
@@ -680,6 +689,32 @@ pub fn pretty_print_input(sess: Session,
         }
     }.unwrap()
 
+}
+
+fn print_flowgraph<W:io::Writer>(analysis: CrateAnalysis,
+                                 block: ast::P<ast::Block>,
+                                 mut out: W) -> io::IoResult<()> {
+    let ty_cx = &analysis.ty_cx;
+    let cfg = cfg::CFG::new(ty_cx, block);
+    let lcfg = LabelledCFG { ast_map: &ty_cx.map,
+                             cfg: &cfg,
+                             name: format!("block{}", block.id).to_strbuf(), };
+    debug!("cfg: {:?}", cfg);
+    let r = dot::render(&lcfg, &mut out);
+    return expand_err_details(r);
+
+    fn expand_err_details(r: io::IoResult<()>) -> io::IoResult<()> {
+        r.map_err(|ioerr| {
+            let orig_detail = ioerr.detail.clone();
+            let m = "graphviz::render failed";
+            io::IoError {
+                detail: Some(match orig_detail {
+                    None => m.into_owned(), Some(d) => format!("{}: {}", m, d)
+                }),
+                ..ioerr
+            }
+        })
+    }
 }
 
 pub fn collect_crate_types(session: &Session,

@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -10,6 +10,7 @@
 
 use std::from_str::FromStr;
 use std::fmt;
+use regex::Regex;
 
 #[deriving(Clone, Eq)]
 pub enum Mode {
@@ -40,25 +41,25 @@ impl FromStr for Mode {
 impl fmt::Show for Mode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg = match *self {
-          CompileFail => "compile-fail",
-          RunFail => "run-fail",
-          RunPass => "run-pass",
-          Pretty => "pretty",
-          DebugInfoGdb => "debuginfo-gdb",
-          DebugInfoLldb => "debuginfo-lldb",
-          Codegen => "codegen",
+            CompileFail => "compile-fail",
+            RunFail => "run-fail",
+            RunPass => "run-pass",
+            Pretty => "pretty",
+            DebugInfoGdb => "debuginfo-gdb",
+            DebugInfoLldb => "debuginfo-lldb",
+            Codegen => "codegen",
         };
-        write!(f.buf, "{}", msg)
+        msg.fmt(f)
     }
 }
 
 #[deriving(Clone)]
 pub struct Config {
     // The library paths required for running the compiler
-    pub compile_lib_path: ~str,
+    pub compile_lib_path: StrBuf,
 
     // The library paths required for running compiled programs
-    pub run_lib_path: ~str,
+    pub run_lib_path: StrBuf,
 
     // The rustc executable
     pub rustc_path: Path,
@@ -79,7 +80,7 @@ pub struct Config {
     pub aux_base: Path,
 
     // The name of the stage being built (stage1, etc)
-    pub stage_id: ~str,
+    pub stage_id: StrBuf,
 
     // The test mode, compile-fail, run-fail, run-pass
     pub mode: Mode,
@@ -88,7 +89,10 @@ pub struct Config {
     pub run_ignored: bool,
 
     // Only run tests that match this filter
-    pub filter: Option<~str>,
+    pub filter: Option<Regex>,
+
+    // Precompiled regex for finding expected errors in cfail
+    pub cfail_regex: Regex,
 
     // Write out a parseable log of tests that were run
     pub logfile: Option<Path>,
@@ -109,51 +113,50 @@ pub struct Config {
 
     // A command line to prefix program execution with,
     // for running under valgrind
-    pub runtool: Option<~str>,
+    pub runtool: Option<StrBuf>,
 
     // Flags to pass to the compiler when building for the host
-    pub host_rustcflags: Option<~str>,
+    pub host_rustcflags: Option<StrBuf>,
 
     // Flags to pass to the compiler when building for the target
-    pub target_rustcflags: Option<~str>,
+    pub target_rustcflags: Option<StrBuf>,
 
     // Run tests using the JIT
     pub jit: bool,
 
     // Target system to be tested
-    pub target: ~str,
+    pub target: StrBuf,
 
     // Host triple for the compiler being invoked
-    pub host: ~str,
+    pub host: StrBuf,
 
     // Path to the android tools
     pub android_cross_path: Path,
 
     // Extra parameter to run adb on arm-linux-androideabi
-    pub adb_path: ~str,
+    pub adb_path: StrBuf,
 
     // Extra parameter to run test sute on arm-linux-androideabi
-    pub adb_test_dir: ~str,
+    pub adb_test_dir: StrBuf,
 
     // status whether android device available or not
     pub adb_device_status: bool,
 
     // the path containing LLDB's Python module
-    pub lldb_python_dir: Option<~str>,
+    pub lldb_python_dir: Option<StrBuf>,
 
     // NaCl Pepper SDK path
     pub nacl_cross_path: Option<Path>,
 
     // Explain what's going on
     pub verbose: bool
-
 }
 
-impl config {
+impl Config {
     pub fn targeting_nacl(&self) -> bool {
-        self.target.ends_with("-unknown-nacl")
+        self.target.as_slice().ends_with("-unknown-nacl")
     }
     pub fn targeting_pnacl(&self) -> bool {
-        "le32-unknown-nacl" == self.target
+        "le32-unknown-nacl" == self.target.as_slice()
     }
 }

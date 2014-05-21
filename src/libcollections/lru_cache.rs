@@ -205,20 +205,20 @@ impl<A: fmt::Show + Hash + TotalEq, B: fmt::Show> fmt::Show for LruCache<A, B> {
     /// Return a string that lists the key-value pairs from most-recently
     /// used to least-recently used.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f.buf, r"\{"));
+        try!(write!(f, r"\{"));
         let mut cur = self.head;
         for i in range(0, self.len()) {
-            if i > 0 { try!(write!(f.buf, ", ")) }
+            if i > 0 { try!(write!(f, ", ")) }
             unsafe {
                 cur = (*cur).next;
-                try!(write!(f.buf, "{}", (*cur).key));
+                try!(write!(f, "{}", (*cur).key));
             }
-            try!(write!(f.buf, ": "));
+            try!(write!(f, ": "));
             unsafe {
-                try!(write!(f.buf, "{}", (*cur).value));
+                try!(write!(f, "{}", (*cur).value));
             }
         }
-        write!(f.buf, r"\}")
+        write!(f, r"\}")
     }
 }
 
@@ -270,23 +270,23 @@ mod tests {
 
     #[test]
     fn test_put_update() {
-        let mut cache: LruCache<~str, Vec<u8>> = LruCache::new(1);
-        cache.put("1".to_owned(), vec![10, 10]);
-        cache.put("1".to_owned(), vec![10, 19]);
-        assert_opt_eq(cache.get(&"1".to_owned()), vec![10, 19]);
+        let mut cache: LruCache<StrBuf, Vec<u8>> = LruCache::new(1);
+        cache.put("1".to_strbuf(), vec![10, 10]);
+        cache.put("1".to_strbuf(), vec![10, 19]);
+        assert_opt_eq(cache.get(&"1".to_strbuf()), vec![10, 19]);
         assert_eq!(cache.len(), 1);
     }
 
     #[test]
     fn test_expire_lru() {
-        let mut cache: LruCache<~str, ~str> = LruCache::new(2);
-        cache.put("foo1".to_owned(), "bar1".to_owned());
-        cache.put("foo2".to_owned(), "bar2".to_owned());
-        cache.put("foo3".to_owned(), "bar3".to_owned());
-        assert!(cache.get(&"foo1".to_owned()).is_none());
-        cache.put("foo2".to_owned(), "bar2update".to_owned());
-        cache.put("foo4".to_owned(), "bar4".to_owned());
-        assert!(cache.get(&"foo3".to_owned()).is_none());
+        let mut cache: LruCache<StrBuf, StrBuf> = LruCache::new(2);
+        cache.put("foo1".to_strbuf(), "bar1".to_strbuf());
+        cache.put("foo2".to_strbuf(), "bar2".to_strbuf());
+        cache.put("foo3".to_strbuf(), "bar3".to_strbuf());
+        assert!(cache.get(&"foo1".to_strbuf()).is_none());
+        cache.put("foo2".to_strbuf(), "bar2update".to_strbuf());
+        cache.put("foo4".to_strbuf(), "bar4".to_strbuf());
+        assert!(cache.get(&"foo3".to_strbuf()).is_none());
     }
 
     #[test]

@@ -49,6 +49,13 @@ impl RenderSpan {
     }
 }
 
+#[deriving(Clone)]
+pub enum ColorConfig {
+    Auto,
+    Always,
+    Never
+}
+
 pub trait Emitter {
     fn emit(&mut self, cmsp: Option<(&codemap::CodeMap, Span)>,
             msg: &str, lvl: Level);
@@ -176,8 +183,8 @@ pub fn mk_span_handler(handler: Handler, cm: codemap::CodeMap) -> SpanHandler {
     }
 }
 
-pub fn default_handler() -> Handler {
-    mk_handler(box EmitterWriter::stderr())
+pub fn default_handler(color_config: ColorConfig) -> Handler {
+    mk_handler(box EmitterWriter::stderr(color_config))
 }
 
 pub fn mk_handler(e: Box<Emitter:Send>) -> Handler {
@@ -225,8 +232,27 @@ fn print_maybe_styled(w: &mut EmitterWriter,
     match w.dst {
         Terminal(ref mut t) => {
             try!(t.attr(color));
-            try!(t.write_str(msg));
-            try!(t.reset());
+            // If `msg` ends in a newline, we need to reset the color before
+            // the newline. We're making the assumption that we end up writing
+            // to a `LineBufferedWriter`, which means that emitting the reset
+            // after the newline ends up buffering the reset until we print
+            // another line or exit. Buffering the reset is a problem if we're
+            // sharing the terminal with any other programs (e.g. other rustc
+            // instances via `make -jN`).
+            //
+            // Note that if `msg` contains any internal newlines, this will
+            // result in the `LineBufferedWriter` flushing twice instead of
+            // once, which still leaves the opportunity for interleaved output
+            // to be miscolored. We assume this is rare enough that we don't
+            // have to worry about it.
+            if msg.ends_with("\n") {
+                try!(t.write_str(msg.slice_to(msg.len()-1)));
+                try!(t.reset());
+                try!(t.write_str("\n"));
+            } else {
+                try!(t.write_str(msg));
+                try!(t.reset());
+            }
             Ok(())
         }
         Raw(ref mut w) => {
@@ -252,17 +278,24 @@ pub struct EmitterWriter {
 }
 
 enum Destination {
-    Terminal(term::Terminal<io::stdio::StdWriter>),
+    Terminal(Box<term::Terminal<Box<Writer:Send>>:Send>),
     Raw(Box<Writer:Send>),
 }
 
 impl EmitterWriter {
-    pub fn stderr() -> EmitterWriter {
+    pub fn stderr(color_config: ColorConfig) -> EmitterWriter {
         let stderr = io::stderr();
-        if stderr.get_ref().isatty() {
-            let dst = match term::Terminal::new(stderr.unwrap()) {
-                Ok(t) => Terminal(t),
-                Err(..) => Raw(box io::stderr()),
+
+        let use_color = match color_config {
+            Always => true,
+            Never  => false,
+            Auto   => stderr.get_ref().isatty()
+        };
+
+        if use_color {
+            let dst = match term::stderr() {
+                Some(t) => Terminal(t),
+                None    => Raw(box stderr),
             };
             EmitterWriter { dst: dst }
         } else {

@@ -14,7 +14,7 @@ struct cat {
     meows : uint,
 
     how_hungry : int,
-    name : ~str,
+    name : StrBuf,
 }
 
 impl cat {
@@ -43,7 +43,7 @@ impl cat {
     }
 }
 
-fn cat(in_x : uint, in_y : int, in_name: ~str) -> cat {
+fn cat(in_x : uint, in_y : int, in_name: StrBuf) -> cat {
     cat {
         meows: in_x,
         how_hungry: in_y,
@@ -53,17 +53,17 @@ fn cat(in_x : uint, in_y : int, in_name: ~str) -> cat {
 
 impl fmt::Show for cat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}", self.name)
+        write!(f, "{}", self.name)
     }
 }
 
-fn print_out(thing: Box<ToStr>, expected: ~str) {
+fn print_out(thing: Box<ToStr>, expected: StrBuf) {
   let actual = thing.to_str();
   println!("{}", actual);
-  assert_eq!(actual, expected);
+  assert_eq!(actual.to_strbuf(), expected);
 }
 
 pub fn main() {
-  let nyan: Box<ToStr> = box cat(0u, 2, "nyan".to_owned()) as Box<ToStr>;
-  print_out(nyan, "nyan".to_owned());
+  let nyan: Box<ToStr> = box cat(0u, 2, "nyan".to_strbuf()) as Box<ToStr>;
+  print_out(nyan, "nyan".to_strbuf());
 }

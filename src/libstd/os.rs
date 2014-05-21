@@ -1100,19 +1100,19 @@ impl fmt::Show for MapError {
             ErrAlreadyExists => "File mapping for specified file already exists",
             ErrZeroLength => "Zero-length mapping not allowed",
             ErrUnknown(code) => {
-                return write!(out.buf, "Unknown error = {}", code)
+                return write!(out, "Unknown error = {}", code)
             },
             ErrVirtualAlloc(code) => {
-                return write!(out.buf, "VirtualAlloc failure = {}", code)
+                return write!(out, "VirtualAlloc failure = {}", code)
             },
             ErrCreateFileMappingW(code) => {
-                return write!(out.buf, "CreateFileMappingW failure = {}", code)
+                return write!(out, "CreateFileMappingW failure = {}", code)
             },
             ErrMapViewOfFile(code) => {
-                return write!(out.buf, "MapViewOfFile failure = {}", code)
+                return write!(out, "MapViewOfFile failure = {}", code)
             }
         };
-        write!(out.buf, "{}", str)
+        write!(out, "{}", str)
     }
 }
 
@@ -1602,9 +1602,9 @@ mod tests {
 
     fn make_rand_name() -> ~str {
         let mut rng = rand::task_rng();
-        let n = "TEST".to_owned() + rng.gen_ascii_str(10u);
-        assert!(getenv(n).is_none());
-        n
+        let n = format_strbuf!("TEST{}", rng.gen_ascii_str(10u).as_slice());
+        assert!(getenv(n.as_slice()).is_none());
+        n.into_owned()
     }
 
     #[test]

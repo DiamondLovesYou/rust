@@ -652,7 +652,7 @@ mul_with_overflow!(u64, u64_mul_with_overflow)
 /// `TypeId` represents a globally unique identifier for a type
 #[lang="type_id"] // This needs to be kept in lockstep with the code in trans/intrinsic.rs and
                   // middle/lang_items.rs
-#[deriving(Eq, TotalEq)]
+#[deriving(Eq, TotalEq, Show)]
 #[cfg(not(test))]
 pub struct TypeId {
     t: u64,

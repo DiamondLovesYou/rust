@@ -10,7 +10,23 @@
 
 //! The core prelude
 //!
-//! For more information, see std::prelude.
+//! This module is intended for users of libcore which do not link to libstd as
+//! well. This module is not imported by default, but using the entire contents
+//! of this module will provide all of the useful traits and types in libcore
+//! that one would expect from the standard library as well.
+//!
+//! There is no method to automatically inject this prelude, and this prelude is
+//! a subset of the standard library's prelude.
+//!
+//! # Example
+//!
+//! ```ignore
+//! # fn main() {
+//! #![feature(globs)]
+//!
+//! use core::prelude::*;
+//! # }
+//! ```
 
 // Reexported core operators
 pub use kinds::{Copy, Send, Sized, Share};
@@ -35,7 +51,7 @@ pub use iter::{FromIterator, Extendable};
 pub use iter::{Iterator, DoubleEndedIterator, RandomAccessIterator, CloneableIterator};
 pub use iter::{OrdIterator, MutableDoubleEndedIterator, ExactSize};
 pub use num::{Num, NumCast, CheckedAdd, CheckedSub, CheckedMul};
-pub use num::{Signed, Unsigned};
+pub use num::{Signed, Unsigned, Float};
 pub use num::{Primitive, Int, ToPrimitive, FromPrimitive};
 pub use ptr::RawPtr;
 pub use str::{Str, StrSlice};

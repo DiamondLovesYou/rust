@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -82,7 +82,7 @@ pub trait TotalEq: Eq {
 }
 
 /// An ordering is, e.g, a result of a comparison between two values.
-#[deriving(Clone, Eq)]
+#[deriving(Clone, Eq, Show)]
 pub enum Ordering {
    /// An ordering where a compared value is less [than another].
    Less = -1,
@@ -192,7 +192,23 @@ pub fn max<T: TotalOrd>(v1: T, v2: T) -> T {
 // Implementation of Eq/TotalEq for some primitive types
 #[cfg(not(test))]
 mod impls {
-    use cmp::{Ord, TotalOrd, Eq, TotalEq, Ordering};
+    use cmp::{Ord, TotalOrd, Eq, TotalEq, Ordering, Equal};
+
+    impl Eq for () {
+        #[inline]
+        fn eq(&self, _other: &()) -> bool { true }
+        #[inline]
+        fn ne(&self, _other: &()) -> bool { false }
+    }
+    impl TotalEq for () {}
+    impl Ord for () {
+        #[inline]
+        fn lt(&self, _other: &()) -> bool { false }
+    }
+    impl TotalOrd for () {
+        #[inline]
+        fn cmp(&self, _other: &()) -> Ordering { Equal }
+    }
 
     // & pointers
     impl<'a, T: Eq> Eq for &'a T {
@@ -216,6 +232,29 @@ mod impls {
         fn cmp(&self, other: & &'a T) -> Ordering { (**self).cmp(*other) }
     }
     impl<'a, T: TotalEq> TotalEq for &'a T {}
+
+    // &mut pointers
+    impl<'a, T: Eq> Eq for &'a mut T {
+        #[inline]
+        fn eq(&self, other: &&'a mut T) -> bool { **self == *(*other) }
+        #[inline]
+        fn ne(&self, other: &&'a mut T) -> bool { **self != *(*other) }
+    }
+    impl<'a, T: Ord> Ord for &'a mut T {
+        #[inline]
+        fn lt(&self, other: &&'a mut T) -> bool { **self < **other }
+        #[inline]
+        fn le(&self, other: &&'a mut T) -> bool { **self <= **other }
+        #[inline]
+        fn ge(&self, other: &&'a mut T) -> bool { **self >= **other }
+        #[inline]
+        fn gt(&self, other: &&'a mut T) -> bool { **self > **other }
+    }
+    impl<'a, T: TotalOrd> TotalOrd for &'a mut T {
+        #[inline]
+        fn cmp(&self, other: &&'a mut T) -> Ordering { (**self).cmp(*other) }
+    }
+    impl<'a, T: TotalEq> TotalEq for &'a mut T {}
 
     // @ pointers
     impl<T:Eq> Eq for @T {
@@ -252,6 +291,15 @@ mod test {
         assert_eq!(5u.cmp(&5), Equal);
         assert_eq!((-5u).cmp(&12), Less);
         assert_eq!(12u.cmp(-5), Greater);
+    }
+
+    #[test]
+    fn test_mut_int_totalord() {
+        assert_eq!((&mut 5u).cmp(&10), Less);
+        assert_eq!((&mut 10u).cmp(&5), Greater);
+        assert_eq!((&mut 5u).cmp(&5), Equal);
+        assert_eq!((&mut -5u).cmp(&12), Less);
+        assert_eq!((&mut 12u).cmp(-5), Greater);
     }
 
     #[test]

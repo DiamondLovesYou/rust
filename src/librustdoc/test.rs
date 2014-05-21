@@ -11,10 +11,11 @@
 use std::cell::RefCell;
 use std::char;
 use std::io;
-use std::io::{Process, TempDir};
+use std::io::{Command, TempDir};
 use std::os;
 use std::str;
 use std::strbuf::StrBuf;
+use std::unstable::dynamic_lib::DynamicLibrary;
 
 use collections::{HashSet, HashMap};
 use testing;
@@ -53,7 +54,7 @@ pub fn run(input: &str,
 
 
     let codemap = CodeMap::new();
-    let diagnostic_handler = diagnostic::default_handler();
+    let diagnostic_handler = diagnostic::default_handler(diagnostic::Auto);
     let span_diagnostic_handler =
     diagnostic::mk_span_handler(diagnostic_handler, codemap);
 
@@ -95,10 +96,7 @@ pub fn run(input: &str,
 
     test_args.unshift("rustdoctest".to_strbuf());
 
-    testing::test_main(test_args.move_iter()
-                                .map(|x| x.to_str())
-                                .collect::<Vec<_>>()
-                                .as_slice(),
+    testing::test_main(test_args.as_slice(),
                        collector.tests.move_iter().collect());
     0
 }
@@ -156,14 +154,37 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
     let outdir = TempDir::new("rustdoctest").expect("rustdoc needs a tempdir");
     let out = Some(outdir.path().clone());
     let cfg = config::build_configuration(&sess);
+    let libdir = sess.target_filesearch().get_lib_path();
     driver::compile_input(sess, cfg, &input, &out, &None);
 
     if no_run { return }
 
     // Run the code!
+    //
+    // We're careful to prepend the *target* dylib search path to the child's
+    // environment to ensure that the target loads the right libraries at
+    // runtime. It would be a sad day if the *host* libraries were loaded as a
+    // mistake.
     let exe = outdir.path().join("rust_out");
-    let out = Process::output(exe.as_str().unwrap(), []);
-    match out {
+    let env = {
+        let mut path = DynamicLibrary::search_path();
+        path.insert(0, libdir.clone());
+
+        // Remove the previous dylib search path var
+        let var = DynamicLibrary::envvar();
+        let mut env: Vec<(~str,~str)> = os::env().move_iter().collect();
+        match env.iter().position(|&(ref k, _)| k.as_slice() == var) {
+            Some(i) => { env.remove(i); }
+            None => {}
+        };
+
+        // Add the new dylib search path var
+        let newpath = DynamicLibrary::create_path(path.as_slice());
+        env.push((var.to_owned(),
+                  str::from_utf8(newpath.as_slice()).unwrap().to_owned()));
+        env
+    };
+    match Command::new(exe).env(env.as_slice()).output() {
         Err(e) => fail!("couldn't run the test: {}{}", e,
                         if e.kind == io::PermissionDenied {
                             " - maybe your tempdir is mounted with noexec?"
@@ -238,9 +259,9 @@ impl Collector {
     pub fn add_test(&mut self, test: StrBuf, should_fail: bool, no_run: bool, should_ignore: bool) {
         let name = if self.use_headers {
             let s = self.current_header.as_ref().map(|s| s.as_slice()).unwrap_or("");
-            format!("{}_{}", s, self.cnt)
+            format_strbuf!("{}_{}", s, self.cnt)
         } else {
-            format!("{}_{}", self.names.connect("::"), self.cnt)
+            format_strbuf!("{}_{}", self.names.connect("::"), self.cnt)
         };
         self.cnt += 1;
         let libs = self.libs.clone();

@@ -1224,25 +1224,42 @@ impl MemberDescriptionFactory {
 }
 
 struct StructMemberDescriptionFactory {
-    fields: Vec<ty::field> ,
+    fields: Vec<ty::field>,
+    is_simd: bool,
     span: Span,
 }
 
 impl StructMemberDescriptionFactory {
-    fn create_member_descriptions(&self, cx: &CrateContext)
-                                  -> Vec<MemberDescription> {
-        self.fields.iter().map(|field| {
+    fn create_member_descriptions(&self, cx: &CrateContext) -> Vec<MemberDescription> {
+        if self.fields.len() == 0 {
+            return Vec::new();
+        }
+
+        let field_size = if self.is_simd {
+            machine::llsize_of_alloc(cx, type_of::type_of(cx, self.fields.get(0).mt.ty))
+        } else {
+            0xdeadbeef
+        };
+
+        self.fields.iter().enumerate().map(|(i, field)| {
             let name = if field.ident.name == special_idents::unnamed_field.name {
                 "".to_strbuf()
             } else {
                 token::get_ident(field.ident).get().to_strbuf()
             };
 
+            let offset = if self.is_simd {
+                assert!(field_size != 0xdeadbeef);
+                FixedMemberOffset { bytes: i as u64 * field_size }
+            } else {
+                ComputedMemberOffset
+            };
+
             MemberDescription {
                 name: name,
                 llvm_type: type_of::type_of(cx, field.mt.ty),
                 type_metadata: type_metadata(cx, field.mt.ty, self.span),
-                offset: ComputedMemberOffset,
+                offset: offset,
             }
         }).collect()
     }
@@ -1278,6 +1295,7 @@ fn prepare_struct_metadata(cx: &CrateContext,
         file_metadata: file_metadata,
         member_description_factory: StructMD(StructMemberDescriptionFactory {
             fields: fields,
+            is_simd: ty::type_is_simd(cx.tcx(), struct_type),
             span: span,
         }),
     }
@@ -1657,7 +1675,10 @@ fn prepare_enum_metadata(cx: &CrateContext,
                 }),
             }
         }
-        adt::NullablePointer { nonnull: ref struct_def, nndiscr, .. } => {
+        adt::RawNullablePointer { nnty, .. } => {
+            FinalMetadata(type_metadata(cx, nnty, span))
+        }
+        adt::StructWrappedNullablePointer { nonnull: ref struct_def, nndiscr, .. } => {
             let (metadata_stub,
                  variant_llvm_type,
                  member_description_factory) =
@@ -1690,7 +1711,7 @@ fn prepare_enum_metadata(cx: &CrateContext,
 }
 
 enum MemberOffset {
-    FixedMemberOffset { bytes: uint },
+    FixedMemberOffset { bytes: u64 },
     // For ComputedMemberOffset, the offset is read from the llvm type definition
     ComputedMemberOffset
 }

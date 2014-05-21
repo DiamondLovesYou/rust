@@ -38,7 +38,7 @@ fn local_sort<T: Float>(v: &mut [T]) {
 }
 
 /// Trait that provides simple descriptive statistics on a univariate set of numeric samples.
-pub trait Stats <T: Float + FromPrimitive>{
+pub trait Stats <T: FloatMath + FromPrimitive>{
 
     /// Sum of the samples.
     ///
@@ -143,7 +143,7 @@ pub struct Summary<T> {
     pub iqr: T,
 }
 
-impl<T: Float + FromPrimitive> Summary<T> {
+impl<T: FloatMath + FromPrimitive> Summary<T> {
 
     /// Construct a new summary of a sample set.
     pub fn new(samples: &[T]) -> Summary<T> {
@@ -164,7 +164,7 @@ impl<T: Float + FromPrimitive> Summary<T> {
     }
 }
 
-impl<'a,T: Float + FromPrimitive> Stats<T> for &'a [T] {
+impl<'a,T: FloatMath + FromPrimitive> Stats<T> for &'a [T] {
 
     // FIXME #11059 handle NaN, inf and overflow
     #[allow(deprecated_owned_vector)]
@@ -1028,17 +1028,20 @@ mod tests {
     #[test]
     fn test_boxplot_nonpositive() {
         #[allow(deprecated_owned_vector)]
-        fn t(s: &Summary<f64>, expected: ~str) {
+        fn t(s: &Summary<f64>, expected: StrBuf) {
             use std::io::MemWriter;
             let mut m = MemWriter::new();
             write_boxplot(&mut m as &mut io::Writer, s, 30).unwrap();
-            let out = str::from_utf8(m.unwrap().as_slice()).unwrap().to_owned();
+            let out = str::from_utf8(m.unwrap().as_slice()).unwrap().to_strbuf();
             assert_eq!(out, expected);
         }
 
-        t(&Summary::new([-2.0, -1.0]), "-2 |[------******#*****---]| -1".to_owned());
-        t(&Summary::new([0.0, 2.0]), "0 |[-------*****#*******---]| 2".to_owned());
-        t(&Summary::new([-2.0, 0.0]), "-2 |[------******#******---]| 0".to_owned());
+        t(&Summary::new([-2.0, -1.0]),
+                        "-2 |[------******#*****---]| -1".to_strbuf());
+        t(&Summary::new([0.0, 2.0]),
+                        "0 |[-------*****#*******---]| 2".to_strbuf());
+        t(&Summary::new([-2.0, 0.0]),
+                        "-2 |[------******#******---]| 0".to_strbuf());
 
     }
     #[test]

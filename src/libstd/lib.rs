@@ -16,9 +16,8 @@
 //!
 //! ## Intrinsic types and operations
 //!
-//! The [`ptr`](../core/ptr/index.html), [`mem`](../core/mem/index.html),
-//! and [`cast`](../core/cast/index.html) modules deal with unsafe pointers,
-//! memory manipulation, and coercion.
+//! The [`ptr`](../core/ptr/index.html) and [`mem`](../core/mem/index.html)
+//! modules deal with unsafe pointers and memory manipulation.
 //! [`kinds`](../core/kinds/index.html) defines the special built-in traits,
 //! and [`raw`](../core/raw/index.html) the runtime representation of Rust types.
 //! These are some of the lowest-level building blocks of Rust
@@ -130,38 +129,41 @@ extern crate green;
 // Make and rand accessible for benchmarking/testcases
 #[cfg(test)] extern crate rand;
 
-extern crate libc;
+extern crate alloc;
 extern crate core;
+extern crate libc;
 
 // Make std testable by not duplicating lang items. See #2912
 #[cfg(test)] extern crate realstd = "std";
-#[cfg(test)] pub use kinds = realstd::kinds;
-#[cfg(test)] pub use ops = realstd::ops;
-#[cfg(test)] pub use cmp = realstd::cmp;
-#[cfg(test)] pub use ty = realstd::ty;
-#[cfg(not(stage0), test)] pub use owned = realstd::owned;
+#[cfg(test)] pub use realstd::kinds;
+#[cfg(test)] pub use realstd::ops;
+#[cfg(test)] pub use realstd::cmp;
+#[cfg(test)] pub use realstd::ty;
 
-#[cfg(not(test))] pub use cmp = core::cmp;
-#[cfg(not(test))] pub use kinds = core::kinds;
-#[cfg(not(test))] pub use ops = core::ops;
-#[cfg(not(test))] pub use ty = core::ty;
 
-#[cfg(stage0, test)] pub use owned = realstd::owned;
-#[cfg(stage0, not(test))] pub use owned = core::owned;
+// NB: These reexports are in the order they should be listed in rustdoc
 
 pub use core::any;
 pub use core::bool;
 pub use core::cell;
 pub use core::char;
 pub use core::clone;
+#[cfg(not(test))] pub use core::cmp;
 pub use core::container;
 pub use core::default;
 pub use core::intrinsics;
 pub use core::iter;
+#[cfg(not(test))] pub use core::kinds;
 pub use core::mem;
+#[cfg(not(test))] pub use core::ops;
 pub use core::ptr;
 pub use core::raw;
 pub use core::tuple;
+#[cfg(not(test))] pub use core::ty;
+pub use core::result;
+
+pub use alloc::owned;
+pub use alloc::rc;
 
 // Run tests with libgreen instead of libnative, but not while targeting a
 // platform using Newlibc.
@@ -220,10 +222,7 @@ pub mod strbuf;
 
 pub mod ascii;
 
-pub mod rc;
 pub mod gc;
-#[cfg(not(stage0), not(test))]
-pub mod owned;
 
 /* Common traits */
 
@@ -234,7 +233,6 @@ pub mod hash;
 
 /* Common data structures */
 
-pub mod result;
 pub mod option;
 
 /* Tasks and communication */

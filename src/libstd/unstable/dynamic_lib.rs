@@ -16,16 +16,16 @@ A simple wrapper over the platform's dynamic library facilities
 
 */
 
+use clone::Clone;
 use c_str::ToCStr;
 use iter::Iterator;
 use mem;
 use ops::*;
 use option::*;
 use os;
-use path::GenericPath;
-use path;
+use path::{Path,GenericPath};
 use result::*;
-use slice::{Vector,OwnedVector};
+use slice::{Vector,ImmutableVector};
 use str;
 use vec::Vec;
 
@@ -45,12 +45,22 @@ impl Drop for DynamicLibrary {
 }
 
 impl DynamicLibrary {
+    // FIXME (#12938): Until DST lands, we cannot decompose &str into
+    // & and str, so we cannot usefully take ToCStr arguments by
+    // reference (without forcing an additional & around &str). So we
+    // are instead temporarily adding an instance for &Path, so that
+    // we can take ToCStr as owned. When DST lands, the &Path instance
+    // should be removed, and arguments bound by ToCStr should be
+    // passed by reference. (Here: in the `open` method.)
+
     /// Lazily open a dynamic library. When passed None it gives a
     /// handle to the calling process
-    pub fn open(filename: Option<&path::Path>) -> Result<DynamicLibrary, ~str> {
+    pub fn open<T: ToCStr>(filename: Option<T>)
+                        -> Result<DynamicLibrary, ~str> {
         unsafe {
+            let mut filename = filename;
             let maybe_library = dl::check_for_errors_in(|| {
-                match filename {
+                match filename.take() {
                     Some(name) => dl::open_external(name),
                     None => dl::open_internal()
                 }
@@ -66,20 +76,55 @@ impl DynamicLibrary {
         }
     }
 
-    /// Appends a path to the system search path for dynamic libraries
-    pub fn add_search_path(path: &path::Path) {
-        let (envvar, sep) = if cfg!(windows) {
-            ("PATH", ';' as u8)
+    /// Prepends a path to this process's search path for dynamic libraries
+    pub fn prepend_search_path(path: &Path) {
+        let mut search_path = DynamicLibrary::search_path();
+        search_path.insert(0, path.clone());
+        let newval = DynamicLibrary::create_path(search_path.as_slice());
+        os::setenv(DynamicLibrary::envvar(),
+                   str::from_utf8(newval.as_slice()).unwrap());
+    }
+
+    /// From a slice of paths, create a new vector which is suitable to be an
+    /// environment variable for this platforms dylib search path.
+    pub fn create_path(path: &[Path]) -> Vec<u8> {
+        let mut newvar = Vec::new();
+        for (i, path) in path.iter().enumerate() {
+            if i > 0 { newvar.push(DynamicLibrary::separator()); }
+            newvar.push_all(path.as_vec());
+        }
+        return newvar;
+    }
+
+    /// Returns the environment variable for this process's dynamic library
+    /// search path
+    pub fn envvar() -> &'static str {
+        if cfg!(windows) {
+            "PATH"
         } else if cfg!(target_os = "macos") {
-            ("DYLD_LIBRARY_PATH", ':' as u8)
+            "DYLD_LIBRARY_PATH"
         } else {
-            ("LD_LIBRARY_PATH", ':' as u8)
-        };
-        let newenv = os::getenv_as_bytes(envvar).unwrap_or(box []);
-        let mut newenv = newenv.move_iter().collect::<Vec<_>>();
-        newenv.push_all(&[sep]);
-        newenv.push_all(path.as_vec());
-        os::setenv(envvar, str::from_utf8(newenv.as_slice()).unwrap());
+            "LD_LIBRARY_PATH"
+        }
+    }
+
+    fn separator() -> u8 {
+        if cfg!(windows) {';' as u8} else {':' as u8}
+    }
+
+    /// Returns the current search path for dynamic libraries being used by this
+    /// process
+    pub fn search_path() -> Vec<Path> {
+        let mut ret = Vec::new();
+        match os::getenv_as_bytes(DynamicLibrary::envvar()) {
+            Some(env) => {
+                for portion in env.split(|a| *a == DynamicLibrary::separator()) {
+                    ret.push(Path::new(portion));
+                }
+            }
+            None => {}
+        }
+        return ret;
     }
 
     /// Access the value at the symbol of the dynamic library
@@ -114,7 +159,8 @@ mod test {
     fn test_loading_cosine() {
         // The math library does not need to be loaded since it is already
         // statically linked in
-        let libm = match DynamicLibrary::open(None) {
+        let none: Option<Path> = None; // appease the typechecker
+        let libm = match DynamicLibrary::open(none) {
             Err(error) => fail!("Could not load self as module: {}", error),
             Ok(libm) => libm
         };
@@ -142,7 +188,7 @@ mod test {
     fn test_errors_do_not_crash() {
         // Open /dev/null as a library to get an error, and make sure
         // that only causes an error, and not a crash.
-        let path = GenericPath::new("/dev/null");
+        let path = Path::new("/dev/null");
         match DynamicLibrary::open(Some(&path)) {
             Err(_) => {}
             Ok(_) => fail!("Successfully opened the empty library.")
@@ -155,14 +201,14 @@ mod test {
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "freebsd")]
 pub mod dl {
+    use prelude::*;
+
     use c_str::ToCStr;
     use libc;
-    use path;
     use ptr;
     use str;
-    use result::*;
 
-    pub unsafe fn open_external(filename: &path::Path) -> *u8 {
+    pub unsafe fn open_external<T: ToCStr>(filename: T) -> *u8 {
         filename.with_c_str(|raw_name| {
             dlopen(raw_name, Lazy as libc::c_int) as *u8
         })
@@ -221,13 +267,16 @@ pub mod dl {
 pub mod dl {
     use libc;
     use os;
-    use path::GenericPath;
-    use path;
     use ptr;
     use result::{Ok, Err, Result};
+    use str;
+    use c_str::ToCStr;
 
-    pub unsafe fn open_external(filename: &path::Path) -> *u8 {
-        os::win32::as_utf16_p(filename.as_str().unwrap(), |raw_name| {
+    pub unsafe fn open_external<T: ToCStr>(filename: T) -> *u8 {
+        // Windows expects Unicode data
+        let filename_cstr = filename.to_c_str();
+        let filename_str = str::from_utf8(filename_cstr.as_bytes_no_nul()).unwrap();
+        os::win32::as_utf16_p(filename_str, |raw_name| {
             LoadLibraryW(raw_name as *libc::c_void) as *u8
         })
     }
@@ -273,11 +322,11 @@ pub mod dl {
 #[cfg(target_os = "nacl")]
 pub mod dl {
     use ptr;
-    use path;
     use result::{Result, Err};
     use libc;
+    use c_str::ToCStr;
 
-    pub unsafe fn open_external(_filename: &path::Path) -> *u8 {
+    pub unsafe fn open_external<T: ToCStr>(_filename: T) -> *u8 {
         ptr::null()
     }
 

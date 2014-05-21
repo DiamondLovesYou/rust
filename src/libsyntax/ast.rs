@@ -106,7 +106,7 @@ impl<S: Encoder<E>, E> Encodable<S, E> for Ident {
 
 impl<D:Decoder<E>, E> Decodable<D, E> for Ident {
     fn decode(d: &mut D) -> Result<Ident, E> {
-        Ok(str_to_ident(try!(d.read_str())))
+        Ok(str_to_ident(try!(d.read_str()).as_slice()))
     }
 }
 
@@ -719,7 +719,7 @@ pub enum IntTy {
 
 impl fmt::Show for IntTy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}",
+        write!(f, "{}",
                ast_util::int_ty_to_str(*self, None, ast_util::AutoSuffix))
     }
 }
@@ -735,7 +735,7 @@ pub enum UintTy {
 
 impl fmt::Show for UintTy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}",
+        write!(f, "{}",
                ast_util::uint_ty_to_str(*self, None, ast_util::AutoSuffix))
     }
 }
@@ -749,7 +749,7 @@ pub enum FloatTy {
 
 impl fmt::Show for FloatTy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}", ast_util::float_ty_to_str(*self))
+        write!(f, "{}", ast_util::float_ty_to_str(*self))
     }
 }
 

@@ -283,11 +283,6 @@ enum UseLexicalScopeFlag {
     UseLexicalScope
 }
 
-enum SearchThroughModulesFlag {
-    DontSearchThroughModules,
-    SearchThroughModules
-}
-
 enum ModulePrefixResult {
     NoPrefixFound,
     PrefixFound(Rc<Module>, uint)
@@ -2050,7 +2045,8 @@ impl<'a> Resolver<'a> {
         while module.resolved_import_count.get() < import_count {
             let import_index = module.resolved_import_count.get();
             let import_directive = imports.get(import_index);
-            match self.resolve_import_for_module(module.clone(), import_directive) {
+            match self.resolve_import_for_module(module.clone(),
+                                                 import_directive) {
                 Failed => {
                     // We presumably emitted an error. Continue.
                     let msg = format!("failed to resolve import `{}`",
@@ -2402,6 +2398,7 @@ impl<'a> Resolver<'a> {
                 import_resolution.value_target = Some(Target::new(target_module.clone(),
                                                                   name_bindings.clone()));
                 import_resolution.value_id = directive.id;
+                import_resolution.is_public = directive.is_public;
                 value_used_public = name_bindings.defined_in_public_namespace(ValueNS);
             }
             UnboundResult => { /* Continue. */ }
@@ -2416,6 +2413,7 @@ impl<'a> Resolver<'a> {
                 import_resolution.type_target =
                     Some(Target::new(target_module.clone(), name_bindings.clone()));
                 import_resolution.type_id = directive.id;
+                import_resolution.is_public = directive.is_public;
                 type_used_public = name_bindings.defined_in_public_namespace(TypeNS);
             }
             UnboundResult => { /* Continue. */ }
@@ -2846,9 +2844,7 @@ impl<'a> Resolver<'a> {
     fn resolve_item_in_lexical_scope(&mut self,
                                      module_: Rc<Module>,
                                      name: Ident,
-                                     namespace: Namespace,
-                                     search_through_modules:
-                                     SearchThroughModulesFlag)
+                                     namespace: Namespace)
                                     -> ResolveResult<(Target, bool)> {
         debug!("(resolving item in lexical scope) resolving `{}` in \
                 namespace {:?} in `{}`",
@@ -2921,26 +2917,19 @@ impl<'a> Resolver<'a> {
                     return Failed;
                 }
                 ModuleParentLink(parent_module_node, _) => {
-                    match search_through_modules {
-                        DontSearchThroughModules => {
-                            match search_module.kind.get() {
-                                NormalModuleKind => {
-                                    // We stop the search here.
-                                    debug!("(resolving item in lexical \
-                                            scope) unresolved module: not \
-                                            searching through module \
-                                            parents");
-                                    return Failed;
-                                }
-                                ExternModuleKind |
-                                TraitModuleKind |
-                                ImplModuleKind |
-                                AnonymousModuleKind => {
-                                    search_module = parent_module_node.upgrade().unwrap();
-                                }
-                            }
+                    match search_module.kind.get() {
+                        NormalModuleKind => {
+                            // We stop the search here.
+                            debug!("(resolving item in lexical \
+                                    scope) unresolved module: not \
+                                    searching through module \
+                                    parents");
+                            return Failed;
                         }
-                        SearchThroughModules => {
+                        ExternModuleKind |
+                        TraitModuleKind |
+                        ImplModuleKind |
+                        AnonymousModuleKind => {
                             search_module = parent_module_node.upgrade().unwrap();
                         }
                     }
@@ -2985,7 +2974,7 @@ impl<'a> Resolver<'a> {
         // If this module is an anonymous module, resolve the item in the
         // lexical scope. Otherwise, resolve the item from the crate root.
         let resolve_result = self.resolve_item_in_lexical_scope(
-            module_, name, TypeNS, DontSearchThroughModules);
+            module_, name, TypeNS);
         match resolve_result {
             Success((target, _)) => {
                 let bindings = &*target.bindings;
@@ -2993,7 +2982,7 @@ impl<'a> Resolver<'a> {
                     Some(ref type_def) => {
                         match type_def.module_def {
                             None => {
-                                error!("!!! (resolving module in lexical \
+                                debug!("!!! (resolving module in lexical \
                                         scope) module wasn't actually a \
                                         module!");
                                 return Failed;
@@ -3004,7 +2993,7 @@ impl<'a> Resolver<'a> {
                         }
                     }
                     None => {
-                        error!("!!! (resolving module in lexical scope) module
+                        debug!("!!! (resolving module in lexical scope) module
                                 wasn't actually a module!");
                         return Failed;
                     }
@@ -4514,8 +4503,7 @@ impl<'a> Resolver<'a> {
         let module = self.current_module.clone();
         match self.resolve_item_in_lexical_scope(module,
                                                  name,
-                                                 ValueNS,
-                                                 SearchThroughModules) {
+                                                 ValueNS) {
             Success((target, _)) => {
                 debug!("(resolve bare identifier pattern) succeeded in \
                          finding {} at {:?}",
@@ -4856,8 +4844,7 @@ impl<'a> Resolver<'a> {
         let module = self.current_module.clone();
         match self.resolve_item_in_lexical_scope(module,
                                                  ident,
-                                                 namespace,
-                                                 DontSearchThroughModules) {
+                                                 namespace) {
             Success((target, _)) => {
                 match (*target.bindings).def_for_namespace(namespace) {
                     None => {
@@ -4904,6 +4891,25 @@ impl<'a> Resolver<'a> {
     }
 
     fn find_fallback_in_self_type(&mut self, name: Name) -> FallbackSuggestion {
+        #[deriving(Eq)]
+        enum FallbackChecks {
+            Everything,
+            OnlyTraitAndStatics
+        }
+
+        fn extract_path_and_node_id(t: &Ty, allow: FallbackChecks)
+                                                    -> Option<(Path, NodeId, FallbackChecks)> {
+            match t.node {
+                TyPath(ref path, _, node_id) => Some((path.clone(), node_id, allow)),
+                TyPtr(mut_ty) => extract_path_and_node_id(mut_ty.ty, OnlyTraitAndStatics),
+                TyRptr(_, mut_ty) => extract_path_and_node_id(mut_ty.ty, allow),
+                // This doesn't handle the remaining `Ty` variants as they are not
+                // that commonly the self_type, it might be interesting to provide
+                // support for those in future.
+                _ => None,
+            }
+        }
+
         fn get_module(this: &mut Resolver, span: Span, ident_path: &[ast::Ident])
                             -> Option<Rc<Module>> {
             let root = this.current_module.clone();
@@ -4931,27 +4937,29 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        let (path, node_id) = match self.current_self_type {
-            Some(ref ty) => match ty.node {
-                TyPath(ref path, _, node_id) => (path.clone(), node_id),
-                _ => unreachable!(),
+        let (path, node_id, allowed) = match self.current_self_type {
+            Some(ref ty) => match extract_path_and_node_id(ty, Everything) {
+                Some(x) => x,
+                None => return NoSuggestion,
             },
             None => return NoSuggestion,
         };
 
-        // Look for a field with the same name in the current self_type.
-        match self.def_map.borrow().find(&node_id) {
-             Some(&DefTy(did))
-            | Some(&DefStruct(did))
-            | Some(&DefVariant(_, did, _)) => match self.structs.find(&did) {
-                None => {}
-                Some(fields) => {
-                    if fields.iter().any(|&field_name| name == field_name) {
-                        return Field;
+        if allowed == Everything {
+            // Look for a field with the same name in the current self_type.
+            match self.def_map.borrow().find(&node_id) {
+                 Some(&DefTy(did))
+                | Some(&DefStruct(did))
+                | Some(&DefVariant(_, did, _)) => match self.structs.find(&did) {
+                    None => {}
+                    Some(fields) => {
+                        if fields.iter().any(|&field_name| name == field_name) {
+                            return Field;
+                        }
                     }
-                }
-            },
-            _ => {} // Self type didn't resolve properly
+                },
+                _ => {} // Self type didn't resolve properly
+            }
         }
 
         let ident_path = path.segments.iter().map(|seg| seg.identifier).collect::<Vec<_>>();
@@ -4968,8 +4976,8 @@ impl<'a> Resolver<'a> {
                                 FromTrait(_) => unreachable!()
                             }
                         }
-                        Some(DefMethod(_, None)) => return Method,
-                        Some(DefMethod(_, _)) => return TraitMethod,
+                        Some(DefMethod(_, None)) if allowed == Everything => return Method,
+                        Some(DefMethod(_, Some(_))) => return TraitMethod,
                         _ => ()
                     }
                 }

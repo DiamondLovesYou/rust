@@ -353,21 +353,21 @@ impl Loop {
 pub struct UvError(c_int);
 
 impl UvError {
-    pub fn name(&self) -> ~str {
+    pub fn name(&self) -> StrBuf {
         unsafe {
             let inner = match self { &UvError(a) => a };
             let name_str = uvll::uv_err_name(inner);
             assert!(name_str.is_not_null());
-            from_c_str(name_str)
+            from_c_str(name_str).to_strbuf()
         }
     }
 
-    pub fn desc(&self) -> ~str {
+    pub fn desc(&self) -> StrBuf {
         unsafe {
             let inner = match self { &UvError(a) => a };
             let desc_str = uvll::uv_strerror(inner);
             assert!(desc_str.is_not_null());
-            from_c_str(desc_str)
+            from_c_str(desc_str).to_strbuf()
         }
     }
 
@@ -379,7 +379,7 @@ impl UvError {
 
 impl fmt::Show for UvError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "{}: {}", self.name(), self.desc())
+        write!(f, "{}: {}", self.name(), self.desc())
     }
 }
 
@@ -472,7 +472,7 @@ fn local_loop() -> &'static mut uvio::UvIoFactory {
 #[cfg(test)]
 mod test {
     use std::mem::transmute;
-    use std::unstable::run_in_bare_thread;
+    use std::rt::thread::Thread;
 
     use super::{slice_to_uv_buf, Loop};
 
@@ -496,10 +496,10 @@ mod test {
 
     #[test]
     fn loop_smoke_test() {
-        run_in_bare_thread(proc() {
+        Thread::start(proc() {
             let mut loop_ = Loop::new();
             loop_.run();
             loop_.close();
-        });
+        }).join();
     }
 }

@@ -29,13 +29,12 @@ use std::c_str::CString;
 use std::io;
 use std::io::IoError;
 use std::io::net::ip::SocketAddr;
-use std::io::process::ProcessConfig;
 use std::io::signal::Signum;
 use std::os;
 use std::rt::rtio;
 use std::rt::rtio::{RtioTcpStream, RtioTcpListener, RtioUdpSocket};
 use std::rt::rtio::{RtioUnixListener, RtioPipe, RtioFileStream, RtioProcess};
-use std::rt::rtio::{RtioSignal, RtioTTY, CloseBehavior, RtioTimer};
+use std::rt::rtio::{RtioSignal, RtioTTY, CloseBehavior, RtioTimer, ProcessConfig};
 use ai = std::io::net::addrinfo;
 
 // Local re-exports
@@ -293,10 +292,10 @@ impl rtio::IoFactory for IoFactory {
                 detail: None,
             })
     }
-    fn spawn(&mut self, config: ProcessConfig)
+    fn spawn(&mut self, cfg: ProcessConfig)
             -> IoResult<(Box<RtioProcess:Send>,
                          Vec<Option<Box<RtioPipe:Send>>>)> {
-        process::Process::spawn(config).map(|(p, io)| {
+        process::Process::spawn(cfg).map(|(p, io)| {
             (box p as Box<RtioProcess:Send>,
              io.move_iter().map(|p| p.map(|p| {
                  box p as Box<RtioPipe:Send>

@@ -13,7 +13,7 @@
 
 use ast;
 use codemap::{Span, CodeMap, FileMap};
-use diagnostic::{SpanHandler, mk_span_handler, default_handler};
+use diagnostic::{SpanHandler, mk_span_handler, default_handler, Auto};
 use parse::attr::ParserAttr;
 use parse::parser::Parser;
 
@@ -41,7 +41,7 @@ pub struct ParseSess {
 
 pub fn new_parse_sess() -> ParseSess {
     ParseSess {
-        span_diagnostic: mk_span_handler(default_handler(), CodeMap::new()),
+        span_diagnostic: mk_span_handler(default_handler(Auto), CodeMap::new()),
         included_mod_stack: RefCell::new(Vec::new()),
     }
 }
@@ -184,8 +184,13 @@ pub fn new_parser_from_file<'a>(sess: &'a ParseSess,
 pub fn new_sub_parser_from_file<'a>(sess: &'a ParseSess,
                                     cfg: ast::CrateConfig,
                                     path: &Path,
+                                    owns_directory: bool,
+                                    module_name: Option<StrBuf>,
                                     sp: Span) -> Parser<'a> {
-    filemap_to_parser(sess, file_to_filemap(sess, path, Some(sp)), cfg)
+    let mut p = filemap_to_parser(sess, file_to_filemap(sess, path, Some(sp)), cfg);
+    p.owns_directory = owns_directory;
+    p.root_module_name = module_name;
+    p
 }
 
 /// Given a filemap and config, return a parser

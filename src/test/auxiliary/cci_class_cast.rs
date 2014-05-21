@@ -14,12 +14,12 @@ pub mod kitty {
     pub struct cat {
       meows : uint,
       pub how_hungry : int,
-      pub name : ~str,
+      pub name : StrBuf,
     }
 
     impl fmt::Show for cat {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f.buf, "{}", self.name)
+            write!(f, "{}", self.name)
         }
     }
 
@@ -50,7 +50,7 @@ pub mod kitty {
         }
     }
 
-    pub fn cat(in_x : uint, in_y : int, in_name: ~str) -> cat {
+    pub fn cat(in_x : uint, in_y : int, in_name: StrBuf) -> cat {
         cat {
             meows: in_x,
             how_hungry: in_y,

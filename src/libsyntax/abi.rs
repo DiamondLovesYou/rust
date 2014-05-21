@@ -156,7 +156,7 @@ impl Architecture {
 
 impl fmt::Show for Abi {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f.buf, "\"{}\"", self.name())
+        write!(f, "\"{}\"", self.name())
     }
 }
 

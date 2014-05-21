@@ -473,7 +473,7 @@ Two examples of paths with type arguments:
 # struct HashMap<K, V>;
 # fn f() {
 # fn id<T>(t: T) -> T { t }
-type T = HashMap<int,~str>;  // Type arguments used in a type expression
+type T = HashMap<int,StrBuf>;  // Type arguments used in a type expression
 let x = id::<int>(10);       // Type arguments used in a call expression
 # }
 ~~~~
@@ -848,11 +848,11 @@ extern crate foo = "some/where/rust-foo#foo:1.0"; // a full crate ID for externa
 ##### Use declarations
 
 ~~~~ {.notrust .ebnf .gram}
-use_decl : "pub" ? "use" ident [ '=' path
-                          | "::" path_glob ] ;
+use_decl : "pub" ? "use" [ ident '=' path
+                          | path_glob ] ;
 
-path_glob : ident [ "::" path_glob ] ?
-          | '*'
+path_glob : ident [ "::" [ path_glob
+                          | '*' ] ] ?
           | '{' ident [ ',' ident ] * '}' ;
 ~~~~
 
@@ -1259,12 +1259,12 @@ Enumeration constructors can have either named or unnamed fields:
 
 ~~~~
 enum Animal {
-    Dog (~str, f64),
-    Cat { name: ~str, weight: f64 }
+    Dog (StrBuf, f64),
+    Cat { name: StrBuf, weight: f64 }
 }
 
-let mut a: Animal = Dog("Cocoa".to_owned(), 37.2);
-a = Cat{ name: "Spotty".to_owned(), weight: 2.7 };
+let mut a: Animal = Dog("Cocoa".to_strbuf(), 37.2);
+a = Cat { name: "Spotty".to_strbuf(), weight: 2.7 };
 ~~~~
 
 In this example, `Cat` is a _struct-like enum variant_,
@@ -1743,7 +1743,7 @@ import public items from their destination, not private items.
 attribute : '#' '!' ? '[' meta_item ']' ;
 meta_item : ident [ '=' literal
                   | '(' meta_seq ')' ] ? ;
-meta_seq : meta_item [ ',' meta_seq ]* ;
+meta_seq : meta_item [ ',' meta_seq ] ? ;
 ~~~~
 
 Static entities in Rust &mdash; crates, modules and items &mdash; may have _attributes_
@@ -1799,6 +1799,8 @@ type int8_t = i8;
 - `no_start` - disable linking to the `native` crate, which specifies the
   "start" language item.
 - `no_std` - disable linking to the `std` crate.
+- `no_builtins` - disable optimizing certain code patterns to invocations of
+                  library functions that are assumed to exist
 
 ### Module-only attributes
 
@@ -2079,7 +2081,7 @@ These are functions:
 * `str_eq`
   : Compare two strings (`&str`) for equality.
 * `uniq_str_eq`
-  : Compare two owned strings (`~str`) for equality.
+  : Compare two owned strings (`StrBuf`) for equality.
 * `strdup_uniq`
   : Return a new unique string
     containing a copy of the contents of a unique string.
@@ -2941,7 +2943,7 @@ See [Break expressions](#break-expressions) and [Continue expressions](#continue
 break_expr : "break" [ lifetime ];
 ~~~~
 
-A `break` expression has an optional `label`.
+A `break` expression has an optional _label_.
 If the label is absent, then executing a `break` expression immediately terminates the innermost loop enclosing it.
 It is only permitted in the body of a loop.
 If the label is present, then `break foo` terminates the loop with label `foo`,
@@ -2954,7 +2956,7 @@ but must enclose it.
 continue_expr : "continue" [ lifetime ];
 ~~~~
 
-A `continue` expression has an optional `label`.
+A `continue` expression has an optional _label_.
 If the label is absent,
 then executing a `continue` expression immediately terminates the current iteration of the innermost loop enclosing it,
 returning control to the loop *head*.
@@ -3025,11 +3027,11 @@ then any `else` block is executed.
 ### Match expressions
 
 ~~~~ {.notrust .ebnf .gram}
-match_expr : "match" expr '{' match_arm [ '|' match_arm ] * '}' ;
+match_expr : "match" expr '{' match_arm * '}' ;
 
-match_arm : match_pat "=>" [ expr "," | '{' block '}' ] ;
+match_arm : attribute * match_pat "=>" [ expr "," | '{' block '}' ] ;
 
-match_pat : pat [ ".." pat ] ? [ "if" expr ] ;
+match_pat : pat [ '|' pat ] * [ "if" expr ] ? ;
 ~~~~
 
 A `match` expression branches on a *pattern*. The exact form of matching that
@@ -3113,7 +3115,7 @@ let x: List<int> = Cons(10, box Cons(11, box Nil));
 
 match x {
     Cons(a, box Cons(b, _)) => {
-        process_pair(a,b);
+        process_pair(a, b);
     }
     Cons(10, _) => {
         process_ten();
@@ -3135,7 +3137,7 @@ using the `ref` keyword,
 or to a mutable reference using `ref mut`.
 
 Subpatterns can also be bound to variables by the use of the syntax
-`variable @ pattern`.
+`variable @ subpattern`.
 For example:
 
 ~~~~
@@ -3307,7 +3309,7 @@ A value of type `str` is a Unicode string,
 represented as a vector of 8-bit unsigned bytes holding a sequence of UTF-8 codepoints.
 Since `str` is of unknown size, it is not a _first class_ type,
 but can only be instantiated through a pointer type,
-such as `&str` or `~str`.
+such as `&str` or `StrBuf`.
 
 ### Tuple types
 
@@ -3327,8 +3329,8 @@ order specified by the tuple type.
 An example of a tuple type and its use:
 
 ~~~~
-type Pair<'a> = (int,&'a str);
-let p: Pair<'static> = (10,"hello");
+type Pair<'a> = (int, &'a str);
+let p: Pair<'static> = (10, "hello");
 let (a, b) = p;
 assert!(b != "world");
 ~~~~
@@ -3571,11 +3573,11 @@ An example of an object type:
 
 ~~~~
 trait Printable {
-  fn to_string(&self) -> ~str;
+  fn to_string(&self) -> StrBuf;
 }
 
 impl Printable for int {
-  fn to_string(&self) -> ~str { self.to_str() }
+  fn to_string(&self) -> StrBuf { self.to_str().to_strbuf() }
 }
 
 fn print(a: Box<Printable>) {
@@ -3616,17 +3618,17 @@ example, in:
 
 ~~~~
 trait Printable {
-  fn make_string(&self) -> ~str;
+  fn make_string(&self) -> StrBuf;
 }
 
-impl Printable for ~str {
-    fn make_string(&self) -> ~str {
+impl Printable for StrBuf {
+    fn make_string(&self) -> StrBuf {
         (*self).clone()
     }
 }
 ~~~~
 
-`self` refers to the value of type `~str` that is the receiver for a
+`self` refers to the value of type `StrBuf` that is the receiver for a
 call to the method `make_string`.
 
 ## Type kinds

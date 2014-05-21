@@ -27,6 +27,7 @@ use syntax::ast;
 use syntax::ast::{IntTy, UintTy};
 use syntax::attr;
 use syntax::attr::AttrMetaMethods;
+use syntax::diagnostic::{ColorConfig, Auto, Always, Never};
 use syntax::parse;
 use syntax::parse::token::InternedString;
 
@@ -110,6 +111,7 @@ pub struct Options {
     /// Crate id-related things to maybe print. It's (crate_id, crate_name, crate_file_name).
     pub print_metas: (bool, bool, bool),
     pub cg: CodegenOptions,
+    pub color: ColorConfig,
 }
 
 /// Some reasonable defaults
@@ -133,6 +135,7 @@ pub fn basic_options() -> Options {
         write_dependency_info: (false, None),
         print_metas: (false, false, false),
         cg: basic_codegen_options(),
+        color: Auto,
     }
 }
 
@@ -348,7 +351,7 @@ pub fn build_codegen_options(matches: &getopts::Matches) -> CodegenOptions
 {
     let mut cg = basic_codegen_options();
     for option in matches.opt_strs("C").move_iter() {
-        let mut iter = option.splitn('=', 1);
+        let mut iter = option.as_slice().splitn('=', 1);
         let key = iter.next().unwrap();
         let value = iter.next();
         let option_to_lookup = key.replace("-", "_");
@@ -558,12 +561,13 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
         optopt( "",  "out-dir", "Write output to compiler-chosen filename in <dir>", "DIR"),
         optflag("", "parse-only", "Parse only; do not compile, assemble, or link"),
         optflagopt("", "pretty",
-                 "Pretty-print the input instead of compiling;
-                  valid types are: normal (un-annotated source),
-                  expanded (crates expanded),
-                  typed (crates expanded, with type annotations),
-                  or identified (fully parenthesized,
-                  AST nodes and blocks with IDs)", "TYPE"),
+                   "Pretty-print the input instead of compiling;
+                   valid types are: `normal` (un-annotated source),
+                   `expanded` (crates expanded),
+                   `typed` (crates expanded, with type annotations),
+                   `expanded,identified` (fully parenthesized, AST nodes with IDs), or
+                   `flowgraph=<nodeid>` (graphviz formatted flowgraph for node)",
+                 "TYPE"),
         optflagopt("", "dep-info",
                  "Output dependency info to <filename> after compiling, \
                   in a format suitable for use by Makefiles", "FILENAME"),
@@ -578,7 +582,11 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
         optmulti("F", "forbid", "Set lint forbidden", "OPT"),
         optmulti("C", "codegen", "Set a codegen option", "OPT[=VALUE]"),
         optmulti("Z", "", "Set internal debugging options", "FLAG"),
-        optflag( "v", "version", "Print version info and exit")
+        optflag("v", "version", "Print version info and exit"),
+        optopt("", "color", "Configure coloring of output:
+            auto   = colorize, if output goes to a tty (default);
+            always = always colorize output;
+            never  = never colorize output", "auto|always|never")
     )
 }
 
@@ -597,7 +605,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     let mut crate_types: Vec<CrateType> = Vec::new();
     let unparsed_crate_types = matches.opt_strs("crate-type");
     for unparsed_crate_type in unparsed_crate_types.iter() {
-        for part in unparsed_crate_type.split(',') {
+        for part in unparsed_crate_type.as_slice().split(',') {
             let new_part = match part {
                 "lib"       => default_lib_output(),
                 "rlib"      => CrateTypeRlib,
@@ -646,7 +654,10 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
         let mut this_bit = 0;
         for tuple in debug_map.iter() {
             let (name, bit) = match *tuple { (ref a, _, b) => (a, b) };
-            if *name == *debug_flag { this_bit = bit; break; }
+            if *name == debug_flag.as_slice() {
+                this_bit = bit;
+                break;
+            }
         }
         if this_bit == 0 {
             early_error(format!("unknown debug flag: {}", *debug_flag))
@@ -662,7 +673,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     if !parse_only && !no_trans {
         let unparsed_output_types = matches.opt_strs("emit");
         for unparsed_output_type in unparsed_output_types.iter() {
-            for part in unparsed_output_type.split(',') {
+            for part in unparsed_output_type.as_slice().split(',') {
                 let output_type = match part.as_slice() {
                     "asm"  => link::OutputTypeAssembly,
                     "ir"   => link::OutputTypeLlvmAssembly,
@@ -749,6 +760,18 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                        matches.opt_present("crate-file-name"));
     let cg = build_codegen_options(matches);
 
+    let color = match matches.opt_str("color").as_ref().map(|s| s.as_slice()) {
+        Some("auto")   => Auto,
+        Some("always") => Always,
+        Some("never")  => Never,
+
+        None => Auto,
+
+        Some(arg) => early_error(format!(
+            "argument for --color must be auto, always or never (instead was `{}`)",
+            arg))
+    };
+
     Options {
         crate_types: crate_types,
         gc: gc,
@@ -768,6 +791,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
         write_dependency_info: write_dependency_info,
         print_metas: print_metas,
         cg: cg,
+        color: color
     }
 }
 
@@ -786,7 +810,7 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test() {
         let matches =
-            &match getopts(["--test".to_owned()], optgroups().as_slice()) {
+            &match getopts(["--test".to_strbuf()], optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => fail!("test_switch_implies_cfg_test: {}", f.to_err_msg())
             };
@@ -801,7 +825,7 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test_unless_cfg_test() {
         let matches =
-            &match getopts(["--test".to_owned(), "--cfg=test".to_owned()],
+            &match getopts(["--test".to_strbuf(), "--cfg=test".to_strbuf()],
                            optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => {

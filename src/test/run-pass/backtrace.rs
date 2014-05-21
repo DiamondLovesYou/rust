@@ -14,7 +14,7 @@
 extern crate native;
 
 use std::os;
-use std::io::process::{Process, ProcessConfig};
+use std::io::process::Command;
 use std::unstable::finally::Finally;
 use std::str;
 
@@ -36,20 +36,19 @@ fn double() {
 }
 
 fn runtest(me: &str) {
-    let mut env = os::env().move_iter().collect::<Vec<(~str, ~str)>>();
-    match env.iter().position(|&(ref s, _)| "RUST_BACKTRACE" == *s) {
+    let mut env = os::env().move_iter()
+                           .map(|(ref k, ref v)| {
+                               (k.to_strbuf(), v.to_strbuf())
+                           }).collect::<Vec<(StrBuf,StrBuf)>>();
+    match env.iter()
+             .position(|&(ref s, _)| "RUST_BACKTRACE" == s.as_slice()) {
         Some(i) => { env.remove(i); }
         None => {}
     }
-    env.push(("RUST_BACKTRACE".to_owned(), "1".to_owned()));
+    env.push(("RUST_BACKTRACE".to_strbuf(), "1".to_strbuf()));
 
     // Make sure that the stack trace is printed
-    let mut p = Process::configure(ProcessConfig {
-        program: me,
-        args: ["fail".to_owned()],
-        env: Some(env.as_slice()),
-        .. ProcessConfig::new()
-    }).unwrap();
+    let mut p = Command::new(me).arg("fail").env(env.as_slice()).spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
     let s = str::from_utf8(out.error.as_slice()).unwrap();
@@ -57,11 +56,7 @@ fn runtest(me: &str) {
             "bad output: {}", s);
 
     // Make sure the stack trace is *not* printed
-    let mut p = Process::configure(ProcessConfig {
-        program: me,
-        args: ["fail".to_owned()],
-        .. ProcessConfig::new()
-    }).unwrap();
+    let mut p = Command::new(me).arg("fail").spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
     let s = str::from_utf8(out.error.as_slice()).unwrap();
@@ -69,11 +64,7 @@ fn runtest(me: &str) {
             "bad output2: {}", s);
 
     // Make sure a stack trace is printed
-    let mut p = Process::configure(ProcessConfig {
-        program: me,
-        args: ["double-fail".to_owned()],
-        .. ProcessConfig::new()
-    }).unwrap();
+    let mut p = Command::new(me).arg("double-fail").spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
     let s = str::from_utf8(out.error.as_slice()).unwrap();
@@ -81,12 +72,7 @@ fn runtest(me: &str) {
             "bad output3: {}", s);
 
     // Make sure a stack trace isn't printed too many times
-    let mut p = Process::configure(ProcessConfig {
-        program: me,
-        args: ["double-fail".to_owned()],
-        env: Some(env.as_slice()),
-        .. ProcessConfig::new()
-    }).unwrap();
+    let mut p = Command::new(me).arg("double-fail").env(env.as_slice()).spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
     let s = str::from_utf8(out.error.as_slice()).unwrap();

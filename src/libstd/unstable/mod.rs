@@ -12,7 +12,6 @@
 #![allow(missing_doc)]
 
 use libc::uintptr_t;
-use kinds::Send;
 
 pub use core::finally;
 
@@ -22,36 +21,6 @@ pub mod dynamic_lib;
 pub mod simd;
 pub mod sync;
 pub mod mutex;
-
-/**
-
-Start a new thread outside of the current runtime context and wait
-for it to terminate.
-
-The executing thread has no access to a task pointer and will be using
-a normal large stack.
-*/
-pub fn run_in_bare_thread(f: proc():Send) {
-    use rt::thread::Thread;
-    Thread::start(f).join()
-}
-
-#[test]
-fn test_run_in_bare_thread() {
-    let i = 100;
-    run_in_bare_thread(proc() {
-        assert_eq!(i, 100);
-    });
-}
-
-#[test]
-fn test_run_in_bare_thread_exchange() {
-    // Does the exchange heap work without the runtime?
-    let i = box 100;
-    run_in_bare_thread(proc() {
-        assert!(i == box 100);
-    });
-}
 
 /// Dynamically inquire about whether we're running under V.
 /// You should usually not use this unless your test definitely

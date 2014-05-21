@@ -8,10 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-
+#[path = "circular_modules_hello.rs"]
 mod circular_modules_hello; //~ERROR: circular modules
 
-pub fn hi_str() -> ~str {
+pub fn hi_str() -> StrBuf {
   "Hi!".to_owned()
 }
 
