@@ -66,6 +66,18 @@ pub fn llvm_err(sess: &Session, msg: StrBuf) -> ! {
         }
     }
 }
+pub fn llvm_actual_err(sess: &Session, msg: StrBuf) {
+    unsafe {
+        let cstr = llvm::LLVMRustGetLastError();
+        if cstr == ptr::null() {
+            sess.err(msg.as_slice());
+        } else {
+            let err = CString::new(cstr, true);
+            let err = str::from_utf8_lossy(err.as_bytes());
+            sess.err((msg.as_slice() + ": " + err.as_slice()));
+        }
+    }
+}
 pub fn llvm_warn(sess: &Session, msg: ~str) {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
@@ -230,6 +242,7 @@ pub mod write {
             if sess.targeting_pnacl() && !sess.opts.cg.no_prepopulate_passes {
                 // I choose to add these by string to retain what little compatibility
                 // we have left with upstream LLVM
+                assert!(addpass_mpm("pnacl-sjlj-eh"));
                 assert!(addpass_mpm("lower-expect"));
                 assert!(addpass_mpm("rewrite-llvm-intrinsic-calls"));
                 assert!(addpass_mpm("expand-arith-with-overflow"));
@@ -241,6 +254,7 @@ pub mod write {
                 assert!(addpass_mpm("expand-struct-regs"));
                 assert!(addpass_mpm("expand-varargs"));
                 assert!(addpass_mpm("nacl-expand-ctors"));
+                assert!(addpass_mpm("nacl-expand-tls"));
             }
 
             if !sess.opts.cg.no_prepopulate_passes {
@@ -263,14 +277,18 @@ pub mod write {
                 // we have left with upstream LLVM
                 assert!(addpass_mpm("rewrite-pnacl-library-calls"));
                 assert!(addpass_mpm("expand-byval"));
+                assert!(addpass_mpm("expand-small-arguments"));
                 assert!(addpass_mpm("nacl-promote-i1-ops"));
                 assert!(addpass_mpm("canonicalize-mem-intrinsics"));
                 assert!(addpass_mpm("expand-constant-expr"));
+                assert!(addpass_mpm("nacl-promote-ints"));
                 assert!(addpass_mpm("expand-getelementptr"));
                 assert!(addpass_mpm("nacl-rewrite-atomics"));
                 assert!(addpass_mpm("remove-asm-memory"));
                 assert!(addpass_mpm("replace-ptrs-with-ints"));
+                assert!(addpass_mpm("nacl-strip-attributes"));
                 assert!(addpass_mpm("replace-aggregates-with-ints"));
+                assert!(addpass_mpm("strip-dead-prototypes"));
                 assert!(addpass_mpm("die"));
                 assert!(addpass_mpm("dce"));
 
@@ -991,11 +1009,138 @@ pub fn check_outputs(sess: &Session,
     (obj_filename, out_filename)
 }
 
+fn link_pnacl_rlib(sess: &Session,
+                   trans: &CrateTranslation,
+                   outputs: &OutputFilenames,
+                   id: &CrateId) {
+    use libc;
+    use back::archive::ArchiveRO;
+
+    // In this case, all archives just have bitcode in them. Instead of
+    // running all PNaCl passes when we produce pexe's, preprocess the
+    // bitcode files once here.
+
+    // This allows user builds to proceed *much* faster (my
+    // own empirical testing showed pre-change at about 2 minutes and
+    // post-change at about 15 seconds).
+
+    // Note that this change breaks from the toolchain.
+
+    write::run_passes_on_mod(sess,
+                             trans,
+                             trans.module,
+                             outputs,
+                             false,
+                             false);
+
+    let (obj_filename, out_filename) = check_outputs(sess, config::CrateTypeRlib,
+                                                     outputs, id);
+    obj_filename.with_c_str(|s| unsafe {
+        llvm::LLVMWriteBitcodeToFile(trans.module, s);
+    });
+    let mut a = Archive::create(sess, &out_filename, &obj_filename);
+    sess.remove_temp(&obj_filename, OutputTypeObject);
+    let ctxt = trans.context;
+    let used = sess.cstore.get_used_libraries().borrow();
+    let l_paths = pnacl_lib_paths(sess);
+    let tmp = TempDir::new("rlib-bitcode").expect("needs tempdir");
+    let step = (*used)
+        .iter()
+        .filter_map(|&(ref l, kind)| {
+            match kind {
+                cstore::NativeStatic => {
+                    let lib_path = search_for_native(&l_paths,
+                                                     &l.to_strbuf());
+                    maybe_lib(sess, l, lib_path)
+                }
+                _ => { None }
+            }
+        });
+    step
+        .map(|p: Path| {
+            let archive = ArchiveRO::open(&p)
+                .expect("maybe invalid archive?");
+            archive.foreach_child(|name, bc| {
+                let name_path = Path::new(name);
+                let name_ext_str = name_path.extension_str();
+                if name_ext_str == Some("o") || name_ext_str == Some("obj") {
+                    debug!("processing native dep `{}`", name);
+                    let llmod = unsafe {
+                        llvm::LLVMRustParseBitcode(ctxt,
+                                                   bc.as_ptr() as *libc::c_void,
+                                                   bc.len() as libc::size_t)
+                    };
+                    if llmod == ptr::null() {
+                        let msg = format_strbuf!("failed to parse external bitcode
+                                                     `{}` in archive `{}`",
+                                                     name, p.display());
+                            llvm_actual_err(sess, msg);
+                        } else {
+                            let outs = OutputFilenames {
+                                out_directory: tmp.path().clone(),
+                                out_filestem:  name.to_strbuf(),
+                                single_output_file: None,
+                            };
+
+                            // Some globals in the bitcode from PNaCl have what is
+                            // considered invalid linkage in our LLVM (their LLVM is
+                            // old). Fortunately, all linkage types get stripped later, so
+                            // it's safe to just ignore them all.
+                            write::run_passes_on_mod(sess,
+                                                     trans,
+                                                     llmod,
+                                                     &outs,
+                                                     false,
+                                                     true);
+                            let p = tmp.path().join(name);
+                            p.with_c_str(|buf| unsafe {
+                                llvm::LLVMRustStripDebugInfo(llmod);
+                                llvm::LLVMWriteBitcodeToFile(llmod, buf);
+                            });
+                            a.add_file(&p, false);
+                        }
+                    }
+                });
+                0u32
+            });
+
+    // Instead of putting the metadata in an object file section, rlibs
+    // contain the metadata in a separate file. We use a temp directory
+    // here so concurrent builds in the same directory don't try to use
+    // the same filename for metadata (stomping over one another)
+    let metadata = tmp.path().join(METADATA_FILENAME);
+    match fs::File::create(&metadata).write(trans.metadata
+                                            .as_slice()) {
+        Ok(..) => {}
+        Err(e) => {
+            sess.fatal(format!("failed to write {}: {}",
+                               metadata.display(), e));
+        }
+    }
+    a.add_file(&metadata, false);
+    remove(sess, &metadata);
+
+    sess.create_temp(OutputTypeBitcode, || {
+        let path = outputs.path(OutputTypeBitcode);
+        sess.check_writeable_output(&path, "bitcode");
+        path.with_c_str(|buf| unsafe {
+            llvm::LLVMWriteBitcodeToFile(trans.module, buf);
+        })
+    });
+
+    // Note no update of symbol table. pnacl-ar can't read our
+    // bitcode even if the resultant table was used.
+
+    if sess.opts.cg.save_temps {
+            tmp.unwrap();
+    }
+    sess.abort_if_errors();
+}
+
 pub fn link_outputs_for_pnacl(sess: &Session,
                               trans: &CrateTranslation,
                               outputs: &OutputFilenames,
                               id: &CrateId) {
-    use lib::llvm::llvm;
     use driver::driver::stop_after_phase_5;
 
     // We use separate paths for PNaCl targets so we can save LLVM
@@ -1009,58 +1154,7 @@ pub fn link_outputs_for_pnacl(sess: &Session,
                 debug!("skipping dylib output; PNaCl doesn't support \
                        it yet");
             }
-            config::CrateTypeRlib => {
-                write::run_passes_on_mod(sess,
-                                         trans,
-                                         trans.module,
-                                         outputs,
-                                         false,
-                                         false);
-                let (obj_filename, out_filename) = check_outputs(sess, crate_type,
-                                                                 outputs, id);
-                obj_filename.with_c_str(|s| unsafe {
-                    llvm::LLVMWriteBitcodeToFile(trans.module, s);
-                });
-                let mut a = Archive::create(sess, &out_filename, &obj_filename);
-                sess.remove_temp(&obj_filename, OutputTypeObject);
-                for &(ref l, kind) in sess.cstore.get_used_libraries().borrow().iter() {
-                    match kind {
-                        cstore::NativeStatic => {
-                            a.add_native_library(l.as_slice()).unwrap();
-                        }
-                        cstore::NativeFramework | cstore::NativeUnknown => {}
-                    }
-                }
-
-                // Instead of putting the metadata in an object file section, rlibs
-                // contain the metadata in a separate file. We use a temp directory
-                // here so concurrent builds in the same directory don't try to use
-                // the same filename for metadata (stomping over one another)
-                let tmpdir = TempDir::new("rustc").expect("needs a temp dir");
-                let metadata = tmpdir.path().join(METADATA_FILENAME);
-                match fs::File::create(&metadata).write(trans.metadata
-                                                        .as_slice()) {
-                    Ok(..) => {}
-                    Err(e) => {
-                        sess.err(format!("failed to write {}: {}",
-                                         metadata.display(), e));
-                        sess.abort_if_errors();
-                    }
-                }
-                a.add_file(&metadata, false);
-                remove(sess, &metadata);
-
-                sess.create_temp(OutputTypeBitcode, || {
-                    let path = outputs.path(OutputTypeBitcode);
-                    sess.check_writeable_output(&path, "bitcode");
-                    path.with_c_str(|buf| unsafe {
-                        llvm::LLVMWriteBitcodeToFile(trans.module, buf);
-                    })
-                });
-
-                // Note no update of symbol table. pnacl-ar can't read our
-                // bitcode even if the resultant table was used.
-            }
+            config::CrateTypeRlib => link_pnacl_rlib(sess, trans, outputs, id),
             config::CrateTypeExecutable => {}
             config::CrateTypeStaticlib => unimplemented!(),
         }
@@ -1073,6 +1167,68 @@ pub fn link_outputs_for_pnacl(sess: &Session,
             _ => (),
         }
     }
+}
+
+fn search_for_native(paths: &Vec<Path>,
+                     name: &StrBuf) -> Option<Path> {
+    use std::os::consts::{DLL_PREFIX};
+    use std::io::fs::stat;
+    let name_path = Path::new(format!("{}{}.a", DLL_PREFIX, name));
+    debug!(">> searching for native lib `{}` starting", name);
+    let found = paths.iter().find(|dir| {
+        debug!("   searching in `{}`", dir.display());
+        match stat(&dir.join(&name_path)) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    });
+    let found = found.map(|f| f.join(&name_path) );
+    debug!("<< searching for native lib `{}` finished, result=`{}`",
+           name, found.as_ref().map(|f| f.display() ));
+    found
+}
+fn maybe_lib<T>(sess: &Session, name: &StrBuf, p_opt: Option<T>) -> Option<T> {
+    p_opt.or_else(|| {
+        sess.err(format!("couldn't find library `{}`", name));
+        sess.note("maybe missing `-L`?");
+        None
+    })
+}
+
+fn pnacl_lib_paths(sess: &Session) -> Vec<Path> {
+    use std::os;
+    let native_dep_lib_path = Some({
+        os::make_absolute(&sess.pnacl_toolchain()
+                          .join("lib"))
+    });
+    let native_dep_sdk_lib_path = Some({
+        os::make_absolute(&sess.pnacl_toolchain()
+                          .join("sdk")
+                          .join("lib"))
+    });
+    let native_dep_usr_lib_path = Some({
+        os::make_absolute(&sess.pnacl_toolchain()
+                          .join("usr")
+                          .join("lib"))
+    });
+    let ports_lib_path = Some({
+        os::make_absolute(&sess.expect_cross_path()
+                          .join("lib")
+                          .join("pnacl")
+                          .join(if sess.opts.optimize == config::No {
+                              "Debug"
+                          } else {
+                              "Release"
+                          }))
+    });
+    let addl_lib_paths = sess.opts.addl_lib_search_paths.borrow();
+    let iter = addl_lib_paths.iter();
+    let iter = iter.chain(native_dep_lib_path.iter());
+    let iter = iter.chain(native_dep_sdk_lib_path.iter());
+    let iter = iter.chain(native_dep_usr_lib_path.iter());
+    let iter = iter.chain(ports_lib_path.iter());
+    let mut iter = iter.map(|p| p.clone() );
+    iter.collect()
 }
 
 pub fn link_pnacl_module(sess: &Session,
@@ -1109,64 +1265,6 @@ pub fn link_pnacl_module(sess: &Session,
 
     let llmod = trans.module;
 
-    let native_dep_lib_path = Some({
-        sess.pnacl_toolchain()
-            .join("lib")
-    });
-    let native_dep_sdk_lib_path = Some({
-        sess.pnacl_toolchain()
-            .join("sdk")
-            .join("lib")
-    });
-    let native_dep_usr_lib_path = Some({
-        sess.pnacl_toolchain()
-            .join("usr")
-            .join("lib")
-    });
-    let ports_lib_path = Some({
-        sess.expect_cross_path()
-            .join("lib")
-            .join("pnacl")
-            .join(if sess.opts.optimize == config::No {
-                "Debug"
-            } else {
-                "Release"
-            })
-    });
-    let addl_lib_paths = sess.opts.addl_lib_search_paths.borrow();
-    let lib_paths = || {
-        let iter = addl_lib_paths.iter();
-        let iter = iter.chain(native_dep_lib_path.iter());
-        let iter = iter.chain(native_dep_sdk_lib_path.iter());
-        let iter = iter.chain(native_dep_usr_lib_path.iter());
-        let iter = iter.chain(ports_lib_path.iter());
-        iter
-    };
-    fn search_for_native<'a, T: Iterator<&'a Path>>(mut paths: T,
-                                                    name: &StrBuf) -> Option<Path> {
-        use std::os::consts::{DLL_PREFIX};
-        use std::io::fs::stat;
-        let name_path = Path::new(format!("{}{}.a", DLL_PREFIX, name));
-        debug!(">> searching for native lib `{}` starting", name);
-        let found = paths.find(|dir| {
-            debug!("   searching in `{}`", dir.display());
-            match stat(&dir.join(&name_path)) {
-                Ok(_) => true,
-                Err(_) => false,
-            }
-        });
-        let found = found.map(|f| f.join(&name_path) );
-        debug!("<< searching for native lib `{}` finished, result=`{}`",
-               name, found.as_ref().map(|f| f.display() ));
-        found
-    }
-    fn maybe_lib<T>(sess: &Session, name: &StrBuf, p_opt: Option<T>) -> Option<T> {
-        p_opt.or_else(|| {
-            sess.err(format!("couldn't find library `{}`", name));
-            sess.note("maybe missing `-L`?");
-            None
-        })
-    }
     fn expect_rlib_path(sess: &Session, name: &StrBuf, p_opt: Option<Path>) -> Path {
         match p_opt {
             Some(p) => p,
@@ -1175,10 +1273,6 @@ pub fn link_pnacl_module(sess: &Session,
                 sess.bug(format!("could not find rlib for: `{}`", name));
             }
         }
-    }
-    fn possibly_abort<T>(sess: &Session, d: T) -> T {
-        sess.abort_if_errors();
-        d
     }
     fn link_buf_into_module(sess: &Session,
                             ctxt:  ContextRef,
@@ -1234,6 +1328,25 @@ pub fn link_pnacl_module(sess: &Session,
              });
         llmod
     }
+    fn link_attrs_filter(sess: &Session,
+                         lib: &StrBuf,
+                         kind: cstore::NativeLibaryKind,
+                         linked: &mut HashSet<StrBuf>,
+                         lib_paths: &Vec<Path>) -> Option<(StrBuf, Path)>{
+        match kind {
+            cstore::NativeFramework => {
+                sess.bug("can't link MacOS frameworks into PNaCl modules");
+            }
+            cstore::NativeStatic | cstore::NativeUnknown
+                if !linked.contains(lib) => {
+                    // Don't link archives twice:
+                    linked.insert(lib.clone());
+                    let lib_path = search_for_native(lib_paths, lib);
+                    maybe_lib(sess, lib, lib_path.map(|p| (lib.clone(), p) ))
+                }
+            cstore::NativeStatic | cstore::NativeUnknown => { None }
+        }
+    }
 
     let save_temp = |ext, llmod| {
         if sess.opts.cg.save_temps {
@@ -1260,37 +1373,14 @@ pub fn link_pnacl_module(sess: &Session,
                                      "pthread".to_strbuf(),
                                      "pnaclmm".to_strbuf(),
                                      "nacl".to_strbuf()).move_iter());
-    let mut tc_mod = None;
-    debug!("linking implicit archives");
-    {
-        let libs: Vec<(StrBuf, Path)> = possibly_abort(sess, {
-            linked.iter()
-                .filter_map(|lib| {
-                    let lib = lib.clone();
-                    let lib = lib.to_strbuf();
-                    let lib_path = search_for_native(lib_paths(),
-                                                     &lib);
-                    maybe_lib(sess, &lib, lib_path.map(|p| (lib.clone(), p) ))
-                })
-                .collect()
-        });
-        tc_mod = libs.move_iter().fold(tc_mod.take(), |m, (name, path)| {
-            link_archive_into_module(sess,
-                                     trans.context,
-                                     m,
-                                     &name,
-                                     &path,
-                                     |_| true )
-        });
-        sess.abort_if_errors();
-    }
+
+    let lib_paths = pnacl_lib_paths(sess);
     // ## support bitcodes:
     debug!("linking support bitcodes");
     {
         let bcs = vec!("crti.bc".to_strbuf(),
                        "crtbegin.bc".to_strbuf(),
-                       "sjlj_eh_redirect.bc".to_strbuf(),
-                       "unwind_stubs.bc".to_strbuf());
+                       "sjlj_eh_redirect.bc".to_strbuf());
         let mut iter = bcs
             .iter()
             .zip(bcs.iter()
@@ -1313,7 +1403,7 @@ pub fn link_pnacl_module(sess: &Session,
                               }
                           } )
                  }));
-        tc_mod = iter.fold(tc_mod.take(), |m, (name, bc)| {
+        let tc_mod = iter.fold(None, |m, (name, bc)| {
             let bc: Vec<u8> = bc;
             link_buf_into_module(sess,
                                  trans.context,
@@ -1322,10 +1412,10 @@ pub fn link_pnacl_module(sess: &Session,
                                  bc.as_slice())
         });
 
-        tc_mod = sess.opts.cg.extra_bitcode
+        let tc_mod = sess.opts.cg.extra_bitcode
             .iter()
             .map(|file| Path::new(file.clone()) )
-            .fold(tc_mod.take(), |m, extra| {
+            .fold(tc_mod, |m, extra| {
                 match File::open(&extra).read_to_end() {
                     Ok(buf) => link_buf_into_module(sess,
                                                     trans.context,
@@ -1340,30 +1430,47 @@ pub fn link_pnacl_module(sess: &Session,
                 }
             });
         sess.abort_if_errors();
+
+        // Merge the toolchain module and our module together.
+        // This also prevents our LLVM tools from stripping debugging info from our
+        // module.
+        save_temp("tc-pre-debug-purge.bc", *tc_mod.get_ref());
+        unsafe {
+            llvm::LLVMRustStripDebugInfo(*tc_mod.get_ref());
+            save_temp("tc-post-debug-purge.bc", *tc_mod.get_ref());
+            if !llvm::LLVMRustLinkInModule(llmod, tc_mod.unwrap()) {
+                llvm_err(sess,
+                         "failed to merge our translated mod with the toolchain mod".to_strbuf());
+            }
+        }
     }
+
+    // Some globals in the bitcode from PNaCl have what is considered invalid
+    // linkage in our LLVM (their LLVM is old). Fortunately, all linkage types
+    // get stripped later, so it's safe to just ignore them all.
+    write::run_passes_on_mod(sess,
+                             trans,
+                             llmod,
+                             outputs,
+                             false,
+                             true);
+
+    if sess.opts.cg.save_temps {
+        outputs.with_extension("post-opt.bc").with_c_str(|buf| unsafe {
+            llvm::LLVMWriteBitcodeToFile(llmod, buf);
+        })
+    }
+
     // ## \#[link] archives plus objects in Rust creates:
     debug!("linking \\#[link] archives");
     {
         let crates = sess.cstore.get_used_crates(cstore::RequireStatic);
-        tc_mod = crates.move_iter().fold(tc_mod.take(), |m, (cnum, path)| {
+        crates.move_iter().fold(Some(llmod), |m, (cnum, path)| {
             let name = sess.cstore.get_crate_data(cnum).name.clone();
             let libs = csearch::get_native_libraries(&sess.cstore, cnum);
             let m = libs.move_iter()
                 .filter_map(|(kind, ref lib)| {
-                    match kind {
-                        cstore::NativeFramework => {
-                            sess.bug("can't link MacOS frameworks into PNaCl modules");
-                        }
-                        cstore::NativeStatic | cstore::NativeUnknown
-                            if !linked.contains(&lib.to_strbuf()) => {
-                                // Don't link archives twice:
-                                linked.insert(lib.to_strbuf());
-                                let lib_path = search_for_native(lib_paths(),
-                                                                 &lib.to_strbuf());
-                                maybe_lib(sess, lib, lib_path.map(|p| (lib.clone(), p) ))
-                            }
-                        cstore::NativeStatic | cstore::NativeUnknown => { None }
-                    }
+                    link_attrs_filter(sess, lib, kind, &mut linked, &lib_paths)
                 })
                 // We need to explicitly specify the types here. Sadly we can't do
                 // that with for loops.
@@ -1393,25 +1500,12 @@ pub fn link_pnacl_module(sess: &Session,
 
         // Add libs from the current crate:
         let borrow = sess.cstore.get_used_libraries().borrow();
-        tc_mod = (*borrow)
+        (*borrow)
             .iter()
-            .filter_map(|&(ref name, ref kind)| {
-                match kind {
-                    &cstore::NativeFramework => {
-                        sess.bug("can't link MacOS frameworks into PNaCl modules");
-                    }
-                    &cstore::NativeStatic | &cstore::NativeUnknown
-                        if !linked.contains(&name.to_strbuf()) => {
-                            // Don't link archives twice:
-                            linked.insert(name.clone());
-                            let lib_path = search_for_native(lib_paths(),
-                                                             name);
-                            maybe_lib(sess, name, lib_path.map(|p| (name.clone(), p) ))
-                        }
-                    &cstore::NativeStatic | &cstore::NativeUnknown => { None }
-                }
+            .filter_map(|&(ref lib, kind)| {
+                link_attrs_filter(sess, lib, kind, &mut linked, &lib_paths)
             })
-            .fold(tc_mod.take(), |m, (name, path): (StrBuf, Path)| {
+            .fold(Some(llmod), |m, (name, path): (StrBuf, Path)| {
                 link_archive_into_module(sess,
                                          trans.context,
                                          m,
@@ -1420,35 +1514,6 @@ pub fn link_pnacl_module(sess: &Session,
                                          |_| true )
             });
         sess.abort_if_errors();
-    }
-
-    save_temp("tc-pre-debug-purge.bc", *tc_mod.get_ref());
-    // Prevent LLVM tools from stripping debugging info from our module:
-    unsafe {
-        llvm::LLVMRustStripDebugInfo(tc_mod.clone().unwrap());
-        save_temp("tc-post-debug-purge.bc", *tc_mod.get_ref());
-        if !llvm::LLVMRustLinkInModule(llmod, tc_mod.unwrap()) {
-            llvm_err(sess,
-                     "failed to merge our translated mod with the toolchain mod".to_strbuf());
-        }
-    }
-
-    // # Run the passes on our module:
-
-    // Some globals in the bitcode from PNaCl have what is considered invalid
-    // linkage in our LLVM (their LLVM is old). Fortunately, all linkage types
-    // get stripped later, so it's safe to just ignore them all.
-    write::run_passes_on_mod(sess,
-                             trans,
-                             llmod,
-                             outputs,
-                             false,
-                             true);
-
-    if sess.opts.cg.save_temps {
-        outputs.with_extension("post-opt.bc").with_c_str(|buf| unsafe {
-            llvm::LLVMWriteBitcodeToFile(llmod, buf);
-        })
     }
 
     // # Link in Rust crates:
@@ -1500,14 +1565,12 @@ pub fn link_pnacl_module(sess: &Session,
                     llmod,
                     ptr::null(),
                     |pm| {
-                        "pnacl-sjlj-eh".with_c_str(|s| unsafe {
-                            assert!(llvm::LLVMRustAddPass(pm, s));
-                        });
-                        if sess.opts.cg.stable_pexe {
-                            "strip".with_c_str(|s| unsafe {
+                        let ap = |s| {
+                            unsafe {
                                 assert!(llvm::LLVMRustAddPass(pm, s));
-                            } )
-                        }
+                            }
+                        };
+                        "nacl-global-cleanup".with_c_str(|s| ap(s) );
                     },
                     |pm| {
                         let ap = |s| {
@@ -1515,36 +1578,8 @@ pub fn link_pnacl_module(sess: &Session,
                                 assert!(llvm::LLVMRustAddPass(pm, s));
                             }
                         };
-
-                        // These passes are here because either they fix changes
-                        // introduced by -pnacl-sjlj-eh, or they can't run twice
-                        // on the same IR.
-
-                        // Can't handle an already initialized __tls_template_start:
-                        "nacl-expand-tls".with_c_str(|s| ap(s) );
-                        // Must be run after -nacl-expand-tls:
-                        "nacl-global-cleanup".with_c_str(|s| ap(s) );
-                        // Flatten the globals created by -nacl-expand-tls:
-                        "flatten-globals".with_c_str(|s| ap(s) );
-                        "expand-struct-regs".with_c_str(|s| ap(s) );
-                        // Some of our later passes fail to work without this:
-                        "expand-constant-expr".with_c_str(|s| ap(s) );
-                        "nacl-promote-i1-ops".with_c_str(|s| ap(s) );
-                        "nacl-promote-ints".with_c_str(|s| ap(s) );
-                        // Clean up non-i32 arguments introduced by -pnacl-sjlj-eh:
-                        "expand-small-arguments".with_c_str(|s| ap(s) );
-                        // -pnacl-sjlj-eh introduces GEPs:
-                        "expand-getelementptr".with_c_str(|s| ap(s) );
-                        // Clean up vectors that *somehow* sneak back in:
-                        "replace-vectors-with-arrays".with_c_str(|s| ap(s) );
-                        // Clean up any ptrs sneaking back into function arguments:
-                        "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
-                        "replace-aggregates-with-ints".with_c_str(|s| ap(s) );
-                        // Ensure attributes don't sneak in:
-                        "nacl-strip-attributes".with_c_str(|s| ap(s) );
                         // Strip unsupported metadata:
                         "strip-metadata".with_c_str(|s| ap(s) );
-                        "strip-dead-prototypes".with_c_str(|s| ap(s) );
                         if !sess.no_verify() {
                             "verify-pnaclabi-module".with_c_str(|s| ap(s) );
                             "verify-pnaclabi-functions".with_c_str(|s| ap(s) );
@@ -1603,8 +1638,6 @@ fn link_rlib<'a>(sess: &'a Session,
     }
 
     // Note that it is important that we add all of our non-object "magical
-    // files" *after* all of the object files in the archive. The reason for
-    // this is as follows:
     //
     // * When performing LTO, this archive will be modified to remove
     //   obj_filename from above. The reason for this is described below.

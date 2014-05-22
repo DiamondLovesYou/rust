@@ -283,9 +283,18 @@ pub use consts::os::extra::{F_FULLFSYNC};
 pub use types::os::arch::extra::{mach_timebase_info};
 
 
-#[cfg(not(windows))]
+#[cfg(not(windows), not(target_os = "nacl", target_arch = "le32"))]
 #[link(name = "c")]
 #[link(name = "m")]
+extern {}
+
+#[cfg(target_os = "nacl", target_arch = "le32")]
+#[link(name = "c", kind = "static")]
+#[link(name = "m", kind = "static")]
+#[link(name = "c++", kind = "static")] // for __pnacl_eh_sjlj_*. I know, I know: :(
+#[link(name = "pthread", kind = "static")]
+#[link(name = "pnaclmm", kind = "static")]
+#[link(name = "nacl", kind = "static")]
 extern {}
 
 /// A wrapper for a nullable pointer. Don't use this except for interacting

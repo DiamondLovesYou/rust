@@ -147,6 +147,4 @@ pub fn run(main: proc()) -> int {
 }
 
 #[cfg(target_os = "nacl", target_libc = "newlib")]
-#[link(name = "nacl_io")] extern {}
-#[cfg(target_os = "nacl", target_libc = "newlib")]
-#[link(name = "c++")] extern {}
+#[link(name = "nacl_io", kind = "static")] extern {}
