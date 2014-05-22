@@ -13,5 +13,8 @@
 #[lang="fail_"]
 fn fail(_: *i8, _: *i8, _: uint) -> ! { loop {} }
 
-#[no_mangle]
-pub extern "C" fn rust_stack_exhausted() {}
+#[lang = "stack_exhausted"]
+extern fn stack_exhausted() {}
+
+#[lang = "eh_personality"]
+extern fn eh_personality() {}

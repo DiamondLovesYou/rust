@@ -84,15 +84,15 @@
 //! the test suite passing (the suite is in libstd), and that's good enough for
 //! me!
 
+use alloc::arc::Arc;
 use libc;
 use std::c_str::CString;
-use std::intrinsics;
 use std::io;
+use std::mem;
 use std::os::win32::as_utf16_p;
 use std::os;
 use std::ptr;
 use std::rt::rtio;
-use std::sync::arc::UnsafeArc;
 use std::sync::atomics;
 use std::unstable::mutex;
 
@@ -195,7 +195,7 @@ pub fn await(handle: libc::HANDLE, deadline: u64,
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct UnixStream {
-    inner: UnsafeArc<Inner>,
+    inner: Arc<Inner>,
     write: Option<Event>,
     read: Option<Event>,
     read_deadline: u64,
@@ -273,7 +273,7 @@ impl UnixStream {
                             Err(super::last_error())
                         } else {
                             Ok(UnixStream {
-                                inner: UnsafeArc::new(inner),
+                                inner: Arc::new(inner),
                                 read: None,
                                 write: None,
                                 read_deadline: 0,
@@ -317,14 +317,14 @@ impl UnixStream {
         })
     }
 
-    fn handle(&self) -> libc::HANDLE { unsafe { (*self.inner.get()).handle } }
+    fn handle(&self) -> libc::HANDLE { self.inner.handle }
 
     fn read_closed(&self) -> bool {
-        unsafe { (*self.inner.get()).read_closed.load(atomics::SeqCst) }
+        self.inner.read_closed.load(atomics::SeqCst)
     }
 
     fn write_closed(&self) -> bool {
-        unsafe { (*self.inner.get()).write_closed.load(atomics::SeqCst) }
+        self.inner.write_closed.load(atomics::SeqCst)
     }
 
     fn cancel_io(&self) -> IoResult<()> {
@@ -345,7 +345,7 @@ impl rtio::RtioPipe for UnixStream {
         }
 
         let mut bytes_read = 0;
-        let mut overlapped: libc::OVERLAPPED = unsafe { intrinsics::init() };
+        let mut overlapped: libc::OVERLAPPED = unsafe { mem::zeroed() };
         overlapped.hEvent = self.read.get_ref().handle();
 
         // Pre-flight check to see if the reading half has been closed. This
@@ -353,7 +353,7 @@ impl rtio::RtioPipe for UnixStream {
         // acquire the lock.
         //
         // See comments in close_read() about why this lock is necessary.
-        let guard = unsafe { (*self.inner.get()).lock.lock() };
+        let guard = unsafe { self.inner.lock.lock() };
         if self.read_closed() {
             return Err(io::standard_error(io::EndOfFile))
         }
@@ -417,7 +417,7 @@ impl rtio::RtioPipe for UnixStream {
         }
 
         let mut offset = 0;
-        let mut overlapped: libc::OVERLAPPED = unsafe { intrinsics::init() };
+        let mut overlapped: libc::OVERLAPPED = unsafe { mem::zeroed() };
         overlapped.hEvent = self.write.get_ref().handle();
 
         while offset < buf.len() {
@@ -429,7 +429,7 @@ impl rtio::RtioPipe for UnixStream {
             // going after we woke up.
             //
             // See comments in close_read() about why this lock is necessary.
-            let guard = unsafe { (*self.inner.get()).lock.lock() };
+            let guard = unsafe { self.inner.lock.lock() };
             if self.write_closed() {
                 return Err(io::standard_error(io::BrokenPipe))
             }
@@ -514,15 +514,15 @@ impl rtio::RtioPipe for UnixStream {
         // close_read() between steps 1 and 2. By atomically executing steps 1
         // and 2 with a lock with respect to close_read(), we're guaranteed that
         // no thread will erroneously sit in a read forever.
-        let _guard = unsafe { (*self.inner.get()).lock.lock() };
-        unsafe { (*self.inner.get()).read_closed.store(true, atomics::SeqCst) }
+        let _guard = unsafe { self.inner.lock.lock() };
+        self.inner.read_closed.store(true, atomics::SeqCst);
         self.cancel_io()
     }
 
     fn close_write(&mut self) -> IoResult<()> {
         // see comments in close_read() for why this lock is necessary
-        let _guard = unsafe { (*self.inner.get()).lock.lock() };
-        unsafe { (*self.inner.get()).write_closed.store(true, atomics::SeqCst) }
+        let _guard = unsafe { self.inner.lock.lock() };
+        self.inner.write_closed.store(true, atomics::SeqCst);
         self.cancel_io()
     }
 
@@ -633,7 +633,7 @@ impl UnixAcceptor {
         // someone on the other end connects. This function can "fail" if a
         // client connects after we created the pipe but before we got down
         // here. Thanks windows.
-        let mut overlapped: libc::OVERLAPPED = unsafe { intrinsics::init() };
+        let mut overlapped: libc::OVERLAPPED = unsafe { mem::zeroed() };
         overlapped.hEvent = self.event.handle();
         if unsafe { libc::ConnectNamedPipe(handle, &mut overlapped) == 0 } {
             let mut err = unsafe { libc::GetLastError() };
@@ -683,7 +683,7 @@ impl UnixAcceptor {
 
         // Transfer ownership of our handle into this stream
         Ok(UnixStream {
-            inner: UnsafeArc::new(Inner::new(handle)),
+            inner: Arc::new(Inner::new(handle)),
             read: None,
             write: None,
             read_deadline: 0,

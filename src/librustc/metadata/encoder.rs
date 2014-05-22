@@ -1436,7 +1436,7 @@ fn synthesize_crate_attrs(ecx: &EncodeContext,
     fn synthesize_crateid_attr(ecx: &EncodeContext) -> Attribute {
         assert!(!ecx.link_meta.crateid.name.is_empty());
 
-        attr::mk_attr(
+        attr::mk_attr_inner(
             attr::mk_name_value_item_str(
                 InternedString::new("crate_id"),
                 token::intern_and_get_ident(ecx.link_meta.crateid.to_str())))
@@ -1516,6 +1516,10 @@ fn encode_lang_items(ecx: &EncodeContext, ebml_w: &mut Encoder) {
                 ebml_w.end_tag();   // tag_lang_items_item
             }
         }
+    }
+
+    for i in ecx.tcx.lang_items.missing.iter() {
+        ebml_w.wr_tagged_u32(tag_lang_items_missing, *i as u32);
     }
 
     ebml_w.end_tag();   // tag_lang_items

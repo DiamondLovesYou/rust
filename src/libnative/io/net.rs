@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use alloc::arc::Arc;
 use libc;
 use std::io::net::ip;
 use std::io;
 use std::mem;
 use std::rt::rtio;
-use std::sync::arc::UnsafeArc;
 use std::unstable::mutex;
 
 use super::{IoResult, retry, keep_going};
@@ -68,7 +68,7 @@ fn ip_to_inaddr(ip: ip::IpAddr) -> InAddr {
 
 fn addr_to_sockaddr(addr: ip::SocketAddr) -> (libc::sockaddr_storage, uint) {
     unsafe {
-        let storage: libc::sockaddr_storage = mem::init();
+        let storage: libc::sockaddr_storage = mem::zeroed();
         let len = match ip_to_inaddr(addr.ip) {
             InAddr(inaddr) => {
                 let storage: *mut libc::sockaddr_in = mem::transmute(&storage);
@@ -120,7 +120,7 @@ fn setsockopt<T>(fd: sock_t, opt: libc::c_int, val: libc::c_int,
 pub fn getsockopt<T: Copy>(fd: sock_t, opt: libc::c_int,
                            val: libc::c_int) -> IoResult<T> {
     unsafe {
-        let mut slot: T = mem::init();
+        let mut slot: T = mem::zeroed();
         let mut len = mem::size_of::<T>() as libc::socklen_t;
         let ret = c::getsockopt(fd, opt, val,
                                 &mut slot as *mut _ as *mut _,
@@ -152,7 +152,7 @@ fn sockname(fd: sock_t,
                                          *mut libc::socklen_t) -> libc::c_int)
     -> IoResult<ip::SocketAddr>
 {
-    let mut storage: libc::sockaddr_storage = unsafe { mem::init() };
+    let mut storage: libc::sockaddr_storage = unsafe { mem::zeroed() };
     let mut len = mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
     unsafe {
         let storage = &mut storage as *mut libc::sockaddr_storage;
@@ -221,7 +221,7 @@ pub fn init() {
 
         let _guard = LOCK.lock();
         if !INITIALIZED {
-            let mut data: c::WSADATA = mem::init();
+            let mut data: c::WSADATA = mem::zeroed();
             let ret = c::WSAStartup(0x202,      // version 2.2
                                     &mut data);
             assert_eq!(ret, 0);
@@ -235,7 +235,7 @@ pub fn init() {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct TcpStream {
-    inner: UnsafeArc<Inner>,
+    inner: Arc<Inner>,
     read_deadline: u64,
     write_deadline: u64,
 }
@@ -289,16 +289,13 @@ impl TcpStream {
 
     fn new(inner: Inner) -> TcpStream {
         TcpStream {
-            inner: UnsafeArc::new(inner),
+            inner: Arc::new(inner),
             read_deadline: 0,
             write_deadline: 0,
         }
     }
 
-    pub fn fd(&self) -> sock_t {
-        // This unsafety is fine because it's just a read-only arc
-        unsafe { (*self.inner.get()).fd }
-    }
+    pub fn fd(&self) -> sock_t { self.inner.fd }
 
     fn set_nodelay(&mut self, nodelay: bool) -> IoResult<()> {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_NODELAY,
@@ -336,7 +333,7 @@ impl TcpStream {
     fn lock_nonblocking<'a>(&'a self) -> Guard<'a> {
         let ret = Guard {
             fd: self.fd(),
-            guard: unsafe { (*self.inner.get()).lock.lock() },
+            guard: unsafe { self.inner.lock.lock() },
         };
         assert!(util::set_nonblocking(self.fd(), true).is_ok());
         ret
@@ -504,7 +501,7 @@ impl TcpAcceptor {
             try!(util::await(self.fd(), Some(self.deadline), util::Readable));
         }
         unsafe {
-            let mut storage: libc::sockaddr_storage = mem::init();
+            let mut storage: libc::sockaddr_storage = mem::zeroed();
             let storagep = &mut storage as *mut libc::sockaddr_storage;
             let size = mem::size_of::<libc::sockaddr_storage>();
             let mut size = size as libc::socklen_t;
@@ -556,7 +553,7 @@ impl rtio::RtioTcpAcceptor for TcpAcceptor {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct UdpSocket {
-    inner: UnsafeArc<Inner>,
+    inner: Arc<Inner>,
     read_deadline: u64,
     write_deadline: u64,
 }
@@ -565,7 +562,7 @@ impl UdpSocket {
     pub fn bind(addr: ip::SocketAddr) -> IoResult<UdpSocket> {
         let fd = try!(socket(addr, libc::SOCK_DGRAM));
         let ret = UdpSocket {
-            inner: UnsafeArc::new(Inner::new(fd)),
+            inner: Arc::new(Inner::new(fd)),
             read_deadline: 0,
             write_deadline: 0,
         };
@@ -580,10 +577,7 @@ impl UdpSocket {
         }
     }
 
-    pub fn fd(&self) -> sock_t {
-        // unsafety is fine because it's just a read-only arc
-        unsafe { (*self.inner.get()).fd }
-    }
+    pub fn fd(&self) -> sock_t { self.inner.fd }
 
     pub fn set_broadcast(&mut self, on: bool) -> IoResult<()> {
         setsockopt(self.fd(), libc::SOL_SOCKET, libc::SO_BROADCAST,
@@ -623,7 +617,7 @@ impl UdpSocket {
     fn lock_nonblocking<'a>(&'a self) -> Guard<'a> {
         let ret = Guard {
             fd: self.fd(),
-            guard: unsafe { (*self.inner.get()).lock.lock() },
+            guard: unsafe { self.inner.lock.lock() },
         };
         assert!(util::set_nonblocking(self.fd(), true).is_ok());
         ret
@@ -642,7 +636,7 @@ impl rtio::RtioSocket for UdpSocket {
 impl rtio::RtioUdpSocket for UdpSocket {
     fn recvfrom(&mut self, buf: &mut [u8]) -> IoResult<(uint, ip::SocketAddr)> {
         let fd = self.fd();
-        let mut storage: libc::sockaddr_storage = unsafe { mem::init() };
+        let mut storage: libc::sockaddr_storage = unsafe { mem::zeroed() };
         let storagep = &mut storage as *mut _ as *mut libc::sockaddr;
         let mut addrlen: libc::socklen_t =
                 mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
