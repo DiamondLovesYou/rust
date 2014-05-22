@@ -530,21 +530,8 @@ impl rtio::RtioTcpAcceptor for TcpAcceptor {
 
     fn accept_simultaneously(&mut self) -> IoResult<()> { Ok(()) }
     fn dont_accept_simultaneously(&mut self) -> IoResult<()> { Ok(()) }
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
     fn set_timeout(&mut self, timeout: Option<u64>) {
         self.deadline = timeout.map(|a| ::io::timer::now() + a).unwrap_or(0);
-    }
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
-    fn set_timeout(&mut self, timeout: Option<u64>) {
-        use std::{mem, ptr};
-        self.deadline = timeout.map(|a| {
-            let b = unsafe {
-                let mut now: libc::timeval = mem::init();
-                assert_eq!(c::gettimeofday(&mut now, ptr::null()), 0);
-                (now.tv_sec as u64) * 1000 + (now.tv_usec as u64) / 1000
-            };
-            b + a
-        }).unwrap_or(0)
     }
 }
 
