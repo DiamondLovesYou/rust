@@ -18,4 +18,4 @@
 [submodule "src/jemalloc"]
 	path = src/jemalloc
 	url = https://github.com/DiamondLovesYou/jemalloc.git
-        branch = dev
+        branch = rust-pnacl
