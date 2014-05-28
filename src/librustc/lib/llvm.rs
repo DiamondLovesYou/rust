@@ -1806,6 +1806,7 @@ pub mod llvm {
                                       data: *mut *c_char) -> c_int;
 
         pub fn LLVMRustParseBitcode(C: ContextRef,
+                                    N: *c_char,
                                     P: *c_void,
                                     L: size_t) -> ModuleRef;
 

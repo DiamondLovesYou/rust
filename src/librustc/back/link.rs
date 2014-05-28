@@ -1292,9 +1292,12 @@ pub fn link_pnacl_module(sess: &Session,
                 Some(llmod)
             },
             None => unsafe {
-                let llmod = llvm::LLVMRustParseBitcode(ctxt,
-                                                       bc.as_ptr() as *libc::c_void,
-                                                       bc.len() as libc::size_t);
+                let llmod = name.with_c_str(|s| {
+                    llvm::LLVMRustParseBitcode(ctxt,
+                                               s,
+                                               bc.as_ptr() as *libc::c_void,
+                                               bc.len() as libc::size_t)
+                });
                 if llmod == ptr::null() {
                     llvm_warn(sess, format!("failed to parse external bitcode `{}`",
                                             name));

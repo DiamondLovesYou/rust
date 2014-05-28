@@ -839,13 +839,15 @@ LLVMRustAddOverridingModuleFlag(LLVMModuleRef M,
   unwrap(M)->addModuleFlag(Module::Override, name, value);
 }
 extern "C" LLVMModuleRef
-LLVMRustParseBitcode(LLVMContextRef ctxt, const void* bc, size_t len) {
-  MemoryBuffer* buf = MemoryBuffer::getMemBufferCopy
-    (StringRef(static_cast<const char*>(bc), len));
-  ErrorOr<Module *> Src = llvm::getLazyBitcodeModule(buf, *unwrap(ctxt));
+LLVMRustParseBitcode(LLVMContextRef ctxt, const char* name, const void* bc, size_t len) {
+  MemoryBuffer* buf = MemoryBuffer::getMemBuffer(StringRef(static_cast<const char*>(bc),
+                                                           len),
+                                                 name,
+                                                 false);
+  ErrorOr<Module *> Src = llvm::parseBitcodeFile(buf, *unwrap(ctxt));
+  delete buf;
   if (!Src) {
     LLVMRustSetLastError(Src.getError().message().c_str());
-    delete buf;
     return NULL;
   } else {
     return wrap(*Src);
