@@ -92,7 +92,7 @@ pub fn now() -> u64 {
         return (now.tv_sec as u64) * 1000 + (now.tv_usec as u64) / 1000;
     }
 }
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))] 
+#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
 fn helper(input: libc::c_int, messages: Receiver<Req>, _: ()) {
     let mut set: c::fd_set = unsafe { mem::zeroed() };
 
