@@ -8,8 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-tidy-linelength
-
 #![allow(experimental)]
 
 use std::unstable::simd::f32x4;
@@ -17,21 +15,21 @@ use std::unstable::simd::f32x4;
 fn main() {
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) == f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary comparison operation `==` not supported for floating point SIMD vector `std::unstable::simd::f32x4`
+    //~^ ERROR binary operation `==` cannot be applied to type `std::unstable::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) != f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary comparison operation `!=` not supported for floating point SIMD vector `std::unstable::simd::f32x4`
+    //~^ ERROR binary operation `!=` cannot be applied to type `std::unstable::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) < f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary comparison operation `<` not supported for floating point SIMD vector `std::unstable::simd::f32x4`
+    //~^ ERROR binary operation `<` cannot be applied to type `std::unstable::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) <= f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary comparison operation `<=` not supported for floating point SIMD vector `std::unstable::simd::f32x4`
+    //~^ ERROR binary operation `<=` cannot be applied to type `std::unstable::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) >= f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary comparison operation `>=` not supported for floating point SIMD vector `std::unstable::simd::f32x4`
+    //~^ ERROR binary operation `>=` cannot be applied to type `std::unstable::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) > f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary comparison operation `>` not supported for floating point SIMD vector `std::unstable::simd::f32x4`
+    //~^ ERROR binary operation `>` cannot be applied to type `std::unstable::simd::f32x4`
 
 }
