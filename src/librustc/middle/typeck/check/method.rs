@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -106,19 +106,19 @@ use syntax::codemap::Span;
 use syntax::parse::token;
 use syntax::owned_slice::OwnedSlice;
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum CheckTraitsFlag {
     CheckTraitsOnly,
     CheckTraitsAndInherentMethods,
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum AutoderefReceiverFlag {
     AutoderefReceiver,
     DontAutoderefReceiver,
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum StaticMethodsFlag {
     ReportStaticMethods,
     IgnoreStaticMethods,
@@ -274,17 +274,17 @@ fn construct_transformed_self_ty_for_object(
                     let r = r.subst(tcx, &substs); // handle Early-Bound lifetime
                     ty::mk_trait(tcx, trait_def_id, substs,
                                  RegionTraitStore(r, mt.mutbl),
-                                 ty::EmptyBuiltinBounds())
+                                 ty::empty_builtin_bounds())
                 }
                 ty::ty_uniq(_) => { // must be SelfUniq
                     ty::mk_trait(tcx, trait_def_id, substs,
                                  UniqTraitStore,
-                                 ty::EmptyBuiltinBounds())
+                                 ty::empty_builtin_bounds())
                 }
                 _ => {
                     tcx.sess.span_bug(span,
                         format!("'impossible' transformed_self_ty: {}",
-                                transformed_self_ty.repr(tcx)));
+                                transformed_self_ty.repr(tcx)).as_slice());
                 }
             }
         }
@@ -951,7 +951,7 @@ impl<'a> LookupContext<'a> {
 
             ty_infer(TyVar(_)) => {
                 self.bug(format!("unexpected type: {}",
-                              self.ty_to_str(self_ty)));
+                                 self.ty_to_str(self_ty)).as_slice());
             }
         }
     }
@@ -1027,13 +1027,7 @@ impl<'a> LookupContext<'a> {
     fn consider_candidates(&self, rcvr_ty: ty::t,
                            candidates: &[Candidate])
                            -> Option<MethodCallee> {
-        // FIXME(pcwalton): Do we need to clone here?
-        let relevant_candidates: Vec<Candidate> =
-            candidates.iter().map(|c| (*c).clone()).
-                filter(|c| self.is_relevant(rcvr_ty, c)).collect();
-
-        let relevant_candidates =
-            self.merge_candidates(relevant_candidates.as_slice());
+        let relevant_candidates = self.filter_candidates(rcvr_ty, candidates);
 
         if relevant_candidates.len() == 0 {
             return None;
@@ -1070,22 +1064,16 @@ impl<'a> LookupContext<'a> {
         Some(self.confirm_candidate(rcvr_ty, relevant_candidates.get(0)))
     }
 
-    fn merge_candidates(&self, candidates: &[Candidate]) -> Vec<Candidate> {
-        let mut merged = Vec::new();
-        let mut i = 0;
-        while i < candidates.len() {
-            let candidate_a = &candidates[i];
+    fn filter_candidates(&self, rcvr_ty: ty::t, candidates: &[Candidate]) -> Vec<Candidate> {
+        let mut relevant_candidates: Vec<Candidate> = Vec::new();
 
-            let mut skip = false;
-
-            let mut j = i + 1;
-            while j < candidates.len() {
-                let candidate_b = &candidates[j];
+        for candidate_a in candidates.iter().filter(|&c| self.is_relevant(rcvr_ty, c)) {
+            // Skip this one if we already have one like it
+            if !relevant_candidates.iter().any(|candidate_b| {
                 debug!("attempting to merge {} and {}",
                        candidate_a.repr(self.tcx()),
                        candidate_b.repr(self.tcx()));
-                let candidates_same = match (&candidate_a.origin,
-                                             &candidate_b.origin) {
+                match (&candidate_a.origin, &candidate_b.origin) {
                     (&MethodParam(ref p1), &MethodParam(ref p2)) => {
                         let same_trait = p1.trait_id == p2.trait_id;
                         let same_method = p1.method_num == p2.method_num;
@@ -1096,25 +1084,13 @@ impl<'a> LookupContext<'a> {
                         same_trait && same_method && same_param
                     }
                     _ => false
-                };
-                if candidates_same {
-                    skip = true;
-                    break;
                 }
-                j += 1;
-            }
-
-            i += 1;
-
-            if skip {
-                // There are more than one of these and we need only one
-                continue;
-            } else {
-                merged.push(candidate_a.clone());
+            }) {
+                relevant_candidates.push(candidate_a.clone());
             }
         }
 
-        return merged;
+        relevant_candidates
     }
 
     fn confirm_candidate(&self, rcvr_ty: ty::t, candidate: &Candidate)
@@ -1236,9 +1212,10 @@ impl<'a> LookupContext<'a> {
                                 rcvr_ty, transformed_self_ty) {
             Ok(_) => {}
             Err(_) => {
-                self.bug(format!("{} was a subtype of {} but now is not?",
-                              self.ty_to_str(rcvr_ty),
-                              self.ty_to_str(transformed_self_ty)));
+                self.bug(format!(
+                        "{} was a subtype of {} but now is not?",
+                        self.ty_to_str(rcvr_ty),
+                        self.ty_to_str(transformed_self_ty)).as_slice());
             }
         }
 
@@ -1466,25 +1443,25 @@ impl<'a> LookupContext<'a> {
         self.tcx().sess.span_note(
             span,
             format!("candidate \\#{} is `{}`",
-                 idx+1u,
-                 ty::item_path_str(self.tcx(), did)));
+                    idx + 1u,
+                    ty::item_path_str(self.tcx(), did)).as_slice());
     }
 
     fn report_param_candidate(&self, idx: uint, did: DefId) {
         self.tcx().sess.span_note(
             self.span,
             format!("candidate \\#{} derives from the bound `{}`",
-                 idx+1u,
-                 ty::item_path_str(self.tcx(), did)));
+                    idx + 1u,
+                    ty::item_path_str(self.tcx(), did)).as_slice());
     }
 
     fn report_trait_candidate(&self, idx: uint, did: DefId) {
         self.tcx().sess.span_note(
             self.span,
             format!("candidate \\#{} derives from the type of the receiver, \
-                  which is the trait `{}`",
-                 idx+1u,
-                 ty::item_path_str(self.tcx(), did)));
+                     which is the trait `{}`",
+                    idx + 1u,
+                    ty::item_path_str(self.tcx(), did)).as_slice());
     }
 
     fn infcx(&'a self) -> &'a infer::InferCtxt<'a> {
@@ -1495,11 +1472,11 @@ impl<'a> LookupContext<'a> {
         self.fcx.tcx()
     }
 
-    fn ty_to_str(&self, t: ty::t) -> StrBuf {
+    fn ty_to_str(&self, t: ty::t) -> String {
         self.fcx.infcx().ty_to_str(t)
     }
 
-    fn did_to_str(&self, did: DefId) -> StrBuf {
+    fn did_to_str(&self, did: DefId) -> String {
         ty::item_path_str(self.tcx(), did)
     }
 
@@ -1509,24 +1486,24 @@ impl<'a> LookupContext<'a> {
 }
 
 impl Repr for Candidate {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
-        format_strbuf!("Candidate(rcvr_ty={}, rcvr_substs={}, method_ty={}, \
-                        origin={:?})",
-                       self.rcvr_match_condition.repr(tcx),
-                       self.rcvr_substs.repr(tcx),
-                       self.method_ty.repr(tcx),
-                       self.origin)
+    fn repr(&self, tcx: &ty::ctxt) -> String {
+        format!("Candidate(rcvr_ty={}, rcvr_substs={}, method_ty={}, \
+                 origin={:?})",
+                self.rcvr_match_condition.repr(tcx),
+                self.rcvr_substs.repr(tcx),
+                self.method_ty.repr(tcx),
+                self.origin)
     }
 }
 
 impl Repr for RcvrMatchCondition {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+    fn repr(&self, tcx: &ty::ctxt) -> String {
         match *self {
             RcvrMatchesIfObject(d) => {
-                format_strbuf!("RcvrMatchesIfObject({})", d.repr(tcx))
+                format!("RcvrMatchesIfObject({})", d.repr(tcx))
             }
             RcvrMatchesIfSubtype(t) => {
-                format_strbuf!("RcvrMatchesIfSubtype({})", t.repr(tcx))
+                format!("RcvrMatchesIfSubtype({})", t.repr(tcx))
             }
         }
     }

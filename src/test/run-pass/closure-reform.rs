@@ -14,8 +14,8 @@
 use std::mem;
 use std::io::stdio::println;
 
-fn call_it(f: proc(StrBuf) -> StrBuf) {
-    println!("{}", f("Fred".to_strbuf()))
+fn call_it(f: proc(String) -> String) {
+    println!("{}", f("Fred".to_string()))
 }
 
 fn call_a_thunk(f: ||) {
@@ -48,17 +48,17 @@ fn call_bare_again(f: extern "Rust" fn(&str)) {
 pub fn main() {
     // Procs
 
-    let greeting = "Hello ".to_strbuf();
+    let greeting = "Hello ".to_string();
     call_it(proc(s) {
-        format_strbuf!("{}{}", greeting, s)
+        format!("{}{}", greeting, s)
     });
 
-    let greeting = "Goodbye ".to_strbuf();
-    call_it(proc(s) format_strbuf!("{}{}", greeting, s));
+    let greeting = "Goodbye ".to_string();
+    call_it(proc(s) format!("{}{}", greeting, s));
 
-    let greeting = "How's life, ".to_strbuf();
-    call_it(proc(s: StrBuf) -> StrBuf {
-        format_strbuf!("{}{}", greeting, s)
+    let greeting = "How's life, ".to_string();
+    call_it(proc(s: String) -> String {
+        format!("{}{}", greeting, s)
     });
 
     // Closures

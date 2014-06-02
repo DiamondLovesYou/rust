@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -77,8 +77,8 @@ pub fn parse_crate_attrs_from_file(
     inner
 }
 
-pub fn parse_crate_from_source_str(name: StrBuf,
-                                   source: StrBuf,
+pub fn parse_crate_from_source_str(name: String,
+                                   source: String,
                                    cfg: ast::CrateConfig,
                                    sess: &ParseSess)
                                    -> ast::Crate {
@@ -89,8 +89,8 @@ pub fn parse_crate_from_source_str(name: StrBuf,
     maybe_aborted(p.parse_crate_mod(),p)
 }
 
-pub fn parse_crate_attrs_from_source_str(name: StrBuf,
-                                         source: StrBuf,
+pub fn parse_crate_attrs_from_source_str(name: String,
+                                         source: String,
                                          cfg: ast::CrateConfig,
                                          sess: &ParseSess)
                                          -> Vec<ast::Attribute> {
@@ -102,8 +102,8 @@ pub fn parse_crate_attrs_from_source_str(name: StrBuf,
     inner
 }
 
-pub fn parse_expr_from_source_str(name: StrBuf,
-                                  source: StrBuf,
+pub fn parse_expr_from_source_str(name: String,
+                                  source: String,
                                   cfg: ast::CrateConfig,
                                   sess: &ParseSess)
                                   -> @ast::Expr {
@@ -111,8 +111,8 @@ pub fn parse_expr_from_source_str(name: StrBuf,
     maybe_aborted(p.parse_expr(), p)
 }
 
-pub fn parse_item_from_source_str(name: StrBuf,
-                                  source: StrBuf,
+pub fn parse_item_from_source_str(name: String,
+                                  source: String,
                                   cfg: ast::CrateConfig,
                                   sess: &ParseSess)
                                   -> Option<@ast::Item> {
@@ -121,8 +121,8 @@ pub fn parse_item_from_source_str(name: StrBuf,
     maybe_aborted(p.parse_item(attrs),p)
 }
 
-pub fn parse_meta_from_source_str(name: StrBuf,
-                                  source: StrBuf,
+pub fn parse_meta_from_source_str(name: String,
+                                  source: String,
                                   cfg: ast::CrateConfig,
                                   sess: &ParseSess)
                                   -> @ast::MetaItem {
@@ -130,8 +130,8 @@ pub fn parse_meta_from_source_str(name: StrBuf,
     maybe_aborted(p.parse_meta_item(),p)
 }
 
-pub fn parse_stmt_from_source_str(name: StrBuf,
-                                  source: StrBuf,
+pub fn parse_stmt_from_source_str(name: String,
+                                  source: String,
                                   cfg: ast::CrateConfig,
                                   attrs: Vec<ast::Attribute> ,
                                   sess: &ParseSess)
@@ -145,8 +145,8 @@ pub fn parse_stmt_from_source_str(name: StrBuf,
     maybe_aborted(p.parse_stmt(attrs),p)
 }
 
-pub fn parse_tts_from_source_str(name: StrBuf,
-                                 source: StrBuf,
+pub fn parse_tts_from_source_str(name: String,
+                                 source: String,
                                  cfg: ast::CrateConfig,
                                  sess: &ParseSess)
                                  -> Vec<ast::TokenTree> {
@@ -164,8 +164,8 @@ pub fn parse_tts_from_source_str(name: StrBuf,
 // Create a new parser from a source string
 pub fn new_parser_from_source_str<'a>(sess: &'a ParseSess,
                                       cfg: ast::CrateConfig,
-                                      name: StrBuf,
-                                      source: StrBuf)
+                                      name: String,
+                                      source: String)
                                       -> Parser<'a> {
     filemap_to_parser(sess, string_to_filemap(sess, source, name), cfg)
 }
@@ -185,7 +185,7 @@ pub fn new_sub_parser_from_file<'a>(sess: &'a ParseSess,
                                     cfg: ast::CrateConfig,
                                     path: &Path,
                                     owns_directory: bool,
-                                    module_name: Option<StrBuf>,
+                                    module_name: Option<String>,
                                     sp: Span) -> Parser<'a> {
     let mut p = filemap_to_parser(sess, file_to_filemap(sess, path, Some(sp)), cfg);
     p.owns_directory = owns_directory;
@@ -224,23 +224,27 @@ pub fn file_to_filemap(sess: &ParseSess, path: &Path, spanopt: Option<Span>)
     let bytes = match File::open(path).read_to_end() {
         Ok(bytes) => bytes,
         Err(e) => {
-            err(format!("couldn't read {}: {}", path.display(), e));
+            err(format!("couldn't read {}: {}",
+                        path.display(),
+                        e).as_slice());
             unreachable!()
         }
     };
     match str::from_utf8(bytes.as_slice()) {
         Some(s) => {
-            return string_to_filemap(sess, s.to_strbuf(),
-                                     path.as_str().unwrap().to_strbuf())
+            return string_to_filemap(sess, s.to_string(),
+                                     path.as_str().unwrap().to_string())
         }
-        None => err(format!("{} is not UTF-8 encoded", path.display())),
+        None => {
+            err(format!("{} is not UTF-8 encoded", path.display()).as_slice())
+        }
     }
     unreachable!()
 }
 
 // given a session and a string, add the string to
 // the session's codemap and return the new filemap
-pub fn string_to_filemap(sess: &ParseSess, source: StrBuf, path: StrBuf)
+pub fn string_to_filemap(sess: &ParseSess, source: String, path: String)
                          -> Rc<FileMap> {
     sess.span_diagnostic.cm.new_filemap(path, source)
 }
@@ -252,7 +256,7 @@ pub fn filemap_to_tts(sess: &ParseSess, filemap: Rc<FileMap>)
     // parsing tt's probably shouldn't require a parser at all.
     let cfg = Vec::new();
     let srdr = lexer::new_string_reader(&sess.span_diagnostic, filemap);
-    let mut p1 = Parser(sess, cfg, box srdr);
+    let mut p1 = Parser::new(sess, cfg, box srdr);
     p1.parse_all_token_trees()
 }
 
@@ -261,7 +265,7 @@ pub fn tts_to_parser<'a>(sess: &'a ParseSess,
                          tts: Vec<ast::TokenTree>,
                          cfg: ast::CrateConfig) -> Parser<'a> {
     let trdr = lexer::new_tt_reader(&sess.span_diagnostic, None, tts);
-    Parser(sess, cfg, box trdr)
+    Parser::new(sess, cfg, box trdr)
 }
 
 // abort if necessary
@@ -289,11 +293,11 @@ mod test {
     use util::parser_testing::{string_to_expr, string_to_item};
     use util::parser_testing::string_to_stmt;
 
-    fn to_json_str<'a, E: Encodable<json::Encoder<'a>, io::IoError>>(val: &E) -> StrBuf {
+    fn to_json_str<'a, E: Encodable<json::Encoder<'a>, io::IoError>>(val: &E) -> String {
         let mut writer = MemWriter::new();
         let mut encoder = json::Encoder::new(&mut writer as &mut io::Writer);
         let _ = val.encode(&mut encoder);
-        str::from_utf8(writer.unwrap().as_slice()).unwrap().to_strbuf()
+        str::from_utf8(writer.unwrap().as_slice()).unwrap().to_string()
     }
 
     // produce a codemap::span
@@ -302,7 +306,7 @@ mod test {
     }
 
     #[test] fn path_exprs_1() {
-        assert!(string_to_expr("a".to_strbuf()) ==
+        assert!(string_to_expr("a".to_string()) ==
                    @ast::Expr{
                     id: ast::DUMMY_NODE_ID,
                     node: ast::ExprPath(ast::Path {
@@ -321,7 +325,7 @@ mod test {
     }
 
     #[test] fn path_exprs_2 () {
-        assert!(string_to_expr("::a::b".to_strbuf()) ==
+        assert!(string_to_expr("::a::b".to_string()) ==
                    @ast::Expr {
                     id: ast::DUMMY_NODE_ID,
                     node: ast::ExprPath(ast::Path {
@@ -346,12 +350,12 @@ mod test {
 
     #[should_fail]
     #[test] fn bad_path_expr_1() {
-        string_to_expr("::abc::def::return".to_strbuf());
+        string_to_expr("::abc::def::return".to_string());
     }
 
     // check the token-tree-ization of macros
     #[test] fn string_to_tts_macro () {
-        let tts = string_to_tts("macro_rules! zip (($a)=>($a))".to_strbuf());
+        let tts = string_to_tts("macro_rules! zip (($a)=>($a))".to_string());
         let tts: &[ast::TokenTree] = tts.as_slice();
         match tts {
             [ast::TTTok(_,_),
@@ -404,7 +408,7 @@ mod test {
     }
 
     #[test] fn string_to_tts_1 () {
-        let tts = string_to_tts("fn a (b : int) { b; }".to_strbuf());
+        let tts = string_to_tts("fn a (b : int) { b; }".to_string());
         assert_eq!(to_json_str(&tts),
         "[\
     {\
@@ -528,12 +532,12 @@ mod test {
             ]\
         ]\
     }\
-]".to_strbuf()
+]".to_string()
         );
     }
 
     #[test] fn ret_expr() {
-        assert!(string_to_expr("return d".to_strbuf()) ==
+        assert!(string_to_expr("return d".to_string()) ==
                    @ast::Expr{
                     id: ast::DUMMY_NODE_ID,
                     node:ast::ExprRet(Some(@ast::Expr{
@@ -556,7 +560,7 @@ mod test {
     }
 
     #[test] fn parse_stmt_1 () {
-        assert!(string_to_stmt("b;".to_strbuf()) ==
+        assert!(string_to_stmt("b;".to_string()) ==
                    @Spanned{
                        node: ast::StmtExpr(@ast::Expr {
                            id: ast::DUMMY_NODE_ID,
@@ -583,7 +587,7 @@ mod test {
 
     #[test] fn parse_ident_pat () {
         let sess = new_parse_sess();
-        let mut parser = string_to_parser(&sess, "b".to_strbuf());
+        let mut parser = string_to_parser(&sess, "b".to_string());
         assert!(parser.parse_pat() ==
                    @ast::Pat{id: ast::DUMMY_NODE_ID,
                              node: ast::PatIdent(
@@ -607,7 +611,7 @@ mod test {
     // check the contents of the tt manually:
     #[test] fn parse_fundecl () {
         // this test depends on the intern order of "fn" and "int"
-        assert!(string_to_item("fn a (b : int) { b; }".to_strbuf()) ==
+        assert!(string_to_item("fn a (b : int) { b; }".to_string()) ==
                   Some(
                       @ast::Item{ident:str_to_ident("a"),
                             attrs:Vec::new(),
@@ -699,13 +703,13 @@ mod test {
 
     #[test] fn parse_exprs () {
         // just make sure that they parse....
-        string_to_expr("3 + 4".to_strbuf());
-        string_to_expr("a::z.froob(b,@(987+3))".to_strbuf());
+        string_to_expr("3 + 4".to_string());
+        string_to_expr("a::z.froob(b,@(987+3))".to_string());
     }
 
     #[test] fn attrs_fix_bug () {
         string_to_item("pub fn mk_file_writer(path: &Path, flags: &[FileFlag])
-                   -> Result<@Writer, StrBuf> {
+                   -> Result<@Writer, String> {
     #[cfg(windows)]
     fn wb() -> c_int {
       (O_WRONLY | libc::consts::os::extra::O_BINARY) as c_int
@@ -715,7 +719,7 @@ mod test {
     fn wb() -> c_int { O_WRONLY as c_int }
 
     let mut fflags: c_int = wb();
-}".to_strbuf());
+}".to_string());
     }
 
 }

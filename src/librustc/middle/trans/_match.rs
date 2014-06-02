@@ -240,7 +240,7 @@ enum Lit {
     ConstLit(ast::DefId),              // the def ID of the constant
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum VecLenOpt {
     vec_len_eq,
     vec_len_ge(/* length of prefix */uint)
@@ -400,12 +400,12 @@ struct Match<'a, 'b> {
 }
 
 impl<'a, 'b> Repr for Match<'a, 'b> {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+    fn repr(&self, tcx: &ty::ctxt) -> String {
         if tcx.sess.verbose() {
             // for many programs, this just take too long to serialize
             self.pats.repr(tcx)
         } else {
-            format_strbuf!("{} pats", self.pats.len())
+            format!("{} pats", self.pats.len())
         }
     }
 }
@@ -462,7 +462,7 @@ fn assert_is_binding_or_wild(bcx: &Block, p: @ast::Pat) {
         bcx.sess().span_bug(
             p.span,
             format!("expected an identifier pattern but found p: {}",
-                 p.repr(bcx.tcx())));
+                    p.repr(bcx.tcx())).as_slice());
     }
 }
 
@@ -810,6 +810,9 @@ fn enter_tuple_struct<'a, 'b>(
             ast::PatEnum(_, Some(ref elts)) => {
                 Some(elts.iter().map(|x| (*x)).collect())
             }
+            ast::PatEnum(_, None) => {
+                Some(Vec::from_elem(n_elts, dummy))
+            }
             _ => {
                 assert_is_binding_or_wild(bcx, p);
                 Some(Vec::from_elem(n_elts, dummy))
@@ -835,7 +838,7 @@ fn enter_uniq<'a, 'b>(
     let dummy = @ast::Pat {id: 0, node: ast::PatWild, span: DUMMY_SP};
     enter_match(bcx, dm, m, col, val, |p| {
         match p.node {
-            ast::PatUniq(sub) => {
+            ast::PatBox(sub) => {
                 Some(vec!(sub))
             }
             _ => {
@@ -994,7 +997,7 @@ fn match_datum(bcx: &Block,
      */
 
     let ty = node_id_type(bcx, pat_id);
-    Datum(val, ty, Lvalue)
+    Datum::new(val, ty, Lvalue)
 }
 
 
@@ -1102,7 +1105,7 @@ macro_rules! any_pat (
 )
 
 fn any_uniq_pat(m: &[Match], col: uint) -> bool {
-    any_pat!(m, ast::PatUniq(_))
+    any_pat!(m, ast::PatBox(_))
 }
 
 fn any_region_pat(m: &[Match], col: uint) -> bool {
@@ -1117,7 +1120,7 @@ fn any_tuple_struct_pat(bcx: &Block, m: &[Match], col: uint) -> bool {
     m.iter().any(|br| {
         let pat = *br.pats.get(col);
         match pat.node {
-            ast::PatEnum(_, Some(_)) => {
+            ast::PatEnum(_, _) => {
                 match bcx.tcx().def_map.borrow().find(&pat.id) {
                     Some(&ast::DefFn(..)) |
                     Some(&ast::DefStruct(..)) => true,
@@ -1212,7 +1215,7 @@ fn pick_col(m: &[Match]) -> uint {
     return best_col;
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum branch_kind { no_branch, single, switch, compare, compare_vec_len, }
 
 // Compiles a comparison between two things.
@@ -1229,8 +1232,10 @@ fn compare_values<'a>(
                        rhs: ValueRef,
                        rhs_t: ty::t)
                        -> Result<'a> {
-        let did = langcall(cx, None,
-                           format!("comparison of `{}`", cx.ty_to_str(rhs_t)),
+        let did = langcall(cx,
+                           None,
+                           format!("comparison of `{}`",
+                                   cx.ty_to_str(rhs_t)).as_slice(),
                            StrEqFnLangItem);
         let result = callee::trans_lang_call(cx, did, [lhs, rhs], None);
         Result {
@@ -1252,8 +1257,10 @@ fn compare_values<'a>(
                 Store(cx, lhs, scratch_lhs);
                 let scratch_rhs = alloca(cx, val_ty(rhs), "__rhs");
                 Store(cx, rhs, scratch_rhs);
-                let did = langcall(cx, None,
-                                   format!("comparison of `{}`", cx.ty_to_str(rhs_t)),
+                let did = langcall(cx,
+                                   None,
+                                   format!("comparison of `{}`",
+                                           cx.ty_to_str(rhs_t)).as_slice(),
                                    UniqStrEqFnLangItem);
                 let result = callee::trans_lang_call(cx, did, [scratch_lhs, scratch_rhs], None);
                 Result {
@@ -1290,7 +1297,7 @@ fn store_non_ref_bindings<'a>(
         match binding_info.trmode {
             TrByValue(lldest) => {
                 let llval = Load(bcx, binding_info.llmatch); // get a T*
-                let datum = Datum(llval, binding_info.ty, Lvalue);
+                let datum = Datum::new(llval, binding_info.ty, Lvalue);
                 bcx = datum.store_to(bcx, lldest);
 
                 match opt_cleanup_scope {
@@ -1327,7 +1334,7 @@ fn insert_lllocals<'a>(bcx: &'a Block<'a>,
             TrByRef => binding_info.llmatch
         };
 
-        let datum = Datum(llval, binding_info.ty, Lvalue);
+        let datum = Datum::new(llval, binding_info.ty, Lvalue);
         fcx.schedule_drop_mem(cleanup_scope, llval, binding_info.ty);
 
         debug!("binding {:?} to {}",
@@ -2074,7 +2081,7 @@ pub fn store_arg<'a>(mut bcx: &'a Block<'a>,
                 // we emit extra-debug-info, which requires local allocas :(.
                 let arg_val = arg.add_clean(bcx.fcx, arg_scope);
                 bcx.fcx.llargs.borrow_mut()
-                   .insert(pat.id, Datum(arg_val, arg_ty, Lvalue));
+                   .insert(pat.id, Datum::new(arg_val, arg_ty, Lvalue));
                 bcx
             } else {
                 mk_binding_alloca(
@@ -2115,7 +2122,7 @@ fn mk_binding_alloca<'a,A>(bcx: &'a Block<'a>,
 
     // Now that memory is initialized and has cleanup scheduled,
     // create the datum and insert into the local variable map.
-    let datum = Datum(llval, var_ty, Lvalue);
+    let datum = Datum::new(llval, var_ty, Lvalue);
     let mut llmap = match binding_mode {
         BindLocal => bcx.fcx.lllocals.borrow_mut(),
         BindArgument => bcx.fcx.llargs.borrow_mut()
@@ -2154,7 +2161,7 @@ fn bind_irrefutable_pat<'a>(
 
     if bcx.sess().asm_comments() {
         add_comment(bcx, format!("bind_irrefutable_pat(pat={})",
-                              pat.repr(bcx.tcx())));
+                                 pat.repr(bcx.tcx())).as_slice());
     }
 
     let _indenter = indenter();
@@ -2176,7 +2183,7 @@ fn bind_irrefutable_pat<'a>(
                             ast::BindByValue(_) => {
                                 // By value binding: move the value that `val`
                                 // points at into the binding's stack slot.
-                                let d = Datum(val, ty, Lvalue);
+                                let d = Datum::new(val, ty, Lvalue);
                                 d.store_to(bcx, llval)
                             }
 
@@ -2263,7 +2270,7 @@ fn bind_irrefutable_pat<'a>(
                                            binding_mode, cleanup_scope);
             }
         }
-        ast::PatUniq(inner) => {
+        ast::PatBox(inner) => {
             let llbox = Load(bcx, val);
             bcx = bind_irrefutable_pat(bcx, inner, llbox, binding_mode, cleanup_scope);
         }
@@ -2273,7 +2280,10 @@ fn bind_irrefutable_pat<'a>(
         }
         ast::PatVec(..) => {
             bcx.sess().span_bug(pat.span,
-                format!("vector patterns are never irrefutable!"));
+                                "vector patterns are never irrefutable!");
+        }
+        ast::PatMac(..) => {
+            bcx.sess().span_bug(pat.span, "unexpanded macro");
         }
         ast::PatWild | ast::PatWildMulti | ast::PatLit(_) | ast::PatRange(_, _) => ()
     }

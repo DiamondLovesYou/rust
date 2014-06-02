@@ -15,10 +15,10 @@
 
 struct foo {
   i: int,
-  j: @StrBuf,
+  j: @String,
 }
 
-fn foo(i:int, j: @StrBuf) -> foo {
+fn foo(i:int, j: @String) -> foo {
     foo {
         i: i,
         j: j
@@ -26,7 +26,7 @@ fn foo(i:int, j: @StrBuf) -> foo {
 }
 
 fn main() {
-  let cat = "kitty".to_strbuf();
+  let cat = "kitty".to_string();
   let (tx, _) = channel(); //~ ERROR does not fulfill `Send`
   tx.send(foo(42, @(cat))); //~ ERROR does not fulfill `Send`
 }

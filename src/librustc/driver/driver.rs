@@ -118,14 +118,14 @@ pub fn compile_input(sess: Session,
  * The name used for source code that doesn't originate in a file
  * (e.g. source from stdin or a string)
  */
-pub fn anon_src() -> StrBuf {
-    "<anon>".to_strbuf()
+pub fn anon_src() -> String {
+    "<anon>".to_string()
 }
 
-pub fn source_name(input: &Input) -> StrBuf {
+pub fn source_name(input: &Input) -> String {
     match *input {
         // FIXME (#9639): This needs to handle non-utf8 paths
-        FileInput(ref ifile) => ifile.as_str().unwrap().to_strbuf(),
+        FileInput(ref ifile) => ifile.as_str().unwrap().to_string(),
         StrInput(_) => anon_src()
     }
 }
@@ -134,14 +134,14 @@ pub enum Input {
     /// Load source from file
     FileInput(Path),
     /// The string is the source
-    StrInput(StrBuf)
+    StrInput(String)
 }
 
 impl Input {
-    fn filestem(&self) -> StrBuf {
+    fn filestem(&self) -> String {
         match *self {
-            FileInput(ref ifile) => ifile.filestem_str().unwrap().to_strbuf(),
-            StrInput(_) => "rust_out".to_strbuf(),
+            FileInput(ref ifile) => ifile.filestem_str().unwrap().to_string(),
+            StrInput(_) => "rust_out".to_string(),
         }
     }
 }
@@ -155,8 +155,8 @@ pub fn phase_1_parse_input(sess: &Session, cfg: ast::CrateConfig, input: &Input)
                 parse::parse_crate_from_file(&(*file), cfg.clone(), &sess.parse_sess)
             }
             StrInput(ref src) => {
-                parse::parse_crate_from_source_str(anon_src().to_strbuf(),
-                                                   src.to_strbuf(),
+                parse::parse_crate_from_source_str(anon_src().to_string(),
+                                                   src.to_string(),
                                                    cfg.clone(),
                                                    &sess.parse_sess)
             }
@@ -373,7 +373,7 @@ pub struct CrateTranslation {
     pub metadata_module: ModuleRef,
     pub link: LinkMeta,
     pub metadata: Vec<u8>,
-    pub reachable: Vec<StrBuf>,
+    pub reachable: Vec<String>,
     pub crate_formats: dependency_format::Dependencies,
     pub no_builtins: bool,
 }
@@ -510,9 +510,9 @@ fn write_out_deps(sess: &Session,
     let result = (|| {
         // Build a list of files used to compile the output and
         // write Makefile-compatible dependency rules
-        let files: Vec<StrBuf> = sess.codemap().files.borrow()
+        let files: Vec<String> = sess.codemap().files.borrow()
                                    .iter().filter(|fmap| fmap.is_real_file())
-                                   .map(|fmap| fmap.name.to_strbuf())
+                                   .map(|fmap| fmap.name.to_string())
                                    .collect();
         let mut file = try!(io::File::create(&deps_filename));
         for path in out_filenames.iter() {
@@ -526,7 +526,7 @@ fn write_out_deps(sess: &Session,
         Ok(()) => {}
         Err(e) => {
             sess.fatal(format!("error writing dependencies to `{}`: {}",
-                               deps_filename.display(), e));
+                               deps_filename.display(), e).as_slice());
         }
     }
 }
@@ -548,20 +548,20 @@ impl pprust::PpAnn for IdentifiedAnnotation {
         match node {
             pprust::NodeItem(item) => {
                 try!(pp::space(&mut s.s));
-                s.synth_comment(item.id.to_str().to_strbuf())
+                s.synth_comment(item.id.to_str().to_string())
             }
             pprust::NodeBlock(blk) => {
                 try!(pp::space(&mut s.s));
-                s.synth_comment((format!("block {}", blk.id)).to_strbuf())
+                s.synth_comment((format!("block {}", blk.id)).to_string())
             }
             pprust::NodeExpr(expr) => {
                 try!(pp::space(&mut s.s));
-                try!(s.synth_comment(expr.id.to_str().to_strbuf()));
+                try!(s.synth_comment(expr.id.to_str().to_string()));
                 s.pclose()
             }
             pprust::NodePat(pat) => {
                 try!(pp::space(&mut s.s));
-                s.synth_comment((format!("pat {}", pat.id)).to_strbuf())
+                s.synth_comment((format!("pat {}", pat.id)).to_string())
             }
         }
     }
@@ -644,7 +644,7 @@ pub fn pretty_print_input(sess: Session,
             pprust::print_crate(sess.codemap(),
                                 sess.diagnostic(),
                                 &krate,
-                                src_name.to_strbuf(),
+                                src_name.to_string(),
                                 &mut rdr,
                                 out,
                                 &IdentifiedAnnotation,
@@ -659,7 +659,7 @@ pub fn pretty_print_input(sess: Session,
             pprust::print_crate(annotation.analysis.ty_cx.sess.codemap(),
                                 annotation.analysis.ty_cx.sess.diagnostic(),
                                 &krate,
-                                src_name.to_strbuf(),
+                                src_name.to_string(),
                                 &mut rdr,
                                 out,
                                 &annotation,
@@ -668,14 +668,14 @@ pub fn pretty_print_input(sess: Session,
         PpmFlowGraph(nodeid) => {
             let ast_map = ast_map.expect("--pretty flowgraph missing ast_map");
             let node = ast_map.find(nodeid).unwrap_or_else(|| {
-                sess.fatal(format_strbuf!("--pretty flowgraph couldn't find id: {}",
-                                          nodeid).as_slice())
+                sess.fatal(format!("--pretty flowgraph couldn't find id: {}",
+                                   nodeid).as_slice())
             });
             let block = match node {
                 syntax::ast_map::NodeBlock(block) => block,
                 _ => {
-                    let message = format_strbuf!("--pretty=flowgraph needs block, got {:?}",
-                                                 node);
+                    let message = format!("--pretty=flowgraph needs block, got {:?}",
+                                          node);
 
                     // point to what was found, if there's an
                     // accessible span.
@@ -692,7 +692,7 @@ pub fn pretty_print_input(sess: Session,
             pprust::print_crate(sess.codemap(),
                                 sess.diagnostic(),
                                 &krate,
-                                src_name.to_strbuf(),
+                                src_name.to_string(),
                                 &mut rdr,
                                 out,
                                 &pprust::NoAnn,
@@ -709,7 +709,7 @@ fn print_flowgraph<W:io::Writer>(analysis: CrateAnalysis,
     let cfg = cfg::CFG::new(ty_cx, block);
     let lcfg = LabelledCFG { ast_map: &ty_cx.map,
                              cfg: &cfg,
-                             name: format!("block{}", block.id).to_strbuf(), };
+                             name: format!("block{}", block.id).to_string(), };
     debug!("cfg: {:?}", cfg);
     let r = dot::render(&lcfg, &mut out);
     return expand_err_details(r);
@@ -720,7 +720,8 @@ fn print_flowgraph<W:io::Writer>(analysis: CrateAnalysis,
             let m = "graphviz::render failed";
             io::IoError {
                 detail: Some(match orig_detail {
-                    None => m.into_owned(), Some(d) => format!("{}: {}", m, d)
+                    None => m.into_string(),
+                    Some(d) => format!("{}: {}", m, d)
                 }),
                 ..ioerr
             }
@@ -730,6 +731,45 @@ fn print_flowgraph<W:io::Writer>(analysis: CrateAnalysis,
 
 pub fn collect_crate_types(session: &Session,
                            attrs: &[ast::Attribute]) -> Vec<config::CrateType> {
+    // Unconditionally collect crate types from attributes to make them used
+    let attr_types: Vec<config::CrateType> = attrs.iter().filter_map(|a| {
+        if a.check_name("crate_type") {
+            match a.value_str() {
+                Some(ref n) if n.equiv(&("rlib")) => {
+                    Some(config::CrateTypeRlib)
+                }
+                Some(ref n) if n.equiv(&("dylib")) => {
+                    Some(config::CrateTypeDylib)
+                }
+                Some(ref n) if n.equiv(&("lib")) => {
+                    Some(config::default_lib_output())
+                }
+                Some(ref n) if n.equiv(&("staticlib")) => {
+                    Some(config::CrateTypeStaticlib)
+                }
+                Some(ref n) if n.equiv(&("bin")) => Some(config::CrateTypeExecutable),
+                Some(_) => {
+                    session.add_lint(lint::UnknownCrateType,
+                                     ast::CRATE_NODE_ID,
+                                     a.span,
+                                     "invalid `crate_type` \
+                                      value".to_string());
+                    None
+                }
+                _ => {
+                    session.add_lint(lint::UnknownCrateType,
+                                     ast::CRATE_NODE_ID,
+                                     a.span,
+                                     "`crate_type` requires a \
+                                      value".to_string());
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }).collect();
+
     // If we're generating a test executable, then ignore all other output
     // styles at all other locations
     if session.opts.test {
@@ -743,44 +783,7 @@ pub fn collect_crate_types(session: &Session,
     if base.len() > 0 {
         return base
     } else {
-        let iter = attrs.iter().filter_map(|a| {
-            if a.name().equiv(&("crate_type")) {
-                match a.value_str() {
-                    Some(ref n) if n.equiv(&("rlib")) => {
-                        Some(config::CrateTypeRlib)
-                    }
-                    Some(ref n) if n.equiv(&("dylib")) => {
-                        Some(config::CrateTypeDylib)
-                    }
-                    Some(ref n) if n.equiv(&("lib")) => {
-                        Some(config::default_lib_output())
-                    }
-                    Some(ref n) if n.equiv(&("staticlib")) => {
-                        Some(config::CrateTypeStaticlib)
-                    }
-                    Some(ref n) if n.equiv(&("bin")) => Some(config::CrateTypeExecutable),
-                    Some(_) => {
-                        session.add_lint(lint::UnknownCrateType,
-                                         ast::CRATE_NODE_ID,
-                                         a.span,
-                                         "invalid `crate_type` \
-                                          value".to_strbuf());
-                        None
-                    }
-                    _ => {
-                        session.add_lint(lint::UnknownCrateType,
-                                         ast::CRATE_NODE_ID,
-                                         a.span,
-                                         "`crate_type` requires a \
-                                          value".to_strbuf());
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        });
-        base.extend(iter);
+        base.extend(attr_types.move_iter());
         if base.len() == 0 {
             base.push(config::CrateTypeExecutable);
         }
@@ -792,7 +795,7 @@ pub fn collect_crate_types(session: &Session,
 
 pub struct OutputFilenames {
     pub out_directory: Path,
-    pub out_filestem: StrBuf,
+    pub out_filestem: String,
     pub single_output_file: Option<Path>,
 }
 
@@ -844,7 +847,7 @@ pub fn build_output_filenames(input: &Input,
             let crateid = attr::find_crateid(attrs);
             match crateid {
                 None => {}
-                Some(crateid) => stem = crateid.name.to_strbuf(),
+                Some(crateid) => stem = crateid.name.to_string(),
             }
             OutputFilenames {
                 out_directory: dirpath,
@@ -866,7 +869,7 @@ pub fn build_output_filenames(input: &Input,
             }
             OutputFilenames {
                 out_directory: out_file.dir_path(),
-                out_filestem: out_file.filestem_str().unwrap().to_strbuf(),
+                out_filestem: out_file.filestem_str().unwrap().to_string(),
                 single_output_file: ofile,
             }
         }

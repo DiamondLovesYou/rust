@@ -15,7 +15,7 @@
 
 #![allow(missing_doc)]
 
-use std::iter::{Enumerate, FilterMap, Rev};
+use std::iter::{Enumerate, FilterMap};
 use std::mem::replace;
 use std::{vec, slice};
 
@@ -142,16 +142,6 @@ impl<V> SmallIntMap<V> {
         }
     }
 
-    #[deprecated = "replaced by .iter().rev()"]
-    pub fn rev_iter<'r>(&'r self) -> Rev<Entries<'r, V>> {
-        self.iter().rev()
-    }
-
-    #[deprecated = "replaced by .mut_iter().rev()"]
-    pub fn mut_rev_iter<'r>(&'r mut self) -> Rev<MutEntries<'r, V>> {
-        self.mut_iter().rev()
-    }
-
     /// Empties the hash map, moving all values into the specified closure
     pub fn move_iter(&mut self)
         -> FilterMap<(uint, Option<V>), (uint, V),
@@ -243,8 +233,6 @@ pub struct Entries<'a, T> {
 
 iterator!(impl Entries -> (uint, &'a T), get_ref)
 double_ended_iterator!(impl Entries -> (uint, &'a T), get_ref)
-#[deprecated = "replaced by Rev<Entries<'a, T>>"]
-pub type RevEntries<'a, T> = Rev<Entries<'a, T>>;
 
 pub struct MutEntries<'a, T> {
     front: uint,
@@ -254,8 +242,6 @@ pub struct MutEntries<'a, T> {
 
 iterator!(impl MutEntries -> (uint, &'a mut T), get_mut_ref)
 double_ended_iterator!(impl MutEntries -> (uint, &'a mut T), get_mut_ref)
-#[deprecated = "replaced by Rev<MutEntries<'a, T>"]
-pub type RevMutEntries<'a, T> = Rev<MutEntries<'a, T>>;
 
 #[cfg(test)]
 mod test_map {
@@ -310,20 +296,20 @@ mod test_map {
 
         // given a new key, initialize it with this new count,
         // given an existing key, add more to its count
-        fn addMoreToCount(_k: uint, v0: uint, v1: uint) -> uint {
+        fn add_more_to_count(_k: uint, v0: uint, v1: uint) -> uint {
             v0 + v1
         }
 
-        fn addMoreToCount_simple(v0: uint, v1: uint) -> uint {
+        fn add_more_to_count_simple(v0: uint, v1: uint) -> uint {
             v0 + v1
         }
 
         // count integers
-        map.update(3, 1, addMoreToCount_simple);
-        map.update_with_key(9, 1, addMoreToCount);
-        map.update(3, 7, addMoreToCount_simple);
-        map.update_with_key(5, 3, addMoreToCount);
-        map.update_with_key(3, 2, addMoreToCount);
+        map.update(3, 1, add_more_to_count_simple);
+        map.update_with_key(9, 1, add_more_to_count);
+        map.update(3, 7, add_more_to_count_simple);
+        map.update_with_key(5, 3, add_more_to_count);
+        map.update_with_key(3, 2, add_more_to_count);
 
         // check the total counts
         assert_eq!(map.find(&3).unwrap(), &10);

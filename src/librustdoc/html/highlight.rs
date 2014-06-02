@@ -25,19 +25,19 @@ use html::escape::Escape;
 use t = syntax::parse::token;
 
 /// Highlights some source code, returning the HTML output.
-pub fn highlight(src: &str, class: Option<&str>) -> StrBuf {
+pub fn highlight(src: &str, class: Option<&str>) -> String {
     debug!("highlighting: ================\n{}\n==============", src);
     let sess = parse::new_parse_sess();
     let fm = parse::string_to_filemap(&sess,
-                                      src.to_strbuf(),
-                                      "<stdin>".to_strbuf());
+                                      src.to_string(),
+                                      "<stdin>".to_string());
 
     let mut out = io::MemWriter::new();
     doit(&sess,
          lexer::new_string_reader(&sess.span_diagnostic, fm),
          class,
          &mut out).unwrap();
-    str::from_utf8_lossy(out.unwrap().as_slice()).to_strbuf()
+    str::from_utf8_lossy(out.unwrap().as_slice()).to_string()
 }
 
 /// Exhausts the `lexer` writing the output into `out`.
@@ -102,7 +102,7 @@ fn doit(sess: &parse::ParseSess, mut lexer: lexer::StringReader, class: Option<&
 
             // miscellaneous, no highlighting
             t::DOT | t::DOTDOT | t::DOTDOTDOT | t::COMMA | t::SEMI |
-                t::COLON | t::MOD_SEP | t::LARROW | t::DARROW | t::LPAREN |
+                t::COLON | t::MOD_SEP | t::LARROW | t::LPAREN |
                 t::RPAREN | t::LBRACKET | t::LBRACE | t::RBRACE => "",
             t::DOLLAR => {
                 if t::is_ident(&lexer.peek().tok) {

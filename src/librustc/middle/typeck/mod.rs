@@ -84,7 +84,7 @@ pub mod collect;
 pub mod coherence;
 pub mod variance;
 
-#[deriving(Clone, Encodable, Decodable, Eq, Ord)]
+#[deriving(Clone, Encodable, Decodable, PartialEq, PartialOrd)]
 pub enum param_index {
     param_numbered(uint),
     param_self
@@ -147,7 +147,7 @@ pub struct MethodCallee {
     pub substs: ty::substs
 }
 
-#[deriving(Clone, Eq, TotalEq, Hash, Show)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub struct MethodCall {
     pub expr_id: ast::NodeId,
     pub autoderef: u32
@@ -198,18 +198,18 @@ pub enum vtable_origin {
 }
 
 impl Repr for vtable_origin {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+    fn repr(&self, tcx: &ty::ctxt) -> String {
         match *self {
             vtable_static(def_id, ref tys, ref vtable_res) => {
-                format_strbuf!("vtable_static({:?}:{}, {}, {})",
-                               def_id,
-                               ty::item_path_str(tcx, def_id),
-                               tys.repr(tcx),
-                               vtable_res.repr(tcx))
+                format!("vtable_static({:?}:{}, {}, {})",
+                        def_id,
+                        ty::item_path_str(tcx, def_id),
+                        tys.repr(tcx),
+                        vtable_res.repr(tcx))
             }
 
             vtable_param(x, y) => {
-                format_strbuf!("vtable_param({:?}, {:?})", x, y)
+                format!("vtable_param({:?}, {:?})", x, y)
             }
         }
     }
@@ -230,10 +230,10 @@ pub struct impl_res {
 }
 
 impl Repr for impl_res {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
-        format_strbuf!("impl_res \\{trait_vtables={}, self_vtables={}\\}",
-                       self.trait_vtables.repr(tcx),
-                       self.self_vtables.repr(tcx))
+    fn repr(&self, tcx: &ty::ctxt) -> String {
+        format!("impl_res \\{trait_vtables={}, self_vtables={}\\}",
+                self.trait_vtables.repr(tcx),
+                self.self_vtables.repr(tcx))
     }
 }
 
@@ -293,7 +293,7 @@ pub fn require_same_types(tcx: &ty::ctxt,
                           span: Span,
                           t1: ty::t,
                           t2: ty::t,
-                          msg: || -> StrBuf)
+                          msg: || -> String)
                           -> bool {
     let result = match maybe_infcx {
         None => {
@@ -311,7 +311,8 @@ pub fn require_same_types(tcx: &ty::ctxt,
             tcx.sess.span_err(span,
                               format!("{}: {}",
                                       msg(),
-                                      ty::type_err_to_str(tcx, terr)));
+                                      ty::type_err_to_str(tcx,
+                                                          terr)).as_slice());
             ty::note_and_explain_type_err(tcx, terr);
             false
         }
@@ -353,14 +354,16 @@ fn check_main_fn_ty(ccx: &CrateCtxt,
 
             require_same_types(tcx, None, false, main_span, main_t, se_ty,
                 || {
-                    format_strbuf!("main function expects type: `{}`",
-                                   ppaux::ty_to_str(ccx.tcx, se_ty))
+                    format!("main function expects type: `{}`",
+                            ppaux::ty_to_str(ccx.tcx, se_ty))
                 });
         }
         _ => {
             tcx.sess.span_bug(main_span,
-                              format!("main has a non-function type: found `{}`",
-                                   ppaux::ty_to_str(tcx, main_t)));
+                              format!("main has a non-function type: found \
+                                       `{}`",
+                                      ppaux::ty_to_str(tcx,
+                                                       main_t)).as_slice());
         }
     }
 }
@@ -404,15 +407,17 @@ fn check_start_fn_ty(ccx: &CrateCtxt,
 
             require_same_types(tcx, None, false, start_span, start_t, se_ty,
                 || {
-                    format_strbuf!("start function expects type: `{}`",
-                                   ppaux::ty_to_str(ccx.tcx, se_ty))
+                    format!("start function expects type: `{}`",
+                            ppaux::ty_to_str(ccx.tcx, se_ty))
                 });
 
         }
         _ => {
             tcx.sess.span_bug(start_span,
-                              format!("start has a non-function type: found `{}`",
-                                   ppaux::ty_to_str(tcx, start_t)));
+                              format!("start has a non-function type: found \
+                                       `{}`",
+                                      ppaux::ty_to_str(tcx,
+                                                       start_t)).as_slice());
         }
     }
 }

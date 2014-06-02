@@ -73,13 +73,13 @@ pub struct VecTypes {
 }
 
 impl VecTypes {
-    pub fn to_str(&self, ccx: &CrateContext) -> StrBuf {
-        format_strbuf!("VecTypes \\{unit_ty={}, llunit_ty={}, \
-                        llunit_size={}, llunit_alloc_size={}\\}",
-                       ty_to_str(ccx.tcx(), self.unit_ty),
-                       ccx.tn.type_to_str(self.llunit_ty),
-                       ccx.tn.val_to_str(self.llunit_size),
-                       self.llunit_alloc_size)
+    pub fn to_str(&self, ccx: &CrateContext) -> String {
+        format!("VecTypes \\{unit_ty={}, llunit_ty={}, \
+                 llunit_size={}, llunit_alloc_size={}\\}",
+                ty_to_str(ccx.tcx(), self.unit_ty),
+                ccx.tn.type_to_str(self.llunit_ty),
+                ccx.tn.val_to_str(self.llunit_size),
+                self.llunit_alloc_size)
     }
 }
 
@@ -228,7 +228,7 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
                              content_expr: &ast::Expr)
                              -> DatumBlock<'a, Expr> {
     /*!
-     * ~[...] and "...".to_owned() allocate boxes in the exchange heap and write
+     * ~[...] and "...".to_string() allocate boxes in the exchange heap and write
      * the array elements into them.
      */
 
@@ -236,7 +236,7 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
     let fcx = bcx.fcx;
     let ccx = fcx.ccx;
 
-    // Handle "".to_owned().
+    // Handle "".to_string().
     match content_expr.node {
         ast::ExprLit(lit) => {
             match lit.node {
@@ -257,7 +257,7 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
                         alloc_fn,
                         [ llptrval, llsizeval ],
                         Some(expr::SaveIn(lldestval.val))).bcx;
-                    return DatumBlock(bcx, lldestval).to_expr_datumblock();
+                    return DatumBlock::new(bcx, lldestval).to_expr_datumblock();
                 }
                 _ => {}
             }
@@ -287,8 +287,11 @@ pub fn trans_uniq_vstore<'a>(bcx: &'a Block<'a>,
     // Create a temporary scope lest execution should fail while
     // constructing the vector.
     let temp_scope = fcx.push_custom_cleanup_scope();
+
+    // FIXME: #13994: the old `Box<[T]> will not support sized deallocation, this is a placeholder
+    let content_ty = vt.unit_ty;
     fcx.schedule_free_value(cleanup::CustomScope(temp_scope),
-                            val, cleanup::HeapExchange);
+                            val, cleanup::HeapExchange, content_ty);
 
     let dataptr = get_dataptr(bcx, val);
 

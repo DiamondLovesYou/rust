@@ -57,13 +57,24 @@ they don't contain references to names that aren't actually defined.
 
 # Getting started
 
-> *Warning:* The tarball and installer links are for the most recent
-> release, not master. To use master, you **must** build from [git].
+There are two ways to install the Rust compiler: by building from source or
+by downloading prebuilt binaries or installers for your platform. The
+[install page][rust-install] contains links to download binaries for both
+the nightly build and the most current Rust major release. For Windows and
+OS X, the install page provides links to native installers.
 
-The Rust compiler currently must be built from a [tarball] or [git], unless
-you are on Windows, in which case using the [installer][win-exe] is
-recommended. There is a list of community-maintained nightly builds and
-packages [on the wiki][wiki-packages].
+> *Note:* Windows users should read the detailed
+> [Getting started][wiki-start] notes on the wiki. Even when using
+> the binary installer, the Windows build requires a MinGW installation,
+> the precise details of which are not discussed here.
+
+For Linux and OS X, the install page provides links to binary tarballs.
+To install the Rust compiler from the from a binary tarball, download
+the binary package, extract it, and execute the `install.sh` script in
+the root directory of the package.
+
+To build the Rust compiler from source, you will need to obtain the source through
+[Git][git] or by downloading the source package from the [install page][rust-install].
 
 Since the Rust compiler is written in Rust, it must be built by
 a precompiled "snapshot" version of itself (made in an earlier state
@@ -79,13 +90,9 @@ Snapshot binaries are currently built and tested on several platforms:
 You may find that other platforms work, but these are our "tier 1"
 supported build environments that are most likely to work.
 
-> *Note:* Windows users should read the detailed
-> [Getting started][wiki-start] notes on the wiki. Even when using
-> the binary installer, the Windows build requires a MinGW installation,
-> the precise details of which are not discussed here.
-
 [wiki-start]: https://github.com/mozilla/rust/wiki/Note-getting-started-developing-Rust
 [git]: https://github.com/mozilla/rust.git
+[rust-install]: http://www.rust-lang.org/install.html
 
 To build from source you will also need the following prerequisite
 packages:
@@ -382,7 +389,7 @@ let y: uint = x as uint;
 assert!(y == 4u);
 ~~~~
 
-[transmute]: http://static.rust-lang.org/doc/master/std/cast/fn.transmute.html
+[transmute]: http://doc.rust-lang.org/std/mem/fn.transmute.html
 
 ## Syntax extensions
 
@@ -398,18 +405,24 @@ will often see in examples, and its related family of macros: `print!`,
 that [printf][pf] has. Unlike printf, `format!` will give you a compile-time
 error when the types of the directives don't match the types of the arguments.
 
-~~~~
-# let mystery_object = ();
-
+~~~
 // `{}` will print the "default format" of a type
 println!("{} is {}", "the answer", 43);
+~~~
 
-// `{:?}` will conveniently print any type
+~~~~
+extern crate debug;
+
+# fn main() {
+# let mystery_object = ();
+// `{:?}` will conveniently print any type,
+// but requires the `debug` crate to be linked in
 println!("what is this thing: {:?}", mystery_object);
+# }
 ~~~~
 
 [pf]: http://en.cppreference.com/w/cpp/io/c/fprintf
-[fmt]: http://static.rust-lang.org/doc/master/std/fmt/index.html
+[fmt]: http://doc.rust-lang.org/std/fmt/
 
 You can define your own syntax extensions with the macro system. For details,
 see the [macro tutorial][macros]. Note that macro definition is currently
@@ -691,8 +704,8 @@ When an enum has simple integer discriminators, you can apply the `as` cast
 operator to convert a variant to its discriminator value as an `int`:
 
 ~~~~
-# enum Direction { North }
-println!( "{:?} => {}", North, North as int );
+# #[deriving(Show)] enum Direction { North }
+println!( "{} => {}", North, North as int );
 ~~~~
 
 It is possible to set the discriminator values to chosen constant values:
@@ -959,8 +972,8 @@ that are `Send`, but non-`Send` types can still *contain* types with custom
 destructors. Example of types which are not `Send` are [`Gc<T>`][gc] and
 [`Rc<T>`][rc], the shared-ownership types.
 
-[gc]: http://static.rust-lang.org/doc/master/std/gc/struct.Gc.html
-[rc]: http://static.rust-lang.org/doc/master/std/rc/struct.Rc.html
+[gc]: http://doc.rust-lang.org/std/gc/struct.Gc.html
+[rc]: http://doc.rust-lang.org/std/rc/struct.Rc.html
 
 # Implementing a linked list
 
@@ -1290,7 +1303,7 @@ be specified up-front. Our previous definition of list equality relied on the el
 the `==` operator available, and took advantage of the lack of a destructor on `u32` to copy it
 without a move of ownership.
 
-We can add a *trait bound* on the `Eq` trait to require that the type implement the `==` operator.
+We can add a *trait bound* on the `PartialEq` trait to require that the type implement the `==` operator.
 Two more `ref` annotations need to be added to avoid attempting to move out the element types:
 
 ~~~
@@ -1298,7 +1311,7 @@ Two more `ref` annotations need to be added to avoid attempting to move out the 
 #     Cons(T, Box<List<T>>),
 #     Nil
 # }
-fn eq<T: Eq>(xs: &List<T>, ys: &List<T>) -> bool {
+fn eq<T: PartialEq>(xs: &List<T>, ys: &List<T>) -> bool {
     // Match on the next node in both lists.
     match (xs, ys) {
         // If we have reached the end of both lists, they are equal.
@@ -1316,8 +1329,8 @@ let ys = Cons('c', box Cons('a', box Cons('t', box Nil)));
 assert!(eq(&xs, &ys));
 ~~~
 
-This would be a good opportunity to implement the `Eq` trait for our list type, making the `==` and
-`!=` operators available. We'll need to provide an `impl` for the `Eq` trait and a definition of the
+This would be a good opportunity to implement the `PartialEq` trait for our list type, making the `==` and
+`!=` operators available. We'll need to provide an `impl` for the `PartialEq` trait and a definition of the
 `eq` method. In a method, the `self` parameter refers to an instance of the type we're implementing
 on.
 
@@ -1326,7 +1339,7 @@ on.
 #     Cons(T, Box<List<T>>),
 #     Nil
 # }
-impl<T: Eq> Eq for List<T> {
+impl<T: PartialEq> PartialEq for List<T> {
     fn eq(&self, ys: &List<T>) -> bool {
         // Match on the next node in both lists.
         match (self, ys) {
@@ -1343,12 +1356,12 @@ impl<T: Eq> Eq for List<T> {
 
 let xs = Cons(5, box Cons(10, box Nil));
 let ys = Cons(5, box Cons(10, box Nil));
-// The methods below are part of the Eq trait,
+// The methods below are part of the PartialEq trait,
 // which we implemented on our linked list.
 assert!(xs.eq(&ys));
 assert!(!xs.ne(&ys));
 
-// The Eq trait also allows us to use the shorthand infix operators.
+// The PartialEq trait also allows us to use the shorthand infix operators.
 assert!(xs == ys);    // `xs == ys` is short for `xs.eq(&ys)`
 assert!(!(xs != ys)); // `xs != ys` is short for `xs.ne(&ys)`
 ~~~
@@ -1416,7 +1429,7 @@ contains a point, but allocated in a different location:
 ~~~
 # struct Point { x: f64, y: f64 }
 let on_the_stack :     Point  =     Point { x: 3.0, y: 4.0 };
-let owned_box    : Box<Point> = box Point { x: 7.0, y: 9.0 };
+let on_the_heap  : Box<Point> = box Point { x: 7.0, y: 9.0 };
 ~~~
 
 Suppose we want to write a procedure that computes the distance
@@ -1441,9 +1454,9 @@ Now we can call `compute_distance()` in various ways:
 ~~~
 # struct Point{ x: f64, y: f64 };
 # let on_the_stack :     Point  =     Point { x: 3.0, y: 4.0 };
-# let owned_box    : Box<Point> = box Point { x: 7.0, y: 9.0 };
+# let on_the_heap  : Box<Point> = box Point { x: 7.0, y: 9.0 };
 # fn compute_distance(p1: &Point, p2: &Point) -> f64 { 0.0 }
-compute_distance(&on_the_stack, owned_box);
+compute_distance(&on_the_stack, on_the_heap);
 ~~~
 
 Here the `&` operator is used to take the address of the variable
@@ -1486,7 +1499,7 @@ let mut x = 5;
 # x = 3;
 ~~~~
 
-[refcell]: http://static.rust-lang.org/doc/master/std/cell/struct.RefCell.html
+[refcell]: http://doc.rust-lang.org/std/cell/struct.RefCell.html
 
 # Dereferencing pointers
 
@@ -1581,7 +1594,7 @@ allocated memory on the heap. A unique vector owns the elements it contains, so
 the elements are mutable if the vector is mutable.
 
 ~~~
-use std::strbuf::StrBuf;
+use std::string::String;
 
 // A dynamically sized vector (unique vector)
 let mut numbers = vec![1, 2, 3];
@@ -1593,7 +1606,7 @@ let more_numbers: Vec<int> = numbers.move_iter().map(|i| i+1).collect();
 
 // The original `numbers` value can no longer be used, due to move semantics.
 
-let mut string = StrBuf::from_str("fo");
+let mut string = String::from_str("fo");
 string.push_char('o');
 ~~~
 
@@ -1710,7 +1723,7 @@ it's possible to use *dynamic* mutability via types like `std::cell::Cell` where
 via dynamic checks and can fail at runtime.
 
 The `Rc` and `Gc` types are not sendable, so they cannot be used to share memory between tasks. Safe
-immutable and mutable shared memory is provided by the `extra::arc` module.
+immutable and mutable shared memory is provided by the `sync::arc` module.
 
 # Closures
 
@@ -2049,7 +2062,7 @@ extern crate collections;
 type Set<T> = collections::HashMap<T, ()>;
 
 struct Stack<T> {
-    elements: ~[T]
+    elements: Vec<T>
 }
 
 enum Option<T> {
@@ -2213,7 +2226,7 @@ don't provide any methods.
 Traits may be implemented for specific types with [impls]. An impl for
 a particular trait gives an implementation of the methods that
 trait provides.  For instance, the following impls of
-`Printable` for `int` and `StrBuf` give implementations of the `print`
+`Printable` for `int` and `String` give implementations of the `print`
 method.
 
 [impls]: #methods
@@ -2221,15 +2234,15 @@ method.
 ~~~~
 # trait Printable { fn print(&self); }
 impl Printable for int {
-    fn print(&self) { println!("{:?}", *self) }
+    fn print(&self) { println!("{}", *self) }
 }
 
-impl Printable for StrBuf {
+impl Printable for String {
     fn print(&self) { println!("{}", *self) }
 }
 
 # 1.print();
-# ("foo".to_strbuf()).print();
+# ("foo".to_string()).print();
 ~~~~
 
 Methods defined in an impl for a trait may be called just like
@@ -2246,11 +2259,11 @@ types to be exactly as it is for `int`, above:
 ~~~~
 # trait Printable { fn print(&self); }
 impl Printable for f32 {
-    fn print(&self) { println!("{:?}", *self) }
+    fn print(&self) { println!("{}", *self) }
 }
 
 impl Printable for bool {
-    fn print(&self) { println!("{:?}", *self) }
+    fn print(&self) { println!("{}", *self) }
 }
 
 # true.print();
@@ -2263,14 +2276,17 @@ definition of `print` right in the trait definition, instead of just
 giving its signature.  That is, we can write the following:
 
 ~~~~
+extern crate debug;
+
+# fn main() {
 trait Printable {
-	// Default method implementation
+    // Default method implementation
     fn print(&self) { println!("{:?}", *self) }
 }
 
 impl Printable for int {}
 
-impl Printable for StrBuf {
+impl Printable for String {
     fn print(&self) { println!("{}", *self) }
 }
 
@@ -2279,9 +2295,10 @@ impl Printable for bool {}
 impl Printable for f32 {}
 
 # 1.print();
-# ("foo".to_strbuf()).print();
+# ("foo".to_string()).print();
 # true.print();
 # 3.14159.print();
+# }
 ~~~~
 
 Here, the impls of `Printable` for `int`, `bool`, and `f32` don't
@@ -2291,7 +2308,7 @@ provided in the trait definition.  Depending on the trait, default
 methods can save a great deal of boilerplate code from having to be
 written in impls.  Of course, individual impls can still override the
 default method for `print`, as is being done above in the impl for
-`StrBuf`.
+`String`.
 
 ## Type-parameterized traits
 
@@ -2303,7 +2320,7 @@ trait Seq<T> {
     fn length(&self) -> uint;
 }
 
-impl<T> Seq<T> for ~[T] {
+impl<T> Seq<T> for Vec<T> {
     fn length(&self) -> uint { self.len() }
 }
 ~~~~
@@ -2328,12 +2345,12 @@ trait describes types that support an equality operation:
 ~~~~
 // In a trait, `self` refers to the self argument.
 // `Self` refers to the type implementing the trait.
-trait Eq {
+trait PartialEq {
     fn equals(&self, other: &Self) -> bool;
 }
 
 // In an impl, `self` refers just to the value of the receiver
-impl Eq for int {
+impl PartialEq for int {
     fn equals(&self, other: &int) -> bool { *other == *self }
 }
 ~~~~
@@ -2375,7 +2392,7 @@ generic types.
 
 ~~~~
 # trait Printable { fn print(&self); }
-fn print_all<T: Printable>(printable_things: ~[T]) {
+fn print_all<T: Printable>(printable_things: Vec<T>) {
     for thing in printable_things.iter() {
         thing.print();
     }
@@ -2393,10 +2410,10 @@ as in this version of `print_all` that copies elements.
 
 ~~~
 # trait Printable { fn print(&self); }
-fn print_all<T: Printable + Clone>(printable_things: ~[T]) {
+fn print_all<T: Printable + Clone>(printable_things: Vec<T>) {
     let mut i = 0;
     while i < printable_things.len() {
-        let copy_of_thing = printable_things[i].clone();
+        let copy_of_thing = printable_things.get(i).clone();
         copy_of_thing.print();
         i += 1;
     }
@@ -2421,11 +2438,11 @@ However, consider this function:
 # fn new_circle() -> int { 1 }
 trait Drawable { fn draw(&self); }
 
-fn draw_all<T: Drawable>(shapes: ~[T]) {
+fn draw_all<T: Drawable>(shapes: Vec<T>) {
     for shape in shapes.iter() { shape.draw(); }
 }
 # let c: Circle = new_circle();
-# draw_all(~[c]);
+# draw_all(vec![c]);
 ~~~~
 
 You can call that on a vector of circles, or a vector of rectangles
@@ -2583,13 +2600,13 @@ A small number of traits in `std` and `extra` can have implementations
 that can be automatically derived. These instances are specified by
 placing the `deriving` attribute on a data type declaration. For
 example, the following will mean that `Circle` has an implementation
-for `Eq` and can be used with the equality operators, and that a value
+for `PartialEq` and can be used with the equality operators, and that a value
 of type `ABC` can be randomly generated and converted to a string:
 
 ~~~
 extern crate rand;
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 struct Circle { radius: f64 }
 
 #[deriving(Rand, Show)]
@@ -2601,7 +2618,7 @@ fn main() {
 }
 ~~~
 
-The full list of derivable traits is `Eq`, `TotalEq`, `Ord`,
+The full list of derivable traits is `PartialEq`, `TotalEq`, `Ord`,
 `TotalOrd`, `Encodable`, `Decodable`, `Clone`,
 `Hash`, `Rand`, `Default`, `Zero`, `FromPrimitive` and `Show`.
 
@@ -2725,9 +2742,9 @@ mod farm {
 # pub type Chicken = int;
 # struct Human(int);
 # impl Human { pub fn rest(&self) { } }
-# pub fn make_me_a_farm() -> Farm { Farm { chickens: ~[], farmer: Human(0) } }
+# pub fn make_me_a_farm() -> Farm { Farm { chickens: vec![], farmer: Human(0) } }
     pub struct Farm {
-        chickens: ~[Chicken],
+        chickens: Vec<Chicken>,
         pub farmer: Human
     }
 
@@ -3166,6 +3183,7 @@ without conflict.
 Therefore, if you plan to compile your crate as a library, you should annotate it with that information:
 
 ~~~~
+# #![allow(unused_attribute)]
 // `lib.rs`
 
 # #![crate_type = "lib"]
@@ -3189,6 +3207,7 @@ Other crate settings and metadata include things like enabling/disabling certain
 or setting the crate type (library or executable) explicitly:
 
 ~~~~
+# #![allow(unused_attribute)]
 // `lib.rs`
 // ...
 
@@ -3208,6 +3227,7 @@ Now for something that you can actually compile yourself.
 We define two crates, and use one of them as a library in the other.
 
 ~~~~
+# #![allow(unused_attribute)]
 // `world.rs`
 #![crate_id = "world#0.42"]
 
@@ -3282,11 +3302,13 @@ fn main() {
 Both auto-insertions can be disabled with an attribute if necessary:
 
 ~~~
+# #![allow(unused_attribute)]
 // In the crate root:
 #![no_std]
 ~~~
 
 ~~~
+# #![allow(unused_attribute)]
 // In any module:
 #![no_implicit_prelude]
 ~~~

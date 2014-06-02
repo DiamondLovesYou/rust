@@ -46,7 +46,7 @@ fn main() {
     } else if args.len() <= 1u {
         8
     } else {
-        from_str(args[1]).unwrap()
+        from_str(args[1].as_slice()).unwrap()
     };
     let min_depth = 4;
     let max_depth = if min_depth + 2 > n {min_depth + 2} else {n};
@@ -74,10 +74,10 @@ fn main() {
                     let b = bottom_up_tree(&arena, -i, depth);
                     chk += item_check(a) + item_check(b);
                 }
-                format_strbuf!("{}\t trees of depth {}\t check: {}",
-                               iterations * 2, depth, chk)
+                format!("{}\t trees of depth {}\t check: {}",
+                        iterations * 2, depth, chk)
             })
-        }).collect::<Vec<Future<StrBuf>>>();
+        }).collect::<Vec<Future<String>>>();
 
     for message in messages.mut_iter() {
         println!("{}", *message.get_ref());

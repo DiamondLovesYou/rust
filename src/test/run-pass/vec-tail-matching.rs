@@ -10,21 +10,21 @@
 
 
 struct Foo {
-    string: StrBuf
+    string: String
 }
 
 pub fn main() {
     let x = [
-        Foo { string: "foo".to_strbuf() },
-        Foo { string: "bar".to_strbuf() },
-        Foo { string: "baz".to_strbuf() }
+        Foo { string: "foo".to_string() },
+        Foo { string: "bar".to_string() },
+        Foo { string: "baz".to_string() }
     ];
     match x {
         [ref first, ..tail] => {
-            assert!(first.string == "foo".to_strbuf());
+            assert!(first.string == "foo".to_string());
             assert_eq!(tail.len(), 2);
-            assert!(tail[0].string == "bar".to_strbuf());
-            assert!(tail[1].string == "baz".to_strbuf());
+            assert!(tail[0].string == "bar".to_string());
+            assert!(tail[1].string == "baz".to_string());
 
             match tail {
                 [Foo { .. }, _, Foo { .. }, .. _tail] => {

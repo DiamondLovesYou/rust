@@ -14,7 +14,7 @@ use std::io;
 use std::io::{Command, TempDir};
 use std::os;
 use std::str;
-use std::strbuf::StrBuf;
+use std::string::String;
 use std::unstable::dynamic_lib::DynamicLibrary;
 
 use collections::{HashSet, HashMap};
@@ -38,9 +38,9 @@ use passes;
 use visit_ast::RustdocVisitor;
 
 pub fn run(input: &str,
-           cfgs: Vec<StrBuf>,
+           cfgs: Vec<String>,
            libs: HashSet<Path>,
-           mut test_args: Vec<StrBuf>)
+           mut test_args: Vec<String>)
            -> int {
     let input_path = Path::new(input);
     let input = driver::FileInput(input_path.clone());
@@ -79,6 +79,10 @@ pub fn run(input: &str,
         maybe_typed: core::NotTyped(sess),
         src: input_path,
         external_paths: RefCell::new(Some(HashMap::new())),
+        external_traits: RefCell::new(None),
+        external_typarams: RefCell::new(None),
+        inlined: RefCell::new(None),
+        populated_crate_impls: RefCell::new(HashSet::new()),
     };
     super::ctxtkey.replace(Some(ctx));
 
@@ -88,13 +92,13 @@ pub fn run(input: &str,
     let (krate, _) = passes::unindent_comments(krate);
     let (krate, _) = passes::collapse_docs(krate);
 
-    let mut collector = Collector::new(krate.name.to_strbuf(),
+    let mut collector = Collector::new(krate.name.to_string(),
                                        libs,
                                        false,
                                        false);
     collector.fold_crate(krate);
 
-    test_args.unshift("rustdoctest".to_strbuf());
+    test_args.unshift("rustdoctest".to_string());
 
     testing::test_main(test_args.as_slice(),
                        collector.tests.move_iter().collect());
@@ -104,7 +108,7 @@ pub fn run(input: &str,
 fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
            no_run: bool, loose_feature_gating: bool) {
     let test = maketest(test, cratename, loose_feature_gating);
-    let input = driver::StrInput(test.to_strbuf());
+    let input = driver::StrInput(test.to_string());
 
     let sessopts = config::Options {
         maybe_sysroot: Some(os::self_exe_path().unwrap().dir_path()),
@@ -172,7 +176,7 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
 
         // Remove the previous dylib search path var
         let var = DynamicLibrary::envvar();
-        let mut env: Vec<(~str,~str)> = os::env().move_iter().collect();
+        let mut env: Vec<(String,String)> = os::env().move_iter().collect();
         match env.iter().position(|&(ref k, _)| k.as_slice() == var) {
             Some(i) => { env.remove(i); }
             None => {}
@@ -180,8 +184,8 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
 
         // Add the new dylib search path var
         let newpath = DynamicLibrary::create_path(path.as_slice());
-        env.push((var.to_owned(),
-                  str::from_utf8(newpath.as_slice()).unwrap().to_owned()));
+        env.push((var.to_string(),
+                  str::from_utf8(newpath.as_slice()).unwrap().to_string()));
         env
     };
     match Command::new(exe).env(env.as_slice()).output() {
@@ -200,8 +204,8 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
     }
 }
 
-fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> StrBuf {
-    let mut prog = StrBuf::from_str(r"
+fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> String {
+    let mut prog = String::from_str(r"
 #![deny(warnings)]
 #![allow(unused_variable, dead_assignment, unused_mut, attribute_usage, dead_code)]
 ");
@@ -214,7 +218,8 @@ fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> StrBuf {
 
     if !s.contains("extern crate") {
         if s.contains(cratename) {
-            prog.push_str(format!("extern crate {};\n", cratename));
+            prog.push_str(format!("extern crate {};\n",
+                                  cratename).as_slice());
         }
     }
     if s.contains("fn main") {
@@ -230,18 +235,18 @@ fn maketest(s: &str, cratename: &str, loose_feature_gating: bool) -> StrBuf {
 
 pub struct Collector {
     pub tests: Vec<testing::TestDescAndFn>,
-    names: Vec<StrBuf>,
+    names: Vec<String>,
     libs: HashSet<Path>,
     cnt: uint,
     use_headers: bool,
-    current_header: Option<StrBuf>,
-    cratename: StrBuf,
+    current_header: Option<String>,
+    cratename: String,
 
     loose_feature_gating: bool
 }
 
 impl Collector {
-    pub fn new(cratename: StrBuf, libs: HashSet<Path>,
+    pub fn new(cratename: String, libs: HashSet<Path>,
                use_headers: bool, loose_feature_gating: bool) -> Collector {
         Collector {
             tests: Vec::new(),
@@ -256,16 +261,16 @@ impl Collector {
         }
     }
 
-    pub fn add_test(&mut self, test: StrBuf, should_fail: bool, no_run: bool, should_ignore: bool) {
+    pub fn add_test(&mut self, test: String, should_fail: bool, no_run: bool, should_ignore: bool) {
         let name = if self.use_headers {
             let s = self.current_header.as_ref().map(|s| s.as_slice()).unwrap_or("");
-            format_strbuf!("{}_{}", s, self.cnt)
+            format!("{}_{}", s, self.cnt)
         } else {
-            format_strbuf!("{}_{}", self.names.connect("::"), self.cnt)
+            format!("{}_{}", self.names.connect("::"), self.cnt)
         };
         self.cnt += 1;
         let libs = self.libs.clone();
-        let cratename = self.cratename.to_owned();
+        let cratename = self.cratename.to_string();
         let loose_feature_gating = self.loose_feature_gating;
         debug!("Creating test {}: {}", name, test);
         self.tests.push(testing::TestDescAndFn {
@@ -276,7 +281,7 @@ impl Collector {
             },
             testfn: testing::DynTestFn(proc() {
                 runtest(test.as_slice(),
-                        cratename,
+                        cratename.as_slice(),
                         libs,
                         should_fail,
                         no_run,
@@ -296,7 +301,7 @@ impl Collector {
                     } else {
                         '_'
                     }
-                }).collect::<StrBuf>();
+                }).collect::<String>();
 
             // new header => reset count.
             self.cnt = 0;
@@ -309,7 +314,7 @@ impl DocFolder for Collector {
     fn fold_item(&mut self, item: clean::Item) -> Option<clean::Item> {
         let pushed = match item.name {
             Some(ref name) if name.len() == 0 => false,
-            Some(ref name) => { self.names.push(name.to_strbuf()); true }
+            Some(ref name) => { self.names.push(name.to_string()); true }
             None => false
         };
         match item.doc_value() {

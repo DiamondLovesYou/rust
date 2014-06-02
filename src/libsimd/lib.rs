@@ -52,14 +52,14 @@ impl<T: Simd<bool>> BoolSimd for T {
     #[inline] fn any_false(self) -> bool { self.any(false) }
 }
 #[allow(raw_pointer_deriving)]
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Eq, Clone)]
 pub struct Items<'a, ElemT> {
     vec: *ElemT,
     pos: uint,
     len: uint,
 }
 #[allow(raw_pointer_deriving)]
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Eq, Clone)]
 pub struct MutItems<'a, ElemT> {
     vec: *mut ElemT,
     pos: uint,

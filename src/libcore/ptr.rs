@@ -10,23 +10,18 @@
 
 // FIXME: talk about offset, copy_memory, copy_nonoverlapping_memory
 
-//! Conveniences for working with unsafe pointers, the `*T`, and `*mut T` types.
+//! Operations on unsafe pointers, `*T`, and `*mut T`.
 //!
-//! Working with unsafe pointers in Rust is fairly uncommon,
-//! and often limited to some narrow use cases: holding
-//! an unsafe pointer when safe pointers are unsuitable;
-//! checking for null; and converting back to safe pointers.
-//! As a result, there is not yet an abundance of library code
-//! for working with unsafe pointers, and in particular,
-//! since pointer math is fairly uncommon in Rust, it is not
-//! all that convenient.
+//! Working with unsafe pointers in Rust is uncommon,
+//! typically limited to a few patterns.
 //!
 //! Use the [`null` function](fn.null.html) to create null pointers,
 //! the [`is_null`](trait.RawPtr.html#tymethod.is_null)
 //! and [`is_not_null`](trait.RawPtr.html#method.is_not_null)
 //! methods of the [`RawPtr` trait](trait.RawPtr.html) to check for null.
 //! The `RawPtr` trait is imported by the prelude, so `is_null` etc.
-//! work everywhere.
+//! work everywhere. The `RawPtr` also defines the `offset` method,
+//! for pointer math.
 //!
 //! # Common ways to create unsafe pointers
 //!
@@ -98,7 +93,7 @@ use intrinsics;
 use iter::{range, Iterator};
 use option::{Some, None, Option};
 
-#[cfg(not(test))] use cmp::{Eq, TotalEq, Ord, Equiv};
+#[cfg(not(test))] use cmp::{PartialEq, Eq, PartialOrd, Equiv};
 
 /// Return the offset of the first null pointer in `buf`.
 #[inline]
@@ -201,7 +196,7 @@ pub unsafe fn copy_memory<T>(dst: *mut T, src: *T, count: uint) {
 /// fn swap<T>(x: &mut T, y: &mut T) {
 ///     unsafe {
 ///         // Give ourselves some scratch space to work with
-///         let mut t: T = mem::uninit();
+///         let mut t: T = mem::uninitialized();
 ///
 ///         // Perform the swap, `&mut` pointers never alias
 ///         ptr::copy_nonoverlapping_memory(&mut t, &*x, 1);
@@ -244,7 +239,7 @@ pub unsafe fn zero_memory<T>(dst: *mut T, count: uint) {
 #[inline]
 pub unsafe fn swap<T>(x: *mut T, y: *mut T) {
     // Give ourselves some scratch space to work with
-    let mut tmp: T = mem::uninit();
+    let mut tmp: T = mem::uninitialized();
     let t: *mut T = &mut tmp;
 
     // Perform the swap
@@ -268,7 +263,7 @@ pub unsafe fn replace<T>(dest: *mut T, mut src: T) -> T {
 /// Reads the value from `*src` and returns it.
 #[inline(always)]
 pub unsafe fn read<T>(src: *T) -> T {
-    let mut tmp: T = mem::uninit();
+    let mut tmp: T = mem::uninitialized();
     copy_nonoverlapping_memory(&mut tmp, src, 1);
     tmp
 }
@@ -316,7 +311,7 @@ pub unsafe fn array_each<T>(arr: **T, cb: |*T|) {
     array_each_with_len(arr, len, cb);
 }
 
-/// Extension methods for raw pointers.
+/// Methods on raw pointers
 pub trait RawPtr<T> {
     /// Returns the null pointer.
     fn null() -> Self;
@@ -391,7 +386,7 @@ impl<T> RawPtr<T> for *mut T {
 
 // Equality for pointers
 #[cfg(not(test))]
-impl<T> Eq for *T {
+impl<T> PartialEq for *T {
     #[inline]
     fn eq(&self, other: &*T) -> bool {
         *self == *other
@@ -401,10 +396,10 @@ impl<T> Eq for *T {
 }
 
 #[cfg(not(test))]
-impl<T> TotalEq for *T {}
+impl<T> Eq for *T {}
 
 #[cfg(not(test))]
-impl<T> Eq for *mut T {
+impl<T> PartialEq for *mut T {
     #[inline]
     fn eq(&self, other: &*mut T) -> bool {
         *self == *other
@@ -414,7 +409,7 @@ impl<T> Eq for *mut T {
 }
 
 #[cfg(not(test))]
-impl<T> TotalEq for *mut T {}
+impl<T> Eq for *mut T {}
 
 // Equivalence for pointers
 #[cfg(not(test))]
@@ -435,9 +430,9 @@ impl<T> Equiv<*T> for *mut T {
 #[cfg(not(test))]
 mod externfnpointers {
     use mem;
-    use cmp::Eq;
+    use cmp::PartialEq;
 
-    impl<_R> Eq for extern "C" fn() -> _R {
+    impl<_R> PartialEq for extern "C" fn() -> _R {
         #[inline]
         fn eq(&self, other: &extern "C" fn() -> _R) -> bool {
             let self_: *() = unsafe { mem::transmute(*self) };
@@ -447,7 +442,7 @@ mod externfnpointers {
     }
     macro_rules! fnptreq(
         ($($p:ident),*) => {
-            impl<_R,$($p),*> Eq for extern "C" fn($($p),*) -> _R {
+            impl<_R,$($p),*> PartialEq for extern "C" fn($($p),*) -> _R {
                 #[inline]
                 fn eq(&self, other: &extern "C" fn($($p),*) -> _R) -> bool {
                     let self_: *() = unsafe { mem::transmute(*self) };
@@ -466,13 +461,13 @@ mod externfnpointers {
 
 // Comparison for pointers
 #[cfg(not(test))]
-impl<T> Ord for *T {
+impl<T> PartialOrd for *T {
     #[inline]
     fn lt(&self, other: &*T) -> bool { *self < *other }
 }
 
 #[cfg(not(test))]
-impl<T> Ord for *mut T {
+impl<T> PartialOrd for *mut T {
     #[inline]
     fn lt(&self, other: &*mut T) -> bool { *self < *other }
 }
@@ -486,6 +481,7 @@ pub mod ptr_tests {
     use mem;
     use libc;
     use realstd::str;
+    use realstd::str::Str;
     use slice::{ImmutableVector, MutableVector};
 
     #[test]
@@ -660,7 +656,7 @@ pub mod ptr_tests {
                     let expected = expected_arr[ctr].with_ref(|buf| {
                             str::raw::from_c_str(buf)
                         });
-                    assert_eq!(actual, expected);
+                    assert_eq!(actual.as_slice(), expected.as_slice());
                     ctr += 1;
                     iteration_count += 1;
                 });
@@ -693,7 +689,7 @@ pub mod ptr_tests {
                     let expected = expected_arr[ctr].with_ref(|buf| {
                         str::raw::from_c_str(buf)
                     });
-                    assert_eq!(actual, expected);
+                    assert_eq!(actual.as_slice(), expected.as_slice());
                     ctr += 1;
                     iteration_count += 1;
                 });

@@ -18,6 +18,7 @@ extern crate log;
 extern crate libc;
 extern crate green;
 extern crate rustuv;
+extern crate debug;
 
 use std::io::net::tcp::{TcpListener, TcpStream};
 use std::io::{Acceptor, Listener};
@@ -64,7 +65,7 @@ fn main() {
         builder.spawn(proc() {
             let host = addr.ip.to_str();
             let port = addr.port;
-            match TcpStream::connect(host, port) {
+            match TcpStream::connect(host.as_slice(), port) {
                 Ok(stream) => {
                     let mut stream = stream;
                     stream.write([1]);

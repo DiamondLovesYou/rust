@@ -65,7 +65,7 @@ pub enum Os {
 
 pub struct CrateMismatch {
     path: Path,
-    got: StrBuf,
+    got: String,
 }
 
 pub struct Context<'a> {
@@ -96,7 +96,7 @@ pub struct ArchiveMetadata {
 }
 
 pub struct CratePaths {
-    pub ident: StrBuf,
+    pub ident: String,
     pub dylib: Option<Path>,
     pub rlib: Option<Path>
 }
@@ -141,15 +141,17 @@ pub fn report_load_errs(&mut self) {
             &Some(ref r) => format!("{} which `{}` depends on",
                                     message, r.ident)
         };
-        self.sess.span_err(self.span, message);
+        self.sess.span_err(self.span, message.as_slice());
 
         let mismatches = self.rejected_via_triple.iter();
         if self.rejected_via_triple.len() > 0 {
-            self.sess.span_note(self.span, format!("expected triple of {}", self.triple));
+            self.sess.span_note(self.span,
+                                format!("expected triple of {}",
+                                        self.triple).as_slice());
             for (i, &CrateMismatch{ ref path, ref got }) in mismatches.enumerate() {
                 self.sess.fileline_note(self.span,
                     format!("crate `{}` path \\#{}, triple {}: {}",
-                            self.ident, i+1, got, path.display()));
+                            self.ident, i+1, got, path.display()).as_slice());
             }
         }
         if self.rejected_via_hash.len() > 0 {
@@ -159,7 +161,7 @@ pub fn report_load_errs(&mut self) {
             for (i, &CrateMismatch{ ref path, .. }) in mismatches.enumerate() {
                 self.sess.fileline_note(self.span,
                     format!("crate `{}` path \\#{}: {}",
-                            self.ident, i+1, path.display()));
+                            self.ident, i+1, path.display()).as_slice());
             }
             match self.root {
                 &None => {}
@@ -167,7 +169,7 @@ pub fn report_load_errs(&mut self) {
                     for (i, path) in r.paths().iter().enumerate() {
                         self.sess.fileline_note(self.span,
                             format!("crate `{}` path \\#{}: {}",
-                                    r.ident, i+1, path.display()));
+                                    r.ident, i+1, path.display()).as_slice());
                     }
                 }
             }
@@ -202,9 +204,10 @@ fn find_library_crate(&mut self) -> Option<Library> {
                 None => return FileDoesntMatch,
                 Some(file) => file,
             };
-            if file.starts_with(rlib_prefix) && file.ends_with(".rlib") {
+            if file.starts_with(rlib_prefix.as_slice()) &&
+                    file.ends_with(".rlib") {
                 info!("rlib candidate: {}", path.display());
-                match self.try_match(file, rlib_prefix, ".rlib") {
+                match self.try_match(file, rlib_prefix.as_slice(), ".rlib") {
                     Some(hash) => {
                         info!("rlib accepted, hash: {}", hash);
                         let slot = candidates.find_or_insert_with(hash, |_| {
@@ -219,9 +222,12 @@ fn find_library_crate(&mut self) -> Option<Library> {
                         FileDoesntMatch
                     }
                 }
-            } else if file.starts_with(dylib_prefix) && file.ends_with(dysuffix){
+            } else if file.starts_with(dylib_prefix.as_slice()) &&
+                    file.ends_with(dysuffix){
                 info!("dylib candidate: {}", path.display());
-                match self.try_match(file, dylib_prefix, dysuffix) {
+                match self.try_match(file,
+                                     dylib_prefix.as_slice(),
+                                     dysuffix) {
                     Some(hash) => {
                         info!("dylib accepted, hash: {}", hash);
                         let slot = candidates.find_or_insert_with(hash, |_| {
@@ -275,18 +281,20 @@ fn find_library_crate(&mut self) -> Option<Library> {
             _ => {
                 self.sess.span_err(self.span,
                     format!("multiple matching crates for `{}`",
-                            self.crate_id.name));
+                            self.crate_id.name).as_slice());
                 self.sess.note("candidates:");
                 for lib in libraries.iter() {
                     match lib.dylib {
                         Some(ref p) => {
-                            self.sess.note(format!("path: {}", p.display()));
+                            self.sess.note(format!("path: {}",
+                                                   p.display()).as_slice());
                         }
                         None => {}
                     }
                     match lib.rlib {
                         Some(ref p) => {
-                            self.sess.note(format!("path: {}", p.display()));
+                            self.sess.note(format!("path: {}",
+                                                   p.display()).as_slice());
                         }
                         None => {}
                     }
@@ -309,7 +317,7 @@ fn find_library_crate(&mut self) -> Option<Library> {
     //
     // If everything checks out, then `Some(hash)` is returned where `hash` is
     // the listed hash in the filename itself.
-    fn try_match(&self, file: &str, prefix: &str, suffix: &str) -> Option<StrBuf>{
+    fn try_match(&self, file: &str, prefix: &str, suffix: &str) -> Option<String>{
         let middle = file.slice(prefix.len(), file.len() - suffix.len());
         debug!("matching -- {}, middle: {}", file, middle);
         let mut parts = middle.splitn('-', 1);
@@ -323,13 +331,13 @@ fn find_library_crate(&mut self) -> Option<Library> {
             Some(..) => {} // check the hash
 
             // hash is irrelevant, no version specified
-            None => return Some(hash.to_strbuf())
+            None => return Some(hash.to_string())
         }
         debug!("matching -- {}, vers ok", file);
         // hashes in filenames are prefixes of the "true hash"
         if self.id_hash == hash.as_slice() {
             debug!("matching -- {}, hash ok", file);
-            Some(hash.to_strbuf())
+            Some(hash.to_string())
         } else {
             None
         }
@@ -379,10 +387,13 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
             if ret.is_some() {
                 self.sess.span_err(self.span,
                                    format!("multiple {} candidates for `{}` \
-                                            found", flavor, self.crate_id.name));
+                                            found",
+                                           flavor,
+                                           self.crate_id.name).as_slice());
                 self.sess.span_note(self.span,
                                     format!(r"candidate \#1: {}",
-                                            ret.get_ref().display()));
+                                            ret.get_ref()
+                                               .display()).as_slice());
                 error = 1;
                 ret = None;
             }
@@ -390,7 +401,7 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
                 error += 1;
                 self.sess.span_note(self.span,
                                     format!(r"candidate \#{}: {}", error,
-                                            lib.display()));
+                                            lib.display()).as_slice());
                 continue
             }
             *slot = Some(metadata);
@@ -416,7 +427,7 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
             info!("Rejecting via crate triple: expected {} got {}", self.triple, triple);
             self.rejected_via_triple.push(CrateMismatch {
                 path: libpath.clone(),
-                got: triple.to_strbuf()
+                got: triple.to_string()
             });
             return false;
         }
@@ -428,7 +439,7 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
                     info!("Rejecting via hash: expected {} got {}", *myhash, hash);
                     self.rejected_via_hash.push(CrateMismatch {
                         path: libpath.clone(),
-                        got: myhash.as_str().to_strbuf()
+                        got: myhash.as_str().to_string()
                     });
                     false
                 } else {
@@ -455,7 +466,7 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
 }
 
 pub fn note_crateid_attr(diag: &SpanHandler, crateid: &CrateId) {
-    diag.handler().note(format!("crate_id: {}", crateid.to_str()));
+    diag.handler().note(format!("crate_id: {}", crateid.to_str()).as_slice());
 }
 
 impl ArchiveMetadata {
@@ -490,7 +501,7 @@ impl ArchiveMetadata {
 }
 
 // Just a small wrapper to time how long reading metadata takes.
-fn get_metadata_section(os: Os, filename: &Path) -> Result<MetadataBlob, StrBuf> {
+fn get_metadata_section(os: Os, filename: &Path) -> Result<MetadataBlob, String> {
     let start = time::precise_time_ns();
     let ret = get_metadata_section_imp(os, filename);
     info!("reading {} => {}ms", filename.filename_display(),
@@ -498,9 +509,9 @@ fn get_metadata_section(os: Os, filename: &Path) -> Result<MetadataBlob, StrBuf>
     return ret;
 }
 
-fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, StrBuf> {
+fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, String> {
     if !filename.exists() {
-        return Err(format_strbuf!("no such file: '{}'", filename.display()));
+        return Err(format!("no such file: '{}'", filename.display()));
     }
     if filename.filename_str().unwrap().ends_with(".rlib") {
         // Use ArchiveRO for speed here, it's backed by LLVM and uses mmap
@@ -510,16 +521,14 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, Str
             Some(ar) => ar,
             None => {
                 debug!("llvm didn't like `{}`", filename.display());
-                return Err(format_strbuf!("failed to read rlib metadata: \
-                                           '{}'",
-                                          filename.display()));
+                return Err(format!("failed to read rlib metadata: '{}'",
+                                   filename.display()));
             }
         };
         return match ArchiveMetadata::new(archive).map(|ar| MetadataArchive(ar)) {
             None => {
-                return Err((format_strbuf!("failed to read rlib metadata: \
-                                            '{}'",
-                                           filename.display())))
+                return Err((format!("failed to read rlib metadata: '{}'",
+                                    filename.display())))
             }
             Some(blob) => return Ok(blob)
         }
@@ -529,15 +538,14 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, Str
             llvm::LLVMRustCreateMemoryBufferWithContentsOfFile(buf)
         });
         if mb as int == 0 {
-            return Err(format_strbuf!("error reading library: '{}'",
-                                      filename.display()))
+            return Err(format!("error reading library: '{}'",
+                               filename.display()))
         }
         let of = match ObjectFile::new(mb) {
             Some(of) => of,
             _ => {
-                return Err((format_strbuf!("provided path not an object \
-                                            file: '{}'",
-                                           filename.display())))
+                return Err((format!("provided path not an object file: '{}'",
+                                    filename.display())))
             }
         };
         let si = mk_section_iter(of.llof);
@@ -546,12 +554,11 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, Str
             let name_len = llvm::LLVMRustGetSectionName(si.llsi, &mut name_buf);
             let name = str::raw::from_buf_len(name_buf as *u8, name_len as uint);
             debug!("get_metadata_section: name {}", name);
-            if read_meta_section_name(os) == name {
+            if read_meta_section_name(os).as_slice() == name.as_slice() {
                 let cbuf = llvm::LLVMGetSectionContents(si.llsi);
                 let csz = llvm::LLVMGetSectionSize(si.llsi) as uint;
                 let mut found =
-                    Err(format_strbuf!("metadata not found: '{}'",
-                                       filename.display()));
+                    Err(format!("metadata not found: '{}'", filename.display()));
                 let cvbuf: *u8 = mem::transmute(cbuf);
                 let vlen = encoder::metadata_encoding_version.len();
                 debug!("checking {} bytes of metadata-version stamp",
@@ -560,8 +567,7 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, Str
                 let version_ok = slice::raw::buf_as_slice(cvbuf, minsz,
                     |buf0| buf0 == encoder::metadata_encoding_version);
                 if !version_ok {
-                    return Err((format_strbuf!("incompatible metadata \
-                                                version found: '{}'",
+                    return Err((format!("incompatible metadata version found: '{}'",
                                         filename.display())));
                 }
 
@@ -573,9 +579,9 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, Str
                         Some(inflated) => found = Ok(MetadataVec(inflated)),
                         None => {
                             found =
-                                Err(format_strbuf!("failed to decompress \
-                                                    metadata for: '{}'",
-                                                   filename.display()))
+                                Err(format!("failed to decompress \
+                                             metadata for: '{}'",
+                                            filename.display()))
                         }
                     }
                 });
@@ -585,8 +591,7 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, Str
             }
             llvm::LLVMMoveToNextSection(si.llsi);
         }
-        return Err(format_strbuf!("metadata not found: '{}'",
-                                  filename.display()));
+        return Err(format!("metadata not found: '{}'", filename.display()));
     }
 }
 

@@ -13,11 +13,12 @@
 // clobber the previous node ID in a macro expr
 
 extern crate collections;
+extern crate debug;
 
 use collections::HashMap;
 
-fn add_interfaces(managed_ip: StrBuf, device: HashMap<StrBuf, int>)  {
-     println!("{}, {:?}", managed_ip, device.get(&"interfaces".to_strbuf()));
+fn add_interfaces(managed_ip: String, device: HashMap<String, int>)  {
+     println!("{}, {:?}", managed_ip, device.get(&"interfaces".to_string()));
 }
 
 pub fn main() {}

@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -309,7 +309,7 @@ pub fn trans_intrinsic(ccx: &CrateContext,
             let mode = appropriate_rvalue_mode(ccx, tp_ty);
             let src = Datum {val: get_param(decl, first_real_arg + 1u),
                              ty: tp_ty,
-                             kind: Rvalue(mode)};
+                             kind: Rvalue::new(mode)};
             bcx = src.store_to(bcx, get_param(decl, first_real_arg));
             RetVoid(bcx);
         }
@@ -396,7 +396,7 @@ pub fn trans_intrinsic(ccx: &CrateContext,
                             intype = ty_to_str(ccx.tcx(), in_type),
                             insize = in_type_size as uint,
                             outtype = ty_to_str(ccx.tcx(), out_type),
-                            outsize = out_type_size as uint));
+                            outsize = out_type_size as uint).as_slice());
             }
 
             if !return_type_is_void(ccx, out_type) {

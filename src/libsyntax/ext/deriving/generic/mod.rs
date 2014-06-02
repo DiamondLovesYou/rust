@@ -24,11 +24,11 @@ Supported features (fairly exhaustive):
   current trait as a bound. (This includes separate type parameters
   and lifetimes for methods.)
 - Additional bounds on the type parameters, e.g. the `Ord` instance
-  requires an explicit `Eq` bound at the
+  requires an explicit `PartialEq` bound at the
   moment. (`TraitDef.additional_bounds`)
 
 Unsupported: FIXME #6257: calling methods on reference fields,
-e.g. deriving TotalEq/TotalOrd/Clone don't work on `struct A(&int)`,
+e.g. deriving Eq/Ord/Clone don't work on `struct A(&int)`,
 because of how the auto-dereferencing happens.
 
 The most important thing for implementers is the `Substructure` and
@@ -82,13 +82,13 @@ variants, it is represented as a count of 0.
 
 # Examples
 
-The following simplified `Eq` is used for in-code examples:
+The following simplified `PartialEq` is used for in-code examples:
 
 ```rust
-trait Eq {
+trait PartialEq {
     fn eq(&self, other: &Self);
 }
-impl Eq for int {
+impl PartialEq for int {
     fn eq(&self, other: &int) -> bool {
         *self == *other
     }
@@ -96,7 +96,7 @@ impl Eq for int {
 ```
 
 Some examples of the values of `SubstructureFields` follow, using the
-above `Eq`, `A`, `B` and `C`.
+above `PartialEq`, `A`, `B` and `C`.
 
 ## Structs
 
@@ -182,6 +182,7 @@ use std::cell::RefCell;
 use ast;
 use ast::{P, EnumDef, Expr, Ident, Generics, StructDef};
 use ast_util;
+use attr;
 use attr::AttrMetaMethods;
 use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
@@ -287,7 +288,7 @@ pub enum SubstructureFields<'a> {
 
     /**
     non-matching variants of the enum, [(variant index, ast::Variant,
-    [field span, field ident, fields])] (i.e. all fields for self are in the
+    [field span, field ident, fields])] \(i.e. all fields for self are in the
     first tuple, for other1 are in the second tuple, etc.)
     */
     EnumNonMatching(&'a [(uint, P<ast::Variant>, Vec<(Span, Option<Ident>, @Expr)> )]),
@@ -430,6 +431,8 @@ impl<'a> TraitDef<'a> {
             self.span,
             cx.meta_word(self.span,
                          InternedString::new("automatically_derived")));
+        // Just mark it now since we know that it'll end up used downstream
+        attr::mark_used(&attr);
         let opt_trait_ref = Some(trait_ref);
         let ident = ast_util::impl_pretty_name(&opt_trait_ref, self_type);
         cx.item(
@@ -574,7 +577,7 @@ impl<'a> MethodDef<'a> {
 
         for (i, ty) in self.args.iter().enumerate() {
             let ast_ty = ty.to_ty(cx, trait_.span, type_ident, generics);
-            let ident = cx.ident_of(format!("__arg_{}", i));
+            let ident = cx.ident_of(format!("__arg_{}", i).as_slice());
             arg_tys.push((ident, ast_ty));
 
             let arg_expr = cx.expr_ident(trait_.span, ident);
@@ -642,11 +645,11 @@ impl<'a> MethodDef<'a> {
 
     /**
    ~~~
-    #[deriving(Eq)]
+    #[deriving(PartialEq)]
     struct A { x: int, y: int }
 
     // equivalent to:
-    impl Eq for A {
+    impl PartialEq for A {
         fn eq(&self, __arg_1: &A) -> bool {
             match *self {
                 A {x: ref __self_0_0, y: ref __self_0_1} => {
@@ -674,9 +677,13 @@ impl<'a> MethodDef<'a> {
                                  // [fields of next Self arg], [etc]]
         let mut patterns = Vec::new();
         for i in range(0u, self_args.len()) {
-            let (pat, ident_expr) = trait_.create_struct_pattern(cx, type_ident, struct_def,
-                                                                 format!("__self_{}", i),
-                                                                 ast::MutImmutable);
+            let (pat, ident_expr) =
+                trait_.create_struct_pattern(cx,
+                                             type_ident,
+                                             struct_def,
+                                             format!("__self_{}",
+                                                     i).as_slice(),
+                                             ast::MutImmutable);
             patterns.push(pat);
             raw_fields.push(ident_expr);
         }
@@ -743,7 +750,7 @@ impl<'a> MethodDef<'a> {
 
     /**
    ~~~
-    #[deriving(Eq)]
+    #[deriving(PartialEq)]
     enum A {
         A1
         A2(int)
@@ -751,7 +758,7 @@ impl<'a> MethodDef<'a> {
 
     // is equivalent to (with const_nonmatching == false)
 
-    impl Eq for A {
+    impl PartialEq for A {
         fn eq(&self, __arg_1: &A) {
             match *self {
                 A1 => match *__arg_1 {
@@ -875,7 +882,7 @@ impl<'a> MethodDef<'a> {
 
         } else {  // there are still matches to create
             let current_match_str = if match_count == 0 {
-                "__self".to_owned()
+                "__self".to_string()
             } else {
                 format!("__arg_{}", match_count)
             };
@@ -895,10 +902,11 @@ impl<'a> MethodDef<'a> {
 
                 // matching-variant match
                 let variant = *enum_def.variants.get(index);
-                let (pattern, idents) = trait_.create_enum_variant_pattern(cx,
-                                                                           variant,
-                                                                           current_match_str,
-                                                                           ast::MutImmutable);
+                let (pattern, idents) = trait_.create_enum_variant_pattern(
+                    cx,
+                    variant,
+                    current_match_str.as_slice(),
+                    ast::MutImmutable);
 
                 matches_so_far.push((index, variant, idents));
                 let arm_expr = self.build_enum_match(cx,
@@ -926,10 +934,12 @@ impl<'a> MethodDef<'a> {
             } else {
                 // create an arm matching on each variant
                 for (index, &variant) in enum_def.variants.iter().enumerate() {
-                    let (pattern, idents) = trait_.create_enum_variant_pattern(cx,
-                                                                               variant,
-                                                                               current_match_str,
-                                                                               ast::MutImmutable);
+                    let (pattern, idents) =
+                        trait_.create_enum_variant_pattern(
+                            cx,
+                            variant,
+                            current_match_str.as_slice(),
+                            ast::MutImmutable);
 
                     matches_so_far.push((index, variant, idents));
                     let new_matching =
@@ -984,7 +994,7 @@ impl<'a> MethodDef<'a> {
     }
 }
 
-#[deriving(Eq)] // dogfooding!
+#[deriving(PartialEq)] // dogfooding!
 enum StructType {
     Unknown, Record, Tuple
 }
@@ -1001,7 +1011,7 @@ impl<'a> TraitDef<'a> {
         to_set.expn_info = Some(@codemap::ExpnInfo {
             call_site: to_set,
             callee: codemap::NameAndSpan {
-                name: format!("deriving({})", trait_name).to_strbuf(),
+                name: format!("deriving({})", trait_name).to_string(),
                 format: codemap::MacroAttribute,
                 span: Some(self.span)
             }
@@ -1081,7 +1091,11 @@ impl<'a> TraitDef<'a> {
                     cx.span_bug(sp, "a struct with named and unnamed fields in `deriving`");
                 }
             };
-            let path = cx.path_ident(sp, cx.ident_of(format!("{}_{}", prefix, i)));
+            let path =
+                cx.path_ident(sp,
+                              cx.ident_of(format!("{}_{}",
+                                                  prefix,
+                                                  i).as_slice()));
             paths.push(path.clone());
             let val = cx.expr(
                 sp, ast::ExprParen(
@@ -1127,7 +1141,11 @@ impl<'a> TraitDef<'a> {
                 let mut ident_expr = Vec::new();
                 for (i, va) in variant_args.iter().enumerate() {
                     let sp = self.set_expn_info(cx, va.ty.span);
-                    let path = cx.path_ident(sp, cx.ident_of(format!("{}_{}", prefix, i)));
+                    let path =
+                        cx.path_ident(sp,
+                                      cx.ident_of(format!("{}_{}",
+                                                          prefix,
+                                                          i).as_slice()));
 
                     paths.push(path.clone());
                     let val = cx.expr(

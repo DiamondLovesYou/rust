@@ -13,21 +13,21 @@
 // second element, so this passes iff the instances shortcircuit.
 
 pub struct FailCmp;
-impl Eq for FailCmp {
+impl PartialEq for FailCmp {
     fn eq(&self, _: &FailCmp) -> bool { fail!("eq") }
 }
 
-impl Ord for FailCmp {
+impl PartialOrd for FailCmp {
     fn lt(&self, _: &FailCmp) -> bool { fail!("lt") }
 }
 
-impl TotalEq for FailCmp {}
+impl Eq for FailCmp {}
 
-impl TotalOrd for FailCmp {
+impl Ord for FailCmp {
     fn cmp(&self, _: &FailCmp) -> Ordering { fail!("cmp") }
 }
 
-#[deriving(Eq,Ord,TotalEq,TotalOrd)]
+#[deriving(PartialEq,PartialOrd,Eq,Ord)]
 struct ShortCircuit {
     x: int,
     y: FailCmp

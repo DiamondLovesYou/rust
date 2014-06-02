@@ -29,8 +29,8 @@
 DOCS := index intro tutorial guide-ffi guide-macros guide-lifetimes \
 	guide-tasks guide-container guide-pointers guide-testing \
 	guide-runtime complement-bugreport complement-cheatsheet \
-	complement-lang-faq complement-project-faq rust rustdoc \
-	guide-unsafe
+	complement-lang-faq complement-design-faq complement-project-faq rust \
+    rustdoc guide-unsafe
 
 PDF_DOCS := tutorial rust
 
@@ -156,7 +156,7 @@ doc/footer.tex: $(D)/footer.inc | doc/
 # HTML (rustdoc)
 DOC_TARGETS += doc/not_found.html
 doc/not_found.html: $(D)/not_found.md $(HTML_DEPS) | doc/
-	$(RUSTDOC) $(RUSTDOC_HTML_OPTS_NO_CSS) --markdown-css http://static.rust-lang.org/doc/master/rust.css $<
+	$(RUSTDOC) $(RUSTDOC_HTML_OPTS_NO_CSS) --markdown-css http://doc.rust-lang.org/rust.css $<
 
 define DEF_DOC
 
@@ -287,6 +287,7 @@ $(foreach crate,$(COMPILER_DOC_CRATES),$(eval $(call DEF_LIB_DOC,$(crate),COMPIL
 ifdef CFG_DISABLE_DOCS
   $(info cfg: disabling doc build (CFG_DISABLE_DOCS))
   DOC_TARGETS :=
+  COMPILER_DOC_TARGETS :=
 endif
 
 docs: $(DOC_TARGETS)

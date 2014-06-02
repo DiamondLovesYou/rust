@@ -28,7 +28,7 @@ pub struct Interner<T> {
 }
 
 // when traits can extend traits, we should extend index<Name,T> to get []
-impl<T: TotalEq + Hash + Clone + 'static> Interner<T> {
+impl<T: Eq + Hash + Clone + 'static> Interner<T> {
     pub fn new() -> Interner<T> {
         Interner {
             map: RefCell::new(HashMap::new()),
@@ -90,14 +90,14 @@ impl<T: TotalEq + Hash + Clone + 'static> Interner<T> {
     }
 }
 
-#[deriving(Clone, Eq, Hash, Ord)]
+#[deriving(Clone, PartialEq, Hash, PartialOrd)]
 pub struct RcStr {
-    string: Rc<StrBuf>,
+    string: Rc<String>,
 }
 
-impl TotalEq for RcStr {}
+impl Eq for RcStr {}
 
-impl TotalOrd for RcStr {
+impl Ord for RcStr {
     fn cmp(&self, other: &RcStr) -> Ordering {
         self.as_slice().cmp(&other.as_slice())
     }
@@ -121,7 +121,7 @@ impl fmt::Show for RcStr {
 impl RcStr {
     pub fn new(string: &str) -> RcStr {
         RcStr {
-            string: Rc::new(string.to_strbuf()),
+            string: Rc::new(string.to_string()),
         }
     }
 }

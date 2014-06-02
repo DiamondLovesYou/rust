@@ -34,7 +34,7 @@
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 #![deny(deprecated_owned_vector)]
 
 use std::char;
@@ -42,18 +42,18 @@ use std::cmp;
 use std::fmt;
 use std::fmt::Show;
 use std::option::{Option, Some, None};
-use std::strbuf::StrBuf;
+use std::string::String;
 
 /// An identifier in the pre-release or build metadata. If the identifier can
 /// be parsed as a decimal value, it will be represented with `Numeric`.
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 #[allow(missing_doc)]
 pub enum Identifier {
     Numeric(uint),
-    AlphaNumeric(StrBuf)
+    AlphaNumeric(String)
 }
 
-impl cmp::Ord for Identifier {
+impl cmp::PartialOrd for Identifier {
     #[inline]
     fn lt(&self, other: &Identifier) -> bool {
         match (self, other) {
@@ -115,7 +115,7 @@ impl fmt::Show for Version {
     }
 }
 
-impl cmp::Eq for Version {
+impl cmp::PartialEq for Version {
     #[inline]
     fn eq(&self, other: &Version) -> bool {
         // We should ignore build metadata here, otherwise versions v1 and v2
@@ -128,7 +128,7 @@ impl cmp::Eq for Version {
     }
 }
 
-impl cmp::Ord for Version {
+impl cmp::PartialOrd for Version {
     #[inline]
     fn lt(&self, other: &Version) -> bool {
 
@@ -158,8 +158,8 @@ impl cmp::Ord for Version {
 }
 
 fn take_nonempty_prefix<T:Iterator<char>>(rdr: &mut T, pred: |char| -> bool)
-                        -> (StrBuf, Option<char>) {
-    let mut buf = StrBuf::new();
+                        -> (String, Option<char>) {
+    let mut buf = String::new();
     let mut ch = rdr.next();
     loop {
         match ch {
@@ -308,14 +308,14 @@ fn test_parse() {
         major: 1u,
         minor: 2u,
         patch: 3u,
-        pre: vec!(AlphaNumeric("alpha1".to_strbuf())),
+        pre: vec!(AlphaNumeric("alpha1".to_string())),
         build: vec!(),
     }));
     assert!(parse("  1.2.3-alpha1  ") == Some(Version {
         major: 1u,
         minor: 2u,
         patch: 3u,
-        pre: vec!(AlphaNumeric("alpha1".to_strbuf())),
+        pre: vec!(AlphaNumeric("alpha1".to_string())),
         build: vec!()
     }));
     assert!(parse("1.2.3+build5") == Some(Version {
@@ -323,37 +323,37 @@ fn test_parse() {
         minor: 2u,
         patch: 3u,
         pre: vec!(),
-        build: vec!(AlphaNumeric("build5".to_strbuf()))
+        build: vec!(AlphaNumeric("build5".to_string()))
     }));
     assert!(parse("  1.2.3+build5  ") == Some(Version {
         major: 1u,
         minor: 2u,
         patch: 3u,
         pre: vec!(),
-        build: vec!(AlphaNumeric("build5".to_strbuf()))
+        build: vec!(AlphaNumeric("build5".to_string()))
     }));
     assert!(parse("1.2.3-alpha1+build5") == Some(Version {
         major: 1u,
         minor: 2u,
         patch: 3u,
-        pre: vec!(AlphaNumeric("alpha1".to_strbuf())),
-        build: vec!(AlphaNumeric("build5".to_strbuf()))
+        pre: vec!(AlphaNumeric("alpha1".to_string())),
+        build: vec!(AlphaNumeric("build5".to_string()))
     }));
     assert!(parse("  1.2.3-alpha1+build5  ") == Some(Version {
         major: 1u,
         minor: 2u,
         patch: 3u,
-        pre: vec!(AlphaNumeric("alpha1".to_strbuf())),
-        build: vec!(AlphaNumeric("build5".to_strbuf()))
+        pre: vec!(AlphaNumeric("alpha1".to_string())),
+        build: vec!(AlphaNumeric("build5".to_string()))
     }));
     assert!(parse("1.2.3-1.alpha1.9+build5.7.3aedf  ") == Some(Version {
         major: 1u,
         minor: 2u,
         patch: 3u,
-        pre: vec!(Numeric(1),AlphaNumeric("alpha1".to_strbuf()),Numeric(9)),
-        build: vec!(AlphaNumeric("build5".to_strbuf()),
+        pre: vec!(Numeric(1),AlphaNumeric("alpha1".to_string()),Numeric(9)),
+        build: vec!(AlphaNumeric("build5".to_string()),
                  Numeric(7),
-                 AlphaNumeric("3aedf".to_strbuf()))
+                 AlphaNumeric("3aedf".to_string()))
     }));
 
 }
@@ -377,22 +377,22 @@ fn test_ne() {
 
 #[test]
 fn test_show() {
-    assert_eq!(format_strbuf!("{}", parse("1.2.3").unwrap()),
-               "1.2.3".to_strbuf());
-    assert_eq!(format_strbuf!("{}", parse("1.2.3-alpha1").unwrap()),
-               "1.2.3-alpha1".to_strbuf());
-    assert_eq!(format_strbuf!("{}", parse("1.2.3+build.42").unwrap()),
-               "1.2.3+build.42".to_strbuf());
-    assert_eq!(format_strbuf!("{}", parse("1.2.3-alpha1+42").unwrap()),
-               "1.2.3-alpha1+42".to_strbuf());
+    assert_eq!(format!("{}", parse("1.2.3").unwrap()),
+               "1.2.3".to_string());
+    assert_eq!(format!("{}", parse("1.2.3-alpha1").unwrap()),
+               "1.2.3-alpha1".to_string());
+    assert_eq!(format!("{}", parse("1.2.3+build.42").unwrap()),
+               "1.2.3+build.42".to_string());
+    assert_eq!(format!("{}", parse("1.2.3-alpha1+42").unwrap()),
+               "1.2.3-alpha1+42".to_string());
 }
 
 #[test]
 fn test_to_str() {
-    assert_eq!(parse("1.2.3").unwrap().to_str(), "1.2.3".to_owned());
-    assert_eq!(parse("1.2.3-alpha1").unwrap().to_str(), "1.2.3-alpha1".to_owned());
-    assert_eq!(parse("1.2.3+build.42").unwrap().to_str(), "1.2.3+build.42".to_owned());
-    assert_eq!(parse("1.2.3-alpha1+42").unwrap().to_str(), "1.2.3-alpha1+42".to_owned());
+    assert_eq!(parse("1.2.3").unwrap().to_str(), "1.2.3".to_string());
+    assert_eq!(parse("1.2.3-alpha1").unwrap().to_str(), "1.2.3-alpha1".to_string());
+    assert_eq!(parse("1.2.3+build.42").unwrap().to_str(), "1.2.3+build.42".to_string());
+    assert_eq!(parse("1.2.3-alpha1+42").unwrap().to_str(), "1.2.3-alpha1+42".to_string());
 }
 
 #[test]

@@ -24,7 +24,7 @@ Simple [DEFLATE][def]-based compression. This is a wrapper around the
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 #![feature(phase)]
 #![deny(deprecated_owned_vector)]
 
@@ -108,10 +108,9 @@ pub fn inflate_bytes_zlib(bytes: &[u8]) -> Option<CVec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
-
     use super::{inflate_bytes, deflate_bytes};
-    use self::rand::Rng;
+    use std::rand;
+    use std::rand::Rng;
 
     #[test]
     #[allow(deprecated_owned_vector)]
@@ -120,7 +119,8 @@ mod tests {
         let mut words = vec!();
         for _ in range(0, 20) {
             let range = r.gen_range(1u, 10);
-            words.push(r.gen_vec::<u8>(range));
+            let v = r.gen_iter::<u8>().take(range).collect::<Vec<u8>>();
+            words.push(v);
         }
         for _ in range(0, 20) {
             let mut input = vec![];

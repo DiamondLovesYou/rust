@@ -12,10 +12,12 @@
 //!
 //! For more details `std::slice`.
 
+#![doc(primitive = "slice")]
+
 use mem::transmute;
 use clone::Clone;
 use container::Container;
-use cmp::{Eq, TotalOrd, Ordering, Less, Equal, Greater};
+use cmp::{PartialEq, Ord, Ordering, Less, Equal, Greater};
 use cmp;
 use default::Default;
 use iter::*;
@@ -249,11 +251,11 @@ impl<'a, T> RandomAccessIterator<&'a [T]> for Chunks<'a, T> {
 pub mod traits {
     use super::*;
 
-    use cmp::{Eq, Ord, TotalEq, TotalOrd, Ordering, Equiv};
+    use cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering, Equiv};
     use iter::{order, Iterator};
     use container::Container;
 
-    impl<'a,T:Eq> Eq for &'a [T] {
+    impl<'a,T:PartialEq> PartialEq for &'a [T] {
         fn eq(&self, other: & &'a [T]) -> bool {
             self.len() == other.len() &&
                 order::eq(self.iter(), other.iter())
@@ -264,39 +266,39 @@ pub mod traits {
         }
     }
 
-    impl<T:Eq> Eq for ~[T] {
+    impl<T:PartialEq> PartialEq for ~[T] {
         #[inline]
         fn eq(&self, other: &~[T]) -> bool { self.as_slice() == *other }
         #[inline]
         fn ne(&self, other: &~[T]) -> bool { !self.eq(other) }
     }
 
-    impl<'a,T:TotalEq> TotalEq for &'a [T] {}
+    impl<'a,T:Eq> Eq for &'a [T] {}
 
-    impl<T:TotalEq> TotalEq for ~[T] {}
+    impl<T:Eq> Eq for ~[T] {}
 
-    impl<'a,T:Eq, V: Vector<T>> Equiv<V> for &'a [T] {
+    impl<'a,T:PartialEq, V: Vector<T>> Equiv<V> for &'a [T] {
         #[inline]
         fn equiv(&self, other: &V) -> bool { self.as_slice() == other.as_slice() }
     }
 
-    impl<'a,T:Eq, V: Vector<T>> Equiv<V> for ~[T] {
+    impl<'a,T:PartialEq, V: Vector<T>> Equiv<V> for ~[T] {
         #[inline]
         fn equiv(&self, other: &V) -> bool { self.as_slice() == other.as_slice() }
     }
 
-    impl<'a,T:TotalOrd> TotalOrd for &'a [T] {
+    impl<'a,T:Ord> Ord for &'a [T] {
         fn cmp(&self, other: & &'a [T]) -> Ordering {
             order::cmp(self.iter(), other.iter())
         }
     }
 
-    impl<T: TotalOrd> TotalOrd for ~[T] {
+    impl<T: Ord> Ord for ~[T] {
         #[inline]
         fn cmp(&self, other: &~[T]) -> Ordering { self.as_slice().cmp(&other.as_slice()) }
     }
 
-    impl<'a, T: Ord> Ord for &'a [T] {
+    impl<'a, T: PartialOrd> PartialOrd for &'a [T] {
         fn lt(&self, other: & &'a [T]) -> bool {
             order::lt(self.iter(), other.iter())
         }
@@ -314,7 +316,7 @@ pub mod traits {
         }
     }
 
-    impl<T: Ord> Ord for ~[T] {
+    impl<T: PartialOrd> PartialOrd for ~[T] {
         #[inline]
         fn lt(&self, other: &~[T]) -> bool { self.as_slice() < other.as_slice() }
         #[inline]
@@ -386,9 +388,6 @@ pub trait ImmutableVector<'a, T> {
     fn slice_to(&self, end: uint) -> &'a [T];
     /// Returns an iterator over the vector
     fn iter(self) -> Items<'a, T>;
-    /// Returns a reversed iterator over a vector
-    #[deprecated = "replaced by .iter().rev()"]
-    fn rev_iter(self) -> Rev<Items<'a, T>>;
     /// Returns an iterator over the subslices of the vector which are
     /// separated by elements that match `pred`.  The matched element
     /// is not contained in the subslices.
@@ -398,12 +397,6 @@ pub trait ImmutableVector<'a, T> {
     /// at most `n` times.  The matched element is not contained in
     /// the subslices.
     fn splitn(self, n: uint, pred: |&T|: 'a -> bool) -> SplitsN<'a, T>;
-    /// Returns an iterator over the subslices of the vector which are
-    /// separated by elements that match `pred`. This starts at the
-    /// end of the vector and works backwards.  The matched element is
-    /// not contained in the subslices.
-    #[deprecated = "replaced by .split(pred).rev()"]
-    fn rsplit(self, pred: |&T|: 'a -> bool) -> Rev<Splits<'a, T>>;
     /// Returns an iterator over the subslices of the vector which are
     /// separated by elements that match `pred` limited to splitting
     /// at most `n` times. This starts at the end of the vector and
@@ -428,7 +421,7 @@ pub trait ImmutableVector<'a, T> {
      * ```rust
      * let v = &[1,2,3,4];
      * for win in v.windows(2) {
-     *     println!("{:?}", win);
+     *     println!("{}", win);
      * }
      * ```
      *
@@ -453,7 +446,7 @@ pub trait ImmutableVector<'a, T> {
      * ```rust
      * let v = &[1,2,3,4,5];
      * for win in v.chunks(2) {
-     *     println!("{:?}", win);
+     *     println!("{}", win);
      * }
      * ```
      *
@@ -581,12 +574,6 @@ impl<'a,T> ImmutableVector<'a, T> for &'a [T] {
     }
 
     #[inline]
-    #[deprecated = "replaced by .iter().rev()"]
-    fn rev_iter(self) -> Rev<Items<'a, T>> {
-        self.iter().rev()
-    }
-
-    #[inline]
     fn split(self, pred: |&T|: 'a -> bool) -> Splits<'a, T> {
         Splits {
             v: self,
@@ -602,12 +589,6 @@ impl<'a,T> ImmutableVector<'a, T> for &'a [T] {
             count: n,
             invert: false
         }
-    }
-
-    #[inline]
-    #[deprecated = "replaced by .split(pred).rev()"]
-    fn rsplit(self, pred: |&T|: 'a -> bool) -> Rev<Splits<'a, T>> {
-        self.split(pred).rev()
     }
 
     #[inline]
@@ -713,8 +694,8 @@ impl<'a,T> ImmutableVector<'a, T> for &'a [T] {
     }
 }
 
-/// Extension methods for vectors contain `Eq` elements.
-pub trait ImmutableEqVector<T:Eq> {
+/// Extension methods for vectors contain `PartialEq` elements.
+pub trait ImmutableEqVector<T:PartialEq> {
     /// Find the first index containing a matching value
     fn position_elem(&self, t: &T) -> Option<uint>;
 
@@ -731,7 +712,7 @@ pub trait ImmutableEqVector<T:Eq> {
     fn ends_with(&self, needle: &[T]) -> bool;
 }
 
-impl<'a,T:Eq> ImmutableEqVector<T> for &'a [T] {
+impl<'a,T:PartialEq> ImmutableEqVector<T> for &'a [T] {
     #[inline]
     fn position_elem(&self, x: &T) -> Option<uint> {
         self.iter().position(|y| *x == *y)
@@ -760,8 +741,8 @@ impl<'a,T:Eq> ImmutableEqVector<T> for &'a [T] {
     }
 }
 
-/// Extension methods for vectors containing `TotalOrd` elements.
-pub trait ImmutableTotalOrdVector<T: TotalOrd> {
+/// Extension methods for vectors containing `Ord` elements.
+pub trait ImmutableOrdVector<T: Ord> {
     /**
      * Binary search a sorted vector for a given element.
      *
@@ -770,7 +751,7 @@ pub trait ImmutableTotalOrdVector<T: TotalOrd> {
     fn bsearch_elem(&self, x: &T) -> Option<uint>;
 }
 
-impl<'a, T: TotalOrd> ImmutableTotalOrdVector<T> for &'a [T] {
+impl<'a, T: Ord> ImmutableOrdVector<T> for &'a [T] {
     fn bsearch_elem(&self, x: &T) -> Option<uint> {
         self.bsearch(|p| p.cmp(x))
     }
@@ -805,10 +786,6 @@ pub trait MutableVector<'a, T> {
 
     /// Returns a mutable pointer to the last item in the vector.
     fn mut_last(self) -> Option<&'a mut T>;
-
-    /// Returns a reversed iterator that allows modifying each value
-    #[deprecated = "replaced by .mut_iter().rev()"]
-    fn mut_rev_iter(self) -> Rev<MutItems<'a, T>>;
 
     /// Returns an iterator over the mutable subslices of the vector
     /// which are separated by elements that match `pred`.  The
@@ -950,15 +927,15 @@ pub trait MutableVector<'a, T> {
     /// # Example
     ///
     /// ```rust
-    /// let mut v = ~["foo".to_owned(), "bar".to_owned(), "baz".to_owned()];
+    /// let mut v = ~["foo".to_string(), "bar".to_string(), "baz".to_string()];
     ///
     /// unsafe {
-    ///     // `"baz".to_owned()` is deallocated.
-    ///     v.unsafe_set(2, "qux".to_owned());
+    ///     // `"baz".to_string()` is deallocated.
+    ///     v.unsafe_set(2, "qux".to_string());
     ///
     ///     // Out of bounds: could cause a crash, or overwriting
     ///     // other data, or something else.
-    ///     // v.unsafe_set(10, "oops".to_owned());
+    ///     // v.unsafe_set(10, "oops".to_string());
     /// }
     /// ```
     unsafe fn unsafe_set(self, index: uint, val: T);
@@ -970,10 +947,10 @@ pub trait MutableVector<'a, T> {
     /// # Example
     ///
     /// ```rust
-    /// let mut v = ["foo".to_owned(), "bar".to_owned()];
+    /// let mut v = ["foo".to_string(), "bar".to_string()];
     ///
-    /// // memory leak! `"bar".to_owned()` is not deallocated.
-    /// unsafe { v.init_elem(1, "baz".to_owned()); }
+    /// // memory leak! `"bar".to_string()` is not deallocated.
+    /// unsafe { v.init_elem(1, "baz".to_string()); }
     /// ```
     unsafe fn init_elem(self, i: uint, val: T);
 
@@ -1043,12 +1020,6 @@ impl<'a,T> MutableVector<'a, T> for &'a mut [T] {
         let len = self.len();
         if len == 0 { return None; }
         Some(&mut self[len - 1])
-    }
-
-    #[inline]
-    #[deprecated = "replaced by .mut_iter().rev()"]
-    fn mut_rev_iter(self) -> Rev<MutItems<'a, T>> {
-        self.mut_iter().rev()
     }
 
     #[inline]
@@ -1354,8 +1325,6 @@ impl<'a, T> RandomAccessIterator<&'a T> for Items<'a, T> {
 }
 
 iterator!{struct Items -> *T, &'a T}
-#[deprecated = "replaced by Rev<Items<'a, T>>"]
-pub type RevItems<'a, T> = Rev<Items<'a, T>>;
 
 impl<'a, T> ExactSize<&'a T> for Items<'a, T> {}
 impl<'a, T> ExactSize<&'a mut T> for MutItems<'a, T> {}
@@ -1365,8 +1334,6 @@ impl<'a, T> Clone for Items<'a, T> {
 }
 
 iterator!{struct MutItems -> *mut T, &'a mut T}
-#[deprecated = "replaced by Rev<MutItems<'a, T>>"]
-pub type RevMutItems<'a, T> = Rev<MutItems<'a, T>>;
 
 /// An iterator over the subslices of the vector which are separated
 /// by elements that match `pred`.

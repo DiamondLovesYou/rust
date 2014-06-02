@@ -280,7 +280,7 @@ fn fib(n: u64) -> u64 {
 
 let mut delayed_fib = sync::Future::spawn(proc() fib(50));
 make_a_sandwich();
-println!("fib(50) = {:?}", delayed_fib.get())
+println!("fib(50) = {}", delayed_fib.get())
 # }
 ~~~
 
@@ -329,10 +329,10 @@ Here is a small example showing how to use Arcs. We wish to run concurrently sev
 a single large vector of floats. Each task needs the full vector to perform its duty.
 
 ~~~
-extern crate rand;
 extern crate sync;
 
 use sync::Arc;
+use std::rand;
 
 fn pnorm(nums: &[f64], p: uint) -> f64 {
     nums.iter().fold(0.0, |a, b| a + b.powf(p as f64)).powf(1.0 / (p as f64))
@@ -358,7 +358,7 @@ created by the line
 
 ~~~
 # extern crate sync;
-# extern crate rand;
+# use std::rand;
 # use sync::Arc;
 # fn main() {
 # let numbers = Vec::from_fn(1000000, |_| rand::random::<f64>());
@@ -372,7 +372,7 @@ reference to the underlying vector as if it were local.
 
 ~~~
 # extern crate sync;
-# extern crate rand;
+# use std::rand;
 # use sync::Arc;
 # fn pnorm(nums: &[f64], p: uint) -> f64 { 4.0 }
 # fn main() {
@@ -463,11 +463,11 @@ Here is the function that implements the child task:
 ~~~
 extern crate sync;
 # fn main() {
-fn stringifier(channel: &sync::DuplexStream<StrBuf, uint>) {
+fn stringifier(channel: &sync::DuplexStream<String, uint>) {
     let mut value: uint;
     loop {
         value = channel.recv();
-        channel.send(value.to_str().to_strbuf());
+        channel.send(value.to_str().to_string());
         if value == 0 { break; }
     }
 }
@@ -488,11 +488,11 @@ Here is the code for the parent task:
 extern crate sync;
 # use std::task::spawn;
 # use sync::DuplexStream;
-# fn stringifier(channel: &sync::DuplexStream<StrBuf, uint>) {
+# fn stringifier(channel: &sync::DuplexStream<String, uint>) {
 #     let mut value: uint;
 #     loop {
 #         value = channel.recv();
-#         channel.send(value.to_str().to_strbuf());
+#         channel.send(value.to_str().to_string());
 #         if value == 0u { break; }
 #     }
 # }

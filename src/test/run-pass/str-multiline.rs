@@ -9,13 +9,13 @@
 // except according to those terms.
 
 pub fn main() {
-    let a: StrBuf = "this \
-is a test".to_strbuf();
-    let b: StrBuf =
+    let a: String = "this \
+is a test".to_string();
+    let b: String =
         "this \
               is \
               another \
-              test".to_strbuf();
-    assert_eq!(a, "this is a test".to_strbuf());
-    assert_eq!(b, "this is another test".to_strbuf());
+              test".to_string();
+    assert_eq!(a, "this is a test".to_string());
+    assert_eq!(b, "this is another test".to_string());
 }

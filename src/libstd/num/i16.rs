@@ -10,11 +10,14 @@
 
 //! Operations and constants for signed 16-bits integers (`i16` type)
 
+#![doc(primitive = "i16")]
+
 use from_str::FromStr;
 use num::{ToStrRadix, FromStrRadix};
 use num::strconv;
 use option::Option;
 use slice::ImmutableVector;
+use string::String;
 
 pub use core::i16::{BITS, BYTES, MIN, MAX};
 

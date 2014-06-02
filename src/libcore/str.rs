@@ -12,20 +12,22 @@
 //!
 //! For more details, see std::str
 
+#![doc(primitive = "str")]
+
 use mem;
 use char;
 use clone::Clone;
 use cmp;
-use cmp::{Eq, TotalEq};
+use cmp::{PartialEq, Eq};
 use container::Container;
 use default::Default;
 use iter::{Filter, Map, Iterator};
-use iter::{Rev, DoubleEndedIterator, ExactSize};
+use iter::{DoubleEndedIterator, ExactSize};
 use iter::range;
 use num::Saturating;
 use option::{None, Option, Some};
 use raw::Repr;
-use slice::{ImmutableVector, Vector};
+use slice::ImmutableVector;
 use slice;
 use uint;
 
@@ -174,19 +176,10 @@ impl<'a> DoubleEndedIterator<(uint, char)> for CharOffsets<'a> {
     }
 }
 
-#[deprecated = "replaced by Rev<Chars<'a>>"]
-pub type RevChars<'a> = Rev<Chars<'a>>;
-
-#[deprecated = "replaced by Rev<CharOffsets<'a>>"]
-pub type RevCharOffsets<'a> = Rev<CharOffsets<'a>>;
-
 /// External iterator for a string's bytes.
 /// Use with the `std::iter` module.
 pub type Bytes<'a> =
     Map<'a, &'a u8, u8, slice::Items<'a, u8>>;
-
-#[deprecated = "replaced by Rev<Bytes<'a>>"]
-pub type RevBytes<'a> = Rev<Bytes<'a>>;
 
 /// An iterator over the substrings of a string, separated by `sep`.
 #[deriving(Clone)]
@@ -199,9 +192,6 @@ pub struct CharSplits<'a, Sep> {
     only_ascii: bool,
     finished: bool,
 }
-
-#[deprecated = "replaced by Rev<CharSplits<'a, Sep>>"]
-pub type RevCharSplits<'a, Sep> = Rev<CharSplits<'a, Sep>>;
 
 /// An iterator over the substrings of a string, separated by `sep`,
 /// splitting at most `count` times.
@@ -596,20 +586,6 @@ pub fn eq_slice(a: &str, b: &str) -> bool {
     eq_slice_(a, b)
 }
 
-/// Bytewise string equality
-#[cfg(not(test))]
-#[lang="uniq_str_eq"]
-#[inline]
-pub fn eq(a: &~str, b: &~str) -> bool {
-    eq_slice(*a, *b)
-}
-
-#[cfg(test)]
-#[inline]
-pub fn eq(a: &~str, b: &~str) -> bool {
-    eq_slice(*a, *b)
-}
-
 /*
 Section: Misc
 */
@@ -718,19 +694,19 @@ pub fn is_utf16(v: &[u16]) -> bool {
 /// An iterator that decodes UTF-16 encoded codepoints from a vector
 /// of `u16`s.
 #[deriving(Clone)]
-pub struct UTF16Items<'a> {
+pub struct Utf16Items<'a> {
     iter: slice::Items<'a, u16>
 }
 /// The possibilities for values decoded from a `u16` stream.
-#[deriving(Eq, TotalEq, Clone, Show)]
-pub enum UTF16Item {
+#[deriving(PartialEq, Eq, Clone, Show)]
+pub enum Utf16Item {
     /// A valid codepoint.
     ScalarValue(char),
     /// An invalid surrogate without its pair.
     LoneSurrogate(u16)
 }
 
-impl UTF16Item {
+impl Utf16Item {
     /// Convert `self` to a `char`, taking `LoneSurrogate`s to the
     /// replacement character (U+FFFD).
     #[inline]
@@ -742,8 +718,8 @@ impl UTF16Item {
     }
 }
 
-impl<'a> Iterator<UTF16Item> for UTF16Items<'a> {
-    fn next(&mut self) -> Option<UTF16Item> {
+impl<'a> Iterator<Utf16Item> for Utf16Items<'a> {
+    fn next(&mut self) -> Option<Utf16Item> {
         let u = match self.iter.next() {
             Some(u) => *u,
             None => return None
@@ -807,8 +783,8 @@ impl<'a> Iterator<UTF16Item> for UTF16Items<'a> {
 ///                 ScalarValue('i'), ScalarValue('c'),
 ///                 LoneSurrogate(0xD834)]);
 /// ```
-pub fn utf16_items<'a>(v: &'a [u16]) -> UTF16Items<'a> {
-    UTF16Items { iter : v.iter() }
+pub fn utf16_items<'a>(v: &'a [u16]) -> Utf16Items<'a> {
+    Utf16Items { iter : v.iter() }
 }
 
 /// Return a slice of `v` ending at (and not including) the first NUL
@@ -956,12 +932,12 @@ Section: Trait implementations
 #[allow(missing_doc)]
 pub mod traits {
     use container::Container;
-    use cmp::{TotalOrd, Ordering, Less, Equal, Greater, Eq, Ord, Equiv, TotalEq};
+    use cmp::{Ord, Ordering, Less, Equal, Greater, PartialEq, PartialOrd, Equiv, Eq};
     use iter::Iterator;
     use option::{Some, None};
     use str::{Str, StrSlice, eq_slice};
 
-    impl<'a> TotalOrd for &'a str {
+    impl<'a> Ord for &'a str {
         #[inline]
         fn cmp(&self, other: & &'a str) -> Ordering {
             for (s_b, o_b) in self.bytes().zip(other.bytes()) {
@@ -976,12 +952,7 @@ pub mod traits {
         }
     }
 
-    impl TotalOrd for ~str {
-        #[inline]
-        fn cmp(&self, other: &~str) -> Ordering { self.as_slice().cmp(&other.as_slice()) }
-    }
-
-    impl<'a> Eq for &'a str {
+    impl<'a> PartialEq for &'a str {
         #[inline]
         fn eq(&self, other: & &'a str) -> bool {
             eq_slice((*self), (*other))
@@ -990,33 +961,14 @@ pub mod traits {
         fn ne(&self, other: & &'a str) -> bool { !(*self).eq(other) }
     }
 
-    impl Eq for ~str {
-        #[inline]
-        fn eq(&self, other: &~str) -> bool {
-            eq_slice((*self), (*other))
-        }
-    }
+    impl<'a> Eq for &'a str {}
 
-    impl<'a> TotalEq for &'a str {}
-
-    impl TotalEq for ~str {}
-
-    impl<'a> Ord for &'a str {
+    impl<'a> PartialOrd for &'a str {
         #[inline]
         fn lt(&self, other: & &'a str) -> bool { self.cmp(other) == Less }
     }
 
-    impl Ord for ~str {
-        #[inline]
-        fn lt(&self, other: &~str) -> bool { self.cmp(other) == Less }
-    }
-
     impl<'a, S: Str> Equiv<S> for &'a str {
-        #[inline]
-        fn equiv(&self, other: &S) -> bool { eq_slice(*self, other.as_slice()) }
-    }
-
-    impl<'a, S: Str> Equiv<S> for ~str {
         #[inline]
         fn equiv(&self, other: &S) -> bool { eq_slice(*self, other.as_slice()) }
     }
@@ -1036,21 +988,11 @@ impl<'a> Str for &'a str {
     fn as_slice<'a>(&'a self) -> &'a str { *self }
 }
 
-impl<'a> Str for ~str {
-    #[inline]
-    fn as_slice<'a>(&'a self) -> &'a str { let s: &'a str = *self; s }
-}
-
 impl<'a> Container for &'a str {
     #[inline]
     fn len(&self) -> uint {
         self.repr().len
     }
-}
-
-impl Container for ~str {
-    #[inline]
-    fn len(&self) -> uint { self.as_slice().len() }
 }
 
 /// Methods for string slices
@@ -1080,23 +1022,11 @@ pub trait StrSlice<'a> {
     /// ```
     fn chars(&self) -> Chars<'a>;
 
-    /// Do not use this - it is deprecated.
-    #[deprecated = "replaced by .chars().rev()"]
-    fn chars_rev(&self) -> Rev<Chars<'a>>;
-
     /// An iterator over the bytes of `self`
     fn bytes(&self) -> Bytes<'a>;
 
-    /// Do not use this - it is deprecated.
-    #[deprecated = "replaced by .bytes().rev()"]
-    fn bytes_rev(&self) -> Rev<Bytes<'a>>;
-
     /// An iterator over the characters of `self` and their byte offsets.
     fn char_indices(&self) -> CharOffsets<'a>;
-
-    /// Do not use this - it is deprecated.
-    #[deprecated = "replaced by .char_indices().rev()"]
-    fn char_indices_rev(&self) -> Rev<CharOffsets<'a>>;
 
     /// An iterator over substrings of `self`, separated by characters
     /// matched by `sep`.
@@ -1112,6 +1042,9 @@ pub trait StrSlice<'a> {
     ///
     /// let v: Vec<&str> = "lionXXtigerXleopard".split('X').collect();
     /// assert_eq!(v, vec!["lion", "", "tiger", "leopard"]);
+    ///
+    /// let v: Vec<&str> = "".split('X').collect();
+    /// assert_eq!(v, vec![""]);
     /// ```
     fn split<Sep: CharEq>(&self, sep: Sep) -> CharSplits<'a, Sep>;
 
@@ -1130,6 +1063,12 @@ pub trait StrSlice<'a> {
     ///
     /// let v: Vec<&str> = "lionXXtigerXleopard".splitn('X', 2).collect();
     /// assert_eq!(v, vec!["lion", "", "tigerXleopard"]);
+    ///
+    /// let v: Vec<&str> = "abcXdef".splitn('X', 0).collect();
+    /// assert_eq!(v, vec!["abcXdef"]);
+    ///
+    /// let v: Vec<&str> = "".splitn('X', 1).collect();
+    /// assert_eq!(v, vec![""]);
     /// ```
     fn splitn<Sep: CharEq>(&self, sep: Sep, count: uint) -> CharSplitsN<'a, Sep>;
 
@@ -1158,10 +1097,6 @@ pub trait StrSlice<'a> {
     /// assert_eq!(v, vec!["leopard", "tiger", "", "lion"]);
     /// ```
     fn split_terminator<Sep: CharEq>(&self, sep: Sep) -> CharSplits<'a, Sep>;
-
-    /// Do not use this - it is deprecated.
-    #[deprecated = "replaced by .split(sep).rev()"]
-    fn rsplit<Sep: CharEq>(&self, sep: Sep) -> Rev<CharSplits<'a, Sep>>;
 
     /// An iterator over substrings of `self`, separated by characters
     /// matched by `sep`, starting from the end of the string.
@@ -1682,31 +1617,13 @@ impl<'a> StrSlice<'a> for &'a str {
     }
 
     #[inline]
-    #[deprecated = "replaced by .chars().rev()"]
-    fn chars_rev(&self) -> RevChars<'a> {
-        self.chars().rev()
-    }
-
-    #[inline]
     fn bytes(&self) -> Bytes<'a> {
         self.as_bytes().iter().map(|&b| b)
     }
 
     #[inline]
-    #[deprecated = "replaced by .bytes().rev()"]
-    fn bytes_rev(&self) -> RevBytes<'a> {
-        self.bytes().rev()
-    }
-
-    #[inline]
     fn char_indices(&self) -> CharOffsets<'a> {
         CharOffsets{string: *self, iter: self.chars()}
-    }
-
-    #[inline]
-    #[deprecated = "replaced by .char_indices().rev()"]
-    fn char_indices_rev(&self) -> RevCharOffsets<'a> {
-        self.char_indices().rev()
     }
 
     #[inline]
@@ -1737,12 +1654,6 @@ impl<'a> StrSlice<'a> for &'a str {
             allow_trailing_empty: false,
             ..self.split(sep)
         }
-    }
-
-    #[inline]
-    #[deprecated = "replaced by .split(sep).rev()"]
-    fn rsplit<Sep: CharEq>(&self, sep: Sep) -> RevCharSplits<'a, Sep> {
-        self.split(sep).rev()
     }
 
     #[inline]

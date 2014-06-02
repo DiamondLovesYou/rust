@@ -21,6 +21,7 @@ extern crate syntax;
 use syntax::ast::{Expr, ExprSwizzle, ExprSimd, DUMMY_NODE_ID, Name};
 use syntax::ast::{P, Item, TokenTree, Ty, TySimd};
 use syntax::{ast, ast_util};
+use syntax::attr::mk_attr_id;
 use syntax::codemap::{respan, mk_sp};
 use syntax::ext::base::{get_exprs_from_tts, SyntaxExtension, BasicMacroExpander};
 use syntax::ext::base::{ExtCtxt, MacResult, MacExpr, MacItem, NormalTT, DummyResult};
@@ -163,6 +164,7 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacR
                     attrs.push(Spanned {
                             span: mk_sp(lo, hi),
                             node: ast::Attribute_ {
+                                id: mk_attr_id(),
                                 style: ast::AttrOuter,
                                 value: meta_item,
                                 is_sugared_doc: false,
@@ -186,7 +188,7 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacR
         let token_str = parser.this_token_to_str();
         parser.span_err(sp,
                         format!("expected `type` or `struct` but found `{}`",
-                                token_str));
+                                token_str).as_slice());
         return DummyResult::any(sp);
     }
 

@@ -45,7 +45,7 @@ pub type PublicItems = NodeSet;
 /// Result of a checking operation - None => no errors were found. Some => an
 /// error and contains the span and message for reporting that error and
 /// optionally the same for a note about the error.
-type CheckResult = Option<(Span, StrBuf, Option<(Span, StrBuf)>)>;
+type CheckResult = Option<(Span, String, Option<(Span, String)>)>;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// The parent visitor, used to determine what's the parent of what (node-wise)
@@ -297,6 +297,23 @@ impl<'a> Visitor<()> for EmbargoVisitor<'a> {
                 }
             }
 
+            ast::ItemTy(ref ty, _) if public_first => {
+                match ty.node {
+                    ast::TyPath(_, _, id) => {
+                        match self.tcx.def_map.borrow().get_copy(&id) {
+                            ast::DefPrimTy(..) => {},
+                            def => {
+                                let did = def_id_of_def(def);
+                                if is_local(did) {
+                                    self.exported_items.insert(did.node);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             _ => {}
         }
 
@@ -356,8 +373,8 @@ enum FieldName {
 
 impl<'a> PrivacyVisitor<'a> {
     // used when debugging
-    fn nodestr(&self, id: ast::NodeId) -> StrBuf {
-        self.tcx.map.node_to_str(id).to_strbuf()
+    fn nodestr(&self, id: ast::NodeId) -> String {
+        self.tcx.map.node_to_str(id).to_string()
     }
 
     // Determines whether the given definition is public from the point of view
@@ -530,9 +547,7 @@ impl<'a> PrivacyVisitor<'a> {
                      source_did: Option<ast::DefId>, msg: &str) -> CheckResult {
         let id = match self.def_privacy(to_check) {
             ExternallyDenied => {
-                return Some((span,
-                             format_strbuf!("{} is private", msg),
-                             None))
+                return Some((span, format!("{} is private", msg), None))
             }
             Allowable => return None,
             DisallowedBy(id) => id,
@@ -543,11 +558,9 @@ impl<'a> PrivacyVisitor<'a> {
         // because the item itself is private or because its parent is private
         // and its parent isn't in our ancestry.
         let (err_span, err_msg) = if id == source_did.unwrap_or(to_check).node {
-            return Some((span,
-                         format_strbuf!("{} is private", msg),
-                         None));
+            return Some((span, format!("{} is private", msg), None));
         } else {
-            (span, format_strbuf!("{} is inaccessible", msg))
+            (span, format!("{} is inaccessible", msg))
         };
         let item = match self.tcx.map.find(id) {
             Some(ast_map::NodeItem(item)) => {
@@ -583,9 +596,8 @@ impl<'a> PrivacyVisitor<'a> {
             ast::ItemEnum(..) => "enum",
             _ => return Some((err_span, err_msg, None))
         };
-        let msg = format_strbuf!("{} `{}` is private",
-                                 desc,
-                                 token::get_ident(item.ident));
+        let msg = format!("{} `{}` is private", desc,
+                          token::get_ident(item.ident));
         Some((err_span, err_msg, Some((span, msg))))
     }
 
@@ -632,7 +644,7 @@ impl<'a> PrivacyVisitor<'a> {
             UnnamedField(idx) => format!("field \\#{} of {} is private",
                                          idx + 1, struct_desc),
         };
-        self.tcx.sess.span_err(span, msg);
+        self.tcx.sess.span_err(span, msg.as_slice());
     }
 
     // Given the ID of a method, checks to ensure it's in scope.
@@ -647,7 +659,8 @@ impl<'a> PrivacyVisitor<'a> {
         self.report_error(self.ensure_public(span,
                                              method_id,
                                              None,
-                                             format!("method `{}`", string)));
+                                             format!("method `{}`",
+                                                     string).as_slice()));
     }
 
     // Checks that a path is in scope.
@@ -661,8 +674,12 @@ impl<'a> PrivacyVisitor<'a> {
                                                 .unwrap()
                                                 .identifier);
                 let origdid = def_id_of_def(orig_def);
-                self.ensure_public(span, def, Some(origdid),
-                                   format!("{} `{}`", tyname, name))
+                self.ensure_public(span,
+                                   def,
+                                   Some(origdid),
+                                   format!("{} `{}`",
+                                           tyname,
+                                           name).as_slice())
             };
 
             match *self.last_private_map.get(&path_id) {
@@ -1094,7 +1111,10 @@ impl<'a> SanePrivacyVisitor<'a> {
                             check_inherited(m.span, m.vis,
                                             "unnecessary visibility");
                         }
-                        ast::Required(..) => {}
+                        ast::Required(ref m) => {
+                            check_inherited(m.span, m.vis,
+                                            "unnecessary visibility");
+                        }
                     }
                 }
             }
@@ -1375,7 +1395,7 @@ impl<'a> Visitor<()> for VisiblePrivateTypesVisitor<'a> {
                         lint::VisiblePrivateTypes,
                         path_id, p.span,
                         "private type in exported type \
-                         signature".to_strbuf());
+                         signature".to_string());
                 }
             }
             _ => {}

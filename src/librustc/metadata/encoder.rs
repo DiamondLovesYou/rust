@@ -70,7 +70,7 @@ pub struct EncodeParams<'a> {
     pub diag: &'a SpanHandler,
     pub tcx: &'a ty::ctxt,
     pub reexports2: &'a middle::resolve::ExportMap2,
-    pub item_symbols: &'a RefCell<NodeMap<StrBuf>>,
+    pub item_symbols: &'a RefCell<NodeMap<String>>,
     pub non_inlineable_statics: &'a RefCell<NodeSet>,
     pub link_meta: &'a LinkMeta,
     pub cstore: &'a cstore::CStore,
@@ -81,7 +81,7 @@ pub struct EncodeContext<'a> {
     pub diag: &'a SpanHandler,
     pub tcx: &'a ty::ctxt,
     pub reexports2: &'a middle::resolve::ExportMap2,
-    pub item_symbols: &'a RefCell<NodeMap<StrBuf>>,
+    pub item_symbols: &'a RefCell<NodeMap<String>>,
     pub non_inlineable_statics: &'a RefCell<NodeSet>,
     pub link_meta: &'a LinkMeta,
     pub cstore: &'a cstore::CStore,
@@ -139,8 +139,8 @@ fn encode_family(ebml_w: &mut Encoder, c: char) {
     ebml_w.end_tag();
 }
 
-pub fn def_to_str(did: DefId) -> StrBuf {
-    format_strbuf!("{}:{}", did.krate, did.node)
+pub fn def_to_str(did: DefId) -> String {
+    format!("{}:{}", did.krate, did.node)
 }
 
 fn encode_ty_type_param_defs(ebml_w: &mut Encoder,
@@ -248,7 +248,7 @@ fn encode_symbol(ecx: &EncodeContext,
         }
         None => {
             ecx.diag.handler().bug(
-                format!("encode_symbol: id not found {}", id));
+                format!("encode_symbol: id not found {}", id).as_slice());
         }
     }
     ebml_w.end_tag();
@@ -375,7 +375,7 @@ fn encode_reexported_static_method(ebml_w: &mut Encoder,
     ebml_w.start_tag(tag_items_data_item_reexport_name);
     ebml_w.wr_str(format!("{}::{}",
                           exp.name,
-                          token::get_ident(method_ident)));
+                          token::get_ident(method_ident)).as_slice());
     ebml_w.end_tag();
     ebml_w.end_tag();
 }
@@ -536,6 +536,7 @@ fn encode_reexports(ecx: &EncodeContext,
 fn encode_info_for_mod(ecx: &EncodeContext,
                        ebml_w: &mut Encoder,
                        md: &Mod,
+                       attrs: &[Attribute],
                        id: NodeId,
                        path: PathElems,
                        name: Ident,
@@ -584,6 +585,7 @@ fn encode_info_for_mod(ecx: &EncodeContext,
         debug!("(encoding info for module) encoding reexports for {}", id);
         encode_reexports(ecx, ebml_w, id, path);
     }
+    encode_attributes(ebml_w, attrs);
 
     ebml_w.end_tag();
 }
@@ -602,7 +604,7 @@ fn encode_visibility(ebml_w: &mut Encoder, visibility: Visibility) {
         Public => 'y',
         Inherited => 'i',
     };
-    ebml_w.wr_str(str::from_char(ch));
+    ebml_w.wr_str(str::from_char(ch).as_slice());
     ebml_w.end_tag();
 }
 
@@ -774,8 +776,27 @@ fn encode_info_for_method(ecx: &EncodeContext,
         } else {
             encode_symbol(ecx, ebml_w, m.def_id.node);
         }
+        encode_method_argument_names(ebml_w, &*ast_method.decl);
     }
 
+    ebml_w.end_tag();
+}
+
+fn encode_method_argument_names(ebml_w: &mut Encoder,
+                                decl: &ast::FnDecl) {
+    ebml_w.start_tag(tag_method_argument_names);
+    for arg in decl.inputs.iter() {
+        ebml_w.start_tag(tag_method_argument_name);
+        match arg.pat.node {
+            ast::PatIdent(_, ref name, _) => {
+                let name = name.segments.last().unwrap().identifier;
+                let name = token::get_ident(name);
+                ebml_w.writer.write(name.get().as_bytes());
+            }
+            _ => {}
+        }
+        ebml_w.end_tag();
+    }
     ebml_w.end_tag();
 }
 
@@ -848,7 +869,7 @@ fn encode_sized(ebml_w: &mut Encoder, sized: Sized) {
         DynSize => 'd',
         StaticSize => 's',
     };
-    ebml_w.wr_str(str::from_char(ch));
+    ebml_w.wr_str(str::from_char(ch).as_slice());
     ebml_w.end_tag();
 }
 
@@ -895,7 +916,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_visibility(ebml_w, vis);
         ebml_w.end_tag();
       }
-      ItemFn(_, fn_style, _, ref generics, _) => {
+      ItemFn(ref decl, fn_style, _, ref generics, _) => {
         add_to_index(item, ebml_w, index);
         ebml_w.start_tag(tag_items_data_item);
         encode_def_id(ebml_w, def_id);
@@ -911,6 +932,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
             encode_symbol(ecx, ebml_w, item.id);
         }
         encode_visibility(ebml_w, vis);
+        encode_method_argument_names(ebml_w, &**decl);
         ebml_w.end_tag();
       }
       ItemMod(ref m) => {
@@ -918,6 +940,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_info_for_mod(ecx,
                             ebml_w,
                             m,
+                            item.attrs.as_slice(),
                             item.id,
                             path,
                             item.ident,
@@ -1317,6 +1340,7 @@ fn encode_info_for_items(ecx: &EncodeContext,
     encode_info_for_mod(ecx,
                         ebml_w,
                         &krate.module,
+                        &[],
                         CRATE_NODE_ID,
                         ast_map::Values([].iter()).chain(None),
                         syntax::parse::token::special_idents::invalid,
@@ -1436,15 +1460,18 @@ fn synthesize_crate_attrs(ecx: &EncodeContext,
     fn synthesize_crateid_attr(ecx: &EncodeContext) -> Attribute {
         assert!(!ecx.link_meta.crateid.name.is_empty());
 
-        attr::mk_attr_inner(
+        attr::mk_attr_inner(attr::mk_attr_id(),
             attr::mk_name_value_item_str(
                 InternedString::new("crate_id"),
-                token::intern_and_get_ident(ecx.link_meta.crateid.to_str())))
+                token::intern_and_get_ident(ecx.link_meta
+                                               .crateid
+                                               .to_str()
+                                               .as_slice())))
     }
 
     let mut attrs = Vec::new();
     for attr in krate.attrs.iter() {
-        if !attr.name().equiv(&("crate_id")) {
+        if !attr.check_name("crate_id") {
             attrs.push(*attr);
         }
     }
@@ -1710,8 +1737,8 @@ fn encode_dylib_dependency_formats(ebml_w: &mut Encoder, ecx: &EncodeContext) {
                 slot.map(|kind| (format!("{}:{}", i + 1, match kind {
                     cstore::RequireDynamic => "d",
                     cstore::RequireStatic => "s",
-                })).to_strbuf())
-            }).collect::<Vec<StrBuf>>();
+                })).to_string())
+            }).collect::<Vec<String>>();
             ebml_w.writer.write(s.connect(",").as_bytes());
         }
         None => {}
@@ -1785,7 +1812,7 @@ fn encode_metadata_inner(wr: &mut MemWriter, parms: EncodeParams, krate: &Crate)
         type_abbrevs: RefCell::new(HashMap::new()),
      };
 
-    let mut ebml_w = writer::Encoder(wr);
+    let mut ebml_w = writer::Encoder::new(wr);
 
     encode_crate_id(&mut ebml_w, &ecx.link_meta.crateid);
     encode_crate_triple(&mut ebml_w,
@@ -1873,7 +1900,7 @@ fn encode_metadata_inner(wr: &mut MemWriter, parms: EncodeParams, krate: &Crate)
 }
 
 // Get the encoded string for a type
-pub fn encoded_ty(tcx: &ty::ctxt, t: ty::t) -> StrBuf {
+pub fn encoded_ty(tcx: &ty::ctxt, t: ty::t) -> String {
     let mut wr = MemWriter::new();
     tyencode::enc_ty(&mut wr, &tyencode::ctxt {
         diag: tcx.sess.diagnostic(),
@@ -1881,5 +1908,5 @@ pub fn encoded_ty(tcx: &ty::ctxt, t: ty::t) -> StrBuf {
         tcx: tcx,
         abbrevs: &RefCell::new(HashMap::new())
     }, t);
-    str::from_utf8_owned(wr.get_ref().to_owned()).unwrap().to_strbuf()
+    str::from_utf8_owned(Vec::from_slice(wr.get_ref())).unwrap().to_string()
 }

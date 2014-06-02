@@ -25,10 +25,10 @@ pub type Edge<'a> = &'a cfg::CFGEdge;
 pub struct LabelledCFG<'a>{
     pub ast_map: &'a ast_map::Map,
     pub cfg: &'a cfg::CFG,
-    pub name: StrBuf,
+    pub name: String,
 }
 
-fn replace_newline_with_backslash_l(s: StrBuf) -> StrBuf {
+fn replace_newline_with_backslash_l(s: String) -> String {
     // Replacing newlines with \\l causes each line to be left-aligned,
     // improving presentation of (long) pretty-printed expressions.
     if s.as_slice().contains("\n") {
@@ -37,12 +37,13 @@ fn replace_newline_with_backslash_l(s: StrBuf) -> StrBuf {
         // \l, not the line that follows; so, add \l at end of string
         // if not already present, ensuring last line gets left-aligned
         // as well.
-        let mut last_two : Vec<_> = s.chars().rev().take(2).collect();
+        let mut last_two: Vec<_> =
+            s.as_slice().chars().rev().take(2).collect();
         last_two.reverse();
         if last_two.as_slice() != ['\\', 'l'] {
             s = s.append("\\l");
         }
-        s.to_strbuf()
+        s.to_string()
     } else {
         s
     }
@@ -71,7 +72,7 @@ impl<'a> dot::Labeller<'a, Node<'a>, Edge<'a>> for LabelledCFG<'a> {
     }
 
     fn edge_label(&self, e: &Edge<'a>) -> dot::LabelText<'a> {
-        let mut label = StrBuf::new();
+        let mut label = String::new();
         let mut put_one = false;
         for (i, &node_id) in e.data.exiting_scopes.iter().enumerate() {
             if put_one {
@@ -82,7 +83,9 @@ impl<'a> dot::Labeller<'a, Node<'a>, Edge<'a>> for LabelledCFG<'a> {
             let s = self.ast_map.node_to_str(node_id);
             // left-aligns the lines
             let s = replace_newline_with_backslash_l(s);
-            label = label.append(format!("exiting scope_{} {}", i, s.as_slice()));
+            label = label.append(format!("exiting scope_{} {}",
+                                         i,
+                                         s.as_slice()).as_slice());
         }
         dot::EscStr(label.into_maybe_owned())
     }

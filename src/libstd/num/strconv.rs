@@ -19,10 +19,10 @@ use num::{Float, FPNaN, FPInfinite, ToPrimitive};
 use num;
 use ops::{Add, Sub, Mul, Div, Rem, Neg};
 use option::{None, Option, Some};
-use slice::{CloneableVector, ImmutableVector, MutableVector};
-use std::cmp::{Ord, Eq};
-use str::{StrAllocating, StrSlice};
-use strbuf::StrBuf;
+use slice::{ImmutableVector, MutableVector};
+use std::cmp::{PartialOrd, PartialEq};
+use str::StrSlice;
+use string::String;
 use vec::Vec;
 
 /// A flag that specifies whether to use exponential (scientific) notation.
@@ -259,7 +259,7 @@ pub fn int_to_str_bytes_common<T: Int>(num: T, radix: uint, sign: SignFormat, f:
  *   between digit and exponent sign `'p'`.
  */
 #[allow(deprecated)]
-pub fn float_to_str_bytes_common<T:NumCast+Zero+One+Eq+Ord+Float+
+pub fn float_to_str_bytes_common<T:NumCast+Zero+One+PartialEq+PartialOrd+Float+
                                   Div<T,T>+Neg<T>+Rem<T,T>+Mul<T,T>>(
         num: T, radix: uint, negative_zero: bool,
         sign: SignFormat, digits: SignificantDigits, exp_format: ExponentFormat, exp_upper: bool
@@ -492,14 +492,14 @@ pub fn float_to_str_bytes_common<T:NumCast+Zero+One+Eq+Ord+Float+
  * `to_str_bytes_common()`, for details see there.
  */
 #[inline]
-pub fn float_to_str_common<T:NumCast+Zero+One+Eq+Ord+NumStrConv+Float+
+pub fn float_to_str_common<T:NumCast+Zero+One+PartialEq+PartialOrd+NumStrConv+Float+
                              Div<T,T>+Neg<T>+Rem<T,T>+Mul<T,T>>(
         num: T, radix: uint, negative_zero: bool,
         sign: SignFormat, digits: SignificantDigits, exp_format: ExponentFormat, exp_capital: bool
-        ) -> (~str, bool) {
+        ) -> (String, bool) {
     let (bytes, special) = float_to_str_bytes_common(num, radix,
                                negative_zero, sign, digits, exp_format, exp_capital);
-    (StrBuf::from_utf8(bytes).unwrap().into_owned(), special)
+    (String::from_utf8(bytes).unwrap(), special)
 }
 
 // Some constants for from_str_bytes_common's input validation,
@@ -547,7 +547,7 @@ static DIGIT_E_RADIX: uint = ('e' as uint) - ('a' as uint) + 11u;
  * - Fails if `radix` > 18 and `special == true` due to conflict
  *   between digit and lowest first character in `inf` and `NaN`, the `'i'`.
  */
-pub fn from_str_bytes_common<T:NumCast+Zero+One+Eq+Ord+Div<T,T>+
+pub fn from_str_bytes_common<T:NumCast+Zero+One+PartialEq+PartialOrd+Div<T,T>+
                                     Mul<T,T>+Sub<T,T>+Neg<T>+Add<T,T>+
                                     NumStrConv+Clone>(
         buf: &[u8], radix: uint, negative: bool, fractional: bool,
@@ -754,7 +754,7 @@ pub fn from_str_bytes_common<T:NumCast+Zero+One+Eq+Ord+Div<T,T>+
  * `from_str_bytes_common()`, for details see there.
  */
 #[inline]
-pub fn from_str_common<T:NumCast+Zero+One+Eq+Ord+Div<T,T>+Mul<T,T>+
+pub fn from_str_common<T:NumCast+Zero+One+PartialEq+PartialOrd+Div<T,T>+Mul<T,T>+
                               Sub<T,T>+Neg<T>+Add<T,T>+NumStrConv+Clone>(
         buf: &str, radix: uint, negative: bool, fractional: bool,
         special: bool, exponent: ExponentFormat, empty_zero: bool,
@@ -819,84 +819,84 @@ mod bench {
 
     mod uint {
         use super::test::Bencher;
-        use rand::{XorShiftRng, Rng};
+        use rand::{weak_rng, Rng};
         use num::ToStrRadix;
 
         #[bench]
         fn to_str_bin(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<uint>().to_str_radix(2); })
         }
 
         #[bench]
         fn to_str_oct(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<uint>().to_str_radix(8); })
         }
 
         #[bench]
         fn to_str_dec(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<uint>().to_str_radix(10); })
         }
 
         #[bench]
         fn to_str_hex(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<uint>().to_str_radix(16); })
         }
 
         #[bench]
         fn to_str_base_36(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<uint>().to_str_radix(36); })
         }
     }
 
     mod int {
         use super::test::Bencher;
-        use rand::{XorShiftRng, Rng};
+        use rand::{weak_rng, Rng};
         use num::ToStrRadix;
 
         #[bench]
         fn to_str_bin(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<int>().to_str_radix(2); })
         }
 
         #[bench]
         fn to_str_oct(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<int>().to_str_radix(8); })
         }
 
         #[bench]
         fn to_str_dec(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<int>().to_str_radix(10); })
         }
 
         #[bench]
         fn to_str_hex(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<int>().to_str_radix(16); })
         }
 
         #[bench]
         fn to_str_base_36(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { rng.gen::<int>().to_str_radix(36); })
         }
     }
 
     mod f64 {
         use super::test::Bencher;
-        use rand::{XorShiftRng, Rng};
+        use rand::{weak_rng, Rng};
         use f64;
 
         #[bench]
         fn float_to_str(b: &mut Bencher) {
-            let mut rng = XorShiftRng::new().unwrap();
+            let mut rng = weak_rng();
             b.iter(|| { f64::to_str(rng.gen()); })
         }
     }

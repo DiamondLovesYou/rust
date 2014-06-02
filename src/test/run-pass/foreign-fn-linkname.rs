@@ -22,7 +22,7 @@ mod mlibc {
     }
 }
 
-fn strlen(str: StrBuf) -> uint {
+fn strlen(str: String) -> uint {
     // C string is terminated with a zero
     str.as_slice().with_c_str(|buf| {
         unsafe {
@@ -32,6 +32,6 @@ fn strlen(str: StrBuf) -> uint {
 }
 
 pub fn main() {
-    let len = strlen("Rust".to_strbuf());
+    let len = strlen("Rust".to_string());
     assert_eq!(len, 4u);
 }

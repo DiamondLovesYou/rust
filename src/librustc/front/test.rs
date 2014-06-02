@@ -168,7 +168,7 @@ fn generate_test_harness(sess: &Session, krate: ast::Crate)
     cx.ext_cx.bt_push(ExpnInfo {
         call_site: DUMMY_SP,
         callee: NameAndSpan {
-            name: "test".to_strbuf(),
+            name: "test".to_string(),
             format: MacroAttribute,
             span: None
         }
@@ -253,7 +253,7 @@ fn is_bench_fn(cx: &TestCtxt, i: @ast::Item) -> bool {
 fn is_ignored(cx: &TestCtxt, i: @ast::Item) -> bool {
     i.attrs.iter().any(|attr| {
         // check ignore(cfg(foo, bar))
-        attr.name().equiv(&("ignore")) && match attr.meta_item_list() {
+        attr.check_name("ignore") && match attr.meta_item_list() {
             Some(ref cfgs) => {
                 attr::test_cfg(cx.config.as_slice(), cfgs.iter().map(|x| *x))
             }
@@ -327,7 +327,7 @@ fn mk_test_module(cx: &TestCtxt) -> @ast::Item {
         pub fn main() {
             #![main]
             use std::slice::Vector;
-            test::test_main_static_x(::std::os::args().as_slice(), TESTS);
+            test::test_main_static(::std::os::args().as_slice(), TESTS);
         }
     )).unwrap();
 
@@ -341,7 +341,8 @@ fn mk_test_module(cx: &TestCtxt) -> @ast::Item {
     // This attribute tells resolve to let us call unexported functions
     let resolve_unexported_str = InternedString::new("!resolve_unexported");
     let resolve_unexported_attr =
-        attr::mk_attr_inner(attr::mk_word_item(resolve_unexported_str));
+        attr::mk_attr_inner(attr::mk_attr_id(),
+                            attr::mk_word_item(resolve_unexported_str));
 
     let item = ast::Item {
         ident: token::str_to_ident("__test"),

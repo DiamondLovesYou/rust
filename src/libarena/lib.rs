@@ -25,7 +25,7 @@
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 #![allow(missing_doc)]
 
 extern crate collections;
@@ -38,12 +38,12 @@ use std::mem;
 use std::num;
 use std::ptr::read;
 use std::rc::Rc;
-use std::rt::heap::exchange_malloc;
+use std::rt::heap::allocate;
 
 // The way arena uses arrays is really deeply awful. The arrays are
 // allocated, and have capacities reserved, but the fill for the array
 // will always stay at 0.
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 struct Chunk {
     data: Rc<RefCell<Vec<u8> >>,
     fill: Cell<uint>,
@@ -358,8 +358,7 @@ impl<T> TypedArenaChunk<T> {
         size = size.checked_add(&elems_size).unwrap();
 
         let mut chunk = unsafe {
-            let chunk = exchange_malloc(size,
-                                        mem::min_align_of::<TypedArenaChunk<T>>());
+            let chunk = allocate(size, mem::min_align_of::<TypedArenaChunk<T>>());
             let mut chunk: Box<TypedArenaChunk<T>> = mem::transmute(chunk);
             mem::overwrite(&mut chunk.next, next);
             chunk
@@ -539,7 +538,7 @@ mod tests {
     }
 
     struct Noncopy {
-        string: StrBuf,
+        string: String,
         array: Vec<int> ,
     }
 
@@ -548,7 +547,7 @@ mod tests {
         let arena = TypedArena::new();
         for _ in range(0, 100000) {
             arena.alloc(Noncopy {
-                string: "hello world".to_strbuf(),
+                string: "hello world".to_string(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             });
         }
@@ -559,7 +558,7 @@ mod tests {
         let arena = TypedArena::new();
         b.iter(|| {
             arena.alloc(Noncopy {
-                string: "hello world".to_strbuf(),
+                string: "hello world".to_string(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             })
         })
@@ -569,7 +568,7 @@ mod tests {
     pub fn bench_noncopy_nonarena(b: &mut Bencher) {
         b.iter(|| {
             box Noncopy {
-                string: "hello world".to_strbuf(),
+                string: "hello world".to_string(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             }
         })
@@ -580,7 +579,7 @@ mod tests {
         let arena = Arena::new();
         b.iter(|| {
             arena.alloc(|| Noncopy {
-                string: "hello world".to_strbuf(),
+                string: "hello world".to_string(),
                 array: vec!( 1, 2, 3, 4, 5 ),
             })
         })

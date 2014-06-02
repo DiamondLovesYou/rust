@@ -24,7 +24,7 @@ source code snippets, etc.
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::strbuf::StrBuf;
+use std::string::String;
 
 pub trait Pos {
     fn from_uint(n: uint) -> Self;
@@ -33,13 +33,13 @@ pub trait Pos {
 
 /// A byte offset. Keep this small (currently 32-bits), as AST contains
 /// a lot of them.
-#[deriving(Clone, Eq, TotalEq, Hash, Ord, Show)]
+#[deriving(Clone, PartialEq, Eq, Hash, PartialOrd, Show)]
 pub struct BytePos(pub u32);
 
 /// A character offset. Because of multibyte utf8 characters, a byte offset
 /// is not equivalent to a character offset. The CodeMap will convert BytePos
 /// values to CharPos values as necessary.
-#[deriving(Eq, Hash, Ord, Show)]
+#[deriving(PartialEq, Hash, PartialOrd, Show)]
 pub struct CharPos(pub uint);
 
 // FIXME: Lots of boilerplate in these impls, but so far my attempts to fix
@@ -96,20 +96,20 @@ pub struct Span {
 
 pub static DUMMY_SP: Span = Span { lo: BytePos(0), hi: BytePos(0), expn_info: None };
 
-#[deriving(Clone, Eq, TotalEq, Encodable, Decodable, Hash)]
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct Spanned<T> {
     pub node: T,
     pub span: Span,
 }
 
-impl Eq for Span {
+impl PartialEq for Span {
     fn eq(&self, other: &Span) -> bool {
         return (*self).lo == (*other).lo && (*self).hi == (*other).hi;
     }
     fn ne(&self, other: &Span) -> bool { !(*self).eq(other) }
 }
 
-impl TotalEq for Span {}
+impl Eq for Span {}
 
 impl<S:Encoder<E>, E> Encodable<S, E> for Span {
     /* Note #1972 -- spans are encoded but not decoded */
@@ -189,7 +189,7 @@ pub enum MacroFormat {
 pub struct NameAndSpan {
     /// The name of the macro that was invoked to create the thing
     /// with this Span.
-    pub name: StrBuf,
+    pub name: String,
     /// The format with which the macro was invoked.
     pub format: MacroFormat,
     /// The span of the macro definition itself. The macro may not
@@ -220,7 +220,7 @@ pub struct ExpnInfo {
     pub callee: NameAndSpan
 }
 
-pub type FileName = StrBuf;
+pub type FileName = String;
 
 pub struct FileLines {
     pub file: Rc<FileMap>,
@@ -242,7 +242,7 @@ pub struct FileMap {
     /// e.g. `<anon>`
     pub name: FileName,
     /// The complete source code
-    pub src: StrBuf,
+    pub src: String,
     /// The start position of this source in the CodeMap
     pub start_pos: BytePos,
     /// Locations of lines beginnings in the source code
@@ -270,14 +270,14 @@ impl FileMap {
     }
 
     // get a line from the list of pre-computed line-beginnings
-    pub fn get_line(&self, line: int) -> StrBuf {
+    pub fn get_line(&self, line: int) -> String {
         let mut lines = self.lines.borrow_mut();
         let begin: BytePos = *lines.get(line as uint) - self.start_pos;
         let begin = begin.to_uint();
         let slice = self.src.as_slice().slice_from(begin);
         match slice.find('\n') {
-            Some(e) => slice.slice_to(e).to_strbuf(),
-            None => slice.to_strbuf()
+            Some(e) => slice.slice_to(e).to_string(),
+            None => slice.to_string()
         }
     }
 
@@ -307,7 +307,7 @@ impl CodeMap {
         }
     }
 
-    pub fn new_filemap(&self, filename: FileName, src: StrBuf) -> Rc<FileMap> {
+    pub fn new_filemap(&self, filename: FileName, src: String) -> Rc<FileMap> {
         let mut files = self.files.borrow_mut();
         let start_pos = match files.last() {
             None => 0,
@@ -318,9 +318,9 @@ impl CodeMap {
         // FIXME #12884: no efficient/safe way to remove from the start of a string
         // and reuse the allocation.
         let mut src = if src.as_slice().starts_with("\ufeff") {
-            StrBuf::from_str(src.as_slice().slice_from(3))
+            String::from_str(src.as_slice().slice_from(3))
         } else {
-            StrBuf::from_str(src.as_slice())
+            String::from_str(src.as_slice())
         };
 
         // Append '\n' in case it's not already there.
@@ -333,7 +333,7 @@ impl CodeMap {
 
         let filemap = Rc::new(FileMap {
             name: filename,
-            src: src.to_strbuf(),
+            src: src.to_string(),
             start_pos: Pos::from_uint(start_pos),
             lines: RefCell::new(Vec::new()),
             multibyte_chars: RefCell::new(Vec::new()),
@@ -344,12 +344,12 @@ impl CodeMap {
         filemap
     }
 
-    pub fn mk_substr_filename(&self, sp: Span) -> StrBuf {
+    pub fn mk_substr_filename(&self, sp: Span) -> String {
         let pos = self.lookup_char_pos(sp.lo);
         (format!("<{}:{}:{}>",
                  pos.file.name,
                  pos.line,
-                 pos.col.to_uint() + 1)).to_strbuf()
+                 pos.col.to_uint() + 1)).to_string()
     }
 
     /// Lookup source information about a BytePos
@@ -360,16 +360,16 @@ impl CodeMap {
     pub fn lookup_char_pos_adj(&self, pos: BytePos) -> LocWithOpt {
         let loc = self.lookup_char_pos(pos);
         LocWithOpt {
-            filename: loc.file.name.to_strbuf(),
+            filename: loc.file.name.to_string(),
             line: loc.line,
             col: loc.col,
             file: Some(loc.file)
         }
     }
 
-    pub fn span_to_str(&self, sp: Span) -> StrBuf {
+    pub fn span_to_str(&self, sp: Span) -> String {
         if self.files.borrow().len() == 0 && sp == DUMMY_SP {
-            return "no-location".to_strbuf();
+            return "no-location".to_string();
         }
 
         let lo = self.lookup_char_pos_adj(sp.lo);
@@ -379,11 +379,11 @@ impl CodeMap {
                         lo.line,
                         lo.col.to_uint() + 1,
                         hi.line,
-                        hi.col.to_uint() + 1)).to_strbuf()
+                        hi.col.to_uint() + 1)).to_string()
     }
 
     pub fn span_to_filename(&self, sp: Span) -> FileName {
-        self.lookup_char_pos(sp.lo).file.name.to_strbuf()
+        self.lookup_char_pos(sp.lo).file.name.to_string()
     }
 
     pub fn span_to_lines(&self, sp: Span) -> FileLines {
@@ -396,7 +396,7 @@ impl CodeMap {
         FileLines {file: lo.file, lines: lines}
     }
 
-    pub fn span_to_snippet(&self, sp: Span) -> Option<StrBuf> {
+    pub fn span_to_snippet(&self, sp: Span) -> Option<String> {
         let begin = self.lookup_byte_offset(sp.lo);
         let end = self.lookup_byte_offset(sp.hi);
 
@@ -408,7 +408,7 @@ impl CodeMap {
             None
         } else {
             Some(begin.fm.src.as_slice().slice(begin.pos.to_uint(),
-                                               end.pos.to_uint()).to_strbuf())
+                                               end.pos.to_uint()).to_string())
         }
     }
 
@@ -535,21 +535,21 @@ mod test {
     #[test]
     fn t1 () {
         let cm = CodeMap::new();
-        let fm = cm.new_filemap("blork.rs".to_strbuf(),
-                                "first line.\nsecond line".to_strbuf());
+        let fm = cm.new_filemap("blork.rs".to_string(),
+                                "first line.\nsecond line".to_string());
         fm.next_line(BytePos(0));
-        assert_eq!(&fm.get_line(0),&"first line.".to_strbuf());
+        assert_eq!(&fm.get_line(0),&"first line.".to_string());
         // TESTING BROKEN BEHAVIOR:
         fm.next_line(BytePos(10));
-        assert_eq!(&fm.get_line(1), &".".to_strbuf());
+        assert_eq!(&fm.get_line(1), &".".to_string());
     }
 
     #[test]
     #[should_fail]
     fn t2 () {
         let cm = CodeMap::new();
-        let fm = cm.new_filemap("blork.rs".to_strbuf(),
-                                "first line.\nsecond line".to_strbuf());
+        let fm = cm.new_filemap("blork.rs".to_string(),
+                                "first line.\nsecond line".to_string());
         // TESTING *REALLY* BROKEN BEHAVIOR:
         fm.next_line(BytePos(0));
         fm.next_line(BytePos(10));
@@ -558,12 +558,12 @@ mod test {
 
     fn init_code_map() -> CodeMap {
         let cm = CodeMap::new();
-        let fm1 = cm.new_filemap("blork.rs".to_strbuf(),
-                                 "first line.\nsecond line".to_strbuf());
-        let fm2 = cm.new_filemap("empty.rs".to_strbuf(),
-                                 "".to_strbuf());
-        let fm3 = cm.new_filemap("blork2.rs".to_strbuf(),
-                                 "first line.\nsecond line".to_strbuf());
+        let fm1 = cm.new_filemap("blork.rs".to_string(),
+                                 "first line.\nsecond line".to_string());
+        let fm2 = cm.new_filemap("empty.rs".to_string(),
+                                 "".to_string());
+        let fm3 = cm.new_filemap("blork2.rs".to_string(),
+                                 "first line.\nsecond line".to_string());
 
         fm1.next_line(BytePos(0));
         fm1.next_line(BytePos(12));
@@ -580,11 +580,11 @@ mod test {
         let cm = init_code_map();
 
         let fmabp1 = cm.lookup_byte_offset(BytePos(22));
-        assert_eq!(fmabp1.fm.name, "blork.rs".to_strbuf());
+        assert_eq!(fmabp1.fm.name, "blork.rs".to_string());
         assert_eq!(fmabp1.pos, BytePos(22));
 
         let fmabp2 = cm.lookup_byte_offset(BytePos(24));
-        assert_eq!(fmabp2.fm.name, "blork2.rs".to_strbuf());
+        assert_eq!(fmabp2.fm.name, "blork2.rs".to_string());
         assert_eq!(fmabp2.pos, BytePos(0));
     }
 
@@ -606,12 +606,12 @@ mod test {
         let cm = init_code_map();
 
         let loc1 = cm.lookup_char_pos(BytePos(22));
-        assert_eq!(loc1.file.name, "blork.rs".to_strbuf());
+        assert_eq!(loc1.file.name, "blork.rs".to_string());
         assert_eq!(loc1.line, 2);
         assert_eq!(loc1.col, CharPos(10));
 
         let loc2 = cm.lookup_char_pos(BytePos(24));
-        assert_eq!(loc2.file.name, "blork2.rs".to_strbuf());
+        assert_eq!(loc2.file.name, "blork2.rs".to_string());
         assert_eq!(loc2.line, 1);
         assert_eq!(loc2.col, CharPos(0));
     }
@@ -620,10 +620,10 @@ mod test {
         let cm = CodeMap::new();
         // € is a three byte utf8 char.
         let fm1 =
-            cm.new_filemap("blork.rs".to_strbuf(),
-                           "fir€st €€€€ line.\nsecond line".to_strbuf());
-        let fm2 = cm.new_filemap("blork2.rs".to_strbuf(),
-                                 "first line€€.\n€ second line".to_strbuf());
+            cm.new_filemap("blork.rs".to_string(),
+                           "fir€st €€€€ line.\nsecond line".to_string());
+        let fm2 = cm.new_filemap("blork2.rs".to_string(),
+                                 "first line€€.\n€ second line".to_string());
 
         fm1.next_line(BytePos(0));
         fm1.next_line(BytePos(22));
@@ -667,7 +667,7 @@ mod test {
         let span = Span {lo: BytePos(12), hi: BytePos(23), expn_info: None};
         let file_lines = cm.span_to_lines(span);
 
-        assert_eq!(file_lines.file.name, "blork.rs".to_strbuf());
+        assert_eq!(file_lines.file.name, "blork.rs".to_string());
         assert_eq!(file_lines.lines.len(), 1);
         assert_eq!(*file_lines.lines.get(0), 1u);
     }
@@ -679,7 +679,7 @@ mod test {
         let span = Span {lo: BytePos(12), hi: BytePos(23), expn_info: None};
         let snippet = cm.span_to_snippet(span);
 
-        assert_eq!(snippet, Some("second line".to_strbuf()));
+        assert_eq!(snippet, Some("second line".to_string()));
     }
 
     #[test]
@@ -689,6 +689,6 @@ mod test {
         let span = Span {lo: BytePos(12), hi: BytePos(23), expn_info: None};
         let sstr =  cm.span_to_str(span);
 
-        assert_eq!(sstr, "blork.rs:2:1: 2:12".to_strbuf());
+        assert_eq!(sstr, "blork.rs:2:1: 2:12".to_string());
     }
 }

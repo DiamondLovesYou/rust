@@ -35,16 +35,16 @@ pub mod session;
 pub mod config;
 
 
-pub fn main_args(args: &[StrBuf]) -> int {
+pub fn main_args(args: &[String]) -> int {
     let owned_args = args.to_owned();
     monitor(proc() run_compiler(owned_args));
     0
 }
 
 static BUG_REPORT_URL: &'static str =
-    "http://static.rust-lang.org/doc/master/complement-bugreport.html";
+    "http://doc.rust-lang.org/complement-bugreport.html";
 
-fn run_compiler(args: &[StrBuf]) {
+fn run_compiler(args: &[String]) {
     let matches = match handle_options(Vec::from_slice(args)) {
         Some(matches) => matches,
         None => return
@@ -57,7 +57,7 @@ fn run_compiler(args: &[StrBuf]) {
             if ifile == "-" {
                 let contents = io::stdin().read_to_end().unwrap();
                 let src = str::from_utf8(contents.as_slice()).unwrap()
-                                                             .to_strbuf();
+                                                             .to_string();
                 (StrInput(src), None)
             } else {
                 (FileInput(Path::new(ifile)), Some(Path::new(ifile)))
@@ -84,7 +84,7 @@ fn run_compiler(args: &[StrBuf]) {
     }
 
     let r = matches.opt_strs("Z");
-    if r.contains(&("ls".to_strbuf())) {
+    if r.contains(&("ls".to_string())) {
         match input {
             FileInput(ref ifile) => {
                 let mut stdout = io::stdout();
@@ -120,7 +120,8 @@ Additional help:
     -C help             Print codegen options
     -W help             Print 'lint' options and default settings
     -Z help             Print internal options for debugging rustc\n",
-              getopts::usage(message, config::optgroups().as_slice()));
+              getopts::usage(message.as_slice(),
+                             config::optgroups().as_slice()));
 }
 
 fn describe_warnings() {
@@ -142,8 +143,8 @@ Available lint options:
     for &(_, name) in lint_dict.iter() {
         max_key = cmp::max(name.len(), max_key);
     }
-    fn padded(max: uint, s: &str) -> ~str {
-        " ".repeat(max - s.len()) + s
+    fn padded(max: uint, s: &str) -> String {
+        format!("{}{}", " ".repeat(max - s.len()), s)
     }
     println!("\nAvailable lint checks:\n");
     println!("    {}  {:7.7s}  {}",
@@ -153,7 +154,7 @@ Available lint options:
     for (spec, name) in lint_dict.move_iter() {
         let name = name.replace("_", "-");
         println!("    {}  {:7.7s}  {}",
-                 padded(max_key, name),
+                 padded(max_key, name.as_slice()),
                  lint::level_to_str(spec.default),
                  spec.desc);
     }
@@ -191,7 +192,7 @@ fn describe_codegen_flags() {
 /// Process command line options. Emits messages as appropirate.If compilation
 /// should continue, returns a getopts::Matches object parsed from args, otherwise
 /// returns None.
-pub fn handle_options(mut args: Vec<StrBuf>) -> Option<getopts::Matches> {
+pub fn handle_options(mut args: Vec<String>) -> Option<getopts::Matches> {
     // Throw away the first argument, the name of the binary
     let _binary = args.shift().unwrap();
 
@@ -232,7 +233,7 @@ pub fn handle_options(mut args: Vec<StrBuf>) -> Option<getopts::Matches> {
         return None;
     }
 
-    if cg_flags.contains(&"passes=list".to_strbuf()) {
+    if cg_flags.contains(&"passes=list".to_string()) {
         unsafe { ::lib::llvm::llvm::LLVMRustPrintPasses(); }
         return None;
     }
@@ -305,16 +306,18 @@ pub fn parse_pretty(sess: &Session, name: &str) -> PpMode {
         (arg, "flowgraph") => {
              match arg.and_then(from_str) {
                  Some(id) => PpmFlowGraph(id),
-                 None => sess.fatal(format_strbuf!("`pretty flowgraph=<nodeid>` needs \
-                                                     an integer <nodeid>; got {}",
-                                                   arg.unwrap_or("nothing")).as_slice())
+                 None => {
+                     sess.fatal(format!("`pretty flowgraph=<nodeid>` needs \
+                                         an integer <nodeid>; got {}",
+                                        arg.unwrap_or("nothing")).as_slice())
+                 }
              }
         }
         _ => {
             sess.fatal(format!(
                 "argument to `pretty` must be one of `normal`, \
                  `expanded`, `flowgraph=<nodeid>`, `typed`, `identified`, \
-                 or `expanded,identified`; got {}", name));
+                 or `expanded,identified`; got {}", name).as_slice());
         }
     }
 }
@@ -329,8 +332,8 @@ fn parse_crate_attrs(sess: &Session, input: &Input) ->
         }
         StrInput(ref src) => {
             parse::parse_crate_attrs_from_source_str(
-                driver::anon_src().to_strbuf(),
-                src.to_strbuf(),
+                driver::anon_src().to_string(),
+                src.to_string(),
                 Vec::new(),
                 &sess.parse_sess)
         }
@@ -396,19 +399,24 @@ fn monitor(f: proc():Send) {
                 }
 
                 let xs = [
-                    "the compiler hit an unexpected failure path. this is a bug.".to_owned(),
-                    "we would appreciate a bug report: " + BUG_REPORT_URL,
-                    "run with `RUST_BACKTRACE=1` for a backtrace".to_owned(),
+                    "the compiler hit an unexpected failure path. this is a bug.".to_string(),
+                    format!("we would appreciate a bug report: {}",
+                            BUG_REPORT_URL),
+                    "run with `RUST_BACKTRACE=1` for a backtrace".to_string(),
                 ];
                 for note in xs.iter() {
-                    emitter.emit(None, *note, diagnostic::Note)
+                    emitter.emit(None, note.as_slice(), diagnostic::Note)
                 }
 
                 match r.read_to_str() {
                     Ok(s) => println!("{}", s),
-                    Err(e) => emitter.emit(None,
-                                           format!("failed to read internal stderr: {}", e),
-                                           diagnostic::Error),
+                    Err(e) => {
+                        emitter.emit(None,
+                                     format!("failed to read internal \
+                                              stderr: {}",
+                                             e).as_slice(),
+                                     diagnostic::Error)
+                    }
                 }
             }
 

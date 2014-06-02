@@ -89,9 +89,10 @@ fn lookup_cur_matched(r: &TtReader, name: Ident) -> Rc<NamedMatch> {
     match matched_opt {
         Some(s) => lookup_cur_matched_by_matched(r, s),
         None => {
-            r.sp_diag.span_fatal(r.cur_span,
-                                 format!("unknown macro variable `{}`",
-                                         token::get_ident(name)));
+            r.sp_diag
+             .span_fatal(r.cur_span,
+                         format!("unknown macro variable `{}`",
+                                 token::get_ident(name)).as_slice());
         }
     }
 }
@@ -100,7 +101,7 @@ fn lookup_cur_matched(r: &TtReader, name: Ident) -> Rc<NamedMatch> {
 enum LockstepIterSize {
     LisUnconstrained,
     LisConstraint(uint, Ident),
-    LisContradiction(StrBuf),
+    LisContradiction(String),
 }
 
 fn lis_merge(lhs: LockstepIterSize, rhs: LockstepIterSize) -> LockstepIterSize {
@@ -116,7 +117,7 @@ fn lis_merge(lhs: LockstepIterSize, rhs: LockstepIterSize) -> LockstepIterSize {
                 let r_n = token::get_ident(r_id);
                 LisContradiction(format!("inconsistent lockstep iteration: \
                                           '{}' has {} items, but '{}' has {}",
-                                          l_n, l_len, r_n, r_len).to_strbuf())
+                                          l_n, l_len, r_n, r_len).to_string())
             }
         }
     }
@@ -269,7 +270,7 @@ pub fn tt_next_token(r: &mut TtReader) -> TokenAndSpan {
                         r.sp_diag.span_fatal(
                             r.cur_span, /* blame the macro writer */
                             format!("variable '{}' is still repeating at this depth",
-                                    token::get_ident(ident)));
+                                    token::get_ident(ident)).as_slice());
                     }
                 }
             }

@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn decode() -> StrBuf {
+fn decode() -> String {
     'outer: loop {
         let mut ch_start: uint;
         break 'outer;
     }
-    "".to_strbuf()
+    "".to_string()
 }
 
 pub fn main() {

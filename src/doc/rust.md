@@ -473,7 +473,7 @@ Two examples of paths with type arguments:
 # struct HashMap<K, V>;
 # fn f() {
 # fn id<T>(t: T) -> T { t }
-type T = HashMap<int,StrBuf>;  // Type arguments used in a type expression
+type T = HashMap<int,String>;  // Type arguments used in a type expression
 let x = id::<int>(10);       // Type arguments used in a call expression
 # }
 ~~~~
@@ -661,6 +661,7 @@ Attributes on the anonymous crate module define important metadata that influenc
 the behavior of the compiler.
 
 ~~~~ {.rust}
+# #![allow(unused_attribute)]
 // Crate ID
 #![crate_id = "projx#2.5"]
 
@@ -885,8 +886,8 @@ fn main() {
     // Equivalent to 'std::iter::range_step(0, 10, 2);'
     range_step(0, 10, 2);
 
-    // Equivalent to 'foo(~[std::option::Some(1.0), std::option::None]);'
-    foo(~[Some(1.0), None]);
+    // Equivalent to 'foo(vec![std::option::Some(1.0), std::option::None]);'
+    foo(vec![Some(1.0), None]);
 }
 ~~~~
 
@@ -994,8 +995,8 @@ the function name.
 fn iter<T>(seq: &[T], f: |T|) {
     for elt in seq.iter() { f(elt); }
 }
-fn map<T, U>(seq: &[T], f: |T| -> U) -> ~[U] {
-    let mut acc = ~[];
+fn map<T, U>(seq: &[T], f: |T| -> U) -> Vec<U> {
+    let mut acc = vec![];
     for elt in seq.iter() { acc.push(f(elt)); }
     acc
 }
@@ -1035,6 +1036,7 @@ Unsafe operations are those that potentially violate the memory-safety guarantee
 The following language level features cannot be used in the safe subset of Rust:
 
   - Dereferencing a [raw pointer](#pointer-types).
+  - Reading or writing a [mutable static variable](#mutable-statics).
   - Calling an unsafe function (including an intrinsic or foreign function).
 
 ##### Unsafe functions
@@ -1157,10 +1159,10 @@ except that they have the `extern` modifier.
 
 ~~~~
 // Declares an extern fn, the ABI defaults to "C"
-extern fn new_vec() -> ~[int] { ~[] }
+extern fn new_int() -> int { 0 }
 
 // Declares an extern fn with "stdcall" ABI
-extern "stdcall" fn new_vec_stdcall() -> ~[int] { ~[] }
+extern "stdcall" fn new_int_stdcall() -> int { 0 }
 ~~~~
 
 Unlike normal functions, extern fns have an `extern "ABI" fn()`.
@@ -1168,8 +1170,8 @@ This is the same type as the functions declared in an extern
 block.
 
 ~~~~
-# extern fn new_vec() -> ~[int] { ~[] }
-let fptr: extern "C" fn() -> ~[int] = new_vec;
+# extern fn new_int() -> int { 0 }
+let fptr: extern "C" fn() -> int = new_int;
 ~~~~
 
 Extern functions may be called directly from Rust code as Rust uses large,
@@ -1259,12 +1261,12 @@ Enumeration constructors can have either named or unnamed fields:
 
 ~~~~
 enum Animal {
-    Dog (StrBuf, f64),
-    Cat { name: StrBuf, weight: f64 }
+    Dog (String, f64),
+    Cat { name: String, weight: f64 }
 }
 
-let mut a: Animal = Dog("Cocoa".to_strbuf(), 37.2);
-a = Cat { name: "Spotty".to_strbuf(), weight: 2.7 };
+let mut a: Animal = Dog("Cocoa".to_string(), 37.2);
+a = Cat { name: "Spotty".to_string(), weight: 2.7 };
 ~~~~
 
 In this example, `Cat` is a _struct-like enum variant_,
@@ -1434,7 +1436,7 @@ trait Circle : Shape { fn radius() -> f64; }
 ~~~~
 
 the syntax `Circle : Shape` means that types that implement `Circle` must also have an implementation for `Shape`.
-Multiple supertraits are separated by spaces, `trait Circle : Shape Eq { }`.
+Multiple supertraits are separated by `+`, `trait Circle : Shape + PartialEq { }`.
 In an implementation of `Circle` for a given type `T`, methods can refer to `Shape` methods,
 since the typechecker checks that any type with an implementation of `Circle` also has an implementation of `Shape`.
 
@@ -1507,7 +1509,7 @@ Implementation parameters are written after the `impl` keyword.
 
 ~~~~
 # trait Seq<T> { }
-impl<T> Seq<T> for ~[T] {
+impl<T> Seq<T> for Vec<T> {
    /* ... */
 }
 impl Seq<bool> for u32 {
@@ -2081,7 +2083,7 @@ These are functions:
 * `str_eq`
   : Compare two strings (`&str`) for equality.
 * `uniq_str_eq`
-  : Compare two owned strings (`StrBuf`) for equality.
+  : Compare two owned strings (`String`) for equality.
 * `strdup_uniq`
   : Return a new unique string
     containing a copy of the contents of a unique string.
@@ -2157,23 +2159,23 @@ There are three different types of inline attributes:
 
 The `deriving` attribute allows certain traits to be automatically
 implemented for data structures. For example, the following will
-create an `impl` for the `Eq` and `Clone` traits for `Foo`, the type
-parameter `T` will be given the `Eq` or `Clone` constraints for the
+create an `impl` for the `PartialEq` and `Clone` traits for `Foo`, the type
+parameter `T` will be given the `PartialEq` or `Clone` constraints for the
 appropriate `impl`:
 
 ~~~~
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Clone)]
 struct Foo<T> {
     a: int,
     b: T
 }
 ~~~~
 
-The generated `impl` for `Eq` is equivalent to
+The generated `impl` for `PartialEq` is equivalent to
 
 ~~~~
 # struct Foo<T> { a: int, b: T }
-impl<T: Eq> Eq for Foo<T> {
+impl<T: PartialEq> PartialEq for Foo<T> {
     fn eq(&self, other: &Foo<T>) -> bool {
         self.a == other.a && self.b == other.b
     }
@@ -2186,7 +2188,7 @@ impl<T: Eq> Eq for Foo<T> {
 
 Supported traits for `deriving` are:
 
-* Comparison traits: `Eq`, `TotalEq`, `Ord`, `TotalOrd`.
+* Comparison traits: `PartialEq`, `TotalEq`, `PartialOrd`, `TotalOrd`.
 * Serialization: `Encodable`, `Decodable`. These require `serialize`.
 * `Clone`, to create `T` from `&T` via a copy.
 * `Hash`, to iterate over the bytes in a data type.
@@ -2732,22 +2734,22 @@ The default meaning of the operators on standard types is given here.
 
 * `==`
   : Equal to.
-    Calls the `eq` method on the `std::cmp::Eq` trait.
+    Calls the `eq` method on the `std::cmp::PartialEq` trait.
 * `!=`
   : Unequal to.
-    Calls the `ne` method on the `std::cmp::Eq` trait.
+    Calls the `ne` method on the `std::cmp::PartialEq` trait.
 * `<`
   : Less than.
-    Calls the `lt` method on the `std::cmp::Ord` trait.
+    Calls the `lt` method on the `std::cmp::PartialOrd` trait.
 * `>`
   : Greater than.
-    Calls the `gt` method on the `std::cmp::Ord` trait.
+    Calls the `gt` method on the `std::cmp::PartialOrd` trait.
 * `<=`
   : Less than or equal.
-    Calls the `le` method on the `std::cmp::Ord` trait.
+    Calls the `le` method on the `std::cmp::PartialOrd` trait.
 * `>=`
   : Greater than or equal.
-    Calls the `ge` method on the `std::cmp::Ord` trait.
+    Calls the `ge` method on the `std::cmp::PartialOrd` trait.
 
 #### Type cast expressions
 
@@ -3309,7 +3311,7 @@ A value of type `str` is a Unicode string,
 represented as a vector of 8-bit unsigned bytes holding a sequence of UTF-8 codepoints.
 Since `str` is of unknown size, it is not a _first class_ type,
 but can only be instantiated through a pointer type,
-such as `&str` or `StrBuf`.
+such as `&str` or `String`.
 
 ### Tuple types
 
@@ -3345,7 +3347,7 @@ Such a definite-sized vector type is a first-class type, since its size is known
 A vector without such a size is said to be of _indefinite_ size,
 and is therefore not a _first-class_ type.
 An indefinite-size vector can only be instantiated through a pointer type,
-such as `&[T]` or `~[T]`.
+such as `&[T]` or `Vec<T>`.
 The kind of a vector type depends on the kind of its element type,
 as with other simple structural types.
 
@@ -3537,7 +3539,7 @@ allocated on the heap (unlike closures). An example of creating and calling a
 procedure:
 
 ```rust
-let string = "Hello".to_owned();
+let string = "Hello".to_string();
 
 // Creates a new procedure, passing it to the `spawn` function.
 spawn(proc() {
@@ -3573,11 +3575,11 @@ An example of an object type:
 
 ~~~~
 trait Printable {
-  fn to_string(&self) -> StrBuf;
+  fn to_string(&self) -> String;
 }
 
 impl Printable for int {
-  fn to_string(&self) -> StrBuf { self.to_str().to_strbuf() }
+  fn to_string(&self) -> String { self.to_str().to_string() }
 }
 
 fn print(a: Box<Printable>) {
@@ -3618,17 +3620,17 @@ example, in:
 
 ~~~~
 trait Printable {
-  fn make_string(&self) -> StrBuf;
+  fn make_string(&self) -> String;
 }
 
-impl Printable for StrBuf {
-    fn make_string(&self) -> StrBuf {
+impl Printable for String {
+    fn make_string(&self) -> String {
         (*self).clone()
     }
 }
 ~~~~
 
-`self` refers to the value of type `StrBuf` that is the receiver for a
+`self` refers to the value of type `String` that is the receiver for a
 call to the method `make_string`.
 
 ## Type kinds

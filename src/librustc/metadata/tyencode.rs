@@ -31,7 +31,7 @@ macro_rules! mywrite( ($($arg:tt)*) => ({ write!($($arg)*); }) )
 pub struct ctxt<'a> {
     pub diag: &'a SpanHandler,
     // Def -> str Callback:
-    pub ds: fn(DefId) -> StrBuf,
+    pub ds: fn(DefId) -> String,
     // The type context.
     pub tcx: &'a ty::ctxt,
     pub abbrevs: &'a abbrev_map
@@ -43,7 +43,7 @@ pub struct ctxt<'a> {
 pub struct ty_abbrev {
     pos: uint,
     len: uint,
-    s: StrBuf
+    s: String
 }
 
 pub type abbrev_map = RefCell<HashMap<ty::t, ty_abbrev>>;
@@ -69,7 +69,7 @@ pub fn enc_ty(w: &mut MemWriter, cx: &ctxt, t: ty::t) {
         cx.abbrevs.borrow_mut().insert(t, ty_abbrev {
             pos: pos as uint,
             len: len as uint,
-            s: format_strbuf!("\\#{:x}:{:x}\\#", pos, len)
+            s: format!("\\#{:x}:{:x}\\#", pos, len)
         });
     }
 }

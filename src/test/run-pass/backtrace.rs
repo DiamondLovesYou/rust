@@ -9,13 +9,11 @@
 // except according to those terms.
 
 // ignore-win32 FIXME #13259
-#![no_uv]
-
 extern crate native;
 
 use std::os;
 use std::io::process::Command;
-use std::unstable::finally::Finally;
+use std::finally::Finally;
 use std::str;
 
 #[start]
@@ -38,14 +36,14 @@ fn double() {
 fn runtest(me: &str) {
     let mut env = os::env().move_iter()
                            .map(|(ref k, ref v)| {
-                               (k.to_strbuf(), v.to_strbuf())
-                           }).collect::<Vec<(StrBuf,StrBuf)>>();
+                               (k.to_string(), v.to_string())
+                           }).collect::<Vec<(String,String)>>();
     match env.iter()
              .position(|&(ref s, _)| "RUST_BACKTRACE" == s.as_slice()) {
         Some(i) => { env.remove(i); }
         None => {}
     }
-    env.push(("RUST_BACKTRACE".to_strbuf(), "1".to_strbuf()));
+    env.push(("RUST_BACKTRACE".to_string(), "1".to_string()));
 
     // Make sure that the stack trace is printed
     let mut p = Command::new(me).arg("fail").env(env.as_slice()).spawn().unwrap();
@@ -92,6 +90,6 @@ fn main() {
     } else if args.len() >= 2 && args[1].as_slice() == "double-fail" {
         double();
     } else {
-        runtest(args[0]);
+        runtest(args[0].as_slice());
     }
 }

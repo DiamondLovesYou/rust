@@ -25,7 +25,7 @@ use slice::{MutableCloneableVector, ImmutableVector, MutableVector};
 
 pub type Port = u16;
 
-#[deriving(Eq, TotalEq, Clone, Hash)]
+#[deriving(PartialEq, Eq, Clone, Hash)]
 pub enum IpAddr {
     Ipv4Addr(u8, u8, u8, u8),
     Ipv6Addr(u16, u16, u16, u16, u16, u16, u16, u16)
@@ -56,7 +56,7 @@ impl fmt::Show for IpAddr {
     }
 }
 
-#[deriving(Eq, TotalEq, Clone, Hash)]
+#[deriving(PartialEq, Eq, Clone, Hash)]
 pub struct SocketAddr {
     pub ip: IpAddr,
     pub port: Port,
@@ -445,8 +445,8 @@ mod test {
     #[test]
     fn ipv6_addr_to_str() {
         let a1 = Ipv6Addr(0, 0, 0, 0, 0, 0xffff, 0xc000, 0x280);
-        assert!(a1.to_str() == "::ffff:192.0.2.128".to_owned() ||
-                a1.to_str() == "::FFFF:192.0.2.128".to_owned());
-        assert_eq!(Ipv6Addr(8, 9, 10, 11, 12, 13, 14, 15).to_str(), "8:9:a:b:c:d:e:f".to_owned());
+        assert!(a1.to_str() == "::ffff:192.0.2.128".to_string() ||
+                a1.to_str() == "::FFFF:192.0.2.128".to_string());
+        assert_eq!(Ipv6Addr(8, 9, 10, 11, 12, 13, 14, 15).to_str(), "8:9:a:b:c:d:e:f".to_string());
     }
 }

@@ -10,11 +10,14 @@
 
 //! Operations and constants for unsigned 64-bits integer (`u64` type)
 
+#![doc(primitive = "u64")]
+
 use from_str::FromStr;
 use num::{ToStrRadix, FromStrRadix};
 use num::strconv;
 use option::Option;
 use slice::ImmutableVector;
+use string::String;
 
 pub use core::u64::{BITS, BYTES, MIN, MAX};
 

@@ -13,9 +13,10 @@ use std::str;
 use std::io::process::{ProcessExit, Command, Process, ProcessOutput};
 use std::unstable::dynamic_lib::DynamicLibrary;
 
-fn target_env(lib_path: &str, prog: &str) -> Vec<(StrBuf, StrBuf)> {
+fn target_env(lib_path: &str, prog: &str) -> Vec<(String, String)> {
     let prog = if cfg!(windows) {prog.slice_to(prog.len() - 4)} else {prog};
-    let aux_path = prog + ".libaux";
+    let mut aux_path = prog.to_string();
+    aux_path.push_str(".libaux");
 
     // Need to be sure to put both the lib_path and the aux path in the dylib
     // search path for the child.
@@ -25,8 +26,8 @@ fn target_env(lib_path: &str, prog: &str) -> Vec<(StrBuf, StrBuf)> {
 
     // Remove the previous dylib search path var
     let var = DynamicLibrary::envvar();
-    let mut env: Vec<(StrBuf,StrBuf)> =
-        os::env().move_iter().map(|(a,b)|(a.to_strbuf(), b.to_strbuf())).collect();
+    let mut env: Vec<(String,String)> =
+        os::env().move_iter().map(|(a,b)|(a.to_string(), b.to_string())).collect();
     match env.iter().position(|&(ref k, _)| k.as_slice() == var) {
         Some(i) => { env.remove(i); }
         None => {}
@@ -34,18 +35,18 @@ fn target_env(lib_path: &str, prog: &str) -> Vec<(StrBuf, StrBuf)> {
 
     // Add the new dylib search path var
     let newpath = DynamicLibrary::create_path(path.as_slice());
-    env.push((var.to_strbuf(),
-              str::from_utf8(newpath.as_slice()).unwrap().to_strbuf()));
+    env.push((var.to_string(),
+              str::from_utf8(newpath.as_slice()).unwrap().to_string()));
     return env;
 }
 
-pub struct Result {pub status: ProcessExit, pub out: StrBuf, pub err: StrBuf}
+pub struct Result {pub status: ProcessExit, pub out: String, pub err: String}
 
 pub fn run(lib_path: &str,
            prog: &str,
-           args: &[StrBuf],
-           env: Vec<(StrBuf, StrBuf)> ,
-           input: Option<StrBuf>) -> Option<Result> {
+           args: &[String],
+           env: Vec<(String, String)> ,
+           input: Option<String>) -> Option<Result> {
 
     let env = env.clone().append(target_env(lib_path, prog).as_slice());
     match Command::new(prog).args(args).env(env.as_slice()).spawn() {
@@ -58,8 +59,8 @@ pub fn run(lib_path: &str,
 
             Some(Result {
                 status: status,
-                out: str::from_utf8(output.as_slice()).unwrap().to_strbuf(),
-                err: str::from_utf8(error.as_slice()).unwrap().to_strbuf()
+                out: str::from_utf8(output.as_slice()).unwrap().to_string(),
+                err: str::from_utf8(error.as_slice()).unwrap().to_string()
             })
         },
         Err(..) => None
@@ -68,9 +69,9 @@ pub fn run(lib_path: &str,
 
 pub fn run_background(lib_path: &str,
            prog: &str,
-           args: &[StrBuf],
-           env: Vec<(StrBuf, StrBuf)> ,
-           input: Option<StrBuf>) -> Option<Process> {
+           args: &[String],
+           env: Vec<(String, String)> ,
+           input: Option<String>) -> Option<Process> {
 
     let env = env.clone().append(target_env(lib_path, prog).as_slice());
     match Command::new(prog).args(args).env(env.as_slice()).spawn() {

@@ -11,22 +11,22 @@
 #![feature(managed_boxes)]
 
 trait Foo {
-    fn foo(&self) -> StrBuf;
+    fn foo(&self) -> String;
 }
 
 impl<T:Foo> Foo for @T {
-    fn foo(&self) -> StrBuf {
-        format_strbuf!("@{}", (**self).foo())
+    fn foo(&self) -> String {
+        format!("@{}", (**self).foo())
     }
 }
 
 impl Foo for uint {
-    fn foo(&self) -> StrBuf {
-        format_strbuf!("{}", *self)
+    fn foo(&self) -> String {
+        format!("{}", *self)
     }
 }
 
 pub fn main() {
     let x = @3u;
-    assert_eq!(x.foo(), "@3".to_strbuf());
+    assert_eq!(x.foo(), "@3".to_string());
 }

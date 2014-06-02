@@ -33,7 +33,7 @@ use syntax::visit;
 use syntax::print::pprust;
 
 
-fn safe_type_for_static_mut(cx: &ty::ctxt, e: &ast::Expr) -> Option<StrBuf> {
+fn safe_type_for_static_mut(cx: &ty::ctxt, e: &ast::Expr) -> Option<String> {
     let node_ty = ty::node_id_to_type(cx, e.id);
     let tcontents = ty::type_contents(cx, node_ty);
     debug!("safe_type_for_static_mut(dtor={}, managed={}, owned={})",
@@ -49,8 +49,7 @@ fn safe_type_for_static_mut(cx: &ty::ctxt, e: &ast::Expr) -> Option<StrBuf> {
         return None;
     };
 
-    Some(format_strbuf!("mutable static items are not allowed to have {}",
-                        suffix))
+    Some(format!("mutable static items are not allowed to have {}", suffix))
 }
 
 struct CheckStaticVisitor<'a> {
@@ -62,7 +61,7 @@ pub fn check_crate(tcx: &ty::ctxt, krate: &ast::Crate) {
 }
 
 impl<'a> CheckStaticVisitor<'a> {
-    fn report_error(&self, span: Span, result: Option<StrBuf>) -> bool {
+    fn report_error(&self, span: Span, result: Option<String>) -> bool {
         match result {
             None => { false }
             Some(msg) => {
@@ -134,7 +133,7 @@ impl<'a> Visitor<bool> for CheckStaticVisitor<'a> {
                         if ty::has_dtor(self.tcx, did) {
                             self.report_error(e.span,
                              Some("static items are not allowed to have \
-                                   destructors".to_strbuf()));
+                                   destructors".to_string()));
                             return;
                         }
                     }

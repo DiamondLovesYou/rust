@@ -34,25 +34,25 @@ pub fn get_os(triple: &str) -> &'static str {
 }
 
 #[cfg(target_os = "win32")]
-pub fn make_new_path(path: &str) -> StrBuf {
+pub fn make_new_path(path: &str) -> String {
 
     // Windows just uses PATH as the library search path, so we have to
     // maintain the current value while adding our own
     match getenv(lib_path_env_var().as_slice()) {
       Some(curr) => {
-        format_strbuf!("{}{}{}", path, path_div(), curr)
+        format!("{}{}{}", path, path_div(), curr)
       }
-      None => path.to_str().to_strbuf()
+      None => path.to_str().to_string()
     }
 }
 
 #[cfg(target_os = "win32")]
-pub fn lib_path_env_var() -> StrBuf { "PATH".to_strbuf() }
+pub fn lib_path_env_var() -> String { "PATH".to_string() }
 
 #[cfg(target_os = "win32")]
-pub fn path_div() -> StrBuf { ";".to_strbuf() }
+pub fn path_div() -> String { ";".to_string() }
 
-pub fn logv(config: &Config, s: StrBuf) {
+pub fn logv(config: &Config, s: String) {
     debug!("{}", s);
     if config.verbose { println!("{}", s); }
 }

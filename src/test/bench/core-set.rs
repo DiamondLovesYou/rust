@@ -80,7 +80,7 @@ impl Results {
         }
     }
 
-    pub fn bench_str<T:MutableSet<StrBuf>,
+    pub fn bench_str<T:MutableSet<String>,
                      R:rand::Rng>(
                      &mut self,
                      rng: &mut R,
@@ -90,11 +90,11 @@ impl Results {
             let mut set = f();
             timed(&mut self.sequential_strings, || {
                 for i in range(0u, num_keys) {
-                    set.insert(i.to_str().to_strbuf());
+                    set.insert(i.to_str().to_string());
                 }
 
                 for i in range(0u, num_keys) {
-                    assert!(set.contains(&i.to_str().to_strbuf()));
+                    assert!(set.contains(&i.to_str().to_string()));
                 }
             })
         }
@@ -103,7 +103,7 @@ impl Results {
             let mut set = f();
             timed(&mut self.random_strings, || {
                 for _ in range(0, num_keys) {
-                    let s = rng.gen::<uint>().to_str().to_strbuf();
+                    let s = rng.gen::<uint>().to_str().to_string();
                     set.insert(s);
                 }
             })
@@ -112,11 +112,11 @@ impl Results {
         {
             let mut set = f();
             for i in range(0u, num_keys) {
-                set.insert(i.to_str().to_strbuf());
+                set.insert(i.to_str().to_string());
             }
             timed(&mut self.delete_strings, || {
                 for i in range(0u, num_keys) {
-                    assert!(set.remove(&i.to_str().to_strbuf()));
+                    assert!(set.remove(&i.to_str().to_string()));
                 }
             })
         }
@@ -158,7 +158,7 @@ fn main() {
     let args = args.as_slice();
     let num_keys = {
         if args.len() == 2 {
-            from_str::<uint>(args[1]).unwrap()
+            from_str::<uint>(args[1].as_slice()).unwrap()
         } else {
             100 // woefully inadequate for any real measurement
         }
@@ -175,7 +175,7 @@ fn main() {
             s
         });
         results.bench_str(&mut rng, num_keys, || {
-            let s: HashSet<StrBuf> = HashSet::new();
+            let s: HashSet<String> = HashSet::new();
             s
         });
         write_results("collections::HashSet", &results);
@@ -189,7 +189,7 @@ fn main() {
             s
         });
         results.bench_str(&mut rng, num_keys, || {
-            let s: TreeSet<StrBuf> = TreeSet::new();
+            let s: TreeSet<String> = TreeSet::new();
             s
         });
         write_results("collections::TreeSet", &results);

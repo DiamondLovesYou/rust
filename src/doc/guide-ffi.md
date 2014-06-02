@@ -2,11 +2,11 @@
 
 # Introduction
 
-This guide will use the [snappy](https://code.google.com/p/snappy/)
+This guide will use the [snappy](https://github.com/google/snappy)
 compression/decompression library as an introduction to writing bindings for
 foreign code. Rust is currently unable to call directly into a C++ library, but
 snappy includes a C interface (documented in
-[`snappy-c.h`](https://code.google.com/p/snappy/source/browse/trunk/snappy-c.h)).
+[`snappy-c.h`](https://github.com/google/snappy/blob/master/snappy-c.h)).
 
 The following is a minimal example of calling a foreign function which will
 compile if snappy is installed:
@@ -476,6 +476,7 @@ extern crate libc;
 
 #[cfg(target_os = "win32", target_arch = "x86")]
 #[link(name = "kernel32")]
+#[allow(non_snake_case_functions)]
 extern "stdcall" {
     fn SetEnvironmentVariableA(n: *u8, v: *u8) -> libc::c_int;
 }
@@ -493,6 +494,7 @@ are:
 * `rust-intrinsic`
 * `system`
 * `C`
+* `win64`
 
 Most of the abis in this list are self-explanatory, but the `system` abi may
 seem a little odd. This constraint selects whatever the appropriate ABI is for

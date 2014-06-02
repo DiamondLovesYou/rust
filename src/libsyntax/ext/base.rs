@@ -30,7 +30,7 @@ use collections::HashMap;
 // ast::MacInvocTT.
 
 pub struct MacroDef {
-    pub name: StrBuf,
+    pub name: String,
     pub ext: SyntaxExtension
 }
 
@@ -114,6 +114,10 @@ pub trait MacResult {
     fn make_items(&self) -> Option<SmallVector<@ast::Item>> {
         None
     }
+    /// Create a pattern.
+    fn make_pat(&self) -> Option<@ast::Pat> {
+        None
+    }
 
     /// Create a statement.
     ///
@@ -137,6 +141,20 @@ impl MacExpr {
 impl MacResult for MacExpr {
     fn make_expr(&self) -> Option<@ast::Expr> {
         Some(self.e)
+    }
+}
+/// A convenience type for macros that return a single pattern.
+pub struct MacPat {
+    p: @ast::Pat
+}
+impl MacPat {
+    pub fn new(p: @ast::Pat) -> Box<MacResult> {
+        box MacPat { p: p } as Box<MacResult>
+    }
+}
+impl MacResult for MacPat {
+    fn make_pat(&self) -> Option<@ast::Pat> {
+        Some(self.p)
     }
 }
 /// A convenience type for macros that return a single item.
@@ -194,11 +212,23 @@ impl DummyResult {
             span: sp,
         }
     }
+
+    /// A plain dummy pattern.
+    pub fn raw_pat(sp: Span) -> @ast::Pat {
+        @ast::Pat {
+            id: ast::DUMMY_NODE_ID,
+            node: ast::PatWild,
+            span: sp,
+        }
+    }
 }
 
 impl MacResult for DummyResult {
     fn make_expr(&self) -> Option<@ast::Expr> {
         Some(DummyResult::raw_expr(self.span))
+    }
+    fn make_pat(&self) -> Option<@ast::Pat> {
+        Some(DummyResult::raw_pat(self.span))
     }
     fn make_items(&self) -> Option<SmallVector<@ast::Item>> {
         if self.expr_only {
@@ -364,8 +394,8 @@ pub fn syntax_expander_table() -> SyntaxEnv {
 
 pub struct MacroCrate {
     pub lib: Option<Path>,
-    pub macros: Vec<StrBuf>,
-    pub registrar_symbol: Option<StrBuf>,
+    pub macros: Vec<String>,
+    pub registrar_symbol: Option<String>,
 }
 
 pub trait CrateLoader {
@@ -533,7 +563,7 @@ pub fn check_zero_tts(cx: &ExtCtxt,
                       tts: &[ast::TokenTree],
                       name: &str) {
     if tts.len() != 0 {
-        cx.span_err(sp, format!("{} takes no arguments", name));
+        cx.span_err(sp, format!("{} takes no arguments", name).as_slice());
     }
 }
 
@@ -543,16 +573,19 @@ pub fn get_single_str_from_tts(cx: &ExtCtxt,
                                sp: Span,
                                tts: &[ast::TokenTree],
                                name: &str)
-                               -> Option<StrBuf> {
+                               -> Option<String> {
     if tts.len() != 1 {
-        cx.span_err(sp, format!("{} takes 1 argument.", name));
+        cx.span_err(sp, format!("{} takes 1 argument.", name).as_slice());
     } else {
         match tts[0] {
             ast::TTTok(_, token::LIT_STR(ident))
             | ast::TTTok(_, token::LIT_STR_RAW(ident, _)) => {
-                return Some(token::get_ident(ident).get().to_strbuf())
+                return Some(token::get_ident(ident).get().to_string())
             }
-            _ => cx.span_err(sp, format!("{} requires a string.", name)),
+            _ => {
+                cx.span_err(sp,
+                            format!("{} requires a string.", name).as_slice())
+            }
         }
     }
     None

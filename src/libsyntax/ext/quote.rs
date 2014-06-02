@@ -55,7 +55,7 @@ pub mod rt {
 
     trait ToSource : ToTokens {
         // Takes a thing and generates a string containing rust code for it.
-        pub fn to_source() -> StrBuf;
+        pub fn to_source() -> String;
 
         // If you can make source, you can definitely make tokens.
         pub fn to_tokens(cx: &ExtCtxt) -> ~[TokenTree] {
@@ -67,67 +67,67 @@ pub mod rt {
 
     pub trait ToSource {
         // Takes a thing and generates a string containing rust code for it.
-        fn to_source(&self) -> StrBuf;
+        fn to_source(&self) -> String;
     }
 
     impl ToSource for ast::Ident {
-        fn to_source(&self) -> StrBuf {
-            get_ident(*self).get().to_strbuf()
+        fn to_source(&self) -> String {
+            get_ident(*self).get().to_string()
         }
     }
 
     impl ToSource for @ast::Item {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             pprust::item_to_str(*self)
         }
     }
 
     impl<'a> ToSource for &'a [@ast::Item] {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             self.iter()
                 .map(|i| i.to_source())
-                .collect::<Vec<StrBuf>>()
+                .collect::<Vec<String>>()
                 .connect("\n\n")
-                .to_strbuf()
+                .to_string()
         }
     }
 
     impl ToSource for ast::Ty {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             pprust::ty_to_str(self)
         }
     }
 
     impl<'a> ToSource for &'a [ast::Ty] {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             self.iter()
                 .map(|i| i.to_source())
-                .collect::<Vec<StrBuf>>()
+                .collect::<Vec<String>>()
                 .connect(", ")
-                .to_strbuf()
+                .to_string()
         }
     }
 
     impl ToSource for Generics {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             pprust::generics_to_str(self)
         }
     }
 
     impl ToSource for @ast::Expr {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             pprust::expr_to_str(*self)
         }
     }
 
     impl ToSource for ast::Block {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             pprust::block_to_str(self)
         }
     }
 
     impl<'a> ToSource for &'a str {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitStr(
                     token::intern_and_get_ident(*self), ast::CookedStr));
             pprust::lit_to_str(&lit)
@@ -135,41 +135,41 @@ pub mod rt {
     }
 
     impl ToSource for () {
-        fn to_source(&self) -> StrBuf {
-            "()".to_strbuf()
+        fn to_source(&self) -> String {
+            "()".to_string()
         }
     }
 
     impl ToSource for bool {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitBool(*self));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for char {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitChar(*self));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for int {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitInt(*self as i64, ast::TyI));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for i8 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitInt(*self as i64, ast::TyI8));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for i16 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitInt(*self as i64, ast::TyI16));
             pprust::lit_to_str(&lit)
         }
@@ -177,49 +177,49 @@ pub mod rt {
 
 
     impl ToSource for i32 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitInt(*self as i64, ast::TyI32));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for i64 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitInt(*self as i64, ast::TyI64));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for uint {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitUint(*self as u64, ast::TyU));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for u8 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitUint(*self as u64, ast::TyU8));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for u16 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitUint(*self as u64, ast::TyU16));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for u32 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitUint(*self as u64, ast::TyU32));
             pprust::lit_to_str(&lit)
         }
     }
 
     impl ToSource for u64 {
-        fn to_source(&self) -> StrBuf {
+        fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitUint(*self as u64, ast::TyU64));
             pprust::lit_to_str(&lit)
         }
@@ -271,17 +271,17 @@ pub mod rt {
     impl_to_tokens!(u64)
 
     pub trait ExtParseUtils {
-        fn parse_item(&self, s: StrBuf) -> @ast::Item;
-        fn parse_expr(&self, s: StrBuf) -> @ast::Expr;
-        fn parse_stmt(&self, s: StrBuf) -> @ast::Stmt;
-        fn parse_tts(&self, s: StrBuf) -> Vec<ast::TokenTree> ;
+        fn parse_item(&self, s: String) -> @ast::Item;
+        fn parse_expr(&self, s: String) -> @ast::Expr;
+        fn parse_stmt(&self, s: String) -> @ast::Stmt;
+        fn parse_tts(&self, s: String) -> Vec<ast::TokenTree> ;
     }
 
     impl<'a> ExtParseUtils for ExtCtxt<'a> {
 
-        fn parse_item(&self, s: StrBuf) -> @ast::Item {
+        fn parse_item(&self, s: String) -> @ast::Item {
             let res = parse::parse_item_from_source_str(
-                "<quote expansion>".to_strbuf(),
+                "<quote expansion>".to_string(),
                 s,
                 self.cfg(),
                 self.parse_sess());
@@ -294,23 +294,23 @@ pub mod rt {
             }
         }
 
-        fn parse_stmt(&self, s: StrBuf) -> @ast::Stmt {
-            parse::parse_stmt_from_source_str("<quote expansion>".to_strbuf(),
+        fn parse_stmt(&self, s: String) -> @ast::Stmt {
+            parse::parse_stmt_from_source_str("<quote expansion>".to_string(),
                                               s,
                                               self.cfg(),
                                               Vec::new(),
                                               self.parse_sess())
         }
 
-        fn parse_expr(&self, s: StrBuf) -> @ast::Expr {
-            parse::parse_expr_from_source_str("<quote expansion>".to_strbuf(),
+        fn parse_expr(&self, s: String) -> @ast::Expr {
+            parse::parse_expr_from_source_str("<quote expansion>".to_string(),
                                               s,
                                               self.cfg(),
                                               self.parse_sess())
         }
 
-        fn parse_tts(&self, s: StrBuf) -> Vec<ast::TokenTree> {
-            parse::parse_tts_from_source_str("<quote expansion>".to_strbuf(),
+        fn parse_tts(&self, s: String) -> Vec<ast::TokenTree> {
+            parse::parse_tts_from_source_str("<quote expansion>".to_string(),
                                              s,
                                              self.cfg(),
                                              self.parse_sess())
@@ -375,7 +375,7 @@ pub fn expand_quote_stmt(cx: &mut ExtCtxt,
     base::MacExpr::new(expanded)
 }
 
-fn ids_ext(strs: Vec<StrBuf> ) -> Vec<ast::Ident> {
+fn ids_ext(strs: Vec<String> ) -> Vec<ast::Ident> {
     strs.iter().map(|str| str_to_ident((*str).as_slice())).collect()
 }
 
@@ -430,13 +430,13 @@ fn mk_token(cx: &ExtCtxt, sp: Span, tok: &token::Token) -> @ast::Expr {
 
         LIT_INT(i, ity) => {
             let s_ity = match ity {
-                ast::TyI => "TyI".to_owned(),
-                ast::TyI8 => "TyI8".to_owned(),
-                ast::TyI16 => "TyI16".to_owned(),
-                ast::TyI32 => "TyI32".to_owned(),
-                ast::TyI64 => "TyI64".to_owned()
+                ast::TyI => "TyI".to_string(),
+                ast::TyI8 => "TyI8".to_string(),
+                ast::TyI16 => "TyI16".to_string(),
+                ast::TyI32 => "TyI32".to_string(),
+                ast::TyI64 => "TyI64".to_string()
             };
-            let e_ity = cx.expr_ident(sp, id_ext(s_ity));
+            let e_ity = cx.expr_ident(sp, id_ext(s_ity.as_slice()));
 
             let e_i64 = cx.expr_lit(sp, ast::LitInt(i, ast::TyI64));
 
@@ -447,13 +447,13 @@ fn mk_token(cx: &ExtCtxt, sp: Span, tok: &token::Token) -> @ast::Expr {
 
         LIT_UINT(u, uty) => {
             let s_uty = match uty {
-                ast::TyU => "TyU".to_owned(),
-                ast::TyU8 => "TyU8".to_owned(),
-                ast::TyU16 => "TyU16".to_owned(),
-                ast::TyU32 => "TyU32".to_owned(),
-                ast::TyU64 => "TyU64".to_owned()
+                ast::TyU => "TyU".to_string(),
+                ast::TyU8 => "TyU8".to_string(),
+                ast::TyU16 => "TyU16".to_string(),
+                ast::TyU32 => "TyU32".to_string(),
+                ast::TyU64 => "TyU64".to_string()
             };
-            let e_uty = cx.expr_ident(sp, id_ext(s_uty));
+            let e_uty = cx.expr_ident(sp, id_ext(s_uty.as_slice()));
 
             let e_u64 = cx.expr_lit(sp, ast::LitUint(u, ast::TyU64));
 
@@ -472,11 +472,11 @@ fn mk_token(cx: &ExtCtxt, sp: Span, tok: &token::Token) -> @ast::Expr {
 
         LIT_FLOAT(fident, fty) => {
             let s_fty = match fty {
-                ast::TyF32 => "TyF32".to_owned(),
-                ast::TyF64 => "TyF64".to_owned(),
-                ast::TyF128 => "TyF128".to_owned()
+                ast::TyF32 => "TyF32".to_string(),
+                ast::TyF64 => "TyF64".to_string(),
+                ast::TyF128 => "TyF128".to_string()
             };
-            let e_fty = cx.expr_ident(sp, id_ext(s_fty));
+            let e_fty = cx.expr_ident(sp, id_ext(s_fty.as_slice()));
 
             let e_fident = mk_ident(cx, sp, fident);
 
@@ -543,7 +543,6 @@ fn mk_token(cx: &ExtCtxt, sp: Span, tok: &token::Token) -> @ast::Expr {
         MOD_SEP => "MOD_SEP",
         RARROW => "RARROW",
         LARROW => "LARROW",
-        DARROW => "DARROW",
         FAT_ARROW => "FAT_ARROW",
         LPAREN => "LPAREN",
         RPAREN => "RPAREN",
@@ -687,10 +686,10 @@ fn expand_wrapper(cx: &ExtCtxt,
                   cx_expr: @ast::Expr,
                   expr: @ast::Expr) -> @ast::Expr {
     let uses = vec![ cx.view_use_glob(sp, ast::Inherited,
-                                   ids_ext(vec!["syntax".to_strbuf(),
-                                                "ext".to_strbuf(),
-                                                "quote".to_strbuf(),
-                                                "rt".to_strbuf()])) ];
+                                   ids_ext(vec!["syntax".to_string(),
+                                                "ext".to_string(),
+                                                "quote".to_string(),
+                                                "rt".to_string()])) ];
 
     let stmt_let_ext_cx = cx.stmt_let(sp, false, id_ext("ext_cx"), cx_expr);
 

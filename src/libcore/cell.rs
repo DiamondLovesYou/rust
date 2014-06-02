@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! Sharable mutable containers.
+//! Shareable mutable containers.
 //!
 //! Values of the `Cell` and `RefCell` types may be mutated through
 //! shared references (i.e. the common `&T` type), whereas most Rust
@@ -41,7 +41,7 @@
 //! preventing crash bugs. Because of that, inherited mutability is
 //! preferred, and interior mutability is something of a last
 //! resort. Since cell types enable mutation where it would otherwise
-//! be disallowed though, there are occassions when interior
+//! be disallowed though, there are occasions when interior
 //! mutability might be appropriate, or even *must* be used, e.g.
 //!
 //! * Introducing inherited mutability roots to shared types.
@@ -88,11 +88,10 @@
 //! ```
 //! extern crate collections;
 //!
-//! use collections::HashMap;
 //! use std::cell::RefCell;
 //!
 //! struct Graph {
-//!     edges: HashMap<uint, uint>,
+//!     edges: Vec<(uint, uint)>,
 //!     span_tree_cache: RefCell<Option<Vec<(uint, uint)>>>
 //! }
 //!
@@ -161,7 +160,7 @@
 // FIXME: Relationship to Atomic types and RWLock
 
 use clone::Clone;
-use cmp::Eq;
+use cmp::PartialEq;
 use kinds::{marker, Copy};
 use ops::{Deref, DerefMut, Drop};
 use option::{None, Option, Some};
@@ -203,7 +202,7 @@ impl<T:Copy> Clone for Cell<T> {
     }
 }
 
-impl<T:Eq + Copy> Eq for Cell<T> {
+impl<T:PartialEq + Copy> PartialEq for Cell<T> {
     fn eq(&self, other: &Cell<T>) -> bool {
         self.get() == other.get()
     }
@@ -251,7 +250,7 @@ impl<T> RefCell<T> {
             WRITING => None,
             borrow => {
                 self.borrow.set(borrow + 1);
-                Some(Ref { parent: self })
+                Some(Ref { _parent: self })
             }
         }
     }
@@ -281,7 +280,7 @@ impl<T> RefCell<T> {
         match self.borrow.get() {
             UNUSED => {
                 self.borrow.set(WRITING);
-                Some(RefMut { parent: self })
+                Some(RefMut { _parent: self })
             },
             _ => None
         }
@@ -309,7 +308,7 @@ impl<T: Clone> Clone for RefCell<T> {
     }
 }
 
-impl<T: Eq> Eq for RefCell<T> {
+impl<T: PartialEq> PartialEq for RefCell<T> {
     fn eq(&self, other: &RefCell<T>) -> bool {
         *self.borrow() == *other.borrow()
     }
@@ -317,22 +316,24 @@ impl<T: Eq> Eq for RefCell<T> {
 
 /// Wraps a borrowed reference to a value in a `RefCell` box.
 pub struct Ref<'b, T> {
-    parent: &'b RefCell<T>
+    // FIXME #12808: strange name to try to avoid interfering with
+    // field accesses of the contained type via Deref
+    _parent: &'b RefCell<T>
 }
 
 #[unsafe_destructor]
 impl<'b, T> Drop for Ref<'b, T> {
     fn drop(&mut self) {
-        let borrow = self.parent.borrow.get();
+        let borrow = self._parent.borrow.get();
         debug_assert!(borrow != WRITING && borrow != UNUSED);
-        self.parent.borrow.set(borrow - 1);
+        self._parent.borrow.set(borrow - 1);
     }
 }
 
 impl<'b, T> Deref<T> for Ref<'b, T> {
     #[inline]
     fn deref<'a>(&'a self) -> &'a T {
-        unsafe { &*self.parent.value.get() }
+        unsafe { &*self._parent.value.get() }
     }
 }
 
@@ -346,40 +347,42 @@ impl<'b, T> Deref<T> for Ref<'b, T> {
 pub fn clone_ref<'b, T>(orig: &Ref<'b, T>) -> Ref<'b, T> {
     // Since this Ref exists, we know the borrow flag
     // is not set to WRITING.
-    let borrow = orig.parent.borrow.get();
+    let borrow = orig._parent.borrow.get();
     debug_assert!(borrow != WRITING && borrow != UNUSED);
-    orig.parent.borrow.set(borrow + 1);
+    orig._parent.borrow.set(borrow + 1);
 
     Ref {
-        parent: orig.parent,
+        _parent: orig._parent,
     }
 }
 
 /// Wraps a mutable borrowed reference to a value in a `RefCell` box.
 pub struct RefMut<'b, T> {
-    parent: &'b RefCell<T>
+    // FIXME #12808: strange name to try to avoid interfering with
+    // field accesses of the contained type via Deref
+    _parent: &'b RefCell<T>
 }
 
 #[unsafe_destructor]
 impl<'b, T> Drop for RefMut<'b, T> {
     fn drop(&mut self) {
-        let borrow = self.parent.borrow.get();
+        let borrow = self._parent.borrow.get();
         debug_assert!(borrow == WRITING);
-        self.parent.borrow.set(UNUSED);
+        self._parent.borrow.set(UNUSED);
     }
 }
 
 impl<'b, T> Deref<T> for RefMut<'b, T> {
     #[inline]
     fn deref<'a>(&'a self) -> &'a T {
-        unsafe { &*self.parent.value.get() }
+        unsafe { &*self._parent.value.get() }
     }
 }
 
 impl<'b, T> DerefMut<T> for RefMut<'b, T> {
     #[inline]
     fn deref_mut<'a>(&'a mut self) -> &'a mut T {
-        unsafe { &mut *self.parent.value.get() }
+        unsafe { &mut *self._parent.value.get() }
     }
 }
 
@@ -404,12 +407,13 @@ mod test {
     #[test]
     fn cell_has_sensible_show() {
         use str::StrSlice;
+        use realstd::str::Str;
 
         let x = Cell::new("foo bar");
-        assert!(format!("{}", x).contains(x.get()));
+        assert!(format!("{}", x).as_slice().contains(x.get()));
 
         x.set("baz qux");
-        assert!(format!("{}", x).contains(x.get()));
+        assert!(format!("{}", x).as_slice().contains(x.get()));
     }
 
     #[test]
@@ -478,6 +482,7 @@ mod test {
     }
 
     #[test]
+    #[allow(experimental)]
     fn clone_ref_updates_flag() {
         let x = RefCell::new(0);
         {

@@ -363,7 +363,7 @@ mod tests {
     use num::ToStrRadix;
     use option::{Some, None};
     use str::Str;
-    use strbuf::StrBuf;
+    use string::String;
     use slice::{Vector, ImmutableVector};
     use self::test::Bencher;
 
@@ -458,12 +458,12 @@ mod tests {
         let mut state_inc = SipState::new_with_keys(k0, k1);
         let mut state_full = SipState::new_with_keys(k0, k1);
 
-        fn to_hex_str(r: &[u8, ..8]) -> ~str {
-            let mut s = StrBuf::new();
+        fn to_hex_str(r: &[u8, ..8]) -> String {
+            let mut s = String::new();
             for b in r.iter() {
-                s.push_str((*b as uint).to_str_radix(16u));
+                s.push_str((*b as uint).to_str_radix(16u).as_slice());
             }
-            s.into_owned()
+            s
         }
 
         fn result_bytes(h: u64) -> ~[u8] {
@@ -478,13 +478,13 @@ mod tests {
             ]
         }
 
-        fn result_str(h: u64) -> ~str {
+        fn result_str(h: u64) -> String {
             let r = result_bytes(h);
-            let mut s = StrBuf::new();
+            let mut s = String::new();
             for b in r.iter() {
-                s.push_str((*b as uint).to_str_radix(16u));
+                s.push_str((*b as uint).to_str_radix(16u).as_slice());
             }
-            s.into_owned()
+            s
         }
 
         while t < 64 {
@@ -636,7 +636,6 @@ officia deserunt mollit anim id est laborum.";
     struct Compound {
         x: u8,
         y: u64,
-        z: ~str,
     }
 
     #[bench]
@@ -644,10 +643,9 @@ officia deserunt mollit anim id est laborum.";
         let compound = Compound {
             x: 1,
             y: 2,
-            z: "foobarbaz".to_owned(),
         };
         b.iter(|| {
-            assert_eq!(hash(&compound), 15783192367317361799);
+            assert_eq!(hash(&compound), 12506681940457338191);
         })
     }
 }

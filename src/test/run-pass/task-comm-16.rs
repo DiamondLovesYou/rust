@@ -36,13 +36,13 @@ fn test_vec() {
 
 fn test_str() {
     let (tx, rx) = channel();
-    let s0 = "test".to_owned();
+    let s0 = "test".to_string();
     tx.send(s0);
     let s1 = rx.recv();
-    assert_eq!(s1[0], 't' as u8);
-    assert_eq!(s1[1], 'e' as u8);
-    assert_eq!(s1[2], 's' as u8);
-    assert_eq!(s1[3], 't' as u8);
+    assert_eq!(s1.as_slice()[0], 't' as u8);
+    assert_eq!(s1.as_slice()[1], 'e' as u8);
+    assert_eq!(s1.as_slice()[2], 's' as u8);
+    assert_eq!(s1.as_slice()[3], 't' as u8);
 }
 
 #[deriving(Show)]
@@ -52,7 +52,7 @@ enum t {
     tag3(int, u8, char)
 }
 
-impl cmp::Eq for t {
+impl cmp::PartialEq for t {
     fn eq(&self, other: &t) -> bool {
         match *self {
             tag1 => {

@@ -126,7 +126,7 @@ pub trait Stats <T: FloatMath + FromPrimitive>{
 }
 
 /// Extracted collection of all the summary statistics of a sample set.
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 #[allow(missing_doc)]
 pub struct Summary<T> {
     pub sum: T,
@@ -441,7 +441,7 @@ pub fn write_boxplot<T: Float + Show + FromPrimitive>(
 
 /// Returns a HashMap with the number of occurrences of every element in the
 /// sequence that the iterator exposes.
-pub fn freq_count<T: Iterator<U>, U: TotalEq+Hash>(mut iter: T) -> hashmap::HashMap<U, uint> {
+pub fn freq_count<T: Iterator<U>, U: Eq+Hash>(mut iter: T) -> hashmap::HashMap<U, uint> {
     let mut map: hashmap::HashMap<U,uint> = hashmap::HashMap::new();
     for elem in iter {
         map.insert_or_update_with(elem, 1, |_, count| *count += 1);
@@ -1028,20 +1028,20 @@ mod tests {
     #[test]
     fn test_boxplot_nonpositive() {
         #[allow(deprecated_owned_vector)]
-        fn t(s: &Summary<f64>, expected: StrBuf) {
+        fn t(s: &Summary<f64>, expected: String) {
             use std::io::MemWriter;
             let mut m = MemWriter::new();
             write_boxplot(&mut m as &mut io::Writer, s, 30).unwrap();
-            let out = str::from_utf8(m.unwrap().as_slice()).unwrap().to_strbuf();
+            let out = str::from_utf8(m.unwrap().as_slice()).unwrap().to_string();
             assert_eq!(out, expected);
         }
 
         t(&Summary::new([-2.0, -1.0]),
-                        "-2 |[------******#*****---]| -1".to_strbuf());
+                        "-2 |[------******#*****---]| -1".to_string());
         t(&Summary::new([0.0, 2.0]),
-                        "0 |[-------*****#*******---]| 2".to_strbuf());
+                        "0 |[-------*****#*******---]| 2".to_string());
         t(&Summary::new([-2.0, 0.0]),
-                        "-2 |[------******#******---]| 0".to_strbuf());
+                        "-2 |[------******#******---]| 0".to_string());
 
     }
     #[test]

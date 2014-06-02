@@ -13,16 +13,16 @@
 use ascii::AsciiCast;
 use c_str::{CString, ToCStr};
 use clone::Clone;
-use cmp::{Eq, TotalEq};
+use cmp::{PartialEq, Eq};
 use container::Container;
 use from_str::FromStr;
 use io::Writer;
-use iter::{AdditiveIterator, DoubleEndedIterator, Extendable, Rev, Iterator, Map};
+use iter::{AdditiveIterator, DoubleEndedIterator, Extendable, Iterator, Map};
 use mem;
 use option::{Option, Some, None};
 use slice::{Vector, OwnedVector, ImmutableVector};
 use str::{CharSplits, Str, StrAllocating, StrVector, StrSlice};
-use strbuf::StrBuf;
+use string::String;
 use vec::Vec;
 
 use super::{contains_nul, BytesContainer, GenericPath, GenericPathUnsafe};
@@ -33,19 +33,10 @@ use super::{contains_nul, BytesContainer, GenericPath, GenericPathUnsafe};
 /// every component in WindowsPath is guaranteed to be Some.
 pub type StrComponents<'a> = Map<'a, &'a str, Option<&'a str>,
                                        CharSplits<'a, char>>;
-/// Iterator that yields components of a Path in reverse as &str
-///
-/// Each component is yielded as Option<&str> for compatibility with PosixPath, but
-/// every component in WindowsPath is guaranteed to be Some.
-#[deprecated = "replaced by Rev<StrComponents<'a>>"]
-pub type RevStrComponents<'a> = Rev<StrComponents<'a>>;
 
 /// Iterator that yields successive components of a Path as &[u8]
 pub type Components<'a> = Map<'a, Option<&'a str>, &'a [u8],
                                     StrComponents<'a>>;
-/// Iterator that yields components of a Path in reverse as &[u8]
-#[deprecated = "replaced by Rev<Components<'a>>"]
-pub type RevComponents<'a> = Rev<Components<'a>>;
 
 /// Represents a Windows path
 // Notes for Windows path impl:
@@ -83,19 +74,19 @@ pub type RevComponents<'a> = Rev<Components<'a>>;
 // preserved by the data structure; let the Windows API error out on them.
 #[deriving(Clone)]
 pub struct Path {
-    repr: StrBuf, // assumed to never be empty
+    repr: String, // assumed to never be empty
     prefix: Option<PathPrefix>,
     sepidx: Option<uint> // index of the final separator in the non-prefix portion of repr
 }
 
-impl Eq for Path {
+impl PartialEq for Path {
     #[inline]
     fn eq(&self, other: &Path) -> bool {
         self.repr == other.repr
     }
 }
 
-impl TotalEq for Path {}
+impl Eq for Path {}
 
 impl FromStr for Path {
     fn from_str(s: &str) -> Option<Path> {
@@ -136,9 +127,16 @@ impl<'a> ToCStr for &'a Path {
 }
 
 impl<S: Writer> ::hash::Hash<S> for Path {
+    #[cfg(not(test))]
     #[inline]
     fn hash(&self, state: &mut S) {
         self.repr.hash(state)
+    }
+
+    #[cfg(test)]
+    #[inline]
+    fn hash(&self, _: &mut S) {
+        // No-op because the `hash` implementation will be wrong.
     }
 }
 
@@ -196,7 +194,7 @@ impl GenericPathUnsafe for Path {
         let filename = filename.container_as_str().unwrap();
         match self.sepidx_or_prefix_len() {
             None if ".." == self.repr.as_slice() => {
-                let mut s = StrBuf::with_capacity(3 + filename.len());
+                let mut s = String::with_capacity(3 + filename.len());
                 s.push_str("..");
                 s.push_char(SEP);
                 s.push_str(filename);
@@ -206,20 +204,20 @@ impl GenericPathUnsafe for Path {
                 self.update_normalized(filename);
             }
             Some((_,idxa,end)) if self.repr.as_slice().slice(idxa,end) == ".." => {
-                let mut s = StrBuf::with_capacity(end + 1 + filename.len());
+                let mut s = String::with_capacity(end + 1 + filename.len());
                 s.push_str(self.repr.as_slice().slice_to(end));
                 s.push_char(SEP);
                 s.push_str(filename);
                 self.update_normalized(s);
             }
             Some((idxb,idxa,_)) if self.prefix == Some(DiskPrefix) && idxa == self.prefix_len() => {
-                let mut s = StrBuf::with_capacity(idxb + filename.len());
+                let mut s = String::with_capacity(idxb + filename.len());
                 s.push_str(self.repr.as_slice().slice_to(idxb));
                 s.push_str(filename);
                 self.update_normalized(s);
             }
             Some((idxb,_,_)) => {
-                let mut s = StrBuf::with_capacity(idxb + 1 + filename.len());
+                let mut s = String::with_capacity(idxb + 1 + filename.len());
                 s.push_str(self.repr.as_slice().slice_to(idxb));
                 s.push_char(SEP);
                 s.push_str(filename);
@@ -263,7 +261,7 @@ impl GenericPathUnsafe for Path {
             let newpath = Path::normalize__(path, prefix);
             me.repr = match newpath {
                 Some(p) => p,
-                None => StrBuf::from_str(path)
+                None => String::from_str(path)
             };
             me.prefix = prefix;
             me.update_sepidx();
@@ -274,7 +272,7 @@ impl GenericPathUnsafe for Path {
             let path_ = if is_verbatim(me) { Path::normalize__(path, None) }
                         else { None };
             let pathlen = path_.as_ref().map_or(path.len(), |p| p.len());
-            let mut s = StrBuf::with_capacity(me.repr.len() + 1 + pathlen);
+            let mut s = String::with_capacity(me.repr.len() + 1 + pathlen);
             s.push_str(me.repr.as_slice());
             let plen = me.prefix_len();
             // if me is "C:" we don't want to add a path separator
@@ -426,7 +424,7 @@ impl GenericPath for Path {
         match self.sepidx_or_prefix_len() {
             None if "." == self.repr.as_slice() => false,
             None => {
-                self.repr = StrBuf::from_str(".");
+                self.repr = String::from_str(".");
                 self.sepidx = None;
                 true
             }
@@ -589,7 +587,7 @@ impl GenericPath for Path {
                     }
                 }
             }
-            Some(Path::new(comps.connect("\\")))
+            Some(Path::new(comps.connect("\\").into_string()))
         }
     }
 
@@ -650,13 +648,6 @@ impl Path {
         ret
     }
 
-    /// Returns an iterator that yields each component of the path in reverse as an Option<&str>
-    /// See str_components() for details.
-    #[deprecated = "replaced by .str_components().rev()"]
-    pub fn rev_str_components<'a>(&'a self) -> Rev<StrComponents<'a>> {
-        self.str_components().rev()
-    }
-
     /// Returns an iterator that yields each component of the path in turn as a &[u8].
     /// See str_components() for details.
     pub fn components<'a>(&'a self) -> Components<'a> {
@@ -665,13 +656,6 @@ impl Path {
             x.unwrap().as_bytes()
         }
         self.str_components().map(convert)
-    }
-
-    /// Returns an iterator that yields each component of the path in reverse as a &[u8].
-    /// See str_components() for details.
-    #[deprecated = "replaced by .components().rev()"]
-    pub fn rev_components<'a>(&'a self) -> Rev<Components<'a>> {
-        self.components().rev()
     }
 
     fn equiv_prefix(&self, other: &Path) -> bool {
@@ -703,7 +687,7 @@ impl Path {
         }
     }
 
-    fn normalize_<S: StrAllocating>(s: S) -> (Option<PathPrefix>, StrBuf) {
+    fn normalize_<S: StrAllocating>(s: S) -> (Option<PathPrefix>, String) {
         // make borrowck happy
         let (prefix, val) = {
             let prefix = parse_prefix(s.as_slice());
@@ -711,18 +695,18 @@ impl Path {
             (prefix, path)
         };
         (prefix, match val {
-            None => s.into_strbuf(),
+            None => s.into_string(),
             Some(val) => val
         })
     }
 
-    fn normalize__(s: &str, prefix: Option<PathPrefix>) -> Option<StrBuf> {
+    fn normalize__(s: &str, prefix: Option<PathPrefix>) -> Option<String> {
         if prefix_is_verbatim(prefix) {
             // don't do any normalization
             match prefix {
                 Some(VerbatimUNCPrefix(x, 0)) if s.len() == 8 + x => {
                     // the server component has no trailing '\'
-                    let mut s = StrBuf::from_str(s);
+                    let mut s = String::from_str(s);
                     s.push_char(SEP);
                     Some(s)
                 }
@@ -751,10 +735,13 @@ impl Path {
                         match prefix.unwrap() {
                             DiskPrefix => {
                                 let len = prefix_len(prefix) + is_abs as uint;
-                                let mut s = StrBuf::from_str(s.slice_to(len));
+                                let mut s = String::from_str(s.slice_to(len));
                                 unsafe {
                                     let v = s.as_mut_vec();
-                                    *v.get_mut(0) = v.get(0).to_ascii().to_upper().to_byte();
+                                    *v.get_mut(0) = v.get(0)
+                                                     .to_ascii()
+                                                     .to_upper()
+                                                     .to_byte();
                                 }
                                 if is_abs {
                                     // normalize C:/ to C:\
@@ -766,7 +753,7 @@ impl Path {
                             }
                             VerbatimDiskPrefix => {
                                 let len = prefix_len(prefix) + is_abs as uint;
-                                let mut s = StrBuf::from_str(s.slice_to(len));
+                                let mut s = String::from_str(s.slice_to(len));
                                 unsafe {
                                     let v = s.as_mut_vec();
                                     *v.get_mut(4) = v.get(4).to_ascii().to_upper().to_byte();
@@ -776,18 +763,18 @@ impl Path {
                             _ => {
                                 let plen = prefix_len(prefix);
                                 if s.len() > plen {
-                                    Some(StrBuf::from_str(s.slice_to(plen)))
+                                    Some(String::from_str(s.slice_to(plen)))
                                 } else { None }
                             }
                         }
                     } else if is_abs && comps.is_empty() {
-                        Some(StrBuf::from_char(1, SEP))
+                        Some(String::from_char(1, SEP))
                     } else {
                         let prefix_ = s.slice_to(prefix_len(prefix));
                         let n = prefix_.len() +
                                 if is_abs { comps.len() } else { comps.len() - 1} +
                                 comps.iter().map(|v| v.len()).sum();
-                        let mut s = StrBuf::with_capacity(n);
+                        let mut s = String::with_capacity(n);
                         match prefix {
                             Some(DiskPrefix) => {
                                 s.push_char(prefix_[0].to_ascii().to_upper().to_char());
@@ -969,7 +956,7 @@ pub fn is_sep_byte_verbatim(u: &u8) -> bool {
 }
 
 /// Prefix types for Path
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Clone)]
 pub enum PathPrefix {
     /// Prefix `\\?\`, uint is the length of the following component
     VerbatimPrefix(uint),
@@ -1331,9 +1318,9 @@ mod tests {
     #[test]
     fn test_display_str() {
         let path = Path::new("foo");
-        assert_eq!(path.display().to_str(), "foo".to_owned());
+        assert_eq!(path.display().to_str(), "foo".to_string());
         let path = Path::new(b!("\\"));
-        assert_eq!(path.filename_display().to_str(), "".to_owned());
+        assert_eq!(path.filename_display().to_str(), "".to_string());
 
         let path = Path::new("foo");
         let mo = path.display().as_maybe_owned();
@@ -1594,7 +1581,7 @@ mod tests {
         t!(s: "a\\b\\c", ["d", "e"], "a\\b\\c\\d\\e");
         t!(s: "a\\b\\c", ["d", "\\e"], "\\e");
         t!(s: "a\\b\\c", ["d", "\\e", "f"], "\\e\\f");
-        t!(s: "a\\b\\c", ["d".to_owned(), "e".to_owned()], "a\\b\\c\\d\\e");
+        t!(s: "a\\b\\c", ["d".to_string(), "e".to_string()], "a\\b\\c\\d\\e");
         t!(v: b!("a\\b\\c"), [b!("d"), b!("e")], b!("a\\b\\c\\d\\e"));
         t!(v: b!("a\\b\\c"), [b!("d"), b!("\\e"), b!("f")], b!("\\e\\f"));
         t!(v: b!("a\\b\\c"), [Vec::from_slice(b!("d")), Vec::from_slice(b!("e"))],
@@ -1735,7 +1722,7 @@ mod tests {
         t!(s: "a\\b\\c", ["d", "e"], "a\\b\\c\\d\\e");
         t!(s: "a\\b\\c", ["..", "d"], "a\\b\\d");
         t!(s: "a\\b\\c", ["d", "\\e", "f"], "\\e\\f");
-        t!(s: "a\\b\\c", ["d".to_owned(), "e".to_owned()], "a\\b\\c\\d\\e");
+        t!(s: "a\\b\\c", ["d".to_string(), "e".to_string()], "a\\b\\c\\d\\e");
         t!(v: b!("a\\b\\c"), [b!("d"), b!("e")], b!("a\\b\\c\\d\\e"));
         t!(v: b!("a\\b\\c"), [Vec::from_slice(b!("d")), Vec::from_slice(b!("e"))],
            b!("a\\b\\c\\d\\e"));

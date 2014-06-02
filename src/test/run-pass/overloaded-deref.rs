@@ -10,9 +10,9 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::strbuf::StrBuf;
+use std::string::String;
 
-#[deriving(Eq, Show)]
+#[deriving(PartialEq, Show)]
 struct Point {
     x: int,
     y: int
@@ -28,11 +28,11 @@ pub fn main() {
     *(*i).borrow_mut() = 5;
     assert_eq!((i_value, *(*i).borrow()), (2, 5));
 
-    let s = Rc::new("foo".to_owned());
-    assert_eq!(*s, "foo".to_owned());
+    let s = Rc::new("foo".to_string());
+    assert_eq!(*s, "foo".to_string());
     assert_eq!((*s).as_slice(), "foo");
 
-    let mut_s = Rc::new(RefCell::new(StrBuf::from_str("foo")));
+    let mut_s = Rc::new(RefCell::new(String::from_str("foo")));
     (*(*mut_s).borrow_mut()).push_str("bar");
     // assert_eq! would fail here because it stores the LHS and RHS in two locals.
     assert!((*(*mut_s).borrow()).as_slice() == "foobar");

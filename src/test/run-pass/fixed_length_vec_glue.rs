@@ -8,8 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+extern crate debug;
 
-use std::repr;
+use debug::repr;
 
 struct Struc { a: u8, b: [int, ..3], c: int }
 
@@ -17,5 +18,5 @@ pub fn main() {
     let arr = [1,2,3];
     let struc = Struc {a: 13u8, b: arr, c: 42};
     let s = repr::repr_to_str(&struc);
-    assert_eq!(s, "Struc{a: 13u8, b: [1, 2, 3], c: 42}".to_owned());
+    assert_eq!(s, "Struc{a: 13u8, b: [1, 2, 3], c: 42}".to_string());
 }

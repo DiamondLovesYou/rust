@@ -10,8 +10,10 @@
 
 // error-pattern:called `Result::unwrap()` on an `Err` value
 
+extern crate debug;
+
 use std::result;
 
 fn main() {
-    println!("{:?}", result::Err::<int,StrBuf>("kitty".to_strbuf()).unwrap());
+    println!("{:?}", result::Err::<int,String>("kitty".to_string()).unwrap());
 }

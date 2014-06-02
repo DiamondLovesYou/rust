@@ -35,7 +35,7 @@ use collections::{HashMap, HashSet};
 use std::cell::{Cell, RefCell};
 use std::mem::replace;
 use std::rc::{Rc, Weak};
-use std::strbuf::StrBuf;
+use std::string::String;
 use std::uint;
 
 // Definition mapping
@@ -57,7 +57,7 @@ pub type TraitMap = NodeMap<Vec<DefId> >;
 pub type ExportMap2 = RefCell<NodeMap<Vec<Export2> >>;
 
 pub struct Export2 {
-    pub name: StrBuf,        // The name of the target.
+    pub name: String,        // The name of the target.
     pub def_id: DefId,     // The definition of the target.
 }
 
@@ -87,7 +87,7 @@ pub enum PrivateDep {
 }
 
 // How an import is used.
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum ImportUse {
     Unused,       // The import is not used.
     Used,         // The import is used.
@@ -102,20 +102,20 @@ impl LastPrivate {
     }
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 enum PatternBindingMode {
     RefutableMode,
     LocalIrrefutableMode,
     ArgumentIrrefutableMode,
 }
 
-#[deriving(Eq, TotalEq, Hash)]
+#[deriving(PartialEq, Eq, Hash)]
 enum Namespace {
     TypeNS,
     ValueNS
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 enum NamespaceError {
     NoError,
     ModuleError,
@@ -221,8 +221,8 @@ enum FallbackSuggestion {
     Field,
     Method,
     TraitMethod,
-    StaticMethod(StrBuf),
-    StaticTraitMethod(StrBuf),
+    StaticMethod(String),
+    StaticTraitMethod(String),
 }
 
 enum TypeParameters<'a> {
@@ -288,7 +288,7 @@ enum ModulePrefixResult {
     PrefixFound(Rc<Module>, uint)
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 enum NameSearchType {
     /// We're doing a name search in order to resolve a `use` directive.
     ImportSearch,
@@ -306,7 +306,7 @@ enum BareIdentifierPatternResolution {
 
 // Specifies how duplicates should be handled when adding a child item if
 // another item exists with the same name in some namespace.
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 enum DuplicateCheckingMode {
     ForbidDuplicateModules,
     ForbidDuplicateTypes,
@@ -435,7 +435,7 @@ enum ParentLink {
 }
 
 /// The type of module this is.
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 enum ModuleKind {
     NormalModuleKind,
     ExternModuleKind,
@@ -549,6 +549,13 @@ enum TraitReferenceType {
 }
 
 impl NameBindings {
+    fn new() -> NameBindings {
+        NameBindings {
+            type_def: RefCell::new(None),
+            value_def: RefCell::new(None),
+        }
+    }
+
     /// Creates a new module in this set of name bindings.
     fn define_module(&self,
                      parent_link: ParentLink,
@@ -749,47 +756,40 @@ impl NameBindings {
     }
 }
 
-fn NameBindings() -> NameBindings {
-    NameBindings {
-        type_def: RefCell::new(None),
-        value_def: RefCell::new(None),
-    }
-}
-
 /// Interns the names of the primitive types.
 struct PrimitiveTypeTable {
     primitive_types: HashMap<Name, PrimTy>,
 }
 
 impl PrimitiveTypeTable {
+    fn new() -> PrimitiveTypeTable {
+        let mut table = PrimitiveTypeTable {
+            primitive_types: HashMap::new()
+        };
+
+        table.intern("bool",    TyBool);
+        table.intern("char",    TyChar);
+        table.intern("f32",     TyFloat(TyF32));
+        table.intern("f64",     TyFloat(TyF64));
+        table.intern("f128",    TyFloat(TyF128));
+        table.intern("int",     TyInt(TyI));
+        table.intern("i8",      TyInt(TyI8));
+        table.intern("i16",     TyInt(TyI16));
+        table.intern("i32",     TyInt(TyI32));
+        table.intern("i64",     TyInt(TyI64));
+        table.intern("str",     TyStr);
+        table.intern("uint",    TyUint(TyU));
+        table.intern("u8",      TyUint(TyU8));
+        table.intern("u16",     TyUint(TyU16));
+        table.intern("u32",     TyUint(TyU32));
+        table.intern("u64",     TyUint(TyU64));
+
+        table
+    }
+
     fn intern(&mut self, string: &str, primitive_type: PrimTy) {
         self.primitive_types.insert(token::intern(string), primitive_type);
     }
-}
-
-fn PrimitiveTypeTable() -> PrimitiveTypeTable {
-    let mut table = PrimitiveTypeTable {
-        primitive_types: HashMap::new()
-    };
-
-    table.intern("bool",    TyBool);
-    table.intern("char",    TyChar);
-    table.intern("f32",     TyFloat(TyF32));
-    table.intern("f64",     TyFloat(TyF64));
-    table.intern("f128",    TyFloat(TyF128));
-    table.intern("int",     TyInt(TyI));
-    table.intern("i8",      TyInt(TyI8));
-    table.intern("i16",     TyInt(TyI16));
-    table.intern("i32",     TyInt(TyI32));
-    table.intern("i64",     TyInt(TyI64));
-    table.intern("str",     TyStr);
-    table.intern("uint",    TyUint(TyU));
-    table.intern("u8",      TyUint(TyU8));
-    table.intern("u16",     TyUint(TyU16));
-    table.intern("u32",     TyUint(TyU32));
-    table.intern("u64",     TyUint(TyU64));
-
-    return table;
 }
 
 
@@ -800,62 +800,6 @@ fn namespace_error_to_str(ns: NamespaceError) -> &'static str {
         TypeError   => "type",
         ValueError  => "value",
     }
-}
-
-fn Resolver<'a>(session: &'a Session,
-                lang_items: &'a LanguageItems,
-                crate_span: Span) -> Resolver<'a> {
-    let graph_root = NameBindings();
-
-    graph_root.define_module(NoParentLink,
-                             Some(DefId { krate: 0, node: 0 }),
-                             NormalModuleKind,
-                             false,
-                             true,
-                             crate_span);
-
-    let current_module = graph_root.get_module();
-
-    let this = Resolver {
-        session: session,
-        lang_items: lang_items,
-
-        // The outermost module has def ID 0; this is not reflected in the
-        // AST.
-
-        graph_root: graph_root,
-
-        method_map: RefCell::new(FnvHashMap::new()),
-        structs: FnvHashMap::new(),
-
-        unresolved_imports: 0,
-
-        current_module: current_module,
-        value_ribs: RefCell::new(Vec::new()),
-        type_ribs: RefCell::new(Vec::new()),
-        label_ribs: RefCell::new(Vec::new()),
-
-        current_trait_ref: None,
-        current_self_type: None,
-
-        self_ident: special_idents::self_,
-        type_self_ident: special_idents::type_self,
-
-        primitive_type_table: PrimitiveTypeTable(),
-
-        namespaces: vec!(TypeNS, ValueNS),
-
-        def_map: RefCell::new(NodeMap::new()),
-        export_map2: RefCell::new(NodeMap::new()),
-        trait_map: NodeMap::new(),
-        used_imports: HashSet::new(),
-        external_exports: DefIdSet::new(),
-        last_private: NodeMap::new(),
-
-        emit_errors: true,
-    };
-
-    this
 }
 
 /// The main resolver class.
@@ -957,6 +901,57 @@ impl<'a, 'b> Visitor<()> for UnusedImportCheckVisitor<'a, 'b> {
 }
 
 impl<'a> Resolver<'a> {
+    fn new(session: &'a Session, lang_items: &'a LanguageItems, crate_span: Span) -> Resolver<'a> {
+        let graph_root = NameBindings::new();
+
+        graph_root.define_module(NoParentLink,
+                                 Some(DefId { krate: 0, node: 0 }),
+                                 NormalModuleKind,
+                                 false,
+                                 true,
+                                 crate_span);
+
+        let current_module = graph_root.get_module();
+
+        Resolver {
+            session: session,
+            lang_items: lang_items,
+
+            // The outermost module has def ID 0; this is not reflected in the
+            // AST.
+
+            graph_root: graph_root,
+
+            method_map: RefCell::new(FnvHashMap::new()),
+            structs: FnvHashMap::new(),
+
+            unresolved_imports: 0,
+
+            current_module: current_module,
+            value_ribs: RefCell::new(Vec::new()),
+            type_ribs: RefCell::new(Vec::new()),
+            label_ribs: RefCell::new(Vec::new()),
+
+            current_trait_ref: None,
+            current_self_type: None,
+
+            self_ident: special_idents::self_,
+            type_self_ident: special_idents::type_self,
+
+            primitive_type_table: PrimitiveTypeTable::new(),
+
+            namespaces: vec!(TypeNS, ValueNS),
+
+            def_map: RefCell::new(NodeMap::new()),
+            export_map2: RefCell::new(NodeMap::new()),
+            trait_map: NodeMap::new(),
+            used_imports: HashSet::new(),
+            external_exports: DefIdSet::new(),
+            last_private: NodeMap::new(),
+
+            emit_errors: true,
+        }
+    }
     /// The main name resolution procedure.
     fn resolve(&mut self, krate: &ast::Crate) {
         self.build_reduced_graph(krate);
@@ -1017,7 +1012,7 @@ impl<'a> Resolver<'a> {
         let child = module_.children.borrow().find_copy(&name.name);
         match child {
             None => {
-                let child = Rc::new(NameBindings());
+                let child = Rc::new(NameBindings::new());
                 module_.children.borrow_mut().insert(name.name, child.clone());
                 child
             }
@@ -1085,14 +1080,14 @@ impl<'a> Resolver<'a> {
                     self.resolve_error(sp,
                         format!("duplicate definition of {} `{}`",
                              namespace_error_to_str(duplicate_type),
-                             token::get_ident(name)));
+                             token::get_ident(name)).as_slice());
                     {
                         let r = child.span_for_namespace(ns);
                         for sp in r.iter() {
                             self.session.span_note(*sp,
                                  format!("first definition of {} `{}` here",
                                       namespace_error_to_str(duplicate_type),
-                                      token::get_ident(name)));
+                                      token::get_ident(name)).as_slice());
                         }
                     }
                 }
@@ -2054,7 +2049,7 @@ impl<'a> Resolver<'a> {
                                        import_directive.module_path
                                                        .as_slice(),
                                        import_directive.subclass));
-                    self.resolve_error(import_directive.span, msg);
+                    self.resolve_error(import_directive.span, msg.as_slice());
                 }
                 Indeterminate => {
                     // Bail out. We'll come around next time.
@@ -2070,9 +2065,9 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn idents_to_str(&self, idents: &[Ident]) -> StrBuf {
+    fn idents_to_str(&self, idents: &[Ident]) -> String {
         let mut first = true;
-        let mut result = StrBuf::new();
+        let mut result = String::new();
         for ident in idents.iter() {
             if first {
                 first = false
@@ -2084,7 +2079,7 @@ impl<'a> Resolver<'a> {
         result
     }
 
-    fn path_idents_to_str(&self, path: &Path) -> StrBuf {
+    fn path_idents_to_str(&self, path: &Path) -> String {
         let identifiers: Vec<ast::Ident> = path.segments
                                              .iter()
                                              .map(|seg| seg.identifier)
@@ -2094,26 +2089,26 @@ impl<'a> Resolver<'a> {
 
     fn import_directive_subclass_to_str(&mut self,
                                         subclass: ImportDirectiveSubclass)
-                                        -> StrBuf {
+                                        -> String {
         match subclass {
             SingleImport(_, source) => {
-                token::get_ident(source).get().to_strbuf()
+                token::get_ident(source).get().to_string()
             }
-            GlobImport => "*".to_strbuf()
+            GlobImport => "*".to_string()
         }
     }
 
     fn import_path_to_str(&mut self,
                           idents: &[Ident],
                           subclass: ImportDirectiveSubclass)
-                          -> StrBuf {
+                          -> String {
         if idents.is_empty() {
             self.import_directive_subclass_to_str(subclass)
         } else {
             (format!("{}::{}",
                      self.idents_to_str(idents),
                      self.import_directive_subclass_to_str(
-                         subclass))).to_strbuf()
+                         subclass))).to_string()
         }
     }
 
@@ -2427,7 +2422,7 @@ impl<'a> Resolver<'a> {
                                `{}` in `{}`",
                               token::get_ident(source),
                               self.module_to_str(&*containing_module));
-            self.resolve_error(directive.span, msg);
+            self.resolve_error(directive.span, msg.as_slice());
             return Failed;
         }
         let value_used_public = value_used_reexport || value_used_public;
@@ -2651,14 +2646,17 @@ impl<'a> Resolver<'a> {
                             expn_info: span.expn_info,
                         };
                         self.resolve_error(span,
-                                              format!("unresolved import. maybe \
+                                           format!("unresolved import. maybe \
                                                     a missing `extern crate \
                                                     {}`?",
-                                                    segment_name));
+                                                   segment_name).as_slice());
                         return Failed;
                     }
-                    self.resolve_error(span, format!("unresolved import: could not find `{}` in \
-                                                     `{}`.", segment_name, module_name));
+                    self.resolve_error(span,
+                                       format!("unresolved import: could not \
+                                                find `{}` in `{}`.",
+                                               segment_name,
+                                               module_name).as_slice());
                     return Failed;
                 }
                 Indeterminate => {
@@ -2675,8 +2673,11 @@ impl<'a> Resolver<'a> {
                             match type_def.module_def {
                                 None => {
                                     // Not a module.
-                                    self.resolve_error(span, format!("not a module `{}`",
-                                                                 token::get_ident(name)));
+                                    self.resolve_error(
+                                        span,
+                                        format!("not a module `{}`",
+                                                token::get_ident(name))
+                                                .as_slice());
                                     return Failed;
                                 }
                                 Some(ref module_def) => {
@@ -2717,9 +2718,10 @@ impl<'a> Resolver<'a> {
                         }
                         None => {
                             // There are no type bindings at all.
-                            self.resolve_error(span,
-                                                  format!("not a module `{}`",
-                                                       token::get_ident(name)));
+                            self.resolve_error(
+                                span,
+                                format!("not a module `{}`",
+                                        token::get_ident(name)).as_slice());
                             return Failed;
                         }
                     }
@@ -2764,16 +2766,15 @@ impl<'a> Resolver<'a> {
                 let mpath = self.idents_to_str(module_path);
                 match mpath.as_slice().rfind(':') {
                     Some(idx) => {
-                        self.resolve_error(span,
-                                           format!("unresolved import: could \
-                                                    not find `{}` in `{}`",
-                                                   // idx +- 1 to account for
-                                                   // the colons on either
-                                                   // side
-                                                   mpath.as_slice()
-                                                        .slice_from(idx + 1),
-                                                   mpath.as_slice()
-                                                        .slice_to(idx - 1)));
+                        self.resolve_error(
+                            span,
+                            format!("unresolved import: could not find `{}` \
+                                     in `{}`",
+                                    // idx +- 1 to account for the colons on \
+                                    // either side
+                                    mpath.as_slice().slice_from(idx + 1),
+                                    mpath.as_slice()
+                                         .slice_to(idx - 1)).as_slice());
                     },
                     None => (),
                 };
@@ -3200,7 +3201,7 @@ impl<'a> Resolver<'a> {
             } else {
                 let err = format!("unresolved import (maybe you meant `{}::*`?)",
                                   sn.as_slice().slice(0, sn.len()));
-                self.resolve_error(imports.get(index).span, err);
+                self.resolve_error(imports.get(index).span, err.as_slice());
             }
         }
 
@@ -3308,7 +3309,7 @@ impl<'a> Resolver<'a> {
                 debug!("(computing exports) YES: export '{}' => {:?}",
                        name, def_id_of_def(d));
                 exports2.push(Export2 {
-                    name: name.get().to_strbuf(),
+                    name: name.get().to_string(),
                     def_id: def_id_of_def(d)
                 });
             }
@@ -3870,7 +3871,7 @@ impl<'a> Resolver<'a> {
                 };
 
                 let msg = format!("attempt to {} a nonexistent trait `{}`", usage_str, path_str);
-                self.resolve_error(trait_reference.path.span, msg);
+                self.resolve_error(trait_reference.path.span, msg.as_slice());
             }
             Some(def) => {
                 debug!("(resolving trait) found trait def: {:?}", def);
@@ -4071,7 +4072,7 @@ impl<'a> Resolver<'a> {
                         format!("variable `{}` from pattern \\#1 is \
                                   not bound in pattern \\#{}",
                                 token::get_name(key),
-                                i + 1));
+                                i + 1).as_slice());
                   }
                   Some(binding_i) => {
                     if binding_0.binding_mode != binding_i.binding_mode {
@@ -4080,7 +4081,7 @@ impl<'a> Resolver<'a> {
                             format!("variable `{}` is bound with different \
                                       mode in pattern \\#{} than in pattern \\#1",
                                     token::get_name(key),
-                                    i + 1));
+                                    i + 1).as_slice());
                     }
                   }
                 }
@@ -4093,7 +4094,7 @@ impl<'a> Resolver<'a> {
                         format!("variable `{}` from pattern \\#{} is \
                                   not bound in pattern \\#1",
                                 token::get_name(key),
-                                i + 1));
+                                i + 1).as_slice());
                 }
             }
         }
@@ -4220,7 +4221,7 @@ impl<'a> Resolver<'a> {
                     None => {
                         let msg = format!("use of undeclared type name `{}`",
                                           self.path_idents_to_str(path));
-                        self.resolve_error(ty.span, msg);
+                        self.resolve_error(ty.span, msg.as_slice());
                     }
                 }
 
@@ -4285,12 +4286,12 @@ impl<'a> Resolver<'a> {
                             self.record_def(pattern.id, (def, lp));
                         }
                         FoundStructOrEnumVariant(..) => {
-                            self.resolve_error(pattern.span,
-                                                  format!("declaration of `{}` \
-                                                        shadows an enum \
-                                                        variant or unit-like \
-                                                        struct in scope",
-                                                        token::get_name(renamed)));
+                            self.resolve_error(
+                                pattern.span,
+                                format!("declaration of `{}` shadows an enum \
+                                         variant or unit-like struct in \
+                                         scope",
+                                        token::get_name(renamed)).as_slice());
                         }
                         FoundConst(def, lp) if mode == RefutableMode => {
                             debug!("(resolving pattern) resolving `{}` to \
@@ -4359,9 +4360,10 @@ impl<'a> Resolver<'a> {
                                       // in the same disjunct, which is an
                                       // error
                                      self.resolve_error(pattern.span,
-                                       format!("identifier `{}` is bound more \
-                                             than once in the same pattern",
-                                            path_to_str(path)));
+                                       format!("identifier `{}` is bound \
+                                                more than once in the same \
+                                                pattern",
+                                               path_to_str(path)).as_slice());
                                   }
                                   // Not bound in the same pattern: do nothing
                                 }
@@ -4406,8 +4408,11 @@ impl<'a> Resolver<'a> {
                             self.resolve_error(
                                 path.span,
                                 format!("`{}` is not an enum variant or constant",
-                                     token::get_ident(
-                                         path.segments.last().unwrap().identifier)))
+                                        token::get_ident(
+                                            path.segments
+                                                .last()
+                                                .unwrap()
+                                                .identifier)).as_slice())
                         }
                         None => {
                             self.resolve_error(path.span,
@@ -4435,16 +4440,20 @@ impl<'a> Resolver<'a> {
                         Some(_) => {
                             self.resolve_error(path.span,
                                 format!("`{}` is not an enum variant, struct or const",
-                                    token::get_ident(path.segments
-                                                         .last().unwrap()
-                                                         .identifier)));
+                                    token::get_ident(
+                                        path.segments
+                                            .last()
+                                            .unwrap()
+                                            .identifier)).as_slice());
                         }
                         None => {
                             self.resolve_error(path.span,
                                 format!("unresolved enum variant, struct or const `{}`",
-                                    token::get_ident(path.segments
-                                                         .last().unwrap()
-                                                         .identifier)));
+                                    token::get_ident(
+                                        path.segments
+                                            .last()
+                                            .unwrap()
+                                            .identifier)).as_slice());
                         }
                     }
 
@@ -4485,7 +4494,7 @@ impl<'a> Resolver<'a> {
                                     def: {:?}", result);
                             let msg = format!("`{}` does not name a structure",
                                               self.path_idents_to_str(path));
-                            self.resolve_error(path.span, msg);
+                            self.resolve_error(path.span, msg.as_slice());
                         }
                     }
                 }
@@ -4577,7 +4586,7 @@ impl<'a> Resolver<'a> {
                         .add_lint(UnnecessaryQualification,
                                   id,
                                   path.span,
-                                  "unnecessary qualification".to_strbuf());
+                                  "unnecessary qualification".to_string());
                 }
                 _ => ()
             }
@@ -4705,7 +4714,7 @@ impl<'a> Resolver<'a> {
             Failed => {
                 let msg = format!("use of undeclared module `{}`",
                                   self.idents_to_str(module_path_idents.as_slice()));
-                self.resolve_error(path.span, msg);
+                self.resolve_error(path.span, msg.as_slice());
                 return None;
             }
 
@@ -4776,7 +4785,7 @@ impl<'a> Resolver<'a> {
             Failed => {
                 let msg = format!("use of undeclared module `::{}`",
                                   self.idents_to_str(module_path_idents.as_slice()));
-                self.resolve_error(path.span, msg);
+                self.resolve_error(path.span, msg.as_slice());
                 return None;
             }
 
@@ -4891,7 +4900,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn find_fallback_in_self_type(&mut self, name: Name) -> FallbackSuggestion {
-        #[deriving(Eq)]
+        #[deriving(PartialEq)]
         enum FallbackChecks {
             Everything,
             OnlyTraitAndStatics
@@ -5005,7 +5014,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn find_best_match_for_name(&mut self, name: &str, max_distance: uint)
-                                -> Option<StrBuf> {
+                                -> Option<String> {
         let this = &mut *self;
 
         let mut maybes: Vec<token::InternedString> = Vec::new();
@@ -5037,7 +5046,7 @@ impl<'a> Resolver<'a> {
             *values.get(smallest) <= max_distance &&
             name != maybes.get(smallest).get() {
 
-            Some(maybes.get(smallest).get().to_strbuf())
+            Some(maybes.get(smallest).get().to_string())
 
         } else {
             None
@@ -5096,12 +5105,12 @@ impl<'a> Resolver<'a> {
                                         format!("`{}` is a structure name, but \
                                                  this expression \
                                                  uses it like a function name",
-                                                wrong_name));
+                                                wrong_name).as_slice());
 
                                 self.session.span_note(expr.span,
                                     format!("Did you mean to write: \
                                             `{} \\{ /* fields */ \\}`?",
-                                            wrong_name));
+                                            wrong_name).as_slice());
 
                             }
                             _ => {
@@ -5119,10 +5128,11 @@ impl<'a> Resolver<'a> {
 
                                 if method_scope && token::get_name(self.self_ident.name).get()
                                                                         == wrong_name.as_slice() {
-                                        self.resolve_error(expr.span,
-                                                            format!("`self` is not available in a \
-                                                                    static method. Maybe a `self` \
-                                                                    argument is missing?"));
+                                        self.resolve_error(
+                                            expr.span,
+                                            "`self` is not available \
+                                             in a static method. Maybe a \
+                                             `self` argument is missing?");
                                 } else {
                                     let name = path_to_ident(path).name;
                                     let mut msg = match self.find_fallback_in_self_type(name) {
@@ -5130,7 +5140,7 @@ impl<'a> Resolver<'a> {
                                             // limit search to 5 to reduce the number
                                             // of stupid suggestions
                                             self.find_best_match_for_name(wrong_name.as_slice(), 5)
-                                                                .map_or("".into_owned(),
+                                                                .map_or("".to_string(),
                                                                         |x| format!("`{}`", x))
                                         }
                                         Field =>
@@ -5147,8 +5157,11 @@ impl<'a> Resolver<'a> {
                                         msg = format!(" Did you mean {}?", msg)
                                     }
 
-                                    self.resolve_error(expr.span, format!("unresolved name `{}`.{}",
-                                                                            wrong_name, msg));
+                                    self.resolve_error(
+                                        expr.span,
+                                        format!("unresolved name `{}`.{}",
+                                                wrong_name,
+                                                msg).as_slice());
                                 }
                             }
                         }
@@ -5182,7 +5195,7 @@ impl<'a> Resolver<'a> {
                                 def: {:?}", result);
                         let msg = format!("`{}` does not name a structure",
                                           self.path_idents_to_str(path));
-                        self.resolve_error(path.span, msg);
+                        self.resolve_error(path.span, msg.as_slice());
                     }
                 }
 
@@ -5211,10 +5224,12 @@ impl<'a> Resolver<'a> {
                 let renamed = mtwt::resolve(label);
                 match self.search_ribs(self.label_ribs.borrow().as_slice(),
                                        renamed, expr.span) {
-                    None =>
-                        self.resolve_error(expr.span,
-                                              format!("use of undeclared label `{}`",
-                                                   token::get_ident(label))),
+                    None => {
+                        self.resolve_error(
+                            expr.span,
+                            format!("use of undeclared label `{}`",
+                                    token::get_ident(label)).as_slice())
+                    }
                     Some(DlDef(def @ DefLabel(_))) => {
                         // Since this def is a label, it is never read.
                         self.record_def(expr.id, (def, LastMod(AllPublic)))
@@ -5343,8 +5358,12 @@ impl<'a> Resolver<'a> {
             // times, so here is a sanity check it at least comes to
             // the same conclusion! - nmatsakis
             if def != *old_value {
-                self.session.bug(format!("node_id {:?} resolved first to {:?} \
-                                      and then {:?}", node_id, *old_value, def));
+                self.session
+                    .bug(format!("node_id {:?} resolved first to {:?} and \
+                                  then {:?}",
+                                 node_id,
+                                 *old_value,
+                                 def).as_slice());
             }
         });
     }
@@ -5356,10 +5375,10 @@ impl<'a> Resolver<'a> {
         match pat_binding_mode {
             BindByValue(_) => {}
             BindByRef(..) => {
-                self.resolve_error(
-                    pat.span,
-                    format!("cannot use `ref` binding mode with {}",
-                         descr));
+                self.resolve_error(pat.span,
+                                   format!("cannot use `ref` binding mode \
+                                            with {}",
+                                           descr).as_slice());
             }
         }
     }
@@ -5402,7 +5421,7 @@ impl<'a> Resolver<'a> {
                                 .add_lint(UnusedImports,
                                           id,
                                           p.span,
-                                          "unused import".to_strbuf());
+                                          "unused import".to_string());
                         }
                     },
                 }
@@ -5426,7 +5445,7 @@ impl<'a> Resolver<'a> {
             self.session.add_lint(UnusedImports,
                                   id,
                                   span,
-                                  "unused import".to_strbuf());
+                                  "unused import".to_string());
         }
 
         let (v_priv, t_priv) = match self.last_private.find(&id) {
@@ -5475,7 +5494,7 @@ impl<'a> Resolver<'a> {
     //
 
     /// A somewhat inefficient routine to obtain the name of a module.
-    fn module_to_str(&mut self, module: &Module) -> StrBuf {
+    fn module_to_str(&mut self, module: &Module) -> String {
         let mut idents = Vec::new();
 
         fn collect_mod(idents: &mut Vec<ast::Ident>, module: &Module) {
@@ -5494,7 +5513,7 @@ impl<'a> Resolver<'a> {
         collect_mod(&mut idents, module);
 
         if idents.len() == 0 {
-            return "???".to_strbuf();
+            return "???".to_string();
         }
         self.idents_to_str(idents.move_iter().rev()
                                  .collect::<Vec<ast::Ident>>()
@@ -5516,18 +5535,18 @@ impl<'a> Resolver<'a> {
         for (&name, import_resolution) in import_resolutions.iter() {
             let value_repr;
             match import_resolution.target_for_namespace(ValueNS) {
-                None => { value_repr = "".to_owned(); }
+                None => { value_repr = "".to_string(); }
                 Some(_) => {
-                    value_repr = " value:?".to_owned();
+                    value_repr = " value:?".to_string();
                     // FIXME #4954
                 }
             }
 
             let type_repr;
             match import_resolution.target_for_namespace(TypeNS) {
-                None => { type_repr = "".to_owned(); }
+                None => { type_repr = "".to_string(); }
                 Some(_) => {
-                    type_repr = " type:?".to_owned();
+                    type_repr = " type:?".to_string();
                     // FIXME #4954
                 }
             }
@@ -5550,7 +5569,7 @@ pub fn resolve_crate(session: &Session,
                      lang_items: &LanguageItems,
                      krate: &Crate)
                   -> CrateMap {
-    let mut resolver = Resolver(session, lang_items, krate.span);
+    let mut resolver = Resolver::new(session, lang_items, krate.span);
     resolver.resolve(krate);
     let Resolver { def_map, export_map2, trait_map, last_private,
                    external_exports, .. } = resolver;

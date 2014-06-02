@@ -76,7 +76,7 @@ pub trait FormatWriter {
     /// This function will return an instance of `FormatError` on error.
     fn write(&mut self, bytes: &[u8]) -> Result;
 
-    /// Glue for usage of the `write!` macro with implementors of this trait.
+    /// Glue for usage of the `write!` macro with implementers of this trait.
     ///
     /// This method should generally not be invoked manually, but rather through
     /// the `write!` macro itself.
@@ -594,9 +594,8 @@ pub fn argument<'a, T>(f: extern "Rust" fn(&T, &mut Formatter) -> Result,
 }
 
 #[cfg(test)]
-pub fn format(args: &Arguments) -> ~str {
+pub fn format(args: &Arguments) -> ::realstd::string::String {
     use str;
-    use realstd::str::StrAllocating;
     use realstd::io::MemWriter;
 
     fn mywrite<T: ::realstd::io::Writer>(t: &mut T, b: &[u8]) {
@@ -613,7 +612,10 @@ pub fn format(args: &Arguments) -> ~str {
 
     let mut i = MemWriter::new();
     let _ = write(&mut i, args);
-    str::from_utf8(i.get_ref()).unwrap().to_owned()
+
+    let mut result = ::realstd::string::String::new();
+    result.push_str(str::from_utf8(i.get_ref()).unwrap());
+    result
 }
 
 /// When the compiler determines that the type of an argument *must* be a string
@@ -761,7 +763,6 @@ macro_rules! delegate(($ty:ty to $other:ident) => {
         }
     }
 })
-delegate!(~str to string)
 delegate!(&'a str to string)
 delegate!(bool to bool)
 delegate!(char to char)

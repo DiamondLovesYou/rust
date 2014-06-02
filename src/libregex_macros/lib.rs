@@ -17,7 +17,7 @@
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 
 #![feature(macro_registrar, managed_boxes, quote)]
 
@@ -75,6 +75,7 @@ pub fn macro_registrar(register: |ast::Name, SyntaxExtension|) {
 /// It is strongly recommended to read the dynamic implementation in vm.rs
 /// first before trying to understand the code generator. The implementation
 /// strategy is identical and vm.rs has comments and will be easier to follow.
+#[allow(experimental)]
 fn native(cx: &mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree])
           -> Box<MacResult> {
     let regex = match parse(cx, tts) {
@@ -82,21 +83,21 @@ fn native(cx: &mut ExtCtxt, sp: codemap::Span, tts: &[ast::TokenTree])
         // error is logged in 'parse' with cx.span_err
         None => return DummyResult::any(sp),
     };
-    let re = match Regex::new(regex.to_owned()) {
+    let re = match Regex::new(regex.as_slice()) {
         Ok(re) => re,
         Err(err) => {
-            cx.span_err(sp, err.to_str());
+            cx.span_err(sp, err.to_str().as_slice());
             return DummyResult::any(sp)
         }
     };
-    let prog = match re.p {
-        Dynamic(ref prog) => prog.clone(),
+    let prog = match re {
+        Dynamic(Dynamic { ref prog, .. }) => prog.clone(),
         Native(_) => unreachable!(),
     };
 
     let mut gen = NfaGen {
         cx: &*cx, sp: sp, prog: prog,
-        names: re.names.clone(), original: re.original.clone(),
+        names: re.names_iter().collect(), original: re.as_str().to_string(),
     };
     MacExpr::new(gen.code())
 }
@@ -105,8 +106,8 @@ struct NfaGen<'a> {
     cx: &'a ExtCtxt<'a>,
     sp: codemap::Span,
     prog: Program,
-    names: Vec<Option<StrBuf>>,
-    original: StrBuf,
+    names: Vec<Option<String>>,
+    original: String,
 }
 
 impl<'a> NfaGen<'a> {
@@ -119,7 +120,7 @@ impl<'a> NfaGen<'a> {
             |cx, name| match *name {
                 Some(ref name) => {
                     let name = name.as_slice();
-                    quote_expr!(cx, Some($name.to_strbuf()))
+                    quote_expr!(cx, Some($name))
                 }
                 None => cx.expr_none(self.sp),
             }
@@ -141,9 +142,11 @@ impl<'a> NfaGen<'a> {
         let regex = self.original.as_slice();
 
         quote_expr!(self.cx, {
+static CAP_NAMES: &'static [Option<&'static str>] = &$cap_names;
 fn exec<'t>(which: ::regex::native::MatchKind, input: &'t str,
             start: uint, end: uint) -> Vec<Option<uint>> {
     #![allow(unused_imports)]
+    #![allow(unused_mut)]
     use regex::native::{
         MatchKind, Exists, Location, Submatches,
         StepState, StepMatchEarlyReturn, StepMatch, StepContinue,
@@ -254,8 +257,8 @@ fn exec<'t>(which: ::regex::native::MatchKind, input: &'t str,
                 // The idea here is to avoid initializing threads that never
                 // need to be initialized, particularly for larger regexs with
                 // a lot of instructions.
-                queue: unsafe { ::std::mem::uninit() },
-                sparse: unsafe { ::std::mem::uninit() },
+                queue: unsafe { ::std::mem::uninitialized() },
+                sparse: unsafe { ::std::mem::uninitialized() },
                 size: 0,
             }
         }
@@ -310,11 +313,11 @@ fn exec<'t>(which: ::regex::native::MatchKind, input: &'t str,
     }
 }
 
-::regex::Regex {
-    original: $regex.to_strbuf(),
-    names: vec!$cap_names,
-    p: ::regex::native::Native(exec),
-}
+::regex::native::Native(::regex::native::Native {
+    original: $regex,
+    names: CAP_NAMES,
+    prog: exec,
+})
         })
     }
 
@@ -601,18 +604,18 @@ fn exec<'t>(which: ::regex::native::MatchKind, input: &'t str,
 
 /// Looks for a single string literal and returns it.
 /// Otherwise, logs an error with cx.span_err and returns None.
-fn parse(cx: &mut ExtCtxt, tts: &[ast::TokenTree]) -> Option<StrBuf> {
+fn parse(cx: &mut ExtCtxt, tts: &[ast::TokenTree]) -> Option<String> {
     let mut parser = parse::new_parser_from_tts(cx.parse_sess(), cx.cfg(),
                                                 Vec::from_slice(tts));
     let entry = cx.expand_expr(parser.parse_expr());
     let regex = match entry.node {
         ast::ExprLit(lit) => {
             match lit.node {
-                ast::LitStr(ref s, _) => s.to_str().to_strbuf(),
+                ast::LitStr(ref s, _) => s.to_str().to_string(),
                 _ => {
                     cx.span_err(entry.span, format!(
                         "expected string literal but got `{}`",
-                        pprust::lit_to_str(lit)));
+                        pprust::lit_to_str(lit)).as_slice());
                     return None
                 }
             }
@@ -620,7 +623,7 @@ fn parse(cx: &mut ExtCtxt, tts: &[ast::TokenTree]) -> Option<StrBuf> {
         _ => {
             cx.span_err(entry.span, format!(
                 "expected string literal but got `{}`",
-                pprust::expr_to_str(entry)));
+                pprust::expr_to_str(entry)).as_slice());
             return None
         }
     };

@@ -360,7 +360,7 @@ pub struct SyncSender<T> {
 
 /// This enumeration is the list of the possible reasons that try_recv could not
 /// return data when called.
-#[deriving(Eq, Clone, Show)]
+#[deriving(PartialEq, Clone, Show)]
 pub enum TryRecvError {
     /// This channel is currently empty, but the sender(s) have not yet
     /// disconnected, so data may yet become available.
@@ -372,7 +372,7 @@ pub enum TryRecvError {
 
 /// This enumeration is the list of the possible error outcomes for the
 /// `SyncSender::try_send` method.
-#[deriving(Eq, Clone, Show)]
+#[deriving(PartialEq, Clone, Show)]
 pub enum TrySendError<T> {
     /// The data could not be sent on the channel because it would require that
     /// the callee block to send the data.
@@ -600,20 +600,22 @@ impl<T: Send> Clone for Sender<T> {
         let (packet, sleeper) = match *unsafe { self.inner() } {
             Oneshot(ref p) => {
                 let a = Arc::new(Unsafe::new(shared::Packet::new()));
-                match unsafe {
-                    (*p.get()).upgrade(Receiver::new(Shared(a.clone())))
-                } {
-                    oneshot::UpSuccess | oneshot::UpDisconnected => (a, None),
-                    oneshot::UpWoke(task) => (a, Some(task))
+                unsafe {
+                    (*a.get()).postinit_lock();
+                    match (*p.get()).upgrade(Receiver::new(Shared(a.clone()))) {
+                        oneshot::UpSuccess | oneshot::UpDisconnected => (a, None),
+                        oneshot::UpWoke(task) => (a, Some(task))
+                    }
                 }
             }
             Stream(ref p) => {
                 let a = Arc::new(Unsafe::new(shared::Packet::new()));
-                match unsafe {
-                    (*p.get()).upgrade(Receiver::new(Shared(a.clone())))
-                } {
-                    stream::UpSuccess | stream::UpDisconnected => (a, None),
-                    stream::UpWoke(task) => (a, Some(task)),
+                unsafe {
+                    (*a.get()).postinit_lock();
+                    match (*p.get()).upgrade(Receiver::new(Shared(a.clone()))) {
+                        stream::UpSuccess | stream::UpDisconnected => (a, None),
+                        stream::UpWoke(task) => (a, Some(task)),
+                    }
                 }
             }
             Shared(ref p) => {
@@ -990,7 +992,7 @@ mod test {
 
     pub fn stress_factor() -> uint {
         match os::getenv("RUST_TEST_STRESS") {
-            Some(val) => from_str::<uint>(val).unwrap(),
+            Some(val) => from_str::<uint>(val.as_slice()).unwrap(),
             None => 1,
         }
     }
@@ -1523,7 +1525,7 @@ mod sync_tests {
 
     pub fn stress_factor() -> uint {
         match os::getenv("RUST_TEST_STRESS") {
-            Some(val) => from_str::<uint>(val).unwrap(),
+            Some(val) => from_str::<uint>(val.as_slice()).unwrap(),
             None => 1,
         }
     }

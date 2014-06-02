@@ -26,13 +26,13 @@ pub fn main() {
     let args = os::args();
     let args = args.as_slice();
 
-    // Here, the rvalue `"signal".to_owned()` requires cleanup. Older versions
+    // Here, the rvalue `"signal".to_string()` requires cleanup. Older versions
     // of the code had a problem that the cleanup scope for this
-    // expression was the end of the `if`, and as the `"signal".to_owned()`
+    // expression was the end of the `if`, and as the `"signal".to_string()`
     // expression was never evaluated, we wound up trying to clean
     // uninitialized memory.
 
-    if args.len() >= 2 && args[1] == "signal".to_owned() {
+    if args.len() >= 2 && args[1].as_slice() == "signal" {
         // Raise a segfault.
         unsafe { *(0 as *mut int) = 0; }
     }

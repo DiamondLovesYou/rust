@@ -15,25 +15,27 @@
 
 pub mod m1 {
     pub mod m2 {
-        pub fn where_am_i() -> StrBuf { (module_path!()).to_strbuf() }
+        pub fn where_am_i() -> String {
+            (module_path!()).to_string()
+        }
     }
 }
 
 macro_rules! indirect_line( () => ( line!() ) )
 
 pub fn main() {
-    assert_eq!(line!(), 25);
+    assert_eq!(line!(), 27);
     //assert!((col!() == 11));
-    assert_eq!(indirect_line!(), 27);
-    assert!((file!().to_owned().ends_with("syntax-extension-source-utils.rs")));
-    assert_eq!(stringify!((2*3) + 5).to_strbuf(), "( 2 * 3 ) + 5".to_strbuf());
+    assert_eq!(indirect_line!(), 29);
+    assert!((file!().ends_with("syntax-extension-source-utils.rs")));
+    assert_eq!(stringify!((2*3) + 5).to_string(), "( 2 * 3 ) + 5".to_string());
     assert!(include!("syntax-extension-source-utils-files/includeme.\
-                      fragment").to_strbuf()
-           == "victory robot 6".to_strbuf());
+                      fragment").to_string()
+           == "victory robot 6".to_string());
 
     assert!(
         include_str!("syntax-extension-source-utils-files/includeme.\
-                      fragment").to_strbuf()
+                      fragment").to_string()
         .as_slice()
         .starts_with("/* this is for "));
     assert!(

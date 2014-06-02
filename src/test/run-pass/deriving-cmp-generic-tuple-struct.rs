@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[deriving(Eq, TotalEq, Ord, TotalOrd)]
+#[deriving(PartialEq, Eq, PartialOrd, Ord)]
 struct TS<T>(T,T);
 
 
@@ -16,7 +16,7 @@ pub fn main() {
     let ts1 = TS(1, 1);
     let ts2 = TS(1, 2);
 
-    // in order for both Ord and TotalOrd
+    // in order for both PartialOrd and Ord
     let tss = [ts1, ts2];
 
     for (i, ts1) in tss.iter().enumerate() {
@@ -29,18 +29,18 @@ pub fn main() {
             let gt = i > j;
             let ge = i >= j;
 
-            // Eq
+            // PartialEq
             assert_eq!(*ts1 == *ts2, eq);
             assert_eq!(*ts1 != *ts2, !eq);
 
-            // Ord
+            // PartialOrd
             assert_eq!(*ts1 < *ts2, lt);
             assert_eq!(*ts1 > *ts2, gt);
 
             assert_eq!(*ts1 <= *ts2, le);
             assert_eq!(*ts1 >= *ts2, ge);
 
-            // TotalOrd
+            // Ord
             assert_eq!(ts1.cmp(ts2), ord);
         }
     }

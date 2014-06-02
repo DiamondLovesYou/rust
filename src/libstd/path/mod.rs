@@ -73,7 +73,7 @@ use iter::Iterator;
 use option::{Option, None, Some};
 use str;
 use str::{MaybeOwned, Str, StrSlice, from_utf8_lossy};
-use strbuf::StrBuf;
+use string::String;
 use slice::Vector;
 use slice::{ImmutableEqVector, ImmutableVector};
 use vec::Vec;
@@ -96,28 +96,16 @@ pub use Path = self::windows::Path;
 /// Typedef for the platform-native component iterator
 #[cfg(unix)]
 pub use Components = self::posix::Components;
-/// Typedef for the platform-native reverse component iterator
-#[cfg(unix)]
-pub use RevComponents = self::posix::RevComponents;
 /// Typedef for the platform-native component iterator
 #[cfg(windows)]
 pub use Components = self::windows::Components;
-/// Typedef for the platform-native reverse component iterator
-#[cfg(windows)]
-pub use RevComponents = self::windows::RevComponents;
 
 /// Typedef for the platform-native str component iterator
 #[cfg(unix)]
 pub use StrComponents = self::posix::StrComponents;
-/// Typedef for the platform-native reverse str component iterator
-#[cfg(unix)]
-pub use RevStrComponents = self::posix::RevStrComponents;
 /// Typedef for the platform-native str component iterator
 #[cfg(windows)]
 pub use StrComponents = self::windows::StrComponents;
-/// Typedef for the platform-native reverse str component iterator
-#[cfg(windows)]
-pub use RevStrComponents = self::windows::RevStrComponents;
 
 /// Alias for the platform-native separator character.
 #[cfg(unix)]
@@ -519,7 +507,7 @@ impl<'a> BytesContainer for &'a str {
     fn is_str(_: Option<&'a str>) -> bool { true }
 }
 
-impl BytesContainer for ~str {
+impl BytesContainer for String {
     #[inline]
     fn container_as_bytes<'a>(&'a self) -> &'a [u8] {
         self.as_bytes()
@@ -529,23 +517,7 @@ impl BytesContainer for ~str {
         Some(self.as_slice())
     }
     #[inline]
-    fn is_str(_: Option<~str>) -> bool { true }
-}
-impl BytesContainer for StrBuf {
-    #[inline]
-    fn container_as_bytes<'a>(&'a self) -> &'a [u8] {
-        self.as_bytes()
-    }
-    #[inline]
-    fn container_into_owned_bytes(self) -> Vec<u8> {
-        self.into_bytes()
-    }
-    #[inline]
-    fn container_as_str<'a>(&'a self) -> Option<&'a str> {
-        Some(self.as_slice())
-    }
-    #[inline]
-    fn is_str(_: Option<StrBuf>) -> bool { true }
+    fn is_str(_: Option<String>) -> bool { true }
 }
 
 impl<'a> BytesContainer for &'a [u8] {

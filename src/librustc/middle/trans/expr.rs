@@ -80,17 +80,17 @@ use syntax::print::pprust::{expr_to_str};
 // These are passed around by the code generating functions to track the
 // destination of a computation's value.
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum Dest {
     SaveIn(ValueRef),
     Ignore,
 }
 
 impl Dest {
-    pub fn to_str(&self, ccx: &CrateContext) -> StrBuf {
+    pub fn to_str(&self, ccx: &CrateContext) -> String {
         match *self {
-            SaveIn(v) => format_strbuf!("SaveIn({})", ccx.tn.val_to_str(v)),
-            Ignore => "Ignore".to_strbuf()
+            SaveIn(v) => format!("SaveIn({})", ccx.tn.val_to_str(v)),
+            Ignore => "Ignore".to_string()
         }
     }
 }
@@ -153,7 +153,7 @@ pub fn trans<'a>(bcx: &'a Block<'a>,
     let datum = unpack_datum!(bcx, trans_unadjusted(bcx, expr));
     let datum = unpack_datum!(bcx, apply_adjustments(bcx, expr, datum));
     bcx = fcx.pop_and_trans_ast_cleanup_scope(bcx, expr.id);
-    return DatumBlock(bcx, datum);
+    return DatumBlock::new(bcx, datum);
 }
 
 fn apply_adjustments<'a>(bcx: &'a Block<'a>,
@@ -169,7 +169,7 @@ fn apply_adjustments<'a>(bcx: &'a Block<'a>,
     let mut datum = datum;
     let adjustment = match bcx.tcx().adjustments.borrow().find_copy(&expr.id) {
         None => {
-            return DatumBlock(bcx, datum);
+            return DatumBlock::new(bcx, datum);
         }
         Some(adj) => { adj }
     };
@@ -245,7 +245,7 @@ fn apply_adjustments<'a>(bcx: &'a Block<'a>,
         let scratch = rvalue_scratch_datum(bcx, slice_ty, "__adjust");
         Store(bcx, base, GEPi(bcx, scratch.val, [0u, abi::slice_elt_base]));
         Store(bcx, len, GEPi(bcx, scratch.val, [0u, abi::slice_elt_len]));
-        DatumBlock(bcx, scratch.to_expr_datum())
+        DatumBlock::new(bcx, scratch.to_expr_datum())
     }
 
     fn add_env<'a>(bcx: &'a Block<'a>,
@@ -283,7 +283,7 @@ fn apply_adjustments<'a>(bcx: &'a Block<'a>,
 
         let mut datum = source_datum.to_expr_datum();
         datum.ty = target_obj_ty;
-        DatumBlock(bcx, datum)
+        DatumBlock::new(bcx, datum)
     }
 }
 
@@ -358,7 +358,7 @@ fn trans_unadjusted<'a>(bcx: &'a Block<'a>,
                 let scratch = unpack_datum!(
                     bcx, scratch.to_appropriate_datum(bcx));
 
-                DatumBlock(bcx, scratch.to_expr_datum())
+                DatumBlock::new(bcx, scratch.to_expr_datum())
             }
         }
     };
@@ -366,7 +366,7 @@ fn trans_unadjusted<'a>(bcx: &'a Block<'a>,
     fn nil<'a>(bcx: &'a Block<'a>, ty: ty::t) -> DatumBlock<'a, Expr> {
         let llval = C_undef(type_of::type_of(bcx.ccx(), ty));
         let datum = immediate_rvalue(llval, ty);
-        DatumBlock(bcx, datum.to_expr_datum())
+        DatumBlock::new(bcx, datum.to_expr_datum())
     }
 }
 
@@ -395,7 +395,7 @@ fn trans_datum_unadjusted<'a>(bcx: &'a Block<'a>,
             let datum = unpack_datum!(
                 bcx, tvec::trans_uniq_vstore(bcx, expr, contents));
             bcx = fcx.pop_and_trans_ast_cleanup_scope(bcx, contents.id);
-            DatumBlock(bcx, datum)
+            DatumBlock::new(bcx, datum)
         }
         ast::ExprBox(_, contents) => {
             // Special case for `box T`. (The other case, for GC, is handled
@@ -428,8 +428,8 @@ fn trans_datum_unadjusted<'a>(bcx: &'a Block<'a>,
             bcx.tcx().sess.span_bug(
                 expr.span,
                 format!("trans_rvalue_datum_unadjusted reached \
-                      fall-through case: {:?}",
-                     expr.node));
+                         fall-through case: {:?}",
+                        expr.node).as_slice());
         }
     }
 }
@@ -520,7 +520,14 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
     };
 
     let shuffle = ShuffleVector(bcx, left_llval, right_llval, mask);
-    DatumBlock(bcx, Datum(shuffle, expr_ty(bcx, expr), RvalueExpr(Rvalue(ByValue))))
+    DatumBlock {
+        bcx: bcx,
+        datum: Datum {
+            val: shuffle,
+            ty:  expr_ty(bcx, expr),
+            kind: RvalueExpr(Rvalue { mode: ByValue })
+        }
+    }
 }
 fn trans_simd<'a>(bcx: &'a Block<'a>,
                   expr: &ast::Expr,
@@ -540,7 +547,14 @@ fn trans_simd<'a>(bcx: &'a Block<'a>,
             let e_llval = unpack_datum!(bcx, e_datum);
             InsertElement(bcx, acc, e_llval.to_llscalarish(bcx), C_i32(bcx.ccx(), i as i32))
         });
-    DatumBlock(bcx, Datum(last, ty, RvalueExpr(Rvalue(ByValue))))
+    DatumBlock {
+        bcx: bcx,
+        datum: Datum {
+            val: last,
+            ty:  ty,
+            kind: RvalueExpr(Rvalue { mode: ByValue })
+        }
+    }
 }
 
 fn trans_rec_field<'a>(bcx: &'a Block<'a>,
@@ -610,7 +624,7 @@ fn trans_index<'a>(bcx: &'a Block<'a>,
         });
     let elt = InBoundsGEP(bcx, base, [ix_val]);
     let elt = PointerCast(bcx, elt, vt.llunit_ty.ptr_to());
-    DatumBlock(bcx, Datum(elt, vt.unit_ty, LvalueExpr))
+    DatumBlock::new(bcx, Datum::new(elt, vt.unit_ty, LvalueExpr))
 }
 
 fn trans_def<'a>(bcx: &'a Block<'a>,
@@ -675,10 +689,10 @@ fn trans_def<'a>(bcx: &'a Block<'a>,
 
             let did = get_did(bcx.ccx(), did);
             let val = get_val(bcx, did, const_ty);
-            DatumBlock(bcx, Datum(val, const_ty, LvalueExpr))
+            DatumBlock::new(bcx, Datum::new(val, const_ty, LvalueExpr))
         }
         _ => {
-            DatumBlock(bcx, trans_local_var(bcx, def).to_expr_datum())
+            DatumBlock::new(bcx, trans_local_var(bcx, def).to_expr_datum())
         }
     }
 }
@@ -751,8 +765,8 @@ fn trans_rvalue_stmt_unadjusted<'a>(bcx: &'a Block<'a>,
             bcx.tcx().sess.span_bug(
                 expr.span,
                 format!("trans_rvalue_stmt_unadjusted reached \
-                      fall-through case: {:?}",
-                     expr.node));
+                         fall-through case: {:?}",
+                        expr.node).as_slice());
         }
     }
 }
@@ -881,8 +895,9 @@ fn trans_rvalue_dps_unadjusted<'a>(bcx: &'a Block<'a>,
         _ => {
             bcx.tcx().sess.span_bug(
                 expr.span,
-                format!("trans_rvalue_dps_unadjusted reached fall-through case: {:?}",
-                     expr.node));
+                format!("trans_rvalue_dps_unadjusted reached fall-through \
+                         case: {:?}",
+                        expr.node).as_slice());
         }
     }
 }
@@ -931,7 +946,7 @@ fn trans_def_dps_unadjusted<'a>(
         _ => {
             bcx.tcx().sess.span_bug(ref_expr.span, format!(
                 "Non-DPS def {:?} referened by {}",
-                def, bcx.node_id_to_str(ref_expr.id)));
+                def, bcx.node_id_to_str(ref_expr.id)).as_slice());
         }
     }
 }
@@ -955,12 +970,12 @@ fn trans_def_fn_unadjusted<'a>(bcx: &'a Block<'a>,
             bcx.tcx().sess.span_bug(ref_expr.span, format!(
                     "trans_def_fn_unadjusted invoked on: {:?} for {}",
                     def,
-                    ref_expr.repr(bcx.tcx())));
+                    ref_expr.repr(bcx.tcx())).as_slice());
         }
     };
 
     let fn_ty = expr_ty(bcx, ref_expr);
-    DatumBlock(bcx, Datum(llfn, fn_ty, RvalueExpr(Rvalue(ByValue))))
+    DatumBlock::new(bcx, Datum::new(llfn, fn_ty, RvalueExpr(Rvalue::new(ByValue))))
 }
 
 pub fn trans_local_var<'a>(bcx: &'a Block<'a>,
@@ -978,10 +993,11 @@ pub fn trans_local_var<'a>(bcx: &'a Block<'a>,
             // Can't move upvars, so this is never a ZeroMemLastUse.
             let local_ty = node_id_type(bcx, nid);
             match bcx.fcx.llupvars.borrow().find(&nid) {
-                Some(&val) => Datum(val, local_ty, Lvalue),
+                Some(&val) => Datum::new(val, local_ty, Lvalue),
                 None => {
                     bcx.sess().bug(format!(
-                        "trans_local_var: no llval for upvar {:?} found", nid));
+                        "trans_local_var: no llval for upvar {:?} found",
+                        nid).as_slice());
                 }
             }
         }
@@ -993,7 +1009,8 @@ pub fn trans_local_var<'a>(bcx: &'a Block<'a>,
         }
         _ => {
             bcx.sess().unimpl(format!(
-                "unsupported def type in trans_local_var: {:?}", def));
+                "unsupported def type in trans_local_var: {:?}",
+                def).as_slice());
         }
     };
 
@@ -1005,7 +1022,8 @@ pub fn trans_local_var<'a>(bcx: &'a Block<'a>,
             Some(&v) => v,
             None => {
                 bcx.sess().bug(format!(
-                    "trans_local_var: no datum for local/arg {:?} found", nid));
+                    "trans_local_var: no datum for local/arg {:?} found",
+                    nid).as_slice());
             }
         };
         debug!("take_local(nid={:?}, v={}, ty={})",
@@ -1038,7 +1056,7 @@ pub fn with_field_tys<R>(tcx: &ty::ctxt,
                     tcx.sess.bug(format!(
                         "cannot get field types from the enum type {} \
                          without a node ID",
-                        ty.repr(tcx)));
+                        ty.repr(tcx)).as_slice());
                 }
                 Some(node_id) => {
                     let def = tcx.def_map.borrow().get_copy(&node_id);
@@ -1063,7 +1081,7 @@ pub fn with_field_tys<R>(tcx: &ty::ctxt,
         _ => {
             tcx.sess.bug(format!(
                 "cannot get field types from the type {}",
-                ty.repr(tcx)));
+                ty.repr(tcx)).as_slice());
         }
     }
 }
@@ -1299,7 +1317,7 @@ fn trans_uniq_expr<'a>(bcx: &'a Block<'a>,
     } else {
         let custom_cleanup_scope = fcx.push_custom_cleanup_scope();
         fcx.schedule_free_value(cleanup::CustomScope(custom_cleanup_scope),
-                                val, cleanup::HeapExchange);
+                                val, cleanup::HeapExchange, contents_ty);
         let bcx = trans_into(bcx, contents, SaveIn(val));
         fcx.pop_custom_cleanup_scope(custom_cleanup_scope);
         bcx
@@ -1321,7 +1339,7 @@ fn trans_managed_expr<'a>(bcx: &'a Block<'a>,
 
     let custom_cleanup_scope = fcx.push_custom_cleanup_scope();
     fcx.schedule_free_value(cleanup::CustomScope(custom_cleanup_scope),
-                            bx, cleanup::HeapManaged);
+                            bx, cleanup::HeapManaged, contents_ty);
     let bcx = trans_into(bcx, contents, SaveIn(body));
     fcx.pop_custom_cleanup_scope(custom_cleanup_scope);
     immediate_rvalue_bcx(bcx, bx, box_ty).to_expr_datumblock()
@@ -1609,7 +1627,7 @@ fn float_cast(bcx: &Block,
     } else { llsrc };
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum cast_kind {
     cast_pointer,
     cast_integral,
@@ -1702,16 +1720,22 @@ fn trans_imm_cast<'a>(bcx: &'a Block<'a>,
                                           val_ty(lldiscrim_a),
                                           lldiscrim_a, true),
                 cast_float => SIToFP(bcx, lldiscrim_a, ll_t_out),
-                _ => ccx.sess().bug(format!("translating unsupported cast: \
+                _ => {
+                    ccx.sess().bug(format!("translating unsupported cast: \
                                             {} ({:?}) -> {} ({:?})",
-                                            t_in.repr(bcx.tcx()), k_in,
-                                            t_out.repr(bcx.tcx()), k_out))
+                                            t_in.repr(bcx.tcx()),
+                                            k_in,
+                                            t_out.repr(bcx.tcx()),
+                                            k_out).as_slice())
+                }
             }
         }
         _ => ccx.sess().bug(format!("translating unsupported cast: \
                                     {} ({:?}) -> {} ({:?})",
-                                    t_in.repr(bcx.tcx()), k_in,
-                                    t_out.repr(bcx.tcx()), k_out))
+                                    t_in.repr(bcx.tcx()),
+                                    k_in,
+                                    t_out.repr(bcx.tcx()),
+                                    k_out).as_slice())
     };
     return immediate_rvalue_bcx(bcx, newval, t_out).to_expr_datumblock();
 }
@@ -1770,7 +1794,7 @@ fn auto_ref<'a>(bcx: &'a Block<'a>,
     // Construct the resulting datum, using what was the "by ref"
     // ValueRef of type `referent_ty` to be the "by value" ValueRef
     // of type `&referent_ty`.
-    DatumBlock(bcx, Datum(llref, ptr_ty, RvalueExpr(Rvalue(ByValue))))
+    DatumBlock::new(bcx, Datum::new(llref, ptr_ty, RvalueExpr(Rvalue::new(ByValue))))
 }
 
 fn deref_multiple<'a>(bcx: &'a Block<'a>,
@@ -1823,7 +1847,7 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
             let val = unpack_result!(bcx, trans_overloaded_op(bcx, expr, method_call,
                                                               datum, None, None));
             let ref_ty = ty::ty_fn_ret(monomorphize_type(bcx, method_ty));
-            Datum(val, ref_ty, RvalueExpr(Rvalue(ByValue)))
+            Datum::new(val, ref_ty, RvalueExpr(Rvalue::new(ByValue)))
         }
         None => {
             // Not overloaded. We already have a pointer we know how to deref.
@@ -1846,7 +1870,7 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
             let llptrref = datum.to_llref();
             let llptr = Load(bcx, llptrref);
             let llbody = GEPi(bcx, llptr, [0u, abi::box_field_body]);
-            DatumBlock(bcx, Datum(llbody, content_ty, LvalueExpr))
+            DatumBlock::new(bcx, Datum::new(llbody, content_ty, LvalueExpr))
         }
 
         ty::ty_ptr(ty::mt { ty: content_ty, .. }) |
@@ -1864,7 +1888,7 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
                     // rvalue for non-owning pointers like &T or *T, in which
                     // case cleanup *is* scheduled elsewhere, by the true
                     // owner (or, in the case of *T, by the user).
-                    DatumBlock(bcx, Datum(ptr, content_ty, LvalueExpr))
+                    DatumBlock::new(bcx, Datum::new(ptr, content_ty, LvalueExpr))
                 }
             }
         }
@@ -1873,7 +1897,7 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
             bcx.tcx().sess.span_bug(
                 expr.span,
                 format!("deref invoked on expr of illegal type {}",
-                        datum.ty.repr(bcx.tcx())));
+                        datum.ty.repr(bcx.tcx())).as_slice());
         }
     };
 
@@ -1905,13 +1929,14 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
                 let scope = cleanup::temporary_scope(bcx.tcx(), expr.id);
                 let ptr = Load(bcx, datum.val);
                 if !type_is_zero_size(bcx.ccx(), content_ty) {
-                    bcx.fcx.schedule_free_value(scope, ptr, cleanup::HeapExchange);
+                    bcx.fcx.schedule_free_value(scope, ptr, cleanup::HeapExchange, content_ty);
                 }
             }
             RvalueExpr(Rvalue { mode: ByValue }) => {
                 let scope = cleanup::temporary_scope(bcx.tcx(), expr.id);
                 if !type_is_zero_size(bcx.ccx(), content_ty) {
-                    bcx.fcx.schedule_free_value(scope, datum.val, cleanup::HeapExchange);
+                    bcx.fcx.schedule_free_value(scope, datum.val, cleanup::HeapExchange,
+                                                content_ty);
                 }
             }
             LvalueExpr => { }
@@ -1923,10 +1948,10 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
                 (Load(bcx, datum.val), LvalueExpr)
             }
             RvalueExpr(Rvalue { mode: ByRef }) => {
-                (Load(bcx, datum.val), RvalueExpr(Rvalue(ByRef)))
+                (Load(bcx, datum.val), RvalueExpr(Rvalue::new(ByRef)))
             }
             RvalueExpr(Rvalue { mode: ByValue }) => {
-                (datum.val, RvalueExpr(Rvalue(ByRef)))
+                (datum.val, RvalueExpr(Rvalue::new(ByRef)))
             }
         };
 

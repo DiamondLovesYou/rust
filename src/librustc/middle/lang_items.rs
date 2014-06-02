@@ -42,7 +42,7 @@ macro_rules! lets_do_this {
         $( $variant:ident, $name:expr, $method:ident; )*
     ) => {
 
-#[deriving(FromPrimitive, Eq, TotalEq, Hash)]
+#[deriving(FromPrimitive, PartialEq, Eq, Hash)]
 pub enum LangItem {
     $($variant),*
 }
@@ -74,12 +74,12 @@ impl LanguageItems {
         }
     }
 
-    pub fn require(&self, it: LangItem) -> Result<ast::DefId, StrBuf> {
+    pub fn require(&self, it: LangItem) -> Result<ast::DefId, String> {
         match self.items.get(it as uint) {
             &Some(id) => Ok(id),
             &None => {
-                Err(format_strbuf!("requires `{}` lang_item",
-                                   LanguageItems::item_name(it as uint)))
+                Err(format!("requires `{}` lang_item",
+                            LanguageItems::item_name(it as uint)))
             }
         }
     }
@@ -152,7 +152,8 @@ impl<'a> LanguageItemCollector<'a> {
         match self.items.items.get(item_index) {
             &Some(original_def_id) if original_def_id != item_def_id => {
                 self.session.err(format!("duplicate entry for `{}`",
-                                      LanguageItems::item_name(item_index)));
+                                         LanguageItems::item_name(
+                                             item_index)).as_slice());
             }
             &Some(_) | &None => {
                 // OK.

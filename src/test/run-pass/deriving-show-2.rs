@@ -17,7 +17,7 @@ enum A {}
 #[deriving(Show)]
 enum B { B1, B2, B3 }
 #[deriving(Show)]
-enum C { C1(int), C2(B), C3(StrBuf) }
+enum C { C1(int), C2(B), C3(String) }
 #[deriving(Show)]
 enum D { D1{ a: int } }
 #[deriving(Show)]
@@ -41,15 +41,15 @@ impl fmt::Show for Custom {
 }
 
 pub fn main() {
-    assert_eq!(B1.to_str(), "B1".to_owned());
-    assert_eq!(B2.to_str(), "B2".to_owned());
-    assert_eq!(C1(3).to_str(), "C1(3)".to_owned());
-    assert_eq!(C2(B2).to_str(), "C2(B2)".to_owned());
-    assert_eq!(D1{ a: 2 }.to_str(), "D1 { a: 2 }".to_owned());
-    assert_eq!(E.to_str(), "E".to_owned());
-    assert_eq!(F(3).to_str(), "F(3)".to_owned());
-    assert_eq!(G(3, 4).to_str(), "G(3, 4)".to_owned());
-    assert_eq!(G(3, 4).to_str(), "G(3, 4)".to_owned());
-    assert_eq!(I{ a: 2, b: 4 }.to_str(), "I { a: 2, b: 4 }".to_owned());
-    assert_eq!(J(Custom).to_str(), "J(yay)".to_owned());
+    assert_eq!(B1.to_str(), "B1".to_string());
+    assert_eq!(B2.to_str(), "B2".to_string());
+    assert_eq!(C1(3).to_str(), "C1(3)".to_string());
+    assert_eq!(C2(B2).to_str(), "C2(B2)".to_string());
+    assert_eq!(D1{ a: 2 }.to_str(), "D1 { a: 2 }".to_string());
+    assert_eq!(E.to_str(), "E".to_string());
+    assert_eq!(F(3).to_str(), "F(3)".to_string());
+    assert_eq!(G(3, 4).to_str(), "G(3, 4)".to_string());
+    assert_eq!(G(3, 4).to_str(), "G(3, 4)".to_string());
+    assert_eq!(I{ a: 2, b: 4 }.to_str(), "I { a: 2, b: 4 }".to_string());
+    assert_eq!(J(Custom).to_str(), "J(yay)".to_string());
 }

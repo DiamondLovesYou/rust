@@ -44,6 +44,7 @@ via `close` and `delete` methods.
 #![allow(visible_private_types)]
 
 #[cfg(test)] extern crate green;
+#[cfg(test)] extern crate debug;
 #[cfg(test)] extern crate realrustuv = "rustuv";
 extern crate libc;
 extern crate alloc;
@@ -354,21 +355,21 @@ impl Loop {
 pub struct UvError(c_int);
 
 impl UvError {
-    pub fn name(&self) -> StrBuf {
+    pub fn name(&self) -> String {
         unsafe {
             let inner = match self { &UvError(a) => a };
             let name_str = uvll::uv_err_name(inner);
             assert!(name_str.is_not_null());
-            from_c_str(name_str).to_strbuf()
+            from_c_str(name_str).to_string()
         }
     }
 
-    pub fn desc(&self) -> StrBuf {
+    pub fn desc(&self) -> String {
         unsafe {
             let inner = match self { &UvError(a) => a };
             let desc_str = uvll::uv_strerror(inner);
             assert!(desc_str.is_not_null());
-            from_c_str(desc_str).to_strbuf()
+            from_c_str(desc_str).to_string()
         }
     }
 
@@ -387,7 +388,7 @@ impl fmt::Show for UvError {
 #[test]
 fn error_smoke_test() {
     let err: UvError = UvError(uvll::EOF);
-    assert_eq!(err.to_str(), "EOF: end of file".to_owned());
+    assert_eq!(err.to_str(), "EOF: end of file".to_string());
 }
 
 pub fn uv_error_to_io_error(uverr: UvError) -> IoError {

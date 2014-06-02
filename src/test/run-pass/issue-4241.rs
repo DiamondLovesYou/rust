@@ -24,8 +24,8 @@ enum Result {
   Int(int),
   Data(~[u8]),
   List(~[Result]),
-  Error(StrBuf),
-  Status(StrBuf)
+  Error(String),
+  Status(String)
 }
 
 priv fn parse_data(len: uint, io: @io::Reader) -> Result {
@@ -55,7 +55,7 @@ priv fn parse_list(len: uint, io: @io::Reader) -> Result {
     return List(list);
 }
 
-priv fn chop(s: StrBuf) -> StrBuf {
+priv fn chop(s: String) -> String {
   s.slice(0, s.len() - 1).to_owned()
 }
 
@@ -96,18 +96,18 @@ priv fn parse_response(io: @io::Reader) -> Result {
     }
 }
 
-priv fn cmd_to_str(cmd: ~[StrBuf]) -> StrBuf {
-  let mut res = "*".to_owned();
+priv fn cmd_to_str(cmd: ~[String]) -> String {
+  let mut res = "*".to_string();
   res.push_str(cmd.len().to_str());
   res.push_str("\r\n");
     for s in cmd.iter() {
-    res.push_str(["$".to_owned(), s.len().to_str(), "\r\n".to_owned(),
-                  (*s).clone(), "\r\n".to_owned()].concat() );
+    res.push_str(["$".to_string(), s.len().to_str(), "\r\n".to_string(),
+                  (*s).clone(), "\r\n".to_string()].concat() );
     }
   res
 }
 
-fn query(cmd: ~[StrBuf], sb: TcpSocketBuf) -> Result {
+fn query(cmd: ~[String], sb: TcpSocketBuf) -> Result {
   let cmd = cmd_to_str(cmd);
   //println!("{}", cmd);
   sb.write_str(cmd);
@@ -115,9 +115,9 @@ fn query(cmd: ~[StrBuf], sb: TcpSocketBuf) -> Result {
   res
 }
 
-fn query2(cmd: ~[StrBuf]) -> Result {
+fn query2(cmd: ~[String]) -> Result {
   let _cmd = cmd_to_str(cmd);
-    io::with_str_reader("$3\r\nXXX\r\n".to_owned())(|sb| {
+    io::with_str_reader("$3\r\nXXX\r\n".to_string())(|sb| {
     let res = parse_response(@sb as @io::Reader);
     println!("{:?}", res);
     res

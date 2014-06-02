@@ -25,12 +25,12 @@ fn ack(m: int, n: int) -> int {
 fn main() {
     let args = os::args();
     let args = if os::getenv("RUST_BENCH").is_some() {
-        vec!("".to_owned(), "12".to_owned())
+        vec!("".to_string(), "12".to_string())
     } else if args.len() <= 1u {
-        vec!("".to_owned(), "8".to_owned())
+        vec!("".to_string(), "8".to_string())
     } else {
         args.move_iter().collect()
     };
-    let n = from_str::<int>(*args.get(1)).unwrap();
+    let n = from_str::<int>(args.get(1).as_slice()).unwrap();
     println!("Ack(3,{}): {}\n", n, ack(3, n));
 }

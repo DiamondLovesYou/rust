@@ -37,18 +37,18 @@ impl<A> option_monad<A> for Option<A> {
     }
 }
 
-fn transform(x: Option<int>) -> Option<StrBuf> {
-    x.bind(|n| Some(*n + 1) ).bind(|n| Some(n.to_str().to_strbuf()) )
+fn transform(x: Option<int>) -> Option<String> {
+    x.bind(|n| Some(*n + 1) ).bind(|n| Some(n.to_str().to_string()) )
 }
 
 pub fn main() {
-    assert_eq!(transform(Some(10)), Some("11".to_strbuf()));
+    assert_eq!(transform(Some(10)), Some("11".to_string()));
     assert_eq!(transform(None), None);
-    assert!((vec!("hi".to_strbuf()))
-        .bind(|x| vec!(x.clone(), format_strbuf!("{}!", x)) )
-        .bind(|x| vec!(x.clone(), format_strbuf!("{}?", x)) ) ==
-        vec!("hi".to_strbuf(),
-             "hi?".to_strbuf(),
-             "hi!".to_strbuf(),
-             "hi!?".to_strbuf()));
+    assert!((vec!("hi".to_string()))
+        .bind(|x| vec!(x.clone(), format!("{}!", x)) )
+        .bind(|x| vec!(x.clone(), format!("{}?", x)) ) ==
+        vec!("hi".to_string(),
+             "hi?".to_string(),
+             "hi!".to_string(),
+             "hi!?".to_string()));
 }

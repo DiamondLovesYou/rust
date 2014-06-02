@@ -154,7 +154,7 @@ fn lookup_vtables_for_param(vcx: &VtableContext,
                     format!("failed to find an implementation of \
                           trait {} for {}",
                          vcx.infcx.trait_ref_to_str(&*trait_ref),
-                         vcx.infcx.ty_to_str(ty)));
+                         vcx.infcx.ty_to_str(ty)).as_slice());
             }
         }
         true
@@ -206,9 +206,9 @@ fn relate_trait_refs(vcx: &VtableContext,
                 let tcx = vcx.tcx();
                 tcx.sess.span_err(span,
                     format!("expected {}, but found {} ({})",
-                         ppaux::trait_ref_to_str(tcx, &r_exp_trait_ref),
-                         ppaux::trait_ref_to_str(tcx, &r_act_trait_ref),
-                         ty::type_err_to_str(tcx, err)));
+                            ppaux::trait_ref_to_str(tcx, &r_exp_trait_ref),
+                            ppaux::trait_ref_to_str(tcx, &r_act_trait_ref),
+                            ty::type_err_to_str(tcx, err)).as_slice());
             }
         }
     }
@@ -472,7 +472,7 @@ fn fixup_substs(vcx: &VtableContext,
     let t = ty::mk_trait(tcx,
                          id, substs,
                          ty::RegionTraitStore(ty::ReStatic, ast::MutImmutable),
-                         ty::EmptyBuiltinBounds());
+                         ty::empty_builtin_bounds());
     fixup_ty(vcx, span, t, is_early).map(|t_f| {
         match ty::get(t_f).sty {
           ty::ty_trait(ref inner) => inner.substs.clone(),
@@ -491,9 +491,9 @@ fn fixup_ty(vcx: &VtableContext,
         Ok(new_type) => Some(new_type),
         Err(e) if !is_early => {
             tcx.sess.span_fatal(span,
-                format!("cannot determine a type \
-                      for this bounded type parameter: {}",
-                     fixup_err_to_str(e)))
+                format!("cannot determine a type for this bounded type \
+                         parameter: {}",
+                        fixup_err_to_str(e)).as_slice())
         }
         Err(_) => {
             None
@@ -550,8 +550,9 @@ pub fn early_resolve_expr(ex: &ast::Expr, fcx: &FnCtxt, is_early: bool) {
               match (&ty::get(ty).sty, store) {
                   (&ty::ty_rptr(_, mt), ty::RegionTraitStore(_, mutbl))
                     if !mutability_allowed(mt.mutbl, mutbl) => {
-                      fcx.tcx().sess.span_err(ex.span,
-                                              format!("types differ in mutability"));
+                      fcx.tcx()
+                         .sess
+                         .span_err(ex.span, "types differ in mutability");
                   }
 
                   (&ty::ty_uniq(..), ty::UniqTraitStore) |
@@ -573,7 +574,7 @@ pub fn early_resolve_expr(ex: &ast::Expr, fcx: &FnCtxt, is_early: bool) {
                       });
 
                       let param_bounds = ty::ParamBounds {
-                          builtin_bounds: ty::EmptyBuiltinBounds(),
+                          builtin_bounds: ty::empty_builtin_bounds(),
                           trait_bounds: vec!(target_trait_ref)
                       };
                       let vtables =
@@ -609,15 +610,15 @@ pub fn early_resolve_expr(ex: &ast::Expr, fcx: &FnCtxt, is_early: bool) {
                           ex.span,
                           format!("can only cast an boxed pointer \
                                    to a boxed object, not a {}",
-                               ty::ty_sort_str(fcx.tcx(), ty)));
+                               ty::ty_sort_str(fcx.tcx(), ty)).as_slice());
                   }
 
                   (_, ty::RegionTraitStore(..)) => {
                       fcx.ccx.tcx.sess.span_err(
                           ex.span,
                           format!("can only cast an &-pointer \
-                                to an &-object, not a {}",
-                               ty::ty_sort_str(fcx.tcx(), ty)));
+                                   to an &-object, not a {}",
+                                  ty::ty_sort_str(fcx.tcx(), ty)).as_slice());
                   }
               }
           }
@@ -765,7 +766,7 @@ pub fn resolve_impl(tcx: &ty::ctxt,
     // purpose of this is to check for supertrait impls,
     // but that falls out of doing this.
     let param_bounds = ty::ParamBounds {
-        builtin_bounds: ty::EmptyBuiltinBounds(),
+        builtin_bounds: ty::empty_builtin_bounds(),
         trait_bounds: vec!(Rc::new(impl_trait_ref))
     };
     let t = ty::node_id_to_type(tcx, impl_item.id);

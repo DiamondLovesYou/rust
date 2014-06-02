@@ -12,12 +12,14 @@
 
 #![feature(managed_boxes)]
 
+extern crate debug;
+
 fn failfn() {
     fail!();
 }
 
 fn main() {
-    let x = @"hi".to_owned();
+    let x = @"hi".to_string();
     failfn();
     println!("{:?}", x);
 }

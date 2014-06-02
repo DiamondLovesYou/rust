@@ -9,36 +9,36 @@
 // except according to those terms.
 
 trait Speak {
-    fn say(&self, s:&str) -> StrBuf;
-    fn hi(&self) -> StrBuf { hello(self) }
+    fn say(&self, s:&str) -> String;
+    fn hi(&self) -> String { hello(self) }
 }
 
-fn hello<S:Speak>(s:&S) -> StrBuf{
+fn hello<S:Speak>(s:&S) -> String{
     s.say("hello")
 }
 
 impl Speak for int {
-    fn say(&self, s:&str) -> StrBuf {
-        format_strbuf!("{}: {}", s, *self)
+    fn say(&self, s:&str) -> String {
+        format!("{}: {}", s, *self)
     }
 }
 
 impl<T: Speak> Speak for Option<T> {
-    fn say(&self, s:&str) -> StrBuf {
+    fn say(&self, s:&str) -> String {
         match *self {
-            None => format_strbuf!("{} - none", s),
-            Some(ref x) => { format_strbuf!("something!{}", x.say(s)) }
+            None => format!("{} - none", s),
+            Some(ref x) => { format!("something!{}", x.say(s)) }
         }
     }
 }
 
 
 pub fn main() {
-    assert_eq!(3.hi(), "hello: 3".to_strbuf());
+    assert_eq!(3.hi(), "hello: 3".to_string());
     assert_eq!(Some(Some(3)).hi(),
-               "something!something!hello: 3".to_strbuf());
-    assert_eq!(None::<int>.hi(), "hello - none".to_strbuf());
+               "something!something!hello: 3".to_string());
+    assert_eq!(None::<int>.hi(), "hello - none".to_string());
 
-    assert_eq!(Some(None::<int>).hi(), "something!hello - none".to_strbuf());
-    assert_eq!(Some(3).hi(), "something!hello: 3".to_strbuf());
+    assert_eq!(Some(None::<int>).hi(), "something!hello - none".to_string());
+    assert_eq!(Some(3).hi(), "something!hello: 3".to_string());
 }

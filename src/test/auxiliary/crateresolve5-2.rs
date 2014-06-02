@@ -12,16 +12,16 @@
 
 #![crate_type = "lib"]
 
-pub struct NameVal { pub name: StrBuf, pub val: int }
+pub struct NameVal { pub name: String, pub val: int }
 pub fn struct_nameval() -> NameVal {
-    NameVal { name: "crateresolve5".to_strbuf(), val: 10 }
+    NameVal { name: "crateresolve5".to_string(), val: 10 }
 }
 
 pub enum e {
     e_val
 }
 
-impl Eq for e {
+impl PartialEq for e {
     fn eq(&self, other: &e) -> bool { !nominal_neq(*self, *other) }
     fn ne(&self, other: &e) -> bool { nominal_neq(*self, *other) }
 }

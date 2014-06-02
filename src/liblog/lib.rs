@@ -111,7 +111,7 @@ if logging is disabled, none of the components of the log will be executed.
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 
 #![feature(macro_rules)]
 #![deny(missing_doc, deprecated_owned_vector)]
@@ -172,7 +172,7 @@ struct DefaultLogger {
 }
 
 /// Wraps the log level with fmt implementations.
-#[deriving(Eq, Ord)]
+#[deriving(PartialEq, PartialOrd)]
 pub struct LogLevel(pub u32);
 
 impl fmt::Show for LogLevel {
@@ -302,8 +302,10 @@ pub fn mod_enabled(level: u32, module: &str) -> bool {
     enabled(level, module, unsafe { (*DIRECTIVES).iter() })
 }
 
-fn enabled(level: u32, module: &str,
-           iter: slice::Items<directive::LogDirective>) -> bool {
+fn enabled(level: u32,
+           module: &str,
+           iter: slice::Items<directive::LogDirective>)
+           -> bool {
     // Search for the longest match, the vector is assumed to be pre-sorted.
     for directive in iter.rev() {
         match directive.name {
@@ -322,7 +324,7 @@ fn enabled(level: u32, module: &str,
 /// `Once` primitive (and this function is called from that primitive).
 fn init() {
     let mut directives = match os::getenv("RUST_LOG") {
-        Some(spec) => directive::parse_logging_spec(spec),
+        Some(spec) => directive::parse_logging_spec(spec.as_slice()),
         None => Vec::new(),
     };
 
@@ -364,11 +366,11 @@ mod tests {
     fn match_full_path() {
         let dirs = [
             LogDirective {
-                name: Some("crate2".to_strbuf()),
+                name: Some("crate2".to_string()),
                 level: 3
             },
             LogDirective {
-                name: Some("crate1::mod1".to_strbuf()),
+                name: Some("crate1::mod1".to_string()),
                 level: 2
             }
         ];
@@ -381,8 +383,8 @@ mod tests {
     #[test]
     fn no_match() {
         let dirs = [
-            LogDirective { name: Some("crate2".to_strbuf()), level: 3 },
-            LogDirective { name: Some("crate1::mod1".to_strbuf()), level: 2 }
+            LogDirective { name: Some("crate2".to_string()), level: 3 },
+            LogDirective { name: Some("crate1::mod1".to_string()), level: 2 }
         ];
         assert!(!enabled(2, "crate3", dirs.iter()));
     }
@@ -390,8 +392,8 @@ mod tests {
     #[test]
     fn match_beginning() {
         let dirs = [
-            LogDirective { name: Some("crate2".to_strbuf()), level: 3 },
-            LogDirective { name: Some("crate1::mod1".to_strbuf()), level: 2 }
+            LogDirective { name: Some("crate2".to_string()), level: 3 },
+            LogDirective { name: Some("crate1::mod1".to_string()), level: 2 }
         ];
         assert!(enabled(3, "crate2::mod1", dirs.iter()));
     }
@@ -399,9 +401,9 @@ mod tests {
     #[test]
     fn match_beginning_longest_match() {
         let dirs = [
-            LogDirective { name: Some("crate2".to_strbuf()), level: 3 },
-            LogDirective { name: Some("crate2::mod".to_strbuf()), level: 4 },
-            LogDirective { name: Some("crate1::mod1".to_strbuf()), level: 2 }
+            LogDirective { name: Some("crate2".to_string()), level: 3 },
+            LogDirective { name: Some("crate2::mod".to_string()), level: 4 },
+            LogDirective { name: Some("crate1::mod1".to_string()), level: 2 }
         ];
         assert!(enabled(4, "crate2::mod1", dirs.iter()));
         assert!(!enabled(4, "crate2", dirs.iter()));
@@ -411,7 +413,7 @@ mod tests {
     fn match_default() {
         let dirs = [
             LogDirective { name: None, level: 3 },
-            LogDirective { name: Some("crate1::mod1".to_strbuf()), level: 2 }
+            LogDirective { name: Some("crate1::mod1".to_string()), level: 2 }
         ];
         assert!(enabled(2, "crate1::mod1", dirs.iter()));
         assert!(enabled(3, "crate2::mod2", dirs.iter()));
@@ -421,7 +423,7 @@ mod tests {
     fn zero_level() {
         let dirs = [
             LogDirective { name: None, level: 3 },
-            LogDirective { name: Some("crate1::mod1".to_strbuf()), level: 0 }
+            LogDirective { name: Some("crate1::mod1".to_string()), level: 0 }
         ];
         assert!(!enabled(1, "crate1::mod1", dirs.iter()));
         assert!(enabled(3, "crate2::mod2", dirs.iter()));

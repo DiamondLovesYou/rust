@@ -272,7 +272,7 @@ pub fn main() {
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 
 #![experimental]
 
@@ -395,7 +395,7 @@ pub trait Labeller<'a,N,E> {
     fn graph_id(&'a self) -> Id<'a>;
 
     /// Maps `n` to a unique identifier with respect to `self`. The
-    /// implementor is responsible for ensuring that the returned name
+    /// implementer is responsible for ensuring that the returned name
     /// is a valid DOT identifier.
     fn node_id(&'a self, n: &N) -> Id<'a>;
 
@@ -424,8 +424,8 @@ impl<'a> LabelText<'a> {
             _ => c.escape_default(f)
         }
     }
-    fn escape_str(s: &str) -> StrBuf {
-        let mut out = StrBuf::with_capacity(s.len());
+    fn escape_str(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
         for c in s.chars() {
             LabelText::escape_char(c, |c| out.push_char(c));
         }
@@ -433,10 +433,10 @@ impl<'a> LabelText<'a> {
     }
 
     /// Renders text as string suitable for a label in a .dot file.
-    pub fn escape(&self) -> StrBuf {
+    pub fn escape(&self) -> String {
         match self {
-            &LabelStr(ref s) => s.as_slice().escape_default().to_strbuf(),
-            &EscStr(ref s) => LabelText::escape_str(s.as_slice()).to_strbuf(),
+            &LabelStr(ref s) => s.as_slice().escape_default().to_string(),
+            &EscStr(ref s) => LabelText::escape_str(s.as_slice()).to_string(),
         }
     }
 }
@@ -457,7 +457,7 @@ pub type Edges<'a,E> = MaybeOwnedVector<'a,E>;
 /// that is bound by the self lifetime `'a`.
 ///
 /// The `nodes` and `edges` method each return instantiations of
-/// `MaybeOwnedVector` to leave implementors the freedom to create
+/// `MaybeOwnedVector` to leave implementers the freedom to create
 /// entirely new vectors or to pass back slices into internally owned
 /// vectors.
 pub trait GraphWalk<'a, N, E> {
@@ -661,12 +661,12 @@ mod tests {
         }
     }
 
-    fn test_input(g: LabelledGraph) -> IoResult<StrBuf> {
+    fn test_input(g: LabelledGraph) -> IoResult<String> {
         let mut writer = MemWriter::new();
         render(&g, &mut writer).unwrap();
         let mut r = BufReader::new(writer.get_ref());
         match r.read_to_str() {
-            Ok(string) => Ok(string.to_strbuf()),
+            Ok(string) => Ok(string.to_string()),
             Err(err) => Err(err),
         }
     }

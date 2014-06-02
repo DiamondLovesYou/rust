@@ -11,13 +11,13 @@
 static INVALID_ENUM : u32 = 0;
 static INVALID_VALUE : u32 = 1;
 
-fn gl_err_str(err: u32) -> StrBuf
+fn gl_err_str(err: u32) -> String
 {
   match err
   {
-    INVALID_ENUM => { "Invalid enum".to_strbuf() },
-    INVALID_VALUE => { "Invalid value".to_strbuf() },
-    _ => { "Unknown error".to_strbuf() }
+    INVALID_ENUM => { "Invalid enum".to_string() },
+    INVALID_VALUE => { "Invalid value".to_string() },
+    _ => { "Unknown error".to_string() }
   }
 }
 

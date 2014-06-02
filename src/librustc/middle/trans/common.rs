@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, non_snake_case_functions)]
 
 //! Code that is useful in various trans modules.
 
@@ -21,7 +21,6 @@ use middle::lang_items::LangItem;
 use middle::trans::build;
 use middle::trans::cleanup;
 use middle::trans::datum;
-use middle::trans::datum::{Datum, Lvalue};
 use middle::trans::debuginfo;
 use middle::trans::type_::Type;
 use middle::ty;
@@ -108,7 +107,7 @@ pub fn gensym_name(name: &str) -> PathElem {
     let num = token::gensym(name);
     // use one colon which will get translated to a period by the mangler, and
     // we're guaranteed that `num` is globally unique for this crate.
-    PathName(token::gensym(format!("{}:{}", name, num)))
+    PathName(token::gensym(format!("{}:{}", name, num).as_slice()))
 }
 
 pub struct tydesc_info {
@@ -173,7 +172,7 @@ pub fn BuilderRef_res(b: BuilderRef) -> BuilderRef_res {
     }
 }
 
-pub type ExternMap = HashMap<StrBuf, ValueRef>;
+pub type ExternMap = HashMap<String, ValueRef>;
 
 // Here `self_ty` is the real type of the self parameter to this method. It
 // will only be set in the case of default methods.
@@ -194,12 +193,12 @@ impl param_substs {
     }
 }
 
-fn param_substs_to_str(this: &param_substs, tcx: &ty::ctxt) -> StrBuf {
-    format_strbuf!("param_substs({})", this.substs.repr(tcx))
+fn param_substs_to_str(this: &param_substs, tcx: &ty::ctxt) -> String {
+    format!("param_substs({})", this.substs.repr(tcx))
 }
 
 impl Repr for param_substs {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+    fn repr(&self, tcx: &ty::ctxt) -> String {
         param_substs_to_str(self, tcx)
     }
 }
@@ -442,15 +441,15 @@ impl<'a> Block<'a> {
     }
     pub fn sess(&self) -> &'a Session { self.fcx.ccx.sess() }
 
-    pub fn ident(&self, ident: Ident) -> StrBuf {
-        token::get_ident(ident).get().to_strbuf()
+    pub fn ident(&self, ident: Ident) -> String {
+        token::get_ident(ident).get().to_string()
     }
 
-    pub fn node_id_to_str(&self, id: ast::NodeId) -> StrBuf {
-        self.tcx().map.node_to_str(id).to_strbuf()
+    pub fn node_id_to_str(&self, id: ast::NodeId) -> String {
+        self.tcx().map.node_to_str(id).to_string()
     }
 
-    pub fn expr_to_str(&self, e: &ast::Expr) -> StrBuf {
+    pub fn expr_to_str(&self, e: &ast::Expr) -> String {
         e.repr(self.tcx())
     }
 
@@ -459,26 +458,26 @@ impl<'a> Block<'a> {
             Some(&v) => v,
             None => {
                 self.tcx().sess.bug(format!(
-                    "no def associated with node id {:?}", nid));
+                    "no def associated with node id {:?}", nid).as_slice());
             }
         }
     }
 
-    pub fn val_to_str(&self, val: ValueRef) -> StrBuf {
+    pub fn val_to_str(&self, val: ValueRef) -> String {
         self.ccx().tn.val_to_str(val)
     }
 
-    pub fn llty_str(&self, ty: Type) -> StrBuf {
+    pub fn llty_str(&self, ty: Type) -> String {
         self.ccx().tn.type_to_str(ty)
     }
 
-    pub fn ty_to_str(&self, t: ty::t) -> StrBuf {
+    pub fn ty_to_str(&self, t: ty::t) -> String {
         t.repr(self.tcx())
     }
 
-    pub fn to_str(&self) -> StrBuf {
+    pub fn to_str(&self) -> String {
         let blk: *Block = self;
-        format_strbuf!("[block {}]", blk)
+        format!("[block {}]", blk)
     }
 }
 
@@ -596,7 +595,8 @@ pub fn C_cstr(cx: &CrateContext, s: InternedString, null_terminated: bool) -> Va
 pub fn C_str_slice(cx: &CrateContext, s: InternedString) -> ValueRef {
     unsafe {
         let len = s.get().len();
-        let cs = llvm::LLVMConstPointerCast(C_cstr(cx, s, false), Type::i8p(cx).to_ref());
+        let cs = llvm::LLVMConstPointerCast(C_cstr(cx, s, false),
+                                            Type::i8p(cx).to_ref());
         C_struct(cx, [cs, C_uint(cx, len)], false)
     }
 }
@@ -727,7 +727,7 @@ pub fn expr_ty_adjusted(bcx: &Block, ex: &ast::Expr) -> ty::t {
 }
 
 // Key used to lookup values supplied for type parameters in an expr.
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum ExprOrMethodCall {
     // Type parameters for a path like `None::<int>`
     ExprId(ast::NodeId),
@@ -752,9 +752,10 @@ pub fn node_id_substs(bcx: &Block,
 
     if !substs.tps.iter().all(|t| !ty::type_needs_infer(*t)) {
         bcx.sess().bug(
-            format!("type parameters for node {:?} include inference types: {}",
+            format!("type parameters for node {:?} include inference types: \
+                     {}",
                     node,
-                    substs.repr(bcx.tcx())));
+                    substs.repr(bcx.tcx())).as_slice());
     }
 
     substs.substp(tcx, bcx.fcx.param_substs)
@@ -821,7 +822,7 @@ pub fn resolve_vtable_under_param_substs(tcx: &ty::ctxt,
                 _ => {
                     tcx.sess.bug(format!(
                         "resolve_vtable_under_param_substs: asked to lookup \
-                         but no vtables in the fn_ctxt!"))
+                         but no vtables in the fn_ctxt!").as_slice())
                 }
             }
         }
@@ -847,19 +848,6 @@ pub fn find_vtable(tcx: &ty::ctxt,
     param_bounds.get(n_bound).clone()
 }
 
-pub fn filename_and_line_num_from_span(bcx: &Block, span: Span)
-                                       -> (ValueRef, ValueRef) {
-    let loc = bcx.sess().codemap().lookup_char_pos(span.lo);
-    let filename_cstr = C_cstr(bcx.ccx(),
-                               token::intern_and_get_ident(loc.file
-                                                              .name
-                                                              .as_slice()),
-                               true);
-    let filename = build::PointerCast(bcx, filename_cstr, Type::i8p(bcx.ccx()));
-    let line = C_int(bcx.ccx(), loc.line as int);
-    (filename, line)
-}
-
 // Casts a Rust bool value to an i1.
 pub fn bool_to_i1(bcx: &Block, llval: ValueRef) -> ValueRef {
     build::ICmp(bcx, lib::llvm::IntNE, llval, C_bool(bcx.ccx(), false))
@@ -875,8 +863,8 @@ pub fn langcall(bcx: &Block,
         Err(s) => {
             let msg = format!("{} {}", msg, s);
             match span {
-                Some(span) => { bcx.tcx().sess.span_fatal(span, msg); }
-                None => { bcx.tcx().sess.fatal(msg); }
+                Some(span) => bcx.tcx().sess.span_fatal(span, msg.as_slice()),
+                None => bcx.tcx().sess.fatal(msg.as_slice()),
             }
         }
     }

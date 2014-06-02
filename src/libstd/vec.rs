@@ -12,7 +12,7 @@
 
 use RawVec = raw::Vec;
 use clone::Clone;
-use cmp::{Ord, Eq, Ordering, TotalEq, TotalOrd, max};
+use cmp::{PartialOrd, PartialEq, Ordering, Eq, Ord, max};
 use container::{Container, Mutable};
 use default::Default;
 use fmt;
@@ -27,7 +27,7 @@ use ptr;
 use raw::Slice;
 use rt::heap::{allocate, reallocate, deallocate};
 use slice::{ImmutableEqVector, ImmutableVector, Items, MutItems, MutableVector};
-use slice::{MutableTotalOrdVector, OwnedVector, Vector};
+use slice::{MutableOrdVector, OwnedVector, Vector};
 use slice::{MutableVectorAllocating};
 
 /// An owned, growable vector.
@@ -374,23 +374,23 @@ impl<T> Extendable<T> for Vec<T> {
     }
 }
 
-impl<T: Eq> Eq for Vec<T> {
+impl<T: PartialEq> PartialEq for Vec<T> {
     #[inline]
     fn eq(&self, other: &Vec<T>) -> bool {
         self.as_slice() == other.as_slice()
     }
 }
 
-impl<T: Ord> Ord for Vec<T> {
+impl<T: PartialOrd> PartialOrd for Vec<T> {
     #[inline]
     fn lt(&self, other: &Vec<T>) -> bool {
         self.as_slice() < other.as_slice()
     }
 }
 
-impl<T: TotalEq> TotalEq for Vec<T> {}
+impl<T: Eq> Eq for Vec<T> {}
 
-impl<T: TotalOrd> TotalOrd for Vec<T> {
+impl<T: Ord> Ord for Vec<T> {
     #[inline]
     fn cmp(&self, other: &Vec<T>) -> Ordering {
         self.as_slice().cmp(&other.as_slice())
@@ -669,9 +669,9 @@ impl<T> Vec<T> {
     /// # Example
     ///
     /// ```rust
-    /// let v = vec!("a".to_owned(), "b".to_owned());
+    /// let v = vec!("a".to_string(), "b".to_string());
     /// for s in v.move_iter() {
-    ///     // s has type ~str, not &~str
+    ///     // s has type String, not &String
     ///     println!("{}", s);
     /// }
     /// ```
@@ -874,13 +874,14 @@ impl<T> Vec<T> {
     ///
     /// # Example
     /// ```rust
-    /// let mut v = vec!("foo".to_owned(), "bar".to_owned(), "baz".to_owned(), "qux".to_owned());
+    /// let mut v = vec!("foo".to_string(), "bar".to_string(),
+    ///                  "baz".to_string(), "qux".to_string());
     ///
-    /// assert_eq!(v.swap_remove(1), Some("bar".to_owned()));
-    /// assert_eq!(v, vec!("foo".to_owned(), "qux".to_owned(), "baz".to_owned()));
+    /// assert_eq!(v.swap_remove(1), Some("bar".to_string()));
+    /// assert_eq!(v, vec!("foo".to_string(), "qux".to_string(), "baz".to_string()));
     ///
-    /// assert_eq!(v.swap_remove(0), Some("foo".to_owned()));
-    /// assert_eq!(v, vec!("baz".to_owned(), "qux".to_owned()));
+    /// assert_eq!(v.swap_remove(0), Some("foo".to_string()));
+    /// assert_eq!(v, vec!("baz".to_string(), "qux".to_string()));
     ///
     /// assert_eq!(v.swap_remove(2), None);
     /// ```
@@ -1262,7 +1263,7 @@ impl<T> Vec<T> {
     }
 }
 
-impl<T:TotalOrd> Vec<T> {
+impl<T:Ord> Vec<T> {
     /// Sorts the vector in place.
     ///
     /// This sort is `O(n log n)` worst-case and stable, but allocates
@@ -1287,7 +1288,7 @@ impl<T> Mutable for Vec<T> {
     }
 }
 
-impl<T:Eq> Vec<T> {
+impl<T:PartialEq> Vec<T> {
     /// Return true if a vector contains an element with the given value
     ///
     /// # Example
@@ -1314,7 +1315,7 @@ impl<T:Eq> Vec<T> {
     pub fn dedup(&mut self) {
         unsafe {
             // Although we have a mutable reference to `self`, we cannot make
-            // *arbitrary* changes. The `Eq` comparisons could fail, so we
+            // *arbitrary* changes. The `PartialEq` comparisons could fail, so we
             // must ensure that the vector is in a valid state at all time.
             //
             // The way that we handle this is by using swaps; we iterate
@@ -1849,9 +1850,9 @@ mod tests {
         let b: ~[u8] = FromVec::from_vec(a);
         assert_eq!(b.as_slice(), &[]);
 
-        let a = vec!["one".to_owned(), "two".to_owned()];
-        let b: ~[~str] = FromVec::from_vec(a);
-        assert_eq!(b.as_slice(), &["one".to_owned(), "two".to_owned()]);
+        let a = vec!["one".to_string(), "two".to_string()];
+        let b: ~[String] = FromVec::from_vec(a);
+        assert_eq!(b.as_slice(), &["one".to_string(), "two".to_string()]);
 
         struct Foo {
             x: uint,

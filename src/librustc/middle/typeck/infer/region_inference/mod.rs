@@ -31,7 +31,7 @@ use syntax::ast;
 
 mod doc;
 
-#[deriving(Eq, TotalEq, Hash)]
+#[deriving(PartialEq, Eq, Hash)]
 pub enum Constraint {
     ConstrainVarSubVar(RegionVid, RegionVid),
     ConstrainRegSubVar(Region, RegionVid),
@@ -39,7 +39,7 @@ pub enum Constraint {
     ConstrainRegSubReg(Region, Region),
 }
 
-#[deriving(Eq, TotalEq, Hash)]
+#[deriving(PartialEq, Eq, Hash)]
 pub struct TwoRegions {
     a: Region,
     b: Region,
@@ -143,21 +143,21 @@ pub struct RegionVarBindings<'a> {
     values: RefCell<Option<Vec<VarValue> >>,
 }
 
-pub fn RegionVarBindings<'a>(tcx: &'a ty::ctxt) -> RegionVarBindings<'a> {
-    RegionVarBindings {
-        tcx: tcx,
-        var_origins: RefCell::new(Vec::new()),
-        values: RefCell::new(None),
-        constraints: RefCell::new(HashMap::new()),
-        lubs: RefCell::new(HashMap::new()),
-        glbs: RefCell::new(HashMap::new()),
-        skolemization_count: Cell::new(0),
-        bound_count: Cell::new(0),
-        undo_log: RefCell::new(Vec::new())
-    }
-}
-
 impl<'a> RegionVarBindings<'a> {
+    pub fn new(tcx: &'a ty::ctxt) -> RegionVarBindings<'a> {
+        RegionVarBindings {
+            tcx: tcx,
+            var_origins: RefCell::new(Vec::new()),
+            values: RefCell::new(None),
+            constraints: RefCell::new(HashMap::new()),
+            lubs: RefCell::new(HashMap::new()),
+            glbs: RefCell::new(HashMap::new()),
+            skolemization_count: Cell::new(0),
+            bound_count: Cell::new(0),
+            undo_log: RefCell::new(Vec::new())
+        }
+    }
+
     pub fn in_snapshot(&self) -> bool {
         self.undo_log.borrow().len() > 0
     }
@@ -297,7 +297,7 @@ impl<'a> RegionVarBindings<'a> {
                 origin.span(),
                 format!("cannot relate bound region: {} <= {}",
                         sub.repr(self.tcx),
-                        sup.repr(self.tcx)));
+                        sup.repr(self.tcx)).as_slice());
           }
           (_, ReStatic) => {
             // all regions are subregions of static, so we can ignore this
@@ -369,8 +369,8 @@ impl<'a> RegionVarBindings<'a> {
             None => {
                 self.tcx.sess.span_bug(
                     self.var_origins.borrow().get(rid.to_uint()).span(),
-                    format!("attempt to resolve region variable before \
-                             values have been computed!"))
+                    "attempt to resolve region variable before values have \
+                     been computed!")
             }
             Some(ref values) => *values.get(rid.to_uint())
         };
@@ -546,7 +546,7 @@ impl<'a> RegionVarBindings<'a> {
             self.tcx.sess.bug(
                 format!("cannot relate bound region: LUB({}, {})",
                         a.repr(self.tcx),
-                        b.repr(self.tcx)));
+                        b.repr(self.tcx)).as_slice());
           }
 
           (ReStatic, _) | (_, ReStatic) => {
@@ -561,7 +561,9 @@ impl<'a> RegionVarBindings<'a> {
             self.tcx.sess.span_bug(
                 self.var_origins.borrow().get(v_id.to_uint()).span(),
                 format!("lub_concrete_regions invoked with \
-                      non-concrete regions: {:?}, {:?}", a, b));
+                         non-concrete regions: {:?}, {:?}",
+                        a,
+                        b).as_slice());
           }
 
           (f @ ReFree(ref fr), ReScope(s_id)) |
@@ -647,7 +649,7 @@ impl<'a> RegionVarBindings<'a> {
               self.tcx.sess.bug(
                   format!("cannot relate bound region: GLB({}, {})",
                           a.repr(self.tcx),
-                          b.repr(self.tcx)));
+                          b.repr(self.tcx)).as_slice());
             }
 
             (ReStatic, r) | (r, ReStatic) => {
@@ -665,7 +667,9 @@ impl<'a> RegionVarBindings<'a> {
                 self.tcx.sess.span_bug(
                     self.var_origins.borrow().get(v_id.to_uint()).span(),
                     format!("glb_concrete_regions invoked with \
-                          non-concrete regions: {:?}, {:?}", a, b));
+                             non-concrete regions: {:?}, {:?}",
+                            a,
+                            b).as_slice());
             }
 
             (ReFree(ref fr), s @ ReScope(s_id)) |
@@ -755,7 +759,7 @@ impl<'a> RegionVarBindings<'a> {
 
 // ______________________________________________________________________
 
-#[deriving(Eq, Show)]
+#[deriving(PartialEq, Show)]
 enum Classification { Expanding, Contracting }
 
 pub enum VarValue { NoValue, Value(Region), ErrorValue }
@@ -1175,7 +1179,7 @@ impl<'a> RegionVarBindings<'a> {
                  upper_bounds.iter()
                              .map(|x| x.region)
                              .collect::<Vec<ty::Region>>()
-                             .repr(self.tcx)));
+                             .repr(self.tcx)).as_slice());
     }
 
     fn collect_error_for_contracting_node(
@@ -1222,7 +1226,7 @@ impl<'a> RegionVarBindings<'a> {
                  upper_bounds.iter()
                              .map(|x| x.region)
                              .collect::<Vec<ty::Region>>()
-                             .repr(self.tcx)));
+                             .repr(self.tcx)).as_slice());
     }
 
     fn collect_concrete_regions(&self,
@@ -1335,27 +1339,19 @@ impl<'a> RegionVarBindings<'a> {
 }
 
 impl Repr for Constraint {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+    fn repr(&self, tcx: &ty::ctxt) -> String {
         match *self {
             ConstrainVarSubVar(a, b) => {
-                format_strbuf!("ConstrainVarSubVar({}, {})",
-                               a.repr(tcx),
-                               b.repr(tcx))
+                format!("ConstrainVarSubVar({}, {})", a.repr(tcx), b.repr(tcx))
             }
             ConstrainRegSubVar(a, b) => {
-                format_strbuf!("ConstrainRegSubVar({}, {})",
-                               a.repr(tcx),
-                               b.repr(tcx))
+                format!("ConstrainRegSubVar({}, {})", a.repr(tcx), b.repr(tcx))
             }
             ConstrainVarSubReg(a, b) => {
-                format_strbuf!("ConstrainVarSubReg({}, {})",
-                               a.repr(tcx),
-                               b.repr(tcx))
+                format!("ConstrainVarSubReg({}, {})", a.repr(tcx), b.repr(tcx))
             }
             ConstrainRegSubReg(a, b) => {
-                format_strbuf!("ConstrainRegSubReg({}, {})",
-                               a.repr(tcx),
-                               b.repr(tcx))
+                format!("ConstrainRegSubReg({}, {})", a.repr(tcx), b.repr(tcx))
             }
         }
     }

@@ -12,7 +12,7 @@ struct cat {
     meows : uint,
 
     how_hungry : int,
-    name : StrBuf,
+    name : String,
 }
 
 impl cat {
@@ -40,7 +40,7 @@ impl cat {
     }
 }
 
-fn cat(in_x : uint, in_y : int, in_name: StrBuf) -> cat {
+fn cat(in_x : uint, in_y : int, in_name: String) -> cat {
     cat {
         meows: in_x,
         how_hungry: in_y,
@@ -49,7 +49,7 @@ fn cat(in_x : uint, in_y : int, in_name: StrBuf) -> cat {
 }
 
 pub fn main() {
-  let mut nyan = cat(0u, 2, "nyan".to_strbuf());
+  let mut nyan = cat(0u, 2, "nyan".to_string());
   nyan.eat();
   assert!((!nyan.eat()));
   for _ in range(1u, 10u) { nyan.speak(); };

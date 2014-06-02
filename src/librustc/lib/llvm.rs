@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -10,12 +10,13 @@
 
 #![allow(non_uppercase_pattern_statics)]
 #![allow(non_camel_case_types)]
+#![allow(non_snake_case_functions)]
 #![allow(dead_code)]
 
 use std::c_str::ToCStr;
 use std::cell::RefCell;
 use collections::HashMap;
-use libc::{c_uint, c_ushort, c_void, free};
+use libc::{c_uint, c_ushort, c_void, free, uint64_t};
 use std::str::raw::from_c_str;
 
 use middle::trans::type_::Type;
@@ -28,7 +29,7 @@ pub static False: Bool = 0 as Bool;
 
 // Consts for the LLVM CallConv type, pre-cast to uint.
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum CallConv {
     CCallConv = 0,
     FastCallConv = 8,
@@ -92,6 +93,33 @@ pub enum Attribute {
     NonLazyBindAttribute = 1 << 31,
 }
 
+#[repr(u64)]
+pub enum OtherAttribute {
+    // The following are not really exposed in
+    // the LLVM c api so instead to add these
+    // we call a wrapper function in RustWrapper
+    // that uses the C++ api.
+    SanitizeAddressAttribute = 1 << 32,
+    MinSizeAttribute = 1 << 33,
+    NoDuplicateAttribute = 1 << 34,
+    StackProtectStrongAttribute = 1 << 35,
+    SanitizeThreadAttribute = 1 << 36,
+    SanitizeMemoryAttribute = 1 << 37,
+    NoBuiltinAttribute = 1 << 38,
+    ReturnedAttribute = 1 << 39,
+    ColdAttribute = 1 << 40,
+    BuiltinAttribute = 1 << 41,
+    OptimizeNoneAttribute = 1 << 42,
+    InAllocaAttribute = 1 << 43,
+    NonNullAttribute = 1 << 44,
+}
+
+#[repr(C)]
+pub enum AttributeSet {
+    ReturnIndex = 0,
+    FunctionIndex = !0
+}
+
 // enum for the LLVM IntPredicate type
 pub enum IntPredicate {
     IntEQ = 32,
@@ -128,7 +156,7 @@ pub enum RealPredicate {
 
 // The LLVM TypeKind type - must stay in sync with the def of
 // LLVMTypeKind in llvm/include/llvm-c/Core.h
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 #[repr(C)]
 pub enum TypeKind {
     Void      = 0,
@@ -198,7 +226,7 @@ pub enum AsmDialect {
     AD_Intel = 1
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 #[repr(C)]
 pub enum CodeGenOptLevel {
     CodeGenLevelNone = 0,
@@ -308,7 +336,7 @@ pub mod llvm {
     use super::{CodeGenModel, RelocMode, CodeGenOptLevel};
     use super::debuginfo::*;
     use libc::{c_char, c_int, c_longlong, c_ushort, c_uint, c_ulonglong,
-               size_t, c_void, c_uchar};
+               size_t, c_void, c_uchar, uint64_t};
 
     // Link to our native llvm bindings (things that we need to use the C++ api
     // for) and because llvm is written in C++ we need to link against libstdc++
@@ -706,19 +734,10 @@ pub mod llvm {
         pub fn LLVMSetFunctionCallConv(Fn: ValueRef, CC: c_uint);
         pub fn LLVMGetGC(Fn: ValueRef) -> *c_char;
         pub fn LLVMSetGC(Fn: ValueRef, Name: *c_char);
-        pub fn LLVMAddFunctionAttr(Fn: ValueRef, PA: c_uint);
-        pub fn LLVMAddFunctionAttrString(Fn: ValueRef, Name: *c_char);
-        pub fn LLVMRemoveFunctionAttrString(Fn: ValueRef, Name: *c_char);
+        pub fn LLVMAddFunctionAttribute(Fn: ValueRef, index: c_uint, PA: uint64_t);
+        pub fn LLVMAddFunctionAttrString(Fn: ValueRef, index: c_uint, Name: *c_char);
+        pub fn LLVMRemoveFunctionAttrString(Fn: ValueRef, index: c_uint, Name: *c_char);
         pub fn LLVMGetFunctionAttr(Fn: ValueRef) -> c_ulonglong;
-
-        pub fn LLVMAddReturnAttribute(Fn: ValueRef, PA: c_uint);
-        pub fn LLVMRemoveReturnAttribute(Fn: ValueRef, PA: c_uint);
-
-        pub fn LLVMAddColdAttribute(Fn: ValueRef);
-
-        pub fn LLVMRemoveFunctionAttr(Fn: ValueRef,
-                                      PA: c_ulonglong,
-                                      HighPA: c_ulonglong);
 
         /* Operations on parameters */
         pub fn LLVMCountParams(Fn: ValueRef) -> c_uint;
@@ -783,6 +802,9 @@ pub mod llvm {
         pub fn LLVMSetInstrParamAlignment(Instr: ValueRef,
                                           index: c_uint,
                                           align: c_uint);
+        pub fn LLVMAddCallSiteAttribute(Instr: ValueRef,
+                                        index: c_uint,
+                                        Val: uint64_t);
 
         /* Operations on call instructions (only) */
         pub fn LLVMIsTailCall(CallInst: ValueRef) -> Bool;
@@ -1858,13 +1880,13 @@ pub fn ConstFCmp(pred: RealPredicate, v1: ValueRef, v2: ValueRef) -> ValueRef {
 
 pub fn SetFunctionAttribute(fn_: ValueRef, attr: Attribute) {
     unsafe {
-        llvm::LLVMAddFunctionAttr(fn_, attr as c_uint)
+        llvm::LLVMAddFunctionAttribute(fn_, FunctionIndex as c_uint, attr as uint64_t)
     }
 }
 /* Memory-managed object interface to type handles. */
 
 pub struct TypeNames {
-    named_types: RefCell<HashMap<StrBuf, TypeRef>>,
+    named_types: RefCell<HashMap<String, TypeRef>>,
 }
 
 impl TypeNames {
@@ -1875,7 +1897,7 @@ impl TypeNames {
     }
 
     pub fn associate_type(&self, s: &str, t: &Type) {
-        assert!(self.named_types.borrow_mut().insert(s.to_strbuf(),
+        assert!(self.named_types.borrow_mut().insert(s.to_string(),
                                                      t.to_ref()));
     }
 
@@ -1883,26 +1905,26 @@ impl TypeNames {
         self.named_types.borrow().find_equiv(&s).map(|x| Type::from_ref(*x))
     }
 
-    pub fn type_to_str(&self, ty: Type) -> StrBuf {
+    pub fn type_to_str(&self, ty: Type) -> String {
         unsafe {
             let s = llvm::LLVMTypeToString(ty.to_ref());
             let ret = from_c_str(s);
             free(s as *mut c_void);
-            ret.to_strbuf()
+            ret.to_string()
         }
     }
 
-    pub fn types_to_str(&self, tys: &[Type]) -> StrBuf {
-        let strs: Vec<StrBuf> = tys.iter().map(|t| self.type_to_str(*t)).collect();
-        format_strbuf!("[{}]", strs.connect(",").to_strbuf())
+    pub fn types_to_str(&self, tys: &[Type]) -> String {
+        let strs: Vec<String> = tys.iter().map(|t| self.type_to_str(*t)).collect();
+        format!("[{}]", strs.connect(",").to_string())
     }
 
-    pub fn val_to_str(&self, val: ValueRef) -> StrBuf {
+    pub fn val_to_str(&self, val: ValueRef) -> String {
         unsafe {
             let s = llvm::LLVMValueToString(val);
             let ret = from_c_str(s);
             free(s as *mut c_void);
-            ret.to_strbuf()
+            ret.to_string()
         }
     }
 }

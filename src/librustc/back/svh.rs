@@ -53,15 +53,15 @@ use std::iter::range_step;
 use syntax::ast;
 use syntax::visit;
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct Svh {
-    hash: StrBuf,
+    hash: String,
 }
 
 impl Svh {
     pub fn new(hash: &str) -> Svh {
         assert!(hash.len() == 16);
-        Svh { hash: hash.to_strbuf() }
+        Svh { hash: hash.to_string() }
     }
 
     pub fn as_str<'a>(&'a self) -> &'a str {
@@ -91,7 +91,12 @@ impl Svh {
         // types and then use hash_content.  But, since all crate
         // attributes should appear near beginning of the file, it is
         // not such a big deal to be sensitive to their spans for now.
-        krate.attrs.hash(&mut state);
+        //
+        // We hash only the MetaItems instead of the entire Attribute
+        // to avoid hashing the AttrId
+        for attr in krate.attrs.iter() {
+            attr.node.value.hash(&mut state);
+        }
 
         let hash = state.result();
         return Svh {

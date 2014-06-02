@@ -109,7 +109,7 @@ impl<'a> Context<'a> {
             self.sess.span_err(span, explain);
             self.sess.span_note(span, format!("add \\#![feature({})] to the \
                                                   crate attributes to enable",
-                                                 feature));
+                                                 feature).as_slice());
         }
     }
 
@@ -259,7 +259,9 @@ impl<'a> Visitor<()> for Context<'a> {
         else {
             for &quote in quotes.iter() {
                 if id == token::str_to_ident(quote) {
-                  self.gate_feature("quote", path.span, quote + msg);
+                  self.gate_feature("quote",
+                                    path.span,
+                                    format!("{}{}", quote, msg).as_slice());
                 }
             }
         }
@@ -325,7 +327,7 @@ pub fn check_crate(sess: &Session, krate: &ast::Crate) {
     };
 
     for attr in krate.attrs.iter() {
-        if !attr.name().equiv(&("feature")) {
+        if !attr.check_name("feature") {
             continue
         }
 
@@ -359,7 +361,7 @@ pub fn check_crate(sess: &Session, krate: &ast::Crate) {
                             sess.add_lint(lint::UnknownFeatures,
                                           ast::CRATE_NODE_ID,
                                           mi.span,
-                                          "unknown feature".to_strbuf());
+                                          "unknown feature".to_string());
                         }
                     }
                 }

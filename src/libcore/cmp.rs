@@ -8,14 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! Defines the `Ord` and `Eq` comparison traits.
+//! Defines the `PartialOrd` and `PartialEq` comparison traits.
 //!
-//! This module defines both `Ord` and `Eq` traits which are used by the
+//! This module defines both `PartialOrd` and `PartialEq` traits which are used by the
 //! compiler to implement comparison operators. Rust programs may implement
-//!`Ord` to overload the `<`, `<=`, `>`, and `>=` operators, and may implement
-//! `Eq` to overload the `==` and `!=` operators.
+//!`PartialOrd` to overload the `<`, `<=`, `>`, and `>=` operators, and may implement
+//! `PartialEq` to overload the `==` and `!=` operators.
 //!
-//! For example, to define a type with a customized definition for the Eq
+//! For example, to define a type with a customized definition for the PartialEq
 //! operators, you could do the following:
 //!
 //! ```rust
@@ -24,8 +24,8 @@
 //!     num : int
 //! }
 //!
-//! // Our implementation of `Eq` to support `==` and `!=`.
-//! impl Eq for SketchyNum {
+//! // Our implementation of `PartialEq` to support `==` and `!=`.
+//! impl PartialEq for SketchyNum {
 //!     // Our custom eq allows numbers which are near each other to be equal! :D
 //!     fn eq(&self, other: &SketchyNum) -> bool {
 //!         (self.num - other.num).abs() < 5
@@ -44,13 +44,13 @@
 /// types `a == b` and `a != b` will both evaluate to false if either `a` or
 /// `b` is NaN (cf. IEEE 754-2008 section 5.11).
 ///
-/// Eq only requires the `eq` method to be implemented; `ne` is its negation by
+/// PartialEq only requires the `eq` method to be implemented; `ne` is its negation by
 /// default.
 ///
 /// Eventually, this will be implemented by default for types that implement
-/// `TotalEq`.
+/// `Eq`.
 #[lang="eq"]
-pub trait Eq {
+pub trait PartialEq {
     /// This method tests for `self` and `other` values to be equal, and is used by `==`.
     fn eq(&self, other: &Self) -> bool;
 
@@ -68,7 +68,7 @@ pub trait Eq {
 /// - reflexive: `a == a`;
 /// - symmetric: `a == b` implies `b == a`; and
 /// - transitive: `a == b` and `b == c` implies `a == c`.
-pub trait TotalEq: Eq {
+pub trait Eq: PartialEq {
     // FIXME #13101: this method is used solely by #[deriving] to
     // assert that every component of a type implements #[deriving]
     // itself, the current deriving infrastructure means doing this
@@ -82,7 +82,7 @@ pub trait TotalEq: Eq {
 }
 
 /// An ordering is, e.g, a result of a comparison between two values.
-#[deriving(Clone, Eq, Show)]
+#[deriving(Clone, PartialEq, Show)]
 pub enum Ordering {
    /// An ordering where a compared value is less [than another].
    Less = -1,
@@ -101,7 +101,7 @@ pub enum Ordering {
 ///   true; and
 /// - transitive, `a < b` and `b < c` implies `a < c`. The same must hold for
 ///   both `==` and `>`.
-pub trait TotalOrd: TotalEq + Ord {
+pub trait Ord: Eq + PartialOrd {
     /// This method returns an ordering between `self` and `other` values.
     ///
     /// By convention, `self.cmp(&other)` returns the ordering matching
@@ -115,16 +115,16 @@ pub trait TotalOrd: TotalEq + Ord {
     fn cmp(&self, other: &Self) -> Ordering;
 }
 
-impl TotalEq for Ordering {}
+impl Eq for Ordering {}
 
-impl TotalOrd for Ordering {
+impl Ord for Ordering {
     #[inline]
     fn cmp(&self, other: &Ordering) -> Ordering {
         (*self as int).cmp(&(*other as int))
     }
 }
 
-impl Ord for Ordering {
+impl PartialOrd for Ordering {
     #[inline]
     fn lt(&self, other: &Ordering) -> bool { (*self as int) < (*other as int) }
 }
@@ -144,14 +144,14 @@ pub fn lexical_ordering(o1: Ordering, o2: Ordering) -> Ordering {
 
 /// Trait for values that can be compared for a sort-order.
 ///
-/// Ord only requires implementation of the `lt` method,
+/// PartialOrd only requires implementation of the `lt` method,
 /// with the others generated from default implementations.
 ///
 /// However it remains possible to implement the others separately,
 /// for compatibility with floating-point NaN semantics
 /// (cf. IEEE 754-2008 section 5.11).
 #[lang="ord"]
-pub trait Ord: Eq {
+pub trait PartialOrd: PartialEq {
     /// This method tests less than (for `self` and `other`) and is used by the `<` operator.
     fn lt(&self, other: &Self) -> bool;
 
@@ -171,7 +171,7 @@ pub trait Ord: Eq {
 /// The equivalence relation. Two values may be equivalent even if they are
 /// of different types. The most common use case for this relation is
 /// container types; e.g. it is often desirable to be able to use `&str`
-/// values to look up entries in a container with `~str` keys.
+/// values to look up entries in a container with `String` keys.
 pub trait Equiv<T> {
     /// Implement this function to decide equivalent values.
     fn equiv(&self, other: &T) -> bool;
@@ -179,45 +179,114 @@ pub trait Equiv<T> {
 
 /// Compare and return the minimum of two values.
 #[inline]
-pub fn min<T: TotalOrd>(v1: T, v2: T) -> T {
+pub fn min<T: Ord>(v1: T, v2: T) -> T {
     if v1 < v2 { v1 } else { v2 }
 }
 
 /// Compare and return the maximum of two values.
 #[inline]
-pub fn max<T: TotalOrd>(v1: T, v2: T) -> T {
+pub fn max<T: Ord>(v1: T, v2: T) -> T {
     if v1 > v2 { v1 } else { v2 }
 }
 
-// Implementation of Eq/TotalEq for some primitive types
+// Implementation of PartialEq, Eq, PartialOrd and Ord for primitive types
 #[cfg(not(test))]
 mod impls {
-    use cmp::{Ord, TotalOrd, Eq, TotalEq, Ordering, Equal};
+    use cmp::{PartialOrd, Ord, PartialEq, Eq, Ordering,
+              Less, Greater, Equal};
 
-    impl Eq for () {
+    macro_rules! eq_impl(
+        ($($t:ty)*) => ($(
+            impl PartialEq for $t {
+                #[inline]
+                fn eq(&self, other: &$t) -> bool { (*self) == (*other) }
+                #[inline]
+                fn ne(&self, other: &$t) -> bool { (*self) != (*other) }
+            }
+        )*)
+    )
+
+    impl PartialEq for () {
         #[inline]
         fn eq(&self, _other: &()) -> bool { true }
         #[inline]
         fn ne(&self, _other: &()) -> bool { false }
     }
-    impl TotalEq for () {}
-    impl Ord for () {
+
+    eq_impl!(bool char uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64)
+
+    macro_rules! totaleq_impl(
+        ($($t:ty)*) => ($(
+            impl Eq for $t {}
+        )*)
+    )
+
+    totaleq_impl!(() bool char uint u8 u16 u32 u64 int i8 i16 i32 i64)
+
+    macro_rules! ord_impl(
+        ($($t:ty)*) => ($(
+            impl PartialOrd for $t {
+                #[inline]
+                fn lt(&self, other: &$t) -> bool { (*self) < (*other) }
+                #[inline]
+                fn le(&self, other: &$t) -> bool { (*self) <= (*other) }
+                #[inline]
+                fn ge(&self, other: &$t) -> bool { (*self) >= (*other) }
+                #[inline]
+                fn gt(&self, other: &$t) -> bool { (*self) > (*other) }
+            }
+        )*)
+    )
+
+    impl PartialOrd for () {
         #[inline]
         fn lt(&self, _other: &()) -> bool { false }
     }
-    impl TotalOrd for () {
+
+    impl PartialOrd for bool {
+        #[inline]
+        fn lt(&self, other: &bool) -> bool {
+            (*self as u8) < (*other as u8)
+        }
+    }
+
+    ord_impl!(char uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64)
+
+    macro_rules! totalord_impl(
+        ($($t:ty)*) => ($(
+            impl Ord for $t {
+                #[inline]
+                fn cmp(&self, other: &$t) -> Ordering {
+                    if *self < *other { Less }
+                    else if *self > *other { Greater }
+                    else { Equal }
+                }
+            }
+        )*)
+    )
+
+    impl Ord for () {
         #[inline]
         fn cmp(&self, _other: &()) -> Ordering { Equal }
     }
 
+    impl Ord for bool {
+        #[inline]
+        fn cmp(&self, other: &bool) -> Ordering {
+            (*self as u8).cmp(&(*other as u8))
+        }
+    }
+
+    totalord_impl!(char uint u8 u16 u32 u64 int i8 i16 i32 i64)
+
     // & pointers
-    impl<'a, T: Eq> Eq for &'a T {
+    impl<'a, T: PartialEq> PartialEq for &'a T {
         #[inline]
         fn eq(&self, other: & &'a T) -> bool { *(*self) == *(*other) }
         #[inline]
         fn ne(&self, other: & &'a T) -> bool { *(*self) != *(*other) }
     }
-    impl<'a, T: Ord> Ord for &'a T {
+    impl<'a, T: PartialOrd> PartialOrd for &'a T {
         #[inline]
         fn lt(&self, other: & &'a T) -> bool { *(*self) < *(*other) }
         #[inline]
@@ -227,20 +296,20 @@ mod impls {
         #[inline]
         fn gt(&self, other: & &'a T) -> bool { *(*self) > *(*other) }
     }
-    impl<'a, T: TotalOrd> TotalOrd for &'a T {
+    impl<'a, T: Ord> Ord for &'a T {
         #[inline]
         fn cmp(&self, other: & &'a T) -> Ordering { (**self).cmp(*other) }
     }
-    impl<'a, T: TotalEq> TotalEq for &'a T {}
+    impl<'a, T: Eq> Eq for &'a T {}
 
     // &mut pointers
-    impl<'a, T: Eq> Eq for &'a mut T {
+    impl<'a, T: PartialEq> PartialEq for &'a mut T {
         #[inline]
         fn eq(&self, other: &&'a mut T) -> bool { **self == *(*other) }
         #[inline]
         fn ne(&self, other: &&'a mut T) -> bool { **self != *(*other) }
     }
-    impl<'a, T: Ord> Ord for &'a mut T {
+    impl<'a, T: PartialOrd> PartialOrd for &'a mut T {
         #[inline]
         fn lt(&self, other: &&'a mut T) -> bool { **self < **other }
         #[inline]
@@ -250,20 +319,20 @@ mod impls {
         #[inline]
         fn gt(&self, other: &&'a mut T) -> bool { **self > **other }
     }
-    impl<'a, T: TotalOrd> TotalOrd for &'a mut T {
+    impl<'a, T: Ord> Ord for &'a mut T {
         #[inline]
         fn cmp(&self, other: &&'a mut T) -> Ordering { (**self).cmp(*other) }
     }
-    impl<'a, T: TotalEq> TotalEq for &'a mut T {}
+    impl<'a, T: Eq> Eq for &'a mut T {}
 
     // @ pointers
-    impl<T:Eq> Eq for @T {
+    impl<T:PartialEq> PartialEq for @T {
         #[inline]
         fn eq(&self, other: &@T) -> bool { *(*self) == *(*other) }
         #[inline]
         fn ne(&self, other: &@T) -> bool { *(*self) != *(*other) }
     }
-    impl<T:Ord> Ord for @T {
+    impl<T:PartialOrd> PartialOrd for @T {
         #[inline]
         fn lt(&self, other: &@T) -> bool { *(*self) < *(*other) }
         #[inline]
@@ -273,11 +342,11 @@ mod impls {
         #[inline]
         fn gt(&self, other: &@T) -> bool { *(*self) > *(*other) }
     }
-    impl<T: TotalOrd> TotalOrd for @T {
+    impl<T: Ord> Ord for @T {
         #[inline]
         fn cmp(&self, other: &@T) -> Ordering { (**self).cmp(*other) }
     }
-    impl<T: TotalEq> TotalEq for @T {}
+    impl<T: Eq> Eq for @T {}
 }
 
 #[cfg(test)]
@@ -329,8 +398,8 @@ mod test {
             num : int
         }
 
-        // Our implementation of `Eq` to support `==` and `!=`.
-        impl Eq for SketchyNum {
+        // Our implementation of `PartialEq` to support `==` and `!=`.
+        impl PartialEq for SketchyNum {
             // Our custom eq allows numbers which are near each other to be equal! :D
             fn eq(&self, other: &SketchyNum) -> bool {
                 (self.num - other.num).abs() < 5

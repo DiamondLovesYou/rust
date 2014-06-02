@@ -12,8 +12,8 @@
 
 use std::task;
 
-fn child2(_s: StrBuf) { }
+fn child2(_s: String) { }
 
 pub fn main() {
-    let _x = task::spawn(proc() child2("hi".to_strbuf()));
+    let _x = task::spawn(proc() child2("hi".to_string()));
 }

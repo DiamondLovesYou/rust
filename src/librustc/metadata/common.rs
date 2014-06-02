@@ -114,7 +114,7 @@ pub static tag_items_data_item_reexport_def_id: uint = 0x39;
 pub static tag_items_data_item_reexport_name: uint = 0x3a;
 
 // used to encode crate_ctxt side tables
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 #[repr(uint)]
 pub enum astencode_tag { // Reserves 0x40 -- 0x5f
     tag_ast = 0x40,
@@ -204,6 +204,9 @@ pub static tag_macro_def: uint = 0x8d;
 pub static tag_crate_triple: uint = 0x66;
 
 pub static tag_dylib_dependency_formats: uint = 0x67;
+
+pub static tag_method_argument_names: uint = 0x8e;
+pub static tag_method_argument_name: uint = 0x8f;
 
 #[deriving(Clone, Show)]
 pub struct LinkMeta {

@@ -50,13 +50,13 @@ fn start(argc: int, argv: **u8) -> int {
 pub fn main() {
     let args = os::args();
     let config = parse_config(args.move_iter()
-                                  .map(|x| x.to_strbuf())
+                                  .map(|x| x.to_string())
                                   .collect());
     log_config(&config);
     run_tests(&config);
 }
 
-pub fn parse_config(args: Vec<StrBuf> ) -> Config {
+pub fn parse_config(args: Vec<String> ) -> Config {
 
     let groups : Vec<getopts::OptGroup> =
         vec!(reqopt("", "compile-lib-path", "path to host shared libraries", "PATH"),
@@ -97,7 +97,7 @@ pub fn parse_config(args: Vec<StrBuf> ) -> Config {
     let args_ = args.tail();
     if args.get(1).as_slice() == "-h" || args.get(1).as_slice() == "--help" {
         let message = format!("Usage: {} [OPTIONS] [TESTNAME...]", argv0);
-        println!("{}", getopts::usage(message, groups.as_slice()));
+        println!("{}", getopts::usage(message.as_slice(), groups.as_slice()));
         println!("");
         fail!()
     }
@@ -110,7 +110,7 @@ pub fn parse_config(args: Vec<StrBuf> ) -> Config {
 
     if matches.opt_present("h") || matches.opt_present("help") {
         let message = format!("Usage: {} [OPTIONS]  [TESTNAME...]", argv0);
-        println!("{}", getopts::usage(message, groups.as_slice()));
+        println!("{}", getopts::usage(message.as_slice(), groups.as_slice()));
         println!("");
         fail!()
     }
@@ -135,15 +135,15 @@ pub fn parse_config(args: Vec<StrBuf> ) -> Config {
     Config {
         compile_lib_path: matches.opt_str("compile-lib-path")
                                  .unwrap()
-                                 .to_strbuf(),
-        run_lib_path: matches.opt_str("run-lib-path").unwrap().to_strbuf(),
+                                 .to_string(),
+        run_lib_path: matches.opt_str("run-lib-path").unwrap().to_string(),
         rustc_path: opt_path(matches, "rustc-path"),
         clang_path: matches.opt_str("clang-path").map(|s| Path::new(s)),
         llvm_bin_path: matches.opt_str("llvm-bin-path").map(|s| Path::new(s)),
         src_base: opt_path(matches, "src-base"),
         build_base: opt_path(matches, "build-base"),
         aux_base: opt_path(matches, "aux-base"),
-        stage_id: matches.opt_str("stage-id").unwrap().to_strbuf(),
+        stage_id: matches.opt_str("stage-id").unwrap().to_string(),
         mode: FromStr::from_str(matches.opt_str("mode")
                                        .unwrap()
                                        .as_slice()).expect("invalid mode"),
@@ -157,86 +157,86 @@ pub fn parse_config(args: Vec<StrBuf> ) -> Config {
         ratchet_noise_percent:
             matches.opt_str("ratchet-noise-percent")
                    .and_then(|s| from_str::<f64>(s.as_slice())),
-        runtool: matches.opt_str("runtool").map(|x| x.to_strbuf()),
+        runtool: matches.opt_str("runtool").map(|x| x.to_string()),
         host_rustcflags: matches.opt_str("host-rustcflags")
-                                .map(|x| x.to_strbuf()),
+                                .map(|x| x.to_string()),
         target_rustcflags: matches.opt_str("target-rustcflags")
-                                  .map(|x| x.to_strbuf()),
+                                  .map(|x| x.to_string()),
         jit: matches.opt_present("jit"),
-        target: opt_str2(matches.opt_str("target").map(|x| x.to_strbuf())),
-        host: opt_str2(matches.opt_str("host").map(|x| x.to_strbuf())),
+        target: opt_str2(matches.opt_str("target").map(|x| x.to_string())),
+        host: opt_str2(matches.opt_str("host").map(|x| x.to_string())),
         android_cross_path: opt_path(matches, "android-cross-path"),
         nacl_cross_path: matches.opt_str("nacl-cross-path").map(|s| Path::new(s) ),
         adb_path: opt_str2(matches.opt_str("adb-path")
-                                  .map(|x| x.to_strbuf())),
+                                  .map(|x| x.to_string())),
         adb_test_dir: opt_str2(matches.opt_str("adb-test-dir")
-                                      .map(|x| x.to_strbuf())),
+                                      .map(|x| x.to_string())),
         adb_device_status:
             "arm-linux-androideabi" ==
                 opt_str2(matches.opt_str("target")
-                                .map(|x| x.to_strbuf())).as_slice() &&
+                                .map(|x| x.to_string())).as_slice() &&
             "(none)" !=
                 opt_str2(matches.opt_str("adb-test-dir")
-                                .map(|x| x.to_strbuf())).as_slice() &&
+                                .map(|x| x.to_string())).as_slice() &&
             !opt_str2(matches.opt_str("adb-test-dir")
-                             .map(|x| x.to_strbuf())).is_empty(),
+                             .map(|x| x.to_string())).is_empty(),
         lldb_python_dir: matches.opt_str("lldb-python-dir")
-                                .map(|x| x.to_strbuf()),
+                                .map(|x| x.to_string()),
         test_shard: test::opt_shard(matches.opt_str("test-shard")
-                                           .map(|x| x.to_strbuf())),
+                                           .map(|x| x.to_string())),
         verbose: matches.opt_present("verbose")
     }
 }
 
 pub fn log_config(config: &Config) {
     let c = config;
-    logv(c, format_strbuf!("configuration:"));
-    logv(c, format_strbuf!("compile_lib_path: {}", config.compile_lib_path));
-    logv(c, format_strbuf!("run_lib_path: {}", config.run_lib_path));
-    logv(c, format_strbuf!("rustc_path: {}", config.rustc_path.display()));
-    logv(c, format_strbuf!("src_base: {}", config.src_base.display()));
-    logv(c, format_strbuf!("build_base: {}", config.build_base.display()));
-    logv(c, format_strbuf!("stage_id: {}", config.stage_id));
-    logv(c, format_strbuf!("mode: {}", config.mode));
-    logv(c, format_strbuf!("run_ignored: {}", config.run_ignored));
-    logv(c, format_strbuf!("filter: {}",
-                           opt_str(&config.filter
-                                          .as_ref()
-                                          .map(|re| {
-                                              re.to_str().into_strbuf()
-                                          }))));
-    logv(c, format_strbuf!("runtool: {}", opt_str(&config.runtool)));
-    logv(c, format_strbuf!("host-rustcflags: {}",
-                           opt_str(&config.host_rustcflags)));
-    logv(c, format_strbuf!("target-rustcflags: {}",
-                           opt_str(&config.target_rustcflags)));
-    logv(c, format_strbuf!("jit: {}", config.jit));
-    logv(c, format_strbuf!("target: {}", config.target));
-    logv(c, format_strbuf!("host: {}", config.host));
-    logv(c, format_strbuf!("android-cross-path: {}",
-                           config.android_cross_path.display()));
-    logv(c, format_strbuf!("adb_path: {}", config.adb_path));
-    logv(c, format_strbuf!("adb_test_dir: {}", config.adb_test_dir));
-    logv(c, format_strbuf!("adb_device_status: {}",
-                           config.adb_device_status));
+    logv(c, format!("configuration:"));
+    logv(c, format!("compile_lib_path: {}", config.compile_lib_path));
+    logv(c, format!("run_lib_path: {}", config.run_lib_path));
+    logv(c, format!("rustc_path: {}", config.rustc_path.display()));
+    logv(c, format!("src_base: {}", config.src_base.display()));
+    logv(c, format!("build_base: {}", config.build_base.display()));
+    logv(c, format!("stage_id: {}", config.stage_id));
+    logv(c, format!("mode: {}", config.mode));
+    logv(c, format!("run_ignored: {}", config.run_ignored));
+    logv(c, format!("filter: {}",
+                    opt_str(&config.filter
+                                   .as_ref()
+                                   .map(|re| {
+                                       re.to_str().into_string()
+                                   }))));
+    logv(c, format!("runtool: {}", opt_str(&config.runtool)));
+    logv(c, format!("host-rustcflags: {}",
+                    opt_str(&config.host_rustcflags)));
+    logv(c, format!("target-rustcflags: {}",
+                    opt_str(&config.target_rustcflags)));
+    logv(c, format!("jit: {}", config.jit));
+    logv(c, format!("target: {}", config.target));
+    logv(c, format!("host: {}", config.host));
+    logv(c, format!("android-cross-path: {}",
+                    config.android_cross_path.display()));
+    logv(c, format!("adb_path: {}", config.adb_path));
+    logv(c, format!("adb_test_dir: {}", config.adb_test_dir));
+    logv(c, format!("adb_device_status: {}",
+                    config.adb_device_status));
     match config.test_shard {
-        None => logv(c, "test_shard: (all)".to_strbuf()),
-        Some((a,b)) => logv(c, format_strbuf!("test_shard: {}.{}", a, b))
+        None => logv(c, "test_shard: (all)".to_string()),
+        Some((a,b)) => logv(c, format!("test_shard: {}.{}", a, b))
     }
-    logv(c, format_strbuf!("verbose: {}", config.verbose));
-    logv(c, format_strbuf!("\n"));
+    logv(c, format!("verbose: {}", config.verbose));
+    logv(c, format!("\n"));
 }
 
-pub fn opt_str<'a>(maybestr: &'a Option<StrBuf>) -> &'a str {
+pub fn opt_str<'a>(maybestr: &'a Option<String>) -> &'a str {
     match *maybestr {
         None => "(none)",
         Some(ref s) => s.as_slice(),
     }
 }
 
-pub fn opt_str2(maybestr: Option<StrBuf>) -> StrBuf {
+pub fn opt_str2(maybestr: Option<String>) -> String {
     match maybestr {
-        None => "(none)".to_strbuf(),
+        None => "(none)".to_string(),
         Some(s) => s,
     }
 }
@@ -316,20 +316,24 @@ pub fn is_test(config: &Config, testfile: &Path) -> bool {
     // Pretty-printer does not work with .rc files yet
     let valid_extensions =
         match config.mode {
-          Pretty => vec!(".rs".to_owned()),
-          _ => vec!(".rc".to_owned(), ".rs".to_owned())
+          Pretty => vec!(".rs".to_string()),
+          _ => vec!(".rc".to_string(), ".rs".to_string())
         };
-    let invalid_prefixes = vec!(".".to_owned(), "#".to_owned(), "~".to_owned());
+    let invalid_prefixes = vec!(".".to_string(), "#".to_string(), "~".to_string());
     let name = testfile.filename_str().unwrap();
 
     let mut valid = false;
 
     for ext in valid_extensions.iter() {
-        if name.ends_with(*ext) { valid = true; }
+        if name.ends_with(ext.as_slice()) {
+            valid = true;
+        }
     }
 
     for pre in invalid_prefixes.iter() {
-        if name.starts_with(*pre) { valid = false; }
+        if name.starts_with(pre.as_slice()) {
+            valid = false;
+        }
     }
 
     return valid;
@@ -350,22 +354,20 @@ pub fn make_test(config: &Config, testfile: &Path, f: || -> test::TestFn)
 pub fn make_test_name(config: &Config, testfile: &Path) -> test::TestName {
 
     // Try to elide redundant long paths
-    fn shorten(path: &Path) -> StrBuf {
+    fn shorten(path: &Path) -> String {
         let filename = path.filename_str();
         let p = path.dir_path();
         let dir = p.filename_str();
-        format_strbuf!("{}/{}", dir.unwrap_or(""), filename.unwrap_or(""))
+        format!("{}/{}", dir.unwrap_or(""), filename.unwrap_or(""))
     }
 
-    test::DynTestName(format_strbuf!("[{}] {}",
-                                     config.mode,
-                                     shorten(testfile)))
+    test::DynTestName(format!("[{}] {}", config.mode, shorten(testfile)))
 }
 
 pub fn make_test_closure(config: &Config, testfile: &Path) -> test::TestFn {
     let config = (*config).clone();
     // FIXME (#9639): This needs to handle non-utf8 paths
-    let testfile = testfile.as_str().unwrap().to_strbuf();
+    let testfile = testfile.as_str().unwrap().to_string();
     test::DynTestFn(proc() {
         runtest::run(config, testfile)
     })
@@ -374,7 +376,7 @@ pub fn make_test_closure(config: &Config, testfile: &Path) -> test::TestFn {
 pub fn make_metrics_test_closure(config: &Config, testfile: &Path) -> test::TestFn {
     let config = (*config).clone();
     // FIXME (#9639): This needs to handle non-utf8 paths
-    let testfile = testfile.as_str().unwrap().to_strbuf();
+    let testfile = testfile.as_str().unwrap().to_string();
     test::DynMetricFn(proc(mm) {
         runtest::run_metrics(config, testfile, mm)
     })

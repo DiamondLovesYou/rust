@@ -65,7 +65,7 @@
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 
 #![no_std]
 #![feature(phase)]
@@ -74,8 +74,10 @@
 extern crate core;
 extern crate libc;
 
+
 // Allow testing this library
 
+#[cfg(test)] extern crate debug;
 #[cfg(test)] extern crate sync;
 #[cfg(test)] extern crate native;
 #[cfg(test)] #[phase(syntax, link)] extern crate std;
@@ -95,6 +97,7 @@ pub mod arc;
 pub mod rc;
 
 #[cfg(not(test))]
+#[doc(hidden)]
 mod std {
     pub use core::fmt;
     pub use core::option;

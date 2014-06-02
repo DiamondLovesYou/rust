@@ -12,6 +12,7 @@
 
 #![allow(missing_doc)]
 #![allow(unsigned_negate)]
+#![doc(primitive = "f32")]
 
 use prelude::*;
 
@@ -20,6 +21,7 @@ use intrinsics;
 use libc::c_int;
 use num::strconv;
 use num;
+use string::String;
 
 pub use core::f32::{RADIX, MANTISSA_DIGITS, DIGITS, EPSILON, MIN_VALUE};
 pub use core::f32::{MIN_POS_VALUE, MAX_VALUE, MIN_EXP, MAX_EXP, MIN_10_EXP};
@@ -242,7 +244,7 @@ impl FloatMath for f32 {
 ///
 /// * num - The float value
 #[inline]
-pub fn to_str(num: f32) -> ~str {
+pub fn to_str(num: f32) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 10u, true, strconv::SignNeg, strconv::DigAll, strconv::ExpNone, false);
     r
@@ -254,7 +256,7 @@ pub fn to_str(num: f32) -> ~str {
 ///
 /// * num - The float value
 #[inline]
-pub fn to_str_hex(num: f32) -> ~str {
+pub fn to_str_hex(num: f32) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 16u, true, strconv::SignNeg, strconv::DigAll, strconv::ExpNone, false);
     r
@@ -268,7 +270,7 @@ pub fn to_str_hex(num: f32) -> ~str {
 /// * num - The float value
 /// * radix - The base to use
 #[inline]
-pub fn to_str_radix_special(num: f32, rdx: uint) -> (~str, bool) {
+pub fn to_str_radix_special(num: f32, rdx: uint) -> (String, bool) {
     strconv::float_to_str_common(num, rdx, true,
                            strconv::SignNeg, strconv::DigAll, strconv::ExpNone, false)
 }
@@ -281,7 +283,7 @@ pub fn to_str_radix_special(num: f32, rdx: uint) -> (~str, bool) {
 /// * num - The float value
 /// * digits - The number of significant digits
 #[inline]
-pub fn to_str_exact(num: f32, dig: uint) -> ~str {
+pub fn to_str_exact(num: f32, dig: uint) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 10u, true, strconv::SignNeg, strconv::DigExact(dig), strconv::ExpNone, false);
     r
@@ -295,7 +297,7 @@ pub fn to_str_exact(num: f32, dig: uint) -> ~str {
 /// * num - The float value
 /// * digits - The number of significant digits
 #[inline]
-pub fn to_str_digits(num: f32, dig: uint) -> ~str {
+pub fn to_str_digits(num: f32, dig: uint) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 10u, true, strconv::SignNeg, strconv::DigMax(dig), strconv::ExpNone, false);
     r
@@ -310,7 +312,7 @@ pub fn to_str_digits(num: f32, dig: uint) -> ~str {
 /// * digits - The number of digits after the decimal point
 /// * upper - Use `E` instead of `e` for the exponent sign
 #[inline]
-pub fn to_str_exp_exact(num: f32, dig: uint, upper: bool) -> ~str {
+pub fn to_str_exp_exact(num: f32, dig: uint, upper: bool) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 10u, true, strconv::SignNeg, strconv::DigExact(dig), strconv::ExpDec, upper);
     r
@@ -325,7 +327,7 @@ pub fn to_str_exp_exact(num: f32, dig: uint, upper: bool) -> ~str {
 /// * digits - The number of digits after the decimal point
 /// * upper - Use `E` instead of `e` for the exponent sign
 #[inline]
-pub fn to_str_exp_digits(num: f32, dig: uint, upper: bool) -> ~str {
+pub fn to_str_exp_digits(num: f32, dig: uint, upper: bool) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 10u, true, strconv::SignNeg, strconv::DigMax(dig), strconv::ExpDec, upper);
     r
@@ -345,7 +347,7 @@ impl num::ToStrRadix for f32 {
     /// possible misinterpretation of the result at higher bases. If those values
     /// are expected, use `to_str_radix_special()` instead.
     #[inline]
-    fn to_str_radix(&self, rdx: uint) -> ~str {
+    fn to_str_radix(&self, rdx: uint) -> String {
         let (r, special) = strconv::float_to_str_common(
             *self, rdx, true, strconv::SignNeg, strconv::DigAll, strconv::ExpNone, false);
         if special { fail!("number has a special value, \

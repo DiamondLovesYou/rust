@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -30,6 +30,15 @@ pub struct ValsAndBindings<V, T> {
     pub bindings: Vec<(V, VarValue<V, T>)> ,
 }
 
+impl<V:Clone, T:Clone> ValsAndBindings<V, T> {
+    pub fn new() -> ValsAndBindings<V, T> {
+        ValsAndBindings {
+            vals: SmallIntMap::new(),
+            bindings: Vec::new()
+        }
+    }
+}
+
 pub struct Node<V, T> {
     pub root: V,
     pub possible_types: T,
@@ -43,7 +52,7 @@ pub trait UnifyVid<T> {
 
 pub trait UnifyInferCtxtMethods {
     fn get<T:Clone,
-           V:Clone + Eq + Vid + UnifyVid<T>>(
+           V:Clone + PartialEq + Vid + UnifyVid<T>>(
            &self,
            vid: V)
            -> Node<V, T>;
@@ -62,7 +71,7 @@ pub trait UnifyInferCtxtMethods {
 
 impl<'a> UnifyInferCtxtMethods for InferCtxt<'a> {
     fn get<T:Clone,
-           V:Clone + Eq + Vid + UnifyVid<T>>(
+           V:Clone + PartialEq + Vid + UnifyVid<T>>(
            &self,
            vid: V)
            -> Node<V, T> {
@@ -77,7 +86,7 @@ impl<'a> UnifyInferCtxtMethods for InferCtxt<'a> {
         let vb = UnifyVid::appropriate_vals_and_bindings(self);
         return helper(tcx, &mut *vb.borrow_mut(), vid);
 
-        fn helper<T:Clone, V:Clone+Eq+Vid>(
+        fn helper<T:Clone, V:Clone+PartialEq+Vid>(
             tcx: &ty::ctxt,
             vb: &mut ValsAndBindings<V,T>,
             vid: V) -> Node<V, T>
@@ -87,7 +96,7 @@ impl<'a> UnifyInferCtxtMethods for InferCtxt<'a> {
                 Some(&ref var_val) => (*var_val).clone(),
                 None => {
                     tcx.sess.bug(format!(
-                        "failed lookup of vid `{}`", vid_u));
+                        "failed lookup of vid `{}`", vid_u).as_slice());
                 }
             };
             match var_val {
@@ -182,15 +191,15 @@ pub fn mk_err<T:SimplyUnifiable>(a_is_expected: bool,
 }
 
 pub trait InferCtxtMethods {
-    fn simple_vars<T:Clone + Eq + InferStr + SimplyUnifiable,
-                   V:Clone + Eq + Vid + ToStr + UnifyVid<Option<T>>>(
+    fn simple_vars<T:Clone + PartialEq + InferStr + SimplyUnifiable,
+                   V:Clone + PartialEq + Vid + ToStr + UnifyVid<Option<T>>>(
                    &self,
                    a_is_expected: bool,
                    a_id: V,
                    b_id: V)
                    -> ures;
-    fn simple_var_t<T:Clone + Eq + InferStr + SimplyUnifiable,
-                    V:Clone + Eq + Vid + ToStr + UnifyVid<Option<T>>>(
+    fn simple_var_t<T:Clone + PartialEq + InferStr + SimplyUnifiable,
+                    V:Clone + PartialEq + Vid + ToStr + UnifyVid<Option<T>>>(
                     &self,
                     a_is_expected: bool,
                     a_id: V,
@@ -199,8 +208,8 @@ pub trait InferCtxtMethods {
 }
 
 impl<'a> InferCtxtMethods for InferCtxt<'a> {
-    fn simple_vars<T:Clone + Eq + InferStr + SimplyUnifiable,
-                   V:Clone + Eq + Vid + ToStr + UnifyVid<Option<T>>>(
+    fn simple_vars<T:Clone + PartialEq + InferStr + SimplyUnifiable,
+                   V:Clone + PartialEq + Vid + ToStr + UnifyVid<Option<T>>>(
                    &self,
                    a_is_expected: bool,
                    a_id: V,
@@ -239,8 +248,8 @@ impl<'a> InferCtxtMethods for InferCtxt<'a> {
         return uok();
     }
 
-    fn simple_var_t<T:Clone + Eq + InferStr + SimplyUnifiable,
-                    V:Clone + Eq + Vid + ToStr + UnifyVid<Option<T>>>(
+    fn simple_var_t<T:Clone + PartialEq + InferStr + SimplyUnifiable,
+                    V:Clone + PartialEq + Vid + ToStr + UnifyVid<Option<T>>>(
                     &self,
                     a_is_expected: bool,
                     a_id: V,

@@ -8,17 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// copyright 2013-2014 the rust project developers. see the copyright
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/copyright.
-//
-// licensed under the apache license, version 2.0 <license-apache or
-// http://www.apache.org/licenses/license-2.0> or the mit license
-// <license-mit or http://opensource.org/licenses/mit>, at your
-// option. this file may not be copied, modified, or distributed
-// except according to those terms.
-
 // ignore-win32
+
+extern crate debug;
 
 use std::os;
 use std::io::process::{Command, ExitSignal, ExitStatus};
@@ -26,7 +18,7 @@ use std::io::process::{Command, ExitSignal, ExitStatus};
 pub fn main() {
     let args = os::args();
     let args = args.as_slice();
-    if args.len() >= 2 && args[1] == "signal".to_owned() {
+    if args.len() >= 2 && args[1].as_slice() == "signal" {
         // Raise a segfault.
         unsafe { *(0 as *mut int) = 0; }
     } else {

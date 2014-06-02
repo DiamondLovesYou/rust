@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+extern crate debug;
 
 enum a_tag {
     a_tag(u64)
@@ -22,5 +23,5 @@ pub fn main() {
     let x = t_rec {c8: 22u8, t: a_tag(44u64)};
     let y = format!("{:?}", x);
     println!("y = {}", y);
-    assert_eq!(y, "t_rec{c8: 22u8, t: a_tag(44u64)}".to_owned());
+    assert_eq!(y, "t_rec{c8: 22u8, t: a_tag(44u64)}".to_string());
 }

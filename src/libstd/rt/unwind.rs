@@ -71,6 +71,7 @@ use rt::backtrace;
 use rt::local::Local;
 use rt::task::Task;
 use str::Str;
+use string::String;
 use task::TaskResult;
 
 use uw = rt::libunwind;
@@ -231,24 +232,7 @@ pub mod eabi {
         }
 
     #[lang="eh_personality"]
-    #[cfg(not(stage0))]
     extern fn eh_personality(
-        version: c_int,
-        actions: uw::_Unwind_Action,
-        exception_class: uw::_Unwind_Exception_Class,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
-    ) -> uw::_Unwind_Reason_Code
-    {
-        unsafe {
-            __gcc_personality_v0(version, actions, exception_class, ue_header,
-                                 context)
-        }
-    }
-    #[lang="eh_personality"]
-    #[no_mangle] // so we can reference it by name from middle/trans/base.rs
-    #[cfg(stage0)]
-    pub extern "C" fn rust_eh_personality(
         version: c_int,
         actions: uw::_Unwind_Action,
         exception_class: uw::_Unwind_Exception_Class,
@@ -299,22 +283,7 @@ pub mod eabi {
     }
 
     #[lang="eh_personality"]
-    #[cfg(not(stage0))]
     extern "C" fn eh_personality(
-        state: uw::_Unwind_State,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
-    ) -> uw::_Unwind_Reason_Code
-    {
-        unsafe {
-            __gcc_personality_v0(state, ue_header, context)
-        }
-    }
-
-    #[lang="eh_personality"]
-    #[no_mangle] // so we can reference it by name from middle/trans/base.rs
-    #[cfg(stage0)]
-    pub extern "C" fn rust_eh_personality(
         state: uw::_Unwind_State,
         ue_header: *uw::_Unwind_Exception,
         context: *uw::_Unwind_Context
@@ -345,15 +314,8 @@ pub mod eabi {
 }
 
 // Entry point of failure from the libcore crate
-#[cfg(not(test), not(stage0))]
+#[cfg(not(test))]
 #[lang = "begin_unwind"]
-pub extern fn rust_begin_unwind(msg: &fmt::Arguments,
-                                file: &'static str, line: uint) -> ! {
-    begin_unwind_fmt(msg, file, line)
-}
-
-#[no_mangle]
-#[cfg(not(test), stage0)]
 pub extern fn rust_begin_unwind(msg: &fmt::Arguments,
                                 file: &'static str, line: uint) -> ! {
     begin_unwind_fmt(msg, file, line)
@@ -407,7 +369,7 @@ fn begin_unwind_inner(msg: Box<Any:Send>,
     {
         let msg_s = match msg.as_ref::<&'static str>() {
             Some(s) => *s,
-            None => match msg.as_ref::<~str>() {
+            None => match msg.as_ref::<String>() {
                 Some(s) => s.as_slice(),
                 None => "Box<Any>",
             }

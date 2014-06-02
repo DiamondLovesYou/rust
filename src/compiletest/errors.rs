@@ -13,8 +13,8 @@ use regex::Regex;
 
 pub struct ExpectedError {
     pub line: uint,
-    pub kind: StrBuf,
-    pub msg: StrBuf,
+    pub kind: String,
+    pub msg: String,
 }
 
 pub static EXPECTED_PATTERN : &'static str = r"//~(?P<adjusts>\^*)\s*(?P<kind>\S*)\s*(?P<msg>.*)";
@@ -24,15 +24,15 @@ pub fn load_errors(re: &Regex, testfile: &Path) -> Vec<ExpectedError> {
     let mut rdr = BufferedReader::new(File::open(testfile).unwrap());
 
     rdr.lines().enumerate().filter_map(|(line_no, ln)| {
-        parse_expected(line_no + 1, ln.unwrap(), re)
+        parse_expected(line_no + 1, ln.unwrap().as_slice(), re)
     }).collect()
 }
 
 fn parse_expected(line_num: uint, line: &str, re: &Regex) -> Option<ExpectedError> {
     re.captures(line).and_then(|caps| {
         let adjusts = caps.name("adjusts").len();
-        let kind = caps.name("kind").to_ascii().to_lower().into_str().to_strbuf();
-        let msg = caps.name("msg").trim().to_strbuf();
+        let kind = caps.name("kind").to_ascii().to_lower().into_str().to_string();
+        let msg = caps.name("msg").trim().to_string();
 
         debug!("line={} kind={} msg={}", line_num, kind, msg);
         Some(ExpectedError {

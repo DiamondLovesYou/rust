@@ -10,11 +10,14 @@
 
 //! Operations and constants for unsigned 16-bits integers (`u16` type)
 
+#![doc(primitive = "u16")]
+
 use from_str::FromStr;
 use num::{ToStrRadix, FromStrRadix};
 use num::strconv;
 use option::Option;
 use slice::ImmutableVector;
+use string::String;
 
 pub use core::u16::{BITS, BYTES, MIN, MAX};
 

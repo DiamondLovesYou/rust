@@ -17,7 +17,7 @@ extern crate sync;
 
 use std::io;
 use std::os;
-use std::unstable::simd::f64x2;
+use std::simd::f64x2;
 use sync::Future;
 use sync::Arc;
 
@@ -169,7 +169,7 @@ fn main() {
                   which interferes with the test runner.");
         mandelbrot(1000, io::util::NullWriter)
     } else {
-        mandelbrot(from_str(args[1]).unwrap(), io::stdout())
+        mandelbrot(from_str(args[1].as_slice()).unwrap(), io::stdout())
     };
     res.unwrap();
 }

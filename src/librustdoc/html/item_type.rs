@@ -19,7 +19,7 @@ use clean;
 /// discriminants. JavaScript then is used to decode them into the original value.
 /// Consequently, every change to this type should be synchronized to
 /// the `itemTypes` mapping table in `static/main.js`.
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Clone)]
 pub enum ItemType {
     Module          = 0,
     Struct          = 1,
@@ -37,6 +37,7 @@ pub enum ItemType {
     ForeignFunction = 13,
     ForeignStatic   = 14,
     Macro           = 15,
+    Primitive       = 16,
 }
 
 impl ItemType {
@@ -58,6 +59,7 @@ impl ItemType {
             ForeignFunction => "ffi",
             ForeignStatic   => "ffs",
             Macro           => "macro",
+            Primitive       => "primitive",
         }
     }
 }
@@ -92,6 +94,7 @@ pub fn shortty(item: &clean::Item) -> ItemType {
         clean::ForeignFunctionItem(..) => ForeignFunction,
         clean::ForeignStaticItem(..)   => ForeignStatic,
         clean::MacroItem(..)           => Macro,
+        clean::PrimitiveItem(..)       => Primitive,
     }
 }
 

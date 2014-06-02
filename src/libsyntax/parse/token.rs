@@ -21,10 +21,10 @@ use std::fmt;
 use std::path::BytesContainer;
 use std::mem;
 use std::rc::Rc;
-use std::strbuf::StrBuf;
+use std::string::String;
 
 #[allow(non_camel_case_types)]
-#[deriving(Clone, Encodable, Decodable, Eq, TotalEq, Hash, Show)]
+#[deriving(Clone, Encodable, Decodable, PartialEq, Eq, Hash, Show)]
 pub enum BinOp {
     PLUS,
     MINUS,
@@ -39,7 +39,7 @@ pub enum BinOp {
 }
 
 #[allow(non_camel_case_types)]
-#[deriving(Clone, Encodable, Decodable, Eq, TotalEq, Hash, Show)]
+#[deriving(Clone, Encodable, Decodable, PartialEq, Eq, Hash, Show)]
 pub enum Token {
     /* Expression-operator symbols. */
     EQ,
@@ -67,7 +67,6 @@ pub enum Token {
     MOD_SEP,
     RARROW,
     LARROW,
-    DARROW,
     FAT_ARROW,
     LPAREN,
     RPAREN,
@@ -103,7 +102,7 @@ pub enum Token {
     EOF,
 }
 
-#[deriving(Clone, Encodable, Decodable, Eq, TotalEq, Hash)]
+#[deriving(Clone, Encodable, Decodable, PartialEq, Eq, Hash)]
 /// For interpolation during macro expansion.
 pub enum Nonterminal {
     NtItem(@ast::Item),
@@ -137,34 +136,34 @@ impl fmt::Show for Nonterminal {
     }
 }
 
-pub fn binop_to_str(o: BinOp) -> StrBuf {
+pub fn binop_to_str(o: BinOp) -> String {
     match o {
-      PLUS => "+".to_strbuf(),
-      MINUS => "-".to_strbuf(),
-      STAR => "*".to_strbuf(),
-      SLASH => "/".to_strbuf(),
-      PERCENT => "%".to_strbuf(),
-      CARET => "^".to_strbuf(),
-      AND => "&".to_strbuf(),
-      OR => "|".to_strbuf(),
-      SHL => "<<".to_strbuf(),
-      SHR => ">>".to_strbuf()
+      PLUS => "+".to_string(),
+      MINUS => "-".to_string(),
+      STAR => "*".to_string(),
+      SLASH => "/".to_string(),
+      PERCENT => "%".to_string(),
+      CARET => "^".to_string(),
+      AND => "&".to_string(),
+      OR => "|".to_string(),
+      SHL => "<<".to_string(),
+      SHR => ">>".to_string()
     }
 }
 
-pub fn to_str(t: &Token) -> StrBuf {
+pub fn to_str(t: &Token) -> String {
     match *t {
-      EQ => "=".to_strbuf(),
-      LT => "<".to_strbuf(),
-      LE => "<=".to_strbuf(),
-      EQEQ => "==".to_strbuf(),
-      NE => "!=".to_strbuf(),
-      GE => ">=".to_strbuf(),
-      GT => ">".to_strbuf(),
-      NOT => "!".to_strbuf(),
-      TILDE => "~".to_strbuf(),
-      OROR => "||".to_strbuf(),
-      ANDAND => "&&".to_strbuf(),
+      EQ => "=".to_string(),
+      LT => "<".to_string(),
+      LE => "<=".to_string(),
+      EQEQ => "==".to_string(),
+      NE => "!=".to_string(),
+      GE => ">=".to_string(),
+      GT => ">".to_string(),
+      NOT => "!".to_string(),
+      TILDE => "~".to_string(),
+      OROR => "||".to_string(),
+      ANDAND => "&&".to_string(),
       BINOP(op) => binop_to_str(op),
       BINOPEQ(op) => {
           let mut s = binop_to_str(op);
@@ -173,30 +172,29 @@ pub fn to_str(t: &Token) -> StrBuf {
       }
 
       /* Structural symbols */
-      AT => "@".to_strbuf(),
-      DOT => ".".to_strbuf(),
-      DOTDOT => "..".to_strbuf(),
-      DOTDOTDOT => "...".to_strbuf(),
-      COMMA => ",".to_strbuf(),
-      SEMI => ";".to_strbuf(),
-      COLON => ":".to_strbuf(),
-      MOD_SEP => "::".to_strbuf(),
-      RARROW => "->".to_strbuf(),
-      LARROW => "<-".to_strbuf(),
-      DARROW => "<->".to_strbuf(),
-      FAT_ARROW => "=>".to_strbuf(),
-      LPAREN => "(".to_strbuf(),
-      RPAREN => ")".to_strbuf(),
-      LBRACKET => "[".to_strbuf(),
-      RBRACKET => "]".to_strbuf(),
-      LBRACE => "{".to_strbuf(),
-      RBRACE => "}".to_strbuf(),
-      POUND => "#".to_strbuf(),
-      DOLLAR => "$".to_strbuf(),
+      AT => "@".to_string(),
+      DOT => ".".to_string(),
+      DOTDOT => "..".to_string(),
+      DOTDOTDOT => "...".to_string(),
+      COMMA => ",".to_string(),
+      SEMI => ";".to_string(),
+      COLON => ":".to_string(),
+      MOD_SEP => "::".to_string(),
+      RARROW => "->".to_string(),
+      LARROW => "<-".to_string(),
+      FAT_ARROW => "=>".to_string(),
+      LPAREN => "(".to_string(),
+      RPAREN => ")".to_string(),
+      LBRACKET => "[".to_string(),
+      RBRACKET => "]".to_string(),
+      LBRACE => "{".to_string(),
+      RBRACE => "}".to_string(),
+      POUND => "#".to_string(),
+      DOLLAR => "$".to_string(),
 
       /* Literals */
       LIT_CHAR(c) => {
-          let mut res = StrBuf::from_str("'");
+          let mut res = String::from_str("'");
           c.escape_default(|c| {
               res.push_char(c);
           });
@@ -207,9 +205,9 @@ pub fn to_str(t: &Token) -> StrBuf {
                                                ast_util::ForceSuffix),
       LIT_UINT(u, t) => ast_util::uint_ty_to_str(t, Some(u),
                                                  ast_util::ForceSuffix),
-      LIT_INT_UNSUFFIXED(i) => { (i as u64).to_str().to_strbuf() }
+      LIT_INT_UNSUFFIXED(i) => { (i as u64).to_str().to_string() }
       LIT_FLOAT(s, t) => {
-        let mut body = StrBuf::from_str(get_ident(s).get());
+        let mut body = String::from_str(get_ident(s).get());
         if body.as_slice().ends_with(".") {
             body.push_char('0');  // `10.f` is not a float literal
         }
@@ -217,36 +215,36 @@ pub fn to_str(t: &Token) -> StrBuf {
         body
       }
       LIT_FLOAT_UNSUFFIXED(s) => {
-        let mut body = StrBuf::from_str(get_ident(s).get());
+        let mut body = String::from_str(get_ident(s).get());
         if body.as_slice().ends_with(".") {
             body.push_char('0');  // `10.f` is not a float literal
         }
         body
       }
       LIT_STR(s) => {
-          (format!("\"{}\"", get_ident(s).get().escape_default())).to_strbuf()
+          (format!("\"{}\"", get_ident(s).get().escape_default())).to_string()
       }
       LIT_STR_RAW(s, n) => {
           (format!("r{delim}\"{string}\"{delim}",
-                  delim="#".repeat(n), string=get_ident(s))).to_strbuf()
+                  delim="#".repeat(n), string=get_ident(s))).to_string()
       }
 
       /* Name components */
-      IDENT(s, _) => get_ident(s).get().to_strbuf(),
+      IDENT(s, _) => get_ident(s).get().to_string(),
       LIFETIME(s) => {
-          (format!("'{}", get_ident(s))).to_strbuf()
+          (format!("'{}", get_ident(s))).to_string()
       }
-      UNDERSCORE => "_".to_strbuf(),
+      UNDERSCORE => "_".to_string(),
 
       /* Other */
-      DOC_COMMENT(s) => get_ident(s).get().to_strbuf(),
-      EOF => "<eof>".to_strbuf(),
+      DOC_COMMENT(s) => get_ident(s).get().to_string(),
+      EOF => "<eof>".to_string(),
       INTERPOLATED(ref nt) => {
         match nt {
             &NtExpr(e) => ::print::pprust::expr_to_str(e),
             &NtMeta(e) => ::print::pprust::meta_item_to_str(e),
             _ => {
-                let mut s = "an interpolated ".to_strbuf();
+                let mut s = "an interpolated ".to_string();
                 match *nt {
                     NtItem(..) => s.push_str("item"),
                     NtBlock(..) => s.push_str("block"),
@@ -449,45 +447,45 @@ declare_special_idents_and_keywords! {
         'strict:
         (9,                          As,         "as");
         (10,                         Break,      "break");
-        (11,                         Const,      "const");
-        (12,                         Crate,      "crate");
-        (13,                         Else,       "else");
-        (14,                         Enum,       "enum");
-        (15,                         Extern,     "extern");
-        (16,                         False,      "false");
-        (17,                         Fn,         "fn");
-        (18,                         For,        "for");
-        (19,                         If,         "if");
-        (20,                         Impl,       "impl");
-        (21,                         In,         "in");
-        (22,                         Let,        "let");
-        (23,                         Loop,       "loop");
-        (24,                         Match,      "match");
-        (25,                         Mod,        "mod");
-        (26,                         Mut,        "mut");
-        (27,                         Once,       "once");
-        (28,                         Pub,        "pub");
-        (29,                         Ref,        "ref");
-        (30,                         Return,     "return");
+        (11,                         Crate,      "crate");
+        (12,                         Else,       "else");
+        (13,                         Enum,       "enum");
+        (14,                         Extern,     "extern");
+        (15,                         False,      "false");
+        (16,                         Fn,         "fn");
+        (17,                         For,        "for");
+        (18,                         If,         "if");
+        (19,                         Impl,       "impl");
+        (20,                         In,         "in");
+        (21,                         Let,        "let");
+        (22,                         Loop,       "loop");
+        (23,                         Match,      "match");
+        (24,                         Mod,        "mod");
+        (25,                         Mut,        "mut");
+        (26,                         Once,       "once");
+        (27,                         Pub,        "pub");
+        (28,                         Ref,        "ref");
+        (29,                         Return,     "return");
         // Static and Self are also special idents (prefill de-dupes)
         (super::STATIC_KEYWORD_NAME, Static,     "static");
         (super::SELF_KEYWORD_NAME,   Self,       "self");
-        (31,                         Struct,     "struct");
-        (32,                         Super,      "super");
-        (33,                         True,       "true");
-        (34,                         Trait,      "trait");
-        (35,                         Type,       "type");
-        (36,                         Unsafe,     "unsafe");
-        (37,                         Use,        "use");
-        (38,                         Virtual,    "virtual");
-        (39,                         While,      "while");
-        (40,                         Continue,   "continue");
-        (41,                         Proc,       "proc");
-        (42,                         Box,        "box");
+        (30,                         Struct,     "struct");
+        (31,                         Super,      "super");
+        (32,                         True,       "true");
+        (33,                         Trait,      "trait");
+        (34,                         Type,       "type");
+        (35,                         Unsafe,     "unsafe");
+        (36,                         Use,        "use");
+        (37,                         Virtual,    "virtual");
+        (38,                         While,      "while");
+        (39,                         Continue,   "continue");
+        (40,                         Proc,       "proc");
+        (41,                         Box,        "box");
 
         'reserved:
-        (43,                         Alignof,    "alignof");
-        (44,                         Be,         "be");
+        (42,                         Alignof,    "alignof");
+        (43,                         Be,         "be");
+        (44,                         Const,      "const");
         (45,                         Offsetof,   "offsetof");
         (46,                         Priv,       "priv");
         (47,                         Pure,       "pure");
@@ -554,7 +552,7 @@ pub fn get_ident_interner() -> Rc<IdentInterner> {
 /// destroyed. In particular, they must not access string contents. This can
 /// be fixed in the future by just leaking all strings until task death
 /// somehow.
-#[deriving(Clone, Eq, Hash, Ord, TotalEq, TotalOrd)]
+#[deriving(Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
 pub struct InternedString {
     string: RcStr,
 }

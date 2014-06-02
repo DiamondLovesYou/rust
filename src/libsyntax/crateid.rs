@@ -20,15 +20,15 @@ use std::fmt;
 
 use std::from_str::FromStr;
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct CrateId {
     /// A path which represents the codes origin. By convention this is the
     /// URL, without `http://` or `https://` prefix, to the crate's repository
-    pub path: StrBuf,
+    pub path: String,
     /// The name of the crate.
-    pub name: StrBuf,
+    pub name: String,
     /// The version of the crate.
-    pub version: Option<StrBuf>,
+    pub version: Option<String>,
 }
 
 impl fmt::Show for CrateId {
@@ -39,7 +39,9 @@ impl fmt::Show for CrateId {
             Some(ref version) => version.as_slice(),
         };
         if self.path == self.name ||
-                self.path.as_slice().ends_with(format!("/{}", self.name)) {
+                self.path
+                    .as_slice()
+                    .ends_with(format!("/{}", self.name).as_slice()) {
             write!(f, "\\#{}", version)
         } else {
             write!(f, "\\#{}:{}", self.name, version)
@@ -50,18 +52,20 @@ impl fmt::Show for CrateId {
 impl FromStr for CrateId {
     fn from_str(s: &str) -> Option<CrateId> {
         let pieces: Vec<&str> = s.splitn('#', 1).collect();
-        let path = pieces.get(0).to_owned();
+        let path = pieces.get(0).to_string();
 
-        if path.starts_with("/") || path.ends_with("/") ||
-            path.starts_with(".") || path.is_empty() {
+        if path.as_slice().starts_with("/") || path.as_slice().ends_with("/") ||
+            path.as_slice().starts_with(".") || path.is_empty() {
             return None;
         }
 
-        let path_pieces: Vec<&str> = path.rsplitn('/', 1).collect();
+        let path_pieces: Vec<&str> = path.as_slice()
+                                         .rsplitn('/', 1)
+                                         .collect();
         let inferred_name = *path_pieces.get(0);
 
         let (name, version) = if pieces.len() == 1 {
-            (inferred_name.to_strbuf(), None)
+            (inferred_name.to_string(), None)
         } else {
             let hash_pieces: Vec<&str> = pieces.get(1)
                                                .splitn(':', 1)
@@ -73,16 +77,16 @@ impl FromStr for CrateId {
             };
 
             let name = if !hash_name.is_empty() {
-                hash_name.to_strbuf()
+                hash_name.to_string()
             } else {
-                inferred_name.to_strbuf()
+                inferred_name.to_string()
             };
 
             let version = if !hash_version.is_empty() {
                 if hash_version == "0.0" {
                     None
                 } else {
-                    Some(hash_version.to_strbuf())
+                    Some(hash_version.to_string())
                 }
             } else {
                 None
@@ -92,7 +96,7 @@ impl FromStr for CrateId {
         };
 
         Some(CrateId {
-            path: path.to_strbuf(),
+            path: path.to_string(),
             name: name,
             version: version,
         })
@@ -107,8 +111,8 @@ impl CrateId {
         }
     }
 
-    pub fn short_name_with_version(&self) -> StrBuf {
-        (format!("{}-{}", self.name, self.version_or_default())).to_strbuf()
+    pub fn short_name_with_version(&self) -> String {
+        (format!("{}-{}", self.name, self.version_or_default())).to_string()
     }
 
     pub fn matches(&self, other: &CrateId) -> bool {
@@ -124,17 +128,17 @@ impl CrateId {
 #[test]
 fn bare_name() {
     let crateid: CrateId = from_str("foo").expect("valid crateid");
-    assert_eq!(crateid.name, "foo".to_strbuf());
+    assert_eq!(crateid.name, "foo".to_string());
     assert_eq!(crateid.version, None);
-    assert_eq!(crateid.path, "foo".to_strbuf());
+    assert_eq!(crateid.path, "foo".to_string());
 }
 
 #[test]
 fn bare_name_single_char() {
     let crateid: CrateId = from_str("f").expect("valid crateid");
-    assert_eq!(crateid.name, "f".to_strbuf());
+    assert_eq!(crateid.name, "f".to_string());
     assert_eq!(crateid.version, None);
-    assert_eq!(crateid.path, "f".to_strbuf());
+    assert_eq!(crateid.path, "f".to_string());
 }
 
 #[test]
@@ -146,17 +150,17 @@ fn empty_crateid() {
 #[test]
 fn simple_path() {
     let crateid: CrateId = from_str("example.com/foo/bar").expect("valid crateid");
-    assert_eq!(crateid.name, "bar".to_strbuf());
+    assert_eq!(crateid.name, "bar".to_string());
     assert_eq!(crateid.version, None);
-    assert_eq!(crateid.path, "example.com/foo/bar".to_strbuf());
+    assert_eq!(crateid.path, "example.com/foo/bar".to_string());
 }
 
 #[test]
 fn simple_version() {
     let crateid: CrateId = from_str("foo#1.0").expect("valid crateid");
-    assert_eq!(crateid.name, "foo".to_strbuf());
-    assert_eq!(crateid.version, Some("1.0".to_strbuf()));
-    assert_eq!(crateid.path, "foo".to_strbuf());
+    assert_eq!(crateid.name, "foo".to_string());
+    assert_eq!(crateid.version, Some("1.0".to_string()));
+    assert_eq!(crateid.path, "foo".to_string());
 }
 
 #[test]
@@ -174,39 +178,39 @@ fn path_ends_with_slash() {
 #[test]
 fn path_and_version() {
     let crateid: CrateId = from_str("example.com/foo/bar#1.0").expect("valid crateid");
-    assert_eq!(crateid.name, "bar".to_strbuf());
-    assert_eq!(crateid.version, Some("1.0".to_strbuf()));
-    assert_eq!(crateid.path, "example.com/foo/bar".to_strbuf());
+    assert_eq!(crateid.name, "bar".to_string());
+    assert_eq!(crateid.version, Some("1.0".to_string()));
+    assert_eq!(crateid.path, "example.com/foo/bar".to_string());
 }
 
 #[test]
 fn single_chars() {
     let crateid: CrateId = from_str("a/b#1").expect("valid crateid");
-    assert_eq!(crateid.name, "b".to_strbuf());
-    assert_eq!(crateid.version, Some("1".to_strbuf()));
-    assert_eq!(crateid.path, "a/b".to_strbuf());
+    assert_eq!(crateid.name, "b".to_string());
+    assert_eq!(crateid.version, Some("1".to_string()));
+    assert_eq!(crateid.path, "a/b".to_string());
 }
 
 #[test]
 fn missing_version() {
     let crateid: CrateId = from_str("foo#").expect("valid crateid");
-    assert_eq!(crateid.name, "foo".to_strbuf());
+    assert_eq!(crateid.name, "foo".to_string());
     assert_eq!(crateid.version, None);
-    assert_eq!(crateid.path, "foo".to_strbuf());
+    assert_eq!(crateid.path, "foo".to_string());
 }
 
 #[test]
 fn path_and_name() {
     let crateid: CrateId = from_str("foo/rust-bar#bar:1.0").expect("valid crateid");
-    assert_eq!(crateid.name, "bar".to_strbuf());
-    assert_eq!(crateid.version, Some("1.0".to_strbuf()));
-    assert_eq!(crateid.path, "foo/rust-bar".to_strbuf());
+    assert_eq!(crateid.name, "bar".to_string());
+    assert_eq!(crateid.version, Some("1.0".to_string()));
+    assert_eq!(crateid.path, "foo/rust-bar".to_string());
 }
 
 #[test]
 fn empty_name() {
     let crateid: CrateId = from_str("foo/bar#:1.0").expect("valid crateid");
-    assert_eq!(crateid.name, "bar".to_strbuf());
-    assert_eq!(crateid.version, Some("1.0".to_strbuf()));
-    assert_eq!(crateid.path, "foo/bar".to_strbuf());
+    assert_eq!(crateid.name, "bar".to_string());
+    assert_eq!(crateid.version, Some("1.0".to_string()));
+    assert_eq!(crateid.path, "foo/bar".to_string());
 }

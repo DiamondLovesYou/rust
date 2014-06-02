@@ -10,8 +10,8 @@
 
 
 trait Foo {
-    fn bar(&self) -> StrBuf {
-        format_strbuf!("test")
+    fn bar(&self) -> String {
+        format!("test")
     }
 }
 
@@ -24,5 +24,5 @@ impl Foo for Baz {
 
 pub fn main() {
     let q = Quux;
-    assert_eq!(q.bar(), "test".to_strbuf());
+    assert_eq!(q.bar(), "test".to_string());
 }

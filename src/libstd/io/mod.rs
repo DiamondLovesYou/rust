@@ -76,7 +76,7 @@ Some examples of obvious things you might want to do
 
     let path = Path::new("message.txt");
     let mut file = BufferedReader::new(File::open(&path));
-    let lines: Vec<~str> = file.lines().map(|x| x.unwrap()).collect();
+    let lines: Vec<String> = file.lines().map(|x| x.unwrap()).collect();
     ```
 
 * Make a simple TCP client connection and request
@@ -228,6 +228,7 @@ use result::{Ok, Err, Result};
 use slice::{Vector, MutableVector, ImmutableVector};
 use str::{StrSlice, StrAllocating};
 use str;
+use string::String;
 use uint;
 use vec::Vec;
 
@@ -284,7 +285,7 @@ pub type IoResult<T> = Result<T, IoError>;
 /// # FIXME
 ///
 /// Is something like this sufficient? It's kind of archaic
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Clone)]
 pub struct IoError {
     /// An enumeration which can be matched against for determining the flavor
     /// of error.
@@ -292,7 +293,7 @@ pub struct IoError {
     /// A human-readable description about the error
     pub desc: &'static str,
     /// Detailed information about this error, not always available
-    pub detail: Option<~str>
+    pub detail: Option<String>
 }
 
 impl IoError {
@@ -364,7 +365,11 @@ impl IoError {
         IoError {
             kind: kind,
             desc: desc,
-            detail: if detail {Some(os::error_string(errno))} else {None},
+            detail: if detail {
+                Some(os::error_string(errno))
+            } else {
+                None
+            },
         }
     }
 
@@ -390,7 +395,7 @@ impl fmt::Show for IoError {
 }
 
 /// A list specifying general categories of I/O error.
-#[deriving(Eq, Clone, Show)]
+#[deriving(PartialEq, Clone, Show)]
 pub enum IoErrorKind {
     /// Any I/O error not part of this list.
     OtherIoError,
@@ -402,7 +407,7 @@ pub enum IoErrorKind {
     PermissionDenied,
     /// A network connection failed for some reason not specified in this list.
     ConnectionFailed,
-    /// The network operation failed because the network connection was cloesd.
+    /// The network operation failed because the network connection was closed.
     Closed,
     /// The connection was refused by the remote server.
     ConnectionRefused,
@@ -469,7 +474,7 @@ pub trait Reader {
     /// inspected for in the error's `kind` field. Also note that reading 0
     /// bytes is not considered an error in all circumstances
     ///
-    /// # Implementaton Note
+    /// # Implementation Note
     ///
     /// When implementing this method on a new Reader, you are strongly encouraged
     /// not to return 0 if you can avoid it.
@@ -490,8 +495,10 @@ pub trait Reader {
     /// bytes are read.
     fn read_at_least(&mut self, min: uint, buf: &mut [u8]) -> IoResult<uint> {
         if min > buf.len() {
-            return Err(IoError { detail: Some("the buffer is too short".to_owned()),
-                                 ..standard_error(InvalidInput) });
+            return Err(IoError {
+                detail: Some("the buffer is too short".to_string()),
+                ..standard_error(InvalidInput)
+            });
         }
         let mut read = 0;
         while read < min {
@@ -556,8 +563,10 @@ pub trait Reader {
     /// bytes are read.
     fn push_at_least(&mut self, min: uint, len: uint, buf: &mut Vec<u8>) -> IoResult<uint> {
         if min > len {
-            return Err(IoError { detail: Some("the buffer is too short".to_owned()),
-                                 ..standard_error(InvalidInput) });
+            return Err(IoError {
+                detail: Some("the buffer is too short".to_string()),
+                ..standard_error(InvalidInput)
+            });
         }
 
         let start_len = buf.len();
@@ -623,10 +632,10 @@ pub trait Reader {
     /// This function returns all of the same errors as `read_to_end` with an
     /// additional error if the reader's contents are not a valid sequence of
     /// UTF-8 bytes.
-    fn read_to_str(&mut self) -> IoResult<~str> {
+    fn read_to_str(&mut self) -> IoResult<String> {
         self.read_to_end().and_then(|s| {
             match str::from_utf8(s.as_slice()) {
-                Some(s) => Ok(s.to_owned()),
+                Some(s) => Ok(s.to_string()),
                 None => Err(standard_error(InvalidInput)),
             }
         })
@@ -938,9 +947,9 @@ fn extend_sign(val: u64, nbytes: uint) -> i64 {
 
 /// A trait for objects which are byte-oriented streams. Writers are defined by
 /// one method, `write`. This function will block until the provided buffer of
-/// bytes has been entirely written, and it will return any failurs which occur.
+/// bytes has been entirely written, and it will return any failures which occur.
 ///
-/// Another commonly overriden method is the `flush` method for writers such as
+/// Another commonly overridden method is the `flush` method for writers such as
 /// buffered writers.
 ///
 /// Writers are intended to be composable with one another. Many objects
@@ -1235,8 +1244,8 @@ pub struct Lines<'r, T> {
     buffer: &'r mut T,
 }
 
-impl<'r, T: Buffer> Iterator<IoResult<~str>> for Lines<'r, T> {
-    fn next(&mut self) -> Option<IoResult<~str>> {
+impl<'r, T: Buffer> Iterator<IoResult<String>> for Lines<'r, T> {
+    fn next(&mut self) -> Option<IoResult<String>> {
         match self.buffer.read_line() {
             Ok(x) => Some(Ok(x)),
             Err(IoError { kind: EndOfFile, ..}) => None,
@@ -1306,7 +1315,7 @@ pub trait Buffer: Reader {
     /// use std::io;
     ///
     /// let mut reader = io::stdin();
-    /// let input = reader.read_line().ok().unwrap_or("nothing".to_owned());
+    /// let input = reader.read_line().ok().unwrap_or("nothing".to_string());
     /// ```
     ///
     /// # Error
@@ -1321,10 +1330,10 @@ pub trait Buffer: Reader {
     ///
     /// Additionally, this function can fail if the line of input read is not a
     /// valid UTF-8 sequence of bytes.
-    fn read_line(&mut self) -> IoResult<~str> {
+    fn read_line(&mut self) -> IoResult<String> {
         self.read_until('\n' as u8).and_then(|line|
             match str::from_utf8(line.as_slice()) {
-                Some(s) => Ok(s.to_owned()),
+                Some(s) => Ok(s.to_string()),
                 None => Err(standard_error(InvalidInput)),
             }
         )
@@ -1573,7 +1582,7 @@ pub enum FileAccess {
 }
 
 /// Different kinds of files which can be identified by a call to stat
-#[deriving(Eq, Show, Hash)]
+#[deriving(PartialEq, Show, Hash)]
 pub enum FileType {
     /// This is a normal file, corresponding to `S_IFREG`
     TypeFile,
@@ -1717,7 +1726,7 @@ mod tests {
     use prelude::*;
     use uint;
 
-    #[deriving(Clone, Eq, Show)]
+    #[deriving(Clone, PartialEq, Show)]
     enum BadReaderBehavior {
         GoodBehavior(uint),
         BadBehavior(uint)

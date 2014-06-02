@@ -9,8 +9,57 @@
 // except according to those terms.
 
 //! Operations on tuples
+//!
+//! To access a single element of a tuple one can use the following
+//! methods:
+//!
+//! * `valN` - returns a value of _N_-th element
+//! * `refN` - returns a reference to _N_-th element
+//! * `mutN` - returns a mutable reference to _N_-th element
+//!
+//! Indexing starts from zero, so `val0` returns first value, `val1`
+//! returns second value, and so on. In general, a tuple with _S_
+//! elements provides aforementioned methods suffixed with numbers
+//! from `0` to `S-1`. Traits which contain these methods are
+//! implemented for tuples with up to 12 elements.
+//!
+//! If every type inside a tuple implements one of the following
+//! traits, then a tuple itself also implements it.
+//!
+//! * `Clone`
+//! * `PartialEq`
+//! * `Eq`
+//! * `PartialOrd`
+//! * `Ord`
+//! * `Default`
+//!
+//! # Examples
+//!
+//! Using methods:
+//!
+//! ```
+//! let pair = ("pi", 3.14);
+//! assert_eq!(pair.val0(), "pi");
+//! assert_eq!(pair.val1(), 3.14);
+//! ```
+//!
+//! Using traits implemented for tuples:
+//!
+//! ```
+//! use std::default::Default;
+//!
+//! let a = (1, 2);
+//! let b = (3, 4);
+//! assert!(a != b);
+//!
+//! let c = b.clone();
+//! assert!(b == c);
+//!
+//! let d : (u32, f32) = Default::default();
+//! assert_eq!(d, (0u32, 0.0f32));
+//! ```
 
-#![allow(missing_doc)]
+#![doc(primitive = "tuple")]
 
 use clone::Clone;
 #[cfg(not(test))] use cmp::*;
@@ -26,6 +75,7 @@ macro_rules! tuple_impls {
         }
     )+) => {
         $(
+            #[allow(missing_doc)]
             pub trait $Tuple<$($T),+> {
                 $(fn $valN(self) -> $T;)+
                 $(fn $refN<'a>(&'a self) -> &'a $T;)+
@@ -61,7 +111,7 @@ macro_rules! tuple_impls {
             }
 
             #[cfg(not(test))]
-            impl<$($T:Eq),+> Eq for ($($T,)+) {
+            impl<$($T:PartialEq),+> PartialEq for ($($T,)+) {
                 #[inline]
                 fn eq(&self, other: &($($T,)+)) -> bool {
                     $(*self.$refN() == *other.$refN())&&+
@@ -73,10 +123,10 @@ macro_rules! tuple_impls {
             }
 
             #[cfg(not(test))]
-            impl<$($T:TotalEq),+> TotalEq for ($($T,)+) {}
+            impl<$($T:Eq),+> Eq for ($($T,)+) {}
 
             #[cfg(not(test))]
-            impl<$($T:Ord + Eq),+> Ord for ($($T,)+) {
+            impl<$($T:PartialOrd + PartialEq),+> PartialOrd for ($($T,)+) {
                 #[inline]
                 fn lt(&self, other: &($($T,)+)) -> bool {
                     lexical_ord!(lt, $(self.$refN(), other.$refN()),+)
@@ -96,7 +146,7 @@ macro_rules! tuple_impls {
             }
 
             #[cfg(not(test))]
-            impl<$($T:TotalOrd),+> TotalOrd for ($($T,)+) {
+            impl<$($T:Ord),+> Ord for ($($T,)+) {
                 #[inline]
                 fn cmp(&self, other: &($($T,)+)) -> Ordering {
                     lexical_cmp!($(self.$refN(), other.$refN()),+)
@@ -246,11 +296,11 @@ mod tests {
     use super::*;
     use clone::Clone;
     use cmp::*;
-    use realstd::str::StrAllocating;
+    use realstd::str::Str;
 
     #[test]
     fn test_clone() {
-        let a = (1, "2".to_owned());
+        let a = (1, "2");
         let b = a.clone();
         assert_eq!(a, b);
     }
@@ -287,13 +337,13 @@ mod tests {
 
         let nan = 0.0/0.0;
 
-        // Eq
+        // PartialEq
         assert_eq!(small, small);
         assert_eq!(big, big);
         assert!(small != big);
         assert!(big != small);
 
-        // Ord
+        // PartialOrd
         assert!(small < big);
         assert!(!(small < small));
         assert!(!(big < small));
@@ -314,7 +364,7 @@ mod tests {
         assert!(((1.0, 2.0) < (2.0, nan)));
         assert!(!((2.0, 2.0) < (2.0, nan)));
 
-        // TotalOrd
+        // Ord
         assert!(small.cmp(&small) == Equal);
         assert!(big.cmp(&big) == Equal);
         assert!(small.cmp(&big) == Less);
@@ -323,8 +373,11 @@ mod tests {
 
     #[test]
     fn test_show() {
-        assert_eq!(format!("{}", (1,)), "(1,)".to_owned());
-        assert_eq!(format!("{}", (1, true)), "(1, true)".to_owned());
-        assert_eq!(format!("{}", (1, "hi".to_owned(), true)), "(1, hi, true)".to_owned());
+        let s = format!("{}", (1,));
+        assert_eq!(s.as_slice(), "(1,)");
+        let s = format!("{}", (1, true));
+        assert_eq!(s.as_slice(), "(1, true)");
+        let s = format!("{}", (1, "hi", true));
+        assert_eq!(s.as_slice(), "(1, hi, true)");
     }
 }

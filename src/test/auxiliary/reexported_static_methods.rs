@@ -31,7 +31,7 @@ pub mod sub_foo {
     }
 
     pub struct Boz {
-        unused_str: StrBuf
+        unused_str: String
     }
 
     impl Boz {
@@ -46,8 +46,8 @@ pub mod sub_foo {
     }
 
     impl Bort {
-        pub fn bort() -> StrBuf {
-            "bort()".to_strbuf()
+        pub fn bort() -> String {
+            "bort()".to_string()
         }
     }
 }

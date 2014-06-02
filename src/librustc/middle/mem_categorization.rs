@@ -76,7 +76,7 @@ use syntax::parse::token;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub enum categorization {
     cat_rvalue(ty::Region),            // temporary val, argument is its scope
     cat_static_item,
@@ -92,14 +92,14 @@ pub enum categorization {
     // (*1) downcast is only required if the enum has more than one variant
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct CopiedUpvar {
     pub upvar_id: ast::NodeId,
     pub onceness: ast::Onceness,
 }
 
 // different kinds of pointers:
-#[deriving(Clone, Eq, TotalEq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash)]
 pub enum PointerKind {
     OwnedPtr,
     GcPtr,
@@ -109,26 +109,26 @@ pub enum PointerKind {
 
 // We use the term "interior" to mean "something reachable from the
 // base without a pointer dereference", e.g. a field
-#[deriving(Clone, Eq, TotalEq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash)]
 pub enum InteriorKind {
     InteriorField(FieldName),
     InteriorElement(ElementKind),
 }
 
-#[deriving(Clone, Eq, TotalEq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash)]
 pub enum FieldName {
     NamedField(ast::Name),
     PositionalField(uint)
 }
 
-#[deriving(Clone, Eq, TotalEq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash)]
 pub enum ElementKind {
     VecElement,
     StrElement,
     OtherElement,
 }
 
-#[deriving(Clone, Eq, TotalEq, Hash, Show)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub enum MutabilityCategory {
     McImmutable, // Immutable.
     McDeclared,  // Directly declared as mutable.
@@ -149,7 +149,7 @@ pub enum MutabilityCategory {
 // dereference, but its type is the type *before* the dereference
 // (`@T`). So use `cmt.type` to find the type of the value in a consistent
 // fashion. For more details, see the method `cat_pattern`
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub struct cmt_ {
     pub id: ast::NodeId,          // id of expr/pat producing this value
     pub span: Span,                // span of same expr/pat
@@ -224,7 +224,7 @@ pub fn deref_kind(tcx: &ty::ctxt, t: ty::t) -> deref_kind {
       None => {
         tcx.sess.bug(
             format!("deref_cat() invoked on non-derefable type {}",
-                 ty_to_str(tcx, t)));
+                    ty_to_str(tcx, t)).as_slice());
       }
     }
 }
@@ -579,7 +579,8 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
                       self.tcx().sess.span_bug(
                           span,
                           format!("Upvar of non-closure {} - {}",
-                                  fn_node_id, ty.repr(self.tcx())));
+                                  fn_node_id,
+                                  ty.repr(self.tcx())).as_slice());
                   }
               }
           }
@@ -728,7 +729,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
                 self.tcx().sess.span_bug(
                     node.span(),
                     format!("Explicit deref of non-derefable type: {}",
-                            base_cmt.ty.repr(self.tcx())));
+                            base_cmt.ty.repr(self.tcx())).as_slice());
             }
         }
     }
@@ -801,7 +802,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
             self.tcx().sess.span_bug(
                 elt.span(),
                 format!("Explicit index of non-index type `{}`",
-                     base_cmt.ty.repr(self.tcx())));
+                        base_cmt.ty.repr(self.tcx())).as_slice());
           }
         };
 
@@ -885,9 +886,8 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
                 },
 
                 _ => {
-                    tcx.sess.span_bug(
-                        pat.span,
-                        format!("Type of slice pattern is not a slice"));
+                    tcx.sess.span_bug(pat.span,
+                                      "type of slice pattern is not a slice");
                 }
             }
         }
@@ -1065,7 +1065,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
             }
           }
 
-          ast::PatUniq(subpat) | ast::PatRegion(subpat) => {
+          ast::PatBox(subpat) | ast::PatRegion(subpat) => {
             // @p1, ~p1
             let subcmt = self.cat_deref(pat, cmt, 0);
             if_ok!(self.cat_pattern(subcmt, subpat, op));
@@ -1089,56 +1089,59 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
           ast::PatLit(_) | ast::PatRange(_, _) => {
               /*always ok*/
           }
+
+          ast::PatMac(_) => {
+              self.tcx().sess.span_bug(pat.span, "unexpanded macro");
+          }
         }
 
         Ok(())
     }
 
-    pub fn cmt_to_str(&self, cmt: &cmt_) -> StrBuf {
+    pub fn cmt_to_str(&self, cmt: &cmt_) -> String {
         match cmt.cat {
           cat_static_item => {
-              "static item".to_strbuf()
+              "static item".to_string()
           }
           cat_copied_upvar(_) => {
-              "captured outer variable in a proc".to_strbuf()
+              "captured outer variable in a proc".to_string()
           }
           cat_rvalue(..) => {
-              "non-lvalue".to_strbuf()
+              "non-lvalue".to_string()
           }
           cat_local(_) => {
-              "local variable".to_strbuf()
+              "local variable".to_string()
           }
           cat_arg(..) => {
-              "argument".to_strbuf()
+              "argument".to_string()
           }
           cat_deref(ref base, _, pk) => {
               match base.cat {
                   cat_upvar(..) => {
-                      "captured outer variable".to_strbuf()
+                      "captured outer variable".to_string()
                   }
                   _ => {
-                      format_strbuf!("dereference of `{}`-pointer",
-                                     ptr_sigil(pk))
+                      format!("dereference of `{}`-pointer", ptr_sigil(pk))
                   }
               }
           }
           cat_interior(_, InteriorField(NamedField(_))) => {
-              "field".to_strbuf()
+              "field".to_string()
           }
           cat_interior(_, InteriorField(PositionalField(_))) => {
-              "anonymous field".to_strbuf()
+              "anonymous field".to_string()
           }
           cat_interior(_, InteriorElement(VecElement)) => {
-              "vec content".to_strbuf()
+              "vec content".to_string()
           }
           cat_interior(_, InteriorElement(StrElement)) => {
-              "str content".to_strbuf()
+              "str content".to_string()
           }
           cat_interior(_, InteriorElement(OtherElement)) => {
-              "indexed content".to_strbuf()
+              "indexed content".to_string()
           }
           cat_upvar(..) => {
-              "captured outer variable".to_strbuf()
+              "captured outer variable".to_string()
           }
           cat_discr(ref cmt, _) => {
             self.cmt_to_str(&**cmt)
@@ -1250,17 +1253,17 @@ impl cmt_ {
 }
 
 impl Repr for cmt_ {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
-        format_strbuf!("\\{{} id:{} m:{:?} ty:{}\\}",
-                       self.cat.repr(tcx),
-                       self.id,
-                       self.mutbl,
-                       self.ty.repr(tcx))
+    fn repr(&self, tcx: &ty::ctxt) -> String {
+        format!("\\{{} id:{} m:{:?} ty:{}\\}",
+                self.cat.repr(tcx),
+                self.id,
+                self.mutbl,
+                self.ty.repr(tcx))
     }
 }
 
 impl Repr for categorization {
-    fn repr(&self, tcx: &ty::ctxt) -> StrBuf {
+    fn repr(&self, tcx: &ty::ctxt) -> String {
         match *self {
             cat_static_item |
             cat_rvalue(..) |
@@ -1268,19 +1271,16 @@ impl Repr for categorization {
             cat_local(..) |
             cat_upvar(..) |
             cat_arg(..) => {
-                format_strbuf!("{:?}", *self)
+                format!("{:?}", *self)
             }
             cat_deref(ref cmt, derefs, ptr) => {
-                format_strbuf!("{}-{}{}->",
-                               cmt.cat.repr(tcx),
-                               ptr_sigil(ptr),
-                               derefs)
+                format!("{}-{}{}->", cmt.cat.repr(tcx), ptr_sigil(ptr), derefs)
             }
             cat_interior(ref cmt, interior) => {
-                format_strbuf!("{}.{}", cmt.cat.repr(tcx), interior.repr(tcx))
+                format!("{}.{}", cmt.cat.repr(tcx), interior.repr(tcx))
             }
             cat_downcast(ref cmt) => {
-                format_strbuf!("{}->(enum)", cmt.cat.repr(tcx))
+                format!("{}->(enum)", cmt.cat.repr(tcx))
             }
             cat_discr(ref cmt, _) => {
                 cmt.cat.repr(tcx)
@@ -1301,13 +1301,13 @@ pub fn ptr_sigil(ptr: PointerKind) -> &'static str {
 }
 
 impl Repr for InteriorKind {
-    fn repr(&self, _tcx: &ty::ctxt) -> StrBuf {
+    fn repr(&self, _tcx: &ty::ctxt) -> String {
         match *self {
             InteriorField(NamedField(fld)) => {
-                token::get_name(fld).get().to_str().to_strbuf()
+                token::get_name(fld).get().to_str().to_string()
             }
-            InteriorField(PositionalField(i)) => format_strbuf!("\\#{:?}", i),
-            InteriorElement(_) => "[]".to_strbuf(),
+            InteriorField(PositionalField(i)) => format!("\\#{:?}", i),
+            InteriorElement(_) => "[]".to_string(),
         }
     }
 }

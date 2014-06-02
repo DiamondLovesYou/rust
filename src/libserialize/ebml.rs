@@ -26,6 +26,10 @@ pub struct Doc<'a> {
 }
 
 impl<'doc> Doc<'doc> {
+    pub fn new(data: &'doc [u8]) -> Doc<'doc> {
+        Doc { data: data, start: 0u, end: data.len() }
+    }
+
     pub fn get<'a>(&'a self, tag: uint) -> Doc<'a> {
         reader::get_doc(*self, tag)
     }
@@ -34,8 +38,8 @@ impl<'doc> Doc<'doc> {
         str::from_utf8(self.data.slice(self.start, self.end)).unwrap()
     }
 
-    pub fn as_str(&self) -> StrBuf {
-        self.as_str_slice().to_strbuf()
+    pub fn as_str(&self) -> String {
+        self.as_str_slice().to_string()
     }
 }
 
@@ -44,6 +48,7 @@ pub struct TaggedDoc<'a> {
     pub doc: Doc<'a>,
 }
 
+#[deriving(Show)]
 pub enum EbmlEncoderTag {
     EsUint,     // 0
     EsU64,      // 1
@@ -80,7 +85,7 @@ pub enum EbmlEncoderTag {
 #[deriving(Show)]
 pub enum Error {
     IntTooBig(uint),
-    Expected(StrBuf),
+    Expected(String),
     IoError(io::IoError)
 }
 // --------------------------------------
@@ -191,10 +196,6 @@ pub mod reader {
         }
     }
 
-    pub fn Doc<'a>(data: &'a [u8]) -> Doc<'a> {
-        Doc { data: data, start: 0u, end: data.len() }
-    }
-
     pub fn doc_at<'a>(data: &'a [u8], start: uint) -> DecodeResult<TaggedDoc<'a>> {
         let elt_tag = try!(vuint_at(data, start));
         let elt_size = try!(vuint_at(data, elt_tag.next));
@@ -295,14 +296,14 @@ pub mod reader {
         pos: uint,
     }
 
-    pub fn Decoder<'a>(d: Doc<'a>) -> Decoder<'a> {
-        Decoder {
-            parent: d,
-            pos: d.start
-        }
-    }
-
     impl<'doc> Decoder<'doc> {
+        pub fn new(d: Doc<'doc>) -> Decoder<'doc> {
+            Decoder {
+                parent: d,
+                pos: d.start
+            }
+        }
+
         fn _check_label(&mut self, lbl: &str) -> DecodeResult<()> {
             if self.pos < self.parent.end {
                 let TaggedDoc { tag: r_tag, doc: r_doc } =
@@ -312,10 +313,8 @@ pub mod reader {
                     self.pos = r_doc.end;
                     let str = r_doc.as_str_slice();
                     if lbl != str {
-                        return Err(Expected(format_strbuf!("Expected label \
-                                                            {} but found {}",
-                                                           lbl,
-                                                           str)));
+                        return Err(Expected(format!("Expected label {} but \
+                                                     found {}", lbl, str)));
                     }
                 }
             }
@@ -323,10 +322,10 @@ pub mod reader {
         }
 
         fn next_doc(&mut self, exp_tag: EbmlEncoderTag) -> DecodeResult<Doc<'doc>> {
-            debug!(". next_doc(exp_tag={:?})", exp_tag);
+            debug!(". next_doc(exp_tag={})", exp_tag);
             if self.pos >= self.parent.end {
-                return Err(Expected(format_strbuf!("no more documents in \
-                                                    current node!")));
+                return Err(Expected(format!("no more documents in \
+                                             current node!")));
             }
             let TaggedDoc { tag: r_tag, doc: r_doc } =
                 try!(doc_at(self.parent.data, self.pos));
@@ -338,18 +337,13 @@ pub mod reader {
                    r_doc.start,
                    r_doc.end);
             if r_tag != (exp_tag as uint) {
-                return Err(Expected(format_strbuf!("expected EBML doc with \
-                                                    tag {:?} but found tag \
-                                                    {:?}",
-                                                   exp_tag,
-                                                   r_tag)));
+                return Err(Expected(format!("expected EBML doc with tag {} but \
+                                             found tag {}", exp_tag, r_tag)));
             }
             if r_doc.end > self.parent.end {
-                return Err(Expected(format_strbuf!("invalid EBML, child \
-                                                    extends to {:#x}, parent \
-                                                    to {:#x}",
-                                                   r_doc.end,
-                                                   self.parent.end)));
+                return Err(Expected(format!("invalid EBML, child extends to \
+                                             {:#x}, parent to {:#x}",
+                                            r_doc.end, self.parent.end)));
             }
             self.pos = r_doc.end;
             Ok(r_doc)
@@ -370,7 +364,7 @@ pub mod reader {
 
         fn _next_uint(&mut self, exp_tag: EbmlEncoderTag) -> DecodeResult<uint> {
             let r = doc_as_u32(try!(self.next_doc(exp_tag)));
-            debug!("_next_uint exp_tag={:?} result={}", exp_tag, r);
+            debug!("_next_uint exp_tag={} result={}", exp_tag, r);
             Ok(r as uint)
         }
 
@@ -443,7 +437,7 @@ pub mod reader {
         fn read_char(&mut self) -> DecodeResult<char> {
             Ok(char::from_u32(doc_as_u32(try!(self.next_doc(EsChar)))).unwrap())
         }
-        fn read_str(&mut self) -> DecodeResult<StrBuf> {
+        fn read_str(&mut self) -> DecodeResult<String> {
             Ok(try!(self.next_doc(EsStr)).as_str())
         }
 
@@ -581,8 +575,7 @@ pub mod reader {
                         0 => f(this, false),
                         1 => f(this, true),
                         _ => {
-                            Err(Expected(format_strbuf!("Expected None or \
-                                                         Some")))
+                            Err(Expected(format!("Expected None or Some")))
                         }
                     }
                 })
@@ -680,15 +673,15 @@ pub mod writer {
         })
     }
 
-    pub fn Encoder<'a, W: Writer + Seek>(w: &'a mut W) -> Encoder<'a, W> {
-        Encoder {
-            writer: w,
-            size_positions: vec!(),
-        }
-    }
-
     // FIXME (#2741): Provide a function to write the standard ebml header.
     impl<'a, W: Writer + Seek> Encoder<'a, W> {
+        pub fn new(w: &'a mut W) -> Encoder<'a, W> {
+            Encoder {
+                writer: w,
+                size_positions: vec!(),
+            }
+        }
+
         /// FIXME(pcwalton): Workaround for badness in trans. DO NOT USE ME.
         pub unsafe fn unsafe_clone(&self) -> Encoder<'a, W> {
             Encoder {
@@ -1027,6 +1020,7 @@ pub mod writer {
 
 #[cfg(test)]
 mod tests {
+    use super::Doc;
     use ebml::reader;
     use ebml::writer;
     use {Encodable, Decodable};
@@ -1085,16 +1079,16 @@ mod tests {
     #[test]
     fn test_option_int() {
         fn test_v(v: Option<int>) {
-            debug!("v == {:?}", v);
+            debug!("v == {}", v);
             let mut wr = MemWriter::new();
             {
-                let mut ebml_w = writer::Encoder(&mut wr);
+                let mut ebml_w = writer::Encoder::new(&mut wr);
                 let _ = v.encode(&mut ebml_w);
             }
-            let ebml_doc = reader::Doc(wr.get_ref());
-            let mut deser = reader::Decoder(ebml_doc);
+            let ebml_doc = Doc::new(wr.get_ref());
+            let mut deser = reader::Decoder::new(ebml_doc);
             let v1 = Decodable::decode(&mut deser).unwrap();
-            debug!("v1 == {:?}", v1);
+            debug!("v1 == {}", v1);
             assert_eq!(v, v1);
         }
 
@@ -1106,6 +1100,7 @@ mod tests {
 
 #[cfg(test)]
 mod bench {
+    #![allow(non_snake_case_functions)]
     extern crate test;
     use self::test::Bencher;
     use ebml::reader;

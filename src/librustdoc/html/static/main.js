@@ -527,7 +527,8 @@
                          "variant",
                          "ffi",
                          "ffs",
-                         "macro"];
+                         "macro",
+                         "primitive"];
 
         function itemTypeFromName(typename) {
             for (var i = 0; i < itemTypes.length; ++i) {
@@ -653,4 +654,30 @@
     }
 
     window.initSearch = initSearch;
+
+    window.register_implementors = function(imp) {
+        var list = $('#implementors-list');
+        var libs = Object.getOwnPropertyNames(imp);
+        for (var i = 0; i < libs.length; i++) {
+            if (libs[i] == currentCrate) continue;
+            var structs = imp[libs[i]];
+            for (var j = 0; j < structs.length; j++) {
+                var code = $('<code>').append(structs[j]);
+                $.each(code.find('a'), function(idx, a) {
+                    $(a).attr('href', rootPath + $(a).attr('href'));
+                });
+                var li = $('<li>').append(code);
+                list.append(li);
+            }
+        }
+    };
+    if (window.pending_implementors) {
+        window.register_implementors(window.pending_implementors);
+    }
+
+    // See documentaiton in html/render.rs for what this is doing.
+    var query = getQueryStringParams();
+    if (query['gotosrc']) {
+        window.location = $('#src-' + query['gotosrc']).attr('href');
+    }
 }());

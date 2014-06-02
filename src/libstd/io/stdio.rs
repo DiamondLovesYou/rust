@@ -92,7 +92,7 @@ fn src<T>(fd: libc::c_int, readable: bool, f: |StdSource| -> T) -> T {
 /// provided unbuffered access to stdin.
 ///
 /// Care should be taken when creating multiple handles to the stdin of a
-/// process. Beause this is a buffered reader by default, it's possible for
+/// process. Because this is a buffered reader by default, it's possible for
 /// pending input to be unconsumed in one reader and unavailable to other
 /// readers. It is recommended that only one handle at a time is created for the
 /// stdin of a process.
@@ -409,7 +409,7 @@ mod tests {
             set_stdout(box w);
             println!("hello!");
         });
-        assert_eq!(r.read_to_str().unwrap(), "hello!\n".to_owned());
+        assert_eq!(r.read_to_str().unwrap(), "hello!\n".to_string());
     })
 
     iotest!(fn capture_stderr() {
@@ -422,6 +422,6 @@ mod tests {
             fail!("my special message");
         });
         let s = r.read_to_str().unwrap();
-        assert!(s.contains("my special message"));
+        assert!(s.as_slice().contains("my special message"));
     })
 }

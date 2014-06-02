@@ -8,8 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-
 // Issue #2303
+
+extern crate debug;
 
 use std::mem;
 
@@ -86,6 +87,6 @@ pub fn main() {
         // because `Inner`s alignment was 4.
         assert_eq!(mem::size_of::<Outer>(), m::m::size());
 
-        assert_eq!(y, "Outer{c8: 22u8, t: Inner{c64: 44u64}}".to_owned());
+        assert_eq!(y, "Outer{c8: 22u8, t: Inner{c64: 44u64}}".to_string());
     }
 }

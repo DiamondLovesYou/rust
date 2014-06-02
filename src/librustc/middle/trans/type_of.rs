@@ -158,7 +158,7 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
         ty::ty_self(_) | ty::ty_infer(..) | ty::ty_param(..) |
         ty::ty_err(..) | ty::ty_vec(_, None) | ty::ty_str => {
             cx.sess().bug(format!("fictitious type {:?} in sizing_type_of()",
-                                  ty::get(t).sty))
+                                  ty::get(t).sty).as_slice())
         }
     };
 
@@ -308,7 +308,7 @@ pub fn llvm_type_name(cx: &CrateContext,
                       what: named_ty,
                       did: ast::DefId,
                       tps: &[ty::t])
-                      -> StrBuf {
+                      -> String {
     let name = match what {
         a_struct => { "struct" }
         an_enum => { "enum" }
@@ -322,9 +322,9 @@ pub fn llvm_type_name(cx: &CrateContext,
                                     did,
                                     false);
     if did.krate == 0 {
-        format_strbuf!("{}.{}", name, tstr)
+        format!("{}.{}", name, tstr)
     } else {
-        format_strbuf!("{}.{}[\\#{}]", name, tstr, did.krate)
+        format!("{}.{}[\\#{}]", name, tstr, did.krate)
     }
 }
 

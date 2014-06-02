@@ -14,7 +14,7 @@
 //! collections::deque::Deque`.
 
 use std::cmp;
-use std::iter::{Rev, RandomAccessIterator};
+use std::iter::RandomAccessIterator;
 
 use deque::Deque;
 
@@ -190,11 +190,6 @@ impl<T> RingBuf<T> {
         Items{index: 0, rindex: self.nelts, lo: self.lo, elts: self.elts.as_slice()}
     }
 
-    #[deprecated = "replaced by .iter().rev()"]
-    pub fn rev_iter<'a>(&'a self) -> Rev<Items<'a, T>> {
-        self.iter().rev()
-    }
-
     /// Front-to-back iterator which returns mutable values.
     pub fn mut_iter<'a>(&'a mut self) -> MutItems<'a, T> {
         let start_index = raw_index(self.lo, self.elts.len(), 0);
@@ -219,11 +214,6 @@ impl<T> RingBuf<T> {
                                  remaining2: empty,
                                  nelts: self.nelts }
         }
-    }
-
-    #[deprecated = "replaced by .mut_iter().rev()"]
-    pub fn mut_rev_iter<'a>(&'a mut self) -> Rev<MutItems<'a, T>> {
-        self.mut_iter().rev()
     }
 }
 
@@ -374,7 +364,7 @@ fn raw_index(lo: uint, len: uint, index: uint) -> uint {
     }
 }
 
-impl<A: Eq> Eq for RingBuf<A> {
+impl<A: PartialEq> PartialEq for RingBuf<A> {
     fn eq(&self, other: &RingBuf<A>) -> bool {
         self.nelts == other.nelts &&
             self.iter().zip(other.iter()).all(|(a, b)| a.eq(b))
@@ -407,7 +397,7 @@ mod tests {
     use self::test::Bencher;
     use deque::Deque;
     use std::clone::Clone;
-    use std::cmp::Eq;
+    use std::cmp::PartialEq;
     use std::fmt::Show;
     use super::RingBuf;
 
@@ -493,7 +483,7 @@ mod tests {
     }
 
     #[cfg(test)]
-    fn test_parameterized<T:Clone + Eq + Show>(a: T, b: T, c: T, d: T) {
+    fn test_parameterized<T:Clone + PartialEq + Show>(a: T, b: T, c: T, d: T) {
         let mut deq = RingBuf::new();
         assert_eq!(deq.len(), 0);
         deq.push_front(a.clone());
@@ -578,21 +568,21 @@ mod tests {
         })
     }
 
-    #[deriving(Clone, Eq, Show)]
+    #[deriving(Clone, PartialEq, Show)]
     enum Taggy {
         One(int),
         Two(int, int),
         Three(int, int, int),
     }
 
-    #[deriving(Clone, Eq, Show)]
+    #[deriving(Clone, PartialEq, Show)]
     enum Taggypar<T> {
         Onepar(int),
         Twopar(int, int),
         Threepar(int, int, int),
     }
 
-    #[deriving(Clone, Eq, Show)]
+    #[deriving(Clone, PartialEq, Show)]
     struct RecCy {
         x: int,
         y: int,

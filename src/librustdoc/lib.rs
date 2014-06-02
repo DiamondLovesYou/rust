@@ -16,17 +16,18 @@
 
 #![feature(globs, struct_variant, managed_boxes, macro_rules, phase)]
 
-extern crate syntax;
+extern crate collections;
+extern crate debug;
+extern crate getopts;
+extern crate libc;
+#[phase(syntax, link)]
+extern crate log;
 extern crate rustc;
 extern crate serialize;
 extern crate sync;
-extern crate getopts;
-extern crate collections;
+extern crate syntax;
 extern crate testing = "test";
 extern crate time;
-#[phase(syntax, link)]
-extern crate log;
-extern crate libc;
 
 use std::io;
 use std::io::{File, MemWriter};
@@ -86,7 +87,7 @@ type Output = (clean::Crate, Vec<plugins::PluginJson> );
 
 pub fn main() {
     std::os::set_exit_status(main_args(std::os::args().iter()
-                                                      .map(|x| x.to_strbuf())
+                                                      .map(|x| x.to_string())
                                                       .collect::<Vec<_>>()
                                                       .as_slice()));
 }
@@ -132,11 +133,11 @@ pub fn opts() -> Vec<getopts::OptGroup> {
 
 pub fn usage(argv0: &str) {
     println!("{}",
-             getopts::usage(format!("{} [options] <input>", argv0),
+             getopts::usage(format!("{} [options] <input>", argv0).as_slice(),
                             opts().as_slice()));
 }
 
-pub fn main_args(args: &[StrBuf]) -> int {
+pub fn main_args(args: &[String]) -> int {
     let matches = match getopts::getopts(args.tail(), opts().as_slice()) {
         Ok(m) => m,
         Err(err) => {
@@ -164,9 +165,9 @@ pub fn main_args(args: &[StrBuf]) -> int {
     let libs = matches.opt_strs("L").iter().map(|s| Path::new(s.as_slice())).collect();
 
     let test_args = matches.opt_strs("test-args");
-    let test_args: Vec<StrBuf> = test_args.iter()
+    let test_args: Vec<String> = test_args.iter()
                                           .flat_map(|s| s.as_slice().words())
-                                          .map(|s| s.to_strbuf())
+                                          .map(|s| s.to_string())
                                           .collect();
 
     let should_test = matches.opt_present("test");
@@ -184,7 +185,7 @@ pub fn main_args(args: &[StrBuf]) -> int {
         (true, false) => {
             return test::run(input,
                              cfgs.move_iter()
-                                 .map(|x| x.to_strbuf())
+                                 .map(|x| x.to_string())
                                  .collect(),
                              libs,
                              test_args)
@@ -194,7 +195,7 @@ pub fn main_args(args: &[StrBuf]) -> int {
         (false, false) => {}
     }
 
-    if matches.opt_strs("passes").as_slice() == &["list".to_strbuf()] {
+    if matches.opt_strs("passes").as_slice() == &["list".to_string()] {
         println!("Available passes for running rustdoc:");
         for &(name, _, description) in PASSES.iter() {
             println!("{:>20s} - {}", name, description);
@@ -243,11 +244,11 @@ pub fn main_args(args: &[StrBuf]) -> int {
 /// Looks inside the command line arguments to extract the relevant input format
 /// and files and then generates the necessary rustdoc output for formatting.
 fn acquire_input(input: &str,
-                 matches: &getopts::Matches) -> Result<Output, StrBuf> {
+                 matches: &getopts::Matches) -> Result<Output, String> {
     match matches.opt_str("r").as_ref().map(|s| s.as_slice()) {
         Some("rust") => Ok(rust_input(input, matches)),
         Some("json") => json_input(input),
-        Some(s) => Err(format_strbuf!("unknown input format: {}", s)),
+        Some(s) => Err(format!("unknown input format: {}", s)),
         None => {
             if input.ends_with(".json") {
                 json_input(input)
@@ -268,7 +269,7 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
     let mut passes = matches.opt_strs("passes");
     let mut plugins = matches.opt_strs("plugins")
                              .move_iter()
-                             .map(|x| x.to_strbuf())
+                             .map(|x| x.to_string())
                              .collect::<Vec<_>>();
 
     // First, parse the crate and extract all relevant information.
@@ -282,7 +283,7 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
     let (krate, analysis) = std::task::try(proc() {
         let cr = cr;
         core::run_core(libs.move_iter().map(|x| x.clone()).collect(),
-                       cfgs.move_iter().map(|x| x.to_strbuf()).collect(),
+                       cfgs.move_iter().map(|x| x.to_string()).collect(),
                        &cr)
     }).map_err(|boxed_any|format!("{:?}", boxed_any)).unwrap();
     info!("finished with rustc");
@@ -301,13 +302,13 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
                     clean::NameValue(ref x, ref value)
                             if "passes" == x.as_slice() => {
                         for pass in value.as_slice().words() {
-                            passes.push(pass.to_strbuf());
+                            passes.push(pass.to_string());
                         }
                     }
                     clean::NameValue(ref x, ref value)
                             if "plugins" == x.as_slice() => {
                         for p in value.as_slice().words() {
-                            plugins.push(p.to_strbuf());
+                            plugins.push(p.to_string());
                         }
                     }
                     _ => {}
@@ -318,13 +319,13 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
     }
     if default_passes {
         for name in DEFAULT_PASSES.iter().rev() {
-            passes.unshift(name.to_strbuf());
+            passes.unshift(name.to_string());
         }
     }
 
     // Load all plugins/passes into a PluginManager
     let path = matches.opt_str("plugin-path")
-                      .unwrap_or("/tmp/rustdoc/plugins".to_strbuf());
+                      .unwrap_or("/tmp/rustdoc/plugins".to_string());
     let mut pm = plugins::PluginManager::new(Path::new(path));
     for pass in passes.iter() {
         let plugin = match PASSES.iter()
@@ -351,35 +352,35 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
 
 /// This input format purely deserializes the json output file. No passes are
 /// run over the deserialized output.
-fn json_input(input: &str) -> Result<Output, StrBuf> {
+fn json_input(input: &str) -> Result<Output, String> {
     let mut input = match File::open(&Path::new(input)) {
         Ok(f) => f,
         Err(e) => {
-            return Err(format_strbuf!("couldn't open {}: {}", input, e))
+            return Err(format!("couldn't open {}: {}", input, e))
         }
     };
     match json::from_reader(&mut input) {
-        Err(s) => Err(s.to_str().to_strbuf()),
+        Err(s) => Err(s.to_str().to_string()),
         Ok(json::Object(obj)) => {
             let mut obj = obj;
             // Make sure the schema is what we expect
-            match obj.pop(&"schema".to_strbuf()) {
+            match obj.pop(&"schema".to_string()) {
                 Some(json::String(version)) => {
                     if version.as_slice() != SCHEMA_VERSION {
-                        return Err(format_strbuf!(
+                        return Err(format!(
                                 "sorry, but I only understand version {}",
                                 SCHEMA_VERSION))
                     }
                 }
-                Some(..) => return Err("malformed json".to_strbuf()),
-                None => return Err("expected a schema version".to_strbuf()),
+                Some(..) => return Err("malformed json".to_string()),
+                None => return Err("expected a schema version".to_string()),
             }
-            let krate = match obj.pop(&"crate".to_strbuf()) {
+            let krate = match obj.pop(&"crate".to_string()) {
                 Some(json) => {
                     let mut d = json::Decoder::new(json);
                     Decodable::decode(&mut d).unwrap()
                 }
-                None => return Err("malformed json".to_strbuf()),
+                None => return Err("malformed json".to_string()),
             };
             // FIXME: this should read from the "plugins" field, but currently
             //      Json doesn't implement decodable...
@@ -388,7 +389,7 @@ fn json_input(input: &str) -> Result<Output, StrBuf> {
         }
         Ok(..) => {
             Err("malformed json input: expected an object at the \
-                 top".to_strbuf())
+                 top".to_string())
         }
     }
 }
@@ -403,14 +404,14 @@ fn json_output(krate: clean::Crate, res: Vec<plugins::PluginJson> ,
     //   "plugins": { output of plugins ... }
     // }
     let mut json = box collections::TreeMap::new();
-    json.insert("schema".to_strbuf(),
-                json::String(SCHEMA_VERSION.to_strbuf()));
+    json.insert("schema".to_string(),
+                json::String(SCHEMA_VERSION.to_string()));
     let plugins_json = box res.move_iter()
                               .filter_map(|opt| {
                                   match opt {
                                       None => None,
                                       Some((string, json)) => {
-                                          Some((string.to_strbuf(), json))
+                                          Some((string.to_string(), json))
                                       }
                                   }
                               }).collect();
@@ -423,15 +424,15 @@ fn json_output(krate: clean::Crate, res: Vec<plugins::PluginJson> ,
             let mut encoder = json::Encoder::new(&mut w as &mut io::Writer);
             krate.encode(&mut encoder).unwrap();
         }
-        str::from_utf8(w.unwrap().as_slice()).unwrap().to_strbuf()
+        str::from_utf8(w.unwrap().as_slice()).unwrap().to_string()
     };
     let crate_json = match json::from_str(crate_json_str.as_slice()) {
         Ok(j) => j,
         Err(e) => fail!("Rust generated JSON is invalid: {:?}", e)
     };
 
-    json.insert("crate".to_strbuf(), crate_json);
-    json.insert("plugins".to_strbuf(), json::Object(plugins_json));
+    json.insert("crate".to_string(), crate_json);
+    json.insert("plugins".to_string(), json::Object(plugins_json));
 
     let mut file = try!(File::create(&dst));
     try!(json::Object(json).to_writer(&mut file));

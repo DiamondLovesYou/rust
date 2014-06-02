@@ -18,7 +18,7 @@ use std::num::{Zero,One,ToStrRadix};
 // probably doesn't map to C's _Complex correctly.
 
 /// A complex number in Cartesian form.
-#[deriving(Eq,Clone)]
+#[deriving(PartialEq,Clone)]
 pub struct Complex<T> {
     /// Real portion of the complex number
     pub re: T,
@@ -164,7 +164,7 @@ impl<T: Clone + Num> One for Complex<T> {
 }
 
 /* string conversions */
-impl<T: fmt::Show + Num + Ord> fmt::Show for Complex<T> {
+impl<T: fmt::Show + Num + PartialOrd> fmt::Show for Complex<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.im < Zero::zero() {
             write!(f, "{}-{}i", self.re, -self.im)
@@ -174,12 +174,16 @@ impl<T: fmt::Show + Num + Ord> fmt::Show for Complex<T> {
     }
 }
 
-impl<T: ToStrRadix + Num + Ord> ToStrRadix for Complex<T> {
-    fn to_str_radix(&self, radix: uint) -> ~str {
+impl<T: ToStrRadix + Num + PartialOrd> ToStrRadix for Complex<T> {
+    fn to_str_radix(&self, radix: uint) -> String {
         if self.im < Zero::zero() {
-            format!("{}-{}i", self.re.to_str_radix(radix), (-self.im).to_str_radix(radix))
+            format!("{}-{}i",
+                    self.re.to_str_radix(radix),
+                    (-self.im).to_str_radix(radix))
         } else {
-            format!("{}+{}i", self.re.to_str_radix(radix), self.im.to_str_radix(radix))
+            format!("{}+{}i",
+                    self.re.to_str_radix(radix),
+                    self.im.to_str_radix(radix))
         }
     }
 }
@@ -344,15 +348,15 @@ mod test {
 
     #[test]
     fn test_to_str() {
-        fn test(c : Complex64, s: StrBuf) {
-            assert_eq!(c.to_str().to_strbuf(), s);
+        fn test(c : Complex64, s: String) {
+            assert_eq!(c.to_str().to_string(), s);
         }
-        test(_0_0i, "0+0i".to_strbuf());
-        test(_1_0i, "1+0i".to_strbuf());
-        test(_0_1i, "0+1i".to_strbuf());
-        test(_1_1i, "1+1i".to_strbuf());
-        test(_neg1_1i, "-1+1i".to_strbuf());
-        test(-_neg1_1i, "1-1i".to_strbuf());
-        test(_05_05i, "0.5+0.5i".to_strbuf());
+        test(_0_0i, "0+0i".to_string());
+        test(_1_0i, "1+0i".to_string());
+        test(_0_1i, "0+1i".to_string());
+        test(_1_1i, "1+1i".to_string());
+        test(_neg1_1i, "-1+1i".to_string());
+        test(-_neg1_1i, "1-1i".to_string());
+        test(_05_05i, "0.5+0.5i".to_string());
     }
 }

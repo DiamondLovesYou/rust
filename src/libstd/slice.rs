@@ -65,7 +65,7 @@ Vectors are a very useful type, and so there's several implementations of
 traits from other modules. Some notable examples:
 
 * `Clone`
-* `Eq`, `Ord`, `TotalEq`, `TotalOrd` -- vectors can be compared,
+* `Eq`, `Ord`, `Eq`, `Ord` -- vectors can be compared,
   if the element type defines the corresponding trait.
 
 ## Iteration
@@ -97,9 +97,11 @@ There are a number of free functions that create or take vectors, for example:
 
 */
 
+#![doc(primitive = "slice")]
+
 use mem::transmute;
 use clone::Clone;
-use cmp::{TotalOrd, Ordering, Less, Greater};
+use cmp::{Ord, Ordering, Less, Greater};
 use cmp;
 use container::Container;
 use iter::*;
@@ -109,14 +111,14 @@ use ops::Drop;
 use option::{None, Option, Some};
 use ptr::RawPtr;
 use ptr;
-use rt::heap::{exchange_malloc, deallocate};
-use unstable::finally::try_finally;
+use rt::heap::{allocate, deallocate};
+use finally::try_finally;
 use vec::Vec;
 
 pub use core::slice::{ref_slice, mut_ref_slice, Splits, Windows};
 pub use core::slice::{Chunks, Vector, ImmutableVector, ImmutableEqVector};
-pub use core::slice::{ImmutableTotalOrdVector, MutableVector, Items, MutItems};
-pub use core::slice::{RevItems, RevMutItems, MutSplits, MutChunks};
+pub use core::slice::{ImmutableOrdVector, MutableVector, Items, MutItems};
+pub use core::slice::{MutSplits, MutChunks};
 pub use core::slice::{bytes, MutableCloneableVector};
 
 // Functional utilities
@@ -304,7 +306,7 @@ impl<'a, T: Clone> CloneableVector<T> for &'a [T] {
 
         unsafe {
             // this should pass the real required alignment
-            let ret = exchange_malloc(size, 8) as *mut RawVec<()>;
+            let ret = allocate(size, 8) as *mut RawVec<()>;
 
             let a_size = mem::size_of::<T>();
             let a_size = if a_size == 0 {1} else {a_size};
@@ -396,17 +398,13 @@ pub trait OwnedVector<T> {
     /// # Examples
     ///
     /// ```rust
-    /// let v = ~["a".to_owned(), "b".to_owned()];
+    /// let v = ~["a".to_string(), "b".to_string()];
     /// for s in v.move_iter() {
     ///   // s has type ~str, not &~str
     ///   println!("{}", s);
     /// }
     /// ```
     fn move_iter(self) -> MoveItems<T>;
-    /// Creates a consuming iterator that moves out of the vector in
-    /// reverse order.
-    #[deprecated = "replaced by .move_iter().rev()"]
-    fn move_rev_iter(self) -> Rev<MoveItems<T>>;
 
     /**
      * Partitions the vector into two vectors `(A,B)`, where all
@@ -423,12 +421,6 @@ impl<T> OwnedVector<T> for ~[T] {
             let ptr = transmute(self);
             MoveItems { allocation: ptr, iter: iter }
         }
-    }
-
-    #[inline]
-    #[deprecated = "replaced by .move_iter().rev()"]
-    fn move_rev_iter(self) -> Rev<MoveItems<T>> {
-        self.move_iter().rev()
     }
 
     #[inline]
@@ -706,7 +698,7 @@ impl<'a,T> MutableVectorAllocating<'a, T> for &'a mut [T] {
 
 /// Methods for mutable vectors with orderable elements, such as
 /// in-place sorting.
-pub trait MutableTotalOrdVector<T> {
+pub trait MutableOrdVector<T> {
     /// Sort the vector, in place.
     ///
     /// This is equivalent to `self.sort_by(|a, b| a.cmp(b))`.
@@ -722,7 +714,7 @@ pub trait MutableTotalOrdVector<T> {
     fn sort(self);
 }
 
-impl<'a, T: TotalOrd> MutableTotalOrdVector<T> for &'a mut [T] {
+impl<'a, T: Ord> MutableOrdVector<T> for &'a mut [T] {
     #[inline]
     fn sort(self) {
         self.sort_by(|a,b| a.cmp(b))
@@ -775,10 +767,6 @@ impl<T> Drop for MoveItems<T> {
         }
     }
 }
-
-/// An iterator that moves out of a vector in reverse order.
-#[deprecated = "replaced by Rev<MoveItems<'a, T>>"]
-pub type RevMoveItems<T> = Rev<MoveItems<T>>;
 
 #[cfg(test)]
 mod tests {
@@ -968,7 +956,7 @@ mod tests {
         assert_eq!(v_b[0], 2);
         assert_eq!(v_b[1], 3);
 
-        // Test on exchange heap.
+        // Test `Box<[T]>`
         let vec_unique = box [1, 2, 3, 4, 5, 6];
         let v_d = vec_unique.slice(1u, 6u).to_owned();
         assert_eq!(v_d.len(), 5u);
@@ -1200,7 +1188,7 @@ mod tests {
             assert_eq!(it.next(), None);
         }
         {
-            let v = ["Hello".to_owned()];
+            let v = ["Hello".to_string()];
             let mut it = v.permutations();
             let (min_size, max_opt) = it.size_hint();
             assert_eq!(min_size, 1);
@@ -1317,7 +1305,8 @@ mod tests {
         use realstd::clone::Clone;
         for len in range(4u, 25) {
             for _ in range(0, 100) {
-                let mut v = task_rng().gen_vec::<uint>(len);
+                let mut v = task_rng().gen_iter::<uint>().take(len)
+                                      .collect::<Vec<uint>>();
                 let mut v1 = v.clone();
 
                 v.as_mut_slice().sort();
@@ -1853,16 +1842,18 @@ mod tests {
             })
         )
         let empty: ~[int] = box [];
-        test_show_vec!(empty, "[]".to_owned());
-        test_show_vec!(box [1], "[1]".to_owned());
-        test_show_vec!(box [1, 2, 3], "[1, 2, 3]".to_owned());
-        test_show_vec!(box [box [], box [1u], box [1u, 1u]], "[[], [1], [1, 1]]".to_owned());
+        test_show_vec!(empty, "[]".to_string());
+        test_show_vec!(box [1], "[1]".to_string());
+        test_show_vec!(box [1, 2, 3], "[1, 2, 3]".to_string());
+        test_show_vec!(box [box [], box [1u], box [1u, 1u]],
+                       "[[], [1], [1, 1]]".to_string());
 
         let empty_mut: &mut [int] = &mut[];
-        test_show_vec!(empty_mut, "[]".to_owned());
-        test_show_vec!(&mut[1], "[1]".to_owned());
-        test_show_vec!(&mut[1, 2, 3], "[1, 2, 3]".to_owned());
-        test_show_vec!(&mut[&mut[], &mut[1u], &mut[1u, 1u]], "[[], [1], [1, 1]]".to_owned());
+        test_show_vec!(empty_mut, "[]".to_string());
+        test_show_vec!(&mut[1], "[1]".to_string());
+        test_show_vec!(&mut[1, 2, 3], "[1, 2, 3]".to_string());
+        test_show_vec!(&mut[&mut[], &mut[1u], &mut[1u, 1u]],
+                       "[[], [1], [1, 1]]".to_string());
     }
 
     #[test]
@@ -1927,7 +1918,7 @@ mod tests {
         assert!(values == [2, 3, 5, 6, 7]);
     }
 
-    #[deriving(Clone, Eq)]
+    #[deriving(Clone, PartialEq)]
     struct Foo;
 
     #[test]
@@ -2333,7 +2324,7 @@ mod bench {
     fn sort_random_small(b: &mut Bencher) {
         let mut rng = weak_rng();
         b.iter(|| {
-            let mut v = rng.gen_vec::<u64>(5);
+            let mut v = rng.gen_iter::<u64>().take(5).collect::<Vec<u64>>();
             v.as_mut_slice().sort();
         });
         b.bytes = 5 * mem::size_of::<u64>() as u64;
@@ -2343,7 +2334,7 @@ mod bench {
     fn sort_random_medium(b: &mut Bencher) {
         let mut rng = weak_rng();
         b.iter(|| {
-            let mut v = rng.gen_vec::<u64>(100);
+            let mut v = rng.gen_iter::<u64>().take(100).collect::<Vec<u64>>();
             v.as_mut_slice().sort();
         });
         b.bytes = 100 * mem::size_of::<u64>() as u64;
@@ -2353,7 +2344,7 @@ mod bench {
     fn sort_random_large(b: &mut Bencher) {
         let mut rng = weak_rng();
         b.iter(|| {
-            let mut v = rng.gen_vec::<u64>(10000);
+            let mut v = rng.gen_iter::<u64>().take(10000).collect::<Vec<u64>>();
             v.as_mut_slice().sort();
         });
         b.bytes = 10000 * mem::size_of::<u64>() as u64;
@@ -2374,7 +2365,8 @@ mod bench {
     fn sort_big_random_small(b: &mut Bencher) {
         let mut rng = weak_rng();
         b.iter(|| {
-            let mut v = rng.gen_vec::<BigSortable>(5);
+            let mut v = rng.gen_iter::<BigSortable>().take(5)
+                           .collect::<Vec<BigSortable>>();
             v.sort();
         });
         b.bytes = 5 * mem::size_of::<BigSortable>() as u64;
@@ -2384,7 +2376,8 @@ mod bench {
     fn sort_big_random_medium(b: &mut Bencher) {
         let mut rng = weak_rng();
         b.iter(|| {
-            let mut v = rng.gen_vec::<BigSortable>(100);
+            let mut v = rng.gen_iter::<BigSortable>().take(100)
+                           .collect::<Vec<BigSortable>>();
             v.sort();
         });
         b.bytes = 100 * mem::size_of::<BigSortable>() as u64;
@@ -2394,7 +2387,8 @@ mod bench {
     fn sort_big_random_large(b: &mut Bencher) {
         let mut rng = weak_rng();
         b.iter(|| {
-            let mut v = rng.gen_vec::<BigSortable>(10000);
+            let mut v = rng.gen_iter::<BigSortable>().take(10000)
+                           .collect::<Vec<BigSortable>>();
             v.sort();
         });
         b.bytes = 10000 * mem::size_of::<BigSortable>() as u64;

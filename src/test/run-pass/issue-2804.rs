@@ -11,6 +11,7 @@
 
 extern crate collections;
 extern crate serialize;
+extern crate debug;
 
 use collections::HashMap;
 use serialize::json;
@@ -21,11 +22,11 @@ enum object {
     int_value(i64),
 }
 
-fn lookup(table: Box<json::Object>, key: StrBuf, default: StrBuf) -> StrBuf
+fn lookup(table: Box<json::Object>, key: String, default: String) -> String
 {
-    match table.find(&key.to_strbuf()) {
+    match table.find(&key.to_string()) {
         option::Some(&json::String(ref s)) => {
-            (*s).to_strbuf()
+            (*s).to_string()
         }
         option::Some(value) => {
             println!("{} was expected to be a string but is a {:?}", key, value);
@@ -37,27 +38,27 @@ fn lookup(table: Box<json::Object>, key: StrBuf, default: StrBuf) -> StrBuf
     }
 }
 
-fn add_interface(_store: int, managed_ip: StrBuf, data: json::Json) -> (StrBuf, object)
+fn add_interface(_store: int, managed_ip: String, data: json::Json) -> (String, object)
 {
     match &data {
         &json::Object(ref interface) => {
             let name = lookup((*interface).clone(),
-                              "ifDescr".to_strbuf(),
-                              "".to_strbuf());
-            let label = format_strbuf!("{}-{}", managed_ip, name);
+                              "ifDescr".to_string(),
+                              "".to_string());
+            let label = format!("{}-{}", managed_ip, name);
 
             (label, bool_value(false))
         }
         _ => {
             println!("Expected dict for {} interfaces but found {:?}", managed_ip, data);
-            ("gnos:missing-interface".to_strbuf(), bool_value(true))
+            ("gnos:missing-interface".to_string(), bool_value(true))
         }
     }
 }
 
-fn add_interfaces(store: int, managed_ip: StrBuf, device: HashMap<StrBuf, json::Json>)
--> Vec<(StrBuf, object)> {
-    match device.get(&"interfaces".to_strbuf())
+fn add_interfaces(store: int, managed_ip: String, device: HashMap<String, json::Json>)
+-> Vec<(String, object)> {
+    match device.get(&"interfaces".to_string())
     {
         &json::List(ref interfaces) =>
         {
@@ -68,7 +69,7 @@ fn add_interfaces(store: int, managed_ip: StrBuf, device: HashMap<StrBuf, json::
         _ =>
         {
             println!("Expected list for {} interfaces but found {:?}", managed_ip,
-                   device.get(&"interfaces".to_strbuf()));
+                   device.get(&"interfaces".to_string()));
             Vec::new()
         }
     }

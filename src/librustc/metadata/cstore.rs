@@ -38,20 +38,20 @@ pub enum MetadataBlob {
 }
 
 pub struct crate_metadata {
-    pub name: StrBuf,
+    pub name: String,
     pub data: MetadataBlob,
     pub cnum_map: cnum_map,
     pub cnum: ast::CrateNum,
     pub span: Span,
 }
 
-#[deriving(Show, Eq, Clone)]
+#[deriving(Show, PartialEq, Clone)]
 pub enum LinkagePreference {
     RequireDynamic,
     RequireStatic,
 }
 
-#[deriving(Eq, FromPrimitive)]
+#[deriving(PartialEq, FromPrimitive)]
 pub enum NativeLibaryKind {
     NativeStatic,    // native static library (.a archive)
     NativeFramework, // OSX-specific
@@ -60,7 +60,7 @@ pub enum NativeLibaryKind {
 
 // Where a crate came from on the local filesystem. One of these two options
 // must be non-None.
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Clone)]
 pub struct CrateSource {
     pub dylib: Option<Path>,
     pub rlib: Option<Path>,
@@ -71,8 +71,8 @@ pub struct CStore {
     metas: RefCell<HashMap<ast::CrateNum, Rc<crate_metadata>>>,
     extern_mod_crate_map: RefCell<extern_mod_crate_map>,
     used_crate_sources: RefCell<Vec<CrateSource>>,
-    used_libraries: RefCell<Vec<(StrBuf, NativeLibaryKind)>>,
-    used_link_args: RefCell<Vec<StrBuf>>,
+    used_libraries: RefCell<Vec<(String, NativeLibaryKind)>>,
+    used_link_args: RefCell<Vec<String>>,
     pub intr: Rc<IdentInterner>,
 }
 
@@ -189,23 +189,23 @@ impl CStore {
         libs
     }
 
-    pub fn add_used_library(&self, lib: StrBuf, kind: NativeLibaryKind) {
+    pub fn add_used_library(&self, lib: String, kind: NativeLibaryKind) {
         assert!(!lib.is_empty());
         self.used_libraries.borrow_mut().push((lib, kind));
     }
 
     pub fn get_used_libraries<'a>(&'a self)
-                              -> &'a RefCell<Vec<(StrBuf, NativeLibaryKind)> > {
+                              -> &'a RefCell<Vec<(String, NativeLibaryKind)> > {
         &self.used_libraries
     }
 
     pub fn add_used_link_args(&self, args: &str) {
         for s in args.split(' ') {
-            self.used_link_args.borrow_mut().push(s.to_strbuf());
+            self.used_link_args.borrow_mut().push(s.to_string());
         }
     }
 
-    pub fn get_used_link_args<'a>(&'a self) -> &'a RefCell<Vec<StrBuf> > {
+    pub fn get_used_link_args<'a>(&'a self) -> &'a RefCell<Vec<String> > {
         &self.used_link_args
     }
 

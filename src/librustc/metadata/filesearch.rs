@@ -190,8 +190,8 @@ static PATH_ENTRY_SEPARATOR: &'static str = ";";
 static PATH_ENTRY_SEPARATOR: &'static str = ":";
 
 /// Returns RUST_PATH as a string, without default paths added
-pub fn get_rust_path() -> Option<StrBuf> {
-    os::getenv("RUST_PATH").map(|x| x.to_strbuf())
+pub fn get_rust_path() -> Option<String> {
+    os::getenv("RUST_PATH").map(|x| x.to_string())
 }
 
 /// Returns the value of RUST_PATH, as a list
@@ -240,7 +240,7 @@ pub fn rust_path() -> Vec<Path> {
 // The name of the directory rustc expects libraries to be located.
 // On Unix should be "lib", on windows "bin"
 #[cfg(unix)]
-fn find_libdir(sysroot: &Path) -> StrBuf {
+fn find_libdir(sysroot: &Path) -> String {
     // FIXME: This is a quick hack to make the rustc binary able to locate
     // Rust libraries in Linux environments where libraries might be installed
     // to lib64/lib32. This would be more foolproof by basing the sysroot off
@@ -254,27 +254,27 @@ fn find_libdir(sysroot: &Path) -> StrBuf {
     }
 
     #[cfg(target_word_size = "64")]
-    fn primary_libdir_name() -> StrBuf {
-        "lib64".to_strbuf()
+    fn primary_libdir_name() -> String {
+        "lib64".to_string()
     }
 
     #[cfg(target_word_size = "32")]
-    fn primary_libdir_name() -> StrBuf {
-        "lib32".to_strbuf()
+    fn primary_libdir_name() -> String {
+        "lib32".to_string()
     }
 
-    fn secondary_libdir_name() -> StrBuf {
-        "lib".to_strbuf()
+    fn secondary_libdir_name() -> String {
+        "lib".to_string()
     }
 }
 
 #[cfg(windows)]
-fn find_libdir(_sysroot: &Path) -> StrBuf {
-    "bin".to_strbuf()
+fn find_libdir(_sysroot: &Path) -> String {
+    "bin".to_string()
 }
 
 // The name of rustc's own place to organize libraries.
 // Used to be "rustc", now the default is "rustlib"
-pub fn rustlibdir() -> StrBuf {
-    "rustlib".to_strbuf()
+pub fn rustlibdir() -> String {
+    "rustlib".to_string()
 }

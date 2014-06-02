@@ -24,7 +24,7 @@ use std::mem;
 
 use libc::{c_uint};
 
-#[deriving(Clone, Eq, Show)]
+#[deriving(Clone, PartialEq, Show)]
 pub struct Type {
     rf: TypeRef
 }

@@ -15,19 +15,19 @@ use std::hash::Hash;
 #[deriving(Hash)]
 struct Person {
     id: uint,
-    name: StrBuf,
+    name: String,
     phone: uint,
 }
 
 fn main() {
     let person1 = Person {
         id: 5,
-        name: "Janet".to_strbuf(),
+        name: "Janet".to_string(),
         phone: 555_666_7777
     };
     let person2 = Person {
         id: 5,
-        name: "Bob".to_strbuf(),
+        name: "Bob".to_string(),
         phone: 555_666_7777
     };
     assert!(hash::hash(&person1) == hash::hash(&person1));

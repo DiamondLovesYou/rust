@@ -18,7 +18,7 @@
 
 use back::abi;
 use driver::session;
-use lib::llvm::{ValueRef, NoAliasAttribute, StructRetAttribute, NoCaptureAttribute};
+use lib::llvm::ValueRef;
 use lib::llvm::llvm;
 use metadata::csearch;
 use middle::trans::base;
@@ -102,8 +102,9 @@ fn trans<'a>(bcx: &'a Block<'a>, expr: &ast::Expr) -> Callee<'a> {
             _ => {
                 bcx.tcx().sess.span_bug(
                     expr.span,
-                    format!("type of callee is neither bare-fn nor closure: {}",
-                         bcx.ty_to_str(datum.ty)));
+                    format!("type of callee is neither bare-fn nor closure: \
+                             {}",
+                            bcx.ty_to_str(datum.ty)).as_slice());
             }
         }
     }
@@ -151,7 +152,7 @@ fn trans<'a>(bcx: &'a Block<'a>, expr: &ast::Expr) -> Callee<'a> {
                 bcx.tcx().sess.span_bug(
                     ref_expr.span,
                     format!("cannot translate def {:?} \
-                          to a callable thing!", def));
+                             to a callable thing!", def).as_slice());
             }
         }
     }
@@ -357,7 +358,7 @@ pub fn trans_fn_ref_with_vtables(
         let map_node = session::expect(
             ccx.sess(),
             tcx.map.find(def_id.node),
-            || "local item should be in ast map".to_strbuf());
+            || "local item should be in ast map".to_string());
 
         match map_node {
             ast_map::NodeForeignItem(_) => {
@@ -613,13 +614,9 @@ pub fn trans_call_inner<'a>(
             llargs.push(opt_llretslot.unwrap());
         }
 
-        // start at 1, because index 0 is the return value of the llvm func
-        let mut first_arg_offset = 1;
-
         // Push the environment (or a trait object's self).
         match (llenv, llself) {
             (Some(llenv), None) => {
-                first_arg_offset += 1;
                 llargs.push(llenv)
             },
             (None, Some(llself)) => llargs.push(llself),
@@ -633,61 +630,11 @@ pub fn trans_call_inner<'a>(
 
         fcx.pop_custom_cleanup_scope(arg_cleanup_scope);
 
-        // A function pointer is called without the declaration
-        // available, so we have to apply any attributes with ABI
-        // implications directly to the call instruction. Right now,
-        // the only attribute we need to worry about is `sret`.
-        let mut attrs = Vec::new();
-        if type_of::return_uses_outptr(ccx, ret_ty) {
-            attrs.push((1, StructRetAttribute));
-            // The outptr can be noalias and nocapture because it's entirely
-            // invisible to the program.
-            attrs.push((1, NoAliasAttribute));
-            attrs.push((1, NoCaptureAttribute));
-            first_arg_offset += 1;
-        }
-
-        // The `noalias` attribute on the return value is useful to a
-        // function ptr caller.
-        match ty::get(ret_ty).sty {
-            // `~` pointer return values never alias because ownership
-            // is transferred
-            ty::ty_uniq(ty) => match ty::get(ty).sty {
-                ty::ty_str => {}
-                _ => attrs.push((0, NoAliasAttribute)),
-            },
-            _ => {}
-        }
-
-        debug!("trans_callee_inner: first_arg_offset={}", first_arg_offset);
-
-        for (idx, &t) in ty::ty_fn_args(callee_ty).iter().enumerate()
-                                                  .map(|(i, v)| (i+first_arg_offset, v)) {
-            use middle::ty::{BrAnon, ReLateBound};
-            if !type_is_immediate(ccx, t) {
-                // if it's not immediate, we have a program-invisible pointer,
-                // which it can't possibly capture
-                attrs.push((idx, NoCaptureAttribute));
-                debug!("trans_callee_inner: argument {} nocapture because it's non-immediate", idx);
-                continue;
-            }
-
-            let t_ = ty::get(t);
-            match t_.sty {
-                ty::ty_rptr(ReLateBound(_, BrAnon(_)), _) => {
-                    debug!("trans_callee_inner: argument {} nocapture because \
-                           of anonymous lifetime", idx);
-                    attrs.push((idx, NoCaptureAttribute));
-                },
-                _ => { }
-            }
-        }
-
         // Invoke the actual rust fn and update bcx/llresult.
         let (llret, b) = base::invoke(bcx,
                                       llfn,
                                       llargs,
-                                      attrs.as_slice(),
+                                      callee_ty,
                                       call_info);
         bcx = b;
         llresult = llret;

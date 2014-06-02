@@ -35,7 +35,7 @@ impl<'f> Lub<'f> {
 
 impl<'f> Combine for Lub<'f> {
     fn infcx<'a>(&'a self) -> &'a InferCtxt<'a> { self.get_ref().infcx }
-    fn tag(&self) -> StrBuf { "lub".to_strbuf() }
+    fn tag(&self) -> String { "lub".to_string() }
     fn a_is_expected(&self) -> bool { self.get_ref().a_is_expected }
     fn trace(&self) -> TypeTrace { self.get_ref().trace.clone() }
 
@@ -185,8 +185,9 @@ impl<'f> Combine for Lub<'f> {
 
             this.get_ref().infcx.tcx.sess.span_bug(
                 this.get_ref().trace.origin.span(),
-                format!("Region {:?} is not associated with \
-                        any bound region from A!", r0))
+                format!("region {:?} is not associated with \
+                         any bound region from A!",
+                        r0).as_slice())
         }
     }
 

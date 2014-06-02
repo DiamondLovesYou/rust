@@ -10,11 +10,14 @@
 
 //! Operations and constants for signed 32-bits integers (`i32` type)
 
+#![doc(primitive = "i32")]
+
 use from_str::FromStr;
 use num::{ToStrRadix, FromStrRadix};
 use num::strconv;
 use option::Option;
 use slice::ImmutableVector;
+use string::String;
 
 pub use core::i32::{BITS, BYTES, MIN, MAX};
 

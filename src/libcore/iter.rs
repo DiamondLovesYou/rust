@@ -59,7 +59,7 @@ This `for` loop syntax can be applied to any iterator over any type.
 ## Iteration protocol and more
 
 More detailed information about iterators can be found in the [container
-guide](http://static.rust-lang.org/doc/master/guide-container.html) with
+guide](http://doc.rust-lang.org/guide-container.html) with
 the rest of the rust manuals.
 
 */
@@ -68,7 +68,7 @@ use cmp;
 use num::{Zero, One, CheckedAdd, CheckedSub, Saturating, ToPrimitive, Int};
 use option::{Option, Some, None};
 use ops::{Add, Mul, Sub};
-use cmp::{Eq, Ord, TotalOrd};
+use cmp::{PartialEq, PartialOrd, Ord};
 use clone::Clone;
 use uint;
 use mem;
@@ -611,7 +611,7 @@ pub trait Iterator<A> {
     /// assert_eq!(*xs.iter().max_by(|x| x.abs()).unwrap(), -10);
     /// ```
     #[inline]
-    fn max_by<B: TotalOrd>(&mut self, f: |&A| -> B) -> Option<A> {
+    fn max_by<B: Ord>(&mut self, f: |&A| -> B) -> Option<A> {
         self.fold(None, |max: Option<(A, B)>, x| {
             let x_val = f(&x);
             match max {
@@ -635,7 +635,7 @@ pub trait Iterator<A> {
     /// assert_eq!(*xs.iter().min_by(|x| x.abs()).unwrap(), 0);
     /// ```
     #[inline]
-    fn min_by<B: TotalOrd>(&mut self, f: |&A| -> B) -> Option<A> {
+    fn min_by<B: Ord>(&mut self, f: |&A| -> B) -> Option<A> {
         self.fold(None, |min: Option<(A, B)>, x| {
             let x_val = f(&x);
             match min {
@@ -847,7 +847,7 @@ impl<A: Mul<A, A> + One, T: Iterator<A>> MultiplicativeIterator<A> for T {
 }
 
 /// A trait for iterators over elements which can be compared to one another.
-/// The type of each element must ascribe to the `Ord` trait.
+/// The type of each element must ascribe to the `PartialOrd` trait.
 pub trait OrdIterator<A> {
     /// Consumes the entire iterator to return the maximum element.
     ///
@@ -872,10 +872,12 @@ pub trait OrdIterator<A> {
     /// `min_max` finds the minimum and maximum elements in the iterator.
     ///
     /// The return type `MinMaxResult` is an enum of three variants:
+    ///
     /// - `NoElements` if the iterator is empty.
     /// - `OneElement(x)` if the iterator has exactly one element.
-    /// - `MinMax(x, y)` is returned otherwise, where `x <= y`. Two values are equal if and only if
-    /// there is more than one element in the iterator and all elements are equal.
+    /// - `MinMax(x, y)` is returned otherwise, where `x <= y`. Two
+    ///    values are equal if and only if there is more than one
+    ///    element in the iterator and all elements are equal.
     ///
     /// On an iterator of length `n`, `min_max` does `1.5 * n` comparisons,
     /// and so faster than calling `min` and `max separately which does `2 * n` comparisons.
@@ -903,7 +905,7 @@ pub trait OrdIterator<A> {
     fn min_max(&mut self) -> MinMaxResult<A>;
 }
 
-impl<A: TotalOrd, T: Iterator<A>> OrdIterator<A> for T {
+impl<A: Ord, T: Iterator<A>> OrdIterator<A> for T {
     #[inline]
     fn max(&mut self) -> Option<A> {
         self.fold(None, |max, x| {
@@ -969,7 +971,7 @@ impl<A: TotalOrd, T: Iterator<A>> OrdIterator<A> for T {
 }
 
 /// `MinMaxResult` is an enum returned by `min_max`. See `OrdIterator::min_max` for more detail.
-#[deriving(Clone, Eq, Show)]
+#[deriving(Clone, PartialEq, Show)]
 pub enum MinMaxResult<T> {
     /// Empty iterator
     NoElements,
@@ -1943,12 +1945,12 @@ pub struct Range<A> {
 
 /// Return an iterator over the range [start, stop)
 #[inline]
-pub fn range<A: Add<A, A> + Ord + Clone + One>(start: A, stop: A) -> Range<A> {
+pub fn range<A: Add<A, A> + PartialOrd + Clone + One>(start: A, stop: A) -> Range<A> {
     Range{state: start, stop: stop, one: One::one()}
 }
 
 // FIXME: #10414: Unfortunate type bound
-impl<A: Add<A, A> + Ord + Clone + ToPrimitive> Iterator<A> for Range<A> {
+impl<A: Add<A, A> + PartialOrd + Clone + ToPrimitive> Iterator<A> for Range<A> {
     #[inline]
     fn next(&mut self) -> Option<A> {
         if self.state < self.stop {
@@ -1995,7 +1997,7 @@ impl<A: Add<A, A> + Ord + Clone + ToPrimitive> Iterator<A> for Range<A> {
 
 /// `Int` is required to ensure the range will be the same regardless of
 /// the direction it is consumed.
-impl<A: Int + Ord + Clone + ToPrimitive> DoubleEndedIterator<A> for Range<A> {
+impl<A: Int + PartialOrd + Clone + ToPrimitive> DoubleEndedIterator<A> for Range<A> {
     #[inline]
     fn next_back(&mut self) -> Option<A> {
         if self.stop > self.state {
@@ -2016,12 +2018,12 @@ pub struct RangeInclusive<A> {
 
 /// Return an iterator over the range [start, stop]
 #[inline]
-pub fn range_inclusive<A: Add<A, A> + Ord + Clone + One>(start: A, stop: A)
+pub fn range_inclusive<A: Add<A, A> + PartialOrd + Clone + One>(start: A, stop: A)
     -> RangeInclusive<A> {
     RangeInclusive{range: range(start, stop), done: false}
 }
 
-impl<A: Add<A, A> + Ord + Clone + ToPrimitive> Iterator<A> for RangeInclusive<A> {
+impl<A: Add<A, A> + PartialOrd + Clone + ToPrimitive> Iterator<A> for RangeInclusive<A> {
     #[inline]
     fn next(&mut self) -> Option<A> {
         match self.range.next() {
@@ -2053,7 +2055,7 @@ impl<A: Add<A, A> + Ord + Clone + ToPrimitive> Iterator<A> for RangeInclusive<A>
     }
 }
 
-impl<A: Sub<A, A> + Int + Ord + Clone + ToPrimitive> DoubleEndedIterator<A>
+impl<A: Sub<A, A> + Int + PartialOrd + Clone + ToPrimitive> DoubleEndedIterator<A>
     for RangeInclusive<A> {
     #[inline]
     fn next_back(&mut self) -> Option<A> {
@@ -2081,12 +2083,13 @@ pub struct RangeStep<A> {
 
 /// Return an iterator over the range [start, stop) by `step`. It handles overflow by stopping.
 #[inline]
-pub fn range_step<A: CheckedAdd + Ord + Clone + Zero>(start: A, stop: A, step: A) -> RangeStep<A> {
+pub fn range_step<A: CheckedAdd + PartialOrd +
+                  Clone + Zero>(start: A, stop: A, step: A) -> RangeStep<A> {
     let rev = step < Zero::zero();
     RangeStep{state: start, stop: stop, step: step, rev: rev}
 }
 
-impl<A: CheckedAdd + Ord + Clone> Iterator<A> for RangeStep<A> {
+impl<A: CheckedAdd + PartialOrd + Clone> Iterator<A> for RangeStep<A> {
     #[inline]
     fn next(&mut self) -> Option<A> {
         if (self.rev && self.state > self.stop) || (!self.rev && self.state < self.stop) {
@@ -2114,13 +2117,13 @@ pub struct RangeStepInclusive<A> {
 
 /// Return an iterator over the range [start, stop] by `step`. It handles overflow by stopping.
 #[inline]
-pub fn range_step_inclusive<A: CheckedAdd + Ord + Clone + Zero>(start: A, stop: A,
+pub fn range_step_inclusive<A: CheckedAdd + PartialOrd + Clone + Zero>(start: A, stop: A,
                                                                 step: A) -> RangeStepInclusive<A> {
     let rev = step < Zero::zero();
     RangeStepInclusive{state: start, stop: stop, step: step, rev: rev, done: false}
 }
 
-impl<A: CheckedAdd + Ord + Clone + Eq> Iterator<A> for RangeStepInclusive<A> {
+impl<A: CheckedAdd + PartialOrd + Clone + PartialEq> Iterator<A> for RangeStepInclusive<A> {
     #[inline]
     fn next(&mut self) -> Option<A> {
         if !self.done && ((self.rev && self.state >= self.stop) ||
@@ -2173,18 +2176,18 @@ impl<A: Clone> RandomAccessIterator<A> for Repeat<A> {
 /// Functions for lexicographical ordering of sequences.
 ///
 /// Lexicographical ordering through `<`, `<=`, `>=`, `>` requires
-/// that the elements implement both `Eq` and `Ord`.
+/// that the elements implement both `PartialEq` and `PartialOrd`.
 ///
 /// If two sequences are equal up until the point where one ends,
 /// the shorter sequence compares less.
 pub mod order {
     use cmp;
-    use cmp::{TotalEq, TotalOrd, Ord, Eq};
+    use cmp::{Eq, Ord, PartialOrd, PartialEq};
     use option::{Some, None};
     use super::Iterator;
 
-    /// Compare `a` and `b` for equality using `TotalEq`
-    pub fn equals<A: TotalEq, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
+    /// Compare `a` and `b` for equality using `Eq`
+    pub fn equals<A: Eq, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return true,
@@ -2194,8 +2197,8 @@ pub mod order {
         }
     }
 
-    /// Order `a` and `b` lexicographically using `TotalOrd`
-    pub fn cmp<A: TotalOrd, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> cmp::Ordering {
+    /// Order `a` and `b` lexicographically using `Ord`
+    pub fn cmp<A: Ord, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> cmp::Ordering {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return cmp::Equal,
@@ -2209,8 +2212,8 @@ pub mod order {
         }
     }
 
-    /// Compare `a` and `b` for equality (Using partial equality, `Eq`)
-    pub fn eq<A: Eq, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
+    /// Compare `a` and `b` for equality (Using partial equality, `PartialEq`)
+    pub fn eq<A: PartialEq, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return true,
@@ -2220,8 +2223,8 @@ pub mod order {
         }
     }
 
-    /// Compare `a` and `b` for nonequality (Using partial equality, `Eq`)
-    pub fn ne<A: Eq, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
+    /// Compare `a` and `b` for nonequality (Using partial equality, `PartialEq`)
+    pub fn ne<A: PartialEq, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return false,
@@ -2231,8 +2234,8 @@ pub mod order {
         }
     }
 
-    /// Return `a` < `b` lexicographically (Using partial order, `Ord`)
-    pub fn lt<A: Ord, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
+    /// Return `a` < `b` lexicographically (Using partial order, `PartialOrd`)
+    pub fn lt<A: PartialOrd, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return false,
@@ -2243,8 +2246,8 @@ pub mod order {
         }
     }
 
-    /// Return `a` <= `b` lexicographically (Using partial order, `Ord`)
-    pub fn le<A: Ord, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
+    /// Return `a` <= `b` lexicographically (Using partial order, `PartialOrd`)
+    pub fn le<A: PartialOrd, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return true,
@@ -2255,8 +2258,8 @@ pub mod order {
         }
     }
 
-    /// Return `a` > `b` lexicographically (Using partial order, `Ord`)
-    pub fn gt<A: Ord, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
+    /// Return `a` > `b` lexicographically (Using partial order, `PartialOrd`)
+    pub fn gt<A: PartialOrd, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return false,
@@ -2267,8 +2270,8 @@ pub mod order {
         }
     }
 
-    /// Return `a` >= `b` lexicographically (Using partial order, `Ord`)
-    pub fn ge<A: Ord, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
+    /// Return `a` >= `b` lexicographically (Using partial order, `PartialOrd`)
+    pub fn ge<A: PartialOrd, T: Iterator<A>, S: Iterator<A>>(mut a: T, mut b: S) -> bool {
         loop {
             match (a.next(), b.next()) {
                 (None, None) => return true,
@@ -2847,7 +2850,7 @@ mod tests {
 
 
     #[cfg(test)]
-    fn check_randacc_iter<A: Eq, T: Clone + RandomAccessIterator<A>>(a: T, len: uint)
+    fn check_randacc_iter<A: PartialEq, T: Clone + RandomAccessIterator<A>>(a: T, len: uint)
     {
         let mut b = a.clone();
         assert_eq!(len, b.indexable());
@@ -3007,13 +3010,13 @@ mod tests {
             }
         }
 
-        impl Eq for Foo {
+        impl PartialEq for Foo {
             fn eq(&self, _: &Foo) -> bool {
                 true
             }
         }
 
-        impl Ord for Foo {
+        impl PartialOrd for Foo {
             fn lt(&self, _: &Foo) -> bool {
                 false
             }

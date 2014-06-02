@@ -125,7 +125,7 @@
 //! }
 //! ```
 //!
-//! > **Note**: This `main` funciton in this example does *not* have I/O
+//! > **Note**: This `main` function in this example does *not* have I/O
 //! >           support. The basic event loop does not provide any support
 //!
 //! # Starting with I/O support in libgreen
@@ -203,7 +203,7 @@
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 
 // NB this does *not* include globs, please keep it that way.
 #![feature(macro_rules, phase)]
@@ -212,7 +212,6 @@
 
 #[cfg(test)] #[phase(syntax, link)] extern crate log;
 #[cfg(test)] extern crate rustuv;
-extern crate rand;
 extern crate libc;
 extern crate alloc;
 

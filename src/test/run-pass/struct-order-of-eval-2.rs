@@ -9,14 +9,14 @@
 // except according to those terms.
 
 struct S {
-    f0: StrBuf,
-    f1: StrBuf,
+    f0: String,
+    f1: String,
 }
 
 pub fn main() {
-    let s = "Hello, world!".to_strbuf();
+    let s = "Hello, world!".to_string();
     let _s = S {
-        f1: s.to_strbuf(),
+        f1: s.to_string(),
         f0: s
     };
 }

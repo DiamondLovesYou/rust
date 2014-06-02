@@ -854,11 +854,11 @@ mod test {
         }
         check!(unlink(filename));
         let read_str = str::from_utf8(read_mem).unwrap();
-        assert!(read_str == final_msg.to_owned());
+        assert!(read_str.as_slice() == final_msg.as_slice());
     })
 
     iotest!(fn file_test_io_seek_shakedown() {
-        use std::str;          // 01234567890123
+        use str;          // 01234567890123
         let initial_msg =   "qwer-asdf-zxcv";
         let chunk_one: &str = "qwer";
         let chunk_two: &str = "asdf";
@@ -946,7 +946,7 @@ mod test {
     })
 
     iotest!(fn file_test_directoryinfo_readdir() {
-        use std::str;
+        use str;
         let tmpdir = tmpdir();
         let dir = &tmpdir.join("di_readdir");
         check!(mkdir(dir, io::UserRWX));
@@ -954,8 +954,8 @@ mod test {
         for n in range(0,3) {
             let f = dir.join(format!("{}.txt", n));
             let mut w = check!(File::create(&f));
-            let msg_str = (prefix + n.to_str().to_owned()).to_owned();
-            let msg = msg_str.as_bytes();
+            let msg_str = format!("{}{}", prefix, n.to_str());
+            let msg = msg_str.as_slice().as_bytes();
             check!(w.write(msg));
         }
         let files = check!(readdir(dir));
@@ -967,7 +967,7 @@ mod test {
                 let read_str = str::from_utf8(mem).unwrap();
                 let expected = match n {
                     None|Some("") => fail!("really shouldn't happen.."),
-                    Some(n) => prefix+n
+                    Some(n) => format!("{}{}", prefix, n),
                 };
                 assert_eq!(expected.as_slice(), read_str);
             }

@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -104,8 +104,8 @@ pub struct EnvValue {
 }
 
 impl EnvValue {
-    pub fn to_str(&self, ccx: &CrateContext) -> StrBuf {
-        format_strbuf!("{}({})", self.action, self.datum.to_str(ccx))
+    pub fn to_str(&self, ccx: &CrateContext) -> String {
+        format!("{}({})", self.action, self.datum.to_str(ccx))
     }
 }
 
@@ -205,7 +205,7 @@ pub fn store_environment<'a>(
 
         if ccx.sess().asm_comments() {
             add_comment(bcx, format!("Copy {} into closure",
-                                  bv.to_str(ccx)));
+                                     bv.to_str(ccx)).as_slice());
         }
 
         let bound_data = GEPi(bcx, llbox, [0u, abi::box_field_body, i]);
@@ -340,21 +340,12 @@ pub fn trans_expr_fn<'a>(
     };
 
     let ccx = bcx.ccx();
-    let fty = node_id_type(bcx, id);
-    let f = match ty::get(fty).sty {
-        ty::ty_closure(ref f) => f,
-        _ => fail!("expected closure")
-    };
-
     let tcx = bcx.tcx();
+    let fty = node_id_type(bcx, id);
     let s = tcx.map.with_path(id, |path| {
         mangle_internal_name_by_path_and_seq(path, "closure")
     });
-    let llfn = decl_internal_rust_fn(ccx,
-                                     true,
-                                     f.sig.inputs.as_slice(),
-                                     f.sig.output,
-                                     s.as_slice());
+    let llfn = decl_internal_rust_fn(ccx, fty, s.as_slice());
 
     // set an inline hint for all closures
     set_inline_hint(llfn);
@@ -386,8 +377,9 @@ pub fn get_wrapper_for_bare_fn(ccx: &CrateContext,
         ast::DefVariant(_, did, _) | ast::DefStruct(did) => did,
         _ => {
             ccx.sess().bug(format!("get_wrapper_for_bare_fn: \
-                                    expected a statically resolved fn, got {:?}",
-                                    def));
+                                    expected a statically resolved fn, got \
+                                    {:?}",
+                                    def).as_slice());
         }
     };
 
@@ -405,7 +397,7 @@ pub fn get_wrapper_for_bare_fn(ccx: &CrateContext,
         _ => {
             ccx.sess().bug(format!("get_wrapper_for_bare_fn: \
                                     expected a closure ty, got {}",
-                                    closure_ty.repr(tcx)));
+                                    closure_ty.repr(tcx)).as_slice());
         }
     };
 
@@ -413,17 +405,9 @@ pub fn get_wrapper_for_bare_fn(ccx: &CrateContext,
         mangle_internal_name_by_path_and_seq(path, "as_closure")
     });
     let llfn = if is_local {
-        decl_internal_rust_fn(ccx,
-                              true,
-                              f.sig.inputs.as_slice(),
-                              f.sig.output,
-                              name.as_slice())
+        decl_internal_rust_fn(ccx, closure_ty, name.as_slice())
     } else {
-        decl_rust_fn(ccx,
-                     true,
-                     f.sig.inputs.as_slice(),
-                     f.sig.output,
-                     name.as_slice())
+        decl_rust_fn(ccx, closure_ty, name.as_slice())
     };
 
     ccx.closure_bare_wrapper_cache.borrow_mut().insert(fn_ptr, llfn);
@@ -476,5 +460,5 @@ pub fn make_closure_from_bare_fn<'a>(bcx: &'a Block<'a>,
     let wrapper = get_wrapper_for_bare_fn(bcx.ccx(), closure_ty, def, fn_ptr, true);
     fill_fn_pair(bcx, scratch.val, wrapper, C_null(Type::i8p(bcx.ccx())));
 
-    DatumBlock(bcx, scratch.to_expr_datum())
+    DatumBlock::new(bcx, scratch.to_expr_datum())
 }

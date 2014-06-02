@@ -55,7 +55,7 @@ pub enum CleanupScopeKind<'a> {
     LoopScopeKind(ast::NodeId, [&'a Block<'a>, ..EXIT_MAX])
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum EarlyExitLabel {
     UnwindExit,
     ReturnExit,
@@ -278,13 +278,14 @@ impl<'a> CleanupMethods<'a> for FunctionContext<'a> {
     fn schedule_free_value(&self,
                            cleanup_scope: ScopeId,
                            val: ValueRef,
-                           heap: Heap) {
+                           heap: Heap,
+                           content_ty: ty::t) {
         /*!
          * Schedules a call to `free(val)`. Note that this is a shallow
          * operation.
          */
 
-        let drop = box FreeValue { ptr: val, heap: heap };
+        let drop = box FreeValue { ptr: val, heap: heap, content_ty: content_ty };
 
         debug!("schedule_free_value({:?}, val={}, heap={:?})",
                cleanup_scope,
@@ -328,7 +329,7 @@ impl<'a> CleanupMethods<'a> for FunctionContext<'a> {
 
         self.ccx.sess().bug(
             format!("no cleanup scope {} found",
-                    self.ccx.tcx.map.node_to_str(cleanup_scope)));
+                    self.ccx.tcx.map.node_to_str(cleanup_scope)).as_slice());
     }
 
     fn schedule_clean_in_custom_scope(&self,
@@ -530,7 +531,7 @@ impl<'a> CleanupHelperMethods<'a> for FunctionContext<'a> {
                     LoopExit(id, _) => {
                         self.ccx.sess().bug(format!(
                                 "cannot exit from scope {:?}, \
-                                not in scope", id));
+                                not in scope", id).as_slice());
                     }
                 }
             }
@@ -755,16 +756,16 @@ impl<'a> CleanupScope<'a> {
             self.cleanups.iter().any(|c| c.clean_on_unwind())
     }
 
-    fn block_name(&self, prefix: &str) -> StrBuf {
+    fn block_name(&self, prefix: &str) -> String {
         /*!
          * Returns a suitable name to use for the basic block that
          * handles this cleanup scope
          */
 
         match self.kind {
-            CustomScopeKind => format_strbuf!("{}_custom_", prefix),
-            AstScopeKind(id) => format_strbuf!("{}_ast_{}_", prefix, id),
-            LoopScopeKind(id, _) => format_strbuf!("{}_loop_{}_", prefix, id),
+            CustomScopeKind => format!("{}_custom_", prefix),
+            AstScopeKind(id) => format!("{}_ast_{}_", prefix, id),
+            LoopScopeKind(id, _) => format!("{}_loop_{}_", prefix, id),
         }
     }
 }
@@ -847,6 +848,7 @@ pub enum Heap {
 pub struct FreeValue {
     ptr: ValueRef,
     heap: Heap,
+    content_ty: ty::t
 }
 
 impl Cleanup for FreeValue {
@@ -860,7 +862,7 @@ impl Cleanup for FreeValue {
                 glue::trans_free(bcx, self.ptr)
             }
             HeapExchange => {
-                glue::trans_exchange_free(bcx, self.ptr)
+                glue::trans_exchange_free_ty(bcx, self.ptr, self.content_ty)
             }
         }
     }
@@ -876,7 +878,8 @@ pub fn temporary_scope(tcx: &ty::ctxt,
             r
         }
         None => {
-            tcx.sess.bug(format!("no temporary scope available for expr {}", id))
+            tcx.sess.bug(format!("no temporary scope available for expr {}",
+                                 id).as_slice())
         }
     }
 }
@@ -931,7 +934,8 @@ pub trait CleanupMethods<'a> {
     fn schedule_free_value(&self,
                            cleanup_scope: ScopeId,
                            val: ValueRef,
-                           heap: Heap);
+                           heap: Heap,
+                           content_ty: ty::t);
     fn schedule_clean(&self,
                       cleanup_scope: ScopeId,
                       cleanup: Box<Cleanup>);

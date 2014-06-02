@@ -14,7 +14,7 @@ use std::cmp;
 #[deriving(Show)]
 enum cat_type { tuxedo, tabby, tortoiseshell }
 
-impl cmp::Eq for cat_type {
+impl cmp::PartialEq for cat_type {
     fn eq(&self, other: &cat_type) -> bool {
         ((*self) as uint) == ((*other) as uint)
     }
@@ -114,9 +114,9 @@ impl<T> cat<T> {
 }
 
 pub fn main() {
-    let mut nyan: cat<StrBuf> = cat::new(0, 2, "nyan".to_strbuf());
+    let mut nyan: cat<String> = cat::new(0, 2, "nyan".to_string());
     for _ in range(1u, 5) { nyan.speak(); }
-    assert!(*nyan.find(&1).unwrap() == "nyan".to_strbuf());
+    assert!(*nyan.find(&1).unwrap() == "nyan".to_string());
     assert_eq!(nyan.find(&10), None);
     let mut spotty: cat<cat_type> = cat::new(2, 57, tuxedo);
     for _ in range(0u, 6) { spotty.speak(); }

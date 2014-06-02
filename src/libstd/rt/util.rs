@@ -15,11 +15,11 @@ use io::IoResult;
 use io;
 use iter::Iterator;
 use libc;
+use libc::uintptr_t;
 use option::{Some, None, Option};
 use os;
 use result::Ok;
-use str::StrSlice;
-use unstable::running_on_valgrind;
+use str::{Str, StrSlice};
 use slice::ImmutableVector;
 
 // Indicates whether we should perform expensive sanity checks, including rtassert!
@@ -55,7 +55,7 @@ pub fn limit_thread_creation_due_to_osx_and_valgrind() -> bool {
 pub fn default_sched_threads() -> uint {
     match os::getenv("RUST_THREADS") {
         Some(nstr) => {
-            let opt_n: Option<uint> = FromStr::from_str(nstr);
+            let opt_n: Option<uint> = FromStr::from_str(nstr.as_slice());
             match opt_n {
                 Some(n) if n > 0 => n,
                 _ => rtabort!("`RUST_THREADS` is `{}`, should be a positive integer", nstr)
@@ -145,6 +145,7 @@ which at the time convulsed us with joy, yet which are now partly lost to my
 memory and partly incapable of presentation to others.",
         _ => "You've met with a terrible fate, haven't you?"
     };
+    ::alloc::util::make_stdlib_link_work(); // see comments in liballoc
     rterrln!("{}", "");
     rterrln!("{}", quote);
     rterrln!("{}", "");
@@ -160,4 +161,16 @@ memory and partly incapable of presentation to others.",
         use intrinsics;
         unsafe { intrinsics::abort() }
     }
+}
+
+/// Dynamically inquire about whether we're running under V.
+/// You should usually not use this unless your test definitely
+/// can't run correctly un-altered. Valgrind is there to help
+/// you notice weirdness in normal, un-doctored code paths!
+pub fn running_on_valgrind() -> bool {
+    unsafe { rust_running_on_valgrind() != 0 }
+}
+
+extern {
+    fn rust_running_on_valgrind() -> uintptr_t;
 }

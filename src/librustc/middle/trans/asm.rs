@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -23,7 +23,7 @@ use middle::trans::type_of;
 use middle::trans::type_::Type;
 
 use std::c_str::ToCStr;
-use std::strbuf::StrBuf;
+use std::string::String;
 use syntax::ast;
 
 // Take an inline assembly expression and splat it out via LLVM
@@ -64,14 +64,15 @@ pub fn trans_inline_asm<'a>(bcx: &'a Block<'a>, ia: &ast::InlineAsm)
     fcx.pop_custom_cleanup_scope(temp_scope);
 
     let mut constraints =
-        StrBuf::from_str(constraints.iter()
-                                    .map(|s| s.get().to_strbuf())
-                                    .collect::<Vec<StrBuf>>()
-                                    .connect(","));
+        String::from_str(constraints.iter()
+                                    .map(|s| s.get().to_string())
+                                    .collect::<Vec<String>>()
+                                    .connect(",")
+                                    .as_slice());
 
-    let mut clobbers = getClobbers();
+    let mut clobbers = get_clobbers();
     if !ia.clobbers.get().is_empty() && !clobbers.is_empty() {
-        clobbers = format_strbuf!("{},{}", ia.clobbers.get(), clobbers);
+        clobbers = format!("{},{}", ia.clobbers.get(), clobbers);
     } else {
         clobbers.push_str(ia.clobbers.get());
     }
@@ -134,12 +135,12 @@ pub fn trans_inline_asm<'a>(bcx: &'a Block<'a>, ia: &ast::InlineAsm)
 
 #[cfg(target_arch = "arm")]
 #[cfg(target_arch = "mips")]
-fn getClobbers() -> StrBuf {
-    "".to_strbuf()
+fn get_clobbers() -> String {
+    "".to_string()
 }
 
 #[cfg(target_arch = "x86")]
 #[cfg(target_arch = "x86_64")]
-fn getClobbers() -> StrBuf {
-    "~{dirflag},~{fpsr},~{flags}".to_strbuf()
+fn get_clobbers() -> String {
+    "~{dirflag},~{fpsr},~{flags}".to_string()
 }

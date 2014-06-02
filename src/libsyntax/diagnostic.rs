@@ -17,7 +17,7 @@ use std::cell::{RefCell, Cell};
 use std::fmt;
 use std::io;
 use std::iter::range;
-use std::strbuf::StrBuf;
+use std::string::String;
 use term;
 
 // maximum number of lines we will print for each error; arbitrary.
@@ -106,7 +106,7 @@ impl SpanHandler {
         fail!(ExplicitBug);
     }
     pub fn span_unimpl(&self, sp: Span, msg: &str) -> ! {
-        self.span_bug(sp, "unimplemented ".to_owned() + msg);
+        self.span_bug(sp, format!("unimplemented {}", msg).as_slice());
     }
     pub fn handler<'a>(&'a self) -> &'a Handler {
         &self.handler
@@ -143,13 +143,13 @@ impl Handler {
         let s;
         match self.err_count.get() {
           0u => return,
-          1u => s = "aborting due to previous error".to_owned(),
+          1u => s = "aborting due to previous error".to_string(),
           _  => {
             s = format!("aborting due to {} previous errors",
-                     self.err_count.get());
+                        self.err_count.get());
           }
         }
-        self.fatal(s);
+        self.fatal(s.as_slice());
     }
     pub fn warn(&self, msg: &str) {
         self.emit.borrow_mut().emit(None, msg, Warning);
@@ -162,7 +162,7 @@ impl Handler {
         fail!(ExplicitBug);
     }
     pub fn unimpl(&self, msg: &str) -> ! {
-        self.bug("unimplemented ".to_owned() + msg);
+        self.bug(format!("unimplemented {}", msg).as_slice());
     }
     pub fn emit(&self,
                 cmsp: Option<(&codemap::CodeMap, Span)>,
@@ -194,7 +194,7 @@ pub fn mk_handler(e: Box<Emitter:Send>) -> Handler {
     }
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum Level {
     Bug,
     Fatal,
@@ -267,9 +267,12 @@ fn print_diagnostic(dst: &mut EmitterWriter,
         try!(write!(&mut dst.dst, "{} ", topic));
     }
 
-    try!(print_maybe_styled(dst, format!("{}: ", lvl.to_str()),
+    try!(print_maybe_styled(dst,
+                            format!("{}: ", lvl.to_str()).as_slice(),
                             term::attr::ForegroundColor(lvl.color())));
-    try!(print_maybe_styled(dst, format!("{}\n", msg), term::attr::Bold));
+    try!(print_maybe_styled(dst,
+                            format!("{}\n", msg).as_slice(),
+                            term::attr::Bold));
     Ok(())
 }
 
@@ -402,7 +405,7 @@ fn highlight_lines(err: &mut EmitterWriter,
 
         // indent past |name:## | and the 0-offset column location
         let left = fm.name.len() + digits + lo.col.to_uint() + 3u;
-        let mut s = StrBuf::new();
+        let mut s = String::new();
         // Skip is the number of characters we need to skip because they are
         // part of the 'filename:line ' part of the previous line.
         let skip = fm.name.len() + digits + 3u;
@@ -422,7 +425,7 @@ fn highlight_lines(err: &mut EmitterWriter,
             };
         }
         try!(write!(&mut err.dst, "{}", s));
-        let mut s = StrBuf::from_str("^");
+        let mut s = String::from_str("^");
         let hi = cm.lookup_char_pos(sp.hi);
         if hi.col != lo.col {
             // the ^ already takes up one space
@@ -431,7 +434,8 @@ fn highlight_lines(err: &mut EmitterWriter,
                 s.push_char('~');
             }
         }
-        try!(print_maybe_styled(err, s.into_owned() + "\n",
+        try!(print_maybe_styled(err,
+                                format!("{}\n", s).as_slice(),
                                 term::attr::ForegroundColor(lvl.color())));
     }
     Ok(())
@@ -469,14 +473,14 @@ fn custom_highlight_lines(w: &mut EmitterWriter,
     let hi = cm.lookup_char_pos(sp.hi);
     // Span seems to use half-opened interval, so subtract 1
     let skip = last_line_start.len() + hi.col.to_uint() - 1;
-    let mut s = StrBuf::new();
+    let mut s = String::new();
     for _ in range(0, skip) {
         s.push_char(' ');
     }
     s.push_char('^');
     s.push_char('\n');
     print_maybe_styled(w,
-                       s.into_owned(),
+                       s.as_slice(),
                        term::attr::ForegroundColor(lvl.color()))
 }
 
@@ -488,14 +492,15 @@ fn print_macro_backtrace(w: &mut EmitterWriter,
         let ss = ei.callee
                    .span
                    .as_ref()
-                   .map_or("".to_strbuf(), |span| cm.span_to_str(*span));
+                   .map_or("".to_string(), |span| cm.span_to_str(*span));
         let (pre, post) = match ei.callee.format {
             codemap::MacroAttribute => ("#[", "]"),
             codemap::MacroBang => ("", "!")
         };
         try!(print_diagnostic(w, ss.as_slice(), Note,
                               format!("in expansion of {}{}{}", pre,
-                                      ei.callee.name, post)));
+                                      ei.callee.name,
+                                      post).as_slice()));
         let ss = cm.span_to_str(ei.call_site);
         try!(print_diagnostic(w, ss.as_slice(), Note, "expansion site"));
         try!(print_macro_backtrace(w, cm, ei.call_site));
@@ -503,7 +508,7 @@ fn print_macro_backtrace(w: &mut EmitterWriter,
     Ok(())
 }
 
-pub fn expect<T:Clone>(diag: &SpanHandler, opt: Option<T>, msg: || -> StrBuf)
+pub fn expect<T:Clone>(diag: &SpanHandler, opt: Option<T>, msg: || -> String)
               -> T {
     match opt {
        Some(ref t) => (*t).clone(),

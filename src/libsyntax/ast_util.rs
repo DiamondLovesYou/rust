@@ -21,14 +21,14 @@ use visit;
 
 use std::cell::Cell;
 use std::cmp;
-use std::strbuf::StrBuf;
+use std::string::String;
 use std::u32;
 
-pub fn path_name_i(idents: &[Ident]) -> StrBuf {
+pub fn path_name_i(idents: &[Ident]) -> String {
     // FIXME: Bad copies (#2543 -- same for everything else that says "bad")
     idents.iter().map(|i| {
-        token::get_ident(*i).get().to_strbuf()
-    }).collect::<Vec<StrBuf>>().connect("::").to_strbuf()
+        token::get_ident(*i).get().to_string()
+    }).collect::<Vec<String>>().connect("::").to_string()
 }
 
 // totally scary function: ignores all but the last element, should have
@@ -139,7 +139,7 @@ pub enum SuffixMode {
 
 // Get a string representation of a signed int type, with its value.
 // We want to avoid "45int" and "-3int" in favor of "45" and "-3"
-pub fn int_ty_to_str(t: IntTy, val: Option<i64>, mode: SuffixMode) -> StrBuf {
+pub fn int_ty_to_str(t: IntTy, val: Option<i64>, mode: SuffixMode) -> String {
     let s = match t {
         TyI if val.is_some() => match mode {
             AutoSuffix => "",
@@ -156,8 +156,8 @@ pub fn int_ty_to_str(t: IntTy, val: Option<i64>, mode: SuffixMode) -> StrBuf {
         // cast to a u64 so we can correctly print INT64_MIN. All integral types
         // are parsed as u64, so we wouldn't want to print an extra negative
         // sign.
-        Some(n) => format!("{}{}", n as u64, s).to_strbuf(),
-        None => s.to_strbuf()
+        Some(n) => format!("{}{}", n as u64, s).to_string(),
+        None => s.to_string()
     }
 }
 
@@ -172,7 +172,7 @@ pub fn int_ty_max(t: IntTy) -> u64 {
 
 // Get a string representation of an unsigned int type, with its value.
 // We want to avoid "42uint" in favor of "42u"
-pub fn uint_ty_to_str(t: UintTy, val: Option<u64>, mode: SuffixMode) -> StrBuf {
+pub fn uint_ty_to_str(t: UintTy, val: Option<u64>, mode: SuffixMode) -> String {
     let s = match t {
         TyU if val.is_some() => match mode {
             AutoSuffix => "",
@@ -186,8 +186,8 @@ pub fn uint_ty_to_str(t: UintTy, val: Option<u64>, mode: SuffixMode) -> StrBuf {
     };
 
     match val {
-        Some(n) => format!("{}{}", n, s).to_strbuf(),
-        None => s.to_strbuf()
+        Some(n) => format!("{}{}", n, s).to_string(),
+        None => s.to_string()
     }
 }
 
@@ -200,11 +200,11 @@ pub fn uint_ty_max(t: UintTy) -> u64 {
     }
 }
 
-pub fn float_ty_to_str(t: FloatTy) -> StrBuf {
+pub fn float_ty_to_str(t: FloatTy) -> String {
     match t {
-        TyF32 => "f32".to_strbuf(),
-        TyF64 => "f64".to_strbuf(),
-        TyF128 => "f128".to_strbuf(),
+        TyF32 => "f32".to_string(),
+        TyF64 => "f64".to_string(),
+        TyF128 => "f128".to_string(),
     }
 }
 
@@ -305,6 +305,7 @@ pub fn trait_method_to_ty_method(method: &TraitMethod) -> TypeMethod {
                 explicit_self: m.explicit_self,
                 id: m.id,
                 span: m.span,
+                vis: m.vis,
             }
         }
     }
@@ -656,7 +657,7 @@ pub fn walk_pat(pat: &Pat, it: |&Pat| -> bool) -> bool {
         PatEnum(_, Some(ref s)) | PatTup(ref s) => {
             s.iter().advance(|&p| walk_pat(p, |p| it(p)))
         }
-        PatUniq(s) | PatRegion(s) => {
+        PatBox(s) | PatRegion(s) => {
             walk_pat(s, it)
         }
         PatVec(ref before, ref slice, ref after) => {
@@ -664,6 +665,7 @@ pub fn walk_pat(pat: &Pat, it: |&Pat| -> bool) -> bool {
                 slice.iter().advance(|&p| walk_pat(p, |p| it(p))) &&
                 after.iter().advance(|&p| walk_pat(p, |p| it(p)))
         }
+        PatMac(_) => fail!("attempted to analyze unexpanded pattern"),
         PatWild | PatWildMulti | PatLit(_) | PatRange(_, _) | PatIdent(_, _, _) |
         PatEnum(_, _) => {
             true

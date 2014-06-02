@@ -11,6 +11,7 @@ Documenting Rust APIs is quite simple. To document a given item, we have "doc
 comments":
 
 ~~~
+# #![allow(unused_attribute)]
 // the "link" crate attribute is currently required for rustdoc, but normally
 // isn't needed.
 #![crate_id = "universe"]
@@ -26,7 +27,7 @@ comments":
 pub struct Widget {
 	/// All widgets have a purpose (this is a doc comment, and will show up
 	/// the field's documentation).
-	purpose: StrBuf,
+	purpose: String,
 	/// Humans are not allowed to understand some widgets
 	understandable: bool
 }
@@ -39,6 +40,31 @@ pub fn recalibrate() {
 }
 # }
 ~~~
+
+Documentation can also be controlled via the `doc` attribute on items. This is
+implicitly done by the compiler when using the above form of doc comments
+(converting the slash-based comments to `#[doc]` attributes).
+
+~~~
+#[doc = "
+Calculates the factorial of a number.
+
+Given the input integer `n`, this function will calculate `n!` and return it.
+"]
+pub fn factorial(n: int) -> int { if n < 2 {1} else {n * factorial(n)} }
+# fn main() {}
+~~~
+
+The `doc` attribute can also be used to control how rustdoc emits documentation
+in some cases.
+
+```
+// Rustdoc will inline documentation of a `pub use` into this crate when the
+// `pub use` reaches across crates, but this behavior can also be disabled.
+#[doc(no_inline)]
+pub use std::option::Option;
+# fn main() {}
+```
 
 Doc comments are markdown, and are currently parsed with the
 [sundown][sundown] library. rustdoc does not yet do any fanciness such as
@@ -67,7 +93,7 @@ documentation:
 ~~~
 #[doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://static.rust-lang.org/doc/master")];
+      html_root_url = "http://doc.rust-lang.org/")];
 ~~~
 
 The `html_root_url` is the prefix that rustdoc will apply to any references to

@@ -127,10 +127,12 @@ fn key_to_key_value<T: 'static>(key: Key<T>) -> *u8 {
 /// The task-local data can be accessed through this value, and when this
 /// structure is dropped it will return the borrow on the data.
 pub struct Ref<T> {
-    ptr: &'static T,
-    key: Key<T>,
-    index: uint,
-    nosend: marker::NoSend,
+    // FIXME #12808: strange names to try to avoid interfering with
+    // field accesses of the contained type via Deref
+    _ptr: &'static T,
+    _key: Key<T>,
+    _index: uint,
+    _nosend: marker::NoSend,
 }
 
 impl<T: 'static> KeyValue<T> {
@@ -233,7 +235,7 @@ impl<T: 'static> KeyValue<T> {
                 let data = data as *Box<LocalData:Send> as *raw::TraitObject;
                 &mut *((*data).data as *mut T)
             };
-            Ref { ptr: ptr, index: pos, nosend: marker::NoSend, key: self }
+            Ref { _ptr: ptr, _index: pos, _nosend: marker::NoSend, _key: self }
         })
     }
 
@@ -252,7 +254,7 @@ impl<T: 'static> KeyValue<T> {
 }
 
 impl<T: 'static> Deref<T> for Ref<T> {
-    fn deref<'a>(&'a self) -> &'a T { self.ptr }
+    fn deref<'a>(&'a self) -> &'a T { self._ptr }
 }
 
 #[unsafe_destructor]
@@ -260,7 +262,7 @@ impl<T: 'static> Drop for Ref<T> {
     fn drop(&mut self) {
         let map = unsafe { get_local_map() };
 
-        let (_, _, ref mut loan) = *map.get_mut(self.index).get_mut_ref();
+        let (_, _, ref mut loan) = *map.get_mut(self._index).get_mut_ref();
         *loan -= 1;
     }
 }
@@ -274,12 +276,12 @@ mod tests {
 
     #[test]
     fn test_tls_multitask() {
-        static my_key: Key<~str> = &Key;
-        my_key.replace(Some("parent data".to_owned()));
+        static my_key: Key<String> = &Key;
+        my_key.replace(Some("parent data".to_string()));
         task::spawn(proc() {
             // TLS shouldn't carry over.
             assert!(my_key.get().is_none());
-            my_key.replace(Some("child data".to_owned()));
+            my_key.replace(Some("child data".to_string()));
             assert!(my_key.get().get_ref().as_slice() == "child data");
             // should be cleaned up for us
         });
@@ -292,17 +294,17 @@ mod tests {
 
     #[test]
     fn test_tls_overwrite() {
-        static my_key: Key<~str> = &Key;
-        my_key.replace(Some("first data".to_owned()));
-        my_key.replace(Some("next data".to_owned())); // Shouldn't leak.
+        static my_key: Key<String> = &Key;
+        my_key.replace(Some("first data".to_string()));
+        my_key.replace(Some("next data".to_string())); // Shouldn't leak.
         assert!(my_key.get().unwrap().as_slice() == "next data");
     }
 
     #[test]
     fn test_tls_pop() {
-        static my_key: Key<~str> = &Key;
-        my_key.replace(Some("weasel".to_owned()));
-        assert!(my_key.replace(None).unwrap() == "weasel".to_owned());
+        static my_key: Key<String> = &Key;
+        my_key.replace(Some("weasel".to_string()));
+        assert!(my_key.replace(None).unwrap() == "weasel".to_string());
         // Pop must remove the data from the map.
         assert!(my_key.replace(None).is_none());
     }
@@ -315,19 +317,19 @@ mod tests {
         // to get recorded as something within a rust stack segment. Then a
         // subsequent upcall (esp. for logging, think vsnprintf) would run on
         // a stack smaller than 1 MB.
-        static my_key: Key<~str> = &Key;
+        static my_key: Key<String> = &Key;
         task::spawn(proc() {
-            my_key.replace(Some("hax".to_owned()));
+            my_key.replace(Some("hax".to_string()));
         });
     }
 
     #[test]
     fn test_tls_multiple_types() {
-        static str_key: Key<~str> = &Key;
+        static str_key: Key<String> = &Key;
         static box_key: Key<@()> = &Key;
         static int_key: Key<int> = &Key;
         task::spawn(proc() {
-            str_key.replace(Some("string data".to_owned()));
+            str_key.replace(Some("string data".to_string()));
             box_key.replace(Some(@()));
             int_key.replace(Some(42));
         });
@@ -335,12 +337,12 @@ mod tests {
 
     #[test]
     fn test_tls_overwrite_multiple_types() {
-        static str_key: Key<~str> = &Key;
+        static str_key: Key<String> = &Key;
         static box_key: Key<@()> = &Key;
         static int_key: Key<int> = &Key;
         task::spawn(proc() {
-            str_key.replace(Some("string data".to_owned()));
-            str_key.replace(Some("string data 2".to_owned()));
+            str_key.replace(Some("string data".to_string()));
+            str_key.replace(Some("string data 2".to_string()));
             box_key.replace(Some(@()));
             box_key.replace(Some(@()));
             int_key.replace(Some(42));
@@ -354,13 +356,13 @@ mod tests {
     #[test]
     #[should_fail]
     fn test_tls_cleanup_on_failure() {
-        static str_key: Key<~str> = &Key;
+        static str_key: Key<String> = &Key;
         static box_key: Key<@()> = &Key;
         static int_key: Key<int> = &Key;
-        str_key.replace(Some("parent data".to_owned()));
+        str_key.replace(Some("parent data".to_string()));
         box_key.replace(Some(@()));
         task::spawn(proc() {
-            str_key.replace(Some("string data".to_owned()));
+            str_key.replace(Some("string data".to_string()));
             box_key.replace(Some(@()));
             int_key.replace(Some(42));
             fail!();

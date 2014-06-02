@@ -51,6 +51,7 @@ use str::{Str, SendStr, IntoMaybeOwned};
 #[cfg(test)] use owned::AnyOwnExt;
 #[cfg(test)] use result;
 #[cfg(test)] use str::StrAllocating;
+#[cfg(test)] use string::String;
 
 /// Indicates the manner in which a task exited.
 ///
@@ -294,7 +295,7 @@ fn test_unnamed_task() {
 
 #[test]
 fn test_owned_named_task() {
-    TaskBuilder::new().named("ada lovelace".to_owned()).spawn(proc() {
+    TaskBuilder::new().named("ada lovelace".to_string()).spawn(proc() {
         with_task_name(|name| {
             assert!(name.unwrap() == "ada lovelace");
         })
@@ -366,7 +367,7 @@ fn test_back_to_the_future_result() {
 #[test]
 fn test_try_success() {
     match try(proc() {
-        "Success!".to_owned()
+        "Success!".to_string()
     }).as_ref().map(|s| s.as_slice()) {
         result::Ok("Success!") => (),
         _ => fail!()
@@ -496,12 +497,12 @@ fn test_try_fail_message_static_str() {
 #[test]
 fn test_try_fail_message_owned_str() {
     match try(proc() {
-        fail!("owned string".to_owned());
+        fail!("owned string".to_string());
     }) {
         Err(e) => {
-            type T = ~str;
+            type T = String;
             assert!(e.is::<T>());
-            assert_eq!(*e.move::<T>().unwrap(), "owned string".to_owned());
+            assert_eq!(*e.move::<T>().unwrap(), "owned string".to_string());
         }
         Ok(()) => fail!()
     }

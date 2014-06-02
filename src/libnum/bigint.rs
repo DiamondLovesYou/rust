@@ -26,7 +26,7 @@ use std::num::CheckedDiv;
 use std::num::{Bitwise, ToPrimitive, FromPrimitive};
 use std::num::{Zero, One, ToStrRadix, FromStrRadix};
 use rand::Rng;
-use std::strbuf::StrBuf;
+use std::string::String;
 use std::uint;
 use std::{i64, u64};
 
@@ -83,22 +83,22 @@ pub struct BigUint {
     data: Vec<BigDigit>
 }
 
-impl Eq for BigUint {
+impl PartialEq for BigUint {
     #[inline]
     fn eq(&self, other: &BigUint) -> bool {
         match self.cmp(other) { Equal => true, _ => false }
     }
 }
-impl TotalEq for BigUint {}
+impl Eq for BigUint {}
 
-impl Ord for BigUint {
+impl PartialOrd for BigUint {
     #[inline]
     fn lt(&self, other: &BigUint) -> bool {
         match self.cmp(other) { Less => true, _ => false}
     }
 }
 
-impl TotalOrd for BigUint {
+impl Ord for BigUint {
     #[inline]
     fn cmp(&self, other: &BigUint) -> Ordering {
         let (s_len, o_len) = (self.data.len(), other.data.len());
@@ -604,7 +604,7 @@ impl_to_biguint!(u32,  FromPrimitive::from_u32)
 impl_to_biguint!(u64,  FromPrimitive::from_u64)
 
 impl ToStrRadix for BigUint {
-    fn to_str_radix(&self, radix: uint) -> ~str {
+    fn to_str_radix(&self, radix: uint) -> String {
         assert!(1 < radix && radix <= 16);
         let (base, max_len) = get_radix_base(radix);
         if base == BigDigit::base {
@@ -627,15 +627,17 @@ impl ToStrRadix for BigUint {
             return result;
         }
 
-        fn fill_concat(v: &[BigDigit], radix: uint, l: uint) -> ~str {
-            if v.is_empty() { return "0".to_owned() }
-            let mut s = StrBuf::with_capacity(v.len() * l);
+        fn fill_concat(v: &[BigDigit], radix: uint, l: uint) -> String {
+            if v.is_empty() {
+                return "0".to_string()
+            }
+            let mut s = String::with_capacity(v.len() * l);
             for n in v.iter().rev() {
                 let ss = (*n as uint).to_str_radix(radix);
-                s.push_str("0".repeat(l - ss.len()));
-                s.push_str(ss);
+                s.push_str("0".repeat(l - ss.len()).as_slice());
+                s.push_str(ss.as_slice());
             }
-            s.as_slice().trim_left_chars('0').to_owned()
+            s.as_slice().trim_left_chars('0').to_string()
         }
     }
 }
@@ -784,7 +786,7 @@ fn get_radix_base(radix: uint) -> (DoubleBigDigit, uint) {
 }
 
 /// A Sign is a `BigInt`'s composing element.
-#[deriving(Eq, Ord, TotalEq, TotalOrd, Clone, Show)]
+#[deriving(PartialEq, PartialOrd, Eq, Ord, Clone, Show)]
 pub enum Sign { Minus, Zero, Plus }
 
 impl Neg<Sign> for Sign {
@@ -806,23 +808,23 @@ pub struct BigInt {
     data: BigUint
 }
 
-impl Eq for BigInt {
+impl PartialEq for BigInt {
     #[inline]
     fn eq(&self, other: &BigInt) -> bool {
         match self.cmp(other) { Equal => true, _ => false }
     }
 }
 
-impl TotalEq for BigInt {}
+impl Eq for BigInt {}
 
-impl Ord for BigInt {
+impl PartialOrd for BigInt {
     #[inline]
     fn lt(&self, other: &BigInt) -> bool {
         match self.cmp(other) { Less => true, _ => false}
     }
 }
 
-impl TotalOrd for BigInt {
+impl Ord for BigInt {
     #[inline]
     fn cmp(&self, other: &BigInt) -> Ordering {
         let scmp = self.sign.cmp(&other.sign);
@@ -1209,11 +1211,11 @@ impl_to_bigint!(u64,  FromPrimitive::from_u64)
 
 impl ToStrRadix for BigInt {
     #[inline]
-    fn to_str_radix(&self, radix: uint) -> ~str {
+    fn to_str_radix(&self, radix: uint) -> String {
         match self.sign {
             Plus  => self.data.to_str_radix(radix),
-            Zero  => "0".to_owned(),
-            Minus => "-".to_owned() + self.data.to_str_radix(radix)
+            Zero  => "0".to_string(),
+            Minus => format!("-{}", self.data.to_str_radix(radix)),
         }
     }
 }
@@ -1370,7 +1372,7 @@ mod biguint_tests {
     use std::num::{Zero, One, FromStrRadix, ToStrRadix};
     use std::num::{ToPrimitive, FromPrimitive};
     use std::num::CheckedDiv;
-    use rand::{task_rng};
+    use std::rand::task_rng;
     use std::u64;
 
     #[test]
@@ -1476,29 +1478,112 @@ mod biguint_tests {
         check("0", 3, "0");
         check("1", 3, "8");
 
-        check("1" + "0000" + "0000" + "0000" + "0001" + "0000" + "0000" + "0000" + "0001", 3,
-              "8" + "0000" + "0000" + "0000" + "0008" + "0000" + "0000" + "0000" + "0008");
-        check("1" + "0000" + "0001" + "0000" + "0001", 2,
-              "4" + "0000" + "0004" + "0000" + "0004");
-        check("1" + "0001" + "0001", 1,
-              "2" + "0002" + "0002");
+        check("1\
+               0000\
+               0000\
+               0000\
+               0001\
+               0000\
+               0000\
+               0000\
+               0001",
+              3,
+              "8\
+               0000\
+               0000\
+               0000\
+               0008\
+               0000\
+               0000\
+               0000\
+               0008");
+        check("1\
+               0000\
+               0001\
+               0000\
+               0001",
+              2,
+              "4\
+               0000\
+               0004\
+               0000\
+               0004");
+        check("1\
+               0001\
+               0001",
+              1,
+              "2\
+               0002\
+               0002");
 
-        check(""  + "4000" + "0000" + "0000" + "0000", 3,
-              "2" + "0000" + "0000" + "0000" + "0000");
-        check(""  + "4000" + "0000", 2,
-              "1" + "0000" + "0000");
-        check(""  + "4000", 2,
-              "1" + "0000");
+        check("\
+              4000\
+              0000\
+              0000\
+              0000",
+              3,
+              "2\
+              0000\
+              0000\
+              0000\
+              0000");
+        check("4000\
+              0000",
+              2,
+              "1\
+              0000\
+              0000");
+        check("4000",
+              2,
+              "1\
+              0000");
 
-        check(""  + "4000" + "0000" + "0000" + "0000", 67,
-              "2" + "0000" + "0000" + "0000" + "0000" + "0000" + "0000" + "0000" + "0000");
-        check(""  + "4000" + "0000", 35,
-              "2" + "0000" + "0000" + "0000" + "0000");
-        check(""  + "4000", 19,
-              "2" + "0000" + "0000");
+        check("4000\
+              0000\
+              0000\
+              0000",
+              67,
+              "2\
+              0000\
+              0000\
+              0000\
+              0000\
+              0000\
+              0000\
+              0000\
+              0000");
+        check("4000\
+              0000",
+              35,
+              "2\
+              0000\
+              0000\
+              0000\
+              0000");
+        check("4000",
+              19,
+              "2\
+              0000\
+              0000");
 
-        check(""  + "fedc" + "ba98" + "7654" + "3210" + "fedc" + "ba98" + "7654" + "3210", 4,
-              "f" + "edcb" + "a987" + "6543" + "210f" + "edcb" + "a987" + "6543" + "2100");
+        check("fedc\
+              ba98\
+              7654\
+              3210\
+              fedc\
+              ba98\
+              7654\
+              3210",
+              4,
+              "f\
+              edcb\
+              a987\
+              6543\
+              210f\
+              edcb\
+              a987\
+              6543\
+              2100");
         check("88887777666655554444333322221111", 16,
               "888877776666555544443333222211110000");
     }
@@ -1515,28 +1600,107 @@ mod biguint_tests {
         check("0", 3, "0");
         check("f", 3, "1");
 
-        check("1" + "0000" + "0000" + "0000" + "0001" + "0000" + "0000" + "0000" + "0001", 3,
-              ""  + "2000" + "0000" + "0000" + "0000" + "2000" + "0000" + "0000" + "0000");
-        check("1" + "0000" + "0001" + "0000" + "0001", 2,
-              ""  + "4000" + "0000" + "4000" + "0000");
-        check("1" + "0001" + "0001", 1,
-              ""  + "8000" + "8000");
+        check("1\
+              0000\
+              0000\
+              0000\
+              0001\
+              0000\
+              0000\
+              0000\
+              0001",
+              3,
+              "2000\
+              0000\
+              0000\
+              0000\
+              2000\
+              0000\
+              0000\
+              0000");
+        check("1\
+              0000\
+              0001\
+              0000\
+              0001",
+              2,
+              "4000\
+              0000\
+              4000\
+              0000");
+        check("1\
+              0001\
+              0001",
+              1,
+              "8000\
+              8000");
 
-        check("2" + "0000" + "0000" + "0000" + "0001" + "0000" + "0000" + "0000" + "0001", 67,
-              ""  + "4000" + "0000" + "0000" + "0000");
-        check("2" + "0000" + "0001" + "0000" + "0001", 35,
-              ""  + "4000" + "0000");
-        check("2" + "0001" + "0001", 19,
-              ""  + "4000");
+        check("2\
+              0000\
+              0000\
+              0000\
+              0001\
+              0000\
+              0000\
+              0000\
+              0001",
+              67,
+              "4000\
+              0000\
+              0000\
+              0000");
+        check("2\
+              0000\
+              0001\
+              0000\
+              0001",
+              35,
+              "4000\
+              0000");
+        check("2\
+              0001\
+              0001",
+              19,
+              "4000");
 
-        check("1" + "0000" + "0000" + "0000" + "0000", 1,
-              ""  + "8000" + "0000" + "0000" + "0000");
-        check("1" + "0000" + "0000", 1,
-              ""  + "8000" + "0000");
-        check("1" + "0000", 1,
-              ""  + "8000");
-        check("f" + "edcb" + "a987" + "6543" + "210f" + "edcb" + "a987" + "6543" + "2100", 4,
-              ""  + "fedc" + "ba98" + "7654" + "3210" + "fedc" + "ba98" + "7654" + "3210");
+        check("1\
+              0000\
+              0000\
+              0000\
+              0000",
+              1,
+              "8000\
+              0000\
+              0000\
+              0000");
+        check("1\
+              0000\
+              0000",
+              1,
+              "8000\
+              0000");
+        check("1\
+              0000",
+              1,
+              "8000");
+        check("f\
+              edcb\
+              a987\
+              6543\
+              210f\
+              edcb\
+              a987\
+              6543\
+              2100",
+              4,
+              "fedc\
+              ba98\
+              7654\
+              3210\
+              fedc\
+              ba98\
+              7654\
+              3210");
 
         check("888877776666555544443333222211110000", 16,
               "88887777666655554444333322221111");
@@ -1865,60 +2029,60 @@ mod biguint_tests {
         assert!(((one << 64) + one).is_odd());
     }
 
-    fn to_str_pairs() -> Vec<(BigUint, Vec<(uint, StrBuf)>)> {
+    fn to_str_pairs() -> Vec<(BigUint, Vec<(uint, String)>)> {
         let bits = BigDigit::bits;
         vec!(( Zero::zero(), vec!(
-            (2, "0".to_strbuf()), (3, "0".to_strbuf())
+            (2, "0".to_string()), (3, "0".to_string())
         )), ( BigUint::from_slice([ 0xff ]), vec!(
-            (2,  "11111111".to_strbuf()),
-            (3,  "100110".to_strbuf()),
-            (4,  "3333".to_strbuf()),
-            (5,  "2010".to_strbuf()),
-            (6,  "1103".to_strbuf()),
-            (7,  "513".to_strbuf()),
-            (8,  "377".to_strbuf()),
-            (9,  "313".to_strbuf()),
-            (10, "255".to_strbuf()),
-            (11, "212".to_strbuf()),
-            (12, "193".to_strbuf()),
-            (13, "168".to_strbuf()),
-            (14, "143".to_strbuf()),
-            (15, "120".to_strbuf()),
-            (16, "ff".to_strbuf())
+            (2,  "11111111".to_string()),
+            (3,  "100110".to_string()),
+            (4,  "3333".to_string()),
+            (5,  "2010".to_string()),
+            (6,  "1103".to_string()),
+            (7,  "513".to_string()),
+            (8,  "377".to_string()),
+            (9,  "313".to_string()),
+            (10, "255".to_string()),
+            (11, "212".to_string()),
+            (12, "193".to_string()),
+            (13, "168".to_string()),
+            (14, "143".to_string()),
+            (15, "120".to_string()),
+            (16, "ff".to_string())
         )), ( BigUint::from_slice([ 0xfff ]), vec!(
-            (2,  "111111111111".to_strbuf()),
-            (4,  "333333".to_strbuf()),
-            (16, "fff".to_strbuf())
+            (2,  "111111111111".to_string()),
+            (4,  "333333".to_string()),
+            (16, "fff".to_string())
         )), ( BigUint::from_slice([ 1, 2 ]), vec!(
             (2,
-             format_strbuf!("10{}1", "0".repeat(bits - 1))),
+             format!("10{}1", "0".repeat(bits - 1))),
             (4,
-             format_strbuf!("2{}1", "0".repeat(bits / 2 - 1))),
+             format!("2{}1", "0".repeat(bits / 2 - 1))),
             (10, match bits {
-                32 => "8589934593".to_strbuf(),
-                16 => "131073".to_strbuf(),
+                32 => "8589934593".to_string(),
+                16 => "131073".to_string(),
                 _ => fail!()
             }),
             (16,
-             format_strbuf!("2{}1", "0".repeat(bits / 4 - 1)))
+             format!("2{}1", "0".repeat(bits / 4 - 1)))
         )), ( BigUint::from_slice([ 1, 2, 3 ]), vec!(
             (2,
-             format_strbuf!("11{}10{}1",
-                            "0".repeat(bits - 2),
-                            "0".repeat(bits - 1))),
+             format!("11{}10{}1",
+                     "0".repeat(bits - 2),
+                     "0".repeat(bits - 1))),
             (4,
-             format_strbuf!("3{}2{}1",
-                            "0".repeat(bits / 2 - 1),
-                            "0".repeat(bits / 2 - 1))),
+             format!("3{}2{}1",
+                     "0".repeat(bits / 2 - 1),
+                     "0".repeat(bits / 2 - 1))),
             (10, match bits {
-                32 => "55340232229718589441".to_strbuf(),
-                16 => "12885032961".to_strbuf(),
+                32 => "55340232229718589441".to_string(),
+                16 => "12885032961".to_string(),
                 _ => fail!()
             }),
             (16,
-             format_strbuf!("3{}2{}1",
-                            "0".repeat(bits / 4 - 1),
-                            "0".repeat(bits / 4 - 1)))
+             format!("3{}2{}1",
+                     "0".repeat(bits / 4 - 1),
+                     "0".repeat(bits / 4 - 1)))
         )) )
     }
 
@@ -2056,7 +2220,7 @@ mod bigint_tests {
     use std::num::CheckedDiv;
     use std::num::{Zero, One, FromStrRadix, ToStrRadix};
     use std::num::{ToPrimitive, FromPrimitive};
-    use rand::{task_rng};
+    use std::rand::task_rng;
     use std::u64;
 
     #[test]
@@ -2543,7 +2707,7 @@ mod bigint_tests {
     fn test_to_str_radix() {
         fn check(n: int, ans: &str) {
             let n: BigInt = FromPrimitive::from_int(n).unwrap();
-            assert!(ans == n.to_str_radix(10));
+            assert!(ans == n.to_str_radix(10).as_slice());
         }
         check(10, "10");
         check(1, "1");
@@ -2572,7 +2736,8 @@ mod bigint_tests {
 
         // issue 10522, this hit an edge case that caused it to
         // attempt to allocate a vector of size (-1u) == huge.
-        let x: BigInt = from_str("1" + "0".repeat(36)).unwrap();
+        let x: BigInt =
+            from_str(format!("1{}", "0".repeat(36)).as_slice()).unwrap();
         let _y = x.to_str();
     }
 

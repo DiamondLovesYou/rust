@@ -15,12 +15,12 @@ use std::path::{Path};
 use std::path;
 use std::result;
 
-type rsrc_loader = proc(path: &Path) -> result::Result<StrBuf, StrBuf>;
+type rsrc_loader = proc(path: &Path) -> result::Result<String, String>;
 
 fn tester()
 {
     let loader: rsrc_loader = proc(_path) {
-        result::Ok("more blah".to_strbuf())
+        result::Ok("more blah".to_string())
     };
 
     let path = path::Path::new("blah");

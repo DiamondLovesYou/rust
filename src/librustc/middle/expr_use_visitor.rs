@@ -68,7 +68,7 @@ pub trait Delegate {
               mode: MutateMode);
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum LoanCause {
     ClosureCapture(Span),
     AddrOf,
@@ -78,13 +78,13 @@ pub enum LoanCause {
     ClosureInvocation
 }
 
-#[deriving(Eq,Show)]
+#[deriving(PartialEq,Show)]
 pub enum ConsumeMode {
     Copy,    // reference to x where x has a type that copies
     Move,    // reference to x where x has a type that moves
 }
 
-#[deriving(Eq,Show)]
+#[deriving(PartialEq,Show)]
 pub enum MutateMode {
     JustWrite,    // x = y
     WriteAndRead, // x += y
@@ -434,7 +434,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                 self.tcx().sess.span_bug(
                     callee.span,
                     format!("unxpected callee type {}",
-                            callee_ty.repr(self.tcx())));
+                            callee_ty.repr(self.tcx())).as_slice());
             }
         }
     }
@@ -460,9 +460,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
             }
 
             ast::StmtMac(..) => {
-                self.tcx().sess.span_bug(
-                    stmt.span,
-                    format!("unexpanded stmt macro"));
+                self.tcx().sess.span_bug(stmt.span, "unexpanded stmt macro");
             }
         }
     }
@@ -530,7 +528,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
             _ => {
                 self.tcx().sess.span_bug(
                     with_expr.span,
-                    format!("with expression doesn't evaluate to a struct"));
+                    "with expression doesn't evaluate to a struct");
             }
         };
 
@@ -613,7 +611,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                         ty::ty_rptr(r, ref m) => (m.mutbl, r),
                         _ => self.tcx().sess.span_bug(expr.span,
                                 format!("bad overloaded deref type {}",
-                                    method_ty.repr(self.tcx())))
+                                    method_ty.repr(self.tcx())).as_slice())
                     };
                     let bk = ty::BorrowKind::from_mutbl(m);
                     self.delegate.borrow(expr.id, expr.span, cmt,

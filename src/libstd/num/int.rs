@@ -10,11 +10,14 @@
 
 //! Operations and constants for architecture-sized signed integers (`int` type)
 
+#![doc(primitive = "int")]
+
 use from_str::FromStr;
 use num::{ToStrRadix, FromStrRadix};
 use num::strconv;
 use option::Option;
 use slice::ImmutableVector;
+use string::String;
 
 pub use core::int::{BITS, BYTES, MIN, MAX};
 

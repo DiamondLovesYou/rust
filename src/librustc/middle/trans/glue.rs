@@ -50,13 +50,28 @@ pub fn trans_free<'a>(cx: &'a Block<'a>, v: ValueRef) -> &'a Block<'a> {
         Some(expr::Ignore)).bcx
 }
 
-pub fn trans_exchange_free<'a>(cx: &'a Block<'a>, v: ValueRef)
-                           -> &'a Block<'a> {
+fn trans_exchange_free<'a>(cx: &'a Block<'a>, v: ValueRef, size: u64,
+                               align: u64) -> &'a Block<'a> {
     let _icx = push_ctxt("trans_exchange_free");
+    let ccx = cx.ccx();
     callee::trans_lang_call(cx,
         langcall(cx, None, "", ExchangeFreeFnLangItem),
-        [PointerCast(cx, v, Type::i8p(cx.ccx()))],
+        [PointerCast(cx, v, Type::i8p(ccx)), C_uint(ccx, size as uint), C_uint(ccx, align as uint)],
         Some(expr::Ignore)).bcx
+}
+
+pub fn trans_exchange_free_ty<'a>(bcx: &'a Block<'a>, ptr: ValueRef,
+                                  content_ty: ty::t) -> &'a Block<'a> {
+    let sizing_type = sizing_type_of(bcx.ccx(), content_ty);
+    let content_size = llsize_of_alloc(bcx.ccx(), sizing_type);
+
+    // `Box<ZeroSizeType>` does not allocate.
+    if content_size != 0 {
+        let content_align = llalign_of_min(bcx.ccx(), sizing_type);
+        trans_exchange_free(bcx, ptr, content_size, content_align)
+    } else {
+        bcx
+    }
 }
 
 pub fn take_ty<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
@@ -73,7 +88,7 @@ pub fn take_ty<'a>(bcx: &'a Block<'a>, v: ValueRef, t: ty::t)
     }
 }
 
-fn get_drop_glue_type(ccx: &CrateContext, t: ty::t) -> ty::t {
+pub fn get_drop_glue_type(ccx: &CrateContext, t: ty::t) -> ty::t {
     let tcx = ccx.tcx();
     if !ty::type_needs_drop(tcx, t) {
         return ty::mk_i8();
@@ -87,17 +102,15 @@ fn get_drop_glue_type(ccx: &CrateContext, t: ty::t) -> ty::t {
                 ty::ty_vec(_, None) | ty::ty_str => t,
                 _ => {
                     let llty = sizing_type_of(ccx, typ);
-                    // Unique boxes do not allocate for zero-size types. The standard
-                    // library may assume that `free` is never called on the pointer
-                    // returned for `Box<ZeroSizeType>`.
+                    // `Box<ZeroSizeType>` does not allocate.
                     if llsize_of_alloc(ccx, llty) == 0 {
                         ty::mk_i8()
                     } else {
                         ty::mk_uniq(tcx, ty::mk_i8())
                     }
-                        }
-                    }
                 }
+            }
+        }
         _ => t
     }
 }
@@ -235,7 +248,7 @@ fn trans_struct_drop<'a>(bcx: &'a Block<'a>,
     let repr = adt::represent_type(bcx.ccx(), t);
 
     // Find and call the actual destructor
-    let dtor_addr = get_res_dtor(bcx.ccx(), dtor_did,
+    let dtor_addr = get_res_dtor(bcx.ccx(), dtor_did, t,
                                  class_did, substs);
 
     // The second argument is the "self" argument for drop
@@ -266,7 +279,9 @@ fn trans_struct_drop<'a>(bcx: &'a Block<'a>,
                                   fld.mt.ty);
     }
 
-    let (_, bcx) = invoke(bcx, dtor_addr, args, [], None);
+    let dtor_ty = ty::mk_ctor_fn(bcx.tcx(), ast::DUMMY_NODE_ID,
+                                 [get_drop_glue_type(bcx.ccx(), t)], ty::mk_nil());
+    let (_, bcx) = invoke(bcx, dtor_addr, args, dtor_ty, None);
 
     bcx.fcx.pop_and_trans_custom_cleanup_scope(bcx, field_scope)
 }
@@ -285,20 +300,22 @@ fn make_drop_glue<'a>(bcx: &'a Block<'a>, v0: ValueRef, t: ty::t) -> &'a Block<'
                 ty::ty_vec(mt, None) => {
                     with_cond(bcx, not_null, |bcx| {
                         let bcx = tvec::make_drop_glue_unboxed(bcx, llbox, mt.ty);
-                        trans_exchange_free(bcx, llbox)
+                        // FIXME: #13994: the old `Box<[T]>` will not support sized deallocation
+                        trans_exchange_free(bcx, llbox, 0, 8)
                     })
                 }
                 ty::ty_str => {
                     with_cond(bcx, not_null, |bcx| {
                         let unit_ty = ty::sequence_element_type(bcx.tcx(), t);
                         let bcx = tvec::make_drop_glue_unboxed(bcx, llbox, unit_ty);
-                        trans_exchange_free(bcx, llbox)
+                        // FIXME: #13994: the old `Box<str>` will not support sized deallocation
+                        trans_exchange_free(bcx, llbox, 0, 8)
                     })
                 }
                 _ => {
                     with_cond(bcx, not_null, |bcx| {
                         let bcx = drop_ty(bcx, llbox, content_ty);
-                        trans_exchange_free(bcx, llbox)
+                        trans_exchange_free_ty(bcx, llbox, content_ty)
                     })
                 }
             }
@@ -340,7 +357,8 @@ fn make_drop_glue<'a>(bcx: &'a Block<'a>, v0: ValueRef, t: ty::t) -> &'a Block<'
                 Call(bcx, dtor, [PointerCast(bcx, cdata, Type::i8p(bcx.ccx()))], []);
 
                 // Free the environment itself
-                trans_exchange_free(bcx, env)
+                // FIXME: #13994: pass align and size here
+                trans_exchange_free(bcx, env, 0, 8)
             })
         }
         _ => {
@@ -438,12 +456,12 @@ pub fn declare_tydesc(ccx: &CrateContext, t: ty::t) -> tydesc_info {
 fn declare_generic_glue(ccx: &CrateContext, t: ty::t, llfnty: Type,
                         name: &str) -> ValueRef {
     let _icx = push_ctxt("declare_generic_glue");
-    let fn_nm = mangle_internal_name_by_type_and_seq(ccx, t, "glue_".to_owned() + name);
+    let fn_nm = mangle_internal_name_by_type_and_seq(
+        ccx,
+        t,
+        format!("glue_{}", name).as_slice());
     debug!("{} is for type {}", fn_nm, ppaux::ty_to_str(ccx.tcx(), t));
-    let llfn = decl_cdecl_fn(ccx.llmod,
-                             fn_nm.as_slice(),
-                             llfnty,
-                             ty::mk_nil());
+    let llfn = decl_cdecl_fn(ccx.llmod, fn_nm.as_slice(), llfnty, ty::mk_nil());
     note_unique_llvm_symbol(ccx, fn_nm);
     return llfn;
 }
@@ -456,9 +474,7 @@ fn make_generic_glue(ccx: &CrateContext,
                      name: &str)
                      -> ValueRef {
     let _icx = push_ctxt("make_generic_glue");
-    let glue_name = format_strbuf!("glue {} {}",
-                                   name,
-                                   ty_to_short_str(ccx.tcx(), t));
+    let glue_name = format!("glue {} {}", name, ty_to_short_str(ccx.tcx(), t));
     let _s = StatRecorder::new(ccx, glue_name);
 
     let arena = TypedArena::new();

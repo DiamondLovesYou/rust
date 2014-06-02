@@ -36,7 +36,7 @@ use rt::unwind::Unwinder;
 use str::SendStr;
 use sync::atomics::{AtomicUint, SeqCst};
 use task::{TaskResult, TaskOpts};
-use unstable::finally::Finally;
+use finally::Finally;
 
 /// The Task struct represents all state associated with a rust
 /// task. There are at this point two primary "subtypes" of task,
@@ -420,11 +420,11 @@ mod test {
 
     #[test]
     fn tls() {
-        local_data_key!(key: @~str)
-        key.replace(Some(@"data".to_owned()));
+        local_data_key!(key: @String)
+        key.replace(Some(@"data".to_string()));
         assert_eq!(key.get().unwrap().as_slice(), "data");
-        local_data_key!(key2: @~str)
-        key2.replace(Some(@"data".to_owned()));
+        local_data_key!(key2: @String)
+        key2.replace(Some(@"data".to_string()));
         assert_eq!(key2.get().unwrap().as_slice(), "data");
     }
 

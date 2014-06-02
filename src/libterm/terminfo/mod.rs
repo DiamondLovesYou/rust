@@ -26,13 +26,13 @@ use self::parm::{expand, Number, Variables};
 #[deriving(Show)]
 pub struct TermInfo {
     /// Names for the terminal
-    pub names: Vec<StrBuf> ,
+    pub names: Vec<String> ,
     /// Map of capability name to boolean value
-    pub bools: HashMap<StrBuf, bool>,
+    pub bools: HashMap<String, bool>,
     /// Map of capability name to numeric value
-    pub numbers: HashMap<StrBuf, u16>,
+    pub numbers: HashMap<String, u16>,
     /// Map of capability name to raw (unexpanded) string
-    pub strings: HashMap<StrBuf, Vec<u8> >
+    pub strings: HashMap<String, Vec<u8> >
 }
 
 pub mod searcher;
@@ -81,9 +81,11 @@ impl<T: Writer> Terminal<T> for TerminfoTerminal<T> {
             }
         };
 
-        let entry = open(term);
+        let entry = open(term.as_slice());
         if entry.is_err() {
-            if os::getenv("MSYSCON").map_or(false, |s| "mintty.exe" == s) {
+            if os::getenv("MSYSCON").map_or(false, |s| {
+                    "mintty.exe" == s.as_slice()
+                }) {
                 // msys terminal
                 return Some(TerminfoTerminal {out: out, ti: msys_terminfo(), num_colors: 8});
             }
@@ -184,7 +186,7 @@ impl<T: Writer> Terminal<T> for TerminfoTerminal<T> {
                 cap = self.ti.strings.find_equiv(&("op"));
             }
         }
-        let s = cap.map_or(Err("can't find terminfo capability `sgr0`".to_strbuf()), |op| {
+        let s = cap.map_or(Err("can't find terminfo capability `sgr0`".to_string()), |op| {
             expand(op.as_slice(), [], &mut Variables::new())
         });
         if s.is_ok() {

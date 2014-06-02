@@ -16,7 +16,7 @@ use std::fmt;
 pub trait ToHex {
     /// Converts the value of `self` to a hex value, returning the owned
     /// string.
-    fn to_hex(&self) -> StrBuf;
+    fn to_hex(&self) -> String;
 }
 
 static CHARS: &'static[u8] = bytes!("0123456789abcdef");
@@ -37,7 +37,7 @@ impl<'a> ToHex for &'a [u8] {
      * }
      * ```
      */
-    fn to_hex(&self) -> StrBuf {
+    fn to_hex(&self) -> String {
         let mut v = Vec::with_capacity(self.len() * 2);
         for &byte in self.iter() {
             v.push(CHARS[(byte >> 4) as uint]);
@@ -45,7 +45,7 @@ impl<'a> ToHex for &'a [u8] {
         }
 
         unsafe {
-            str::raw::from_utf8(v.as_slice()).to_strbuf()
+            str::raw::from_utf8(v.as_slice()).to_string()
         }
     }
 }
@@ -80,7 +80,7 @@ impl<'a> FromHex for &'a str {
      * Convert any hexadecimal encoded string (literal, `@`, `&`, or `~`)
      * to the byte values it encodes.
      *
-     * You can use the `StrBuf::from_utf8` function in `std::strbuf` to turn a
+     * You can use the `String::from_utf8` function in `std::string` to turn a
      * `Vec<u8>` into a string with characters corresponding to those values.
      *
      * # Example
@@ -95,8 +95,8 @@ impl<'a> FromHex for &'a str {
      *     let hello_str = "Hello, World".as_bytes().to_hex();
      *     println!("{}", hello_str);
      *     let bytes = hello_str.as_slice().from_hex().unwrap();
-     *     println!("{:?}", bytes);
-     *     let result_str = StrBuf::from_utf8(bytes).unwrap();
+     *     println!("{}", bytes);
+     *     let result_str = String::from_utf8(bytes).unwrap();
      *     println!("{}", result_str);
      * }
      * ```
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     pub fn test_to_hex() {
-        assert_eq!("foobar".as_bytes().to_hex(), "666f6f626172".to_strbuf());
+        assert_eq!("foobar".as_bytes().to_hex(), "666f6f626172".to_string());
     }
 
     #[test]
@@ -174,16 +174,23 @@ mod tests {
     #[test]
     pub fn test_to_hex_all_bytes() {
         for i in range(0, 256) {
-            assert_eq!([i as u8].to_hex(),
-                       format_strbuf!("{:02x}", i as uint));
+            assert_eq!([i as u8].to_hex(), format!("{:02x}", i as uint));
         }
     }
 
     #[test]
     pub fn test_from_hex_all_bytes() {
         for i in range(0, 256) {
-            assert_eq!(format!("{:02x}", i as uint).from_hex().unwrap().as_slice(), &[i as u8]);
-            assert_eq!(format!("{:02X}", i as uint).from_hex().unwrap().as_slice(), &[i as u8]);
+            assert_eq!(format!("{:02x}", i as uint).as_slice()
+                                                   .from_hex()
+                                                   .unwrap()
+                                                   .as_slice(),
+                       &[i as u8]);
+            assert_eq!(format!("{:02X}", i as uint).as_slice()
+                                                   .from_hex()
+                                                   .unwrap()
+                                                   .as_slice(),
+                       &[i as u8]);
         }
     }
 

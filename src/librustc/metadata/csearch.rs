@@ -19,7 +19,8 @@ use middle::lang_items;
 use middle::ty;
 use middle::typeck;
 
-use reader = serialize::ebml::reader;
+use serialize::ebml;
+use serialize::ebml::reader;
 use std::rc::Rc;
 use syntax::ast;
 use syntax::ast_map;
@@ -33,7 +34,7 @@ pub struct StaticMethodInfo {
     pub vis: ast::Visibility,
 }
 
-pub fn get_symbol(cstore: &cstore::CStore, def: ast::DefId) -> StrBuf {
+pub fn get_symbol(cstore: &cstore::CStore, def: ast::DefId) -> String {
     let cdata = cstore.get_crate_data(def.krate);
     decoder::get_symbol(cdata.data(), def.node)
 }
@@ -176,7 +177,7 @@ pub fn get_static_methods_if_impl(cstore: &cstore::CStore,
 
 pub fn get_item_attrs(cstore: &cstore::CStore,
                       def_id: ast::DefId,
-                      f: |Vec<@ast::MetaItem> |) {
+                      f: |Vec<ast::Attribute> |) {
     let cdata = cstore.get_crate_data(def_id.krate);
     decoder::get_item_attrs(&*cdata, def_id.node, f)
 }
@@ -206,19 +207,19 @@ pub fn get_field_type(tcx: &ty::ctxt, class_id: ast::DefId,
                       def: ast::DefId) -> ty::ty_param_bounds_and_ty {
     let cstore = &tcx.sess.cstore;
     let cdata = cstore.get_crate_data(class_id.krate);
-    let all_items = reader::get_doc(reader::Doc(cdata.data()), tag_items);
+    let all_items = reader::get_doc(ebml::Doc::new(cdata.data()), tag_items);
     let class_doc = expect(tcx.sess.diagnostic(),
                            decoder::maybe_find_item(class_id.node, all_items),
                            || {
         (format!("get_field_type: class ID {:?} not found",
-                 class_id)).to_strbuf()
+                 class_id)).to_string()
     });
     let the_field = expect(tcx.sess.diagnostic(),
         decoder::maybe_find_item(def.node, class_doc),
         || {
             (format!("get_field_type: in class {:?}, field ID {:?} not found",
                     class_id,
-                    def)).to_strbuf()
+                    def)).to_string()
         });
     let ty = decoder::item_type(def, the_field, tcx, &*cdata);
     ty::ty_param_bounds_and_ty {
@@ -247,7 +248,7 @@ pub fn get_impl_vtables(tcx: &ty::ctxt,
 
 pub fn get_native_libraries(cstore: &cstore::CStore,
                             crate_num: ast::CrateNum)
-                                -> Vec<(cstore::NativeLibaryKind, StrBuf)> {
+                                -> Vec<(cstore::NativeLibaryKind, String)> {
     let cdata = cstore.get_crate_data(crate_num);
     decoder::get_native_libraries(&*cdata)
 }
@@ -305,4 +306,11 @@ pub fn get_missing_lang_items(cstore: &cstore::CStore, cnum: ast::CrateNum)
 {
     let cdata = cstore.get_crate_data(cnum);
     decoder::get_missing_lang_items(&*cdata)
+}
+
+pub fn get_method_arg_names(cstore: &cstore::CStore, did: ast::DefId)
+    -> Vec<String>
+{
+    let cdata = cstore.get_crate_data(did.krate);
+    decoder::get_method_arg_names(&*cdata, did.node)
 }

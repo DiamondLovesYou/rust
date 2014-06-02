@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! The Rust Core Library
+//! # The Rust Core Library
 //!
 //! The Rust Core Library is the dependency-free foundation of [The
 //! Rust Standard Library](../std/index.html). It is the portable glue
@@ -50,16 +50,15 @@
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 
 #![no_std]
-#![feature(globs, macro_rules, managed_boxes, phase)]
+#![feature(globs, macro_rules, managed_boxes, phase, simd)]
 #![deny(missing_doc)]
 
 #[cfg(test)] extern crate realcore = "core";
 #[cfg(test)] extern crate libc;
 #[cfg(test)] extern crate native;
-#[cfg(test)] extern crate rand;
 #[cfg(test)] extern crate realstd = "std";
 
 #[cfg(test)] pub use cmp = realcore::cmp;
@@ -124,6 +123,7 @@ pub mod iter;
 pub mod option;
 pub mod raw;
 pub mod result;
+pub mod simd;
 pub mod slice;
 pub mod str;
 pub mod tuple;
@@ -134,10 +134,12 @@ pub mod fmt;
 //        crate.
 mod should_not_exist;
 
+#[doc(hidden)]
 mod core {
     pub use failure;
 }
 
+#[doc(hidden)]
 mod std {
     pub use clone;
     pub use cmp;

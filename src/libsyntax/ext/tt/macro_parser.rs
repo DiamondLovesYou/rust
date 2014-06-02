@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -188,7 +188,9 @@ pub fn nameize(p_s: &ParseSess, ms: &[Matcher], res: &[Rc<NamedMatch>])
             if ret_val.contains_key(&bind_name) {
                 let string = token::get_ident(bind_name);
                 p_s.span_diagnostic
-                   .span_fatal(span, "duplicated bind name: " + string.get())
+                   .span_fatal(span,
+                               format!("duplicated bind name: {}",
+                                       string.get()).as_slice())
             }
             ret_val.insert(bind_name, res[idx].clone());
           }
@@ -201,8 +203,8 @@ pub fn nameize(p_s: &ParseSess, ms: &[Matcher], res: &[Rc<NamedMatch>])
 
 pub enum ParseResult {
     Success(HashMap<Ident, Rc<NamedMatch>>),
-    Failure(codemap::Span, StrBuf),
-    Error(codemap::Span, StrBuf)
+    Failure(codemap::Span, String),
+    Error(codemap::Span, String)
 }
 
 pub fn parse_or_else(sess: &ParseSess,
@@ -370,9 +372,9 @@ pub fn parse(sess: &ParseSess,
                 }
                 return Success(nameize(sess, ms, v.as_slice()));
             } else if eof_eis.len() > 1u {
-                return Error(sp, "ambiguity: multiple successful parses".to_strbuf());
+                return Error(sp, "ambiguity: multiple successful parses".to_string());
             } else {
-                return Failure(sp, "unexpected end of macro invocation".to_strbuf());
+                return Failure(sp, "unexpected end of macro invocation".to_string());
             }
         } else {
             if (bb_eis.len() > 0u && next_eis.len() > 0u)
@@ -382,17 +384,17 @@ pub fn parse(sess: &ParseSess,
                       MatchNonterminal(bind, name, _) => {
                         (format!("{} ('{}')",
                                 token::get_ident(name),
-                                token::get_ident(bind))).to_strbuf()
+                                token::get_ident(bind))).to_string()
                       }
                       _ => fail!()
-                    } }).collect::<Vec<StrBuf>>().connect(" or ");
+                    } }).collect::<Vec<String>>().connect(" or ");
                 return Error(sp, format!(
                     "local ambiguity: multiple parsing options: \
                      built-in NTs {} or {} other options.",
-                    nts, next_eis.len()).to_strbuf());
+                    nts, next_eis.len()).to_string());
             } else if bb_eis.len() == 0u && next_eis.len() == 0u {
                 return Failure(sp, format!("no rules expected the token `{}`",
-                            token::to_str(&tok)).to_strbuf());
+                            token::to_str(&tok)).to_string());
             } else if next_eis.len() > 0u {
                 /* Now process the next token */
                 while next_eis.len() > 0u {
@@ -400,7 +402,7 @@ pub fn parse(sess: &ParseSess,
                 }
                 rdr.next_token();
             } else /* bb_eis.len() == 1 */ {
-                let mut rust_parser = Parser(sess, cfg.clone(), box rdr.clone());
+                let mut rust_parser = Parser::new(sess, cfg.clone(), box rdr.clone());
 
                 let mut ei = bb_eis.pop().unwrap();
                 match ei.elts.get(ei.idx).node {
@@ -455,6 +457,9 @@ pub fn parse_nt(p: &mut Parser, name: &str) -> Nonterminal {
         res
       }
       "matchers" => token::NtMatchers(p.parse_matchers()),
-      _ => p.fatal("unsupported builtin nonterminal parser: ".to_owned() + name)
+      _ => {
+          p.fatal(format!("unsupported builtin nonterminal parser: {}",
+                          name).as_slice())
+      }
     }
 }

@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+extern crate debug;
+
 enum color {
     red = 0xff0000,
     green = 0x00ff00,
@@ -19,7 +21,7 @@ enum color {
 pub fn main() {
     let act = format!("{:?}", red);
     println!("{}", act);
-    assert_eq!("red".to_owned(), act);
-    assert_eq!("green".to_owned(), format!("{:?}", green));
-    assert_eq!("white".to_owned(), format!("{:?}", white));
+    assert_eq!("red".to_string(), act);
+    assert_eq!("green".to_string(), format!("{:?}", green));
+    assert_eq!("white".to_string(), format!("{:?}", white));
 }

@@ -101,9 +101,9 @@ impl fmt::Show for AsciiArt {
         // Convert each line into a string.
         let lines = self.lines.iter()
                               .map(|line| {
-                                  str::from_chars(line.as_slice()).to_strbuf()
+                                  str::from_chars(line.as_slice()).to_string()
                               })
-                              .collect::<Vec<StrBuf>>();
+                              .collect::<Vec<String>>();
 
         // Concatenate the lines together using a new-line.
         write!(f, "{}", lines.connect("\n"))
@@ -159,7 +159,7 @@ pub fn check_strs(actual: &str, expected: &str) -> bool {
 
 fn test_ascii_art_ctor() {
     let art = AsciiArt(3, 3, '*');
-    assert!(check_strs(art.to_str(), "...\n...\n..."));
+    assert!(check_strs(art.to_str().as_slice(), "...\n...\n..."));
 }
 
 
@@ -168,7 +168,7 @@ fn test_add_pt() {
     art.add_pt(0, 0);
     art.add_pt(0, -10);
     art.add_pt(1, 2);
-    assert!(check_strs(art.to_str(), "*..\n...\n.*."));
+    assert!(check_strs(art.to_str().as_slice(), "*..\n...\n.*."));
 }
 
 
@@ -176,7 +176,7 @@ fn test_shapes() {
     let mut art = AsciiArt(4, 4, '*');
     art.add_rect(Rect {top_left: Point {x: 0, y: 0}, size: Size {width: 4, height: 4}});
     art.add_point(Point {x: 2, y: 2});
-    assert!(check_strs(art.to_str(), "****\n*..*\n*.**\n****"));
+    assert!(check_strs(art.to_str().as_slice(), "****\n*..*\n*.**\n****"));
 }
 
 pub fn main() {

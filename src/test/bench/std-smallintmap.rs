@@ -12,6 +12,7 @@
 
 extern crate collections;
 extern crate time;
+extern crate debug;
 
 use collections::SmallIntMap;
 use std::os;
@@ -32,14 +33,14 @@ fn check_sequential(min: uint, max: uint, map: &SmallIntMap<uint>) {
 fn main() {
     let args = os::args();
     let args = if os::getenv("RUST_BENCH").is_some() {
-        vec!("".to_owned(), "100000".to_owned(), "100".to_owned())
+        vec!("".to_string(), "100000".to_string(), "100".to_string())
     } else if args.len() <= 1u {
-        vec!("".to_owned(), "10000".to_owned(), "50".to_owned())
+        vec!("".to_string(), "10000".to_string(), "50".to_string())
     } else {
         args.move_iter().collect()
     };
-    let max = from_str::<uint>(*args.get(1)).unwrap();
-    let rep = from_str::<uint>(*args.get(2)).unwrap();
+    let max = from_str::<uint>(args.get(1).as_slice()).unwrap();
+    let rep = from_str::<uint>(args.get(2).as_slice()).unwrap();
 
     let mut checkf = 0.0;
     let mut appendf = 0.0;

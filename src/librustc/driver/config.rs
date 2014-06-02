@@ -39,7 +39,7 @@ use lib::llvm::llvm;
 use std::cell::{RefCell};
 use std::from_str::FromStr;
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, Eq, PartialEq)]
 pub enum NaClFlavor_ {
     NaClFlavor,
     PNaClFlavor,
@@ -64,7 +64,7 @@ pub struct Config {
     pub uint_type: UintTy,
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub enum OptLevel {
     No, // -O0
     Less, // -O1
@@ -72,7 +72,7 @@ pub enum OptLevel {
     Aggressive // -O3
 }
 
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub enum DebugInfoLevel {
     NoDebugInfo,
     LimitedDebugInfo,
@@ -95,7 +95,7 @@ pub struct Options {
     // this.
     pub addl_lib_search_paths: RefCell<HashSet<Path>>,
     pub maybe_sysroot: Option<Path>,
-    pub target_triple: StrBuf,
+    pub target_triple: String,
     // User-specified cfg meta items. The compiler itself will add additional
     // items to the crate config, and during parsing the entire crate config
     // will be added to the crate AST node.  This should not be used for
@@ -125,7 +125,7 @@ pub fn basic_options() -> Options {
         output_types: Vec::new(),
         addl_lib_search_paths: RefCell::new(HashSet::new()),
         maybe_sysroot: None,
-        target_triple: driver::host_triple().to_strbuf(),
+        target_triple: driver::host_triple().to_string(),
         cfg: Vec::new(),
         test: false,
         parse_only: false,
@@ -143,14 +143,14 @@ pub fn basic_options() -> Options {
 // users can have their own entry
 // functions that don't start a
 // scheduler
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 pub enum EntryFnType {
     EntryMain,
     EntryStart,
     EntryNone,
 }
 
-#[deriving(Eq, Ord, Clone, TotalOrd, TotalEq, Hash)]
+#[deriving(PartialEq, PartialOrd, Clone, Ord, Eq, Hash)]
 pub enum CrateType {
     CrateTypeExecutable,
     CrateTypeDylib,
@@ -269,26 +269,26 @@ macro_rules! cgoptions(
             }
         }
 
-        fn parse_opt_string(slot: &mut Option<StrBuf>, v: Option<&str>) -> bool {
+        fn parse_opt_string(slot: &mut Option<String>, v: Option<&str>) -> bool {
             match v {
-                Some(s) => { *slot = Some(s.to_strbuf()); true },
+                Some(s) => { *slot = Some(s.to_string()); true },
                 None => false,
             }
         }
 
-        fn parse_string(slot: &mut StrBuf, v: Option<&str>) -> bool {
+        fn parse_string(slot: &mut String, v: Option<&str>) -> bool {
             match v {
-                Some(s) => { *slot = s.to_strbuf(); true },
+                Some(s) => { *slot = s.to_string(); true },
                 None => false,
             }
         }
 
-        fn parse_list(slot: &mut Vec<StrBuf>, v: Option<&str>)
+        fn parse_list(slot: &mut Vec<String>, v: Option<&str>)
                       -> bool {
             match v {
                 Some(s) => {
                     for s in s.words() {
-                        slot.push(s.to_strbuf());
+                        slot.push(s.to_string());
                     }
                     true
                 },
@@ -303,19 +303,19 @@ macro_rules! cgoptions(
 ) )
 
 cgoptions!(
-    ar: Option<StrBuf> = (None, parse_opt_string,
+    ar: Option<String> = (None, parse_opt_string,
         "tool to assemble archives with"),
-    linker: Option<StrBuf> = (None, parse_opt_string,
+    linker: Option<String> = (None, parse_opt_string,
         "system linker to link outputs with"),
-    link_args: Vec<StrBuf> = (Vec::new(), parse_list,
+    link_args: Vec<String> = (Vec::new(), parse_list,
         "extra arguments to pass to the linker (space separated)"),
-    target_cpu: StrBuf = ("generic".to_strbuf(), parse_string,
+    target_cpu: String = ("generic".to_string(), parse_string,
         "select target processor (llc -mcpu=help for details)"),
-    target_feature: StrBuf = ("".to_strbuf(), parse_string,
+    target_feature: String = ("".to_string(), parse_string,
         "target specific attributes (llc -mattr=help for details)"),
-    passes: Vec<StrBuf> = (Vec::new(), parse_list,
+    passes: Vec<String> = (Vec::new(), parse_list,
         "a list of extra LLVM passes to run (space separated)"),
-    llvm_args: Vec<StrBuf> = (Vec::new(), parse_list,
+    llvm_args: Vec<String> = (Vec::new(), parse_list,
         "a list of arguments to pass to llvm (space separated)"),
     save_temps: bool = (false, parse_bool,
         "save all temporary output files during compilation"),
@@ -333,14 +333,14 @@ cgoptions!(
         "prefer dynamic linking to static linking"),
     no_integrated_as: bool = (false, parse_bool,
         "use an external assembler rather than LLVM's integrated one"),
-    relocation_model: StrBuf = ("pic".to_strbuf(), parse_string,
+    relocation_model: String = ("pic".to_string(), parse_string,
          "choose the relocation model to use (llc -relocation-model for details)"),
-    cross_path: Option<StrBuf> = (None, parse_opt_string,
+    cross_path: Option<String> = (None, parse_opt_string,
         "the path to the target specific toolchain"),
     nacl_flavor: Option<NaClFlavor_> = (None, parse_from_str,
         "use with =pnacl, =nacl, or =emscripten. \
          Only applicable when coupled with a PNaCl, NaCl, or Emscripten cross"),
-    extra_bitcode: Vec<StrBuf> = (Vec::new(), parse_list,
+    extra_bitcode: Vec<String> = (Vec::new(), parse_list,
         "a list of bitcode files to include for linking (PNaCl bin output only)"),
     stable_pexe: bool = (false, parse_bool,
         "write finalized, stable PNaCl bitcode. PNaCl binaries only. Don't use \
@@ -360,18 +360,23 @@ pub fn build_codegen_options(matches: &getopts::Matches) -> CodegenOptions
             if option_to_lookup.as_slice() != candidate { continue }
             if !setter(&mut cg, value) {
                 match value {
-                    Some(..) => early_error(format!("codegen option `{}` takes \
-                                                     no value", key)),
-                    None => early_error(format!("codegen option `{0}` requires \
-                                                 a value (-C {0}=<value>)",
-                                                key))
+                    Some(..) => {
+                        early_error(format!("codegen option `{}` takes no \
+                                             value", key).as_slice())
+                    }
+                    None => {
+                        early_error(format!("codegen option `{0}` requires \
+                                             a value (-C {0}=<value>)",
+                                            key).as_slice())
+                    }
                 }
             }
             found = true;
             break;
         }
         if !found {
-            early_error(format!("unknown codegen option: `{}`", key));
+            early_error(format!("unknown codegen option: `{}`",
+                                key).as_slice());
         }
     }
     return cg;
@@ -504,8 +509,8 @@ pub fn build_target_config(sopts: &Options) -> Config {
     let arch = match get_arch(sopts.target_triple.as_slice()) {
       Some(arch) => arch,
       None => {
-          early_error("unknown architecture: " +
-                      sopts.target_triple.as_slice())
+          early_error(format!("unknown architecture: {}",
+                              sopts.target_triple.as_slice()).as_slice())
       }
     };
     let (int_type, uint_type) = match arch {
@@ -592,10 +597,10 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
 
 
 // Convert strings provided as --cfg [cfgspec] into a crate_cfg
-fn parse_cfgspecs(cfgspecs: Vec<StrBuf> ) -> ast::CrateConfig {
+fn parse_cfgspecs(cfgspecs: Vec<String> ) -> ast::CrateConfig {
     cfgspecs.move_iter().map(|s| {
-        parse::parse_meta_from_source_str("cfgspec".to_strbuf(),
-                                          s.to_strbuf(),
+        parse::parse_meta_from_source_str("cfgspec".to_string(),
+                                          s.to_string(),
                                           Vec::new(),
                                           &parse::new_parse_sess())
     }).collect::<ast::CrateConfig>()
@@ -612,7 +617,10 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                 "staticlib" => CrateTypeStaticlib,
                 "dylib"     => CrateTypeDylib,
                 "bin"       => CrateTypeExecutable,
-                _ => early_error(format!("unknown crate type: `{}`", part))
+                _ => {
+                    early_error(format!("unknown crate type: `{}`",
+                                        part).as_slice())
+                }
             };
             crate_types.push(new_part)
         }
@@ -631,14 +639,17 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 
         let level_short = level_name.slice_chars(0, 1);
         let level_short = level_short.to_ascii().to_upper().into_str();
-        let flags = matches.opt_strs(level_short).move_iter().collect::<Vec<_>>().append(
-                                   matches.opt_strs(level_name).as_slice());
+        let flags = matches.opt_strs(level_short.as_slice())
+                           .move_iter()
+                           .collect::<Vec<_>>()
+                           .append(matches.opt_strs(level_name).as_slice());
         for lint_name in flags.iter() {
-            let lint_name = lint_name.replace("-", "_");
+            let lint_name = lint_name.replace("-", "_").into_string();
             match lint_dict.find_equiv(&lint_name) {
               None => {
                 early_error(format!("unknown {} flag: {}",
-                                    level_name, lint_name));
+                                    level_name,
+                                    lint_name).as_slice());
               }
               Some(lint) => {
                 lint_opts.push((lint.lint, *level));
@@ -660,7 +671,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
             }
         }
         if this_bit == 0 {
-            early_error(format!("unknown debug flag: {}", *debug_flag))
+            early_error(format!("unknown debug flag: {}",
+                                *debug_flag).as_slice())
         }
         debugging_opts |= this_bit;
     }
@@ -680,7 +692,10 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                     "bc"   => link::OutputTypeBitcode,
                     "obj"  => link::OutputTypeObject,
                     "link" => link::OutputTypeExe,
-                    _ => early_error(format!("unknown emission type: `{}`", part))
+                    _ => {
+                        early_error(format!("unknown emission type: `{}`",
+                                            part).as_slice())
+                    }
                 };
                 output_types.push(output_type)
             }
@@ -694,8 +709,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 
     let sysroot_opt = matches.opt_str("sysroot").map(|m| Path::new(m));
     let target = match matches.opt_str("target") {
-        Some(supplied_target) => supplied_target.to_strbuf(),
-        None => driver::host_triple().to_strbuf(),
+        Some(supplied_target) => supplied_target.to_string(),
+        None => driver::host_triple().to_string(),
     };
     let opt_level = {
         if (debugging_opts & NO_OPT) != 0 {
@@ -713,8 +728,9 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                 Some("2") => Default,
                 Some("3") => Aggressive,
                 Some(arg) => {
-                    early_error(format!("optimization level needs to be between 0-3 \
-                                        (instead was `{}`)", arg));
+                    early_error(format!("optimization level needs to be \
+                                         between 0-3 (instead was `{}`)",
+                                        arg).as_slice());
                 }
             }
         } else {
@@ -734,8 +750,9 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
             None      |
             Some("2") => FullDebugInfo,
             Some(arg) => {
-                early_error(format!("optimization level needs to be between 0-3 \
-                                    (instead was `{}`)", arg));
+                early_error(format!("optimization level needs to be between \
+                                     0-3 (instead was `{}`)",
+                                    arg).as_slice());
             }
         }
     } else {
@@ -748,7 +765,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 
     let cfg = parse_cfgspecs(matches.opt_strs("cfg")
                                     .move_iter()
-                                    .map(|x| x.to_strbuf())
+                                    .map(|x| x.to_string())
                                     .collect());
     let test = matches.opt_present("test");
     let write_dependency_info = (matches.opt_present("dep-info"),
@@ -767,9 +784,11 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 
         None => Auto,
 
-        Some(arg) => early_error(format!(
-            "argument for --color must be auto, always or never (instead was `{}`)",
-            arg))
+        Some(arg) => {
+            early_error(format!("argument for --color must be auto, always \
+                                 or never (instead was `{}`)",
+                                arg).as_slice())
+        }
     };
 
     Options {
@@ -810,7 +829,7 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test() {
         let matches =
-            &match getopts(["--test".to_strbuf()], optgroups().as_slice()) {
+            &match getopts(["--test".to_string()], optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => fail!("test_switch_implies_cfg_test: {}", f.to_err_msg())
             };
@@ -825,7 +844,7 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test_unless_cfg_test() {
         let matches =
-            &match getopts(["--test".to_strbuf(), "--cfg=test".to_strbuf()],
+            &match getopts(["--test".to_string(), "--cfg=test".to_string()],
                            optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => {

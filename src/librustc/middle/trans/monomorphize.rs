@@ -109,10 +109,10 @@ pub fn monomorphic_fn(ccx: &CrateContext,
         ccx.sess(),
         ccx.tcx.map.find(fn_id.node),
         || {
-            format_strbuf!("while monomorphizing {:?}, couldn't find it in \
-                            the item map (may have attempted to monomorphize \
-                            an item defined in a different crate?)",
-                           fn_id)
+            format!("while monomorphizing {:?}, couldn't find it in \
+                     the item map (may have attempted to monomorphize \
+                     an item defined in a different crate?)",
+                    fn_id)
         });
 
     match map_node {
@@ -172,14 +172,6 @@ pub fn monomorphic_fn(ccx: &CrateContext,
         }
     };
 
-    let f = match ty::get(mono_ty).sty {
-        ty::ty_bare_fn(ref f) => {
-            assert!(f.abi == abi::Rust || f.abi == abi::RustIntrinsic);
-            f
-        }
-        _ => fail!("expected bare rust fn or an intrinsic")
-    };
-
     ccx.stats.n_monos.set(ccx.stats.n_monos.get() + 1);
 
     let depth;
@@ -205,7 +197,8 @@ pub fn monomorphic_fn(ccx: &CrateContext,
         hash_id.hash(&mut state);
         mono_ty.hash(&mut state);
 
-        exported_name(path, format!("h{}", state.result()),
+        exported_name(path,
+                      format!("h{}", state.result()).as_slice(),
                       ccx.link_meta.crateid.version_or_default())
     });
     debug!("monomorphize_fn mangled to {}", s);
@@ -213,11 +206,7 @@ pub fn monomorphic_fn(ccx: &CrateContext,
     // This shouldn't need to option dance.
     let mut hash_id = Some(hash_id);
     let mk_lldecl = || {
-        let lldecl = decl_internal_rust_fn(ccx,
-                                           false,
-                                           f.sig.inputs.as_slice(),
-                                           f.sig.output,
-                                           s.as_slice());
+        let lldecl = decl_internal_rust_fn(ccx, mono_ty, s.as_slice());
         ccx.monomorphized.borrow_mut().insert(hash_id.take_unwrap(), lldecl);
         lldecl
     };
@@ -287,7 +276,7 @@ pub fn monomorphic_fn(ccx: &CrateContext,
                 }
                 _ => {
                     ccx.sess().bug(format!("can't monomorphize a {:?}",
-                                           map_node))
+                                           map_node).as_slice())
                 }
             }
         }
@@ -311,7 +300,8 @@ pub fn monomorphic_fn(ccx: &CrateContext,
         ast_map::NodeBlock(..) |
         ast_map::NodePat(..) |
         ast_map::NodeLocal(..) => {
-            ccx.sess().bug(format!("can't monomorphize a {:?}", map_node))
+            ccx.sess().bug(format!("can't monomorphize a {:?}",
+                                   map_node).as_slice())
         }
     };
 
@@ -322,14 +312,14 @@ pub fn monomorphic_fn(ccx: &CrateContext,
 }
 
 // Used to identify cached monomorphized functions and vtables
-#[deriving(Eq, TotalEq, Hash)]
+#[deriving(PartialEq, Eq, Hash)]
 pub struct MonoParamId {
     pub subst: ty::t,
     // Do we really need the vtables to be hashed? Isn't the type enough?
     pub vtables: Vec<MonoId>
 }
 
-#[deriving(Eq, TotalEq, Hash)]
+#[deriving(PartialEq, Eq, Hash)]
 pub struct MonoId {
     pub def: ast::DefId,
     pub params: Vec<MonoParamId>

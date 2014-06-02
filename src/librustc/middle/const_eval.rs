@@ -288,7 +288,7 @@ pub fn process_crate(krate: &ast::Crate,
 
 // FIXME (#33): this doesn't handle big integer/float literals correctly
 // (nor does the rest of our literal handling).
-#[deriving(Clone, Eq)]
+#[deriving(Clone, PartialEq)]
 pub enum const_val {
     const_float(f64),
     const_int(i64),
@@ -306,16 +306,16 @@ pub fn eval_const_expr(tcx: &ty::ctxt, e: &Expr) -> const_val {
 }
 
 pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
-                            -> Result<const_val, StrBuf> {
-    fn fromb(b: bool) -> Result<const_val, StrBuf> { Ok(const_int(b as i64)) }
+                            -> Result<const_val, String> {
+    fn fromb(b: bool) -> Result<const_val, String> { Ok(const_int(b as i64)) }
     match e.node {
       ExprUnary(UnNeg, inner) => {
         match eval_const_expr_partial(tcx, inner) {
           Ok(const_float(f)) => Ok(const_float(-f)),
           Ok(const_int(i)) => Ok(const_int(-i)),
           Ok(const_uint(i)) => Ok(const_uint(-i)),
-          Ok(const_str(_)) => Err("negate on string".to_strbuf()),
-          Ok(const_bool(_)) => Err("negate on boolean".to_strbuf()),
+          Ok(const_str(_)) => Err("negate on string".to_string()),
+          Ok(const_bool(_)) => Err("negate on boolean".to_string()),
           ref err => ((*err).clone())
         }
       }
@@ -324,7 +324,7 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
           Ok(const_int(i)) => Ok(const_int(!i)),
           Ok(const_uint(i)) => Ok(const_uint(!i)),
           Ok(const_bool(b)) => Ok(const_bool(!b)),
-          _ => Err("not on float or string".to_strbuf())
+          _ => Err("not on float or string".to_string())
         }
       }
       ExprBinary(op, a, b) => {
@@ -343,7 +343,7 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
               BiNe => fromb(a != b),
               BiGe => fromb(a >= b),
               BiGt => fromb(a > b),
-              _ => Err("can't do this op on floats".to_strbuf())
+              _ => Err("can't do this op on floats".to_string())
             }
           }
           (Ok(const_int(a)), Ok(const_int(b))) => {
@@ -352,12 +352,12 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
               BiSub => Ok(const_int(a - b)),
               BiMul => Ok(const_int(a * b)),
               BiDiv if b == 0 => {
-                  Err("attempted to divide by zero".to_strbuf())
+                  Err("attempted to divide by zero".to_string())
               }
               BiDiv => Ok(const_int(a / b)),
               BiRem if b == 0 => {
                   Err("attempted remainder with a divisor of \
-                       zero".to_strbuf())
+                       zero".to_string())
               }
               BiRem => Ok(const_int(a % b)),
               BiAnd | BiBitAnd => Ok(const_int(a & b)),
@@ -379,12 +379,12 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
               BiSub => Ok(const_uint(a - b)),
               BiMul => Ok(const_uint(a * b)),
               BiDiv if b == 0 => {
-                  Err("attempted to divide by zero".to_strbuf())
+                  Err("attempted to divide by zero".to_string())
               }
               BiDiv => Ok(const_uint(a / b)),
               BiRem if b == 0 => {
                   Err("attempted remainder with a divisor of \
-                       zero".to_strbuf())
+                       zero".to_string())
               }
               BiRem => Ok(const_uint(a % b)),
               BiAnd | BiBitAnd => Ok(const_uint(a & b)),
@@ -405,14 +405,14 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
             match op {
               BiShl => Ok(const_int(a << b)),
               BiShr => Ok(const_int(a >> b)),
-              _ => Err("can't do this op on an int and uint".to_strbuf())
+              _ => Err("can't do this op on an int and uint".to_string())
             }
           }
           (Ok(const_uint(a)), Ok(const_int(b))) => {
             match op {
               BiShl => Ok(const_uint(a << b)),
               BiShr => Ok(const_uint(a >> b)),
-              _ => Err("can't do this op on a uint and int".to_strbuf())
+              _ => Err("can't do this op on a uint and int".to_string())
             }
           }
           (Ok(const_bool(a)), Ok(const_bool(b))) => {
@@ -424,10 +424,10 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
               BiBitOr => a | b,
               BiEq => a == b,
               BiNe => a != b,
-              _ => return Err("can't do this op on bools".to_strbuf())
+              _ => return Err("can't do this op on bools".to_string())
              }))
           }
-          _ => Err("bad operands for binary".to_strbuf())
+          _ => Err("bad operands for binary".to_string())
         }
       }
       ExprCast(base, target_ty) => {
@@ -436,10 +436,11 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
         // (#5900). Fall back to doing a limited lookup to get past it.
         let ety = ty::expr_ty_opt(tcx.ty_ctxt(), e)
                 .or_else(|| astconv::ast_ty_to_prim_ty(tcx.ty_ctxt(), target_ty))
-                .unwrap_or_else(|| tcx.ty_ctxt().sess.span_fatal(
-                    target_ty.span,
-                    format!("target type not found for const cast")
-                ));
+                .unwrap_or_else(|| {
+                    tcx.ty_ctxt().sess.span_fatal(target_ty.span,
+                                                  "target type not found for \
+                                                   const cast")
+                });
 
         let base = eval_const_expr_partial(tcx, base);
         match base {
@@ -451,7 +452,7 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
                             const_uint(u) => Ok(const_float(u as f64)),
                             const_int(i) => Ok(const_float(i as f64)),
                             const_float(f) => Ok(const_float(f)),
-                            _ => Err("can't cast float to str".to_strbuf()),
+                            _ => Err("can't cast float to str".to_string()),
                         }
                     }
                     ty::ty_uint(_) => {
@@ -459,7 +460,7 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
                             const_uint(u) => Ok(const_uint(u)),
                             const_int(i) => Ok(const_uint(i as u64)),
                             const_float(f) => Ok(const_uint(f as u64)),
-                            _ => Err("can't cast str to uint".to_strbuf()),
+                            _ => Err("can't cast str to uint".to_string()),
                         }
                     }
                     ty::ty_int(_) | ty::ty_bool => {
@@ -467,10 +468,10 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
                             const_uint(u) => Ok(const_int(u as i64)),
                             const_int(i) => Ok(const_int(i)),
                             const_float(f) => Ok(const_int(f as i64)),
-                            _ => Err("can't cast str to int".to_strbuf()),
+                            _ => Err("can't cast str to int".to_string()),
                         }
                     }
-                    _ => Err("can't cast this type".to_strbuf())
+                    _ => Err("can't cast this type".to_string())
                 }
             }
         }
@@ -478,7 +479,7 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
       ExprPath(_) => {
           match lookup_const(tcx.ty_ctxt(), e) {
               Some(actual_e) => eval_const_expr_partial(tcx.ty_ctxt(), actual_e),
-              None => Err("non-constant path in constant expr".to_strbuf())
+              None => Err("non-constant path in constant expr".to_string())
           }
       }
       ExprLit(lit) => Ok(lit_to_const(lit)),
@@ -491,7 +492,7 @@ pub fn eval_const_expr_partial<T: ty::ExprTyProvider>(tcx: &T, e: &Expr)
             None => Ok(const_int(0i64))
         }
       }
-      _ => Err("unsupported constant expr".to_strbuf())
+      _ => Err("unsupported constant expr".to_string())
     }
 }
 
@@ -513,7 +514,7 @@ pub fn lit_to_const(lit: &Lit) -> const_val {
     }
 }
 
-fn compare_vals<T: Ord>(a: T, b: T) -> Option<int> {
+fn compare_vals<T: PartialOrd>(a: T, b: T) -> Option<int> {
     Some(if a == b { 0 } else if a < b { -1 } else { 1 })
 }
 pub fn compare_const_vals(a: &const_val, b: &const_val) -> Option<int> {
@@ -542,7 +543,7 @@ pub fn eval_positive_integer<T: ty::ExprTyProvider>(tcx: &T,
                 tcx.ty_ctxt().sess.span_err(count_expr.span,
                                             format!("expected positive integer for \
                                                     {:s} but found negative integer",
-                                                    msg));
+                                                    msg).as_slice());
                 return 0;
             } else {
                 return count as uint
@@ -551,32 +552,32 @@ pub fn eval_positive_integer<T: ty::ExprTyProvider>(tcx: &T,
             const_float(count) => {
                 tcx.ty_ctxt().sess.span_err(count_expr.span,
                                             format!("expected positive integer for \
-                                                    {:s} but found float", msg));
+                                                    {:s} but found float", msg).as_slice());
                 return count as uint;
             }
             const_str(_) => {
                 tcx.ty_ctxt().sess.span_err(count_expr.span,
                                             format!("expected positive integer for \
-                                                    {:s} but found string", msg));
+                                                    {:s} but found string", msg).as_slice());
                 return 0;
             }
             const_bool(_) => {
                 tcx.ty_ctxt().sess.span_err(count_expr.span,
                                             format!("expected positive integer for \
-                                                    {:s} but found boolean", msg));
+                                                    {:s} but found boolean", msg).as_slice());
                 return 0;
             }
             const_binary(_) => {
                 tcx.ty_ctxt().sess.span_err(count_expr.span,
                                             format!("expected positive integer for \
-                                                    {:s} but found binary array", msg));
+                                                    {:s} but found binary array", msg).as_slice());
                 return 0;
             }
         },
         Err(..) => {
             tcx.ty_ctxt().sess.span_err(count_expr.span,
                                         format!("expected constant integer for {:s} \
-                                                but found variable", msg));
+                                                but found variable", msg).as_slice());
             return 0;
         }
     }

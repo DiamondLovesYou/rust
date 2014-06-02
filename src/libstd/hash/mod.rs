@@ -23,12 +23,12 @@
  * #[deriving(Hash)]
  * struct Person {
  *     id: uint,
- *     name: ~str,
+ *     name: String,
  *     phone: u64,
  * }
  *
- * let person1 = Person { id: 5, name: "Janet".to_owned(), phone: 555_666_7777 };
- * let person2 = Person { id: 5, name: "Bob".to_owned(), phone: 555_666_7777 };
+ * let person1 = Person { id: 5, name: "Janet".to_string(), phone: 555_666_7777 };
+ * let person2 = Person { id: 5, name: "Bob".to_string(), phone: 555_666_7777 };
  *
  * assert!(hash::hash(&person1) != hash::hash(&person2));
  * ```
@@ -43,7 +43,7 @@
  *
  * struct Person {
  *     id: uint,
- *     name: ~str,
+ *     name: String,
  *     phone: u64,
  * }
  *
@@ -54,8 +54,8 @@
  *     }
  * }
  *
- * let person1 = Person { id: 5, name: "Janet".to_owned(), phone: 555_666_7777 };
- * let person2 = Person { id: 5, name: "Bob".to_owned(), phone: 555_666_7777 };
+ * let person1 = Person { id: 5, name: "Janet".to_string(), phone: 555_666_7777 };
+ * let person2 = Person { id: 5, name: "Bob".to_string(), phone: 555_666_7777 };
  *
  * assert!(hash::hash(&person1) == hash::hash(&person2));
  * ```
@@ -65,7 +65,6 @@
 
 use container::Container;
 use intrinsics::TypeId;
-use io::Writer;
 use iter::Iterator;
 use option::{Option, Some, None};
 use owned::Box;
@@ -77,6 +76,8 @@ use vec::Vec;
 
 /// Reexport the `sip::hash` function as our default hasher.
 pub use hash = self::sip::hash;
+
+pub use Writer = io::Writer;
 
 pub mod sip;
 
@@ -142,13 +143,6 @@ impl<'a, S: Writer> Hash<S> for &'a str {
     fn hash(&self, state: &mut S) {
         state.write(self.as_bytes());
         state.write_u8(0xFF);
-    }
-}
-
-impl<S: Writer> Hash<S> for ~str {
-    #[inline]
-    fn hash(&self, state: &mut S) {
-        self.as_slice().hash(state);
     }
 }
 

@@ -123,9 +123,9 @@ use syntax::print::pprust::{expr_to_str, block_to_str};
 use syntax::{visit, ast_util};
 use syntax::visit::{Visitor, FnKind};
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 struct Variable(uint);
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 struct LiveNode(uint);
 
 impl Variable {
@@ -142,7 +142,7 @@ impl Clone for LiveNode {
     }
 }
 
-#[deriving(Eq)]
+#[deriving(PartialEq)]
 enum LiveNodeKind {
     FreeVarNode(Span),
     ExprNode(Span),
@@ -150,19 +150,19 @@ enum LiveNodeKind {
     ExitNode
 }
 
-fn live_node_kind_to_str(lnk: LiveNodeKind, cx: &ty::ctxt) -> StrBuf {
+fn live_node_kind_to_str(lnk: LiveNodeKind, cx: &ty::ctxt) -> String {
     let cm = cx.sess.codemap();
     match lnk {
         FreeVarNode(s) => {
-            format_strbuf!("Free var node [{}]", cm.span_to_str(s))
+            format!("Free var node [{}]", cm.span_to_str(s))
         }
         ExprNode(s) => {
-            format_strbuf!("Expr node [{}]", cm.span_to_str(s))
+            format!("Expr node [{}]", cm.span_to_str(s))
         }
         VarDefNode(s) => {
-            format_strbuf!("Var def node [{}]", cm.span_to_str(s))
+            format!("Var def node [{}]", cm.span_to_str(s))
         }
-        ExitNode => "Exit node".to_strbuf(),
+        ExitNode => "Exit node".to_string(),
     }
 }
 
@@ -177,7 +177,7 @@ impl<'a> Visitor<()> for IrMaps<'a> {
 
 pub fn check_crate(tcx: &ty::ctxt,
                    krate: &Crate) {
-    visit::walk_crate(&mut IrMaps(tcx), krate, ());
+    visit::walk_crate(&mut IrMaps::new(tcx), krate, ());
     tcx.sess.abort_if_errors();
 }
 
@@ -260,21 +260,20 @@ struct IrMaps<'a> {
     lnks: Vec<LiveNodeKind>,
 }
 
-fn IrMaps<'a>(tcx: &'a ty::ctxt)
-              -> IrMaps<'a> {
-    IrMaps {
-        tcx: tcx,
-        num_live_nodes: 0,
-        num_vars: 0,
-        live_node_map: NodeMap::new(),
-        variable_map: NodeMap::new(),
-        capture_info_map: NodeMap::new(),
-        var_kinds: Vec::new(),
-        lnks: Vec::new(),
-    }
-}
-
 impl<'a> IrMaps<'a> {
+    fn new(tcx: &'a ty::ctxt) -> IrMaps<'a> {
+        IrMaps {
+            tcx: tcx,
+            num_live_nodes: 0,
+            num_vars: 0,
+            live_node_map: NodeMap::new(),
+            variable_map: NodeMap::new(),
+            capture_info_map: NodeMap::new(),
+            var_kinds: Vec::new(),
+            lnks: Vec::new(),
+        }
+    }
+
     fn add_live_node(&mut self, lnk: LiveNodeKind) -> LiveNode {
         let ln = LiveNode(self.num_live_nodes);
         self.lnks.push(lnk);
@@ -317,17 +316,17 @@ impl<'a> IrMaps<'a> {
             self.tcx
                 .sess
                 .span_bug(span, format!("no variable registered for id {}",
-                                        node_id));
+                                        node_id).as_slice());
           }
         }
     }
 
-    fn variable_name(&self, var: Variable) -> StrBuf {
+    fn variable_name(&self, var: Variable) -> String {
         match self.var_kinds.get(var.get()) {
             &Local(LocalInfo { ident: nm, .. }) | &Arg(_, nm) => {
-                token::get_ident(nm).get().to_str().to_strbuf()
+                token::get_ident(nm).get().to_str().to_string()
             },
-            &ImplicitRet => "<implicit-ret>".to_strbuf()
+            &ImplicitRet => "<implicit-ret>".to_string()
         }
     }
 
@@ -365,7 +364,7 @@ fn visit_fn(ir: &mut IrMaps,
     let _i = ::util::common::indenter();
 
     // swap in a new set of IR maps for this function body:
-    let mut fn_maps = IrMaps(ir.tcx);
+    let mut fn_maps = IrMaps::new(ir.tcx);
 
     unsafe {
         debug!("creating fn_maps: {}", transmute::<&IrMaps, *IrMaps>(&fn_maps));
@@ -396,7 +395,7 @@ fn visit_fn(ir: &mut IrMaps,
     };
 
     // compute liveness
-    let mut lsets = Liveness(&mut fn_maps, specials);
+    let mut lsets = Liveness::new(&mut fn_maps, specials);
     let entry_ln = lsets.compute(decl, body);
 
     // check for various error conditions
@@ -585,19 +584,19 @@ struct Liveness<'a> {
     cont_ln: NodeMap<LiveNode>
 }
 
-fn Liveness<'a>(ir: &'a mut IrMaps<'a>, specials: Specials) -> Liveness<'a> {
-    Liveness {
-        ir: ir,
-        s: specials,
-        successors: Vec::from_elem(ir.num_live_nodes, invalid_node()),
-        users: Vec::from_elem(ir.num_live_nodes * ir.num_vars, invalid_users()),
-        loop_scope: Vec::new(),
-        break_ln: NodeMap::new(),
-        cont_ln: NodeMap::new(),
-    }
-}
-
 impl<'a> Liveness<'a> {
+    fn new(ir: &'a mut IrMaps<'a>, specials: Specials) -> Liveness<'a> {
+        Liveness {
+            ir: ir,
+            s: specials,
+            successors: Vec::from_elem(ir.num_live_nodes, invalid_node()),
+            users: Vec::from_elem(ir.num_live_nodes * ir.num_vars, invalid_users()),
+            loop_scope: Vec::new(),
+            break_ln: NodeMap::new(),
+            cont_ln: NodeMap::new(),
+        }
+    }
+
     fn live_node(&self, node_id: NodeId, span: Span) -> LiveNode {
         match self.ir.live_node_map.find(&node_id) {
           Some(&ln) => ln,
@@ -607,8 +606,9 @@ impl<'a> Liveness<'a> {
             // code have to agree about which AST nodes are worth
             // creating liveness nodes for.
             self.ir.tcx.sess.span_bug(
-                span, format!("no live node registered for node {}",
-                           node_id));
+                span,
+                format!("no live node registered for node {}",
+                        node_id).as_slice());
           }
         }
     }
@@ -750,7 +750,7 @@ impl<'a> Liveness<'a> {
     }
 
     #[allow(unused_must_use)]
-    fn ln_str(&self, ln: LiveNode) -> StrBuf {
+    fn ln_str(&self, ln: LiveNode) -> String {
         let mut wr = io::MemWriter::new();
         {
             let wr = &mut wr as &mut io::Writer;
@@ -760,7 +760,7 @@ impl<'a> Liveness<'a> {
             self.write_vars(wr, ln, |idx| self.users.get(idx).writer);
             write!(wr, "  precedes {}]", self.successors.get(ln.get()).to_str());
         }
-        str::from_utf8(wr.unwrap().as_slice()).unwrap().to_strbuf()
+        str::from_utf8(wr.unwrap().as_slice()).unwrap().to_string()
     }
 
     fn init_empty(&mut self, ln: LiveNode, succ_ln: LiveNode) {
@@ -1547,7 +1547,7 @@ impl<'a> Liveness<'a> {
        }
     }
 
-    fn should_warn(&self, var: Variable) -> Option<StrBuf> {
+    fn should_warn(&self, var: Variable) -> Option<String> {
         let name = self.ir.variable_name(var);
         if name.len() == 0 || name.as_slice()[0] == ('_' as u8) {
             None
@@ -1600,12 +1600,11 @@ impl<'a> Liveness<'a> {
 
                 if is_assigned {
                     self.ir.tcx.sess.add_lint(UnusedVariable, id, sp,
-                        format_strbuf!("variable `{}` is assigned to, \
-                                        but never used",
-                                       *name));
+                        format!("variable `{}` is assigned to, but never used",
+                                *name));
                 } else {
                     self.ir.tcx.sess.add_lint(UnusedVariable, id, sp,
-                        format_strbuf!("unused variable: `{}`", *name));
+                        format!("unused variable: `{}`", *name));
                 }
             }
             true
@@ -1623,8 +1622,7 @@ impl<'a> Liveness<'a> {
             let r = self.should_warn(var);
             for name in r.iter() {
                 self.ir.tcx.sess.add_lint(DeadAssignment, id, sp,
-                    format_strbuf!("value assigned to `{}` is never read",
-                                   *name));
+                    format!("value assigned to `{}` is never read", *name));
             }
         }
     }

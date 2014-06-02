@@ -160,11 +160,11 @@ pub static stringnames: &'static[&'static str] = &'static[ "cbt", "_", "cr", "cs
 
 /// Parse a compiled terminfo entry, using long capability names if `longnames` is true
 pub fn parse(file: &mut io::Reader, longnames: bool)
-             -> Result<Box<TermInfo>, StrBuf> {
+             -> Result<Box<TermInfo>, String> {
     macro_rules! try( ($e:expr) => (
         match $e {
             Ok(e) => e,
-            Err(e) => return Err(format_strbuf!("{}", e))
+            Err(e) => return Err(format!("{}", e))
         }
     ) )
 
@@ -185,10 +185,8 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
     // Check magic number
     let magic = try!(file.read_le_u16());
     if magic != 0x011A {
-        return Err(format_strbuf!("invalid magic number: expected {:x} but \
-                                   found {:x}",
-                                  0x011A,
-                                  magic as uint));
+        return Err(format!("invalid magic number: expected {:x} but found {:x}",
+                           0x011A, magic as uint));
     }
 
     let names_bytes          = try!(file.read_le_i16()) as int;
@@ -201,28 +199,29 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
 
     if (bools_bytes as uint) > boolnames.len() {
         return Err("incompatible file: more booleans than \
-                    expected".to_strbuf());
+                    expected".to_string());
     }
 
     if (numbers_count as uint) > numnames.len() {
         return Err("incompatible file: more numbers than \
-                    expected".to_strbuf());
+                    expected".to_string());
     }
 
     if (string_offsets_count as uint) > stringnames.len() {
         return Err("incompatible file: more string offsets than \
-                    expected".to_strbuf());
+                    expected".to_string());
     }
 
     // don't read NUL
     let bytes = try!(file.read_exact(names_bytes as uint - 1));
     let names_str = match str::from_utf8(bytes.as_slice()) {
-        Some(s) => s.to_owned(),
-        None => return Err("input not utf-8".to_strbuf()),
+        Some(s) => s.to_string(),
+        None => return Err("input not utf-8".to_string()),
     };
 
-    let term_names: Vec<StrBuf> = names_str.split('|')
-                                           .map(|s| s.to_strbuf())
+    let term_names: Vec<String> = names_str.as_slice()
+                                           .split('|')
+                                           .map(|s| s.to_string())
                                            .collect();
 
     try!(file.read_byte()); // consume NUL
@@ -232,7 +231,7 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
         for i in range(0, bools_bytes) {
             let b = try!(file.read_byte());
             if b == 1 {
-                bools_map.insert(bnames[i as uint].to_strbuf(), true);
+                bools_map.insert(bnames[i as uint].to_string(), true);
             }
         }
     }
@@ -246,7 +245,7 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
         for i in range(0, numbers_count) {
             let n = try!(file.read_le_u16());
             if n != 0xFFFF {
-                numbers_map.insert(nnames[i as uint].to_strbuf(), n);
+                numbers_map.insert(nnames[i as uint].to_string(), n);
             }
         }
     }
@@ -263,7 +262,7 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
 
         if string_table.len() != string_table_bytes as uint {
             return Err("error: hit EOF before end of string \
-                        table".to_strbuf());
+                        table".to_string());
         }
 
         for (i, v) in string_offsets.iter().enumerate() {
@@ -281,7 +280,7 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
             if offset == 0xFFFE {
                 // undocumented: FFFE indicates cap@, which means the capability is not present
                 // unsure if the handling for this is correct
-                string_map.insert(name.to_strbuf(), Vec::new());
+                string_map.insert(name.to_string(), Vec::new());
                 continue;
             }
 
@@ -291,14 +290,14 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
                 .iter().position(|&b| b == 0);
             match nulpos {
                 Some(len) => {
-                    string_map.insert(name.to_strbuf(),
+                    string_map.insert(name.to_string(),
                                       Vec::from_slice(
                                           string_table.slice(offset as uint,
                                           offset as uint + len)))
                 },
                 None => {
                     return Err("invalid file: missing NUL in \
-                                string_table".to_strbuf());
+                                string_table".to_string());
                 }
             };
         }
@@ -316,12 +315,12 @@ pub fn parse(file: &mut io::Reader, longnames: bool)
 /// Create a dummy TermInfo struct for msys terminals
 pub fn msys_terminfo() -> Box<TermInfo> {
     let mut strings = HashMap::new();
-    strings.insert("sgr0".to_strbuf(), Vec::from_slice(bytes!("\x1b[0m")));
-    strings.insert("bold".to_strbuf(), Vec::from_slice(bytes!("\x1b[1m")));
-    strings.insert("setaf".to_strbuf(), Vec::from_slice(bytes!("\x1b[3%p1%dm")));
-    strings.insert("setab".to_strbuf(), Vec::from_slice(bytes!("\x1b[4%p1%dm")));
+    strings.insert("sgr0".to_string(), Vec::from_slice(bytes!("\x1b[0m")));
+    strings.insert("bold".to_string(), Vec::from_slice(bytes!("\x1b[1m")));
+    strings.insert("setaf".to_string(), Vec::from_slice(bytes!("\x1b[3%p1%dm")));
+    strings.insert("setab".to_string(), Vec::from_slice(bytes!("\x1b[4%p1%dm")));
     box TermInfo {
-        names: vec!("cygwin".to_strbuf()), // msys is a fork of an older cygwin version
+        names: vec!("cygwin".to_string()), // msys is a fork of an older cygwin version
         bools: HashMap::new(),
         numbers: HashMap::new(),
         strings: strings

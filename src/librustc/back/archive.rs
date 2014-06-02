@@ -56,17 +56,24 @@ fn run_ar(sess: &Session, args: &str, cwd: Option<&Path>,
         Ok(prog) => {
             let o = prog.wait_with_output().unwrap();
             if !o.status.success() {
-                sess.err(format!("{} failed with: {}", cmd, o.status));
+                sess.err(format!("{} failed with: {}",
+                                 cmd,
+                                 o.status).as_slice());
                 sess.note(format!("stdout ---\n{}",
-                                  str::from_utf8(o.output.as_slice()).unwrap()));
+                                  str::from_utf8(o.output
+                                                  .as_slice()).unwrap())
+                          .as_slice());
                 sess.note(format!("stderr ---\n{}",
-                                  str::from_utf8(o.error.as_slice()).unwrap()));
+                                  str::from_utf8(o.error
+                                                  .as_slice()).unwrap())
+                          .as_slice());
                 sess.abort_if_errors();
             }
             o
         },
         Err(e) => {
-            sess.err(format!("could not exec `{}`: {}", ar.as_slice(), e));
+            sess.err(format!("could not exec `{}`: {}", ar.as_slice(),
+                             e).as_slice());
             sess.abort_if_errors();
             fail!("rustc::back::archive::run_ar() should not reach this point");
         }
@@ -127,12 +134,12 @@ impl<'a> Archive<'a> {
     }
 
     /// Lists all files in an archive
-    pub fn files(&self) -> Vec<StrBuf> {
+    pub fn files(&self) -> Vec<String> {
         let output = run_ar(self.sess, "t", None, [&self.dst]);
         let output = str::from_utf8(output.output.as_slice()).unwrap();
         // use lines_any because windows delimits output with `\r\n` instead of
         // just `\n`
-        output.lines_any().map(|s| s.to_strbuf()).collect()
+        output.lines_any().map(|s| s.to_string()).collect()
     }
 
     fn add_archive(&mut self, archive: &Path, name: &str,
@@ -194,7 +201,8 @@ impl<'a> Archive<'a> {
             }
         }
         self.sess.fatal(format!("could not find native static library `{}`, \
-                                 perhaps an -L flag is missing?", name));
+                                 perhaps an -L flag is missing?",
+                                name).as_slice());
     }
 }
 
@@ -251,7 +259,7 @@ impl ArchiveRO {
                     debug!("running f on `{}`", name);
                     buf_as_slice(buffer, buffer_len as uint, |buf| {
                         let f: |&str, &[u8]| = transmute_copy(f);
-                        f(name, buf);
+                        f(name.as_slice(), buf);
                     })
                 })
             }

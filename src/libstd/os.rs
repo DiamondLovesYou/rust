@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -27,24 +27,26 @@
  */
 
 #![allow(missing_doc)]
+#![allow(non_snake_case_functions)]
 
 use clone::Clone;
 use container::Container;
-use libc;
+use fmt;
+use iter::Iterator;
 use libc::{c_void, c_int};
+use libc;
+use ops::Drop;
 use option::{Some, None, Option};
 use os;
-use ops::Drop;
-use result::{Err, Ok, Result};
-use ptr;
-use str;
-use str::{Str, StrSlice, StrAllocating};
-use fmt;
-use sync::atomics::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
-use path::{Path, GenericPath};
-use iter::Iterator;
-use slice::{Vector, CloneableVector, ImmutableVector, MutableVector, OwnedVector};
+use path::{Path, GenericPath, BytesContainer};
 use ptr::RawPtr;
+use ptr;
+use result::{Err, Ok, Result};
+use slice::{Vector, ImmutableVector, MutableVector, OwnedVector};
+use str::{Str, StrSlice, StrAllocating};
+use str;
+use string::String;
+use sync::atomics::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
 use vec::Vec;
 
 #[cfg(unix)]
@@ -103,12 +105,13 @@ pub mod win32 {
     use option;
     use os::TMPBUF_SZ;
     use slice::{MutableVector, ImmutableVector};
+    use string::String;
     use str::{StrSlice, StrAllocating};
     use str;
     use vec::Vec;
 
     pub fn fill_utf16_buf_and_decode(f: |*mut u16, DWORD| -> DWORD)
-        -> Option<~str> {
+        -> Option<String> {
 
         unsafe {
             let mut n = TMPBUF_SZ as DWORD;
@@ -174,20 +177,20 @@ fn with_env_lock<T>(f: || -> T) -> T {
 ///
 /// Invalid UTF-8 bytes are replaced with \uFFFD. See `str::from_utf8_lossy()`
 /// for details.
-pub fn env() -> Vec<(~str,~str)> {
+pub fn env() -> Vec<(String,String)> {
     env_as_bytes().move_iter().map(|(k,v)| {
-        let k = str::from_utf8_lossy(k).into_owned();
-        let v = str::from_utf8_lossy(v).into_owned();
+        let k = str::from_utf8_lossy(k.as_slice()).to_string();
+        let v = str::from_utf8_lossy(v.as_slice()).to_string();
         (k,v)
     }).collect()
 }
 
 /// Returns a vector of (variable, value) byte-vector pairs for all the
 /// environment variables of the current process.
-pub fn env_as_bytes() -> Vec<(~[u8],~[u8])> {
+pub fn env_as_bytes() -> Vec<(Vec<u8>,Vec<u8>)> {
     unsafe {
         #[cfg(windows)]
-        unsafe fn get_env_pairs() -> Vec<~[u8]> {
+        unsafe fn get_env_pairs() -> Vec<Vec<u8>> {
             use slice::raw;
 
             use libc::funcs::extra::kernel32::{
@@ -227,7 +230,7 @@ pub fn env_as_bytes() -> Vec<(~[u8],~[u8])> {
             result
         }
         #[cfg(unix)]
-        unsafe fn get_env_pairs() -> Vec<~[u8]> {
+        unsafe fn get_env_pairs() -> Vec<Vec<u8>> {
             use c_str::CString;
 
             extern {
@@ -240,18 +243,19 @@ pub fn env_as_bytes() -> Vec<(~[u8],~[u8])> {
             }
             let mut result = Vec::new();
             ptr::array_each(environ, |e| {
-                let env_pair = CString::new(e, false).as_bytes_no_nul().to_owned();
+                let env_pair =
+                    Vec::from_slice(CString::new(e, false).as_bytes_no_nul());
                 result.push(env_pair);
             });
             result
         }
 
-        fn env_convert(input: Vec<~[u8]>) -> Vec<(~[u8], ~[u8])> {
+        fn env_convert(input: Vec<Vec<u8>>) -> Vec<(Vec<u8>, Vec<u8>)> {
             let mut pairs = Vec::new();
             for p in input.iter() {
-                let mut it = p.splitn(1, |b| *b == '=' as u8);
-                let key = it.next().unwrap().to_owned();
-                let val = it.next().unwrap_or(&[]).to_owned();
+                let mut it = p.as_slice().splitn(1, |b| *b == '=' as u8);
+                let key = Vec::from_slice(it.next().unwrap());
+                let val = Vec::from_slice(it.next().unwrap_or(&[]));
                 pairs.push((key, val));
             }
             pairs
@@ -273,8 +277,8 @@ pub fn env_as_bytes() -> Vec<(~[u8],~[u8])> {
 /// # Failure
 ///
 /// Fails if `n` has any interior NULs.
-pub fn getenv(n: &str) -> Option<~str> {
-    getenv_as_bytes(n).map(|v| str::from_utf8_lossy(v).into_owned())
+pub fn getenv(n: &str) -> Option<String> {
+    getenv_as_bytes(n).map(|v| str::from_utf8_lossy(v.as_slice()).to_string())
 }
 
 #[cfg(unix, not(target_os = "nacl"))]
@@ -284,7 +288,7 @@ pub fn getenv(n: &str) -> Option<~str> {
 /// # Failure
 ///
 /// Fails if `n` has any interior NULs.
-pub fn getenv_as_bytes(n: &str) -> Option<~[u8]> {
+pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
     use c_str::CString;
 
     unsafe {
@@ -293,7 +297,8 @@ pub fn getenv_as_bytes(n: &str) -> Option<~[u8]> {
             if s.is_null() {
                 None
             } else {
-                Some(CString::new(s, false).as_bytes_no_nul().to_owned())
+                Some(Vec::from_slice(CString::new(s,
+                                                  false).as_bytes_no_nul()))
             }
         })
     }
@@ -311,7 +316,7 @@ pub fn getenv_as_bytes(_: &str) -> Option<~[u8]> { None }
 #[cfg(windows)]
 /// Fetches the environment variable `n` from the current process, returning
 /// None if the variable isn't set.
-pub fn getenv(n: &str) -> Option<~str> {
+pub fn getenv(n: &str) -> Option<String> {
     unsafe {
         with_env_lock(|| {
             use os::win32::{as_utf16_p, fill_utf16_buf_and_decode};
@@ -327,7 +332,7 @@ pub fn getenv(n: &str) -> Option<~str> {
 #[cfg(windows)]
 /// Fetches the environment variable `n` byte vector from the current process,
 /// returning None if the variable isn't set.
-pub fn getenv_as_bytes(n: &str) -> Option<~[u8]> {
+pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
     getenv(n).map(|s| s.into_bytes())
 }
 
@@ -399,6 +404,63 @@ pub fn unsetenv(n: &str) {
     _unsetenv(n);
 }
 
+#[cfg(unix)]
+/// Parse a string or vector according to the platform's conventions
+/// for the `PATH` environment variable. Drops empty paths.
+pub fn split_paths<T: BytesContainer>(unparsed: T) -> Vec<Path> {
+    unparsed.container_as_bytes()
+            .split(|b| *b == ':' as u8)
+            .filter(|s| s.len() > 0)
+            .map(Path::new)
+            .collect()
+}
+
+#[cfg(windows)]
+/// Parse a string or vector according to the platform's conventions
+/// for the `PATH` environment variable. Drops empty paths.
+pub fn split_paths<T: BytesContainer>(unparsed: T) -> Vec<Path> {
+    // On Windows, the PATH environment variable is semicolon separated.  Double
+    // quotes are used as a way of introducing literal semicolons (since
+    // c:\some;dir is a valid Windows path). Double quotes are not themselves
+    // permitted in path names, so there is no way to escape a double quote.
+    // Quoted regions can appear in arbitrary locations, so
+    //
+    //   c:\foo;c:\som"e;di"r;c:\bar
+    //
+    // Should parse as [c:\foo, c:\some;dir, c:\bar].
+    //
+    // (The above is based on testing; there is no clear reference available
+    // for the grammar.)
+
+    let mut parsed = Vec::new();
+    let mut in_progress = Vec::new();
+    let mut in_quote = false;
+
+    for b in unparsed.container_as_bytes().iter() {
+        match *b as char {
+            ';' if !in_quote => {
+                // ignore zero-length path strings
+                if in_progress.len() > 0 {
+                    parsed.push(Path::new(in_progress.as_slice()));
+                }
+                in_progress.truncate(0)
+            }
+            '\"' => {
+                in_quote = !in_quote;
+            }
+            _  => {
+                in_progress.push(*b);
+            }
+        }
+    }
+
+    if in_progress.len() > 0 {
+        parsed.push(Path::new(in_progress));
+    }
+
+    parsed
+}
+
 /// A low-level OS in-memory pipe.
 pub struct Pipe {
     /// A file descriptor representing the reading end of the pipe. Data written
@@ -441,7 +503,7 @@ pub fn pipe() -> Pipe {
 }
 
 /// Returns the proper dll filename for the given basename of a file.
-pub fn dll_filename(base: &str) -> ~str {
+pub fn dll_filename(base: &str) -> String {
     format!("{}{}{}", consts::DLL_PREFIX, base, consts::DLL_SUFFIX)
 }
 
@@ -513,7 +575,7 @@ pub fn self_exe_name() -> Option<Path> {
             use os::win32::fill_utf16_buf_and_decode;
             fill_utf16_buf_and_decode(|buf, sz| {
                 libc::GetModuleFileNameW(0u as libc::DWORD, buf, sz)
-            }).map(|s| s.into_strbuf().into_bytes())
+            }).map(|s| s.into_string().into_bytes())
         }
     }
 
@@ -541,7 +603,7 @@ pub fn self_exe_path() -> Option<Path> {
  * Otherwise, homedir returns option::none.
  */
 pub fn homedir() -> Option<Path> {
-    // FIXME (#7188): getenv needs a ~[u8] variant
+    // FIXME (#7188): getenv needs a Vec<u8> variant
     return match getenv("HOME") {
         Some(ref p) if !p.is_empty() => Path::new_opt(p.as_slice()),
         _ => secondary()
@@ -713,11 +775,11 @@ pub fn errno() -> uint {
 }
 
 /// Return the string corresponding to an `errno()` value of `errnum`.
-pub fn error_string(errnum: uint) -> ~str {
+pub fn error_string(errnum: uint) -> String {
     return strerror(errnum);
 
     #[cfg(unix)]
-    fn strerror(errnum: uint) -> ~str {
+    fn strerror(errnum: uint) -> String {
         #[cfg(target_os = "macos")]
         #[cfg(target_os = "android")]
         #[cfg(target_os = "freebsd")]
@@ -758,12 +820,12 @@ pub fn error_string(errnum: uint) -> ~str {
                 fail!("strerror_r failure");
             }
 
-            str::raw::from_c_str(p as *c_char)
+            str::raw::from_c_str(p as *c_char).into_string()
         }
     }
 
     #[cfg(windows)]
-    fn strerror(errnum: uint) -> ~str {
+    fn strerror(errnum: uint) -> String {
         use libc::types::os::arch::extra::DWORD;
         use libc::types::os::arch::extra::LPWSTR;
         use libc::types::os::arch::extra::LPVOID;
@@ -815,7 +877,7 @@ pub fn error_string(errnum: uint) -> ~str {
 }
 
 /// Get a string representing the platform-dependent last error
-pub fn last_os_error() -> ~str {
+pub fn last_os_error() -> String {
     error_string(errno() as uint)
 }
 
@@ -842,11 +904,12 @@ pub fn get_exit_status() -> int {
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> Vec<~[u8]> {
+unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> Vec<Vec<u8>> {
     use c_str::CString;
 
     Vec::from_fn(argc as uint, |i| {
-        CString::new(*argv.offset(i as int), false).as_bytes_no_nul().to_owned()
+        Vec::from_slice(CString::new(*argv.offset(i as int),
+                                     false).as_bytes_no_nul())
     })
 }
 
@@ -856,7 +919,7 @@ unsafe fn load_argc_and_argv(argc: int, argv: **c_char) -> Vec<~[u8]> {
  * Returns a list of the command line arguments.
  */
 #[cfg(target_os = "macos")]
-fn real_args_as_bytes() -> Vec<~[u8]> {
+fn real_args_as_bytes() -> Vec<Vec<u8>> {
     unsafe {
         let (argc, argv) = (*_NSGetArgc() as int,
                             *_NSGetArgv() as **c_char);
@@ -868,7 +931,7 @@ fn real_args_as_bytes() -> Vec<~[u8]> {
 #[cfg(target_os = "android")]
 #[cfg(target_os = "freebsd")]
 #[cfg(target_os = "nacl")]
-fn real_args_as_bytes() -> Vec<~[u8]> {
+fn real_args_as_bytes() -> Vec<Vec<u8>> {
     use rt;
 
     match rt::args::clone() {
@@ -878,12 +941,15 @@ fn real_args_as_bytes() -> Vec<~[u8]> {
 }
 
 #[cfg(not(windows))]
-fn real_args() -> Vec<~str> {
-    real_args_as_bytes().move_iter().map(|v| str::from_utf8_lossy(v).into_owned()).collect()
+fn real_args() -> Vec<String> {
+    real_args_as_bytes().move_iter()
+                        .map(|v| {
+                            str::from_utf8_lossy(v.as_slice()).into_string()
+                        }).collect()
 }
 
 #[cfg(windows)]
-fn real_args() -> Vec<~str> {
+fn real_args() -> Vec<String> {
     use slice;
     use option::Expect;
 
@@ -913,7 +979,7 @@ fn real_args() -> Vec<~str> {
 }
 
 #[cfg(windows)]
-fn real_args_as_bytes() -> Vec<~[u8]> {
+fn real_args_as_bytes() -> Vec<Vec<u8>> {
     real_args().move_iter().map(|s| s.into_bytes()).collect()
 }
 
@@ -937,13 +1003,13 @@ extern "system" {
 ///
 /// The arguments are interpreted as utf-8, with invalid bytes replaced with \uFFFD.
 /// See `str::from_utf8_lossy` for details.
-pub fn args() -> Vec<~str> {
+pub fn args() -> Vec<String> {
     real_args()
 }
 
 /// Returns the arguments which this program was started with (normally passed
 /// via the command line) as byte vectors.
-pub fn args_as_bytes() -> Vec<~[u8]> {
+pub fn args_as_bytes() -> Vec<Vec<u8>> {
     real_args_as_bytes()
 }
 
@@ -981,7 +1047,7 @@ pub fn page_size() -> uint {
 pub fn page_size() -> uint {
     use mem;
     unsafe {
-        let mut info = mem::uninit();
+        let mut info = mem::zeroed();
         libc::GetSystemInfo(&mut info);
 
         return info.dwPageSize as uint;
@@ -1300,7 +1366,7 @@ impl MemoryMap {
     pub fn granularity() -> uint {
         use mem;
         unsafe {
-            let mut info = mem::uninit();
+            let mut info = mem::zeroed();
             libc::GetSystemInfo(&mut info);
 
             return info.dwAllocationGranularity as uint;
@@ -1340,7 +1406,7 @@ impl Drop for MemoryMap {
 
 #[cfg(target_os = "linux")]
 pub mod consts {
-    pub use std::os::arch_consts::ARCH;
+    pub use os::arch_consts::ARCH;
 
     pub static FAMILY: &'static str = "unix";
 
@@ -1371,7 +1437,7 @@ pub mod consts {
 
 #[cfg(target_os = "macos")]
 pub mod consts {
-    pub use std::os::arch_consts::ARCH;
+    pub use os::arch_consts::ARCH;
 
     pub static FAMILY: &'static str = "unix";
 
@@ -1402,7 +1468,7 @@ pub mod consts {
 
 #[cfg(target_os = "freebsd")]
 pub mod consts {
-    pub use std::os::arch_consts::ARCH;
+    pub use os::arch_consts::ARCH;
 
     pub static FAMILY: &'static str = "unix";
 
@@ -1433,7 +1499,7 @@ pub mod consts {
 
 #[cfg(target_os = "android")]
 pub mod consts {
-    pub use std::os::arch_consts::ARCH;
+    pub use os::arch_consts::ARCH;
 
     pub static FAMILY: &'static str = "unix";
 
@@ -1463,7 +1529,7 @@ pub mod consts {
 }
 #[cfg(target_os = "nacl", not(target_arch = "le32"))]
 pub mod consts {
-    pub use std::os::arch_consts::ARCH;
+    pub use os::arch_consts::ARCH;
 
     pub static FAMILY: &'static str = "unix";
 
@@ -1493,7 +1559,7 @@ pub mod consts {
 }
 #[cfg(target_os = "nacl", target_arch = "le32")]
 pub mod consts {
-    pub use std::os::arch_consts::ARCH;
+    pub use os::arch_consts::ARCH;
 
     pub static FAMILY: &'static str = "unix";
 
@@ -1524,7 +1590,7 @@ pub mod consts {
 
 #[cfg(target_os = "win32")]
 pub mod consts {
-    pub use std::os::arch_consts::ARCH;
+    pub use os::arch_consts::ARCH;
 
     pub static FAMILY: &'static str = "windows";
 
@@ -1583,8 +1649,8 @@ mod tests {
     use prelude::*;
     use c_str::ToCStr;
     use option;
-    use os::{env, getcwd, getenv, make_absolute, args};
-    use os::{setenv, unsetenv};
+    use os::{env, getcwd, getenv, make_absolute};
+    use os::{split_paths, setenv, unsetenv};
     use os;
     use rand::Rng;
     use rand;
@@ -1594,43 +1660,38 @@ mod tests {
         debug!("{}", os::last_os_error());
     }
 
-    #[test]
-    pub fn test_args() {
-        let a = args();
-        assert!(a.len() >= 1);
-    }
-
-    fn make_rand_name() -> ~str {
+    fn make_rand_name() -> String {
         let mut rng = rand::task_rng();
-        let n = format_strbuf!("TEST{}", rng.gen_ascii_str(10u).as_slice());
+        let n = format!("TEST{}", rng.gen_ascii_chars().take(10u)
+                                     .collect::<String>());
         assert!(getenv(n.as_slice()).is_none());
-        n.into_owned()
+        n
     }
 
     #[test]
     fn test_setenv() {
         let n = make_rand_name();
-        setenv(n, "VALUE");
-        assert_eq!(getenv(n), option::Some("VALUE".to_owned()));
+        setenv(n.as_slice(), "VALUE");
+        assert_eq!(getenv(n.as_slice()), option::Some("VALUE".to_string()));
     }
 
     #[test]
     fn test_unsetenv() {
         let n = make_rand_name();
-        setenv(n, "VALUE");
-        unsetenv(n);
-        assert_eq!(getenv(n), option::None);
+        setenv(n.as_slice(), "VALUE");
+        unsetenv(n.as_slice());
+        assert_eq!(getenv(n.as_slice()), option::None);
     }
 
     #[test]
     #[ignore]
     fn test_setenv_overwrite() {
         let n = make_rand_name();
-        setenv(n, "1");
-        setenv(n, "2");
-        assert_eq!(getenv(n), option::Some("2".to_owned()));
-        setenv(n, "");
-        assert_eq!(getenv(n), option::Some("".to_owned()));
+        setenv(n.as_slice(), "1");
+        setenv(n.as_slice(), "2");
+        assert_eq!(getenv(n.as_slice()), option::Some("2".to_string()));
+        setenv(n.as_slice(), "");
+        assert_eq!(getenv(n.as_slice()), option::Some("".to_string()));
     }
 
     // Windows GetEnvironmentVariable requires some extra work to make sure
@@ -1638,16 +1699,16 @@ mod tests {
     #[test]
     #[ignore]
     fn test_getenv_big() {
-        let mut s = "".to_owned();
+        let mut s = "".to_string();
         let mut i = 0;
         while i < 100 {
-            s = s + "aaaaaaaaaa";
+            s.push_str("aaaaaaaaaa");
             i += 1;
         }
         let n = make_rand_name();
-        setenv(n, s);
+        setenv(n.as_slice(), s.as_slice());
         debug!("{}", s.clone());
-        assert_eq!(getenv(n), option::Some(s));
+        assert_eq!(getenv(n.as_slice()), option::Some(s));
     }
 
     #[test]
@@ -1680,7 +1741,7 @@ mod tests {
         for p in e.iter() {
             let (n, v) = (*p).clone();
             debug!("{:?}", n.clone());
-            let v2 = getenv(n);
+            let v2 = getenv(n.as_slice());
             // MingW seems to set some funky environment variables like
             // "=C:=C:\MinGW\msys\1.0\bin" and "!::=::\" that are returned
             // from env() but not visible from getenv().
@@ -1691,11 +1752,11 @@ mod tests {
     #[test]
     fn test_env_set_get_huge() {
         let n = make_rand_name();
-        let s = "x".repeat(10000);
-        setenv(n, s);
-        assert_eq!(getenv(n), Some(s));
-        unsetenv(n);
-        assert_eq!(getenv(n), None);
+        let s = "x".repeat(10000).to_string();
+        setenv(n.as_slice(), s.as_slice());
+        assert_eq!(getenv(n.as_slice()), Some(s));
+        unsetenv(n.as_slice());
+        assert_eq!(getenv(n.as_slice()), None);
     }
 
     #[test]
@@ -1703,11 +1764,11 @@ mod tests {
         let n = make_rand_name();
 
         let mut e = env();
-        setenv(n, "VALUE");
-        assert!(!e.contains(&(n.clone(), "VALUE".to_owned())));
+        setenv(n.as_slice(), "VALUE");
+        assert!(!e.contains(&(n.clone(), "VALUE".to_string())));
 
         e = env();
-        assert!(e.contains(&(n, "VALUE".to_owned())));
+        assert!(e.contains(&(n, "VALUE".to_string())));
     }
 
     #[test]
@@ -1732,7 +1793,9 @@ mod tests {
         setenv("HOME", "");
         assert!(os::homedir().is_none());
 
-        for s in oldhome.iter() { setenv("HOME", *s) }
+        for s in oldhome.iter() {
+            setenv("HOME", s.as_slice())
+        }
     }
 
     #[test]
@@ -1759,8 +1822,12 @@ mod tests {
         setenv("USERPROFILE", "/home/PaloAlto");
         assert!(os::homedir() == Some(Path::new("/home/MountainView")));
 
-        for s in oldhome.iter() { setenv("HOME", *s) }
-        for s in olduserprofile.iter() { setenv("USERPROFILE", *s) }
+        for s in oldhome.iter() {
+            setenv("HOME", s.as_slice())
+        }
+        for s in olduserprofile.iter() {
+            setenv("USERPROFILE", s.as_slice())
+        }
     }
 
     #[test]
@@ -1833,6 +1900,41 @@ mod tests {
         drop(chunk);
 
         fs::unlink(&path).unwrap();
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn split_paths_windows() {
+        fn check_parse(unparsed: &str, parsed: &[&str]) -> bool {
+            split_paths(unparsed) ==
+                parsed.iter().map(|s| Path::new(*s)).collect()
+        }
+
+        assert!(check_parse("", []));
+        assert!(check_parse(r#""""#, []));
+        assert!(check_parse(";;", []));
+        assert!(check_parse(r"c:\", [r"c:\"]));
+        assert!(check_parse(r"c:\;", [r"c:\"]));
+        assert!(check_parse(r"c:\;c:\Program Files\",
+                            [r"c:\", r"c:\Program Files\"]));
+        assert!(check_parse(r#"c:\;c:\"foo"\"#, [r"c:\", r"c:\foo\"]));
+        assert!(check_parse(r#"c:\;c:\"foo;bar"\;c:\baz"#,
+                            [r"c:\", r"c:\foo;bar\", r"c:\baz"]));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn split_paths_unix() {
+        fn check_parse(unparsed: &str, parsed: &[&str]) -> bool {
+            split_paths(unparsed) ==
+                parsed.iter().map(|s| Path::new(*s)).collect()
+        }
+
+        assert!(check_parse("", []));
+        assert!(check_parse("::", []));
+        assert!(check_parse("/", ["/"]));
+        assert!(check_parse("/:", ["/"]));
+        assert!(check_parse("/:/usr/local", ["/", "/usr/local"]));
     }
 
     // More recursive_mkdir tests are in extra::tempfile

@@ -8,16 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern crate rand;
-
 use std::task;
-use rand::{task_rng, Rng};
+use std::rand::{task_rng, Rng};
 
 static MAX_LEN: uint = 20;
 static mut drop_counts: [uint, .. MAX_LEN] = [0, .. MAX_LEN];
 static mut clone_count: uint = 0;
 
-#[deriving(Rand, Eq, Ord, TotalEq, TotalOrd)]
+#[deriving(Rand, PartialEq, PartialOrd, Eq, Ord)]
 struct DropCounter { x: uint, clone_num: uint }
 
 impl Clone for DropCounter {
@@ -46,7 +44,9 @@ pub fn main() {
     // len can't go above 64.
     for len in range(2u, MAX_LEN) {
         for _ in range(0, 10) {
-            let main = task_rng().gen_vec::<DropCounter>(len);
+            let main = task_rng().gen_iter::<DropCounter>()
+                                 .take(len)
+                                 .collect::<Vec<DropCounter>>();
 
             // work out the total number of comparisons required to sort
             // this array...

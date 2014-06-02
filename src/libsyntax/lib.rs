@@ -24,7 +24,7 @@ This API is completely unstable and subject to change.
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://static.rust-lang.org/doc/master")]
+       html_root_url = "http://doc.rust-lang.org/")]
 
 #![feature(macro_rules, globs, managed_boxes, default_type_params, phase,
            quote)]
@@ -36,6 +36,7 @@ extern crate collections;
 #[phase(syntax, link)]
 extern crate log;
 extern crate fmt_macros;
+extern crate debug;
 
 pub mod util {
     pub mod interner;

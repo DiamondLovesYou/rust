@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -23,6 +23,8 @@
 //! however the converse is not always true due to the above range limits
 //! and, as such, should be performed via the `from_u32` function..
 
+#![allow(non_snake_case_functions)]
+#![doc(primitive = "char")]
 
 use mem::transmute;
 use option::{None, Option, Some};
@@ -33,9 +35,6 @@ use unicode::{derived_property, property, general_category, conversions};
 pub use unicode::normalization::decompose_canonical;
 /// Returns the compatibility decomposition of a character.
 pub use unicode::normalization::decompose_compatible;
-
-#[cfg(not(test))] use cmp::{Eq, Ord, TotalEq, TotalOrd, Ordering};
-#[cfg(not(test))] use default::Default;
 
 // UTF-8 ranges and tags for encoding characters
 static TAG_CONT: u8    = 0b1000_0000u8;
@@ -601,33 +600,6 @@ impl Char for char {
     }
 }
 
-#[cfg(not(test))]
-impl Eq for char {
-    #[inline]
-    fn eq(&self, other: &char) -> bool { (*self) == (*other) }
-}
-
-#[cfg(not(test))]
-impl TotalEq for char {}
-
-#[cfg(not(test))]
-impl Ord for char {
-    #[inline]
-    fn lt(&self, other: &char) -> bool { *self < *other }
-}
-
-#[cfg(not(test))]
-impl TotalOrd for char {
-    fn cmp(&self, other: &char) -> Ordering {
-        (*self as u32).cmp(&(*other as u32))
-    }
-}
-
-#[cfg(not(test))]
-impl Default for char {
-    #[inline]
-    fn default() -> char { '\x00' }
-}
 
 #[cfg(test)]
 mod test {
@@ -636,8 +608,8 @@ mod test {
     use char::Char;
     use slice::ImmutableVector;
     use option::{Some, None};
-    use realstd::strbuf::StrBuf;
-    use realstd::str::StrAllocating;
+    use realstd::string::String;
+    use realstd::str::Str;
 
     #[test]
     fn test_is_lowercase() {
@@ -742,46 +714,65 @@ mod test {
 
     #[test]
     fn test_escape_default() {
-        fn string(c: char) -> ~str {
-            let mut result = StrBuf::new();
+        fn string(c: char) -> String {
+            let mut result = String::new();
             escape_default(c, |c| { result.push_char(c); });
-            return result.into_owned();
+            return result;
         }
-        assert_eq!(string('\n'), "\\n".to_owned());
-        assert_eq!(string('\r'), "\\r".to_owned());
-        assert_eq!(string('\''), "\\'".to_owned());
-        assert_eq!(string('"'), "\\\"".to_owned());
-        assert_eq!(string(' '), " ".to_owned());
-        assert_eq!(string('a'), "a".to_owned());
-        assert_eq!(string('~'), "~".to_owned());
-        assert_eq!(string('\x00'), "\\x00".to_owned());
-        assert_eq!(string('\x1f'), "\\x1f".to_owned());
-        assert_eq!(string('\x7f'), "\\x7f".to_owned());
-        assert_eq!(string('\xff'), "\\xff".to_owned());
-        assert_eq!(string('\u011b'), "\\u011b".to_owned());
-        assert_eq!(string('\U0001d4b6'), "\\U0001d4b6".to_owned());
+        let s = string('\n');
+        assert_eq!(s.as_slice(), "\\n");
+        let s = string('\r');
+        assert_eq!(s.as_slice(), "\\r");
+        let s = string('\'');
+        assert_eq!(s.as_slice(), "\\'");
+        let s = string('"');
+        assert_eq!(s.as_slice(), "\\\"");
+        let s = string(' ');
+        assert_eq!(s.as_slice(), " ");
+        let s = string('a');
+        assert_eq!(s.as_slice(), "a");
+        let s = string('~');
+        assert_eq!(s.as_slice(), "~");
+        let s = string('\x00');
+        assert_eq!(s.as_slice(), "\\x00");
+        let s = string('\x1f');
+        assert_eq!(s.as_slice(), "\\x1f");
+        let s = string('\x7f');
+        assert_eq!(s.as_slice(), "\\x7f");
+        let s = string('\xff');
+        assert_eq!(s.as_slice(), "\\xff");
+        let s = string('\u011b');
+        assert_eq!(s.as_slice(), "\\u011b");
+        let s = string('\U0001d4b6');
+        assert_eq!(s.as_slice(), "\\U0001d4b6");
     }
 
     #[test]
     fn test_escape_unicode() {
-        fn string(c: char) -> ~str {
-            let mut result = StrBuf::new();
+        fn string(c: char) -> String {
+            let mut result = String::new();
             escape_unicode(c, |c| { result.push_char(c); });
-            return result.into_owned();
+            return result;
         }
-        assert_eq!(string('\x00'), "\\x00".to_owned());
-        assert_eq!(string('\n'), "\\x0a".to_owned());
-        assert_eq!(string(' '), "\\x20".to_owned());
-        assert_eq!(string('a'), "\\x61".to_owned());
-        assert_eq!(string('\u011b'), "\\u011b".to_owned());
-        assert_eq!(string('\U0001d4b6'), "\\U0001d4b6".to_owned());
+        let s = string('\x00');
+        assert_eq!(s.as_slice(), "\\x00");
+        let s = string('\n');
+        assert_eq!(s.as_slice(), "\\x0a");
+        let s = string(' ');
+        assert_eq!(s.as_slice(), "\\x20");
+        let s = string('a');
+        assert_eq!(s.as_slice(), "\\x61");
+        let s = string('\u011b');
+        assert_eq!(s.as_slice(), "\\u011b");
+        let s = string('\U0001d4b6');
+        assert_eq!(s.as_slice(), "\\U0001d4b6");
     }
 
     #[test]
     fn test_to_str() {
         use realstd::to_str::ToStr;
         let s = 't'.to_str();
-        assert_eq!(s, "t".to_owned());
+        assert_eq!(s.as_slice(), "t");
     }
 
     #[test]

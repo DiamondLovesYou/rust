@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -9,6 +9,7 @@
 // except according to those terms.
 
 #![allow(dead_code)] // FFI wrappers
+#![allow(non_snake_case_functions)]
 
 use lib::llvm::llvm;
 use lib::llvm::{CallConv, AtomicBinOp, AtomicOrdering, AsmDialect};
@@ -113,7 +114,7 @@ pub fn Invoke(cx: &Block,
               args: &[ValueRef],
               then: BasicBlockRef,
               catch: BasicBlockRef,
-              attributes: &[(uint, lib::llvm::Attribute)])
+              attributes: &[(uint, u64)])
               -> ValueRef {
     if cx.unreachable.get() {
         return C_null(Type::i8(cx.ccx()));
@@ -122,7 +123,7 @@ pub fn Invoke(cx: &Block,
     terminate(cx, "Invoke");
     debug!("Invoke({} with arguments ({}))",
            cx.val_to_str(fn_),
-           args.iter().map(|a| cx.val_to_str(*a)).collect::<Vec<StrBuf>>().connect(", "));
+           args.iter().map(|a| cx.val_to_str(*a)).collect::<Vec<String>>().connect(", "));
     B(cx).invoke(fn_, args, then, catch, attributes)
 }
 
@@ -679,13 +680,13 @@ pub fn InlineAsmCall(cx: &Block, asm: *c_char, cons: *c_char,
 }
 
 pub fn Call(cx: &Block, fn_: ValueRef, args: &[ValueRef],
-            attributes: &[(uint, lib::llvm::Attribute)]) -> ValueRef {
+            attributes: &[(uint, u64)]) -> ValueRef {
     if cx.unreachable.get() { return _UndefReturn(cx, fn_); }
     B(cx).call(fn_, args, attributes)
 }
 
 pub fn CallWithConv(cx: &Block, fn_: ValueRef, args: &[ValueRef], conv: CallConv,
-                    attributes: &[(uint, lib::llvm::Attribute)]) -> ValueRef {
+                    attributes: &[(uint, u64)]) -> ValueRef {
     if cx.unreachable.get() { return _UndefReturn(cx, fn_); }
     B(cx).call_with_conv(fn_, args, conv, attributes)
 }

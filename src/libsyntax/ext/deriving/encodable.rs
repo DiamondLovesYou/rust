@@ -36,7 +36,7 @@ impl<D:Decoder> Decodable for node_id {
     fn decode(d: &D) -> Node {
         d.read_struct("Node", 1, || {
             Node {
-                id: d.read_field("x".to_owned(), 0, || decode(d))
+                id: d.read_field("x".to_string(), 0, || decode(d))
             }
         })
     }
@@ -73,8 +73,8 @@ would yield functions like:
         fn decode(d: &D) -> spanned<T> {
             d.read_rec(|| {
                 {
-                    node: d.read_field("node".to_owned(), 0, || decode(d)),
-                    span: d.read_field("span".to_owned(), 1, || decode(d)),
+                    node: d.read_field("node".to_string(), 0, || decode(d)),
+                    span: d.read_field("span".to_string(), 1, || decode(d)),
                 }
             })
         }
@@ -154,7 +154,8 @@ fn encodable_substructure(cx: &mut ExtCtxt, trait_span: Span,
                 let name = match name {
                     Some(id) => token::get_ident(id),
                     None => {
-                        token::intern_and_get_ident(format!("_field{}", i))
+                        token::intern_and_get_ident(format!("_field{}",
+                                                            i).as_slice())
                     }
                 };
                 let enc = cx.expr_method_call(span, self_, encode, vec!(blkencoder));
