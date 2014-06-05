@@ -1255,6 +1255,7 @@ impl<'a> State<'a> {
                 try!(word(&mut self.s, " -> ("));
                 try!(self.commasep_exprs(Inconsistent, mask.as_slice()));
                 try!(word(&mut self.s, ")"));
+                try!(word(&mut self.s, ")"));
             }
             ast::ExprCall(func, ref args) => {
                 try!(self.print_expr_maybe_paren(func));
