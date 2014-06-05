@@ -8,6 +8,34 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//! SIMD vectors.
+//!
+//! These types can be used for accessing basic SIMD operations. Each of them
+//! implements the standard arithmetic operator traits (Add, Sub, Mul, Div,
+//! Rem, Shl, Shr) through compiler magic, rather than explicitly. Currently
+//! comparison operators are not implemented. To use SSE3+, you must enable
+//! the features, like `-C target-feature=sse3,sse4.1,sse4.2`, or a more
+//! specific `target-cpu`. No other SIMD intrinsics or high-level wrappers are
+//! currently provided beyond this module, though it is the intention to do so
+//! in a platform independent way, eventually.
+//!
+//! ```rust
+//! #![allow(experimental)]
+//! extern crate simd;
+//! // A simple example, adding two f32x4s:
+//! fn main() {
+//!     use simd::f32x4;
+//!     let a = f32x4(40.0, 41.0, 42.0, 43.0);
+//!     let b = f32x4(1.0, 1.1, 3.4, 9.8);
+//!     println!("{}", a + b);
+//! }
+//! ```
+//!
+//! ## Stability Note
+//!
+//! These are all experimental. The inferface may change entirely, without
+//! warning.
+
 #![crate_id = "simd#0.11-pre"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
