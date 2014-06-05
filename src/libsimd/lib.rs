@@ -21,13 +21,16 @@
 //!
 //! ```rust
 //! #![allow(experimental)]
+//! #![feature(simd, phase)]
+//! #[phase(syntax)] extern crate simd_syntax;
 //! extern crate simd;
+//!
 //! // A simple example, adding two f32x4s:
 //! fn main() {
-//!     use simd::f32x4;
-//!     let a = f32x4(40.0, 41.0, 42.0, 43.0);
-//!     let b = f32x4(1.0, 1.1, 3.4, 9.8);
-//!     println!("{}", a + b);
+//!     use simd::{f32x4, BoolSimd};
+//!     let a: f32x4 = gather_simd!(40.0, 41.0, 42.0, 43.0);
+//!     let b: f32x4 = gather_simd!(1.0, 1.1, 3.4, 9.8);
+//!     assert!((a + b == gather_simd!(41.0, 42.1, 45.4, 52.8)).all_true());
 //! }
 //! ```
 //!
@@ -54,30 +57,32 @@ use std::iter;
 use std::container::Container;
 use core::mem;
 
+#[experimental]
 pub trait Simd<PrimitiveTy> {
-    fn smear(value: PrimitiveTy) -> Self;
-    fn all(self, value: PrimitiveTy) -> bool;
-    fn any(self, value: PrimitiveTy) -> bool;
+    #[experimental] fn smear(value: PrimitiveTy) -> Self;
+    #[experimental] fn all(self, value: PrimitiveTy) -> bool;
+    #[experimental] fn any(self, value: PrimitiveTy) -> bool;
 
-    fn iter<'a>(&'a self) -> Items<'a, PrimitiveTy>;
-    fn mut_iter<'a>(&'a mut self) -> MutItems<'a, PrimitiveTy>;
+    #[experimental] fn iter<'a>(&'a self) -> Items<'a, PrimitiveTy>;
+    #[experimental] fn mut_iter<'a>(&'a mut self) -> MutItems<'a, PrimitiveTy>;
 
-    fn as_slice<'a>(&'a self) -> &'a [PrimitiveTy];
-    fn as_mut_slice<'a>(&'a mut self) -> &'a mut [PrimitiveTy];
+    #[experimental] fn as_slice<'a>(&'a self) -> &'a [PrimitiveTy];
+    #[experimental] fn as_mut_slice<'a>(&'a mut self) -> &'a mut [PrimitiveTy];
 
-    fn len(&self) -> uint;
+    #[experimental] fn len(&self) -> uint;
 }
+#[experimental]
 pub trait BoolSimd {
-    fn all_true(self) -> bool;
-    fn all_false(self) -> bool;
-    fn any_true(self) -> bool;
-    fn any_false(self) -> bool;
+    #[experimental] fn all_true(self) -> bool;
+    #[experimental] fn all_false(self) -> bool;
+    #[experimental] fn any_true(self) -> bool;
+    #[experimental] fn any_false(self) -> bool;
 }
 impl<T: Simd<bool>> BoolSimd for T {
-    #[inline] fn all_true(self) -> bool { self.all(true) }
-    #[inline] fn all_false(self) -> bool { self.all(false) }
-    #[inline] fn any_true(self) -> bool { self.any(true) }
-    #[inline] fn any_false(self) -> bool { self.any(false) }
+    #[experimental] #[inline] fn all_true(self) -> bool { self.all(true) }
+    #[experimental] #[inline] fn all_false(self) -> bool { self.all(false) }
+    #[experimental] #[inline] fn any_true(self) -> bool { self.any(true) }
+    #[experimental] #[inline] fn any_false(self) -> bool { self.any(false) }
 }
 #[allow(raw_pointer_deriving)]
 #[deriving(PartialEq, Eq, Clone)]
@@ -117,13 +122,14 @@ impl<'a, ElemT> iter::Iterator<&'a mut ElemT> for MutItems<'a, ElemT> {
 
 macro_rules! _def(
     ($ident:ident = ($prim:ty, ..$len:expr)) => {
-        def_type_simd!( #[allow(non_camel_case_types)]
+        def_type_simd!( #[experimental]
+                        #[allow(non_camel_case_types)]
                         pub type $ident = <$prim, ..$len>)
         impl Simd<$prim> for $ident {
-            #[inline] fn smear(value: $prim) -> $ident {
+            #[experimental] #[inline] fn smear(value: $prim) -> $ident {
                 smear_simd!(value, ..$len)
             }
-            #[inline] fn all(self, value: $prim) -> bool {
+            #[experimental] #[inline] fn all(self, value: $prim) -> bool {
                 for i in iter::range(0u, $len as uint) {
                     if self[i] != value {
                         return false;
@@ -131,7 +137,7 @@ macro_rules! _def(
                 }
                 return true;
             }
-            #[inline] fn any(self, value: $prim) -> bool {
+            #[experimental] #[inline] fn any(self, value: $prim) -> bool {
                 for i in iter::range(0u, $len as uint) {
                     if self[i] == value {
                         return true;
@@ -140,14 +146,14 @@ macro_rules! _def(
                 return false;
             }
 
-            fn iter<'a>(&'a self) -> Items<'a, $prim> {
+            #[experimental] fn iter<'a>(&'a self) -> Items<'a, $prim> {
                 Items {
                     vec: unsafe { mem::transmute(self) },
                     pos: 0,
                     len: $len,
                 }
             }
-            fn mut_iter<'a>(&'a mut self) -> MutItems<'a, $prim> {
+            #[experimental] fn mut_iter<'a>(&'a mut self) -> MutItems<'a, $prim> {
                 MutItems {
                     vec: unsafe { mem::transmute(self) },
                     pos: 0,
@@ -155,7 +161,7 @@ macro_rules! _def(
                 }
             }
 
-            fn as_slice<'a>(&'a self) -> &'a [$prim] {
+            #[experimental] fn as_slice<'a>(&'a self) -> &'a [$prim] {
                 use std::raw::Slice;
                 unsafe {
                     mem::transmute_copy(&Slice {
@@ -164,7 +170,7 @@ macro_rules! _def(
                     })
                 }
             }
-            fn as_mut_slice<'a>(&'a mut self) -> &'a mut [$prim] {
+            #[experimental] fn as_mut_slice<'a>(&'a mut self) -> &'a mut [$prim] {
                 use std::raw::Slice;
                 unsafe {
                     mem::transmute_copy(&Slice {
@@ -175,7 +181,7 @@ macro_rules! _def(
                 }
             }
 
-            #[inline(always)] fn len(&self) -> uint { $len }
+            #[experimental] #[inline(always)] fn len(&self) -> uint { $len }
         }
     }
 )

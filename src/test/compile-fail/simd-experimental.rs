@@ -9,9 +9,14 @@
 // except according to those terms.
 
 #![deny(experimental)]
+#![feature(phase)]
 
-use std::simd;
+#[phase(syntax)] extern crate simd_syntax;
+
+extern crate simd;
+use simd::{i64x2, Simd};
 
 fn main() {
-    let _ = simd::i64x2(0, 0); //~ ERROR: experimental
+    let a: i64x2 = gather_simd!(0, 0);
+    let _ = a.all(0); //~ ERROR: experimental
 }
