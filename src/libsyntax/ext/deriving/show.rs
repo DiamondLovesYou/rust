@@ -15,9 +15,10 @@ use ext::format;
 use ext::base::ExtCtxt;
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
+use ext::deriving::generic::ty::*;
 use parse::token;
 
-use collections::HashMap;
+use std::collections::HashMap;
 use std::string::String;
 
 pub fn expand_deriving_show(cx: &mut ExtCtxt,

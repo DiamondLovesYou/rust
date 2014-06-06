@@ -361,7 +361,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                          ],
                          vec!(("".to_string(), "".to_string())),
                          Some("".to_string()))
-                .expect(format!("failed to exec `{}`", config.adb_path));
+                .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
             procsrv::run("",
                          config.adb_path.as_slice(),
@@ -372,7 +372,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                          ],
                          vec!(("".to_string(), "".to_string())),
                          Some("".to_string()))
-                .expect(format!("failed to exec `{}`", config.adb_path));
+                .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
             let adb_arg = format!("export LD_LIBRARY_PATH={}; \
                                    gdbserver :5039 {}/{}",
@@ -392,7 +392,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                                                       vec!(("".to_string(),
                                                             "".to_string())),
                                                       Some("".to_string()))
-                .expect(format!("failed to exec `{}`", config.adb_path));
+                .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
             loop {
                 //waiting 1 second for gdbserver start
                 timer::sleep(1000);
@@ -428,7 +428,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                              debugger_opts.as_slice(),
                              vec!(("".to_string(), "".to_string())),
                              None)
-                .expect(format!("failed to exec `{}`", gdb_path));
+                .expect(format!("failed to exec `{}`", gdb_path).as_slice());
             let cmdline = {
                 let cmdline = make_cmdline("",
                                            "arm-linux-androideabi-gdb",
@@ -1220,7 +1220,7 @@ fn program_output(config: &Config, testfile: &Path, lib_path: &str, prog: String
                      prog.as_slice(),
                      args.as_slice(),
                      env,
-                     input).expect(format!("failed to exec `{}`", prog));
+                     input).expect(format!("failed to exec `{}`", prog).as_slice());
     dump_output(config, testfile, out.as_slice(), err.as_slice());
     return ProcRes {
         status: status,
@@ -1346,7 +1346,7 @@ fn _arm_exec_compiled_test(config: &Config,
                                    ],
                                    vec!(("".to_string(), "".to_string())),
                                    Some("".to_string()))
-        .expect(format!("failed to exec `{}`", config.adb_path));
+        .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
     if config.verbose {
         println!("push ({}) {} {} {}",
@@ -1376,7 +1376,7 @@ fn _arm_exec_compiled_test(config: &Config,
                  config.adb_path.as_slice(),
                  runargs.as_slice(),
                  vec!(("".to_string(), "".to_string())), Some("".to_string()))
-        .expect(format!("failed to exec `{}`", config.adb_path));
+        .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
     // get exitcode of result
     runargs = Vec::new();
@@ -1390,7 +1390,7 @@ fn _arm_exec_compiled_test(config: &Config,
                      runargs.as_slice(),
                      vec!(("".to_string(), "".to_string())),
                      Some("".to_string()))
-        .expect(format!("failed to exec `{}`", config.adb_path));
+        .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
     let mut exitcode: int = 0;
     for c in exitcode_out.as_slice().chars() {
@@ -1413,7 +1413,7 @@ fn _arm_exec_compiled_test(config: &Config,
                      runargs.as_slice(),
                      vec!(("".to_string(), "".to_string())),
                      Some("".to_string()))
-        .expect(format!("failed to exec `{}`", config.adb_path));
+        .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
     // get stderr of result
     runargs = Vec::new();
@@ -1427,7 +1427,7 @@ fn _arm_exec_compiled_test(config: &Config,
                      runargs.as_slice(),
                      vec!(("".to_string(), "".to_string())),
                      Some("".to_string()))
-        .expect(format!("failed to exec `{}`", config.adb_path));
+        .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
     dump_output(config,
                 testfile,
@@ -1461,7 +1461,7 @@ fn _arm_push_aux_shared_library(config: &Config, testfile: &Path) {
                                            vec!(("".to_string(),
                                                  "".to_string())),
                                            Some("".to_string()))
-                .expect(format!("failed to exec `{}`", config.adb_path));
+                .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
 
             if config.verbose {
                 println!("push ({}) {} {} {}",
@@ -1512,7 +1512,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                      pnacl_trans_args.as_slice(),
                      env.clone(),
                      None)
-        .expect(format!("failed to exec `{}`", pnacl_translate.display()));
+        .expect(format!("failed to exec `{}`", pnacl_translate.display()).as_slice());
     match status {
         ExitStatus(0) => (),
         _ => {

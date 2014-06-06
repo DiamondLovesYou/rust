@@ -99,20 +99,16 @@ There are a number of free functions that create or take vectors, for example:
 
 #![doc(primitive = "slice")]
 
-use mem::transmute;
-use clone::Clone;
-use cmp::{Ord, Ordering, Less, Greater};
-use cmp;
-use container::Container;
-use iter::*;
-use mem::size_of;
-use mem;
-use ops::Drop;
-use option::{None, Option, Some};
-use ptr::RawPtr;
-use ptr;
-use rt::heap::{allocate, deallocate};
-use finally::try_finally;
+use core::prelude::*;
+
+use alloc::heap::{allocate, deallocate};
+use core::cmp;
+use core::finally::try_finally;
+use core::mem::size_of;
+use core::mem::transmute;
+use core::mem;
+use core::ptr;
+use core::iter::{range_step, MultiplicativeIterator};
 use vec::Vec;
 
 pub use core::slice::{ref_slice, mut_ref_slice, Splits, Windows};
@@ -295,14 +291,14 @@ impl<'a, T: Clone> CloneableVector<T> for &'a [T] {
     #[inline]
     fn to_owned(&self) -> ~[T] {
         use RawVec = core::raw::Vec;
-        use num::{CheckedAdd, CheckedMul};
-        use option::Expect;
+        use core::num::{CheckedAdd, CheckedMul};
+        use core::ptr;
 
         let len = self.len();
         let data_size = len.checked_mul(&mem::size_of::<T>());
-        let data_size = data_size.expect("overflow in to_owned()");
+        let data_size = ::expect(data_size, "overflow in to_owned()");
         let size = mem::size_of::<RawVec<()>>().checked_add(&data_size);
-        let size = size.expect("overflow in to_owned()");
+        let size = ::expect(size, "overflow in to_owned()");
 
         unsafe {
             // this should pass the real required alignment
@@ -322,7 +318,7 @@ impl<'a, T: Clone> CloneableVector<T> for &'a [T] {
             try_finally(
                 &mut i, (),
                 |i, ()| while *i < len {
-                    mem::overwrite(
+                    ptr::write(
                         &mut(*p.offset(*i as int)),
                         self.unsafe_ref(*i).clone());
                     *i += 1;
@@ -712,12 +708,102 @@ pub trait MutableOrdVector<T> {
     /// assert!(v == [-5, -3, 1, 2, 4]);
     /// ```
     fn sort(self);
+
+    /// Mutates the slice to the next lexicographic permutation.
+    ///
+    /// Returns `true` if successful, `false` if the slice is at the last-ordered permutation.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let v = &mut [0, 1, 2];
+    /// v.next_permutation();
+    /// assert_eq!(v, &mut [0, 2, 1]);
+    /// v.next_permutation();
+    /// assert_eq!(v, &mut [1, 0, 2]);
+    /// ```
+    fn next_permutation(self) -> bool;
+
+    /// Mutates the slice to the previous lexicographic permutation.
+    ///
+    /// Returns `true` if successful, `false` if the slice is at the first-ordered permutation.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let v = &mut [1, 0, 2];
+    /// v.prev_permutation();
+    /// assert_eq!(v, &mut [0, 2, 1]);
+    /// v.prev_permutation();
+    /// assert_eq!(v, &mut [0, 1, 2]);
+    /// ```
+    fn prev_permutation(self) -> bool;
 }
 
 impl<'a, T: Ord> MutableOrdVector<T> for &'a mut [T] {
     #[inline]
     fn sort(self) {
         self.sort_by(|a,b| a.cmp(b))
+    }
+
+    fn next_permutation(self) -> bool {
+        // These cases only have 1 permutation each, so we can't do anything.
+        if self.len() < 2 { return false; }
+
+        // Step 1: Identify the longest, rightmost weakly decreasing part of the vector
+        let mut i = self.len() - 1;
+        while i > 0 && self[i-1] >= self[i] {
+            i -= 1;
+        }
+
+        // If that is the entire vector, this is the last-ordered permutation.
+        if i == 0 {
+            return false;
+        }
+
+        // Step 2: Find the rightmost element larger than the pivot (i-1)
+        let mut j = self.len() - 1;
+        while j >= i && self[j] <= self[i-1]  {
+            j -= 1;
+        }
+
+        // Step 3: Swap that element with the pivot
+        self.swap(j, i-1);
+
+        // Step 4: Reverse the (previously) weakly decreasing part
+        self.mut_slice_from(i).reverse();
+
+        true
+    }
+
+    fn prev_permutation(self) -> bool {
+        // These cases only have 1 permutation each, so we can't do anything.
+        if self.len() < 2 { return false; }
+
+        // Step 1: Identify the longest, rightmost weakly increasing part of the vector
+        let mut i = self.len() - 1;
+        while i > 0 && self[i-1] <= self[i] {
+            i -= 1;
+        }
+
+        // If that is the entire vector, this is the first-ordered permutation.
+        if i == 0 {
+            return false;
+        }
+
+        // Step 2: Reverse the weakly increasing part
+        self.mut_slice_from(i).reverse();
+
+        // Step 3: Find the rightmost element equal to or bigger than the pivot (i-1)
+        let mut j = self.len() - 1;
+        while j >= i && self[j-1] < self[i-1]  {
+            j -= 1;
+        }
+
+        // Step 4: Swap that element with the pivot
+        self.swap(i-1, j);
+
+        true
     }
 }
 
@@ -770,12 +856,16 @@ impl<T> Drop for MoveItems<T> {
 
 #[cfg(test)]
 mod tests {
-    use prelude::*;
-    use cmp::*;
-    use mem;
-    use owned::Box;
-    use rand::{Rng, task_rng};
+    use std::cell::Cell;
+    use std::default::Default;
+    use std::mem;
+    use std::prelude::*;
+    use std::rand::{Rng, task_rng};
+    use std::rc::Rc;
+    use std::unstable;
     use slice::*;
+
+    use vec::Vec;
 
     fn square(n: uint) -> uint { n * n }
 
@@ -1014,9 +1104,9 @@ mod tests {
     #[test]
     fn test_swap_remove_noncopyable() {
         // Tests that we don't accidentally run destructors twice.
-        let mut v = vec![::unstable::sync::Exclusive::new(()),
-                         ::unstable::sync::Exclusive::new(()),
-                         ::unstable::sync::Exclusive::new(())];
+        let mut v = vec![unstable::sync::Exclusive::new(()),
+                         unstable::sync::Exclusive::new(()),
+                         unstable::sync::Exclusive::new(())];
         let mut _e = v.swap_remove(0);
         assert_eq!(v.len(), 2);
         _e = v.swap_remove(1);
@@ -1230,6 +1320,58 @@ mod tests {
     }
 
     #[test]
+    fn test_lexicographic_permutations() {
+        let v : &mut[int] = &mut[1, 2, 3, 4, 5];
+        assert!(v.prev_permutation() == false);
+        assert!(v.next_permutation());
+        assert_eq!(v, &mut[1, 2, 3, 5, 4]);
+        assert!(v.prev_permutation());
+        assert_eq!(v, &mut[1, 2, 3, 4, 5]);
+        assert!(v.next_permutation());
+        assert!(v.next_permutation());
+        assert_eq!(v, &mut[1, 2, 4, 3, 5]);
+        assert!(v.next_permutation());
+        assert_eq!(v, &mut[1, 2, 4, 5, 3]);
+
+        let v : &mut[int] = &mut[1, 0, 0, 0];
+        assert!(v.next_permutation() == false);
+        assert!(v.prev_permutation());
+        assert_eq!(v, &mut[0, 1, 0, 0]);
+        assert!(v.prev_permutation());
+        assert_eq!(v, &mut[0, 0, 1, 0]);
+        assert!(v.prev_permutation());
+        assert_eq!(v, &mut[0, 0, 0, 1]);
+        assert!(v.prev_permutation() == false);
+    }
+
+    #[test]
+    fn test_lexicographic_permutations_empty_and_short() {
+        let empty : &mut[int] = &mut[];
+        assert!(empty.next_permutation() == false);
+        assert_eq!(empty, &mut[]);
+        assert!(empty.prev_permutation() == false);
+        assert_eq!(empty, &mut[]);
+
+        let one_elem : &mut[int] = &mut[4];
+        assert!(one_elem.prev_permutation() == false);
+        assert_eq!(one_elem, &mut[4]);
+        assert!(one_elem.next_permutation() == false);
+        assert_eq!(one_elem, &mut[4]);
+
+        let two_elem : &mut[int] = &mut[1, 2];
+        assert!(two_elem.prev_permutation() == false);
+        assert_eq!(two_elem, &mut[1, 2]);
+        assert!(two_elem.next_permutation());
+        assert_eq!(two_elem, &mut[2, 1]);
+        assert!(two_elem.next_permutation() == false);
+        assert_eq!(two_elem, &mut[2, 1]);
+        assert!(two_elem.prev_permutation());
+        assert_eq!(two_elem, &mut[1, 2]);
+        assert!(two_elem.prev_permutation() == false);
+        assert_eq!(two_elem, &mut[1, 2]);
+    }
+
+    #[test]
     fn test_position_elem() {
         assert!([].position_elem(&1).is_none());
 
@@ -1301,8 +1443,6 @@ mod tests {
 
     #[test]
     fn test_sort() {
-        use realstd::slice::Vector;
-        use realstd::clone::Clone;
         for len in range(4u, 25) {
             for _ in range(0, 100) {
                 let mut v = task_rng().gen_iter::<uint>().take(len)
@@ -1495,8 +1635,6 @@ mod tests {
     #[test]
     #[should_fail]
     fn test_from_elem_fail() {
-        use cell::Cell;
-        use rc::Rc;
 
         struct S {
             f: Cell<int>,
@@ -1518,7 +1656,6 @@ mod tests {
     #[test]
     #[should_fail]
     fn test_grow_fn_fail() {
-        use rc::Rc;
         let mut v = vec![];
         v.grow_fn(100, |i| {
             if i == 50 {
@@ -1531,7 +1668,6 @@ mod tests {
     #[test]
     #[should_fail]
     fn test_permute_fail() {
-        use rc::Rc;
         let v = [(box 0, Rc::new(0)), (box 0, Rc::new(0)),
                  (box 0, Rc::new(0)), (box 0, Rc::new(0))];
         let mut i = 0;
@@ -1564,7 +1700,6 @@ mod tests {
 
     #[test]
     fn test_iterator() {
-        use iter::*;
         let xs = [1, 2, 5, 10, 11];
         let mut it = xs.iter();
         assert_eq!(it.size_hint(), (5, Some(5)));
@@ -1583,7 +1718,6 @@ mod tests {
 
     #[test]
     fn test_random_access_iterator() {
-        use iter::*;
         let xs = [1, 2, 5, 10, 11];
         let mut it = xs.iter();
 
@@ -1622,7 +1756,6 @@ mod tests {
 
     #[test]
     fn test_iter_size_hints() {
-        use iter::*;
         let mut xs = [1, 2, 5, 10, 11];
         assert_eq!(xs.iter().size_hint(), (5, Some(5)));
         assert_eq!(xs.mut_iter().size_hint(), (5, Some(5)));
@@ -1641,7 +1774,6 @@ mod tests {
 
     #[test]
     fn test_mut_iterator() {
-        use iter::*;
         let mut xs = [1, 2, 3, 4, 5];
         for x in xs.mut_iter() {
             *x += 1;
@@ -1651,7 +1783,6 @@ mod tests {
 
     #[test]
     fn test_rev_iterator() {
-        use iter::*;
 
         let xs = [1, 2, 5, 10, 11];
         let ys = [11, 10, 5, 2, 1];
@@ -1665,7 +1796,6 @@ mod tests {
 
     #[test]
     fn test_mut_rev_iterator() {
-        use iter::*;
         let mut xs = [1u, 2, 3, 4, 5];
         for (i,x) in xs.mut_iter().rev().enumerate() {
             *x += i;
@@ -1675,14 +1805,12 @@ mod tests {
 
     #[test]
     fn test_move_iterator() {
-        use iter::*;
         let xs = box [1u,2,3,4,5];
         assert_eq!(xs.move_iter().fold(0, |a: uint, b: uint| 10*a + b), 12345);
     }
 
     #[test]
     fn test_move_rev_iterator() {
-        use iter::*;
         let xs = box [1u,2,3,4,5];
         assert_eq!(xs.move_iter().rev().fold(0, |a: uint, b: uint| 10*a + b), 54321);
     }
@@ -1858,7 +1986,6 @@ mod tests {
 
     #[test]
     fn test_vec_default() {
-        use default::Default;
         macro_rules! t (
             ($ty:ty) => {{
                 let v: $ty = Default::default();
@@ -1893,7 +2020,6 @@ mod tests {
     #[test]
     #[should_fail]
     fn test_overflow_does_not_cause_segfault_managed() {
-        use rc::Rc;
         let mut v = vec![Rc::new(1)];
         v.reserve_exact(-1);
         v.push(Rc::new(2));
@@ -2121,12 +2247,13 @@ mod tests {
 
 #[cfg(test)]
 mod bench {
-    extern crate test;
-    use self::test::Bencher;
-    use mem;
-    use prelude::*;
-    use ptr;
-    use rand::{weak_rng, Rng};
+    use std::prelude::*;
+    use std::rand::{weak_rng, Rng};
+    use std::mem;
+    use std::ptr;
+    use test::Bencher;
+
+    use vec::Vec;
 
     #[bench]
     fn iterator(b: &mut Bencher) {

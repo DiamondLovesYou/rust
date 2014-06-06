@@ -32,7 +32,6 @@ This API is completely unstable and subject to change.
 
 extern crate serialize;
 extern crate term;
-extern crate collections;
 #[phase(syntax, link)]
 extern crate log;
 extern crate fmt_macros;
@@ -48,6 +47,7 @@ pub mod util {
 pub mod syntax {
     pub use ext;
     pub use parse;
+    pub use ast;
 }
 
 pub mod owned_slice;

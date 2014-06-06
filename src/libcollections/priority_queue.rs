@@ -12,9 +12,13 @@
 
 #![allow(missing_doc)]
 
-use std::clone::Clone;
-use std::mem::{overwrite, zeroed, replace, swap};
-use std::slice;
+use core::prelude::*;
+
+use core::mem::{zeroed, replace, swap};
+use core::ptr;
+
+use slice;
+use vec::Vec;
 
 /// A priority queue implemented with a binary heap
 #[deriving(Clone)]
@@ -163,13 +167,13 @@ impl<T: Ord> PriorityQueue<T> {
                 let parent = (pos - 1) >> 1;
                 if new > *self.data.get(parent) {
                     let x = replace(self.data.get_mut(parent), zeroed());
-                    overwrite(self.data.get_mut(pos), x);
+                    ptr::write(self.data.get_mut(pos), x);
                     pos = parent;
                     continue
                 }
                 break
             }
-            overwrite(self.data.get_mut(pos), new);
+            ptr::write(self.data.get_mut(pos), new);
         }
     }
 
@@ -185,12 +189,12 @@ impl<T: Ord> PriorityQueue<T> {
                     child = right;
                 }
                 let x = replace(self.data.get_mut(child), zeroed());
-                overwrite(self.data.get_mut(pos), x);
+                ptr::write(self.data.get_mut(pos), x);
                 pos = child;
                 child = 2 * pos + 1;
             }
 
-            overwrite(self.data.get_mut(pos), new);
+            ptr::write(self.data.get_mut(pos), new);
             self.siftup(start, pos);
         }
     }
@@ -237,7 +241,10 @@ impl<T: Ord> Extendable<T> for PriorityQueue<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::prelude::*;
+
     use priority_queue::PriorityQueue;
+    use vec::Vec;
 
     #[test]
     fn test_iterator() {
@@ -341,8 +348,8 @@ mod tests {
         v.sort();
         data.sort();
 
-        assert_eq!(v, data);
-        assert_eq!(heap.into_sorted_vec(), data);
+        assert_eq!(v.as_slice(), data.as_slice());
+        assert_eq!(heap.into_sorted_vec().as_slice(), data.as_slice());
     }
 
     #[test]

@@ -13,10 +13,14 @@
 //! RingBuf implements the trait Deque. It should be imported with `use
 //! collections::deque::Deque`.
 
-use std::cmp;
-use std::iter::RandomAccessIterator;
+use core::prelude::*;
+
+use core::cmp;
+use core::fmt;
+use core::iter::RandomAccessIterator;
 
 use deque::Deque;
+use vec::Vec;
 
 static INITIAL_CAPACITY: uint = 8u; // 2^3
 static MINIMUM_CAPACITY: uint = 2u;
@@ -391,15 +395,29 @@ impl<A> Extendable<A> for RingBuf<A> {
     }
 }
 
+impl<T: fmt::Show> fmt::Show for RingBuf<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        try!(write!(f, "["));
+
+        for (i, e) in self.iter().enumerate() {
+            if i != 0 { try!(write!(f, ", ")); }
+            try!(write!(f, "{}", *e));
+        }
+
+        write!(f, "]")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    extern crate test;
-    use self::test::Bencher;
-    use deque::Deque;
-    use std::clone::Clone;
-    use std::cmp::PartialEq;
     use std::fmt::Show;
+    use std::prelude::*;
+    use test::Bencher;
+    use test;
+
+    use deque::Deque;
     use super::RingBuf;
+    use vec::Vec;
 
     #[test]
     fn test_simple() {
@@ -818,5 +836,16 @@ mod tests {
         assert!(e != d);
         e.clear();
         assert!(e == RingBuf::new());
+    }
+
+    #[test]
+    fn test_show() {
+        let ringbuf: RingBuf<int> = range(0, 10).collect();
+        assert!(format!("{}", ringbuf).as_slice() == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]");
+
+        let ringbuf: RingBuf<&str> = vec!["just", "one", "test", "more"].iter()
+                                                                        .map(|&s| s)
+                                                                        .collect();
+        assert!(format!("{}", ringbuf).as_slice() == "[just, one, test, more]");
     }
 }

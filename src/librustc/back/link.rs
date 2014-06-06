@@ -34,6 +34,7 @@ use std::io;
 use std::ptr;
 use std::str;
 use std::string::String;
+use std::collections::HashSet;
 use flate;
 use serialize::hex::ToHex;
 use syntax::abi;
@@ -44,7 +45,6 @@ use syntax::attr;
 use syntax::attr::AttrMetaMethods;
 use syntax::crateid::CrateId;
 use syntax::parse::token;
-use collections::HashSet;
 
 #[deriving(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum OutputType {

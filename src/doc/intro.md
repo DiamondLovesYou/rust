@@ -18,11 +18,11 @@ and its implications on a task that programmers usually find very difficult: con
 
 Ownership is central to Rust,
 and is the feature from which many of Rust's powerful capabilities are derived.
-"Ownership" refers to which parts of your code are allowed read,
+"Ownership" refers to which parts of your code are allowed to read,
 write, and ultimately release, memory.
 Let's start by looking at some C++ code:
 
-```notrust
+```cpp
 int* dangling(void)
 {
     int i = 1234;
@@ -74,7 +74,7 @@ fn main() {
 
 Save this program as `dangling.rs`. When you try to compile this program with `rustc dangling.rs`, you'll get an interesting (and long) error message:
 
-```notrust
+```text
 dangling.rs:3:12: 3:14 error: `i` does not live long enough
 dangling.rs:3     return &i;
                          ^~
@@ -155,7 +155,7 @@ You can roughly compare these two lines:
 let i = box 1234;
 ```
 
-```notrust
+```cpp
 // C++
 int *i = new int;
 *i = 1234;
@@ -254,7 +254,7 @@ fn main() {
 
 This will result an error indicating that the value is no longer in scope:
 
-```notrust
+```text
 concurrency.rs:12:20: 12:27 error: use of moved value: 'numbers'
 concurrency.rs:12     println!("{}", numbers.get(0));
                                      ^~~~~~~
