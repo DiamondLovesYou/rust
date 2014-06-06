@@ -9,15 +9,19 @@
 // except according to those terms.
 #![feature(macro_rules)]
 #![feature(simd)]
+#![feature(phase)]
 #![allow(experimental)]
 
 // ignore-pretty very bad with line comments
 
+#[phase(syntax)]
+extern crate simd_syntax;
+extern crate simd;
 extern crate sync;
 
 use std::io;
 use std::os;
-use std::simd::f64x2;
+use simd::{f64x2, Simd};
 use sync::Future;
 use sync::Arc;
 
@@ -43,10 +47,8 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
     };
 
     // precalc values
-    let inverse_w_doubled = 2.0 / w as f64;
-    let inverse_h_doubled = 2.0 / h as f64;
-    let v_inverses = f64x2(inverse_w_doubled, inverse_h_doubled);
-    let v_consts = f64x2(1.5, 1.0);
+    let inverse_doubled = gather_simd!(2.0, 2.0) / gather_simd!(w as f64, h as f64);
+    let v_consts = gather_simd!(1.5, 1.0);
 
     // A lot of this code assumes this (so do other lang benchmarks)
     assert!(w == h);
@@ -55,8 +57,8 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
 
     let precalc_futures = Vec::from_fn(WORKERS, |i| {
         Future::spawn(proc () {
-            let mut rs = Vec::with_capacity(w / WORKERS);
-            let mut is = Vec::with_capacity(w / WORKERS);
+            let mut rs: Vec<f64> = Vec::with_capacity(w / WORKERS);
+            let mut is: Vec<f64> = Vec::with_capacity(w / WORKERS);
 
             let start = i * chunk_size;
             let end = if i == 0 {
@@ -68,11 +70,11 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
             // This assumes w == h
             for x in range(start, end) {
                 let xf = x as f64;
-                let xy = f64x2(xf, xf);
+                let xy = gather_simd!(xf, xf);
 
-                let f64x2(r, i) = xy * v_inverses - v_consts;
-                rs.push(r);
-                is.push(i);
+                let ri = xy * inverse_doubled - v_consts;
+                rs.push(ri[0]);
+                is.push(ri[1]);
             }
 
             (rs, is)
@@ -114,22 +116,22 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
 }
 
 fn write_line(init_i: f64, vec_init_r: &[f64], res: &mut Vec<u8>) {
-    let v_init_i : f64x2 = f64x2(init_i, init_i);
-    let v_2 : f64x2 = f64x2(2.0, 2.0);
-    static LIMIT_SQUARED: f64 = LIMIT * LIMIT;
+    let v_init_i: f64x2 = gather_simd!(init_i, init_i);
+    let v_2: f64x2      = gather_simd!(2.0, 2.0);
+    static LIMIT_SQUARED: f64x2 = swizzle_simd!(gather_simd!(LIMIT * LIMIT) -> (0, 0));
 
     for chunk_init_r in vec_init_r.chunks(8) {
-        let mut cur_byte = 0xff;
+        let mut cur_byte: u8 = 0xff;
         let mut i = 0;
 
         while i < 8 {
-            let v_init_r = f64x2(chunk_init_r[i], chunk_init_r[i + 1]);
+            let v_init_r = gather_simd!(chunk_init_r[i], chunk_init_r[i + 1]);
             let mut cur_r = v_init_r;
             let mut cur_i = v_init_i;
             let mut r_sq = v_init_r * v_init_r;
             let mut i_sq = v_init_i * v_init_i;
 
-            let mut b = 0;
+            let mut b: u8 = 0;
             for _ in range(0, ITER) {
                 let r = cur_r;
                 let i = cur_i;
@@ -137,17 +139,18 @@ fn write_line(init_i: f64, vec_init_r: &[f64], res: &mut Vec<u8>) {
                 cur_i = v_2 * r * i + v_init_i;
                 cur_r = r_sq - i_sq + v_init_r;
 
-                let f64x2(bit1, bit2) = r_sq + i_sq;
+                let mut break_outer = false;
+                let bits = r_sq + i_sq;
+                for (i, v) in (bits > LIMIT_SQUARED).iter().enumerate() {
+                    if !v { continue; }
 
-                if bit1 > LIMIT_SQUARED {
-                    b |= 2;
-                    if b == 3 { break; }
+                    b |= (i + 1) as u8;
+                    if b == 3 {
+                        break_outer = true;
+                        break;
+                    }
                 }
-
-                if bit2 > LIMIT_SQUARED {
-                    b |= 1;
-                    if b == 3 { break; }
-                }
+                if break_outer { break; }
 
                 r_sq = cur_r * cur_r;
                 i_sq = cur_i * cur_i;
