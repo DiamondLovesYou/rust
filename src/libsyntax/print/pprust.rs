@@ -540,7 +540,11 @@ impl<'a> State<'a> {
             ast::TyInfer => {
                 try!(word(&mut self.s, "_"));
             }
-        ast::TySimd(..) => fail!("can't pretty print simd types"),
+            ast::TySimd(ty, c) => {
+                try!(self.print_type(ty));
+                try!(word(&mut self.s, "x"));
+                try!(self.print_expr(c));
+            }
         }
         self.end()
     }
