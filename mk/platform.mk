@@ -568,7 +568,6 @@ DISABLED_CRATES_le32-unknown-nacl := rustuv green
 SHARED_LIBS_DISABLED_le32-unknown-nacl := 1
 RUNTIME_CFLAGS_le32-unknown-nacl:= -I$(CFG_NACL_CROSS_PATH)/include/pnacl
 RUNTIME_DISABLE_ASM_le32-unknown-nacl := 1
-CTEST_TARGETARGS_le32-unknown-nacl:=--runtool="$(CFG_PYTHON) $(CFG_NACL_CROSS_PATH)/tools/run.py"
 RUSTC_FLAGS_le32-unknown-nacl:=
 RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=pnacl --cfg "target_libc=\"newlib\"" -L $(CFG_NACL_CROSS_PATH)/lib/pnacl/Release -L $(CFG_NACL_CROSS_PATH)/toolchain/linux_pnacl/usr/lib/
 
