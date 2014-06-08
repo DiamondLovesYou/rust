@@ -264,7 +264,6 @@ pub mod write {
                 assert!(addpass_mpm("expand-struct-regs"));
                 assert!(addpass_mpm("expand-varargs"));
                 assert!(addpass_mpm("nacl-expand-ctors"));
-                assert!(addpass_mpm("resolve-aliases"));
                 assert!(addpass_mpm("nacl-expand-tls-constant-expr"));
             }
 
@@ -1317,6 +1316,8 @@ pub fn link_pnacl_module(sess: &Session,
     use std::io::File;
     use back::archive::ArchiveRO;
 
+    static SJLJ_EH_REDIRECT_BIN: &'static [u8] = include_bin!("pnacl_sjlj_eh_redirect.bc");
+
     let llmod = trans.module;
 
     fn expect_rlib_path(sess: &Session, name: &String, p_opt: Option<Path>) -> Path {
@@ -1331,7 +1332,7 @@ pub fn link_pnacl_module(sess: &Session,
     fn link_buf_into_module(sess: &Session,
                             ctxt:  ContextRef,
                             llmod: Option<ModuleRef>,
-                            name: &String,
+                            name: &str,
                             bc: &[u8]) -> Option<ModuleRef> {
         use libc;
         debug!("inserting `{}` into module", name);
@@ -1376,7 +1377,7 @@ pub fn link_pnacl_module(sess: &Session,
                  let archive = ArchiveRO::open(archive).expect("maybe invalid archive?");
                  archive.foreach_child(|name, bc| {
                      if name != METADATA_FILENAME {
-                         llmod = link_buf_into_module(sess, ctxt, llmod, &name.to_string(), bc);
+                         llmod = link_buf_into_module(sess, ctxt, llmod, name, bc);
                      }
                  });
              });
@@ -1408,8 +1409,7 @@ pub fn link_pnacl_module(sess: &Session,
     debug!("linking support bitcodes");
     {
         let bcs = vec!("crti.bc",
-                       "crtbegin.bc",
-                       "sjlj_eh_redirect.bc");
+                       "crtbegin.bc");
         let mut iter = bcs
             .iter()
             .zip(bcs.iter()
@@ -1432,12 +1432,18 @@ pub fn link_pnacl_module(sess: &Session,
                               }
                           } )
                  }));
-        let tc_mod = iter.fold(None, |m, (name, bc)| {
+        let tc_mod = link_buf_into_module(sess,
+                                          trans.context,
+                                          None,
+                                          "pnacl_sjlj_eh_redirect.bc",
+                                          SJLJ_EH_REDIRECT_BIN);
+        assert!(tc_mod.is_some());
+        let tc_mod = iter.fold(tc_mod, |m, (name, bc)| {
             let bc: Vec<u8> = bc;
             link_buf_into_module(sess,
                                  trans.context,
                                  m,
-                                 &name.to_string(),
+                                 *name,
                                  bc.as_slice())
         });
 
@@ -1449,7 +1455,7 @@ pub fn link_pnacl_module(sess: &Session,
                     Ok(buf) => link_buf_into_module(sess,
                                                     trans.context,
                                                     m,
-                                                    &extra.display().to_str(),
+                                                    extra.display().to_str().as_slice(),
                                                     buf.as_slice()),
                     Err(e) => {
                         sess.err(format!("error reading file `{}`: `{}`",
@@ -1587,12 +1593,15 @@ pub fn link_pnacl_module(sess: &Session,
                                 assert!(llvm::LLVMRustAddPass(pm, s));
                             }
                         };
+                        "resolve-aliases".with_c_str(|s| ap(s) );
                         // Now cleanup the optimizations:
                         "expand-constant-expr".with_c_str(|s| ap(s) );
                         "flatten-globals".with_c_str(|s| ap(s) );
                         "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
+                        "nacl-promote-ints".with_c_str(|s| ap(s) );
+                        "nacl-promote-i1-ops".with_c_str(|s| ap(s) );
                         "expand-getelementptr".with_c_str(|s| ap(s) );
-
+                        "canonicalize-mem-intrinsics".with_c_str(|s| ap(s) );
 
                         "nacl-strip-attributes".with_c_str(|s| ap(s) );
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
@@ -1604,6 +1613,17 @@ pub fn link_pnacl_module(sess: &Session,
                         }
                     });
 
+    if sess.opts.output_types.iter().any(|&i| i == OutputTypeLlvmAssembly) {
+        // emit ir
+        let p = outputs.path(OutputTypeLlvmAssembly);
+        unsafe {
+            let pm = llvm::LLVMCreatePassManager();
+            p.with_c_str(|output| {
+                llvm::LLVMRustPrintModule(pm, llmod, output);
+            });
+            llvm::LLVMDisposePassManager(pm);
+        }
+    }
     let out = match outputs.single_output_file {
         Some(ref file) => file.clone(),
         None => {
