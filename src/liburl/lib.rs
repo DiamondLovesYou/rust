@@ -16,7 +16,8 @@
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/")]
+       html_root_url = "http://doc.rust-lang.org/",
+       html_playground_url = "http://play.rust-lang.org/")]
 #![feature(default_type_params)]
 
 use std::collections::HashMap;
@@ -161,10 +162,10 @@ fn encode_inner(s: &str, full_url: bool) -> String {
                     out.push_char(ch);
                   }
 
-                  _ => out.push_str(format!("%{:X}", ch as uint).as_slice())
+                  _ => out.push_str(format!("%{:02X}", ch as uint).as_slice())
                 }
             } else {
-                out.push_str(format!("%{:X}", ch as uint).as_slice());
+                out.push_str(format!("%{:02X}", ch as uint).as_slice());
             }
           }
         }
@@ -524,7 +525,7 @@ fn get_authority(rawurl: &str) ->
     Result<(Option<UserInfo>, String, Option<String>, String), String> {
     if !rawurl.starts_with("//") {
         // there is no authority.
-        return Ok((None, "".to_string(), None, rawurl.to_str().to_string()));
+        return Ok((None, "".to_string(), None, rawurl.to_str()));
     }
 
     enum State {
@@ -1178,6 +1179,8 @@ mod tests {
         assert_eq!(encode("@"), "@".to_string());
         assert_eq!(encode("["), "[".to_string());
         assert_eq!(encode("]"), "]".to_string());
+        assert_eq!(encode("\0"), "%00".to_string());
+        assert_eq!(encode("\n"), "%0A".to_string());
     }
 
     #[test]
@@ -1207,6 +1210,8 @@ mod tests {
         assert_eq!(encode_component("@"), "%40".to_string());
         assert_eq!(encode_component("["), "%5B".to_string());
         assert_eq!(encode_component("]"), "%5D".to_string());
+        assert_eq!(encode_component("\0"), "%00".to_string());
+        assert_eq!(encode_component("\n"), "%0A".to_string());
     }
 
     #[test]

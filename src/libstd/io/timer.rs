@@ -17,11 +17,11 @@ and create receivers which will receive notifications after a period of time.
 
 */
 
-use comm::Receiver;
-use io::IoResult;
+use comm::{Receiver, Sender, channel};
+use io::{IoResult, IoError};
 use kinds::Send;
 use owned::Box;
-use rt::rtio::{IoFactory, LocalIo, RtioTimer};
+use rt::rtio::{IoFactory, LocalIo, RtioTimer, Callback};
 
 /// A synchronous timer object
 ///
@@ -67,6 +67,8 @@ pub struct Timer {
     obj: Box<RtioTimer:Send>,
 }
 
+struct TimerCallback { tx: Sender<()> }
+
 /// Sleep the current task for `msecs` milliseconds.
 pub fn sleep(msecs: u64) {
     let timer = Timer::new();
@@ -80,7 +82,9 @@ impl Timer {
     /// for a number of milliseconds, or to possibly create channels which will
     /// get notified after an amount of time has passed.
     pub fn new() -> IoResult<Timer> {
-        LocalIo::maybe_raise(|io| io.timer_init().map(|t| Timer { obj: t }))
+        LocalIo::maybe_raise(|io| {
+            io.timer_init().map(|t| Timer { obj: t })
+        }).map_err(IoError::from_rtio_error)
     }
 
     /// Blocks the current task for `msecs` milliseconds.
@@ -92,27 +96,97 @@ impl Timer {
     }
 
     /// Creates a oneshot receiver which will have a notification sent when
-    /// `msecs` milliseconds has elapsed. This does *not* block the current
-    /// task, but instead returns immediately.
+    /// `msecs` milliseconds has elapsed.
+    ///
+    /// This does *not* block the current task, but instead returns immediately.
     ///
     /// Note that this invalidates any previous receiver which has been created
     /// by this timer, and that the returned receiver will be invalidated once
-    /// the timer is destroyed (when it falls out of scope).
+    /// the timer is destroyed (when it falls out of scope). In particular, if
+    /// this is called in method-chaining style, the receiver will be
+    /// invalidated at the end of that statement, and all `recv` calls will
+    /// fail.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::io::timer::Timer;
+    ///
+    /// let mut timer = Timer::new().unwrap();
+    /// let ten_milliseconds = timer.oneshot(10);
+    ///
+    /// for _ in range(0, 100) { /* do work */ }
+    ///
+    /// // blocks until 10 ms after the `oneshot` call
+    /// ten_milliseconds.recv();
+    /// ```
+    ///
+    /// ```rust
+    /// use std::io::timer::Timer;
+    ///
+    /// // Incorrect, method chaining-style:
+    /// let mut five_ms = Timer::new().unwrap().oneshot(5);
+    /// // The timer object was destroyed, so this will always fail:
+    /// // five_ms.recv()
+    /// ```
     pub fn oneshot(&mut self, msecs: u64) -> Receiver<()> {
-        self.obj.oneshot(msecs)
+        let (tx, rx) = channel();
+        self.obj.oneshot(msecs, box TimerCallback { tx: tx });
+        return rx
     }
 
     /// Creates a receiver which will have a continuous stream of notifications
-    /// being sent every `msecs` milliseconds. This does *not* block the
-    /// current task, but instead returns immediately. The first notification
-    /// will not be received immediately, but rather after `msec` milliseconds
-    /// have passed.
+    /// being sent every `msecs` milliseconds.
+    ///
+    /// This does *not* block the current task, but instead returns
+    /// immediately. The first notification will not be received immediately,
+    /// but rather after `msec` milliseconds have passed.
     ///
     /// Note that this invalidates any previous receiver which has been created
     /// by this timer, and that the returned receiver will be invalidated once
-    /// the timer is destroyed (when it falls out of scope).
+    /// the timer is destroyed (when it falls out of scope). In particular, if
+    /// this is called in method-chaining style, the receiver will be
+    /// invalidated at the end of that statement, and all `recv` calls will
+    /// fail.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::io::timer::Timer;
+    ///
+    /// let mut timer = Timer::new().unwrap();
+    /// let ten_milliseconds = timer.periodic(10);
+    ///
+    /// for _ in range(0, 100) { /* do work */ }
+    ///
+    /// // blocks until 10 ms after the `periodic` call
+    /// ten_milliseconds.recv();
+    ///
+    /// for _ in range(0, 100) { /* do work */ }
+    ///
+    /// // blocks until 20 ms after the `periodic` call (*not* 10ms after the
+    /// // previous `recv`)
+    /// ten_milliseconds.recv();
+    /// ```
+    ///
+    /// ```rust
+    /// use std::io::timer::Timer;
+    ///
+    /// // Incorrect, method chaining-style.
+    /// let mut five_ms = Timer::new().unwrap().periodic(5);
+    /// // The timer object was destroyed, so this will always fail:
+    /// // five_ms.recv()
+    /// ```
     pub fn periodic(&mut self, msecs: u64) -> Receiver<()> {
-        self.obj.period(msecs)
+        let (tx, rx) = channel();
+        self.obj.period(msecs, box TimerCallback { tx: tx });
+        return rx
+    }
+}
+
+impl Callback for TimerCallback {
+    fn call(&mut self) {
+        let _ = self.tx.send_opt(());
     }
 }
 
@@ -144,7 +218,7 @@ mod test {
     iotest!(fn test_io_timer_oneshot_then_sleep() {
         let mut timer = Timer::new().unwrap();
         let rx = timer.oneshot(100000000000);
-        timer.sleep(1); // this should inalidate rx
+        timer.sleep(1); // this should invalidate rx
 
         assert_eq!(rx.recv_opt(), Err(()));
     })
@@ -278,7 +352,7 @@ mod test {
         let mut timer1 = Timer::new().unwrap();
         timer1.oneshot(1);
         let mut timer2 = Timer::new().unwrap();
-        // while sleeping, the prevous timer should fire and not have its
+        // while sleeping, the previous timer should fire and not have its
         // callback do something terrible.
         timer2.sleep(2);
     })
@@ -287,7 +361,7 @@ mod test {
         let mut timer1 = Timer::new().unwrap();
         timer1.periodic(1);
         let mut timer2 = Timer::new().unwrap();
-        // while sleeping, the prevous timer should fire and not have its
+        // while sleeping, the previous timer should fire and not have its
         // callback do something terrible.
         timer2.sleep(2);
     })

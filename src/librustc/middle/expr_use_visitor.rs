@@ -15,12 +15,12 @@
  */
 
 use mc = middle::mem_categorization;
+use middle::def;
 use middle::freevars;
 use middle::pat_util;
 use middle::ty;
 use middle::typeck;
 use syntax::ast;
-use syntax::ast_util;
 use syntax::codemap::{Span};
 use util::ppaux::Repr;
 
@@ -80,12 +80,20 @@ pub enum LoanCause {
 
 #[deriving(PartialEq,Show)]
 pub enum ConsumeMode {
-    Copy,    // reference to x where x has a type that copies
-    Move,    // reference to x where x has a type that moves
+    Copy,                // reference to x where x has a type that copies
+    Move(MoveReason),    // reference to x where x has a type that moves
+}
+
+#[deriving(PartialEq,Show)]
+pub enum MoveReason {
+    DirectRefMove,
+    PatBindingMove,
+    CaptureMove,
 }
 
 #[deriving(PartialEq,Show)]
 pub enum MutateMode {
+    Init,
     JustWrite,    // x = y
     WriteAndRead, // x += y
 }
@@ -160,7 +168,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                         consume_id: ast::NodeId,
                         consume_span: Span,
                         cmt: mc::cmt) {
-        let mode = copy_or_move(self.tcx(), cmt.ty);
+        let mode = copy_or_move(self.tcx(), cmt.ty, DirectRefMove);
         self.delegate.consume(consume_id, consume_span, cmt, mode);
     }
 
@@ -724,7 +732,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                 let def = def_map.borrow().get_copy(&pat.id);
                 match mc.cat_def(pat.id, pat.span, pat_ty, def) {
                     Ok(binding_cmt) => {
-                        delegate.mutate(pat.id, pat.span, binding_cmt, JustWrite);
+                        delegate.mutate(pat.id, pat.span, binding_cmt, Init);
                     }
                     Err(_) => { }
                 }
@@ -740,7 +748,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                                              r, bk, RefBinding);
                     }
                     ast::PatIdent(ast::BindByValue(_), _, _) => {
-                        let mode = copy_or_move(typer.tcx(), cmt_pat.ty);
+                        let mode = copy_or_move(typer.tcx(), cmt_pat.ty, PatBindingMove);
                         delegate.consume_pat(pat, cmt_pat, mode);
                     }
                     _ => {
@@ -818,7 +826,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                             closure_expr: &ast::Expr,
                             freevars: &[freevars::freevar_entry]) {
         for freevar in freevars.iter() {
-            let id_var = ast_util::def_id_of_def(freevar.def).node;
+            let id_var = freevar.def.def_id().node;
             let cmt_var = return_if_err!(self.cat_captured_var(closure_expr.id,
                                                                closure_expr.span,
                                                                freevar.def));
@@ -846,24 +854,25 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
             let cmt_var = return_if_err!(self.cat_captured_var(closure_expr.id,
                                                                closure_expr.span,
                                                                freevar.def));
-            self.delegate_consume(closure_expr.id, freevar.span, cmt_var);
+            let mode = copy_or_move(self.tcx(), cmt_var.ty, CaptureMove);
+            self.delegate.consume(closure_expr.id, freevar.span, cmt_var, mode);
         }
     }
 
     fn cat_captured_var(&mut self,
                         closure_id: ast::NodeId,
                         closure_span: Span,
-                        upvar_def: ast::Def)
+                        upvar_def: def::Def)
                         -> mc::McResult<mc::cmt> {
         // Create the cmt for the variable being borrowed, from the
         // caller's perspective
-        let var_id = ast_util::def_id_of_def(upvar_def).node;
+        let var_id = upvar_def.def_id().node;
         let var_ty = ty::node_id_to_type(self.tcx(), var_id);
         self.mc.cat_def(closure_id, closure_span, var_ty, upvar_def)
     }
 }
 
-fn copy_or_move(tcx: &ty::ctxt, ty: ty::t) -> ConsumeMode {
-    if ty::type_moves_by_default(tcx, ty) { Move } else { Copy }
+fn copy_or_move(tcx: &ty::ctxt, ty: ty::t, move_reason: MoveReason) -> ConsumeMode {
+    if ty::type_moves_by_default(tcx, ty) { Move(move_reason) } else { Copy }
 }
 

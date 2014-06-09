@@ -478,7 +478,7 @@ impl TwoWaySearcher {
 }
 
 /// The internal state of an iterator that searches for matches of a substring
-/// within a larger string using a dynamically chosed search algorithm
+/// within a larger string using a dynamically chosen search algorithm
 #[deriving(Clone)]
 enum Searcher {
     Naive(NaiveSearcher),
@@ -867,7 +867,6 @@ static TAG_CONT_U8: u8 = 128u8;
 pub mod raw {
     use mem;
     use container::Container;
-    use iter::Iterator;
     use ptr::RawPtr;
     use raw::Slice;
     use slice::{ImmutableVector};
@@ -1121,7 +1120,7 @@ pub trait StrSlice<'a> {
     ///
     /// That is, each returned value `(start, end)` satisfies
     /// `self.slice(start, end) == sep`. For matches of `sep` within
-    /// `self` that overlap, only the indicies corresponding to the
+    /// `self` that overlap, only the indices corresponding to the
     /// first match are returned.
     ///
     /// # Example
@@ -1725,7 +1724,7 @@ impl<'a> StrSlice<'a> for &'a str {
     fn is_alphanumeric(&self) -> bool { self.chars().all(char::is_alphanumeric) }
 
     #[inline]
-    fn char_len(&self) -> uint { self.chars().len() }
+    fn char_len(&self) -> uint { self.chars().count() }
 
     #[inline]
     fn slice(&self, begin: uint, end: uint) -> &'a str {

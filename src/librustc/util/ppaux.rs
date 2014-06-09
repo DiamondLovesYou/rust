@@ -9,6 +9,8 @@
 // except according to those terms.
 
 
+use middle::subst;
+use middle::subst::Subst;
 use middle::ty::{ReSkolemized, ReVar};
 use middle::ty::{BoundRegion, BrAnon, BrNamed};
 use middle::ty::{BrFresh, ctxt};
@@ -367,7 +369,7 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
       ty_bare_fn(ref f) => {
           bare_fn_to_str(cx, f.fn_style, f.abi, None, &f.sig)
       }
-      ty_infer(infer_ty) => infer_ty.to_str().to_string(),
+      ty_infer(infer_ty) => infer_ty.to_str(),
       ty_err => "[type error]".to_string(),
       ty_param(param_ty {idx: id, def_id: did}) => {
           let ident = match cx.ty_param_defs.borrow().find(&did.node) {
@@ -420,15 +422,15 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
 
 pub fn parameterized(cx: &ctxt,
                      base: &str,
-                     regions: &ty::RegionSubsts,
+                     regions: &subst::RegionSubsts,
                      tps: &[ty::t],
                      did: ast::DefId,
                      is_trait: bool)
                      -> String {
     let mut strs = Vec::new();
     match *regions {
-        ty::ErasedRegions => { }
-        ty::NonerasedRegions(ref regions) => {
+        subst::ErasedRegions => { }
+        subst::NonerasedRegions(ref regions) => {
             for &r in regions.iter() {
                 strs.push(region_to_str(cx, "", false, r))
             }
@@ -444,7 +446,7 @@ pub fn parameterized(cx: &ctxt,
     let has_defaults = ty_params.last().map_or(false, |def| def.default.is_some());
     let num_defaults = if has_defaults {
         // We should have a borrowed version of substs instead of cloning.
-        let mut substs = ty::substs {
+        let mut substs = subst::Substs {
             tps: Vec::from_slice(tps),
             regions: regions.clone(),
             self_ty: None
@@ -452,10 +454,10 @@ pub fn parameterized(cx: &ctxt,
         ty_params.iter().zip(tps.iter()).rev().take_while(|&(def, &actual)| {
             substs.tps.pop();
             match def.default {
-                Some(default) => ty::subst(cx, &substs, default) == actual,
+                Some(default) => default.subst(cx, &substs) == actual,
                 None => false
             }
-        }).len()
+        }).count()
     } else {
         0
     };
@@ -566,7 +568,7 @@ impl Repr for ty::t {
     }
 }
 
-impl Repr for ty::substs {
+impl Repr for subst::Substs {
     fn repr(&self, tcx: &ctxt) -> String {
         format!("substs(regions={}, self_ty={}, tps={})",
                 self.regions.repr(tcx),
@@ -581,11 +583,11 @@ impl Repr for ty::ItemSubsts {
     }
 }
 
-impl Repr for ty::RegionSubsts {
+impl Repr for subst::RegionSubsts {
     fn repr(&self, tcx: &ctxt) -> String {
         match *self {
-            ty::ErasedRegions => "erased".to_string(),
-            ty::NonerasedRegions(ref regions) => regions.repr(tcx)
+            subst::ErasedRegions => "erased".to_string(),
+            subst::NonerasedRegions(ref regions) => regions.repr(tcx)
         }
     }
 }
@@ -754,7 +756,10 @@ impl Repr for ty::ItemVariances {
 
 impl Repr for ty::Variance {
     fn repr(&self, _: &ctxt) -> String {
-        self.to_str().to_string()
+        // The first `.to_str()` returns a &'static str (it is not an implementation
+        // of the ToStr trait). Because of that, we need to call `.to_str()` again
+        // if we want to have a `String`.
+        self.to_str().to_str()
     }
 }
 
@@ -951,13 +956,13 @@ impl UserString for ast::Ident {
 
 impl Repr for abi::Abi {
     fn repr(&self, _tcx: &ctxt) -> String {
-        self.to_str().to_string()
+        self.to_str()
     }
 }
 
 impl UserString for abi::Abi {
     fn user_string(&self, _tcx: &ctxt) -> String {
-        self.to_str().to_string()
+        self.to_str()
     }
 }
 

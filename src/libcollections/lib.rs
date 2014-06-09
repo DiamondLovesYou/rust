@@ -17,7 +17,8 @@
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/")]
+       html_root_url = "http://doc.rust-lang.org/",
+       html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(macro_rules, managed_boxes, default_type_params, phase, globs)]
 #![no_std]
@@ -70,6 +71,10 @@ fn expect<T>(a: core::option::Option<T>, b: &str) -> T {
         core::option::None => fail!("{}", b),
     }
 }
+
+// FIXME(#14344) this shouldn't be necessary
+#[doc(hidden)]
+pub fn fixme_14344_be_sure_to_link_to_collections() {}
 
 #[cfg(not(test))]
 mod std {

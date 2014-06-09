@@ -56,12 +56,6 @@ use libc::c_char;
 #[cfg(windows)]
 use str::OwnedStr;
 
-/// Delegates to the libc close() function, returning the same return value.
-pub fn close(fd: int) -> int {
-    unsafe {
-        libc::close(fd as c_int) as int
-    }
-}
 
 pub static TMPBUF_SZ : uint = 1000u;
 static BUF_BYTES : uint = 2048u;
@@ -195,7 +189,7 @@ Accessing environment variables is not generally threadsafe.
 Serialize access through a global lock.
 */
 fn with_env_lock<T>(f: || -> T) -> T {
-    use unstable::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
+    use rt::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
 
     static mut lock: StaticNativeMutex = NATIVE_MUTEX_INIT;
 
@@ -326,7 +320,7 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>,Vec<u8>)> {
 /// let key = "HOME";
 /// match std::os::getenv(key) {
 ///     Some(val) => println!("{}: {}", key, val),
-///     None => println!("{} is not defined in the environnement.", key)
+///     None => println!("{} is not defined in the environment.", key)
 /// }
 /// ```
 pub fn getenv(n: &str) -> Option<String> {

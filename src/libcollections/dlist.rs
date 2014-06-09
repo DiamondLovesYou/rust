@@ -24,6 +24,7 @@
 use core::prelude::*;
 
 use alloc::owned::Box;
+use core::fmt;
 use core::iter;
 use core::mem;
 use core::ptr;
@@ -608,6 +609,19 @@ impl<A: Clone> Clone for DList<A> {
     }
 }
 
+impl<A: fmt::Show> fmt::Show for DList<A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        try!(write!(f, "["));
+
+        for (i, e) in self.iter().enumerate() {
+            if i != 0 { try!(write!(f, ", ")); }
+            try!(write!(f, "{}", *e));
+        }
+
+        write!(f, "]")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::prelude::*;
@@ -1027,6 +1041,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_show() {
+        let list: DList<int> = range(0, 10).collect();
+        assert!(list.to_str().as_slice() == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]");
+
+        let list: DList<&str> = vec!["just", "one", "test", "more"].iter()
+                                                                   .map(|&s| s)
+                                                                   .collect();
+        assert!(list.to_str().as_slice() == "[just, one, test, more]");
+    }
+
     #[cfg(test)]
     fn fuzz_test(sz: int) {
         let mut m: DList<int> = DList::new();
@@ -1131,7 +1156,7 @@ mod tests {
         let v = &[0, ..128];
         let m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
-            assert!(m.iter().len() == 128);
+            assert!(m.iter().count() == 128);
         })
     }
     #[bench]
@@ -1139,7 +1164,7 @@ mod tests {
         let v = &[0, ..128];
         let mut m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
-            assert!(m.mut_iter().len() == 128);
+            assert!(m.mut_iter().count() == 128);
         })
     }
     #[bench]
@@ -1147,7 +1172,7 @@ mod tests {
         let v = &[0, ..128];
         let m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
-            assert!(m.iter().rev().len() == 128);
+            assert!(m.iter().rev().count() == 128);
         })
     }
     #[bench]
@@ -1155,7 +1180,7 @@ mod tests {
         let v = &[0, ..128];
         let mut m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
-            assert!(m.mut_iter().rev().len() == 128);
+            assert!(m.mut_iter().rev().count() == 128);
         })
     }
 }

@@ -126,7 +126,9 @@ pub fn opts() -> Vec<getopts::OptGroup> {
         optmulti("", "markdown-after-content",
                  "files to include inline between the content and </body> of a rendered \
                  Markdown file",
-                 "FILES")
+                 "FILES"),
+        optopt("", "markdown-playground-url",
+               "URL to send code snippets to", "URL")
     )
 }
 
@@ -359,7 +361,7 @@ fn json_input(input: &str) -> Result<Output, String> {
         }
     };
     match json::from_reader(&mut input) {
-        Err(s) => Err(s.to_str().to_string()),
+        Err(s) => Err(s.to_str()),
         Ok(json::Object(obj)) => {
             let mut obj = obj;
             // Make sure the schema is what we expect

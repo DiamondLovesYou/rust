@@ -40,6 +40,8 @@ use middle::lint;
 use middle::astencode;
 use middle::lang_items::{LangItem, ExchangeMallocFnLangItem, StartFnLangItem};
 use middle::weak_lang_items;
+use middle::subst;
+use middle::subst::Subst;
 use middle::trans::_match;
 use middle::trans::adt;
 use middle::trans::build::*;
@@ -78,6 +80,7 @@ use libc::{c_uint, uint64_t};
 use std::c_str::ToCStr;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::{i8, i16, i32, i64};
 use syntax::abi::{X86, X86_64, Arm, Mips, Rust, RustIntrinsic};
 use syntax::abi::Le32;
 use syntax::ast_util::{local_def, is_local};
@@ -443,7 +446,7 @@ pub fn get_res_dtor(ccx: &CrateContext,
                     did: ast::DefId,
                     t: ty::t,
                     parent_id: ast::DefId,
-                    substs: &ty::substs)
+                    substs: &subst::Substs)
                  -> ValueRef {
     let _icx = push_ctxt("trans_res_dtor");
     let did = if did.krate != ast::LOCAL_CRATE {
@@ -464,8 +467,7 @@ pub fn get_res_dtor(ccx: &CrateContext,
     } else {
         let tcx = ccx.tcx();
         let name = csearch::get_symbol(&ccx.sess().cstore, did);
-        let class_ty = ty::subst(tcx, substs,
-                                 ty::lookup_item_type(tcx, parent_id).ty);
+        let class_ty = ty::lookup_item_type(tcx, parent_id).ty.subst(tcx, substs);
         let llty = type_of_dtor(ccx, class_ty);
         let dtor_ty = ty::mk_ctor_fn(ccx.tcx(), ast::DUMMY_NODE_ID,
                                      [glue::get_drop_glue_type(ccx, t)], ty::mk_nil());
@@ -659,7 +661,7 @@ pub fn iter_structural_ty<'r,
                     repr: &adt::Repr,
                     av: ValueRef,
                     variant: &ty::VariantInfo,
-                    substs: &ty::substs,
+                    substs: &subst::Substs,
                     f: val_and_ty_fn<'r,'b>)
                     -> &'b Block<'b> {
         let _icx = push_ctxt("iter_variant");
@@ -669,7 +671,7 @@ pub fn iter_structural_ty<'r,
         for (i, &arg) in variant.args.iter().enumerate() {
             cx = f(cx,
                    adt::trans_field_ptr(cx, repr, av, variant.disr_val, i),
-                   ty::subst(tcx, substs, arg));
+                   arg.subst(tcx, substs));
         }
         return cx;
     }
@@ -802,35 +804,77 @@ pub fn cast_shift_rhs(op: ast::BinOp,
     }
 }
 
-pub fn fail_if_zero<'a>(
+pub fn fail_if_zero_or_overflows<'a>(
                     cx: &'a Block<'a>,
                     span: Span,
                     divrem: ast::BinOp,
+                    lhs: ValueRef,
                     rhs: ValueRef,
                     rhs_t: ty::t)
                     -> &'a Block<'a> {
-    let text = if divrem == ast::BiDiv {
-        "attempted to divide by zero"
+    let (zero_text, overflow_text) = if divrem == ast::BiDiv {
+        ("attempted to divide by zero",
+         "attempted to divide with overflow")
     } else {
-        "attempted remainder with a divisor of zero"
+        ("attempted remainder with a divisor of zero",
+         "attempted remainder with overflow")
     };
-    let is_zero = match ty::get(rhs_t).sty {
-      ty::ty_int(t) => {
-        let zero = C_integral(Type::int_from_ty(cx.ccx(), t), 0u64, false);
-        ICmp(cx, lib::llvm::IntEQ, rhs, zero)
-      }
-      ty::ty_uint(t) => {
-        let zero = C_integral(Type::uint_from_ty(cx.ccx(), t), 0u64, false);
-        ICmp(cx, lib::llvm::IntEQ, rhs, zero)
-      }
-      _ => {
-        cx.sess().bug(format!("fail-if-zero on unexpected type: {}",
-                              ty_to_str(cx.tcx(), rhs_t)).as_slice());
-      }
+    let (is_zero, is_signed) = match ty::get(rhs_t).sty {
+        ty::ty_int(t) => {
+            let zero = C_integral(Type::int_from_ty(cx.ccx(), t), 0u64, false);
+            (ICmp(cx, lib::llvm::IntEQ, rhs, zero), true)
+        }
+        ty::ty_uint(t) => {
+            let zero = C_integral(Type::uint_from_ty(cx.ccx(), t), 0u64, false);
+            (ICmp(cx, lib::llvm::IntEQ, rhs, zero), false)
+        }
+        _ => {
+            cx.sess().bug(format!("fail-if-zero on unexpected type: {}",
+                                  ty_to_str(cx.tcx(), rhs_t)).as_slice());
+        }
     };
-    with_cond(cx, is_zero, |bcx| {
-        controlflow::trans_fail(bcx, span, InternedString::new(text))
-    })
+    let bcx = with_cond(cx, is_zero, |bcx| {
+        controlflow::trans_fail(bcx, span, InternedString::new(zero_text))
+    });
+
+    // To quote LLVM's documentation for the sdiv instruction:
+    //
+    //      Division by zero leads to undefined behavior. Overflow also leads
+    //      to undefined behavior; this is a rare case, but can occur, for
+    //      example, by doing a 32-bit division of -2147483648 by -1.
+    //
+    // In order to avoid undefined behavior, we perform runtime checks for
+    // signed division/remainder which would trigger overflow. For unsigned
+    // integers, no action beyond checking for zero need be taken.
+    if is_signed {
+        let (llty, min) = match ty::get(rhs_t).sty {
+            ty::ty_int(t) => {
+                let llty = Type::int_from_ty(cx.ccx(), t);
+                let min = match t {
+                    ast::TyI if llty == Type::i32(cx.ccx()) => i32::MIN as u64,
+                    ast::TyI => i64::MIN as u64,
+                    ast::TyI8 => i8::MIN as u64,
+                    ast::TyI16 => i16::MIN as u64,
+                    ast::TyI32 => i32::MIN as u64,
+                    ast::TyI64 => i64::MIN as u64,
+                };
+                (llty, min)
+            }
+            _ => unreachable!(),
+        };
+        let minus_one = ICmp(bcx, lib::llvm::IntEQ, rhs,
+                             C_integral(llty, -1, false));
+        with_cond(bcx, minus_one, |bcx| {
+            let is_min = ICmp(bcx, lib::llvm::IntEQ, lhs,
+                              C_integral(llty, min, true));
+            with_cond(bcx, is_min, |bcx| {
+                controlflow::trans_fail(bcx, span,
+                                        InternedString::new(overflow_text))
+            })
+        })
+    } else {
+        bcx
+    }
 }
 
 pub fn trans_external_path(ccx: &CrateContext, did: ast::DefId, t: ty::t) -> ValueRef {
@@ -1125,11 +1169,11 @@ pub fn new_fn_ctxt<'a>(ccx: &'a CrateContext,
                        id: ast::NodeId,
                        has_env: bool,
                        output_type: ty::t,
-                       param_substs: Option<&'a param_substs>,
+                       param_substs: &'a param_substs,
                        sp: Option<Span>,
                        block_arena: &'a TypedArena<Block<'a>>)
                        -> FunctionContext<'a> {
-    for p in param_substs.iter() { p.validate(); }
+    param_substs.validate();
 
     debug!("new_fn_ctxt(path={}, id={}, param_substs={})",
            if id == -1 {
@@ -1137,7 +1181,7 @@ pub fn new_fn_ctxt<'a>(ccx: &'a CrateContext,
            } else {
                ccx.tcx.map.path_to_str(id).to_string()
            },
-           id, param_substs.map(|s| s.repr(ccx.tcx())));
+           id, param_substs.repr(ccx.tcx()));
 
     let substd_output_type = output_type.substp(ccx.tcx(), param_substs);
     let uses_outptr = type_of::return_uses_outptr(ccx, substd_output_type);
@@ -1330,7 +1374,7 @@ pub fn trans_closure(ccx: &CrateContext,
                      decl: &ast::FnDecl,
                      body: &ast::Block,
                      llfndecl: ValueRef,
-                     param_substs: Option<&param_substs>,
+                     param_substs: &param_substs,
                      id: ast::NodeId,
                      _attributes: &[ast::Attribute],
                      output_type: ty::t,
@@ -1341,7 +1385,7 @@ pub fn trans_closure(ccx: &CrateContext,
     set_uwtable(llfndecl);
 
     debug!("trans_closure(..., param_substs={})",
-           param_substs.map(|s| s.repr(ccx.tcx())));
+           param_substs.repr(ccx.tcx()));
 
     let has_env = match ty::get(ty::node_id_to_type(ccx.tcx(), id)).sty {
         ty::ty_closure(_) => true,
@@ -1354,7 +1398,7 @@ pub fn trans_closure(ccx: &CrateContext,
                           id,
                           has_env,
                           output_type,
-                          param_substs.map(|s| &*s),
+                          param_substs,
                           Some(body.span),
                           &arena);
     init_function(&fcx, false, output_type);
@@ -1430,11 +1474,11 @@ pub fn trans_fn(ccx: &CrateContext,
                 decl: &ast::FnDecl,
                 body: &ast::Block,
                 llfndecl: ValueRef,
-                param_substs: Option<&param_substs>,
+                param_substs: &param_substs,
                 id: ast::NodeId,
                 attrs: &[ast::Attribute]) {
     let _s = StatRecorder::new(ccx, ccx.tcx.map.path_to_str(id).to_string());
-    debug!("trans_fn(param_substs={})", param_substs.map(|s| s.repr(ccx.tcx())));
+    debug!("trans_fn(param_substs={})", param_substs.repr(ccx.tcx()));
     let _icx = push_ctxt("trans_fn");
     let output_type = ty::ty_fn_ret(ty::node_id_to_type(ccx.tcx(), id));
     trans_closure(ccx, decl, body, llfndecl,
@@ -1446,7 +1490,7 @@ pub fn trans_enum_variant(ccx: &CrateContext,
                           variant: &ast::Variant,
                           _args: &[ast::VariantArg],
                           disr: ty::Disr,
-                          param_substs: Option<&param_substs>,
+                          param_substs: &param_substs,
                           llfndecl: ValueRef) {
     let _icx = push_ctxt("trans_enum_variant");
 
@@ -1461,7 +1505,7 @@ pub fn trans_enum_variant(ccx: &CrateContext,
 pub fn trans_tuple_struct(ccx: &CrateContext,
                           _fields: &[ast::StructField],
                           ctor_id: ast::NodeId,
-                          param_substs: Option<&param_substs>,
+                          param_substs: &param_substs,
                           llfndecl: ValueRef) {
     let _icx = push_ctxt("trans_tuple_struct");
 
@@ -1476,7 +1520,7 @@ pub fn trans_tuple_struct(ccx: &CrateContext,
 fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
                                            ctor_id: ast::NodeId,
                                            disr: ty::Disr,
-                                           param_substs: Option<&param_substs>,
+                                           param_substs: &param_substs,
                                            llfndecl: ValueRef) {
     let ctor_ty = ty::node_id_to_type(ccx.tcx(), ctor_id);
     let ctor_ty = ctor_ty.substp(ccx.tcx(), param_substs);
@@ -1491,7 +1535,7 @@ fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
 
     let arena = TypedArena::new();
     let fcx = new_fn_ctxt(ccx, llfndecl, ctor_id, false, result_ty,
-                          param_substs.map(|s| &*s), None, &arena);
+                          param_substs, None, &arena);
     init_function(&fcx, false, result_ty);
 
     let arg_tys = ty::ty_fn_args(ctor_ty);
@@ -1527,7 +1571,7 @@ fn trans_enum_def(ccx: &CrateContext, enum_definition: &ast::EnumDef,
             ast::TupleVariantKind(ref args) if args.len() > 0 => {
                 let llfn = get_item_val(ccx, variant.node.id);
                 trans_enum_variant(ccx, id, variant, args.as_slice(),
-                                   disr_val, None, llfn);
+                                   disr_val, &param_substs::empty(), llfn);
             }
             ast::TupleVariantKind(_) => {
                 // Nothing to do.
@@ -1614,7 +1658,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
                      decl,
                      body,
                      llfn,
-                     None,
+                     &param_substs::empty(),
                      item.id,
                      item.attrs.as_slice());
         } else {
@@ -1687,7 +1731,7 @@ pub fn trans_struct_def(ccx: &CrateContext, struct_def: @ast::StructDef) {
         Some(ctor_id) if struct_def.fields.len() > 0 => {
             let llfndecl = get_item_val(ccx, ctor_id);
             trans_tuple_struct(ccx, struct_def.fields.as_slice(),
-                               ctor_id, None, llfndecl);
+                               ctor_id, &param_substs::empty(), llfndecl);
         }
         Some(_) | None => {}
     }
@@ -1955,7 +1999,7 @@ fn exported_name(ccx: &CrateContext, id: ast::NodeId,
         _ => ccx.tcx.map.with_path(id, |mut path| {
             if attr::contains_name(attrs, "no_mangle") {
                 // Don't mangle
-                path.last().unwrap().to_str().to_string()
+                path.last().unwrap().to_str()
             } else {
                 match weak_lang_items::link_name(attrs) {
                     Some(name) => name.get().to_string(),
@@ -2222,6 +2266,7 @@ pub fn crate_ctxt_to_encode_parms<'r>(cx: &'r CrateContext, ie: encoder::EncodeI
             link_meta: &cx.link_meta,
             cstore: &cx.sess().cstore,
             encode_inlined_item: ie,
+            reachable: &cx.reachable,
         }
 }
 
@@ -2357,6 +2402,16 @@ pub fn trans_crate(krate: ast::Crate,
     let mut reachable: Vec<String> = ccx.reachable.iter().filter_map(|id| {
         ccx.item_symbols.borrow().find(id).map(|s| s.to_string())
     }).collect();
+
+    // For the purposes of LTO, we add to the reachable set all of the upstream
+    // reachable extern fns. These functions are all part of the public ABI of
+    // the final product, so LTO needs to preserve them.
+    ccx.sess().cstore.iter_crate_data(|cnum, _| {
+        let syms = csearch::get_reachable_extern_fns(&ccx.sess().cstore, cnum);
+        reachable.extend(syms.move_iter().map(|did| {
+            csearch::get_symbol(&ccx.sess().cstore, did)
+        }));
+    });
 
     // Make sure that some other crucial symbols are not eliminated from the
     // module. This includes the main function, the crate map (used for debug

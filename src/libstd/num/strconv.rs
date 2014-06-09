@@ -13,7 +13,6 @@
 use char;
 use clone::Clone;
 use container::Container;
-use iter::Iterator;
 use num::{NumCast, Zero, One, cast, Int};
 use num::{Float, FPNaN, FPInfinite, ToPrimitive};
 use num;
@@ -637,7 +636,7 @@ pub fn from_str_bytes_common<T:NumCast+Zero+One+PartialEq+PartialOrd+Div<T,T>+
                     if accum_positive && accum <= last_accum { return NumStrConv::inf(); }
                     if !accum_positive && accum >= last_accum { return NumStrConv::neg_inf(); }
 
-                    // Detect overflow by reversing the shift-and-add proccess
+                    // Detect overflow by reversing the shift-and-add process
                     if accum_positive &&
                         (last_accum != ((accum - cast(digit as int).unwrap())/radix_gen.clone())) {
                         return NumStrConv::inf();

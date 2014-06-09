@@ -25,6 +25,8 @@ use rustc::driver::driver;
 use rustc::metadata::cstore;
 use rustc::metadata::csearch;
 use rustc::metadata::decoder;
+use rustc::middle::def;
+use rustc::middle::subst;
 use rustc::middle::ty;
 
 use std::rc::Rc;
@@ -190,7 +192,7 @@ impl Clean<ExternalCrate> for cstore::crate_metadata {
                                                       self.cnum,
                                                       |def, _, _| {
                     let did = match def {
-                        decoder::DlDef(ast::DefMod(did)) => did,
+                        decoder::DlDef(def::DefMod(did)) => did,
                         _ => return
                     };
                     let attrs = inline::load_attrs(tcx, did);
@@ -427,17 +429,11 @@ impl attr::AttrMetaMethods for Attribute {
         }
     }
     fn meta_item_list<'a>(&'a self) -> Option<&'a [@ast::MetaItem]> { None }
-    fn name_str_pair(&self) -> Option<(InternedString, InternedString)> {
-        None
-    }
 }
 impl<'a> attr::AttrMetaMethods for &'a Attribute {
     fn name(&self) -> InternedString { (**self).name() }
     fn value_str(&self) -> Option<InternedString> { (**self).value_str() }
     fn meta_item_list<'a>(&'a self) -> Option<&'a [@ast::MetaItem]> { None }
-    fn name_str_pair(&self) -> Option<(InternedString, InternedString)> {
-        None
-    }
 }
 
 #[deriving(Clone, Encodable, Decodable)]
@@ -486,14 +482,14 @@ impl Clean<TyParamBound> for ast::TyParamBound {
     }
 }
 
-fn external_path(name: &str, substs: &ty::substs) -> Path {
+fn external_path(name: &str, substs: &subst::Substs) -> Path {
     Path {
         global: false,
         segments: vec![PathSegment {
             name: name.to_string(),
             lifetimes: match substs.regions {
-                ty::ErasedRegions => Vec::new(),
-                ty::NonerasedRegions(ref v) => {
+                subst::ErasedRegions => Vec::new(),
+                subst::NonerasedRegions(ref v) => {
                     v.iter().filter_map(|v| v.clean()).collect()
                 }
             },
@@ -509,7 +505,7 @@ impl Clean<TyParamBound> for ty::BuiltinBound {
             core::Typed(ref tcx) => tcx,
             core::NotTyped(_) => return RegionBound,
         };
-        let empty = ty::substs::empty();
+        let empty = subst::Substs::empty();
         let (did, path) = match *self {
             ty::BoundStatic => return RegionBound,
             ty::BoundSend =>
@@ -526,7 +522,7 @@ impl Clean<TyParamBound> for ty::BuiltinBound {
                  external_path("Share", &empty)),
         };
         let fqn = csearch::get_item_path(tcx, did);
-        let fqn = fqn.move_iter().map(|i| i.to_str().to_string()).collect();
+        let fqn = fqn.move_iter().map(|i| i.to_str()).collect();
         cx.external_paths.borrow_mut().get_mut_ref().insert(did,
                                                             (fqn, TypeTrait));
         TraitBound(ResolvedPath {
@@ -545,7 +541,7 @@ impl Clean<TyParamBound> for ty::TraitRef {
             core::NotTyped(_) => return RegionBound,
         };
         let fqn = csearch::get_item_path(tcx, self.def_id);
-        let fqn = fqn.move_iter().map(|i| i.to_str().to_string())
+        let fqn = fqn.move_iter().map(|i| i.to_str())
                      .collect::<Vec<String>>();
         let path = external_path(fqn.last().unwrap().as_slice(),
                                  &self.substs);
@@ -574,12 +570,12 @@ impl Clean<Vec<TyParamBound>> for ty::ParamBounds {
     }
 }
 
-impl Clean<Option<Vec<TyParamBound>>> for ty::substs {
+impl Clean<Option<Vec<TyParamBound>>> for subst::Substs {
     fn clean(&self) -> Option<Vec<TyParamBound>> {
         let mut v = Vec::new();
         match self.regions {
-            ty::NonerasedRegions(..) => v.push(RegionBound),
-            ty::ErasedRegions => {}
+            subst::NonerasedRegions(..) => v.push(RegionBound),
+            subst::ErasedRegions => {}
         }
         v.extend(self.tps.iter().map(|t| TraitBound(t.clean())));
 
@@ -1242,7 +1238,7 @@ impl Clean<Type> for ty::t {
                 };
                 let fqn = csearch::get_item_path(tcx, did);
                 let fqn: Vec<String> = fqn.move_iter().map(|i| {
-                    i.to_str().to_string()
+                    i.to_str()
                 }).collect();
                 let kind = match ty::get(*self).sty {
                     ty::ty_struct(..) => TypeStruct,
@@ -1620,7 +1616,7 @@ impl Clean<BareFunctionDecl> for ast::BareFnTy {
                 type_params: Vec::new(),
             },
             decl: self.decl.clean(),
-            abi: self.abi.to_str().to_string(),
+            abi: self.abi.to_str(),
         }
     }
 }
@@ -1894,12 +1890,12 @@ fn lit_to_str(lit: &ast::Lit) -> String {
         ast::LitStr(ref st, _) => st.get().to_string(),
         ast::LitBinary(ref data) => format!("{:?}", data.as_slice()),
         ast::LitChar(c) => format!("'{}'", c),
-        ast::LitInt(i, _t) => i.to_str().to_string(),
-        ast::LitUint(u, _t) => u.to_str().to_string(),
-        ast::LitIntUnsuffixed(i) => i.to_str().to_string(),
+        ast::LitInt(i, _t) => i.to_str(),
+        ast::LitUint(u, _t) => u.to_str(),
+        ast::LitIntUnsuffixed(i) => i.to_str(),
         ast::LitFloat(ref f, _t) => f.get().to_string(),
         ast::LitFloatUnsuffixed(ref f) => f.get().to_string(),
-        ast::LitBool(b) => b.to_str().to_string(),
+        ast::LitBool(b) => b.to_str(),
         ast::LitNil => "".to_string(),
     }
 }
@@ -1951,8 +1947,8 @@ fn resolve_type(path: Path, tpbs: Option<Vec<TyParamBound>>,
     };
 
     match def {
-        ast::DefSelfTy(i) => return Self(ast_util::local_def(i)),
-        ast::DefPrimTy(p) => match p {
+        def::DefSelfTy(i) => return Self(ast_util::local_def(i)),
+        def::DefPrimTy(p) => match p {
             ast::TyStr => return Primitive(Str),
             ast::TyBool => return Primitive(Bool),
             ast::TyChar => return Primitive(Char),
@@ -1970,24 +1966,24 @@ fn resolve_type(path: Path, tpbs: Option<Vec<TyParamBound>>,
             ast::TyFloat(ast::TyF64) => return Primitive(F64),
             ast::TyFloat(ast::TyF128) => return Primitive(F128),
         },
-        ast::DefTyParam(i, _) => return Generic(i),
-        ast::DefTyParamBinder(i) => return TyParamBinder(i),
+        def::DefTyParam(i, _) => return Generic(i),
+        def::DefTyParamBinder(i) => return TyParamBinder(i),
         _ => {}
     };
     let did = register_def(&**cx, def);
     ResolvedPath { path: path, typarams: tpbs, did: did }
 }
 
-fn register_def(cx: &core::DocContext, def: ast::Def) -> ast::DefId {
+fn register_def(cx: &core::DocContext, def: def::Def) -> ast::DefId {
     let (did, kind) = match def {
-        ast::DefFn(i, _) => (i, TypeFunction),
-        ast::DefTy(i) => (i, TypeEnum),
-        ast::DefTrait(i) => (i, TypeTrait),
-        ast::DefStruct(i) => (i, TypeStruct),
-        ast::DefMod(i) => (i, TypeModule),
-        ast::DefStatic(i, _) => (i, TypeStatic),
-        ast::DefVariant(i, _, _) => (i, TypeEnum),
-        _ => return ast_util::def_id_of_def(def),
+        def::DefFn(i, _) => (i, TypeFunction),
+        def::DefTy(i) => (i, TypeEnum),
+        def::DefTrait(i) => (i, TypeTrait),
+        def::DefStruct(i) => (i, TypeStruct),
+        def::DefMod(i) => (i, TypeModule),
+        def::DefStatic(i, _) => (i, TypeStatic),
+        def::DefVariant(i, _, _) => (i, TypeEnum),
+        _ => return def.def_id()
     };
     if ast_util::is_local(did) { return did }
     let tcx = match cx.maybe_typed {

@@ -84,7 +84,7 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
             if i == 0 {
                 valid = chars.next().is_none();
                 break
-            } else if chars.by_ref().take(i - 1).len() != i - 1 {
+            } else if chars.by_ref().take(i - 1).count() != i - 1 {
                 valid = false;
             }
         }
@@ -243,8 +243,7 @@ mod imp {
     use mem;
     use option::{Some, None, Option};
     use result::{Ok, Err};
-    use unstable::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
-    use uw = rt::libunwind;
+    use rt::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
 
     struct Context<'a> {
         idx: int,
@@ -485,6 +484,124 @@ mod imp {
         }
         w.write(['\n' as u8])
     }
+
+    /// Unwind library interface used for backtraces
+    ///
+    /// Note that the native libraries come from librustrt, not this module.
+    #[allow(non_camel_case_types)]
+    #[allow(non_snake_case_functions)]
+    mod uw {
+        use libc;
+
+        #[repr(C)]
+        pub enum _Unwind_Reason_Code {
+            _URC_NO_REASON = 0,
+            _URC_FOREIGN_EXCEPTION_CAUGHT = 1,
+            _URC_FATAL_PHASE2_ERROR = 2,
+            _URC_FATAL_PHASE1_ERROR = 3,
+            _URC_NORMAL_STOP = 4,
+            _URC_END_OF_STACK = 5,
+            _URC_HANDLER_FOUND = 6,
+            _URC_INSTALL_CONTEXT = 7,
+            _URC_CONTINUE_UNWIND = 8,
+            _URC_FAILURE = 9, // used only by ARM EABI
+        }
+
+        pub enum _Unwind_Context {}
+
+        pub type _Unwind_Trace_Fn =
+                extern fn(ctx: *_Unwind_Context,
+                          arg: *libc::c_void) -> _Unwind_Reason_Code;
+
+        extern {
+            #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+            pub fn _Unwind_Backtrace(trace: _Unwind_Trace_Fn,
+                                     trace_argument: *libc::c_void)
+                        -> _Unwind_Reason_Code;
+
+            #[cfg(not(target_os = "android"),
+                  not(target_os = "linux", target_arch = "arm"),
+                  not(target_os = "nacl", target_libc = "newlib"))]
+            pub fn _Unwind_GetIP(ctx: *_Unwind_Context) -> libc::uintptr_t;
+            #[cfg(not(target_os = "android"),
+                  not(target_os = "linux", target_arch = "arm"),
+                  not(target_os = "nacl", target_libc = "newlib"))]
+            pub fn _Unwind_FindEnclosingFunction(pc: *libc::c_void)
+                -> *libc::c_void;
+        }
+
+        // On android, the function _Unwind_GetIP is a macro, and this is the
+        // expansion of the macro. This is all copy/pasted directly from the
+        // header file with the definition of _Unwind_GetIP.
+        #[cfg(target_os = "android")]
+        #[cfg(target_os = "linux", target_arch = "arm")]
+        pub unsafe fn _Unwind_GetIP(ctx: *_Unwind_Context) -> libc::uintptr_t {
+            #[repr(C)]
+            enum _Unwind_VRS_Result {
+                _UVRSR_OK = 0,
+                _UVRSR_NOT_IMPLEMENTED = 1,
+                _UVRSR_FAILED = 2,
+            }
+            #[repr(C)]
+            enum _Unwind_VRS_RegClass {
+                _UVRSC_CORE = 0,
+                _UVRSC_VFP = 1,
+                _UVRSC_FPA = 2,
+                _UVRSC_WMMXD = 3,
+                _UVRSC_WMMXC = 4,
+            }
+            #[repr(C)]
+            enum _Unwind_VRS_DataRepresentation {
+                _UVRSD_UINT32 = 0,
+                _UVRSD_VFPX = 1,
+                _UVRSD_FPAX = 2,
+                _UVRSD_UINT64 = 3,
+                _UVRSD_FLOAT = 4,
+                _UVRSD_DOUBLE = 5,
+            }
+
+            type _Unwind_Word = libc::c_uint;
+            extern {
+                fn _Unwind_VRS_Get(ctx: *_Unwind_Context,
+                                   klass: _Unwind_VRS_RegClass,
+                                   word: _Unwind_Word,
+                                   repr: _Unwind_VRS_DataRepresentation,
+                                   data: *mut libc::c_void)
+                    -> _Unwind_VRS_Result;
+            }
+
+            let mut val: _Unwind_Word = 0;
+            let ptr = &mut val as *mut _Unwind_Word;
+            let _ = _Unwind_VRS_Get(ctx, _UVRSC_CORE, 15, _UVRSD_UINT32,
+                                    ptr as *mut libc::c_void);
+            (val & !1) as libc::uintptr_t
+        }
+
+        // _Unwind_GetIP isn't allowed on PNaCl for obvious reasons, so this is
+        // here as dummy stub that always returns 0 for linking.
+        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        pub unsafe fn _Unwind_GetIP(_ctx: *_Unwind_Context) -> libc::uintptr_t {
+            0
+        }
+
+        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        pub unsafe fn _Unwind_Backtrace
+            (_trace: _Unwind_Trace_Fn,
+             _trace_argument: *libc::c_void) -> _Unwind_Reason_Code {
+                _URC_NO_REASON
+            }
+
+        // This function also doesn't exist on android or arm/linux, so make it
+        // a no-op
+        #[cfg(target_os = "android")]
+        #[cfg(target_os = "linux", target_arch = "arm")]
+        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        pub unsafe fn _Unwind_FindEnclosingFunction(pc: *libc::c_void)
+            -> *libc::c_void
+        {
+            pc
+        }
+    }
 }
 
 /// As always, windows has something very different than unix, we mainly want
@@ -505,19 +622,18 @@ mod imp {
 mod imp {
     use c_str::CString;
     use container::Container;
+    use intrinsics;
     use io::{IoResult, Writer};
-    use iter::Iterator;
     use libc;
     use mem;
     use ops::Drop;
     use option::{Some, None};
     use path::Path;
     use result::{Ok, Err};
+    use rt::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
+    use slice::ImmutableVector;
     use str::StrSlice;
     use unstable::dynamic_lib::DynamicLibrary;
-    use intrinsics;
-    use unstable::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
-    use slice::ImmutableVector;
 
     #[allow(non_snake_case_functions)]
     extern "system" {

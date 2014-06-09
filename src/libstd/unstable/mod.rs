@@ -12,7 +12,3 @@
 #![allow(missing_doc)]
 
 pub mod dynamic_lib;
-
-pub mod sync;
-pub mod mutex;
-

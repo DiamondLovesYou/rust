@@ -38,6 +38,8 @@
 use driver::session;
 use metadata::csearch;
 use middle::dead::DEAD_CODE_LINT_STR;
+use middle::def;
+use middle::def::*;
 use middle::pat_util;
 use middle::privacy;
 use middle::trans::adt; // for `adt::is_ffi_safe`
@@ -90,7 +92,6 @@ pub enum Lint {
     TypeOverflow,
     UnusedUnsafe,
     UnsafeBlock,
-    AttributeUsage,
     UnusedAttribute,
     UnknownFeatures,
     UnknownCrateType,
@@ -290,13 +291,6 @@ static lint_table: &'static [(&'static str, LintSpec)] = &[
         lint: UnsafeBlock,
         desc: "usage of an `unsafe` block",
         default: Allow
-    }),
-
-    ("attribute_usage",
-     LintSpec {
-        lint: AttributeUsage,
-        desc: "detects bad use of attributes",
-        default: Warn
     }),
 
     ("unused_attribute",
@@ -935,17 +929,17 @@ fn check_item_ctypes(cx: &Context, it: &ast::Item) {
         match ty.node {
             ast::TyPath(_, _, id) => {
                 match cx.tcx.def_map.borrow().get_copy(&id) {
-                    ast::DefPrimTy(ast::TyInt(ast::TyI)) => {
+                    def::DefPrimTy(ast::TyInt(ast::TyI)) => {
                         cx.span_lint(CTypes, ty.span,
                                 "found rust type `int` in foreign module, while \
                                 libc::c_int or libc::c_long should be used");
                     }
-                    ast::DefPrimTy(ast::TyUint(ast::TyU)) => {
+                    def::DefPrimTy(ast::TyUint(ast::TyU)) => {
                         cx.span_lint(CTypes, ty.span,
                                 "found rust type `uint` in foreign module, while \
                                 libc::c_uint or libc::c_ulong should be used");
                     }
-                    ast::DefTy(def_id) => {
+                    def::DefTy(def_id) => {
                         if !adt::is_ffi_safe(cx.tcx, def_id) {
                             cx.span_lint(CTypes, ty.span,
                                          "found enum type without foreign-function-safe \
@@ -1094,94 +1088,7 @@ fn check_raw_ptr_deriving(cx: &mut Context, item: &ast::Item) {
     }
 }
 
-static crate_attrs: &'static [&'static str] = &[
-    "crate_type", "feature", "no_start", "no_main", "no_std", "crate_id",
-    "desc", "comment", "license", "copyright", // not used in rustc now
-    "no_builtins",
-];
-
-
-static obsolete_attrs: &'static [(&'static str, &'static str)] = &[
-    ("abi", "Use `extern \"abi\" fn` instead"),
-    ("auto_encode", "Use `#[deriving(Encodable)]` instead"),
-    ("auto_decode", "Use `#[deriving(Decodable)]` instead"),
-    ("fast_ffi", "Remove it"),
-    ("fixed_stack_segment", "Remove it"),
-    ("rust_stack", "Remove it"),
-];
-
-static other_attrs: &'static [&'static str] = &[
-    // item-level
-    "address_insignificant", // can be crate-level too
-    "thread_local", // for statics
-    "allow", "deny", "forbid", "warn", // lint options
-    "deprecated", "experimental", "unstable", "stable", "locked", "frozen", //item stability
-    "cfg", "doc", "export_name", "link_section",
-    "no_mangle", "static_assert", "unsafe_no_drop_flag", "packed",
-    "simd", "repr", "deriving", "unsafe_destructor", "link", "phase",
-    "macro_export", "must_use", "automatically_derived",
-
-    //mod-level
-    "path", "link_name", "link_args", "macro_escape", "no_implicit_prelude",
-
-    // fn-level
-    "test", "bench", "should_fail", "ignore", "inline", "lang", "main", "start",
-    "no_split_stack", "cold", "macro_registrar", "linkage",
-
-    // internal attribute: bypass privacy inside items
-    "!resolve_unexported",
-];
-
-fn check_crate_attrs_usage(cx: &Context, attrs: &[ast::Attribute]) {
-
-    for attr in attrs.iter() {
-        let name = attr.node.value.name();
-        let mut iter = crate_attrs.iter().chain(other_attrs.iter());
-        if !iter.any(|other_attr| { name.equiv(other_attr) }) {
-            cx.span_lint(AttributeUsage, attr.span, "unknown crate attribute");
-        }
-        if name.equiv(&("link")) {
-            cx.tcx.sess.span_err(attr.span,
-                                 "obsolete crate `link` attribute");
-            cx.tcx.sess.note("the link attribute has been superceded by the crate_id \
-                             attribute, which has the format `#[crate_id = \"name#version\"]`");
-        }
-    }
-}
-
-fn check_attrs_usage(cx: &Context, attrs: &[ast::Attribute]) {
-    // check if element has crate-level, obsolete, or any unknown attributes.
-
-    for attr in attrs.iter() {
-        let name = attr.node.value.name();
-        for crate_attr in crate_attrs.iter() {
-            if name.equiv(crate_attr) {
-                let msg = match attr.node.style {
-                    ast::AttrOuter => "crate-level attribute should be an inner attribute: \
-                                       add an exclamation mark: #![foo]",
-                    ast::AttrInner => "crate-level attribute should be in the root module",
-                };
-                cx.span_lint(AttributeUsage, attr.span, msg);
-                return;
-            }
-        }
-
-        for &(obs_attr, obs_alter) in obsolete_attrs.iter() {
-            if name.equiv(&obs_attr) {
-                cx.span_lint(AttributeUsage, attr.span,
-                             format!("obsolete attribute: {:s}",
-                                     obs_alter).as_slice());
-                return;
-            }
-        }
-
-        if !other_attrs.iter().any(|other_attr| { name.equiv(other_attr) }) {
-            cx.span_lint(AttributeUsage, attr.span, "unknown attribute");
-        }
-    }
-}
-
-fn check_unused_attribute(cx: &Context, attrs: &[ast::Attribute]) {
+fn check_unused_attribute(cx: &Context, attr: &ast::Attribute) {
     static ATTRIBUTE_WHITELIST: &'static [&'static str] = &'static [
         // FIXME: #14408 whitelist docs since rustdoc looks at them
         "doc",
@@ -1216,15 +1123,37 @@ fn check_unused_attribute(cx: &Context, attrs: &[ast::Attribute]) {
         "stable",
         "unstable",
     ];
-    for attr in attrs.iter() {
-        for &name in ATTRIBUTE_WHITELIST.iter() {
-            if attr.check_name(name) {
-                break;
-            }
-        }
 
-        if !attr::is_used(attr) {
-            cx.span_lint(UnusedAttribute, attr.span, "unused attribute");
+    static CRATE_ATTRS: &'static [&'static str] = &'static [
+        "crate_type",
+        "feature",
+        "no_start",
+        "no_main",
+        "no_std",
+        "crate_id",
+        "desc",
+        "comment",
+        "license",
+        "copyright",
+        "no_builtins",
+    ];
+
+    for &name in ATTRIBUTE_WHITELIST.iter() {
+        if attr.check_name(name) {
+            break;
+        }
+    }
+
+    if !attr::is_used(attr) {
+        cx.span_lint(UnusedAttribute, attr.span, "unused attribute");
+        if CRATE_ATTRS.contains(&attr.name().get()) {
+            let msg = match attr.node.style {
+                ast::AttrOuter => "crate-level attribute should be an inner \
+                                  attribute: add an exclamation mark: #![foo]",
+                ast::AttrInner => "crate-level attribute should be in the \
+                                   root module",
+            };
+            cx.span_lint(UnusedAttribute, attr.span, msg);
         }
     }
 }
@@ -1394,7 +1323,7 @@ fn check_item_non_uppercase_statics(cx: &Context, it: &ast::Item) {
 fn check_pat_non_uppercase_statics(cx: &Context, p: &ast::Pat) {
     // Lint for constants that look like binding identifiers (#7526)
     match (&p.node, cx.tcx.def_map.borrow().find(&p.id)) {
-        (&ast::PatIdent(_, ref path, _), Some(&ast::DefStatic(_, false))) => {
+        (&ast::PatIdent(_, ref path, _), Some(&def::DefStatic(_, false))) => {
             // last identifier alone is right choice for this lint.
             let ident = path.segments.last().unwrap().identifier;
             let s = token::get_ident(ident);
@@ -1411,8 +1340,8 @@ fn check_pat_uppercase_variable(cx: &Context, p: &ast::Pat) {
     match &p.node {
         &ast::PatIdent(_, ref path, _) => {
             match cx.tcx.def_map.borrow().find(&p.id) {
-                Some(&ast::DefLocal(_, _)) | Some(&ast::DefBinding(_, _)) |
-                        Some(&ast::DefArg(_, _)) => {
+                Some(&def::DefLocal(_, _)) | Some(&def::DefBinding(_, _)) |
+                        Some(&def::DefArg(_, _)) => {
                     // last identifier alone is right choice for this lint.
                     let ident = path.segments.last().unwrap().identifier;
                     let s = token::get_ident(ident);
@@ -1726,7 +1655,7 @@ fn check_stability(cx: &Context, e: &ast::Expr) {
     let id = match e.node {
         ast::ExprPath(..) | ast::ExprStruct(..) => {
             match cx.tcx.def_map.borrow().find(&e.id) {
-                Some(&def) => ast_util::def_id_of_def(def),
+                Some(&def) => def.def_id(),
                 None => return
             }
         }
@@ -1833,8 +1762,6 @@ impl<'a> Visitor<()> for Context<'a> {
             check_item_non_uppercase_statics(cx, it);
             check_heap_item(cx, it);
             check_missing_doc_item(cx, it);
-            check_attrs_usage(cx, it.attrs.as_slice());
-            check_unused_attribute(cx, it.attrs.as_slice());
             check_raw_ptr_deriving(cx, it);
 
             cx.visit_ids(|v| v.visit_item(it, ()));
@@ -1845,15 +1772,12 @@ impl<'a> Visitor<()> for Context<'a> {
 
     fn visit_foreign_item(&mut self, it: &ast::ForeignItem, _: ()) {
         self.with_lint_attrs(it.attrs.as_slice(), |cx| {
-            check_attrs_usage(cx, it.attrs.as_slice());
             visit::walk_foreign_item(cx, it, ());
         })
     }
 
     fn visit_view_item(&mut self, i: &ast::ViewItem, _: ()) {
         self.with_lint_attrs(i.attrs.as_slice(), |cx| {
-            check_attrs_usage(cx, i.attrs.as_slice());
-
             cx.visit_ids(|v| v.visit_view_item(i, ()));
 
             visit::walk_view_item(cx, i, ());
@@ -1935,7 +1859,6 @@ impl<'a> Visitor<()> for Context<'a> {
             visit::FkMethod(ident, _, m) => {
                 self.with_lint_attrs(m.attrs.as_slice(), |cx| {
                     check_missing_doc_method(cx, m);
-                    check_attrs_usage(cx, m.attrs.as_slice());
 
                     match method_context(cx, m) {
                         PlainImpl => check_snake_case(cx, "method", ident, span),
@@ -1960,7 +1883,6 @@ impl<'a> Visitor<()> for Context<'a> {
     fn visit_ty_method(&mut self, t: &ast::TypeMethod, _: ()) {
         self.with_lint_attrs(t.attrs.as_slice(), |cx| {
             check_missing_doc_ty_method(cx, t);
-            check_attrs_usage(cx, t.attrs.as_slice());
             check_snake_case(cx, "trait method", t.ident, t.span);
 
             visit::walk_ty_method(cx, t, ());
@@ -1984,7 +1906,6 @@ impl<'a> Visitor<()> for Context<'a> {
     fn visit_struct_field(&mut self, s: &ast::StructField, _: ()) {
         self.with_lint_attrs(s.node.attrs.as_slice(), |cx| {
             check_missing_doc_struct_field(cx, s);
-            check_attrs_usage(cx, s.node.attrs.as_slice());
 
             visit::walk_struct_field(cx, s, ());
         })
@@ -1993,7 +1914,6 @@ impl<'a> Visitor<()> for Context<'a> {
     fn visit_variant(&mut self, v: &ast::Variant, g: &ast::Generics, _: ()) {
         self.with_lint_attrs(v.node.attrs.as_slice(), |cx| {
             check_missing_doc_variant(cx, v);
-            check_attrs_usage(cx, v.node.attrs.as_slice());
 
             visit::walk_variant(cx, v, g, ());
         })
@@ -2001,6 +1921,10 @@ impl<'a> Visitor<()> for Context<'a> {
 
     // FIXME(#10894) should continue recursing
     fn visit_ty(&mut self, _t: &ast::Ty, _: ()) {}
+
+    fn visit_attribute(&mut self, attr: &ast::Attribute, _: ()) {
+        check_unused_attribute(self, attr);
+    }
 }
 
 impl<'a> IdVisitingOperation for Context<'a> {
@@ -2049,10 +1973,8 @@ pub fn check_crate(tcx: &ty::ctxt,
             visit::walk_crate(v, krate, ());
         });
 
-        check_crate_attrs_usage(cx, krate.attrs.as_slice());
         // since the root module isn't visited as an item (because it isn't an item), warn for it
         // here.
-        check_unused_attribute(cx, krate.attrs.as_slice());
         check_missing_doc_attrs(cx,
                                 None,
                                 krate.attrs.as_slice(),

@@ -47,9 +47,11 @@
 // now.
 
 
+use middle::subst;
+use middle::subst::Substs;
 use middle::ty::{FloatVar, FnSig, IntVar, TyVar, MDVar};
 use middle::ty::{IntMDInnerVid, FloatMDInnerVid};
-use middle::ty::{IntType, UintType, substs};
+use middle::ty::{IntType, UintType};
 use middle::ty::{BuiltinBounds};
 use middle::ty;
 use middle::typeck::infer::{then, ToUres};
@@ -67,7 +69,6 @@ use std::result;
 
 use syntax::ast::{Onceness, FnStyle};
 use syntax::ast;
-use syntax::owned_slice::OwnedSlice;
 use syntax::abi;
 
 pub trait Combine {
@@ -128,22 +129,23 @@ pub trait Combine {
 
     fn substs(&self,
               item_def_id: ast::DefId,
-              as_: &ty::substs,
-              bs: &ty::substs) -> cres<ty::substs> {
-
+              as_: &subst::Substs,
+              bs: &subst::Substs)
+              -> cres<subst::Substs>
+    {
         fn relate_region_params<C:Combine>(this: &C,
                                            item_def_id: ast::DefId,
-                                           a: &ty::RegionSubsts,
-                                           b: &ty::RegionSubsts)
-                                           -> cres<ty::RegionSubsts> {
+                                           a: &subst::RegionSubsts,
+                                           b: &subst::RegionSubsts)
+                                           -> cres<subst::RegionSubsts> {
             let tcx = this.infcx().tcx;
             match (a, b) {
-                (&ty::ErasedRegions, _) | (_, &ty::ErasedRegions) => {
-                    Ok(ty::ErasedRegions)
+                (&subst::ErasedRegions, _) | (_, &subst::ErasedRegions) => {
+                    Ok(subst::ErasedRegions)
                 }
 
-                (&ty::NonerasedRegions(ref a_rs),
-                 &ty::NonerasedRegions(ref b_rs)) => {
+                (&subst::NonerasedRegions(ref a_rs),
+                 &subst::NonerasedRegions(ref b_rs)) => {
                     let variances = ty::item_variances(tcx, item_def_id);
                     let region_params = &variances.region_params;
                     let num_region_params = region_params.len();
@@ -176,7 +178,7 @@ pub trait Combine {
                         };
                         rs.push(if_ok!(r));
                     }
-                    Ok(ty::NonerasedRegions(OwnedSlice::from_vec(rs)))
+                    Ok(subst::NonerasedRegions(rs))
                 }
             }
         }
@@ -187,9 +189,9 @@ pub trait Combine {
                                                   item_def_id,
                                                   &as_.regions,
                                                   &bs.regions));
-        Ok(substs { regions: regions,
-                    self_ty: self_ty,
-                    tps: tps.clone() })
+        Ok(subst::Substs { regions: regions,
+                           self_ty: self_ty,
+                           tps: tps.clone() })
     }
 
     fn bare_fn_tys(&self, a: &ty::BareFnTy,
