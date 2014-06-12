@@ -19,3 +19,6 @@
 	path = src/jemalloc
 	url = https://github.com/DiamondLovesYou/jemalloc.git
         branch = rust-pnacl
+[submodule "src/nacl-binutils"]
+	path = src/nacl-binutils
+	url = https://chromium.googlesource.com/native_client/nacl-binutils.git

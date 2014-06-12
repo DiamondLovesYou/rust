@@ -227,10 +227,10 @@ endif
 # FIXME: x86-ism
 LLVM_COMPONENTS=x86 arm mips ipo bitreader bitwriter linker asmparser jit mcjit \
                 interpreter instrumentation NaClTransforms NaClAnalysis NaClBitWriter \
-		NaClBitReader
+		NaClBitReader lto
 
 # Only build these LLVM tools
-LLVM_TOOLS=bugpoint llc llvm-ar llvm-as llvm-dis llvm-mc opt llvm-extract
+LLVM_TOOLS=bugpoint llc llvm-ar llvm-as llvm-dis llvm-mc opt llvm-extract gold lto
 
 define DEF_LLVM_VARS
 # The configure script defines these variables with the target triples
@@ -263,6 +263,22 @@ endef
 
 $(foreach host,$(CFG_HOST), \
  $(eval $(call DEF_LLVM_VARS,$(host))))
+
+######################################################################
+# Binutils vars
+######################################################################
+
+define DEF_BINUTILS_VARS
+
+CFG_BINUTILS_BUILD_DIR_$(1):=$$(CFG_BINUTILS_BUILD_DIR_$(subst -,_,$(1)))
+
+# Dep on this:
+BINUTILS_STAMP_$(1) = $$(CFG_BINUTILS_BUILD_DIR_$(1))/done.stamp
+
+endef
+
+$(foreach host,$(CFG_HOST), \
+ $(eval $(call DEF_BINUTILS_VARS,$(host))))
 
 ######################################################################
 # Exports for sub-utilities
@@ -311,8 +327,13 @@ ifeq ($(1),0)
 HSREQ$(1)_H_$(3) = $$(HBIN$(1)_H_$(3))/rustc$$(X_$(3))
 else
 HSREQ$(1)_H_$(3) = \
+	$$(TROOT$(1)_T_$(3)_H_$(3))/lib/LLVMgold.so \
 	$$(HBIN$(1)_H_$(3))/rustc$$(X_$(3)) \
 	$$(MKFILE_DEPS)
+
+ifeq ($(1),2)
+HSREQ$(1)_H_$(3) += $$(BINUTILS_STAMP_$(3))
+endif
 endif
 
 # Prerequisites for using the stageN compiler to build target artifacts

@@ -1011,12 +1011,102 @@ then
     cd ${CFG_BUILD_DIR}
 fi
 
-# Configure llvm, only if necessary
-step_msg "looking at LLVM"
+# Configure llvm and binutils, only if necessary
+step_msg "looking at LLVM/Binutils"
 CFG_LLVM_SRC_DIR=${CFG_SRC_DIR}src/llvm/
+CFG_BINUTILS_SRC_DIR=${CFG_SRC_DIR}src/nacl-binutils/
 for t in $CFG_HOST
 do
     do_reconfigure=1
+
+    case "$CFG_CC" in
+        ("ccache clang")
+            LLVMBINUTILS_CXX_32="ccache clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_32="ccache clang -Qunused-arguments"
+
+            LLVMBINUTILS_CXX_64="ccache clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_64="ccache clang -Qunused-arguments"
+            ;;
+        ("clang")
+            LLVMBINUTILS_CXX_32="clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_32="clang -Qunused-arguments"
+
+            LLVMBINUTILS_CXX_64="clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_64="clang -Qunused-arguments"
+            ;;
+        ("ccache gcc")
+            LLVMBINUTILS_CXX_32="ccache g++"
+            LLVMBINUTILS_CC_32="ccache gcc"
+
+            LLVMBINUTILS_CXX_64="ccache g++"
+            LLVMBINUTILS_CC_64="ccache gcc"
+            ;;
+        ("gcc")
+            LLVMBINUTILS_CXX_32="g++"
+            LLVMBINUTILS_CC_32="gcc"
+
+            LLVMBINUTILS_CXX_64="g++"
+            LLVMBINUTILS_CC_64="gcc"
+            ;;
+
+        (*)
+            msg "inferring CXX/CC = $CXX/$CC"
+            LLVMBINUTILS_CXX_32="$CXX"
+            LLVMBINUTILS_CC_32="$CC"
+
+            LLVMBINUTILS_CXX_64="$CXX"
+            LLVMBINUTILS_CC_64="$CC"
+            ;;
+    esac
+
+    case "$CFG_CPUTYPE" in
+        (x86*)
+            LLVMBINUTILS_CFLAGS_32="-m32"
+            LLVMBINUTILS_CXXFLAGS_32="-m32"
+            LLVMBINUTILS_LDFLAGS_32="-m32"
+
+            LLVMBINUTILS_CFLAGS_64=""
+            LLVMBINUTILS_CXXFLAGS_64=""
+            LLVMBINUTILS_LDFLAGS_64=""
+            ;;
+
+        (*)
+            LLVMBINUTILS_CFLAGS_32=""
+            LLVMBINUTILS_CXXFLAGS_32=""
+            LLVMBINUTILS_LDFLAGS_32=""
+
+            LLVMBINUTILS_CFLAGS_64=""
+            LLVMBINUTILS_CXXFLAGS_64=""
+            LLVMBINUTILS_LDFLAGS_64=""
+            ;;
+    esac
+
+    if echo $t | grep -q x86_64
+    then
+        LLVMBINUTILS_CXX=$LLVMBINUTILS_CXX_64
+        LLVMBINUTILS_CC=$LLVMBINUTILS_CC_64
+        LLVMBINUTILS_CFLAGS=$LLVMBINUTILS_CFLAGS_64
+        LLVMBINUTILS_CXXFLAGS=$LLVMBINUTILS_CXXFLAGS_64
+        LLVMBINUTILS_LDFLAGS=$LLVMBINUTILS_LDFLAGS_64
+    else
+        LLVMBINUTILS_CXX=$LLVMBINUTILS_CXX_32
+        LLVMBINUTILS_CC=$LLVMBINUTILS_CC_32
+        LLVMBINUTILS_CFLAGS=$LLVMBINUTILS_CFLAGS_32
+        LLVMBINUTILS_CXXFLAGS=$LLVMBINUTILS_CXXFLAGS_32
+        LLVMBINUTILS_LDFLAGS=$LLVMBINUTILS_LDFLAGS_32
+    fi
+
+    CXX=$LLVMBINUTILS_CXX
+    CC=$LLVMBINUTILS_CC
+    CFLAGS=$LLVMBINUTILS_CFLAGS
+    CXXFLAGS=$LLVMBINUTILS_CXXFLAGS
+    LDFLAGS=$LLVMBINUTILS_LDFLAGS
+
+    export CXX
+    export CC
+    export CFLAGS
+    export CXXFLAGS
+    export LDFLAGS
 
     if [ -z $CFG_LLVM_ROOT ]
     then
@@ -1083,6 +1173,9 @@ do
         # Try to have LLVM pull in as few dependencies as possible (#9397)
         LLVM_OPTS="$LLVM_OPTS --disable-zlib --disable-libffi"
 
+        # NaCl's ld-specific includes (thus causing LLVM to build its gold plugin): 
+        LLVM_OPTS="$LLVM_OPTS --with-binutils-include=${CFG_SRC_DIR}src/nacl-binutils/include"
+
         # Use win32 native thread/lock apis instead of pthread wrapper.
         # (llvm's configure tries to find pthread first, so we have to disable it explicitly.)
         # Also note that pthreads works badly on mingw-w64 systems: #8996
@@ -1091,95 +1184,6 @@ do
             LLVM_OPTS="$LLVM_OPTS --disable-pthreads"
             ;;
         esac
-
-        case "$CFG_CC" in
-            ("ccache clang")
-            LLVM_CXX_32="ccache clang++ -Qunused-arguments"
-            LLVM_CC_32="ccache clang -Qunused-arguments"
-
-            LLVM_CXX_64="ccache clang++ -Qunused-arguments"
-            LLVM_CC_64="ccache clang -Qunused-arguments"
-            ;;
-            ("clang")
-            LLVM_CXX_32="clang++ -Qunused-arguments"
-            LLVM_CC_32="clang -Qunused-arguments"
-
-            LLVM_CXX_64="clang++ -Qunused-arguments"
-            LLVM_CC_64="clang -Qunused-arguments"
-            ;;
-            ("ccache gcc")
-            LLVM_CXX_32="ccache g++"
-            LLVM_CC_32="ccache gcc"
-
-            LLVM_CXX_64="ccache g++"
-            LLVM_CC_64="ccache gcc"
-            ;;
-            ("gcc")
-            LLVM_CXX_32="g++"
-            LLVM_CC_32="gcc"
-
-            LLVM_CXX_64="g++"
-            LLVM_CC_64="gcc"
-            ;;
-
-            (*)
-            msg "inferring LLVM_CXX/CC from CXX/CC = $CXX/$CC"
-            LLVM_CXX_32="$CXX"
-            LLVM_CC_32="$CC"
-
-            LLVM_CXX_64="$CXX"
-            LLVM_CC_64="$CC"
-            ;;
-        esac
-
-        case "$CFG_CPUTYPE" in
-            (x86*)
-                LLVM_CXX_32="$LLVM_CXX_32 -m32"
-                LLVM_CC_32="$LLVM_CC_32 -m32"
-
-                LLVM_CFLAGS_32="-m32"
-                LLVM_CXXFLAGS_32="-m32"
-                LLVM_LDFLAGS_32="-m32"
-
-                LLVM_CFLAGS_64=""
-                LLVM_CXXFLAGS_64=""
-                LLVM_LDFLAGS_64=""
-
-                LLVM_CXX_32="$LLVM_CXX_32 -m32"
-                LLVM_CC_32="$LLVM_CC_32 -m32"
-                ;;
-
-            (*)
-                LLVM_CFLAGS_32=""
-                LLVM_CXXFLAGS_32=""
-                LLVM_LDFLAGS_32=""
-
-                LLVM_CFLAGS_64=""
-                LLVM_CXXFLAGS_64=""
-                LLVM_LDFLAGS_64=""
-                ;;
-        esac
-
-        if echo $t | grep -q x86_64
-        then
-            LLVM_CXX=$LLVM_CXX_64
-            LLVM_CC=$LLVM_CC_64
-            LLVM_CFLAGS=$LLVM_CFLAGS_64
-            LLVM_CXXFLAGS=$LLVM_CXXFLAGS_64
-            LLVM_LDFLAGS=$LLVM_LDFLAGS_64
-        else
-            LLVM_CXX=$LLVM_CXX_32
-            LLVM_CC=$LLVM_CC_32
-            LLVM_CFLAGS=$LLVM_CFLAGS_32
-            LLVM_CXXFLAGS=$LLVM_CXXFLAGS_32
-            LLVM_LDFLAGS=$LLVM_LDFLAGS_32
-        fi
-
-        CXX=$LLVM_CXX
-        CC=$LLVM_CC
-        CFLAGS=$LLVM_CFLAGS
-        CXXFLAGS=$LLVM_CXXFLAGS
-        LDFLAGS=$LLVM_LDFLAGS
 
         if [ -z "$CFG_DISABLE_LIBCPP" ] && [ -n "$CFG_USING_CLANG" ]; then
             LLVM_OPTS="$LLVM_OPTS --enable-libcpp"
@@ -1190,12 +1194,6 @@ do
 
         msg "configuring LLVM with:"
         msg "$LLVM_FLAGS"
-
-        export CXX
-        export CC
-        export CFLAGS
-        export CXXFLAGS
-        export LDFLAGS
 
         cd $LLVM_BUILD_DIR
         case $CFG_SRC_DIR in
@@ -1212,6 +1210,68 @@ do
         cd $CFG_BUILD_DIR
     fi
 
+    # reset for binutils:
+    do_reconfigure=1
+    if [ ${do_reconfigure} -ne 0 ]
+    then
+    # because git is hilarious, it might have put the module index
+    # in a couple places.
+        index1="${CFG_SRC_DIR}.git/modules/src/nacl-binutils/index"
+        index2="${CFG_SRC_DIR}src/nacl-binutils/.git/index"
+        for index in ${index1} ${index2}
+        do
+            config_status="${BINUTILS_BUILD_DIR}/config.status"
+            if test -e ${index} -a \
+                    -e ${config_status} -a \
+                    ${config_status} -nt ${index}
+            then
+                msg "not reconfiguring Binutils, config.status is fresh"
+                do_reconfigure=0
+            fi
+        done
+    fi
+
+    # now, binutils:
+    BINUTILS_BUILD_DIR=${CFG_BUILD_DIR}$t/nacl-binutils
+    if [ ${do_reconfigure} -ne 0 ]
+    then
+        step_msg "configuring Binutils for $t"
+
+        rm -fr $t/nacl-binutils/
+        make_dir $t/nacl-binutils/
+
+        # Note we keep CC/CXX/etc from above.
+
+        BINUTILS_BUILD="--build=$t"
+        BINUTILS_HOST="--host=$t"
+        BINUTILS_TARGET="--target=arm-pc-nacl"
+
+        # Most of these flags were pulled from native client's build scripts.
+        BINUTILS_OPTS="--enable-gold=yes --enable-ld=no --enable-plugins\
+        --without-gas --without-zlib --enable-shared=no                 \
+        --enable-deterministic-archives --disable-silent-rules"
+
+        BINUTILS_FLAGS="$BINUTILS_TARGETS $BINUTILS_OPTS $BINUTILS_BUILD\
+                        $BINUTILS_HOST $BINUTILS_TARGET"
+
+        msg "configuring Binutils with:"
+        msg "$BINUTILS_FLAGS"
+
+        cd $BINUTILS_BUILD_DIR
+        case $CFG_SRC_DIR in
+            /* | [a-z]:* | [A-Z]:*)
+                ${CFG_BINUTILS_SRC_DIR}configure $BINUTILS_FLAGS
+                ;;
+            *)
+                ${CFG_BUILD_DIR}${CFG_BINUTILS_SRC_DIR}configure \
+                    $BINUTILS_FLAGS
+                ;;
+        esac
+        need_ok "Binutils configure failed"
+
+        cd $CFG_BUILD_DIR
+    fi
+
     # Construct variables for LLVM build and install directories for
     # each target. These will be named
     # CFG_LLVM_BUILD_DIR_${target_triple} but all the hyphens in
@@ -1222,6 +1282,9 @@ do
     CFG_LLVM_INST_DIR=$(echo CFG_LLVM_INST_DIR_${t} | tr - _)
     eval ${CFG_LLVM_BUILD_DIR}="'$LLVM_BUILD_DIR'"
     eval ${CFG_LLVM_INST_DIR}="'$LLVM_INST_DIR'"
+
+    CFG_BINUTILS_BUILD_DIR=$(echo CFG_BINUTILS_BUILD_DIR_${t} | tr - _)
+    eval ${CFG_BINUTILS_BUILD_DIR}="'$BINUTILS_BUILD_DIR'"
 done
 
 
@@ -1285,6 +1348,15 @@ do
     CFG_LLVM_INST_DIR=$(echo CFG_LLVM_INST_DIR_${t} | tr - _)
     putvar $CFG_LLVM_BUILD_DIR
     putvar $CFG_LLVM_INST_DIR
+done
+
+putvar CFG_BINUTILS_ROOT
+putvar CFG_BINUTILS_SRC_DIR
+
+for t in $CFG_HOST
+do
+    CFG_BINUTILS_BUILD_DIR=$(echo CFG_BINUTILS_BUILD_DIR_${t} | tr - _)
+    putvar $CFG_BINUTILS_BUILD_DIR
 done
 
 # Munge any paths that appear in config.mk back to posix-y

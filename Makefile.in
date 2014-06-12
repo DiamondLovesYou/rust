@@ -197,6 +197,8 @@ include $(CFG_SRC_DIR)mk/rustllvm.mk
 include $(CFG_SRC_DIR)mk/docs.mk
 # LLVM
 include $(CFG_SRC_DIR)mk/llvm.mk
+# NaCl Binutils
+include $(CFG_SRC_DIR)mk/binutils.mk
 
 ######################################################################
 # Secondary makefiles, conditionalized for speed

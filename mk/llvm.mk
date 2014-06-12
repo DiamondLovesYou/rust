@@ -57,10 +57,23 @@ $(foreach host,$(CFG_HOST), \
 $(foreach host,$(CFG_HOST), \
  $(eval LLVM_CONFIGS := $(LLVM_CONFIGS) $(LLVM_CONFIG_$(host))))
 
+define DEF_LLVM_GOLD_RULES
+$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO): $$(LLVM_CONFIG_$(2))
+	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(call CFG_LIB_NAME_$(2),LTO) $$@
+$$(TROOT$(1)_T_$(2)_H_$(2))/lib/LLVMgold.so: $$(LLVM_CONFIG_$(2)) \
+	$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO)
+# FIXME: This assumes linux.
+	$$(Q)cp $$(LLVM_LIBDIR_$(2))/LLVMgold.so $$@
+endef
+
+$(foreach stage,1 2 3, \
+ $(foreach host,$(CFG_HOST), \
+  $(eval $(call DEF_LLVM_GOLD_RULES,$(stage),$(host)))))
+
 $(S)src/librustc/lib/llvmdeps.rs: \
 		    $(LLVM_CONFIGS) \
 		    $(S)src/etc/mklldeps.py \
 		    $(MKFILE_DEPS)
 	$(Q)$(CFG_PYTHON) $(S)src/etc/mklldeps.py \
-		"$@" "$(LLVM_COMPONENTS)" "$(CFG_ENABLE_LLVM_STATIC_STDCPP)" \
+		"$@" "$(filter-out lto,$(LLVM_COMPONENTS))" "$(CFG_ENABLE_LLVM_STATIC_STDCPP)" \
 		$(LLVM_CONFIGS)
