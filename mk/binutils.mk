@@ -43,6 +43,7 @@ $$(BINUTILS_CP_STAMP_$(1)):     $$(BINUTILS_BUILD_STAMP_$(1))                   
 		$$(TBIN2_T_$(1)_H_$(1))/le32-nacl-ld.gold$$(X_$(1))
 	$$(Q)cp $$(CFG_BINUTILS_BUILD_DIR_$(1))/binutils/ar$$(X_$(1)) \
 		$$(TBIN2_T_$(1)_H_$(1))/le32-nacl-ar$$(X_$(1))
+	$$(Q)touch $$@
 
 else
 # the user is not building the PNaCl cross.
