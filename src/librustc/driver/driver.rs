@@ -35,6 +35,7 @@ use serialize::{json, Encodable};
 use std::io;
 use std::io::fs;
 use std::io::MemReader;
+use std::ptr;
 use syntax::ast;
 use syntax::attr;
 use syntax::attr::{AttrMetaMethods};
@@ -67,7 +68,7 @@ pub fn compile_input(sess: Session,
     // We need nested scopes here, because the intermediate results can keep
     // large chunks of memory alive and we want to free them as soon as
     // possible to keep the peak memory usage low
-    let (outputs, trans, sess) = {
+    let (outputs, mut trans, sess) = {
         let (outputs, expanded_crate, ast_map) = {
             let krate = phase_1_parse_input(&sess, cfg, input);
             if stop_after_phase_1(&sess) { return; }
@@ -102,14 +103,21 @@ pub fn compile_input(sess: Session,
         if stop_after_phase_5(&sess) { return; }
         phase_6_link_output(&sess, &trans, &outputs);
     } else {
+        let cid = trans.link.crateid.clone();
         link::link_outputs_for_pnacl(&sess,
-                                     &trans,
+                                     &mut trans,
                                      &outputs,
-                                     &trans.link.crateid);
+                                     cid);
         unsafe {
-            llvm::LLVMDisposeModule(trans.metadata_module);
-            llvm::LLVMDisposeModule(trans.module);
-            llvm::LLVMContextDispose(trans.context);
+            if trans.metadata_module != ptr::null() {
+                llvm::LLVMDisposeModule(trans.metadata_module);
+            }
+            if trans.module != ptr::null() {
+                llvm::LLVMDisposeModule(trans.module);
+            }
+            if trans.context != ptr::null() {
+                llvm::LLVMContextDispose(trans.context);
+            }
         }
     }
 }

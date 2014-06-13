@@ -29,69 +29,55 @@ pub static METADATA_FILENAME: &'static str = "rust.metadata.bin";
 
 pub struct Archive<'a> {
     sess: &'a Session,
+    ar_prog: Path,
     dst: Path,
+    gold_plugin: Option<Path>,
 }
 
 pub struct ArchiveRO {
     ptr: ArchiveRef,
 }
 
-fn run_ar(sess: &Session, args: &str, cwd: Option<&Path>,
-          paths: &[&Path]) -> ProcessOutput {
-    let ar = get_ar_prog(sess);
-    let mut cmd = Command::new(ar.as_slice());
-
-    cmd.arg(args).args(paths);
-    debug!("{}", cmd);
-
-    match cwd {
-        Some(p) => {
-            cmd.cwd(p);
-            debug!("inside {}", p.display());
-        }
-        None => {}
-    }
-
-    match cmd.spawn() {
-        Ok(prog) => {
-            let o = prog.wait_with_output().unwrap();
-            if !o.status.success() {
-                sess.err(format!("{} failed with: {}",
-                                 cmd,
-                                 o.status).as_slice());
-                sess.note(format!("stdout ---\n{}",
-                                  str::from_utf8(o.output
-                                                  .as_slice()).unwrap())
-                          .as_slice());
-                sess.note(format!("stderr ---\n{}",
-                                  str::from_utf8(o.error
-                                                  .as_slice()).unwrap())
-                          .as_slice());
-                sess.abort_if_errors();
-            }
-            o
-        },
-        Err(e) => {
-            sess.err(format!("could not exec `{}`: {}", ar.as_slice(),
-                             e).as_slice());
-            sess.abort_if_errors();
-            fail!("rustc::back::archive::run_ar() should not reach this point");
-        }
-    }
-}
-
 impl<'a> Archive<'a> {
     /// Initializes a new static archive with the given object file
     pub fn create<'b>(sess: &'a Session, dst: &'b Path,
                       initial_object: &'b Path) -> Archive<'a> {
-        run_ar(sess, "crus", None, [dst, initial_object]);
-        Archive { sess: sess, dst: dst.clone() }
+        let ar = get_ar_prog(sess);
+        let archive = Archive {
+            sess: sess,
+            ar_prog: Path::new(ar),
+            dst: dst.clone(),
+            gold_plugin: None,
+        };
+        archive.run_ar("crus", None, [&archive.dst, initial_object]);
+        archive
+    }
+
+    pub fn new(sess: &'a Session,
+               ar: Path,
+               dst: Path,
+               initial_object: &Path,
+               gold_plugin: Option<Path>) -> Archive<'a> {
+        let archive = Archive {
+            sess: sess,
+            ar_prog: ar,
+            dst: dst,
+            gold_plugin: gold_plugin,
+        };
+        archive.run_ar("crus", None, [&archive.dst, initial_object]);
+        archive
     }
 
     /// Opens an existing static archive
     pub fn open(sess: &'a Session, dst: Path) -> Archive<'a> {
         assert!(dst.exists());
-        Archive { sess: sess, dst: dst }
+        let ar = get_ar_prog(sess);
+        Archive {
+            sess: sess,
+            ar_prog: Path::new(ar),
+            dst: dst,
+            gold_plugin: None,
+        }
     }
 
     /// Adds all of the contents of a native library to this archive. This will
@@ -120,22 +106,22 @@ impl<'a> Archive<'a> {
     /// Adds an arbitrary file to this archive
     pub fn add_file(&mut self, file: &Path, has_symbols: bool) {
         let cmd = if has_symbols {"r"} else {"rS"};
-        run_ar(self.sess, cmd, None, [&self.dst, file]);
+        self.run_ar(cmd, None, [&self.dst, file]);
     }
 
     /// Removes a file from this archive
     pub fn remove_file(&mut self, file: &str) {
-        run_ar(self.sess, "d", None, [&self.dst, &Path::new(file)]);
+        self.run_ar("d", None, [&self.dst, &Path::new(file)]);
     }
 
     /// Updates all symbols in the archive (runs 'ar s' over it)
     pub fn update_symbols(&mut self) {
-        run_ar(self.sess, "s", None, [&self.dst]);
+        self.run_ar("s", None, [&self.dst]);
     }
 
     /// Lists all files in an archive
     pub fn files(&self) -> Vec<String> {
-        let output = run_ar(self.sess, "t", None, [&self.dst]);
+        let output = self.run_ar("t", None, [&self.dst]);
         let output = str::from_utf8(output.output.as_slice()).unwrap();
         // use lines_any because windows delimits output with `\r\n` instead of
         // just `\n`
@@ -148,7 +134,7 @@ impl<'a> Archive<'a> {
 
         // First, extract the contents of the archive to a temporary directory
         let archive = os::make_absolute(archive);
-        run_ar(self.sess, "x", Some(loc.path()), [&archive]);
+        self.run_ar("x", Some(loc.path()), [&archive]);
 
         // Next, we must rename all of the inputs to "guaranteed unique names".
         // The reason for this is that archives are keyed off the name of the
@@ -184,7 +170,7 @@ impl<'a> Archive<'a> {
         // Finally, add all the renamed files to this archive
         let mut args = vec!(&self.dst);
         args.extend(inputs.iter());
-        run_ar(self.sess, "r", None, args.as_slice());
+        self.run_ar("r", None, args.as_slice());
         Ok(())
     }
 
@@ -212,6 +198,58 @@ impl<'a> Archive<'a> {
         self.sess.fatal(format!("could not find native static library `{}`, \
                                  perhaps an -L flag is missing?",
                                 name).as_slice());
+    }
+
+    fn run_ar(&self, args: &str, cwd: Option<&Path>,
+              paths: &[&Path]) -> ProcessOutput {
+        let mut cmd = Command::new(&self.ar_prog);
+
+        cmd.arg(args);
+
+        match self.gold_plugin {
+            Some(ref path) => {
+                cmd.args(&[format!("--plugin={}", path.display())]);
+            }
+            None => {}
+        };
+
+        cmd.args(paths);
+        debug!("{}", cmd);
+
+        match cwd {
+            Some(p) => {
+                cmd.cwd(p);
+                debug!("inside {}", p.display());
+            }
+            None => {}
+        }
+
+        match cmd.spawn() {
+            Ok(prog) => {
+                let o = prog.wait_with_output().unwrap();
+                if !o.status.success() {
+                    self.sess.err(format!("{} failed with: {}",
+                                     cmd,
+                                     o.status).as_slice());
+                    self.sess.note(format!("stdout ---\n{}",
+                                      str::from_utf8(o.output
+                                                     .as_slice()).unwrap())
+                              .as_slice());
+                    self.sess.note(format!("stderr ---\n{}",
+                                      str::from_utf8(o.error
+                                                     .as_slice()).unwrap())
+                              .as_slice());
+                    self.sess.abort_if_errors();
+                }
+                o
+            },
+            Err(e) => {
+                self.sess.err(format!("could not exec `{}`: {}", self.ar_prog.display(),
+                                 e).as_slice());
+                self.sess.abort_if_errors();
+                fail!("rustc::back::archive::run_ar() should not reach this point");
+            }
+        }
     }
 }
 

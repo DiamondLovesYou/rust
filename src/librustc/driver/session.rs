@@ -315,6 +315,16 @@ impl Session {
         }
         f()
     }
+
+    // Gets the filepath for the gold LTO plugin.
+    pub fn gold_plugin_path(&self) -> Path {
+        self.sysroot().join_many(["lib".to_string(),
+                                  "rustlib".to_string(),
+                                  driver::host_triple().to_string(),
+                                  "lib".to_string(),
+                                  format!("LLVMgold{}",
+                                          os::consts::DLL_SUFFIX)])
+    }
 }
 
 pub fn build_session(sopts: config::Options,
