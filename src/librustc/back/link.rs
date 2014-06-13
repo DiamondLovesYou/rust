@@ -1470,7 +1470,7 @@ pub fn link_pnacl_module(sess: &Session,
         llvm::LLVMDisposeModule(trans.module);
     });
     trans.module = ptr::null();
-    
+
     let post_link_path = outputs.with_extension("post-link.bc");
 
     let linker = pnacl_host_tool(sess, "ld.gold");
