@@ -62,6 +62,7 @@ Source layout:
 | ------------------- | --------------------------------------------------------- |
 | `llvm/`             | The LLVM submodule                                        |
 | `rustllvm/`         | LLVM support code                                         |
+| `nacl-binutils/`    | Gold linker, for use in PNaCl crosses                     |
 | ------------------- | --------------------------------------------------------- |
 | `etc/`              | Scripts, editors support, misc                            |
 
