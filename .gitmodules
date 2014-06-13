@@ -22,3 +22,4 @@
 [submodule "src/nacl-binutils"]
 	path = src/nacl-binutils
 	url = https://chromium.googlesource.com/native_client/nacl-binutils.git
+        branch = pnacl/2.34/master
