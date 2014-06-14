@@ -255,10 +255,10 @@ ifdef CFG_ENABLE_FAST_MAKE
 JEMALLOC_DEPS := $(S)/.gitmodules
 else
 JEMALLOC_DEPS := $(wildcard \
-		   $(S)src/jemalloc/* \
 		   $(S)src/jemalloc/*/* \
 		   $(S)src/jemalloc/*/*/* \
-		   $(S)src/jemalloc/*/*/*/*)
+		   $(S)src/jemalloc/*/*/*/*) \
+		 $(S)src/jemalloc/configure $(S)src/jemalloc/Makefile.in
 endif
 
 JEMALLOC_NAME_$(1) := $$(call CFG_STATIC_LIB_NAME_$(1),jemalloc)
