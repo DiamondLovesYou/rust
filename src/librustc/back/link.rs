@@ -1041,6 +1041,7 @@ fn link_pnacl_rlib(sess: &Session,
                    id: &CrateId) {
     use libc;
     use back::archive::ArchiveRO;
+    use std::collections::HashMap;
 
     // In this case, all archives just have bitcode in them. Instead of
     // running all PNaCl passes when we produce pexe's, preprocess the
@@ -1071,6 +1072,8 @@ fn link_pnacl_rlib(sess: &Session,
         (sess, &sess.cstore.get_used_crates(cstore::RequireStatic));
     let lib_paths = pnacl_lib_paths(sess);
     let tmp = TempDir::new("rlib-bitcode").expect("needs tempdir");
+    let mut renames: HashMap<String, uint> = HashMap::new();
+
     // Ignore all messages about invalid debug versions (toolchain libraries
     // cause an abundance of these):
     unsafe {
@@ -1122,8 +1125,16 @@ fn link_pnacl_rlib(sess: &Session,
                                                  &outs,
                                                  false,
                                                  true);
-
-                        let p = tmp.path().join(format!("r-{}-{}", l, name));
+                        let name = format!("r-{}-{}",
+                                               l,
+                                               name);
+                        let rename = renames.insert_or_update_with(name.clone(),
+                                                                   0,
+                                                                   |_, renames| {
+                                                                       *renames += 1;
+                                                                   });
+                        let name = format!("{}{}", name, rename);
+                        let p = tmp.path().join(name);
                         p.with_c_str(|buf| unsafe {
                             llvm::LLVMWriteBitcodeToFile(llmod, buf);
                             llvm::LLVMDisposeModule(llmod);
