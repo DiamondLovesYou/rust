@@ -12,6 +12,9 @@
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Bitcode/NaCl/NaClReaderWriter.h"
+#include "llvm/IR/ValueSymbolTable.h"
+#include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/DiagnosticPrinter.h"
 
 #if LLVM_VERSION_MINOR >= 5
 #include "llvm/IR/CallSite.h"
@@ -865,4 +868,25 @@ LLVMRustStripDebugInfo(LLVMModuleRef M) {
 extern "C" LLVMTypeRef
 LLVMRustArrayType(LLVMTypeRef ElementType, uint64_t ElementCount) {
     return wrap(ArrayType::get(unwrap(ElementType), ElementCount));
+}
+
+static void ignore_debug_metadata_diagnostic_handler(const DiagnosticInfo& di, void* _context) {
+  if(di.getSeverity() >= DS_Warning &&
+     !isa<DiagnosticInfoOptimizationRemark>(di) &&
+     !isa<DiagnosticInfoDebugMetadataVersion>(di)) {
+    raw_fd_ostream stdout(STDOUT_FILENO, false);
+    DiagnosticPrinterRawOStream diag(stdout);
+    di.print(diag);
+  }
+}
+
+extern "C" void
+LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(LLVMContextRef C) {
+  LLVMContext* Context = unwrap(C);
+  Context->setDiagnosticHandler(ignore_debug_metadata_diagnostic_handler);
+}
+extern "C" void
+LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(LLVMContextRef C) {
+  LLVMContext* Context = unwrap(C);
+  Context->setDiagnosticHandler(nullptr);
 }

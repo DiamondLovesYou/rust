@@ -1071,6 +1071,12 @@ fn link_pnacl_rlib(sess: &Session,
         (sess, &sess.cstore.get_used_crates(cstore::RequireStatic));
     let lib_paths = pnacl_lib_paths(sess);
     let tmp = TempDir::new("rlib-bitcode").expect("needs tempdir");
+    // Ignore all messages about invalid debug versions (toolchain libraries
+    // cause an abundance of these):
+    unsafe {
+        llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
+    }
+
     (*used)
         .iter()
         .filter_map(|&(ref lib, kind)| {
@@ -1128,6 +1134,10 @@ fn link_pnacl_rlib(sess: &Session,
             });
             0u32
         });
+
+    unsafe {
+        llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
+    }
 
     // Instead of putting the metadata in an object file section, rlibs
     // contain the metadata in a separate file. We use a temp directory

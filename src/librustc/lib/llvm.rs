@@ -1836,6 +1836,8 @@ pub mod llvm {
                                          Path: *c_char,
                                          AcceptSupportedOnly: bool) -> bool;
         pub fn LLVMRustStripDebugInfo(M: ModuleRef);
+        pub fn LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(C: ContextRef);
+        pub fn LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(C: ContextRef);
     }
 }
 
