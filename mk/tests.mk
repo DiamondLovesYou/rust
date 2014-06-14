@@ -308,13 +308,13 @@ check-stage$(1)-T-$(2)-H-$(3)-exec:     				\
 ifneq ($$(findstring $(2),$$(CFG_HOST)),)
 
 check-stage$(1)-T-$(2)-H-$(3)-crates-exec: \
-	$$(foreach crate,$(filter-out $$(DISABLED_CRATES_$(2)),$$(TEST_CRATES)), \
+	$$(foreach crate,$$(filter-out $$(DISABLED_CRATES_$(2)),$$(TEST_CRATES)), \
            check-stage$(1)-T-$(2)-H-$(3)-$$(crate)-exec)
 
 else
 
 check-stage$(1)-T-$(2)-H-$(3)-crates-exec: \
-	$$(foreach crate,$(filter-out $$(DISABLED_CRATES_$(2)),$$(TEST_TARGET_CRATES)), \
+	$$(foreach crate,$$(filter-out $$(DISABLED_CRATES_$(2)),$$(TEST_TARGET_CRATES)), \
            check-stage$(1)-T-$(2)-H-$(3)-$$(crate)-exec)
 
 endif
@@ -353,9 +353,10 @@ define TEST_RUNNER
 # parent crates.
 ifeq ($(NO_REBUILD),)
 TESTDEP_$(1)_$(2)_$(3)_$(4) = $$(SREQ$(1)_T_$(2)_H_$(3)) \
-			    $$(foreach crate,$$(TARGET_CRATES),\
-				$$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(crate)) \
-				$$(CRATE_FULLDEPS_$(1)_T_$(2)_H_$(3)_$(4))
+			    $$(foreach crate, \
+				$$(filter-out $$(DISABLED_CRATES_$(2)),$$(TARGET_CRATES)), \
+					$$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(crate)) \
+					$$(CRATE_FULLDEPS_$(1)_T_$(2)_H_$(3)_$(4))
 
 # The regex crate depends on the regex_macros crate during testing, but it
 # notably depend on the *host* regex_macros crate, not the target version.
@@ -384,10 +385,11 @@ endef
 $(foreach host,$(CFG_HOST), \
  $(eval $(foreach target,$(CFG_TARGET), \
   $(eval $(foreach stage,$(STAGES), \
-   $(eval $(foreach crate,$(TEST_CRATES), \
+   $(eval $(foreach crate,$(filter-out $(DISABLED_CRATES_$(target)),$(TEST_CRATES)), \
     $(eval $(call TEST_RUNNER,$(stage),$(target),$(host),$(crate))))))))))
 
 define DEF_TEST_CRATE_RULES
+ifeq ($$(findstring $$(DISABLED_CRATES_$(4)),$(4)),)
 check-stage$(1)-T-$(2)-H-$(3)-$(4)-exec: $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4))
 
 $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4)): \
@@ -397,6 +399,9 @@ $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4)): \
 	    --logfile $$(call TEST_LOG_FILE,$(1),$(2),$(3),$(4)) \
 	    $$(call CRATE_TEST_EXTRA_ARGS,$(1),$(2),$(3),$(4)) \
 	    && touch $$@
+else
+check-stage$(1)-T-$(2)-H-$(3)-$(4)-exec:
+endif
 endef
 
 define DEF_TEST_CRATE_RULES_arm-linux-androideabi
@@ -444,7 +449,7 @@ endef
 $(foreach host,$(CFG_HOST), \
  $(foreach target,$(CFG_TARGET), \
   $(foreach stage,$(STAGES), \
-   $(foreach crate, $(TEST_CRATES), \
+   $(foreach crate,$(filter-out $(DISABLED_CRATES_$(target)),$(TEST_CRATES)), \
     $(if $(findstring $(target),$(CFG_BUILD)), \
      $(eval $(call DEF_TEST_CRATE_RULES,$(stage),$(target),$(host),$(crate))), \
      $(if $(findstring $(target),"arm-linux-androideabi"), \
@@ -881,7 +886,12 @@ $(foreach stage,$(STAGES), \
    $(eval $(call DEF_CHECK_FOR_STAGE_AND_TARGET_AND_HOST,$(stage),$(target),$(host))))))
 
 define DEF_CHECK_FOR_STAGE_AND_TARGET_AND_HOST_AND_GROUP
+ifeq ($$(findstring $$(DISABLED_CRATES_$(4)),$(4)),)
 check-stage$(1)-T-$(2)-H-$(3)-$(4): check-stage$(1)-T-$(2)-H-$(3)-$(4)-exec
+else
+# An empty rule to satisfy make:
+check-stage$(1)-T-$(2)-H-$(3)-$(4):
+endif
 endef
 
 $(foreach stage,$(STAGES), \
