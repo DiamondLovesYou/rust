@@ -59,6 +59,7 @@ $$(BINUTILS_CP_STAMP_$(1)):
 endif
 
 $$(BINUTILS_STAMP_$(1)): $$(BINUTILS_CP_STAMP_$(1)) $$(BINUTILS_BUILD_STAMP_$(1))
+	$$(Q)touch $$@
 
 endef
 
