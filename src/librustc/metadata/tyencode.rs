@@ -18,7 +18,8 @@ use std::collections::HashMap;
 use std::io::MemWriter;
 
 use middle::subst;
-use middle::ty::param_ty;
+use middle::subst::VecPerParamSpace;
+use middle::ty::ParamTy;
 use middle::ty;
 
 use syntax::abi::Abi;
@@ -42,8 +43,6 @@ pub struct ctxt<'a> {
 // Extra parameters are for converting to/from def_ids in the string rep.
 // Whatever format you choose should not contain pipe characters.
 pub struct ty_abbrev {
-    pos: uint,
-    len: uint,
     s: String
 }
 
@@ -68,9 +67,7 @@ pub fn enc_ty(w: &mut MemWriter, cx: &ctxt, t: ty::t) {
     if abbrev_len < len {
         // I.e. it's actually an abbreviation.
         cx.abbrevs.borrow_mut().insert(t, ty_abbrev {
-            pos: pos as uint,
-            len: len as uint,
-            s: format!("\\#{:x}:{:x}\\#", pos, len)
+            s: format!("#{:x}:{:x}#", pos, len)
         });
     }
 }
@@ -97,12 +94,23 @@ fn enc_opt<T>(w: &mut MemWriter, t: Option<T>, enc_f: |&mut MemWriter, T|) {
     }
 }
 
+fn enc_vec_per_param_space<T>(w: &mut MemWriter,
+                              cx: &ctxt,
+                              v: &VecPerParamSpace<T>,
+                              op: |&mut MemWriter, &ctxt, &T|) {
+    for &space in subst::ParamSpace::all().iter() {
+        mywrite!(w, "[");
+        for t in v.get_vec(space).iter() {
+            op(w, cx, t);
+        }
+        mywrite!(w, "]");
+    }
+}
+
 pub fn enc_substs(w: &mut MemWriter, cx: &ctxt, substs: &subst::Substs) {
     enc_region_substs(w, cx, &substs.regions);
-    enc_opt(w, substs.self_ty, |w, t| enc_ty(w, cx, t));
-    mywrite!(w, "[");
-    for t in substs.tps.iter() { enc_ty(w, cx, *t); }
-    mywrite!(w, "]");
+    enc_vec_per_param_space(w, cx, &substs.types,
+                            |w, cx, &ty| enc_ty(w, cx, ty));
 }
 
 fn enc_region_substs(w: &mut MemWriter, cx: &ctxt, substs: &subst::RegionSubsts) {
@@ -112,10 +120,8 @@ fn enc_region_substs(w: &mut MemWriter, cx: &ctxt, substs: &subst::RegionSubsts)
         }
         subst::NonerasedRegions(ref regions) => {
             mywrite!(w, "n");
-            for &r in regions.iter() {
-                enc_region(w, cx, r);
-            }
-            mywrite!(w, ".");
+            enc_vec_per_param_space(w, cx, regions,
+                                    |w, cx, &r| enc_region(w, cx, r));
         }
     }
 }
@@ -127,9 +133,10 @@ fn enc_region(w: &mut MemWriter, cx: &ctxt, r: ty::Region) {
             enc_bound_region(w, cx, br);
             mywrite!(w, "]");
         }
-        ty::ReEarlyBound(node_id, index, name) => {
-            mywrite!(w, "B[{}|{}|{}]",
+        ty::ReEarlyBound(node_id, space, index, name) => {
+            mywrite!(w, "B[{}|{}|{}|{}]",
                      node_id,
+                     space.to_uint(),
                      index,
                      token::get_name(name));
         }
@@ -272,23 +279,22 @@ fn enc_sty(w: &mut MemWriter, cx: &ctxt, st: &ty::sty) {
         ty::ty_infer(_) => {
             cx.diag.handler().bug("cannot encode inference variable types");
         }
-        ty::ty_param(param_ty {idx: id, def_id: did}) => {
-            mywrite!(w, "p{}|{}", (cx.ds)(did), id);
-        }
-        ty::ty_self(did) => {
-            mywrite!(w, "s{}|", (cx.ds)(did));
+        ty::ty_param(ParamTy {space, idx: id, def_id: did}) => {
+            mywrite!(w, "p{}|{}|{}|", (cx.ds)(did), id, space.to_uint())
         }
         ty::ty_struct(def, ref substs) => {
             mywrite!(w, "a[{}|", (cx.ds)(def));
             enc_substs(w, cx, substs);
             mywrite!(w, "]");
         }
+        ty::ty_err => {
+            mywrite!(w, "e");
+        }
         ty::ty_simd(t, n) => {
             mywrite!(w, "S[");
             enc_ty(w, cx, t);
             mywrite!(w, "x{}]", n);
         }
-        ty::ty_err => fail!("shouldn't encode error type")
     }
 }
 
@@ -362,7 +368,9 @@ fn enc_bounds(w: &mut MemWriter, cx: &ctxt, bs: &ty::ParamBounds) {
 }
 
 pub fn enc_type_param_def(w: &mut MemWriter, cx: &ctxt, v: &ty::TypeParameterDef) {
-    mywrite!(w, "{}:{}|", token::get_ident(v.ident), (cx.ds)(v.def_id));
+    mywrite!(w, "{}:{}|{}|{}|",
+             token::get_ident(v.ident), (cx.ds)(v.def_id),
+             v.space.to_uint(), v.index);
     enc_bounds(w, cx, &*v.bounds);
     enc_opt(w, v.default, |w, t| enc_ty(w, cx, t));
 }

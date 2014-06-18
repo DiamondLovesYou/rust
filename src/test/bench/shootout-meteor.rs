@@ -39,10 +39,9 @@
 // OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #![feature(phase)]
-#[phase(syntax)] extern crate green;
-extern crate sync;
+#[phase(plugin)] extern crate green;
 
-use sync::Arc;
+use std::sync::Arc;
 
 green_start!(main)
 

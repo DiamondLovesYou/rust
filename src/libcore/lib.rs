@@ -108,7 +108,7 @@ pub mod ptr;
 #[cfg(not(test))] pub mod cmp;
 pub mod clone;
 pub mod default;
-pub mod container;
+pub mod collections;
 
 /* Core types and methods on primitives */
 
@@ -129,11 +129,6 @@ pub mod slice;
 pub mod str;
 pub mod tuple;
 pub mod fmt;
-
-// FIXME: this module should not exist. Once owned allocations are no longer a
-//        language type, this module can move outside to the owned allocation
-//        crate.
-mod should_not_exist;
 
 #[doc(hidden)]
 mod core {

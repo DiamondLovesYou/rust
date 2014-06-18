@@ -39,6 +39,7 @@ use lib;
 use metadata::csearch;
 use middle::def;
 use middle::lang_items::MallocFnLangItem;
+use middle::mem_categorization::Typer;
 use middle::trans::_match;
 use middle::trans::adt;
 use middle::trans::asm;
@@ -65,6 +66,7 @@ use middle::ty::{AutoBorrowObj, AutoDerefRef, AutoAddEnv, AutoObject, AutoUnsafe
 use middle::ty::{AutoPtr, AutoBorrowVec, AutoBorrowVecRef};
 use middle::ty;
 use middle::typeck::MethodCall;
+use middle::typeck;
 use middle::const_eval;
 use util::common::indenter;
 use util::ppaux::Repr;
@@ -75,6 +77,8 @@ use middle::trans::type_::Type;
 use syntax::ast;
 use syntax::codemap;
 use syntax::print::pprust::{expr_to_str};
+
+use std::gc::Gc;
 
 // Destinations
 
@@ -379,45 +383,53 @@ fn trans_datum_unadjusted<'a>(bcx: &'a Block<'a>,
     let _icx = push_ctxt("trans_datum_unadjusted");
 
     match expr.node {
-        ast::ExprParen(e) => {
-            trans(bcx, e)
+        ast::ExprParen(ref e) => {
+            trans(bcx, &**e)
         }
         ast::ExprPath(_) => {
             trans_def(bcx, expr, bcx.def(expr.id))
         }
-        ast::ExprField(base, ident, _) => {
-            trans_rec_field(bcx, base, ident)
+        ast::ExprField(ref base, ident, _) => {
+            trans_rec_field(bcx, &**base, ident.node)
         }
-        ast::ExprIndex(base, idx) => {
-            trans_index(bcx, expr, base, idx)
+        ast::ExprIndex(ref base, ref idx) => {
+            trans_index(bcx, expr, &**base, &**idx)
         }
-        ast::ExprVstore(contents, ast::ExprVstoreUniq) => {
+        ast::ExprVstore(ref contents, ast::ExprVstoreUniq) => {
             fcx.push_ast_cleanup_scope(contents.id);
             let datum = unpack_datum!(
-                bcx, tvec::trans_uniq_vstore(bcx, expr, contents));
+                bcx, tvec::trans_uniq_vstore(bcx, expr, &**contents));
             bcx = fcx.pop_and_trans_ast_cleanup_scope(bcx, contents.id);
             DatumBlock::new(bcx, datum)
         }
-        ast::ExprBox(_, contents) => {
-            // Special case for `box T`. (The other case, for GC, is handled
-            // in `trans_rvalue_dps_unadjusted`.)
+        ast::ExprBox(_, ref contents) => {
+            // Special case for `Box<T>` and `Gc<T>`
             let box_ty = expr_ty(bcx, expr);
-            let contents_ty = expr_ty(bcx, contents);
-            trans_uniq_expr(bcx, box_ty, contents, contents_ty)
+            let contents_ty = expr_ty(bcx, &**contents);
+            match ty::get(box_ty).sty {
+                ty::ty_uniq(..) => {
+                    trans_uniq_expr(bcx, box_ty, &**contents, contents_ty)
+                }
+                ty::ty_box(..) => {
+                    trans_managed_expr(bcx, box_ty, &**contents, contents_ty)
+                }
+                _ => bcx.sess().span_bug(expr.span,
+                                         "expected unique or managed box")
+            }
         }
-        ast::ExprLit(lit) => trans_immediate_lit(bcx, expr, (*lit).clone()),
-        ast::ExprBinary(op, lhs, rhs) => {
-            trans_binary(bcx, expr, op, lhs, rhs)
+        ast::ExprLit(ref lit) => trans_immediate_lit(bcx, expr, (**lit).clone()),
+        ast::ExprBinary(op, ref lhs, ref rhs) => {
+            trans_binary(bcx, expr, op, &**lhs, &**rhs)
         }
-        ast::ExprUnary(op, x) => {
-            trans_unary(bcx, expr, op, x)
+        ast::ExprUnary(op, ref x) => {
+            trans_unary(bcx, expr, op, &**x)
         }
-        ast::ExprAddrOf(_, x) => {
-            trans_addr_of(bcx, expr, x)
+        ast::ExprAddrOf(_, ref x) => {
+            trans_addr_of(bcx, expr, &**x)
         }
-        ast::ExprCast(val, _) => {
+        ast::ExprCast(ref val, _) => {
             // Datum output mode means this is a scalar cast:
-            trans_imm_cast(bcx, val, expr.id)
+            trans_imm_cast(bcx, &**val, expr.id)
         }
         ast::ExprSimd(ref exprs) => {
             trans_simd(bcx, expr, exprs)
@@ -437,8 +449,8 @@ fn trans_datum_unadjusted<'a>(bcx: &'a Block<'a>,
 fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
                           expr: &ast::Expr,
                           left: &ast::Expr,
-                          opt_right: Option<@ast::Expr>,
-                          mask: &Vec<@ast::Expr>)
+                          opt_right: Option<Gc<ast::Expr>>,
+                          mask: &Vec<Gc<ast::Expr>>)
                           -> DatumBlock<'a, Expr> {
     use std::iter;
 
@@ -532,7 +544,7 @@ fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
 }
 fn trans_simd<'a>(bcx: &'a Block<'a>,
                   expr: &ast::Expr,
-                  exprs: &Vec<@ast::Expr>)
+                  exprs: &Vec<Gc<ast::Expr>>)
                   -> DatumBlock<'a, Expr> {
     let mut bcx = bcx;
     let _icx = push_ctxt("trans_simd");
@@ -709,8 +721,8 @@ fn trans_rvalue_stmt_unadjusted<'a>(bcx: &'a Block<'a>,
     }
 
     match expr.node {
-        ast::ExprParen(e) => {
-            trans_into(bcx, e, Ignore)
+        ast::ExprParen(ref e) => {
+            trans_into(bcx, &**e, Ignore)
         }
         ast::ExprBreak(label_opt) => {
             controlflow::trans_break(bcx, expr.id, label_opt)
@@ -721,15 +733,15 @@ fn trans_rvalue_stmt_unadjusted<'a>(bcx: &'a Block<'a>,
         ast::ExprRet(ex) => {
             controlflow::trans_ret(bcx, ex)
         }
-        ast::ExprWhile(cond, body) => {
-            controlflow::trans_while(bcx, expr.id, cond, body)
+        ast::ExprWhile(ref cond, ref body) => {
+            controlflow::trans_while(bcx, expr.id, &**cond, &**body)
         }
-        ast::ExprLoop(body, _) => {
-            controlflow::trans_loop(bcx, expr.id, body)
+        ast::ExprLoop(ref body, _) => {
+            controlflow::trans_loop(bcx, expr.id, &**body)
         }
-        ast::ExprAssign(dst, src) => {
-            let src_datum = unpack_datum!(bcx, trans(bcx, src));
-            let dst_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, dst, "assign"));
+        ast::ExprAssign(ref dst, ref src) => {
+            let src_datum = unpack_datum!(bcx, trans(bcx, &**src));
+            let dst_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, &**dst, "assign"));
 
             if ty::type_needs_drop(bcx.tcx(), dst_datum.ty) {
                 // If there are destructors involved, make sure we
@@ -756,8 +768,8 @@ fn trans_rvalue_stmt_unadjusted<'a>(bcx: &'a Block<'a>,
                 src_datum.store_to(bcx, dst_datum.val)
             }
         }
-        ast::ExprAssignOp(op, dst, src) => {
-            trans_assign_op(bcx, expr, op, dst, src)
+        ast::ExprAssignOp(op, ref dst, ref src) => {
+            trans_assign_op(bcx, expr, op, &**dst, src.clone())
         }
         ast::ExprInlineAsm(ref a) => {
             asm::trans_inline_asm(bcx, a)
@@ -782,20 +794,20 @@ fn trans_rvalue_dps_unadjusted<'a>(bcx: &'a Block<'a>,
     let fcx = bcx.fcx;
 
     match expr.node {
-        ast::ExprParen(e) => {
-            trans_into(bcx, e, dest)
+        ast::ExprParen(ref e) => {
+            trans_into(bcx, &**e, dest)
         }
         ast::ExprPath(_) => {
             trans_def_dps_unadjusted(bcx, expr, bcx.def(expr.id), dest)
         }
-        ast::ExprIf(cond, thn, els) => {
-            controlflow::trans_if(bcx, expr.id, cond, thn, els, dest)
+        ast::ExprIf(ref cond, ref thn, els) => {
+            controlflow::trans_if(bcx, expr.id, &**cond, thn.clone(), els, dest)
         }
-        ast::ExprMatch(discr, ref arms) => {
-            _match::trans_match(bcx, expr, discr, arms.as_slice(), dest)
+        ast::ExprMatch(ref discr, ref arms) => {
+            _match::trans_match(bcx, expr, &**discr, arms.as_slice(), dest)
         }
-        ast::ExprBlock(blk) => {
-            controlflow::trans_block(bcx, blk, dest)
+        ast::ExprBlock(ref blk) => {
+            controlflow::trans_block(bcx, &**blk, dest)
         }
         ast::ExprStruct(_, ref fields, base) => {
             trans_rec_or_struct(bcx,
@@ -807,7 +819,7 @@ fn trans_rvalue_dps_unadjusted<'a>(bcx: &'a Block<'a>,
         }
         ast::ExprTup(ref args) => {
             let repr = adt::represent_type(bcx.ccx(), expr_ty(bcx, expr));
-            let numbered_fields: Vec<(uint, @ast::Expr)> =
+            let numbered_fields: Vec<(uint, Gc<ast::Expr>)> =
                 args.iter().enumerate().map(|(i, arg)| (i, *arg)).collect();
             trans_adt(bcx, &*repr, 0, numbered_fields.as_slice(), None, dest)
         }
@@ -825,58 +837,71 @@ fn trans_rvalue_dps_unadjusted<'a>(bcx: &'a Block<'a>,
                 }
             }
         }
-        ast::ExprVstore(contents, ast::ExprVstoreSlice) |
-        ast::ExprVstore(contents, ast::ExprVstoreMutSlice) => {
+        ast::ExprVstore(ref contents, ast::ExprVstoreSlice) |
+        ast::ExprVstore(ref contents, ast::ExprVstoreMutSlice) => {
             fcx.push_ast_cleanup_scope(contents.id);
-            bcx = tvec::trans_slice_vstore(bcx, expr, contents, dest);
+            bcx = tvec::trans_slice_vstore(bcx, expr, &**contents, dest);
             fcx.pop_and_trans_ast_cleanup_scope(bcx, contents.id)
         }
         ast::ExprVec(..) | ast::ExprRepeat(..) => {
             tvec::trans_fixed_vstore(bcx, expr, expr, dest)
         }
-        ast::ExprFnBlock(decl, body) |
-        ast::ExprProc(decl, body) => {
+        ast::ExprFnBlock(ref decl, ref body) |
+        ast::ExprProc(ref decl, ref body) => {
             let expr_ty = expr_ty(bcx, expr);
             let store = ty::ty_closure_store(expr_ty);
             debug!("translating block function {} with type {}",
                    expr_to_str(expr), expr_ty.repr(tcx));
-            closure::trans_expr_fn(bcx, store, decl, body, expr.id, dest)
+            closure::trans_expr_fn(bcx, store, &**decl, &**body, expr.id, dest)
         }
-        ast::ExprCall(f, ref args) => {
-            callee::trans_call(bcx, expr, f, callee::ArgExprs(args.as_slice()), dest)
+        ast::ExprCall(ref f, ref args) => {
+            if bcx.tcx().is_method_call(expr.id) {
+                let callee_datum = unpack_datum!(bcx, trans(bcx, &**f));
+                trans_overloaded_call(bcx,
+                                      expr,
+                                      callee_datum,
+                                      args.as_slice(),
+                                      Some(dest))
+            } else {
+                callee::trans_call(bcx,
+                                   expr,
+                                   &**f,
+                                   callee::ArgExprs(args.as_slice()),
+                                   dest)
+            }
         }
         ast::ExprMethodCall(_, _, ref args) => {
             callee::trans_method_call(bcx,
                                       expr,
-                                      *args.get(0),
+                                      &**args.get(0),
                                       callee::ArgExprs(args.as_slice()),
                                       dest)
         }
-        ast::ExprBinary(_, lhs, rhs) => {
+        ast::ExprBinary(_, ref lhs, ref rhs) => {
             // if not overloaded, would be RvalueDatumExpr
-            let lhs = unpack_datum!(bcx, trans(bcx, lhs));
-            let rhs_datum = unpack_datum!(bcx, trans(bcx, rhs));
+            let lhs = unpack_datum!(bcx, trans(bcx, &**lhs));
+            let rhs_datum = unpack_datum!(bcx, trans(bcx, &**rhs));
             trans_overloaded_op(bcx, expr, MethodCall::expr(expr.id), lhs,
                                 Some((rhs_datum, rhs.id)), Some(dest)).bcx
         }
-        ast::ExprUnary(_, subexpr) => {
+        ast::ExprUnary(_, ref subexpr) => {
             // if not overloaded, would be RvalueDatumExpr
-            let arg = unpack_datum!(bcx, trans(bcx, subexpr));
+            let arg = unpack_datum!(bcx, trans(bcx, &**subexpr));
             trans_overloaded_op(bcx, expr, MethodCall::expr(expr.id),
                                 arg, None, Some(dest)).bcx
         }
-        ast::ExprIndex(base, idx) => {
+        ast::ExprIndex(ref base, ref idx) => {
             // if not overloaded, would be RvalueDatumExpr
-            let base = unpack_datum!(bcx, trans(bcx, base));
-            let idx_datum = unpack_datum!(bcx, trans(bcx, idx));
+            let base = unpack_datum!(bcx, trans(bcx, &**base));
+            let idx_datum = unpack_datum!(bcx, trans(bcx, &**idx));
             trans_overloaded_op(bcx, expr, MethodCall::expr(expr.id), base,
                                 Some((idx_datum, idx.id)), Some(dest)).bcx
         }
-        ast::ExprCast(val, _) => {
+        ast::ExprCast(ref val, _) => {
             // DPS output mode means this is a trait cast:
             match ty::get(node_id_type(bcx, expr.id)).sty {
                 ty::ty_trait(..) => {
-                    let datum = unpack_datum!(bcx, trans(bcx, val));
+                    let datum = unpack_datum!(bcx, trans(bcx, &**val));
                     meth::trans_trait_cast(bcx, datum, expr.id, dest)
                 }
                 _ => {
@@ -885,13 +910,8 @@ fn trans_rvalue_dps_unadjusted<'a>(bcx: &'a Block<'a>,
                 }
             }
         }
-        ast::ExprAssignOp(op, dst, src) => {
-            trans_assign_op(bcx, expr, op, dst, src)
-        }
-        ast::ExprBox(_, contents) => {
-            // Special case for `Gc<T>` for now. The other case, for unique
-            // pointers, is handled in `trans_rvalue_datum_unadjusted`.
-            trans_gc(bcx, expr, contents, dest)
+        ast::ExprAssignOp(op, ref dst, ref src) => {
+            trans_assign_op(bcx, expr, op, &**dst, src.clone())
         }
         _ => {
             bcx.tcx().sess.span_bug(
@@ -1090,7 +1110,7 @@ pub fn with_field_tys<R>(tcx: &ty::ctxt,
 fn trans_rec_or_struct<'a>(
                        bcx: &'a Block<'a>,
                        fields: &[ast::Field],
-                       base: Option<@ast::Expr>,
+                       base: Option<Gc<ast::Expr>>,
                        expr_span: codemap::Span,
                        id: ast::NodeId,
                        dest: Dest)
@@ -1152,7 +1172,7 @@ fn trans_rec_or_struct<'a>(
  */
 struct StructBaseInfo {
     /// The base expression; will be evaluated after all explicit fields.
-    expr: @ast::Expr,
+    expr: Gc<ast::Expr>,
     /// The indices of fields to copy paired with their types.
     fields: Vec<(uint, ty::t)> }
 
@@ -1170,7 +1190,7 @@ fn trans_adt<'a>(
              bcx: &'a Block<'a>,
              repr: &adt::Repr,
              discr: ty::Disr,
-             fields: &[(uint, @ast::Expr)],
+             fields: &[(uint, Gc<ast::Expr>)],
              optbase: Option<StructBaseInfo>,
              dest: Dest)
              -> &'a Block<'a> {
@@ -1179,12 +1199,12 @@ fn trans_adt<'a>(
     let mut bcx = bcx;
     let addr = match dest {
         Ignore => {
-            for &(_i, e) in fields.iter() {
-                bcx = trans_into(bcx, e, Ignore);
+            for &(_i, ref e) in fields.iter() {
+                bcx = trans_into(bcx, &**e, Ignore);
             }
             for sbi in optbase.iter() {
                 // FIXME #7261: this moves entire base, not just certain fields
-                bcx = trans_into(bcx, sbi.expr, Ignore);
+                bcx = trans_into(bcx, &*sbi.expr, Ignore);
             }
             return bcx;
         }
@@ -1197,10 +1217,10 @@ fn trans_adt<'a>(
 
     adt::trans_start_init(bcx, repr, addr, discr);
 
-    for &(i, e) in fields.iter() {
+    for &(i, ref e) in fields.iter() {
         let dest = adt::trans_field_ptr(bcx, repr, addr, discr, i);
-        let e_ty = expr_ty_adjusted(bcx, e);
-        bcx = trans_into(bcx, e, SaveIn(dest));
+        let e_ty = expr_ty_adjusted(bcx, &**e);
+        bcx = trans_into(bcx, &**e, SaveIn(dest));
         fcx.schedule_drop_mem(cleanup::CustomScope(custom_cleanup_scope),
                               dest, e_ty);
     }
@@ -1208,7 +1228,7 @@ fn trans_adt<'a>(
     for base in optbase.iter() {
         // FIXME #6573: is it sound to use the destination's repr on the base?
         // And, would it ever be reasonable to be here with discr != 0?
-        let base_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, base.expr, "base"));
+        let base_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, &*base.expr, "base"));
         for &(i, t) in base.fields.iter() {
             let datum = base_datum.get_element(
                 t,
@@ -1355,31 +1375,6 @@ fn trans_addr_of<'a>(bcx: &'a Block<'a>,
     let sub_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, subexpr, "addr_of"));
     let ty = expr_ty(bcx, expr);
     return immediate_rvalue_bcx(bcx, sub_datum.val, ty).to_expr_datumblock();
-}
-
-fn trans_gc<'a>(mut bcx: &'a Block<'a>,
-                expr: &ast::Expr,
-                contents: &ast::Expr,
-                dest: Dest)
-                -> &'a Block<'a> {
-    let contents_ty = expr_ty(bcx, contents);
-    let box_ty = ty::mk_box(bcx.tcx(), contents_ty);
-
-    let contents_datum = unpack_datum!(bcx, trans_managed_expr(bcx,
-                                                               box_ty,
-                                                               contents,
-                                                               contents_ty));
-
-    match dest {
-        Ignore => bcx,
-        SaveIn(addr) => {
-            let expr_ty = expr_ty(bcx, expr);
-            let repr = adt::represent_type(bcx.ccx(), expr_ty);
-            adt::trans_start_init(bcx, &*repr, addr, 0);
-            let field_dest = adt::trans_field_ptr(bcx, &*repr, addr, 0, 0);
-            contents_datum.store_to(bcx, field_dest)
-        }
-    }
 }
 
 // Important to get types for both lhs and rhs, because one might be _|_
@@ -1591,6 +1586,76 @@ fn trans_overloaded_op<'a, 'b>(
                              dest)
 }
 
+fn trans_overloaded_call<'a>(
+                         mut bcx: &'a Block<'a>,
+                         expr: &ast::Expr,
+                         callee: Datum<Expr>,
+                         args: &[Gc<ast::Expr>],
+                         dest: Option<Dest>)
+                         -> &'a Block<'a> {
+    // Evaluate and tuple the arguments.
+    let tuple_type = ty::mk_tup(bcx.tcx(),
+                                args.iter()
+                                    .map(|e| expr_ty(bcx, &**e))
+                                    .collect());
+    let repr = adt::represent_type(bcx.ccx(), tuple_type);
+    let numbered_fields: Vec<(uint, Gc<ast::Expr>)> =
+        args.iter().enumerate().map(|(i, arg)| (i, *arg)).collect();
+    let argument_scope = bcx.fcx.push_custom_cleanup_scope();
+    let tuple_datum =
+        unpack_datum!(bcx,
+                      lvalue_scratch_datum(bcx,
+                                           tuple_type,
+                                           "tupled_arguments",
+                                           false,
+                                           cleanup::CustomScope(
+                                               argument_scope),
+                                           (),
+                                           |(), bcx, addr| {
+            trans_adt(bcx,
+                      &*repr,
+                      0,
+                      numbered_fields.as_slice(),
+                      None,
+                      SaveIn(addr))
+        }));
+
+    let method_call = typeck::MethodCall::expr(expr.id);
+    let method_type = bcx.tcx()
+                         .method_map
+                         .borrow()
+                         .get(&method_call)
+                         .ty;
+    let callee_rvalue = unpack_datum!(bcx,
+                                      callee.to_rvalue_datum(bcx, "callee"));
+    let tuple_datum = tuple_datum.to_expr_datum();
+    let tuple_rvalue = unpack_datum!(bcx,
+                                     tuple_datum.to_rvalue_datum(bcx,
+                                                                 "tuple"));
+    let argument_values = [
+        callee_rvalue.add_clean(bcx.fcx,
+                                cleanup::CustomScope(argument_scope)),
+        tuple_rvalue.add_clean(bcx.fcx, cleanup::CustomScope(argument_scope))
+    ];
+    unpack_result!(bcx,
+                   callee::trans_call_inner(bcx,
+                                            Some(expr_info(expr)),
+                                            monomorphize_type(bcx,
+                                                              method_type),
+                                            |bcx, arg_cleanup_scope| {
+                                                meth::trans_method_callee(
+                                                    bcx,
+                                                    method_call,
+                                                    None,
+                                                    arg_cleanup_scope)
+                                            },
+                                            callee::ArgVals(argument_values),
+                                            dest));
+
+    bcx.fcx.pop_custom_cleanup_scope(argument_scope);
+    bcx
+}
+
 fn int_cast(bcx: &Block,
             lldsttype: Type,
             llsrctype: Type,
@@ -1746,7 +1811,7 @@ fn trans_assign_op<'a>(
                    expr: &ast::Expr,
                    op: ast::BinOp,
                    dst: &ast::Expr,
-                   src: @ast::Expr)
+                   src: Gc<ast::Expr>)
                    -> &'a Block<'a> {
     let _icx = push_ctxt("trans_assign_op");
     let mut bcx = bcx;
@@ -1763,7 +1828,7 @@ fn trans_assign_op<'a>(
     let dst = Load(bcx, dst_datum.val);
 
     // Evaluate RHS
-    let rhs_datum = unpack_datum!(bcx, trans(bcx, src));
+    let rhs_datum = unpack_datum!(bcx, trans(bcx, &*src));
     let rhs_ty = rhs_datum.ty;
     let rhs = rhs_datum.to_llscalarish(bcx);
 

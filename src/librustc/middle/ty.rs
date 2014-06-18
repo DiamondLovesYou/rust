@@ -18,13 +18,13 @@ use middle::lint;
 use middle::const_eval;
 use middle::def;
 use middle::dependency_format;
-use middle::lang_items::{ExchangeHeapLangItem, OpaqueStructLangItem};
+use middle::lang_items::OpaqueStructLangItem;
 use middle::lang_items::{TyDescStructLangItem, TyVisitorTraitLangItem};
 use middle::freevars;
 use middle::resolve;
 use middle::resolve_lifetime;
 use middle::subst;
-use middle::subst::{Subst, Substs};
+use middle::subst::{Subst, Substs, VecPerParamSpace};
 use middle::ty;
 use middle::typeck;
 use middle::typeck::MethodCall;
@@ -42,6 +42,7 @@ use std::cmp;
 use std::fmt::Show;
 use std::fmt;
 use std::hash::{Hash, sip, Writer};
+use std::gc::Gc;
 use std::iter::AdditiveIterator;
 use std::mem;
 use std::ops;
@@ -57,7 +58,6 @@ use syntax::codemap::Span;
 use syntax::parse::token;
 use syntax::parse::token::InternedString;
 use syntax::{ast, ast_map};
-use syntax::owned_slice::OwnedSlice;
 use syntax::util::small_vector::SmallVector;
 use std::collections::enum_set::{EnumSet, CLike};
 
@@ -189,9 +189,8 @@ pub enum ast_ty_to_ty_cache_entry {
 
 #[deriving(Clone, PartialEq, Decodable, Encodable)]
 pub struct ItemVariances {
-    pub self_param: Option<Variance>,
-    pub type_params: OwnedSlice<Variance>,
-    pub region_params: OwnedSlice<Variance>
+    pub types: VecPerParamSpace<Variance>,
+    pub regions: VecPerParamSpace<Variance>,
 }
 
 #[deriving(Clone, PartialEq, Decodable, Encodable, Show)]
@@ -234,6 +233,17 @@ pub enum AutoRef {
 
     /// Convert from Box<Trait>/&Trait to &Trait
     AutoBorrowObj(Region, ast::Mutability),
+}
+
+/// A restriction that certain types must be the same size. The use of
+/// `transmute` gives rise to these restrictions.
+pub struct TransmuteRestriction {
+    /// The span from whence the restriction comes.
+    pub span: Span,
+    /// The type being transmuted from.
+    pub from: t,
+    /// The type being transmuted to.
+    pub to: t,
 }
 
 /// The data structure to keep track of all the information that typechecker
@@ -348,8 +358,8 @@ pub struct ctxt {
 
     /// These two caches are used by const_eval when decoding external statics
     /// and variants that are found.
-    pub extern_const_statics: RefCell<DefIdMap<Option<@ast::Expr>>>,
-    pub extern_const_variants: RefCell<DefIdMap<Option<@ast::Expr>>>,
+    pub extern_const_statics: RefCell<DefIdMap<Option<Gc<ast::Expr>>>>,
+    pub extern_const_variants: RefCell<DefIdMap<Option<Gc<ast::Expr>>>>,
 
     pub method_map: typeck::MethodMap,
     pub vtable_map: typeck::vtable_map,
@@ -358,6 +368,11 @@ pub struct ctxt {
 
     pub node_lint_levels: RefCell<HashMap<(ast::NodeId, lint::Lint),
                                           (lint::Level, lint::LintSource)>>,
+
+    /// The types that must be asserted to be the same size for `transmute`
+    /// to be valid. We gather up these restrictions in the intrinsicck pass
+    /// and check them in trans.
+    pub transmute_restrictions: RefCell<Vec<TransmuteRestriction>>,
 }
 
 pub enum tbox_flag {
@@ -454,7 +469,8 @@ pub struct FnSig {
 }
 
 #[deriving(Clone, PartialEq, Eq, Hash)]
-pub struct param_ty {
+pub struct ParamTy {
+    pub space: subst::ParamSpace,
     pub idx: uint,
     pub def_id: DefId
 }
@@ -465,7 +481,10 @@ pub enum Region {
     // Region bound in a type or fn declaration which will be
     // substituted 'early' -- that is, at the same time when type
     // parameters are substituted.
-    ReEarlyBound(/* param id */ ast::NodeId, /*index*/ uint, ast::Name),
+    ReEarlyBound(/* param id */ ast::NodeId,
+                 subst::ParamSpace,
+                 /*index*/ uint,
+                 ast::Name),
 
     // Region bound in a function scope, which will be substituted when the
     // function is called. The first argument must be the `binder_id` of
@@ -712,13 +731,11 @@ pub enum sty {
     ty_struct(DefId, Substs),
     ty_tup(Vec<t>),
 
+    ty_param(ParamTy), // type parameter
+
     // Note it is an error for a ty_simd to have a length of zero.
     ty_simd(t, /* primitive */
             uint /* length */),
-
-    ty_param(param_ty), // type parameter
-    ty_self(DefId), /* special, implicit `self` type parameter;
-                      * def_id is the id of the trait */
 
     ty_infer(InferTy), // something used only during inference/typeck
     ty_err, // Also only used during inference/typeck, to represent
@@ -737,7 +754,7 @@ pub struct TyTrait {
 #[deriving(PartialEq, Eq, Hash)]
 pub struct TraitRef {
     pub def_id: DefId,
-    pub substs: Substs
+    pub substs: Substs,
 }
 
 #[deriving(Clone, PartialEq)]
@@ -924,7 +941,7 @@ impl Vid for TyVid {
 
 impl fmt::Show for TyVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        write!(f, "<generic \\#{}>", self.to_uint())
+        write!(f, "<generic #{}>", self.to_uint())
     }
 }
 
@@ -934,7 +951,7 @@ impl Vid for IntVid {
 
 impl fmt::Show for IntVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<generic integer \\#{}>", self.to_uint())
+        write!(f, "<generic integer #{}>", self.to_uint())
     }
 }
 
@@ -944,7 +961,7 @@ impl Vid for FloatVid {
 
 impl fmt::Show for FloatVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<generic float \\#{}>", self.to_uint())
+        write!(f, "<generic float #{}>", self.to_uint())
     }
 }
 
@@ -1021,6 +1038,8 @@ impl fmt::Show for IntVarValue {
 pub struct TypeParameterDef {
     pub ident: ast::Ident,
     pub def_id: ast::DefId,
+    pub space: subst::ParamSpace,
+    pub index: uint,
     pub bounds: Rc<ParamBounds>,
     pub default: Option<ty::t>
 }
@@ -1029,29 +1048,26 @@ pub struct TypeParameterDef {
 pub struct RegionParameterDef {
     pub name: ast::Name,
     pub def_id: ast::DefId,
+    pub space: subst::ParamSpace,
+    pub index: uint,
 }
 
-/// Information about the type/lifetime parameters associated with an item.
-/// Analogous to ast::Generics.
+/// Information about the type/lifetime parameters associated with an
+/// item or method. Analogous to ast::Generics.
 #[deriving(Clone)]
 pub struct Generics {
-    /// List of type parameters declared on the item.
-    pub type_param_defs: Rc<Vec<TypeParameterDef>>,
-
-    /// List of region parameters declared on the item.
-    /// For a fn or method, only includes *early-bound* lifetimes.
-    pub region_param_defs: Rc<Vec<RegionParameterDef>>,
+    pub types: VecPerParamSpace<TypeParameterDef>,
+    pub regions: VecPerParamSpace<RegionParameterDef>,
 }
 
 impl Generics {
-    pub fn has_type_params(&self) -> bool {
-        !self.type_param_defs.is_empty()
+    pub fn empty() -> Generics {
+        Generics { types: VecPerParamSpace::empty(),
+                   regions: VecPerParamSpace::empty() }
     }
-    pub fn type_param_defs<'a>(&'a self) -> &'a [TypeParameterDef] {
-        self.type_param_defs.as_slice()
-    }
-    pub fn region_param_defs<'a>(&'a self) -> &'a [RegionParameterDef] {
-        self.region_param_defs.as_slice()
+
+    pub fn has_type_params(&self, space: subst::ParamSpace) -> bool {
+        !self.types.get_vec(space).is_empty()
     }
 }
 
@@ -1075,11 +1091,8 @@ pub struct ParameterEnvironment {
     /// parameters in the same way, this only has an affect on regions.
     pub free_substs: Substs,
 
-    /// Bound on the Self parameter
-    pub self_param_bound: Option<Rc<TraitRef>>,
-
-    /// Bounds on each numbered type parameter
-    pub type_param_bounds: Vec<ParamBounds>,
+    /// Bounds on the various type parameters
+    pub bounds: VecPerParamSpace<ParamBounds>,
 }
 
 /// A polytype.
@@ -1180,6 +1193,7 @@ pub fn mk_ctxt(s: Session,
         vtable_map: RefCell::new(FnvHashMap::new()),
         dependency_formats: RefCell::new(HashMap::new()),
         node_lint_levels: RefCell::new(HashMap::new()),
+        transmute_restrictions: RefCell::new(Vec::new()),
     }
 }
 
@@ -1219,7 +1233,10 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
     }
     fn sflags(substs: &Substs) -> uint {
         let mut f = 0u;
-        for tt in substs.tps.iter() { f |= get(*tt).flags; }
+        let mut i = substs.types.iter();
+        for tt in i {
+            f |= get(*tt).flags;
+        }
         match substs.regions {
             subst::ErasedRegions => {}
             subst::NonerasedRegions(ref regions) => {
@@ -1242,9 +1259,14 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
       // so we're doing it this way.
       &ty_bot => flags |= has_ty_bot as uint,
       &ty_err => flags |= has_ty_err as uint,
-      &ty_param(_) => flags |= has_params as uint,
+      &ty_param(ref p) => {
+          if p.space == subst::SelfSpace {
+              flags |= has_self as uint;
+          } else {
+              flags |= has_params as uint;
+          }
+      }
       &ty_infer(_) => flags |= needs_infer as uint,
-      &ty_self(_) => flags |= has_self as uint,
       &ty_enum(_, ref substs) | &ty_struct(_, ref substs) => {
           flags |= sflags(substs);
       }
@@ -1528,10 +1550,16 @@ pub fn mk_md_var(cx: &ctxt,
 
 pub fn mk_infer(cx: &ctxt, it: InferTy) -> t { mk_t(cx, ty_infer(it)) }
 
-pub fn mk_self(cx: &ctxt, did: ast::DefId) -> t { mk_t(cx, ty_self(did)) }
+pub fn mk_param(cx: &ctxt, space: subst::ParamSpace, n: uint, k: DefId) -> t {
+    mk_t(cx, ty_param(ParamTy { space: space, idx: n, def_id: k }))
+}
 
-pub fn mk_param(cx: &ctxt, n: uint, k: DefId) -> t {
-    mk_t(cx, ty_param(param_ty { idx: n, def_id: k }))
+pub fn mk_self_type(cx: &ctxt, did: ast::DefId) -> t {
+    mk_param(cx, subst::SelfSpace, 0, did)
+}
+
+pub fn mk_param_from_def(cx: &ctxt, def: &TypeParameterDef) -> t {
+    mk_param(cx, def.space, def.index, def.def_id)
 }
 
 pub fn walk_ty(ty: t, f: |t|) {
@@ -1544,15 +1572,17 @@ pub fn maybe_walk_ty(ty: t, f: |t| -> bool) {
     }
     match get(ty).sty {
         ty_nil | ty_bot | ty_bool | ty_char | ty_int(_) | ty_uint(_) | ty_float(_) |
-        ty_str | ty_self(_) |
-        ty_infer(_) | ty_param(_) | ty_err => {}
+        ty_str | ty_infer(_) | ty_param(_) | ty_err => {
+        }
         ty_box(ty) | ty_uniq(ty) | ty_simd(ty, _) => maybe_walk_ty(ty, f),
         ty_ptr(ref tm) | ty_rptr(_, ref tm) | ty_vec(ref tm, _) => {
             maybe_walk_ty(tm.ty, f);
         }
         ty_enum(_, ref substs) | ty_struct(_, ref substs) |
         ty_trait(box TyTrait { ref substs, .. }) => {
-            for subty in (*substs).tps.iter() { maybe_walk_ty(*subty, |x| f(x)); }
+            for subty in (*substs).types.iter() {
+                maybe_walk_ty(*subty, |x| f(x));
+            }
         }
         ty_tup(ref ts) => { for tt in ts.iter() { maybe_walk_ty(*tt, |x| f(x)); } }
         ty_bare_fn(ref ft) => {
@@ -1606,8 +1636,7 @@ pub fn type_needs_subst(ty: t) -> bool {
 }
 
 pub fn trait_ref_contains_error(tref: &ty::TraitRef) -> bool {
-    tref.substs.self_ty.iter().any(|&t| type_is_error(t)) ||
-        tref.substs.tps.iter().any(|&t| type_is_error(t))
+    tref.substs.types.any(|&t| type_is_error(t))
 }
 
 pub fn type_is_ty_var(ty: t) -> bool {
@@ -1621,7 +1650,7 @@ pub fn type_is_bool(ty: t) -> bool { get(ty).sty == ty_bool }
 
 pub fn type_is_self(ty: t) -> bool {
     match get(ty).sty {
-        ty_self(..) => true,
+        ty_param(ref p) => p.space == subst::SelfSpace,
         _ => false
     }
 }
@@ -1764,6 +1793,14 @@ pub fn type_is_scalar(ty: t) -> bool {
       ty_infer(IntVar(_)) | ty_infer(FloatVar(_)) |
       ty_bare_fn(..) | ty_ptr(_) => true,
       _ => false
+    }
+}
+
+/// Returns true if this type is a floating point type and false otherwise.
+pub fn type_is_floating_point(ty: t) -> bool {
+    match get(ty).sty {
+        ty_float(_) => true,
+        _ => false,
     }
 }
 
@@ -2212,16 +2249,6 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
                                         tp_def.bounds.trait_bounds.as_slice())
             }
 
-            ty_self(def_id) => {
-                // FIXME(#4678)---self should just be a ty param
-
-                // Self may be bounded if the associated trait has builtin kinds
-                // for supertraits. If so we can use those bounds.
-                let trait_def = lookup_trait_def(cx, def_id);
-                let traits = [trait_def.trait_ref.clone()];
-                kind_bounds_to_contents(cx, trait_def.bounds, traits)
-            }
-
             ty_infer(_) => {
                 // This occurs during coherence, but shouldn't occur at other
                 // times.
@@ -2403,7 +2430,6 @@ pub fn is_instantiable(cx: &ctxt, r_ty: t) -> bool {
             ty_infer(_) |
             ty_err |
             ty_param(_) |
-            ty_self(_) |
             ty_vec(_, None) => {
                 false
             }
@@ -2803,6 +2829,14 @@ pub fn ty_region(tcx: &ctxt,
     }
 }
 
+pub fn free_region_from_def(free_id: ast::NodeId, def: &RegionParameterDef)
+    -> ty::Region
+{
+    ty::ReFree(ty::FreeRegion { scope_id: free_id,
+                                bound_region: ty::BrNamed(def.def_id,
+                                                          def.name) })
+}
+
 // Returns the type of a pattern as a monotype. Like @expr_ty, this function
 // doesn't provide type parameter substitutions.
 pub fn pat_ty(cx: &ctxt, pat: &ast::Pat) -> t {
@@ -2819,8 +2853,7 @@ pub fn pat_ty(cx: &ctxt, pat: &ast::Pat) -> t {
 //
 // NB (2): This type doesn't provide type parameter substitutions; e.g. if you
 // ask for the type of "id" in "id(3)", it will return "fn(&int) -> int"
-// instead of "fn(t) -> T with T = int". If this isn't what you want, see
-// expr_ty_params_and_ty() below.
+// instead of "fn(t) -> T with T = int".
 pub fn expr_ty(cx: &ctxt, expr: &ast::Expr) -> t {
     return node_id_to_type(cx, expr.id);
 }
@@ -3052,27 +3085,16 @@ impl AutoRef {
 }
 
 pub fn method_call_type_param_defs(tcx: &ctxt, origin: typeck::MethodOrigin)
-                                   -> Rc<Vec<TypeParameterDef>> {
+                                   -> VecPerParamSpace<TypeParameterDef> {
     match origin {
         typeck::MethodStatic(did) => {
-            // n.b.: When we encode impl methods, the bounds
-            // that we encode include both the impl bounds
-            // and then the method bounds themselves...
-            ty::lookup_item_type(tcx, did).generics.type_param_defs
+            ty::lookup_item_type(tcx, did).generics.types.clone()
         }
-        typeck::MethodParam(typeck::MethodParam {
-            trait_id: trt_id,
-            method_num: n_mth, ..}) |
-        typeck::MethodObject(typeck::MethodObject {
-            trait_id: trt_id,
-            method_num: n_mth, ..}) => {
-            // ...trait methods bounds, in contrast, include only the
-            // method bounds, so we must preprend the tps from the
-            // trait itself.  This ought to be harmonized.
-            let trait_type_param_defs =
-                Vec::from_slice(lookup_trait_def(tcx, trt_id).generics.type_param_defs());
-            Rc::new(trait_type_param_defs.append(
-                        ty::trait_method(tcx, trt_id, n_mth).generics.type_param_defs()))
+        typeck::MethodParam(typeck::MethodParam{trait_id: trt_id,
+                                                method_num: n_mth, ..}) |
+        typeck::MethodObject(typeck::MethodObject{trait_id: trt_id,
+                                                  method_num: n_mth, ..}) => {
+            ty::trait_method(tcx, trt_id, n_mth).generics.types.clone()
         }
     }
 }
@@ -3240,21 +3262,21 @@ pub fn expr_kind(tcx: &ctxt, expr: &ast::Expr) -> ExprKind {
         }
 
         ast::ExprBox(place, _) => {
-            // Special case `Box<T>` for now:
+            // Special case `Box<T>`/`Gc<T>` for now:
             let definition = match tcx.def_map.borrow().find(&place.id) {
                 Some(&def) => def,
                 None => fail!("no def for place"),
             };
             let def_id = definition.def_id();
-            match tcx.lang_items.items.get(ExchangeHeapLangItem as uint) {
-                &Some(item_def_id) if def_id == item_def_id => {
-                    RvalueDatumExpr
-                }
-                &Some(_) | &None => RvalueDpsExpr,
+            if tcx.lang_items.exchange_heap() == Some(def_id) ||
+               tcx.lang_items.managed_heap() == Some(def_id) {
+                RvalueDatumExpr
+            } else {
+                RvalueDpsExpr
             }
         }
 
-        ast::ExprParen(e) => expr_kind(tcx, e),
+        ast::ExprParen(ref e) => expr_kind(tcx, &**e),
 
         ast::ExprMac(..) => {
             tcx.sess.span_bug(
@@ -3292,7 +3314,7 @@ pub fn method_idx(id: ast::Ident, meths: &[Rc<Method>]) -> Option<uint> {
 /// Returns a vector containing the indices of all type parameters that appear
 /// in `ty`.  The vector may contain duplicates.  Probably should be converted
 /// to a bitset or some other representation.
-pub fn param_tys_in_type(ty: t) -> Vec<param_ty> {
+pub fn param_tys_in_type(ty: t) -> Vec<ParamTy> {
     let mut rslt = Vec::new();
     walk_ty(ty, |ty| {
         match get(ty).sty {
@@ -3313,7 +3335,7 @@ pub fn ty_sort_str(cx: &ctxt, t: t) -> String {
         }
 
         ty_enum(id, _) => format!("enum {}", item_path_str(cx, id)),
-        ty_box(_) => "@-ptr".to_string(),
+        ty_box(_) => "Gc-ptr".to_string(),
         ty_uniq(_) => "box".to_string(),
         ty_vec(_, _) => "vector".to_string(),
         ty_ptr(_) => "*-ptr".to_string(),
@@ -3331,9 +3353,14 @@ pub fn ty_sort_str(cx: &ctxt, t: t) -> String {
         ty_infer(TyVar(_)) => "inferred type".to_string(),
         ty_infer(IntVar(_)) => "integral variable".to_string(),
         ty_infer(FloatVar(_)) => "floating-point variable".to_string(),
-        ty_param(_) => "type parameter".to_string(),
         ty_infer(MDVar(..)) => "multiple-data variable".to_string(),
-        ty_self(_) => "self".to_string(),
+        ty_param(ref p) => {
+            if p.space == subst::SelfSpace {
+                "Self".to_string()
+            } else {
+                "type parameter".to_string()
+            }
+        }
         ty_err => "type error".to_string(),
     }
 }
@@ -3879,7 +3906,7 @@ pub fn enum_variants(cx: &ctxt, id: ast::DefId) -> Rc<Vec<Rc<VariantInfo>>> {
                             };
 
                             match variant.node.disr_expr {
-                                Some(e) => match const_eval::eval_const_expr_partial(cx, e) {
+                                Some(ref e) => match const_eval::eval_const_expr_partial(cx, &**e) {
                                     Ok(const_eval::const_int(val)) => {
                                         discriminant = val as Disr
                                     }
@@ -3902,7 +3929,7 @@ pub fn enum_variants(cx: &ctxt, id: ast::DefId) -> Rc<Vec<Rc<VariantInfo>>> {
                             };
 
                             last_discriminant = Some(discriminant);
-                            Rc::new(VariantInfo::from_ast_variant(cx, variant,
+                            Rc::new(VariantInfo::from_ast_variant(cx, &*variant,
                                                                   discriminant))
                         }).collect())
                     }
@@ -3944,7 +3971,7 @@ pub fn lookup_item_type(cx: &ctxt,
 
 pub fn lookup_impl_vtables(cx: &ctxt,
                            did: ast::DefId)
-                     -> typeck::impl_res {
+                           -> typeck::vtable_res {
     lookup_locally_or_in_crate_store(
         "impl_vtables", did, &mut *cx.impl_vtables.borrow_mut(),
         || csearch::get_impl_vtables(cx, did) )
@@ -4226,8 +4253,7 @@ pub fn normalize_ty(cx: &ctxt, t: t) -> t {
                        substs: &subst::Substs)
                        -> subst::Substs {
             subst::Substs { regions: subst::ErasedRegions,
-                            self_ty: substs.self_ty.fold_with(self),
-                            tps: substs.tps.fold_with(self) }
+                            types: substs.types.fold_with(self) }
         }
 
         fn fold_sig(&mut self,
@@ -4333,11 +4359,7 @@ pub fn visitor_object_ty(tcx: &ctxt,
         Ok(id) => id,
         Err(s) => { return Err(s); }
     };
-    let substs = Substs {
-        regions: subst::NonerasedRegions(Vec::new()),
-        self_ty: None,
-        tps: Vec::new()
-    };
+    let substs = Substs::empty();
     let trait_ref = Rc::new(TraitRef { def_id: trait_lang_item, substs: substs });
     Ok((trait_ref.clone(),
         mk_trait(tcx,
@@ -4471,6 +4493,27 @@ pub fn trait_id_of_impl(tcx: &ctxt,
     }
 }
 
+/// If the given def ID describes a method belonging to an impl, return the
+/// ID of the impl that the method belongs to. Otherwise, return `None`.
+pub fn impl_of_method(tcx: &ctxt, def_id: ast::DefId)
+                       -> Option<ast::DefId> {
+    if def_id.krate != LOCAL_CRATE {
+        return match csearch::get_method(tcx, def_id).container {
+            TraitContainer(_) => None,
+            ImplContainer(def_id) => Some(def_id),
+        };
+    }
+    match tcx.methods.borrow().find_copy(&def_id) {
+        Some(method) => {
+            match method.container {
+                TraitContainer(_) => None,
+                ImplContainer(def_id) => Some(def_id),
+            }
+        }
+        None => None
+    }
+}
+
 /// If the given def ID describes a method belonging to a trait (either a
 /// default method or an implementation of a trait method), return the ID of
 /// the trait that the method belongs to. Otherwise, return `None`.
@@ -4578,9 +4621,10 @@ pub fn hash_crate_independent(tcx: &ctxt, t: t, svh: &Svh) -> u64 {
             ty_uniq(_) => {
                 byte!(10);
             }
-            ty_vec(m, Some(_)) => {
+            ty_vec(m, Some(n)) => {
                 byte!(11);
                 mt(&mut state, m);
+                n.hash(&mut state);
                 1u8.hash(&mut state);
             }
             ty_vec(m, None) => {
@@ -4642,10 +4686,6 @@ pub fn hash_crate_independent(tcx: &ctxt, t: t, svh: &Svh) -> u64 {
                 hash!(p.idx);
                 did(&mut state, p.def_id);
             }
-            ty_self(d) => {
-                byte!(21);
-                did(&mut state, d);
-            }
             ty_infer(_) => unreachable!(),
             ty_err => byte!(23),
             ty_simd(t, n) => {
@@ -4672,11 +4712,7 @@ impl Variance {
 
 pub fn construct_parameter_environment(
     tcx: &ctxt,
-    self_bound: Option<Rc<TraitRef>>,
-    item_type_params: &[TypeParameterDef],
-    method_type_params: &[TypeParameterDef],
-    item_region_params: &[RegionParameterDef],
-    method_region_params: &[RegionParameterDef],
+    generics: &ty::Generics,
     free_id: ast::NodeId)
     -> ParameterEnvironment
 {
@@ -4686,75 +4722,76 @@ pub fn construct_parameter_environment(
     // Construct the free substs.
     //
 
-    // map Self => Self
-    let self_ty = self_bound.as_ref().map(|t| ty::mk_self(tcx, t.def_id));
-
-    // map A => A
-    let num_item_type_params = item_type_params.len();
-    let num_method_type_params = method_type_params.len();
-    let num_type_params = num_item_type_params + num_method_type_params;
-    let type_params = Vec::from_fn(num_type_params, |i| {
-            let def_id = if i < num_item_type_params {
-                item_type_params[i].def_id
-            } else {
-                method_type_params[i - num_item_type_params].def_id
-            };
-
-            ty::mk_param(tcx, i, def_id)
-        });
+    // map T => T
+    let mut types = VecPerParamSpace::empty();
+    for &space in subst::ParamSpace::all().iter() {
+        push_types_from_defs(tcx, &mut types, space,
+                             generics.types.get_vec(space));
+    }
 
     // map bound 'a => free 'a
-    let region_params = {
-        fn push_region_params(mut accum: Vec<ty::Region>,
-                              free_id: ast::NodeId,
-                              region_params: &[RegionParameterDef])
-                              -> Vec<ty::Region> {
-            for r in region_params.iter() {
-                accum.push(
-                    ty::ReFree(ty::FreeRegion {
-                            scope_id: free_id,
-                            bound_region: ty::BrNamed(r.def_id, r.name)}));
-            }
-            accum
-        }
-
-        let t = push_region_params(vec!(), free_id, item_region_params);
-        push_region_params(t, free_id, method_region_params)
-    };
+    let mut regions = VecPerParamSpace::empty();
+    for &space in subst::ParamSpace::all().iter() {
+        push_region_params(&mut regions, space, free_id,
+                           generics.regions.get_vec(space));
+    }
 
     let free_substs = Substs {
-        self_ty: self_ty,
-        tps: type_params,
-        regions: subst::NonerasedRegions(region_params)
+        types: types,
+        regions: subst::NonerasedRegions(regions)
     };
 
     //
     // Compute the bounds on Self and the type parameters.
     //
 
-    let self_bound_substd = self_bound.map(|b| b.subst(tcx, &free_substs));
-    let type_param_bounds_substd = Vec::from_fn(num_type_params, |i| {
-        if i < num_item_type_params {
-            (*item_type_params[i].bounds).subst(tcx, &free_substs)
-        } else {
-            let j = i - num_item_type_params;
-            (*method_type_params[j].bounds).subst(tcx, &free_substs)
-        }
-    });
+    let mut bounds = VecPerParamSpace::empty();
+    for &space in subst::ParamSpace::all().iter() {
+        push_bounds_from_defs(tcx, &mut bounds, space, &free_substs,
+                              generics.types.get_vec(space));
+    }
 
     debug!("construct_parameter_environment: free_id={} \
            free_subst={} \
-           self_param_bound={} \
-           type_param_bound={}",
+           bounds={}",
            free_id,
            free_substs.repr(tcx),
-           self_bound_substd.repr(tcx),
-           type_param_bounds_substd.repr(tcx));
+           bounds.repr(tcx));
 
-    ty::ParameterEnvironment {
+    return ty::ParameterEnvironment {
         free_substs: free_substs,
-        self_param_bound: self_bound_substd,
-        type_param_bounds: type_param_bounds_substd,
+        bounds: bounds
+    };
+
+    fn push_region_params(regions: &mut VecPerParamSpace<ty::Region>,
+                          space: subst::ParamSpace,
+                          free_id: ast::NodeId,
+                          region_params: &Vec<RegionParameterDef>)
+    {
+        for r in region_params.iter() {
+            regions.push(space, ty::free_region_from_def(free_id, r));
+        }
+    }
+
+    fn push_types_from_defs(tcx: &ty::ctxt,
+                            types: &mut subst::VecPerParamSpace<ty::t>,
+                            space: subst::ParamSpace,
+                            defs: &Vec<TypeParameterDef>) {
+        for (i, def) in defs.iter().enumerate() {
+            let ty = ty::mk_param(tcx, space, i, def.def_id);
+            types.push(space, ty);
+        }
+    }
+
+    fn push_bounds_from_defs(tcx: &ty::ctxt,
+                             bounds: &mut subst::VecPerParamSpace<ParamBounds>,
+                             space: subst::ParamSpace,
+                             free_substs: &subst::Substs,
+                             defs: &Vec<TypeParameterDef>) {
+        for def in defs.iter() {
+            let b = (*def.bounds).subst(tcx, free_substs);
+            bounds.push(space, b);
+        }
     }
 }
 

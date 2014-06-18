@@ -14,9 +14,11 @@
 
 use core::prelude::*;
 
+use core::default::Default;
 use core::mem::{zeroed, replace, swap};
 use core::ptr;
 
+use {Collection, Mutable};
 use slice;
 use vec::Vec;
 
@@ -26,7 +28,7 @@ pub struct PriorityQueue<T> {
     data: Vec<T>,
 }
 
-impl<T: Ord> Container for PriorityQueue<T> {
+impl<T: Ord> Collection for PriorityQueue<T> {
     /// Returns the length of the queue
     fn len(&self) -> uint { self.data.len() }
 }
@@ -34,6 +36,11 @@ impl<T: Ord> Container for PriorityQueue<T> {
 impl<T: Ord> Mutable for PriorityQueue<T> {
     /// Drop all items from the queue
     fn clear(&mut self) { self.data.truncate(0) }
+}
+
+impl<T: Ord> Default for PriorityQueue<T> {
+    #[inline]
+    fn default() -> PriorityQueue<T> { PriorityQueue::new() }
 }
 
 impl<T: Ord> PriorityQueue<T> {

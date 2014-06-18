@@ -133,6 +133,7 @@ impl rtio::RtioFileStream for FileDesc {
         return super::mkerr_libc(os_datasync(self.fd()));
 
         #[cfg(target_os = "macos")]
+        #[cfg(target_os = "ios")]
         fn os_datasync(fd: c_int) -> c_int {
             unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) }
         }
@@ -140,7 +141,7 @@ impl rtio::RtioFileStream for FileDesc {
         fn os_datasync(fd: c_int) -> c_int {
             retry(|| unsafe { libc::fdatasync(fd) })
         }
-        #[cfg(not(target_os = "macos"), not(target_os = "linux"))]
+        #[cfg(not(target_os = "macos"), not(target_os = "ios"), not(target_os = "linux"))]
         fn os_datasync(fd: c_int) -> c_int {
             retry(|| unsafe { libc::fsync(fd) })
         }
@@ -167,8 +168,8 @@ impl rtio::RtioPipe for FileDesc {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
         self.inner_write(buf)
     }
-    fn clone(&self) -> Box<rtio::RtioPipe:Send> {
-        box FileDesc { inner: self.inner.clone() } as Box<rtio::RtioPipe:Send>
+    fn clone(&self) -> Box<rtio::RtioPipe + Send> {
+        box FileDesc { inner: self.inner.clone() } as Box<rtio::RtioPipe + Send>
     }
 
     // Only supported on named pipes currently. Note that this doesn't have an
@@ -537,9 +538,9 @@ mod tests {
     fn test_file_desc() {
         // Run this test with some pipes so we don't have to mess around with
         // opening or closing files.
-        let os::Pipe { input, out } = os::pipe();
-        let mut reader = FileDesc::new(input, true);
-        let mut writer = FileDesc::new(out, true);
+        let os::Pipe { reader, writer } = unsafe { os::pipe().unwrap() };
+        let mut reader = FileDesc::new(reader, true);
+        let mut writer = FileDesc::new(writer, true);
 
         writer.inner_write(bytes!("test")).ok().unwrap();
         let mut buf = [0u8, ..4];

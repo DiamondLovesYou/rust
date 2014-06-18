@@ -21,15 +21,16 @@ use std::fmt;
 use std::fmt::Show;
 use std::option::Option;
 use std::rc::Rc;
+use std::gc::{Gc, GC};
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 
 /// A pointer abstraction. FIXME(eddyb) #10676 use Rc<T> in the future.
-pub type P<T> = @T;
+pub type P<T> = Gc<T>;
 
 #[allow(non_snake_case_functions)]
 /// Construct a P<T> from a T value.
 pub fn P<T: 'static>(value: T) -> P<T> {
-    @value
+    box(GC) value
 }
 
 // FIXME #6993: in librustc, uses of "ident" should be replaced
@@ -175,6 +176,7 @@ pub static DUMMY_NODE_ID: NodeId = -1;
 pub enum TyParamBound {
     TraitTyParamBound(TraitRef),
     StaticRegionTyParamBound,
+    UnboxedFnTyParamBound(UnboxedFnTy),
     OtherRegionTyParamBound(Span) // FIXME -- just here until work for #5723 lands
 }
 
@@ -206,17 +208,9 @@ impl Generics {
     }
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
-pub enum DefRegion {
-    DefStaticRegion,
-    DefEarlyBoundRegion(/* index */ uint, /* lifetime decl */ NodeId),
-    DefLateBoundRegion(/* binder_id */ NodeId, /* depth */ uint, /* lifetime decl */ NodeId),
-    DefFreeRegion(/* block scope */ NodeId, /* lifetime decl */ NodeId),
-}
-
 // The set of MetaItems that define the compilation environment of the crate,
 // used to drive conditional compilation
-pub type CrateConfig = Vec<@MetaItem> ;
+pub type CrateConfig = Vec<Gc<MetaItem>>;
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct Crate {
@@ -231,7 +225,7 @@ pub type MetaItem = Spanned<MetaItem_>;
 #[deriving(Clone, Encodable, Decodable, Eq, Hash)]
 pub enum MetaItem_ {
     MetaWord(InternedString),
-    MetaList(InternedString, Vec<@MetaItem> ),
+    MetaList(InternedString, Vec<Gc<MetaItem>>),
     MetaNameValue(InternedString, Lit),
 }
 
@@ -263,8 +257,8 @@ impl PartialEq for MetaItem_ {
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct Block {
     pub view_items: Vec<ViewItem>,
-    pub stmts: Vec<@Stmt>,
-    pub expr: Option<@Expr>,
+    pub stmts: Vec<Gc<Stmt>>,
+    pub expr: Option<Gc<Expr>>,
     pub id: NodeId,
     pub rules: BlockCheckMode,
     pub span: Span,
@@ -280,7 +274,7 @@ pub struct Pat {
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct FieldPat {
     pub ident: Ident,
-    pub pat: @Pat,
+    pub pat: Gc<Pat>,
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
@@ -300,18 +294,18 @@ pub enum Pat_ {
     // which it is. The resolver determines this, and
     // records this pattern's NodeId in an auxiliary
     // set (of "pat_idents that refer to nullary enums")
-    PatIdent(BindingMode, Path, Option<@Pat>),
-    PatEnum(Path, Option<Vec<@Pat> >), /* "none" means a * pattern where
+    PatIdent(BindingMode, Path, Option<Gc<Pat>>),
+    PatEnum(Path, Option<Vec<Gc<Pat>>>), /* "none" means a * pattern where
                                      * we don't bind the fields to names */
-    PatStruct(Path, Vec<FieldPat> , bool),
-    PatTup(Vec<@Pat> ),
-    PatBox(@Pat),
-    PatRegion(@Pat), // reference pattern
-    PatLit(@Expr),
-    PatRange(@Expr, @Expr),
+    PatStruct(Path, Vec<FieldPat>, bool),
+    PatTup(Vec<Gc<Pat>>),
+    PatBox(Gc<Pat>),
+    PatRegion(Gc<Pat>), // reference pattern
+    PatLit(Gc<Expr>),
+    PatRange(Gc<Expr>, Gc<Expr>),
     // [a, b, ..i, y, z] is represented as
     // PatVec(~[a, b], Some(i), ~[y, z])
-    PatVec(Vec<@Pat> , Option<@Pat>, Vec<@Pat> ),
+    PatVec(Vec<Gc<Pat>>, Option<Gc<Pat>>, Vec<Gc<Pat>>),
     PatMac(Mac),
 }
 
@@ -364,13 +358,13 @@ pub type Stmt = Spanned<Stmt_>;
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum Stmt_ {
     // could be an item or a local (let) binding:
-    StmtDecl(@Decl, NodeId),
+    StmtDecl(Gc<Decl>, NodeId),
 
     // expr without trailing semi-colon (must have unit type):
-    StmtExpr(@Expr, NodeId),
+    StmtExpr(Gc<Expr>, NodeId),
 
     // expr with trailing semi-colon (may have any type):
-    StmtSemi(@Expr, NodeId),
+    StmtSemi(Gc<Expr>, NodeId),
 
     // bool: is there a trailing sem-colon?
     StmtMac(Mac, bool),
@@ -390,8 +384,8 @@ pub enum LocalSource {
 #[deriving(PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct Local {
     pub ty: P<Ty>,
-    pub pat: @Pat,
-    pub init: Option<@Expr>,
+    pub pat: Gc<Pat>,
+    pub init: Option<Gc<Expr>>,
     pub id: NodeId,
     pub span: Span,
     pub source: LocalSource,
@@ -402,23 +396,23 @@ pub type Decl = Spanned<Decl_>;
 #[deriving(PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum Decl_ {
     // a local (let) binding:
-    DeclLocal(@Local),
+    DeclLocal(Gc<Local>),
     // an item binding:
-    DeclItem(@Item),
+    DeclItem(Gc<Item>),
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct Arm {
     pub attrs: Vec<Attribute>,
-    pub pats: Vec<@Pat>,
-    pub guard: Option<@Expr>,
-    pub body: @Expr,
+    pub pats: Vec<Gc<Pat>>,
+    pub guard: Option<Gc<Expr>>,
+    pub body: Gc<Expr>,
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct Field {
     pub ident: SpannedIdent,
-    pub expr: @Expr,
+    pub expr: Gc<Expr>,
     pub span: Span,
 }
 
@@ -445,64 +439,65 @@ pub struct Expr {
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum Expr_ {
-    ExprVstore(@Expr, ExprVstore),
+    ExprVstore(Gc<Expr>, ExprVstore),
     // First expr is the place; second expr is the value.
-    ExprBox(@Expr, @Expr),
-    ExprVec(Vec<@Expr>),
-    ExprCall(@Expr, Vec<@Expr>),
-    ExprMethodCall(SpannedIdent, Vec<P<Ty>>, Vec<@Expr>),
-    ExprTup(Vec<@Expr>),
+    ExprBox(Gc<Expr>, Gc<Expr>),
+    ExprVec(Vec<Gc<Expr>>),
+    ExprCall(Gc<Expr>, Vec<Gc<Expr>>),
+    ExprMethodCall(SpannedIdent, Vec<P<Ty>>, Vec<Gc<Expr>>),
+    ExprTup(Vec<Gc<Expr>>),
     // Because ty::ty_simd isn't an accessible type from source.
     // Its intended consumption is through a syntax extension.
-    ExprSimd(Vec<@Expr>),
+    ExprSimd(Vec<Gc<Expr>>),
     // As with ExprSimd, ExprSwizzle also isn't available from source
-    ExprSwizzle(@Expr /* left */,
-                Option<@Expr> /* right */,
-                Vec<@Expr> /* mask; may be any constant expression */),
+    ExprSwizzle(Gc<Expr> /* left */,
+                Option<Gc<Expr>> /* right */,
+                Vec<Gc<Expr>> /* mask; may be any constant expression */),
 
-    ExprBinary(BinOp, @Expr, @Expr),
-    ExprUnary(UnOp, @Expr),
-    ExprLit(@Lit),
-    ExprCast(@Expr, P<Ty>),
-    ExprIf(@Expr, P<Block>, Option<@Expr>),
-    ExprWhile(@Expr, P<Block>),
+    ExprBinary(BinOp, Gc<Expr>, Gc<Expr>),
+    ExprUnary(UnOp, Gc<Expr>),
+    ExprLit(Gc<Lit>),
+    ExprCast(Gc<Expr>, P<Ty>),
+    ExprIf(Gc<Expr>, P<Block>, Option<Gc<Expr>>),
+    ExprWhile(Gc<Expr>, P<Block>),
+
     // FIXME #6993: change to Option<Name>
-    ExprForLoop(@Pat, @Expr, P<Block>, Option<Ident>),
+    ExprForLoop(Gc<Pat>, Gc<Expr>, P<Block>, Option<Ident>),
     // Conditionless loop (can be exited with break, cont, or ret)
     // FIXME #6993: change to Option<Name>
     ExprLoop(P<Block>, Option<Ident>),
-    ExprMatch(@Expr, Vec<Arm>),
+    ExprMatch(Gc<Expr>, Vec<Arm>),
     ExprFnBlock(P<FnDecl>, P<Block>),
     ExprProc(P<FnDecl>, P<Block>),
     ExprBlock(P<Block>),
 
-    ExprAssign(@Expr, @Expr),
-    ExprAssignOp(BinOp, @Expr, @Expr),
-    ExprField(@Expr, Ident, Vec<P<Ty>>),
-    ExprIndex(@Expr, @Expr),
+    ExprAssign(Gc<Expr>, Gc<Expr>),
+    ExprAssignOp(BinOp, Gc<Expr>, Gc<Expr>),
+    ExprField(Gc<Expr>, SpannedIdent, Vec<P<Ty>>),
+    ExprIndex(Gc<Expr>, Gc<Expr>),
 
     /// Expression that looks like a "name". For example,
     /// `std::slice::from_elem::<uint>` is an ExprPath that's the "name" part
     /// of a function call.
     ExprPath(Path),
 
-    ExprAddrOf(Mutability, @Expr),
+    ExprAddrOf(Mutability, Gc<Expr>),
     ExprBreak(Option<Ident>),
     ExprAgain(Option<Ident>),
-    ExprRet(Option<@Expr>),
+    ExprRet(Option<Gc<Expr>>),
 
     ExprInlineAsm(InlineAsm),
 
     ExprMac(Mac),
 
     // A struct literal expression.
-    ExprStruct(Path, Vec<Field> , Option<@Expr> /* base */),
+    ExprStruct(Path, Vec<Field> , Option<Gc<Expr>> /* base */),
 
     // A vector literal constructed from one repeated element.
-    ExprRepeat(@Expr /* element */, @Expr /* count */),
+    ExprRepeat(Gc<Expr> /* element */, Gc<Expr> /* count */),
 
     // No-op: used solely so we can pretty-print faithfully
-    ExprParen(@Expr)
+    ExprParen(Gc<Expr>)
 }
 
 // When the main rust parser encounters a syntax-extension invocation, it
@@ -674,7 +669,7 @@ pub struct TypeMethod {
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum TraitMethod {
     Required(TypeMethod),
-    Provided(@Method),
+    Provided(Gc<Method>),
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
@@ -791,24 +786,32 @@ pub struct BareFnTy {
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
+pub struct UnboxedFnTy {
+    pub decl: P<FnDecl>,
+}
+
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum Ty_ {
     TyNil,
     TyBot, /* bottom type */
     TyBox(P<Ty>),
     TyUniq(P<Ty>),
     TyVec(P<Ty>),
-    TyFixedLengthVec(P<Ty>, @Expr),
+    TyFixedLengthVec(P<Ty>, Gc<Expr>),
     TyPtr(MutTy),
     TyRptr(Option<Lifetime>, MutTy),
-    TyClosure(@ClosureTy, Option<Lifetime>),
-    TyProc(@ClosureTy),
-    TyBareFn(@BareFnTy),
+    TyClosure(Gc<ClosureTy>, Option<Lifetime>),
+    TyProc(Gc<ClosureTy>),
+    TyBareFn(Gc<BareFnTy>),
+    TyUnboxedFn(Gc<UnboxedFnTy>),
     TyTup(Vec<P<Ty>> ),
     TyPath(Path, Option<OwnedSlice<TyParamBound>>, NodeId), // for #7264; see above
-    TyTypeof(@Expr),
+    // No-op; kept solely so that we can pretty-print faithfully
+    TyParen(P<Ty>),
+    TyTypeof(Gc<Expr>),
 
     // only accessable through a syntax extension.
-    TySimd(P<Ty>, @Expr),
+    TySimd(P<Ty>, Gc<Expr>),
 
     // TyInfer means the type should be inferred instead of it having been
     // specified. This can appear anywhere in a type.
@@ -826,8 +829,8 @@ pub struct InlineAsm {
     pub asm: InternedString,
     pub asm_str_style: StrStyle,
     pub clobbers: InternedString,
-    pub inputs: Vec<(InternedString, @Expr)>,
-    pub outputs: Vec<(InternedString, @Expr)>,
+    pub inputs: Vec<(InternedString, Gc<Expr>)>,
+    pub outputs: Vec<(InternedString, Gc<Expr>)>,
     pub volatile: bool,
     pub alignstack: bool,
     pub dialect: AsmDialect
@@ -836,7 +839,7 @@ pub struct InlineAsm {
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct Arg {
     pub ty: P<Ty>,
-    pub pat: @Pat,
+    pub pat: Gc<Pat>,
     pub id: NodeId,
 }
 
@@ -850,7 +853,7 @@ impl Arg {
                 node: TyInfer,
                 span: DUMMY_SP,
             }),
-            pat: @Pat {
+            pat: box(GC) Pat {
                 id: DUMMY_NODE_ID,
                 node: PatIdent(BindByValue(mutability), path, None),
                 span: span
@@ -921,14 +924,14 @@ pub struct Mod {
     /// to the last token in the external file.
     pub inner: Span,
     pub view_items: Vec<ViewItem>,
-    pub items: Vec<@Item>,
+    pub items: Vec<Gc<Item>>,
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct ForeignMod {
     pub abi: Abi,
     pub view_items: Vec<ViewItem>,
-    pub items: Vec<@ForeignItem>,
+    pub items: Vec<Gc<ForeignItem>>,
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
@@ -940,7 +943,7 @@ pub struct VariantArg {
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum VariantKind {
     TupleVariantKind(Vec<VariantArg>),
-    StructVariantKind(@StructDef),
+    StructVariantKind(Gc<StructDef>),
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
@@ -954,7 +957,7 @@ pub struct Variant_ {
     pub attrs: Vec<Attribute>,
     pub kind: VariantKind,
     pub id: NodeId,
-    pub disr_expr: Option<@Expr>,
+    pub disr_expr: Option<Gc<Expr>>,
     pub vis: Visibility,
 }
 
@@ -1000,9 +1003,9 @@ pub enum ViewItem_ {
     // ident: name used to refer to this crate in the code
     // optional (InternedString,StrStyle): if present, this is a location
     // (containing arbitrary characters) from which to fetch the crate sources
-    // For example, extern crate whatever = "github.com/mozilla/rust"
+    // For example, extern crate whatever = "github.com/rust-lang/rust"
     ViewItemExternCrate(Ident, Option<(InternedString,StrStyle)>, NodeId),
-    ViewItemUse(@ViewPath),
+    ViewItemUse(Gc<ViewPath>),
 }
 
 // Meta-data associated with an item
@@ -1025,7 +1028,7 @@ pub struct AttrId(pub uint);
 pub struct Attribute_ {
     pub id: AttrId,
     pub style: AttrStyle,
-    pub value: @MetaItem,
+    pub value: Gc<MetaItem>,
     pub is_sugared_doc: bool,
 }
 
@@ -1071,6 +1074,15 @@ pub struct StructField_ {
     pub attrs: Vec<Attribute>,
 }
 
+impl StructField_ {
+    pub fn ident(&self) -> Option<Ident> {
+        match self.kind {
+            NamedField(ref ident, _) => Some(ident.clone()),
+            UnnamedField(_) => None
+        }
+    }
+}
+
 pub type StructField = Spanned<StructField_>;
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
@@ -1114,18 +1126,18 @@ pub struct Item {
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum Item_ {
-    ItemStatic(P<Ty>, Mutability, @Expr),
+    ItemStatic(P<Ty>, Mutability, Gc<Expr>),
     ItemFn(P<FnDecl>, FnStyle, Abi, Generics, P<Block>),
     ItemMod(Mod),
     ItemForeignMod(ForeignMod),
     ItemTy(P<Ty>, Generics),
     ItemEnum(EnumDef, Generics),
-    ItemStruct(@StructDef, Generics),
+    ItemStruct(Gc<StructDef>, Generics),
     ItemTrait(Generics, Sized, Vec<TraitRef> , Vec<TraitMethod> ),
     ItemImpl(Generics,
              Option<TraitRef>, // (optional) trait this impl implements
              P<Ty>, // self
-             Vec<@Method> ),
+             Vec<Gc<Method>>),
     // a macro invocation (which includes macro definition)
     ItemMac(Mac),
 }
@@ -1151,9 +1163,9 @@ pub enum ForeignItem_ {
 // that we trans.
 #[deriving(PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum InlinedItem {
-    IIItem(@Item),
-    IIMethod(DefId /* impl id */, bool /* is provided */, @Method),
-    IIForeign(@ForeignItem),
+    IIItem(Gc<Item>),
+    IIMethod(DefId /* impl id */, bool /* is provided */, Gc<Method>),
+    IIForeign(Gc<ForeignItem>),
 }
 
 #[cfg(test)]

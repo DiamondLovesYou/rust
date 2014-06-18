@@ -20,15 +20,12 @@
        html_root_url = "http://doc.rust-lang.org/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![feature(phase)]
-#![deny(deprecated_owned_vector)]
 
 #[cfg(test)] extern crate debug;
-#[cfg(test)] #[phase(syntax, link)] extern crate log;
+#[cfg(test)] #[phase(plugin, link)] extern crate log;
 
 extern crate serialize;
 extern crate libc;
-#[cfg(target_os = "macos")]
-extern crate sync;
 
 use std::io::BufReader;
 use std::num;
@@ -49,7 +46,7 @@ mod rustrt {
     }
 }
 
-#[cfg(unix, not(target_os = "macos"))]
+#[cfg(unix, not(target_os = "macos"), not(target_os = "ios"))]
 mod imp {
     use libc::{c_int, timespec};
 
@@ -64,6 +61,7 @@ mod imp {
 
 }
 #[cfg(target_os = "macos")]
+#[cfg(target_os = "ios")]
 mod imp {
     use libc::{timeval, timezone, c_int, mach_timebase_info};
 
@@ -124,6 +122,7 @@ pub fn get_time() -> Timespec {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     unsafe fn os_get_time() -> (i64, i32) {
         use std::ptr;
         let mut tv = libc::timeval { tv_sec: 0, tv_usec: 0 };
@@ -131,7 +130,7 @@ pub fn get_time() -> Timespec {
         (tv.tv_sec as i64, tv.tv_usec * 1000)
     }
 
-    #[cfg(not(target_os = "macos"), not(windows))]
+    #[cfg(not(target_os = "macos"), not(target_os = "ios"), not(windows))]
     unsafe fn os_get_time() -> (i64, i32) {
         let mut tv = libc::timespec { tv_sec: 0, tv_nsec: 0 };
         imp::clock_gettime(libc::CLOCK_REALTIME, &mut tv);
@@ -163,10 +162,11 @@ pub fn precise_time_ns() -> u64 {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     fn os_precise_time_ns() -> u64 {
         static mut TIMEBASE: libc::mach_timebase_info = libc::mach_timebase_info { numer: 0,
                                                                                    denom: 0 };
-        static mut ONCE: sync::one::Once = sync::one::ONCE_INIT;
+        static mut ONCE: std::sync::Once = std::sync::ONCE_INIT;
         unsafe {
             ONCE.doit(|| {
                 imp::mach_timebase_info(&mut TIMEBASE);
@@ -176,7 +176,7 @@ pub fn precise_time_ns() -> u64 {
         }
     }
 
-    #[cfg(not(windows), not(target_os = "macos"))]
+    #[cfg(not(windows), not(target_os = "macos"), not(target_os = "ios"))]
     fn os_precise_time_ns() -> u64 {
         let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
         unsafe {

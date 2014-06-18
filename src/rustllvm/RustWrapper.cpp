@@ -322,7 +322,7 @@ extern "C" LLVMValueRef LLVMDIBuilderCreateStructType(
         unwrapDI<DIArray>(Elements),
         RunTimeLang,
         unwrapDI<DIType>(VTableHolder)
-#if LLVM_VERSION_MINOR >= 5
+#if LLVM_VERSION_MINOR >= 4
         ,UniqueId
 #endif
         ));
@@ -514,7 +514,7 @@ extern "C" LLVMValueRef LLVMDIBuilderCreateUnionType(
         Flags,
         unwrapDI<DIArray>(Elements),
         RunTimeLang
-#if LLVM_VERSION_MINOR >= 5
+#if LLVM_VERSION_MINOR >= 4
         ,UniqueId
 #endif
         ));
@@ -794,6 +794,11 @@ LLVMRustSetDLLExportStorageClass(LLVMValueRef Value) {
 extern "C" int
 LLVMVersionMinor() {
     return LLVM_VERSION_MINOR;
+}
+
+extern "C" int
+LLVMVersionMajor() {
+    return LLVM_VERSION_MAJOR;
 }
 
 // Note that the two following functions look quite similar to the

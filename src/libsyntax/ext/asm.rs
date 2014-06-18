@@ -20,6 +20,7 @@ use parse;
 use parse::token::InternedString;
 use parse::token;
 
+use std::gc::GC;
 
 enum State {
     Asm,
@@ -155,7 +156,7 @@ pub fn expand_asm(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
                     }
 
                     let (s, _str_style) = p.parse_str();
-                    let clob = format!("~\\{{}\\}", s);
+                    let clob = format!("~{{{}}}", s);
                     clobs.push(clob);
 
                     if OPTIONS.iter().any(|opt| s.equiv(opt)) {
@@ -214,7 +215,7 @@ pub fn expand_asm(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
                                                  out));
     }
 
-    MacExpr::new(@ast::Expr {
+    MacExpr::new(box(GC) ast::Expr {
         id: ast::DUMMY_NODE_ID,
         node: ast::ExprInlineAsm(ast::InlineAsm {
             asm: token::intern_and_get_ident(asm.get()),

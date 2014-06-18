@@ -84,6 +84,7 @@ $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$(4):				    \
 		-L "$$(RT_OUTPUT_DIR_$(2))" \
 		-L "$$(LLVM_LIBDIR_$(2))" \
 		-L "$$(dir $$(LLVM_STDCPP_LOCATION_$(2)))" \
+		$$(RUSTFLAGS_$(4)) \
 		--out-dir $$(@D) $$<
 	@touch $$@
 	$$(call LIST_ALL_OLD_GLOB_MATCHES,\
@@ -165,7 +166,8 @@ $(foreach crate,$(CRATES),						    \
   $(foreach target,$(CFG_TARGET),					    \
    $(eval $(call RUST_TARGET_STAGE_N,0,$(target),$(source),$(crate)))	    \
    $(eval $(call RUST_TARGET_STAGE_N,1,$(target),$(source),$(crate)))	    \
-   $(eval $(call RUST_TARGET_STAGE_N,2,$(target),$(source),$(crate)))	    \
+   $(eval $(if $(filter-out $(DISABLED_CRATES_$(target)),$(crate)),         \
+	$(call RUST_TARGET_STAGE_N,2,$(target),$(source),$(crate))))        \
    $(eval $(call RUST_TARGET_STAGE_N,3,$(target),$(source),$(crate))))))
 
 $(foreach host,$(CFG_HOST),						    \

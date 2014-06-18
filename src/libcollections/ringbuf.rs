@@ -11,15 +11,16 @@
 //! A double-ended queue implemented as a circular buffer
 //!
 //! RingBuf implements the trait Deque. It should be imported with `use
-//! collections::deque::Deque`.
+//! collections::Deque`.
 
 use core::prelude::*;
 
 use core::cmp;
+use core::default::Default;
 use core::fmt;
 use core::iter::RandomAccessIterator;
 
-use deque::Deque;
+use {Deque, Collection, Mutable};
 use vec::Vec;
 
 static INITIAL_CAPACITY: uint = 8u; // 2^3
@@ -33,7 +34,7 @@ pub struct RingBuf<T> {
     elts: Vec<Option<T>>
 }
 
-impl<T> Container for RingBuf<T> {
+impl<T> Collection for RingBuf<T> {
     /// Return the number of elements in the RingBuf
     fn len(&self) -> uint { self.nelts }
 }
@@ -65,7 +66,8 @@ impl<T> Deque<T> for RingBuf<T> {
 
     /// Return a mutable reference to the last element in the RingBuf
     fn back_mut<'a>(&'a mut self) -> Option<&'a mut T> {
-        if self.nelts > 0 { Some(self.get_mut(self.nelts - 1)) } else { None }
+        let nelts = self.nelts;
+        if nelts > 0 { Some(self.get_mut(nelts - 1)) } else { None }
     }
 
     /// Remove and return the first element in the RingBuf, or None if it is empty
@@ -110,6 +112,11 @@ impl<T> Deque<T> for RingBuf<T> {
         *self.elts.get_mut(hi) = Some(t);
         self.nelts += 1u;
     }
+}
+
+impl<T> Default for RingBuf<T> {
+    #[inline]
+    fn default() -> RingBuf<T> { RingBuf::new() }
 }
 
 impl<T> RingBuf<T> {
@@ -412,10 +419,11 @@ impl<T: fmt::Show> fmt::Show for RingBuf<T> {
 mod tests {
     use std::fmt::Show;
     use std::prelude::*;
+    use std::gc::{GC, Gc};
     use test::Bencher;
     use test;
 
-    use deque::Deque;
+    use {Deque, Mutable};
     use super::RingBuf;
     use vec::Vec;
 
@@ -466,10 +474,10 @@ mod tests {
 
     #[test]
     fn test_boxes() {
-        let a: @int = @5;
-        let b: @int = @72;
-        let c: @int = @64;
-        let d: @int = @175;
+        let a: Gc<int> = box(GC) 5;
+        let b: Gc<int> = box(GC) 72;
+        let c: Gc<int> = box(GC) 64;
+        let d: Gc<int> = box(GC) 175;
 
         let mut deq = RingBuf::new();
         assert_eq!(deq.len(), 0);
@@ -614,7 +622,8 @@ mod tests {
 
     #[test]
     fn test_param_at_int() {
-        test_parameterized::<@int>(@5, @72, @64, @175);
+        test_parameterized::<Gc<int>>(box(GC) 5, box(GC) 72,
+                                      box(GC) 64, box(GC) 175);
     }
 
     #[test]

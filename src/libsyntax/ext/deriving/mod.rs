@@ -22,6 +22,8 @@ use ast::{Item, MetaItem, MetaList, MetaNameValue, MetaWord};
 use ext::base::ExtCtxt;
 use codemap::Span;
 
+use std::gc::Gc;
+
 pub mod bounds;
 pub mod clone;
 pub mod encodable;
@@ -47,9 +49,9 @@ pub mod generic;
 
 pub fn expand_meta_deriving(cx: &mut ExtCtxt,
                             _span: Span,
-                            mitem: @MetaItem,
-                            item: @Item,
-                            push: |@Item|) {
+                            mitem: Gc<MetaItem>,
+                            item: Gc<Item>,
+                            push: |Gc<Item>|) {
     match mitem.node {
         MetaNameValue(_, ref l) => {
             cx.span_err(l.span, "unexpected value in `deriving`");
@@ -77,7 +79,6 @@ pub fn expand_meta_deriving(cx: &mut ExtCtxt,
                             "Encodable" => expand!(encodable::expand_deriving_encodable),
                             "Decodable" => expand!(decodable::expand_deriving_decodable),
 
-                            // NOTE: after a stage0 snap this needs treatment
                             "PartialEq" => expand!(eq::expand_deriving_eq),
                             "Eq" => expand!(totaleq::expand_deriving_totaleq),
                             "PartialOrd" => expand!(ord::expand_deriving_ord),

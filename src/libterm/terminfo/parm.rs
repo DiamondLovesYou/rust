@@ -347,7 +347,8 @@ pub fn expand(cap: &[u8], params: &[Param], vars: &mut Variables)
                         let res = format(stack.pop().unwrap(), FormatOp::from_char(cur), *flags);
                         if res.is_err() { return res }
                         output.push_all(res.unwrap().as_slice());
-                        old_state = state; // will cause state to go to Nothing
+                        // will cause state to go to Nothing
+                        old_state = FormatPattern(*flags, *fstate);
                     } else { return Err("stack is empty".to_string()) },
                     (FormatStateFlags,'#') => {
                         flags.alternate = true;
@@ -645,15 +646,15 @@ mod test {
     fn test_comparison_ops() {
         let v = [('<', [1u8, 0u8, 0u8]), ('=', [0u8, 1u8, 0u8]), ('>', [0u8, 0u8, 1u8])];
         for &(op, bs) in v.iter() {
-            let s = format!("%\\{1\\}%\\{2\\}%{}%d", op);
+            let s = format!("%{{1}}%{{2}}%{}%d", op);
             let res = expand(s.as_bytes(), [], &mut Variables::new());
             assert!(res.is_ok(), res.unwrap_err());
             assert_eq!(res.unwrap(), vec!('0' as u8 + bs[0]));
-            let s = format!("%\\{1\\}%\\{1\\}%{}%d", op);
+            let s = format!("%{{1}}%{{1}}%{}%d", op);
             let res = expand(s.as_bytes(), [], &mut Variables::new());
             assert!(res.is_ok(), res.unwrap_err());
             assert_eq!(res.unwrap(), vec!('0' as u8 + bs[1]));
-            let s = format!("%\\{2\\}%\\{1\\}%{}%d", op);
+            let s = format!("%{{2}}%{{1}}%{}%d", op);
             let res = expand(s.as_bytes(), [], &mut Variables::new());
             assert!(res.is_ok(), res.unwrap_err());
             assert_eq!(res.unwrap(), vec!('0' as u8 + bs[2]));

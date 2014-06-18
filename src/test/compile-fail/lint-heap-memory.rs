@@ -11,11 +11,11 @@
 #![feature(managed_boxes)]
 #![forbid(heap_memory)]
 #![allow(dead_code)]
-#![allow(deprecated_owned_vector)]
 
+use std::gc::{Gc, GC};
 
 struct Foo {
-    x: @int //~ ERROR type uses managed
+    x: Gc<int>, //~ ERROR type uses managed
 }
 
 struct Bar { x: Box<int> } //~ ERROR type uses owned
@@ -23,7 +23,7 @@ struct Bar { x: Box<int> } //~ ERROR type uses owned
 fn main() {
     let _x : Bar = Bar {x : box 10}; //~ ERROR type uses owned
 
-    @2; //~ ERROR type uses managed
+    box(GC) 2; //~ ERROR type uses managed
 
     box 2; //~ ERROR type uses owned
     fn g(_: Box<Clone>) {} //~ ERROR type uses owned

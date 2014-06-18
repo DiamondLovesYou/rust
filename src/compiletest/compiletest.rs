@@ -18,10 +18,9 @@
 
 extern crate test;
 extern crate getopts;
-#[phase(link, syntax)]
-extern crate log;
 extern crate green;
 extern crate rustuv;
+#[phase(plugin, link)] extern crate log;
 
 extern crate regex;
 
@@ -105,7 +104,7 @@ pub fn parse_config(args: Vec<String> ) -> Config {
     let matches =
         &match getopts::getopts(args_.as_slice(), groups.as_slice()) {
           Ok(m) => m,
-          Err(f) => fail!("{}", f.to_err_msg())
+          Err(f) => fail!("{}", f)
         };
 
     if matches.opt_present("h") || matches.opt_present("help") {
@@ -288,6 +287,7 @@ pub fn test_opts(config: &Config) -> test::TestOpts {
         save_metrics: config.save_metrics.clone(),
         test_shard: config.test_shard.clone(),
         nocapture: false,
+        color: test::AutoColor,
     }
 }
 

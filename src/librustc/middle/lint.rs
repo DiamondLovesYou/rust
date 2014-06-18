@@ -57,6 +57,7 @@ use std::i32;
 use std::i64;
 use std::i8;
 use std::rc::Rc;
+use std::gc::Gc;
 use std::to_str::ToStr;
 use std::u16;
 use std::u32;
@@ -119,8 +120,6 @@ pub enum Lint {
 
     UnusedMustUse,
     UnusedResult,
-
-    DeprecatedOwnedVector,
 
     Warnings,
 
@@ -432,13 +431,6 @@ static lint_table: &'static [(&'static str, LintSpec)] = &[
         default: Allow,
     }),
 
-    ("deprecated_owned_vector",
-     LintSpec {
-        lint: DeprecatedOwnedVector,
-        desc: "use of a `~[T]` vector",
-        default: Allow,
-    }),
-
     ("raw_pointer_deriving",
      LintSpec {
         lint: RawPointerDeriving,
@@ -493,7 +485,7 @@ pub fn emit_lint(level: Level, src: LintSource, msg: &str, span: Span,
     let mut note = None;
     let msg = match src {
         Default => {
-            format!("{}, \\#[{}({})] on by default", msg,
+            format!("{}, #[{}({})] on by default", msg,
                 level_to_str(level), lint_str)
         },
         CommandLine => {
@@ -652,7 +644,7 @@ impl<'a> Context<'a> {
 /// Return true if that's the case. Otherwise return false.
 pub fn each_lint(sess: &session::Session,
                  attrs: &[ast::Attribute],
-                 f: |@ast::MetaItem, Level, InternedString| -> bool)
+                 f: |Gc<ast::MetaItem>, Level, InternedString| -> bool)
                  -> bool {
     let xs = [Allow, Warn, Deny, Forbid];
     for &level in xs.iter() {
@@ -745,8 +737,8 @@ impl<'a> AstConv for Context<'a>{
 fn check_unused_casts(cx: &Context, e: &ast::Expr) {
     return match e.node {
         ast::ExprCast(expr, ty) => {
-            let t_t = ast_ty_to_ty(cx, &infer::new_infer_ctxt(cx.tcx), ty);
-            if  ty::get(ty::expr_ty(cx.tcx, expr)).sty == ty::get(t_t).sty {
+            let t_t = ast_ty_to_ty(cx, &infer::new_infer_ctxt(cx.tcx), &*ty);
+            if  ty::get(ty::expr_ty(cx.tcx, &*expr)).sty == ty::get(t_t).sty {
                 cx.span_lint(UnnecessaryTypecast, ty.span,
                              "unnecessary type cast");
             }
@@ -769,7 +761,7 @@ fn check_type_limits(cx: &Context, e: &ast::Expr) {
                     }
                 },
                 _ => {
-                    let t = ty::expr_ty(cx.tcx, ex);
+                    let t = ty::expr_ty(cx.tcx, &*ex);
                     match ty::get(t).sty {
                         ty::ty_uint(_) => {
                             cx.span_lint(UnsignedNegate, e.span,
@@ -781,7 +773,7 @@ fn check_type_limits(cx: &Context, e: &ast::Expr) {
             }
         },
         ast::ExprBinary(binop, l, r) => {
-            if is_comparison(binop) && !check_limits(cx.tcx, binop, l, r) {
+            if is_comparison(binop) && !check_limits(cx.tcx, binop, &*l, &*r) {
                 cx.span_lint(TypeLimits, e.span,
                              "comparison is useless due to type limits");
             }
@@ -950,24 +942,24 @@ fn check_item_ctypes(cx: &Context, it: &ast::Item) {
                     _ => ()
                 }
             }
-            ast::TyPtr(ref mt) => { check_ty(cx, mt.ty) }
+            ast::TyPtr(ref mt) => { check_ty(cx, &*mt.ty) }
             _ => {}
         }
     }
 
     fn check_foreign_fn(cx: &Context, decl: &ast::FnDecl) {
         for input in decl.inputs.iter() {
-            check_ty(cx, input.ty);
+            check_ty(cx, &*input.ty);
         }
-        check_ty(cx, decl.output)
+        check_ty(cx, &*decl.output)
     }
 
     match it.node {
       ast::ItemForeignMod(ref nmod) if nmod.abi != abi::RustIntrinsic => {
         for ni in nmod.items.iter() {
             match ni.node {
-                ast::ForeignItemFn(decl, _) => check_foreign_fn(cx, decl),
-                ast::ForeignItemStatic(t, _) => check_ty(cx, t)
+                ast::ForeignItemFn(decl, _) => check_foreign_fn(cx, &*decl),
+                ast::ForeignItemStatic(t, _) => check_ty(cx, &*t)
             }
         }
       }
@@ -1082,7 +1074,7 @@ fn check_raw_ptr_deriving(cx: &mut Context, item: &ast::Item) {
     match item.node {
         ast::ItemStruct(..) | ast::ItemEnum(..) => {
             let mut visitor = RawPtrDerivingVisitor { cx: cx };
-            visit::walk_item(&mut visitor, item, ());
+            visit::walk_item(&mut visitor, &*item, ());
         }
         _ => {}
     }
@@ -1184,7 +1176,7 @@ fn check_unused_result(cx: &Context, s: &ast::Stmt) {
         ast::StmtSemi(expr, _) => expr,
         _ => return
     };
-    let t = ty::expr_ty(cx.tcx, expr);
+    let t = ty::expr_ty(cx.tcx, &*expr);
     match ty::get(t).sty {
         ty::ty_nil | ty::ty_bot | ty::ty_bool => return,
         _ => {}
@@ -1194,7 +1186,7 @@ fn check_unused_result(cx: &Context, s: &ast::Stmt) {
         _ => {}
     }
 
-    let t = ty::expr_ty(cx.tcx, expr);
+    let t = ty::expr_ty(cx.tcx, &*expr);
     let mut warned = false;
     match ty::get(t).sty {
         ty::ty_struct(did, _) |
@@ -1228,20 +1220,6 @@ fn check_unused_result(cx: &Context, s: &ast::Stmt) {
     }
 }
 
-fn check_deprecated_owned_vector(cx: &Context, e: &ast::Expr) {
-    let t = ty::expr_ty(cx.tcx, e);
-    match ty::get(t).sty {
-        ty::ty_uniq(t) => match ty::get(t).sty {
-            ty::ty_vec(_, None) => {
-                cx.span_lint(DeprecatedOwnedVector, e.span,
-                             "use of deprecated `~[]` vector; replaced by `std::vec::Vec`")
-            }
-            _ => {}
-        },
-        _ => {}
-    }
-}
-
 fn check_item_non_camel_case_types(cx: &Context, it: &ast::Item) {
     fn is_camel_case(ident: ast::Ident) -> bool {
         let ident = token::get_ident(ident);
@@ -1253,12 +1231,21 @@ fn check_item_non_camel_case_types(cx: &Context, it: &ast::Item) {
         !ident.char_at(0).is_lowercase() && !ident.contains_char('_')
     }
 
+    fn to_camel_case(s: &str) -> String {
+        s.split('_').flat_map(|word| word.chars().enumerate().map(|(i, c)|
+            if i == 0 { c.to_uppercase() }
+            else { c }
+        )).collect()
+    }
+
     fn check_case(cx: &Context, sort: &str, ident: ast::Ident, span: Span) {
+        let s = token::get_ident(ident);
+
         if !is_camel_case(ident) {
             cx.span_lint(
                 NonCamelCaseTypes, span,
-                format!("{} `{}` should have a camel case identifier",
-                    sort, token::get_ident(ident)).as_slice());
+                format!("{} `{}` should have a camel case name such as `{}`",
+                    sort, s, to_camel_case(s.get())).as_slice());
         }
     }
 
@@ -1296,10 +1283,29 @@ fn check_snake_case(cx: &Context, sort: &str, ident: ast::Ident, span: Span) {
         })
     }
 
+    fn to_snake_case(str: &str) -> String {
+        let mut words = vec![];
+        for s in str.split('_') {
+            let mut buf = String::new();
+            if s.is_empty() { continue; }
+            for ch in s.chars() {
+                if !buf.is_empty() && ch.is_uppercase() {
+                    words.push(buf);
+                    buf = String::new();
+                }
+                buf.push_char(ch.to_lowercase());
+            }
+            words.push(buf);
+        }
+        words.connect("_")
+    }
+
+    let s = token::get_ident(ident);
+
     if !is_snake_case(ident) {
         cx.span_lint(NonSnakeCaseFunctions, span,
-                    format!("{} `{}` should have a snake case identifier",
-                            sort, token::get_ident(ident)).as_slice());
+                    format!("{} `{}` should have a snake case name such as `{}`",
+                            sort, s, to_snake_case(s.get())).as_slice());
     }
 }
 
@@ -1313,7 +1319,10 @@ fn check_item_non_uppercase_statics(cx: &Context, it: &ast::Item) {
             // upper/lowercase)
             if s.get().chars().any(|c| c.is_lowercase()) {
                 cx.span_lint(NonUppercaseStatics, it.span,
-                             "static constant should have an uppercase identifier");
+                            format!("static constant `{}` should have an uppercase name \
+                                such as `{}`", s.get(),
+                                s.get().chars().map(|c| c.to_uppercase())
+                                    .collect::<String>().as_slice()).as_slice());
             }
         }
         _ => {}
@@ -1329,7 +1338,10 @@ fn check_pat_non_uppercase_statics(cx: &Context, p: &ast::Pat) {
             let s = token::get_ident(ident);
             if s.get().chars().any(|c| c.is_lowercase()) {
                 cx.span_lint(NonUppercasePatternStatics, path.span,
-                             "static constant in pattern should be all caps");
+                            format!("static constant in pattern `{}` should have an uppercase \
+                                name such as `{}`", s.get(),
+                                s.get().chars().map(|c| c.to_uppercase())
+                                    .collect::<String>().as_slice()).as_slice());
             }
         }
         _ => {}
@@ -1397,7 +1409,7 @@ fn check_unnecessary_parens_expr(cx: &Context, e: &ast::Expr) {
         ast::ExprAssignOp(_, _, value) => (value, "assigned value"),
         _ => return
     };
-    check_unnecessary_parens_core(cx, value, msg);
+    check_unnecessary_parens_core(cx, &*value, msg);
 }
 
 fn check_unnecessary_parens_stmt(cx: &Context, s: &ast::Stmt) {
@@ -1411,7 +1423,7 @@ fn check_unnecessary_parens_stmt(cx: &Context, s: &ast::Stmt) {
         },
         _ => return
     };
-    check_unnecessary_parens_core(cx, value, msg);
+    check_unnecessary_parens_core(cx, &*value, msg);
 }
 
 fn check_unused_unsafe(cx: &Context, e: &ast::Expr) {
@@ -1438,12 +1450,12 @@ fn check_unsafe_block(cx: &Context, e: &ast::Expr) {
     }
 }
 
-fn check_unused_mut_pat(cx: &Context, pats: &[@ast::Pat]) {
+fn check_unused_mut_pat(cx: &Context, pats: &[Gc<ast::Pat>]) {
     // collect all mutable pattern and group their NodeIDs by their Identifier to
     // avoid false warnings in match arms with multiple patterns
     let mut mutables = HashMap::new();
     for &p in pats.iter() {
-        pat_util::pat_bindings(&cx.tcx.def_map, p, |mode, id, _, path| {
+        pat_util::pat_bindings(&cx.tcx.def_map, &*p, |mode, id, _, path| {
             match mode {
                 ast::BindByValue(ast::MutMutable) => {
                     if path.segments.len() != 1 {
@@ -1820,7 +1832,6 @@ impl<'a> Visitor<()> for Context<'a> {
 
         check_type_limits(self, e);
         check_unused_casts(self, e);
-        check_deprecated_owned_vector(self, e);
 
         visit::walk_expr(self, e, ());
     }

@@ -16,6 +16,7 @@ Core encoding and decoding interfaces.
 
 use std::path;
 use std::rc::Rc;
+use std::gc::{Gc, GC};
 
 pub trait Encoder<E> {
     // Primitive types:
@@ -387,7 +388,7 @@ impl<E, D:Decoder<E>,T:Decodable<D, E>> Decodable<D, E> for Box<T> {
     }
 }
 
-impl<E, S:Encoder<E>,T:Encodable<S, E>> Encodable<S, E> for @T {
+impl<E, S:Encoder<E>,T:'static + Encodable<S, E>> Encodable<S, E> for Gc<T> {
     fn encode(&self, s: &mut S) -> Result<(), E> {
         (**self).encode(s)
     }
@@ -407,9 +408,9 @@ impl<E, D:Decoder<E>,T:Decodable<D, E>> Decodable<D, E> for Rc<T> {
     }
 }
 
-impl<E, D:Decoder<E>,T:Decodable<D, E> + 'static> Decodable<D, E> for @T {
-    fn decode(d: &mut D) -> Result<@T, E> {
-        Ok(@try!(Decodable::decode(d)))
+impl<E, D:Decoder<E>,T:Decodable<D, E> + 'static> Decodable<D, E> for Gc<T> {
+    fn decode(d: &mut D) -> Result<Gc<T>, E> {
+        Ok(box(GC) try!(Decodable::decode(d)))
     }
 }
 
@@ -420,32 +421,6 @@ impl<'a, E, S:Encoder<E>,T:Encodable<S, E>> Encodable<S, E> for &'a [T] {
                 try!(s.emit_seq_elt(i, |s| e.encode(s)))
             }
             Ok(())
-        })
-    }
-}
-
-impl<E, S:Encoder<E>,T:Encodable<S, E>> Encodable<S, E> for ~[T] {
-    fn encode(&self, s: &mut S) -> Result<(), E> {
-        s.emit_seq(self.len(), |s| {
-            for (i, e) in self.iter().enumerate() {
-                try!(s.emit_seq_elt(i, |s| e.encode(s)))
-            }
-            Ok(())
-        })
-    }
-}
-
-impl<E, D:Decoder<E>,T:Decodable<D, E>> Decodable<D, E> for ~[T] {
-    fn decode(d: &mut D) -> Result<~[T], E> {
-        use std::vec::FromVec;
-
-        d.read_seq(|d, len| {
-            let mut v: Vec<T> = Vec::with_capacity(len);
-            for i in range(0, len) {
-                v.push(try!(d.read_seq_elt(i, |d| Decodable::decode(d))));
-            }
-            let k: ~[T] = FromVec::from_vec(v);
-            Ok(k)
         })
     }
 }

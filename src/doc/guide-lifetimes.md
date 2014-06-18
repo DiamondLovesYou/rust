@@ -78,7 +78,7 @@ value. We also call this _borrowing_ the local variable
 name for the same data.
 
 In the case of `on_the_heap`, however, no explicit action is necessary. 
-The compiler will automatically convert a box box point to a reference like &point. 
+The compiler will automatically convert a box point to a reference like &point. 
 This is another form of borrowing; in this case, the contents of the owned box 
 are being lent out.
 
@@ -275,8 +275,10 @@ invalidate the pointer `owner_age`.
 
 # Borrowing and enums
 
-The previous example showed that the type system forbids any borrowing
-of owned boxes found in aliasable, mutable memory. This restriction
+The previous example showed that the type system forbids any mutations
+of owned boxed values while they are being borrowed. In general, the type
+system also forbids borrowing a value as mutable if it is already being
+borrowed - either as a mutable reference or an immutable one. This restriction
 prevents pointers from pointing into freed memory. There is one other
 case where the compiler must be very careful to ensure that pointers
 remain valid: pointers into the interior of an `enum`.

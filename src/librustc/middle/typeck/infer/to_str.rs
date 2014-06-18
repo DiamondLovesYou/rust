@@ -62,7 +62,7 @@ impl<V:InferStr> InferStr for Bound<V> {
 
 impl<T:InferStr> InferStr for Bounds<T> {
     fn inf_str(&self, cx: &InferCtxt) -> String {
-        format!("\\{{} <: {}\\}", self.lb.inf_str(cx), self.ub.inf_str(cx))
+        format!("{{{} <: {}}}", self.lb.inf_str(cx), self.ub.inf_str(cx))
     }
 }
 

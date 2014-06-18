@@ -14,14 +14,14 @@ use ascii::AsciiCast;
 use c_str::{CString, ToCStr};
 use clone::Clone;
 use cmp::{PartialEq, Eq};
-use container::Container;
+use collections::Collection;
 use from_str::FromStr;
 use hash;
 use io::Writer;
 use iter::{AdditiveIterator, DoubleEndedIterator, Extendable, Iterator, Map};
 use mem;
 use option::{Option, Some, None};
-use slice::{Vector, OwnedVector, ImmutableVector};
+use slice::{Vector, ImmutableVector};
 use str::{CharSplits, Str, StrAllocating, StrVector, StrSlice};
 use string::String;
 use vec::Vec;
@@ -901,7 +901,7 @@ pub fn make_non_verbatim(path: &Path) -> Option<Path> {
         }
         Some(VerbatimUNCPrefix(_,_)) => {
             // \\?\UNC\server\share
-            Path::new(format!(r"\\{}", repr.slice_from(7)))
+            Path::new(format!(r"\{}", repr.slice_from(7)))
         }
     };
     if new_path.prefix.is_none() {

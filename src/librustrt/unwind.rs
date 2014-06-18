@@ -73,22 +73,20 @@ use libc::c_void;
 
 use local::Local;
 use task::{Task, Result};
-use exclusive::Exclusive;
 
 use uw = libunwind;
 
 pub struct Unwinder {
     unwinding: bool,
-    cause: Option<Box<Any:Send>>
+    cause: Option<Box<Any + Send>>
 }
 
 struct Exception {
     uwe: uw::_Unwind_Exception,
-    cause: Option<Box<Any:Send>>,
+    cause: Option<Box<Any + Send>>,
 }
 
-pub type Callback = fn(msg: &Any:Send, file: &'static str, line: uint);
-type Queue = Exclusive<Vec<Callback>>;
+pub type Callback = fn(msg: &Any + Send, file: &'static str, line: uint);
 
 // Variables used for invoking callbacks when a task starts to unwind.
 //
@@ -150,7 +148,7 @@ impl Unwinder {
 ///   guaranteed that a rust task is in place when invoking this function.
 ///   Unwinding twice can lead to resource leaks where some destructors are not
 ///   run.
-pub unsafe fn try(f: ||) -> ::core::result::Result<(), Box<Any:Send>> {
+pub unsafe fn try(f: ||) -> ::core::result::Result<(), Box<Any + Send>> {
     let closure: Closure = mem::transmute(f);
     let ep = rust_try(try_fn, closure.code as *c_void,
                       closure.env as *c_void);
@@ -194,7 +192,7 @@ pub unsafe fn try(f: ||) -> ::core::result::Result<(), Box<Any:Send>> {
 // An uninlined, unmangled function upon which to slap yer breakpoints
 #[inline(never)]
 #[no_mangle]
-fn rust_fail(cause: Box<Any:Send>) -> ! {
+fn rust_fail(cause: Box<Any + Send>) -> ! {
     rtdebug!("begin_unwind()");
 
     unsafe {
@@ -304,16 +302,73 @@ pub mod eabi {
         }
         else { // cleanup phase
             unsafe {
-                 __gcc_personality_v0(version, actions, exception_class, ue_header,
+                __gcc_personality_v0(version, actions, exception_class, ue_header,
+                                     context)
+            }
+        }
+    }
+}
+
+// iOS on armv7 is using SjLj exceptions and therefore requires to use
+// a specialized personality routine: __gcc_personality_sj0
+
+#[cfg(target_os = "ios", target_arch = "arm", not(test))]
+#[doc(hidden)]
+#[allow(visible_private_types)]
+pub mod eabi {
+    use uw = libunwind;
+    use libc::c_int;
+
+    extern "C" {
+        fn __gcc_personality_sj0(version: c_int,
+                                actions: uw::_Unwind_Action,
+                                exception_class: uw::_Unwind_Exception_Class,
+                                ue_header: *uw::_Unwind_Exception,
+                                context: *uw::_Unwind_Context)
+            -> uw::_Unwind_Reason_Code;
+    }
+
+    #[lang="eh_personality"]
+    #[no_mangle] // so we can reference it by name from middle/trans/base.rs
+    pub extern "C" fn rust_eh_personality(
+        version: c_int,
+        actions: uw::_Unwind_Action,
+        exception_class: uw::_Unwind_Exception_Class,
+        ue_header: *uw::_Unwind_Exception,
+        context: *uw::_Unwind_Context
+    ) -> uw::_Unwind_Reason_Code
+    {
+        unsafe {
+            __gcc_personality_sj0(version, actions, exception_class, ue_header,
+                                  context)
+        }
+    }
+
+    #[no_mangle] // referenced from rust_try.ll
+    pub extern "C" fn rust_eh_personality_catch(
+        version: c_int,
+        actions: uw::_Unwind_Action,
+        exception_class: uw::_Unwind_Exception_Class,
+        ue_header: *uw::_Unwind_Exception,
+        context: *uw::_Unwind_Context
+    ) -> uw::_Unwind_Reason_Code
+    {
+        if (actions as c_int & uw::_UA_SEARCH_PHASE as c_int) != 0 { // search phase
+            uw::_URC_HANDLER_FOUND // catch!
+        }
+        else { // cleanup phase
+            unsafe {
+                __gcc_personality_sj0(version, actions, exception_class, ue_header,
                                       context)
             }
         }
     }
 }
 
+
 // ARM EHABI uses a slightly different personality routine signature,
 // but otherwise works the same.
-#[cfg(target_arch = "arm", not(test))]
+#[cfg(target_arch = "arm", not(test), not(target_os = "ios"))]
 #[allow(visible_private_types)]
 pub mod eabi {
     use uw = libunwind;
@@ -351,7 +406,7 @@ pub mod eabi {
         }
         else { // cleanup phase
             unsafe {
-                 __gcc_personality_v0(state, ue_header, context)
+                __gcc_personality_v0(state, ue_header, context)
             }
         }
     }
@@ -414,20 +469,20 @@ pub fn begin_unwind<M: Any + Send>(msg: M, file: &'static str, line: uint) -> ! 
 /// The core of the unwinding.
 ///
 /// This is non-generic to avoid instantiation bloat in other crates
-/// (which makes compilation of small crates noticably slower). (Note:
+/// (which makes compilation of small crates noticeably slower). (Note:
 /// we need the `Any` object anyway, we're not just creating it to
 /// avoid being generic.)
 ///
 /// Do this split took the LLVM IR line counts of `fn main() { fail!()
 /// }` from ~1900/3700 (-O/no opts) to 180/590.
 #[inline(never)] #[cold] // this is the slow path, please never inline this
-fn begin_unwind_inner(msg: Box<Any:Send>,
+fn begin_unwind_inner(msg: Box<Any + Send>,
                       file: &'static str,
                       line: uint) -> ! {
     // First, invoke call the user-defined callbacks triggered on task failure.
     //
     // By the time that we see a callback has been registered (by reading
-    // MAX_CALLBACKS), the actuall callback itself may have not been stored yet,
+    // MAX_CALLBACKS), the actual callback itself may have not been stored yet,
     // so we just chalk it up to a race condition and move on to the next
     // callback. Additionally, CALLBACK_CNT may briefly be higher than
     // MAX_CALLBACKS, so we're sure to clamp it as necessary.

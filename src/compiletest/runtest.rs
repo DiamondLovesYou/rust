@@ -230,6 +230,7 @@ fn run_pretty_test(config: &Config, props: &TestProps, testfile: &Path) {
                     testfile: &Path,
                     src: String,
                     pretty_type: &str) -> ProcRes {
+        let aux_dir = aux_output_dir_name(config, testfile);
         compose_and_run(config,
                         testfile,
                         make_pp_args(config,
@@ -238,6 +239,7 @@ fn run_pretty_test(config: &Config, props: &TestProps, testfile: &Path) {
                                      pretty_type.to_string()),
                         props.exec_env.clone(),
                         config.compile_lib_path.as_slice(),
+                        Some(aux_dir.as_str().unwrap()),
                         Some(src))
     }
 
@@ -354,6 +356,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
             procsrv::run("",
                          config.adb_path.as_slice(),
+                         None,
                          [
                             "push".to_string(),
                             exe_file.as_str().unwrap().to_string(),
@@ -365,6 +368,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
             procsrv::run("",
                          config.adb_path.as_slice(),
+                         None,
                          [
                             "forward".to_string(),
                             "tcp:5039".to_string(),
@@ -385,6 +389,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             let mut process = procsrv::run_background("",
                                                       config.adb_path
                                                             .as_slice(),
+                                                      None,
                                                       [
                                                         "shell".to_string(),
                                                         adb_arg.clone()
@@ -425,6 +430,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 status
             } = procsrv::run("",
                              gdb_path.as_slice(),
+                             None,
                              debugger_opts.as_slice(),
                              vec!(("".to_string(), "".to_string())),
                              None)
@@ -486,7 +492,8 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                                                   testfile,
                                                   proc_args,
                                                   Vec::new(),
-                                                  "",
+                                                  config.run_lib_path.as_slice(),
+                                                  None,
                                                   None);
         }
     }
@@ -1005,11 +1012,13 @@ fn exec_compiled_test(config: &Config, props: &TestProps,
         }
 
         _=> {
+            let aux_dir = aux_output_dir_name(config, testfile);
             compose_and_run(config,
                             testfile,
                             make_run_args(config, props, testfile),
                             env,
                             config.run_lib_path.as_slice(),
+                            Some(aux_dir.as_str().unwrap()),
                             None)
         }
     }
@@ -1058,6 +1067,7 @@ fn compose_and_run_compiler(
                                      aux_args,
                                      Vec::new(),
                                      config.compile_lib_path.as_slice(),
+                                     Some(aux_dir.as_str().unwrap()),
                                      None);
         if !auxres.status.success() {
             fatal_proc_rec(
@@ -1079,6 +1089,7 @@ fn compose_and_run_compiler(
                     args,
                     Vec::new(),
                     config.compile_lib_path.as_slice(),
+                    Some(aux_dir.as_str().unwrap()),
                     input)
 }
 
@@ -1091,9 +1102,10 @@ fn compose_and_run(config: &Config, testfile: &Path,
                    ProcArgs{ args, prog }: ProcArgs,
                    procenv: Vec<(String, String)> ,
                    lib_path: &str,
+                   aux_path: Option<&str>,
                    input: Option<String>) -> ProcRes {
     return program_output(config, testfile, lib_path,
-                          prog, args, procenv, input);
+                          prog, aux_path, args, procenv, input);
 }
 
 enum TargetLocation {
@@ -1202,7 +1214,8 @@ fn split_maybe_args(argstr: &Option<String>) -> Vec<String> {
 }
 
 fn program_output(config: &Config, testfile: &Path, lib_path: &str, prog: String,
-                  args: Vec<String> , env: Vec<(String, String)> ,
+                  aux_path: Option<&str>, args: Vec<String>,
+                  env: Vec<(String, String)>,
                   input: Option<String>) -> ProcRes {
     let cmdline =
         {
@@ -1218,6 +1231,7 @@ fn program_output(config: &Config, testfile: &Path, lib_path: &str, prog: String
         status
     } = procsrv::run(lib_path,
                      prog.as_slice(),
+                     aux_path,
                      args.as_slice(),
                      env,
                      input).expect(format!("failed to exec `{}`", prog).as_slice());
@@ -1339,6 +1353,7 @@ fn _arm_exec_compiled_test(config: &Config,
     // copy to target
     let copy_result = procsrv::run("",
                                    config.adb_path.as_slice(),
+                                   None,
                                    [
                                     "push".to_string(),
                                     args.prog.clone(),
@@ -1374,6 +1389,7 @@ fn _arm_exec_compiled_test(config: &Config,
     }
     procsrv::run("",
                  config.adb_path.as_slice(),
+                 None,
                  runargs.as_slice(),
                  vec!(("".to_string(), "".to_string())), Some("".to_string()))
         .expect(format!("failed to exec `{}`", config.adb_path).as_slice());
@@ -1387,6 +1403,7 @@ fn _arm_exec_compiled_test(config: &Config,
     let procsrv::Result{ out: exitcode_out, err: _, status: _ } =
         procsrv::run("",
                      config.adb_path.as_slice(),
+                     None,
                      runargs.as_slice(),
                      vec!(("".to_string(), "".to_string())),
                      Some("".to_string()))
@@ -1410,6 +1427,7 @@ fn _arm_exec_compiled_test(config: &Config,
     let procsrv::Result{ out: stdout_out, err: _, status: _ } =
         procsrv::run("",
                      config.adb_path.as_slice(),
+                     None,
                      runargs.as_slice(),
                      vec!(("".to_string(), "".to_string())),
                      Some("".to_string()))
@@ -1424,6 +1442,7 @@ fn _arm_exec_compiled_test(config: &Config,
     let procsrv::Result{ out: stderr_out, err: _, status: _ } =
         procsrv::run("",
                      config.adb_path.as_slice(),
+                     None,
                      runargs.as_slice(),
                      vec!(("".to_string(), "".to_string())),
                      Some("".to_string()))
@@ -1451,6 +1470,7 @@ fn _arm_push_aux_shared_library(config: &Config, testfile: &Path) {
             // FIXME (#9639): This needs to handle non-utf8 paths
             let copy_result = procsrv::run("",
                                            config.adb_path.as_slice(),
+                                           None,
                                            [
                                             "push".to_string(),
                                             file.as_str()
@@ -1509,6 +1529,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
                      pnacl_translate.display().to_str().as_slice(),
+                     None,
                      pnacl_trans_args.as_slice(),
                      env.clone(),
                      None)
@@ -1540,6 +1561,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let procsrv::Result{ out: stdout, err: stderr, status: status } =
         procsrv::run("",
                      sel_ldr.display().to_str().as_slice(),
+                     None,
                      sel_ldr_args.as_slice(),
                      env,
                      None).unwrap();
@@ -1604,7 +1626,7 @@ fn compile_cc_with_clang_and_save_bitcode(config: &Config, _props: &TestProps,
                    bitcodefile.as_str().unwrap().to_string(),
                    testcc.as_str().unwrap().to_string())
     };
-    compose_and_run(config, testfile, proc_args, Vec::new(), "", None)
+    compose_and_run(config, testfile, proc_args, Vec::new(), "", None, None)
 }
 
 fn extract_function_from_bitcode(config: &Config, _props: &TestProps,
@@ -1621,7 +1643,7 @@ fn extract_function_from_bitcode(config: &Config, _props: &TestProps,
                    format!("-o={}", extracted_bc.as_str().unwrap()),
                    bitcodefile.as_str().unwrap().to_string())
     };
-    compose_and_run(config, testfile, proc_args, Vec::new(), "", None)
+    compose_and_run(config, testfile, proc_args, Vec::new(), "", None, None)
 }
 
 fn disassemble_extract(config: &Config, _props: &TestProps,
@@ -1637,7 +1659,7 @@ fn disassemble_extract(config: &Config, _props: &TestProps,
         args: vec!(format!("-o={}", extracted_ll.as_str().unwrap()),
                    extracted_bc.as_str().unwrap().to_string())
     };
-    compose_and_run(config, testfile, proc_args, Vec::new(), "", None)
+    compose_and_run(config, testfile, proc_args, Vec::new(), "", None, None)
 }
 
 

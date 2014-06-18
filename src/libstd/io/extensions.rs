@@ -15,7 +15,7 @@
 // FIXME: Not sure how this should be structured
 // FIXME: Iteration should probably be considered separately
 
-use container::Container;
+use collections::Collection;
 use iter::Iterator;
 use option::{Option, Some, None};
 use result::{Ok, Err};
@@ -447,10 +447,10 @@ mod test {
     #[test]
     fn test_read_f32() {
         //big-endian floating-point 8.1250
-        let buf = box [0x41, 0x02, 0x00, 0x00];
+        let buf = vec![0x41, 0x02, 0x00, 0x00];
 
         let mut writer = MemWriter::new();
-        writer.write(buf).unwrap();
+        writer.write(buf.as_slice()).unwrap();
 
         let mut reader = MemReader::new(writer.unwrap());
         let f = reader.read_be_f32().unwrap();
@@ -504,7 +504,7 @@ mod test {
 mod bench {
     extern crate test;
 
-    use container::Container;
+    use collections::Collection;
     use prelude::*;
     use self::test::Bencher;
 

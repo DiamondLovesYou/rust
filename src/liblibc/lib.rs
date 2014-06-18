@@ -172,7 +172,7 @@ pub use funcs::bsd43::{shutdown};
 #[cfg(unix)] pub use consts::os::posix88::{ENOTCONN, ECONNABORTED, EADDRNOTAVAIL, EINTR};
 #[cfg(unix)] pub use consts::os::posix88::{EADDRINUSE, ENOENT, EISDIR, EAGAIN, EWOULDBLOCK};
 #[cfg(unix)] pub use consts::os::posix88::{ECANCELED, SIGINT, EINPROGRESS};
-#[cfg(unix)] pub use consts::os::posix88::{ENOSYS, ENOTTY, ETIMEDOUT};
+#[cfg(unix)] pub use consts::os::posix88::{ENOSYS, ENOTTY, ETIMEDOUT, EMFILE};
 #[cfg(unix)] pub use consts::os::posix88::{SIGTERM, SIGKILL, SIGPIPE, PROT_NONE};
 #[cfg(unix)] pub use consts::os::posix01::{SIG_IGN};
 #[cfg(unix)] pub use consts::os::bsd44::{AF_UNIX};
@@ -198,7 +198,7 @@ pub use funcs::posix88::unistd::pathconf;
 #[cfg(windows)] pub use consts::os::c95::{WSAECONNREFUSED, WSAECONNRESET, WSAEACCES};
 #[cfg(windows)] pub use consts::os::c95::{WSAEWOULDBLOCK, WSAENOTCONN, WSAECONNABORTED};
 #[cfg(windows)] pub use consts::os::c95::{WSAEADDRNOTAVAIL, WSAEADDRINUSE, WSAEINTR};
-#[cfg(windows)] pub use consts::os::c95::{WSAEINPROGRESS, WSAEINVAL};
+#[cfg(windows)] pub use consts::os::c95::{WSAEINPROGRESS, WSAEINVAL, WSAEMFILE};
 #[cfg(windows)] pub use consts::os::extra::{ERROR_INSUFFICIENT_BUFFER};
 #[cfg(windows)] pub use consts::os::extra::{O_BINARY, O_NOINHERIT, PAGE_NOACCESS};
 #[cfg(windows)] pub use consts::os::extra::{PAGE_READONLY, PAGE_READWRITE, PAGE_EXECUTE};
@@ -281,10 +281,13 @@ pub use consts::os::extra::{MAP_STACK};
 pub use consts::os::bsd44::{TCP_KEEPIDLE};
 
 #[cfg(target_os = "macos")]
+#[cfg(target_os = "ios")]
 pub use consts::os::bsd44::{TCP_KEEPALIVE};
 #[cfg(target_os = "macos")]
+#[cfg(target_os = "ios")]
 pub use consts::os::extra::{F_FULLFSYNC};
 #[cfg(target_os = "macos")]
+#[cfg(target_os = "ios")]
 pub use types::os::arch::extra::{mach_timebase_info};
 
 
@@ -302,7 +305,7 @@ extern {}
 extern {}
 
 /// A wrapper for a nullable pointer. Don't use this except for interacting
-/// with libc. Basically Option, but without the dependance on libstd.
+/// with libc. Basically Option, but without the dependence on libstd.
 // If/when libprim happens, this can be removed in favor of that
 pub enum Nullable<T> {
     Null,
@@ -1307,6 +1310,7 @@ pub mod types {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     pub mod os {
         pub mod common {
             pub mod posix01 {
@@ -2619,7 +2623,7 @@ pub mod consts {
             pub static PROT_GROWSUP : c_int = 0x020000000;
 
             pub static MAP_TYPE : c_int = 0x000f;
-            pub static MAP_ANONONYMOUS : c_int = 0x0020;
+            pub static MAP_ANONYMOUS : c_int = 0x0020;
             pub static MAP_32BIT : c_int = 0x0040;
             pub static MAP_GROWSDOWN : c_int = 0x0100;
             pub static MAP_DENYWRITE : c_int = 0x0800;
@@ -2642,7 +2646,7 @@ pub mod consts {
             pub static PROT_GROWSUP : c_int = 0x02000000;
 
             pub static MAP_TYPE : c_int = 0x000f;
-            pub static MAP_ANONONYMOUS : c_int = 0x0800;
+            pub static MAP_ANONYMOUS : c_int = 0x0800;
             pub static MAP_GROWSDOWN : c_int = 0x01000;
             pub static MAP_DENYWRITE : c_int = 0x02000;
             pub static MAP_EXECUTABLE : c_int = 0x04000;
@@ -3149,6 +3153,7 @@ pub mod consts {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     pub mod os {
         pub mod c95 {
             use types::os::arch::c95::{c_int, c_uint};
@@ -3540,7 +3545,7 @@ pub mod consts {
 
 
 pub mod funcs {
-    // Thankfull most of c95 is universally available and does not vary by OS
+    // Thankfully most of c95 is universally available and does not vary by OS
     // or anything. The same is not true of POSIX.
 
     pub mod c95 {
@@ -3812,6 +3817,7 @@ pub mod funcs {
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     #[cfg(target_os = "freebsd")]
     #[cfg(target_os = "nacl")]
     pub mod posix88 {
@@ -3827,6 +3833,7 @@ pub mod funcs {
                 #[cfg(target_os = "linux")]
                 #[cfg(target_os = "freebsd")]
                 #[cfg(target_os = "android")]
+                #[cfg(target_os = "ios")]
                 #[cfg(target_os = "nacl")]
                 pub fn fstat(fildes: c_int, buf: *mut stat) -> c_int;
 
@@ -3840,6 +3847,7 @@ pub mod funcs {
                 #[cfg(target_os = "linux")]
                 #[cfg(target_os = "freebsd")]
                 #[cfg(target_os = "android")]
+                #[cfg(target_os = "ios")]
                 #[cfg(target_os = "nacl")]
                 pub fn stat(path: *c_char, buf: *mut stat) -> c_int;
 
@@ -4014,6 +4022,7 @@ pub mod funcs {
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     #[cfg(target_os = "freebsd")]
     #[cfg(target_os = "nacl")]
     pub mod posix01 {
@@ -4025,6 +4034,7 @@ pub mod funcs {
                 #[cfg(target_os = "linux")]
                 #[cfg(target_os = "freebsd")]
                 #[cfg(target_os = "android")]
+                #[cfg(target_os = "ios")]
                 #[cfg(target_os = "nacl")]
                 pub fn lstat(path: *c_char, buf: *mut stat) -> c_int;
 
@@ -4125,6 +4135,7 @@ pub mod funcs {
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     #[cfg(target_os = "freebsd")]
     #[cfg(target_os = "nacl")]
     pub mod posix08 {
@@ -4206,6 +4217,7 @@ pub mod funcs {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     #[cfg(target_os = "freebsd")]
     pub mod bsd44 {
         use types::common::c95::{c_void};
@@ -4260,6 +4272,7 @@ pub mod funcs {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     pub mod extra {
         use types::os::arch::c95::{c_char, c_int};
 

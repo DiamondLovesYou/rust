@@ -15,6 +15,7 @@
 use core::prelude::*;
 
 use alloc::owned::Box;
+use core::default::Default;
 use core::fmt;
 use core::fmt::Show;
 use core::iter::Peekable;
@@ -22,6 +23,7 @@ use core::iter;
 use core::mem::{replace, swap};
 use core::ptr;
 
+use {Collection, Mutable, Set, MutableSet, MutableMap, Map};
 use vec::Vec;
 
 // This is implemented as an AA tree, which is a simplified variation of
@@ -75,18 +77,18 @@ impl<K: PartialOrd + Ord, V: PartialOrd> PartialOrd for TreeMap<K, V> {
 
 impl<K: Ord + Show, V: Show> Show for TreeMap<K, V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, r"\{"));
+        try!(write!(f, "{{"));
 
         for (i, (k, v)) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
             try!(write!(f, "{}: {}", *k, *v));
         }
 
-        write!(f, r"\}")
+        write!(f, "}}")
     }
 }
 
-impl<K: Ord, V> Container for TreeMap<K, V> {
+impl<K: Ord, V> Collection for TreeMap<K, V> {
     fn len(&self) -> uint { self.length }
 }
 
@@ -132,6 +134,11 @@ impl<K: Ord, V> MutableMap<K, V> for TreeMap<K, V> {
         if ret.is_some() { self.length -= 1 }
         ret
     }
+}
+
+impl<K: Ord, V> Default for TreeMap<K,V> {
+    #[inline]
+    fn default() -> TreeMap<K, V> { TreeMap::new() }
 }
 
 impl<K: Ord, V> TreeMap<K, V> {
@@ -568,18 +575,18 @@ impl<T: PartialOrd + Ord> PartialOrd for TreeSet<T> {
 
 impl<T: Ord + Show> Show for TreeSet<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, r"\{"));
+        try!(write!(f, "{{"));
 
         for (i, x) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
             try!(write!(f, "{}", *x));
         }
 
-        write!(f, r"\}")
+        write!(f, "}}")
     }
 }
 
-impl<T: Ord> Container for TreeSet<T> {
+impl<T: Ord> Collection for TreeSet<T> {
     #[inline]
     fn len(&self) -> uint { self.map.len() }
 }
@@ -630,6 +637,11 @@ impl<T: Ord> MutableSet<T> for TreeSet<T> {
 
     #[inline]
     fn remove(&mut self, value: &T) -> bool { self.map.remove(value) }
+}
+
+impl<T: Ord> Default for TreeSet<T> {
+    #[inline]
+    fn default() -> TreeSet<T> { TreeSet::new() }
 }
 
 impl<T: Ord> TreeSet<T> {
@@ -725,7 +737,7 @@ pub struct IntersectionItems<'a, T> {
     b: Peekable<&'a T, SetItems<'a, T>>,
 }
 
-/// Lazy iterator producing elements in the set intersection (in-order)
+/// Lazy iterator producing elements in the set union (in-order)
 pub struct UnionItems<'a, T> {
     a: Peekable<&'a T, SetItems<'a, T>>,
     b: Peekable<&'a T, SetItems<'a, T>>,
@@ -1006,6 +1018,7 @@ mod test_treemap {
     use std::rand::Rng;
     use std::rand;
 
+    use {Map, MutableMap, Mutable};
     use super::{TreeMap, TreeNode};
 
     #[test]
@@ -1437,7 +1450,6 @@ mod test_treemap {
 
 #[cfg(test)]
 mod bench {
-    use std::prelude::*;
     use test::Bencher;
 
     use super::TreeMap;
@@ -1500,6 +1512,7 @@ mod bench {
 mod test_set {
     use std::prelude::*;
 
+    use {Set, MutableSet, Mutable, MutableMap};
     use super::{TreeMap, TreeSet};
 
     #[test]

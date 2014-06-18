@@ -345,18 +345,19 @@ impl<'a> Parser<'a> {
     }
 
     fn push_literal(&mut self, c: char) -> Result<(), Error> {
+        let flags = self.flags;
         match c {
             '.' => {
-                self.push(Dot(self.flags))
+                self.push(Dot(flags))
             }
             '^' => {
-                self.push(Begin(self.flags))
+                self.push(Begin(flags))
             }
             '$' => {
-                self.push(End(self.flags))
+                self.push(End(flags))
             }
             _ => {
-                self.push(Literal(c, self.flags))
+                self.push(Literal(c, flags))
             }
         }
         Ok(())
@@ -635,7 +636,7 @@ impl<'a> Parser<'a> {
                 match self.pos('}') {
                     Some(i) => i,
                     None => return self.err(format!(
-                        "Missing '\\}' for unclosed '\\{' at position {}",
+                        "Missing '}}' for unclosed '{{' at position {}",
                         self.chari).as_slice()),
                 };
             if closer - self.chari + 1 == 0 {
@@ -696,8 +697,8 @@ impl<'a> Parser<'a> {
         let closer =
             match self.pos('}') {
                 None => {
-                    return self.err(format!("Missing '\\}' for unclosed \
-                                             '\\{' at position {}",
+                    return self.err(format!("Missing '}}' for unclosed \
+                                             '{{' at position {}",
                                             start).as_slice())
                 }
                 Some(i) => i,

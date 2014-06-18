@@ -61,7 +61,7 @@
 //!     ];
 //!     let matches = match getopts(args.tail(), opts) {
 //!         Ok(m) => { m }
-//!         Err(f) => { fail!(f.to_err_msg()) }
+//!         Err(f) => { fail!(f.to_str()) }
 //!     };
 //!     if matches.opt_present("h") {
 //!         print_usage(program.as_slice(), opts);
@@ -88,18 +88,18 @@
        html_playground_url = "http://play.rust-lang.org/")]
 #![feature(globs, phase)]
 #![deny(missing_doc)]
-#![deny(deprecated_owned_vector)]
 
 #[cfg(test)] extern crate debug;
-#[cfg(test)] #[phase(syntax, link)] extern crate log;
+#[cfg(test)] #[phase(plugin, link)] extern crate log;
 
 use std::cmp::PartialEq;
+use std::fmt;
 use std::result::{Err, Ok};
 use std::result;
 use std::string::String;
 
 /// Name of an option. Either a string or a single char.
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, PartialEq, Eq)]
 pub enum Name {
     /// A string representing the long name of an option.
     /// For example: "help"
@@ -110,7 +110,7 @@ pub enum Name {
 }
 
 /// Describes whether an option has an argument.
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, PartialEq, Eq)]
 pub enum HasArg {
     /// The option requires an argument.
     Yes,
@@ -121,7 +121,7 @@ pub enum HasArg {
 }
 
 /// Describes how often an option may occur.
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, PartialEq, Eq)]
 pub enum Occur {
     /// The option occurs once.
     Req,
@@ -132,7 +132,7 @@ pub enum Occur {
 }
 
 /// A description of a possible option.
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, PartialEq, Eq)]
 pub struct Opt {
     /// Name of the option
     pub name: Name,
@@ -141,12 +141,12 @@ pub struct Opt {
     /// How often it can occur
     pub occur: Occur,
     /// Which options it aliases
-    pub aliases: Vec<Opt> ,
+    pub aliases: Vec<Opt>,
 }
 
 /// One group of options, e.g., both -h and --help, along with
 /// their shared description and properties.
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, PartialEq, Eq)]
 pub struct OptGroup {
     /// Short Name of the `OptGroup`
     pub short_name: String,
@@ -162,8 +162,8 @@ pub struct OptGroup {
     pub occur: Occur
 }
 
-/// Describes wether an option is given at all or has a value.
-#[deriving(Clone, PartialEq)]
+/// Describes whether an option is given at all or has a value.
+#[deriving(Clone, PartialEq, Eq)]
 enum Optval {
     Val(String),
     Given,
@@ -171,20 +171,20 @@ enum Optval {
 
 /// The result of checking command line arguments. Contains a vector
 /// of matches and a vector of free strings.
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, PartialEq, Eq)]
 pub struct Matches {
     /// Options that matched
-    opts: Vec<Opt> ,
+    opts: Vec<Opt>,
     /// Values of the Options that matched
-    vals: Vec<Vec<Optval> > ,
+    vals: Vec<Vec<Optval>>,
     /// Free string fragments
     pub free: Vec<String>,
 }
 
 /// The type returned when the command line does not conform to the
-/// expected format. Call the `to_err_msg` method to retrieve the
-/// error as a string.
-#[deriving(Clone, PartialEq, Show)]
+/// expected format. Use the `Show` implementation to output detailed
+/// information.
+#[deriving(Clone, PartialEq, Eq)]
 pub enum Fail_ {
     /// The option requires an argument but none was passed.
     ArgumentMissing(String),
@@ -199,7 +199,7 @@ pub enum Fail_ {
 }
 
 /// The type of failure that occurred.
-#[deriving(PartialEq)]
+#[deriving(PartialEq, Eq)]
 #[allow(missing_doc)]
 pub enum FailType {
     ArgumentMissing_,
@@ -498,22 +498,29 @@ pub fn opt(short_name: &str,
 
 impl Fail_ {
     /// Convert a `Fail_` enum into an error string.
+    #[deprecated="use `Show` (`{}` format specifier)"]
     pub fn to_err_msg(self) -> String {
-        match self {
+        self.to_str()
+    }
+}
+
+impl fmt::Show for Fail_ {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
             ArgumentMissing(ref nm) => {
-                format!("Argument to option '{}' missing.", *nm)
+                write!(f, "Argument to option '{}' missing.", *nm)
             }
             UnrecognizedOption(ref nm) => {
-                format!("Unrecognized option: '{}'.", *nm)
+                write!(f, "Unrecognized option: '{}'.", *nm)
             }
             OptionMissing(ref nm) => {
-                format!("Required option '{}' missing.", *nm)
+                write!(f, "Required option '{}' missing.", *nm)
             }
             OptionDuplicated(ref nm) => {
-                format!("Option '{}' given more than once.", *nm)
+                write!(f, "Option '{}' given more than once.", *nm)
             }
             UnexpectedArgument(ref nm) => {
-                format!("Option '{}' does not take an argument.", *nm)
+                write!(f, "Option '{}' does not take an argument.", *nm)
             }
         }
     }
@@ -522,8 +529,9 @@ impl Fail_ {
 /// Parse command line arguments according to the provided options.
 ///
 /// On success returns `Ok(Opt)`. Use methods such as `opt_present`
-/// `opt_str`, etc. to interrogate results.  Returns `Err(Fail_)` on failure.
-/// Use `to_err_msg` to get an error message.
+/// `opt_str`, etc. to interrogate results.  Returns `Err(Fail_)` on
+/// failure: use the `Show` implementation of `Fail_` to display
+/// information about it.
 pub fn getopts(args: &[String], optgrps: &[OptGroup]) -> Result {
     let opts: Vec<Opt> = optgrps.iter().map(|x| x.long_to_short()).collect();
     let n_opts = opts.len();
@@ -1110,7 +1118,6 @@ mod tests {
         let rs = getopts(args.as_slice(), opts.as_slice());
         match rs {
           Err(f) => {
-            error!("{:?}", f.clone().to_err_msg());
             check_fail_type(f, UnexpectedArgument_);
           }
           _ => fail!()

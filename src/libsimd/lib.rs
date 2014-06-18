@@ -45,17 +45,16 @@
 #![license = "MIT/ASL2"]
 #![comment = "A link-time library to facilitate access to SIMD types & operations"]
 
-#![feature(macro_registrar, simd, phase, macro_rules)]
+#![feature(simd, phase, macro_rules)]
 #![allow(experimental)]
 #![experimental]
 
-#[phase(syntax)]
+#[phase(plugin)]
 extern crate simd_syntax;
-extern crate core;
 
 use std::iter;
-use std::container::Container;
-use core::mem;
+//use std::collections::Collection;
+use std::mem;
 
 #[experimental]
 pub trait Simd<PrimitiveTy> {

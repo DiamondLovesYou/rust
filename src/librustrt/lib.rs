@@ -15,12 +15,12 @@
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/")]
-#![feature(macro_rules, phase, globs, thread_local, managed_boxes, asm)]
+#![feature(macro_rules, phase, globs, thread_local, managed_boxes, asm,
+           linkage)]
 #![no_std]
 #![experimental]
 
-#[phase(syntax, link)]
-extern crate core;
+#[phase(plugin, link)] extern crate core;
 extern crate alloc;
 extern crate libc;
 extern crate collections;
@@ -28,7 +28,8 @@ extern crate collections;
 #[cfg(test)] extern crate realrustrt = "rustrt";
 #[cfg(test)] extern crate test;
 #[cfg(test)] extern crate native;
-#[cfg(test)] #[phase(syntax, link)] extern crate std;
+
+#[cfg(test)] #[phase(plugin, link)] extern crate std;
 
 pub use self::util::{Stdio, Stdout, Stderr};
 pub use self::unwind::{begin_unwind, begin_unwind_fmt};
@@ -50,6 +51,7 @@ mod libunwind;
 
 pub mod args;
 pub mod bookkeeping;
+pub mod c_str;
 pub mod exclusive;
 pub mod local;
 pub mod local_data;
@@ -58,8 +60,8 @@ pub mod mutex;
 pub mod rtio;
 pub mod stack;
 pub mod task;
+pub mod thread;
 pub mod unwind;
-pub mod c_str;
 
 /// The interface to the current runtime.
 ///
@@ -154,7 +156,7 @@ pub unsafe fn cleanup() {
 pub mod shouldnt_be_public {
     #[cfg(not(test))]
     pub use super::local_ptr::native::maybe_tls_key;
-    #[cfg(not(windows), not(target_os = "android"))]
+    #[cfg(not(windows), not(target_os = "android"), not(target_os = "ios"))]
     pub use super::local_ptr::compiled::RT_TLS_PTR;
 }
 

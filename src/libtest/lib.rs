@@ -33,7 +33,6 @@
        html_root_url = "http://doc.rust-lang.org/")]
 
 #![feature(asm, macro_rules, phase)]
-#![deny(deprecated_owned_vector)]
 
 extern crate getopts;
 extern crate regex;
@@ -72,7 +71,7 @@ pub mod test {
              MetricChange, Improvement, Regression, LikelyNoise,
              StaticTestFn, StaticTestName, DynTestName, DynTestFn,
              run_test, test_main, test_main_static, filter_tests,
-             parse_opts, StaticBenchFn, test_main_static_x};
+             parse_opts, StaticBenchFn};
 }
 
 pub mod stats;
@@ -263,12 +262,10 @@ pub fn test_main_static(args: &[String], tests: &[TestDescAndFn]) {
     test_main(args, owned_tests)
 }
 
-pub fn test_main_static_x(args: &[~str], tests: &[TestDescAndFn]) {
-    test_main_static(args.iter()
-                         .map(|x| x.to_string())
-                         .collect::<Vec<_>>()
-                         .as_slice(),
-                     tests)
+pub enum ColorConfig {
+    AutoColor,
+    AlwaysColor,
+    NeverColor,
 }
 
 pub struct TestOpts {
@@ -282,6 +279,7 @@ pub struct TestOpts {
     pub test_shard: Option<(uint,uint)>,
     pub logfile: Option<Path>,
     pub nocapture: bool,
+    pub color: ColorConfig,
 }
 
 impl TestOpts {
@@ -298,6 +296,7 @@ impl TestOpts {
             test_shard: None,
             logfile: None,
             nocapture: false,
+            color: AutoColor,
         }
     }
 }
@@ -324,7 +323,11 @@ fn optgroups() -> Vec<getopts::OptGroup> {
       getopts::optopt("", "test-shard", "run shard A, of B shards, worth of the testsuite",
                      "A.B"),
       getopts::optflag("", "nocapture", "don't capture stdout/stderr of each \
-                                         task, allow printing directly"))
+                                         task, allow printing directly"),
+      getopts::optopt("", "color", "Configure coloring of output:
+            auto   = colorize if stdout is a tty and tests are run on serially (default);
+            always = always colorize output;
+            never  = never colorize output;", "auto|always|never"))
 }
 
 fn usage(binary: &str) {
@@ -343,16 +346,16 @@ environment variable. Logging is not captured by default.
 
 Test Attributes:
 
-    \#[test]        - Indicates a function is a test to be run. This function
+    #[test]        - Indicates a function is a test to be run. This function
                      takes no arguments.
-    \#[bench]       - Indicates a function is a benchmark to be run. This
+    #[bench]       - Indicates a function is a benchmark to be run. This
                      function takes one argument (test::Bencher).
-    \#[should_fail] - This function (also labeled with \#[test]) will only pass if
+    #[should_fail] - This function (also labeled with #[test]) will only pass if
                      the code causes a failure (an assertion failure or fail!)
-    \#[ignore]      - When applied to a function which is already attributed as a
+    #[ignore]      - When applied to a function which is already attributed as a
                      test, then the test runner will ignore these tests during
                      normal test runs. Running with --ignored will run these
-                     tests. This may also be written as \#[ignore(cfg(...))] to
+                     tests. This may also be written as #[ignore(cfg(...))] to
                      ignore the test on certain configurations.",
              usage = getopts::usage(message.as_slice(),
                                     optgroups().as_slice()));
@@ -364,7 +367,7 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
     let matches =
         match getopts::getopts(args_.as_slice(), optgroups().as_slice()) {
           Ok(m) => m,
-          Err(f) => return Some(Err(f.to_err_msg().to_string()))
+          Err(f) => return Some(Err(f.to_str()))
         };
 
     if matches.opt_present("h") { usage(args[0].as_slice()); return None; }
@@ -406,6 +409,16 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
         nocapture = os::getenv("RUST_TEST_NOCAPTURE").is_some();
     }
 
+    let color = match matches.opt_str("color").as_ref().map(|s| s.as_slice()) {
+        Some("auto") | None => AutoColor,
+        Some("always") => AlwaysColor,
+        Some("never") => NeverColor,
+
+        Some(v) => return Some(Err(format!("argument for --color must be \
+                                            auto, always, or never (was {})",
+                                            v))),
+    };
+
     let test_opts = TestOpts {
         filter: filter,
         run_ignored: run_ignored,
@@ -417,6 +430,7 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
         test_shard: test_shard,
         logfile: logfile,
         nocapture: nocapture,
+        color: color,
     };
 
     Some(Ok(test_opts))
@@ -459,7 +473,7 @@ pub enum TestResult {
 }
 
 enum OutputLocation<T> {
-    Pretty(Box<term::Terminal<Box<Writer:Send>>:Send>),
+    Pretty(Box<term::Terminal<Box<Writer + Send>> + Send>),
     Raw(T),
 }
 
@@ -492,7 +506,7 @@ impl<T: Writer> ConsoleTestState<T> {
         Ok(ConsoleTestState {
             out: out,
             log_out: log_out,
-            use_color: use_color(),
+            use_color: use_color(opts),
             total: 0u,
             passed: 0u,
             failed: 0u,
@@ -867,8 +881,12 @@ fn should_sort_failures_before_printing_them() {
     assert!(apos < bpos);
 }
 
-fn use_color() -> bool {
-    get_concurrency() == 1 && io::stdout().get_ref().isatty()
+fn use_color(opts: &TestOpts) -> bool {
+    match opts.color {
+        AutoColor => get_concurrency() == 1 && io::stdout().get_ref().isatty(),
+        AlwaysColor => true,
+        NeverColor => false,
+    }
 }
 
 #[deriving(Clone)]
@@ -1031,8 +1049,8 @@ pub fn run_test(opts: &TestOpts,
             if nocapture {
                 drop((stdout, stderr));
             } else {
-                task.opts.stdout = Some(box stdout as Box<Writer:Send>);
-                task.opts.stderr = Some(box stderr as Box<Writer:Send>);
+                task.opts.stdout = Some(box stdout as Box<Writer + Send>);
+                task.opts.stderr = Some(box stderr as Box<Writer + Send>);
             }
             let result_future = task.future_result();
             task.spawn(testfn);

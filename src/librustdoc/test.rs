@@ -10,12 +10,13 @@
 
 use std::cell::RefCell;
 use std::char;
-use std::io;
+use std::dynamic_lib::DynamicLibrary;
+use std::gc::GC;
 use std::io::{Command, TempDir};
+use std::io;
 use std::os;
 use std::str;
 use std::string::String;
-use std::unstable::dynamic_lib::DynamicLibrary;
 
 use std::collections::{HashSet, HashMap};
 use testing;
@@ -23,7 +24,6 @@ use rustc::back::link;
 use rustc::driver::config;
 use rustc::driver::driver;
 use rustc::driver::session;
-use rustc::metadata::creader::Loader;
 use syntax::ast;
 use syntax::codemap::{CodeMap, dummy_spanned};
 use syntax::diagnostic;
@@ -65,16 +65,13 @@ pub fn run(input: &str,
     let mut cfg = config::build_configuration(&sess);
     cfg.extend(cfgs.move_iter().map(|cfg_| {
         let cfg_ = token::intern_and_get_ident(cfg_.as_slice());
-        @dummy_spanned(ast::MetaWord(cfg_))
+        box(GC) dummy_spanned(ast::MetaWord(cfg_))
     }));
     let krate = driver::phase_1_parse_input(&sess, cfg, &input);
-    let (krate, _) = driver::phase_2_configure_and_expand
-        (&sess,
-         &mut Loader::new(&sess),
-         krate,
-         &from_str("rustdoc-test").unwrap());
+    let (krate, _) = driver::phase_2_configure_and_expand(&sess, krate,
+                                                          &from_str("rustdoc-test").unwrap());
 
-    let ctx = @core::DocContext {
+    let ctx = box(GC) core::DocContext {
         krate: krate,
         maybe_typed: core::NotTyped(sess),
         src: input_path,
@@ -86,7 +83,7 @@ pub fn run(input: &str,
     };
     super::ctxtkey.replace(Some(ctx));
 
-    let mut v = RustdocVisitor::new(ctx, None);
+    let mut v = RustdocVisitor::new(&*ctx, None);
     v.visit(&ctx.krate);
     let krate = v.clean();
     let (krate, _) = passes::unindent_comments(krate);
@@ -139,7 +136,7 @@ fn runtest(test: &str, cratename: &str, libs: HashSet<Path>, should_fail: bool,
     let old = io::stdio::set_stderr(box w1);
     spawn(proc() {
         let mut p = io::ChanReader::new(rx);
-        let mut err = old.unwrap_or(box io::stderr() as Box<Writer:Send>);
+        let mut err = old.unwrap_or(box io::stderr() as Box<Writer + Send>);
         io::util::copy(&mut p, &mut err).unwrap();
     });
     let emitter = diagnostic::EmitterWriter::new(box w2);

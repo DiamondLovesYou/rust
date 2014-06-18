@@ -33,9 +33,7 @@ use heap::deallocate;
 /// task.
 ///
 /// ```rust
-/// extern crate sync;
-///
-/// use sync::Arc;
+/// use std::sync::Arc;
 ///
 /// fn main() {
 ///     let numbers = Vec::from_fn(100, |i| i as f32);
@@ -184,7 +182,7 @@ impl<T: Share + Send> Drop for Arc<T> {
 
         // This fence is needed to prevent reordering of use of the data and
         // deletion of the data. Because it is marked `Release`, the
-        // decreasing of the reference count sychronizes with this `Acquire`
+        // decreasing of the reference count synchronizes with this `Acquire`
         // fence. This means that use of the data happens before decreasing
         // the refernce count, which happens before this fence, which
         // happens before the deletion of the data.
@@ -276,7 +274,7 @@ mod tests {
     use std::task;
     use std::vec::Vec;
     use super::{Arc, Weak};
-    use sync::Mutex;
+    use std::sync::Mutex;
 
     struct Canary(*mut atomics::AtomicUint);
 

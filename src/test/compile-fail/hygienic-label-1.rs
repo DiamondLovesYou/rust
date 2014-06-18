@@ -15,5 +15,5 @@ macro_rules! foo {
 }
 
 pub fn main() {
-    'x: loop { foo!() } //~ ERROR use of undeclared label `x`
+    'x: loop { foo!() } //~ ERROR use of undeclared label `'x`
 }

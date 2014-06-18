@@ -13,6 +13,7 @@
 use core::prelude::*;
 
 use core::cmp;
+use core::default::Default;
 use core::fmt;
 use core::iter::{Enumerate, Repeat, Map, Zip};
 use core::ops;
@@ -20,6 +21,7 @@ use core::slice;
 use core::uint;
 use std::hash;
 
+use {Collection, Mutable, Set, MutableSet};
 use vec::Vec;
 
 #[deriving(Clone)]
@@ -697,6 +699,11 @@ pub struct BitvSet {
     bitv: BigBitv
 }
 
+impl Default for BitvSet {
+    #[inline]
+    fn default() -> BitvSet { BitvSet::new() }
+}
+
 impl BitvSet {
     /// Creates a new bit vector set with initially no contents
     pub fn new() -> BitvSet {
@@ -836,7 +843,7 @@ impl cmp::PartialEq for BitvSet {
 
 impl fmt::Show for BitvSet {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(fmt, r"\{"));
+        try!(write!(fmt, "{{"));
         let mut first = true;
         for n in self.iter() {
             if !first {
@@ -845,7 +852,7 @@ impl fmt::Show for BitvSet {
             try!(write!(fmt, "{}", n));
             first = false;
         }
-        write!(fmt, r"\}")
+        write!(fmt, "}}")
     }
 }
 
@@ -857,7 +864,7 @@ impl<S: hash::Writer> hash::Hash<S> for BitvSet {
     }
 }
 
-impl Container for BitvSet {
+impl Collection for BitvSet {
     #[inline]
     fn len(&self) -> uint { self.size }
 }
@@ -1008,6 +1015,7 @@ mod tests {
     use std::rand::Rng;
     use test::Bencher;
 
+    use {Set, Mutable, MutableSet};
     use bitv::{Bitv, SmallBitv, BigBitv, BitvSet, from_bools, from_fn,
                from_bytes};
     use bitv;

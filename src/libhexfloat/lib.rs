@@ -21,7 +21,7 @@ literal.
 To load the extension and use it:
 
 ```rust,ignore
-#[phase(syntax)]
+#[phase(plugin)]
 extern crate hexfloat;
 
 fn main() {
@@ -43,29 +43,25 @@ fn main() {
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/")]
-
-#![deny(deprecated_owned_vector)]
-#![feature(macro_registrar, managed_boxes)]
+#![feature(plugin_registrar, managed_boxes)]
 
 extern crate syntax;
+extern crate rustc;
 
 use syntax::ast;
-use syntax::ast::Name;
 use syntax::codemap::{Span, mk_sp};
 use syntax::ext::base;
-use syntax::ext::base::{SyntaxExtension, BasicMacroExpander, NormalTT, ExtCtxt, MacExpr};
+use syntax::ext::base::{ExtCtxt, MacExpr};
 use syntax::ext::build::AstBuilder;
 use syntax::parse;
 use syntax::parse::token;
+use rustc::plugin::Registry;
 
-#[macro_registrar]
-pub fn macro_registrar(register: |Name, SyntaxExtension|) {
-    register(token::intern("hexfloat"),
-        NormalTT(box BasicMacroExpander {
-            expander: expand_syntax_ext,
-            span: None,
-        },
-        None));
+use std::gc::Gc;
+
+#[plugin_registrar]
+pub fn plugin_registrar(reg: &mut Registry) {
+    reg.register_macro("hexfloat", expand_syntax_ext);
 }
 
 //Check if the literal is valid (as LLVM expects),
@@ -169,7 +165,8 @@ struct Ident {
     span: Span
 }
 
-fn parse_tts(cx: &ExtCtxt, tts: &[ast::TokenTree]) -> (@ast::Expr, Option<Ident>) {
+fn parse_tts(cx: &ExtCtxt,
+             tts: &[ast::TokenTree]) -> (Gc<ast::Expr>, Option<Ident>) {
     let p = &mut parse::new_parser_from_tts(cx.parse_sess(),
                                             cx.cfg(),
                                             tts.iter()

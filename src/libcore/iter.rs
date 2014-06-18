@@ -35,7 +35,7 @@ into a `loop`, for example, the `for` loop in this example is essentially
 translated to the `loop` below.
 
 ```rust
-let values = ~[1, 2, 3];
+let values = vec![1, 2, 3];
 
 // "Syntactical sugar" taking advantage of an iterator
 for &x in values.iter() {
@@ -378,7 +378,7 @@ pub trait Iterator<A> {
     ///     }
     ///     sum
     /// }
-    /// let x = ~[1,2,3,7,8,9];
+    /// let x = vec![1,2,3,7,8,9];
     /// assert_eq!(process(x.move_iter()), 1006);
     /// ```
     #[inline]
@@ -2345,6 +2345,7 @@ mod tests {
     use num;
     use realstd::vec::Vec;
     use realstd::slice::Vector;
+    use realstd::gc::GC;
 
     use cmp;
     use realstd::owned::Box;
@@ -2425,7 +2426,7 @@ mod tests {
 
     #[test]
     fn test_iterator_peekable() {
-        let xs = box [0u, 1, 2, 3, 4, 5];
+        let xs = vec![0u, 1, 2, 3, 4, 5];
         let mut it = xs.iter().map(|&x|x).peekable();
         assert_eq!(it.peek().unwrap(), &0);
         assert_eq!(it.next().unwrap(), 0);
@@ -2809,7 +2810,7 @@ mod tests {
     #[test]
     fn test_double_ended_chain() {
         let xs = [1, 2, 3, 4, 5];
-        let ys = box [7, 9, 11];
+        let ys = [7, 9, 11];
         let mut it = xs.iter().chain(ys.iter()).rev();
         assert_eq!(it.next().unwrap(), &11)
         assert_eq!(it.next().unwrap(), &9)
@@ -2826,7 +2827,7 @@ mod tests {
     fn test_rposition() {
         fn f(xy: &(int, char)) -> bool { let (_x, y) = *xy; y == 'b' }
         fn g(xy: &(int, char)) -> bool { let (_x, y) = *xy; y == 'd' }
-        let v = box [(0, 'a'), (1, 'b'), (2, 'c'), (3, 'b')];
+        let v = [(0, 'a'), (1, 'b'), (2, 'c'), (3, 'b')];
 
         assert_eq!(v.iter().rposition(f), Some(3u));
         assert!(v.iter().rposition(g).is_none());
@@ -2835,7 +2836,8 @@ mod tests {
     #[test]
     #[should_fail]
     fn test_rposition_fail() {
-        let v = [(box 0, @0), (box 0, @0), (box 0, @0), (box 0, @0)];
+        let v = [(box 0, box(GC) 0), (box 0, box(GC) 0),
+                 (box 0, box(GC) 0), (box 0, box(GC) 0)];
         let mut i = 0;
         v.iter().rposition(|_elt| {
             if i == 2 {
@@ -2887,7 +2889,7 @@ mod tests {
     #[test]
     fn test_random_access_chain() {
         let xs = [1, 2, 3, 4, 5];
-        let ys = box [7, 9, 11];
+        let ys = [7, 9, 11];
         let mut it = xs.iter().chain(ys.iter());
         assert_eq!(it.idx(0).unwrap(), &1);
         assert_eq!(it.idx(5).unwrap(), &7);
@@ -3131,7 +3133,7 @@ mod tests {
     }
 
     #[test]
-    fn test_MinMaxResult() {
+    fn test_min_max_result() {
         let r: MinMaxResult<int> = NoElements;
         assert_eq!(r.into_option(), None)
 

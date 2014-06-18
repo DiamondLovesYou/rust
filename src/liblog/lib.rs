@@ -16,7 +16,7 @@ Utilities for program-wide and customizable logging
 
 ```
 #![feature(phase)]
-#[phase(syntax, link)] extern crate log;
+#[phase(plugin, link)] extern crate log;
 
 fn main() {
     debug!("this is a debug {}", "message");
@@ -115,9 +115,7 @@ if logging is disabled, none of the components of the log will be executed.
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(macro_rules)]
-#![deny(missing_doc, deprecated_owned_vector)]
-
-extern crate sync;
+#![deny(missing_doc)]
 
 use std::fmt;
 use std::io::LineBufferedWriter;
@@ -126,8 +124,7 @@ use std::mem;
 use std::os;
 use std::rt;
 use std::slice;
-
-use sync::one::{Once, ONCE_INIT};
+use std::sync::{Once, ONCE_INIT};
 
 use directive::LOG_LEVEL_NAMES;
 
@@ -158,7 +155,7 @@ pub static WARN: u32 = 2;
 /// Error log level
 pub static ERROR: u32 = 1;
 
-local_data_key!(local_logger: Box<Logger:Send>)
+local_data_key!(local_logger: Box<Logger + Send>)
 
 /// A trait used to represent an interface to a task-local logger. Each task
 /// can have its own custom logger which can respond to logging messages
@@ -229,7 +226,7 @@ pub fn log(level: u32, loc: &'static LogLocation, args: &fmt::Arguments) {
     // frob the slot while we're doing the logging. This will destroy any logger
     // set during logging.
     let mut logger = local_logger.replace(None).unwrap_or_else(|| {
-        box DefaultLogger { handle: io::stderr() } as Box<Logger:Send>
+        box DefaultLogger { handle: io::stderr() } as Box<Logger + Send>
     });
     logger.log(&LogRecord {
         level: LogLevel(level),
@@ -249,7 +246,7 @@ pub fn log_level() -> u32 { unsafe { LOG_LEVEL } }
 
 /// Replaces the task-local logger with the specified logger, returning the old
 /// logger.
-pub fn set_logger(logger: Box<Logger:Send>) -> Option<Box<Logger:Send>> {
+pub fn set_logger(logger: Box<Logger + Send>) -> Option<Box<Logger + Send>> {
     local_logger.replace(Some(logger))
 }
 

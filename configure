@@ -416,15 +416,17 @@ opt mingw-cross 0 "cross-compile for win32 using mingw"
 opt clang 0 "prefer clang to gcc for building the runtime"
 opt ccache 0 "invoke gcc/clang via ccache to reuse object files between builds"
 opt local-rust 0 "use an installed rustc rather than downloading a snapshot"
-opt pax-flags 0 "apply PaX flags to rustc binaries (required for GRSecurity/PaX-patched kernels)"
 opt inject-std-version 1 "inject the current compiler version of libstd into programs"
 opt llvm-static-stdcpp 0 "statically link to libstdc++ for LLVM"
 opt rpath 1 "build rpaths into rustc itself"
 opt nightly 0 "build nightly packages"
 opt verify-install 1 "verify installed binaries work"
+opt jemalloc 1 "build liballoc with jemalloc"
 valopt prefix "/usr/local" "set installation prefix"
 valopt local-rust-root "/usr/local" "set prefix for local rust binary"
 valopt llvm-root "" "set LLVM root"
+valopt jemalloc-root "" "set directory where libjemalloc_pic.a is located"
+valopt libuv-root "" "set directory where libuv.a is located"
 valopt android-cross-path "/opt/ndk_standalone" "Android NDK standalone path"
 valopt mingw32-cross-path "" "MinGW32 cross compiler path"
 valopt nacl-cross-path  "" "NaCl Pepper sdk path (should be something like \"nacl_sdk/pepper_[0-9]+/\")"
@@ -518,12 +520,6 @@ then
     fi
 fi
 
-if [ "$CFG_OSTYPE" = "unknown-linux-gnu" ]
-then
-    probe CFG_PAXCTL           paxctl /sbin/paxctl
-    probe CFG_ZCAT             zcat
-fi
-
 step_msg "looking for target specific programs"
 
 probe CFG_ADB        adb
@@ -543,51 +539,6 @@ then
     then
         step_msg "pandoc $PV_MAJOR.$PV_MINOR is too old. Need at least $MIN_PV_MAJOR.$MIN_PV_MINOR. Disabling"
         BAD_PANDOC=1
-    fi
-fi
-
-if [ "$CFG_OSTYPE" = "unknown-linux-gnu" ]
-then
-    if [ ! -z "$CFG_ENABLE_PAX_FLAGS" -a -z "$CFG_PAXCTL" ]
-    then
-        err "enabled PaX markings but no paxctl binary found"
-    fi
-
-    if [ -z "$CFG_DISABLE_PAX_FLAGS" ]
-    then
-        # GRSecurity/PaX detection. This can be very flaky.
-        GRSEC_DETECTED=
-
-        # /dev/grsec only exists if CONFIG_GRKERNSEC_NO_RBAC is not set.
-        # /proc/sys/kernel/grsecurity is not available if ÇONFIG_GRKERNSEC_SYSCTL is not set.
-        if [ -e /dev/grsec -o -d /proc/sys/kernel/grsecurity ]
-        then
-            GRSEC_DETECTED=1
-        # /proc/config.gz is normally only available to root, and only if CONFIG_IKCONFIG_PROC has been set.
-        elif [ -r /proc/config.gz -a ! -z "$CFG_ZCAT" ]
-        then
-            if "$CFG_ZCAT" /proc/config.gz | grep --quiet "CONFIG_GRKERNSEC=y"
-            then
-                GRSEC_DETECTED=1
-            fi
-        # Flaky.
-        elif grep --quiet grsec /proc/version
-        then
-            GRSEC_DETECTED=1
-        fi
-
-        if [ ! -z "$GRSEC_DETECTED" ]
-        then
-            step_msg "GRSecurity: yes"
-            if [ ! -z "$CFG_PAXCTL" ]
-            then
-                CFG_ENABLE_PAX_FLAGS=1
-            else
-                warn "GRSecurity kernel detected but no paxctl binary found: not setting CFG_ENABLE_PAX_FLAGS"
-            fi
-        else
-            step_msg "GRSecurity: no"
-        fi
     fi
 fi
 
@@ -985,8 +936,25 @@ then
     msg "git: submodule sync"
     "${CFG_GIT}" submodule sync
 
+    msg "git: submodule init"
+    "${CFG_GIT}" submodule init
+
+    # Disable submodules that we're not using
+    if [ ! -z "${CFG_LLVM_ROOT}" ]; then
+        msg "git: submodule deinit src/llvm"
+        "${CFG_GIT}" submodule deinit src/llvm
+    fi
+    if [ ! -z "${CFG_JEMALLOC_ROOT}" ]; then
+        msg "git: submodule deinit src/jemalloc"
+        "${CFG_GIT}" submodule deinit src/jemalloc
+    fi
+    if [ ! -z "${CFG_LIBUV_ROOT}" ]; then
+        msg "git: submodule deinit src/libuv"
+        "${CFG_GIT}" submodule deinit src/libuv
+    fi
+
     msg "git: submodule update"
-    "${CFG_GIT}" submodule update --init
+    "${CFG_GIT}" submodule update
     need_ok "git failed"
 
     msg "git: submodule foreach sync"
@@ -994,7 +962,7 @@ then
     need_ok "git failed"
 
     msg "git: submodule foreach update"
-    "${CFG_GIT}" submodule update --init --recursive
+    "${CFG_GIT}" submodule update --recursive
     need_ok "git failed"
 
     # NB: this is just for the sake of getting the submodule SHA1 values
@@ -1308,6 +1276,9 @@ putvar CFG_NACL_CROSS_PATH
 putvar CFG_EMSCRIPTEN_CROSS_PATH
 putvar CFG_MANDIR
 putvar CFG_DISABLE_INJECT_STD_VERSION
+putvar CFG_JEMALLOC_ROOT
+putvar CFG_LIBUV_ROOT
+putvar CFG_DISABLE_JEMALLOC
 
 # Avoid spurious warnings from clang by feeding it original source on
 # ccache-miss rather than preprocessed input.

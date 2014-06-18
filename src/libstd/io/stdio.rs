@@ -31,6 +31,7 @@ use failure::local_stderr;
 use fmt;
 use io::{Reader, Writer, IoResult, IoError, OtherIoError,
          standard_error, EndOfFile, LineBufferedWriter, BufferedReader};
+use iter::Iterator;
 use kinds::Send;
 use libc;
 use option::{Option, Some, None};
@@ -40,7 +41,9 @@ use rt;
 use rt::local::Local;
 use rt::task::Task;
 use rt::rtio::{DontClose, IoFactory, LocalIo, RtioFileStream, RtioTTY};
+use slice::ImmutableVector;
 use str::StrSlice;
+use uint;
 
 // And so begins the tale of acquiring a uv handle to a stdio stream on all
 // platforms in all situations. Our story begins by splitting the world into two
@@ -71,8 +74,8 @@ use str::StrSlice;
 // tl;dr; TTY works on everything but when windows stdout is redirected, in that
 //        case pipe also doesn't work, but magically file does!
 enum StdSource {
-    TTY(Box<RtioTTY:Send>),
-    File(Box<RtioFileStream:Send>),
+    TTY(Box<RtioTTY + Send>),
+    File(Box<RtioFileStream + Send>),
 }
 
 fn src<T>(fd: libc::c_int, readable: bool, f: |StdSource| -> T) -> T {
@@ -84,7 +87,7 @@ fn src<T>(fd: libc::c_int, readable: bool, f: |StdSource| -> T) -> T {
     }).map_err(IoError::from_rtio_error).unwrap()
 }
 
-local_data_key!(local_stdout: Box<Writer:Send>)
+local_data_key!(local_stdout: Box<Writer + Send>)
 
 /// Creates a new non-blocking handle to the stdin of the current process.
 ///
@@ -163,7 +166,7 @@ pub fn stderr_raw() -> StdWriter {
 ///
 /// Note that this does not need to be called for all new tasks; the default
 /// output handle is to the process's stdout stream.
-pub fn set_stdout(stdout: Box<Writer:Send>) -> Option<Box<Writer:Send>> {
+pub fn set_stdout(stdout: Box<Writer + Send>) -> Option<Box<Writer + Send>> {
     local_stdout.replace(Some(stdout)).and_then(|mut s| {
         let _ = s.flush();
         Some(s)
@@ -178,7 +181,7 @@ pub fn set_stdout(stdout: Box<Writer:Send>) -> Option<Box<Writer:Send>> {
 ///
 /// Note that this does not need to be called for all new tasks; the default
 /// output handle is to the process's stderr stream.
-pub fn set_stderr(stderr: Box<Writer:Send>) -> Option<Box<Writer:Send>> {
+pub fn set_stderr(stderr: Box<Writer + Send>) -> Option<Box<Writer + Send>> {
     local_stderr.replace(Some(stderr)).and_then(|mut s| {
         let _ = s.flush();
         Some(s)
@@ -198,7 +201,7 @@ pub fn set_stderr(stderr: Box<Writer:Send>) -> Option<Box<Writer:Send>> {
 fn with_task_stdout(f: |&mut Writer| -> IoResult<()>) {
     let result = if Local::exists(None::<Task>) {
         let mut my_stdout = local_stdout.replace(None).unwrap_or_else(|| {
-            box stdout() as Box<Writer:Send>
+            box stdout() as Box<Writer + Send>
         });
         let result = f(my_stdout);
         local_stdout.replace(Some(my_stdout));
@@ -355,10 +358,18 @@ impl StdWriter {
 
 impl Writer for StdWriter {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
-        match self.inner {
-            TTY(ref mut tty) => tty.write(buf),
-            File(ref mut file) => file.write(buf),
-        }.map_err(IoError::from_rtio_error)
+        // As with stdin on windows, stdout often can't handle writes of large
+        // sizes. For an example, see #14940. For this reason, chunk the output
+        // buffer on windows, but on unix we can just write the whole buffer all
+        // at once.
+        let max_size = if cfg!(windows) {64 * 1024} else {uint::MAX};
+        for chunk in buf.chunks(max_size) {
+            try!(match self.inner {
+                TTY(ref mut tty) => tty.write(chunk),
+                File(ref mut file) => file.write(chunk),
+            }.map_err(IoError::from_rtio_error))
+        }
+        Ok(())
     }
 }
 

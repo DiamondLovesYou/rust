@@ -120,16 +120,18 @@
 extern crate rustuv;
 #[cfg(test)] extern crate native;
 #[cfg(test)] extern crate debug;
+#[cfg(test)] #[phase(plugin, link)] extern crate log;
+
 // libgreen doesn't exist for le32-unknown-nacl targets:
 #[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
 extern crate green;
 
-#[cfg(test)] #[phase(syntax, link)] extern crate log;
 
 extern crate alloc;
 extern crate core;
 extern crate core_collections = "collections";
 extern crate core_rand = "rand";
+extern crate core_sync = "sync";
 extern crate libc;
 extern crate rustrt;
 
@@ -139,6 +141,8 @@ extern crate rustrt;
 #[cfg(test)] pub use realstd::ops;
 #[cfg(test)] pub use realstd::cmp;
 #[cfg(test)] pub use realstd::ty;
+#[cfg(test)] pub use realstd::owned;
+#[cfg(test)] pub use realstd::gc;
 
 
 // NB: These reexports are in the order they should be listed in rustdoc
@@ -149,7 +153,6 @@ pub use core::cell;
 pub use core::char;
 pub use core::clone;
 #[cfg(not(test))] pub use core::cmp;
-pub use core::container;
 pub use core::default;
 pub use core::finally;
 pub use core::intrinsics;
@@ -176,6 +179,8 @@ pub use core_collections::vec;
 
 pub use rustrt::c_str;
 pub use rustrt::local_data;
+
+pub use core_sync::comm;
 
 // Run tests with libgreen instead of libnative, but not while targeting a
 // platform using Newlibc.
@@ -232,6 +237,7 @@ pub mod rand;
 
 pub mod ascii;
 
+#[cfg(not(test))]
 pub mod gc;
 
 /* Common traits */
@@ -247,21 +253,16 @@ pub mod collections;
 /* Tasks and communication */
 
 pub mod task;
-pub mod comm;
 pub mod sync;
-
 
 /* Runtime and platform support */
 
 pub mod c_vec;
+pub mod dynamic_lib;
 pub mod os;
 pub mod io;
 pub mod path;
 pub mod fmt;
-
-// Private APIs
-#[unstable]
-pub mod unstable;
 
 // FIXME #7809: This shouldn't be pub, and it should be reexported under 'unstable'
 // but name resolution doesn't work without it being pub.
@@ -291,4 +292,12 @@ mod std {
     #[cfg(test)] pub use os = realstd::os;
     // The test runner requires std::slice::Vector, so re-export std::slice just for it.
     #[cfg(test)] pub use slice;
+}
+
+#[deprecated]
+#[allow(missing_doc)]
+#[doc(hiden)]
+pub mod unstable {
+    #[deprecated = "use std::dynamic_lib"]
+    pub use dynamic_lib;
 }

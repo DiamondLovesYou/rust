@@ -26,9 +26,8 @@ Simple [DEFLATE][def]-based compression. This is a wrapper around the
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/")]
 #![feature(phase)]
-#![deny(deprecated_owned_vector)]
 
-#[cfg(test)] #[phase(syntax, link)] extern crate log;
+#[cfg(test)] #[phase(plugin, link)] extern crate log;
 
 extern crate libc;
 
@@ -113,7 +112,6 @@ mod tests {
     use std::rand::Rng;
 
     #[test]
-    #[allow(deprecated_owned_vector)]
     fn test_flate_round_trip() {
         let mut r = rand::task_rng();
         let mut words = vec!();

@@ -38,12 +38,9 @@ extern crate getopts;
 extern crate graphviz;
 extern crate libc;
 extern crate serialize;
-extern crate sync;
 extern crate syntax;
 extern crate time;
-
-#[phase(syntax, link)]
-extern crate log;
+#[phase(plugin, link)] extern crate log;
 
 pub mod middle {
     pub mod def;
@@ -80,6 +77,8 @@ pub mod middle {
     pub mod expr_use_visitor;
     pub mod dependency_format;
     pub mod weak_lang_items;
+    pub mod save;
+    pub mod intrinsicck;
 }
 
 pub mod front {
@@ -109,6 +108,8 @@ pub mod back {
 pub mod metadata;
 
 pub mod driver;
+
+pub mod plugin;
 
 pub mod util {
     pub mod common;

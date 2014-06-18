@@ -24,6 +24,28 @@
 //! detection is not guaranteed to continue in the future. Usage of this module
 //! is discouraged unless absolutely necessary.
 
+// iOS related notes
+//
+// It is possible to implement it using idea from
+// http://www.opensource.apple.com/source/Libc/Libc-825.40.1/pthreads/pthread_machdep.h
+//
+// In short: _pthread_{get,set}_specific_direct allows extremely fast
+// access, exactly what is required for segmented stack
+// There is a pool of reserved slots for Apple internal use (0..119)
+// First dynamic allocated pthread key starts with 257 (on iOS7)
+// So using slot 149 should be pretty safe ASSUMING space is reserved
+// for every key < first dynamic key
+//
+// There is also an opportunity to steal keys reserved for Garbage Collection
+// ranges 80..89 and 110..119, especially considering the fact Garbage Collection
+// never supposed to work on iOS. But as everybody knows it - there is a chance
+// that those slots will be re-used, like it happened with key 95 (moved from
+// JavaScriptCore to CoreText)
+//
+// Unfortunately Apple rejected patch to LLVM which generated
+// corresponding prolog, decision was taken to disable segmented
+// stack support on iOS.
+
 pub static RED_ZONE: uint = 20 * 1024;
 
 /// This function is invoked from rust's current __morestack function. Segmented
@@ -124,7 +146,7 @@ pub unsafe fn record_stack_bounds(stack_lo: uint, stack_hi: uint) {
         // means that if we want to perform valid FFI on windows, then we need
         // to ensure that the stack bounds are what they truly are for this
         // task. More info can be found at:
-        //   https://github.com/mozilla/rust/issues/3445#issuecomment-26114839
+        //   https://github.com/rust-lang/rust/issues/3445#issuecomment-26114839
         //
         // stack range is at TIB: %gs:0x08 (top) and %gs:0x10 (bottom)
         asm!("mov $0, %gs:0x08" :: "r"(stack_hi) :: "volatile");
@@ -151,7 +173,8 @@ pub unsafe fn record_sp_limit(limit: uint) {
     return target_record_sp_limit(limit);
 
     // x86-64
-    #[cfg(target_arch = "x86_64", target_os = "macos")] #[inline(always)]
+    #[cfg(target_arch = "x86_64", target_os = "macos")]
+    #[cfg(target_arch = "x86_64", target_os = "ios")] #[inline(always)]
     unsafe fn target_record_sp_limit(limit: uint) {
         asm!("movq $$0x60+90*8, %rsi
               movq $0, %gs:(%rsi)" :: "r"(limit) : "rsi" : "volatile")
@@ -173,7 +196,8 @@ pub unsafe fn record_sp_limit(limit: uint) {
     }
 
     // x86
-    #[cfg(target_arch = "x86", target_os = "macos")] #[inline(always)]
+    #[cfg(target_arch = "x86", target_os = "macos")]
+    #[cfg(target_arch = "x86", target_os = "ios")] #[inline(always)]
     unsafe fn target_record_sp_limit(limit: uint) {
         asm!("movl $$0x48+90*4, %eax
               movl $0, %gs:(%eax)" :: "r"(limit) : "eax" : "volatile")
@@ -193,7 +217,7 @@ pub unsafe fn record_sp_limit(limit: uint) {
     // mips, arm - Some brave soul can port these to inline asm, but it's over
     //             my head personally
     #[cfg(target_arch = "mips")]
-    #[cfg(target_arch = "arm")] #[inline(always)]
+    #[cfg(target_arch = "arm", not(target_os = "ios"))] #[inline(always)]
     unsafe fn target_record_sp_limit(limit: uint) {
         use libc::c_void;
         return record_sp_limit(limit as *c_void);
@@ -202,8 +226,12 @@ pub unsafe fn record_sp_limit(limit: uint) {
         }
     }
 
-    #[cfg(target_arch = "le32")] #[inline(always)]
-    unsafe fn target_record_sp_limit(_limit: uint) { }
+    // iOS segmented stack is disabled for now, see related notes
+    #[cfg(target_arch = "arm", target_os = "ios")]
+    #[cfg(target_arch = "le32")]
+    #[inline(always)]
+    unsafe fn target_record_sp_limit(_: uint) {
+    }
 }
 
 /// The counterpart of the function above, this function will fetch the current
@@ -219,7 +247,8 @@ pub unsafe fn get_sp_limit() -> uint {
     return target_get_sp_limit();
 
     // x86-64
-    #[cfg(target_arch = "x86_64", target_os = "macos")] #[inline(always)]
+    #[cfg(target_arch = "x86_64", target_os = "macos")]
+    #[cfg(target_arch = "x86_64", target_os = "ios")] #[inline(always)]
     unsafe fn target_get_sp_limit() -> uint {
         let limit;
         asm!("movq $$0x60+90*8, %rsi
@@ -246,7 +275,8 @@ pub unsafe fn get_sp_limit() -> uint {
     }
 
     // x86
-    #[cfg(target_arch = "x86", target_os = "macos")] #[inline(always)]
+    #[cfg(target_arch = "x86", target_os = "macos")]
+    #[cfg(target_arch = "x86", target_os = "ios")] #[inline(always)]
     unsafe fn target_get_sp_limit() -> uint {
         let limit;
         asm!("movl $$0x48+90*4, %eax
@@ -270,7 +300,7 @@ pub unsafe fn get_sp_limit() -> uint {
     // mips, arm - Some brave soul can port these to inline asm, but it's over
     //             my head personally
     #[cfg(target_arch = "mips")]
-    #[cfg(target_arch = "arm")] #[inline(always)]
+    #[cfg(target_arch = "arm", not(target_os = "ios"))] #[inline(always)]
     unsafe fn target_get_sp_limit() -> uint {
         use libc::c_void;
         return get_sp_limit() as uint;
@@ -279,8 +309,13 @@ pub unsafe fn get_sp_limit() -> uint {
         }
     }
 
-    #[cfg(target_arch = "le32")] #[inline(always)]
+    // iOS doesn't support segmented stacks yet. This function might
+    // be called by runtime though so it is unsafe to mark it as
+    // unreachable, let's return a fixed constant.
+    #[cfg(target_arch = "arm", target_os = "ios")]
+    #[cfg(target_arch = "le32")]
+    #[inline(always)]
     unsafe fn target_get_sp_limit() -> uint {
-        return 0;
+        1024
     }
 }

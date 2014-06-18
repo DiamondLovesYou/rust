@@ -23,6 +23,7 @@ use syntax::parse::token;
 use syntax::util::small_vector::SmallVector;
 
 use std::mem;
+use std::gc::{Gc, GC};
 
 pub static VERSION: &'static str = "0.11.0-pre";
 
@@ -63,7 +64,7 @@ pub fn with_version(krate: &str) -> Option<(InternedString, ast::StrStyle)> {
     match option_env!("CFG_DISABLE_INJECT_STD_VERSION") {
         Some("1") => None,
         _ => {
-            Some((token::intern_and_get_ident(format!("{}\\#{}",
+            Some((token::intern_and_get_ident(format!("{}#{}",
                                                       krate,
                                                       VERSION).as_slice()),
                   ast::CookedStr))
@@ -81,7 +82,7 @@ impl<'a> fold::Folder for StandardLibraryInjector<'a> {
                 attr::mk_attr_outer(attr::mk_attr_id(), attr::mk_list_item(
                         InternedString::new("phase"),
                         vec!(
-                            attr::mk_word_item(InternedString::new("syntax")),
+                            attr::mk_word_item(InternedString::new("plugin")),
                             attr::mk_word_item(InternedString::new("link")
                         ))))),
             vis: ast::Inherited,
@@ -130,9 +131,7 @@ fn inject_crates_ref(sess: &Session, krate: ast::Crate) -> ast::Crate {
     fold.fold_crate(krate)
 }
 
-struct PreludeInjector<'a> {
-    sess: &'a Session,
-}
+struct PreludeInjector<'a>;
 
 
 impl<'a> fold::Folder for PreludeInjector<'a> {
@@ -167,12 +166,12 @@ impl<'a> fold::Folder for PreludeInjector<'a> {
         krate
     }
 
-    fn fold_item(&mut self, item: @ast::Item) -> SmallVector<@ast::Item> {
+    fn fold_item(&mut self, item: Gc<ast::Item>) -> SmallVector<Gc<ast::Item>> {
         if !no_prelude(item.attrs.as_slice()) {
             // only recur if there wasn't `#![no_implicit_prelude]`
             // on this item, i.e. this means that the prelude is not
             // implicitly imported though the whole subtree
-            fold::noop_fold_item(item, self)
+            fold::noop_fold_item(&*item, self)
         } else {
             SmallVector::one(item)
         }
@@ -195,7 +194,8 @@ impl<'a> fold::Folder for PreludeInjector<'a> {
                 }),
         };
 
-        let vp = @codemap::dummy_spanned(ast::ViewPathGlob(prelude_path, ast::DUMMY_NODE_ID));
+        let vp = box(GC) codemap::dummy_spanned(ast::ViewPathGlob(prelude_path,
+                                                                  ast::DUMMY_NODE_ID));
         let vi2 = ast::ViewItem {
             node: ast::ViewItemUse(vp),
             attrs: Vec::new(),
@@ -223,9 +223,7 @@ impl<'a> fold::Folder for PreludeInjector<'a> {
     }
 }
 
-fn inject_prelude(sess: &Session, krate: ast::Crate) -> ast::Crate {
-    let mut fold = PreludeInjector {
-        sess: sess,
-    };
+fn inject_prelude(_: &Session, krate: ast::Crate) -> ast::Crate {
+    let mut fold = PreludeInjector;
     fold.fold_crate(krate)
 }

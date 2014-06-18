@@ -46,12 +46,11 @@
 #![feature(macro_rules, phase)]
 
 extern crate regex;
-#[phase(syntax)]extern crate regex_macros;
-extern crate sync;
+#[phase(plugin)]extern crate regex_macros;
 
 use std::io;
 use regex::{NoExpand, Regex};
-use sync::Arc;
+use std::sync::{Arc, Future};
 
 fn count_matches(seq: &str, variant: &Regex) -> int {
     let mut n = 0;
@@ -75,8 +74,8 @@ fn main() {
     let seq_arc = Arc::new(seq.clone()); // copy before it moves
     let clen = seq.len();
 
-    let mut seqlen = sync::Future::spawn(proc() {
-        let substs = ~[
+    let mut seqlen = Future::spawn(proc() {
+        let substs = vec![
             (regex!("B"), "(c|g|t)"),
             (regex!("D"), "(a|g|t)"),
             (regex!("H"), "(a|c|t)"),
@@ -96,7 +95,7 @@ fn main() {
         seq.len()
     });
 
-    let variants = ~[
+    let variants = vec![
         regex!("agggtaaa|tttaccct"),
         regex!("[cgt]gggtaaa|tttaccc[acg]"),
         regex!("a[act]ggtaaa|tttacc[agt]t"),
@@ -111,7 +110,7 @@ fn main() {
     for variant in variants.move_iter() {
         let seq_arc_copy = seq_arc.clone();
         variant_strs.push(variant.to_str().to_owned());
-        counts.push(sync::Future::spawn(proc() {
+        counts.push(Future::spawn(proc() {
             count_matches(seq_arc_copy.as_slice(), &variant)
         }));
     }

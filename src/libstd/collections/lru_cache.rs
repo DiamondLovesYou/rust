@@ -38,8 +38,7 @@
 //! ```
 
 use cmp::{PartialEq, Eq};
-use collections::HashMap;
-use container::{Container, Mutable, MutableMap};
+use collections::{HashMap, Collection, Mutable, MutableMap};
 use fmt;
 use hash::Hash;
 use iter::{range, Iterator};
@@ -210,7 +209,7 @@ impl<A: fmt::Show + Hash + Eq, B: fmt::Show> fmt::Show for LruCache<A, B> {
     /// Return a string that lists the key-value pairs from most-recently
     /// used to least-recently used.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, r"\{"));
+        try!(write!(f, "{{"));
         let mut cur = self.head;
         for i in range(0, self.len()) {
             if i > 0 { try!(write!(f, ", ")) }
@@ -223,11 +222,11 @@ impl<A: fmt::Show + Hash + Eq, B: fmt::Show> fmt::Show for LruCache<A, B> {
                 try!(write!(f, "{}", (*cur).value));
             }
         }
-        write!(f, r"\}")
+        write!(f, r"}}")
     }
 }
 
-impl<K: Hash + Eq, V> Container for LruCache<K, V> {
+impl<K: Hash + Eq, V> Collection for LruCache<K, V> {
     /// Return the number of key-value pairs in the cache.
     fn len(&self) -> uint {
         self.map.len()

@@ -32,8 +32,8 @@ This API is completely unstable and subject to change.
 
 extern crate serialize;
 extern crate term;
-#[phase(syntax, link)]
-extern crate log;
+#[phase(plugin, link)] extern crate log;
+
 extern crate fmt_macros;
 extern crate debug;
 
@@ -74,7 +74,6 @@ pub mod ext {
     pub mod asm;
     pub mod base;
     pub mod expand;
-    pub mod registrar;
 
     pub mod quote;
 

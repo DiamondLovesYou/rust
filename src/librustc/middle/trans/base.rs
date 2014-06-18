@@ -35,7 +35,7 @@ use driver::driver::{CrateAnalysis, CrateTranslation};
 use lib::llvm::{ModuleRef, ValueRef, BasicBlockRef};
 use lib::llvm::{llvm, Vector};
 use lib;
-use metadata::{csearch, encoder};
+use metadata::{csearch, encoder, loader};
 use middle::lint;
 use middle::astencode;
 use middle::lang_items::{LangItem, ExchangeMallocFnLangItem, StartFnLangItem};
@@ -59,6 +59,7 @@ use middle::trans::expr;
 use middle::trans::foreign;
 use middle::trans::glue;
 use middle::trans::inline;
+use middle::trans::intrinsic;
 use middle::trans::machine;
 use middle::trans::machine::{llalign_of_min, llsize_of, llsize_of_real};
 use middle::trans::meth;
@@ -81,6 +82,7 @@ use std::c_str::ToCStr;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::{i8, i16, i32, i64};
+use std::gc::Gc;
 use syntax::abi::{X86, X86_64, Arm, Mips, Rust, RustIntrinsic};
 use syntax::abi::Le32;
 use syntax::ast_util::{local_def, is_local};
@@ -107,7 +109,9 @@ pub fn init_insn_ctxt() {
     task_local_insn_key.replace(Some(RefCell::new(Vec::new())));
 }
 
-pub struct _InsnCtxt { _x: () }
+pub struct _InsnCtxt {
+    _cannot_construct_outside_of_this_module: ()
+}
 
 #[unsafe_destructor]
 impl Drop for _InsnCtxt {
@@ -125,7 +129,7 @@ pub fn push_ctxt(s: &'static str) -> _InsnCtxt {
         Some(ctx) => ctx.borrow_mut().push(s),
         None => {}
     }
-    _InsnCtxt { _x: () }
+    _InsnCtxt { _cannot_construct_outside_of_this_module: () }
 }
 
 pub struct StatRecorder<'a> {
@@ -170,12 +174,12 @@ impl<'a> Drop for StatRecorder<'a> {
 }
 
 // only use this for foreign function ABIs and glue, use `decl_rust_fn` for Rust functions
-fn decl_fn(llmod: ModuleRef, name: &str, cc: lib::llvm::CallConv,
+fn decl_fn(ccx: &CrateContext, name: &str, cc: lib::llvm::CallConv,
            ty: Type, output: ty::t) -> ValueRef {
 
     let llfn: ValueRef = name.with_c_str(|buf| {
         unsafe {
-            llvm::LLVMGetOrInsertFunction(llmod, buf, ty.to_ref())
+            llvm::LLVMGetOrInsertFunction(ccx.llmod, buf, ty.to_ref())
         }
     });
 
@@ -194,17 +198,20 @@ fn decl_fn(llmod: ModuleRef, name: &str, cc: lib::llvm::CallConv,
     lib::llvm::SetFunctionCallConv(llfn, cc);
     // Function addresses in Rust are never significant, allowing functions to be merged.
     lib::llvm::SetUnnamedAddr(llfn, true);
-    set_split_stack(llfn);
+
+    if ccx.is_split_stack_supported() {
+        set_split_stack(llfn);
+    }
 
     llfn
 }
 
 // only use this for foreign function ABIs and glue, use `decl_rust_fn` for Rust functions
-pub fn decl_cdecl_fn(llmod: ModuleRef,
+pub fn decl_cdecl_fn(ccx: &CrateContext,
                      name: &str,
                      ty: Type,
                      output: ty::t) -> ValueRef {
-    decl_fn(llmod, name, lib::llvm::CCallConv, ty, output)
+    decl_fn(ccx, name, lib::llvm::CCallConv, ty, output)
 }
 
 // only use this for foreign function ABIs and glue, use `get_extern_rust_fn` for Rust functions
@@ -219,7 +226,7 @@ pub fn get_extern_fn(ccx: &CrateContext,
         Some(n) => return *n,
         None => {}
     }
-    let f = decl_fn(ccx.llmod, name, cc, ty, output);
+    let f = decl_fn(ccx, name, cc, ty, output);
     externs.insert(name.to_string(), f);
     f
 }
@@ -248,7 +255,7 @@ pub fn decl_rust_fn(ccx: &CrateContext, fn_ty: ty::t, name: &str) -> ValueRef {
     };
 
     let llfty = type_of_rust_fn(ccx, has_env, inputs.as_slice(), output);
-    let llfn = decl_fn(ccx.llmod, name, lib::llvm::CCallConv, llfty, output);
+    let llfn = decl_fn(ccx, name, lib::llvm::CCallConv, llfty, output);
     let attrs = get_fn_llvm_attributes(ccx, fn_ty);
     for &(idx, attr) in attrs.iter() {
         unsafe {
@@ -455,11 +462,11 @@ pub fn get_res_dtor(ccx: &CrateContext,
         did
     };
 
-    if !substs.tps.is_empty() || !substs.self_ty.is_none() {
+    if !substs.types.is_empty() {
         assert_eq!(did.krate, ast::LOCAL_CRATE);
 
         let vtables = typeck::check::vtable::trans_resolve_method(ccx.tcx(), did.node, substs);
-        let (val, _) = monomorphize::monomorphic_fn(ccx, did, substs, vtables, None, None);
+        let (val, _) = monomorphize::monomorphic_fn(ccx, did, substs, vtables, None);
 
         val
     } else if did.krate == ast::LOCAL_CRATE {
@@ -991,23 +998,9 @@ pub fn ignore_lhs(_bcx: &Block, local: &ast::Local) -> bool {
 
 pub fn init_local<'a>(bcx: &'a Block<'a>, local: &ast::Local)
                   -> &'a Block<'a> {
-
-    debug!("init_local(bcx={}, local.id={:?})",
-           bcx.to_str(), local.id);
+    debug!("init_local(bcx={}, local.id={:?})", bcx.to_str(), local.id);
     let _indenter = indenter();
-
     let _icx = push_ctxt("init_local");
-
-    if ignore_lhs(bcx, local) {
-        // Handle let _ = e; just like e;
-        match local.init {
-            Some(init) => {
-                return controlflow::trans_stmt_semi(bcx, init)
-            }
-            None => { return bcx; }
-        }
-    }
-
     _match::store_local(bcx, local)
 }
 
@@ -1563,14 +1556,14 @@ fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
 fn trans_enum_def(ccx: &CrateContext, enum_definition: &ast::EnumDef,
                   sp: Span, id: ast::NodeId, vi: &[Rc<ty::VariantInfo>],
                   i: &mut uint) {
-    for &variant in enum_definition.variants.iter() {
+    for variant in enum_definition.variants.iter() {
         let disr_val = vi[*i].disr_val;
         *i += 1;
 
         match variant.node.kind {
             ast::TupleVariantKind(ref args) if args.len() > 0 => {
                 let llfn = get_item_val(ccx, variant.node.id);
-                trans_enum_variant(ccx, id, variant, args.as_slice(),
+                trans_enum_variant(ccx, id, &**variant, args.as_slice(),
                                    disr_val, &param_substs::empty(), llfn);
             }
             ast::TupleVariantKind(_) => {
@@ -1599,7 +1592,7 @@ fn enum_variant_size_lint(ccx: &CrateContext, enum_def: &ast::EnumDef, sp: Span,
                 for var in variants.iter() {
                     let mut size = 0;
                     for field in var.fields.iter().skip(1) {
-                        // skip the dicriminant
+                        // skip the discriminant
                         size += llsize_of_real(ccx, sizing_type_of(ccx, *field));
                     }
                     sizes.push(size);
@@ -1647,16 +1640,16 @@ impl<'a> Visitor<()> for TransItemVisitor<'a> {
 pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
     let _icx = push_ctxt("trans_item");
     match item.node {
-      ast::ItemFn(decl, _fn_style, abi, ref generics, body) => {
+      ast::ItemFn(ref decl, _fn_style, abi, ref generics, ref body) => {
         if abi != Rust  {
             let llfndecl = get_item_val(ccx, item.id);
             foreign::trans_rust_fn_with_foreign_abi(
-                ccx, decl, body, item.attrs.as_slice(), llfndecl, item.id);
+                ccx, &**decl, &**body, item.attrs.as_slice(), llfndecl, item.id);
         } else if !generics.is_type_parameterized() {
             let llfn = get_item_val(ccx, item.id);
             trans_fn(ccx,
-                     decl,
-                     body,
+                     &**decl,
+                     &**body,
                      llfn,
                      &param_substs::empty(),
                      item.id,
@@ -1665,7 +1658,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
             // Be sure to travel more than just one layer deep to catch nested
             // items in blocks and such.
             let mut v = TransItemVisitor{ ccx: ccx };
-            v.visit_block(body, ());
+            v.visit_block(&**body, ());
         }
       }
       ast::ItemImpl(ref generics, _, _, ref ms) => {
@@ -1681,10 +1674,10 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
             trans_enum_def(ccx, enum_definition, item.span, item.id, vi.as_slice(), &mut i);
         }
       }
-      ast::ItemStatic(_, m, expr) => {
+      ast::ItemStatic(_, m, ref expr) => {
           // Recurse on the expression to catch items in blocks
           let mut v = TransItemVisitor{ ccx: ccx };
-          v.visit_expr(expr, ());
+          v.visit_expr(&**expr, ());
           consts::trans_const(ccx, m, item.id);
           // Do static_assert checking. It can't really be done much earlier
           // because we need to get the value of the bool out of LLVM
@@ -1723,7 +1716,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
     }
 }
 
-pub fn trans_struct_def(ccx: &CrateContext, struct_def: @ast::StructDef) {
+pub fn trans_struct_def(ccx: &CrateContext, struct_def: Gc<ast::StructDef>) {
     // If this is a tuple-like struct, translate the constructor.
     match struct_def.ctor_id {
         // We only need to translate a constructor if there are fields;
@@ -1745,7 +1738,7 @@ pub fn trans_struct_def(ccx: &CrateContext, struct_def: @ast::StructDef) {
 pub fn trans_mod(ccx: &CrateContext, m: &ast::Mod) {
     let _icx = push_ctxt("trans_mod");
     for item in m.items.iter() {
-        trans_item(ccx, *item);
+        trans_item(ccx, &**item);
     }
 }
 
@@ -1902,7 +1895,7 @@ pub fn register_fn_llvmty(ccx: &CrateContext,
                           llfty: Type) -> ValueRef {
     debug!("register_fn_llvmty id={} sym={}", node_id, sym);
 
-    let llfn = decl_fn(ccx.llmod, sym.as_slice(), cc, llfty, ty::mk_nil());
+    let llfn = decl_fn(ccx, sym.as_slice(), cc, llfty, ty::mk_nil());
     finish_register_fn(ccx, sp, sym, node_id, llfn);
     llfn
 }
@@ -1934,7 +1927,7 @@ pub fn create_entry_wrapper(ccx: &CrateContext,
         let llfty = Type::func([ccx.int_type, Type::i8p(ccx).ptr_to()],
                                &ccx.int_type);
 
-        let llfn = decl_cdecl_fn(ccx.llmod, "main", llfty, ty::mk_nil());
+        let llfn = decl_cdecl_fn(ccx, "main", llfty, ty::mk_nil());
         let llbb = "top".with_c_str(|buf| {
             unsafe {
                 llvm::LLVMAppendBasicBlockInContext(ccx.llcx, llfn, buf)
@@ -2029,7 +2022,7 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
             let sym = exported_name(ccx, id, ty, i.attrs.as_slice());
 
             let v = match i.node {
-                ast::ItemStatic(_, _, expr) => {
+                ast::ItemStatic(_, _, ref expr) => {
                     // If this static came from an external crate, then
                     // we need to get the symbol from csearch instead of
                     // using the current crate's name/version
@@ -2048,7 +2041,7 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
 
                     // We need the translated value here, because for enums the
                     // LLVM type is not fully determined by the Rust type.
-                    let (v, inlineable) = consts::const_expr(ccx, expr, is_local);
+                    let (v, inlineable) = consts::const_expr(ccx, &**expr, is_local);
                     ccx.const_values.borrow_mut().insert(id, v);
                     let mut inlineable = inlineable;
 
@@ -2144,13 +2137,13 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
                                    get_item_val()");
                 }
                 ast::Provided(m) => {
-                    register_method(ccx, id, m)
+                    register_method(ccx, id, &*m)
                 }
             }
         }
 
         ast_map::NodeMethod(m) => {
-            register_method(ccx, id, m)
+            register_method(ccx, id, &*m)
         }
 
         ast_map::NodeForeignItem(ni) => {
@@ -2160,13 +2153,13 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
                 ast::ForeignItemFn(..) => {
                     let abi = ccx.tcx.map.get_foreign_abi(id);
                     let ty = ty::node_id_to_type(ccx.tcx(), ni.id);
-                    let name = foreign::link_name(ni);
+                    let name = foreign::link_name(&*ni);
                     foreign::register_foreign_item_fn(ccx, abi, ty,
                                                       name.get().as_slice(),
                                                       Some(ni.span))
                 }
                 ast::ForeignItemStatic(..) => {
-                    foreign::register_static(ccx, ni)
+                    foreign::register_static(ccx, &*ni)
                 }
             }
         }
@@ -2303,12 +2296,8 @@ pub fn write_metadata(cx: &CrateContext, krate: &ast::Crate) -> Vec<u8> {
     });
     unsafe {
         llvm::LLVMSetInitializer(llglobal, llconst);
-        cx.sess()
-          .targ_cfg
-          .target_strs
-          .meta_sect_name
-          .as_slice()
-          .with_c_str(|buf| {
+        let name = loader::meta_section_name(cx.sess().targ_cfg.os);
+        name.unwrap_or("rust_metadata").with_c_str(|buf| {
             llvm::LLVMSetSection(llglobal, buf)
         });
     }
@@ -2322,7 +2311,7 @@ pub fn trans_crate(krate: ast::Crate,
 
     // Before we touch LLVM, make sure that multithreading is enabled.
     unsafe {
-        use sync::one::{Once, ONCE_INIT};
+        use std::sync::{Once, ONCE_INIT};
         static mut INIT: Once = ONCE_INIT;
         static mut POISONED: bool = false;
         INIT.doit(|| {
@@ -2346,7 +2335,7 @@ pub fn trans_crate(krate: ast::Crate,
     // LLVM code generator emits a ".file filename" directive
     // for ELF backends. Value of the "filename" is set as the
     // LLVM module identifier.  Due to a LLVM MC bug[1], LLVM
-    // crashes if the module identifer is same as other symbols
+    // crashes if the module identifier is same as other symbols
     // such as a function name in the module.
     // 1. http://llvm.org/bugs/show_bug.cgi?id=11479
     let mut llmod_id = link_meta.crateid.name.clone();
@@ -2354,6 +2343,11 @@ pub fn trans_crate(krate: ast::Crate,
 
     let ccx = CrateContext::new(llmod_id.as_slice(), tcx, exp_map2,
                                 Sha256::new(), link_meta, reachable);
+
+    // First, verify intrinsics.
+    intrinsic::check_intrinsics(&ccx);
+
+    // Next, translate the module.
     {
         let _icx = push_ctxt("text");
         trans_mod(&ccx, &krate.module);

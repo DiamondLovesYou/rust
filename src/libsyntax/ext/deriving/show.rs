@@ -20,12 +20,13 @@ use parse::token;
 
 use std::collections::HashMap;
 use std::string::String;
+use std::gc::Gc;
 
 pub fn expand_deriving_show(cx: &mut ExtCtxt,
                             span: Span,
-                            mitem: @MetaItem,
-                            item: @Item,
-                            push: |@Item|) {
+                            mitem: Gc<MetaItem>,
+                            item: Gc<Item>,
+                            push: |Gc<Item>|) {
     // &mut ::std::fmt::Formatter
     let fmtr = Ptr(box Literal(Path::new(vec!("std", "fmt", "Formatter"))),
                    Borrowed(None, ast::MutMutable));
@@ -57,7 +58,7 @@ pub fn expand_deriving_show(cx: &mut ExtCtxt,
 // we construct a format string and then defer to std::fmt, since that
 // knows what's up with formatting at so on.
 fn show_substructure(cx: &mut ExtCtxt, span: Span,
-                     substr: &Substructure) -> @Expr {
+                     substr: &Substructure) -> Gc<Expr> {
     // build `<name>`, `<name>({}, {}, ...)` or `<name> { <field>: {},
     // <field>: {}, ... }` based on the "shape".
     //
@@ -99,7 +100,7 @@ fn show_substructure(cx: &mut ExtCtxt, span: Span,
             } else {
                 // normal struct/struct variant
 
-                format_string.push_str(" \\{");
+                format_string.push_str(" {{");
 
                 for (i, field) in fields.iter().enumerate() {
                     if i != 0 { format_string.push_str(","); }
@@ -112,7 +113,7 @@ fn show_substructure(cx: &mut ExtCtxt, span: Span,
                     exprs.push(field.self_);
                 }
 
-                format_string.push_str(" \\}");
+                format_string.push_str(" }}");
             }
         }
         _ => unreachable!()

@@ -254,7 +254,10 @@ pub struct TcpStream {
 
 struct Inner {
     fd: sock_t,
-    lock: mutex::NativeMutex,
+
+    // Unused on Linux, where this lock is not necessary.
+    #[allow(dead_code)]
+    lock: mutex::NativeMutex
 }
 
 pub struct Guard<'a> {
@@ -324,6 +327,7 @@ impl TcpStream {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     fn set_tcp_keepalive(&mut self, seconds: uint) -> IoResult<()> {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_KEEPALIVE,
                    seconds as libc::c_int)
@@ -333,7 +337,7 @@ impl TcpStream {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_KEEPIDLE,
                    seconds as libc::c_int)
     }
-    #[cfg(not(target_os = "macos"), not(target_os = "freebsd"))]
+    #[cfg(not(target_os = "macos"), not(target_os = "ios"), not(target_os = "freebsd"))]
     fn set_tcp_keepalive(&mut self, _seconds: uint) -> IoResult<()> {
         Ok(())
     }
@@ -400,12 +404,12 @@ impl rtio::RtioTcpStream for TcpStream {
         self.set_keepalive(None)
     }
 
-    fn clone(&self) -> Box<rtio::RtioTcpStream:Send> {
+    fn clone(&self) -> Box<rtio::RtioTcpStream + Send> {
         box TcpStream {
             inner: self.inner.clone(),
             read_deadline: 0,
             write_deadline: 0,
-        } as Box<rtio::RtioTcpStream:Send>
+        } as Box<rtio::RtioTcpStream + Send>
     }
 
     fn close_write(&mut self) -> IoResult<()> {
@@ -487,9 +491,9 @@ impl TcpListener {
 }
 
 impl rtio::RtioTcpListener for TcpListener {
-    fn listen(~self) -> IoResult<Box<rtio::RtioTcpAcceptor:Send>> {
+    fn listen(~self) -> IoResult<Box<rtio::RtioTcpAcceptor + Send>> {
         self.native_listen(128).map(|a| {
-            box a as Box<rtio::RtioTcpAcceptor:Send>
+            box a as Box<rtio::RtioTcpAcceptor + Send>
         })
     }
 }
@@ -536,8 +540,8 @@ impl rtio::RtioSocket for TcpAcceptor {
 }
 
 impl rtio::RtioTcpAcceptor for TcpAcceptor {
-    fn accept(&mut self) -> IoResult<Box<rtio::RtioTcpStream:Send>> {
-        self.native_accept().map(|s| box s as Box<rtio::RtioTcpStream:Send>)
+    fn accept(&mut self) -> IoResult<Box<rtio::RtioTcpStream + Send>> {
+        self.native_accept().map(|s| box s as Box<rtio::RtioTcpStream + Send>)
     }
 
     fn accept_simultaneously(&mut self) -> IoResult<()> { Ok(()) }
@@ -641,7 +645,7 @@ impl rtio::RtioUdpSocket for UdpSocket {
                 mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
 
         let dolock = || self.lock_nonblocking();
-        let doread = |nb| unsafe {
+        let n = try!(read(fd, self.read_deadline, dolock, |nb| unsafe {
             let flags = if nb {c::MSG_DONTWAIT} else {0};
             libc::recvfrom(fd,
                            buf.as_mut_ptr() as *mut libc::c_void,
@@ -649,8 +653,7 @@ impl rtio::RtioUdpSocket for UdpSocket {
                            flags,
                            storagep,
                            &mut addrlen) as libc::c_int
-        };
-        let n = try!(read(fd, self.read_deadline, dolock, doread));
+        }));
         sockaddr_to_addr(&storage, addrlen as uint).and_then(|addr| {
             Ok((n as uint, addr))
         })
@@ -724,12 +727,12 @@ impl rtio::RtioUdpSocket for UdpSocket {
         self.set_broadcast(false)
     }
 
-    fn clone(&self) -> Box<rtio::RtioUdpSocket:Send> {
+    fn clone(&self) -> Box<rtio::RtioUdpSocket + Send> {
         box UdpSocket {
             inner: self.inner.clone(),
             read_deadline: 0,
             write_deadline: 0,
-        } as Box<rtio::RtioUdpSocket:Send>
+        } as Box<rtio::RtioUdpSocket + Send>
     }
 
     fn set_timeout(&mut self, timeout: Option<u64>) {

@@ -24,6 +24,7 @@
 //! // ... something using html
 //! ```
 
+#![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
 use libc;
@@ -258,10 +259,14 @@ pub fn render(w: &mut fmt::Formatter, s: &str, print_toc: bool) -> fmt::Result {
         };
 
         // Render the HTML
-        let text = format!(r#"<h{lvl} id="{id}" class='section-header'><a
-                           href="\#{id}">{sec_len,plural,=0{}other{{sec} }}{}</a></h{lvl}>"#,
+        let text = format!(r##"<h{lvl} id="{id}" class='section-header'><a
+                           href="#{id}">{sec}{}</a></h{lvl}>"##,
                            s, lvl = level, id = id,
-                           sec_len = sec.len(), sec = sec);
+                           sec = if sec.len() == 0 {
+                               sec.to_string()
+                           } else {
+                               format!("{} ", sec)
+                           });
 
         text.with_c_str(|p| unsafe { hoedown_buffer_puts(ob, p) });
     }
@@ -390,7 +395,7 @@ fn parse_lang_string(string: &str) -> (bool,bool,bool,bool) {
 }
 
 /// By default this markdown renderer generates anchors for each header in the
-/// rendered document. The anchor name is the contents of the header spearated
+/// rendered document. The anchor name is the contents of the header separated
 /// by hyphens, and a task-local map is used to disambiguate among duplicate
 /// headers (numbers are appended).
 ///

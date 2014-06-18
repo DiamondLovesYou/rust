@@ -13,18 +13,20 @@
 #![license = "MIT/ASL2"]
 #![comment = "A parse-time library to facilitate access to SIMD types & operations"]
 
-#![feature(macro_registrar, managed_boxes)]
-#![allow(deprecated_owned_vector)]
+#![feature(plugin_registrar, managed_boxes)]
 
 extern crate syntax;
+extern crate rustc;
 
-use syntax::ast::{Expr, ExprSwizzle, ExprSimd, DUMMY_NODE_ID, Name};
+use rustc::plugin::Registry;
+
+use syntax::ast::{Expr, ExprSwizzle, ExprSimd, DUMMY_NODE_ID};
 use syntax::ast::{P, Item, TokenTree, Ty, TySimd};
 use syntax::{ast, ast_util};
 use syntax::attr::mk_attr_id;
 use syntax::codemap::{respan, mk_sp};
-use syntax::ext::base::{get_exprs_from_tts, SyntaxExtension, BasicMacroExpander};
-use syntax::ext::base::{ExtCtxt, MacResult, MacExpr, MacItem, NormalTT, DummyResult};
+use syntax::ext::base::{get_exprs_from_tts};
+use syntax::ext::base::{ExtCtxt, MacResult, MacExpr, MacItem, DummyResult};
 use syntax::codemap::{Span, Spanned};
 use syntax::parse::{parser, token, tts_to_parser};
 use syntax::parse::token::keywords;
@@ -33,33 +35,14 @@ use syntax::parse::attr::ParserAttr;
 
 use std::option::{Option, Some, None};
 use std::vec::Vec;
+use std::gc::GC;
 
-#[macro_registrar]
-pub fn macro_registrar(register: |Name, SyntaxExtension|) {
-    register(token::intern("gather_simd"),
-             NormalTT(box BasicMacroExpander {
-                expander: make_simd,
-                span: None,
-             },
-                      None));
-    register(token::intern("def_type_simd"),
-             NormalTT(box BasicMacroExpander {
-                 expander: make_def_simd_type,
-                 span: None,
-             },
-                      None));
-    register(token::intern("swizzle_simd"),
-             NormalTT(box BasicMacroExpander {
-                 expander: make_swizzle,
-                 span: None,
-             },
-                      None));
-    register(token::intern("smear_simd"),
-             NormalTT(box BasicMacroExpander {
-                 expander: make_smear,
-                 span: None,
-             },
-                      None));
+#[plugin_registrar]
+pub fn plugin_registrar(reg: &mut Registry) {
+    reg.register_macro("gather_simd", make_simd);
+    reg.register_macro("def_type_simd", make_def_simd_type);
+    reg.register_macro("swizzle_simd", make_swizzle);
+    reg.register_macro("smear_simd", make_smear);
 }
 fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
     let mut parser =
@@ -87,7 +70,7 @@ fn make_smear(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
         _ => parser.unexpected(),
     };
 
-    MacExpr::new(@Expr {
+    MacExpr::new(box(GC) Expr {
         id: DUMMY_NODE_ID,
         span: sp,
         node: ExprSimd(Vec::from_elem(count as uint, value)),
@@ -101,7 +84,7 @@ fn make_simd(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
             return DummyResult::any(sp);
         }
     };
-    MacExpr::new(@Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSimd(elements)})
+    MacExpr::new(box(GC) Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSimd(elements)})
 }
 fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult> {
 
@@ -216,7 +199,7 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacR
                 ident: ident,
                 id: ast::DUMMY_NODE_ID,
                 node: match ty_type {
-                    keywords::Struct => ast::ItemStruct(@ast::StructDef {
+                    keywords::Struct => ast::ItemStruct(box(GC) ast::StructDef {
                         fields: Vec::from_elem(1, respan(inner.span, ast::StructField_ {
                             kind: ast::UnnamedField(ast::Public),
                             id: ast::DUMMY_NODE_ID,
@@ -232,7 +215,7 @@ fn make_def_simd_type(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacR
                 },
                 span: sp,
             };
-            MacItem::new(@item)
+            MacItem::new(box(GC) item)
         }
         None => DummyResult::any(sp)
     }
@@ -253,5 +236,9 @@ fn make_swizzle(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult>
             cx.expand_expr(s.parse_expr())
         });
 
-    MacExpr::new(@Expr{ id: DUMMY_NODE_ID, span: sp, node: ExprSwizzle(left, opt_right, mask)})
+    MacExpr::new(box(GC) Expr {
+        id: DUMMY_NODE_ID,
+        span: sp,
+        node: ExprSwizzle(left, opt_right, mask),
+    })
 }

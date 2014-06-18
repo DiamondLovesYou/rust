@@ -17,13 +17,10 @@
 #[phase(syntax)]
 extern crate simd_syntax;
 extern crate simd;
-extern crate sync;
-
 use std::io;
 use std::os;
 use simd::{f64x2, Simd};
-use sync::Future;
-use sync::Arc;
+use std::sync::{Arc, Future};
 
 static ITER: int = 50;
 static LIMIT: f64 = 2.0;

@@ -104,8 +104,6 @@ pub trait TyVisitor {
 
     fn visit_char(&mut self) -> bool;
 
-    fn visit_estr_box(&mut self) -> bool;
-    fn visit_estr_uniq(&mut self) -> bool;
     fn visit_estr_slice(&mut self) -> bool;
     fn visit_estr_fixed(&mut self, n: uint, sz: uint, align: uint) -> bool;
 
@@ -114,8 +112,6 @@ pub trait TyVisitor {
     fn visit_ptr(&mut self, mtbl: uint, inner: *TyDesc) -> bool;
     fn visit_rptr(&mut self, mtbl: uint, inner: *TyDesc) -> bool;
 
-    fn visit_evec_box(&mut self, mtbl: uint, inner: *TyDesc) -> bool;
-    fn visit_evec_uniq(&mut self, mtbl: uint, inner: *TyDesc) -> bool;
     fn visit_evec_slice(&mut self, mtbl: uint, inner: *TyDesc) -> bool;
     fn visit_evec_fixed(&mut self, n: uint, sz: uint, align: uint,
                         mtbl: uint, inner: *TyDesc) -> bool;
@@ -313,6 +309,20 @@ extern "rust-intrinsic" {
     /// `forget` is unsafe because the caller is responsible for
     /// ensuring the argument is deallocated already.
     pub fn forget<T>(_: T) -> ();
+
+    /// Unsafely transforms a value of one type into a value of another type.
+    ///
+    /// Both types must have the same size and alignment, and this guarantee
+    /// is enforced at compile-time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::mem;
+    ///
+    /// let v: &[u8] = unsafe { mem::transmute("L") };
+    /// assert!(v == [76u8]);
+    /// ```
     pub fn transmute<T,U>(e: T) -> U;
 
     /// Returns `true` if a type requires drop glue.

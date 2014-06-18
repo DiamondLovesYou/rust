@@ -22,12 +22,17 @@ use codemap::{Span, respan};
 use parse::parser;
 use parse::token;
 
+use std::gc::{Gc, GC};
+
 /// The specific types of unsupported syntax
 #[deriving(PartialEq, Eq, Hash)]
 pub enum ObsoleteSyntax {
     ObsoleteOwnedType,
     ObsoleteOwnedExpr,
     ObsoleteOwnedPattern,
+    ObsoleteOwnedVector,
+    ObsoleteManagedType,
+    ObsoleteManagedExpr,
 }
 
 pub trait ParserObsoleteMethods {
@@ -35,7 +40,7 @@ pub trait ParserObsoleteMethods {
     fn obsolete(&mut self, sp: Span, kind: ObsoleteSyntax);
     // Reports an obsolete syntax non-fatal error, and returns
     // a placeholder expression
-    fn obsolete_expr(&mut self, sp: Span, kind: ObsoleteSyntax) -> @Expr;
+    fn obsolete_expr(&mut self, sp: Span, kind: ObsoleteSyntax) -> Gc<Expr>;
     fn report(&mut self,
               sp: Span,
               kind: ObsoleteSyntax,
@@ -61,6 +66,18 @@ impl<'a> ParserObsoleteMethods for parser::Parser<'a> {
                 "`~` notation for owned pointer patterns",
                 "use the `box` operator instead of `~`"
             ),
+            ObsoleteOwnedVector => (
+                "`~[T]` is no longer a type",
+                "use the `Vec` type instead"
+            ),
+            ObsoleteManagedType => (
+                "`@` notation for managed pointers",
+                "use `Gc<T>` in `std::gc` instead"
+            ),
+            ObsoleteManagedExpr => (
+                "`@` notation for a managed pointer allocation",
+                "use the `box(GC)` oeprator instead of `@`"
+            ),
         };
 
         self.report(sp, kind, kind_str, desc);
@@ -68,9 +85,9 @@ impl<'a> ParserObsoleteMethods for parser::Parser<'a> {
 
     // Reports an obsolete syntax non-fatal error, and returns
     // a placeholder expression
-    fn obsolete_expr(&mut self, sp: Span, kind: ObsoleteSyntax) -> @Expr {
+    fn obsolete_expr(&mut self, sp: Span, kind: ObsoleteSyntax) -> Gc<Expr> {
         self.obsolete(sp, kind);
-        self.mk_expr(sp.lo, sp.hi, ExprLit(@respan(sp, LitNil)))
+        self.mk_expr(sp.lo, sp.hi, ExprLit(box(GC) respan(sp, LitNil)))
     }
 
     fn report(&mut self,

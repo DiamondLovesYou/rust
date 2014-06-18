@@ -13,20 +13,17 @@
 //! This primitive is meant to be used to run one-time initialization. An
 //! example use case would be for initializing an FFI library.
 
-use std::int;
-use std::sync::atomics;
+use core::prelude::*;
+
+use core::int;
+use core::atomics;
 
 use mutex::{StaticMutex, MUTEX_INIT};
 
-/// A type which can be used to run a one-time global initialization. This type
-/// is *unsafe* to use because it is built on top of the `Mutex` in this module.
-/// It does not know whether the currently running task is in a green or native
-/// context, and a blocking mutex should *not* be used under normal
-/// circumstances on a green task.
-///
-/// Despite its unsafety, it is often useful to have a one-time initialization
-/// routine run for FFI bindings or related external functionality. This type
-/// can only be statically constructed with the `ONCE_INIT` value.
+/// A synchronization primitive which can be used to run a one-time global
+/// initialization. Useful for one-time initialization for FFI or related
+/// functionality. This type can only be constructed with the `ONCE_INIT`
+/// value.
 ///
 /// # Example
 ///
@@ -34,6 +31,7 @@ use mutex::{StaticMutex, MUTEX_INIT};
 /// use sync::one::{Once, ONCE_INIT};
 ///
 /// static mut START: Once = ONCE_INIT;
+///
 /// unsafe {
 ///     START.doit(|| {
 ///         // run initialization here
@@ -58,7 +56,7 @@ impl Once {
     /// will be executed if this is the first time `doit` has been called, and
     /// otherwise the routine will *not* be invoked.
     ///
-    /// This method will block the calling *os thread* if another initialization
+    /// This method will block the calling task if another initialization
     /// routine is currently running.
     ///
     /// When this function returns, it is guaranteed that some initialization
@@ -71,7 +69,7 @@ impl Once {
 
         // Implementation-wise, this would seem like a fairly trivial primitive.
         // The stickler part is where our mutexes currently require an
-        // allocation, and usage of a `Once` should't leak this allocation.
+        // allocation, and usage of a `Once` shouldn't leak this allocation.
         //
         // This means that there must be a deterministic destroyer of the mutex
         // contained within (because it's not needed after the initialization
@@ -124,8 +122,9 @@ impl Once {
 
 #[cfg(test)]
 mod test {
-    use super::{ONCE_INIT, Once};
+    use std::prelude::*;
     use std::task;
+    use super::{ONCE_INIT, Once};
 
     #[test]
     fn smoke_once() {

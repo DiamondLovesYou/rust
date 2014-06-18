@@ -8,7 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-
 use driver::config::NoDebugInfo;
 use driver::session::Session;
 use lib::llvm::{ContextRef, ModuleRef, ValueRef};
@@ -32,6 +31,7 @@ use std::c_str::ToCStr;
 use std::ptr;
 use std::rc::Rc;
 use std::collections::{HashMap, HashSet};
+use syntax::abi;
 use syntax::ast;
 use syntax::parse::token::InternedString;
 
@@ -233,11 +233,11 @@ impl CrateContext {
             ccx.int_type = Type::int(&ccx);
             ccx.opaque_vec_type = Type::opaque_vec(&ccx);
 
-            ccx.tn.associate_type("tydesc", &Type::tydesc(&ccx));
-
             let mut str_slice_ty = Type::named_struct(&ccx, "str_slice");
             str_slice_ty.set_struct_body([Type::i8p(&ccx), ccx.int_type], false);
             ccx.tn.associate_type("str_slice", &str_slice_ty);
+
+            ccx.tn.associate_type("tydesc", &Type::tydesc(&ccx, str_slice_ty));
 
             if ccx.sess().count_llvm_insns() {
                 base::init_insn_ctxt()
@@ -273,6 +273,18 @@ impl CrateContext {
             None => fail!()
         }
     }
+
+    // Although there is an experimental implementation of LLVM which
+    // supports SS on armv7 it wasn't approved by Apple, see:
+    // http://lists.cs.uiuc.edu/pipermail/llvm-commits/Week-of-Mon-20140505/216350.html
+    // It looks like it might be never accepted to upstream LLVM.
+    //
+    // So far the decision was to disable them in default builds
+    // but it could be enabled (with patched LLVM)
+    pub fn is_split_stack_supported(&self) -> bool {
+        let ref cfg = self.sess().targ_cfg;
+        cfg.os != abi::OsiOS || cfg.arch != abi::Arm
+    }
 }
 
 pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<ValueRef> {
@@ -281,7 +293,7 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
             if $is_pnacl == $is_supported_in_pnacl && *key == $name {
                 let name = $name;
                 // HACK(eddyb) dummy output type, shouln't affect anything.
-                let f = base::decl_cdecl_fn(ccx.llmod, name, Type::func([], &$ret), ty::mk_nil());
+                let f = base::decl_cdecl_fn(ccx, name, Type::func([], &$ret), ty::mk_nil());
                 ccx.intrinsics.borrow_mut().insert(name, f);
                 return Some(f);
             }
@@ -292,7 +304,7 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
              if $is_pnacl == $is_supported_in_pnacl && *key == $name {
                  let name = $name;
                  // HACK(eddyb) dummy output type, shouln't affect anything.
-                 let f = base::decl_cdecl_fn(ccx.llmod, name,
+                 let f = base::decl_cdecl_fn(ccx, name,
                                              Type::func([$($arg),+], &$ret), ty::mk_nil());
                  ccx.intrinsics.borrow_mut().insert(name, f);
                  return Some(f);
@@ -425,7 +437,7 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
             if unsafe { llvm::LLVMVersionMinor() >= 4 } && !ccx.sess().targeting_pnacl() {
                 ifn!(name fn($($arg),*) -> $ret);
             } else if *key == $name {
-                let f = base::decl_cdecl_fn(ccx.llmod, stringify!($cname),
+                let f = base::decl_cdecl_fn(ccx, stringify!($cname),
                                             Type::func([$($arg),*], &$ret),
                                             ty::mk_nil());
                 ccx.intrinsics.borrow_mut().insert(name, f);

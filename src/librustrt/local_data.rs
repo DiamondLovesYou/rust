@@ -24,13 +24,13 @@ modify/read the slot specified by the key.
 
 ```rust
 local_data_key!(key_int: int)
-local_data_key!(key_vector: ~[int])
+local_data_key!(key_vector: Vec<int>)
 
 key_int.replace(Some(3));
 assert_eq!(*key_int.get().unwrap(), 3);
 
-key_vector.replace(Some(~[4]));
-assert_eq!(*key_vector.get().unwrap(), ~[4]);
+key_vector.replace(Some(vec![4]));
+assert_eq!(*key_vector.get().unwrap(), vec![4]);
 ```
 
 */
@@ -91,7 +91,7 @@ impl<T: 'static> LocalData for T {}
 //      a proper map.
 #[doc(hidden)]
 pub type Map = Vec<Option<(*u8, TLSValue, uint)>>;
-type TLSValue = Box<LocalData:Send>;
+type TLSValue = Box<LocalData + Send>;
 
 // Gets the map from the runtime. Lazily initialises if not done so already.
 unsafe fn get_local_map() -> Option<&mut Map> {
@@ -175,7 +175,7 @@ impl<T: 'static> KeyValue<T> {
         // anything.
         let newval = data.map(|d| {
             let d = box d as Box<LocalData>;
-            let d: Box<LocalData:Send> = unsafe { mem::transmute(d) };
+            let d: Box<LocalData + Send> = unsafe { mem::transmute(d) };
             (keyval, d, 0)
         });
 
@@ -236,7 +236,7 @@ impl<T: 'static> KeyValue<T> {
             // pointer part of the trait, (as ~T), and then use
             // compiler coercions to achieve a '&' pointer.
             let ptr = unsafe {
-                let data = data as *Box<LocalData:Send> as *raw::TraitObject;
+                let data = data as *Box<LocalData + Send> as *raw::TraitObject;
                 &mut *((*data).data as *mut T)
             };
             Ref { _ptr: ptr, _index: pos, _nosend: marker::NoSend, _key: self }
@@ -274,6 +274,7 @@ impl<T: 'static> Drop for Ref<T> {
 #[cfg(test)]
 mod tests {
     use std::prelude::*;
+    use std::gc::{Gc, GC};
     use super::*;
     use std::task;
 
@@ -329,11 +330,11 @@ mod tests {
     #[test]
     fn test_tls_multiple_types() {
         static str_key: Key<String> = &Key;
-        static box_key: Key<@()> = &Key;
+        static box_key: Key<Gc<()>> = &Key;
         static int_key: Key<int> = &Key;
         task::spawn(proc() {
             str_key.replace(Some("string data".to_string()));
-            box_key.replace(Some(@()));
+            box_key.replace(Some(box(GC) ()));
             int_key.replace(Some(42));
         });
     }
@@ -341,13 +342,13 @@ mod tests {
     #[test]
     fn test_tls_overwrite_multiple_types() {
         static str_key: Key<String> = &Key;
-        static box_key: Key<@()> = &Key;
+        static box_key: Key<Gc<()>> = &Key;
         static int_key: Key<int> = &Key;
         task::spawn(proc() {
             str_key.replace(Some("string data".to_string()));
             str_key.replace(Some("string data 2".to_string()));
-            box_key.replace(Some(@()));
-            box_key.replace(Some(@()));
+            box_key.replace(Some(box(GC) ()));
+            box_key.replace(Some(box(GC) ()));
             int_key.replace(Some(42));
             // This could cause a segfault if overwriting-destruction is done
             // with the crazy polymorphic transmute rather than the provided
@@ -360,13 +361,13 @@ mod tests {
     #[should_fail]
     fn test_tls_cleanup_on_failure() {
         static str_key: Key<String> = &Key;
-        static box_key: Key<@()> = &Key;
+        static box_key: Key<Gc<()>> = &Key;
         static int_key: Key<int> = &Key;
         str_key.replace(Some("parent data".to_string()));
-        box_key.replace(Some(@()));
+        box_key.replace(Some(box(GC) ()));
         task::spawn(proc() {
             str_key.replace(Some("string data".to_string()));
-            box_key.replace(Some(@()));
+            box_key.replace(Some(box(GC) ()));
             int_key.replace(Some(42));
             fail!();
         });

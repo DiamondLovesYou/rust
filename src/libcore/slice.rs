@@ -16,7 +16,7 @@
 
 use mem::transmute;
 use clone::Clone;
-use container::Container;
+use collections::Collection;
 use cmp::{PartialEq, Ord, Ordering, Less, Equal, Greater};
 use cmp;
 use default::Default;
@@ -253,7 +253,7 @@ pub mod traits {
 
     use cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering, Equiv};
     use iter::order;
-    use container::Container;
+    use collections::Collection;
 
     impl<'a,T:PartialEq> PartialEq for &'a [T] {
         fn eq(&self, other: & &'a [T]) -> bool {
@@ -266,23 +266,9 @@ pub mod traits {
         }
     }
 
-    impl<T:PartialEq> PartialEq for ~[T] {
-        #[inline]
-        fn eq(&self, other: &~[T]) -> bool { self.as_slice() == *other }
-        #[inline]
-        fn ne(&self, other: &~[T]) -> bool { !self.eq(other) }
-    }
-
     impl<'a,T:Eq> Eq for &'a [T] {}
 
-    impl<T:Eq> Eq for ~[T] {}
-
     impl<'a,T:PartialEq, V: Vector<T>> Equiv<V> for &'a [T] {
-        #[inline]
-        fn equiv(&self, other: &V) -> bool { self.as_slice() == other.as_slice() }
-    }
-
-    impl<'a,T:PartialEq, V: Vector<T>> Equiv<V> for ~[T] {
         #[inline]
         fn equiv(&self, other: &V) -> bool { self.as_slice() == other.as_slice() }
     }
@@ -291,11 +277,6 @@ pub mod traits {
         fn cmp(&self, other: & &'a [T]) -> Ordering {
             order::cmp(self.iter(), other.iter())
         }
-    }
-
-    impl<T: Ord> Ord for ~[T] {
-        #[inline]
-        fn cmp(&self, other: &~[T]) -> Ordering { self.as_slice().cmp(&other.as_slice()) }
     }
 
     impl<'a, T: PartialOrd> PartialOrd for &'a [T] {
@@ -315,17 +296,6 @@ pub mod traits {
             order::gt(self.iter(), other.iter())
         }
     }
-
-    impl<T: PartialOrd> PartialOrd for ~[T] {
-        #[inline]
-        fn lt(&self, other: &~[T]) -> bool { self.as_slice() < other.as_slice() }
-        #[inline]
-        fn le(&self, other: &~[T]) -> bool { self.as_slice() <= other.as_slice() }
-        #[inline]
-        fn ge(&self, other: &~[T]) -> bool { self.as_slice() >= other.as_slice() }
-        #[inline]
-        fn gt(&self, other: &~[T]) -> bool { self.as_slice() > other.as_slice() }
-    }
 }
 
 #[cfg(test)]
@@ -342,24 +312,11 @@ impl<'a,T> Vector<T> for &'a [T] {
     fn as_slice<'a>(&'a self) -> &'a [T] { *self }
 }
 
-impl<T> Vector<T> for ~[T] {
-    #[inline(always)]
-    fn as_slice<'a>(&'a self) -> &'a [T] { let v: &'a [T] = *self; v }
-}
-
-impl<'a, T> Container for &'a [T] {
+impl<'a, T> Collection for &'a [T] {
     /// Returns the length of a vector
     #[inline]
     fn len(&self) -> uint {
         self.repr().len
-    }
-}
-
-impl<T> Container for ~[T] {
-    /// Returns the length of a vector
-    #[inline]
-    fn len(&self) -> uint {
-        self.as_slice().len()
     }
 }
 
@@ -760,6 +717,9 @@ impl<'a, T: Ord> ImmutableOrdVector<T> for &'a [T] {
 /// Extension methods for vectors such that their elements are
 /// mutable.
 pub trait MutableVector<'a, T> {
+    /// Returns a mutable reference to the element at the given index,
+    /// or `None` if the index is out of bounds
+    fn get_mut(self, index: uint) -> Option<&'a mut T>;
     /// Work with `self` as a mut slice.
     /// Primarily intended for getting a &mut [T] from a [T, ..N].
     fn as_mut_slice(self) -> &'a mut [T];
@@ -927,7 +887,7 @@ pub trait MutableVector<'a, T> {
     /// # Example
     ///
     /// ```rust
-    /// let mut v = ~["foo".to_string(), "bar".to_string(), "baz".to_string()];
+    /// let mut v = ["foo".to_string(), "bar".to_string(), "baz".to_string()];
     ///
     /// unsafe {
     ///     // `"baz".to_string()` is deallocated.
@@ -963,6 +923,11 @@ pub trait MutableVector<'a, T> {
 }
 
 impl<'a,T> MutableVector<'a, T> for &'a mut [T] {
+    #[inline]
+    fn get_mut(self, index: uint) -> Option<&'a mut T> {
+        if index < self.len() { Some(&mut self[index]) } else { None }
+    }
+
     #[inline]
     fn as_mut_slice(self) -> &'a mut [T] { self }
 
@@ -1205,7 +1170,7 @@ pub mod raw {
 
 /// Operations on `[u8]`.
 pub mod bytes {
-    use container::Container;
+    use collections::Collection;
     use ptr;
     use slice::MutableVector;
 
@@ -1454,8 +1419,4 @@ impl<'a, T> DoubleEndedIterator<&'a mut [T]> for MutChunks<'a, T> {
 
 impl<'a, T> Default for &'a [T] {
     fn default() -> &'a [T] { &[] }
-}
-
-impl<T> Default for ~[T] {
-    fn default() -> ~[T] { ~[] }
 }

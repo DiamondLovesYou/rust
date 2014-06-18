@@ -8,8 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use middle::subst::ParamSpace;
 use syntax::ast;
 use syntax::ast_util::local_def;
+
+use std::gc::Gc;
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum Def {
@@ -25,11 +28,11 @@ pub enum Def {
     DefTy(ast::DefId),
     DefTrait(ast::DefId),
     DefPrimTy(ast::PrimTy),
-    DefTyParam(ast::DefId, uint),
+    DefTyParam(ParamSpace, ast::DefId, uint),
     DefBinding(ast::NodeId, ast::BindingMode),
     DefUse(ast::DefId),
     DefUpvar(ast::NodeId,  // id of closed over var
-             @Def,     // closed over def
+             Gc<Def>,     // closed over def
              ast::NodeId,  // expr node that creates the closure
              ast::NodeId), // id for the block/body of the closure expr
 
@@ -59,7 +62,7 @@ impl Def {
         match *self {
             DefFn(id, _) | DefStaticMethod(id, _, _) | DefMod(id) |
             DefForeignMod(id) | DefStatic(id, _) |
-            DefVariant(_, id, _) | DefTy(id) | DefTyParam(id, _) |
+            DefVariant(_, id, _) | DefTy(id) | DefTyParam(_, id, _) |
             DefUse(id) | DefStruct(id) | DefTrait(id) | DefMethod(id, _) => {
                 id
             }

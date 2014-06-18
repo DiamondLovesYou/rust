@@ -21,6 +21,7 @@ use metadata::cstore::{CStore, CrateSource};
 use metadata::decoder;
 use metadata::loader;
 use metadata::loader::CratePaths;
+use plugin::load::PluginMetadata;
 
 use std::rc::Rc;
 use std::collections::HashMap;
@@ -30,7 +31,6 @@ use syntax::attr;
 use syntax::attr::AttrMetaMethods;
 use syntax::codemap::{Span};
 use syntax::diagnostic::SpanHandler;
-use syntax::ext::base::{CrateLoader, MacroCrate};
 use syntax::parse::token::InternedString;
 use syntax::parse::token;
 use syntax::crateid::CrateId;
@@ -215,7 +215,8 @@ fn visit_item(e: &Env, i: &ast::Item) {
                             Some(k) => {
                                 if k.equiv(&("static")) {
                                     cstore::NativeStatic
-                                } else if e.sess.targ_cfg.os == abi::OsMacos &&
+                                } else if (e.sess.targ_cfg.os == abi::OsMacos ||
+                                           e.sess.targ_cfg.os == abi::OsiOS) &&
                                           k.equiv(&("framework")) {
                                     cstore::NativeFramework
                                 } else if k.equiv(&("framework")) {
@@ -345,7 +346,7 @@ fn resolve_crate<'a>(e: &mut Env,
                 id_hash: id_hash.as_slice(),
                 hash: hash.map(|a| &*a),
                 filesearch: e.sess.target_filesearch(),
-                os: config::cfg_os_to_meta_os(e.sess.targ_cfg.os),
+                os: e.sess.targ_cfg.os,
                 triple: e.sess.targ_cfg.target_strs.target_triple.as_slice(),
                 root: root,
                 rejected_via_hash: vec!(),
@@ -379,23 +380,21 @@ fn resolve_crate_deps(e: &mut Env,
     }).collect()
 }
 
-pub struct Loader<'a> {
+pub struct PluginMetadataReader<'a> {
     env: Env<'a>,
 }
 
-impl<'a> Loader<'a> {
-    pub fn new(sess: &'a Session) -> Loader<'a> {
-        Loader {
+impl<'a> PluginMetadataReader<'a> {
+    pub fn new(sess: &'a Session) -> PluginMetadataReader<'a> {
+        PluginMetadataReader {
             env: Env {
                 sess: sess,
                 next_crate_num: sess.cstore.next_crate_num(),
             }
         }
     }
-}
 
-impl<'a> CrateLoader for Loader<'a> {
-    fn load_crate(&mut self, krate: &ast::ViewItem) -> MacroCrate {
+    pub fn read_plugin_metadata(&mut self, krate: &ast::ViewItem) -> PluginMetadata {
         let info = extract_crate_info(&self.env, krate).unwrap();
         let target_triple = self.env.sess.targ_cfg.target_strs.target_triple.as_slice();
         let is_cross = target_triple != driver::host_triple();
@@ -411,7 +410,7 @@ impl<'a> CrateLoader for Loader<'a> {
             hash: None,
             filesearch: self.env.sess.host_filesearch(),
             triple: driver::host_triple(),
-            os: config::cfg_os_to_meta_os(os),
+            os: os,
             root: &None,
             rejected_via_hash: vec!(),
             rejected_via_triple: vec!(),
@@ -422,11 +421,11 @@ impl<'a> CrateLoader for Loader<'a> {
                 // try loading from target crates (only valid if there are
                 // no syntax extensions)
                 load_ctxt.triple = target_triple;
-                load_ctxt.os = config::cfg_os_to_meta_os(self.env.sess.targ_cfg.os);
+                load_ctxt.os = self.env.sess.targ_cfg.os;
                 load_ctxt.filesearch = self.env.sess.target_filesearch();
                 let lib = load_ctxt.load_library_crate();
-                if decoder::get_macro_registrar_fn(lib.metadata.as_slice()).is_some() {
-                    let message = format!("crate `{}` contains a macro_registrar fn but \
+                if decoder::get_plugin_registrar_fn(lib.metadata.as_slice()).is_some() {
+                    let message = format!("crate `{}` contains a plugin_registrar fn but \
                                   only a version for triple `{}` could be found (need {})",
                                   info.ident, target_triple, driver::host_triple());
                     self.env.sess.span_err(krate.span, message.as_slice());
@@ -441,10 +440,10 @@ impl<'a> CrateLoader for Loader<'a> {
             None => { load_ctxt.report_load_errs(); unreachable!() },
         };
         let macros = decoder::get_exported_macros(library.metadata.as_slice());
-        let registrar = decoder::get_macro_registrar_fn(library.metadata.as_slice()).map(|id| {
+        let registrar = decoder::get_plugin_registrar_fn(library.metadata.as_slice()).map(|id| {
             decoder::get_symbol(library.metadata.as_slice(), id).to_string()
         });
-        let mc = MacroCrate {
+        let pc = PluginMetadata {
             lib: library.dylib.clone(),
             macros: macros.move_iter().map(|x| x.to_string()).collect(),
             registrar_symbol: registrar,
@@ -454,6 +453,6 @@ impl<'a> CrateLoader for Loader<'a> {
             register_crate(&mut self.env, &None, info.ident.as_slice(),
                            &info.crate_id, krate.span, library);
         }
-        mc
+        pc
     }
 }

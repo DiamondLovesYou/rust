@@ -19,18 +19,17 @@
 extern crate debug;
 extern crate getopts;
 extern crate libc;
-#[phase(syntax, link)]
-extern crate log;
 extern crate rustc;
 extern crate serialize;
-extern crate sync;
 extern crate syntax;
 extern crate testing = "test";
 extern crate time;
+#[phase(plugin, link)] extern crate log;
 
 use std::io;
 use std::io::{File, MemWriter};
 use std::str;
+use std::gc::Gc;
 use serialize::{json, Decodable, Encodable};
 
 // reexported from `clean` so it can be easily updated with the mod itself
@@ -79,7 +78,7 @@ static DEFAULT_PASSES: &'static [&'static str] = &[
     "unindent-comments",
 ];
 
-local_data_key!(pub ctxtkey: @core::DocContext)
+local_data_key!(pub ctxtkey: Gc<core::DocContext>)
 local_data_key!(pub analysiskey: core::CrateAnalysis)
 
 type Output = (clean::Crate, Vec<plugins::PluginJson> );
@@ -142,7 +141,7 @@ pub fn main_args(args: &[String]) -> int {
     let matches = match getopts::getopts(args.tail(), opts().as_slice()) {
         Ok(m) => m,
         Err(err) => {
-            println!("{}", err.to_err_msg());
+            println!("{}", err);
             return 1;
         }
     };

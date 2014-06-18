@@ -19,8 +19,11 @@
 //! after grabbing the lock, the second task will immediately fail because the
 //! lock is now poisoned.
 
-use std::task;
-use std::ty::Unsafe;
+use core::prelude::*;
+
+use core::ty::Unsafe;
+use rustrt::local::Local;
+use rustrt::task::Task;
 
 use raw;
 
@@ -31,6 +34,10 @@ use raw;
 struct PoisonOnFail<'a> {
     flag: &'a mut bool,
     failed: bool,
+}
+
+fn failing() -> bool {
+    Local::borrow(None::<Task>).unwinder.unwinding()
 }
 
 impl<'a> PoisonOnFail<'a> {
@@ -44,7 +51,7 @@ impl<'a> PoisonOnFail<'a> {
         PoisonOnFail::check(*flag, name);
         PoisonOnFail {
             flag: flag,
-            failed: task::failing()
+            failed: failing()
         }
     }
 }
@@ -52,7 +59,7 @@ impl<'a> PoisonOnFail<'a> {
 #[unsafe_destructor]
 impl<'a> Drop for PoisonOnFail<'a> {
     fn drop(&mut self) {
-        if !self.failed && task::failing() {
+        if !self.failed && failing() {
             *self.flag = true;
         }
     }
@@ -449,6 +456,7 @@ impl Barrier {
 
 #[cfg(test)]
 mod tests {
+    use std::prelude::*;
     use std::comm::Empty;
     use std::task;
     use std::task::TaskBuilder;
@@ -513,7 +521,7 @@ mod tests {
     #[test]
     fn test_mutex_arc_nested() {
         // Tests nested mutexes and access
-        // to underlaying data.
+        // to underlying data.
         let arc = Arc::new(Mutex::new(1));
         let arc2 = Arc::new(Mutex::new(arc));
         task::spawn(proc() {

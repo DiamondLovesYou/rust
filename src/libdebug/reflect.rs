@@ -18,6 +18,7 @@ Runtime type reflection
 
 use std::intrinsics::{Disr, Opaque, TyDesc, TyVisitor};
 use std::mem;
+use std::gc::Gc;
 
 /**
  * Trait for visitor that wishes to reflect on data.
@@ -192,17 +193,6 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
         true
     }
 
-    fn visit_estr_box(&mut self) -> bool {
-        true
-    }
-
-    fn visit_estr_uniq(&mut self) -> bool {
-        self.align_to::<~str>();
-        if ! self.inner.visit_estr_uniq() { return false; }
-        self.bump_past::<~str>();
-        true
-    }
-
     fn visit_estr_slice(&mut self) -> bool {
         self.align_to::<&'static str>();
         if ! self.inner.visit_estr_slice() { return false; }
@@ -220,9 +210,9 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
     }
 
     fn visit_box(&mut self, mtbl: uint, inner: *TyDesc) -> bool {
-        self.align_to::<@u8>();
+        self.align_to::<Gc<u8>>();
         if ! self.inner.visit_box(mtbl, inner) { return false; }
-        self.bump_past::<@u8>();
+        self.bump_past::<Gc<u8>>();
         true
     }
 
@@ -244,17 +234,6 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
         self.align_to::<&'static u8>();
         if ! self.inner.visit_rptr(mtbl, inner) { return false; }
         self.bump_past::<&'static u8>();
-        true
-    }
-
-    fn visit_evec_box(&mut self, _mtbl: uint, _inner: *TyDesc) -> bool {
-        true
-    }
-
-    fn visit_evec_uniq(&mut self, mtbl: uint, inner: *TyDesc) -> bool {
-        self.align_to::<~[u8]>();
-        if ! self.inner.visit_evec_uniq(mtbl, inner) { return false; }
-        self.bump_past::<~[u8]>();
         true
     }
 

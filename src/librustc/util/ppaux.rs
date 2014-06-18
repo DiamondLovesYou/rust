@@ -9,23 +9,24 @@
 // except according to those terms.
 
 
+use middle::def;
 use middle::subst;
-use middle::subst::Subst;
+use middle::subst::{VecPerParamSpace,Subst};
 use middle::ty::{ReSkolemized, ReVar};
 use middle::ty::{BoundRegion, BrAnon, BrNamed};
 use middle::ty::{BrFresh, ctxt};
-use middle::ty::{mt, t, param_ty};
+use middle::ty::{mt, t, ParamTy};
 use middle::ty::{ReFree, ReScope, ReInfer, ReStatic, Region,
                  ReEmpty};
 use middle::ty::{ty_bool, ty_char, ty_bot, ty_box, ty_struct, ty_enum, ty_simd};
 use middle::ty::{ty_err, ty_str, ty_vec, ty_float, ty_bare_fn, ty_closure};
-use middle::ty::{ty_nil, ty_param, ty_ptr, ty_rptr, ty_self, ty_tup};
+use middle::ty::{ty_nil, ty_param, ty_ptr, ty_rptr, ty_tup};
 use middle::ty::{ty_uniq, ty_trait, ty_int, ty_uint, ty_infer};
 use middle::ty;
 use middle::typeck;
 
 use std::rc::Rc;
-use std::string::String;
+use std::gc::Gc;
 use syntax::abi;
 use syntax::ast_map;
 use syntax::codemap::{Span, Pos};
@@ -96,7 +97,7 @@ pub fn explain_region_and_span(cx: &ctxt, region: ty::Region)
       ReFree(ref fr) => {
         let prefix = match fr.bound_region {
           BrAnon(idx) => {
-              format!("the anonymous lifetime \\#{} defined on", idx + 1)
+              format!("the anonymous lifetime #{} defined on", idx + 1)
           }
           BrFresh(_) => "an anonymous lifetime defined on".to_string(),
           _ => {
@@ -156,7 +157,7 @@ pub fn bound_region_to_str(cx: &ctxt,
 
     match br {
         BrNamed(_, name) => {
-            format!("{}'{}{}", prefix, token::get_name(name), space_str)
+            format!("{}{}{}", prefix, token::get_name(name), space_str)
         }
         BrAnon(_) => prefix.to_string(),
         BrFresh(_) => prefix.to_string(),
@@ -183,7 +184,7 @@ pub fn region_to_str(cx: &ctxt, prefix: &str, space: bool, region: Region) -> St
     // `explain_region()` or `note_and_explain_region()`.
     match region {
         ty::ReScope(_) => prefix.to_string(),
-        ty::ReEarlyBound(_, _, name) => {
+        ty::ReEarlyBound(_, _, _, name) => {
             token::get_name(name).get().to_string()
         }
         ty::ReLateBound(_, br) => bound_region_to_str(cx, prefix, space, br),
@@ -350,8 +351,8 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
       ty_uint(t) => ast_util::uint_ty_to_str(t, None,
                                              ast_util::AutoSuffix).to_string(),
       ty_float(t) => ast_util::float_ty_to_str(t).to_string(),
-      ty_box(typ) => format!("@{}", ty_to_str(cx, typ)),
-      ty_uniq(typ) => format!("~{}", ty_to_str(cx, typ)),
+      ty_box(typ) => format!("Gc<{}>", ty_to_str(cx, typ)),
+      ty_uniq(typ) => format!("Box<{}>", ty_to_str(cx, typ)),
       ty_ptr(ref tm) => format!("*{}", mt_to_str(cx, tm)),
       ty_rptr(r, ref tm) => {
           let mut buf = region_ptr_to_str(cx, r);
@@ -371,12 +372,12 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
       }
       ty_infer(infer_ty) => infer_ty.to_str(),
       ty_err => "[type error]".to_string(),
-      ty_param(param_ty {idx: id, def_id: did}) => {
+      ty_param(ParamTy {idx: id, def_id: did, ..}) => {
           let ident = match cx.ty_param_defs.borrow().find(&did.node) {
               Some(def) => token::get_ident(def.ident).get().to_string(),
               // This can only happen when a type mismatch error happens and
               // the actual type has more type parameters than the expected one.
-              None => format!("<generic \\#{}>", id)
+              None => format!("<generic #{}>", id),
           };
           if !cx.sess.verbose() {
               ident
@@ -384,29 +385,25 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
               format!("{}:{:?}", ident, did)
           }
       }
-      ty_self(..) => "Self".to_string(),
       ty_enum(did, ref substs) | ty_struct(did, ref substs) => {
-        let base = ty::item_path_str(cx, did);
-        parameterized(cx,
-                      base.as_slice(),
-                      &substs.regions,
-                      substs.tps.as_slice(),
-                      did,
-                      false)
+          let base = ty::item_path_str(cx, did);
+          let generics = ty::lookup_item_type(cx, did).generics;
+          parameterized(cx, base.as_slice(), substs, &generics)
       }
       ty_trait(box ty::TyTrait {
           def_id: did, ref substs, store, ref bounds
       }) => {
-        let base = ty::item_path_str(cx, did);
-        let ty = parameterized(cx, base.as_slice(), &substs.regions,
-                               substs.tps.as_slice(), did, true);
-        let bound_sep = if bounds.is_empty() { "" } else { ":" };
-        let bound_str = bounds.repr(cx);
-        format!("{}{}{}{}",
-                trait_store_to_str(cx, store),
-                ty,
-                bound_sep,
-                bound_str)
+          let base = ty::item_path_str(cx, did);
+          let trait_def = ty::lookup_trait_def(cx, did);
+          let ty = parameterized(cx, base.as_slice(),
+                                 substs, &trait_def.generics);
+          let bound_sep = if bounds.is_empty() { "" } else { ":" };
+          let bound_str = bounds.repr(cx);
+          format!("{}{}{}{}",
+                  trait_store_to_str(cx, store),
+                  ty,
+                  bound_sep,
+                  bound_str)
       }
       ty_str => "str".to_string(),
       ty_vec(ref mt, sz) => {
@@ -422,39 +419,38 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
 
 pub fn parameterized(cx: &ctxt,
                      base: &str,
-                     regions: &subst::RegionSubsts,
-                     tps: &[ty::t],
-                     did: ast::DefId,
-                     is_trait: bool)
-                     -> String {
+                     substs: &subst::Substs,
+                     generics: &ty::Generics)
+                     -> String
+{
     let mut strs = Vec::new();
-    match *regions {
+
+    match substs.regions {
         subst::ErasedRegions => { }
         subst::NonerasedRegions(ref regions) => {
             for &r in regions.iter() {
-                strs.push(region_to_str(cx, "", false, r))
+                let s = region_to_str(cx, "", false, r);
+                if !s.is_empty() {
+                    strs.push(s)
+                } else {
+                    // This happens when the value of the region
+                    // parameter is not easily serialized. This may be
+                    // because the user omitted it in the first place,
+                    // or because it refers to some block in the code,
+                    // etc. I'm not sure how best to serialize this.
+                    strs.push(format!("'_"));
+                }
             }
         }
     }
 
-    let generics = if is_trait {
-        ty::lookup_trait_def(cx, did).generics.clone()
-    } else {
-        ty::lookup_item_type(cx, did).generics
-    };
-    let ty_params = generics.type_param_defs();
+    let tps = substs.types.get_vec(subst::TypeSpace);
+    let ty_params = generics.types.get_vec(subst::TypeSpace);
     let has_defaults = ty_params.last().map_or(false, |def| def.default.is_some());
-    let num_defaults = if has_defaults {
-        // We should have a borrowed version of substs instead of cloning.
-        let mut substs = subst::Substs {
-            tps: Vec::from_slice(tps),
-            regions: regions.clone(),
-            self_ty: None
-        };
+    let num_defaults = if has_defaults && !cx.sess.verbose() {
         ty_params.iter().zip(tps.iter()).rev().take_while(|&(def, &actual)| {
-            substs.tps.pop();
             match def.default {
-                Some(default) => default.subst(cx, &substs) == actual,
+                Some(default) => default.subst(cx, substs) == actual,
                 None => false
             }
         }).count()
@@ -464,6 +460,12 @@ pub fn parameterized(cx: &ctxt,
 
     for t in tps.slice_to(tps.len() - num_defaults).iter() {
         strs.push(ty_to_str(cx, *t))
+    }
+
+    if cx.sess.verbose() {
+        for t in substs.types.get_vec(subst::SelfSpace).iter() {
+            strs.push(format!("for {}", t.repr(cx)));
+        }
     }
 
     if strs.len() > 0u {
@@ -511,7 +513,7 @@ impl<T:Repr> Repr for Rc<T> {
     }
 }
 
-impl<T:Repr> Repr for @T {
+impl<T:Repr + 'static> Repr for Gc<T> {
     fn repr(&self, tcx: &ctxt) -> String {
         (&**self).repr(tcx)
     }
@@ -547,6 +549,12 @@ impl<T:Repr> Repr for Vec<T> {
     }
 }
 
+impl Repr for def::Def {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{:?}", *self)
+    }
+}
+
 impl Repr for ty::TypeParameterDef {
     fn repr(&self, tcx: &ctxt) -> String {
         format!("TypeParameterDef({:?}, {})", self.def_id,
@@ -570,10 +578,18 @@ impl Repr for ty::t {
 
 impl Repr for subst::Substs {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("substs(regions={}, self_ty={}, tps={})",
-                self.regions.repr(tcx),
-                self.self_ty.repr(tcx),
-                self.tps.repr(tcx))
+        format!("Substs[types={}, regions={}]",
+                       self.types.repr(tcx),
+                       self.regions.repr(tcx))
+    }
+}
+
+impl<T:Repr> Repr for subst::VecPerParamSpace<T> {
+    fn repr(&self, tcx: &ctxt) -> String {
+        format!("[{};{};{}]",
+                       self.get_vec(subst::TypeSpace).repr(tcx),
+                       self.get_vec(subst::SelfSpace).repr(tcx),
+                       self.get_vec(subst::FnSpace).repr(tcx))
     }
 }
 
@@ -623,6 +639,12 @@ impl Repr for ast::Expr {
     }
 }
 
+impl Repr for ast::Path {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("path({})", pprust::path_to_str(self))
+    }
+}
+
 impl Repr for ast::Item {
     fn repr(&self, tcx: &ctxt) -> String {
         format!("item({})", tcx.map.node_to_str(self.id))
@@ -658,11 +680,12 @@ impl Repr for ty::BoundRegion {
 impl Repr for ty::Region {
     fn repr(&self, tcx: &ctxt) -> String {
         match *self {
-            ty::ReEarlyBound(id, index, name) => {
-                format!("ReEarlyBound({}, {}, {})",
-                        id,
-                        index,
-                        token::get_name(name))
+            ty::ReEarlyBound(id, space, index, name) => {
+                format!("ReEarlyBound({}, {}, {}, {})",
+                               id,
+                               space,
+                               index,
+                               token::get_name(name))
             }
 
             ty::ReLateBound(binder_id, ref bound_region) => {
@@ -690,9 +713,7 @@ impl Repr for ty::Region {
             }
 
             ty::ReInfer(ReSkolemized(id, ref bound_region)) => {
-                format!("re_skolemized({}, {})",
-                               id,
-                               bound_region.repr(tcx))
+                format!("re_skolemized({}, {})", id, bound_region.repr(tcx))
             }
 
             ty::ReEmpty => {
@@ -731,7 +752,7 @@ impl Repr for ast::DefId {
 
 impl Repr for ty::ty_param_bounds_and_ty {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("ty_param_bounds_and_ty \\{generics: {}, ty: {}\\}",
+        format!("ty_param_bounds_and_ty {{generics: {}, ty: {}}}",
                 self.generics.repr(tcx),
                 self.ty.repr(tcx))
     }
@@ -739,18 +760,18 @@ impl Repr for ty::ty_param_bounds_and_ty {
 
 impl Repr for ty::Generics {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("Generics(type_param_defs: {}, region_param_defs: {})",
-                self.type_param_defs().repr(tcx),
-                self.region_param_defs().repr(tcx))
+        format!("Generics(types: {}, regions: {})",
+                self.types.repr(tcx),
+                self.regions.repr(tcx))
     }
 }
 
 impl Repr for ty::ItemVariances {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("IterVariances(self_param={}, type_params={}, region_params={})",
-                self.self_param.repr(tcx),
-                self.type_params.repr(tcx),
-                self.region_params.repr(tcx))
+        format!("ItemVariances(types={}, \
+                regions={})",
+                self.types.repr(tcx),
+                self.regions.repr(tcx))
     }
 }
 
@@ -802,7 +823,7 @@ impl Repr for ast::Visibility {
 
 impl Repr for ty::BareFnTy {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("BareFnTy \\{fn_style: {:?}, abi: {}, sig: {}\\}",
+        format!("BareFnTy {{fn_style: {:?}, abi: {}, sig: {}}}",
                 self.fn_style,
                 self.abi.to_str(),
                 self.sig.repr(tcx))
@@ -817,7 +838,7 @@ impl Repr for ty::FnSig {
 
 impl Repr for typeck::MethodCallee {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("MethodCallee \\{origin: {}, ty: {}, {}\\}",
+        format!("MethodCallee {{origin: {}, ty: {}, {}}}",
                 self.origin.repr(tcx),
                 self.ty.repr(tcx),
                 self.substs.repr(tcx))
@@ -922,23 +943,8 @@ impl UserString for ty::BuiltinBounds {
 impl UserString for ty::TraitRef {
     fn user_string(&self, tcx: &ctxt) -> String {
         let base = ty::item_path_str(tcx, self.def_id);
-        if tcx.sess.verbose() && self.substs.self_ty.is_some() {
-            let mut all_tps = self.substs.tps.clone();
-            for &t in self.substs.self_ty.iter() { all_tps.push(t); }
-            parameterized(tcx,
-                          base.as_slice(),
-                          &self.substs.regions,
-                          all_tps.as_slice(),
-                          self.def_id,
-                          true)
-        } else {
-            parameterized(tcx,
-                          base.as_slice(),
-                          &self.substs.regions,
-                          self.substs.tps.as_slice(),
-                          self.def_id,
-                          true)
-        }
+        let trait_def = ty::lookup_trait_def(tcx, self.def_id);
+        parameterized(tcx, base.as_slice(), &self.substs, &trait_def.generics)
     }
 }
 

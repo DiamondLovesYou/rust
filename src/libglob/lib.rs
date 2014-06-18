@@ -31,7 +31,6 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/",
        html_playground_url = "http://play.rust-lang.org/")]
-#![deny(deprecated_owned_vector)]
 
 use std::cell::Cell;
 use std::{cmp, os, path};
@@ -44,7 +43,6 @@ use std::string::String;
  * pattern - see the `glob` function for more details.
  */
 pub struct Paths {
-    root: Path,
     dir_patterns: Vec<Pattern>,
     require_dir: bool,
     options: MatchOptions,
@@ -108,7 +106,6 @@ pub fn glob_with(pattern: &str, options: MatchOptions) -> Paths {
             // FIXME: How do we want to handle verbatim paths? I'm inclined to return nothing,
             // since we can't very well find all UNC shares with a 1-letter server name.
             return Paths {
-                root: root,
                 dir_patterns: Vec::new(),
                 require_dir: false,
                 options: options,
@@ -134,7 +131,6 @@ pub fn glob_with(pattern: &str, options: MatchOptions) -> Paths {
     }
 
     Paths {
-        root: root,
         dir_patterns: dir_patterns,
         require_dir: require_dir,
         options: options,

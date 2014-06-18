@@ -13,13 +13,14 @@ use libc::pid_t;
 use libc::c_void;
 use libc::c_int;
 use libc;
+use std::c_str::CString;
+use std::io;
 use std::mem;
 use std::os;
 #[cfg(not(target_os = "nacl"))]
 use std::ptr;
-use std::rt::rtio;
 use std::rt::rtio::{ProcessConfig, IoResult, IoError};
-use std::c_str::CString;
+use std::rt::rtio;
 
 use super::file;
 use super::util;
@@ -76,6 +77,7 @@ impl Process {
     /// Creates a new process using native process-spawning abilities provided
     /// by the OS. Operations on this process will be blocking instead of using
     /// the runtime for sleeping just this current task.
+    #[cfg(not(target_os = "nacl"))]
     pub fn spawn(cfg: ProcessConfig)
         -> IoResult<(Process, Vec<Option<file::FileDesc>>)>
     {
@@ -86,54 +88,61 @@ impl Process {
 
         fn get_io(io: rtio::StdioContainer,
                   ret: &mut Vec<Option<file::FileDesc>>)
-            -> (Option<os::Pipe>, c_int)
+            -> IoResult<Option<file::FileDesc>>
         {
             match io {
-                rtio::Ignored => { ret.push(None); (None, -1) }
-                rtio::InheritFd(fd) => { ret.push(None); (None, fd) }
+                rtio::Ignored => { ret.push(None); Ok(None) }
+                rtio::InheritFd(fd) => {
+                    ret.push(None);
+                    Ok(Some(file::FileDesc::new(fd, true)))
+                }
                 rtio::CreatePipe(readable, _writable) => {
-                    let pipe = os::pipe();
+                    let (reader, writer) = try!(pipe());
                     let (theirs, ours) = if readable {
-                        (pipe.input, pipe.out)
+                        (reader, writer)
                     } else {
-                        (pipe.out, pipe.input)
+                        (writer, reader)
                     };
-                    ret.push(Some(file::FileDesc::new(ours, true)));
-                    (Some(pipe), theirs)
+                    ret.push(Some(ours));
+                    Ok(Some(theirs))
                 }
             }
         }
 
         let mut ret_io = Vec::new();
-        let (in_pipe, in_fd) = get_io(cfg.stdin, &mut ret_io);
-        let (out_pipe, out_fd) = get_io(cfg.stdout, &mut ret_io);
-        let (err_pipe, err_fd) = get_io(cfg.stderr, &mut ret_io);
-
-        let res = spawn_process_os(cfg, in_fd, out_fd, err_fd);
-
-        unsafe {
-            for pipe in in_pipe.iter() { let _ = libc::close(pipe.input); }
-            for pipe in out_pipe.iter() { let _ = libc::close(pipe.out); }
-            for pipe in err_pipe.iter() { let _ = libc::close(pipe.out); }
-        }
+        let res = spawn_process_os(cfg,
+                                   try!(get_io(cfg.stdin, &mut ret_io)),
+                                   try!(get_io(cfg.stdout, &mut ret_io)),
+                                   try!(get_io(cfg.stderr, &mut ret_io)));
 
         match res {
             Ok(res) => {
-                Ok((Process {
-                        pid: res.pid,
-                        handle: res.handle,
-                        exit_code: None,
-                        exit_signal: None,
-                        deadline: 0,
-                    },
-                    ret_io))
+                let p = Process {
+                    pid: res.pid,
+                    handle: res.handle,
+                    exit_code: None,
+                    exit_signal: None,
+                    deadline: 0,
+                };
+                Ok((p, ret_io))
             }
             Err(e) => Err(e)
         }
     }
 
+    #[cfg(target_os = "nacl")]
+    pub fn spawn(_cfg: ProcessConfig) -> IoResult<(Process, Vec<Option<file::FileDesc>>)> {
+        Err(permission_denied())
+    }
+
+    #[cfg(not(target_os = "nacl"))]
     pub fn kill(pid: libc::pid_t, signum: int) -> IoResult<()> {
         unsafe { killpid(pid, signum) }
+    }
+
+    #[cfg(target_os = "nacl")]
+    pub fn kill(_pid: libc::pid_t, _signum: int) -> IoResult<()> {
+        Err(permission_denied())
     }
 }
 
@@ -211,6 +220,37 @@ impl Drop for Process {
     }
 }
 
+fn pipe() -> IoResult<(file::FileDesc, file::FileDesc)> {
+    #[cfg(unix)] use ERROR = libc::EMFILE;
+    #[cfg(windows)] use ERROR = libc::WSAEMFILE;
+    struct Closer { fd: libc::c_int }
+
+    let os::Pipe { reader, writer } = match unsafe { os::pipe() } {
+        Ok(p) => p,
+        Err(io::IoError { detail, .. }) => return Err(IoError {
+            code: ERROR as uint,
+            extra: 0,
+            detail: detail,
+        })
+    };
+    let mut reader = Closer { fd: reader };
+    let mut writer = Closer { fd: writer };
+
+    let native_reader = file::FileDesc::new(reader.fd, true);
+    reader.fd = -1;
+    let native_writer = file::FileDesc::new(writer.fd, true);
+    writer.fd = -1;
+    return Ok((native_reader, native_writer));
+
+    impl Drop for Closer {
+        fn drop(&mut self) {
+            if self.fd != -1 {
+                let _ = unsafe { libc::close(self.fd) };
+            }
+        }
+    }
+}
+
 #[cfg(windows)]
 unsafe fn killpid(pid: pid_t, signal: int) -> IoResult<()> {
     let handle = libc::OpenProcess(libc::PROCESS_TERMINATE |
@@ -263,7 +303,9 @@ struct SpawnProcessResult {
 
 #[cfg(windows)]
 fn spawn_process_os(cfg: ProcessConfig,
-                    in_fd: c_int, out_fd: c_int, err_fd: c_int)
+                    in_fd: Option<file::FileDesc>,
+                    out_fd: Option<file::FileDesc>,
+                    err_fd: Option<file::FileDesc>)
                  -> IoResult<SpawnProcessResult> {
     use libc::types::os::arch::extra::{DWORD, HANDLE, STARTUPINFO};
     use libc::consts::os::extra::{
@@ -300,48 +342,51 @@ fn spawn_process_os(cfg: ProcessConfig,
         // Similarly to unix, we don't actually leave holes for the stdio file
         // descriptors, but rather open up /dev/null equivalents. These
         // equivalents are drawn from libuv's windows process spawning.
-        let set_fd = |fd: c_int, slot: &mut HANDLE, is_stdin: bool| {
-            if fd == -1 {
-                let access = if is_stdin {
-                    libc::FILE_GENERIC_READ
-                } else {
-                    libc::FILE_GENERIC_WRITE | libc::FILE_READ_ATTRIBUTES
-                };
-                let size = mem::size_of::<libc::SECURITY_ATTRIBUTES>();
-                let mut sa = libc::SECURITY_ATTRIBUTES {
-                    nLength: size as libc::DWORD,
-                    lpSecurityDescriptor: ptr::mut_null(),
-                    bInheritHandle: 1,
-                };
-                *slot = os::win32::as_utf16_p("NUL", |filename| {
-                    libc::CreateFileW(filename,
-                                      access,
-                                      libc::FILE_SHARE_READ |
-                                          libc::FILE_SHARE_WRITE,
-                                      &mut sa,
-                                      libc::OPEN_EXISTING,
-                                      0,
-                                      ptr::mut_null())
-                });
-                if *slot == INVALID_HANDLE_VALUE as libc::HANDLE {
-                    return Err(super::last_error())
+        let set_fd = |fd: &Option<file::FileDesc>, slot: &mut HANDLE,
+                      is_stdin: bool| {
+            match *fd {
+                None => {
+                    let access = if is_stdin {
+                        libc::FILE_GENERIC_READ
+                    } else {
+                        libc::FILE_GENERIC_WRITE | libc::FILE_READ_ATTRIBUTES
+                    };
+                    let size = mem::size_of::<libc::SECURITY_ATTRIBUTES>();
+                    let mut sa = libc::SECURITY_ATTRIBUTES {
+                        nLength: size as libc::DWORD,
+                        lpSecurityDescriptor: ptr::mut_null(),
+                        bInheritHandle: 1,
+                    };
+                    let filename = "NUL".to_utf16().append_one(0);
+                    *slot = libc::CreateFileW(filename.as_ptr(),
+                                              access,
+                                              libc::FILE_SHARE_READ |
+                                                  libc::FILE_SHARE_WRITE,
+                                              &mut sa,
+                                              libc::OPEN_EXISTING,
+                                              0,
+                                              ptr::mut_null());
+                    if *slot == INVALID_HANDLE_VALUE as libc::HANDLE {
+                        return Err(super::last_error())
+                    }
                 }
-            } else {
-                let orig = get_osfhandle(fd) as HANDLE;
-                if orig == INVALID_HANDLE_VALUE as HANDLE {
-                    return Err(super::last_error())
-                }
-                if DuplicateHandle(cur_proc, orig, cur_proc, slot,
-                                   0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
-                    return Err(super::last_error())
+                Some(ref fd) => {
+                    let orig = get_osfhandle(fd.fd()) as HANDLE;
+                    if orig == INVALID_HANDLE_VALUE as HANDLE {
+                        return Err(super::last_error())
+                    }
+                    if DuplicateHandle(cur_proc, orig, cur_proc, slot,
+                                       0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
+                        return Err(super::last_error())
+                    }
                 }
             }
             Ok(())
         };
 
-        try!(set_fd(in_fd, &mut si.hStdInput, true));
-        try!(set_fd(out_fd, &mut si.hStdOutput, false));
-        try!(set_fd(err_fd, &mut si.hStdError, false));
+        try!(set_fd(&in_fd, &mut si.hStdInput, true));
+        try!(set_fd(&out_fd, &mut si.hStdOutput, false));
+        try!(set_fd(&err_fd, &mut si.hStdError, false));
 
         let cmd_str = make_command_line(cfg.program, cfg.args);
         let mut pi = zeroed_process_information();
@@ -355,18 +400,17 @@ fn spawn_process_os(cfg: ProcessConfig,
 
         with_envp(cfg.env, |envp| {
             with_dirp(cfg.cwd, |dirp| {
-                os::win32::as_mut_utf16_p(cmd_str.as_slice(), |cmdp| {
-                    let created = CreateProcessW(ptr::null(),
-                                                 cmdp,
-                                                 ptr::mut_null(),
-                                                 ptr::mut_null(),
-                                                 TRUE,
-                                                 flags, envp, dirp,
-                                                 &mut si, &mut pi);
-                    if created == FALSE {
-                        create_err = Some(super::last_error());
-                    }
-                })
+                let mut cmd_str = cmd_str.to_utf16().append_one(0);
+                let created = CreateProcessW(ptr::null(),
+                                             cmd_str.as_mut_ptr(),
+                                             ptr::mut_null(),
+                                             ptr::mut_null(),
+                                             TRUE,
+                                             flags, envp, dirp,
+                                             &mut si, &mut pi);
+                if created == FALSE {
+                    create_err = Some(super::last_error());
+                }
             })
         });
 
@@ -483,7 +527,10 @@ fn make_command_line(prog: &CString, args: &[CString]) -> String {
 }
 
 #[cfg(unix, not(target_os = "nacl"))]
-fn spawn_process_os(cfg: ProcessConfig, in_fd: c_int, out_fd: c_int, err_fd: c_int)
+fn spawn_process_os(cfg: ProcessConfig,
+                    in_fd: Option<file::FileDesc>,
+                    out_fd: Option<file::FileDesc>,
+                    err_fd: Option<file::FileDesc>)
                 -> IoResult<SpawnProcessResult>
 {
     use libc::funcs::posix88::unistd::{fork, dup2, close, chdir, execvp};
@@ -517,9 +564,7 @@ fn spawn_process_os(cfg: ProcessConfig, in_fd: c_int, out_fd: c_int, err_fd: c_i
 
     with_envp(cfg.env, proc(envp) {
         with_argv(cfg.program, cfg.args, proc(argv) unsafe {
-            let pipe = os::pipe();
-            let mut input = file::FileDesc::new(pipe.input, true);
-            let mut output = file::FileDesc::new(pipe.out, true);
+            let (mut input, mut output) = try!(pipe());
 
             // We may use this in the child, so perform allocations before the
             // fork
@@ -529,7 +574,7 @@ fn spawn_process_os(cfg: ProcessConfig, in_fd: c_int, out_fd: c_int, err_fd: c_i
 
             let pid = fork();
             if pid < 0 {
-                fail!("failure in fork: {}", os::last_os_error());
+                return Err(super::last_error())
             } else if pid > 0 {
                 drop(output);
                 let mut bytes = [0, ..4];
@@ -605,16 +650,24 @@ fn spawn_process_os(cfg: ProcessConfig, in_fd: c_int, out_fd: c_int, err_fd: c_i
             // up /dev/null into that file descriptor. Otherwise, the first file
             // descriptor opened up in the child would be numbered as one of the
             // stdio file descriptors, which is likely to wreak havoc.
-            let setup = |src: c_int, dst: c_int| {
-                let src = if src == -1 {
-                    let flags = if dst == libc::STDIN_FILENO {
-                        libc::O_RDONLY
-                    } else {
-                        libc::O_RDWR
-                    };
-                    devnull.with_ref(|p| libc::open(p, flags, 0))
-                } else {
-                    src
+            let setup = |src: Option<file::FileDesc>, dst: c_int| {
+                let src = match src {
+                    None => {
+                        let flags = if dst == libc::STDIN_FILENO {
+                            libc::O_RDONLY
+                        } else {
+                            libc::O_RDWR
+                        };
+                        devnull.with_ref(|p| libc::open(p, flags, 0))
+                    }
+                    Some(obj) => {
+                        let fd = obj.fd();
+                        // Leak the memory and the file descriptor. We're in the
+                        // child now an all our resources are going to be
+                        // cleaned up very soon
+                        mem::forget(obj);
+                        fd
+                    }
                 };
                 src != -1 && retry(|| dup2(src, dst)) != -1
             };
@@ -764,7 +817,8 @@ fn with_dirp<T>(d: Option<&CString>, cb: |*u16| -> T) -> T {
       Some(dir) => {
           let dir_str = dir.as_str()
                            .expect("expected workingdirectory to be utf-8 encoded");
-          os::win32::as_utf16_p(dir_str, cb)
+          let dir_str = dir_str.to_utf16().append_one(0);
+          cb(dir_str.as_ptr())
       },
       None => cb(ptr::null())
     }
@@ -794,6 +848,7 @@ fn translate_status(status: c_int) -> rtio::ProcessExit {
     }
 
     #[cfg(target_os = "macos")]
+    #[cfg(target_os = "ios")]
     #[cfg(target_os = "freebsd")]
     mod imp {
         pub fn WIFEXITED(status: i32) -> bool { (status & 0x7f) == 0 }
@@ -948,7 +1003,7 @@ fn waitpid(pid: pid_t, deadline: u64) -> IoResult<rtio::ProcessExit> {
     // Register a new SIGCHLD handler, returning the reading half of the
     // self-pipe plus the old handler registered (return value of sigaction).
     //
-    // Be sure to set up the self-pipe first because as soon as we reigster a
+    // Be sure to set up the self-pipe first because as soon as we register a
     // handler we're going to start receiving signals.
     fn register_sigchld() -> (libc::c_int, c::sigaction) {
         unsafe {

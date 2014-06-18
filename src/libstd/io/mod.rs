@@ -81,13 +81,18 @@ Some examples of obvious things you might want to do
 
 * Make a simple TCP client connection and request
 
-    ```rust,should_fail
+    ```rust
     # #![allow(unused_must_use)]
     use std::io::net::tcp::TcpStream;
 
+    # // connection doesn't fail if a server is running on 8080
+    # // locally, we still want to be type checking this code, so lets
+    # // just stop it running (#11576)
+    # if false {
     let mut socket = TcpStream::connect("127.0.0.1", 8080).unwrap();
     socket.write(bytes!("GET / HTTP/1.0\n\n"));
     let response = socket.read_to_end();
+    # }
     ```
 
 * Make a simple TCP server
@@ -214,7 +219,7 @@ responding to errors that may occur while attempting to read the numbers.
 #![deny(unused_must_use)]
 
 use char::Char;
-use container::Container;
+use collections::Collection;
 use fmt;
 use int;
 use iter::Iterator;
@@ -227,7 +232,7 @@ use owned::Box;
 use result::{Ok, Err, Result};
 use rt::rtio;
 use slice::{Vector, MutableVector, ImmutableVector};
-use str::{StrSlice, StrAllocating};
+use str::{Str, StrSlice, StrAllocating};
 use str;
 use string::String;
 use uint;
@@ -304,6 +309,7 @@ impl IoError {
     /// struct is filled with an allocated string describing the error
     /// in more detail, retrieved from the operating system.
     pub fn from_errno(errno: uint, detail: bool) -> IoError {
+
         #[cfg(windows)]
         fn get_err(errno: i32) -> (IoErrorKind, &'static str) {
             match errno {
@@ -383,8 +389,8 @@ impl IoError {
         IoError {
             kind: kind,
             desc: desc,
-            detail: if detail {
-                Some(os::error_string(errno))
+            detail: if detail && kind == OtherIoError {
+                Some(os::error_string(errno).as_slice().chars().map(|c| c.to_lowercase()).collect())
             } else {
                 None
             },
@@ -415,10 +421,13 @@ impl IoError {
 
 impl fmt::Show for IoError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(fmt, "{}", self.desc));
-        match self.detail {
-            Some(ref s) => write!(fmt, " ({})", *s),
-            None => Ok(())
+        match *self {
+            IoError { kind: OtherIoError, desc: "unknown error", detail: Some(ref detail) } =>
+                write!(fmt, "{}", detail),
+            IoError { detail: None, desc, .. } =>
+                write!(fmt, "{}", desc),
+            IoError { detail: Some(ref detail), desc, .. } =>
+                write!(fmt, "{} ({})", desc, detail)
         }
     }
 }
@@ -477,6 +486,37 @@ pub enum IoErrorKind {
     ShortWrite(uint),
     /// The Reader returned 0 bytes from `read()` too many times.
     NoProgress,
+}
+
+/// A trait that lets you add a `detail` to an IoError easily
+trait UpdateIoError<T> {
+    /// Returns an IoError with updated description and detail
+    fn update_err(self, desc: &'static str, detail: |&IoError| -> String) -> Self;
+
+    /// Returns an IoError with updated detail
+    fn update_detail(self, detail: |&IoError| -> String) -> Self;
+
+    /// Returns an IoError with update description
+    fn update_desc(self, desc: &'static str) -> Self;
+}
+
+impl<T> UpdateIoError<T> for IoResult<T> {
+    fn update_err(self, desc: &'static str, detail: |&IoError| -> String) -> IoResult<T> {
+        self.map_err(|mut e| {
+            let detail = detail(&e);
+            e.desc = desc;
+            e.detail = Some(detail);
+            e
+        })
+    }
+
+    fn update_detail(self, detail: |&IoError| -> String) -> IoResult<T> {
+        self.map_err(|mut e| { e.detail = Some(detail(&e)); e })
+    }
+
+    fn update_desc(self, desc: &'static str) -> IoResult<T> {
+        self.map_err(|mut e| { e.desc = desc; e })
+    }
 }
 
 static NO_PROGRESS_LIMIT: uint = 1000;
@@ -1572,7 +1612,7 @@ pub fn standard_error(kind: IoErrorKind) -> IoError {
         ConnectionAborted => "connection aborted",
         NotConnected => "not connected",
         BrokenPipe => "broken pipe",
-        PathAlreadyExists => "file exists",
+        PathAlreadyExists => "file already exists",
         PathDoesntExist => "no such file",
         MismatchedFileTypeForOperation => "mismatched file type",
         ResourceUnavailable => "resource unavailable",

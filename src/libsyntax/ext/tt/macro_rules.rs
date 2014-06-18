@@ -29,6 +29,7 @@ use util::small_vector::SmallVector;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::gc::Gc;
 
 struct ParserAnyMacro<'a> {
     parser: RefCell<Parser<'a>>,
@@ -58,22 +59,21 @@ impl<'a> ParserAnyMacro<'a> {
 }
 
 impl<'a> MacResult for ParserAnyMacro<'a> {
-    fn make_expr(&self) -> Option<@ast::Expr> {
+    fn make_expr(&self) -> Option<Gc<ast::Expr>> {
         let ret = self.parser.borrow_mut().parse_expr();
         self.ensure_complete_parse(true);
         Some(ret)
     }
-    fn make_pat(&self) -> Option<@ast::Pat> {
+    fn make_pat(&self) -> Option<Gc<ast::Pat>> {
         let ret = self.parser.borrow_mut().parse_pat();
         self.ensure_complete_parse(false);
         Some(ret)
     }
-    fn make_items(&self) -> Option<SmallVector<@ast::Item>> {
+    fn make_items(&self) -> Option<SmallVector<Gc<ast::Item>>> {
         let mut ret = SmallVector::zero();
         loop {
             let mut parser = self.parser.borrow_mut();
-            let attrs = parser.parse_outer_attributes();
-            match parser.parse_item(attrs) {
+            match parser.parse_item_with_outer_attributes() {
                 Some(item) => ret.push(item),
                 None => break
             }
@@ -81,7 +81,7 @@ impl<'a> MacResult for ParserAnyMacro<'a> {
         self.ensure_complete_parse(false);
         Some(ret)
     }
-    fn make_stmt(&self) -> Option<@ast::Stmt> {
+    fn make_stmt(&self) -> Option<Gc<ast::Stmt>> {
         let attrs = self.parser.borrow_mut().parse_outer_attributes();
         let ret = self.parser.borrow_mut().parse_stmt(attrs);
         self.ensure_complete_parse(true);
@@ -128,11 +128,13 @@ fn generic_extension(cx: &ExtCtxt,
                      rhses: &[Rc<NamedMatch>])
                      -> Box<MacResult> {
     if cx.trace_macros() {
-        println!("{}! \\{ {} \\}",
+        println!("{}! {} {} {}",
                  token::get_ident(name),
+                 "{",
                  print::pprust::tt_to_str(&TTDelim(Rc::new(arg.iter()
                                                               .map(|x| (*x).clone())
-                                                              .collect()))));
+                                                              .collect()))),
+                 "}");
     }
 
     // Which arm's failure should we report? (the one furthest along)

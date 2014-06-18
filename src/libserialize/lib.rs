@@ -27,7 +27,8 @@ Core encoding and decoding interfaces.
 // test harness access
 #[cfg(test)]
 extern crate test;
-#[phase(syntax, link)]
+
+#[phase(plugin, link)]
 extern crate log;
 
 pub use self::serialize::{Decoder, Encoder, Decodable, Encodable,

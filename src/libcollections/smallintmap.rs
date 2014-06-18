@@ -17,10 +17,12 @@
 
 use core::prelude::*;
 
+use core::default::Default;
 use core::fmt;
 use core::iter::{Enumerate, FilterMap};
 use core::mem::replace;
 
+use {Collection, Mutable, Map, MutableMap};
 use {vec, slice};
 use vec::Vec;
 
@@ -29,7 +31,7 @@ pub struct SmallIntMap<T> {
     v: Vec<Option<T>>,
 }
 
-impl<V> Container for SmallIntMap<V> {
+impl<V> Collection for SmallIntMap<V> {
     /// Return the number of elements in the map
     fn len(&self) -> uint {
         self.v.iter().filter(|elt| elt.is_some()).count()
@@ -113,6 +115,11 @@ impl<V> MutableMap<uint, V> for SmallIntMap<V> {
     }
 }
 
+impl<V> Default for SmallIntMap<V> {
+    #[inline]
+    fn default() -> SmallIntMap<V> { SmallIntMap::new() }
+}
+
 impl<V> SmallIntMap<V> {
     /// Create an empty SmallIntMap
     pub fn new() -> SmallIntMap<V> { SmallIntMap{v: vec!()} }
@@ -123,7 +130,7 @@ impl<V> SmallIntMap<V> {
     }
 
     pub fn get<'a>(&'a self, key: &uint) -> &'a V {
-        ::expect(self.find(key), "key not present")
+        self.find(key).expect("key not present")
     }
 
     /// An iterator visiting all key-value pairs in ascending order by the keys.
@@ -179,14 +186,14 @@ impl<V:Clone> SmallIntMap<V> {
 
 impl<V: fmt::Show> fmt::Show for SmallIntMap<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, r"\{"));
+        try!(write!(f, "{{"));
 
         for (i, (k, v)) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
             try!(write!(f, "{}: {}", k, *v));
         }
 
-        write!(f, r"\}")
+        write!(f, "}}")
     }
 }
 
@@ -264,6 +271,7 @@ double_ended_iterator!(impl MutEntries -> (uint, &'a mut T), get_mut_ref)
 mod test_map {
     use std::prelude::*;
 
+    use {Map, MutableMap, Mutable};
     use super::SmallIntMap;
 
     #[test]

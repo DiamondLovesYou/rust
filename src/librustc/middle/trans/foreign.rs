@@ -64,9 +64,6 @@ struct LlvmSignature {
     // function, because the foreign function may opt to return via an
     // out pointer.
     llret_ty: Type,
-
-    // True if *Rust* would use an outpointer for this function.
-    sret: bool,
 }
 
 
@@ -446,8 +443,8 @@ pub fn trans_native_call<'a>(
 
 pub fn trans_foreign_mod(ccx: &CrateContext, foreign_mod: &ast::ForeignMod) {
     let _icx = push_ctxt("foreign::trans_foreign_mod");
-    for &foreign_item in foreign_mod.items.iter() {
-        let lname = link_name(foreign_item);
+    for foreign_item in foreign_mod.items.iter() {
+        let lname = link_name(&**foreign_item);
 
         match foreign_item.node {
             ast::ForeignItemFn(..) => {
@@ -695,7 +692,7 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: &CrateContext,
             let foreign_index = next_foreign_arg(llforeign_arg_ty.pad.is_some());
             let mut llforeign_arg = llvm::LLVMGetParam(llwrapfn, foreign_index);
 
-            debug!("llforeign_arg \\#{}: {}",
+            debug!("llforeign_arg {}{}: {}", "#",
                    i, ccx.tn.val_to_str(llforeign_arg));
             debug!("rust_indirect = {}, foreign_indirect = {}",
                    rust_indirect, foreign_indirect);
@@ -728,7 +725,7 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: &CrateContext,
                 llvm::LLVMBuildLoad(builder, llforeign_arg, noname())
             };
 
-            debug!("llrust_arg \\#{}: {}",
+            debug!("llrust_arg {}{}: {}", "#",
                    i, ccx.tn.val_to_str(llrust_arg));
             llrust_args.push(llrust_arg);
         }
@@ -847,8 +844,7 @@ fn foreign_signature(ccx: &CrateContext, fn_sig: &ty::FnSig, arg_tys: &[ty::t])
     let llret_ty = type_of::type_of(ccx, fn_sig.output);
     LlvmSignature {
         llarg_tys: llarg_tys,
-        llret_ty: llret_ty,
-        sret: type_of::return_uses_outptr(ccx, fn_sig.output),
+        llret_ty: llret_ty
     }
 }
 

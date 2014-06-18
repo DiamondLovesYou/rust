@@ -13,6 +13,7 @@
 #![feature(managed_boxes)]
 
 use std::rc::Rc;
+use std::gc::Gc;
 
 fn assert_copy<T:Copy>() { }
 trait Dummy { }
@@ -45,15 +46,15 @@ fn test<'a,T,U:Copy>(_: &'a int) {
 
     // borrowed object types are generally ok
     assert_copy::<&'a Dummy>();
-    assert_copy::<&'a Dummy:Copy>();
-    assert_copy::<&'static Dummy:Copy>();
+    assert_copy::<&'a Dummy+Copy>();
+    assert_copy::<&'static Dummy+Copy>();
 
     // owned object types are not ok
     assert_copy::<Box<Dummy>>(); //~ ERROR does not fulfill
-    assert_copy::<Box<Dummy:Copy>>(); //~ ERROR does not fulfill
+    assert_copy::<Box<Dummy+Copy>>(); //~ ERROR does not fulfill
 
     // mutable object types are not ok
-    assert_copy::<&'a mut Dummy:Copy>();  //~ ERROR does not fulfill
+    assert_copy::<&'a mut Dummy+Copy>();  //~ ERROR does not fulfill
 
     // closures are like an `&mut` object
     assert_copy::<||>(); //~ ERROR does not fulfill
@@ -77,7 +78,7 @@ fn test<'a,T,U:Copy>(_: &'a int) {
     assert_copy::<MyNoncopyStruct>(); //~ ERROR does not fulfill
 
     // managed or ref counted types are not ok
-    assert_copy::<@int>();   //~ ERROR does not fulfill
+    assert_copy::<Gc<int>>();   //~ ERROR does not fulfill
     assert_copy::<Rc<int>>();   //~ ERROR does not fulfill
 }
 

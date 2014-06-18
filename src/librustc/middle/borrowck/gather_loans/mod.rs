@@ -259,7 +259,7 @@ impl<'a> GatherLoanCtxt<'a> {
         // loan is safe.
         let restr = restrictions::compute_restrictions(
             self.bccx, borrow_span, cause,
-            cmt.clone(), loan_region, self.restriction_set(req_kind));
+            cmt.clone(), loan_region);
 
         // Create the loan record (if needed).
         let loan = match restr {
@@ -268,7 +268,7 @@ impl<'a> GatherLoanCtxt<'a> {
                 return;
             }
 
-            restrictions::SafeIf(loan_path, restrictions) => {
+            restrictions::SafeIf(loan_path, restricted_paths) => {
                 let loan_scope = match loan_region {
                     ty::ReScope(id) => id,
                     ty::ReFree(ref fr) => fr.scope_id,
@@ -310,12 +310,11 @@ impl<'a> GatherLoanCtxt<'a> {
                 Loan {
                     index: self.all_loans.len(),
                     loan_path: loan_path,
-                    cmt: cmt,
                     kind: req_kind,
                     gen_scope: gen_scope,
                     kill_scope: kill_scope,
                     span: borrow_span,
-                    restrictions: restrictions,
+                    restricted_paths: restricted_paths,
                     cause: cause,
                 }
             }
@@ -388,21 +387,6 @@ impl<'a> GatherLoanCtxt<'a> {
                     }
                 }
             }
-        }
-    }
-
-    fn restriction_set(&self, req_kind: ty::BorrowKind) -> RestrictionSet {
-        match req_kind {
-            // If borrowing data as immutable, no mutation allowed:
-            ty::ImmBorrow => RESTR_MUTATE,
-
-            // If borrowing data as mutable, no mutation nor other
-            // borrows allowed:
-            ty::MutBorrow => RESTR_MUTATE | RESTR_FREEZE,
-
-            // If borrowing data as unique imm, no mutation nor other
-            // borrows allowed:
-            ty::UniqueImmBorrow => RESTR_MUTATE | RESTR_FREEZE,
         }
     }
 
@@ -481,15 +465,14 @@ impl<'a> GatherLoanCtxt<'a> {
 /// This visitor walks static initializer's expressions and makes
 /// sure the loans being taken are sound.
 struct StaticInitializerCtxt<'a> {
-    bccx: &'a BorrowckCtxt<'a>,
-    item_ub: ast::NodeId,
+    bccx: &'a BorrowckCtxt<'a>
 }
 
 impl<'a> visit::Visitor<()> for StaticInitializerCtxt<'a> {
     fn visit_expr(&mut self, ex: &Expr, _: ()) {
         match ex.node {
-            ast::ExprAddrOf(mutbl, base) => {
-                let base_cmt = self.bccx.cat_expr(base);
+            ast::ExprAddrOf(mutbl, ref base) => {
+                let base_cmt = self.bccx.cat_expr(&**base);
                 let borrow_kind = ty::BorrowKind::from_mutbl(mutbl);
                 // Check that we don't allow borrows of unsafe static items.
                 if check_aliasability(self.bccx, ex.span, euv::AddrOf,
@@ -509,8 +492,7 @@ pub fn gather_loans_in_static_initializer(bccx: &mut BorrowckCtxt, expr: &ast::E
     debug!("gather_loans_in_static_initializer(expr={})", expr.repr(bccx.tcx));
 
     let mut sicx = StaticInitializerCtxt {
-        bccx: bccx,
-        item_ub: expr.id,
+        bccx: bccx
     };
 
     sicx.visit_expr(expr, ());

@@ -91,7 +91,6 @@ impl fmt::Show for clean::Generics {
 
 impl fmt::Show for clean::Lifetime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(f.write("'".as_bytes()));
         try!(f.write(self.get_ref().as_bytes()));
         Ok(())
     }
@@ -317,11 +316,8 @@ fn tybounds(w: &mut fmt::Formatter,
             typarams: &Option<Vec<clean::TyParamBound> >) -> fmt::Result {
     match *typarams {
         Some(ref params) => {
-            try!(write!(w, ":"));
-            for (i, param) in params.iter().enumerate() {
-                if i > 0 {
-                    try!(write!(w, " + "));
-                }
+            for param in params.iter() {
+                try!(write!(w, " + "));
                 try!(write!(w, "{}", *param));
             }
             Ok(())
@@ -348,8 +344,7 @@ impl fmt::Show for clean::Type {
             clean::Self(..) => f.write("Self".as_bytes()),
             clean::Primitive(prim) => primitive_link(f, prim, prim.to_str()),
             clean::Closure(ref decl, ref region) => {
-                write!(f, "{style}{lifetimes}|{args}|{bounds}\
-                           {arrow, select, yes{ -&gt; {ret}} other{}}",
+                write!(f, "{style}{lifetimes}|{args}|{bounds}{arrow}",
                        style = FnStyleSpace(decl.fn_style),
                        lifetimes = if decl.lifetimes.len() == 0 {
                            "".to_string()
@@ -358,10 +353,9 @@ impl fmt::Show for clean::Type {
                        },
                        args = decl.decl.inputs,
                        arrow = match decl.decl.output {
-                           clean::Primitive(clean::Nil) => "no",
-                           _ => "yes",
+                           clean::Primitive(clean::Nil) => "".to_string(),
+                           _ => format!(" -&gt; {}", decl.decl.output),
                        },
-                       ret = decl.decl.output,
                        bounds = {
                            let mut ret = String::new();
                            match *region {
@@ -389,8 +383,7 @@ impl fmt::Show for clean::Type {
                        })
             }
             clean::Proc(ref decl) => {
-                write!(f, "{style}{lifetimes}proc({args}){bounds}\
-                           {arrow, select, yes{ -&gt; {ret}} other{}}",
+                write!(f, "{style}{lifetimes}proc({args}){bounds}{arrow}",
                        style = FnStyleSpace(decl.fn_style),
                        lifetimes = if decl.lifetimes.len() == 0 {
                            "".to_string()
@@ -409,10 +402,9 @@ impl fmt::Show for clean::Type {
                                m.collect::<Vec<String>>().connect(" + "))
                        },
                        arrow = match decl.decl.output {
-                           clean::Primitive(clean::Nil) => "no",
-                           _ => "yes",
-                       },
-                       ret = decl.decl.output)
+                           clean::Primitive(clean::Nil) => "".to_string(),
+                           _ => format!(" -&gt; {}", decl.decl.output)
+                       })
             }
             clean::BareFunction(ref decl) => {
                 write!(f, "{}{}fn{}{}",
@@ -437,8 +429,8 @@ impl fmt::Show for clean::Type {
                                format!("[{}, ..{}]", **t, *s).as_slice())
             }
             clean::Bottom => f.write("!".as_bytes()),
-            clean::Unique(ref t) => write!(f, "~{}", **t),
-            clean::Managed(ref t) => write!(f, "@{}", **t),
+            clean::Unique(ref t) => write!(f, "Box<{}>", **t),
+            clean::Managed(ref t) => write!(f, "Gc<{}>", **t),
             clean::RawPointer(m, ref t) => {
                 write!(f, "*{}{}", MutableSpace(m), **t)
             }
@@ -468,13 +460,12 @@ impl fmt::Show for clean::Arguments {
 
 impl fmt::Show for clean::FnDecl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({args}){arrow, select, yes{ -&gt; {ret}} other{}}",
+        write!(f, "({args}){arrow}",
                args = self.inputs,
                arrow = match self.output {
-                   clean::Primitive(clean::Nil) => "no",
-                   _ => "yes"
-               },
-               ret = self.output)
+                   clean::Primitive(clean::Nil) => "".to_string(),
+                   _ => format!(" -&gt; {}", self.output),
+               })
     }
 }
 
@@ -502,14 +493,12 @@ impl<'a> fmt::Show for Method<'a> {
             }
             args.push_str(format!("{}", input.type_).as_slice());
         }
-        write!(f,
-               "({args}){arrow, select, yes{ -&gt; {ret}} other{}}",
+        write!(f, "({args}){arrow}",
                args = args,
                arrow = match d.output {
-                   clean::Primitive(clean::Nil) => "no",
-                   _ => "yes"
-               },
-               ret = d.output)
+                   clean::Primitive(clean::Nil) => "".to_string(),
+                   _ => format!(" -&gt; {}", d.output),
+               })
     }
 }
 
@@ -545,14 +534,14 @@ impl fmt::Show for clean::ViewPath {
                 write!(f, "use {}::*;", *src)
             }
             clean::ImportList(ref src, ref names) => {
-                try!(write!(f, "use {}::\\{", *src));
+                try!(write!(f, "use {}::{{", *src));
                 for (i, n) in names.iter().enumerate() {
                     if i > 0 {
                         try!(write!(f, ", "));
                     }
                     try!(write!(f, "{}", *n));
                 }
-                write!(f, "\\};")
+                write!(f, "}};")
             }
         }
     }

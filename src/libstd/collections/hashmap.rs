@@ -12,7 +12,7 @@
 
 use clone::Clone;
 use cmp::{max, Eq, Equiv, PartialEq};
-use container::{Container, Mutable, Set, MutableSet, Map, MutableMap};
+use collections::{Collection, Mutable, Set, MutableSet, Map, MutableMap};
 use default::Default;
 use fmt::Show;
 use fmt;
@@ -393,7 +393,7 @@ mod table {
         }
 
         pub fn move_iter(self) -> MoveEntries<K, V> {
-            MoveEntries { table: self, idx: 0, elems_seen: 0 }
+            MoveEntries { table: self, idx: 0 }
         }
     }
 
@@ -428,8 +428,7 @@ mod table {
     /// Iterator over the entries in a table, consuming the table.
     pub struct MoveEntries<K, V> {
         table: RawTable<K, V>,
-        idx: uint,
-        elems_seen: uint,
+        idx: uint
     }
 
     impl<'a, K, V> Iterator<(&'a K, &'a V)> for Entries<'a, K, V> {
@@ -930,7 +929,7 @@ impl<K: Eq + Hash<S>, V, S, H: Hasher<S>> HashMap<K, V, H> {
     }
 }
 
-impl<K: Eq + Hash<S>, V, S, H: Hasher<S>> Container for HashMap<K, V, H> {
+impl<K: Eq + Hash<S>, V, S, H: Hasher<S>> Collection for HashMap<K, V, H> {
     /// Return the number of elements in the map
     fn len(&self) -> uint { self.table.size() }
 }
@@ -1426,14 +1425,14 @@ impl<K: Eq + Hash<S>, V: Eq, S, H: Hasher<S>> Eq for HashMap<K, V, H> {}
 
 impl<K: Eq + Hash<S> + Show, V: Show, S, H: Hasher<S>> Show for HashMap<K, V, H> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, r"\{"));
+        try!(write!(f, "{{"));
 
         for (i, (k, v)) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
             try!(write!(f, "{}: {}", *k, *v));
         }
 
-        write!(f, r"\}")
+        write!(f, "}}")
     }
 }
 
@@ -1504,7 +1503,7 @@ impl<T: Eq + Hash<S>, S, H: Hasher<S>> PartialEq for HashSet<T, H> {
 
 impl<T: Eq + Hash<S>, S, H: Hasher<S>> Eq for HashSet<T, H> {}
 
-impl<T: Eq + Hash<S>, S, H: Hasher<S>> Container for HashSet<T, H> {
+impl<T: Eq + Hash<S>, S, H: Hasher<S>> Collection for HashSet<T, H> {
     fn len(&self) -> uint { self.map.len() }
 }
 
@@ -1619,14 +1618,14 @@ impl<T: Eq + Hash<S>, S, H: Hasher<S>> HashSet<T, H> {
 
 impl<T: Eq + Hash<S> + fmt::Show, S, H: Hasher<S>> fmt::Show for HashSet<T, H> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, r"\{"));
+        try!(write!(f, "{{"));
 
         for (i, x) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
             try!(write!(f, "{}", *x));
         }
 
-        write!(f, r"\}")
+        write!(f, "}}")
     }
 }
 
@@ -2159,8 +2158,8 @@ mod test_set {
     use prelude::*;
 
     use super::HashSet;
-    use container::Container;
     use slice::ImmutableEqVector;
+    use collections::Collection;
 
     #[test]
     fn test_disjoint() {

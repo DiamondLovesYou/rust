@@ -297,8 +297,7 @@ an atomically reference counted box ("A.R.C." == "atomically reference counted")
 Here's some code:
 
 ```
-extern crate sync;
-use sync::Arc;
+use std::sync::Arc;
 
 fn main() {
     let numbers = vec![1,2,3];
@@ -344,8 +343,7 @@ Let's take the same example yet again,
 and modify it to mutate the shared state:
 
 ```
-extern crate sync;
-use sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex};
 
 fn main() {
     let numbers = vec![1,2,3];
@@ -363,7 +361,7 @@ fn main() {
 
             // This is ugly for now, but will be replaced by
             // `numbers[num as uint] += 1` in the near future.
-            // See: https://github.com/mozilla/rust/issues/6515
+            // See: https://github.com/rust-lang/rust/issues/6515
             *numbers.get_mut(num as uint) = *numbers.get_mut(num as uint) + 1;
 
             println!("{}", *numbers.get(num as uint));

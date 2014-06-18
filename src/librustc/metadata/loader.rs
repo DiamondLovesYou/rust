@@ -18,6 +18,7 @@ use metadata::cstore::{MetadataBlob, MetadataVec, MetadataArchive};
 use metadata::decoder;
 use metadata::encoder;
 use metadata::filesearch::{FileSearch, FileMatches, FileDoesntMatch};
+use syntax::abi;
 use syntax::codemap::Span;
 use syntax::diagnostic::SpanHandler;
 use syntax::crateid::CrateId;
@@ -54,15 +55,6 @@ pub static ANDROID_DLL_SUFFIX: &'static str = ".so";
 pub static NACL_DLL_PREFIX: &'static str = "lib";
 pub static NACL_DLL_SUFFIX: &'static str = ".so";
 
-pub enum Os {
-    OsMacos,
-    OsWin32,
-    OsLinux,
-    OsAndroid,
-    OsFreebsd,
-    OsNaCl,
-}
-
 pub struct CrateMismatch {
     path: Path,
     got: String,
@@ -76,7 +68,7 @@ pub struct Context<'a> {
     pub id_hash: &'a str,
     pub hash: Option<&'a Svh>,
     pub triple: &'a str,
-    pub os: Os,
+    pub os: abi::Os,
     pub filesearch: FileSearch<'a>,
     pub root: &'a Option<CratePaths>,
     pub rejected_via_hash: Vec<CrateMismatch>,
@@ -90,7 +82,7 @@ pub struct Library {
 }
 
 pub struct ArchiveMetadata {
-    archive: ArchiveRO,
+    _archive: ArchiveRO,
     // See comments in ArchiveMetadata::new for why this is static
     data: &'static [u8],
 }
@@ -150,8 +142,8 @@ pub fn report_load_errs(&mut self) {
                                         self.triple).as_slice());
             for (i, &CrateMismatch{ ref path, ref got }) in mismatches.enumerate() {
                 self.sess.fileline_note(self.span,
-                    format!("crate `{}` path \\#{}, triple {}: {}",
-                            self.ident, i+1, got, path.display()).as_slice());
+                    format!("crate `{}` path {}{}, triple {}: {}",
+                            self.ident, "#", i+1, got, path.display()).as_slice());
             }
         }
         if self.rejected_via_hash.len() > 0 {
@@ -160,15 +152,15 @@ pub fn report_load_errs(&mut self) {
             let mismatches = self.rejected_via_hash.iter();
             for (i, &CrateMismatch{ ref path, .. }) in mismatches.enumerate() {
                 self.sess.fileline_note(self.span,
-                    format!("crate `{}` path \\#{}: {}",
-                            self.ident, i+1, path.display()).as_slice());
+                    format!("crate `{}` path {}{}: {}",
+                            self.ident, "#", i+1, path.display()).as_slice());
             }
             match self.root {
                 &None => {}
                 &Some(ref r) => {
                     for (i, path) in r.paths().iter().enumerate() {
                         self.sess.fileline_note(self.span,
-                            format!("crate `{}` path \\#{}: {}",
+                            format!("crate `{}` path #{}: {}",
                                     r.ident, i+1, path.display()).as_slice());
                     }
                 }
@@ -178,10 +170,12 @@ pub fn report_load_errs(&mut self) {
     }
 
 fn find_library_crate(&mut self) -> Option<Library> {
-        let (dyprefix, dysuffix) = self.dylibname();
+        let dypair = self.dylibname();
 
         // want: crate_name.dir_part() + prefix + crate_name.file_part + "-"
-        let dylib_prefix = format!("{}{}-", dyprefix, self.crate_id.name);
+        let dylib_prefix = dypair.map(|(prefix, _)| {
+            format!("{}{}-", prefix, self.crate_id.name)
+        });
         let rlib_prefix = format!("lib{}-", self.crate_id.name);
 
         let mut candidates = HashMap::new();
@@ -222,12 +216,14 @@ fn find_library_crate(&mut self) -> Option<Library> {
                         FileDoesntMatch
                     }
                 }
-            } else if file.starts_with(dylib_prefix.as_slice()) &&
-                    file.ends_with(dysuffix){
+            } else if dypair.map_or(false, |(_, suffix)| {
+                file.starts_with(dylib_prefix.get_ref().as_slice()) &&
+                file.ends_with(suffix)
+            }) {
+                let (_, suffix) = dypair.unwrap();
+                let dylib_prefix = dylib_prefix.get_ref().as_slice();
                 info!("dylib candidate: {}", path.display());
-                match self.try_match(file,
-                                     dylib_prefix.as_slice(),
-                                     dysuffix) {
+                match self.try_match(file, dylib_prefix, suffix) {
                     Some(hash) => {
                         info!("dylib accepted, hash: {}", hash);
                         let slot = candidates.find_or_insert_with(hash, |_| {
@@ -391,7 +387,7 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
                                            flavor,
                                            self.crate_id.name).as_slice());
                 self.sess.span_note(self.span,
-                                    format!(r"candidate \#1: {}",
+                                    format!(r"candidate #1: {}",
                                             ret.get_ref()
                                                .display()).as_slice());
                 error = 1;
@@ -400,7 +396,7 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
             if error > 0 {
                 error += 1;
                 self.sess.span_note(self.span,
-                                    format!(r"candidate \#{}: {}", error,
+                                    format!(r"candidate #{}: {}", error,
                                             lib.display()).as_slice());
                 continue
             }
@@ -452,14 +448,15 @@ fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
 
     // Returns the corresponding (prefix, suffix) that files need to have for
     // dynamic libraries
-    fn dylibname(&self) -> (&'static str, &'static str) {
+    fn dylibname(&self) -> Option<(&'static str, &'static str)> {
         match self.os {
-            OsWin32 => (WIN32_DLL_PREFIX, WIN32_DLL_SUFFIX),
-            OsMacos => (MACOS_DLL_PREFIX, MACOS_DLL_SUFFIX),
-            OsLinux => (LINUX_DLL_PREFIX, LINUX_DLL_SUFFIX),
-            OsAndroid => (ANDROID_DLL_PREFIX, ANDROID_DLL_SUFFIX),
-            OsFreebsd => (FREEBSD_DLL_PREFIX, FREEBSD_DLL_SUFFIX),
-            OsNaCl => (NACL_DLL_PREFIX, NACL_DLL_SUFFIX),
+            abi::OsWin32 => Some((WIN32_DLL_PREFIX, WIN32_DLL_SUFFIX)),
+            abi::OsMacos => Some((MACOS_DLL_PREFIX, MACOS_DLL_SUFFIX)),
+            abi::OsLinux => Some((LINUX_DLL_PREFIX, LINUX_DLL_SUFFIX)),
+            abi::OsAndroid => Some((ANDROID_DLL_PREFIX, ANDROID_DLL_SUFFIX)),
+            abi::OsFreebsd => Some((FREEBSD_DLL_PREFIX, FREEBSD_DLL_SUFFIX)),
+            abi::OsiOS => None,
+            abi::OsNaCl => None,
         }
     }
 
@@ -492,7 +489,7 @@ impl ArchiveMetadata {
             unsafe { mem::transmute(data) }
         };
         Some(ArchiveMetadata {
-            archive: ar,
+            _archive: ar,
             data: data,
         })
     }
@@ -501,7 +498,7 @@ impl ArchiveMetadata {
 }
 
 // Just a small wrapper to time how long reading metadata takes.
-fn get_metadata_section(os: Os, filename: &Path) -> Result<MetadataBlob, String> {
+fn get_metadata_section(os: abi::Os, filename: &Path) -> Result<MetadataBlob, String> {
     let start = time::precise_time_ns();
     let ret = get_metadata_section_imp(os, filename);
     info!("reading {} => {}ms", filename.filename_display(),
@@ -509,7 +506,7 @@ fn get_metadata_section(os: Os, filename: &Path) -> Result<MetadataBlob, String>
     return ret;
 }
 
-fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, String> {
+fn get_metadata_section_imp(os: abi::Os, filename: &Path) -> Result<MetadataBlob, String> {
     if !filename.exists() {
         return Err(format!("no such file: '{}'", filename.display()));
     }
@@ -595,30 +592,32 @@ fn get_metadata_section_imp(os: Os, filename: &Path) -> Result<MetadataBlob, Str
     }
 }
 
-pub fn meta_section_name(os: Os) -> &'static str {
+pub fn meta_section_name(os: abi::Os) -> Option<&'static str> {
     match os {
-        OsMacos => "__DATA,__note.rustc",
-        OsWin32 => ".note.rustc",
-        OsLinux => ".note.rustc",
-        OsAndroid => ".note.rustc",
-        OsFreebsd => ".note.rustc",
-        OsNaCl => ".note.rustc",
+        abi::OsMacos => Some("__DATA,__note.rustc"),
+        abi::OsiOS => Some("__DATA,__note.rustc"),
+        abi::OsWin32 => Some(".note.rustc"),
+        abi::OsLinux => Some(".note.rustc"),
+        abi::OsAndroid => Some(".note.rustc"),
+        abi::OsFreebsd => Some(".note.rustc"),
+        abi::OsNaCl => None,
     }
 }
 
-pub fn read_meta_section_name(os: Os) -> &'static str {
+pub fn read_meta_section_name(os: abi::Os) -> &'static str {
     match os {
-        OsMacos => "__note.rustc",
-        OsWin32 => ".note.rustc",
-        OsLinux => ".note.rustc",
-        OsAndroid => ".note.rustc",
-        OsFreebsd => ".note.rustc",
-        OsNaCl => ".note.rustc",
+        abi::OsMacos => "__note.rustc",
+        abi::OsiOS => unreachable!(),
+        abi::OsWin32 => ".note.rustc",
+        abi::OsLinux => ".note.rustc",
+        abi::OsAndroid => ".note.rustc",
+        abi::OsFreebsd => ".note.rustc",
+        abi::OsNaCl => ".note.rustc",
     }
 }
 
 // A diagnostic function for dumping crate metadata to an output stream
-pub fn list_file_metadata(os: Os, path: &Path,
+pub fn list_file_metadata(os: abi::Os, path: &Path,
                           out: &mut io::Writer) -> io::IoResult<()> {
     match get_metadata_section(os, path) {
         Ok(bytes) => decoder::list_crate_metadata(bytes.as_slice(), out),

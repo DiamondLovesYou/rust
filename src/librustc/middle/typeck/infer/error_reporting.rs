@@ -17,7 +17,7 @@ works, it often happens that errors are not detected until far after
 the relevant line of code has been type-checked. Therefore, there is
 an elaborate system to track why a particular constraint in the
 inference graph arose so that we can explain to the user what gave
-rise to a patricular error.
+rise to a particular error.
 
 The basis of the system are the "origin" types. An "origin" is the
 reason that a constraint or inference variable arose. There are
@@ -60,7 +60,9 @@ time of error detection.
 */
 
 use std::collections::HashSet;
+use std::gc::GC;
 use middle::def;
+use middle::subst;
 use middle::ty;
 use middle::ty::{Region, ReFree};
 use middle::typeck::infer;
@@ -909,6 +911,9 @@ impl<'a> Rebuilder<'a> {
             match tpb {
                 &ast::StaticRegionTyParamBound => ast::StaticRegionTyParamBound,
                 &ast::OtherRegionTyParamBound(s) => ast::OtherRegionTyParamBound(s),
+                &ast::UnboxedFnTyParamBound(unboxed_function_type) => {
+                    ast::UnboxedFnTyParamBound(unboxed_function_type)
+                }
                 &ast::TraitTyParamBound(ref tr) => {
                     let last_seg = tr.path.segments.last().unwrap();
                     let mut insert = Vec::new();
@@ -1052,9 +1057,10 @@ impl<'a> Rebuilder<'a> {
                                 ty: _
                             } = ty::lookup_item_type(self.tcx, did);
 
-                            let expected = generics.region_param_defs().len();
-                            let lifetimes = &path.segments.last()
-                                                 .unwrap().lifetimes;
+                            let expected =
+                                generics.regions.len(subst::TypeSpace);
+                            let lifetimes =
+                                &path.segments.last().unwrap().lifetimes;
                             let mut insert = Vec::new();
                             if lifetimes.len() == 0 {
                                 let anon = self.cur_anon.get();
@@ -1135,9 +1141,10 @@ impl<'a> Rebuilder<'a> {
                     }
                     ast::TyTup(new_tys)
                 }
+                ast::TyParen(ref typ) => ast::TyParen(build_to(*typ, to)),
                 ref other => other.clone()
             };
-            @ast::Ty { id: from.id, node: new_node, span: from.span }
+            box(GC) ast::Ty { id: from.id, node: new_node, span: from.span }
         }
 
         let new_ty_node = match to.node {
@@ -1152,7 +1159,7 @@ impl<'a> Rebuilder<'a> {
             }
             _ => fail!("expect ast::TyRptr or ast::TyPath")
         };
-        let new_ty = @ast::Ty {
+        let new_ty = box(GC) ast::Ty {
             id: to.id,
             node: new_ty_node,
             span: to.span
@@ -1500,7 +1507,8 @@ impl LifeGiver {
     fn give_lifetime(&self) -> ast::Lifetime {
         let mut lifetime;
         loop {
-            let s = num_to_str(self.counter.get());
+            let mut s = String::from_str("'");
+            s.push_str(num_to_str(self.counter.get()).as_slice());
             if !self.taken.contains(&s) {
                 lifetime = name_to_dummy_lifetime(
                                     token::str_to_ident(s.as_slice()).name);

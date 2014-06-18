@@ -8,14 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(dead_code)]
 #![feature(managed_boxes)]
 #![forbid(managed_heap_memory)]
 
+use std::gc::{Gc, GC};
+
 struct Foo {
-    x: @int //~ ERROR type uses managed
+    x: Gc<int> //~ ERROR type uses managed
 }
 
 fn main() {
-    let _x : Foo = Foo {x : @10};
+    let _x : Foo = Foo {x : box(GC) 10};
     //~^ ERROR type uses managed
 }

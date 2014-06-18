@@ -90,8 +90,8 @@ Snapshot binaries are currently built and tested on several platforms:
 You may find that other platforms work, but these are our "tier 1"
 supported build environments that are most likely to work.
 
-[wiki-start]: https://github.com/mozilla/rust/wiki/Note-getting-started-developing-Rust
-[git]: https://github.com/mozilla/rust.git
+[wiki-start]: https://github.com/rust-lang/rust/wiki/Note-getting-started-developing-Rust
+[git]: https://github.com/rust-lang/rust.git
 [rust-install]: http://www.rust-lang.org/install.html
 
 To build from source you will also need the following prerequisite
@@ -183,7 +183,7 @@ There is ctags support via `src/etc/ctags.rust`, but many other
 tools and editors are not yet supported. If you end up writing a Rust
 mode for your favorite editor, let us know so that we can link to it.
 
-[sublime]: http://github.com/dbp/sublime-rust
+[sublime]: http://github.com/jhasse/sublime-rust
 [sublime-pkg]: http://wbond.net/sublime_packages/package_control
 
 # Syntax basics
@@ -1710,14 +1710,14 @@ having ownership of the box. It allows the creation of cycles, and the individua
 not have a destructor.
 
 ~~~
-use std::gc::Gc;
+use std::gc::GC;
 
 // A fixed-size array allocated in a garbage-collected box
-let x = Gc::new([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+let x = box(GC) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 let y = x; // does not perform a move, unlike with `Rc`
 let z = x;
 
-assert!(*z.borrow() == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+assert!(*z == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 ~~~
 
 With shared ownership, mutability cannot be inherited so the boxes are always immutable. However,
@@ -2459,7 +2459,7 @@ fn draw_all(shapes: &[Box<Drawable>]) {
 }
 ~~~~
 
-In this example, there is no type parameter. Instead, the `~Drawable`
+In this example, there is no type parameter. Instead, the `Box<Drawable>`
 type denotes any owned box value that implements the `Drawable` trait.
 To construct such a value, you use the `as` operator to cast a value
 to an object:
@@ -2518,8 +2518,8 @@ valid types:
 trait Foo {}
 trait Bar<T> {}
 
-fn sendable_foo(f: Box<Foo:Send>) { /* ... */ }
-fn shareable_bar<T: Share>(b: &Bar<T>: Share) { /* ... */ }
+fn sendable_foo(f: Box<Foo + Send>) { /* ... */ }
+fn shareable_bar<T: Share>(b: &Bar<T> + Share) { /* ... */ }
 ~~~
 
 When no colon is specified (such as the type `~Foo`), it is inferred that the
@@ -3247,7 +3247,7 @@ fn main() { println!("hello {}", world::explore()); }
 Now compile and run like this (adjust to your platform if necessary):
 
 ~~~~console
-$ rustc --crate-type=lib world.rs  # compiles libworld-<HASH>-0.42.so
+$ rustc --crate-type=lib world.rs  # compiles libworld-<HASH>-0.42.rlib
 $ rustc main.rs -L .               # compiles main
 $ ./main
 "hello world"
@@ -3345,6 +3345,6 @@ There is further documentation on the [wiki], however those tend to be even more
 [testing]: guide-testing.html
 [runtime]: guide-runtime.html
 [rustdoc]: rustdoc.html
-[wiki]: https://github.com/mozilla/rust/wiki/Docs
+[wiki]: https://github.com/rust-lang/rust/wiki/Docs
 
-[wiki-packages]: https://github.com/mozilla/rust/wiki/Doc-packages,-editors,-and-other-tools
+[wiki-packages]: https://github.com/rust-lang/rust/wiki/Doc-packages,-editors,-and-other-tools
