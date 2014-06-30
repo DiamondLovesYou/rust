@@ -884,12 +884,15 @@ LLVMRustArrayType(LLVMTypeRef ElementType, uint64_t ElementCount) {
 }
 
 static void ignore_debug_metadata_diagnostic_handler(const DiagnosticInfo& di, void* _context) {
-  if(di.getSeverity() >= DS_Warning &&
-     !isa<DiagnosticInfoOptimizationRemark>(di) &&
-     !isa<DiagnosticInfoDebugMetadataVersion>(di)) {
-    raw_fd_ostream stdout(STDOUT_FILENO, false);
-    DiagnosticPrinterRawOStream diag(stdout);
-    di.print(diag);
+  switch(di.getSeverity()) {
+  case DS_Error:
+    if(!isa<DiagnosticInfoDebugMetadataVersion>(di)) {
+      raw_fd_ostream stdout(STDOUT_FILENO, false);
+      DiagnosticPrinterRawOStream diag(stdout);
+      di.print(diag);
+    }
+  default:
+    return;
   }
 }
 
