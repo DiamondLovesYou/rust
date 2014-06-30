@@ -111,7 +111,7 @@ impl Token {
 
 pub fn tok_str(t: Token) -> String {
     match t {
-        String(s, len) => return format!("STR({},{})", s, len).to_string(),
+        String(s, len) => return format!("STR({},{})", s, len),
         Break(_) => return "BREAK".to_string(),
         Begin(_) => return "BEGIN".to_string(),
         End => return "END".to_string(),
@@ -163,7 +163,7 @@ pub fn mk_printer(out: Box<io::Writer>, linewidth: uint) -> Printer {
     let n: uint = 3 * linewidth;
     debug!("mk_printer {}", linewidth);
     let token: Vec<Token> = Vec::from_elem(n, Eof);
-    let size: Vec<int> = Vec::from_elem(n, 0);
+    let size: Vec<int> = Vec::from_elem(n, 0i);
     let scan_stack: Vec<uint> = Vec::from_elem(n, 0u);
     Printer {
         out: out,

@@ -68,7 +68,7 @@ impl FileDesc {
     pub fn inner_write(&mut self, buf: &[u8]) -> IoResult<()> {
         let ret = keep_going(buf, |buf, len| {
             unsafe {
-                libc::write(self.fd(), buf as *libc::c_void,
+                libc::write(self.fd(), buf as *const libc::c_void,
                             len as libc::size_t) as i64
             }
         });
@@ -91,7 +91,7 @@ impl rtio::RtioFileStream for FileDesc {
     }
     fn pread(&mut self, buf: &mut [u8], offset: u64) -> IoResult<int> {
         match retry(|| unsafe {
-            libc::pread(self.fd(), buf.as_ptr() as *libc::c_void,
+            libc::pread(self.fd(), buf.as_ptr() as *mut _,
                         buf.len() as libc::size_t,
                         offset as libc::off_t) as libc::c_int
         }) {
@@ -101,7 +101,7 @@ impl rtio::RtioFileStream for FileDesc {
     }
     fn pwrite(&mut self, buf: &[u8], offset: u64) -> IoResult<()> {
         super::mkerr_libc(retry(|| unsafe {
-            libc::pwrite(self.fd(), buf.as_ptr() as *libc::c_void,
+            libc::pwrite(self.fd(), buf.as_ptr() as *const _,
                          buf.len() as libc::size_t, offset as libc::off_t)
         } as c_int))
     }
@@ -222,7 +222,7 @@ impl Drop for Inner {
 }
 
 pub struct CFile {
-    file: *libc::FILE,
+    file: *mut libc::FILE,
     fd: FileDesc,
 }
 
@@ -231,7 +231,7 @@ impl CFile {
     ///
     /// The `CFile` takes ownership of the `FILE` pointer and will close it upon
     /// destruction.
-    pub fn new(file: *libc::FILE) -> CFile {
+    pub fn new(file: *mut libc::FILE) -> CFile {
         CFile {
             file: file,
             fd: FileDesc::new(unsafe { libc::fileno(file) }, false)
@@ -263,7 +263,7 @@ impl rtio::RtioFileStream for CFile {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
         let ret = keep_going(buf, |buf, len| {
             unsafe {
-                libc::fwrite(buf as *libc::c_void, 1, len as libc::size_t,
+                libc::fwrite(buf as *const libc::c_void, 1, len as libc::size_t,
                             self.file) as i64
             }
         });
@@ -360,13 +360,13 @@ pub fn readdir(p: &CString) -> IoResult<Vec<CString>> {
         let root = Path::new(root);
 
         dirs.move_iter().filter(|path| {
-            path.as_vec() != bytes!(".") && path.as_vec() != bytes!("..")
+            path.as_vec() != b"." && path.as_vec() != b".."
         }).map(|path| root.join(path).to_c_str()).collect()
     }
 
     extern {
         fn rust_dirent_t_size() -> libc::c_int;
-        fn rust_list_dir_val(ptr: *mut dirent_t) -> *libc::c_char;
+        fn rust_list_dir_val(ptr: *mut dirent_t) -> *const libc::c_char;
     }
 
     let size = unsafe { rust_dirent_t_size() };
@@ -423,16 +423,16 @@ pub fn chown(p: &CString, uid: int, gid: int) -> IoResult<()> {
 
 pub fn readlink(p: &CString) -> IoResult<CString> {
     #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
-    fn pathconf(p: *libc::c_char) -> i64 {
+    fn pathconf(p: *mut libc::c_char) -> i64 {
         unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) as i64 }
     }
     #[cfg(target_os = "nacl", target_libc = "newlib")]
-    fn pathconf(_: *libc::c_char) -> i64 {
+    fn pathconf(_: *mut libc::c_char) -> i64 {
         unsafe { libc::sysconf(libc::_PC_NAME_MAX) as i64 }
     }
 
     let p = p.with_ref(|p| p);
-    let mut len = pathconf(p);
+    let mut len = pathconf(p as *mut _);
     if len == -1 {
         len = 1024; // FIXME: read PATH_MAX from C ffi?
     }
@@ -542,7 +542,7 @@ mod tests {
         let mut reader = FileDesc::new(reader, true);
         let mut writer = FileDesc::new(writer, true);
 
-        writer.inner_write(bytes!("test")).ok().unwrap();
+        writer.inner_write(b"test").ok().unwrap();
         let mut buf = [0u8, ..4];
         match reader.inner_read(buf) {
             Ok(4) => {
@@ -565,7 +565,7 @@ mod tests {
             assert!(!f.is_null());
             let mut file = CFile::new(f);
 
-            file.write(bytes!("test")).ok().unwrap();
+            file.write(b"test").ok().unwrap();
             let mut buf = [0u8, ..4];
             let _ = file.seek(0, SeekSet).ok().unwrap();
             match file.read(buf) {

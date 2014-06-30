@@ -103,8 +103,9 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/",
        html_playground_url = "http://play.rust-lang.org/")]
-#![feature(macro_rules, globs, managed_boxes,
-           linkage, default_type_params, phase)]
+
+#![feature(macro_rules, globs, managed_boxes, linkage)]
+#![feature(default_type_params, phase, lang_items, unsafe_destructor)]
 
 // Don't link to std. We are std.
 #![no_std]
@@ -191,12 +192,12 @@ pub use core_sync::comm;
 //        '__test' module.
 #[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
 #[start]
-fn start(argc: int, argv: **u8) -> int {
+fn start(argc: int, argv: *const *const u8) -> int {
     green::start(argc, argv, rustuv::event_loop, __test::main)
 }
 #[cfg(test, target_os = "nacl", target_libc = "newlib")]
 #[start]
-fn start(argc: int, argv: **u8) -> int {
+fn start(argc: int, argv: *const *const u8) -> int {
     native::start(argc, argv, __test::main)
 }
 

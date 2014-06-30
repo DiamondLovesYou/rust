@@ -13,6 +13,7 @@
  */
 
 #![crate_id = "collections#0.11.0-pre"]
+#![experimental]
 #![crate_type = "rlib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
@@ -21,6 +22,7 @@
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(macro_rules, managed_boxes, default_type_params, phase, globs)]
+#![feature(unsafe_destructor)]
 #![no_std]
 
 #[phase(plugin, link)] extern crate core;

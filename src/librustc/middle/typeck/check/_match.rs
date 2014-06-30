@@ -133,10 +133,10 @@ pub fn check_pat_variant(pcx: &pat_ctxt, pat: &ast::Pat, path: &ast::Path,
             match v_def.variant_def_ids() {
                 Some((enm, var)) => {
                     // Assign the pattern the type of the *enum*, not the variant.
-                    let enum_tpt = ty::lookup_item_type(tcx, enm);
+                    let enum_pty = ty::lookup_item_type(tcx, enm);
                     instantiate_path(pcx.fcx,
                                      path,
-                                     enum_tpt,
+                                     enum_pty,
                                      v_def,
                                      pat.span,
                                      pat.id);
@@ -190,16 +190,16 @@ pub fn check_pat_variant(pcx: &pat_ctxt, pat: &ast::Pat, path: &ast::Path,
             let s_def_id = s_def.def_id();
 
             // Assign the pattern the type of the struct.
-            let ctor_tpt = ty::lookup_item_type(tcx, s_def_id);
-            let struct_tpt = if ty::is_fn_ty(ctor_tpt.ty) {
-                ty::ty_param_bounds_and_ty {ty: ty::ty_fn_ret(ctor_tpt.ty),
-                                        ..ctor_tpt}
+            let ctor_pty = ty::lookup_item_type(tcx, s_def_id);
+            let struct_pty = if ty::is_fn_ty(ctor_pty.ty) {
+                ty::Polytype {ty: ty::ty_fn_ret(ctor_pty.ty),
+                              ..ctor_pty}
             } else {
-                ctor_tpt
+                ctor_pty
             };
             instantiate_path(pcx.fcx,
                              path,
-                             struct_tpt,
+                             struct_pty,
                              s_def,
                              pat.span,
                              pat.id);
@@ -478,9 +478,9 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
       ast::PatEnum(..) |
       ast::PatIdent(..) if pat_is_const(&tcx.def_map, pat) => {
         let const_did = tcx.def_map.borrow().get_copy(&pat.id).def_id();
-        let const_tpt = ty::lookup_item_type(tcx, const_did);
-        demand::suptype(fcx, pat.span, expected, const_tpt.ty);
-        fcx.write_ty(pat.id, const_tpt.ty);
+        let const_pty = ty::lookup_item_type(tcx, const_did);
+        demand::suptype(fcx, pat.span, expected, const_pty.ty);
+        fcx.write_ty(pat.id, const_pty.ty);
       }
       ast::PatIdent(bm, ref name, sub) if pat_is_binding(&tcx.def_map, pat) => {
         let typ = fcx.local_ty(pat.span, pat.id);
@@ -632,9 +632,9 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
             fcx.infcx().next_region_var(
                 infer::PatternRegion(pat.span));
 
-        let check_err = || {
-            for elt in before.iter() {
-                check_pat(pcx, &**elt, ty::mk_err());
+        let check_err = |found: String| {
+            for &elt in before.iter() {
+                check_pat(pcx, &*elt, ty::mk_err());
             }
             for elt in slice.iter() {
                 check_pat(pcx, &**elt, ty::mk_err());
@@ -653,15 +653,16 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                     })
                 },
                 Some(expected),
-                "a vector pattern".to_string(),
+                found,
                 None);
             fcx.write_error(pat.id);
         };
 
-        let (elt_type, region_var, mutbl) = match *structure_of(fcx,
+        let (elt_type, region_var, mutbl, fixed) = match *structure_of(fcx,
                                                                 pat.span,
                                                                 expected) {
-          ty::ty_vec(mt, Some(_)) => (mt.ty, default_region_var, ast::MutImmutable),
+          ty::ty_vec(mt, Some(fixed)) =>
+            (mt.ty, default_region_var, ast::MutImmutable, Some(fixed)),
           ty::ty_uniq(t) => match ty::get(t).sty {
               ty::ty_vec(mt, None) => {
                   fcx.type_error_message(pat.span,
@@ -671,25 +672,37 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                                          },
                                          expected,
                                          None);
-                  (mt.ty, default_region_var, ast::MutImmutable)
+                  (mt.ty, default_region_var, ast::MutImmutable, None)
               }
               _ => {
-                  check_err();
+                  check_err("a vector pattern".to_string());
                   return;
               }
           },
           ty::ty_rptr(r, mt) => match ty::get(mt.ty).sty {
-              ty::ty_vec(mt, None) => (mt.ty, r, mt.mutbl),
+              ty::ty_vec(mt, None) => (mt.ty, r, mt.mutbl, None),
               _ => {
-                  check_err();
+                  check_err("a vector pattern".to_string());
                   return;
               }
           },
           _ => {
-              check_err();
+              check_err("a vector pattern".to_string());
               return;
           }
         };
+
+        let min_len = before.len() + after.len();
+        fixed.and_then(|count| match slice {
+            Some(_) if count < min_len =>
+                Some(format!("a fixed vector pattern of size at least {}", min_len)),
+
+            None if count != min_len =>
+                Some(format!("a fixed vector pattern of size {}", min_len)),
+
+            _ => None
+        }).map(check_err);
+
         for elt in before.iter() {
             check_pat(pcx, &**elt, elt_type);
         }
@@ -713,17 +726,33 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
 }
 
 // Helper function to check gc, box and & patterns
-pub fn check_pointer_pat(pcx: &pat_ctxt,
-                         pointer_kind: PointerKind,
-                         inner: &ast::Pat,
-                         pat_id: ast::NodeId,
-                         span: Span,
-                         expected: ty::t) {
+fn check_pointer_pat(pcx: &pat_ctxt,
+                     pointer_kind: PointerKind,
+                     inner: &ast::Pat,
+                     pat_id: ast::NodeId,
+                     span: Span,
+                     expected: ty::t) {
     let fcx = pcx.fcx;
+    let tcx = fcx.ccx.tcx;
     let check_inner: |ty::t| = |e_inner| {
-        check_pat(pcx, inner, e_inner);
-        fcx.write_ty(pat_id, expected);
+        match ty::get(e_inner).sty {
+            ty::ty_trait(_) if pat_is_binding(&tcx.def_map, inner) => {
+                // This is "x = SomeTrait" being reduced from
+                // "let &x = &SomeTrait" or "let box x = Box<SomeTrait>", an error.
+                check_pat(pcx, inner, ty::mk_err());
+                tcx.sess.span_err(
+                    span,
+                    format!("type `{}` cannot be dereferenced",
+                            fcx.infcx().ty_to_str(expected)).as_slice());
+                fcx.write_error(pat_id);
+            }
+            _ => {
+                check_pat(pcx, inner, e_inner);
+                fcx.write_ty(pat_id, expected);
+            }
+        }
     };
+
     match *structure_of(fcx, span, expected) {
         ty::ty_uniq(e_inner) if pointer_kind == Send => {
             check_inner(e_inner);

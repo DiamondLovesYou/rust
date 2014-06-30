@@ -67,7 +67,7 @@ pub fn type_is_immediate(ccx: &CrateContext, ty: ty::t) -> bool {
         ty::type_is_unique(ty) || ty::type_is_region_ptr(ty) ||
         type_is_newtype_immediate(ccx, ty) || ty::type_is_bot(ty) ||
         ty::type_is_simd(tcx, ty);
-    if simple {
+    if simple && !ty::type_is_trait(ty) {
         return true;
     }
     match ty::get(ty).sty {
@@ -471,7 +471,7 @@ impl<'a> Block<'a> {
     }
 
     pub fn to_str(&self) -> String {
-        let blk: *Block = self;
+        let blk: *const Block = self;
         format!("[block {}]", blk)
     }
 }
@@ -568,7 +568,7 @@ pub fn C_cstr(cx: &CrateContext, s: InternedString, null_terminated: bool) -> Va
         }
 
         let sc = llvm::LLVMConstStringInContext(cx.llcx,
-                                                s.get().as_ptr() as *c_char,
+                                                s.get().as_ptr() as *const c_char,
                                                 s.get().len() as c_uint,
                                                 !null_terminated as Bool);
 
@@ -636,7 +636,7 @@ pub fn C_array(ty: Type, elts: &[ValueRef]) -> ValueRef {
 
 pub fn C_bytes(ccx: &CrateContext, bytes: &[u8]) -> ValueRef {
     unsafe {
-        let ptr = bytes.as_ptr() as *c_char;
+        let ptr = bytes.as_ptr() as *const c_char;
         return llvm::LLVMConstStringInContext(ccx.llcx, ptr, bytes.len() as c_uint, True);
     }
 }
@@ -821,11 +821,6 @@ pub fn find_vtable(tcx: &ty::ctxt,
     let param_bounds = ps.vtables.get(n_param.space,
                                       n_param.index);
     param_bounds.get(n_bound).clone()
-}
-
-// Casts a Rust bool value to an i1.
-pub fn bool_to_i1(bcx: &Block, llval: ValueRef) -> ValueRef {
-    build::ICmp(bcx, lib::llvm::IntNE, llval, C_bool(bcx.ccx(), false))
 }
 
 pub fn langcall(bcx: &Block,

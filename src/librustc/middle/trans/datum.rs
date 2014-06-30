@@ -158,9 +158,7 @@ pub fn appropriate_rvalue_mode(ccx: &CrateContext, ty: ty::t) -> RvalueMode {
      * on whether type is immediate or not.
      */
 
-    if type_is_zero_size(ccx, ty) {
-        ByValue
-    } else if type_is_immediate(ccx, ty) {
+    if type_is_immediate(ccx, ty) {
         ByValue
     } else {
         ByRef
@@ -531,8 +529,6 @@ fn load<'a>(bcx: &'a Block<'a>, llptr: ValueRef, ty: ty::t) -> ValueRef {
 
     if type_is_zero_size(bcx.ccx(), ty) {
         C_undef(type_of::type_of(bcx.ccx(), ty))
-    } else if ty::type_is_bool(ty) {
-        LoadRangeAssert(bcx, llptr, 0, 2, lib::llvm::False)
     } else if ty::type_is_char(ty) {
         // a char is a unicode codepoint, and so takes values from 0
         // to 0x10FFFF inclusive only.
@@ -658,8 +654,7 @@ impl<K:KindOps> Datum<K> {
 
     pub fn to_llbool<'a>(self, bcx: &'a Block<'a>) -> ValueRef {
         assert!(ty::type_is_bool(self.ty) || ty::type_is_bot(self.ty))
-        let cond_val = self.to_llscalarish(bcx);
-        bool_to_i1(bcx, cond_val)
+        self.to_llscalarish(bcx)
     }
 }
 

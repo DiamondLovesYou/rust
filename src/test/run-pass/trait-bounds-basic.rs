@@ -12,22 +12,19 @@
 trait Foo {
 }
 
-fn a(_x: Box<Foo+>) {
-}
-
 fn b(_x: Box<Foo+Send>) {
 }
 
 fn c(x: Box<Foo+Share+Send>) {
-    a(x);
+    e(x);
 }
 
 fn d(x: Box<Foo+Send>) {
-    b(x);
+    e(x);
 }
 
-fn e(x: Box<Foo>) { // sugar for Box<Foo+Owned>
-    a(x);
+fn e(x: Box<Foo>) {
+    e(x);
 }
 
 pub fn main() { }

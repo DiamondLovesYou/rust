@@ -243,7 +243,7 @@ pub fn arg_to_str(arg: &ast::Arg) -> String {
 
 pub fn visibility_qualified(vis: ast::Visibility, s: &str) -> String {
     match vis {
-        ast::Public => format!("pub {}", s).to_string(),
+        ast::Public => format!("pub {}", s),
         ast::Inherited => s.to_string()
     }
 }
@@ -479,7 +479,11 @@ impl<'a> State<'a> {
             }
             ast::TyPtr(ref mt) => {
                 try!(word(&mut self.s, "*"));
-                try!(self.print_mt(mt));
+                match mt.mutbl {
+                    ast::MutMutable => try!(self.word_nbsp("mut")),
+                    ast::MutImmutable => try!(self.word_nbsp("const")),
+                }
+                try!(self.print_type(&*mt.ty));
             }
             ast::TyRptr(ref lifetime, ref mt) => {
                 try!(word(&mut self.s, "&"));
@@ -2330,6 +2334,12 @@ impl<'a> State<'a> {
         }
         match lit.node {
             ast::LitStr(ref st, style) => self.print_string(st.get(), style),
+            ast::LitByte(byte) => {
+                let mut res = String::from_str("b'");
+                (byte as char).escape_default(|c| res.push_char(c));
+                res.push_char('\'');
+                word(&mut self.s, res.as_slice())
+            }
             ast::LitChar(ch) => {
                 let mut res = String::from_str("'");
                 ch.escape_default(|c| res.push_char(c));
@@ -2338,13 +2348,11 @@ impl<'a> State<'a> {
             }
             ast::LitInt(i, t) => {
                 word(&mut self.s,
-                     ast_util::int_ty_to_str(t, Some(i),
-                                             ast_util::AutoSuffix).as_slice())
+                     ast_util::int_ty_to_str(t, Some(i)).as_slice())
             }
             ast::LitUint(u, t) => {
                 word(&mut self.s,
-                     ast_util::uint_ty_to_str(t, Some(u),
-                                              ast_util::ForceSuffix).as_slice())
+                     ast_util::uint_ty_to_str(t, Some(u)).as_slice())
             }
             ast::LitIntUnsuffixed(i) => {
                 word(&mut self.s, format!("{}", i).as_slice())
@@ -2361,19 +2369,9 @@ impl<'a> State<'a> {
             ast::LitBool(val) => {
                 if val { word(&mut self.s, "true") } else { word(&mut self.s, "false") }
             }
-            ast::LitBinary(ref arr) => {
-                try!(self.ibox(indent_unit));
-                try!(word(&mut self.s, "["));
-                try!(self.commasep_cmnt(Inconsistent,
-                                        arr.as_slice(),
-                                        |s, u| {
-                                            word(&mut s.s,
-                                                 format!("{}",
-                                                         *u).as_slice())
-                                        },
-                                        |_| lit.span));
-                try!(word(&mut self.s, "]"));
-                self.end()
+            ast::LitBinary(ref v) => {
+                let escaped: String = v.iter().map(|&b| b as char).collect();
+                word(&mut self.s, format!("b\"{}\"", escaped.escape_default()).as_slice())
             }
         }
     }

@@ -16,7 +16,6 @@
 use std::io;
 use std::io::stdio::StdReader;
 use std::io::BufferedReader;
-use std::num::Bitwise;
 use std::os;
 
 // Computes a single solution to a given 9x9 sudoku
@@ -139,7 +138,7 @@ impl Sudoku {
             let mut avail = box Colors::new(start_color);
 
             // drop colors already in use in neighbourhood
-            self.drop_colors(avail, row, col);
+            self.drop_colors(&mut *avail, row, col);
 
             // find first remaining color that is available
             let next = avail.next();
@@ -182,7 +181,7 @@ static HEADS: u16 = (1u16 << 10) - 1; /* bits 9..0 */
 impl Colors {
     fn new(start_color: u8) -> Colors {
         // Sets bits 9..start_color
-        let tails = !0u16 << start_color;
+        let tails = !0u16 << start_color as uint;
         return Colors(HEADS & tails);
     }
 
@@ -199,7 +198,7 @@ impl Colors {
     fn remove(&mut self, color: u8) {
         if color != 0u8 {
             let Colors(val) = *self;
-            let mask = !(1u16 << color);
+            let mask = !(1u16 << color as uint);
             *self    = Colors(val & mask);
         }
     }

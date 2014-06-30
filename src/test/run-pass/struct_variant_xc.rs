@@ -11,8 +11,8 @@
 // aux-build:struct_variant_xc_aux.rs
 extern crate struct_variant_xc_aux;
 
-use struct_variant_xc_aux::Variant;
+use struct_variant_xc_aux::StructVariant;
 
 pub fn main() {
-    let _ = Variant { arg: 1 };
+    let _ = StructVariant { arg: 1 };
 }

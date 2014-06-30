@@ -36,7 +36,7 @@ use lib::llvm::{ModuleRef, ValueRef, BasicBlockRef};
 use lib::llvm::{llvm, Vector};
 use lib;
 use metadata::{csearch, encoder, loader};
-use middle::lint;
+use lint;
 use middle::astencode;
 use middle::lang_items::{LangItem, ExchangeMallocFnLangItem, StartFnLangItem};
 use middle::weak_lang_items;
@@ -83,7 +83,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::{i8, i16, i32, i64};
 use std::gc::Gc;
-use syntax::abi::{X86, X86_64, Arm, Mips, Rust, RustIntrinsic};
+use syntax::abi::{X86, X86_64, Arm, Mips, Mipsel, Rust, RustIntrinsic};
 use syntax::abi::Le32;
 use syntax::ast_util::{local_def, is_local};
 use syntax::attr::AttrMetaMethods;
@@ -512,7 +512,6 @@ pub enum scalar_type {
     vector_type(inner_vector_type),
 }
 
-// NB: This produces an i1, not a Rust bool (i8).
 pub fn compare_scalar_types<'a>(
                             cx: &'a Block<'a>,
                             lhs: ValueRef,
@@ -1033,7 +1032,7 @@ pub fn call_memcpy(cx: &Block, dst: ValueRef, src: ValueRef, n_bytes: ValueRef, 
     let _icx = push_ctxt("call_memcpy");
     let ccx = cx.ccx();
     let key = match ccx.sess().targ_cfg.arch {
-        X86 | Arm | Mips => "llvm.memcpy.p0i8.p0i8.i32",
+        X86 | Arm | Mips | Mipsel => "llvm.memcpy.p0i8.p0i8.i32",
         Le32 => "llvm.memcpy.p0i8.p0i8.i32",
         X86_64 => "llvm.memcpy.p0i8.p0i8.i64"
     };
@@ -1078,7 +1077,7 @@ fn memzero(b: &Builder, llptr: ValueRef, ty: Type) {
     let ccx = b.ccx;
 
     let intrinsic_key = match ccx.sess().targ_cfg.arch {
-        X86 | Arm | Mips => "llvm.memset.p0i8.i32",
+        X86 | Arm | Mips | Mipsel => "llvm.memset.p0i8.i32",
         Le32 => "llvm.memset.p0i8.i32",
         X86_64 => "llvm.memset.p0i8.i64"
     };
@@ -1581,49 +1580,52 @@ fn trans_enum_def(ccx: &CrateContext, enum_definition: &ast::EnumDef,
 fn enum_variant_size_lint(ccx: &CrateContext, enum_def: &ast::EnumDef, sp: Span, id: ast::NodeId) {
     let mut sizes = Vec::new(); // does no allocation if no pushes, thankfully
 
-    let (lvl, src) = ccx.tcx.node_lint_levels.borrow()
-                        .find(&(id, lint::VariantSizeDifference))
-                        .map_or((lint::Allow, lint::Default), |&(lvl,src)| (lvl, src));
+    let levels = ccx.tcx.node_lint_levels.borrow();
+    let lint_id = lint::LintId::of(lint::builtin::VARIANT_SIZE_DIFFERENCE);
+    let lvlsrc = match levels.find(&(id, lint_id)) {
+        None | Some(&(lint::Allow, _)) => return,
+        Some(&lvlsrc) => lvlsrc,
+    };
 
-    if lvl != lint::Allow {
-        let avar = adt::represent_type(ccx, ty::node_id_to_type(ccx.tcx(), id));
-        match *avar {
-            adt::General(_, ref variants) => {
-                for var in variants.iter() {
-                    let mut size = 0;
-                    for field in var.fields.iter().skip(1) {
-                        // skip the discriminant
-                        size += llsize_of_real(ccx, sizing_type_of(ccx, *field));
-                    }
-                    sizes.push(size);
+    let avar = adt::represent_type(ccx, ty::node_id_to_type(ccx.tcx(), id));
+    match *avar {
+        adt::General(_, ref variants) => {
+            for var in variants.iter() {
+                let mut size = 0;
+                for field in var.fields.iter().skip(1) {
+                    // skip the discriminant
+                    size += llsize_of_real(ccx, sizing_type_of(ccx, *field));
                 }
-            },
-            _ => { /* its size is either constant or unimportant */ }
-        }
+                sizes.push(size);
+            }
+        },
+        _ => { /* its size is either constant or unimportant */ }
+    }
 
-        let (largest, slargest, largest_index) = sizes.iter().enumerate().fold((0, 0, 0),
-            |(l, s, li), (idx, &size)|
-                if size > l {
-                    (size, l, idx)
-                } else if size > s {
-                    (l, size, li)
-                } else {
-                    (l, s, li)
-                }
-        );
+    let (largest, slargest, largest_index) = sizes.iter().enumerate().fold((0, 0, 0),
+        |(l, s, li), (idx, &size)|
+            if size > l {
+                (size, l, idx)
+            } else if size > s {
+                (l, size, li)
+            } else {
+                (l, s, li)
+            }
+    );
 
-        // we only warn if the largest variant is at least thrice as large as
-        // the second-largest.
-        if largest > slargest * 3 && slargest > 0 {
-            lint::emit_lint(lvl, src,
+    // we only warn if the largest variant is at least thrice as large as
+    // the second-largest.
+    if largest > slargest * 3 && slargest > 0 {
+        // Use lint::raw_emit_lint rather than sess.add_lint because the lint-printing
+        // pass for the latter already ran.
+        lint::raw_emit_lint(&ccx.tcx().sess, lint::builtin::VARIANT_SIZE_DIFFERENCE,
+                            lvlsrc, Some(sp),
                             format!("enum variant is more than three times larger \
-                                    ({} bytes) than the next largest (ignoring padding)",
-                                    largest).as_slice(),
-                            sp, lint::lint_to_str(lint::VariantSizeDifference), ccx.tcx());
+                                     ({} bytes) than the next largest (ignoring padding)",
+                                    largest).as_slice());
 
-            ccx.sess().span_note(enum_def.variants.get(largest_index).span,
-                                 "this variant is the largest");
-        }
+        ccx.sess().span_note(enum_def.variants.get(largest_index).span,
+                             "this variant is the largest");
     }
 }
 
@@ -1822,6 +1824,9 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t) -> Vec<(uint, u6
         match ty::get(ret_ty).sty {
             // `~` pointer return values never alias because ownership
             // is transferred
+            ty::ty_uniq(it)  if match ty::get(it).sty {
+                ty::ty_str | ty::ty_vec(..) | ty::ty_trait(..) => true, _ => false
+            } => {}
             ty::ty_uniq(_) => {
                 attrs.push((lib::llvm::ReturnIndex as uint, lib::llvm::NoAliasAttribute as u64));
             }
@@ -1831,12 +1836,19 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t) -> Vec<(uint, u6
         // We can also mark the return value as `nonnull` in certain cases
         match ty::get(ret_ty).sty {
             // These are not really pointers but pairs, (pointer, len)
-            ty::ty_rptr(_, ty::mt { ty: it, .. }) |
+            ty::ty_uniq(it) |
             ty::ty_rptr(_, ty::mt { ty: it, .. }) if match ty::get(it).sty {
-                ty::ty_str | ty::ty_vec(..) => true, _ => false
+                ty::ty_str | ty::ty_vec(..) | ty::ty_trait(..) => true, _ => false
             } => {}
             ty::ty_uniq(_) | ty::ty_rptr(_, _) => {
                 attrs.push((lib::llvm::ReturnIndex as uint, lib::llvm::NonNullAttribute as u64));
+            }
+            _ => {}
+        }
+
+        match ty::get(ret_ty).sty {
+            ty::ty_bool => {
+                attrs.push((lib::llvm::ReturnIndex as uint, lib::llvm::ZExtAttribute as u64));
             }
             _ => {}
         }
@@ -1852,6 +1864,9 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t) -> Vec<(uint, u6
                 attrs.push((idx, lib::llvm::NoAliasAttribute as u64));
                 attrs.push((idx, lib::llvm::NoCaptureAttribute as u64));
                 attrs.push((idx, lib::llvm::NonNullAttribute as u64));
+            }
+            ty::ty_bool => {
+                attrs.push((idx, lib::llvm::ZExtAttribute as u64));
             }
             // `~` pointer parameters never alias because ownership is transferred
             ty::ty_uniq(_) => {
@@ -2022,7 +2037,7 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
             let sym = exported_name(ccx, id, ty, i.attrs.as_slice());
 
             let v = match i.node {
-                ast::ItemStatic(_, _, ref expr) => {
+                ast::ItemStatic(_, mutbl, ref expr) => {
                     // If this static came from an external crate, then
                     // we need to get the symbol from csearch instead of
                     // using the current crate's name/version
@@ -2057,20 +2072,16 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
 
                         // Apply the `unnamed_addr` attribute if
                         // requested
-                        if attr::contains_name(i.attrs.as_slice(),
-                                               "address_insignificant") {
-                            if ccx.reachable.contains(&id) {
-                                ccx.sess().span_bug(i.span,
-                                    "insignificant static is reachable");
-                            }
+                        if !ast_util::static_has_significant_address(
+                                mutbl,
+                                i.attrs.as_slice()) {
                             lib::llvm::SetUnnamedAddr(g, true);
 
                             // This is a curious case where we must make
                             // all of these statics inlineable. If a
-                            // global is tagged as
-                            // address_insignificant, then LLVM won't
-                            // coalesce globals unless they have an
-                            // internal linkage type. This means that
+                            // global is not tagged as `#[inline(never)]`,
+                            // then LLVM won't coalesce globals unless they
+                            // have an internal linkage type. This means that
                             // external crates cannot use this global.
                             // This is a problem for things like inner
                             // statics in generic functions, because the
@@ -2078,7 +2089,7 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
                             // crate and then attempt to link to the
                             // static in the original crate, only to
                             // find that it's not there. On the other
-                            // side of inlininig, the crates knows to
+                            // side of inlining, the crates knows to
                             // not declare this static as
                             // available_externally (because it isn't)
                             inlineable = true;

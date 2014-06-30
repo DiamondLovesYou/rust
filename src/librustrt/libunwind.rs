@@ -57,24 +57,25 @@ pub type _Unwind_Exception_Class = u64;
 pub type _Unwind_Word = libc::uintptr_t;
 
 #[cfg(target_arch = "x86")]
-pub static unwinder_private_data_size: int = 5;
+pub static unwinder_private_data_size: uint = 5;
 
 #[cfg(target_arch = "x86_64")]
-pub static unwinder_private_data_size: int = 2;
+pub static unwinder_private_data_size: uint = 2;
 
 #[cfg(target_arch = "arm", not(target_os = "ios"))]
-pub static unwinder_private_data_size: int = 20;
+pub static unwinder_private_data_size: uint = 20;
 
 #[cfg(target_arch = "arm", target_os = "ios")]
-pub static unwinder_private_data_size: int = 5;
+pub static unwinder_private_data_size: uint = 5;
 
 #[cfg(target_arch = "mips")]
-pub static unwinder_private_data_size: int = 2;
+#[cfg(target_arch = "mipsel")]
+pub static unwinder_private_data_size: uint = 2;
 
 #[cfg(target_os = "nacl", not(target_arch = "arm"))]
-pub static unwinder_private_data_size: int = 2;
+pub static unwinder_private_data_size: uint = 2;
 #[cfg(target_os = "nacl", target_arch = "arm")]
-pub static unwinder_private_data_size: int =
+pub static unwinder_private_data_size: uint =
     5 + // unwinder_cache
     6 + // barrier_cache
     4 + // cleanup_cache
@@ -91,7 +92,7 @@ pub enum _Unwind_Context {}
 
 pub type _Unwind_Exception_Cleanup_Fn =
         extern "C" fn(unwind_code: _Unwind_Reason_Code,
-                      exception: *_Unwind_Exception);
+                      exception: *mut _Unwind_Exception);
 
 #[cfg(target_os = "linux")]
 #[cfg(target_os = "freebsd")]
@@ -109,14 +110,14 @@ extern "C" {
     // iOS on armv7 uses SjLj exceptions and requires to link
     // agains corresponding routine (..._SjLj_...)
     #[cfg(not(target_os = "ios", target_arch = "arm"))]
-    pub fn _Unwind_RaiseException(exception: *_Unwind_Exception)
+    pub fn _Unwind_RaiseException(exception: *mut _Unwind_Exception)
                                   -> _Unwind_Reason_Code;
 
     #[cfg(target_os = "ios", target_arch = "arm")]
-    fn _Unwind_SjLj_RaiseException(e: *_Unwind_Exception)
+    fn _Unwind_SjLj_RaiseException(e: *mut _Unwind_Exception)
                                    -> _Unwind_Reason_Code;
 
-    pub fn _Unwind_DeleteException(exception: *_Unwind_Exception);
+    pub fn _Unwind_DeleteException(exception: *mut _Unwind_Exception);
 }
 
 // ... and now we just providing access to SjLj counterspart
@@ -124,7 +125,7 @@ extern "C" {
 // (see also comment above regarding _Unwind_RaiseException)
 #[cfg(target_os = "ios", target_arch = "arm")]
 #[inline(always)]
-pub unsafe fn _Unwind_RaiseException(exc: *_Unwind_Exception)
+pub unsafe fn _Unwind_RaiseException(exc: *mut _Unwind_Exception)
                                      -> _Unwind_Reason_Code {
     _Unwind_SjLj_RaiseException(exc)
 }

@@ -12,33 +12,40 @@
 # Debug Info Module
 
 This module serves the purpose of generating debug symbols. We use LLVM's
-[source level debugging](http://llvm.org/docs/SourceLevelDebugging.html) features for generating
-the debug information. The general principle is this:
+[source level debugging](http://llvm.org/docs/SourceLevelDebugging.html)
+features for generating the debug information. The general principle is this:
 
-Given the right metadata in the LLVM IR, the LLVM code generator is able to create DWARF debug
-symbols for the given code. The [metadata](http://llvm.org/docs/LangRef.html#metadata-type) is
-structured much like DWARF *debugging information entries* (DIE), representing type information
-such as datatype layout, function signatures, block layout, variable location and scope information,
-etc. It is the purpose of this module to generate correct metadata and insert it into the LLVM IR.
+Given the right metadata in the LLVM IR, the LLVM code generator is able to
+create DWARF debug symbols for the given code. The
+[metadata](http://llvm.org/docs/LangRef.html#metadata-type) is structured much
+like DWARF *debugging information entries* (DIE), representing type information
+such as datatype layout, function signatures, block layout, variable location
+and scope information, etc. It is the purpose of this module to generate correct
+metadata and insert it into the LLVM IR.
 
-As the exact format of metadata trees may change between different LLVM versions, we now use LLVM
-[DIBuilder](http://llvm.org/docs/doxygen/html/classllvm_1_1DIBuilder.html) to create metadata
-where possible. This will hopefully ease the adaption of this module to future LLVM versions.
+As the exact format of metadata trees may change between different LLVM
+versions, we now use LLVM
+[DIBuilder](http://llvm.org/docs/doxygen/html/classllvm_1_1DIBuilder.html) to
+create metadata where possible. This will hopefully ease the adaption of this
+module to future LLVM versions.
 
-The public API of the module is a set of functions that will insert the correct metadata into the
-LLVM IR when called with the right parameters. The module is thus driven from an outside client with
-functions like `debuginfo::create_local_var_metadata(bcx: block, local: &ast::local)`.
+The public API of the module is a set of functions that will insert the correct
+metadata into the LLVM IR when called with the right parameters. The module is
+thus driven from an outside client with functions like
+`debuginfo::create_local_var_metadata(bcx: block, local: &ast::local)`.
 
-Internally the module will try to reuse already created metadata by utilizing a cache. The way to
-get a shared metadata node when needed is thus to just call the corresponding function in this
-module:
+Internally the module will try to reuse already created metadata by utilizing a
+cache. The way to get a shared metadata node when needed is thus to just call
+the corresponding function in this module:
 
     let file_metadata = file_metadata(crate_context, path);
 
-The function will take care of probing the cache for an existing node for that exact file path.
+The function will take care of probing the cache for an existing node for that
+exact file path.
 
-All private state used by the module is stored within either the CrateDebugContext struct (owned by
-the CrateContext) or the FunctionDebugContext (owned by the FunctionContext).
+All private state used by the module is stored within either the
+CrateDebugContext struct (owned by the CrateContext) or the FunctionDebugContext
+(owned by the FunctionContext).
 
 This file consists of three conceptual sections:
 1. The public interface of the module
@@ -46,11 +53,12 @@ This file consists of three conceptual sections:
 3. Minor utility functions
 
 
-## Recursive Types
-Some kinds of types, such as structs and enums can be recursive. That means that the type definition
-of some type X refers to some other type which in turn (transitively) refers to X. This introduces
-cycles into the type referral graph. A naive algorithm doing an on-demand, depth-first traversal of
-this graph when describing types, can get trapped in an endless loop when it reaches such a cycle.
+## Recursive Types Some kinds of types, such as structs and enums can be
+recursive. That means that the type definition of some type X refers to some
+other type which in turn (transitively) refers to X. This introduces cycles into
+the type referral graph. A naive algorithm doing an on-demand, depth-first
+traversal of this graph when describing types, can get trapped in an endless
+loop when it reaches such a cycle.
 
 For example, the following simple type for a singly-linked list...
 
@@ -72,86 +80,103 @@ describe(t = List)
       ...
 ```
 
-To break cycles like these, we use "forward declarations". That is, when the algorithm encounters a
-possibly recursive type (any struct or enum), it immediately creates a type description node and
-inserts it into the cache *before* describing the members of the type. This type description is just
-a stub (as type members are not described and added to it yet) but it allows the algorithm to
-already refer to the type. After the stub is inserted into the cache, the algorithm continues as
-before. If it now encounters a recursive reference, it will hit the cache and does not try to
-describe the type anew.
+To break cycles like these, we use "forward declarations". That is, when the
+algorithm encounters a possibly recursive type (any struct or enum), it
+immediately creates a type description node and inserts it into the cache
+*before* describing the members of the type. This type description is just a
+stub (as type members are not described and added to it yet) but it allows the
+algorithm to already refer to the type. After the stub is inserted into the
+cache, the algorithm continues as before. If it now encounters a recursive
+reference, it will hit the cache and does not try to describe the type anew.
 
-This behaviour is encapsulated in the 'RecursiveTypeDescription' enum, which represents a kind of
-continuation, storing all state needed to continue traversal at the type members after the type has
-been registered with the cache. (This implementation approach might be a tad over-engineered and
-may change in the future)
+This behaviour is encapsulated in the 'RecursiveTypeDescription' enum, which
+represents a kind of continuation, storing all state needed to continue
+traversal at the type members after the type has been registered with the cache.
+(This implementation approach might be a tad over-engineered and may change in
+the future)
 
 
-## Source Locations and Line Information
-In addition to data type descriptions the debugging information must also allow to map machine code
-locations back to source code locations in order to be useful. This functionality is also handled in
-this module. The following functions allow to control source mappings:
+## Source Locations and Line Information In addition to data type descriptions
+the debugging information must also allow to map machine code locations back to
+source code locations in order to be useful. This functionality is also handled
+in this module. The following functions allow to control source mappings:
 
 + set_source_location()
 + clear_source_location()
 + start_emitting_source_locations()
 
-`set_source_location()` allows to set the current source location. All IR instructions created after
-a call to this function will be linked to the given source location, until another location is
-specified with `set_source_location()` or the source location is cleared with
-`clear_source_location()`. In the later case, subsequent IR instruction will not be linked to any
-source location. As you can see, this is a stateful API (mimicking the one in LLVM), so be careful
-with source locations set by previous calls. It's probably best to not rely on any specific state
-being present at a given point in code.
+`set_source_location()` allows to set the current source location. All IR
+instructions created after a call to this function will be linked to the given
+source location, until another location is specified with
+`set_source_location()` or the source location is cleared with
+`clear_source_location()`. In the later case, subsequent IR instruction will not
+be linked to any source location. As you can see, this is a stateful API
+(mimicking the one in LLVM), so be careful with source locations set by previous
+calls. It's probably best to not rely on any specific state being present at a
+given point in code.
 
-One topic that deserves some extra attention is *function prologues*. At the beginning of a
-function's machine code there are typically a few instructions for loading argument values into
-allocas and checking if there's enough stack space for the function to execute. This *prologue* is
-not visible in the source code and LLVM puts a special PROLOGUE END marker into the line table at
-the first non-prologue instruction of the function. In order to find out where the prologue ends,
-LLVM looks for the first instruction in the function body that is linked to a source location. So,
-when generating prologue instructions we have to make sure that we don't emit source location
-information until the 'real' function body begins. For this reason, source location emission is
-disabled by default for any new function being translated and is only activated after a call to the
-third function from the list above, `start_emitting_source_locations()`. This function should be
-called right before regularly starting to translate the top-level block of the given function.
+One topic that deserves some extra attention is *function prologues*. At the
+beginning of a function's machine code there are typically a few instructions
+for loading argument values into allocas and checking if there's enough stack
+space for the function to execute. This *prologue* is not visible in the source
+code and LLVM puts a special PROLOGUE END marker into the line table at the
+first non-prologue instruction of the function. In order to find out where the
+prologue ends, LLVM looks for the first instruction in the function body that is
+linked to a source location. So, when generating prologue instructions we have
+to make sure that we don't emit source location information until the 'real'
+function body begins. For this reason, source location emission is disabled by
+default for any new function being translated and is only activated after a call
+to the third function from the list above, `start_emitting_source_locations()`.
+This function should be called right before regularly starting to translate the
+top-level block of the given function.
 
-There is one exception to the above rule: `llvm.dbg.declare` instruction must be linked to the
-source location of the variable being declared. For function parameters these `llvm.dbg.declare`
-instructions typically occur in the middle of the prologue, however, they are ignored by LLVM's
-prologue detection. The `create_argument_metadata()` and related functions take care of linking the
-`llvm.dbg.declare` instructions to the correct source locations even while source location emission
-is still disabled, so there is no need to do anything special with source location handling here.
+There is one exception to the above rule: `llvm.dbg.declare` instruction must be
+linked to the source location of the variable being declared. For function
+parameters these `llvm.dbg.declare` instructions typically occur in the middle
+of the prologue, however, they are ignored by LLVM's prologue detection. The
+`create_argument_metadata()` and related functions take care of linking the
+`llvm.dbg.declare` instructions to the correct source locations even while
+source location emission is still disabled, so there is no need to do anything
+special with source location handling here.
 
-## Unique Type Identification
-In order for link-time optimization to work properly, LLVM needs a unique type identifier that tells
-it across compilation units which types are the same as others. This type identifier is created by
+## Unique Type Identification In order for link-time optimization to work
+properly, LLVM needs a unique type identifier that tells it across compilation
+units which types are the same as others. This type identifier is created by
 TypeMap::get_unique_type_id_of_type() using the following algorithm:
 
 (1) Primitive types have their name as ID
 (2) Structs, enums and traits have a multipart identifier
-    (1) The first part is the SVH (strict version hash) of the crate they were originally defined in
-    (2) The second part is the ast::NodeId of the definition in their original crate
-    (3) The final part is a concatenation of the type IDs of their concrete type arguments if they
-        are generic types.
-(3) Tuple-, pointer and function types are structurally identified, which means that they are
-    equivalent if their component types are equivalent (i.e. (int, int) is the same regardless in
-    which crate it is used).
 
-This algorithm also provides a stable ID for types that are defined in one crate but instantiated
-from metadata within another crate. We just have to take care to always map crate and node IDs back
-to the original crate context.
+    (1) The first part is the SVH (strict version hash) of the crate they were
+        originally defined in
 
-As a side-effect these unique type IDs also help to solve a problem arising from lifetime
-parameters. Since lifetime parameters are completely omitted in debuginfo, more than one `ty::t`
-instance may map to the same debuginfo type metadata, that is, some struct `Struct<'a>` may have N
-instantiations with different concrete substitutions for `'a`, and thus there will be N `ty::t`
-instances for the type `Struct<'a>` even though it is not generic otherwise. Unfortunately this
-means that we cannot use `ty::type_id()` as cheap identifier for type metadata---we have done this
-in the past, but it led to unnecessary metadata duplication in the best case and LLVM assertions in
-the worst. However, the unique type ID as described above *can* be used as identifier. Since it is
-comparatively expensive to construct, though, `ty::type_id()` is still used additionally as an
-optimization for cases where the exact same type has been seen before (which is most of the time).
-*/
+    (2) The second part is the ast::NodeId of the definition in their original
+        crate
+
+    (3) The final part is a concatenation of the type IDs of their concrete type
+        arguments if they are generic types.
+
+(3) Tuple-, pointer and function types are structurally identified, which means
+    that they are equivalent if their component types are equivalent (i.e. (int,
+    int) is the same regardless in which crate it is used).
+
+This algorithm also provides a stable ID for types that are defined in one crate
+but instantiated from metadata within another crate. We just have to take care
+to always map crate and node IDs back to the original crate context.
+
+As a side-effect these unique type IDs also help to solve a problem arising from
+lifetime parameters. Since lifetime parameters are completely omitted in
+debuginfo, more than one `ty::t` instance may map to the same debuginfo type
+metadata, that is, some struct `Struct<'a>` may have N instantiations with
+different concrete substitutions for `'a`, and thus there will be N `ty::t`
+instances for the type `Struct<'a>` even though it is not generic otherwise.
+Unfortunately this means that we cannot use `ty::type_id()` as cheap identifier
+for type metadata---we have done this in the past, but it led to unnecessary
+metadata duplication in the best case and LLVM assertions in the worst. However,
+the unique type ID as described above *can* be used as identifier. Since it is
+comparatively expensive to construct, though, `ty::type_id()` is still used
+additionally as an optimization for cases where the exact same type has been
+seen before (which is most of the time). */
 
 use driver::config;
 use driver::config::{FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
@@ -197,16 +222,17 @@ static DW_ATE_signed: c_uint = 0x05;
 static DW_ATE_unsigned: c_uint = 0x07;
 static DW_ATE_unsigned_char: c_uint = 0x08;
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 //  Public Interface of debuginfo module
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
 #[deriving(Copy, Show, Hash, Eq, PartialEq, Clone)]
 struct UniqueTypeId(ast::Name);
 
-// The TypeMap is where the CrateDebugContext holds the type metadata nodes created so far. The
-// metadata nodes are indexed by UniqueTypeId, and, for faster lookup, also by ty::t. The
-// TypeMap is responsible for creating UniqueTypeIds.
+// The TypeMap is where the CrateDebugContext holds the type metadata nodes
+// created so far. The metadata nodes are indexed by UniqueTypeId, and, for
+// faster lookup, also by ty::t. The TypeMap is responsible for creating
+// UniqueTypeIds.
 struct TypeMap {
     // The UniqueTypeIds created so far
     unique_id_interner: Interner<Rc<String>>,
@@ -229,8 +255,8 @@ impl TypeMap {
         }
     }
 
-    // Adds a ty::t to metadata mapping to the TypeMap. The method will fail if the mapping already
-    // exists.
+    // Adds a ty::t to metadata mapping to the TypeMap. The method will fail if
+    // the mapping already exists.
     fn register_type_with_metadata(&mut self,
                                    cx: &CrateContext,
                                    type_: ty::t,
@@ -241,8 +267,8 @@ impl TypeMap {
         }
     }
 
-    // Adds a UniqueTypeId to metadata mapping to the TypeMap. The method will fail if the mapping
-    // already exists.
+    // Adds a UniqueTypeId to metadata mapping to the TypeMap. The method will
+    // fail if the mapping already exists.
     fn register_unique_id_with_metadata(&mut self,
                                         cx: &CrateContext,
                                         unique_type_id: UniqueTypeId,
@@ -262,15 +288,16 @@ impl TypeMap {
         self.unique_id_to_metadata.find_copy(&unique_type_id)
     }
 
-    // Get the string representation of a UniqueTypeId. This method will fail if the id is unknown.
+    // Get the string representation of a UniqueTypeId. This method will fail if
+    // the id is unknown.
     fn get_unique_type_id_as_string(&self, unique_type_id: UniqueTypeId) -> Rc<String> {
         let UniqueTypeId(interner_key) = unique_type_id;
         self.unique_id_interner.get(interner_key)
     }
 
-    // Get the UniqueTypeId for the given type. If the UniqueTypeId for the given type has been
-    // requested before, this is just a table lookup. Otherwise an ID will be generated and stored
-    // for later lookup.
+    // Get the UniqueTypeId for the given type. If the UniqueTypeId for the given
+    // type has been requested before, this is just a table lookup. Otherwise an
+    // ID will be generated and stored for later lookup.
     fn get_unique_type_id_of_type(&mut self, cx: &CrateContext, type_: ty::t) -> UniqueTypeId {
 
         // basic type           -> {:name of the type:}
@@ -285,8 +312,8 @@ impl TypeMap {
         // unique ptr (~)       -> {~ :pointee-uid:}
         // @-ptr (@)            -> {@ :pointee-uid:}
         // sized vec ([T, ..x]) -> {[:size:] :element-uid:}
-        // vec slice (&[T])     -> {&<mut> [] :element-uid:}
-        // trait (~ | &[mut] T) -> {:sigil: trait_:svh: / :node-id:_<(:param-uid:),*> }
+        // unsized vec ([T])    -> {[] :element-uid:}
+        // trait (T)            -> {trait_:svh: / :node-id:_<(:param-uid:),*> }
         // closure              -> {<unsafe_> <once_> :store-sigil: |(:param-uid:),* <,_...>| -> \
         //                             :return-type-uid: : (:bounds:)*}
         // function             -> {<unsafe_> <abi_> fn( (:param-uid:)* <,_...> ) -> \
@@ -324,8 +351,10 @@ impl TypeMap {
             ty::ty_tup(ref component_types) => {
                 unique_type_id.push_str("tuple ");
                 for &component_type in component_types.iter() {
-                    let component_type_id = self.get_unique_type_id_of_type(cx, component_type);
-                    let component_type_id = self.get_unique_type_id_as_string(component_type_id);
+                    let component_type_id =
+                        self.get_unique_type_id_of_type(cx, component_type);
+                    let component_type_id =
+                        self.get_unique_type_id_as_string(component_type_id);
                     unique_type_id.push_str(component_type_id.as_slice());
                 }
             },
@@ -361,18 +390,12 @@ impl TypeMap {
                 let inner_type_id = self.get_unique_type_id_as_string(inner_type_id);
                 unique_type_id.push_str(inner_type_id.as_slice());
             },
-            ty::ty_vec(ty::mt { ty: inner_type, mutbl }, optional_length) => {
+            ty::ty_vec(ty::mt { ty: inner_type, .. }, optional_length) => {
                 match optional_length {
                     Some(len) => {
                         unique_type_id.push_str(format!("[{}]", len).as_slice());
                     }
                     None => {
-                        unique_type_id.push_char('&');
-
-                        if mutbl == ast::MutMutable {
-                           unique_type_id.push_str("mut");
-                        }
-
                         unique_type_id.push_str("[]");
                     }
                 };
@@ -382,12 +405,6 @@ impl TypeMap {
                 unique_type_id.push_str(inner_type_id.as_slice());
             },
             ty::ty_trait(ref trait_data) => {
-                match trait_data.store {
-                    ty::UniqTraitStore => unique_type_id.push_char('~'),
-                    ty::RegionTraitStore(_, ast::MutMutable) => unique_type_id.push_str("&mut"),
-                    ty::RegionTraitStore(_, ast::MutImmutable) => unique_type_id.push_char('&'),
-                };
-
                 unique_type_id.push_str("trait ");
 
                 from_def_id_and_substs(self,
@@ -406,8 +423,10 @@ impl TypeMap {
                 unique_type_id.push_str(" fn(");
 
                 for &parameter_type in sig.inputs.iter() {
-                    let parameter_type_id = self.get_unique_type_id_of_type(cx, parameter_type);
-                    let parameter_type_id = self.get_unique_type_id_as_string(parameter_type_id);
+                    let parameter_type_id =
+                        self.get_unique_type_id_of_type(cx, parameter_type);
+                    let parameter_type_id =
+                        self.get_unique_type_id_as_string(parameter_type_id);
                     unique_type_id.push_str(parameter_type_id.as_slice());
                     unique_type_id.push_char(',');
                 }
@@ -436,13 +455,19 @@ impl TypeMap {
 
                 match store {
                     ty::UniqTraitStore => unique_type_id.push_str("~|"),
-                    ty::RegionTraitStore(_, ast::MutMutable) => unique_type_id.push_str("&mut|"),
-                    ty::RegionTraitStore(_, ast::MutImmutable) => unique_type_id.push_str("&|"),
+                    ty::RegionTraitStore(_, ast::MutMutable) => {
+                        unique_type_id.push_str("&mut|")
+                    }
+                    ty::RegionTraitStore(_, ast::MutImmutable) => {
+                        unique_type_id.push_str("&|")
+                    }
                 };
 
                 for &parameter_type in sig.inputs.iter() {
-                    let parameter_type_id = self.get_unique_type_id_of_type(cx, parameter_type);
-                    let parameter_type_id = self.get_unique_type_id_as_string(parameter_type_id);
+                    let parameter_type_id =
+                        self.get_unique_type_id_of_type(cx, parameter_type);
+                    let parameter_type_id =
+                        self.get_unique_type_id_as_string(parameter_type_id);
                     unique_type_id.push_str(parameter_type_id.as_slice());
                     unique_type_id.push_char(',');
                 }
@@ -494,13 +519,13 @@ impl TypeMap {
                                   output: &mut String) {
             use std::num::ToStrRadix;
 
-            // First, find out the 'real' def_id of the type. Items inlined from other crates have
-            // to be mapped back to their source.
+            // First, find out the 'real' def_id of the type. Items inlined from
+            // other crates have to be mapped back to their source.
             let source_def_id = if def_id.krate == ast::LOCAL_CRATE {
                 match cx.external_srcs.borrow().find_copy(&def_id.node) {
                     Some(source_def_id) => {
-                        // The given def_id identifies the inlined copy of a type definition,
-                        // let's take the source of the copy
+                        // The given def_id identifies the inlined copy of a
+                        // type definition, let's take the source of the copy.
                         source_def_id
                     }
                     None => def_id
@@ -509,7 +534,7 @@ impl TypeMap {
                 def_id
             };
 
-            // Get the crate hash as first part of the identifier
+            // Get the crate hash as first part of the identifier.
             let crate_hash = if source_def_id.krate == ast::LOCAL_CRATE {
                 cx.link_meta.crate_hash.clone()
             } else {
@@ -520,15 +545,17 @@ impl TypeMap {
             output.push_str("/");
             output.push_str(def_id.node.to_str_radix(16).as_slice());
 
-            // Maybe check that there is no self type here
+            // Maybe check that there is no self type here.
 
             let tps = substs.types.get_vec(subst::TypeSpace);
             if tps.len() > 0 {
                 output.push_char('<');
 
                 for &type_parameter in tps.iter() {
-                    let param_type_id = type_map.get_unique_type_id_of_type(cx, type_parameter);
-                    let param_type_id = type_map.get_unique_type_id_as_string(param_type_id);
+                    let param_type_id =
+                        type_map.get_unique_type_id_of_type(cx, type_parameter);
+                    let param_type_id =
+                        type_map.get_unique_type_id_as_string(param_type_id);
                     output.push_str(param_type_id.as_slice());
                     output.push_char(',');
                 }
@@ -538,9 +565,9 @@ impl TypeMap {
         }
     }
 
-    // Get the UniqueTypeId for an enum variant. Enum variants are not really types of their own,
-    // so they need special handling. We still need a UniqueTypeId for them, since to debuginfo they
-    // *are* real types.
+    // Get the UniqueTypeId for an enum variant. Enum variants are not really
+    // types of their own, so they need special handling. We still need a
+    // UniqueTypeId for them, since to debuginfo they *are* real types.
     fn get_unique_type_id_of_enum_variant(&mut self,
                                           cx: &CrateContext,
                                           enum_type: ty::t,
@@ -592,8 +619,8 @@ pub struct CrateDebugContext {
     type_map: RefCell<TypeMap>,
     namespace_map: RefCell<HashMap<Vec<ast::Name>, Rc<NamespaceTreeNode>>>,
 
-    // This collection is used to assert that composite types (structs, enums, ...) have their
-    // members only set once:
+    // This collection is used to assert that composite types (structs, enums,
+    // ...) have their members only set once:
     composite_types_completed: RefCell<HashSet<DIType>>,
 }
 
@@ -627,14 +654,19 @@ enum FunctionDebugContextRepr {
 }
 
 impl FunctionDebugContext {
-    fn get_ref<'a>(&'a self, cx: &CrateContext, span: Span) -> &'a FunctionDebugContextData {
+    fn get_ref<'a>(&'a self,
+                   cx: &CrateContext,
+                   span: Span)
+                   -> &'a FunctionDebugContextData {
         match self.repr {
             FunctionDebugContext(box ref data) => data,
             DebugInfoDisabled => {
-                cx.sess().span_bug(span, FunctionDebugContext::debuginfo_disabled_message());
+                cx.sess().span_bug(span,
+                                   FunctionDebugContext::debuginfo_disabled_message());
             }
             FunctionWithoutDebugInfo => {
-                cx.sess().span_bug(span, FunctionDebugContext::should_be_ignored_message());
+                cx.sess().span_bug(span,
+                                   FunctionDebugContext::should_be_ignored_message());
             }
         }
     }
@@ -659,8 +691,8 @@ struct FunctionDebugContextData {
 enum VariableAccess<'a> {
     // The llptr given is an alloca containing the variable's value
     DirectVariable { alloca: ValueRef },
-    // The llptr given is an alloca containing the start of some pointer chain leading to the
-    // variable's content.
+    // The llptr given is an alloca containing the start of some pointer chain
+    // leading to the variable's content.
     IndirectVariable { alloca: ValueRef, address_operations: &'a [ValueRef] }
 }
 
@@ -715,9 +747,10 @@ pub fn create_global_var_metadata(cx: &CrateContext,
         return;
     }
 
-    // Don't create debuginfo for globals inlined from other crates. The other crate should already
-    // contain debuginfo for it. More importantly, the global might not even exist in un-inlined
-    // form anywhere which would lead to a linker errors.
+    // Don't create debuginfo for globals inlined from other crates. The other
+    // crate should already contain debuginfo for it. More importantly, the
+    // global might not even exist in un-inlined form anywhere which would lead
+    // to a linker errors.
     if cx.external_srcs.borrow().contains_key(&node_id) {
         return;
     }
@@ -772,7 +805,7 @@ pub fn create_global_var_metadata(cx: &CrateContext,
                                                         type_metadata,
                                                         is_local_to_unit,
                                                         global,
-                                                        ptr::null());
+                                                        ptr::mut_null());
             }
         })
     });
@@ -865,7 +898,9 @@ pub fn create_captured_var_metadata(bcx: &Block,
     let scope_metadata = bcx.fcx.debug_context.get_ref(cx, span).fn_metadata;
 
     let llvm_env_data_type = type_of::type_of(cx, env_data_type);
-    let byte_offset_of_var_in_env = machine::llelement_offset(cx, llvm_env_data_type, env_index);
+    let byte_offset_of_var_in_env = machine::llelement_offset(cx,
+                                                              llvm_env_data_type,
+                                                              env_index);
 
     let address_operations = unsafe {
         [llvm::LLVMDIBuilderCreateOpDeref(Type::i64(cx).to_ref()),
@@ -897,7 +932,8 @@ pub fn create_captured_var_metadata(bcx: &Block,
                   span);
 }
 
-/// Creates debug information for a local variable introduced in the head of a match-statement arm.
+/// Creates debug information for a local variable introduced in the head of a
+/// match-statement arm.
 ///
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_match_binding_metadata(bcx: &Block,
@@ -944,7 +980,7 @@ pub fn create_argument_metadata(bcx: &Block, arg: &ast::Arg) {
             }
         };
 
-        if unsafe { llvm::LLVMIsAAllocaInst(llarg.val) } == ptr::null() {
+        if unsafe { llvm::LLVMIsAAllocaInst(llarg.val) } == ptr::mut_null() {
             cx.sess().span_bug(span, "debuginfo::create_argument_metadata() - \
                                     Referenced variable location is not an alloca!");
         }
@@ -970,8 +1006,9 @@ pub fn create_argument_metadata(bcx: &Block, arg: &ast::Arg) {
 
 /// Sets the current debug location at the beginning of the span.
 ///
-/// Maps to a call to llvm::LLVMSetCurrentDebugLocation(...). The node_id parameter is used to
-/// reliably find the correct visibility scope for the code position.
+/// Maps to a call to llvm::LLVMSetCurrentDebugLocation(...). The node_id
+/// parameter is used to reliably find the correct visibility scope for the code
+/// position.
 pub fn set_source_location(fcx: &FunctionContext,
                            node_id: ast::NodeId,
                            span: Span) {
@@ -990,7 +1027,9 @@ pub fn set_source_location(fcx: &FunctionContext,
                 let loc = span_start(cx, span);
                 let scope = scope_metadata(fcx, node_id, span);
 
-                set_debug_location(cx, DebugLocation::new(scope, loc.line, loc.col.to_uint()));
+                set_debug_location(cx, DebugLocation::new(scope,
+                                                          loc.line,
+                                                          loc.col.to_uint()));
             } else {
                 set_debug_location(cx, UnknownLocation);
             }
@@ -1011,10 +1050,10 @@ pub fn clear_source_location(fcx: &FunctionContext) {
 
 /// Enables emitting source locations for the given functions.
 ///
-/// Since we don't want source locations to be emitted for the function prelude, they are disabled
-/// when beginning to translate a new function. This functions switches source location emitting on
-/// and must therefore be called before the first real statement/expression of the function is
-/// translated.
+/// Since we don't want source locations to be emitted for the function prelude,
+/// they are disabled when beginning to translate a new function. This functions
+/// switches source location emitting on and must therefore be called before the
+/// first real statement/expression of the function is translated.
 pub fn start_emitting_source_locations(fcx: &FunctionContext) {
     match fcx.debug_context.repr {
         FunctionDebugContext(box ref data) => {
@@ -1026,9 +1065,10 @@ pub fn start_emitting_source_locations(fcx: &FunctionContext) {
 
 /// Creates the function-specific debug context.
 ///
-/// Returns the FunctionDebugContext for the function which holds state needed for debug info
-/// creation. The function may also return another variant of the FunctionDebugContext enum which
-/// indicates why no debuginfo should be created for the function.
+/// Returns the FunctionDebugContext for the function which holds state needed
+/// for debug info creation. The function may also return another variant of the
+/// FunctionDebugContext enum which indicates why no debuginfo should be created
+/// for the function.
 pub fn create_function_debug_context(cx: &CrateContext,
                                      fn_ast_id: ast::NodeId,
                                      param_substs: &param_substs,
@@ -1037,15 +1077,16 @@ pub fn create_function_debug_context(cx: &CrateContext,
         return FunctionDebugContext { repr: DebugInfoDisabled };
     }
 
-    // Clear the debug location so we don't assign them in the function prelude. Do this here
-    // already, in case we do an early exit from this function.
+    // Clear the debug location so we don't assign them in the function prelude.
+    // Do this here already, in case we do an early exit from this function.
     set_debug_location(cx, UnknownLocation);
 
     if fn_ast_id == -1 {
         return FunctionDebugContext { repr: FunctionWithoutDebugInfo };
     }
 
-    let empty_generics = ast::Generics { lifetimes: Vec::new(), ty_params: OwnedSlice::empty() };
+    let empty_generics = ast::Generics { lifetimes: Vec::new(),
+                                         ty_params: OwnedSlice::empty() };
 
     let fnitem = cx.tcx.map.get(fn_ast_id);
 
@@ -1076,8 +1117,8 @@ pub fn create_function_debug_context(cx: &CrateContext,
                     let name = format!("fn{}", token::gensym("fn"));
                     let name = token::str_to_ident(name.as_slice());
                     (name, fn_decl,
-                        // This is not quite right. It should actually inherit the generics of the
-                        // enclosing function.
+                        // This is not quite right. It should actually inherit
+                        // the generics of the enclosing function.
                         &empty_generics,
                         top_level_block,
                         expr.span,
@@ -1125,11 +1166,16 @@ pub fn create_function_debug_context(cx: &CrateContext,
     let file_metadata = file_metadata(cx, loc.file.name.as_slice());
 
     let function_type_metadata = unsafe {
-        let fn_signature = get_function_signature(cx, fn_ast_id, &*fn_decl, param_substs, span);
+        let fn_signature = get_function_signature(cx,
+                                                  fn_ast_id,
+                                                  &*fn_decl,
+                                                  param_substs,
+                                                  span);
         llvm::LLVMDIBuilderCreateSubroutineType(DIB(cx), file_metadata, fn_signature)
     };
 
-    // get_template_parameters() will append a `<...>` clause to the function name if necessary.
+    // Get_template_parameters() will append a `<...>` clause to the function
+    // name if necessary.
     let mut function_name = String::from_str(token::get_ident(ident).get());
     let template_parameters = get_template_parameters(cx,
                                                       generics,
@@ -1137,9 +1183,10 @@ pub fn create_function_debug_context(cx: &CrateContext,
                                                       file_metadata,
                                                       &mut function_name);
 
-    // There is no ast_map::Path for ast::ExprFnBlock-type functions. For now, just don't put them
-    // into a namespace. In the future this could be improved somehow (storing a path in the
-    // ast_map, or construct a path using the enclosing function).
+    // There is no ast_map::Path for ast::ExprFnBlock-type functions. For now,
+    // just don't put them into a namespace. In the future this could be improved
+    // somehow (storing a path in the ast_map, or construct a path using the
+    // enclosing function).
     let (linkage_name, containing_scope) = if has_path {
         let namespace_node = namespace_for_item(cx, ast_util::local_def(fn_ast_id));
         let linkage_name = namespace_node.mangled_name_of_contained_item(
@@ -1150,7 +1197,8 @@ pub fn create_function_debug_context(cx: &CrateContext,
         (function_name.as_slice().to_string(), file_metadata)
     };
 
-    // Clang sets this parameter to the opening brace of the function's block, so let's do this too.
+    // Clang sets this parameter to the opening brace of the function's block,
+    // so let's do this too.
     let scope_line = span_start(cx, top_level_block.span).line;
 
     let is_local_to_unit = is_node_local_to_unit(cx, fn_ast_id);
@@ -1173,7 +1221,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
                     cx.sess().opts.optimize != config::No,
                     llfn,
                     template_parameters,
-                    ptr::null())
+                    ptr::mut_null())
             }
         })
     });
@@ -1209,7 +1257,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
         // Return type -- llvm::DIBuilder wants this at index 0
         match fn_decl.output.node {
             ast::TyNil => {
-                signature.push(ptr::null());
+                signature.push(ptr::mut_null());
             }
             _ => {
                 assert_type_for_node_id(cx, fn_ast_id, error_span);
@@ -1280,7 +1328,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
                             file_metadata,
                             name,
                             actual_self_type_metadata,
-                            ptr::null(),
+                            ptr::mut_null(),
                             0,
                             0)
                     }
@@ -1313,7 +1361,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
                             file_metadata,
                             name,
                             actual_type_metadata,
-                            ptr::null(),
+                            ptr::mut_null(),
                             0,
                             0)
                     }
@@ -1328,18 +1376,19 @@ pub fn create_function_debug_context(cx: &CrateContext,
     }
 }
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 // Module-Internal debug info creation functions
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
 fn is_node_local_to_unit(cx: &CrateContext, node_id: ast::NodeId) -> bool
 {
-    // The is_local_to_unit flag indicates whether a function is local to the current compilation
-    // unit (i.e. if it is *static* in the C-sense). The *reachable* set should provide a good
-    // approximation of this, as it contains everything that might leak out of the current crate
-    // (by being externally visible or by being inlined into something externally visible). It might
-    // better to use the `exported_items` set from `driver::CrateAnalysis` in the future, but (atm)
-    // this set is not available in the translation pass.
+    // The is_local_to_unit flag indicates whether a function is local to the
+    // current compilation unit (i.e. if it is *static* in the C-sense). The
+    // *reachable* set should provide a good approximation of this, as it
+    // contains everything that might leak out of the current crate (by being
+    // externally visible or by being inlined into something externally visible).
+    // It might better to use the `exported_items` set from `driver::CrateAnalysis`
+    // in the future, but (atm) this set is not available in the translation pass.
     !cx.reachable.contains(&node_id)
 }
 
@@ -1362,7 +1411,7 @@ fn compile_unit_metadata(cx: &CrateContext) {
                 match abs_path.path_relative_from(work_dir) {
                     Some(ref p) if p.is_relative() => {
                             // prepend "./" if necessary
-                            let dotdot = bytes!("..");
+                            let dotdot = b"..";
                             let prefix = &[dotdot[0], ::std::path::SEP_BYTE];
                             let mut path_bytes = Vec::from_slice(p.as_vec());
 
@@ -1471,7 +1520,9 @@ fn declare_local(bcx: &Block,
         }
     });
 
-    set_debug_location(cx, DebugLocation::new(scope_metadata, loc.line, loc.col.to_uint()));
+    set_debug_location(cx, DebugLocation::new(scope_metadata,
+                                              loc.line,
+                                              loc.col.to_uint()));
     unsafe {
         let instr = llvm::LLVMDIBuilderInsertDeclareAtEnd(
             DIB(cx),
@@ -1570,7 +1621,6 @@ fn basic_type_metadata(cx: &CrateContext, t: ty::t) -> DIType {
         ty::ty_float(float_ty) => match float_ty {
             ast::TyF32 => ("f32".to_string(), DW_ATE_float),
             ast::TyF64 => ("f64".to_string(), DW_ATE_float),
-            ast::TyF128 => ("f128".to_string(), DW_ATE_float)
         },
         _ => cx.sess().bug("debuginfo::basic_type_metadata - t is invalid type")
     };
@@ -1611,9 +1661,9 @@ fn pointer_type_metadata(cx: &CrateContext,
     return ptr_metadata;
 }
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 // Common facilities for record-like types (structs, enums, tuples)
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
 enum MemberOffset {
     FixedMemberOffset { bytes: uint },
@@ -1621,8 +1671,8 @@ enum MemberOffset {
     ComputedMemberOffset
 }
 
-// Description of a type member, which can either be a regular field (as in structs or tuples) or
-// an enum variant
+// Description of a type member, which can either be a regular field (as in
+// structs or tuples) or an enum variant
 struct MemberDescription {
     name: String,
     llvm_type: Type,
@@ -1630,9 +1680,10 @@ struct MemberDescription {
     offset: MemberOffset,
 }
 
-// A factory for MemberDescriptions. It produces a list of member descriptions for some record-like
-// type. MemberDescriptionFactories are used to defer the creation of type member descriptions in
-// order to break cycles arising from recursive type definitions.
+// A factory for MemberDescriptions. It produces a list of member descriptions
+// for some record-like type. MemberDescriptionFactories are used to defer the
+// creation of type member descriptions in order to break cycles arising from
+// recursive type definitions.
 enum MemberDescriptionFactory {
     StructMDF(StructMemberDescriptionFactory),
     TupleMDF(TupleMemberDescriptionFactory),
@@ -1659,10 +1710,10 @@ impl MemberDescriptionFactory {
     }
 }
 
-// A description of some recursive type. It can either be already finished (as with FinalMetadata)
-// or it is not yet finished, but contains all information needed to generate the missing parts of
-// the description. See the documentation section on Recursive Types at the top of this file for
-// more information.
+// A description of some recursive type. It can either be already finished (as
+// with FinalMetadata) or it is not yet finished, but contains all information
+// needed to generate the missing parts of the description. See the documentation
+// section on Recursive Types at the top of this file for more information.
 enum RecursiveTypeDescription {
     UnfinishedMetadata {
         unfinished_type: ty::t,
@@ -1701,8 +1752,8 @@ fn create_and_register_recursive_type_forward_declaration(
 }
 
 impl RecursiveTypeDescription {
-    // Finishes up the description of the type in question (mostly by providing descriptions of the
-    // fields of the given type) and returns the final type metadata.
+    // Finishes up the description of the type in question (mostly by providing
+    // descriptions of the fields of the given type) and returns the final type metadata.
     fn finalize(&self, cx: &CrateContext) -> MetadataCreationResult {
         match *self {
             FinalMetadata(metadata) => MetadataCreationResult::new(metadata, false),
@@ -1714,9 +1765,10 @@ impl RecursiveTypeDescription {
                 file_metadata,
                 ref member_description_factory
             } => {
-                // Make sure that we have a forward declaration of the type in the TypeMap so that
-                // recursive references are possible. This will always be the case if the
-                // RecursiveTypeDescription has been properly created through the
+                // Make sure that we have a forward declaration of the type in
+                // the TypeMap so that recursive references are possible. This
+                // will always be the case if the RecursiveTypeDescription has
+                // been properly created through the
                 // create_and_register_recursive_type_forward_declaration() function.
                 {
                     let type_map = debug_context(cx).type_map.borrow();
@@ -1730,7 +1782,8 @@ impl RecursiveTypeDescription {
                 }
 
                 // ... then create the member descriptions ...
-                let member_descriptions = member_description_factory.create_member_descriptions(cx);
+                let member_descriptions =
+                    member_description_factory.create_member_descriptions(cx);
 
                 // ... and attach them to the stub to complete it.
                 set_members_of_composite_type(cx,
@@ -1746,9 +1799,9 @@ impl RecursiveTypeDescription {
 }
 
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 // Structs
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
 // Creates MemberDescriptions for the fields of a struct
 struct StructMemberDescriptionFactory {
@@ -1834,9 +1887,9 @@ fn prepare_struct_metadata(cx: &CrateContext,
 }
 
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 // Tuples
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
 // Creates MemberDescriptions for the fields of a tuple
 struct TupleMemberDescriptionFactory {
@@ -1891,14 +1944,15 @@ fn prepare_tuple_metadata(cx: &CrateContext,
 }
 
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 // Enums
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
-// Describes the members of an enum value: An enum is described as a union of structs in DWARF. This
-// MemberDescriptionFactory provides the description for the members of this union; so for every
-// variant of the given enum, this factory will produce one MemberDescription (all with no name and
-// a fixed offset of zero bytes).
+// Describes the members of an enum value: An enum is described as a union of
+// structs in DWARF. This MemberDescriptionFactory provides the description for
+// the members of this union; so for every variant of the given enum, this factory
+// will produce one MemberDescription (all with no name and a fixed offset of
+// zero bytes).
 struct EnumMemberDescriptionFactory {
     enum_type: ty::t,
     type_rep: Rc<adt::Repr>,
@@ -1920,7 +1974,9 @@ impl EnumMemberDescriptionFactory {
                     .iter()
                     .enumerate()
                     .map(|(i, struct_def)| {
-                        let (variant_type_metadata, variant_llvm_type, member_desc_factory) =
+                        let (variant_type_metadata,
+                             variant_llvm_type,
+                             member_desc_factory) =
                             describe_enum_variant(cx,
                                                   self.enum_type,
                                                   struct_def,
@@ -1953,7 +2009,9 @@ impl EnumMemberDescriptionFactory {
                 if self.variants.len() == 0 {
                     vec![]
                 } else {
-                    let (variant_type_metadata, variant_llvm_type, member_description_factory) =
+                    let (variant_type_metadata,
+                         variant_llvm_type,
+                         member_description_factory) =
                         describe_enum_variant(cx,
                                               self.enum_type,
                                               struct_def,
@@ -1983,8 +2041,9 @@ impl EnumMemberDescriptionFactory {
                 }
             }
             adt::RawNullablePointer { nndiscr: non_null_variant_index, nnty, .. } => {
-                // As far as debuginfo is concerned, the pointer this enum represents is still
-                // wrapped in a struct. This is to make the DWARF representation of enums uniform.
+                // As far as debuginfo is concerned, the pointer this enum
+                // represents is still wrapped in a struct. This is to make the
+                // DWARF representation of enums uniform.
 
                 // First create a description of the artificial wrapper struct:
                 let non_null_variant = self.variants.get(non_null_variant_index as uint);
@@ -1996,10 +2055,12 @@ impl EnumMemberDescriptionFactory {
                 let non_null_type_metadata = type_metadata(cx, nnty, self.span);
 
                 // The type of the artificial struct wrapping the pointer
-                let artificial_struct_llvm_type = Type::struct_(cx, &[non_null_llvm_type], false);
+                let artificial_struct_llvm_type = Type::struct_(cx,
+                                                                &[non_null_llvm_type],
+                                                                false);
 
-                // For the metadata of the wrapper struct, we need to create a MemberDescription
-                // of the struct's single field.
+                // For the metadata of the wrapper struct, we need to create a
+                // MemberDescription of the struct's single field.
                 let sole_struct_member_description = MemberDescription {
                     name: match non_null_variant.arg_names {
                         Some(ref names) => token::get_ident(*names.get(0)).get().to_string(),
@@ -2028,13 +2089,17 @@ impl EnumMemberDescriptionFactory {
                                             self.file_metadata,
                                             codemap::DUMMY_SP);
 
-                // Encode the information about the null variant in the union member's name
+                // Encode the information about the null variant in the union
+                // member's name.
                 let null_variant_index = (1 - non_null_variant_index) as uint;
                 let null_variant_ident = self.variants.get(null_variant_index).name;
                 let null_variant_name = token::get_ident(null_variant_ident);
-                let union_member_name = format!("RUST$ENCODED$ENUM${}${}", 0, null_variant_name);
+                let union_member_name = format!("RUST$ENCODED$ENUM${}${}",
+                                                0u,
+                                                null_variant_name);
 
-                // Finally create the (singleton) list of descriptions of union members
+                // Finally create the (singleton) list of descriptions of union
+                // members.
                 vec![
                     MemberDescription {
                         name: union_member_name,
@@ -2044,7 +2109,9 @@ impl EnumMemberDescriptionFactory {
                     }
                 ]
             },
-            adt::StructWrappedNullablePointer { nonnull: ref struct_def, nndiscr, ptrfield, ..} => {
+            adt::StructWrappedNullablePointer { nonnull: ref struct_def,
+                                                nndiscr,
+                                                ptrfield, ..} => {
                 // Create a description of the non-null variant
                 let (variant_type_metadata, variant_llvm_type, member_description_factory) =
                     describe_enum_variant(cx,
@@ -2066,7 +2133,8 @@ impl EnumMemberDescriptionFactory {
                                               self.file_metadata,
                                               codemap::DUMMY_SP);
 
-                // Encode the information about the null variant in the union member's name
+                // Encode the information about the null variant in the union
+                // member's name.
                 let null_variant_index = (1 - nndiscr) as uint;
                 let null_variant_ident = self.variants.get(null_variant_index).name;
                 let null_variant_name = token::get_ident(null_variant_ident);
@@ -2074,7 +2142,7 @@ impl EnumMemberDescriptionFactory {
                                                 ptrfield,
                                                 null_variant_name);
 
-                // Create the (singleton) list of descriptions of union members
+                // Create the (singleton) list of descriptions of union members.
                 vec![
                     MemberDescription {
                         name: union_member_name,
@@ -2089,7 +2157,7 @@ impl EnumMemberDescriptionFactory {
     }
 }
 
-// Creates MemberDescriptions for the fields of a single enum variant
+// Creates MemberDescriptions for the fields of a single enum variant.
 struct VariantMemberDescriptionFactory {
     args: Vec<(String, ty::t)> ,
     discriminant_type_metadata: Option<DIType>,
@@ -2118,9 +2186,10 @@ enum EnumDiscriminantInfo {
     NoDiscriminant
 }
 
-// Returns a tuple of (1) type_metadata_stub of the variant, (2) the llvm_type of the variant, and
-// (3) a MemberDescriptionFactory for producing the descriptions of the fields of the variant. This
-// is a rudimentary version of a full RecursiveTypeDescription.
+// Returns a tuple of (1) type_metadata_stub of the variant, (2) the llvm_type
+// of the variant, and (3) a MemberDescriptionFactory for producing the
+// descriptions of the fields of the variant. This is a rudimentary version of a
+// full RecursiveTypeDescription.
 fn describe_enum_variant(cx: &CrateContext,
                          enum_type: ty::t,
                          struct_def: &adt::Struct,
@@ -2175,7 +2244,7 @@ fn describe_enum_variant(cx: &CrateContext,
         None => variant_info.args.iter().map(|_| "".to_string()).collect()
     };
 
-    // If this is not a univariant enum, there is also the (unnamed) discriminant field
+    // If this is not a univariant enum, there is also the (unnamed) discriminant field.
     match discriminant_info {
         RegularDiscriminant(_) => arg_names.insert(0, "".to_string()),
         _ => { /* do nothing */ }
@@ -2191,7 +2260,9 @@ fn describe_enum_variant(cx: &CrateContext,
         VariantMDF(VariantMemberDescriptionFactory {
             args: args,
             discriminant_type_metadata: match discriminant_info {
-                RegularDiscriminant(discriminant_type_metadata) => Some(discriminant_type_metadata),
+                RegularDiscriminant(discriminant_type_metadata) => {
+                    Some(discriminant_type_metadata)
+                }
                 _ => None
             },
             span: span,
@@ -2229,9 +2300,10 @@ fn prepare_enum_metadata(cx: &CrateContext,
         .collect();
 
     let discriminant_type_metadata = |inttype| {
-        // We can reuse the type of the discriminant for all monomorphized instances of an enum
-        // because it doesn't depend on any type parameters. The def_id, uniquely identifying the
-        // enum's polytype acts as key in this cache.
+        // We can reuse the type of the discriminant for all monomorphized
+        // instances of an enum because it doesn't depend on any type parameters.
+        // The def_id, uniquely identifying the enum's polytype acts as key in
+        // this cache.
         let cached_discriminant_type_metadata = debug_context(cx).created_enum_disr_types
                                                                  .borrow()
                                                                  .find_copy(&enum_def_id);
@@ -2302,7 +2374,7 @@ fn prepare_enum_metadata(cx: &CrateContext,
                 bytes_to_bits(enum_type_size),
                 bytes_to_bits(enum_type_align),
                 0, // Flags
-                ptr::null(),
+                ptr::mut_null(),
                 0, // RuntimeLang
                 unique_type_id_str)
             }
@@ -2327,7 +2399,9 @@ fn prepare_enum_metadata(cx: &CrateContext,
         }),
     );
 
-    fn get_enum_discriminant_name(cx: &CrateContext, def_id: ast::DefId) -> token::InternedString {
+    fn get_enum_discriminant_name(cx: &CrateContext,
+                                  def_id: ast::DefId)
+                                  -> token::InternedString {
         let name = if def_id.krate == ast::LOCAL_CRATE {
             cx.tcx.map.get_path_elem(def_id.node).name()
         } else {
@@ -2338,7 +2412,8 @@ fn prepare_enum_metadata(cx: &CrateContext,
     }
 }
 
-/// Creates debug information for a composite type, that is, anything that results in a LLVM struct.
+/// Creates debug information for a composite type, that is, anything that
+/// results in a LLVM struct.
 ///
 /// Examples of Rust types to use this are: structs, tuples, boxes, vecs, and enums.
 fn composite_type_metadata(cx: &CrateContext,
@@ -2375,10 +2450,11 @@ fn set_members_of_composite_type(cx: &CrateContext,
                                  member_descriptions: &[MemberDescription],
                                  file_metadata: DIFile,
                                  definition_span: Span) {
-    // In some rare cases LLVM metadata uniquing would lead to an existing type description being
-    // used instead of a new one created in create_struct_stub. This would cause a hard to trace
-    // assertion in DICompositeType::SetTypeArray(). The following check makes sure that we get a
-    // better error message if this should happen again due to some regression.
+    // In some rare cases LLVM metadata uniquing would lead to an existing type
+    // description being used instead of a new one created in create_struct_stub.
+    // This would cause a hard to trace assertion in DICompositeType::SetTypeArray().
+    // The following check makes sure that we get a better error message if this
+    // should happen again due to some regression.
     {
         let mut composite_types_completed =
             debug_context(cx).composite_types_completed.borrow_mut();
@@ -2391,10 +2467,14 @@ fn set_members_of_composite_type(cx: &CrateContext,
             let min_supported_llvm_version = 3 * 1000000 + 4 * 1000;
 
             if actual_llvm_version < min_supported_llvm_version {
-                cx.sess().warn(format!("This version of rustc was built with LLVM {}.{}. \
-                    Rustc just ran into a known debuginfo corruption problem that \
-                    often occurs with LLVM versions below 3.4. Please use a rustc built with a \
-                    newer version of LLVM.", llvm_version_major, llvm_version_minor).as_slice());
+                cx.sess().warn(format!("This version of rustc was built with LLVM \
+                                        {}.{}. Rustc just ran into a known \
+                                        debuginfo corruption problem thatoften \
+                                        occurs with LLVM versions below 3.4. \
+                                        Please use a rustc built with anewer \
+                                        version of LLVM.",
+                                       llvm_version_major,
+                                       llvm_version_minor).as_slice());
             } else {
                 cx.sess().bug("debuginfo::set_members_of_composite_type() - \
                                Already completed forward declaration re-encountered.");
@@ -2440,8 +2520,9 @@ fn set_members_of_composite_type(cx: &CrateContext,
     }
 }
 
-// A convenience wrapper around LLVMDIBuilderCreateStructType(). Does not do any caching, does not
-// add any fields to the struct. This can be done later with set_members_of_composite_type().
+// A convenience wrapper around LLVMDIBuilderCreateStructType(). Does not do any
+// caching, does not add any fields to the struct. This can be done later with
+// set_members_of_composite_type().
 fn create_struct_stub(cx: &CrateContext,
                       struct_llvm_type: Type,
                       struct_type_name: &str,
@@ -2459,8 +2540,9 @@ fn create_struct_stub(cx: &CrateContext,
     let metadata_stub = unsafe {
         struct_type_name.with_c_str(|name| {
             unique_type_id_str.as_slice().with_c_str(|unique_type_id| {
-                // LLVMDIBuilderCreateStructType() wants an empty array. A null pointer will lead to
-                // hard to trace and debug LLVM assertions later on in llvm/lib/IR/Value.cpp
+                // LLVMDIBuilderCreateStructType() wants an empty array. A null
+                // pointer will lead to hard to trace and debug LLVM assertions
+                // later on in llvm/lib/IR/Value.cpp.
                 let empty_array = create_DIArray(DIB(cx), []);
 
                 llvm::LLVMDIBuilderCreateStructType(
@@ -2472,10 +2554,10 @@ fn create_struct_stub(cx: &CrateContext,
                     bytes_to_bits(struct_size),
                     bytes_to_bits(struct_align),
                     0,
-                    ptr::null(),
+                    ptr::mut_null(),
                     empty_array,
                     0,
-                    ptr::null(),
+                    ptr::mut_null(),
                     unique_type_id)
             })
         })
@@ -2509,7 +2591,9 @@ fn at_box_metadata(cx: &CrateContext,
 
     let int_type = ty::mk_int();
     let nil_pointer_type = ty::mk_nil_ptr(cx.tcx());
-    let nil_pointer_type_metadata = type_metadata(cx, nil_pointer_type, codemap::DUMMY_SP);
+    let nil_pointer_type_metadata = type_metadata(cx,
+                                                  nil_pointer_type,
+                                                  codemap::DUMMY_SP);
 
     let member_descriptions = [
         MemberDescription {
@@ -2561,12 +2645,14 @@ fn at_box_metadata(cx: &CrateContext,
         file_metadata,
         codemap::DUMMY_SP);
 
-    let gc_pointer_metadata = pointer_type_metadata(cx, at_pointer_type, gc_box_metadata);
+    let gc_pointer_metadata = pointer_type_metadata(cx,
+                                                    at_pointer_type,
+                                                    gc_box_metadata);
 
     return MetadataCreationResult::new(gc_pointer_metadata, false);
 
-    // Unfortunately, we cannot assert anything but the correct types here---and not whether the
-    // 'next' and 'prev' pointers are in the correct order.
+    // Unfortunately, we cannot assert anything but the correct types here---and
+    // not whether the 'next' and 'prev' pointers are in the correct order.
     fn box_layout_is_correct(cx: &CrateContext,
                              member_llvm_types: &[Type],
                              content_llvm_type: Type)
@@ -2676,7 +2762,8 @@ fn heap_vec_metadata(cx: &CrateContext,
 
     let vec_box_unique_id = debug_context(cx).type_map
                                              .borrow_mut()
-                                             .get_unique_type_id_of_heap_vec_box(cx, element_type);
+                                             .get_unique_type_id_of_heap_vec_box(cx,
+                                                                                 element_type);
 
     let vecbox_metadata = composite_type_metadata(cx,
                                                   vecbox_llvm_type,
@@ -2687,7 +2774,9 @@ fn heap_vec_metadata(cx: &CrateContext,
                                                   file_metadata,
                                                   span);
 
-    MetadataCreationResult::new(pointer_type_metadata(cx, vec_pointer_type, vecbox_metadata), false)
+    MetadataCreationResult::new(pointer_type_metadata(cx,
+                                                      vec_pointer_type,
+                                                      vecbox_metadata), false)
 }
 
 fn vec_slice_metadata(cx: &CrateContext,
@@ -2766,7 +2855,7 @@ fn subroutine_type_metadata(cx: &CrateContext,
 
     // return type
     signature_metadata.push(match ty::get(signature.output).sty {
-        ty::ty_nil => ptr::null(),
+        ty::ty_nil => ptr::mut_null(),
         _ => type_metadata(cx, signature.output, span)
     });
 
@@ -2798,9 +2887,9 @@ fn trait_metadata(cx: &CrateContext,
                   _: &ty::BuiltinBounds,
                   unique_type_id: UniqueTypeId)
                -> DIType {
-    // The implementation provided here is a stub. It makes sure that the trait type is
-    // assigned the correct name, size, namespace, and source location. But it does not describe
-    // the trait's methods.
+    // The implementation provided here is a stub. It makes sure that the trait
+    // type is assigned the correct name, size, namespace, and source location.
+    // But it does not describe the trait's methods.
     let last = ty::with_path(cx.tcx(), def_id, |mut path| path.last().unwrap());
     let ident_string = token::get_name(last.name());
     let mut name = ppaux::trait_store_to_str(cx.tcx(), trait_store);
@@ -2835,25 +2924,29 @@ fn type_metadata(cx: &CrateContext,
     // Get the unique type id of this type.
     let unique_type_id = {
         let mut type_map = debug_context(cx).type_map.borrow_mut();
-        // First, try to find the type in TypeMap. If we have seen it before, we can exit early here
+        // First, try to find the type in TypeMap. If we have seen it before, we
+        // can exit early here.
         match type_map.find_metadata_for_type(t) {
             Some(metadata) => {
                 return metadata;
             },
             None => {
-                // The ty::t is not in the TypeMap but maybe we have already seen an equivalent type
-                // (e.g. only differing in region arguments). In order to find out, generate the
-                // unique type id and look that up.
+                // The ty::t is not in the TypeMap but maybe we have already seen
+                // an equivalent type (e.g. only differing in region arguments).
+                // In order to find out, generate the unique type id and look
+                // that up.
                 let unique_type_id = type_map.get_unique_type_id_of_type(cx, t);
                 match type_map.find_metadata_for_unique_id(unique_type_id) {
                     Some(metadata) => {
-                        // There is already an equivalent type in the TypeMap. Register this ty::t
-                        // as an alias in the cache and return the cached metadata
+                        // There is already an equivalent type in the TypeMap.
+                        // Register this ty::t as an alias in the cache and
+                        // return the cached metadata.
                         type_map.register_type_with_metadata(cx, t, metadata);
                         return metadata;
                     },
                     None => {
-                        // There really is no type metadata for this type, so proceed by creating it
+                        // There really is no type metadata for this type, so
+                        // proceed by creating it.
                         unique_type_id
                     }
                 }
@@ -2901,6 +2994,16 @@ fn type_metadata(cx: &CrateContext,
                     let i8_t = ty::mk_i8();
                     heap_vec_metadata(cx, pointee_type, i8_t, unique_type_id, usage_site_span)
                 }
+                ty::ty_trait(box ty::TyTrait {
+                        def_id,
+                        ref substs,
+                        ref bounds
+                    }) => {
+                    MetadataCreationResult::new(
+                        trait_metadata(cx, def_id, t, substs, ty::UniqTraitStore,
+                                       bounds, unique_type_id),
+                    false)
+                }
                 _ => {
                     let pointee_metadata = type_metadata(cx, pointee_type, usage_site_span);
                     return_if_created_in_meantime!();
@@ -2917,6 +3020,17 @@ fn type_metadata(cx: &CrateContext,
                 ty::ty_str => {
                     vec_slice_metadata(cx, t, ty::mk_i8(), unique_type_id, usage_site_span)
                 }
+                ty::ty_trait(box ty::TyTrait {
+                        def_id,
+                        ref substs,
+                        ref bounds
+                    }) => {
+                    MetadataCreationResult::new(
+                        trait_metadata(cx, def_id, t, substs,
+                                       ty::RegionTraitStore(ty::ReStatic, mt.mutbl),
+                                       bounds, unique_type_id),
+                    false)
+                }
                 _ => {
                     let pointee = type_metadata(cx, mt.ty, usage_site_span);
                     return_if_created_in_meantime!();
@@ -2929,16 +3043,6 @@ fn type_metadata(cx: &CrateContext,
         }
         ty::ty_closure(ref closurety) => {
             subroutine_type_metadata(cx, unique_type_id, &closurety.sig, usage_site_span)
-        }
-        ty::ty_trait(box ty::TyTrait {
-                def_id,
-                ref substs,
-                store,
-                ref bounds
-            }) => {
-            MetadataCreationResult::new(
-                trait_metadata(cx, def_id, t, substs, store, bounds, unique_type_id),
-                false)
         }
         ty::ty_struct(def_id, ref substs) if !ty::type_is_simd(&cx.tcx, t) => {
             prepare_struct_metadata(cx,
@@ -2974,11 +3078,14 @@ fn type_metadata(cx: &CrateContext,
             let metadata_for_uid = match type_map.find_metadata_for_unique_id(unique_type_id) {
                 Some(metadata) => metadata,
                 None => {
-                    let unique_type_id_str = type_map.get_unique_type_id_as_string(unique_type_id);
-                    let error_message = format!("Expected type metadata for unique type id '{}' to \
-                        already be in the debuginfo::TypeMap but it was not. (ty::t = {})",
-                        unique_type_id_str.as_slice(),
-                        ppaux::ty_to_str(cx.tcx(), t));
+                    let unique_type_id_str =
+                        type_map.get_unique_type_id_as_string(unique_type_id);
+                    let error_message = format!("Expected type metadata for unique \
+                                                 type id '{}' to already be in \
+                                                 the debuginfo::TypeMap but it \
+                                                 was not. (ty::t = {})",
+                                                unique_type_id_str.as_slice(),
+                                                ppaux::ty_to_str(cx.tcx(), t));
                     cx.sess().span_bug(usage_site_span, error_message.as_slice());
                 }
             };
@@ -2988,8 +3095,10 @@ fn type_metadata(cx: &CrateContext,
                     if metadata != metadata_for_uid {
                         let unique_type_id_str =
                             type_map.get_unique_type_id_as_string(unique_type_id);
-                        let error_message = format!("Mismatch between ty::t and UniqueTypeId maps \
-                            in debuginfo::TypeMap. UniqueTypeId={}, ty::t={}",
+                        let error_message = format!("Mismatch between ty::t and \
+                                                     UniqueTypeId maps in \
+                                                     debuginfo::TypeMap. \
+                                                     UniqueTypeId={}, ty::t={}",
                             unique_type_id_str.as_slice(),
                             ppaux::ty_to_str(cx.tcx(), t));
                         cx.sess().span_bug(usage_site_span, error_message.as_slice());
@@ -3047,9 +3156,10 @@ fn set_debug_location(cx: &CrateContext, debug_location: DebugLocation) {
 
     match debug_location {
         KnownLocation { scope, line, .. } => {
-            let col = 0; // Always set the column to zero like Clang and GCC
+            let col = 0u; // Always set the column to zero like Clang and GCC
             debug!("setting debug location to {} {}", line, col);
-            let elements = [C_i32(cx, line as i32), C_i32(cx, col as i32), scope, ptr::null()];
+            let elements = [C_i32(cx, line as i32), C_i32(cx, col as i32),
+                            scope, ptr::mut_null()];
             unsafe {
                 metadata_node = llvm::LLVMMDNodeInContext(debug_context(cx).llcontext,
                                                           elements.as_ptr(),
@@ -3058,7 +3168,7 @@ fn set_debug_location(cx: &CrateContext, debug_location: DebugLocation) {
         }
         UnknownLocation => {
             debug!("clearing debug location ");
-            metadata_node = ptr::null();
+            metadata_node = ptr::mut_null();
         }
     };
 
@@ -3069,9 +3179,9 @@ fn set_debug_location(cx: &CrateContext, debug_location: DebugLocation) {
     debug_context(cx).current_debug_location.set(debug_location);
 }
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 //  Utility Functions
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
 /// Return codemap::Loc corresponding to the beginning of the span
 fn span_start(cx: &CrateContext, span: Span) -> codemap::Loc {
@@ -3124,13 +3234,13 @@ fn get_namespace_and_span_for_item(cx: &CrateContext, def_id: ast::DefId)
     (containing_scope, definition_span)
 }
 
-// This procedure builds the *scope map* for a given function, which maps any given ast::NodeId in
-// the function's AST to the correct DIScope metadata instance.
+// This procedure builds the *scope map* for a given function, which maps any
+// given ast::NodeId in the function's AST to the correct DIScope metadata instance.
 //
-// This builder procedure walks the AST in execution order and keeps track of what belongs to which
-// scope, creating DIScope DIEs along the way, and introducing *artificial* lexical scope
-// descriptors where necessary. These artificial scopes allow GDB to correctly handle name
-// shadowing.
+// This builder procedure walks the AST in execution order and keeps track of
+// what belongs to which scope, creating DIScope DIEs along the way, and
+// introducing *artificial* lexical scope descriptors where necessary. These
+// artificial scopes allow GDB to correctly handle name shadowing.
 fn populate_scope_map(cx: &CrateContext,
                       arg_pats: &[Gc<ast::Pat>],
                       fn_entry_block: &ast::Block,
@@ -3143,18 +3253,20 @@ fn populate_scope_map(cx: &CrateContext,
         ident: Option<ast::Ident>
     }
 
-    let mut scope_stack = vec!(ScopeStackEntry { scope_metadata: fn_metadata, ident: None });
+    let mut scope_stack = vec!(ScopeStackEntry { scope_metadata: fn_metadata,
+                                                 ident: None });
 
-    // Push argument identifiers onto the stack so arguments integrate nicely with variable
-    // shadowing.
+    // Push argument identifiers onto the stack so arguments integrate nicely
+    // with variable shadowing.
     for &arg_pat in arg_pats.iter() {
         pat_util::pat_bindings(def_map, &*arg_pat, |_, _, _, path_ref| {
             let ident = ast_util::path_to_ident(path_ref);
-            scope_stack.push(ScopeStackEntry { scope_metadata: fn_metadata, ident: Some(ident) });
+            scope_stack.push(ScopeStackEntry { scope_metadata: fn_metadata,
+                                               ident: Some(ident) });
         })
     }
 
-    // Clang creates a separate scope for function bodies, so let's do this too
+    // Clang creates a separate scope for function bodies, so let's do this too.
     with_new_scope(cx,
                    fn_entry_block.span,
                    &mut scope_stack,
@@ -3186,7 +3298,8 @@ fn populate_scope_map(cx: &CrateContext,
                 0)
         };
 
-        scope_stack.push(ScopeStackEntry { scope_metadata: scope_metadata, ident: None });
+        scope_stack.push(ScopeStackEntry { scope_metadata: scope_metadata,
+                                           ident: None });
 
         inner_walk(cx, scope_stack, scope_map);
 
@@ -3219,7 +3332,7 @@ fn populate_scope_map(cx: &CrateContext,
                 ast::StmtExpr(ref exp, _) |
                 ast::StmtSemi(ref exp, _) =>
                     walk_expr(cx, &**exp, scope_stack, scope_map),
-                ast::StmtMac(..) => () // ignore macros (which should be expanded anyway)
+                ast::StmtMac(..) => () // Ignore macros (which should be expanded anyway).
             }
         }
 
@@ -3253,21 +3366,22 @@ fn populate_scope_map(cx: &CrateContext,
 
         let def_map = &cx.tcx.def_map;
 
-        // Unfortunately, we cannot just use pat_util::pat_bindings() or ast_util::walk_pat() here
-        // because we have to visit *all* nodes in order to put them into the scope map. The above
-        // functions don't do that.
+        // Unfortunately, we cannot just use pat_util::pat_bindings() or
+        // ast_util::walk_pat() here because we have to visit *all* nodes in
+        // order to put them into the scope map. The above functions don't do that.
         match pat.node {
             ast::PatIdent(_, ref path_ref, ref sub_pat_opt) => {
 
-                // Check if this is a binding. If so we need to put it on the scope stack and maybe
-                // introduce an artificial scope
+                // Check if this is a binding. If so we need to put it on the
+                // scope stack and maybe introduce an artificial scope
                 if pat_util::pat_is_binding(def_map, &*pat) {
 
                     let ident = ast_util::path_to_ident(path_ref);
 
-                    // LLVM does not properly generate 'DW_AT_start_scope' fields for variable DIEs.
-                    // For this reason we have to introduce an artificial scope at bindings whenever
-                    // a variable with the same name is declared in *any* parent scope.
+                    // LLVM does not properly generate 'DW_AT_start_scope' fields
+                    // for variable DIEs. For this reason we have to introduce
+                    // an artificial scope at bindings whenever a variable with
+                    // the same name is declared in *any* parent scope.
                     //
                     // Otherwise the following error occurs:
                     //
@@ -3276,8 +3390,9 @@ fn populate_scope_map(cx: &CrateContext,
                     // do_something(); // 'gdb print x' correctly prints 10
                     //
                     // {
-                    //     do_something(); // 'gdb print x' prints 0, because it already reads the
-                    //                     // uninitialized 'x' from the next line...
+                    //     do_something(); // 'gdb print x' prints 0, because it
+                    //                     // already reads the uninitialized 'x'
+                    //                     // from the next line...
                     //     let x = 100;
                     //     do_something(); // 'gdb print x' correctly prints 100
                     // }
@@ -3552,9 +3667,10 @@ fn populate_scope_map(cx: &CrateContext,
             ast::ExprMatch(ref discriminant_exp, ref arms) => {
                 walk_expr(cx, &**discriminant_exp, scope_stack, scope_map);
 
-                // for each arm we have to first walk the pattern as these might introduce new
-                // artificial scopes. It should be sufficient to walk only one pattern per arm, as
-                // they all must contain the same binding names
+                // For each arm we have to first walk the pattern as these might
+                // introduce new artificial scopes. It should be sufficient to
+                // walk only one pattern per arm, as they all must contain the
+                // same binding names.
 
                 for arm_ref in arms.iter() {
                     let arm_span = arm_ref.pats.get(0).span;
@@ -3605,9 +3721,9 @@ fn populate_scope_map(cx: &CrateContext,
 }
 
 
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 // Namespace Handling
-//=-------------------------------------------------------------------------------------------------
+//=-----------------------------------------------------------------------------
 
 struct NamespaceTreeNode {
     name: ast::Name,
@@ -3676,7 +3792,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
                     // create and insert
                     let parent_scope = match parent_node {
                         Some(ref node) => node.scope,
-                        None => ptr::null()
+                        None => ptr::mut_null()
                     };
                     let namespace_name = token::get_name(name);
                     let scope = namespace_name.get().with_c_str(|namespace_name| {
@@ -3686,7 +3802,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
                                 parent_scope,
                                 namespace_name,
                                 // cannot reconstruct file ...
-                                ptr::null(),
+                                ptr::mut_null(),
                                 // ... or line information, but that's not so important.
                                 0)
                         }

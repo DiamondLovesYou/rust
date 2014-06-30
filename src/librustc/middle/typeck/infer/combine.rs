@@ -58,8 +58,7 @@ use middle::typeck::infer::{ToUres};
 use middle::typeck::infer::glb::Glb;
 use middle::typeck::infer::lub::Lub;
 use middle::typeck::infer::sub::Sub;
-use middle::typeck::infer::to_str::InferStr;
-use middle::typeck::infer::unify::InferCtxtMethods;
+use middle::typeck::infer::unify::InferCtxtMethodsForSimplyUnifiableTypes;
 use middle::typeck::infer::{InferCtxt, cres, ures};
 use middle::typeck::infer::{TypeTrace};
 use util::common::indent;
@@ -86,16 +85,13 @@ pub trait Combine {
     fn tys(&self, a: ty::t, b: ty::t) -> cres<ty::t>;
 
     fn tps(&self,
-           space: subst::ParamSpace,
+           _: subst::ParamSpace,
            as_: &[ty::t],
            bs: &[ty::t])
-           -> cres<Vec<ty::t>>
-    {
-        // FIXME(#5781) -- In general, we treat variance a bit wrong
-        // here. For historical reasons, we treat Self as
-        // contravariant and other tps as invariant. Both are wrong:
-        // Self may or may not be contravariant, and other tps do not
-        // need to be invariant.
+           -> cres<Vec<ty::t>> {
+        // FIXME -- In general, we treat variance a bit wrong
+        // here. For historical reasons, we treat tps and Self
+        // as invariant. This is overly conservative.
 
         if as_.len() != bs.len() {
             return Err(ty::terr_ty_param_size(expected_found(self,
@@ -103,24 +99,11 @@ pub trait Combine {
                                                              bs.len())));
         }
 
-        match space {
-            subst::SelfSpace => {
-                result::fold(as_
-                             .iter()
-                             .zip(bs.iter())
-                             .map(|(a, b)| self.contratys(*a, *b)),
-                             Vec::new(),
-                             |mut v, a| { v.push(a); v })
-            }
-
-            subst::TypeSpace | subst::FnSpace => {
-                try!(result::fold_(as_
-                                  .iter()
-                                  .zip(bs.iter())
-                                  .map(|(a, b)| eq_tys(self, *a, *b))));
-                Ok(Vec::from_slice(as_))
-            }
-        }
+        try!(result::fold_(as_
+                          .iter()
+                          .zip(bs.iter())
+                          .map(|(a, b)| eq_tys(self, *a, *b))));
+        Ok(Vec::from_slice(as_))
     }
 
     fn substs(&self,
@@ -264,7 +247,7 @@ pub trait Combine {
                     a: ty::TraitStore,
                     b: ty::TraitStore)
                     -> cres<ty::TraitStore> {
-        debug!("{}.trait_stores(a={:?}, b={:?})", self.tag(), a, b);
+        debug!("{}.trait_stores(a={}, b={})", self.tag(), a, b);
 
         match (a, b) {
             (ty::RegionTraitStore(a_r, a_m),
@@ -379,17 +362,19 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
     // so, for example, &T and &[U] should not unify. In fact the only thing
     // &[U] should unify with is &[T]. We preserve that behaviour with this
     // check.
-    fn check_ptr_to_vec<C:Combine>(this: &C,
-                                   a: ty::t,
-                                   b: ty::t,
-                                   a_inner: ty::t,
-                                   b_inner: ty::t,
-                                   result: ty::t) -> cres<ty::t> {
+    fn check_ptr_to_unsized<C:Combine>(this: &C,
+                                       a: ty::t,
+                                       b: ty::t,
+                                       a_inner: ty::t,
+                                       b_inner: ty::t,
+                                       result: ty::t) -> cres<ty::t> {
         match (&ty::get(a_inner).sty, &ty::get(b_inner).sty) {
             (&ty::ty_vec(_, None), &ty::ty_vec(_, None)) |
-            (&ty::ty_str, &ty::ty_str) => Ok(result),
+            (&ty::ty_str, &ty::ty_str) |
+            (&ty::ty_trait(..), &ty::ty_trait(..)) => Ok(result),
             (&ty::ty_vec(_, None), _) | (_, &ty::ty_vec(_, None)) |
-            (&ty::ty_str, _) | (_, &ty::ty_str)
+            (&ty::ty_str, _) | (_, &ty::ty_str) |
+            (&ty::ty_trait(..), _) | (_, &ty::ty_trait(..))
                 => Err(ty::terr_sorts(expected_found(this, a, b))),
             _ => Ok(result),
         }
@@ -408,8 +393,8 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
         tcx.sess.bug(
             format!("{}: bot and var types should have been handled ({},{})",
                     this.tag(),
-                    a.inf_str(this.infcx()),
-                    b.inf_str(this.infcx())).as_slice());
+                    a.repr(this.infcx().tcx),
+                    b.repr(this.infcx().tcx)).as_slice());
       }
 
         // Relate integral variables to other types
@@ -515,12 +500,7 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
             }
         }
         (&ty::ty_infer(MDVar(a_id, FloatMDInnerVid(_), left_len)),
-         &ty::ty_infer(MDVar(b_id, FloatMDInnerVid(_), right_len)))
-            if left_len == right_len => {
-            if_ok!(this.infcx().simple_vars(this.a_is_expected(),
-                                            a_id, b_id));
-            Ok(a)
-        }
+         &ty::ty_infer(MDVar(b_id, FloatMDInnerVid(_), right_len))) |
         (&ty::ty_infer(MDVar(a_id, IntMDInnerVid(_), left_len)),
          &ty::ty_infer(MDVar(b_id, IntMDInnerVid(_), right_len)))
             if left_len == right_len => {
@@ -528,7 +508,6 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
                                             a_id, b_id));
             Ok(a)
         }
-
 
       (&ty::ty_char, _) |
       (&ty::ty_nil, _) |
@@ -561,12 +540,10 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
       if a_.def_id == b_.def_id => {
           debug!("Trying to match traits {:?} and {:?}", a, b);
           let substs = if_ok!(this.substs(a_.def_id, &a_.substs, &b_.substs));
-          let s = if_ok!(this.trait_stores(ty::terr_trait, a_.store, b_.store));
           let bounds = if_ok!(this.bounds(a_.bounds, b_.bounds));
           Ok(ty::mk_trait(tcx,
                           a_.def_id,
                           substs.clone(),
-                          s,
                           bounds))
       }
 
@@ -582,18 +559,28 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
 
       (&ty::ty_uniq(a_inner), &ty::ty_uniq(b_inner)) => {
             let typ = if_ok!(this.tys(a_inner, b_inner));
-            check_ptr_to_vec(this, a, b, a_inner, b_inner, ty::mk_uniq(tcx, typ))
+            check_ptr_to_unsized(this, a, b, a_inner, b_inner, ty::mk_uniq(tcx, typ))
       }
 
       (&ty::ty_ptr(ref a_mt), &ty::ty_ptr(ref b_mt)) => {
             let mt = if_ok!(this.mts(a_mt, b_mt));
-            check_ptr_to_vec(this, a, b, a_mt.ty, b_mt.ty, ty::mk_ptr(tcx, mt))
+            check_ptr_to_unsized(this, a, b, a_mt.ty, b_mt.ty, ty::mk_ptr(tcx, mt))
       }
 
       (&ty::ty_rptr(a_r, ref a_mt), &ty::ty_rptr(b_r, ref b_mt)) => {
             let r = if_ok!(this.contraregions(a_r, b_r));
-            let mt = if_ok!(this.mts(a_mt, b_mt));
-            check_ptr_to_vec(this, a, b, a_mt.ty, b_mt.ty, ty::mk_rptr(tcx, r, mt))
+            // FIXME(14985)  If we have mutable references to trait objects, we
+            // used to use covariant subtyping. I have preserved this behaviour,
+            // even though it is probably incorrect. So don't go down the usual
+            // path which would require invariance.
+            let mt = match (&ty::get(a_mt.ty).sty, &ty::get(b_mt.ty).sty) {
+                (&ty::ty_trait(..), &ty::ty_trait(..)) if a_mt.mutbl == b_mt.mutbl => {
+                    let ty = if_ok!(this.tys(a_mt.ty, b_mt.ty));
+                    ty::mt { ty: ty, mutbl: a_mt.mutbl }
+                }
+                _ => if_ok!(this.mts(a_mt, b_mt))
+            };
+            check_ptr_to_unsized(this, a, b, a_mt.ty, b_mt.ty, ty::mk_rptr(tcx, r, mt))
       }
 
       (&ty::ty_vec(ref a_mt, sz_a), &ty::ty_vec(ref b_mt, sz_b)) => {

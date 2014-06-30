@@ -78,6 +78,7 @@ pub enum Token {
     DOLLAR,
 
     /* Literals */
+    LIT_BYTE(u8),
     LIT_CHAR(char),
     LIT_INT(i64, ast::IntTy),
     LIT_UINT(u64, ast::UintTy),
@@ -86,6 +87,8 @@ pub enum Token {
     LIT_FLOAT_UNSUFFIXED(ast::Ident),
     LIT_STR(ast::Ident),
     LIT_STR_RAW(ast::Ident, uint), /* raw str delimited by n hash symbols */
+    LIT_BINARY(Rc<Vec<u8>>),
+    LIT_BINARY_RAW(Rc<Vec<u8>>, uint), /* raw binary str delimited by n hash symbols */
 
     /* Name components */
     // an identifier contains an "is_mod_name" boolean,
@@ -111,6 +114,7 @@ pub enum Nonterminal {
     NtPat( Gc<ast::Pat>),
     NtExpr(Gc<ast::Expr>),
     NtTy(  P<ast::Ty>),
+    // see IDENT, above, for meaning of bool in NtIdent:
     NtIdent(Box<ast::Ident>, bool),
     NtMeta(Gc<ast::MetaItem>), // stuff inside brackets for attributes
     NtPath(Box<ast::Path>),
@@ -193,6 +197,14 @@ pub fn to_str(t: &Token) -> String {
       DOLLAR => "$".to_string(),
 
       /* Literals */
+      LIT_BYTE(b) => {
+          let mut res = String::from_str("b'");
+          (b as char).escape_default(|c| {
+              res.push_char(c);
+          });
+          res.push_char('\'');
+          res
+      }
       LIT_CHAR(c) => {
           let mut res = String::from_str("'");
           c.escape_default(|c| {
@@ -201,10 +213,8 @@ pub fn to_str(t: &Token) -> String {
           res.push_char('\'');
           res
       }
-      LIT_INT(i, t) => ast_util::int_ty_to_str(t, Some(i),
-                                               ast_util::ForceSuffix),
-      LIT_UINT(u, t) => ast_util::uint_ty_to_str(t, Some(u),
-                                                 ast_util::ForceSuffix),
+      LIT_INT(i, t) => ast_util::int_ty_to_str(t, Some(i)),
+      LIT_UINT(u, t) => ast_util::uint_ty_to_str(t, Some(u)),
       LIT_INT_UNSUFFIXED(i) => { (i as u64).to_str() }
       LIT_FLOAT(s, t) => {
         let mut body = String::from_str(get_ident(s).get());
@@ -222,17 +232,26 @@ pub fn to_str(t: &Token) -> String {
         body
       }
       LIT_STR(s) => {
-          (format!("\"{}\"", get_ident(s).get().escape_default())).to_string()
+          format!("\"{}\"", get_ident(s).get().escape_default())
       }
       LIT_STR_RAW(s, n) => {
-          (format!("r{delim}\"{string}\"{delim}",
-                  delim="#".repeat(n), string=get_ident(s))).to_string()
+        format!("r{delim}\"{string}\"{delim}",
+                 delim="#".repeat(n), string=get_ident(s))
+      }
+      LIT_BINARY(ref v) => {
+          format!(
+            "b\"{}\"",
+            v.iter().map(|&b| b as char).collect::<String>().escape_default())
+      }
+      LIT_BINARY_RAW(ref s, n) => {
+        format!("br{delim}\"{string}\"{delim}",
+                 delim="#".repeat(n), string=s.as_slice().to_ascii().as_str_ascii())
       }
 
       /* Name components */
       IDENT(s, _) => get_ident(s).get().to_string(),
       LIFETIME(s) => {
-          (format!("{}", get_ident(s))).to_string()
+          format!("{}", get_ident(s))
       }
       UNDERSCORE => "_".to_string(),
 
@@ -273,6 +292,7 @@ pub fn can_begin_expr(t: &Token) -> bool {
       IDENT(_, _) => true,
       UNDERSCORE => true,
       TILDE => true,
+      LIT_BYTE(_) => true,
       LIT_CHAR(_) => true,
       LIT_INT(_, _) => true,
       LIT_UINT(_, _) => true,
@@ -281,6 +301,8 @@ pub fn can_begin_expr(t: &Token) -> bool {
       LIT_FLOAT_UNSUFFIXED(_) => true,
       LIT_STR(_) => true,
       LIT_STR_RAW(_, _) => true,
+      LIT_BINARY(_) => true,
+      LIT_BINARY_RAW(_, _) => true,
       POUND => true,
       AT => true,
       NOT => true,
@@ -311,6 +333,7 @@ pub fn close_delimiter_for(t: &Token) -> Option<Token> {
 
 pub fn is_lit(t: &Token) -> bool {
     match *t {
+      LIT_BYTE(_) => true,
       LIT_CHAR(_) => true,
       LIT_INT(_, _) => true,
       LIT_UINT(_, _) => true,
@@ -319,6 +342,8 @@ pub fn is_lit(t: &Token) -> bool {
       LIT_FLOAT_UNSUFFIXED(_) => true,
       LIT_STR(_) => true,
       LIT_STR_RAW(_, _) => true,
+      LIT_BINARY(_) => true,
+      LIT_BINARY_RAW(_, _) => true,
       _ => false
     }
 }
@@ -486,11 +511,11 @@ declare_special_idents_and_keywords! {
         (40,                         Continue,   "continue");
         (41,                         Proc,       "proc");
         (42,                         Box,        "box");
+        (43,                         Const,      "const");
 
         'reserved:
-        (43,                         Alignof,    "alignof");
-        (44,                         Be,         "be");
-        (45,                         Const,      "const");
+        (44,                         Alignof,    "alignof");
+        (45,                         Be,         "be");
         (46,                         Offsetof,   "offsetof");
         (47,                         Priv,       "priv");
         (48,                         Pure,       "pure");

@@ -476,8 +476,8 @@ impl Process {
     ///
     /// ```no_run
     /// # #![allow(experimental)]
-    /// use std::io::process::{Command, ProcessExit};
-    /// use std::io::IoResult;
+    /// use std::io::{Command, IoResult};
+    /// use std::io::process::ProcessExit;
     ///
     /// fn run_gracefully(prog: &str) -> IoResult<ProcessExit> {
     ///     let mut p = try!(Command::new("long-running-process").spawn());
@@ -908,7 +908,7 @@ mod tests {
     iotest!(fn test_zero() {
         let mut p = sleeper();
         p.signal_kill().unwrap();
-        for _ in range(0, 20) {
+        for _ in range(0i, 20) {
             if p.signal(0).is_err() {
                 assert!(!p.wait().unwrap().success());
                 return

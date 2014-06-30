@@ -49,9 +49,7 @@
 //! }
 //!
 //! fn main() {
-//!     let args: Vec<String> = os::args().iter()
-//!                                       .map(|x| x.to_string())
-//!                                       .collect();
+//!     let args: Vec<String> = os::args();
 //!
 //!     let program = args.get(0).clone();
 //!
@@ -79,6 +77,7 @@
 //! ~~~
 
 #![crate_id = "getopts#0.11.0-pre"]
+#![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]

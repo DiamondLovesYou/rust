@@ -89,7 +89,7 @@ pub enum Home {
 ///
 /// The goal for having this weird-looking function is to reduce the number of
 /// allocations done on a green-task startup as much as possible.
-extern fn bootstrap_green_task(task: uint, code: *(), env: *()) -> ! {
+extern fn bootstrap_green_task(task: uint, code: *mut (), env: *mut ()) -> ! {
     // Acquire ownership of the `proc()`
     let start: proc() = unsafe {
         mem::transmute(raw::Procedure { code: code, env: env })
@@ -110,7 +110,7 @@ extern fn bootstrap_green_task(task: uint, code: *(), env: *()) -> ! {
     // requested. This is the "try/catch" block for this green task and
     // is the wrapper for *all* code run in the task.
     let mut start = Some(start);
-    let task = task.swap().run(|| start.take_unwrap()());
+    let task = task.swap().run(|| start.take_unwrap()()).destroy();
 
     // Once the function has exited, it's time to run the termination
     // routine. This means we need to context switch one more time but
@@ -120,7 +120,7 @@ extern fn bootstrap_green_task(task: uint, code: *(), env: *()) -> ! {
     // this we could add a `terminate` function to the `Runtime` trait
     // in libstd, but that seems less appropriate since the coversion
     // method exists.
-    GreenTask::convert(task).terminate()
+    GreenTask::convert(task).terminate();
 }
 
 impl GreenTask {
@@ -256,7 +256,7 @@ impl GreenTask {
     // context switches
 
     pub fn as_uint(&self) -> uint {
-        self as *GreenTask as uint
+        self as *const GreenTask as uint
     }
 
     pub unsafe fn from_uint(val: uint) -> Box<GreenTask> {
@@ -536,7 +536,7 @@ mod tests {
     fn yield_test() {
         let (tx, rx) = channel();
         spawn_opts(TaskOpts::new(), proc() {
-            for _ in range(0, 10) { task::deschedule(); }
+            for _ in range(0u, 10) { task::deschedule(); }
             tx.send(());
         });
         rx.recv();

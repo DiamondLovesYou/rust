@@ -23,7 +23,7 @@ fn main() {
     error!("this is printed by default");
 
     if log_enabled!(log::INFO) {
-        let x = 3 * 4; // expensive computation
+        let x = 3i * 4i; // expensive computation
         info!("the answer was: {}", x);
     }
 }
@@ -106,6 +106,7 @@ if logging is disabled, none of the components of the log will be executed.
 */
 
 #![crate_id = "log#0.11.0-pre"]
+#![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
@@ -143,8 +144,8 @@ static DEFAULT_LOG_LEVEL: u32 = 1;
 /// logging statement should be run.
 static mut LOG_LEVEL: u32 = MAX_LOG_LEVEL;
 
-static mut DIRECTIVES: *Vec<directive::LogDirective> =
-    0 as *Vec<directive::LogDirective>;
+static mut DIRECTIVES: *const Vec<directive::LogDirective> =
+    0 as *const Vec<directive::LogDirective>;
 
 /// Debug log level
 pub static DEBUG: u32 = 4;
@@ -350,7 +351,7 @@ fn init() {
             assert!(!DIRECTIVES.is_null());
             let _directives: Box<Vec<directive::LogDirective>> =
                 mem::transmute(DIRECTIVES);
-            DIRECTIVES = 0 as *Vec<directive::LogDirective>;
+            DIRECTIVES = 0 as *const Vec<directive::LogDirective>;
         });
     }
 }

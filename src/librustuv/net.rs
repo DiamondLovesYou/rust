@@ -30,8 +30,8 @@ use uvll;
 /// Generic functions related to dealing with sockaddr things
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn htons(u: u16) -> u16 { mem::to_be16(u) }
-pub fn ntohs(u: u16) -> u16 { mem::from_be16(u) }
+pub fn htons(u: u16) -> u16 { u.to_be() }
+pub fn ntohs(u: u16) -> u16 { Int::from_be(u) }
 
 pub fn sockaddr_to_addr(storage: &libc::sockaddr_storage,
                         len: uint) -> rtio::SocketAddr {
@@ -41,7 +41,7 @@ pub fn sockaddr_to_addr(storage: &libc::sockaddr_storage,
             let storage: &libc::sockaddr_in = unsafe {
                 mem::transmute(storage)
             };
-            let ip = mem::to_be32(storage.sin_addr.s_addr as u32);
+            let ip = (storage.sin_addr.s_addr as u32).to_be();
             let a = (ip >> 24) as u8;
             let b = (ip >> 16) as u8;
             let c = (ip >>  8) as u8;
@@ -89,7 +89,8 @@ fn addr_to_sockaddr(addr: rtio::SocketAddr) -> (libc::sockaddr_storage, uint) {
                 (*storage).sin_family = libc::AF_INET as libc::sa_family_t;
                 (*storage).sin_port = htons(addr.port);
                 (*storage).sin_addr = libc::in_addr {
-                    s_addr: mem::from_be32(ip)
+                    s_addr: Int::from_be(ip),
+
                 };
                 mem::size_of::<libc::sockaddr_in>()
             }
@@ -124,7 +125,7 @@ enum SocketNameKind {
 }
 
 fn socket_name(sk: SocketNameKind,
-               handle: *c_void) -> Result<rtio::SocketAddr, IoError> {
+               handle: *mut c_void) -> Result<rtio::SocketAddr, IoError> {
     let getsockname = match sk {
         TcpPeer => uvll::uv_tcp_getpeername,
         Tcp     => uvll::uv_tcp_getsockname,
@@ -149,7 +150,7 @@ fn socket_name(sk: SocketNameKind,
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct TcpWatcher {
-    handle: *uvll::uv_tcp_t,
+    handle: *mut uvll::uv_tcp_t,
     stream: StreamWatcher,
     home: HomeHandle,
     refcount: Refcount,
@@ -164,7 +165,7 @@ pub struct TcpWatcher {
 
 pub struct TcpListener {
     home: HomeHandle,
-    handle: *uvll::uv_pipe_t,
+    handle: *mut uvll::uv_pipe_t,
     outgoing: Sender<Result<Box<rtio::RtioTcpStream + Send>, IoError>>,
     incoming: Receiver<Result<Box<rtio::RtioTcpStream + Send>, IoError>>,
 }
@@ -203,7 +204,7 @@ impl TcpWatcher {
         let tcp = TcpWatcher::new(io);
         let cx = ConnectCtx { status: -1, task: None, timer: None };
         let (addr, _len) = addr_to_sockaddr(address);
-        let addr_p = &addr as *_ as *libc::sockaddr;
+        let addr_p = &addr as *const _ as *const libc::sockaddr;
         cx.connect(tcp, timeout, io, |req, tcp, cb| {
             unsafe { uvll::uv_tcp_connect(req.handle, tcp.handle, addr_p, cb) }
         })
@@ -310,7 +311,7 @@ impl rtio::RtioTcpStream for TcpWatcher {
         let _m = self.fire_homing_missile();
         let loop_ = self.uv_loop();
         self.read_access.set_timeout(ms, &self.home, &loop_, cancel_read,
-                                     &self.stream as *_ as uint);
+                                     &self.stream as *const _ as uint);
 
         fn cancel_read(stream: uint) -> Option<BlockedTask> {
             let stream: &mut StreamWatcher = unsafe { mem::transmute(stream) };
@@ -322,7 +323,7 @@ impl rtio::RtioTcpStream for TcpWatcher {
         let _m = self.fire_homing_missile();
         let loop_ = self.uv_loop();
         self.write_access.set_timeout(ms, &self.home, &loop_, cancel_write,
-                                      &self.stream as *_ as uint);
+                                      &self.stream as *const _ as uint);
 
         fn cancel_write(stream: uint) -> Option<BlockedTask> {
             let stream: &mut StreamWatcher = unsafe { mem::transmute(stream) };
@@ -332,7 +333,7 @@ impl rtio::RtioTcpStream for TcpWatcher {
 }
 
 impl UvHandle<uvll::uv_tcp_t> for TcpWatcher {
-    fn uv_handle(&self) -> *uvll::uv_tcp_t { self.stream.handle }
+    fn uv_handle(&self) -> *mut uvll::uv_tcp_t { self.stream.handle }
 }
 
 impl Drop for TcpWatcher {
@@ -362,8 +363,8 @@ impl TcpListener {
         };
         let (addr, _len) = addr_to_sockaddr(address);
         let res = unsafe {
-            let addr_p = &addr as *libc::sockaddr_storage;
-            uvll::uv_tcp_bind(l.handle, addr_p as *libc::sockaddr)
+            let addr_p = &addr as *const libc::sockaddr_storage;
+            uvll::uv_tcp_bind(l.handle, addr_p as *const libc::sockaddr)
         };
         return match res {
             0 => Ok(l.install()),
@@ -377,7 +378,7 @@ impl HomingIO for TcpListener {
 }
 
 impl UvHandle<uvll::uv_tcp_t> for TcpListener {
-    fn uv_handle(&self) -> *uvll::uv_tcp_t { self.handle }
+    fn uv_handle(&self) -> *mut uvll::uv_tcp_t { self.handle }
 }
 
 impl rtio::RtioSocket for TcpListener {
@@ -404,7 +405,7 @@ impl rtio::RtioTcpListener for TcpListener {
     }
 }
 
-extern fn listen_cb(server: *uvll::uv_stream_t, status: c_int) {
+extern fn listen_cb(server: *mut uvll::uv_stream_t, status: c_int) {
     assert!(status != uvll::ECANCELED);
     let tcp: &mut TcpListener = unsafe { UvHandle::from_uv_handle(&server) };
     let msg = match status {
@@ -474,7 +475,7 @@ impl rtio::RtioTcpAcceptor for TcpAcceptor {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct UdpWatcher {
-    handle: *uvll::uv_udp_t,
+    handle: *mut uvll::uv_udp_t,
     home: HomeHandle,
 
     // See above for what these fields are
@@ -513,8 +514,8 @@ impl UdpWatcher {
         }, 0);
         let (addr, _len) = addr_to_sockaddr(address);
         let result = unsafe {
-            let addr_p = &addr as *libc::sockaddr_storage;
-            uvll::uv_udp_bind(udp.handle, addr_p as *libc::sockaddr, 0u32)
+            let addr_p = &addr as *const libc::sockaddr_storage;
+            uvll::uv_udp_bind(udp.handle, addr_p as *const libc::sockaddr, 0u32)
         };
         return match result {
             0 => Ok(udp),
@@ -524,7 +525,7 @@ impl UdpWatcher {
 }
 
 impl UvHandle<uvll::uv_udp_t> for UdpWatcher {
-    fn uv_handle(&self) -> *uvll::uv_udp_t { self.handle }
+    fn uv_handle(&self) -> *mut uvll::uv_udp_t { self.handle }
 }
 
 impl HomingIO for UdpWatcher {
@@ -557,7 +558,7 @@ impl rtio::RtioUdpSocket for UdpWatcher {
                 };
                 let handle = self.handle;
                 wait_until_woken_after(&mut cx.task, &loop_, || {
-                    unsafe { uvll::set_data_for_uv_handle(handle, &cx) }
+                    unsafe { uvll::set_data_for_uv_handle(handle, &mut cx) }
                 });
                 match cx.result.take_unwrap() {
                     (n, _) if n < 0 =>
@@ -568,7 +569,7 @@ impl rtio::RtioUdpSocket for UdpWatcher {
             n => Err(uv_error_to_io_error(UvError(n)))
         };
 
-        extern fn alloc_cb(handle: *uvll::uv_udp_t,
+        extern fn alloc_cb(handle: *mut uvll::uv_udp_t,
                            _suggested_size: size_t,
                            buf: *mut Buf) {
             unsafe {
@@ -578,8 +579,9 @@ impl rtio::RtioUdpSocket for UdpWatcher {
             }
         }
 
-        extern fn recv_cb(handle: *uvll::uv_udp_t, nread: ssize_t, buf: *Buf,
-                          addr: *libc::sockaddr, _flags: c_uint) {
+        extern fn recv_cb(handle: *mut uvll::uv_udp_t, nread: ssize_t,
+                          buf: *const Buf,
+                          addr: *const libc::sockaddr, _flags: c_uint) {
             assert!(nread != uvll::ECANCELED as ssize_t);
             let cx = unsafe {
                 &mut *(uvll::get_data_for_uv_handle(handle) as *mut UdpRecvCtx)
@@ -612,7 +614,7 @@ impl rtio::RtioUdpSocket for UdpWatcher {
 
         let mut req = Request::new(uvll::UV_UDP_SEND);
         let (addr, _len) = addr_to_sockaddr(dst);
-        let addr_p = &addr as *_ as *libc::sockaddr;
+        let addr_p = &addr as *const _ as *const libc::sockaddr;
 
         // see comments in StreamWatcher::write for why we may allocate a buffer
         // here.
@@ -632,7 +634,7 @@ impl rtio::RtioUdpSocket for UdpWatcher {
                     result: uvll::ECANCELED, data: data, udp: self as *mut _
                 };
                 wait_until_woken_after(&mut self.blocked_sender, &loop_, || {
-                    req.set_data(&cx);
+                    req.set_data(&mut cx);
                 });
 
                 if cx.result != uvll::ECANCELED {
@@ -641,13 +643,13 @@ impl rtio::RtioUdpSocket for UdpWatcher {
                         n => Err(uv_error_to_io_error(UvError(n)))
                     }
                 }
-                let new_cx = box UdpSendCtx {
+                let mut new_cx = box UdpSendCtx {
                     result: 0,
                     udp: 0 as *mut UdpWatcher,
                     data: cx.data.take(),
                 };
                 unsafe {
-                    req.set_data(&*new_cx);
+                    req.set_data(&mut *new_cx);
                     mem::forget(new_cx);
                 }
                 Err(uv_error_to_io_error(UvError(cx.result)))
@@ -657,7 +659,7 @@ impl rtio::RtioUdpSocket for UdpWatcher {
 
         // This function is the same as stream::write_cb, but adapted for udp
         // instead of streams.
-        extern fn send_cb(req: *uvll::uv_udp_send_t, status: c_int) {
+        extern fn send_cb(req: *mut uvll::uv_udp_send_t, status: c_int) {
             let req = Request::wrap(req);
             let cx: &mut UdpSendCtx = unsafe { req.get_data() };
             cx.result = status;
@@ -765,12 +767,12 @@ impl rtio::RtioUdpSocket for UdpWatcher {
         fn cancel_read(stream: uint) -> Option<BlockedTask> {
             // This method is quite similar to StreamWatcher::cancel_read, see
             // there for more information
-            let handle = stream as *uvll::uv_udp_t;
+            let handle = stream as *mut uvll::uv_udp_t;
             assert_eq!(unsafe { uvll::uv_udp_recv_stop(handle) }, 0);
             let data = unsafe {
                 let data = uvll::get_data_for_uv_handle(handle);
                 if data.is_null() { return None }
-                uvll::set_data_for_uv_handle(handle, 0 as *int);
+                uvll::set_data_for_uv_handle(handle, 0 as *mut int);
                 &mut *(data as *mut UdpRecvCtx)
             };
             data.result = Some((uvll::ECANCELED as ssize_t, None));
@@ -805,7 +807,7 @@ impl Drop for UdpWatcher {
 // Shutdown helper
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn shutdown(handle: *uvll::uv_stream_t, loop_: &Loop) -> Result<(), IoError> {
+pub fn shutdown(handle: *mut uvll::uv_stream_t, loop_: &Loop) -> Result<(), IoError> {
     struct Ctx {
         slot: Option<BlockedTask>,
         status: c_int,
@@ -818,7 +820,7 @@ pub fn shutdown(handle: *uvll::uv_stream_t, loop_: &Loop) -> Result<(), IoError>
             let mut cx = Ctx { slot: None, status: 0 };
 
             wait_until_woken_after(&mut cx.slot, loop_, || {
-                req.set_data(&cx);
+                req.set_data(&mut cx);
             });
 
             status_to_io_result(cx.status)
@@ -826,7 +828,7 @@ pub fn shutdown(handle: *uvll::uv_stream_t, loop_: &Loop) -> Result<(), IoError>
         n => Err(uv_error_to_io_error(UvError(n)))
     };
 
-    extern fn shutdown_cb(req: *uvll::uv_shutdown_t, status: libc::c_int) {
+    extern fn shutdown_cb(req: *mut uvll::uv_shutdown_t, status: libc::c_int) {
         let req = Request::wrap(req);
         assert!(status != uvll::ECANCELED);
         let cx: &mut Ctx = unsafe { req.get_data() };

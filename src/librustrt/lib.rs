@@ -15,8 +15,9 @@
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/")]
-#![feature(macro_rules, phase, globs, thread_local, managed_boxes, asm,
-           linkage)]
+
+#![feature(macro_rules, phase, globs, thread_local, managed_boxes, asm)]
+#![feature(linkage, lang_items, unsafe_destructor)]
 #![no_std]
 #![experimental]
 
@@ -103,7 +104,7 @@ pub static DEFAULT_ERROR_CODE: int = 101;
 /// Initializes global state, including frobbing
 /// the crate's logging flags, registering GC
 /// metadata, and storing the process arguments.
-pub fn init(argc: int, argv: **u8) {
+pub fn init(argc: int, argv: *const *const u8) {
     // FIXME: Derefing these pointers is not safe.
     // Need to propagate the unsafety to `start`.
     unsafe {

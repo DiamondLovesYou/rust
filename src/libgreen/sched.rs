@@ -611,13 +611,13 @@ impl Scheduler {
     // old task as inputs.
 
     pub fn change_task_context(mut ~self,
-                               current_task: Box<GreenTask>,
+                               mut current_task: Box<GreenTask>,
                                mut next_task: Box<GreenTask>,
                                f: |&mut Scheduler, Box<GreenTask>|)
                                -> Box<GreenTask> {
         let f_opaque = ClosureConverter::from_fn(f);
 
-        let current_task_dupe = &*current_task as *GreenTask;
+        let current_task_dupe = &mut *current_task as *mut GreenTask;
 
         // The current task is placed inside an enum with the cleanup
         // function. This enum is then placed inside the scheduler.
@@ -641,7 +641,7 @@ impl Scheduler {
             };
 
             let (current_task_context, next_task_context) =
-                Scheduler::get_contexts(current_task, next_task);
+                Scheduler::get_contexts(current_task, &mut *next_task);
 
             // Done with everything - put the next task in TLS. This
             // works because due to transmute the borrow checker
@@ -871,7 +871,7 @@ impl Scheduler {
 
     // * Utility Functions
 
-    pub fn sched_id(&self) -> uint { self as *Scheduler as uint }
+    pub fn sched_id(&self) -> uint { self as *const Scheduler as uint }
 
     pub fn run_cleanup_job(&mut self) {
         let cleanup_job = self.cleanup_job.take_unwrap();
@@ -1336,7 +1336,7 @@ mod test {
     fn multithreading() {
         run(proc() {
             let mut rxs = vec![];
-            for _ in range(0, 10) {
+            for _ in range(0u, 10) {
                 let (tx, rx) = channel();
                 spawn(proc() {
                     tx.send(());
@@ -1469,7 +1469,7 @@ mod test {
     fn single_threaded_yield() {
         use std::task::deschedule;
         run(proc() {
-            for _ in range(0, 5) { deschedule(); }
+            for _ in range(0u, 5) { deschedule(); }
         });
     }
 
@@ -1480,7 +1480,7 @@ mod test {
 
         // Testing that a task in one scheduler can block in foreign code
         // without affecting other schedulers
-        for _ in range(0, 20) {
+        for _ in range(0u, 20) {
             let mut pool = pool();
             let (start_tx, start_rx) = channel();
             let (fin_tx, fin_rx) = channel();

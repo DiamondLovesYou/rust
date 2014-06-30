@@ -19,7 +19,7 @@ pub trait ToHex {
     fn to_hex(&self) -> String;
 }
 
-static CHARS: &'static[u8] = bytes!("0123456789abcdef");
+static CHARS: &'static[u8] = b"0123456789abcdef";
 
 impl<'a> ToHex for &'a [u8] {
     /**
@@ -173,14 +173,14 @@ mod tests {
 
     #[test]
     pub fn test_to_hex_all_bytes() {
-        for i in range(0, 256) {
+        for i in range(0u, 256) {
             assert_eq!([i as u8].to_hex(), format!("{:02x}", i as uint));
         }
     }
 
     #[test]
     pub fn test_from_hex_all_bytes() {
-        for i in range(0, 256) {
+        for i in range(0u, 256) {
             assert_eq!(format!("{:02x}", i as uint).as_slice()
                                                    .from_hex()
                                                    .unwrap()

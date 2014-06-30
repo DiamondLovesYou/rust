@@ -33,7 +33,7 @@ use ast::{ForeignItem, ForeignItemStatic, ForeignItemFn, ForeignMod};
 use ast::{Ident, NormalFn, Inherited, Item, Item_, ItemStatic};
 use ast::{ItemEnum, ItemFn, ItemForeignMod, ItemImpl};
 use ast::{ItemMac, ItemMod, ItemStruct, ItemTrait, ItemTy, Lit, Lit_};
-use ast::{LitBool, LitFloat, LitFloatUnsuffixed, LitInt, LitChar};
+use ast::{LitBool, LitFloat, LitFloatUnsuffixed, LitInt, LitChar, LitByte, LitBinary};
 use ast::{LitIntUnsuffixed, LitNil, LitStr, LitUint, Local, LocalLet};
 use ast::{MutImmutable, MutMutable, Mac_, MacInvocTT, Matcher, MatchNonterminal};
 use ast::{MatchSeq, MatchTok, Method, MutTy, BiMul, Mutability};
@@ -88,6 +88,7 @@ pub enum restriction {
     RESTRICT_STMT_EXPR,
     RESTRICT_NO_BAR_OP,
     RESTRICT_NO_BAR_OR_DOUBLEBAR_OP,
+    RESTRICT_NO_STRUCT_LITERAL,
 }
 
 type ItemInfo = (Ident, Item_, Option<Vec<Attribute> >);
@@ -706,6 +707,16 @@ impl<'a> Parser<'a> {
                 let lo = span.lo + BytePos(1);
                 self.replace_token(token::GT, lo, span.hi)
             }
+            token::BINOPEQ(token::SHR) => {
+                let span = self.span;
+                let lo = span.lo + BytePos(1);
+                self.replace_token(token::GE, lo, span.hi)
+            }
+            token::GE => {
+                let span = self.span;
+                let lo = span.lo + BytePos(1);
+                self.replace_token(token::EQ, lo, span.hi)
+            }
             _ => {
                 let gt_str = Parser::token_to_str(&token::GT);
                 let this_token_str = self.this_token_to_str();
@@ -726,7 +737,9 @@ impl<'a> Parser<'a> {
         let mut first = true;
         let mut v = Vec::new();
         while self.token != token::GT
-            && self.token != token::BINOP(token::SHR) {
+            && self.token != token::BINOP(token::SHR)
+            && self.token != token::GE
+            && self.token != token::BINOPEQ(token::SHR) {
             match sep {
               Some(ref t) => {
                 if first { first = false; }
@@ -1352,7 +1365,7 @@ impl<'a> Parser<'a> {
         } else if self.token == token::BINOP(token::STAR) {
             // STAR POINTER (bare pointer?)
             self.bump();
-            TyPtr(self.parse_mt())
+            TyPtr(self.parse_ptr())
         } else if self.token == token::LBRACKET {
             // VECTOR
             self.expect(&token::LBRACKET);
@@ -1427,6 +1440,23 @@ impl<'a> Parser<'a> {
 
         let mt = self.parse_mt();
         return TyRptr(opt_lifetime, mt);
+    }
+
+    pub fn parse_ptr(&mut self) -> MutTy {
+        let mutbl = if self.eat_keyword(keywords::Mut) {
+            MutMutable
+        } else if self.eat_keyword(keywords::Const) {
+            MutImmutable
+        } else {
+            let span = self.last_span;
+            self.span_err(span,
+                          "bare raw pointers are no longer allowed, you should \
+                           likely use `*mut T`, but otherwise `*T` is now \
+                           known as `*const T`");
+            MutImmutable
+        };
+        let t = self.parse_ty(true);
+        MutTy { ty: t, mutbl: mutbl }
     }
 
     pub fn is_named_argument(&mut self) -> bool {
@@ -1512,6 +1542,7 @@ impl<'a> Parser<'a> {
     // matches token_lit = LIT_INT | ...
     pub fn lit_from_token(&mut self, tok: &token::Token) -> Lit_ {
         match *tok {
+            token::LIT_BYTE(i) => LitByte(i),
             token::LIT_CHAR(i) => LitChar(i),
             token::LIT_INT(i, it) => LitInt(i, it),
             token::LIT_UINT(u, ut) => LitUint(u, ut),
@@ -1528,6 +1559,8 @@ impl<'a> Parser<'a> {
             token::LIT_STR_RAW(s, n) => {
                 LitStr(self.id_to_interned_str(s), ast::RawStr(n))
             }
+            token::LIT_BINARY_RAW(ref v, _) |
+            token::LIT_BINARY(ref v) => LitBinary(v.clone()),
             token::LPAREN => { self.expect(&token::RPAREN); LitNil },
             _ => { self.unexpected_last(tok); }
         }
@@ -1643,6 +1676,12 @@ impl<'a> Parser<'a> {
             let bounds = {
                 if self.eat(&token::BINOP(token::PLUS)) {
                     let (_, bounds) = self.parse_ty_param_bounds(false);
+                    if bounds.len() == 0 {
+                        let last_span = self.last_span;
+                        self.span_err(last_span,
+                                      "at least one type parameter bound \
+                                       must be specified after the `+`");
+                    }
                     Some(bounds)
                 } else {
                     None
@@ -2003,8 +2042,9 @@ impl<'a> Parser<'a> {
 
                 return self.mk_mac_expr(lo, hi, MacInvocTT(pth, tts, EMPTY_CTXT));
             } else if self.token == token::LBRACE {
-                // This might be a struct literal.
-                if self.looking_at_struct_literal() {
+                // This is a struct literal, unless we're prohibited from
+                // parsing struct literals here.
+                if self.restriction != RESTRICT_NO_STRUCT_LITERAL {
                     // It's a struct literal.
                     self.bump();
                     let mut fields = Vec::new();
@@ -2019,6 +2059,14 @@ impl<'a> Parser<'a> {
                         fields.push(self.parse_field());
                         self.commit_expr(fields.last().unwrap().expr,
                                          &[token::COMMA], &[token::RBRACE]);
+                    }
+
+                    if fields.len() == 0 && base.is_none() {
+                        let last_span = self.last_span;
+                        self.span_err(last_span,
+                                      "structure literal must either have at \
+                                       least one field or use functional \
+                                       structure update syntax");
                     }
 
                     hi = self.span.hi;
@@ -2527,7 +2575,7 @@ impl<'a> Parser<'a> {
     // parse an 'if' expression ('if' token already eaten)
     pub fn parse_if_expr(&mut self) -> Gc<Expr> {
         let lo = self.last_span.lo;
-        let cond = self.parse_expr();
+        let cond = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
         let thn = self.parse_block();
         let mut els: Option<Gc<Expr>> = None;
         let mut hi = thn.span.hi;
@@ -2612,7 +2660,7 @@ impl<'a> Parser<'a> {
         let lo = self.last_span.lo;
         let pat = self.parse_pat();
         self.expect_keyword(keywords::In);
-        let expr = self.parse_expr();
+        let expr = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
         let loop_block = self.parse_block();
         let hi = self.span.hi;
 
@@ -2621,7 +2669,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse_while_expr(&mut self) -> Gc<Expr> {
         let lo = self.last_span.lo;
-        let cond = self.parse_expr();
+        let cond = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
         let body = self.parse_block();
         let hi = body.span.hi;
         return self.mk_expr(lo, hi, ExprWhile(cond, body));
@@ -2634,17 +2682,9 @@ impl<'a> Parser<'a> {
         self.mk_expr(lo, hi, ExprLoop(body, opt_ident))
     }
 
-    // For distinguishing between struct literals and blocks
-    fn looking_at_struct_literal(&mut self) -> bool {
-        self.token == token::LBRACE &&
-        ((self.look_ahead(1, |t| token::is_plain_ident(t)) &&
-          self.look_ahead(2, |t| *t == token::COLON))
-         || self.look_ahead(1, |t| *t == token::DOTDOT))
-    }
-
     fn parse_match_expr(&mut self) -> Gc<Expr> {
         let lo = self.last_span.lo;
-        let discriminant = self.parse_expr();
+        let discriminant = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
         self.commit_expr_expecting(discriminant, token::LBRACE);
         let mut arms: Vec<Arm> = Vec::new();
         while self.token != token::RBRACE {
@@ -2685,7 +2725,7 @@ impl<'a> Parser<'a> {
     }
 
     // parse an expression, subject to the given restriction
-    fn parse_expr_res(&mut self, r: restriction) -> Gc<Expr> {
+    pub fn parse_expr_res(&mut self, r: restriction) -> Gc<Expr> {
         let old = self.restriction;
         self.restriction = r;
         let e = self.parse_assign_expr();
@@ -4095,6 +4135,11 @@ impl<'a> Parser<'a> {
                 };
                 spanned(lo, p.span.hi, struct_field_)
             });
+            if fields.len() == 0 {
+                self.fatal(format!("unit-like struct definition should be \
+                                    written as `struct {};`",
+                                   token::get_ident(class_name)).as_slice());
+            }
             self.expect(&token::SEMI);
         } else if self.eat(&token::SEMI) {
             // It's a unit-like struct.

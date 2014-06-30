@@ -552,16 +552,17 @@ impl tr for freevar_entry {
 // Encoding and decoding of MethodCallee
 
 trait read_method_callee_helper {
-    fn read_method_callee(&mut self, xcx: &ExtendedDecodeContext) -> (u32, MethodCallee);
+    fn read_method_callee(&mut self, xcx: &ExtendedDecodeContext)
+        -> (typeck::ExprAdjustment, MethodCallee);
 }
 
 fn encode_method_callee(ecx: &e::EncodeContext,
                         ebml_w: &mut Encoder,
-                        autoderef: u32,
+                        adjustment: typeck::ExprAdjustment,
                         method: &MethodCallee) {
     ebml_w.emit_struct("MethodCallee", 4, |ebml_w| {
-        ebml_w.emit_struct_field("autoderef", 0u, |ebml_w| {
-            autoderef.encode(ebml_w)
+        ebml_w.emit_struct_field("adjustment", 0u, |ebml_w| {
+            adjustment.encode(ebml_w)
         });
         ebml_w.emit_struct_field("origin", 1u, |ebml_w| {
             method.origin.encode(ebml_w)
@@ -576,12 +577,14 @@ fn encode_method_callee(ecx: &e::EncodeContext,
 }
 
 impl<'a> read_method_callee_helper for reader::Decoder<'a> {
-    fn read_method_callee(&mut self, xcx: &ExtendedDecodeContext) -> (u32, MethodCallee) {
+    fn read_method_callee(&mut self, xcx: &ExtendedDecodeContext)
+        -> (typeck::ExprAdjustment, MethodCallee) {
+
         self.read_struct("MethodCallee", 4, |this| {
-            let autoderef = this.read_struct_field("autoderef", 0, |this| {
+            let adjustment = this.read_struct_field("adjustment", 0, |this| {
                 Decodable::decode(this)
             }).unwrap();
-            Ok((autoderef, MethodCallee {
+            Ok((adjustment, MethodCallee {
                 origin: this.read_struct_field("origin", 1, |this| {
                     let method_origin: MethodOrigin =
                         Decodable::decode(this).unwrap();
@@ -627,11 +630,11 @@ impl tr for MethodOrigin {
 
 fn encode_vtable_res_with_key(ecx: &e::EncodeContext,
                               ebml_w: &mut Encoder,
-                              autoderef: u32,
+                              adjustment: typeck::ExprAdjustment,
                               dr: &typeck::vtable_res) {
     ebml_w.emit_struct("VtableWithKey", 2, |ebml_w| {
-        ebml_w.emit_struct_field("autoderef", 0u, |ebml_w| {
-            autoderef.encode(ebml_w)
+        ebml_w.emit_struct_field("adjustment", 0u, |ebml_w| {
+            adjustment.encode(ebml_w)
         });
         ebml_w.emit_struct_field("vtable_res", 1u, |ebml_w| {
             Ok(encode_vtable_res(ecx, ebml_w, dr))
@@ -705,7 +708,7 @@ pub trait vtable_decoder_helpers {
     fn read_vtable_res_with_key(&mut self,
                                 tcx: &ty::ctxt,
                                 cdata: &cstore::crate_metadata)
-                                -> (u32, typeck::vtable_res);
+                                -> (typeck::ExprAdjustment, typeck::vtable_res);
     fn read_vtable_res(&mut self,
                        tcx: &ty::ctxt, cdata: &cstore::crate_metadata)
                       -> typeck::vtable_res;
@@ -731,12 +734,12 @@ impl<'a> vtable_decoder_helpers for reader::Decoder<'a> {
     fn read_vtable_res_with_key(&mut self,
                                 tcx: &ty::ctxt,
                                 cdata: &cstore::crate_metadata)
-                                -> (u32, typeck::vtable_res) {
+                                -> (typeck::ExprAdjustment, typeck::vtable_res) {
         self.read_struct("VtableWithKey", 2, |this| {
-            let autoderef = this.read_struct_field("autoderef", 0, |this| {
+            let adjustment = this.read_struct_field("adjustment", 0, |this| {
                 Decodable::decode(this)
             }).unwrap();
-            Ok((autoderef, this.read_struct_field("vtable_res", 1, |this| {
+            Ok((adjustment, this.read_struct_field("vtable_res", 1, |this| {
                 Ok(this.read_vtable_res(tcx, cdata))
             }).unwrap()))
         }).unwrap()
@@ -836,9 +839,9 @@ trait ebml_writer_helpers {
     fn emit_type_param_def(&mut self,
                            ecx: &e::EncodeContext,
                            type_param_def: &ty::TypeParameterDef);
-    fn emit_tpbt(&mut self,
-                 ecx: &e::EncodeContext,
-                 tpbt: ty::ty_param_bounds_and_ty);
+    fn emit_polytype(&mut self,
+                     ecx: &e::EncodeContext,
+                     pty: ty::Polytype);
     fn emit_substs(&mut self, ecx: &e::EncodeContext, substs: &subst::Substs);
     fn emit_auto_adjustment(&mut self, ecx: &e::EncodeContext, adj: &ty::AutoAdjustment);
 }
@@ -862,26 +865,26 @@ impl<'a> ebml_writer_helpers for Encoder<'a> {
         });
     }
 
-    fn emit_tpbt(&mut self,
+    fn emit_polytype(&mut self,
                  ecx: &e::EncodeContext,
-                 tpbt: ty::ty_param_bounds_and_ty) {
-        self.emit_struct("ty_param_bounds_and_ty", 2, |this| {
+                 pty: ty::Polytype) {
+        self.emit_struct("Polytype", 2, |this| {
             this.emit_struct_field("generics", 0, |this| {
                 this.emit_struct("Generics", 2, |this| {
                     this.emit_struct_field("types", 0, |this| {
                         Ok(encode_vec_per_param_space(
-                            this, &tpbt.generics.types,
+                            this, &pty.generics.types,
                             |this, def| this.emit_type_param_def(ecx, def)))
                     });
                     this.emit_struct_field("regions", 1, |this| {
                         Ok(encode_vec_per_param_space(
-                            this, &tpbt.generics.regions,
+                            this, &pty.generics.regions,
                             |this, def| def.encode(this).unwrap()))
                     })
                 })
             });
             this.emit_struct_field("ty", 1, |this| {
-                Ok(this.emit_ty(ecx, tpbt.ty))
+                Ok(this.emit_ty(ecx, pty.ty))
             })
         });
     }
@@ -940,7 +943,7 @@ impl<'a> write_tag_and_id for Encoder<'a> {
 }
 
 struct SideTableEncodingIdVisitor<'a,'b> {
-    ecx_ptr: *libc::c_void,
+    ecx_ptr: *const libc::c_void,
     new_ebml_w: &'a mut Encoder<'b>,
 }
 
@@ -1027,11 +1030,11 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
     }
 
     let lid = ast::DefId { krate: ast::LOCAL_CRATE, node: id };
-    for &tpbt in tcx.tcache.borrow().find(&lid).iter() {
+    for &pty in tcx.tcache.borrow().find(&lid).iter() {
         ebml_w.tag(c::tag_table_tcache, |ebml_w| {
             ebml_w.id(id);
             ebml_w.tag(c::tag_table_val, |ebml_w| {
-                ebml_w.emit_tpbt(ecx, tpbt.clone());
+                ebml_w.emit_polytype(ecx, pty.clone());
             })
         })
     }
@@ -1050,7 +1053,7 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
         ebml_w.tag(c::tag_table_method_map, |ebml_w| {
             ebml_w.id(id);
             ebml_w.tag(c::tag_table_val, |ebml_w| {
-                encode_method_callee(ecx, ebml_w, method_call.autoderef, method)
+                encode_method_callee(ecx, ebml_w, method_call.adjustment, method)
             })
         })
     }
@@ -1059,7 +1062,7 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
         ebml_w.tag(c::tag_table_vtable_map, |ebml_w| {
             ebml_w.id(id);
             ebml_w.tag(c::tag_table_val, |ebml_w| {
-                encode_vtable_res_with_key(ecx, ebml_w, method_call.autoderef, dr);
+                encode_vtable_res_with_key(ecx, ebml_w, method_call.adjustment, dr);
             })
         })
     }
@@ -1068,12 +1071,13 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
         match *adj {
             ty::AutoDerefRef(adj) => {
                 for autoderef in range(0, adj.autoderefs) {
-                    let method_call = MethodCall::autoderef(id, autoderef as u32);
+                    let method_call = MethodCall::autoderef(id, autoderef);
                     for &method in tcx.method_map.borrow().find(&method_call).iter() {
                         ebml_w.tag(c::tag_table_method_map, |ebml_w| {
                             ebml_w.id(id);
                             ebml_w.tag(c::tag_table_val, |ebml_w| {
-                                encode_method_callee(ecx, ebml_w, method_call.autoderef, method)
+                                encode_method_callee(ecx, ebml_w,
+                                                     method_call.adjustment, method)
                             })
                         })
                     }
@@ -1083,10 +1087,30 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
                             ebml_w.id(id);
                             ebml_w.tag(c::tag_table_val, |ebml_w| {
                                 encode_vtable_res_with_key(ecx, ebml_w,
-                                                           method_call.autoderef, dr);
+                                                           method_call.adjustment, dr);
                             })
                         })
                     }
+                }
+            }
+            ty::AutoObject(..) => {
+                let method_call = MethodCall::autoobject(id);
+                for &method in tcx.method_map.borrow().find(&method_call).iter() {
+                    ebml_w.tag(c::tag_table_method_map, |ebml_w| {
+                        ebml_w.id(id);
+                        ebml_w.tag(c::tag_table_val, |ebml_w| {
+                            encode_method_callee(ecx, ebml_w, method_call.adjustment, method)
+                        })
+                    })
+                }
+
+                for &dr in tcx.vtable_map.borrow().find(&method_call).iter() {
+                    ebml_w.tag(c::tag_table_vtable_map, |ebml_w| {
+                        ebml_w.id(id);
+                        ebml_w.tag(c::tag_table_val, |ebml_w| {
+                            encode_vtable_res_with_key(ecx, ebml_w, method_call.adjustment, dr);
+                        })
+                    })
                 }
             }
             _ => {}
@@ -1118,8 +1142,8 @@ trait ebml_decoder_decoder_helpers {
     fn read_tys(&mut self, xcx: &ExtendedDecodeContext) -> Vec<ty::t>;
     fn read_type_param_def(&mut self, xcx: &ExtendedDecodeContext)
                            -> ty::TypeParameterDef;
-    fn read_ty_param_bounds_and_ty(&mut self, xcx: &ExtendedDecodeContext)
-                                -> ty::ty_param_bounds_and_ty;
+    fn read_polytype(&mut self, xcx: &ExtendedDecodeContext)
+                     -> ty::Polytype;
     fn read_substs(&mut self, xcx: &ExtendedDecodeContext) -> subst::Substs;
     fn read_auto_adjustment(&mut self, xcx: &ExtendedDecodeContext) -> ty::AutoAdjustment;
     fn convert_def_id(&mut self,
@@ -1221,10 +1245,10 @@ impl<'a> ebml_decoder_decoder_helpers for reader::Decoder<'a> {
         }).unwrap()
     }
 
-    fn read_ty_param_bounds_and_ty(&mut self, xcx: &ExtendedDecodeContext)
-                                   -> ty::ty_param_bounds_and_ty {
-        self.read_struct("ty_param_bounds_and_ty", 2, |this| {
-            Ok(ty::ty_param_bounds_and_ty {
+    fn read_polytype(&mut self, xcx: &ExtendedDecodeContext)
+                                   -> ty::Polytype {
+        self.read_struct("Polytype", 2, |this| {
+            Ok(ty::Polytype {
                 generics: this.read_struct_field("generics", 0, |this| {
                     this.read_struct("Generics", 2, |this| {
                         Ok(ty::Generics {
@@ -1384,29 +1408,29 @@ fn decode_side_tables(xcx: &ExtendedDecodeContext,
                         dcx.tcx.freevars.borrow_mut().insert(id, fv_info);
                     }
                     c::tag_table_tcache => {
-                        let tpbt = val_dsr.read_ty_param_bounds_and_ty(xcx);
+                        let pty = val_dsr.read_polytype(xcx);
                         let lid = ast::DefId { krate: ast::LOCAL_CRATE, node: id };
-                        dcx.tcx.tcache.borrow_mut().insert(lid, tpbt);
+                        dcx.tcx.tcache.borrow_mut().insert(lid, pty);
                     }
                     c::tag_table_param_defs => {
                         let bounds = val_dsr.read_type_param_def(xcx);
                         dcx.tcx.ty_param_defs.borrow_mut().insert(id, bounds);
                     }
                     c::tag_table_method_map => {
-                        let (autoderef, method) = val_dsr.read_method_callee(xcx);
+                        let (adjustment, method) = val_dsr.read_method_callee(xcx);
                         let method_call = MethodCall {
                             expr_id: id,
-                            autoderef: autoderef
+                            adjustment: adjustment
                         };
                         dcx.tcx.method_map.borrow_mut().insert(method_call, method);
                     }
                     c::tag_table_vtable_map => {
-                        let (autoderef, vtable_res) =
+                        let (adjustment, vtable_res) =
                             val_dsr.read_vtable_res_with_key(xcx.dcx.tcx,
                                                              xcx.dcx.cdata);
                         let vtable_key = MethodCall {
                             expr_id: id,
-                            autoderef: autoderef
+                            adjustment: adjustment
                         };
                         dcx.tcx.vtable_map.borrow_mut().insert(vtable_key, vtable_res);
                     }

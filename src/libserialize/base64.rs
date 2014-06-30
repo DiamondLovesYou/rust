@@ -42,13 +42,13 @@ pub static URL_SAFE: Config =
 pub static MIME: Config =
     Config {char_set: Standard, pad: true, line_length: Some(76)};
 
-static STANDARD_CHARS: &'static[u8] = bytes!("ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-                                             "abcdefghijklmnopqrstuvwxyz",
-                                             "0123456789+/");
+static STANDARD_CHARS: &'static[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                                        abcdefghijklmnopqrstuvwxyz\
+                                        0123456789+/";
 
-static URLSAFE_CHARS: &'static[u8] = bytes!("ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-                                            "abcdefghijklmnopqrstuvwxyz",
-                                            "0123456789-_");
+static URLSAFE_CHARS: &'static[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                                       abcdefghijklmnopqrstuvwxyz\
+                                       0123456789-_";
 
 /// A trait for converting a value to base64 encoding.
 pub trait ToBase64 {
@@ -193,7 +193,7 @@ impl<'a> FromBase64 for &'a str {
      * use serialize::base64::{ToBase64, FromBase64, STANDARD};
      *
      * fn main () {
-     *     let hello_str = bytes!("Hello, World").to_base64(STANDARD);
+     *     let hello_str = b"Hello, World".to_base64(STANDARD);
      *     println!("base64 output: {}", hello_str);
      *     let res = hello_str.as_slice().from_base64();
      *     if res.is_ok() {
@@ -336,7 +336,7 @@ mod tests {
     fn test_base64_random() {
         use std::rand::{task_rng, random, Rng};
 
-        for _ in range(0, 1000) {
+        for _ in range(0u, 1000) {
             let times = task_rng().gen_range(1u, 100);
             let v = Vec::from_fn(times, |_| random::<u8>());
             assert_eq!(v.as_slice()

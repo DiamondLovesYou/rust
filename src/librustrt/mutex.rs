@@ -351,8 +351,8 @@ mod imp {
     mod os {
         use libc;
 
-        pub type pthread_mutex_t = *libc::c_void;
-        pub type pthread_cond_t = *libc::c_void;
+        pub type pthread_mutex_t = *mut libc::c_void;
+        pub type pthread_cond_t = *mut libc::c_void;
 
         pub static PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t =
             0 as pthread_mutex_t;
@@ -416,6 +416,8 @@ mod imp {
         static __SIZEOF_PTHREAD_MUTEX_T: uint = 24 - 8;
         #[cfg(target_arch = "mips")]
         static __SIZEOF_PTHREAD_MUTEX_T: uint = 24 - 8;
+        #[cfg(target_arch = "mipsel")]
+        static __SIZEOF_PTHREAD_MUTEX_T: uint = 24 - 8;
         #[cfg(target_arch = "x86_64")]
         static __SIZEOF_PTHREAD_COND_T: uint = 48 - 8;
         #[cfg(target_arch = "x86")]
@@ -423,6 +425,8 @@ mod imp {
         #[cfg(target_arch = "arm")]
         static __SIZEOF_PTHREAD_COND_T: uint = 48 - 8;
         #[cfg(target_arch = "mips")]
+        static __SIZEOF_PTHREAD_COND_T: uint = 48 - 8;
+        #[cfg(target_arch = "mipsel")]
         static __SIZEOF_PTHREAD_COND_T: uint = 48 - 8;
 
         #[repr(C)]

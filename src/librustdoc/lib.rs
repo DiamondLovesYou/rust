@@ -9,6 +9,7 @@
 // except according to those terms.
 
 #![crate_id = "rustdoc#0.11.0-pre"]
+#![experimental]
 #![desc = "rustdoc, the Rust documentation extractor"]
 #![license = "MIT/ASL2"]
 #![crate_type = "dylib"]
@@ -84,17 +85,14 @@ local_data_key!(pub analysiskey: core::CrateAnalysis)
 type Output = (clean::Crate, Vec<plugins::PluginJson> );
 
 pub fn main() {
-    std::os::set_exit_status(main_args(std::os::args().iter()
-                                                      .map(|x| x.to_string())
-                                                      .collect::<Vec<_>>()
-                                                      .as_slice()));
+    std::os::set_exit_status(main_args(std::os::args().as_slice()));
 }
 
 pub fn opts() -> Vec<getopts::OptGroup> {
     use getopts::*;
     vec!(
         optflag("h", "help", "show this help message"),
-        optflag("", "version", "print rustdoc's version"),
+        optflagopt("", "version", "print rustdoc's version", "verbose"),
         optopt("r", "input-format", "the input type of the specified file",
                "[rust|json]"),
         optopt("w", "output-format", "the output type to write",
@@ -149,8 +147,13 @@ pub fn main_args(args: &[String]) -> int {
         usage(args[0].as_slice());
         return 0;
     } else if matches.opt_present("version") {
-        rustc::driver::version("rustdoc");
-        return 0;
+        match rustc::driver::version("rustdoc", &matches) {
+            Some(err) => {
+                println!("{}", err);
+                return 1
+            },
+            None => return 0
+        }
     }
 
     if matches.free.len() == 0 {
@@ -178,17 +181,10 @@ pub fn main_args(args: &[String]) -> int {
 
     match (should_test, markdown_input) {
         (true, true) => {
-            return markdown::test(input,
-                                  libs,
-                                  test_args.move_iter().collect())
+            return markdown::test(input, libs, test_args)
         }
         (true, false) => {
-            return test::run(input,
-                             cfgs.move_iter()
-                                 .map(|x| x.to_string())
-                                 .collect(),
-                             libs,
-                             test_args)
+            return test::run(input, cfgs, libs, test_args)
         }
         (false, true) => return markdown::render(input, output.unwrap_or(Path::new("doc")),
                                                  &matches),
@@ -267,10 +263,7 @@ fn acquire_input(input: &str,
 fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
     let mut default_passes = !matches.opt_present("no-defaults");
     let mut passes = matches.opt_strs("passes");
-    let mut plugins = matches.opt_strs("plugins")
-                             .move_iter()
-                             .map(|x| x.to_string())
-                             .collect::<Vec<_>>();
+    let mut plugins = matches.opt_strs("plugins");
 
     // First, parse the crate and extract all relevant information.
     let libs: Vec<Path> = matches.opt_strs("L")
@@ -283,7 +276,7 @@ fn rust_input(cratefile: &str, matches: &getopts::Matches) -> Output {
     let (krate, analysis) = std::task::try(proc() {
         let cr = cr;
         core::run_core(libs.move_iter().map(|x| x.clone()).collect(),
-                       cfgs.move_iter().map(|x| x.to_string()).collect(),
+                       cfgs,
                        &cr)
     }).map_err(|boxed_any|format!("{:?}", boxed_any)).unwrap();
     info!("finished with rustc");

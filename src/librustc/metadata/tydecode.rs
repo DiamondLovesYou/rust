@@ -330,7 +330,6 @@ fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
           'D' => return ty::mk_mach_int(ast::TyI64),
           'f' => return ty::mk_mach_float(ast::TyF32),
           'F' => return ty::mk_mach_float(ast::TyF64),
-          'Q' => return ty::mk_mach_float(ast::TyF128),
           _ => fail!("parse_ty: bad numeric type")
         }
       }
@@ -346,10 +345,9 @@ fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
         assert_eq!(next(st), '[');
         let def = parse_def(st, NominalType, |x,y| conv(x,y));
         let substs = parse_substs(st, |x,y| conv(x,y));
-        let store = parse_trait_store(st, |x,y| conv(x,y));
         let bounds = parse_bounds(st, |x,y| conv(x,y));
         assert_eq!(next(st), ']');
-        return ty::mk_trait(st.tcx, def, substs, store, bounds.builtin_bounds);
+        return ty::mk_trait(st.tcx, def, substs, bounds.builtin_bounds);
       }
       'p' => {
         let did = parse_def(st, TypeParameter, |x,y| conv(x,y));

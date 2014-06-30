@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(globs)]
+#![feature(globs, lang_items)]
 #![no_std] // makes debugging this test *a lot* easier (during resolve)
 
 #[lang="sized"]
@@ -184,4 +184,4 @@ pub mod mytest {
     }
 }
 
-#[start] fn main(_: int, _: **u8) -> int { 3 }
+#[start] fn main(_: int, _: *const *const u8) -> int { 3 }

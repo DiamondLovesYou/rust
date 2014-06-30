@@ -104,10 +104,10 @@
 
 use middle::def::*;
 use middle::freevars;
-use middle::lint::{UnusedVariable, DeadAssignment};
 use middle::mem_categorization::Typer;
 use middle::pat_util;
 use middle::ty;
+use lint;
 use util::nodemap::NodeMap;
 
 use std::fmt;
@@ -360,7 +360,8 @@ fn visit_fn(ir: &mut IrMaps,
     let mut fn_maps = IrMaps::new(ir.tcx);
 
     unsafe {
-        debug!("creating fn_maps: {}", transmute::<&IrMaps, *IrMaps>(&fn_maps));
+        debug!("creating fn_maps: {}",
+               transmute::<&IrMaps, *const IrMaps>(&fn_maps));
     }
 
     for arg in decl.inputs.iter() {
@@ -702,15 +703,10 @@ impl<'a> Liveness<'a> {
                 if self.loop_scope.len() == 0 {
                     self.ir.tcx.sess.span_bug(sp, "break outside loop");
                 } else {
-                    // FIXME(#5275): this shouldn't have to be a method...
-                    self.last_loop_scope()
+                    *self.loop_scope.last().unwrap()
                 }
             }
         }
-    }
-
-    fn last_loop_scope(&self) -> NodeId {
-        *self.loop_scope.last().unwrap()
     }
 
     #[allow(unused_must_use)]
@@ -1572,11 +1568,11 @@ impl<'a> Liveness<'a> {
                 };
 
                 if is_assigned {
-                    self.ir.tcx.sess.add_lint(UnusedVariable, id, sp,
+                    self.ir.tcx.sess.add_lint(lint::builtin::UNUSED_VARIABLE, id, sp,
                         format!("variable `{}` is assigned to, but never used",
                                 *name));
                 } else {
-                    self.ir.tcx.sess.add_lint(UnusedVariable, id, sp,
+                    self.ir.tcx.sess.add_lint(lint::builtin::UNUSED_VARIABLE, id, sp,
                         format!("unused variable: `{}`", *name));
                 }
             }
@@ -1594,7 +1590,7 @@ impl<'a> Liveness<'a> {
         if self.live_on_exit(ln, var).is_none() {
             let r = self.should_warn(var);
             for name in r.iter() {
-                self.ir.tcx.sess.add_lint(DeadAssignment, id, sp,
+                self.ir.tcx.sess.add_lint(lint::builtin::DEAD_ASSIGNMENT, id, sp,
                     format!("value assigned to `{}` is never read", *name));
             }
         }

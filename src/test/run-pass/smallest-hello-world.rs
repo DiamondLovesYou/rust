@@ -13,10 +13,11 @@
 // Smallest "hello world" with a libc runtime
 
 #![no_std]
+#![feature(intrinsics, lang_items)]
 
 extern crate libc;
 
-extern { fn puts(s: *u8); }
+extern { fn puts(s: *const u8); }
 extern "rust-intrinsic" { fn transmute<T, U>(t: T) -> U; }
 
 #[lang = "stack_exhausted"] extern fn stack_exhausted() {}
@@ -24,9 +25,9 @@ extern "rust-intrinsic" { fn transmute<T, U>(t: T) -> U; }
 
 #[start]
 #[no_split_stack]
-fn main(_: int, _: **u8) -> int {
+fn main(_: int, _: *const *const u8) -> int {
     unsafe {
-        let (ptr, _): (*u8, uint) = transmute("Hello!\0");
+        let (ptr, _): (*const u8, uint) = transmute("Hello!\0");
         puts(ptr);
     }
     return 0;

@@ -116,20 +116,25 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
         ty::ty_float(t) => Type::float_from_ty(cx, t),
 
         ty::ty_box(..) |
-        ty::ty_uniq(..) |
         ty::ty_ptr(..) => Type::i8p(cx),
+        ty::ty_uniq(ty) => {
+            match ty::get(ty).sty {
+                ty::ty_trait(..) => Type::opaque_trait(cx),
+                _ => Type::i8p(cx),
+            }
+        }
         ty::ty_rptr(_, mt) => {
             match ty::get(mt.ty).sty {
                 ty::ty_vec(_, None) | ty::ty_str => {
                     Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false)
                 }
+                ty::ty_trait(..) => Type::opaque_trait(cx),
                 _ => Type::i8p(cx),
             }
         }
 
         ty::ty_bare_fn(..) => Type::i8p(cx),
         ty::ty_closure(..) => Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false),
-        ty::ty_trait(..) => Type::opaque_trait(cx),
 
         ty::ty_vec(mt, Some(size)) => {
             Type::array(&sizing_type_of(cx, mt.ty), size as u64)
@@ -155,7 +160,7 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
             Type::vector(&type_of(cx, t), n as u64)
         }
         ty::ty_infer(..) | ty::ty_param(..) |
-        ty::ty_err(..) | ty::ty_vec(_, None) | ty::ty_str => {
+        ty::ty_err(..) | ty::ty_vec(_, None) | ty::ty_str | ty::ty_trait(..) => {
             cx.sess().bug(format!("fictitious type {:?} in sizing_type_of()",
                                   ty::get(t).sty).as_slice())
         }
@@ -218,6 +223,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
           match ty::get(typ).sty {
               ty::ty_vec(mt, None) => Type::vec(cx, &type_of(cx, mt.ty)).ptr_to(),
               ty::ty_str => Type::vec(cx, &Type::i8(cx)).ptr_to(),
+              ty::ty_trait(..) => Type::opaque_trait(cx),
               _ => type_of(cx, typ).ptr_to(),
           }
       }
@@ -233,6 +239,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
                   // This means we get a nicer name in the output
                   cx.tn.find_type("str_slice").unwrap()
               }
+              ty::ty_trait(..) => Type::opaque_trait(cx),
               _ => type_of(cx, mt.ty).ptr_to(),
           }
       }
@@ -248,7 +255,6 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
           let fn_ty = type_of_fn_from_ty(cx, t).ptr_to();
           Type::struct_(cx, [fn_ty, Type::i8p(cx)], false)
       }
-      ty::ty_trait(..) => Type::opaque_trait(cx),
       ty::ty_tup(..) => {
           let repr = adt::represent_type(cx, t);
           adt::type_of(cx, &*repr)
@@ -274,6 +280,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
 
       ty::ty_vec(_, None) => cx.sess().bug("type_of with unsized ty_vec"),
       ty::ty_str => cx.sess().bug("type_of with unsized (bare) ty_str"),
+      ty::ty_trait(..) => cx.sess().bug("type_of with unsized ty_trait"),
       ty::ty_infer(..) => cx.sess().bug("type_of with ty_infer"),
       ty::ty_param(..) => cx.sess().bug("type_of with ty_param"),
       ty::ty_err(..) => cx.sess().bug("type_of with ty_err")

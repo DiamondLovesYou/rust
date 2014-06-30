@@ -160,7 +160,7 @@ block_comment_body : [block_comment | character] * ;
 line_comment : "//" non_eol * ;
 ~~~~
 
-Comments in Rust code follow the general C++ style of line and block-comment forms. 
+Comments in Rust code follow the general C++ style of line and block-comment forms.
 Nested block comments are supported.
 
 Line comments beginning with exactly _three_ slashes (`///`), and block
@@ -234,7 +234,7 @@ rule. A literal is a form of constant expression, so is evaluated (primarily)
 at compile time.
 
 ~~~~ {.ebnf .gram}
-literal : string_lit | char_lit | num_lit ;
+literal : string_lit | char_lit | byte_string_lit | byte_lit | num_lit ;
 ~~~~
 
 #### Character and string literals
@@ -244,17 +244,17 @@ char_lit : '\x27' char_body '\x27' ;
 string_lit : '"' string_body * '"' | 'r' raw_string ;
 
 char_body : non_single_quote
-          | '\x5c' [ '\x27' | common_escape ] ;
+          | '\x5c' [ '\x27' | common_escape | unicode_escape ] ;
 
 string_body : non_double_quote
-            | '\x5c' [ '\x22' | common_escape ] ;
+            | '\x5c' [ '\x22' | common_escape | unicode_escape ] ;
 raw_string : '"' raw_string_body '"' | '#' raw_string '#' ;
 
 common_escape : '\x5c'
               | 'n' | 'r' | 't' | '0'
               | 'x' hex_digit 2
-              | 'u' hex_digit 4
-              | 'U' hex_digit 8 ;
+unicode_escape : 'u' hex_digit 4
+               | 'U' hex_digit 8 ;
 
 hex_digit : 'a' | 'b' | 'c' | 'd' | 'e' | 'f'
           | 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
@@ -294,7 +294,7 @@ the following forms:
     escaped in order to denote *itself*.
 
 Raw string literals do not process any escapes. They start with the character
-`U+0072` (`r`), followed zero or more of the character `U+0023` (`#`) and a
+`U+0072` (`r`), followed by zero or more of the character `U+0023` (`#`) and a
 `U+0022` (double-quote) character. The _raw string body_ is not defined in the
 EBNF grammar above: it can contain any sequence of Unicode characters and is
 terminated only by another `U+0022` (double-quote) character, followed by the
@@ -317,6 +317,78 @@ r##"foo #"# bar"##;                // foo #"# bar
 
 "\x52"; "R"; r"R";                 // R
 "\\x52"; r"\x52";                  // \x52
+~~~~
+
+#### Byte and byte string literals
+
+~~~~ {.ebnf .gram}
+byte_lit : 'b' '\x27' byte_body '\x27' ;
+byte_string_lit : 'b' '"' string_body * '"' | 'b' 'r' raw_byte_string ;
+
+byte_body : ascii_non_single_quote
+          | '\x5c' [ '\x27' | common_escape ] ;
+
+byte_string_body : ascii_non_double_quote
+            | '\x5c' [ '\x22' | common_escape ] ;
+raw_byte_string : '"' raw_byte_string_body '"' | '#' raw_byte_string '#' ;
+
+~~~~
+
+A _byte literal_ is a single ASCII character (in the `U+0000` to `U+007F` range)
+enclosed within two `U+0027` (single-quote) characters,
+with the exception of `U+0027` itself,
+which must be _escaped_ by a preceding U+005C character (`\`),
+or a single _escape_.
+It is equivalent to a `u8` unsigned 8-bit integer _number literal_.
+
+A _byte string literal_ is a sequence of ASCII characters and _escapes_
+enclosed within two `U+0022` (double-quote) characters,
+with the exception of `U+0022` itself,
+which must be _escaped_ by a preceding `U+005C` character (`\`),
+or a _raw byte string literal_.
+It is equivalent to a `&'static [u8]` borrowed vector of unsigned 8-bit integers.
+
+Some additional _escapes_ are available in either byte or non-raw byte string
+literals. An escape starts with a `U+005C` (`\`) and continues with one of
+the following forms:
+
+  * An _byte escape_ escape starts with `U+0078` (`x`) and is
+    followed by exactly two _hex digits_. It denotes the byte
+    equal to the provided hex value.
+  * A _whitespace escape_ is one of the characters `U+006E` (`n`), `U+0072`
+    (`r`), or `U+0074` (`t`), denoting the bytes values `0x0A` (ASCII LF),
+    `0x0D` (ASCII CR) or `0x09` (ASCII HT) respectively.
+  * The _backslash escape_ is the character `U+005C` (`\`) which must be
+    escaped in order to denote its ASCII encoding `0x5C`.
+
+Raw byte string literals do not process any escapes.
+They start with the character `U+0072` (`r`),
+followed by `U+0062` (`b`),
+followed by zero or more of the character `U+0023` (`#`),
+and a `U+0022` (double-quote) character.
+The _raw string body_ is not defined in the EBNF grammar above:
+it can contain any sequence of ASCII characters and is
+terminated only by another `U+0022` (double-quote) character, followed by the
+same number of `U+0023` (`#`) characters that preceded the opening `U+0022`
+(double-quote) character.
+A raw byte string literal can not contain any non-ASCII byte.
+
+All characters contained in the raw string body represent their ASCII encoding,
+the characters `U+0022` (double-quote) (except when followed by at least as
+many `U+0023` (`#`) characters as were used to start the raw string literal) or
+`U+005C` (`\`) do not have any special meaning.
+
+Examples for byte string literals:
+
+~~~~
+b"foo"; br"foo";                     // foo
+b"\"foo\""; br#""foo""#;             // "foo"
+
+b"foo #\"# bar";
+br##"foo #"# bar"##;                 // foo #"# bar
+
+b"\x52"; b"R"; br"R";                // R
+b"\\x52"; br"\x52";                  // \x52
 ~~~~
 
 #### Number literals
@@ -883,11 +955,12 @@ use std::option::{Some, None};
 # fn foo<T>(_: T){}
 
 fn main() {
-    // Equivalent to 'std::iter::range_step(0, 10, 2);'
-    range_step(0, 10, 2);
+    // Equivalent to 'std::iter::range_step(0u, 10u, 2u);'
+    range_step(0u, 10u, 2u);
 
-    // Equivalent to 'foo(vec![std::option::Some(1.0), std::option::None]);'
-    foo(vec![Some(1.0), None]);
+    // Equivalent to 'foo(vec![std::option::Some(1.0f64),
+    // std::option::None]);'
+    foo(vec![Some(1.0f64), None]);
 }
 ~~~~
 
@@ -1403,7 +1476,7 @@ to pointers to the trait name, used as a type.
 ~~~~
 # trait Shape { }
 # impl Shape for int { }
-# let mycircle = 0;
+# let mycircle = 0i;
 let myshape: Box<Shape> = box mycircle as Box<Shape>;
 ~~~~
 
@@ -1541,7 +1614,7 @@ extern crate libc;
 use libc::{c_char, FILE};
 
 extern {
-    fn fopen(filename: *c_char, mode: *c_char) -> *FILE;
+    fn fopen(filename: *const c_char, mode: *const c_char) -> *mut FILE;
 }
 # fn main() {}
 ~~~~
@@ -1829,8 +1902,6 @@ type int8_t = i8;
 
 ### Static-only attributes
 
-- `address_insignificant` - references to this static may alias with
-  references to other statics, potentially of unrelated type.
 - `thread_local` - on a `static mut`, this signals that the value of this
   static may change depending on the current thread. The exact consequences of
   this are implementation-defined.
@@ -1870,12 +1941,13 @@ interpreted:
   enum representation in C is undefined, and this may be incorrect when the C
   code is compiled with certain flags.
 - `simd` - on certain tuple structs, derive the arithmetic operators, which
-  lower to the target's SIMD instructions, if any.
+  lower to the target's SIMD instructions, if any; the `simd` feature gate
+  is necessary to use this attribute.
 - `static_assert` - on statics whose type is `bool`, terminates compilation
   with an error if it is not initialized to `true`.
 - `unsafe_destructor` - allow implementations of the "drop" language item
   where the type it is implemented for does not implement the "send" language
-  item.
+  item; the `unsafe_destructor` feature gate is needed to use this attribute
 - `unsafe_no_drop_flag` - on structs, remove the flag that prevents
   destructors from being run twice. Destructors might be run multiple times on
   the same object with this attribute.
@@ -2141,12 +2213,21 @@ These types help drive the compiler's analysis
 ### Inline attributes
 
 The inline attribute is used to suggest to the compiler to perform an inline
-expansion and place a copy of the function in the caller rather than generating
-code to call the function where it is defined.
+expansion and place a copy of the function or static in the caller rather than
+generating code to call the function or access the static where it is defined.
 
 The compiler automatically inlines functions based on internal heuristics.
 Incorrectly inlining functions can actually making the program slower, so it
 should be used with care.
+
+Immutable statics are always considered inlineable
+unless marked with `#[inline(never)]`.
+It is undefined
+whether two different inlineable statics
+have the same memory address.
+In other words,
+the compiler is free
+to collapse duplicate inlineable statics together.
 
 `#[inline]` and `#[inline(always)]` always causes the function to be serialized
 into crate metadata to allow cross-crate inlining.
@@ -2190,7 +2271,7 @@ impl<T: PartialEq> PartialEq for Foo<T> {
 
 Supported traits for `deriving` are:
 
-* Comparison traits: `PartialEq`, `TotalEq`, `PartialOrd`, `TotalOrd`.
+* Comparison traits: `PartialEq`, `Eq`, `PartialOrd`, `Ord`.
 * Serialization: `Encodable`, `Decodable`. These require `serialize`.
 * `Clone`, to create `T` from `&T` via a copy.
 * `Hash`, to iterate over the bytes in a data type.
@@ -2221,28 +2302,43 @@ One can indicate the stability of an API using the following attributes:
 These levels are directly inspired by
 [Node.js' "stability index"](http://nodejs.org/api/documentation.html).
 
-There are lints for disallowing items marked with certain levels:
-`deprecated`, `experimental` and `unstable`; the first two will warn
-by default. Items with not marked with a stability are considered to
-be unstable for the purposes of the lint. One can give an optional
+Stability levels are inherited, so an items's stability attribute is the
+default stability for everything nested underneath it.
+
+There are lints for disallowing items marked with certain levels: `deprecated`,
+`experimental` and `unstable`. For now, only `deprecated` warns by default, but
+this will change once the standard library has been stabilized.
+Stability levels are meant to be promises at the crate
+ level, so these lints only apply when referencing
+items from an _external_ crate, not to items defined within the
+current crate. Items with no stability level are considered
+to be unstable for the purposes of the lint. One can give an optional
 string that will be displayed when the lint flags the use of an item.
 
-~~~~ {.ignore}
-#![warn(unstable)]
+For example, if we define one crate called `stability_levels`:
 
+~~~~ {.ignore}
 #[deprecated="replaced by `best`"]
-fn bad() {
+pub fn bad() {
     // delete everything
 }
 
-fn better() {
+pub fn better() {
     // delete fewer things
 }
 
 #[stable]
-fn best() {
+pub fn best() {
     // delete nothing
 }
+~~~~
+
+then the lints will work as follows for a client crate:
+
+~~~~ {.ignore}
+#![warn(unstable)]
+extern crate stability_levels;
+use stability_levels::{bad, better, best};
 
 fn main() {
     bad(); // "warning: use of deprecated item: replaced by `best`"
@@ -2909,7 +3005,7 @@ ten_times(|j| println!("hello, {}", j));
 ### While loops
 
 ~~~~ {.ebnf .gram}
-while_expr : "while" expr '{' block '}' ;
+while_expr : "while" no_struct_literal_expr '{' block '}' ;
 ~~~~
 
 A `while` loop begins by evaluating the boolean loop conditional expression.
@@ -2976,7 +3072,7 @@ A `continue` expression is only permitted in the body of a loop.
 ### For expressions
 
 ~~~~ {.ebnf .gram}
-for_expr : "for" pat "in" expr '{' block '}' ;
+for_expr : "for" pat "in" no_struct_literal_expr '{' block '}' ;
 ~~~~
 
 A `for` expression is a syntactic construct for looping over elements
@@ -3010,7 +3106,7 @@ for i in range(0u, 256) {
 ### If expressions
 
 ~~~~ {.ebnf .gram}
-if_expr : "if" expr '{' block '}'
+if_expr : "if" no_struct_literal_expr '{' block '}'
           else_tail ? ;
 
 else_tail : "else" [ if_expr
@@ -3031,7 +3127,7 @@ then any `else` block is executed.
 ### Match expressions
 
 ~~~~ {.ebnf .gram}
-match_expr : "match" expr '{' match_arm * '}' ;
+match_expr : "match" no_struct_literal_expr '{' match_arm * '}' ;
 
 match_arm : attribute * match_pat "=>" [ expr "," | '{' block '}' ] ;
 
@@ -3468,10 +3564,11 @@ There are four varieties of pointer in Rust:
 
 * Raw pointers (`*`)
   : Raw pointers are pointers without safety or liveness guarantees.
-    Raw pointers are written `*content`,
-    for example `*int` means a raw pointer to an integer.
-    Copying or dropping a raw pointer has no effect on the lifecycle of any other value.
-    Dereferencing a raw pointer or converting it to any other pointer type is an [`unsafe` operation](#unsafe-functions).
+    Raw pointers are written as `*const T` or `*mut T`,
+    for example `*const int` means a raw pointer to an integer.
+    Copying or dropping a raw pointer has no effect on the lifecycle of any
+    other value.  Dereferencing a raw pointer or converting it to any other
+    pointer type is an [`unsafe` operation](#unsafe-functions).
     Raw pointers are generally discouraged in Rust code;
     they exist to support interoperability with foreign code,
     and writing performance-critical or low-level functions.
@@ -3517,7 +3614,7 @@ and no-return value closure has type `proc()`.
 An example of creating and calling a closure:
 
 ```rust
-let captured_var = 10;
+let captured_var = 10i;
 
 let closure_no_args = || println!("captured_var={}", captured_var);
 
@@ -3589,7 +3686,7 @@ fn print(a: Box<Printable>) {
 }
 
 fn main() {
-   print(box 10 as Box<Printable>);
+   print(box 10i as Box<Printable>);
 }
 ~~~~
 

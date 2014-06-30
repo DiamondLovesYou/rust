@@ -24,6 +24,10 @@ use middle::ty::{ty_nil, ty_param, ty_ptr, ty_rptr, ty_tup};
 use middle::ty::{ty_uniq, ty_trait, ty_int, ty_uint, ty_infer};
 use middle::ty;
 use middle::typeck;
+use middle::typeck::infer;
+use middle::typeck::infer::unify;
+use VV = middle::typeck::infer::unify::VarValue;
+use middle::typeck::infer::region_inference;
 
 use std::rc::Rc;
 use std::gc::Gc;
@@ -346,14 +350,17 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
       ty_bot => "!".to_string(),
       ty_bool => "bool".to_string(),
       ty_char => "char".to_string(),
-      ty_int(t) => ast_util::int_ty_to_str(t, None,
-                                           ast_util::AutoSuffix).to_string(),
-      ty_uint(t) => ast_util::uint_ty_to_str(t, None,
-                                             ast_util::AutoSuffix).to_string(),
+      ty_int(t) => ast_util::int_ty_to_str(t, None).to_string(),
+      ty_uint(t) => ast_util::uint_ty_to_str(t, None).to_string(),
       ty_float(t) => ast_util::float_ty_to_str(t).to_string(),
       ty_box(typ) => format!("Gc<{}>", ty_to_str(cx, typ)),
       ty_uniq(typ) => format!("Box<{}>", ty_to_str(cx, typ)),
-      ty_ptr(ref tm) => format!("*{}", mt_to_str(cx, tm)),
+      ty_ptr(ref tm) => {
+          format!("*{} {}", match tm.mutbl {
+              ast::MutMutable => "mut",
+              ast::MutImmutable => "const",
+          }, ty_to_str(cx, tm.ty))
+      }
       ty_rptr(r, ref tm) => {
           let mut buf = region_ptr_to_str(cx, r);
           buf.push_str(mt_to_str(cx, tm).as_slice());
@@ -391,7 +398,7 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
           parameterized(cx, base.as_slice(), substs, &generics)
       }
       ty_trait(box ty::TyTrait {
-          def_id: did, ref substs, store, ref bounds
+          def_id: did, ref substs, ref bounds
       }) => {
           let base = ty::item_path_str(cx, did);
           let trait_def = ty::lookup_trait_def(cx, did);
@@ -399,8 +406,7 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
                                  substs, &trait_def.generics);
           let bound_sep = if bounds.is_empty() { "" } else { ":" };
           let bound_str = bounds.repr(cx);
-          format!("{}{}{}{}",
-                  trait_store_to_str(cx, store),
+          format!("{}{}{}",
                   ty,
                   bound_sep,
                   bound_str)
@@ -576,6 +582,12 @@ impl Repr for ty::t {
     }
 }
 
+impl Repr for ty::mt {
+    fn repr(&self, tcx: &ctxt) -> String {
+        mt_to_str(tcx, self)
+    }
+}
+
 impl Repr for subst::Substs {
     fn repr(&self, tcx: &ctxt) -> String {
         format!("Substs[types={}, regions={}]",
@@ -623,7 +635,7 @@ impl Repr for ty::ParamBounds {
         for t in self.trait_bounds.iter() {
             res.push(t.repr(tcx));
         }
-        res.connect("+").to_string()
+        res.connect("+")
     }
 }
 
@@ -709,7 +721,7 @@ impl Repr for ty::Region {
             }
 
             ty::ReInfer(ReVar(ref vid)) => {
-                format!("ReInfer({})", vid.id)
+                format!("ReInfer({})", vid.index)
             }
 
             ty::ReInfer(ReSkolemized(id, ref bound_region)) => {
@@ -750,9 +762,9 @@ impl Repr for ast::DefId {
     }
 }
 
-impl Repr for ty::ty_param_bounds_and_ty {
+impl Repr for ty::Polytype {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("ty_param_bounds_and_ty {{generics: {}, ty: {}}}",
+        format!("Polytype {{generics: {}, ty: {}}}",
                 self.generics.repr(tcx),
                 self.ty.repr(tcx))
     }
@@ -880,13 +892,6 @@ impl Repr for typeck::MethodObject {
     }
 }
 
-
-impl Repr for ty::RegionVid {
-    fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
-    }
-}
-
 impl Repr for ty::TraitStore {
     fn repr(&self, tcx: &ctxt) -> String {
         trait_store_to_str(tcx, *self)
@@ -998,5 +1003,97 @@ impl Repr for ty::UpvarBorrow {
         format!("UpvarBorrow({}, {})",
                 self.kind.repr(tcx),
                 self.region.repr(tcx))
+    }
+}
+
+impl Repr for ty::IntVid {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{}", self)
+    }
+}
+
+impl Repr for ty::FloatVid {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{}", self)
+    }
+}
+
+impl Repr for ty::RegionVid {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{}", self)
+    }
+}
+
+impl Repr for ty::TyVid {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{}", self)
+    }
+}
+
+impl Repr for ty::MDVid {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{}", self)
+    }
+}
+
+impl Repr for ty::MDVarValue {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{:?}", *self)
+    }
+}
+
+impl Repr for ty::IntVarValue {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{:?}", *self)
+    }
+}
+
+impl Repr for ast::IntTy {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{:?}", *self)
+    }
+}
+
+impl Repr for ast::UintTy {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{:?}", *self)
+    }
+}
+
+impl Repr for ast::FloatTy {
+    fn repr(&self, _tcx: &ctxt) -> String {
+        format!("{:?}", *self)
+    }
+}
+
+impl<T:Repr> Repr for infer::Bounds<T> {
+    fn repr(&self, tcx: &ctxt) -> String {
+        format!("({} <= {})",
+                self.lb.repr(tcx),
+                self.ub.repr(tcx))
+    }
+}
+
+impl<K:Repr,V:Repr> Repr for VV<K,V> {
+    fn repr(&self, tcx: &ctxt) -> String {
+        match *self {
+            unify::Redirect(ref k) =>
+                format!("Redirect({})", k.repr(tcx)),
+            unify::Root(ref v, r) =>
+                format!("Root({}, {})", v.repr(tcx), r)
+        }
+    }
+}
+
+impl Repr for region_inference::VarValue {
+    fn repr(&self, tcx: &ctxt) -> String {
+        match *self {
+            infer::region_inference::NoValue =>
+                format!("NoValue"),
+            infer::region_inference::Value(r) =>
+                format!("Value({})", r.repr(tcx)),
+            infer::region_inference::ErrorValue =>
+                format!("ErrorValue"),
+        }
     }
 }

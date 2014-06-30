@@ -50,7 +50,7 @@ Some examples of obvious things you might want to do
     use std::io::File;
 
     let mut file = File::create(&Path::new("message.txt"));
-    file.write(bytes!("hello, file!\n"));
+    file.write(b"hello, file!\n");
     # drop(file);
     # ::std::io::fs::unlink(&Path::new("message.txt"));
     ```
@@ -83,14 +83,14 @@ Some examples of obvious things you might want to do
 
     ```rust
     # #![allow(unused_must_use)]
-    use std::io::net::tcp::TcpStream;
+    use std::io::TcpStream;
 
     # // connection doesn't fail if a server is running on 8080
     # // locally, we still want to be type checking this code, so lets
     # // just stop it running (#11576)
     # if false {
     let mut socket = TcpStream::connect("127.0.0.1", 8080).unwrap();
-    socket.write(bytes!("GET / HTTP/1.0\n\n"));
+    socket.write(b"GET / HTTP/1.0\n\n");
     let response = socket.read_to_end();
     # }
     ```
@@ -151,7 +151,7 @@ while still providing feedback about errors. The basic strategy:
   to be 'unwrapped' before use.
 
 These features combine in the API to allow for expressions like
-`File::create(&Path::new("diary.txt")).write(bytes!("Met a girl.\n"))`
+`File::create(&Path::new("diary.txt")).write(b"Met a girl.\n")`
 without having to worry about whether "diary.txt" exists or whether
 the write succeeds. As written, if either `new` or `write_line`
 encounters an error then the result of the entire expression will
@@ -163,7 +163,7 @@ If you wanted to handle the error though you might write:
 # #![allow(unused_must_use)]
 use std::io::File;
 
-match File::create(&Path::new("diary.txt")).write(bytes!("Met a girl.\n")) {
+match File::create(&Path::new("diary.txt")).write(b"Met a girl.\n") {
     Ok(()) => (), // succeeded
     Err(e) => println!("failed to write to my diary: {}", e),
 }
@@ -1084,6 +1084,7 @@ pub trait Writer {
     /// If other encodings are desired, it is recommended to compose this stream
     /// with another performing the conversion, or to use `write` with a
     /// converted byte-array instead.
+    #[inline]
     fn write_str(&mut self, s: &str) -> IoResult<()> {
         self.write(s.as_bytes())
     }
@@ -1095,11 +1096,13 @@ pub trait Writer {
     ///
     /// If other encodings or line ending flavors are desired, it is recommended
     /// that the `write` method is used specifically instead.
+    #[inline]
     fn write_line(&mut self, s: &str) -> IoResult<()> {
         self.write_str(s).and_then(|()| self.write(['\n' as u8]))
     }
 
     /// Write a single char, encoded as UTF-8.
+    #[inline]
     fn write_char(&mut self, c: char) -> IoResult<()> {
         let mut buf = [0u8, ..4];
         let n = c.encode_utf8(buf.as_mut_slice());
@@ -1107,66 +1110,79 @@ pub trait Writer {
     }
 
     /// Write the result of passing n through `int::to_str_bytes`.
+    #[inline]
     fn write_int(&mut self, n: int) -> IoResult<()> {
         write!(self, "{:d}", n)
     }
 
     /// Write the result of passing n through `uint::to_str_bytes`.
+    #[inline]
     fn write_uint(&mut self, n: uint) -> IoResult<()> {
         write!(self, "{:u}", n)
     }
 
     /// Write a little-endian uint (number of bytes depends on system).
+    #[inline]
     fn write_le_uint(&mut self, n: uint) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, uint::BYTES, |v| self.write(v))
     }
 
     /// Write a little-endian int (number of bytes depends on system).
+    #[inline]
     fn write_le_int(&mut self, n: int) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, int::BYTES, |v| self.write(v))
     }
 
     /// Write a big-endian uint (number of bytes depends on system).
+    #[inline]
     fn write_be_uint(&mut self, n: uint) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, uint::BYTES, |v| self.write(v))
     }
 
     /// Write a big-endian int (number of bytes depends on system).
+    #[inline]
     fn write_be_int(&mut self, n: int) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, int::BYTES, |v| self.write(v))
     }
 
     /// Write a big-endian u64 (8 bytes).
+    #[inline]
     fn write_be_u64(&mut self, n: u64) -> IoResult<()> {
         extensions::u64_to_be_bytes(n, 8u, |v| self.write(v))
     }
 
     /// Write a big-endian u32 (4 bytes).
+    #[inline]
     fn write_be_u32(&mut self, n: u32) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a big-endian u16 (2 bytes).
+    #[inline]
     fn write_be_u16(&mut self, n: u16) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a big-endian i64 (8 bytes).
+    #[inline]
     fn write_be_i64(&mut self, n: i64) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 8u, |v| self.write(v))
     }
 
     /// Write a big-endian i32 (4 bytes).
+    #[inline]
     fn write_be_i32(&mut self, n: i32) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a big-endian i16 (2 bytes).
+    #[inline]
     fn write_be_i16(&mut self, n: i16) -> IoResult<()> {
         extensions::u64_to_be_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a big-endian IEEE754 double-precision floating-point (8 bytes).
+    #[inline]
     fn write_be_f64(&mut self, f: f64) -> IoResult<()> {
         unsafe {
             self.write_be_u64(transmute(f))
@@ -1174,6 +1190,7 @@ pub trait Writer {
     }
 
     /// Write a big-endian IEEE754 single-precision floating-point (4 bytes).
+    #[inline]
     fn write_be_f32(&mut self, f: f32) -> IoResult<()> {
         unsafe {
             self.write_be_u32(transmute(f))
@@ -1181,37 +1198,44 @@ pub trait Writer {
     }
 
     /// Write a little-endian u64 (8 bytes).
+    #[inline]
     fn write_le_u64(&mut self, n: u64) -> IoResult<()> {
         extensions::u64_to_le_bytes(n, 8u, |v| self.write(v))
     }
 
     /// Write a little-endian u32 (4 bytes).
+    #[inline]
     fn write_le_u32(&mut self, n: u32) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a little-endian u16 (2 bytes).
+    #[inline]
     fn write_le_u16(&mut self, n: u16) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a little-endian i64 (8 bytes).
+    #[inline]
     fn write_le_i64(&mut self, n: i64) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 8u, |v| self.write(v))
     }
 
     /// Write a little-endian i32 (4 bytes).
+    #[inline]
     fn write_le_i32(&mut self, n: i32) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 4u, |v| self.write(v))
     }
 
     /// Write a little-endian i16 (2 bytes).
+    #[inline]
     fn write_le_i16(&mut self, n: i16) -> IoResult<()> {
         extensions::u64_to_le_bytes(n as u64, 2u, |v| self.write(v))
     }
 
     /// Write a little-endian IEEE754 double-precision floating-point
     /// (8 bytes).
+    #[inline]
     fn write_le_f64(&mut self, f: f64) -> IoResult<()> {
         unsafe {
             self.write_le_u64(transmute(f))
@@ -1220,6 +1244,7 @@ pub trait Writer {
 
     /// Write a little-endian IEEE754 single-precision floating-point
     /// (4 bytes).
+    #[inline]
     fn write_le_f32(&mut self, f: f32) -> IoResult<()> {
         unsafe {
             self.write_le_u32(transmute(f))
@@ -1227,11 +1252,13 @@ pub trait Writer {
     }
 
     /// Write a u8 (1 byte).
+    #[inline]
     fn write_u8(&mut self, n: u8) -> IoResult<()> {
         self.write([n])
     }
 
     /// Write an i8 (1 byte).
+    #[inline]
     fn write_i8(&mut self, n: i8) -> IoResult<()> {
         self.write([n as u8])
     }
@@ -1240,18 +1267,25 @@ pub trait Writer {
     ///
     /// This is useful to allow applying wrappers while still
     /// retaining ownership of the original value.
+    #[inline]
     fn by_ref<'a>(&'a mut self) -> RefWriter<'a, Self> {
         RefWriter { inner: self }
     }
 }
 
 impl Writer for Box<Writer> {
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
+
+    #[inline]
     fn flush(&mut self) -> IoResult<()> { self.flush() }
 }
 
 impl<'a> Writer for &'a mut Writer {
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
+
+    #[inline]
     fn flush(&mut self) -> IoResult<()> { self.flush() }
 }
 
@@ -1285,7 +1319,10 @@ pub struct RefWriter<'a, W> {
 }
 
 impl<'a, W: Writer> Writer for RefWriter<'a, W> {
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.inner.write(buf) }
+
+    #[inline]
     fn flush(&mut self) -> IoResult<()> { self.inner.flush() }
 }
 
@@ -1839,55 +1876,55 @@ mod tests {
 
     #[test]
     fn test_read_at_least() {
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([GoodBehavior(uint::MAX)]));
         let mut buf = [0u8, ..5];
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
         assert!(r.read_exact(5).unwrap().len() == 5); // read_exact uses read_at_least
         assert!(r.read_at_least(0, buf).is_ok());
 
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([BadBehavior(50), GoodBehavior(uint::MAX)]));
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
 
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([BadBehavior(1), GoodBehavior(1),
                                                     BadBehavior(50), GoodBehavior(uint::MAX)]));
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
 
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([BadBehavior(uint::MAX)]));
         assert_eq!(r.read_at_least(1, buf).unwrap_err().kind, NoProgress);
 
-        let mut r = MemReader::new(Vec::from_slice(bytes!("hello, world!")));
+        let mut r = MemReader::new(Vec::from_slice(b"hello, world!"));
         assert_eq!(r.read_at_least(5, buf).unwrap(), 5);
         assert_eq!(r.read_at_least(6, buf).unwrap_err().kind, InvalidInput);
     }
 
     #[test]
     fn test_push_at_least() {
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([GoodBehavior(uint::MAX)]));
         let mut buf = Vec::new();
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
         assert!(r.push_at_least(0, 5, &mut buf).is_ok());
 
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([BadBehavior(50), GoodBehavior(uint::MAX)]));
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
 
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([BadBehavior(1), GoodBehavior(1),
                                                     BadBehavior(50), GoodBehavior(uint::MAX)]));
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
 
-        let mut r = BadReader::new(MemReader::new(Vec::from_slice(bytes!("hello, world!"))),
+        let mut r = BadReader::new(MemReader::new(Vec::from_slice(b"hello, world!")),
                                    Vec::from_slice([BadBehavior(uint::MAX)]));
         assert_eq!(r.push_at_least(1, 5, &mut buf).unwrap_err().kind, NoProgress);
 
-        let mut r = MemReader::new(Vec::from_slice(bytes!("hello, world!")));
+        let mut r = MemReader::new(Vec::from_slice(b"hello, world!"));
         assert_eq!(r.push_at_least(5, 1, &mut buf).unwrap_err().kind, InvalidInput);
     }
 }

@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// no-pretty-expanded FIXME #15189
+
 #![feature(phase)]
 #![allow(non_snake_case_functions)]
 #[phase(plugin)] extern crate green;
@@ -102,10 +104,10 @@ fn main() {
     } else {
         FromStr::from_str(args[1].as_slice()).unwrap()
     };
-    let u = Arc::new(RWLock::new(Vec::from_elem(n, 1.)));
-    let v = Arc::new(RWLock::new(Vec::from_elem(n, 1.)));
-    let tmp = Arc::new(RWLock::new(Vec::from_elem(n, 1.)));
-    for _ in range(0, 10) {
+    let u = Arc::new(RWLock::new(Vec::from_elem(n, 1f64)));
+    let v = Arc::new(RWLock::new(Vec::from_elem(n, 1f64)));
+    let tmp = Arc::new(RWLock::new(Vec::from_elem(n, 1f64)));
+    for _ in range(0u8, 10) {
         mult_AtAv(u.clone(), v.clone(), tmp.clone());
         mult_AtAv(v.clone(), u.clone(), tmp.clone());
     }

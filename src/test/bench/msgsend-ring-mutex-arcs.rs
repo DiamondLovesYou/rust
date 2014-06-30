@@ -15,6 +15,8 @@
 
 // This also serves as a pipes test, because Arcs are implemented with pipes.
 
+// no-pretty-expanded FIXME #15189
+
 extern crate time;
 
 use std::sync::{Arc, Future, Mutex};

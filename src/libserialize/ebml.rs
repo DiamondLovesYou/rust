@@ -154,8 +154,6 @@ pub mod reader {
     }
 
     pub fn vuint_at(data: &[u8], start: uint) -> DecodeResult<Res> {
-        use std::mem::from_be32;
-
         if data.len() - start < 4 {
             return vuint_at_slow(data, start);
         }
@@ -175,7 +173,7 @@ pub mod reader {
         // the most significant bit is set, the second most significant bit is set etc. we can
         // replace up to three "and+branch" with a single table lookup which gives us a measured
         // speedup of around 2x on x86_64.
-        static SHIFT_MASK_TABLE: [(u32, u32), ..16] = [
+        static SHIFT_MASK_TABLE: [(uint, u32), ..16] = [
             (0, 0x0), (0, 0x0fffffff),
             (8, 0x1fffff), (8, 0x1fffff),
             (16, 0x3fff), (16, 0x3fff), (16, 0x3fff), (16, 0x3fff),
@@ -184,8 +182,8 @@ pub mod reader {
         ];
 
         unsafe {
-            let ptr = data.as_ptr().offset(start as int) as *u32;
-            let val = from_be32(*ptr);
+            let ptr = data.as_ptr().offset(start as int) as *const u32;
+            let val = Int::from_be(*ptr);
 
             let i = (val >> 28u) as uint;
             let (shift, mask) = SHIFT_MASK_TABLE[i];

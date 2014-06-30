@@ -46,6 +46,7 @@
 //!
 
 #![crate_id = "core#0.11.0-pre"]
+#![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
@@ -54,7 +55,8 @@
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![no_std]
-#![feature(globs, macro_rules, managed_boxes, phase, simd)]
+#![feature(globs, intrinsics, lang_items, macro_rules, managed_boxes, phase)]
+#![feature(simd, unsafe_destructor)]
 #![deny(missing_doc)]
 
 #[cfg(test)] extern crate realcore = "core";

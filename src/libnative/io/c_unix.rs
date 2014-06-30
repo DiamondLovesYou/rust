@@ -28,22 +28,28 @@ use libc;
 #[cfg(target_os = "ios")]
 #[cfg(target_os = "freebsd")]
 pub static FIONBIO: libc::c_ulong = 0x8004667e;
-#[cfg(target_os = "linux", not(target_arch = "mips"))]
+#[cfg(target_os = "linux", target_arch = "x86")]
+#[cfg(target_os = "linux", target_arch = "x86_64")]
+#[cfg(target_os = "linux", target_arch = "arm")]
 #[cfg(target_os = "android")]
 #[cfg(target_os = "nacl", target_libc = "glib")]
 pub static FIONBIO: libc::c_ulong = 0x5421;
 #[cfg(target_os = "linux", target_arch = "mips")]
+#[cfg(target_os = "linux", target_arch = "mipsel")]
 pub static FIONBIO: libc::c_ulong = 0x667e;
 
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "ios")]
 #[cfg(target_os = "freebsd")]
 pub static FIOCLEX: libc::c_ulong = 0x20006601;
-#[cfg(target_os = "linux", not(target_arch = "mips"))]
+#[cfg(target_os = "linux", target_arch = "x86")]
+#[cfg(target_os = "linux", target_arch = "x86_64")]
+#[cfg(target_os = "linux", target_arch = "arm")]
 #[cfg(target_os = "android")]
 #[cfg(target_os = "nacl", target_libc = "glib")]
 pub static FIOCLEX: libc::c_ulong = 0x5451;
 #[cfg(target_os = "linux", target_arch = "mips")]
+#[cfg(target_os = "linux", target_arch = "mipsel")]
 pub static FIOCLEX: libc::c_ulong = 0x6601;
 
 #[cfg(target_os = "macos")]
@@ -60,13 +66,13 @@ pub static WNOHANG: libc::c_int = 1;
 
 extern {
     pub fn gettimeofday(timeval: *mut libc::timeval,
-                        tzp: *libc::c_void) -> libc::c_int;
+                        tzp: *mut libc::c_void) -> libc::c_int;
     #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
     pub fn select(nfds: libc::c_int,
-                  readfds: *fd_set,
-                  writefds: *fd_set,
-                  errorfds: *fd_set,
-                  timeout: *libc::timeval) -> libc::c_int;
+                  readfds: *mut fd_set,
+                  writefds: *mut fd_set,
+                  errorfds: *mut fd_set,
+                  timeout: *mut libc::timeval) -> libc::c_int;
     pub fn getsockopt(sockfd: libc::c_int,
                       level: libc::c_int,
                       optname: libc::c_int,
@@ -80,7 +86,7 @@ extern {
                    options: libc::c_int) -> libc::pid_t;
 
     pub fn sigaction(signum: libc::c_int,
-                     act: *sigaction,
+                     act: *const sigaction,
                      oldact: *mut sigaction) -> libc::c_int;
 
     pub fn sigaddset(set: *mut sigset_t, signum: libc::c_int) -> libc::c_int;
@@ -98,7 +104,7 @@ mod select {
     }
 
     pub fn fd_set(set: &mut fd_set, fd: i32) {
-        set.fds_bits[(fd / 32) as uint] |= 1 << (fd % 32);
+        set.fds_bits[(fd / 32) as uint] |= 1 << ((fd % 32) as uint);
     }
 }
 
@@ -143,7 +149,9 @@ mod signal {
     }
 }
 
-#[cfg(target_os = "linux", not(target_arch = "mips"))]
+#[cfg(target_os = "linux", target_arch = "x86")]
+#[cfg(target_os = "linux", target_arch = "x86_64")]
+#[cfg(target_os = "linux", target_arch = "arm")]
 #[cfg(target_os = "android")]
 mod signal {
     use libc;
@@ -187,6 +195,7 @@ mod signal {
 }
 
 #[cfg(target_os = "linux", target_arch = "mips")]
+#[cfg(target_os = "linux", target_arch = "mipsel")]
 mod signal {
     use libc;
 

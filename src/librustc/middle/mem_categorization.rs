@@ -97,6 +97,7 @@ pub enum categorization {
 pub struct CopiedUpvar {
     pub upvar_id: ast::NodeId,
     pub onceness: ast::Onceness,
+    pub capturing_proc: ast::NodeId,
 }
 
 // different kinds of pointers:
@@ -174,20 +175,12 @@ pub enum deref_kind {
 pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
     match ty::get(t).sty {
         ty::ty_uniq(_) |
-        ty::ty_trait(box ty::TyTrait { store: ty::UniqTraitStore, .. }) |
         ty::ty_closure(box ty::ClosureTy {store: ty::UniqTraitStore, ..}) => {
             Some(deref_ptr(OwnedPtr))
         }
 
         ty::ty_rptr(r, mt) => {
             let kind = ty::BorrowKind::from_mutbl(mt.mutbl);
-            Some(deref_ptr(BorrowedPtr(kind, r)))
-        }
-        ty::ty_trait(box ty::TyTrait {
-                store: ty::RegionTraitStore(r, mutbl),
-                ..
-            }) => {
-            let kind = ty::BorrowKind::from_mutbl(mutbl);
             Some(deref_ptr(BorrowedPtr(kind, r)))
         }
 
@@ -568,7 +561,9 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
                               span:span,
                               cat:cat_copied_upvar(CopiedUpvar {
                                   upvar_id: var_id,
-                                  onceness: closure_ty.onceness}),
+                                  onceness: closure_ty.onceness,
+                                  capturing_proc: fn_node_id,
+                              }),
                               mutbl:McImmutable,
                               ty:expr_ty
                           }))
@@ -706,9 +701,14 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
                              base_cmt: cmt,
                              deref_cnt: uint)
                              -> cmt {
+        let adjustment = match self.typer.adjustments().borrow().find(&node.id()) {
+            Some(&ty::AutoObject(..)) => typeck::AutoObject,
+            _ if deref_cnt != 0 => typeck::AutoDeref(deref_cnt),
+            _ => typeck::NoAdjustment
+        };
         let method_call = typeck::MethodCall {
             expr_id: node.id(),
-            autoderef: deref_cnt as u32
+            adjustment: adjustment
         };
         let method_ty = self.typer.node_method_ty(method_call);
 
@@ -1122,7 +1122,10 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
                       "captured outer variable".to_string()
                   }
                   _ => {
-                      format!("dereference of `{}`-pointer", ptr_sigil(pk))
+                      match pk {
+                          OwnedPtr | GcPtr => format!("dereference of `{}`", ptr_sigil(pk)),
+                          _ => format!("dereference of `{}`-pointer", ptr_sigil(pk))
+                      }
                   }
               }
           }
@@ -1292,8 +1295,8 @@ impl Repr for categorization {
 
 pub fn ptr_sigil(ptr: PointerKind) -> &'static str {
     match ptr {
-        OwnedPtr => "~",
-        GcPtr => "@",
+        OwnedPtr => "Box",
+        GcPtr => "Gc",
         BorrowedPtr(ty::ImmBorrow, _) => "&",
         BorrowedPtr(ty::MutBorrow, _) => "&mut",
         BorrowedPtr(ty::UniqueImmBorrow, _) => "&unique",

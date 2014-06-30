@@ -24,7 +24,7 @@ extern crate green;
 extern crate rustuv;
 
 #[cfg(test)] #[start]
-fn start(argc: int, argv: **u8) -> int {
+fn start(argc: int, argv: *const *const u8) -> int {
     green::start(argc, argv, rustuv::event_loop, __test::main)
 }
 
@@ -70,7 +70,7 @@ iotest!(fn eventual_timeout() {
     rx1.recv();
 
     let mut v = Vec::new();
-    for _ in range(0, 10000) {
+    for _ in range(0u, 10000) {
         match TcpStream::connect_timeout(addr, 100) {
             Ok(e) => v.push(e),
             Err(ref e) if e.kind == io::TimedOut => return,

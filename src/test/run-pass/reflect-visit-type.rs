@@ -58,7 +58,6 @@ impl TyVisitor for MyVisitor {
 
     fn visit_f32(&mut self) -> bool { true }
     fn visit_f64(&mut self) -> bool { true }
-    fn visit_f128(&mut self) -> bool { true }
 
     fn visit_char(&mut self) -> bool { true }
 
@@ -67,44 +66,44 @@ impl TyVisitor for MyVisitor {
                         _sz: uint, _sz2: uint,
                         _align: uint) -> bool { true }
 
-    fn visit_box(&mut self, _mtbl: uint, _inner: *TyDesc) -> bool { true }
-    fn visit_uniq(&mut self, _mtbl: uint, _inner: *TyDesc) -> bool { true }
-    fn visit_ptr(&mut self, _mtbl: uint, _inner: *TyDesc) -> bool { true }
-    fn visit_rptr(&mut self, _mtbl: uint, _inner: *TyDesc) -> bool { true }
+    fn visit_box(&mut self, _mtbl: uint, _inner: *const TyDesc) -> bool { true }
+    fn visit_uniq(&mut self, _mtbl: uint, _inner: *const TyDesc) -> bool { true }
+    fn visit_ptr(&mut self, _mtbl: uint, _inner: *const TyDesc) -> bool { true }
+    fn visit_rptr(&mut self, _mtbl: uint, _inner: *const TyDesc) -> bool { true }
 
-    fn visit_evec_slice(&mut self, _mtbl: uint, _inner: *TyDesc) -> bool { true }
+    fn visit_evec_slice(&mut self, _mtbl: uint, _inner: *const TyDesc) -> bool { true }
     fn visit_evec_fixed(&mut self, _n: uint, _sz: uint, _align: uint,
-                        _mtbl: uint, _inner: *TyDesc) -> bool { true }
+                        _mtbl: uint, _inner: *const TyDesc) -> bool { true }
 
     fn visit_enter_rec(&mut self, _n_fields: uint,
                        _sz: uint, _align: uint) -> bool { true }
     fn visit_rec_field(&mut self, _i: uint, _name: &str,
-                       _mtbl: uint, _inner: *TyDesc) -> bool { true }
+                       _mtbl: uint, _inner: *const TyDesc) -> bool { true }
     fn visit_leave_rec(&mut self, _n_fields: uint,
                        _sz: uint, _align: uint) -> bool { true }
 
     fn visit_enter_class(&mut self, _name: &str, _named_fields: bool, _n_fields: uint,
                          _sz: uint, _align: uint) -> bool { true }
     fn visit_class_field(&mut self, _i: uint, _name: &str, _named: bool,
-                         _mtbl: uint, _inner: *TyDesc) -> bool { true }
+                         _mtbl: uint, _inner: *const TyDesc) -> bool { true }
     fn visit_leave_class(&mut self, _name: &str, _named_fields: bool, _n_fields: uint,
                          _sz: uint, _align: uint) -> bool { true }
 
     fn visit_enter_tup(&mut self, _n_fields: uint,
                        _sz: uint, _align: uint) -> bool { true }
-    fn visit_tup_field(&mut self, _i: uint, _inner: *TyDesc) -> bool { true }
+    fn visit_tup_field(&mut self, _i: uint, _inner: *const TyDesc) -> bool { true }
     fn visit_leave_tup(&mut self, _n_fields: uint,
                        _sz: uint, _align: uint) -> bool { true }
 
     fn visit_enter_enum(&mut self, _n_variants: uint,
-                        _get_disr: unsafe extern fn(ptr: *Opaque) -> Disr,
+                        _get_disr: unsafe extern fn(ptr: *const Opaque) -> Disr,
                         _sz: uint, _align: uint) -> bool { true }
     fn visit_enter_enum_variant(&mut self,
                                 _variant: uint,
                                 _disr_val: Disr,
                                 _n_fields: uint,
                                 _name: &str) -> bool { true }
-    fn visit_enum_variant_field(&mut self, _i: uint, _offset: uint, _inner: *TyDesc)
+    fn visit_enum_variant_field(&mut self, _i: uint, _offset: uint, _inner: *const TyDesc)
         -> bool { true }
     fn visit_leave_enum_variant(&mut self,
                                 _variant: uint,
@@ -113,13 +112,13 @@ impl TyVisitor for MyVisitor {
                                 _name: &str) -> bool { true }
     fn visit_leave_enum(&mut self,
                         _n_variants: uint,
-                        _get_disr: unsafe extern fn(ptr: *Opaque) -> Disr,
+                        _get_disr: unsafe extern fn(ptr: *const Opaque) -> Disr,
                         _sz: uint, _align: uint) -> bool { true }
 
     fn visit_enter_fn(&mut self, _purity: uint, _proto: uint,
                       _n_inputs: uint, _retstyle: uint) -> bool { true }
-    fn visit_fn_input(&mut self, _i: uint, _mode: uint, _inner: *TyDesc) -> bool { true }
-    fn visit_fn_output(&mut self, _retstyle: uint, _variadic: bool, _inner: *TyDesc)
+    fn visit_fn_input(&mut self, _i: uint, _mode: uint, _inner: *const TyDesc) -> bool { true }
+    fn visit_fn_output(&mut self, _retstyle: uint, _variadic: bool, _inner: *const TyDesc)
         -> bool { true }
     fn visit_leave_fn(&mut self, _purity: uint, _proto: uint,
                       _n_inputs: uint, _retstyle: uint) -> bool { true }
@@ -130,7 +129,7 @@ impl TyVisitor for MyVisitor {
     fn visit_self(&mut self) -> bool { true }
 
     fn visit_simd(&mut self,
-                  _inner: *TyDesc,
+                  _inner: *const TyDesc,
                   _count: uint,
                   _size: uint,
                   _align: uint) -> bool { true }

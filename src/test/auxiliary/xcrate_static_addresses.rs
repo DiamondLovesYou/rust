@@ -8,19 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#[inline(never)]
 pub static global: int = 3;
 
+#[inline(never)]
 static global0: int = 4;
+
+#[inline(never)]
 pub static global2: &'static int = &global0;
 
 pub fn verify_same(a: &'static int) {
-    let a = a as *int as uint;
-    let b = &global as *int as uint;
+    let a = a as *const int as uint;
+    let b = &global as *const int as uint;
     assert_eq!(a, b);
 }
 
 pub fn verify_same2(a: &'static int) {
-    let a = a as *int as uint;
-    let b = global2 as *int as uint;
+    let a = a as *const int as uint;
+    let b = global2 as *const int as uint;
     assert_eq!(a, b);
 }

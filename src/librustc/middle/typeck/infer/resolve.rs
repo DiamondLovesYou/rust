@@ -53,10 +53,10 @@ use middle::ty;
 use middle::ty_fold;
 use middle::typeck::infer::{Bounds, cyclic_ty, fixup_err, fres, InferCtxt};
 use middle::typeck::infer::unresolved_ty;
-use middle::typeck::infer::to_str::InferStr;
-use middle::typeck::infer::unify::{Root, UnifyInferCtxtMethods};
-use util::common::{indent, indenter};
-use util::ppaux::ty_to_str;
+use middle::typeck::infer::unify::Root;
+use syntax::codemap::Span;
+use util::common::indent;
+use util::ppaux::{Repr, ty_to_str};
 
 use syntax::ast;
 
@@ -86,16 +86,22 @@ pub struct ResolveState<'a> {
     modes: uint,
     err: Option<fixup_err>,
     v_seen: Vec<TyVid> ,
-    type_depth: uint
+    type_depth: uint,
+    span: Option<Span>,
 }
 
-pub fn resolver<'a>(infcx: &'a InferCtxt, modes: uint) -> ResolveState<'a> {
+pub fn resolver<'a>(infcx: &'a InferCtxt,
+                    modes: uint,
+                    span: Option<Span>)
+                    -> ResolveState<'a>
+{
     ResolveState {
         infcx: infcx,
         modes: modes,
         err: None,
         v_seen: Vec::new(),
-        type_depth: 0
+        type_depth: 0,
+        span: span
     }
 }
 
@@ -118,7 +124,9 @@ impl<'a> ResolveState<'a> {
         (self.modes & mode) == mode
     }
 
-    pub fn resolve_type_chk(&mut self, typ: ty::t) -> fres<ty::t> {
+    pub fn resolve_type_chk(&mut self,
+                            typ: ty::t)
+                            -> fres<ty::t> {
         self.err = None;
 
         debug!("Resolving {} (modes={:x})",
@@ -143,7 +151,8 @@ impl<'a> ResolveState<'a> {
         }
     }
 
-    pub fn resolve_region_chk(&mut self, orig: ty::Region)
+    pub fn resolve_region_chk(&mut self,
+                              orig: ty::Region)
                               -> fres<ty::Region> {
         self.err = None;
         let resolved = indent(|| self.resolve_region(orig) );
@@ -154,8 +163,7 @@ impl<'a> ResolveState<'a> {
     }
 
     pub fn resolve_type(&mut self, typ: ty::t) -> ty::t {
-        debug!("resolve_type({})", typ.inf_str(self.infcx));
-        let _i = indenter();
+        debug!("resolve_type({})", typ.repr(self.infcx.tcx));
 
         if !ty::type_needs_infer(typ) {
             return typ;
@@ -195,7 +203,7 @@ impl<'a> ResolveState<'a> {
     }
 
     pub fn resolve_region(&mut self, orig: ty::Region) -> ty::Region {
-        debug!("Resolve_region({})", orig.inf_str(self.infcx));
+        debug!("Resolve_region({})", orig.repr(self.infcx.tcx));
         match orig {
           ty::ReInfer(ty::ReVar(rid)) => self.resolve_region_var(rid),
           _ => orig
@@ -223,14 +231,15 @@ impl<'a> ResolveState<'a> {
             // tend to carry more restrictions or higher
             // perf. penalties, so it pays to know more.
 
-            let nde = self.infcx.get(vid);
-            let bounds = nde.possible_types;
-
-            let t1 = match bounds {
-              Bounds { ub:_, lb:Some(t) } if !type_is_bot(t)
-                => self.resolve_type(t),
-              Bounds { ub:Some(t), lb:_ } => self.resolve_type(t),
-              Bounds { ub:_, lb:Some(t) } => self.resolve_type(t),
+            let node =
+                self.infcx.type_unification_table.borrow_mut().get(tcx, vid);
+            let t1 = match node.value {
+              Bounds { ub:_, lb:Some(t) } if !type_is_bot(t) => {
+                  self.resolve_type(t)
+              }
+              Bounds { ub:Some(t), lb:_ } | Bounds { ub:_, lb:Some(t) } => {
+                  self.resolve_type(t)
+              }
               Bounds { ub:None, lb:None } => {
                 if self.should(force_tvar) {
                     self.err = Some(unresolved_ty(vid));
@@ -248,15 +257,28 @@ impl<'a> ResolveState<'a> {
             return ty::mk_int_var(self.infcx.tcx, vid);
         }
 
-        let node = self.infcx.get(vid);
-        match node.possible_types {
+        let tcx = self.infcx.tcx;
+        let table = &self.infcx.int_unification_table;
+        let node = table.borrow_mut().get(tcx, vid);
+        match node.value {
           Some(IntType(t)) => ty::mk_mach_int(t),
           Some(UintType(t)) => ty::mk_mach_uint(t),
           None => {
             if self.should(force_ivar) {
-                // As a last resort, default to int.
+                // As a last resort, default to int and emit an error.
                 let ty = ty::mk_int();
-                self.infcx.set(vid, Root(Some(IntType(ast::TyI)), node.rank));
+                table.borrow_mut().set(
+                    tcx, node.key, Root(Some(IntType(ast::TyI)), node.rank));
+
+                match self.span {
+                    Some(sp) => {
+                        self.infcx.tcx.sess.span_err(
+                            sp,
+                            "cannot determine the type of this integer; add \
+                             a suffix to specify the type explicitly");
+                    }
+                    None => { }
+                }
                 ty
             } else {
                 ty::mk_int_var(self.infcx.tcx, vid)
@@ -270,14 +292,27 @@ impl<'a> ResolveState<'a> {
             return ty::mk_float_var(self.infcx.tcx, vid);
         }
 
-        let node = self.infcx.get(vid);
-        match node.possible_types {
+        let tcx = self.infcx.tcx;
+        let table = &self.infcx.float_unification_table;
+        let node = table.borrow_mut().get(tcx, vid);
+        match node.value {
           Some(t) => ty::mk_mach_float(t),
           None => {
             if self.should(force_fvar) {
-                // As a last resort, default to f64.
+                // As a last resort, default to f64 and emit an error.
                 let ty = ty::mk_f64();
-                self.infcx.set(vid, Root(Some(ast::TyF64), node.rank));
+                table.borrow_mut().set(
+                    tcx, node.key, Root(Some(ast::TyF64), node.rank));
+
+                match self.span {
+                    Some(sp) => {
+                        self.infcx.tcx.sess.span_err(
+                            sp,
+                            "cannot determine the type of this number; add \
+                             a suffix to specify the type explicitly");
+                    }
+                    None => { }
+                }
                 ty
             } else {
                 ty::mk_float_var(self.infcx.tcx, vid)
@@ -293,8 +328,11 @@ impl<'a> ResolveState<'a> {
             return ty::mk_md_var(self.infcx.tcx, vid, inner, count);
         }
 
-        let node = self.infcx.get(vid);
-        match node.possible_types {
+        let mdtable = &self.infcx.md_unification_table;
+        let ftable = &self.infcx.float_unification_table;
+        let itable = &self.infcx.int_unification_table;
+        let node = mdtable.borrow_mut().get(self.infcx.tcx, vid);
+        match node.value {
             Some(ty::IntMDType(t)) => ty::mk_simd(self.infcx.tcx, ty::mk_mach_int(t), count),
             Some(ty::UintMDType(t)) => ty::mk_simd(self.infcx.tcx, ty::mk_mach_uint(t), count),
             Some(ty::FloatMDType(t)) => ty::mk_simd(self.infcx.tcx, ty::mk_mach_float(t), count),
@@ -302,13 +340,16 @@ impl<'a> ResolveState<'a> {
                 if self.should(force_mdvar) {
                     let (inner, val) = match inner {
                         ty::FloatMDInnerVid(inner_vid) => {
-                            let node = self.infcx.get(inner_vid);
-                            let ast_ty = node.possible_types.unwrap_or(ast::TyF64);
+                            self.resolve_float_var(inner_vid);
+                            let node = ftable.borrow_mut().get(self.infcx.tcx, inner_vid);
+                            //let ast_ty = node.possible_types.unwrap_or(ast::TyF64);
+                            let ast_ty = node.value.expect("couldn't resolve inner vid (float)");
                             (ty::mk_mach_float(ast_ty), ty::FloatMDType(ast_ty))
                         }
                         ty::IntMDInnerVid(inner_vid) => {
-                            let node = self.infcx.get(inner_vid);
-                            let ast_ty = node.possible_types.unwrap_or(IntType(ast::TyI));
+                            self.resolve_int_var(inner_vid);
+                            let node = itable.borrow_mut().get(self.infcx.tcx, inner_vid);
+                            let ast_ty = node.value.expect("couldn't resolve inner vid (float)");
                             match ast_ty {
                                 IntType(ast_ty) =>
                                     (ty::mk_mach_int(ast_ty), ty::IntMDType(ast_ty)),
@@ -317,7 +358,10 @@ impl<'a> ResolveState<'a> {
                             }
                         }
                     };
-                    self.infcx.set(vid, Root(Some(val), node.rank));
+                    mdtable.borrow_mut().set(self.infcx.tcx,
+                                             node.key,
+                                             Root(Some(val),
+                                                  node.rank));
                     ty::mk_simd(self.infcx.tcx, inner, count)
                 } else {
                     ty::mk_md_var(self.infcx.tcx, vid, inner, count)

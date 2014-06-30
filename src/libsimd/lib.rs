@@ -86,7 +86,7 @@ impl<T: Simd<bool>> BoolSimd for T {
 #[allow(raw_pointer_deriving)]
 #[deriving(PartialEq, Eq, Clone)]
 pub struct Items<'a, ElemT> {
-    vec: *ElemT,
+    vec: *const ElemT,
     pos: uint,
     len: uint,
 }
@@ -164,7 +164,7 @@ macro_rules! _def(
                 use std::raw::Slice;
                 unsafe {
                     mem::transmute_copy(&Slice {
-                        data: self as *$ident as *$prim,
+                        data: self as *const $ident as *const $prim,
                         len: $len,
                     })
                 }
@@ -173,7 +173,7 @@ macro_rules! _def(
                 use std::raw::Slice;
                 unsafe {
                     mem::transmute_copy(&Slice {
-                        data: mem::transmute::<*mut $prim, *$prim>
+                        data: mem::transmute::<*mut $prim, *const $prim>
                             (self as *mut $ident as *mut $prim),
                         len: $len,
                     })

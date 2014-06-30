@@ -71,9 +71,9 @@ use middle::ty;
 use middle::typeck::infer::{CoerceResult, resolve_type, Coercion};
 use middle::typeck::infer::combine::{CombineFields, Combine};
 use middle::typeck::infer::sub::Sub;
-use middle::typeck::infer::to_str::InferStr;
 use middle::typeck::infer::resolve::try_resolve_tvar_shallow;
 use util::common::indenter;
+use util::ppaux::Repr;
 
 use syntax::abi;
 use syntax::ast::MutImmutable;
@@ -91,8 +91,8 @@ impl<'f> Coerce<'f> {
 
     pub fn tys(&self, a: ty::t, b: ty::t) -> CoerceResult {
         debug!("Coerce.tys({} => {})",
-               a.inf_str(self.get_ref().infcx),
-               b.inf_str(self.get_ref().infcx));
+               a.repr(self.get_ref().infcx.tcx),
+               b.repr(self.get_ref().infcx.tcx));
         let _indent = indenter();
 
         // Examine the supertype and consider auto-borrowing.
@@ -100,7 +100,7 @@ impl<'f> Coerce<'f> {
         // Note: does not attempt to resolve type variables we encounter.
         // See above for details.
         match ty::get(b).sty {
-            ty::ty_rptr(_, mt_b) => {
+            ty::ty_rptr(r_b, mt_b) => {
                 match ty::get(mt_b.ty).sty {
                     ty::ty_vec(mt_b, None) => {
                         return self.unpack_actual_value(a, |sty_a| {
@@ -113,12 +113,59 @@ impl<'f> Coerce<'f> {
                             self.coerce_borrowed_string(a, sty_a, b)
                         });
                     }
+
+                    ty::ty_trait(box ty::TyTrait { def_id, ref substs, bounds }) => {
+                        let result = self.unpack_actual_value(a, |sty_a| {
+                            match *sty_a {
+                                ty::ty_rptr(_, mt_a) => match ty::get(mt_a.ty).sty {
+                                    ty::ty_trait(..) => {
+                                        self.coerce_borrowed_object(a, sty_a, b, mt_b.mutbl)
+                                    }
+                                    _ => self.coerce_object(a, sty_a, b, def_id, substs,
+                                                            ty::RegionTraitStore(r_b, mt_b.mutbl),
+                                                            bounds)
+                                },
+                                _ => self.coerce_borrowed_object(a, sty_a, b, mt_b.mutbl)
+                            }
+                        });
+
+                        match result {
+                            Ok(t) => return Ok(t),
+                            Err(..) => {}
+                        }
+                    }
+
                     _ => {
                         return self.unpack_actual_value(a, |sty_a| {
                             self.coerce_borrowed_pointer(a, sty_a, b, mt_b)
                         });
                     }
                 };
+            }
+
+            ty::ty_uniq(t_b) => {
+                match ty::get(t_b).sty {
+                    ty::ty_trait(box ty::TyTrait { def_id, ref substs, bounds }) => {
+                        let result = self.unpack_actual_value(a, |sty_a| {
+                            match *sty_a {
+                                ty::ty_uniq(t_a) => match ty::get(t_a).sty {
+                                    ty::ty_trait(..) => {
+                                        Err(ty::terr_mismatch)
+                                    }
+                                    _ => self.coerce_object(a, sty_a, b, def_id, substs,
+                                                            ty::UniqTraitStore, bounds)
+                                },
+                                _ => Err(ty::terr_mismatch)
+                            }
+                        });
+
+                        match result {
+                            Ok(t) => return Ok(t),
+                            Err(..) => {}
+                        }
+                    }
+                    _ => {}
+                }
             }
 
             ty::ty_closure(box ty::ClosureTy {
@@ -134,44 +181,6 @@ impl<'f> Coerce<'f> {
                 return self.unpack_actual_value(a, |sty_a| {
                     self.coerce_unsafe_ptr(a, sty_a, b, mt_b)
                 });
-            }
-
-            ty::ty_trait(box ty::TyTrait {
-                def_id, ref substs, store: ty::UniqTraitStore, bounds
-            }) => {
-                let result = self.unpack_actual_value(a, |sty_a| {
-                    match *sty_a {
-                        ty::ty_uniq(..) => {
-                            self.coerce_object(a, sty_a, b, def_id, substs,
-                                               ty::UniqTraitStore, bounds)
-                        }
-                        _ => Err(ty::terr_mismatch)
-                    }
-                });
-
-                match result {
-                    Ok(t) => return Ok(t),
-                    Err(..) => {}
-                }
-            }
-
-            ty::ty_trait(box ty::TyTrait {
-                def_id, ref substs, store: ty::RegionTraitStore(region, m), bounds
-            }) => {
-                let result = self.unpack_actual_value(a, |sty_a| {
-                    match *sty_a {
-                        ty::ty_rptr(..) => {
-                            self.coerce_object(a, sty_a, b, def_id, substs,
-                                               ty::RegionTraitStore(region, m), bounds)
-                        }
-                        _ => self.coerce_borrowed_object(a, sty_a, b, m)
-                    }
-                });
-
-                match result {
-                    Ok(t) => return Ok(t),
-                    Err(..) => {}
-                }
             }
 
             _ => {}
@@ -204,7 +213,8 @@ impl<'f> Coerce<'f> {
 
     pub fn unpack_actual_value(&self, a: ty::t, f: |&ty::sty| -> CoerceResult)
                                -> CoerceResult {
-        match resolve_type(self.get_ref().infcx, a, try_resolve_tvar_shallow) {
+        match resolve_type(self.get_ref().infcx, None,
+                           a, try_resolve_tvar_shallow) {
             Ok(t) => {
                 f(&ty::get(t).sty)
             }
@@ -224,8 +234,8 @@ impl<'f> Coerce<'f> {
                                    mt_b: ty::mt)
                                    -> CoerceResult {
         debug!("coerce_borrowed_pointer(a={}, sty_a={:?}, b={}, mt_b={:?})",
-               a.inf_str(self.get_ref().infcx), sty_a,
-               b.inf_str(self.get_ref().infcx), mt_b);
+               a.repr(self.get_ref().infcx.tcx), sty_a,
+               b.repr(self.get_ref().infcx.tcx), mt_b);
 
         // If we have a parameter of type `&M T_a` and the value
         // provided is `expr`, we will be adding an implicit borrow,
@@ -238,7 +248,12 @@ impl<'f> Coerce<'f> {
         let r_borrow = self.get_ref().infcx.next_region_var(coercion);
 
         let inner_ty = match *sty_a {
-            ty::ty_box(typ) | ty::ty_uniq(typ) => typ,
+            ty::ty_box(typ) | ty::ty_uniq(typ) => {
+                if mt_b.mutbl == ast::MutMutable {
+                    return Err(ty::terr_mutability)
+                }
+                typ
+            }
             ty::ty_rptr(_, mt_a) => mt_a.ty,
             _ => {
                 return self.subtype(a, b);
@@ -261,8 +276,8 @@ impl<'f> Coerce<'f> {
                                   b: ty::t)
                                   -> CoerceResult {
         debug!("coerce_borrowed_string(a={}, sty_a={:?}, b={})",
-               a.inf_str(self.get_ref().infcx), sty_a,
-               b.inf_str(self.get_ref().infcx));
+               a.repr(self.get_ref().infcx.tcx), sty_a,
+               b.repr(self.get_ref().infcx.tcx));
 
         match *sty_a {
             ty::ty_uniq(t) => match ty::get(t).sty {
@@ -291,8 +306,8 @@ impl<'f> Coerce<'f> {
                                   mutbl_b: ast::Mutability)
                                   -> CoerceResult {
         debug!("coerce_borrowed_vector(a={}, sty_a={:?}, b={})",
-               a.inf_str(self.get_ref().infcx), sty_a,
-               b.inf_str(self.get_ref().infcx));
+               a.repr(self.get_ref().infcx.tcx), sty_a,
+               b.repr(self.get_ref().infcx.tcx));
 
         let sub = Sub(self.get_ref().clone());
         let coercion = Coercion(self.get_ref().trace.clone());
@@ -327,23 +342,28 @@ impl<'f> Coerce<'f> {
                               b_mutbl: ast::Mutability) -> CoerceResult
     {
         debug!("coerce_borrowed_object(a={}, sty_a={:?}, b={})",
-               a.inf_str(self.get_ref().infcx), sty_a,
-               b.inf_str(self.get_ref().infcx));
+               a.repr(self.get_ref().infcx.tcx), sty_a,
+               b.repr(self.get_ref().infcx.tcx));
 
         let tcx = self.get_ref().infcx.tcx;
         let coercion = Coercion(self.get_ref().trace.clone());
         let r_a = self.get_ref().infcx.next_region_var(coercion);
 
         let a_borrowed = match *sty_a {
-            ty::ty_trait(box ty::TyTrait {
-                    def_id,
-                    ref substs,
-                    bounds,
-                    ..
-                }) => {
-                ty::mk_trait(tcx, def_id, substs.clone(),
-                             ty::RegionTraitStore(r_a, b_mutbl), bounds)
-            }
+            ty::ty_uniq(ty) | ty::ty_rptr(_, ty::mt{ty, ..}) => match ty::get(ty).sty {
+                ty::ty_trait(box ty::TyTrait {
+                        def_id,
+                        ref substs,
+                        bounds,
+                        ..
+                    }) => {
+                    let tr = ty::mk_trait(tcx, def_id, substs.clone(), bounds);
+                    ty::mk_rptr(tcx, r_a, ty::mt{ mutbl: b_mutbl, ty: tr })
+                }
+                _ => {
+                    return self.subtype(a, b);
+                }
+            },
             _ => {
                 return self.subtype(a, b);
             }
@@ -362,8 +382,8 @@ impl<'f> Coerce<'f> {
                               b: ty::t)
                               -> CoerceResult {
         debug!("coerce_borrowed_fn(a={}, sty_a={:?}, b={})",
-               a.inf_str(self.get_ref().infcx), sty_a,
-               b.inf_str(self.get_ref().infcx));
+               a.repr(self.get_ref().infcx.tcx), sty_a,
+               b.repr(self.get_ref().infcx.tcx));
 
         match *sty_a {
             ty::ty_bare_fn(ref f) => {
@@ -386,7 +406,7 @@ impl<'f> Coerce<'f> {
         self.unpack_actual_value(b, |sty_b| {
 
             debug!("coerce_from_bare_fn(a={}, b={})",
-                   a.inf_str(self.get_ref().infcx), b.inf_str(self.get_ref().infcx));
+                   a.repr(self.get_ref().infcx.tcx), b.repr(self.get_ref().infcx.tcx));
 
             if fn_ty_a.abi != abi::Rust || fn_ty_a.fn_style != ast::NormalFn {
                 return self.subtype(a, b);
@@ -415,8 +435,8 @@ impl<'f> Coerce<'f> {
                              mt_b: ty::mt)
                              -> CoerceResult {
         debug!("coerce_unsafe_ptr(a={}, sty_a={:?}, b={})",
-               a.inf_str(self.get_ref().infcx), sty_a,
-               b.inf_str(self.get_ref().infcx));
+               a.repr(self.get_ref().infcx.tcx), sty_a,
+               b.repr(self.get_ref().infcx.tcx));
 
         let mt_a = match *sty_a {
             ty::ty_rptr(_, mt) => mt,
@@ -448,8 +468,8 @@ impl<'f> Coerce<'f> {
                          bounds: ty::BuiltinBounds) -> CoerceResult {
 
         debug!("coerce_object(a={}, sty_a={:?}, b={})",
-               a.inf_str(self.get_ref().infcx), sty_a,
-               b.inf_str(self.get_ref().infcx));
+               a.repr(self.get_ref().infcx.tcx), sty_a,
+               b.repr(self.get_ref().infcx.tcx));
 
         Ok(Some(ty::AutoObject(trait_store, bounds,
                                trait_def_id, trait_substs.clone())))

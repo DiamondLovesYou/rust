@@ -41,7 +41,7 @@ use rt::rtio;
 ///
 /// ```no_run
 /// # #![allow(unused_must_use)]
-/// use std::io::net::tcp::TcpStream;
+/// use std::io::TcpStream;
 ///
 /// let mut stream = TcpStream::connect("127.0.0.1", 34254);
 ///
@@ -162,7 +162,7 @@ impl TcpStream {
     /// ```no_run
     /// # #![allow(unused_must_use)]
     /// use std::io::timer;
-    /// use std::io::net::tcp::TcpStream;
+    /// use std::io::TcpStream;
     ///
     /// let mut stream = TcpStream::connect("127.0.0.1", 34254).unwrap();
     /// let stream2 = stream.clone();
@@ -406,7 +406,7 @@ impl TcpAcceptor {
     ///
     /// ```no_run
     /// # #![allow(experimental)]
-    /// use std::io::net::tcp::TcpListener;
+    /// use std::io::TcpListener;
     /// use std::io::{Listener, Acceptor, TimedOut};
     ///
     /// let mut a = TcpListener::bind("127.0.0.1", 8482).listen().unwrap();
@@ -1154,7 +1154,7 @@ mod test {
                                            port).unwrap());
             });
             let _l = rx.recv();
-            for i in range(0, 1001) {
+            for i in range(0i, 1001) {
                 match a.accept() {
                     Ok(..) => break,
                     Err(ref e) if e.kind == TimedOut => {}
@@ -1258,7 +1258,7 @@ mod test {
         assert_eq!(s.read([0]).err().unwrap().kind, TimedOut);
 
         s.set_timeout(Some(20));
-        for i in range(0, 1001) {
+        for i in range(0i, 1001) {
             match s.write([0, .. 128 * 1024]) {
                 Ok(()) | Err(IoError { kind: ShortWrite(..), .. }) => {},
                 Err(IoError { kind: TimedOut, .. }) => break,
@@ -1298,7 +1298,7 @@ mod test {
         assert_eq!(s.read([0]).err().unwrap().kind, TimedOut);
 
         tx.send(());
-        for _ in range(0, 100) {
+        for _ in range(0i, 100) {
             assert!(s.write([0, ..128 * 1024]).is_ok());
         }
     })
@@ -1318,7 +1318,7 @@ mod test {
 
         let mut s = a.accept().unwrap();
         s.set_write_timeout(Some(20));
-        for i in range(0, 1001) {
+        for i in range(0i, 1001) {
             match s.write([0, .. 128 * 1024]) {
                 Ok(()) | Err(IoError { kind: ShortWrite(..), .. }) => {},
                 Err(IoError { kind: TimedOut, .. }) => break,

@@ -9,6 +9,7 @@
 // except according to those terms.
 
 trait I {}
-type K = I; //~ ERROR: reference to trait
+type K = I;
 impl K for int {} //~ ERROR: `K` is not a trait
+//~^ NOTE: `type` aliases cannot be used for traits
 fn main() {}

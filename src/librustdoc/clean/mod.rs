@@ -40,7 +40,7 @@ use visit_ast;
 
 /// A stable identifier to the particular version of JSON output.
 /// Increment this when the `Crate` and related structures change.
-pub static SCHEMA_VERSION: &'static str = "0.8.2";
+pub static SCHEMA_VERSION: &'static str = "0.8.3";
 
 mod inline;
 
@@ -449,6 +449,7 @@ pub struct TyParam {
     pub name: String,
     pub did: ast::DefId,
     pub bounds: Vec<TyParamBound>,
+    pub default: Option<Type>
 }
 
 impl Clean<TyParam> for ast::TyParam {
@@ -457,6 +458,7 @@ impl Clean<TyParam> for ast::TyParam {
             name: self.ident.clean(),
             did: ast::DefId { krate: ast::LOCAL_CRATE, node: self.id },
             bounds: self.bounds.clean().move_iter().collect(),
+            default: self.default.clean()
         }
     }
 }
@@ -470,6 +472,7 @@ impl Clean<TyParam> for ty::TypeParameterDef {
             name: self.ident.clean(),
             did: self.def_id,
             bounds: self.bounds.clean(),
+            default: self.default.clean()
         }
     }
 }
@@ -1069,7 +1072,7 @@ pub enum Type {
 pub enum Primitive {
     Int, I8, I16, I32, I64,
     Uint, U8, U16, U32, U64,
-    F32, F64, F128,
+    F32, F64,
     Char,
     Bool,
     Nil,
@@ -1108,7 +1111,6 @@ impl Primitive {
             "str" => Some(Str),
             "f32" => Some(F32),
             "f64" => Some(F64),
-            "f128" => Some(F128),
             "slice" => Some(Slice),
             "tuple" => Some(PrimitiveTuple),
             _ => None,
@@ -1150,7 +1152,6 @@ impl Primitive {
             U64 => "u64",
             F32 => "f32",
             F64 => "f64",
-            F128 => "f128",
             Str => "str",
             Bool => "bool",
             Char => "char",
@@ -1225,7 +1226,6 @@ impl Clean<Type> for ty::t {
             ty::ty_uint(ast::TyU64) => Primitive(U64),
             ty::ty_float(ast::TyF32) => Primitive(F32),
             ty::ty_float(ast::TyF64) => Primitive(F64),
-            ty::ty_float(ast::TyF128) => Primitive(F128),
             ty::ty_str => Primitive(Str),
             ty::ty_box(t) => Managed(box t.clean()),
             ty::ty_uniq(t) => Unique(box t.clean()),
@@ -1927,6 +1927,14 @@ fn lit_to_str(lit: &ast::Lit) -> String {
     match lit.node {
         ast::LitStr(ref st, _) => st.get().to_string(),
         ast::LitBinary(ref data) => format!("{:?}", data.as_slice()),
+        ast::LitByte(b) => {
+            let mut res = String::from_str("b'");
+            (b as char).escape_default(|c| {
+                res.push_char(c);
+            });
+            res.push_char('\'');
+            res
+        },
         ast::LitChar(c) => format!("'{}'", c),
         ast::LitInt(i, _t) => i.to_str(),
         ast::LitUint(u, _t) => u.to_str(),
@@ -2002,7 +2010,6 @@ fn resolve_type(path: Path, tpbs: Option<Vec<TyParamBound>>,
             ast::TyUint(ast::TyU64) => return Primitive(U64),
             ast::TyFloat(ast::TyF32) => return Primitive(F32),
             ast::TyFloat(ast::TyF64) => return Primitive(F64),
-            ast::TyFloat(ast::TyF128) => return Primitive(F128),
         },
         def::DefTyParam(_, i, _) => return Generic(i),
         def::DefTyParamBinder(i) => return TyParamBinder(i),

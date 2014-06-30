@@ -623,7 +623,7 @@ static bool MaterializeModule(Module* M) {
   // LinkModules overrides the module materializer, orphaning any globalvalues
   // still unmaterialized. This is here to force the loading of any lazy
   // bitcode parsing.
-  const error_code ec = M->materializeAllPermanently();
+  const auto ec = M->materializeAllPermanently();
   if(ec) {
     LLVMRustSetLastError(ec.message().c_str());
     return false;
@@ -697,7 +697,7 @@ LLVMRustLinkInModule(LLVMModuleRef dest, LLVMModuleRef src) {
 extern "C" void*
 LLVMRustOpenArchive(char *path) {
     std::unique_ptr<MemoryBuffer> buf;
-    error_code err = MemoryBuffer::getFile(path, buf);
+    std::error_code err = MemoryBuffer::getFile(path, buf);
     if (err) {
         LLVMRustSetLastError(err.message().c_str());
         return NULL;
@@ -732,14 +732,18 @@ LLVMRustArchiveReadSection(Archive *ar, char *name, size_t *size) {
 #if LLVM_VERSION_MINOR >= 5
     Archive::child_iterator child = ar->child_begin(),
                               end = ar->child_end();
+    for (; child != end; ++child) {
+        ErrorOr<StringRef> name_or_err = child->getName();
+        if (name_or_err.getError()) continue;
+        StringRef sect_name = name_or_err.get();
 #else
     Archive::child_iterator child = ar->begin_children(),
                               end = ar->end_children();
-#endif
     for (; child != end; ++child) {
         StringRef sect_name;
         error_code err = child->getName(sect_name);
         if (err) continue;
+#endif
         if (sect_name.trim(" ") == name) {
             StringRef buf = child->getBuffer();
             *size = buf.size();
@@ -763,10 +767,10 @@ LLVMRustArchiveReadAllChildren(Archive *ar,
 #endif
     assert(callback != NULL);
     for (; I != End; ++I) {
-      StringRef sect_name;
-      error_code err = I->getName(sect_name);
-      if (err) continue;
+      ErrorOr<StringRef> name_or_error = I->getName();
+      if (name_or_error.getError()) continue;
       StringRef buffer = I->getBuffer();
+      StringRef sect_name = name_or_error.get();
       (*callback)(sect_name.data(), sect_name.size(),
                   buffer.data(),    buffer.size(),
                   userdata);
@@ -819,7 +823,11 @@ inline section_iterator *unwrap(LLVMSectionIteratorRef SI) {
 extern "C" int
 LLVMRustGetSectionName(LLVMSectionIteratorRef SI, const char **ptr) {
     StringRef ret;
+#if LLVM_VERSION_MINOR >= 5
+    if (std::error_code ec = (*unwrap(SI))->getName(ret))
+#else
     if (error_code ec = (*unwrap(SI))->getName(ret))
+#endif
       report_fatal_error(ec.message());
     *ptr = ret.data();
     return ret.size();

@@ -11,6 +11,8 @@
 use ast::*;
 use ast;
 use ast_util;
+use attr::{InlineNever, InlineNone};
+use attr;
 use codemap;
 use codemap::Span;
 use owned_slice::OwnedSlice;
@@ -28,7 +30,7 @@ pub fn path_name_i(idents: &[Ident]) -> String {
     // FIXME: Bad copies (#2543 -- same for everything else that says "bad")
     idents.iter().map(|i| {
         token::get_ident(*i).get().to_string()
-    }).collect::<Vec<String>>().connect("::").to_string()
+    }).collect::<Vec<String>>().connect("::")
 }
 
 // totally scary function: ignores all but the last element, should have
@@ -105,19 +107,11 @@ pub fn is_path(e: Gc<Expr>) -> bool {
     return match e.node { ExprPath(_) => true, _ => false };
 }
 
-pub enum SuffixMode {
-    ForceSuffix,
-    AutoSuffix,
-}
-
 // Get a string representation of a signed int type, with its value.
 // We want to avoid "45int" and "-3int" in favor of "45" and "-3"
-pub fn int_ty_to_str(t: IntTy, val: Option<i64>, mode: SuffixMode) -> String {
+pub fn int_ty_to_str(t: IntTy, val: Option<i64>) -> String {
     let s = match t {
-        TyI if val.is_some() => match mode {
-            AutoSuffix => "",
-            ForceSuffix => "i",
-        },
+        TyI if val.is_some() => "i",
         TyI => "int",
         TyI8 => "i8",
         TyI16 => "i16",
@@ -129,7 +123,7 @@ pub fn int_ty_to_str(t: IntTy, val: Option<i64>, mode: SuffixMode) -> String {
         // cast to a u64 so we can correctly print INT64_MIN. All integral types
         // are parsed as u64, so we wouldn't want to print an extra negative
         // sign.
-        Some(n) => format!("{}{}", n as u64, s).to_string(),
+        Some(n) => format!("{}{}", n as u64, s),
         None => s.to_string()
     }
 }
@@ -145,12 +139,9 @@ pub fn int_ty_max(t: IntTy) -> u64 {
 
 // Get a string representation of an unsigned int type, with its value.
 // We want to avoid "42uint" in favor of "42u"
-pub fn uint_ty_to_str(t: UintTy, val: Option<u64>, mode: SuffixMode) -> String {
+pub fn uint_ty_to_str(t: UintTy, val: Option<u64>) -> String {
     let s = match t {
-        TyU if val.is_some() => match mode {
-            AutoSuffix => "",
-            ForceSuffix => "u",
-        },
+        TyU if val.is_some() => "u",
         TyU => "uint",
         TyU8 => "u8",
         TyU16 => "u16",
@@ -159,7 +150,7 @@ pub fn uint_ty_to_str(t: UintTy, val: Option<u64>, mode: SuffixMode) -> String {
     };
 
     match val {
-        Some(n) => format!("{}{}", n, s).to_string(),
+        Some(n) => format!("{}{}", n, s),
         None => s.to_string()
     }
 }
@@ -177,7 +168,6 @@ pub fn float_ty_to_str(t: FloatTy) -> String {
     match t {
         TyF32 => "f32".to_string(),
         TyF64 => "f64".to_string(),
-        TyF128 => "f128".to_string(),
     }
 }
 
@@ -742,6 +732,17 @@ pub fn get_inner_tys(ty: P<Ty>) -> Vec<P<Ty>> {
     }
 }
 
+/// Returns true if the static with the given mutability and attributes
+/// has a significant address and false otherwise.
+pub fn static_has_significant_address(mutbl: ast::Mutability,
+                                              attrs: &[ast::Attribute])
+                                              -> bool {
+    if mutbl == ast::MutMutable {
+        return true
+    }
+    let inline = attr::find_inline_attr(attrs);
+    inline == InlineNever || inline == InlineNone
+}
 
 #[cfg(test)]
 mod test {

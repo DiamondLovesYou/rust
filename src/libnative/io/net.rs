@@ -27,10 +27,10 @@ use super::util;
 #[cfg(unix)]    pub type sock_t = super::file::fd_t;
 
 pub fn htons(u: u16) -> u16 {
-    mem::to_be16(u)
+    u.to_be()
 }
 pub fn ntohs(u: u16) -> u16 {
-    mem::from_be16(u)
+    Int::from_be(u)
 }
 
 enum InAddr {
@@ -46,7 +46,7 @@ fn ip_to_inaddr(ip: rtio::IpAddr) -> InAddr {
                      (c as u32 <<  8) |
                      (d as u32 <<  0);
             InAddr(libc::in_addr {
-                s_addr: mem::from_be32(ip)
+                s_addr: Int::from_be(ip)
             })
         }
         rtio::Ipv6Addr(a, b, c, d, e, f, g, h) => {
@@ -105,7 +105,7 @@ fn socket(addr: rtio::SocketAddr, ty: libc::c_int) -> IoResult<sock_t> {
 fn setsockopt<T>(fd: sock_t, opt: libc::c_int, val: libc::c_int,
                  payload: T) -> IoResult<()> {
     unsafe {
-        let payload = &payload as *T as *libc::c_void;
+        let payload = &payload as *const T as *const libc::c_void;
         let ret = libc::setsockopt(fd, opt, val,
                                    payload,
                                    mem::size_of::<T>() as libc::socklen_t);
@@ -180,7 +180,7 @@ pub fn sockaddr_to_addr(storage: &libc::sockaddr_storage,
             let storage: &libc::sockaddr_in = unsafe {
                 mem::transmute(storage)
             };
-            let ip = mem::to_be32(storage.sin_addr.s_addr as u32);
+            let ip = (storage.sin_addr.s_addr as u32).to_be();
             let a = (ip >> 24) as u8;
             let b = (ip >> 16) as u8;
             let c = (ip >>  8) as u8;
@@ -279,7 +279,7 @@ impl TcpStream {
         let ret = TcpStream::new(Inner::new(fd));
 
         let (addr, len) = addr_to_sockaddr(addr);
-        let addrp = &addr as *_ as *libc::sockaddr;
+        let addrp = &addr as *const _ as *const libc::sockaddr;
         let len = len as libc::socklen_t;
 
         match timeout {
@@ -376,7 +376,7 @@ impl rtio::RtioTcpStream for TcpStream {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
         let fd = self.fd();
         let dolock = || self.lock_nonblocking();
-        let dowrite = |nb: bool, buf: *u8, len: uint| unsafe {
+        let dowrite = |nb: bool, buf: *const u8, len: uint| unsafe {
             let flags = if nb {c::MSG_DONTWAIT} else {0};
             libc::send(fd,
                        buf as *mut libc::c_void,
@@ -463,7 +463,7 @@ impl TcpListener {
         let ret = TcpListener { inner: Inner::new(fd) };
 
         let (addr, len) = addr_to_sockaddr(addr);
-        let addrp = &addr as *_ as *libc::sockaddr;
+        let addrp = &addr as *const _ as *const libc::sockaddr;
         let len = len as libc::socklen_t;
 
         // On platforms with Berkeley-derived sockets, this allows
@@ -571,7 +571,7 @@ impl UdpSocket {
         };
 
         let (addr, len) = addr_to_sockaddr(addr);
-        let addrp = &addr as *_ as *libc::sockaddr;
+        let addrp = &addr as *const _ as *const libc::sockaddr;
         let len = len as libc::socklen_t;
 
         match unsafe { libc::bind(fd, addrp, len) } {
@@ -661,15 +661,15 @@ impl rtio::RtioUdpSocket for UdpSocket {
 
     fn sendto(&mut self, buf: &[u8], dst: rtio::SocketAddr) -> IoResult<()> {
         let (dst, dstlen) = addr_to_sockaddr(dst);
-        let dstp = &dst as *_ as *libc::sockaddr;
+        let dstp = &dst as *const _ as *const libc::sockaddr;
         let dstlen = dstlen as libc::socklen_t;
 
         let fd = self.fd();
         let dolock = || self.lock_nonblocking();
-        let dowrite = |nb, buf: *u8, len: uint| unsafe {
+        let dowrite = |nb, buf: *const u8, len: uint| unsafe {
             let flags = if nb {c::MSG_DONTWAIT} else {0};
             libc::sendto(fd,
-                         buf as *libc::c_void,
+                         buf as *const libc::c_void,
                          len as msglen_t,
                          flags,
                          dstp,
@@ -849,7 +849,7 @@ pub fn write<T>(fd: sock_t,
                 buf: &[u8],
                 write_everything: bool,
                 lock: || -> T,
-                write: |bool, *u8, uint| -> i64) -> IoResult<uint> {
+                write: |bool, *const u8, uint| -> i64) -> IoResult<uint> {
     let mut ret = -1;
     let mut written = 0;
     if deadline == 0 {

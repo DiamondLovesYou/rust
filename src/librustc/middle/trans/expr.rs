@@ -278,7 +278,7 @@ fn apply_adjustments<'a>(bcx: &'a Block<'a>,
         auto_ref(bcx, datum, expr)
     }
 
-    fn auto_borrow_obj<'a>(bcx: &'a Block<'a>,
+    fn auto_borrow_obj<'a>(mut bcx: &'a Block<'a>,
                            expr: &ast::Expr,
                            source_datum: Datum<Expr>)
                            -> DatumBlock<'a, Expr> {
@@ -286,7 +286,11 @@ fn apply_adjustments<'a>(bcx: &'a Block<'a>,
         let target_obj_ty = expr_ty_adjusted(bcx, expr);
         debug!("auto_borrow_obj(target={})", target_obj_ty.repr(tcx));
 
-        let mut datum = source_datum.to_expr_datum();
+        // Arrange cleanup, if not already done. This is needed in
+        // case we are auto-borrowing a Box<Trait> to &Trait
+        let datum = unpack_datum!(
+            bcx, source_datum.to_lvalue_datum(bcx, "autoborrowobj", expr.id));
+        let mut datum = datum.to_expr_datum();
         datum.ty = target_obj_ty;
         DatumBlock::new(bcx, datum)
     }
@@ -740,7 +744,6 @@ fn trans_rvalue_stmt_unadjusted<'a>(bcx: &'a Block<'a>,
             controlflow::trans_loop(bcx, expr.id, &**body)
         }
         ast::ExprAssign(ref dst, ref src) => {
-            let src_datum = unpack_datum!(bcx, trans(bcx, &**src));
             let dst_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, &**dst, "assign"));
 
             if ty::type_needs_drop(bcx.tcx(), dst_datum.ty) {
@@ -760,12 +763,13 @@ fn trans_rvalue_stmt_unadjusted<'a>(bcx: &'a Block<'a>,
                 //
                 // We could avoid this intermediary with some analysis
                 // to determine whether `dst` may possibly own `src`.
+                let src_datum = unpack_datum!(bcx, trans(bcx, &**src));
                 let src_datum = unpack_datum!(
                     bcx, src_datum.to_rvalue_datum(bcx, "ExprAssign"));
                 bcx = glue::drop_ty(bcx, dst_datum.val, dst_datum.ty);
                 src_datum.store_to(bcx, dst_datum.val)
             } else {
-                src_datum.store_to(bcx, dst_datum.val)
+                trans_into(bcx, &**src, SaveIn(dst_datum.to_llref()))
             }
         }
         ast::ExprAssignOp(op, ref dst, ref src) => {
@@ -899,15 +903,12 @@ fn trans_rvalue_dps_unadjusted<'a>(bcx: &'a Block<'a>,
         }
         ast::ExprCast(ref val, _) => {
             // DPS output mode means this is a trait cast:
-            match ty::get(node_id_type(bcx, expr.id)).sty {
-                ty::ty_trait(..) => {
-                    let datum = unpack_datum!(bcx, trans(bcx, &**val));
-                    meth::trans_trait_cast(bcx, datum, expr.id, dest)
-                }
-                _ => {
-                    bcx.tcx().sess.span_bug(expr.span,
-                                            "expr_cast of non-trait");
-                }
+            if ty::type_is_trait(node_id_type(bcx, expr.id)) {
+                let datum = unpack_datum!(bcx, trans(bcx, &**val));
+                meth::trans_trait_cast(bcx, datum, expr.id, dest)
+            } else {
+                bcx.tcx().sess.span_bug(expr.span,
+                                        "expr_cast of non-trait");
             }
         }
         ast::ExprAssignOp(op, ref dst, ref src) => {
@@ -1280,11 +1281,7 @@ fn trans_unary<'a>(bcx: &'a Block<'a>,
             let datum = unpack_datum!(bcx, trans(bcx, sub_expr));
             let llresult = if ty::type_is_bool(un_ty) {
                 let val = datum.to_llscalarish(bcx);
-                let llcond = ICmp(bcx,
-                                  lib::llvm::IntEQ,
-                                  val,
-                                  C_bool(ccx, false));
-                Select(bcx, llcond, C_bool(ccx, true), C_bool(ccx, false))
+                Xor(bcx, val, C_bool(ccx, true))
             } else {
                 // Note: `Not` is bitwise, not suitable for logical not.
                 Not(bcx, datum.to_llscalarish(bcx))
@@ -1311,7 +1308,7 @@ fn trans_unary<'a>(bcx: &'a Block<'a>,
         }
         ast::UnDeref => {
             let datum = unpack_datum!(bcx, trans(bcx, sub_expr));
-            deref_once(bcx, expr, datum, 0)
+            deref_once(bcx, expr, datum, method_call)
         }
     }
 }
@@ -1458,9 +1455,7 @@ fn trans_eager_binop<'a>(
         if ty::type_is_bot(rhs_t) {
             C_bool(bcx.ccx(), false)
         } else if ty::type_is_scalar(rhs_t) {
-            let cmpr = base::compare_scalar_types(bcx, lhs, rhs, rhs_t, op);
-            bcx = cmpr.bcx;
-            ZExt(bcx, cmpr.val, Type::i8(bcx.ccx()))
+            unpack_result!(bcx, base::compare_scalar_types(bcx, lhs, rhs, rhs_t, op))
         } else if is_simd {
             base::compare_simd_types(bcx, lhs, rhs, intype, ty::simd_size(tcx, lhs_t), op)
         } else {
@@ -1502,10 +1497,9 @@ fn trans_lazy_binop<'a>(
     let join = fcx.new_id_block("join", binop_expr.id);
     let before_rhs = fcx.new_id_block("before_rhs", b.id);
 
-    let lhs_i1 = bool_to_i1(past_lhs, lhs);
     match op {
-      lazy_and => CondBr(past_lhs, lhs_i1, before_rhs.llbb, join.llbb),
-      lazy_or => CondBr(past_lhs, lhs_i1, join.llbb, before_rhs.llbb)
+      lazy_and => CondBr(past_lhs, lhs, before_rhs.llbb, join.llbb),
+      lazy_or => CondBr(past_lhs, lhs, join.llbb, before_rhs.llbb)
     }
 
     let DatumBlock {bcx: past_rhs, datum: rhs} = trans(before_rhs, b);
@@ -1596,7 +1590,7 @@ fn trans_overloaded_call<'a>(
     // Evaluate and tuple the arguments.
     let tuple_type = ty::mk_tup(bcx.tcx(),
                                 args.iter()
-                                    .map(|e| expr_ty(bcx, &**e))
+                                    .map(|e| ty::expr_ty_adjusted(bcx.tcx(), &**e))
                                     .collect());
     let repr = adt::represent_type(bcx.ccx(), tuple_type);
     let numbered_fields: Vec<(uint, Gc<ast::Expr>)> =
@@ -1620,7 +1614,7 @@ fn trans_overloaded_call<'a>(
                       SaveIn(addr))
         }));
 
-    let method_call = typeck::MethodCall::expr(expr.id);
+    let method_call = MethodCall::expr(expr.id);
     let method_type = bcx.tcx()
                          .method_map
                          .borrow()
@@ -1708,7 +1702,7 @@ pub fn cast_type_kind(t: ty::t) -> cast_kind {
         ty::ty_float(..)   => cast_float,
         ty::ty_ptr(..)     => cast_pointer,
         ty::ty_rptr(_, mt) => match ty::get(mt.ty).sty{
-            ty::ty_vec(_, None) | ty::ty_str => cast_other,
+            ty::ty_vec(_, None) | ty::ty_str | ty::ty_trait(..) => cast_other,
             _ => cast_pointer,
         },
         ty::ty_bare_fn(..) => cast_pointer,
@@ -1870,8 +1864,9 @@ fn deref_multiple<'a>(bcx: &'a Block<'a>,
                       -> DatumBlock<'a, Expr> {
     let mut bcx = bcx;
     let mut datum = datum;
-    for i in range(1, times+1) {
-        datum = unpack_datum!(bcx, deref_once(bcx, expr, datum, i));
+    for i in range(0, times) {
+        let method_call = MethodCall::autoderef(expr.id, i);
+        datum = unpack_datum!(bcx, deref_once(bcx, expr, datum, method_call));
     }
     DatumBlock { bcx: bcx, datum: datum }
 }
@@ -1879,22 +1874,18 @@ fn deref_multiple<'a>(bcx: &'a Block<'a>,
 fn deref_once<'a>(bcx: &'a Block<'a>,
                   expr: &ast::Expr,
                   datum: Datum<Expr>,
-                  derefs: uint)
+                  method_call: MethodCall)
                   -> DatumBlock<'a, Expr> {
     let ccx = bcx.ccx();
 
-    debug!("deref_once(expr={}, datum={}, derefs={})",
+    debug!("deref_once(expr={}, datum={}, method_call={})",
            expr.repr(bcx.tcx()),
            datum.to_str(ccx),
-           derefs);
+           method_call);
 
     let mut bcx = bcx;
 
     // Check for overloaded deref.
-    let method_call = MethodCall {
-        expr_id: expr.id,
-        autoderef: derefs as u32
-    };
     let method_ty = ccx.tcx.method_map.borrow()
                        .find(&method_call).map(|method| method.ty);
     let datum = match method_ty {
@@ -1904,11 +1895,10 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
             // converts from the `Shaht<T>` pointer that we have into
             // a `&T` pointer.  We can then proceed down the normal
             // path (below) to dereference that `&T`.
-            let datum = if derefs == 0 {
-                datum
-            } else {
-                // Always perform an AutoPtr when applying an overloaded auto-deref.
-                unpack_datum!(bcx, auto_ref(bcx, datum, expr))
+            let datum = match method_call.adjustment {
+                // Always perform an AutoPtr when applying an overloaded auto-deref
+                typeck::AutoDeref(_) => unpack_datum!(bcx, auto_ref(bcx, datum, expr)),
+                _ => datum
             };
             let val = unpack_result!(bcx, trans_overloaded_op(bcx, expr, method_call,
                                                               datum, None, None));
@@ -1924,8 +1914,8 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
     let r = match ty::get(datum.ty).sty {
         ty::ty_uniq(content_ty) => {
             match ty::get(content_ty).sty {
-                ty::ty_vec(_, None) | ty::ty_str
-                    => bcx.tcx().sess.span_bug(expr.span, "unexpected ~[T]"),
+                ty::ty_vec(_, None) | ty::ty_str | ty::ty_trait(..)
+                    => bcx.tcx().sess.span_bug(expr.span, "unexpected unsized box"),
                 _ => deref_owned_pointer(bcx, expr, datum, content_ty),
             }
         }
@@ -1942,8 +1932,8 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
         ty::ty_ptr(ty::mt { ty: content_ty, .. }) |
         ty::ty_rptr(_, ty::mt { ty: content_ty, .. }) => {
             match ty::get(content_ty).sty {
-                ty::ty_vec(_, None) | ty::ty_str
-                    => bcx.tcx().sess.span_bug(expr.span, "unexpected &[T]"),
+                ty::ty_vec(_, None) | ty::ty_str | ty::ty_trait(..)
+                    => bcx.tcx().sess.span_bug(expr.span, "unexpected unsized reference"),
                 _ => {
                     assert!(!ty::type_needs_drop(bcx.tcx(), datum.ty));
 
@@ -1967,8 +1957,8 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
         }
     };
 
-    debug!("deref_once(expr={}, derefs={}, result={})",
-           expr.id, derefs, r.datum.to_str(ccx));
+    debug!("deref_once(expr={}, method_call={}, result={})",
+           expr.id, method_call, r.datum.to_str(ccx));
 
     return r;
 

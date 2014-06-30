@@ -196,11 +196,11 @@ fn encode_item_variances(ebml_w: &mut Encoder,
 
 fn encode_bounds_and_type(ebml_w: &mut Encoder,
                           ecx: &EncodeContext,
-                          tpt: &ty::ty_param_bounds_and_ty) {
-    encode_ty_type_param_defs(ebml_w, ecx, &tpt.generics.types,
+                          pty: &ty::Polytype) {
+    encode_ty_type_param_defs(ebml_w, ecx, &pty.generics.types,
                               tag_items_data_item_ty_param_bounds);
-    encode_region_param_defs(ebml_w, &tpt.generics.regions);
-    encode_type(ecx, ebml_w, tpt.ty);
+    encode_region_param_defs(ebml_w, &pty.generics.regions);
+    encode_type(ecx, ebml_w, pty.ty);
 }
 
 fn encode_variant_id(ebml_w: &mut Encoder, vid: DefId) {
@@ -327,6 +327,10 @@ fn encode_enum_variant_info(ecx: &EncodeContext,
         encode_parent_item(ebml_w, local_def(id));
         encode_visibility(ebml_w, variant.node.vis);
         encode_attributes(ebml_w, variant.node.attrs.as_slice());
+
+        let stab = ecx.tcx.stability.borrow().lookup_local(variant.node.id);
+        encode_stability(ebml_w, stab);
+
         match variant.node.kind {
             ast::TupleVariantKind(ref args)
                     if args.len() > 0 && generics.ty_params.len() == 0 => {
@@ -588,6 +592,7 @@ fn encode_info_for_mod(ecx: &EncodeContext,
 
     encode_path(ebml_w, path.clone());
     encode_visibility(ebml_w, vis);
+    encode_stability(ebml_w, ecx.tcx.stability.borrow().lookup_local(id));
 
     // Encode the reexports of this module, if this module is public.
     if vis == Public {
@@ -717,6 +722,8 @@ fn encode_info_for_struct_ctor(ecx: &EncodeContext,
         encode_symbol(ecx, ebml_w, ctor_id);
     }
 
+    encode_stability(ebml_w, ecx.tcx.stability.borrow().lookup_local(ctor_id));
+
     // indicate that this is a tuple struct ctor, because downstream users will normally want
     // the tuple struct definition, but without this there is no way for them to tell that
     // they actually have a ctor rather than a normal function
@@ -761,9 +768,12 @@ fn encode_info_for_method(ecx: &EncodeContext,
     encode_method_ty_fields(ecx, ebml_w, m);
     encode_parent_item(ebml_w, local_def(parent_id));
 
+    let stab = ecx.tcx.stability.borrow().lookup_local(m.def_id.node);
+    encode_stability(ebml_w, stab);
+
     // The type for methods gets encoded twice, which is unfortunate.
-    let tpt = lookup_item_type(ecx.tcx, m.def_id);
-    encode_bounds_and_type(ebml_w, ecx, &tpt);
+    let pty = lookup_item_type(ecx.tcx, m.def_id);
+    encode_bounds_and_type(ebml_w, ecx, &pty);
 
     let elem = ast_map::PathName(m.ident.name);
     encode_path(ebml_w, impl_path.chain(Some(elem).move_iter()));
@@ -775,7 +785,7 @@ fn encode_info_for_method(ecx: &EncodeContext,
     }
 
     for &ast_method in ast_method_opt.iter() {
-        let any_types = !tpt.generics.types.is_empty();
+        let any_types = !pty.generics.types.is_empty();
         if any_types || is_default_impl || should_inline(ast_method.attrs.as_slice()) {
             encode_inlined_item(ecx, ebml_w,
                                 IIMethodRef(local_def(parent_id), false,
@@ -880,6 +890,14 @@ fn encode_sized(ebml_w: &mut Encoder, sized: Sized) {
     ebml_w.end_tag();
 }
 
+fn encode_stability(ebml_w: &mut Encoder, stab_opt: Option<attr::Stability>) {
+    stab_opt.map(|stab| {
+        ebml_w.start_tag(tag_items_data_item_stability);
+        stab.encode(ebml_w).unwrap();
+        ebml_w.end_tag();
+    });
+}
+
 fn encode_info_for_item(ecx: &EncodeContext,
                         ebml_w: &mut Encoder,
                         item: &Item,
@@ -900,6 +918,8 @@ fn encode_info_for_item(ecx: &EncodeContext,
            ecx.tcx.sess.codemap().span_to_str(item.span));
 
     let def_id = local_def(item.id);
+    let stab = tcx.stability.borrow().lookup_local(item.id);
+
     match item.node {
       ItemStatic(_, m, _) => {
         add_to_index(item, ebml_w, index);
@@ -921,6 +941,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
             encode_inlined_item(ecx, ebml_w, IIItemRef(item));
         }
         encode_visibility(ebml_w, vis);
+        encode_stability(ebml_w, stab);
         ebml_w.end_tag();
       }
       ItemFn(ref decl, fn_style, _, ref generics, _) => {
@@ -939,6 +960,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
             encode_symbol(ecx, ebml_w, item.id);
         }
         encode_visibility(ebml_w, vis);
+        encode_stability(ebml_w, stab);
         encode_method_argument_names(ebml_w, &**decl);
         ebml_w.end_tag();
       }
@@ -968,6 +990,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
             ebml_w.end_tag();
         }
         encode_visibility(ebml_w, vis);
+        encode_stability(ebml_w, stab);
         ebml_w.end_tag();
       }
       ItemTy(..) => {
@@ -979,6 +1002,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_name(ebml_w, item.ident.name);
         encode_path(ebml_w, path);
         encode_visibility(ebml_w, vis);
+        encode_stability(ebml_w, stab);
         ebml_w.end_tag();
       }
       ItemEnum(ref enum_definition, ref generics) => {
@@ -1001,6 +1025,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_inherent_implementations(ecx, ebml_w, def_id);
 
         encode_visibility(ebml_w, vis);
+        encode_stability(ebml_w, stab);
         ebml_w.end_tag();
 
         encode_enum_variant_info(ecx,
@@ -1035,6 +1060,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_name(ebml_w, item.ident.name);
         encode_attributes(ebml_w, item.attrs.as_slice());
         encode_path(ebml_w, path.clone());
+        encode_stability(ebml_w, stab);
         encode_visibility(ebml_w, vis);
 
         /* Encode def_ids for each field and method
@@ -1095,6 +1121,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
             encode_impl_vtables(ebml_w, ecx, &impl_vtables);
         }
         encode_path(ebml_w, path.clone());
+        encode_stability(ebml_w, stab);
         ebml_w.end_tag();
 
         // Iterate down the methods, emitting them. We rely on the
@@ -1138,6 +1165,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         // should no longer need this ugly little hack either.
         encode_sized(ebml_w, sized);
         encode_visibility(ebml_w, vis);
+        encode_stability(ebml_w, stab);
         for &method_def_id in ty::trait_method_def_ids(tcx, def_id).iter() {
             ebml_w.start_tag(tag_item_trait_method);
             encode_def_id(ebml_w, method_def_id);
@@ -1176,8 +1204,10 @@ fn encode_info_for_item(ecx: &EncodeContext,
             ebml_w.start_tag(tag_items_data_item);
 
             encode_method_ty_fields(ecx, ebml_w, &*method_ty);
-
             encode_parent_item(ebml_w, def_id);
+
+            let stab = tcx.stability.borrow().lookup_local(method_def_id.node);
+            encode_stability(ebml_w, stab);
 
             let elem = ast_map::PathName(method_ty.ident.name);
             encode_path(ebml_w, path.clone().chain(Some(elem).move_iter()));
@@ -1188,8 +1218,8 @@ fn encode_info_for_item(ecx: &EncodeContext,
                                   fn_style_static_method_family(
                                       method_ty.fty.fn_style));
 
-                    let tpt = ty::lookup_item_type(tcx, method_def_id);
-                    encode_bounds_and_type(ebml_w, ecx, &tpt);
+                    let pty = ty::lookup_item_type(tcx, method_def_id);
+                    encode_bounds_and_type(ebml_w, ecx, &pty);
                 }
 
                 _ => {
@@ -1212,8 +1242,8 @@ fn encode_info_for_item(ecx: &EncodeContext,
                     // this.
                     if method_ty.explicit_self != SelfStatic {
                         // FIXME: I feel like there is something funny going on.
-                        let tpt = ty::lookup_item_type(tcx, method_def_id);
-                        encode_bounds_and_type(ebml_w, ecx, &tpt);
+                        let pty = ty::lookup_item_type(tcx, method_def_id);
+                        encode_bounds_and_type(ebml_w, ecx, &pty);
                     }
                     encode_method_sort(ebml_w, 'p');
                     encode_inlined_item(ecx, ebml_w,
@@ -1278,7 +1308,7 @@ fn my_visit_expr(_e: &Expr) { }
 
 fn my_visit_item(i: &Item,
                  ebml_w: &mut Encoder,
-                 ecx_ptr: *int,
+                 ecx_ptr: *const int,
                  index: &mut Vec<entry<i64>>) {
     let mut ebml_w = unsafe { ebml_w.unsafe_clone() };
     // See above
@@ -1290,7 +1320,7 @@ fn my_visit_item(i: &Item,
 
 fn my_visit_foreign_item(ni: &ForeignItem,
                          ebml_w: &mut Encoder,
-                         ecx_ptr:*int,
+                         ecx_ptr:*const int,
                          index: &mut Vec<entry<i64>>) {
     // See above
     let ecx: &EncodeContext = unsafe { mem::transmute(ecx_ptr) };
@@ -1311,7 +1341,7 @@ fn my_visit_foreign_item(ni: &ForeignItem,
 
 struct EncodeVisitor<'a,'b> {
     ebml_w_for_visit_item: &'a mut Encoder<'b>,
-    ecx_ptr:*int,
+    ecx_ptr:*const int,
     index: &'a mut Vec<entry<i64>>,
 }
 
@@ -1356,7 +1386,7 @@ fn encode_info_for_items(ecx: &EncodeContext,
                         Public);
 
     // See comment in `encode_side_tables_for_ii` in astencode
-    let ecx_ptr: *int = unsafe { mem::transmute(ecx) };
+    let ecx_ptr: *const int = unsafe { mem::transmute(ecx) };
     visit::walk_crate(&mut EncodeVisitor {
         index: &mut index,
         ecx_ptr: ecx_ptr,

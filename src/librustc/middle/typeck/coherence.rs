@@ -23,7 +23,7 @@ use middle::ty::get;
 use middle::ty::{ImplContainer, lookup_item_type};
 use middle::ty::{t, ty_bool, ty_char, ty_bot, ty_box, ty_enum, ty_err};
 use middle::ty::{ty_str, ty_vec, ty_float, ty_infer, ty_int, ty_nil};
-use middle::ty::{ty_param, ty_param_bounds_and_ty, ty_ptr, ty_simd};
+use middle::ty::{ty_param, Polytype, ty_ptr, ty_simd};
 use middle::ty::{ty_rptr, ty_struct, ty_trait, ty_tup};
 use middle::ty::{ty_uint, ty_uniq, ty_bare_fn, ty_closure};
 use middle::ty::type_is_ty_var;
@@ -61,6 +61,7 @@ fn get_base_type(inference_context: &InferCtxt,
                  -> Option<t> {
     let resolved_type;
     match resolve_type(inference_context,
+                       Some(span),
                        original_type,
                        resolve_ivar) {
         Ok(resulting_type) if !type_is_ty_var(resulting_type) => {
@@ -74,8 +75,14 @@ fn get_base_type(inference_context: &InferCtxt,
     }
 
     match get(resolved_type).sty {
-        ty_enum(..) | ty_trait(..) | ty_struct(..) => {
+        ty_enum(..) | ty_struct(..) => {
             debug!("(getting base type) found base type");
+            Some(resolved_type)
+        }
+        // FIXME(14865) I would prefere to use `_` here, but that causes a
+        // compiler error.
+        ty_uniq(_) | ty_rptr(_, _) | ty_trait(..) if ty::type_is_trait(resolved_type) => {
+            debug!("(getting base type) found base type (trait)");
             Some(resolved_type)
         }
 
@@ -88,6 +95,7 @@ fn get_base_type(inference_context: &InferCtxt,
                    get(original_type).sty);
             None
         }
+        ty_trait(..) => fail!("should have been caught")
     }
 }
 
@@ -109,17 +117,9 @@ fn type_is_defined_in_local_crate(tcx: &ty::ctxt, original_type: t) -> bool {
                     found_nominal = true;
                 }
             }
-            ty_trait(box ty::TyTrait { def_id, ref store, .. }) => {
+            ty_trait(box ty::TyTrait { def_id, .. }) => {
                 if def_id.krate == ast::LOCAL_CRATE {
                     found_nominal = true;
-                }
-                if *store == ty::UniqTraitStore {
-                    match tcx.lang_items.owned_box() {
-                        Some(did) if did.krate == ast::LOCAL_CRATE => {
-                            found_nominal = true;
-                        }
-                        _ => {}
-                    }
                 }
             }
             ty_uniq(..) => {
@@ -151,16 +151,22 @@ fn get_base_type_def_id(inference_context: &InferCtxt,
                         original_type: t)
                         -> Option<DefId> {
     match get_base_type(inference_context, span, original_type) {
-        None => {
-            return None;
-        }
+        None => None,
         Some(base_type) => {
             match get(base_type).sty {
                 ty_enum(def_id, _) |
-                ty_struct(def_id, _) |
-                ty_trait(box ty::TyTrait { def_id, .. }) => {
-                    return Some(def_id);
+                ty_struct(def_id, _) => {
+                    Some(def_id)
                 }
+                ty_rptr(_, ty::mt {ty, ..}) | ty_uniq(ty) => match ty::get(ty).sty {
+                    ty_trait(box ty::TyTrait { def_id, .. }) => {
+                        Some(def_id)
+                    }
+                    _ => {
+                        fail!("get_base_type() returned a type that wasn't an \
+                               enum, struct, or trait");
+                    }
+                },
                 _ => {
                     fail!("get_base_type() returned a type that wasn't an \
                            enum, struct, or trait");
@@ -374,7 +380,7 @@ impl<'a> CoherenceChecker<'a> {
             // construct the polytype for the method based on the
             // method_ty.  it will have all the generics from the
             // impl, plus its own.
-            let new_polytype = ty::ty_param_bounds_and_ty {
+            let new_polytype = ty::Polytype {
                 generics: new_method_ty.generics.clone(),
                 ty: ty::mk_bare_fn(tcx, new_method_ty.fty.clone())
             };
@@ -483,8 +489,8 @@ impl<'a> CoherenceChecker<'a> {
     }
 
     fn polytypes_unify(&self,
-                       polytype_a: ty_param_bounds_and_ty,
-                       polytype_b: ty_param_bounds_and_ty)
+                       polytype_a: Polytype,
+                       polytype_b: Polytype)
                        -> bool {
         let universally_quantified_a =
             self.universally_quantify_polytype(polytype_a);
@@ -499,7 +505,7 @@ impl<'a> CoherenceChecker<'a> {
 
     // Converts a polytype to a monotype by replacing all parameters with
     // type variables. Returns the monotype and the type variables created.
-    fn universally_quantify_polytype(&self, polytype: ty_param_bounds_and_ty)
+    fn universally_quantify_polytype(&self, polytype: Polytype)
                                      -> UniversalQuantificationResult
     {
         let substitutions =
@@ -515,14 +521,15 @@ impl<'a> CoherenceChecker<'a> {
     fn can_unify_universally_quantified<'a>(&self,
                                             a: &'a UniversalQuantificationResult,
                                             b: &'a UniversalQuantificationResult)
-                                            -> bool {
+                                            -> bool
+    {
         infer::can_mk_subty(&self.inference_context,
                             a.monotype,
                             b.monotype).is_ok()
     }
 
     fn get_self_type_for_implementation(&self, impl_did: DefId)
-                                        -> ty_param_bounds_and_ty {
+                                        -> Polytype {
         self.crate_context.tcx.tcache.borrow().get_copy(&impl_did)
     }
 
@@ -744,7 +751,7 @@ pub fn make_substs_for_receiver_types(tcx: &ty::ctxt,
 
 fn subst_receiver_types_in_method_ty(tcx: &ty::ctxt,
                                      impl_id: ast::DefId,
-                                     impl_poly_type: &ty::ty_param_bounds_and_ty,
+                                     impl_poly_type: &ty::Polytype,
                                      trait_ref: &ty::TraitRef,
                                      new_def_id: ast::DefId,
                                      method: &ty::Method,

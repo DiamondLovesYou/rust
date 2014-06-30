@@ -370,8 +370,7 @@ fn build_index(krate: &clean::Crate, cache: &mut Cache) -> io::IoResult<String> 
                     search_index.push(IndexItem {
                         ty: shortty(item),
                         name: item.name.clone().unwrap(),
-                        path: fqp.slice_to(fqp.len() - 1).connect("::")
-                                                         .to_string(),
+                        path: fqp.slice_to(fqp.len() - 1).connect("::"),
                         desc: shorter(item.doc_value()).to_string(),
                         parent: Some(did),
                     });
@@ -602,7 +601,7 @@ fn mkdir(path: &Path) -> io::IoResult<()> {
 // FIXME (#9639): The closure should deal with &[u8] instead of &str
 fn clean_srcpath(src: &[u8], f: |&str|) {
     let p = Path::new(src);
-    if p.as_vec() != bytes!(".") {
+    if p.as_vec() != b"." {
         for c in p.str_components().map(|x|x.unwrap()) {
             if ".." == c {
                 f("up");
@@ -714,7 +713,7 @@ impl<'a> SourceCollector<'a> {
         });
 
         cur.push(Vec::from_slice(p.filename().expect("source has no filename"))
-                 .append(bytes!(".html")));
+                 .append(b".html"));
         let mut w = BufferedWriter::new(try!(File::create(&cur)));
 
         let title = format!("{} -- source", cur.filename_display());

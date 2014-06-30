@@ -40,7 +40,7 @@ fn test<'a,T,U:Send>(_: &'a int) {
     assert_send::<&'static Dummy>(); //~ ERROR does not fulfill `Send`
     assert_send::<&'a Dummy>(); //~ ERROR does not fulfill `Send`
     assert_send::<&'a Dummy+Send>(); //~ ERROR does not fulfill `Send`
-    assert_send::<Box<Dummy+>>(); //~ ERROR does not fulfill `Send`
+    assert_send::<Box<Dummy>>(); //~ ERROR does not fulfill `Send`
 
     // ...unless they are properly bounded
     assert_send::<&'static Dummy+Send>();
@@ -52,8 +52,8 @@ fn test<'a,T,U:Send>(_: &'a int) {
     // assert_send::<Box<Dummy+'a>>(); // ERROR does not fulfill `Send`
 
     // unsafe ptrs are ok unless they point at unsendable things
-    assert_send::<*int>();
-    assert_send::<*&'a int>(); //~ ERROR does not fulfill `Send`
+    assert_send::<*const int>();
+    assert_send::<*const &'a int>(); //~ ERROR does not fulfill `Send`
 }
 
 fn main() {

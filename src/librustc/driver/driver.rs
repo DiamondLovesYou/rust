@@ -20,12 +20,13 @@ use metadata::common::LinkMeta;
 use metadata::creader;
 use middle::cfg;
 use middle::cfg::graphviz::LabelledCFG;
-use middle::{trans, freevars, kind, ty, typeck, lint, reachable};
+use middle::{trans, freevars, stability, kind, ty, typeck, reachable};
 use middle::dependency_format;
 use middle;
 use plugin::load::Plugins;
 use plugin::registry::Registry;
 use plugin;
+use lint;
 use util::common::time;
 use util::ppaux;
 use util::nodemap::{NodeSet};
@@ -80,8 +81,12 @@ pub fn compile_input(sess: Session,
                                                  &sess);
             let id = link::find_crate_id(krate.attrs.as_slice(),
                                          outputs.out_filestem.as_slice());
-            let (expanded_crate, ast_map) =
-                phase_2_configure_and_expand(&sess, krate, &id);
+            let (expanded_crate, ast_map)
+                = match phase_2_configure_and_expand(&sess, krate, &id) {
+                    None => return,
+                    Some(p) => p,
+                };
+
             (outputs, expanded_crate, ast_map)
         };
         write_out_deps(&sess, input, &outputs, &expanded_crate);
@@ -110,13 +115,13 @@ pub fn compile_input(sess: Session,
                                      &outputs,
                                      cid);
         unsafe {
-            if trans.metadata_module != ptr::null() {
+            if trans.metadata_module != ptr::mut_null() {
                 llvm::LLVMDisposeModule(trans.metadata_module);
             }
-            if trans.module != ptr::null() {
+            if trans.module != ptr::mut_null() {
                 llvm::LLVMDisposeModule(trans.module);
             }
-            if trans.context != ptr::null() {
+            if trans.context != ptr::mut_null() {
                 llvm::LLVMContextDispose(trans.context);
             }
         }
@@ -193,10 +198,12 @@ pub fn phase_1_parse_input(sess: &Session, cfg: ast::CrateConfig, input: &Input)
 /// syntax expansion, secondary `cfg` expansion, synthesis of a test
 /// harness if one is to be provided and injection of a dependency on the
 /// standard library and prelude.
+///
+/// Returns `None` if we're aborting after handling -W help.
 pub fn phase_2_configure_and_expand(sess: &Session,
                                     mut krate: ast::Crate,
                                     crate_id: &CrateId)
-                                    -> (ast::Crate, syntax::ast_map::Map) {
+                                    -> Option<(ast::Crate, syntax::ast_map::Map)> {
     let time_passes = sess.time_passes();
 
     *sess.crate_types.borrow_mut() = collect_crate_types(sess, krate.attrs.as_slice());
@@ -230,7 +237,24 @@ pub fn phase_2_configure_and_expand(sess: &Session,
         }
     });
 
-    let Registry { syntax_exts, .. } = registry;
+    let Registry { syntax_exts, lint_passes, .. } = registry;
+
+    {
+        let mut ls = sess.lint_store.borrow_mut();
+        for pass in lint_passes.move_iter() {
+            ls.register_pass(Some(sess), true, pass);
+        }
+    }
+
+    // Lint plugins are registered; now we can process command line flags.
+    if sess.opts.describe_lints {
+        super::describe_lints(&*sess.lint_store.borrow(), true);
+        return None;
+    }
+    sess.lint_store.borrow_mut().process_command_line(sess);
+
+    // Abort if there are errors from lint processing or a plugin registrar.
+    sess.abort_if_errors();
 
     krate = time(time_passes, "expansion", (krate, macros, syntax_exts),
         |(krate, macros, syntax_exts)| {
@@ -274,7 +298,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
         krate.encode(&mut json).unwrap();
     }
 
-    (krate, map)
+    Some((krate, map))
 }
 
 pub struct CrateAnalysis {
@@ -333,8 +357,11 @@ pub fn phase_3_run_analysis_passes(sess: Session,
     time(time_passes, "loop checking", (), |_|
          middle::check_loop::check_crate(&sess, krate));
 
+    let stability_index = time(time_passes, "stability index", (), |_|
+                               stability::Index::build(krate));
+
     let ty_cx = ty::mk_ctxt(sess, def_map, named_region_map, ast_map,
-                            freevars, region_map, lang_items);
+                            freevars, region_map, lang_items, stability_index);
 
     // passes are timed inside typeck
     typeck::check_crate(&ty_cx, trait_map, krate);
@@ -384,7 +411,7 @@ pub fn phase_3_run_analysis_passes(sess: Session,
     });
 
     time(time_passes, "lint checking", (), |_|
-         lint::check_crate(&ty_cx, &exported_items, krate));
+         lint::check_crate(&ty_cx, krate, &exported_items));
 
     CrateAnalysis {
         exp_map2: exp_map2,
@@ -591,7 +618,7 @@ impl pprust::PpAnn for IdentifiedAnnotation {
             }
             pprust::NodeBlock(blk) => {
                 try!(pp::space(&mut s.s));
-                s.synth_comment((format!("block {}", blk.id)).to_string())
+                s.synth_comment(format!("block {}", blk.id))
             }
             pprust::NodeExpr(expr) => {
                 try!(pp::space(&mut s.s));
@@ -600,7 +627,7 @@ impl pprust::PpAnn for IdentifiedAnnotation {
             }
             pprust::NodePat(pat) => {
                 try!(pp::space(&mut s.s));
-                s.synth_comment((format!("pat {}", pat.id)).to_string())
+                s.synth_comment(format!("pat {}", pat.id))
             }
         }
     }
@@ -650,9 +677,11 @@ pub fn pretty_print_input(sess: Session,
 
     let (krate, ast_map, is_expanded) = match ppm {
         PpmExpanded | PpmExpandedIdentified | PpmTyped | PpmFlowGraph(_) => {
-            let (krate, ast_map) = phase_2_configure_and_expand(&sess,
-                                                                krate,
-                                                                &id);
+            let (krate, ast_map)
+                = match phase_2_configure_and_expand(&sess, krate, &id) {
+                    None => return,
+                    Some(p) => p,
+                };
             (krate, Some(ast_map), true)
         }
         _ => (krate, None, false)
@@ -746,7 +775,7 @@ fn print_flowgraph<W:io::Writer>(analysis: CrateAnalysis,
     let cfg = cfg::CFG::new(ty_cx, &*block);
     let lcfg = LabelledCFG { ast_map: &ty_cx.map,
                              cfg: &cfg,
-                             name: format!("block{}", block.id).to_string(), };
+                             name: format!("block{}", block.id), };
     debug!("cfg: {:?}", cfg);
     let r = dot::render(&lcfg, &mut out);
     return expand_err_details(r);
@@ -786,7 +815,7 @@ pub fn collect_crate_types(session: &Session,
                 }
                 Some(ref n) if n.equiv(&("bin")) => Some(config::CrateTypeExecutable),
                 Some(_) => {
-                    session.add_lint(lint::UnknownCrateType,
+                    session.add_lint(lint::builtin::UNKNOWN_CRATE_TYPE,
                                      ast::CRATE_NODE_ID,
                                      a.span,
                                      "invalid `crate_type` \
@@ -794,7 +823,7 @@ pub fn collect_crate_types(session: &Session,
                     None
                 }
                 _ => {
-                    session.add_lint(lint::UnknownCrateType,
+                    session.add_lint(lint::builtin::UNKNOWN_CRATE_TYPE,
                                      ast::CRATE_NODE_ID,
                                      a.span,
                                      "`crate_type` requires a \

@@ -24,7 +24,7 @@
 //!
 //! # Example
 //!
-//!     use std::rt::deque::BufferPool;
+//!     use std::sync::deque::BufferPool;
 //!
 //!     let mut pool = BufferPool::new();
 //!     let (mut worker, mut stealer) = pool.deque();
@@ -72,7 +72,7 @@ static K: int = 4;
 // size.
 //
 // The size in question is 1 << MIN_BITS
-static MIN_BITS: int = 7;
+static MIN_BITS: uint = 7;
 
 struct Deque<T> {
     bottom: AtomicInt,
@@ -137,8 +137,8 @@ pub struct BufferPool<T> {
 ///   2. We can certainly avoid bounds checks using *T instead of Vec<T>, although
 ///      LLVM is probably pretty good at doing this already.
 struct Buffer<T> {
-    storage: *T,
-    log_size: int,
+    storage: *const T,
+    log_size: uint,
 }
 
 impl<T: Send> BufferPool<T> {
@@ -157,7 +157,7 @@ impl<T: Send> BufferPool<T> {
          Stealer { deque: b, noshare: marker::NoShare })
     }
 
-    fn alloc(&self, bits: int) -> Box<Buffer<T>> {
+    fn alloc(&mut self, bits: uint) -> Box<Buffer<T>> {
         unsafe {
             let mut pool = self.pool.lock();
             match pool.iter().position(|x| x.size() >= (1 << bits)) {
@@ -225,7 +225,7 @@ impl<T: Send> Clone for Stealer<T> {
 // personally going to heavily comment what's going on here.
 
 impl<T: Send> Deque<T> {
-    fn new(pool: BufferPool<T>) -> Deque<T> {
+    fn new(mut pool: BufferPool<T>) -> Deque<T> {
         let buf = pool.alloc(MIN_BITS);
         Deque {
             bottom: AtomicInt::new(0),
@@ -345,16 +345,16 @@ impl<T: Send> Drop for Deque<T> {
 }
 
 #[inline]
-fn buffer_alloc_size<T>(log_size: int) -> uint {
+fn buffer_alloc_size<T>(log_size: uint) -> uint {
     (1 << log_size) * size_of::<T>()
 }
 
 impl<T: Send> Buffer<T> {
-    unsafe fn new(log_size: int) -> Buffer<T> {
+    unsafe fn new(log_size: uint) -> Buffer<T> {
         let size = buffer_alloc_size::<T>(log_size);
         let buffer = allocate(size, min_align_of::<T>());
         Buffer {
-            storage: buffer as *T,
+            storage: buffer as *const T,
             log_size: log_size,
         }
     }
@@ -364,7 +364,9 @@ impl<T: Send> Buffer<T> {
     // Apparently LLVM cannot optimize (foo % (1 << bar)) into this implicitly
     fn mask(&self) -> int { (1 << self.log_size) - 1 }
 
-    unsafe fn elem(&self, i: int) -> *T { self.storage.offset(i & self.mask()) }
+    unsafe fn elem(&self, i: int) -> *const T {
+        self.storage.offset(i & self.mask())
+    }
 
     // This does not protect against loading duplicate values of the same cell,
     // nor does this clear out the contents contained within. Hence, this is a
@@ -383,7 +385,10 @@ impl<T: Send> Buffer<T> {
     // Again, unsafe because this has incredibly dubious ownership violations.
     // It is assumed that this buffer is immediately dropped.
     unsafe fn resize(&self, b: int, t: int, delta: int) -> Buffer<T> {
-        let buf = Buffer::new(self.log_size + delta);
+        // NB: not entirely obvious, but thanks to 2's complement,
+        // casting delta to uint and then adding gives the desired
+        // effect.
+        let buf = Buffer::new(self.log_size + delta as uint);
         for i in range(t, b) {
             buf.put(i, self.get(i));
         }
@@ -419,7 +424,7 @@ mod tests {
         let (w, s) = pool.deque();
         assert_eq!(w.pop(), None);
         assert_eq!(s.steal(), Empty);
-        w.push(1);
+        w.push(1i);
         assert_eq!(w.pop(), Some(1));
         w.push(1);
         assert_eq!(s.steal(), Data(1));
@@ -564,7 +569,7 @@ mod tests {
         let mut rng = rand::task_rng();
         let mut expected = 0;
         while expected < AMT {
-            if rng.gen_range(0, 3) == 2 {
+            if rng.gen_range(0i, 3) == 2 {
                 match w.pop() {
                     None => {}
                     Some(2) => unsafe { HITS.fetch_add(1, SeqCst); },
@@ -607,7 +612,8 @@ mod tests {
             let s = s.clone();
             let unique_box = box AtomicUint::new(0);
             let thread_box = unsafe {
-                *mem::transmute::<&Box<AtomicUint>, **mut AtomicUint>(&unique_box)
+                *mem::transmute::<&Box<AtomicUint>,
+                                  *const *mut AtomicUint>(&unique_box)
             };
             (Thread::start(proc() {
                 unsafe {
@@ -629,7 +635,7 @@ mod tests {
         let mut myhit = false;
         'outer: loop {
             for _ in range(0, rng.gen_range(0, AMT)) {
-                if !myhit && rng.gen_range(0, 3) == 2 {
+                if !myhit && rng.gen_range(0i, 3) == 2 {
                     match w.pop() {
                         None => {}
                         Some((1, 2)) => myhit = true,

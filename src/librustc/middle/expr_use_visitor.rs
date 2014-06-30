@@ -186,24 +186,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
 
         let cmt = return_if_err!(self.mc.cat_expr(expr));
         self.delegate_consume(expr.id, expr.span, cmt);
-
-        match expr.node {
-            ast::ExprParen(ref subexpr) => {
-                // Argh but is ExprParen horrible. So, if we consume
-                // `(x)`, that generally is also consuming `x`, UNLESS
-                // there are adjustments on the `(x)` expression
-                // (e.g., autoderefs and autorefs).
-                if self.typer.adjustments().borrow().contains_key(&expr.id) {
-                    self.walk_expr(expr);
-                } else {
-                    self.consume_expr(&**subexpr);
-                }
-            }
-
-            _ => {
-                self.walk_expr(expr)
-            }
-        }
+        self.walk_expr(expr);
     }
 
     fn mutate_expr(&mut self,
@@ -623,7 +606,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
         debug!("walk_autoderefs expr={} autoderefs={}", expr.repr(self.tcx()), autoderefs);
 
         for i in range(0, autoderefs) {
-            let deref_id = typeck::MethodCall::autoderef(expr.id, i as u32);
+            let deref_id = typeck::MethodCall::autoderef(expr.id, i);
             match self.typer.node_method_ty(deref_id) {
                 None => {}
                 Some(method_ty) => {

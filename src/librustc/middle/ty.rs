@@ -14,7 +14,7 @@ use back::svh::Svh;
 use driver::session::Session;
 use metadata::csearch;
 use mc = middle::mem_categorization;
-use middle::lint;
+use lint;
 use middle::const_eval;
 use middle::def;
 use middle::dependency_format;
@@ -25,6 +25,7 @@ use middle::resolve;
 use middle::resolve_lifetime;
 use middle::subst;
 use middle::subst::{Subst, Substs, VecPerParamSpace};
+use middle::stability;
 use middle::ty;
 use middle::typeck;
 use middle::typeck::MethodCall;
@@ -157,7 +158,7 @@ pub struct creader_cache_key {
 pub type creader_cache = RefCell<HashMap<creader_cache_key, t>>;
 
 pub struct intern_key {
-    sty: *sty,
+    sty: *const sty,
 }
 
 // NB: Do not replace this with #[deriving(PartialEq)]. The automatically-derived
@@ -366,13 +367,16 @@ pub struct ctxt {
 
     pub dependency_formats: RefCell<dependency_format::Dependencies>,
 
-    pub node_lint_levels: RefCell<HashMap<(ast::NodeId, lint::Lint),
-                                          (lint::Level, lint::LintSource)>>,
+    pub node_lint_levels: RefCell<HashMap<(ast::NodeId, lint::LintId),
+                                          lint::LevelSource>>,
 
     /// The types that must be asserted to be the same size for `transmute`
     /// to be valid. We gather up these restrictions in the intrinsicck pass
     /// and check them in trans.
     pub transmute_restrictions: RefCell<Vec<TransmuteRestriction>>,
+
+    /// Maps any item's def-id to its stability index.
+    pub stability: RefCell<stability::Index>,
 }
 
 pub enum tbox_flag {
@@ -405,7 +409,7 @@ enum t_opaque {}
 
 #[allow(raw_pointer_deriving)]
 #[deriving(Clone, PartialEq, Eq, Hash)]
-pub struct t { inner: *t_opaque }
+pub struct t { inner: *const t_opaque }
 
 impl fmt::Show for t {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -690,7 +694,6 @@ mod primitives {
     def_prim_ty!(TY_U64,    super::ty_uint(ast::TyU64),     12)
     def_prim_ty!(TY_F32,    super::ty_float(ast::TyF32),    14)
     def_prim_ty!(TY_F64,    super::ty_float(ast::TyF64),    15)
-    def_prim_ty!(TY_F128,   super::ty_float(ast::TyF128),   16)
 
     pub static TY_BOT: t_box_ = t_box_ {
         sty: super::ty_bot,
@@ -747,7 +750,6 @@ pub enum sty {
 pub struct TyTrait {
     pub def_id: DefId,
     pub substs: Substs,
-    pub store: TraitStore,
     pub bounds: BuiltinBounds
 }
 
@@ -853,16 +855,24 @@ impl CLike for BuiltinBound {
 }
 
 #[deriving(Clone, PartialEq, Eq, Hash)]
-pub struct TyVid(pub uint);
+pub struct TyVid {
+    pub index: uint
+}
 
 #[deriving(Clone, PartialEq, Eq, Hash)]
-pub struct IntVid(pub uint);
+pub struct IntVid {
+    pub index: uint
+}
 
 #[deriving(Clone, PartialEq, Eq, Hash)]
-pub struct FloatVid(pub uint);
+pub struct FloatVid {
+    pub index: uint
+}
 
 #[deriving(Clone, Eq, PartialEq, Hash)]
-pub struct MDVid(pub uint);
+pub struct MDVid {
+    pub index: uint,
+}
 
 #[deriving(Clone, Eq, PartialEq, Hash)]
 pub enum MDVarValue {
@@ -896,7 +906,7 @@ impl MDInnerVid {
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct RegionVid {
-    pub id: uint
+    pub index: uint
 }
 
 #[deriving(Clone, PartialEq, Eq, Hash)]
@@ -931,46 +941,27 @@ impl cmp::PartialEq for InferRegion {
     }
 }
 
-pub trait Vid {
-    fn to_uint(&self) -> uint;
-}
-
-impl Vid for TyVid {
-    fn to_uint(&self) -> uint { let TyVid(v) = *self; v }
-}
-
 impl fmt::Show for TyVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        write!(f, "<generic #{}>", self.to_uint())
+        write!(f, "<generic #{}>", self.index)
     }
-}
-
-impl Vid for IntVid {
-    fn to_uint(&self) -> uint { let IntVid(v) = *self; v }
 }
 
 impl fmt::Show for IntVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<generic integer #{}>", self.to_uint())
+        write!(f, "<generic integer #{}>", self.index)
     }
-}
-
-impl Vid for FloatVid {
-    fn to_uint(&self) -> uint { let FloatVid(v) = *self; v }
 }
 
 impl fmt::Show for FloatVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<generic float #{}>", self.to_uint())
+        write!(f, "<generic float #{}>", self.index)
     }
 }
 
-impl Vid for MDVid {
-    fn to_uint(&self) -> uint { let MDVid(v) = *self; v }
-}
 impl fmt::Show for MDVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<generic multiple data \\#{}>", self.to_uint())
+        write!(f, "<generic multiple data \\#{}>", self.index)
     }
 }
 impl fmt::Show for MDVarValue {
@@ -991,13 +982,9 @@ impl fmt::Show for MDInnerVid {
     }
 }
 
-impl Vid for RegionVid {
-    fn to_uint(&self) -> uint { self.id }
-}
-
 impl fmt::Show for RegionVid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.id.fmt(f)
+        write!(f, "'<generic lifetime #{}>", self.index)
     }
 }
 
@@ -1014,7 +1001,7 @@ impl fmt::Show for InferTy {
             TyVar(ref v) => v.fmt(f),
             IntVar(ref v) => v.fmt(f),
             FloatVar(ref v) => v.fmt(f),
-            MDVar(MDVid(v), inner, count) => {
+            MDVar(MDVid { index: ref v, }, inner, count) => {
                 try!(write!(f, "<generic md \\#{}: ", v));
                 try!(inner.fmt(f));
                 try!(write!(f, ", .."));
@@ -1097,21 +1084,16 @@ pub struct ParameterEnvironment {
 
 /// A polytype.
 ///
-/// - `bounds`: The list of bounds for each type parameter.  The length of the
-///   list also tells you how many type parameters there are.
-///
-/// - `rp`: true if the type is region-parameterized.  Types can have at
-///   most one region parameter, always called `&self`.
-///
-/// - `ty`: the base type.  May have reference to the (unsubstituted) bound
-///   region `&self` or to (unsubstituted) ty_param types
+/// - `generics`: the set of type parameters and their bounds
+/// - `ty`: the base types, which may reference the parameters defined
+///   in `generics`
 #[deriving(Clone)]
-pub struct ty_param_bounds_and_ty {
+pub struct Polytype {
     pub generics: Generics,
     pub ty: t
 }
 
-/// As `ty_param_bounds_and_ty` but for a trait ref.
+/// As `Polytype` but for a trait ref.
 pub struct TraitDef {
     pub generics: Generics,
     pub bounds: BuiltinBounds,
@@ -1125,12 +1107,7 @@ pub struct ItemSubsts {
     pub substs: Substs,
 }
 
-pub struct ty_param_substs_and_ty {
-    pub substs: Substs,
-    pub ty: ty::t
-}
-
-pub type type_cache = RefCell<DefIdMap<ty_param_bounds_and_ty>>;
+pub type type_cache = RefCell<DefIdMap<Polytype>>;
 
 pub type node_type_table = RefCell<HashMap<uint,t>>;
 
@@ -1140,7 +1117,8 @@ pub fn mk_ctxt(s: Session,
                map: ast_map::Map,
                freevars: freevars::freevar_map,
                region_maps: middle::region::RegionMaps,
-               lang_items: middle::lang_items::LanguageItems)
+               lang_items: middle::lang_items::LanguageItems,
+               stability: stability::Index)
             -> ctxt {
     ctxt {
         named_region_map: named_region_map,
@@ -1194,6 +1172,7 @@ pub fn mk_ctxt(s: Session,
         dependency_formats: RefCell::new(HashMap::new()),
         node_lint_levels: RefCell::new(HashMap::new()),
         transmute_restrictions: RefCell::new(Vec::new()),
+        stability: RefCell::new(stability)
     }
 }
 
@@ -1270,14 +1249,8 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
       &ty_enum(_, ref substs) | &ty_struct(_, ref substs) => {
           flags |= sflags(substs);
       }
-      &ty_trait(box ty::TyTrait { ref substs, store, .. }) => {
+      &ty_trait(box ty::TyTrait { ref substs, .. }) => {
           flags |= sflags(substs);
-          match store {
-              RegionTraitStore(r, _) => {
-                    flags |= rflags(r);
-                }
-              _ => {}
-          }
       }
       &ty_box(tt) | &ty_uniq(tt) => {
         flags |= get(tt).flags
@@ -1319,7 +1292,7 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
         flags: flags,
     };
 
-    let sty_ptr = &t.sty as *sty;
+    let sty_ptr = &t.sty as *const sty;
 
     let key = intern_key {
         sty: sty_ptr,
@@ -1330,7 +1303,7 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
     cx.next_id.set(cx.next_id.get() + 1);
 
     unsafe {
-        mem::transmute::<*sty, t>(sty_ptr)
+        mem::transmute::<*const sty, t>(sty_ptr)
     }
 }
 
@@ -1375,9 +1348,6 @@ pub fn mk_f32() -> t { mk_prim_t(&primitives::TY_F32) }
 pub fn mk_f64() -> t { mk_prim_t(&primitives::TY_F64) }
 
 #[inline]
-pub fn mk_f128() -> t { mk_prim_t(&primitives::TY_F128) }
-
-#[inline]
 pub fn mk_uint() -> t { mk_prim_t(&primitives::TY_UINT) }
 
 #[inline]
@@ -1416,7 +1386,6 @@ pub fn mk_mach_float(tm: ast::FloatTy) -> t {
     match tm {
         ast::TyF32  => mk_f32(),
         ast::TyF64  => mk_f64(),
-        ast::TyF128 => mk_f128()
     }
 }
 
@@ -1511,14 +1480,12 @@ pub fn mk_ctor_fn(cx: &ctxt,
 pub fn mk_trait(cx: &ctxt,
                 did: ast::DefId,
                 substs: Substs,
-                store: TraitStore,
                 bounds: BuiltinBounds)
              -> t {
     // take a copy of substs so that we own the vectors inside
     let inner = box TyTrait {
         def_id: did,
         substs: substs,
-        store: store,
         bounds: bounds
     };
     mk_t(cx, ty_trait(inner))
@@ -1667,9 +1634,9 @@ fn type_is_slice(ty:t) -> bool {
 
 pub fn type_is_structural(ty: t) -> bool {
     match get(ty).sty {
-      ty_struct(..) | ty_tup(_) | ty_enum(..) | ty_closure(_) | ty_trait(..) |
+      ty_struct(..) | ty_tup(_) | ty_enum(..) | ty_closure(_) |
       ty_vec(_, Some(_)) | ty_simd(..) => true,
-      _ => type_is_slice(ty)
+      _ => type_is_slice(ty) | type_is_trait(ty)
     }
 }
 
@@ -1761,7 +1728,7 @@ pub fn type_is_region_ptr(ty: t) -> bool {
         ty_rptr(_, mt) => match get(mt.ty).sty {
             // FIXME(nrc, DST) slices weren't regarded as rptrs, so we preserve this
             // odd behaviour for now. (But ~[] were unique. I have no idea why).
-            ty_vec(_, None) | ty_str => false,
+            ty_vec(_, None) | ty_str | ty_trait(..) => false,
             _ => true
         },
         _ => false
@@ -1777,7 +1744,10 @@ pub fn type_is_unsafe_ptr(ty: t) -> bool {
 
 pub fn type_is_unique(ty: t) -> bool {
     match get(ty).sty {
-        ty_uniq(_) => true,
+        ty_uniq(_) => match get(ty).sty {
+            ty_trait(..) => false,
+            _ => true
+        },
         _ => false
     }
 }
@@ -2186,8 +2156,8 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
                 }
             }
 
-            ty_trait(box ty::TyTrait { store, bounds, .. }) => {
-                object_contents(cx, store, bounds)
+            ty_trait(box ty::TyTrait { bounds, .. }) => {
+                object_contents(cx, bounds)
             }
 
             ty_ptr(ref mt) => {
@@ -2311,7 +2281,16 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
     fn closure_contents(cx: &ctxt, cty: &ClosureTy) -> TypeContents {
         // Closure contents are just like trait contents, but with potentially
         // even more stuff.
-        let st = object_contents(cx, cty.store, cty.bounds);
+        let st = object_contents(cx, cty.bounds);
+
+        let st = match cty.store {
+            UniqTraitStore => {
+                st.owned_pointer()
+            }
+            RegionTraitStore(r, mutbl) => {
+                st.reference(borrowed_contents(r, mutbl))
+            }
+        };
 
         // This also prohibits "@once fn" from being copied, which allows it to
         // be called. Neither way really makes much sense.
@@ -2324,20 +2303,10 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
     }
 
     fn object_contents(cx: &ctxt,
-                       store: TraitStore,
                        bounds: BuiltinBounds)
                        -> TypeContents {
         // These are the type contents of the (opaque) interior
-        let contents = kind_bounds_to_contents(cx, bounds, []);
-
-        match store {
-            UniqTraitStore => {
-                contents.owned_pointer()
-            }
-            RegionTraitStore(r, mutbl) => {
-                contents.reference(borrowed_contents(r, mutbl))
-            }
-        }
+        kind_bounds_to_contents(cx, bounds, [])
     }
 
     fn kind_bounds_to_contents(cx: &ctxt,
@@ -2598,6 +2567,10 @@ pub fn is_type_representable(cx: &ctxt, sp: Span, ty: t) -> Representability {
 
 pub fn type_is_trait(ty: t) -> bool {
     match get(ty).sty {
+        ty_uniq(ty) | ty_rptr(_, mt { ty, ..}) => match get(ty).sty {
+            ty_trait(..) => true,
+            _ => false
+        },
         ty_trait(..) => true,
         _ => false
     }
@@ -2687,7 +2660,7 @@ pub fn deref(t: t, explicit: bool) -> Option<mt> {
     match get(t).sty {
         ty_box(typ) | ty_uniq(typ) => match get(typ).sty {
             // Don't deref ~[] etc., might need to generalise this to all DST.
-            ty_vec(_, None) | ty_str => None,
+            ty_vec(_, None) | ty_str | ty_trait(..) => None,
             _ => Some(mt {
                 ty: typ,
                 mutbl: ast::MutImmutable,
@@ -2695,7 +2668,7 @@ pub fn deref(t: t, explicit: bool) -> Option<mt> {
         },
         ty_rptr(_, mt) => match get(mt.ty).sty {
             // Don't deref &[], might need to generalise this to all DST.
-            ty_vec(_, None) | ty_str => None,
+            ty_vec(_, None) | ty_str | ty_trait(..) => None,
             _ => Some(mt),
         },
         ty_ptr(mt) if explicit => Some(mt),
@@ -2958,7 +2931,7 @@ pub fn adjust_ty(cx: &ctxt,
 
                     if !ty::type_is_error(adjusted_ty) {
                         for i in range(0, adj.autoderefs) {
-                            let method_call = typeck::MethodCall::autoderef(expr_id, i as u32);
+                            let method_call = typeck::MethodCall::autoderef(expr_id, i);
                             match method_type(method_call) {
                                 Some(method_ty) => {
                                     adjusted_ty = ty_fn_ret(method_ty);
@@ -3020,7 +2993,19 @@ pub fn adjust_ty(cx: &ctxt,
                 }
 
                 AutoObject(store, bounds, def_id, ref substs) => {
-                    mk_trait(cx, def_id, substs.clone(), store, bounds)
+
+                    let tr = mk_trait(cx, def_id, substs.clone(), bounds);
+                    match store {
+                        UniqTraitStore => {
+                            mk_uniq(cx, tr)
+                        }
+                        RegionTraitStore(r, m) => {
+                            mk_rptr(cx, r, mt {
+                                ty: tr,
+                                mutbl: m
+                            })
+                        }
+                    }
                 }
             }
         }
@@ -3058,10 +3043,20 @@ pub fn adjust_ty(cx: &ctxt,
     fn borrow_obj(cx: &ctxt, span: Span, r: Region,
                   m: ast::Mutability, ty: ty::t) -> ty::t {
         match get(ty).sty {
-            ty_trait(box ty::TyTrait {def_id, ref substs, bounds, .. }) => {
-                ty::mk_trait(cx, def_id, substs.clone(),
-                             RegionTraitStore(r, m), bounds)
-            }
+            ty_uniq(t) | ty_rptr(_, mt{ty: t, ..}) => match get(t).sty {
+                ty_trait(box ty::TyTrait {def_id, ref substs, bounds, .. }) => {
+                    mk_rptr(cx, r, mt {
+                        ty: ty::mk_trait(cx, def_id, substs.clone(), bounds),
+                        mutbl: m
+                    })
+                }
+                _ => {
+                    cx.sess.span_bug(
+                        span,
+                        format!("borrow-trait-obj associated with bad sty: {:?}",
+                                get(ty).sty).as_slice());
+                }
+            },
             ref s => {
                 cx.sess.span_bug(
                     span,
@@ -3963,7 +3958,7 @@ pub fn enum_variant_with_id(cx: &ctxt,
 // the type cache. Returns the type parameters and type.
 pub fn lookup_item_type(cx: &ctxt,
                         did: ast::DefId)
-                     -> ty_param_bounds_and_ty {
+                     -> Polytype {
     lookup_locally_or_in_crate_store(
         "tcache", did, &mut *cx.tcache.borrow_mut(),
         || csearch::get_type(cx, did))
@@ -4061,7 +4056,7 @@ pub fn lookup_field_type(tcx: &ctxt,
     } else {
         let mut tcache = tcx.tcache.borrow_mut();
         match tcache.find(&id) {
-           Some(&ty_param_bounds_and_ty {ty, ..}) => ty,
+           Some(&Polytype {ty, ..}) => ty,
            None => {
                let tpt = csearch::get_field_type(tcx, struct_id, id);
                tcache.insert(id, tpt.clone());
@@ -4362,11 +4357,11 @@ pub fn visitor_object_ty(tcx: &ctxt,
     let substs = Substs::empty();
     let trait_ref = Rc::new(TraitRef { def_id: trait_lang_item, substs: substs });
     Ok((trait_ref.clone(),
-        mk_trait(tcx,
-                 trait_ref.def_id,
-                 trait_ref.substs.clone(),
-                 RegionTraitStore(region, ast::MutMutable),
-                 empty_builtin_bounds())))
+        mk_rptr(tcx, region, mt {mutbl: ast::MutMutable,
+                                 ty: mk_trait(tcx,
+                                              trait_ref.def_id,
+                                              trait_ref.substs.clone(),
+                                              empty_builtin_bounds()) })))
 }
 
 pub fn item_variances(tcx: &ctxt, item_id: ast::DefId) -> Rc<ItemVariances> {
@@ -4660,17 +4655,9 @@ pub fn hash_crate_independent(tcx: &ctxt, t: t, svh: &Svh) -> u64 {
                     }
                 }
             }
-            ty_trait(box ty::TyTrait { def_id: d, store, bounds, .. }) => {
+            ty_trait(box ty::TyTrait { def_id: d, bounds, .. }) => {
                 byte!(17);
                 did(&mut state, d);
-                match store {
-                    UniqTraitStore => byte!(0),
-                    RegionTraitStore(r, m) => {
-                        byte!(1)
-                        region(&mut state, r);
-                        hash!(m);
-                    }
-                }
                 hash!(bounds);
             }
             ty_struct(d, _) => {

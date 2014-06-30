@@ -9,21 +9,10 @@
 // except according to those terms.
 
 // compile-flags:-F experimental -D unstable
+// aux-build:lint_output_format.rs
 
-#[deprecated]
-fn foo() -> uint {
-    20
-}
-
-#[experimental]
-fn bar() -> uint {
-    40
-}
-
-#[unstable]
-fn baz() -> uint {
-    30
-}
+extern crate lint_output_format;
+use lint_output_format::{foo, bar, baz};
 
 fn main() {
     let _x = foo(); //~ WARNING #[warn(deprecated)] on by default

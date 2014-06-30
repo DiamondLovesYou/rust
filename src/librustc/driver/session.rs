@@ -15,7 +15,7 @@ use back::link::OutputType;
 use front;
 use metadata::cstore::CStore;
 use metadata::filesearch;
-use middle::lint;
+use lint;
 use util::nodemap::NodeMap;
 
 use syntax::ast::NodeId;
@@ -44,7 +44,8 @@ pub struct Session {
     // expected to be absolute. `None` means that there is no source file.
     pub local_crate_source_file: Option<Path>,
     pub working_dir: Path,
-    pub lints: RefCell<NodeMap<Vec<(lint::Lint, codemap::Span, String)>>>,
+    pub lint_store: RefCell<lint::LintStore>,
+    pub lints: RefCell<NodeMap<Vec<(lint::LintId, codemap::Span, String)>>>,
     pub node_id: Cell<ast::NodeId>,
     pub crate_types: RefCell<Vec<config::CrateType>>,
     pub features: front::feature_gate::Features,
@@ -107,16 +108,17 @@ impl Session {
         self.diagnostic().handler().unimpl(msg)
     }
     pub fn add_lint(&self,
-                    lint: lint::Lint,
+                    lint: &'static lint::Lint,
                     id: ast::NodeId,
                     sp: Span,
                     msg: String) {
+        let lint_id = lint::LintId::of(lint);
         let mut lints = self.lints.borrow_mut();
         match lints.find_mut(&id) {
-            Some(arr) => { arr.push((lint, sp, msg)); return; }
+            Some(arr) => { arr.push((lint_id, sp, msg)); return; }
             None => {}
         }
-        lints.insert(id, vec!((lint, sp, msg)));
+        lints.insert(id, vec!((lint_id, sp, msg)));
     }
     pub fn next_node_id(&self) -> ast::NodeId {
         self.reserve_node_ids(1)
@@ -227,7 +229,8 @@ impl Session {
                     abi::X86_64 => ("x86_newlib", "x86_64-nacl-"),
                     abi::Arm =>    ("arm_newlib", "arm-nacl-"),
                     abi::Le32 =>   ("pnacl",      "pnacl-"),
-                    abi::Mips =>   self.fatal("PNaCl/NaCl can't target the Mips arch"),
+                    abi::Mips | abi::Mipsel =>
+                        self.fatal("PNaCl/NaCl can't target the Mips arch"),
                 };
                 let post_toolchain = format!("{}_{}",
                                              get_os_for_nacl_toolchain(self),
@@ -360,7 +363,7 @@ pub fn build_session_(sopts: config::Options,
         }
     );
 
-    Session {
+    let sess = Session {
         targ_cfg: target_cfg,
         opts: sopts,
         cstore: CStore::new(token::get_ident_interner()),
@@ -372,12 +375,16 @@ pub fn build_session_(sopts: config::Options,
         default_sysroot: default_sysroot,
         local_crate_source_file: local_crate_source_file,
         working_dir: os::getcwd(),
+        lint_store: RefCell::new(lint::LintStore::new()),
         lints: RefCell::new(NodeMap::new()),
         node_id: Cell::new(1),
         crate_types: RefCell::new(Vec::new()),
         features: front::feature_gate::Features::new(),
         recursion_limit: Cell::new(64),
-    }
+    };
+
+    sess.lint_store.borrow_mut().register_builtin(Some(&sess));
+    sess
 }
 // Seems out of place, but it uses session, so I'm putting it here
 pub fn expect<T:Clone>(sess: &Session, opt: Option<T>, msg: || -> String)

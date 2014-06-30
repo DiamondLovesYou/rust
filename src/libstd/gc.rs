@@ -33,10 +33,11 @@ use raw;
                   task annihilation. For now, cycles need to be broken manually by using `Rc<T>` \
                   with a non-owning `Weak<T>` pointer. A tracing garbage collector is planned."]
 pub struct Gc<T> {
-    _ptr: *T,
+    _ptr: *mut T,
     marker: marker::NoSend,
 }
 
+#[unstable]
 impl<T> Clone for Gc<T> {
     /// Clone the pointer only
     #[inline]
@@ -82,7 +83,7 @@ impl<T: Default + 'static> Default for Gc<T> {
     }
 }
 
-impl<T: 'static> raw::Repr<*raw::Box<T>> for Gc<T> {}
+impl<T: 'static> raw::Repr<*const raw::Box<T>> for Gc<T> {}
 
 impl<S: hash::Writer, T: hash::Hash<S> + 'static> hash::Hash<S> for Gc<T> {
     fn hash(&self, s: &mut S) {

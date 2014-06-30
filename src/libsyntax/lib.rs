@@ -19,6 +19,7 @@ This API is completely unstable and subject to change.
 */
 
 #![crate_id = "syntax#0.11.0-pre"]
+#![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
@@ -26,8 +27,8 @@ This API is completely unstable and subject to change.
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/")]
 
-#![feature(macro_rules, globs, managed_boxes, default_type_params, phase,
-           quote)]
+#![feature(macro_rules, globs, managed_boxes, default_type_params, phase)]
+#![feature(quote, unsafe_destructor)]
 #![allow(deprecated)]
 
 extern crate serialize;

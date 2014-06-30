@@ -518,8 +518,7 @@ fn enter_default<'a, 'b>(
                  dm: &DefMap,
                  m: &'a [Match<'a, 'b>],
                  col: uint,
-                 val: ValueRef,
-                 chk: &FailureHandler)
+                 val: ValueRef)
                  -> Vec<Match<'a, 'b>> {
     debug!("enter_default(bcx={}, m={}, col={}, val={})",
            bcx.to_str(),
@@ -529,35 +528,13 @@ fn enter_default<'a, 'b>(
     let _indenter = indenter();
 
     // Collect all of the matches that can match against anything.
-    let matches = enter_match(bcx, dm, m, col, val, |p| {
+    enter_match(bcx, dm, m, col, val, |p| {
         match p.node {
           ast::PatWild | ast::PatWildMulti => Some(Vec::new()),
           ast::PatIdent(_, _, None) if pat_is_binding(dm, &*p) => Some(Vec::new()),
           _ => None
         }
-    });
-
-    // Ok, now, this is pretty subtle. A "default" match is a match
-    // that needs to be considered if none of the actual checks on the
-    // value being considered succeed. The subtlety lies in that sometimes
-    // identifier/wildcard matches are *not* default matches. Consider:
-    // "match x { _ if something => foo, true => bar, false => baz }".
-    // There is a wildcard match, but it is *not* a default case. The boolean
-    // case on the value being considered is exhaustive. If the case is
-    // exhaustive, then there are no defaults.
-    //
-    // We detect whether the case is exhaustive in the following
-    // somewhat kludgy way: if the last wildcard/binding match has a
-    // guard, then by non-redundancy, we know that there aren't any
-    // non guarded matches, and thus by exhaustiveness, we know that
-    // we don't need any default cases. If the check *isn't* nonexhaustive
-    // (because chk is Some), then we need the defaults anyways.
-    let is_exhaustive = match matches.last() {
-        Some(m) if m.data.arm.guard.is_some() && chk.is_infallible() => true,
-        _ => false
-    };
-
-    if is_exhaustive { Vec::new() } else { matches }
+    })
 }
 
 // <pcwalton> nmatsakis: what does enter_opt do?
@@ -1011,8 +988,7 @@ fn extract_vec_elems<'a>(
                      pat_id: ast::NodeId,
                      elem_count: uint,
                      slice: Option<uint>,
-                     val: ValueRef,
-                     count: ValueRef)
+                     val: ValueRef)
                      -> ExtractedBlock<'a> {
     let _icx = push_ctxt("match::extract_vec_elems");
     let vec_datum = match_datum(bcx, val, pat_id);
@@ -1026,7 +1002,7 @@ fn extract_vec_elems<'a>(
             Some(n) if i < n => GEPi(bcx, base, [i]),
             Some(n) if i > n => {
                 InBoundsGEP(bcx, base, [
-                    Sub(bcx, count,
+                    Sub(bcx, len,
                         C_int(bcx.ccx(), (elem_count - i) as int))])
             }
             _ => unsafe { llvm::LLVMGetUndef(vt.llunit_ty.to_ref()) }
@@ -1224,8 +1200,6 @@ fn pick_col(m: &[Match]) -> uint {
 pub enum branch_kind { no_branch, single, switch, compare, compare_vec_len, }
 
 // Compiles a comparison between two things.
-//
-// NB: This must produce an i1, not a Rust bool (i8).
 fn compare_values<'a>(
                   cx: &'a Block<'a>,
                   lhs: ValueRef,
@@ -1242,11 +1216,7 @@ fn compare_values<'a>(
                            format!("comparison of `{}`",
                                    cx.ty_to_str(rhs_t)).as_slice(),
                            StrEqFnLangItem);
-        let result = callee::trans_lang_call(cx, did, [lhs, rhs], None);
-        Result {
-            bcx: result.bcx,
-            val: bool_to_i1(result.bcx, result.val)
-        }
+        callee::trans_lang_call(cx, did, [lhs, rhs], None)
     }
 
     let _icx = push_ctxt("compare_values");
@@ -1267,19 +1237,26 @@ fn compare_values<'a>(
                                    format!("comparison of `{}`",
                                            cx.ty_to_str(rhs_t)).as_slice(),
                                    UniqStrEqFnLangItem);
-                let result = callee::trans_lang_call(cx, did, [scratch_lhs, scratch_rhs], None);
-                Result {
-                    bcx: result.bcx,
-                    val: bool_to_i1(result.bcx, result.val)
-                }
+                callee::trans_lang_call(cx, did, [scratch_lhs, scratch_rhs], None)
             }
-            _ => cx.sess().bug("only scalars and strings supported in compare_values"),
+            _ => cx.sess().bug("only strings supported in compare_values"),
         },
         ty::ty_rptr(_, mt) => match ty::get(mt.ty).sty {
             ty::ty_str => compare_str(cx, lhs, rhs, rhs_t),
-            _ => cx.sess().bug("only scalars and strings supported in compare_values"),
+            ty::ty_vec(mt, _) => match ty::get(mt.ty).sty {
+                ty::ty_uint(ast::TyU8) => {
+                    // NOTE: cast &[u8] to &str and abuse the str_eq lang item,
+                    // which calls memcmp().
+                    let t = ty::mk_str_slice(cx.tcx(), ty::ReStatic, ast::MutImmutable);
+                    let lhs = BitCast(cx, lhs, type_of::type_of(cx.ccx(), t).ptr_to());
+                    let rhs = BitCast(cx, rhs, type_of::type_of(cx.ccx(), t).ptr_to());
+                    compare_str(cx, lhs, rhs, rhs_t)
+                },
+                _ => cx.sess().bug("only byte strings supported in compare_values"),
+            },
+            _ => cx.sess().bug("on string and byte strings supported in compare_values"),
         },
-        _ => cx.sess().bug("only scalars and strings supported in compare_values"),
+        _ => cx.sess().bug("only scalars, byte strings, and strings supported in compare_values"),
     }
 }
 
@@ -1437,15 +1414,12 @@ fn compile_submatch<'a, 'b>(
            m.repr(bcx.tcx()),
            vec_map_to_str(vals, |v| bcx.val_to_str(*v)));
     let _indenter = indenter();
-
-    /*
-      For an empty match, a fall-through case must exist
-     */
-    assert!((m.len() > 0u || chk.is_fallible()));
     let _icx = push_ctxt("match::compile_submatch");
     let mut bcx = bcx;
     if m.len() == 0u {
-        Br(bcx, chk.handle_fail());
+        if chk.is_fallible() {
+            Br(bcx, chk.handle_fail());
+        }
         return;
     }
     if m[0].pats.len() == 0u {
@@ -1647,7 +1621,7 @@ fn compile_submatch_continue<'a, 'b>(
         C_int(ccx, 0) // Placeholder for when not using a switch
     };
 
-    let defaults = enter_default(else_cx, dm, m, col, val, chk);
+    let defaults = enter_default(else_cx, dm, m, col, val);
     let exhaustive = chk.is_infallible() && defaults.len() == 0u;
     let len = opts.len();
 
@@ -1780,7 +1754,7 @@ fn compile_submatch_continue<'a, 'b>(
                     vec_len_eq => (n, None)
                 };
                 let args = extract_vec_elems(opt_cx, pat_id, n,
-                                             slice, val, test_val);
+                                             slice, val);
                 size = args.vals.len();
                 unpacked = args.vals.clone();
                 opt_cx = args.bcx;
@@ -1936,18 +1910,14 @@ fn trans_match_inner<'a>(scope_cx: &'a Block<'a>,
 
     // `compile_submatch` works one column of arm patterns a time and
     // then peels that column off. So as we progress, it may become
-    // impossible to know whether we have a genuine default arm, i.e.
+    // impossible to tell whether we have a genuine default arm, i.e.
     // `_ => foo` or not. Sometimes it is important to know that in order
     // to decide whether moving on to the next condition or falling back
     // to the default arm.
-    let has_default = arms.len() > 0 && {
-        let ref pats = arms.last().unwrap().pats;
-
-        pats.len() == 1
-        && match pats.last().unwrap().node {
-            ast::PatWild => true, _ => false
-        }
-    };
+    let has_default = arms.last().map_or(false, |arm| {
+        arm.pats.len() == 1
+        && arm.pats.last().unwrap().node == ast::PatWild
+    });
 
     compile_submatch(bcx, matches.as_slice(), [discr_datum.val], &chk, has_default);
 
@@ -2283,9 +2253,21 @@ fn bind_irrefutable_pat<'a>(
             let loaded_val = Load(bcx, val);
             bcx = bind_irrefutable_pat(bcx, inner, loaded_val, binding_mode, cleanup_scope);
         }
-        ast::PatVec(..) => {
-            bcx.sess().span_bug(pat.span,
-                                "vector patterns are never irrefutable!");
+        ast::PatVec(ref before, ref slice, ref after) => {
+            let extracted = extract_vec_elems(
+                bcx, pat.id, before.len() + 1u + after.len(),
+                slice.map(|_| before.len()), val
+            );
+            bcx = before
+                .iter().map(|v| Some(*v))
+                .chain(Some(*slice).move_iter())
+                .chain(after.iter().map(|v| Some(*v)))
+                .zip(extracted.vals.iter())
+                .fold(bcx, |bcx, (inner, elem)| {
+                    inner.map_or(bcx, |inner| {
+                        bind_irrefutable_pat(bcx, inner, *elem, binding_mode, cleanup_scope)
+                    })
+                });
         }
         ast::PatMac(..) => {
             bcx.sess().span_bug(pat.span, "unexpanded macro");

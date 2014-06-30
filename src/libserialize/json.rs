@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -71,7 +71,7 @@ fn main() {
     let to_encode_object = TestStruct{data_str:"example of string to encode".to_string()};
     let mut m = io::MemWriter::new();
     {
-        let mut encoder = json::Encoder::new(&mut m as &mut std::io::Writer);
+        let mut encoder = json::Encoder::new(&mut m as &mut Writer);
         match to_encode_object.encode(&mut encoder) {
             Ok(()) => (),
             Err(e) => fail!("json encoding error: {}", e)
@@ -233,7 +233,8 @@ use std::f64;
 use std::fmt;
 use std::io::MemWriter;
 use std::io;
-use std::mem::swap;
+use std::mem::{swap,transmute};
+use std::num::{FPNaN, FPInfinite};
 use std::num;
 use std::str::ScalarValue;
 use std::str;
@@ -349,6 +350,13 @@ fn escape_str(s: &str) -> String {
     escaped
 }
 
+fn fmt_number_or_null(v: f64) -> String {
+    match v.classify() {
+        FPNaN | FPInfinite => String::from_str("null"),
+        _ => f64::to_str_digits(v, 6u)
+    }
+}
+
 fn spaces(n: uint) -> String {
     String::from_char(n, ' ')
 }
@@ -369,10 +377,11 @@ impl<'a> Encoder<'a> {
     pub fn buffer_encode<T:Encodable<Encoder<'a>, io::IoError>>(to_encode_object: &T) -> Vec<u8>  {
        //Serialize the object in a string using a writer
         let mut m = MemWriter::new();
-        {
+        // FIXME(14302) remove the transmute and unsafe block.
+        unsafe {
             let mut encoder = Encoder::new(&mut m as &mut io::Writer);
             // MemWriter never Errs
-            let _ = to_encode_object.encode(&mut encoder);
+            let _ = to_encode_object.encode(transmute(&mut encoder));
         }
         m.unwrap()
     }
@@ -411,7 +420,7 @@ impl<'a> ::Encoder<io::IoError> for Encoder<'a> {
     }
 
     fn emit_f64(&mut self, v: f64) -> EncodeResult {
-        write!(self.wr, "{}", f64::to_str_digits(v, 6u))
+        write!(self.wr, "{}", fmt_number_or_null(v))
     }
     fn emit_f32(&mut self, v: f32) -> EncodeResult { self.emit_f64(v as f64) }
 
@@ -543,8 +552,11 @@ impl<'a> ::Encoder<io::IoError> for Encoder<'a> {
         // ref #12967, make sure to wrap a key in double quotes,
         // in the event that its of a type that omits them (eg numbers)
         let mut buf = MemWriter::new();
-        let mut check_encoder = Encoder::new(&mut buf);
-        try!(f(&mut check_encoder));
+        // FIXME(14302) remove the transmute and unsafe block.
+        unsafe {
+            let mut check_encoder = Encoder::new(&mut buf);
+            try!(f(transmute(&mut check_encoder)));
+        }
         let buf = buf.unwrap();
         let out = from_utf8(buf.as_slice()).unwrap();
         let needs_wrapping = out.char_at(0) != '"' &&
@@ -604,7 +616,7 @@ impl<'a> ::Encoder<io::IoError> for PrettyEncoder<'a> {
     }
 
     fn emit_f64(&mut self, v: f64) -> EncodeResult {
-        write!(self.wr, "{}", f64::to_str_digits(v, 6u))
+        write!(self.wr, "{}", fmt_number_or_null(v))
     }
     fn emit_f32(&mut self, v: f32) -> EncodeResult {
         self.emit_f64(v as f64)
@@ -778,8 +790,11 @@ impl<'a> ::Encoder<io::IoError> for PrettyEncoder<'a> {
         // ref #12967, make sure to wrap a key in double quotes,
         // in the event that its of a type that omits them (eg numbers)
         let mut buf = MemWriter::new();
-        let mut check_encoder = PrettyEncoder::new(&mut buf);
-        try!(f(&mut check_encoder));
+        // FIXME(14302) remove the transmute and unsafe block.
+        unsafe {
+            let mut check_encoder = PrettyEncoder::new(&mut buf);
+            try!(f(transmute(&mut check_encoder)));
+        }
         let buf = buf.unwrap();
         let out = from_utf8(buf.as_slice()).unwrap();
         let needs_wrapping = out.char_at(0) != '"' &&
@@ -1263,7 +1278,7 @@ impl<T: Iterator<char>> Parser<T> {
             '0' => {
                 self.bump();
 
-                // There can be only one leading '0'.
+                // A leading '0' must be the only digit before the decimal point.
                 match self.ch_or_null() {
                     '0' .. '9' => return self.error(InvalidNumber),
                     _ => ()
@@ -1857,6 +1872,7 @@ impl ::Decoder<DecoderError> for Decoder {
                 // is going to have a string here, as per JSON spec..
                 Ok(FromStr::from_str(s.as_slice()).unwrap())
             },
+            Null => Ok(f64::NAN),
             value => {
                 Err(ExpectedError("Number".to_string(),
                                   format!("{}", value)))
@@ -2178,11 +2194,16 @@ impl ToJson for u64 {
 }
 
 impl ToJson for f32 {
-    fn to_json(&self) -> Json { Number(*self as f64) }
+    fn to_json(&self) -> Json { (*self as f64).to_json() }
 }
 
 impl ToJson for f64 {
-    fn to_json(&self) -> Json { Number(*self) }
+    fn to_json(&self) -> Json {
+        match self.classify() {
+            FPNaN | FPInfinite => Null,
+            _ => Number(*self)
+        }
+    }
 }
 
 impl ToJson for () {
@@ -2275,6 +2296,8 @@ mod tests {
                 InvalidSyntax, InvalidNumber, EOFWhileParsingObject, EOFWhileParsingList,
                 EOFWhileParsingValue, EOFWhileParsingString, KeyMustBeAString, ExpectedColon,
                 TrailingCharacters};
+    use std::f32;
+    use std::f64;
     use std::io;
     use std::collections::TreeMap;
 
@@ -2328,6 +2351,15 @@ mod tests {
 
         assert_eq!(Number(0.5).to_str().into_string(), "0.5".to_string());
         assert_eq!(Number(0.5).to_pretty_str().into_string(), "0.5".to_string());
+
+        assert_eq!(Number(f64::NAN).to_str().into_string(), "null".to_string());
+        assert_eq!(Number(f64::NAN).to_pretty_str().into_string(), "null".to_string());
+
+        assert_eq!(Number(f64::INFINITY).to_str().into_string(), "null".to_string());
+        assert_eq!(Number(f64::INFINITY).to_pretty_str().into_string(), "null".to_string());
+
+        assert_eq!(Number(f64::NEG_INFINITY).to_str().into_string(), "null".to_string());
+        assert_eq!(Number(f64::NEG_INFINITY).to_pretty_str().into_string(), "null".to_string());
     }
 
     #[test]
@@ -2576,6 +2608,7 @@ mod tests {
     fn test_read_number() {
         assert_eq!(from_str("+"),   Err(SyntaxError(InvalidSyntax, 1, 1)));
         assert_eq!(from_str("."),   Err(SyntaxError(InvalidSyntax, 1, 1)));
+        assert_eq!(from_str("NaN"), Err(SyntaxError(InvalidSyntax, 1, 1)));
         assert_eq!(from_str("-"),   Err(SyntaxError(InvalidNumber, 1, 2)));
         assert_eq!(from_str("00"),  Err(SyntaxError(InvalidNumber, 1, 2)));
         assert_eq!(from_str("1."),  Err(SyntaxError(InvalidNumber, 1, 3)));
@@ -2785,6 +2818,22 @@ mod tests {
         );
     }
 
+    #[deriving(Decodable)]
+    struct FloatStruct {
+        f: f64,
+        a: Vec<f64>
+    }
+    #[test]
+    fn test_decode_struct_with_nan() {
+        let encoded_str = "{\"f\":null,\"a\":[null,123]}";
+        let json_object = from_str(encoded_str.as_slice());
+        let mut decoder = Decoder::new(json_object.unwrap());
+        let after: FloatStruct = Decodable::decode(&mut decoder).unwrap();
+        assert!(after.f.is_nan());
+        assert!(after.a.get(0).is_nan());
+        assert_eq!(after.a.get(1), &123f64);
+    }
+
     #[test]
     fn test_decode_option() {
         let mut decoder = Decoder::new(from_str("null").unwrap());
@@ -2826,6 +2875,7 @@ mod tests {
     }
 
     #[deriving(Decodable)]
+    #[allow(dead_code)]
     struct DecodeStruct {
         x: f64,
         y: bool,
@@ -3355,24 +3405,26 @@ mod tests {
         assert_eq!(13.0_f32.to_json(), Number(13.0_f64));
         assert_eq!(14.0_f64.to_json(), Number(14.0_f64));
         assert_eq!(().to_json(), Null);
+        assert_eq!(f32::INFINITY.to_json(), Null);
+        assert_eq!(f64::NAN.to_json(), Null);
         assert_eq!(true.to_json(), Boolean(true));
         assert_eq!(false.to_json(), Boolean(false));
         assert_eq!("abc".to_string().to_json(), String("abc".to_string()));
-        assert_eq!((1, 2).to_json(), list2);
-        assert_eq!((1, 2, 3).to_json(), list3);
-        assert_eq!([1, 2].to_json(), list2);
-        assert_eq!((&[1, 2, 3]).to_json(), list3);
-        assert_eq!((vec![1, 2]).to_json(), list2);
-        assert_eq!(vec!(1, 2, 3).to_json(), list3);
+        assert_eq!((1i, 2i).to_json(), list2);
+        assert_eq!((1i, 2i, 3i).to_json(), list3);
+        assert_eq!([1i, 2].to_json(), list2);
+        assert_eq!((&[1i, 2, 3]).to_json(), list3);
+        assert_eq!((vec![1i, 2]).to_json(), list2);
+        assert_eq!(vec!(1i, 2i, 3i).to_json(), list3);
         let mut tree_map = TreeMap::new();
-        tree_map.insert("a".to_string(), 1);
+        tree_map.insert("a".to_string(), 1i);
         tree_map.insert("b".to_string(), 2);
         assert_eq!(tree_map.to_json(), object);
         let mut hash_map = HashMap::new();
-        hash_map.insert("a".to_string(), 1);
+        hash_map.insert("a".to_string(), 1i);
         hash_map.insert("b".to_string(), 2);
         assert_eq!(hash_map.to_json(), object);
-        assert_eq!(Some(15).to_json(), Number(15 as f64));
+        assert_eq!(Some(15i).to_json(), Number(15 as f64));
         assert_eq!(None::<int>.to_json(), Null);
     }
 
@@ -3413,7 +3465,7 @@ mod tests {
 
     fn big_json() -> String {
         let mut src = "[\n".to_string();
-        for _ in range(0, 500) {
+        for _ in range(0i, 500) {
             src.push_str(r#"{ "a": true, "b": null, "c":3.1415, "d": "Hello world", "e": \
                             [1,2,3]},"#);
         }

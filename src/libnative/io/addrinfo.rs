@@ -37,13 +37,15 @@ impl GetAddrInfoRequest {
                 ai_socktype: 0,
                 ai_protocol: 0,
                 ai_addrlen: 0,
-                ai_canonname: null(),
-                ai_addr: null(),
-                ai_next: null()
+                ai_canonname: mut_null(),
+                ai_addr: mut_null(),
+                ai_next: mut_null()
             }
         });
 
-        let hint_ptr = hint.as_ref().map_or(null(), |x| x as *libc::addrinfo);
+        let hint_ptr = hint.as_ref().map_or(null(), |x| {
+            x as *const libc::addrinfo
+        });
         let mut res = mut_null();
 
         // Make the call
@@ -88,23 +90,24 @@ impl GetAddrInfoRequest {
 
 #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
 extern "system" {
-    fn getaddrinfo(node: *c_char, service: *c_char,
-                   hints: *libc::addrinfo, res: *mut *mut libc::addrinfo) -> c_int;
+    fn getaddrinfo(node: *const c_char, service: *const c_char,
+                   hints: *const libc::addrinfo,
+                   res: *mut *mut libc::addrinfo) -> c_int;
     fn freeaddrinfo(res: *mut libc::addrinfo);
     #[cfg(not(windows))]
-    fn gai_strerror(errcode: c_int) -> *c_char;
+    fn gai_strerror(errcode: c_int) -> *const c_char;
 }
 #[cfg(target_os = "nacl", target_libc = "newlib")]
-unsafe fn getaddrinfo(_node: *c_char, _service: *c_char,
-                      _hints: *libc::addrinfo, _res: *mut *mut libc::addrinfo) -> c_int {
+unsafe fn getaddrinfo(_node: *const c_char, _service: *const c_char,
+                      _hints: *const libc::addrinfo, _res: *mut *mut libc::addrinfo) -> c_int {
     -1 as i32
 }
 #[cfg(target_os = "nacl", target_libc = "newlib")]
 unsafe fn freeaddrinfo(_res: *mut libc::addrinfo) {}
 #[cfg(target_os = "nacl", target_libc = "newlib")]
-unsafe fn gai_strerror(_errcode: c_int) -> *c_char {
+unsafe fn gai_strerror(_errcode: c_int) -> *const c_char {
     static EMPTY: &'static str = "";
-    EMPTY.as_ptr() as *c_char
+    EMPTY.as_ptr() as *const c_char
 }
 
 #[cfg(windows)]

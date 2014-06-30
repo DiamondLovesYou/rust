@@ -19,6 +19,7 @@ This API is completely unstable and subject to change.
 */
 
 #![crate_id = "rustc#0.11.0-pre"]
+#![experimental]
 #![comment = "The Rust compiler"]
 #![license = "MIT/ASL2"]
 #![crate_type = "dylib"]
@@ -28,8 +29,8 @@ This API is completely unstable and subject to change.
       html_root_url = "http://doc.rust-lang.org/")]
 
 #![allow(deprecated)]
-#![feature(macro_rules, globs, struct_variant, managed_boxes, quote,
-           default_type_params, phase)]
+#![feature(macro_rules, globs, struct_variant, managed_boxes, quote)]
+#![feature(default_type_params, phase, unsafe_destructor)]
 
 extern crate arena;
 extern crate debug;
@@ -55,7 +56,6 @@ pub mod middle {
     pub mod check_match;
     pub mod check_const;
     pub mod check_static;
-    pub mod lint;
     pub mod borrowck;
     pub mod dataflow;
     pub mod mem_categorization;
@@ -79,6 +79,7 @@ pub mod middle {
     pub mod weak_lang_items;
     pub mod save;
     pub mod intrinsicck;
+    pub mod stability;
 }
 
 pub mod front {
@@ -98,6 +99,7 @@ pub mod back {
     pub mod link;
     pub mod lto;
     pub mod mips;
+    pub mod mipsel;
     pub mod rpath;
     pub mod svh;
     pub mod target_strs;
@@ -110,6 +112,8 @@ pub mod metadata;
 pub mod driver;
 
 pub mod plugin;
+
+pub mod lint;
 
 pub mod util {
     pub mod common;
@@ -124,9 +128,16 @@ pub mod lib {
     pub mod llvmdeps;
 }
 
+// A private module so that macro-expanded idents like
+// `::rustc::lint::Lint` will also work in `rustc` itself.
+//
+// `libstd` uses the same trick.
+#[doc(hidden)]
+mod rustc {
+    pub use lint;
+}
+
 pub fn main() {
-    let args = std::os::args().iter()
-                              .map(|x| x.to_string())
-                              .collect::<Vec<_>>();
+    let args = std::os::args();
     std::os::set_exit_status(driver::main_args(args.as_slice()));
 }

@@ -1,5 +1,12 @@
 % The Rust Language Tutorial
 
+<div style="border: 2px solid red; padding:5px;">
+The tutorial is undergoing a complete re-write as <a href="guide.html">the Guide</a>.
+Until it's ready, this tutorial is the right place to come to start learning
+Rust.  Please submit improvements as pull requests, but understand that
+eventually it will be going away.
+</div>
+
 # Introduction
 
 Rust is a programming language with a focus on type safety, memory
@@ -220,7 +227,7 @@ mut` instead.
 
 ~~~~
 let hi = "hi";
-let mut count = 0;
+let mut count = 0i;
 
 while count < 10 {
     println!("count is {}", count);
@@ -407,7 +414,7 @@ error when the types of the directives don't match the types of the arguments.
 
 ~~~
 // `{}` will print the "default format" of a type
-println!("{} is {}", "the answer", 43);
+println!("{} is {}", "the answer", 43i);
 ~~~
 
 ~~~~
@@ -486,11 +493,12 @@ by an *action* (expression). Each case is separated by commas. It is
 often convenient to use a block expression for each case, in which case
 the commas are optional as shown below. Literals are valid patterns and
 match only their own value. A single arm may match multiple different
-patterns by combining them with the pipe operator (`|`), so long as every
-pattern binds the same set of variables. Ranges of numeric literal
-patterns can be expressed with two dots, as in `M..N`. The underscore
-(`_`) is a wildcard pattern that matches any single value. (`..`) is a
-different wildcard that can match one or more fields in an `enum` variant.
+patterns by combining them with the pipe operator (`|`), so long as
+every pattern binds the same set of variables (see "destructuring"
+below). Ranges of numeric literal patterns can be expressed with two
+dots, as in `M..N`. The underscore (`_`) is a wildcard pattern that
+matches any single value. (`..`) is a different wildcard that can match
+one or more fields in an `enum` variant.
 
 ~~~
 # let my_number = 1;
@@ -535,7 +543,7 @@ A subpattern can also be bound to a variable, using `variable @ pattern`. For
 example:
 
 ~~~~
-# let age = 23;
+# let age = 23i;
 match age {
     a @ 0..20 => println!("{} years old", a),
     _ => println!("older than 21")
@@ -559,9 +567,14 @@ tuple, introducing two variables at once: `a` and `b`.
 let (a, b) = get_tuple_of_two_ints();
 ~~~~
 
-Let bindings only work with _irrefutable_ patterns: that is, patterns
-that can never fail to match. This excludes `let` from matching
-literals and most `enum` variants.
+Let bindings only work with _irrefutable_ patterns: that is, patterns that can
+never fail to match. This excludes `let` from matching literals and most `enum`
+variants as binding patterns, since most such patterns are not irrefutable. For
+example, this will not compile:
+
+~~~~{ignore}
+let (a, 2) = (1, 2);
+~~~~
 
 ## Loops
 
@@ -594,7 +607,7 @@ it finds one that can be divided by five.
 There is also a for-loop that can be used to iterate over a range of numbers:
 
 ~~~~
-for n in range(0, 5) {
+for n in range(0u, 5) {
     println!("{}", n);
 }
 ~~~~
@@ -1124,7 +1137,7 @@ as it is only called a single time.
 Avoiding a move can be done with the library-defined `clone` method:
 
 ~~~~
-let x = box 5;
+let x = box 5i;
 let y = x.clone(); // `y` is a newly allocated box
 let z = x; // no new memory allocated, `x` can no longer be used
 ~~~~
@@ -1356,8 +1369,8 @@ impl<T: PartialEq> PartialEq for List<T> {
     }
 }
 
-let xs = Cons(5, box Cons(10, box Nil));
-let ys = Cons(5, box Cons(10, box Nil));
+let xs = Cons(5i, box Cons(10i, box Nil));
+let ys = Cons(5i, box Cons(10i, box Nil));
 // The methods below are part of the PartialEq trait,
 // which we implemented on our linked list.
 assert!(xs.eq(&ys));
@@ -1488,9 +1501,10 @@ For a more in-depth explanation of references and lifetimes, read the
 
 ## Freezing
 
-Lending an &-pointer to an object freezes it and prevents mutation—even if the object was declared as `mut`.
-`Freeze` objects have freezing enforced statically at compile-time. An example
-of a non-`Freeze` type is [`RefCell<T>`][refcell].
+Lending an &-pointer to an object freezes the pointed-to object and prevents
+mutation—even if the object was declared as `mut`.  `Freeze` objects have
+freezing enforced statically at compile-time. An example of a non-`Freeze` type
+is [`RefCell<T>`][refcell].
 
 ~~~~
 let mut x = 5;
@@ -1584,7 +1598,7 @@ elements are mutable if the vector is mutable. Fixed-size strings do not exist.
 
 ~~~
 // A fixed-size vector
-let numbers = [1, 2, 3];
+let numbers = [1i, 2, 3];
 let more_numbers = numbers;
 
 // The type of a fixed-size vector is written as `[Type, ..length]`
@@ -1599,7 +1613,7 @@ the elements are mutable if the vector is mutable.
 use std::string::String;
 
 // A dynamically sized vector (unique vector)
-let mut numbers = vec![1, 2, 3];
+let mut numbers = vec![1i, 2, 3];
 numbers.push(4);
 numbers.push(5);
 
@@ -1694,11 +1708,11 @@ contained value are destroyed.
 use std::rc::Rc;
 
 // A fixed-size array allocated in a reference-counted box
-let x = Rc::new([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+let x = Rc::new([1i, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 let y = x.clone(); // a new owner
 let z = x; // this moves `x` into `z`, rather than creating a new owner
 
-assert!(*z == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+assert!(*z == [1i, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
 // the variable is mutable, but not the contents of the box
 let mut a = Rc::new([10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
@@ -1713,11 +1727,11 @@ not have a destructor.
 use std::gc::GC;
 
 // A fixed-size array allocated in a garbage-collected box
-let x = box(GC) [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let x = box(GC) [1i, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 let y = x; // does not perform a move, unlike with `Rc`
 let z = x;
 
-assert!(*z == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+assert!(*z == [1i, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 ~~~
 
 With shared ownership, mutability cannot be inherited so the boxes are always immutable. However,
@@ -2522,7 +2536,7 @@ fn sendable_foo(f: Box<Foo + Send>) { /* ... */ }
 fn shareable_bar<T: Share>(b: &Bar<T> + Share) { /* ... */ }
 ~~~
 
-When no colon is specified (such as the type `~Foo`), it is inferred that the
+When no colon is specified (such as the type `Box<Foo>`), it is inferred that the
 value ascribes to no bounds. They must be added manually if any bounds are
 necessary for usage.
 
@@ -2579,7 +2593,7 @@ fn radius_times_area<T: Circle>(c: T) -> f64 {
 
 Likewise, supertrait methods may also be called on trait objects.
 
-~~~ {.ignore}
+~~~
 use std::f64::consts::PI;
 # trait Shape { fn area(&self) -> f64; }
 # trait Circle : Shape { fn radius(&self) -> f64; }
@@ -2587,9 +2601,10 @@ use std::f64::consts::PI;
 # struct CircleStruct { center: Point, radius: f64 }
 # impl Circle for CircleStruct { fn radius(&self) -> f64 { (self.area() / PI).sqrt() } }
 # impl Shape for CircleStruct { fn area(&self) -> f64 { PI * square(self.radius) } }
+# fn square(x: f64) -> f64 { x * x }
 
-let concrete = ~CircleStruct{center:Point{x:3.0,y:4.0},radius:5.0};
-let mycircle: ~Circle = concrete as ~Circle;
+let concrete = box CircleStruct{center:Point{x:3.0,y:4.0},radius:5.0};
+let mycircle: Box<Circle> = concrete as Box<Circle>;
 let nonsense = mycircle.radius() * mycircle.area();
 ~~~
 
@@ -2619,8 +2634,8 @@ fn main() {
 }
 ~~~
 
-The full list of derivable traits is `PartialEq`, `TotalEq`, `Ord`,
-`TotalOrd`, `Encodable`, `Decodable`, `Clone`,
+The full list of derivable traits is `PartialEq`, `Eq`, `PartialOrd`,
+`Ord`, `Encodable`, `Decodable`, `Clone`,
 `Hash`, `Rand`, `Default`, `Zero`, `FromPrimitive` and `Show`.
 
 # Crates and the module system
@@ -3129,7 +3144,7 @@ extern crate num;
 
 fn main() {
     // The rational number '1/2':
-    let one_half = ::num::rational::Ratio::new(1, 2);
+    let one_half = ::num::rational::Ratio::new(1i, 2);
 }
 ~~~
 
@@ -3164,7 +3179,7 @@ mod farm {
 
 fn main() {
     farm::dog();
-    let a_third = Ratio::new(1, 3);
+    let a_third = Ratio::new(1i, 3);
 }
 ~~~
 
@@ -3291,13 +3306,13 @@ use iter_range = std::iter::range;
 
 fn main() {
     // `range` is imported by default
-    for _ in range(0, 10) {}
+    for _ in range(0u, 10) {}
 
     // Doesn't hinder you from importing it under a different name yourself
-    for _ in iter_range(0, 10) {}
+    for _ in iter_range(0u, 10) {}
 
     // Or from not using the automatic import.
-    for _ in ::std::iter::range(0, 10) {}
+    for _ in ::std::iter::range(0u, 10) {}
 }
 ~~~
 
@@ -3334,7 +3349,7 @@ guides on individual topics.
 * [Testing Rust code][testing]
 * [The Rust Runtime][runtime]
 
-There is further documentation on the [wiki], however those tend to be even more out of date as this document.
+There is further documentation on the [wiki], however those tend to be even more out of date than this document.
 
 [pointers]: guide-pointers.html
 [lifetimes]: guide-lifetimes.html

@@ -78,14 +78,14 @@ impl Stack {
     }
 
     /// Point to the low end of the allocated stack
-    pub fn start(&self) -> *uint {
-        self.buf.data as *uint
+    pub fn start(&self) -> *const uint {
+        self.buf.data as *const uint
     }
 
     /// Point one uint beyond the high end of the allocated stack
-    pub fn end(&self) -> *uint {
+    pub fn end(&self) -> *const uint {
         unsafe {
-            self.buf.data.offset(self.buf.len as int) as *uint
+            self.buf.data.offset(self.buf.len as int) as *const uint
         }
     }
 }
@@ -96,7 +96,7 @@ fn protect_last_page(stack: &MemoryMap) -> bool {
         // This may seem backwards: the start of the segment is the last page?
         // Yes! The stack grows from higher addresses (the end of the allocated
         // block) to lower addresses (the start of the allocated block).
-        let last_page = stack.data as *libc::c_void;
+        let last_page = stack.data as *mut libc::c_void;
         libc::mprotect(last_page, page_size() as libc::size_t,
                        libc::PROT_NONE) != -1
     }
@@ -168,8 +168,8 @@ fn max_cached_stacks() -> uint {
 }
 
 extern {
-    fn rust_valgrind_stack_register(start: *libc::uintptr_t,
-                                    end: *libc::uintptr_t) -> libc::c_uint;
+    fn rust_valgrind_stack_register(start: *const libc::uintptr_t,
+                                    end: *const libc::uintptr_t) -> libc::c_uint;
     fn rust_valgrind_stack_deregister(id: libc::c_uint);
 }
 

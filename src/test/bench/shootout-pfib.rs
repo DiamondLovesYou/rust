@@ -24,7 +24,6 @@ extern crate time;
 use std::os;
 use std::result::{Ok, Err};
 use std::task;
-use std::task::TaskBuilder;
 use std::uint;
 
 fn fib(n: int) -> int {
@@ -67,9 +66,9 @@ fn parse_opts(argv: Vec<String> ) -> Config {
 }
 
 fn stress_task(id: int) {
-    let mut i = 0;
+    let mut i = 0i;
     loop {
-        let n = 15;
+        let n = 15i;
         assert_eq!(fib(n), fib(n));
         i += 1;
         println!("{}: Completed {} iterations", id, i);
@@ -79,14 +78,12 @@ fn stress_task(id: int) {
 fn stress(num_tasks: int) {
     let mut results = Vec::new();
     for i in range(0, num_tasks) {
-        let mut builder = TaskBuilder::new();
-        results.push(builder.future_result());
-        builder.spawn(proc() {
+        results.push(task::try_future(proc() {
             stress_task(i);
-        });
+        }));
     }
-    for r in results.iter() {
-        r.recv();
+    for r in results.move_iter() {
+        r.unwrap();
     }
 }
 
@@ -111,7 +108,7 @@ fn main() {
         let num_trials = 10;
 
         for n in range(1, max + 1) {
-            for _ in range(0, num_trials) {
+            for _ in range(0u, num_trials) {
                 let start = time::precise_time_ns();
                 let fibn = fib(n);
                 let stop = time::precise_time_ns();

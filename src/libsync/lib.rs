@@ -18,6 +18,7 @@
 //! through `std::sync`.
 
 #![crate_id = "sync#0.11.0-pre"]
+#![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
@@ -25,8 +26,8 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/",
        html_playground_url = "http://play.rust-lang.org/")]
-#![feature(phase, globs, macro_rules)]
 
+#![feature(phase, globs, macro_rules, unsafe_destructor)]
 #![deny(missing_doc)]
 #![no_std]
 

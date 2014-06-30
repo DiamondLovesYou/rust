@@ -87,11 +87,12 @@ mod imp {
 
     struct SecRandom;
 
-    static kSecRandomDefault: *SecRandom = 0 as *SecRandom;
+    static kSecRandomDefault: *const SecRandom = 0 as *const SecRandom;
 
     #[link(name = "Security", kind = "framework")]
     extern "C" {
-        fn SecRandomCopyBytes(rnd: *SecRandom, count: size_t, bytes: *mut u8) -> c_int;
+        fn SecRandomCopyBytes(rnd: *const SecRandom,
+                              count: size_t, bytes: *mut u8) -> c_int;
     }
 
     impl OsRng {
@@ -282,7 +283,7 @@ mod test {
     fn test_os_rng_tasks() {
 
         let mut txs = vec!();
-        for _ in range(0, 20) {
+        for _ in range(0u, 20) {
             let (tx, rx) = channel();
             txs.push(tx);
             task::spawn(proc() {
@@ -295,7 +296,7 @@ mod test {
                 task::deschedule();
                 let mut v = [0u8, .. 1000];
 
-                for _ in range(0, 100) {
+                for _ in range(0u, 100) {
                     r.next_u32();
                     task::deschedule();
                     r.next_u64();

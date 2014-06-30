@@ -20,7 +20,9 @@
 //! extern crate native;
 //!
 //! #[start]
-//! fn start(argc: int, argv: **u8) -> int { native::start(argc, argv, main) }
+//! fn start(argc: int, argv: *const *const u8) -> int {
+//!     native::start(argc, argv, main)
+//! }
 //!
 //! fn main() {
 //!     // this code is running on the main OS thread
@@ -32,30 +34,35 @@
 //! ```rust
 //! extern crate native;
 //!
+//! use std::task::TaskBuilder;
+//! use native::NativeTaskBuilder;
+//!
 //! fn main() {
 //!     // We're not sure whether this main function is run in 1:1 or M:N mode.
 //!
-//!     native::task::spawn(proc() {
+//!     TaskBuilder::new().native().spawn(proc() {
 //!         // this code is guaranteed to be run on a native thread
 //!     });
 //! }
 //! ```
 
 #![crate_id = "native#0.11.0-pre"]
+#![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/")]
+
 #![deny(unused_result, unused_must_use)]
-#![allow(non_camel_case_types)]
-#![feature(macro_rules)]
+#![allow(non_camel_case_types, deprecated)]
+#![feature(default_type_params, lang_items)]
 
 // NB this crate explicitly does *not* allow glob imports, please seriously
 //    consider whether they're needed before adding that feature here (the
 //    answer is that you don't need them)
-#![feature(macro_rules)]
+#![feature(macro_rules, unsafe_destructor, default_type_params)]
 
 extern crate alloc;
 extern crate libc;
@@ -64,6 +71,8 @@ extern crate libc;
 use std::os;
 use std::rt;
 use std::str;
+
+pub use task::NativeTaskBuilder;
 
 pub mod io;
 pub mod task;
@@ -76,7 +85,7 @@ static OS_DEFAULT_STACK_ESTIMATE: uint = 2 * (1 << 20);
 
 #[lang = "start"]
 #[cfg(not(test))]
-pub fn lang_start(main: *u8, argc: int, argv: **u8) -> int {
+pub fn lang_start(main: *const u8, argc: int, argv: *const *const u8) -> int {
     use std::mem;
     start(argc, argv, proc() {
         let main: extern "Rust" fn() = unsafe { mem::transmute(main) };
@@ -93,9 +102,9 @@ pub fn lang_start(main: *u8, argc: int, argv: **u8) -> int {
 ///
 /// This function will only return once *all* native threads in the system have
 /// exited.
-pub fn start(argc: int, argv: **u8, main: proc()) -> int {
+pub fn start(argc: int, argv: *const *const u8, main: proc()) -> int {
     let something_around_the_top_of_the_stack = 1;
-    let addr = &something_around_the_top_of_the_stack as *int;
+    let addr = &something_around_the_top_of_the_stack as *const int;
     let my_stack_top = addr as uint;
 
     // FIXME #11359 we just assume that this thread has a stack of a
@@ -126,13 +135,12 @@ pub fn start(argc: int, argv: **u8, main: proc()) -> int {
     let mut main = Some(main);
     let mut task = task::new((my_stack_bottom, my_stack_top));
     task.name = Some(str::Slice("<main>"));
-    let t = task.run(|| {
+    drop(task.run(|| {
         unsafe {
             rt::stack::record_stack_bounds(my_stack_bottom, my_stack_top);
         }
         exit_code = Some(run(main.take_unwrap()));
-    });
-    drop(t);
+    }).destroy());
     unsafe { rt::cleanup(); }
     // If the exit code wasn't set, then the task block must have failed.
     return exit_code.unwrap_or(rt::DEFAULT_ERROR_CODE);

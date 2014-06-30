@@ -228,7 +228,7 @@ impl<'a> Rcx<'a> {
          * bigger than the let and the `*b` expression, so we will
          * effectively resolve `<R0>` to be the block B.
          */
-        match resolve_type(self.fcx.infcx(), unresolved_ty,
+        match resolve_type(self.fcx.infcx(), None, unresolved_ty,
                            resolve_and_force_all_but_regions) {
             Ok(t) => t,
             Err(_) => ty::mk_err()
@@ -546,15 +546,18 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             // explaining how it goes about doing that.
             let target_ty = rcx.resolve_node_type(expr.id);
             match ty::get(target_ty).sty {
-                ty::ty_trait(box ty::TyTrait {
-                    store: ty::RegionTraitStore(trait_region, _), ..
-                }) => {
-                    let source_ty = rcx.resolve_expr_type_adjusted(&**source);
-                    constrain_regions_in_type(
-                        rcx,
-                        trait_region,
-                        infer::RelateObjectBound(expr.span),
-                        source_ty);
+                ty::ty_rptr(trait_region, ty::mt{ty, ..}) => {
+                    match ty::get(ty).sty {
+                        ty::ty_trait(..) => {
+                            let source_ty = rcx.resolve_expr_type_adjusted(&**source);
+                            constrain_regions_in_type(
+                                rcx,
+                                trait_region,
+                                infer::RelateObjectBound(expr.span),
+                                source_ty);
+                        }
+                        _ => {}
+                    }
                 }
                 _ => ()
             }
@@ -876,7 +879,7 @@ fn constrain_autoderefs(rcx: &mut Rcx,
                rcx.fcx.infcx().ty_to_str(derefd_ty),
                i, derefs);
 
-        let method_call = MethodCall::autoderef(deref_expr.id, i as u32);
+        let method_call = MethodCall::autoderef(deref_expr.id, i);
         derefd_ty = match rcx.fcx.inh.method_map.borrow().find(&method_call) {
             Some(method) => {
                 // Treat overloaded autoderefs as if an AutoRef adjustment

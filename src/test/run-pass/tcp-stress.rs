@@ -25,7 +25,7 @@ use std::io::{Acceptor, Listener};
 use std::task::TaskBuilder;
 
 #[start]
-fn start(argc: int, argv: **u8) -> int {
+fn start(argc: int, argv: *const *const u8) -> int {
     green::start(argc, argv, rustuv::event_loop, main)
 }
 
@@ -58,11 +58,9 @@ fn main() {
     let addr = rx.recv();
 
     let (tx, rx) = channel();
-    for _ in range(0, 1000) {
+    for _ in range(0u, 1000) {
         let tx = tx.clone();
-        let mut builder = TaskBuilder::new();
-        builder.opts.stack_size = Some(64 * 1024);
-        builder.spawn(proc() {
+        TaskBuilder::new().stack_size(64 * 1024).spawn(proc() {
             let host = addr.ip.to_str();
             let port = addr.port;
             match TcpStream::connect(host.as_slice(), port) {
@@ -81,7 +79,7 @@ fn main() {
     // Wait for all clients to exit, but don't wait for the server to exit. The
     // server just runs infinitely.
     drop(tx);
-    for _ in range(0, 1000) {
+    for _ in range(0u, 1000) {
         rx.recv();
     }
     unsafe { libc::exit(0) }

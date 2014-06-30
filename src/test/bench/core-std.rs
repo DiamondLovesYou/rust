@@ -23,23 +23,23 @@ use std::str;
 use std::vec;
 use std::io::File;
 
-macro_rules! bench (
-    ($argv:expr, $id:ident) => (maybe_run_test($argv.as_slice(),
-                                               stringify!($id).to_string(),
-                                                          $id))
-)
-
 fn main() {
-    let argv = os::args().move_iter().map(|x| x.to_string()).collect::<Vec<String>>();
+    let argv = os::args();
     let _tests = argv.slice(1, argv.len());
 
-    bench!(argv, shift_push);
-    bench!(argv, read_line);
-    bench!(argv, vec_plus);
-    bench!(argv, vec_append);
-    bench!(argv, vec_push_all);
-    bench!(argv, is_utf8_ascii);
-    bench!(argv, is_utf8_multibyte);
+    macro_rules! bench (
+        ($id:ident) =>
+            (maybe_run_test(argv.as_slice(),
+                            stringify!($id).to_string(),
+                            $id)))
+
+    bench!(shift_push);
+    bench!(read_line);
+    bench!(vec_plus);
+    bench!(vec_append);
+    bench!(vec_push_all);
+    bench!(is_utf8_ascii);
+    bench!(is_utf8_multibyte);
 }
 
 fn maybe_run_test(argv: &[String], name: String, test: ||) {
@@ -63,7 +63,7 @@ fn maybe_run_test(argv: &[String], name: String, test: ||) {
 }
 
 fn shift_push() {
-    let mut v1 = Vec::from_elem(30000, 1);
+    let mut v1 = Vec::from_elem(30000, 1i);
     let mut v2 = Vec::new();
 
     while v1.len() > 0 {
@@ -77,7 +77,7 @@ fn read_line() {
     let mut path = Path::new(env!("CFG_SRC_DIR"));
     path.push("src/test/bench/shootout-k-nucleotide.data");
 
-    for _ in range(0, 3) {
+    for _ in range(0u, 3) {
         let mut reader = BufferedReader::new(File::open(&path).unwrap());
         for _line in reader.lines() {
         }

@@ -3,13 +3,12 @@
 # Introduction
 
 Rust aims to provide safe abstractions over the low-level details of
-the CPU and operating system, but sometimes one is forced to drop down
-and write code at that level (those abstractions have to be created
-somehow). This guide aims to provide an overview of the dangers and
-power one gets with Rust's unsafe subset.
+the CPU and operating system, but sometimes one needs to drop down and
+write code at that level. This guide aims to provide an overview of
+the dangers and power one gets with Rust's unsafe subset.
 
 Rust provides an escape hatch in the form of the `unsafe { ... }`
-block which allows the programmer to dodge some of the compilers
+block which allows the programmer to dodge some of the compiler's
 checks and do a wide range of operations, such as:
 
 - dereferencing [raw pointers](#raw-pointers)
@@ -18,13 +17,12 @@ checks and do a wide range of operations, such as:
 - [inline assembly](#inline-assembly)
 
 Note that an `unsafe` block does not relax the rules about lifetimes
-of `&` and the freezing of borrowed data, it just allows the use of
-additional techniques for skirting the compiler's watchful eye. Any
-use of `unsafe` is the programmer saying "I know more than you" to the
-compiler, and, as such, the programmer should be very sure that they
-actually do know more about why that piece of code is valid.
+of `&` and the freezing of borrowed data.
 
-In general, one should try to minimize the amount of unsafe code in a
+Any use of `unsafe` is the programmer saying "I know more than you" to
+the compiler, and, as such, the programmer should be very sure that
+they actually do know more about why that piece of code is valid.  In
+general, one should try to minimize the amount of unsafe code in a
 code base; preferably by using the bare minimum `unsafe` blocks to
 build safe interfaces.
 
@@ -38,17 +36,17 @@ build safe interfaces.
 
 ## References
 
-One of Rust's biggest goals as a language is ensuring memory safety,
-achieved in part via [the lifetime system](guide-lifetimes.html) which
-every `&` references has associated with it. This system is how the
+One of Rust's biggest features is memory safety.  This is achieved in
+part via [the lifetime system](guide-lifetimes.html), which is how the
 compiler can guarantee that every `&` reference is always valid, and,
 for example, never pointing to freed memory.
 
-These restrictions on `&` have huge advantages. However, there's no
-free lunch club. For example, `&` isn't a valid replacement for C's
-pointers, and so cannot be used for FFI, in general. Additionally,
-both immutable (`&`) and mutable (`&mut`) references have some
-aliasing and freezing guarantees, required for memory safety.
+These restrictions on `&` have huge advantages. However, they also
+constrain how we can use them. For example, `&` doesn't behave
+identically to C's pointers, and so cannot be used for pointers in
+foreign function interfaces (FFI). Additionally, both immutable (`&`)
+and mutable (`&mut`) references have some aliasing and freezing
+guarantees, required for memory safety.
 
 In particular, if you have an `&T` reference, then the `T` must not be
 modified through that reference or any other reference. There are some
@@ -56,7 +54,7 @@ standard library types, e.g. `Cell` and `RefCell`, that provide inner
 mutability by replacing compile time guarantees with dynamic checks at
 runtime.
 
-An `&mut` reference has a stronger requirement: when an object has an
+An `&mut` reference has a different constraint: when an object has an
 `&mut T` pointing into it, then that `&mut` reference must be the only
 such usable path to that object in the whole program. That is, an
 `&mut` cannot alias with any other references.
@@ -81,7 +79,7 @@ let ref_2: &mut u8 = unsafe { mem::transmute(&mut *ref_1) };
 ## Raw pointers
 
 Rust offers two additional pointer types "raw pointers", written as
-`*T` and `*mut T`. They're an approximation of C's `const T*` and `T*`
+`*const T` and `*mut T`. They're an approximation of C's `const T*` and `T*`
 respectively; indeed, one of their most common uses is for FFI,
 interfacing with external C libraries.
 
@@ -102,23 +100,23 @@ offered by the Rust language and libraries. For example, they
 - lack any form of lifetimes, unlike `&`, and so the compiler cannot
   reason about dangling pointers; and
 - have no guarantees about aliasing or mutability other than mutation
-  not being allowed directly through a `*T`.
+  not being allowed directly through a `*const T`.
 
 Fortunately, they come with a redeeming feature: the weaker guarantees
 mean weaker restrictions. The missing restrictions make raw pointers
-appropriate as a building block for (carefully!) implementing things
-like smart pointers and vectors inside libraries. For example, `*`
-pointers are allowed to alias, allowing them to be used to write
-shared-ownership types like reference counted and garbage collected
-pointers, and even thread-safe shared memory types (`Rc` and the `Arc`
-types are both implemented entirely in Rust).
+appropriate as a building block for implementing things like smart
+pointers and vectors inside libraries. For example, `*` pointers are
+allowed to alias, allowing them to be used to write shared-ownership
+types like reference counted and garbage collected pointers, and even
+thread-safe shared memory types (`Rc` and the `Arc` types are both
+implemented entirely in Rust).
 
 There are two things that you are required to be careful about
 (i.e. require an `unsafe { ... }` block) with raw pointers:
 
 - dereferencing: they can have any value: so possible results include
   a crash, a read of uninitialised memory, a use-after-free, or
-  reading data as normal (and one hopes happens).
+  reading data as normal.
 - pointer arithmetic via the `offset` [intrinsic](#intrinsics) (or
   `.offset` method): this intrinsic uses so-called "in-bounds"
   arithmetic, that is, it is only defined behaviour if the result is
@@ -133,13 +131,13 @@ unsafe, and neither is converting to an integer.
 
 At runtime, a raw pointer `*` and a reference pointing to the same
 piece of data have an identical representation. In fact, an `&T`
-reference will implicitly coerce to an `*T` raw pointer in safe code
+reference will implicitly coerce to an `*const T` raw pointer in safe code
 and similarly for the `mut` variants (both coercions can be performed
-explicitly with, respectively, `value as *T` and `value as *mut T`).
+explicitly with, respectively, `value as *const T` and `value as *mut T`).
 
-Going the opposite direction, from `*` to a reference `&`, is not
+Going the opposite direction, from `*const` to a reference `&`, is not
 safe. A `&T` is always valid, and so, at a minimum, the raw pointer
-`*T` has to be a valid to a valid instance of type `T`. Furthermore,
+`*const T` has to be a valid to a valid instance of type `T`. Furthermore,
 the resulting pointer must satisfy the aliasing and mutability laws of
 references. The compiler assumes these properties are true for any
 references, no matter how they are created, and so any conversion from
@@ -151,7 +149,7 @@ The recommended method for the conversion is
 ```
 let i: u32 = 1;
 // explicit cast
-let p_imm: *u32 = &i as *u32;
+let p_imm: *const u32 = &i as *const u32;
 let mut m: u32 = 2;
 // implicit coercion
 let p_mut: *mut u32 = &mut m;
@@ -177,9 +175,10 @@ code:
 - store pointers privately (i.e. not in public fields of public
   structs), so that you can see and control all reads and writes to
   the pointer in one place.
-- use `assert!()` a lot: once you've thrown away the protection of the
-  compiler & type-system via `unsafe { ... }` you're left with just
-  your wits and your `assert!()`s, any bug is potentially exploitable.
+- use `assert!()` a lot: since you can't rely on the protection of the
+  compiler & type-system to ensure that your `unsafe` code is correct
+  at compile-time, use `assert!()` to verify that it is doing the
+  right thing at run-time.
 - implement the `Drop` for resource clean-up via a destructor, and use
   RAII (Resource Acquisition Is Initialization). This reduces the need
   for any manual memory management by users, and automatically ensures
@@ -192,6 +191,8 @@ As an example, we give a reimplementation of owned boxes by wrapping
 reimplementation is as safe as the `Box` type.
 
 ```
+#![feature(unsafe_destructor)]
+
 extern crate libc;
 use libc::{c_void, size_t, malloc, free};
 use std::mem;
@@ -242,10 +243,12 @@ impl<T: Send> Unique<T> {
 // A key ingredient for safety, we associate a destructor with
 // Unique<T>, making the struct manage the raw pointer: when the
 // struct goes out of scope, it will automatically free the raw pointer.
+//
 // NB: This is an unsafe destructor, because rustc will not normally
-// allow destructors to be associated with parametrized types, due to
+// allow destructors to be associated with parameterized types, due to
 // bad interaction with managed boxes. (With the Send restriction,
-// we don't have this problem.)
+// we don't have this problem.) Note that the `#[unsafe_destructor]`
+// feature gate is required to use unsafe destructors.
 #[unsafe_destructor]
 impl<T: Send> Drop for Unique<T> {
     fn drop(&mut self) {
@@ -253,7 +256,7 @@ impl<T: Send> Drop for Unique<T> {
             // Copy the object out from the pointer onto the stack,
             // where it is covered by normal Rust destructor semantics
             // and cleans itself up, if necessary
-            ptr::read(self.ptr as *T);
+            ptr::read(self.ptr as *const T);
 
             // clean-up our allocation
             free(self.ptr as *mut c_void)
@@ -301,8 +304,8 @@ asm!(assembly template
 Any use of `asm` is feature gated (requires `#![feature(asm)]` on the
 crate to allow) and of course requires an `unsafe` block.
 
-> **Note**: the examples here are given in x86/x86-64 assembly, but all
-> platforms are supported.
+> **Note**: the examples here are given in x86/x86-64 assembly, but
+> all platforms are supported.
 
 ## Assembly template
 
@@ -447,13 +450,14 @@ in the same format as a C:
 
 ```
 #![no_std]
+#![feature(lang_items)]
 
 // Pull in the system libc library for what crt0.o likely requires
 extern crate libc;
 
 // Entry point for this program
 #[start]
-fn start(_argc: int, _argv: **u8) -> int {
+fn start(_argc: int, _argv: *const *const u8) -> int {
     0
 }
 
@@ -473,11 +477,12 @@ compiler's name mangling too:
 ```ignore
 #![no_std]
 #![no_main]
+#![feature(lang_items)]
 
 extern crate libc;
 
 #[no_mangle] // ensure that this symbol is called `main` in the output
-pub extern fn main(argc: int, argv: **u8) -> int {
+pub extern fn main(argc: int, argv: *const *const u8) -> int {
     0
 }
 
@@ -524,6 +529,7 @@ vectors provided from C, using idiomatic Rust practices.
 ```
 #![no_std]
 #![feature(globs)]
+#![feature(lang_items)]
 
 # extern crate libc;
 extern crate core;
@@ -534,8 +540,8 @@ use core::mem;
 use core::raw::Slice;
 
 #[no_mangle]
-pub extern fn dot_product(a: *u32, a_len: u32,
-                          b: *u32, b_len: u32) -> u32 {
+pub extern fn dot_product(a: *const u32, a_len: u32,
+                          b: *const u32, b_len: u32) -> u32 {
     // Convert the provided arrays into Rust slices.
     // The core::raw module guarantees that the Slice
     // structure has the same memory layout as a &[T]
@@ -567,7 +573,7 @@ extern fn begin_unwind(args: &core::fmt::Arguments,
 
 #[lang = "stack_exhausted"] extern fn stack_exhausted() {}
 #[lang = "eh_personality"] extern fn eh_personality() {}
-# #[start] fn start(argc: int, argv: **u8) -> int { 0 }
+# #[start] fn start(argc: int, argv: *const *const u8) -> int { 0 }
 # fn main() {}
 ```
 
@@ -615,10 +621,13 @@ perform efficient pointer arithmetic, one would import those functions
 via a declaration like
 
 ```
+# #![feature(intrinsics)]
+# fn main() {}
+
 extern "rust-intrinsic" {
     fn transmute<T, U>(x: T) -> U;
 
-    fn offset<T>(dst: *T, offset: int) -> *T;
+    fn offset<T>(dst: *const T, offset: int) -> *const T;
 }
 ```
 
@@ -643,6 +652,7 @@ sugar for dynamic allocations via `malloc` and `free`:
 
 ```
 #![no_std]
+#![feature(lang_items)]
 
 extern crate libc;
 
@@ -667,7 +677,7 @@ unsafe fn deallocate(ptr: *mut u8, _size: uint, _align: uint) {
 }
 
 #[start]
-fn main(argc: int, argv: **u8) -> int {
+fn main(argc: int, argv: *const *const u8) -> int {
     let x = box 1;
 
     0
@@ -678,8 +688,7 @@ fn main(argc: int, argv: **u8) -> int {
 ```
 
 Note the use of `abort`: the `exchange_malloc` lang item is assumed to
-return a valid pointer, and so needs to do the check
-internally.
+return a valid pointer, and so needs to do the check internally.
 
 Other features provided by lang items include:
 

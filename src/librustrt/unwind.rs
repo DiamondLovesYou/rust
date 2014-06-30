@@ -78,7 +78,6 @@ use uw = libunwind;
 
 pub struct Unwinder {
     unwinding: bool,
-    cause: Option<Box<Any + Send>>
 }
 
 struct Exception {
@@ -107,24 +106,11 @@ impl Unwinder {
     pub fn new() -> Unwinder {
         Unwinder {
             unwinding: false,
-            cause: None,
         }
     }
 
     pub fn unwinding(&self) -> bool {
         self.unwinding
-    }
-
-    pub fn try(&mut self, f: ||) {
-        self.cause = unsafe { try(f) }.err();
-    }
-
-    pub fn result(&mut self) -> Result {
-        if self.unwinding {
-            Err(self.cause.take().unwrap())
-        } else {
-            Ok(())
-        }
     }
 }
 
@@ -150,9 +136,9 @@ impl Unwinder {
 ///   run.
 pub unsafe fn try(f: ||) -> ::core::result::Result<(), Box<Any + Send>> {
     let closure: Closure = mem::transmute(f);
-    let ep = rust_try(try_fn, closure.code as *c_void,
-                      closure.env as *c_void);
-    let ep: *uw::_Unwind_Exception = mem::transmute(ep);
+    let ep = rust_try(try_fn, closure.code as *mut c_void,
+                      closure.env as *mut c_void);
+    let ep: *mut uw::_Unwind_Exception = mem::transmute(ep);
     return if ep.is_null() {
         Ok(())
     } else {
@@ -163,11 +149,11 @@ pub unsafe fn try(f: ||) -> ::core::result::Result<(), Box<Any + Send>> {
         Err(cause.unwrap())
     };
 
-    extern fn try_fn(code: *c_void, env: *c_void) {
+    extern fn try_fn(code: *mut c_void, env: *mut c_void) {
         unsafe {
             let closure: || = mem::transmute(Closure {
-                code: code as *(),
-                env: env as *(),
+                code: code as *mut (),
+                env: env as *mut (),
             });
             closure();
         }
@@ -183,9 +169,9 @@ pub unsafe fn try(f: ||) -> ::core::result::Result<(), Box<Any + Send>> {
         // will move the return to a sret argument, shifting the other parameters to
         // unexpected positions. The result is that rust_try tries to call a pointer
         // which points to someplace on our stack. Not good, to say the least.
-        fn rust_try(f: extern "C" fn(*c_void, *c_void),
-                    code: *c_void,
-                    data: *c_void) -> *c_void;
+        fn rust_try(f: extern "C" fn(*mut c_void, *mut c_void),
+                    code: *mut c_void,
+                    data: *mut c_void) -> *mut c_void;
     }
 }
 
@@ -209,7 +195,7 @@ fn rust_fail(cause: Box<Any + Send>) -> ! {
     }
 
     extern fn exception_cleanup(_unwind_code: uw::_Unwind_Reason_Code,
-                                exception: *uw::_Unwind_Exception) {
+                                exception: *mut uw::_Unwind_Exception) {
         rtdebug!("exception_cleanup()");
         unsafe {
             let _: Box<Exception> = mem::transmute(exception);
@@ -255,8 +241,8 @@ pub mod eabi {
         fn __gcc_personality_v0(version: c_int,
                                 actions: uw::_Unwind_Action,
                                 exception_class: uw::_Unwind_Exception_Class,
-                                ue_header: *uw::_Unwind_Exception,
-                                context: *uw::_Unwind_Context)
+                                ue_header: *mut uw::_Unwind_Exception,
+                                context: *mut uw::_Unwind_Context)
             -> uw::_Unwind_Reason_Code;
     }
     #[cfg(target_os = "nacl", target_arch = "le32")]
@@ -264,8 +250,8 @@ pub mod eabi {
         (_version: c_int,
          _actions: uw::_Unwind_Action,
          _exception_class: uw::_Unwind_Exception_Class,
-         _ue_header: *uw::_Unwind_Exception,
-         _context: *uw::_Unwind_Context) -> uw::_Unwind_Reason_Code {
+         _ue_header: *mut uw::_Unwind_Exception,
+         _context: *mut uw::_Unwind_Context) -> uw::_Unwind_Reason_Code {
             // we just need to be here to prevent linker errors.
             // based on my analysis of PNaClSJLJ.cpp and ExceptionInfoWriter.cpp,
             // the personality functions are just discarded without any consultation.
@@ -278,8 +264,8 @@ pub mod eabi {
         version: c_int,
         actions: uw::_Unwind_Action,
         exception_class: uw::_Unwind_Exception_Class,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
+        ue_header: *mut uw::_Unwind_Exception,
+        context: *mut uw::_Unwind_Context
     ) -> uw::_Unwind_Reason_Code
     {
         unsafe {
@@ -293,8 +279,8 @@ pub mod eabi {
         version: c_int,
         actions: uw::_Unwind_Action,
         exception_class: uw::_Unwind_Exception_Class,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
+        ue_header: *mut uw::_Unwind_Exception,
+        context: *mut uw::_Unwind_Context
     ) -> uw::_Unwind_Reason_Code
     {
         if (actions as c_int & uw::_UA_SEARCH_PHASE as c_int) != 0 { // search phase
@@ -323,8 +309,8 @@ pub mod eabi {
         fn __gcc_personality_sj0(version: c_int,
                                 actions: uw::_Unwind_Action,
                                 exception_class: uw::_Unwind_Exception_Class,
-                                ue_header: *uw::_Unwind_Exception,
-                                context: *uw::_Unwind_Context)
+                                ue_header: *mut uw::_Unwind_Exception,
+                                context: *mut uw::_Unwind_Context)
             -> uw::_Unwind_Reason_Code;
     }
 
@@ -334,8 +320,8 @@ pub mod eabi {
         version: c_int,
         actions: uw::_Unwind_Action,
         exception_class: uw::_Unwind_Exception_Class,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
+        ue_header: *mut uw::_Unwind_Exception,
+        context: *mut uw::_Unwind_Context
     ) -> uw::_Unwind_Reason_Code
     {
         unsafe {
@@ -349,8 +335,8 @@ pub mod eabi {
         version: c_int,
         actions: uw::_Unwind_Action,
         exception_class: uw::_Unwind_Exception_Class,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
+        ue_header: *mut uw::_Unwind_Exception,
+        context: *mut uw::_Unwind_Context
     ) -> uw::_Unwind_Reason_Code
     {
         if (actions as c_int & uw::_UA_SEARCH_PHASE as c_int) != 0 { // search phase
@@ -376,16 +362,16 @@ pub mod eabi {
 
     extern "C" {
         fn __gcc_personality_v0(state: uw::_Unwind_State,
-                                ue_header: *uw::_Unwind_Exception,
-                                context: *uw::_Unwind_Context)
+                                ue_header: *mut uw::_Unwind_Exception,
+                                context: *mut uw::_Unwind_Context)
             -> uw::_Unwind_Reason_Code;
     }
 
     #[lang="eh_personality"]
     extern "C" fn eh_personality(
         state: uw::_Unwind_State,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
+        ue_header: *mut uw::_Unwind_Exception,
+        context: *mut uw::_Unwind_Context
     ) -> uw::_Unwind_Reason_Code
     {
         unsafe {
@@ -396,8 +382,8 @@ pub mod eabi {
     #[no_mangle] // referenced from rust_try.ll
     pub extern "C" fn rust_eh_personality_catch(
         state: uw::_Unwind_State,
-        ue_header: *uw::_Unwind_Exception,
-        context: *uw::_Unwind_Context
+        ue_header: *mut uw::_Unwind_Exception,
+        context: *mut uw::_Unwind_Context
     ) -> uw::_Unwind_Reason_Code
     {
         if (state as c_int & uw::_US_ACTION_MASK as c_int)
