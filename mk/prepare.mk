@@ -143,8 +143,8 @@ prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
               $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$(2),$$(crate)))),)\
           $$(call PREPARE_LIB,libmorestack.a) \
           $$(call PREPARE_LIB,libcompiler-rt.a) \
-	  $$(call PREPARE_LIB,LLVMgold.so)      \
-	  $$(call PREPARE_LIB,libLTO.so) \,),),)
+	  $$(if $$(filter $(3),$(2)),$$(call PREPARE_LIB,LLVMgold.so),)      \
+	  $$(if $$(filter $(3),$(2)),$$(call PREPARE_LIB,libLTO.so),),),),)
 endef
 
 define DEF_PREPARE
