@@ -219,12 +219,17 @@ pub mod write {
                                          .relocation_model).as_slice());
                 }
             };
-
-            let tm = sess.targ_cfg
-                         .target_strs
-                         .target_triple
-                         .as_slice()
-                         .with_c_str(|t| {
+            let triple = if sess.targeting_pnacl() {
+                // Pretend that we are ARM for name mangling and assembly conventions.
+                // https://code.google.com/p/nativeclient/issues/detail?id=2554
+                "armv7a-none-nacl-gnueabi"
+            } else {
+                sess.targ_cfg
+                    .target_strs
+                    .target_triple
+                    .as_slice()
+            };
+            let tm = triple.with_c_str(|t| {
                 sess.opts.cg.target_cpu.as_slice().with_c_str(|cpu| {
                     target_feature(sess).with_c_str(|features| {
                         llvm::LLVMRustCreateTargetMachine(
