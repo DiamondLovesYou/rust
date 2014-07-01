@@ -337,6 +337,7 @@ impl TypeMap {
             ty::ty_str                |
             ty::ty_int(_)             |
             ty::ty_uint(_)            |
+            ty::ty_simd(_, _)         |
             ty::ty_float(_) => {
                 unique_type_id.push_str(ppaux::ty_to_str(cx.tcx(), type_).as_slice());
             },
