@@ -232,7 +232,7 @@ pub mod write {
                             lib::llvm::CodeModelDefault,
                             reloc_model,
                             opt_level,
-                            true /* EnableSegstk */,
+                            !sess.targeting_pnacl() /* EnableSegstk */,
                             use_softfp,
                             no_fp_elim,
                             ffunction_sections,
