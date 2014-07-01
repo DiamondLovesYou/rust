@@ -283,7 +283,7 @@ impl CrateContext {
     // but it could be enabled (with patched LLVM)
     pub fn is_split_stack_supported(&self) -> bool {
         let ref cfg = self.sess().targ_cfg;
-        cfg.os != abi::OsiOS || cfg.arch != abi::Arm
+        (cfg.os != abi::OsiOS || cfg.arch != abi::Arm) && cfg.arch != abi::Le32
     }
 }
 
