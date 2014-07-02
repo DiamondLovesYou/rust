@@ -1521,10 +1521,6 @@ pub mod llvm {
                                      name: *const c_char,
                                      value: u32);
 
-        pub fn LLVMRustAddOverridingModuleFlag(M: ModuleRef,
-                                               name: *const c_char,
-                                               value: u32);
-
         pub fn LLVMDIBuilderCreate(M: ModuleRef) -> DIBuilderRef;
 
         pub fn LLVMDIBuilderDispose(Builder: DIBuilderRef);

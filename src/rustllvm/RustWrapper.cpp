@@ -851,12 +851,7 @@ LLVMRustWritePNaClBitcode(LLVMModuleRef M,
   NaClWriteBitcodeToFile(unwrap(M), OS);
   return true;
 }
-extern "C" void
-LLVMRustAddOverridingModuleFlag(LLVMModuleRef M,
-                                const char *name,
-                                uint32_t value) {
-  unwrap(M)->addModuleFlag(Module::Override, name, value);
-}
+
 extern "C" LLVMModuleRef
 LLVMRustParseBitcode(LLVMContextRef ctxt, const char* name, const void* bc, size_t len) {
   MemoryBuffer* buf = MemoryBuffer::getMemBuffer(StringRef(static_cast<const char*>(bc),

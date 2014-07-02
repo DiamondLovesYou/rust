@@ -729,8 +729,11 @@ pub fn finalize(cx: &CrateContext) {
             //               do something more graceful here.
             "Dwarf Version".with_c_str(
                 |s| llvm::LLVMRustAddModuleFlag(cx.llmod, s, 3));
+        } else {
+            // The PNaCl/NaCl toolchain uses dwarf4, so match that for the C/C++
+            // libs we inevitably link against.
+            "Dwarf Version".with_c_str(|s| llvm::LLVMRustAddModuleFlag(cx.llmod, s, 4));
         }
-
         // Prevent bitcode readers from deleting the debug info.
         "Debug Info Version".with_c_str(
             |s| llvm::LLVMRustAddModuleFlag(cx.llmod, s,
