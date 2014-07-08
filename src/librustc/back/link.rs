@@ -274,6 +274,9 @@ pub mod write {
                 assert!(addpass_mpm("expand-arith-with-overflow"));
                 assert!(addpass_mpm("replace-vectors-with-arrays"));
                 assert!(addpass_mpm("promote-simple-structs"));
+                // Subvert constant expression graph cycles, which keeps
+                // replaced constants alive.
+                assert!(addpass_mpm("expand-constant-expr"));
                 assert!(addpass_mpm("promote-returned-structures"));
                 assert!(addpass_mpm("promote-structure-arguments"));
                 assert!(addpass_mpm("nacl-rewrite-atomics"));
@@ -1138,6 +1141,7 @@ fn link_pnacl_rlib(sess: &Session,
             let archive = ArchiveRO::open(&p)
                 .expect("maybe invalid archive?");
             archive.foreach_child(|name, bc| {
+                debug!("processing object `{}`", name);
                 let name_path = Path::new(name);
                 let name_ext_str = name_path.extension_str();
                 if name_ext_str == Some("o") || name_ext_str == Some("obj") {
