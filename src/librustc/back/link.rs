@@ -273,7 +273,6 @@ pub mod write {
                 assert!(addpass_mpm("rewrite-llvm-intrinsic-calls"));
                 assert!(addpass_mpm("expand-arith-with-overflow"));
                 assert!(addpass_mpm("replace-vectors-with-arrays"));
-                assert!(addpass_mpm("promote-simple-structs"));
                 // Subvert constant expression graph cycles, which keeps
                 // replaced constants alive.
                 assert!(addpass_mpm("expand-constant-expr"));
@@ -316,7 +315,6 @@ pub mod write {
                 assert!(addpass_mpm("expand-getelementptr"));
                 assert!(addpass_mpm("remove-asm-memory"));
                 assert!(addpass_mpm("replace-ptrs-with-ints"));
-                assert!(addpass_mpm("replace-aggregates-with-ints"));
                 assert!(addpass_mpm("die"));
                 assert!(addpass_mpm("dce"));
 
