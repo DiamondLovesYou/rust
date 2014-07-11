@@ -22,7 +22,7 @@ use util;
 use std::io::File;
 use std::io::fs;
 use std::io::net::tcp;
-use std::io::process::ProcessExit;
+use std::io::process::{ProcessExit, Process};
 use std::io::process;
 use std::io::timer;
 use std::io;
@@ -978,9 +978,7 @@ fn compile_test_(config: &Config, props: &TestProps,
     let link_args = vec!("-L".to_string(),
                          aux_dir.as_str().unwrap().to_string());
     let link_args = if config.targeting_pnacl() {
-        // As a result of the way we link in rustc, targeting pnacl requires use of LTO.
-        link_args.append(vec!(// use stable pexes to save ourselves from toolchain bugs:
-                              "-C".to_string(), "stable-pexe".to_string()).as_slice())
+        link_args.append(vec!("-Z".to_string(), "no-opt".to_string()).as_slice())
     } else {
         link_args
     };
@@ -1003,7 +1001,11 @@ fn exec_compiled_test(config: &Config, props: &TestProps,
         }
 
         "le32-unknown-nacl" => {
-            pnacl_exec_compiled_test(config, props, testfile, env)
+            match pnacl_exec_compiled_test(config, props,
+                                           testfile, env, false) {
+                ProcResResult(p) => p,
+                ProcessResult(_) => unreachable!(),
+            }
         }
 
         _=> {
@@ -1484,24 +1486,29 @@ fn _arm_push_aux_shared_library(config: &Config, testfile: &Path) {
     }
 }
 
+enum ProcResOrProcessResult {
+    ProcResResult(ProcRes),
+    ProcessResult(Process),
+}
 fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
-                            testfile: &Path, env: Vec<(String, String)> ) -> ProcRes {
+                            testfile: &Path, env: Vec<(String, String)>,
+                            run_background: bool) -> ProcResOrProcessResult {
     use std::os::consts::ARCH;
     use std::os::make_absolute;
     use std::io::process::{ExitStatus};
     let cross_path = config.nacl_cross_path
         .clone()
         .expect("need the NaCl SDK path!");
-    let pnacl_translate = cross_path.join_many(["toolchain".to_string(),
-                                                {
-                                                    let mut s = toolchain_prefix();
-                                                    s.push_str("_pnacl");
-                                                    s
-                                                },
-                                                "bin".to_string(),
-                                                "pnacl-translate".to_string()]);
+
+    let llc = config.llvm_bin_path
+        .clone()
+        .expect("need the LLVM bin path!")
+        .join("llc");
 
     let pexe_path = make_absolute(&output_base_name(config, testfile));
+    let obj_path =
+        // add an extension, don't replace it:
+        Path::new(format!("{}.o",pexe_path.display().to_str()));
     let nexe_path =
         // add an extension, don't replace it:
         Path::new(format!("{}.nexe",pexe_path.display().to_str()));
@@ -1510,66 +1517,146 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         "x86" => "i686",
         _ => ARCH,
     };
-    let pnacl_trans_args = vec!("-O0".to_string(),
-                                "-arch".to_string(),
-                                arch.to_string(),
-                                "-o".to_string(),
-                                nexe_path.display().to_str().to_string(),
-                                pexe_path.display().to_str().to_string(),
-                                "--pnacl-driver-verbose".to_string(),
-                                "-translate-fast".to_string());
+    let pnacl_trans_args = vec!(//"-O0".to_string(),
+                                "-mtls-use-call".to_string(),
+                                format!("-mtriple={}-none-nacl-gnu", arch),
+                                "-filetype=obj".to_string(),
+                                format!("-o={}", obj_path.display()),
+                                pexe_path.display().to_str().to_string());
+
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
-                     pnacl_translate.display().to_str().as_slice(),
+                     llc.display().to_str().as_slice(),
                      None,
                      pnacl_trans_args.as_slice(),
                      env.clone(),
                      None)
-        .expect(format!("failed to exec `{}`", pnacl_translate.display()).as_slice());
+        .expect(format!("failed to exec `{}`", llc.display()).as_slice());
     match status {
-        ExitStatus(0) => (),
+        ExitStatus(0) => {
+            dump_output(config, testfile, stdout.as_slice(), stderr.as_slice());
+        }
         _ => {
-            return ProcRes {
+            return ProcResResult(ProcRes {
                 status: status,
                 stdout: stdout,
                 stderr: stderr,
                 cmdline: format!("{} {}",
-                                 pnacl_translate.display(),
+                                 llc.display(),
                                  pnacl_trans_args.connect(" ")),
-            };
+            });
+        }
+    }
+    let arch = match ARCH {
+        "x86" => "x86-32",
+        "x86_64" => "x86-64",
+        _ => fail!("unsupported arch: `{}`!", ARCH),
+    };
+    let lib_path = cross_path.join_many(["toolchain".to_string(),
+                                         {
+                                             let mut s = pnacl_toolchain_prefix();
+                                             s.push_str("_pnacl");
+                                             s
+                                         },
+                                         format!("lib-{}", arch)]);
+
+    let nexe_link_args = vec!("-nostdlib".to_string(),
+                              "--no-fix-cortex-a8".to_string(),
+                              "--eh-frame-hdr".to_string(),
+                              "-z".to_string(), "text".to_string(),
+                              "--build-id".to_string(),
+                              "--entry=__pnacl_start".to_string(),
+                              "-static".to_string(),
+                              lib_path.join("crtbegin.o").display().to_str().to_string(),
+                              obj_path.display().to_str().to_string(),
+                              lib_path.join("libpnacl_irt_shim.a").display().to_str().to_string(),
+                              "--start-group".to_string(),
+                              lib_path.join("libgcc.a").display().to_str().to_string(),
+                              lib_path.join("libcrt_platform.a").display().to_str().to_string(),
+                              "--end-group".to_string(),
+                              lib_path.join("crtend.o").display().to_str().to_string(),
+                              "--undefined=_start".to_string(),
+                              "-o".to_string(), nexe_path.display().to_str().to_string());
+
+    let gold = Path::new(config.rustc_path.clone())
+        .dir_path()
+        .join_many(["..",
+                    "lib",
+                    "rustlib",
+                    config.host.as_slice(),
+                    "bin",
+                    "le32-nacl-ld.gold"]);
+
+    let procsrv::Result { out: stdout, err: stderr, status: status } =
+        procsrv::run("",
+                     gold.display().to_str().as_slice(),
+                     None,
+                     nexe_link_args.as_slice(),
+                     env.clone(),
+                     None)
+        .expect(format!("failed to exec `{}`", gold.display()).as_slice());
+    match status {
+        ExitStatus(0) => {
+            dump_output(config, testfile, stdout.as_slice(), stderr.as_slice());
+        }
+        _ => {
+            return ProcResResult(ProcRes {
+                status: status,
+                stdout: stdout,
+                stderr: stderr,
+                cmdline: format!("{} {}",
+                                 gold.display(),
+                                 nexe_link_args.connect(" ")),
+            });
         }
     }
 
     let sel_ldr = cross_path.join_many(["tools",
                                         "sel_ldr.py"]);
-    let sel_ldr_args = vec!("--debug-libs".to_string(),
-                            "-v".to_string(), "--".to_string(),
-                            nexe_path.display().to_str().to_string());
+    let mut sel_ldr_args = vec!("--debug-libs".to_string(),
+                            "-v".to_string());
+    if run_background {
+        sel_ldr_args.push("-d".to_string());
+    }
+    let sel_ldr_args = sel_ldr_args.append
+        (&["--".to_string(),
+           nexe_path.display().to_str().to_string()]);
     let ProcArgs {
         args: run_args,
         ..
     } = make_run_args(config, props, testfile);
     let sel_ldr_args = sel_ldr_args.append(run_args.as_slice());
-    let procsrv::Result{ out: stdout, err: stderr, status: status } =
-        procsrv::run("",
-                     sel_ldr.display().to_str().as_slice(),
-                     None,
-                     sel_ldr_args.as_slice(),
-                     env,
-                     None).unwrap();
-    return ProcRes {
-        status: status,
-        stdout: stdout,
-        stderr: stderr,
-        cmdline: make_cmdline("",
-                              sel_ldr.display().to_str().as_slice(),
-                              sel_ldr_args.as_slice()),
-    };
-
-    #[cfg(target_os = "linux")]
-    fn toolchain_prefix() -> String {
-        "linux".to_string()
+    if !run_background {
+        let procsrv::Result{ out: stdout, err: stderr, status: status } =
+            procsrv::run("",
+                         sel_ldr.display().to_str().as_slice(),
+                         None,
+                         sel_ldr_args.as_slice(),
+                         env,
+                         None).unwrap();
+        return ProcResResult(ProcRes {
+            status: status,
+            stdout: stdout,
+            stderr: stderr,
+            cmdline: make_cmdline("",
+                                  sel_ldr.display().to_str().as_slice(),
+                                  sel_ldr_args.as_slice()),
+        });
+    } else {
+        return ProcessResult(procsrv::run_background("",
+                                                     sel_ldr.display().to_str().as_slice(),
+                                                     None,
+                                                     sel_ldr_args.as_slice(),
+                                                     env,
+                                                     None)
+                             .expect(format!("failed to exec `{}`", gold.display()).as_slice())
+        );
     }
+}
+
+#[cfg(target_os = "linux")]
+fn pnacl_toolchain_prefix() -> String {
+    "linux".to_string()
 }
 
 // codegen tests (vs. clang)
