@@ -243,6 +243,10 @@ pub fn run_tests(config: &Config) {
         os::setenv("RUST_TEST_TASKS","1");
     }
 
+    if config.targeting_nacl() && config.mode == DebugInfoGdb {
+        os::setenv("RUST_TEST_TASKS","1");        
+    }
+
     let opts = test_opts(config);
     let tests = make_tests(config);
     // sadly osx needs some file descriptor limits raised for running tests in
