@@ -94,8 +94,6 @@ DEPS_log := std
 DEPS_regex := std
 DEPS_regex_macros = rustc syntax std regex
 DEPS_fmt_macros = std
-DEPS_simd := std simd_syntax
-DEPS_simd_syntax := syntax std rustc
 
 TOOL_DEPS_compiletest := test green rustuv getopts
 TOOL_DEPS_rustdoc := rustdoc native
