@@ -323,7 +323,10 @@ $$(JEMALLOC_LOCAL_$(1)): $$(JEMALLOC_DEPS) $$(MKFILE_DEPS)
 	$$(Q)$$(MAKE) -C "$$(JEMALLOC_BUILD_DIR_$(1))" build_lib_static
 
 ifeq ($$(CFG_DISABLE_JEMALLOC),)
-RUSTFLAGS_alloc := --cfg jemalloc
+
+ifeq ($$(findstring $(1),"le32-unknown-nacl"),)
+RUSTFLAGS_alloc_$(1) := --cfg jemalloc
+
 ifeq ($(1),$$(CFG_BUILD))
 ifneq ($$(CFG_JEMALLOC_ROOT),)
 $$(JEMALLOC_LIB_$(1)): $$(CFG_JEMALLOC_ROOT)/libjemalloc_pic.a
@@ -336,6 +339,7 @@ endif
 else
 $$(JEMALLOC_LIB_$(1)): $$(JEMALLOC_LOCAL_$(1))
 	$$(Q)cp $$< $$@
+endif
 endif
 else
 $$(JEMALLOC_LIB_$(1)): $$(MKFILE_DEPS)
