@@ -1,25 +1,52 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
+// The Computer Language Benchmarks Game
+// http://benchmarksgame.alioth.debian.org/
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+// contributed by the Rust Project Developers
+
+// Copyright (c) 2012-2014 The Rust Project Developers
+//
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//
+// - Redistributions of source code must retain the above copyright
+//   notice, this list of conditions and the following disclaimer.
+//
+// - Redistributions in binary form must reproduce the above copyright
+//   notice, this list of conditions and the following disclaimer in
+//   the documentation and/or other materials provided with the
+//   distribution.
+//
+// - Neither the name of "The Computer Language Benchmarks Game" nor
+//   the name of "The Computer Language Shootout Benchmarks" nor the
+//   names of its contributors may be used to endorse or promote
+//   products derived from this software without specific prior
+//   written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+// FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+// COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+// INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+// (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+// HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+// OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #![feature(macro_rules)]
 #![feature(simd)]
-#![feature(phase)]
 #![allow(experimental)]
 
 // ignore-pretty very bad with line comments
 
-#[phase(syntax)]
-extern crate simd_syntax;
-extern crate simd;
 use std::io;
 use std::os;
-use simd::{f64x2, Simd};
+use std::simd::f64x2;
 use std::sync::{Arc, Future};
 
 static ITER: int = 50;
@@ -44,8 +71,10 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
     };
 
     // precalc values
-    let inverse_doubled = gather_simd!(2.0, 2.0) / gather_simd!(w as f64, h as f64);
-    let v_consts = gather_simd!(1.5, 1.0);
+    let inverse_w_doubled = 2.0 / w as f64;
+    let inverse_h_doubled = 2.0 / h as f64;
+    let v_inverses = f64x2(inverse_w_doubled, inverse_h_doubled);
+    let v_consts = f64x2(1.5, 1.0);
 
     // A lot of this code assumes this (so do other lang benchmarks)
     assert!(w == h);
@@ -54,8 +83,8 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
 
     let precalc_futures = Vec::from_fn(WORKERS, |i| {
         Future::spawn(proc () {
-            let mut rs: Vec<f64> = Vec::with_capacity(w / WORKERS);
-            let mut is: Vec<f64> = Vec::with_capacity(w / WORKERS);
+            let mut rs = Vec::with_capacity(w / WORKERS);
+            let mut is = Vec::with_capacity(w / WORKERS);
 
             let start = i * chunk_size;
             let end = if i == 0 {
@@ -67,11 +96,11 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
             // This assumes w == h
             for x in range(start, end) {
                 let xf = x as f64;
-                let xy = gather_simd!(xf, xf);
+                let xy = f64x2(xf, xf);
 
-                let ri = xy * inverse_doubled - v_consts;
-                rs.push(ri[0]);
-                is.push(ri[1]);
+                let f64x2(r, i) = xy * v_inverses - v_consts;
+                rs.push(r);
+                is.push(i);
             }
 
             (rs, is)
@@ -113,22 +142,22 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
 }
 
 fn write_line(init_i: f64, vec_init_r: &[f64], res: &mut Vec<u8>) {
-    let v_init_i: f64x2 = gather_simd!(init_i, init_i);
-    let v_2: f64x2      = gather_simd!(2.0, 2.0);
-    static LIMIT_SQUARED: f64x2 = swizzle_simd!(gather_simd!(LIMIT * LIMIT) -> (0, 0));
+    let v_init_i : f64x2 = f64x2(init_i, init_i);
+    let v_2 : f64x2 = f64x2(2.0, 2.0);
+    static LIMIT_SQUARED: f64 = LIMIT * LIMIT;
 
     for chunk_init_r in vec_init_r.chunks(8) {
-        let mut cur_byte: u8 = 0xff;
+        let mut cur_byte = 0xff;
         let mut i = 0;
 
         while i < 8 {
-            let v_init_r = gather_simd!(chunk_init_r[i], chunk_init_r[i + 1]);
+            let v_init_r = f64x2(chunk_init_r[i], chunk_init_r[i + 1]);
             let mut cur_r = v_init_r;
             let mut cur_i = v_init_i;
             let mut r_sq = v_init_r * v_init_r;
             let mut i_sq = v_init_i * v_init_i;
 
-            let mut b: u8 = 0;
+            let mut b = 0;
             for _ in range(0, ITER) {
                 let r = cur_r;
                 let i = cur_i;
@@ -136,18 +165,17 @@ fn write_line(init_i: f64, vec_init_r: &[f64], res: &mut Vec<u8>) {
                 cur_i = v_2 * r * i + v_init_i;
                 cur_r = r_sq - i_sq + v_init_r;
 
-                let mut break_outer = false;
-                let bits = r_sq + i_sq;
-                for (i, v) in (bits > LIMIT_SQUARED).iter().enumerate() {
-                    if !v { continue; }
+                let f64x2(bit1, bit2) = r_sq + i_sq;
 
-                    b |= (i + 1) as u8;
-                    if b == 3 {
-                        break_outer = true;
-                        break;
-                    }
+                if bit1 > LIMIT_SQUARED {
+                    b |= 2;
+                    if b == 3 { break; }
                 }
-                if break_outer { break; }
+
+                if bit2 > LIMIT_SQUARED {
+                    b |= 1;
+                    if b == 3 { break; }
+                }
 
                 r_sq = cur_r * cur_r;
                 i_sq = cur_i * cur_i;
