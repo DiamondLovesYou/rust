@@ -1547,6 +1547,9 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
             });
         }
     }
+
+    let _ = fs::unlink(&pexe_path);
+
     let arch = match ARCH {
         "x86" => "x86-32",
         "x86_64" => "x86-64",
@@ -1610,6 +1613,9 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
             });
         }
     }
+
+    // delete the tmp object file:
+    let _ = fs::unlink(&obj_path);
 
     let sel_ldr = cross_path.join_many(["tools",
                                         "sel_ldr.py"]);
