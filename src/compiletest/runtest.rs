@@ -1517,7 +1517,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         "x86" => "i686",
         _ => ARCH,
     };
-    let pnacl_trans_args = vec!(//"-O0".to_string(),
+    let pnacl_trans_args = vec!("-O0".to_string(),
                                 "-mtls-use-call".to_string(),
                                 format!("-mtriple={}-none-nacl-gnu", arch),
                                 "-filetype=obj".to_string(),
