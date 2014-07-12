@@ -36,7 +36,6 @@ use util::ppaux::{Repr, ty_to_str};
 use std::c_str::ToCStr;
 use std::gc::Gc;
 use std::vec;
-use std::iter;
 use libc::c_uint;
 use syntax::{ast, ast_util};
 
@@ -671,95 +670,6 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr,
                 Some(ref expr) => const_expr(cx, &**expr, is_local),
                 None => (C_nil(cx), true)
             }
-          }
-          ast::ExprSimd(ref exprs) => {
-              use std::iter::Iterator;
-              let (vals, inlinables) = vec::unzip(exprs.iter().map(|&expr| {
-                  const_expr(cx, expr, is_local)
-              }));
-              let vals = Vec::from_slice(vals.as_slice());
-              (C_vector(cx, &vals), inlinables.move_iter().all(|v| v ))
-          }
-          ast::ExprSwizzle(left, opt_right, ref mask) => {
-              let left_ty = ty::expr_ty(cx.tcx(), left);
-              let left_llty = type_of::type_of(cx, left_ty);
-              let (left_llval, left_inlinable) = const_expr(cx, left, is_local);
-
-              let get_ll_mask = || {
-                  let mask = mask.iter().map(|&m| {
-                      let m = const_eval::eval_positive_integer(cx.tcx(), m, "swizzle mask");
-                      C_i32(cx, m as i32)
-                  }).collect();
-                  C_vector(cx, &mask)
-              };
-
-              let (left_llval, right_llval,
-                   mask, inlinable) = match opt_right {
-                  Some(right) => {
-                      let right_ty = ty::expr_ty(cx.tcx(), right);
-                      let right_llty = type_of::type_of(cx, right_ty);
-                      let (right_llval, right_inlinable) = const_expr(cx, right, is_local);
-                      let left_size = ty::simd_size(cx.tcx(), left_ty);
-                      let right_size = ty::simd_size(cx.tcx(), right_ty);
-
-                      if left_size == right_size {
-                          (left_llval, right_llval,
-                           get_ll_mask(), left_inlinable && right_inlinable)
-                      } else {
-                          // LLVM wants both operands to be the same type
-                          // so create a shuffle to enlarge the smaller side.
-                          let min = if left_size < right_size { left_size }
-                          else                      { right_size };
-                          let max = if left_size > right_size { left_size }
-                          else                      { right_size };
-                          let new_mask = {
-                              let mut mask = Vec::new();
-                              for m in iter::range(0, min) {
-                                  mask.push(C_i32(cx, m as i32));
-                              }
-                              for _ in iter::range(min, max) {
-                                  // these may safely be any valid index because
-                                  // we remove any possiblity of accessing these in typeck.
-                                  mask.push(C_i32(cx, 0));
-                              }
-                              mask
-                          };
-                          let new_mask_vector = C_vector(cx, &new_mask);
-
-                          if left_size < right_size {
-                              let delta = right_size - left_size;
-                              let mask = mask.iter().map(|&m| {
-                                  let m = const_eval::eval_positive_integer(cx.tcx(),
-                                                                            m,
-                                                                            "swizzle mask");
-                                  let m = if m >= left_size { m + delta }
-                                  else                      { m         };
-                                  C_i32(cx, m as i32)
-                              }).collect();
-                              let mask = C_vector(cx, &mask);
-                              let left_llval = llvm::LLVMConstShuffleVector
-                                  (left_llval,
-                                   C_undef(left_llty),
-                                   new_mask_vector);
-                              (left_llval, right_llval,
-                               mask, left_inlinable && right_inlinable)
-                          } else {
-                              let right_llval = llvm::LLVMConstShuffleVector
-                                  (right_llval,
-                                   C_undef(right_llty),
-                                   new_mask_vector);
-                              (left_llval, right_llval,
-                               get_ll_mask(), left_inlinable && right_inlinable)
-                          }
-                      }
-                  }
-                  None =>
-                      (left_llval,
-                       C_undef(left_llty),
-                       get_ll_mask(),
-                       left_inlinable),
-              };
-              (llvm::LLVMConstShuffleVector(left_llval, right_llval, mask), inlinable)
           }
           _ => cx.sess().span_bug(e.span,
                   "bad constant expression type in consts::const_expr")

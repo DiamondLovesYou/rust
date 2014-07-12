@@ -287,11 +287,6 @@ fn enc_sty(w: &mut MemWriter, cx: &ctxt, st: &ty::sty) {
         ty::ty_err => {
             mywrite!(w, "e");
         }
-        ty::ty_simd(t, n) => {
-            mywrite!(w, "S[");
-            enc_ty(w, cx, t);
-            mywrite!(w, "x{}]", n);
-        }
     }
 }
 

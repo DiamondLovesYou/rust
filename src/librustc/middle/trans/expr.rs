@@ -65,9 +65,8 @@ use middle::ty::struct_fields;
 use middle::ty::{AutoBorrowObj, AutoDerefRef, AutoAddEnv, AutoObject, AutoUnsafe};
 use middle::ty::{AutoPtr, AutoBorrowVec, AutoBorrowVecRef};
 use middle::ty;
-use middle::typeck::MethodCall;
 use middle::typeck;
-use middle::const_eval;
+use middle::typeck::MethodCall;
 use util::common::indenter;
 use util::ppaux::Repr;
 use util::nodemap::NodeMap;
@@ -435,141 +434,12 @@ fn trans_datum_unadjusted<'a>(bcx: &'a Block<'a>,
             // Datum output mode means this is a scalar cast:
             trans_imm_cast(bcx, &**val, expr.id)
         }
-        ast::ExprSimd(ref exprs) => {
-            trans_simd(bcx, expr, exprs)
-        }
-        ast::ExprSwizzle(left, opt_right, ref mask) => {
-            trans_simd_swizzle(bcx, expr, left, opt_right, mask)
-        }
         _ => {
             bcx.tcx().sess.span_bug(
                 expr.span,
                 format!("trans_rvalue_datum_unadjusted reached \
                          fall-through case: {:?}",
                         expr.node).as_slice());
-        }
-    }
-}
-fn trans_simd_swizzle<'a>(bcx: &'a Block<'a>,
-                          expr: &ast::Expr,
-                          left: &ast::Expr,
-                          opt_right: Option<Gc<ast::Expr>>,
-                          mask: &Vec<Gc<ast::Expr>>)
-                          -> DatumBlock<'a, Expr> {
-    use std::iter;
-
-    let mut bcx = bcx;
-    let _icx = push_ctxt("trans_simd_swizzle");
-    let tcx = bcx.tcx();
-    let ccx = bcx.ccx();
-    let get_ll_mask = || {
-        let mask = mask.iter().map(|&m| {
-                let m = const_eval::eval_positive_integer(tcx, m, "swizzle mask");
-                C_i32(ccx, m as i32)
-            }).collect();
-        C_vector(ccx, &mask)
-    };
-
-    let left_ty = expr_ty_adjusted(bcx, left);
-    let left_datum = unpack_datum!(bcx, trans(bcx, left));
-    let left_llval = left_datum.to_llscalarish(bcx);
-    let (left_llval, right_llval, mask) = match opt_right {
-        Some(right) => {
-            let datum = unpack_datum!(bcx, trans(bcx, right));
-            let right_ty = expr_ty_adjusted(bcx, right);
-            let left_size = ty::simd_size(bcx.tcx(), left_ty);
-            let right_size = ty::simd_size(bcx.tcx(), right_ty);
-
-            if left_size == right_size {
-                (left_llval, datum.to_llscalarish(bcx), get_ll_mask())
-            } else {
-                // LLVM wants both operands to be the same type
-                // so create a shuffle to enlarge the smaller side.
-                let min = if left_size < right_size { left_size }
-                          else                      { right_size };
-                let max = if left_size > right_size { left_size }
-                          else                      { right_size };
-                let new_mask = {
-                    let mut mask = Vec::new();
-                    for m in iter::range(0, min) {
-                        mask.push(C_i32(ccx, m as i32));
-                    }
-                    for _ in iter::range(min, max) {
-                        // these may safely be any valid index because
-                        // we remove any possiblity of accessing these in typeck.
-                        mask.push(C_i32(ccx, 0));
-                    }
-                    mask
-                };
-                let new_mask_vector = C_vector(ccx, &new_mask);
-
-                if left_size < right_size {
-                    let delta = right_size - left_size;
-                    let mask = mask.iter().map(|&m| {
-                            let m = const_eval::eval_positive_integer(bcx.tcx(),
-                                                                      m,
-                                                                      "swizzle mask");
-                            let m = if m >= left_size { m + delta }
-                                    else              { m         };
-                            C_i32(ccx, m as i32)
-                        }).collect();
-                    let mask = C_vector(ccx, &mask);
-                    let left_llval = ShuffleVector(bcx,
-                                                   left_llval,
-                                                   C_undef(type_of::type_of(ccx,
-                                                                            left_ty)),
-                                                   new_mask_vector);
-                    (left_llval, datum.to_llscalarish(bcx), mask)
-                } else {
-                    let datum = datum.to_llscalarish(bcx);
-                    let datum = ShuffleVector(bcx,
-                                              datum,
-                                              C_undef(type_of::type_of(ccx,
-                                                                       right_ty)),
-                                              new_mask_vector);
-                    (left_llval, datum, get_ll_mask())
-                }
-            }
-        }
-        None => (left_llval,
-                 C_undef(type_of::type_of(ccx, left_ty)),
-                 get_ll_mask()),
-    };
-
-    let shuffle = ShuffleVector(bcx, left_llval, right_llval, mask);
-    DatumBlock {
-        bcx: bcx,
-        datum: Datum {
-            val: shuffle,
-            ty:  expr_ty(bcx, expr),
-            kind: RvalueExpr(Rvalue { mode: ByValue })
-        }
-    }
-}
-fn trans_simd<'a>(bcx: &'a Block<'a>,
-                  expr: &ast::Expr,
-                  exprs: &Vec<Gc<ast::Expr>>)
-                  -> DatumBlock<'a, Expr> {
-    let mut bcx = bcx;
-    let _icx = push_ctxt("trans_simd");
-
-    let ty = expr_ty(bcx, expr);
-    let llty = type_of::type_of(bcx.ccx(), ty);
-    let first = unsafe {
-        llvm::LLVMGetUndef(llty.to_ref())
-    };
-
-    let last = exprs.iter().enumerate().fold(first, |acc, (i, e)| {
-            let e_datum = trans(bcx, *e);
-            let e_llval = unpack_datum!(bcx, e_datum);
-            InsertElement(bcx, acc, e_llval.to_llscalarish(bcx), C_i32(bcx.ccx(), i as i32))
-        });
-    DatumBlock {
-        bcx: bcx,
-        datum: Datum {
-            val: last,
-            ty:  ty,
-            kind: RvalueExpr(Rvalue { mode: ByValue })
         }
     }
 }

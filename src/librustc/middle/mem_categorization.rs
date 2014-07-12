@@ -204,7 +204,7 @@ pub fn opt_deref_kind(t: ty::t) -> Option<deref_kind> {
             Some(deref_interior(InteriorField(PositionalField(0))))
         }
 
-        ty::ty_vec(_, Some(_)) | ty::ty_simd(..) => {
+        ty::ty_vec(_, Some(_)) => {
             Some(deref_interior(InteriorElement(element_kind(t))))
         }
 
@@ -471,8 +471,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
           ast::ExprBlock(..) | ast::ExprLoop(..) | ast::ExprMatch(..) |
           ast::ExprLit(..) | ast::ExprBreak(..) | ast::ExprMac(..) |
           ast::ExprAgain(..) | ast::ExprStruct(..) | ast::ExprRepeat(..) |
-          ast::ExprInlineAsm(..) | ast::ExprBox(..) | ast::ExprSwizzle(..) |
-          ast::ExprSimd(..) => {
+          ast::ExprInlineAsm(..) | ast::ExprBox(..) => {
             Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty))
           }
 
@@ -795,7 +794,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
         //! - `derefs`: the deref number to be used for
         //!   the implicit index deref, if any (see above)
 
-        let element_ty = match ty::index(self.tcx(), base_cmt.ty) {
+        let element_ty = match ty::index(base_cmt.ty) {
           Some(ref mt) => mt.ty,
           None => {
             self.tcx().sess.span_bug(

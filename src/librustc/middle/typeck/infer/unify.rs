@@ -555,26 +555,3 @@ impl SimplyUnifiable for ast::FloatTy {
         return ty::terr_float_mismatch(err);
     }
 }
-
-impl UnifyKey<Option<ty::MDVarValue>> for ty::MDVid {
-    fn index(&self) -> uint { self.index }
-    fn from_index(i: uint) -> ty::MDVid { ty::MDVid { index: i } }
-
-    fn unification_table<'v>(infcx: &'v InferCtxt)
-        -> &'v RefCell<UnificationTable<ty::MDVid, Option<ty::MDVarValue>>>
-    {
-        return &infcx.md_unification_table;
-    }
-
-    fn tag(_: Option<ty::MDVid>) -> &'static str {
-        "MDVid"
-    }
-}
-
-impl SimplyUnifiable for ty::MDVarValue {
-    fn to_type_err(err: expected_found<ty::MDVarValue>) -> ty::type_err {
-        return ty::terr_md_mismatch(err);
-    }
-}
-impl UnifyValue for Option<ty::MDVarValue> {
-}

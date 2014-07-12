@@ -337,7 +337,6 @@ impl TypeMap {
             ty::ty_str                |
             ty::ty_int(_)             |
             ty::ty_uint(_)            |
-            ty::ty_simd(_, _)         |
             ty::ty_float(_) => {
                 unique_type_id.push_str(ppaux::ty_to_str(cx.tcx(), type_).as_slice());
             },
@@ -3048,18 +3047,13 @@ fn type_metadata(cx: &CrateContext,
         ty::ty_closure(ref closurety) => {
             subroutine_type_metadata(cx, unique_type_id, &closurety.sig, usage_site_span)
         }
-        ty::ty_struct(def_id, ref substs) if !ty::type_is_simd(&cx.tcx, t) => {
+        ty::ty_struct(def_id, ref substs) => {
             prepare_struct_metadata(cx,
                                     t,
                                     def_id,
                                     substs,
                                     unique_type_id,
                                     usage_site_span).finalize(cx)
-        }
-        _ if ty::type_is_simd(&cx.tcx, t) => {
-            let element_type = ty::simd_type(&cx.tcx, t);
-            let len = ty::simd_size(&cx.tcx, t);
-            fixed_vec_metadata(cx, unique_type_id, element_type, len, usage_site_span)
         }
         ty::ty_tup(ref elements) => {
             prepare_tuple_metadata(cx,
@@ -3565,21 +3559,6 @@ fn populate_scope_map(cx: &CrateContext,
                 for ie in init_expressions.iter() {
                     walk_expr(cx, &**ie, scope_stack, scope_map);
                 }
-            }
-            ast::ExprSimd(ref exprs) => {
-                for &e in exprs.iter() {
-                    walk_expr(cx, e, scope_stack, scope_map);
-                }
-            }
-            ast::ExprSwizzle(left, opt_right, _) => {
-                walk_expr(cx, left, scope_stack, scope_map);
-                match opt_right {
-                    Some(right) => {
-                        walk_expr(cx, right, scope_stack, scope_map);
-                    }
-                    None => {}
-                };
-                // mask is a constant expression, so skip.
             }
 
             ast::ExprAssign(ref sub_exp1, ref sub_exp2) |

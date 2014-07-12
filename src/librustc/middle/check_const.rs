@@ -185,9 +185,7 @@ fn check_expr(v: &mut CheckCrateVisitor, e: &Expr, is_const: bool) {
           ExprIndex(..) |
           ExprTup(..) |
           ExprRepeat(..) |
-          ExprStruct(..) |
-          ExprSimd(..) |
-          ExprSwizzle(..) => { }
+          ExprStruct(..) => { }
           ExprAddrOf(..) => {
                 v.tcx.sess.span_err(e.span,
                     "references in constants may only refer to \

@@ -156,9 +156,6 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
             }
         }
 
-        ty::ty_simd(t, n) => {
-            Type::vector(&type_of(cx, t), n as u64)
-        }
         ty::ty_infer(..) | ty::ty_param(..) |
         ty::ty_err(..) | ty::ty_vec(_, None) | ty::ty_str | ty::ty_trait(..) => {
             cx.sess().bug(format!("fictitious type {:?} in sizing_type_of()",
@@ -273,9 +270,6 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
               let name = llvm_type_name(cx, a_struct, did, tps);
               adt::incomplete_type_of(cx, &*repr, name.as_slice())
           }
-      }
-      ty::ty_simd(t, n) => {
-          Type::vector(&type_of(cx, t), n as u64)
       }
 
       ty::ty_vec(_, None) => cx.sess().bug("type_of with unsized ty_vec"),

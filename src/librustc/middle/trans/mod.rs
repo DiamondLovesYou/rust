@@ -45,4 +45,3 @@ pub mod value;
 pub mod basic_block;
 pub mod llrepr;
 pub mod cleanup;
-pub mod simd;

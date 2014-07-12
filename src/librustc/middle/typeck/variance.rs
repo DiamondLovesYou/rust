@@ -741,9 +741,6 @@ impl<'a> ConstraintContext<'a> {
                     self.add_constraints_from_ty(subty, variance);
                 }
             }
-            ty::ty_simd(t, _) => {
-                self.add_constraints_from_ty(t, variance);
-            }
 
             ty::ty_enum(def_id, ref substs) |
             ty::ty_struct(def_id, ref substs) => {

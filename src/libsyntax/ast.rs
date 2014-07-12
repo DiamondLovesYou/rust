@@ -447,21 +447,12 @@ pub enum Expr_ {
     ExprCall(Gc<Expr>, Vec<Gc<Expr>>),
     ExprMethodCall(SpannedIdent, Vec<P<Ty>>, Vec<Gc<Expr>>),
     ExprTup(Vec<Gc<Expr>>),
-    // Because ty::ty_simd isn't an accessible type from source.
-    // Its intended consumption is through a syntax extension.
-    ExprSimd(Vec<Gc<Expr>>),
-    // As with ExprSimd, ExprSwizzle also isn't available from source
-    ExprSwizzle(Gc<Expr> /* left */,
-                Option<Gc<Expr>> /* right */,
-                Vec<Gc<Expr>> /* mask; may be any constant expression */),
-
     ExprBinary(BinOp, Gc<Expr>, Gc<Expr>),
     ExprUnary(UnOp, Gc<Expr>),
     ExprLit(Gc<Lit>),
     ExprCast(Gc<Expr>, P<Ty>),
     ExprIf(Gc<Expr>, P<Block>, Option<Gc<Expr>>),
     ExprWhile(Gc<Expr>, P<Block>),
-
     // FIXME #6993: change to Option<Name>
     ExprForLoop(Gc<Pat>, Gc<Expr>, P<Block>, Option<Ident>),
     // Conditionless loop (can be exited with break, cont, or ret)
@@ -724,7 +715,7 @@ pub struct Ty {
     pub span: Span,
 }
 
-// Used in TySimd; otherwise referred to by name through a ty_path.
+// Not represented directly in the AST, referred to by name through a ty_path.
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub enum PrimTy {
     TyInt(IntTy),
@@ -733,19 +724,6 @@ pub enum PrimTy {
     TyStr,
     TyBool,
     TyChar
-}
-
-impl fmt::Show for PrimTy {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &TyInt(t) => t.to_str().fmt(f),
-            &TyUint(t) => t.to_str().fmt(f),
-            &TyFloat(t) => t.to_str().fmt(f),
-            &TyStr => "str".fmt(f),
-            &TyBool => "bool".fmt(f),
-            &TyChar => "char".fmt(f),
-        }
-    }
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
@@ -808,10 +786,6 @@ pub enum Ty_ {
     // No-op; kept solely so that we can pretty-print faithfully
     TyParen(P<Ty>),
     TyTypeof(Gc<Expr>),
-
-    // only accessable through a syntax extension.
-    TySimd(P<Ty>, Gc<Expr>),
-
     // TyInfer means the type should be inferred instead of it having been
     // specified. This can appear anywhere in a type.
     TyInfer,

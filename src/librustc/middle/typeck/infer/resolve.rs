@@ -60,20 +60,16 @@ use util::ppaux::{Repr, ty_to_str};
 
 use syntax::ast;
 
-pub static resolve_nested_tvar: uint = 0b00000000000001;
-pub static resolve_rvar: uint        = 0b00000000000010;
-pub static resolve_ivar: uint        = 0b00000000000100;
-pub static resolve_fvar: uint        = 0b00000000001000;
-pub static resolve_mdvar: uint       = 0b00000000010000;
-pub static resolve_fnvar: uint       = 0b00000000100000;
-pub static resolve_all: uint         = 0b00000000111111;
-pub static force_tvar: uint          = 0b00000010000000;
-pub static force_rvar: uint          = 0b00000100000000;
-pub static force_ivar: uint          = 0b00001000000000;
-pub static force_fvar: uint          = 0b00010000000000;
-pub static force_mdvar: uint         = 0b00100000000000;
-pub static force_fnvar: uint         = 0b01000000000000;
-pub static force_all: uint           = 0b01111110000000;
+pub static resolve_nested_tvar: uint = 0b0000000001;
+pub static resolve_rvar: uint        = 0b0000000010;
+pub static resolve_ivar: uint        = 0b0000000100;
+pub static resolve_fvar: uint        = 0b0000001000;
+pub static resolve_all: uint         = 0b0000001111;
+pub static force_tvar: uint          = 0b0000100000;
+pub static force_rvar: uint          = 0b0001000000;
+pub static force_ivar: uint          = 0b0010000000;
+pub static force_fvar: uint          = 0b0100000000;
+pub static force_all: uint           = 0b0111100000;
 
 pub static not_regions: uint         = !(force_rvar | resolve_rvar);
 
@@ -182,9 +178,6 @@ impl<'a> ResolveState<'a> {
             }
             ty::ty_infer(FloatVar(vid)) => {
                 self.resolve_float_var(vid)
-            }
-            ty::ty_infer(ty::MDVar(vid, inner, count)) => {
-                self.resolve_md_var(vid, inner, count)
             }
             _ => {
                 if self.modes & resolve_all == 0 {
@@ -318,55 +311,6 @@ impl<'a> ResolveState<'a> {
                 ty::mk_float_var(self.infcx.tcx, vid)
             }
           }
-        }
-    }
-    pub fn resolve_md_var(&mut self,
-                           vid: ty::MDVid,
-                           inner: ty::MDInnerVid,
-                           count: uint) -> ty::t {
-        if !self.should(resolve_mdvar) {
-            return ty::mk_md_var(self.infcx.tcx, vid, inner, count);
-        }
-
-        let mdtable = &self.infcx.md_unification_table;
-        let ftable = &self.infcx.float_unification_table;
-        let itable = &self.infcx.int_unification_table;
-        let node = mdtable.borrow_mut().get(self.infcx.tcx, vid);
-        match node.value {
-            Some(ty::IntMDType(t)) => ty::mk_simd(self.infcx.tcx, ty::mk_mach_int(t), count),
-            Some(ty::UintMDType(t)) => ty::mk_simd(self.infcx.tcx, ty::mk_mach_uint(t), count),
-            Some(ty::FloatMDType(t)) => ty::mk_simd(self.infcx.tcx, ty::mk_mach_float(t), count),
-            None => {
-                if self.should(force_mdvar) {
-                    let (inner, val) = match inner {
-                        ty::FloatMDInnerVid(inner_vid) => {
-                            self.resolve_float_var(inner_vid);
-                            let node = ftable.borrow_mut().get(self.infcx.tcx, inner_vid);
-                            //let ast_ty = node.possible_types.unwrap_or(ast::TyF64);
-                            let ast_ty = node.value.expect("couldn't resolve inner vid (float)");
-                            (ty::mk_mach_float(ast_ty), ty::FloatMDType(ast_ty))
-                        }
-                        ty::IntMDInnerVid(inner_vid) => {
-                            self.resolve_int_var(inner_vid);
-                            let node = itable.borrow_mut().get(self.infcx.tcx, inner_vid);
-                            let ast_ty = node.value.expect("couldn't resolve inner vid (float)");
-                            match ast_ty {
-                                IntType(ast_ty) =>
-                                    (ty::mk_mach_int(ast_ty), ty::IntMDType(ast_ty)),
-                                UintType(ast_ty) =>
-                                    (ty::mk_mach_uint(ast_ty), ty::UintMDType(ast_ty)),
-                            }
-                        }
-                    };
-                    mdtable.borrow_mut().set(self.infcx.tcx,
-                                             node.key,
-                                             Root(Some(val),
-                                                  node.rank));
-                    ty::mk_simd(self.infcx.tcx, inner, count)
-                } else {
-                    ty::mk_md_var(self.infcx.tcx, vid, inner, count)
-                }
-            }
         }
     }
 }

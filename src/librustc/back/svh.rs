@@ -283,8 +283,6 @@ mod svh_visitor {
             ExprStruct(..)           => SawExprStruct,
             ExprRepeat(..)           => SawExprRepeat,
             ExprParen(..)            => SawExprParen,
-            ExprSimd(..)             => SawExprSimd,
-            ExprSwizzle(..) => SawExprSwizzle,
 
             // just syntactic artifacts, expanded away by time of SVH.
             ExprForLoop(..)          => unreachable!(),

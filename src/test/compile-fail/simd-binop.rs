@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-tidy-linelength
+
 #![allow(experimental)]
 
 use std::simd::f32x4;
@@ -15,21 +17,21 @@ use std::simd::f32x4;
 fn main() {
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) == f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary operation `==` cannot be applied to type `core::simd::f32x4`
+    //~^ ERROR binary comparison operation `==` not supported for floating point SIMD vector `core::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) != f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary operation `!=` cannot be applied to type `core::simd::f32x4`
+    //~^ ERROR binary comparison operation `!=` not supported for floating point SIMD vector `core::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) < f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary operation `<` cannot be applied to type `core::simd::f32x4`
+    //~^ ERROR binary comparison operation `<` not supported for floating point SIMD vector `core::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) <= f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary operation `<=` cannot be applied to type `core::simd::f32x4`
+    //~^ ERROR binary comparison operation `<=` not supported for floating point SIMD vector `core::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) >= f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary operation `>=` cannot be applied to type `core::simd::f32x4`
+    //~^ ERROR binary comparison operation `>=` not supported for floating point SIMD vector `core::simd::f32x4`
 
     let _ = f32x4(0.0, 0.0, 0.0, 0.0) > f32x4(0.0, 0.0, 0.0, 0.0);
-    //~^ ERROR binary operation `>` cannot be applied to type `core::simd::f32x4`
+    //~^ ERROR binary comparison operation `>` not supported for floating point SIMD vector `core::simd::f32x4`
 
 }

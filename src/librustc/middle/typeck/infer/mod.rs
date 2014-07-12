@@ -12,7 +12,7 @@
 
 #![allow(non_camel_case_types)]
 
-pub use middle::ty::{IntVarValue, MDVarValue};
+pub use middle::ty::IntVarValue;
 pub use middle::typeck::infer::resolve::resolve_and_force_all_but_regions;
 pub use middle::typeck::infer::resolve::{force_all, not_regions};
 pub use middle::typeck::infer::resolve::{force_ivar};
@@ -89,9 +89,6 @@ pub struct InferCtxt<'a> {
     // Map from floating variable to the kind of float it represents
     float_unification_table:
         RefCell<UnificationTable<ty::FloatVid, Option<ast::FloatTy>>>,
-
-    md_unification_table:
-        RefCell<UnificationTable<ty::MDVid, Option<MDVarValue>>>,
 
     // For region variables.
     region_vars:
@@ -271,8 +268,6 @@ pub fn new_infer_ctxt<'a>(tcx: &'a ty::ctxt) -> InferCtxt<'a> {
         int_unification_table: RefCell::new(UnificationTable::new()),
         float_unification_table: RefCell::new(UnificationTable::new()),
         region_vars: RegionVarBindings::new(tcx),
-
-        md_unification_table: RefCell::new(UnificationTable::new()),
     }
 }
 
@@ -479,7 +474,6 @@ pub struct CombinedSnapshot {
     type_snapshot: Snapshot<ty::TyVid>,
     int_snapshot: Snapshot<ty::IntVid>,
     float_snapshot: Snapshot<ty::FloatVid>,
-    md_snapshot:    Snapshot<ty::MDVid>,
     region_vars_snapshot: RegionSnapshot,
 }
 
@@ -508,7 +502,6 @@ impl<'a> InferCtxt<'a> {
             type_snapshot: self.type_unification_table.borrow_mut().snapshot(),
             int_snapshot: self.int_unification_table.borrow_mut().snapshot(),
             float_snapshot: self.float_unification_table.borrow_mut().snapshot(),
-            md_snapshot:  self.md_unification_table.borrow_mut().snapshot(),
             region_vars_snapshot: self.region_vars.start_snapshot(),
         }
     }
@@ -518,7 +511,6 @@ impl<'a> InferCtxt<'a> {
         let CombinedSnapshot { type_snapshot,
                                int_snapshot,
                                float_snapshot,
-                               md_snapshot,
                                region_vars_snapshot } = snapshot;
 
         self.type_unification_table
@@ -530,9 +522,6 @@ impl<'a> InferCtxt<'a> {
         self.float_unification_table
             .borrow_mut()
             .rollback_to(self.tcx, float_snapshot);
-        self.md_unification_table
-            .borrow_mut()
-            .rollback_to(self.tcx, md_snapshot);
         self.region_vars
             .rollback_to(region_vars_snapshot);
     }
@@ -542,7 +531,6 @@ impl<'a> InferCtxt<'a> {
         let CombinedSnapshot { type_snapshot,
                                int_snapshot,
                                float_snapshot,
-                               md_snapshot,
                                region_vars_snapshot } = snapshot;
 
         self.type_unification_table
@@ -554,9 +542,6 @@ impl<'a> InferCtxt<'a> {
         self.float_unification_table
             .borrow_mut()
             .commit(float_snapshot);
-        self.md_unification_table
-            .borrow_mut()
-            .commit(md_snapshot);
         self.region_vars
             .commit(region_vars_snapshot);
     }
@@ -629,29 +614,6 @@ impl<'a> InferCtxt<'a> {
             .new_key(None)
     }
 
-    pub fn next_int_md_var(&self, count: uint) -> ty::t {
-        ty::mk_md_var(self.tcx,
-                      self.next_md_var_id(),
-                      ty::IntMDInnerVid(self.next_int_var_id()),
-                      count)
-    }
-    pub fn next_float_md_var(&self, count: uint) -> ty::t {
-        ty::mk_md_var(self.tcx,
-                      self.next_md_var_id(),
-                      ty::FloatMDInnerVid(self.next_float_var_id()),
-                      count)
-    }
-    pub fn next_md_var(&self, inner: ty::MDInnerVid, count: uint) -> ty::t {
-        ty::mk_md_var(self.tcx,
-                      self.next_md_var_id(),
-                      inner,
-                      count)
-    }
-    pub fn next_md_var_id(&self) -> ty::MDVid {
-        self.md_unification_table
-            .borrow_mut()
-            .new_key(None)
-    }
     pub fn next_region_var(&self, origin: RegionVariableOrigin) -> ty::Region {
         ty::ReInfer(ty::ReVar(self.region_vars.new_region_var(origin)))
     }

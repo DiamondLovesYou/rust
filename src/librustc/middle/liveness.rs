@@ -494,8 +494,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
       ExprAgain(_) | ExprLit(_) | ExprRet(..) | ExprBlock(..) |
       ExprAssign(..) | ExprAssignOp(..) | ExprMac(..) |
       ExprStruct(..) | ExprRepeat(..) | ExprParen(..) |
-      ExprInlineAsm(..) | ExprBox(..) | ExprSwizzle(..) |
-      ExprSimd(..) => {
+      ExprInlineAsm(..) | ExprBox(..) => {
           visit::walk_expr(ir, expr, ());
       }
     }
@@ -1106,12 +1105,6 @@ impl<'a> Liveness<'a> {
                 self.propagate_through_expr(&*field.expr, succ)
             })
           }
-            ExprSwizzle(left, opt_right, _) => {
-                // no need to propagate through the mask;
-                // it has to be a constant expresssion
-                let succ = self.propagate_through_expr(left, succ);
-                self.propagate_through_opt_expr(opt_right, succ)
-            }
 
           ExprCall(ref f, ref args) => {
             // calling a fn with bot return type means that the fn
@@ -1138,7 +1131,7 @@ impl<'a> Liveness<'a> {
             self.propagate_through_exprs(args.as_slice(), succ)
           }
 
-          ExprTup(ref exprs) | ExprSimd(ref exprs) => {
+          ExprTup(ref exprs) => {
             self.propagate_through_exprs(exprs.as_slice(), succ)
           }
 
@@ -1419,7 +1412,7 @@ fn check_expr(this: &mut Liveness, expr: &Expr) {
       ExprAgain(..) | ExprLit(_) | ExprBlock(..) |
       ExprMac(..) | ExprAddrOf(..) | ExprStruct(..) | ExprRepeat(..) |
       ExprParen(..) | ExprFnBlock(..) | ExprProc(..) | ExprPath(..) |
-      ExprBox(..) | ExprSwizzle(..) | ExprSimd(..) => {
+      ExprBox(..) => {
         visit::walk_expr(this, expr, ());
       }
       ExprForLoop(..) => fail!("non-desugared expr_for_loop")

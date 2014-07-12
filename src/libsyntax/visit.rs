@@ -404,10 +404,6 @@ pub fn walk_ty<E: Clone, V: Visitor<E>>(visitor: &mut V, typ: &Ty, env: E) {
         TyTypeof(ref expression) => {
             visitor.visit_expr(&**expression, env)
         }
-        TySimd(ty, len) => {
-            visitor.visit_ty(ty, env.clone());
-            visitor.visit_expr(len, env)
-        }
         TyNil | TyBot | TyInfer => {}
     }
 }
@@ -719,18 +715,6 @@ pub fn walk_expr<E: Clone, V: Visitor<E>>(visitor: &mut V, expression: &Expr, en
         ExprTup(ref subexpressions) => {
             for subexpression in subexpressions.iter() {
                 visitor.visit_expr(&**subexpression, env.clone())
-            }
-        }
-        ExprSimd(ref exprs) => {
-            for &e in exprs.iter() {
-                visitor.visit_expr(e, env.clone());
-            }
-        }
-        ExprSwizzle(left_expr, right_expr, ref mask) => {
-            visitor.visit_expr(left_expr, env.clone());
-            walk_expr_opt(visitor, right_expr, env.clone());
-            for &m in mask.iter() {
-                visitor.visit_expr(m, env.clone());
             }
         }
         ExprCall(ref callee_expression, ref arguments) => {

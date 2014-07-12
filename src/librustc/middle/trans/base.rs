@@ -498,19 +498,9 @@ pub fn maybe_name_value(cx: &CrateContext, v: ValueRef, s: &str) {
     }
 }
 
+
 // Used only for creating scalar comparison glue.
-pub enum inner_vector_type {
-    vsigned_int,
-    vunsigned_int,
-    vfloating_point
-}
-pub enum scalar_type {
-    nil_type,
-    signed_int,
-    unsigned_int,
-    floating_point,
-    vector_type(inner_vector_type),
-}
+pub enum scalar_type { nil_type, signed_int, unsigned_int, floating_point, }
 
 pub fn compare_scalar_types<'a>(
                             cx: &'a Block<'a>,
@@ -527,16 +517,6 @@ pub fn compare_scalar_types<'a>(
         ty::ty_uint(_) | ty::ty_char => f(unsigned_int),
         ty::ty_int(_) => f(signed_int),
         ty::ty_float(_) => f(floating_point),
-        ty::ty_simd(..) => {
-            match ty::get(ty::simd_type(cx.tcx(), t)).sty {
-                ty::ty_bool | ty::ty_ptr(_) | ty::ty_uint(..) => {
-                    f(vector_type(vunsigned_int))
-                }
-                ty::ty_int(..) => f(vector_type(vsigned_int)),
-                ty::ty_float(..) => f(vector_type(vfloating_point)),
-                _ => unreachable!(),
-            }
-        }
             // Should never get here, because t is scalar.
         _ => cx.sess().bug("non-scalar type passed to compare_scalar_types")
     }
@@ -566,7 +546,7 @@ pub fn compare_scalar_values<'a>(
           _ => die(cx)
         }
       }
-      floating_point | vector_type(vfloating_point) => {
+      floating_point => {
         let cmp = match op {
           ast::BiEq => lib::llvm::RealOEQ,
           ast::BiNe => lib::llvm::RealUNE,
@@ -578,7 +558,7 @@ pub fn compare_scalar_values<'a>(
         };
         return FCmp(cx, cmp, lhs, rhs);
       }
-      signed_int | vector_type(vsigned_int) => {
+      signed_int => {
         let cmp = match op {
           ast::BiEq => lib::llvm::IntEQ,
           ast::BiNe => lib::llvm::IntNE,
@@ -590,7 +570,7 @@ pub fn compare_scalar_values<'a>(
         };
         return ICmp(cx, cmp, lhs, rhs);
       }
-      unsigned_int | vector_type(vunsigned_int) => {
+      unsigned_int => {
         let cmp = match op {
           ast::BiEq => lib::llvm::IntEQ,
           ast::BiNe => lib::llvm::IntNE,
@@ -611,23 +591,19 @@ pub fn compare_simd_types(
                     rhs: ValueRef,
                     t: ty::t,
                     size: uint,
-                    op: ast::BinOp) -> ValueRef {
-    let return_ty = Type::vector(&Type::bool(cx.ccx()), size as u64);
-    let cmp = match ty::get(t).sty {
+                    op: ast::BinOp)
+                    -> ValueRef {
+    match ty::get(t).sty {
         ty::ty_float(_) => {
-            let op = match op {
-                ast::BiEq => lib::llvm::RealOEQ,
-                ast::BiNe => lib::llvm::RealUNE,
-                ast::BiLt => lib::llvm::RealOLT,
-                ast::BiLe => lib::llvm::RealOLE,
-                ast::BiGt => lib::llvm::RealOGT,
-                ast::BiGe => lib::llvm::RealOGE,
-                _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
-            };
-            FCmp(cx, op, lhs, rhs)
-        }
+            // The comparison operators for floating point vectors are challenging.
+            // LLVM outputs a `< size x i1 >`, but if we perform a sign extension
+            // then bitcast to a floating point vector, the result will be `-NaN`
+            // for each truth value. Because of this they are unsupported.
+            cx.sess().bug("compare_simd_types: comparison operators \
+                           not supported for floating point SIMD types")
+        },
         ty::ty_uint(_) | ty::ty_int(_) => {
-            let op = match op {
+            let cmp = match op {
                 ast::BiEq => lib::llvm::IntEQ,
                 ast::BiNe => lib::llvm::IntNE,
                 ast::BiLt => lib::llvm::IntSLT,
@@ -636,16 +612,15 @@ pub fn compare_simd_types(
                 ast::BiGe => lib::llvm::IntSGE,
                 _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
             };
-            ICmp(cx, op, lhs, rhs)
+            let return_ty = Type::vector(&type_of(cx.ccx(), t), size as u64);
+            // LLVM outputs an `< size x i1 >`, so we need to perform a sign extension
+            // to get the correctly sized type. This will compile to a single instruction
+            // once the IR is converted to assembly if the SIMD instruction is supported
+            // by the target architecture.
+            SExt(cx, ICmp(cx, cmp, lhs, rhs), return_ty)
         },
         _ => cx.sess().bug("compare_simd_types: invalid SIMD type"),
-    };
-
-    // LLVM outputs an `< size x i1 >`, so we need to perform a sign extension
-    // to get the correctly sized type. This will compile to a single instruction
-    // once the IR is converted to assembly if the SIMD instruction is supported
-    // by the target architecture.
-    ZExt(cx, cmp, return_ty)
+    }
 }
 
 pub type val_and_ty_fn<'r,'b> =

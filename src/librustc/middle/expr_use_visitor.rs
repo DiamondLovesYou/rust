@@ -383,18 +383,6 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                 self.consume_expr(&**base);
             }
 
-            ast::ExprSimd(ref exprs) => {
-                self.consume_exprs(exprs)
-            }
-            ast::ExprSwizzle(lhs, rhs_opt, ref mask) => {
-                self.consume_exprs(mask);
-                self.consume_expr(lhs);
-                match rhs_opt {
-                    Some(rhs) => self.consume_expr(rhs),
-                    _ => {}
-                }
-            }
-
             ast::ExprMac(..) => {
                 self.tcx().sess.span_bug(
                     expr.span,

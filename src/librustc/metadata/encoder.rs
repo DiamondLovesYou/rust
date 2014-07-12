@@ -1782,6 +1782,7 @@ fn encode_crate_id(ebml_w: &mut Encoder, crate_id: &CrateId) {
     ebml_w.writer.write(crate_id.to_str().as_bytes());
     ebml_w.end_tag();
 }
+
 fn encode_crate_triple(ebml_w: &mut Encoder, triple: &str) {
     ebml_w.start_tag(tag_crate_triple);
     ebml_w.writer.write(triple.as_bytes());

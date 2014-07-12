@@ -164,12 +164,6 @@ pub trait TyVisitor {
     fn visit_trait(&mut self, name: &str) -> bool;
     fn visit_param(&mut self, i: uint) -> bool;
     fn visit_self(&mut self) -> bool;
-
-    fn visit_simd(&mut self,
-                  inner_ty: *const TyDesc,
-                  count: uint,
-                  size: uint,
-                  align: uint) -> bool;
 }
 
 extern "rust-intrinsic" {

@@ -18,7 +18,7 @@ use middle::ty::{BrFresh, ctxt};
 use middle::ty::{mt, t, ParamTy};
 use middle::ty::{ReFree, ReScope, ReInfer, ReStatic, Region,
                  ReEmpty};
-use middle::ty::{ty_bool, ty_char, ty_bot, ty_box, ty_struct, ty_enum, ty_simd};
+use middle::ty::{ty_bool, ty_char, ty_bot, ty_box, ty_struct, ty_enum};
 use middle::ty::{ty_err, ty_str, ty_vec, ty_float, ty_bare_fn, ty_closure};
 use middle::ty::{ty_nil, ty_param, ty_ptr, ty_rptr, ty_tup};
 use middle::ty::{ty_uniq, ty_trait, ty_int, ty_uint, ty_infer};
@@ -370,7 +370,6 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
         let strs: Vec<String> = elems.iter().map(|elem| ty_to_str(cx, *elem)).collect();
         format!("({})", strs.connect(","))
       }
-      ty_simd(t, count) => format!("<{:s}, ..{:u}>", ty_to_str(cx, t), count),
       ty_closure(ref f) => {
           closure_to_str(cx, *f)
       }
@@ -1027,18 +1026,6 @@ impl Repr for ty::RegionVid {
 impl Repr for ty::TyVid {
     fn repr(&self, _tcx: &ctxt) -> String {
         format!("{}", self)
-    }
-}
-
-impl Repr for ty::MDVid {
-    fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{}", self)
-    }
-}
-
-impl Repr for ty::MDVarValue {
-    fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
     }
 }
 

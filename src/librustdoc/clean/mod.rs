@@ -1201,7 +1201,6 @@ impl Clean<Type> for ast::Ty {
             TyBareFn(ref barefn) => BareFunction(box barefn.clean()),
             TyParen(ref ty) => ty.clean(),
             TyBot => Bottom,
-            TySimd(t, ref count) => FixedVector(box t.clean(), count.span.to_src()),
             ref x => fail!("Unimplemented type {:?}", x),
         }
     }
@@ -1232,8 +1231,6 @@ impl Clean<Type> for ty::t {
             ty::ty_vec(mt, None) => Vector(box mt.ty.clean()),
             ty::ty_vec(mt, Some(i)) => FixedVector(box mt.ty.clean(),
                                                    format!("{}", i)),
-            ty::ty_simd(t, i) => FixedVector(box t.clean(),
-                                             format!("{}", i)),
             ty::ty_ptr(mt) => RawPointer(mt.mutbl.clean(), box mt.ty.clean()),
             ty::ty_rptr(r, mt) => BorrowedRef {
                 lifetime: r.clean(),

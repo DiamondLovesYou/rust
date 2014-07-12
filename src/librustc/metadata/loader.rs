@@ -119,7 +119,7 @@ impl<'a> Context<'a> {
         }
     }
 
-pub fn report_load_errs(&mut self) {
+    pub fn report_load_errs(&mut self) {
         let message = if self.rejected_via_hash.len() > 0 {
             format!("found possibly newer version of crate `{}`",
                     self.ident)
@@ -169,7 +169,7 @@ pub fn report_load_errs(&mut self) {
         self.sess.abort_if_errors();
     }
 
-fn find_library_crate(&mut self) -> Option<Library> {
+    fn find_library_crate(&mut self) -> Option<Library> {
         let dypair = self.dylibname();
 
         // want: crate_name.dir_part() + prefix + crate_name.file_part + "-"
@@ -347,7 +347,7 @@ fn find_library_crate(&mut self) -> Option<Library> {
     // read the metadata from it if `*slot` is `None`. If the metadata couldn't
     // be read, it is assumed that the file isn't a valid rust library (no
     // errors are emitted).
-fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
+    fn extract_one(&mut self, m: HashSet<Path>, flavor: &str,
                    slot: &mut Option<MetadataBlob>) -> Option<Path> {
         let mut ret = None::<Path>;
         let mut error = 0u;
