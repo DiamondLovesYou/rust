@@ -560,6 +560,9 @@ fn write_out_deps(sess: &Session,
         match *output_type {
             link::OutputTypeExe => {
                 for output in sess.crate_types.borrow().iter() {
+                    if sess.targeting_pnacl() && *output == config::CrateTypeDylib {
+                        continue;
+                    }
                     let p = link::filename_for_input(sess, *output,
                                                      id, &file);
                     out_filenames.push(p);
