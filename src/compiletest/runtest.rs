@@ -1082,11 +1082,7 @@ fn compile_test_(config: &Config, props: &TestProps,
     // FIXME (#9639): This needs to handle non-utf8 paths
     let link_args = vec!("-L".to_string(),
                          aux_dir.as_str().unwrap().to_string());
-    let link_args = if config.targeting_pnacl() {
-        link_args.append(vec!("-Z".to_string(), "no-opt".to_string()).as_slice())
-    } else {
-        link_args
-    };
+
     let args = make_compile_args(config,
                                  props,
                                  link_args.append(extra_args),
