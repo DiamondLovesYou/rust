@@ -478,12 +478,12 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             let pexe_path = make_absolute(&output_base_name(config, testfile));
             let nexe_path =
                 // add an extension, don't replace it:
-                Path::new(format!("{}.nexe",pexe_path.display().to_str()));
+                Path::new(format!("{}.nexe",pexe_path.display()));
 
             // write debugger script
             let script_str = [
                 "set charset UTF-8".to_string(),
-                format!("file {}", nexe_path.display().to_str().to_string()),
+                format!("file {}", nexe_path.display()),
                 "target remote :4014".to_string(),
                 cmds,
                 "quit\n".to_string()
@@ -531,7 +531,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 err,
                 status
             } = procsrv::run("",
-                             gdb_path.display().to_str().as_slice(),
+                             format!("{}", gdb_path.display()).as_slice(),
                              None,
                              debugger_opts.as_slice(),
                              vec!(("".to_string(), "".to_string())),
