@@ -1625,27 +1625,17 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                 format!("-o={}", obj_path.display()),
                                 format!("{}", pexe_path.display()));
 
-    let procsrv::Result { out: stdout, err: stderr, status: status } =
-        procsrv::run("",
-                     llc.display().as_maybe_owned().as_slice(),
-                     None,
-                     pnacl_trans_args.as_slice(),
-                     env.clone(),
-                     None)
-        .expect(format!("failed to exec `{}`", llc.display()).as_slice());
-    match status {
-        ExitStatus(0) => {
-            dump_output(config, testfile, stdout.as_slice(), stderr.as_slice());
-        }
-        _ => {
-            return ProcResResult(ProcRes {
-                status: status,
-                stdout: stdout,
-                stderr: stderr,
-                cmdline: format!("{} {}",
-                                 llc.display(),
-                                 pnacl_trans_args.connect(" ")),
-            });
+    match program_output(config,
+                         testfile,
+                         config.compile_lib_path.as_slice(),
+                         llc.display().as_maybe_owned().to_string(),
+                         None,
+                         pnacl_trans_args,
+                         env.clone(),
+                         None) {
+        ProcRes { status: ExitStatus(0), .. } => { }
+        res => {
+            return ProcResResult(res);
         }
     }
 
@@ -1698,27 +1688,17 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                     "bin".to_string(),
                     "le32-nacl-ld.gold".to_string()]);
 
-    let procsrv::Result { out: stdout, err: stderr, status: status } =
-        procsrv::run("",
-                     gold.display().as_maybe_owned().as_slice(),
-                     None,
-                     nexe_link_args.as_slice(),
-                     env.clone(),
-                     None)
-        .expect(format!("failed to exec `{}`", gold.display()).as_slice());
-    match status {
-        ExitStatus(0) => {
-            dump_output(config, testfile, stdout.as_slice(), stderr.as_slice());
-        }
-        _ => {
-            return ProcResResult(ProcRes {
-                status: status,
-                stdout: stdout,
-                stderr: stderr,
-                cmdline: format!("{} {}",
-                                 gold.display(),
-                                 nexe_link_args.connect(" ")),
-            });
+    match program_output(config,
+                         testfile,
+                         config.compile_lib_path.as_slice(),
+                         gold.display().as_maybe_owned().to_string(),
+                         None,
+                         nexe_link_args,
+                         env.clone(),
+                         None) {
+        ProcRes { status: ExitStatus(0), .. } => { }
+        res => {
+            return ProcResResult(res);
         }
     }
 
