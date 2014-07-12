@@ -244,7 +244,7 @@ pub fn run_tests(config: &Config) {
     }
 
     if config.targeting_nacl() && config.mode == DebugInfoGdb {
-        os::setenv("RUST_TEST_TASKS","1");        
+        os::setenv("RUST_TEST_TASKS","1");
     }
 
     let opts = test_opts(config);
