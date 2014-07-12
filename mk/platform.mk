@@ -635,12 +635,12 @@ TOOLCHAIN_PROVIDES_COMPRT_le32-unknown-nacl := 1
 # libuv uses quite a bit of C functions that newlib doesn't implement.
 # Last time I tried to build libuv for newlib it was a mess.
 # Obviously, this additionally disables libgreen.
-DISABLED_CRATES_le32-unknown-nacl := rustuv green simd_syntax
+DISABLED_CRATES_le32-unknown-nacl := rustuv green
 SHARED_LIBS_DISABLED_le32-unknown-nacl := 1
 RUNTIME_CFLAGS_le32-unknown-nacl:= -I$(CFG_NACL_CROSS_PATH)/include/pnacl
 RUNTIME_DISABLE_ASM_le32-unknown-nacl := 1
 RUSTC_FLAGS_le32-unknown-nacl:=
-RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=pnacl --cfg "target_libc=\"newlib\"" -L $(CFG_NACL_CROSS_PATH)/lib/pnacl/Release -L $(CFG_NACL_CROSS_PATH)/toolchain/linux_pnacl/usr/lib/ -L $(CFG_BUILD)/stage2/lib/rustlib/$(CFG_BUILD)/lib
+RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=pnacl --cfg "target_libc=\"newlib\"" -g
 
 # i686-unknown-nacl (non-portable)
 CC_i686-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/i686-nacl-gcc
