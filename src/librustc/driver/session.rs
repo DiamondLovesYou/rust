@@ -21,6 +21,7 @@ use util::nodemap::NodeMap;
 use syntax::ast::NodeId;
 use syntax::codemap::Span;
 use syntax::diagnostic;
+use syntax::diagnostics;
 use syntax::parse;
 use syntax::parse::token;
 use syntax::parse::ParseSess;
@@ -48,6 +49,7 @@ pub struct Session {
     pub lints: RefCell<NodeMap<Vec<(lint::LintId, codemap::Span, String)>>>,
     pub node_id: Cell<ast::NodeId>,
     pub crate_types: RefCell<Vec<config::CrateType>>,
+    pub crate_metadata: RefCell<Vec<String>>,
     pub features: front::feature_gate::Features,
 
     /// The maximum recursion limit for potentially infinitely recursive
@@ -64,6 +66,9 @@ impl Session {
     }
     pub fn span_err(&self, sp: Span, msg: &str) {
         self.diagnostic().span_err(sp, msg)
+    }
+    pub fn span_err_with_code(&self, sp: Span, msg: &str, code: &str) {
+        self.diagnostic().span_err_with_code(sp, msg, code)
     }
     pub fn err(&self, msg: &str) {
         self.diagnostic().handler().err(msg)
@@ -332,11 +337,12 @@ impl Session {
 }
 
 pub fn build_session(sopts: config::Options,
-                     local_crate_source_file: Option<Path>)
+                     local_crate_source_file: Option<Path>,
+                     registry: diagnostics::registry::Registry)
                      -> Session {
     let codemap = codemap::CodeMap::new();
     let diagnostic_handler =
-        diagnostic::default_handler(sopts.color);
+        diagnostic::default_handler(sopts.color, Some(registry));
     let span_diagnostic_handler =
         diagnostic::mk_span_handler(diagnostic_handler, codemap);
 
@@ -379,6 +385,7 @@ pub fn build_session_(sopts: config::Options,
         lints: RefCell::new(NodeMap::new()),
         node_id: Cell::new(1),
         crate_types: RefCell::new(Vec::new()),
+        crate_metadata: RefCell::new(Vec::new()),
         features: front::feature_gate::Features::new(),
         recursion_limit: Cell::new(64),
     };

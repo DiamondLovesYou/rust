@@ -234,6 +234,7 @@ lets_do_this! {
     ShlTraitLangItem,                "shl",                     shl_trait;
     ShrTraitLangItem,                "shr",                     shr_trait;
     IndexTraitLangItem,              "index",                   index_trait;
+    IndexMutTraitLangItem,           "index_mut",               index_mut_trait;
 
     UnsafeTypeLangItem,              "unsafe",                  unsafe_type;
 
@@ -248,7 +249,6 @@ lets_do_this! {
     OrdTraitLangItem,                "ord",                     ord_trait;
 
     StrEqFnLangItem,                 "str_eq",                  str_eq_fn;
-    UniqStrEqFnLangItem,             "uniq_str_eq",             uniq_str_eq_fn;
 
     // A number of failure-related lang items. The `fail_` item corresponds to
     // divide-by-zero and various failure cases with `match`. The

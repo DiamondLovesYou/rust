@@ -20,18 +20,18 @@
 //! necessary. It is an error to include this library when also linking with
 //! the system libc library.
 
-#![crate_id = "rlibc#0.11.0-pre"]
+#![crate_name = "rlibc"]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/")]
+       html_root_url = "http://doc.rust-lang.org/0.11.0/")]
 #![feature(intrinsics)]
 
 #![no_std]
 #![experimental]
 
-// This library is definining the builtin functions, so it would be a shame for
+// This library defines the builtin functions, so it would be a shame for
 // LLVM to optimize these function calls to themselves!
 #![no_builtins]
 

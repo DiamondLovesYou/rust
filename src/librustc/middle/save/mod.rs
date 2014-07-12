@@ -51,7 +51,7 @@ use syntax::parse::token;
 use syntax::parse::token::{get_ident,keywords};
 use syntax::visit;
 use syntax::visit::Visitor;
-use syntax::print::pprust::{path_to_str,ty_to_str};
+use syntax::print::pprust::{path_to_string,ty_to_string};
 
 use middle::save::span_utils::SpanUtils;
 use middle::save::recorder::Recorder;
@@ -108,7 +108,7 @@ impl <'l> DxrVisitor<'l> {
         if spans.len() < path.segments.len() {
             error!("Mis-calculated spans for path '{}'. \
                     Found {} spans, expected {}. Found spans:",
-                   path_to_str(path), spans.len(), path.segments.len());
+                   path_to_string(path), spans.len(), path.segments.len());
             for s in spans.iter() {
                 let loc = self.sess.codemap().lookup_char_pos(s.lo);
                 error!("    '{}' in {}, line {}",
@@ -126,7 +126,7 @@ impl <'l> DxrVisitor<'l> {
             let sub_path = ast::Path{span: *span, // span for the last segment
                                      global: path.global,
                                      segments: segs};
-            let qualname = path_to_str(&sub_path);
+            let qualname = path_to_string(&sub_path);
             result.push((*span, qualname));
             segs = sub_path.segments;
         }
@@ -249,7 +249,7 @@ impl <'l> DxrVisitor<'l> {
             self.collecting = false;
             let span_utils = self.span;
             for &(id, ref p, _, _) in self.collected_paths.iter() {
-                let typ = ppaux::ty_to_str(&self.analysis.ty_cx,
+                let typ = ppaux::ty_to_string(&self.analysis.ty_cx,
                     *self.analysis.ty_cx.node_types.borrow().get(&(id as uint)));
                 // get the span only for the name of the variable (I hope the path is only ever a
                 // variable name, but who knows?)
@@ -257,7 +257,7 @@ impl <'l> DxrVisitor<'l> {
                                     span_utils.span_for_last_ident(p.span),
                                     id,
                                     qualname,
-                                    path_to_str(p).as_slice(),
+                                    path_to_string(p).as_slice(),
                                     typ.as_slice());
             }
             self.collected_paths.clear();
@@ -280,7 +280,7 @@ impl <'l> DxrVisitor<'l> {
                     match item.node {
                         ast::ItemImpl(_, _, ty, _) => {
                             let mut result = String::from_str("<");
-                            result.push_str(ty_to_str(&*ty).as_slice());
+                            result.push_str(ty_to_string(&*ty).as_slice());
 
                             match ty::trait_of_method(&self.analysis.ty_cx,
                                                       ast_util::local_def(method.id)) {
@@ -400,7 +400,7 @@ impl <'l> DxrVisitor<'l> {
             ast::NamedField(ident, _) => {
                 let name = get_ident(ident);
                 let qualname = format!("{}::{}", qualname, name);
-                let typ = ppaux::ty_to_str(&self.analysis.ty_cx,
+                let typ = ppaux::ty_to_string(&self.analysis.ty_cx,
                     *self.analysis.ty_cx.node_types.borrow().get(&(field.node.id as uint)));
                 match self.span.sub_span_before_token(field.span, token::COLON) {
                     Some(sub_span) => self.fmt.field_str(field.span,
@@ -452,7 +452,7 @@ impl <'l> DxrVisitor<'l> {
                   decl: ast::P<ast::FnDecl>,
                   ty_params: &ast::Generics,
                   body: ast::P<ast::Block>) {
-        let qualname = self.analysis.ty_cx.map.path_to_str(item.id);
+        let qualname = self.analysis.ty_cx.map.path_to_string(item.id);
 
         let sub_span = self.span.sub_span_after_keyword(item.span, keywords::Fn);
         self.fmt.fn_str(item.span,
@@ -482,9 +482,9 @@ impl <'l> DxrVisitor<'l> {
                       mt: ast::Mutability,
                       expr: &ast::Expr)
     {
-        let qualname = self.analysis.ty_cx.map.path_to_str(item.id);
+        let qualname = self.analysis.ty_cx.map.path_to_string(item.id);
 
-        // If the variable is immutable, save the initialising expresion.
+        // If the variable is immutable, save the initialising expression.
         let value = match mt {
             ast::MutMutable => String::from_str("<mutable>"),
             ast::MutImmutable => self.span.snippet(expr.span),
@@ -497,7 +497,7 @@ impl <'l> DxrVisitor<'l> {
                             get_ident(item.ident).get(),
                             qualname.as_slice(),
                             value.as_slice(),
-                            ty_to_str(&*typ).as_slice(),
+                            ty_to_string(&*typ).as_slice(),
                             e.cur_scope);
 
         // walk type and init value
@@ -510,7 +510,7 @@ impl <'l> DxrVisitor<'l> {
                       e: DxrVisitorEnv,
                       def: &ast::StructDef,
                       ty_params: &ast::Generics) {
-        let qualname = self.analysis.ty_cx.map.path_to_str(item.id);
+        let qualname = self.analysis.ty_cx.map.path_to_string(item.id);
 
         let ctor_id = match def.ctor_id {
             Some(node_id) => node_id,
@@ -538,7 +538,7 @@ impl <'l> DxrVisitor<'l> {
                     e: DxrVisitorEnv,
                     enum_definition: &ast::EnumDef,
                     ty_params: &ast::Generics) {
-        let qualname = self.analysis.ty_cx.map.path_to_str(item.id);
+        let qualname = self.analysis.ty_cx.map.path_to_string(item.id);
         match self.span.sub_span_after_keyword(item.span, keywords::Enum) {
             Some(sub_span) => self.fmt.enum_str(item.span,
                                                 Some(sub_span),
@@ -639,7 +639,7 @@ impl <'l> DxrVisitor<'l> {
                      generics: &ast::Generics,
                      trait_refs: &Vec<ast::TraitRef>,
                      methods: &Vec<ast::TraitMethod>) {
-        let qualname = self.analysis.ty_cx.map.path_to_str(item.id);
+        let qualname = self.analysis.ty_cx.map.path_to_string(item.id);
 
         let sub_span = self.span.sub_span_after_keyword(item.span, keywords::Trait);
         self.fmt.trait_str(item.span,
@@ -678,7 +678,7 @@ impl <'l> DxrVisitor<'l> {
                    item: &ast::Item,  // The module in question, represented as an item.
                    e: DxrVisitorEnv,
                    m: &ast::Mod) {
-        let qualname = self.analysis.ty_cx.map.path_to_str(item.id);
+        let qualname = self.analysis.ty_cx.map.path_to_string(item.id);
 
         let cm = self.sess.codemap();
         let filename = cm.span_to_filename(m.inner);
@@ -845,7 +845,7 @@ impl <'l> DxrVisitor<'l> {
                 let decl_id = ty::trait_method_of_method(&self.analysis.ty_cx, def_id);
 
                 // This incantation is required if the method referenced is a trait's
-                // defailt implementation.
+                // default implementation.
                 let def_id = ty::method(&self.analysis.ty_cx, def_id).provided_source
                                     .unwrap_or(def_id);
                 (Some(def_id), decl_id)
@@ -926,7 +926,7 @@ impl <'l> DxrVisitor<'l> {
                 self.collected_paths.push((p.id, path.clone(), false, recorder::VarRef));
                 visit::walk_pat(self, p, e);
             }
-            ast::PatIdent(bm, ref path, ref optional_subpattern) => {
+            ast::PatIdent(bm, ref path1, ref optional_subpattern) => {
                 let immut = match bm {
                     // Even if the ref is mut, you can't change the ref, only
                     // the data pointed at, so showing the initialising expression
@@ -940,7 +940,8 @@ impl <'l> DxrVisitor<'l> {
                     }
                 };
                 // collect path for either visit_local or visit_arm
-                self.collected_paths.push((p.id, path.clone(), immut, recorder::VarRef));
+                let path = ast_util::ident_to_path(path1.span,path1.node);
+                self.collected_paths.push((p.id, path, immut, recorder::VarRef));
                 match *optional_subpattern {
                     None => {}
                     Some(subpattern) => self.visit_pat(&*subpattern, e),
@@ -970,8 +971,8 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
                 self.process_trait(item, e, generics, trait_refs, methods),
             ast::ItemMod(ref m) => self.process_mod(item, e, m),
             ast::ItemTy(ty, ref ty_params) => {
-                let qualname = self.analysis.ty_cx.map.path_to_str(item.id);
-                let value = ty_to_str(&*ty);
+                let qualname = self.analysis.ty_cx.map.path_to_string(item.id);
+                let value = ty_to_string(&*ty);
                 let sub_span = self.span.sub_span_after_keyword(item.span, keywords::Type);
                 self.fmt.typedef_str(item.span,
                                      sub_span,
@@ -1230,7 +1231,7 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
                     return
                 }
 
-                let id = String::from_str("$").append(ex.id.to_str().as_slice());
+                let id = String::from_str("$").append(ex.id.to_string().as_slice());
                 self.process_formals(&decl.inputs, id.as_slice(), e);
 
                 // walk arg and return types
@@ -1287,7 +1288,7 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
                 def::DefBinding(id, _)  => self.fmt.variable_str(p.span,
                                                                  sub_span,
                                                                  id,
-                                                                 path_to_str(p).as_slice(),
+                                                                 path_to_string(p).as_slice(),
                                                                  value.as_slice(),
                                                                  ""),
                 def::DefVariant(_,id,_) => self.fmt.ref_str(ref_kind,
@@ -1330,7 +1331,7 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
         for &(id, ref p, ref immut, _) in self.collected_paths.iter() {
             let value = if *immut { value.to_owned() } else { "<mutable>".to_owned() };
             let types = self.analysis.ty_cx.node_types.borrow();
-            let typ = ppaux::ty_to_str(&self.analysis.ty_cx, *types.get(&(id as uint)));
+            let typ = ppaux::ty_to_string(&self.analysis.ty_cx, *types.get(&(id as uint)));
             // Get the span only for the name of the variable (I hope the path
             // is only ever a variable name, but who knows?).
             let sub_span = self.span.span_for_last_ident(p.span);
@@ -1338,7 +1339,7 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
             self.fmt.variable_str(p.span,
                                   sub_span,
                                   id,
-                                  path_to_str(p).as_slice(),
+                                  path_to_string(p).as_slice(),
                                   value.as_slice(),
                                   typ.as_slice());
         }
@@ -1372,15 +1373,15 @@ pub fn process_crate(sess: &Session,
         return;
     }
 
-    let (cratename, crateid) = match attr::find_crateid(krate.attrs.as_slice()) {
-        Some(crateid) => (crateid.name.clone(), crateid.to_str()),
+    let cratename = match attr::find_crate_name(krate.attrs.as_slice()) {
+        Some(name) => name.get().to_string(),
         None => {
             info!("Could not find crate name, using 'unknown_crate'");
-            (String::from_str("unknown_crate"),"unknown_crate".to_owned())
+            String::from_str("unknown_crate")
         },
     };
 
-    info!("Dumping crate {} ({})", cratename, crateid);
+    info!("Dumping crate {}", cratename);
 
     // find a path to dump our data to
     let mut root_path = match os::getenv("DXR_RUST_TEMP_FOLDER") {
@@ -1402,7 +1403,7 @@ pub fn process_crate(sess: &Session,
         info!("Writing output to {}", disp);
     }
 
-    // Create ouput file.
+    // Create output file.
     let mut out_name = cratename.clone();
     out_name.push_str(".csv");
     root_path.push(out_name);

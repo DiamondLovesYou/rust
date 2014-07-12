@@ -53,6 +53,8 @@ use std::iter::range_step;
 use syntax::ast;
 use syntax::visit;
 
+use driver::session::Session;
+
 #[deriving(Clone, PartialEq)]
 pub struct Svh {
     hash: String,
@@ -68,7 +70,7 @@ impl Svh {
         self.hash.as_slice()
     }
 
-    pub fn calculate(krate: &ast::Crate) -> Svh {
+    pub fn calculate(sess: &Session, krate: &ast::Crate) -> Svh {
         // FIXME (#14132): This is better than it used to be, but it still not
         // ideal. We now attempt to hash only the relevant portions of the
         // Crate AST as well as the top-level crate attributes. (However,
@@ -79,6 +81,10 @@ impl Svh {
         // FIXME: this should use SHA1, not SipHash. SipHash is not built to
         //        avoid collisions.
         let mut state = SipState::new();
+
+        for data in sess.opts.cg.metadata.iter() {
+            data.hash(&mut state);
+        }
 
         {
             let mut visit = svh_visitor::make(&mut state);
@@ -336,13 +342,13 @@ mod svh_visitor {
                 // trees might be faster. Implementing this is far
                 // easier in short term.
                 let macro_defn_as_string =
-                    pprust::to_str(|pp_state| pp_state.print_mac(macro));
+                    pprust::to_string(|pp_state| pp_state.print_mac(macro));
                 macro_defn_as_string.hash(self.st);
             } else {
                 // It is not possible to observe any kind of macro
                 // invocation at this stage except `macro_rules!`.
                 fail!("reached macro somehow: {}",
-                      pprust::to_str(|pp_state| pp_state.print_mac(macro)));
+                      pprust::to_string(|pp_state| pp_state.print_mac(macro)));
             }
 
             visit::walk_mac(self, macro, e);

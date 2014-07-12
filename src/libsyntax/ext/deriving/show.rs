@@ -45,7 +45,6 @@ pub fn expand_deriving_show(cx: &mut ExtCtxt,
                 args: vec!(fmtr),
                 ret_ty: Literal(Path::new(vec!("std", "fmt", "Result"))),
                 attributes: Vec::new(),
-                const_nonmatching: false,
                 combine_substructure: combine_substructure(|a, b, c| {
                     show_substructure(a, b, c)
                 })
@@ -55,8 +54,8 @@ pub fn expand_deriving_show(cx: &mut ExtCtxt,
     trait_def.expand(cx, mitem, item, push)
 }
 
-// we construct a format string and then defer to std::fmt, since that
-// knows what's up with formatting at so on.
+/// We construct a format string and then defer to std::fmt, since that
+/// knows what's up with formatting and so on.
 fn show_substructure(cx: &mut ExtCtxt, span: Span,
                      substr: &Substructure) -> Gc<Expr> {
     // build `<name>`, `<name>({}, {}, ...)` or `<name> { <field>: {},
@@ -66,8 +65,7 @@ fn show_substructure(cx: &mut ExtCtxt, span: Span,
     let name = match *substr.fields {
         Struct(_) => substr.type_ident,
         EnumMatching(_, v, _) => v.node.name,
-
-        EnumNonMatching(..) | StaticStruct(..) | StaticEnum(..) => {
+        EnumNonMatchingCollapsed(..) | StaticStruct(..) | StaticEnum(..) => {
             cx.span_bug(span, "nonsensical .fields in `#[deriving(Show)]`")
         }
     };

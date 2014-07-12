@@ -16,12 +16,12 @@
 //! is not recommended to use this library directly, but rather the official
 //! interface through `std::rand`.
 
-#![crate_id = "rand#0.11.0-pre"]
+#![crate_name = "rand"]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(macro_rules, phase, globs)]
@@ -111,7 +111,7 @@ pub trait Rng {
         // (3) adds more `unsafe` that needs to be checked, (4)
         // probably doesn't give much performance gain if
         // optimisations are on.
-        let mut count = 0;
+        let mut count = 0i;
         let mut num = 0;
         for byte in dest.mut_iter() {
             if count == 0 {

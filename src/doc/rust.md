@@ -442,17 +442,14 @@ of integer literal suffix:
 The type of an _unsuffixed_ integer literal is determined by type inference.
 If an integer type can be _uniquely_ determined from the surrounding program
 context, the unsuffixed integer literal has that type.  If the program context
-underconstrains the type, the unsuffixed integer literal's type is `int`; if
-the program context overconstrains the type, it is considered a static type
-error.
+underconstrains the type, it is considered a static type error;
+if the program context overconstrains the type,
+it is also considered a static type error.
 
 Examples of integer literals of various forms:
 
 ~~~~
-123; 0xff00;                       // type determined by program context
-                                   // defaults to int in absence of type
-                                   // information
-
+123i;                              // type int
 123u;                              // type uint
 123_u;                             // type uint
 0xff_u8;                           // type u8
@@ -469,8 +466,10 @@ A _floating-point literal_ has one of two forms:
   second decimal literal.
 * A single _decimal literal_ followed by an _exponent_.
 
-By default, a floating-point literal has a generic type, but will fall back to
-`f64`. A floating-point literal may be followed (immediately, without any
+By default, a floating-point literal has a generic type,
+and, like integer literals, the type must be uniquely determined
+from the context.
+A floating-point literal may be followed (immediately, without any
 spaces) by a _floating-point suffix_, which changes the type of the literal.
 There are two floating-point suffixes: `f32`, and `f64` (the 32-bit and 64-bit
 floating point types).
@@ -478,8 +477,8 @@ floating point types).
 Examples of floating-point literals of various forms:
 
 ~~~~
-123.0;                             // type f64
-0.1;                               // type f64
+123.0f64;                          // type f64
+0.1f64;                            // type f64
 0.1f32;                            // type f32
 12E+99_f64;                        // type f64
 ~~~~
@@ -2156,8 +2155,6 @@ These are functions:
 
 * `str_eq`
   : Compare two strings (`&str`) for equality.
-* `uniq_str_eq`
-  : Compare two owned strings (`String`) for equality.
 * `strdup_uniq`
   : Return a new unique string
     containing a copy of the contents of a unique string.
@@ -2542,7 +2539,7 @@ A temporary's lifetime equals the largest lifetime of any reference that points 
 #### Moved and copied types
 
 When a [local variable](#memory-slots) is used
-as an [rvalue](#lvalues-rvalues-and-temporaries)
+as an [rvalue](#lvalues,-rvalues-and-temporaries)
 the variable will either be moved or copied, depending on its type.
 For types that contain [owning pointers](#pointer-types)
 or values that implement the special trait `Drop`,
@@ -2565,7 +2562,7 @@ string, boolean value, or the unit value.
 ### Path expressions
 
 A [path](#paths) used as an expression context denotes either a local variable or an item.
-Path expressions are [lvalues](#lvalues-rvalues-and-temporaries).
+Path expressions are [lvalues](#lvalues,-rvalues-and-temporaries).
 
 ### Tuple expressions
 
@@ -2678,7 +2675,7 @@ foo().x;
 (Struct {a: 10, b: 20}).a;
 ~~~~
 
-A field access is an [lvalue](#lvalues-rvalues-and-temporaries) referring to the value of that field.
+A field access is an [lvalue](#lvalues,-rvalues-and-temporaries) referring to the value of that field.
 When the type providing the field inherits mutabilty, it can be [assigned](#assignment-expressions) to.
 
 Also, if the type of the expression to the left of the dot is a pointer,
@@ -2700,9 +2697,9 @@ must be a constant expression that can be evaluated at compile time, such
 as a [literal](#literals) or a [static item](#static-items).
 
 ~~~~
-[1, 2, 3, 4];
+[1i, 2, 3, 4];
 ["a", "b", "c", "d"];
-[0, ..128];             // vector with 128 zeros
+[0i, ..128];             // vector with 128 zeros
 [0u8, 0u8, 0u8, 0u8];
 ~~~~
 
@@ -2714,7 +2711,7 @@ idx_expr : expr '[' expr ']' ;
 
 [Vector](#vector-types)-typed expressions can be indexed by writing a
 square-bracket-enclosed expression (the index) after them. When the
-vector is mutable, the resulting [lvalue](#lvalues-rvalues-and-temporaries) can be assigned to.
+vector is mutable, the resulting [lvalue](#lvalues,-rvalues-and-temporaries) can be assigned to.
 
 Indices are zero-based, and may be of any integral type. Vector access
 is bounds-checked at run-time. When the check fails, it will put the
@@ -2740,7 +2737,7 @@ before the expression they apply to.
   : Negation. May only be applied to numeric types.
 * `*`
   : Dereference. When applied to a [pointer](#pointer-types) it denotes the pointed-to location.
-    For pointers to mutable locations, the resulting [lvalue](#lvalues-rvalues-and-temporaries) can be assigned to.
+    For pointers to mutable locations, the resulting [lvalue](#lvalues,-rvalues-and-temporaries) can be assigned to.
     On non-pointer types, it calls the `deref` method of the `std::ops::Deref` trait, or the
     `deref_mut` method of the `std::ops::DerefMut` trait (if implemented by the type and required
     for an outer expression that will or could mutate the dereference), and produces the
@@ -2875,13 +2872,13 @@ fn avg(v: &[f64]) -> f64 {
 
 #### Assignment expressions
 
-An _assignment expression_ consists of an [lvalue](#lvalues-rvalues-and-temporaries) expression followed by an
-equals sign (`=`) and an [rvalue](#lvalues-rvalues-and-temporaries) expression.
+An _assignment expression_ consists of an [lvalue](#lvalues,-rvalues-and-temporaries) expression followed by an
+equals sign (`=`) and an [rvalue](#lvalues,-rvalues-and-temporaries) expression.
 
 Evaluating an assignment expression [either copies or moves](#moved-and-copied-types) its right-hand operand to its left-hand operand.
 
 ~~~~
-# let mut x = 0;
+# let mut x = 0i;
 # let y = 0;
 
 x = y;
@@ -2932,7 +2929,7 @@ paren_expr : '(' expr ')' ;
 An example of a parenthesized expression:
 
 ~~~~
-let x = (2 + 3) * 4;
+let x: int = (2 + 3) * 4;
 ~~~~
 
 
@@ -3016,7 +3013,7 @@ conditional expression evaluates to `false`, the `while` expression completes.
 An example:
 
 ~~~~
-let mut i = 0;
+let mut i = 0u;
 
 while i < 10 {
     println!("hello");
@@ -3189,7 +3186,7 @@ fn main() {
 ~~~~
 
 A `match` behaves differently depending on whether or not the head expression
-is an [lvalue or an rvalue](#lvalues-rvalues-and-temporaries).
+is an [lvalue or an rvalue](#lvalues,-rvalues-and-temporaries).
 If the head expression is an rvalue, it is
 first evaluated into a temporary location, and the resulting value
 is sequentially compared to the patterns in the arms until a match
@@ -3262,7 +3259,7 @@ Patterns can also dereference pointers by using the `&`,
 on `x: &int` are equivalent:
 
 ~~~~
-# let x = &3;
+# let x = &3i;
 let y = match *x { 0 => "zero", _ => "some" };
 let z = match x { &0 => "zero", _ => "some" };
 
@@ -3285,7 +3282,7 @@ A range of values may be specified with `..`.
 For example:
 
 ~~~~
-# let x = 2;
+# let x = 2i;
 
 let message = match x {
   0 | 1  => "not many",
@@ -3553,7 +3550,7 @@ There are four varieties of pointer in Rust:
   : These point to memory _owned by some other value_.
     References arise by (automatic) conversion from owning pointers, managed pointers,
     or by applying the borrowing operator `&` to some other value,
-    including [lvalues, rvalues or temporaries](#lvalues-rvalues-and-temporaries).
+    including [lvalues, rvalues or temporaries](#lvalues,-rvalues-and-temporaries).
     References are written `&content`, or in some cases `&'f content` for some lifetime-variable `f`,
     for example `&int` means a reference to an integer.
     Copying a reference is a "shallow" operation:
@@ -3674,15 +3671,15 @@ An example of an object type:
 
 ~~~~
 trait Printable {
-  fn to_string(&self) -> String;
+  fn stringify(&self) -> String;
 }
 
 impl Printable for int {
-  fn to_string(&self) -> String { self.to_str() }
+  fn stringify(&self) -> String { self.to_string() }
 }
 
 fn print(a: Box<Printable>) {
-   println!("{}", a.to_string());
+   println!("{}", a.stringify());
 }
 
 fn main() {
@@ -3855,7 +3852,7 @@ references to any boxes; the remainder of its heap is immediately freed.
 A task's stack contains slots.
 
 A _slot_ is a component of a stack frame, either a function parameter,
-a [temporary](#lvalues-rvalues-and-temporaries), or a local variable.
+a [temporary](#lvalues,-rvalues-and-temporaries), or a local variable.
 
 A _local variable_ (or *stack-local* allocation) holds a value directly,
 allocated within the stack's memory. The value is a part of the stack frame.
@@ -3892,12 +3889,11 @@ by the prefix operator `box`. When the standard library is in use, the type of a
 An example of an owned box type and value:
 
 ~~~~
-
 let x: Box<int> = box 10;
 ~~~~
 
-Owned box values exist in 1:1 correspondence with their heap allocation
-copying an owned box value makes a shallow copy of the pointer
+Owned box values exist in 1:1 correspondence with their heap allocation,
+copying an owned box value makes a shallow copy of the pointer.
 Rust will consider a shallow copy of an owned box to move ownership of the value. After a value has been moved, the source location cannot be used unless it is reinitialized.
 
 ~~~~

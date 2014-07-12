@@ -209,13 +209,11 @@ mod test {
 #[cfg(target_os = "ios")]
 #[cfg(target_os = "freebsd")]
 pub mod dl {
-    use prelude::*;
 
     use c_str::{CString, ToCStr};
     use libc;
     use ptr;
     use result::*;
-    use str::StrAllocating;
     use string::String;
 
     pub unsafe fn open_external<T: ToCStr>(filename: T) -> *mut u8 {
@@ -243,9 +241,8 @@ pub mod dl {
             let ret = if ptr::null() == last_error {
                 Ok(result)
             } else {
-                Err(CString::new(last_error, false).as_str()
-                                                   .unwrap()
-                                                   .to_string())
+                Err(String::from_str(CString::new(last_error, false).as_str()
+                    .unwrap()))
             };
 
             ret
@@ -281,19 +278,22 @@ pub mod dl {
 #[cfg(target_os = "win32")]
 pub mod dl {
     use c_str::ToCStr;
+    use iter::Iterator;
     use libc;
     use os;
     use ptr;
     use result::{Ok, Err, Result};
-    use str::StrAllocating;
+    use str::StrSlice;
     use str;
     use string::String;
+    use vec::Vec;
 
     pub unsafe fn open_external<T: ToCStr>(filename: T) -> *mut u8 {
         // Windows expects Unicode data
         let filename_cstr = filename.to_c_str();
         let filename_str = str::from_utf8(filename_cstr.as_bytes_no_nul()).unwrap();
-        let filename_str = filename_str.to_utf16().append_one(0);
+        let filename_str: Vec<u16> = filename_str.utf16_units().collect();
+        let filename_str = filename_str.append_one(0);
         LoadLibraryW(filename_str.as_ptr() as *const libc::c_void) as *mut u8
     }
 

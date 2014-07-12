@@ -185,7 +185,7 @@ impl<T: Share + Send> Drop for Arc<T> {
         // deletion of the data. Because it is marked `Release`, the
         // decreasing of the reference count synchronizes with this `Acquire`
         // fence. This means that use of the data happens before decreasing
-        // the refernce count, which happens before this fence, which
+        // the reference count, which happens before this fence, which
         // happens before the deletion of the data.
         //
         // As explained in the [Boost documentation][1],
@@ -376,14 +376,14 @@ mod tests {
 
     #[test]
     fn test_live() {
-        let x = Arc::new(5);
+        let x = Arc::new(5i);
         let y = x.downgrade();
         assert!(y.upgrade().is_some());
     }
 
     #[test]
     fn test_dead() {
-        let x = Arc::new(5);
+        let x = Arc::new(5i);
         let y = x.downgrade();
         drop(x);
         assert!(y.upgrade().is_none());

@@ -43,7 +43,7 @@ fn addr_to_sockaddr_un(addr: &CString) -> IoResult<(libc::sockaddr_storage, uint
         return Err(IoError {
             code: ERROR as uint,
             extra: 0,
-            detail: Some("path must be smaller than SUN_LEN".to_str()),
+            detail: Some("path must be smaller than SUN_LEN".to_string()),
         })
     }
     s.sun_family = libc::AF_UNIX as libc::sa_family_t;
@@ -278,7 +278,7 @@ impl Drop for UnixListener {
         // careful to unlink the path before we close the file descriptor to
         // prevent races where we unlink someone else's path.
         unsafe {
-            let _ = libc::unlink(self.path.with_ref(|p| p));
+            let _ = libc::unlink(self.path.as_ptr());
         }
     }
 }

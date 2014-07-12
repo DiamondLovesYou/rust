@@ -16,8 +16,9 @@
  * closure.
  */
 
+use arena::TypedArena;
 use back::abi;
-use driver::session;
+use back::link;
 use lib::llvm::ValueRef;
 use lib::llvm::llvm;
 use metadata::csearch;
@@ -33,27 +34,25 @@ use middle::trans::cleanup::CleanupMethods;
 use middle::trans::common;
 use middle::trans::common::*;
 use middle::trans::datum::*;
-use middle::trans::datum::Datum;
+use middle::trans::datum::{Datum, KindOps};
 use middle::trans::expr;
 use middle::trans::glue;
 use middle::trans::inline;
+use middle::trans::foreign;
+use middle::trans::intrinsic;
 use middle::trans::meth;
 use middle::trans::monomorphize;
+use middle::trans::type_::Type;
 use middle::trans::type_of;
-use middle::trans::foreign;
 use middle::ty;
 use middle::typeck;
 use middle::typeck::coherence::make_substs_for_receiver_types;
 use middle::typeck::MethodCall;
 use util::ppaux::Repr;
 
-use middle::trans::type_::Type;
-
+use std::gc::Gc;
 use syntax::ast;
 use synabi = syntax::abi;
-use syntax::ast_map;
-
-use std::gc::Gc;
 
 pub struct MethodData {
     pub llfn: ValueRef,
@@ -67,6 +66,8 @@ pub enum CalleeData {
     // item. Note that this is just the fn-ptr and is not a Rust closure
     // value (which is a pair).
     Fn(/* llfn */ ValueRef),
+
+    Intrinsic(ast::NodeId, subst::Substs),
 
     TraitMethod(MethodData)
 }
@@ -108,7 +109,7 @@ fn trans<'a>(bcx: &'a Block<'a>, expr: &ast::Expr) -> Callee<'a> {
                     expr.span,
                     format!("type of callee is neither bare-fn nor closure: \
                              {}",
-                            bcx.ty_to_str(datum.ty)).as_slice());
+                            bcx.ty_to_string(datum.ty)).as_slice());
             }
         }
     }
@@ -119,7 +120,21 @@ fn trans<'a>(bcx: &'a Block<'a>, expr: &ast::Expr) -> Callee<'a> {
 
     fn trans_def<'a>(bcx: &'a Block<'a>, def: def::Def, ref_expr: &ast::Expr)
                  -> Callee<'a> {
+        debug!("trans_def(def={}, ref_expr={})", def.repr(bcx.tcx()), ref_expr.repr(bcx.tcx()));
+        let expr_ty = node_id_type(bcx, ref_expr.id);
         match def {
+            def::DefFn(did, _) if match ty::get(expr_ty).sty {
+                ty::ty_bare_fn(ref f) => f.abi == synabi::RustIntrinsic,
+                _ => false
+            } => {
+                let substs = node_id_substs(bcx, ExprId(ref_expr.id));
+                let def_id = if did.krate != ast::LOCAL_CRATE {
+                    inline::maybe_instantiate_inline(bcx.ccx(), did)
+                } else {
+                    did
+                };
+                Callee { bcx: bcx, data: Intrinsic(def_id.node, substs) }
+            }
             def::DefFn(did, _) |
             def::DefStaticMethod(did, def::FromImpl(_), _) => {
                 fn_callee(bcx, trans_fn_ref(bcx, did, ExprId(ref_expr.id)))
@@ -216,14 +231,139 @@ fn resolve_default_method_vtables(bcx: &Block,
         bcx.tcx(), &param_substs, &impl_res);
 
     // Now we pull any vtables for parameters on the actual method.
-    param_vtables
-        .get_mut_vec(subst::FnSpace)
-        .push_all(
-            impl_vtables.get_vec(subst::FnSpace).as_slice());
+    param_vtables.push_all(subst::FnSpace,
+                           impl_vtables.get_slice(subst::FnSpace));
 
     param_vtables
 }
 
+/// Translates the adapter that deconstructs a `Box<Trait>` object into
+/// `Trait` so that a by-value self method can be called.
+pub fn trans_unboxing_shim(bcx: &Block,
+                           llshimmedfn: ValueRef,
+                           method: &ty::Method,
+                           method_id: ast::DefId,
+                           substs: subst::Substs)
+                           -> ValueRef {
+    let _icx = push_ctxt("trans_unboxing_shim");
+    let ccx = bcx.ccx();
+    let tcx = bcx.tcx();
+
+    // Transform the self type to `Box<self_type>`.
+    let self_type = *method.fty.sig.inputs.get(0);
+    let boxed_self_type = ty::mk_uniq(tcx, self_type);
+    let boxed_function_type = ty::FnSig {
+        binder_id: method.fty.sig.binder_id,
+        inputs: method.fty.sig.inputs.iter().enumerate().map(|(i, typ)| {
+            if i == 0 {
+                boxed_self_type
+            } else {
+                *typ
+            }
+        }).collect(),
+        output: method.fty.sig.output,
+        variadic: false,
+    };
+    let boxed_function_type = ty::BareFnTy {
+        fn_style: method.fty.fn_style,
+        abi: method.fty.abi,
+        sig: boxed_function_type,
+    };
+    let boxed_function_type =
+        ty::mk_bare_fn(tcx, boxed_function_type).subst(tcx, &substs);
+    let function_type =
+        ty::mk_bare_fn(tcx, method.fty.clone()).subst(tcx, &substs);
+
+    let function_name = ty::with_path(tcx, method_id, |path| {
+        link::mangle_internal_name_by_path_and_seq(path, "unboxing_shim")
+    });
+    let llfn = decl_internal_rust_fn(ccx,
+                                     boxed_function_type,
+                                     function_name.as_slice());
+
+    let block_arena = TypedArena::new();
+    let empty_param_substs = param_substs::empty();
+    let return_type = ty::ty_fn_ret(boxed_function_type);
+    let fcx = new_fn_ctxt(ccx,
+                          llfn,
+                          -1,
+                          false,
+                          return_type,
+                          &empty_param_substs,
+                          None,
+                          &block_arena);
+    let mut bcx = init_function(&fcx, false, return_type);
+
+    // Create the substituted versions of the self type.
+    let arg_scope = fcx.push_custom_cleanup_scope();
+    let arg_scope_id = cleanup::CustomScope(arg_scope);
+    let boxed_arg_types = ty::ty_fn_args(boxed_function_type);
+    let boxed_self_type = *boxed_arg_types.get(0);
+    let arg_types = ty::ty_fn_args(function_type);
+    let self_type = *arg_types.get(0);
+    let boxed_self_kind = arg_kind(&fcx, boxed_self_type);
+
+    // Create a datum for self.
+    let llboxedself = unsafe {
+        llvm::LLVMGetParam(fcx.llfn, fcx.arg_pos(0) as u32)
+    };
+    let llboxedself = Datum::new(llboxedself,
+                                 boxed_self_type,
+                                 boxed_self_kind);
+    let boxed_self =
+        unpack_datum!(bcx,
+                      llboxedself.to_lvalue_datum_in_scope(bcx,
+                                                           "boxedself",
+                                                           arg_scope_id));
+
+    // This `Load` is needed because lvalue data are always by-ref.
+    let llboxedself = Load(bcx, boxed_self.val);
+
+    let llself = if type_is_immediate(ccx, self_type) {
+        let llboxedself = Load(bcx, llboxedself);
+        immediate_rvalue(llboxedself, self_type)
+    } else {
+        let llself = rvalue_scratch_datum(bcx, self_type, "self");
+        memcpy_ty(bcx, llself.val, llboxedself, self_type);
+        llself
+    };
+
+    // Make sure we don't free the box twice!
+    boxed_self.kind.post_store(bcx, boxed_self.val, boxed_self_type);
+
+    // Schedule a cleanup to free the box.
+    fcx.schedule_free_value(arg_scope_id,
+                            llboxedself,
+                            cleanup::HeapExchange,
+                            self_type);
+
+    // Now call the function.
+    let mut llshimmedargs = vec!(llself.val);
+    for i in range(1, arg_types.len()) {
+        llshimmedargs.push(unsafe {
+            llvm::LLVMGetParam(fcx.llfn, fcx.arg_pos(i) as u32)
+        });
+    }
+    bcx = trans_call_inner(bcx,
+                           None,
+                           function_type,
+                           |bcx, _| {
+                               Callee {
+                                   bcx: bcx,
+                                   data: Fn(llshimmedfn),
+                               }
+                           },
+                           ArgVals(llshimmedargs.as_slice()),
+                           match fcx.llretptr.get() {
+                               None => None,
+                               Some(llretptr) => Some(expr::SaveIn(llretptr)),
+                           }).bcx;
+
+    bcx = fcx.pop_and_trans_custom_cleanup_scope(bcx, arg_scope);
+    finish_fn(&fcx, bcx, return_type);
+
+    llfn
+}
 
 pub fn trans_fn_ref_with_vtables(
     bcx: &Block,                 //
@@ -335,27 +475,8 @@ pub fn trans_fn_ref_with_vtables(
         }
     };
 
-    // We must monomorphise if the fn has type parameters, is a rust
-    // intrinsic, or is a default method.  In particular, if we see an
-    // intrinsic that is inlined from a different crate, we want to reemit the
-    // intrinsic instead of trying to call it in the other crate.
-    let must_monomorphise = if !substs.types.is_empty() || is_default {
-        true
-    } else if def_id.krate == ast::LOCAL_CRATE {
-        let map_node = session::expect(
-            ccx.sess(),
-            tcx.map.find(def_id.node),
-            || "local item should be in ast map".to_string());
-
-        match map_node {
-            ast_map::NodeForeignItem(_) => {
-                tcx.map.get_foreign_abi(def_id.node) == synabi::RustIntrinsic
-            }
-            _ => false
-        }
-    } else {
-        false
-    };
+    // We must monomorphise if the fn has type parameters or is a default method.
+    let must_monomorphise = !substs.types.is_empty() || is_default;
 
     // Create a monomorphic version of generic functions
     if must_monomorphise {
@@ -537,6 +658,12 @@ pub fn trans_call_inner<'a>(
     let callee = get_callee(bcx, cleanup::CustomScope(arg_cleanup_scope));
     let mut bcx = callee.bcx;
 
+    let (abi, ret_ty) = match ty::get(callee_ty).sty {
+        ty::ty_bare_fn(ref f) => (f.abi, f.sig.output),
+        ty::ty_closure(ref f) => (synabi::Rust, f.sig.output),
+        _ => fail!("expected bare rust fn or closure in trans_call_inner")
+    };
+
     let (llfn, llenv, llself) = match callee.data {
         Fn(llfn) => {
             (llfn, None, None)
@@ -554,14 +681,19 @@ pub fn trans_call_inner<'a>(
             let llenv = Load(bcx, llenv);
             (llfn, Some(llenv), None)
         }
+        Intrinsic(node, substs) => {
+            assert!(abi == synabi::RustIntrinsic);
+            assert!(dest.is_some());
+
+            return intrinsic::trans_intrinsic_call(bcx, node, callee_ty,
+                                                   arg_cleanup_scope, args,
+                                                   dest.unwrap(), substs);
+        }
     };
 
-    let (abi, ret_ty) = match ty::get(callee_ty).sty {
-        ty::ty_bare_fn(ref f) => (f.abi, f.sig.output),
-        ty::ty_closure(ref f) => (synabi::Rust, f.sig.output),
-        _ => fail!("expected bare rust fn or closure in trans_call_inner")
-    };
-    let is_rust_fn = abi == synabi::Rust || abi == synabi::RustIntrinsic;
+    // Intrinsics should not become actual functions.
+    // We trans them in place in `trans_intrinsic_call`
+    assert!(abi != synabi::RustIntrinsic);
 
     // Generate a location to store the result. If the user does
     // not care about the result, just make a stack slot.
@@ -591,7 +723,7 @@ pub fn trans_call_inner<'a>(
     // and done, either the return value of the function will have been
     // written in opt_llretslot (if it is Some) or `llresult` will be
     // set appropriately (otherwise).
-    if is_rust_fn {
+    if abi == synabi::Rust {
         let mut llargs = Vec::new();
 
         // Push the out-pointer if we use an out-pointer for this
@@ -632,7 +764,7 @@ pub fn trans_call_inner<'a>(
                 if !type_of::return_uses_outptr(bcx.ccx(), ret_ty) &&
                     !type_is_zero_size(bcx.ccx(), ret_ty)
                 {
-                    Store(bcx, llret, llretslot);
+                    store_ty(bcx, llret, llretslot, ret_ty)
                 }
             }
             None => {}
@@ -691,13 +823,13 @@ pub enum CallArgs<'a> {
     ArgOverloadedOp(Datum<Expr>, Option<(Datum<Expr>, ast::NodeId)>),
 }
 
-fn trans_args<'a>(cx: &'a Block<'a>,
-                  args: CallArgs,
-                  fn_ty: ty::t,
-                  llargs: &mut Vec<ValueRef> ,
-                  arg_cleanup_scope: cleanup::ScopeId,
-                  ignore_self: bool)
-                  -> &'a Block<'a> {
+pub fn trans_args<'a>(cx: &'a Block<'a>,
+                      args: CallArgs,
+                      fn_ty: ty::t,
+                      llargs: &mut Vec<ValueRef> ,
+                      arg_cleanup_scope: cleanup::ScopeId,
+                      ignore_self: bool)
+                      -> &'a Block<'a> {
     let _icx = push_ctxt("trans_args");
     let arg_tys = ty::ty_fn_args(fn_ty);
     let variadic = ty::fn_is_variadic(fn_ty);
@@ -780,7 +912,7 @@ pub fn trans_arg_datum<'a>(
 
     let arg_datum_ty = arg_datum.ty;
 
-    debug!("   arg datum: {}", arg_datum.to_str(bcx.ccx()));
+    debug!("   arg datum: {}", arg_datum.to_string(bcx.ccx()));
 
     let mut val;
     if ty::type_is_bot(arg_datum_ty) {
@@ -824,11 +956,11 @@ pub fn trans_arg_datum<'a>(
             // this could happen due to e.g. subtyping
             let llformal_arg_ty = type_of::type_of_explicit_arg(ccx, formal_arg_ty);
             debug!("casting actual type ({}) to match formal ({})",
-                   bcx.val_to_str(val), bcx.llty_str(llformal_arg_ty));
+                   bcx.val_to_string(val), bcx.llty_str(llformal_arg_ty));
             val = PointerCast(bcx, val, llformal_arg_ty);
         }
     }
 
-    debug!("--- trans_arg_datum passing {}", bcx.val_to_str(val));
+    debug!("--- trans_arg_datum passing {}", bcx.val_to_string(val));
     Result::new(bcx, val)
 }

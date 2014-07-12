@@ -141,7 +141,7 @@ impl AtomicBool {
     ///
     /// fn with_lock(spinlock: &Arc<AtomicBool>, f: || -> ()) {
     ///     // CAS loop until we are able to replace `false` with `true`
-    ///     while spinlock.compare_and_swap(false, true, SeqCst) == false {
+    ///     while spinlock.compare_and_swap(false, true, SeqCst) != false {
     ///         // Since tasks may not be preemptive (if they are green threads)
     ///         // yield to the scheduler to let the other task run. Low level
     ///         // concurrent code needs to take into account Rust's two threading
@@ -690,100 +690,6 @@ pub fn fence(order: Ordering) {
             AcqRel  => intrinsics::atomic_fence_acqrel(),
             SeqCst  => intrinsics::atomic_fence(),
             Relaxed => fail!("there is no such thing as a relaxed fence")
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn bool_() {
-        let a = AtomicBool::new(false);
-        assert_eq!(a.compare_and_swap(false, true, SeqCst), false);
-        assert_eq!(a.compare_and_swap(false, true, SeqCst), true);
-
-        a.store(false, SeqCst);
-        assert_eq!(a.compare_and_swap(false, true, SeqCst), false);
-    }
-
-    #[test]
-    fn bool_and() {
-        let a = AtomicBool::new(true);
-        assert_eq!(a.fetch_and(false, SeqCst),true);
-        assert_eq!(a.load(SeqCst),false);
-    }
-
-    #[test]
-    fn uint_and() {
-        let x = AtomicUint::new(0xf731);
-        assert_eq!(x.fetch_and(0x137f, SeqCst), 0xf731);
-        assert_eq!(x.load(SeqCst), 0xf731 & 0x137f);
-    }
-
-    #[test]
-    fn uint_or() {
-        let x = AtomicUint::new(0xf731);
-        assert_eq!(x.fetch_or(0x137f, SeqCst), 0xf731);
-        assert_eq!(x.load(SeqCst), 0xf731 | 0x137f);
-    }
-
-    #[test]
-    fn uint_xor() {
-        let x = AtomicUint::new(0xf731);
-        assert_eq!(x.fetch_xor(0x137f, SeqCst), 0xf731);
-        assert_eq!(x.load(SeqCst), 0xf731 ^ 0x137f);
-    }
-
-    #[test]
-    fn int_and() {
-        let x = AtomicInt::new(0xf731);
-        assert_eq!(x.fetch_and(0x137f, SeqCst), 0xf731);
-        assert_eq!(x.load(SeqCst), 0xf731 & 0x137f);
-    }
-
-    #[test]
-    fn int_or() {
-        let x = AtomicInt::new(0xf731);
-        assert_eq!(x.fetch_or(0x137f, SeqCst), 0xf731);
-        assert_eq!(x.load(SeqCst), 0xf731 | 0x137f);
-    }
-
-    #[test]
-    fn int_xor() {
-        let x = AtomicInt::new(0xf731);
-        assert_eq!(x.fetch_xor(0x137f, SeqCst), 0xf731);
-        assert_eq!(x.load(SeqCst), 0xf731 ^ 0x137f);
-    }
-
-    static mut S_BOOL : AtomicBool = INIT_ATOMIC_BOOL;
-    static mut S_INT  : AtomicInt  = INIT_ATOMIC_INT;
-    static mut S_UINT : AtomicUint = INIT_ATOMIC_UINT;
-
-    #[test]
-    fn static_init() {
-        unsafe {
-            assert!(!S_BOOL.load(SeqCst));
-            assert!(S_INT.load(SeqCst) == 0);
-            assert!(S_UINT.load(SeqCst) == 0);
-        }
-    }
-
-    #[test]
-    fn different_sizes() {
-        unsafe {
-            let mut slot = 0u16;
-            assert_eq!(super::atomic_swap(&mut slot, 1, SeqCst), 0);
-
-            let mut slot = 0u8;
-            assert_eq!(super::atomic_compare_and_swap(&mut slot, 1, 2, SeqCst), 0);
-
-            let slot = 0u32;
-            assert_eq!(super::atomic_load(&slot, SeqCst), 0);
-
-            let mut slot = 0u64;
-            super::atomic_store(&mut slot, 2, SeqCst);
         }
     }
 }

@@ -208,7 +208,7 @@ impl String {
     /// Appends a byte to this string buffer. The caller must preserve the valid UTF-8 property.
     #[inline]
     pub unsafe fn push_byte(&mut self, byte: u8) {
-        self.push_bytes([byte])
+        self.vec.push(byte)
     }
 
     /// Removes the last byte from the string buffer and returns it. Returns `None` if this string
@@ -222,7 +222,7 @@ impl String {
             return None
         }
 
-        let byte = self.as_slice()[len - 1];
+        let byte = self.as_bytes()[len - 1];
         self.vec.set_len(len - 1);
         Some(byte)
     }
@@ -354,7 +354,7 @@ impl<'a, S: Str> Equiv<S> for String {
 
 impl<S: Str> Add<S, String> for String {
     fn add(&self, other: &S) -> String {
-        let mut s = self.to_string();
+        let mut s = String::from_str(self.as_slice());
         s.push_str(other.as_slice());
         return s;
     }
@@ -368,6 +368,12 @@ mod tests {
     use Mutable;
     use str::{Str, StrSlice};
     use super::String;
+
+    #[test]
+    fn test_from_str() {
+      let owned: Option<::std::string::String> = from_str("string");
+      assert_eq!(owned.as_ref().map(|s| s.as_slice()), Some("string"));
+    }
 
     #[bench]
     fn bench_with_capacity(b: &mut Bencher) {

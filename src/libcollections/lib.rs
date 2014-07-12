@@ -12,13 +12,13 @@
  * Collection types.
  */
 
-#![crate_id = "collections#0.11.0-pre"]
+#![crate_name = "collections"]
 #![experimental]
 #![crate_type = "rlib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(macro_rules, managed_boxes, default_type_params, phase, globs)]
@@ -26,6 +26,7 @@
 #![no_std]
 
 #[phase(plugin, link)] extern crate core;
+extern crate unicode;
 extern crate alloc;
 
 #[cfg(test)] extern crate native;
@@ -66,9 +67,6 @@ pub mod str;
 pub mod string;
 pub mod vec;
 pub mod hash;
-
-// Internal unicode fiddly bits for the str module
-mod unicode;
 
 mod deque;
 

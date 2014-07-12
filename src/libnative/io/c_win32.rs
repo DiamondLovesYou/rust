@@ -19,6 +19,13 @@ pub static WSASYS_STATUS_LEN: uint = 128;
 pub static FIONBIO: libc::c_long = 0x8004667e;
 static FD_SETSIZE: uint = 64;
 pub static MSG_DONTWAIT: libc::c_int = 0;
+pub static ERROR_ILLEGAL_CHARACTER: libc::c_int = 582;
+pub static ENABLE_ECHO_INPUT: libc::DWORD = 0x4;
+pub static ENABLE_EXTENDED_FLAGS: libc::DWORD = 0x80;
+pub static ENABLE_INSERT_MODE: libc::DWORD = 0x20;
+pub static ENABLE_LINE_INPUT: libc::DWORD = 0x2;
+pub static ENABLE_PROCESSED_INPUT: libc::DWORD = 0x1;
+pub static ENABLE_QUICK_EDIT_MODE: libc::DWORD = 0x40;
 
 #[repr(C)]
 pub struct WSADATA {
@@ -70,6 +77,7 @@ extern "system" {
 
 pub mod compat {
     use std::intrinsics::{atomic_store_relaxed, transmute};
+    use std::iter::Iterator;
     use libc::types::os::arch::extra::{LPCWSTR, HMODULE, LPCSTR, LPVOID};
 
     extern "system" {
@@ -82,7 +90,8 @@ pub mod compat {
     // layer (after it's loaded) shouldn't be any slower than a regular DLL
     // call.
     unsafe fn store_func(ptr: *mut uint, module: &str, symbol: &str, fallback: uint) {
-        let module = module.to_utf16().append_one(0);
+        let module: Vec<u16> = module.utf16_units().collect();
+        let module = module.append_one(0);
         symbol.with_c_str(|symbol| {
             let handle = GetModuleHandleW(module.as_ptr());
             let func: uint = transmute(GetProcAddress(handle, symbol));
@@ -162,4 +171,25 @@ pub mod compat {
             0
         })
     }
+}
+
+extern "system" {
+    // FIXME - pInputControl should be PCONSOLE_READCONSOLE_CONTROL
+    pub fn ReadConsoleW(hConsoleInput: libc::HANDLE,
+                        lpBuffer: libc::LPVOID,
+                        nNumberOfCharsToRead: libc::DWORD,
+                        lpNumberOfCharsRead: libc::LPDWORD,
+                        pInputControl: libc::LPVOID) -> libc::BOOL;
+
+    pub fn WriteConsoleW(hConsoleOutput: libc::HANDLE,
+                         lpBuffer: libc::types::os::arch::extra::LPCVOID,
+                         nNumberOfCharsToWrite: libc::DWORD,
+                         lpNumberOfCharsWritten: libc::LPDWORD,
+                         lpReserved: libc::LPVOID) -> libc::BOOL;
+
+    pub fn GetConsoleMode(hConsoleHandle: libc::HANDLE,
+                          lpMode: libc::LPDWORD) -> libc::BOOL;
+
+    pub fn SetConsoleMode(hConsoleHandle: libc::HANDLE,
+                          lpMode: libc::DWORD) -> libc::BOOL;
 }

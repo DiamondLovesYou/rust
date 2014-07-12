@@ -15,9 +15,11 @@ use codemap::{CodeMap, Span, ExpnInfo};
 use ext;
 use ext::expand;
 use parse;
+use parse::parser;
 use parse::token;
 use parse::token::{InternedString, intern, str_to_ident};
 use util::small_vector::SmallVector;
+use ext::mtwt;
 
 use std::collections::HashMap;
 use std::gc::{Gc, GC};
@@ -262,17 +264,24 @@ pub enum SyntaxExtension {
     /// A function-like syntax extension that has an extra ident before
     /// the block.
     ///
-    /// `macro_rules!` is an `IdentTT`.
     IdentTT(Box<IdentMacroExpander + 'static>, Option<Span>),
+
+    /// An ident macro that has two properties:
+    /// - it adds a macro definition to the environment, and
+    /// - the definition it adds doesn't introduce any new
+    ///   identifiers.
+    ///
+    /// `macro_rules!` is a LetSyntaxTT
+    LetSyntaxTT(Box<IdentMacroExpander + 'static>, Option<Span>),
 }
 
 pub type NamedSyntaxExtension = (Name, SyntaxExtension);
 
 pub struct BlockInfo {
-    // should macros escape from this scope?
+    /// Should macros escape from this scope?
     pub macros_escape: bool,
-    // what are the pending renames?
-    pub pending_renames: RenameList,
+    /// What are the pending renames?
+    pub pending_renames: mtwt::RenameList,
 }
 
 impl BlockInfo {
@@ -284,11 +293,8 @@ impl BlockInfo {
     }
 }
 
-// a list of ident->name renamings
-pub type RenameList = Vec<(ast::Ident, Name)>;
-
-// The base map of methods for expanding syntax extension
-// AST nodes into full ASTs
+/// The base map of methods for expanding syntax extension
+/// AST nodes into full ASTs
 pub fn syntax_expander_table() -> SyntaxEnv {
     // utility function to simplify creating NormalTT syntax extensions
     fn builtin_normal_expander(f: MacroExpanderFn) -> SyntaxExtension {
@@ -301,7 +307,7 @@ pub fn syntax_expander_table() -> SyntaxEnv {
 
     let mut syntax_expanders = SyntaxEnv::new();
     syntax_expanders.insert(intern("macro_rules"),
-                            IdentTT(box BasicIdentMacroExpander {
+                            LetSyntaxTT(box BasicIdentMacroExpander {
                                 expander: ext::tt::macro_rules::add_new_extension,
                                 span: None,
                             },
@@ -392,9 +398,9 @@ pub fn syntax_expander_table() -> SyntaxEnv {
     syntax_expanders
 }
 
-// One of these is made during expansion and incrementally updated as we go;
-// when a macro expansion occurs, the resulting nodes have the backtrace()
-// -> expn_info of their expansion context stored into their span.
+/// One of these is made during expansion and incrementally updated as we go;
+/// when a macro expansion occurs, the resulting nodes have the backtrace()
+/// -> expn_info of their expansion context stored into their span.
 pub struct ExtCtxt<'a> {
     pub parse_sess: &'a parse::ParseSess,
     pub cfg: ast::CrateConfig,
@@ -433,6 +439,11 @@ impl<'a> ExtCtxt<'a> {
         }
     }
 
+    pub fn new_parser_from_tts(&self, tts: &[ast::TokenTree])
+        -> parser::Parser<'a> {
+        parse::tts_to_parser(self.parse_sess, Vec::from_slice(tts), self.cfg())
+    }
+
     pub fn codemap(&self) -> &'a CodeMap { &self.parse_sess.span_diagnostic.cm }
     pub fn parse_sess(&self) -> &'a parse::ParseSess { self.parse_sess }
     pub fn cfg(&self) -> ast::CrateConfig { self.cfg.clone() }
@@ -448,7 +459,7 @@ impl<'a> ExtCtxt<'a> {
     pub fn mod_pop(&mut self) { self.mod_path.pop().unwrap(); }
     pub fn mod_path(&self) -> Vec<ast::Ident> {
         let mut v = Vec::new();
-        v.push(token::str_to_ident(self.ecfg.crate_id.name.as_slice()));
+        v.push(token::str_to_ident(self.ecfg.crate_name.as_slice()));
         v.extend(self.mod_path.iter().map(|a| *a));
         return v;
     }
@@ -472,7 +483,7 @@ impl<'a> ExtCtxt<'a> {
     }
     /// Emit `msg` attached to `sp`, and stop compilation immediately.
     ///
-    /// `span_err` should be strongly prefered where-ever possible:
+    /// `span_err` should be strongly preferred where-ever possible:
     /// this should *only* be used when
     /// - continuing has a high risk of flow-on errors (e.g. errors in
     ///   declaring a macro would cause all uses of that macro to
@@ -524,12 +535,15 @@ impl<'a> ExtCtxt<'a> {
     pub fn ident_of(&self, st: &str) -> ast::Ident {
         str_to_ident(st)
     }
+    pub fn name_of(&self, st: &str) -> ast::Name {
+        token::intern(st)
+    }
 }
 
 /// Extract a string literal from the macro expanded version of `expr`,
 /// emitting `err_msg` if `expr` is not a string literal. This does not stop
 /// compilation on error, merely emits a non-fatal error and returns None.
-pub fn expr_to_str(cx: &mut ExtCtxt, expr: Gc<ast::Expr>, err_msg: &str)
+pub fn expr_to_string(cx: &mut ExtCtxt, expr: Gc<ast::Expr>, err_msg: &str)
                    -> Option<(InternedString, ast::StrStyle)> {
     // we want to be able to handle e.g. concat("foo", "bar")
     let expr = cx.expand_expr(expr);
@@ -568,9 +582,9 @@ pub fn get_single_str_from_tts(cx: &ExtCtxt,
         cx.span_err(sp, format!("{} takes 1 argument.", name).as_slice());
     } else {
         match tts[0] {
-            ast::TTTok(_, token::LIT_STR(ident))
-            | ast::TTTok(_, token::LIT_STR_RAW(ident, _)) => {
-                return Some(token::get_ident(ident).get().to_string())
+            ast::TTTok(_, token::LIT_STR(ident)) => return Some(parse::str_lit(ident.as_str())),
+            ast::TTTok(_, token::LIT_STR_RAW(ident, _)) => {
+                return Some(parse::raw_str_lit(ident.as_str()))
             }
             _ => {
                 cx.span_err(sp,
@@ -586,11 +600,7 @@ pub fn get_single_str_from_tts(cx: &ExtCtxt,
 pub fn get_exprs_from_tts(cx: &mut ExtCtxt,
                           sp: Span,
                           tts: &[ast::TokenTree]) -> Option<Vec<Gc<ast::Expr>>> {
-    let mut p = parse::new_parser_from_tts(cx.parse_sess(),
-                                           cx.cfg(),
-                                           tts.iter()
-                                              .map(|x| (*x).clone())
-                                              .collect());
+    let mut p = cx.new_parser_from_tts(tts);
     let mut es = Vec::new();
     while p.token != token::EOF {
         es.push(cx.expand_expr(p.parse_expr()));
@@ -605,11 +615,11 @@ pub fn get_exprs_from_tts(cx: &mut ExtCtxt,
     Some(es)
 }
 
-// in order to have some notion of scoping for macros,
-// we want to implement the notion of a transformation
-// environment.
+/// In order to have some notion of scoping for macros,
+/// we want to implement the notion of a transformation
+/// environment.
 
-// This environment maps Names to SyntaxExtensions.
+/// This environment maps Names to SyntaxExtensions.
 
 //impl question: how to implement it? Initially, the
 // env will contain only macros, so it might be painful
@@ -626,7 +636,6 @@ struct MapChainFrame {
     map: HashMap<Name, SyntaxExtension>,
 }
 
-// Only generic to make it easy to test
 pub struct SyntaxEnv {
     chain: Vec<MapChainFrame> ,
 }

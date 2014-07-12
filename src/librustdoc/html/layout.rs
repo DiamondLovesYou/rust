@@ -11,10 +11,13 @@
 use std::fmt;
 use std::io;
 
+use externalfiles::ExternalHtml;
+
 #[deriving(Clone)]
 pub struct Layout {
     pub logo: String,
     pub favicon: String,
+    pub external_html: ExternalHtml,
     pub krate: String,
     pub playground_url: String,
 }
@@ -39,11 +42,10 @@ r##"<!DOCTYPE html>
 
     <title>{title}</title>
 
-    <link href='http://fonts.googleapis.com/css?family=Source+Code+Pro:400,600'
-          rel='stylesheet' type='text/css'>
     <link rel="stylesheet" type="text/css" href="{root_path}main.css">
 
     {favicon}
+    {in_header}
 </head>
 <body>
     <!--[if lte IE 8]>
@@ -52,6 +54,8 @@ r##"<!DOCTYPE html>
         things.
     </div>
     <![endif]-->
+
+    {before_content}
 
     <section class="sidebar">
         {logo}
@@ -105,6 +109,8 @@ r##"<!DOCTYPE html>
         </div>
     </div>
 
+    {after_content}
+
     <script>
         window.rootPath = "{root_path}";
         window.currentCrate = "{krate}";
@@ -133,6 +139,9 @@ r##"<!DOCTYPE html>
     } else {
         format!(r#"<link rel="shortcut icon" href="{}">"#, layout.favicon)
     },
+    in_header = layout.external_html.in_header,
+    before_content = layout.external_html.before_content,
+    after_content = layout.external_html.after_content,
     sidebar   = *sidebar,
     krate     = layout.krate,
     play_url  = layout.playground_url,

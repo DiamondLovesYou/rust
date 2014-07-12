@@ -206,9 +206,7 @@ pub fn render(w: &mut fmt::Formatter, s: &str, print_toc: bool) -> fmt::Result {
                     s.push_str(highlight::highlight(text.as_slice(), None, id)
                                          .as_slice());
                     let output = s.to_c_str();
-                    output.with_ref(|r| {
-                        hoedown_buffer_puts(ob, r)
-                    })
+                    hoedown_buffer_puts(ob, output.as_ptr());
                 }
             })
         }
@@ -231,7 +229,7 @@ pub fn render(w: &mut fmt::Formatter, s: &str, print_toc: bool) -> fmt::Result {
         // Transform the contents of the header into a hyphenated string
         let id = s.as_slice().words().map(|s| {
             match s.to_ascii_opt() {
-                Some(s) => s.to_lower().into_str(),
+                Some(s) => s.to_lower().into_string(),
                 None => s.to_string()
             }
         }).collect::<Vec<String>>().connect("-");

@@ -915,7 +915,7 @@ mod test {
     macro_rules! error( ($e:expr, $s:expr) => (
         match $e {
             Ok(val) => fail!("Should have been an error, was {:?}", val),
-            Err(ref err) => assert!(err.to_str().as_slice().contains($s.as_slice()),
+            Err(ref err) => assert!(err.to_string().as_slice().contains($s.as_slice()),
                                     format!("`{}` did not contain `{}`", err, $s))
         }
     ) )
@@ -1051,7 +1051,7 @@ mod test {
         let initial_msg =   "food-is-yummy";
         let overwrite_msg =    "-the-bar!!";
         let final_msg =     "foo-the-bar!!";
-        let seek_idx = 3;
+        let seek_idx = 3i;
         let mut read_mem = [0, .. 13];
         let tmpdir = tmpdir();
         let filename = &tmpdir.join("file_rt_io_file_test_seek_and_write.txt");
@@ -1167,7 +1167,7 @@ mod test {
         for n in range(0i,3) {
             let f = dir.join(format!("{}.txt", n));
             let mut w = check!(File::create(&f));
-            let msg_str = format!("{}{}", prefix, n.to_str());
+            let msg_str = format!("{}{}", prefix, n.to_string());
             let msg = msg_str.as_slice().as_bytes();
             check!(w.write(msg));
         }
@@ -1206,8 +1206,8 @@ mod test {
         let mut cur = [0u8, .. 2];
         for f in files {
             let stem = f.filestem_str().unwrap();
-            let root = stem[0] - ('0' as u8);
-            let name = stem[1] - ('0' as u8);
+            let root = stem.as_bytes()[0] - ('0' as u8);
+            let name = stem.as_bytes()[1] - ('0' as u8);
             assert!(cur[root as uint] < name);
             cur[root as uint] = name;
         }

@@ -67,7 +67,7 @@ impl PipeWatcher {
             handle
         };
         PipeWatcher {
-            stream: StreamWatcher::new(handle),
+            stream: StreamWatcher::new(handle, true),
             home: home,
             defused: false,
             refcount: Refcount::new(),
@@ -94,7 +94,7 @@ impl PipeWatcher {
         cx.connect(pipe, timeout, io, |req, pipe, cb| {
             unsafe {
                 uvll::uv_pipe_connect(req.handle, pipe.handle(),
-                                      name.with_ref(|p| p), cb)
+                                      name.as_ptr(), cb)
             }
             0
         })
@@ -131,7 +131,7 @@ impl rtio::RtioPipe for PipeWatcher {
 
     fn clone(&self) -> Box<rtio::RtioPipe + Send> {
         box PipeWatcher {
-            stream: StreamWatcher::new(self.stream.handle),
+            stream: StreamWatcher::new(self.stream.handle, false),
             defused: false,
             home: self.home.clone(),
             refcount: self.refcount.clone(),
@@ -227,7 +227,7 @@ impl PipeListener {
     {
         let pipe = PipeWatcher::new(io, false);
         match unsafe {
-            uvll::uv_pipe_bind(pipe.handle(), name.with_ref(|p| p))
+            uvll::uv_pipe_bind(pipe.handle(), name.as_ptr())
         } {
             0 => {
                 // If successful, unwrap the PipeWatcher because we control how

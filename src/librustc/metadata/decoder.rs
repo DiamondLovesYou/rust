@@ -46,7 +46,6 @@ use syntax::parse::token;
 use syntax::print::pprust;
 use syntax::ast;
 use syntax::codemap;
-use syntax::crateid::CrateId;
 
 pub type Cmd<'a> = &'a crate_metadata;
 
@@ -165,23 +164,10 @@ fn item_visibility(item: ebml::Doc) -> ast::Visibility {
     }
 }
 
-fn item_sized(item: ebml::Doc) -> ast::Sized {
-    match reader::maybe_get_doc(item, tag_items_data_item_sized) {
-        None => ast::StaticSize,
-        Some(sized_doc) => {
-            match reader::doc_as_u8(sized_doc) as char {
-                'd' => ast::DynSize,
-                's' => ast::StaticSize,
-                _ => fail!("unknown sized-ness character")
-            }
-        }
-    }
-}
-
 fn item_method_sort(item: ebml::Doc) -> char {
     let mut ret = 'r';
     reader::tagged_docs(item, tag_item_trait_method_sort, |doc| {
-        ret = doc.as_str_slice()[0] as char;
+        ret = doc.as_str_slice().as_bytes()[0] as char;
         false
     });
     ret
@@ -337,7 +323,7 @@ fn item_name(intr: &IdentInterner, item: ebml::Doc) -> ast::Ident {
     let string = name.as_str_slice();
     match intr.find_equiv(&string) {
         None => token::str_to_ident(string),
-        Some(val) => ast::Ident::new(val as ast::Name),
+        Some(val) => ast::Ident::new(val),
     }
 }
 
@@ -394,7 +380,6 @@ pub fn get_trait_def(cdata: Cmd,
     let tp_defs = item_ty_param_defs(item_doc, tcx, cdata,
                                      tag_items_data_item_ty_param_bounds);
     let rp_defs = item_region_param_defs(item_doc, cdata);
-    let sized = item_sized(item_doc);
     let mut bounds = ty::empty_builtin_bounds();
     // Collect the builtin bounds from the encoded supertraits.
     // FIXME(#8559): They should be encoded directly.
@@ -406,12 +391,6 @@ pub fn get_trait_def(cdata: Cmd,
         });
         true
     });
-    // Turn sized into a bound, FIXME(#8559).
-    if sized == ast::StaticSize {
-        tcx.lang_items.to_builtin_kind(tcx.lang_items.sized_trait().unwrap()).map(|bound| {
-            bounds.add(bound);
-        });
-    }
 
     ty::TraitDef {
         generics: ty::Generics {types: tp_defs,
@@ -757,13 +736,14 @@ fn get_explicit_self(item: ebml::Doc) -> ast::ExplicitSelf_ {
     let explicit_self_doc = reader::get_doc(item, tag_item_trait_method_explicit_self);
     let string = explicit_self_doc.as_str_slice();
 
-    let explicit_self_kind = string[0];
+    let explicit_self_kind = string.as_bytes()[0];
     match explicit_self_kind as char {
         's' => ast::SelfStatic,
-        'v' => ast::SelfValue,
-        '~' => ast::SelfUniq,
+        'v' => ast::SelfValue(special_idents::self_),
+        '~' => ast::SelfUniq(special_idents::self_),
         // FIXME(#4846) expl. region
-        '&' => ast::SelfRegion(None, get_mutability(string[1])),
+        '&' => ast::SelfRegion(None, get_mutability(string.as_bytes()[1]),
+                               special_idents::self_),
         _ => fail!("unknown self type code: `{}`", explicit_self_kind as char)
     }
 }
@@ -1088,7 +1068,7 @@ fn list_crate_attributes(md: ebml::Doc, hash: &Svh,
 
     let r = get_attributes(md);
     for attr in r.iter() {
-        try!(write!(out, "{}\n", pprust::attribute_to_str(attr)));
+        try!(write!(out, "{}\n", pprust::attribute_to_string(attr)));
     }
 
     write!(out, "\n\n")
@@ -1101,7 +1081,7 @@ pub fn get_crate_attributes(data: &[u8]) -> Vec<ast::Attribute> {
 #[deriving(Clone)]
 pub struct CrateDep {
     pub cnum: ast::CrateNum,
-    pub crate_id: CrateId,
+    pub name: String,
     pub hash: Svh,
 }
 
@@ -1115,13 +1095,11 @@ pub fn get_crate_deps(data: &[u8]) -> Vec<CrateDep> {
         d.as_str_slice().to_string()
     }
     reader::tagged_docs(depsdoc, tag_crate_dep, |depdoc| {
-        let crate_id =
-            from_str(docstr(depdoc,
-                            tag_crate_dep_crateid).as_slice()).unwrap();
+        let name = docstr(depdoc, tag_crate_dep_crate_name);
         let hash = Svh::new(docstr(depdoc, tag_crate_dep_hash).as_slice());
         deps.push(CrateDep {
             cnum: crate_num,
-            crate_id: crate_id,
+            name: name,
             hash: hash,
         });
         crate_num += 1;
@@ -1133,7 +1111,7 @@ pub fn get_crate_deps(data: &[u8]) -> Vec<CrateDep> {
 fn list_crate_deps(data: &[u8], out: &mut io::Writer) -> io::IoResult<()> {
     try!(write!(out, "=External Dependencies=\n"));
     for dep in get_crate_deps(data).iter() {
-        try!(write!(out, "{} {}-{}\n", dep.cnum, dep.crate_id, dep.hash));
+        try!(write!(out, "{} {}-{}\n", dep.cnum, dep.name, dep.hash));
     }
     try!(write!(out, "\n"));
     Ok(())
@@ -1152,23 +1130,21 @@ pub fn get_crate_hash(data: &[u8]) -> Svh {
     Svh::new(hashdoc.as_str_slice())
 }
 
-pub fn maybe_get_crate_id(data: &[u8]) -> Option<CrateId> {
+pub fn maybe_get_crate_name(data: &[u8]) -> Option<String> {
     let cratedoc = ebml::Doc::new(data);
-    reader::maybe_get_doc(cratedoc, tag_crate_crateid).map(|doc| {
-        from_str(doc.as_str_slice()).unwrap()
+    reader::maybe_get_doc(cratedoc, tag_crate_crate_name).map(|doc| {
+        doc.as_str_slice().to_string()
     })
 }
 
-pub fn get_crate_triple(data: &[u8]) -> String {
+pub fn get_crate_triple(data: &[u8]) -> Option<String> {
     let cratedoc = ebml::Doc::new(data);
     let triple_doc = reader::maybe_get_doc(cratedoc, tag_crate_triple);
-    triple_doc.expect("No triple in crate").as_str().to_string()
+    triple_doc.map(|s| s.as_str().to_string())
 }
 
-pub fn get_crate_id(data: &[u8]) -> CrateId {
-    let cratedoc = ebml::Doc::new(data);
-    let hashdoc = reader::get_doc(cratedoc, tag_crate_crateid);
-    from_str(hashdoc.as_str_slice()).unwrap()
+pub fn get_crate_name(data: &[u8]) -> String {
+    maybe_get_crate_name(data).expect("no crate name in crate")
 }
 
 pub fn list_crate_metadata(bytes: &[u8], out: &mut io::Writer) -> io::IoResult<()> {

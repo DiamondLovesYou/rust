@@ -13,14 +13,15 @@ use middle::freevars::freevar_entry;
 use middle::freevars;
 use middle::subst;
 use middle::ty;
+use middle::typeck::{MethodCall, NoAdjustment};
 use middle::typeck;
-use util::ppaux::{Repr, ty_to_str};
+use util::ppaux::{Repr, ty_to_string};
 use util::ppaux::UserString;
 
 use syntax::ast::*;
 use syntax::attr;
 use syntax::codemap::Span;
-use syntax::print::pprust::{expr_to_str,path_to_str};
+use syntax::print::pprust::{expr_to_string, ident_to_string};
 use syntax::{visit};
 use syntax::visit::Visitor;
 
@@ -125,7 +126,7 @@ fn check_impl_of_trait(cx: &mut Context, it: &Item, trait_ref: &TraitRef, self_t
         cx.tcx.sess.span_err(self_type.span,
             format!("the type `{}', which does not fulfill `{}`, cannot implement this \
                     trait",
-                    ty_to_str(cx.tcx, self_ty),
+                    ty_to_string(cx.tcx, self_ty),
                     missing.user_string(cx.tcx)).as_slice());
         cx.tcx.sess.span_note(self_type.span,
             format!("types implementing this trait must fulfill `{}`",
@@ -245,7 +246,7 @@ fn check_fn(
 }
 
 pub fn check_expr(cx: &mut Context, e: &Expr) {
-    debug!("kind::check_expr({})", expr_to_str(e));
+    debug!("kind::check_expr({})", expr_to_string(e));
 
     // Handle any kind bounds on type parameters
     check_bounds_on_type_parameters(cx, e);
@@ -261,7 +262,15 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
         ExprCast(ref source, _) => {
             let source_ty = ty::expr_ty(cx.tcx, &**source);
             let target_ty = ty::expr_ty(cx.tcx, e);
-            check_trait_cast(cx, source_ty, target_ty, source.span);
+            let method_call = MethodCall {
+                expr_id: e.id,
+                adjustment: NoAdjustment,
+            };
+            check_trait_cast(cx,
+                             source_ty,
+                             target_ty,
+                             source.span,
+                             method_call);
         }
         ExprRepeat(ref element, ref count_expr) => {
             let count = ty::eval_repeat_count(cx.tcx, &**count_expr);
@@ -281,7 +290,15 @@ pub fn check_expr(cx: &mut Context, e: &Expr) {
                 ty::AutoObject(..) => {
                     let source_ty = ty::expr_ty(cx.tcx, e);
                     let target_ty = ty::expr_ty_adjusted(cx.tcx, e);
-                    check_trait_cast(cx, source_ty, target_ty, e.span);
+                    let method_call = MethodCall {
+                        expr_id: e.id,
+                        adjustment: typeck::AutoObject,
+                    };
+                    check_trait_cast(cx,
+                                     source_ty,
+                                     target_ty,
+                                     e.span,
+                                     method_call);
                 }
                 ty::AutoAddEnv(..) |
                 ty::AutoDerefRef(..) => {}
@@ -364,15 +381,62 @@ fn check_bounds_on_type_parameters(cx: &mut Context, e: &Expr) {
     }
 }
 
-fn check_trait_cast(cx: &mut Context, source_ty: ty::t, target_ty: ty::t, span: Span) {
+fn check_type_parameter_bounds_in_vtable_result(
+        cx: &mut Context,
+        span: Span,
+        vtable_res: &typeck::vtable_res) {
+    for origins in vtable_res.iter() {
+        for origin in origins.iter() {
+            let (type_param_defs, substs) = match *origin {
+                typeck::vtable_static(def_id, ref tys, _) => {
+                    let type_param_defs =
+                        ty::lookup_item_type(cx.tcx, def_id).generics
+                                                            .types
+                                                            .clone();
+                    (type_param_defs, (*tys).clone())
+                }
+                _ => {
+                    // Nothing to do here.
+                    continue
+                }
+            };
+            for type_param_def in type_param_defs.iter() {
+                let typ = substs.types.get(type_param_def.space,
+                                           type_param_def.index);
+                check_typaram_bounds(cx, span, *typ, type_param_def)
+            }
+        }
+    }
+}
+
+fn check_trait_cast(cx: &mut Context,
+                    source_ty: ty::t,
+                    target_ty: ty::t,
+                    span: Span,
+                    method_call: MethodCall) {
     check_cast_for_escaping_regions(cx, source_ty, target_ty, span);
     match ty::get(target_ty).sty {
-        ty::ty_uniq(ty) | ty::ty_rptr(_, ty::mt{ ty, .. }) => match ty::get(ty).sty {
-            ty::ty_trait(box ty::TyTrait { bounds, .. }) => {
-                check_trait_cast_bounds(cx, span, source_ty, bounds);
+        ty::ty_uniq(ty) | ty::ty_rptr(_, ty::mt{ ty, .. }) => {
+            match ty::get(ty).sty {
+                ty::ty_trait(box ty::TyTrait { bounds, .. }) => {
+                     match cx.tcx.vtable_map.borrow().find(&method_call) {
+                        None => {
+                            cx.tcx.sess.span_bug(span,
+                                                 "trait cast not in vtable \
+                                                  map?!")
+                        }
+                        Some(vtable_res) => {
+                            check_type_parameter_bounds_in_vtable_result(
+                                cx,
+                                span,
+                                vtable_res)
+                        }
+                    };
+                    check_trait_cast_bounds(cx, span, source_ty, bounds);
+                }
+                _ => {}
             }
-            _ => {}
-        },
+        }
         _ => {}
     }
 }
@@ -428,7 +492,7 @@ pub fn check_typaram_bounds(cx: &Context,
             sp,
             format!("instantiating a type parameter with an incompatible type \
                      `{}`, which does not fulfill `{}`",
-                    ty_to_str(cx.tcx, ty),
+                    ty_to_string(cx.tcx, ty),
                     missing.user_string(cx.tcx)).as_slice());
     });
 }
@@ -445,14 +509,14 @@ pub fn check_freevar_bounds(cx: &Context, sp: Span, ty: ty::t,
                 format!("cannot implicitly borrow variable of type `{}` in a \
                          bounded stack closure (implicit reference does not \
                          fulfill `{}`)",
-                        ty_to_str(cx.tcx, rty),
+                        ty_to_string(cx.tcx, rty),
                         missing.user_string(cx.tcx)).as_slice())
             }
             None => {
                 cx.tcx.sess.span_err(sp,
                 format!("cannot capture variable of type `{}`, which does \
                          not fulfill `{}`, in a bounded closure",
-                        ty_to_str(cx.tcx, ty),
+                        ty_to_string(cx.tcx, ty),
                         missing.user_string(cx.tcx)).as_slice())
             }
         }
@@ -469,20 +533,20 @@ pub fn check_trait_cast_bounds(cx: &Context, sp: Span, ty: ty::t,
         cx.tcx.sess.span_err(sp,
             format!("cannot pack type `{}`, which does not fulfill \
                      `{}`, as a trait bounded by {}",
-                    ty_to_str(cx.tcx, ty), missing.user_string(cx.tcx),
+                    ty_to_string(cx.tcx, ty), missing.user_string(cx.tcx),
                     bounds.user_string(cx.tcx)).as_slice());
     });
 }
 
 fn check_copy(cx: &Context, ty: ty::t, sp: Span, reason: &str) {
     debug!("type_contents({})={}",
-           ty_to_str(cx.tcx, ty),
-           ty::type_contents(cx.tcx, ty).to_str());
+           ty_to_string(cx.tcx, ty),
+           ty::type_contents(cx.tcx, ty).to_string());
     if ty::type_moves_by_default(cx.tcx, ty) {
         cx.tcx.sess.span_err(
             sp,
             format!("copying a value of non-copyable type `{}`",
-                    ty_to_str(cx.tcx, ty)).as_slice());
+                    ty_to_string(cx.tcx, ty)).as_slice());
         cx.tcx.sess.span_note(sp, format!("{}", reason).as_slice());
     }
 }
@@ -494,7 +558,7 @@ pub fn check_static(tcx: &ty::ctxt, ty: ty::t, sp: Span) -> bool {
             tcx.sess.span_err(sp,
                 format!("value may contain references; \
                          add `'static` bound to `{}`",
-                        ty_to_str(tcx, ty)).as_slice());
+                        ty_to_string(tcx, ty)).as_slice());
           }
           _ => {
             tcx.sess.span_err(sp, "value may contain references");
@@ -579,7 +643,7 @@ pub fn check_cast_for_escaping_regions(
             //         source_span,
             //         format!("source contains reference with lifetime \
             //               not found in the target type `{}`",
-            //              ty_to_str(cx.tcx, target_ty)));
+            //              ty_to_string(cx.tcx, target_ty)));
             //     note_and_explain_region(
             //         cx.tcx, "source data is only valid for ", r, "");
             // }
@@ -619,7 +683,7 @@ fn check_sized(tcx: &ty::ctxt, ty: ty::t, name: String, sp: Span) {
                           format!("variable `{}` has dynamically sized type \
                                    `{}`",
                                   name,
-                                  ty_to_str(tcx, ty)).as_slice());
+                                  ty_to_string(tcx, ty)).as_slice());
     }
 }
 
@@ -627,7 +691,7 @@ fn check_sized(tcx: &ty::ctxt, ty: ty::t, name: String, sp: Span) {
 fn check_pat(cx: &mut Context, pat: &Pat) {
     let var_name = match pat.node {
         PatWild => Some("_".to_string()),
-        PatIdent(_, ref path, _) => Some(path_to_str(path).to_string()),
+        PatIdent(_, ref path1, _) => Some(ident_to_string(&path1.node).to_string()),
         _ => None
     };
 
@@ -638,7 +702,7 @@ fn check_pat(cx: &mut Context, pat: &Pat) {
             match ty {
                 Some(ty) => {
                     debug!("kind: checking sized-ness of variable {}: {}",
-                           name, ty_to_str(cx.tcx, *ty));
+                           name, ty_to_string(cx.tcx, *ty));
                     check_sized(cx.tcx, *ty, name, pat.span);
                 }
                 None => {} // extern fn args

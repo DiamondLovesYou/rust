@@ -94,14 +94,15 @@
 //! all the standard macros, such as `assert!`, `fail!`, `println!`,
 //! and `format!`, also available to all Rust code.
 
-#![crate_id = "std#0.11.0-pre"]
+#![crate_name = "std"]
+#![unstable]
 #![comment = "The Rust standard library"]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(macro_rules, globs, managed_boxes, linkage)]
@@ -129,6 +130,7 @@ extern crate green;
 
 
 extern crate alloc;
+extern crate unicode;
 extern crate core;
 extern crate core_collections = "collections";
 extern crate core_rand = "rand";
@@ -151,7 +153,6 @@ extern crate rustrt;
 pub use core::any;
 pub use core::bool;
 pub use core::cell;
-pub use core::char;
 pub use core::clone;
 #[cfg(not(test))] pub use core::cmp;
 pub use core::default;
@@ -165,6 +166,9 @@ pub use core::ptr;
 pub use core::raw;
 pub use core::simd;
 pub use core::tuple;
+// FIXME #15320: primitive documentation needs top-level modules, this
+// should be `std::tuple::unit`.
+pub use core::unit;
 #[cfg(not(test))] pub use core::ty;
 pub use core::result;
 pub use core::option;
@@ -172,7 +176,6 @@ pub use core::option;
 pub use alloc::owned;
 pub use alloc::rc;
 
-pub use core_collections::hash;
 pub use core_collections::slice;
 pub use core_collections::str;
 pub use core_collections::string;
@@ -180,6 +183,8 @@ pub use core_collections::vec;
 
 pub use rustrt::c_str;
 pub use rustrt::local_data;
+
+pub use unicode::char;
 
 pub use core_sync::comm;
 
@@ -250,6 +255,7 @@ pub mod to_str;
 /* Common data structures */
 
 pub mod collections;
+pub mod hash;
 
 /* Tasks and communication */
 
@@ -293,12 +299,4 @@ mod std {
     #[cfg(test)] pub use os = realstd::os;
     // The test runner requires std::slice::Vector, so re-export std::slice just for it.
     #[cfg(test)] pub use slice;
-}
-
-#[deprecated]
-#[allow(missing_doc)]
-#[doc(hiden)]
-pub mod unstable {
-    #[deprecated = "use std::dynamic_lib"]
-    pub use dynamic_lib;
 }

@@ -12,6 +12,7 @@ extern crate libc;
 
 use codemap::{Pos, Span};
 use codemap;
+use diagnostics;
 
 use std::cell::{RefCell, Cell};
 use std::fmt;
@@ -21,7 +22,7 @@ use std::string::String;
 use term::WriterWrapper;
 use term;
 
-// maximum number of lines we will print for each error; arbitrary.
+/// maximum number of lines we will print for each error; arbitrary.
 static MAX_LINES: uint = 6u;
 
 #[deriving(Clone)]
@@ -59,7 +60,7 @@ pub enum ColorConfig {
 
 pub trait Emitter {
     fn emit(&mut self, cmsp: Option<(&codemap::CodeMap, Span)>,
-            msg: &str, lvl: Level);
+            msg: &str, code: Option<&str>, lvl: Level);
     fn custom_emit(&mut self, cm: &codemap::CodeMap,
                    sp: RenderSpan, msg: &str, lvl: Level);
 }
@@ -73,9 +74,9 @@ pub struct FatalError;
 /// or `.span_bug` rather than a failed assertion, etc.
 pub struct ExplicitBug;
 
-// a span-handler is like a handler but also
-// accepts span information for source-location
-// reporting.
+/// A span-handler is like a handler but also
+/// accepts span information for source-location
+/// reporting.
 pub struct SpanHandler {
     pub handler: Handler,
     pub cm: codemap::CodeMap,
@@ -88,6 +89,10 @@ impl SpanHandler {
     }
     pub fn span_err(&self, sp: Span, msg: &str) {
         self.handler.emit(Some((&self.cm, sp)), msg, Error);
+        self.handler.bump_err_count();
+    }
+    pub fn span_err_with_code(&self, sp: Span, msg: &str, code: &str) {
+        self.handler.emit_with_code(Some((&self.cm, sp)), msg, code, Error);
         self.handler.bump_err_count();
     }
     pub fn span_warn(&self, sp: Span, msg: &str) {
@@ -114,9 +119,9 @@ impl SpanHandler {
     }
 }
 
-// a handler deals with errors; certain errors
-// (fatal, bug, unimpl) may cause immediate exit,
-// others log errors for later reporting.
+/// A handler deals with errors; certain errors
+/// (fatal, bug, unimpl) may cause immediate exit,
+/// others log errors for later reporting.
 pub struct Handler {
     err_count: Cell<uint>,
     emit: RefCell<Box<Emitter + Send>>,
@@ -124,11 +129,11 @@ pub struct Handler {
 
 impl Handler {
     pub fn fatal(&self, msg: &str) -> ! {
-        self.emit.borrow_mut().emit(None, msg, Fatal);
+        self.emit.borrow_mut().emit(None, msg, None, Fatal);
         fail!(FatalError);
     }
     pub fn err(&self, msg: &str) {
-        self.emit.borrow_mut().emit(None, msg, Error);
+        self.emit.borrow_mut().emit(None, msg, None, Error);
         self.bump_err_count();
     }
     pub fn bump_err_count(&self) {
@@ -153,13 +158,13 @@ impl Handler {
         self.fatal(s.as_slice());
     }
     pub fn warn(&self, msg: &str) {
-        self.emit.borrow_mut().emit(None, msg, Warning);
+        self.emit.borrow_mut().emit(None, msg, None, Warning);
     }
     pub fn note(&self, msg: &str) {
-        self.emit.borrow_mut().emit(None, msg, Note);
+        self.emit.borrow_mut().emit(None, msg, None, Note);
     }
     pub fn bug(&self, msg: &str) -> ! {
-        self.emit.borrow_mut().emit(None, msg, Bug);
+        self.emit.borrow_mut().emit(None, msg, None, Bug);
         fail!(ExplicitBug);
     }
     pub fn unimpl(&self, msg: &str) -> ! {
@@ -169,7 +174,14 @@ impl Handler {
                 cmsp: Option<(&codemap::CodeMap, Span)>,
                 msg: &str,
                 lvl: Level) {
-        self.emit.borrow_mut().emit(cmsp, msg, lvl);
+        self.emit.borrow_mut().emit(cmsp, msg, None, lvl);
+    }
+    pub fn emit_with_code(&self,
+                          cmsp: Option<(&codemap::CodeMap, Span)>,
+                          msg: &str,
+                          code: &str,
+                          lvl: Level) {
+        self.emit.borrow_mut().emit(cmsp, msg, Some(code), lvl);
     }
     pub fn custom_emit(&self, cm: &codemap::CodeMap,
                        sp: RenderSpan, msg: &str, lvl: Level) {
@@ -184,8 +196,9 @@ pub fn mk_span_handler(handler: Handler, cm: codemap::CodeMap) -> SpanHandler {
     }
 }
 
-pub fn default_handler(color_config: ColorConfig) -> Handler {
-    mk_handler(box EmitterWriter::stderr(color_config))
+pub fn default_handler(color_config: ColorConfig,
+                       registry: Option<diagnostics::registry::Registry>) -> Handler {
+    mk_handler(box EmitterWriter::stderr(color_config, registry))
 }
 
 pub fn mk_handler(e: Box<Emitter + Send>) -> Handler {
@@ -262,23 +275,42 @@ fn print_maybe_styled(w: &mut EmitterWriter,
     }
 }
 
-fn print_diagnostic(dst: &mut EmitterWriter,
-                    topic: &str, lvl: Level, msg: &str) -> io::IoResult<()> {
+fn print_diagnostic(dst: &mut EmitterWriter, topic: &str, lvl: Level,
+                    msg: &str, code: Option<&str>) -> io::IoResult<()> {
     if !topic.is_empty() {
         try!(write!(&mut dst.dst, "{} ", topic));
     }
 
     try!(print_maybe_styled(dst,
-                            format!("{}: ", lvl.to_str()).as_slice(),
+                            format!("{}: ", lvl.to_string()).as_slice(),
                             term::attr::ForegroundColor(lvl.color())));
     try!(print_maybe_styled(dst,
-                            format!("{}\n", msg).as_slice(),
+                            format!("{}", msg).as_slice(),
                             term::attr::Bold));
+
+    match code {
+        Some(code) => {
+            let style = term::attr::ForegroundColor(term::color::BRIGHT_MAGENTA);
+            try!(print_maybe_styled(dst, format!(" [{}]", code.clone()).as_slice(), style));
+            match dst.registry.as_ref().and_then(|registry| registry.find_description(code)) {
+                Some(_) => {
+                    try!(write!(&mut dst.dst,
+                        " (pass `--explain {}` to see a detailed explanation)",
+                        code
+                    ));
+                }
+                None => ()
+            }
+        }
+        None => ()
+    }
+    try!(dst.dst.write_char('\n'));
     Ok(())
 }
 
 pub struct EmitterWriter {
     dst: Destination,
+    registry: Option<diagnostics::registry::Registry>
 }
 
 enum Destination {
@@ -287,7 +319,8 @@ enum Destination {
 }
 
 impl EmitterWriter {
-    pub fn stderr(color_config: ColorConfig) -> EmitterWriter {
+    pub fn stderr(color_config: ColorConfig,
+                  registry: Option<diagnostics::registry::Registry>) -> EmitterWriter {
         let stderr = io::stderr();
 
         let use_color = match color_config {
@@ -301,14 +334,15 @@ impl EmitterWriter {
                 Some(t) => Terminal(t),
                 None    => Raw(box stderr),
             };
-            EmitterWriter { dst: dst }
+            EmitterWriter { dst: dst, registry: registry }
         } else {
-            EmitterWriter { dst: Raw(box stderr) }
+            EmitterWriter { dst: Raw(box stderr), registry: registry }
         }
     }
 
-    pub fn new(dst: Box<Writer + Send>) -> EmitterWriter {
-        EmitterWriter { dst: Raw(dst) }
+    pub fn new(dst: Box<Writer + Send>,
+               registry: Option<diagnostics::registry::Registry>) -> EmitterWriter {
+        EmitterWriter { dst: Raw(dst), registry: registry }
     }
 }
 
@@ -324,11 +358,10 @@ impl Writer for Destination {
 impl Emitter for EmitterWriter {
     fn emit(&mut self,
             cmsp: Option<(&codemap::CodeMap, Span)>,
-            msg: &str,
-            lvl: Level) {
+            msg: &str, code: Option<&str>, lvl: Level) {
         let error = match cmsp {
-            Some((cm, sp)) => emit(self, cm, FullSpan(sp), msg, lvl, false),
-            None => print_diagnostic(self, "", lvl, msg),
+            Some((cm, sp)) => emit(self, cm, FullSpan(sp), msg, code, lvl, false),
+            None => print_diagnostic(self, "", lvl, msg, code),
         };
 
         match error {
@@ -339,7 +372,7 @@ impl Emitter for EmitterWriter {
 
     fn custom_emit(&mut self, cm: &codemap::CodeMap,
                    sp: RenderSpan, msg: &str, lvl: Level) {
-        match emit(self, cm, sp, msg, lvl, true) {
+        match emit(self, cm, sp, msg, None, lvl, true) {
             Ok(()) => {}
             Err(e) => fail!("failed to print diagnostics: {}", e),
         }
@@ -347,22 +380,22 @@ impl Emitter for EmitterWriter {
 }
 
 fn emit(dst: &mut EmitterWriter, cm: &codemap::CodeMap, rsp: RenderSpan,
-        msg: &str, lvl: Level, custom: bool) -> io::IoResult<()> {
+        msg: &str, code: Option<&str>, lvl: Level, custom: bool) -> io::IoResult<()> {
     let sp = rsp.span();
-    let ss = cm.span_to_str(sp);
+    let ss = cm.span_to_string(sp);
     let lines = cm.span_to_lines(sp);
     if custom {
         // we want to tell compiletest/runtest to look at the last line of the
         // span (since `custom_highlight_lines` displays an arrow to the end of
         // the span)
         let span_end = Span { lo: sp.hi, hi: sp.hi, expn_info: sp.expn_info};
-        let ses = cm.span_to_str(span_end);
-        try!(print_diagnostic(dst, ses.as_slice(), lvl, msg));
+        let ses = cm.span_to_string(span_end);
+        try!(print_diagnostic(dst, ses.as_slice(), lvl, msg, code));
         if rsp.is_full_span() {
             try!(custom_highlight_lines(dst, cm, sp, lvl, lines));
         }
     } else {
-        try!(print_diagnostic(dst, ss.as_slice(), lvl, msg));
+        try!(print_diagnostic(dst, ss.as_slice(), lvl, msg, code));
         if rsp.is_full_span() {
             try!(highlight_lines(dst, cm, sp, lvl, lines));
         }
@@ -415,7 +448,7 @@ fn highlight_lines(err: &mut EmitterWriter,
         }
         let orig = fm.get_line(*lines.lines.get(0) as int);
         for pos in range(0u, left-skip) {
-            let cur_char = orig.as_slice()[pos] as char;
+            let cur_char = orig.as_bytes()[pos] as char;
             // Whenever a tab occurs on the previous line, we insert one on
             // the error-point-squiggly-line as well (instead of a space).
             // That way the squiggly line will usually appear in the correct
@@ -442,12 +475,12 @@ fn highlight_lines(err: &mut EmitterWriter,
     Ok(())
 }
 
-// Here are the differences between this and the normal `highlight_lines`:
-// `custom_highlight_lines` will always put arrow on the last byte of the
-// span (instead of the first byte). Also, when the span is too long (more
-// than 6 lines), `custom_highlight_lines` will print the first line, then
-// dot dot dot, then last line, whereas `highlight_lines` prints the first
-// six lines.
+/// Here are the differences between this and the normal `highlight_lines`:
+/// `custom_highlight_lines` will always put arrow on the last byte of the
+/// span (instead of the first byte). Also, when the span is too long (more
+/// than 6 lines), `custom_highlight_lines` will print the first line, then
+/// dot dot dot, then last line, whereas `highlight_lines` prints the first
+/// six lines.
 fn custom_highlight_lines(w: &mut EmitterWriter,
                           cm: &codemap::CodeMap,
                           sp: Span,
@@ -493,7 +526,7 @@ fn print_macro_backtrace(w: &mut EmitterWriter,
         let ss = ei.callee
                    .span
                    .as_ref()
-                   .map_or("".to_string(), |span| cm.span_to_str(*span));
+                   .map_or("".to_string(), |span| cm.span_to_string(*span));
         let (pre, post) = match ei.callee.format {
             codemap::MacroAttribute => ("#[", "]"),
             codemap::MacroBang => ("", "!")
@@ -501,9 +534,9 @@ fn print_macro_backtrace(w: &mut EmitterWriter,
         try!(print_diagnostic(w, ss.as_slice(), Note,
                               format!("in expansion of {}{}{}", pre,
                                       ei.callee.name,
-                                      post).as_slice()));
-        let ss = cm.span_to_str(ei.call_site);
-        try!(print_diagnostic(w, ss.as_slice(), Note, "expansion site"));
+                                      post).as_slice(), None));
+        let ss = cm.span_to_string(ei.call_site);
+        try!(print_diagnostic(w, ss.as_slice(), Note, "expansion site", None));
         try!(print_macro_backtrace(w, cm, ei.call_site));
     }
     Ok(())

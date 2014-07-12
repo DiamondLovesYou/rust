@@ -187,8 +187,8 @@ use metadata::csearch;
 use middle::subst;
 use middle::trans::adt;
 use middle::trans::common::*;
-use middle::trans::datum::{Datum, Lvalue};
 use middle::trans::machine;
+use middle::trans::_match::{BindingInfo, TrByCopy, TrByMove, TrByRef};
 use middle::trans::type_of;
 use middle::trans::type_::Type;
 use middle::trans;
@@ -221,6 +221,13 @@ static DW_ATE_float: c_uint = 0x04;
 static DW_ATE_signed: c_uint = 0x05;
 static DW_ATE_unsigned: c_uint = 0x07;
 static DW_ATE_unsigned_char: c_uint = 0x08;
+
+static UNKNOWN_LINE_NUMBER: c_uint = 0;
+static UNKNOWN_COLUMN_NUMBER: c_uint = 0;
+
+// ptr::null() doesn't work :(
+static UNKNOWN_FILE_METADATA: DIFile = (0 as DIFile);
+static UNKNOWN_SCOPE_METADATA: DIScope = (0 as DIScope);
 
 //=-----------------------------------------------------------------------------
 //  Public Interface of debuginfo module
@@ -263,7 +270,7 @@ impl TypeMap {
                                    metadata: DIType) {
         if !self.type_to_metadata.insert(ty::type_id(type_), metadata) {
             cx.sess().bug(format!("Type metadata for ty::t '{}' is already in the TypeMap!",
-                                   ppaux::ty_to_str(cx.tcx(), type_)).as_slice());
+                                   ppaux::ty_to_string(cx.tcx(), type_)).as_slice());
         }
     }
 
@@ -330,15 +337,15 @@ impl TypeMap {
         unique_type_id.push_char('{');
 
         match ty::get(type_).sty {
-            ty::ty_nil                |
-            ty::ty_bot                |
-            ty::ty_bool               |
-            ty::ty_char               |
-            ty::ty_str                |
-            ty::ty_int(_)             |
-            ty::ty_uint(_)            |
+            ty::ty_nil      |
+            ty::ty_bot      |
+            ty::ty_bool     |
+            ty::ty_char     |
+            ty::ty_str      |
+            ty::ty_int(_)   |
+            ty::ty_uint(_)  |
             ty::ty_float(_) => {
-                unique_type_id.push_str(ppaux::ty_to_str(cx.tcx(), type_).as_slice());
+                push_debuginfo_type_name(cx, type_, false, &mut unique_type_id);
             },
             ty::ty_enum(def_id, ref substs) => {
                 unique_type_id.push_str("enum ");
@@ -497,7 +504,7 @@ impl TypeMap {
             },
             _ => {
                 cx.sess().bug(format!("get_unique_type_id_of_type() - unexpected type: {}, {:?}",
-                                      ppaux::ty_to_str(cx.tcx(), type_).as_slice(),
+                                      ppaux::ty_to_string(cx.tcx(), type_).as_slice(),
                                       ty::get(type_).sty).as_slice())
             }
         };
@@ -547,7 +554,7 @@ impl TypeMap {
 
             // Maybe check that there is no self type here.
 
-            let tps = substs.types.get_vec(subst::TypeSpace);
+            let tps = substs.types.get_slice(subst::TypeSpace);
             if tps.len() > 0 {
                 output.push_char('<');
 
@@ -587,7 +594,7 @@ impl TypeMap {
                                           element_type: ty::t)
                                        -> UniqueTypeId {
         let element_type_id = self.get_unique_type_id_of_type(cx, element_type);
-        let heap_vec_box_type_id = format!("$$HEAP_VEC_BOX<{}>$$",
+        let heap_vec_box_type_id = format!("{{HEAP_VEC_BOX<{}>}}",
                                            self.get_unique_type_id_as_string(element_type_id)
                                                .as_slice());
         let interner_key = self.unique_id_interner.intern(Rc::new(heap_vec_box_type_id));
@@ -599,13 +606,26 @@ impl TypeMap {
                                     element_type: ty::t)
                                  -> UniqueTypeId {
         let element_type_id = self.get_unique_type_id_of_type(cx, element_type);
-        let gc_box_type_id = format!("$$GC_BOX<{}>$$",
+        let gc_box_type_id = format!("{{GC_BOX<{}>}}",
                                      self.get_unique_type_id_as_string(element_type_id)
                                          .as_slice());
         let interner_key = self.unique_id_interner.intern(Rc::new(gc_box_type_id));
         UniqueTypeId(interner_key)
     }
 }
+
+// Returns from the enclosing function if the type metadata with the given
+// unique id can be found in the type map
+macro_rules! return_if_metadata_created_in_meantime(
+    ($cx: expr, $unique_type_id: expr) => (
+        match debug_context($cx).type_map
+                                .borrow()
+                                .find_metadata_for_unique_id($unique_type_id) {
+            Some(metadata) => return MetadataCreationResult::new(metadata, true),
+            None => { /* proceed normally */ }
+        };
+    )
+)
 
 
 /// A context object for maintaining all state needed by the debuginfo module.
@@ -791,7 +811,7 @@ pub fn create_global_var_metadata(cx: &CrateContext,
     let type_metadata = type_metadata(cx, variable_type, span);
 
     let namespace_node = namespace_for_item(cx, ast_util::local_def(node_id));
-    let var_name = token::get_ident(ident).get().to_str();
+    let var_name = token::get_ident(ident).get().to_string();
     let linkage_name =
         namespace_node.mangled_name_of_contained_item(var_name.as_slice());
     let var_scope = namespace_node.scope;
@@ -825,8 +845,8 @@ pub fn create_local_var_metadata(bcx: &Block, local: &ast::Local) {
     let cx = bcx.ccx();
     let def_map = &cx.tcx.def_map;
 
-    pat_util::pat_bindings(def_map, &*local.pat, |_, node_id, span, path_ref| {
-        let var_ident = ast_util::path_to_ident(path_ref);
+    pat_util::pat_bindings(def_map, &*local.pat, |_, node_id, span, path1| {
+        let var_ident = path1.node;
 
         let datum = match bcx.fcx.lllocals.borrow().find_copy(&node_id) {
             Some(datum) => datum,
@@ -873,8 +893,8 @@ pub fn create_captured_var_metadata(bcx: &Block,
         }
         Some(ast_map::NodeLocal(pat)) | Some(ast_map::NodeArg(pat)) => {
             match pat.node {
-                ast::PatIdent(_, ref path, _) => {
-                    ast_util::path_to_ident(path)
+                ast::PatIdent(_, ref path1, _) => {
+                    path1.node
                 }
                 _ => {
                     cx.sess()
@@ -941,22 +961,39 @@ pub fn create_captured_var_metadata(bcx: &Block,
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_match_binding_metadata(bcx: &Block,
                                      variable_ident: ast::Ident,
-                                     node_id: ast::NodeId,
-                                     span: Span,
-                                     datum: Datum<Lvalue>) {
+                                     binding: BindingInfo) {
     if fn_should_be_ignored(bcx.fcx) {
         return;
     }
 
-    let scope_metadata = scope_metadata(bcx.fcx, node_id, span);
+    let scope_metadata = scope_metadata(bcx.fcx, binding.id, binding.span);
+    let aops = unsafe {
+        [llvm::LLVMDIBuilderCreateOpDeref(bcx.ccx().int_type.to_ref())]
+    };
+    // Regardless of the actual type (`T`) we're always passed the stack slot (alloca)
+    // for the binding. For ByRef bindings that's a `T*` but for ByMove bindings we
+    // actually have `T**`. So to get the actual variable we need to dereference once
+    // more. For ByCopy we just use the stack slot we created for the binding.
+    let var_type = match binding.trmode {
+        TrByCopy(llbinding) => DirectVariable {
+            alloca: llbinding
+        },
+        TrByMove => IndirectVariable {
+            alloca: binding.llmatch,
+            address_operations: aops
+        },
+        TrByRef => DirectVariable {
+            alloca: binding.llmatch
+        }
+    };
 
     declare_local(bcx,
                   variable_ident,
-                  datum.ty,
+                  binding.ty,
                   scope_metadata,
-                  DirectVariable { alloca: datum.val },
+                  var_type,
                   LocalVariable,
-                  span);
+                  binding.span);
 }
 
 /// Creates debug information for the given function argument.
@@ -973,7 +1010,7 @@ pub fn create_argument_metadata(bcx: &Block, arg: &ast::Arg) {
     let def_map = &cx.tcx.def_map;
     let scope_metadata = bcx.fcx.debug_context.get_ref(cx, arg.pat.span).fn_metadata;
 
-    pat_util::pat_bindings(def_map, &*arg.pat, |_, node_id, span, path_ref| {
+    pat_util::pat_bindings(def_map, &*arg.pat, |_, node_id, span, path1| {
         let llarg = match bcx.fcx.llargs.borrow().find_copy(&node_id) {
             Some(v) => v,
             None => {
@@ -988,8 +1025,6 @@ pub fn create_argument_metadata(bcx: &Block, arg: &ast::Arg) {
                                     Referenced variable location is not an alloca!");
         }
 
-        let argument_ident = ast_util::path_to_ident(path_ref);
-
         let argument_index = {
             let counter = &fcx.debug_context.get_ref(cx, span).argument_counter;
             let argument_index = counter.get();
@@ -998,7 +1033,7 @@ pub fn create_argument_metadata(bcx: &Block, arg: &ast::Arg) {
         };
 
         declare_local(bcx,
-                      argument_ident,
+                      path1.node,
                       llarg.ty,
                       scope_metadata,
                       DirectVariable { alloca: llarg.val },
@@ -1024,7 +1059,7 @@ pub fn set_source_location(fcx: &FunctionContext,
         FunctionDebugContext(box ref function_debug_context) => {
             let cx = fcx.ccx;
 
-            debug!("set_source_location: {}", cx.sess().codemap().span_to_str(span));
+            debug!("set_source_location: {}", cx.sess().codemap().span_to_string(span));
 
             if function_debug_context.source_locations_enabled.get() {
                 let loc = span_start(cx, span);
@@ -1307,9 +1342,12 @@ pub fn create_function_debug_context(cx: &CrateContext,
         if has_self_type {
             let actual_self_type = self_type.unwrap();
             // Add self type name to <...> clause of function name
-            let actual_self_type_name = ppaux::ty_to_str(cx.tcx(), actual_self_type);
-            name_to_append_suffix_to.push_str(
-                actual_self_type_name.as_slice());
+            let actual_self_type_name = compute_debuginfo_type_name(
+                cx,
+                actual_self_type,
+                true);
+
+            name_to_append_suffix_to.push_str(actual_self_type_name.as_slice());
 
             if generics.is_type_parameterized() {
                 name_to_append_suffix_to.push_str(",");
@@ -1342,11 +1380,13 @@ pub fn create_function_debug_context(cx: &CrateContext,
         }
 
         // Handle other generic parameters
-        let actual_types = param_substs.substs.types.get_vec(subst::FnSpace);
+        let actual_types = param_substs.substs.types.get_slice(subst::FnSpace);
         for (index, &ast::TyParam{ ident: ident, .. }) in generics.ty_params.iter().enumerate() {
-            let actual_type = *actual_types.get(index);
+            let actual_type = actual_types[index];
             // Add actual type name to <...> clause of function name
-            let actual_type_name = ppaux::ty_to_str(cx.tcx(), actual_type);
+            let actual_type_name = compute_debuginfo_type_name(cx,
+                                                               actual_type,
+                                                               true);
             name_to_append_suffix_to.push_str(actual_type_name.as_slice());
 
             if index != generics.ty_params.len() - 1 {
@@ -1436,31 +1476,30 @@ fn compile_unit_metadata(cx: &CrateContext) {
     let producer = format!("rustc version {}",
                            (option_env!("CFG_VERSION")).expect("CFG_VERSION"));
 
-    compile_unit_name.with_ref(|compile_unit_name| {
-        work_dir.as_vec().with_c_str(|work_dir| {
-            producer.with_c_str(|producer| {
-                "".with_c_str(|flags| {
-                    "".with_c_str(|split_name| {
-                        unsafe {
-                            llvm::LLVMDIBuilderCreateCompileUnit(
-                                debug_context(cx).builder,
-                                DW_LANG_RUST,
-                                compile_unit_name,
-                                work_dir,
-                                producer,
-                                cx.sess().opts.optimize != config::No,
-                                flags,
-                                0,
-                                split_name);
-                        }
-                    })
+    let compile_unit_name = compile_unit_name.as_ptr();
+    work_dir.as_vec().with_c_str(|work_dir| {
+        producer.with_c_str(|producer| {
+            "".with_c_str(|flags| {
+                "".with_c_str(|split_name| {
+                    unsafe {
+                        llvm::LLVMDIBuilderCreateCompileUnit(
+                            debug_context(cx).builder,
+                            DW_LANG_RUST,
+                            compile_unit_name,
+                            work_dir,
+                            producer,
+                            cx.sess().opts.optimize != config::No,
+                            flags,
+                            0,
+                            split_name);
+                    }
                 })
             })
         })
     });
 
     fn fallback_path(cx: &CrateContext) -> CString {
-        cx.link_meta.crateid.name.as_slice().to_c_str()
+        cx.link_meta.crate_name.as_slice().to_c_str()
     }
 }
 
@@ -1650,7 +1689,7 @@ fn pointer_type_metadata(cx: &CrateContext,
                       -> DIType {
     let pointer_llvm_type = type_of::type_of(cx, pointer_type);
     let (pointer_size, pointer_align) = size_and_align_of(cx, pointer_llvm_type);
-    let name = ppaux::ty_to_str(cx.tcx(), pointer_type);
+    let name = compute_debuginfo_type_name(cx, pointer_type, false);
     let ptr_metadata = name.as_slice().with_c_str(|name| {
         unsafe {
             llvm::LLVMDIBuilderCreatePointerType(
@@ -1723,7 +1762,6 @@ enum RecursiveTypeDescription {
         unique_type_id: UniqueTypeId,
         metadata_stub: DICompositeType,
         llvm_type: Type,
-        file_metadata: DIFile,
         member_description_factory: MemberDescriptionFactory,
     },
     FinalMetadata(DICompositeType)
@@ -1735,7 +1773,6 @@ fn create_and_register_recursive_type_forward_declaration(
     unique_type_id: UniqueTypeId,
     metadata_stub: DICompositeType,
     llvm_type: Type,
-    file_metadata: DIFile,
     member_description_factory: MemberDescriptionFactory)
  -> RecursiveTypeDescription {
 
@@ -1749,7 +1786,6 @@ fn create_and_register_recursive_type_forward_declaration(
         unique_type_id: unique_type_id,
         metadata_stub: metadata_stub,
         llvm_type: llvm_type,
-        file_metadata: file_metadata,
         member_description_factory: member_description_factory,
     }
 }
@@ -1765,8 +1801,8 @@ impl RecursiveTypeDescription {
                 unique_type_id,
                 metadata_stub,
                 llvm_type,
-                file_metadata,
-                ref member_description_factory
+                ref member_description_factory,
+                ..
             } => {
                 // Make sure that we have a forward declaration of the type in
                 // the TypeMap so that recursive references are possible. This
@@ -1779,7 +1815,7 @@ impl RecursiveTypeDescription {
                        type_map.find_metadata_for_type(unfinished_type).is_none() {
                         cx.sess().bug(format!("Forward declaration of potentially recursive type \
                                               '{}' was not found in TypeMap!",
-                                              ppaux::ty_to_str(cx.tcx(), unfinished_type))
+                                              ppaux::ty_to_string(cx.tcx(), unfinished_type))
                                       .as_slice());
                     }
                 }
@@ -1792,9 +1828,7 @@ impl RecursiveTypeDescription {
                 set_members_of_composite_type(cx,
                                               metadata_stub,
                                               llvm_type,
-                                              member_descriptions.as_slice(),
-                                              file_metadata,
-                                              codemap::DUMMY_SP);
+                                              member_descriptions.as_slice());
                 return MetadataCreationResult::new(metadata_stub, true);
             }
         }
@@ -1849,6 +1883,7 @@ impl StructMemberDescriptionFactory {
     }
 }
 
+
 fn prepare_struct_metadata(cx: &CrateContext,
                            struct_type: ty::t,
                            def_id: ast::DefId,
@@ -1856,21 +1891,16 @@ fn prepare_struct_metadata(cx: &CrateContext,
                            unique_type_id: UniqueTypeId,
                            span: Span)
                         -> RecursiveTypeDescription {
-    let struct_name = ppaux::ty_to_str(cx.tcx(), struct_type);
+    let struct_name = compute_debuginfo_type_name(cx, struct_type, false);
     let struct_llvm_type = type_of::type_of(cx, struct_type);
 
-    let (containing_scope, definition_span) = get_namespace_and_span_for_item(cx, def_id);
-
-    let file_name = span_start(cx, definition_span).file.name.clone();
-    let file_metadata = file_metadata(cx, file_name.as_slice());
+    let (containing_scope, _) = get_namespace_and_span_for_item(cx, def_id);
 
     let struct_metadata_stub = create_struct_stub(cx,
                                                   struct_llvm_type,
                                                   struct_name.as_slice(),
                                                   unique_type_id,
-                                                  containing_scope,
-                                                  file_metadata,
-                                                  definition_span);
+                                                  containing_scope);
 
     let fields = ty::struct_fields(cx.tcx(), def_id, substs);
 
@@ -1880,7 +1910,6 @@ fn prepare_struct_metadata(cx: &CrateContext,
         unique_type_id,
         struct_metadata_stub,
         struct_llvm_type,
-        file_metadata,
         StructMDF(StructMemberDescriptionFactory {
             fields: fields,
             is_simd: ty::type_is_simd(cx.tcx(), struct_type),
@@ -1920,11 +1949,8 @@ fn prepare_tuple_metadata(cx: &CrateContext,
                           unique_type_id: UniqueTypeId,
                           span: Span)
                        -> RecursiveTypeDescription {
-    let tuple_name = ppaux::ty_to_str(cx.tcx(), tuple_type);
+    let tuple_name = compute_debuginfo_type_name(cx, tuple_type, false);
     let tuple_llvm_type = type_of::type_of(cx, tuple_type);
-
-    let loc = span_start(cx, span);
-    let file_metadata = file_metadata(cx, loc.file.name.as_slice());
 
     create_and_register_recursive_type_forward_declaration(
         cx,
@@ -1934,11 +1960,8 @@ fn prepare_tuple_metadata(cx: &CrateContext,
                            tuple_llvm_type,
                            tuple_name.as_slice(),
                            unique_type_id,
-                           file_metadata,
-                           file_metadata,
-                           span),
+                           UNKNOWN_SCOPE_METADATA),
         tuple_llvm_type,
-        file_metadata,
         TupleMDF(TupleMemberDescriptionFactory {
             component_types: Vec::from_slice(component_types),
             span: span,
@@ -1986,7 +2009,6 @@ impl EnumMemberDescriptionFactory {
                                                   &**self.variants.get(i),
                                                   discriminant_info,
                                                   self.containing_scope,
-                                                  self.file_metadata,
                                                   self.span);
 
                         let member_descriptions = member_desc_factory
@@ -1995,9 +2017,7 @@ impl EnumMemberDescriptionFactory {
                         set_members_of_composite_type(cx,
                                                       variant_type_metadata,
                                                       variant_llvm_type,
-                                                      member_descriptions.as_slice(),
-                                                      self.file_metadata,
-                                                      codemap::DUMMY_SP);
+                                                      member_descriptions.as_slice());
                         MemberDescription {
                             name: "".to_string(),
                             llvm_type: variant_llvm_type,
@@ -2021,7 +2041,6 @@ impl EnumMemberDescriptionFactory {
                                               &**self.variants.get(0),
                                               NoDiscriminant,
                                               self.containing_scope,
-                                              self.file_metadata,
                                               self.span);
 
                     let member_descriptions =
@@ -2030,9 +2049,7 @@ impl EnumMemberDescriptionFactory {
                     set_members_of_composite_type(cx,
                                                   variant_type_metadata,
                                                   variant_llvm_type,
-                                                  member_descriptions.as_slice(),
-                                                  self.file_metadata,
-                                                  codemap::DUMMY_SP);
+                                                  member_descriptions.as_slice());
                     vec![
                         MemberDescription {
                             name: "".to_string(),
@@ -2123,7 +2140,6 @@ impl EnumMemberDescriptionFactory {
                                           &**self.variants.get(nndiscr as uint),
                                           OptimizedDiscriminant(ptrfield),
                                           self.containing_scope,
-                                          self.file_metadata,
                                           self.span);
 
                 let variant_member_descriptions =
@@ -2132,17 +2148,19 @@ impl EnumMemberDescriptionFactory {
                 set_members_of_composite_type(cx,
                                               variant_type_metadata,
                                               variant_llvm_type,
-                                              variant_member_descriptions.as_slice(),
-                                              self.file_metadata,
-                                              codemap::DUMMY_SP);
+                                              variant_member_descriptions.as_slice());
 
                 // Encode the information about the null variant in the union
                 // member's name.
                 let null_variant_index = (1 - nndiscr) as uint;
                 let null_variant_ident = self.variants.get(null_variant_index).name;
                 let null_variant_name = token::get_ident(null_variant_ident);
+                let discrfield = match ptrfield {
+                    adt::ThinPointer(field) => format!("{}", field),
+                    adt::FatPointer(field, pair) => format!("{}${}", field, pair)
+                };
                 let union_member_name = format!("RUST$ENCODED$ENUM${}${}",
-                                                ptrfield,
+                                                discrfield,
                                                 null_variant_name);
 
                 // Create the (singleton) list of descriptions of union members.
@@ -2185,7 +2203,7 @@ impl VariantMemberDescriptionFactory {
 
 enum EnumDiscriminantInfo {
     RegularDiscriminant(DIType),
-    OptimizedDiscriminant(uint),
+    OptimizedDiscriminant(adt::PointerField),
     NoDiscriminant
 }
 
@@ -2199,7 +2217,6 @@ fn describe_enum_variant(cx: &CrateContext,
                          variant_info: &ty::VariantInfo,
                          discriminant_info: EnumDiscriminantInfo,
                          containing_scope: DIScope,
-                         file_metadata: DIFile,
                          span: Span)
                       -> (DICompositeType, Type, MemberDescriptionFactory) {
     let variant_llvm_type =
@@ -2210,14 +2227,6 @@ fn describe_enum_variant(cx: &CrateContext,
                                     .as_slice(),
                       struct_def.packed);
     // Could do some consistency checks here: size, align, field count, discr type
-
-    // Find the source code location of the variant's definition
-    let variant_definition_span = if variant_info.id.krate == ast::LOCAL_CRATE {
-        cx.tcx.map.span(variant_info.id.node)
-    } else {
-        // For definitions from other crates we have no location information available.
-        codemap::DUMMY_SP
-    };
 
     let variant_name = token::get_ident(variant_info.name);
     let variant_name = variant_name.get();
@@ -2232,16 +2241,14 @@ fn describe_enum_variant(cx: &CrateContext,
                                            variant_llvm_type,
                                            variant_name,
                                            unique_type_id,
-                                           containing_scope,
-                                           file_metadata,
-                                           variant_definition_span);
+                                           containing_scope);
 
     // Get the argument names from the enum variant info
     let mut arg_names: Vec<_> = match variant_info.arg_names {
         Some(ref names) => {
             names.iter()
                  .map(|ident| {
-                     token::get_ident(*ident).get().to_str().into_string()
+                     token::get_ident(*ident).get().to_string().into_string()
                  }).collect()
         }
         None => variant_info.args.iter().map(|_| "".to_string()).collect()
@@ -2280,7 +2287,7 @@ fn prepare_enum_metadata(cx: &CrateContext,
                          unique_type_id: UniqueTypeId,
                          span: Span)
                       -> RecursiveTypeDescription {
-    let enum_name = ppaux::ty_to_str(cx.tcx(), enum_type);
+    let enum_name = compute_debuginfo_type_name(cx, enum_type, false);
 
     let (containing_scope, definition_span) = get_namespace_and_span_for_item(cx, enum_def_id);
     let loc = span_start(cx, definition_span);
@@ -2327,8 +2334,8 @@ fn prepare_enum_metadata(cx: &CrateContext,
                             DIB(cx),
                             containing_scope,
                             name,
-                            file_metadata,
-                            loc.line as c_uint,
+                            UNKNOWN_FILE_METADATA,
+                            UNKNOWN_LINE_NUMBER,
                             bytes_to_bits(discriminant_size),
                             bytes_to_bits(discriminant_align),
                             create_DIArray(DIB(cx), enumerators_metadata.as_slice()),
@@ -2372,8 +2379,8 @@ fn prepare_enum_metadata(cx: &CrateContext,
                 DIB(cx),
                 containing_scope,
                 enum_name,
-                file_metadata,
-                loc.line as c_uint,
+                UNKNOWN_FILE_METADATA,
+                UNKNOWN_LINE_NUMBER,
                 bytes_to_bits(enum_type_size),
                 bytes_to_bits(enum_type_align),
                 0, // Flags
@@ -2390,7 +2397,6 @@ fn prepare_enum_metadata(cx: &CrateContext,
         unique_type_id,
         enum_metadata,
         enum_llvm_type,
-        file_metadata,
         EnumMDF(EnumMemberDescriptionFactory {
             enum_type: enum_type,
             type_rep: type_rep.clone(),
@@ -2425,24 +2431,23 @@ fn composite_type_metadata(cx: &CrateContext,
                            composite_type_unique_id: UniqueTypeId,
                            member_descriptions: &[MemberDescription],
                            containing_scope: DIScope,
-                           file_metadata: DIFile,
-                           definition_span: Span)
+
+                           // Ignore source location information as long as it
+                           // can't be reconstructed for non-local crates.
+                           _file_metadata: DIFile,
+                           _definition_span: Span)
                         -> DICompositeType {
     // Create the (empty) struct metadata node ...
     let composite_type_metadata = create_struct_stub(cx,
                                                      composite_llvm_type,
                                                      composite_type_name,
                                                      composite_type_unique_id,
-                                                     containing_scope,
-                                                     file_metadata,
-                                                     definition_span);
+                                                     containing_scope);
     // ... and immediately create and add the member descriptions.
     set_members_of_composite_type(cx,
                                   composite_type_metadata,
                                   composite_llvm_type,
-                                  member_descriptions,
-                                  file_metadata,
-                                  definition_span);
+                                  member_descriptions);
 
     return composite_type_metadata;
 }
@@ -2450,9 +2455,7 @@ fn composite_type_metadata(cx: &CrateContext,
 fn set_members_of_composite_type(cx: &CrateContext,
                                  composite_type_metadata: DICompositeType,
                                  composite_llvm_type: Type,
-                                 member_descriptions: &[MemberDescription],
-                                 file_metadata: DIFile,
-                                 definition_span: Span) {
+                                 member_descriptions: &[MemberDescription]) {
     // In some rare cases LLVM metadata uniquing would lead to an existing type
     // description being used instead of a new one created in create_struct_stub.
     // This would cause a hard to trace assertion in DICompositeType::SetTypeArray().
@@ -2487,8 +2490,6 @@ fn set_members_of_composite_type(cx: &CrateContext,
         }
     }
 
-    let loc = span_start(cx, definition_span);
-
     let member_metadata: Vec<DIDescriptor> = member_descriptions
         .iter()
         .enumerate()
@@ -2505,8 +2506,8 @@ fn set_members_of_composite_type(cx: &CrateContext,
                         DIB(cx),
                         composite_type_metadata,
                         member_name,
-                        file_metadata,
-                        loc.line as c_uint,
+                        UNKNOWN_FILE_METADATA,
+                        UNKNOWN_LINE_NUMBER,
                         bytes_to_bits(member_size),
                         bytes_to_bits(member_align),
                         bytes_to_bits(member_offset),
@@ -2530,11 +2531,8 @@ fn create_struct_stub(cx: &CrateContext,
                       struct_llvm_type: Type,
                       struct_type_name: &str,
                       unique_type_id: UniqueTypeId,
-                      containing_scope: DIScope,
-                      file_metadata: DIFile,
-                      definition_span: Span)
+                      containing_scope: DIScope)
                    -> DICompositeType {
-    let loc = span_start(cx, definition_span);
     let (struct_size, struct_align) = size_and_align_of(cx, struct_llvm_type);
 
     let unique_type_id_str = debug_context(cx).type_map
@@ -2552,8 +2550,8 @@ fn create_struct_stub(cx: &CrateContext,
                     DIB(cx),
                     containing_scope,
                     name,
-                    file_metadata,
-                    loc.line as c_uint,
+                    UNKNOWN_FILE_METADATA,
+                    UNKNOWN_LINE_NUMBER,
                     bytes_to_bits(struct_size),
                     bytes_to_bits(struct_align),
                     0,
@@ -2576,12 +2574,9 @@ fn at_box_metadata(cx: &CrateContext,
                 -> MetadataCreationResult {
     let content_type_metadata = type_metadata(cx, content_type, codemap::DUMMY_SP);
 
-    match debug_context(cx).type_map.borrow().find_metadata_for_unique_id(unique_type_id) {
-        Some(metadata) => return MetadataCreationResult::new(metadata, true),
-        None => { /* proceed */ }
-    };
+    return_if_metadata_created_in_meantime!(cx, unique_type_id);
 
-    let content_type_name = ppaux::ty_to_str(cx.tcx(), content_type);
+    let content_type_name = compute_debuginfo_type_name(cx, content_type, true);
     let content_type_name = content_type_name.as_slice();
     let content_llvm_type = type_of::type_of(cx, content_type);
 
@@ -2597,7 +2592,6 @@ fn at_box_metadata(cx: &CrateContext,
     let nil_pointer_type_metadata = type_metadata(cx,
                                                   nil_pointer_type,
                                                   codemap::DUMMY_SP);
-
     let member_descriptions = [
         MemberDescription {
             name: "refcnt".to_string(),
@@ -2631,9 +2625,6 @@ fn at_box_metadata(cx: &CrateContext,
         }
     ];
 
-    let loc = span_start(cx, codemap::DUMMY_SP);
-    let file_metadata = file_metadata(cx, loc.file.name.as_slice());
-
     let gc_box_unique_id = debug_context(cx).type_map
                                             .borrow_mut()
                                             .get_unique_type_id_of_gc_box(cx, content_type);
@@ -2644,8 +2635,8 @@ fn at_box_metadata(cx: &CrateContext,
         box_type_name.as_slice(),
         gc_box_unique_id,
         member_descriptions,
-        file_metadata,
-        file_metadata,
+        UNKNOWN_SCOPE_METADATA,
+        UNKNOWN_FILE_METADATA,
         codemap::DUMMY_SP);
 
     let gc_pointer_metadata = pointer_type_metadata(cx,
@@ -2678,10 +2669,7 @@ fn fixed_vec_metadata(cx: &CrateContext,
                    -> MetadataCreationResult {
     let element_type_metadata = type_metadata(cx, element_type, span);
 
-    match debug_context(cx).type_map.borrow().find_metadata_for_unique_id(unique_type_id) {
-        Some(metadata) => return MetadataCreationResult::new(metadata, true),
-        None => { /* proceed */ }
-    };
+    return_if_metadata_created_in_meantime!(cx, unique_type_id);
 
     let element_llvm_type = type_of::type_of(cx, element_type);
     let (element_type_size, element_type_align) = size_and_align_of(cx, element_llvm_type);
@@ -2716,13 +2704,12 @@ fn heap_vec_metadata(cx: &CrateContext,
     let element_llvm_type = type_of::type_of(cx, element_type);
     let (element_size, element_align) = size_and_align_of(cx, element_llvm_type);
 
-    match debug_context(cx).type_map.borrow().find_metadata_for_unique_id(unique_type_id) {
-        Some(metadata) => return MetadataCreationResult::new(metadata, true),
-        None => { /* proceed */ }
-    };
+    return_if_metadata_created_in_meantime!(cx, unique_type_id);
 
     let vecbox_llvm_type = Type::vec(cx, &element_llvm_type);
-    let vec_pointer_type_name = ppaux::ty_to_str(cx.tcx(), vec_pointer_type);
+    let vec_pointer_type_name = compute_debuginfo_type_name(cx,
+                                                            vec_pointer_type,
+                                                            true);
     let vec_pointer_type_name = vec_pointer_type_name.as_slice();
 
     let member_llvm_types = vecbox_llvm_type.field_types();
@@ -2773,7 +2760,7 @@ fn heap_vec_metadata(cx: &CrateContext,
                                                   vec_pointer_type_name,
                                                   vec_box_unique_id,
                                                   member_descriptions,
-                                                  file_metadata,
+                                                  UNKNOWN_SCOPE_METADATA,
                                                   file_metadata,
                                                   span);
 
@@ -2795,13 +2782,10 @@ fn vec_slice_metadata(cx: &CrateContext,
 
     let element_type_metadata = type_metadata(cx, data_ptr_type, span);
 
-    match debug_context(cx).type_map.borrow().find_metadata_for_unique_id(unique_type_id) {
-        Some(metadata) => return MetadataCreationResult::new(metadata, true),
-        None => { /* proceed */ }
-    };
+    return_if_metadata_created_in_meantime!(cx, unique_type_id);
 
     let slice_llvm_type = type_of::type_of(cx, vec_type);
-    let slice_type_name = ppaux::ty_to_str(cx.tcx(), vec_type);
+    let slice_type_name = compute_debuginfo_type_name(cx, vec_type, true);
 
     let member_llvm_types = slice_llvm_type.field_types();
     assert!(slice_layout_is_correct(cx,
@@ -2832,7 +2816,7 @@ fn vec_slice_metadata(cx: &CrateContext,
                                            slice_type_name.as_slice(),
                                            unique_type_id,
                                            member_descriptions,
-                                           file_metadata,
+                                           UNKNOWN_SCOPE_METADATA,
                                            file_metadata,
                                            span);
     return MetadataCreationResult::new(metadata, false);
@@ -2852,8 +2836,6 @@ fn subroutine_type_metadata(cx: &CrateContext,
                             signature: &ty::FnSig,
                             span: Span)
                          -> MetadataCreationResult {
-    let loc = span_start(cx, span);
-    let file_metadata = file_metadata(cx, loc.file.name.as_slice());
     let mut signature_metadata: Vec<DIType> = Vec::with_capacity(signature.inputs.len() + 1);
 
     // return type
@@ -2867,57 +2849,64 @@ fn subroutine_type_metadata(cx: &CrateContext,
         signature_metadata.push(type_metadata(cx, argument_type, span));
     }
 
-    match debug_context(cx).type_map.borrow().find_metadata_for_unique_id(unique_type_id) {
-        Some(metadata) => return MetadataCreationResult::new(metadata, true),
-        None => { /* proceed */ }
-    };
+    return_if_metadata_created_in_meantime!(cx, unique_type_id);
 
     return MetadataCreationResult::new(
         unsafe {
             llvm::LLVMDIBuilderCreateSubroutineType(
                 DIB(cx),
-                file_metadata,
+                UNKNOWN_FILE_METADATA,
                 create_DIArray(DIB(cx), signature_metadata.as_slice()))
         },
         false);
 }
 
-fn trait_metadata(cx: &CrateContext,
-                  def_id: ast::DefId,
-                  trait_type: ty::t,
-                  substs: &subst::Substs,
-                  trait_store: ty::TraitStore,
-                  _: &ty::BuiltinBounds,
-                  unique_type_id: UniqueTypeId)
-               -> DIType {
+fn trait_pointer_metadata(cx: &CrateContext,
+                          // trait_pointer_type must be the type of the fat
+                          // pointer to the concrete trait object
+                          trait_pointer_type: ty::t,
+                          unique_type_id: UniqueTypeId)
+                       -> DIType {
     // The implementation provided here is a stub. It makes sure that the trait
     // type is assigned the correct name, size, namespace, and source location.
     // But it does not describe the trait's methods.
-    let last = ty::with_path(cx.tcx(), def_id, |mut path| path.last().unwrap());
-    let ident_string = token::get_name(last.name());
-    let mut name = ppaux::trait_store_to_str(cx.tcx(), trait_store);
-    name.push_str(ident_string.get());
 
-    // Add type and region parameters
-    let trait_def = ty::lookup_trait_def(cx.tcx(), def_id);
-    let name = ppaux::parameterized(cx.tcx(), name.as_slice(),
-                                    substs, &trait_def.generics);
+    let trait_object_type = match ty::get(trait_pointer_type).sty {
+        ty::ty_uniq(pointee_type) => pointee_type,
+        ty::ty_rptr(_, ty::mt { ty, .. }) => ty,
+        _ => {
+            let pp_type_name = ppaux::ty_to_string(cx.tcx(), trait_pointer_type);
+            cx.sess().bug(format!("debuginfo: Unexpected trait-pointer type in \
+                                   trait_pointer_metadata(): {}",
+                                   pp_type_name.as_slice()).as_slice());
+        }
+    };
 
-    let (containing_scope, definition_span) = get_namespace_and_span_for_item(cx, def_id);
+    let def_id = match ty::get(trait_object_type).sty {
+        ty::ty_trait(box ty::TyTrait { def_id, .. }) => def_id,
+        _ => {
+            let pp_type_name = ppaux::ty_to_string(cx.tcx(), trait_object_type);
+            cx.sess().bug(format!("debuginfo: Unexpected trait-object type in \
+                                   trait_pointer_metadata(): {}",
+                                   pp_type_name.as_slice()).as_slice());
+        }
+    };
 
-    let file_name = span_start(cx, definition_span).file.name.clone();
-    let file_metadata = file_metadata(cx, file_name.as_slice());
+    let trait_pointer_type_name =
+        compute_debuginfo_type_name(cx, trait_pointer_type, false);
 
-    let trait_llvm_type = type_of::type_of(cx, trait_type);
+    let (containing_scope, _) = get_namespace_and_span_for_item(cx, def_id);
+
+    let trait_pointer_llvm_type = type_of::type_of(cx, trait_pointer_type);
 
     composite_type_metadata(cx,
-                            trait_llvm_type,
-                            name.as_slice(),
+                            trait_pointer_llvm_type,
+                            trait_pointer_type_name.as_slice(),
                             unique_type_id,
                             [],
                             containing_scope,
-                            file_metadata,
-                            definition_span)
+                            UNKNOWN_FILE_METADATA,
+                            codemap::DUMMY_SP)
 }
 
 fn type_metadata(cx: &CrateContext,
@@ -2959,15 +2948,6 @@ fn type_metadata(cx: &CrateContext,
 
     debug!("type_metadata: {:?}", ty::get(t));
 
-    macro_rules! return_if_created_in_meantime(
-        () => (
-            match debug_context(cx).type_map.borrow().find_metadata_for_unique_id(unique_type_id) {
-                Some(metadata) => return metadata,
-                None => { /* proceed normally */ }
-            };
-        )
-    )
-
     let sty = &ty::get(t).sty;
     let MetadataCreationResult { metadata, already_stored_in_typemap } = match *sty {
         ty::ty_nil      |
@@ -2997,19 +2977,22 @@ fn type_metadata(cx: &CrateContext,
                     let i8_t = ty::mk_i8();
                     heap_vec_metadata(cx, pointee_type, i8_t, unique_type_id, usage_site_span)
                 }
-                ty::ty_trait(box ty::TyTrait {
-                        def_id,
-                        ref substs,
-                        ref bounds
-                    }) => {
+                ty::ty_trait(..) => {
                     MetadataCreationResult::new(
-                        trait_metadata(cx, def_id, t, substs, ty::UniqTraitStore,
-                                       bounds, unique_type_id),
-                    false)
+                        trait_pointer_metadata(cx, t, unique_type_id),
+                        false)
                 }
                 _ => {
-                    let pointee_metadata = type_metadata(cx, pointee_type, usage_site_span);
-                    return_if_created_in_meantime!();
+                    let pointee_metadata = type_metadata(cx,
+                                                         pointee_type,
+                                                         usage_site_span);
+                    match debug_context(cx).type_map
+                                           .borrow()
+                                           .find_metadata_for_unique_id(unique_type_id) {
+                        Some(metadata) => return metadata,
+                        None => { /* proceed normally */ }
+                    };
+
                     MetadataCreationResult::new(pointer_type_metadata(cx, t, pointee_metadata),
                                                 false)
                 }
@@ -3021,22 +3004,23 @@ fn type_metadata(cx: &CrateContext,
                     vec_slice_metadata(cx, t, mt.ty, unique_type_id, usage_site_span)
                 }
                 ty::ty_str => {
-                    vec_slice_metadata(cx, t, ty::mk_i8(), unique_type_id, usage_site_span)
+                    vec_slice_metadata(cx, t, ty::mk_u8(), unique_type_id, usage_site_span)
                 }
-                ty::ty_trait(box ty::TyTrait {
-                        def_id,
-                        ref substs,
-                        ref bounds
-                    }) => {
+                ty::ty_trait(..) => {
                     MetadataCreationResult::new(
-                        trait_metadata(cx, def_id, t, substs,
-                                       ty::RegionTraitStore(ty::ReStatic, mt.mutbl),
-                                       bounds, unique_type_id),
-                    false)
+                        trait_pointer_metadata(cx, t, unique_type_id),
+                        false)
                 }
                 _ => {
                     let pointee = type_metadata(cx, mt.ty, usage_site_span);
-                    return_if_created_in_meantime!();
+
+                    match debug_context(cx).type_map
+                                           .borrow()
+                                           .find_metadata_for_unique_id(unique_type_id) {
+                        Some(metadata) => return metadata,
+                        None => { /* proceed normally */ }
+                    };
+
                     MetadataCreationResult::new(pointer_type_metadata(cx, t, pointee), false)
                 }
             }
@@ -3083,7 +3067,7 @@ fn type_metadata(cx: &CrateContext,
                                                  the debuginfo::TypeMap but it \
                                                  was not. (ty::t = {})",
                                                 unique_type_id_str.as_slice(),
-                                                ppaux::ty_to_str(cx.tcx(), t));
+                                                ppaux::ty_to_string(cx.tcx(), t));
                     cx.sess().span_bug(usage_site_span, error_message.as_slice());
                 }
             };
@@ -3098,7 +3082,7 @@ fn type_metadata(cx: &CrateContext,
                                                      debuginfo::TypeMap. \
                                                      UniqueTypeId={}, ty::t={}",
                             unique_type_id_str.as_slice(),
-                            ppaux::ty_to_str(cx.tcx(), t));
+                            ppaux::ty_to_string(cx.tcx(), t));
                         cx.sess().span_bug(usage_site_span, error_message.as_slice());
                     }
                 }
@@ -3154,7 +3138,8 @@ fn set_debug_location(cx: &CrateContext, debug_location: DebugLocation) {
 
     match debug_location {
         KnownLocation { scope, line, .. } => {
-            let col = 0u; // Always set the column to zero like Clang and GCC
+            // Always set the column to zero like Clang and GCC
+            let col = UNKNOWN_COLUMN_NUMBER;
             debug!("setting debug location to {} {}", line, col);
             let elements = [C_i32(cx, line as i32), C_i32(cx, col as i32),
                             scope, ptr::mut_null()];
@@ -3257,10 +3242,9 @@ fn populate_scope_map(cx: &CrateContext,
     // Push argument identifiers onto the stack so arguments integrate nicely
     // with variable shadowing.
     for &arg_pat in arg_pats.iter() {
-        pat_util::pat_bindings(def_map, &*arg_pat, |_, _, _, path_ref| {
-            let ident = ast_util::path_to_ident(path_ref);
+        pat_util::pat_bindings(def_map, &*arg_pat, |_, _, _, path1| {
             scope_stack.push(ScopeStackEntry { scope_metadata: fn_metadata,
-                                               ident: Some(ident) });
+                                               ident: Some(path1.node) });
         })
     }
 
@@ -3368,13 +3352,13 @@ fn populate_scope_map(cx: &CrateContext,
         // ast_util::walk_pat() here because we have to visit *all* nodes in
         // order to put them into the scope map. The above functions don't do that.
         match pat.node {
-            ast::PatIdent(_, ref path_ref, ref sub_pat_opt) => {
+            ast::PatIdent(_, ref path1, ref sub_pat_opt) => {
 
                 // Check if this is a binding. If so we need to put it on the
                 // scope stack and maybe introduce an artificial scope
                 if pat_util::pat_is_binding(def_map, &*pat) {
 
-                    let ident = ast_util::path_to_ident(path_ref);
+                    let ident = path1.node;
 
                     // LLVM does not properly generate 'DW_AT_start_scope' fields
                     // for variable DIEs. For this reason we have to introduce
@@ -3705,6 +3689,265 @@ fn populate_scope_map(cx: &CrateContext,
 
 
 //=-----------------------------------------------------------------------------
+// Type Names for Debug Info
+//=-----------------------------------------------------------------------------
+
+// Compute the name of the type as it should be stored in debuginfo. Does not do
+// any caching, i.e. calling the function twice with the same type will also do
+// the work twice. The `qualified` parameter only affects the first level of the
+// type name, further levels (i.e. type parameters) are always fully qualified.
+fn compute_debuginfo_type_name(cx: &CrateContext,
+                               t: ty::t,
+                               qualified: bool)
+                            -> String {
+    let mut result = String::with_capacity(64);
+    push_debuginfo_type_name(cx, t, qualified, &mut result);
+    result
+}
+
+// Pushes the name of the type as it should be stored in debuginfo on the
+// `output` String. See also compute_debuginfo_type_name().
+fn push_debuginfo_type_name(cx: &CrateContext,
+                            t: ty::t,
+                            qualified: bool,
+                            output:&mut String) {
+    match ty::get(t).sty {
+        ty::ty_nil               => output.push_str("()"),
+        ty::ty_bot               => output.push_str("!"),
+        ty::ty_bool              => output.push_str("bool"),
+        ty::ty_char              => output.push_str("char"),
+        ty::ty_str               => output.push_str("str"),
+        ty::ty_int(ast::TyI)     => output.push_str("int"),
+        ty::ty_int(ast::TyI8)    => output.push_str("i8"),
+        ty::ty_int(ast::TyI16)   => output.push_str("i16"),
+        ty::ty_int(ast::TyI32)   => output.push_str("i32"),
+        ty::ty_int(ast::TyI64)   => output.push_str("i64"),
+        ty::ty_uint(ast::TyU)    => output.push_str("uint"),
+        ty::ty_uint(ast::TyU8)   => output.push_str("u8"),
+        ty::ty_uint(ast::TyU16)  => output.push_str("u16"),
+        ty::ty_uint(ast::TyU32)  => output.push_str("u32"),
+        ty::ty_uint(ast::TyU64)  => output.push_str("u64"),
+        ty::ty_float(ast::TyF32) => output.push_str("f32"),
+        ty::ty_float(ast::TyF64) => output.push_str("f64"),
+        ty::ty_struct(def_id, ref substs) |
+        ty::ty_enum(def_id, ref substs) => {
+            push_item_name(cx, def_id, qualified, output);
+            push_type_params(cx, substs, output);
+        },
+        ty::ty_tup(ref component_types) => {
+            output.push_char('(');
+            for &component_type in component_types.iter() {
+                push_debuginfo_type_name(cx, component_type, true, output);
+                output.push_str(", ");
+            }
+            output.pop_char();
+            output.pop_char();
+            output.push_char(')');
+        },
+        ty::ty_uniq(inner_type) => {
+            output.push_str("Box<");
+            push_debuginfo_type_name(cx, inner_type, true, output);
+            output.push_char('>');
+        },
+        ty::ty_box(inner_type) => {
+            output.push_char('@');
+            push_debuginfo_type_name(cx, inner_type, true, output);
+        },
+        ty::ty_ptr(ty::mt { ty: inner_type, mutbl } ) => {
+            output.push_char('*');
+            match mutbl {
+                ast::MutImmutable => output.push_str("const "),
+                ast::MutMutable => output.push_str("mut "),
+            }
+
+            push_debuginfo_type_name(cx, inner_type, true, output);
+        },
+        ty::ty_rptr(_, ty::mt { ty: inner_type, mutbl }) => {
+            output.push_char('&');
+            if mutbl == ast::MutMutable {
+                output.push_str("mut ");
+            }
+
+            push_debuginfo_type_name(cx, inner_type, true, output);
+        },
+        ty::ty_vec(ty::mt { ty: inner_type, .. }, optional_length) => {
+            output.push_char('[');
+            push_debuginfo_type_name(cx, inner_type, true, output);
+
+            match optional_length {
+                Some(len) => {
+                    output.push_str(format!(", ..{}", len).as_slice());
+                }
+                None => { /* nothing to do */ }
+            };
+
+            output.push_char(']');
+        },
+        ty::ty_trait(ref trait_data) => {
+            push_item_name(cx, trait_data.def_id, false, output);
+            push_type_params(cx, &trait_data.substs, output);
+        },
+        ty::ty_bare_fn(ty::BareFnTy{ fn_style, abi, ref sig } ) => {
+            if fn_style == ast::UnsafeFn {
+                output.push_str("unsafe ");
+            }
+
+            if abi != ::syntax::abi::Rust {
+                output.push_str("extern \"");
+                output.push_str(abi.name());
+                output.push_str("\" ");
+            }
+
+            output.push_str("fn(");
+
+            if sig.inputs.len() > 0 {
+                for &parameter_type in sig.inputs.iter() {
+                    push_debuginfo_type_name(cx, parameter_type, true, output);
+                    output.push_str(", ");
+                }
+                output.pop_char();
+                output.pop_char();
+            }
+
+            if sig.variadic {
+                if sig.inputs.len() > 0 {
+                    output.push_str(", ...");
+                } else {
+                    output.push_str("...");
+                }
+            }
+
+            output.push_char(')');
+
+            if !ty::type_is_nil(sig.output) {
+                output.push_str(" -> ");
+                push_debuginfo_type_name(cx, sig.output, true, output);
+            }
+        },
+        ty::ty_closure(box ty::ClosureTy { fn_style,
+                                           onceness,
+                                           store,
+                                           ref sig,
+                                           .. // omitting bounds ...
+                                           }) => {
+            if fn_style == ast::UnsafeFn {
+                output.push_str("unsafe ");
+            }
+
+            if onceness == ast::Once {
+                output.push_str("once ");
+            }
+
+            let param_list_closing_char;
+            match store {
+                ty::UniqTraitStore => {
+                    output.push_str("proc(");
+                    param_list_closing_char = ')';
+                }
+                ty::RegionTraitStore(_, ast::MutMutable) => {
+                    output.push_str("&mut|");
+                    param_list_closing_char = '|';
+                }
+                ty::RegionTraitStore(_, ast::MutImmutable) => {
+                    output.push_str("&|");
+                    param_list_closing_char = '|';
+                }
+            };
+
+            if sig.inputs.len() > 0 {
+                for &parameter_type in sig.inputs.iter() {
+                    push_debuginfo_type_name(cx, parameter_type, true, output);
+                    output.push_str(", ");
+                }
+                output.pop_char();
+                output.pop_char();
+            }
+
+            if sig.variadic {
+                if sig.inputs.len() > 0 {
+                    output.push_str(", ...");
+                } else {
+                    output.push_str("...");
+                }
+            }
+
+            output.push_char(param_list_closing_char);
+
+            if !ty::type_is_nil(sig.output) {
+                output.push_str(" -> ");
+                push_debuginfo_type_name(cx, sig.output, true, output);
+            }
+        },
+        ty::ty_err      |
+        ty::ty_infer(_) |
+        ty::ty_param(_) => {
+            cx.sess().bug(format!("debuginfo: Trying to create type name for \
+                unexpected type: {}", ppaux::ty_to_string(cx.tcx(), t)).as_slice());
+        }
+    }
+
+    fn push_item_name(cx: &CrateContext,
+                      def_id: ast::DefId,
+                      qualified: bool,
+                      output: &mut String) {
+        ty::with_path(cx.tcx(), def_id, |mut path| {
+            if qualified {
+                if def_id.krate == ast::LOCAL_CRATE {
+                    output.push_str(crate_root_namespace(cx));
+                    output.push_str("::");
+                }
+
+                let mut path_element_count = 0u;
+                for path_element in path {
+                    let name = token::get_name(path_element.name());
+                    output.push_str(name.get());
+                    output.push_str("::");
+                    path_element_count += 1;
+                }
+
+                if path_element_count == 0 {
+                    cx.sess().bug("debuginfo: Encountered empty item path!");
+                }
+
+                output.pop_char();
+                output.pop_char();
+            } else {
+                let name = token::get_name(path.last()
+                                               .expect("debuginfo: Empty item path?")
+                                               .name());
+                output.push_str(name.get());
+            }
+        });
+    }
+
+    // Pushes the type parameters in the given `Substs` to the output string.
+    // This ignores region parameters, since they can't reliably be
+    // reconstructed for items from non-local crates. For local crates, this
+    // would be possible but with inlining and LTO we have to use the least
+    // common denominator - otherwise we would run into conflicts.
+    fn push_type_params(cx: &CrateContext,
+                        substs: &subst::Substs,
+                        output: &mut String) {
+        if substs.types.is_empty() {
+            return;
+        }
+
+        output.push_char('<');
+
+        for &type_parameter in substs.types.iter() {
+            push_debuginfo_type_name(cx, type_parameter, true, output);
+            output.push_str(", ");
+        }
+
+        output.pop_char();
+        output.pop_char();
+
+        output.push_char('>');
+    }
+}
+
+
+//=-----------------------------------------------------------------------------
 // Namespace Handling
 //=-----------------------------------------------------------------------------
 
@@ -3735,14 +3978,15 @@ impl NamespaceTreeNode {
     }
 }
 
+fn crate_root_namespace<'a>(cx: &'a CrateContext) -> &'a str {
+    cx.link_meta.crate_name.as_slice()
+}
+
 fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTreeNode> {
     ty::with_path(cx.tcx(), def_id, |path| {
         // prepend crate name if not already present
         let krate = if def_id.krate == ast::LOCAL_CRATE {
-            let crate_namespace_ident = token::str_to_ident(cx.link_meta
-                                                              .crateid
-                                                              .name
-                                                              .as_slice());
+            let crate_namespace_ident = token::str_to_ident(crate_root_namespace(cx));
             Some(ast_map::PathMod(crate_namespace_ident.name))
         } else {
             None

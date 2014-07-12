@@ -18,7 +18,6 @@ use middle::trans::base::{trans_enum_variant, push_ctxt, get_item_val};
 use middle::trans::base::{trans_fn, decl_internal_rust_fn};
 use middle::trans::base;
 use middle::trans::common::*;
-use middle::trans::intrinsic;
 use middle::ty;
 use middle::typeck;
 use util::ppaux::Repr;
@@ -129,9 +128,7 @@ pub fn monomorphic_fn(ccx: &CrateContext,
         hash_id.hash(&mut state);
         mono_ty.hash(&mut state);
 
-        exported_name(path,
-                      format!("h{}", state.result()).as_slice(),
-                      ccx.link_meta.crateid.version_or_default())
+        exported_name(path, format!("h{}", state.result()).as_slice())
     });
     debug!("monomorphize_fn mangled to {}", s);
 
@@ -158,17 +155,6 @@ pub fn monomorphic_fn(ccx: &CrateContext,
               _ => {
                 ccx.sess().bug("Can't monomorphize this kind of item")
               }
-            }
-        }
-        ast_map::NodeForeignItem(i) => {
-            let simple = intrinsic::get_simple_intrinsic(ccx, &*i);
-            match simple {
-                Some(decl) => decl,
-                None => {
-                    let d = mk_lldecl();
-                    intrinsic::trans_intrinsic(ccx, d, &*i, &psubsts, ref_id);
-                    d
-                }
             }
         }
         ast_map::NodeVariant(v) => {
@@ -225,6 +211,7 @@ pub fn monomorphic_fn(ccx: &CrateContext,
         }
 
         // Ugh -- but this ensures any new variants won't be forgotten
+        ast_map::NodeForeignItem(..) |
         ast_map::NodeLifetime(..) |
         ast_map::NodeExpr(..) |
         ast_map::NodeStmt(..) |

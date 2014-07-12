@@ -16,6 +16,7 @@ collector is task-local so `Gc<T>` is not sendable.
 
 */
 
+#![experimental]
 #![allow(experimental)]
 
 use clone::Clone;
@@ -24,6 +25,7 @@ use default::Default;
 use fmt;
 use hash;
 use kinds::marker;
+use option::Option;
 use ops::Deref;
 use raw;
 
@@ -58,6 +60,10 @@ impl<T: PartialEq + 'static> PartialEq for Gc<T> {
     fn ne(&self, other: &Gc<T>) -> bool { *(*self) != *(*other) }
 }
 impl<T: PartialOrd + 'static> PartialOrd for Gc<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Gc<T>) -> Option<Ordering> {
+        (**self).partial_cmp(&**other)
+    }
     #[inline]
     fn lt(&self, other: &Gc<T>) -> bool { *(*self) < *(*other) }
     #[inline]
@@ -102,6 +108,13 @@ mod tests {
     use prelude::*;
     use super::*;
     use cell::RefCell;
+
+    #[test]
+    fn test_managed_clone() {
+        let a = box(GC) 5i;
+        let b: Gc<int> = a.clone();
+        assert!(a == b);
+    }
 
     #[test]
     fn test_clone() {

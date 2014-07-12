@@ -12,7 +12,6 @@
 
 #![allow(non_camel_case_types)]
 
-use char::Char;
 use collections::Collection;
 use from_str::from_str;
 use io::{IoResult, Writer};
@@ -22,6 +21,7 @@ use os;
 use result::{Ok, Err};
 use str::StrSlice;
 use sync::atomics;
+use unicode::UnicodeChar;
 
 pub use self::imp::write;
 
@@ -262,12 +262,12 @@ mod imp {
         use slice::{MutableVector};
 
         extern {
-            fn backtrace(buf: *mut *const libc::c_void,
+            fn backtrace(buf: *mut *mut libc::c_void,
                          sz: libc::c_int) -> libc::c_int;
         }
 
         // while it doesn't requires lock for work as everything is
-        // local, it still displays much nicier backtraces when a
+        // local, it still displays much nicer backtraces when a
         // couple of tasks fail simultaneously
         static mut LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
         let _g = unsafe { LOCK.lock() };
@@ -275,7 +275,7 @@ mod imp {
         try!(writeln!(w, "stack backtrace:"));
         // 100 lines should be enough
         static SIZE: libc::c_int = 100;
-        let mut buf: [*const libc::c_void, ..SIZE] = unsafe {mem::zeroed()};
+        let mut buf: [*mut libc::c_void, ..SIZE] = unsafe {mem::zeroed()};
         let cnt = unsafe { backtrace(buf.as_mut_ptr(), SIZE) as uint};
 
         // skipping the first one as it is write itself

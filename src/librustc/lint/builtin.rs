@@ -30,21 +30,14 @@ use middle::def::*;
 use middle::trans::adt; // for `adt::is_ffi_safe`
 use middle::typeck::astconv::ast_ty_to_ty;
 use middle::typeck::infer;
-use middle::{typeck, ty, def, pat_util};
-use util::ppaux::{ty_to_str};
+use middle::{typeck, ty, def, pat_util, stability};
+use util::ppaux::{ty_to_string};
 use util::nodemap::NodeSet;
 use lint::{Context, LintPass, LintArray};
 
 use std::cmp;
 use std::collections::HashMap;
-use std::i16;
-use std::i32;
-use std::i64;
-use std::i8;
-use std::u16;
-use std::u32;
-use std::u64;
-use std::u8;
+use std::{i8, i16, i32, i64, u8, u16, u32, u64, f32, f64};
 use std::gc::Gc;
 use syntax::abi;
 use syntax::ast_map;
@@ -214,7 +207,21 @@ impl LintPass for TypeLimits {
                                          "literal out of range for its type");
                         }
                     },
-
+                    ty::ty_float(t) => {
+                        let (min, max) = float_ty_range(t);
+                        let lit_val: f64 = match lit.node {
+                            ast::LitFloat(ref v, _) |
+                            ast::LitFloatUnsuffixed(ref v) => match from_str(v.get()) {
+                                Some(f) => f,
+                                None => return
+                            },
+                            _ => fail!()
+                        };
+                        if lit_val < min || lit_val > max {
+                            cx.span_lint(TYPE_OVERFLOW, e.span,
+                                         "literal out of range for its type");
+                        }
+                    },
                     _ => ()
                 };
             },
@@ -262,6 +269,13 @@ impl LintPass for TypeLimits {
                 ast::TyU16 => (u16::MIN  as u64, u16::MAX  as u64),
                 ast::TyU32 => (u32::MIN  as u64, u32::MAX  as u64),
                 ast::TyU64 => (u64::MIN,         u64::MAX)
+            }
+        }
+
+        fn float_ty_range(float_ty: ast::FloatTy) -> (f64, f64) {
+            match float_ty {
+                ast::TyF32  => (f32::MIN_VALUE as f64, f32::MAX_VALUE as f64),
+                ast::TyF64  => (f64::MIN_VALUE,        f64::MAX_VALUE)
             }
         }
 
@@ -391,8 +405,8 @@ pub struct HeapMemory;
 
 impl HeapMemory {
     fn check_heap_type(&self, cx: &Context, span: Span, ty: ty::t) {
-        let mut n_box = 0;
-        let mut n_uniq = 0;
+        let mut n_box = 0i;
+        let mut n_uniq = 0i;
         ty::fold_ty(cx.tcx, ty, |t| {
             match ty::get(t).sty {
                 ty::ty_box(_) => {
@@ -412,14 +426,14 @@ impl HeapMemory {
         });
 
         if n_uniq > 0 {
-            let s = ty_to_str(cx.tcx, ty);
+            let s = ty_to_string(cx.tcx, ty);
             let m = format!("type uses owned (Box type) pointers: {}", s);
             cx.span_lint(OWNED_HEAP_MEMORY, span, m.as_slice());
             cx.span_lint(HEAP_MEMORY, span, m.as_slice());
         }
 
         if n_box > 0 {
-            let s = ty_to_str(cx.tcx, ty);
+            let s = ty_to_string(cx.tcx, ty);
             let m = format!("type uses managed (@ type) pointers: {}", s);
             cx.span_lint(MANAGED_HEAP_MEMORY, span, m.as_slice());
             cx.span_lint(HEAP_MEMORY, span, m.as_slice());
@@ -540,7 +554,7 @@ impl LintPass for UnusedAttribute {
     }
 
     fn check_attribute(&mut self, cx: &Context, attr: &ast::Attribute) {
-        static ATTRIBUTE_WHITELIST: &'static [&'static str] = &'static [
+        static ATTRIBUTE_WHITELIST: &'static [&'static str] = &[
             // FIXME: #14408 whitelist docs since rustdoc looks at them
             "doc",
 
@@ -574,13 +588,13 @@ impl LintPass for UnusedAttribute {
             "unstable",
         ];
 
-        static CRATE_ATTRS: &'static [&'static str] = &'static [
+        static CRATE_ATTRS: &'static [&'static str] = &[
+            "crate_name",
             "crate_type",
             "feature",
             "no_start",
             "no_main",
             "no_std",
-            "crate_id",
             "desc",
             "comment",
             "license",
@@ -669,22 +683,13 @@ impl LintPass for UnusedResult {
                 if ast_util::is_local(did) {
                     match cx.tcx.map.get(did.node) {
                         ast_map::NodeItem(it) => {
-                            if attr::contains_name(it.attrs.as_slice(),
-                                                   "must_use") {
-                                cx.span_lint(UNUSED_MUST_USE, s.span,
-                                             "unused result which must be used");
-                                warned = true;
-                            }
+                            warned |= check_must_use(cx, it.attrs.as_slice(), s.span);
                         }
                         _ => {}
                     }
                 } else {
                     csearch::get_item_attrs(&cx.sess().cstore, did, |attrs| {
-                        if attr::contains_name(attrs.as_slice(), "must_use") {
-                            cx.span_lint(UNUSED_MUST_USE, s.span,
-                                         "unused result which must be used");
-                            warned = true;
-                        }
+                        warned |= check_must_use(cx, attrs.as_slice(), s.span);
                     });
                 }
             }
@@ -692,6 +697,25 @@ impl LintPass for UnusedResult {
         }
         if !warned {
             cx.span_lint(UNUSED_RESULT, s.span, "unused result");
+        }
+
+        fn check_must_use(cx: &Context, attrs: &[ast::Attribute], sp: Span) -> bool {
+            for attr in attrs.iter() {
+                if attr.check_name("must_use") {
+                    let mut msg = "unused result which must be used".to_string();
+                    // check for #[must_use="..."]
+                    match attr.value_str() {
+                        None => {}
+                        Some(s) => {
+                            msg.push_str(": ");
+                            msg.push_str(s.get());
+                        }
+                    }
+                    cx.span_lint(UNUSED_MUST_USE, sp, msg.as_slice());
+                    return true;
+                }
+            }
+            false
         }
     }
 }
@@ -902,12 +926,10 @@ impl LintPass for NonUppercasePatternStatics {
     fn check_pat(&mut self, cx: &Context, p: &ast::Pat) {
         // Lint for constants that look like binding identifiers (#7526)
         match (&p.node, cx.tcx.def_map.borrow().find(&p.id)) {
-            (&ast::PatIdent(_, ref path, _), Some(&def::DefStatic(_, false))) => {
-                // last identifier alone is right choice for this lint.
-                let ident = path.segments.last().unwrap().identifier;
-                let s = token::get_ident(ident);
+            (&ast::PatIdent(_, ref path1, _), Some(&def::DefStatic(_, false))) => {
+                let s = token::get_ident(path1.node);
                 if s.get().chars().any(|c| c.is_lowercase()) {
-                    cx.span_lint(NON_UPPERCASE_PATTERN_STATICS, path.span,
+                    cx.span_lint(NON_UPPERCASE_PATTERN_STATICS, path1.span,
                         format!("static constant in pattern `{}` should have an uppercase \
                                  name such as `{}`",
                                 s.get(), s.get().chars().map(|c| c.to_uppercase())
@@ -931,15 +953,13 @@ impl LintPass for UppercaseVariables {
 
     fn check_pat(&mut self, cx: &Context, p: &ast::Pat) {
         match &p.node {
-            &ast::PatIdent(_, ref path, _) => {
+            &ast::PatIdent(_, ref path1, _) => {
                 match cx.tcx.def_map.borrow().find(&p.id) {
                     Some(&def::DefLocal(_, _)) | Some(&def::DefBinding(_, _)) |
                             Some(&def::DefArg(_, _)) => {
-                        // last identifier alone is right choice for this lint.
-                        let ident = path.segments.last().unwrap().identifier;
-                        let s = token::get_ident(ident);
+                        let s = token::get_ident(path1.node);
                         if s.get().len() > 0 && s.get().char_at(0).is_uppercase() {
-                            cx.span_lint(UPPERCASE_VARIABLES, path.span,
+                            cx.span_lint(UPPERCASE_VARIABLES, path1.span,
                                          "variable names should start with \
                                           a lowercase character");
                         }
@@ -989,7 +1009,7 @@ impl UnnecessaryParens {
             _ => {}
         }
 
-        /// Expressions that syntatically contain an "exterior" struct
+        /// Expressions that syntactically contain an "exterior" struct
         /// literal i.e. not surrounded by any parens or other
         /// delimiters, e.g. `X { y: 1 }`, `X { y: 1 }.method()`, `foo
         /// == X { y: 1 }` and `X { y: 1 } == foo` all do, but `(X {
@@ -1113,17 +1133,12 @@ impl UnusedMut {
         // avoid false warnings in match arms with multiple patterns
         let mut mutables = HashMap::new();
         for &p in pats.iter() {
-            pat_util::pat_bindings(&cx.tcx.def_map, &*p, |mode, id, _, path| {
+            pat_util::pat_bindings(&cx.tcx.def_map, &*p, |mode, id, _, path1| {
+                let ident = path1.node;
                 match mode {
                     ast::BindByValue(ast::MutMutable) => {
-                        if path.segments.len() != 1 {
-                            cx.sess().span_bug(p.span,
-                                               "mutable binding that doesn't consist \
-                                                of exactly one segment");
-                        }
-                        let ident = path.segments.get(0).identifier;
                         if !token::get_ident(ident).get().starts_with("_") {
-                            mutables.insert_or_update_with(ident.name as uint,
+                            mutables.insert_or_update_with(ident.name.uint(),
                                 vec!(id), |_, old| { old.push(id); });
                         }
                     }
@@ -1426,11 +1441,7 @@ impl LintPass for Stability {
                     Some(method) => {
                         match method.origin {
                             typeck::MethodStatic(def_id) => {
-                                // If this implements a trait method, get def_id
-                                // of the method inside trait definition.
-                                // Otherwise, use the current def_id (which refers
-                                // to the method inside impl).
-                                ty::trait_method_of_method(cx.tcx, def_id).unwrap_or(def_id)
+                                def_id
                             }
                             typeck::MethodParam(typeck::MethodParam {
                                 trait_id: trait_id,
@@ -1454,8 +1465,7 @@ impl LintPass for Stability {
         // check anything for crate-local usage.
         if ast_util::is_local(id) { return }
 
-        let stability = cx.tcx.stability.borrow_mut().lookup(&cx.tcx.sess.cstore, id);
-
+        let stability = stability::lookup(cx.tcx, id);
         let (lint, label) = match stability {
             // no stability attributes == Unstable
             None => (UNSTABLE, "unmarked"),

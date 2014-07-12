@@ -8,35 +8,30 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/*!
+//! The Rust parser and macro expander.
+//!
+//! # Note
+//!
+//! This API is completely unstable and subject to change.
 
-The Rust parser and macro expander.
-
-# Note
-
-This API is completely unstable and subject to change.
-
-*/
-
-#![crate_id = "syntax#0.11.0-pre"]
+#![crate_name = "syntax"]
 #![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/")]
+       html_root_url = "http://doc.rust-lang.org/0.11.0/")]
 
 #![feature(macro_rules, globs, managed_boxes, default_type_params, phase)]
 #![feature(quote, unsafe_destructor)]
 #![allow(deprecated)]
 
-extern crate serialize;
-extern crate term;
-#[phase(plugin, link)] extern crate log;
-
 extern crate fmt_macros;
 extern crate debug;
+#[phase(plugin, link)] extern crate log;
+extern crate serialize;
+extern crate term;
 
 pub mod util {
     pub mod interner;
@@ -45,26 +40,30 @@ pub mod util {
     pub mod small_vector;
 }
 
+pub mod diagnostics {
+    pub mod macros;
+    pub mod plugin;
+    pub mod registry;
+}
+
 pub mod syntax {
     pub use ext;
     pub use parse;
     pub use ast;
 }
 
-pub mod owned_slice;
-pub mod attr;
-pub mod diagnostic;
-pub mod codemap;
 pub mod abi;
 pub mod ast;
-pub mod ast_util;
 pub mod ast_map;
-pub mod visit;
-pub mod fold;
-
-
-pub mod parse;
+pub mod ast_util;
+pub mod attr;
+pub mod codemap;
 pub mod crateid;
+pub mod diagnostic;
+pub mod fold;
+pub mod owned_slice;
+pub mod parse;
+pub mod visit;
 
 pub mod print {
     pub mod pp;
@@ -74,31 +73,25 @@ pub mod print {
 pub mod ext {
     pub mod asm;
     pub mod base;
-    pub mod expand;
-
-    pub mod quote;
-
-    pub mod deriving;
-
     pub mod build;
+    pub mod bytes;
+    pub mod cfg;
+    pub mod concat;
+    pub mod concat_idents;
+    pub mod deriving;
+    pub mod env;
+    pub mod expand;
+    pub mod fmt;
+    pub mod format;
+    pub mod log_syntax;
+    pub mod mtwt;
+    pub mod quote;
+    pub mod source_util;
+    pub mod trace_macros;
 
     pub mod tt {
         pub mod transcribe;
         pub mod macro_parser;
         pub mod macro_rules;
     }
-
-    pub mod mtwt;
-
-    pub mod cfg;
-    pub mod fmt;
-    pub mod format;
-    pub mod env;
-    pub mod bytes;
-    pub mod concat;
-    pub mod concat_idents;
-    pub mod log_syntax;
-    pub mod source_util;
-
-    pub mod trace_macros;
 }

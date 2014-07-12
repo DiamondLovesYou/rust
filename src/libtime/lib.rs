@@ -10,7 +10,7 @@
 
 //! Simple time handling.
 
-#![crate_id = "time#0.11.0-pre"]
+#![crate_name = "time"]
 #![experimental]
 
 #![crate_type = "rlib"]
@@ -18,7 +18,7 @@
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![feature(phase)]
 
@@ -316,10 +316,24 @@ impl Tm {
     }
 
     /**
-     * Return a string of the current time in the form
-     * "Thu Jan  1 00:00:00 1970".
+     * Returns a time string formatted according to the `asctime` format in ISO
+     * C, in the local timezone.
+     *
+     * Example: "Thu Jan  1 00:00:00 1970"
      */
-    pub fn ctime(&self) -> String { self.strftime("%c") }
+    pub fn ctime(&self) -> String {
+        self.to_local().asctime()
+    }
+
+    /**
+     * Returns a time string formatted according to the `asctime` format in ISO
+     * C.
+     *
+     * Example: "Thu Jan  1 00:00:00 1970"
+     */
+    pub fn asctime(&self) -> String {
+        self.strftime("%c")
+    }
 
     /// Formats the time according to the format string.
     pub fn strftime(&self, format: &str) -> String {
@@ -330,7 +344,7 @@ impl Tm {
      * Returns a time string formatted according to RFC 822.
      *
      * local: "Thu, 22 Mar 2012 07:53:18 PST"
-     * utc:   "Thu, 22 Mar 2012 14:53:18 UTC"
+     * utc:   "Thu, 22 Mar 2012 14:53:18 GMT"
      */
     pub fn rfc822(&self) -> String {
         if self.tm_gmtoff == 0_i32 {
@@ -351,7 +365,8 @@ impl Tm {
     }
 
     /**
-     * Returns a time string formatted according to ISO 8601.
+     * Returns a time string formatted according to RFC 3999. RFC 3999 is
+     * compatible with ISO 8601.
      *
      * local: "2012-02-22T07:53:18-07:00"
      * utc:   "2012-02-22T14:53:18Z"
@@ -375,7 +390,7 @@ pub fn strptime(s: &str, format: &str) -> Result<Tm, String> {
     fn match_str(s: &str, pos: uint, needle: &str) -> bool {
         let mut i = pos;
         for ch in needle.bytes() {
-            if s[i] != ch {
+            if s.as_bytes()[i] != ch {
                 return false;
             }
             i += 1u;
@@ -1022,7 +1037,7 @@ pub fn strftime(format: &str, tm: &Tm) -> String {
           'U' => format!("{:02d}", (tm.tm_yday - tm.tm_wday + 7) / 7),
           'u' => {
             let i = tm.tm_wday as int;
-            (if i == 0 { 7 } else { i }).to_str()
+            (if i == 0 { 7 } else { i }).to_string()
           }
           'V' => iso_week('V', tm),
           'v' => {
@@ -1035,8 +1050,8 @@ pub fn strftime(format: &str, tm: &Tm) -> String {
               format!("{:02d}",
                              (tm.tm_yday - (tm.tm_wday - 1 + 7) % 7 + 7) / 7)
           }
-          'w' => (tm.tm_wday as int).to_str(),
-          'Y' => (tm.tm_year as int + 1900).to_str(),
+          'w' => (tm.tm_wday as int).to_string(),
+          'Y' => (tm.tm_year as int + 1900).to_string(),
           'y' => format!("{:02d}", (tm.tm_year as int + 1900) % 100),
           'Z' => "".to_string(),    // FIXME(pcwalton): Implement this.
           'z' => {
@@ -1371,6 +1386,19 @@ mod tests {
         assert_eq!(strptime("360", "%Y-%m-%d"), Err("Invalid year".to_string()))
     }
 
+    fn test_asctime() {
+        set_time_zone();
+
+        let time = Timespec::new(1234567890, 54321);
+        let utc   = at_utc(time);
+        let local = at(time);
+
+        debug!("test_ctime: {:?} {:?}", utc.asctime(), local.asctime());
+
+        assert_eq!(utc.asctime(), "Fri Feb 13 23:31:30 2009".to_string());
+        assert_eq!(local.asctime(), "Fri Feb 13 15:31:30 2009".to_string());
+    }
+
     fn test_ctime() {
         set_time_zone();
 
@@ -1380,7 +1408,7 @@ mod tests {
 
         debug!("test_ctime: {:?} {:?}", utc.ctime(), local.ctime());
 
-        assert_eq!(utc.ctime(), "Fri Feb 13 23:31:30 2009".to_string());
+        assert_eq!(utc.ctime(), "Fri Feb 13 15:31:30 2009".to_string());
         assert_eq!(local.ctime(), "Fri Feb 13 15:31:30 2009".to_string());
     }
 
@@ -1435,11 +1463,13 @@ mod tests {
         assert_eq!(local.strftime("%z"), "-0800".to_string());
         assert_eq!(local.strftime("%%"), "%".to_string());
 
+        assert_eq!(local.asctime(), "Fri Feb 13 15:31:30 2009".to_string());
         assert_eq!(local.ctime(), "Fri Feb 13 15:31:30 2009".to_string());
         assert_eq!(local.rfc822z(), "Fri, 13 Feb 2009 15:31:30 -0800".to_string());
         assert_eq!(local.rfc3339(), "2009-02-13T15:31:30-08:00".to_string());
 
-        assert_eq!(utc.ctime(), "Fri Feb 13 23:31:30 2009".to_string());
+        assert_eq!(utc.asctime(), "Fri Feb 13 23:31:30 2009".to_string());
+        assert_eq!(utc.ctime(), "Fri Feb 13 15:31:30 2009".to_string());
         assert_eq!(utc.rfc822(), "Fri, 13 Feb 2009 23:31:30 GMT".to_string());
         assert_eq!(utc.rfc822z(), "Fri, 13 Feb 2009 23:31:30 -0000".to_string());
         assert_eq!(utc.rfc3339(), "2009-02-13T23:31:30Z".to_string());
@@ -1488,6 +1518,7 @@ mod tests {
         test_to_timespec();
         test_conversions();
         test_strptime();
+        test_asctime();
         test_ctime();
         test_strftime();
         test_timespec_eq_ord();

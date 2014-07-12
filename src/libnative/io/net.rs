@@ -637,7 +637,7 @@ impl rtio::RtioSocket for UdpSocket {
 #[cfg(unix)]    type msglen_t = libc::size_t;
 
 impl rtio::RtioUdpSocket for UdpSocket {
-    fn recvfrom(&mut self, buf: &mut [u8]) -> IoResult<(uint, rtio::SocketAddr)> {
+    fn recv_from(&mut self, buf: &mut [u8]) -> IoResult<(uint, rtio::SocketAddr)> {
         let fd = self.fd();
         let mut storage: libc::sockaddr_storage = unsafe { mem::zeroed() };
         let storagep = &mut storage as *mut _ as *mut libc::sockaddr;
@@ -659,7 +659,7 @@ impl rtio::RtioUdpSocket for UdpSocket {
         })
     }
 
-    fn sendto(&mut self, buf: &[u8], dst: rtio::SocketAddr) -> IoResult<()> {
+    fn send_to(&mut self, buf: &[u8], dst: rtio::SocketAddr) -> IoResult<()> {
         let (dst, dstlen) = addr_to_sockaddr(dst);
         let dstp = &dst as *const _ as *const libc::sockaddr;
         let dstlen = dstlen as libc::socklen_t;
@@ -884,7 +884,7 @@ pub fn write<T>(fd: sock_t,
             }
 
             // Also as with read(), we use MSG_DONTWAIT to guard ourselves
-            // against unforseen circumstances.
+            // against unforeseen circumstances.
             let _guard = lock();
             let ptr = buf.slice_from(written).as_ptr();
             let len = buf.len() - written;

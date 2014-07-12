@@ -73,7 +73,7 @@ int_repr!(u64, "u64")
 
 macro_rules! num_repr(($ty:ident, $suffix:expr) => (impl Repr for $ty {
     fn write_repr(&self, writer: &mut io::Writer) -> io::IoResult<()> {
-        let s = self.to_str();
+        let s = self.to_string();
         writer.write(s.as_bytes()).and_then(|()| {
             writer.write($suffix)
         })
@@ -564,7 +564,7 @@ pub fn write_repr<T>(writer: &mut io::Writer, object: &T) -> io::IoResult<()> {
     }
 }
 
-pub fn repr_to_str<T>(t: &T) -> String {
+pub fn repr_to_string<T>(t: &T) -> String {
     let mut result = io::MemWriter::new();
     write_repr(&mut result as &mut io::Writer, t).unwrap();
     String::from_utf8(result.unwrap()).unwrap()
@@ -588,22 +588,22 @@ fn test_repr() {
         assert_eq!(s.as_slice(), e);
     }
 
-    exact_test(&10, "10");
+    exact_test(&10i, "10");
     exact_test(&true, "true");
     exact_test(&false, "false");
-    exact_test(&1.234, "1.234f64");
+    exact_test(&1.234f64, "1.234f64");
     exact_test(&("hello"), "\"hello\"");
 
-    exact_test(&(box(GC) 10), "box(GC) 10");
-    exact_test(&(box 10), "box 10");
-    exact_test(&(&10), "&10");
-    let mut x = 10;
+    exact_test(&(box(GC) 10i), "box(GC) 10");
+    exact_test(&(box 10i), "box 10");
+    exact_test(&(&10i), "&10");
+    let mut x = 10i;
     exact_test(&(&mut x), "&mut 10");
 
-    exact_test(&(0 as *const ()), "(0x0 as *const ())");
-    exact_test(&(0 as *mut ()), "(0x0 as *mut ())");
+    exact_test(&(0i as *const()), "(0x0 as *const ())");
+    exact_test(&(0i as *mut ()), "(0x0 as *mut ())");
 
-    exact_test(&(1,), "(1,)");
+    exact_test(&(1i,), "(1,)");
     exact_test(&(&["hi", "there"]),
                "&[\"hi\", \"there\"]");
     exact_test(&(P{a:10, b:1.234}),
@@ -613,8 +613,8 @@ fn test_repr() {
     exact_test(&(box P{a:10, b:1.234}),
                "box repr::P{a: 10, b: 1.234f64}");
 
-    exact_test(&(&[1, 2]), "&[1, 2]");
-    exact_test(&(&mut [1, 2]), "&mut [1, 2]");
+    exact_test(&(&[1i, 2i]), "&[1, 2]");
+    exact_test(&(&mut [1i, 2i]), "&mut [1, 2]");
 
     exact_test(&'\'', "'\\''");
     exact_test(&'"', "'\"'");

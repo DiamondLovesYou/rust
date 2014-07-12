@@ -18,6 +18,7 @@ use core::fmt;
 use core::intrinsics;
 use core::kinds::Send;
 use core::mem;
+use core::option::Option;
 use core::raw::TraitObject;
 use core::result::{Ok, Err, Result};
 
@@ -64,6 +65,10 @@ impl<T:PartialEq> PartialEq for Box<T> {
     fn ne(&self, other: &Box<T>) -> bool { *(*self) != *(*other) }
 }
 impl<T:PartialOrd> PartialOrd for Box<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Box<T>) -> Option<Ordering> {
+        (**self).partial_cmp(*other)
+    }
     #[inline]
     fn lt(&self, other: &Box<T>) -> bool { *(*self) < *(*other) }
     #[inline]
@@ -144,5 +149,53 @@ impl<T: fmt::Show> fmt::Show for Box<T> {
 impl fmt::Show for Box<Any> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad("Box<Any>")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_owned_clone() {
+        let a = box 5i;
+        let b: Box<int> = a.clone();
+        assert!(a == b);
+    }
+
+    #[test]
+    fn any_move() {
+        let a = box 8u as Box<Any>;
+        let b = box Test as Box<Any>;
+
+        match a.move::<uint>() {
+            Ok(a) => { assert!(a == box 8u); }
+            Err(..) => fail!()
+        }
+        match b.move::<Test>() {
+            Ok(a) => { assert!(a == box Test); }
+            Err(..) => fail!()
+        }
+
+        let a = box 8u as Box<Any>;
+        let b = box Test as Box<Any>;
+
+        assert!(a.move::<Box<Test>>().is_err());
+        assert!(b.move::<Box<uint>>().is_err());
+    }
+
+    #[test]
+    fn test_show() {
+        let a = box 8u as Box<Any>;
+        let b = box Test as Box<Any>;
+        let a_str = a.to_str();
+        let b_str = b.to_str();
+        assert_eq!(a_str.as_slice(), "Box<Any>");
+        assert_eq!(b_str.as_slice(), "Box<Any>");
+
+        let a = &8u as &Any;
+        let b = &Test as &Any;
+        let s = format!("{}", a);
+        assert_eq!(s.as_slice(), "&Any");
+        let s = format!("{}", b);
+        assert_eq!(s.as_slice(), "&Any");
     }
 }

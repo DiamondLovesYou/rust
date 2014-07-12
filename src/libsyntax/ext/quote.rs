@@ -15,7 +15,6 @@ use ext::base;
 use ext::build::AstBuilder;
 use parse::token::*;
 use parse::token;
-use parse;
 
 use std::gc::Gc;
 
@@ -129,13 +128,13 @@ pub mod rt {
         }
     }
 
-    impl_to_source!(ast::Ty, ty_to_str)
-    impl_to_source!(ast::Block, block_to_str)
-    impl_to_source!(ast::Arg, arg_to_str)
-    impl_to_source!(Generics, generics_to_str)
-    impl_to_source!(Gc<ast::Item>, item_to_str)
-    impl_to_source!(Gc<ast::Expr>, expr_to_str)
-    impl_to_source!(Gc<ast::Pat>, pat_to_str)
+    impl_to_source!(ast::Ty, ty_to_string)
+    impl_to_source!(ast::Block, block_to_string)
+    impl_to_source!(ast::Arg, arg_to_string)
+    impl_to_source!(Generics, generics_to_string)
+    impl_to_source!(Gc<ast::Item>, item_to_string)
+    impl_to_source!(Gc<ast::Expr>, expr_to_string)
+    impl_to_source!(Gc<ast::Pat>, pat_to_string)
     impl_to_source_slice!(ast::Ty, ", ")
     impl_to_source_slice!(Gc<ast::Item>, "\n\n")
 
@@ -143,7 +142,7 @@ pub mod rt {
         fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitStr(
                     token::intern_and_get_ident(*self), ast::CookedStr));
-            pprust::lit_to_str(&lit)
+            pprust::lit_to_string(&lit)
         }
     }
 
@@ -156,14 +155,14 @@ pub mod rt {
     impl ToSource for bool {
         fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitBool(*self));
-            pprust::lit_to_str(&lit)
+            pprust::lit_to_string(&lit)
         }
     }
 
     impl ToSource for char {
         fn to_source(&self) -> String {
             let lit = dummy_spanned(ast::LitChar(*self));
-            pprust::lit_to_str(&lit)
+            pprust::lit_to_string(&lit)
         }
     }
 
@@ -172,7 +171,7 @@ pub mod rt {
             impl ToSource for $t {
                 fn to_source(&self) -> String {
                     let lit = dummy_spanned(ast::LitInt(*self as i64, ast::$tag));
-                    pprust::lit_to_str(&lit)
+                    pprust::lit_to_string(&lit)
                 }
             }
         );
@@ -180,7 +179,7 @@ pub mod rt {
             impl ToSource for $t {
                 fn to_source(&self) -> String {
                     let lit = dummy_spanned(ast::LitUint(*self as u64, ast::$tag));
-                    pprust::lit_to_str(&lit)
+                    pprust::lit_to_string(&lit)
                 }
             }
         );
@@ -364,6 +363,15 @@ fn mk_ident(cx: &ExtCtxt, sp: Span, ident: ast::Ident) -> Gc<ast::Expr> {
                         vec!(e_str))
 }
 
+// Lift a name to the expr that evaluates to that name
+fn mk_name(cx: &ExtCtxt, sp: Span, ident: ast::Ident) -> Gc<ast::Expr> {
+    let e_str = cx.expr_str(sp, token::get_ident(ident));
+    cx.expr_method_call(sp,
+                        cx.expr_ident(sp, id_ext("ext_cx")),
+                        id_ext("name_of"),
+                        vec!(e_str))
+}
+
 fn mk_ast_path(cx: &ExtCtxt, sp: Span, name: &str) -> Gc<ast::Expr> {
     let idents = vec!(id_ext("syntax"), id_ext("ast"), id_ext(name));
     cx.expr_path(cx.path_global(sp, idents))
@@ -402,68 +410,37 @@ fn mk_token(cx: &ExtCtxt, sp: Span, tok: &token::Token) -> Gc<ast::Expr> {
         }
 
         LIT_BYTE(i) => {
-            let e_byte = cx.expr_lit(sp, ast::LitByte(i));
+            let e_byte = mk_name(cx, sp, i.ident());
 
             return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_BYTE"), vec!(e_byte));
         }
 
         LIT_CHAR(i) => {
-            let e_char = cx.expr_lit(sp, ast::LitChar(i));
+            let e_char = mk_name(cx, sp, i.ident());
 
             return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_CHAR"), vec!(e_char));
         }
 
-        LIT_INT(i, ity) => {
-            let s_ity = match ity {
-                ast::TyI => "TyI",
-                ast::TyI8 => "TyI8",
-                ast::TyI16 => "TyI16",
-                ast::TyI32 => "TyI32",
-                ast::TyI64 => "TyI64"
-            };
-            let e_ity = mk_ast_path(cx, sp, s_ity);
-            let e_i64 = cx.expr_lit(sp, ast::LitInt(i, ast::TyI64));
-            return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_INT"), vec!(e_i64, e_ity));
+        LIT_INTEGER(i) => {
+            let e_int = mk_name(cx, sp, i.ident());
+            return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_INTEGER"), vec!(e_int));
         }
 
-        LIT_UINT(u, uty) => {
-            let s_uty = match uty {
-                ast::TyU => "TyU",
-                ast::TyU8 => "TyU8",
-                ast::TyU16 => "TyU16",
-                ast::TyU32 => "TyU32",
-                ast::TyU64 => "TyU64"
-            };
-            let e_uty = mk_ast_path(cx, sp, s_uty);
-            let e_u64 = cx.expr_lit(sp, ast::LitUint(u, ast::TyU64));
-            return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_UINT"), vec!(e_u64, e_uty));
-        }
-
-        LIT_INT_UNSUFFIXED(i) => {
-            let e_i64 = cx.expr_lit(sp, ast::LitInt(i, ast::TyI64));
-            return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_INT_UNSUFFIXED"), vec!(e_i64));
-        }
-
-        LIT_FLOAT(fident, fty) => {
-            let s_fty = match fty {
-                ast::TyF32 => "TyF32",
-                ast::TyF64 => "TyF64",
-            };
-            let e_fty = mk_ast_path(cx, sp, s_fty);
-            let e_fident = mk_ident(cx, sp, fident);
-            return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_FLOAT"), vec!(e_fident, e_fty));
+        LIT_FLOAT(fident) => {
+            let e_fident = mk_name(cx, sp, fident.ident());
+            return cx.expr_call(sp, mk_token_path(cx, sp, "LIT_FLOAT"), vec!(e_fident));
         }
 
         LIT_STR(ident) => {
             return cx.expr_call(sp,
                                 mk_token_path(cx, sp, "LIT_STR"),
-                                vec!(mk_ident(cx, sp, ident)));
+                                vec!(mk_name(cx, sp, ident.ident())));
         }
 
         LIT_STR_RAW(ident, n) => {
             return cx.expr_call(sp,
                                 mk_token_path(cx, sp, "LIT_STR_RAW"),
-                                vec!(mk_ident(cx, sp, ident), cx.expr_uint(sp, n)));
+                                vec!(mk_name(cx, sp, ident.ident()), cx.expr_uint(sp, n)));
         }
 
         IDENT(ident, b) => {
@@ -481,7 +458,7 @@ fn mk_token(cx: &ExtCtxt, sp: Span, tok: &token::Token) -> Gc<ast::Expr> {
         DOC_COMMENT(ident) => {
             return cx.expr_call(sp,
                                 mk_token_path(cx, sp, "DOC_COMMENT"),
-                                vec!(mk_ident(cx, sp, ident)));
+                                vec!(mk_name(cx, sp, ident.ident())));
         }
 
         INTERPOLATED(_) => fail!("quote! with interpolated token"),
@@ -583,11 +560,7 @@ fn expand_tts(cx: &ExtCtxt, sp: Span, tts: &[ast::TokenTree])
     // it has to do with transition away from supporting old-style macros, so
     // try removing it when enough of them are gone.
 
-    let mut p = parse::new_parser_from_tts(cx.parse_sess(),
-                                           cx.cfg(),
-                                           tts.iter()
-                                              .map(|x| (*x).clone())
-                                              .collect());
+    let mut p = cx.new_parser_from_tts(tts);
     p.quote_depth += 1u;
 
     let cx_expr = p.parse_expr();

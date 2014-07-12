@@ -60,7 +60,7 @@
 //! by libc malloc/free.  The `libc_heap` module is defined to be wired up to
 //! the system malloc/free.
 
-#![crate_id = "alloc#0.11.0-pre"]
+#![crate_name = "alloc"]
 #![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]

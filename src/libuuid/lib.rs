@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 fn main() {
     let uuid1 = Uuid::new_v4();
-    println!("{}", uuid1.to_str());
+    println!("{}", uuid1.to_string());
 }
 ```
 
@@ -54,14 +54,14 @@ Examples of string representations:
 
 */
 
-#![crate_id = "uuid#0.11.0-pre"]
+#![crate_name = "uuid"]
 #![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(default_type_params)]
@@ -324,8 +324,8 @@ impl Uuid {
         let mut s: Vec<u8> = Vec::from_elem(32, 0u8);
         for i in range(0u, 16u) {
             let digit = format!("{:02x}", self.bytes[i] as uint);
-            *s.get_mut(i*2+0) = digit.as_slice()[0];
-            *s.get_mut(i*2+1) = digit.as_slice()[1];
+            *s.get_mut(i*2+0) = digit.as_bytes()[0];
+            *s.get_mut(i*2+1) = digit.as_bytes()[1];
         }
         str::from_utf8(s.as_slice()).unwrap().to_string()
     }
@@ -620,7 +620,7 @@ mod test {
 
         // Round-trip
         let uuid_orig = Uuid::new_v4();
-        let orig_str = uuid_orig.to_str();
+        let orig_str = uuid_orig.to_string();
         let uuid_out = Uuid::parse_string(orig_str.as_slice()).unwrap();
         assert!(uuid_orig == uuid_out);
 
@@ -648,9 +648,9 @@ mod test {
     }
 
     #[test]
-    fn test_to_str() {
+    fn test_to_string() {
         let uuid1 = Uuid::new_v4();
-        let s = uuid1.to_str();
+        let s = uuid1.to_string();
 
         assert!(s.len() == 32);
         assert!(s.as_slice().chars().all(|c| c.is_digit_radix(16)));
@@ -683,7 +683,7 @@ mod test {
         let uuid1 = Uuid::new_v4();
 
         let hs = uuid1.to_hyphenated_str();
-        let ss = uuid1.to_str();
+        let ss = uuid1.to_string();
 
         let hsn = str::from_chars(hs.as_slice()
                                     .chars()
@@ -702,7 +702,7 @@ mod test {
         let uuid_hs = Uuid::parse_string(hs.as_slice()).unwrap();
         assert!(uuid_hs == uuid);
 
-        let ss = uuid.to_str();
+        let ss = uuid.to_string();
         let uuid_ss = Uuid::parse_string(ss.as_slice()).unwrap();
         assert!(uuid_ss == uuid);
     }
@@ -831,10 +831,10 @@ mod bench {
     }
 
     #[bench]
-    pub fn uuid_to_str(b: &mut Bencher) {
+    pub fn uuid_to_string(b: &mut Bencher) {
         let u = Uuid::new_v4();
         b.iter(|| {
-            u.to_str();
+            u.to_string();
         })
     }
 

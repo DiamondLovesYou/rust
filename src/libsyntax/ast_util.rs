@@ -33,12 +33,6 @@ pub fn path_name_i(idents: &[Ident]) -> String {
     }).collect::<Vec<String>>().connect("::")
 }
 
-// totally scary function: ignores all but the last element, should have
-// a different name
-pub fn path_to_ident(path: &Path) -> Ident {
-    path.segments.last().unwrap().identifier
-}
-
 pub fn local_def(id: NodeId) -> DefId {
     ast::DefId { krate: LOCAL_CRATE, node: id }
 }
@@ -54,7 +48,7 @@ pub fn stmt_id(s: &Stmt) -> NodeId {
     }
 }
 
-pub fn binop_to_str(op: BinOp) -> &'static str {
+pub fn binop_to_string(op: BinOp) -> &'static str {
     match op {
         BiAdd => "+",
         BiSub => "-",
@@ -93,7 +87,7 @@ pub fn is_shift_binop(b: BinOp) -> bool {
     }
 }
 
-pub fn unop_to_str(op: UnOp) -> &'static str {
+pub fn unop_to_string(op: UnOp) -> &'static str {
     match op {
       UnBox => "box(GC) ",
       UnUniq => "box() ",
@@ -107,9 +101,9 @@ pub fn is_path(e: Gc<Expr>) -> bool {
     return match e.node { ExprPath(_) => true, _ => false };
 }
 
-// Get a string representation of a signed int type, with its value.
-// We want to avoid "45int" and "-3int" in favor of "45" and "-3"
-pub fn int_ty_to_str(t: IntTy, val: Option<i64>) -> String {
+/// Get a string representation of a signed int type, with its value.
+/// We want to avoid "45int" and "-3int" in favor of "45" and "-3"
+pub fn int_ty_to_string(t: IntTy, val: Option<i64>) -> String {
     let s = match t {
         TyI if val.is_some() => "i",
         TyI => "int",
@@ -137,9 +131,9 @@ pub fn int_ty_max(t: IntTy) -> u64 {
     }
 }
 
-// Get a string representation of an unsigned int type, with its value.
-// We want to avoid "42uint" in favor of "42u"
-pub fn uint_ty_to_str(t: UintTy, val: Option<u64>) -> String {
+/// Get a string representation of an unsigned int type, with its value.
+/// We want to avoid "42uint" in favor of "42u"
+pub fn uint_ty_to_string(t: UintTy, val: Option<u64>) -> String {
     let s = match t {
         TyU if val.is_some() => "u",
         TyU => "uint",
@@ -164,7 +158,7 @@ pub fn uint_ty_max(t: UintTy) -> u64 {
     }
 }
 
-pub fn float_ty_to_str(t: FloatTy) -> String {
+pub fn float_ty_to_string(t: FloatTy) -> String {
     match t {
         TyF32 => "f32".to_string(),
         TyF64 => "f64".to_string(),
@@ -186,6 +180,8 @@ pub fn block_from_expr(e: Gc<Expr>) -> P<Block> {
     })
 }
 
+// convert a span and an identifier to the corresponding
+// 1-segment path
 pub fn ident_to_path(s: Span, identifier: Ident) -> Path {
     ast::Path {
         span: s,
@@ -202,7 +198,7 @@ pub fn ident_to_path(s: Span, identifier: Ident) -> Path {
 
 pub fn ident_to_pat(id: NodeId, s: Span, i: Ident) -> Gc<Pat> {
     box(GC) ast::Pat { id: id,
-                node: PatIdent(BindByValue(MutImmutable), ident_to_path(s, i), None),
+                node: PatIdent(BindByValue(MutImmutable), codemap::Spanned{span:s, node:i}, None),
                 span: s }
 }
 
@@ -233,11 +229,11 @@ pub fn unguarded_pat(a: &Arm) -> Option<Vec<Gc<Pat>>> {
 /// listed as `__extensions__::method_name::hash`, with no indication
 /// of the type).
 pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: &Ty) -> Ident {
-    let mut pretty = pprust::ty_to_str(ty);
+    let mut pretty = pprust::ty_to_string(ty);
     match *trait_ref {
         Some(ref trait_ref) => {
             pretty.push_char('.');
-            pretty.push_str(pprust::path_to_str(&trait_ref.path).as_slice());
+            pretty.push_str(pprust::path_to_string(&trait_ref.path).as_slice());
         }
         None => {}
     }
@@ -253,8 +249,8 @@ pub fn public_methods(ms: Vec<Gc<Method>> ) -> Vec<Gc<Method>> {
     }).collect()
 }
 
-// extract a TypeMethod from a TraitMethod. if the TraitMethod is
-// a default, pull out the useful fields to make a TypeMethod
+/// extract a TypeMethod from a TraitMethod. if the TraitMethod is
+/// a default, pull out the useful fields to make a TypeMethod
 pub fn trait_method_to_ty_method(method: &TraitMethod) -> TypeMethod {
     match *method {
         Required(ref m) => (*m).clone(),
@@ -615,18 +611,18 @@ pub fn walk_pat(pat: &Pat, it: |&Pat| -> bool) -> bool {
     match pat.node {
         PatIdent(_, _, Some(ref p)) => walk_pat(&**p, it),
         PatStruct(_, ref fields, _) => {
-            fields.iter().advance(|f| walk_pat(&*f.pat, |p| it(p)))
+            fields.iter().all(|field| walk_pat(&*field.pat, |p| it(p)))
         }
         PatEnum(_, Some(ref s)) | PatTup(ref s) => {
-            s.iter().advance(|p| walk_pat(&**p, |p| it(p)))
+            s.iter().all(|p| walk_pat(&**p, |p| it(p)))
         }
         PatBox(ref s) | PatRegion(ref s) => {
             walk_pat(&**s, it)
         }
         PatVec(ref before, ref slice, ref after) => {
-            before.iter().advance(|p| walk_pat(&**p, |p| it(p))) &&
-                slice.iter().advance(|p| walk_pat(&**p, |p| it(p))) &&
-                after.iter().advance(|p| walk_pat(&**p, |p| it(p)))
+            before.iter().all(|p| walk_pat(&**p, |p| it(p))) &&
+            slice.iter().all(|p| walk_pat(&**p, |p| it(p))) &&
+            after.iter().all(|p| walk_pat(&**p, |p| it(p)))
         }
         PatMac(_) => fail!("attempted to analyze unexpanded pattern"),
         PatWild | PatWildMulti | PatLit(_) | PatRange(_, _) | PatIdent(_, _, _) |
@@ -709,7 +705,7 @@ pub fn segments_name_eq(a : &[ast::PathSegment], b : &[ast::PathSegment]) -> boo
     }
 }
 
-// Returns true if this literal is a string and false otherwise.
+/// Returns true if this literal is a string and false otherwise.
 pub fn lit_is_str(lit: Gc<Lit>) -> bool {
     match lit.node {
         LitStr(..) => true,
@@ -758,14 +754,14 @@ mod test {
 
     #[test] fn idents_name_eq_test() {
         assert!(segments_name_eq(
-            [Ident{name:3,ctxt:4}, Ident{name:78,ctxt:82}]
+            [Ident{name:Name(3),ctxt:4}, Ident{name:Name(78),ctxt:82}]
                 .iter().map(ident_to_segment).collect::<Vec<PathSegment>>().as_slice(),
-            [Ident{name:3,ctxt:104}, Ident{name:78,ctxt:182}]
+            [Ident{name:Name(3),ctxt:104}, Ident{name:Name(78),ctxt:182}]
                 .iter().map(ident_to_segment).collect::<Vec<PathSegment>>().as_slice()));
         assert!(!segments_name_eq(
-            [Ident{name:3,ctxt:4}, Ident{name:78,ctxt:82}]
+            [Ident{name:Name(3),ctxt:4}, Ident{name:Name(78),ctxt:82}]
                 .iter().map(ident_to_segment).collect::<Vec<PathSegment>>().as_slice(),
-            [Ident{name:3,ctxt:104}, Ident{name:77,ctxt:182}]
+            [Ident{name:Name(3),ctxt:104}, Ident{name:Name(77),ctxt:182}]
                 .iter().map(ident_to_segment).collect::<Vec<PathSegment>>().as_slice()));
     }
 }

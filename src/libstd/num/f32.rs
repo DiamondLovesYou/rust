@@ -10,6 +10,7 @@
 
 //! Operations and constants for 32-bits floats (`f32` type)
 
+#![experimental]
 #![allow(missing_doc)]
 #![allow(unsigned_negate)]
 #![doc(primitive = "f32")]
@@ -244,7 +245,7 @@ impl FloatMath for f32 {
 ///
 /// * num - The float value
 #[inline]
-pub fn to_str(num: f32) -> String {
+pub fn to_string(num: f32) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 10u, true, strconv::SignNeg, strconv::DigAll, strconv::ExpNone, false);
     r

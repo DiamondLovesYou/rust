@@ -31,7 +31,7 @@ pub fn return_uses_outptr(ccx: &CrateContext, ty: ty::t) -> bool {
 }
 
 pub fn type_of_explicit_arg(ccx: &CrateContext, arg_ty: ty::t) -> Type {
-    let llty = type_of(ccx, arg_ty);
+    let llty = arg_type_of(ccx, arg_ty);
     if arg_is_indirect(ccx, arg_ty) {
         llty.ptr_to()
     } else {
@@ -46,7 +46,7 @@ pub fn type_of_rust_fn(cx: &CrateContext, has_env: bool,
     // Arg 0: Output pointer.
     // (if the output type is non-immediate)
     let use_out_pointer = return_uses_outptr(cx, output);
-    let lloutputtype = type_of(cx, output);
+    let lloutputtype = arg_type_of(cx, output);
     if use_out_pointer {
         atys.push(lloutputtype.ptr_to());
     }
@@ -75,11 +75,13 @@ pub fn type_of_fn_from_ty(cx: &CrateContext, fty: ty::t) -> Type {
             type_of_rust_fn(cx, true, f.sig.inputs.as_slice(), f.sig.output)
         }
         ty::ty_bare_fn(ref f) => {
-            if f.abi == abi::Rust || f.abi == abi::RustIntrinsic {
+            if f.abi == abi::Rust {
                 type_of_rust_fn(cx,
                                 false,
                                 f.sig.inputs.as_slice(),
                                 f.sig.output)
+            } else if f.abi == abi::RustIntrinsic {
+                cx.sess().bug("type_of_fn_from_ty given intrinsic")
             } else {
                 foreign::lltype_for_foreign_fn(cx, fty)
             }
@@ -167,6 +169,14 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
     llsizingty
 }
 
+pub fn arg_type_of(cx: &CrateContext, t: ty::t) -> Type {
+    if ty::type_is_bool(t) {
+        Type::i1(cx)
+    } else {
+        type_of(cx, t)
+    }
+}
+
 // NB: If you update this, be sure to update `sizing_type_of()` as well.
 pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
     // Check the cache.
@@ -191,7 +201,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
                 t,
                 t_norm.repr(cx.tcx()),
                 t_norm,
-                cx.tn.type_to_str(llty));
+                cx.tn.type_to_string(llty));
         cx.lltypes.borrow_mut().insert(t, llty);
         return llty;
     }
@@ -209,7 +219,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
         // avoids creating more than one copy of the enum when one
         // of the enum's variants refers to the enum itself.
         let repr = adt::represent_type(cx, t);
-        let tps = substs.types.get_vec(subst::TypeSpace);
+        let tps = substs.types.get_slice(subst::TypeSpace);
         let name = llvm_type_name(cx, an_enum, did, tps);
         adt::incomplete_type_of(cx, &*repr, name.as_slice())
       }
@@ -266,7 +276,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
               // in *after* placing it into the type cache. This prevents
               // infinite recursion with recursive struct types.
               let repr = adt::represent_type(cx, t);
-              let tps = substs.types.get_vec(subst::TypeSpace);
+              let tps = substs.types.get_slice(subst::TypeSpace);
               let name = llvm_type_name(cx, a_struct, did, tps);
               adt::incomplete_type_of(cx, &*repr, name.as_slice())
           }
@@ -283,7 +293,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
     debug!("--> mapped t={} {:?} to llty={}",
             t.repr(cx.tcx()),
             t,
-            cx.tn.type_to_str(llty));
+            cx.tn.type_to_string(llty));
 
     cx.lltypes.borrow_mut().insert(t, llty);
 
@@ -305,7 +315,7 @@ pub enum named_ty { a_struct, an_enum }
 pub fn llvm_type_name(cx: &CrateContext,
                       what: named_ty,
                       did: ast::DefId,
-                      tps: &Vec<ty::t>)
+                      tps: &[ty::t])
                       -> String
 {
     let name = match what {

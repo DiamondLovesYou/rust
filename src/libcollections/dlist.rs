@@ -595,17 +595,8 @@ impl<A: PartialEq> PartialEq for DList<A> {
 }
 
 impl<A: PartialOrd> PartialOrd for DList<A> {
-    fn lt(&self, other: &DList<A>) -> bool {
-        iter::order::lt(self.iter(), other.iter())
-    }
-    fn le(&self, other: &DList<A>) -> bool {
-        iter::order::le(self.iter(), other.iter())
-    }
-    fn gt(&self, other: &DList<A>) -> bool {
-        iter::order::gt(self.iter(), other.iter())
-    }
-    fn ge(&self, other: &DList<A>) -> bool {
-        iter::order::ge(self.iter(), other.iter())
+    fn partial_cmp(&self, other: &DList<A>) -> Option<Ordering> {
+        iter::order::partial_cmp(self.iter(), other.iter())
     }
 }
 
@@ -1050,12 +1041,12 @@ mod tests {
     #[test]
     fn test_show() {
         let list: DList<int> = range(0i, 10).collect();
-        assert!(list.to_str().as_slice() == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]");
+        assert!(list.to_string().as_slice() == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]");
 
         let list: DList<&str> = vec!["just", "one", "test", "more"].iter()
                                                                    .map(|&s| s)
                                                                    .collect();
-        assert!(list.to_str().as_slice() == "[just, one, test, more]");
+        assert!(list.to_string().as_slice() == "[just, one, test, more]");
     }
 
     #[cfg(test)]

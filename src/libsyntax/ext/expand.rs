@@ -19,8 +19,8 @@ use attr;
 use attr::AttrMetaMethods;
 use codemap;
 use codemap::{Span, Spanned, ExpnInfo, NameAndSpan, MacroBang, MacroAttribute};
-use crateid::CrateId;
 use ext::base::*;
+use fold;
 use fold::*;
 use parse;
 use parse::token::{fresh_mark, fresh_name, intern};
@@ -58,7 +58,7 @@ pub fn expand_expr(e: Gc<ast::Expr>, fld: &mut MacroExpander) -> Gc<ast::Expr> {
                         None => {
                             fld.cx.span_err(
                                 pth.span,
-                                format!("macro undefined: '{}'",
+                                format!("macro undefined: '{}!'",
                                         extnamestr.get()).as_slice());
 
                             // let compilation continue
@@ -228,15 +228,29 @@ pub fn expand_expr(e: Gc<ast::Expr>, fld: &mut MacroExpander) -> Gc<ast::Expr> {
             fld.cx.expr(e.span, ast::ExprLoop(loop_block, opt_ident))
         }
 
+        ast::ExprFnBlock(fn_decl, block) => {
+            let (rewritten_fn_decl, rewritten_block)
+                = expand_and_rename_fn_decl_and_block(fn_decl, block, fld);
+            let new_node = ast::ExprFnBlock(rewritten_fn_decl, rewritten_block);
+            box(GC) ast::Expr{id:e.id, node: new_node, span: fld.new_span(e.span)}
+        }
+
+        ast::ExprProc(fn_decl, block) => {
+            let (rewritten_fn_decl, rewritten_block)
+                = expand_and_rename_fn_decl_and_block(fn_decl, block, fld);
+            let new_node = ast::ExprProc(rewritten_fn_decl, rewritten_block);
+            box(GC) ast::Expr{id:e.id, node: new_node, span: fld.new_span(e.span)}
+        }
+
         _ => noop_fold_expr(e, fld)
     }
 }
 
-// Rename loop label and expand its loop body
-//
-// The renaming procedure for loop is different in the sense that the loop
-// body is in a block enclosed by loop head so the renaming of loop label
-// must be propagated to the enclosed context.
+/// Rename loop label and expand its loop body
+///
+/// The renaming procedure for loop is different in the sense that the loop
+/// body is in a block enclosed by loop head so the renaming of loop label
+/// must be propagated to the enclosed context.
 fn expand_loop_block(loop_block: P<Block>,
                      opt_ident: Option<Ident>,
                      fld: &mut MacroExpander) -> (P<Block>, Option<Ident>) {
@@ -267,7 +281,8 @@ fn expand_loop_block(loop_block: P<Block>,
     }
 }
 
-// eval $e with a new exts frame:
+// eval $e with a new exts frame.
+// must be a macro so that $e isn't evaluated too early.
 macro_rules! with_exts_frame (
     ($extsboxexpr:expr,$macros_escape:expr,$e:expr) =>
     ({$extsboxexpr.push_frame();
@@ -342,15 +357,16 @@ fn expand_item(it: Gc<ast::Item>, fld: &mut MacroExpander)
 
 fn expand_item_modifiers(mut it: Gc<ast::Item>, fld: &mut MacroExpander)
                          -> Gc<ast::Item> {
-    let (modifiers, attrs) = it.attrs.partitioned(|attr| {
+    // partition the attributes into ItemModifiers and others
+    let (modifiers, other_attrs) = it.attrs.partitioned(|attr| {
         match fld.extsbox.find(&intern(attr.name().get())) {
             Some(&ItemModifier(_)) => true,
             _ => false
         }
     });
-
+    // update the attrs, leave everything else alone. Is this mutation really a good idea?
     it = box(GC) ast::Item {
-        attrs: attrs,
+        attrs: other_attrs,
         ..(*it).clone()
     };
 
@@ -381,6 +397,19 @@ fn expand_item_modifiers(mut it: Gc<ast::Item>, fld: &mut MacroExpander)
 
     // expansion may have added new ItemModifiers
     expand_item_modifiers(it, fld)
+}
+
+/// Expand item_underscore
+fn expand_item_underscore(item: &ast::Item_, fld: &mut MacroExpander) -> ast::Item_ {
+    match *item {
+        ast::ItemFn(decl, fn_style, abi, ref generics, body) => {
+            let (rewritten_fn_decl, rewritten_body)
+                = expand_and_rename_fn_decl_and_block(decl,body,fld);
+            let expanded_generics = fold::fold_generics(generics,fld);
+            ast::ItemFn(rewritten_fn_decl, fn_style, abi, expanded_generics, rewritten_body)
+        }
+        _ => noop_fold_item_underscore(&*item, fld)
+    }
 }
 
 // does this attribute list contain "macro_escape" ?
@@ -455,6 +484,24 @@ fn expand_item_mac(it: Gc<ast::Item>, fld: &mut MacroExpander)
             let marked_tts = mark_tts(tts.as_slice(), fm);
             expander.expand(fld.cx, it.span, it.ident, marked_tts)
         }
+        Some(&LetSyntaxTT(ref expander, span)) => {
+            if it.ident.name == parse::token::special_idents::invalid.name {
+                fld.cx.span_err(pth.span,
+                                format!("macro {}! expects an ident argument",
+                                        extnamestr.get()).as_slice());
+                return SmallVector::zero();
+            }
+            fld.cx.bt_push(ExpnInfo {
+                call_site: it.span,
+                callee: NameAndSpan {
+                    name: extnamestr.get().to_string(),
+                    format: MacroBang,
+                    span: span
+                }
+            });
+            // DON'T mark before expansion:
+            expander.expand(fld.cx, it.span, it.ident, tts)
+        }
         _ => {
             fld.cx.span_err(it.span,
                             format!("{}! is not legal in item position",
@@ -465,8 +512,10 @@ fn expand_item_mac(it: Gc<ast::Item>, fld: &mut MacroExpander)
 
     let items = match expanded.make_def() {
         Some(MacroDef { name, ext }) => {
-            // yikes... no idea how to apply the mark to this. I'm afraid
-            // we're going to have to wait-and-see on this one.
+            // hidden invariant: this should only be possible as the
+            // result of expanding a LetSyntaxTT, and thus doesn't
+            // need to be marked. Not that it could be marked anyway.
+            // create issue to recommend refactoring here?
             fld.extsbox.insert(intern(name.as_slice()), ext);
             if attr::contains_name(it.attrs.as_slice(), "macro_export") {
                 SmallVector::one(it)
@@ -518,7 +567,7 @@ fn expand_stmt(s: &Stmt, fld: &mut MacroExpander) -> SmallVector<Gc<Stmt>> {
     let marked_after = match fld.extsbox.find(&extname.name) {
         None => {
             fld.cx.span_err(pth.span,
-                            format!("macro undefined: '{}'",
+                            format!("macro undefined: '{}!'",
                                     extnamestr).as_slice());
             return SmallVector::zero();
         }
@@ -609,7 +658,7 @@ fn expand_non_macro_stmt(s: &Stmt, fld: &mut MacroExpander)
                     } = **local;
                     // expand the pat (it might contain macro uses):
                     let expanded_pat = fld.fold_pat(pat);
-                    // find the pat_idents in the pattern:
+                    // find the PatIdents in the pattern:
                     // oh dear heaven... this is going to include the enum
                     // names, as well... but that should be okay, as long as
                     // the new names are gensyms for the old ones.
@@ -653,6 +702,7 @@ fn expand_non_macro_stmt(s: &Stmt, fld: &mut MacroExpander)
     }
 }
 
+// expand the arm of a 'match', renaming for macro hygiene
 fn expand_arm(arm: &ast::Arm, fld: &mut MacroExpander) -> ast::Arm {
     // expand pats... they might contain macro uses:
     let expanded_pats : Vec<Gc<ast::Pat>> = arm.pats.iter().map(|pat| fld.fold_pat(*pat)).collect();
@@ -662,22 +712,15 @@ fn expand_arm(arm: &ast::Arm, fld: &mut MacroExpander) -> ast::Arm {
     // all of the pats must have the same set of bindings, so use the
     // first one to extract them and generate new names:
     let first_pat = expanded_pats.get(0);
-    // code duplicated from 'let', above. Perhaps this can be lifted
-    // into a separate function:
     let idents = pattern_bindings(*first_pat);
-    let mut new_pending_renames =
+    let new_renames =
         idents.iter().map(|id| (*id,fresh_name(id))).collect();
-    // rewrite all of the patterns using the new names (the old
-    // ones have already been applied). Note that we depend here
-    // on the guarantee that after expansion, there can't be any
-    // Path expressions (a.k.a. varrefs) left in the pattern. If
-    // this were false, we'd need to apply this renaming only to
-    // the bindings, and not to the varrefs, using a more targeted
-    // fold-er.
-    let mut rename_fld = IdentRenamer{renames:&mut new_pending_renames};
+    // apply the renaming, but only to the PatIdents:
+    let mut rename_pats_fld = PatIdentRenamer{renames:&new_renames};
     let rewritten_pats =
-        expanded_pats.iter().map(|pat| rename_fld.fold_pat(*pat)).collect();
+        expanded_pats.iter().map(|pat| rename_pats_fld.fold_pat(*pat)).collect();
     // apply renaming and then expansion to the guard and the body:
+    let mut rename_fld = IdentRenamer{renames:&new_renames};
     let rewritten_guard =
         arm.guard.map(|g| fld.fold_expr(rename_fld.fold_expr(g)));
     let rewritten_body = fld.fold_expr(rename_fld.fold_expr(arm.body));
@@ -689,55 +732,45 @@ fn expand_arm(arm: &ast::Arm, fld: &mut MacroExpander) -> ast::Arm {
     }
 }
 
-
-
-// a visitor that extracts the pat_ident (binding) paths
-// from a given thingy and puts them in a mutable
-// array
+/// A visitor that extracts the PatIdent (binding) paths
+/// from a given thingy and puts them in a mutable
+/// array
 #[deriving(Clone)]
-struct NameFinderContext {
+struct PatIdentFinder {
     ident_accumulator: Vec<ast::Ident> ,
 }
 
-impl Visitor<()> for NameFinderContext {
+impl Visitor<()> for PatIdentFinder {
     fn visit_pat(&mut self, pattern: &ast::Pat, _: ()) {
         match *pattern {
-            // we found a pat_ident!
-            ast::Pat {
-                id: _,
-                node: ast::PatIdent(_, ref path, ref inner),
-                span: _
-            } => {
-                match path {
-                    // a path of length one:
-                    &ast::Path {
-                        global: false,
-                        span: _,
-                        segments: ref segments
-                    } if segments.len() == 1 => {
-                        self.ident_accumulator.push(segments.get(0)
-                                                            .identifier)
-                    }
-                    // I believe these must be enums...
-                    _ => ()
-                }
-                // visit optional subpattern of pat_ident:
+            ast::Pat { id: _, node: ast::PatIdent(_, ref path1, ref inner), span: _ } => {
+                self.ident_accumulator.push(path1.node);
+                // visit optional subpattern of PatIdent:
                 for subpat in inner.iter() {
                     self.visit_pat(&**subpat, ())
                 }
             }
-            // use the default traversal for non-pat_idents
+            // use the default traversal for non-PatIdents
             _ => visit::walk_pat(self, pattern, ())
         }
     }
 
 }
 
-// find the pat_ident paths in a pattern
+/// find the PatIdent paths in a pattern
 fn pattern_bindings(pat : &ast::Pat) -> Vec<ast::Ident> {
-    let mut name_finder = NameFinderContext{ident_accumulator:Vec::new()};
+    let mut name_finder = PatIdentFinder{ident_accumulator:Vec::new()};
     name_finder.visit_pat(pat,());
     name_finder.ident_accumulator
+}
+
+/// find the PatIdent paths in a
+fn fn_decl_arg_bindings(fn_decl: &ast::FnDecl) -> Vec<ast::Ident> {
+    let mut pat_idents = PatIdentFinder{ident_accumulator:Vec::new()};
+    for arg in fn_decl.inputs.iter() {
+        pat_idents.visit_pat(arg.pat,());
+    }
+    pat_idents.ident_accumulator
 }
 
 // expand a block. pushes a new exts_frame, then calls expand_block_elts
@@ -856,34 +889,92 @@ fn expand_pat(p: Gc<ast::Pat>, fld: &mut MacroExpander) -> Gc<ast::Pat> {
     }
 }
 
-// a tree-folder that applies every rename in its (mutable) list
-// to every identifier, including both bindings and varrefs
-// (and lots of things that will turn out to be neither)
+/// A tree-folder that applies every rename in its (mutable) list
+/// to every identifier, including both bindings and varrefs
+/// (and lots of things that will turn out to be neither)
 pub struct IdentRenamer<'a> {
-    renames: &'a mut RenameList,
+    renames: &'a mtwt::RenameList,
 }
 
 impl<'a> Folder for IdentRenamer<'a> {
     fn fold_ident(&mut self, id: Ident) -> Ident {
-        let new_ctxt = self.renames.iter().fold(id.ctxt, |ctxt, &(from, to)| {
-            mtwt::new_rename(from, to, ctxt)
-        });
         Ident {
             name: id.name,
-            ctxt: new_ctxt,
+            ctxt: mtwt::apply_renames(self.renames, id.ctxt),
         }
     }
 }
 
-fn new_span(cx: &ExtCtxt, sp: Span) -> Span {
-    /* this discards information in the case of macro-defining macros */
-    Span {
-        lo: sp.lo,
-        hi: sp.hi,
-        expn_info: cx.backtrace(),
+/// A tree-folder that applies every rename in its list to
+/// the idents that are in PatIdent patterns. This is more narrowly
+/// focused than IdentRenamer, and is needed for FnDecl,
+/// where we want to rename the args but not the fn name or the generics etc.
+pub struct PatIdentRenamer<'a> {
+    renames: &'a mtwt::RenameList,
+}
+
+impl<'a> Folder for PatIdentRenamer<'a> {
+    fn fold_pat(&mut self, pat: Gc<ast::Pat>) -> Gc<ast::Pat> {
+        match pat.node {
+            ast::PatIdent(binding_mode, Spanned{span: ref sp, node: id}, ref sub) => {
+                let new_ident = Ident{name: id.name,
+                                      ctxt: mtwt::apply_renames(self.renames, id.ctxt)};
+                let new_node =
+                    ast::PatIdent(binding_mode,
+                                  Spanned{span: self.new_span(*sp), node: new_ident},
+                                  sub.map(|p| self.fold_pat(p)));
+                box(GC) ast::Pat {
+                    id: pat.id,
+                    span: self.new_span(pat.span),
+                    node: new_node,
+                }
+            },
+            _ => noop_fold_pat(pat, self)
+        }
     }
 }
 
+// expand a method
+fn expand_method(m: &ast::Method, fld: &mut MacroExpander) -> Gc<ast::Method> {
+    let id = fld.new_id(m.id);
+    let (rewritten_fn_decl, rewritten_body)
+        = expand_and_rename_fn_decl_and_block(m.decl,m.body,fld);
+
+    // all of the other standard stuff:
+    box(GC) ast::Method {
+        id: id,
+        ident: fld.fold_ident(m.ident),
+        attrs: m.attrs.iter().map(|a| fld.fold_attribute(*a)).collect(),
+        generics: fold_generics(&m.generics, fld),
+        explicit_self: fld.fold_explicit_self(&m.explicit_self),
+        fn_style: m.fn_style,
+        decl: rewritten_fn_decl,
+        body: rewritten_body,
+        span: fld.new_span(m.span),
+        vis: m.vis
+    }
+}
+
+/// Given a fn_decl and a block and a MacroExpander, expand the fn_decl, then use the
+/// PatIdents in its arguments to perform renaming in the FnDecl and
+/// the block, returning both the new FnDecl and the new Block.
+fn expand_and_rename_fn_decl_and_block(fn_decl: &ast::FnDecl, block: Gc<ast::Block>,
+                                       fld: &mut MacroExpander)
+    -> (Gc<ast::FnDecl>, Gc<ast::Block>) {
+    let expanded_decl = fld.fold_fn_decl(fn_decl);
+    let idents = fn_decl_arg_bindings(expanded_decl);
+    let renames =
+        idents.iter().map(|id : &ast::Ident| (*id,fresh_name(id))).collect();
+    // first, a renamer for the PatIdents, for the fn_decl:
+    let mut rename_pat_fld = PatIdentRenamer{renames: &renames};
+    let rewritten_fn_decl = rename_pat_fld.fold_fn_decl(expanded_decl);
+    // now, a renamer for *all* idents, for the body:
+    let mut rename_fld = IdentRenamer{renames: &renames};
+    let rewritten_body = fld.fold_block(rename_fld.fold_block(block));
+    (rewritten_fn_decl,rewritten_body)
+}
+
+/// A tree-folder that performs macro expansion
 pub struct MacroExpander<'a, 'b> {
     pub extsbox: SyntaxEnv,
     pub cx: &'a mut ExtCtxt<'b>,
@@ -902,6 +993,10 @@ impl<'a, 'b> Folder for MacroExpander<'a, 'b> {
         expand_item(item, self)
     }
 
+    fn fold_item_underscore(&mut self, item: &ast::Item_) -> ast::Item_ {
+        expand_item_underscore(item, self)
+    }
+
     fn fold_stmt(&mut self, stmt: &ast::Stmt) -> SmallVector<Gc<ast::Stmt>> {
         expand_stmt(stmt, self)
     }
@@ -914,14 +1009,27 @@ impl<'a, 'b> Folder for MacroExpander<'a, 'b> {
         expand_arm(arm, self)
     }
 
+    fn fold_method(&mut self, method: Gc<ast::Method>) -> Gc<ast::Method> {
+        expand_method(method, self)
+    }
+
     fn new_span(&mut self, span: Span) -> Span {
         new_span(self.cx, span)
     }
 }
 
+fn new_span(cx: &ExtCtxt, sp: Span) -> Span {
+    /* this discards information in the case of macro-defining macros */
+    Span {
+        lo: sp.lo,
+        hi: sp.hi,
+        expn_info: cx.backtrace(),
+    }
+}
+
 pub struct ExpansionConfig {
     pub deriving_hash_type_parameter: bool,
-    pub crate_id: CrateId,
+    pub crate_name: String,
 }
 
 pub struct ExportedMacros {
@@ -978,7 +1086,7 @@ impl Folder for Marker {
     fn fold_ident(&mut self, id: Ident) -> Ident {
         ast::Ident {
             name: id.name,
-            ctxt: mtwt::new_mark(self.mark, id.ctxt)
+            ctxt: mtwt::apply_mark(self.mark, id.ctxt)
         }
     }
     fn fold_mac(&mut self, m: &ast::Mac) -> ast::Mac {
@@ -986,7 +1094,7 @@ impl Folder for Marker {
             MacInvocTT(ref path, ref tts, ctxt) => {
                 MacInvocTT(self.fold_path(path),
                            fold_tts(tts.as_slice(), self),
-                           mtwt::new_mark(self.mark, ctxt))
+                           mtwt::apply_mark(self.mark, ctxt))
             }
         };
         Spanned {
@@ -1040,13 +1148,14 @@ fn original_span(cx: &ExtCtxt) -> Gc<codemap::ExpnInfo> {
 #[cfg(test)]
 mod test {
     use super::{pattern_bindings, expand_crate, contains_macro_escape};
-    use super::{NameFinderContext};
+    use super::{PatIdentFinder, IdentRenamer, PatIdentRenamer};
     use ast;
-    use ast::{Attribute_, AttrOuter, MetaWord};
+    use ast::{Attribute_, AttrOuter, MetaWord, Name};
     use attr;
     use codemap;
     use codemap::Spanned;
     use ext::mtwt;
+    use fold::Folder;
     use parse;
     use parse::token;
     use util::parser_testing::{string_to_parser};
@@ -1084,7 +1193,24 @@ mod test {
         path_finder.path_accumulator
     }
 
+    /// A Visitor that extracts the identifiers from a thingy.
+    // as a side note, I'm starting to want to abstract over these....
+    struct IdentFinder{
+        ident_accumulator: Vec<ast::Ident>
+    }
 
+    impl Visitor<()> for IdentFinder {
+        fn visit_ident(&mut self, _: codemap::Span, id: ast::Ident, _: ()){
+            self.ident_accumulator.push(id);
+        }
+    }
+
+    /// Find the idents in a crate
+    fn crate_idents(the_crate: &ast::Crate) -> Vec<ast::Ident> {
+        let mut ident_finder = IdentFinder{ident_accumulator: Vec::new()};
+        visit::walk_crate(&mut ident_finder, the_crate, ());
+        ident_finder.ident_accumulator
+    }
 
     // these following tests are quite fragile, in that they don't test what
     // *kind* of failure occurs.
@@ -1102,7 +1228,7 @@ mod test {
         // should fail:
         let cfg = ::syntax::ext::expand::ExpansionConfig {
             deriving_hash_type_parameter: false,
-            crate_id: from_str("test").unwrap(),
+            crate_name: "test".to_string(),
         };
         expand_crate(&sess,cfg,vec!(),vec!(),crate_ast);
     }
@@ -1119,7 +1245,7 @@ mod test {
             Vec::new(), &sess);
         let cfg = ::syntax::ext::expand::ExpansionConfig {
             deriving_hash_type_parameter: false,
-            crate_id: from_str("test").unwrap(),
+            crate_name: "test".to_string(),
         };
         expand_crate(&sess,cfg,vec!(),vec!(),crate_ast);
     }
@@ -1135,7 +1261,7 @@ mod test {
             Vec::new(), &sess);
         let cfg = ::syntax::ext::expand::ExpansionConfig {
             deriving_hash_type_parameter: false,
-            crate_id: from_str("test").unwrap(),
+            crate_name: "test".to_string(),
         };
         expand_crate(&sess, cfg, vec!(), vec!(), crate_ast);
     }
@@ -1172,18 +1298,17 @@ mod test {
         // the cfg argument actually does matter, here...
         let cfg = ::syntax::ext::expand::ExpansionConfig {
             deriving_hash_type_parameter: false,
-            crate_id: from_str("test").unwrap(),
+            crate_name: "test".to_string(),
         };
         expand_crate(&ps,cfg,vec!(),vec!(),crate_ast)
     }
 
     // find the pat_ident paths in a crate
     fn crate_bindings(the_crate : &ast::Crate) -> Vec<ast::Ident> {
-        let mut name_finder = NameFinderContext{ident_accumulator:Vec::new()};
+        let mut name_finder = PatIdentFinder{ident_accumulator:Vec::new()};
         visit::walk_crate(&mut name_finder, the_crate, ());
         name_finder.ident_accumulator
     }
-
 
     //fn expand_and_resolve(crate_str: @str) -> ast::crate {
         //let expanded_ast = expand_crate_str(crate_str);
@@ -1192,12 +1317,20 @@ mod test {
     //}
     //fn expand_and_resolve_and_pretty_print (crate_str: @str) -> String {
         //let resolved_ast = expand_and_resolve(crate_str);
-        //pprust::to_str(&resolved_ast,fake_print_crate,get_ident_interner())
+        //pprust::to_string(&resolved_ast,fake_print_crate,get_ident_interner())
     //}
 
     #[test] fn macro_tokens_should_match(){
         expand_crate_str(
             "macro_rules! m((a)=>(13)) fn main(){m!(a);}".to_string());
+    }
+
+    // should be able to use a bound identifier as a literal in a macro definition:
+    #[test] fn self_macro_parsing(){
+        expand_crate_str(
+            "macro_rules! foo ((zz) => (287u;))
+            fn f(zz : int) {foo!(zz);}".to_string()
+            );
     }
 
     // renaming tests expand a crate and then check that the bindings match
@@ -1307,21 +1440,88 @@ mod test {
     }
 
     // create a really evil test case where a $x appears inside a binding of $x
-    // but *shouldnt* bind because it was inserted by a different macro....
+    // but *shouldn't* bind because it was inserted by a different macro....
     // can't write this test case until we have macro-generating macros.
 
-    // FIXME #9383 : lambda var hygiene
-    // interesting... can't even write this test, yet, because the name-finder
-    // only finds pattern vars. Time to upgrade test framework.
-    /*#[test]
-    fn issue_9383(){
+    // method arg hygiene
+    // method expands to fn get_x(&self_0, x_1:int) {self_0 + self_2 + x_3 + x_1}
+    #[test] fn method_arg_hygiene(){
         run_renaming_test(
-            &("macro_rules! bad_macro (($ex:expr) => ({(|_x| { $ex }) (9) }))
-              fn takes_x(_x : int) { assert_eq!(bad_macro!(_x),8); }
-              fn main() { takes_x(8); }",
-              vec!(vec!()),false),
+            &("macro_rules! inject_x (()=>(x))
+              macro_rules! inject_self (()=>(self))
+              struct A;
+              impl A{fn get_x(&self, x: int) {self + inject_self!() + inject_x!() + x;} }",
+              vec!(vec!(0),vec!(3)),
+              true),
             0)
-    }*/
+    }
+
+    // ooh, got another bite?
+    // expands to struct A; impl A {fn thingy(&self_1) {self_1;}}
+    #[test] fn method_arg_hygiene_2(){
+        run_renaming_test(
+            &("struct A;
+              macro_rules! add_method (($T:ty) =>
+              (impl $T {  fn thingy(&self) {self;} }))
+              add_method!(A)",
+              vec!(vec!(0)),
+              true),
+            0)
+    }
+
+    // item fn hygiene
+    // expands to fn q(x_1:int){fn g(x_2:int){x_2 + x_1};}
+    #[test] fn issue_9383(){
+        run_renaming_test(
+            &("macro_rules! bad_macro (($ex:expr) => (fn g(x:int){ x + $ex }))
+              fn q(x:int) { bad_macro!(x); }",
+              vec!(vec!(1),vec!(0)),true),
+            0)
+    }
+
+    // closure arg hygiene (ExprFnBlock)
+    // expands to fn f(){(|x_1 : int| {(x_2 + x_1)})(3);}
+    #[test] fn closure_arg_hygiene(){
+        run_renaming_test(
+            &("macro_rules! inject_x (()=>(x))
+            fn f(){(|x : int| {(inject_x!() + x)})(3);}",
+              vec!(vec!(1)),
+              true),
+            0)
+    }
+
+    // closure arg hygiene (ExprProc)
+    // expands to fn f(){(proc(x_1 : int) {(x_2 + x_1)})(3);}
+    #[test] fn closure_arg_hygiene_2(){
+        run_renaming_test(
+            &("macro_rules! inject_x (()=>(x))
+              fn f(){ (proc(x : int){(inject_x!() + x)})(3); }",
+              vec!(vec!(1)),
+              true),
+            0)
+    }
+
+    // macro_rules in method position. Sadly, unimplemented.
+    #[ignore] #[test] fn macro_in_method_posn(){
+        expand_crate_str(
+            "macro_rules! my_method (() => fn thirteen(&self) -> int {13})
+            struct A;
+            impl A{ my_method!()}
+            fn f(){A.thirteen;}".to_string());
+    }
+
+    // another nested macro
+    // expands to impl Entries {fn size_hint(&self_1) {self_1;}
+    #[test] fn item_macro_workaround(){
+        run_renaming_test(
+            &("macro_rules! item { ($i:item) => {$i}}
+              struct Entries;
+              macro_rules! iterator_impl {
+              () => { item!( impl Entries { fn size_hint(&self) { self;}})}}
+              iterator_impl! { }",
+              vec!(vec!(0)), true),
+            0)
+    }
 
     // run one of the renaming tests
     fn run_renaming_test(t: &RenamingTest, test_idx: uint) {
@@ -1342,27 +1542,36 @@ mod test {
             assert!((shouldmatch.len() == 0) ||
                     (varrefs.len() > *shouldmatch.iter().max().unwrap()));
             for (idx,varref) in varrefs.iter().enumerate() {
+                let print_hygiene_debug_info = || {
+                    // good lord, you can't make a path with 0 segments, can you?
+                    let final_varref_ident = match varref.segments.last() {
+                        Some(pathsegment) => pathsegment.identifier,
+                        None => fail!("varref with 0 path segments?")
+                    };
+                    let varref_name = mtwt::resolve(final_varref_ident);
+                    let varref_idents : Vec<ast::Ident>
+                        = varref.segments.iter().map(|s| s.identifier)
+                        .collect();
+                    println!("varref #{}: {}, resolves to {}",idx, varref_idents, varref_name);
+                    let string = token::get_ident(final_varref_ident);
+                    println!("varref's first segment's string: \"{}\"", string.get());
+                    println!("binding #{}: {}, resolves to {}",
+                             binding_idx, *bindings.get(binding_idx), binding_name);
+                    mtwt::with_sctable(|x| mtwt::display_sctable(x));
+                };
                 if shouldmatch.contains(&idx) {
                     // it should be a path of length 1, and it should
                     // be free-identifier=? or bound-identifier=? to the given binding
                     assert_eq!(varref.segments.len(),1);
-                    let varref_name = mtwt::resolve(varref.segments
-                                                          .get(0)
-                                                          .identifier);
+                    let varref_name = mtwt::resolve(varref.segments.get(0).identifier);
                     let varref_marks = mtwt::marksof(varref.segments
                                                            .get(0)
                                                            .identifier
                                                            .ctxt,
                                                      invalid_name);
                     if !(varref_name==binding_name) {
-                        let varref_idents : Vec<ast::Ident>
-                            = varref.segments.iter().map(|s|
-                                                         s.identifier)
-                            .collect();
                         println!("uh oh, should match but doesn't:");
-                        println!("varref #{}: {}",idx, varref_idents);
-                        println!("binding #{}: {}", binding_idx, *bindings.get(binding_idx));
-                        mtwt::with_sctable(|x| mtwt::display_sctable(x));
+                        print_hygiene_debug_info();
                     }
                     assert_eq!(varref_name,binding_name);
                     if bound_ident_check {
@@ -1371,29 +1580,16 @@ mod test {
                         assert_eq!(varref_marks,binding_marks.clone());
                     }
                 } else {
+                    let varref_name = mtwt::resolve(varref.segments.get(0).identifier);
                     let fail = (varref.segments.len() == 1)
-                        && (mtwt::resolve(varref.segments.get(0).identifier)
-                            == binding_name);
+                        && (varref_name == binding_name);
                     // temp debugging:
                     if fail {
-                        let varref_idents : Vec<ast::Ident>
-                            = varref.segments.iter().map(|s|
-                                                         s.identifier)
-                            .collect();
                         println!("failure on test {}",test_idx);
                         println!("text of test case: \"{}\"", teststr);
                         println!("");
                         println!("uh oh, matches but shouldn't:");
-                        println!("varref: {}",varref_idents);
-                        // good lord, you can't make a path with 0 segments, can you?
-                        let string = token::get_ident(varref.segments
-                                                            .get(0)
-                                                            .identifier);
-                        println!("varref's first segment's uint: {}, and string: \"{}\"",
-                                 varref.segments.get(0).identifier.name,
-                                 string.get());
-                        println!("binding: {}", *bindings.get(binding_idx));
-                        mtwt::with_sctable(|x| mtwt::display_sctable(x));
+                        print_hygiene_debug_info();
                     }
                     assert!(!fail);
                 }
@@ -1402,7 +1598,7 @@ mod test {
     }
 
     #[test] fn fmt_in_macro_used_inside_module_macro() {
-        let crate_str = "macro_rules! fmt_wrap(($b:expr)=>($b.to_str()))
+        let crate_str = "macro_rules! fmt_wrap(($b:expr)=>($b.to_string()))
 macro_rules! foo_module (() => (mod generated { fn a() { let xx = 147; fmt_wrap!(xx);}}))
 foo_module!()
 ".to_string();
@@ -1455,13 +1651,43 @@ foo_module!()
     // 'None' is listed as an identifier pattern because we don't yet know that
     // it's the name of a 0-ary variant, and that 'i' appears twice in succession.
     #[test]
-    fn crate_idents(){
+    fn crate_bindings_test(){
         let the_crate = string_to_crate("fn main (a : int) -> int {|b| {
         match 34 {None => 3, Some(i) | i => j, Foo{k:z,l:y} => \"banana\"}} }".to_string());
         let idents = crate_bindings(&the_crate);
         assert_eq!(idents, strs_to_idents(vec!("a","b","None","i","i","z","y")));
     }
 
-    //
+    // test the IdentRenamer directly
+    #[test]
+    fn ident_renamer_test () {
+        let the_crate = string_to_crate("fn f(x : int){let x = x; x}".to_string());
+        let f_ident = token::str_to_ident("f");
+        let x_ident = token::str_to_ident("x");
+        let int_ident = token::str_to_ident("int");
+        let renames = vec!((x_ident,Name(16)));
+        let mut renamer = IdentRenamer{renames: &renames};
+        let renamed_crate = renamer.fold_crate(the_crate);
+        let idents = crate_idents(&renamed_crate);
+        let resolved : Vec<ast::Name> = idents.iter().map(|id| mtwt::resolve(*id)).collect();
+        assert_eq!(resolved,vec!(f_ident.name,Name(16),int_ident.name,Name(16),Name(16),Name(16)));
+    }
+
+    // test the PatIdentRenamer; only PatIdents get renamed
+    #[test]
+    fn pat_ident_renamer_test () {
+        let the_crate = string_to_crate("fn f(x : int){let x = x; x}".to_string());
+        let f_ident = token::str_to_ident("f");
+        let x_ident = token::str_to_ident("x");
+        let int_ident = token::str_to_ident("int");
+        let renames = vec!((x_ident,Name(16)));
+        let mut renamer = PatIdentRenamer{renames: &renames};
+        let renamed_crate = renamer.fold_crate(the_crate);
+        let idents = crate_idents(&renamed_crate);
+        let resolved : Vec<ast::Name> = idents.iter().map(|id| mtwt::resolve(*id)).collect();
+        let x_name = x_ident.name;
+        assert_eq!(resolved,vec!(f_ident.name,Name(16),int_ident.name,Name(16),x_name,x_name));
+    }
+
 
 }

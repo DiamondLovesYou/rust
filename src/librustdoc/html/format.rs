@@ -22,6 +22,7 @@ use syntax::ast;
 use syntax::ast_util;
 
 use clean;
+use stability_summary::ModuleSummary;
 use html::item_type;
 use html::item_type::ItemType;
 use html::render;
@@ -37,6 +38,10 @@ pub struct FnStyleSpace(pub ast::FnStyle);
 pub struct Method<'a>(pub &'a clean::SelfTy, pub &'a clean::FnDecl);
 /// Similar to VisSpace, but used for mutability
 pub struct MutableSpace(pub clean::Mutability);
+/// Wrapper struct for properly emitting the stability level.
+pub struct Stability<'a>(pub &'a Option<clean::Stability>);
+/// Wrapper struct for emitting the stability level concisely.
+pub struct ConciseStability<'a>(pub &'a Option<clean::Stability>);
 
 impl VisSpace {
     pub fn get(&self) -> Option<ast::Visibility> {
@@ -185,7 +190,7 @@ fn path(w: &mut fmt::Formatter, path: &clean::Path, print_all: bool,
     let mut generics = String::new();
     let last = path.segments.last().unwrap();
     if last.lifetimes.len() > 0 || last.types.len() > 0 {
-        let mut counter = 0;
+        let mut counter = 0u;
         generics.push_str("&lt;");
         for lifetime in last.lifetimes.iter() {
             if counter > 0 { generics.push_str(", "); }
@@ -347,7 +352,7 @@ impl fmt::Show for clean::Type {
                 tybounds(f, typarams)
             }
             clean::Self(..) => f.write("Self".as_bytes()),
-            clean::Primitive(prim) => primitive_link(f, prim, prim.to_str()),
+            clean::Primitive(prim) => primitive_link(f, prim, prim.to_string()),
             clean::Closure(ref decl, ref region) => {
                 write!(f, "{style}{lifetimes}|{args}|{bounds}{arrow}",
                        style = FnStyleSpace(decl.fn_style),
@@ -358,7 +363,7 @@ impl fmt::Show for clean::Type {
                        },
                        args = decl.decl.inputs,
                        arrow = match decl.decl.output {
-                           clean::Primitive(clean::Nil) => "".to_string(),
+                           clean::Primitive(clean::Unit) => "".to_string(),
                            _ => format!(" -&gt; {}", decl.decl.output),
                        },
                        bounds = {
@@ -401,13 +406,13 @@ impl fmt::Show for clean::Type {
                        } else {
                            let mut m = decl.bounds
                                            .iter()
-                                           .map(|s| s.to_str());
+                                           .map(|s| s.to_string());
                            format!(
                                ": {}",
                                m.collect::<Vec<String>>().connect(" + "))
                        },
                        arrow = match decl.decl.output {
-                           clean::Primitive(clean::Nil) => "".to_string(),
+                           clean::Primitive(clean::Unit) => "".to_string(),
                            _ => format!(" -&gt; {}", decl.decl.output)
                        })
             }
@@ -468,7 +473,7 @@ impl fmt::Show for clean::FnDecl {
         write!(f, "({args}){arrow}",
                args = self.inputs,
                arrow = match self.output {
-                   clean::Primitive(clean::Nil) => "".to_string(),
+                   clean::Primitive(clean::Unit) => "".to_string(),
                    _ => format!(" -&gt; {}", self.output),
                })
     }
@@ -501,7 +506,7 @@ impl<'a> fmt::Show for Method<'a> {
         write!(f, "({args}){arrow}",
                args = args,
                arrow = match d.output {
-                   clean::Primitive(clean::Nil) => "".to_string(),
+                   clean::Primitive(clean::Unit) => "".to_string(),
                    _ => format!(" -&gt; {}", d.output),
                })
     }
@@ -594,5 +599,105 @@ impl fmt::Show for MutableSpace {
             MutableSpace(clean::Immutable) => Ok(()),
             MutableSpace(clean::Mutable) => write!(f, "mut "),
         }
+    }
+}
+
+impl<'a> fmt::Show for Stability<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let Stability(stab) = *self;
+        match *stab {
+            Some(ref stability) => {
+                write!(f, "<a class='stability {lvl}' title='{reason}'>{lvl}</a>",
+                       lvl = stability.level.to_string(),
+                       reason = stability.text)
+            }
+            None => Ok(())
+        }
+    }
+}
+
+impl<'a> fmt::Show for ConciseStability<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ConciseStability(stab) = *self;
+        match *stab {
+            Some(ref stability) => {
+                write!(f, "<a class='stability {lvl}' title='{lvl}{colon}{reason}'></a>",
+                       lvl = stability.level.to_string(),
+                       colon = if stability.text.len() > 0 { ": " } else { "" },
+                       reason = stability.text)
+            }
+            None => {
+                write!(f, "<a class='stability Unmarked' title='No stability level'></a>")
+            }
+        }
+    }
+}
+
+impl fmt::Show for ModuleSummary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt_inner<'a>(f: &mut fmt::Formatter,
+                         context: &mut Vec<&'a str>,
+                         m: &'a ModuleSummary)
+                     -> fmt::Result {
+            let cnt = m.counts;
+            let tot = cnt.total();
+            if tot == 0 { return Ok(()) }
+
+            context.push(m.name.as_slice());
+            let path = context.connect("::");
+
+            // the total width of each row's stability summary, in pixels
+            let width = 500;
+
+            try!(write!(f, "<tr>"));
+            try!(write!(f, "<td class='summary'>\
+                            <a class='summary' href='{}'>{}</a></td>",
+                        Vec::from_slice(context.slice_from(1))
+                            .append_one("index.html").connect("/"),
+                        path));
+            try!(write!(f, "<td>"));
+            try!(write!(f, "<span class='summary Stable' \
+                            style='width: {}px; display: inline-block'>&nbsp</span>",
+                        (width * cnt.stable)/tot));
+            try!(write!(f, "<span class='summary Unstable' \
+                            style='width: {}px; display: inline-block'>&nbsp</span>",
+                        (width * cnt.unstable)/tot));
+            try!(write!(f, "<span class='summary Experimental' \
+                            style='width: {}px; display: inline-block'>&nbsp</span>",
+                        (width * cnt.experimental)/tot));
+            try!(write!(f, "<span class='summary Deprecated' \
+                            style='width: {}px; display: inline-block'>&nbsp</span>",
+                        (width * cnt.deprecated)/tot));
+            try!(write!(f, "<span class='summary Unmarked' \
+                            style='width: {}px; display: inline-block'>&nbsp</span>",
+                        (width * cnt.unmarked)/tot));
+            try!(write!(f, "</td></tr>"));
+
+            for submodule in m.submodules.iter() {
+                try!(fmt_inner(f, context, submodule));
+            }
+            context.pop();
+            Ok(())
+        }
+
+        let mut context = Vec::new();
+
+        try!(write!(f,
+r"<h1 class='fqn'>Stability dashboard: crate <a class='mod' href='index.html'>{}</a></h1>
+This dashboard summarizes the stability levels for all of the public modules of
+the crate, according to the total number of items at each level in the module and its children:
+<blockquote>
+<a class='stability Stable'></a> stable,<br/>
+<a class='stability Unstable'></a> unstable,<br/>
+<a class='stability Experimental'></a> experimental,<br/>
+<a class='stability Deprecated'></a> deprecated,<br/>
+<a class='stability Unmarked'></a> unmarked
+</blockquote>
+The counts do not include methods or trait
+implementations that are visible only through a re-exported type.",
+self.name));
+        try!(write!(f, "<table>"))
+        try!(fmt_inner(f, &mut context, self));
+        write!(f, "</table>")
     }
 }

@@ -91,6 +91,8 @@
 //! # }
 //! ```
 
+#![experimental]
+
 use any::Any;
 use comm::channel;
 use io::{Writer, stdio};
@@ -636,7 +638,7 @@ mod test {
             });
         assert!(r.is_ok());
 
-        let output = reader.read_to_str().unwrap();
+        let output = reader.read_to_string().unwrap();
         assert_eq!(output, "Hello, world!".to_string());
     }
 
@@ -649,7 +651,7 @@ fn task_abort_no_kill_runtime() {
     use std::io::timer;
     use mem;
 
-    let mut tb = TaskBuilder::new();
+    let tb = TaskBuilder::new();
     let rx = tb.try_future(proc() {});
     mem::drop(rx);
     timer::sleep(1000);

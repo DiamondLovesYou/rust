@@ -85,7 +85,9 @@ $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$(4):				    \
 		-L "$$(LLVM_LIBDIR_$(2))" \
 		-L "$$(dir $$(LLVM_STDCPP_LOCATION_$(2)))" \
 		$$(RUSTFLAGS_$(4)_$(2)) \
-		--out-dir $$(@D) $$<
+		--out-dir $$(@D) \
+		-C extra-filename=-$$(CFG_FILENAME_EXTRA) \
+		$$<
 	@touch $$@
 	$$(call LIST_ALL_OLD_GLOB_MATCHES,\
 	    $$(dir $$@)$$(call CFG_LIB_GLOB_$(2),$(4)))

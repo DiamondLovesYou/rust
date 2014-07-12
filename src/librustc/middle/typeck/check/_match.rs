@@ -318,6 +318,9 @@ pub fn check_struct_pat_fields(pcx: &pat_ctxt,
     for field in fields.iter() {
         match field_map.find_mut(&field.ident.name) {
             Some(&(_, true)) => {
+                // Check the pattern anyway, so that attempts to look
+                // up its type won't fail
+                check_pat(pcx, &*field.pat, ty::mk_err());
                 tcx.sess.span_err(span,
                     format!("field `{}` bound twice in pattern",
                             token::get_ident(field.ident)).as_slice());
@@ -359,35 +362,15 @@ pub fn check_struct_pat_fields(pcx: &pat_ctxt,
     }
 }
 
-pub fn check_struct_pat(pcx: &pat_ctxt, pat_id: ast::NodeId, span: Span,
-                        expected: ty::t, path: &ast::Path,
+pub fn check_struct_pat(pcx: &pat_ctxt, _pat_id: ast::NodeId, span: Span,
+                        _expected: ty::t, _path: &ast::Path,
                         fields: &[ast::FieldPat], etc: bool,
                         struct_id: ast::DefId,
                         substitutions: &subst::Substs) {
-    let fcx = pcx.fcx;
+    let _fcx = pcx.fcx;
     let tcx = pcx.fcx.ccx.tcx;
 
     let class_fields = ty::lookup_struct_fields(tcx, struct_id);
-
-    // Check to ensure that the struct is the one specified.
-    match tcx.def_map.borrow().find(&pat_id) {
-        Some(&def::DefStruct(supplied_def_id))
-                if supplied_def_id == struct_id => {
-            // OK.
-        }
-        Some(&def::DefStruct(..)) | Some(&def::DefVariant(..)) => {
-            let name = pprust::path_to_str(path);
-            tcx.sess
-               .span_err(span,
-                         format!("mismatched types: expected `{}` but found \
-                                  `{}`",
-                                 fcx.infcx().ty_to_str(expected),
-                                 name).as_slice());
-        }
-        _ => {
-            tcx.sess.span_bug(span, "resolve didn't write in struct ID");
-        }
-    }
 
     check_struct_pat_fields(pcx, span, fields, class_fields, struct_id,
                             substitutions, etc);
@@ -416,11 +399,11 @@ pub fn check_struct_like_enum_variant_pat(pcx: &pat_ctxt,
                                     variant_id, substitutions, etc);
         }
         Some(&def::DefStruct(..)) | Some(&def::DefVariant(..)) => {
-            let name = pprust::path_to_str(path);
+            let name = pprust::path_to_string(path);
             tcx.sess.span_err(span,
                               format!("mismatched types: expected `{}` but \
                                        found `{}`",
-                                      fcx.infcx().ty_to_str(expected),
+                                      fcx.infcx().ty_to_string(expected),
                                       name).as_slice());
         }
         _ => {
@@ -482,7 +465,7 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
         demand::suptype(fcx, pat.span, expected, const_pty.ty);
         fcx.write_ty(pat.id, const_pty.ty);
       }
-      ast::PatIdent(bm, ref name, sub) if pat_is_binding(&tcx.def_map, pat) => {
+      ast::PatIdent(bm, ref path1, sub) if pat_is_binding(&tcx.def_map, pat) => {
         let typ = fcx.local_ty(pat.span, pat.id);
 
         match bm {
@@ -504,7 +487,7 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
           }
         }
 
-        let canon_id = *pcx.map.get(&ast_util::path_to_ident(name));
+        let canon_id = *pcx.map.get(&path1.node);
         if canon_id != pat.id {
             let ct = fcx.local_ty(pat.span, canon_id);
             demand::eqtype(fcx, pat.span, ct, typ);
@@ -518,8 +501,10 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
           _ => ()
         }
       }
-      ast::PatIdent(_, ref path, _) => {
-        check_pat_variant(pcx, pat, path, &Some(Vec::new()), expected);
+      // it's not a binding, it's an enum in disguise:
+      ast::PatIdent(_, ref path1, _) => {
+        let path = ast_util::ident_to_path(path1.span,path1.node);
+        check_pat_variant(pcx, pat, &path, &Some(Vec::new()), expected);
       }
       ast::PatEnum(ref path, ref subpats) => {
         check_pat_variant(pcx, pat, path, subpats, expected);
@@ -530,6 +515,21 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
         let mut error_happened = false;
         match *structure {
             ty::ty_struct(cid, ref substs) => {
+                // Verify that the pattern named the right structure.
+                let item_did = tcx.def_map.borrow().get(&pat.id).def_id();
+                let struct_did =
+                    ty::ty_to_def_id(
+                        ty::lookup_item_type(tcx, item_did).ty).unwrap();
+                if struct_did != cid {
+                    tcx.sess
+                       .span_err(path.span,
+                                 format!("`{}` does not name the \
+                                          structure `{}`",
+                                         pprust::path_to_string(path),
+                                         fcx.infcx()
+                                            .ty_to_string(expected)).as_slice())
+                }
+
                 check_struct_pat(pcx, pat.id, pat.span, expected, path,
                                  fields.as_slice(), etc, cid, substs);
             }
@@ -557,7 +557,7 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                             "a structure pattern".to_string(),
                             None);
                 match tcx.def_map.borrow().find(&pat.id) {
-                    Some(&def::DefStruct(supplied_def_id)) => {
+                    Some(def) => {
                          check_struct_pat(pcx,
                                           pat.id,
                                           pat.span,
@@ -565,10 +565,14 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                                           path,
                                           fields.as_slice(),
                                           etc,
-                                          supplied_def_id,
+                                          def.def_id(),
                                           &subst::Substs::empty());
                     }
-                    _ => () // Error, but we're already in an error case
+                    None => {
+                        tcx.sess.span_bug(pat.span,
+                                          "whoops, looks like resolve didn't \
+                                           write a def in here")
+                    }
                 }
                 error_happened = true;
             }
@@ -743,7 +747,7 @@ fn check_pointer_pat(pcx: &pat_ctxt,
                 tcx.sess.span_err(
                     span,
                     format!("type `{}` cannot be dereferenced",
-                            fcx.infcx().ty_to_str(expected)).as_slice());
+                            fcx.infcx().ty_to_string(expected)).as_slice());
                 fcx.write_error(pat_id);
             }
             _ => {

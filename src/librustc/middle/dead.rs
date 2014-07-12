@@ -141,16 +141,25 @@ impl<'a> MarkSymbolVisitor<'a> {
     }
 
     fn handle_field_pattern_match(&mut self, lhs: &ast::Pat, pats: &[ast::FieldPat]) {
-        match self.tcx.def_map.borrow().get(&lhs.id) {
-            &def::DefStruct(id) | &def::DefVariant(_, id, _) => {
-                let fields = ty::lookup_struct_fields(self.tcx, id);
-                for pat in pats.iter() {
-                    let field_id = fields.iter()
-                        .find(|field| field.name == pat.ident.name).unwrap().id;
-                    self.live_symbols.insert(field_id.node);
+        let id = match self.tcx.def_map.borrow().get(&lhs.id) {
+            &def::DefVariant(_, id, _) => id,
+            _ => {
+                match ty::ty_to_def_id(ty::node_id_to_type(self.tcx,
+                                                           lhs.id)) {
+                    None => {
+                        self.tcx.sess.span_bug(lhs.span,
+                                               "struct pattern wasn't of a \
+                                                type with a def ID?!")
+                    }
+                    Some(def_id) => def_id,
                 }
             }
-            _ => ()
+        };
+        let fields = ty::lookup_struct_fields(self.tcx, id);
+        for pat in pats.iter() {
+            let field_id = fields.iter()
+                .find(|field| field.name == pat.ident.name).unwrap().id;
+            self.live_symbols.insert(field_id.node);
         }
     }
 
@@ -246,6 +255,10 @@ impl<'a> Visitor<MarkSymbolVisitorContext> for MarkSymbolVisitor<'a> {
         match pat.node {
             ast::PatStruct(_, ref fields, _) => {
                 self.handle_field_pattern_match(pat, fields.as_slice());
+            }
+            ast::PatIdent(_, _, _) => {
+                // it might be the only use of a static:
+                self.lookup_and_handle_definition(&pat.id)
             }
             _ => ()
         }
@@ -399,7 +412,7 @@ struct DeadVisitor<'a> {
 impl<'a> DeadVisitor<'a> {
     fn should_warn_about_field(&mut self, node: &ast::StructField_) -> bool {
         let (is_named, has_leading_underscore) = match node.ident() {
-            Some(ref ident) => (true, token::get_ident(*ident).get()[0] == ('_' as u8)),
+            Some(ref ident) => (true, token::get_ident(*ident).get().as_bytes()[0] == ('_' as u8)),
             _ => (false, false)
         };
         let field_type = ty::node_id_to_type(self.tcx, node.id);

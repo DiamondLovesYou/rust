@@ -10,8 +10,9 @@
 
 use rustc;
 use rustc::{driver, middle};
-use rustc::middle::privacy;
+use rustc::middle::{privacy, ty};
 use rustc::lint;
+use rustc::back::link;
 
 use syntax::ast;
 use syntax::parse::token;
@@ -26,6 +27,7 @@ use visit_ast::RustdocVisitor;
 use clean;
 use clean::Clean;
 
+/// Are we generating documentation (`Typed`) or tests (`NotTyped`)?
 pub enum MaybeTyped {
     Typed(middle::ty::ctxt),
     NotTyped(driver::session::Session)
@@ -51,6 +53,18 @@ impl DocContext {
             Typed(ref tcx) => &tcx.sess,
             NotTyped(ref sess) => sess
         }
+    }
+
+    pub fn tcx_opt<'a>(&'a self) -> Option<&'a ty::ctxt> {
+        match self.maybe_typed {
+            Typed(ref tcx) => Some(tcx),
+            NotTyped(_) => None
+        }
+    }
+
+    pub fn tcx<'a>(&'a self) -> &'a ty::ctxt {
+        let tcx_opt = self.tcx_opt();
+        tcx_opt.expect("tcx not present")
     }
 }
 
@@ -87,7 +101,7 @@ fn get_ast_and_resolve(cpath: &Path, libs: HashSet<Path>, cfgs: Vec<String>)
 
 
     let codemap = syntax::codemap::CodeMap::new();
-    let diagnostic_handler = syntax::diagnostic::default_handler(syntax::diagnostic::Auto);
+    let diagnostic_handler = syntax::diagnostic::default_handler(syntax::diagnostic::Auto, None);
     let span_diagnostic_handler =
         syntax::diagnostic::mk_span_handler(diagnostic_handler, codemap);
 
@@ -102,13 +116,17 @@ fn get_ast_and_resolve(cpath: &Path, libs: HashSet<Path>, cfgs: Vec<String>)
     }
 
     let krate = phase_1_parse_input(&sess, cfg, &input);
+
+    let name = link::find_crate_name(Some(&sess), krate.attrs.as_slice(),
+                                     &input);
+
     let (krate, ast_map)
-        = phase_2_configure_and_expand(&sess, krate, &from_str("rustdoc").unwrap())
+        = phase_2_configure_and_expand(&sess, krate, name.as_slice())
             .expect("phase_2_configure_and_expand aborted in rustdoc!");
 
     let driver::driver::CrateAnalysis {
         exported_items, public_items, ty_cx, ..
-    } = phase_3_run_analysis_passes(sess, &krate, ast_map);
+    } = phase_3_run_analysis_passes(sess, &krate, ast_map, name);
 
     debug!("crate: {:?}", krate);
     (DocContext {

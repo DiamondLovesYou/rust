@@ -334,9 +334,9 @@ pub trait Folder {
 
     fn fold_explicit_self_(&mut self, es: &ExplicitSelf_) -> ExplicitSelf_ {
         match *es {
-            SelfStatic | SelfValue | SelfUniq => *es,
-            SelfRegion(ref lifetime, m) => {
-                SelfRegion(fold_opt_lifetime(lifetime, self), m)
+            SelfStatic | SelfValue(_) | SelfUniq(_) => *es,
+            SelfRegion(ref lifetime, m, id) => {
+                SelfRegion(fold_opt_lifetime(lifetime, self), m, id)
             }
         }
     }
@@ -491,8 +491,8 @@ pub fn fold_ty_param<T: Folder>(tp: &TyParam, fld: &mut T) -> TyParam {
     TyParam {
         ident: tp.ident,
         id: id,
-        sized: tp.sized,
         bounds: tp.bounds.map(|x| fold_ty_param_bound(x, fld)),
+        unbound: tp.unbound.as_ref().map(|x| fold_ty_param_bound(x, fld)),
         default: tp.default.map(|x| fld.fold_ty(x)),
         span: tp.span
     }
@@ -666,7 +666,7 @@ pub fn noop_fold_item_underscore<T: Folder>(i: &Item_, folder: &mut T) -> Item_ 
                      methods.iter().map(|x| folder.fold_method(*x)).collect()
             )
         }
-        ItemTrait(ref generics, ref sized, ref traits, ref methods) => {
+        ItemTrait(ref generics, ref unbound, ref traits, ref methods) => {
             let methods = methods.iter().map(|method| {
                 match *method {
                     Required(ref m) => Required(folder.fold_type_method(m)),
@@ -674,7 +674,7 @@ pub fn noop_fold_item_underscore<T: Folder>(i: &Item_, folder: &mut T) -> Item_ 
                 }
             }).collect();
             ItemTrait(fold_generics(generics, folder),
-                      *sized,
+                      unbound.clone(),
                       traits.iter().map(|p| fold_trait_ref(p, folder)).collect(),
                       methods)
         }
@@ -791,9 +791,10 @@ pub fn noop_fold_pat<T: Folder>(p: Gc<Pat>, folder: &mut T) -> Gc<Pat> {
     let node = match p.node {
         PatWild => PatWild,
         PatWildMulti => PatWildMulti,
-        PatIdent(binding_mode, ref pth, ref sub) => {
+        PatIdent(binding_mode, ref pth1, ref sub) => {
             PatIdent(binding_mode,
-                     folder.fold_path(pth),
+                     Spanned{span: folder.new_span(pth1.span),
+                             node: folder.fold_ident(pth1.node)},
                      sub.map(|x| folder.fold_pat(x)))
         }
         PatLit(e) => PatLit(folder.fold_expr(e)),
@@ -1025,7 +1026,7 @@ mod test {
         assert_pred!(
             matches_codepattern,
             "matches_codepattern",
-            pprust::to_str(|s| fake_print_crate(s, &folded_crate)),
+            pprust::to_string(|s| fake_print_crate(s, &folded_crate)),
             "#[a]mod zz{fn zz(zz:zz,zz:zz){zz!(zz,zz,zz);zz;zz}}".to_string());
     }
 
@@ -1039,7 +1040,7 @@ mod test {
         assert_pred!(
             matches_codepattern,
             "matches_codepattern",
-            pprust::to_str(|s| fake_print_crate(s, &folded_crate)),
+            pprust::to_string(|s| fake_print_crate(s, &folded_crate)),
             "zz!zz((zz$zz:zz$(zz $zz:zz)zz+=>(zz$(zz$zz$zz)+)))".to_string());
     }
 }

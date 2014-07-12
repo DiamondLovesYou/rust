@@ -14,7 +14,7 @@
 //! Parsing does not happen at runtime: structures of `std::fmt::rt` are
 //! generated instead.
 
-#![crate_id = "fmt_macros#0.11.0-pre"]
+#![crate_name = "fmt_macros"]
 #![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]

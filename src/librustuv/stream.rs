@@ -59,8 +59,11 @@ impl StreamWatcher {
     // will be manipulated on each of the methods called on this watcher.
     // Wrappers should ensure to always reset the field to an appropriate value
     // if they rely on the field to perform an action.
-    pub fn new(stream: *mut uvll::uv_stream_t) -> StreamWatcher {
-        unsafe { uvll::set_data_for_uv_handle(stream, 0 as *mut int) }
+    pub fn new(stream: *mut uvll::uv_stream_t,
+               init: bool) -> StreamWatcher {
+        if init {
+            unsafe { uvll::set_data_for_uv_handle(stream, 0 as *mut int) }
+        }
         StreamWatcher {
             handle: stream,
             last_write_req: None,
@@ -84,7 +87,7 @@ impl StreamWatcher {
         // immediately as part of the call to alloc_cb. What this means is that
         // we must be ready for this to happen (by setting the data in the uv
         // handle). In theory this otherwise doesn't need to happen until after
-        // the read is succesfully started.
+        // the read is successfully started.
         unsafe { uvll::set_data_for_uv_handle(self.handle, &mut rcx) }
 
         // Send off the read request, but don't block until we're sure that the

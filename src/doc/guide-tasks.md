@@ -457,13 +457,15 @@ the string in response.  The child terminates when it receives `0`.
 Here is the function that implements the child task:
 
 ~~~
+#![allow(deprecated)]
+
 use std::comm::DuplexStream;
 # fn main() {
 fn stringifier(channel: &DuplexStream<String, uint>) {
     let mut value: uint;
     loop {
         value = channel.recv();
-        channel.send(value.to_str());
+        channel.send(value.to_string());
         if value == 0 { break; }
     }
 }
@@ -476,11 +478,13 @@ send strings (the first type parameter) and receive `uint` messages
 (the second type parameter). The body itself simply loops, reading
 from the channel and then sending its response back.  The actual
 response itself is simply the stringified version of the received value,
-`uint::to_str(value)`.
+`uint::to_string(value)`.
 
 Here is the code for the parent task:
 
 ~~~
+#![allow(deprecated)]
+
 use std::comm::duplex;
 # use std::task::spawn;
 # use std::comm::DuplexStream;
@@ -488,7 +492,7 @@ use std::comm::duplex;
 #     let mut value: uint;
 #     loop {
 #         value = channel.recv();
-#         channel.send(value.to_str());
+#         channel.send(value.to_string());
 #         if value == 0u { break; }
 #     }
 # }

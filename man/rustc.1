@@ -1,4 +1,4 @@
-.TH RUSTC "1" "March 2014" "rustc 0.11-pre" "User Commands"
+.TH RUSTC "1" "March 2014" "rustc 0.11.0" "User Commands"
 .SH NAME
 rustc \- The Rust compiler
 .SH SYNOPSIS
@@ -11,6 +11,9 @@ This program is a compiler for the Rust language, available at
 
 .SH OPTIONS
 
+.TP
+\fB\-\-crate-name NAME\fR
+Specify the name of the crate being built
 .TP
 \fB\-\-crate-type=[bin|lib|dylib|rlib|staticlib]\fR
 Configure the flavor of rust crate that is generated (default `bin`)
@@ -138,8 +141,8 @@ A space-separated list of arguments to pass through to LLVM.
 If specified, the compiler will save more files (.bc, .o, .no-opt.bc) generated
 throughout compilation in the output directory.
 .TP
-\fBno-rpath\fR
-If specified, then the rpath value for dynamic libraries will not be set in
+\fBrpath\fR
+If specified, then the rpath value for dynamic libraries will be set in
 either dynamic library or executable outputs.
 .TP
 \fBno-prepopulate-passes\fR

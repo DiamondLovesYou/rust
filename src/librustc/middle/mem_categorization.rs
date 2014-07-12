@@ -66,7 +66,7 @@ use middle::def;
 use middle::ty;
 use middle::typeck;
 use util::nodemap::NodeMap;
-use util::ppaux::{ty_to_str, Repr};
+use util::ppaux::{ty_to_string, Repr};
 
 use syntax::ast::{MutImmutable, MutMutable};
 use syntax::ast;
@@ -126,7 +126,6 @@ pub enum FieldName {
 #[deriving(Clone, PartialEq, Eq, Hash)]
 pub enum ElementKind {
     VecElement,
-    StrElement,
     OtherElement,
 }
 
@@ -218,7 +217,7 @@ pub fn deref_kind(tcx: &ty::ctxt, t: ty::t) -> deref_kind {
       None => {
         tcx.sess.bug(
             format!("deref_cat() invoked on non-derefable type {}",
-                    ty_to_str(tcx, t)).as_slice());
+                    ty_to_string(tcx, t)).as_slice());
       }
     }
 }
@@ -384,7 +383,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
             Some(adjustment) => {
                 match *adjustment {
                     ty::AutoObject(..) => {
-                        // Implicity cast a concrete object to trait object.
+                        // Implicitly cast a concrete object to trait object.
                         // Result is an rvalue.
                         let expr_ty = if_ok!(self.expr_ty_adjusted(expr));
                         Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty))
@@ -444,10 +443,6 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
           }
 
           ast::ExprIndex(ref base, _) => {
-            if self.typer.is_method_call(expr.id) {
-                return Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty));
-            }
-
             let base_cmt = if_ok!(self.cat_expr(&**base));
             Ok(self.cat_index(expr, base_cmt, 0))
           }
@@ -760,7 +755,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
 
     pub fn cat_index<N:ast_node>(&self,
                                  elt: &N,
-                                 base_cmt: cmt,
+                                 mut base_cmt: cmt,
                                  derefs: uint)
                                  -> cmt {
         //! Creates a cmt for an indexing operation (`[]`); this
@@ -794,14 +789,26 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
         //! - `derefs`: the deref number to be used for
         //!   the implicit index deref, if any (see above)
 
-        let element_ty = match ty::index(base_cmt.ty) {
-          Some(ref mt) => mt.ty,
-          None => {
-            self.tcx().sess.span_bug(
-                elt.span(),
-                format!("Explicit index of non-index type `{}`",
-                        base_cmt.ty.repr(self.tcx())).as_slice());
-          }
+        let method_call = typeck::MethodCall::expr(elt.id());
+        let method_ty = self.typer.node_method_ty(method_call);
+
+        let element_ty = match method_ty {
+            Some(method_ty) => {
+                let ref_ty = ty::ty_fn_ret(method_ty);
+                base_cmt = self.cat_rvalue_node(elt.id(), elt.span(), ref_ty);
+                *ty::ty_fn_args(method_ty).get(0)
+            }
+            None => {
+                match ty::array_element_ty(base_cmt.ty) {
+                    Some(ref mt) => mt.ty,
+                    None => {
+                        self.tcx().sess.span_bug(
+                            elt.span(),
+                            format!("Explicit index of non-index type `{}`",
+                                    base_cmt.ty.repr(self.tcx())).as_slice());
+                    }
+                }
+            }
         };
 
         return match deref_kind(self.tcx(), base_cmt.ty) {
@@ -973,7 +980,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
         // get the type of the *subpattern* and use that.
 
         debug!("cat_pattern: id={} pat={} cmt={}",
-               pat.id, pprust::pat_to_str(pat),
+               pat.id, pprust::pat_to_string(pat),
                cmt.repr(self.tcx()));
 
         op(self, cmt.clone(), pat);
@@ -1098,7 +1105,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
         Ok(())
     }
 
-    pub fn cmt_to_str(&self, cmt: &cmt_) -> String {
+    pub fn cmt_to_string(&self, cmt: &cmt_) -> String {
         match cmt.cat {
           cat_static_item => {
               "static item".to_string()
@@ -1137,9 +1144,6 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
           cat_interior(_, InteriorElement(VecElement)) => {
               "vec content".to_string()
           }
-          cat_interior(_, InteriorElement(StrElement)) => {
-              "str content".to_string()
-          }
           cat_interior(_, InteriorElement(OtherElement)) => {
               "indexed content".to_string()
           }
@@ -1147,10 +1151,10 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
               "captured outer variable".to_string()
           }
           cat_discr(ref cmt, _) => {
-            self.cmt_to_str(&**cmt)
+            self.cmt_to_string(&**cmt)
           }
           cat_downcast(ref cmt) => {
-            self.cmt_to_str(&**cmt)
+            self.cmt_to_string(&**cmt)
           }
         }
     }
@@ -1307,7 +1311,7 @@ impl Repr for InteriorKind {
     fn repr(&self, _tcx: &ty::ctxt) -> String {
         match *self {
             InteriorField(NamedField(fld)) => {
-                token::get_name(fld).get().to_str()
+                token::get_name(fld).get().to_string()
             }
             InteriorField(PositionalField(i)) => format!("#{:?}", i),
             InteriorElement(_) => "[]".to_string(),
@@ -1320,7 +1324,6 @@ fn element_kind(t: ty::t) -> ElementKind {
         ty::ty_rptr(_, ty::mt{ty:ty, ..}) |
         ty::ty_uniq(ty) => match ty::get(ty).sty {
             ty::ty_vec(_, None) => VecElement,
-            ty::ty_str => StrElement,
             _ => OtherElement
         },
         ty::ty_vec(..) => VecElement,

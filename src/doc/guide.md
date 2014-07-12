@@ -53,7 +53,7 @@ an uninstall option.
 
 You can re-run this script any time you want to update Rust. Which, at this
 point, is often. Rust is still pre-1.0, and so people assume that you're using
-a very recent Rust. 
+a very recent Rust.
 
 This brings me to one other point: some people, and somewhat rightfully so, get
 very upset when we tell you to `curl | sudo sh`. And they should be! Basically,
@@ -91,7 +91,6 @@ You should see some output that looks something like this:
 
 ```{ignore}
 rustc 0.11.0-pre (443a1cd 2014-06-08 14:56:52 -0700)
-host: x86_64-unknown-linux-gnu
 ```
 
 If you did, Rust has been installed successfully! Congrats!
@@ -160,7 +159,7 @@ Save the file, and then type this into your terminal window:
 
 ```{bash}
 $ rustc hello_world.rs
-$ ./hello_world # just 'hello_world' on Windows
+$ ./hello_world # or hello_world.exe on Windows
 Hello, world
 ```
 
@@ -168,7 +167,7 @@ Success! Let's go over what just happened in detail.
 
 ```
 fn main() {
-   
+
 }
 ```
 
@@ -243,7 +242,7 @@ There are now two files: our source code, with the `.rs` extension, and the
 executable (`hello_world.exe` on Windows, `hello_world` everywhere else)
 
 ```{bash}
-$ ./hello_world  # or ./hello_world.exe on Windows
+$ ./hello_world  # or hello_world.exe on Windows
 ```
 
 This prints out our `Hello, world!` text to our terminal.
@@ -274,19 +273,15 @@ is still a work in progress. However, it is already good enough to use for many
 Rust projects, and so it is assumed that Rust projects will use Cargo from the
 beginning.
 
-Programmers love car analogies, so I've got a good one for you to think about
-the relationship between `cargo` and `rustc`: `rustc` is like a car, and
-`cargo` is like a robotic driver. You can drive your car yourself, of course,
-but isn't it just easier to let a computer drive it for you?
+Cargo manages three things: building your code, downloading the dependencies
+your code needs, and building the dependencies your code needs.  At first, your
+program doesn't have any dependencies, so we'll only be using the first part of
+its functionality. Eventually, we'll add more. Since we started off by using
+Cargo, it'll be easy to add later.
 
-Anyway, Cargo manages three things: building your code, downloading the
-dependencies your code needs, and building the dependencies your code needs.
-At first, your program doesn't have any dependencies, so we'll only be using
-the first part of its functionality. Eventually, we'll add more. Since we
-started off by using Cargo, it'll be easy to add later.
-
-Let's convert Hello World to Cargo. The first thing we need to do is install
-it. To do this, we need to build it from source. There are no binaries yet.
+Let's convert Hello World to Cargo. The first thing we need to do to begin using Cargo
+is to install Cargo. To do this, we need to build it from source. There are no binaries
+yet.
 
 First, let's go back to our projects directory. We don't want Cargo to
 live in our project!
@@ -394,7 +389,7 @@ Once you have this file in place, we should be ready to build! Try this:
 ```{bash}
 $ cargo build
    Compiling hello_world v0.1.0 (file:/home/yourname/projects/hello_world)
-$ ./target/hello_world 
+$ ./target/hello_world
 Hello, world!
 ```
 
@@ -412,31 +407,860 @@ rest of your Rust career.
 Next, we'll learn more about Rust itself, by starting to write a more complicated
 program. We hope you want to do more with Rust than just print "Hello, world!"
 
+## Guessing Game
+
+Let's write a bigger program in Rust. We could just go through a laundry list
+of Rust features, but that's boring. Instead, we'll learn more about how to
+code in Rust by writing a few example projects.
+
+For our first project, we'll implement a classic beginner programming problem:
+the guessing game. Here's how it works: Our program will generate a random
+integer between one and a hundred. It will then prompt us to enter a guess.
+Upon entering our guess, it will tell us if we're too low or too high. Once we
+guess correctly, it will congratulate us, and print the number of guesses we've
+taken to the screen. Sound good? It sounds easy, but it'll end up showing off a
+number of basic features of Rust.
+
+### Set up
+
+Let's set up a new project. Go to your projects directory, and make a new
+directory for the project, as well as a `src` directory for our code:
+
+```{bash}
+$ cd ~/projects
+$ mkdir guessing_game
+$ cd guessing_game
+$ mkdir src
+```
+
+Great. Next, let's make a `Cargo.toml` file so Cargo knows how to build our
+project:
+
+```{ignore}
+[package]
+
+name = "guessing_game"
+version = "0.1.0"
+authors = [ "someone@example.com" ]
+
+[[bin]]
+
+name = "guessing_game"
+```
+
+Finally, we need our source file. Let's just make it hello world for now, so we
+can check that our setup works. In `src/guessing_game.rs`:
+
+```{rust}
+fn main() {
+    println!("Hello world!");
+}
+```
+
+Let's make sure that worked:
+
+```{bash}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+$
+```
+
+Excellent! Open up your `src/guessing_game.rs` again. We'll be writing all of
+our code in this file. The next section of the tutorial will show you how to
+build multiple-file projects.
+
+## Variable bindings
+
+The first thing we'll learn about are 'variable bindings.' They look like this:
+
+```{rust}
+let x = 5i;
+```
+
+In many languages, this is called a 'variable.' But Rust's variable bindings
+have a few tricks up their sleeves. Rust has a very powerful feature called
+'pattern matching' that we'll get into detail with later, but the left
+hand side of a `let` expression is a full pattern, not just a variable name.
+This means we can do things like:
+
+```{rust}
+let (x, y) = (1i, 2i);
+```
+
+After this expression is evaluated, `x` will be one, and `y` will be two.
+Patterns are really powerful, but this is about all we can do with them so far.
+So let's just keep this in the back of our minds as we go forward.
+
+By the way, in these examples, `i` indicates that the number is an integer.
+
+Rust is a statically typed language, which means that we specify our types up
+front. So why does our first example compile? Well, Rust has this thing called
+"[Hindley-Milner type
+inference](http://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system)",
+named after some really smart type theorists. If you clicked that link, don't
+be scared: what this means for you is that Rust will attempt to infer the types
+in your program, and it's pretty good at it. If it can infer the type, Rust
+doesn't require you to actually type it out.
+
+We can add the type if we want to. Types come after a colon (`:`):
+
+```{rust}
+let x: int = 5;
+```
+
+If I asked you to read this out loud to the rest of the class, you'd say "`x`
+is a binding with the type `int` and the value `five`."
+
+By default, bindings are **immutable**. This code will not compile:
+
+```{ignore}
+let x = 5i;
+x = 10i;
+```
+
+It will give you this error:
+
+```{ignore,notrust}
+error: re-assignment of immutable variable `x`
+     x = 10i;
+     ^~~~~~~
+```
+
+If you want a binding to be mutable, you can use `mut`:
+
+```{rust}
+let mut x = 5i;
+x = 10i;
+```
+
+There is no single reason that bindings are immutable by default, but we can
+think about it through one of Rust's primary focuses: safety. If you forget to
+say `mut`, the compiler will catch it, and let you know that you have mutated
+something you may not have cared to mutate. If bindings were mutable by
+default, the compiler would not be able to tell you this. If you _did_ intend
+mutation, then the solution is quite easy: add `mut`.
+
+There are other good reasons to avoid mutable state when possible, but they're
+out of the scope of this guide. In general, you can often avoid explicit
+mutation, and so it is preferable in Rust. That said, sometimes, mutation is
+what you need, so it's not verboten.
+
+Let's get back to bindings. Rust variable bindings have one more aspect that
+differs from other languages: bindings are required to be initialized with a
+value before you're allowed to use it. If we try...
+
+```{ignore}
+let x;
+```
+
+...we'll get an error:
+
+```{ignore}
+src/guessing_game.rs:2:9: 2:10 error: cannot determine a type for this local variable: unconstrained type
+src/guessing_game.rs:2     let x;
+                               ^
+```
+
+Giving it a type will compile, though:
+
+```{ignore}
+let x: int;
+```
+
+Let's try it out. Change your `src/guessing_game.rs` file to look like this:
+
+```{rust}
+fn main() {
+    let x: int;
+
+    println!("Hello world!");
+}
+```
+
+You can use `cargo build` on the command line to build it. You'll get a warning,
+but it will still print "Hello, world!":
+
+```{ignore,notrust}
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+src/guessing_game.rs:2:9: 2:10 warning: unused variable: `x`, #[warn(unused_variable)] on by default
+src/guessing_game.rs:2     let x: int;
+                               ^
+```
+
+Rust warns us that we never use the variable binding, but since we never use it,
+no harm, no foul. Things change if we try to actually use this `x`, however. Let's
+do that. Change your program to look like this:
+
+```{rust,ignore}
+fn main() {
+    let x: int;
+
+    println!("The value of x is: {}", x);
+}
+```
+
+And try to build it. You'll get an error:
+
+```{bash}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+src/guessing_game.rs:4:39: 4:40 error: use of possibly uninitialized variable: `x`
+src/guessing_game.rs:4     println!("The value of x is: {}", x);
+                                                             ^
+note: in expansion of format_args!
+<std macros>:2:23: 2:77 note: expansion site
+<std macros>:1:1: 3:2 note: in expansion of println!
+src/guessing_game.rs:4:5: 4:42 note: expansion site
+error: aborting due to previous error
+Could not execute process `rustc src/guessing_game.rs --crate-type bin --out-dir /home/you/projects/guessing_game/target -L /home/you/projects/guessing_game/target -L /home/you/projects/guessing_game/target/deps` (status=101)
+```
+
+Rust will not let us use a value that has not been initialized. So why let us
+declare a binding without initializing it? You'd think our first example would
+have errored. Well, Rust is smarter than that. Before we get to that, let's talk
+about this stuff we've added to `println!`.
+
+If you include two curly braces (`{}`, some call them moustaches...) in your
+string to print, Rust will interpret this as a request to interpolate some sort
+of value. **String interpolation** is a computer science term that means "stick
+in the middle of a string." We add a comma, and then `x`, to indicate that we
+want `x` to be the value we're interpolating. The comma is used to separate
+arguments we pass to functions and macros, if you're passing more than one.
+
+When you just use the double curly braces, Rust will attempt to display the
+value in a meaningful way by checking out its type. If you want to specify the
+format in a more detailed manner, there are a [wide number of options
+available](/std/fmt/index.html). Fow now, we'll just stick to the default:
+integers aren't very complicated to print.
+
+So, we've cleared up all of the confusion around bindings, with one exception:
+why does Rust let us declare a variable binding without an initial value if we
+must initialize the binding before we use it? And how does it know that we have
+or have not initialized the binding? For that, we need to learn our next
+concept: `if`.
+
 ## If
+
+Rust's take on `if` is not particularly complex, but it's much more like the
+`if` you'll find in a dynamically typed language than in a more traditional
+systems language. So let's talk about it, to make sure you grasp the nuances.
+
+`if` is a specific form of a more general concept, the 'branch.' The name comes
+from a branch in a tree: a decision point, where depending on a choice,
+multiple paths can be taken.
+
+In the case of `if`, there is one choice that leads down two paths:
+
+```rust
+let x = 5i;
+
+if x == 5i {
+    println!("x is five!");
+}
+```
+
+If we changed the value of `x` to something else, this line would not print.
+More specifically, if the expression after the `if` evaluates to `true`, then
+the block is executed. If it's `false`, then it is not.
+
+If you want something to happen in the `false` case, use an `else`:
+
+```
+let x = 5i;
+
+if x == 5i {
+    println!("x is five!");
+} else {
+    println!("x is not five :(");
+}
+```
+
+This is all pretty standard. However, you can also do this:
+
+
+```
+let x = 5i;
+
+let y = if x == 5i {
+    10i
+} else {
+    15i
+};
+```
+
+Which we can (and probably should) write like this:
+
+```
+let x = 5i;
+
+let y = if x == 5i { 10i } else { 15i };
+```
+
+This reveals two interesting things about Rust: it is an expression-based
+language, and semicolons are different than in other 'curly brace and
+semicolon'-based languages. These two things are related.
+
+### Expressions vs. Statements
+
+Rust is primarily an expression based language. There are only two kinds of
+statements, and everything else is an expression.
+
+So what's the difference? Expressions return a value, and statements do not.
+In many languages, `if` is a statement, and therefore, `let x = if ...` would
+make no sense. But in Rust, `if` is an expression, which means that it returns
+a value. We can then use this value to initialize the binding.
+
+Speaking of which, bindings are a kind of the first of Rust's two statements.
+The proper name is a **declaration statement**. So far, `let` is the only kind
+of declaration statement we've seen. Let's talk about that some more.
+
+In some languages, variable bindings can be written as expressions, not just
+statements. Like Ruby:
+
+```{ruby}
+x = y = 5
+```
+
+In Rust, however, using `let` to introduce a binding is _not_ an expression. The
+following will produce a compile-time error:
+
+```{ignore}
+let x = (let y = 5i); // found `let` in ident position
+```
+
+The compiler is telling us here that it was expecting to see the beginning of
+an expression, and a `let` can only begin a statement, not an expression.
+
+However, assigning to a variable binding is an expression:
+
+```{rust}
+let x;
+let y = x = 5i;
+```
+
+In this case, we have an assignment expression (`x = 5`) whose value is
+being used as part of a `let` declaration statement (`let y = ...`).
+
+The second kind of statement in Rust is the **expression statement**. Its
+purpose is to turn any expression into a statement. In practical terms, Rust's
+grammar expects statements to follow other statements. This means that you use
+semicolons to separate expressions from each other. This means that Rust
+looks a lot like most other languages that require you to use semicolons
+at the end of every line, and you will see semicolons at the end of almost
+every line of Rust code you see.
+
+What is this exception that makes us say 'almost?' You saw it already, in this
+code:
+
+```
+let x = 5i;
+
+let y: int = if x == 5i { 10i } else { 15i };
+```
+
+Note that I've added the type annotation to `y`, to specify explicitly that I
+want `y` to be an integer.
+
+This is not the same as this, which won't compile:
+
+```{ignore}
+let x = 5i;
+
+let y: int = if x == 5 { 10i; } else { 15i; };
+```
+
+Note the semicolons after the 10 and 15. Rust will give us the following error:
+
+```{ignore,notrust}
+error: mismatched types: expected `int` but found `()` (expected int but found ())
+```
+
+We expected an integer, but we got `()`. `()` is pronounced 'unit', and is a
+special type in Rust's type system. `()` is different than `null` in other
+languages, because `()` is distinct from other types. For example, in C, `null`
+is a valid value for a variable of type `int`. In Rust, `()` is _not_ a valid
+value for a variable of type `int`. It's only a valid value for variables of
+the type `()`, which aren't very useful. Remember how we said statements don't
+return a value? Well, that's the purpose of unit in this case. The semicolon
+turns any expression into a statement by throwing away its value and returning
+unit instead.
+
+There's one more time in which you won't see a semicolon at the end of a line
+of Rust code. For that, we'll need our next concept: functions.
 
 ## Functions
 
-return
+You've already seen one function so far, the `main` function:
 
-comments
+```{rust}
+fn main() {
+}
+```
 
-## Testing
+This is the simplest possible function declaration. As we mentioned before,
+`fn` says 'this is a function,' followed by the name, some parenthesis because
+this function takes no arguments, and then some curly braces to indicate the
+body. Here's a function named `foo`:
 
-attributes
+```{rust}
+fn foo() {
+}
+```
 
-stability markers
+So, what about taking arguments? Here's a function that prints a number:
 
-## Crates and Modules
+```{rust}
+fn print_number(x: int) {
+    println!("x is: {}", x);
+}
+```
 
-visibility
+Here's a complete program that uses `print_number`:
+
+```{rust}
+fn main() {
+    print_number(5);
+}
+
+fn print_number(x: int) {
+    println!("x is: {}", x);
+}
+```
+
+As you can see, function arguments work very similar to `let` declarations:
+you add a type to the argument name, after a colon.
+
+Here's a complete program that adds two numbers together and prints them:
+
+```{rust}
+fn main() {
+    print_sum(5, 6);
+}
+
+fn print_sum(x: int, y: int) {
+    println!("sum is: {}", x + y);
+}
+```
+
+You separate arguments with a comma, both when you call the function, as well
+as when you declare it.
+
+Unlike `let`, you _must_ declare the types of function arguments. This does
+not work:
+
+```{ignore}
+fn print_number(x, y) {
+    println!("x is: {}", x + y);
+}
+```
+
+You get this error:
+
+```{ignore,notrust}
+hello.rs:5:18: 5:19 error: expected `:` but found `,`
+hello.rs:5 fn print_number(x, y) {
+```
+
+This is a deliberate design decision. While full-program inference is possible,
+languages which have it, like Haskell, often suggest that documenting your
+types explicitly is a best-practice. We agree that forcing functions to declare
+types while allowing for inference inside of function bodies is a wonderful
+compromise between full inference and no inference.
+
+What about returning a value? Here's a function that adds one to an integer:
+
+```{rust}
+fn add_one(x: int) -> int {
+    x + 1
+}
+```
+
+Rust functions return exactly one value, and you declare the type after an
+'arrow', which is a dash (`-`) followed by a greater-than sign (`>`).
+
+You'll note the lack of a semicolon here. If we added it in:
+
+```{ignore}
+fn add_one(x: int) -> int {
+    x + 1;
+}
+```
+
+We would get an error:
+
+```{ignore,notrust}
+error: not all control paths return a value
+fn add_one(x: int) -> int {
+     x + 1;
+}
+
+note: consider removing this semicolon:
+     x + 1;
+          ^
+```
+
+Remember our earlier discussions about semicolons and `()`? Our function claims
+to return an `int`, but with a semicolon, it would return `()` instead. Rust
+realizes this probably isn't what we want, and suggests removing the semicolon.
+
+This is very much like our `if` statement before: the result of the block
+(`{}`) is the value of the expression. Other expression-oriented languages,
+such as Ruby, work like this, but it's a bit unusual in the systems programming
+world. When people first learn about this, they usually assume that it
+introduces bugs. But because Rust's type system is so strong, and because unit
+is its own unique type, we have never seen an issue where adding or removing a
+semicolon in a return position would cause a bug.
+
+But what about early returns? Rust does have a keyword for that, `return`:
+
+```{rust}
+fn foo(x: int) -> int {
+    if x < 5 { return x; }
+
+    x + 1
+}
+```
+
+Using a `return` as the last line of a function works, but is considered poor
+style:
+
+```{rust}
+fn foo(x: int) -> int {
+    if x < 5 { return x; }
+
+    return x + 1;
+}
+```
+
+There are some additional ways to define functions, but they involve features
+that we haven't learned about yet, so let's just leave it at that for now.
+
+
+## Comments
+
+Now that we have some functions, it's a good idea to learn about comments.
+Comments are notes that you leave to other programmers to help explain things
+about your code. The compiler mostly ignores them.
+
+Rust has two kinds of comments that you should care about: **line comment**s
+and **doc comment**s.
+
+```{rust}
+// Line comments are anything after '//' and extend to the end of the line.
+
+let x = 5i; // this is also a line comment.
+
+// If you have a long explanation for something, you can put line comments next
+// to each other. Put a space between the // and your comment so that it's
+// more readable.
+```
+
+The other kind of comment is a doc comment. Doc comments use `///` instead of
+`//`, and support Markdown notation inside:
+
+```{rust}
+/// `hello` is a function that prints a greeting that is personalized based on
+/// the name given.
+///
+/// # Arguments
+///
+/// * `name` - The name of the person you'd like to greet.
+///
+/// # Example
+///
+/// ```rust
+/// let name = "Steve";
+/// hello(name); // prints "Hello, Steve!"
+/// ```
+fn hello(name: &str) {
+    println!("Hello, {}!", name);
+}
+```
+
+When writing doc comments, adding sections for any arguments, return values,
+and providing some examples of usage is very, very helpful.
+
+You can use the `rustdoc` tool to generate HTML documentation from these doc
+comments. We will talk more about `rustdoc` when we get to modules, as
+generally, you want to export documentation for a full module.
 
 ## Compound Data Types
 
-Tuples
+Rust, like many programming languages, has a number of different data types
+that are built-in. You've already done some simple work with integers and
+strings, but next, let's talk about some more complicated ways of storing data.
 
-Structs
+### Tuples
 
-Enums
+The first compound data type we're going to talk about are called **tuple**s.
+Tuples are an ordered list of a fixed size. Like this:
+
+```rust
+let x = (1i, "hello");
+```
+
+The parenthesis and commas form this two-length tuple. Here's the same code, but
+with the type annotated:
+
+```rust
+let x: (int, &str) = (1, "hello");
+```
+
+As you can see, the type of a tuple looks just like the tuple, but with each
+position having a type name rather than the value. Careful readers will also
+note that tuples are heterogeneous: we have an `int` and a `&str` in this tuple.
+You haven't seen `&str` as a type before, and we'll discuss the details of
+strings later. In systems programming languages, strings are a bit more complex
+than in other languages. For now, just read `&str` as "a string slice," and
+we'll learn more soon.
+
+You can access the fields in a tuple through a **destructuring let**. Here's
+an example:
+
+```rust
+let (x, y, z) = (1i, 2i, 3i);
+
+println!("x is {}", x);
+```
+
+Remember before when I said the left hand side of a `let` statement was more
+powerful than just assigning a binding? Here we are. We can put a pattern on
+the left hand side of the `let`, and if it matches up to the right hand side,
+we can assign multiple bindings at once. In this case, `let` 'destructures,'
+or 'breaks up,' the tuple, and assigns the bits to three bindings.
+
+This pattern is very powerful, and we'll see it repeated more later.
+
+The last thing to say about tuples is that they are only equivalent if
+the arity, types, and values are all identical.
+
+```rust
+let x = (1i, 2i, 3i);
+let y = (2i, 3i, 4i);
+
+if x == y {
+    println!("yes");
+} else {
+    println!("no");
+}
+```
+
+This will print `no`, as the values aren't equal.
+
+One other use of tuples is to return multiple values from a function:
+
+```rust
+fn next_two(x: int) -> (int, int) { (x + 1i, x + 2i) }
+
+fn main() {
+    let (x, y) = next_two(5i);
+    println!("x, y = {}, {}", x, y);
+}
+```
+
+Even though Rust functions can only return one value, a tuple _is_ one value,
+that happens to be made up of two. You can also see in this example how you
+can destructure a pattern returned by a function, as well.
+
+Tuples are a very simple data structure, and so are not often what you want.
+Let's move on to their bigger sibling, structs.
+
+### Structs
+
+A struct is another form of a 'record type,' just like a tuple. There's a
+difference: structs give each element that they contain a name, called a
+'field' or a 'member.' Check it out:
+
+```rust
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn main() {
+    let origin = Point { x: 0i, y:  0i };
+
+    println!("The origin is at ({}, {})", origin.x, origin.y);
+}
+```
+
+There's a lot going on here, so let's break it down. We declare a struct with
+the `struct` keyword, and then with a name. By convention, structs begin with a
+capital letter and are also camel cased: `PointInSpace`, not `Point_In_Space`.
+
+We can create an instance of our struct via `let`, as usual, but we use a `key:
+value` style syntax to set each field. The order doesn't need to be the same as
+in the original declaration.
+
+Finally, because fields have names, we can access the field through dot
+notation: `origin.x`.
+
+The values in structs are immutable, like other bindings in Rust. However, you
+can use `mut` to make them mutable:
+
+```rust
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn main() {
+    let mut point = Point { x: 0i, y:  0i };
+
+    point.x = 5;
+
+    println!("The point is at ({}, {})", point.x, point.y);
+}
+```
+
+This will print `The point is at (5, 0)`.
+
+### Tuple Structs and Newtypes
+
+Rust has another data type that's like a hybrid between a tuple and a struct,
+called a **tuple struct**. Tuple structs do have a name, but their fields
+don't:
+
+
+```
+struct Color(int, int, int);
+struct Point(int, int, int);
+```
+
+These two will not be equal, even if they have the same values:
+
+```{rust,ignore}
+let black  = Color(0, 0, 0);
+let origin = Point(0, 0, 0);
+```
+
+It is almost always better to use a struct than a tuple struct. We would write
+`Color` and `Point` like this instead:
+
+```rust
+struct Color {
+    red: int,
+    blue: int,
+    green: int,
+}
+
+struct Point {
+    x: int,
+    y: int,
+    z: int,
+}
+```
+
+Now, we have actual names, rather than positions. Good names are important,
+and with a struct, we have actual names.
+
+There _is_ one case when a tuple struct is very useful, though, and that's a
+tuple struct with only one element. We call this a 'newtype,' because it lets
+you create a new type that's a synonym for another one:
+
+```
+struct Inches(int);
+struct Centimeters(int);
+
+let length = Inches(10);
+
+let Inches(integer_length) = length;
+println!("length is {} inches", integer_length);
+```
+
+As you can see here, you can extract the inner integer type through a
+destructuring `let`.
+
+### Enums
+
+Finally, Rust has a "sum type", an **enum**. Enums are an incredibly useful
+feature of Rust, and are used throughout the standard library. Enums look
+like this:
+
+```
+enum Ordering {
+    Less,
+    Equal,
+    Greater,
+}
+```
+
+This is an enum that is provided by the Rust standard library. An `Ordering`
+can only be _one_ of `Less`, `Equal`, or `Greater` at any given time. Here's
+an example:
+
+```rust
+let x = 5i;
+let y = 10i;
+
+let ordering = x.cmp(&y);
+
+if ordering == Less {
+    println!("less");
+} else if ordering == Greater {
+    println!("greater");
+} else if ordering == Equal {
+    println!("equal");
+}
+```
+
+`cmp` is a function that compares two things, and returns an `Ordering`. The
+call looks a little bit strange: rather than `cmp(x, y)`, we say `x.cmp(&y)`.
+We haven't covered methods and references yet, so it should look a little bit
+foreign. Right now, just pretend it says `cmp(x, y)`, and we'll get to those
+details soon.
+
+The `ordering` variable has the type `Ordering`, and so contains one of the
+three values. We can then do a bunch of `if`/`else` comparisons to check
+which one it is.
+
+However, repeated `if`/`else` comparisons get quite tedious. Rust has a feature
+that not only makes them nicer to read, but also makes sure that you never
+miss a case. Before we get to that, though, let's talk about another kind of
+enum: one with values.
+
+This enum has two variants, one of which has a value.:
+
+```
+enum OptionalInt {
+    Value(int),
+    Missing
+}
+
+fn main() {
+    let x = Value(5);
+    let y = Missing;
+
+    match x {
+        Value(n) => println!("x is {:d}", n),
+        Missing  => println!("x is missing!"),
+    }
+
+    match y {
+        Value(n) => println!("y is {:d}", n),
+        Missing  => println!("y is missing!"),
+    }
+}
+```
+
+This enum represents an `int` that we may or may not have. In the `Missing`
+case, we have no value, but in the `Value` case, we do. This enum is specific
+to `int`s, though. We can make it usable by any type, but we haven't quite
+gotten there yet!
+
+You can have any number of values in an enum:
+
+```
+enum OptionalColor {
+    Color(int, int, int),
+    Missing
+}
+```
+
+Enums with values are quite useful, but as I mentioned, they're even more
+useful when they're generic across types. But before we get to generics, let's
+talk about how to fix this big `if`/`else` statements we've been writing. We'll
+do that with `match`.
 
 ## Match
 
@@ -450,9 +1274,34 @@ loop
 
 break/continue
 
-iterators
+## Guessing Game: complete
+
+At this point, you have successfully built the Guessing Game! Congratulations!
+For reference, [We've placed the sample code on
+GitHub](https://github.com/steveklabnik/guessing_game).
+
+You've now learned the basic syntax of Rust. All of this is relatively close to
+various other programming languages you have used in the past. These
+fundamental syntactical and semantic elements will form the foundation for the
+rest of your Rust education.
+
+Now that you're an expert at the basics, it's time to learn about some of
+Rust's more unique features.
+
+## iterators
 
 ## Lambdas
+
+## Testing
+
+attributes
+
+stability markers
+
+## Crates and Modules
+
+visibility
+
 
 ## Generics
 

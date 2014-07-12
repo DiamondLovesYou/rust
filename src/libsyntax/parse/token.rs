@@ -10,7 +10,6 @@
 
 use ast;
 use ast::{P, Ident, Name, Mrk};
-use ast_util;
 use ext::mtwt;
 use parse::token;
 use util::interner::{RcStr, StrInterner};
@@ -76,32 +75,40 @@ pub enum Token {
     RBRACE,
     POUND,
     DOLLAR,
+    QUESTION,
 
     /* Literals */
-    LIT_BYTE(u8),
-    LIT_CHAR(char),
-    LIT_INT(i64, ast::IntTy),
-    LIT_UINT(u64, ast::UintTy),
-    LIT_INT_UNSUFFIXED(i64),
-    LIT_FLOAT(ast::Ident, ast::FloatTy),
-    LIT_FLOAT_UNSUFFIXED(ast::Ident),
-    LIT_STR(ast::Ident),
-    LIT_STR_RAW(ast::Ident, uint), /* raw str delimited by n hash symbols */
-    LIT_BINARY(Rc<Vec<u8>>),
-    LIT_BINARY_RAW(Rc<Vec<u8>>, uint), /* raw binary str delimited by n hash symbols */
+    LIT_BYTE(Name),
+    LIT_CHAR(Name),
+    LIT_INTEGER(Name),
+    LIT_FLOAT(Name),
+    LIT_STR(Name),
+    LIT_STR_RAW(Name, uint), /* raw str delimited by n hash symbols */
+    LIT_BINARY(Name),
+    LIT_BINARY_RAW(Name, uint), /* raw binary str delimited by n hash symbols */
 
     /* Name components */
-    // an identifier contains an "is_mod_name" boolean,
-    // indicating whether :: follows this token with no
-    // whitespace in between.
-    IDENT(ast::Ident, bool),
+    /// An identifier contains an "is_mod_name" boolean,
+    /// indicating whether :: follows this token with no
+    /// whitespace in between.
+    IDENT(Ident, bool),
     UNDERSCORE,
-    LIFETIME(ast::Ident),
+    LIFETIME(Ident),
 
     /* For interpolation */
     INTERPOLATED(Nonterminal),
+    DOC_COMMENT(Name),
 
-    DOC_COMMENT(ast::Ident),
+    // Junk. These carry no data because we don't really care about the data
+    // they *would* carry, and don't really want to allocate a new ident for
+    // them. Instead, users could extract that from the associated span.
+
+    /// Whitespace
+    WS,
+    /// Comment
+    COMMENT,
+    SHEBANG(Name),
+
     EOF,
 }
 
@@ -114,11 +121,12 @@ pub enum Nonterminal {
     NtPat( Gc<ast::Pat>),
     NtExpr(Gc<ast::Expr>),
     NtTy(  P<ast::Ty>),
-    // see IDENT, above, for meaning of bool in NtIdent:
-    NtIdent(Box<ast::Ident>, bool),
-    NtMeta(Gc<ast::MetaItem>), // stuff inside brackets for attributes
+    /// See IDENT, above, for meaning of bool in NtIdent:
+    NtIdent(Box<Ident>, bool),
+    /// Stuff inside brackets for attributes
+    NtMeta(Gc<ast::MetaItem>),
     NtPath(Box<ast::Path>),
-    NtTT(  Gc<ast::TokenTree>), // needs @ed to break a circularity
+    NtTT(  Gc<ast::TokenTree>), // needs Gc'd to break a circularity
     NtMatchers(Vec<ast::Matcher> )
 }
 
@@ -140,7 +148,7 @@ impl fmt::Show for Nonterminal {
     }
 }
 
-pub fn binop_to_str(o: BinOp) -> &'static str {
+pub fn binop_to_string(o: BinOp) -> &'static str {
     match o {
       PLUS => "+",
       MINUS => "-",
@@ -155,7 +163,7 @@ pub fn binop_to_str(o: BinOp) -> &'static str {
     }
 }
 
-pub fn to_str(t: &Token) -> String {
+pub fn to_string(t: &Token) -> String {
     match *t {
       EQ => "=".to_string(),
       LT => "<".to_string(),
@@ -168,9 +176,9 @@ pub fn to_str(t: &Token) -> String {
       TILDE => "~".to_string(),
       OROR => "||".to_string(),
       ANDAND => "&&".to_string(),
-      BINOP(op) => binop_to_str(op).to_string(),
+      BINOP(op) => binop_to_string(op).to_string(),
       BINOPEQ(op) => {
-          let mut s = binop_to_str(op).to_string();
+          let mut s = binop_to_string(op).to_string();
           s.push_str("=");
           s
       }
@@ -195,57 +203,32 @@ pub fn to_str(t: &Token) -> String {
       RBRACE => "}".to_string(),
       POUND => "#".to_string(),
       DOLLAR => "$".to_string(),
+      QUESTION => "?".to_string(),
 
       /* Literals */
       LIT_BYTE(b) => {
-          let mut res = String::from_str("b'");
-          (b as char).escape_default(|c| {
-              res.push_char(c);
-          });
-          res.push_char('\'');
-          res
+          format!("b'{}'", b.as_str())
       }
       LIT_CHAR(c) => {
-          let mut res = String::from_str("'");
-          c.escape_default(|c| {
-              res.push_char(c);
-          });
-          res.push_char('\'');
-          res
+          format!("'{}'", c.as_str())
       }
-      LIT_INT(i, t) => ast_util::int_ty_to_str(t, Some(i)),
-      LIT_UINT(u, t) => ast_util::uint_ty_to_str(t, Some(u)),
-      LIT_INT_UNSUFFIXED(i) => { (i as u64).to_str() }
-      LIT_FLOAT(s, t) => {
-        let mut body = String::from_str(get_ident(s).get());
-        if body.as_slice().ends_with(".") {
-            body.push_char('0');  // `10.f` is not a float literal
-        }
-        body.push_str(ast_util::float_ty_to_str(t).as_slice());
-        body
+      LIT_INTEGER(c) | LIT_FLOAT(c) => {
+          c.as_str().to_string()
       }
-      LIT_FLOAT_UNSUFFIXED(s) => {
-        let mut body = String::from_str(get_ident(s).get());
-        if body.as_slice().ends_with(".") {
-            body.push_char('0');  // `10.f` is not a float literal
-        }
-        body
-      }
+
       LIT_STR(s) => {
-          format!("\"{}\"", get_ident(s).get().escape_default())
+          format!("\"{}\"", s.as_str())
       }
       LIT_STR_RAW(s, n) => {
         format!("r{delim}\"{string}\"{delim}",
-                 delim="#".repeat(n), string=get_ident(s))
+                 delim="#".repeat(n), string=s.as_str())
       }
-      LIT_BINARY(ref v) => {
-          format!(
-            "b\"{}\"",
-            v.iter().map(|&b| b as char).collect::<String>().escape_default())
+      LIT_BINARY(v) => {
+          format!("b\"{}\"", v.as_str())
       }
-      LIT_BINARY_RAW(ref s, n) => {
+      LIT_BINARY_RAW(s, n) => {
         format!("br{delim}\"{string}\"{delim}",
-                 delim="#".repeat(n), string=s.as_slice().to_ascii().as_str_ascii())
+                 delim="#".repeat(n), string=s.as_str())
       }
 
       /* Name components */
@@ -256,12 +239,16 @@ pub fn to_str(t: &Token) -> String {
       UNDERSCORE => "_".to_string(),
 
       /* Other */
-      DOC_COMMENT(s) => get_ident(s).get().to_string(),
+      DOC_COMMENT(s) => s.as_str().to_string(),
       EOF => "<eof>".to_string(),
+      WS => " ".to_string(),
+      COMMENT => "/* */".to_string(),
+      SHEBANG(s) => format!("/* shebang: {}*/", s.as_str()),
+
       INTERPOLATED(ref nt) => {
         match nt {
-            &NtExpr(ref e) => ::print::pprust::expr_to_str(&**e),
-            &NtMeta(ref e) => ::print::pprust::meta_item_to_str(&**e),
+            &NtExpr(ref e) => ::print::pprust::expr_to_string(&**e),
+            &NtMeta(ref e) => ::print::pprust::meta_item_to_string(&**e),
             _ => {
                 let mut s = "an interpolated ".to_string();
                 match *nt {
@@ -294,11 +281,8 @@ pub fn can_begin_expr(t: &Token) -> bool {
       TILDE => true,
       LIT_BYTE(_) => true,
       LIT_CHAR(_) => true,
-      LIT_INT(_, _) => true,
-      LIT_UINT(_, _) => true,
-      LIT_INT_UNSUFFIXED(_) => true,
-      LIT_FLOAT(_, _) => true,
-      LIT_FLOAT_UNSUFFIXED(_) => true,
+      LIT_INTEGER(_) => true,
+      LIT_FLOAT(_) => true,
       LIT_STR(_) => true,
       LIT_STR_RAW(_, _) => true,
       LIT_BINARY(_) => true,
@@ -335,11 +319,8 @@ pub fn is_lit(t: &Token) -> bool {
     match *t {
       LIT_BYTE(_) => true,
       LIT_CHAR(_) => true,
-      LIT_INT(_, _) => true,
-      LIT_UINT(_, _) => true,
-      LIT_INT_UNSUFFIXED(_) => true,
-      LIT_FLOAT(_, _) => true,
-      LIT_FLOAT_UNSUFFIXED(_) => true,
+      LIT_INTEGER(_) => true,
+      LIT_FLOAT(_) => true,
       LIT_STR(_) => true,
       LIT_STR_RAW(_, _) => true,
       LIT_BINARY(_) => true,
@@ -361,10 +342,6 @@ pub fn is_ident_or_path(t: &Token) -> bool {
 
 pub fn is_plain_ident(t: &Token) -> bool {
     match *t { IDENT(_, false) => true, _ => false }
-}
-
-pub fn is_bar(t: &Token) -> bool {
-    match *t { BINOP(OR) | OROR => true, _ => false }
 }
 
 // Get the first "argument"
@@ -397,14 +374,19 @@ macro_rules! declare_special_idents_and_keywords {(
         $( ($rk_name:expr, $rk_variant:ident, $rk_str:expr); )*
     }
 ) => {
-    static STRICT_KEYWORD_START: Name = first!($( $sk_name, )*);
-    static STRICT_KEYWORD_FINAL: Name = last!($( $sk_name, )*);
-    static RESERVED_KEYWORD_START: Name = first!($( $rk_name, )*);
-    static RESERVED_KEYWORD_FINAL: Name = last!($( $rk_name, )*);
+    static STRICT_KEYWORD_START: Name = first!($( Name($sk_name), )*);
+    static STRICT_KEYWORD_FINAL: Name = last!($( Name($sk_name), )*);
+    static RESERVED_KEYWORD_START: Name = first!($( Name($rk_name), )*);
+    static RESERVED_KEYWORD_FINAL: Name = last!($( Name($rk_name), )*);
 
     pub mod special_idents {
-        use ast::Ident;
-        $( pub static $si_static: Ident = Ident { name: $si_name, ctxt: 0 }; )*
+        use ast::{Ident, Name};
+        $( pub static $si_static: Ident = Ident { name: Name($si_name), ctxt: 0 }; )*
+    }
+
+    pub mod special_names {
+        use ast::Name;
+        $( pub static $si_static: Name =  Name($si_name); )*
     }
 
     /**
@@ -415,7 +397,7 @@ macro_rules! declare_special_idents_and_keywords {(
      * the language and may not appear as identifiers.
      */
     pub mod keywords {
-        use ast::Ident;
+        use ast::Name;
 
         pub enum Keyword {
             $( $sk_variant, )*
@@ -423,10 +405,10 @@ macro_rules! declare_special_idents_and_keywords {(
         }
 
         impl Keyword {
-            pub fn to_ident(&self) -> Ident {
+            pub fn to_name(&self) -> Name {
                 match *self {
-                    $( $sk_variant => Ident { name: $sk_name, ctxt: 0 }, )*
-                    $( $rk_variant => Ident { name: $rk_name, ctxt: 0 }, )*
+                    $( $sk_variant => Name($sk_name), )*
+                    $( $rk_variant => Name($rk_name), )*
                 }
             }
         }
@@ -434,7 +416,7 @@ macro_rules! declare_special_idents_and_keywords {(
 
     fn mk_fresh_ident_interner() -> IdentInterner {
         // The indices here must correspond to the numbers in
-        // special_idents, in Keyword to_ident(), and in static
+        // special_idents, in Keyword to_name(), and in static
         // constants below.
         let mut init_vec = Vec::new();
         $(init_vec.push($si_str);)*
@@ -445,8 +427,11 @@ macro_rules! declare_special_idents_and_keywords {(
 }}
 
 // If the special idents get renumbered, remember to modify these two as appropriate
-static SELF_KEYWORD_NAME: Name = 1;
-static STATIC_KEYWORD_NAME: Name = 2;
+pub static SELF_KEYWORD_NAME: Name = Name(SELF_KEYWORD_NAME_NUM);
+static STATIC_KEYWORD_NAME: Name = Name(STATIC_KEYWORD_NAME_NUM);
+
+pub static SELF_KEYWORD_NAME_NUM: u32 = 1;
+static STATIC_KEYWORD_NAME_NUM: u32 = 2;
 
 // NB: leaving holes in the ident table is bad! a different ident will get
 // interned with the id from the hole, but it will be between the min and max
@@ -456,8 +441,8 @@ declare_special_idents_and_keywords! {
     pub mod special_idents {
         // These ones are statics
         (0,                          invalid,                "");
-        (super::SELF_KEYWORD_NAME,   self_,                  "self");
-        (super::STATIC_KEYWORD_NAME, statik,                 "static");
+        (super::SELF_KEYWORD_NAME_NUM,   self_,                  "self");
+        (super::STATIC_KEYWORD_NAME_NUM, statik,                 "static");
         (3,                          static_lifetime,        "'static");
 
         // for matcher NTs
@@ -497,8 +482,8 @@ declare_special_idents_and_keywords! {
         (29,                         Ref,        "ref");
         (30,                         Return,     "return");
         // Static and Self are also special idents (prefill de-dupes)
-        (super::STATIC_KEYWORD_NAME, Static,     "static");
-        (super::SELF_KEYWORD_NAME,   Self,       "self");
+        (super::STATIC_KEYWORD_NAME_NUM, Static,     "static");
+        (super::SELF_KEYWORD_NAME_NUM,   Self,       "self");
         (31,                         Struct,     "struct");
         (32,                         Super,      "super");
         (33,                         True,       "true");
@@ -680,49 +665,52 @@ pub fn gensym(s: &str) -> Name {
 
 /// Maps a string to an identifier with an empty syntax context.
 #[inline]
-pub fn str_to_ident(s: &str) -> ast::Ident {
-    ast::Ident::new(intern(s))
+pub fn str_to_ident(s: &str) -> Ident {
+    Ident::new(intern(s))
 }
 
 /// Maps a string to a gensym'ed identifier.
 #[inline]
-pub fn gensym_ident(s: &str) -> ast::Ident {
-    ast::Ident::new(gensym(s))
+pub fn gensym_ident(s: &str) -> Ident {
+    Ident::new(gensym(s))
 }
 
 // create a fresh name that maps to the same string as the old one.
-// note that this guarantees that str_ptr_eq(ident_to_str(src),interner_get(fresh_name(src)));
+// note that this guarantees that str_ptr_eq(ident_to_string(src),interner_get(fresh_name(src)));
 // that is, that the new name and the old one are connected to ptr_eq strings.
-pub fn fresh_name(src: &ast::Ident) -> Name {
+pub fn fresh_name(src: &Ident) -> Name {
     let interner = get_ident_interner();
     interner.gensym_copy(src.name)
     // following: debug version. Could work in final except that it's incompatible with
     // good error messages and uses of struct names in ambiguous could-be-binding
     // locations. Also definitely destroys the guarantee given above about ptr_eq.
     /*let num = rand::task_rng().gen_uint_range(0,0xffff);
-    gensym(format!("{}_{}",ident_to_str(src),num))*/
+    gensym(format!("{}_{}",ident_to_string(src),num))*/
 }
 
 // create a fresh mark.
 pub fn fresh_mark() -> Mrk {
-    gensym("mark")
+    gensym("mark").uint() as u32
 }
 
 // See the macro above about the types of keywords
 
 pub fn is_keyword(kw: keywords::Keyword, tok: &Token) -> bool {
     match *tok {
-        token::IDENT(sid, false) => { kw.to_ident().name == sid.name }
+        token::IDENT(sid, false) => { kw.to_name() == sid.name }
         _ => { false }
     }
 }
 
 pub fn is_any_keyword(tok: &Token) -> bool {
     match *tok {
-        token::IDENT(sid, false) => match sid.name {
-            SELF_KEYWORD_NAME | STATIC_KEYWORD_NAME |
-            STRICT_KEYWORD_START .. RESERVED_KEYWORD_FINAL => true,
-            _ => false,
+        token::IDENT(sid, false) => {
+            let n = sid.name;
+
+               n == SELF_KEYWORD_NAME
+            || n == STATIC_KEYWORD_NAME
+            || STRICT_KEYWORD_START <= n
+            && n <= RESERVED_KEYWORD_FINAL
         },
         _ => false
     }
@@ -730,10 +718,13 @@ pub fn is_any_keyword(tok: &Token) -> bool {
 
 pub fn is_strict_keyword(tok: &Token) -> bool {
     match *tok {
-        token::IDENT(sid, false) => match sid.name {
-            SELF_KEYWORD_NAME | STATIC_KEYWORD_NAME |
-            STRICT_KEYWORD_START .. STRICT_KEYWORD_FINAL => true,
-            _ => false,
+        token::IDENT(sid, false) => {
+            let n = sid.name;
+
+               n == SELF_KEYWORD_NAME
+            || n == STATIC_KEYWORD_NAME
+            || STRICT_KEYWORD_START <= n
+            && n <= STRICT_KEYWORD_FINAL
         },
         _ => false,
     }
@@ -741,9 +732,11 @@ pub fn is_strict_keyword(tok: &Token) -> bool {
 
 pub fn is_reserved_keyword(tok: &Token) -> bool {
     match *tok {
-        token::IDENT(sid, false) => match sid.name {
-            RESERVED_KEYWORD_START .. RESERVED_KEYWORD_FINAL => true,
-            _ => false,
+        token::IDENT(sid, false) => {
+            let n = sid.name;
+
+               RESERVED_KEYWORD_START <= n
+            && n <= RESERVED_KEYWORD_FINAL
         },
         _ => false,
     }
@@ -765,7 +758,7 @@ mod test {
     use ext::mtwt;
 
     fn mark_ident(id : ast::Ident, m : ast::Mrk) -> ast::Ident {
-        ast::Ident{name:id.name,ctxt:mtwt::new_mark(m,id.ctxt)}
+        ast::Ident { name: id.name, ctxt:mtwt::apply_mark(m, id.ctxt) }
     }
 
     #[test] fn mtwt_token_eq_test() {

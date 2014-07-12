@@ -66,8 +66,8 @@ pub trait AstBuilder {
     fn typaram(&self,
                span: Span,
                id: ast::Ident,
-               sized: ast::Sized,
                bounds: OwnedSlice<ast::TyParamBound>,
+               unbound: Option<ast::TyParamBound>,
                default: Option<P<ast::Ty>>) -> ast::TyParam;
 
     fn trait_ref(&self, path: ast::Path) -> ast::TraitRef;
@@ -147,6 +147,8 @@ pub trait AstBuilder {
 
     fn expr_some(&self, sp: Span, expr: Gc<ast::Expr>) -> Gc<ast::Expr>;
     fn expr_none(&self, sp: Span) -> Gc<ast::Expr>;
+
+    fn expr_tuple(&self, sp: Span, exprs: Vec<Gc<ast::Expr>>) -> Gc<ast::Expr>;
 
     fn expr_fail(&self, span: Span, msg: InternedString) -> Gc<ast::Expr>;
     fn expr_unreachable(&self, span: Span) -> Gc<ast::Expr>;
@@ -396,14 +398,14 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
     fn typaram(&self,
                span: Span,
                id: ast::Ident,
-               sized: ast::Sized,
                bounds: OwnedSlice<ast::TyParamBound>,
+               unbound: Option<ast::TyParamBound>,
                default: Option<P<ast::Ty>>) -> ast::TyParam {
         ast::TyParam {
             ident: id,
             id: ast::DUMMY_NODE_ID,
-            sized: sized,
             bounds: bounds,
+            unbound: unbound,
             default: default,
             span: span
         }
@@ -423,7 +425,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn strip_bounds(&self, generics: &Generics) -> Generics {
         let new_params = generics.ty_params.map(|ty_param| {
-            ast::TyParam { bounds: OwnedSlice::empty(), ..*ty_param }
+            ast::TyParam { bounds: OwnedSlice::empty(), unbound: None, ..*ty_param }
         });
         Generics {
             ty_params: new_params,
@@ -674,6 +676,10 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         self.expr_path(none)
     }
 
+    fn expr_tuple(&self, sp: Span, exprs: Vec<Gc<ast::Expr>>) -> Gc<ast::Expr> {
+        self.expr(sp, ast::ExprTup(exprs))
+    }
+
     fn expr_fail(&self, span: Span, msg: InternedString) -> Gc<ast::Expr> {
         let loc = self.codemap().lookup_char_pos(span.lo);
         self.expr_call_global(
@@ -759,8 +765,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
                               span: Span,
                               ident: ast::Ident,
                               bm: ast::BindingMode) -> Gc<ast::Pat> {
-        let path = self.path_ident(span, ident);
-        let pat = ast::PatIdent(bm, path, None);
+        let pat = ast::PatIdent(bm, Spanned{span: span, node: ident}, None);
         self.pat(span, pat)
     }
     fn pat_enum(&self, span: Span, path: ast::Path, subpats: Vec<Gc<ast::Pat>> ) -> Gc<ast::Pat> {

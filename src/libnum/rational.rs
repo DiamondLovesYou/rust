@@ -15,7 +15,9 @@ use Integer;
 use std::cmp;
 use std::fmt;
 use std::from_str::FromStr;
+use std::num;
 use std::num::{Zero, One, ToStrRadix, FromStrRadix};
+
 use bigint::{BigInt, BigUint, Sign, Plus, Minus};
 
 /// Represents the ratio between 2 numbers.
@@ -193,7 +195,8 @@ macro_rules! cmp_impl {
     };
 }
 cmp_impl!(impl PartialEq, eq, ne)
-cmp_impl!(impl PartialOrd, lt, gt, le, ge)
+cmp_impl!(impl PartialOrd, lt -> bool, gt -> bool, le -> bool, ge -> bool,
+          partial_cmp -> Option<cmp::Ordering>)
 cmp_impl!(impl Eq, )
 cmp_impl!(impl Ord, cmp -> cmp::Ordering)
 
@@ -272,13 +275,48 @@ impl<T: Clone + Integer + PartialOrd>
 impl<T: Clone + Integer + PartialOrd>
     Num for Ratio<T> {}
 
+impl<T: Clone + Integer + PartialOrd>
+    num::Signed for Ratio<T> {
+    #[inline]
+    fn abs(&self) -> Ratio<T> {
+        if self.is_negative() { -self.clone() } else { self.clone() }
+    }
+
+    #[inline]
+    fn abs_sub(&self, other: &Ratio<T>) -> Ratio<T> {
+        if *self <= *other { Zero::zero() } else { *self - *other }
+    }
+
+    #[inline]
+    fn signum(&self) -> Ratio<T> {
+        if *self > Zero::zero() {
+            num::one()
+        } else if self.is_zero() {
+            num::zero()
+        } else {
+            - num::one::<Ratio<T>>()
+        }
+    }
+
+    #[inline]
+    fn is_positive(&self) -> bool { *self > Zero::zero() }
+
+    #[inline]
+    fn is_negative(&self) -> bool { *self < Zero::zero() }
+}
+
 /* String conversions */
-impl<T: fmt::Show> fmt::Show for Ratio<T> {
-    /// Renders as `numer/denom`.
+impl<T: fmt::Show + Eq + One> fmt::Show for Ratio<T> {
+    /// Renders as `numer/denom`. If denom=1, renders as numer.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}/{}", self.numer, self.denom)
+        if self.denom == One::one() {
+            write!(f, "{}", self.numer)
+        } else {
+            write!(f, "{}/{}", self.numer, self.denom)
+        }
     }
 }
+
 impl<T: ToStrRadix> ToStrRadix for Ratio<T> {
     /// Renders as `numer/denom` where the numbers are in base `radix`.
     fn to_str_radix(&self, radix: uint) -> String {
@@ -290,21 +328,20 @@ impl<T: ToStrRadix> ToStrRadix for Ratio<T> {
 
 impl<T: FromStr + Clone + Integer + PartialOrd>
     FromStr for Ratio<T> {
-    /// Parses `numer/denom`.
+    /// Parses `numer/denom` or just `numer`
     fn from_str(s: &str) -> Option<Ratio<T>> {
-        let split: Vec<&str> = s.splitn('/', 1).collect();
-        if split.len() < 2 {
-            return None
+        let mut split = s.splitn('/', 1);
+
+        let num = split.next().and_then(|n| FromStr::from_str(n));
+        let den = split.next().or(Some("1")).and_then(|d| FromStr::from_str(d));
+
+        match (num, den) {
+            (Some(n), Some(d)) => Some(Ratio::new(n, d)),
+            _ => None
         }
-        let a_option: Option<T> = FromStr::from_str(*split.get(0));
-        a_option.and_then(|a| {
-            let b_option: Option<T> = FromStr::from_str(*split.get(1));
-            b_option.and_then(|b| {
-                Some(Ratio::new(a.clone(), b.clone()))
-            })
-        })
     }
 }
+
 impl<T: FromStrRadix + Clone + Integer + PartialOrd>
     FromStrRadix for Ratio<T> {
     /// Parses `numer/denom` where the numbers are in base `radix`.
@@ -333,6 +370,7 @@ mod test {
     use super::{Ratio, Rational, BigRational};
     use std::num::{Zero, One, FromStrRadix, FromPrimitive, ToStrRadix};
     use std::from_str::FromStr;
+    use std::num;
 
     pub static _0 : Rational = Ratio { numer: 0, denom: 1};
     pub static _1 : Rational = Ratio { numer: 1, denom: 1};
@@ -428,6 +466,13 @@ mod test {
         assert!(!_neg1_2.is_integer());
     }
 
+    #[test]
+    fn test_show() {
+        assert_eq!(format!("{}", _2), "2".to_string());
+        assert_eq!(format!("{}", _1_2), "1/2".to_string());
+        assert_eq!(format!("{}", _0), "0".to_string());
+        assert_eq!(format!("{}", Ratio::from_integer(-2i)), "-2".to_string());
+    }
 
     mod arith {
         use super::{_0, _1, _2, _1_2, _3_2, _neg1_2, to_big};
@@ -559,13 +604,13 @@ mod test {
     fn test_to_from_str() {
         fn test(r: Rational, s: String) {
             assert_eq!(FromStr::from_str(s.as_slice()), Some(r));
-            assert_eq!(r.to_str(), s);
+            assert_eq!(r.to_string(), s);
         }
-        test(_1, "1/1".to_string());
-        test(_0, "0/1".to_string());
+        test(_1, "1".to_string());
+        test(_0, "0".to_string());
         test(_1_2, "1/2".to_string());
         test(_3_2, "3/2".to_string());
-        test(_2, "2/1".to_string());
+        test(_2, "2".to_string());
         test(_neg1_2, "-1/2".to_string());
     }
     #[test]
@@ -659,5 +704,17 @@ mod test {
         assert_eq!(Ratio::from_float(f64::NAN), None);
         assert_eq!(Ratio::from_float(f64::INFINITY), None);
         assert_eq!(Ratio::from_float(f64::NEG_INFINITY), None);
+    }
+
+    #[test]
+    fn test_signed() {
+        assert_eq!(_neg1_2.abs(), _1_2);
+        assert_eq!(_3_2.abs_sub(&_1_2), _1);
+        assert_eq!(_1_2.abs_sub(&_3_2), Zero::zero());
+        assert_eq!(_1_2.signum(), One::one());
+        assert_eq!(_neg1_2.signum(), - num::one::<Ratio<int>>());
+        assert!(_neg1_2.is_negative());
+        assert!(! _neg1_2.is_positive());
+        assert!(! _1_2.is_negative());
     }
 }

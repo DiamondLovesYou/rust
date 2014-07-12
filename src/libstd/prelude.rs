@@ -37,12 +37,15 @@
 //! particularly useful standalone functions, like `from_str`, `range`, and
 //! `drop`, `spawn`, and `channel`.
 
+#![experimental]
+
 // Reexported core operators
 #[doc(no_inline)] pub use kinds::{Copy, Send, Sized, Share};
 #[doc(no_inline)] pub use ops::{Add, Sub, Mul, Div, Rem, Neg, Not};
 #[doc(no_inline)] pub use ops::{BitAnd, BitOr, BitXor};
 #[doc(no_inline)] pub use ops::{Drop, Deref, DerefMut};
-#[doc(no_inline)] pub use ops::{Shl, Shr, Index};
+#[doc(no_inline)] pub use ops::{Shl, Shr};
+#[doc(no_inline)] pub use ops::{Index, IndexMut};
 #[doc(no_inline)] pub use option::{Option, Some, None};
 #[doc(no_inline)] pub use result::{Result, Ok, Err};
 
@@ -75,7 +78,7 @@
 #[doc(no_inline)] pub use io::{Buffer, Writer, Reader, Seek};
 #[doc(no_inline)] pub use str::{Str, StrVector, StrSlice, OwnedStr};
 #[doc(no_inline)] pub use str::{IntoMaybeOwned, StrAllocating};
-#[doc(no_inline)] pub use to_str::{ToStr, IntoStr};
+#[doc(no_inline)] pub use to_str::{ToString, IntoStr};
 #[doc(no_inline)] pub use tuple::{Tuple1, Tuple2, Tuple3, Tuple4};
 #[doc(no_inline)] pub use tuple::{Tuple5, Tuple6, Tuple7, Tuple8};
 #[doc(no_inline)] pub use tuple::{Tuple9, Tuple10, Tuple11, Tuple12};
@@ -86,6 +89,7 @@
 #[doc(no_inline)] pub use slice::{Vector, VectorVector};
 #[doc(no_inline)] pub use slice::MutableVectorAllocating;
 #[doc(no_inline)] pub use string::String;
+#[doc(no_inline)] pub use unicode::{UnicodeChar, UnicodeStrSlice};
 #[doc(no_inline)] pub use vec::Vec;
 
 // Reexported runtime types

@@ -35,7 +35,6 @@ pub fn expand_deriving_ord(cx: &mut ExtCtxt,
                 args: vec!(borrowed_self()),
                 ret_ty: Literal(Path::new(vec!("bool"))),
                 attributes: attrs,
-                const_nonmatching: false,
                 combine_substructure: combine_substructure(|cx, span, substr| {
                     cs_op($op, $equal, cx, span, substr)
                 })
@@ -43,20 +42,120 @@ pub fn expand_deriving_ord(cx: &mut ExtCtxt,
         } }
     );
 
+    let ordering_ty = Literal(Path::new(vec!["std", "cmp", "Ordering"]));
+    let ret_ty = Literal(Path::new_(vec!["std", "option", "Option"],
+                                    None,
+                                    vec![box ordering_ty],
+                                    true));
+
+    let inline = cx.meta_word(span, InternedString::new("inline"));
+    let attrs = vec!(cx.attribute(span, inline));
+
+    let partial_cmp_def = MethodDef {
+        name: "partial_cmp",
+        generics: LifetimeBounds::empty(),
+        explicit_self: borrowed_explicit_self(),
+        args: vec![borrowed_self()],
+        ret_ty: ret_ty,
+        attributes: attrs,
+        combine_substructure: combine_substructure(|cx, span, substr| {
+            cs_partial_cmp(cx, span, substr)
+        })
+    };
+
     let trait_def = TraitDef {
         span: span,
-        attributes: Vec::new(),
-        path: Path::new(vec!("std", "cmp", "PartialOrd")),
-        additional_bounds: Vec::new(),
+        attributes: vec![],
+        path: Path::new(vec!["std", "cmp", "PartialOrd"]),
+        additional_bounds: vec![],
         generics: LifetimeBounds::empty(),
-        methods: vec!(
+        methods: vec![
+            partial_cmp_def,
             md!("lt", true, false),
             md!("le", true, true),
             md!("gt", false, false),
             md!("ge", false, true)
-        )
+        ]
     };
     trait_def.expand(cx, mitem, item, push)
+}
+
+pub enum OrderingOp {
+    PartialCmpOp, LtOp, LeOp, GtOp, GeOp,
+}
+
+pub fn some_ordering_collapsed(cx: &mut ExtCtxt,
+                               span: Span,
+                               op: OrderingOp,
+                               self_arg_tags: &[ast::Ident]) -> Gc<ast::Expr> {
+    let lft = cx.expr_ident(span, self_arg_tags[0]);
+    let rgt = cx.expr_addr_of(span, cx.expr_ident(span, self_arg_tags[1]));
+    let op_str = match op {
+        PartialCmpOp => "partial_cmp",
+        LtOp => "lt", LeOp => "le",
+        GtOp => "gt", GeOp => "ge",
+    };
+    cx.expr_method_call(span, lft, cx.ident_of(op_str), vec![rgt])
+}
+
+pub fn cs_partial_cmp(cx: &mut ExtCtxt, span: Span,
+              substr: &Substructure) -> Gc<Expr> {
+    let test_id = cx.ident_of("__test");
+    let ordering = cx.path_global(span,
+                                  vec!(cx.ident_of("std"),
+                                       cx.ident_of("cmp"),
+                                       cx.ident_of("Equal")));
+    let ordering = cx.expr_path(ordering);
+    let equals_expr = cx.expr_some(span, ordering);
+
+    /*
+    Builds:
+
+    let __test = self_field1.partial_cmp(&other_field2);
+    if __test == ::std::option::Some(::std::cmp::Equal) {
+        let __test = self_field2.partial_cmp(&other_field2);
+        if __test == ::std::option::Some(::std::cmp::Equal) {
+            ...
+        } else {
+            __test
+        }
+    } else {
+        __test
+    }
+
+    FIXME #6449: These `if`s could/should be `match`es.
+    */
+    cs_same_method_fold(
+        // foldr nests the if-elses correctly, leaving the first field
+        // as the outermost one, and the last as the innermost.
+        false,
+        |cx, span, old, new| {
+            // let __test = new;
+            // if __test == Some(::std::cmp::Equal) {
+            //    old
+            // } else {
+            //    __test
+            // }
+
+            let assign = cx.stmt_let(span, false, test_id, new);
+
+            let cond = cx.expr_binary(span, ast::BiEq,
+                                      cx.expr_ident(span, test_id),
+                                      equals_expr.clone());
+            let if_ = cx.expr_if(span,
+                                 cond,
+                                 old, Some(cx.expr_ident(span, test_id)));
+            cx.expr_block(cx.block(span, vec!(assign), Some(if_)))
+        },
+        equals_expr.clone(),
+        |cx, span, (self_args, tag_tuple), _non_self_args| {
+            if self_args.len() != 2 {
+                cx.span_bug(span, "not exactly 2 arguments in `deriving(Ord)`")
+            } else {
+                some_ordering_collapsed(cx, span, PartialCmpOp, tag_tuple)
+            }
+        },
+        cx, span, substr)
 }
 
 /// Strict inequality.
@@ -97,19 +196,15 @@ fn cs_op(less: bool, equal: bool, cx: &mut ExtCtxt, span: Span,
             cx.expr_binary(span, ast::BiOr, cmp, and)
         },
         cx.expr_bool(span, equal),
-        |cx, span, args, _| {
-            // nonmatching enums, order by the order the variants are
-            // written
-            match args {
-                [(self_var, _, _),
-                 (other_var, _, _)] =>
-                    cx.expr_bool(span,
-                                 if less {
-                                     self_var < other_var
-                                 } else {
-                                     self_var > other_var
-                                 }),
-                _ => cx.span_bug(span, "not exactly 2 arguments in `deriving(Ord)`")
+        |cx, span, (self_args, tag_tuple), _non_self_args| {
+            if self_args.len() != 2 {
+                cx.span_bug(span, "not exactly 2 arguments in `deriving(Ord)`")
+            } else {
+                let op = match (less, equal) {
+                    (true,  true) => LeOp, (true,  false) => LtOp,
+                    (false, true) => GeOp, (false, false) => GtOp,
+                };
+                some_ordering_collapsed(cx, span, op, tag_tuple)
             }
         },
         cx, span, substr)

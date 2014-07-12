@@ -105,16 +105,15 @@ if logging is disabled, none of the components of the log will be executed.
 
 */
 
-#![crate_id = "log#0.11.0-pre"]
+#![crate_name = "log"]
 #![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
-
 #![feature(macro_rules)]
 #![deny(missing_doc)]
 
@@ -288,7 +287,7 @@ pub fn mod_enabled(level: u32, module: &str) -> bool {
     unsafe { INIT.doit(init); }
 
     // It's possible for many threads are in this function, only one of them
-    // will peform the global initialization, but all of them will need to check
+    // will perform the global initialization, but all of them will need to check
     // again to whether they should really be here or not. Hence, despite this
     // check being expanded manually in the logging macro, this function checks
     // the log level again.

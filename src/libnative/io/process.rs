@@ -195,7 +195,7 @@ impl rtio::RtioProcess for Process {
             Some(..) => return Err(IoError {
                 code: ERROR as uint,
                 extra: 0,
-                detail: Some("can't kill an exited process".to_str()),
+                detail: Some("can't kill an exited process".to_string()),
             }),
             None => {}
         }
@@ -323,12 +323,14 @@ fn spawn_process_os(cfg: ProcessConfig,
     use libc::funcs::extra::msvcrt::get_osfhandle;
 
     use std::mem;
+    use std::iter::Iterator;
+    use std::str::StrSlice;
 
     if cfg.gid.is_some() || cfg.uid.is_some() {
         return Err(IoError {
             code: libc::ERROR_CALL_NOT_IMPLEMENTED as uint,
             extra: 0,
-            detail: Some("unsupported gid/uid requested on windows".to_str()),
+            detail: Some("unsupported gid/uid requested on windows".to_string()),
         })
     }
 
@@ -357,7 +359,8 @@ fn spawn_process_os(cfg: ProcessConfig,
                         lpSecurityDescriptor: ptr::mut_null(),
                         bInheritHandle: 1,
                     };
-                    let filename = "NUL".to_utf16().append_one(0);
+                    let filename: Vec<u16> = "NUL".utf16_units().collect();
+                    let filename = filename.append_one(0);
                     *slot = libc::CreateFileW(filename.as_ptr(),
                                               access,
                                               libc::FILE_SHARE_READ |
@@ -400,7 +403,8 @@ fn spawn_process_os(cfg: ProcessConfig,
 
         with_envp(cfg.env, |envp| {
             with_dirp(cfg.cwd, |dirp| {
-                let mut cmd_str = cmd_str.to_utf16().append_one(0);
+                let mut cmd_str: Vec<u16> = cmd_str.as_slice().utf16_units().collect();
+                cmd_str = cmd_str.append_one(0);
                 let created = CreateProcessW(ptr::null(),
                                              cmd_str.as_mut_ptr(),
                                              ptr::mut_null(),
@@ -560,7 +564,7 @@ fn spawn_process_os(cfg: ProcessConfig,
         assert_eq!(ret, 0);
     }
 
-    let dirp = cfg.cwd.map(|c| c.with_ref(|p| p)).unwrap_or(ptr::null());
+    let dirp = cfg.cwd.map(|c| c.as_ptr()).unwrap_or(ptr::null());
 
     let cfg = unsafe {
         mem::transmute::<ProcessConfig,ProcessConfig<'static>>(cfg)
@@ -662,7 +666,7 @@ fn spawn_process_os(cfg: ProcessConfig,
                         } else {
                             libc::O_RDWR
                         };
-                        devnull.with_ref(|p| libc::open(p, flags, 0))
+                        libc::open(devnull.as_ptr(), flags, 0)
                     }
                     Some(obj) => {
                         let fd = obj.fd();
@@ -751,8 +755,8 @@ fn with_argv<T>(prog: &CString, args: &[CString],
     // larger than the lifetime of our invocation of cb, but this is
     // technically unsafe as the callback could leak these pointers
     // out of our scope.
-    ptrs.push(prog.with_ref(|buf| buf));
-    ptrs.extend(args.iter().map(|tmp| tmp.with_ref(|buf| buf)));
+    ptrs.push(prog.as_ptr());
+    ptrs.extend(args.iter().map(|tmp| tmp.as_ptr()));
 
     // Add a terminating null pointer (required by libc).
     ptrs.push(ptr::null());
@@ -761,7 +765,7 @@ fn with_argv<T>(prog: &CString, args: &[CString],
 }
 
 #[cfg(unix, not(target_os = "nacl"))]
-fn with_envp<T>(env: Option<&[(CString, CString)]>,
+fn with_envp<T>(env: Option<&[(&CString, &CString)]>,
                 cb: proc(*const c_void) -> T) -> T {
     // On posixy systems we can pass a char** for envp, which is a
     // null-terminated array of "k=v\0" strings. Since we must create
@@ -794,7 +798,7 @@ fn with_envp<T>(env: Option<&[(CString, CString)]>,
 }
 
 #[cfg(windows)]
-fn with_envp<T>(env: Option<&[(CString, CString)]>, cb: |*mut c_void| -> T) -> T {
+fn with_envp<T>(env: Option<&[(&CString, &CString)]>, cb: |*mut c_void| -> T) -> T {
     // On win32 we pass an "environment block" which is not a char**, but
     // rather a concatenation of null-terminated k=v\0 sequences, with a final
     // \0 to terminate.
@@ -806,7 +810,7 @@ fn with_envp<T>(env: Option<&[(CString, CString)]>, cb: |*mut c_void| -> T) -> T
                 let kv = format!("{}={}",
                                  pair.ref0().as_str().unwrap(),
                                  pair.ref1().as_str().unwrap());
-                blk.push_all(kv.to_utf16().as_slice());
+                blk.extend(kv.as_slice().utf16_units());
                 blk.push(0);
             }
 
@@ -824,7 +828,9 @@ fn with_dirp<T>(d: Option<&CString>, cb: |*const u16| -> T) -> T {
       Some(dir) => {
           let dir_str = dir.as_str()
                            .expect("expected workingdirectory to be utf-8 encoded");
-          let dir_str = dir_str.to_utf16().append_one(0);
+          let dir_str: Vec<u16> = dir_str.utf16_units().collect();
+          let dir_str = dir_str.append_one(0);
+
           cb(dir_str.as_ptr())
       },
       None => cb(ptr::null())
@@ -1172,7 +1178,7 @@ fn waitpid(pid: pid_t, deadline: u64) -> IoResult<rtio::ProcessExit> {
     // which will wake up the other end at some point, so we just allow this
     // signal to be coalesced with the pending signals on the pipe.
     extern fn sigchld_handler(_signum: libc::c_int) {
-        let msg = 1;
+        let msg = 1i;
         match unsafe {
             libc::write(WRITE_FD, &msg as *const _ as *const libc::c_void, 1)
         } {

@@ -28,41 +28,29 @@
 //! An example version number with all five components is
 //! `0.8.1-rc.3.0+20130922.linux`.
 
-#![crate_id = "semver#0.11.0-pre"]
+#![crate_name = "semver"]
 #![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/")]
+       html_root_url = "http://doc.rust-lang.org/0.11.0/")]
+#![feature(default_type_params)]
 
 use std::char;
 use std::cmp;
-use std::fmt;
 use std::fmt::Show;
-use std::option::{Option, Some, None};
-use std::string::String;
+use std::fmt;
+use std::hash;
 
 /// An identifier in the pre-release or build metadata. If the identifier can
 /// be parsed as a decimal value, it will be represented with `Numeric`.
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[allow(missing_doc)]
 pub enum Identifier {
     Numeric(uint),
     AlphaNumeric(String)
-}
-
-impl cmp::PartialOrd for Identifier {
-    #[inline]
-    fn lt(&self, other: &Identifier) -> bool {
-        match (self, other) {
-            (&Numeric(a), &Numeric(b)) => a < b,
-            (&Numeric(_), _) => true,
-            (&AlphaNumeric(ref a), &AlphaNumeric(ref b)) => *a < *b,
-            (&AlphaNumeric(_), _) => false
-        }
-    }
 }
 
 impl fmt::Show for Identifier {
@@ -77,7 +65,7 @@ impl fmt::Show for Identifier {
 
 
 /// Represents a version number conforming to the semantic versioning scheme.
-#[deriving(Clone)]
+#[deriving(Clone, Eq)]
 pub struct Version {
     /// The major version, to be incremented on incompatible changes.
     pub major: uint,
@@ -129,31 +117,46 @@ impl cmp::PartialEq for Version {
 }
 
 impl cmp::PartialOrd for Version {
-    #[inline]
-    fn lt(&self, other: &Version) -> bool {
+    fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
-        self.major < other.major ||
+impl cmp::Ord for Version {
+    fn cmp(&self, other: &Version) -> Ordering {
+        match self.major.cmp(&other.major) {
+            Equal => {}
+            r => return r,
+        }
 
-            (self.major == other.major &&
-             self.minor < other.minor) ||
+        match self.minor.cmp(&other.minor) {
+            Equal => {}
+            r => return r,
+        }
 
-            (self.major == other.major &&
-             self.minor == other.minor &&
-             self.patch < other.patch) ||
+        match self.patch.cmp(&other.patch) {
+            Equal => {}
+            r => return r,
+        }
 
-            (self.major == other.major &&
-             self.minor == other.minor &&
-             self.patch == other.patch &&
-             // NB: semver spec says 0.0.0-pre < 0.0.0
-             // but the version of ord defined for vec
-             // says that [] < [pre], so we alter it
-             // here.
-             (match (self.pre.len(), other.pre.len()) {
-                 (0, 0) => false,
-                 (0, _) => false,
-                 (_, 0) => true,
-                 (_, _) => self.pre < other.pre
-             }))
+        // NB: semver spec says 0.0.0-pre < 0.0.0
+        // but the version of ord defined for vec
+        // says that [] < [pre] so we alter it here
+        match (self.pre.len(), other.pre.len()) {
+            (0, 0) => Equal,
+            (0, _) => Greater,
+            (_, 0) => Less,
+            (_, _) => self.pre.cmp(&other.pre)
+        }
+    }
+}
+
+impl<S: hash::Writer> hash::Hash<S> for Version {
+    fn hash(&self, into: &mut S) {
+        self.major.hash(into);
+        self.minor.hash(into);
+        self.patch.hash(into);
+        self.pre.hash(into);
     }
 }
 
@@ -267,7 +270,7 @@ pub fn parse(s: &str) -> Option<Version> {
     let v = parse_iter(&mut s.chars());
     match v {
         Some(v) => {
-            if v.to_str().equiv(&s) {
+            if v.to_string().equiv(&s) {
                 Some(v)
             } else {
                 None
@@ -388,11 +391,11 @@ fn test_show() {
 }
 
 #[test]
-fn test_to_str() {
-    assert_eq!(parse("1.2.3").unwrap().to_str(), "1.2.3".to_string());
-    assert_eq!(parse("1.2.3-alpha1").unwrap().to_str(), "1.2.3-alpha1".to_string());
-    assert_eq!(parse("1.2.3+build.42").unwrap().to_str(), "1.2.3+build.42".to_string());
-    assert_eq!(parse("1.2.3-alpha1+42").unwrap().to_str(), "1.2.3-alpha1+42".to_string());
+fn test_to_string() {
+    assert_eq!(parse("1.2.3").unwrap().to_string(), "1.2.3".to_string());
+    assert_eq!(parse("1.2.3-alpha1").unwrap().to_string(), "1.2.3-alpha1".to_string());
+    assert_eq!(parse("1.2.3+build.42").unwrap().to_string(), "1.2.3+build.42".to_string());
+    assert_eq!(parse("1.2.3-alpha1+42").unwrap().to_string(), "1.2.3-alpha1+42".to_string());
 }
 
 #[test]

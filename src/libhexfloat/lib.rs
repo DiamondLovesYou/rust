@@ -36,14 +36,14 @@ fn main() {
 
 */
 
-#![crate_id = "hexfloat#0.11.0-pre"]
+#![crate_name = "hexfloat"]
 #![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/")]
+       html_root_url = "http://doc.rust-lang.org/0.11.0/")]
 #![feature(plugin_registrar, managed_boxes)]
 
 extern crate syntax;
@@ -54,7 +54,6 @@ use syntax::codemap::{Span, mk_sp};
 use syntax::ext::base;
 use syntax::ext::base::{ExtCtxt, MacExpr};
 use syntax::ext::build::AstBuilder;
-use syntax::parse;
 use syntax::parse::token;
 use rustc::plugin::Registry;
 
@@ -77,12 +76,12 @@ fn hex_float_lit_err(s: &str) -> Option<(uint, String)> {
     if chars.next() != Some('x') {
         return Some((i, "Expected 'x'".to_string()));
     } i+=1;
-    let mut d_len = 0;
+    let mut d_len = 0i;
     for _ in chars.take_while(|c| c.is_digit_radix(16)) { chars.next(); i+=1; d_len += 1;}
     if chars.next() != Some('.') {
         return Some((i, "Expected '.'".to_string()));
     } i+=1;
-    let mut f_len = 0;
+    let mut f_len = 0i;
     for _ in chars.take_while(|c| c.is_digit_radix(16)) { chars.next(); i+=1; f_len += 1;}
     if d_len == 0 && f_len == 0 {
         return Some((i, "Expected digits before or after decimal \
@@ -92,7 +91,7 @@ fn hex_float_lit_err(s: &str) -> Option<(uint, String)> {
         return Some((i, "Expected 'p'".to_string()));
     } i+=1;
     if chars.peek() == Some(&'-') { chars.next(); i+= 1 }
-    let mut e_len = 0;
+    let mut e_len = 0i;
     for _ in chars.take_while(|c| c.is_digit()) { chars.next(); i+=1; e_len += 1}
     if e_len == 0 {
         return Some((i, "Expected exponent digits".to_string()));
@@ -167,11 +166,7 @@ struct Ident {
 
 fn parse_tts(cx: &ExtCtxt,
              tts: &[ast::TokenTree]) -> (Gc<ast::Expr>, Option<Ident>) {
-    let p = &mut parse::new_parser_from_tts(cx.parse_sess(),
-                                            cx.cfg(),
-                                            tts.iter()
-                                               .map(|x| (*x).clone())
-                                               .collect());
+    let p = &mut cx.new_parser_from_tts(tts);
     let ex = p.parse_expr();
     let id = if p.token == token::EOF {
         None

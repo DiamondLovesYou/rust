@@ -16,8 +16,7 @@ use middle::ty::{ReSkolemized, ReVar};
 use middle::ty::{BoundRegion, BrAnon, BrNamed};
 use middle::ty::{BrFresh, ctxt};
 use middle::ty::{mt, t, ParamTy};
-use middle::ty::{ReFree, ReScope, ReInfer, ReStatic, Region,
-                 ReEmpty};
+use middle::ty::{ReFree, ReScope, ReInfer, ReStatic, Region, ReEmpty};
 use middle::ty::{ty_bool, ty_char, ty_bot, ty_box, ty_struct, ty_enum};
 use middle::ty::{ty_err, ty_str, ty_vec, ty_float, ty_bare_fn, ty_closure};
 use middle::ty::{ty_nil, ty_param, ty_ptr, ty_rptr, ty_tup};
@@ -106,7 +105,7 @@ pub fn explain_region_and_span(cx: &ctxt, region: ty::Region)
           BrFresh(_) => "an anonymous lifetime defined on".to_string(),
           _ => {
               format!("the lifetime {} as defined on",
-                      bound_region_ptr_to_str(cx, fr.bound_region))
+                      bound_region_ptr_to_string(cx, fr.bound_region))
           }
         };
 
@@ -146,11 +145,11 @@ pub fn explain_region_and_span(cx: &ctxt, region: ty::Region)
     }
 }
 
-pub fn bound_region_ptr_to_str(cx: &ctxt, br: BoundRegion) -> String {
-    bound_region_to_str(cx, "", false, br)
+pub fn bound_region_ptr_to_string(cx: &ctxt, br: BoundRegion) -> String {
+    bound_region_to_string(cx, "", false, br)
 }
 
-pub fn bound_region_to_str(cx: &ctxt,
+pub fn bound_region_to_string(cx: &ctxt,
                            prefix: &str, space: bool,
                            br: BoundRegion) -> String {
     let space_str = if space { " " } else { "" };
@@ -171,11 +170,11 @@ pub fn bound_region_to_str(cx: &ctxt,
 // In general, if you are giving a region error message,
 // you should use `explain_region()` or, better yet,
 // `note_and_explain_region()`
-pub fn region_ptr_to_str(cx: &ctxt, region: Region) -> String {
-    region_to_str(cx, "&", true, region)
+pub fn region_ptr_to_string(cx: &ctxt, region: Region) -> String {
+    region_to_string(cx, "&", true, region)
 }
 
-pub fn region_to_str(cx: &ctxt, prefix: &str, space: bool, region: Region) -> String {
+pub fn region_to_string(cx: &ctxt, prefix: &str, space: bool, region: Region) -> String {
     let space_str = if space { " " } else { "" };
 
     if cx.sess.verbose() {
@@ -191,10 +190,10 @@ pub fn region_to_str(cx: &ctxt, prefix: &str, space: bool, region: Region) -> St
         ty::ReEarlyBound(_, _, _, name) => {
             token::get_name(name).get().to_string()
         }
-        ty::ReLateBound(_, br) => bound_region_to_str(cx, prefix, space, br),
-        ty::ReFree(ref fr) => bound_region_to_str(cx, prefix, space, fr.bound_region),
+        ty::ReLateBound(_, br) => bound_region_to_string(cx, prefix, space, br),
+        ty::ReFree(ref fr) => bound_region_to_string(cx, prefix, space, fr.bound_region),
         ty::ReInfer(ReSkolemized(_, br)) => {
-            bound_region_to_str(cx, prefix, space, br)
+            bound_region_to_string(cx, prefix, space, br)
         }
         ty::ReInfer(ReVar(_)) => prefix.to_string(),
         ty::ReStatic => format!("{}'static{}", prefix, space_str),
@@ -202,45 +201,45 @@ pub fn region_to_str(cx: &ctxt, prefix: &str, space: bool, region: Region) -> St
     }
 }
 
-pub fn mutability_to_str(m: ast::Mutability) -> String {
+pub fn mutability_to_string(m: ast::Mutability) -> String {
     match m {
         ast::MutMutable => "mut ".to_string(),
         ast::MutImmutable => "".to_string(),
     }
 }
 
-pub fn mt_to_str(cx: &ctxt, m: &mt) -> String {
-    format!("{}{}", mutability_to_str(m.mutbl), ty_to_str(cx, m.ty))
+pub fn mt_to_string(cx: &ctxt, m: &mt) -> String {
+    format!("{}{}", mutability_to_string(m.mutbl), ty_to_string(cx, m.ty))
 }
 
-pub fn trait_store_to_str(cx: &ctxt, s: ty::TraitStore) -> String {
+pub fn trait_store_to_string(cx: &ctxt, s: ty::TraitStore) -> String {
     match s {
         ty::UniqTraitStore => "Box ".to_string(),
         ty::RegionTraitStore(r, m) => {
-            format!("{}{}", region_ptr_to_str(cx, r), mutability_to_str(m))
+            format!("{}{}", region_ptr_to_string(cx, r), mutability_to_string(m))
         }
     }
 }
 
-pub fn vec_map_to_str<T>(ts: &[T], f: |t: &T| -> String) -> String {
+pub fn vec_map_to_string<T>(ts: &[T], f: |t: &T| -> String) -> String {
     let tstrs = ts.iter().map(f).collect::<Vec<String>>();
     format!("[{}]", tstrs.connect(", "))
 }
 
-pub fn fn_sig_to_str(cx: &ctxt, typ: &ty::FnSig) -> String {
+pub fn fn_sig_to_string(cx: &ctxt, typ: &ty::FnSig) -> String {
     format!("fn{}{} -> {}", typ.binder_id, typ.inputs.repr(cx),
             typ.output.repr(cx))
 }
 
-pub fn trait_ref_to_str(cx: &ctxt, trait_ref: &ty::TraitRef) -> String {
+pub fn trait_ref_to_string(cx: &ctxt, trait_ref: &ty::TraitRef) -> String {
     trait_ref.user_string(cx).to_string()
 }
 
-pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
-    fn fn_input_to_str(cx: &ctxt, input: ty::t) -> String {
-        ty_to_str(cx, input).to_string()
+pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
+    fn fn_input_to_string(cx: &ctxt, input: ty::t) -> String {
+        ty_to_string(cx, input).to_string()
     }
-    fn bare_fn_to_str(cx: &ctxt,
+    fn bare_fn_to_string(cx: &ctxt,
                       fn_style: ast::FnStyle,
                       abi: abi::Abi,
                       ident: Option<ast::Ident>,
@@ -250,13 +249,13 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
         match fn_style {
             ast::NormalFn => {}
             _ => {
-                s.push_str(fn_style.to_str().as_slice());
+                s.push_str(fn_style.to_string().as_slice());
                 s.push_char(' ');
             }
         };
 
         if abi != abi::Rust {
-            s.push_str(format!("extern {} ", abi.to_str()).as_slice());
+            s.push_str(format!("extern {} ", abi.to_string()).as_slice());
         };
 
         s.push_str("fn");
@@ -269,25 +268,25 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
             _ => { }
         }
 
-        push_sig_to_str(cx, &mut s, '(', ')', sig);
+        push_sig_to_string(cx, &mut s, '(', ')', sig);
 
         s
     }
 
-    fn closure_to_str(cx: &ctxt, cty: &ty::ClosureTy) -> String {
+    fn closure_to_string(cx: &ctxt, cty: &ty::ClosureTy) -> String {
         let mut s = String::new();
 
         match cty.store {
             ty::UniqTraitStore => {}
             ty::RegionTraitStore(region, _) => {
-                s.push_str(region_to_str(cx, "", true, region).as_slice());
+                s.push_str(region_to_string(cx, "", true, region).as_slice());
             }
         }
 
         match cty.fn_style {
             ast::NormalFn => {}
             _ => {
-                s.push_str(cty.fn_style.to_str().as_slice());
+                s.push_str(cty.fn_style.to_string().as_slice());
                 s.push_char(' ');
             }
         };
@@ -296,14 +295,14 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
             ty::UniqTraitStore => {
                 assert_eq!(cty.onceness, ast::Once);
                 s.push_str("proc");
-                push_sig_to_str(cx, &mut s, '(', ')', &cty.sig);
+                push_sig_to_string(cx, &mut s, '(', ')', &cty.sig);
             }
             ty::RegionTraitStore(..) => {
                 match cty.onceness {
                     ast::Many => {}
                     ast::Once => s.push_str("once ")
                 }
-                push_sig_to_str(cx, &mut s, '|', '|', &cty.sig);
+                push_sig_to_string(cx, &mut s, '|', '|', &cty.sig);
             }
         }
 
@@ -315,13 +314,13 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
         s
     }
 
-    fn push_sig_to_str(cx: &ctxt,
+    fn push_sig_to_string(cx: &ctxt,
                        s: &mut String,
                        bra: char,
                        ket: char,
                        sig: &ty::FnSig) {
         s.push_char(bra);
-        let strs: Vec<String> = sig.inputs.iter().map(|a| fn_input_to_str(cx, *a)).collect();
+        let strs: Vec<String> = sig.inputs.iter().map(|a| fn_input_to_string(cx, *a)).collect();
         s.push_str(strs.connect(", ").as_slice());
         if sig.variadic {
             s.push_str(", ...");
@@ -333,7 +332,7 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
             if ty::type_is_bot(sig.output) {
                 s.push_char('!');
             } else {
-                s.push_str(ty_to_str(cx, sig.output).as_slice());
+                s.push_str(ty_to_string(cx, sig.output).as_slice());
             }
         }
     }
@@ -350,33 +349,33 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
       ty_bot => "!".to_string(),
       ty_bool => "bool".to_string(),
       ty_char => "char".to_string(),
-      ty_int(t) => ast_util::int_ty_to_str(t, None).to_string(),
-      ty_uint(t) => ast_util::uint_ty_to_str(t, None).to_string(),
-      ty_float(t) => ast_util::float_ty_to_str(t).to_string(),
-      ty_box(typ) => format!("Gc<{}>", ty_to_str(cx, typ)),
-      ty_uniq(typ) => format!("Box<{}>", ty_to_str(cx, typ)),
+      ty_int(t) => ast_util::int_ty_to_string(t, None).to_string(),
+      ty_uint(t) => ast_util::uint_ty_to_string(t, None).to_string(),
+      ty_float(t) => ast_util::float_ty_to_string(t).to_string(),
+      ty_box(typ) => format!("Gc<{}>", ty_to_string(cx, typ)),
+      ty_uniq(typ) => format!("Box<{}>", ty_to_string(cx, typ)),
       ty_ptr(ref tm) => {
           format!("*{} {}", match tm.mutbl {
               ast::MutMutable => "mut",
               ast::MutImmutable => "const",
-          }, ty_to_str(cx, tm.ty))
+          }, ty_to_string(cx, tm.ty))
       }
       ty_rptr(r, ref tm) => {
-          let mut buf = region_ptr_to_str(cx, r);
-          buf.push_str(mt_to_str(cx, tm).as_slice());
+          let mut buf = region_ptr_to_string(cx, r);
+          buf.push_str(mt_to_string(cx, tm).as_slice());
           buf
       }
       ty_tup(ref elems) => {
-        let strs: Vec<String> = elems.iter().map(|elem| ty_to_str(cx, *elem)).collect();
+        let strs: Vec<String> = elems.iter().map(|elem| ty_to_string(cx, *elem)).collect();
         format!("({})", strs.connect(","))
       }
       ty_closure(ref f) => {
-          closure_to_str(cx, *f)
+          closure_to_string(cx, *f)
       }
       ty_bare_fn(ref f) => {
-          bare_fn_to_str(cx, f.fn_style, f.abi, None, &f.sig)
+          bare_fn_to_string(cx, f.fn_style, f.abi, None, &f.sig)
       }
-      ty_infer(infer_ty) => infer_ty.to_str(),
+      ty_infer(infer_ty) => infer_ty.to_string(),
       ty_err => "[type error]".to_string(),
       ty_param(ParamTy {idx: id, def_id: did, ..}) => {
           let ident = match cx.ty_param_defs.borrow().find(&did.node) {
@@ -414,9 +413,9 @@ pub fn ty_to_str(cx: &ctxt, typ: t) -> String {
       ty_vec(ref mt, sz) => {
           match sz {
               Some(n) => {
-                  format!("[{}, .. {}]", mt_to_str(cx, mt), n)
+                  format!("[{}, .. {}]", mt_to_string(cx, mt), n)
               }
-              None => format!("[{}]", ty_to_str(cx, mt.ty)),
+              None => format!("[{}]", ty_to_string(cx, mt.ty)),
           }
       }
     }
@@ -434,7 +433,7 @@ pub fn parameterized(cx: &ctxt,
         subst::ErasedRegions => { }
         subst::NonerasedRegions(ref regions) => {
             for &r in regions.iter() {
-                let s = region_to_str(cx, "", false, r);
+                let s = region_to_string(cx, "", false, r);
                 if !s.is_empty() {
                     strs.push(s)
                 } else {
@@ -449,8 +448,8 @@ pub fn parameterized(cx: &ctxt,
         }
     }
 
-    let tps = substs.types.get_vec(subst::TypeSpace);
-    let ty_params = generics.types.get_vec(subst::TypeSpace);
+    let tps = substs.types.get_slice(subst::TypeSpace);
+    let ty_params = generics.types.get_slice(subst::TypeSpace);
     let has_defaults = ty_params.last().map_or(false, |def| def.default.is_some());
     let num_defaults = if has_defaults && !cx.sess.verbose() {
         ty_params.iter().zip(tps.iter()).rev().take_while(|&(def, &actual)| {
@@ -464,11 +463,11 @@ pub fn parameterized(cx: &ctxt,
     };
 
     for t in tps.slice_to(tps.len() - num_defaults).iter() {
-        strs.push(ty_to_str(cx, *t))
+        strs.push(ty_to_string(cx, *t))
     }
 
     if cx.sess.verbose() {
-        for t in substs.types.get_vec(subst::SelfSpace).iter() {
+        for t in substs.types.get_slice(subst::SelfSpace).iter() {
             strs.push(format!("for {}", t.repr(cx)));
         }
     }
@@ -531,7 +530,7 @@ impl<T:Repr> Repr for Box<T> {
 }
 
 fn repr_vec<T:Repr>(tcx: &ctxt, v: &[T]) -> String {
-    vec_map_to_str(v, |t| t.repr(tcx))
+    vec_map_to_string(v, |t| t.repr(tcx))
 }
 
 impl<'a, T:Repr> Repr for &'a [T] {
@@ -577,13 +576,13 @@ impl Repr for ty::RegionParameterDef {
 
 impl Repr for ty::t {
     fn repr(&self, tcx: &ctxt) -> String {
-        ty_to_str(tcx, *self)
+        ty_to_string(tcx, *self)
     }
 }
 
 impl Repr for ty::mt {
     fn repr(&self, tcx: &ctxt) -> String {
-        mt_to_str(tcx, self)
+        mt_to_string(tcx, self)
     }
 }
 
@@ -598,9 +597,9 @@ impl Repr for subst::Substs {
 impl<T:Repr> Repr for subst::VecPerParamSpace<T> {
     fn repr(&self, tcx: &ctxt) -> String {
         format!("[{};{};{}]",
-                       self.get_vec(subst::TypeSpace).repr(tcx),
-                       self.get_vec(subst::SelfSpace).repr(tcx),
-                       self.get_vec(subst::FnSpace).repr(tcx))
+                       self.get_slice(subst::TypeSpace).repr(tcx),
+                       self.get_slice(subst::SelfSpace).repr(tcx),
+                       self.get_slice(subst::FnSpace).repr(tcx))
     }
 }
 
@@ -640,25 +639,25 @@ impl Repr for ty::ParamBounds {
 
 impl Repr for ty::TraitRef {
     fn repr(&self, tcx: &ctxt) -> String {
-        trait_ref_to_str(tcx, self)
+        trait_ref_to_string(tcx, self)
     }
 }
 
 impl Repr for ast::Expr {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("expr({}: {})", self.id, pprust::expr_to_str(self))
+        format!("expr({}: {})", self.id, pprust::expr_to_string(self))
     }
 }
 
 impl Repr for ast::Path {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("path({})", pprust::path_to_str(self))
+        format!("path({})", pprust::path_to_string(self))
     }
 }
 
 impl Repr for ast::Item {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("item({})", tcx.map.node_to_str(self.id))
+        format!("item({})", tcx.map.node_to_string(self.id))
     }
 }
 
@@ -666,13 +665,13 @@ impl Repr for ast::Stmt {
     fn repr(&self, _tcx: &ctxt) -> String {
         format!("stmt({}: {})",
                 ast_util::stmt_id(self),
-                pprust::stmt_to_str(self))
+                pprust::stmt_to_string(self))
     }
 }
 
 impl Repr for ast::Pat {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("pat({}: {})", self.id, pprust::pat_to_str(self))
+        format!("pat({}: {})", self.id, pprust::pat_to_string(self))
     }
 }
 
@@ -788,10 +787,10 @@ impl Repr for ty::ItemVariances {
 
 impl Repr for ty::Variance {
     fn repr(&self, _: &ctxt) -> String {
-        // The first `.to_str()` returns a &'static str (it is not an implementation
-        // of the ToStr trait). Because of that, we need to call `.to_str()` again
+        // The first `.to_string()` returns a &'static str (it is not an implementation
+        // of the ToString trait). Because of that, we need to call `.to_string()` again
         // if we want to have a `String`.
-        self.to_str().to_str()
+        self.to_string().to_string()
     }
 }
 
@@ -836,14 +835,14 @@ impl Repr for ty::BareFnTy {
     fn repr(&self, tcx: &ctxt) -> String {
         format!("BareFnTy {{fn_style: {:?}, abi: {}, sig: {}}}",
                 self.fn_style,
-                self.abi.to_str(),
+                self.abi.to_string(),
                 self.sig.repr(tcx))
     }
 }
 
 impl Repr for ty::FnSig {
     fn repr(&self, tcx: &ctxt) -> String {
-        fn_sig_to_str(tcx, self)
+        fn_sig_to_string(tcx, self)
     }
 }
 
@@ -893,7 +892,7 @@ impl Repr for typeck::MethodObject {
 
 impl Repr for ty::TraitStore {
     fn repr(&self, tcx: &ctxt) -> String {
-        trait_store_to_str(tcx, *self)
+        trait_store_to_string(tcx, *self)
     }
 }
 
@@ -923,7 +922,7 @@ impl Repr for ty::BuiltinBounds {
 
 impl Repr for Span {
     fn repr(&self, tcx: &ctxt) -> String {
-        tcx.sess.codemap().span_to_str(*self).to_string()
+        tcx.sess.codemap().span_to_string(*self).to_string()
     }
 }
 
@@ -954,7 +953,7 @@ impl UserString for ty::TraitRef {
 
 impl UserString for ty::t {
     fn user_string(&self, tcx: &ctxt) -> String {
-        ty_to_str(tcx, *self)
+        ty_to_string(tcx, *self)
     }
 }
 
@@ -966,13 +965,13 @@ impl UserString for ast::Ident {
 
 impl Repr for abi::Abi {
     fn repr(&self, _tcx: &ctxt) -> String {
-        self.to_str()
+        self.to_string()
     }
 }
 
 impl UserString for abi::Abi {
     fn user_string(&self, _tcx: &ctxt) -> String {
-        self.to_str()
+        self.to_string()
     }
 }
 

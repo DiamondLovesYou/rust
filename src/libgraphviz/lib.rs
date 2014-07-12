@@ -266,16 +266,14 @@ pub fn main() {
 
 */
 
-#![crate_id = "graphviz#0.11.0-pre"]
+#![crate_name = "graphviz"]
 #![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/")]
-
-#![experimental]
+       html_root_url = "http://doc.rust-lang.org/0.11.0/")]
 
 use std::io;
 use std::str;
@@ -666,7 +664,7 @@ mod tests {
         let mut writer = MemWriter::new();
         render(&g, &mut writer).unwrap();
         let mut r = BufReader::new(writer.get_ref());
-        match r.read_to_str() {
+        match r.read_to_string() {
             Ok(string) => Ok(string.to_string()),
             Err(err) => Err(err),
         }
@@ -768,7 +766,7 @@ r#"digraph hasse_diagram {
 
         render(&g, &mut writer).unwrap();
         let mut r = BufReader::new(writer.get_ref());
-        let r = r.read_to_str();
+        let r = r.read_to_string();
 
         assert_eq!(r.unwrap().as_slice(),
 r#"digraph syntax_tree {

@@ -43,31 +43,23 @@
 //!   the failure message, the file at which failure was invoked, and the line.
 //!   It is up to consumers of this core library to define this failure
 //!   function; it is only required to never return.
-//!
 
-#![crate_id = "core#0.11.0-pre"]
+// Since libcore defines many fundamental lang items, all tests live in a
+// separate crate, libcoretest, to avoid bizarre issues.
+
+#![crate_name = "core"]
 #![experimental]
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![no_std]
 #![feature(globs, intrinsics, lang_items, macro_rules, managed_boxes, phase)]
 #![feature(simd, unsafe_destructor)]
 #![deny(missing_doc)]
-
-#[cfg(test)] extern crate realcore = "core";
-#[cfg(test)] extern crate libc;
-#[cfg(test)] extern crate native;
-#[cfg(test)] extern crate realstd = "std";
-
-#[cfg(test)] pub use cmp = realcore::cmp;
-#[cfg(test)] pub use kinds = realcore::kinds;
-#[cfg(test)] pub use ops = realcore::ops;
-#[cfg(test)] pub use ty = realcore::ty;
 
 mod macros;
 
@@ -104,17 +96,16 @@ pub mod ptr;
 
 /* Core language traits */
 
-#[cfg(not(test))] pub mod kinds;
-#[cfg(not(test))] pub mod ops;
-#[cfg(not(test))] pub mod ty;
-#[cfg(not(test))] pub mod cmp;
+pub mod kinds;
+pub mod ops;
+pub mod ty;
+pub mod cmp;
 pub mod clone;
 pub mod default;
 pub mod collections;
 
 /* Core types and methods on primitives */
 
-mod unicode;
 pub mod any;
 pub mod atomics;
 pub mod bool;
@@ -130,6 +121,10 @@ pub mod simd;
 pub mod slice;
 pub mod str;
 pub mod tuple;
+// FIXME #15320: primitive documentation needs top-level modules, this
+// should be `core::tuple::unit`.
+#[path = "tuple/unit.rs"]
+pub mod unit;
 pub mod fmt;
 
 #[doc(hidden)]
@@ -144,11 +139,4 @@ mod std {
     pub use kinds;
     pub use option;
     pub use fmt;
-
-    #[cfg(test)] pub use realstd::rt;     // needed for fail!()
-    // #[cfg(test)] pub use realstd::option; // needed for fail!()
-    // #[cfg(test)] pub use realstd::fmt;    // needed for fail!()
-    #[cfg(test)] pub use realstd::os;     // needed for tests
-    #[cfg(test)] pub use realstd::slice;  // needed for tests
-    #[cfg(test)] pub use realstd::vec;    // needed for vec![]
 }

@@ -574,7 +574,7 @@ fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) 
         cmd.arg("./src/etc/lldb_batchmode.py")
            .arg(test_executable)
            .arg(debugger_script)
-           .env([("PYTHONPATH", config.lldb_python_dir.clone().unwrap().as_slice())]);
+           .env_set_all([("PYTHONPATH", config.lldb_python_dir.clone().unwrap().as_slice())]);
 
         let (status, out, err) = match cmd.spawn() {
             Ok(process) => {
@@ -1508,10 +1508,10 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let pexe_path = make_absolute(&output_base_name(config, testfile));
     let obj_path =
         // add an extension, don't replace it:
-        Path::new(format!("{}.o",pexe_path.display().to_str()));
+        Path::new(format!("{}.o",pexe_path.display()));
     let nexe_path =
         // add an extension, don't replace it:
-        Path::new(format!("{}.nexe",pexe_path.display().to_str()));
+        Path::new(format!("{}.nexe",pexe_path.display()));
 
     let arch = match ARCH {
         "x86" => "i686",
@@ -1522,11 +1522,11 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                 format!("-mtriple={}-none-nacl-gnu", arch),
                                 "-filetype=obj".to_string(),
                                 format!("-o={}", obj_path.display()),
-                                pexe_path.display().to_str().to_string());
+                                format!("{}", pexe_path.display()));
 
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
-                     llc.display().to_str().as_slice(),
+                     llc.display().as_maybe_owned().as_slice(),
                      None,
                      pnacl_trans_args.as_slice(),
                      env.clone(),
@@ -1570,29 +1570,36 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                               "--build-id".to_string(),
                               "--entry=__pnacl_start".to_string(),
                               "-static".to_string(),
-                              lib_path.join("crtbegin.o").display().to_str().to_string(),
-                              obj_path.display().to_str().to_string(),
-                              lib_path.join("libpnacl_irt_shim.a").display().to_str().to_string(),
+                              lib_path.join("crtbegin.o")
+                                  .display().as_maybe_owned().to_string(),
+                              obj_path.display().as_maybe_owned().to_string(),
+                              lib_path.join("libpnacl_irt_shim.a")
+                                  .display().as_maybe_owned().to_string(),
                               "--start-group".to_string(),
-                              lib_path.join("libgcc.a").display().to_str().to_string(),
-                              lib_path.join("libcrt_platform.a").display().to_str().to_string(),
+                              lib_path.join("libgcc.a")
+                                  .display().as_maybe_owned().to_string(),
+                              lib_path.join("libcrt_platform.a")
+                                  .display().as_maybe_owned().to_string(),
                               "--end-group".to_string(),
-                              lib_path.join("crtend.o").display().to_str().to_string(),
+                              lib_path.join("crtend.o")
+                                  .display().as_maybe_owned().to_string(),
                               "--undefined=_start".to_string(),
-                              "-o".to_string(), nexe_path.display().to_str().to_string());
+                              "-o".to_string(),
+                              nexe_path
+                                  .display().as_maybe_owned().to_string(),);
 
     let gold = Path::new(config.rustc_path.clone())
         .dir_path()
-        .join_many(["..",
-                    "lib",
-                    "rustlib",
-                    config.host.as_slice(),
-                    "bin",
-                    "le32-nacl-ld.gold"]);
+        .join_many(["..".to_string(),
+                    "lib".to_string(),
+                    "rustlib".to_string(),
+                    config.host.clone(),
+                    "bin".to_string(),
+                    "le32-nacl-ld.gold".to_string()]);
 
     let procsrv::Result { out: stdout, err: stderr, status: status } =
         procsrv::run("",
-                     gold.display().to_str().as_slice(),
+                     gold.display().as_maybe_owned().as_slice(),
                      None,
                      nexe_link_args.as_slice(),
                      env.clone(),
@@ -1626,7 +1633,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     }
     let sel_ldr_args = sel_ldr_args.append
         (&["--".to_string(),
-           nexe_path.display().to_str().to_string()]);
+           nexe_path.display().as_maybe_owned().to_string()]);
     let ProcArgs {
         args: run_args,
         ..
@@ -1635,7 +1642,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     if !run_background {
         let procsrv::Result{ out: stdout, err: stderr, status: status } =
             procsrv::run("",
-                         sel_ldr.display().to_str().as_slice(),
+                         sel_ldr.display().as_maybe_owned().as_slice(),
                          None,
                          sel_ldr_args.as_slice(),
                          env,
@@ -1645,12 +1652,12 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
             stdout: stdout,
             stderr: stderr,
             cmdline: make_cmdline("",
-                                  sel_ldr.display().to_str().as_slice(),
+                                  sel_ldr.display().as_maybe_owned().as_slice(),
                                   sel_ldr_args.as_slice()),
         });
     } else {
         return ProcessResult(procsrv::run_background("",
-                                                     sel_ldr.display().to_str().as_slice(),
+                                                     sel_ldr.display().as_maybe_owned().as_slice(),
                                                      None,
                                                      sel_ldr_args.as_slice(),
                                                      env,

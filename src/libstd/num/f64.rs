@@ -10,6 +10,7 @@
 
 //! Operations and constants for 64-bits floats (`f64` type)
 
+#![experimental]
 #![allow(missing_doc)]
 #![doc(primitive = "f64")]
 
@@ -252,7 +253,7 @@ impl FloatMath for f64 {
 ///
 /// * num - The float value
 #[inline]
-pub fn to_str(num: f64) -> String {
+pub fn to_string(num: f64) -> String {
     let (r, _) = strconv::float_to_str_common(
         num, 10u, true, strconv::SignNeg, strconv::DigAll, strconv::ExpNone, false);
     r

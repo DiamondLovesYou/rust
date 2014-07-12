@@ -11,7 +11,7 @@
 use back::archive::{Archive, METADATA_FILENAME};
 use back::rpath;
 use back::svh::Svh;
-use driver::driver::{CrateTranslation, OutputFilenames};
+use driver::driver::{CrateTranslation, OutputFilenames, Input, FileInput};
 use driver::config::NoDebugInfo;
 use driver::session::Session;
 use driver::config;
@@ -19,7 +19,7 @@ use lib::llvm::llvm;
 use lib::llvm::ModuleRef;
 use lib;
 use metadata::common::LinkMeta;
-use metadata::{encoder, cstore, filesearch, csearch, loader};
+use metadata::{encoder, cstore, filesearch, csearch, loader, creader};
 use middle::trans::context::CrateContext;
 use middle::trans::common::gensym_name;
 use middle::ty;
@@ -41,9 +41,8 @@ use syntax::abi;
 use syntax::ast;
 use syntax::ast_map::{PathElem, PathElems, PathName};
 use syntax::ast_map;
-use syntax::attr;
 use syntax::attr::AttrMetaMethods;
-use syntax::crateid::CrateId;
+use syntax::codemap::Span;
 use syntax::parse::token;
 
 #[deriving(Clone, PartialEq, PartialOrd, Ord, Eq)]
@@ -148,7 +147,7 @@ pub mod write {
     // get all hardware potential via VFP3 (hardware floating point)
     // and NEON (SIMD) instructions supported by LLVM.
     // Note that without those flags various linking errors might
-    // arise as some of intrinsicts are converted into function calls
+    // arise as some of intrinsics are converted into function calls
     // and nobody provides implementations those functions
     fn target_feature<'a>(sess: &'a Session) -> &'a str {
         match sess.targ_cfg.os {
@@ -533,7 +532,7 @@ pub mod write {
         {
             let add = |arg: &str| {
                 let s = arg.to_c_str();
-                llvm_args.push(s.with_ref(|p| p));
+                llvm_args.push(s.as_ptr());
                 llvm_c_strs.push(s);
             };
             add("rustc"); // fake program name
@@ -671,33 +670,69 @@ pub mod write {
  *    system linkers understand.
  */
 
-// FIXME (#9639): This needs to handle non-utf8 `out_filestem` values
-pub fn find_crate_id(attrs: &[ast::Attribute], out_filestem: &str) -> CrateId {
-    match attr::find_crateid(attrs) {
-        None => from_str(out_filestem).unwrap_or_else(|| {
-            let mut s = out_filestem.chars().filter(|c| c.is_XID_continue());
-            from_str(s.collect::<String>().as_slice())
-                .or(from_str("rust-out")).unwrap()
-        }),
-        Some(s) => s,
+pub fn find_crate_name(sess: Option<&Session>,
+                       attrs: &[ast::Attribute],
+                       input: &Input) -> String {
+    use syntax::crateid::CrateId;
+
+    let validate = |s: String, span: Option<Span>| {
+        creader::validate_crate_name(sess, s.as_slice(), span);
+        s
+    };
+
+    match sess {
+        Some(sess) => {
+            match sess.opts.crate_name {
+                Some(ref s) => return validate(s.clone(), None),
+                None => {}
+            }
+        }
+        None => {}
     }
+
+    let crate_name = attrs.iter().find(|at| at.check_name("crate_name"))
+                          .and_then(|at| at.value_str().map(|s| (at, s)));
+    match crate_name {
+        Some((attr, s)) => return validate(s.get().to_string(), Some(attr.span)),
+        None => {}
+    }
+    let crate_id = attrs.iter().find(|at| at.check_name("crate_id"))
+                        .and_then(|at| at.value_str().map(|s| (at, s)))
+                        .and_then(|(at, s)| {
+                            from_str::<CrateId>(s.get()).map(|id| (at, id))
+                        });
+    match crate_id {
+        Some((attr, id)) => {
+            match sess {
+                Some(sess) => {
+                    sess.span_warn(attr.span, "the #[crate_id] attribute is \
+                                               deprecated for the \
+                                               #[crate_name] attribute");
+                }
+                None => {}
+            }
+            return validate(id.name, Some(attr.span))
+        }
+        None => {}
+    }
+    match *input {
+        FileInput(ref path) => {
+            match path.filestem_str() {
+                Some(s) => return validate(s.to_string(), None),
+                None => {}
+            }
+        }
+        _ => {}
+    }
+
+    "rust-out".to_string()
 }
 
-pub fn crate_id_hash(crate_id: &CrateId) -> String {
-    // This calculates CMH as defined above. Note that we don't use the path of
-    // the crate id in the hash because lookups are only done by (name/vers),
-    // not by path.
-    let mut s = Sha256::new();
-    s.input_str(crate_id.short_name_with_version().as_slice());
-    truncated_hash_result(&mut s).as_slice().slice_to(8).to_string()
-}
-
-// FIXME (#9639): This needs to handle non-utf8 `out_filestem` values
-pub fn build_link_meta(krate: &ast::Crate,
-                       out_filestem: &str) -> LinkMeta {
+pub fn build_link_meta(sess: &Session, krate: &ast::Crate,
+                       name: String) -> LinkMeta {
     let r = LinkMeta {
-        crateid: find_crate_id(krate.attrs.as_slice(), out_filestem),
-        crate_hash: Svh::calculate(krate),
+        crate_name: name,
+        crate_hash: Svh::calculate(sess, krate),
     };
     info!("{}", r);
     return r;
@@ -720,9 +755,12 @@ fn symbol_hash(tcx: &ty::ctxt,
     // to be independent of one another in the crate.
 
     symbol_hasher.reset();
-    symbol_hasher.input_str(link_meta.crateid.name.as_slice());
+    symbol_hasher.input_str(link_meta.crate_name.as_slice());
     symbol_hasher.input_str("-");
     symbol_hasher.input_str(link_meta.crate_hash.as_str());
+    for meta in tcx.sess.crate_metadata.borrow().iter() {
+        symbol_hasher.input_str(meta.as_slice());
+    }
     symbol_hasher.input_str("-");
     symbol_hasher.input_str(encoder::encoded_ty(tcx, t).as_slice());
     // Prefix with 'h' so that it never blends into adjacent digits
@@ -783,8 +821,8 @@ pub fn sanitize(s: &str) -> String {
 
     // Underscore-qualify anything that didn't start as an ident.
     if result.len() > 0u &&
-        result.as_slice()[0] != '_' as u8 &&
-        ! char::is_XID_start(result.as_slice()[0] as char) {
+        result.as_bytes()[0] != '_' as u8 &&
+        ! char::is_XID_start(result.as_bytes()[0] as char) {
         return format!("_{}", result.as_slice());
     }
 
@@ -792,8 +830,7 @@ pub fn sanitize(s: &str) -> String {
 }
 
 pub fn mangle<PI: Iterator<PathElem>>(mut path: PI,
-                                      hash: Option<&str>,
-                                      vers: Option<&str>) -> String {
+                                      hash: Option<&str>) -> String {
     // Follow C++ namespace-mangling style, see
     // http://en.wikipedia.org/wiki/Name_mangling for more info.
     //
@@ -824,25 +861,13 @@ pub fn mangle<PI: Iterator<PathElem>>(mut path: PI,
         Some(s) => push(&mut n, s),
         None => {}
     }
-    match vers {
-        Some(s) => push(&mut n, s),
-        None => {}
-    }
 
     n.push_char('E'); // End name-sequence.
     n
 }
 
-pub fn exported_name(path: PathElems, hash: &str, vers: &str) -> String {
-    // The version will get mangled to have a leading '_', but it makes more
-    // sense to lead with a 'v' b/c this is a version...
-    let vers = if vers.len() > 0 && !char::is_XID_start(vers.char_at(0)) {
-        format!("v{}", vers)
-    } else {
-        vers.to_string()
-    };
-
-    mangle(path, Some(hash), Some(vers.as_slice()))
+pub fn exported_name(path: PathElems, hash: &str) -> String {
+    mangle(path, Some(hash))
 }
 
 pub fn mangle_exported_name(ccx: &CrateContext, path: PathElems,
@@ -863,31 +888,25 @@ pub fn mangle_exported_name(ccx: &CrateContext, path: PathElems,
     let extra2 = id % EXTRA_CHARS.len();
     let id = id / EXTRA_CHARS.len();
     let extra3 = id % EXTRA_CHARS.len();
-    hash.push_char(EXTRA_CHARS[extra1] as char);
-    hash.push_char(EXTRA_CHARS[extra2] as char);
-    hash.push_char(EXTRA_CHARS[extra3] as char);
+    hash.push_char(EXTRA_CHARS.as_bytes()[extra1] as char);
+    hash.push_char(EXTRA_CHARS.as_bytes()[extra2] as char);
+    hash.push_char(EXTRA_CHARS.as_bytes()[extra3] as char);
 
-    exported_name(path,
-                  hash.as_slice(),
-                  ccx.link_meta.crateid.version_or_default())
+    exported_name(path, hash.as_slice())
 }
 
 pub fn mangle_internal_name_by_type_and_seq(ccx: &CrateContext,
                                             t: ty::t,
                                             name: &str) -> String {
-    let s = ppaux::ty_to_str(ccx.tcx(), t);
+    let s = ppaux::ty_to_string(ccx.tcx(), t);
     let path = [PathName(token::intern(s.as_slice())),
                 gensym_name(name)];
     let hash = get_symbol_hash(ccx, t);
-    mangle(ast_map::Values(path.iter()), Some(hash.as_slice()), None)
+    mangle(ast_map::Values(path.iter()), Some(hash.as_slice()))
 }
 
 pub fn mangle_internal_name_by_path_and_seq(path: PathElems, flav: &str) -> String {
-    mangle(path.chain(Some(gensym_name(flav)).move_iter()), None, None)
-}
-
-pub fn output_lib_filename(id: &CrateId) -> String {
-    format!("{}-{}-{}", id.name, crate_id_hash(id), id.version_or_default())
+    mangle(path.chain(Some(gensym_name(flav)).move_iter()), None)
 }
 
 pub fn get_cc_prog(sess: &Session) -> String {
@@ -929,7 +948,7 @@ fn remove(sess: &Session, path: &Path) {
 pub fn link_binary(sess: &Session,
                    trans: &CrateTranslation,
                    outputs: &OutputFilenames,
-                   id: &CrateId) -> Vec<Path> {
+                   crate_name: &str) -> Vec<Path> {
     let mut out_filenames = Vec::new();
     for &crate_type in sess.crate_types.borrow().iter() {
         if sess.targeting_pnacl() && crate_type == config::CrateTypeDylib {
@@ -939,7 +958,8 @@ pub fn link_binary(sess: &Session,
                 sess.bug(format!("invalid output type `{}` for target os `{}`",
                                  crate_type, sess.targ_cfg.os).as_slice());
             }
-            let out_file = link_binary_output(sess, trans, crate_type, outputs, id);
+        let out_file = link_binary_output(sess, trans, crate_type, outputs,
+                                          crate_name);
             out_filenames.push(out_file);
         }
     }
@@ -989,9 +1009,11 @@ fn is_writeable(p: &Path) -> bool {
     }
 }
 
-pub fn filename_for_input(sess: &Session, crate_type: config::CrateType,
-                          id: &CrateId, out_filename: &Path) -> Path {
-    let libname = output_lib_filename(id);
+pub fn filename_for_input(sess: &Session,
+                          crate_type: config::CrateType,
+                          name: &str,
+                          out_filename: &Path) -> Path {
+    let libname = format!("{}{}", name, sess.opts.cg.extra_filename);
     match crate_type {
         config::CrateTypeRlib => {
             out_filename.with_filename(format!("lib{}.rlib", libname))
@@ -1023,9 +1045,9 @@ fn link_binary_output(sess: &Session,
                       trans: &CrateTranslation,
                       crate_type: config::CrateType,
                       outputs: &OutputFilenames,
-                      id: &CrateId) -> Path {
+                      crate_name: &str) -> Path {
     let (obj_filename, out_filename) = check_outputs(sess, crate_type,
-                                                     outputs, id);
+                                                     outputs, crate_name);
 
     match crate_type {
         config::CrateTypeRlib => {
@@ -1048,13 +1070,13 @@ fn link_binary_output(sess: &Session,
 pub fn check_outputs(sess: &Session,
                      crate_type: config::CrateType,
                      outputs: &OutputFilenames,
-                     id: &CrateId) -> (Path, Path) {
+                     crate_name: &str) -> (Path, Path) {
     let obj_filename = outputs.temp_path(OutputTypeObject);
     let out_filename = match outputs.single_output_file {
         Some(ref file) => file.clone(),
         None => {
             let out_filename = outputs.path(OutputTypeExe);
-            filename_for_input(sess, crate_type, id, &out_filename)
+            filename_for_input(sess, crate_type, crate_name, &out_filename)
         }
     };
 
@@ -1087,7 +1109,7 @@ fn pnacl_host_tool(sess: &Session, tool: &str) -> Path {
 fn link_pnacl_rlib(sess: &Session,
                    trans: &CrateTranslation,
                    outputs: &OutputFilenames,
-                   id: &CrateId) {
+                   crate_name: &str) {
     use libc;
     use back::archive::ArchiveRO;
     use std::collections::HashMap;
@@ -1104,7 +1126,7 @@ fn link_pnacl_rlib(sess: &Session,
                              false);
 
     let (obj_filename, out_filename) = check_outputs(sess, config::CrateTypeRlib,
-                                                     outputs, id);
+                                                     outputs, crate_name);
     obj_filename.with_c_str(|s| unsafe {
         llvm::LLVMWriteBitcodeToFile(trans.module, s);
     });
@@ -1240,7 +1262,7 @@ fn link_pnacl_rlib(sess: &Session,
 pub fn link_outputs_for_pnacl(sess: &Session,
                               trans: &mut CrateTranslation,
                               outputs: &OutputFilenames,
-                              id: CrateId) {
+                              crate_name: &str) {
     use driver::driver::stop_after_phase_5;
 
     // We use separate paths for PNaCl targets so we can save LLVM
@@ -1254,7 +1276,7 @@ pub fn link_outputs_for_pnacl(sess: &Session,
                 debug!("skipping dylib output; PNaCl doesn't support \
                        it yet");
             }
-            config::CrateTypeRlib => link_pnacl_rlib(sess, trans, outputs, &id),
+            config::CrateTypeRlib => link_pnacl_rlib(sess, trans, outputs, crate_name),
             config::CrateTypeExecutable => {}
             config::CrateTypeStaticlib => unimplemented!(),
         }
@@ -1263,7 +1285,7 @@ pub fn link_outputs_for_pnacl(sess: &Session,
     for &crate_type in sess.crate_types.borrow().iter() {
         match crate_type {
             config::CrateTypeExecutable => link_pnacl_module(sess, trans,
-                                                             outputs, &id),
+                                                             outputs, crate_name),
             _ => (),
         }
     }
@@ -1368,7 +1390,7 @@ fn link_attrs_filter(sess: &Session,
 pub fn link_pnacl_module(sess: &Session,
                          trans: &mut CrateTranslation,
                          outputs: &OutputFilenames,
-                         id: &CrateId) {
+                         crate_name: &str) {
     // Note that we don't use pnacl-ld here. We want to avoid the costly post-link
     // simplification passes pnacl-ld runs. Instead, since pnacl-ld's output is just bitcode,
     // what we do here is pull all of our 'native' dependencies into a (vary large)
@@ -1494,7 +1516,7 @@ pub fn link_pnacl_module(sess: &Session,
                     Ok(buf) => link_buf_into_module(sess,
                                                     trans.context,
                                                     m,
-                                                    extra.display().to_str().as_slice(),
+                                                    extra.display().as_maybe_owned().as_slice(),
                                                     buf.as_slice()),
                     Err(e) => {
                         sess.err(format!("error reading file `{}`: `{}`",
@@ -1722,7 +1744,7 @@ pub fn link_pnacl_module(sess: &Session,
         Some(ref file) => file.clone(),
         None => {
             let out_filename = outputs.path(OutputTypeExe);
-            filename_for_input(sess, config::CrateTypeExecutable, id, &out_filename)
+            filename_for_input(sess, config::CrateTypeExecutable, crate_name, &out_filename)
         }
     };
 
@@ -2152,7 +2174,7 @@ fn link_args(cmd: &mut Command,
         if sess.targ_cfg.os == abi::OsMacos {
             cmd.args(["-dynamiclib", "-Wl,-dylib"]);
 
-            if !sess.opts.cg.no_rpath {
+            if sess.opts.cg.rpath {
                 let mut v = Vec::from_slice("-Wl,-install_name,@rpath/".as_bytes());
                 v.push_all(out_filename.filename().unwrap());
                 cmd.arg(v.as_slice());
@@ -2171,7 +2193,7 @@ fn link_args(cmd: &mut Command,
     // FIXME (#2397): At some point we want to rpath our guesses as to
     // where extern libraries might live, based on the
     // addl_lib_search_paths
-    if !sess.opts.cg.no_rpath {
+    if sess.opts.cg.rpath {
         cmd.args(rpath::get_rpath_flags(sess, out_filename).as_slice());
     }
 

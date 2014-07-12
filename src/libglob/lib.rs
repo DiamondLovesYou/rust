@@ -23,14 +23,14 @@
  * `glob`/`fnmatch` functions.
  */
 
-#![crate_id = "glob#0.11.0-pre"]
+#![crate_name = "glob"]
 #![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 use std::cell::Cell;
@@ -701,11 +701,11 @@ mod test {
         for &p in pats.iter() {
             let pat = Pattern::new(p);
             for c in "abcdefghijklmnopqrstuvwxyz".chars() {
-                assert!(pat.matches(c.to_str().as_slice()));
+                assert!(pat.matches(c.to_string().as_slice()));
             }
             for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars() {
                 let options = MatchOptions {case_sensitive: false, .. MatchOptions::new()};
-                assert!(pat.matches_with(c.to_str().as_slice(), options));
+                assert!(pat.matches_with(c.to_string().as_slice(), options));
             }
             assert!(pat.matches("1"));
             assert!(pat.matches("2"));

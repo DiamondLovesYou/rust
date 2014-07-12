@@ -410,7 +410,7 @@ mod test {
         // colon after v4
         let none: Option<IpAddr> = FromStr::from_str("::127.0.0.1:");
         assert_eq!(None, none);
-        // not enought groups
+        // not enough groups
         let none: Option<IpAddr> = FromStr::from_str("1.2.3.4.5:127.0.0.1");
         assert_eq!(None, none);
         // too many groups
@@ -443,10 +443,11 @@ mod test {
     }
 
     #[test]
-    fn ipv6_addr_to_str() {
+    fn ipv6_addr_to_string() {
         let a1 = Ipv6Addr(0, 0, 0, 0, 0, 0xffff, 0xc000, 0x280);
-        assert!(a1.to_str() == "::ffff:192.0.2.128".to_string() ||
-                a1.to_str() == "::FFFF:192.0.2.128".to_string());
-        assert_eq!(Ipv6Addr(8, 9, 10, 11, 12, 13, 14, 15).to_str(), "8:9:a:b:c:d:e:f".to_string());
+        assert!(a1.to_string() == "::ffff:192.0.2.128".to_string() ||
+                a1.to_string() == "::FFFF:192.0.2.128".to_string());
+        assert_eq!(Ipv6Addr(8, 9, 10, 11, 12, 13, 14, 15).to_string(),
+                   "8:9:a:b:c:d:e:f".to_string());
     }
 }

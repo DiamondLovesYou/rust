@@ -255,11 +255,11 @@ impl Drop for Inner {
 
 pub fn to_utf16(s: &CString) -> IoResult<Vec<u16>> {
     match s.as_str() {
-        Some(s) => Ok(s.to_utf16().append_one(0)),
+        Some(s) => Ok(s.utf16_units().collect::<Vec<u16>>().append_one(0)),
         None => Err(IoError {
             code: libc::ERROR_INVALID_NAME as uint,
             extra: 0,
-            detail: Some("valid unicode input required".to_str()),
+            detail: Some("valid unicode input required".to_string()),
         })
     }
 }
@@ -347,7 +347,7 @@ pub fn readdir(p: &CString) -> IoResult<Vec<CString>> {
     use std::rt::libc_heap::malloc_raw;
 
     fn prune(root: &CString, dirs: Vec<Path>) -> Vec<CString> {
-        let root = unsafe { CString::new(root.with_ref(|p| p), false) };
+        let root = unsafe { CString::new(root.as_ptr(), false) };
         let root = Path::new(root);
 
         dirs.move_iter().filter(|path| {
@@ -360,7 +360,7 @@ pub fn readdir(p: &CString) -> IoResult<Vec<CString>> {
         fn rust_list_dir_wfd_fp_buf(wfd: *mut libc::c_void) -> *const u16;
     }
     let star = Path::new(unsafe {
-        CString::new(p.with_ref(|p| p), false)
+        CString::new(p.as_ptr(), false)
     }).join("*");
     let path = try!(to_utf16(&star.to_c_str()));
 

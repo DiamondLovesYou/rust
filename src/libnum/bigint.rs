@@ -91,8 +91,8 @@ impl Eq for BigUint {}
 
 impl PartialOrd for BigUint {
     #[inline]
-    fn lt(&self, other: &BigUint) -> bool {
-        self.cmp(other) == Less
+    fn partial_cmp(&self, other: &BigUint) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -215,7 +215,7 @@ impl Sub<BigUint, BigUint> for BigUint {
         let zeros = ZERO_VEC.iter().cycle();
         let (a, b) = (self.data.iter().chain(zeros.clone()), other.data.iter().chain(zeros));
 
-        let mut borrow = 0;
+        let mut borrow = 0i;
         let diff: Vec<BigDigit> =  a.take(new_len).zip(b).map(|(ai, bi)| {
             let (hi, lo) = BigDigit::from_doublebigdigit(
                 BigDigit::base
@@ -816,8 +816,8 @@ impl Eq for BigInt {}
 
 impl PartialOrd for BigInt {
     #[inline]
-    fn lt(&self, other: &BigInt) -> bool {
-        self.cmp(other) == Less
+    fn partial_cmp(&self, other: &BigInt) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -2737,7 +2737,7 @@ mod bigint_tests {
         // attempt to allocate a vector of size (-1u) == huge.
         let x: BigInt =
             from_str(format!("1{}", "0".repeat(36)).as_slice()).unwrap();
-        let _y = x.to_str();
+        let _y = x.to_string();
     }
 
     #[test]
@@ -2842,14 +2842,14 @@ mod bench {
     }
 
     #[bench]
-    fn to_str(b: &mut Bencher) {
+    fn to_string(b: &mut Bencher) {
         let fac = factorial(100);
         let fib = fib(100);
         b.iter(|| {
-            fac.to_str();
+            fac.to_string();
         });
         b.iter(|| {
-            fib.to_str();
+            fib.to_string();
         });
     }
 

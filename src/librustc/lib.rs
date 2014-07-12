@@ -18,7 +18,7 @@ This API is completely unstable and subject to change.
 
 */
 
-#![crate_id = "rustc#0.11.0-pre"]
+#![crate_name = "rustc"]
 #![experimental]
 #![comment = "The Rust compiler"]
 #![license = "MIT/ASL2"]
@@ -26,11 +26,14 @@ This API is completely unstable and subject to change.
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://doc.rust-lang.org/")]
+      html_root_url = "http://doc.rust-lang.org/0.11.0/")]
 
 #![allow(deprecated)]
 #![feature(macro_rules, globs, struct_variant, managed_boxes, quote)]
 #![feature(default_type_params, phase, unsafe_destructor)]
+
+#![allow(unknown_features)] // NOTE: Remove after next snapshot
+#![feature(rustc_diagnostic_macros)]
 
 extern crate arena;
 extern crate debug;
@@ -39,9 +42,11 @@ extern crate getopts;
 extern crate graphviz;
 extern crate libc;
 extern crate serialize;
-extern crate syntax;
 extern crate time;
 #[phase(plugin, link)] extern crate log;
+#[phase(plugin, link)] extern crate syntax;
+
+mod diagnostics;
 
 pub mod middle {
     pub mod def;
@@ -127,6 +132,8 @@ pub mod lib {
     pub mod llvm;
     pub mod llvmdeps;
 }
+
+__build_diagnostic_array!(DIAGNOSTICS)
 
 // A private module so that macro-expanded idents like
 // `::rustc::lint::Lint` will also work in `rustc` itself.

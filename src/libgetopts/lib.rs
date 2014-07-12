@@ -59,7 +59,7 @@
 //!     ];
 //!     let matches = match getopts(args.tail(), opts) {
 //!         Ok(m) => { m }
-//!         Err(f) => { fail!(f.to_str()) }
+//!         Err(f) => { fail!(f.to_string()) }
 //!     };
 //!     if matches.opt_present("h") {
 //!         print_usage(program.as_slice(), opts);
@@ -76,14 +76,14 @@
 //! }
 //! ~~~
 
-#![crate_id = "getopts#0.11.0-pre"]
+#![crate_name = "getopts"]
 #![experimental]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/",
+       html_root_url = "http://doc.rust-lang.org/0.11.0/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![feature(globs, phase)]
 #![deny(missing_doc)]
@@ -220,9 +220,9 @@ impl Name {
         }
     }
 
-    fn to_str(&self) -> String {
+    fn to_string(&self) -> String {
         match *self {
-            Short(ch) => ch.to_str(),
+            Short(ch) => ch.to_string(),
             Long(ref s) => s.to_string()
         }
     }
@@ -370,7 +370,7 @@ impl Matches {
 }
 
 fn is_arg(arg: &str) -> bool {
-    arg.len() > 1 && arg[0] == '-' as u8
+    arg.len() > 1 && arg.as_bytes()[0] == '-' as u8
 }
 
 fn find_opt(opts: &[Opt], nm: Name) -> Option<uint> {
@@ -499,7 +499,7 @@ impl Fail_ {
     /// Convert a `Fail_` enum into an error string.
     #[deprecated="use `Show` (`{}` format specifier)"]
     pub fn to_err_msg(self) -> String {
-        self.to_str()
+        self.to_string()
     }
 }
 
@@ -553,7 +553,7 @@ pub fn getopts(args: &[String], optgrps: &[OptGroup]) -> Result {
         } else {
             let mut names;
             let mut i_arg = None;
-            if cur.as_slice()[1] == '-' as u8 {
+            if cur.as_bytes()[1] == '-' as u8 {
                 let tail = cur.as_slice().slice(2, curlen);
                 let tail_eq: Vec<&str> = tail.split('=').collect();
                 if tail_eq.len() <= 1 {
@@ -607,12 +607,12 @@ pub fn getopts(args: &[String], optgrps: &[OptGroup]) -> Result {
                 name_pos += 1;
                 let optid = match find_opt(opts.as_slice(), (*nm).clone()) {
                   Some(id) => id,
-                  None => return Err(UnrecognizedOption(nm.to_str()))
+                  None => return Err(UnrecognizedOption(nm.to_string()))
                 };
                 match opts.get(optid).hasarg {
                   No => {
                     if !i_arg.is_none() {
-                        return Err(UnexpectedArgument(nm.to_str()));
+                        return Err(UnexpectedArgument(nm.to_string()));
                     }
                     vals.get_mut(optid).push(Given);
                   }
@@ -633,7 +633,7 @@ pub fn getopts(args: &[String], optgrps: &[OptGroup]) -> Result {
                     if !i_arg.is_none() {
                         vals.get_mut(optid).push(Val(i_arg.clone().unwrap()));
                     } else if i + 1 == l {
-                        return Err(ArgumentMissing(nm.to_str()));
+                        return Err(ArgumentMissing(nm.to_string()));
                     } else {
                         i += 1;
                         vals.get_mut(optid).push(Val(args[i].clone()));
@@ -650,12 +650,12 @@ pub fn getopts(args: &[String], optgrps: &[OptGroup]) -> Result {
         let occ = opts.get(i).occur;
         if occ == Req {
             if n == 0 {
-                return Err(OptionMissing(opts.get(i).name.to_str()));
+                return Err(OptionMissing(opts.get(i).name.to_string()));
             }
         }
         if occ != Multi {
             if n > 1 {
-                return Err(OptionDuplicated(opts.get(i).name.to_str()));
+                return Err(OptionDuplicated(opts.get(i).name.to_string()));
             }
         }
         i += 1;
@@ -894,7 +894,7 @@ fn each_split_within<'a>(ss: &'a str, lim: uint, it: |&'a str| -> bool)
         *cont
     };
 
-    ss.char_indices().advance(|x| machine(&mut cont, x));
+    ss.char_indices().all(|x| machine(&mut cont, x));
 
     // Let the automaton 'run out' by supplying trailing whitespace
     while cont && match state { B | C => true, A => false } {

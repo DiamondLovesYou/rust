@@ -13,12 +13,61 @@
 //! This module implements the `Any` trait, which enables dynamic typing
 //! of any `'static` type through runtime reflection.
 //!
-//! `Any` itself can be used to get a `TypeId`, and has more features when used as a trait object.
-//! As `&Any` (a borrowed trait object), it has the `is` and `as_ref` methods, to test if the
-//! contained value is of a given type, and to get a reference to the inner value as a type. As
-//! `&mut Any`, there is also the `as_mut` method, for getting a mutable reference to the inner
-//! value. `Box<Any>` adds the `move` method, which will unwrap a `Box<T>` from the object.  See
-//! the extension traits (`*Ext`) for the full details.
+//! `Any` itself can be used to get a `TypeId`, and has more features when used
+//! as a trait object. As `&Any` (a borrowed trait object), it has the `is` and
+//! `as_ref` methods, to test if the contained value is of a given type, and to
+//! get a reference to the inner value as a type. As`&mut Any`, there is also
+//! the `as_mut` method, for getting a mutable reference to the inner value.
+//! `Box<Any>` adds the `move` method, which will unwrap a `Box<T>` from the
+//! object.  See the extension traits (`*Ext`) for the full details.
+//!
+//! Note that &Any is limited to testing whether a value is of a specified
+//! concrete type, and cannot be used to test whether a type implements a trait.
+//!
+//! # Examples
+//!
+//! Consider a situation where we want to log out a value passed to a function.
+//! We know the value we're working on implements Show, but we don't know its
+//! concrete type.  We want to give special treatment to certain types: in this
+//! case printing out the length of String values prior to their value.
+//! We don't know the concrete type of our value at compile time, so we need to
+//! use runtime reflection instead.
+//!
+//! ```rust
+//! use std::fmt::Show;
+//! use std::any::{Any, AnyRefExt};
+//!
+//! // Logger function for any type that implements Show.
+//! fn log<T: Any+Show>(value: &T) {
+//!     let value_any = value as &Any;
+//!
+//!     // try to convert our value to a String.  If successful, we want to
+//!     // output the String's length as well as its value.  If not, it's a
+//!     // different type: just print it out unadorned.
+//!     match value_any.as_ref::<String>() {
+//!         Some(as_string) => {
+//!             println!("String ({}): {}", as_string.len(), as_string);
+//!         }
+//!         None => {
+//!             println!("{}", value);
+//!         }
+//!     }
+//! }
+//!
+//! // This function wants to log its parameter out prior to doing work with it.
+//! fn do_work<T: Show>(value: &T) {
+//!     log(value);
+//!     // ...do some other work
+//! }
+//!
+//! fn main() {
+//!     let my_string = "Hello World".to_string();
+//!     do_work(&my_string);
+//!
+//!     let my_i8: i8 = 100;
+//!     do_work(&my_i8);
+//! }
+//! ```
 
 use mem::{transmute, transmute_copy};
 use option::{Option, Some, None};
@@ -113,181 +162,5 @@ impl<'a> AnyMutRefExt<'a> for &'a mut Any {
         } else {
             None
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use prelude::*;
-    use super::*;
-    use realstd::owned::{Box, AnyOwnExt};
-    use realstd::str::Str;
-
-    #[deriving(PartialEq, Show)]
-    struct Test;
-
-    static TEST: &'static str = "Test";
-
-    #[test]
-    fn any_referenced() {
-        let (a, b, c) = (&5u as &Any, &TEST as &Any, &Test as &Any);
-
-        assert!(a.is::<uint>());
-        assert!(!b.is::<uint>());
-        assert!(!c.is::<uint>());
-
-        assert!(!a.is::<&'static str>());
-        assert!(b.is::<&'static str>());
-        assert!(!c.is::<&'static str>());
-
-        assert!(!a.is::<Test>());
-        assert!(!b.is::<Test>());
-        assert!(c.is::<Test>());
-    }
-
-    #[test]
-    fn any_owning() {
-        let (a, b, c) = (box 5u as Box<Any>, box TEST as Box<Any>, box Test as Box<Any>);
-
-        assert!(a.is::<uint>());
-        assert!(!b.is::<uint>());
-        assert!(!c.is::<uint>());
-
-        assert!(!a.is::<&'static str>());
-        assert!(b.is::<&'static str>());
-        assert!(!c.is::<&'static str>());
-
-        assert!(!a.is::<Test>());
-        assert!(!b.is::<Test>());
-        assert!(c.is::<Test>());
-    }
-
-    #[test]
-    fn any_as_ref() {
-        let a = &5u as &Any;
-
-        match a.as_ref::<uint>() {
-            Some(&5) => {}
-            x => fail!("Unexpected value {}", x)
-        }
-
-        match a.as_ref::<Test>() {
-            None => {}
-            x => fail!("Unexpected value {}", x)
-        }
-    }
-
-    #[test]
-    fn any_as_mut() {
-        let mut a = 5u;
-        let mut b = box 7u;
-
-        let a_r = &mut a as &mut Any;
-        let tmp: &mut uint = &mut *b;
-        let b_r = tmp as &mut Any;
-
-        match a_r.as_mut::<uint>() {
-            Some(x) => {
-                assert_eq!(*x, 5u);
-                *x = 612;
-            }
-            x => fail!("Unexpected value {}", x)
-        }
-
-        match b_r.as_mut::<uint>() {
-            Some(x) => {
-                assert_eq!(*x, 7u);
-                *x = 413;
-            }
-            x => fail!("Unexpected value {}", x)
-        }
-
-        match a_r.as_mut::<Test>() {
-            None => (),
-            x => fail!("Unexpected value {}", x)
-        }
-
-        match b_r.as_mut::<Test>() {
-            None => (),
-            x => fail!("Unexpected value {}", x)
-        }
-
-        match a_r.as_mut::<uint>() {
-            Some(&612) => {}
-            x => fail!("Unexpected value {}", x)
-        }
-
-        match b_r.as_mut::<uint>() {
-            Some(&413) => {}
-            x => fail!("Unexpected value {}", x)
-        }
-    }
-
-    #[test]
-    fn any_move() {
-        use realstd::any::Any;
-        use realstd::result::{Ok, Err};
-        let a = box 8u as Box<Any>;
-        let b = box Test as Box<Any>;
-
-        match a.move::<uint>() {
-            Ok(a) => { assert!(a == box 8u); }
-            Err(..) => fail!()
-        }
-        match b.move::<Test>() {
-            Ok(a) => { assert!(a == box Test); }
-            Err(..) => fail!()
-        }
-
-        let a = box 8u as Box<Any>;
-        let b = box Test as Box<Any>;
-
-        assert!(a.move::<Box<Test>>().is_err());
-        assert!(b.move::<Box<uint>>().is_err());
-    }
-
-    #[test]
-    fn test_show() {
-        use realstd::to_str::ToStr;
-        let a = box 8u as Box<::realstd::any::Any>;
-        let b = box Test as Box<::realstd::any::Any>;
-        let a_str = a.to_str();
-        let b_str = b.to_str();
-        assert_eq!(a_str.as_slice(), "Box<Any>");
-        assert_eq!(b_str.as_slice(), "Box<Any>");
-
-        let a = &8u as &Any;
-        let b = &Test as &Any;
-        let s = format!("{}", a);
-        assert_eq!(s.as_slice(), "&Any");
-        let s = format!("{}", b);
-        assert_eq!(s.as_slice(), "&Any");
-    }
-
-    #[test]
-    fn any_fixed_vec() {
-        let test = [0u, ..8];
-        let test = &test as &Any;
-        assert!(test.is::<[uint, ..8]>());
-        assert!(!test.is::<[uint, ..10]>());
-    }
-}
-
-#[cfg(test)]
-mod bench {
-    extern crate test;
-
-    use any::{Any, AnyRefExt};
-    use option::Some;
-    use self::test::Bencher;
-
-    #[bench]
-    fn bench_as_ref(b: &mut Bencher) {
-        b.iter(|| {
-            let mut x = 0i;
-            let mut y = &mut x as &mut Any;
-            test::black_box(&mut y);
-            test::black_box(y.as_ref::<int>() == Some(&0));
-        });
     }
 }

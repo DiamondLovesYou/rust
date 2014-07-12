@@ -16,7 +16,6 @@ use ast;
 use codemap::Span;
 use ext::base;
 use ext::base::*;
-use parse;
 use parse::token::InternedString;
 use parse::token;
 
@@ -48,12 +47,7 @@ static OPTIONS: &'static [&'static str] = &["volatile", "alignstack", "intel"];
 
 pub fn expand_asm(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
                   -> Box<base::MacResult> {
-    let mut p = parse::new_parser_from_tts(cx.parse_sess(),
-                                           cx.cfg(),
-                                           tts.iter()
-                                              .map(|x| (*x).clone())
-                                              .collect());
-
+    let mut p = cx.new_parser_from_tts(tts);
     let mut asm = InternedString::new("");
     let mut asm_str_style = None;
     let mut outputs = Vec::new();
@@ -70,7 +64,7 @@ pub fn expand_asm(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
     'statement: loop {
         match state {
             Asm => {
-                let (s, style) = match expr_to_str(cx, p.parse_expr(),
+                let (s, style) = match expr_to_string(cx, p.parse_expr(),
                                                    "inline assembly must be a string literal.") {
                     Some((s, st)) => (s, st),
                     // let compilation continue
@@ -211,7 +205,7 @@ pub fn expand_asm(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
     // Append an input operand, with the form of ("0", expr)
     // that links to an output operand.
     for &(i, out) in read_write_operands.iter() {
-        inputs.push((token::intern_and_get_ident(i.to_str().as_slice()),
+        inputs.push((token::intern_and_get_ident(i.to_string().as_slice()),
                                                  out));
     }
 

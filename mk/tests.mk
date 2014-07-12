@@ -14,7 +14,12 @@
 ######################################################################
 
 # The names of crates that must be tested
-TEST_TARGET_CRATES = $(TARGET_CRATES)
+
+# libcore/libunicode tests are in a separate crate
+DEPS_coretest :=
+$(eval $(call RUST_CRATE,coretest))
+
+TEST_TARGET_CRATES = $(filter-out core unicode,$(TARGET_CRATES)) coretest
 TEST_DOC_CRATES = $(DOC_CRATES)
 TEST_HOST_CRATES = $(HOST_CRATES)
 TEST_CRATES = $(TEST_TARGET_CRATES) $(TEST_HOST_CRATES)
@@ -166,13 +171,13 @@ endif
 # Main test targets
 ######################################################################
 
-check: cleantmptestlogs cleantestlibs tidy check-notidy
+check: cleantmptestlogs cleantestlibs check-notidy tidy
 
 check-notidy: cleantmptestlogs cleantestlibs all check-stage2
 	$(Q)$(CFG_PYTHON) $(S)src/etc/check-summary.py tmp/*.log
 
 check-lite: cleantestlibs cleantmptestlogs \
-	$(foreach crate,$(TARGET_CRATES),check-stage2-$(crate)) \
+	$(foreach crate,$(TEST_TARGET_CRATES),check-stage2-$(crate)) \
 	check-stage2-rpass \
 	check-stage2-rfail check-stage2-cfail check-stage2-rmake
 	$(Q)$(CFG_PYTHON) $(S)src/etc/check-summary.py tmp/*.log

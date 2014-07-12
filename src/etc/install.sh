@@ -35,6 +35,13 @@ need_ok() {
     fi
 }
 
+need_cmd() {
+    if command -v $1 >/dev/null 2>&1
+    then msg "found $1"
+    else err "need $1"
+    fi
+}
+
 putvar() {
     local T
     eval T=\$$1
@@ -198,7 +205,16 @@ absolutify() {
     ABSOLUTIFIED="${FILE_PATH}"
 }
 
-CFG_SRC_DIR="$(cd $(dirname $0) && pwd)/"
+msg "looking for install programs"
+need_cmd mkdir
+need_cmd printf
+need_cmd cut
+need_cmd grep
+need_cmd uname
+need_cmd tr
+need_cmd sed
+
+CFG_SRC_DIR="$(cd $(dirname $0) && pwd)"
 CFG_SELF="$0"
 CFG_ARGS="$@"
 
@@ -216,16 +232,78 @@ else
     step_msg "processing $CFG_SELF args"
 fi
 
+# Check for mingw or cygwin in order to special case $CFG_LIBDIR_RELATIVE.
+# This logic is duplicated from configure in order to get the correct libdir
+# for Windows installs.
+CFG_OSTYPE=$(uname -s)
+
+case $CFG_OSTYPE in
+
+    MINGW32*)
+        CFG_OSTYPE=pc-mingw32
+        ;;
+
+    MINGW64*)
+        # msys2, MSYSTEM=MINGW64
+        CFG_OSTYPE=w64-mingw32
+        ;;
+
+# Thad's Cygwin identifers below
+
+#   Vista 32 bit
+    CYGWIN_NT-6.0)
+        CFG_OSTYPE=pc-mingw32
+        ;;
+
+#   Vista 64 bit
+    CYGWIN_NT-6.0-WOW64)
+        CFG_OSTYPE=w64-mingw32
+        ;;
+
+#   Win 7 32 bit
+    CYGWIN_NT-6.1)
+        CFG_OSTYPE=pc-mingw32
+        ;;
+
+#   Win 7 64 bit
+    CYGWIN_NT-6.1-WOW64)
+        CFG_OSTYPE=w64-mingw32
+        ;;
+esac
+
 OPTIONS=""
 BOOL_OPTIONS=""
 VAL_OPTIONS=""
+
+# On windows we just store the libraries in the bin directory because
+# there's no rpath. This is where the build system itself puts libraries;
+# --libdir is used to configure the installation directory.
+# FIXME: Thise needs to parameterized over target triples. Do it in platform.mk
+CFG_LIBDIR_RELATIVE=lib
+if [ "$CFG_OSTYPE" = "pc-mingw32" ] || [ "$CFG_OSTYPE" = "w64-mingw32" ]
+then
+    CFG_LIBDIR_RELATIVE=bin
+fi
+
+if [ "$CFG_OSTYPE" = "pc-mingw32" ] || [ "$CFG_OSTYPE" = "w64-mingw32" ]
+then
+    CFG_LD_PATH_VAR=PATH
+    CFG_OLD_LD_PATH_VAR=$PATH
+elif [ "$CFG_OSTYPE" = "Darwin" ]
+then
+    CFG_LD_PATH_VAR=DYLD_LIBRARY_PATH
+    CFG_OLD_LD_PATH_VAR=$DYLD_LIBRARY_PATH
+else
+    CFG_LD_PATH_VAR=LD_LIBRARY_PATH
+    CFG_OLD_LD_PATH_VAR=$LD_LIBRARY_PATH
+fi
 
 flag uninstall "only uninstall from the installation prefix"
 opt verify 1 "verify that the installed binaries run correctly"
 valopt prefix "/usr/local" "set installation prefix"
 # NB This isn't quite the same definition as in `configure`.
 # just using 'lib' instead of CFG_LIBDIR_RELATIVE
-valopt libdir "${CFG_PREFIX}/lib" "install libraries"
+valopt libdir "${CFG_PREFIX}/${CFG_LIBDIR_RELATIVE}" "install libraries"
 valopt mandir "${CFG_PREFIX}/share/man" "install man pages in PATH"
 
 if [ $HELP -eq 1 ]
@@ -247,11 +325,13 @@ then
     if [ -z "${CFG_UNINSTALL}" ]
     then
         msg "verifying platform can run binaries"
+        export $CFG_LD_PATH_VAR="${CFG_SRC_DIR}/lib":$CFG_OLD_LD_PATH_VAR
         "${CFG_SRC_DIR}/bin/rustc" --version > /dev/null
         if [ $? -ne 0 ]
         then
             err "can't execute rustc binary on this platform"
         fi
+        export $CFG_LD_PATH_VAR=$CFG_OLD_LD_PATH_VAR
     fi
 fi
 
@@ -384,20 +464,34 @@ while read p; do
     need_ok "failed to update manifest"
 
 # The manifest lists all files to install
-done < "${CFG_SRC_DIR}/lib/rustlib/manifest.in"
+done < "${CFG_SRC_DIR}/${CFG_LIBDIR_RELATIVE}/rustlib/manifest.in"
 
 # Sanity check: can we run the installed binaries?
+#
+# As with the verification above, make sure the right LD_LIBRARY_PATH-equivalent
+# is in place. Try first without this variable, and if that fails try again with
+# the variable. If the second time tries, print a hopefully helpful message to
+# add something to the appropriate environment variable.
 if [ -z "${CFG_DISABLE_VERIFY}" ]
 then
     msg "verifying installed binaries are executable"
-    "${CFG_PREFIX}/bin/rustc" --version > /dev/null
+    "${CFG_PREFIX}/bin/rustc" --version 2> /dev/null 1> /dev/null
     if [ $? -ne 0 ]
     then
-        ERR="can't execute installed rustc binary. "
-        ERR="${ERR}installation may be broken. "
-        ERR="${ERR}if this is expected then rerun install.sh with \`--disable-verify\` "
-        ERR="${ERR}or \`make install\` with \`--disable-verify-install\`"
-        err "${ERR}"
+        export $CFG_LD_PATH_VAR="${CFG_PREFIX}/lib":$CFG_OLD_LD_PATH_VAR
+        "${CFG_PREFIX}/bin/rustc" --version > /dev/null
+        if [ $? -ne 0 ]
+        then
+            ERR="can't execute installed rustc binary. "
+            ERR="${ERR}installation may be broken. "
+            ERR="${ERR}if this is expected then rerun install.sh with \`--disable-verify\` "
+            ERR="${ERR}or \`make install\` with \`--disable-verify-install\`"
+            err "${ERR}"
+        else
+            echo
+            echo "    please ensure '${CFG_PREFIX}/lib' is added to ${CFG_LD_PATH_VAR}"
+            echo
+        fi
     fi
 fi
 
