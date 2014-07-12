@@ -449,6 +449,111 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             process.signal_kill().unwrap();
         }
 
+        _ if config.targeting_nacl() => {
+            use std::os::consts::ARCH;
+            use std::os::make_absolute;
+
+            let arch_prefix = match ARCH {
+                "x86" => "i686",
+                _ => ARCH,
+            };
+            #[cfg(windows)]
+            fn gdb_suffix() -> &'static str { ".exe" }
+            #[cfg(unix)]
+            fn gdb_suffix() -> &'static str { "" }
+
+            let gdb = format!("{}-nacl-gdb{}", arch_prefix, gdb_suffix());
+
+            let mut sel_ldr_process = match pnacl_exec_compiled_test(config,
+                                                                     props,
+                                                                     testfile,
+                                                                     props.exec_env.clone(),
+                                                                     true) {
+                ProcResResult(_) => unreachable!(),
+                ProcessResult(p) => p,
+            };
+
+            cmds = cmds.replace("run", "continue").to_string();
+
+            let pexe_path = make_absolute(&output_base_name(config, testfile));
+            let nexe_path =
+                // add an extension, don't replace it:
+                Path::new(format!("{}.nexe",pexe_path.display().to_str()));
+
+            // write debugger script
+            let script_str = [
+                "set charset UTF-8".to_string(),
+                format!("file {}", nexe_path.display().to_str().to_string()),
+                "target remote :4014".to_string(),
+                cmds,
+                "quit\n".to_string()
+            ].connect("\n");
+            debug!("script_str = {}", script_str);
+            dump_output_file(config,
+                             testfile,
+                             script_str.as_slice(),
+                             "debugger.script");
+
+            let cross_path = config.nacl_cross_path
+                .clone()
+                .expect("need the NaCl SDK path!");
+            let gdb_path = cross_path.join_many(["toolchain".to_string(),
+                                                 {
+                                                     let mut s = pnacl_toolchain_prefix();
+                                                     s.push_str("_x86_newlib");
+                                                     s
+                                                 },
+                                                 "bin".to_string(),
+                                                 gdb.clone()]);
+
+            loop {
+                // wait for a quarter second for sel_ldr to start
+                timer::sleep(250);
+                let result = task::try(proc() {
+                    tcp::TcpStream::connect("127.0.0.1", 4014).unwrap();
+                });
+                if result.is_err() {
+                    continue;
+                }
+                break;
+            }
+
+            let debugger_script = make_out_name(config, testfile, "debugger.script");
+            // FIXME (#9639): This needs to handle non-utf8 paths
+            let debugger_opts =
+                vec!("-quiet".to_string(),
+                     "-batch".to_string(),
+                     "-nx".to_string(),
+                     format!("-command={}", debugger_script.as_str().unwrap()));
+
+            let procsrv::Result {
+                out,
+                err,
+                status
+            } = procsrv::run("",
+                             gdb_path.display().to_str().as_slice(),
+                             None,
+                             debugger_opts.as_slice(),
+                             vec!(("".to_string(), "".to_string())),
+                             None)
+                .expect(format!("failed to exec `{}`", gdb_path.display()).as_slice());
+            let cmdline = {
+                let cmdline = make_cmdline("",
+                                           gdb.as_slice(),
+                                           debugger_opts.as_slice());
+                logv(config, format!("executing {}", cmdline));
+                cmdline
+            };
+
+            debugger_run_result = ProcRes {
+                status: status,
+                stdout: out,
+                stderr: err,
+                cmdline: cmdline
+            };
+            sel_ldr_process.signal_kill().unwrap();
+        }
+
         _=> {
             // write debugger script
             let script_str = [
