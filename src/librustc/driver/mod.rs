@@ -330,6 +330,9 @@ fn print_crate_info(sess: &Session,
             let metadata = driver::collect_crate_metadata(sess, attrs.as_slice());
             *sess.crate_metadata.borrow_mut() = metadata;
             for &style in crate_types.iter() {
+                if sess.targeting_pnacl() && style == config::CrateTypeDylib {
+                    continue;
+                }
                 let fname = link::filename_for_input(sess, style, id.as_slice(),
                                                      &t_outputs.with_extension(""));
                 println!("{}", fname.filename_display());
