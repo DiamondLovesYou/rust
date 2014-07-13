@@ -1193,10 +1193,6 @@ fn link_pnacl_rlib(sess: &Session,
                             single_output_file: None,
                         };
 
-                        unsafe {
-                            llvm::LLVMRustStripDebugInfo(llmod);
-                        }
-
                         // Some globals in the bitcode from PNaCl have what is
                         // considered invalid linkage in our LLVM (their LLVM is
                         // old). Fortunately, all linkage types get stripped later, so
