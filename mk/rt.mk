@@ -340,10 +340,10 @@ else
 $$(JEMALLOC_LIB_$(1)): $$(JEMALLOC_LOCAL_$(1))
 	$$(Q)cp $$< $$@
 endif
-endif
 else
 $$(JEMALLOC_LIB_$(1)): $$(MKFILE_DEPS)
 	$$(Q)touch $$@
+endif
 endif
 
 ################################################################################
