@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use back::target_strs;
+use target_strs;
 use syntax::abi;
 use std::vec::Vec;
 

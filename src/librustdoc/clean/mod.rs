@@ -695,29 +695,30 @@ pub struct Method {
 
 impl Clean<Item> for ast::Method {
     fn clean(&self) -> Item {
-        let inputs = match self.explicit_self.node {
-            ast::SelfStatic => self.decl.inputs.as_slice(),
-            _ => self.decl.inputs.slice_from(1)
+        let fn_decl = ast_util::method_fn_decl(self);
+        let inputs = match ast_util::method_explicit_self(self).node {
+            ast::SelfStatic => fn_decl.inputs.as_slice(),
+            _ => fn_decl.inputs.slice_from(1)
         };
         let decl = FnDecl {
             inputs: Arguments {
                 values: inputs.iter().map(|x| x.clean()).collect(),
             },
-            output: (self.decl.output.clean()),
-            cf: self.decl.cf.clean(),
+            output: (fn_decl.output.clean()),
+            cf: fn_decl.cf.clean(),
             attrs: Vec::new()
         };
         Item {
-            name: Some(self.ident.clean()),
+            name: Some(ast_util::method_ident(self).clean()),
             attrs: self.attrs.clean().move_iter().collect(),
             source: self.span.clean(),
             def_id: ast_util::local_def(self.id),
-            visibility: self.vis.clean(),
+            visibility: ast_util::method_vis(self).clean(),
             stability: get_stability(ast_util::local_def(self.id)),
             inner: MethodItem(Method {
-                generics: self.generics.clean(),
-                self_: self.explicit_self.node.clean(),
-                fn_style: self.fn_style.clone(),
+                generics: ast_util::method_generics(self).clean(),
+                self_: ast_util::method_explicit_self(self).node.clean(),
+                fn_style: ast_util::method_fn_style(self).clone(),
                 decl: decl,
             }),
         }
@@ -1951,9 +1952,16 @@ fn name_from_pat(p: &ast::Pat) -> String {
         PatWildMulti => "..".to_string(),
         PatIdent(_, ref p, _) => token::get_ident(p.node).get().to_string(),
         PatEnum(ref p, _) => path_to_string(p),
-        PatStruct(..) => fail!("tried to get argument name from pat_struct, \
-                                which is not allowed in function arguments"),
-        PatTup(..) => "(tuple arg NYI)".to_string(),
+        PatStruct(ref name, ref fields, etc) => {
+            format!("{} {{ {}{} }}", path_to_string(name),
+                fields.iter().map(|fp|
+                                  format!("{}: {}", fp.ident.as_str(), name_from_pat(&*fp.pat)))
+                             .collect::<Vec<String>>().connect(", "),
+                if etc { ", ..." } else { "" }
+            )
+        },
+        PatTup(ref elts) => format!("({})", elts.iter().map(|p| name_from_pat(&**p))
+                                            .collect::<Vec<String>>().connect(", ")),
         PatBox(p) => name_from_pat(&*p),
         PatRegion(p) => name_from_pat(&*p),
         PatLit(..) => {

@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use back::archive::ArchiveRO;
-use back::link;
+use super::link;
 use driver::session;
 use driver::config;
-use driver::session::Session;
-use lib::llvm::{ModuleRef, TargetMachineRef, llvm, False, True, PassManagerRef};
+use llvm;
+use llvm::archive_ro::ArchiveRO;
+use llvm::{ModuleRef, TargetMachineRef, False, True, PassManagerRef};
 use metadata::cstore;
 use util::common::time;
 
@@ -112,7 +112,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
     run_passes(sess, llmod, tm, |_| (), |_| ());
 }
 
-pub fn run_passes(sess: &Session,
+pub fn run_passes(sess: &session::Session,
                   llmod: ModuleRef,
                   tm: TargetMachineRef,
                   pre: |PassManagerRef|,

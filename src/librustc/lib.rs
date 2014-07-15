@@ -26,7 +26,7 @@ This API is completely unstable and subject to change.
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-      html_root_url = "http://doc.rust-lang.org/0.11.0/")]
+      html_root_url = "http://doc.rust-lang.org/master/")]
 
 #![allow(deprecated)]
 #![feature(macro_rules, globs, struct_variant, managed_boxes, quote)]
@@ -41,12 +41,32 @@ extern crate flate;
 extern crate getopts;
 extern crate graphviz;
 extern crate libc;
+extern crate llvm = "rustc_llvm";
+extern crate rustc_back = "rustc_back";
 extern crate serialize;
 extern crate time;
 #[phase(plugin, link)] extern crate log;
 #[phase(plugin, link)] extern crate syntax;
 
 mod diagnostics;
+
+pub mod back {
+    pub use rustc_back::abi;
+    pub use rustc_back::archive;
+    pub use rustc_back::arm;
+    pub use rustc_back::le32;
+    pub use rustc_back::mips;
+    pub use rustc_back::mipsel;
+    pub use rustc_back::rpath;
+    pub use rustc_back::svh;
+    pub use rustc_back::target_strs;
+    pub use rustc_back::x86;
+    pub use rustc_back::x86_64;
+
+    pub mod link;
+    pub mod lto;
+
+}
 
 pub mod middle {
     pub mod def;
@@ -96,22 +116,6 @@ pub mod front {
     pub mod show_span;
 }
 
-pub mod back {
-    pub mod abi;
-    pub mod archive;
-    pub mod arm;
-    pub mod le32;
-    pub mod link;
-    pub mod lto;
-    pub mod mips;
-    pub mod mipsel;
-    pub mod rpath;
-    pub mod svh;
-    pub mod target_strs;
-    pub mod x86;
-    pub mod x86_64;
-}
-
 pub mod metadata;
 
 pub mod driver;
@@ -121,16 +125,16 @@ pub mod plugin;
 pub mod lint;
 
 pub mod util {
+    pub use rustc_back::fs;
+    pub use rustc_back::sha2;
+
     pub mod common;
     pub mod ppaux;
-    pub mod sha2;
     pub mod nodemap;
-    pub mod fs;
 }
 
 pub mod lib {
-    pub mod llvm;
-    pub mod llvmdeps;
+    pub use llvm;
 }
 
 __build_diagnostic_array!(DIAGNOSTICS)

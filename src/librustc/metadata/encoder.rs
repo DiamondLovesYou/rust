@@ -799,7 +799,7 @@ fn encode_info_for_method(ecx: &EncodeContext,
         } else {
             encode_symbol(ecx, ebml_w, m.def_id.node);
         }
-        encode_method_argument_names(ebml_w, &*ast_method.decl);
+        encode_method_argument_names(ebml_w, method_fn_decl(&*ast_method));
     }
 
     ebml_w.end_tag();
@@ -1241,7 +1241,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
                     encode_method_sort(ebml_w, 'p');
                     encode_inlined_item(ecx, ebml_w,
                                         IIMethodRef(def_id, true, &*m));
-                    encode_method_argument_names(ebml_w, &*m.decl);
+                    encode_method_argument_names(ebml_w, method_fn_decl(m));
                 }
             }
 
@@ -1588,37 +1588,25 @@ fn encode_plugin_registrar_fn(ecx: &EncodeContext, ebml_w: &mut Encoder) {
     }
 }
 
-struct MacroDefVisitor<'a, 'b, 'c> {
-    ecx: &'a EncodeContext<'b>,
-    ebml_w: &'a mut Encoder<'c>
+/// Given a span, write the text of that span into the output stream
+/// as an exported macro
+fn encode_macro_def(ecx: &EncodeContext,
+                    ebml_w: &mut Encoder,
+                    span: &syntax::codemap::Span) {
+    let def = ecx.tcx.sess.codemap().span_to_snippet(*span)
+        .expect("Unable to find source for macro");
+    ebml_w.start_tag(tag_macro_def);
+    ebml_w.wr_str(def.as_slice());
+    ebml_w.end_tag();
 }
 
-impl<'a, 'b, 'c> Visitor<()> for MacroDefVisitor<'a, 'b, 'c> {
-    fn visit_item(&mut self, item: &Item, _: ()) {
-        match item.node {
-            ItemMac(..) => {
-                let def = self.ecx.tcx.sess.codemap().span_to_snippet(item.span)
-                    .expect("Unable to find source for macro");
-                self.ebml_w.start_tag(tag_macro_def);
-                self.ebml_w.wr_str(def.as_slice());
-                self.ebml_w.end_tag();
-            }
-            _ => {}
-        }
-        visit::walk_item(self, item, ());
-    }
-}
-
-fn encode_macro_defs<'a>(ecx: &'a EncodeContext,
-                         krate: &Crate,
-                         ebml_w: &'a mut Encoder) {
+/// Serialize the text of the exported macros
+fn encode_macro_defs(ecx: &EncodeContext,
+                     krate: &Crate,
+                     ebml_w: &mut Encoder) {
     ebml_w.start_tag(tag_exported_macros);
-    {
-        let mut visitor = MacroDefVisitor {
-            ecx: ecx,
-            ebml_w: ebml_w,
-        };
-        visit::walk_crate(&mut visitor, krate, ());
+    for span in krate.exported_macros.iter() {
+        encode_macro_def(ecx, ebml_w, span);
     }
     ebml_w.end_tag();
 }

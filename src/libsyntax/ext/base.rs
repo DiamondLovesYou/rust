@@ -48,7 +48,8 @@ pub struct BasicMacroExpander {
     pub span: Option<Span>
 }
 
-pub trait MacroExpander {
+/// Represents a thing that maps token trees to Macro Results
+pub trait TTMacroExpander {
     fn expand(&self,
               ecx: &mut ExtCtxt,
               span: Span,
@@ -60,7 +61,7 @@ pub type MacroExpanderFn =
     fn(ecx: &mut ExtCtxt, span: codemap::Span, token_tree: &[ast::TokenTree])
        -> Box<MacResult>;
 
-impl MacroExpander for BasicMacroExpander {
+impl TTMacroExpander for BasicMacroExpander {
     fn expand(&self,
               ecx: &mut ExtCtxt,
               span: Span,
@@ -103,6 +104,9 @@ pub type IdentMacroExpanderFn =
 /// just into the compiler's internal macro table, for `make_def`).
 pub trait MacResult {
     /// Define a new macro.
+    // this should go away; the idea that a macro might expand into
+    // either a macro definition or an expression, depending on what
+    // the context wants, is kind of silly.
     fn make_def(&self) -> Option<MacroDef> {
         None
     }
@@ -114,6 +118,12 @@ pub trait MacResult {
     fn make_items(&self) -> Option<SmallVector<Gc<ast::Item>>> {
         None
     }
+
+    /// Create zero or more methods.
+    fn make_methods(&self) -> Option<SmallVector<Gc<ast::Method>>> {
+        None
+    }
+
     /// Create a pattern.
     fn make_pat(&self) -> Option<Gc<ast::Pat>> {
         None
@@ -221,6 +231,7 @@ impl DummyResult {
             span: sp,
         }
     }
+
 }
 
 impl MacResult for DummyResult {
@@ -231,6 +242,14 @@ impl MacResult for DummyResult {
         Some(DummyResult::raw_pat(self.span))
     }
     fn make_items(&self) -> Option<SmallVector<Gc<ast::Item>>> {
+        // this code needs a comment... why not always just return the Some() ?
+        if self.expr_only {
+            None
+        } else {
+            Some(SmallVector::zero())
+        }
+    }
+    fn make_methods(&self) -> Option<SmallVector<Gc<ast::Method>>> {
         if self.expr_only {
             None
         } else {
@@ -259,7 +278,7 @@ pub enum SyntaxExtension {
     /// A normal, function-like syntax extension.
     ///
     /// `bytes!` is a `NormalTT`.
-    NormalTT(Box<MacroExpander + 'static>, Option<Span>),
+    NormalTT(Box<TTMacroExpander + 'static>, Option<Span>),
 
     /// A function-like syntax extension that has an extra ident before
     /// the block.
@@ -409,6 +428,7 @@ pub struct ExtCtxt<'a> {
 
     pub mod_path: Vec<ast::Ident> ,
     pub trace_mac: bool,
+    pub exported_macros: Vec<codemap::Span>
 }
 
 impl<'a> ExtCtxt<'a> {
@@ -420,7 +440,8 @@ impl<'a> ExtCtxt<'a> {
             backtrace: None,
             mod_path: Vec::new(),
             ecfg: ecfg,
-            trace_mac: false
+            trace_mac: false,
+            exported_macros: Vec::new(),
         }
     }
 
@@ -537,6 +558,9 @@ impl<'a> ExtCtxt<'a> {
     }
     pub fn name_of(&self, st: &str) -> ast::Name {
         token::intern(st)
+    }
+    pub fn push_exported_macro(&mut self, span: codemap::Span) {
+        self.exported_macros.push(span);
     }
 }
 

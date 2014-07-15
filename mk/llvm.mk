@@ -70,7 +70,7 @@ $(foreach stage,1 2 3, \
  $(foreach host,$(CFG_HOST), \
   $(eval $(call DEF_LLVM_GOLD_RULES,$(stage),$(host)))))
 
-$(S)src/librustc/lib/llvmdeps.rs: \
+$(S)src/librustc_llvm/llvmdeps.rs: \
 		    $(LLVM_CONFIGS) \
 		    $(S)src/etc/mklldeps.py \
 		    $(MKFILE_DEPS)

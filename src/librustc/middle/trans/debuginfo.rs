@@ -180,9 +180,9 @@ seen before (which is most of the time). */
 
 use driver::config;
 use driver::config::{FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
-use lib::llvm::llvm;
-use lib::llvm::{ModuleRef, ContextRef, ValueRef};
-use lib::llvm::debuginfo::*;
+use llvm;
+use llvm::{ModuleRef, ContextRef, ValueRef};
+use llvm::debuginfo::*;
 use metadata::csearch;
 use middle::subst;
 use middle::trans::adt;
@@ -1141,10 +1141,10 @@ pub fn create_function_debug_context(cx: &CrateContext,
             }
         }
         ast_map::NodeMethod(ref method) => {
-            (method.ident,
-             method.decl,
-             &method.generics,
-             method.body,
+            (ast_util::method_ident(&**method),
+             ast_util::method_fn_decl(&**method),
+             ast_util::method_generics(&**method),
+             ast_util::method_body(&**method),
              method.span,
              true)
         }
@@ -1170,10 +1170,10 @@ pub fn create_function_debug_context(cx: &CrateContext,
         ast_map::NodeTraitMethod(ref trait_method) => {
             match **trait_method {
                 ast::Provided(ref method) => {
-                    (method.ident,
-                     method.decl,
-                     &method.generics,
-                     method.body,
+                    (ast_util::method_ident(&**method),
+                     ast_util::method_fn_decl(&**method),
+                     ast_util::method_generics(&**method),
+                     ast_util::method_body(&**method),
                      method.span,
                      true)
                 }

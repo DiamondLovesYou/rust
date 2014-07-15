@@ -10,73 +10,61 @@
 
 //! A helper class for dealing with static archives
 
-use back::link::{get_ar_prog};
-use driver::session::Session;
-use metadata::filesearch;
-use lib::llvm::{ArchiveRef, llvm};
-
-use libc;
 use std::io::process::{Command, ProcessOutput};
 use std::io::{fs, TempDir};
 use std::io;
-use std::mem;
 use std::os;
-use std::raw;
 use std::str;
 use syntax::abi;
+use ErrorHandler = syntax::diagnostic::Handler;
 
 pub static METADATA_FILENAME: &'static str = "rust.metadata.bin";
 
-pub struct Archive<'a> {
-    sess: &'a Session,
-    ar_prog: Path,
-    dst: Path,
-    gold_plugin: Option<Path>,
+pub struct ArchiveConfig<'a> {
+    pub handler: &'a ErrorHandler,
+    pub dst: Path,
+    pub lib_search_paths: Vec<Path>,
+    pub os: abi::Os,
+    pub gold_plugin: Option<Path>,
+    pub maybe_ar_prog: Option<String>
 }
 
-pub struct ArchiveRO {
-    ptr: ArchiveRef,
+pub struct Archive<'a> {
+    handler: &'a ErrorHandler,
+    dst: Path,
+    lib_search_paths: Vec<Path>,
+    os: abi::Os,
+    gold_plugin: Option<Path>,
+    maybe_ar_prog: Option<String>,
 }
 
 impl<'a> Archive<'a> {
     /// Initializes a new static archive with the given object file
-    pub fn create<'b>(sess: &'a Session, dst: &'b Path,
-                      initial_object: &'b Path) -> Archive<'a> {
-        let ar = get_ar_prog(sess);
+    pub fn create<'b>(config: ArchiveConfig<'a>, initial_object: &'b Path) -> Archive<'a> {
+        let ArchiveConfig { handler, dst, lib_search_paths, os, gold_plugin, maybe_ar_prog } = config;
         let archive = Archive {
-            sess: sess,
-            ar_prog: Path::new(ar),
+            handler: handler,
             dst: dst.clone(),
-            gold_plugin: None,
-        };
-        archive.run_ar("crus", None, [&archive.dst, initial_object]);
-        archive
-    }
-
-    pub fn new(sess: &'a Session,
-               ar: Path,
-               dst: Path,
-               initial_object: &Path,
-               gold_plugin: Option<Path>) -> Archive<'a> {
-        let archive = Archive {
-            sess: sess,
-            ar_prog: ar,
-            dst: dst,
+            lib_search_paths: lib_search_paths,
+            os: os,
             gold_plugin: gold_plugin,
+            maybe_ar_prog: maybe_ar_prog
         };
-        archive.run_ar("crus", None, [&archive.dst, initial_object]);
+        archive.run_ar("crus", None, [&dst, initial_object]);
         archive
     }
 
     /// Opens an existing static archive
-    pub fn open(sess: &'a Session, dst: Path) -> Archive<'a> {
+    pub fn open(config: ArchiveConfig<'a>) -> Archive<'a> {
+        let ArchiveConfig { handler, dst, lib_search_paths, os, gold_plugin, maybe_ar_prog } = config;
         assert!(dst.exists());
-        let ar = get_ar_prog(sess);
         Archive {
-            sess: sess,
-            ar_prog: Path::new(ar),
+            handler: handler,
             dst: dst,
-            gold_plugin: None,
+            lib_search_paths: lib_search_paths,
+            os: os,
+            gold_plugin: gold_plugin,
+            maybe_ar_prog: maybe_ar_prog
         }
     }
 
@@ -175,7 +163,7 @@ impl<'a> Archive<'a> {
     }
 
     fn find_library(&self, name: &str) -> Path {
-        let (osprefix, osext) = match self.sess.targ_cfg.os {
+        let (osprefix, osext) = match self.os {
             abi::OsWin32 => ("", "lib"), _ => ("lib", "a"),
         };
         // On Windows, static libraries sometimes show up as libfoo.a and other
@@ -183,10 +171,7 @@ impl<'a> Archive<'a> {
         let oslibname = format!("{}{}.{}", osprefix, name, osext);
         let unixlibname = format!("lib{}.a", name);
 
-        let mut rustpath = filesearch::rust_path();
-        rustpath.push(self.sess.target_filesearch().get_lib_path());
-        let search = self.sess.opts.addl_lib_search_paths.borrow();
-        for path in search.iter().chain(rustpath.iter()) {
+        for path in self.lib_search_paths.iter() {
             debug!("looking for {} inside {}", name, path.display());
             let test = path.join(oslibname.as_slice());
             if test.exists() { return test }
@@ -195,14 +180,18 @@ impl<'a> Archive<'a> {
                 if test.exists() { return test }
             }
         }
-        self.sess.fatal(format!("could not find native static library `{}`, \
+        self.handler.fatal(format!("could not find native static library `{}`, \
                                  perhaps an -L flag is missing?",
                                 name).as_slice());
     }
 
     fn run_ar(&self, args: &str, cwd: Option<&Path>,
               paths: &[&Path]) -> ProcessOutput {
-        let mut cmd = Command::new(&self.ar_prog);
+        let ar = match self.maybe_ar_prog {
+            Some(ref ar) => ar.as_slice(),
+            None => "ar"
+        };
+        let mut cmd = Command::new(ar);
 
         cmd.arg(args);
 
@@ -228,101 +217,27 @@ impl<'a> Archive<'a> {
             Ok(prog) => {
                 let o = prog.wait_with_output().unwrap();
                 if !o.status.success() {
-                    self.sess.err(format!("{} failed with: {}",
-                                     cmd,
-                                     o.status).as_slice());
-                    self.sess.note(format!("stdout ---\n{}",
-                                      str::from_utf8(o.output
-                                                     .as_slice()).unwrap())
-                              .as_slice());
-                    self.sess.note(format!("stderr ---\n{}",
-                                      str::from_utf8(o.error
-                                                     .as_slice()).unwrap())
-                              .as_slice());
-                    self.sess.abort_if_errors();
+                    self.handler.err(format!("{} failed with: {}",
+                                             cmd,
+                                             o.status).as_slice());
+                    self.handler.note(format!("stdout ---\n{}",
+                                              str::from_utf8(o.output
+                                                             .as_slice()).unwrap())
+                                      .as_slice());
+                    self.handler.note(format!("stderr ---\n{}",
+                                              str::from_utf8(o.error
+                                                             .as_slice()).unwrap())
+                                      .as_slice());
+                    self.handler.abort_if_errors();
                 }
                 o
             },
             Err(e) => {
-                self.sess.err(format!("could not exec `{}`: {}", self.ar_prog.display(),
-                                 e).as_slice());
-                self.sess.abort_if_errors();
+                self.handler.err(format!("could not exec `{}`: {}", ar.as_slice(),
+                                         e).as_slice());
+                self.handler.abort_if_errors();
                 fail!("rustc::back::archive::run_ar() should not reach this point");
             }
-        }
-    }
-}
-
-impl ArchiveRO {
-    /// Opens a static archive for read-only purposes. This is more optimized
-    /// than the `open` method because it uses LLVM's internal `Archive` class
-    /// rather than shelling out to `ar` for everything.
-    ///
-    /// If this archive is used with a mutable method, then an error will be
-    /// raised.
-    pub fn open(dst: &Path) -> Option<ArchiveRO> {
-        unsafe {
-            let ar = dst.with_c_str(|dst| {
-                llvm::LLVMRustOpenArchive(dst)
-            });
-            if ar.is_null() {
-                None
-            } else {
-                Some(ArchiveRO { ptr: ar })
-            }
-        }
-    }
-
-    /// Reads a file in the archive
-    pub fn read<'a>(&'a self, file: &str) -> Option<&'a [u8]> {
-        unsafe {
-            let mut size = 0 as libc::size_t;
-            let ptr = file.with_c_str(|file| {
-                llvm::LLVMRustArchiveReadSection(self.ptr, file, &mut size)
-            });
-            if ptr.is_null() {
-                None
-            } else {
-                Some(mem::transmute(raw::Slice {
-                    data: ptr,
-                    len: size as uint,
-                }))
-            }
-        }
-    }
-    // Reads every child, running f on each.
-    pub fn foreach_child(&self, f: |&str, &[u8]|) {
-        use std::mem::transmute;
-        extern "C" fn cb(name: *const libc::c_uchar,   name_len: libc::size_t,
-                         buffer: *const libc::c_uchar, buffer_len: libc::size_t,
-                         f: *mut libc::c_void) {
-            use std::str::from_utf8_lossy;
-            use std::slice::raw::buf_as_slice;
-            use std::mem::transmute_copy;
-            let f: &|&str, &[u8]| = unsafe { transmute(f) };
-            unsafe {
-                buf_as_slice(name as *const u8, name_len as uint, |name_buf| {
-                    let name = from_utf8_lossy(name_buf).into_owned();
-                    debug!("running f on `{}`", name);
-                    buf_as_slice(buffer, buffer_len as uint, |buf| {
-                        let f: |&str, &[u8]| = transmute_copy(f);
-                        f(name.as_slice(), buf);
-                    })
-                })
-            }
-        }
-        unsafe {
-            llvm::LLVMRustArchiveReadAllChildren(self.ptr,
-                                                 cb,
-                                                 transmute(&f));
-        }
-    }
-}
-
-impl Drop for ArchiveRO {
-    fn drop(&mut self) {
-        unsafe {
-            llvm::LLVMRustDestroyArchive(self.ptr);
         }
     }
 }

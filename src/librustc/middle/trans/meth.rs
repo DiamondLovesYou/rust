@@ -10,9 +10,8 @@
 
 
 use back::abi;
-use lib::llvm::llvm;
-use lib::llvm::ValueRef;
-use lib;
+use llvm;
+use llvm::ValueRef;
 use metadata::csearch;
 use middle::subst;
 use middle::trans::base::*;
@@ -38,7 +37,7 @@ use std::c_str::ToCStr;
 use std::gc::Gc;
 use syntax::abi::Rust;
 use syntax::parse::token;
-use syntax::{ast, ast_map, visit};
+use syntax::{ast, ast_map, visit, ast_util};
 
 /**
 The main "translation" pass for methods.  Generates code
@@ -66,9 +65,10 @@ pub fn trans_impl(ccx: &CrateContext,
         return;
     }
     for method in methods.iter() {
-        if method.generics.ty_params.len() == 0u {
+        if ast_util::method_generics(&**method).ty_params.len() == 0u {
             let llfn = get_item_val(ccx, method.id);
-            trans_fn(ccx, &*method.decl, &*method.body,
+            trans_fn(ccx, ast_util::method_fn_decl(&**method),
+                     ast_util::method_body(&**method),
                      llfn, &param_substs::empty(), method.id, []);
         } else {
             let mut v = TransItemVisitor{ ccx: ccx };
@@ -160,7 +160,7 @@ pub fn trans_static_method_callee(bcx: &Block,
             ast_map::NodeTraitMethod(method) => {
                 let ident = match *method {
                     ast::Required(ref m) => m.ident,
-                    ast::Provided(ref m) => m.ident
+                    ast::Provided(ref m) => ast_util::method_ident(&**m)
                 };
                 ident.name
             }
@@ -459,8 +459,8 @@ pub fn make_vtable<I: Iterator<ValueRef>>(ccx: &CrateContext,
             llvm::LLVMAddGlobal(ccx.llmod, val_ty(tbl).to_ref(), buf)
         });
         llvm::LLVMSetInitializer(vt_gvar, tbl);
-        llvm::LLVMSetGlobalConstant(vt_gvar, lib::llvm::True);
-        lib::llvm::SetLinkage(vt_gvar, lib::llvm::InternalLinkage);
+        llvm::LLVMSetGlobalConstant(vt_gvar, llvm::True);
+        llvm::SetLinkage(vt_gvar, llvm::InternalLinkage);
         vt_gvar
     }
 }
