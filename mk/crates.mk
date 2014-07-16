@@ -73,7 +73,7 @@ DEPS_native := std
 DEPS_syntax := std term serialize log fmt_macros debug
 DEPS_rustc := syntax flate arena serialize getopts \
               time log graphviz debug rustc_llvm rustc_back
-DEPS_rustc_llvm := native:rustllvm libc std
+DEPS_rustc_llvm := native:rustllvm libc std log
 DEPS_rustc_back := std syntax rustc_llvm flate log libc
 DEPS_rustdoc := rustc native:hoedown serialize getopts \
                 test time debug
