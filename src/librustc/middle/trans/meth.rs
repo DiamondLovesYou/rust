@@ -37,7 +37,8 @@ use std::c_str::ToCStr;
 use std::gc::Gc;
 use syntax::abi::Rust;
 use syntax::parse::token;
-use syntax::{ast, ast_map, visit, ast_util};
+use syntax::{ast, ast_map, visit};
+use syntax::ast_util::PostExpansionMethod;
 
 /**
 The main "translation" pass for methods.  Generates code
@@ -65,10 +66,9 @@ pub fn trans_impl(ccx: &CrateContext,
         return;
     }
     for method in methods.iter() {
-        if ast_util::method_generics(&**method).ty_params.len() == 0u {
+        if method.pe_generics().ty_params.len() == 0u {
             let llfn = get_item_val(ccx, method.id);
-            trans_fn(ccx, ast_util::method_fn_decl(&**method),
-                     ast_util::method_body(&**method),
+            trans_fn(ccx, method.pe_fn_decl(), method.pe_body(),
                      llfn, &param_substs::empty(), method.id, []);
         } else {
             let mut v = TransItemVisitor{ ccx: ccx };
@@ -160,7 +160,7 @@ pub fn trans_static_method_callee(bcx: &Block,
             ast_map::NodeTraitMethod(method) => {
                 let ident = match *method {
                     ast::Required(ref m) => m.ident,
-                    ast::Provided(ref m) => ast_util::method_ident(&**m)
+                    ast::Provided(ref m) => m.pe_ident()
                 };
                 ident.name
             }
@@ -502,15 +502,12 @@ fn emit_vtable_methods(bcx: &Block,
                                                        ExprId(0),
                                                        substs.clone(),
                                                        vtables.clone());
-            match m.explicit_self {
-                ast::SelfValue(_) => {
-                    fn_ref = trans_unboxing_shim(bcx,
-                                                 fn_ref,
-                                                 &*m,
-                                                 m_id,
-                                                 substs.clone());
-                },
-                _ => {}
+            if m.explicit_self == ty::ByValueExplicitSelfCategory {
+                fn_ref = trans_unboxing_shim(bcx,
+                                             fn_ref,
+                                             &*m,
+                                             m_id,
+                                             substs.clone());
             }
             fn_ref
         }

@@ -35,7 +35,6 @@ use std::hash::Hash;
 use std::hash;
 use std::io::MemWriter;
 use std::mem;
-use std::str;
 use std::collections::HashMap;
 use syntax::abi;
 use syntax::ast::*;
@@ -44,6 +43,7 @@ use syntax::ast_map::{PathElem, PathElems};
 use syntax::ast_map;
 use syntax::ast_util::*;
 use syntax::ast_util;
+use syntax::ast_util::PostExpansionMethod;
 use syntax::attr;
 use syntax::attr::AttrMetaMethods;
 use syntax::diagnostic::SpanHandler;
@@ -402,7 +402,7 @@ fn encode_reexported_static_base_methods(ecx: &EncodeContext,
             for base_impl_did in implementations.borrow().iter() {
                 for &method_did in impl_methods.get(base_impl_did).iter() {
                     let m = ty::method(ecx.tcx, method_did);
-                    if m.explicit_self == ast::SelfStatic {
+                    if m.explicit_self == ty::StaticExplicitSelfCategory {
                         encode_reexported_static_method(ebml_w, exp, m.def_id, m.ident);
                     }
                 }
@@ -421,7 +421,7 @@ fn encode_reexported_static_trait_methods(ecx: &EncodeContext,
     match ecx.tcx.trait_methods_cache.borrow().find(&exp.def_id) {
         Some(methods) => {
             for m in methods.iter() {
-                if m.explicit_self == ast::SelfStatic {
+                if m.explicit_self == ty::StaticExplicitSelfCategory {
                     encode_reexported_static_method(ebml_w, exp, m.def_id, m.ident);
                 }
             }
@@ -619,19 +619,26 @@ fn encode_visibility(ebml_w: &mut Encoder, visibility: Visibility) {
         Public => 'y',
         Inherited => 'i',
     };
-    ebml_w.wr_str(str::from_char(ch).as_slice());
+    ebml_w.wr_str(ch.to_string().as_slice());
     ebml_w.end_tag();
 }
 
-fn encode_explicit_self(ebml_w: &mut Encoder, explicit_self: ast::ExplicitSelf_) {
+fn encode_explicit_self(ebml_w: &mut Encoder,
+                        explicit_self: &ty::ExplicitSelfCategory) {
     ebml_w.start_tag(tag_item_trait_method_explicit_self);
 
     // Encode the base self type.
-    match explicit_self {
-        SelfStatic   => { ebml_w.writer.write(&[ 's' as u8 ]); }
-        SelfValue(_) => { ebml_w.writer.write(&[ 'v' as u8 ]); }
-        SelfUniq(_)  => { ebml_w.writer.write(&[ '~' as u8 ]); }
-        SelfRegion(_, m, _) => {
+    match *explicit_self {
+        ty::StaticExplicitSelfCategory => {
+            ebml_w.writer.write(&[ 's' as u8 ]);
+        }
+        ty::ByValueExplicitSelfCategory => {
+            ebml_w.writer.write(&[ 'v' as u8 ]);
+        }
+        ty::ByBoxExplicitSelfCategory => {
+            ebml_w.writer.write(&[ '~' as u8 ]);
+        }
+        ty::ByReferenceExplicitSelfCategory(_, m) => {
             // FIXME(#4846) encode custom lifetime
             ebml_w.writer.write(&['&' as u8]);
             encode_mutability(ebml_w, m);
@@ -748,10 +755,10 @@ fn encode_method_ty_fields(ecx: &EncodeContext,
                               tag_item_method_tps);
     encode_method_fty(ecx, ebml_w, &method_ty.fty);
     encode_visibility(ebml_w, method_ty.vis);
-    encode_explicit_self(ebml_w, method_ty.explicit_self);
+    encode_explicit_self(ebml_w, &method_ty.explicit_self);
     let fn_style = method_ty.fty.fn_style;
     match method_ty.explicit_self {
-        ast::SelfStatic => {
+        ty::StaticExplicitSelfCategory => {
             encode_family(ebml_w, fn_style_static_method_family(fn_style));
         }
         _ => encode_family(ebml_w, style_fn_family(fn_style))
@@ -799,7 +806,7 @@ fn encode_info_for_method(ecx: &EncodeContext,
         } else {
             encode_symbol(ecx, ebml_w, m.def_id.node);
         }
-        encode_method_argument_names(ebml_w, method_fn_decl(&*ast_method));
+        encode_method_argument_names(ebml_w, &*ast_method.pe_fn_decl());
     }
 
     ebml_w.end_tag();
@@ -1206,7 +1213,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
             encode_path(ebml_w, path.clone().chain(Some(elem).move_iter()));
 
             match method_ty.explicit_self {
-                SelfStatic => {
+                ty::StaticExplicitSelfCategory => {
                     encode_family(ebml_w,
                                   fn_style_static_method_family(
                                       method_ty.fty.fn_style));
@@ -1233,7 +1240,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
                     encode_attributes(ebml_w, m.attrs.as_slice());
                     // If this is a static method, we've already encoded
                     // this.
-                    if method_ty.explicit_self != SelfStatic {
+                    if method_ty.explicit_self != ty::StaticExplicitSelfCategory {
                         // FIXME: I feel like there is something funny going on.
                         let pty = ty::lookup_item_type(tcx, method_def_id);
                         encode_bounds_and_type(ebml_w, ecx, &pty);
@@ -1241,7 +1248,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
                     encode_method_sort(ebml_w, 'p');
                     encode_inlined_item(ecx, ebml_w,
                                         IIMethodRef(def_id, true, &*m));
-                    encode_method_argument_names(ebml_w, method_fn_decl(m));
+                    encode_method_argument_names(ebml_w, m.pe_fn_decl());
                 }
             }
 
@@ -1922,5 +1929,5 @@ pub fn encoded_ty(tcx: &ty::ctxt, t: ty::t) -> String {
         tcx: tcx,
         abbrevs: &RefCell::new(HashMap::new())
     }, t);
-    str::from_utf8_owned(Vec::from_slice(wr.get_ref())).unwrap().to_string()
+    String::from_utf8(wr.unwrap()).unwrap()
 }

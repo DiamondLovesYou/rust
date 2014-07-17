@@ -210,7 +210,7 @@ fn path(w: &mut fmt::Formatter, path: &clean::Path, print_all: bool,
     let loc = current_location_key.get().unwrap();
     let cache = cache_key.get().unwrap();
     let abs_root = root(&**cache, loc.as_slice());
-    let rel_root = match path.segments.get(0).name.as_slice() {
+    let rel_root = match path.segments[0].name.as_slice() {
         "self" => Some("./".to_string()),
         _ => None,
     };
@@ -499,6 +499,9 @@ impl<'a> fmt::Show for Method<'a> {
             clean::SelfBorrowed(None, mtbl) => {
                 args.push_str(format!("&amp;{}self",
                                       MutableSpace(mtbl)).as_slice());
+            }
+            clean::SelfExplicit(ref typ) => {
+                args.push_str(format!("self: {}", *typ).as_slice());
             }
         }
         for (i, input) in d.inputs.values.iter().enumerate() {

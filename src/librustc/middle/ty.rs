@@ -85,7 +85,7 @@ pub struct Method {
     pub ident: ast::Ident,
     pub generics: ty::Generics,
     pub fty: BareFnTy,
-    pub explicit_self: ast::ExplicitSelf_,
+    pub explicit_self: ExplicitSelfCategory,
     pub vis: ast::Visibility,
     pub def_id: ast::DefId,
     pub container: MethodContainer,
@@ -98,7 +98,7 @@ impl Method {
     pub fn new(ident: ast::Ident,
                generics: ty::Generics,
                fty: BareFnTy,
-               explicit_self: ast::ExplicitSelf_,
+               explicit_self: ExplicitSelfCategory,
                vis: ast::Visibility,
                def_id: ast::DefId,
                container: MethodContainer,
@@ -124,7 +124,7 @@ impl Method {
     }
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub struct mt {
     pub ty: t,
     pub mutbl: ast::Mutability,
@@ -138,7 +138,7 @@ pub enum TraitStore {
     RegionTraitStore(Region, ast::Mutability),
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Show)]
 pub struct field_ty {
     pub name: Name,
     pub id: DefId,
@@ -311,6 +311,9 @@ pub struct ctxt {
     /// (inferred) variance.
     pub item_variance_map: RefCell<DefIdMap<Rc<ItemVariances>>>,
 
+    /// True if the variance has been computed yet; false otherwise.
+    pub variance_computed: Cell<bool>,
+
     /// A mapping from the def ID of an enum or struct type to the def ID
     /// of the method that implements its destructor. If the type is not
     /// present in this map, it does not have a destructor. This map is
@@ -394,6 +397,7 @@ pub enum tbox_flag {
 
 pub type t_box = &'static t_box_;
 
+#[deriving(Show)]
 pub struct t_box_ {
     pub sty: sty,
     pub id: uint,
@@ -436,14 +440,14 @@ pub fn type_needs_infer(t: t) -> bool {
 }
 pub fn type_id(t: t) -> uint { get(t).id }
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub struct BareFnTy {
     pub fn_style: ast::FnStyle,
     pub abi: abi::Abi,
     pub sig: FnSig,
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub struct ClosureTy {
     pub fn_style: ast::FnStyle,
     pub onceness: ast::Onceness,
@@ -472,7 +476,7 @@ pub struct FnSig {
     pub variadic: bool
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub struct ParamTy {
     pub space: subst::ParamSpace,
     pub idx: uint,
@@ -712,7 +716,7 @@ mod primitives {
 
 // NB: If you change this, you'll probably want to change the corresponding
 // AST structure in libsyntax/ast.rs as well.
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub enum sty {
     ty_nil,
     ty_bot,
@@ -741,14 +745,14 @@ pub enum sty {
             // on non-useful type error messages)
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub struct TyTrait {
     pub def_id: DefId,
     pub substs: Substs,
     pub bounds: BuiltinBounds
 }
 
-#[deriving(PartialEq, Eq, Hash)]
+#[deriving(PartialEq, Eq, Hash, Show)]
 pub struct TraitRef {
     pub def_id: DefId,
     pub substs: Substs,
@@ -808,7 +812,7 @@ pub enum type_err {
     terr_variadic_mismatch(expected_found<bool>)
 }
 
-#[deriving(PartialEq, Eq, Hash)]
+#[deriving(PartialEq, Eq, Hash, Show)]
 pub struct ParamBounds {
     pub builtin_bounds: BuiltinBounds,
     pub trait_bounds: Vec<Rc<TraitRef>>
@@ -948,7 +952,7 @@ impl fmt::Show for IntVarValue {
     }
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Show)]
 pub struct TypeParameterDef {
     pub ident: ast::Ident,
     pub def_id: ast::DefId,
@@ -958,7 +962,7 @@ pub struct TypeParameterDef {
     pub default: Option<ty::t>
 }
 
-#[deriving(Encodable, Decodable, Clone)]
+#[deriving(Encodable, Decodable, Clone, Show)]
 pub struct RegionParameterDef {
     pub name: ast::Name,
     pub def_id: ast::DefId,
@@ -968,7 +972,7 @@ pub struct RegionParameterDef {
 
 /// Information about the type/lifetime parameters associated with an
 /// item or method. Analogous to ast::Generics.
-#[deriving(Clone)]
+#[deriving(Clone, Show)]
 pub struct Generics {
     pub types: VecPerParamSpace<TypeParameterDef>,
     pub regions: VecPerParamSpace<RegionParameterDef>,
@@ -982,6 +986,10 @@ impl Generics {
 
     pub fn has_type_params(&self, space: subst::ParamSpace) -> bool {
         !self.types.is_empty_in(space)
+    }
+
+    pub fn has_region_params(&self, space: subst::ParamSpace) -> bool {
+        !self.regions.is_empty_in(space)
     }
 }
 
@@ -1014,7 +1022,7 @@ pub struct ParameterEnvironment {
 /// - `generics`: the set of type parameters and their bounds
 /// - `ty`: the base types, which may reference the parameters defined
 ///   in `generics`
-#[deriving(Clone)]
+#[deriving(Clone, Show)]
 pub struct Polytype {
     pub generics: Generics,
     pub ty: t
@@ -1050,6 +1058,7 @@ pub fn mk_ctxt(s: Session,
     ctxt {
         named_region_map: named_region_map,
         item_variance_map: RefCell::new(DefIdMap::new()),
+        variance_computed: Cell::new(false),
         interner: RefCell::new(FnvHashMap::new()),
         next_id: Cell::new(primitives::LAST_PRIMITIVE_ID),
         sess: s,
@@ -4762,3 +4771,13 @@ impl mc::Typer for ty::ctxt {
         self.upvar_borrow_map.borrow().get_copy(&upvar_id)
     }
 }
+
+/// The category of explicit self.
+#[deriving(Clone, Eq, PartialEq)]
+pub enum ExplicitSelfCategory {
+    StaticExplicitSelfCategory,
+    ByValueExplicitSelfCategory,
+    ByReferenceExplicitSelfCategory(Region, ast::Mutability),
+    ByBoxExplicitSelfCategory,
+}
+

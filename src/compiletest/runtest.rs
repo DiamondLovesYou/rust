@@ -158,7 +158,7 @@ fn run_pretty_test(config: &Config, props: &TestProps, testfile: &Path) {
         match props.pp_exact { Some(_) => 1, None => 2 };
 
     let src = File::open(testfile).read_to_end().unwrap();
-    let src = str::from_utf8(src.as_slice()).unwrap().to_string();
+    let src = String::from_utf8(src.clone()).unwrap();
     let mut srcs = vec!(src);
 
     let mut round = 0;
@@ -167,7 +167,7 @@ fn run_pretty_test(config: &Config, props: &TestProps, testfile: &Path) {
         let proc_res = print_source(config,
                                     props,
                                     testfile,
-                                    (*srcs.get(round)).to_string(),
+                                    srcs[round].to_string(),
                                     "normal");
 
         if !proc_res.status.success() {
@@ -185,11 +185,11 @@ fn run_pretty_test(config: &Config, props: &TestProps, testfile: &Path) {
         Some(ref file) => {
             let filepath = testfile.dir_path().join(file);
             let s = File::open(&filepath).read_to_end().unwrap();
-            str::from_utf8(s.as_slice()).unwrap().to_string()
-          }
-          None => { (*srcs.get(srcs.len() - 2u)).clone() }
-        };
-    let mut actual = (*srcs.get(srcs.len() - 1u)).clone();
+            String::from_utf8(s).unwrap()
+        }
+        None => { srcs[srcs.len() - 2u].clone() }
+    };
+    let mut actual = srcs[srcs.len() - 1u].clone();
 
     if props.pp_exact.is_some() {
         // Now we have to care about line endings
@@ -209,7 +209,7 @@ fn run_pretty_test(config: &Config, props: &TestProps, testfile: &Path) {
     if props.no_pretty_expanded { return }
 
     // additionally, run `--pretty expanded` and try to build it.
-    let proc_res = print_source(config, props, testfile, (*srcs.get(round)).clone(), "expanded");
+    let proc_res = print_source(config, props, testfile, srcs[round].clone(), "expanded");
     if !proc_res.status.success() {
         fatal_proc_rec("pretty-printing (expanded) failed", &proc_res);
     }
@@ -641,6 +641,16 @@ fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) 
     // We don't want to hang when calling `quit` while the process is still running
     let mut script_str = String::from_str("settings set auto-confirm true\n");
 
+    // Make LLDB emit its version, so we have it documented in the test output
+    script_str.push_str("version\n");
+
+    // Switch LLDB into "Rust mode"
+    script_str.push_str("command script import ./src/etc/lldb_rust_formatters.py\n");
+    script_str.push_str("type summary add --no-value ");
+    script_str.push_str("--python-function lldb_rust_formatters.print_val ");
+    script_str.push_str("-x \".*\" --category Rust\n");
+    script_str.push_str("type category enable Rust\n");
+
     // Set breakpoints on every line that contains the string "#break"
     for line in breakpoint_lines.iter() {
         script_str.push_str(format!("breakpoint set --line {}\n",
@@ -687,8 +697,8 @@ fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) 
                     process.wait_with_output().unwrap();
 
                 (status,
-                 str::from_utf8(output.as_slice()).unwrap().to_string(),
-                 str::from_utf8(error.as_slice()).unwrap().to_string())
+                 String::from_utf8(output).unwrap(),
+                 String::from_utf8(error).unwrap())
             },
             Err(e) => {
                 fatal(format!("Failed to setup Python process for \
@@ -797,7 +807,7 @@ fn check_debugger_output(debugger_run_result: &ProcRes, check_lines: &[String]) 
             let mut rest = line.trim();
             let mut first = true;
             let mut failed = false;
-            for frag in check_fragments.get(i).iter() {
+            for frag in check_fragments[i].iter() {
                 let found = if first {
                     if rest.starts_with(frag.as_slice()) {
                         Some(0)
@@ -847,7 +857,7 @@ fn check_error_patterns(props: &TestProps,
     }
 
     let mut next_err_idx = 0u;
-    let mut next_err_pat = props.error_patterns.get(next_err_idx);
+    let mut next_err_pat = &props.error_patterns[next_err_idx];
     let mut done = false;
     let output_to_check = if props.check_stdout {
         format!("{}{}", proc_res.stdout, proc_res.stderr)
@@ -856,14 +866,14 @@ fn check_error_patterns(props: &TestProps,
     };
     for line in output_to_check.as_slice().lines() {
         if line.contains(next_err_pat.as_slice()) {
-            debug!("found error pattern {}", *next_err_pat);
+            debug!("found error pattern {}", next_err_pat);
             next_err_idx += 1u;
             if next_err_idx == props.error_patterns.len() {
                 debug!("found all error patterns");
                 done = true;
                 break;
             }
-            next_err_pat = props.error_patterns.get(next_err_idx);
+            next_err_pat = &props.error_patterns[next_err_idx];
         }
     }
     if done { return; }
@@ -918,7 +928,7 @@ fn check_expected_errors(expected_errors: Vec<errors::ExpectedError> ,
                 c
             }
         } ).collect();
-        str::from_chars(c.as_slice()).to_string()
+        String::from_chars(c.as_slice())
     }
 
     #[cfg(target_os = "win32")]
@@ -942,13 +952,13 @@ fn check_expected_errors(expected_errors: Vec<errors::ExpectedError> ,
     for line in proc_res.stderr.as_slice().lines() {
         let mut was_expected = false;
         for (i, ee) in expected_errors.iter().enumerate() {
-            if !*found_flags.get(i) {
+            if !found_flags[i] {
                 debug!("prefix={} ee.kind={} ee.msg={} line={}",
-                       prefixes.get(i).as_slice(),
+                       prefixes[i].as_slice(),
                        ee.kind,
                        ee.msg,
                        line);
-                if prefix_matches(line, prefixes.get(i).as_slice()) &&
+                if prefix_matches(line, prefixes[i].as_slice()) &&
                     line.contains(ee.kind.as_slice()) &&
                     line.contains(ee.msg.as_slice()) {
                     *found_flags.get_mut(i) = true;
@@ -972,7 +982,7 @@ fn check_expected_errors(expected_errors: Vec<errors::ExpectedError> ,
 
     for (i, &flag) in found_flags.iter().enumerate() {
         if !flag {
-            let ee = expected_errors.get(i);
+            let ee = &expected_errors[i];
             fatal_proc_rec(format!("expected {} on line {} not found: {}",
                                   ee.kind, ee.line, ee.msg).as_slice(),
                           proc_res);

@@ -466,7 +466,7 @@ impl<'a> TyVisitor for ReprVisitor<'a> {
                                 _offset: uint,
                                 inner: *const TyDesc)
                                 -> bool {
-        match *self.var_stk.get(self.var_stk.len() - 1) {
+        match self.var_stk[self.var_stk.len() - 1] {
             Matched => {
                 if i != 0 {
                     try!(self, self.writer.write(", ".as_bytes()));
@@ -484,7 +484,7 @@ impl<'a> TyVisitor for ReprVisitor<'a> {
                                 _disr_val: Disr,
                                 n_fields: uint,
                                 _name: &str) -> bool {
-        match *self.var_stk.get(self.var_stk.len() - 1) {
+        match self.var_stk[self.var_stk.len() - 1] {
             Matched => {
                 if n_fields > 0 {
                     try!(self, self.writer.write([')' as u8]));
@@ -575,7 +575,6 @@ struct P {a: int, b: f64}
 
 #[test]
 fn test_repr() {
-    use std::str;
     use std::io::stdio::println;
     use std::char::is_alphabetic;
     use std::mem::swap;
@@ -584,7 +583,7 @@ fn test_repr() {
     fn exact_test<T>(t: &T, e:&str) {
         let mut m = io::MemWriter::new();
         write_repr(&mut m as &mut io::Writer, t).unwrap();
-        let s = str::from_utf8(m.unwrap().as_slice()).unwrap().to_string();
+        let s = String::from_utf8(m.unwrap()).unwrap();
         assert_eq!(s.as_slice(), e);
     }
 

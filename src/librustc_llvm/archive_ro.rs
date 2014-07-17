@@ -64,13 +64,12 @@ impl ArchiveRO {
         extern "C" fn cb(name: *const libc::c_uchar,   name_len: libc::size_t,
                          buffer: *const libc::c_uchar, buffer_len: libc::size_t,
                          f: *mut libc::c_void) {
-            use std::str::from_utf8_lossy;
             use std::slice::raw::buf_as_slice;
             use std::mem::transmute_copy;
             let f: &|&str, &[u8]| = unsafe { transmute(f) };
             unsafe {
                 buf_as_slice(name as *const u8, name_len as uint, |name_buf| {
-                    let name = from_utf8_lossy(name_buf).into_string();
+                    let name = String::from_utf8_lossy(name_buf).into_string();
                     debug!("running f on `{}`", name);
                     buf_as_slice(buffer, buffer_len as uint, |buf| {
                         let f: |&str, &[u8]| = transmute_copy(f);

@@ -13,16 +13,15 @@
 
 use middle::ty;
 use middle::ty::{BoundRegion, FreeRegion, Region, RegionVid};
-use middle::ty::{ReEmpty, ReStatic, ReInfer, ReFree, ReEarlyBound,
-                 ReLateBound};
-use middle::ty::{ReScope, ReVar, ReSkolemized, BrFresh};
+use middle::ty::{ReEmpty, ReStatic, ReInfer, ReFree, ReEarlyBound};
+use middle::ty::{ReLateBound, ReScope, ReVar, ReSkolemized, BrFresh};
 use middle::typeck::infer::cres;
 use middle::typeck::infer::{RegionVariableOrigin, SubregionOrigin, TypeTrace};
 use middle::typeck::infer;
 use middle::graph;
 use middle::graph::{Direction, NodeIndex};
 use util::common::indenter;
-use util::ppaux::{Repr};
+use util::ppaux::Repr;
 
 use std::cell::{Cell, RefCell};
 use std::uint;
@@ -246,7 +245,7 @@ impl<'a> RegionVarBindings<'a> {
         if self.in_snapshot() {
             self.undo_log.borrow_mut().push(AddVar(vid));
         }
-        debug!("created new region variable {:?} with origin {:?}",
+        debug!("created new region variable {} with origin {}",
                vid, origin.repr(self.tcx));
         return vid;
     }
@@ -318,6 +317,11 @@ impl<'a> RegionVarBindings<'a> {
                origin.repr(self.tcx));
 
         match (sub, sup) {
+          (ReEarlyBound(..), ReEarlyBound(..)) => {
+            // This case is used only to make sure that explicitly-specified
+            // `Self` types match the real self type in implementations.
+            self.add_constraint(ConstrainRegSubReg(sub, sup), origin);
+          }
           (ReEarlyBound(..), _) |
           (ReLateBound(..), _) |
           (_, ReEarlyBound(..)) |
