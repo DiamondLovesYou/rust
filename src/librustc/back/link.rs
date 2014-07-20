@@ -255,9 +255,6 @@ pub mod write {
             let addpass = |pass: &str| {
                 pass.as_slice().with_c_str(|s| llvm::LLVMRustAddPass(fpm, s))
             };
-            let addpass_mpm = |pass: &str| {
-                pass.with_c_str(|s| llvm::LLVMRustAddPass(mpm, s))
-            };
             // If we're verifying or linting, add them to the function pass
             // manager.
             if !sess.no_verify() && !disable_verify { assert!(addpass("verify")); }
