@@ -1635,7 +1635,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let pnacl_trans_args = pnacl_trans_args.append(vec!(format!("-mtriple={}-none-nacl-gnu", arch),
                                                         "-filetype=obj".to_string(),
                                                         format!("-o={}", obj_path.display()),
-                                                        format!("{}", pexe_path.display())));
+                                                        format!("{}", pexe_path.display())).as_slice());
 
     match program_output(config,
                          testfile,
