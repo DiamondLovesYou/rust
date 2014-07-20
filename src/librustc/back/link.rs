@@ -262,26 +262,6 @@ pub mod write {
             // manager.
             if !sess.no_verify() && !disable_verify { assert!(addpass("verify")); }
 
-            if sess.targeting_pnacl() && !sess.opts.cg.no_prepopulate_passes {
-                // I choose to add these by string to retain what little compatibility
-                // we have left with upstream LLVM
-                assert!(addpass_mpm("pnacl-sjlj-eh"));
-                assert!(addpass_mpm("expand-indirectbr"));
-                assert!(addpass_mpm("lower-expect"));
-                assert!(addpass_mpm("rewrite-llvm-intrinsic-calls"));
-                assert!(addpass_mpm("expand-arith-with-overflow"));
-                // Subvert constant expression graph cycles, which keeps
-                // replaced constants alive.
-                assert!(addpass_mpm("expand-constant-expr"));
-                assert!(addpass_mpm("promote-returned-structures"));
-                assert!(addpass_mpm("promote-structure-arguments"));
-                assert!(addpass_mpm("nacl-rewrite-atomics"));
-                assert!(addpass_mpm("expand-struct-regs"));
-                assert!(addpass_mpm("expand-varargs"));
-                assert!(addpass_mpm("nacl-expand-ctors"));
-                assert!(addpass_mpm("nacl-expand-tls-constant-expr"));
-            }
-
             if !sess.opts.cg.no_prepopulate_passes {
                 llvm::LLVMRustAddAnalysisPasses(tm, fpm, llmod);
                 llvm::LLVMRustAddAnalysisPasses(tm, mpm, llmod);
@@ -296,30 +276,6 @@ pub mod write {
                                           *pass).as_slice());
                     }
                 })
-            }
-
-            if sess.targeting_pnacl() && !sess.opts.cg.no_prepopulate_passes {
-                // I choose to add these by string to retain what little compatibility
-                // we have left with upstream LLVM
-                assert!(addpass_mpm("rewrite-pnacl-library-calls"));
-                assert!(addpass_mpm("expand-byval"));
-                assert!(addpass_mpm("expand-small-arguments"));
-                assert!(addpass_mpm("expand-shufflevector"));
-                assert!(addpass_mpm("globalize-constant-vectors"));
-                assert!(addpass_mpm("constant-insert-extract-element-index"));
-                assert!(addpass_mpm("fix-vector-load-store-alignment"));
-                assert!(addpass_mpm("nacl-promote-i1-ops"));
-                assert!(addpass_mpm("canonicalize-mem-intrinsics"));
-                assert!(addpass_mpm("flatten-globals"));
-                assert!(addpass_mpm("expand-constant-expr"));
-                assert!(addpass_mpm("nacl-promote-ints"));
-                assert!(addpass_mpm("expand-getelementptr"));
-                assert!(addpass_mpm("remove-asm-memory"));
-                assert!(addpass_mpm("replace-ptrs-with-ints"));
-                assert!(addpass_mpm("die"));
-                assert!(addpass_mpm("dce"));
-
-                if !sess.no_verify() && !disable_verify { assert!(addpass_mpm("verify")); }
             }
 
             // Finally, run the actual optimization passes
@@ -1704,8 +1660,21 @@ pub fn link_pnacl_module(sess: &Session,
                                 assert!(llvm::LLVMRustAddPass(pm, s));
                             }
                         };
+                        "pnacl-sjlj-eh".with_c_str(|s| ap(s) );
+                        "expand-indirectbr".with_c_str(|s| ap(s) );
+                        "lower-expect".with_c_str(|s| ap(s) );
+                        "rewrite-llvm-intrinsic-calls".with_c_str(|s| ap(s) );
+                        "expand-arith-with-overflow".with_c_str(|s| ap(s) );
+                        "expand-constant-expr".with_c_str(|s| ap(s) );
+                        "promote-returned-structures".with_c_str(|s| ap(s) );
+                        "promote-structure-arguments".with_c_str(|s| ap(s) );
+                        "nacl-rewrite-atomics".with_c_str(|s| ap(s) );
                         "expand-struct-regs".with_c_str(|s| ap(s) );
+                        "expand-varargs".with_c_str(|s| ap(s) );
+                        "nacl-expand-ctors".with_c_str(|s| ap(s) );
+                        "resolve-aliases".with_c_str(|s| ap(s) );
                         "nacl-expand-tls".with_c_str(|s| ap(s) );
+                        "nacl-expand-tls-constant-expr".with_c_str(|s| ap(s) );
                         "nacl-global-cleanup".with_c_str(|s| ap(s) );
                     },
                     |pm| {
@@ -1714,19 +1683,25 @@ pub fn link_pnacl_module(sess: &Session,
                                 assert!(llvm::LLVMRustAddPass(pm, s));
                             }
                         };
-                        "resolve-aliases".with_c_str(|s| ap(s) );
-                        // Now cleanup the optimizations:
-                        "expand-constant-expr".with_c_str(|s| ap(s) );
-                        "flatten-globals".with_c_str(|s| ap(s) );
-                        "nacl-promote-ints".with_c_str(|s| ap(s) );
+                        "rewrite-pnacl-library-calls".with_c_str(|s| ap(s) );
+                        "expand-byval".with_c_str(|s| ap(s) );
+                        "expand-small-arguments".with_c_str(|s| ap(s) );
                         "nacl-promote-i1-ops".with_c_str(|s| ap(s) );
-                        "expand-getelementptr".with_c_str(|s| ap(s) );
+                        "expand-shufflevector".with_c_str(|s| ap(s) );
+                        "globalize-constant-vectors".with_c_str(|s| ap(s) );
+                        "constant-insert-extract-element-index".with_c_str(|s| ap(s) );
+                        "fix-vector-load-store-alignment".with_c_str(|s| ap(s) );
                         "canonicalize-mem-intrinsics".with_c_str(|s| ap(s) );
-
+                        "flatten-globals".with_c_str(|s| ap(s) );
+                        "expand-constant-expr".with_c_str(|s| ap(s) );
+                        "nacl-promote-ints".with_c_str(|s| ap(s) );
+                        "expand-getelementptr".with_c_str(|s| ap(s) );
+                        "remove-asm-memory".with_c_str(|s| ap(s) );
                         "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
-
-                        "nacl-strip-attributes".with_c_str(|s| ap(s) );
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
+                        "die".with_c_str(|s| ap(s) );
+                        "dce".with_c_str(|s| ap(s) );
+                        "nacl-strip-attributes".with_c_str(|s| ap(s) );
                         if sess.opts.cg.stable_pexe {
                             // Strip unsupported metadata:
                             "strip-metadata".with_c_str(|s| ap(s) );
