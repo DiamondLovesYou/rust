@@ -47,19 +47,24 @@ LLVMInitializePasses() {
 
   initializeAddPNaClExternalDeclsPass(Registry);
   initializeCanonicalizeMemIntrinsicsPass(Registry);
+  initializeCombineVectorInstructionsPass(Registry);
+  initializeConstantInsertExtractElementIndexPass(Registry);
   initializeExpandArithWithOverflowPass(Registry);
   initializeExpandByValPass(Registry);
   initializeExpandConstantExprPass(Registry);
   initializeExpandCtorsPass(Registry);
   initializeExpandGetElementPtrPass(Registry);
   initializeExpandIndirectBrPass(Registry);
+  initializeExpandShuffleVectorPass(Registry);
   initializeExpandSmallArgumentsPass(Registry);
   initializeExpandStructRegsPass(Registry);
   initializeExpandTlsConstantExprPass(Registry);
   initializeExpandTlsPass(Registry);
   initializeExpandVarArgsPass(Registry);
+  initializeFixVectorLoadStoreAlignmentPass(Registry);
   initializeFlattenGlobalsPass(Registry);
   initializeGlobalCleanupPass(Registry);
+  initializeGlobalizeConstantVectorsPass(Registry);
   initializeInsertDivideCheckPass(Registry);
   initializePNaClABIVerifyFunctionsPass(Registry);
   initializePNaClABIVerifyModulePass(Registry);

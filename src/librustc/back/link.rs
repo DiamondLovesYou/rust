@@ -270,7 +270,6 @@ pub mod write {
                 assert!(addpass_mpm("lower-expect"));
                 assert!(addpass_mpm("rewrite-llvm-intrinsic-calls"));
                 assert!(addpass_mpm("expand-arith-with-overflow"));
-                assert!(addpass_mpm("replace-vectors-with-arrays"));
                 // Subvert constant expression graph cycles, which keeps
                 // replaced constants alive.
                 assert!(addpass_mpm("expand-constant-expr"));
@@ -305,6 +304,10 @@ pub mod write {
                 assert!(addpass_mpm("rewrite-pnacl-library-calls"));
                 assert!(addpass_mpm("expand-byval"));
                 assert!(addpass_mpm("expand-small-arguments"));
+                assert!(addpass_mpm("expand-shufflevector"));
+                assert!(addpass_mpm("globalize-constant-vectors"));
+                assert!(addpass_mpm("constant-insert-extract-element-index"));
+                assert!(addpass_mpm("fix-vector-load-store-alignment"));
                 assert!(addpass_mpm("nacl-promote-i1-ops"));
                 assert!(addpass_mpm("canonicalize-mem-intrinsics"));
                 assert!(addpass_mpm("flatten-globals"));
@@ -1701,6 +1704,7 @@ pub fn link_pnacl_module(sess: &Session,
                                 assert!(llvm::LLVMRustAddPass(pm, s));
                             }
                         };
+                        "expand-struct-regs".with_c_str(|s| ap(s) );
                         "nacl-expand-tls".with_c_str(|s| ap(s) );
                         "nacl-global-cleanup".with_c_str(|s| ap(s) );
                     },
@@ -1714,11 +1718,12 @@ pub fn link_pnacl_module(sess: &Session,
                         // Now cleanup the optimizations:
                         "expand-constant-expr".with_c_str(|s| ap(s) );
                         "flatten-globals".with_c_str(|s| ap(s) );
-                        "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
                         "nacl-promote-ints".with_c_str(|s| ap(s) );
                         "nacl-promote-i1-ops".with_c_str(|s| ap(s) );
                         "expand-getelementptr".with_c_str(|s| ap(s) );
                         "canonicalize-mem-intrinsics".with_c_str(|s| ap(s) );
+
+                        "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
 
                         "nacl-strip-attributes".with_c_str(|s| ap(s) );
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
