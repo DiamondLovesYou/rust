@@ -89,7 +89,35 @@ $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll $$(MKFILE_DEPS) \
 	    $$(LLVM_CONFIG_$$(CFG_BUILD))
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
-	$$(Q)$$(CC_$(1)) -c -filetype=obj -fPIC -o $$@ $$<
+	$$(Q)$$(OPT_$$(CFG_BUILD)) -o - $$< -expand-indirectbr               \
+					    -lower-expect                    \
+					    -rewrite-llvm-intrinsic-calls    \
+					    -expand-arith-with-overflow      \
+				 	    -expand-constant-expr            \
+					    -promote-returned-structures     \
+					    -promote-structure-arguments     \
+					    -nacl-rewrite-atomics            \
+					    -expand-struct-regs              \
+					    -expand-varargs                  \
+					    -nacl-expand-ctors               \
+					    -nacl-expand-tls-constant-expr | \
+	$(if $$(findstring "no-opt","$$(RUSTC_FLAGS_$(1))"),, $$(OPT_$$(CFG_BUILD)) -O2 -o - - |) \
+	$$(OPT_$$(CFG_BUILD)) - -o $$@  -rewrite-pnacl-library-calls           \
+					-expand-byval                          \
+					-expand-small-arguments                \
+					-expand-shufflevector                  \
+					-globalize-constant-vectors            \
+					-constant-insert-extract-element-index \
+					-fix-vector-load-store-alignment       \
+					-nacl-promote-i1-ops                   \
+					-canonicalize-mem-intrinsics           \
+					-flatten-globals                       \
+					-expand-constant-expr                  \
+					-nacl-promote-ints                     \
+					-expand-getelementptr                  \
+					-remove-asm-memory                     \
+					-replace-ptrs-with-ints                \
+					-die -dce
 endif
 
 $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.c $$(MKFILE_DEPS)
