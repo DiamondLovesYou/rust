@@ -1624,16 +1624,18 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         // add an extension, don't replace it:
         Path::new(format!("{}.nexe",pexe_path.display()));
 
-    let arch = match ARCH {
-        "x86" => "i686",
-        _ => ARCH,
+    let (arch, tls_use_call) = match ARCH {
+        "x86" => ("i686", false),
+        _ => (ARCH, true),
     };
-    let pnacl_trans_args = vec!("-O0".to_string(),
-                                "-mtls-use-call".to_string(),
-                                format!("-mtriple={}-none-nacl-gnu", arch),
-                                "-filetype=obj".to_string(),
-                                format!("-o={}", obj_path.display()),
-                                format!("{}", pexe_path.display()));
+    let mut pnacl_trans_args = vec!("-O0".to_string());
+    if tls_use_call {
+        pnacl_trans_args.push("-mtls-use-call".to_string());
+    }
+    let pnacl_trans_args = pnacl_trans_args.append(vec!(format!("-mtriple={}-none-nacl-gnu", arch),
+                                                        "-filetype=obj".to_string(),
+                                                        format!("-o={}", obj_path.display()),
+                                                        format!("{}", pexe_path.display())));
 
     match program_output(config,
                          testfile,
