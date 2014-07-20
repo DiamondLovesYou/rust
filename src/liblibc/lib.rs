@@ -306,6 +306,7 @@ extern {}
 #[link(name = "c++", kind = "static")] // for __pnacl_eh_sjlj_*. I know, I know: :(
 #[link(name = "pnaclmm", kind = "static")]
 #[link(name = "nacl", kind = "static")]
+#[link(name = "pthread", kind = "static")]
 extern {}
 
 /// A wrapper for a nullable pointer. Don't use this except for interacting
