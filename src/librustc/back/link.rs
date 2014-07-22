@@ -1505,12 +1505,13 @@ pub fn link_pnacl_module(sess: &Session,
     // Some globals in the bitcode from PNaCl have what is considered invalid
     // linkage in our LLVM (their LLVM is old). Fortunately, all linkage types
     // get stripped later, so it's safe to just ignore them all.
-    write::run_passes_on_mod(sess,
-                             trans,
-                             llmod,
-                             outputs,
-                             false,
-                             true);
+    let tm = write::run_passes_on_mod(sess,
+                                      trans,
+                                      llmod,
+                                      outputs,
+                                      true,
+                                      false)
+        .unwrap();
 
     if sess.opts.cg.save_temps {
         outputs.with_extension("post-opt.bc").with_c_str(|buf| unsafe {
@@ -1650,7 +1651,7 @@ pub fn link_pnacl_module(sess: &Session,
     // EH pass + final LTO:
     lto::run_passes(sess,
                     llmod,
-                    ptr::mut_null(),
+                    tm,
                     |pm| {
                         let ap = |s| {
                             unsafe {
@@ -1710,6 +1711,10 @@ pub fn link_pnacl_module(sess: &Session,
                             }
                         }
                     });
+
+    unsafe {
+        llvm::LLVMRustDisposeTargetMachine(tm);
+    }
 
     // Write out IR if asked:
     if sess.opts.output_types.iter().any(|&i| i == OutputTypeLlvmAssembly) {
