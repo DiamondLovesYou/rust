@@ -1702,6 +1702,7 @@ pub fn link_pnacl_module(sess: &Session,
                         if sess.opts.cg.stable_pexe {
                             // Strip unsupported metadata:
                             "strip-metadata".with_c_str(|s| ap(s) );
+                            "strip-debug".with_c_str(|s| ap(s) );
 
                             if !sess.no_verify() {
                                 "verify-pnaclabi-module".with_c_str(|s| ap(s) );
