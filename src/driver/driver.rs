@@ -14,4 +14,7 @@ extern crate this = "rustdoc";
 #[cfg(rustc)]
 extern crate this = "rustc";
 
+#[cfg(rust_pnacl_trans)]
+extern crate this = "rust-pnacl-trans";
+
 fn main() { this::main() }

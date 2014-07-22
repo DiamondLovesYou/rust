@@ -54,9 +54,9 @@ TARGET_CRATES := libc std green rustuv native flate arena glob term semver \
                  url log regex graphviz core rlibc alloc debug rustrt \
                  unicode
 HOST_CRATES := syntax rustc rustdoc fourcc hexfloat regex_macros fmt_macros \
-	       rustc_llvm rustc_back
+	       rustc_llvm rustc_back rust-pnacl-trans
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
-TOOLS := compiletest rustdoc rustc
+TOOLS := compiletest rustdoc rustc rust-pnacl-trans
 
 DEPS_core :=
 DEPS_rlibc :=
@@ -77,6 +77,7 @@ DEPS_rustc_llvm := native:rustllvm libc std log
 DEPS_rustc_back := std syntax rustc_llvm flate log libc
 DEPS_rustdoc := rustc native:hoedown serialize getopts \
                 test time debug
+DEPS_rust-pnacl-trans := libc getopts log rustc_llvm native
 DEPS_flate := std native:miniz
 DEPS_arena := std
 DEPS_graphviz := std
@@ -103,9 +104,11 @@ DEPS_fmt_macros = std
 TOOL_DEPS_compiletest := test green rustuv getopts
 TOOL_DEPS_rustdoc := rustdoc native
 TOOL_DEPS_rustc := rustc native
+TOOL_DEPS_rust-pnacl-trans := rust-pnacl-trans native
 TOOL_SOURCE_compiletest := $(S)src/compiletest/compiletest.rs
 TOOL_SOURCE_rustdoc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustc := $(S)src/driver/driver.rs
+TOOL_SOURCE_rust-pnacl-trans := $(S)src/driver/driver.rs
 
 ONLY_RLIB_core := 1
 ONLY_RLIB_libc := 1
