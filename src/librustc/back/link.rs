@@ -217,6 +217,21 @@ pub mod write {
                                          .relocation_model).as_slice());
                 }
             };
+
+            let code_model = match sess.opts.cg.code_model.as_slice() {
+                "default" => llvm::CodeModelDefault,
+                "small" => llvm::CodeModelSmall,
+                "kernel" => llvm::CodeModelKernel,
+                "medium" => llvm::CodeModelMedium,
+                "large" => llvm::CodeModelLarge,
+                _ => {
+                    sess.fatal(format!("{} is not a valid code model",
+                                     sess.opts
+                                         .cg
+                                         .code_model).as_slice());
+                }
+            };
+
             let triple = if sess.targeting_pnacl() {
                 // Pretend that we are ARM for name mangling and assembly conventions.
                 // https://code.google.com/p/nativeclient/issues/detail?id=2554
@@ -232,7 +247,7 @@ pub mod write {
                     target_feature(sess).with_c_str(|features| {
                         llvm::LLVMRustCreateTargetMachine(
                             t, cpu, features,
-                            llvm::CodeModelDefault,
+                            code_model,
                             reloc_model,
                             opt_level,
                             !sess.targeting_pnacl() /* EnableSegstk */,
@@ -635,15 +650,27 @@ pub fn find_crate_name(sess: Option<&Session>,
     };
 
     // Look in attributes 100% of the time to make sure the attribute is marked
-    // as used. After doing this, however, favor crate names from the command
-    // line.
+    // as used. After doing this, however, we still prioritize a crate name from
+    // the command line over one found in the #[crate_name] attribute. If we
+    // find both we ensure that they're the same later on as well.
     let attr_crate_name = attrs.iter().find(|at| at.check_name("crate_name"))
                                .and_then(|at| at.value_str().map(|s| (at, s)));
 
     match sess {
         Some(sess) => {
             match sess.opts.crate_name {
-                Some(ref s) => return validate(s.clone(), None),
+                Some(ref s) => {
+                    match attr_crate_name {
+                        Some((attr, ref name)) if s.as_slice() != name.get() => {
+                            let msg = format!("--crate-name and #[crate_name] \
+                                               are required to match, but `{}` \
+                                               != `{}`", s, name);
+                            sess.span_err(attr.span, msg.as_slice());
+                        }
+                        _ => {},
+                    }
+                    return validate(s.clone(), None);
+                }
                 None => {}
             }
         }
@@ -1146,6 +1173,7 @@ fn link_pnacl_rlib(sess: &Session,
                             out_directory: tmp.path().clone(),
                             out_filestem:  name.to_string(),
                             single_output_file: None,
+                            extra: "".to_string(),
                         };
 
                         // Some globals in the bitcode from PNaCl have what is
@@ -2035,7 +2063,7 @@ fn link_args(cmd: &mut Command,
         abi::OsMacos | abi::OsiOS => {
             let morestack = lib_path.join("libmorestack.a");
 
-            let mut v = "-Wl,-force_load,".as_bytes().to_owned();
+            let mut v = b"-Wl,-force_load,".to_vec();
             v.push_all(morestack.as_vec());
             cmd.arg(v.as_slice());
         }
@@ -2328,7 +2356,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
                 add_dynamic_crate(cmd, sess, src.dylib.unwrap())
             }
             cstore::RequireStatic => {
-                add_static_crate(cmd, sess, tmpdir, cnum, src.rlib.unwrap())
+                add_static_crate(cmd, sess, tmpdir, src.rlib.unwrap())
             }
         }
 
@@ -2345,7 +2373,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
 
     // Adds the static "rlib" versions of all crates to the command line.
     fn add_static_crate(cmd: &mut Command, sess: &Session, tmpdir: &Path,
-                        cnum: ast::CrateNum, cratepath: Path) {
+                        cratepath: Path) {
         // When performing LTO on an executable output, all of the
         // bytecode from the upstream libraries has already been
         // included in our object file output. We need to modify all of
@@ -2361,7 +2389,8 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
         // If we're not doing LTO, then our job is simply to just link
         // against the archive.
         if sess.lto() {
-            let name = sess.cstore.get_crate_data(cnum).name.clone();
+            let name = cratepath.filename_str().unwrap();
+            let name = name.slice(3, name.len() - 5); // chop off lib/.rlib
             time(sess.time_passes(),
                  format!("altering {}.rlib", name).as_slice(),
                  (), |()| {

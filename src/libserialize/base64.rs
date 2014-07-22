@@ -7,6 +7,8 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
+//
+// ignore-lexer-test FIXME #15679
 
 //! Base64 binary-to-text encoding
 use std::str;
@@ -161,7 +163,7 @@ pub trait FromBase64 {
 /// Errors that can occur when decoding a base64 encoded string
 pub enum FromBase64Error {
     /// The input contained a character not part of the base64 format
-    InvalidBase64Character(char, uint),
+    InvalidBase64Byte(u8, uint),
     /// The input had an invalid length
     InvalidBase64Length,
 }
@@ -169,7 +171,7 @@ pub enum FromBase64Error {
 impl fmt::Show for FromBase64Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            InvalidBase64Character(ch, idx) =>
+            InvalidBase64Byte(ch, idx) =>
                 write!(f, "Invalid character '{}' at position {}", ch, idx),
             InvalidBase64Length => write!(f, "Invalid length"),
         }
@@ -205,24 +207,31 @@ impl<'a> FromBase64 for &'a str {
      * }
      * ```
      */
+    #[inline]
+    fn from_base64(&self) -> Result<Vec<u8>, FromBase64Error> {
+        self.as_bytes().from_base64()
+    }
+}
+
+impl<'a> FromBase64 for &'a [u8] {
     fn from_base64(&self) -> Result<Vec<u8>, FromBase64Error> {
         let mut r = Vec::new();
         let mut buf: u32 = 0;
         let mut modulus = 0i;
 
-        let mut it = self.bytes().enumerate();
-        for (idx, byte) in it {
+        let mut it = self.iter().enumerate();
+        for (idx, &byte) in it {
             let val = byte as u32;
 
-            match byte as char {
-                'A'..'Z' => buf |= val - 0x41,
-                'a'..'z' => buf |= val - 0x47,
-                '0'..'9' => buf |= val + 0x04,
-                '+'|'-' => buf |= 0x3E,
-                '/'|'_' => buf |= 0x3F,
-                '\r'|'\n' => continue,
-                '=' => break,
-                _ => return Err(InvalidBase64Character(self.char_at(idx), idx)),
+            match byte {
+                b'A'..b'Z' => buf |= val - 0x41,
+                b'a'..b'z' => buf |= val - 0x47,
+                b'0'..b'9' => buf |= val + 0x04,
+                b'+' | b'-' => buf |= 0x3E,
+                b'/' | b'_' => buf |= 0x3F,
+                b'\r' | b'\n' => continue,
+                b'=' => break,
+                _ => return Err(InvalidBase64Byte(self[idx], idx)),
             }
 
             buf <<= 6;
@@ -235,10 +244,10 @@ impl<'a> FromBase64 for &'a str {
             }
         }
 
-        for (idx, byte) in it {
-            match byte as char {
-                '='|'\r'|'\n' => continue,
-                _ => return Err(InvalidBase64Character(self.char_at(idx), idx)),
+        for (idx, &byte) in it {
+            match byte {
+                b'=' | b'\r' | b'\n' => continue,
+                _ => return Err(InvalidBase64Byte(self[idx], idx)),
             }
         }
 
@@ -306,6 +315,11 @@ mod tests {
         assert_eq!("Zm9vYg==".from_base64().unwrap().as_slice(), "foob".as_bytes());
         assert_eq!("Zm9vYmE=".from_base64().unwrap().as_slice(), "fooba".as_bytes());
         assert_eq!("Zm9vYmFy".from_base64().unwrap().as_slice(), "foobar".as_bytes());
+    }
+
+    #[test]
+    fn test_from_base64_bytes() {
+        assert_eq!(b"Zm9vYmFy".from_base64().unwrap().as_slice(), "foobar".as_bytes());
     }
 
     #[test]

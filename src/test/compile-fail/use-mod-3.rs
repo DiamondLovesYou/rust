@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,10 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![deny(unnecessary_allocation)]
+use foo::bar::{
+    mod //~ ERROR module `bar` is private
+};
+use foo::bar::{
+    Bar, //~ ERROR type `Bar` is inaccessible
+    //~^ NOTE module `bar` is private
+    mod //~ ERROR module `bar` is private
+};
 
-fn f(_: &int) {}
-
-fn main() {
-    f(box 1); //~ ERROR unnecessary allocation, use & instead
+mod foo {
+    mod bar { pub type Bar = int; }
 }
+
+fn main() {}

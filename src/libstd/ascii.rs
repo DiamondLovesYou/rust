@@ -7,6 +7,8 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
+//
+// ignore-lexer-test FIXME #15679
 
 //! Operations on ASCII strings and characters
 
@@ -20,7 +22,7 @@ use option::{Option, Some, None};
 use slice::{ImmutableVector, MutableVector, Vector};
 use str::{OwnedStr, Str, StrAllocating, StrSlice};
 use string::String;
-use to_str::{IntoStr};
+use to_string::IntoStr;
 use vec::Vec;
 
 /// Datatype to hold one ascii character. It wraps a `u8`, with the highest bit always zero.

@@ -34,15 +34,15 @@ struct A<'r> {
     p: &'r X
 }
 
-fn make_a<'r>(p:&'r X) -> A<'r> {
+fn make_a(p:&X) -> A {
     A{p:p}
 }
 
-fn make_make_a() -> A {
+fn make_make_a<'a>() -> A<'a> {
     let b: Box<B> = box B {
         i: 1,
     };
-    let bb: &B = b; //~ ERROR `*b` does not live long enough
+    let bb: &B = &*b; //~ ERROR `*b` does not live long enough
     make_a(bb)
 }
 

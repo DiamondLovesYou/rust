@@ -95,7 +95,7 @@ impl Emitter for ExpectErrorEmitter {
 }
 
 fn errors(msgs: &[&str]) -> (Box<Emitter+Send>, uint) {
-    let v = Vec::from_fn(msgs.len(), |i| msgs[i].to_owned());
+    let v = msgs.iter().map(|m| m.to_string()).collect();
     (box ExpectErrorEmitter { messages: v } as Box<Emitter+Send>, msgs.len())
 }
 
@@ -114,10 +114,10 @@ fn test_env(_test_name: &str,
 
     let sess = session::build_session_(options, None, span_diagnostic_handler);
     let krate_config = Vec::new();
-    let input = driver::StrInput(source_string.to_owned());
+    let input = driver::StrInput(source_string.to_string());
     let krate = driver::phase_1_parse_input(&sess, krate_config, &input);
     let (krate, ast_map) =
-        driver::phase_2_configure_and_expand(&sess, krate, "test")
+        driver::phase_2_configure_and_expand(&sess, krate, "test", None)
             .expect("phase 2 aborted");
 
     // run just enough stuff to build a tcx:
@@ -174,7 +174,7 @@ impl<'a> Env<'a> {
             assert!(idx < names.len());
             for item in m.items.iter() {
                 if item.ident.user_string(this.tcx) == names[idx] {
-                    return search(this, *item, idx+1, names);
+                    return search(this, &**item, idx+1, names);
                 }
             }
             return None;

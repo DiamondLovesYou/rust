@@ -46,7 +46,8 @@ ifneq ($(wildcard $(subst $(SPACE),\$(SPACE),$(CFG_GIT))),)
 ifneq ($(wildcard $(subst $(SPACE),\$(SPACE),$(CFG_GIT_DIR))),)
     CFG_VER_DATE = $(shell git --git-dir='$(CFG_GIT_DIR)' log -1 --pretty=format:'%ci')
     CFG_VER_HASH = $(shell git --git-dir='$(CFG_GIT_DIR)' rev-parse HEAD)
-    CFG_VERSION += ($(CFG_VER_HASH) $(CFG_VER_DATE))
+    CFG_SHORT_VER_HASH = $(shell git --git-dir='$(CFG_GIT_DIR)' rev-parse --short=9 HEAD)
+    CFG_VERSION += ($(CFG_SHORT_VER_HASH) $(CFG_VER_DATE))
 endif
 endif
 
@@ -401,7 +402,7 @@ define SREQ_CMDS
 ifeq ($$(OSTYPE_$(3)),apple-darwin)
   LD_LIBRARY_PATH_ENV_NAME$(1)_T_$(2)_H_$(3) := DYLD_LIBRARY_PATH
 else
-ifeq ($$(CFG_WINDOWSY_$(2)),1)
+ifeq ($$(CFG_WINDOWSY_$(3)),1)
   LD_LIBRARY_PATH_ENV_NAME$(1)_T_$(2)_H_$(3) := PATH
 else
   LD_LIBRARY_PATH_ENV_NAME$(1)_T_$(2)_H_$(3) := LD_LIBRARY_PATH

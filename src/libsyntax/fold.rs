@@ -55,17 +55,17 @@ pub trait Folder {
                 let id = self.new_id(node_id);
                 ViewPathList(self.fold_path(path),
                              path_list_idents.iter().map(|path_list_ident| {
-                                let id = self.new_id(path_list_ident.node
-                                                                    .id);
                                 Spanned {
-                                    node: PathListIdent_ {
-                                        name: path_list_ident.node
-                                                             .name
-                                                             .clone(),
-                                        id: id,
+                                    node: match path_list_ident.node {
+                                        PathListIdent { id, name } =>
+                                            PathListIdent {
+                                                id: self.new_id(id),
+                                                name: name.clone()
+                                            },
+                                        PathListMod { id } =>
+                                            PathListMod { id: self.new_id(id) }
                                     },
-                                    span: self.new_span(
-                                        path_list_ident.span)
+                                    span: self.new_span(path_list_ident.span)
                                 }
                              }).collect(),
                              id)
@@ -472,7 +472,7 @@ fn fold_interpolated<T: Folder>(nt : &token::Nonterminal, fld: &mut T) -> token:
                           .expect_one("expected fold to produce exactly one item")),
         token::NtBlock(block) => token::NtBlock(fld.fold_block(block)),
         token::NtStmt(stmt) =>
-            token::NtStmt(fld.fold_stmt(stmt)
+            token::NtStmt(fld.fold_stmt(&*stmt)
                           // this is probably okay, because the only folds likely
                           // to peek inside interpolated nodes will be renamings/markings,
                           // which map single items to single items
@@ -483,8 +483,8 @@ fn fold_interpolated<T: Folder>(nt : &token::Nonterminal, fld: &mut T) -> token:
         token::NtIdent(ref id, is_mod_name) =>
             token::NtIdent(box fld.fold_ident(**id),is_mod_name),
         token::NtMeta(meta_item) => token::NtMeta(fold_meta_item_(meta_item,fld)),
-        token::NtPath(ref path) => token::NtPath(box fld.fold_path(*path)),
-        token::NtTT(tt) => token::NtTT(box (GC) fold_tt(tt,fld)),
+        token::NtPath(ref path) => token::NtPath(box fld.fold_path(&**path)),
+        token::NtTT(tt) => token::NtTT(box (GC) fold_tt(&*tt,fld)),
         // it looks to me like we can leave out the matchers: token::NtMatchers(matchers)
         _ => (*nt).clone()
     }
@@ -727,6 +727,7 @@ pub fn noop_fold_type_method<T: Folder>(m: &TypeMethod, fld: &mut T) -> TypeMeth
         ident: fld.fold_ident(m.ident),
         attrs: m.attrs.iter().map(|a| fld.fold_attribute(*a)).collect(),
         fn_style: m.fn_style,
+        abi: m.abi,
         decl: fld.fold_fn_decl(&*m.decl),
         generics: fold_generics(&m.generics, fld),
         explicit_self: fld.fold_explicit_self(&m.explicit_self),
@@ -751,7 +752,7 @@ pub fn noop_fold_crate<T: Folder>(c: Crate, folder: &mut T) -> Crate {
         attrs: c.attrs.iter().map(|x| folder.fold_attribute(*x)).collect(),
         config: c.config.iter().map(|x| fold_meta_item_(*x, folder)).collect(),
         span: folder.new_span(c.span),
-        exported_macros: c.exported_macros.iter().map(|sp| folder.new_span(*sp)).collect(),
+        exported_macros: c.exported_macros
     }
 }
 
@@ -818,9 +819,17 @@ pub fn noop_fold_method<T: Folder>(m: &Method, folder: &mut T) -> SmallVector<Gc
         id: id,
         span: folder.new_span(m.span),
         node: match m.node {
-            MethDecl(ident, ref generics, ref explicit_self, fn_style, decl, body, vis) => {
+            MethDecl(ident,
+                     ref generics,
+                     abi,
+                     ref explicit_self,
+                     fn_style,
+                     decl,
+                     body,
+                     vis) => {
                 MethDecl(folder.fold_ident(ident),
                          fold_generics(generics, folder),
+                         abi,
                          folder.fold_explicit_self(explicit_self),
                          fn_style,
                          folder.fold_fn_decl(&*decl),
@@ -948,7 +957,11 @@ pub fn noop_fold_expr<T: Folder>(e: Gc<Expr>, folder: &mut T) -> Gc<Expr> {
             ExprProc(folder.fold_fn_decl(&**decl),
                      folder.fold_block(body.clone()))
         }
-        ExprBlock(ref blk) => ExprBlock(folder.fold_block(blk.clone())),
+        ExprUnboxedFn(ref decl, ref body) => {
+            ExprUnboxedFn(folder.fold_fn_decl(&**decl),
+                          folder.fold_block(*body))
+        }
+        ExprBlock(ref blk) => ExprBlock(folder.fold_block(*blk)),
         ExprAssign(el, er) => {
             ExprAssign(folder.fold_expr(el), folder.fold_expr(er))
         }

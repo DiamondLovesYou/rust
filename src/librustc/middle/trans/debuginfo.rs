@@ -452,7 +452,8 @@ impl TypeMap {
                                                onceness,
                                                store,
                                                ref bounds,
-                                               ref sig }) => {
+                                               ref sig,
+                                               abi: _ }) => {
                 if fn_style == ast::UnsafeFn {
                     unique_type_id.push_str("unsafe ");
                 }
@@ -802,15 +803,16 @@ pub fn create_global_var_metadata(cx: &CrateContext,
                                    var_item).as_slice())
     };
 
-    let filename = span_start(cx, span).file.name.clone();
-    let file_metadata = file_metadata(cx, filename.as_slice());
+    let (file_metadata, line_number) = if span != codemap::DUMMY_SP {
+        let loc = span_start(cx, span);
+        (file_metadata(cx, loc.file.name.as_slice()), loc.line as c_uint)
+    } else {
+        (UNKNOWN_FILE_METADATA, UNKNOWN_LINE_NUMBER)
+    };
 
     let is_local_to_unit = is_node_local_to_unit(cx, node_id);
-    let loc = span_start(cx, span);
-
     let variable_type = ty::node_id_to_type(cx.tcx(), node_id);
     let type_metadata = type_metadata(cx, variable_type, span);
-
     let namespace_node = namespace_for_item(cx, ast_util::local_def(node_id));
     let var_name = token::get_ident(ident).get().to_string();
     let linkage_name =
@@ -825,7 +827,7 @@ pub fn create_global_var_metadata(cx: &CrateContext,
                                                         var_name,
                                                         linkage_name,
                                                         file_metadata,
-                                                        loc.line as c_uint,
+                                                        line_number,
                                                         type_metadata,
                                                         is_local_to_unit,
                                                         global,
@@ -1152,7 +1154,8 @@ pub fn create_function_debug_context(cx: &CrateContext,
         ast_map::NodeExpr(ref expr) => {
             match expr.node {
                 ast::ExprFnBlock(fn_decl, top_level_block) |
-                ast::ExprProc(fn_decl, top_level_block) => {
+                ast::ExprProc(fn_decl, top_level_block) |
+                ast::ExprUnboxedFn(fn_decl, top_level_block) => {
                     let name = format!("fn{}", token::gensym("fn"));
                     let name = token::str_to_ident(name.as_slice());
                     (name, fn_decl,
@@ -3604,7 +3607,8 @@ fn populate_scope_map(cx: &CrateContext,
             }
 
             ast::ExprFnBlock(ref decl, ref block) |
-            ast::ExprProc(ref decl, ref block) => {
+            ast::ExprProc(ref decl, ref block) |
+            ast::ExprUnboxedFn(ref decl, ref block) => {
                 with_new_scope(cx,
                                block.span,
                                scope_stack,
@@ -3879,6 +3883,9 @@ fn push_debuginfo_type_name(cx: &CrateContext,
                 push_debuginfo_type_name(cx, sig.output, true, output);
             }
         },
+        ty::ty_unboxed_closure(_) => {
+            output.push_str("closure");
+        }
         ty::ty_err      |
         ty::ty_infer(_) |
         ty::ty_param(_) => {

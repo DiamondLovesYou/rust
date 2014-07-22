@@ -195,18 +195,19 @@ use llvm::{ValueRef, BasicBlockRef};
 use middle::const_eval;
 use middle::def;
 use middle::check_match;
+use middle::check_match::StaticInliner;
 use middle::lang_items::StrEqFnLangItem;
 use middle::pat_util::*;
 use middle::resolve::DefMap;
 use middle::trans::adt;
 use middle::trans::base::*;
 use middle::trans::build::*;
+use middle::trans::build;
 use middle::trans::callee;
 use middle::trans::cleanup;
 use middle::trans::cleanup::CleanupMethods;
 use middle::trans::common::*;
 use middle::trans::consts;
-use middle::trans::controlflow;
 use middle::trans::datum::*;
 use middle::trans::expr::Dest;
 use middle::trans::expr;
@@ -219,19 +220,12 @@ use util::ppaux::{Repr, vec_map_to_string};
 
 use std;
 use std::collections::HashMap;
-use std::cell::Cell;
 use std::rc::Rc;
 use std::gc::{Gc};
 use syntax::ast;
 use syntax::ast::Ident;
 use syntax::codemap::Span;
-use syntax::parse::token::InternedString;
-
-// An option identifying a literal: either an expression or a DefId of a static expression.
-enum Lit {
-    ExprLit(Gc<ast::Expr>),
-    ConstLit(ast::DefId),              // the def ID of the constant
-}
+use syntax::fold::Folder;
 
 #[deriving(PartialEq)]
 pub enum VecLenOpt {
@@ -242,24 +236,15 @@ pub enum VecLenOpt {
 // An option identifying a branch (either a literal, an enum variant or a
 // range)
 enum Opt {
-    lit(Lit),
+    lit(Gc<ast::Expr>),
     var(ty::Disr, Rc<adt::Repr>, ast::DefId),
     range(Gc<ast::Expr>, Gc<ast::Expr>),
     vec_len(/* length */ uint, VecLenOpt, /*range of matches*/(uint, uint))
 }
 
-fn lit_to_expr(tcx: &ty::ctxt, a: &Lit) -> Gc<ast::Expr> {
-    match *a {
-        ExprLit(existing_a_expr) => existing_a_expr,
-        ConstLit(a_const) => const_eval::lookup_const_by_id(tcx, a_const).unwrap()
-    }
-}
-
 fn opt_eq(tcx: &ty::ctxt, a: &Opt, b: &Opt) -> bool {
     match (a, b) {
-        (&lit(a), &lit(b)) => {
-            let a_expr = lit_to_expr(tcx, &a);
-            let b_expr = lit_to_expr(tcx, &b);
+        (&lit(a_expr), &lit(b_expr)) => {
             match const_eval::compare_lit_exprs(tcx, &*a_expr, &*b_expr) {
                 Some(val1) => val1 == 0,
                 None => fail!("compare_list_exprs: type mismatch"),
@@ -286,20 +271,13 @@ pub enum opt_result<'a> {
     range_result(Result<'a>, Result<'a>),
 }
 
-fn trans_opt<'a>(bcx: &'a Block<'a>, o: &Opt) -> opt_result<'a> {
+fn trans_opt<'a>(mut bcx: &'a Block<'a>, o: &Opt) -> opt_result<'a> {
     let _icx = push_ctxt("match::trans_opt");
     let ccx = bcx.ccx();
-    let mut bcx = bcx;
     match *o {
-        lit(ExprLit(ref lit_expr)) => {
-            let lit_datum = unpack_datum!(bcx, expr::trans(bcx, &**lit_expr));
-            let lit_datum = lit_datum.assert_rvalue(bcx); // literals are rvalues
-            let lit_datum = unpack_datum!(bcx, lit_datum.to_appropriate_datum(bcx));
-            return single_result(Result::new(bcx, lit_datum.val));
-        }
-        lit(l @ ConstLit(ref def_id)) => {
-            let lit_ty = ty::node_id_to_type(bcx.tcx(), lit_to_expr(bcx.tcx(), &l).id);
-            let (llval, _) = consts::get_const_val(bcx.ccx(), *def_id);
+        lit(lit_expr) => {
+            let lit_ty = ty::node_id_to_type(bcx.tcx(), lit_expr.id);
+            let (llval, _) = consts::const_expr(ccx, &*lit_expr, true);
             let lit_datum = immediate_rvalue(llval, lit_ty);
             let lit_datum = unpack_datum!(bcx, lit_datum.to_appropriate_datum(bcx));
             return single_result(Result::new(bcx, lit_datum.val));
@@ -317,20 +295,6 @@ fn trans_opt<'a>(bcx: &'a Block<'a>, o: &Opt) -> opt_result<'a> {
         }
         vec_len(n, vec_len_ge(_), _) => {
             return lower_bound(Result::new(bcx, C_int(ccx, n as int)));
-        }
-    }
-}
-
-fn variant_opt(bcx: &Block, pat_id: ast::NodeId) -> Opt {
-    let ccx = bcx.ccx();
-    let def = ccx.tcx.def_map.borrow().get_copy(&pat_id);
-    match def {
-        def::DefVariant(enum_id, var_id, _) => {
-            let variant = ty::enum_variant_with_id(ccx.tcx(), enum_id, var_id);
-            var(variant.disr_val, adt::represent_node(bcx, pat_id), var_id)
-        }
-        _ => {
-            ccx.sess().bug("non-variant or struct in variant_opt()");
         }
     }
 }
@@ -491,7 +455,7 @@ fn enter_default<'a, 'b>(
 
     // Collect all of the matches that can match against anything.
     enter_match(bcx, dm, m, col, val, |pats| {
-        if pat_is_binding_or_wild(dm, pats[col]) {
+        if pat_is_binding_or_wild(dm, &*pats[col]) {
             Some(Vec::from_slice(pats.slice_to(col)).append(pats.slice_from(col + 1)))
         } else {
             None
@@ -546,11 +510,12 @@ fn enter_opt<'a, 'b>(
     let _indenter = indenter();
 
     let ctor = match opt {
-        &lit(x) => check_match::ConstantValue(const_eval::eval_const_expr(
-            bcx.tcx(), lit_to_expr(bcx.tcx(), &x))),
-        &range(ref lo, ref hi) => check_match::ConstantRange(
-            const_eval::eval_const_expr(bcx.tcx(), &**lo),
-            const_eval::eval_const_expr(bcx.tcx(), &**hi)
+        &lit(expr) => check_match::ConstantValue(
+            const_eval::eval_const_expr(bcx.tcx(), &*expr)
+        ),
+        &range(lo, hi) => check_match::ConstantRange(
+            const_eval::eval_const_expr(bcx.tcx(), &*lo),
+            const_eval::eval_const_expr(bcx.tcx(), &*hi)
         ),
         &vec_len(len, _, _) => check_match::Slice(len),
         &var(_, _, def_id) => check_match::Variant(def_id)
@@ -647,36 +612,17 @@ fn get_options(bcx: &Block, m: &[Match], col: uint) -> Vec<Opt> {
         let cur = *br.pats.get(col);
         match cur.node {
             ast::PatLit(l) => {
-                add_to_set(ccx.tcx(), &mut found, lit(ExprLit(l)));
+                add_to_set(ccx.tcx(), &mut found, lit(l));
             }
-            ast::PatIdent(..) => {
+            ast::PatIdent(..) | ast::PatEnum(..) | ast::PatStruct(..) => {
                 // This is either an enum variant or a variable binding.
                 let opt_def = ccx.tcx.def_map.borrow().find_copy(&cur.id);
                 match opt_def {
-                    Some(def::DefVariant(..)) => {
+                    Some(def::DefVariant(enum_id, var_id, _)) => {
+                        let variant = ty::enum_variant_with_id(ccx.tcx(), enum_id, var_id);
                         add_to_set(ccx.tcx(), &mut found,
-                                   variant_opt(bcx, cur.id));
-                    }
-                    Some(def::DefStatic(const_did, false)) => {
-                        add_to_set(ccx.tcx(), &mut found,
-                                   lit(ConstLit(const_did)));
-                    }
-                    _ => {}
-                }
-            }
-            ast::PatEnum(..) | ast::PatStruct(..) => {
-                // This could be one of: a tuple-like enum variant, a
-                // struct-like enum variant, or a struct.
-                let opt_def = ccx.tcx.def_map.borrow().find_copy(&cur.id);
-                match opt_def {
-                    Some(def::DefFn(..)) |
-                    Some(def::DefVariant(..)) => {
-                        add_to_set(ccx.tcx(), &mut found,
-                                   variant_opt(bcx, cur.id));
-                    }
-                    Some(def::DefStatic(const_did, false)) => {
-                        add_to_set(ccx.tcx(), &mut found,
-                                   lit(ConstLit(const_did)));
+                                   var(variant.disr_val,
+                                       adt::represent_node(bcx, cur.id), var_id));
                     }
                     _ => {}
                 }
@@ -822,40 +768,18 @@ fn any_irrefutable_adt_pat(bcx: &Block, m: &[Match], col: uint) -> bool {
     })
 }
 
-struct DynamicFailureHandler<'a> {
-    bcx: &'a Block<'a>,
-    sp: Span,
-    msg: InternedString,
-    finished: Cell<Option<BasicBlockRef>>,
-}
-
-impl<'a> DynamicFailureHandler<'a> {
-    fn handle_fail(&self) -> BasicBlockRef {
-        match self.finished.get() {
-            Some(bb) => return bb,
-            _ => (),
-        }
-
-        let fcx = self.bcx.fcx;
-        let fail_cx = fcx.new_block(false, "case_fallthrough", None);
-        controlflow::trans_fail(fail_cx, self.sp, self.msg.clone());
-        self.finished.set(Some(fail_cx.llbb));
-        fail_cx.llbb
-    }
-}
-
 /// What to do when the pattern match fails.
 enum FailureHandler<'a> {
     Infallible,
     JumpToBasicBlock(BasicBlockRef),
-    DynamicFailureHandlerClass(Box<DynamicFailureHandler<'a>>),
+    Unreachable
 }
 
 impl<'a> FailureHandler<'a> {
     fn is_infallible(&self) -> bool {
         match *self {
             Infallible => true,
-            _ => false,
+            _ => false
         }
     }
 
@@ -863,15 +787,14 @@ impl<'a> FailureHandler<'a> {
         !self.is_infallible()
     }
 
-    fn handle_fail(&self) -> BasicBlockRef {
+    fn handle_fail(&self, bcx: &Block) {
         match *self {
-            Infallible => {
-                fail!("attempted to fail in infallible failure handler!")
-            }
-            JumpToBasicBlock(basic_block) => basic_block,
-            DynamicFailureHandlerClass(ref dynamic_failure_handler) => {
-                dynamic_failure_handler.handle_fail()
-            }
+            Infallible =>
+                fail!("attempted to fail in infallible failure handler!"),
+            JumpToBasicBlock(basic_block) =>
+                Br(bcx, basic_block),
+            Unreachable =>
+                build::Unreachable(bcx)
         }
     }
 }
@@ -1032,7 +955,7 @@ fn compile_guard<'a, 'b>(
             // condition explicitly rather than (possibly) falling back to
             // the default arm.
             &JumpToBasicBlock(_) if m.len() == 1 && has_genuine_default => {
-                Br(bcx, chk.handle_fail());
+                chk.handle_fail(bcx);
             }
             _ => {
                 compile_submatch(bcx, m, vals, chk, has_genuine_default);
@@ -1057,7 +980,7 @@ fn compile_submatch<'a, 'b>(
     let mut bcx = bcx;
     if m.len() == 0u {
         if chk.is_fallible() {
-            Br(bcx, chk.handle_fail());
+            chk.handle_fail(bcx);
         }
         return;
     }
@@ -1328,7 +1251,7 @@ fn compile_submatch_continue<'a, 'b>(
             // condition explicitly rather than (eventually) falling back to
             // the last default arm.
             &JumpToBasicBlock(_) if defaults.len() == 1 && has_genuine_default => {
-                Br(else_cx, chk.handle_fail());
+                chk.handle_fail(else_cx);
             }
             _ => {
                 compile_submatch(else_cx,
@@ -1422,21 +1345,10 @@ fn trans_match_inner<'a>(scope_cx: &'a Block<'a>,
     }
 
     let t = node_id_type(bcx, discr_expr.id);
-    let chk = {
-        if ty::type_is_empty(tcx, t) {
-            // Special case for empty types
-            let fail_cx = Cell::new(None);
-            let fail_handler = box DynamicFailureHandler {
-                bcx: scope_cx,
-                sp: discr_expr.span,
-                msg: InternedString::new("scrutinizing value that can't \
-                                          exist"),
-                finished: fail_cx,
-            };
-            DynamicFailureHandlerClass(fail_handler)
-        } else {
-            Infallible
-        }
+    let chk = if ty::type_is_empty(tcx, t) {
+        Unreachable
+    } else {
+        Infallible
     };
 
     let arm_datas: Vec<ArmData> = arms.iter().map(|arm| ArmData {
@@ -1445,10 +1357,11 @@ fn trans_match_inner<'a>(scope_cx: &'a Block<'a>,
         bindings_map: create_bindings_map(bcx, *arm.pats.get(0))
     }).collect();
 
+    let mut static_inliner = StaticInliner { tcx: scope_cx.tcx() };
     let mut matches = Vec::new();
     for arm_data in arm_datas.iter() {
-        matches.extend(arm_data.arm.pats.iter().map(|p| Match {
-            pats: vec!(*p),
+        matches.extend(arm_data.arm.pats.iter().map(|&p| Match {
+            pats: vec![static_inliner.fold_pat(p)],
             data: arm_data,
             bound_ptrs: Vec::new(),
         }));
@@ -1751,8 +1664,6 @@ fn bind_irrefutable_pat<'a>(
                             }
                         }
                     }
-                }
-                Some(def::DefStatic(_, false)) => {
                 }
                 _ => {
                     // Nothing to do here.

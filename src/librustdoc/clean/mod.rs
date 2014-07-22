@@ -1301,6 +1301,8 @@ impl Clean<Type> for ty::t {
                 }
             }
 
+            ty::ty_unboxed_closure(..) => Primitive(Unit), // FIXME(pcwalton)
+
             ty::ty_infer(..) => fail!("ty_infer"),
             ty::ty_err => fail!("ty_err"),
         }
@@ -1777,13 +1779,13 @@ impl Clean<Vec<Item>> for ast::ViewItem {
                         // to keep any non-inlineable reexports so they can be
                         // listed in the documentation.
                         let remaining = list.iter().filter(|path| {
-                            match inline::try_inline(path.node.id) {
+                            match inline::try_inline(path.node.id()) {
                                 Some(items) => {
                                     ret.extend(items.move_iter()); false
                                 }
                                 None => true,
                             }
-                        }).map(|a| a.clone()).collect::<Vec<ast::PathListIdent>>();
+                        }).map(|a| a.clone()).collect::<Vec<ast::PathListItem>>();
                         if remaining.len() > 0 {
                             let path = ast::ViewPathList(a.clone(),
                                                          remaining,
@@ -1866,11 +1868,17 @@ pub struct ViewListIdent {
     pub source: Option<ast::DefId>,
 }
 
-impl Clean<ViewListIdent> for ast::PathListIdent {
+impl Clean<ViewListIdent> for ast::PathListItem {
     fn clean(&self) -> ViewListIdent {
-        ViewListIdent {
-            name: self.node.name.clean(),
-            source: resolve_def(self.node.id),
+        match self.node {
+            ast::PathListIdent { id, name } => ViewListIdent {
+                name: name.clean(),
+                source: resolve_def(id)
+            },
+            ast::PathListMod { id } => ViewListIdent {
+                name: "mod".to_string(),
+                source: resolve_def(id)
+            }
         }
     }
 }

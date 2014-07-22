@@ -7,6 +7,8 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
+//
+// ignore-lexer-test FIXME #15679
 
 /*!
 
@@ -55,10 +57,10 @@ other languages.
 
 # Representation
 
-Rust's string type, `str`, is a sequence of unicode codepoints encoded as a
-stream of UTF-8 bytes. All safely-created strings are guaranteed to be validly
-encoded UTF-8 sequences. Additionally, strings are not null-terminated
-and can contain null codepoints.
+Rust's string type, `str`, is a sequence of unicode scalar values encoded as a
+stream of UTF-8 bytes. All strings are guaranteed to be validly encoded UTF-8
+sequences. Additionally, strings are not null-terminated and can contain null
+bytes.
 
 The actual representation of strings have direct mappings to vectors: `&str`
 is the same as `&[u8]`.
@@ -808,6 +810,7 @@ impl OwnedStr for String {
 #[cfg(test)]
 mod tests {
     use std::iter::AdditiveIterator;
+    use std::iter::range;
     use std::default::Default;
     use std::char::Char;
     use std::clone::Clone;
@@ -1611,6 +1614,30 @@ mod tests {
     }
 
     #[test]
+    fn test_chars_decoding() {
+        let mut bytes = [0u8, ..4];
+        for c in range(0u32, 0x110000).filter_map(|c| ::core::char::from_u32(c)) {
+            let len = c.encode_utf8(bytes);
+            let s = ::core::str::from_utf8(bytes.slice_to(len)).unwrap();
+            if Some(c) != s.chars().next() {
+                fail!("character {:x}={} does not decode correctly", c as u32, c);
+            }
+        }
+    }
+
+    #[test]
+    fn test_chars_rev_decoding() {
+        let mut bytes = [0u8, ..4];
+        for c in range(0u32, 0x110000).filter_map(|c| ::core::char::from_u32(c)) {
+            let len = c.encode_utf8(bytes);
+            let s = ::core::str::from_utf8(bytes.slice_to(len)).unwrap();
+            if Some(c) != s.chars().rev().next() {
+                fail!("character {:x}={} does not decode correctly", c as u32, c);
+            }
+        }
+    }
+
+    #[test]
     fn test_iterator_clone() {
         let s = "ศไทย中华Việt Nam";
         let mut it = s.chars();
@@ -2240,16 +2267,26 @@ mod tests {
 #[cfg(test)]
 mod bench {
     use test::Bencher;
+    use test::black_box;
     use super::*;
+    use std::option::{None, Some};
     use std::iter::{Iterator, DoubleEndedIterator};
     use std::collections::Collection;
 
     #[bench]
     fn char_iterator(b: &mut Bencher) {
         let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
-        let len = s.char_len();
 
-        b.iter(|| assert_eq!(s.chars().count(), len));
+        b.iter(|| s.chars().count());
+    }
+
+    #[bench]
+    fn char_iterator_for(b: &mut Bencher) {
+        let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
+
+        b.iter(|| {
+            for ch in s.chars() { black_box(ch) }
+        });
     }
 
     #[bench]
@@ -2260,17 +2297,24 @@ mod bench {
         Mary had a little lamb, Little lamb
         Mary had a little lamb, Little lamb
         Mary had a little lamb, Little lamb";
-        let len = s.char_len();
 
-        b.iter(|| assert_eq!(s.chars().count(), len));
+        b.iter(|| s.chars().count());
     }
 
     #[bench]
     fn char_iterator_rev(b: &mut Bencher) {
         let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
-        let len = s.char_len();
 
-        b.iter(|| assert_eq!(s.chars().rev().count(), len));
+        b.iter(|| s.chars().rev().count());
+    }
+
+    #[bench]
+    fn char_iterator_rev_for(b: &mut Bencher) {
+        let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
+
+        b.iter(|| {
+            for ch in s.chars().rev() { black_box(ch) }
+        });
     }
 
     #[bench]

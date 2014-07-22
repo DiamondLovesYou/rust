@@ -13,7 +13,6 @@
 #![allow(non_snake_case_functions)]
 #![allow(dead_code)]
 
-#![crate_id = "rustc_llvm#0.11.0"]
 #![crate_name = "rustc_llvm"]
 #![experimental]
 #![license = "MIT/ASL2"]
@@ -26,7 +25,6 @@
 #![feature(globs)]
 #![feature(link_args)]
 #![feature(phase)]
-#![allow(unused_attribute)] // NOTE: remove after stage0
 
 extern crate libc;
 #[phase(plugin, link)]
@@ -1964,6 +1962,14 @@ pub fn mk_section_iter(llof: ObjectFileRef) -> SectionIter {
         SectionIter {
             llsi: LLVMGetSections(llof)
         }
+    }
+}
+
+/// Safe wrapper around `LLVMGetParam`, because segfaults are no fun.
+pub fn get_param(llfn: ValueRef, index: c_uint) -> ValueRef {
+    unsafe {
+        assert!(index < LLVMCountParams(llfn));
+        LLVMGetParam(llfn, index)
     }
 }
 

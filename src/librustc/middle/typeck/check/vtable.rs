@@ -15,21 +15,23 @@ use middle::ty_fold::TypeFolder;
 use middle::typeck::astconv::AstConv;
 use middle::typeck::check::{FnCtxt, impl_self_ty};
 use middle::typeck::check::{structurally_resolved_type};
+use middle::typeck::check::regionmanip;
 use middle::typeck::check::writeback;
 use middle::typeck::infer::fixup_err_to_string;
 use middle::typeck::infer::{resolve_and_force_all_but_regions, resolve_type};
 use middle::typeck::infer;
-use middle::typeck::{vtable_origin, vtable_res, vtable_param_res};
-use middle::typeck::{vtable_static, vtable_param, vtable_error};
-use middle::typeck::{param_index};
-use middle::typeck::MethodCall;
-use middle::typeck::TypeAndSubsts;
+use middle::typeck::{MethodCall, TypeAndSubsts};
+use middle::typeck::{param_index, vtable_error, vtable_origin, vtable_param};
+use middle::typeck::{vtable_param_res, vtable_res, vtable_static};
+use middle::typeck::{vtable_unboxed_closure};
 use middle::subst;
 use middle::subst::{Subst, VecPerParamSpace};
 use util::common::indenter;
+use util::nodemap::DefIdMap;
 use util::ppaux;
 use util::ppaux::Repr;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::collections::HashSet;
 use syntax::ast;
@@ -69,6 +71,7 @@ use syntax::visit::Visitor;
 pub struct VtableContext<'a> {
     pub infcx: &'a infer::InferCtxt<'a>,
     pub param_env: &'a ty::ParameterEnvironment,
+    pub unboxed_closure_types: &'a RefCell<DefIdMap<ty::ClosureTy>>,
 }
 
 impl<'a> VtableContext<'a> {
@@ -203,11 +206,10 @@ fn relate_trait_refs(vcx: &VtableContext,
                 !ty::trait_ref_contains_error(&r_exp_trait_ref)
             {
                 let tcx = vcx.tcx();
-                tcx.sess.span_err(span,
-                    format!("expected {}, but found {} ({})",
-                            ppaux::trait_ref_to_string(tcx, &r_exp_trait_ref),
-                            ppaux::trait_ref_to_string(tcx, &r_act_trait_ref),
-                            ty::type_err_to_str(tcx, err)).as_slice());
+                span_err!(tcx.sess, span, E0095, "expected {}, but found {} ({})",
+                          ppaux::trait_ref_to_string(tcx, &r_exp_trait_ref),
+                          ppaux::trait_ref_to_string(tcx, &r_act_trait_ref),
+                          ty::type_err_to_str(tcx, err));
             }
         }
     }
@@ -248,10 +250,13 @@ fn lookup_vtable(vcx: &VtableContext,
         ty::ty_param(ParamTy {space, idx: n, ..}) => {
             let env_bounds = &vcx.param_env.bounds;
             let type_param_bounds = &env_bounds.get(space, n).trait_bounds;
-            lookup_vtable_from_bounds(vcx, span,
+            lookup_vtable_from_bounds(vcx,
+                                      span,
                                       type_param_bounds.as_slice(),
-                                      param_index { space: space,
-                                                    index: n },
+                                      param_index {
+                                          space: space,
+                                          index: n,
+                                      },
                                       trait_ref.clone())
         }
 
@@ -297,6 +302,75 @@ fn lookup_vtable_from_bounds(vcx: &VtableContext,
     ret
 }
 
+fn search_for_unboxed_closure_vtable(vcx: &VtableContext,
+                                     span: Span,
+                                     ty: ty::t,
+                                     trait_ref: Rc<ty::TraitRef>)
+                                     -> Option<vtable_origin> {
+    let tcx = vcx.tcx();
+    let closure_def_id = match ty::get(ty).sty {
+        ty::ty_unboxed_closure(closure_def_id) => closure_def_id,
+        _ => return None,
+    };
+
+    let fn_traits = [
+        tcx.lang_items.fn_trait(),
+        tcx.lang_items.fn_mut_trait(),
+        tcx.lang_items.fn_once_trait()
+    ];
+    for fn_trait in fn_traits.iter() {
+        match *fn_trait {
+            Some(ref fn_trait) if *fn_trait == trait_ref.def_id => {}
+            _ => continue,
+        };
+
+        // Check to see whether the argument and return types match.
+        let unboxed_closure_types = tcx.unboxed_closure_types.borrow();
+        let closure_type = match unboxed_closure_types.find(&closure_def_id) {
+            Some(closure_type) => (*closure_type).clone(),
+            None => {
+                // Try the inherited unboxed closure type map.
+                let unboxed_closure_types = vcx.unboxed_closure_types
+                                               .borrow();
+                match unboxed_closure_types.find(&closure_def_id) {
+                    Some(closure_type) => (*closure_type).clone(),
+                    None => {
+                        tcx.sess.span_bug(span,
+                                          "didn't find unboxed closure type \
+                                           in tcx map or inh map")
+                    }
+                }
+            }
+        };
+
+        // FIXME(pcwalton): This is a bogus thing to do, but
+        // it'll do for now until we get the new trait-bound
+        // region skolemization working.
+        let (_, new_signature) =
+            regionmanip::replace_late_bound_regions_in_fn_sig(
+                tcx,
+                &closure_type.sig,
+                |br| {
+                    vcx.infcx.next_region_var(infer::LateBoundRegion(span,
+                                                                     br))
+                });
+
+        let arguments_tuple = *new_signature.inputs.get(0);
+        let corresponding_trait_ref = Rc::new(ty::TraitRef {
+            def_id: trait_ref.def_id,
+            substs: subst::Substs::new_trait(
+                vec![arguments_tuple, new_signature.output],
+                Vec::new(),
+                ty)
+        });
+
+        relate_trait_refs(vcx, span, corresponding_trait_ref, trait_ref);
+        return Some(vtable_unboxed_closure(closure_def_id))
+    }
+
+    None
+}
+
 fn search_for_vtable(vcx: &VtableContext,
                      span: Span,
                      ty: ty::t,
@@ -305,6 +379,18 @@ fn search_for_vtable(vcx: &VtableContext,
                      -> Option<vtable_origin> {
     debug!("nrc - search_for_vtable");
     let tcx = vcx.tcx();
+
+    // First, check to see whether this is a call to the `call` method of an
+    // unboxed closure. If so, and the arguments match, we're done.
+    match search_for_unboxed_closure_vtable(vcx,
+                                            span,
+                                            ty,
+                                            trait_ref.clone()) {
+        Some(vtable_origin) => return Some(vtable_origin),
+        None => {}
+    }
+
+    // Nope. Continue.
 
     let mut found = Vec::new();
     let mut impls_seen = HashSet::new();
@@ -449,7 +535,8 @@ fn search_for_vtable(vcx: &VtableContext,
         1 => return Some(found.get(0).clone()),
         _ => {
             if !is_early {
-                vcx.tcx().sess.span_err(span, "multiple applicable methods in scope");
+                span_err!(vcx.tcx().sess, span, E0096,
+                          "multiple applicable methods in scope");
             }
             return Some(found.get(0).clone());
         }
@@ -544,9 +631,7 @@ pub fn early_resolve_expr(ex: &ast::Expr, fcx: &FnCtxt, is_early: bool) {
             if !mutability_allowed(mt.mutbl, mutbl) => {
               match ty::get(ty).sty {
                   ty::ty_trait(..) => {
-                      fcx.tcx()
-                         .sess
-                         .span_err(ex.span, "types differ in mutability");
+                      span_err!(fcx.tcx().sess, ex.span, E0097, "types differ in mutability");
                   }
                   _ => {}
               }
@@ -622,11 +707,9 @@ pub fn early_resolve_expr(ex: &ast::Expr, fcx: &FnCtxt, is_early: bool) {
           (&ty::ty_uniq(ty), _) => {
               match ty::get(ty).sty {
                   ty::ty_trait(..) => {
-                      fcx.ccx.tcx.sess.span_err(
-                          ex.span,
-                          format!("can only cast an boxed pointer \
-                                   to a boxed object, not a {}",
-                               ty::ty_sort_string(fcx.tcx(), src_ty)).as_slice());
+                      span_err!(fcx.ccx.tcx.sess, ex.span, E0098,
+                                "can only cast an boxed pointer to a boxed object, not a {}",
+                                ty::ty_sort_string(fcx.tcx(), src_ty));
                   }
                   _ => {}
               }
@@ -635,11 +718,9 @@ pub fn early_resolve_expr(ex: &ast::Expr, fcx: &FnCtxt, is_early: bool) {
           (&ty::ty_rptr(_, ty::mt{ty, ..}), _) => {
               match ty::get(ty).sty {
                   ty::ty_trait(..) => {
-                      fcx.ccx.tcx.sess.span_err(
-                          ex.span,
-                          format!("can only cast an &-pointer \
-                                   to an &-object, not a {}",
-                                  ty::ty_sort_string(fcx.tcx(), src_ty)).as_slice());
+                      span_err!(fcx.ccx.tcx.sess, ex.span, E0099,
+                                "can only cast an &-pointer to an &-object, not a {}",
+                                ty::ty_sort_string(fcx.tcx(), src_ty));
                   }
                   _ => {}
               }
@@ -799,7 +880,12 @@ pub fn resolve_impl(tcx: &ty::ctxt,
     debug!("impl_trait_ref={}", impl_trait_ref.repr(tcx));
 
     let infcx = &infer::new_infer_ctxt(tcx);
-    let vcx = VtableContext { infcx: infcx, param_env: &param_env };
+    let unboxed_closure_types = RefCell::new(DefIdMap::new());
+    let vcx = VtableContext {
+        infcx: infcx,
+        param_env: &param_env,
+        unboxed_closure_types: &unboxed_closure_types,
+    };
 
     // Resolve the vtables for the trait reference on the impl.  This
     // serves many purposes, best explained by example. Imagine we have:
@@ -847,9 +933,11 @@ pub fn resolve_impl(tcx: &ty::ctxt,
 pub fn trans_resolve_method(tcx: &ty::ctxt, id: ast::NodeId,
                             substs: &subst::Substs) -> vtable_res {
     let generics = ty::lookup_item_type(tcx, ast_util::local_def(id)).generics;
+    let unboxed_closure_types = RefCell::new(DefIdMap::new());
     let vcx = VtableContext {
         infcx: &infer::new_infer_ctxt(tcx),
-        param_env: &ty::construct_parameter_environment(tcx, &ty::Generics::empty(), id)
+        param_env: &ty::construct_parameter_environment(tcx, &ty::Generics::empty(), id),
+        unboxed_closure_types: &unboxed_closure_types,
     };
 
     lookup_vtables(&vcx,

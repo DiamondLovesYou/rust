@@ -164,6 +164,12 @@ fn represent_type_uncached(cx: &CrateContext, t: ty::t) -> Repr {
 
             return Univariant(mk_struct(cx, ftys.as_slice(), packed), dtor)
         }
+        ty::ty_unboxed_closure(def_id) => {
+            let upvars = ty::unboxed_closure_upvars(cx.tcx(), def_id);
+            let upvar_types = upvars.iter().map(|u| u.ty).collect::<Vec<_>>();
+            return Univariant(mk_struct(cx, upvar_types.as_slice(), false),
+                              false)
+        }
         ty::ty_enum(def_id, ref substs) => {
             let cases = get_cases(cx.tcx(), def_id, substs);
             let hint = ty::lookup_repr_hint(cx.tcx(), def_id);
@@ -686,11 +692,10 @@ pub fn trans_case<'a>(bcx: &'a Block<'a>, r: &Repr, discr: Disr)
 }
 
 /**
- * Begin initializing a new value of the given case of the given
- * representation.  The fields, if any, should then be initialized via
- * `trans_field_ptr`.
+ * Set the discriminant for a new value of the given case of the given
+ * representation.
  */
-pub fn trans_start_init(bcx: &Block, r: &Repr, val: ValueRef, discr: Disr) {
+pub fn trans_set_discr(bcx: &Block, r: &Repr, val: ValueRef, discr: Disr) {
     match *r {
         CEnum(ity, min, max) => {
             assert_discr_in_range(ity, min, max, discr);

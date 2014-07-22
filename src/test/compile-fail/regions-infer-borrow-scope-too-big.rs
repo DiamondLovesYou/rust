@@ -21,8 +21,8 @@ fn x_coord<'r>(p: &'r point) -> &'r int {
     return &p.x;
 }
 
-fn foo(p: Gc<point>) -> &int {
-    let xc = x_coord(p); //~ ERROR `*p` does not live long enough
+fn foo<'a>(p: Gc<point>) -> &'a int {
+    let xc = x_coord(&*p); //~ ERROR `*p` does not live long enough
     assert_eq!(*xc, 3);
     return xc;
 }

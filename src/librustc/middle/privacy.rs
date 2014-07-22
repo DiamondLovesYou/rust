@@ -21,13 +21,12 @@ use lint;
 use middle::resolve;
 use middle::ty;
 use middle::typeck::{MethodCall, MethodMap, MethodOrigin, MethodParam};
-use middle::typeck::{MethodStatic, MethodObject};
+use middle::typeck::{MethodStatic, MethodStaticUnboxedClosure, MethodObject};
 use util::nodemap::{NodeMap, NodeSet};
 
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util::{is_local, local_def, PostExpansionMethod};
-use syntax::attr;
 use syntax::codemap::Span;
 use syntax::parse::token;
 use syntax::owned_slice::OwnedSlice;
@@ -326,7 +325,7 @@ impl<'a> Visitor<()> for EmbargoVisitor<'a> {
     }
 
     fn visit_foreign_item(&mut self, a: &ast::ForeignItem, _: ()) {
-        if self.prev_exported && a.vis == ast::Public {
+        if (self.prev_exported && a.vis == ast::Public) || self.reexports.contains(&a.id) {
             self.exported_items.insert(a.id);
         }
     }
@@ -772,6 +771,7 @@ impl<'a> PrivacyVisitor<'a> {
             MethodStatic(method_id) => {
                 self.check_static_method(span, method_id, ident)
             }
+            MethodStaticUnboxedClosure(_) => {}
             // Trait methods are always all public. The only controlling factor
             // is whether the trait itself is accessible or not.
             MethodParam(MethodParam { trait_id: trait_id, .. }) |
@@ -785,12 +785,6 @@ impl<'a> PrivacyVisitor<'a> {
 
 impl<'a> Visitor<()> for PrivacyVisitor<'a> {
     fn visit_item(&mut self, item: &ast::Item, _: ()) {
-        // Do not check privacy inside items with the resolve_unexported
-        // attribute. This is used for the test runner.
-        if attr::contains_name(item.attrs.as_slice(), "!resolve_unexported") {
-            return;
-        }
-
         let orig_curitem = replace(&mut self.curitem, item.id);
         visit::walk_item(self, item, ());
         self.curitem = orig_curitem;
@@ -900,21 +894,29 @@ impl<'a> Visitor<()> for PrivacyVisitor<'a> {
             ast::ViewItemUse(ref vpath) => {
                 match vpath.node {
                     ast::ViewPathSimple(..) | ast::ViewPathGlob(..) => {}
-                    ast::ViewPathList(_, ref list, _) => {
+                    ast::ViewPathList(ref prefix, ref list, _) => {
                         for pid in list.iter() {
-                            debug!("privacy - list {}", pid.node.id);
-                            let seg = ast::PathSegment {
-                                identifier: pid.node.name,
-                                lifetimes: Vec::new(),
-                                types: OwnedSlice::empty(),
-                            };
-                            let segs = vec!(seg);
-                            let path = ast::Path {
-                                global: false,
-                                span: pid.span,
-                                segments: segs,
-                            };
-                            self.check_path(pid.span, pid.node.id, &path);
+                            match pid.node {
+                                ast::PathListIdent { id, name } => {
+                                    debug!("privacy - ident item {}", id);
+                                    let seg = ast::PathSegment {
+                                        identifier: name,
+                                        lifetimes: Vec::new(),
+                                        types: OwnedSlice::empty(),
+                                    };
+                                    let segs = vec![seg];
+                                    let path = ast::Path {
+                                        global: false,
+                                        span: pid.span,
+                                        segments: segs,
+                                    };
+                                    self.check_path(pid.span, id, &path);
+                                }
+                                ast::PathListMod { id } => {
+                                    debug!("privacy - mod item {}", id);
+                                    self.check_path(pid.span, id, prefix);
+                                }
+                            }
                         }
                     }
                 }

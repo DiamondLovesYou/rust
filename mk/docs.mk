@@ -30,7 +30,7 @@ DOCS := index intro tutorial guide guide-ffi guide-macros guide-lifetimes \
 	guide-tasks guide-container guide-pointers guide-testing \
 	guide-runtime complement-bugreport \
 	complement-lang-faq complement-design-faq complement-project-faq rust \
-    rustdoc guide-unsafe
+    rustdoc guide-unsafe guide-strings
 
 PDF_DOCS := tutorial rust
 
@@ -112,8 +112,8 @@ HTML_DEPS += doc/version_info.html
 doc/version_info.html: $(D)/version_info.html.template $(MKFILE_DEPS) \
                        $(wildcard $(D)/*.*) | doc/
 	@$(call E, version-info: $@)
-	$(Q)sed -e "s/VERSION/$(CFG_RELEASE)/; s/SHORT_HASH/$(shell echo \
-                    $(CFG_VER_HASH) | head -c 8)/;\
+	$(Q)sed -e "s/VERSION/$(CFG_RELEASE)/; s/SHORT_HASH/$(\
+                    CFG_SHORT_VER_HASH)/;\
                 s/STAMP/$(CFG_VER_HASH)/;" $< >$@
 
 GENERATED += doc/version.tex doc/version_info.html

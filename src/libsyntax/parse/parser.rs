@@ -25,7 +25,7 @@ use ast::{ExprBreak, ExprCall, ExprCast};
 use ast::{ExprField, ExprFnBlock, ExprIf, ExprIndex};
 use ast::{ExprLit, ExprLoop, ExprMac};
 use ast::{ExprMethodCall, ExprParen, ExprPath, ExprProc};
-use ast::{ExprRepeat, ExprRet, ExprStruct, ExprTup, ExprUnary};
+use ast::{ExprRepeat, ExprRet, ExprStruct, ExprTup, ExprUnary, ExprUnboxedFn};
 use ast::{ExprVec, ExprVstore, ExprVstoreSlice};
 use ast::{ExprVstoreMutSlice, ExprWhile, ExprForLoop, Field, FnDecl};
 use ast::{ExprVstoreUniq, Once, Many};
@@ -59,6 +59,7 @@ use ast::Visibility;
 use ast;
 use ast_util::{as_prec, ident_to_path, lit_is_str, operator_prec};
 use ast_util;
+use attr;
 use codemap::{Span, BytePos, Spanned, spanned, mk_sp};
 use codemap;
 use parse;
@@ -502,7 +503,9 @@ impl<'a> Parser<'a> {
                        inedible: &[token::Token]) {
         debug!("commit_stmt {:?}", s);
         let _s = s; // unused, but future checks might want to inspect `s`.
-        if self.last_token.as_ref().map_or(false, |t| is_ident_or_path(*t)) {
+        if self.last_token
+               .as_ref()
+               .map_or(false, |t| is_ident_or_path(&**t)) {
             let expected = edible.iter().map(|x| (*x).clone()).collect::<Vec<_>>()
                            .append(inedible.as_slice());
             self.check_for_erroneous_unit_struct_expecting(
@@ -534,12 +537,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_path_list_ident(&mut self) -> ast::PathListIdent {
+    pub fn parse_path_list_item(&mut self) -> ast::PathListItem {
         let lo = self.span.lo;
-        let ident = self.parse_ident();
+        let node = if self.eat_keyword(keywords::Mod) {
+            ast::PathListMod { id: ast::DUMMY_NODE_ID }
+        } else {
+            let ident = self.parse_ident();
+            ast::PathListIdent { name: ident, id: ast::DUMMY_NODE_ID }
+        };
         let hi = self.last_span.hi;
-        spanned(lo, hi, ast::PathListIdent_ { name: ident,
-                                              id: ast::DUMMY_NODE_ID })
+        spanned(lo, hi, node)
     }
 
     /// Consume token 'tok' if it exists. Returns true if the given
@@ -1215,6 +1222,16 @@ impl<'a> Parser<'a> {
             // NB: at the moment, trait methods are public by default; this
             // could change.
             let vis = p.parse_visibility();
+            let abi = if p.eat_keyword(keywords::Extern) {
+                p.parse_opt_abi().unwrap_or(abi::C)
+            } else if attr::contains_name(attrs.as_slice(),
+                                          "rust_call_abi_hack") {
+                // FIXME(stage0, pcwalton): Remove this awful hack after a
+                // snapshot, and change to `extern "rust-call" fn`.
+                abi::RustCall
+            } else {
+                abi::Rust
+            };
             let style = p.parse_fn_style();
             let ident = p.parse_ident();
 
@@ -1237,6 +1254,7 @@ impl<'a> Parser<'a> {
                     fn_style: style,
                     decl: d,
                     generics: generics,
+                    abi: abi,
                     explicit_self: explicit_self,
                     id: ast::DUMMY_NODE_ID,
                     span: mk_sp(lo, hi),
@@ -1252,7 +1270,14 @@ impl<'a> Parser<'a> {
                     attrs: attrs,
                     id: ast::DUMMY_NODE_ID,
                     span: mk_sp(lo, hi),
-                    node: ast::MethDecl(ident, generics, explicit_self, style, d, body, vis)
+                    node: ast::MethDecl(ident,
+                                        generics,
+                                        abi,
+                                        explicit_self,
+                                        style,
+                                        d,
+                                        body,
+                                        vis)
                 })
               }
 
@@ -2618,51 +2643,11 @@ impl<'a> Parser<'a> {
         self.mk_expr(lo, hi, ExprIf(cond, thn, els))
     }
 
-    /// `|args| { ... }` or `{ ...}` like in `do` expressions
-    pub fn parse_lambda_block_expr(&mut self) -> Gc<Expr> {
-        self.parse_lambda_expr_(
-            |p| {
-                match p.token {
-                    token::BINOP(token::OR) | token::OROR => {
-                        p.parse_fn_block_decl()
-                    }
-                    _ => {
-                        // No argument list - `do foo {`
-                        P(FnDecl {
-                            inputs: Vec::new(),
-                            output: P(Ty {
-                                id: ast::DUMMY_NODE_ID,
-                                node: TyInfer,
-                                span: p.span
-                            }),
-                            cf: Return,
-                            variadic: false
-                        })
-                    }
-                }
-            },
-            |p| {
-                let blk = p.parse_block();
-                p.mk_expr(blk.span.lo, blk.span.hi, ExprBlock(blk))
-            })
-    }
-
-    /// `|args| expr`
+    // `|args| expr`
     pub fn parse_lambda_expr(&mut self) -> Gc<Expr> {
-        self.parse_lambda_expr_(|p| p.parse_fn_block_decl(),
-                                |p| p.parse_expr())
-    }
-
-    /// parse something of the form |args| expr
-    /// this is used both in parsing a lambda expr
-    /// and in parsing a block expr as e.g. in for...
-    pub fn parse_lambda_expr_(&mut self,
-                              parse_decl: |&mut Parser| -> P<FnDecl>,
-                              parse_body: |&mut Parser| -> Gc<Expr>)
-                              -> Gc<Expr> {
         let lo = self.span.lo;
-        let decl = parse_decl(self);
-        let body = parse_body(self);
+        let (decl, is_unboxed) = self.parse_fn_block_decl();
+        let body = self.parse_expr();
         let fakeblock = P(ast::Block {
             view_items: Vec::new(),
             stmts: Vec::new(),
@@ -2672,7 +2657,11 @@ impl<'a> Parser<'a> {
             span: body.span,
         });
 
-        return self.mk_expr(lo, body.span.hi, ExprFnBlock(decl, fakeblock));
+        if is_unboxed {
+            self.mk_expr(lo, body.span.hi, ExprUnboxedFn(decl, fakeblock))
+        } else {
+            self.mk_expr(lo, body.span.hi, ExprFnBlock(decl, fakeblock))
+        }
     }
 
     pub fn parse_else_expr(&mut self) -> Gc<Expr> {
@@ -3953,18 +3942,30 @@ impl<'a> Parser<'a> {
         (spanned(lo, hi, explicit_self), fn_decl)
     }
 
-    /// Parse the |arg, arg| header on a lambda
-    fn parse_fn_block_decl(&mut self) -> P<FnDecl> {
-        let inputs_captures = {
+    // parse the |arg, arg| header on a lambda
+    fn parse_fn_block_decl(&mut self) -> (P<FnDecl>, bool) {
+        let (is_unboxed, inputs_captures) = {
             if self.eat(&token::OROR) {
-                Vec::new()
+                (false, Vec::new())
             } else {
-                self.parse_unspanned_seq(
-                    &token::BINOP(token::OR),
+                self.expect(&token::BINOP(token::OR));
+                let is_unboxed = self.token == token::BINOP(token::AND) &&
+                    self.look_ahead(1, |t| {
+                        token::is_keyword(keywords::Mut, t)
+                    }) &&
+                    self.look_ahead(2, |t| *t == token::COLON);
+                if is_unboxed {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                }
+                let args = self.parse_seq_to_before_end(
                     &token::BINOP(token::OR),
                     seq_sep_trailing_disallowed(token::COMMA),
                     |p| p.parse_fn_block_arg()
-                )
+                );
+                self.bump();
+                (is_unboxed, args)
             }
         };
         let output = if self.eat(&token::RARROW) {
@@ -3977,12 +3978,12 @@ impl<'a> Parser<'a> {
             })
         };
 
-        P(FnDecl {
+        (P(FnDecl {
             inputs: inputs_captures,
             output: output,
             cf: Return,
             variadic: false
-        })
+        }), is_unboxed)
     }
 
     /// Parses the `(arg, arg) -> return_type` header on a procedure.
@@ -4077,6 +4078,11 @@ impl<'a> Parser<'a> {
                 (ast::MethMac(m), self.span.hi, attrs)
             } else {
                 let visa = self.parse_visibility();
+                let abi = if self.eat_keyword(keywords::Extern) {
+                    self.parse_opt_abi().unwrap_or(abi::C)
+                } else {
+                    abi::Rust
+                };
                 let fn_style = self.parse_fn_style();
                 let ident = self.parse_ident();
                 let generics = self.parse_generics();
@@ -4085,7 +4091,14 @@ impl<'a> Parser<'a> {
                     });
                 let (inner_attrs, body) = self.parse_inner_attrs_and_block();
                 let new_attrs = attrs.append(inner_attrs.as_slice());
-                (ast::MethDecl(ident, generics, explicit_self, fn_style, decl, body, visa),
+                (ast::MethDecl(ident,
+                               generics,
+                               abi,
+                               explicit_self,
+                               fn_style,
+                               decl,
+                               body,
+                               visa),
                  body.span.hi, new_attrs)
             }
         };
@@ -5167,7 +5180,7 @@ impl<'a> Parser<'a> {
             let idents = self.parse_unspanned_seq(
                 &token::LBRACE, &token::RBRACE,
                 seq_sep_trailing_allowed(token::COMMA),
-                |p| p.parse_path_list_ident());
+                |p| p.parse_path_list_item());
             let path = ast::Path {
                 span: mk_sp(lo, self.span.hi),
                 global: false,
@@ -5223,7 +5236,7 @@ impl<'a> Parser<'a> {
                         &token::LBRACE,
                         &token::RBRACE,
                         seq_sep_trailing_allowed(token::COMMA),
-                        |p| p.parse_path_list_ident()
+                        |p| p.parse_path_list_item()
                     );
                     let path = ast::Path {
                         span: mk_sp(lo, self.span.hi),

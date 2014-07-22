@@ -1455,29 +1455,20 @@ impl<'a> Resolver<'a> {
                 // Extract and intern the module part of the path. For
                 // globs and lists, the path is found directly in the AST;
                 // for simple paths we have to munge the path a little.
-
-                let mut module_path = Vec::new();
-                match view_path.node {
+                let module_path = match view_path.node {
                     ViewPathSimple(_, ref full_path, _) => {
-                        let path_len = full_path.segments.len();
-                        assert!(path_len != 0);
-
-                        for (i, segment) in full_path.segments
-                                                     .iter()
-                                                     .enumerate() {
-                            if i != path_len - 1 {
-                                module_path.push(segment.identifier)
-                            }
-                        }
+                        full_path.segments
+                            .as_slice().init()
+                            .iter().map(|ident| ident.identifier)
+                            .collect()
                     }
 
                     ViewPathGlob(ref module_ident_path, _) |
                     ViewPathList(ref module_ident_path, _, _) => {
-                        for segment in module_ident_path.segments.iter() {
-                            module_path.push(segment.identifier)
-                        }
+                        module_ident_path.segments
+                            .iter().map(|ident| ident.identifier).collect()
                     }
-                }
+                };
 
                 // Build up the import directives.
                 let module_ = parent.module();
@@ -1486,6 +1477,11 @@ impl<'a> Resolver<'a> {
                     ViewPathSimple(binding, ref full_path, id) => {
                         let source_ident =
                             full_path.segments.last().unwrap().identifier;
+                        if token::get_ident(source_ident).get() == "mod" {
+                            self.resolve_error(view_path.span,
+                                "`mod` imports are only allowed within a { } list");
+                        }
+
                         let subclass = SingleImport(binding,
                                                     source_ident);
                         self.build_import_directive(&*module_,
@@ -1495,16 +1491,50 @@ impl<'a> Resolver<'a> {
                                                     id,
                                                     is_public);
                     }
-                    ViewPathList(_, ref source_idents, _) => {
-                        for source_ident in source_idents.iter() {
-                            let name = source_ident.node.name;
+                    ViewPathList(_, ref source_items, _) => {
+                        // Make sure there's at most one `mod` import in the list.
+                        let mod_spans = source_items.iter().filter_map(|item| match item.node {
+                            PathListMod { .. } => Some(item.span),
+                            _ => None
+                        }).collect::<Vec<Span>>();
+                        match mod_spans.as_slice() {
+                            [first, second, ..other] => {
+                                self.resolve_error(first,
+                                    "`mod` import can only appear once in the list");
+                                self.session.span_note(second,
+                                        "another `mod` import appears here");
+                                for &other_span in other.iter() {
+                                    self.session.span_note(other_span,
+                                        "another `mod` import appears here");
+                                }
+                            },
+                            [_] | [] => ()
+                        }
+
+                        for source_item in source_items.iter() {
+                            let (module_path, name) = match source_item.node {
+                                PathListIdent { name, .. } =>
+                                    (module_path.clone(), name),
+                                PathListMod { .. } => {
+                                    let name = match module_path.last() {
+                                        Some(ident) => ident.clone(),
+                                        None => {
+                                            self.resolve_error(source_item.span,
+                                                "`mod` import can only appear in an import list \
+                                                 with a non-empty prefix");
+                                            continue;
+                                        }
+                                    };
+                                    let module_path = module_path.as_slice().init();
+                                    (Vec::from_slice(module_path), name)
+                                }
+                            };
                             self.build_import_directive(
                                 &*module_,
-                                module_path.clone(),
+                                module_path,
                                 SingleImport(name, name),
-                                source_ident.span,
-                                source_ident.node.id,
-                                is_public);
+                                source_item.span,
+                                source_item.node.id(), is_public);
                         }
                     }
                     ViewPathGlob(_, id) => {
@@ -1622,6 +1652,12 @@ impl<'a> Resolver<'a> {
         if is_exported {
             self.external_exports.insert(def.def_id());
         }
+
+        let kind = match def {
+            DefStruct(..) | DefTy(..) => ImplModuleKind,
+            _ => NormalModuleKind
+        };
+
         match def {
           DefMod(def_id) | DefForeignMod(def_id) | DefStruct(def_id) |
           DefTy(def_id) => {
@@ -1640,7 +1676,7 @@ impl<'a> Resolver<'a> {
 
                 child_name_bindings.define_module(parent_link,
                                                   Some(def_id),
-                                                  NormalModuleKind,
+                                                  kind,
                                                   true,
                                                   is_public,
                                                   DUMMY_SP);
@@ -3707,7 +3743,7 @@ impl<'a> Resolver<'a> {
 
                                 match ty_m.explicit_self.node {
                                     SelfExplicit(ref typ, _) => {
-                                        this.resolve_type(*typ)
+                                        this.resolve_type(&**typ)
                                     }
                                     _ => {}
                                 }
@@ -4010,14 +4046,17 @@ impl<'a> Resolver<'a> {
                                 this.record_def(path_id, (def, lp));
                             }
                             Some((DefStruct(_), _)) => {
-                                this.session.span_err(t.span,
-                                                      "super-struct is defined \
-                                                       in a different crate")
+                                span_err!(this.session, t.span, E0154,
+                                    "super-struct is defined in a different crate");
                             },
-                            Some(_) => this.session.span_err(t.span,
-                                                             "super-struct is not a struct type"),
-                            None => this.session.span_err(t.span,
-                                                          "super-struct could not be resolved"),
+                            Some(_) => {
+                                span_err!(this.session, t.span, E0155,
+                                    "super-struct is not a struct type");
+                            }
+                            None => {
+                                span_err!(this.session, t.span, E0156,
+                                    "super-struct could not be resolved");
+                            }
                         }
                     },
                     _ => this.session.span_bug(t.span, "path not mapped to a TyPath")
@@ -4044,7 +4083,7 @@ impl<'a> Resolver<'a> {
                                                 rib_kind);
 
         match method.pe_explicit_self().node {
-            SelfExplicit(ref typ, _) => self.resolve_type(*typ),
+            SelfExplicit(ref typ, _) => self.resolve_type(&**typ),
             _ => {}
         }
 
@@ -4291,17 +4330,13 @@ impl<'a> Resolver<'a> {
                             if path.segments
                                    .iter()
                                    .any(|s| !s.lifetimes.is_empty()) {
-                                self.session.span_err(path.span,
-                                                      "lifetime parameters \
-                                                       are not allowed on \
-                                                       this type")
+                                span_err!(self.session, path.span, E0157,
+                                    "lifetime parameters are not allowed on this type");
                             } else if path.segments
                                           .iter()
                                           .any(|s| s.types.len() > 0) {
-                                self.session.span_err(path.span,
-                                                      "type parameters are \
-                                                       not allowed on this \
-                                                       type")
+                                span_err!(self.session, path.span, E0153,
+                                    "type parameters are not allowed on this type");
                             }
                         }
                         None => {
@@ -4392,7 +4427,7 @@ impl<'a> Resolver<'a> {
                     let ident = path1.node;
                     let renamed = mtwt::resolve(ident);
 
-                    match self.resolve_bare_identifier_pattern(ident) {
+                    match self.resolve_bare_identifier_pattern(ident, pattern.span) {
                         FoundStructOrEnumVariant(def, lp)
                                 if mode == RefutableMode => {
                             debug!("(resolving pattern) resolving `{}` to \
@@ -4556,7 +4591,7 @@ impl<'a> Resolver<'a> {
         });
     }
 
-    fn resolve_bare_identifier_pattern(&mut self, name: Ident)
+    fn resolve_bare_identifier_pattern(&mut self, name: Ident, span: Span)
                                        -> BareIdentifierPatternResolution {
         let module = self.current_module.clone();
         match self.resolve_item_in_lexical_scope(module,
@@ -4582,6 +4617,11 @@ impl<'a> Resolver<'a> {
                             }
                             def @ DefStatic(_, false) => {
                                 return FoundConst(def, LastMod(AllPublic));
+                            }
+                            DefStatic(_, true) => {
+                                self.resolve_error(span,
+                                    "mutable static variables cannot be referenced in a pattern");
+                                return BareIdentifierPatternUnresolved;
                             }
                             _ => {
                                 return BareIdentifierPatternUnresolved;
@@ -5248,7 +5288,8 @@ impl<'a> Resolver<'a> {
             }
 
             ExprFnBlock(fn_decl, block) |
-            ExprProc(fn_decl, block) => {
+            ExprProc(fn_decl, block) |
+            ExprUnboxedFn(fn_decl, block) => {
                 self.resolve_function(FunctionRibKind(expr.id, block.id),
                                       Some(fn_decl), NoTypeParameters,
                                       block);
@@ -5481,7 +5522,7 @@ impl<'a> Resolver<'a> {
                     ViewPathSimple(_, _, id) => self.finalize_import(id, p.span),
                     ViewPathList(_, ref list, _) => {
                         for i in list.iter() {
-                            self.finalize_import(i.node.id, i.span);
+                            self.finalize_import(i.node.id(), i.span);
                         }
                     },
                     ViewPathGlob(_, id) => {

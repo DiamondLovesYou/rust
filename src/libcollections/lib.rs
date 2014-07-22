@@ -73,16 +73,46 @@ mod deque;
 /// A trait to represent mutable containers
 pub trait Mutable: Collection {
     /// Clear the container, removing all values.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut v = vec![1i, 2, 3];
+    /// v.clear();
+    /// assert!(v.is_empty());
+    /// ```
     fn clear(&mut self);
 }
 
 /// A map is a key-value store where values may be looked up by their keys. This
 /// trait provides basic operations to operate on these stores.
 pub trait Map<K, V>: Collection {
-    /// Return a reference to the value corresponding to the key
+    /// Return a reference to the value corresponding to the key.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert("a", 1i);
+    /// assert_eq!(map.find(&"a"), Some(&1i));
+    /// assert_eq!(map.find(&"b"), None);
+    /// ```
     fn find<'a>(&'a self, key: &K) -> Option<&'a V>;
 
-    /// Return true if the map contains a value for the specified key
+    /// Return true if the map contains a value for the specified key.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert("a", 1i);
+    /// assert_eq!(map.contains_key(&"a"), true);
+    /// assert_eq!(map.contains_key(&"b"), false);
+    /// ```
     #[inline]
     fn contains_key(&self, key: &K) -> bool {
         self.find(key).is_some()
@@ -94,6 +124,17 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
     /// Insert a key-value pair into the map. An existing value for a
     /// key is replaced by the new value. Return true if the key did
     /// not already exist in the map.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// assert_eq!(map.insert("key", 2i), true);
+    /// assert_eq!(map.insert("key", 9i), false);
+    /// assert_eq!(map.get(&"key"), &9i);
+    /// ```
     #[inline]
     fn insert(&mut self, key: K, value: V) -> bool {
         self.swap(key, value).is_none()
@@ -101,6 +142,17 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
 
     /// Remove a key-value pair from the map. Return true if the key
     /// was present in the map, otherwise false.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// assert_eq!(map.remove(&"key"), false);
+    /// map.insert("key", 2i);
+    /// assert_eq!(map.remove(&"key"), true);
+    /// ```
     #[inline]
     fn remove(&mut self, key: &K) -> bool {
         self.pop(key).is_some()
@@ -108,13 +160,52 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
 
     /// Insert a key-value pair from the map. If the key already had a value
     /// present in the map, that value is returned. Otherwise None is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// assert_eq!(map.swap("a", 37i), None);
+    /// assert_eq!(map.is_empty(), false);
+    ///
+    /// map.insert("a", 1i);
+    /// assert_eq!(map.swap("a", 37i), Some(1i));
+    /// assert_eq!(map.get(&"a"), &37i);
+    /// ```
     fn swap(&mut self, k: K, v: V) -> Option<V>;
 
     /// Removes a key from the map, returning the value at the key if the key
     /// was previously in the map.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map: HashMap<&str, int> = HashMap::new();
+    /// map.insert("a", 1i);
+    /// assert_eq!(map.pop(&"a"), Some(1i));
+    /// assert_eq!(map.pop(&"a"), None);
+    /// ```
     fn pop(&mut self, k: &K) -> Option<V>;
 
-    /// Return a mutable reference to the value corresponding to the key
+    /// Return a mutable reference to the value corresponding to the key.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert("a", 1i);
+    /// match map.find_mut(&"a") {
+    ///     Some(x) => *x = 7i,
+    ///     None => (),
+    /// }
+    /// assert_eq!(map.get(&"a"), &7i);
+    /// ```
     fn find_mut<'a>(&'a mut self, key: &K) -> Option<&'a mut V>;
 }
 
@@ -122,17 +213,75 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
 /// trait represents actions which can be performed on sets to iterate over
 /// them.
 pub trait Set<T>: Collection {
-    /// Return true if the set contains a value
+    /// Return true if the set contains a value.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// let set: HashSet<int> = [1i, 2, 3].iter().map(|&x| x).collect();
+    /// assert_eq!(set.contains(&1), true);
+    /// assert_eq!(set.contains(&4), false);
+    /// ```
     fn contains(&self, value: &T) -> bool;
 
     /// Return true if the set has no elements in common with `other`.
     /// This is equivalent to checking for an empty intersection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// let a: HashSet<int> = [1i, 2, 3].iter().map(|&x| x).collect();
+    /// let mut b: HashSet<int> = HashSet::new();
+    ///
+    /// assert_eq!(a.is_disjoint(&b), true);
+    /// b.insert(4);
+    /// assert_eq!(a.is_disjoint(&b), true);
+    /// b.insert(1);
+    /// assert_eq!(a.is_disjoint(&b), false);
+    /// ```
     fn is_disjoint(&self, other: &Self) -> bool;
 
-    /// Return true if the set is a subset of another
+    /// Return true if the set is a subset of another.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// let sup: HashSet<int> = [1i, 2, 3].iter().map(|&x| x).collect();
+    /// let mut set: HashSet<int> = HashSet::new();
+    ///
+    /// assert_eq!(set.is_subset(&sup), true);
+    /// set.insert(2);
+    /// assert_eq!(set.is_subset(&sup), true);
+    /// set.insert(4);
+    /// assert_eq!(set.is_subset(&sup), false);
+    /// ```
     fn is_subset(&self, other: &Self) -> bool;
 
-    /// Return true if the set is a superset of another
+    /// Return true if the set is a superset of another.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// let sub: HashSet<int> = [1i, 2].iter().map(|&x| x).collect();
+    /// let mut set: HashSet<int> = HashSet::new();
+    ///
+    /// assert_eq!(set.is_superset(&sub), false);
+    ///
+    /// set.insert(0);
+    /// set.insert(1);
+    /// assert_eq!(set.is_superset(&sub), false);
+    ///
+    /// set.insert(2);
+    /// assert_eq!(set.is_superset(&sub), true);
+    /// ```
     fn is_superset(&self, other: &Self) -> bool {
         other.is_subset(self)
     }
@@ -145,42 +294,233 @@ pub trait Set<T>: Collection {
 pub trait MutableSet<T>: Set<T> + Mutable {
     /// Add a value to the set. Return true if the value was not already
     /// present in the set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// let mut set = HashSet::new();
+    ///
+    /// assert_eq!(set.insert(2i), true);
+    /// assert_eq!(set.insert(2i), false);
+    /// assert_eq!(set.len(), 1);
+    /// ```
     fn insert(&mut self, value: T) -> bool;
 
     /// Remove a value from the set. Return true if the value was
     /// present in the set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    ///
+    /// let mut set = HashSet::new();
+    ///
+    /// set.insert(2i);
+    /// assert_eq!(set.remove(&2), true);
+    /// assert_eq!(set.remove(&2), false);
+    /// ```
     fn remove(&mut self, value: &T) -> bool;
 }
 
 /// A double-ended sequence that allows querying, insertion and deletion at both
 /// ends.
+///
+/// # Example
+///
+/// With a `Deque` we can simulate a queue efficiently:
+///
+/// ```
+/// use std::collections::{RingBuf, Deque};
+///
+/// let mut queue = RingBuf::new();
+/// queue.push_back(1i);
+/// queue.push_back(2i);
+/// queue.push_back(3i);
+///
+/// // Will print 1, 2, 3
+/// while !queue.is_empty() {
+///     let x = queue.pop_front().unwrap();
+///     println!("{}", x);
+/// }
+/// ```
+///
+/// We can also simulate a stack:
+///
+/// ```
+/// use std::collections::{RingBuf, Deque};
+///
+/// let mut stack = RingBuf::new();
+/// stack.push_front(1i);
+/// stack.push_front(2i);
+/// stack.push_front(3i);
+///
+/// // Will print 3, 2, 1
+/// while !stack.is_empty() {
+///     let x = stack.pop_front().unwrap();
+///     println!("{}", x);
+/// }
+/// ```
+///
+/// And of course we can mix and match:
+///
+/// ```
+/// use std::collections::{DList, Deque};
+///
+/// let mut deque = DList::new();
+///
+/// // Init deque with 1, 2, 3, 4
+/// deque.push_front(2i);
+/// deque.push_front(1i);
+/// deque.push_back(3i);
+/// deque.push_back(4i);
+///
+/// // Will print (1, 4) and (2, 3)
+/// while !deque.is_empty() {
+///     let f = deque.pop_front().unwrap();
+///     let b = deque.pop_back().unwrap();
+///     println!("{}", (f, b));
+/// }
+/// ```
 pub trait Deque<T> : Mutable {
-    /// Provide a reference to the front element, or None if the sequence is
-    /// empty
+    /// Provide a reference to the front element, or `None` if the sequence is
+    /// empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{RingBuf, Deque};
+    ///
+    /// let mut d = RingBuf::new();
+    /// assert_eq!(d.front(), None);
+    ///
+    /// d.push_back(1i);
+    /// d.push_back(2i);
+    /// assert_eq!(d.front(), Some(&1i));
+    /// ```
     fn front<'a>(&'a self) -> Option<&'a T>;
 
-    /// Provide a mutable reference to the front element, or None if the
-    /// sequence is empty
+    /// Provide a mutable reference to the front element, or `None` if the
+    /// sequence is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{RingBuf, Deque};
+    ///
+    /// let mut d = RingBuf::new();
+    /// assert_eq!(d.front_mut(), None);
+    ///
+    /// d.push_back(1i);
+    /// d.push_back(2i);
+    /// match d.front_mut() {
+    ///     Some(x) => *x = 9i,
+    ///     None => (),
+    /// }
+    /// assert_eq!(d.front(), Some(&9i));
+    /// ```
     fn front_mut<'a>(&'a mut self) -> Option<&'a mut T>;
 
-    /// Provide a reference to the back element, or None if the sequence is
-    /// empty
+    /// Provide a reference to the back element, or `None` if the sequence is
+    /// empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{DList, Deque};
+    ///
+    /// let mut d = DList::new();
+    /// assert_eq!(d.back(), None);
+    ///
+    /// d.push_back(1i);
+    /// d.push_back(2i);
+    /// assert_eq!(d.back(), Some(&2i));
+    /// ```
     fn back<'a>(&'a self) -> Option<&'a T>;
 
-    /// Provide a mutable reference to the back element, or None if the sequence
-    /// is empty
+    /// Provide a mutable reference to the back element, or `None` if the sequence
+    /// is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{DList, Deque};
+    ///
+    /// let mut d = DList::new();
+    /// assert_eq!(d.back(), None);
+    ///
+    /// d.push_back(1i);
+    /// d.push_back(2i);
+    /// match d.back_mut() {
+    ///     Some(x) => *x = 9i,
+    ///     None => (),
+    /// }
+    /// assert_eq!(d.back(), Some(&9i));
+    /// ```
     fn back_mut<'a>(&'a mut self) -> Option<&'a mut T>;
 
-    /// Insert an element first in the sequence
+    /// Insert an element first in the sequence.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{DList, Deque};
+    ///
+    /// let mut d = DList::new();
+    /// d.push_front(1i);
+    /// d.push_front(2i);
+    /// assert_eq!(d.front(), Some(&2i));
+    /// ```
     fn push_front(&mut self, elt: T);
 
-    /// Insert an element last in the sequence
+    /// Insert an element last in the sequence.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{DList, Deque};
+    ///
+    /// let mut d = DList::new();
+    /// d.push_back(1i);
+    /// d.push_back(2i);
+    /// assert_eq!(d.front(), Some(&1i));
+    /// ```
     fn push_back(&mut self, elt: T);
 
-    /// Remove the last element and return it, or None if the sequence is empty
+    /// Remove the last element and return it, or `None` if the sequence is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{RingBuf, Deque};
+    ///
+    /// let mut d = RingBuf::new();
+    /// d.push_back(1i);
+    /// d.push_back(2i);
+    ///
+    /// assert_eq!(d.pop_back(), Some(2i));
+    /// assert_eq!(d.pop_back(), Some(1i));
+    /// assert_eq!(d.pop_back(), None);
+    /// ```
     fn pop_back(&mut self) -> Option<T>;
 
-    /// Remove the first element and return it, or None if the sequence is empty
+    /// Remove the first element and return it, or `None` if the sequence is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::{RingBuf, Deque};
+    ///
+    /// let mut d = RingBuf::new();
+    /// d.push_back(1i);
+    /// d.push_back(2i);
+    ///
+    /// assert_eq!(d.pop_front(), Some(1i));
+    /// assert_eq!(d.pop_front(), Some(2i));
+    /// assert_eq!(d.pop_front(), None);
+    /// ```
     fn pop_front(&mut self) -> Option<T>;
 }
 

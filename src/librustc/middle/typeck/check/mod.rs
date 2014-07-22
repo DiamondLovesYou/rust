@@ -114,7 +114,7 @@ use lint;
 use util::common::{block_query, indenter, loop_query};
 use util::ppaux;
 use util::ppaux::{UserString, Repr};
-use util::nodemap::{FnvHashMap, NodeMap};
+use util::nodemap::{DefIdMap, FnvHashMap, NodeMap};
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -167,6 +167,7 @@ pub struct Inherited<'a> {
     method_map: MethodMap,
     vtable_map: vtable_map,
     upvar_borrow_map: RefCell<ty::UpvarBorrowMap>,
+    unboxed_closure_types: RefCell<DefIdMap<ty::ClosureTy>>,
 }
 
 /// When type-checking an expression, we propagate downward
@@ -273,6 +274,7 @@ impl<'a> Inherited<'a> {
             method_map: RefCell::new(FnvHashMap::new()),
             vtable_map: RefCell::new(FnvHashMap::new()),
             upvar_borrow_map: RefCell::new(HashMap::new()),
+            unboxed_closure_types: RefCell::new(DefIdMap::new()),
         }
     }
 }
@@ -764,7 +766,12 @@ fn check_method_body(ccx: &CrateCtxt,
 
     let fty = ty::node_id_to_type(ccx.tcx, method.id);
 
-    check_bare_fn(ccx, method.pe_fn_decl(), method.pe_body(), method.id, fty, param_env);
+    check_bare_fn(ccx,
+                  &*method.pe_fn_decl(),
+                  &*method.pe_body(),
+                  method.id,
+                  fty,
+                  param_env);
 }
 
 fn check_impl_methods_against_trait(ccx: &CrateCtxt,
@@ -1246,7 +1253,8 @@ impl<'a> FnCtxt<'a> {
     pub fn vtable_context<'a>(&'a self) -> VtableContext<'a> {
         VtableContext {
             infcx: self.infcx(),
-            param_env: &self.inh.param_env
+            param_env: &self.inh.param_env,
+            unboxed_closure_types: &self.inh.unboxed_closure_types,
         }
     }
 }
@@ -1856,7 +1864,8 @@ fn check_argument_types(fcx: &FnCtxt,
         for (i, arg) in args.iter().take(t).enumerate() {
             let is_block = match arg.node {
                 ast::ExprFnBlock(..) |
-                ast::ExprProc(..) => true,
+                ast::ExprProc(..) |
+                ast::ExprUnboxedFn(..) => true,
                 _ => false
             };
 
@@ -2370,7 +2379,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
 
         if ty::type_is_integral(lhs_t) && ast_util::is_shift_binop(op) {
             // Shift is a special case: rhs must be uint, no matter what lhs is
-            check_expr_has_type(fcx, rhs, ty::mk_uint());
+            check_expr_has_type(fcx, &*rhs, ty::mk_uint());
             fcx.write_ty(expr.id, lhs_t);
             return;
         }
@@ -2509,6 +2518,47 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         })
     }
 
+    fn check_unboxed_closure(fcx: &FnCtxt,
+                             expr: &ast::Expr,
+                             decl: &ast::FnDecl,
+                             body: ast::P<ast::Block>) {
+        // The `RegionTraitStore` is a lie, but we ignore it so it doesn't
+        // matter.
+        //
+        // FIXME(pcwalton): Refactor this API.
+        let mut fn_ty = astconv::ty_of_closure(
+            fcx,
+            expr.id,
+            ast::NormalFn,
+            ast::Many,
+            ty::empty_builtin_bounds(),
+            ty::RegionTraitStore(ty::ReStatic, ast::MutImmutable),
+            decl,
+            abi::RustCall,
+            None);
+
+        let closure_type = ty::mk_unboxed_closure(fcx.ccx.tcx,
+                                                  local_def(expr.id));
+        fcx.write_ty(expr.id, closure_type);
+
+        check_fn(fcx.ccx,
+                 ast::NormalFn,
+                 &fn_ty.sig,
+                 decl,
+                 expr.id,
+                 &*body,
+                 fcx.inh);
+
+        // Tuple up the arguments and insert the resulting function type into
+        // the `unboxed_closure_types` table.
+        fn_ty.sig.inputs = vec![ty::mk_tup(fcx.tcx(), fn_ty.sig.inputs)];
+
+        fcx.inh
+           .unboxed_closure_types
+           .borrow_mut()
+           .insert(local_def(expr.id), fn_ty);
+    }
+
     fn check_expr_fn(fcx: &FnCtxt,
                      expr: &ast::Expr,
                      store: ty::TraitStore,
@@ -2572,6 +2622,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                            expected_bounds,
                                            store,
                                            decl,
+                                           abi::Rust,
                                            expected_sig);
         let fty_sig = fn_ty.sig.clone();
         let fty = ty::mk_closure(tcx, fn_ty);
@@ -2588,8 +2639,13 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
             ty::UniqTraitStore => (ast::NormalFn, expr.id)
         };
 
-        check_fn(fcx.ccx, inherited_style, &fty_sig,
-                 &*decl, id, &*body, fcx.inh);
+        check_fn(fcx.ccx,
+                 inherited_style,
+                 &fty_sig,
+                 decl,
+                 id,
+                 &*body,
+                 fcx.inh);
     }
 
 
@@ -2957,7 +3013,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
       }
 
       ast::ExprLit(lit) => {
-        let typ = check_lit(fcx, lit, expected);
+        let typ = check_lit(fcx, &*lit, expected);
         fcx.write_ty(id, typ);
       }
       ast::ExprBinary(op, ref lhs, ref rhs) => {
@@ -3164,8 +3220,11 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         fcx.write_bot(id);
       }
       ast::ExprParen(a) => {
-        check_expr_with_expectation_and_lvalue_pref(fcx, a, expected, lvalue_pref);
-        fcx.write_ty(id, fcx.expr_ty(a));
+        check_expr_with_expectation_and_lvalue_pref(fcx,
+                                                    &*a,
+                                                    expected,
+                                                    lvalue_pref);
+        fcx.write_ty(id, fcx.expr_ty(&*a));
       }
       ast::ExprAssign(ref lhs, ref rhs) => {
         check_expr_with_lvalue_pref(fcx, &**lhs, PreferMutLvalue);
@@ -3232,6 +3291,12 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                       &**decl,
                       body.clone(),
                       expected);
+      }
+      ast::ExprUnboxedFn(ref decl, ref body) => {
+        check_unboxed_closure(fcx,
+                              expr,
+                              &**decl,
+                              *body);
       }
       ast::ExprProc(ref decl, ref body) => {
         check_expr_fn(fcx,
@@ -3326,8 +3391,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 Some(ref fs) if i < fs.len() => ExpectHasType(*fs.get(i)),
                 _ => NoExpectation
             };
-            check_expr_with_expectation(fcx, *e, opt_hint);
-            let t = fcx.expr_ty(*e);
+            check_expr_with_expectation(fcx, &**e, opt_hint);
+            let t = fcx.expr_ty(&**e);
             err_field = err_field || ty::type_is_error(t);
             bot_field = bot_field || ty::type_is_bot(t);
             t
@@ -3674,8 +3739,8 @@ fn check_block_with_expected(fcx: &FnCtxt,
                              e.span,
                              "unreachable expression".to_string());
             }
-            check_expr_with_expectation(fcx, e, expected);
-              let ety = fcx.expr_ty(e);
+            check_expr_with_expectation(fcx, &*e, expected);
+              let ety = fcx.expr_ty(&*e);
               fcx.write_ty(blk.id, ety);
               if any_err {
                   fcx.write_error(blk.id);

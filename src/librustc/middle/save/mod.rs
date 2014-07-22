@@ -356,9 +356,10 @@ impl <'l> DxrVisitor<'l> {
         for arg in method.pe_fn_decl().inputs.iter() {
             self.visit_ty(&*arg.ty, e);
         }
-        self.visit_ty(method.pe_fn_decl().output, e);
+        self.visit_ty(&*method.pe_fn_decl().output, e);
         // walk the fn body
-        self.visit_block(method.pe_body(), DxrVisitorEnv::new_nested(method.id));
+        self.visit_block(&*method.pe_body(),
+                         DxrVisitorEnv::new_nested(method.id));
 
         self.process_generic_params(method.pe_generics(),
                                     method.span,
@@ -841,7 +842,8 @@ impl <'l> DxrVisitor<'l> {
         let method_map = self.analysis.ty_cx.method_map.borrow();
         let method_callee = method_map.get(&typeck::MethodCall::expr(ex.id));
         let (def_id, decl_id) = match method_callee.origin {
-            typeck::MethodStatic(def_id) => {
+            typeck::MethodStatic(def_id) |
+            typeck::MethodStaticUnboxedClosure(def_id) => {
                 // method invoked on an object with a concrete type (not a static method)
                 let decl_id = ty::trait_method_of_method(&self.analysis.ty_cx, def_id);
 
@@ -1118,16 +1120,23 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
                     }
                     ast::ViewPathList(ref path, ref list, _) => {
                         for plid in list.iter() {
-                            match self.lookup_type_ref(plid.node.id) {
-                                Some(id) => match self.lookup_def_kind(plid.node.id, plid.span) {
-                                    Some(kind) => self.fmt.ref_str(kind,
-                                                                   plid.span,
-                                                                   Some(plid.span),
-                                                                   id,
-                                                                   e.cur_scope),
-                                    None => (),
+                            match plid.node {
+                                ast::PathListIdent { id, .. } => {
+                                    match self.lookup_type_ref(id) {
+                                        Some(def_id) =>
+                                            match self.lookup_def_kind(id, plid.span) {
+                                                Some(kind) => {
+                                                    self.fmt.ref_str(
+                                                        kind, plid.span,
+                                                        Some(plid.span),
+                                                        def_id, e.cur_scope);
+                                                }
+                                                None => ()
+                                            },
+                                        None => ()
+                                    }
                                 },
-                                None => ()
+                                ast::PathListMod { .. } => ()
                             }
                         }
 
@@ -1136,10 +1145,11 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
                 }
             },
             ast::ViewItemExternCrate(ident, ref s, id) => {
-                let name = get_ident(ident).get().to_owned();
+                let name = get_ident(ident);
+                let name = name.get();
                 let s = match *s {
-                    Some((ref s, _)) => s.get().to_owned(),
-                    None => name.to_owned(),
+                    Some((ref s, _)) => s.get().to_string(),
+                    None => name.to_string(),
                 };
                 let sub_span = self.span.sub_span_after_keyword(i.span, keywords::Crate);
                 let cnum = match self.sess.cstore.find_extern_mod_stmt_cnum(id) {
@@ -1150,7 +1160,7 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
                                           sub_span,
                                           id,
                                           cnum,
-                                          name.as_slice(),
+                                          name,
                                           s.as_slice(),
                                           e.cur_scope);
             },
@@ -1273,9 +1283,9 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
         // process collected paths
         for &(id, ref p, ref immut, ref_kind) in self.collected_paths.iter() {
             let value = if *immut {
-                self.span.snippet(p.span).into_owned()
+                self.span.snippet(p.span).into_string()
             } else {
-                "<mutable>".to_owned()
+                "<mutable>".to_string()
             };
             let sub_span = self.span.span_for_first_ident(p.span);
             let def_map = self.analysis.ty_cx.def_map.borrow();
@@ -1330,7 +1340,7 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
         let value = self.span.snippet(l.span);
 
         for &(id, ref p, ref immut, _) in self.collected_paths.iter() {
-            let value = if *immut { value.to_owned() } else { "<mutable>".to_owned() };
+            let value = if *immut { value.to_string() } else { "<mutable>".to_string() };
             let types = self.analysis.ty_cx.node_types.borrow();
             let typ = ppaux::ty_to_string(&self.analysis.ty_cx, *types.get(&(id as uint)));
             // Get the span only for the name of the variable (I hope the path

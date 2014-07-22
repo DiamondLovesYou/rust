@@ -209,6 +209,18 @@ fn encode_variant_id(ebml_w: &mut Encoder, vid: DefId) {
     ebml_w.end_tag();
 }
 
+pub fn write_closure_type(ecx: &EncodeContext,
+                          ebml_w: &mut Encoder,
+                          closure_type: &ty::ClosureTy) {
+    let ty_str_ctxt = &tyencode::ctxt {
+        diag: ecx.diag,
+        ds: def_to_string,
+        tcx: ecx.tcx,
+        abbrevs: &ecx.type_abbrevs
+    };
+    tyencode::enc_closure_ty(ebml_w.writer, ty_str_ctxt, closure_type);
+}
+
 pub fn write_type(ecx: &EncodeContext,
                   ebml_w: &mut Encoder,
                   typ: ty::t) {
@@ -302,8 +314,7 @@ fn encode_enum_variant_info(ecx: &EncodeContext,
                             ebml_w: &mut Encoder,
                             id: NodeId,
                             variants: &[P<Variant>],
-                            index: &mut Vec<entry<i64>>,
-                            generics: &ast::Generics) {
+                            index: &mut Vec<entry<i64>>) {
     debug!("encode_enum_variant_info(id={:?})", id);
 
     let mut disr_val = 0;
@@ -331,10 +342,6 @@ fn encode_enum_variant_info(ecx: &EncodeContext,
         encode_stability(ebml_w, stab);
 
         match variant.node.kind {
-            ast::TupleVariantKind(ref args)
-                    if args.len() > 0 && generics.ty_params.len() == 0 => {
-                encode_symbol(ecx, ebml_w, variant.node.id);
-            }
             ast::TupleVariantKind(_) => {},
             ast::StructVariantKind(_) => {
                 let fields = ty::lookup_struct_fields(ecx.tcx, def_id);
@@ -1007,7 +1014,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_stability(ebml_w, stab);
         ebml_w.end_tag();
       }
-      ItemEnum(ref enum_definition, ref generics) => {
+      ItemEnum(ref enum_definition, _) => {
         add_to_index(item, ebml_w, index);
 
         ebml_w.start_tag(tag_items_data_item);
@@ -1034,8 +1041,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
                                  ebml_w,
                                  item.id,
                                  (*enum_definition).variants.as_slice(),
-                                 index,
-                                 generics);
+                                 index);
       }
       ItemStruct(struct_def, _) => {
         let fields = ty::lookup_struct_fields(tcx, def_id);
@@ -1248,7 +1254,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
                     encode_method_sort(ebml_w, 'p');
                     encode_inlined_item(ecx, ebml_w,
                                         IIMethodRef(def_id, true, &*m));
-                    encode_method_argument_names(ebml_w, m.pe_fn_decl());
+                    encode_method_argument_names(ebml_w, &*m.pe_fn_decl());
                 }
             }
 
@@ -1612,8 +1618,28 @@ fn encode_macro_defs(ecx: &EncodeContext,
                      krate: &Crate,
                      ebml_w: &mut Encoder) {
     ebml_w.start_tag(tag_exported_macros);
-    for span in krate.exported_macros.iter() {
-        encode_macro_def(ecx, ebml_w, span);
+    for item in krate.exported_macros.iter() {
+        encode_macro_def(ecx, ebml_w, &item.span);
+    }
+    ebml_w.end_tag();
+}
+
+fn encode_unboxed_closures<'a>(
+                           ecx: &'a EncodeContext,
+                           ebml_w: &'a mut Encoder) {
+    ebml_w.start_tag(tag_unboxed_closures);
+    for (unboxed_closure_id, unboxed_closure_type) in
+            ecx.tcx.unboxed_closure_types.borrow().iter() {
+        if unboxed_closure_id.krate != LOCAL_CRATE {
+            continue
+        }
+
+        ebml_w.start_tag(tag_unboxed_closure);
+        encode_def_id(ebml_w, *unboxed_closure_id);
+        ebml_w.start_tag(tag_unboxed_closure_type);
+        write_closure_type(ecx, ebml_w, unboxed_closure_type);
+        ebml_w.end_tag();
+        ebml_w.end_tag();
     }
     ebml_w.end_tag();
 }
@@ -1787,6 +1813,7 @@ fn encode_metadata_inner(wr: &mut MemWriter, parms: EncodeParams, krate: &Crate)
         native_lib_bytes: u64,
         plugin_registrar_fn_bytes: u64,
         macro_defs_bytes: u64,
+        unboxed_closure_bytes: u64,
         impl_bytes: u64,
         misc_bytes: u64,
         item_bytes: u64,
@@ -1801,6 +1828,7 @@ fn encode_metadata_inner(wr: &mut MemWriter, parms: EncodeParams, krate: &Crate)
         native_lib_bytes: 0,
         plugin_registrar_fn_bytes: 0,
         macro_defs_bytes: 0,
+        unboxed_closure_bytes: 0,
         impl_bytes: 0,
         misc_bytes: 0,
         item_bytes: 0,
@@ -1873,6 +1901,11 @@ fn encode_metadata_inner(wr: &mut MemWriter, parms: EncodeParams, krate: &Crate)
     encode_macro_defs(&ecx, krate, &mut ebml_w);
     stats.macro_defs_bytes = ebml_w.writer.tell().unwrap() - i;
 
+    // Encode the types of all unboxed closures in this crate.
+    i = ebml_w.writer.tell().unwrap();
+    encode_unboxed_closures(&ecx, &mut ebml_w);
+    stats.unboxed_closure_bytes = ebml_w.writer.tell().unwrap() - i;
+
     // Encode the def IDs of impls, for coherence checking.
     i = ebml_w.writer.tell().unwrap();
     encode_impls(&ecx, krate, &mut ebml_w);
@@ -1911,6 +1944,7 @@ fn encode_metadata_inner(wr: &mut MemWriter, parms: EncodeParams, krate: &Crate)
         println!("          native bytes: {}", stats.native_lib_bytes);
         println!("plugin registrar bytes: {}", stats.plugin_registrar_fn_bytes);
         println!("       macro def bytes: {}", stats.macro_defs_bytes);
+        println!(" unboxed closure bytes: {}", stats.unboxed_closure_bytes);
         println!("            impl bytes: {}", stats.impl_bytes);
         println!("            misc bytes: {}", stats.misc_bytes);
         println!("            item bytes: {}", stats.item_bytes);

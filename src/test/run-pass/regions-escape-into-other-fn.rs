@@ -12,10 +12,10 @@
 
 use std::gc::GC;
 
-fn foo<'r>(x: &'r uint) -> &'r uint { x }
+fn foo(x: &uint) -> &uint { x }
 fn bar(x: &uint) -> uint { *x }
 
 pub fn main() {
     let p = box(GC) 3u;
-    assert_eq!(bar(foo(p)), 3);
+    assert_eq!(bar(foo(&*p)), 3);
 }

@@ -223,12 +223,14 @@ pub trait Combine {
         let onceness = if_ok!(self.oncenesses(a.onceness, b.onceness));
         let bounds = if_ok!(self.bounds(a.bounds, b.bounds));
         let sig = if_ok!(self.fn_sigs(&a.sig, &b.sig));
+        let abi = if_ok!(self.abi(a.abi, b.abi));
         Ok(ty::ClosureTy {
             fn_style: fn_style,
             onceness: onceness,
             store: store,
             bounds: bounds,
-            sig: sig
+            sig: sig,
+            abi: abi,
         })
     }
 
@@ -490,6 +492,11 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
             Ok(ty::mk_struct(tcx, a_id, substs))
       }
 
+      (&ty::ty_unboxed_closure(a_id), &ty::ty_unboxed_closure(b_id))
+      if a_id == b_id => {
+          Ok(ty::mk_unboxed_closure(tcx, a_id))
+      }
+
       (&ty::ty_box(a_inner), &ty::ty_box(b_inner)) => {
         this.tys(a_inner, b_inner).and_then(|typ| Ok(ty::mk_box(tcx, typ)))
       }
@@ -552,7 +559,7 @@ pub fn super_tys<C:Combine>(this: &C, a: ty::t, b: ty::t) -> cres<ty::t> {
       }
 
       (&ty::ty_closure(ref a_fty), &ty::ty_closure(ref b_fty)) => {
-        this.closure_tys(*a_fty, *b_fty).and_then(|fty| {
+        this.closure_tys(&**a_fty, &**b_fty).and_then(|fty| {
             Ok(ty::mk_closure(tcx, fty))
         })
       }

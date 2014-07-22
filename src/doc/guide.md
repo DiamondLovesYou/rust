@@ -7,7 +7,7 @@ displayed here in line with Rust's open development policy. Please open any
 issues you find as usual.
 </div>
 
-## Welcome!
+# Welcome!
 
 Hey there! Welcome to the Rust guide. This is the place to be if you'd like to
 learn how to program in Rust. Rust is a systems programming language with a
@@ -18,12 +18,13 @@ something special, and we hope you do too.
 
 To show you how to get going with Rust, we're going to write the traditional
 "Hello, World!" program. Next, we'll introduce you to a tool that's useful for
-writing real-world Rust programs and libraries: "Cargo." Then, we'll show off
-Rust's features by writing a little program together.
+writing real-world Rust programs and libraries: "Cargo." After that, we'll talk
+about the basics of Rust, write a little program to try them out, and then learn
+more advanced things.
 
 Sound good? Let's go!
 
-## Installing Rust
+# Installing Rust
 
 The first step to using Rust is to install it! There are a number of ways to
 install Rust, but the easiest is to use the the `rustup` script. If you're on
@@ -105,7 +106,7 @@ mailing list](https://mail.mozilla.org/listinfo/rust-dev), [the /r/rust
 subreddit](http://www.reddit.com/r/rust), and [Stack
 Overflow](http://stackoverflow.com/questions/tagged/rust).
 
-## Hello, world!
+# Hello, world!
 
 Now that you have Rust installed, let's write your first Rust program. It's
 traditional to make your first program in any new language one that prints the
@@ -265,7 +266,7 @@ your project grows, you'll want something to help you manage all of the options
 that it has, and to make it easy to share your code with other people and
 projects.
 
-## Hello, Cargo!
+# Hello, Cargo!
 
 [Cargo](http://crates.io) is a tool that Rustaceans use to help manage their
 Rust projects. Cargo is currently in an alpha state, just like Rust, and so it
@@ -357,72 +358,11 @@ That's it! We've successfully built `hello_world` with Cargo. Even though our
 program is simple, it's using much of the real tooling that you'll use for the
 rest of your Rust career.
 
-Next, we'll learn more about Rust itself, by starting to write a more complicated
-program. We hope you want to do more with Rust than just print "Hello, world!"
+Now that you've got the tools down, let's actually learn more about the Rust
+language itself. These are the basics that will serve you well through the rest
+of your time with Rust.
 
-## Guessing Game
-
-Let's write a bigger program in Rust. We could just go through a laundry list
-of Rust features, but that's boring. Instead, we'll learn more about how to
-code in Rust by writing a few example projects.
-
-For our first project, we'll implement a classic beginner programming problem:
-the guessing game. Here's how it works: Our program will generate a random
-integer between one and a hundred. It will then prompt us to enter a guess.
-Upon entering our guess, it will tell us if we're too low or too high. Once we
-guess correctly, it will congratulate us, and print the number of guesses we've
-taken to the screen. Sound good? It sounds easy, but it'll end up showing off a
-number of basic features of Rust.
-
-### Set up
-
-Let's set up a new project. Go to your projects directory, and make a new
-directory for the project, as well as a `src` directory for our code:
-
-```{bash}
-$ cd ~/projects
-$ mkdir guessing_game
-$ cd guessing_game
-$ mkdir src
-```
-
-Great. Next, let's make a `Cargo.toml` file so Cargo knows how to build our
-project:
-
-```{ignore}
-[package]
-
-name = "guessing_game"
-version = "0.1.0"
-authors = [ "someone@example.com" ]
-
-[[bin]]
-
-name = "guessing_game"
-```
-
-Finally, we need our source file. Let's just make it hello world for now, so we
-can check that our setup works. In `src/guessing_game.rs`:
-
-```{rust}
-fn main() {
-    println!("Hello world!");
-}
-```
-
-Let's make sure that worked:
-
-```{bash}
-$ cargo build
-   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
-$
-```
-
-Excellent! Open up your `src/guessing_game.rs` again. We'll be writing all of
-our code in this file. The next section of the tutorial will show you how to
-build multiple-file projects.
-
-## Variable bindings
+# Variable bindings
 
 The first thing we'll learn about are 'variable bindings.' They look like this:
 
@@ -583,7 +523,7 @@ arguments we pass to functions and macros, if you're passing more than one.
 When you just use the double curly braces, Rust will attempt to display the
 value in a meaningful way by checking out its type. If you want to specify the
 format in a more detailed manner, there are a [wide number of options
-available](/std/fmt/index.html). Fow now, we'll just stick to the default:
+available](/std/fmt/index.html). For now, we'll just stick to the default:
 integers aren't very complicated to print.
 
 So, we've cleared up all of the confusion around bindings, with one exception:
@@ -592,7 +532,7 @@ must initialize the binding before we use it? And how does it know that we have
 or have not initialized the binding? For that, we need to learn our next
 concept: `if`.
 
-## If
+# If
 
 Rust's take on `if` is not particularly complex, but it's much more like the
 `if` you'll find in a dynamically typed language than in a more traditional
@@ -653,7 +593,7 @@ This reveals two interesting things about Rust: it is an expression-based
 language, and semicolons are different than in other 'curly brace and
 semicolon'-based languages. These two things are related.
 
-### Expressions vs. Statements
+## Expressions vs. Statements
 
 Rust is primarily an expression based language. There are only two kinds of
 statements, and everything else is an expression.
@@ -741,7 +681,7 @@ unit instead.
 There's one more time in which you won't see a semicolon at the end of a line
 of Rust code. For that, we'll need our next concept: functions.
 
-## Functions
+# Functions
 
 You've already seen one function so far, the `main` function:
 
@@ -889,7 +829,7 @@ There are some additional ways to define functions, but they involve features
 that we haven't learned about yet, so let's just leave it at that for now.
 
 
-## Comments
+# Comments
 
 Now that we have some functions, it's a good idea to learn about comments.
 Comments are notes that you leave to other programmers to help explain things
@@ -937,13 +877,13 @@ You can use the `rustdoc` tool to generate HTML documentation from these doc
 comments. We will talk more about `rustdoc` when we get to modules, as
 generally, you want to export documentation for a full module.
 
-## Compound Data Types
+# Compound Data Types
 
 Rust, like many programming languages, has a number of different data types
 that are built-in. You've already done some simple work with integers and
 strings, but next, let's talk about some more complicated ways of storing data.
 
-### Tuples
+## Tuples
 
 The first compound data type we're going to talk about are called **tuple**s.
 Tuples are an ordered list of a fixed size. Like this:
@@ -1018,7 +958,7 @@ can destructure a pattern returned by a function, as well.
 Tuples are a very simple data structure, and so are not often what you want.
 Let's move on to their bigger sibling, structs.
 
-### Structs
+## Structs
 
 A struct is another form of a 'record type,' just like a tuple. There's a
 difference: structs give each element that they contain a name, called a
@@ -1068,7 +1008,7 @@ fn main() {
 
 This will print `The point is at (5, 0)`.
 
-### Tuple Structs and Newtypes
+## Tuple Structs and Newtypes
 
 Rust has another data type that's like a hybrid between a tuple and a struct,
 called a **tuple struct**. Tuple structs do have a name, but their fields
@@ -1124,7 +1064,7 @@ println!("length is {} inches", integer_length);
 As you can see here, you can extract the inner integer type through a
 destructuring `let`.
 
-### Enums
+## Enums
 
 Finally, Rust has a "sum type", an **enum**. Enums are an incredibly useful
 feature of Rust, and are used throughout the standard library. Enums look
@@ -1143,25 +1083,31 @@ can only be _one_ of `Less`, `Equal`, or `Greater` at any given time. Here's
 an example:
 
 ```rust
-let x = 5i;
-let y = 10i;
+fn cmp(a: int, b: int) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
 
-let ordering = x.cmp(&y);
+fn main() {
+    let x = 5i;
+    let y = 10i;
 
-if ordering == Less {
-    println!("less");
-} else if ordering == Greater {
-    println!("greater");
-} else if ordering == Equal {
-    println!("equal");
+    let ordering = cmp(x, y);
+
+    if ordering == Less {
+        println!("less");
+    } else if ordering == Greater {
+        println!("greater");
+    } else if ordering == Equal {
+        println!("equal");
+    }
 }
 ```
 
-`cmp` is a function that compares two things, and returns an `Ordering`. The
-call looks a little bit strange: rather than `cmp(x, y)`, we say `x.cmp(&y)`.
-We haven't covered methods and references yet, so it should look a little bit
-foreign. Right now, just pretend it says `cmp(x, y)`, and we'll get to those
-details soon.
+`cmp` is a function that compares two things, and returns an `Ordering`. We
+return either `Less`, `Greater`, or `Equal`, depending on if the two values
+are greater, less, or equal.
 
 The `ordering` variable has the type `Ordering`, and so contains one of the
 three values. We can then do a bunch of `if`/`else` comparisons to check
@@ -1172,12 +1118,12 @@ that not only makes them nicer to read, but also makes sure that you never
 miss a case. Before we get to that, though, let's talk about another kind of
 enum: one with values.
 
-This enum has two variants, one of which has a value.:
+This enum has two variants, one of which has a value:
 
-```
+```{rust}
 enum OptionalInt {
     Value(int),
-    Missing
+    Missing,
 }
 
 fn main() {
@@ -1215,7 +1161,7 @@ useful when they're generic across types. But before we get to generics, let's
 talk about how to fix this big `if`/`else` statements we've been writing. We'll
 do that with `match`.
 
-## Match
+# Match
 
 Often, a simple `if`/`else` isn't enough, because you have more than two
 possible options. And `else` conditions can get incredibly complicated. So
@@ -1261,30 +1207,46 @@ for every possible value of `x`, and so our program will now compile.
 section on enums?
 
 ```{rust}
-let x = 5i;
-let y = 10i;
+fn cmp(a: int, b: int) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
 
-let ordering = x.cmp(&y);
+fn main() {
+    let x = 5i;
+    let y = 10i;
 
-if ordering == Less {
-    println!("less");
-} else if ordering == Greater {
-    println!("greater");
-} else if ordering == Equal {
-    println!("equal");
+    let ordering = cmp(x, y);
+
+    if ordering == Less {
+        println!("less");
+    } else if ordering == Greater {
+        println!("greater");
+    } else if ordering == Equal {
+        println!("equal");
+    }
 }
 ```
 
 We can re-write this as a `match`:
 
 ```{rust}
-let x = 5i;
-let y = 10i;
+fn cmp(a: int, b: int) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
 
-match x.cmp(&y) {
-    Less    => println!("less"),
-    Greater => println!("greater"),
-    Equal   => println!("equal"),
+fn main() {
+    let x = 5i;
+    let y = 10i;
+
+    match cmp(x, y) {
+        Less    => println!("less"),
+        Greater => println!("greater"),
+        Equal   => println!("equal"),
+    }
 }
 ```
 
@@ -1297,28 +1259,36 @@ make sure to cover all of our bases.
 `match` is also an expression, which means we can use it on the right hand side
 of a `let` binding. We could also implement the previous line like this:
 
-```
-let x = 5i;
-let y = 10i;
+```{rust}
+fn cmp(a: int, b: int) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
 
-let result = match x.cmp(&y) {
-    Less    => "less",
-    Greater => "greater",
-    Equal   => "equal",
-};
+fn main() {
+    let x = 5i;
+    let y = 10i;
 
-println!("{}", result);
+    let result = match cmp(x, y) {
+        Less    => "less",
+        Greater => "greater",
+        Equal   => "equal",
+    };
+
+    println!("{}", result);
+}
 ```
 
 In this case, it doesn't make a lot of sense, as we are just making a temporary
 string where we don't need to, but sometimes, it's a nice pattern.
 
-## Looping
+# Looping
 
 Looping is the last basic construct that we haven't learned yet in Rust. Rust has
 two main looping constructs: `for` and `while`.
 
-### `for`
+## `for`
 
 The `for` loop is used to loop a particular number of times. Rust's `for` loops
 work a bit differently than in other systems languages, however. Rust's `for`
@@ -1367,7 +1337,7 @@ lists three things. This happens quite a bit with "C style" `for` loops.
 
 We'll talk more about `for` when we cover **vector**s, later in the Guide.
 
-### `while`
+## `while`
 
 The other kind of looping construct in Rust is the `while` loop. It looks like
 this:
@@ -1405,7 +1375,7 @@ general, the more information we can give to the compiler, the better it
 can do with safety and code generation. So you should always prefer
 `loop` when you plan to loop infinitely.
 
-### Ending iteration early
+## Ending iteration early
 
 Let's take a look at that `while` loop we had earlier:
 
@@ -1456,13 +1426,15 @@ building our guessing game, but we need to know how to do one last thing first:
 get input from the keyboard. You can't have a guessing game without the ability
 to guess!
 
-## Standard Input
+# Standard Input
 
 Getting input from the keyboard is pretty easy, but uses some things
 we haven't seen before. Here's a simple program that reads some input,
 and then prints it back out:
 
 ```{rust,ignore}
+use std::io;
+
 fn main() {
     println!("Type something!");
 
@@ -1474,7 +1446,7 @@ fn main() {
 
 Let's go over these chunks, one by one:
 
-```{rust}
+```{rust,ignore}
 std::io::stdin();
 ```
 
@@ -1527,16 +1499,68 @@ a full line of input. Nice and easy.
 .ok().expect("Failed to read line");
 ```
 
-Here's the thing: reading a line from standard input could fail. For example,
-if this program isn't running in a terminal, but is running as part of a cron
-job, or some other context where there's no standard input. So Rust expects us
-to handle this case. Given that we plan on always running this program in a
-terminal, we use the `ok()` method to tell Rust that we're expecting everything
-to be just peachy, and the `expect()` method on that result to give an error
-message if our expectation goes wrong.
+Do you remember this code? 
+
+```
+enum OptionalInt {
+    Value(int),
+    Missing,
+}
+
+fn main() {
+    let x = Value(5);
+    let y = Missing;
+
+    match x {
+        Value(n) => println!("x is {:d}", n),
+        Missing  => println!("x is missing!"),
+    }
+
+    match y {
+        Value(n) => println!("y is {:d}", n),
+        Missing  => println!("y is missing!"),
+    }
+}
+```
+
+We had to match each time, to see if we had a value or not. In this case,
+though, we _know_ that `x` has a `Value`. But `match` forces us to handle
+the `missing` case. This is what we want 99% of the time, but sometimes, we
+know better than the compiler.
+
+Likewise, `read_line()` does not return a line of input. It _might_ return a
+line of input. It might also fail to do so. This could happen if our program
+isn't running in a terminal, but as part of a cron job, or some other context
+where there's no standard input. Because of this, `read_line` returns a type
+very similar to our `OptionalInt`: an `IoResult<T>`. We haven't talked about
+`IoResult<T>` yet because it is the **generic** form of our `OptionalInt`.
+Until then, you can think of it as being the same thing, just for any type, not
+just `int`s.
+
+Rust provides a method on these `IoResult<T>`s called `ok()`, which does the
+same thing as our `match` statement, but assuming that we have a valid value.
+If we don't, it will terminate our program. In this case, if we can't get
+input, our program doesn't work, so we're okay with that. In most cases, we
+would want to handle the error case explicitly. The result of `ok()` has a
+method, `expect()`, which allows us to give an error message if this crash
+happens.
 
 We will cover the exact details of how all of this works later in the Guide.
-For now, this is all you need.
+For now, this gives you enough of a basic understanding to work with.
+
+Back to the code we were working on! Here's a refresher:
+
+```{rust,ignore}
+use std::io;
+
+fn main() {
+    println!("Type something!");
+
+    let input = io::stdin().read_line().ok().expect("Failed to read line");
+
+    println!("{}", input);
+}
+```
 
 With long lines like this, Rust gives you some flexibility with the whitespace.
 We _could_ write the example like this:
@@ -1562,11 +1586,878 @@ here.
 That's all you need to get basic input from the standard input! It's not too
 complicated, but there are a number of small parts.
 
-## Guessing Game: complete
+# Guessing Game
+
+Okay! We've got the basics of Rust down. Let's write a bigger program.
+
+For our first project, we'll implement a classic beginner programming problem:
+the guessing game. Here's how it works: Our program will generate a random
+integer between one and a hundred. It will then prompt us to enter a guess.
+Upon entering our guess, it will tell us if we're too low or too high. Once we
+guess correctly, it will congratulate us, and print the number of guesses we've
+taken to the screen. Sound good?
+
+## Set up
+
+Let's set up a new project. Go to your projects directory, and make a new
+directory for the project, as well as a `src` directory for our code:
+
+```{bash}
+$ cd ~/projects
+$ mkdir guessing_game
+$ cd guessing_game
+$ mkdir src
+```
+
+Great. Next, let's make a `Cargo.toml` file so Cargo knows how to build our
+project:
+
+```{ignore}
+[package]
+
+name = "guessing_game"
+version = "0.1.0"
+authors = [ "someone@example.com" ]
+
+[[bin]]
+
+name = "guessing_game"
+```
+
+Finally, we need our source file. Let's just make it hello world for now, so we
+can check that our setup works. In `src/guessing_game.rs`:
+
+```{rust}
+fn main() {
+    println!("Hello world!");
+}
+```
+
+Let's make sure that worked:
+
+```{bash}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+$
+```
+
+Excellent! Open up your `src/guessing_game.rs` again. We'll be writing all of
+our code in this file. We'll talk about multiple-file projects later on in the
+guide.
+
+## Processing a Guess
+
+Let's get to it! The first thing we need to do for our guessing game is
+allow our player to input a guess. Put this in your `src/guessing_game.rs`:
+
+```{rust,no_run}
+use std::io;
+
+fn main() {
+    println!("Guess the number!");
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+
+    println!("You guessed: {}", input);
+}
+```
+
+You've seen this code before, when we talked about standard input. We
+import the `std::io` module with `use`, and then our `main` function contains
+our program's logic. We print a little message announcing the game, ask the
+user to input a guess, get their input, and then print it out.
+
+Because we talked about this in the section on standard I/O, I won't go into
+more details here. If you need a refresher, go re-read that section.
+
+## Generating a secret number
+
+Next, we need to generate a secret number. To do that, we need to use Rust's
+random number generation, which we haven't talked about yet. Rust includes a
+bunch of interesting functions in its standard library. If you need a bit of
+code, it's possible that it's already been written for you! In this case,
+we do know that Rust has random number generation, but we don't know how to
+use it.
+
+Enter the docs. Rust has a page specifically to document the standard library.
+You can find that page [here](std/index.html). There's a lot of information on
+that page, but the best part is the search bar. Right up at the top, there's
+a box that you can enter in a search term. The search is pretty primitive
+right now, but is getting better all the time. If you type 'random' in that
+box, the page will update to [this
+one](http://doc.rust-lang.org/std/index.html?search=random). The very first
+result is a link to
+[std::rand::random](http://doc.rust-lang.org/std/rand/fn.random.html). If we
+click on that result, we'll be taken to its documentation page.
+
+This page shows us a few things: the type signature of the function, some
+explanatory text, and then an example. Let's modify our code to add in the
+`random` function:
+
+```{rust,ignore}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random() % 100i) + 1i;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+
+
+    println!("You guessed: {}", input);
+}
+```
+
+The first thing we changed was to `use std::rand`, as the docs
+explained.  We then added in a `let` expression to create a variable binding
+named `secret_number`, and we printed out its result. Let's try to compile
+this using `cargo build`:
+
+```{notrust,no_run}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+src/guessing_game.rs:7:26: 7:34 error: the type of this value must be known in this context
+src/guessing_game.rs:7     let secret_number = (rand::random() % 100i) + 1i;
+                                                ^~~~~~~~
+error: aborting due to previous error
+```
+
+It didn't work! Rust says "the type of this value must be known in this
+context." What's up with that? Well, as it turns out, `rand::random()` can
+generate many kinds of random values, not just integers. And in this case, Rust
+isn't sure what kind of value `random()` should generate. So we have to help
+it. With number literals, we just add an `i` onto the end to tell Rust they're
+integers, but that does not work with functions. There's a different syntax,
+and it looks like this:
+
+```{rust,ignore}
+rand::random::<int>();
+```
+
+This says "please give me a random `int` value." We can change our code to use
+this hint...
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<int>() % 100i) + 1i;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+
+
+    println!("You guessed: {}", input);
+}
+```
+
+... and then recompile:
+
+```{notrust,ignore}
+$ cargo build
+  Compiling guessing_game v0.1.0 (file:/home/steve/tmp/guessing_game)
+$
+```
+
+Excellent! Try running our new program a few times:
+
+```{notrust,ignore}
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: 7
+Please input your guess.
+4
+You guessed: 4
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: 83
+Please input your guess.
+5
+You guessed: 5
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: -29
+Please input your guess.
+42
+You guessed: 42
+```
+
+Wait. Negative 29? We wanted a number between one and a hundred! We have two
+options here: we can either ask `random()` to generate an unsigned integer, which
+can only be positive, or we can use the `abs()` function. Let's go with the
+unsigned integer approach. If we want a random positive number, we should ask for
+a random positive number. Our code looks like this now:
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+
+
+    println!("You guessed: {}", input);
+}
+```
+
+And trying it out:
+
+```{notrust,ignore}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: 57
+Please input your guess.
+3
+You guessed: 3
+```
+
+Great! Next up: let's compare our guess to the secret guess.
+
+## Comparing guesses
+
+If you remember, earlier in the tutorial, we made a `cmp` function that compared
+two numbers. Let's add that in, along with a `match` statement to compare the
+guess to the secret guess:
+
+```{rust,ignore}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+
+
+    println!("You guessed: {}", input);
+
+    match cmp(input, secret_number) { 
+        Less    => println!("Too small!"),
+        Greater => println!("Too big!"),
+        Equal   => { println!("You win!"); },
+    }
+}
+
+fn cmp(a: int, b: int) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+If we try to compile, we'll get some errors:
+
+```{notrust,ignore}
+$ cargo build
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+src/guessing_game.rs:20:15: 20:20 error: mismatched types: expected `int` but found `collections::string::String` (expected int but found struct collections::string::String)
+src/guessing_game.rs:20     match cmp(input, secret_number) {
+                                      ^~~~~
+src/guessing_game.rs:20:22: 20:35 error: mismatched types: expected `int` but found `uint` (expected int but found uint)
+src/guessing_game.rs:20     match cmp(input, secret_number) {
+                                             ^~~~~~~~~~~~~
+error: aborting due to 2 previous errors
+```
+
+This often happens when writing Rust programs, and is one of Rust's greatest
+strengths. You try out some code, see if it compiles, and Rust tells you that
+you've done something wrong. In this case, our `cmp` function works on integers,
+but we've given it unsigned integers. In this case, the fix is easy, because
+we wrote the `cmp` function! Let's change it to take `uint`s:
+
+```{rust,ignore}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+
+
+    println!("You guessed: {}", input);
+
+    match cmp(input, secret_number) {
+        Less    => println!("Too small!"),
+        Greater => println!("Too big!"),
+        Equal   => { println!("You win!"); },
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+And try compiling again:
+
+```{notrust,ignore}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+src/guessing_game.rs:20:15: 20:20 error: mismatched types: expected `uint` but found `collections::string::String` (expected uint but found struct collections::string::String)
+src/guessing_game.rs:20     match cmp(input, secret_number) {
+                                      ^~~~~
+error: aborting due to previous error
+```
+
+This error is similar to the last one: we expected to get a `uint`, but we got
+a `String` instead! That's because our `input` variable is coming from the
+standard input, and you can guess anything. Try it:
+
+```{notrust,ignore}
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: 73
+Please input your guess.
+hello
+You guessed: hello
+```
+
+Oops! Also, you'll note that we just ran our program even though it didn't compile.
+This works because the older version we did successfully compile was still lying
+around. Gotta be careful!
+
+Anyway, we have a `String`, but we need a `uint`. What to do? Well, there's
+a function for that:
+
+```{rust,ignore}
+let input = io::stdin().read_line()
+                       .ok()
+                       .expect("Failed to read line");
+let guess: Option<uint> = from_str(input.as_slice());
+```
+
+The `from_str` function takes in a `&str` value and converts it into something.
+We tell it what kind of something with a type hint. Remember our type hint with
+`random()`? It looked like this:
+
+```{rust,ignore}
+rand::random::<uint>();
+```
+
+There's an alternate way of providing a hint too, and that's declaring the type
+in a `let`:
+
+```{rust,ignore}
+let x: uint = rand::random();
+```
+
+In this case, we say `x` is a `uint` explicitly, so Rust is able to properly
+tell `random()` what to generate. In a similar fashion, both of these work:
+
+```{rust,ignore}
+let guess = from_str::<Option<uint>>("5");
+let guess: Option<uint> = from_str("5");
+```
+
+In this case, I happen to prefer the latter, and in the `random()` case, I prefer
+the former. I think the nested `<>`s make the first option especially ugly and
+a bit harder to read.
+
+Anyway, with us now convering our input to a number, our code looks like this:
+
+```{rust,ignore}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+    let input_num: Option<uint> = from_str(input.as_slice());
+
+
+
+    println!("You guessed: {}", input_num);
+
+    match cmp(input_num, secret_number) {
+        Less    => println!("Too small!"),
+        Greater => println!("Too big!"),
+        Equal   => { println!("You win!"); },
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+Let's try it out!
+
+```{notrust,ignore}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/steve/tmp/guessing_game)
+src/guessing_game.rs:22:15: 22:24 error: mismatched types: expected `uint` but found `core::option::Option<uint>` (expected uint but found enum core::option::Option)
+src/guessing_game.rs:22     match cmp(input_num, secret_number) {
+                                      ^~~~~~~~~
+error: aborting due to previous error
+```
+
+Oh yeah! Our `input_num` has the type `Option<uint>`, rather than `uint`. We
+need to unwrap the Option. If you remember from before, `match` is a great way
+to do that. Try this code:
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+    let input_num: Option<uint> = from_str(input.as_slice());
+
+    let num = match input_num {
+        Some(num) => num,
+        None      => {
+            println!("Please input a number!");
+            return;
+        }
+    };
+
+
+    println!("You guessed: {}", num);
+
+    match cmp(num, secret_number) {
+        Less    => println!("Too small!"),
+        Greater => println!("Too big!"),
+        Equal   => { println!("You win!"); },
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+We use a `match` to either give us the `uint` inside of the `Option`, or we
+print an error message and return. Let's give this a shot:
+
+```{notrust,ignore}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: 17
+Please input your guess.
+5
+Please input a number!
+$
+```
+
+Uh, what? But we did!
+
+... actually, we didn't. See, when you get a line of input from `stdin()`,
+you get all the input. Including the `\n` character from you pressing Enter.
+So, `from_str()` sees the string `"5\n"` and says "nope, that's not a number,
+there's non-number stuff in there!" Luckily for us, `&str`s have an easy
+method we can use defined on them: `trim()`. One small modification, and our
+code looks like this:
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    println!("Please input your guess.");
+
+    let input = io::stdin().read_line()
+                           .ok()
+                           .expect("Failed to read line");
+    let input_num: Option<uint> = from_str(input.as_slice().trim());
+
+    let num = match input_num {
+        Some(num) => num,
+        None      => {
+            println!("Please input a number!");
+            return;
+        }
+    };
+
+
+    println!("You guessed: {}", num);
+
+    match cmp(num, secret_number) {
+        Less    => println!("Too small!"),
+        Greater => println!("Too big!"),
+        Equal   => { println!("You win!"); },
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+Let's try it!
+
+```{notrust,ignore}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: 58
+Please input your guess.
+  76  
+You guessed: 76
+Too big!
+$
+```
+
+Nice! You can see I even added spaces before my guess, and it still figured
+out that I guessed 76. Run the program a few times, and verify that guessing
+the number works, as well as guessing a number too small.
+
+The Rust compiler helped us out quite a bit there! This technique is called
+"lean on the compiler," and it's often useful when working on some code. Let
+the error messages help guide you towards the correct types.
+
+Now we've got most of the game working, but we can only make one guess. Let's
+change that by adding loops!
+
+## Looping
+
+As we already discussed, the `loop` key word gives us an infinite loop. So
+let's add that in:
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    loop {
+
+        println!("Please input your guess.");
+
+        let input = io::stdin().read_line()
+                               .ok()
+                               .expect("Failed to read line");
+        let input_num: Option<uint> = from_str(input.as_slice().trim());
+
+        let num = match input_num {
+            Some(num) => num,
+            None      => {
+                println!("Please input a number!");
+                return;
+            }
+        };
+
+
+        println!("You guessed: {}", num);
+
+        match cmp(num, secret_number) {
+            Less    => println!("Too small!"),
+            Greater => println!("Too big!"),
+            Equal   => { println!("You win!"); },
+        }
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+And try it out. But wait, didn't we just add an infinite loop? Yup. Remember
+that `return`? If we give a non-number answer, we'll `return` and quit. Observe:
+
+```{notrust,ignore}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+steve@computer:~/tmp/guessing_game$ ./target/guessing_game 
+Guess the number!
+The secret number is: 59
+Please input your guess.
+45
+You guessed: 45
+Too small!
+Please input your guess.
+60
+You guessed: 60
+Too big!
+Please input your guess.
+59
+You guessed: 59
+You win!
+Please input your guess.
+quit
+Please input a number!
+$
+```
+
+Ha! `quit` actually quits. As does any other non-number input. Well, this is
+suboptimal to say the least. First, let's actually quit when you win the game:
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    loop {
+
+        println!("Please input your guess.");
+
+        let input = io::stdin().read_line()
+                               .ok()
+                               .expect("Failed to read line");
+        let input_num: Option<uint> = from_str(input.as_slice().trim());
+
+        let num = match input_num {
+            Some(num) => num,
+            None      => {
+                println!("Please input a number!");
+                return;
+            }
+        };
+
+
+        println!("You guessed: {}", num);
+
+        match cmp(num, secret_number) {
+            Less    => println!("Too small!"),
+            Greater => println!("Too big!"),
+            Equal   => {
+                println!("You win!");
+                return;
+            },
+        }
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+By adding the `return` line after the `You win!`, we'll exit the program when
+we win. We have just one more tweak to make: when someone inputs a non-number,
+we don't want to quit, we just want to ignore it. Change that `return` to
+`continue`:
+
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    println!("The secret number is: {}", secret_number);
+
+    loop {
+
+        println!("Please input your guess.");
+
+        let input = io::stdin().read_line()
+                               .ok()
+                               .expect("Failed to read line");
+        let input_num: Option<uint> = from_str(input.as_slice().trim());
+
+        let num = match input_num {
+            Some(num) => num,
+            None      => {
+                println!("Please input a number!");
+                continue;
+            }
+        };
+
+
+        println!("You guessed: {}", num);
+
+        match cmp(num, secret_number) {
+            Less    => println!("Too small!"),
+            Greater => println!("Too big!"),
+            Equal   => {
+                println!("You win!");
+                return;
+            },
+        }
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+Now we should be good! Let's try:
+
+```{rust,ignore}
+$ cargo build
+   Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
+$ ./target/guessing_game 
+Guess the number!
+The secret number is: 61
+Please input your guess.
+10
+You guessed: 10
+Too small!
+Please input your guess.
+99
+You guessed: 99
+Too big!
+Please input your guess.
+foo
+Please input a number!
+Please input your guess.
+61
+You guessed: 61
+You win!
+```
+
+Awesome! With one tiny last tweak, we have finished the guessing game. Can you
+think of what it is? That's right, we don't want to print out the secret number.
+It was good for testing, but it kind of ruins the game. Here's our final source:
+
+```{rust,no_run}
+use std::io;
+use std::rand;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = (rand::random::<uint>() % 100u) + 1u;
+
+    loop {
+
+        println!("Please input your guess.");
+
+        let input = io::stdin().read_line()
+                               .ok()
+                               .expect("Failed to read line");
+        let input_num: Option<uint> = from_str(input.as_slice().trim());
+
+        let num = match input_num {
+            Some(num) => num,
+            None      => {
+                println!("Please input a number!");
+                continue;
+            }
+        };
+
+
+        println!("You guessed: {}", num);
+
+        match cmp(num, secret_number) {
+            Less    => println!("Too small!"),
+            Greater => println!("Too big!"),
+            Equal   => {
+                println!("You win!");
+                return;
+            },
+        }
+    }
+}
+
+fn cmp(a: uint, b: uint) -> Ordering {
+    if a < b { Less }
+    else if a > b { Greater }
+    else { Equal }
+}
+```
+
+## Complete!
 
 At this point, you have successfully built the Guessing Game! Congratulations!
-For reference, [We've placed the sample code on
-GitHub](https://github.com/steveklabnik/guessing_game).
 
 You've now learned the basic syntax of Rust. All of this is relatively close to
 various other programming languages you have used in the past. These
@@ -1576,36 +2467,36 @@ rest of your Rust education.
 Now that you're an expert at the basics, it's time to learn about some of
 Rust's more unique features.
 
-## iterators
+# iterators
 
-## Lambdas
+# Lambdas
 
-## Testing
+# Testing
 
 attributes
 
 stability markers
 
-## Crates and Modules
+# Crates and Modules
 
 visibility
 
 
-## Generics
+# Generics
 
-## Traits
+# Traits
 
-## Operators and built-in Traits
+# Operators and built-in Traits
 
-## Ownership and Lifetimes
+# Ownership and Lifetimes
 
 Move vs. Copy
 
 Allocation
 
-## Tasks
+# Tasks
 
-## Macros
+# Macros
 
-## Unsafe
+# Unsafe
 

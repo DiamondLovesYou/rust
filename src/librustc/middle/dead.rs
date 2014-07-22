@@ -104,6 +104,7 @@ impl<'a> MarkSymbolVisitor<'a> {
                             None => self.check_def_id(def_id)
                         }
                     }
+                    typeck::MethodStaticUnboxedClosure(_) => {}
                     typeck::MethodParam(typeck::MethodParam {
                         trait_id: trait_id,
                         method_num: index,
@@ -212,7 +213,7 @@ impl<'a> MarkSymbolVisitor<'a> {
                 visit::walk_trait_method(self, &*trait_method, ctxt);
             }
             ast_map::NodeMethod(method) => {
-                visit::walk_block(self, method.pe_body(), ctxt);
+                visit::walk_block(self, &*method.pe_body(), ctxt);
             }
             ast_map::NodeForeignItem(foreign_item) => {
                 visit::walk_foreign_item(self, &*foreign_item, ctxt);
@@ -520,7 +521,9 @@ impl<'a> Visitor<()> for DeadVisitor<'a> {
     // Overwrite so that we don't warn the trait method itself.
     fn visit_trait_method(&mut self, trait_method: &ast::TraitMethod, _: ()) {
         match *trait_method {
-            ast::Provided(ref method) => visit::walk_block(self, method.pe_body(), ()),
+            ast::Provided(ref method) => {
+                visit::walk_block(self, &*method.pe_body(), ())
+            }
             ast::Required(_) => ()
         }
     }

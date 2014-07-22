@@ -267,7 +267,7 @@ fn enc_sty(w: &mut MemWriter, cx: &ctxt, st: &ty::sty) {
         }
         ty::ty_closure(ref f) => {
             mywrite!(w, "f");
-            enc_closure_ty(w, cx, *f);
+            enc_closure_ty(w, cx, &**f);
         }
         ty::ty_bare_fn(ref f) => {
             mywrite!(w, "F");
@@ -283,6 +283,9 @@ fn enc_sty(w: &mut MemWriter, cx: &ctxt, st: &ty::sty) {
             mywrite!(w, "a[{}|", (cx.ds)(def));
             enc_substs(w, cx, substs);
             mywrite!(w, "]");
+        }
+        ty::ty_unboxed_closure(def) => {
+            mywrite!(w, "k{}", (cx.ds)(def));
         }
         ty::ty_err => {
             mywrite!(w, "e");
@@ -316,7 +319,7 @@ pub fn enc_bare_fn_ty(w: &mut MemWriter, cx: &ctxt, ft: &ty::BareFnTy) {
     enc_fn_sig(w, cx, &ft.sig);
 }
 
-fn enc_closure_ty(w: &mut MemWriter, cx: &ctxt, ft: &ty::ClosureTy) {
+pub fn enc_closure_ty(w: &mut MemWriter, cx: &ctxt, ft: &ty::ClosureTy) {
     enc_fn_style(w, ft.fn_style);
     enc_onceness(w, ft.onceness);
     enc_trait_store(w, cx, ft.store);
@@ -324,6 +327,7 @@ fn enc_closure_ty(w: &mut MemWriter, cx: &ctxt, ft: &ty::ClosureTy) {
                                   trait_bounds: Vec::new()};
     enc_bounds(w, cx, &bounds);
     enc_fn_sig(w, cx, &ft.sig);
+    enc_abi(w, ft.abi);
 }
 
 fn enc_fn_sig(w: &mut MemWriter, cx: &ctxt, fsig: &ty::FnSig) {
