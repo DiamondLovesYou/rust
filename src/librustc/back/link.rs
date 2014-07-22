@@ -1727,11 +1727,10 @@ pub fn link_pnacl_module(sess: &Session,
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
                         "die".with_c_str(|s| ap(s) );
                         "dce".with_c_str(|s| ap(s) );
-                        "nacl-strip-attributes".with_c_str(|s| ap(s) );
                         if sess.opts.cg.stable_pexe {
                             // Strip unsupported metadata:
                             "strip-metadata".with_c_str(|s| ap(s) );
-                            "strip-debug".with_c_str(|s| ap(s) );
+                            "nacl-strip-attributes".with_c_str(|s| ap(s) );
 
                             if !sess.no_verify() {
                                 "verify-pnaclabi-module".with_c_str(|s| ap(s) );
@@ -1739,6 +1738,16 @@ pub fn link_pnacl_module(sess: &Session,
                             }
                         }
                     });
+
+    if sess.opts.cg.stable_pexe {
+        if sess.opts.debuginfo != config::NoDebugInfo {
+            sess.warn("debugging info isn't supported in stable pexe's");
+        }
+        unsafe {
+            // The PNaCl stable bitcode format doesn't accept metadata types.
+            llvm::LLVMRustStripDebugInfo(llmod);
+        }
+    }
 
     unsafe {
         llvm::LLVMRustDisposeTargetMachine(tm);
