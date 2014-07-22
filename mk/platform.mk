@@ -613,9 +613,10 @@ CFG_LIB_NAME_le32-unknown-nacl=lib$(1).so
 CFG_STATIC_LIB_NAME_le32-unknown-nacl=lib$(1).a
 CFG_LIB_GLOB_le32-unknown-nacl=lib$(1)-*.so
 CFG_LIB_DSYM_GLOB_le32-unknown-nacl=lib$(1)-*.dylib.dSYM
-CFG_GCCISH_CFLAGS_le32-unknown-nacl := -Wall -Werror -fPIC -I$(CFG_NACL_CROSS_PATH)/include -I$(CFG_NACL_CROSS_PATH)/include/pnacl -D_POSIX_READER_WRITER_LOCKS -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0
+CFG_CFLAGS_le32-unknown-nacl := -Wall -Wno-unused-variable -Wno-unused-value -I$(CFG_NACL_CROSS_PATH)/include -I$(CFG_NACL_CROSS_PATH)/include/pnacl -D_POSIX_READER_WRITER_LOCKS -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0 -O0 -g3
+CFG_GCCISH_CFLAGS_le32-unknown-nacl := $(CFG_CFLAGS_le32-unknown-nacl)
 CFG_GCCISH_CXXFLAGS_le32-unknown-nacl := -fno-rtti
-CFG_GCCISH_LINK_FLAGS_le32-unknown-nacl := -static -ldl -pthread -lm -lrt --pnacl-exceptions=sjlj
+CFG_GCCISH_LINK_FLAGS_le32-unknown-nacl := -static -pthread -lm -lrt
 CFG_GCCISH_DEF_FLAG_le32-unknown-nacl := -Wl,--export-dynamic,--dynamic-list=
 CFG_GCCISH_PRE_LIB_FLAGS_le32-unknown-nacl := -Wl,-no-whole-archive
 CFG_GCCISH_POST_LIB_FLAGS_le32-unknown-nacl :=
