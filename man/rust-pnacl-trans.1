@@ -1,0 +1,49 @@
+.TH RUST-PNACL-TRANS "1" "JULY 2014" "rust-pnacl-trans 0.12.0-pre" "User Commands"
+.SH NAME
+rust-pnacl-trans \- The Rust PNaCl bitcode (stable or no) -> NaCl translator and linker.
+.SH SYNOPSIS
+.B rust-pnacl-trans
+\-\-cross-path PATH \-o PATH [\fIOPTIONS\fR] \fIINPUTS\fR
+
+.SH DESCRIPTION
+Translates the bitcode inputs into object files, then links all inputs (including additional native objects on the comand line) together into the specified output file.
+
+This program is for the Rust language, available at
+<\fBhttps://www.rust-lang.org\fR>.
+
+.SH OPTIONS
+
+.TP
+\fB\-\-cross-path PATH\fR
+The path to the NaCl Pepper SDK.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Display this message
+.TP
+\fB\-\-opt\-level\fR LEVEL
+Optimize with possible levels 0-3
+.TP
+\fB\-\-save\-temps\fR
+Save temporary native object files instead of deleting them.
+.TP
+\fB\-\-target\fR
+Use this target instead of the host's NaCl equivalent.
+
+.SH "EXAMPLES"
+To translate a bitcode file, main.pexe, to a native NaCl module:
+    $ rust-pnacl-trans --cross-path /path/to/pepper -o main.nexe main.pexe
+
+.SH "SEE ALSO"
+
+rustc
+rustdoc
+
+.SH "BUGS"
+See <\fBhttps://github.com/DiamondLovesYou/rust/issues\fR> for issues.
+
+.SH "AUTHOR"
+See \fBAUTHORS.txt\fR in the Rust source distribution.
+
+.SH "COPYRIGHT"
+This work is dual-licensed under Apache 2.0 and MIT terms.  See \fBCOPYRIGHT\fR
+file in the rust source distribution.
