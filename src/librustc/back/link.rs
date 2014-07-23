@@ -1727,32 +1727,13 @@ pub fn link_pnacl_module(sess: &Session,
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
                         "die".with_c_str(|s| ap(s) );
                         "dce".with_c_str(|s| ap(s) );
-                        if sess.opts.cg.stable_pexe {
-                            // Strip unsupported metadata:
-                            "strip-metadata".with_c_str(|s| ap(s) );
-                            "nacl-strip-attributes".with_c_str(|s| ap(s) );
-
-                            if !sess.no_verify() {
-                                "verify-pnaclabi-module".with_c_str(|s| ap(s) );
-                                "verify-pnaclabi-functions".with_c_str(|s| ap(s) );
-                            }
-                        }
                     });
-
-    if sess.opts.cg.stable_pexe {
-        if sess.opts.debuginfo != config::NoDebugInfo {
-            sess.warn("debugging info isn't supported in stable pexe's");
-        }
-        unsafe {
-            // The PNaCl stable bitcode format doesn't accept metadata types.
-            llvm::LLVMRustStripDebugInfo(llmod);
-        }
-    }
 
     unsafe {
         llvm::LLVMRustDisposeTargetMachine(tm);
     }
 
+    let mut warn_about_debuginfo = true;
     // Write out IR if asked:
     if sess.opts.output_types.iter().any(|&i| i == OutputTypeLlvmAssembly) {
         // emit ir
@@ -1764,7 +1745,46 @@ pub fn link_pnacl_module(sess: &Session,
             });
             llvm::LLVMDisposePassManager(pm);
         }
+        warn_about_debuginfo = false;
     }
+    if sess.opts.output_types.iter().any(|&i| i == OutputTypeBitcode) {
+        // emit bc
+        let out = outputs.with_extension("bc");
+        out.with_c_str(|buf| unsafe {
+            llvm::LLVMWriteBitcodeToFile(llmod, buf);
+        });
+        warn_about_debuginfo = false;
+    }
+    if sess.opts.cg.stable_pexe {
+        if sess.opts.debuginfo != config::NoDebugInfo && warn_about_debuginfo {
+            sess.warn("debugging info isn't supported in stable pexe's");
+        }
+        unsafe {
+            // The PNaCl stable bitcode format doesn't accept metadata types.
+            llvm::LLVMRustStripDebugInfo(llmod);
+
+
+            let pm = llvm::LLVMCreatePassManager();
+
+            let ap = |s| {
+                assert!(llvm::LLVMRustAddPass(pm, s));
+            };
+
+            // Strip unsupported metadata:
+            "strip-metadata".with_c_str(|s| ap(s) );
+            "nacl-strip-attributes".with_c_str(|s| ap(s) );
+            
+            if !sess.no_verify() {
+                "verify-pnaclabi-module".with_c_str(|s| ap(s) );
+                "verify-pnaclabi-functions".with_c_str(|s| ap(s) );
+            }
+
+            llvm::LLVMRunPassManager(pm, llmod);
+
+            llvm::LLVMDisposePassManager(pm);
+        }
+    }
+
     let out = match outputs.single_output_file {
         Some(ref file) => file.clone(),
         None => {
