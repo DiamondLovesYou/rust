@@ -1614,8 +1614,6 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     use std::os::make_absolute;
     use std::io::process::{ExitStatus, ExitSignal};
 
-    use procsrv::add_target_env;
-
     let cross_path = config.nacl_cross_path
         .clone()
         .expect("need the NaCl SDK path!");
@@ -1741,13 +1739,6 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         ..
     } = make_run_args(config, props, testfile);
     let sel_ldr_args = sel_ldr_args.append(run_args.as_slice());
-
-    let mut cmd = Command::new(sel_ldr);
-    cmd.args(sel_ldr_args);
-    add_target_env(&mut cmd, lib_path, aux_path);
-    for (key, val) in env.move_iter() {
-        cmd.env(key, val);
-    }
 
     let mut process = procsrv::run_background("",
                                               sel_ldr.display().as_maybe_owned().as_slice(),
