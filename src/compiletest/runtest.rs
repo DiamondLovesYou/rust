@@ -1230,6 +1230,12 @@ fn make_compile_args(config: &Config,
     } else {
         config.target.as_slice()
     };
+    let extras = if config.targeting_pnacl() {
+        extras.append(&["-Z".to_string(),
+                        "no-opt".to_string()])
+    } else {
+        extras
+    };
     // FIXME (#9639): This needs to handle non-utf8 paths
     let mut args = vec!(testfile.as_str().unwrap().to_string(),
                         "-L".to_string(),
@@ -1606,7 +1612,10 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                             run_background: bool) -> ProcResOrProcessResult {
     use std::os::consts::ARCH;
     use std::os::make_absolute;
-    use std::io::process::{ExitStatus};
+    use std::io::process::{ExitStatus, ExitSignal};
+
+    use procsrv::add_target_env;
+
     let cross_path = config.nacl_cross_path
         .clone()
         .expect("need the NaCl SDK path!");
@@ -1732,31 +1741,72 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         ..
     } = make_run_args(config, props, testfile);
     let sel_ldr_args = sel_ldr_args.append(run_args.as_slice());
+
+    let mut cmd = Command::new(sel_ldr);
+    cmd.args(sel_ldr_args);
+    add_target_env(&mut cmd, lib_path, aux_path);
+    for (key, val) in env.move_iter() {
+        cmd.env(key, val);
+    }
+
+    let mut process = procsrv::run_background("",
+                                              sel_ldr.display().as_maybe_owned().as_slice(),
+                                              None,
+                                              sel_ldr_args.as_slice(),
+                                              env,
+                                              None)
+        .expect(format!("failed to exec `{}`", gold.display()).as_slice());
+
     if !run_background {
-        let procsrv::Result{ out: stdout, err: stderr, status: status } =
-            procsrv::run("",
-                         sel_ldr.display().as_maybe_owned().as_slice(),
-                         None,
-                         sel_ldr_args.as_slice(),
-                         env,
-                         None).unwrap();
+        process.set_timeout(Some(10_000));
+        match process.wait() {
+            Ok(status) => {
+                return ProcResResult(ProcRes {
+                    status: status,
+                    stdout: String::from_utf8(process.stdout.get_mut_ref().read_to_end().unwrap()).unwrap(),
+                    stderr: String::from_utf8(process.stderr.get_mut_ref().read_to_end().unwrap()).unwrap(),
+                    cmdline: make_cmdline("",
+                                          sel_ldr.display().as_maybe_owned().as_slice(),
+                                          sel_ldr_args.as_slice()),
+                });
+            }
+            Err(..) => {}
+        }
+
+        debug!("finished waiting... sending SIGTERM...");
+
+        match process.signal_exit() {
+            Ok(..) => {}
+            Err(e) => fail!("couldn't signal for the test to exit: `{}`", e),
+        }
+        process.set_timeout(Some(1_000));
+        match process.wait() {
+            Ok(status) => {
+                return ProcResResult(ProcRes {
+                    status: status,
+                    stdout: String::from_utf8(process.stdout.get_mut_ref().read_to_end().unwrap()).unwrap(),
+                    stderr: String::from_utf8(process.stderr.get_mut_ref().read_to_end().unwrap()).unwrap(),
+                    cmdline: make_cmdline("",
+                                          sel_ldr.display().as_maybe_owned().as_slice(),
+                                          sel_ldr_args.as_slice()),
+                });
+            }
+            Err(..) => {}
+        }
+
+        debug!("finished waiting for SIGTERM. Killing.");
+
+        let _ = process.signal_kill();
         return ProcResResult(ProcRes {
-            status: status,
-            stdout: stdout,
-            stderr: stderr,
+            status: ExitSignal(9),
+            stdout: String::from_utf8(process.stdout.get_mut_ref().read_to_end().unwrap()).unwrap(),
+            stderr: String::from_utf8(process.stderr.get_mut_ref().read_to_end().unwrap()).unwrap(),
             cmdline: make_cmdline("",
                                   sel_ldr.display().as_maybe_owned().as_slice(),
                                   sel_ldr_args.as_slice()),
-        });
+        });        
     } else {
-        return ProcessResult(procsrv::run_background("",
-                                                     sel_ldr.display().as_maybe_owned().as_slice(),
-                                                     None,
-                                                     sel_ldr_args.as_slice(),
-                                                     env,
-                                                     None)
-                             .expect(format!("failed to exec `{}`", gold.display()).as_slice())
-        );
+        return ProcessResult(process);
     }
 }
 
