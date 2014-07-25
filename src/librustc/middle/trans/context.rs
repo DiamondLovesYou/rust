@@ -430,6 +430,9 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
     ifn!("llvm.umul.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
          if (ccx.sess().targeting_pnacl()) == (false));
 
+    ifn!("llvm.lifetime.start" fn(t_i64,i8p) -> void);
+    ifn!("llvm.lifetime.end" fn(t_i64, i8p) -> void);
+
     ifn!("llvm.expect.i1" fn(i1, i1) -> i1);
 
     // Some intrinsics were introduced in later versions of LLVM, but they have

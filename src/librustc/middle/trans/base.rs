@@ -1071,6 +1071,34 @@ pub fn with_cond<'a>(
     next_cx
 }
 
+pub fn call_lifetime_start(cx: &Block, ptr: ValueRef) {
+    if cx.sess().opts.optimize == config::No {
+        return;
+    }
+
+    let _icx = push_ctxt("lifetime_start");
+    let ccx = cx.ccx();
+
+    let llsize = C_u64(ccx, machine::llsize_of_alloc(ccx, val_ty(ptr).element_type()));
+    let ptr = PointerCast(cx, ptr, Type::i8p(ccx));
+    let lifetime_start = ccx.get_intrinsic(&"llvm.lifetime.start");
+    Call(cx, lifetime_start, [llsize, ptr], []);
+}
+
+pub fn call_lifetime_end(cx: &Block, ptr: ValueRef) {
+    if cx.sess().opts.optimize == config::No {
+        return;
+    }
+
+    let _icx = push_ctxt("lifetime_end");
+    let ccx = cx.ccx();
+
+    let llsize = C_u64(ccx, machine::llsize_of_alloc(ccx, val_ty(ptr).element_type()));
+    let ptr = PointerCast(cx, ptr, Type::i8p(ccx));
+    let lifetime_end = ccx.get_intrinsic(&"llvm.lifetime.end");
+    Call(cx, lifetime_end, [llsize, ptr], []);
+}
+
 pub fn call_memcpy(cx: &Block, dst: ValueRef, src: ValueRef, n_bytes: ValueRef, align: u32) {
     let _icx = push_ctxt("call_memcpy");
     let ccx = cx.ccx();
@@ -1144,10 +1172,12 @@ pub fn alloc_ty(bcx: &Block, t: ty::t, name: &str) -> ValueRef {
 }
 
 pub fn alloca(cx: &Block, ty: Type, name: &str) -> ValueRef {
-    alloca_maybe_zeroed(cx, ty, name, false)
+    let p = alloca_no_lifetime(cx, ty, name);
+    call_lifetime_start(cx, p);
+    p
 }
 
-pub fn alloca_maybe_zeroed(cx: &Block, ty: Type, name: &str, zero: bool) -> ValueRef {
+pub fn alloca_no_lifetime(cx: &Block, ty: Type, name: &str) -> ValueRef {
     let _icx = push_ctxt("alloca");
     if cx.unreachable.get() {
         unsafe {
@@ -1155,12 +1185,19 @@ pub fn alloca_maybe_zeroed(cx: &Block, ty: Type, name: &str, zero: bool) -> Valu
         }
     }
     debuginfo::clear_source_location(cx.fcx);
-    let p = Alloca(cx, ty, name);
-    if zero {
-        let b = cx.fcx.ccx.builder();
-        b.position_before(cx.fcx.alloca_insert_pt.get().unwrap());
-        memzero(&b, p, ty);
+    Alloca(cx, ty, name)
+}
+
+pub fn alloca_zeroed(cx: &Block, ty: Type, name: &str) -> ValueRef {
+    if cx.unreachable.get() {
+        unsafe {
+            return llvm::LLVMGetUndef(ty.ptr_to().to_ref());
+        }
     }
+    let p = alloca_no_lifetime(cx, ty, name);
+    let b = cx.fcx.ccx.builder();
+    b.position_before(cx.fcx.alloca_insert_pt.get().unwrap());
+    memzero(&b, p, ty);
     p
 }
 
@@ -1172,7 +1209,9 @@ pub fn arrayalloca(cx: &Block, ty: Type, v: ValueRef) -> ValueRef {
         }
     }
     debuginfo::clear_source_location(cx.fcx);
-    return ArrayAlloca(cx, ty, v);
+    let p = ArrayAlloca(cx, ty, v);
+    call_lifetime_start(cx, p);
+    p
 }
 
 // Creates and returns space for, or returns the argument representing, the
@@ -1827,7 +1866,7 @@ fn enum_variant_size_lint(ccx: &CrateContext, enum_def: &ast::EnumDef, sp: Span,
 
     let avar = adt::represent_type(ccx, ty::node_id_to_type(ccx.tcx(), id));
     match *avar {
-        adt::General(_, ref variants) => {
+        adt::General(_, ref variants, _) => {
             for var in variants.iter() {
                 let mut size = 0;
                 for field in var.fields.iter().skip(1) {

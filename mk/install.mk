@@ -14,12 +14,12 @@ else
 MAYBE_DISABLE_VERIFY=
 endif
 
-install: dist-install-dir-$(CFG_BUILD)-with-target-libs | tmp/empty_dir
+install: dist-install-dir-$(CFG_BUILD) | tmp/empty_dir
 	$(Q)cd tmp/empty_dir && sh ../../tmp/dist/$(PKG_NAME)-$(CFG_BUILD)/install.sh --prefix="$(DESTDIR)$(CFG_PREFIX)" --libdir="$(DESTDIR)$(CFG_LIBDIR)" --mandir="$(DESTDIR)$(CFG_MANDIR)" "$(MAYBE_DISABLE_VERIFY)"
 # Remove tmp files while we can because they may have been created under sudo
 	$(Q)rm -R tmp/dist
 
-uninstall: dist-install-dir-$(CFG_BUILD)-with-target-libs | tmp/empty_dir
+uninstall: dist-install-dir-$(CFG_BUILD) | tmp/empty_dir
 	$(Q)cd tmp/empty_dir && sh ../../tmp/dist/$(PKG_NAME)-$(CFG_BUILD)/install.sh --uninstall --prefix="$(DESTDIR)$(CFG_PREFIX)" --libdir="$(DESTDIR)$(CFG_LIBDIR)" --mandir="$(DESTDIR)$(CFG_MANDIR)"
 # Remove tmp files while we can because they may have been created under sudo
 	$(Q)rm -R tmp/dist
@@ -81,15 +81,15 @@ endif
 define INSTALL_RUNTIME_TARGET_N
 install-runtime-target-$(1)-host-$(2): $$(TSREQ$$(ISTAGE)_T_$(1)_H_$(2)) $$(SREQ$$(ISTAGE)_T_$(1)_H_$(2))
 	$$(Q)$$(call ADB_SHELL,mkdir,$(CFG_RUNTIME_PUSH_DIR))
-	$$(Q)$$(foreach crate,$$(TARGET_CRATES),\
-	    $$(call ADB_PUSH,$$(TL$(1)$(2))/$$(call CFG_LIB_GLOB_$(1),$$(crate)),\
+	$$(Q)$$(foreach crate,$$(TARGET_CRATES), \
+	    $$(call ADB_PUSH,$$(TL$(1)$(2))/$$(call CFG_LIB_GLOB_$(1),$$(crate)), \
 			$$(CFG_RUNTIME_PUSH_DIR));)
 endef
 
 define INSTALL_RUNTIME_TARGET_CLEANUP_N
 install-runtime-target-$(1)-cleanup:
 	$$(Q)$$(call ADB,remount)
-	$$(Q)$$(foreach crate,$$(TARGET_CRATES),\
+	$$(Q)$$(foreach crate,$$(TARGET_CRATES), \
 	    $$(call ADB_SHELL,rm,$$(CFG_RUNTIME_PUSH_DIR)/$$(call CFG_LIB_GLOB_$(1),$$(crate)));)
 endef
 

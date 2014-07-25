@@ -120,10 +120,15 @@ pub fn lvalue_scratch_datum<'a, A>(bcx: &'a Block<'a>,
      */
 
     let llty = type_of::type_of(bcx.ccx(), ty);
-    let scratch = alloca_maybe_zeroed(bcx, llty, name, zero);
+    let scratch = if zero {
+        alloca_zeroed(bcx, llty, name)
+    } else {
+        alloca(bcx, llty, name)
+    };
 
     // Subtle. Populate the scratch memory *before* scheduling cleanup.
     let bcx = populate(arg, bcx, scratch);
+    bcx.fcx.schedule_lifetime_end(scope, scratch);
     bcx.fcx.schedule_drop_mem(scope, scratch, ty);
 
     DatumBlock::new(bcx, Datum::new(scratch, ty, Lvalue))
@@ -144,7 +149,7 @@ pub fn rvalue_scratch_datum(bcx: &Block,
      */
 
     let llty = type_of::type_of(bcx.ccx(), ty);
-    let scratch = alloca_maybe_zeroed(bcx, llty, name, false);
+    let scratch = alloca(bcx, llty, name);
     Datum::new(scratch, ty, Rvalue::new(ByRef))
 }
 
@@ -169,7 +174,10 @@ fn add_rvalue_clean(mode: RvalueMode,
                     ty: ty::t) {
     match mode {
         ByValue => { fcx.schedule_drop_immediate(scope, val, ty); }
-        ByRef => { fcx.schedule_drop_mem(scope, val, ty); }
+        ByRef => {
+            fcx.schedule_lifetime_end(scope, val);
+            fcx.schedule_drop_mem(scope, val, ty);
+        }
     }
 }
 

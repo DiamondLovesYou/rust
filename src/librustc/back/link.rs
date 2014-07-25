@@ -1022,7 +1022,17 @@ pub fn filename_for_input(sess: &Session,
         config::CrateTypeStaticlib => {
             out_filename.with_filename(format!("lib{}.a", libname))
         }
-        config::CrateTypeExecutable => out_filename.clone(),
+        config::CrateTypeExecutable => {
+            match sess.targ_cfg.os {
+                abi::OsWin32 => out_filename.with_extension("exe"),
+                abi::OsNaCl => out_filename.with_extension("pexe"),
+                abi::OsMacos |
+                abi::OsLinux |
+                abi::OsAndroid |
+                abi::OsFreebsd |
+                abi::OsiOS => out_filename.clone(),
+            }
+        }
     }
 }
 

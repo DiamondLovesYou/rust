@@ -8,7 +8,143 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! A priority queue implemented with a binary heap
+//! A priority queue implemented with a binary heap.
+//!
+//! # Example
+//!
+//! This is a larger example which implements [Dijkstra's algorithm][dijkstra]
+//! to solve the [shortest path problem][sssp] on a [directed graph][dir_graph].
+//! It showcases how to use the `PriorityQueue` with custom types.
+//!
+//! [dijkstra]: http://en.wikipedia.org/wiki/Dijkstra%27s_algorithm
+//! [sssp]: http://en.wikipedia.org/wiki/Shortest_path_problem
+//! [dir_graph]: http://en.wikipedia.org/wiki/Directed_graph
+//!
+//! ```
+//! use std::collections::PriorityQueue;
+//! use std::uint;
+//!
+//! #[deriving(Eq, PartialEq)]
+//! struct State {
+//!     cost: uint,
+//!     position: uint
+//! }
+//!
+//! // The priority queue depends on `Ord`.
+//! // Explicitly implement the trait so the queue becomes a min-heap
+//! // instead of a max-heap.
+//! impl Ord for State {
+//!     fn cmp(&self, other: &State) -> Ordering {
+//!         // Notice that the we flip the ordering here
+//!         other.cost.cmp(&self.cost)
+//!     }
+//! }
+//!
+//! // `PartialOrd` needs to be implemented as well.
+//! impl PartialOrd for State {
+//!     fn partial_cmp(&self, other: &State) -> Option<Ordering> {
+//!         Some(self.cmp(other))
+//!     }
+//! }
+//!
+//! // Each node is represented as an `uint`, for a shorter implementation.
+//! struct Edge {
+//!     node: uint,
+//!     cost: uint
+//! }
+//!
+//! // Dijkstra's shortest path algorithm.
+//!
+//! // Start at `start` and use `dist` to track the current shortest distance
+//! // to each node. This implementation isn't memory efficient as it may leave duplicate
+//! // nodes in the queue. It also uses `uint::MAX` as a sentinel value,
+//! // for a simpler implementation.
+//! fn shortest_path(adj_list: &Vec<Vec<Edge>>, start: uint, goal: uint) -> uint {
+//!     // dist[node] = current shortest distance from `start` to `node`
+//!     let mut dist = Vec::from_elem(adj_list.len(), uint::MAX);
+//!
+//!     let mut pq = PriorityQueue::new();
+//!
+//!     // We're at `start`, with a zero cost
+//!     *dist.get_mut(start) = 0u;
+//!     pq.push(State { cost: 0u, position: start });
+//!
+//!     // Examine the frontier with lower cost nodes first (min-heap)
+//!     loop {
+//!         let State { cost, position } = match pq.pop() {
+//!             None => break, // empty
+//!             Some(s) => s
+//!         };
+//!
+//!         // Alternatively we could have continued to find all shortest paths
+//!         if position == goal { return cost }
+//!
+//!         // Important as we may have already found a better way
+//!         if cost > dist[position] { continue }
+//!
+//!         // For each node we can reach, see if we can find a way with
+//!         // a lower cost going through this node
+//!         for edge in adj_list[position].iter() {
+//!             let next = State { cost: cost + edge.cost, position: edge.node };
+//!
+//!             // If so, add it to the frontier and continue
+//!             if next.cost < dist[next.position] {
+//!                 pq.push(next);
+//!                 // Relaxation, we have now found a better way
+//!                 *dist.get_mut(next.position) = next.cost;
+//!             }
+//!         }
+//!     }
+//!
+//!     // Goal not reachable
+//!     uint::MAX
+//! }
+//!
+//! fn main() {
+//!     // This is the directed graph we're going to use.
+//!     // The node numbers correspond to the different states,
+//!     // and the edge weights symbolises the cost of moving
+//!     // from one node to another.
+//!     // Note that the edges are one-way.
+//!     //
+//!     //                  7
+//!     //          +-----------------+
+//!     //          |                 |
+//!     //          v   1        2    |
+//!     //          0 -----> 1 -----> 3 ---> 4
+//!     //          |        ^        ^      ^
+//!     //          |        | 1      |      |
+//!     //          |        |        | 3    | 1
+//!     //          +------> 2 -------+      |
+//!     //           10      |               |
+//!     //                   +---------------+
+//!     //
+//!     // The graph is represented as an adjecency list where each index,
+//!     // corresponding to a node value, has a list of outgoing edges.
+//!     // Chosen for it's efficiency.
+//!     let graph = vec![
+//!         // Node 0
+//!         vec![Edge { node: 2, cost: 10 },
+//!              Edge { node: 1, cost: 1 }],
+//!         // Node 1
+//!         vec![Edge { node: 3, cost: 2 }],
+//!         // Node 2
+//!         vec![Edge { node: 1, cost: 1 },
+//!              Edge { node: 3, cost: 3 },
+//!              Edge { node: 4, cost: 1 }],
+//!         // Node 3
+//!         vec![Edge { node: 0, cost: 7 },
+//!              Edge { node: 4, cost: 2 }],
+//!         // Node 4
+//!         vec![]];
+//!
+//!     assert_eq!(shortest_path(&graph, 0, 1), 1);
+//!     assert_eq!(shortest_path(&graph, 0, 3), 3);
+//!     assert_eq!(shortest_path(&graph, 3, 0), 7);
+//!     assert_eq!(shortest_path(&graph, 0, 4), 5);
+//!     assert_eq!(shortest_path(&graph, 4, 0), uint::MAX);
+//! }
+//! ```
 
 #![allow(missing_doc)]
 
@@ -18,11 +154,13 @@ use core::default::Default;
 use core::mem::{zeroed, replace, swap};
 use core::ptr;
 
-use {Collection, Mutable};
+use {Collection, Mutable, MutableSeq};
 use slice;
 use vec::Vec;
 
-/// A priority queue implemented with a binary heap
+/// A priority queue implemented with a binary heap.
+///
+/// This will be a max-heap.
 #[deriving(Clone)]
 pub struct PriorityQueue<T> {
     data: Vec<T>,
@@ -44,13 +182,84 @@ impl<T: Ord> Default for PriorityQueue<T> {
 }
 
 impl<T: Ord> PriorityQueue<T> {
+    /// Create an empty PriorityQueue as a max-heap.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    /// let pq: PriorityQueue<uint> = PriorityQueue::new();
+    /// ```
+    pub fn new() -> PriorityQueue<T> { PriorityQueue{data: vec!(),} }
+
+    /// Create an empty PriorityQueue with a specific capacity.
+    /// This preallocates enough memory for `capacity` elements,
+    /// so that the PriorityQueue does not have to be reallocated
+    /// until it contains at least that many values.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    /// let pq: PriorityQueue<uint> = PriorityQueue::with_capacity(10u);
+    /// ```
+    pub fn with_capacity(capacity: uint) -> PriorityQueue<T> {
+        PriorityQueue { data: Vec::with_capacity(capacity) }
+    }
+
+    /// Create a PriorityQueue from a vector. This is sometimes called
+    /// `heapifying` the vector.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    /// let pq = PriorityQueue::from_vec(vec![9i, 1, 2, 7, 3, 2]);
+    /// ```
+    pub fn from_vec(xs: Vec<T>) -> PriorityQueue<T> {
+        let mut q = PriorityQueue{data: xs,};
+        let mut n = q.len() / 2;
+        while n > 0 {
+            n -= 1;
+            q.siftdown(n)
+        }
+        q
+    }
+
     /// An iterator visiting all values in underlying vector, in
     /// arbitrary order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    /// let pq = PriorityQueue::from_vec(vec![1i, 2, 3, 4]);
+    ///
+    /// // Print 1, 2, 3, 4 in arbitrary order
+    /// for x in pq.iter() {
+    ///     println!("{}", x);
+    /// }
+    /// ```
     pub fn iter<'a>(&'a self) -> Items<'a, T> {
         Items { iter: self.data.iter() }
     }
 
-    /// Returns the greatest item in a queue or None if it is empty
+    /// Returns the greatest item in a queue or `None` if it is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq = PriorityQueue::new();
+    /// assert_eq!(pq.top(), None);
+    ///
+    /// pq.push(1i);
+    /// pq.push(5i);
+    /// pq.push(2i);
+    /// assert_eq!(pq.top(), Some(&5i));
+    ///
+    /// ```
     pub fn top<'a>(&'a self) -> Option<&'a T> {
         if self.is_empty() { None } else { Some(self.data.get(0)) }
     }
@@ -58,21 +267,62 @@ impl<T: Ord> PriorityQueue<T> {
     #[deprecated="renamed to `top`"]
     pub fn maybe_top<'a>(&'a self) -> Option<&'a T> { self.top() }
 
-    /// Returns the number of elements the queue can hold without reallocating
+    /// Returns the number of elements the queue can hold without reallocating.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let pq: PriorityQueue<uint> = PriorityQueue::with_capacity(100u);
+    /// assert!(pq.capacity() >= 100u);
+    /// ```
     pub fn capacity(&self) -> uint { self.data.capacity() }
 
-    /// Reserve capacity for exactly n elements in the PriorityQueue.
+    /// Reserve capacity for exactly `n` elements in the PriorityQueue.
     /// Do nothing if the capacity is already sufficient.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq: PriorityQueue<uint> = PriorityQueue::new();
+    /// pq.reserve_exact(100u);
+    /// assert!(pq.capacity() == 100u);
+    /// ```
     pub fn reserve_exact(&mut self, n: uint) { self.data.reserve_exact(n) }
 
-    /// Reserve capacity for at least n elements in the PriorityQueue.
+    /// Reserve capacity for at least `n` elements in the PriorityQueue.
     /// Do nothing if the capacity is already sufficient.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq: PriorityQueue<uint> = PriorityQueue::new();
+    /// pq.reserve(100u);
+    /// assert!(pq.capacity() >= 100u);
+    /// ```
     pub fn reserve(&mut self, n: uint) {
         self.data.reserve(n)
     }
 
     /// Remove the greatest item from a queue and return it, or `None` if it is
     /// empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq = PriorityQueue::from_vec(vec![1i, 3]);
+    ///
+    /// assert_eq!(pq.pop(), Some(3i));
+    /// assert_eq!(pq.pop(), Some(1i));
+    /// assert_eq!(pq.pop(), None);
+    /// ```
     pub fn pop(&mut self) -> Option<T> {
         match self.data.pop() {
             None           => { None }
@@ -89,14 +339,43 @@ impl<T: Ord> PriorityQueue<T> {
     #[deprecated="renamed to `pop`"]
     pub fn maybe_pop(&mut self) -> Option<T> { self.pop() }
 
-    /// Push an item onto the queue
+    /// Push an item onto the queue.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq = PriorityQueue::new();
+    /// pq.push(3i);
+    /// pq.push(5i);
+    /// pq.push(1i);
+    ///
+    /// assert_eq!(pq.len(), 3);
+    /// assert_eq!(pq.top(), Some(&5i));
+    /// ```
     pub fn push(&mut self, item: T) {
         self.data.push(item);
         let new_len = self.len() - 1;
         self.siftup(0, new_len);
     }
 
-    /// Optimized version of a push followed by a pop
+    /// Optimized version of a push followed by a pop.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq = PriorityQueue::new();
+    /// pq.push(1i);
+    /// pq.push(5i);
+    ///
+    /// assert_eq!(pq.push_pop(3i), 5);
+    /// assert_eq!(pq.push_pop(9i), 9);
+    /// assert_eq!(pq.len(), 2);
+    /// assert_eq!(pq.top(), Some(&3i));
+    /// ```
     pub fn push_pop(&mut self, mut item: T) -> T {
         if !self.is_empty() && *self.top().unwrap() > item {
             swap(&mut item, self.data.get_mut(0));
@@ -107,6 +386,19 @@ impl<T: Ord> PriorityQueue<T> {
 
     /// Optimized version of a pop followed by a push. The push is done
     /// regardless of whether the queue is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq = PriorityQueue::new();
+    ///
+    /// assert_eq!(pq.replace(1i), None);
+    /// assert_eq!(pq.replace(3i), Some(1i));
+    /// assert_eq!(pq.len(), 1);
+    /// assert_eq!(pq.top(), Some(&3i));
+    /// ```
     pub fn replace(&mut self, mut item: T) -> Option<T> {
         if !self.is_empty() {
             swap(&mut item, self.data.get_mut(0));
@@ -127,10 +419,38 @@ impl<T: Ord> PriorityQueue<T> {
     fn to_sorted_vec(self) -> Vec<T> { self.into_sorted_vec() }
 
     /// Consume the PriorityQueue and return the underlying vector
+    /// in arbitrary order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let pq = PriorityQueue::from_vec(vec![1i, 2, 3, 4, 5, 6, 7]);
+    /// let vec = pq.into_vec();
+    ///
+    /// // Will print in some order
+    /// for x in vec.iter() {
+    ///     println!("{}", x);
+    /// }
+    /// ```
     pub fn into_vec(self) -> Vec<T> { let PriorityQueue{data: v} = self; v }
 
     /// Consume the PriorityQueue and return a vector in sorted
-    /// (ascending) order
+    /// (ascending) order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::PriorityQueue;
+    ///
+    /// let mut pq = PriorityQueue::from_vec(vec![1i, 2, 4, 5, 7]);
+    /// pq.push(6);
+    /// pq.push(3);
+    ///
+    /// let vec = pq.into_sorted_vec();
+    /// assert_eq!(vec, vec![1i, 2, 3, 4, 5, 6, 7]);
+    /// ```
     pub fn into_sorted_vec(self) -> Vec<T> {
         let mut q = self;
         let mut end = q.len();
@@ -140,25 +460,6 @@ impl<T: Ord> PriorityQueue<T> {
             q.siftdown_range(0, end)
         }
         q.into_vec()
-    }
-
-    /// Create an empty PriorityQueue
-    pub fn new() -> PriorityQueue<T> { PriorityQueue{data: vec!(),} }
-
-    /// Create an empty PriorityQueue with capacity `capacity`
-    pub fn with_capacity(capacity: uint) -> PriorityQueue<T> {
-        PriorityQueue { data: Vec::with_capacity(capacity) }
-    }
-
-    /// Create a PriorityQueue from a vector (heapify)
-    pub fn from_vec(xs: Vec<T>) -> PriorityQueue<T> {
-        let mut q = PriorityQueue{data: xs,};
-        let mut n = q.len() / 2;
-        while n > 0 {
-            n -= 1;
-            q.siftdown(n)
-        }
-        q
     }
 
     // The implementations of siftup and siftdown use unsafe blocks in
@@ -212,7 +513,7 @@ impl<T: Ord> PriorityQueue<T> {
     }
 }
 
-/// PriorityQueue iterator
+/// PriorityQueue iterator.
 pub struct Items <'a, T> {
     iter: slice::Items<'a, T>,
 }
@@ -252,6 +553,7 @@ mod tests {
 
     use priority_queue::PriorityQueue;
     use vec::Vec;
+    use MutableSeq;
 
     #[test]
     fn test_iterator() {

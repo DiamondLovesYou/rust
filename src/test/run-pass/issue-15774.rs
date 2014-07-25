@@ -8,18 +8,25 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(managed_boxes)]
+#![deny(warnings)]
+#![allow(unused_imports)]
 
-use std::gc::Gc;
-
-struct Foo {
-    f: Gc<int>,
-}
-
-impl Drop for Foo {
-//~^ ERROR cannot implement a destructor on a structure or enumeration that does not satisfy Send
-    fn drop(&mut self) {
+enum Foo { A }
+mod bar {
+    pub fn normal(x: ::Foo) {
+        use A;
+        match x {
+            A => {}
+        }
+    }
+    pub fn wrong(x: ::Foo) {
+        match x {
+            ::A => {}
+        }
     }
 }
 
-fn main() { }
+pub fn main() {
+    bar::normal(A);
+    bar::wrong(A);
+}
