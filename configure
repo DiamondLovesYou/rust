@@ -1222,7 +1222,8 @@ do
         # Most of these flags were pulled from native client's build scripts.
         BINUTILS_OPTS="--enable-gold=yes --enable-ld=no --enable-plugins\
         --without-gas --without-zlib --enable-shared=no                 \
-        --enable-deterministic-archives --disable-silent-rules"
+        --enable-deterministic-archives --disable-silent-rules          \
+        --disable-werror"
 
         BINUTILS_FLAGS="$BINUTILS_TARGETS $BINUTILS_OPTS $BINUTILS_BUILD\
                         $BINUTILS_HOST $BINUTILS_TARGET"
