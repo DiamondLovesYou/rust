@@ -641,7 +641,7 @@ SHARED_LIBS_DISABLED_le32-unknown-nacl := 1
 RUNTIME_CFLAGS_le32-unknown-nacl:= -I$(CFG_NACL_CROSS_PATH)/include/pnacl
 RUNTIME_DISABLE_ASM_le32-unknown-nacl := 1
 RUSTC_FLAGS_le32-unknown-nacl:=
-RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=pnacl --cfg "target_libc=\"newlib\"" -g
+RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"newlib\"" -g
 
 # i686-unknown-nacl (non-portable)
 CC_i686-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/i686-nacl-gcc
@@ -671,7 +671,7 @@ CFG_RUN_i686-unknown-nacl=$(2)
 CFG_RUN_TARG_i686-unknown-nacl=$(call CFG_RUN_i686-unknown-nacl,,$(2))
 SHARED_LIBS_DISABLED_i686-unknown-nacl := 1
 RUSTC_FLAGS_i686-unknown-nacl:=
-RUSTC_CROSS_FLAGS_i686-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=nacl --cfg "target_libc=\"glibc\"" -L $(CFG_NACL_CROSS_PATH)/lib/pnacl/Release
+RUSTC_CROSS_FLAGS_i686-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"glibc\"" -L $(CFG_NACL_CROSS_PATH)/lib/pnacl/Release
 
 # x86_64-unknown-nacl (non-portable)
 CC_x86_64-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/x86_64-nacl-gcc
@@ -701,7 +701,7 @@ CFG_RUN_x86_64-unknown-nacl=$(2)
 CFG_RUN_TARG_x86_64-unknown-nacl=$(call CFG_RUN_x86_64-unknown-nacl,,$(2))
 SHARED_LIBS_DISABLED_x86_64-unknown-nacl := 1
 RUSTC_FLAGS_x86_64-unknown-nacl:=
-RUSTC_CROSS_FLAGS_x86_64-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=nacl --cfg "target_libc=\"glibc\""
+RUSTC_CROSS_FLAGS_x86_64-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"glibc\""
 
 # arm-unknown-nacl (non-portable)
 CC_arm-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_arm_newlib/bin/arm-nacl-gcc
@@ -732,7 +732,7 @@ CFG_RUN_arm-unknown-nacl=$(2)
 CFG_RUN_TARG_arm-unknown-nacl=$(call CFG_RUN_arm-unknown-nacl,,$(2))
 SHARED_LIBS_DISABLED_arm-unknown-nacl := 1
 RUSTC_FLAGS_arm-unknown-nacl:=
-RUSTC_CROSS_FLAGS_arm-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) -C nacl-flavor=nacl --cfg "target_libc=\"newlib\""
+RUSTC_CROSS_FLAGS_arm-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"newlib\""
 
 ifeq ($(CFG_CCACHE_CPP2),1)
   CCACHE_CPP2=1

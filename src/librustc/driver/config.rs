@@ -36,26 +36,8 @@ use getopts;
 
 use std::cell::{RefCell};
 use std::fmt;
-use std::from_str::FromStr;
 
 use llvm;
-
-#[deriving(Clone, Eq, PartialEq)]
-pub enum NaClFlavor_ {
-    NaClFlavor,
-    PNaClFlavor,
-    EmscriptenFlavor,
-}
-impl FromStr for NaClFlavor_ {
-    fn from_str(s: &str) -> Option<NaClFlavor_> {
-        match s {
-            "nacl" => Some(NaClFlavor),
-            "pnacl" => Some(PNaClFlavor),
-            "emscripten" => Some(EmscriptenFlavor),
-            _ => None,
-        }
-    }
-}
 
 pub struct Config {
     pub os: abi::Os,
@@ -281,7 +263,6 @@ macro_rules! cgoptions(
 
     mod cgsetters {
         use super::CodegenOptions;
-        use std::from_str::FromStr;
 
         $(
             pub fn $opt(cg: &mut CodegenOptions, v: Option<&str>) -> bool {
@@ -321,10 +302,6 @@ macro_rules! cgoptions(
                 },
                 None => false,
             }
-        }
-        fn parse_from_str<T: FromStr>(slot: &mut Option<T>, v: Option<&str>) -> bool {
-            *slot = v.and_then(|s| from_str(s) );
-            slot.is_some()
         }
     }
 ) )
@@ -372,13 +349,10 @@ cgoptions!(
          "extra data to put in each output filename"),
     cross_path: Option<String> = (None, parse_opt_string,
         "the path to the target specific toolchain"),
-    nacl_flavor: Option<NaClFlavor_> = (None, parse_from_str,
-        "use with =pnacl, =nacl, or =emscripten. \
-         Only applicable when coupled with a PNaCl, NaCl, or Emscripten cross"),
     extra_bitcode: Vec<String> = (Vec::new(), parse_list,
         "a list of bitcode files to include for linking (PNaCl bin output only)"),
     stable_pexe: bool = (false, parse_bool,
-        "write finalized, stable PNaCl bitcode. PNaCl binaries only. Don't use \
+        "write finalized, stable PNaCl bitcode. PNaCl binaries only. Combine with --emit=link,bc \
          if you'd like debugging info."),
 )
 

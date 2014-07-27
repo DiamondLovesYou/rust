@@ -493,7 +493,7 @@ pub fn phase_4_translate_to_llvm(krate: ast::Crate,
 pub fn phase_5_run_llvm_passes(sess: &Session,
                                trans: &CrateTranslation,
                                outputs: &OutputFilenames) {
-    if sess.opts.cg.no_integrated_as || sess.linker_eats_ll() {
+    if sess.opts.cg.no_integrated_as {
         let output_type = if !sess.targeting_pnacl() { link::OutputTypeAssembly }
                           else                       { link::OutputTypeLlvmAssembly };
 

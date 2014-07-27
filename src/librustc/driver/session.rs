@@ -25,7 +25,7 @@ use syntax::diagnostics;
 use syntax::parse;
 use syntax::parse::token;
 use syntax::parse::ParseSess;
-use syntax::{ast, codemap};
+use syntax::{abi, ast, codemap};
 
 use std::os;
 use std::cell::{Cell, RefCell};
@@ -205,59 +205,35 @@ impl Session {
     }
 
     pub fn no_morestack(&self) -> bool {
-        use super::config::{NaClFlavor};
-        (match self.opts.cg.nacl_flavor {
-            None => false,
-            Some(NaClFlavor) => false,
-            Some(_) => true,
-        }) && self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_string()
-    }
-    // true if we should feed our generated ll to our "linker"
-    // used for Emscripten && PNaCl
-    pub fn linker_eats_ll(&self) -> bool {
-        use super::config::{NaClFlavor};
-        (match self.opts.cg.nacl_flavor {
-            None => false,
-            Some(NaClFlavor) => false,
-            Some(_) => true,
-        }) && self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_string()
+        self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_string()
     }
 
     pub fn get_nacl_tool_path(&self,
-                              em_suffix: &str,
                               nacl_suffix: &str,
                               pnacl_suffix: &str) -> String {
         use syntax::abi;
-        use super::config::{EmscriptenFlavor, NaClFlavor, PNaClFlavor};
         let toolchain = self.expect_cross_path();
-        match self.opts.cg.nacl_flavor {
-            Some(EmscriptenFlavor) => toolchain.join(em_suffix),
-            Some(_) => {
-                let (arch_libc, prefix) = match self.targ_cfg.arch {
-                    abi::X86 =>    ("x86_newlib", "i686-nacl-"),
-                    abi::X86_64 => ("x86_newlib", "x86_64-nacl-"),
-                    abi::Arm =>    ("arm_newlib", "arm-nacl-"),
-                    abi::Le32 =>   ("pnacl",      "pnacl-"),
-                    abi::Mips | abi::Mipsel =>
-                        self.fatal("PNaCl/NaCl can't target the Mips arch"),
-                };
-                let post_toolchain = format!("{}_{}",
-                                             get_os_for_nacl_toolchain(self),
-                                             arch_libc);
-                let tool_name = format!("{}{}",
-                                        prefix,
-                                        match self.opts.cg.nacl_flavor {
-                                            Some(EmscriptenFlavor) | None => unreachable!(),
-                                            Some(NaClFlavor) => nacl_suffix,
-                                            Some(PNaClFlavor) => pnacl_suffix,
-                                        });
-                toolchain.join_many(["toolchain".to_owned(),
-                                     post_toolchain,
-                                     "bin".to_owned(),
-                                     tool_name])
-            }
-            None => self.bug("get_nacl_tool_path called without NaCl flavor"),
-        }.as_str().unwrap().to_owned()
+        let (arch_libc, prefix, suffix) = match self.targ_cfg.arch {
+            abi::X86 =>    ("x86_newlib", "i686-nacl-", nacl_suffix),
+            abi::X86_64 => ("x86_newlib", "x86_64-nacl-", nacl_suffix),
+            abi::Arm =>    ("arm_newlib", "arm-nacl-", nacl_suffix),
+            abi::Le32 =>   ("pnacl",      "pnacl-", pnacl_suffix),
+            abi::Mips | abi::Mipsel =>
+                self.fatal("PNaCl/NaCl can't target the Mips arch"),
+        };
+        let post_toolchain = format!("{}_{}",
+                                     get_os_for_nacl_toolchain(self),
+                                     arch_libc);
+        let tool_name = format!("{}{}",
+                                prefix,
+                                suffix);
+        toolchain.join_many(["toolchain".to_owned(),
+                             post_toolchain,
+                             "bin".to_owned(),
+                             tool_name])
+            .as_str()
+            .unwrap()
+            .to_owned()
     }
 
     pub fn expect_cross_path(&self) -> Path {
@@ -276,18 +252,18 @@ impl Session {
 
     /// Shortcut to test if we need to do special things because we are targeting PNaCl.
     pub fn targeting_pnacl(&self) -> bool {
-        use super::config::PNaClFlavor;
-        (match self.opts.cg.nacl_flavor {
-            Some(PNaClFlavor) => true,
-            _ => false,
-        }) && self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_string()
+        self.targ_cfg.os == abi::OsNaCl && self.targ_cfg.arch == abi::Le32
+    }
+    /// Shortcut to test if we need to do special things because we are targeting NaCl.
+    pub fn targeting_nacl(&self) -> bool {
+        self.targ_cfg.os == abi::OsNaCl &&
+            (self.targ_cfg.arch == abi::X86 ||
+             self.targ_cfg.arch == abi::X86_64 ||
+             self.targ_cfg.arch == abi::Arm ||
+             self.targ_cfg.arch == abi::Mips)
     }
     pub fn would_use_ppapi(&self) -> bool {
-        use super::config::EmscriptenFlavor;
-        match self.opts.cg.nacl_flavor {
-            Some(EmscriptenFlavor) | None => false,
-            _ => true,
-        }
+        self.targeting_pnacl() || self.targeting_nacl()
     }
 
     // Emits a fatal error if path is not writeable.
