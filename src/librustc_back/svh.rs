@@ -252,8 +252,7 @@ mod svh_visitor {
         SawExprStruct,
         SawExprRepeat,
         SawExprParen,
-        SawExprSimd,
-        SawExprSwizzle,
+        SawExprForLoop,
     }
 
     fn saw_expr<'a>(node: &'a Expr_) -> SawExprComponent<'a> {
@@ -289,9 +288,9 @@ mod svh_visitor {
             ExprStruct(..)           => SawExprStruct,
             ExprRepeat(..)           => SawExprRepeat,
             ExprParen(..)            => SawExprParen,
+            ExprForLoop(..)          => SawExprForLoop,
 
             // just syntactic artifacts, expanded away by time of SVH.
-            ExprForLoop(..)          => unreachable!(),
             ExprMac(..)              => unreachable!(),
         }
     }

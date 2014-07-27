@@ -553,7 +553,7 @@ fn trans_index<'a>(bcx: &'a Block<'a>,
             let expected = Call(bcx,
                                 expect,
                                 [bounds_check, C_bool(ccx, false)],
-                                []);
+                                None);
             bcx = with_cond(bcx, expected, |bcx| {
                 controlflow::trans_fail_bounds_check(bcx,
                                                      index_expr.span,
@@ -664,6 +664,13 @@ fn trans_rvalue_stmt_unadjusted<'a>(bcx: &'a Block<'a>,
         }
         ast::ExprWhile(ref cond, ref body) => {
             controlflow::trans_while(bcx, expr.id, &**cond, &**body)
+        }
+        ast::ExprForLoop(ref pat, ref head, ref body, _) => {
+            controlflow::trans_for(bcx,
+                                   expr_info(expr),
+                                   *pat,
+                                   &**head,
+                                   &**body)
         }
         ast::ExprLoop(ref body, _) => {
             controlflow::trans_loop(bcx, expr.id, &**body)

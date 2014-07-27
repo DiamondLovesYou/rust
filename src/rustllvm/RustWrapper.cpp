@@ -35,16 +35,30 @@ using namespace llvm::object;
 
 static char *LastError;
 
+#if LLVM_VERSION_MINOR >= 5
 extern "C" LLVMMemoryBufferRef
 LLVMRustCreateMemoryBufferWithContentsOfFile(const char *Path) {
-  LLVMMemoryBufferRef MemBuf = NULL;
-  char *err = NULL;
-  LLVMCreateMemoryBufferWithContentsOfFile(Path, &MemBuf, &err);
-  if (err != NULL) {
-    LLVMRustSetLastError(err);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> buf_or = MemoryBuffer::getFile(Path,
+                                                                        -1,
+                                                                        false);
+  if (!buf_or) {
+      LLVMRustSetLastError(buf_or.getError().message().c_str());
+      return nullptr;
   }
-  return MemBuf;
+  return wrap(buf_or.get().release());
 }
+#else
+extern "C" LLVMMemoryBufferRef
+LLVMRustCreateMemoryBufferWithContentsOfFile(const char *Path) {
+  OwningPtr<MemoryBuffer> buf;
+  error_code err = MemoryBuffer::getFile(Path, buf, -1, false);
+  if (err) {
+      LLVMRustSetLastError(err.message().c_str());
+      return NULL;
+  }
+  return wrap(buf.take());
+}
+#endif
 
 extern "C" char *LLVMRustGetLastError(void) {
   char *ret = LastError;
@@ -103,12 +117,38 @@ extern "C" void LLVMAddCallSiteAttribute(LLVMValueRef Instr, unsigned index, uin
                                                          index, B)));
 }
 
+
+#if LLVM_VERSION_MINOR >= 5
+extern "C" void LLVMAddDereferenceableCallSiteAttr(LLVMValueRef Instr, unsigned idx, uint64_t b) {
+  CallSite Call = CallSite(unwrap<Instruction>(Instr));
+  AttrBuilder B;
+  B.addDereferenceableAttr(b);
+  Call.setAttributes(
+    Call.getAttributes().addAttributes(Call->getContext(), idx,
+                                       AttributeSet::get(Call->getContext(),
+                                                         idx, B)));
+}
+#else
+extern "C" void LLVMAddDereferenceableCallSiteAttr(LLVMValueRef, unsigned, uint64_t) {}
+#endif
+
 extern "C" void LLVMAddFunctionAttribute(LLVMValueRef Fn, unsigned index, uint64_t Val) {
   Function *A = unwrap<Function>(Fn);
   AttrBuilder B;
   B.addRawValue(Val);
   A->addAttributes(index, AttributeSet::get(A->getContext(), index, B));
 }
+
+#if LLVM_VERSION_MINOR >= 5
+extern "C" void LLVMAddDereferenceableAttr(LLVMValueRef Fn, unsigned index, uint64_t bytes) {
+  Function *A = unwrap<Function>(Fn);
+  AttrBuilder B;
+  B.addDereferenceableAttr(bytes);
+  A->addAttributes(index, AttributeSet::get(A->getContext(), index, B));
+}
+#else
+extern "C" void LLVMAddDereferenceableAttr(LLVMValueRef, unsigned, uint64_t) {}
+#endif
 
 extern "C" void LLVMAddFunctionAttrString(LLVMValueRef Fn, unsigned index, const char *Name) {
   Function *F = unwrap<Function>(Fn);
@@ -696,13 +736,16 @@ LLVMRustLinkInModule(LLVMModuleRef dest, LLVMModuleRef src) {
 #if LLVM_VERSION_MINOR >= 5
 extern "C" void*
 LLVMRustOpenArchive(char *path) {
-    std::unique_ptr<MemoryBuffer> buf;
-    std::error_code err = MemoryBuffer::getFile(path, buf);
-    if (err) {
-        LLVMRustSetLastError(err.message().c_str());
-        return NULL;
+    ErrorOr<std::unique_ptr<MemoryBuffer>> buf_or = MemoryBuffer::getFile(path,
+                                                                          -1,
+                                                                          false);
+    if (!buf_or) {
+        LLVMRustSetLastError(buf_or.getError().message().c_str());
+        return nullptr;
     }
-    Archive *ret = new Archive(buf.release(), err);
+
+    std::error_code err;
+    Archive *ret = new Archive(std::move(buf_or.get()), err);
     if (err) {
         LLVMRustSetLastError(err.message().c_str());
         return NULL;
@@ -713,7 +756,7 @@ LLVMRustOpenArchive(char *path) {
 extern "C" void*
 LLVMRustOpenArchive(char *path) {
     OwningPtr<MemoryBuffer> buf;
-    error_code err = MemoryBuffer::getFile(path, buf);
+    error_code err = MemoryBuffer::getFile(path, buf, -1, false);
     if (err) {
         LLVMRustSetLastError(err.message().c_str());
         return NULL;

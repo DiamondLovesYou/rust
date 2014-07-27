@@ -22,9 +22,9 @@ use syntax::abi;
 
 use std::c_str::ToCStr;
 use std::mem;
+use std::string;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::str::raw::from_c_str;
 
 use libc::{c_uint, c_void, free};
 
@@ -336,9 +336,9 @@ impl TypeNames {
     pub fn type_to_string(&self, ty: Type) -> String {
         unsafe {
             let s = llvm::LLVMTypeToString(ty.to_ref());
-            let ret = from_c_str(s);
+            let ret = string::raw::from_buf(s as *const u8);
             free(s as *mut c_void);
-            ret.to_string()
+            ret
         }
     }
 
@@ -350,9 +350,9 @@ impl TypeNames {
     pub fn val_to_string(&self, val: ValueRef) -> String {
         unsafe {
             let s = llvm::LLVMValueToString(val);
-            let ret = from_c_str(s);
+            let ret = string::raw::from_buf(s as *const u8);
             free(s as *mut c_void);
-            ret.to_string()
+            ret
         }
     }
 }

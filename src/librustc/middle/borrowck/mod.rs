@@ -98,9 +98,9 @@ pub fn check_crate(tcx: &ty::ctxt,
     }
 
     fn make_stat(bccx: &BorrowckCtxt, stat: uint) -> String {
-        let stat_f = stat as f64;
         let total = bccx.stats.guaranteed_paths.get() as f64;
-        format!("{} ({:.0f}%)", stat  , stat_f * 100.0 / total)
+        let perc = if total == 0.0 { 0.0 } else { stat as f64 * 100.0 / total };
+        format!("{} ({:.0f}%)", stat, perc)
     }
 }
 
@@ -651,7 +651,8 @@ impl<'a> BorrowckCtxt<'a> {
                     euv::OverloadedOperator |
                     euv::AddrOf |
                     euv::RefBinding |
-                    euv::AutoRef => {
+                    euv::AutoRef |
+                    euv::ForLoop => {
                         format!("cannot borrow {} as mutable", descr)
                     }
                     euv::ClosureInvocation => {
@@ -711,6 +712,10 @@ impl<'a> BorrowckCtxt<'a> {
 
             BorrowViolation(euv::ClosureInvocation) => {
                 "closure invocation"
+            }
+
+            BorrowViolation(euv::ForLoop) => {
+                "`for` loop"
             }
         };
 

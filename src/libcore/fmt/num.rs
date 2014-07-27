@@ -16,12 +16,17 @@
 
 use collections::Collection;
 use fmt;
-use iter::{Iterator, DoubleEndedIterator};
+use iter::DoubleEndedIterator;
 use num::{Int, cast, zero};
-use option::{Some, None};
 use slice::{ImmutableVector, MutableVector};
 
+#[cfg(stage0)]
+use iter::Iterator;         // NOTE(stage0): Remove after snapshot.
+#[cfg(stage0)]
+use option::{Some, None};   // NOTE(stage0): Remove after snapshot.
+
 /// A type that represents a specific radix
+#[doc(hidden)]
 trait GenericRadix {
     /// The number of digits.
     fn base(&self) -> u8;
@@ -115,7 +120,7 @@ pub struct Radix {
 
 impl Radix {
     fn new(base: u8) -> Radix {
-        assert!(2 <= base && base <= 36, "the base must be in the range of 0..36: {}", base);
+        assert!(2 <= base && base <= 36, "the base must be in the range of 2..36: {}", base);
         Radix { base: base }
     }
 }

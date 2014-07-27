@@ -79,6 +79,7 @@ type parameter).
 
 use middle::const_eval;
 use middle::def;
+use middle::lang_items::IteratorItem;
 use middle::pat_util::pat_id_map;
 use middle::pat_util;
 use middle::subst;
@@ -1075,6 +1076,10 @@ fn compare_impl_method(tcx: &ty::ctxt,
             ty::note_and_explain_type_err(tcx, terr);
         }
     }
+
+    // Finally, resolve all regions. This catches wily misuses of lifetime
+    // parameters.
+    infcx.resolve_regions_and_report_errors();
 }
 
 fn check_cast(fcx: &FnCtxt,
@@ -1541,6 +1546,13 @@ fn try_overloaded_call(fcx: &FnCtxt,
                        callee_type: ty::t,
                        args: &[Gc<ast::Expr>])
                        -> bool {
+    // Bail out if the callee is a bare function or a closure. We check those
+    // manually.
+    match *structure_of(fcx, callee.span, callee_type) {
+        ty::ty_bare_fn(_) | ty::ty_closure(_) => return false,
+        _ => {}
+    }
+
     // Try `FnOnce`, then `FnMut`, then `Fn`.
     for &(maybe_function_trait, method_name) in [
         (fcx.tcx().lang_items.fn_once_trait(), token::intern("call_once")),
@@ -1698,6 +1710,80 @@ fn try_overloaded_index(fcx: &FnCtxt,
             ty::deref(ref_ty, true)
         }
         None => None,
+    }
+}
+
+/// Given the head of a `for` expression, looks up the `next` method in the
+/// `Iterator` trait. Fails if the expression does not implement `next`.
+///
+/// The return type of this function represents the concrete element type
+/// `A` in the type `Iterator<A>` that the method returns.
+fn lookup_method_for_for_loop(fcx: &FnCtxt,
+                              iterator_expr: Gc<ast::Expr>,
+                              loop_id: ast::NodeId)
+                              -> ty::t {
+    let trait_did = match fcx.tcx().lang_items.require(IteratorItem) {
+        Ok(trait_did) => trait_did,
+        Err(ref err_string) => {
+            fcx.tcx().sess.span_err(iterator_expr.span,
+                                    err_string.as_slice());
+            return ty::mk_err()
+        }
+    };
+
+    let method = method::lookup_in_trait(fcx,
+                                         iterator_expr.span,
+                                         Some(&*iterator_expr),
+                                         token::intern("next"),
+                                         trait_did,
+                                         fcx.expr_ty(&*iterator_expr),
+                                         [],
+                                         DontAutoderefReceiver,
+                                         IgnoreStaticMethods);
+
+    // Regardless of whether the lookup succeeds, check the method arguments
+    // so that we have *some* type for each argument.
+    let method_type = match method {
+        Some(ref method) => method.ty,
+        None => {
+            fcx.tcx().sess.span_err(iterator_expr.span,
+                                    "`for` loop expression does not \
+                                     implement the `Iterator` trait");
+            ty::mk_err()
+        }
+    };
+    let return_type = check_method_argument_types(fcx,
+                                                  iterator_expr.span,
+                                                  method_type,
+                                                  &*iterator_expr,
+                                                  [iterator_expr],
+                                                  DontDerefArgs,
+                                                  DontTupleArguments);
+
+    match method {
+        Some(method) => {
+            fcx.inh.method_map.borrow_mut().insert(MethodCall::expr(loop_id),
+                                                   method);
+
+            // We expect the return type to be `Option` or something like it.
+            // Grab the first parameter of its type substitution.
+            let return_type = structurally_resolved_type(fcx,
+                                                         iterator_expr.span,
+                                                         return_type);
+            match ty::get(return_type).sty {
+                ty::ty_enum(_, ref substs)
+                        if !substs.types.is_empty_in(subst::TypeSpace) => {
+                    *substs.types.get(subst::TypeSpace, 0)
+                }
+                _ => {
+                    fcx.tcx().sess.span_err(iterator_expr.span,
+                                            "`next` method of the `Iterator` \
+                                             trait has an unexpected type");
+                    ty::mk_err()
+                }
+            }
+        }
+        None => ty::mk_err()
     }
 }
 
@@ -3266,8 +3352,20 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
             fcx.write_nil(id);
         }
       }
-      ast::ExprForLoop(..) =>
-          fail!("non-desugared expr_for_loop"),
+      ast::ExprForLoop(ref pat, ref head, ref block, _) => {
+        check_expr(fcx, &**head);
+        let typ = lookup_method_for_for_loop(fcx, *head, expr.id);
+        vtable::early_resolve_expr(expr, fcx, true);
+
+        let pcx = pat_ctxt {
+            fcx: fcx,
+            map: pat_id_map(&tcx.def_map, &**pat),
+        };
+        _match::check_pat(&pcx, &**pat, typ);
+
+        check_block_no_value(fcx, &**block);
+        fcx.write_nil(id);
+      }
       ast::ExprLoop(ref body, _) => {
         check_block_no_value(fcx, &**body);
         if !may_break(tcx, expr.id, body.clone()) {
@@ -3409,10 +3507,11 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
       ast::ExprStruct(ref path, ref fields, base_expr) => {
         // Resolve the path.
         let def = tcx.def_map.borrow().find(&id).map(|i| *i);
-        match def {
+        let struct_id = match def {
             Some(def::DefVariant(enum_id, variant_id, _)) => {
                 check_struct_enum_variant(fcx, id, expr.span, enum_id,
                                           variant_id, fields.as_slice());
+                enum_id
             }
             Some(def) => {
                 // Verify that this was actually a struct.
@@ -3432,10 +3531,46 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                             pprust::path_to_string(path));
                     }
                 }
+
+                def.def_id()
             }
             _ => {
                 tcx.sess.span_bug(path.span,
                                   "structure constructor wasn't resolved")
+            }
+        };
+
+        // Turn the path into a type and verify that that type unifies with
+        // the resulting structure type. This is needed to handle type
+        // parameters correctly.
+        let actual_structure_type = fcx.expr_ty(&*expr);
+        if !ty::type_is_error(actual_structure_type) {
+            let type_and_substs = astconv::ast_path_to_ty_relaxed(fcx,
+                                                                  fcx.infcx(),
+                                                                  struct_id,
+                                                                  path);
+            match fcx.mk_subty(false,
+                               infer::Misc(path.span),
+                               actual_structure_type,
+                               type_and_substs.ty) {
+                Ok(()) => {}
+                Err(type_error) => {
+                    let type_error_description =
+                        ty::type_err_to_str(tcx, &type_error);
+                    fcx.tcx()
+                       .sess
+                       .span_err(path.span,
+                                 format!("structure constructor specifies a \
+                                         structure of type `{}`, but this \
+                                         structure has type `{}`: {}",
+                                         fcx.infcx()
+                                            .ty_to_string(type_and_substs.ty),
+                                         fcx.infcx()
+                                            .ty_to_string(
+                                                actual_structure_type),
+                                         type_error_description).as_slice());
+                    ty::note_and_explain_type_err(tcx, &type_error);
+                }
             }
         }
       }

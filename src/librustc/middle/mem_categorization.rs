@@ -482,11 +482,10 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
           ast::ExprBlock(..) | ast::ExprLoop(..) | ast::ExprMatch(..) |
           ast::ExprLit(..) | ast::ExprBreak(..) | ast::ExprMac(..) |
           ast::ExprAgain(..) | ast::ExprStruct(..) | ast::ExprRepeat(..) |
-          ast::ExprInlineAsm(..) | ast::ExprBox(..) => {
+          ast::ExprInlineAsm(..) | ast::ExprBox(..) |
+          ast::ExprForLoop(..) => {
             Ok(self.cat_rvalue_node(expr.id(), expr.span(), expr_ty))
           }
-
-          ast::ExprForLoop(..) => fail!("non-desugared expr_for_loop")
         }
     }
 
@@ -500,11 +499,11 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
                id, expr_ty.repr(self.tcx()), def);
 
         match def {
-          def::DefStruct(..) | def::DefVariant(..) => {
+          def::DefStruct(..) | def::DefVariant(..) | def::DefFn(..) |
+          def::DefStaticMethod(..) => {
                 Ok(self.cat_rvalue_node(id, span, expr_ty))
           }
-          def::DefFn(..) | def::DefStaticMethod(..) | def::DefMod(_) |
-          def::DefForeignMod(_) | def::DefStatic(_, false) |
+          def::DefMod(_) | def::DefForeignMod(_) | def::DefStatic(_, false) |
           def::DefUse(_) | def::DefTrait(_) | def::DefTy(_) | def::DefPrimTy(_) |
           def::DefTyParam(..) | def::DefTyParamBinder(..) | def::DefRegion(_) |
           def::DefLabel(_) | def::DefSelfTy(..) | def::DefMethod(..) => {
@@ -1113,7 +1112,7 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
           }
 
           ast::PatBox(ref subpat) | ast::PatRegion(ref subpat) => {
-            // @p1, ~p1
+            // @p1, ~p1, ref p1
             let subcmt = self.cat_deref(pat, cmt, 0, false);
             if_ok!(self.cat_pattern(subcmt, &**subpat, op));
           }
