@@ -675,7 +675,7 @@ impl DefaultResizePolicy {
 /// Hood bucket stealing.
 ///
 /// The hashes are all keyed by the task-local random number generator
-/// on creation by default, this means the ordering of the keys is
+/// on creation by default. This means that the ordering of the keys is
 /// randomized, but makes the tables more resistant to
 /// denial-of-service attacks (Hash DoS). This behaviour can be
 /// overridden with one of the constructors.
@@ -1850,6 +1850,7 @@ impl<T: Hash + Eq> HashSet<T, RandomSipHasher> {
     ///
     /// # Example
     ///
+    /// ```
     /// use std::collections::HashSet;
     /// let mut set: HashSet<int> = HashSet::new();
     /// ```
@@ -1863,6 +1864,7 @@ impl<T: Hash + Eq> HashSet<T, RandomSipHasher> {
     ///
     /// # Example
     ///
+    /// ```
     /// use std::collections::HashSet;
     /// let mut set: HashSet<int> = HashSet::with_capacity(10);
     /// ```
@@ -1920,6 +1922,7 @@ impl<T: Eq + Hash<S>, S, H: Hasher<S>> HashSet<T, H> {
     ///
     /// # Example
     ///
+    /// ```
     /// use std::collections::HashSet;
     /// let mut set: HashSet<int> = HashSet::new();
     /// set.reserve(10);

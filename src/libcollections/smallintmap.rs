@@ -24,6 +24,8 @@ use core::mem::replace;
 use {Collection, Mutable, Map, MutableMap, MutableSeq};
 use {vec, slice};
 use vec::Vec;
+use hash;
+use hash::Hash;
 
 /// A map optimized for small integer keys.
 ///
@@ -58,6 +60,7 @@ use vec::Vec;
 /// months.clear();
 /// assert!(months.is_empty());
 /// ```
+#[deriving(PartialEq, Eq)]
 pub struct SmallIntMap<T> {
     v: Vec<Option<T>>,
 }
@@ -149,6 +152,27 @@ impl<V> MutableMap<uint, V> for SmallIntMap<V> {
 impl<V> Default for SmallIntMap<V> {
     #[inline]
     fn default() -> SmallIntMap<V> { SmallIntMap::new() }
+}
+
+impl<V:Clone> Clone for SmallIntMap<V> {
+    #[inline]
+    fn clone(&self) -> SmallIntMap<V> {
+        SmallIntMap { v: self.v.clone() }
+    }
+
+    #[inline]
+    fn clone_from(&mut self, source: &SmallIntMap<V>) {
+        self.v.reserve(source.v.len());
+        for (i, w) in self.v.mut_iter().enumerate() {
+            *w = source.v[i].clone();
+        }
+    }
+}
+
+impl <S: hash::Writer, T: Hash<S>> Hash<S> for SmallIntMap<T> {
+    fn hash(&self, state: &mut S) {
+        self.v.hash(state)
+    }
 }
 
 impl<V> SmallIntMap<V> {
@@ -349,6 +373,20 @@ impl<V:Clone> SmallIntMap<V> {
     }
 }
 
+impl<V: PartialOrd> PartialOrd for SmallIntMap<V> {
+    #[inline]
+    fn partial_cmp(&self, other: &SmallIntMap<V>) -> Option<Ordering> {
+        iter::order::partial_cmp(self.iter(), other.iter())
+    }
+}
+
+impl<V: Ord> Ord for SmallIntMap<V> {
+    #[inline]
+    fn cmp(&self, other: &SmallIntMap<V>) -> Ordering {
+        iter::order::cmp(self.iter(), other.iter())
+    }
+}
+
 impl<V: fmt::Show> fmt::Show for SmallIntMap<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "{{"));
@@ -359,6 +397,22 @@ impl<V: fmt::Show> fmt::Show for SmallIntMap<V> {
         }
 
         write!(f, "}}")
+    }
+}
+
+impl<V> FromIterator<(uint, V)> for SmallIntMap<V> {
+    fn from_iter<Iter: Iterator<(uint, V)>>(iter: Iter) -> SmallIntMap<V> {
+        let mut map = SmallIntMap::new();
+        map.extend(iter);
+        map
+    }
+}
+
+impl<V> Extendable<(uint, V)> for SmallIntMap<V> {
+    fn extend<Iter: Iterator<(uint, V)>>(&mut self, mut iter: Iter) {
+        for (k, v) in iter {
+            self.insert(k, v);
+        }
     }
 }
 
@@ -446,8 +500,10 @@ pub type Values<'a, T> =
 #[cfg(test)]
 mod test_map {
     use std::prelude::*;
+    use vec::Vec;
+    use hash;
 
-    use {Map, MutableMap, Mutable};
+    use {Map, MutableMap, Mutable, MutableSeq};
     use super::SmallIntMap;
 
     #[test]
@@ -697,6 +753,95 @@ mod test_map {
         let map_str = map_str.as_slice();
         assert!(map_str == "{1: 2, 3: 4}" || map_str == "{3: 4, 1: 2}");
         assert_eq!(format!("{}", empty), "{}".to_string());
+    }
+
+    #[test]
+    fn test_clone() {
+        let mut a = SmallIntMap::new();
+
+        a.insert(1, 'x');
+        a.insert(4, 'y');
+        a.insert(6, 'z');
+
+        assert!(a.clone() == a);
+    }
+
+    #[test]
+    fn test_eq() {
+        let mut a = SmallIntMap::new();
+        let mut b = SmallIntMap::new();
+
+        assert!(a == b);
+        assert!(a.insert(0, 5i));
+        assert!(a != b);
+        assert!(b.insert(0, 4i));
+        assert!(a != b);
+        assert!(a.insert(5, 19));
+        assert!(a != b);
+        assert!(!b.insert(0, 5));
+        assert!(a != b);
+        assert!(b.insert(5, 19));
+        assert!(a == b);
+    }
+
+    #[test]
+    fn test_lt() {
+        let mut a = SmallIntMap::new();
+        let mut b = SmallIntMap::new();
+
+        assert!(!(a < b) && !(b < a));
+        assert!(b.insert(2u, 5i));
+        assert!(a < b);
+        assert!(a.insert(2, 7));
+        assert!(!(a < b) && b < a);
+        assert!(b.insert(1, 0));
+        assert!(b < a);
+        assert!(a.insert(0, 6));
+        assert!(a < b);
+        assert!(a.insert(6, 2));
+        assert!(a < b && !(b < a));
+    }
+
+    #[test]
+    fn test_ord() {
+        let mut a = SmallIntMap::new();
+        let mut b = SmallIntMap::new();
+
+        assert!(a <= b && a >= b);
+        assert!(a.insert(1u, 1i));
+        assert!(a > b && a >= b);
+        assert!(b < a && b <= a);
+        assert!(b.insert(2, 2));
+        assert!(b > a && b >= a);
+        assert!(a < b && a <= b);
+    }
+
+    #[test]
+    fn test_hash() {
+        let mut x = SmallIntMap::new();
+        let mut y = SmallIntMap::new();
+
+        assert!(hash::hash(&x) == hash::hash(&y));
+        x.insert(1, 'a');
+        x.insert(2, 'b');
+        x.insert(3, 'c');
+
+        y.insert(3, 'c');
+        y.insert(2, 'b');
+        y.insert(1, 'a');
+
+        assert!(hash::hash(&x) == hash::hash(&y));
+    }
+
+    #[test]
+    fn test_from_iter() {
+        let xs: Vec<(uint, char)> = vec![(1u, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e')];
+
+        let map: SmallIntMap<char> = xs.iter().map(|&x| x).collect();
+
+        for &(k, v) in xs.iter() {
+            assert_eq!(map.find(&k), Some(&v));
+        }
     }
 }
 

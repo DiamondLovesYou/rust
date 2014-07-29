@@ -8,13 +8,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+enum Enum<'a> {
+    A(&'a int),
+    B(bool),
+}
 
-use std::gc::GC;
+fn foo() -> int {
+    let mut n = 42;
+    let mut x = A(&mut n);
+    match x {
+        A(_) if { x = B(false); false } => 1,
+        //~^ ERROR cannot assign in a pattern guard
+        A(_) if { let y = &mut x; *y = B(false); false } => 1,
+        //~^ ERROR cannot mutably borrow in a pattern guard
+        //~^^ ERROR cannot assign in a pattern guard
+        A(p) => *p,
+        B(_) => 2,
+    }
+}
 
 fn main() {
-    fn f(_: proc()) {}
-    fn eat<T>(_: T) {}
-
-    let x = box(GC) 1i;
-    f(proc() { eat(x) });
+    foo();
 }
+
