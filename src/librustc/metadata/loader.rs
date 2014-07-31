@@ -251,6 +251,9 @@ pub static LINUX_DLL_SUFFIX: &'static str = ".so";
 pub static FREEBSD_DLL_PREFIX: &'static str = "lib";
 pub static FREEBSD_DLL_SUFFIX: &'static str = ".so";
 
+pub static DRAGONFLY_DLL_PREFIX: &'static str = "lib";
+pub static DRAGONFLY_DLL_SUFFIX: &'static str = ".so";
+
 pub static ANDROID_DLL_PREFIX: &'static str = "lib";
 pub static ANDROID_DLL_SUFFIX: &'static str = ".so";
 
@@ -620,6 +623,7 @@ impl<'a> Context<'a> {
             abi::OsLinux => Some((LINUX_DLL_PREFIX, LINUX_DLL_SUFFIX)),
             abi::OsAndroid => Some((ANDROID_DLL_PREFIX, ANDROID_DLL_SUFFIX)),
             abi::OsFreebsd => Some((FREEBSD_DLL_PREFIX, FREEBSD_DLL_SUFFIX)),
+            abi::OsDragonfly => Some((DRAGONFLY_DLL_PREFIX, DRAGONFLY_DLL_SUFFIX)),
             abi::OsiOS => None,
             abi::OsNaCl => None,
         }
@@ -828,6 +832,7 @@ pub fn meta_section_name(os: abi::Os) -> Option<&'static str> {
         abi::OsLinux => Some(".note.rustc"),
         abi::OsAndroid => Some(".note.rustc"),
         abi::OsFreebsd => Some(".note.rustc"),
+        abi::OsDragonfly => Some(".note.rustc"),
         abi::OsNaCl => None,
     }
 }
@@ -840,6 +845,7 @@ pub fn read_meta_section_name(os: abi::Os) -> &'static str {
         abi::OsLinux => ".note.rustc",
         abi::OsAndroid => ".note.rustc",
         abi::OsFreebsd => ".note.rustc",
+        abi::OsDragonfly => ".note.rustc",
         abi::OsNaCl => ".note.rustc",
     }
 }

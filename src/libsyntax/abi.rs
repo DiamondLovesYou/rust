@@ -18,6 +18,7 @@ pub enum Os {
     OsAndroid,
     OsFreebsd,
     OsiOS,
+    OsDragonfly,
     OsNaCl,
 }
 
@@ -160,6 +161,7 @@ impl fmt::Show for Os {
             OsiOS => "ios".fmt(f),
             OsAndroid => "android".fmt(f),
             OsFreebsd => "freebsd".fmt(f),
+            OsDragonfly => "dragonfly".fmt(f),
             OsNaCl => "nacl".fmt(f),
         }
     }

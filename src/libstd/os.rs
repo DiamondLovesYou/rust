@@ -660,6 +660,7 @@ pub fn dll_filename(base: &str) -> String {
 pub fn self_exe_name() -> Option<Path> {
 
     #[cfg(target_os = "freebsd")]
+    #[cfg(target_os = "dragonfly")]
     fn load_self() -> Option<Vec<u8>> {
         unsafe {
             use libc::funcs::bsd44::*;
@@ -927,6 +928,16 @@ pub fn errno() -> int {
         }
     }
 
+    #[cfg(target_os = "dragonfly")]
+    fn errno_location() -> *const c_int {
+        extern {
+            fn __dfly_error() -> *const c_int;
+        }
+        unsafe {
+            __dfly_error()
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
     #[cfg(target_os = "nacl", target_libc = "glibc")]
@@ -986,6 +997,7 @@ pub fn error_string(errnum: uint) -> String {
         #[cfg(target_os = "ios")]
         #[cfg(target_os = "android")]
         #[cfg(target_os = "freebsd")]
+        #[cfg(target_os = "dragonfly")]
         fn strerror_r(errnum: c_int, buf: *mut c_char, buflen: libc::size_t)
                       -> c_int {
             extern {
@@ -1194,6 +1206,7 @@ fn real_args_as_bytes() -> Vec<Vec<u8>> {
 #[cfg(target_os = "android")]
 #[cfg(target_os = "freebsd")]
 #[cfg(target_os = "nacl")]
+#[cfg(target_os = "dragonfly")]
 fn real_args_as_bytes() -> Vec<Vec<u8>> {
     use rt;
 
@@ -1772,6 +1785,37 @@ pub mod consts {
     /// A string describing the specific operating system in use: in this
     /// case, `freebsd`.
     pub static SYSNAME: &'static str = "freebsd";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub static DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub static DLL_SUFFIX: &'static str = ".so";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub static DLL_EXTENSION: &'static str = "so";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, the empty string.
+    pub static EXE_SUFFIX: &'static str = "";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, the empty string.
+    pub static EXE_EXTENSION: &'static str = "";
+}
+
+#[cfg(target_os = "dragonfly")]
+pub mod consts {
+    pub use os::arch_consts::ARCH;
+
+    pub static FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `dragonfly`.
+    pub static SYSNAME: &'static str = "dragonfly";
 
     /// Specifies the filename prefix used for shared libraries on this
     /// platform: in this case, `lib`.

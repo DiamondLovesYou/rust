@@ -27,6 +27,7 @@ use libc;
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "ios")]
 #[cfg(target_os = "freebsd")]
+#[cfg(target_os = "dragonfly")]
 pub static FIONBIO: libc::c_ulong = 0x8004667e;
 #[cfg(target_os = "linux", target_arch = "x86")]
 #[cfg(target_os = "linux", target_arch = "x86_64")]
@@ -41,6 +42,7 @@ pub static FIONBIO: libc::c_ulong = 0x667e;
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "ios")]
 #[cfg(target_os = "freebsd")]
+#[cfg(target_os = "dragonfly")]
 pub static FIOCLEX: libc::c_ulong = 0x20006601;
 #[cfg(target_os = "linux", target_arch = "x86")]
 #[cfg(target_os = "linux", target_arch = "x86_64")]
@@ -55,6 +57,7 @@ pub static FIOCLEX: libc::c_ulong = 0x6601;
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "ios")]
 #[cfg(target_os = "freebsd")]
+#[cfg(target_os = "dragonfly")]
 #[cfg(target_os = "nacl", target_libc = "newlib")]
 pub static MSG_DONTWAIT: libc::c_int = 0x80;
 #[cfg(target_os = "linux")]
@@ -110,6 +113,7 @@ mod select {
 
 #[cfg(target_os = "android")]
 #[cfg(target_os = "freebsd")]
+#[cfg(target_os = "dragonfly")]
 #[cfg(target_os = "linux")]
 #[cfg(target_os = "nacl")]
 mod select {
@@ -119,6 +123,7 @@ mod select {
     pub static FD_SETSIZE: uint = 1024;
 
     pub struct fd_set {
+        // FIXME: shouldn't this be a c_ulong?
         fds_bits: [uint, ..(FD_SETSIZE / uint::BITS)]
     }
 
@@ -236,6 +241,7 @@ mod signal {
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "ios")]
 #[cfg(target_os = "freebsd")]
+#[cfg(target_os = "dragonfly")]
 mod signal {
     use libc;
 
@@ -252,6 +258,7 @@ mod signal {
     #[cfg(target_os = "ios")]
     pub type sigset_t = u32;
     #[cfg(target_os = "freebsd")]
+    #[cfg(target_os = "dragonfly")]
     pub struct sigset_t {
         bits: [u32, ..4],
     }
@@ -277,6 +284,7 @@ mod signal {
     }
 
     #[cfg(target_os = "freebsd")]
+    #[cfg(target_os = "dragonfly")]
     pub struct sigaction {
         pub sa_handler: extern fn(libc::c_int),
         pub sa_flags: libc::c_int,
