@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use super::archive::{Archive, ArchiveConfig, METADATA_FILENAME};
+use super::archive::{Archive, ArchiveBuilder, ArchiveConfig, METADATA_FILENAME};
 use super::rpath;
 use super::rpath::RPathConfig;
 use super::svh::Svh;
@@ -1046,7 +1046,7 @@ fn link_binary_output(sess: &Session,
 
     match crate_type {
         config::CrateTypeRlib => {
-            link_rlib(sess, Some(trans), &obj_filename, &out_filename);
+            link_rlib(sess, Some(trans), &obj_filename, &out_filename).build();
         }
         config::CrateTypeStaticlib => {
             link_staticlib(sess, &obj_filename, &out_filename);
@@ -1136,7 +1136,7 @@ fn link_pnacl_rlib(sess: &Session,
             gold_plugin: Some(sess.gold_plugin_path()),
             maybe_ar_prog: Some(pnacl_host_tool(sess, "ar").display().to_string()),
         };
-        Archive::create(config, &obj_filename)
+        ArchiveBuilder::create(config)
     };
     sess.remove_temp(&obj_filename, OutputTypeObject);
     let ctxt = trans.context;
@@ -1210,7 +1210,13 @@ fn link_pnacl_rlib(sess: &Session,
                             llvm::LLVMWriteBitcodeToFile(llmod, buf);
                             llvm::LLVMDisposeModule(llmod);
                         });
-                        a.add_file(&p, false);
+                        let _: Result<(), ()> = a
+                            .add_file(&p)
+                            .or_else(|e| {
+                                sess.err(format!("error adding file to archive: `{}`",
+                                                 e).as_slice());
+                                Ok(())
+                            });
                     }
                 }
             });
@@ -1235,10 +1241,17 @@ fn link_pnacl_rlib(sess: &Session,
                                metadata.display(), e).as_slice());
         }
     }
-    a.add_file(&metadata, false);
+    let _: Result<(), ()> = a
+        .add_file(&metadata)
+        .or_else(|e| {
+            sess.err(format!("error adding file to archive: `{}`",
+                             e).as_slice());
+            Ok(())
+        });
     remove(sess, &metadata);
 
     a.update_symbols();
+    a.build();
 
     sess.create_temp(OutputTypeBitcode, || {
         let path = outputs.path(OutputTypeBitcode);
@@ -1247,9 +1260,6 @@ fn link_pnacl_rlib(sess: &Session,
             llvm::LLVMWriteBitcodeToFile(trans.module, buf);
         })
     });
-
-    // Note no update of symbol table. pnacl-ar can't read our
-    // bitcode even if the resultant table was used.
 
     if sess.opts.cg.save_temps {
         tmp.unwrap();
@@ -1845,7 +1855,7 @@ fn archive_search_paths(sess: &Session) -> Vec<Path> {
 fn link_rlib<'a>(sess: &'a Session,
                  trans: Option<&CrateTranslation>, // None == no metadata/bytecode
                  obj_filename: &Path,
-                 out_filename: &Path) -> Archive<'a> {
+                 out_filename: &Path) -> ArchiveBuilder<'a> {
     let handler = &sess.diagnostic().handler;
     let config = ArchiveConfig {
         handler: handler,
@@ -1855,16 +1865,29 @@ fn link_rlib<'a>(sess: &'a Session,
         gold_plugin: None,
         maybe_ar_prog: sess.opts.cg.ar.clone(),
     };
-    let mut a = Archive::create(config, obj_filename);
+    let mut ab = ArchiveBuilder::create(config);
+    ab.add_file(obj_filename).unwrap();
 
     for &(ref l, kind) in sess.cstore.get_used_libraries().borrow().iter() {
         match kind {
             cstore::NativeStatic => {
-                a.add_native_library(l.as_slice()).unwrap();
+                ab.add_native_library(l.as_slice()).unwrap();
             }
             cstore::NativeFramework | cstore::NativeUnknown => {}
         }
     }
+
+    // After adding all files to the archive, we need to update the
+    // symbol table of the archive.
+    ab.update_symbols();
+
+    let mut ab = match sess.targ_cfg.os {
+        // For OSX/iOS, we must be careful to update symbols only when adding
+        // object files.  We're about to start adding non-object files, so run
+        // `ar` now to process the object files.
+        abi::OsMacos | abi::OsiOS => ab.build().extend(),
+        _ => ab,
+    };
 
     // Note that it is important that we add all of our non-object "magical
     //
@@ -1903,7 +1926,7 @@ fn link_rlib<'a>(sess: &'a Session,
                     sess.abort_if_errors();
                 }
             }
-            a.add_file(&metadata, false);
+            ab.add_file(&metadata).unwrap();
             remove(sess, &metadata);
 
             // For LTO purposes, the bytecode of this library is also inserted
@@ -1930,25 +1953,18 @@ fn link_rlib<'a>(sess: &'a Session,
                     sess.abort_if_errors()
                 }
             }
-            a.add_file(&bc_deflated, false);
+            ab.add_file(&bc_deflated).unwrap();
             remove(sess, &bc_deflated);
             if !sess.opts.cg.save_temps &&
                !sess.opts.output_types.contains(&OutputTypeBitcode) {
                 remove(sess, &bc);
             }
-
-            // After adding all files to the archive, we need to update the
-            // symbol table of the archive. This currently dies on OSX (see
-            // #11162), and isn't necessary there anyway
-            match sess.targ_cfg.os {
-                abi::OsMacos | abi::OsiOS => {}
-                _ => { a.update_symbols(); }
-            }
         }
 
         None => {}
     }
-    return a;
+
+    ab
 }
 
 // Create a static archive
@@ -1964,11 +1980,13 @@ fn link_rlib<'a>(sess: &'a Session,
 // link in the metadata object file (and also don't prepare the archive with a
 // metadata file).
 fn link_staticlib(sess: &Session, obj_filename: &Path, out_filename: &Path) {
-    let mut a = link_rlib(sess, None, obj_filename, out_filename);
-    if !sess.targeting_pnacl() {
-        a.add_native_library("morestack").unwrap();
-    }
-    a.add_native_library("compiler-rt").unwrap();
+    let ab = link_rlib(sess, None, obj_filename, out_filename);
+    let mut ab = match sess.targ_cfg.os {
+        abi::OsMacos | abi::OsiOS => ab.build().extend(),
+        _ => ab,
+    };
+    ab.add_native_library("morestack").unwrap();
+    ab.add_native_library("compiler-rt").unwrap();
 
     let crates = sess.cstore.get_used_crates(cstore::RequireStatic);
     let mut all_native_libs = vec![];
@@ -1982,11 +2000,14 @@ fn link_staticlib(sess: &Session, obj_filename: &Path, out_filename: &Path) {
                 continue
             }
         };
-        a.add_rlib(&p, name.as_slice(), sess.lto()).unwrap();
+        ab.add_rlib(&p, name.as_slice(), sess.lto()).unwrap();
 
         let native_libs = csearch::get_native_libraries(&sess.cstore, cnum);
         all_native_libs.extend(native_libs.move_iter());
     }
+
+    ab.update_symbols();
+    let _ = ab.build();
 
     if !all_native_libs.is_empty() {
         sess.warn("link against the following native artifacts when linking against \
@@ -2057,7 +2078,7 @@ fn link_natively(sess: &Session, trans: &CrateTranslation, dylib: bool,
     // the symbols
     if (sess.targ_cfg.os == abi::OsMacos || sess.targ_cfg.os == abi::OsiOS)
         && (sess.opts.debuginfo != NoDebugInfo) {
-            match Command::new("dsymutil").arg(out_filename).status() {
+            match Command::new("dsymutil").arg(out_filename).output() {
                 Ok(..) => {}
                 Err(e) => {
                     sess.err(format!("failed to run dsymutil: {}", e).as_slice());
