@@ -1138,7 +1138,15 @@ fn link_pnacl_rlib(sess: &Session,
         };
         ArchiveBuilder::create(config)
     };
-    sess.remove_temp(&obj_filename, OutputTypeObject);
+
+    let _: Result<(), ()> = a
+        .add_file(&obj_filename)
+        .or_else(|e| {
+            sess.err(format!("error adding file to archive: `{}`",
+                             e).as_slice());
+            Ok(())
+        });
+
     let ctxt = trans.context;
     let used = sess.cstore.get_used_libraries().borrow();
     let mut linked = already_linked_libs
@@ -1252,6 +1260,8 @@ fn link_pnacl_rlib(sess: &Session,
 
     a.update_symbols();
     a.build();
+
+    sess.remove_temp(&obj_filename, OutputTypeObject);
 
     sess.create_temp(OutputTypeBitcode, || {
         let path = outputs.path(OutputTypeBitcode);
