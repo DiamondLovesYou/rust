@@ -71,11 +71,8 @@ LLVMInitializePasses() {
   initializePNaClSjLjEHPass(Registry);
   initializePromoteI1OpsPass(Registry);
   initializePromoteIntegersPass(Registry);
-  initializePromoteSimpleStructsPass(Registry);
   initializePromoteReturnedStructsPass(Registry);
   initializePromoteStructureArgsPass(Registry);
-  initializeReplaceAggregatesWithIntsPass(Registry);
-  initializeReplaceVectorsWithArraysPass(Registry);
   initializeRemoveAsmMemoryPass(Registry);
   initializeReplacePtrsWithIntsPass(Registry);
   initializeResolveAliasesPass(Registry);
