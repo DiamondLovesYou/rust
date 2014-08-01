@@ -78,6 +78,7 @@
 #![allow(non_uppercase_statics)]
 #![allow(missing_doc)]
 #![allow(uppercase_variables)]
+#![allow(unused_imports)]
 
 #[cfg(test)] extern crate std;
 #[cfg(test)] extern crate test;
@@ -151,7 +152,9 @@ pub use funcs::posix88::stat_::{chmod, fstat, mkdir, stat};
 pub use funcs::posix88::stdio::{fdopen, fileno, pclose, popen};
 pub use funcs::posix88::unistd::{access, chdir, close, dup, dup2};
 pub use funcs::posix88::unistd::{execv, execve, execvp, getcwd};
-pub use funcs::posix88::unistd::{getpid, isatty, lseek, pipe, read};
+pub use funcs::posix88::unistd::{isatty, lseek, pipe, read};
+#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+pub use funcs::posix88::unistd::getpid;
 pub use funcs::posix88::unistd::{rmdir, unlink, write};
 
 pub use funcs::bsd43::{socket, setsockopt, bind, send, recv, recvfrom};
@@ -186,13 +189,17 @@ pub use funcs::bsd43::{shutdown};
 #[cfg(unix)] pub use types::os::arch::posix88::{uid_t, gid_t};
 #[cfg(unix)] pub use types::os::arch::posix01::{pthread_attr_t};
 #[cfg(unix)] pub use types::os::arch::posix01::{stat, utimbuf};
-#[cfg(unix)] pub use funcs::posix88::unistd::{sysconf, setgid, setsid, setuid, pread, pwrite};
+#[cfg(unix, not(target_os = "nacl", target_libc = "newlib"))]
+pub use funcs::posix88::unistd::setsid;
+#[cfg(unix)] pub use funcs::posix88::unistd::{sysconf, setgid, setuid, pread, pwrite};
 #[cfg(unix)] pub use funcs::posix88::unistd::{getgid, getuid};
 #[cfg(unix)] pub use funcs::posix88::unistd::{_PC_NAME_MAX, utime, nanosleep, link};
 #[cfg(unix, not(target_os = "nacl", target_libc = "newlib"))]
 pub use funcs::posix88::unistd::pathconf;
 #[cfg(unix)] pub use funcs::posix88::unistd::{chown};
-#[cfg(unix)] pub use funcs::posix88::mman::{mmap, munmap, mprotect};
+#[cfg(unix, not(target_os = "nacl", target_libc = "newlib"))]
+pub use funcs::posix88::mman::mprotect;
+#[cfg(unix)] pub use funcs::posix88::mman::{mmap, munmap};
 #[cfg(unix)] pub use funcs::posix88::dirent::{opendir, readdir_r, closedir};
 #[cfg(unix)] pub use funcs::posix88::fcntl::{fcntl};
 #[cfg(unix)] pub use funcs::posix01::stat_::{lstat};
@@ -4084,6 +4091,7 @@ pub mod funcs {
                 pub fn fstat(fildes: c_int, buf: *mut stat) -> c_int;
 
                 pub fn mkdir(path: *const c_char, mode: mode_t) -> c_int;
+                #[cfg(not(target_os = "nacl"))]
                 pub fn mkfifo(path: *const c_char, mode: mode_t) -> c_int;
 
                 #[cfg(target_os = "linux")]
@@ -4165,6 +4173,7 @@ pub mod funcs {
 
             extern {
                 pub fn access(path: *const c_char, amode: c_int) -> c_int;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn alarm(seconds: c_uint) -> c_uint;
                 pub fn chdir(dir: *const c_char) -> c_int;
                 pub fn chown(path: *const c_char, uid: uid_t,
@@ -4180,18 +4189,23 @@ pub mod funcs {
                 pub fn execvp(c: *const c_char,
                               argv: *mut *const c_char) -> c_int;
                 pub fn fork() -> pid_t;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn fpathconf(filedes: c_int, name: c_int) -> c_long;
                 pub fn getcwd(buf: *mut c_char, size: size_t) -> *mut c_char;
                 pub fn getegid() -> gid_t;
                 pub fn geteuid() -> uid_t;
                 pub fn getgid() -> gid_t ;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn getgroups(ngroups_max: c_int, groups: *mut gid_t)
                                  -> c_int;
                 pub fn getlogin() -> *mut c_char;
                 pub fn getopt(argc: c_int, argv: *mut *const c_char,
                               optstr: *const c_char) -> c_int;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn getpgrp() -> pid_t;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn getpid() -> pid_t;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn getppid() -> pid_t;
                 pub fn getuid() -> uid_t;
                 pub fn isatty(fd: c_int) -> c_int;
@@ -4200,13 +4214,16 @@ pub mod funcs {
                              -> off_t;
                 #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn pathconf(path: *mut c_char, name: c_int) -> c_long;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn pause() -> c_int;
                 pub fn pipe(fds: *mut c_int) -> c_int;
                 pub fn read(fd: c_int, buf: *mut c_void, count: size_t)
                             -> ssize_t;
                 pub fn rmdir(path: *const c_char) -> c_int;
                 pub fn setgid(gid: gid_t) -> c_int;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn setpgid(pid: pid_t, pgid: pid_t) -> c_int;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn setsid() -> pid_t;
                 pub fn setuid(uid: uid_t) -> c_int;
                 pub fn sleep(secs: c_uint) -> c_uint;
@@ -4214,6 +4231,7 @@ pub mod funcs {
                 pub fn nanosleep(rqtp: *const timespec,
                                  rmtp: *mut timespec) -> c_int;
                 pub fn sysconf(name: c_int) -> c_long;
+                #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
                 pub fn tcgetpgrp(fd: c_int) -> pid_t;
                 pub fn ttyname(fd: c_int) -> *mut c_char;
                 pub fn unlink(c: *const c_char) -> c_int;
@@ -4241,20 +4259,12 @@ pub mod funcs {
             use types::os::arch::c95::{size_t, c_int, c_char};
             use types::os::arch::posix88::{mode_t, off_t};
 
+            #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
             extern {
                 pub fn mlock(addr: *const c_void, len: size_t) -> c_int;
                 pub fn munlock(addr: *const c_void, len: size_t) -> c_int;
                 pub fn mlockall(flags: c_int) -> c_int;
                 pub fn munlockall() -> c_int;
-
-                pub fn mmap(addr: *mut c_void,
-                            len: size_t,
-                            prot: c_int,
-                            flags: c_int,
-                            fd: c_int,
-                            offset: off_t)
-                            -> *mut c_void;
-                pub fn munmap(addr: *mut c_void, len: size_t) -> c_int;
 
                 pub fn mprotect(addr: *mut c_void, len: size_t, prot: c_int)
                                 -> c_int;
@@ -4264,6 +4274,18 @@ pub mod funcs {
                 pub fn shm_open(name: *const c_char, oflag: c_int, mode: mode_t)
                                 -> c_int;
                 pub fn shm_unlink(name: *const c_char) -> c_int;
+            }
+
+            extern {
+                pub fn mmap(addr: *mut c_void,
+                            len: size_t,
+                            prot: c_int,
+                            flags: c_int,
+                            fd: c_int,
+                            offset: off_t)
+                            -> *mut c_void;
+                pub fn munmap(addr: *mut c_void, len: size_t) -> c_int;
+
             }
         }
     }
@@ -4359,6 +4381,7 @@ pub mod funcs {
             use types::common::c95::{c_void};
             use types::os::arch::c95::{c_int, size_t};
 
+            #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
             extern {
                 pub fn posix_madvise(addr: *mut c_void,
                                      len: size_t,
@@ -4509,7 +4532,6 @@ pub mod funcs {
 
     #[cfg(target_os = "linux")]
     #[cfg(target_os = "android")]
-    #[cfg(target_os = "nacl")]
     pub mod bsd44 {
         use types::common::c95::{c_void};
         use types::os::arch::c95::{c_uchar, c_int, size_t};
@@ -4525,6 +4547,7 @@ pub mod funcs {
 
 
     #[cfg(target_os = "win32")]
+    #[cfg(target_os = "nacl")]
     pub mod bsd44 {
     }
 

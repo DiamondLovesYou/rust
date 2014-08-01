@@ -44,10 +44,18 @@ impl TempDir {
 
         static mut CNT: atomics::AtomicUint = atomics::INIT_ATOMIC_UINT;
 
+        #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+        fn getpid() -> libc::pid_t { unsafe { libc::getpid() } }
+        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        fn getpid() -> libc::pid_t {
+            use rand::random;
+            random()
+        }
+
         for _ in range(0u, 1000) {
             let filename =
                 format!("rs-{}-{}-{}",
-                        unsafe { libc::getpid() },
+                        getpid(),
                         unsafe { CNT.fetch_add(1, atomics::SeqCst) },
                         suffix);
             let p = tmpdir.join(filename);

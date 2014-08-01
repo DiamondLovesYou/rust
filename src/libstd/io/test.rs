@@ -64,12 +64,21 @@ pub fn next_test_port() -> u16 {
 /// Get a temporary path which could be the location of a unix socket
 pub fn next_test_unix() -> Path {
     static mut COUNT: AtomicUint = INIT_ATOMIC_UINT;
+
+    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    fn getpid() -> libc::pid_t { unsafe { libc::getpid() } }
+    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    fn getpid() -> libc::pid_t {
+        use rand::random;
+        random()
+    }
+
     // base port and pid are an attempt to be unique between multiple
     // test-runners of different configurations running on one
     // buildbot, the count is to be unique within this executable.
     let string = format!("rust-test-unix-path-{}-{}-{}",
                          base_port(),
-                         unsafe {libc::getpid()},
+                         getpid(),
                          unsafe {COUNT.fetch_add(1, Relaxed)});
     if cfg!(unix) {
         os::tmpdir().join(string)
