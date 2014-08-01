@@ -26,8 +26,9 @@ extern crate libc;
 extern crate log;
 extern crate llvm = "rustc_llvm";
 
-use getopts::{optopt, optflag, getopts, reqopt, OptGroup, Matches};
+use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
 use std::c_str::CString;
+use std::collections::{HashSet, HashMap};
 use std::fmt::Show;
 use std::io::fs::File;
 use std::io::process::{Command, InheritFd, ExitStatus};
@@ -62,7 +63,9 @@ fn optgroups() -> Vec<OptGroup> {
          optopt("", "opt-level", "Optimize with possible levels 0-3", "LEVEL"),
          optflag("", "save-temps", "Save temp files"),
          optopt("", "target", "The target triple to codegen for", ""),
-         reqopt("", "cross-path", "The path to the Pepper SDK", ""))
+         reqopt("", "cross-path", "The path to the Pepper SDK", ""),
+         optmulti("", "raw", "The specified bitcodes have had none of the usual PNaCl IR \
+                              legalization passes run on them", ""))
         
 }
 fn fatal<T: Str + Show>(msg: T) -> ! {
@@ -137,17 +140,36 @@ pub fn main() {
     let cross_path = matches.opt_str("cross-path").unwrap();
     let cross_path = os::make_absolute(&Path::new(cross_path));
     
-    let input = if !matches.free.is_empty() {
-        matches.free.clone()
-    } else {
-        fatal("missing input file(s)");
-    };
+    let mut input: Vec<(String, bool)> = matches.free
+            .iter()
+            .map(|i| (i.clone(), false) )
+            .collect();
+    
     let output = matches.opt_str("o").unwrap();
     let ctxt = unsafe { llvm::LLVMContextCreate() };
 
-    let mut bc_input = Vec::new();
+    unsafe {
+        llvm::LLVMInitializePasses();
+    }
+
+    {
+        let raw_bitcodes_vec = matches.opt_strs("raw");
+        let mut raw_bitcodes = HashSet::new();
+        for i in raw_bitcodes_vec.move_iter() {
+            if !raw_bitcodes.insert(i.clone()) {
+                warn(format!("file specified two or more times in --raw: `{}`", i));
+            }
+            input.push((i, true));
+        }
+    }
+
+    if input.is_empty() {
+        fatal("missing input file(s)");
+    }
+
+    let mut bc_input = HashMap::new();
     let mut obj_input: Vec<String> = Vec::new();
-    for i in input.move_iter() {
+    for (i, is_raw) in input.move_iter() {
         let bc = match File::open(&Path::new(i.clone())).read_to_end() {
             Ok(buf) => buf,
             Err(e) => {
@@ -165,9 +187,23 @@ pub fn main() {
             }
         });
         if llmod == ptr::mut_null() {
+            if is_raw {
+                warn(format!("raw bitcode isn't bitcode: `{}`", i));
+            }
             obj_input.push(i);
         } else {
-            bc_input.push((llmod, i));
+            if is_raw {
+                unsafe {
+                    let pm = llvm::LLVMCreatePassManager();
+                    "pnacl-sjlj-eh".with_c_str(|s| assert!(llvm::LLVMRustAddPass(pm, s)) );
+                    "expand-varargs".with_c_str(|s| assert!(llvm::LLVMRustAddPass(pm, s)) );
+                    llvm::LLVMRunPassManager(pm, llmod);
+                    llvm::LLVMDisposePassManager(pm);
+                }
+            }
+            if !bc_input.insert(i.clone(), llmod) {
+                warn(format!("file specified two or more times: `{}`", i));
+            }
         }
     }
 
@@ -190,8 +226,6 @@ pub fn main() {
                 add("-mtls-use-call");
             }
         }
-
-        llvm::LLVMInitializePasses();
 
         // Only initialize the platforms supported by Rust here, because
         // using --llvm-root will have multiple platforms that rustllvm
@@ -239,7 +273,7 @@ pub fn main() {
 
     let obj_input: Vec<String> = bc_input
         .move_iter()
-        .filter_map(|(llmod, i)| {
+        .filter_map(|(i, llmod)| {
             debug!("translating `{}`", i);
             unsafe {
                 let pm = llvm::LLVMCreatePassManager();
