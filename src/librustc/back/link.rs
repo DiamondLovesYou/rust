@@ -1562,6 +1562,48 @@ pub fn link_pnacl_module(sess: &Session,
         }
     }
 
+    {
+        let used = sess.cstore.get_used_libraries().borrow();
+        let mut linked = already_linked_libs
+            (sess, &sess.cstore.get_used_crates(cstore::RequireStatic));
+        let lib_paths = pnacl_lib_paths(sess);
+
+        // Ignore all messages about invalid debug versions (toolchain libraries
+        // cause an abundance of these):
+        unsafe {
+            llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
+        }
+
+        (*used)
+            .iter()
+            .filter_map(|&(ref lib, kind)| {
+                link_attrs_filter(sess, lib, kind, &mut linked, &lib_paths)
+            })
+            .fold((), |(), (l, p): (String, Path)| {
+                use llvm::archive_ro::ArchiveRO;
+                debug!("processing archive `{}`", p.display());
+                let archive = ArchiveRO::open(&p)
+                    .expect("maybe invalid archive?");
+                archive.foreach_child(|name, bc| {
+                    debug!("processing object `{}`", name);
+                    let name_path = Path::new(name);
+                    let name_ext_str = name_path.extension_str();
+                    if name_ext_str == Some("o") || name_ext_str == Some("obj") {
+                        link_buf_into_module(sess,
+                                             trans.context,
+                                             Some(llmod),
+                                             l.as_slice(),
+                                             bc.as_slice());
+                    }
+            });
+        });
+
+        unsafe {
+            llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
+        }
+    }
+    
+
     // Some globals in the bitcode from PNaCl have what is considered invalid
     // linkage in our LLVM (their LLVM is old). Fortunately, all linkage types
     // get stripped later, so it's safe to just ignore them all.
