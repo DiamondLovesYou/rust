@@ -85,7 +85,7 @@ impl Thread<()> {
             *mem::transmute::<&Box<Option<T>>, *const *mut Option<T>>(&packet)
         };
         let main = proc() unsafe { *packet2 = Some(main()); };
-        let native = unsafe { imp::create(stack, box main) };
+        let native = unsafe { imp::create(stack, box main, false).unwrap() };
 
         Thread {
             native: native,
@@ -108,8 +108,7 @@ impl Thread<()> {
     /// stack size for the new thread.
     pub fn spawn_stack(stack: uint, main: proc():Send) {
         unsafe {
-            let handle = imp::create(stack, box main);
-            imp::detach(handle);
+            imp::create(stack, box main, true);
         }
     }
 
@@ -159,7 +158,7 @@ mod imp {
     pub type rust_thread = HANDLE;
     pub type rust_thread_return = DWORD;
 
-    pub unsafe fn create(stack: uint, p: Box<proc():Send>) -> rust_thread {
+    pub unsafe fn create(stack: uint, p: Box<proc():Send>, detach: bool) -> Option<rust_thread> {
         let arg: *mut libc::c_void = mem::transmute(p);
         // FIXME On UNIX, we guard against stack sizes that are too small but
         // that's because pthreads enforces that stacks are at least
@@ -179,7 +178,12 @@ mod imp {
             let _p: Box<proc():Send> = mem::transmute(arg);
             fail!("failed to spawn native thread: {}", ret);
         }
-        return ret;
+        if detach {
+            detach(ret);
+            return None;
+        } else {
+            return Some(ret);
+        }
     }
 
     pub unsafe fn join(native: rust_thread) {
@@ -187,7 +191,7 @@ mod imp {
         WaitForSingleObject(native, INFINITE);
     }
 
-    pub unsafe fn detach(native: rust_thread) {
+    unsafe fn detach(native: rust_thread) {
         assert!(libc::CloseHandle(native) != 0);
     }
 
@@ -219,7 +223,8 @@ mod imp {
     use core::cmp;
     use core::mem;
     use core::ptr;
-    use libc::consts::os::posix01::{PTHREAD_CREATE_JOINABLE, PTHREAD_STACK_MIN};
+    use libc::consts::os::posix01::{PTHREAD_CREATE_JOINABLE, PTHREAD_CREATE_DETACHED,
+                                    PTHREAD_STACK_MIN};
     use libc;
 
     use stack::RED_ZONE;
@@ -227,12 +232,17 @@ mod imp {
     pub type rust_thread = libc::pthread_t;
     pub type rust_thread_return = *mut u8;
 
-    pub unsafe fn create(stack: uint, p: Box<proc():Send>) -> rust_thread {
+    pub unsafe fn create(stack: uint, p: Box<proc():Send>, create_detached: bool) -> Option<rust_thread> {
         let mut native: libc::pthread_t = mem::zeroed();
         let mut attr: libc::pthread_attr_t = mem::zeroed();
         assert_eq!(pthread_attr_init(&mut attr), 0);
-        assert_eq!(pthread_attr_setdetachstate(&mut attr,
-                                               PTHREAD_CREATE_JOINABLE), 0);
+        if !create_detached {
+            assert_eq!(pthread_attr_setdetachstate(&mut attr,
+                                                   PTHREAD_CREATE_JOINABLE), 0);
+        } else {
+            assert_eq!(pthread_attr_setdetachstate(&mut attr,
+                                                   PTHREAD_CREATE_DETACHED), 0);
+        }
 
         // Reserve room for the red zone, the runtime's stack of last resort.
         let stack_size = cmp::max(stack, RED_ZONE + min_stack_size(&attr) as uint);
@@ -264,15 +274,15 @@ mod imp {
             let _p: Box<proc():Send> = mem::transmute(arg);
             fail!("failed to spawn native thread: {}", ret);
         }
-        native
+        if create_detached {
+            return None;
+        } else {
+            return Some(native);
+        }
     }
 
     pub unsafe fn join(native: rust_thread) {
         assert_eq!(pthread_join(native, ptr::mut_null()), 0);
-    }
-
-    pub unsafe fn detach(native: rust_thread) {
-        assert_eq!(pthread_detach(native), 0);
     }
 
     pub unsafe fn yield_now() { assert_eq!(sched_yield(), 0); }
@@ -320,7 +330,6 @@ mod imp {
                                      stack_size: libc::size_t) -> libc::c_int;
         fn pthread_attr_setdetachstate(attr: *mut libc::pthread_attr_t,
                                        state: libc::c_int) -> libc::c_int;
-        fn pthread_detach(thread: libc::pthread_t) -> libc::c_int;
         fn sched_yield() -> libc::c_int;
     }
 }
