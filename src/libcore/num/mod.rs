@@ -279,8 +279,8 @@ pub fn abs<T: Signed>(value: T) -> T {
 
 /// The positive difference of two numbers.
 ///
-/// Returns `zero` if the number is less than or equal to `other`,
-/// otherwise the difference between `self` and `other` is returned.
+/// Returns zero if `x` is less than or equal to `y`, otherwise the difference
+/// between `x` and `y` is returned.
 #[inline(always)]
 pub fn abs_sub<T: Signed>(x: T, y: T) -> T {
     x.abs_sub(&y)
@@ -418,7 +418,7 @@ pub trait Int: Primitive
         (!self).count_ones()
     }
 
-    /// Returns the number of leading zeros in the in the binary representation
+    /// Returns the number of leading zeros in the binary representation
     /// of the integer.
     ///
     /// # Example
@@ -430,7 +430,7 @@ pub trait Int: Primitive
     /// ```
     fn leading_zeros(self) -> Self;
 
-    /// Returns the number of trailing zeros in the in the binary representation
+    /// Returns the number of trailing zeros in the binary representation
     /// of the integer.
     ///
     /// # Example

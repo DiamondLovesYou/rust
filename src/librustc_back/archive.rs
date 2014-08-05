@@ -145,6 +145,30 @@ impl<'a> Archive<'a> {
     }
 }
 
+pub fn find_library(name: &str, os: abi::Os, search_paths: &[Path],
+                    handler: &ErrorHandler) -> Path {
+    let (osprefix, osext) = match os {
+        abi::OsWin32 => ("", "lib"), _ => ("lib", "a"),
+    };
+    // On Windows, static libraries sometimes show up as libfoo.a and other
+    // times show up as foo.lib
+    let oslibname = format!("{}{}.{}", osprefix, name, osext);
+    let unixlibname = format!("lib{}.a", name);
+
+    for path in search_paths.iter() {
+        debug!("looking for {} inside {}", name, path.display());
+        let test = path.join(oslibname.as_slice());
+        if test.exists() { return test }
+        if oslibname != unixlibname {
+            let test = path.join(unixlibname.as_slice());
+            if test.exists() { return test }
+        }
+    }
+    handler.fatal(format!("could not find native static library `{}`, \
+                           perhaps an -L flag is missing?",
+                          name).as_slice());
+}
+
 impl<'a> ArchiveBuilder<'a> {
     fn new(archive: Archive<'a>) -> ArchiveBuilder<'a> {
         ArchiveBuilder {
@@ -164,7 +188,9 @@ impl<'a> ArchiveBuilder<'a> {
     /// Adds all of the contents of a native library to this archive. This will
     /// search in the relevant locations for a library named `name`.
     pub fn add_native_library(&mut self, name: &str) -> io::IoResult<()> {
-        let location = self.find_library(name);
+        let location = find_library(name, self.archive.os,
+                                    self.archive.lib_search_paths.as_slice(),
+                                    self.archive.handler);
         self.add_archive(&location, name, [])
     }
 
@@ -291,28 +317,5 @@ impl<'a> ArchiveBuilder<'a> {
             self.members.push(Path::new(filename));
         }
         Ok(())
-    }
-
-    fn find_library(&self, name: &str) -> Path {
-        let (osprefix, osext) = match self.archive.os {
-            abi::OsWin32 => ("", "lib"), _ => ("lib", "a"),
-        };
-        // On Windows, static libraries sometimes show up as libfoo.a and other
-        // times show up as foo.lib
-        let oslibname = format!("{}{}.{}", osprefix, name, osext);
-        let unixlibname = format!("lib{}.a", name);
-
-        for path in self.archive.lib_search_paths.iter() {
-            debug!("looking for {} inside {}", name, path.display());
-            let test = path.join(oslibname.as_slice());
-            if test.exists() { return test }
-            if oslibname != unixlibname {
-                let test = path.join(unixlibname.as_slice());
-                if test.exists() { return test }
-            }
-        }
-        self.archive.handler.fatal(format!("could not find native static library `{}`, \
-                                            perhaps an -L flag is missing?",
-                                           name).as_slice());
     }
 }

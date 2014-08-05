@@ -12,7 +12,6 @@ extern crate testcrate;
 
 use std::mem;
 
-#[link(name = "test", kind = "static")]
 extern {
     fn give_back(tu: testcrate::TestUnion) -> u64;
 }

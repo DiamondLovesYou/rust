@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,14 +8,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Issue #12534.
 
-struct A(Box<uint>);
+pub struct GslResult {
+    pub val: f64,
+    pub err: f64
+}
 
-fn f(a @ A(u): A) -> Box<uint> {    //~ ERROR cannot bind by-move with sub-bindings
-    drop(a);
-    u
+impl GslResult {
+    pub fn new() -> GslResult {
+        Result { //~ ERROR: `Result` does not name a structure
+            val: 0f64,
+            err: 0f64
+        }
+    }
 }
 
 fn main() {}
-

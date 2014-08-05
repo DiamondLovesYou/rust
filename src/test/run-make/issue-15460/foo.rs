@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,18 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-struct X { x: () }
+#![crate_type = "dylib"]
 
-impl Drop for X {
-    fn drop(&mut self) {
-        println!("destructor runs");
-    }
-}
-
-fn main() {
-    let x = Some(X { x: () });
-    match x {
-        Some(ref _y @ _z) => { }, //~ ERROR cannot bind by-move and by-ref in the same pattern
-        None => fail!()
-    }
+#[link(name = "foo", kind = "static")]
+extern {
+    pub fn foo();
 }

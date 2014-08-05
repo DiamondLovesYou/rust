@@ -160,6 +160,9 @@ pub unsafe fn try(f: ||) -> ::core::result::Result<(), Box<Any + Send>> {
     }
 
     #[link(name = "rustrt_native", kind = "static")]
+    #[cfg(not(test))]
+    extern {}
+
     extern {
         // Rust's try-catch
         // When f(...) returns normally, the return value is null.
@@ -436,8 +439,8 @@ pub fn begin_unwind_fmt(msg: &fmt::Arguments, file_line: &(&'static str, uint)) 
     begin_unwind_inner(box String::from_utf8(v).unwrap(), file_line)
 }
 
-// FIXME: Need to change expr_fail in AstBuilder to change this to &(str, uint)
 /// This is the entry point of unwinding for fail!() and assert!().
+#[cfg(stage0)]
 #[inline(never)] #[cold] // avoid code bloat at the call sites as much as possible
 pub fn begin_unwind<M: Any + Send>(msg: M, file: &'static str, line: uint) -> ! {
     // Note that this should be the only allocation performed in this code path.
@@ -449,6 +452,21 @@ pub fn begin_unwind<M: Any + Send>(msg: M, file: &'static str, line: uint) -> ! 
 
     // see below for why we do the `Any` coercion here.
     begin_unwind_inner(box msg, &(file, line))
+}
+
+/// This is the entry point of unwinding for fail!() and assert!().
+#[cfg(not(stage0))]
+#[inline(never)] #[cold] // avoid code bloat at the call sites as much as possible
+pub fn begin_unwind<M: Any + Send>(msg: M, file_line: &(&'static str, uint)) -> ! {
+    // Note that this should be the only allocation performed in this code path.
+    // Currently this means that fail!() on OOM will invoke this code path,
+    // but then again we're not really ready for failing on OOM anyway. If
+    // we do start doing this, then we should propagate this allocation to
+    // be performed in the parent of this task instead of the task that's
+    // failing.
+
+    // see below for why we do the `Any` coercion here.
+    begin_unwind_inner(box msg, file_line)
 }
 
 /// The core of the unwinding.

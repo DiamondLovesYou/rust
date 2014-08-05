@@ -150,18 +150,18 @@ fn main() {
 
 #![stable]
 
-use core::mem::transmute;
 use core::cell::Cell;
 use core::clone::Clone;
 use core::cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering};
 use core::default::Default;
+use core::fmt;
 use core::kinds::marker;
+use core::mem::{transmute, min_align_of, size_of, forget};
 use core::ops::{Deref, Drop};
 use core::option::{Option, Some, None};
 use core::ptr;
 use core::ptr::RawPtr;
-use core::mem::{min_align_of, size_of};
-use core::fmt;
+use core::result::{Result, Ok, Err};
 
 use heap::deallocate;
 
@@ -218,6 +218,76 @@ impl<T> Rc<T> {
     }
 }
 
+/// Returns true if the `Rc` currently has unique ownership.
+///
+/// Unique ownership means that there are no other `Rc` or `Weak` values
+/// that share the same contents.
+#[inline]
+#[experimental]
+pub fn is_unique<T>(rc: &Rc<T>) -> bool {
+    // note that we hold both a strong and a weak reference
+    rc.strong() == 1 && rc.weak() == 1
+}
+
+/// Unwraps the contained value if the `Rc` has unique ownership.
+///
+/// If the `Rc` does not have unique ownership, `Err` is returned with the
+/// same `Rc`.
+///
+/// # Example:
+///
+/// ```
+/// use std::rc::{mod, Rc};
+/// let x = Rc::new(3u);
+/// assert_eq!(rc::try_unwrap(x), Ok(3u));
+/// let x = Rc::new(4u);
+/// let _y = x.clone();
+/// assert_eq!(rc::try_unwrap(x), Err(Rc::new(4u)));
+/// ```
+#[inline]
+#[experimental]
+pub fn try_unwrap<T>(rc: Rc<T>) -> Result<T, Rc<T>> {
+    if is_unique(&rc) {
+        unsafe {
+            let val = ptr::read(&*rc); // copy the contained object
+            // destruct the box and skip our Drop
+            // we can ignore the refcounts because we know we're unique
+            deallocate(rc._ptr as *mut u8, size_of::<RcBox<T>>(),
+                        min_align_of::<RcBox<T>>());
+            forget(rc);
+            Ok(val)
+        }
+    } else {
+        Err(rc)
+    }
+}
+
+/// Returns a mutable reference to the contained value if the `Rc` has
+/// unique ownership.
+///
+/// Returns `None` if the `Rc` does not have unique ownership.
+///
+/// # Example:
+///
+/// ```
+/// use std::rc::{mod, Rc};
+/// let mut x = Rc::new(3u);
+/// *rc::get_mut(&mut x).unwrap() = 4u;
+/// assert_eq!(*x, 4u);
+/// let _y = x.clone();
+/// assert!(rc::get_mut(&mut x).is_none());
+/// ```
+#[inline]
+#[experimental]
+pub fn get_mut<'a, T>(rc: &'a mut Rc<T>) -> Option<&'a mut T> {
+    if is_unique(rc) {
+        let inner = unsafe { &mut *rc._ptr };
+        Some(&mut inner.value)
+    } else {
+        None
+    }
+}
+
 impl<T: Clone> Rc<T> {
     /// Acquires a mutable pointer to the inner contents by guaranteeing that
     /// the reference count is one (no sharing is possible).
@@ -226,12 +296,9 @@ impl<T: Clone> Rc<T> {
     /// data is cloned if the reference count is greater than one.
     #[inline]
     #[experimental]
-    pub fn make_unique<'a>(&'a mut self) -> &'a mut T {
-        // Note that we hold a strong reference, which also counts as
-        // a weak reference, so we only clone if there is an
-        // additional reference of either kind.
-        if self.strong() != 1 || self.weak() != 1 {
-            *self = Rc::new(self.deref().clone())
+    pub fn make_unique(&mut self) -> &mut T {
+        if !is_unique(self) {
+            *self = Rc::new((**self).clone())
         }
         // This unsafety is ok because we're guaranteed that the pointer
         // returned is the *only* pointer that will ever be returned to T. Our
@@ -247,7 +314,7 @@ impl<T: Clone> Rc<T> {
 impl<T> Deref<T> for Rc<T> {
     /// Borrow the value contained in the reference-counted box
     #[inline(always)]
-    fn deref<'a>(&'a self) -> &'a T {
+    fn deref(&self) -> &T {
         &self.inner().value
     }
 }
@@ -260,7 +327,7 @@ impl<T> Drop for Rc<T> {
             if !self._ptr.is_null() {
                 self.dec_strong();
                 if self.strong() == 0 {
-                    ptr::read(self.deref()); // destroy the contained object
+                    ptr::read(&**self); // destroy the contained object
 
                     // remove the implicit "strong weak" pointer now
                     // that we've destroyed the contents.
@@ -390,7 +457,7 @@ impl<T> Clone for Weak<T> {
 
 #[doc(hidden)]
 trait RcBoxPtr<T> {
-    fn inner<'a>(&'a self) -> &'a RcBox<T>;
+    fn inner(&self) -> &RcBox<T>;
 
     #[inline]
     fn strong(&self) -> uint { self.inner().strong.get() }
@@ -413,12 +480,12 @@ trait RcBoxPtr<T> {
 
 impl<T> RcBoxPtr<T> for Rc<T> {
     #[inline(always)]
-    fn inner<'a>(&'a self) -> &'a RcBox<T> { unsafe { &(*self._ptr) } }
+    fn inner(&self) -> &RcBox<T> { unsafe { &(*self._ptr) } }
 }
 
 impl<T> RcBoxPtr<T> for Weak<T> {
     #[inline(always)]
-    fn inner<'a>(&'a self) -> &'a RcBox<T> { unsafe { &(*self._ptr) } }
+    fn inner(&self) -> &RcBox<T> { unsafe { &(*self._ptr) } }
 }
 
 #[cfg(test)]
@@ -427,6 +494,7 @@ mod tests {
     use super::{Rc, Weak};
     use std::cell::RefCell;
     use std::option::{Option, Some, None};
+    use std::result::{Err, Ok};
     use std::mem::drop;
     use std::clone::Clone;
 
@@ -492,6 +560,45 @@ mod tests {
         *a.x.borrow_mut() = Some(b);
 
         // hopefully we don't double-free (or leak)...
+    }
+
+    #[test]
+    fn is_unique() {
+        let x = Rc::new(3u);
+        assert!(super::is_unique(&x));
+        let y = x.clone();
+        assert!(!super::is_unique(&x));
+        drop(y);
+        assert!(super::is_unique(&x));
+        let w = x.downgrade();
+        assert!(!super::is_unique(&x));
+        drop(w);
+        assert!(super::is_unique(&x));
+    }
+
+    #[test]
+    fn try_unwrap() {
+        let x = Rc::new(3u);
+        assert_eq!(super::try_unwrap(x), Ok(3u));
+        let x = Rc::new(4u);
+        let _y = x.clone();
+        assert_eq!(super::try_unwrap(x), Err(Rc::new(4u)));
+        let x = Rc::new(5u);
+        let _w = x.downgrade();
+        assert_eq!(super::try_unwrap(x), Err(Rc::new(5u)));
+    }
+
+    #[test]
+    fn get_mut() {
+        let mut x = Rc::new(3u);
+        *super::get_mut(&mut x).unwrap() = 4u;
+        assert_eq!(*x, 4u);
+        let y = x.clone();
+        assert!(super::get_mut(&mut x).is_none());
+        drop(y);
+        assert!(super::get_mut(&mut x).is_some());
+        let _w = x.downgrade();
+        assert!(super::get_mut(&mut x).is_none());
     }
 
     #[test]

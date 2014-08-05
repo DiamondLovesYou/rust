@@ -1,5 +1,4 @@
-% Language FAQ
-
+% The Rust Language FAQ
 
 ## Are there any big programs written in it yet? I want to read big samples.
 
@@ -28,6 +27,18 @@ Some examples that demonstrate different aspects of the language:
 You may also be interested in browsing [GitHub's Rust][github-rust] page.
 
 [github-rust]: https://github.com/trending?l=rust
+
+## Is anyone using Rust in production?
+
+Currently, Rust is still pre-1.0, and so we don't recommend that you use Rust
+in production unless you know exactly what you're getting into.
+
+That said, there are two production deployments of Rust that we're aware of:
+
+* [OpenDNS](http://labs.opendns.com/2013/10/04/zeromq-helping-us-block-malicious-domains/)
+* [Skylight](http://skylight.io)
+
+Let the fact that this is an easily countable number be a warning.
 
 ## Does it run on Windows?
 
@@ -150,5 +161,16 @@ can be combined to control the exact logging you want to see. For example, when
 debugging linking in the compiler you might set
 `RUST_LOG=rustc::metadata::creader,rustc::util::filesearch,rustc::back::rpath`
 For a full description see [the logging crate][1].
+
+## How fast is Rust?
+
+As always, this question is difficult to answer. There's still a lot of work to
+do on speed, and depending on what you're benchmarking, Rust has variable
+performance.
+
+That said, it is an explicit goal of Rust to be as fast as C++ for most things.
+Language decisions are made with performance in mind, and we want Rust to be as
+fast as possible. Given that Rust is built on top of LLVM, any performance
+improvements in it also help us be faster.
 
 [1]:log/index.html
