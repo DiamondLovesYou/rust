@@ -65,7 +65,8 @@ fn optgroups() -> Vec<OptGroup> {
          optopt("", "target", "The target triple to codegen for", ""),
          reqopt("", "cross-path", "The path to the Pepper SDK", ""),
          optmulti("", "raw", "The specified bitcodes have had none of the usual PNaCl IR \
-                              legalization passes run on them", ""))
+                              legalization passes run on them", ""),
+         optflag("", "all-raw", "All input bitcodes are of raw form"))
         
 }
 fn fatal<T: Str + Show>(msg: T) -> ! {
@@ -139,10 +140,10 @@ pub fn main() {
     };
     let cross_path = matches.opt_str("cross-path").unwrap();
     let cross_path = os::make_absolute(&Path::new(cross_path));
-    
+    let all_raw = matches.opt_present("all-raw");
     let mut input: Vec<(String, bool)> = matches.free
             .iter()
-            .map(|i| (i.clone(), false) )
+            .map(|i| (i.clone(), all_raw) )
             .collect();
     
     let output = matches.opt_str("o").unwrap();
