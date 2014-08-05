@@ -1722,17 +1722,16 @@ pub fn link_pnacl_module(sess: &Session,
                         "expand-indirectbr".with_c_str(|s| ap(s) );
                         "lower-expect".with_c_str(|s| ap(s) );
                         "rewrite-llvm-intrinsic-calls".with_c_str(|s| ap(s) );
+                        "expand-varargs".with_c_str(|s| ap(s) );
                         "expand-arith-with-overflow".with_c_str(|s| ap(s) );
                         "expand-constant-expr".with_c_str(|s| ap(s) );
                         "promote-returned-structures".with_c_str(|s| ap(s) );
                         "promote-structure-arguments".with_c_str(|s| ap(s) );
-                        "nacl-rewrite-atomics".with_c_str(|s| ap(s) );
                         "expand-struct-regs".with_c_str(|s| ap(s) );
-                        "expand-varargs".with_c_str(|s| ap(s) );
                         "nacl-expand-ctors".with_c_str(|s| ap(s) );
                         "resolve-aliases".with_c_str(|s| ap(s) );
-                        "nacl-expand-tls".with_c_str(|s| ap(s) );
                         "nacl-expand-tls-constant-expr".with_c_str(|s| ap(s) );
+                        "nacl-expand-tls".with_c_str(|s| ap(s) );
                         "nacl-global-cleanup".with_c_str(|s| ap(s) );
                     },
                     |pm| {
@@ -1750,10 +1749,17 @@ pub fn link_pnacl_module(sess: &Session,
                         "constant-insert-extract-element-index".with_c_str(|s| ap(s) );
                         "fix-vector-load-store-alignment".with_c_str(|s| ap(s) );
                         "canonicalize-mem-intrinsics".with_c_str(|s| ap(s) );
+                        "constmerge".with_c_str(|s| ap(s) );
                         "flatten-globals".with_c_str(|s| ap(s) );
                         "expand-constant-expr".with_c_str(|s| ap(s) );
                         "nacl-promote-ints".with_c_str(|s| ap(s) );
                         "expand-getelementptr".with_c_str(|s| ap(s) );
+                        // This MUST be in the post-opt set of passes. Otherwise
+                        // the LTO passes will reorder the calls to
+                        // llvm.nacl.atomic.*, not realizing the nature of the
+                        // atomic operations.
+                        "nacl-rewrite-atomics".with_c_str(|s| ap(s) );
+                        "expand-struct-regs".with_c_str(|s| ap(s) );
                         "remove-asm-memory".with_c_str(|s| ap(s) );
                         "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
