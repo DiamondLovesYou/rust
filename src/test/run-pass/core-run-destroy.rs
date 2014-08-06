@@ -15,6 +15,8 @@
 // memory, which makes for some *confusing* logs. That's why these are here
 // instead of in std.
 
+// ignore-nacl no libgreen
+
 #![feature(macro_rules)]
 extern crate libc;
 

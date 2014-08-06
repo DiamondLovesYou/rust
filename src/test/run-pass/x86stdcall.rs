@@ -35,4 +35,5 @@ pub fn main() {
 #[cfg(target_os = "freebsd")]
 #[cfg(target_os = "dragonfly")]
 #[cfg(target_os = "android")]
+#[cfg(target_os = "nacl")]
 pub fn main() { }

@@ -11,11 +11,13 @@
 
 #[cfg(target_arch = "x86")]
 #[cfg(target_arch = "arm")]
+#[cfg(target_arch = "le32")]
+#[cfg(target_arch = "x86_64", target_os = "nacl")]
 fn target() {
     assert_eq!(-1000 as uint >> 3u, 536870787u);
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(target_arch = "x86_64", not(target_os = "nacl"))]
 fn target() {
     assert_eq!(-1000 as uint >> 3u, 2305843009213693827u);
 }

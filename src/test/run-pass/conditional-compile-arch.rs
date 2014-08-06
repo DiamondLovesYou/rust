@@ -16,3 +16,6 @@ pub fn main() { }
 
 #[cfg(target_arch = "arm")]
 pub fn main() { }
+
+#[cfg(target_arch = "le32")]
+pub fn main() { }
