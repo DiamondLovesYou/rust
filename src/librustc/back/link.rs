@@ -1835,7 +1835,10 @@ pub fn link_pnacl_module(sess: &Session,
                         "nacl-rewrite-atomics".with_c_str(|s| ap(s) );
                         "expand-struct-regs".with_c_str(|s| ap(s) );
                         "remove-asm-memory".with_c_str(|s| ap(s) );
+                        "simplify-allocas".with_c_str(|s| ap(s) );
                         "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
+                        "combine-noop-casts".with_c_str(|s| ap(s) );
+                        "expand-constant-expr".with_c_str(|s| ap(s) );
                         "strip-dead-prototypes".with_c_str(|s| ap(s) );
                         "die".with_c_str(|s| ap(s) );
                         "dce".with_c_str(|s| ap(s) );
