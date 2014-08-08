@@ -48,7 +48,7 @@ use result::{Err, Ok, Result};
 use slice::{Vector, ImmutableVector, MutableVector, ImmutableEqVector};
 use str::{Str, StrSlice, StrAllocating};
 use string::String;
-use sync::atomics::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
+use sync::atomic::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
 use vec::Vec;
 
 #[cfg(unix)]
@@ -293,7 +293,7 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>,Vec<u8>)> {
         fn env_convert(input: Vec<Vec<u8>>) -> Vec<(Vec<u8>, Vec<u8>)> {
             let mut pairs = Vec::new();
             for p in input.iter() {
-                let mut it = p.as_slice().splitn(1, |b| *b == '=' as u8);
+                let mut it = p.as_slice().splitn(1, |b| *b == b'=');
                 let key = Vec::from_slice(it.next().unwrap());
                 let val = Vec::from_slice(it.next().unwrap_or(&[]));
                 pairs.push((key, val));

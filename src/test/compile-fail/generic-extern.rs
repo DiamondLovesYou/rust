@@ -8,8 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern "C" fn foo<T>() {}  //~ERROR foreign functions may not use type parameters
+extern {
+    fn foo<T>(); //~ ERROR foreign items may not have type parameters
+}
 
 fn main() {
-    let _ = foo::<int>;
+    foo::<i32>();
 }

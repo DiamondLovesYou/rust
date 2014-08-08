@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,19 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-test newsched transition
+// ignore-pretty
 
-fn getbig(i: int) -> int {
-    let m = if i >= 0 {
-        let j = getbig(i - 1);
-        let k = getbig(j - 1);
-        k
-    } else {
-        0
-    };
-    m
+#![feature(issue_5723_bootstrap)]
+
+trait Foo { }
+
+fn foo<'a, 'b, 'c:'a+'b, 'd>() {
 }
 
-pub fn main() {
-    getbig(10000);
-}
+pub fn main() { }

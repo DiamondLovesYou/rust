@@ -122,7 +122,7 @@ pub trait Visitor<E: Clone> {
     fn visit_lifetime_ref(&mut self, _lifetime: &Lifetime, _e: E) {
         /*! Visits a reference to a lifetime */
     }
-    fn visit_lifetime_decl(&mut self, _lifetime: &Lifetime, _e: E) {
+    fn visit_lifetime_decl(&mut self, _lifetime: &LifetimeDef, _e: E) {
         /*! Visits a declaration of a lifetime */
     }
     fn visit_explicit_self(&mut self, es: &ExplicitSelf, e: E) {
@@ -424,7 +424,7 @@ pub fn walk_ty<E: Clone, V: Visitor<E>>(visitor: &mut V, typ: &Ty, env: E) {
 }
 
 fn walk_lifetime_decls<E: Clone, V: Visitor<E>>(visitor: &mut V,
-                                                lifetimes: &Vec<Lifetime>,
+                                                lifetimes: &Vec<LifetimeDef>,
                                                 env: E) {
     for l in lifetimes.iter() {
         visitor.visit_lifetime_decl(l, env.clone());
@@ -481,7 +481,7 @@ pub fn walk_pat<E: Clone, V: Visitor<E>>(visitor: &mut V, pattern: &Pat, env: E)
             visitor.visit_expr(&**lower_bound, env.clone());
             visitor.visit_expr(&**upper_bound, env)
         }
-        PatWild | PatWildMulti => (),
+        PatWild(_) => (),
         PatVec(ref prepattern, ref slice_pattern, ref postpatterns) => {
             for prepattern in prepattern.iter() {
                 visitor.visit_pat(&**prepattern, env.clone())

@@ -112,8 +112,7 @@ production. See [tokens](#tokens) for more information.
 
 ## Input format
 
-Rust input is interpreted as a sequence of Unicode codepoints encoded in UTF-8,
-normalized to Unicode normalization form NFKC.
+Rust input is interpreted as a sequence of Unicode codepoints encoded in UTF-8.
 Most Rust grammar rules are defined in terms of printable ASCII-range codepoints,
 but a small number are defined in terms of Unicode properties or explicit
 codepoint lists. [^inputformat]
@@ -2112,7 +2111,7 @@ A complete list of the built-in language items follows:
   : Has a size known at compile time.
 * `copy`
   : Types that do not move ownership when used by-value.
-* `share`
+* `sync`
   : Able to be safely shared between tasks when aliased.
 * `drop`
   : Have destructors.
@@ -2192,8 +2191,8 @@ These types help drive the compiler's analysis
   : This type does not implement "send", even if eligible
 * `no_copy_bound`
   : This type does not implement "copy", even if eligible
-* `no_share_bound`
-  : This type does not implement "share", even if eligible
+* `no_sync_bound`
+  : This type does not implement "sync", even if eligible
 * `managed_bound`
   : This type implements "managed"
 

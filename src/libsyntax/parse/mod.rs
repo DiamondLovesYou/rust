@@ -21,6 +21,7 @@ use std::gc::Gc;
 use std::io::File;
 use std::rc::Rc;
 use std::str;
+use std::iter;
 
 pub mod lexer;
 pub mod parser;
@@ -327,7 +328,7 @@ pub fn str_lit(lit: &str) -> String {
     let error = |i| format!("lexer should have rejected {} at {}", lit, i);
 
     /// Eat everything up to a non-whitespace
-    fn eat<'a>(it: &mut ::std::iter::Peekable<(uint, char), ::std::str::CharOffsets<'a>>) {
+    fn eat<'a>(it: &mut iter::Peekable<(uint, char), str::CharOffsets<'a>>) {
         loop {
             match it.peek().map(|x| x.val1()) {
                 Some(' ') | Some('\n') | Some('\r') | Some('\t') => {
@@ -471,35 +472,54 @@ pub fn binary_lit(lit: &str) -> Rc<Vec<u8>> {
     // FIXME #8372: This could be a for-loop if it didn't borrow the iterator
     let error = |i| format!("lexer should have rejected {} at {}", lit, i);
 
+    /// Eat everything up to a non-whitespace
+    fn eat<'a, I: Iterator<(uint, u8)>>(it: &mut iter::Peekable<(uint, u8), I>) {
+        loop {
+            match it.peek().map(|x| x.val1()) {
+                Some(b' ') | Some(b'\n') | Some(b'\r') | Some(b'\t') => {
+                    it.next();
+                },
+                _ => { break; }
+            }
+        }
+    }
+
     // binary literals *must* be ASCII, but the escapes don't have to be
-    let mut chars = lit.as_bytes().iter().enumerate().peekable();
+    let mut chars = lit.bytes().enumerate().peekable();
     loop {
         match chars.next() {
-            Some((i, &c)) => {
-                if c == b'\\' {
-                    if *chars.peek().expect(error(i).as_slice()).val1() == b'\n' {
-                        loop {
-                            // eat everything up to a non-whitespace
-                            match chars.peek().map(|x| *x.val1()) {
-                                Some(b' ') | Some(b'\n') | Some(b'\r') | Some(b'\t') => {
-                                    chars.next();
-                                },
-                                _ => { break; }
-                            }
+            Some((i, b'\\')) => {
+                let em = error(i);
+                match chars.peek().expect(em.as_slice()).val1() {
+                    b'\n' => eat(&mut chars),
+                    b'\r' => {
+                        chars.next();
+                        if chars.peek().expect(em.as_slice()).val1() != b'\n' {
+                            fail!("lexer accepted bare CR");
                         }
-                    } else {
+                        eat(&mut chars);
+                    }
+                    _ => {
                         // otherwise, a normal escape
                         let (c, n) = byte_lit(lit.slice_from(i));
-                        for _ in range(0, n - 1) { // we don't need to move past the first \
+                        // we don't need to move past the first \
+                        for _ in range(0, n - 1) {
                             chars.next();
                         }
                         res.push(c);
                     }
-                } else {
-                    res.push(c);
                 }
             },
-            None => { break; }
+            Some((i, b'\r')) => {
+                let em = error(i);
+                if chars.peek().expect(em.as_slice()).val1() != b'\n' {
+                    fail!("lexer accepted bare CR");
+                }
+                chars.next();
+                res.push(b'\n');
+            }
+            Some((_, c)) => res.push(c),
+            None => break,
         }
     }
 
@@ -515,31 +535,13 @@ pub fn integer_lit(s: &str, sd: &SpanHandler, sp: Span) -> ast::Lit_ {
     debug!("parse_integer_lit: {}", s);
 
     if s.len() == 1 {
-        return ast::LitIntUnsuffixed((s.char_at(0)).to_digit(10).unwrap() as i64);
+        let n = (s.char_at(0)).to_digit(10).unwrap();
+        return ast::LitInt(n as u64, ast::UnsuffixedIntLit(ast::Sign::new(n)));
     }
 
     let mut base = 10;
     let orig = s;
-
-    #[deriving(Show)]
-    enum Result {
-        Nothing,
-        Signed(ast::IntTy),
-        Unsigned(ast::UintTy)
-    }
-
-    impl Result {
-        fn suffix_len(&self) -> uint {
-            match *self {
-                Nothing => 0,
-                Signed(s) => s.suffix_len(),
-                Unsigned(u) => u.suffix_len()
-            }
-        }
-    }
-
-    let mut ty = Nothing;
-
+    let mut ty = ast::UnsuffixedIntLit(ast::Plus);
 
     if s.char_at(0) == '0' {
         match s.char_at(1) {
@@ -556,13 +558,13 @@ pub fn integer_lit(s: &str, sd: &SpanHandler, sp: Span) -> ast::Lit_ {
 
     let last = s.len() - 1;
     match s.char_at(last) {
-        'i' => ty = Signed(ast::TyI),
-        'u' => ty = Unsigned(ast::TyU),
+        'i' => ty = ast::SignedIntLit(ast::TyI, ast::Plus),
+        'u' => ty = ast::UnsignedIntLit(ast::TyU),
         '8' => {
             if s.len() > 2 {
                 match s.char_at(last - 1) {
-                    'i' => ty = Signed(ast::TyI8),
-                    'u' => ty = Unsigned(ast::TyU8),
+                    'i' => ty = ast::SignedIntLit(ast::TyI8, ast::Plus),
+                    'u' => ty = ast::UnsignedIntLit(ast::TyU8),
                     _ => { }
                 }
             }
@@ -570,8 +572,8 @@ pub fn integer_lit(s: &str, sd: &SpanHandler, sp: Span) -> ast::Lit_ {
         '6' => {
             if s.len() > 3 && s.char_at(last - 1) == '1' {
                 match s.char_at(last - 2) {
-                    'i' => ty = Signed(ast::TyI16),
-                    'u' => ty = Unsigned(ast::TyU16),
+                    'i' => ty = ast::SignedIntLit(ast::TyI16, ast::Plus),
+                    'u' => ty = ast::UnsignedIntLit(ast::TyU16),
                     _ => { }
                 }
             }
@@ -579,8 +581,8 @@ pub fn integer_lit(s: &str, sd: &SpanHandler, sp: Span) -> ast::Lit_ {
         '2' => {
             if s.len() > 3 && s.char_at(last - 1) == '3' {
                 match s.char_at(last - 2) {
-                    'i' => ty = Signed(ast::TyI32),
-                    'u' => ty = Unsigned(ast::TyU32),
+                    'i' => ty = ast::SignedIntLit(ast::TyI32, ast::Plus),
+                    'u' => ty = ast::UnsignedIntLit(ast::TyU32),
                     _ => { }
                 }
             }
@@ -588,8 +590,8 @@ pub fn integer_lit(s: &str, sd: &SpanHandler, sp: Span) -> ast::Lit_ {
         '4' => {
             if s.len() > 3 && s.char_at(last - 1) == '6' {
                 match s.char_at(last - 2) {
-                    'i' => ty = Signed(ast::TyI64),
-                    'u' => ty = Unsigned(ast::TyU64),
+                    'i' => ty = ast::SignedIntLit(ast::TyI64, ast::Plus),
+                    'u' => ty = ast::UnsignedIntLit(ast::TyU64),
                     _ => { }
                 }
             }
@@ -597,21 +599,22 @@ pub fn integer_lit(s: &str, sd: &SpanHandler, sp: Span) -> ast::Lit_ {
         _ => { }
     }
 
-
-    s = s.slice_to(s.len() - ty.suffix_len());
-
     debug!("The suffix is {}, base {}, the new string is {}, the original \
            string was {}", ty, base, s, orig);
+
+    s = s.slice_to(s.len() - ty.suffix_len());
 
     let res: u64 = match ::std::num::from_str_radix(s, base) {
         Some(r) => r,
         None => { sd.span_err(sp, "int literal is too large"); 0 }
     };
 
+    // adjust the sign
+    let sign = ast::Sign::new(res);
     match ty {
-        Nothing => ast::LitIntUnsuffixed(res as i64),
-        Signed(t) => ast::LitInt(res as i64, t),
-        Unsigned(t) => ast::LitUint(res, t)
+        ast::SignedIntLit(t, _) => ast::LitInt(res, ast::SignedIntLit(t, sign)),
+        ast::UnsuffixedIntLit(_) => ast::LitInt(res, ast::UnsuffixedIntLit(sign)),
+        us@ast::UnsignedIntLit(_) => ast::LitInt(res, us)
     }
 }
 

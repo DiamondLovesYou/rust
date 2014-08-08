@@ -61,7 +61,7 @@ use core::mem::{forget, min_align_of, size_of, transmute};
 use core::ptr;
 use rustrt::exclusive::Exclusive;
 
-use atomics::{AtomicInt, AtomicPtr, SeqCst};
+use atomic::{AtomicInt, AtomicPtr, SeqCst};
 
 // Once the queue is less than 1/K full, then it will be downsized. Note that
 // the deque requires that this number be less than 2.
@@ -87,7 +87,7 @@ struct Deque<T> {
 /// There may only be one worker per deque.
 pub struct Worker<T> {
     deque: Arc<Deque<T>>,
-    noshare: marker::NoShare,
+    noshare: marker::NoSync,
 }
 
 /// The stealing half of the work-stealing deque. Stealers have access to the
@@ -95,7 +95,7 @@ pub struct Worker<T> {
 /// `steal` method.
 pub struct Stealer<T> {
     deque: Arc<Deque<T>>,
-    noshare: marker::NoShare,
+    noshare: marker::NoSync,
 }
 
 /// When stealing some data, this is an enumeration of the possible outcomes.
@@ -153,8 +153,8 @@ impl<T: Send> BufferPool<T> {
     pub fn deque(&self) -> (Worker<T>, Stealer<T>) {
         let a = Arc::new(Deque::new(self.clone()));
         let b = a.clone();
-        (Worker { deque: a, noshare: marker::NoShare },
-         Stealer { deque: b, noshare: marker::NoShare })
+        (Worker { deque: a, noshare: marker::NoSync },
+         Stealer { deque: b, noshare: marker::NoSync })
     }
 
     fn alloc(&mut self, bits: uint) -> Box<Buffer<T>> {
@@ -217,7 +217,7 @@ impl<T: Send> Stealer<T> {
 
 impl<T: Send> Clone for Stealer<T> {
     fn clone(&self) -> Stealer<T> {
-        Stealer { deque: self.deque.clone(), noshare: marker::NoShare }
+        Stealer { deque: self.deque.clone(), noshare: marker::NoSync }
     }
 }
 
@@ -414,7 +414,7 @@ mod tests {
     use std::rt::thread::Thread;
     use std::rand;
     use std::rand::Rng;
-    use atomics::{AtomicBool, INIT_ATOMIC_BOOL, SeqCst,
+    use atomic::{AtomicBool, INIT_ATOMIC_BOOL, SeqCst,
                   AtomicUint, INIT_ATOMIC_UINT};
     use std::vec;
 

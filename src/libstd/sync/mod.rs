@@ -10,18 +10,24 @@
 
 //! Useful synchronization primitives
 //!
-//! This modules contains useful safe and unsafe synchronization primitives.
+//! This module contains useful safe and unsafe synchronization primitives.
 //! Most of the primitives in this module do not provide any sort of locking
 //! and/or blocking at all, but rather provide the necessary tools to build
 //! other types of concurrent primitives.
 
 #![experimental]
 
-pub use core_sync::{atomics, deque, mpmc_bounded_queue, mpsc_queue, spsc_queue};
+#[stable]
+pub use core_sync::atomic;
+
+pub use core_sync::{deque, mpmc_bounded_queue, mpsc_queue, spsc_queue};
 pub use core_sync::{Arc, Weak, Mutex, MutexGuard, Condvar, Barrier};
 pub use core_sync::{RWLock, RWLockReadGuard, RWLockWriteGuard};
 pub use core_sync::{Semaphore, SemaphoreGuard};
 pub use core_sync::one::{Once, ONCE_INIT};
+
+#[deprecated = "use atomic instead"]
+pub use atomics = core_sync::atomic;
 
 pub use self::future::Future;
 pub use self::task_pool::TaskPool;

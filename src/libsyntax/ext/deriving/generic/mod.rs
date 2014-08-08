@@ -395,7 +395,7 @@ impl<'a> TraitDef<'a> {
         let mut ty_params = ty_params.into_vec();
 
         // Copy the lifetimes
-        lifetimes.extend(generics.lifetimes.iter().map(|l| *l));
+        lifetimes.extend(generics.lifetimes.iter().map(|l| (*l).clone()));
 
         // Create the type parameters.
         ty_params.extend(generics.ty_params.iter().map(|ty_param| {
@@ -429,7 +429,11 @@ impl<'a> TraitDef<'a> {
             cx.ty_ident(self.span, ty_param.ident)
         });
 
-        let self_lifetimes = generics.lifetimes.clone();
+        let self_lifetimes: Vec<ast::Lifetime> =
+            generics.lifetimes
+            .iter()
+            .map(|ld| ld.lifetime)
+            .collect();
 
         // Create the type of `self`.
         let self_type = cx.ty_path(
@@ -996,7 +1000,7 @@ impl<'a> MethodDef<'a> {
             let arms : Vec<ast::Arm> = variants.iter().enumerate()
                 .map(|(index, &variant)| {
                     let pat = variant_to_pat(cx, sp, &*variant);
-                    let lit = ast::LitUint(index as u64, ast::TyU);
+                    let lit = ast::LitInt(index as u64, ast::UnsignedIntLit(ast::TyU));
                     cx.arm(sp, vec![pat], cx.expr_lit(sp, lit))
                 }).collect();
 

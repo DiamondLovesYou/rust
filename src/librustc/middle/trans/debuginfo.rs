@@ -499,7 +499,7 @@ impl TypeMap {
                         ty::BoundSend => unique_type_id.push_str("Send"),
                         ty::BoundSized => unique_type_id.push_str("Sized"),
                         ty::BoundCopy => unique_type_id.push_str("Copy"),
-                        ty::BoundShare => unique_type_id.push_str("Share"),
+                        ty::BoundSync => unique_type_id.push_str("Sync"),
                     };
                     unique_type_id.push_char('+');
                 }
@@ -3432,7 +3432,7 @@ fn populate_scope_map(cx: &CrateContext,
                 }
             }
 
-            ast::PatWild | ast::PatWildMulti => {
+            ast::PatWild(_) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
             }
 

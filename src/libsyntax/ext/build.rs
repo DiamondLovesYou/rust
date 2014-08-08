@@ -73,6 +73,11 @@ pub trait AstBuilder {
     fn trait_ref(&self, path: ast::Path) -> ast::TraitRef;
     fn typarambound(&self, path: ast::Path) -> ast::TyParamBound;
     fn lifetime(&self, span: Span, ident: ast::Name) -> ast::Lifetime;
+    fn lifetime_def(&self,
+                    span: Span,
+                    name: ast::Name,
+                    bounds: Vec<ast::Lifetime>)
+                    -> ast::LifetimeDef;
 
     // statements
     fn stmt_expr(&self, expr: Gc<ast::Expr>) -> Gc<ast::Stmt>;
@@ -456,6 +461,17 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         ast::Lifetime { id: ast::DUMMY_NODE_ID, span: span, name: name }
     }
 
+    fn lifetime_def(&self,
+                    span: Span,
+                    name: ast::Name,
+                    bounds: Vec<ast::Lifetime>)
+                    -> ast::LifetimeDef {
+        ast::LifetimeDef {
+            lifetime: self.lifetime(span, name),
+            bounds: bounds
+        }
+    }
+
     fn stmt_expr(&self, expr: Gc<ast::Expr>) -> Gc<ast::Stmt> {
         box(GC) respan(expr.span, ast::StmtSemi(expr, ast::DUMMY_NODE_ID))
     }
@@ -626,13 +642,13 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         self.expr(sp, ast::ExprLit(box(GC) respan(sp, lit)))
     }
     fn expr_uint(&self, span: Span, i: uint) -> Gc<ast::Expr> {
-        self.expr_lit(span, ast::LitUint(i as u64, ast::TyU))
+        self.expr_lit(span, ast::LitInt(i as u64, ast::UnsignedIntLit(ast::TyU)))
     }
     fn expr_int(&self, sp: Span, i: int) -> Gc<ast::Expr> {
-        self.expr_lit(sp, ast::LitInt(i as i64, ast::TyI))
+        self.expr_lit(sp, ast::LitInt(i as u64, ast::SignedIntLit(ast::TyI, ast::Sign::new(i))))
     }
     fn expr_u8(&self, sp: Span, u: u8) -> Gc<ast::Expr> {
-        self.expr_lit(sp, ast::LitUint(u as u64, ast::TyU8))
+        self.expr_lit(sp, ast::LitInt(u as u64, ast::UnsignedIntLit(ast::TyU8)))
     }
     fn expr_bool(&self, sp: Span, value: bool) -> Gc<ast::Expr> {
         self.expr_lit(sp, ast::LitBool(value))
@@ -763,7 +779,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         box(GC) ast::Pat { id: ast::DUMMY_NODE_ID, node: pat, span: span }
     }
     fn pat_wild(&self, span: Span) -> Gc<ast::Pat> {
-        self.pat(span, ast::PatWild)
+        self.pat(span, ast::PatWild(ast::PatWildSingle))
     }
     fn pat_lit(&self, span: Span, expr: Gc<ast::Expr>) -> Gc<ast::Pat> {
         self.pat(span, ast::PatLit(expr))

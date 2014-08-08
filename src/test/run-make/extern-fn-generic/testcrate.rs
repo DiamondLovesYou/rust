@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,14 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-test newsched transition
+#![crate_type = "lib"]
 
-fn getbig(i: int) {
-    if i != 0 {
-        getbig(i - 1);
-    }
+#[repr(C)]
+pub struct TestStruct<T> {
+    pub x: u8,
+    pub y: T
 }
 
-pub fn main() {
-    getbig(100000);
+pub extern "C" fn foo<T>(ts: TestStruct<T>) -> T { ts.y }
+
+#[link(name = "test")]
+extern {
+    pub fn call(c: extern "C" fn(TestStruct<i32>) -> i32) -> i32;
 }

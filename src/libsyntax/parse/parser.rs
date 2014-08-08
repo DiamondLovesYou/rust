@@ -34,12 +34,12 @@ use ast::{Ident, NormalFn, Inherited, Item, Item_, ItemStatic};
 use ast::{ItemEnum, ItemFn, ItemForeignMod, ItemImpl};
 use ast::{ItemMac, ItemMod, ItemStruct, ItemTrait, ItemTy, Lit, Lit_};
 use ast::{LitBool, LitChar, LitByte, LitBinary};
-use ast::{LitNil, LitStr, LitUint, Local, LocalLet};
+use ast::{LitNil, LitStr, LitInt, Local, LocalLet};
 use ast::{MutImmutable, MutMutable, Mac_, MacInvocTT, Matcher, MatchNonterminal};
 use ast::{MatchSeq, MatchTok, Method, MutTy, BiMul, Mutability};
 use ast::{NamedField, UnNeg, NoReturn, UnNot, P, Pat, PatEnum};
 use ast::{PatIdent, PatLit, PatRange, PatRegion, PatStruct};
-use ast::{PatTup, PatBox, PatWild, PatWildMulti};
+use ast::{PatTup, PatBox, PatWild, PatWildMulti, PatWildSingle};
 use ast::{BiRem, Required};
 use ast::{RetStyle, Return, BiShl, BiShr, Stmt, StmtDecl};
 use ast::{StmtExpr, StmtSemi, StmtMac, StructDef, StructField};
@@ -1053,10 +1053,10 @@ impl<'a> Parser<'a> {
 
         */
 
-        let lifetimes = if self.eat(&token::LT) {
-            let lifetimes = self.parse_lifetimes();
+        let lifetime_defs = if self.eat(&token::LT) {
+            let lifetime_defs = self.parse_lifetime_defs();
             self.expect_gt();
-            lifetimes
+            lifetime_defs
         } else {
             Vec::new()
         };
@@ -1082,7 +1082,7 @@ impl<'a> Parser<'a> {
             onceness: Once,
             bounds: bounds,
             decl: decl,
-            lifetimes: lifetimes,
+            lifetimes: lifetime_defs,
         })
     }
 
@@ -1096,7 +1096,7 @@ impl<'a> Parser<'a> {
           |        |      |    |      |      Return type
           |        |      |    |  Closure bounds
           |        |      |  Argument types
-          |        |    Lifetimes
+          |        |    Lifetime defs
           |     Once-ness (a.k.a., affine)
         Function Style
 
@@ -1105,11 +1105,11 @@ impl<'a> Parser<'a> {
         let fn_style = self.parse_unsafety();
         let onceness = if self.eat_keyword(keywords::Once) {Once} else {Many};
 
-        let lifetimes = if self.eat(&token::LT) {
-            let lifetimes = self.parse_lifetimes();
+        let lifetime_defs = if self.eat(&token::LT) {
+            let lifetime_defs = self.parse_lifetime_defs();
             self.expect_gt();
 
-            lifetimes
+            lifetime_defs
         } else {
             Vec::new()
         };
@@ -1164,7 +1164,7 @@ impl<'a> Parser<'a> {
                 onceness: onceness,
                 bounds: bounds,
                 decl: decl,
-                lifetimes: lifetimes,
+                lifetimes: lifetime_defs,
             }, region)
         }
     }
@@ -1179,7 +1179,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a function type (following the 'fn')
     pub fn parse_ty_fn_decl(&mut self, allow_variadic: bool)
-                            -> (P<FnDecl>, Vec<ast::Lifetime>) {
+                            -> (P<FnDecl>, Vec<ast::LifetimeDef>) {
         /*
 
         (fn) <'lt> (S) -> T
@@ -1187,13 +1187,13 @@ impl<'a> Parser<'a> {
                |    |     |
                |    |   Return type
                |  Argument types
-           Lifetimes
+           Lifetime_defs
 
         */
-        let lifetimes = if self.eat(&token::LT) {
-            let lifetimes = self.parse_lifetimes();
+        let lifetime_defs = if self.eat(&token::LT) {
+            let lifetime_defs = self.parse_lifetime_defs();
             self.expect_gt();
-            lifetimes
+            lifetime_defs
         } else {
             Vec::new()
         };
@@ -1206,7 +1206,7 @@ impl<'a> Parser<'a> {
             cf: ret_style,
             variadic: variadic
         });
-        (decl, lifetimes)
+        (decl, lifetime_defs)
     }
 
     /// Parse the methods in a trait declaration
@@ -1770,12 +1770,51 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn parse_lifetime_defs(&mut self) -> Vec<ast::LifetimeDef> {
+        /*!
+         * Parses `lifetime_defs = [ lifetime_defs { ',' lifetime_defs } ]`
+         * where `lifetime_def  = lifetime [':' lifetimes]`
+         */
+
+        let mut res = Vec::new();
+        loop {
+            match self.token {
+                token::LIFETIME(_) => {
+                    let lifetime = self.parse_lifetime();
+                    let bounds =
+                        if self.eat(&token::COLON) {
+                            self.parse_lifetimes(token::BINOP(token::PLUS))
+                        } else {
+                            Vec::new()
+                        };
+                    res.push(ast::LifetimeDef { lifetime: lifetime,
+                                                bounds: bounds });
+                }
+
+                _ => {
+                    return res;
+                }
+            }
+
+            match self.token {
+                token::COMMA => { self.bump(); }
+                token::GT => { return res; }
+                token::BINOP(token::SHR) => { return res; }
+                _ => {
+                    let msg = format!("expected `,` or `>` after lifetime \
+                                      name, got: {:?}",
+                                      self.token);
+                    self.fatal(msg.as_slice());
+                }
+            }
+        }
+    }
+
     // matches lifetimes = ( lifetime ) | ( lifetime , lifetimes )
     // actually, it matches the empty one too, but putting that in there
     // messes up the grammar....
-    pub fn parse_lifetimes(&mut self) -> Vec<ast::Lifetime> {
+    pub fn parse_lifetimes(&mut self, sep: token::Token) -> Vec<ast::Lifetime> {
         /*!
-         *
          * Parses zero or more comma separated lifetimes.
          * Expects each lifetime to be followed by either
          * a comma or `>`.  Used when parsing type parameter
@@ -1793,17 +1832,11 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            match self.token {
-                token::COMMA => { self.bump();}
-                token::GT => { return res; }
-                token::BINOP(token::SHR) => { return res; }
-                _ => {
-                    let msg = format!("expected `,` or `>` after lifetime \
-                                      name, got: {:?}",
-                                      self.token);
-                    self.fatal(msg.as_slice());
-                }
+            if self.token != sep {
+                return res;
             }
+
+            self.bump();
         }
     }
 
@@ -1889,7 +1922,7 @@ impl<'a> Parser<'a> {
     pub fn mk_lit_u32(&mut self, i: u32) -> Gc<Expr> {
         let span = &self.span;
         let lv_lit = box(GC) codemap::Spanned {
-            node: LitUint(i as u64, TyU32),
+            node: LitInt(i as u64, ast::UnsignedIntLit(TyU32)),
             span: *span
         };
 
@@ -2822,7 +2855,7 @@ impl<'a> Parser<'a> {
                 if self.token == token::COMMA || self.token == token::RBRACKET {
                     slice = Some(box(GC) ast::Pat {
                         id: ast::DUMMY_NODE_ID,
-                        node: PatWildMulti,
+                        node: PatWild(PatWildMulti),
                         span: self.span,
                     })
                 } else {
@@ -2920,7 +2953,7 @@ impl<'a> Parser<'a> {
             // parse _
           token::UNDERSCORE => {
             self.bump();
-            pat = PatWild;
+            pat = PatWild(PatWildSingle);
             hi = self.last_span.hi;
             return box(GC) ast::Pat {
                 id: ast::DUMMY_NODE_ID,
@@ -3664,7 +3697,7 @@ impl<'a> Parser<'a> {
     /// where   typaramseq = ( typaram ) | ( typaram , typaramseq )
     pub fn parse_generics(&mut self) -> ast::Generics {
         if self.eat(&token::LT) {
-            let lifetimes = self.parse_lifetimes();
+            let lifetime_defs = self.parse_lifetime_defs();
             let mut seen_default = false;
             let ty_params = self.parse_seq_to_gt(Some(token::COMMA), |p| {
                 p.forbid_lifetime();
@@ -3678,14 +3711,14 @@ impl<'a> Parser<'a> {
                 }
                 ty_param
             });
-            ast::Generics { lifetimes: lifetimes, ty_params: ty_params }
+            ast::Generics { lifetimes: lifetime_defs, ty_params: ty_params }
         } else {
             ast_util::empty_generics()
         }
     }
 
     fn parse_generic_values_after_lt(&mut self) -> (Vec<ast::Lifetime>, Vec<P<Ty>> ) {
-        let lifetimes = self.parse_lifetimes();
+        let lifetimes = self.parse_lifetimes(token::COMMA);
         let result = self.parse_seq_to_gt(
             Some(token::COMMA),
             |p| {

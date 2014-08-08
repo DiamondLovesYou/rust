@@ -535,9 +535,9 @@ impl Clean<TyParamBound> for ty::BuiltinBound {
             ty::BoundCopy =>
                 (tcx.lang_items.copy_trait().unwrap(),
                  external_path("Copy", &empty)),
-            ty::BoundShare =>
-                (tcx.lang_items.share_trait().unwrap(),
-                 external_path("Share", &empty)),
+            ty::BoundSync =>
+                (tcx.lang_items.sync_trait().unwrap(),
+                 external_path("Sync", &empty)),
         };
         let fqn = csearch::get_item_path(tcx, did);
         let fqn = fqn.move_iter().map(|i| i.to_string()).collect();
@@ -611,6 +611,12 @@ impl Lifetime {
 impl Clean<Lifetime> for ast::Lifetime {
     fn clean(&self) -> Lifetime {
         Lifetime(token::get_name(self.name).get().to_string())
+    }
+}
+
+impl Clean<Lifetime> for ast::LifetimeDef {
+    fn clean(&self) -> Lifetime {
+        Lifetime(token::get_name(self.lifetime.name).get().to_string())
     }
 }
 
@@ -1947,8 +1953,6 @@ fn lit_to_string(lit: &ast::Lit) -> String {
         },
         ast::LitChar(c) => format!("'{}'", c),
         ast::LitInt(i, _t) => i.to_string(),
-        ast::LitUint(u, _t) => u.to_string(),
-        ast::LitIntUnsuffixed(i) => i.to_string(),
         ast::LitFloat(ref f, _t) => f.get().to_string(),
         ast::LitFloatUnsuffixed(ref f) => f.get().to_string(),
         ast::LitBool(b) => b.to_string(),
@@ -1961,8 +1965,8 @@ fn name_from_pat(p: &ast::Pat) -> String {
     debug!("Trying to get a name from pattern: {:?}", p);
 
     match p.node {
-        PatWild => "_".to_string(),
-        PatWildMulti => "..".to_string(),
+        PatWild(PatWildSingle) => "_".to_string(),
+        PatWild(PatWildMulti) => "..".to_string(),
         PatIdent(_, ref p, _) => token::get_ident(p.node).get().to_string(),
         PatEnum(ref p, _) => path_to_string(p),
         PatStruct(ref name, ref fields, etc) => {

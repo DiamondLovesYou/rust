@@ -1030,9 +1030,6 @@ pub mod traits {
     use option::{Option, Some};
     use str::{Str, StrSlice, eq_slice};
 
-    #[cfg(stage0)]
-    use option::None;   // NOTE(stage0): Remove after snapshot.
-
     impl<'a> Ord for &'a str {
         #[inline]
         fn cmp(&self, other: & &'a str) -> Ordering {
@@ -1755,7 +1752,7 @@ impl<'a> StrSlice<'a> for &'a str {
     fn lines_any(&self) -> AnyLines<'a> {
         self.lines().map(|line| {
             let l = line.len();
-            if l > 0 && line.as_bytes()[l - 1] == '\r' as u8 { line.slice(0, l - 1) }
+            if l > 0 && line.as_bytes()[l - 1] == b'\r' { line.slice(0, l - 1) }
             else { line }
         })
     }

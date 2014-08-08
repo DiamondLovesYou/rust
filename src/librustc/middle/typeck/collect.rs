@@ -444,17 +444,6 @@ pub fn ensure_no_ty_param_bounds(ccx: &CrateCtxt,
     }
 }
 
-fn ensure_generics_abi(ccx: &CrateCtxt,
-                       span: Span,
-                       abi: abi::Abi,
-                       generics: &ast::Generics) {
-    if generics.ty_params.len() > 0 &&
-       !(abi == abi::Rust || abi == abi::RustIntrinsic) {
-        span_err!(ccx.tcx.sess, span, E0123,
-                  "foreign functions may not use type parameters");
-    }
-}
-
 pub fn convert(ccx: &CrateCtxt, it: &ast::Item) {
     let tcx = ccx.tcx;
     debug!("convert: item {} with id {}", token::get_ident(it.ident), it.id);
@@ -572,13 +561,8 @@ pub fn convert(ccx: &CrateCtxt, it: &ast::Item) {
         },
         ast::ItemTy(_, ref generics) => {
             ensure_no_ty_param_bounds(ccx, it.span, generics, "type");
-            let pty = ty_of_item(ccx, it);
-            write_ty_to_tcx(tcx, it.id, pty.ty);
-        },
-        ast::ItemFn(_, _, abi, ref generics, _) => {
-            ensure_generics_abi(ccx, it.span, abi, generics);
-            let pty = ty_of_item(ccx, it);
-            write_ty_to_tcx(tcx, it.id, pty.ty);
+            let tpt = ty_of_item(ccx, it);
+            write_ty_to_tcx(tcx, it.id, tpt.ty);
         },
         _ => {
             // This call populates the type cache with the converted type
@@ -804,9 +788,10 @@ pub fn trait_def_of_item(ccx: &CrateCtxt, it: &ast::Item) -> Rc<ty::TraitDef> {
             generics.lifetimes
                     .iter()
                     .enumerate()
-                    .map(|(i, def)| ty::ReEarlyBound(def.id,
+                    .map(|(i, def)| ty::ReEarlyBound(def.lifetime.id,
                                                      subst::TypeSpace,
-                                                     i, def.name))
+                                                     i,
+                                                     def.lifetime.name))
                     .collect();
 
         let types =
@@ -1073,7 +1058,7 @@ fn add_unsized_bound(ccx: &CrateCtxt,
 
 fn ty_generics(ccx: &CrateCtxt,
                space: subst::ParamSpace,
-               lifetimes: &Vec<ast::Lifetime>,
+               lifetimes: &Vec<ast::LifetimeDef>,
                types: &OwnedSlice<ast::TyParam>,
                base_generics: ty::Generics)
                -> ty::Generics
@@ -1081,10 +1066,10 @@ fn ty_generics(ccx: &CrateCtxt,
     let mut result = base_generics;
 
     for (i, l) in lifetimes.iter().enumerate() {
-        let def = ty::RegionParameterDef { name: l.name,
+        let def = ty::RegionParameterDef { name: l.lifetime.name,
                                            space: space,
                                            index: i,
-                                           def_id: local_def(l.id) };
+                                           def_id: local_def(l.lifetime.id) };
         debug!("ty_generics: def for region param: {}", def);
         result.regions.push(space, def);
     }
@@ -1218,6 +1203,8 @@ fn ty_generics(ccx: &CrateCtxt,
 
         check_bounds_compatible(ccx.tcx, &param_bounds, ident, span);
 
+        param_bounds.trait_bounds.sort_by(|a,b| a.def_id.cmp(&b.def_id));
+
         param_bounds
     }
 
@@ -1255,7 +1242,7 @@ pub fn ty_of_foreign_fn_decl(ccx: &CrateCtxt,
     for i in decl.inputs.iter() {
         match (*i).pat.node {
             ast::PatIdent(_, _, _) => (),
-            ast::PatWild => (),
+            ast::PatWild(ast::PatWildSingle) => (),
             _ => {
                 span_err!(ccx.tcx.sess, (*i).pat.span, E0130,
                           "patterns aren't allowed in foreign function declarations");
@@ -1340,4 +1327,3 @@ fn check_method_self_type<RS:RegionScope>(
         _ => {}
     }
 }
-

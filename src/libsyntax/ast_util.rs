@@ -369,7 +369,7 @@ impl<'a, O: IdVisitingOperation> IdVisitor<'a, O> {
             self.operation.visit_id(type_parameter.id)
         }
         for lifetime in generics.lifetimes.iter() {
-            self.operation.visit_id(lifetime.id)
+            self.operation.visit_id(lifetime.lifetime.id)
         }
     }
 }
@@ -636,7 +636,7 @@ pub fn walk_pat(pat: &Pat, it: |&Pat| -> bool) -> bool {
             after.iter().all(|p| walk_pat(&**p, |p| it(p)))
         }
         PatMac(_) => fail!("attempted to analyze unexpanded pattern"),
-        PatWild | PatWildMulti | PatLit(_) | PatRange(_, _) | PatIdent(_, _, _) |
+        PatWild(_) | PatLit(_) | PatRange(_, _) | PatIdent(_, _, _) |
         PatEnum(_, _) => {
             true
         }
