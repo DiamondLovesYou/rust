@@ -1640,7 +1640,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         "x86" => ("i686", false),
         _ => (ARCH, true),
     };
-    let mut pnacl_trans_args = vec!("-O0".to_string());
+    let mut pnacl_trans_args = vec!("-O1".to_string());
     if tls_use_call {
         pnacl_trans_args.push("-mtls-use-call".to_string());
     }
