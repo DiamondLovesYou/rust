@@ -1467,7 +1467,6 @@ pub fn link_pnacl_module(sess: &Session,
     // This function should not be called on non-exe outputs.
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
-    use back::lto;
     use std::io::File;
 
     let llmod = trans.module;
@@ -1782,67 +1781,60 @@ pub fn link_pnacl_module(sess: &Session,
         })
     }
 
-    // EH pass + final LTO:
-    lto::run_passes(sess,
-                    llmod,
-                    tm,
-                    |pm| {
-                        let ap = |s| {
-                            unsafe {
-                                assert!(llvm::LLVMRustAddPass(pm, s));
-                            }
-                        };
-                        "pnacl-sjlj-eh".with_c_str(|s| ap(s) );
-                        "expand-indirectbr".with_c_str(|s| ap(s) );
-                        "lower-expect".with_c_str(|s| ap(s) );
-                        "rewrite-llvm-intrinsic-calls".with_c_str(|s| ap(s) );
-                        "expand-varargs".with_c_str(|s| ap(s) );
-                        "expand-arith-with-overflow".with_c_str(|s| ap(s) );
-                        "expand-constant-expr".with_c_str(|s| ap(s) );
-                        "promote-returned-structures".with_c_str(|s| ap(s) );
-                        "promote-structure-arguments".with_c_str(|s| ap(s) );
-                        "expand-struct-regs".with_c_str(|s| ap(s) );
-                        "nacl-expand-ctors".with_c_str(|s| ap(s) );
-                        "resolve-aliases".with_c_str(|s| ap(s) );
-                        "nacl-expand-tls-constant-expr".with_c_str(|s| ap(s) );
-                        "nacl-expand-tls".with_c_str(|s| ap(s) );
-                        "nacl-global-cleanup".with_c_str(|s| ap(s) );
-                    },
-                    |pm| {
-                        let ap = |s| {
-                            unsafe {
-                                assert!(llvm::LLVMRustAddPass(pm, s));
-                            }
-                        };
-                        "rewrite-pnacl-library-calls".with_c_str(|s| ap(s) );
-                        "expand-byval".with_c_str(|s| ap(s) );
-                        "expand-small-arguments".with_c_str(|s| ap(s) );
-                        "nacl-promote-i1-ops".with_c_str(|s| ap(s) );
-                        "expand-shufflevector".with_c_str(|s| ap(s) );
-                        "globalize-constant-vectors".with_c_str(|s| ap(s) );
-                        "constant-insert-extract-element-index".with_c_str(|s| ap(s) );
-                        "fix-vector-load-store-alignment".with_c_str(|s| ap(s) );
-                        "canonicalize-mem-intrinsics".with_c_str(|s| ap(s) );
-                        "constmerge".with_c_str(|s| ap(s) );
-                        "flatten-globals".with_c_str(|s| ap(s) );
-                        "expand-constant-expr".with_c_str(|s| ap(s) );
-                        "nacl-promote-ints".with_c_str(|s| ap(s) );
-                        "expand-getelementptr".with_c_str(|s| ap(s) );
-                        // This MUST be in the post-opt set of passes. Otherwise
-                        // the LTO passes will reorder the calls to
-                        // llvm.nacl.atomic.*, not realizing the nature of the
-                        // atomic operations.
-                        "nacl-rewrite-atomics".with_c_str(|s| ap(s) );
-                        "expand-struct-regs".with_c_str(|s| ap(s) );
-                        "remove-asm-memory".with_c_str(|s| ap(s) );
-                        "simplify-allocas".with_c_str(|s| ap(s) );
-                        "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
-                        "combine-noop-casts".with_c_str(|s| ap(s) );
-                        "expand-constant-expr".with_c_str(|s| ap(s) );
-                        "strip-dead-prototypes".with_c_str(|s| ap(s) );
-                        "die".with_c_str(|s| ap(s) );
-                        "dce".with_c_str(|s| ap(s) );
-                    });
+    unsafe {
+        let pm = llvm::LLVMCreatePassManager();
+        llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
+
+        let ap = |s| {
+            assert!(llvm::LLVMRustAddPass(pm, s));
+        };
+
+        "pnacl-sjlj-eh".with_c_str(|s| ap(s) );
+        "expand-indirectbr".with_c_str(|s| ap(s) );
+        "lower-expect".with_c_str(|s| ap(s) );
+        "rewrite-llvm-intrinsic-calls".with_c_str(|s| ap(s) );
+        "expand-varargs".with_c_str(|s| ap(s) );
+        "expand-arith-with-overflow".with_c_str(|s| ap(s) );
+        "expand-constant-expr".with_c_str(|s| ap(s) );
+        "promote-returned-structures".with_c_str(|s| ap(s) );
+        "promote-structure-arguments".with_c_str(|s| ap(s) );
+        "expand-struct-regs".with_c_str(|s| ap(s) );
+        "nacl-expand-ctors".with_c_str(|s| ap(s) );
+        "resolve-aliases".with_c_str(|s| ap(s) );
+        "nacl-expand-tls-constant-expr".with_c_str(|s| ap(s) );
+        "nacl-expand-tls".with_c_str(|s| ap(s) );
+        "nacl-global-cleanup".with_c_str(|s| ap(s) );
+
+        "rewrite-pnacl-library-calls".with_c_str(|s| ap(s) );
+        "expand-byval".with_c_str(|s| ap(s) );
+        "expand-small-arguments".with_c_str(|s| ap(s) );
+        "nacl-promote-i1-ops".with_c_str(|s| ap(s) );
+        "expand-shufflevector".with_c_str(|s| ap(s) );
+        "globalize-constant-vectors".with_c_str(|s| ap(s) );
+        "constant-insert-extract-element-index".with_c_str(|s| ap(s) );
+        "fix-vector-load-store-alignment".with_c_str(|s| ap(s) );
+        "canonicalize-mem-intrinsics".with_c_str(|s| ap(s) );
+        "constmerge".with_c_str(|s| ap(s) );
+        "flatten-globals".with_c_str(|s| ap(s) );
+        "expand-constant-expr".with_c_str(|s| ap(s) );
+        "nacl-promote-ints".with_c_str(|s| ap(s) );
+        "expand-getelementptr".with_c_str(|s| ap(s) );
+        "nacl-rewrite-atomics".with_c_str(|s| ap(s) );
+        "expand-struct-regs".with_c_str(|s| ap(s) );
+        "remove-asm-memory".with_c_str(|s| ap(s) );
+        "simplify-allocas".with_c_str(|s| ap(s) );
+        "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
+        "combine-noop-casts".with_c_str(|s| ap(s) );
+        "expand-constant-expr".with_c_str(|s| ap(s) );
+        "strip-dead-prototypes".with_c_str(|s| ap(s) );
+        "die".with_c_str(|s| ap(s) );
+        "dce".with_c_str(|s| ap(s) );
+
+        time(sess.time_passes(), "PNaCl simplification passes", (),
+             |()| llvm::LLVMRunPassManager(pm, llmod) );
+
+        llvm::LLVMDisposePassManager(pm);
+    }
 
     unsafe {
         llvm::LLVMRustDisposeTargetMachine(tm);
