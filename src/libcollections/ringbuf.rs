@@ -139,6 +139,8 @@ impl<T> RingBuf<T> {
     /// # Example
     ///
     /// ```rust
+    /// #![allow(deprecated)]
+    ///
     /// use std::collections::RingBuf;
     ///
     /// let mut buf = RingBuf::new();
@@ -147,6 +149,7 @@ impl<T> RingBuf<T> {
     /// buf.push(5);
     /// assert_eq!(buf.get(1), &4);
     /// ```
+    #[deprecated = "prefer using indexing, e.g., ringbuf[0]"]
     pub fn get<'a>(&'a self, i: uint) -> &'a T {
         let idx = self.raw_index(i);
         match *self.elts.get(idx) {
@@ -169,7 +172,7 @@ impl<T> RingBuf<T> {
     /// buf.push(4);
     /// buf.push(5);
     /// *buf.get_mut(1) = 7;
-    /// assert_eq!(buf.get(1), &7);
+    /// assert_eq!(buf[1], 7);
     /// ```
     pub fn get_mut<'a>(&'a mut self, i: uint) -> &'a mut T {
         let idx = self.raw_index(i);
@@ -195,8 +198,8 @@ impl<T> RingBuf<T> {
     /// buf.push(4);
     /// buf.push(5);
     /// buf.swap(0, 2);
-    /// assert_eq!(buf.get(0), &5);
-    /// assert_eq!(buf.get(2), &3);
+    /// assert_eq!(buf[0], 5);
+    /// assert_eq!(buf[2], 3);
     /// ```
     pub fn swap(&mut self, i: uint, j: uint) {
         assert!(i < self.len());
@@ -403,11 +406,11 @@ impl<'a, T> ExactSize<&'a mut T> for MutItems<'a, T> {}
 fn grow<T>(nelts: uint, loptr: &mut uint, elts: &mut Vec<Option<T>>) {
     assert_eq!(nelts, elts.len());
     let lo = *loptr;
-    let newlen = nelts * 2;
-    elts.reserve(newlen);
+    elts.reserve(nelts * 2);
+    let newlen = elts.capacity();
 
     /* fill with None */
-    for _ in range(elts.len(), elts.capacity()) {
+    for _ in range(elts.len(), newlen) {
         elts.push(None);
     }
 
@@ -475,6 +478,21 @@ impl<S: Writer, A: Hash<S>> Hash<S> for RingBuf<A> {
         }
     }
 }
+
+impl<A> Index<uint, A> for RingBuf<A> {
+    #[inline]
+    fn index<'a>(&'a self, i: &uint) -> &'a A {
+        self.get(*i)
+    }
+}
+
+// FIXME(#12825) Indexing will always try IndexMut first and that causes issues.
+/*impl<A> IndexMut<uint, A> for RingBuf<A> {
+    #[inline]
+    fn index_mut<'a>(&'a mut self, index: &uint) -> &'a mut A {
+        self.get_mut(*index)
+    }
+}*/
 
 impl<A> FromIterator<A> for RingBuf<A> {
     fn from_iter<T: Iterator<A>>(iterator: T) -> RingBuf<A> {
@@ -653,6 +671,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_index() {
+        let mut deq = RingBuf::new();
+        for i in range(1u, 4) {
+            deq.push_front(i);
+        }
+        assert_eq!(deq[1], 2);
+    }
+
+    #[test]
+    #[should_fail]
+    fn test_index_out_of_bounds() {
+        let mut deq = RingBuf::new();
+        for i in range(1u, 4) {
+            deq.push_front(i);
+        }
+        deq[3];
+    }
+
     #[bench]
     fn bench_new(b: &mut test::Bencher) {
         b.iter(|| {
@@ -748,6 +785,47 @@ mod tests {
         let mut d = RingBuf::with_capacity(50);
         d.push_back(1i);
         assert_eq!(d.len(), 1);
+    }
+
+    #[test]
+    fn test_with_capacity_non_power_two() {
+        let mut d3 = RingBuf::with_capacity(3);
+        d3.push(1i);
+
+        // X = None, | = lo
+        // [|1, X, X]
+        assert_eq!(d3.pop_front(), Some(1));
+        // [X, |X, X]
+        assert_eq!(d3.front(), None);
+
+        // [X, |3, X]
+        d3.push(3);
+        // [X, |3, 6]
+        d3.push(6);
+        // [X, X, |6]
+        assert_eq!(d3.pop_front(), Some(3));
+
+        // Pushing the lo past half way point to trigger
+        // the 'B' scenario for growth
+        // [9, X, |6]
+        d3.push(9);
+        // [9, 12, |6]
+        d3.push(12);
+
+        d3.push(15);
+        // There used to be a bug here about how the
+        // RingBuf made growth assumptions about the
+        // underlying Vec which didn't hold and lead
+        // to corruption.
+        // (Vec grows to next power of two)
+        //good- [9, 12, 15, X, X, X, X, |6]
+        //bug-  [15, 12, X, X, X, |6, X, X]
+        assert_eq!(d3.pop_front(), Some(6));
+
+        // Which leads us to the following state which
+        // would be a failure case.
+        //bug-  [15, 12, X, X, X, X, |X, X]
+        assert_eq!(d3.front(), Some(&9));
     }
 
     #[test]

@@ -18,6 +18,8 @@
 // ignore-nacl no libgreen
 
 #![feature(macro_rules)]
+#![reexport_test_harness_main = "test_main"]
+
 extern crate libc;
 
 extern crate native;
@@ -57,7 +59,7 @@ macro_rules! iotest (
 
 #[cfg(test)] #[start]
 fn start(argc: int, argv: *const *const u8) -> int {
-    green::start(argc, argv, rustuv::event_loop, __test::main)
+    green::start(argc, argv, rustuv::event_loop, test_main)
 }
 
 iotest!(fn test_destroy_once() {
@@ -76,7 +78,7 @@ pub fn sleeper() -> Process {
 pub fn sleeper() -> Process {
     // There's a `timeout` command on windows, but it doesn't like having
     // its output piped, so instead just ping ourselves a few times with
-    // gaps inbetweeen so we're sure this process is alive for awhile
+    // gaps in between so we're sure this process is alive for awhile
     Command::new("ping").arg("127.0.0.1").arg("-n").arg("1000").spawn().unwrap()
 }
 

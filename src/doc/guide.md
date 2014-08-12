@@ -27,26 +27,26 @@ Sound good? Let's go!
 # Installing Rust
 
 The first step to using Rust is to install it! There are a number of ways to
-install Rust, but the easiest is to use the the `rustup` script. If you're on
+install Rust, but the easiest is to use the `rustup` script. If you're on
 Linux or a Mac, all you need to do is this (note that you don't need to type
 in the `$`s, they just indicate the start of each command):
 
 ```{ignore}
-$ curl -s http://www.rust-lang.org/rustup.sh | sudo sh
+$ curl -s https://static.rust-lang.org/rustup.sh | sudo sh
 ```
 
 (If you're concerned about `curl | sudo sh`, please keep reading. Disclaimer
 below.)
 
 If you're on Windows, please [download this .exe and run
-it](http://static.rust-lang.org/dist/rust-nightly-install.exe).
+it](https://static.rust-lang.org/dist/rust-nightly-install.exe).
 
 If you decide you don't want Rust anymore, we'll be a bit sad, but that's okay.
 Not every programming language is great for everyone. Just pass an argument to
 the script:
 
 ```{ignore}
-$ curl -s http://www.rust-lang.org/rustup.sh | sudo sh -s -- --uninstall
+$ curl -s https://static.rust-lang.org/rustup.sh | sudo sh -s -- --uninstall
 ```
 
 If you used the Windows installer, just re-run the `.exe` and it will give you
@@ -120,7 +120,7 @@ to make a projects directory in my home directory, and keep all my projects
 there. Rust does not care where your code lives.
 
 This actually leads to one other concern we should address: this tutorial will
-assume that you have basic familiarity with the command-line. Rust does not
+assume that you have basic familiarity with the command line. Rust does not
 require that you know a whole ton about the command line, but until the
 language is in a more finished state, IDE support is spotty. Rust makes no
 specific demands on your editing tooling, or where your code lives.
@@ -452,7 +452,7 @@ what you need, so it's not verboten.
 
 Let's get back to bindings. Rust variable bindings have one more aspect that
 differs from other languages: bindings are required to be initialized with a
-value before you're allowed to use it. If we try...
+value before you're allowed to use them. If we try...
 
 ```{ignore}
 let x;
@@ -1341,7 +1341,7 @@ computer science: naming things, cache invalidation, and off-by-one errors."
 The joke, of course, being that the setup says "two hard problems" but then
 lists three things. This happens quite a bit with "C style" `for` loops.
 
-We'll talk more about `for` when we cover **vector**s, later in the Guide.
+We'll talk more about `for` when we cover **iterator**s, later in the Guide.
 
 ## `while`
 
@@ -1427,11 +1427,6 @@ for x in range(0i, 10i) {
 
 Both `continue` and `break` are valid in both kinds of loops.
 
-We have now learned all of the most basic Rust concepts. We're ready to start
-building our guessing game, but we need to know how to do one last thing first:
-get input from the keyboard. You can't have a guessing game without the ability
-to guess!
-
 # Strings
 
 Strings are an important concept for any programmer to master. Rust's string
@@ -1511,6 +1506,76 @@ than you are used to, if you come from a scripting language, but when the
 low-level details matter, they really matter. Just remember that `String`s
 allocate memory and control their data, while `&str`s are a reference to
 another string, and you'll be all set.
+
+# Vectors
+
+Like many programming languages, Rust has a list type for when you want a list
+of things. But similar to strings, Rust has different types to represent this
+idea: `Vec<T>` (a 'vector'), `[T, .. N]` (an 'array'), and `&[T]` (a 'slice').
+Whew!
+
+Vectors are similar to `String`s: they have a dynamic length, and they
+allocate enough memory to fit. You can create a vector with the `vec!` macro:
+
+```{rust}
+let nums = vec![1i, 2i, 3i];
+```
+
+Notice that unlike the `println!` macro we've used in the past, we use square
+brackets (`[]`) with `vec!`. Rust allows you to use either in either situation,
+this is just convention.
+
+You can create an array with just square brackets:
+
+```{rust}
+let nums = [1i, 2i, 3i];
+```
+
+So what's the difference? An array has a fixed size, so you can't add or
+subtract elements:
+
+```{rust,ignore}
+let mut nums = vec![1i, 2i, 3i];
+nums.push(4i); // works
+
+let mut nums = [1i, 2i, 3i];
+nums.push(4i); //  error: type `[int, .. 3]` does not implement any method
+               // in scope named `push`
+```
+
+The `push()` method lets you append a value to the end of the vector. But
+since arrays have fixed sizes, adding an element doesn't make any sense.
+You can see how it has the exact type in the error message: `[int, .. 3]`.
+An array of `int`s, with length 3.
+
+Similar to `&str`, a slice is a reference to another array. We can get a
+slice from a vector by using the `as_slice()` method:
+
+```{rust}
+let vec = vec![1i, 2i, 3i];
+let slice = vec.as_slice();
+```
+
+All three types implement an `iter()` method, which returns an iterator. We'll
+talk more about the details of iterators later, but for now, the `iter()` method
+allows you to write a `for` loop that prints out the contents of a vector, array,
+or slice:
+
+```{rust}
+let vec = vec![1i, 2i, 3i];
+
+for i in vec.iter() {
+    println!("{}", i);
+}
+```
+
+This code will print each number in order, on its own line.
+
+There's a whole lot more to vectors, but that's enough to get started. We have
+now learned all of the most basic Rust concepts. We're ready to start building
+our guessing game, but we need to know how to do one last thing first: get
+input from the keyboard. You can't have a guessing game without the ability to
+guess!
 
 # Standard Input
 
@@ -2090,7 +2155,7 @@ In this case, I happen to prefer the latter, and in the `random()` case, I prefe
 the former. I think the nested `<>`s make the first option especially ugly and
 a bit harder to read.
 
-Anyway, with us now convering our input to a number, our code looks like this:
+Anyway, with us now converting our input to a number, our code looks like this:
 
 ```{rust,ignore}
 use std::io;
@@ -2281,7 +2346,7 @@ change that by adding loops!
 
 ## Looping
 
-As we already discussed, the `loop` key word gives us an infinite loop. So
+As we already discussed, the `loop` keyword gives us an infinite loop. So
 let's add that in:
 
 ```{rust,no_run}
@@ -4099,7 +4164,7 @@ fn inverse(x: f64) -> Result<f64, String> {
 ```
 
 We don't want to take the inverse of zero, so we check to make sure that we
-weren't passed one. If we weren't, then we return an `Err`, with a message. If
+weren't passed zero. If we were, then we return an `Err`, with a message. If
 it's okay, we return an `Ok`, with the answer.
 
 Why does this matter? Well, remember how `match` does exhaustive matches?

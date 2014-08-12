@@ -51,7 +51,14 @@ pub fn eof() -> IoError {
         detail: None,
     }
 }
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(windows)]
+pub fn ms_to_timeval(ms: u64) -> libc::timeval {
+    libc::timeval {
+        tv_sec: (ms / 1000) as libc::c_long,
+        tv_usec: ((ms % 1000) * 1000) as libc::c_long,
+    }
+}
+#[cfg(not(windows), not(target_os = "nacl", target_libc = "newlib"))]
 pub fn ms_to_timeval(ms: u64) -> libc::timeval {
     libc::timeval {
         tv_sec: (ms / 1000) as libc::time_t,
