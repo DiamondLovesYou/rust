@@ -1633,7 +1633,6 @@ pub fn link_pnacl_module(sess: &Session,
             llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
         }
     }
-    
 
     // Some globals in the bitcode from PNaCl have what is considered invalid
     // linkage in our LLVM (their LLVM is old). Fortunately, all linkage types
@@ -1880,7 +1879,7 @@ pub fn link_pnacl_module(sess: &Session,
             // Strip unsupported metadata:
             "strip-metadata".with_c_str(|s| ap(s) );
             "nacl-strip-attributes".with_c_str(|s| ap(s) );
-            
+
             if !sess.no_verify() {
                 "verify-pnaclabi-module".with_c_str(|s| ap(s) );
                 "verify-pnaclabi-functions".with_c_str(|s| ap(s) );

@@ -1644,10 +1644,11 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     if tls_use_call {
         pnacl_trans_args.push("-mtls-use-call".to_string());
     }
-    let pnacl_trans_args = pnacl_trans_args.append(vec!(format!("-mtriple={}-none-nacl-gnu", arch),
-                                                        "-filetype=obj".to_string(),
-                                                        format!("-o={}", obj_path.display()),
-                                                        format!("{}", pexe_path.display())).as_slice());
+    let pnacl_trans_args = pnacl_trans_args
+        .append(vec!(format!("-mtriple={}-none-nacl-gnu", arch),
+                     "-filetype=obj".to_string(),
+                     format!("-o={}", obj_path.display()),
+                     format!("{}", pexe_path.display())).as_slice());
 
     match program_output(config,
                          testfile,
@@ -1759,8 +1760,14 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
             Ok(status) => {
                 return ProcResResult(ProcRes {
                     status: status,
-                    stdout: String::from_utf8(process.stdout.get_mut_ref().read_to_end().unwrap()).unwrap(),
-                    stderr: String::from_utf8(process.stderr.get_mut_ref().read_to_end().unwrap()).unwrap(),
+                    stdout: String::from_utf8(process.stdout
+                                              .get_mut_ref()
+                                              .read_to_end()
+                                              .unwrap()).unwrap(),
+                    stderr: String::from_utf8(process.stderr
+                                              .get_mut_ref()
+                                              .read_to_end()
+                                              .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
                                           sel_ldr.display().as_maybe_owned().as_slice(),
                                           sel_ldr_args.as_slice()),
@@ -1780,8 +1787,14 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
             Ok(status) => {
                 return ProcResResult(ProcRes {
                     status: status,
-                    stdout: String::from_utf8(process.stdout.get_mut_ref().read_to_end().unwrap()).unwrap(),
-                    stderr: String::from_utf8(process.stderr.get_mut_ref().read_to_end().unwrap()).unwrap(),
+                    stdout: String::from_utf8(process.stdout
+                                              .get_mut_ref()
+                                              .read_to_end()
+                                              .unwrap()).unwrap(),
+                    stderr: String::from_utf8(process.stderr
+                                              .get_mut_ref()
+                                              .read_to_end()
+                                              .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
                                           sel_ldr.display().as_maybe_owned().as_slice(),
                                           sel_ldr_args.as_slice()),
@@ -1800,7 +1813,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
             cmdline: make_cmdline("",
                                   sel_ldr.display().as_maybe_owned().as_slice(),
                                   sel_ldr_args.as_slice()),
-        });        
+        });
     } else {
         return ProcessResult(process);
     }

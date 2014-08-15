@@ -51,7 +51,15 @@ pub struct ArchiveBuilder<'a> {
 
 impl<'a> Archive<'a> {
     fn new(config: ArchiveConfig<'a>) -> Archive<'a> {
-        let ArchiveConfig { handler, dst, lib_search_paths, os, gold_plugin, maybe_ar_prog } = config;
+        let ArchiveConfig {
+            handler,
+            dst,
+            lib_search_paths,
+            os,
+            gold_plugin,
+            maybe_ar_prog
+        } = config;
+
         Archive {
             handler: handler,
             dst: dst.clone(),

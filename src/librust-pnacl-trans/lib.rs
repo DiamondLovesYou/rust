@@ -67,7 +67,6 @@ fn optgroups() -> Vec<OptGroup> {
          optmulti("", "raw", "The specified bitcodes have had none of the usual PNaCl IR \
                               legalization passes run on them", ""),
          optflag("", "all-raw", "All input bitcodes are of raw form"))
-        
 }
 fn fatal<T: Str + Show>(msg: T) -> ! {
     println!("error: {}", msg);
@@ -145,7 +144,7 @@ pub fn main() {
             .iter()
             .map(|i| (i.clone(), all_raw) )
             .collect();
-    
+
     let output = matches.opt_str("o").unwrap();
     let ctxt = unsafe { llvm::LLVMContextCreate() };
 
@@ -253,7 +252,7 @@ pub fn main() {
         llvm::LLVMRustSetLLVMOptions(llvm_args.len() as libc::c_int,
                                      llvm_args.as_ptr());
     }
-    let tm = unsafe {                             
+    let tm = unsafe {
         triple.with_c_str(|t| {
             "generic".with_c_str(|cpu| {
                 "".with_c_str(|features| {
@@ -285,7 +284,9 @@ pub fn main() {
                 llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
                 llvm::LLVMRustAddLibraryInfo(pm, llmod, false);
 
-                "combine-vector-instructions".with_c_str(|s| assert!(llvm::LLVMRustAddPass(pm, s)) );
+                "combine-vector-instructions".with_c_str(|s| {
+                    assert!(llvm::LLVMRustAddPass(pm, s))
+                });
 
                 let out = format!("{}.o", i);
 
