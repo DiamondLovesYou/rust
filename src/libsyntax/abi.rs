@@ -12,7 +12,7 @@ use std::fmt;
 
 #[deriving(PartialEq)]
 pub enum Os {
-    OsWin32,
+    OsWindows,
     OsMacos,
     OsLinux,
     OsAndroid,
@@ -133,7 +133,7 @@ impl Abi {
         // Transform this ABI as appropriate for the requested os/arch
         // combination.
         Some(match (*self, os, arch) {
-            (System, OsWin32, X86) => Stdcall,
+            (System, OsWindows, X86) => Stdcall,
             (System, _, _) => C,
             (me, _, _) => me,
         })
@@ -156,7 +156,7 @@ impl fmt::Show for Os {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             OsLinux => "linux".fmt(f),
-            OsWin32 => "win32".fmt(f),
+            OsWindows => "windows".fmt(f),
             OsMacos => "macos".fmt(f),
             OsiOS => "ios".fmt(f),
             OsAndroid => "android".fmt(f),
@@ -205,9 +205,9 @@ fn pick_uniplatform() {
     assert_eq!(Stdcall.for_target(OsLinux, X86), Some(Stdcall));
     assert_eq!(Stdcall.for_target(OsLinux, Arm), None);
     assert_eq!(System.for_target(OsLinux, X86), Some(C));
-    assert_eq!(System.for_target(OsWin32, X86), Some(Stdcall));
-    assert_eq!(System.for_target(OsWin32, X86_64), Some(C));
-    assert_eq!(System.for_target(OsWin32, Arm), Some(C));
-    assert_eq!(Stdcall.for_target(OsWin32, X86), Some(Stdcall));
-    assert_eq!(Stdcall.for_target(OsWin32, X86_64), Some(Stdcall));
+    assert_eq!(System.for_target(OsWindows, X86), Some(Stdcall));
+    assert_eq!(System.for_target(OsWindows, X86_64), Some(C));
+    assert_eq!(System.for_target(OsWindows, Arm), Some(C));
+    assert_eq!(Stdcall.for_target(OsWindows, X86), Some(Stdcall));
+    assert_eq!(Stdcall.for_target(OsWindows, X86_64), Some(Stdcall));
 }

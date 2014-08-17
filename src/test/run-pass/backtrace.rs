@@ -9,7 +9,7 @@
 // except according to those terms.
 
 // no-pretty-expanded FIXME #15189
-// ignore-win32 FIXME #13259
+// ignore-windows FIXME #13259
 
 // backtraces aren't supported for nexe's, yet.
 // ignore-nacl

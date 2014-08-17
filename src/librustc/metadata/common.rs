@@ -77,7 +77,7 @@ pub static tag_crate_dep_hash: uint = 0x1e;
 
 pub static tag_mod_impl: uint = 0x1f;
 
-pub static tag_item_trait_method: uint = 0x20;
+pub static tag_item_trait_item: uint = 0x20;
 
 pub static tag_item_trait_ref: uint = 0x21;
 pub static tag_item_super_trait_ref: uint = 0x22;
@@ -95,14 +95,14 @@ pub static tag_item_field_origin: uint = 0x29;
 
 pub static tag_item_variances: uint = 0x2a;
 /*
-  trait items contain tag_item_trait_method elements,
-  impl items contain tag_item_impl_method elements, and classes
+  trait items contain tag_item_trait_item elements,
+  impl items contain tag_item_impl_item elements, and classes
   have both. That's because some code treats classes like traits,
   and other code treats them like impls. Because classes can contain
-  both, tag_item_trait_method and tag_item_impl_method have to be two
+  both, tag_item_trait_item and tag_item_impl_item have to be two
   different tags.
  */
-pub static tag_item_impl_method: uint = 0x30;
+pub static tag_item_impl_item: uint = 0x30;
 pub static tag_item_trait_method_explicit_self: uint = 0x31;
 
 
@@ -139,11 +139,12 @@ pub enum astencode_tag { // Reserves 0x40 -- 0x5f
     tag_table_adjustments = 0x51,
     tag_table_moves_map = 0x52,
     tag_table_capture_map = 0x53,
-    tag_table_unboxed_closure_type = 0x54,
+    tag_table_unboxed_closures = 0x54,
     tag_table_upvar_borrow_map = 0x55,
+    tag_table_capture_modes = 0x56,
 }
 static first_astencode_tag: uint = tag_ast as uint;
-static last_astencode_tag: uint = tag_table_upvar_borrow_map as uint;
+static last_astencode_tag: uint = tag_table_capture_modes as uint;
 impl astencode_tag {
     pub fn from_uint(value : uint) -> Option<astencode_tag> {
         let is_a_tag = first_astencode_tag <= value && value <= last_astencode_tag;
@@ -153,9 +154,11 @@ impl astencode_tag {
     }
 }
 
-pub static tag_item_trait_method_sort: uint = 0x60;
+pub static tag_item_trait_item_sort: uint = 0x60;
 
-pub static tag_item_impl_type_basename: uint = 0x61;
+pub static tag_item_trait_parent_sort: uint = 0x61;
+
+pub static tag_item_impl_type_basename: uint = 0x62;
 
 pub static tag_crate_triple: uint = 0x66;
 
@@ -228,9 +231,11 @@ pub static tag_region_param_def_index: uint = 0x94;
 pub static tag_unboxed_closures: uint = 0x95;
 pub static tag_unboxed_closure: uint = 0x96;
 pub static tag_unboxed_closure_type: uint = 0x97;
+pub static tag_unboxed_closure_kind: uint = 0x98;
 
-pub static tag_struct_fields: uint = 0x98;
-pub static tag_struct_field: uint = 0x99;
-pub static tag_struct_field_id: uint = 0x9a;
+pub static tag_struct_fields: uint = 0x99;
+pub static tag_struct_field: uint = 0x9a;
+pub static tag_struct_field_id: uint = 0x9b;
 
-pub static tag_attribute_is_sugared_doc: uint = 0x9b;
+pub static tag_attribute_is_sugared_doc: uint = 0x9c;
+

@@ -18,14 +18,15 @@ use lint;
 use middle::const_eval;
 use middle::def;
 use middle::dependency_format;
+use middle::freevars::CaptureModeMap;
+use middle::freevars;
 use middle::lang_items::{FnMutTraitLangItem, OpaqueStructLangItem};
 use middle::lang_items::{TyDescStructLangItem, TyVisitorTraitLangItem};
-use middle::freevars;
 use middle::resolve;
 use middle::resolve_lifetime;
-use middle::subst;
-use middle::subst::{Subst, Substs, VecPerParamSpace};
 use middle::stability;
+use middle::subst::{Subst, Substs, VecPerParamSpace};
+use middle::subst;
 use middle::ty;
 use middle::typeck;
 use middle::typeck::MethodCall;
@@ -75,9 +76,62 @@ pub struct field {
 }
 
 #[deriving(Clone)]
-pub enum MethodContainer {
+pub enum ImplOrTraitItemContainer {
     TraitContainer(ast::DefId),
     ImplContainer(ast::DefId),
+}
+
+impl ImplOrTraitItemContainer {
+    pub fn id(&self) -> ast::DefId {
+        match *self {
+            TraitContainer(id) => id,
+            ImplContainer(id) => id,
+        }
+    }
+}
+
+#[deriving(Clone)]
+pub enum ImplOrTraitItem {
+    MethodTraitItem(Rc<Method>),
+}
+
+impl ImplOrTraitItem {
+    fn id(&self) -> ImplOrTraitItemId {
+        match *self {
+            MethodTraitItem(ref method) => MethodTraitItemId(method.def_id),
+        }
+    }
+
+    pub fn def_id(&self) -> ast::DefId {
+        match *self {
+            MethodTraitItem(ref method) => method.def_id,
+        }
+    }
+
+    pub fn ident(&self) -> ast::Ident {
+        match *self {
+            MethodTraitItem(ref method) => method.ident,
+        }
+    }
+
+    pub fn container(&self) -> ImplOrTraitItemContainer {
+        match *self {
+            MethodTraitItem(ref method) => method.container,
+        }
+    }
+}
+
+#[deriving(Clone)]
+pub enum ImplOrTraitItemId {
+    MethodTraitItemId(ast::DefId),
+}
+
+impl ImplOrTraitItemId {
+    pub fn def_id(&self) -> ast::DefId {
+        match *self {
+            MethodTraitItemId(def_id) => def_id,
+        }
+    }
 }
 
 #[deriving(Clone)]
@@ -88,7 +142,7 @@ pub struct Method {
     pub explicit_self: ExplicitSelfCategory,
     pub vis: ast::Visibility,
     pub def_id: ast::DefId,
-    pub container: MethodContainer,
+    pub container: ImplOrTraitItemContainer,
 
     // If this method is provided, we need to know where it came from
     pub provided_source: Option<ast::DefId>
@@ -101,7 +155,7 @@ impl Method {
                explicit_self: ExplicitSelfCategory,
                vis: ast::Visibility,
                def_id: ast::DefId,
-               container: MethodContainer,
+               container: ImplOrTraitItemContainer,
                provided_source: Option<ast::DefId>)
                -> Method {
        Method {
@@ -273,14 +327,14 @@ pub struct ctxt {
     /// other items.
     pub item_substs: RefCell<NodeMap<ItemSubsts>>,
 
-    /// Maps from a method to the method "descriptor"
-    pub methods: RefCell<DefIdMap<Rc<Method>>>,
+    /// Maps from a trait item to the trait item "descriptor"
+    pub impl_or_trait_items: RefCell<DefIdMap<ImplOrTraitItem>>,
 
-    /// Maps from a trait def-id to a list of the def-ids of its methods
-    pub trait_method_def_ids: RefCell<DefIdMap<Rc<Vec<DefId>>>>,
+    /// Maps from a trait def-id to a list of the def-ids of its trait items
+    pub trait_item_def_ids: RefCell<DefIdMap<Rc<Vec<ImplOrTraitItemId>>>>,
 
-    /// A cache for the trait_methods() routine
-    pub trait_methods_cache: RefCell<DefIdMap<Rc<Vec<Rc<Method>>>>>,
+    /// A cache for the trait_items() routine
+    pub trait_items_cache: RefCell<DefIdMap<Rc<Vec<ImplOrTraitItem>>>>,
 
     pub impl_trait_cache: RefCell<DefIdMap<Option<Rc<ty::TraitRef>>>>,
 
@@ -331,11 +385,11 @@ pub struct ctxt {
     /// Methods in these implementations don't need to be exported.
     pub inherent_impls: RefCell<DefIdMap<Rc<RefCell<Vec<ast::DefId>>>>>,
 
-    /// Maps a DefId of an impl to a list of its methods.
+    /// Maps a DefId of an impl to a list of its items.
     /// Note that this contains all of the impls that we know about,
     /// including ones in other crates. It's not clear that this is the best
     /// way to do it.
-    pub impl_methods: RefCell<DefIdMap<Vec<ast::DefId>>>,
+    pub impl_items: RefCell<DefIdMap<Vec<ImplOrTraitItemId>>>,
 
     /// Set of used unsafe nodes (functions or blocks). Unsafe nodes not
     /// present in this set can be warned about.
@@ -372,7 +426,7 @@ pub struct ctxt {
 
     /// Records the type of each unboxed closure. The def ID is the ID of the
     /// expression defining the unboxed closure.
-    pub unboxed_closure_types: RefCell<DefIdMap<ClosureTy>>,
+    pub unboxed_closures: RefCell<DefIdMap<UnboxedClosure>>,
 
     pub node_lint_levels: RefCell<HashMap<(ast::NodeId, lint::LintId),
                                           lint::LevelSource>>,
@@ -384,6 +438,9 @@ pub struct ctxt {
 
     /// Maps any item's def-id to its stability index.
     pub stability: RefCell<stability::Index>,
+
+    /// Maps closures to their capture clauses.
+    pub capture_modes: RefCell<CaptureModeMap>,
 }
 
 pub enum tbox_flag {
@@ -741,7 +798,7 @@ pub enum sty {
     ty_closure(Box<ClosureTy>),
     ty_trait(Box<TyTrait>),
     ty_struct(DefId, Substs),
-    ty_unboxed_closure(DefId),
+    ty_unboxed_closure(DefId, Region),
     ty_tup(Vec<t>),
 
     ty_param(ParamTy), // type parameter
@@ -1052,11 +1109,27 @@ pub type type_cache = RefCell<DefIdMap<Polytype>>;
 
 pub type node_type_table = RefCell<HashMap<uint,t>>;
 
+/// Records information about each unboxed closure.
+pub struct UnboxedClosure {
+    /// The type of the unboxed closure.
+    pub closure_type: ClosureTy,
+    /// The kind of unboxed closure this is.
+    pub kind: UnboxedClosureKind,
+}
+
+#[deriving(PartialEq, Eq)]
+pub enum UnboxedClosureKind {
+    FnUnboxedClosureKind,
+    FnMutUnboxedClosureKind,
+    FnOnceUnboxedClosureKind,
+}
+
 pub fn mk_ctxt(s: Session,
                dm: resolve::DefMap,
                named_region_map: resolve_lifetime::NamedRegionMap,
                map: ast_map::Map,
                freevars: freevars::freevar_map,
+               capture_modes: freevars::CaptureModeMap,
                region_maps: middle::region::RegionMaps,
                lang_items: middle::lang_items::LanguageItems,
                stability: stability::Index)
@@ -1084,9 +1157,9 @@ pub fn mk_ctxt(s: Session,
         tc_cache: RefCell::new(HashMap::new()),
         ast_ty_to_ty_cache: RefCell::new(NodeMap::new()),
         enum_var_cache: RefCell::new(DefIdMap::new()),
-        methods: RefCell::new(DefIdMap::new()),
-        trait_method_def_ids: RefCell::new(DefIdMap::new()),
-        trait_methods_cache: RefCell::new(DefIdMap::new()),
+        impl_or_trait_items: RefCell::new(DefIdMap::new()),
+        trait_item_def_ids: RefCell::new(DefIdMap::new()),
+        trait_items_cache: RefCell::new(DefIdMap::new()),
         impl_trait_cache: RefCell::new(DefIdMap::new()),
         ty_param_defs: RefCell::new(NodeMap::new()),
         adjustments: RefCell::new(NodeMap::new()),
@@ -1100,7 +1173,7 @@ pub fn mk_ctxt(s: Session,
         destructors: RefCell::new(DefIdSet::new()),
         trait_impls: RefCell::new(DefIdMap::new()),
         inherent_impls: RefCell::new(DefIdMap::new()),
-        impl_methods: RefCell::new(DefIdMap::new()),
+        impl_items: RefCell::new(DefIdMap::new()),
         used_unsafe: RefCell::new(NodeSet::new()),
         used_mut_nodes: RefCell::new(NodeSet::new()),
         impl_vtables: RefCell::new(DefIdMap::new()),
@@ -1112,10 +1185,11 @@ pub fn mk_ctxt(s: Session,
         method_map: RefCell::new(FnvHashMap::new()),
         vtable_map: RefCell::new(FnvHashMap::new()),
         dependency_formats: RefCell::new(HashMap::new()),
-        unboxed_closure_types: RefCell::new(DefIdMap::new()),
+        unboxed_closures: RefCell::new(DefIdMap::new()),
         node_lint_levels: RefCell::new(HashMap::new()),
         transmute_restrictions: RefCell::new(Vec::new()),
-        stability: RefCell::new(stability)
+        stability: RefCell::new(stability),
+        capture_modes: RefCell::new(capture_modes),
     }
 }
 
@@ -1171,7 +1245,7 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
     }
     match &st {
       &ty_nil | &ty_bool | &ty_char | &ty_int(_) | &ty_float(_) | &ty_uint(_) |
-      &ty_str | &ty_unboxed_closure(_) => {}
+      &ty_str => {}
       // You might think that we could just return ty_err for
       // any type containing ty_err as a component, and get
       // rid of the has_ty_err flag -- likewise for ty_bot (with
@@ -1188,6 +1262,7 @@ pub fn mk_t(cx: &ctxt, st: sty) -> t {
               flags |= has_params as uint;
           }
       }
+      &ty_unboxed_closure(_, ref region) => flags |= rflags(*region),
       &ty_infer(_) => flags |= needs_infer as uint,
       &ty_enum(_, ref substs) | &ty_struct(_, ref substs) => {
           flags |= sflags(substs);
@@ -1436,8 +1511,9 @@ pub fn mk_struct(cx: &ctxt, struct_id: ast::DefId, substs: Substs) -> t {
     mk_t(cx, ty_struct(struct_id, substs))
 }
 
-pub fn mk_unboxed_closure(cx: &ctxt, closure_id: ast::DefId) -> t {
-    mk_t(cx, ty_unboxed_closure(closure_id))
+pub fn mk_unboxed_closure(cx: &ctxt, closure_id: ast::DefId, region: Region)
+                          -> t {
+    mk_t(cx, ty_unboxed_closure(closure_id, region))
 }
 
 pub fn mk_var(cx: &ctxt, v: TyVid) -> t { mk_infer(cx, TyVar(v)) }
@@ -1470,8 +1546,8 @@ pub fn maybe_walk_ty(ty: t, f: |t| -> bool) {
     }
     match get(ty).sty {
         ty_nil | ty_bot | ty_bool | ty_char | ty_int(_) | ty_uint(_) | ty_float(_) |
-        ty_str | ty_infer(_) | ty_param(_) | ty_unboxed_closure(_) | ty_err => {
-        }
+        ty_str | ty_infer(_) | ty_param(_) | ty_unboxed_closure(..) |
+        ty_err => {}
         ty_box(ty) | ty_uniq(ty) => maybe_walk_ty(ty, f),
         ty_ptr(ref tm) | ty_rptr(_, ref tm) | ty_vec(ref tm, _) => {
             maybe_walk_ty(tm.ty, f);
@@ -1578,7 +1654,7 @@ pub fn type_is_vec(ty: t) -> bool {
 pub fn type_is_structural(ty: t) -> bool {
     match get(ty).sty {
       ty_struct(..) | ty_tup(_) | ty_enum(..) | ty_closure(_) |
-      ty_vec(_, Some(_)) | ty_unboxed_closure(_) => true,
+      ty_vec(_, Some(_)) | ty_unboxed_closure(..) => true,
       _ => type_is_slice(ty) | type_is_trait(ty)
     }
 }
@@ -2093,10 +2169,13 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
                 apply_lang_items(cx, did, res)
             }
 
-            ty_unboxed_closure(did) => {
+            ty_unboxed_closure(did, r) => {
+                // FIXME(#14449): `borrowed_contents` below assumes `&mut`
+                // unboxed closure.
                 let upvars = unboxed_closure_upvars(cx, did);
                 TypeContents::union(upvars.as_slice(),
-                                    |f| tc_ty(cx, f.ty, cache))
+                                    |f| tc_ty(cx, f.ty, cache)) |
+                    borrowed_contents(r, MutMutable)
             }
 
             ty_tup(ref tys) => {
@@ -2343,7 +2422,7 @@ pub fn is_instantiable(cx: &ctxt, r_ty: t) -> bool {
                 r
             }
 
-            ty_unboxed_closure(did) => {
+            ty_unboxed_closure(did, _) => {
                 let upvars = unboxed_closure_upvars(cx, did);
                 upvars.iter().any(|f| type_requires(cx, seen, r_ty, f.ty))
             }
@@ -2471,7 +2550,7 @@ pub fn is_type_representable(cx: &ctxt, sp: Span, ty: t) -> Representability {
                 r
             }
 
-            ty_unboxed_closure(did) => {
+            ty_unboxed_closure(did, _) => {
                 let upvars = unboxed_closure_upvars(cx, did);
                 find_nonrepresentable(cx,
                                       sp,
@@ -2712,7 +2791,7 @@ pub fn ty_fn_args(fty: t) -> Vec<t> {
 pub fn ty_closure_store(fty: t) -> TraitStore {
     match get(fty).sty {
         ty_closure(ref f) => f.store,
-        ty_unboxed_closure(_) => {
+        ty_unboxed_closure(..) => {
             // Close enough for the purposes of all the callers of this
             // function (which is soon to be deprecated anyhow).
             UniqTraitStore
@@ -3049,11 +3128,19 @@ pub fn method_call_type_param_defs(tcx: &ctxt, origin: typeck::MethodOrigin)
                 Err(s) => tcx.sess.fatal(s.as_slice()),
             }
         }
-        typeck::MethodParam(typeck::MethodParam{trait_id: trt_id,
-                                                method_num: n_mth, ..}) |
-        typeck::MethodObject(typeck::MethodObject{trait_id: trt_id,
-                                                  method_num: n_mth, ..}) => {
-            ty::trait_method(tcx, trt_id, n_mth).generics.types.clone()
+        typeck::MethodParam(typeck::MethodParam{
+            trait_id: trt_id,
+            method_num: n_mth,
+            ..
+        }) |
+        typeck::MethodObject(typeck::MethodObject{
+                trait_id: trt_id,
+                method_num: n_mth,
+                ..
+        }) => {
+            match ty::trait_item(tcx, trt_id, n_mth) {
+                ty::MethodTraitItem(method) => method.generics.types.clone(),
+            }
         }
     }
 }
@@ -3271,8 +3358,9 @@ pub fn field_idx_strict(tcx: &ctxt, name: ast::Name, fields: &[field])
               .collect::<Vec<String>>()).as_slice());
 }
 
-pub fn method_idx(id: ast::Ident, meths: &[Rc<Method>]) -> Option<uint> {
-    meths.iter().position(|m| m.ident == id)
+pub fn impl_or_trait_item_idx(id: ast::Ident, trait_items: &[ImplOrTraitItem])
+                              -> Option<uint> {
+    trait_items.iter().position(|m| m.ident() == id)
 }
 
 /// Returns a vector containing the indices of all type parameters that appear
@@ -3312,7 +3400,7 @@ pub fn ty_sort_string(cx: &ctxt, t: t) -> String {
         ty_struct(id, _) => {
             format!("struct {}", item_path_str(cx, id))
         }
-        ty_unboxed_closure(_) => "closure".to_string(),
+        ty_unboxed_closure(..) => "closure".to_string(),
         ty_tup(_) => "tuple".to_string(),
         ty_infer(TyVar(_)) => "inferred type".to_string(),
         ty_infer(IntVar(_)) => "integral variable".to_string(),
@@ -3514,7 +3602,15 @@ pub fn provided_trait_methods(cx: &ctxt, id: ast::DefId) -> Vec<Rc<Method>> {
                 match item.node {
                     ItemTrait(_, _, _, ref ms) => {
                         let (_, p) = ast_util::split_trait_methods(ms.as_slice());
-                        p.iter().map(|m| method(cx, ast_util::local_def(m.id))).collect()
+                        p.iter()
+                         .map(|m| {
+                            match impl_or_trait_item(
+                                    cx,
+                                    ast_util::local_def(m.id)) {
+                                MethodTraitItem(m) => m,
+                            }
+                         })
+                         .collect()
                     }
                     _ => {
                         cx.sess.bug(format!("provided_trait_methods: `{}` is \
@@ -3566,7 +3662,7 @@ fn lookup_locally_or_in_crate_store<V:Clone>(
     /*!
      * Helper for looking things up in the various maps
      * that are populated during typeck::collect (e.g.,
-     * `cx.methods`, `cx.tcache`, etc).  All of these share
+     * `cx.impl_or_trait_items`, `cx.tcache`, etc).  All of these share
      * the pattern that if the id is local, it should have
      * been loaded into the map by the `typeck::collect` phase.
      * If the def-id is external, then we have to go consult
@@ -3586,40 +3682,47 @@ fn lookup_locally_or_in_crate_store<V:Clone>(
     v
 }
 
-pub fn trait_method(cx: &ctxt, trait_did: ast::DefId, idx: uint) -> Rc<Method> {
-    let method_def_id = *ty::trait_method_def_ids(cx, trait_did).get(idx);
-    ty::method(cx, method_def_id)
+pub fn trait_item(cx: &ctxt, trait_did: ast::DefId, idx: uint)
+                  -> ImplOrTraitItem {
+    let method_def_id = ty::trait_item_def_ids(cx, trait_did).get(idx)
+                                                             .def_id();
+    impl_or_trait_item(cx, method_def_id)
 }
 
-
-pub fn trait_methods(cx: &ctxt, trait_did: ast::DefId) -> Rc<Vec<Rc<Method>>> {
-    let mut trait_methods = cx.trait_methods_cache.borrow_mut();
-    match trait_methods.find_copy(&trait_did) {
-        Some(methods) => methods,
+pub fn trait_items(cx: &ctxt, trait_did: ast::DefId)
+                   -> Rc<Vec<ImplOrTraitItem>> {
+    let mut trait_items = cx.trait_items_cache.borrow_mut();
+    match trait_items.find_copy(&trait_did) {
+        Some(trait_items) => trait_items,
         None => {
-            let def_ids = ty::trait_method_def_ids(cx, trait_did);
-            let methods: Rc<Vec<Rc<Method>>> = Rc::new(def_ids.iter().map(|d| {
-                ty::method(cx, *d)
-            }).collect());
-            trait_methods.insert(trait_did, methods.clone());
-            methods
+            let def_ids = ty::trait_item_def_ids(cx, trait_did);
+            let items: Rc<Vec<ImplOrTraitItem>> =
+                Rc::new(def_ids.iter()
+                               .map(|d| impl_or_trait_item(cx, d.def_id()))
+                               .collect());
+            trait_items.insert(trait_did, items.clone());
+            items
         }
     }
 }
 
-pub fn method(cx: &ctxt, id: ast::DefId) -> Rc<Method> {
-    lookup_locally_or_in_crate_store("methods", id,
-                                     &mut *cx.methods.borrow_mut(), || {
-        Rc::new(csearch::get_method(cx, id))
+pub fn impl_or_trait_item(cx: &ctxt, id: ast::DefId) -> ImplOrTraitItem {
+    lookup_locally_or_in_crate_store("impl_or_trait_items",
+                                     id,
+                                     &mut *cx.impl_or_trait_items
+                                             .borrow_mut(),
+                                     || {
+        csearch::get_impl_or_trait_item(cx, id)
     })
 }
 
-pub fn trait_method_def_ids(cx: &ctxt, id: ast::DefId) -> Rc<Vec<DefId>> {
-    lookup_locally_or_in_crate_store("trait_method_def_ids",
+pub fn trait_item_def_ids(cx: &ctxt, id: ast::DefId)
+                          -> Rc<Vec<ImplOrTraitItemId>> {
+    lookup_locally_or_in_crate_store("trait_item_def_ids",
                                      id,
-                                     &mut *cx.trait_method_def_ids.borrow_mut(),
+                                     &mut *cx.trait_item_def_ids.borrow_mut(),
                                      || {
-        Rc::new(csearch::get_trait_method_def_ids(&cx.sess.cstore, id))
+        Rc::new(csearch::get_trait_item_def_ids(&cx.sess.cstore, id))
     })
 }
 
@@ -3681,7 +3784,7 @@ pub fn ty_to_def_id(ty: t) -> Option<ast::DefId> {
         ty_trait(box TyTrait { def_id: id, .. }) |
         ty_struct(id, _) |
         ty_enum(id, _) |
-        ty_unboxed_closure(id) => Some(id),
+        ty_unboxed_closure(id, _) => Some(id),
         _ => None
     }
 }
@@ -4433,7 +4536,8 @@ pub fn populate_implementations_for_type_if_necessary(tcx: &ctxt,
 
     csearch::each_implementation_for_type(&tcx.sess.cstore, type_id,
             |impl_def_id| {
-        let methods = csearch::get_impl_methods(&tcx.sess.cstore, impl_def_id);
+        let impl_items = csearch::get_impl_items(&tcx.sess.cstore,
+                                                 impl_def_id);
 
         // Record the trait->implementation mappings, if applicable.
         let associated_traits = csearch::get_impl_trait(tcx, impl_def_id);
@@ -4443,14 +4547,21 @@ pub fn populate_implementations_for_type_if_necessary(tcx: &ctxt,
 
         // For any methods that use a default implementation, add them to
         // the map. This is a bit unfortunate.
-        for &method_def_id in methods.iter() {
-            for &source in ty::method(tcx, method_def_id).provided_source.iter() {
-                tcx.provided_method_sources.borrow_mut().insert(method_def_id, source);
+        for impl_item_def_id in impl_items.iter() {
+            let method_def_id = impl_item_def_id.def_id();
+            match impl_or_trait_item(tcx, method_def_id) {
+                MethodTraitItem(method) => {
+                    for &source in method.provided_source.iter() {
+                        tcx.provided_method_sources
+                           .borrow_mut()
+                           .insert(method_def_id, source);
+                    }
+                }
             }
         }
 
         // Store the implementation info.
-        tcx.impl_methods.borrow_mut().insert(impl_def_id, methods);
+        tcx.impl_items.borrow_mut().insert(impl_def_id, impl_items);
 
         // If this is an inherent implementation, record it.
         if associated_traits.is_none() {
@@ -4483,21 +4594,28 @@ pub fn populate_implementations_for_trait_if_necessary(
 
     csearch::each_implementation_for_trait(&tcx.sess.cstore, trait_id,
             |implementation_def_id| {
-        let methods = csearch::get_impl_methods(&tcx.sess.cstore, implementation_def_id);
+        let impl_items = csearch::get_impl_items(&tcx.sess.cstore, implementation_def_id);
 
         // Record the trait->implementation mapping.
         record_trait_implementation(tcx, trait_id, implementation_def_id);
 
         // For any methods that use a default implementation, add them to
         // the map. This is a bit unfortunate.
-        for &method_def_id in methods.iter() {
-            for &source in ty::method(tcx, method_def_id).provided_source.iter() {
-                tcx.provided_method_sources.borrow_mut().insert(method_def_id, source);
+        for impl_item_def_id in impl_items.iter() {
+            let method_def_id = impl_item_def_id.def_id();
+            match impl_or_trait_item(tcx, method_def_id) {
+                MethodTraitItem(method) => {
+                    for &source in method.provided_source.iter() {
+                        tcx.provided_method_sources
+                           .borrow_mut()
+                           .insert(method_def_id, source);
+                    }
+                }
             }
         }
 
         // Store the implementation info.
-        tcx.impl_methods.borrow_mut().insert(implementation_def_id, methods);
+        tcx.impl_items.borrow_mut().insert(implementation_def_id, impl_items);
     });
 
     tcx.populated_external_traits.borrow_mut().insert(trait_id);
@@ -4529,14 +4647,15 @@ pub fn trait_id_of_impl(tcx: &ctxt,
 pub fn impl_of_method(tcx: &ctxt, def_id: ast::DefId)
                        -> Option<ast::DefId> {
     if def_id.krate != LOCAL_CRATE {
-        return match csearch::get_method(tcx, def_id).container {
+        return match csearch::get_impl_or_trait_item(tcx,
+                                                     def_id).container() {
             TraitContainer(_) => None,
             ImplContainer(def_id) => Some(def_id),
         };
     }
-    match tcx.methods.borrow().find_copy(&def_id) {
-        Some(method) => {
-            match method.container {
+    match tcx.impl_or_trait_items.borrow().find_copy(&def_id) {
+        Some(trait_item) => {
+            match trait_item.container() {
                 TraitContainer(_) => None,
                 ImplContainer(def_id) => Some(def_id),
             }
@@ -4545,17 +4664,16 @@ pub fn impl_of_method(tcx: &ctxt, def_id: ast::DefId)
     }
 }
 
-/// If the given def ID describes a method belonging to a trait (either a
+/// If the given def ID describes an item belonging to a trait (either a
 /// default method or an implementation of a trait method), return the ID of
 /// the trait that the method belongs to. Otherwise, return `None`.
-pub fn trait_of_method(tcx: &ctxt, def_id: ast::DefId)
-                       -> Option<ast::DefId> {
+pub fn trait_of_item(tcx: &ctxt, def_id: ast::DefId) -> Option<ast::DefId> {
     if def_id.krate != LOCAL_CRATE {
-        return csearch::get_trait_of_method(&tcx.sess.cstore, def_id, tcx);
+        return csearch::get_trait_of_item(&tcx.sess.cstore, def_id, tcx);
     }
-    match tcx.methods.borrow().find_copy(&def_id) {
-        Some(method) => {
-            match method.container {
+    match tcx.impl_or_trait_items.borrow().find_copy(&def_id) {
+        Some(impl_or_trait_item) => {
+            match impl_or_trait_item.container() {
                 TraitContainer(def_id) => Some(def_id),
                 ImplContainer(def_id) => trait_id_of_impl(tcx, def_id),
             }
@@ -4564,25 +4682,27 @@ pub fn trait_of_method(tcx: &ctxt, def_id: ast::DefId)
     }
 }
 
-/// If the given def ID describes a method belonging to a trait, (either a
+/// If the given def ID describes an item belonging to a trait, (either a
 /// default method or an implementation of a trait method), return the ID of
 /// the method inside trait definition (this means that if the given def ID
 /// is already that of the original trait method, then the return value is
 /// the same).
 /// Otherwise, return `None`.
-pub fn trait_method_of_method(tcx: &ctxt,
-                              def_id: ast::DefId) -> Option<ast::DefId> {
-    let method = match tcx.methods.borrow().find(&def_id) {
+pub fn trait_item_of_item(tcx: &ctxt, def_id: ast::DefId)
+                          -> Option<ImplOrTraitItemId> {
+    let impl_item = match tcx.impl_or_trait_items.borrow().find(&def_id) {
         Some(m) => m.clone(),
         None => return None,
     };
-    let name = method.ident.name;
-    match trait_of_method(tcx, def_id) {
+    let name = match impl_item {
+        MethodTraitItem(method) => method.ident.name,
+    };
+    match trait_of_item(tcx, def_id) {
         Some(trait_did) => {
-            let trait_methods = ty::trait_methods(tcx, trait_did);
-            trait_methods.iter()
-                .position(|m| m.ident.name == name)
-                .map(|idx| ty::trait_method(tcx, trait_did, idx).def_id)
+            let trait_items = ty::trait_items(tcx, trait_did);
+            trait_items.iter()
+                .position(|m| m.ident().name == name)
+                .map(|idx| ty::trait_item(tcx, trait_did, idx).id())
         }
         None => None
     }
@@ -4711,9 +4831,10 @@ pub fn hash_crate_independent(tcx: &ctxt, t: t, svh: &Svh) -> u64 {
             }
             ty_infer(_) => unreachable!(),
             ty_err => byte!(23),
-            ty_unboxed_closure(d) => {
+            ty_unboxed_closure(d, r) => {
                 byte!(24);
                 did(&mut state, d);
+                region(&mut state, r);
             }
         }
     });
@@ -4862,6 +4983,16 @@ impl mc::Typer for ty::ctxt {
     fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow {
         self.upvar_borrow_map.borrow().get_copy(&upvar_id)
     }
+
+    fn capture_mode(&self, closure_expr_id: ast::NodeId)
+                    -> freevars::CaptureMode {
+        self.capture_modes.borrow().get_copy(&closure_expr_id)
+    }
+
+    fn unboxed_closures<'a>(&'a self)
+                        -> &'a RefCell<DefIdMap<UnboxedClosure>> {
+        &self.unboxed_closures
+    }
 }
 
 /// The category of explicit self.
@@ -4903,6 +5034,7 @@ pub fn accumulate_lifetimes_in_type(accumulator: &mut Vec<ty::Region>,
                     UniqTraitStore => {}
                 }
             }
+            ty_unboxed_closure(_, ref region) => accumulator.push(*region),
             ty_nil |
             ty_bot |
             ty_bool |
@@ -4919,7 +5051,6 @@ pub fn accumulate_lifetimes_in_type(accumulator: &mut Vec<ty::Region>,
             ty_tup(_) |
             ty_param(_) |
             ty_infer(_) |
-            ty_unboxed_closure(_) |
             ty_err => {}
         }
     })

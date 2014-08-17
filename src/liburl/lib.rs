@@ -12,6 +12,7 @@
 
 #![crate_name = "url"]
 #![deprecated="This is being removed. Use rust-url instead. http://servo.github.io/rust-url/"]
+#![allow(deprecated)]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![license = "MIT/ASL2"]
@@ -395,7 +396,7 @@ pub fn decode_form_urlencoded(s: &[u8])
 }
 
 fn split_char_first(s: &str, c: char) -> (&str, &str) {
-    let mut iter = s.splitn(c, 1);
+    let mut iter = s.splitn(1, c);
 
     match (iter.next(), iter.next()) {
         (Some(a), Some(b)) => (a, b),

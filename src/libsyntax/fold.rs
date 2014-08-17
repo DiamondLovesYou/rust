@@ -244,6 +244,16 @@ pub trait Folder {
         noop_fold_field(field, self)
     }
 
+    fn fold_where_clause(&mut self, where_clause: &WhereClause)
+                         -> WhereClause {
+        noop_fold_where_clause(where_clause, self)
+    }
+
+    fn fold_where_predicate(&mut self, where_predicate: &WherePredicate)
+                            -> WherePredicate {
+        noop_fold_where_predicate(where_predicate, self)
+    }
+
 // Helper methods:
 
     fn map_exprs(&self, f: |Gc<Expr>| -> Gc<Expr>,
@@ -368,6 +378,7 @@ pub fn noop_fold_ty<T: Folder>(t: P<Ty>, fld: &mut T) -> P<Ty> {
         TyUnboxedFn(ref f) => {
             TyUnboxedFn(box(GC) UnboxedFnTy {
                 decl: fld.fold_fn_decl(&*f.decl),
+                kind: f.kind,
             })
         }
         TyTup(ref tys) => TyTup(tys.iter().map(|&ty| fld.fold_ty(ty)).collect()),
@@ -641,6 +652,7 @@ pub fn noop_fold_ty_param_bound<T: Folder>(tpb: &TyParamBound, fld: &mut T)
         UnboxedFnTyParamBound(ref unboxed_function_type) => {
             UnboxedFnTyParamBound(UnboxedFnTy {
                 decl: fld.fold_fn_decl(&*unboxed_function_type.decl),
+                kind: unboxed_function_type.kind,
             })
         }
         OtherRegionTyParamBound(s) => OtherRegionTyParamBound(s)
@@ -696,8 +708,37 @@ pub fn noop_fold_opt_lifetime<T: Folder>(o_lt: &Option<Lifetime>, fld: &mut T)
 }
 
 pub fn noop_fold_generics<T: Folder>(generics: &Generics, fld: &mut T) -> Generics {
-    Generics {ty_params: fld.fold_ty_params(generics.ty_params.as_slice()),
-              lifetimes: fld.fold_lifetime_defs(generics.lifetimes.as_slice())}
+    Generics {
+        ty_params: fld.fold_ty_params(generics.ty_params.as_slice()),
+        lifetimes: fld.fold_lifetime_defs(generics.lifetimes.as_slice()),
+        where_clause: fld.fold_where_clause(&generics.where_clause),
+    }
+}
+
+pub fn noop_fold_where_clause<T: Folder>(
+                              where_clause: &WhereClause,
+                              fld: &mut T)
+                              -> WhereClause {
+    WhereClause {
+        id: fld.new_id(where_clause.id),
+        predicates: where_clause.predicates.iter().map(|predicate| {
+            fld.fold_where_predicate(predicate)
+        }).collect(),
+    }
+}
+
+pub fn noop_fold_where_predicate<T: Folder>(
+                                 predicate: &WherePredicate,
+                                 fld: &mut T)
+                                 -> WherePredicate {
+    WherePredicate {
+        id: fld.new_id(predicate.id),
+        span: fld.new_span(predicate.span),
+        ident: fld.fold_ident(predicate.ident),
+        bounds: predicate.bounds.map(|x| {
+            fld.fold_ty_param_bound(x)
+        }),
+    }
 }
 
 pub fn noop_fold_struct_def<T: Folder>(struct_def: Gc<StructDef>,
@@ -832,26 +873,37 @@ pub fn noop_fold_item_underscore<T: Folder>(i: &Item_, folder: &mut T) -> Item_ 
             let struct_def = folder.fold_struct_def(*struct_def);
             ItemStruct(struct_def, folder.fold_generics(generics))
         }
-        ItemImpl(ref generics, ref ifce, ty, ref methods) => {
+        ItemImpl(ref generics, ref ifce, ty, ref impl_items) => {
             ItemImpl(folder.fold_generics(generics),
                      ifce.as_ref().map(|p| folder.fold_trait_ref(p)),
                      folder.fold_ty(ty),
-                     methods.iter().flat_map(|x| folder.fold_method(*x).move_iter()).collect()
+                     impl_items.iter()
+                               .flat_map(|impl_item| {
+                                    match *impl_item {
+                                        MethodImplItem(x) => {
+                                            folder.fold_method(x)
+                                                  .move_iter()
+                                                  .map(|x| MethodImplItem(x))
+                                        }
+                                    }
+                               }).collect()
             )
         }
         ItemTrait(ref generics, ref unbound, ref traits, ref methods) => {
             let methods = methods.iter().flat_map(|method| {
                 let r = match *method {
-                    Required(ref m) =>
-                            SmallVector::one(Required(folder.fold_type_method(m))).move_iter(),
-                    Provided(method) => {
+                    RequiredMethod(ref m) => {
+                            SmallVector::one(RequiredMethod(
+                                    folder.fold_type_method(m))).move_iter()
+                    }
+                    ProvidedMethod(method) => {
                             // the awkward collect/iter idiom here is because
                             // even though an iter and a map satisfy the same trait bound,
                             // they're not actually the same type, so the method arms
                             // don't unify.
-                            let methods : SmallVector<ast::TraitMethod> =
+                            let methods : SmallVector<ast::TraitItem> =
                                 folder.fold_method(method).move_iter()
-                                .map(|m| Provided(m)).collect();
+                                .map(|m| ProvidedMethod(m)).collect();
                             methods.move_iter()
                         }
                 };
@@ -1094,16 +1146,19 @@ pub fn noop_fold_expr<T: Folder>(e: Gc<Expr>, folder: &mut T) -> Gc<Expr> {
             ExprMatch(folder.fold_expr(expr),
                       arms.iter().map(|x| folder.fold_arm(x)).collect())
         }
-        ExprFnBlock(ref decl, ref body) => {
-            ExprFnBlock(folder.fold_fn_decl(&**decl),
+        ExprFnBlock(capture_clause, ref decl, ref body) => {
+            ExprFnBlock(capture_clause,
+                        folder.fold_fn_decl(&**decl),
                         folder.fold_block(body.clone()))
         }
         ExprProc(ref decl, ref body) => {
             ExprProc(folder.fold_fn_decl(&**decl),
                      folder.fold_block(body.clone()))
         }
-        ExprUnboxedFn(ref decl, ref body) => {
-            ExprUnboxedFn(folder.fold_fn_decl(&**decl),
+        ExprUnboxedFn(capture_clause, kind, ref decl, ref body) => {
+            ExprUnboxedFn(capture_clause,
+                          kind,
+                          folder.fold_fn_decl(&**decl),
                           folder.fold_block(*body))
         }
         ExprBlock(ref blk) => ExprBlock(folder.fold_block(*blk)),

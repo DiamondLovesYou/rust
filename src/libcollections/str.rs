@@ -251,11 +251,11 @@ impl<'a> Iterator<char> for Decompositions<'a> {
         match self.buffer.as_slice().head() {
             Some(&(c, 0)) => {
                 self.sorted = false;
-                self.buffer.shift();
+                self.buffer.remove(0);
                 return Some(c);
             }
             Some(&(c, _)) if self.sorted => {
-                self.buffer.shift();
+                self.buffer.remove(0);
                 return Some(c);
             }
             _ => self.sorted = false
@@ -287,7 +287,7 @@ impl<'a> Iterator<char> for Decompositions<'a> {
             self.sorted = true;
         }
 
-        match self.buffer.shift() {
+        match self.buffer.remove(0) {
             Some((c, 0)) => {
                 self.sorted = false;
                 Some(c)
@@ -805,21 +805,21 @@ pub trait StrAllocating: Str {
 
             for (j, tc) in t.chars().enumerate() {
 
-                let next = *dcol.get(j + 1);
+                let next = dcol[j + 1];
 
                 if sc == tc {
                     *dcol.get_mut(j + 1) = current;
                 } else {
                     *dcol.get_mut(j + 1) = cmp::min(current, next);
-                    *dcol.get_mut(j + 1) = cmp::min(*dcol.get(j + 1),
-                                                    *dcol.get(j)) + 1;
+                    *dcol.get_mut(j + 1) = cmp::min(dcol[j + 1],
+                                                    dcol[j]) + 1;
                 }
 
                 current = next;
             }
         }
 
-        return *dcol.get(tlen);
+        return dcol[tlen];
     }
 
     /// An Iterator over the string in Unicode Normalization Form D
@@ -894,7 +894,7 @@ mod tests {
     use {Collection, MutableSeq};
 
     use super::*;
-    use std::slice::{Vector, ImmutableVector};
+    use std::slice::{Slice, ImmutableSlice};
     use string::String;
     use vec::Vec;
 
@@ -1812,17 +1812,17 @@ mod tests {
     fn test_splitn_char_iterator() {
         let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
-        let split: Vec<&str> = data.splitn(' ', 3).collect();
+        let split: Vec<&str> = data.splitn(3, ' ').collect();
         assert_eq!(split, vec!["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
 
-        let split: Vec<&str> = data.splitn(|c: char| c == ' ', 3).collect();
+        let split: Vec<&str> = data.splitn(3, |c: char| c == ' ').collect();
         assert_eq!(split, vec!["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
 
         // Unicode
-        let split: Vec<&str> = data.splitn('ä', 3).collect();
+        let split: Vec<&str> = data.splitn(3, 'ä').collect();
         assert_eq!(split, vec!["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
 
-        let split: Vec<&str> = data.splitn(|c: char| c == 'ä', 3).collect();
+        let split: Vec<&str> = data.splitn(3, |c: char| c == 'ä').collect();
         assert_eq!(split, vec!["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
     }
 
@@ -1830,20 +1830,20 @@ mod tests {
     fn test_rsplitn_char_iterator() {
         let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
-        let mut split: Vec<&str> = data.rsplitn(' ', 3).collect();
+        let mut split: Vec<&str> = data.rsplitn(3, ' ').collect();
         split.reverse();
         assert_eq!(split, vec!["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
 
-        let mut split: Vec<&str> = data.rsplitn(|c: char| c == ' ', 3).collect();
+        let mut split: Vec<&str> = data.rsplitn(3, |c: char| c == ' ').collect();
         split.reverse();
         assert_eq!(split, vec!["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
 
         // Unicode
-        let mut split: Vec<&str> = data.rsplitn('ä', 3).collect();
+        let mut split: Vec<&str> = data.rsplitn(3, 'ä').collect();
         split.reverse();
         assert_eq!(split, vec!["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
 
-        let mut split: Vec<&str> = data.rsplitn(|c: char| c == 'ä', 3).collect();
+        let mut split: Vec<&str> = data.rsplitn(3, |c: char| c == 'ä').collect();
         split.reverse();
         assert_eq!(split, vec!["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
     }

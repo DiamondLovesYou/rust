@@ -91,7 +91,7 @@ impl<'a> RustdocVisitor<'a> {
             attrs: item.attrs.iter().map(|x| *x).collect(),
             generics: generics.clone(),
             fields: sd.fields.iter().map(|x| (*x).clone()).collect(),
-            where: item.span
+            whence: item.span
         }
     }
 
@@ -107,7 +107,7 @@ impl<'a> RustdocVisitor<'a> {
                 stab: self.stability(x.node.id),
                 id: x.node.id,
                 kind: x.node.kind.clone(),
-                where: x.span,
+                whence: x.span,
             });
         }
         Enum {
@@ -118,7 +118,7 @@ impl<'a> RustdocVisitor<'a> {
             generics: params.clone(),
             attrs: it.attrs.iter().map(|x| *x).collect(),
             id: it.id,
-            where: it.span,
+            whence: it.span,
         }
     }
 
@@ -133,7 +133,7 @@ impl<'a> RustdocVisitor<'a> {
             attrs: item.attrs.iter().map(|x| *x).collect(),
             decl: fd.clone(),
             name: item.ident,
-            where: item.span,
+            whence: item.span,
             generics: gen.clone(),
             fn_style: *fn_style,
         }
@@ -297,7 +297,7 @@ impl<'a> RustdocVisitor<'a> {
                     name: item.ident,
                     id: item.id,
                     attrs: item.attrs.iter().map(|x| *x).collect(),
-                    where: item.span,
+                    whence: item.span,
                     vis: item.vis,
                     stab: self.stability(item.id),
                 };
@@ -311,35 +311,35 @@ impl<'a> RustdocVisitor<'a> {
                     id: item.id,
                     name: item.ident,
                     attrs: item.attrs.iter().map(|x| *x).collect(),
-                    where: item.span,
+                    whence: item.span,
                     vis: item.vis,
                     stab: self.stability(item.id),
                 };
                 om.statics.push(s);
             },
-            ast::ItemTrait(ref gen, _, ref tr, ref met) => {
+            ast::ItemTrait(ref gen, _, ref tr, ref items) => {
                 let t = Trait {
                     name: item.ident,
-                    methods: met.iter().map(|x| (*x).clone()).collect(),
+                    items: items.iter().map(|x| (*x).clone()).collect(),
                     generics: gen.clone(),
                     parents: tr.iter().map(|x| (*x).clone()).collect(),
                     id: item.id,
                     attrs: item.attrs.iter().map(|x| *x).collect(),
-                    where: item.span,
+                    whence: item.span,
                     vis: item.vis,
                     stab: self.stability(item.id),
                 };
                 om.traits.push(t);
             },
-            ast::ItemImpl(ref gen, ref tr, ty, ref meths) => {
+            ast::ItemImpl(ref gen, ref tr, ty, ref items) => {
                 let i = Impl {
                     generics: gen.clone(),
                     trait_: tr.clone(),
                     for_: ty,
-                    methods: meths.iter().map(|x| *x).collect(),
+                    items: items.iter().map(|x| *x).collect(),
                     attrs: item.attrs.iter().map(|x| *x).collect(),
                     id: item.id,
-                    where: item.span,
+                    whence: item.span,
                     vis: item.vis,
                     stab: self.stability(item.id),
                 };
@@ -360,7 +360,7 @@ impl<'a> RustdocVisitor<'a> {
             id: item.id,
             attrs: item.attrs.iter().map(|x| *x).collect(),
             name: item.ident,
-            where: item.span,
+            whence: item.span,
             stab: self.stability(item.id),
         }
     }

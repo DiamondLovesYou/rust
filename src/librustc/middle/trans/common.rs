@@ -18,18 +18,21 @@ use llvm::{ValueRef, BasicBlockRef, BuilderRef};
 use llvm::{True, False, Bool};
 use mc = middle::mem_categorization;
 use middle::def;
+use middle::freevars;
 use middle::lang_items::LangItem;
 use middle::subst;
 use middle::subst::Subst;
+use middle::trans::base;
 use middle::trans::build;
 use middle::trans::cleanup;
 use middle::trans::datum;
 use middle::trans::debuginfo;
 use middle::trans::type_::Type;
+use middle::trans::type_of;
 use middle::ty;
 use middle::typeck;
 use util::ppaux::Repr;
-use util::nodemap::NodeMap;
+use util::nodemap::{DefIdMap, NodeMap};
 
 use arena::TypedArena;
 use std::collections::HashMap;
@@ -222,12 +225,6 @@ impl<T:Subst+Clone> SubstP for T {
 pub type RvalueDatum = datum::Datum<datum::Rvalue>;
 pub type LvalueDatum = datum::Datum<datum::Lvalue>;
 
-#[deriving(Clone, Eq, PartialEq)]
-pub enum HandleItemsFlag {
-    IgnoreItems,
-    TranslateItems,
-}
-
 // Function context.  Every LLVM function we create will have one of
 // these.
 pub struct FunctionContext<'a> {
@@ -240,11 +237,11 @@ pub struct FunctionContext<'a> {
     // The environment argument in a closure.
     pub llenv: Option<ValueRef>,
 
-    // The place to store the return value. If the return type is immediate,
-    // this is an alloca in the function. Otherwise, it's the hidden first
-    // parameter to the function. After function construction, this should
-    // always be Some.
-    pub llretptr: Cell<Option<ValueRef>>,
+    // A pointer to where to store the return value. If the return type is
+    // immediate, this points to an alloca in the function. Otherwise, it's a
+    // pointer to the hidden first parameter of the function. After function
+    // construction, this should always be Some.
+    pub llretslotptr: Cell<Option<ValueRef>>,
 
     // These pub elements: "hoisted basic blocks" containing
     // administrative activities that have to happen in only one place in
@@ -254,13 +251,18 @@ pub struct FunctionContext<'a> {
     pub alloca_insert_pt: Cell<Option<ValueRef>>,
     pub llreturn: Cell<Option<BasicBlockRef>>,
 
+    // If the function has any nested return's, including something like:
+    // fn foo() -> Option<Foo> { Some(Foo { x: return None }) }, then
+    // we use a separate alloca for each return
+    pub needs_ret_allocas: bool,
+
     // The a value alloca'd for calls to upcalls.rust_personality. Used when
     // outputting the resume instruction.
     pub personality: Cell<Option<ValueRef>>,
 
     // True if the caller expects this fn to use the out pointer to
-    // return. Either way, your code should write into llretptr, but if
-    // this value is false, llretptr will be a local alloca.
+    // return. Either way, your code should write into the slot llretslotptr
+    // points to, but if this value is false, that slot will be a local alloca.
     pub caller_expects_out_pointer: bool,
 
     // Maps arguments to allocas created for them in llallocas.
@@ -296,9 +298,6 @@ pub struct FunctionContext<'a> {
 
     // Cleanup scopes.
     pub scopes: RefCell<Vec<cleanup::CleanupScope<'a>> >,
-
-    // How to handle items encountered during translation of this function.
-    pub handle_items: HandleItemsFlag,
 }
 
 impl<'a> FunctionContext<'a> {
@@ -343,6 +342,14 @@ impl<'a> FunctionContext<'a> {
         }
 
         self.llreturn.get().unwrap()
+    }
+
+    pub fn get_ret_slot(&self, bcx: &Block, ty: ty::t, name: &str) -> ValueRef {
+        if self.needs_ret_allocas {
+            base::alloca_no_lifetime(bcx, type_of::type_of(bcx.ccx(), ty), name)
+        } else {
+            self.llretslotptr.get().unwrap()
+        }
     }
 
     pub fn new_block(&'a self,
@@ -507,8 +514,18 @@ impl<'a> mc::Typer for Block<'a> {
         self.tcx().region_maps.temporary_scope(rvalue_id)
     }
 
+    fn unboxed_closures<'a>(&'a self)
+                        -> &'a RefCell<DefIdMap<ty::UnboxedClosure>> {
+        &self.tcx().unboxed_closures
+    }
+
     fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow {
         self.tcx().upvar_borrow_map.borrow().get_copy(&upvar_id)
+    }
+
+    fn capture_mode(&self, closure_expr_id: ast::NodeId)
+                    -> freevars::CaptureMode {
+        self.tcx().capture_modes.borrow().get_copy(&closure_expr_id)
     }
 }
 

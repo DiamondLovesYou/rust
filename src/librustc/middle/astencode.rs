@@ -18,8 +18,8 @@ use driver::session::Session;
 use metadata::decoder;
 use middle::def;
 use e = metadata::encoder;
+use middle::freevars::{CaptureMode, freevar_entry};
 use middle::freevars;
-use middle::freevars::freevar_entry;
 use middle::region;
 use metadata::tydecode;
 use metadata::tydecode::{DefIdSource, NominalType, TypeWithId, TypeParameter,
@@ -84,7 +84,8 @@ pub fn encode_inlined_item(ecx: &e::EncodeContext,
     let id = match ii {
         e::IIItemRef(i) => i.id,
         e::IIForeignRef(i) => i.id,
-        e::IIMethodRef(_, _, m) => m.id,
+        e::IITraitItemRef(_, e::ProvidedInlinedTraitItemRef(m)) => m.id,
+        e::IITraitItemRef(_, e::RequiredInlinedTraitItemRef(m)) => m.id,
     };
     debug!("> Encoding inlined item: {} ({})",
            ecx.tcx.map.path_to_string(id),
@@ -137,7 +138,12 @@ pub fn decode_inlined_item(cdata: &cstore::crate_metadata,
         let ident = match ii {
             ast::IIItem(i) => i.ident,
             ast::IIForeign(i) => i.ident,
-            ast::IIMethod(_, _, m) => m.pe_ident(),
+            ast::IITraitItem(_, iti) => {
+                match iti {
+                    ast::ProvidedInlinedTraitItem(m) => m.pe_ident(),
+                    ast::RequiredInlinedTraitItem(m) => m.pe_ident(),
+                }
+            }
         };
         debug!("Fn named: {}", token::get_ident(ident));
         debug!("< Decoded inlined fn: {}::{}",
@@ -344,12 +350,29 @@ fn simplify_ast(ii: e::InlinedItemRef) -> ast::InlinedItem {
 
     match ii {
         // HACK we're not dropping items.
-        e::IIItemRef(i) => ast::IIItem(fold::noop_fold_item(i, &mut fld)
-                                       .expect_one("expected one item")),
-        e::IIMethodRef(d, p, m) => ast::IIMethod(d, p, fold::noop_fold_method(m, &mut fld)
-                                                 .expect_one(
-                "noop_fold_method must produce exactly one method")),
-        e::IIForeignRef(i) => ast::IIForeign(fold::noop_fold_foreign_item(i, &mut fld))
+        e::IIItemRef(i) => {
+            ast::IIItem(fold::noop_fold_item(i, &mut fld)
+                            .expect_one("expected one item"))
+        }
+        e::IITraitItemRef(d, iti) => {
+            ast::IITraitItem(d, match iti {
+                e::ProvidedInlinedTraitItemRef(m) => {
+                    ast::ProvidedInlinedTraitItem(
+                        fold::noop_fold_method(m, &mut fld)
+                            .expect_one("noop_fold_method must produce \
+                                         exactly one method"))
+                }
+                e::RequiredInlinedTraitItemRef(m) => {
+                    ast::RequiredInlinedTraitItem(
+                        fold::noop_fold_method(m, &mut fld)
+                            .expect_one("noop_fold_method must produce \
+                                         exactly one method"))
+                }
+            })
+        }
+        e::IIForeignRef(i) => {
+            ast::IIForeign(fold::noop_fold_foreign_item(i, &mut fld))
+        }
     }
 }
 
@@ -389,9 +412,23 @@ fn renumber_and_map_ast(xcx: &ExtendedDecodeContext,
             ast::IIItem(i) => {
                 ast::IIItem(fld.fold_item(i).expect_one("expected one item"))
             }
-            ast::IIMethod(d, is_provided, m) => {
-                ast::IIMethod(xcx.tr_def_id(d), is_provided, fld.fold_method(m)
-                              .expect_one("expected one method"))
+            ast::IITraitItem(d, iti) => {
+                match iti {
+                    ast::ProvidedInlinedTraitItem(m) => {
+                        ast::IITraitItem(
+                            xcx.tr_def_id(d),
+                            ast::ProvidedInlinedTraitItem(
+                                fld.fold_method(m)
+                                   .expect_one("expected one method")))
+                    }
+                    ast::RequiredInlinedTraitItem(m) => {
+                        ast::IITraitItem(
+                            xcx.tr_def_id(d),
+                            ast::RequiredInlinedTraitItem(
+                                fld.fold_method(m)
+                                   .expect_one("expected one method")))
+                    }
+                }
             }
             ast::IIForeign(i) => ast::IIForeign(fld.fold_foreign_item(i))
         }
@@ -530,9 +567,14 @@ fn encode_freevar_entry(rbml_w: &mut Encoder, fv: &freevar_entry) {
     (*fv).encode(rbml_w).unwrap();
 }
 
+fn encode_capture_mode(rbml_w: &mut Encoder, cm: CaptureMode) {
+    cm.encode(rbml_w).unwrap();
+}
+
 trait rbml_decoder_helper {
     fn read_freevar_entry(&mut self, xcx: &ExtendedDecodeContext)
                           -> freevar_entry;
+    fn read_capture_mode(&mut self) -> CaptureMode;
 }
 
 impl<'a> rbml_decoder_helper for reader::Decoder<'a> {
@@ -540,6 +582,11 @@ impl<'a> rbml_decoder_helper for reader::Decoder<'a> {
                           -> freevar_entry {
         let fv: freevar_entry = Decodable::decode(self).unwrap();
         fv.tr(xcx)
+    }
+
+    fn read_capture_mode(&mut self) -> CaptureMode {
+        let cm: CaptureMode = Decodable::decode(self).unwrap();
+        cm
     }
 }
 
@@ -679,10 +726,35 @@ pub fn encode_vtable_param_res(ecx: &e::EncodeContext,
     }).unwrap()
 }
 
+pub fn encode_unboxed_closure_kind(ebml_w: &mut Encoder,
+                                   kind: ty::UnboxedClosureKind) {
+    ebml_w.emit_enum("UnboxedClosureKind", |ebml_w| {
+        match kind {
+            ty::FnUnboxedClosureKind => {
+                ebml_w.emit_enum_variant("FnUnboxedClosureKind", 0, 3, |_| {
+                    Ok(())
+                })
+            }
+            ty::FnMutUnboxedClosureKind => {
+                ebml_w.emit_enum_variant("FnMutUnboxedClosureKind", 1, 3, |_| {
+                    Ok(())
+                })
+            }
+            ty::FnOnceUnboxedClosureKind => {
+                ebml_w.emit_enum_variant("FnOnceUnboxedClosureKind",
+                                         2,
+                                         3,
+                                         |_| {
+                    Ok(())
+                })
+            }
+        }
+    }).unwrap()
+}
 
 pub fn encode_vtable_origin(ecx: &e::EncodeContext,
-                        rbml_w: &mut Encoder,
-                        vtable_origin: &typeck::vtable_origin) {
+                            rbml_w: &mut Encoder,
+                            vtable_origin: &typeck::vtable_origin) {
     rbml_w.emit_enum("vtable_origin", |rbml_w| {
         match *vtable_origin {
           typeck::vtable_static(def_id, ref substs, ref vtable_res) => {
@@ -1096,6 +1168,15 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
         }
     }
 
+    for &cm in tcx.capture_modes.borrow().find(&id).iter() {
+        rbml_w.tag(c::tag_table_capture_modes, |rbml_w| {
+            rbml_w.id(id);
+            rbml_w.tag(c::tag_table_val, |rbml_w| {
+                encode_capture_mode(rbml_w, *cm);
+            })
+        })
+    }
+
     let lid = ast::DefId { krate: ast::LOCAL_CRATE, node: id };
     for &pty in tcx.tcache.borrow().find(&lid).iter() {
         rbml_w.tag(c::tag_table_tcache, |rbml_w| {
@@ -1191,14 +1272,15 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
         })
     }
 
-    for unboxed_closure_type in tcx.unboxed_closure_types
-                                   .borrow()
-                                   .find(&ast_util::local_def(id))
-                                   .iter() {
-        rbml_w.tag(c::tag_table_unboxed_closure_type, |rbml_w| {
+    for unboxed_closure in tcx.unboxed_closures
+                              .borrow()
+                              .find(&ast_util::local_def(id))
+                              .iter() {
+        rbml_w.tag(c::tag_table_unboxed_closures, |rbml_w| {
             rbml_w.id(id);
             rbml_w.tag(c::tag_table_val, |rbml_w| {
-                rbml_w.emit_closure_type(ecx, *unboxed_closure_type)
+                rbml_w.emit_closure_type(ecx, &unboxed_closure.closure_type);
+                encode_unboxed_closure_kind(rbml_w, unboxed_closure.kind)
             })
         })
     }
@@ -1225,8 +1307,8 @@ trait rbml_decoder_decoder_helpers {
                      -> ty::Polytype;
     fn read_substs(&mut self, xcx: &ExtendedDecodeContext) -> subst::Substs;
     fn read_auto_adjustment(&mut self, xcx: &ExtendedDecodeContext) -> ty::AutoAdjustment;
-    fn read_unboxed_closure_type(&mut self, xcx: &ExtendedDecodeContext)
-                                 -> ty::ClosureTy;
+    fn read_unboxed_closure(&mut self, xcx: &ExtendedDecodeContext)
+                            -> ty::UnboxedClosure;
     fn convert_def_id(&mut self,
                       xcx: &ExtendedDecodeContext,
                       source: DefIdSource,
@@ -1399,16 +1481,33 @@ impl<'a> rbml_decoder_decoder_helpers for reader::Decoder<'a> {
         }).unwrap()
     }
 
-    fn read_unboxed_closure_type(&mut self, xcx: &ExtendedDecodeContext)
-                                 -> ty::ClosureTy {
-        self.read_opaque(|this, doc| {
+    fn read_unboxed_closure(&mut self, xcx: &ExtendedDecodeContext)
+                            -> ty::UnboxedClosure {
+        let closure_type = self.read_opaque(|this, doc| {
             Ok(tydecode::parse_ty_closure_data(
                 doc.data,
                 xcx.dcx.cdata.cnum,
                 doc.start,
                 xcx.dcx.tcx,
                 |s, a| this.convert_def_id(xcx, s, a)))
-        }).unwrap()
+        }).unwrap();
+        let variants = [
+            "FnUnboxedClosureKind",
+            "FnMutUnboxedClosureKind",
+            "FnOnceUnboxedClosureKind"
+        ];
+        let kind = self.read_enum_variant(variants, |_, i| {
+            Ok(match i {
+                0 => ty::FnUnboxedClosureKind,
+                1 => ty::FnMutUnboxedClosureKind,
+                2 => ty::FnOnceUnboxedClosureKind,
+                _ => fail!("bad enum variant for ty::UnboxedClosureKind"),
+            })
+        }).unwrap();
+        ty::UnboxedClosure {
+            closure_type: closure_type,
+            kind: kind,
+        }
     }
 
     fn convert_def_id(&mut self,
@@ -1509,6 +1608,13 @@ fn decode_side_tables(xcx: &ExtendedDecodeContext,
                         let ub: ty::UpvarBorrow = Decodable::decode(val_dsr).unwrap();
                         dcx.tcx.upvar_borrow_map.borrow_mut().insert(upvar_id, ub.tr(xcx));
                     }
+                    c::tag_table_capture_modes => {
+                        let capture_mode = val_dsr.read_capture_mode();
+                        dcx.tcx
+                           .capture_modes
+                           .borrow_mut()
+                           .insert(id, capture_mode);
+                    }
                     c::tag_table_tcache => {
                         let pty = val_dsr.read_polytype(xcx);
                         let lid = ast::DefId { krate: ast::LOCAL_CRATE, node: id };
@@ -1540,14 +1646,14 @@ fn decode_side_tables(xcx: &ExtendedDecodeContext,
                         let adj: ty::AutoAdjustment = val_dsr.read_auto_adjustment(xcx);
                         dcx.tcx.adjustments.borrow_mut().insert(id, adj);
                     }
-                    c::tag_table_unboxed_closure_type => {
-                        let unboxed_closure_type =
-                            val_dsr.read_unboxed_closure_type(xcx);
+                    c::tag_table_unboxed_closures => {
+                        let unboxed_closure =
+                            val_dsr.read_unboxed_closure(xcx);
                         dcx.tcx
-                           .unboxed_closure_types
+                           .unboxed_closures
                            .borrow_mut()
                            .insert(ast_util::local_def(id),
-                                   unboxed_closure_type);
+                                   unboxed_closure);
                     }
                     _ => {
                         xcx.dcx.tcx.sess.bug(

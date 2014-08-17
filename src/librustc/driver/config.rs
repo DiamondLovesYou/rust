@@ -360,7 +360,7 @@ pub fn build_codegen_options(matches: &getopts::Matches) -> CodegenOptions
 {
     let mut cg = basic_codegen_options();
     for option in matches.opt_strs("C").move_iter() {
-        let mut iter = option.as_slice().splitn('=', 1);
+        let mut iter = option.as_slice().splitn(1, '=');
         let key = iter.next().unwrap();
         let value = iter.next();
         let option_to_lookup = key.replace("-", "_");
@@ -397,7 +397,7 @@ pub fn default_lib_output() -> CrateType {
 
 pub fn default_configuration(sess: &Session) -> ast::CrateConfig {
     let tos = match sess.targ_cfg.os {
-        abi::OsWin32 =>     InternedString::new("win32"),
+        abi::OsWindows =>   InternedString::new("windows"),
         abi::OsMacos =>     InternedString::new("macos"),
         abi::OsLinux =>     InternedString::new("linux"),
         abi::OsAndroid =>   InternedString::new("android"),
@@ -419,7 +419,7 @@ pub fn default_configuration(sess: &Session) -> ast::CrateConfig {
     };
 
     let fam = match sess.targ_cfg.os {
-        abi::OsWin32 => InternedString::new("windows"),
+        abi::OsWindows => InternedString::new("windows"),
         _ => InternedString::new("unix")
     };
 
@@ -461,8 +461,9 @@ pub fn get_os(triple: &str) -> Option<abi::Os> {
     None
 }
 static os_names : &'static [(&'static str, abi::Os)] = &[
-    ("mingw32",   abi::OsWin32),
-    ("win32",     abi::OsWin32),
+    ("mingw32",   abi::OsWindows),
+    ("win32",     abi::OsWindows),
+    ("windows",   abi::OsWindows),
     ("darwin",    abi::OsMacos),
     ("android",   abi::OsAndroid),
     ("linux",     abi::OsLinux),
@@ -765,7 +766,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 
     let mut externs = HashMap::new();
     for arg in matches.opt_strs("extern").iter() {
-        let mut parts = arg.as_slice().splitn('=', 1);
+        let mut parts = arg.as_slice().splitn(1, '=');
         let name = match parts.next() {
             Some(s) => s,
             None => early_error("--extern value must not be empty"),

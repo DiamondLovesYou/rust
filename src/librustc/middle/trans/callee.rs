@@ -77,7 +77,7 @@ pub enum CalleeData {
 
     Intrinsic(ast::NodeId, subst::Substs),
 
-    TraitMethod(MethodData)
+    TraitItem(MethodData)
 }
 
 pub struct Callee<'a> {
@@ -334,13 +334,12 @@ pub fn trans_unboxing_shim(bcx: &Block,
     let return_type = ty::ty_fn_ret(boxed_function_type);
     let fcx = new_fn_ctxt(ccx,
                           llfn,
-                          -1,
+                          ast::DUMMY_NODE_ID,
                           false,
                           return_type,
                           &empty_param_substs,
                           None,
-                          &block_arena,
-                          TranslateItems);
+                          &block_arena);
     let mut bcx = init_function(&fcx, false, return_type);
 
     // Create the substituted versions of the self type.
@@ -389,6 +388,11 @@ pub fn trans_unboxing_shim(bcx: &Block,
     for i in range(1, arg_types.len()) {
         llshimmedargs.push(get_param(fcx.llfn, fcx.arg_pos(i) as u32));
     }
+    assert!(!fcx.needs_ret_allocas);
+    let dest = match fcx.llretslotptr.get() {
+        Some(_) => Some(expr::SaveIn(fcx.get_ret_slot(bcx, return_type, "ret_slot"))),
+        None => None
+    };
     bcx = trans_call_inner(bcx,
                            None,
                            function_type,
@@ -399,10 +403,7 @@ pub fn trans_unboxing_shim(bcx: &Block,
                                }
                            },
                            ArgVals(llshimmedargs.as_slice()),
-                           match fcx.llretptr.get() {
-                               None => None,
-                               Some(llretptr) => Some(expr::SaveIn(llretptr)),
-                           }).bcx;
+                           dest).bcx;
 
     bcx = fcx.pop_and_trans_custom_cleanup_scope(bcx, arg_scope);
     finish_fn(&fcx, bcx, return_type);
@@ -448,7 +449,7 @@ pub fn trans_fn_ref_with_vtables(
     assert!(substs.types.all(|t| !ty::type_needs_infer(*t)));
 
     // Load the info for the appropriate trait if necessary.
-    match ty::trait_of_method(tcx, def_id) {
+    match ty::trait_of_item(tcx, def_id) {
         None => {}
         Some(trait_id) => {
             ty::populate_implementations_for_trait_if_necessary(tcx, trait_id)
@@ -475,35 +476,43 @@ pub fn trans_fn_ref_with_vtables(
             // So, what we need to do is find this substitution and
             // compose it with the one we already have.
 
-            let impl_id = ty::method(tcx, def_id).container_id();
-            let method = ty::method(tcx, source_id);
-            let trait_ref = ty::impl_trait_ref(tcx, impl_id)
-                .expect("could not find trait_ref for impl with \
-                         default methods");
+            let impl_id = ty::impl_or_trait_item(tcx, def_id).container()
+                                                             .id();
+            let impl_or_trait_item = ty::impl_or_trait_item(tcx, source_id);
+            match impl_or_trait_item {
+                ty::MethodTraitItem(method) => {
+                    let trait_ref = ty::impl_trait_ref(tcx, impl_id)
+                        .expect("could not find trait_ref for impl with \
+                                 default methods");
 
-            // Compute the first substitution
-            let first_subst = make_substs_for_receiver_types(
-                tcx, &*trait_ref, &*method);
+                    // Compute the first substitution
+                    let first_subst = make_substs_for_receiver_types(
+                        tcx, &*trait_ref, &*method);
 
-            // And compose them
-            let new_substs = first_subst.subst(tcx, &substs);
+                    // And compose them
+                    let new_substs = first_subst.subst(tcx, &substs);
 
-            debug!("trans_fn_with_vtables - default method: \
-                    substs = {}, trait_subst = {}, \
-                    first_subst = {}, new_subst = {}, \
-                    vtables = {}",
-                   substs.repr(tcx), trait_ref.substs.repr(tcx),
-                   first_subst.repr(tcx), new_substs.repr(tcx),
-                   vtables.repr(tcx));
+                    debug!("trans_fn_with_vtables - default method: \
+                            substs = {}, trait_subst = {}, \
+                            first_subst = {}, new_subst = {}, \
+                            vtables = {}",
+                           substs.repr(tcx), trait_ref.substs.repr(tcx),
+                           first_subst.repr(tcx), new_substs.repr(tcx),
+                           vtables.repr(tcx));
 
-            let param_vtables =
-                resolve_default_method_vtables(bcx, impl_id, &substs, vtables);
+                    let param_vtables =
+                        resolve_default_method_vtables(bcx,
+                                                       impl_id,
+                                                       &substs,
+                                                       vtables);
 
-            debug!("trans_fn_with_vtables - default method: \
-                    param_vtables = {}",
-                   param_vtables.repr(tcx));
+                    debug!("trans_fn_with_vtables - default method: \
+                            param_vtables = {}",
+                           param_vtables.repr(tcx));
 
-            (true, source_id, new_substs, param_vtables)
+                    (true, source_id, new_substs, param_vtables)
+                }
+            }
         }
     };
 
@@ -741,7 +750,7 @@ pub fn trans_call_inner<'a>(
         Fn(llfn) => {
             (llfn, None, None)
         }
-        TraitMethod(d) => {
+        TraitItem(d) => {
             (d.llfn, None, Some(d.llself))
         }
         Closure(d) => {
@@ -758,9 +767,11 @@ pub fn trans_call_inner<'a>(
             assert!(abi == synabi::RustIntrinsic);
             assert!(dest.is_some());
 
+            let call_info = call_info.expect("no call info for intrinsic call?");
             return intrinsic::trans_intrinsic_call(bcx, node, callee_ty,
                                                    arg_cleanup_scope, args,
-                                                   dest.unwrap(), substs);
+                                                   dest.unwrap(), substs,
+                                                   call_info);
         }
         NamedTupleConstructor(substs, disr) => {
             assert!(dest.is_some());

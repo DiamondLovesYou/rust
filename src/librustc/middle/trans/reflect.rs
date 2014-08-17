@@ -25,7 +25,6 @@ use middle::trans::type_of::*;
 use middle::ty;
 use util::ppaux::ty_to_string;
 
-use std::rc::Rc;
 use arena::TypedArena;
 use libc::c_uint;
 use syntax::ast::DefId;
@@ -36,7 +35,7 @@ use syntax::parse::token;
 
 pub struct Reflector<'a, 'b> {
     visitor_val: ValueRef,
-    visitor_methods: &'a [Rc<ty::Method>],
+    visitor_items: &'a [ty::ImplOrTraitItem],
     final_bcx: &'b Block<'b>,
     tydesc_ty: Type,
     bcx: &'b Block<'b>
@@ -87,13 +86,14 @@ impl<'a, 'b> Reflector<'a, 'b> {
     pub fn visit(&mut self, ty_name: &str, args: &[ValueRef]) {
         let fcx = self.bcx.fcx;
         let tcx = self.bcx.tcx();
-        let mth_idx = ty::method_idx(token::str_to_ident(format!(
+        let mth_idx = ty::impl_or_trait_item_idx(token::str_to_ident(format!(
                         "visit_{}", ty_name).as_slice()),
-                                     self.visitor_methods.as_slice()).expect(
+                                     self.visitor_items.as_slice()).expect(
                 format!("couldn't find visit method for {}", ty_name).as_slice());
-        let mth_ty =
-            ty::mk_bare_fn(tcx,
-                           self.visitor_methods[mth_idx].fty.clone());
+        let method = match self.visitor_items[mth_idx] {
+            ty::MethodTraitItem(ref method) => (*method).clone(),
+        };
+        let mth_ty = ty::mk_bare_fn(tcx, method.fty.clone());
         let v = self.visitor_val;
         debug!("passing {} args:", args.len());
         let mut bcx = self.bcx;
@@ -310,9 +310,9 @@ impl<'a, 'b> Reflector<'a, 'b> {
                                                     sym.as_slice());
                 let arena = TypedArena::new();
                 let empty_param_substs = param_substs::empty();
-                let fcx = new_fn_ctxt(ccx, llfdecl, -1, false,
+                let fcx = new_fn_ctxt(ccx, llfdecl, ast::DUMMY_NODE_ID, false,
                                       ty::mk_u64(), &empty_param_substs,
-                                      None, &arena, TranslateItems);
+                                      None, &arena);
                 let bcx = init_function(&fcx, false, ty::mk_u64());
 
                 // we know the return type of llfdecl is an int here, so
@@ -321,7 +321,9 @@ impl<'a, 'b> Reflector<'a, 'b> {
                 let arg = get_param(llfdecl, fcx.arg_pos(0u) as c_uint);
                 let arg = BitCast(bcx, arg, llptrty);
                 let ret = adt::trans_get_discr(bcx, &*repr, arg, Some(Type::i64(ccx)));
-                Store(bcx, ret, fcx.llretptr.get().unwrap());
+                assert!(!fcx.needs_ret_allocas);
+                let ret_slot = fcx.get_ret_slot(bcx, ty::mk_u64(), "ret_slot");
+                Store(bcx, ret, ret_slot);
                 match fcx.llreturn.get() {
                     Some(llreturn) => Br(bcx, llreturn),
                     None => {}
@@ -395,10 +397,10 @@ pub fn emit_calls_to_trait_visit_ty<'a>(
     let final = fcx.new_temp_block("final");
     let tydesc_ty = ty::get_tydesc_ty(bcx.tcx()).unwrap();
     let tydesc_ty = type_of(bcx.ccx(), tydesc_ty);
-    let visitor_methods = ty::trait_methods(bcx.tcx(), visitor_trait_id);
+    let visitor_items = ty::trait_items(bcx.tcx(), visitor_trait_id);
     let mut r = Reflector {
         visitor_val: visitor_val,
-        visitor_methods: visitor_methods.as_slice(),
+        visitor_items: visitor_items.as_slice(),
         final_bcx: final,
         tydesc_ty: tydesc_ty,
         bcx: bcx

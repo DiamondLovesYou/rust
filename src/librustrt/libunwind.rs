@@ -96,8 +96,9 @@ pub type _Unwind_Exception_Cleanup_Fn =
 
 #[cfg(target_os = "linux")]
 #[cfg(target_os = "freebsd")]
-#[cfg(target_os = "win32")]
+#[cfg(target_os = "windows")]
 #[cfg(target_os = "nacl", target_libc = "glibc")]
+#[cfg(stage0, target_os = "win32")] // NOTE: Remove after snapshot
 #[link(name = "gcc_s")]
 extern {}
 

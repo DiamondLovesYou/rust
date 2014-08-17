@@ -305,7 +305,8 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
                         },
                         _ => None
                     },
-                    ast_map::NodeMethod(..) => {
+                    ast_map::NodeImplItem(..) |
+                    ast_map::NodeTraitItem(..) => {
                         Some(FreeRegionsFromSameFn::new(fr1, fr2, scope_id))
                     },
                     _ => None
@@ -699,9 +700,17 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
                         _ => None
                     }
                 }
-                ast_map::NodeMethod(ref m) => {
-                    Some((m.pe_fn_decl(), m.pe_generics(), m.pe_fn_style(),
-                          m.pe_ident(), Some(m.pe_explicit_self().node), m.span))
+                ast_map::NodeImplItem(ref item) => {
+                    match **item {
+                        ast::MethodImplItem(ref m) => {
+                            Some((m.pe_fn_decl(),
+                                  m.pe_generics(),
+                                  m.pe_fn_style(),
+                                  m.pe_ident(),
+                                  Some(m.pe_explicit_self().node),
+                                  m.span))
+                        }
+                    }
                 },
                 _ => None
             },
@@ -772,6 +781,7 @@ impl<'a> Rebuilder<'a> {
         let mut inputs = self.fn_decl.inputs.clone();
         let mut output = self.fn_decl.output;
         let mut ty_params = self.generics.ty_params.clone();
+        let where_clause = self.generics.where_clause.clone();
         let mut kept_lifetimes = HashSet::new();
         for sr in self.same_regions.iter() {
             self.cur_anon.set(0);
@@ -798,7 +808,8 @@ impl<'a> Rebuilder<'a> {
                                              &fresh_lifetimes,
                                              &kept_lifetimes,
                                              &all_region_names,
-                                             ty_params);
+                                             ty_params,
+                                             where_clause);
         let new_fn_decl = ast::FnDecl {
             inputs: inputs,
             output: output,
@@ -972,7 +983,8 @@ impl<'a> Rebuilder<'a> {
                         add: &Vec<ast::Lifetime>,
                         keep: &HashSet<ast::Name>,
                         remove: &HashSet<ast::Name>,
-                        ty_params: OwnedSlice<ast::TyParam>)
+                        ty_params: OwnedSlice<ast::TyParam>,
+                        where_clause: ast::WhereClause)
                         -> ast::Generics {
         let mut lifetimes = Vec::new();
         for lt in add.iter() {
@@ -981,14 +993,14 @@ impl<'a> Rebuilder<'a> {
         }
         for lt in generics.lifetimes.iter() {
             if keep.contains(&lt.lifetime.name) ||
-                !remove.contains(&lt.lifetime.name)
-            {
+                !remove.contains(&lt.lifetime.name) {
                 lifetimes.push((*lt).clone());
             }
         }
         ast::Generics {
             lifetimes: lifetimes,
-            ty_params: ty_params
+            ty_params: ty_params,
+            where_clause: where_clause,
         }
     }
 
@@ -1454,10 +1466,14 @@ fn lifetimes_in_scope(tcx: &ty::ctxt,
                 },
                 _ => None
             },
-            ast_map::NodeMethod(m) => {
-                taken.push_all(m.pe_generics().lifetimes.as_slice());
-                Some(m.id)
-            },
+            ast_map::NodeImplItem(ii) => {
+                match *ii {
+                    ast::MethodImplItem(m) => {
+                        taken.push_all(m.pe_generics().lifetimes.as_slice());
+                        Some(m.id)
+                    }
+                }
+            }
             _ => None
         },
         None => None

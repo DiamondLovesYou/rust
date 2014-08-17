@@ -55,6 +55,12 @@ impl Ident {
     pub fn as_str<'a>(&'a self) -> &'a str {
         self.name.as_str()
     }
+
+    pub fn encode_with_hygiene(&self) -> String {
+        format!("\x00name_{:u},ctxt_{:u}\x00",
+                self.name.uint(),
+                self.ctxt)
+    }
 }
 
 impl Show for Ident {
@@ -239,6 +245,7 @@ pub struct TyParam {
 pub struct Generics {
     pub lifetimes: Vec<LifetimeDef>,
     pub ty_params: OwnedSlice<TyParam>,
+    pub where_clause: WhereClause,
 }
 
 impl Generics {
@@ -253,9 +260,23 @@ impl Generics {
     }
 }
 
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub struct WhereClause {
+    pub id: NodeId,
+    pub predicates: Vec<WherePredicate>,
+}
+
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub struct WherePredicate {
+    pub id: NodeId,
+    pub span: Span,
+    pub ident: Ident,
+    pub bounds: OwnedSlice<TyParamBound>,
+}
+
 /// The set of MetaItems that define the compilation environment of the crate,
 /// used to drive conditional compilation
-pub type CrateConfig = Vec<Gc<MetaItem>> ;
+pub type CrateConfig = Vec<Gc<MetaItem>>;
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub struct Crate {
@@ -520,9 +541,9 @@ pub enum Expr_ {
     // FIXME #6993: change to Option<Name> ... or not, if these are hygienic.
     ExprLoop(P<Block>, Option<Ident>),
     ExprMatch(Gc<Expr>, Vec<Arm>),
-    ExprFnBlock(P<FnDecl>, P<Block>),
+    ExprFnBlock(CaptureClause, P<FnDecl>, P<Block>),
     ExprProc(P<FnDecl>, P<Block>),
-    ExprUnboxedFn(P<FnDecl>, P<Block>),
+    ExprUnboxedFn(CaptureClause, UnboxedClosureKind, P<FnDecl>, P<Block>),
     ExprBlock(P<Block>),
 
     ExprAssign(Gc<Expr>, Gc<Expr>),
@@ -551,6 +572,12 @@ pub enum Expr_ {
 
     /// No-op: used solely so we can pretty-print faithfully
     ExprParen(Gc<Expr>)
+}
+
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub enum CaptureClause {
+    CaptureByValue,
+    CaptureByRef,
 }
 
 /// When the main rust parser encounters a syntax-extension invocation, it
@@ -755,9 +782,14 @@ pub struct TypeMethod {
 /// doesn't have an implementation, just a signature) or provided (meaning it
 /// has a default implementation).
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
-pub enum TraitMethod {
-    Required(TypeMethod),
-    Provided(Gc<Method>),
+pub enum TraitItem {
+    RequiredMethod(TypeMethod),
+    ProvidedMethod(Gc<Method>),
+}
+
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub enum ImplItem {
+    MethodImplItem(Gc<Method>),
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
@@ -888,6 +920,7 @@ pub struct BareFnTy {
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub struct UnboxedFnTy {
+    pub kind: UnboxedClosureKind,
     pub decl: P<FnDecl>,
 }
 
@@ -1101,11 +1134,11 @@ pub type ViewPath = Spanned<ViewPath_>;
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub enum ViewPath_ {
 
-    /// `quux = foo::bar::baz`
+    /// `foo::bar::baz as quux`
     ///
     /// or just
     ///
-    /// `foo::bar::baz ` (with 'baz =' implicitly on the left)
+    /// `foo::bar::baz` (with `as baz` implicitly on the right)
     ViewPathSimple(Ident, Path, NodeId),
 
     /// `foo::bar::*`
@@ -1260,11 +1293,11 @@ pub enum Item_ {
               Option<TyParamBound>, // (optional) default bound not required for Self.
                                     // Currently, only Sized makes sense here.
               Vec<TraitRef> ,
-              Vec<TraitMethod>),
+              Vec<TraitItem>),
     ItemImpl(Generics,
              Option<TraitRef>, // (optional) trait this impl implements
              P<Ty>, // self
-             Vec<Gc<Method>>),
+             Vec<ImplItem>),
     /// A macro invocation (which includes macro definition)
     ItemMac(Mac),
 }
@@ -1285,14 +1318,27 @@ pub enum ForeignItem_ {
     ForeignItemStatic(P<Ty>, /* is_mutbl */ bool),
 }
 
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub enum UnboxedClosureKind {
+    FnUnboxedClosureKind,
+    FnMutUnboxedClosureKind,
+    FnOnceUnboxedClosureKind,
+}
+
 /// The data we save and restore about an inlined item or method.  This is not
 /// part of the AST that we parse from a file, but it becomes part of the tree
 /// that we trans.
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub enum InlinedItem {
     IIItem(Gc<Item>),
-    IIMethod(DefId /* impl id */, bool /* is provided */, Gc<Method>),
+    IITraitItem(DefId /* impl id */, InlinedTraitItem),
     IIForeign(Gc<ForeignItem>),
+}
+
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub enum InlinedTraitItem {
+    ProvidedInlinedTraitItem(Gc<Method>),
+    RequiredInlinedTraitItem(Gc<Method>),
 }
 
 #[cfg(test)]

@@ -45,7 +45,7 @@ use path::{Path, GenericPath, BytesContainer};
 use ptr::RawPtr;
 use ptr;
 use result::{Err, Ok, Result};
-use slice::{Vector, ImmutableVector, MutableVector, ImmutableEqVector};
+use slice::{Slice, ImmutableSlice, MutableSlice, ImmutablePartialEqSlice};
 use str::{Str, StrSlice, StrAllocating};
 use string::String;
 use sync::atomic::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
@@ -145,7 +145,7 @@ pub mod win32 {
     use option::{None, Option};
     use option;
     use os::TMPBUF_SZ;
-    use slice::{MutableVector, ImmutableVector};
+    use slice::{MutableSlice, ImmutableSlice};
     use string::String;
     use str::StrSlice;
     use vec::Vec;
@@ -1929,7 +1929,8 @@ pub mod consts {
     pub static EXE_EXTENSION: &'static str = "pexe";
 }
 
-#[cfg(target_os = "win32")]
+#[cfg(target_os = "windows")]
+#[cfg(stage0, target_os = "win32")] // NOTE: Remove after snapshot
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1937,7 +1938,7 @@ pub mod consts {
 
     /// A string describing the specific operating system in use: in this
     /// case, `win32`.
-    pub static SYSNAME: &'static str = "win32";
+    pub static SYSNAME: &'static str = "windows";
 
     /// Specifies the filename prefix used for shared libraries on this
     /// platform: in this case, the empty string.
