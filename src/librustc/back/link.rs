@@ -1829,6 +1829,10 @@ pub fn link_pnacl_module(sess: &Session,
         "die".with_c_str(|s| ap(s) );
         "dce".with_c_str(|s| ap(s) );
 
+        if !sess.no_verify() {
+            "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+        }
+
         time(sess.time_passes(), "PNaCl simplification passes", (),
              |()| llvm::LLVMRunPassManager(pm, llmod) );
 
