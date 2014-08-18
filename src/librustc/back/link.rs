@@ -1784,11 +1784,11 @@ pub fn link_pnacl_module(sess: &Session,
         unsafe {
             let pm = llvm::LLVMCreatePassManager();
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
-            
+
             let ap = |s| {
                 assert!(llvm::LLVMRustAddPass(pm, s));
             };
-            
+
             "pnacl-sjlj-eh".with_c_str(|s| ap(s) );
             "expand-indirectbr".with_c_str(|s| ap(s) );
             "lower-expect".with_c_str(|s| ap(s) );
