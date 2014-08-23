@@ -8,9 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/*!
- * Collection types.
- */
+//! Collection types.
 
 #![crate_name = "collections"]
 #![experimental]
@@ -22,8 +20,11 @@
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(macro_rules, managed_boxes, default_type_params, phase, globs)]
-#![feature(unsafe_destructor)]
+#![feature(unsafe_destructor, import_shadowing)]
 #![no_std]
+
+// NOTE(stage0, pcwalton): Remove after snapshot.
+#![allow(unknown_features)]
 
 #[phase(plugin, link)] extern crate core;
 extern crate unicode;
@@ -36,11 +37,11 @@ extern crate alloc;
 #[cfg(test)] #[phase(plugin, link)] extern crate std;
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
 
-use core::prelude::*;
+use core::prelude::Option;
 
-pub use core::collections::Collection;
 pub use bitv::{Bitv, BitvSet};
 pub use btree::BTree;
+pub use core::prelude::Collection;
 pub use dlist::DList;
 pub use enum_set::EnumSet;
 pub use priority_queue::PriorityQueue;
@@ -70,9 +71,9 @@ pub mod hash;
 
 mod deque;
 
-/// A trait to represent mutable containers
+/// A mutable container type.
 pub trait Mutable: Collection {
-    /// Clear the container, removing all values.
+    /// Clears the container, removing all values.
     ///
     /// # Example
     ///
@@ -84,10 +85,10 @@ pub trait Mutable: Collection {
     fn clear(&mut self);
 }
 
-/// A map is a key-value store where values may be looked up by their keys. This
-/// trait provides basic operations to operate on these stores.
+/// A key-value store where values may be looked up by their keys. This trait
+/// provides basic operations to operate on these stores.
 pub trait Map<K, V>: Collection {
-    /// Return a reference to the value corresponding to the key.
+    /// Returns a reference to the value corresponding to the key.
     ///
     /// # Example
     ///
@@ -101,7 +102,7 @@ pub trait Map<K, V>: Collection {
     /// ```
     fn find<'a>(&'a self, key: &K) -> Option<&'a V>;
 
-    /// Return true if the map contains a value for the specified key.
+    /// Returns true if the map contains a value for the specified key.
     ///
     /// # Example
     ///
@@ -119,10 +120,10 @@ pub trait Map<K, V>: Collection {
     }
 }
 
-/// This trait provides basic operations to modify the contents of a map.
+/// A key-value store (map) where the values can be modified.
 pub trait MutableMap<K, V>: Map<K, V> + Mutable {
-    /// Insert a key-value pair into the map. An existing value for a
-    /// key is replaced by the new value. Return true if the key did
+    /// Inserts a key-value pair into the map. An existing value for a
+    /// key is replaced by the new value. Returns `true` if the key did
     /// not already exist in the map.
     ///
     /// # Example
@@ -140,8 +141,8 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
         self.swap(key, value).is_none()
     }
 
-    /// Remove a key-value pair from the map. Return true if the key
-    /// was present in the map, otherwise false.
+    /// Removes a key-value pair from the map. Returns `true` if the key
+    /// was present in the map.
     ///
     /// # Example
     ///
@@ -158,8 +159,9 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
         self.pop(key).is_some()
     }
 
-    /// Insert a key-value pair from the map. If the key already had a value
-    /// present in the map, that value is returned. Otherwise None is returned.
+    /// Inserts a key-value pair into the map. If the key already had a value
+    /// present in the map, that value is returned. Otherwise, `None` is
+    /// returned.
     ///
     /// # Example
     ///
@@ -191,7 +193,7 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
     /// ```
     fn pop(&mut self, k: &K) -> Option<V>;
 
-    /// Return a mutable reference to the value corresponding to the key.
+    /// Returns a mutable reference to the value corresponding to the key.
     ///
     /// # Example
     ///
@@ -209,11 +211,11 @@ pub trait MutableMap<K, V>: Map<K, V> + Mutable {
     fn find_mut<'a>(&'a mut self, key: &K) -> Option<&'a mut V>;
 }
 
-/// A set is a group of objects which are each distinct from one another. This
+/// A group of objects which are each distinct from one another. This
 /// trait represents actions which can be performed on sets to iterate over
 /// them.
 pub trait Set<T>: Collection {
-    /// Return true if the set contains a value.
+    /// Returns `true` if the set contains a value.
     ///
     /// # Example
     ///
@@ -226,7 +228,7 @@ pub trait Set<T>: Collection {
     /// ```
     fn contains(&self, value: &T) -> bool;
 
-    /// Return true if the set has no elements in common with `other`.
+    /// Returns `true` if the set has no elements in common with `other`.
     /// This is equivalent to checking for an empty intersection.
     ///
     /// # Example
@@ -245,7 +247,7 @@ pub trait Set<T>: Collection {
     /// ```
     fn is_disjoint(&self, other: &Self) -> bool;
 
-    /// Return true if the set is a subset of another.
+    /// Returns `true` if the set is a subset of another.
     ///
     /// # Example
     ///
@@ -263,7 +265,7 @@ pub trait Set<T>: Collection {
     /// ```
     fn is_subset(&self, other: &Self) -> bool;
 
-    /// Return true if the set is a superset of another.
+    /// Returns `true` if the set is a superset of another.
     ///
     /// # Example
     ///
@@ -289,10 +291,10 @@ pub trait Set<T>: Collection {
     // FIXME #8154: Add difference, sym. difference, intersection and union iterators
 }
 
-/// This trait represents actions which can be performed on sets to mutate
-/// them.
+/// A mutable collection of values which are distinct from one another that
+/// can be mutaed.
 pub trait MutableSet<T>: Set<T> + Mutable {
-    /// Add a value to the set. Return true if the value was not already
+    /// Adds a value to the set. Returns `true` if the value was not already
     /// present in the set.
     ///
     /// # Example
@@ -308,7 +310,7 @@ pub trait MutableSet<T>: Set<T> + Mutable {
     /// ```
     fn insert(&mut self, value: T) -> bool;
 
-    /// Remove a value from the set. Return true if the value was
+    /// Removes a value from the set. Returns `true` if the value was
     /// present in the set.
     ///
     /// # Example
@@ -326,7 +328,7 @@ pub trait MutableSet<T>: Set<T> + Mutable {
 }
 
 pub trait MutableSeq<T>: Mutable {
-    /// Append an element to the back of a collection.
+    /// Appends an element to the back of a collection.
     ///
     /// # Example
     ///
@@ -336,8 +338,9 @@ pub trait MutableSeq<T>: Mutable {
     /// assert_eq!(vec, vec!(1, 2, 3));
     /// ```
     fn push(&mut self, t: T);
-    /// Remove the last element from a collection and return it, or `None` if it is
-    /// empty.
+
+    /// Removes the last element from a collection and returns it, or `None` if
+    /// it is empty.
     ///
     /// # Example
     ///
@@ -409,7 +412,7 @@ pub trait MutableSeq<T>: Mutable {
 /// }
 /// ```
 pub trait Deque<T> : MutableSeq<T> {
-    /// Provide a reference to the front element, or `None` if the sequence is
+    /// Provides a reference to the front element, or `None` if the sequence is
     /// empty.
     ///
     /// # Example
@@ -426,7 +429,7 @@ pub trait Deque<T> : MutableSeq<T> {
     /// ```
     fn front<'a>(&'a self) -> Option<&'a T>;
 
-    /// Provide a mutable reference to the front element, or `None` if the
+    /// Provides a mutable reference to the front element, or `None` if the
     /// sequence is empty.
     ///
     /// # Example
@@ -447,7 +450,7 @@ pub trait Deque<T> : MutableSeq<T> {
     /// ```
     fn front_mut<'a>(&'a mut self) -> Option<&'a mut T>;
 
-    /// Provide a reference to the back element, or `None` if the sequence is
+    /// Provides a reference to the back element, or `None` if the sequence is
     /// empty.
     ///
     /// # Example
@@ -464,8 +467,8 @@ pub trait Deque<T> : MutableSeq<T> {
     /// ```
     fn back<'a>(&'a self) -> Option<&'a T>;
 
-    /// Provide a mutable reference to the back element, or `None` if the sequence
-    /// is empty.
+    /// Provides a mutable reference to the back element, or `None` if the
+    /// sequence is empty.
     ///
     /// # Example
     ///
@@ -485,7 +488,7 @@ pub trait Deque<T> : MutableSeq<T> {
     /// ```
     fn back_mut<'a>(&'a mut self) -> Option<&'a mut T>;
 
-    /// Insert an element first in the sequence.
+    /// Inserts an element first in the sequence.
     ///
     /// # Example
     ///
@@ -499,7 +502,7 @@ pub trait Deque<T> : MutableSeq<T> {
     /// ```
     fn push_front(&mut self, elt: T);
 
-    /// Insert an element last in the sequence.
+    /// Inserts an element last in the sequence.
     ///
     /// # Example
     ///
@@ -514,7 +517,8 @@ pub trait Deque<T> : MutableSeq<T> {
     #[deprecated = "use the `push` method"]
     fn push_back(&mut self, elt: T) { self.push(elt) }
 
-    /// Remove the last element and return it, or `None` if the sequence is empty.
+    /// Removes the last element and returns it, or `None` if the sequence is
+    /// empty.
     ///
     /// # Example
     ///
@@ -532,7 +536,8 @@ pub trait Deque<T> : MutableSeq<T> {
     #[deprecated = "use the `pop` method"]
     fn pop_back(&mut self) -> Option<T> { self.pop() }
 
-    /// Remove the first element and return it, or `None` if the sequence is empty.
+    /// Removes the first element and returns it, or `None` if the sequence is
+    /// empty.
     ///
     /// # Example
     ///

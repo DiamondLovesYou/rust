@@ -12,16 +12,17 @@
 
 use back::svh::Svh;
 use driver::session::Session;
-use metadata::csearch;
-use mc = middle::mem_categorization;
 use lint;
+use metadata::csearch;
 use middle::const_eval;
 use middle::def;
 use middle::dependency_format;
 use middle::freevars::CaptureModeMap;
 use middle::freevars;
-use middle::lang_items::{FnMutTraitLangItem, OpaqueStructLangItem};
+use middle::lang_items::{FnTraitLangItem, FnMutTraitLangItem};
+use middle::lang_items::{FnOnceTraitLangItem, OpaqueStructLangItem};
 use middle::lang_items::{TyDescStructLangItem, TyVisitorTraitLangItem};
+use middle::mem_categorization as mc;
 use middle::resolve;
 use middle::resolve_lifetime;
 use middle::stability;
@@ -51,8 +52,11 @@ use std::ops;
 use std::rc::Rc;
 use std::collections::{HashMap, HashSet};
 use syntax::abi;
-use syntax::ast::*;
-use syntax::ast_util::{is_local, lit_is_str};
+use syntax::ast::{CrateNum, DefId, FnStyle, Ident, ItemTrait, LOCAL_CRATE};
+use syntax::ast::{MutImmutable, MutMutable, Name, NamedField, NodeId};
+use syntax::ast::{Onceness, StmtExpr, StmtSemi, StructField, UnnamedField};
+use syntax::ast::{Visibility};
+use syntax::ast_util::{PostExpansionMethod, is_local, lit_is_str};
 use syntax::ast_util;
 use syntax::attr;
 use syntax::attr::AttrMetaMethods;
@@ -478,7 +482,7 @@ pub struct t { inner: *const t_opaque }
 
 impl fmt::Show for t {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "*t_opaque".fmt(f)
+        write!(f, "{}", get(*self))
     }
 }
 
@@ -787,6 +791,13 @@ pub enum sty {
     ty_int(ast::IntTy),
     ty_uint(ast::UintTy),
     ty_float(ast::FloatTy),
+    /// Substs here, possibly against intuition, *may* contain `ty_param`s.
+    /// That is, even after substitution it is possible that there are type
+    /// variables. This happens when the `ty_enum` corresponds to an enum
+    /// definition and not a concerete use of it. To get the correct `ty_enum`
+    /// from the tcx, use the `NodeId` from the `ast::Ty` and look it up in
+    /// the `ast_ty_to_ty_cache`. This is probably true for `ty_struct` as
+    /// well.`
     ty_enum(DefId, Substs),
     ty_box(t),
     ty_uniq(t),
@@ -1080,6 +1091,84 @@ pub struct ParameterEnvironment {
     pub bounds: VecPerParamSpace<ParamBounds>,
 }
 
+impl ParameterEnvironment {
+    pub fn for_item(cx: &ctxt, id: NodeId) -> ParameterEnvironment {
+        match cx.map.find(id) {
+            Some(ast_map::NodeImplItem(ref impl_item)) => {
+                match **impl_item {
+                    ast::MethodImplItem(ref method) => {
+                        let method_def_id = ast_util::local_def(id);
+                        match ty::impl_or_trait_item(cx, method_def_id) {
+                            MethodTraitItem(ref method_ty) => {
+                                let method_generics = &method_ty.generics;
+                                construct_parameter_environment(
+                                    cx,
+                                    method_generics,
+                                    method.pe_body().id)
+                            }
+                        }
+                    }
+                }
+            }
+            Some(ast_map::NodeTraitItem(trait_method)) => {
+                match *trait_method {
+                    ast::RequiredMethod(ref required) => {
+                        cx.sess.span_bug(required.span,
+                                         "ParameterEnvironment::from_item():
+                                          can't create a parameter \
+                                          environment for required trait \
+                                          methods")
+                    }
+                    ast::ProvidedMethod(ref method) => {
+                        let method_def_id = ast_util::local_def(id);
+                        match ty::impl_or_trait_item(cx, method_def_id) {
+                            MethodTraitItem(ref method_ty) => {
+                                let method_generics = &method_ty.generics;
+                                construct_parameter_environment(
+                                    cx,
+                                    method_generics,
+                                    method.pe_body().id)
+                            }
+                        }
+                    }
+                }
+            }
+            Some(ast_map::NodeItem(item)) => {
+                match item.node {
+                    ast::ItemFn(_, _, _, _, ref body) => {
+                        // We assume this is a function.
+                        let fn_def_id = ast_util::local_def(id);
+                        let fn_pty = ty::lookup_item_type(cx, fn_def_id);
+
+                        construct_parameter_environment(cx,
+                                                        &fn_pty.generics,
+                                                        body.id)
+                    }
+                    ast::ItemEnum(..) |
+                    ast::ItemStruct(..) |
+                    ast::ItemImpl(..) |
+                    ast::ItemStatic(..) => {
+                        let def_id = ast_util::local_def(id);
+                        let pty = ty::lookup_item_type(cx, def_id);
+                        construct_parameter_environment(cx, &pty.generics, id)
+                    }
+                    _ => {
+                        cx.sess.span_bug(item.span,
+                                         "ParameterEnvironment::from_item():
+                                          can't create a parameter \
+                                          environment for this kind of item")
+                    }
+                }
+            }
+            _ => {
+                cx.sess.bug(format!("ParameterEnvironment::from_item(): \
+                                     `{}` is not an item",
+                                    cx.map.node_to_string(id)).as_slice())
+            }
+        }
+    }
+}
+
 /// A polytype.
 ///
 /// - `generics`: the set of type parameters and their bounds
@@ -1122,6 +1211,24 @@ pub enum UnboxedClosureKind {
     FnUnboxedClosureKind,
     FnMutUnboxedClosureKind,
     FnOnceUnboxedClosureKind,
+}
+
+impl UnboxedClosureKind {
+    pub fn trait_did(&self, cx: &ctxt) -> ast::DefId {
+        let result = match *self {
+            FnUnboxedClosureKind => cx.lang_items.require(FnTraitLangItem),
+            FnMutUnboxedClosureKind => {
+                cx.lang_items.require(FnMutTraitLangItem)
+            }
+            FnOnceUnboxedClosureKind => {
+                cx.lang_items.require(FnOnceTraitLangItem)
+            }
+        };
+        match result {
+            Ok(trait_did) => trait_did,
+            Err(err) => cx.sess.fatal(err.as_slice()),
+        }
+    }
 }
 
 pub fn mk_ctxt(s: Session,
@@ -1881,7 +1988,8 @@ def_type_content_sets!(
         // ReachesManaged /* see [1] below */  = 0b0000_0100__0000_0000__0000,
         ReachesMutable                      = 0b0000_1000__0000_0000__0000,
         ReachesNoSync                       = 0b0001_0000__0000_0000__0000,
-        ReachesAll                          = 0b0001_1111__0000_0000__0000,
+        ReachesFfiUnsafe                    = 0b0010_0000__0000_0000__0000,
+        ReachesAll                          = 0b0011_1111__0000_0000__0000,
 
         // Things that cause values to *move* rather than *copy*
         Moves                               = 0b0000_0000__0000_1011__0000,
@@ -2118,6 +2226,11 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
         cache.insert(ty_id, TC::None);
 
         let result = match get(ty).sty {
+            // uint and int are ffi-unsafe
+            ty_uint(ast::TyU) | ty_int(ast::TyI) => {
+                TC::ReachesFfiUnsafe
+            }
+
             // Scalar and unique types are sendable, and durable
             ty_nil | ty_bot | ty_bool | ty_int(_) | ty_uint(_) | ty_float(_) |
             ty_bare_fn(_) | ty::ty_char | ty_str => {
@@ -2125,22 +2238,22 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
             }
 
             ty_closure(ref c) => {
-                closure_contents(cx, &**c)
+                closure_contents(cx, &**c) | TC::ReachesFfiUnsafe
             }
 
             ty_box(typ) => {
-                tc_ty(cx, typ, cache).managed_pointer()
+                tc_ty(cx, typ, cache).managed_pointer() | TC::ReachesFfiUnsafe
             }
 
             ty_uniq(typ) => {
-                match get(typ).sty {
+                TC::ReachesFfiUnsafe | match get(typ).sty {
                     ty_str => TC::OwnsOwned,
                     _ => tc_ty(cx, typ, cache).owned_pointer(),
                 }
             }
 
             ty_trait(box ty::TyTrait { bounds, .. }) => {
-                object_contents(cx, bounds)
+                object_contents(cx, bounds) | TC::ReachesFfiUnsafe
             }
 
             ty_ptr(ref mt) => {
@@ -2148,8 +2261,9 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
             }
 
             ty_rptr(r, ref mt) => {
-                match get(mt.ty).sty {
+                TC::ReachesFfiUnsafe | match get(mt.ty).sty {
                     ty_str => borrowed_contents(r, ast::MutImmutable),
+                    ty_vec(..) => tc_ty(cx, mt.ty, cache).reference(borrowed_contents(r, mt.mutbl)),
                     _ => tc_ty(cx, mt.ty, cache).reference(borrowed_contents(r, mt.mutbl)),
                 }
             }
@@ -2163,6 +2277,11 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
                 let mut res =
                     TypeContents::union(flds.as_slice(),
                                         |f| tc_mt(cx, f.mt, cache));
+
+                if !lookup_repr_hints(cx, did).contains(&attr::ReprExtern) {
+                    res = res | TC::ReachesFfiUnsafe;
+                }
+
                 if ty::has_dtor(cx, did) {
                     res = res | TC::OwnsDtor;
                 }
@@ -2192,9 +2311,49 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
                             tc_ty(cx, *arg_ty, cache)
                         })
                     });
+
                 if ty::has_dtor(cx, did) {
                     res = res | TC::OwnsDtor;
                 }
+
+                if variants.len() != 0 {
+                    let repr_hints = lookup_repr_hints(cx, did);
+                    if repr_hints.len() > 1 {
+                        // this is an error later on, but this type isn't safe
+                        res = res | TC::ReachesFfiUnsafe;
+                    }
+
+                    match repr_hints.as_slice().get(0) {
+                        Some(h) => if !h.is_ffi_safe() {
+                            res = res | TC::ReachesFfiUnsafe;
+                        },
+                        // ReprAny
+                        None => {
+                            res = res | TC::ReachesFfiUnsafe;
+
+                            // We allow ReprAny enums if they are eligible for
+                            // the nullable pointer optimization and the
+                            // contained type is an `extern fn`
+
+                            if variants.len() == 2 {
+                                let mut data_idx = 0;
+
+                                if variants.get(0).args.len() == 0 {
+                                    data_idx = 1;
+                                }
+
+                                if variants.get(data_idx).args.len() == 1 {
+                                    match get(*variants.get(data_idx).args.get(0)).sty {
+                                        ty_bare_fn(..) => { res = res - TC::ReachesFfiUnsafe; }
+                                        _ => { }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+
                 apply_lang_items(cx, did, res)
             }
 
@@ -2344,6 +2503,10 @@ pub fn type_contents(cx: &ctxt, ty: t) -> TypeContents {
 
 pub fn type_moves_by_default(cx: &ctxt, ty: t) -> bool {
     type_contents(cx, ty).moves_by_default(cx)
+}
+
+pub fn is_ffi_safe(cx: &ctxt, ty: t) -> bool {
+    !type_contents(cx, ty).intersects(TC::ReachesFfiUnsafe)
 }
 
 // True if instantiating an instance of `r_ty` requires an instance of `r_ty`.
@@ -3114,19 +3277,23 @@ impl AutoRef {
     }
 }
 
-pub fn method_call_type_param_defs(tcx: &ctxt, origin: typeck::MethodOrigin)
-                                   -> VecPerParamSpace<TypeParameterDef> {
+pub fn method_call_type_param_defs<T>(typer: &T,
+                                      origin: typeck::MethodOrigin)
+                                      -> VecPerParamSpace<TypeParameterDef>
+                                      where T: mc::Typer {
     match origin {
         typeck::MethodStatic(did) => {
-            ty::lookup_item_type(tcx, did).generics.types.clone()
+            ty::lookup_item_type(typer.tcx(), did).generics.types.clone()
         }
-        typeck::MethodStaticUnboxedClosure(_) => {
-            match tcx.lang_items.require(FnMutTraitLangItem) {
-                Ok(def_id) => {
-                    lookup_trait_def(tcx, def_id).generics.types.clone()
-                }
-                Err(s) => tcx.sess.fatal(s.as_slice()),
-            }
+        typeck::MethodStaticUnboxedClosure(did) => {
+            let def_id = typer.unboxed_closures()
+                              .borrow()
+                              .find(&did)
+                              .expect("method_call_type_param_defs: didn't \
+                                       find unboxed closure")
+                              .kind
+                              .trait_did(typer.tcx());
+            lookup_trait_def(typer.tcx(), def_id).generics.types.clone()
         }
         typeck::MethodParam(typeck::MethodParam{
             trait_id: trt_id,
@@ -3138,7 +3305,7 @@ pub fn method_call_type_param_defs(tcx: &ctxt, origin: typeck::MethodOrigin)
                 method_num: n_mth,
                 ..
         }) => {
-            match ty::trait_item(tcx, trt_id, n_mth) {
+            match ty::trait_item(typer.tcx(), trt_id, n_mth) {
                 ty::MethodTraitItem(method) => method.generics.types.clone(),
             }
         }
@@ -3864,7 +4031,7 @@ pub fn substd_enum_variants(cx: &ctxt,
                          -> Vec<Rc<VariantInfo>> {
     enum_variants(cx, id).iter().map(|variant_info| {
         let substd_args = variant_info.args.iter()
-            .map(|aty| aty.subst(cx, substs)).collect();
+            .map(|aty| aty.subst(cx, substs)).collect::<Vec<_>>();
 
         let substd_ctor_ty = variant_info.ctor_ty.subst(cx, substs);
 
@@ -4087,9 +4254,9 @@ pub fn has_attr(tcx: &ctxt, did: DefId, attr: &str) -> bool {
     found
 }
 
-/// Determine whether an item is annotated with `#[packed]`
+/// Determine whether an item is annotated with `#[repr(packed)]`
 pub fn lookup_packed(tcx: &ctxt, did: DefId) -> bool {
-    has_attr(tcx, did, "packed")
+    lookup_repr_hints(tcx, did).contains(&attr::ReprPacked)
 }
 
 /// Determine whether an item is annotated with `#[simd]`
@@ -4097,14 +4264,16 @@ pub fn lookup_simd(tcx: &ctxt, did: DefId) -> bool {
     has_attr(tcx, did, "simd")
 }
 
-// Obtain the representation annotation for a definition.
-pub fn lookup_repr_hint(tcx: &ctxt, did: DefId) -> attr::ReprAttr {
-    let mut acc = attr::ReprAny;
+/// Obtain the representation annotation for a struct definition.
+pub fn lookup_repr_hints(tcx: &ctxt, did: DefId) -> Vec<attr::ReprAttr> {
+    let mut acc = Vec::new();
+
     ty::each_attr(tcx, did, |meta| {
-        acc = attr::find_repr_attr(tcx.sess.diagnostic(), meta, acc);
+        acc.extend(attr::find_repr_attrs(tcx.sess.diagnostic(), meta).move_iter());
         true
     });
-    return acc;
+
+    acc
 }
 
 // Look up a field ID, whether or not it's local

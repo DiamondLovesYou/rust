@@ -16,10 +16,10 @@ use driver::session::Session;
 use llvm;
 use llvm::{ValueRef, BasicBlockRef, BuilderRef};
 use llvm::{True, False, Bool};
-use mc = middle::mem_categorization;
 use middle::def;
 use middle::freevars;
 use middle::lang_items::LangItem;
+use middle::mem_categorization as mc;
 use middle::subst;
 use middle::subst::Subst;
 use middle::trans::base;
@@ -201,7 +201,9 @@ impl param_substs {
 }
 
 fn param_substs_to_string(this: &param_substs, tcx: &ty::ctxt) -> String {
-    format!("param_substs({})", this.substs.repr(tcx))
+    format!("param_substs(substs={},vtables={})",
+            this.substs.repr(tcx),
+            this.vtables.repr(tcx))
 }
 
 impl Repr for param_substs {
@@ -864,8 +866,7 @@ pub fn find_vtable(tcx: &ty::ctxt,
     debug!("find_vtable(n_param={:?}, n_bound={}, ps={})",
            n_param, n_bound, ps.repr(tcx));
 
-    let param_bounds = ps.vtables.get(n_param.space,
-                                      n_param.index);
+    let param_bounds = ps.vtables.get(n_param.space, n_param.index);
     param_bounds.get(n_bound).clone()
 }
 

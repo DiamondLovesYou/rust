@@ -11,9 +11,9 @@
 // aux-build:ambig_impl_2_lib.rs
 extern crate ambig_impl_2_lib;
 use ambig_impl_2_lib::me;
-trait me {
+trait me2 {
     fn me(&self) -> uint;
 }
-impl me for uint { fn me(&self) -> uint { *self } } //~ NOTE is `uint.me::me`
+impl me2 for uint { fn me(&self) -> uint { *self } } //~ NOTE is `uint.me2::me`
 fn main() { 1u.me(); } //~ ERROR multiple applicable methods in scope
 //~^ NOTE is `ambig_impl_2_lib::uint.me::me`

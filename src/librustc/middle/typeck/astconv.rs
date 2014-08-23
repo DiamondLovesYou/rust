@@ -53,15 +53,15 @@ use middle::const_eval;
 use middle::def;
 use middle::lang_items::{FnTraitLangItem, FnMutTraitLangItem};
 use middle::lang_items::{FnOnceTraitLangItem};
+use middle::resolve_lifetime as rl;
 use middle::subst::{FnSpace, TypeSpace, SelfSpace, Subst, Substs};
 use middle::subst::{VecPerParamSpace};
 use middle::ty;
 use middle::ty_fold::TypeFolder;
-use middle::typeck::rscope::{ExplicitRscope, ImpliedSingleRscope};
 use middle::typeck::rscope::RegionScope;
+use middle::typeck::rscope::{ExplicitRscope, ImpliedSingleRscope};
 use middle::typeck::{TypeAndSubsts, infer, lookup_def_tcx, rscope};
 use middle::typeck;
-use rl = middle::resolve_lifetime;
 use util::ppaux::Repr;
 
 use std::rc::Rc;
@@ -563,7 +563,11 @@ pub fn trait_ref_for_unboxed_function<AC:AstConv,
                         .map(|input| {
                             ast_ty_to_ty(this, rscope, &*input.ty)
                         }).collect::<Vec<_>>();
-    let input_tuple = ty::mk_tup(this.tcx(), input_types);
+    let input_tuple = if input_types.len() == 0 {
+        ty::mk_nil()
+    } else {
+        ty::mk_tup(this.tcx(), input_types)
+    };
     let output_type = ast_ty_to_ty(this,
                                    rscope,
                                    &*unboxed_function.decl.output);
@@ -879,7 +883,6 @@ pub fn ast_ty_to_ty<AC:AstConv, RS:RegionScope>(
                 }
             }
             ast::TyFixedLengthVec(ty, e) => {
-                typeck::write_ty_to_tcx(tcx, e.id, ty::mk_uint());
                 match const_eval::eval_const_expr_partial(tcx, &*e) {
                     Ok(ref r) => {
                         match *r {

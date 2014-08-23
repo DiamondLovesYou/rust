@@ -47,11 +47,17 @@ use middle::trans::builder::{Builder, noname};
 use middle::trans::callee;
 use middle::trans::cleanup::{CleanupMethods, ScopeId};
 use middle::trans::cleanup;
-use middle::trans::common::*;
+use middle::trans::common::{Block, C_bool, C_bytes, C_i32, C_integral, C_nil};
+use middle::trans::common::{C_null, C_struct, C_u64, C_u8, C_uint, C_undef};
+use middle::trans::common::{CrateContext, ExternMap, FunctionContext};
+use middle::trans::common::{NodeInfo, Result, SubstP, monomorphize_type};
+use middle::trans::common::{node_id_type, param_substs, return_type_is_void};
+use middle::trans::common::{tydesc_info, type_is_immediate};
+use middle::trans::common::{type_is_zero_size, val_ty};
+use middle::trans::common;
 use middle::trans::consts;
 use middle::trans::controlflow;
 use middle::trans::datum;
-// use middle::trans::datum::{Datum, Lvalue, Rvalue, ByRef, ByValue};
 use middle::trans::debuginfo;
 use middle::trans::expr;
 use middle::trans::foreign;
@@ -81,7 +87,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::{i8, i16, i32, i64};
 use syntax::abi::{X86, X86_64, Arm, Mips, Mipsel, Rust, RustCall};
-use syntax::abi::{RustIntrinsic, Abi};
+use syntax::abi::{RustIntrinsic, Abi, OsWindows};
 use syntax::abi::Le32;
 use syntax::ast_util::{local_def, is_local};
 use syntax::attr::AttrMetaMethods;
@@ -1075,7 +1081,7 @@ pub fn raw_block<'a>(
                  is_lpad: bool,
                  llbb: BasicBlockRef)
                  -> &'a Block<'a> {
-    Block::new(llbb, is_lpad, None, fcx)
+    common::Block::new(llbb, is_lpad, None, fcx)
 }
 
 pub fn with_cond<'a>(
@@ -2237,13 +2243,14 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
         ty::ty_bare_fn(ref f) => (f.sig.clone(), f.abi, false),
         ty::ty_unboxed_closure(closure_did, _) => {
             let unboxed_closures = ccx.tcx.unboxed_closures.borrow();
-            let function_type = unboxed_closures.get(&closure_did)
-                                                .closure_type
-                                                .clone();
+            let ref function_type = unboxed_closures.get(&closure_did)
+                                                    .closure_type;
+
             (function_type.sig.clone(), RustCall, true)
         }
-        _ => fail!("expected closure or function.")
+        _ => ccx.sess().bug("expected closure or function.")
     };
+
 
     // Since index 0 is the return value of the llvm func, we start
     // at either 1 or 2 depending on whether there's an env slot or not
@@ -2251,12 +2258,29 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
     let mut attrs = llvm::AttrBuilder::new();
     let ret_ty = fn_sig.output;
 
-    // These have an odd calling convention, so we skip them for now.
-    //
-    // FIXME(pcwalton): We don't have to skip them; just untuple the result.
-    if abi == RustCall {
-        return attrs;
-    }
+    // These have an odd calling convention, so we need to manually
+    // unpack the input ty's
+    let input_tys = match ty::get(fn_ty).sty {
+        ty::ty_unboxed_closure(_, _) => {
+            assert!(abi == RustCall);
+
+            match ty::get(fn_sig.inputs[0]).sty {
+                ty::ty_nil => Vec::new(),
+                ty::ty_tup(ref inputs) => inputs.clone(),
+                _ => ccx.sess().bug("expected tuple'd inputs")
+            }
+        },
+        ty::ty_bare_fn(_) if abi == RustCall => {
+            let inputs = vec![fn_sig.inputs[0]];
+
+            match ty::get(fn_sig.inputs[1]).sty {
+                ty::ty_nil => inputs,
+                ty::ty_tup(ref t_in) => inputs.append(t_in.as_slice()),
+                _ => ccx.sess().bug("expected tuple'd inputs")
+            }
+        }
+        _ => fn_sig.inputs.clone()
+    };
 
     // A function pointer is called without the declaration
     // available, so we have to apply any attributes with ABI
@@ -2312,7 +2336,7 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
         }
     }
 
-    for (idx, &t) in fn_sig.inputs.iter().enumerate().map(|(i, v)| (i + first_arg_offset, v)) {
+    for (idx, &t) in input_tys.iter().enumerate().map(|(i, v)| (i + first_arg_offset, v)) {
         match ty::get(t).sty {
             // this needs to be first to prevent fat pointers from falling through
             _ if !type_is_immediate(ccx, t) => {
@@ -2443,6 +2467,13 @@ pub fn create_entry_wrapper(ccx: &CrateContext,
                                &ccx.int_type);
 
         let llfn = decl_cdecl_fn(ccx, "main", llfty, ty::mk_nil());
+
+        // FIXME: #16581: Marking a symbol in the executable with `dllexport`
+        // linkage forces MinGW's linker to output a `.reloc` section for ASLR
+        if ccx.sess().targ_cfg.os == OsWindows {
+            unsafe { llvm::LLVMRustSetDLLExportStorageClass(llfn) }
+        }
+
         let llbb = "top".with_c_str(|buf| {
             unsafe {
                 llvm::LLVMAppendBasicBlockInContext(ccx.llcx, llfn, buf)

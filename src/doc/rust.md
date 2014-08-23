@@ -169,6 +169,10 @@ sequence (`/**`), are interpreted as a special syntax for `doc`
 `#[doc="..."]` around the body of the comment (this includes the comment
 characters themselves, ie `/// Foo` turns into `#[doc="/// Foo"]`).
 
+`//!` comments apply to the parent of the comment, rather than the item that
+follows. `//!` comments are usually used to display information on the crate
+index page.
+
 Non-doc comments are interpreted as a form of whitespace.
 
 ## Whitespace
@@ -924,7 +928,9 @@ use_decl : "pub" ? "use" [ path "as" ident
 
 path_glob : ident [ "::" [ path_glob
                           | '*' ] ] ?
-          | '{' ident [ ',' ident ] * '}' ;
+          | '{' path_item [ ',' path_item ] * '}' ;
+
+path_item : ident | "mod" ;
 ~~~~
 
 A _use declaration_ creates one or more local name bindings synonymous
@@ -943,14 +949,18 @@ Use declarations support a number of convenient shortcuts:
   * Simultaneously binding a list of paths differing only in their final element,
     using the glob-like brace syntax `use a::b::{c,d,e,f};`
   * Binding all paths matching a given prefix, using the asterisk wildcard syntax `use a::b::*;`
+  * Simultaneously binding a list of paths differing only in their final element
+    and their immediate parent module, using the `mod` keyword, such as `use a::b::{mod, c, d};`
 
 An example of `use` declarations:
 
 ~~~~
 use std::iter::range_step;
 use std::option::{Some, None};
+use std::collections::hashmap::{mod, HashMap};
 
 # fn foo<T>(_: T){}
+# fn bar(map: HashMap<String, uint>, set: hashmap::HashSet<String>){}
 
 fn main() {
     // Equivalent to 'std::iter::range_step(0u, 10u, 2u);'
@@ -959,6 +969,11 @@ fn main() {
     // Equivalent to 'foo(vec![std::option::Some(1.0f64),
     // std::option::None]);'
     foo(vec![Some(1.0f64), None]);
+
+    // Both `hash` and `HashMap` are in scope.
+    let map = HashMap::new();
+    let set = hashmap::HashSet::new();
+    bar(map, set);
 }
 ~~~~
 
@@ -1292,6 +1307,9 @@ For example:
 struct Cookie;
 let c = [Cookie, Cookie, Cookie, Cookie];
 ~~~~
+
+The precise memory layout of a structure is not specified. One can specify a
+particular layout using the [`repr` attribute](#ffi-attributes).
 
 By using the `struct_inherit` feature gate, structures may use single inheritance. A Structure may only
 inherit from a single other structure, called the _super-struct_. The inheriting structure (sub-struct)
@@ -1790,7 +1808,7 @@ module through the rules above. It essentially allows public access into the
 re-exported item. For example, this program is valid:
 
 ~~~~
-pub use api = self::implementation;
+pub use self::implementation as api;
 
 mod implementation {
     pub fn f() {}
@@ -1926,6 +1944,23 @@ interpreted:
 - `linkage` - on a static, this specifies the [linkage
   type](http://llvm.org/docs/LangRef.html#linkage-types).
 
+On `enum`s:
+
+- `repr` - on C-like enums, this sets the underlying type used for
+  representation. Takes one argument, which is the primitive
+  type this enum should be represented for, or `C`, which specifies that it
+  should be the default `enum` size of the C ABI for that platform. Note that
+  enum representation in C is undefined, and this may be incorrect when the C
+  code is compiled with certain flags.
+
+On `struct`s:
+
+- `repr` - specifies the representation to use for this struct. Takes a list
+  of options. The currently accepted ones are `C` and `packed`, which may be
+  combined. `C` will use a C ABI comptible struct layout, and `packed` will
+  remove any padding between fields (note that this is very fragile and may
+  break platforms which require aligned access).
+
 ### Miscellaneous attributes
 
 - `export_name` - on statics and functions, this determines the name of the
@@ -1943,12 +1978,6 @@ interpreted:
   crate at compile-time and use any syntax extensions or lints that the crate
   defines. They can both be specified, `#[phase(link, plugin)]` to use a crate
   both at runtime and compiletime.
-- `repr` - on C-like enums, this sets the underlying type used for
-  representation. Useful for FFI. Takes one argument, which is the primitive
-  type this enum should be represented for, or `C`, which specifies that it
-  should be the default `enum` size of the C ABI for that platform. Note that
-  enum representation in C is undefined, and this may be incorrect when the C
-  code is compiled with certain flags.
 - `simd` - on certain tuple structs, derive the arithmetic operators, which
   lower to the target's SIMD instructions, if any; the `simd` feature gate
   is necessary to use this attribute.

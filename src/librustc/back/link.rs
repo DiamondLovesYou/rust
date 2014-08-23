@@ -2368,6 +2368,9 @@ fn link_args(cmd: &mut Command,
 
         // Always enable DEP (NX bit) when it is available
         cmd.arg("-Wl,--nxcompat");
+
+        // Mark all dynamic libraries and executables as compatible with ASLR
+        cmd.arg("-Wl,--dynamicbase");
     }
 
     if sess.targ_cfg.os == abi::OsAndroid {

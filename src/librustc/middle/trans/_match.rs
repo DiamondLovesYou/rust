@@ -189,21 +189,22 @@
 #![allow(non_camel_case_types)]
 
 use back::abi;
-use mc = middle::mem_categorization;
 use driver::config::FullDebugInfo;
-use euv = middle::expr_use_visitor;
-use llvm;
 use llvm::{ValueRef, BasicBlockRef};
+use llvm;
+use middle::check_match::StaticInliner;
+use middle::check_match;
 use middle::const_eval;
 use middle::def;
-use middle::check_match;
-use middle::check_match::StaticInliner;
+use middle::expr_use_visitor as euv;
 use middle::lang_items::StrEqFnLangItem;
+use middle::mem_categorization as mc;
 use middle::pat_util::*;
 use middle::resolve::DefMap;
 use middle::trans::adt;
 use middle::trans::base::*;
-use middle::trans::build::*;
+use middle::trans::build::{And, BitCast, Br, CondBr, GEPi, InBoundsGEP, Load};
+use middle::trans::build::{Mul, Not, Store, Sub, Switch, add_comment};
 use middle::trans::build;
 use middle::trans::callee;
 use middle::trans::cleanup;
@@ -1421,7 +1422,7 @@ fn trans_match_inner<'a>(scope_cx: &'a Block<'a>,
         bindings_map: create_bindings_map(bcx, *arm.pats.get(0), discr_expr, &*arm.body)
     }).collect();
 
-    let mut static_inliner = StaticInliner { tcx: scope_cx.tcx() };
+    let mut static_inliner = StaticInliner::new(scope_cx.tcx());
     let mut matches = Vec::new();
     for arm_data in arm_datas.iter() {
         matches.extend(arm_data.arm.pats.iter().map(|&p| Match {

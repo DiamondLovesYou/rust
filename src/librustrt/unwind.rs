@@ -72,9 +72,9 @@ use core::raw::Closure;
 use libc::c_void;
 
 use local::Local;
-use task::{Task, Result};
+use task::Task;
 
-use uw = libunwind;
+use libunwind as uw;
 
 pub struct Unwinder {
     unwinding: bool,
@@ -243,7 +243,7 @@ fn rust_exception_class() -> uw::_Unwind_Exception_Class {
 #[doc(hidden)]
 #[allow(visible_private_types)]
 pub mod eabi {
-    use uw = libunwind;
+    use libunwind as uw;
     use libc::c_int;
 
     #[cfg(not(target_os = "nacl", target_arch = "le32"))]
@@ -311,7 +311,7 @@ pub mod eabi {
 #[doc(hidden)]
 #[allow(visible_private_types)]
 pub mod eabi {
-    use uw = libunwind;
+    use libunwind as uw;
     use libc::c_int;
 
     extern "C" {
@@ -352,7 +352,10 @@ pub mod eabi {
             uw::_URC_HANDLER_FOUND // catch!
         }
         else { // cleanup phase
-            uw::_URC_INSTALL_CONTEXT
+            unsafe {
+                __gcc_personality_sj0(_version, actions, _exception_class, _ue_header,
+                                      _context)
+            }
         }
     }
 }
@@ -364,7 +367,7 @@ pub mod eabi {
 #[doc(hidden)]
 #[allow(visible_private_types)]
 pub mod eabi {
-    use uw = libunwind;
+    use libunwind as uw;
     use libc::c_int;
 
     extern "C" {
@@ -415,11 +418,14 @@ pub mod eabi {
 #[allow(visible_private_types)]
 #[allow(non_camel_case_types)]
 pub mod eabi {
-    use uw = libunwind;
+    use libunwind as uw;
     use libc::{c_void, c_int};
 
+    #[repr(C)]
     struct EXCEPTION_RECORD;
+    #[repr(C)]
     struct CONTEXT;
+    #[repr(C)]
     struct DISPATCHER_CONTEXT;
 
     #[repr(C)]

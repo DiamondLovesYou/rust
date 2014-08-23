@@ -446,7 +446,7 @@ possible in two ways: the `#[start]` attribute, or overriding the
 default shim for the C `main` function with your own.
 
 The function marked `#[start]` is passed the command line parameters
-in the same format as a C:
+in the same format as C:
 
 ```
 #![no_std]
@@ -537,11 +537,12 @@ extern crate core;
 use core::prelude::*;
 
 use core::mem;
-use core::raw::Slice;
 
 #[no_mangle]
 pub extern fn dot_product(a: *const u32, a_len: u32,
                           b: *const u32, b_len: u32) -> u32 {
+    use core::raw::Slice;
+
     // Convert the provided arrays into Rust slices.
     // The core::raw module guarantees that the Slice
     // structure has the same memory layout as a &[T]
@@ -592,7 +593,7 @@ standard library itself.
 # Interacting with the compiler internals
 
 > **Note**: this section is specific to the `rustc` compiler; these
-> parts of the language may never be full specified and so details may
+> parts of the language may never be fully specified and so details may
 > differ wildly between implementations (and even versions of `rustc`
 > itself).
 >

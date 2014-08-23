@@ -29,4 +29,5 @@ mod ptr;
 mod raw;
 mod result;
 mod slice;
+mod str;
 mod tuple;

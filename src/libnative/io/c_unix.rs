@@ -19,7 +19,7 @@ pub use self::signal::{SA_ONSTACK, SA_RESTART, SA_RESETHAND, SA_NOCLDSTOP};
 #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
 pub use self::signal::{SA_NODEFER, SA_NOCLDWAIT, SA_SIGINFO, SIGCHLD};
 
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(target_os = "nacl", target_libc = "newlib")]
 pub use self::signal::{SA_NOCLDSTOP, SA_SIGINFO};
 
 use libc;
@@ -102,6 +102,7 @@ extern {
 mod select {
     pub static FD_SETSIZE: uint = 1024;
 
+    #[repr(C)]
     pub struct fd_set {
         fds_bits: [i32, ..(FD_SETSIZE / 32)]
     }
@@ -119,12 +120,14 @@ mod select {
 mod select {
     #![allow(dead_code)]
     use std::uint;
+    use libc;
 
     pub static FD_SETSIZE: uint = 1024;
 
+    #[repr(C)]
     pub struct fd_set {
         // FIXME: shouldn't this be a c_ulong?
-        fds_bits: [uint, ..(FD_SETSIZE / uint::BITS)]
+        fds_bits: [libc::uintptr_t, ..(FD_SETSIZE / uint::BITS)]
     }
 
     pub fn fd_set(set: &mut fd_set, fd: i32) {
@@ -139,14 +142,14 @@ mod signal {
 
     pub static SA_NOCLDSTOP: libc::c_ulong = 1;
     pub static SA_SIGINFO:   libc::c_ulong = 2;
-
+    #[repr(C)]
     pub struct siginfo {
         pub si_signo: libc::c_int,
         pub si_code:  libc::c_int,
         pub si_val:   uint,
     }
     pub type sigset_t = libc::c_ulong;
-
+    #[repr(C)]
     pub struct sigaction {
         pub sa_flags: libc::c_int,
         pub sa_mask:  sigset_t,
@@ -173,6 +176,7 @@ mod signal {
     // This definition is not as accurate as it could be, {pid, uid, status} is
     // actually a giant union. Currently we're only interested in these fields,
     // however.
+    #[repr(C)]
     pub struct siginfo {
         si_signo: libc::c_int,
         si_errno: libc::c_int,
@@ -182,6 +186,7 @@ mod signal {
         pub status: libc::c_int,
     }
 
+    #[repr(C)]
     pub struct sigaction {
         pub sa_handler: extern fn(libc::c_int),
         pub sa_mask: sigset_t,
@@ -189,10 +194,13 @@ mod signal {
         sa_restorer: *mut libc::c_void,
     }
 
+    #[repr(C)]
     #[cfg(target_word_size = "32")]
     pub struct sigset_t {
         __val: [libc::c_ulong, ..32],
     }
+
+    #[repr(C)]
     #[cfg(target_word_size = "64")]
     pub struct sigset_t {
         __val: [libc::c_ulong, ..16],
@@ -216,6 +224,7 @@ mod signal {
     // This definition is not as accurate as it could be, {pid, uid, status} is
     // actually a giant union. Currently we're only interested in these fields,
     // however.
+    #[repr(C)]
     pub struct siginfo {
         si_signo: libc::c_int,
         si_code: libc::c_int,
@@ -225,6 +234,7 @@ mod signal {
         pub status: libc::c_int,
     }
 
+    #[repr(C)]
     pub struct sigaction {
         pub sa_flags: libc::c_uint,
         pub sa_handler: extern fn(libc::c_int),
@@ -233,6 +243,7 @@ mod signal {
         sa_resv: [libc::c_int, ..1],
     }
 
+    #[repr(C)]
     pub struct sigset_t {
         __val: [libc::c_ulong, ..32],
     }
@@ -259,12 +270,14 @@ mod signal {
     pub type sigset_t = u32;
     #[cfg(target_os = "freebsd")]
     #[cfg(target_os = "dragonfly")]
+    #[repr(C)]
     pub struct sigset_t {
         bits: [u32, ..4],
     }
 
     // This structure has more fields, but we're not all that interested in
     // them.
+    #[repr(C)]
     pub struct siginfo {
         pub si_signo: libc::c_int,
         pub si_errno: libc::c_int,
@@ -276,6 +289,7 @@ mod signal {
 
     #[cfg(target_os = "macos")]
     #[cfg(target_os = "ios")]
+    #[repr(C)]
     pub struct sigaction {
         pub sa_handler: extern fn(libc::c_int),
         sa_tramp: *mut libc::c_void,
@@ -285,6 +299,7 @@ mod signal {
 
     #[cfg(target_os = "freebsd")]
     #[cfg(target_os = "dragonfly")]
+    #[repr(C)]
     pub struct sigaction {
         pub sa_handler: extern fn(libc::c_int),
         pub sa_flags: libc::c_int,

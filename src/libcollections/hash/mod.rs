@@ -73,22 +73,22 @@ use core::mem;
 use vec::Vec;
 
 /// Reexport the `sip::hash` function as our default hasher.
-pub use hash = self::sip::hash;
+pub use self::sip::hash as hash;
 
 pub mod sip;
 
-/// A trait that represents a hashable type. The `S` type parameter is an
-/// abstract hash state that is used by the `Hash` to compute the hash.
-/// It defaults to `std::hash::sip::SipState`.
+/// A hashable type. The `S` type parameter is an abstract hash state that is
+/// used by the `Hash` to compute the hash. It defaults to
+/// `std::hash::sip::SipState`.
 pub trait Hash<S = sip::SipState> {
-    /// Compute a hash of the value.
+    /// Computes the hash of a value.
     fn hash(&self, state: &mut S);
 }
 
 /// A trait that computes a hash for a value. The main users of this trait are
 /// containers like `HashMap`, which need a generic way hash multiple types.
 pub trait Hasher<S> {
-    /// Compute a hash of the value.
+    /// Compute the hash of a value.
     fn hash<T: Hash<S>>(&self, value: &T) -> u64;
 }
 

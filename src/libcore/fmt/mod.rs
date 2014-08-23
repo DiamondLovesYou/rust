@@ -14,12 +14,10 @@
 
 use any;
 use cell::{Cell, Ref, RefMut};
-use char::Char;
 use collections::Collection;
 use iter::{Iterator, range};
 use kinds::Copy;
 use mem;
-use num::Float;
 use option::{Option, Some, None};
 use ops::Deref;
 use result::{Ok, Err};
@@ -342,8 +340,12 @@ impl<'a> Formatter<'a> {
     ///
     /// This function will correctly account for the flags provided as well as
     /// the minimum width. It will not take precision into account.
-    pub fn pad_integral(&mut self, is_positive: bool, prefix: &str,
-                        buf: &[u8]) -> Result {
+    pub fn pad_integral(&mut self,
+                        is_positive: bool,
+                        prefix: &str,
+                        buf: &[u8])
+                        -> Result {
+        use char::Char;
         use fmt::rt::{FlagAlternate, FlagSignPlus, FlagSignAwareZeroPad};
 
         let mut width = buf.len();
@@ -364,7 +366,7 @@ impl<'a> Formatter<'a> {
         let write_prefix = |f: &mut Formatter| {
             for c in sign.move_iter() {
                 let mut b = [0, ..4];
-                let n = c.encode_utf8(b);
+                let n = c.encode_utf8(b).unwrap_or(0);
                 try!(f.buf.write(b.slice_to(n)));
             }
             if prefixed { f.buf.write(prefix.as_bytes()) }
@@ -456,6 +458,7 @@ impl<'a> Formatter<'a> {
                     padding: uint,
                     default: rt::Alignment,
                     f: |&mut Formatter| -> Result) -> Result {
+        use char::Char;
         let align = match self.align {
             rt::AlignUnknown => default,
             rt::AlignLeft | rt::AlignRight => self.align
@@ -464,7 +467,7 @@ impl<'a> Formatter<'a> {
             try!(f(self));
         }
         let mut fill = [0u8, ..4];
-        let len = self.fill.encode_utf8(fill);
+        let len = self.fill.encode_utf8(fill).unwrap_or(0);
         for _ in range(0, padding) {
             try!(self.buf.write(fill.slice_to(len)));
         }
@@ -539,8 +542,10 @@ impl<'a, T: str::Str> String for T {
 
 impl Char for char {
     fn fmt(&self, f: &mut Formatter) -> Result {
+        use char::Char;
+
         let mut utf8 = [0u8, ..4];
-        let amt = self.encode_utf8(utf8);
+        let amt = self.encode_utf8(utf8).unwrap_or(0);
         let s: &str = unsafe { mem::transmute(utf8.slice_to(amt)) };
         secret_string(&s, f)
     }
@@ -571,7 +576,7 @@ impl<'a, T> Pointer for &'a mut T {
 macro_rules! floating(($ty:ident) => {
     impl Float for $ty {
         fn fmt(&self, fmt: &mut Formatter) -> Result {
-            use num::Signed;
+            use num::{Float, Signed};
 
             let digits = match fmt.precision {
                 Some(i) => float::DigExact(i),
@@ -592,7 +597,7 @@ macro_rules! floating(($ty:ident) => {
 
     impl LowerExp for $ty {
         fn fmt(&self, fmt: &mut Formatter) -> Result {
-            use num::Signed;
+            use num::{Float, Signed};
 
             let digits = match fmt.precision {
                 Some(i) => float::DigExact(i),
@@ -613,7 +618,7 @@ macro_rules! floating(($ty:ident) => {
 
     impl UpperExp for $ty {
         fn fmt(&self, fmt: &mut Formatter) -> Result {
-            use num::Signed;
+            use num::{Float, Signed};
 
             let digits = match fmt.precision {
                 Some(i) => float::DigExact(i),

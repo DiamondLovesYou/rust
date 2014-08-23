@@ -121,7 +121,7 @@ and report an error, and it just seems like more mess in the end.)
 use middle::def;
 use middle::def::{DefArg, DefBinding, DefLocal, DefUpvar};
 use middle::freevars;
-use mc = middle::mem_categorization;
+use middle::mem_categorization as mc;
 use middle::ty::{ReScope};
 use middle::ty;
 use middle::typeck::astconv::AstConv;
@@ -263,7 +263,7 @@ impl<'a> Rcx<'a> {
 
 impl<'fcx> mc::Typer for Rcx<'fcx> {
     fn tcx<'a>(&'a self) -> &'a ty::ctxt {
-        self.fcx.tcx()
+        self.fcx.ccx.tcx
     }
 
     fn node_ty(&self, id: ast::NodeId) -> mc::McResult<ty::t> {
