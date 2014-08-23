@@ -451,7 +451,7 @@ while read p; do
 
     # Install the file
     msg "${FILE_INSTALL_PATH}"
-    if echo "$p" | grep "^bin/" > /dev/null
+    if echo "$(dirname $p)" | grep "bin$" > /dev/null
     then
         install -m755 "${CFG_SRC_DIR}/$p" "${FILE_INSTALL_PATH}"
     else

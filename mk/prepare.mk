@@ -41,6 +41,14 @@ define PREPARE_BIN
 	$(Q)$(PREPARE_BIN_CMD) $(PREPARE_SOURCE_BIN_DIR)/$(1) $(PREPARE_DEST_BIN_DIR)/$(1)
 endef
 
+# Copy a target host executable
+# $(1) is the filename/libname-glob
+# $(2) is the host triple
+define PREPARE_TARGET_HOST_BIN
+	$(call E, prepare: $(PREPARE_DEST_LIB_DIR)/rustlib/$(2)/bin/$(1))
+	$(Q)$(PREPARE_BIN_CMD) $(PREPARE_SOURCE_LIB_DIR)/rustlib/$(2)/bin/$(1) $(PREPARE_DEST_LIB_DIR)/rustlib/$(2)/bin/$(1)
+endef
+
 # Copy a dylib or rlib
 # $(1) is the filename/libname-glob
 #
@@ -143,8 +151,12 @@ prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
               $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$(2),$$(crate)))),)\
           $$(call PREPARE_LIB,libmorestack.a) \
           $$(call PREPARE_LIB,libcompiler-rt.a) \
-	  $$(if $$(filter $(3),$(2)),$$(call PREPARE_LIB,LLVMgold.so),)      \
-	  $$(if $$(filter $(3),$(2)),$$(call PREPARE_LIB,libLTO.so),),),),)
+	  $$(if $$(filter $(3),$(2)),\
+	    $$(if $$(findstring nacl,$$(PREPARE_TARGETS)),\
+	      $$(call PREPARE_LIB,LLVMgold.so) \
+	      $$(call PREPARE_LIB,libLTO.so) \
+	      $$(call PREPARE_TARGET_HOST_BIN,le32-nacl-ld.gold$$(X_$(3)),$(2)) \
+	      $$(call PREPARE_TARGET_HOST_BIN,le32-nacl-ar$$(X_$(3)),$(2)),),),),),)
 endef
 
 define DEF_PREPARE
@@ -156,6 +168,7 @@ prepare-base-$(1): PREPARE_SOURCE_MAN_DIR=$$(S)/man
 prepare-base-$(1): PREPARE_DEST_BIN_DIR=$$(PREPARE_DEST_DIR)/bin
 prepare-base-$(1): PREPARE_DEST_LIB_DIR=$$(PREPARE_DEST_DIR)/$$(CFG_LIBDIR_RELATIVE)
 prepare-base-$(1): PREPARE_DEST_MAN_DIR=$$(PREPARE_DEST_DIR)/share/man/man1
+prepare-base-$(1): PREPARE_DEST_TARGET_HOST_BIN_DIR=$$(PREPARE_DEST_DIR)/$$(CFG_LIBDIR_RELATIVE)/rustlib/$$(subst dir-,,$(1))/bin
 prepare-base-$(1): prepare-everything-$(1)
 
 prepare-everything-$(1): prepare-host-$(1) prepare-targets-$(1)
@@ -171,6 +184,8 @@ prepare-host-dirs-$(1): prepare-maybe-clean-$(1)
 	$$(call PREPARE_DIR,$$(PREPARE_DEST_BIN_DIR))
 	$$(call PREPARE_DIR,$$(PREPARE_DEST_LIB_DIR))
 	$$(call PREPARE_DIR,$$(PREPARE_DEST_MAN_DIR))
+	$$(if $$(findstring nacl,$$(PREPARE_TARGETS)),\
+	  $$(call PREPARE_DIR,$$(PREPARE_DEST_TARGET_HOST_BIN_DIR)),)
 
 $$(foreach tool,$$(PREPARE_TOOLS), \
   $$(foreach host,$$(CFG_HOST), \
@@ -197,5 +212,3 @@ prepare-maybe-clean-$(1):
 
 
 endef
-
-
