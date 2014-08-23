@@ -62,9 +62,24 @@ fn type_is_newtype_immediate(ccx: &CrateContext, ty: ty::t) -> bool {
     }
 }
 
+// Does this type need to be passed as a ptr for PNaCl?
+pub fn pnacl_type_needs_indirection(ccx: &CrateContext, ty: ty::t) -> bool {
+    use llvm::{Struct, Array};
+    ccx.sess().targeting_pnacl() && {
+        match type_of::arg_type_of(ccx, ty).kind() {
+            Struct | Array => true,
+            _ => false,
+        }
+    }
+}
 pub fn type_is_immediate(ccx: &CrateContext, ty: ty::t) -> bool {
     use middle::trans::machine::llsize_of_alloc;
     use middle::trans::type_of::sizing_type_of;
+
+    if pnacl_type_needs_indirection(ccx, ty) {
+        return false;
+    }
+
     let tcx = ccx.tcx();
     let simple = ty::type_is_scalar(ty) || ty::type_is_boxed(ty) ||
         ty::type_is_unique(ty) || ty::type_is_region_ptr(ty) ||

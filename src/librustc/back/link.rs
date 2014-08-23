@@ -1796,8 +1796,6 @@ pub fn link_pnacl_module(sess: &Session,
             "expand-varargs".with_c_str(|s| ap(s) );
             "expand-arith-with-overflow".with_c_str(|s| ap(s) );
             "expand-constant-expr".with_c_str(|s| ap(s) );
-            "promote-returned-structures".with_c_str(|s| ap(s) );
-            "promote-structure-arguments".with_c_str(|s| ap(s) );
             "expand-struct-regs".with_c_str(|s| ap(s) );
             "nacl-expand-ctors".with_c_str(|s| ap(s) );
             "resolve-aliases".with_c_str(|s| ap(s) );

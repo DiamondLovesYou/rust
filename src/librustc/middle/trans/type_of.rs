@@ -27,7 +27,11 @@ pub fn arg_is_indirect(ccx: &CrateContext, arg_ty: ty::t) -> bool {
 }
 
 pub fn return_uses_outptr(ccx: &CrateContext, ty: ty::t) -> bool {
-    !type_is_immediate(ccx, ty)
+    if ccx.sess().targeting_pnacl() && return_type_is_void(ccx, ty) {
+        false
+    } else {
+        !type_is_immediate(ccx, ty)
+    }
 }
 
 pub fn type_of_explicit_arg(ccx: &CrateContext, arg_ty: ty::t) -> Type {
