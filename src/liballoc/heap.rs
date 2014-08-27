@@ -12,6 +12,7 @@
 // FIXME: #13996: mark the `allocate` and `reallocate` return value as `noalias`
 //                and `nonnull`
 
+use core::ptr::RawPtr;
 #[cfg(not(test))] use core::raw;
 #[cfg(not(test))] use util;
 
@@ -69,6 +70,11 @@ pub unsafe fn reallocate_inplace(ptr: *mut u8, size: uint, align: uint,
 /// the value returned by `usable_size` for the requested size.
 #[inline]
 pub unsafe fn deallocate(ptr: *mut u8, size: uint, align: uint) {
+    // FIXME(14395) This is only required for DST ~[T], it should be removed once
+    // we fix that representation to not use null pointers.
+    if ptr.is_null() {
+        return;
+    }
     imp::deallocate(ptr, size, align)
 }
 
@@ -208,6 +214,7 @@ mod imp {
 
 #[cfg(not(jemalloc), unix)]
 mod imp {
+    use core::cmp;
     use core::mem;
     use core::ptr;
     use libc;
@@ -248,7 +255,7 @@ mod imp {
     pub unsafe fn reallocate(ptr: *mut u8, size: uint, align: uint,
                              old_size: uint) -> *mut u8 {
         let new_ptr = allocate(size, align);
-        ptr::copy_memory(new_ptr, ptr as *const u8, old_size);
+        ptr::copy_memory(new_ptr, ptr as *const u8, cmp::min(size, old_size));
         deallocate(ptr, old_size, align);
         return new_ptr;
     }

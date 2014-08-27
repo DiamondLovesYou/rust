@@ -419,6 +419,8 @@ struct TwoWaySearcher {
     memory: uint
 }
 
+// This is the Two-Way search algorithm, which was introduced in the paper:
+// Crochemore, M., Perrin, D., 1991, Two-way string-matching, Journal of the ACM 38(3):651-675.
 impl TwoWaySearcher {
     fn new(needle: &[u8]) -> TwoWaySearcher {
         let (critPos1, period1) = TwoWaySearcher::maximal_suffix(needle, false);
@@ -437,7 +439,14 @@ impl TwoWaySearcher {
         let byteset = needle.iter()
                             .fold(0, |a, &b| (1 << ((b & 0x3f) as uint)) | a);
 
-        if needle.slice_to(critPos) == needle.slice_from(needle.len() - critPos) {
+
+        // The logic here (calculating critPos and period, the final if statement to see which
+        // period to use for the TwoWaySearcher) is essentially an implementation of the
+        // "small-period" function from the paper (p. 670)
+        //
+        // In the paper they check whether `needle.slice_to(critPos)` is a suffix of
+        // `needle.slice(critPos, critPos + period)`, which is precisely what this does
+        if needle.slice_to(critPos) == needle.slice(period, period + critPos) {
             TwoWaySearcher {
                 critPos: critPos,
                 period: period,
@@ -508,6 +517,9 @@ impl TwoWaySearcher {
         }
     }
 
+    // returns (i, p) where i is the "critical position", the starting index of
+    // of maximal suffix, and p is the period of the suffix
+    // see p. 668 of the paper
     #[inline]
     fn maximal_suffix(arr: &[u8], reversed: bool) -> (uint, uint) {
         let mut left = -1; // Corresponds to i in the paper
@@ -906,8 +918,8 @@ pub fn utf16_items<'a>(v: &'a [u16]) -> Utf16Items<'a> {
 ///
 /// // "ab\0d"
 /// v[2] = 0;
-/// assert_eq!(str::truncate_utf16_at_nul(v),
-///            &['a' as u16, 'b' as u16]);
+/// let b: &[_] = &['a' as u16, 'b' as u16];
+/// assert_eq!(str::truncate_utf16_at_nul(v), b);
 /// ```
 pub fn truncate_utf16_at_nul<'a>(v: &'a [u16]) -> &'a [u16] {
     match v.iter().position(|c| *c == 0) {
@@ -1427,7 +1439,8 @@ pub trait StrSlice<'a> {
     ///
     /// ```rust
     /// assert_eq!("11foo1bar11".trim_chars('1'), "foo1bar")
-    /// assert_eq!("12foo1bar12".trim_chars(&['1', '2']), "foo1bar")
+    /// let x: &[_] = &['1', '2'];
+    /// assert_eq!("12foo1bar12".trim_chars(x), "foo1bar")
     /// assert_eq!("123foo1bar123".trim_chars(|c: char| c.is_digit()), "foo1bar")
     /// ```
     fn trim_chars<C: CharEq>(&self, to_trim: C) -> &'a str;
@@ -1442,7 +1455,8 @@ pub trait StrSlice<'a> {
     ///
     /// ```rust
     /// assert_eq!("11foo1bar11".trim_left_chars('1'), "foo1bar11")
-    /// assert_eq!("12foo1bar12".trim_left_chars(&['1', '2']), "foo1bar12")
+    /// let x: &[_] = &['1', '2'];
+    /// assert_eq!("12foo1bar12".trim_left_chars(x), "foo1bar12")
     /// assert_eq!("123foo1bar123".trim_left_chars(|c: char| c.is_digit()), "foo1bar123")
     /// ```
     fn trim_left_chars<C: CharEq>(&self, to_trim: C) -> &'a str;
@@ -1457,7 +1471,8 @@ pub trait StrSlice<'a> {
     ///
     /// ```rust
     /// assert_eq!("11foo1bar11".trim_right_chars('1'), "11foo1bar")
-    /// assert_eq!("12foo1bar12".trim_right_chars(&['1', '2']), "12foo1bar")
+    /// let x: &[_] = &['1', '2'];
+    /// assert_eq!("12foo1bar12".trim_right_chars(x), "12foo1bar")
     /// assert_eq!("123foo1bar123".trim_right_chars(|c: char| c.is_digit()), "123foo1bar")
     /// ```
     fn trim_right_chars<C: CharEq>(&self, to_trim: C) -> &'a str;
@@ -1495,8 +1510,8 @@ pub trait StrSlice<'a> {
     ///
     /// # Example
     ///
-    /// This example manually iterate through the characters of a
-    /// string; this should normally by done by `.chars()` or
+    /// This example manually iterates through the characters of a
+    /// string; this should normally be done by `.chars()` or
     /// `.char_indices`.
     ///
     /// ```rust
@@ -1608,7 +1623,8 @@ pub trait StrSlice<'a> {
     /// assert_eq!(s.find(|c: char| c.is_whitespace()), Some(5));
     ///
     /// // neither are found
-    /// assert_eq!(s.find(&['1', '2']), None);
+    /// let x: &[_] = &['1', '2'];
+    /// assert_eq!(s.find(x), None);
     /// ```
     fn find<C: CharEq>(&self, search: C) -> Option<uint>;
 
@@ -1632,7 +1648,8 @@ pub trait StrSlice<'a> {
     /// assert_eq!(s.rfind(|c: char| c.is_whitespace()), Some(12));
     ///
     /// // searches for an occurrence of either `1` or `2`, but neither are found
-    /// assert_eq!(s.rfind(&['1', '2']), None);
+    /// let x: &[_] = &['1', '2'];
+    /// assert_eq!(s.rfind(x), None);
     /// ```
     fn rfind<C: CharEq>(&self, search: C) -> Option<uint>;
 
@@ -1703,6 +1720,13 @@ pub trait StrSlice<'a> {
 
     /// Return an iterator of `u16` over the string encoded as UTF-16.
     fn utf16_units(&self) -> Utf16CodeUnits<'a>;
+}
+
+#[inline(never)]
+fn slice_error_fail(s: &str, begin: uint, end: uint) -> ! {
+    assert!(begin <= end);
+    fail!("index {} and/or {} in `{}` do not lie on character boundary",
+          begin, end, s);
 }
 
 impl<'a> StrSlice<'a> for &'a str {
@@ -1808,22 +1832,34 @@ impl<'a> StrSlice<'a> for &'a str {
 
     #[inline]
     fn slice(&self, begin: uint, end: uint) -> &'a str {
-        assert!(self.is_char_boundary(begin) && self.is_char_boundary(end),
-                "index {} and/or {} in `{}` do not lie on character boundary", begin,
-                end, *self);
-        unsafe { raw::slice_bytes(*self, begin, end) }
+        // is_char_boundary checks that the index is in [0, .len()]
+        if begin <= end &&
+           self.is_char_boundary(begin) &&
+           self.is_char_boundary(end) {
+            unsafe { raw::slice_unchecked(*self, begin, end) }
+        } else {
+            slice_error_fail(*self, begin, end)
+        }
     }
 
     #[inline]
     fn slice_from(&self, begin: uint) -> &'a str {
-        self.slice(begin, self.len())
+        // is_char_boundary checks that the index is in [0, .len()]
+        if self.is_char_boundary(begin) {
+            unsafe { raw::slice_unchecked(*self, begin, self.len()) }
+        } else {
+            slice_error_fail(*self, begin, self.len())
+        }
     }
 
     #[inline]
     fn slice_to(&self, end: uint) -> &'a str {
-        assert!(self.is_char_boundary(end), "index {} in `{}` does not lie on \
-                a character boundary", end, *self);
-        unsafe { raw::slice_bytes(*self, 0, end) }
+        // is_char_boundary checks that the index is in [0, .len()]
+        if self.is_char_boundary(end) {
+            unsafe { raw::slice_unchecked(*self, 0, end) }
+        } else {
+            slice_error_fail(*self, 0, end)
+        }
     }
 
     fn slice_chars(&self, begin: uint, end: uint) -> &'a str {
@@ -1898,9 +1934,10 @@ impl<'a> StrSlice<'a> for &'a str {
     #[inline]
     fn is_char_boundary(&self, index: uint) -> bool {
         if index == self.len() { return true; }
-        if index > self.len() { return false; }
-        let b = self.as_bytes()[index];
-        return b < 128u8 || b >= 192u8;
+        match self.as_bytes().get(index) {
+            None => false,
+            Some(&b) => b < 128u8 || b >= 192u8,
+        }
     }
 
     #[inline]

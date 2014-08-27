@@ -220,7 +220,7 @@ impl Drop for Process {
     }
 }
 
-fn pipe() -> IoResult<(file::FileDesc, file::FileDesc)> {
+pub fn pipe() -> IoResult<(file::FileDesc, file::FileDesc)> {
     #[cfg(unix)] use libc::EMFILE as ERROR;
     #[cfg(windows)] use libc::WSAEMFILE as ERROR;
     struct Closer { fd: libc::c_int }
@@ -822,7 +822,7 @@ fn with_envp<T>(env: Option<&[(&CString, &CString)]>,
 
 #[cfg(windows)]
 fn with_envp<T>(env: Option<&[(&CString, &CString)]>, cb: |*mut c_void| -> T) -> T {
-    // On win32 we pass an "environment block" which is not a char**, but
+    // On Windows we pass an "environment block" which is not a char**, but
     // rather a concatenation of null-terminated k=v\0 sequences, with a final
     // \0 to terminate.
     match env {

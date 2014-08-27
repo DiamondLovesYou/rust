@@ -754,7 +754,7 @@ impl LintPass for NonCamelCaseTypes {
 
             // start with a non-lowercase letter rather than non-uppercase
             // ones (some scripts don't have a concept of upper/lowercase)
-            !ident.char_at(0).is_lowercase() && !ident.contains_char('_')
+            ident.len() > 0 && !ident.char_at(0).is_lowercase() && !ident.contains_char('_')
         }
 
         fn to_camel_case(s: &str) -> String {
@@ -768,9 +768,13 @@ impl LintPass for NonCamelCaseTypes {
             let s = token::get_ident(ident);
 
             if !is_camel_case(ident) {
-                cx.span_lint(NON_CAMEL_CASE_TYPES, span,
-                    format!("{} `{}` should have a camel case name such as `{}`",
-                            sort, s, to_camel_case(s.get())).as_slice());
+                let c = to_camel_case(s.get());
+                let m = if c.is_empty() {
+                    format!("{} `{}` should have a camel case name such as `CamelCase`", sort, s)
+                } else {
+                    format!("{} `{}` should have a camel case name such as `{}`", sort, s, c)
+                };
+                cx.span_lint(NON_CAMEL_CASE_TYPES, span, m.as_slice());
             }
         }
 
@@ -1240,18 +1244,8 @@ impl LintPass for UnnecessaryAllocation {
     }
 
     fn check_expr(&mut self, cx: &Context, e: &ast::Expr) {
-        // Warn if string and vector literals with sigils, or boxing expressions,
-        // are immediately borrowed.
+        // Warn if boxing expressions are immediately borrowed.
         let allocation = match e.node {
-            ast::ExprVstore(e2, ast::ExprVstoreUniq) => {
-                match e2.node {
-                    ast::ExprLit(lit) if ast_util::lit_is_str(lit) => {
-                        VectorAllocation
-                    }
-                    ast::ExprVec(..) => VectorAllocation,
-                    _ => return
-                }
-            }
             ast::ExprUnary(ast::UnUniq, _) |
             ast::ExprUnary(ast::UnBox, _) => BoxAllocation,
 
@@ -1261,19 +1255,19 @@ impl LintPass for UnnecessaryAllocation {
         match cx.tcx.adjustments.borrow().find(&e.id) {
             Some(adjustment) => {
                 match *adjustment {
-                    ty::AutoDerefRef(ty::AutoDerefRef { autoref, .. }) => {
+                    ty::AutoDerefRef(ty::AutoDerefRef { ref autoref, .. }) => {
                         match (allocation, autoref) {
-                            (VectorAllocation, Some(ty::AutoBorrowVec(..))) => {
+                            (VectorAllocation, &Some(ty::AutoPtr(_, _, None))) => {
                                 cx.span_lint(UNNECESSARY_ALLOCATION, e.span,
                                              "unnecessary allocation, the sigil can be removed");
                             }
                             (BoxAllocation,
-                             Some(ty::AutoPtr(_, ast::MutImmutable))) => {
+                             &Some(ty::AutoPtr(_, ast::MutImmutable, None))) => {
                                 cx.span_lint(UNNECESSARY_ALLOCATION, e.span,
                                              "unnecessary allocation, use & instead");
                             }
                             (BoxAllocation,
-                             Some(ty::AutoPtr(_, ast::MutMutable))) => {
+                             &Some(ty::AutoPtr(_, ast::MutMutable, None))) => {
                                 cx.span_lint(UNNECESSARY_ALLOCATION, e.span,
                                              "unnecessary allocation, use &mut instead");
                             }
@@ -1565,6 +1559,9 @@ declare_lint!(pub UNKNOWN_CRATE_TYPE, Deny,
 
 declare_lint!(pub VARIANT_SIZE_DIFFERENCE, Allow,
               "detects enums with widely varying variant sizes")
+
+declare_lint!(pub TRANSMUTE_FAT_PTR, Allow,
+              "detects transmutes of fat pointers")
 
 /// Does nothing as a lint pass, but registers some `Lint`s
 /// which are used by other parts of the compiler.

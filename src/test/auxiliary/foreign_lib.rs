@@ -15,6 +15,6 @@ pub mod rustrt {
 
     #[link(name = "rust_test_helpers")]
     extern {
-        fn rust_get_test_int() -> libc::intptr_t;
+        pub fn rust_get_test_int() -> libc::intptr_t;
     }
 }

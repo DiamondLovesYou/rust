@@ -27,9 +27,8 @@ use ast::{ExprField, ExprFnBlock, ExprIf, ExprIndex};
 use ast::{ExprLit, ExprLoop, ExprMac};
 use ast::{ExprMethodCall, ExprParen, ExprPath, ExprProc};
 use ast::{ExprRepeat, ExprRet, ExprStruct, ExprTup, ExprUnary, ExprUnboxedFn};
-use ast::{ExprVec, ExprVstore, ExprVstoreSlice};
-use ast::{ExprVstoreMutSlice, ExprWhile, ExprForLoop, Field, FnDecl};
-use ast::{ExprVstoreUniq, Once, Many};
+use ast::{ExprVec, ExprWhile, ExprForLoop, Field, FnDecl};
+use ast::{Once, Many};
 use ast::{FnUnboxedClosureKind, FnMutUnboxedClosureKind};
 use ast::{FnOnceUnboxedClosureKind};
 use ast::{ForeignItem, ForeignItemStatic, ForeignItemFn, ForeignMod};
@@ -62,7 +61,7 @@ use ast::{UnsafeFn, ViewItem, ViewItem_, ViewItemExternCrate, ViewItemUse};
 use ast::{ViewPath, ViewPathGlob, ViewPathList, ViewPathSimple};
 use ast::{Visibility, WhereClause, WherePredicate};
 use ast;
-use ast_util::{as_prec, ident_to_path, lit_is_str, operator_prec};
+use ast_util::{as_prec, ident_to_path, operator_prec};
 use ast_util;
 use attr;
 use codemap::{Span, BytePos, Spanned, spanned, mk_sp};
@@ -86,6 +85,7 @@ use std::collections::HashSet;
 use std::mem::replace;
 use std::rc::Rc;
 use std::gc::{Gc, GC};
+use std::iter;
 
 #[allow(non_camel_case_types)]
 #[deriving(PartialEq)]
@@ -413,7 +413,7 @@ impl<'a> Parser<'a> {
         } else {
             let token_str = Parser::token_to_string(t);
             let this_token_str = self.this_token_to_string();
-            self.fatal(format!("expected `{}` but found `{}`",
+            self.fatal(format!("expected `{}`, found `{}`",
                                token_str,
                                this_token_str).as_slice())
         }
@@ -447,11 +447,11 @@ impl<'a> Parser<'a> {
             let actual = self.this_token_to_string();
             self.fatal(
                 (if expected.len() != 1 {
-                    (format!("expected one of `{}` but found `{}`",
+                    (format!("expected one of `{}`, found `{}`",
                              expect,
                              actual))
                 } else {
-                    (format!("expected `{}` but found `{}`",
+                    (format!("expected `{}`, found `{}`",
                              expect,
                              actual))
                 }).as_slice()
@@ -762,20 +762,26 @@ impl<'a> Parser<'a> {
                                   sep: Option<token::Token>,
                                   f: |&mut Parser| -> T)
                                   -> OwnedSlice<T> {
-        let mut first = true;
         let mut v = Vec::new();
-        while self.token != token::GT
-            && self.token != token::BINOP(token::SHR)
-            && self.token != token::GE
-            && self.token != token::BINOPEQ(token::SHR) {
-            match sep {
-              Some(ref t) => {
-                if first { first = false; }
-                else { self.expect(t); }
-              }
-              _ => ()
+        // This loop works by alternating back and forth between parsing types
+        // and commas.  For example, given a string `A, B,>`, the parser would
+        // first parse `A`, then a comma, then `B`, then a comma. After that it
+        // would encounter a `>` and stop. This lets the parser handle trailing
+        // commas in generic parameters, because it can stop either after
+        // parsing a type or after parsing a comma.
+        for i in iter::count(0u, 1) {
+            if self.token == token::GT
+                || self.token == token::BINOP(token::SHR)
+                || self.token == token::GE
+                || self.token == token::BINOPEQ(token::SHR) {
+                break;
             }
-            v.push(f(self));
+
+            if i % 2 == 0 {
+                v.push(f(self));
+            } else {
+                sep.as_ref().map(|t| self.expect(t));
+            }
         }
         return OwnedSlice::from_vec(v);
     }
@@ -1314,7 +1320,7 @@ impl<'a> Parser<'a> {
 
               _ => {
                   let token_str = p.this_token_to_string();
-                  p.fatal((format!("expected `;` or `{{` but found `{}`",
+                  p.fatal((format!("expected `;` or `{{`, found `{}`",
                                    token_str)).as_slice())
               }
             }
@@ -1421,13 +1427,16 @@ impl<'a> Parser<'a> {
         } else if self.token == token::TILDE {
             // OWNED POINTER
             self.bump();
-            let last_span = self.last_span;
+            let span = self.last_span;
             match self.token {
-                token::LBRACKET =>
-                    self.obsolete(last_span, ObsoleteOwnedVector),
-                _ => self.obsolete(last_span, ObsoleteOwnedType),
-            };
-            TyUniq(self.parse_ty(true))
+                token::IDENT(ref ident, _)
+                        if "str" == token::get_ident(*ident).get() => {
+                    // This is OK (for now).
+                }
+                token::LBRACKET => {}   // Also OK.
+                _ => self.obsolete(span, ObsoleteOwnedType)
+            }
+            TyUniq(self.parse_ty(false))
         } else if self.token == token::BINOP(token::STAR) {
             // STAR POINTER (bare pointer?)
             self.bump();
@@ -2266,7 +2275,7 @@ impl<'a> Parser<'a> {
                             let mut es = self.parse_unspanned_seq(
                                 &token::LPAREN,
                                 &token::RPAREN,
-                                seq_sep_trailing_disallowed(token::COMMA),
+                                seq_sep_trailing_allowed(token::COMMA),
                                 |p| p.parse_expr()
                             );
                             hi = self.last_span.hi;
@@ -2542,16 +2551,7 @@ impl<'a> Parser<'a> {
             let m = self.parse_mutability();
             let e = self.parse_prefix_expr();
             hi = e.span.hi;
-            // HACK: turn &[...] into a &-vec
-            ex = match e.node {
-              ExprVec(..) if m == MutImmutable => {
-                ExprVstore(e, ExprVstoreSlice)
-              }
-              ExprVec(..) if m == MutMutable => {
-                ExprVstore(e, ExprVstoreMutSlice)
-              }
-              _ => ExprAddrOf(m, e)
-            };
+            ex = ExprAddrOf(m, e);
           }
           token::AT => {
             self.bump();
@@ -2563,61 +2563,43 @@ impl<'a> Parser<'a> {
           }
           token::TILDE => {
             self.bump();
+            let span = self.last_span;
+            match self.token {
+                token::LIT_STR(_) => {
+                    // This is OK (for now).
+                }
+                token::LBRACKET => {}   // Also OK.
+                _ => self.obsolete(span, ObsoleteOwnedExpr)
+            }
 
             let e = self.parse_prefix_expr();
             hi = e.span.hi;
-            // HACK: turn ~[...] into a ~-vec
-            let last_span = self.last_span;
-            ex = match e.node {
-              ExprVec(..) | ExprRepeat(..) => {
-                  self.obsolete(last_span, ObsoleteOwnedVector);
-                  ExprVstore(e, ExprVstoreUniq)
-              }
-              ExprLit(lit) if lit_is_str(lit) => {
-                  self.obsolete(last_span, ObsoleteOwnedExpr);
-                  ExprVstore(e, ExprVstoreUniq)
-              }
-              _ => {
-                  self.obsolete(last_span, ObsoleteOwnedExpr);
-                  self.mk_unary(UnUniq, e)
-              }
-            };
+            ex = self.mk_unary(UnUniq, e);
           }
           token::IDENT(_, _) => {
-              if self.is_keyword(keywords::Box) {
-                self.bump();
+            if !self.is_keyword(keywords::Box) {
+                return self.parse_dot_or_call_expr();
+            }
 
-                // Check for a place: `box(PLACE) EXPR`.
-                if self.eat(&token::LPAREN) {
-                    // Support `box() EXPR` as the default.
-                    if !self.eat(&token::RPAREN) {
-                        let place = self.parse_expr();
-                        self.expect(&token::RPAREN);
-                        let subexpression = self.parse_prefix_expr();
-                        hi = subexpression.span.hi;
-                        ex = ExprBox(place, subexpression);
-                        return self.mk_expr(lo, hi, ex);
-                    }
+            self.bump();
+
+            // Check for a place: `box(PLACE) EXPR`.
+            if self.eat(&token::LPAREN) {
+                // Support `box() EXPR` as the default.
+                if !self.eat(&token::RPAREN) {
+                    let place = self.parse_expr();
+                    self.expect(&token::RPAREN);
+                    let subexpression = self.parse_prefix_expr();
+                    hi = subexpression.span.hi;
+                    ex = ExprBox(place, subexpression);
+                    return self.mk_expr(lo, hi, ex);
                 }
+            }
 
-                // Otherwise, we use the unique pointer default.
-                let subexpression = self.parse_prefix_expr();
-                hi = subexpression.span.hi;
-                // HACK: turn `box [...]` into a boxed-vec
-                ex = match subexpression.node {
-                    ExprVec(..) | ExprRepeat(..) => {
-                        let last_span = self.last_span;
-                        self.obsolete(last_span, ObsoleteOwnedVector);
-                        ExprVstore(subexpression, ExprVstoreUniq)
-                    }
-                    ExprLit(lit) if lit_is_str(lit) => {
-                        ExprVstore(subexpression, ExprVstoreUniq)
-                    }
-                    _ => self.mk_unary(UnUniq, subexpression)
-                };
-              } else {
-                return self.parse_dot_or_call_expr()
-              }
+            // Otherwise, we use the unique pointer default.
+            let subexpression = self.parse_prefix_expr();
+            hi = subexpression.span.hi;
+            ex = self.mk_unary(UnUniq, subexpression);
           }
           _ => return self.parse_dot_or_call_expr()
         }
@@ -3196,7 +3178,7 @@ impl<'a> Parser<'a> {
                                 args = self.parse_enum_variant_seq(
                                     &token::LPAREN,
                                     &token::RPAREN,
-                                    seq_sep_trailing_disallowed(token::COMMA),
+                                    seq_sep_trailing_allowed(token::COMMA),
                                     |p| p.parse_pat()
                                 );
                                 pat = PatEnum(enum_path, Some(args));
@@ -3375,7 +3357,7 @@ impl<'a> Parser<'a> {
                         ""
                     };
                     let tok_str = self.this_token_to_string();
-                    self.fatal(format!("expected {}`(` or `{{`, but found `{}`",
+                    self.fatal(format!("expected {}`(` or `{{`, found `{}`",
                                        ident_str,
                                        tok_str).as_slice())
                 }
@@ -3924,7 +3906,7 @@ impl<'a> Parser<'a> {
             },
             _ => {
                 let token_str = self.this_token_to_string();
-                self.fatal(format!("expected `self` but found `{}`",
+                self.fatal(format!("expected `self`, found `{}`",
                                    token_str).as_slice())
             }
         }
@@ -4068,7 +4050,7 @@ impl<'a> Parser<'a> {
             match self.token {
                 token::COMMA => {
                     self.bump();
-                    let sep = seq_sep_trailing_disallowed(token::COMMA);
+                    let sep = seq_sep_trailing_allowed(token::COMMA);
                     let mut fn_inputs = self.parse_seq_to_before_end(
                         &token::RPAREN,
                         sep,
@@ -4091,7 +4073,7 @@ impl<'a> Parser<'a> {
 
         let fn_inputs = match explicit_self {
             SelfStatic =>  {
-                let sep = seq_sep_trailing_disallowed(token::COMMA);
+                let sep = seq_sep_trailing_allowed(token::COMMA);
                 self.parse_seq_to_before_end(&token::RPAREN, sep, parse_arg_fn)
             }
             SelfValue(id) => parse_remaining_arguments!(id),
@@ -4128,7 +4110,7 @@ impl<'a> Parser<'a> {
                     self.parse_optional_unboxed_closure_kind();
                 let args = self.parse_seq_to_before_end(
                     &token::BINOP(token::OR),
-                    seq_sep_trailing_disallowed(token::COMMA),
+                    seq_sep_trailing_allowed(token::COMMA),
                     |p| p.parse_fn_block_arg()
                 );
                 self.bump();
@@ -4455,7 +4437,7 @@ impl<'a> Parser<'a> {
         } else {
             let token_str = self.this_token_to_string();
             self.fatal(format!("expected `{}`, `(`, or `;` after struct \
-                                name but found `{}`", "{",
+                                name, found `{}`", "{",
                                token_str).as_slice())
         }
 
@@ -4486,7 +4468,7 @@ impl<'a> Parser<'a> {
                 let span = self.span;
                 let token_str = self.this_token_to_string();
                 self.span_fatal(span,
-                                format!("expected `,`, or `}}` but found `{}`",
+                                format!("expected `,`, or `}}`, found `{}`",
                                         token_str).as_slice())
             }
         }
@@ -4566,7 +4548,7 @@ impl<'a> Parser<'a> {
               }
               _ => {
                   let token_str = self.this_token_to_string();
-                  self.fatal(format!("expected item but found `{}`",
+                  self.fatal(format!("expected item, found `{}`",
                                      token_str).as_slice())
               }
             }
@@ -4950,7 +4932,7 @@ impl<'a> Parser<'a> {
                 let arg_tys = self.parse_enum_variant_seq(
                     &token::LPAREN,
                     &token::RPAREN,
-                    seq_sep_trailing_disallowed(token::COMMA),
+                    seq_sep_trailing_allowed(token::COMMA),
                     |p| p.parse_ty(true)
                 );
                 for ty in arg_tys.move_iter() {
@@ -5107,7 +5089,7 @@ impl<'a> Parser<'a> {
             let span = self.span;
             let token_str = self.this_token_to_string();
             self.span_fatal(span,
-                            format!("expected `{}` or `fn` but found `{}`", "{",
+                            format!("expected `{}` or `fn`, found `{}`", "{",
                                     token_str).as_slice());
         }
 

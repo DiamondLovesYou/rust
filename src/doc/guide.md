@@ -1801,7 +1801,6 @@ Let's try compiling what Cargo gave us:
 ```{bash}
 $ cargo build
    Compiling guessing_game v0.0.1 (file:///home/you/projects/guessing_game)
-$
 ```
 
 Excellent! Open up your `src/main.rs` again. We'll be writing all of
@@ -1817,7 +1816,6 @@ $ cargo run
    Compiling guessing_game v0.1.0 (file:/home/you/projects/guessing_game)
      Running `target/guessing_game`
 Hello, world!
-$
 ```
 
 Great! The `run` command comes in handy when you need to rapidly iterate on a project.
@@ -1962,7 +1960,6 @@ fn main() {
 ```{notrust,ignore}
 $ cargo build
   Compiling guessing_game v0.0.1 (file:///home/you/projects/guessing_game)
-$
 ```
 
 Excellent! Try running our new program a few times:
@@ -2021,7 +2018,7 @@ And trying it out:
 ```{notrust,ignore}
 $ cargo build
    Compiling guessing_game v0.0.1 (file:///home/you/projects/guessing_game)
-$ ./target/guessing_game 
+$ ./target/guessing_game
 Guess the number!
 The secret number is: 57
 Please input your guess.
@@ -2292,13 +2289,12 @@ print an error message and return. Let's give this a shot:
 ```{notrust,ignore}
 $ cargo build
    Compiling guessing_game v0.0.1 (file:///home/you/projects/guessing_game)
-$ ./target/guessing_game 
+$ ./target/guessing_game
 Guess the number!
 The secret number is: 17
 Please input your guess.
 5
 Please input a number!
-$
 ```
 
 Uh, what? But we did!
@@ -2358,14 +2354,13 @@ Let's try it!
 ```{notrust,ignore}
 $ cargo build
    Compiling guessing_game v0.0.1 (file:///home/you/projects/guessing_game)
-$ ./target/guessing_game 
+$ ./target/guessing_game
 Guess the number!
 The secret number is: 58
 Please input your guess.
-  76  
+  76
 You guessed: 76
 Too big!
-$
 ```
 
 Nice! You can see I even added spaces before my guess, and it still figured
@@ -2436,7 +2431,7 @@ that `return`? If we give a non-number answer, we'll `return` and quit. Observe:
 ```{notrust,ignore}
 $ cargo build
    Compiling guessing_game v0.0.1 (file:///home/you/projects/guessing_game)
-$ ./target/guessing_game 
+$ ./target/guessing_game
 Guess the number!
 The secret number is: 59
 Please input your guess.
@@ -2454,7 +2449,6 @@ You win!
 Please input your guess.
 quit
 Please input a number!
-$
 ```
 
 Ha! `quit` actually quits. As does any other non-number input. Well, this is
@@ -2569,7 +2563,7 @@ Now we should be good! Let's try:
 ```{rust,ignore}
 $ cargo build
    Compiling guessing_game v0.0.1 (file:///home/you/projects/guessing_game)
-$ ./target/guessing_game 
+$ ./target/guessing_game
 Guess the number!
 The secret number is: 61
 Please input your guess.
@@ -2771,7 +2765,6 @@ $ cargo run
    Compiling modules v0.0.1 (file:///home/you/projects/modules)
      Running `target/modules`
 Hello, world!
-$
 ```
 
 Nice!
@@ -2923,7 +2916,6 @@ This should all compile as usual:
 ```{notrust,ignore}
 $ cargo build
    Compiling modules v0.0.1 (file:///home/you/projects/modules)
-$
 ```
 
 We've seen how the `::` operator can be used to call into modules, but when
@@ -3097,7 +3089,6 @@ $ cargo run
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
      Running `target/testing`
 Hello, world!
-$
 ```
 
 Great. Rust's infrastructure supports tests in two sorts of places, and they're
@@ -3250,7 +3241,6 @@ running 1 test
 test foo ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
-$
 ```
 
 Nice! Our test passes, as we expected. Let's get rid of that warning for our `main`
@@ -3325,7 +3315,8 @@ To do that, we'll need to make a new module. Make a new file, `src/lib.rs`,
 and put this in it:
 
 ```{rust}
-fn add_three_times_four(x: int) -> int {
+# fn main() {}
+pub fn add_three_times_four(x: int) -> int {
     (x + 3) * 4
 }
 ```
@@ -3717,18 +3708,18 @@ That's a lot to take in. It's also one of the _most_ important concepts in
 all of Rust. Let's see this syntax in action:
 
 ```{rust}
-{ 
+{
     let x = 5i; // x is the owner of this integer, which is memory on the stack.
 
     // other code here...
-   
+
 } // privilege 1: when x goes out of scope, this memory is deallocated
 
 /// this function borrows an integer. It's given back automatically when the
 /// function returns.
-fn foo(x: &int) -> &int { x } 
+fn foo(x: &int) -> &int { x }
 
-{ 
+{
     let x = 5i; // x is the owner of this integer, which is memory on the stack.
 
     // privilege 2: you may lend that resource, to as many borrowers as you'd like
@@ -3738,14 +3729,14 @@ fn foo(x: &int) -> &int { x }
     foo(&x); // functions can borrow too!
 
     let a = &x; // we can do this alllllll day!
-} 
+}
 
-{ 
+{
     let mut x = 5i; // x is the owner of this integer, which is memory on the stack.
 
     let y = &mut x; // privilege 3: you may lend that resource to a single borrower,
                     // mutably
-}   
+}
 ```
 
 If you are a borrower, you get a few privileges as well, but must also obey a
@@ -4534,7 +4525,7 @@ let one_to_one_hundred = range(0i, 100i).collect();
 ```
 
 As you can see, we call `collect()` on our iterator. `collect()` takes
-as many values as the iterator will give it, and returns a collection 
+as many values as the iterator will give it, and returns a collection
 of the results. So why won't this compile? Rust can't determine what
 type of things you want to collect, and so you need to let it know.
 Here's the version that does compile:
@@ -5507,7 +5498,7 @@ fn main() {
 }
 ```
 
-Whew! This isn't too terrible. You can see that we still `let x = 5i`, 
+Whew! This isn't too terrible. You can see that we still `let x = 5i`,
 but then things get a little bit hairy. Three more bindings get set: a
 static format string, an argument vector, and the aruments. We then
 invoke the `println_args` function with the generated arguments.
@@ -5530,9 +5521,9 @@ There are two circumstances where Rust's safety provisions don't work well.
 The first is when interfacing with C code, and the second is when building
 certain kinds of abstractions.
 
-Rust has support for FFI, (which you can read about in the [FFI
-Guide](guide-ffi.html)) but Rust can't guarantee that the C code will be safe,
-like Rust's will. Therefore, Rust marks such functions with the `unsafe`
+Rust has support for FFI (which you can read about in the [FFI
+Guide](guide-ffi.html)), but can't guarantee that the C code will be safe.
+Therefore, Rust marks such functions with the `unsafe`
 keyword, which indicates that the function may not behave properly.
 
 Second, if you'd like to create some sort of shared-memory data structure, Rust

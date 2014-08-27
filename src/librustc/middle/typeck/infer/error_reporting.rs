@@ -377,7 +377,7 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
 
     fn values_str(&self, values: &ValuePairs) -> Option<String> {
         /*!
-         * Returns a string of the form "expected `{}` but found `{}`",
+         * Returns a string of the form "expected `{}`, found `{}`",
          * or None if this is a derived error.
          */
         match *values {
@@ -405,7 +405,7 @@ impl<'a> ErrorReporting for InferCtxt<'a> {
             return None;
         }
 
-        Some(format!("expected `{}` but found `{}`",
+        Some(format!("expected `{}`, found `{}`",
                      expected.user_string(self.tcx),
                      found.user_string(self.tcx)))
     }
@@ -1411,8 +1411,8 @@ impl<'a> ErrorReportingHelpers for InferCtxt<'a> {
             infer::AutoBorrow(span) => {
                 self.tcx.sess.span_note(
                     span,
-                    "...so that automatically reference is valid \
-                     at the time of borrow");
+                    "...so that reference is valid \
+                     at the time of implicit borrow");
             }
             infer::BindingTypeIsNotValidAtDecl(span) => {
                 self.tcx.sess.span_note(

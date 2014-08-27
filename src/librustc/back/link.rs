@@ -615,6 +615,13 @@ pub mod write {
         llvm::LLVMPassManagerBuilderPopulateFunctionPassManager(builder, fpm);
         llvm::LLVMPassManagerBuilderPopulateModulePassManager(builder, mpm);
         llvm::LLVMPassManagerBuilderDispose(builder);
+
+        match opt {
+            llvm::CodeGenLevelDefault | llvm::CodeGenLevelAggressive => {
+                "mergefunc".with_c_str(|s| llvm::LLVMRustAddPass(mpm, s));
+            }
+            _ => {}
+        };
     }
 }
 
@@ -935,7 +942,7 @@ pub fn get_cc_prog(sess: &Session) -> String {
     // In the future, FreeBSD will use clang as default compiler.
     // It would be flexible to use cc (system's default C compiler)
     // instead of hard-coded gcc.
-    // For win32, there is no cc command, so we add a condition to make it use gcc.
+    // For Windows, there is no cc command, so we add a condition to make it use gcc.
     match sess.targ_cfg.os {
         abi::OsWindows => "gcc",
         _ => "cc",
@@ -2196,6 +2203,8 @@ fn link_natively(sess: &Session, trans: &CrateTranslation, dylib: bool,
                 sess.note(str::from_utf8(output.as_slice()).unwrap());
                 sess.abort_if_errors();
             }
+            debug!("linker stderr:\n{}", str::from_utf8_owned(prog.error).unwrap());
+            debug!("linker stdout:\n{}", str::from_utf8_owned(prog.output).unwrap());
         },
         Err(e) => {
             sess.err(format!("could not exec the linker `{}`: {}",

@@ -169,7 +169,7 @@ pub fn check_pat_variant(pcx: &pat_ctxt, pat: &ast::Pat, path: &ast::Path,
                     fcx.infcx().type_error_message_str_with_expected(pat.span,
                                                        |expected, actual| {
                        expected.map_or("".to_string(), |e| {
-                        format!("mismatched types: expected `{}` but found {}",
+                        format!("mismatched types: expected `{}`, found {}",
                                 e, actual)
                         })},
                         Some(expected),
@@ -223,7 +223,7 @@ pub fn check_pat_variant(pcx: &pat_ctxt, pat: &ast::Pat, path: &ast::Path,
                                                |expected, actual| {
                                                expected.map_or("".to_string(),
                                                               |e| {
-                        format!("mismatched types: expected `{}` but found {}",
+                        format!("mismatched types: expected `{}`, found {}",
                                 e, actual)
                     })
                 },
@@ -395,7 +395,7 @@ pub fn check_struct_like_enum_variant_pat(pcx: &pat_ctxt,
         Some(&def::DefTy(..)) => {
             let name = pprust::path_to_string(path);
             span_err!(tcx.sess, span, E0028,
-                "mismatched types: expected `{}` but found `{}`",
+                "mismatched types: expected `{}`, found `{}`",
                 fcx.infcx().ty_to_string(expected), name);
         }
         _ => {
@@ -548,7 +548,7 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                             expected.map_or("".to_string(),
                                             |e| {
                                 format!("mismatched types: expected \
-                                        `{}` but found {}", e, actual)
+                                        `{}`, found {}", e, actual)
                             })},
                             Some(expected),
                             "a structure pattern".to_string(),
@@ -607,8 +607,8 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                                                                  |expected,
                                                                   actual| {
                         expected.map_or("".to_string(), |e| {
-                            format!("mismatched types: expected `{}` \
-                                     but found {}", e, actual)
+                            format!("mismatched types: expected `{}`, \
+                                     found {}", e, actual)
                         }
                     )},
                     Some(expected),
@@ -645,7 +645,7 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                 |expected, actual| {
                     expected.map_or("".to_string(),
                                     |e| {
-                        format!("mismatched types: expected `{}` but found {}",
+                        format!("mismatched types: expected `{}`, found {}",
                                 e, actual)
                     })
                 },
@@ -658,10 +658,10 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
         let (elt_type, region_var, mutbl, fixed) = match *structure_of(fcx,
                                                                 pat.span,
                                                                 expected) {
-          ty::ty_vec(mt, Some(fixed)) =>
-            (mt.ty, default_region_var, ast::MutImmutable, Some(fixed)),
+          ty::ty_vec(ty, Some(fixed)) =>
+            (ty, default_region_var, ast::MutImmutable, Some(fixed)),
           ty::ty_uniq(t) => match ty::get(t).sty {
-              ty::ty_vec(mt, None) => {
+              ty::ty_vec(ty, None) => {
                   fcx.type_error_message(pat.span,
                                          |_| {
                                             "unique vector patterns are no \
@@ -669,7 +669,7 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                                          },
                                          expected,
                                          None);
-                  (mt.ty, default_region_var, ast::MutImmutable, None)
+                  (ty, default_region_var, ast::MutImmutable, None)
               }
               _ => {
                   check_err("a vector pattern".to_string());
@@ -677,7 +677,7 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
               }
           },
           ty::ty_rptr(r, mt) => match ty::get(mt.ty).sty {
-              ty::ty_vec(mt, None) => (mt.ty, r, mt.mutbl, None),
+              ty::ty_vec(ty, None) => (ty, r, mt.mutbl, None),
               _ => {
                   check_err("a vector pattern".to_string());
                   return;
@@ -763,7 +763,7 @@ fn check_pointer_pat(pcx: &pat_ctxt,
                 span,
                 |expected, actual| {
                     expected.map_or("".to_string(), |e| {
-                        format!("mismatched types: expected `{}` but found {}",
+                        format!("mismatched types: expected `{}`, found {}",
                                 e, actual)
                     })
                 },
