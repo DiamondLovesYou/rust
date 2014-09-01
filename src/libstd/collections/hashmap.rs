@@ -410,14 +410,14 @@ mod table {
     }
 
     /// Iterator over shared references to entries in a table.
-    pub struct Entries<'a, K, V> {
+    pub struct Entries<'a, K:'a, V:'a> {
         table: &'a RawTable<K, V>,
         idx: uint,
         elems_seen: uint,
     }
 
     /// Iterator over mutable references to entries in a table.
-    pub struct MutEntries<'a, K, V> {
+    pub struct MutEntries<'a, K:'a, V:'a> {
         table: &'a mut RawTable<K, V>,
         idx: uint,
         elems_seen: uint,

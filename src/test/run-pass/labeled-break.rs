@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -18,6 +18,12 @@ pub fn main() {
     'bar: for _ in range(0i, 100i) {
         loop {
             break 'bar;
+        }
+    }
+
+    'foobar: while 1i + 1 == 2 {
+        loop {
+            break 'foobar;
         }
     }
 }

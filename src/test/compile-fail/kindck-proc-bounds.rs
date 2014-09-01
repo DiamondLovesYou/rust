@@ -10,16 +10,13 @@
 
 fn is_send<T: Send>() {}
 fn is_freeze<T: Sync>() {}
-fn is_static<T: 'static>() {}
 
-fn main() {
+fn foo<'a>() {
     is_send::<proc()>();
     //~^ ERROR: instantiating a type parameter with an incompatible type
 
     is_freeze::<proc()>();
     //~^ ERROR: instantiating a type parameter with an incompatible type
-
-    is_static::<proc()>();
-    //~^ ERROR: instantiating a type parameter with an incompatible type
 }
 
+fn main() { }

@@ -29,13 +29,14 @@ use middle::ty_fold;
 use middle::ty_fold::TypeFolder;
 use middle::typeck::check::regionmanip::replace_late_bound_regions_in_fn_sig;
 use middle::typeck::infer::coercion::Coerce;
-use middle::typeck::infer::combine::{Combine, CombineFields, eq_tys};
-use middle::typeck::infer::region_inference::{RegionSnapshot};
-use middle::typeck::infer::region_inference::{RegionVarBindings};
+use middle::typeck::infer::combine::{Combine, CombineFields};
+use middle::typeck::infer::region_inference::{RegionVarBindings,
+                                              RegionSnapshot};
 use middle::typeck::infer::resolve::{resolver};
+use middle::typeck::infer::equate::Equate;
 use middle::typeck::infer::sub::Sub;
 use middle::typeck::infer::lub::Lub;
-use middle::typeck::infer::unify::{UnificationTable, Snapshot};
+use middle::typeck::infer::unify::{UnificationTable};
 use middle::typeck::infer::error_reporting::ErrorReporting;
 use std::cell::{RefCell};
 use std::collections::HashMap;
@@ -46,19 +47,20 @@ use syntax::codemap::Span;
 use util::common::indent;
 use util::ppaux::{bound_region_to_string, ty_to_string, trait_ref_to_string, Repr};
 
-pub mod doc;
-pub mod macros;
+pub mod coercion;
 pub mod combine;
+pub mod doc;
+pub mod equate;
+pub mod error_reporting;
 pub mod glb;
 pub mod lattice;
 pub mod lub;
 pub mod region_inference;
 pub mod resolve;
 pub mod sub;
-pub mod unify;
-pub mod coercion;
-pub mod error_reporting;
 pub mod test;
+pub mod type_variable;
+pub mod unify;
 
 pub type Bound<T> = Option<T>;
 
@@ -79,8 +81,7 @@ pub struct InferCtxt<'a> {
     // We instantiate UnificationTable with bounds<ty::t> because the
     // types that might instantiate a general type variable have an
     // order, represented by its upper and lower bounds.
-    type_unification_table:
-        RefCell<UnificationTable<ty::TyVid, Bounds<ty::t>>>,
+    type_variables: RefCell<type_variable::TypeVariableTable>,
 
     // Map from integral variable to the kind of integer it represents
     int_unification_table:
@@ -161,12 +162,31 @@ pub enum SubregionOrigin {
     // Closure bound must not outlive captured free variables
     FreeVariable(Span, ast::NodeId),
 
+    // Proc upvars must be 'static
+    ProcCapture(Span, ast::NodeId),
+
     // Index into slice must be within its lifetime
     IndexSlice(Span),
 
     // When casting `&'a T` to an `&'b Trait` object,
     // relating `'a` to `'b`
     RelateObjectBound(Span),
+
+    // When closing over a variable in a closure/proc, ensure that the
+    // type of the variable outlives the lifetime bound.
+    RelateProcBound(Span, ast::NodeId, ty::t),
+
+    // The given type parameter was instantiated with the given type,
+    // and that type must outlive some region.
+    RelateParamBound(Span, ty::ParamTy, ty::t),
+
+    // The given region parameter was instantiated with a region
+    // that must outlive some other region.
+    RelateRegionParamBound(Span),
+
+    // A bound placed on type parameters that states that must outlive
+    // the moment of their instantiation.
+    RelateDefaultParamBound(Span, ty::t),
 
     // Creating a pointer `b` to contents of another reference
     Reborrow(Span),
@@ -176,6 +196,9 @@ pub enum SubregionOrigin {
 
     // (&'a &'b T) where a >= b
     ReferenceOutlivesReferent(ty::t, Span),
+
+    // The type T of an expression E must outlive the lifetime for E.
+    ExprTypeIsNotInScope(ty::t, Span),
 
     // A `ref b` whose region does not enclose the decl site
     BindingTypeIsNotValidAtDecl(Span),
@@ -194,6 +217,9 @@ pub enum SubregionOrigin {
 
     // An auto-borrow that does not enclose the expr where it occurs
     AutoBorrow(Span),
+
+    // Managed data cannot contain borrowed pointers.
+    Managed(Span),
 }
 
 /// Reasons to create a region inference variable
@@ -268,7 +294,7 @@ pub fn fixup_err_to_string(f: fixup_err) -> String {
 pub fn new_infer_ctxt<'a>(tcx: &'a ty::ctxt) -> InferCtxt<'a> {
     InferCtxt {
         tcx: tcx,
-        type_unification_table: RefCell::new(UnificationTable::new()),
+        type_variables: RefCell::new(type_variable::TypeVariableTable::new()),
         int_unification_table: RefCell::new(UnificationTable::new()),
         float_unification_table: RefCell::new(UnificationTable::new()),
         region_vars: RegionVarBindings::new(tcx),
@@ -336,7 +362,6 @@ pub fn can_mk_subty(cx: &InferCtxt, a: ty::t, b: ty::t) -> ures {
 }
 
 pub fn mk_subr(cx: &InferCtxt,
-               _a_is_expected: bool,
                origin: SubregionOrigin,
                a: ty::Region,
                b: ty::Region) {
@@ -346,6 +371,18 @@ pub fn mk_subr(cx: &InferCtxt,
     cx.region_vars.commit(snapshot);
 }
 
+pub fn verify_param_bound(cx: &InferCtxt,
+                          origin: SubregionOrigin,
+                          param_ty: ty::ParamTy,
+                          a: ty::Region,
+                          bs: Vec<ty::Region>) {
+    debug!("verify_param_bound({}, {} <: {})",
+           param_ty.repr(cx.tcx),
+           a.repr(cx.tcx),
+           bs.repr(cx.tcx));
+
+    cx.region_vars.verify_param_bound(origin, param_ty, a, bs);
+}
 pub fn mk_eqty(cx: &InferCtxt,
                a_is_expected: bool,
                origin: TypeOrigin,
@@ -359,8 +396,8 @@ pub fn mk_eqty(cx: &InferCtxt,
             origin: origin,
             values: Types(expected_found(a_is_expected, a, b))
         };
-        let suber = cx.sub(a_is_expected, trace);
-        eq_tys(&suber, a, b)
+        try!(cx.equate(a_is_expected, trace).tys(a, b));
+        Ok(())
     })
 }
 
@@ -475,9 +512,9 @@ pub fn uok() -> ures {
 }
 
 pub struct CombinedSnapshot {
-    type_snapshot: Snapshot<ty::TyVid>,
-    int_snapshot: Snapshot<ty::IntVid>,
-    float_snapshot: Snapshot<ty::FloatVid>,
+    type_snapshot: type_variable::Snapshot,
+    int_snapshot: unify::Snapshot<ty::IntVid>,
+    float_snapshot: unify::Snapshot<ty::FloatVid>,
     region_vars_snapshot: RegionSnapshot,
 }
 
@@ -489,6 +526,10 @@ impl<'a> InferCtxt<'a> {
                        trace: trace}
     }
 
+    pub fn equate<'a>(&'a self, a_is_expected: bool, trace: TypeTrace) -> Equate<'a> {
+        Equate(self.combine_fields(a_is_expected, trace))
+    }
+
     pub fn sub<'a>(&'a self, a_is_expected: bool, trace: TypeTrace) -> Sub<'a> {
         Sub(self.combine_fields(a_is_expected, trace))
     }
@@ -497,13 +538,9 @@ impl<'a> InferCtxt<'a> {
         Lub(self.combine_fields(a_is_expected, trace))
     }
 
-    pub fn in_snapshot(&self) -> bool {
-        self.region_vars.in_snapshot()
-    }
-
     fn start_snapshot(&self) -> CombinedSnapshot {
         CombinedSnapshot {
-            type_snapshot: self.type_unification_table.borrow_mut().snapshot(),
+            type_snapshot: self.type_variables.borrow_mut().snapshot(),
             int_snapshot: self.int_unification_table.borrow_mut().snapshot(),
             float_snapshot: self.float_unification_table.borrow_mut().snapshot(),
             region_vars_snapshot: self.region_vars.start_snapshot(),
@@ -517,15 +554,15 @@ impl<'a> InferCtxt<'a> {
                                float_snapshot,
                                region_vars_snapshot } = snapshot;
 
-        self.type_unification_table
+        self.type_variables
             .borrow_mut()
-            .rollback_to(self.tcx, type_snapshot);
+            .rollback_to(type_snapshot);
         self.int_unification_table
             .borrow_mut()
-            .rollback_to(self.tcx, int_snapshot);
+            .rollback_to(int_snapshot);
         self.float_unification_table
             .borrow_mut()
-            .rollback_to(self.tcx, float_snapshot);
+            .rollback_to(float_snapshot);
         self.region_vars
             .rollback_to(region_vars_snapshot);
     }
@@ -537,7 +574,7 @@ impl<'a> InferCtxt<'a> {
                                float_snapshot,
                                region_vars_snapshot } = snapshot;
 
-        self.type_unification_table
+        self.type_variables
             .borrow_mut()
             .commit(type_snapshot);
         self.int_unification_table
@@ -589,13 +626,20 @@ impl<'a> InferCtxt<'a> {
         self.rollback_to(snapshot);
         r
     }
+
+    pub fn add_given(&self,
+                     sub: ty::FreeRegion,
+                     sup: ty::RegionVid)
+    {
+        self.region_vars.add_given(sub, sup);
+    }
 }
 
 impl<'a> InferCtxt<'a> {
     pub fn next_ty_var_id(&self) -> TyVid {
-        self.type_unification_table
+        self.type_variables
             .borrow_mut()
-            .new_key(Bounds { lb: None, ub: None })
+            .new_var()
     }
 
     pub fn next_ty_var(&self) -> ty::t {
@@ -687,14 +731,13 @@ impl<'a> InferCtxt<'a> {
     }
 
     pub fn resolve_type_vars_in_trait_ref_if_possible(&self,
-                                                      trait_ref:
-                                                      &ty::TraitRef)
+                                                      trait_ref: &ty::TraitRef)
                                                       -> ty::TraitRef {
         // make up a dummy type just to reuse/abuse the resolve machinery
         let dummy0 = ty::mk_trait(self.tcx,
                                   trait_ref.def_id,
                                   trait_ref.substs.clone(),
-                                  ty::empty_builtin_bounds());
+                                  ty::region_existential_bound(ty::ReStatic));
         let dummy1 = self.resolve_type_vars_if_possible(dummy0);
         match ty::get(dummy1).sty {
             ty::ty_trait(box ty::TyTrait { ref def_id, ref substs, .. }) => {
@@ -894,17 +937,24 @@ impl SubregionOrigin {
             InvokeClosure(a) => a,
             DerefPointer(a) => a,
             FreeVariable(a, _) => a,
+            ProcCapture(a, _) => a,
             IndexSlice(a) => a,
             RelateObjectBound(a) => a,
+            RelateProcBound(a, _, _) => a,
+            RelateParamBound(a, _, _) => a,
+            RelateRegionParamBound(a) => a,
+            RelateDefaultParamBound(a, _) => a,
             Reborrow(a) => a,
             ReborrowUpvar(a, _) => a,
             ReferenceOutlivesReferent(_, a) => a,
+            ExprTypeIsNotInScope(_, a) => a,
             BindingTypeIsNotValidAtDecl(a) => a,
             CallRcvr(a) => a,
             CallArg(a) => a,
             CallReturn(a) => a,
             AddrOf(a) => a,
             AutoBorrow(a) => a,
+            Managed(a) => a,
         }
     }
 }
@@ -927,11 +977,35 @@ impl Repr for SubregionOrigin {
             FreeVariable(a, b) => {
                 format!("FreeVariable({}, {})", a.repr(tcx), b)
             }
+            ProcCapture(a, b) => {
+                format!("ProcCapture({}, {})", a.repr(tcx), b)
+            }
             IndexSlice(a) => {
                 format!("IndexSlice({})", a.repr(tcx))
             }
             RelateObjectBound(a) => {
                 format!("RelateObjectBound({})", a.repr(tcx))
+            }
+            RelateProcBound(a, b, c) => {
+                format!("RelateProcBound({},{},{})",
+                        a.repr(tcx),
+                        b,
+                        c.repr(tcx))
+            }
+            RelateParamBound(a, b, c) => {
+                format!("RelateParamBound({},{},{})",
+                        a.repr(tcx),
+                        b.repr(tcx),
+                        c.repr(tcx))
+            }
+            RelateRegionParamBound(a) => {
+                format!("RelateRegionParamBound({})",
+                        a.repr(tcx))
+            }
+            RelateDefaultParamBound(a, b) => {
+                format!("RelateDefaultParamBound({},{})",
+                        a.repr(tcx),
+                        b.repr(tcx))
             }
             Reborrow(a) => format!("Reborrow({})", a.repr(tcx)),
             ReborrowUpvar(a, b) => {
@@ -939,6 +1013,11 @@ impl Repr for SubregionOrigin {
             }
             ReferenceOutlivesReferent(_, a) => {
                 format!("ReferenceOutlivesReferent({})", a.repr(tcx))
+            }
+            ExprTypeIsNotInScope(a, b) => {
+                format!("ExprTypeIsNotInScope({}, {})",
+                        a.repr(tcx),
+                        b.repr(tcx))
             }
             BindingTypeIsNotValidAtDecl(a) => {
                 format!("BindingTypeIsNotValidAtDecl({})", a.repr(tcx))
@@ -948,6 +1027,7 @@ impl Repr for SubregionOrigin {
             CallReturn(a) => format!("CallReturn({})", a.repr(tcx)),
             AddrOf(a) => format!("AddrOf({})", a.repr(tcx)),
             AutoBorrow(a) => format!("AutoBorrow({})", a.repr(tcx)),
+            Managed(a) => format!("Managed({})", a.repr(tcx)),
         }
     }
 }

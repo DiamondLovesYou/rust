@@ -490,7 +490,7 @@ macro_rules! double_ended_iterator {
 }
 
 /// Forward iterator over a map.
-pub struct Entries<'a, T> {
+pub struct Entries<'a, T:'a> {
     front: uint,
     back: uint,
     iter: slice::Items<'a, Option<T>>
@@ -501,7 +501,7 @@ double_ended_iterator!(impl Entries -> (uint, &'a T), get_ref)
 
 /// Forward iterator over the key-value pairs of a map, with the
 /// values being mutable.
-pub struct MutEntries<'a, T> {
+pub struct MutEntries<'a, T:'a> {
     front: uint,
     back: uint,
     iter: slice::MutItems<'a, Option<T>>

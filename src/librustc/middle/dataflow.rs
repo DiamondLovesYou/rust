@@ -80,7 +80,7 @@ pub trait DataFlowOperator : BitwiseOperator {
     fn initial_value(&self) -> bool;
 }
 
-struct PropagationContext<'a, 'b, O> {
+struct PropagationContext<'a, 'b:'a, O:'a> {
     dfcx: &'a mut DataFlowContext<'b, O>,
     changed: bool
 }
@@ -104,6 +104,7 @@ impl<'a, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, O> {
            ps: &mut pprust::State,
            node: pprust::AnnNode) -> io::IoResult<()> {
         let id = match node {
+            pprust::NodeIdent(_) | pprust::NodeName(_) => 0,
             pprust::NodeExpr(expr) => expr.id,
             pprust::NodeBlock(blk) => blk.id,
             pprust::NodeItem(_) => 0,
@@ -458,7 +459,7 @@ impl<'a, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, O> {
         });
     }
 
-    fn pretty_print_to(&self, wr: Box<io::Writer>,
+    fn pretty_print_to(&self, wr: Box<io::Writer+'static>,
                        blk: &ast::Block) -> io::IoResult<()> {
         let mut ps = pprust::rust_printer_annotated(wr, self);
         try!(ps.cbox(pprust::indent_unit));

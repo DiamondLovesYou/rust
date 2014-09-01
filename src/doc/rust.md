@@ -891,9 +891,8 @@ There are several kinds of view item:
 ##### Extern crate declarations
 
 ~~~~ {.ebnf .gram}
-extern_crate_decl : "extern" "crate" ident [ '(' link_attrs ')' ] ? [ '=' string_lit ] ? ;
-link_attrs : link_attr [ ',' link_attrs ] + ;
-link_attr : ident '=' literal ;
+extern_crate_decl : "extern" "crate" crate_name
+crate_name: ident | ( string_lit as ident )
 ~~~~
 
 An _`extern crate` declaration_ specifies a dependency on an external crate.
@@ -913,11 +912,9 @@ Four examples of `extern crate` declarations:
 ~~~~ {.ignore}
 extern crate pcre;
 
-extern crate std; // equivalent to: extern crate std = "std";
+extern crate std; // equivalent to: extern crate std as std;
 
-extern crate ruststd = "std"; // linking to 'std' under another name
-
-extern crate foo = "some/where/rust-foo#foo:1.0"; // a full crate ID for external tools
+extern crate "std" as ruststd; // linking to 'std' under another name
 ~~~~
 
 ##### Use declarations
@@ -2218,14 +2215,14 @@ These types help drive the compiler's analysis
 
 * `begin_unwind`
   : ___Needs filling in___
+* `managed_bound`
+  : This type implements "managed"
 * `no_copy_bound`
   : This type does not implement "copy", even if eligible
 * `no_send_bound`
   : This type does not implement "send", even if eligible
-* `no_sync_bound`
-  : This type does not implement "sync", even if eligible
-* `managed_bound`
-  : This type implements "managed"
+* `no_share_bound`
+  : This type does not implement "share", even if eligible
 * `eh_personality`
   : ___Needs filling in___
 * `exchange_free`

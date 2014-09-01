@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -79,12 +79,14 @@ impl<'a> CFGBuilder<'a> {
 
     fn stmt(&mut self, stmt: Gc<ast::Stmt>, pred: CFGIndex) -> CFGIndex {
         match stmt.node {
-            ast::StmtDecl(ref decl, _) => {
-                self.decl(&**decl, pred)
+            ast::StmtDecl(ref decl, id) => {
+                let exit = self.decl(&**decl, pred);
+                self.add_node(id, [exit])
             }
 
-            ast::StmtExpr(ref expr, _) | ast::StmtSemi(ref expr, _) => {
-                self.expr(expr.clone(), pred)
+            ast::StmtExpr(ref expr, id) | ast::StmtSemi(ref expr, id) => {
+                let exit = self.expr(expr.clone(), pred);
+                self.add_node(id, [exit])
             }
 
             ast::StmtMac(..) => {
@@ -225,7 +227,7 @@ impl<'a> CFGBuilder<'a> {
                 self.add_node(expr.id, [then_exit, else_exit])           // 4, 5
             }
 
-            ast::ExprWhile(ref cond, ref body) => {
+            ast::ExprWhile(ref cond, ref body, _) => {
                 //
                 //         [pred]
                 //           |

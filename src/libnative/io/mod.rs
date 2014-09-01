@@ -21,7 +21,7 @@
 //! play. The only dependencies of these modules are the normal system libraries
 //! that you would find on the respective platform.
 
-#![allow(non_snake_case_functions)]
+#![allow(non_snake_case)]
 
 #![allow(unused_imports, dead_code)] // NaCl disables a lot.
 

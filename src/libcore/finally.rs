@@ -102,7 +102,7 @@ pub fn try_finally<T,U,R>(mutate: &mut T,
     try_fn(&mut *f.mutate, drop)
 }
 
-struct Finallyalizer<'a,A> {
+struct Finallyalizer<'a,A:'a> {
     mutate: &'a mut A,
     dtor: |&mut A|: 'a
 }

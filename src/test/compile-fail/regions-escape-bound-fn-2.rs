@@ -15,6 +15,6 @@ fn with_int(f: |x: &int|) {
 
 fn main() {
     let mut x = None;
-         //~^ ERROR lifetime of variable does not enclose its declaration
     with_int(|y| x = Some(y));
+         //~^ ERROR cannot infer
 }

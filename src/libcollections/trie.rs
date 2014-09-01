@@ -858,7 +858,7 @@ fn remove<T>(count: &mut uint, child: &mut Child<T>, key: uint,
 }
 
 /// A forward iterator over a map.
-pub struct Entries<'a, T> {
+pub struct Entries<'a, T:'a> {
     stack: [slice::Items<'a, Child<T>>, .. NUM_CHUNKS],
     length: uint,
     remaining_min: uint,
@@ -867,7 +867,7 @@ pub struct Entries<'a, T> {
 
 /// A forward iterator over the key-value pairs of a map, with the
 /// values being mutable.
-pub struct MutEntries<'a, T> {
+pub struct MutEntries<'a, T:'a> {
     stack: [slice::MutItems<'a, Child<T>>, .. NUM_CHUNKS],
     length: uint,
     remaining_min: uint,

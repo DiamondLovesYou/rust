@@ -292,7 +292,7 @@ mod imp {
 
         struct Context<'a> {
             idx: int,
-            writer: &'a mut Writer,
+            writer: &'a mut Writer+'a,
             last_error: Option<IoError>,
         }
 
@@ -544,7 +544,7 @@ mod imp {
     /// iOS doesn't use all of them it but adding more
     /// platform-specific configs pollutes the code too much
     #[allow(non_camel_case_types)]
-    #[allow(non_snake_case_functions)]
+    #[allow(non_snake_case)]
     #[allow(dead_code)]
     mod uw {
         use libc;
@@ -676,7 +676,7 @@ mod imp {
 /// copy of that function in my mingw install (maybe it was broken?). Instead,
 /// this takes the route of using StackWalk64 in order to walk the stack.
 #[cfg(windows)]
-#[allow(dead_code, uppercase_variables)]
+#[allow(dead_code, non_snake_case)]
 mod imp {
     use c_str::CString;
     use core_collections::Collection;
@@ -693,7 +693,7 @@ mod imp {
     use str::StrSlice;
     use dynamic_lib::DynamicLibrary;
 
-    #[allow(non_snake_case_functions)]
+    #[allow(non_snake_case)]
     extern "system" {
         fn GetCurrentProcess() -> libc::HANDLE;
         fn GetCurrentThread() -> libc::HANDLE;
@@ -720,30 +720,6 @@ mod imp {
     static IMAGE_FILE_MACHINE_IA64: libc::DWORD = 0x0200;
     static IMAGE_FILE_MACHINE_AMD64: libc::DWORD = 0x8664;
 
-    #[cfg(stage0)]
-    #[packed]
-    struct SYMBOL_INFO {
-        SizeOfStruct: libc::c_ulong,
-        TypeIndex: libc::c_ulong,
-        Reserved: [u64, ..2],
-        Index: libc::c_ulong,
-        Size: libc::c_ulong,
-        ModBase: u64,
-        Flags: libc::c_ulong,
-        Value: u64,
-        Address: u64,
-        Register: libc::c_ulong,
-        Scope: libc::c_ulong,
-        Tag: libc::c_ulong,
-        NameLen: libc::c_ulong,
-        MaxNameLen: libc::c_ulong,
-        // note that windows has this as 1, but it basically just means that
-        // the name is inline at the end of the struct. For us, we just bump
-        // the struct size up to MAX_SYM_NAME.
-        Name: [libc::c_char, ..MAX_SYM_NAME],
-    }
-
-    #[cfg(not(stage0))]
     #[repr(C, packed)]
     struct SYMBOL_INFO {
         SizeOfStruct: libc::c_ulong,

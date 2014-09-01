@@ -33,6 +33,7 @@ use getopts;
 pub mod driver;
 pub mod session;
 pub mod config;
+pub mod pretty;
 
 
 pub fn main_args(args: &[String]) -> int {
@@ -96,11 +97,11 @@ fn run_compiler(args: &[String]) {
     let ofile = matches.opt_str("o").map(|o| Path::new(o));
 
     let pretty = matches.opt_default("pretty", "normal").map(|a| {
-        parse_pretty(&sess, a.as_slice())
+        pretty::parse_pretty(&sess, a.as_slice())
     });
     match pretty {
         Some((ppm, opt_uii)) => {
-            driver::pretty_print_input(sess, cfg, &input, ppm, opt_uii, ofile);
+            pretty::pretty_print_input(sess, cfg, &input, ppm, opt_uii, ofile);
             return;
         }
         None => {/* continue */ }
@@ -180,14 +181,26 @@ Available lint options:
         lints
     }
 
+    fn sort_lint_groups(lints: Vec<(&'static str, Vec<lint::LintId>, bool)>)
+                     -> Vec<(&'static str, Vec<lint::LintId>)> {
+        let mut lints: Vec<_> = lints.move_iter().map(|(x, y, _)| (x, y)).collect();
+        lints.sort_by(|&(x, _): &(&'static str, Vec<lint::LintId>),
+                       &(y, _): &(&'static str, Vec<lint::LintId>)| {
+            x.cmp(&y)
+        });
+        lints
+    }
+
     let (plugin, builtin) = lint_store.get_lints().partitioned(|&(_, p)| p);
     let plugin = sort_lints(plugin);
     let builtin = sort_lints(builtin);
 
-    // FIXME (#7043): We should use the width in character cells rather than
-    // the number of codepoints.
+    let (plugin_groups, builtin_groups) = lint_store.get_lint_groups().partitioned(|&(_, _, p)| p);
+    let plugin_groups = sort_lint_groups(plugin_groups);
+    let builtin_groups = sort_lint_groups(builtin_groups);
+
     let max_name_len = plugin.iter().chain(builtin.iter())
-        .map(|&s| s.name.char_len())
+        .map(|&s| s.name.width(true))
         .max().unwrap_or(0);
     let padded = |x: &str| {
         " ".repeat(max_name_len - x.char_len()).append(x)
@@ -208,16 +221,48 @@ Available lint options:
 
     print_lints(builtin);
 
-    match (loaded_plugins, plugin.len()) {
-        (false, 0) => {
-            println!("Compiler plugins can provide additional lints. To see a listing of these, \
-                      re-run `rustc -W help` with a crate filename.");
+
+
+    let max_name_len = plugin_groups.iter().chain(builtin_groups.iter())
+        .map(|&(s, _)| s.width(true))
+        .max().unwrap_or(0);
+    let padded = |x: &str| {
+        " ".repeat(max_name_len - x.char_len()).append(x)
+    };
+
+    println!("Lint groups provided by rustc:\n");
+    println!("    {}  {}", padded("name"), "sub-lints");
+    println!("    {}  {}", padded("----"), "---------");
+
+    let print_lint_groups = |lints: Vec<(&'static str, Vec<lint::LintId>)>| {
+        for (name, to) in lints.move_iter() {
+            let name = name.chars().map(|x| x.to_lowercase())
+                           .collect::<String>().replace("_", "-");
+            let desc = to.move_iter().map(|x| x.as_str()).collect::<Vec<String>>().connect(", ");
+            println!("    {}  {}",
+                     padded(name.as_slice()), desc);
         }
-        (false, _) => fail!("didn't load lint plugins but got them anyway!"),
-        (true, 0) => println!("This crate does not load any lint plugins."),
-        (true, _) => {
-            println!("Lint checks provided by plugins loaded by this crate:\n");
-            print_lints(plugin);
+        println!("\n");
+    };
+
+    print_lint_groups(builtin_groups);
+
+    match (loaded_plugins, plugin.len(), plugin_groups.len()) {
+        (false, 0, _) | (false, _, 0) => {
+            println!("Compiler plugins can provide additional lints and lint groups. To see a \
+                      listing of these, re-run `rustc -W help` with a crate filename.");
+        }
+        (false, _, _) => fail!("didn't load lint plugins but got them anyway!"),
+        (true, 0, 0) => println!("This crate does not load any lint plugins or lint groups."),
+        (true, l, g) => {
+            if l > 0 {
+                println!("Lint checks provided by plugins loaded by this crate:\n");
+                print_lints(plugin);
+            }
+            if g > 0 {
+                println!("Lint groups provided by plugins loaded by this crate:\n");
+                print_lint_groups(plugin_groups);
+            }
         }
     }
 }
@@ -341,43 +386,6 @@ fn print_crate_info(sess: &Session,
     } else {
         false
     }
-}
-
-#[deriving(PartialEq, Show)]
-pub enum PpSourceMode {
-    PpmNormal,
-    PpmExpanded,
-    PpmTyped,
-    PpmIdentified,
-    PpmExpandedIdentified,
-}
-
-#[deriving(PartialEq, Show)]
-pub enum PpMode {
-    PpmSource(PpSourceMode),
-    PpmFlowGraph,
-}
-
-fn parse_pretty(sess: &Session, name: &str) -> (PpMode, Option<driver::UserIdentifiedItem>) {
-    let mut split = name.splitn(1, '=');
-    let first = split.next().unwrap();
-    let opt_second = split.next();
-    let first = match first {
-        "normal"       => PpmSource(PpmNormal),
-        "expanded"     => PpmSource(PpmExpanded),
-        "typed"        => PpmSource(PpmTyped),
-        "expanded,identified" => PpmSource(PpmExpandedIdentified),
-        "identified"   => PpmSource(PpmIdentified),
-        "flowgraph"    => PpmFlowGraph,
-        _ => {
-            sess.fatal(format!(
-                "argument to `pretty` must be one of `normal`, \
-                 `expanded`, `flowgraph=<nodeid>`, `typed`, `identified`, \
-                 or `expanded,identified`; got {}", name).as_slice());
-        }
-    };
-    let opt_second = opt_second.and_then::<driver::UserIdentifiedItem>(from_str);
-    (first, opt_second)
 }
 
 fn parse_crate_attrs(sess: &Session, input: &Input) ->

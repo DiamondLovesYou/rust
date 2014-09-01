@@ -323,7 +323,12 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
     };
 
     let config = &mut config;
-    let DebuggerCommands { commands, check_lines, .. } = parse_debugger_commands(testfile, "gdb");
+    let DebuggerCommands {
+        commands,
+        check_lines,
+        use_gdb_pretty_printer,
+        ..
+    } = parse_debugger_commands(testfile, "gdb");
     let mut cmds = commands.connect("\n");
 
     // compile test file (it should have 'compile-flags:-g' in the header)
@@ -334,7 +339,6 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
     let exe_file = make_exe_name(config, testfile);
 
-    let mut proc_args;
     let debugger_run_result;
     match config.target.as_slice() {
         "arm-linux-androideabi" => {
@@ -559,17 +563,64 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
         }
 
         _=> {
+            let rust_src_root = find_rust_src_root(config)
+                .expect("Could not find Rust source root");
+            let rust_pp_module_rel_path = Path::new("./src/etc");
+            let rust_pp_module_abs_path = rust_src_root.join(rust_pp_module_rel_path)
+                                                       .as_str()
+                                                       .unwrap()
+                                                       .to_string();
             // write debugger script
-            let script_str = [
-                "set charset UTF-8".to_string(),
-                cmds,
-                "quit\n".to_string()
-            ].connect("\n");
+            let mut script_str = String::with_capacity(2048);
+
+            script_str.push_str("set charset UTF-8\n");
+            script_str.push_str("show version\n");
+
+            match config.gdb_version {
+                Some(ref version) => {
+                    println!("NOTE: compiletest thinks it is using GDB version {}",
+                             version.as_slice());
+
+                    if header::gdb_version_to_int(version.as_slice()) >
+                        header::gdb_version_to_int("7.4") {
+                        // Add the directory containing the pretty printers to
+                        // GDB's script auto loading safe path ...
+                        script_str.push_str(
+                            format!("add-auto-load-safe-path {}\n",
+                                    rust_pp_module_abs_path.as_slice())
+                                .as_slice());
+                        // ... and also the test directory
+                        script_str.push_str(
+                            format!("add-auto-load-safe-path {}\n",
+                                    config.build_base.as_str().unwrap())
+                                .as_slice());
+                    }
+                }
+                _ => {
+                    println!("NOTE: compiletest does not know which version of \
+                              GDB it is using");
+                }
+            }
+
+            // Load the target executable
+            script_str.push_str(format!("file {}\n",
+                                        exe_file.as_str().unwrap())
+                                    .as_slice());
+
+            script_str.push_str(cmds.as_slice());
+            script_str.push_str("quit\n");
+
             debug!("script_str = {}", script_str);
             dump_output_file(config,
                              testfile,
                              script_str.as_slice(),
                              "debugger.script");
+
+            if use_gdb_pretty_printer {
+                // Only emit the gdb auto-loading script if pretty printers
+                // should actually be loaded
+                dump_gdb_autoload_script(config, testfile);
+            }
 
             // run debugger script with gdb
             #[cfg(windows)]
@@ -588,16 +639,19 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 vec!("-quiet".to_string(),
                      "-batch".to_string(),
                      "-nx".to_string(),
-                     format!("-command={}", debugger_script.as_str().unwrap()),
-                     exe_file.as_str().unwrap().to_string());
-            proc_args = ProcArgs {
+                     format!("-command={}", debugger_script.as_str().unwrap()));
+
+            let proc_args = ProcArgs {
                 prog: debugger(),
                 args: debugger_opts,
             };
+
+            let environment = vec![("PYTHONPATH".to_string(), rust_pp_module_abs_path)];
+
             debugger_run_result = compose_and_run(config,
                                                   testfile,
                                                   proc_args,
-                                                  Vec::new(),
+                                                  environment,
                                                   config.run_lib_path.as_slice(),
                                                   None,
                                                   None);
@@ -609,6 +663,32 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
     }
 
     check_debugger_output(&debugger_run_result, check_lines.as_slice());
+
+    fn dump_gdb_autoload_script(config: &Config, testfile: &Path) {
+        let mut script_path = output_base_name(config, testfile);
+        let mut script_file_name = script_path.filename().unwrap().to_vec();
+        script_file_name.push_all("-gdb.py".as_bytes());
+        script_path.set_filename(script_file_name.as_slice());
+
+        let script_content = "import gdb_rust_pretty_printing\n\
+                              gdb_rust_pretty_printing.register_printers(gdb.current_objfile())\n"
+                             .as_bytes();
+
+        File::create(&script_path).write(script_content).unwrap();
+    }
+}
+
+fn find_rust_src_root(config: &Config) -> Option<Path> {
+    let mut path = config.src_base.clone();
+    let path_postfix = Path::new("src/etc/lldb_batchmode.py");
+
+    while path.pop() {
+        if path.join(path_postfix.clone()).is_file() {
+            return Some(path);
+        }
+    }
+
+    return None;
 }
 
 fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) {
@@ -638,7 +718,8 @@ fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) 
     let DebuggerCommands {
         commands,
         check_lines,
-        breakpoint_lines
+        breakpoint_lines,
+        ..
     } = parse_debugger_commands(testfile, "lldb");
 
     // Write debugger script:
@@ -724,6 +805,7 @@ struct DebuggerCommands {
     commands: Vec<String>,
     check_lines: Vec<String>,
     breakpoint_lines: Vec<uint>,
+    use_gdb_pretty_printer: bool
 }
 
 fn parse_debugger_commands(file_path: &Path, debugger_prefix: &str)
@@ -736,6 +818,7 @@ fn parse_debugger_commands(file_path: &Path, debugger_prefix: &str)
     let mut breakpoint_lines = vec!();
     let mut commands = vec!();
     let mut check_lines = vec!();
+    let mut use_gdb_pretty_printer = false;
     let mut counter = 1;
     let mut reader = BufferedReader::new(File::open(file_path).unwrap());
     for line in reader.lines() {
@@ -743,6 +826,10 @@ fn parse_debugger_commands(file_path: &Path, debugger_prefix: &str)
             Ok(line) => {
                 if line.as_slice().contains("#break") {
                     breakpoint_lines.push(counter);
+                }
+
+                if line.as_slice().contains("gdb-use-pretty-printer") {
+                    use_gdb_pretty_printer = true;
                 }
 
                 header::parse_name_value_directive(
@@ -768,7 +855,8 @@ fn parse_debugger_commands(file_path: &Path, debugger_prefix: &str)
     DebuggerCommands {
         commands: commands,
         check_lines: check_lines,
-        breakpoint_lines: breakpoint_lines
+        breakpoint_lines: breakpoint_lines,
+        use_gdb_pretty_printer: use_gdb_pretty_printer,
     }
 }
 
@@ -1762,11 +1850,13 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                 return ProcResResult(ProcRes {
                     status: status,
                     stdout: String::from_utf8(process.stdout
-                                              .get_mut_ref()
+                                              .as_mut()
+                                              .unwrap()
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     stderr: String::from_utf8(process.stderr
-                                              .get_mut_ref()
+                                              .as_mut()
+                                              .unwrap()
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
@@ -1789,11 +1879,13 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                 return ProcResResult(ProcRes {
                     status: status,
                     stdout: String::from_utf8(process.stdout
-                                              .get_mut_ref()
+                                              .as_mut()
+                                              .unwrap()
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     stderr: String::from_utf8(process.stderr
-                                              .get_mut_ref()
+                                              .as_mut()
+                                              .unwrap()
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
@@ -1809,8 +1901,16 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         let _ = process.signal_kill();
         return ProcResResult(ProcRes {
             status: ExitSignal(9),
-            stdout: String::from_utf8(process.stdout.get_mut_ref().read_to_end().unwrap()).unwrap(),
-            stderr: String::from_utf8(process.stderr.get_mut_ref().read_to_end().unwrap()).unwrap(),
+            stdout: String::from_utf8(process.stdout
+                                      .as_mut()
+                                      .unwrap()
+                                      .read_to_end()
+                                      .unwrap()).unwrap(),
+            stderr: String::from_utf8(process.stderr
+                                      .as_mut()
+                                      .unwrap()
+                                      .read_to_end()
+                                      .unwrap()).unwrap(),
             cmdline: make_cmdline("",
                                   sel_ldr.display().as_maybe_owned().as_slice(),
                                   sel_ldr_args.as_slice()),
@@ -1864,7 +1964,7 @@ fn compile_cc_with_clang_and_save_bitcode(config: &Config, _props: &TestProps,
     let testcc = testfile.with_extension("cc");
     let proc_args = ProcArgs {
         // FIXME (#9639): This needs to handle non-utf8 paths
-        prog: config.clang_path.get_ref().as_str().unwrap().to_string(),
+        prog: config.clang_path.as_ref().unwrap().as_str().unwrap().to_string(),
         args: vec!("-c".to_string(),
                    "-emit-llvm".to_string(),
                    "-o".to_string(),
@@ -1880,7 +1980,7 @@ fn extract_function_from_bitcode(config: &Config, _props: &TestProps,
     let bitcodefile = output_base_name(config, testfile).with_extension("bc");
     let bitcodefile = append_suffix_to_stem(&bitcodefile, suffix);
     let extracted_bc = append_suffix_to_stem(&bitcodefile, "extract");
-    let prog = config.llvm_bin_path.get_ref().join("llvm-extract");
+    let prog = config.llvm_bin_path.as_ref().unwrap().join("llvm-extract");
     let proc_args = ProcArgs {
         // FIXME (#9639): This needs to handle non-utf8 paths
         prog: prog.as_str().unwrap().to_string(),
@@ -1897,7 +1997,7 @@ fn disassemble_extract(config: &Config, _props: &TestProps,
     let bitcodefile = append_suffix_to_stem(&bitcodefile, suffix);
     let extracted_bc = append_suffix_to_stem(&bitcodefile, "extract");
     let extracted_ll = extracted_bc.with_extension("ll");
-    let prog = config.llvm_bin_path.get_ref().join("llvm-dis");
+    let prog = config.llvm_bin_path.as_ref().unwrap().join("llvm-dis");
     let proc_args = ProcArgs {
         // FIXME (#9639): This needs to handle non-utf8 paths
         prog: prog.as_str().unwrap().to_string(),

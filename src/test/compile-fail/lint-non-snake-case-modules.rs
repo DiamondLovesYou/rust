@@ -8,19 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn main() {
-    let mut x = Some(1);
-    let mut p: proc(&mut Option<int>) = proc(_) {};
-    match x {
-        Some(ref y) => {
-            p = proc(z: &mut Option<int>) {
-                *z = None;
-                let _ = y;
-                //~^ ERROR cannot capture variable of type `&int`, which does not fulfill `'static`
-            };
-        }
-        None => {}
-    }
-    p(&mut x);
+#![deny(non_snake_case)]
+#![allow(dead_code)]
+
+mod FooBar { //~ ERROR module `FooBar` should have a snake case name such as `foo_bar`
+    pub struct S;
 }
 
+fn f(_: FooBar::S) { }
+
+fn main() { }

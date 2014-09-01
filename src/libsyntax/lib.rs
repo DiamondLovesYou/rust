@@ -27,9 +27,6 @@
 #![feature(quote, struct_variant, unsafe_destructor, import_shadowing)]
 #![allow(deprecated)]
 
-// NOTE(stage0, pcwalton): Remove after snapshot.
-#![allow(unknown_features)]
-
 extern crate fmt_macros;
 extern crate debug;
 #[phase(plugin, link)] extern crate log;

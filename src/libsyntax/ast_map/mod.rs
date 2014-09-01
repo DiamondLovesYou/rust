@@ -70,7 +70,7 @@ impl<'a> Iterator<PathElem> for LinkedPath<'a> {
 
 // HACK(eddyb) move this into libstd (value wrapper for slice::Items).
 #[deriving(Clone)]
-pub struct Values<'a, T>(pub slice::Items<'a, T>);
+pub struct Values<'a, T:'a>(pub slice::Items<'a, T>);
 
 impl<'a, T: Copy> Iterator<T> for Values<'a, T> {
     fn next(&mut self) -> Option<T> {
@@ -478,7 +478,7 @@ impl Map {
     }
 }
 
-pub struct NodesMatchingSuffix<'a, S> {
+pub struct NodesMatchingSuffix<'a, S:'a> {
     map: &'a Map,
     item_name: &'a S,
     in_which: &'a [S],
@@ -676,11 +676,7 @@ impl<'a, F: FoldOps> Folder for Ctx<'a, F> {
                     None => {}
                 }
             }
-            ItemTrait(_, _, ref traits, ref methods) => {
-                for t in traits.iter() {
-                    self.insert(t.ref_id, EntryItem(self.parent, i));
-                }
-
+            ItemTrait(_, _, _, ref methods) => {
                 for tm in methods.iter() {
                     match *tm {
                         RequiredMethod(ref m) => {

@@ -8,13 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Test that Copy bounds inherited by trait are checked.
 
-trait Foo { }
+use std::any::Any;
+use std::any::AnyRefExt;
 
-fn foo<'a>(x: Box<Foo + 'a>) { //~ ERROR only the 'static lifetime is accepted here
+trait Foo : Copy {
 }
 
-fn bar<'a, T:'a>() { //~ ERROR only the 'static lifetime is accepted here
+impl<T:Copy> Foo for T {
 }
 
-fn main() { }
+fn take_param<T:Foo>(foo: &T) { }
+
+fn main() {
+    let x = box 3i;
+    take_param(&x); //~ ERROR does not fulfill `Copy`
+
+    let y = &x;
+    let z = &x as &Foo; //~ ERROR does not fulfill `Copy`
+}

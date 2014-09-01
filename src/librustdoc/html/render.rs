@@ -297,7 +297,7 @@ pub fn run(mut krate: clean::Crate, external_html: &ExternalHtml, dst: Path) -> 
     let public_items = public_items.unwrap_or(NodeSet::new());
     let paths: HashMap<ast::DefId, (Vec<String>, ItemType)> =
       analysis.as_ref().map(|a| {
-        let paths = a.external_paths.borrow_mut().take_unwrap();
+        let paths = a.external_paths.borrow_mut().take().unwrap();
         paths.move_iter().map(|(k, (v, t))| {
             (k, (v, match t {
                 clean::TypeStruct => item_type::Struct,
@@ -325,13 +325,13 @@ pub fn run(mut krate: clean::Crate, external_html: &ExternalHtml, dst: Path) -> 
         public_items: public_items,
         orphan_methods: Vec::new(),
         traits: analysis.as_ref().map(|a| {
-            a.external_traits.borrow_mut().take_unwrap()
+            a.external_traits.borrow_mut().take().unwrap()
         }).unwrap_or(HashMap::new()),
         typarams: analysis.as_ref().map(|a| {
-            a.external_typarams.borrow_mut().take_unwrap()
+            a.external_typarams.borrow_mut().take().unwrap()
         }).unwrap_or(HashMap::new()),
         inlined: analysis.as_ref().map(|a| {
-            a.inlined.borrow_mut().take_unwrap()
+            a.inlined.borrow_mut().take().unwrap()
         }).unwrap_or(HashSet::new()),
     };
     cache.stack.push(krate.name.clone());
@@ -805,7 +805,7 @@ impl DocFolder for Cache {
                         v.push(Implementor {
                             def_id: item.def_id,
                             generics: i.generics.clone(),
-                            trait_: i.trait_.get_ref().clone(),
+                            trait_: i.trait_.as_ref().unwrap().clone(),
                             for_: i.for_.clone(),
                             stability: item.stability.clone(),
                         });
@@ -819,16 +819,17 @@ impl DocFolder for Cache {
         // Index this method for searching later on
         match item.name {
             Some(ref s) => {
-                let parent = match item.inner {
+                let (parent, is_method) = match item.inner {
                     clean::TyMethodItem(..) |
                     clean::StructFieldItem(..) |
                     clean::VariantItem(..) => {
-                        (Some(*self.parent_stack.last().unwrap()),
-                         Some(self.stack.slice_to(self.stack.len() - 1)))
+                        ((Some(*self.parent_stack.last().unwrap()),
+                          Some(self.stack.slice_to(self.stack.len() - 1))),
+                          false)
                     }
                     clean::MethodItem(..) => {
                         if self.parent_stack.len() == 0 {
-                            (None, None)
+                            ((None, None), false)
                         } else {
                             let last = self.parent_stack.last().unwrap();
                             let did = *last;
@@ -844,17 +845,18 @@ impl DocFolder for Cache {
                                 Some(..) => Some(self.stack.as_slice()),
                                 None => None
                             };
-                            (Some(*last), path)
+                            ((Some(*last), path), true)
                         }
                     }
-                    _ => (None, Some(self.stack.as_slice()))
+                    _ => ((None, Some(self.stack.as_slice())), false)
                 };
                 let hidden_field = match item.inner {
                     clean::StructFieldItem(clean::HiddenStructField) => true,
                     _ => false
                 };
+
                 match parent {
-                    (parent, Some(path)) if !self.privmod && !hidden_field => {
+                    (parent, Some(path)) if is_method || (!self.privmod && !hidden_field) => {
                         self.search_index.push(IndexItem {
                             ty: shortty(&item),
                             name: s.to_string(),
@@ -863,7 +865,7 @@ impl DocFolder for Cache {
                             parent: parent,
                         });
                     }
-                    (Some(parent), None) if !self.privmod => {
+                    (Some(parent), None) if is_method || (!self.privmod && !hidden_field)=> {
                         if ast_util::is_local(parent) {
                             // We have a parent, but we don't know where they're
                             // defined yet. Wait for later to index this item.
@@ -878,7 +880,7 @@ impl DocFolder for Cache {
 
         // Keep track of the fully qualified path for this item.
         let pushed = if item.name.is_some() {
-            let n = item.name.get_ref();
+            let n = item.name.as_ref().unwrap();
             if n.len() > 0 {
                 self.stack.push(n.to_string());
                 true
@@ -1125,7 +1127,7 @@ impl Context {
                 if title.len() > 0 {
                     title.push_str("::");
                 }
-                title.push_str(it.name.get_ref().as_slice());
+                title.push_str(it.name.as_ref().unwrap().as_slice());
             }
             title.push_str(" - Rust");
             let tyname = shortty(it).to_static_str();
@@ -1191,10 +1193,10 @@ impl Context {
             // modules are special because they add a namespace. We also need to
             // recurse into the items of the module as well.
             clean::ModuleItem(..) => {
-                let name = item.name.get_ref().to_string();
+                let name = item.name.as_ref().unwrap().to_string();
                 let mut item = Some(item);
                 self.recurse(name, |this| {
-                    let item = item.take_unwrap();
+                    let item = item.take().unwrap();
                     let dst = this.dst.join("index.html");
                     let dst = try!(File::create(&dst));
                     try!(render(dst, this, &item, false));
@@ -1398,7 +1400,7 @@ fn item_path(item: &clean::Item) -> String {
 fn full_path(cx: &Context, item: &clean::Item) -> String {
     let mut s = cx.current.connect("::");
     s.push_str("::");
-    s.push_str(item.name.get_ref().as_slice());
+    s.push_str(item.name.as_ref().unwrap().as_slice());
     return s
 }
 
@@ -1610,12 +1612,12 @@ fn item_function(w: &mut fmt::Formatter, it: &clean::Item,
 
 fn item_trait(w: &mut fmt::Formatter, cx: &Context, it: &clean::Item,
               t: &clean::Trait) -> fmt::Result {
-    let mut parents = String::new();
-    if t.parents.len() > 0 {
-        parents.push_str(": ");
-        for (i, p) in t.parents.iter().enumerate() {
-            if i > 0 { parents.push_str(" + "); }
-            parents.push_str(format!("{}", *p).as_slice());
+    let mut bounds = String::new();
+    if t.bounds.len() > 0 {
+        bounds.push_str(": ");
+        for (i, p) in t.bounds.iter().enumerate() {
+            if i > 0 { bounds.push_str(" + "); }
+            bounds.push_str(format!("{}", *p).as_slice());
         }
     }
 
@@ -1624,7 +1626,7 @@ fn item_trait(w: &mut fmt::Formatter, cx: &Context, it: &clean::Item,
                   VisSpace(it.visibility),
                   it.name.get_ref().as_slice(),
                   t.generics,
-                  parents));
+                  bounds));
     let required = t.items.iter()
                           .filter(|m| {
                               match **m {
@@ -1809,7 +1811,7 @@ fn item_enum(w: &mut fmt::Formatter, it: &clean::Item,
         try!(write!(w, " {{\n"));
         for v in e.variants.iter() {
             try!(write!(w, "    "));
-            let name = v.name.get_ref().as_slice();
+            let name = v.name.as_ref().unwrap().as_slice();
             match v.inner {
                 clean::VariantItem(ref var) => {
                     match var.kind {
@@ -2098,7 +2100,7 @@ impl<'a> fmt::Show for Sidebar<'a> {
             try!(write!(w, "<div class='block {}'><h2>{}</h2>", short, longty));
             for item in items.iter() {
                 let curty = shortty(cur).to_static_str();
-                let class = if cur.name.get_ref() == item &&
+                let class = if cur.name.as_ref().unwrap() == item &&
                                short == curty { "current" } else { "" };
                 try!(write!(w, "<a class='{ty} {class}' href='{href}{path}'>\
                                 {name}</a>",

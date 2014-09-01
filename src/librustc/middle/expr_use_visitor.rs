@@ -192,10 +192,10 @@ impl OverloadedCallType {
 // supplies types from the tree. After type checking is complete, you
 // can just use the tcx as the typer.
 
-pub struct ExprUseVisitor<'d,'t,TYPER> {
+pub struct ExprUseVisitor<'d,'t,TYPER:'t> {
     typer: &'t TYPER,
     mc: mc::MemCategorizationContext<'t,TYPER>,
-    delegate: &'d mut Delegate,
+    delegate: &'d mut Delegate+'d,
 }
 
 // If the TYPER results in an error, it's because the type check
@@ -402,7 +402,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
                 self.walk_block(&**blk);
             }
 
-            ast::ExprWhile(ref cond_expr, ref blk) => {
+            ast::ExprWhile(ref cond_expr, ref blk, _) => {
                 self.consume_expr(&**cond_expr);
                 self.walk_block(&**blk);
             }

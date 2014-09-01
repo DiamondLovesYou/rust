@@ -662,7 +662,7 @@ pub mod writer {
     pub type EncodeResult = io::IoResult<()>;
 
     // rbml writing
-    pub struct Encoder<'a, W> {
+    pub struct Encoder<'a, W:'a> {
         pub writer: &'a mut W,
         size_positions: Vec<uint>,
     }
@@ -1124,7 +1124,7 @@ mod tests {
 
 #[cfg(test)]
 mod bench {
-    #![allow(non_snake_case_functions)]
+    #![allow(non_snake_case)]
     use test::Bencher;
     use super::reader;
 

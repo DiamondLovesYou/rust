@@ -382,7 +382,7 @@ fn fmt_number_or_null(v: f64) -> String {
 
 /// A structure for implementing serialization to JSON.
 pub struct Encoder<'a> {
-    writer: &'a mut io::Writer,
+    writer: &'a mut io::Writer+'a,
 }
 
 impl<'a> Encoder<'a> {
@@ -594,7 +594,7 @@ impl<'a> ::Encoder<io::IoError> for Encoder<'a> {
 /// Another encoder for JSON, but prints out human-readable JSON instead of
 /// compact data
 pub struct PrettyEncoder<'a> {
-    writer: &'a mut io::Writer,
+    writer: &'a mut io::Writer+'a,
     curr_indent: uint,
     indent: uint,
 }
@@ -2282,7 +2282,7 @@ macro_rules! tuple_impl {
             > ToJson for ( $( $tyvar ),* , ) {
 
             #[inline]
-            #[allow(uppercase_variables)]
+            #[allow(non_snake_case)]
             fn to_json(&self) -> Json {
                 match *self {
                     ($(ref $tyvar),*,) => List(vec![$($tyvar.to_json()),*])

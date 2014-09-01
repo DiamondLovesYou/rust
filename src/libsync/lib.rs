@@ -32,9 +32,6 @@
 #![deny(missing_doc)]
 #![no_std]
 
-// NOTE(stage0, pcwalton): Remove after snapshot.
-#![allow(unknown_features)]
-
 #[phase(plugin, link)] extern crate core;
 extern crate alloc;
 extern crate collections;

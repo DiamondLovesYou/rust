@@ -826,7 +826,7 @@ pub trait GenericPathUnsafe {
 }
 
 /// Helper struct for printing paths with format!()
-pub struct Display<'a, P> {
+pub struct Display<'a, P:'a> {
     path: &'a P,
     filename: bool
 }

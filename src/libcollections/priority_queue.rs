@@ -516,7 +516,7 @@ impl<T: Ord> PriorityQueue<T> {
 }
 
 /// `PriorityQueue` iterator.
-pub struct Items <'a, T> {
+pub struct Items <'a, T:'a> {
     iter: slice::Items<'a, T>,
 }
 

@@ -127,7 +127,7 @@ impl<T: Send> Thread<T> {
         unsafe { imp::join(self.native) };
         self.joined = true;
         assert!(self.packet.is_some());
-        self.packet.take_unwrap()
+        self.packet.take().unwrap()
     }
 }
 
@@ -202,7 +202,7 @@ mod imp {
         SwitchToThread();
     }
 
-    #[allow(non_snake_case_functions)]
+    #[allow(non_snake_case)]
     extern "system" {
         fn CreateThread(lpThreadAttributes: LPSECURITY_ATTRIBUTES,
                         dwStackSize: SIZE_T,

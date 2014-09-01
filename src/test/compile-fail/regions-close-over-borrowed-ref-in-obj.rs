@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,13 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![macro_escape]
+trait Foo { }
 
-macro_rules! if_ok(
-    ($inp: expr) => (
-        match $inp {
-            Ok(v) => { v }
-            Err(e) => { return Err(e); }
-        }
-    )
-)
+impl<'a> Foo for &'a int { }
+
+fn main() {
+    let blah;
+    {
+        let ss: &int = &1; //~ ERROR borrowed value does not live long enough
+        blah = box ss as Box<Foo>;
+    }
+}

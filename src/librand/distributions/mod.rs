@@ -105,7 +105,7 @@ pub struct Weighted<T> {
 ///      println!("{}", wc.ind_sample(&mut rng));
 /// }
 /// ```
-pub struct WeightedChoice<'a, T> {
+pub struct WeightedChoice<'a, T:'a> {
     items: &'a mut [Weighted<T>],
     weight_range: Range<uint>
 }

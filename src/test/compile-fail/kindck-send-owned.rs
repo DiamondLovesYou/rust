@@ -8,24 +8,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Test which of the builtin types are considered sendable.
 
-trait A<T> {}
-struct B<'a, T>(&'a A<T>);
+fn assert_send<T:Send>() { }
 
-trait X {}
-impl<'a, T> X for B<'a, T> {}
+// owned content are ok
+fn test30() { assert_send::<Box<int>>(); }
+fn test31() { assert_send::<String>(); }
+fn test32() { assert_send::<Vec<int> >(); }
 
-fn f<'a, T, U>(v: Box<A<T>>) -> Box<X> {
-    box B(v) as Box<X> //~ ERROR value may contain references; add `'static` bound to `T`
+// but not if they own a bad thing
+fn test40<'a>(_: &'a int) {
+    assert_send::<Box<&'a int>>(); //~ ERROR does not fulfill the required lifetime
 }
 
-fn g<'a, T, U>(v: Box<A<U>>) -> Box<X> {
-    box B(v) as Box<X> //~ ERROR value may contain references; add `'static` bound to `U`
-}
-
-fn h<'a, T: 'static>(v: Box<A<T>>) -> Box<X> {
-    box B(v) as Box<X> // ok
-}
-
-fn main() {}
-
+fn main() { }

@@ -14,7 +14,7 @@
 #![crate_type = "dylib"]
 #![feature(plugin_registrar, quote, globs)]
 
-extern crate other = "syntax-extension-with-dll-deps-1";
+extern crate "syntax-extension-with-dll-deps-1" as other;
 extern crate syntax;
 extern crate rustc;
 
@@ -29,7 +29,7 @@ pub fn plugin_registrar(reg: &mut Registry) {
 }
 
 fn expand_foo(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree])
-              -> Box<MacResult> {
+              -> Box<MacResult+'static> {
     let answer = other::the_answer();
     MacExpr::new(quote_expr!(cx, $answer))
 }

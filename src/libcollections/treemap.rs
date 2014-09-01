@@ -668,8 +668,8 @@ impl<K: Ord, V> TreeMap<K, V> {
     }
 }
 
-/// A lazy forward iterator over a map.
-pub struct Entries<'a, K, V> {
+/// Lazy forward iterator over a map
+pub struct Entries<'a, K:'a, V:'a> {
     stack: Vec<&'a TreeNode<K, V>>,
     // See the comment on MutEntries; this is just to allow
     // code-sharing (for this immutable-values iterator it *could* very
@@ -679,14 +679,14 @@ pub struct Entries<'a, K, V> {
     remaining_max: uint
 }
 
-/// Lazy backward iterator over a map.
-pub struct RevEntries<'a, K, V> {
+/// Lazy backward iterator over a map
+pub struct RevEntries<'a, K:'a, V:'a> {
     iter: Entries<'a, K, V>,
 }
 
-/// A lazy forward iterator over a map that allows for the mutation of
+/// Lazy forward iterator over a map that allows for the mutation of
 /// the values.
-pub struct MutEntries<'a, K, V> {
+pub struct MutEntries<'a, K:'a, V:'a> {
     stack: Vec<&'a mut TreeNode<K, V>>,
     // Unfortunately, we require some unsafe-ness to get around the
     // fact that we would be storing a reference *into* one of the
@@ -712,11 +712,10 @@ pub struct MutEntries<'a, K, V> {
     remaining_max: uint
 }
 
-/// Lazy backward iterator over a map.
-pub struct RevMutEntries<'a, K, V> {
+/// Lazy backward iterator over a map
+pub struct RevMutEntries<'a, K:'a, V:'a> {
     iter: MutEntries<'a, K, V>,
 }
-
 
 /// TreeMap keys iterator.
 pub type Keys<'a, K, V> =
@@ -885,9 +884,7 @@ fn mut_deref<K, V>(x: &mut Option<Box<TreeNode<K, V>>>)
     }
 }
 
-
-
-/// A lazy forward iterator over a map that consumes the map while iterating.
+/// Lazy forward iterator over a map that consumes the map while iterating
 pub struct MoveEntries<K, V> {
     stack: Vec<TreeNode<K, V>>,
     remaining: uint
@@ -1323,12 +1320,12 @@ impl<T: Ord> TreeSet<T> {
 }
 
 /// A lazy forward iterator over a set.
-pub struct SetItems<'a, T> {
+pub struct SetItems<'a, T:'a> {
     iter: Entries<'a, T, ()>
 }
 
-/// Lazy backward iterator over a set.
-pub struct RevSetItems<'a, T> {
+/// A lazy backward iterator over a set.
+pub struct RevSetItems<'a, T:'a> {
     iter: RevEntries<'a, T, ()>
 }
 
@@ -1336,31 +1333,30 @@ pub struct RevSetItems<'a, T> {
 pub type MoveSetItems<T> = iter::Map<'static, (T, ()), T, MoveEntries<T, ()>>;
 
 /// A lazy iterator producing elements in the set difference (in-order).
-pub struct DifferenceItems<'a, T> {
+pub struct DifferenceItems<'a, T:'a> {
     a: Peekable<&'a T, SetItems<'a, T>>,
     b: Peekable<&'a T, SetItems<'a, T>>,
 }
 
 /// A lazy iterator producing elements in the set symmetric difference (in-order).
-pub struct SymDifferenceItems<'a, T> {
+pub struct SymDifferenceItems<'a, T:'a> {
     a: Peekable<&'a T, SetItems<'a, T>>,
     b: Peekable<&'a T, SetItems<'a, T>>,
 }
 
 /// A lazy iterator producing elements in the set intersection (in-order).
-pub struct IntersectionItems<'a, T> {
+pub struct IntersectionItems<'a, T:'a> {
     a: Peekable<&'a T, SetItems<'a, T>>,
     b: Peekable<&'a T, SetItems<'a, T>>,
 }
 
 /// A lazy iterator producing elements in the set union (in-order).
-pub struct UnionItems<'a, T> {
+pub struct UnionItems<'a, T:'a> {
     a: Peekable<&'a T, SetItems<'a, T>>,
     b: Peekable<&'a T, SetItems<'a, T>>,
 }
 
-/// Compare `x` and `y`, but return `short` if x is None and `long` if y is
-/// `None`.
+/// Compare `x` and `y`, but return `short` if x is None and `long` if y is None
 fn cmp_opt<T: Ord>(x: Option<&T>, y: Option<&T>,
                         short: Ordering, long: Ordering) -> Ordering {
     match (x, y) {
@@ -1447,7 +1443,7 @@ impl<K: Ord, V> TreeNode<K, V> {
 // Remove left horizontal link by rotating right
 fn skew<K: Ord, V>(node: &mut Box<TreeNode<K, V>>) {
     if node.left.as_ref().map_or(false, |x| x.level == node.level) {
-        let mut save = node.left.take_unwrap();
+        let mut save = node.left.take().unwrap();
         swap(&mut node.left, &mut save.right); // save.right now None
         swap(node, &mut save);
         node.right = Some(save);
@@ -1459,7 +1455,7 @@ fn skew<K: Ord, V>(node: &mut Box<TreeNode<K, V>>) {
 fn split<K: Ord, V>(node: &mut Box<TreeNode<K, V>>) {
     if node.right.as_ref().map_or(false,
       |x| x.right.as_ref().map_or(false, |y| y.level == node.level)) {
-        let mut save = node.right.take_unwrap();
+        let mut save = node.right.take().unwrap();
         swap(&mut node.right, &mut save.left); // save.left now None
         save.level += 1;
         swap(node, &mut save);
@@ -1563,7 +1559,7 @@ fn remove<K: Ord, V>(node: &mut Option<Box<TreeNode<K, V>>>,
           Equal => {
             if save.left.is_some() {
                 if save.right.is_some() {
-                    let mut left = save.left.take_unwrap();
+                    let mut left = save.left.take().unwrap();
                     if left.right.is_some() {
                         heir_swap(save, &mut left.right);
                     } else {
@@ -1573,13 +1569,13 @@ fn remove<K: Ord, V>(node: &mut Option<Box<TreeNode<K, V>>>,
                     save.left = Some(left);
                     (remove(&mut save.left, key), true)
                 } else {
-                    let new = save.left.take_unwrap();
+                    let new = save.left.take().unwrap();
                     let box TreeNode{value, ..} = replace(save, new);
-                    *save = save.left.take_unwrap();
+                    *save = save.left.take().unwrap();
                     (Some(value), true)
                 }
             } else if save.right.is_some() {
-                let new = save.right.take_unwrap();
+                let new = save.right.take().unwrap();
                 let box TreeNode{value, ..} = replace(save, new);
                 (Some(value), true)
             } else {

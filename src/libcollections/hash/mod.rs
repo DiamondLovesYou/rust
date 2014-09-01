@@ -157,8 +157,8 @@ macro_rules! impl_hash_tuple(
 
     ( $($name:ident)+) => (
         impl<S: Writer, $($name: Hash<S>),*> Hash<S> for ($($name,)*) {
-            #[allow(uppercase_variables)]
             #[inline]
+            #[allow(non_snake_case)]
             fn hash(&self, state: &mut S) {
                 match *self {
                     ($(ref $name,)*) => {
@@ -293,7 +293,6 @@ impl<S: Writer, T: Hash<S>, U: Hash<S>> Hash<S> for Result<T, U> {
 
 #[cfg(test)]
 mod tests {
-    use std::prelude::*;
     use std::mem;
 
     use slice::ImmutableSlice;

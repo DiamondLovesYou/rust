@@ -27,7 +27,7 @@ pub struct Exclusive<T> {
 }
 
 /// An RAII guard returned via `lock`
-pub struct ExclusiveGuard<'a, T> {
+pub struct ExclusiveGuard<'a, T:'a> {
     // FIXME #12808: strange name to try to avoid interfering with
     // field accesses of the contained type via Deref
     _data: &'a mut T,

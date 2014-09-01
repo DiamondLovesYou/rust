@@ -240,7 +240,7 @@ impl ast_node for ast::Pat {
     fn span(&self) -> Span { self.span }
 }
 
-pub struct MemCategorizationContext<'t,TYPER> {
+pub struct MemCategorizationContext<'t,TYPER:'t> {
     typer: &'t TYPER
 }
 

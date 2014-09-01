@@ -340,7 +340,7 @@ struct ArmData<'a, 'b> {
  * As we proceed `bound_ptrs` are filled with pointers to values to be bound,
  * these pointers are stored in llmatch variables just before executing `data` arm.
  */
-struct Match<'a, 'b> {
+struct Match<'a, 'b:'a> {
     pats: Vec<Gc<ast::Pat>>,
     data: &'a ArmData<'a, 'b>,
     bound_ptrs: Vec<(Ident, ValueRef)>

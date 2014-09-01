@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(non_uppercase_pattern_statics)]
+#![allow(non_uppercase_statics)]
 #![allow(non_camel_case_types)]
-#![allow(non_snake_case_functions)]
+#![allow(non_snake_case)]
 #![allow(dead_code)]
 
 #![crate_name = "rustc_llvm"]
@@ -196,7 +196,7 @@ impl AttrHelper for SpecialAttribute {
 }
 
 pub struct AttrBuilder {
-    attrs: Vec<(uint, Box<AttrHelper>)>
+    attrs: Vec<(uint, Box<AttrHelper+'static>)>
 }
 
 impl AttrBuilder {
@@ -207,12 +207,12 @@ impl AttrBuilder {
     }
 
     pub fn arg<'a, T: AttrHelper + 'static>(&'a mut self, idx: uint, a: T) -> &'a mut AttrBuilder {
-        self.attrs.push((idx, box a as Box<AttrHelper>));
+        self.attrs.push((idx, box a as Box<AttrHelper+'static>));
         self
     }
 
     pub fn ret<'a, T: AttrHelper + 'static>(&'a mut self, a: T) -> &'a mut AttrBuilder {
-        self.attrs.push((ReturnIndex as uint, box a as Box<AttrHelper>));
+        self.attrs.push((ReturnIndex as uint, box a as Box<AttrHelper+'static>));
         self
     }
 
@@ -432,7 +432,10 @@ pub mod debuginfo {
       FlagObjcClassComplete  = 1 << 9,
       FlagObjectPointer      = 1 << 10,
       FlagVector             = 1 << 11,
-      FlagStaticMember       = 1 << 12
+      FlagStaticMember       = 1 << 12,
+      FlagIndirectVariable   = 1 << 13,
+      FlagLValueReference    = 1 << 14,
+      FlagRValueReference    = 1 << 15
     }
 }
 

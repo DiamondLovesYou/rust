@@ -945,11 +945,11 @@ pub trait Reader {
     }
 }
 
-impl Reader for Box<Reader> {
+impl Reader for Box<Reader+'static> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
 }
 
-impl<'a> Reader for &'a mut Reader {
+impl<'a> Reader for &'a mut Reader+'a {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
 }
 
@@ -1000,7 +1000,7 @@ unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -
 ///
 /// # }
 /// ```
-pub struct RefReader<'a, R> {
+pub struct RefReader<'a, R:'a> {
     /// The underlying reader which this is referencing
     inner: &'a mut R
 }
@@ -1060,10 +1060,11 @@ pub trait Writer {
     fn write_fmt(&mut self, fmt: &fmt::Arguments) -> IoResult<()> {
         // Create a shim which translates a Writer to a FormatWriter and saves
         // off I/O errors. instead of discarding them
-        struct Adaptor<'a, T> {
+        struct Adaptor<'a, T:'a> {
             inner: &'a mut T,
             error: IoResult<()>,
         }
+
         impl<'a, T: Writer> fmt::FormatWriter for Adaptor<'a, T> {
             fn write(&mut self, bytes: &[u8]) -> fmt::Result {
                 match self.inner.write(bytes) {
@@ -1278,7 +1279,7 @@ pub trait Writer {
     }
 }
 
-impl Writer for Box<Writer> {
+impl Writer for Box<Writer+'static> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
 
@@ -1286,7 +1287,7 @@ impl Writer for Box<Writer> {
     fn flush(&mut self) -> IoResult<()> { self.flush() }
 }
 
-impl<'a> Writer for &'a mut Writer {
+impl<'a> Writer for &'a mut Writer+'a {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
 
@@ -1318,7 +1319,7 @@ impl<'a> Writer for &'a mut Writer {
 /// println!("input processed: {}", output.unwrap());
 /// # }
 /// ```
-pub struct RefWriter<'a, W> {
+pub struct RefWriter<'a, W:'a> {
     /// The underlying writer which this is referencing
     inner: &'a mut W
 }
@@ -1351,7 +1352,7 @@ impl<T: Reader + Writer> Stream for T {}
 ///
 /// Any error other than `EndOfFile` that is produced by the underlying Reader
 /// is returned by the iterator and should be handled by the caller.
-pub struct Lines<'r, T> {
+pub struct Lines<'r, T:'r> {
     buffer: &'r mut T,
 }
 
@@ -1378,7 +1379,7 @@ impl<'r, T: Buffer> Iterator<IoResult<String>> for Lines<'r, T> {
 ///
 /// Any error other than `EndOfFile` that is produced by the underlying Reader
 /// is returned by the iterator and should be handled by the caller.
-pub struct Chars<'r, T> {
+pub struct Chars<'r, T:'r> {
     buffer: &'r mut T
 }
 
@@ -1618,7 +1619,7 @@ pub trait Acceptor<T> {
 /// `Some`. The `Some` contains the `IoResult` representing whether the
 /// connection attempt was successful.  A successful connection will be wrapped
 /// in `Ok`. A failed connection is represented as an `Err`.
-pub struct IncomingConnections<'a, A> {
+pub struct IncomingConnections<'a, A:'a> {
     inc: &'a mut A,
 }
 

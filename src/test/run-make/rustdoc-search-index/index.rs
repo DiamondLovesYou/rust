@@ -8,11 +8,22 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-pretty
+#![crate_name = "rustdoc_test"]
 
-trait Foo { }
+// In: Foo
+pub use private::Foo;
 
-fn foo<'a, 'b:'a>() { //~ ERROR region bounds require `issue_5723_bootstrap`
+mod private {
+    pub struct Foo;
+    impl Foo {
+        // In: test_method
+        pub fn test_method() {}
+        // Out: priv_method
+        fn priv_method() {}
+    }
+
+    pub trait PrivateTrait {
+        // Out: priv_method
+        fn trait_method() {}
+    }
 }
-
-pub fn main() { }

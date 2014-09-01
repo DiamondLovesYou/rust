@@ -76,7 +76,7 @@ pub struct Select {
 /// A handle to a receiver which is currently a member of a `Select` set of
 /// receivers.  This handle is used to keep the receiver in the set as well as
 /// interact with the underlying receiver.
-pub struct Handle<'rx, T> {
+pub struct Handle<'rx, T:'rx> {
     /// The ID of this handle, used to compare against the return value of
     /// `Select::wait()`
     id: uint,
@@ -84,7 +84,7 @@ pub struct Handle<'rx, T> {
     next: *mut Handle<'static, ()>,
     prev: *mut Handle<'static, ()>,
     added: bool,
-    packet: &'rx Packet,
+    packet: &'rx Packet+'rx,
 
     // due to our fun transmutes, we be sure to place this at the end. (nothing
     // previous relies on T)

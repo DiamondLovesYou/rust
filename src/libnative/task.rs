@@ -92,7 +92,7 @@ pub fn spawn_opts(opts: TaskOpts, f: proc():Send) {
         let mut f = Some(f);
         let mut task = task;
         task.put_runtime(ops);
-        drop(task.run(|| { f.take_unwrap()() }).destroy());
+        drop(task.run(|| { f.take().unwrap()() }).destroy());
         drop(token);
     })
 }
@@ -145,8 +145,8 @@ impl rt::Runtime for Ops {
         Local::put(cur_task);
     }
 
-    fn wrap(self: Box<Ops>) -> Box<Any> {
-        self as Box<Any>
+    fn wrap(self: Box<Ops>) -> Box<Any+'static> {
+        self as Box<Any+'static>
     }
 
     fn stack_bounds(&self) -> (uint, uint) { self.stack_bounds }
