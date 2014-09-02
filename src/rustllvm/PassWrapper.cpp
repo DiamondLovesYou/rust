@@ -12,6 +12,7 @@
 
 #include "rustllvm.h"
 
+#include "llvm/MC/MCTargetOptionsCommandFlags.h"
 #include "llvm/Support/CBindingWrapping.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Target/TargetLibraryInfo.h"
@@ -130,6 +131,7 @@ LLVMRustCreateTargetMachine(const char *triple,
     if (UseSoftFloat) {
         Options.FloatABIType = FloatABI::Soft;
     }
+    Options.MCOptions = InitMCTargetOptionsFromFlags();
 
     TargetMachine *TM = TheTarget->createTargetMachine(Trip.getTriple(),
                                                        cpu,
