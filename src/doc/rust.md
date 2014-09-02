@@ -1954,7 +1954,7 @@ On `struct`s:
 
 - `repr` - specifies the representation to use for this struct. Takes a list
   of options. The currently accepted ones are `C` and `packed`, which may be
-  combined. `C` will use a C ABI comptible struct layout, and `packed` will
+  combined. `C` will use a C ABI compatible struct layout, and `packed` will
   remove any padding between fields (note that this is very fragile and may
   break platforms which require aligned access).
 
@@ -2367,7 +2367,7 @@ One can indicate the stability of an API using the following attributes:
 These levels are directly inspired by
 [Node.js' "stability index"](http://nodejs.org/api/documentation.html).
 
-Stability levels are inherited, so an items's stability attribute is the
+Stability levels are inherited, so an item's stability attribute is the
 default stability for everything nested underneath it.
 
 There are lints for disallowing items marked with certain levels: `deprecated`,
@@ -2444,7 +2444,7 @@ The currently implemented features of the reference compiler are:
 
 * `concat_idents` - Allows use of the `concat_idents` macro, which is in many
                     ways insufficient for concatenating identifiers, and may
-                    be removed entirely for something more wholsome.
+                    be removed entirely for something more wholesome.
 
 * `default_type_params` - Allows use of default type parameters. The future of
                           this feature is uncertain.
@@ -3604,7 +3604,7 @@ of the type.[^structtype]
 
 New instances of a `struct` can be constructed with a [struct expression](#structure-expressions).
 
-The memory layout of a `struct` is undefined by default to allow for compiler optimziations like
+The memory layout of a `struct` is undefined by default to allow for compiler optimizations like
 field reordering, but it can be fixed with the `#[repr(...)]` attribute.
 In either case, fields may be given in any order in a corresponding struct *expression*;
 the resulting `struct` value will always have the same memory layout.
@@ -3668,32 +3668,17 @@ let a: List<int> = Cons(7, box Cons(13, box Nil));
 
 All pointers in Rust are explicit first-class values.
 They can be copied, stored into data structures, and returned from functions.
-There are four varieties of pointer in Rust:
-
-* Owning pointers (`Box`)
-  : These point to owned heap allocations (or "boxes") in the shared, inter-task heap.
-    Each owned box has a single owning pointer; pointer and pointee retain a 1:1 relationship at all times.
-    Owning pointers are written `Box<content>`,
-    for example `Box<int>` means an owning pointer to an owned box containing an integer.
-    Copying an owned box is a "deep" operation:
-    it involves allocating a new owned box and copying the contents of the old box into the new box.
-    Releasing an owning pointer immediately releases its corresponding owned box.
+There are two varieties of pointer in Rust:
 
 * References (`&`)
   : These point to memory _owned by some other value_.
-    References arise by (automatic) conversion from owning pointers, managed pointers,
-    or by applying the borrowing operator `&` to some other value,
-    including [lvalues, rvalues or temporaries](#lvalues,-rvalues-and-temporaries).
-    A borrow expression is written `&content`.
-
-    A reference type is written `&'f type` for some lifetime-variable `f`,
-    or just `&type` when the lifetime can be elided;
-    for example `&int` means a reference to an integer.
+    A reference type is written `&type` for some lifetime-variable `f`,
+    or just `&'a type` when you need an explicit lifetime.
     Copying a reference is a "shallow" operation:
     it involves only copying the pointer itself.
     Releasing a reference typically has no effect on the value it points to,
-    with the exception of temporary values,
-    which are released when the last reference to them is released.
+    with the exception of temporary values, which are released when the last
+    reference to them is released.
 
 * Raw pointers (`*`)
   : Raw pointers are pointers without safety or liveness guarantees.
@@ -3705,6 +3690,9 @@ There are four varieties of pointer in Rust:
     Raw pointers are generally discouraged in Rust code;
     they exist to support interoperability with foreign code,
     and writing performance-critical or low-level functions.
+
+The standard library contains addtional 'smart pointer' types beyond references
+and raw pointers.
 
 ### Function types
 
@@ -4214,7 +4202,7 @@ be ignored in favor of only building the artifacts specified by command line.
   purpose of this output type is to create a static library containing all of
   the local crate's code along with all upstream dependencies. The static
   library is actually a `*.a` archive on linux and osx and a `*.lib` file on
-  windows. This format is recommended for use in situtations such as linking
+  windows. This format is recommended for use in situations such as linking
   Rust code into an existing non-Rust application because it will not have
   dynamic dependencies on other Rust code.
 
