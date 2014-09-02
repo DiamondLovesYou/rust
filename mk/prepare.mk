@@ -44,7 +44,9 @@ endef
 # Copy a target host executable
 # $(1) is the filename/libname-glob
 # $(2) is the host triple
+# XXX: Don't remove the $(nop) command below! See below.
 define PREPARE_TARGET_HOST_BIN
+	$(nop)
 	@$(call E, prepare: $(PREPARE_DEST_LIB_DIR)/rustlib/$(2)/bin/$(1))
 	$(Q)$(PREPARE_BIN_CMD) $(PREPARE_SOURCE_LIB_DIR)/rustlib/$(2)/bin/$(1) $(PREPARE_DEST_LIB_DIR)/rustlib/$(2)/bin/$(1)
 endef
