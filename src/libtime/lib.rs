@@ -103,6 +103,9 @@ impl Add<Duration, Timespec> for Timespec {
         if nsec >= NSEC_PER_SEC {
             nsec -= NSEC_PER_SEC;
             sec += 1;
+        } else if nsec < 0 {
+            nsec += NSEC_PER_SEC;
+            sec -= 1;
         }
         Timespec::new(sec, nsec)
     }
@@ -229,6 +232,8 @@ pub fn tzset() {
 
 /// Holds a calendar date and time broken down into its components (year, month, day, and so on),
 /// also called a broken-down time value.
+// FIXME: use c_int instead of i32?
+#[repr(C)]
 #[deriving(Clone, PartialEq, Eq, Show)]
 pub struct Tm {
     /// Seconds after the minute - [0, 60]
@@ -1533,6 +1538,12 @@ mod tests {
         let w = u + v;
         assert_eq!(w.sec, 4);
         assert_eq!(w.nsec, 1);
+
+        let k = Timespec::new(1, 0);
+        let l = Duration::nanoseconds(-1);
+        let m = k + l;
+        assert_eq!(m.sec, 0);
+        assert_eq!(m.nsec, 999_999_999);
     }
 
     fn test_timespec_sub() {

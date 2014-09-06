@@ -1386,7 +1386,7 @@ pub fn trans_adt<'a>(mut bcx: &'a Block<'a>,
         }
     }
 
-    // Now, we just overwrite the fields we've explicity specified
+    // Now, we just overwrite the fields we've explicitly specified
     for &(i, ref e) in fields.iter() {
         let dest = adt::trans_field_ptr(bcx, &*repr, addr, discr, i);
         let e_ty = expr_ty_adjusted(bcx, &**e);
@@ -1859,6 +1859,19 @@ pub fn cast_type_kind(tcx: &ty::ctxt, t: ty::t) -> cast_kind {
     }
 }
 
+fn cast_is_noop(t_in: ty::t, t_out: ty::t) -> bool {
+    if ty::type_is_boxed(t_in) || ty::type_is_boxed(t_out) {
+        return false;
+    }
+
+    match (ty::deref(t_in, true), ty::deref(t_out, true)) {
+        (Some(ty::mt{ ty: t_in, .. }), Some(ty::mt{ ty: t_out, .. })) => {
+            t_in == t_out
+        }
+        _ => false
+    }
+}
+
 fn trans_imm_cast<'a>(bcx: &'a Block<'a>,
                       expr: &ast::Expr,
                       id: ast::NodeId)
@@ -1877,7 +1890,13 @@ fn trans_imm_cast<'a>(bcx: &'a Block<'a>,
 
     // Convert the value to be cast into a ValueRef, either by-ref or
     // by-value as appropriate given its type:
-    let datum = unpack_datum!(bcx, trans(bcx, expr));
+    let mut datum = unpack_datum!(bcx, trans(bcx, expr));
+
+    if cast_is_noop(datum.ty, t_out) {
+        datum.ty = t_out;
+        return DatumBlock::new(bcx, datum);
+    }
+
     let newval = match (k_in, k_out) {
         (cast_integral, cast_integral) => {
             let llexpr = datum.to_llscalarish(bcx);
@@ -2045,10 +2064,13 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
                 typeck::AutoDeref(_) => unpack_datum!(bcx, auto_ref(bcx, datum, expr)),
                 _ => datum
             };
-            let val = unpack_result!(bcx, trans_overloaded_op(bcx, expr, method_call,
-                                                              datum, None, None));
+
             let ref_ty = ty::ty_fn_ret(monomorphize_type(bcx, method_ty));
-            Datum::new(val, ref_ty, RvalueExpr(Rvalue::new(ByValue)))
+            let scratch = rvalue_scratch_datum(bcx, ref_ty, "overloaded_deref");
+
+            unpack_result!(bcx, trans_overloaded_op(bcx, expr, method_call,
+                                                    datum, None, Some(SaveIn(scratch.val))));
+            scratch.to_expr_datum()
         }
         None => {
             // Not overloaded. We already have a pointer we know how to deref.
@@ -2061,11 +2083,17 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
             if ty::type_is_sized(bcx.tcx(), content_ty) {
                 deref_owned_pointer(bcx, expr, datum, content_ty)
             } else {
-                // A fat pointer and an opened DST value have the same represenation
-                // just different types.
-                DatumBlock::new(bcx, Datum::new(datum.val,
-                                                ty::mk_open(bcx.tcx(), content_ty),
-                                                datum.kind))
+                // A fat pointer and an opened DST value have the same
+                // represenation just different types. Since there is no
+                // temporary for `*e` here (because it is unsized), we cannot
+                // emulate the sized object code path for running drop glue and
+                // free. Instead, we schedule cleanup for `e`, turning it into
+                // an lvalue.
+                let datum = unpack_datum!(
+                    bcx, datum.to_lvalue_datum(bcx, "deref", expr.id));
+
+                let datum = Datum::new(datum.val, ty::mk_open(bcx.tcx(), content_ty), LvalueExpr);
+                DatumBlock::new(bcx, datum)
             }
         }
 
@@ -2094,7 +2122,7 @@ fn deref_once<'a>(bcx: &'a Block<'a>,
                 // just different types.
                 DatumBlock::new(bcx, Datum::new(datum.val,
                                                 ty::mk_open(bcx.tcx(), content_ty),
-                                                datum.kind))
+                                                LvalueExpr))
             }
         }
 

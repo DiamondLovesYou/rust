@@ -351,7 +351,7 @@ impl<'a> Parser<'a> {
                mut rdr: Box<Reader+'a>)
                -> Parser<'a>
     {
-        let tok0 = real_token(rdr);
+        let tok0 = real_token(&mut *rdr);
         let span = tok0.sp;
         let placeholder = TokenAndSpan {
             tok: token::UNDERSCORE,
@@ -899,7 +899,7 @@ impl<'a> Parser<'a> {
             None
         };
         let next = if self.buffer_start == self.buffer_end {
-            real_token(self.reader)
+            real_token(&mut *self.reader)
         } else {
             // Avoid token copies with `replace`.
             let buffer_start = self.buffer_start as uint;
@@ -943,7 +943,7 @@ impl<'a> Parser<'a> {
                       -> R {
         let dist = distance as int;
         while self.buffer_length() < dist {
-            self.buffer[self.buffer_end as uint] = real_token(self.reader);
+            self.buffer[self.buffer_end as uint] = real_token(&mut *self.reader);
             self.buffer_end = (self.buffer_end + 1) & 3;
         }
         f(&self.buffer[((self.buffer_start + dist - 1) & 3) as uint].tok)
@@ -4773,11 +4773,16 @@ impl<'a> Parser<'a> {
             token::IDENT(..) => {
                 let the_ident = self.parse_ident();
                 self.expect_one_of(&[], &[token::EQ, token::SEMI]);
-                // NOTE - #16689 change this to a warning once
-                //        the 'as' support is in stage0
                 let path = if self.token == token::EQ {
                     self.bump();
-                    Some(self.parse_str())
+                    let path = self.parse_str();
+                    let span = self.span;
+                    self.span_warn(span,
+                            format!("this extern crate syntax is deprecated. \
+                            Use: extern create \"{}\" as {};",
+                            the_ident.as_str(), path.ref0().get() ).as_slice()
+                    );
+                    Some(path)
                 } else {None};
 
                 self.expect(&token::SEMI);

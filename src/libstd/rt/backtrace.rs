@@ -138,7 +138,7 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
                         "$RP$" => ")",
                         "$C$"  => ",",
 
-                        // in theory we can demangle any unicode code point, but
+                        // in theory we can demangle any Unicode code point, but
                         // for simplicity we just catch the common ones.
                         "$x20" => " ",
                         "$x27" => "'",
@@ -462,7 +462,7 @@ mod imp {
         //
         // An additionally oddity in this function is that we initialize the
         // filename via self_exe_name() to pass to libbacktrace. It turns out
-        // that on linux libbacktrace seamlessly gets the filename of the
+        // that on Linux libbacktrace seamlessly gets the filename of the
         // current executable, but this fails on freebsd. by always providing
         // it, we make sure that libbacktrace never has a reason to not look up
         // the symbols. The libbacktrace API also states that the filename must
@@ -649,7 +649,7 @@ mod imp {
                 _URC_NO_REASON
             }
 
-        // This function also doesn't exist on android or arm/linux, so make it
+        // This function also doesn't exist on Android or ARM/Linux, so make it
         // a no-op
         #[cfg(target_os = "android")]
         #[cfg(target_os = "linux", target_arch = "arm")]

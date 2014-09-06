@@ -773,11 +773,11 @@ pub fn iter_structural_ty<'r,
           // comparison know not to proceed when the discriminants differ.
 
           match adt::trans_switch(cx, &*repr, av) {
-              (_match::single, None) => {
+              (_match::Single, None) => {
                   cx = iter_variant(cx, &*repr, av, &**variants.get(0),
                                     substs, f);
               }
-              (_match::switch, Some(lldiscrim_a)) => {
+              (_match::Switch, Some(lldiscrim_a)) => {
                   cx = f(cx, lldiscrim_a, ty::mk_int());
                   let unr_cx = fcx.new_temp_block("enum-iter-unr");
                   Unreachable(unr_cx);
@@ -792,7 +792,7 @@ pub fn iter_structural_ty<'r,
                                       variant.disr_val.to_string().as_slice())
                                      .as_slice());
                       match adt::trans_case(cx, &*repr, variant.disr_val) {
-                          _match::single_result(r) => {
+                          _match::SingleResult(r) => {
                               AddCase(llswitch, r.val, variant_cx.llbb)
                           }
                           _ => ccx.sess().unimpl("value from adt::trans_case \
@@ -1069,7 +1069,7 @@ pub fn load_ty(cx: &Block, ptr: ValueRef, t: ty::t) -> ValueRef {
     } else if ty::type_is_bool(t) {
         Trunc(cx, LoadRangeAssert(cx, ptr, 0, 2, llvm::False), Type::i1(cx.ccx()))
     } else if ty::type_is_char(t) {
-        // a char is a unicode codepoint, and so takes values from 0
+        // a char is a Unicode codepoint, and so takes values from 0
         // to 0x10FFFF inclusive only.
         LoadRangeAssert(cx, ptr, 0, 0x10FFFF + 1, llvm::False)
     } else {

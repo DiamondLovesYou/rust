@@ -21,7 +21,7 @@ use std::num::{Zero, One, ToStrRadix, FromStrRadix};
 use bigint::{BigInt, BigUint, Sign, Plus, Minus};
 
 /// Represents the ratio between 2 numbers.
-#[deriving(Clone)]
+#[deriving(Clone, Hash)]
 #[allow(missing_doc)]
 pub struct Ratio<T> {
     numer: T,
@@ -154,7 +154,7 @@ impl<T: Clone + Integer + PartialOrd>
         Ratio::from_integer(self.numer / self.denom)
     }
 
-    ///Returns the fractional part of a number.
+    /// Returns the fractional part of a number.
     #[inline]
     pub fn fract(&self) -> Ratio<T> {
         Ratio::new_raw(self.numer % self.denom, self.denom.clone())
@@ -243,7 +243,7 @@ macro_rules! arith_impl {
     }
 }
 
-// a/b + c/d = (a*d + b*c)/(b*d
+// a/b + c/d = (a*d + b*c)/(b*d)
 arith_impl!(impl Add, add)
 
 // a/b - c/d = (a*d - b*c)/(b*d)
@@ -380,6 +380,7 @@ mod test {
     use super::{Ratio, Rational, BigRational};
     use std::num::{Zero, One, FromStrRadix, FromPrimitive, ToStrRadix};
     use std::from_str::FromStr;
+    use std::hash::hash;
     use std::num;
 
     pub static _0 : Rational = Ratio { numer: 0, denom: 1};
@@ -750,5 +751,11 @@ mod test {
         assert!(_neg1_2.is_negative());
         assert!(! _neg1_2.is_positive());
         assert!(! _1_2.is_negative());
+    }
+
+    #[test]
+    fn test_hash() {
+        assert!(hash(&_0) != hash(&_1));
+        assert!(hash(&_0) != hash(&_3_2));
     }
 }

@@ -9,12 +9,12 @@
 // except according to those terms.
 
 #[cfg(rustdoc)]
-extern crate this = "rustdoc";
+extern crate "rustdoc" as this;
 
 #[cfg(rustc)]
-extern crate this = "rustc";
+extern crate "rustc" as this;
 
 #[cfg(rust_pnacl_trans)]
-extern crate this = "rust-pnacl-trans";
+extern crate "rust-pnacl-trans" as this;
 
 fn main() { this::main() }

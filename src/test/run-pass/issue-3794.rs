@@ -36,5 +36,5 @@ pub fn main() {
     let s: Box<S> = box S { s: 5 };
     print_s(&*s);
     let t: Box<T> = s as Box<T>;
-    print_t(t);
+    print_t(&*t);
 }

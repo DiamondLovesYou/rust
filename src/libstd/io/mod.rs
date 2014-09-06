@@ -945,7 +945,13 @@ pub trait Reader {
     }
 }
 
+#[cfg(stage0)]
 impl Reader for Box<Reader+'static> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
+}
+
+#[cfg(not(stage0))]
+impl<'a> Reader for Box<Reader+'a> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> { self.read(buf) }
 }
 
@@ -1279,7 +1285,17 @@ pub trait Writer {
     }
 }
 
+#[cfg(stage0)]
 impl Writer for Box<Writer+'static> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
+
+    #[inline]
+    fn flush(&mut self) -> IoResult<()> { self.flush() }
+}
+
+#[cfg(not(stage0))]
+impl<'a> Writer for Box<Writer+'a> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
 
@@ -1418,7 +1434,7 @@ pub trait Buffer: Reader {
     fn consume(&mut self, amt: uint);
 
     /// Reads the next line of input, interpreted as a sequence of UTF-8
-    /// encoded unicode codepoints. If a newline is encountered, then the
+    /// encoded Unicode codepoints. If a newline is encountered, then the
     /// newline is contained in the returned string.
     ///
     /// # Example
@@ -1794,10 +1810,9 @@ pub struct UnstableFileStat {
     pub gen: u64,
 }
 
-bitflags!(
-    #[doc="A set of permissions for a file or directory is represented
-by a set of flags which are or'd together."]
-    #[deriving(Show)]
+bitflags! {
+    #[doc = "A set of permissions for a file or directory is represented"]
+    #[doc = "by a set of flags which are or'd together."]
     flags FilePermission: u32 {
         static UserRead     = 0o400,
         static UserWrite    = 0o200,
@@ -1813,27 +1828,35 @@ by a set of flags which are or'd together."]
         static GroupRWX = GroupRead.bits | GroupWrite.bits | GroupExecute.bits,
         static OtherRWX = OtherRead.bits | OtherWrite.bits | OtherExecute.bits,
 
-        #[doc="Permissions for user owned files, equivalent to 0644 on
-unix-like systems."]
+        #[doc = "Permissions for user owned files, equivalent to 0644 on"]
+        #[doc = "unix-like systems."]
         static UserFile = UserRead.bits | UserWrite.bits | GroupRead.bits | OtherRead.bits,
 
-        #[doc="Permissions for user owned directories, equivalent to 0755 on
-unix-like systems."]
+        #[doc = "Permissions for user owned directories, equivalent to 0755 on"]
+        #[doc = "unix-like systems."]
         static UserDir  = UserRWX.bits | GroupRead.bits | GroupExecute.bits |
                    OtherRead.bits | OtherExecute.bits,
 
-        #[doc="Permissions for user owned executables, equivalent to 0755
-on unix-like systems."]
+        #[doc = "Permissions for user owned executables, equivalent to 0755"]
+        #[doc = "on unix-like systems."]
         static UserExec = UserDir.bits,
 
-        #[doc="All possible permissions enabled."]
-        static AllPermissions = UserRWX.bits | GroupRWX.bits | OtherRWX.bits
+        #[doc = "All possible permissions enabled."]
+        static AllPermissions = UserRWX.bits | GroupRWX.bits | OtherRWX.bits,
     }
-)
+}
 
 impl Default for FilePermission {
     #[inline]
     fn default() -> FilePermission { FilePermission::empty() }
+}
+
+impl fmt::Show for FilePermission {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.fill = '0';
+        formatter.width = Some(4);
+        (&self.bits as &fmt::Octal).fmt(formatter)
+    }
 }
 
 #[cfg(test)]
@@ -1936,5 +1959,19 @@ mod tests {
 
         let mut r = MemReader::new(Vec::from_slice(b"hello, world!"));
         assert_eq!(r.push_at_least(5, 1, &mut buf).unwrap_err().kind, InvalidInput);
+    }
+
+    #[test]
+    fn test_show() {
+        use super::*;
+
+        assert_eq!(format!("{}", UserRead), "0400".to_string());
+        assert_eq!(format!("{}", UserFile), "0644".to_string());
+        assert_eq!(format!("{}", UserExec), "0755".to_string());
+        assert_eq!(format!("{}", UserRWX),  "0700".to_string());
+        assert_eq!(format!("{}", GroupRWX), "0070".to_string());
+        assert_eq!(format!("{}", OtherRWX), "0007".to_string());
+        assert_eq!(format!("{}", AllPermissions), "0777".to_string());
+        assert_eq!(format!("{}", UserRead | UserWrite | OtherWrite), "0602".to_string());
     }
 }
