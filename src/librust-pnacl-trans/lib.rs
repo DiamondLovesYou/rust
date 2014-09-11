@@ -24,7 +24,7 @@ extern crate getopts;
 extern crate libc;
 #[phase(plugin, link)]
 extern crate log;
-extern crate llvm = "rustc_llvm";
+extern crate "rustc_llvm" as llvm;
 
 use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
 use std::c_str::CString;
