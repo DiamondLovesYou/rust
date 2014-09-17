@@ -87,9 +87,9 @@ use parse::attr::ParserAttr;
 use parse::parser::{LifetimeAndTypesWithoutColons, Parser};
 use parse::token::{Token, EOF, Nonterminal};
 use parse::token;
+use ptr::P;
 
 use std::rc::Rc;
-use std::gc::GC;
 use std::collections::HashMap;
 
 /* to avoid costly uniqueness checks, we require that `MatchSeq` always has a
@@ -366,7 +366,7 @@ pub fn parse(sess: &ParseSess,
         if token_name_eq(&tok, &EOF) {
             if eof_eis.len() == 1u {
                 let mut v = Vec::new();
-                for dv in eof_eis.get_mut(0).matches.mut_iter() {
+                for dv in eof_eis.get_mut(0).matches.iter_mut() {
                     v.push(dv.pop().unwrap());
                 }
                 return Success(nameize(sess, ms, v.as_slice()));
@@ -451,7 +451,7 @@ pub fn parse_nt(p: &mut Parser, name: &str) -> Nonterminal {
       "meta" => token::NtMeta(p.parse_meta_item()),
       "tt" => {
         p.quote_depth += 1u; //but in theory, non-quoted tts might be useful
-        let res = token::NtTT(box(GC) p.parse_token_tree());
+        let res = token::NtTT(P(p.parse_token_tree()));
         p.quote_depth -= 1u;
         res
       }

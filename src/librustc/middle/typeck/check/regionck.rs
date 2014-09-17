@@ -141,7 +141,6 @@ use syntax::visit;
 use syntax::visit::Visitor;
 
 use std::cell::RefCell;
-use std::gc::Gc;
 
 ///////////////////////////////////////////////////////////////////////////
 // PUBLIC ENTRY POINTS
@@ -150,24 +149,15 @@ pub fn regionck_expr(fcx: &FnCtxt, e: &ast::Expr) {
     let mut rcx = Rcx::new(fcx, e.id);
     if fcx.err_count_since_creation() == 0 {
         // regionck assumes typeck succeeded
-        rcx.visit_expr(e, ());
+        rcx.visit_expr(e);
         rcx.visit_region_obligations(e.id);
     }
     fcx.infcx().resolve_regions_and_report_errors();
 }
 
-pub fn regionck_type_defn(fcx: &FnCtxt,
-                          span: Span,
-                          component_tys: &[ty::t]) {
-    let mut rcx = Rcx::new(fcx, 0);
-    for &component_ty in component_tys.iter() {
-        // Check that each type outlives the empty region. Since the
-        // empty region is a subregion of all others, this can't fail
-        // unless the type does not meet the well-formedness
-        // requirements.
-        type_must_outlive(&mut rcx, infer::RelateRegionParamBound(span),
-                          component_ty, ty::ReEmpty);
-    }
+pub fn regionck_item(fcx: &FnCtxt, item: &ast::Item) {
+    let mut rcx = Rcx::new(fcx, item.id);
+    rcx.visit_region_obligations(item.id);
     fcx.infcx().resolve_regions_and_report_errors();
 }
 
@@ -178,6 +168,26 @@ pub fn regionck_fn(fcx: &FnCtxt, id: ast::NodeId, blk: &ast::Block) {
         rcx.visit_fn_body(id, blk);
     }
     fcx.infcx().resolve_regions_and_report_errors();
+}
+
+pub fn regionck_ensure_component_tys_wf(fcx: &FnCtxt,
+                                        span: Span,
+                                        component_tys: &[ty::t]) {
+    /*!
+     * Checks that the types in `component_tys` are well-formed.
+     * This will add constraints into the region graph.
+     * Does *not* run `resolve_regions_and_report_errors` and so forth.
+     */
+
+    let mut rcx = Rcx::new(fcx, 0);
+    for &component_ty in component_tys.iter() {
+        // Check that each type outlives the empty region. Since the
+        // empty region is a subregion of all others, this can't fail
+        // unless the type does not meet the well-formedness
+        // requirements.
+        type_must_outlive(&mut rcx, infer::RelateRegionParamBound(span),
+                          component_ty, ty::ReEmpty);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -346,7 +356,7 @@ impl<'a, 'tcx> Rcx<'a, 'tcx> {
 
         let len = self.region_param_pairs.len();
         self.relate_free_regions(fn_sig.as_slice(), body.id);
-        self.visit_block(body, ());
+        self.visit_block(body);
         self.visit_region_obligations(body.id);
         self.region_param_pairs.truncate(len);
     }
@@ -479,7 +489,7 @@ impl<'fcx, 'tcx> mc::Typer<'tcx> for Rcx<'fcx, 'tcx> {
     }
 }
 
-impl<'a, 'tcx> Visitor<()> for Rcx<'a, 'tcx> {
+impl<'a, 'tcx, 'v> Visitor<'v> for Rcx<'a, 'tcx> {
     // (..) FIXME(#3238) should use visit_pat, not visit_arm/visit_local,
     // However, right now we run into an issue whereby some free
     // regions are not properly related if they appear within the
@@ -488,22 +498,22 @@ impl<'a, 'tcx> Visitor<()> for Rcx<'a, 'tcx> {
     // hierarchy, and in particular the relationships between free
     // regions, until regionck, as described in #3238.
 
-    fn visit_fn(&mut self, _fk: &visit::FnKind, _fd: &ast::FnDecl,
-                b: &ast::Block, _s: Span, id: ast::NodeId, _e: ()) {
+    fn visit_fn(&mut self, _fk: visit::FnKind<'v>, _fd: &'v ast::FnDecl,
+                b: &'v ast::Block, _s: Span, id: ast::NodeId) {
         self.visit_fn_body(id, b)
     }
 
-    fn visit_item(&mut self, i: &ast::Item, _: ()) { visit_item(self, i); }
+    fn visit_item(&mut self, i: &ast::Item) { visit_item(self, i); }
 
-    fn visit_expr(&mut self, ex: &ast::Expr, _: ()) { visit_expr(self, ex); }
+    fn visit_expr(&mut self, ex: &ast::Expr) { visit_expr(self, ex); }
 
     //visit_pat: visit_pat, // (..) see above
 
-    fn visit_arm(&mut self, a: &ast::Arm, _: ()) { visit_arm(self, a); }
+    fn visit_arm(&mut self, a: &ast::Arm) { visit_arm(self, a); }
 
-    fn visit_local(&mut self, l: &ast::Local, _: ()) { visit_local(self, l); }
+    fn visit_local(&mut self, l: &ast::Local) { visit_local(self, l); }
 
-    fn visit_block(&mut self, b: &ast::Block, _: ()) { visit_block(self, b); }
+    fn visit_block(&mut self, b: &ast::Block) { visit_block(self, b); }
 }
 
 fn visit_item(_rcx: &mut Rcx, _item: &ast::Item) {
@@ -511,7 +521,7 @@ fn visit_item(_rcx: &mut Rcx, _item: &ast::Item) {
 }
 
 fn visit_block(rcx: &mut Rcx, b: &ast::Block) {
-    visit::walk_block(rcx, b, ());
+    visit::walk_block(rcx, b);
 }
 
 fn visit_arm(rcx: &mut Rcx, arm: &ast::Arm) {
@@ -520,14 +530,14 @@ fn visit_arm(rcx: &mut Rcx, arm: &ast::Arm) {
         constrain_bindings_in_pat(&**p, rcx);
     }
 
-    visit::walk_arm(rcx, arm, ());
+    visit::walk_arm(rcx, arm);
 }
 
 fn visit_local(rcx: &mut Rcx, l: &ast::Local) {
     // see above
     constrain_bindings_in_pat(&*l.pat, rcx);
     link_local(rcx, l);
-    visit::walk_local(rcx, l, ());
+    visit::walk_local(rcx, l);
 }
 
 fn constrain_bindings_in_pat(pat: &ast::Pat, rcx: &mut Rcx) {
@@ -614,41 +624,38 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
     match expr.node {
         ast::ExprCall(ref callee, ref args) => {
             if has_method_map {
-                constrain_call(rcx, expr, Some(*callee),
-                               args.as_slice(), false);
+                constrain_call(rcx, expr, Some(&**callee),
+                               args.iter().map(|e| &**e), false);
             } else {
                 constrain_callee(rcx, callee.id, expr, &**callee);
-                constrain_call(rcx,
-                               expr,
-                               None,
-                               args.as_slice(),
-                               false);
+                constrain_call(rcx, expr, None,
+                               args.iter().map(|e| &**e), false);
             }
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprMethodCall(_, _, ref args) => {
-            constrain_call(rcx, expr, Some(*args.get(0)),
-                           args.slice_from(1), false);
+            constrain_call(rcx, expr, Some(&**args.get(0)),
+                           args.slice_from(1).iter().map(|e| &**e), false);
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprAssign(ref lhs, _) => {
             adjust_borrow_kind_for_assignment_lhs(rcx, &**lhs);
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprAssignOp(_, ref lhs, ref rhs) => {
             if has_method_map {
-                constrain_call(rcx, expr, Some(lhs.clone()),
-                               [rhs.clone()], true);
+                constrain_call(rcx, expr, Some(&**lhs),
+                               Some(&**rhs).into_iter(), true);
             }
 
             adjust_borrow_kind_for_assignment_lhs(rcx, &**lhs);
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprIndex(ref lhs, ref rhs) |
@@ -657,17 +664,18 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             // overloaded op.  Note that we (sadly) currently use an
             // implicit "by ref" sort of passing style here.  This
             // should be converted to an adjustment!
-            constrain_call(rcx, expr, Some(lhs.clone()),
-                           [rhs.clone()], true);
+            constrain_call(rcx, expr, Some(&**lhs),
+                           Some(&**rhs).into_iter(), true);
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprUnary(_, ref lhs) if has_method_map => {
             // As above.
-            constrain_call(rcx, expr, Some(lhs.clone()), [], true);
+            constrain_call(rcx, expr, Some(&**lhs),
+                           None::<ast::Expr>.iter(), true);
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprUnary(ast::UnBox, ref base) => {
@@ -675,7 +683,7 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             let base_ty = rcx.resolve_node_type(base.id);
             type_must_outlive(rcx, infer::Managed(expr.span),
                               base_ty, ty::ReStatic);
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprUnary(ast::UnDeref, ref base) => {
@@ -683,7 +691,8 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             let method_call = MethodCall::expr(expr.id);
             let base_ty = match rcx.fcx.inh.method_map.borrow().find(&method_call) {
                 Some(method) => {
-                    constrain_call(rcx, expr, Some(base.clone()), [], true);
+                    constrain_call(rcx, expr, Some(&**base),
+                                   None::<ast::Expr>.iter(), true);
                     ty::ty_fn_ret(method.ty)
                 }
                 None => rcx.resolve_node_type(base.id)
@@ -696,7 +705,7 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
                 _ => {}
             }
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprIndex(ref vec_expr, _) => {
@@ -704,7 +713,7 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             let vec_type = rcx.resolve_expr_type_adjusted(&**vec_expr);
             constrain_index(rcx, expr, vec_type);
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprCast(ref source, _) => {
@@ -712,7 +721,7 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             // instance.  If so, we have to be sure that the type of
             // the source obeys the trait's region bound.
             constrain_cast(rcx, expr, &**source);
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprAddrOf(m, ref base) => {
@@ -728,13 +737,13 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             let ty0 = rcx.resolve_node_type(expr.id);
             type_must_outlive(rcx, infer::AddrOf(expr.span),
                               ty0, ty::ReScope(expr.id));
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprMatch(ref discr, ref arms) => {
             link_match(rcx, &**discr, arms.as_slice());
 
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
 
         ast::ExprFnBlock(_, _, ref body) |
@@ -745,16 +754,16 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
 
         ast::ExprLoop(ref body, _) => {
             let repeating_scope = rcx.set_repeating_scope(body.id);
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
             rcx.set_repeating_scope(repeating_scope);
         }
 
         ast::ExprWhile(ref cond, ref body, _) => {
             let repeating_scope = rcx.set_repeating_scope(cond.id);
-            rcx.visit_expr(&**cond, ());
+            rcx.visit_expr(&**cond);
 
             rcx.set_repeating_scope(body.id);
-            rcx.visit_block(&**body, ());
+            rcx.visit_block(&**body);
 
             rcx.set_repeating_scope(repeating_scope);
         }
@@ -768,19 +777,19 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
                 link_pattern(rcx, mc, head_cmt, &**pat);
             }
 
-            rcx.visit_expr(&**head, ());
+            rcx.visit_expr(&**head);
             type_of_node_must_outlive(rcx,
                                       infer::AddrOf(expr.span),
                                       head.id,
                                       ty::ReScope(expr.id));
 
             let repeating_scope = rcx.set_repeating_scope(body.id);
-            rcx.visit_block(&**body, ());
+            rcx.visit_block(&**body);
             rcx.set_repeating_scope(repeating_scope);
         }
 
         _ => {
-            visit::walk_expr(rcx, expr, ());
+            visit::walk_expr(rcx, expr);
         }
     }
 }
@@ -890,7 +899,7 @@ fn check_expr_fn_block(rcx: &mut Rcx,
     }
 
     let repeating_scope = rcx.set_repeating_scope(body.id);
-    visit::walk_expr(rcx, expr, ());
+    visit::walk_expr(rcx, expr);
     rcx.set_repeating_scope(repeating_scope);
 
     match ty::get(function_type).sty {
@@ -1064,6 +1073,10 @@ fn constrain_callee(rcx: &mut Rcx,
             };
             rcx.fcx.mk_subr(infer::InvokeClosure(callee_expr.span),
                             call_region, region);
+
+            let region = closure_ty.bounds.region_bound;
+            rcx.fcx.mk_subr(infer::InvokeClosure(callee_expr.span),
+                            call_region, region);
         }
         _ => {
             // this should not happen, but it does if the program is
@@ -1076,11 +1089,11 @@ fn constrain_callee(rcx: &mut Rcx,
     }
 }
 
-fn constrain_call(rcx: &mut Rcx,
-                  call_expr: &ast::Expr,
-                  receiver: Option<Gc<ast::Expr>>,
-                  arg_exprs: &[Gc<ast::Expr>],
-                  implicitly_ref_args: bool) {
+fn constrain_call<'a, I: Iterator<&'a ast::Expr>>(rcx: &mut Rcx,
+                                                  call_expr: &ast::Expr,
+                                                  receiver: Option<&ast::Expr>,
+                                                  mut arg_exprs: I,
+                                                  implicitly_ref_args: bool) {
     //! Invoked on every call site (i.e., normal calls, method calls,
     //! and overloaded operators). Constrains the regions which appear
     //! in the type of the function. Also constrains the regions that
@@ -1089,11 +1102,9 @@ fn constrain_call(rcx: &mut Rcx,
     let tcx = rcx.fcx.tcx();
     debug!("constrain_call(call_expr={}, \
             receiver={}, \
-            arg_exprs={}, \
             implicitly_ref_args={:?})",
             call_expr.repr(tcx),
             receiver.repr(tcx),
-            arg_exprs.repr(tcx),
             implicitly_ref_args);
 
     // `callee_region` is the scope representing the time in which the
@@ -1105,7 +1116,7 @@ fn constrain_call(rcx: &mut Rcx,
 
     debug!("callee_region={}", callee_region.repr(tcx));
 
-    for arg_expr in arg_exprs.iter() {
+    for arg_expr in arg_exprs {
         debug!("Argument: {}", arg_expr.repr(tcx));
 
         // ensure that any regions appearing in the argument type are
@@ -1119,7 +1130,7 @@ fn constrain_call(rcx: &mut Rcx,
         // result. modes are going away and the "DerefArgs" code
         // should be ported to use adjustments
         if implicitly_ref_args {
-            link_by_ref(rcx, &**arg_expr, callee_scope);
+            link_by_ref(rcx, arg_expr, callee_scope);
         }
     }
 
@@ -1288,10 +1299,10 @@ fn link_local(rcx: &Rcx, local: &ast::Local) {
     debug!("regionck::for_local()");
     let init_expr = match local.init {
         None => { return; }
-        Some(ref expr) => expr,
+        Some(ref expr) => &**expr,
     };
     let mc = mc::MemCategorizationContext::new(rcx);
-    let discr_cmt = ignore_err!(mc.cat_expr(&**init_expr));
+    let discr_cmt = ignore_err!(mc.cat_expr(init_expr));
     link_pattern(rcx, mc, discr_cmt, &*local.pat);
 }
 

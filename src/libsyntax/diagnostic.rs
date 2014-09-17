@@ -8,8 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern crate libc;
-
 use codemap::{Pos, Span};
 use codemap;
 use diagnostics;
@@ -545,10 +543,9 @@ fn print_macro_backtrace(w: &mut EmitterWriter,
     Ok(())
 }
 
-pub fn expect<T:Clone>(diag: &SpanHandler, opt: Option<T>, msg: || -> String)
-              -> T {
+pub fn expect<T>(diag: &SpanHandler, opt: Option<T>, msg: || -> String) -> T {
     match opt {
-       Some(ref t) => (*t).clone(),
-       None => diag.handler().bug(msg().as_slice()),
+        Some(t) => t,
+        None => diag.handler().bug(msg().as_slice()),
     }
 }

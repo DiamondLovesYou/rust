@@ -207,7 +207,6 @@ use std::c_str::{CString, ToCStr};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::gc::Gc;
 use std::ptr;
 use std::rc::{Rc, Weak};
 use syntax::util::interner::Interner;
@@ -739,13 +738,13 @@ pub fn finalize(cx: &CrateContext) {
             cx.sess().targ_cfg.os == abi::OsiOS {
             "Dwarf Version".with_c_str(
                 |s| llvm::LLVMRustAddModuleFlag(cx.llmod(), s, 2));
-        } else if !cx.sess().targeting_pnacl() {
+        } else if cx.sess().targ_cfg.os == abi::OsLinux {
             // FIXME(#13611) this is a kludge fix because the Linux bots have
             //               gdb 7.4 which doesn't understand dwarf4, we should
             //               do something more graceful here.
             "Dwarf Version".with_c_str(
                 |s| llvm::LLVMRustAddModuleFlag(cx.llmod(), s, 3));
-        } else {
+        } else if !cx.sess().targeting_pnacl() {
             // The PNaCl/NaCl toolchain uses dwarf4, so match that for the C/C++
             // libs we inevitably link against.
             "Dwarf Version".with_c_str(|s| llvm::LLVMRustAddModuleFlag(cx.llmod(), s, 4));
@@ -826,7 +825,7 @@ pub fn create_global_var_metadata(cx: &CrateContext,
                                                         type_metadata,
                                                         is_local_to_unit,
                                                         global,
-                                                        ptr::mut_null());
+                                                        ptr::null_mut());
             }
         })
     });
@@ -1018,7 +1017,7 @@ pub fn create_argument_metadata(bcx: Block, arg: &ast::Arg) {
             }
         };
 
-        if unsafe { llvm::LLVMIsAAllocaInst(llarg.val) } == ptr::mut_null() {
+        if unsafe { llvm::LLVMIsAAllocaInst(llarg.val) } == ptr::null_mut() {
             cx.sess().span_bug(span, "debuginfo::create_argument_metadata() - \
                                     Referenced variable location is not an alloca!");
         }
@@ -1132,8 +1131,8 @@ pub fn create_function_debug_context(cx: &CrateContext,
             }
 
             match item.node {
-                ast::ItemFn(fn_decl, _, _, ref generics, top_level_block) => {
-                    (item.ident, fn_decl, generics, top_level_block, item.span, true)
+                ast::ItemFn(ref fn_decl, _, _, ref generics, ref top_level_block) => {
+                    (item.ident, &**fn_decl, generics, &**top_level_block, item.span, true)
                 }
                 _ => {
                     cx.sess().span_bug(item.span,
@@ -1161,16 +1160,16 @@ pub fn create_function_debug_context(cx: &CrateContext,
         }
         ast_map::NodeExpr(ref expr) => {
             match expr.node {
-                ast::ExprFnBlock(_, fn_decl, top_level_block) |
-                ast::ExprProc(fn_decl, top_level_block) |
-                ast::ExprUnboxedFn(_, _, fn_decl, top_level_block) => {
+                ast::ExprFnBlock(_, ref fn_decl, ref top_level_block) |
+                ast::ExprProc(ref fn_decl, ref top_level_block) |
+                ast::ExprUnboxedFn(_, _, ref fn_decl, ref top_level_block) => {
                     let name = format!("fn{}", token::gensym("fn"));
                     let name = token::str_to_ident(name.as_slice());
-                    (name, fn_decl,
+                    (name, &**fn_decl,
                         // This is not quite right. It should actually inherit
                         // the generics of the enclosing function.
                         &empty_generics,
-                        top_level_block,
+                        &**top_level_block,
                         expr.span,
                         // Don't try to lookup the item path:
                         false)
@@ -1277,7 +1276,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
                     cx.sess().opts.optimize != config::No,
                     llfn,
                     template_parameters,
-                    ptr::mut_null())
+                    ptr::null_mut())
             }
         })
     });
@@ -1290,9 +1289,8 @@ pub fn create_function_debug_context(cx: &CrateContext,
         source_locations_enabled: Cell::new(false),
     };
 
-    let arg_pats = fn_decl.inputs.iter().map(|arg_ref| arg_ref.pat).collect::<Vec<_>>();
     populate_scope_map(cx,
-                       arg_pats.as_slice(),
+                       fn_decl.inputs.as_slice(),
                        &*top_level_block,
                        fn_metadata,
                        &mut *fn_debug_context.scope_map.borrow_mut());
@@ -1313,7 +1311,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
         // Return type -- llvm::DIBuilder wants this at index 0
         match fn_decl.output.node {
             ast::TyNil => {
-                signature.push(ptr::mut_null());
+                signature.push(ptr::null_mut());
             }
             _ => {
                 assert_type_for_node_id(cx, fn_ast_id, error_span);
@@ -1387,7 +1385,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
                             file_metadata,
                             name,
                             actual_self_type_metadata,
-                            ptr::mut_null(),
+                            ptr::null_mut(),
                             0,
                             0)
                     }
@@ -1422,7 +1420,7 @@ pub fn create_function_debug_context(cx: &CrateContext,
                             file_metadata,
                             name,
                             actual_type_metadata,
-                            ptr::mut_null(),
+                            ptr::null_mut(),
                             0,
                             0)
                     }
@@ -2415,7 +2413,7 @@ fn prepare_enum_metadata(cx: &CrateContext,
                 bytes_to_bits(enum_type_size),
                 bytes_to_bits(enum_type_align),
                 0, // Flags
-                ptr::mut_null(),
+                ptr::null_mut(),
                 0, // RuntimeLang
                 unique_type_id_str)
             }
@@ -2586,10 +2584,10 @@ fn create_struct_stub(cx: &CrateContext,
                     bytes_to_bits(struct_size),
                     bytes_to_bits(struct_align),
                     0,
-                    ptr::mut_null(),
+                    ptr::null_mut(),
                     empty_array,
                     0,
-                    ptr::mut_null(),
+                    ptr::null_mut(),
                     unique_type_id)
             })
         })
@@ -2803,7 +2801,7 @@ fn subroutine_type_metadata(cx: &CrateContext,
 
     // return type
     signature_metadata.push(match ty::get(signature.output).sty {
-        ty::ty_nil => ptr::mut_null(),
+        ty::ty_nil => ptr::null_mut(),
         _ => type_metadata(cx, signature.output, span)
     });
 
@@ -3079,7 +3077,7 @@ fn set_debug_location(cx: &CrateContext, debug_location: DebugLocation) {
             let col = UNKNOWN_COLUMN_NUMBER;
             debug!("setting debug location to {} {}", line, col);
             let elements = [C_i32(cx, line as i32), C_i32(cx, col as i32),
-                            scope, ptr::mut_null()];
+                            scope, ptr::null_mut()];
             unsafe {
                 metadata_node = llvm::LLVMMDNodeInContext(debug_context(cx).llcontext,
                                                           elements.as_ptr(),
@@ -3088,7 +3086,7 @@ fn set_debug_location(cx: &CrateContext, debug_location: DebugLocation) {
         }
         UnknownLocation => {
             debug!("clearing debug location ");
-            metadata_node = ptr::mut_null();
+            metadata_node = ptr::null_mut();
         }
     };
 
@@ -3172,7 +3170,7 @@ fn get_namespace_and_span_for_item(cx: &CrateContext, def_id: ast::DefId)
 // introducing *artificial* lexical scope descriptors where necessary. These
 // artificial scopes allow GDB to correctly handle name shadowing.
 fn populate_scope_map(cx: &CrateContext,
-                      arg_pats: &[Gc<ast::Pat>],
+                      args: &[ast::Arg],
                       fn_entry_block: &ast::Block,
                       fn_metadata: DISubprogram,
                       scope_map: &mut HashMap<ast::NodeId, DIScope>) {
@@ -3188,8 +3186,8 @@ fn populate_scope_map(cx: &CrateContext,
 
     // Push argument identifiers onto the stack so arguments integrate nicely
     // with variable shadowing.
-    for &arg_pat in arg_pats.iter() {
-        pat_util::pat_bindings(def_map, &*arg_pat, |_, _, _, path1| {
+    for arg in args.iter() {
+        pat_util::pat_bindings(def_map, &*arg.pat, |_, _, _, path1| {
             scope_stack.push(ScopeStackEntry { scope_metadata: fn_metadata,
                                                ident: Some(path1.node) });
         })
@@ -3275,10 +3273,10 @@ fn populate_scope_map(cx: &CrateContext,
                  scope_stack: &mut Vec<ScopeStackEntry> ,
                  scope_map: &mut HashMap<ast::NodeId, DIScope>) {
         match *decl {
-            codemap::Spanned { node: ast::DeclLocal(local), .. } => {
+            codemap::Spanned { node: ast::DeclLocal(ref local), .. } => {
                 scope_map.insert(local.id, scope_stack.last().unwrap().scope_metadata);
 
-                walk_pattern(cx, local.pat, scope_stack, scope_map);
+                walk_pattern(cx, &*local.pat, scope_stack, scope_map);
 
                 for exp in local.init.iter() {
                     walk_expr(cx, &**exp, scope_stack, scope_map);
@@ -3289,7 +3287,7 @@ fn populate_scope_map(cx: &CrateContext,
     }
 
     fn walk_pattern(cx: &CrateContext,
-                    pat: Gc<ast::Pat>,
+                    pat: &ast::Pat,
                     scope_stack: &mut Vec<ScopeStackEntry> ,
                     scope_map: &mut HashMap<ast::NodeId, DIScope>) {
 
@@ -3370,8 +3368,8 @@ fn populate_scope_map(cx: &CrateContext,
 
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for &sub_pat in sub_pat_opt.iter() {
-                    walk_pattern(cx, sub_pat, scope_stack, scope_map);
+                for sub_pat in sub_pat_opt.iter() {
+                    walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
             }
 
@@ -3382,9 +3380,9 @@ fn populate_scope_map(cx: &CrateContext,
             ast::PatEnum(_, ref sub_pats_opt) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for ref sub_pats in sub_pats_opt.iter() {
-                    for &p in sub_pats.iter() {
-                        walk_pattern(cx, p, scope_stack, scope_map);
+                for sub_pats in sub_pats_opt.iter() {
+                    for p in sub_pats.iter() {
+                        walk_pattern(cx, &**p, scope_stack, scope_map);
                     }
                 }
             }
@@ -3392,8 +3390,8 @@ fn populate_scope_map(cx: &CrateContext,
             ast::PatStruct(_, ref field_pats, _) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for &ast::FieldPat { pat: sub_pat, .. } in field_pats.iter() {
-                    walk_pattern(cx, sub_pat, scope_stack, scope_map);
+                for &ast::FieldPat { pat: ref sub_pat, .. } in field_pats.iter() {
+                    walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
             }
 
@@ -3401,13 +3399,13 @@ fn populate_scope_map(cx: &CrateContext,
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
                 for sub_pat in sub_pats.iter() {
-                    walk_pattern(cx, sub_pat.clone(), scope_stack, scope_map);
+                    walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
             }
 
             ast::PatBox(ref sub_pat) | ast::PatRegion(ref sub_pat) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
-                walk_pattern(cx, sub_pat.clone(), scope_stack, scope_map);
+                walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
             }
 
             ast::PatLit(ref exp) => {
@@ -3424,16 +3422,16 @@ fn populate_scope_map(cx: &CrateContext,
             ast::PatVec(ref front_sub_pats, ref middle_sub_pats, ref back_sub_pats) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for &sub_pat in front_sub_pats.iter() {
-                    walk_pattern(cx, sub_pat, scope_stack, scope_map);
+                for sub_pat in front_sub_pats.iter() {
+                    walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
 
-                for &sub_pat in middle_sub_pats.iter() {
-                    walk_pattern(cx, sub_pat, scope_stack, scope_map);
+                for sub_pat in middle_sub_pats.iter() {
+                    walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
 
-                for &sub_pat in back_sub_pats.iter() {
-                    walk_pattern(cx, sub_pat, scope_stack, scope_map);
+                for sub_pat in back_sub_pats.iter() {
+                    walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
             }
 
@@ -3469,8 +3467,8 @@ fn populate_scope_map(cx: &CrateContext,
                 walk_expr(cx, &**sub_expr, scope_stack, scope_map);
             }
 
-            ast::ExprRet(exp_opt) => match exp_opt {
-                Some(sub_exp) => walk_expr(cx, &*sub_exp, scope_stack, scope_map),
+            ast::ExprRet(ref exp_opt) => match *exp_opt {
+                Some(ref sub_exp) => walk_expr(cx, &**sub_exp, scope_stack, scope_map),
                 None => ()
             },
 
@@ -3541,7 +3539,7 @@ fn populate_scope_map(cx: &CrateContext,
                                                 .unwrap()
                                                 .scope_metadata);
                     walk_pattern(cx,
-                                 *pattern,
+                                 &**pattern,
                                  scope_stack,
                                  scope_map);
                     walk_block(cx, &**body, scope_stack, scope_map);
@@ -3573,7 +3571,7 @@ fn populate_scope_map(cx: &CrateContext,
                                scope_map,
                                |cx, scope_stack, scope_map| {
                     for &ast::Arg { pat: ref pattern, .. } in decl.inputs.iter() {
-                        walk_pattern(cx, pattern.clone(), scope_stack, scope_map);
+                        walk_pattern(cx, &**pattern, scope_stack, scope_map);
                     }
 
                     walk_block(cx, &**block, scope_stack, scope_map);
@@ -3610,8 +3608,8 @@ fn populate_scope_map(cx: &CrateContext,
                                    scope_stack,
                                    scope_map,
                                    |cx, scope_stack, scope_map| {
-                        for &pat in arm_ref.pats.iter() {
-                            walk_pattern(cx, pat, scope_stack, scope_map);
+                        for pat in arm_ref.pats.iter() {
+                            walk_pattern(cx, &**pat, scope_stack, scope_map);
                         }
 
                         for guard_exp in arm_ref.guard.iter() {
@@ -3958,7 +3956,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
         } else {
             None
         };
-        let mut path = krate.move_iter().chain(path).peekable();
+        let mut path = krate.into_iter().chain(path).peekable();
 
         let mut current_key = Vec::new();
         let mut parent_node: Option<Rc<NamespaceTreeNode>> = None;
@@ -3986,7 +3984,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
                     // create and insert
                     let parent_scope = match parent_node {
                         Some(ref node) => node.scope,
-                        None => ptr::mut_null()
+                        None => ptr::null_mut()
                     };
                     let namespace_name = token::get_name(name);
                     let scope = namespace_name.get().with_c_str(|namespace_name| {
@@ -3996,7 +3994,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
                                 parent_scope,
                                 namespace_name,
                                 // cannot reconstruct file ...
-                                ptr::mut_null(),
+                                ptr::null_mut(),
                                 // ... or line information, but that's not so important.
                                 0)
                         }

@@ -56,12 +56,6 @@ loop {
 
 This `for` loop syntax can be applied to any iterator over any type.
 
-## Iteration protocol and more
-
-More detailed information about iterators can be found in the [container
-guide](http://doc.rust-lang.org/guide-container.html) with
-the rest of the rust manuals.
-
 */
 
 use clone::Clone;
@@ -383,7 +377,7 @@ pub trait Iterator<A> {
     ///     sum
     /// }
     /// let x = vec![1i,2,3,7,8,9];
-    /// assert_eq!(process(x.move_iter()), 1006);
+    /// assert_eq!(process(x.into_iter()), 1006);
     /// ```
     #[inline]
     fn fuse(self) -> Fuse<Self> {
@@ -1688,7 +1682,7 @@ impl<'a, A, T: Iterator<A>, B, U: Iterator<B>> Iterator<B> for FlatMap<'a, A, T,
     #[inline]
     fn next(&mut self) -> Option<B> {
         loop {
-            for inner in self.frontiter.mut_iter() {
+            for inner in self.frontiter.iter_mut() {
                 for x in *inner {
                     return Some(x)
                 }
@@ -1719,7 +1713,7 @@ impl<'a,
     #[inline]
     fn next_back(&mut self) -> Option<B> {
         loop {
-            for inner in self.backiter.mut_iter() {
+            for inner in self.backiter.iter_mut() {
                 match inner.next_back() {
                     None => (),
                     y => return y

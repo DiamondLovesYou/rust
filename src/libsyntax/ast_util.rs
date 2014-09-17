@@ -19,12 +19,12 @@ use codemap::Span;
 use owned_slice::OwnedSlice;
 use parse::token;
 use print::pprust;
+use ptr::P;
 use visit::Visitor;
 use visit;
 
 use std::cell::Cell;
 use std::cmp;
-use std::gc::{Gc, GC};
 use std::u32;
 
 pub fn path_name_i(idents: &[Ident]) -> String {
@@ -98,7 +98,7 @@ pub fn unop_to_string(op: UnOp) -> &'static str {
     }
 }
 
-pub fn is_path(e: Gc<Expr>) -> bool {
+pub fn is_path(e: P<Expr>) -> bool {
     return match e.node { ExprPath(_) => true, _ => false };
 }
 
@@ -166,21 +166,6 @@ pub fn float_ty_to_string(t: FloatTy) -> String {
     }
 }
 
-pub fn is_call_expr(e: Gc<Expr>) -> bool {
-    match e.node { ExprCall(..) => true, _ => false }
-}
-
-pub fn block_from_expr(e: Gc<Expr>) -> P<Block> {
-    P(Block {
-        view_items: Vec::new(),
-        stmts: Vec::new(),
-        expr: Some(e),
-        id: e.id,
-        rules: DefaultBlock,
-        span: e.span
-    })
-}
-
 // convert a span and an identifier to the corresponding
 // 1-segment path
 pub fn ident_to_path(s: Span, identifier: Ident) -> Path {
@@ -197,10 +182,12 @@ pub fn ident_to_path(s: Span, identifier: Ident) -> Path {
     }
 }
 
-pub fn ident_to_pat(id: NodeId, s: Span, i: Ident) -> Gc<Pat> {
-    box(GC) ast::Pat { id: id,
-                node: PatIdent(BindByValue(MutImmutable), codemap::Spanned{span:s, node:i}, None),
-                span: s }
+pub fn ident_to_pat(id: NodeId, s: Span, i: Ident) -> P<Pat> {
+    P(Pat {
+        id: id,
+        node: PatIdent(BindByValue(MutImmutable), codemap::Spanned{span:s, node:i}, None),
+        span: s
+    })
 }
 
 pub fn name_to_dummy_lifetime(name: Name) -> Lifetime {
@@ -224,57 +211,6 @@ pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: &Ty) -> Ident {
         None => {}
     }
     token::gensym_ident(pretty.as_slice())
-}
-
-pub fn trait_method_to_ty_method(method: &Method) -> TypeMethod {
-    match method.node {
-        MethDecl(ident,
-                 ref generics,
-                 abi,
-                 explicit_self,
-                 fn_style,
-                 decl,
-                 _,
-                 vis) => {
-            TypeMethod {
-                ident: ident,
-                attrs: method.attrs.clone(),
-                fn_style: fn_style,
-                decl: decl,
-                generics: generics.clone(),
-                explicit_self: explicit_self,
-                id: method.id,
-                span: method.span,
-                vis: vis,
-                abi: abi,
-            }
-        },
-        MethMac(_) => fail!("expected non-macro method declaration")
-    }
-}
-
-/// extract a TypeMethod from a TraitItem. if the TraitItem is
-/// a default, pull out the useful fields to make a TypeMethod
-//
-// NB: to be used only after expansion is complete, and macros are gone.
-pub fn trait_item_to_ty_method(method: &TraitItem) -> TypeMethod {
-    match *method {
-        RequiredMethod(ref m) => (*m).clone(),
-        ProvidedMethod(ref m) => trait_method_to_ty_method(&**m),
-    }
-}
-
-pub fn split_trait_methods(trait_methods: &[TraitItem])
-    -> (Vec<TypeMethod> , Vec<Gc<Method>> ) {
-    let mut reqd = Vec::new();
-    let mut provd = Vec::new();
-    for trt_method in trait_methods.iter() {
-        match *trt_method {
-            RequiredMethod(ref tm) => reqd.push((*tm).clone()),
-            ProvidedMethod(m) => provd.push(m)
-        }
-    };
-    (reqd, provd)
 }
 
 pub fn struct_field_visibility(field: ast::StructField) -> Visibility {
@@ -366,17 +302,16 @@ impl<'a, O: IdVisitingOperation> IdVisitor<'a, O> {
     }
 }
 
-impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
+impl<'a, 'v, O: IdVisitingOperation> Visitor<'v> for IdVisitor<'a, O> {
     fn visit_mod(&mut self,
                  module: &Mod,
                  _: Span,
-                 node_id: NodeId,
-                 env: ()) {
+                 node_id: NodeId) {
         self.operation.visit_id(node_id);
-        visit::walk_mod(self, module, env)
+        visit::walk_mod(self, module)
     }
 
-    fn visit_view_item(&mut self, view_item: &ViewItem, env: ()) {
+    fn visit_view_item(&mut self, view_item: &ViewItem) {
         if !self.pass_through_items {
             if self.visited_outermost {
                 return;
@@ -403,16 +338,16 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
                 }
             }
         }
-        visit::walk_view_item(self, view_item, env);
+        visit::walk_view_item(self, view_item);
         self.visited_outermost = false;
     }
 
-    fn visit_foreign_item(&mut self, foreign_item: &ForeignItem, env: ()) {
+    fn visit_foreign_item(&mut self, foreign_item: &ForeignItem) {
         self.operation.visit_id(foreign_item.id);
-        visit::walk_foreign_item(self, foreign_item, env)
+        visit::walk_foreign_item(self, foreign_item)
     }
 
-    fn visit_item(&mut self, item: &Item, env: ()) {
+    fn visit_item(&mut self, item: &Item) {
         if !self.pass_through_items {
             if self.visited_outermost {
                 return
@@ -431,59 +366,58 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
             _ => {}
         }
 
-        visit::walk_item(self, item, env);
+        visit::walk_item(self, item);
 
         self.visited_outermost = false
     }
 
-    fn visit_local(&mut self, local: &Local, env: ()) {
+    fn visit_local(&mut self, local: &Local) {
         self.operation.visit_id(local.id);
-        visit::walk_local(self, local, env)
+        visit::walk_local(self, local)
     }
 
-    fn visit_block(&mut self, block: &Block, env: ()) {
+    fn visit_block(&mut self, block: &Block) {
         self.operation.visit_id(block.id);
-        visit::walk_block(self, block, env)
+        visit::walk_block(self, block)
     }
 
-    fn visit_stmt(&mut self, statement: &Stmt, env: ()) {
+    fn visit_stmt(&mut self, statement: &Stmt) {
         self.operation.visit_id(ast_util::stmt_id(statement));
-        visit::walk_stmt(self, statement, env)
+        visit::walk_stmt(self, statement)
     }
 
-    fn visit_pat(&mut self, pattern: &Pat, env: ()) {
+    fn visit_pat(&mut self, pattern: &Pat) {
         self.operation.visit_id(pattern.id);
-        visit::walk_pat(self, pattern, env)
+        visit::walk_pat(self, pattern)
     }
 
-    fn visit_expr(&mut self, expression: &Expr, env: ()) {
+    fn visit_expr(&mut self, expression: &Expr) {
         self.operation.visit_id(expression.id);
-        visit::walk_expr(self, expression, env)
+        visit::walk_expr(self, expression)
     }
 
-    fn visit_ty(&mut self, typ: &Ty, env: ()) {
+    fn visit_ty(&mut self, typ: &Ty) {
         self.operation.visit_id(typ.id);
         match typ.node {
             TyPath(_, _, id) => self.operation.visit_id(id),
             _ => {}
         }
-        visit::walk_ty(self, typ, env)
+        visit::walk_ty(self, typ)
     }
 
-    fn visit_generics(&mut self, generics: &Generics, env: ()) {
+    fn visit_generics(&mut self, generics: &Generics) {
         self.visit_generics_helper(generics);
-        visit::walk_generics(self, generics, env)
+        visit::walk_generics(self, generics)
     }
 
     fn visit_fn(&mut self,
-                function_kind: &visit::FnKind,
-                function_declaration: &FnDecl,
-                block: &Block,
+                function_kind: visit::FnKind<'v>,
+                function_declaration: &'v FnDecl,
+                block: &'v Block,
                 span: Span,
-                node_id: NodeId,
-                env: ()) {
+                node_id: NodeId) {
         if !self.pass_through_items {
-            match *function_kind {
+            match function_kind {
                 visit::FkMethod(..) if self.visited_outermost => return,
                 visit::FkMethod(..) => self.visited_outermost = true,
                 _ => {}
@@ -492,7 +426,7 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
 
         self.operation.visit_id(node_id);
 
-        match *function_kind {
+        match function_kind {
             visit::FkItemFn(_, generics, _, _) |
             visit::FkMethod(_, generics, _) => {
                 self.visit_generics_helper(generics)
@@ -508,39 +442,45 @@ impl<'a, O: IdVisitingOperation> Visitor<()> for IdVisitor<'a, O> {
                         function_kind,
                         function_declaration,
                         block,
-                        span,
-                        env);
+                        span);
 
         if !self.pass_through_items {
-            match *function_kind {
+            match function_kind {
                 visit::FkMethod(..) => self.visited_outermost = false,
                 _ => {}
             }
         }
     }
 
-    fn visit_struct_field(&mut self, struct_field: &StructField, env: ()) {
+    fn visit_struct_field(&mut self, struct_field: &StructField) {
         self.operation.visit_id(struct_field.node.id);
-        visit::walk_struct_field(self, struct_field, env)
+        visit::walk_struct_field(self, struct_field)
     }
 
     fn visit_struct_def(&mut self,
                         struct_def: &StructDef,
                         _: ast::Ident,
                         _: &ast::Generics,
-                        id: NodeId,
-                        _: ()) {
+                        id: NodeId) {
         self.operation.visit_id(id);
         struct_def.ctor_id.map(|ctor_id| self.operation.visit_id(ctor_id));
-        visit::walk_struct_def(self, struct_def, ());
+        visit::walk_struct_def(self, struct_def);
     }
 
-    fn visit_trait_item(&mut self, tm: &ast::TraitItem, _: ()) {
+    fn visit_trait_item(&mut self, tm: &ast::TraitItem) {
         match *tm {
             ast::RequiredMethod(ref m) => self.operation.visit_id(m.id),
             ast::ProvidedMethod(ref m) => self.operation.visit_id(m.id),
         }
-        visit::walk_trait_item(self, tm, ());
+        visit::walk_trait_item(self, tm);
+    }
+
+    fn visit_lifetime_ref(&mut self, lifetime: &'v Lifetime) {
+        self.operation.visit_id(lifetime.id);
+    }
+
+    fn visit_lifetime_decl(&mut self, def: &'v LifetimeDef) {
+        self.visit_lifetime_ref(&def.lifetime);
     }
 }
 
@@ -552,7 +492,7 @@ pub fn visit_ids_for_inlined_item<O: IdVisitingOperation>(item: &InlinedItem,
         visited_outermost: false,
     };
 
-    visit::walk_inlined_item(&mut id_visitor, item, ());
+    visit::walk_inlined_item(&mut id_visitor, item);
 }
 
 struct IdRangeComputingVisitor {
@@ -575,7 +515,7 @@ pub fn compute_id_range_for_inlined_item(item: &InlinedItem) -> IdRange {
     visitor.result.get()
 }
 
-pub fn compute_id_range_for_fn_body(fk: &visit::FnKind,
+pub fn compute_id_range_for_fn_body(fk: visit::FnKind,
                                     decl: &FnDecl,
                                     body: &Block,
                                     sp: Span,
@@ -595,15 +535,8 @@ pub fn compute_id_range_for_fn_body(fk: &visit::FnKind,
         pass_through_items: false,
         visited_outermost: false,
     };
-    id_visitor.visit_fn(fk, decl, body, sp, id, ());
+    id_visitor.visit_fn(fk, decl, body, sp, id);
     visitor.result.get()
-}
-
-pub fn is_item_impl(item: Gc<ast::Item>) -> bool {
-    match item.node {
-        ItemImpl(..) => true,
-        _            => false
-    }
 }
 
 pub fn walk_pat(pat: &Pat, it: |&Pat| -> bool) -> bool {
@@ -643,8 +576,8 @@ struct EachViewItemData<'a> {
     callback: |&ast::ViewItem|: 'a -> bool,
 }
 
-impl<'a> Visitor<()> for EachViewItemData<'a> {
-    fn visit_view_item(&mut self, view_item: &ast::ViewItem, _: ()) {
+impl<'a, 'v> Visitor<'v> for EachViewItemData<'a> {
+    fn visit_view_item(&mut self, view_item: &ast::ViewItem) {
         let _ = (self.callback)(view_item);
     }
 }
@@ -654,7 +587,7 @@ impl EachViewItem for ast::Crate {
         let mut visit = EachViewItemData {
             callback: f,
         };
-        visit::walk_crate(&mut visit, self, ());
+        visit::walk_crate(&mut visit, self);
         true
     }
 }
@@ -674,7 +607,7 @@ pub fn struct_def_is_tuple_like(struct_def: &ast::StructDef) -> bool {
 
 /// Returns true if the given pattern consists solely of an identifier
 /// and false otherwise.
-pub fn pat_is_ident(pat: Gc<ast::Pat>) -> bool {
+pub fn pat_is_ident(pat: P<ast::Pat>) -> bool {
     match pat.node {
         ast::PatIdent(..) => true,
         _ => false,
@@ -709,25 +642,10 @@ pub fn segments_name_eq(a : &[ast::PathSegment], b : &[ast::PathSegment]) -> boo
 }
 
 /// Returns true if this literal is a string and false otherwise.
-pub fn lit_is_str(lit: Gc<Lit>) -> bool {
+pub fn lit_is_str(lit: &Lit) -> bool {
     match lit.node {
         LitStr(..) => true,
         _ => false,
-    }
-}
-
-pub fn get_inner_tys(ty: P<Ty>) -> Vec<P<Ty>> {
-    match ty.node {
-        ast::TyRptr(_, mut_ty) | ast::TyPtr(mut_ty) => {
-            vec!(mut_ty.ty)
-        }
-        ast::TyBox(ty)
-        | ast::TyVec(ty)
-        | ast::TyUniq(ty)
-        | ast::TyFixedLengthVec(ty, _) => vec!(ty),
-        ast::TyTup(ref tys) => tys.clone(),
-        ast::TyParen(ty) => get_inner_tys(ty),
-        _ => Vec::new()
     }
 }
 
@@ -753,13 +671,13 @@ pub trait PostExpansionMethod {
     fn pe_abi(&self) -> Abi;
     fn pe_explicit_self<'a>(&'a self) -> &'a ast::ExplicitSelf;
     fn pe_fn_style(&self) -> ast::FnStyle;
-    fn pe_fn_decl(&self) -> P<ast::FnDecl>;
-    fn pe_body(&self) -> P<ast::Block>;
+    fn pe_fn_decl<'a>(&'a self) -> &'a ast::FnDecl;
+    fn pe_body<'a>(&'a self) -> &'a ast::Block;
     fn pe_vis(&self) -> ast::Visibility;
 }
 
 macro_rules! mf_method{
-    ($meth_name:ident, $field_ty:ty, $field_pat:pat, $result:ident) => {
+    ($meth_name:ident, $field_ty:ty, $field_pat:pat, $result:expr) => {
         fn $meth_name<'a>(&'a self) -> $field_ty {
             match self.node {
                 $field_pat => $result,
@@ -780,8 +698,8 @@ impl PostExpansionMethod for Method {
     mf_method!(pe_explicit_self,&'a ast::ExplicitSelf,
                MethDecl(_,_,_,ref explicit_self,_,_,_,_),explicit_self)
     mf_method!(pe_fn_style,ast::FnStyle,MethDecl(_,_,_,_,fn_style,_,_,_),fn_style)
-    mf_method!(pe_fn_decl,P<ast::FnDecl>,MethDecl(_,_,_,_,_,decl,_,_),decl)
-    mf_method!(pe_body,P<ast::Block>,MethDecl(_,_,_,_,_,_,body,_),body)
+    mf_method!(pe_fn_decl,&'a ast::FnDecl,MethDecl(_,_,_,_,_,ref decl,_,_),&**decl)
+    mf_method!(pe_body,&'a ast::Block,MethDecl(_,_,_,_,_,_,ref body,_),&**body)
     mf_method!(pe_vis,ast::Visibility,MethDecl(_,_,_,_,_,_,_,vis),vis)
 }
 

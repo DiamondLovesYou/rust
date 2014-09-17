@@ -155,7 +155,7 @@ pub fn main() {
     {
         let raw_bitcodes_vec = matches.opt_strs("raw");
         let mut raw_bitcodes = HashSet::new();
-        for i in raw_bitcodes_vec.move_iter() {
+        for i in raw_bitcodes_vec.into_iter() {
             if !raw_bitcodes.insert(i.clone()) {
                 warn(format!("file specified two or more times in --raw: `{}`", i));
             }
@@ -169,7 +169,7 @@ pub fn main() {
 
     let mut bc_input = HashMap::new();
     let mut obj_input: Vec<String> = Vec::new();
-    for (i, is_raw) in input.move_iter() {
+    for (i, is_raw) in input.into_iter() {
         let bc = match File::open(&Path::new(i.clone())).read_to_end() {
             Ok(buf) => buf,
             Err(e) => {
@@ -186,7 +186,7 @@ pub fn main() {
                                            bc.len() as libc::size_t)
             }
         });
-        if llmod == ptr::mut_null() {
+        if llmod == ptr::null_mut() {
             if is_raw {
                 warn(format!("raw bitcode isn't bitcode: `{}`", i));
             }
@@ -272,7 +272,7 @@ pub fn main() {
     };
 
     let obj_input: Vec<String> = bc_input
-        .move_iter()
+        .into_iter()
         .filter_map(|(i, llmod)| {
             debug!("translating `{}`", i);
             unsafe {
@@ -308,7 +308,7 @@ pub fn main() {
                 }
             }
         })
-        .chain(obj_input.move_iter())
+        .chain(obj_input.into_iter())
         .collect();
 
     unsafe {
@@ -363,9 +363,9 @@ pub fn main() {
                                      "--undefined=_start".to_string(),
                                      "-o".to_string(),
                                      output.clone());
-    let nexe_link_args: Vec<String> = nexe_link_args.move_iter()
+    let nexe_link_args: Vec<String> = nexe_link_args.into_iter()
         .chain(obj_input.iter().map(|o| o.clone() ))
-        .chain(nexe_link_args_suffix.move_iter())
+        .chain(nexe_link_args_suffix.into_iter())
         .collect();
 
     let gold = sysroot.join_many(["lib".to_string(),
@@ -381,7 +381,7 @@ pub fn main() {
             return;
         }
 
-        for i in objs.move_iter() {
+        for i in objs.into_iter() {
             debug!("cleaning up `{}`", i);
             let _ = unlink(&Path::new(i));
         }

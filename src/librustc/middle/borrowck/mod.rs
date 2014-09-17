@@ -22,9 +22,7 @@ use middle::mem_categorization as mc;
 use middle::ty;
 use util::ppaux::{note_and_explain_region, Repr, UserString};
 
-use std::cell::{Cell};
 use std::rc::Rc;
-use std::gc::{Gc, GC};
 use std::string::String;
 use syntax::ast;
 use syntax::ast_map;
@@ -60,45 +58,44 @@ pub struct LoanDataFlowOperator;
 
 pub type LoanDataFlow<'a, 'tcx> = DataFlowContext<'a, 'tcx, LoanDataFlowOperator>;
 
-impl<'a, 'tcx> Visitor<()> for BorrowckCtxt<'a, 'tcx> {
-    fn visit_fn(&mut self, fk: &FnKind, fd: &FnDecl,
-                b: &Block, s: Span, n: NodeId, _: ()) {
+impl<'a, 'tcx, 'v> Visitor<'v> for BorrowckCtxt<'a, 'tcx> {
+    fn visit_fn(&mut self, fk: FnKind<'v>, fd: &'v FnDecl,
+                b: &'v Block, s: Span, n: NodeId) {
         borrowck_fn(self, fk, fd, b, s, n);
     }
 
-    fn visit_item(&mut self, item: &ast::Item, _: ()) {
+    fn visit_item(&mut self, item: &ast::Item) {
         borrowck_item(self, item);
     }
 }
 
-pub fn check_crate(tcx: &ty::ctxt,
-                   krate: &ast::Crate) {
+pub fn check_crate(tcx: &ty::ctxt) {
     let mut bccx = BorrowckCtxt {
         tcx: tcx,
-        stats: box(GC) BorrowStats {
-            loaned_paths_same: Cell::new(0),
-            loaned_paths_imm: Cell::new(0),
-            stable_paths: Cell::new(0),
-            guaranteed_paths: Cell::new(0),
+        stats: BorrowStats {
+            loaned_paths_same: 0,
+            loaned_paths_imm: 0,
+            stable_paths: 0,
+            guaranteed_paths: 0
         }
     };
 
-    visit::walk_crate(&mut bccx, krate, ());
+    visit::walk_crate(&mut bccx, tcx.map.krate());
 
     if tcx.sess.borrowck_stats() {
         println!("--- borrowck stats ---");
         println!("paths requiring guarantees: {}",
-                 bccx.stats.guaranteed_paths.get());
+                 bccx.stats.guaranteed_paths);
         println!("paths requiring loans     : {}",
-                 make_stat(&bccx, bccx.stats.loaned_paths_same.get()));
+                 make_stat(&bccx, bccx.stats.loaned_paths_same));
         println!("paths requiring imm loans : {}",
-                 make_stat(&bccx, bccx.stats.loaned_paths_imm.get()));
+                 make_stat(&bccx, bccx.stats.loaned_paths_imm));
         println!("stable paths              : {}",
-                 make_stat(&bccx, bccx.stats.stable_paths.get()));
+                 make_stat(&bccx, bccx.stats.stable_paths));
     }
 
     fn make_stat(bccx: &BorrowckCtxt, stat: uint) -> String {
-        let total = bccx.stats.guaranteed_paths.get() as f64;
+        let total = bccx.stats.guaranteed_paths as f64;
         let perc = if total == 0.0 { 0.0 } else { stat as f64 * 100.0 / total };
         format!("{} ({:.0f}%)", stat, perc)
     }
@@ -110,11 +107,11 @@ fn borrowck_item(this: &mut BorrowckCtxt, item: &ast::Item) {
     // loan step is intended for things that have a data
     // flow dependent conditions.
     match item.node {
-        ast::ItemStatic(_, _, ex) => {
-            gather_loans::gather_loans_in_static_initializer(this, &*ex);
+        ast::ItemStatic(_, _, ref ex) => {
+            gather_loans::gather_loans_in_static_initializer(this, &**ex);
         }
         _ => {
-            visit::walk_item(this, item, ());
+            visit::walk_item(this, item);
         }
     }
 }
@@ -127,7 +124,7 @@ pub struct AnalysisData<'a, 'tcx: 'a> {
 }
 
 fn borrowck_fn(this: &mut BorrowckCtxt,
-               fk: &FnKind,
+               fk: FnKind,
                decl: &ast::FnDecl,
                body: &ast::Block,
                sp: Span,
@@ -142,11 +139,11 @@ fn borrowck_fn(this: &mut BorrowckCtxt,
     check_loans::check_loans(this, &loan_dfcx, flowed_moves,
                              all_loans.as_slice(), decl, body);
 
-    visit::walk_fn(this, fk, decl, body, sp, ());
+    visit::walk_fn(this, fk, decl, body, sp);
 }
 
 fn build_borrowck_dataflow_data<'a, 'tcx>(this: &mut BorrowckCtxt<'a, 'tcx>,
-                                          fk: &FnKind,
+                                          fk: FnKind,
                                           decl: &ast::FnDecl,
                                           cfg: &cfg::CFG,
                                           body: &ast::Block,
@@ -206,18 +203,18 @@ pub fn build_borrowck_dataflow_data_for_fn<'a, 'tcx>(
 
     let mut bccx = BorrowckCtxt {
         tcx: tcx,
-        stats: box(GC) BorrowStats {
-            loaned_paths_same: Cell::new(0),
-            loaned_paths_imm: Cell::new(0),
-            stable_paths: Cell::new(0),
-            guaranteed_paths: Cell::new(0),
+        stats: BorrowStats {
+            loaned_paths_same: 0,
+            loaned_paths_imm: 0,
+            stable_paths: 0,
+            guaranteed_paths: 0
         }
     };
 
     let p = input.fn_parts;
 
     let dataflow_data = build_borrowck_dataflow_data(&mut bccx,
-                                                     &p.kind,
+                                                     p.kind,
                                                      &*p.decl,
                                                      input.cfg,
                                                      &*p.body,
@@ -234,14 +231,14 @@ pub struct BorrowckCtxt<'a, 'tcx: 'a> {
     tcx: &'a ty::ctxt<'tcx>,
 
     // Statistics:
-    stats: Gc<BorrowStats>,
+    stats: BorrowStats
 }
 
-pub struct BorrowStats {
-    loaned_paths_same: Cell<uint>,
-    loaned_paths_imm: Cell<uint>,
-    stable_paths: Cell<uint>,
-    guaranteed_paths: Cell<uint>,
+struct BorrowStats {
+    loaned_paths_same: uint,
+    loaned_paths_imm: uint,
+    stable_paths: uint,
+    guaranteed_paths: uint
 }
 
 pub type BckResult<T> = Result<T, BckError>;
@@ -290,9 +287,9 @@ pub fn closure_to_block(closure_id: ast::NodeId,
                     tcx: &ty::ctxt) -> ast::NodeId {
     match tcx.map.get(closure_id) {
         ast_map::NodeExpr(expr) => match expr.node {
-            ast::ExprProc(_, block) |
-            ast::ExprFnBlock(_, _, block) |
-            ast::ExprUnboxedFn(_, _, _, block) => { block.id }
+            ast::ExprProc(_, ref block) |
+            ast::ExprFnBlock(_, _, ref block) |
+            ast::ExprUnboxedFn(_, _, _, ref block) => { block.id }
             _ => fail!("encountered non-closure id: {}", closure_id)
         },
         _ => fail!("encountered non-expr id: {}", closure_id)

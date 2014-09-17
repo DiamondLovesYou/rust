@@ -283,7 +283,7 @@ pub mod native {
             rtabort!("thread-local pointer is null. bogus!");
         }
         let ptr: Box<T> = mem::transmute(void_ptr);
-        tls::set(key, ptr::mut_null());
+        tls::set(key, ptr::null_mut());
         return ptr;
     }
 
@@ -301,7 +301,7 @@ pub mod native {
                     None
                 } else {
                     let ptr: Box<T> = mem::transmute(void_ptr);
-                    tls::set(key, ptr::mut_null());
+                    tls::set(key, ptr::null_mut());
                     Some(ptr)
                 }
             }

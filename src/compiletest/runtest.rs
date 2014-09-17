@@ -20,6 +20,7 @@ use util::logv;
 use util;
 
 use std::io::File;
+use std::io::fs::PathExtensions;
 use std::io::fs;
 use std::io::net::tcp;
 use std::io::process::{ProcessExit, Process};
@@ -587,12 +588,12 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                         // GDB's script auto loading safe path ...
                         script_str.push_str(
                             format!("add-auto-load-safe-path {}\n",
-                                    rust_pp_module_abs_path.as_slice())
+                                    rust_pp_module_abs_path.replace("\\", "\\\\").as_slice())
                                 .as_slice());
                         // ... and also the test directory
                         script_str.push_str(
                             format!("add-auto-load-safe-path {}\n",
-                                    config.build_base.as_str().unwrap())
+                                    config.build_base.as_str().unwrap().replace("\\", "\\\\"))
                                 .as_slice());
                     }
                 }
@@ -604,7 +605,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
             // Load the target executable
             script_str.push_str(format!("file {}\n",
-                                        exe_file.as_str().unwrap())
+                                        exe_file.as_str().unwrap().replace("\\", "\\\\"))
                                     .as_slice());
 
             script_str.push_str(cmds.as_slice());
@@ -872,7 +873,7 @@ fn cleanup_debug_info_options(options: &Option<String>) -> Option<String> {
         "--debuginfo".to_string()
     ];
     let new_options =
-        split_maybe_args(options).move_iter()
+        split_maybe_args(options).into_iter()
                                  .filter(|x| !options_to_remove.contains(x))
                                  .collect::<Vec<String>>()
                                  .connect(" ");
@@ -1582,7 +1583,7 @@ fn _arm_exec_compiled_test(config: &Config,
 
     // run test via adb_run_wrapper
     runargs.push("shell".to_string());
-    for (key, val) in env.move_iter() {
+    for (key, val) in env.into_iter() {
         runargs.push(format!("{}={}", key, val));
     }
     runargs.push(format!("{}/adb_run_wrapper.sh", config.adb_test_dir));

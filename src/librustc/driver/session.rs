@@ -269,6 +269,7 @@ impl Session {
     // Emits a fatal error if path is not writeable.
     pub fn check_writeable_output(&self, path: &Path, name: &str) {
         use std::io;
+        use std::io::fs::PathExtensions;
         let is_writeable = match path.stat() {
             Err(..) => true,
             Ok(m) => m.perm & io::UserWrite == io::UserWrite
@@ -374,8 +375,7 @@ pub fn build_session_(sopts: config::Options,
     sess
 }
 // Seems out of place, but it uses session, so I'm putting it here
-pub fn expect<T:Clone>(sess: &Session, opt: Option<T>, msg: || -> String)
-              -> T {
+pub fn expect<T>(sess: &Session, opt: Option<T>, msg: || -> String) -> T {
     diagnostic::expect(sess.diagnostic(), opt, msg)
 }
 

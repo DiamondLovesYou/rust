@@ -71,9 +71,10 @@ use middle::ty;
 use util::common::time;
 use util::ppaux::Repr;
 use util::ppaux;
-use util::nodemap::{DefIdMap, FnvHashMap};
+use util::nodemap::{NodeMap, FnvHashMap};
 
 use std::cell::RefCell;
+use std::rc::Rc;
 use syntax::codemap::Span;
 use syntax::print::pprust::*;
 use syntax::{ast, ast_map, abi};
@@ -92,7 +93,7 @@ pub struct param_index {
     pub index: uint
 }
 
-#[deriving(Clone, Encodable, Decodable)]
+#[deriving(Clone)]
 pub enum MethodOrigin {
     // fully statically resolved method
     MethodStatic(ast::DefId),
@@ -110,27 +111,21 @@ pub enum MethodOrigin {
 
 // details for a method invoked with a receiver whose type is a type parameter
 // with a bounded trait.
-#[deriving(Clone, Encodable, Decodable)]
+#[deriving(Clone)]
 pub struct MethodParam {
-    // the trait containing the method to be invoked
-    pub trait_id: ast::DefId,
+    // the precise trait reference that occurs as a bound -- this may
+    // be a supertrait of what the user actually typed.
+    pub trait_ref: Rc<ty::TraitRef>,
 
-    // index of the method to be invoked amongst the trait's methods
+    // index of uint in the list of methods for the trait
     pub method_num: uint,
-
-    // index of the type parameter (from those that are in scope) that is
-    // the type of the receiver
-    pub param_num: param_index,
-
-    // index of the bound for this type parameter which specifies the trait
-    pub bound_num: uint,
 }
 
 // details for a method invoked with a receiver whose type is an object
-#[deriving(Clone, Encodable, Decodable)]
+#[deriving(Clone)]
 pub struct MethodObject {
     // the (super)trait containing the method to be invoked
-    pub trait_id: ast::DefId,
+    pub trait_ref: Rc<ty::TraitRef>,
 
     // the actual base trait id of the object
     pub object_trait_id: ast::DefId,
@@ -154,7 +149,7 @@ pub struct MethodCallee {
 
 /**
  * With method calls, we store some extra information in
- * side tables (i.e method_map, vtable_map). We use
+ * side tables (i.e method_map). We use
  * MethodCall as a key to index into these tables instead of
  * just directly using the expression's NodeId. The reason
  * for this being that we may apply adjustments (coercions)
@@ -276,10 +271,9 @@ impl Repr for vtable_origin {
     }
 }
 
-pub type vtable_map = RefCell<FnvHashMap<MethodCall, vtable_res>>;
-
-
-pub type impl_vtable_map = RefCell<DefIdMap<vtable_res>>;
+// For every explicit cast into an object type, maps from the cast
+// expr to the associated trait ref.
+pub type ObjectCastMap = RefCell<NodeMap<Rc<ty::TraitRef>>>;
 
 pub struct CrateCtxt<'a, 'tcx: 'a> {
     // A mapping from method call sites to traits that have that method.
@@ -308,7 +302,7 @@ pub fn write_substs_to_tcx(tcx: &ty::ctxt,
 }
 pub fn lookup_def_tcx(tcx:&ty::ctxt, sp: Span, id: ast::NodeId) -> def::Def {
     match tcx.def_map.borrow().find(&id) {
-        Some(&x) => x,
+        Some(x) => x.clone(),
         _ => {
             tcx.sess.span_fatal(sp, "internal error looking up a definition")
         }
@@ -474,9 +468,7 @@ fn check_for_entry_fn(ccx: &CrateCtxt) {
     }
 }
 
-pub fn check_crate(tcx: &ty::ctxt,
-                   trait_map: resolve::TraitMap,
-                   krate: &ast::Crate) {
+pub fn check_crate(tcx: &ty::ctxt, trait_map: resolve::TraitMap) {
     let time_passes = tcx.sess.time_passes();
     let ccx = CrateCtxt {
         trait_map: trait_map,
@@ -484,20 +476,20 @@ pub fn check_crate(tcx: &ty::ctxt,
     };
 
     time(time_passes, "type collecting", (), |_|
-        collect::collect_item_types(&ccx, krate));
+        collect::collect_item_types(&ccx));
 
     // this ensures that later parts of type checking can assume that items
     // have valid types and not error
     tcx.sess.abort_if_errors();
 
     time(time_passes, "variance inference", (), |_|
-         variance::infer_variance(tcx, krate));
+         variance::infer_variance(tcx));
 
     time(time_passes, "coherence checking", (), |_|
-        coherence::check_coherence(&ccx, krate));
+        coherence::check_coherence(&ccx));
 
     time(time_passes, "type checking", (), |_|
-        check::check_item_types(&ccx, krate));
+        check::check_item_types(&ccx));
 
     check_for_entry_fn(&ccx);
     tcx.sess.abort_if_errors();

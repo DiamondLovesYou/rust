@@ -85,6 +85,17 @@ impl LanguageItems {
         }
     }
 
+    pub fn from_builtin_kind(&self, bound: ty::BuiltinBound)
+                             -> Result<ast::DefId, String>
+    {
+        match bound {
+            ty::BoundSend => self.require(SendTraitLangItem),
+            ty::BoundSized => self.require(SizedTraitLangItem),
+            ty::BoundCopy => self.require(CopyTraitLangItem),
+            ty::BoundSync => self.require(SyncTraitLangItem),
+        }
+    }
+
     pub fn to_builtin_kind(&self, id: ast::DefId) -> Option<ty::BuiltinBound> {
         if Some(id) == self.send_trait() {
             Some(ty::BoundSend)
@@ -115,8 +126,8 @@ struct LanguageItemCollector<'a> {
     item_refs: HashMap<&'static str, uint>,
 }
 
-impl<'a> Visitor<()> for LanguageItemCollector<'a> {
-    fn visit_item(&mut self, item: &ast::Item, _: ()) {
+impl<'a, 'v> Visitor<'v> for LanguageItemCollector<'a> {
+    fn visit_item(&mut self, item: &ast::Item) {
         match extract(item.attrs.as_slice()) {
             Some(value) => {
                 let item_index = self.item_refs.find_equiv(&value).map(|x| *x);
@@ -131,7 +142,7 @@ impl<'a> Visitor<()> for LanguageItemCollector<'a> {
             None => {}
         }
 
-        visit::walk_item(self, item, ());
+        visit::walk_item(self, item);
     }
 }
 
@@ -166,7 +177,7 @@ impl<'a> LanguageItemCollector<'a> {
     }
 
     pub fn collect_local_language_items(&mut self, krate: &ast::Crate) {
-        visit::walk_crate(self, krate, ());
+        visit::walk_crate(self, krate);
     }
 
     pub fn collect_external_language_items(&mut self) {
@@ -265,7 +276,6 @@ lets_do_this! {
     BeginUnwindLangItem,             "begin_unwind",            begin_unwind;
 
     ExchangeMallocFnLangItem,        "exchange_malloc",         exchange_malloc_fn;
-    ClosureExchangeMallocFnLangItem, "closure_exchange_malloc", closure_exchange_malloc_fn;
     ExchangeFreeFnLangItem,          "exchange_free",           exchange_free_fn;
     MallocFnLangItem,                "malloc",                  malloc_fn;
     FreeFnLangItem,                  "free",                    free_fn;

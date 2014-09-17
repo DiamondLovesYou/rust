@@ -67,10 +67,10 @@ pub fn trans_inline_asm<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, ia: &ast::InlineAsm)
         let in_datum = unpack_datum!(bcx, expr::trans(bcx, &**input));
         unpack_result!(bcx, {
             callee::trans_arg_datum(bcx,
-                                   expr_ty(bcx, &**input),
-                                   in_datum,
-                                   cleanup::CustomScope(temp_scope),
-                                   callee::DontAutorefArg)
+                                    expr_ty(bcx, &**input),
+                                    in_datum,
+                                    cleanup::CustomScope(temp_scope),
+                                    callee::DontAutorefArg)
         })
     }).collect::<Vec<_>>().append(ext_inputs.as_slice());
 
@@ -80,7 +80,7 @@ pub fn trans_inline_asm<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, ia: &ast::InlineAsm)
     let mut constraints =
         String::from_str(constraints.iter()
                                     .map(|s| s.get().to_string())
-                                    .chain(ext_constraints.move_iter())
+                                    .chain(ext_constraints.into_iter())
                                     .collect::<Vec<String>>()
                                     .connect(",")
                                     .as_slice());

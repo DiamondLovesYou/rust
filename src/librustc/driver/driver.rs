@@ -32,8 +32,10 @@ use serialize::{json, Encodable};
 
 use std::io;
 use std::io::fs;
+use std::os;
 use arena::TypedArena;
 use syntax::ast;
+use syntax::ast_map;
 use syntax::attr;
 use syntax::attr::{AttrMetaMethods};
 use syntax::diagnostics;
@@ -64,7 +66,7 @@ pub fn compile_input(sess: Session,
     // large chunks of memory alive and we want to free them as soon as
     // possible to keep the peak memory usage low
     let (outputs, mut trans, sess) = {
-        let (outputs, expanded_crate, ast_map, id) = {
+        let (outputs, expanded_crate, id) = {
             let krate = phase_1_parse_input(&sess, cfg, input);
             if stop_after_phase_1(&sess) { return; }
             let outputs = build_output_filenames(input,
@@ -74,25 +76,28 @@ pub fn compile_input(sess: Session,
                                                  &sess);
             let id = link::find_crate_name(Some(&sess), krate.attrs.as_slice(),
                                            input);
-            let (expanded_crate, ast_map)
+            let expanded_crate
                 = match phase_2_configure_and_expand(&sess, krate, id.as_slice(),
                                                      addl_plugins) {
                     None => return,
-                    Some(p) => p,
+                    Some(k) => k
                 };
 
-            (outputs, expanded_crate, ast_map, id)
+            (outputs, expanded_crate, id)
         };
+
+        let mut forest = ast_map::Forest::new(expanded_crate);
+        let ast_map = assign_node_ids_and_map(&sess, &mut forest);
+
         write_out_deps(&sess, input, &outputs, id.as_slice());
 
         if stop_after_phase_2(&sess) { return; }
 
         let type_arena = TypedArena::new();
-        let analysis = phase_3_run_analysis_passes(sess, &expanded_crate,
-                                                   ast_map, &type_arena, id);
-        phase_save_analysis(&analysis.ty_cx.sess, &expanded_crate, &analysis, outdir);
+        let analysis = phase_3_run_analysis_passes(sess, ast_map, &type_arena, id);
+        phase_save_analysis(&analysis.ty_cx.sess, analysis.ty_cx.map.krate(), &analysis, outdir);
         if stop_after_phase_3(&analysis.ty_cx.sess) { return; }
-        let (tcx, trans) = phase_4_translate_to_llvm(expanded_crate, analysis);
+        let (tcx, trans) = phase_4_translate_to_llvm(analysis);
 
         // Discard interned strings as they are no longer required.
         token::get_ident_interner().clear();
@@ -189,7 +194,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                                     mut krate: ast::Crate,
                                     crate_name: &str,
                                     addl_plugins: Option<Plugins>)
-                                    -> Option<(ast::Crate, syntax::ast_map::Map)> {
+                                    -> Option<ast::Crate> {
     let time_passes = sess.time_passes();
 
     *sess.crate_types.borrow_mut() =
@@ -240,11 +245,11 @@ pub fn phase_2_configure_and_expand(sess: &Session,
 
     {
         let mut ls = sess.lint_store.borrow_mut();
-        for pass in lint_passes.move_iter() {
+        for pass in lint_passes.into_iter() {
             ls.register_pass(Some(sess), true, pass);
         }
 
-        for (name, to) in lint_groups.move_iter() {
+        for (name, to) in lint_groups.into_iter() {
             ls.register_group(Some(sess), true, name, to);
         }
     }
@@ -266,18 +271,26 @@ pub fn phase_2_configure_and_expand(sess: &Session,
             // dependent dlls. Note that this uses cfg!(windows) as opposed to
             // targ_cfg because syntax extensions are always loaded for the host
             // compiler, not for the target.
+            let mut _old_path = String::new();
             if cfg!(windows) {
-                sess.host_filesearch().add_dylib_search_paths();
+                _old_path = os::getenv("PATH").unwrap_or(_old_path);
+                let mut new_path = sess.host_filesearch().get_dylib_search_paths();
+                new_path.push_all_move(os::split_paths(_old_path.as_slice()));
+                os::setenv("PATH", os::join_paths(new_path.as_slice()).unwrap());
             }
             let cfg = syntax::ext::expand::ExpansionConfig {
                 deriving_hash_type_parameter: sess.features.default_type_params.get(),
                 crate_name: crate_name.to_string(),
             };
-            syntax::ext::expand::expand_crate(&sess.parse_sess,
+            let ret = syntax::ext::expand::expand_crate(&sess.parse_sess,
                                               cfg,
                                               macros,
                                               syntax_exts,
-                                              krate)
+                                              krate);
+            if cfg!(windows) {
+                os::setenv("PATH", _old_path);
+            }
+            ret
         }
     );
 
@@ -293,20 +306,37 @@ pub fn phase_2_configure_and_expand(sess: &Session,
     krate = time(time_passes, "prelude injection", krate, |krate|
                  front::std_inject::maybe_inject_prelude(sess, krate));
 
-    let (krate, map) = time(time_passes, "assigning node ids and indexing ast", krate, |krate|
-         front::assign_node_ids_and_map::assign_node_ids_and_map(sess, krate));
+    time(time_passes, "checking that all macro invocations are gone", &krate, |krate|
+         syntax::ext::expand::check_for_macros(&sess.parse_sess, krate));
+
+    Some(krate)
+}
+
+pub fn assign_node_ids_and_map<'ast>(sess: &Session,
+                                     forest: &'ast mut ast_map::Forest)
+                                     -> ast_map::Map<'ast> {
+    struct NodeIdAssigner<'a> {
+        sess: &'a Session
+    }
+
+    impl<'a> ast_map::FoldOps for NodeIdAssigner<'a> {
+        fn new_id(&self, old_id: ast::NodeId) -> ast::NodeId {
+            assert_eq!(old_id, ast::DUMMY_NODE_ID);
+            self.sess.next_node_id()
+        }
+    }
+
+    let map = time(sess.time_passes(), "assigning node ids and indexing ast", forest, |forest|
+                   ast_map::map_crate(forest, NodeIdAssigner { sess: sess }));
 
     if sess.opts.debugging_opts & config::AST_JSON != 0 {
         let mut stdout = io::BufferedWriter::new(io::stdout());
         let mut json = json::PrettyEncoder::new(&mut stdout);
         // unwrapping so IoError isn't ignored
-        krate.encode(&mut json).unwrap();
+        map.krate().encode(&mut json).unwrap();
     }
 
-    time(time_passes, "checking that all macro invocations are gone", &krate, |krate|
-         syntax::ext::expand::check_for_macros(&sess.parse_sess, krate));
-
-    Some((krate, map))
+    map
 }
 
 pub struct CrateAnalysis<'tcx> {
@@ -323,11 +353,11 @@ pub struct CrateAnalysis<'tcx> {
 /// miscellaneous analysis passes on the crate. Return various
 /// structures carrying the results of the analysis.
 pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
-                                         krate: &ast::Crate,
-                                         ast_map: syntax::ast_map::Map,
+                                         ast_map: ast_map::Map<'tcx>,
                                          type_arena: &'tcx TypedArena<ty::t_box_>,
                                          name: String) -> CrateAnalysis<'tcx> {
     let time_passes = sess.time_passes();
+    let krate = ast_map.krate();
 
     time(time_passes, "external crate/lib resolution", (), |_|
          creader::read_crates(&sess, krate));
@@ -352,7 +382,7 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
                                 |_| middle::resolve_lifetime::krate(&sess, krate));
 
     time(time_passes, "looking for entry point", (),
-         |_| middle::entry::find_entry_point(&sess, krate, &ast_map));
+         |_| middle::entry::find_entry_point(&sess, &ast_map));
 
     sess.plugin_registrar_fn.set(
         time(time_passes, "looking for plugin registrar", (), |_|
@@ -384,43 +414,43 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
                             stability_index);
 
     // passes are timed inside typeck
-    typeck::check_crate(&ty_cx, trait_map, krate);
+    typeck::check_crate(&ty_cx, trait_map);
 
     time(time_passes, "check static items", (), |_|
-         middle::check_static::check_crate(&ty_cx, krate));
+         middle::check_static::check_crate(&ty_cx));
 
     // These next two const passes can probably be merged
     time(time_passes, "const marking", (), |_|
-         middle::const_eval::process_crate(krate, &ty_cx));
+         middle::const_eval::process_crate(&ty_cx));
 
     time(time_passes, "const checking", (), |_|
-         middle::check_const::check_crate(krate, &ty_cx));
+         middle::check_const::check_crate(&ty_cx));
 
     let maps = (external_exports, last_private_map);
     let (exported_items, public_items) =
             time(time_passes, "privacy checking", maps, |(a, b)|
-                 middle::privacy::check_crate(&ty_cx, &exp_map2, a, b, krate));
+                 middle::privacy::check_crate(&ty_cx, &exp_map2, a, b));
 
     time(time_passes, "intrinsic checking", (), |_|
-         middle::intrinsicck::check_crate(&ty_cx, krate));
+         middle::intrinsicck::check_crate(&ty_cx));
 
     time(time_passes, "effect checking", (), |_|
-         middle::effect::check_crate(&ty_cx, krate));
+         middle::effect::check_crate(&ty_cx));
 
     time(time_passes, "match checking", (), |_|
-         middle::check_match::check_crate(&ty_cx, krate));
+         middle::check_match::check_crate(&ty_cx));
 
     time(time_passes, "liveness checking", (), |_|
-         middle::liveness::check_crate(&ty_cx, krate));
+         middle::liveness::check_crate(&ty_cx));
 
     time(time_passes, "borrow checking", (), |_|
-         middle::borrowck::check_crate(&ty_cx, krate));
+         middle::borrowck::check_crate(&ty_cx));
 
     time(time_passes, "rvalue checking", (), |_|
          middle::check_rvalues::check_crate(&ty_cx, krate));
 
     time(time_passes, "kind checking", (), |_|
-         kind::check_crate(&ty_cx, krate));
+         kind::check_crate(&ty_cx));
 
     let reachable_map =
         time(time_passes, "reachability checking", (), |_|
@@ -429,12 +459,11 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
     time(time_passes, "death checking", (), |_| {
         middle::dead::check_crate(&ty_cx,
                                   &exported_items,
-                                  &reachable_map,
-                                  krate)
+                                  &reachable_map)
     });
 
     time(time_passes, "lint checking", (), |_|
-         lint::check_crate(&ty_cx, krate, &exported_items));
+         lint::check_crate(&ty_cx, &exported_items));
 
     CrateAnalysis {
         exp_map2: exp_map2,
@@ -475,16 +504,16 @@ pub struct CrateTranslation {
 
 /// Run the translation phase to LLVM, after which the AST and analysis can
 /// be discarded.
-pub fn phase_4_translate_to_llvm(krate: ast::Crate,
-                                 analysis: CrateAnalysis) -> (ty::ctxt, CrateTranslation) {
+pub fn phase_4_translate_to_llvm<'tcx>(analysis: CrateAnalysis<'tcx>)
+                                       -> (ty::ctxt<'tcx>, CrateTranslation) {
     let time_passes = analysis.ty_cx.sess.time_passes();
 
     time(time_passes, "resolving dependency formats", (), |_|
          dependency_format::calculate(&analysis.ty_cx));
 
     // Option dance to work around the lack of stack once closures.
-    time(time_passes, "translation", (krate, analysis), |(krate, analysis)|
-         trans::base::trans_crate(krate, analysis))
+    time(time_passes, "translation", analysis, |analysis|
+         trans::base::trans_crate(analysis))
 }
 
 /// Run LLVM itself, producing a bitcode file, assembly file or object file
@@ -519,11 +548,18 @@ pub fn phase_5_run_llvm_passes(sess: &Session,
 pub fn phase_6_link_output(sess: &Session,
                            trans: &CrateTranslation,
                            outputs: &OutputFilenames) {
+    let old_path = os::getenv("PATH").unwrap_or_else(||String::new());
+    let mut new_path = os::split_paths(old_path.as_slice());
+    new_path.push_all_move(sess.host_filesearch().get_tools_search_paths());
+    os::setenv("PATH", os::join_paths(new_path.as_slice()).unwrap());
+
     time(sess.time_passes(), "linking", (), |_|
          link::link_binary(sess,
                            trans,
                            outputs,
                            trans.link.crate_name.as_slice()));
+
+    os::setenv("PATH", old_path);
 }
 
 pub fn stop_after_phase_3(sess: &Session) -> bool {
@@ -678,7 +714,7 @@ pub fn collect_crate_types(session: &Session,
     // will be found in crate attributes.
     let mut base = session.opts.crate_types.clone();
     if base.len() == 0 {
-        base.extend(attr_types.move_iter());
+        base.extend(attr_types.into_iter());
         if base.len() == 0 {
             base.push(link::default_output_for_target(session));
         }
@@ -686,7 +722,7 @@ pub fn collect_crate_types(session: &Session,
         base.dedup();
     }
 
-    base.move_iter().filter(|crate_type| {
+    base.into_iter().filter(|crate_type| {
         let res = !link::invalid_output_for_target(session, *crate_type);
 
         if !res {

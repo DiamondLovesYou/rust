@@ -64,7 +64,7 @@ impl<'a, 'tcx> EffectCheckVisitor<'a, 'tcx> {
 
     fn check_str_index(&mut self, e: &ast::Expr) {
         let base_type = match e.node {
-            ast::ExprIndex(base, _) => ty::node_id_to_type(self.tcx, base.id),
+            ast::ExprIndex(ref base, _) => ty::node_id_to_type(self.tcx, base.id),
             _ => return
         };
         debug!("effect: checking index with base type {}",
@@ -86,11 +86,11 @@ impl<'a, 'tcx> EffectCheckVisitor<'a, 'tcx> {
     }
 }
 
-impl<'a, 'tcx> Visitor<()> for EffectCheckVisitor<'a, 'tcx> {
-    fn visit_fn(&mut self, fn_kind: &visit::FnKind, fn_decl: &ast::FnDecl,
-                block: &ast::Block, span: Span, _: ast::NodeId, _:()) {
+impl<'a, 'tcx, 'v> Visitor<'v> for EffectCheckVisitor<'a, 'tcx> {
+    fn visit_fn(&mut self, fn_kind: visit::FnKind<'v>, fn_decl: &'v ast::FnDecl,
+                block: &'v ast::Block, span: Span, _: ast::NodeId) {
 
-        let (is_item_fn, is_unsafe_fn) = match *fn_kind {
+        let (is_item_fn, is_unsafe_fn) = match fn_kind {
             visit::FkItemFn(_, _, fn_style, _) =>
                 (true, fn_style == ast::UnsafeFn),
             visit::FkMethod(_, _, method) =>
@@ -105,12 +105,12 @@ impl<'a, 'tcx> Visitor<()> for EffectCheckVisitor<'a, 'tcx> {
             self.unsafe_context = SafeContext
         }
 
-        visit::walk_fn(self, fn_kind, fn_decl, block, span, ());
+        visit::walk_fn(self, fn_kind, fn_decl, block, span);
 
         self.unsafe_context = old_unsafe_context
     }
 
-    fn visit_block(&mut self, block: &ast::Block, _:()) {
+    fn visit_block(&mut self, block: &ast::Block) {
         let old_unsafe_context = self.unsafe_context;
         match block.rules {
             ast::DefaultBlock => {}
@@ -136,12 +136,12 @@ impl<'a, 'tcx> Visitor<()> for EffectCheckVisitor<'a, 'tcx> {
             }
         }
 
-        visit::walk_block(self, block, ());
+        visit::walk_block(self, block);
 
         self.unsafe_context = old_unsafe_context
     }
 
-    fn visit_expr(&mut self, expr: &ast::Expr, _:()) {
+    fn visit_expr(&mut self, expr: &ast::Expr) {
         match expr.node {
             ast::ExprMethodCall(_, _, _) => {
                 let method_call = MethodCall::expr(expr.id);
@@ -153,7 +153,7 @@ impl<'a, 'tcx> Visitor<()> for EffectCheckVisitor<'a, 'tcx> {
                                         "invocation of unsafe method")
                 }
             }
-            ast::ExprCall(base, _) => {
+            ast::ExprCall(ref base, _) => {
                 let base_type = ty::node_id_to_type(self.tcx, base.id);
                 debug!("effect: call case, base type is {}",
                        ppaux::ty_to_string(self.tcx, base_type));
@@ -161,7 +161,7 @@ impl<'a, 'tcx> Visitor<()> for EffectCheckVisitor<'a, 'tcx> {
                     self.require_unsafe(expr.span, "call to unsafe function")
                 }
             }
-            ast::ExprUnary(ast::UnDeref, base) => {
+            ast::ExprUnary(ast::UnDeref, ref base) => {
                 let base_type = ty::node_id_to_type(self.tcx, base.id);
                 debug!("effect: unary case, base type is {}",
                         ppaux::ty_to_string(self.tcx, base_type));
@@ -193,15 +193,15 @@ impl<'a, 'tcx> Visitor<()> for EffectCheckVisitor<'a, 'tcx> {
             _ => {}
         }
 
-        visit::walk_expr(self, expr, ());
+        visit::walk_expr(self, expr);
     }
 }
 
-pub fn check_crate(tcx: &ty::ctxt, krate: &ast::Crate) {
+pub fn check_crate(tcx: &ty::ctxt) {
     let mut visitor = EffectCheckVisitor {
         tcx: tcx,
         unsafe_context: SafeContext,
     };
 
-    visit::walk_crate(&mut visitor, krate, ());
+    visit::walk_crate(&mut visitor, tcx.map.krate());
 }

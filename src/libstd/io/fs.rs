@@ -31,6 +31,7 @@ particular bits of it, etc.
 
 ```rust
 # #![allow(unused_must_use)]
+use std::io::fs::PathExtensions;
 use std::io::{File, fs};
 
 let path = Path::new("foo.txt");
@@ -622,8 +623,9 @@ pub fn rmdir(path: &Path) -> IoResult<()> {
 /// # Example
 ///
 /// ```rust
-/// use std::io;
+/// use std::io::fs::PathExtensions;
 /// use std::io::fs;
+/// use std::io;
 ///
 /// // one possible implementation of fs::walk_dir only visiting files
 /// fn visit_dirs(dir: &Path, cb: |&Path|) -> io::IoResult<()> {
@@ -650,7 +652,7 @@ pub fn rmdir(path: &Path) -> IoResult<()> {
 /// at a non-directory file
 pub fn readdir(path: &Path) -> IoResult<Vec<Path>> {
     let err = LocalIo::maybe_raise(|io| {
-        Ok(try!(io.fs_readdir(&path.to_c_str(), 0)).move_iter().map(|a| {
+        Ok(try!(io.fs_readdir(&path.to_c_str(), 0)).into_iter().map(|a| {
             Path::new(a)
         }).collect())
     }).map_err(IoError::from_rtio_error);
@@ -762,7 +764,7 @@ pub fn rmdir_recursive(path: &Path) -> IoResult<()> {
 
         // delete all regular files in the way and push subdirs
         // on the stack
-        for child in children.move_iter() {
+        for child in children.into_iter() {
             // FIXME(#12795) we should use lstat in all cases
             let child_type = match cfg!(windows) {
                 true => try!(update_err(stat(&child), path)),
@@ -868,13 +870,14 @@ impl Seek for File {
     }
 }
 
-impl path::Path {
+/// Utility methods for paths.
+pub trait PathExtensions {
     /// Get information on the file, directory, etc at this path.
     ///
     /// Consult the `fs::stat` documentation for more info.
     ///
     /// This call preserves identical runtime/error semantics with `file::stat`.
-    pub fn stat(&self) -> IoResult<FileStat> { stat(self) }
+    fn stat(&self) -> IoResult<FileStat>;
 
     /// Get information on the file, directory, etc at this path, not following
     /// symlinks.
@@ -882,31 +885,39 @@ impl path::Path {
     /// Consult the `fs::lstat` documentation for more info.
     ///
     /// This call preserves identical runtime/error semantics with `file::lstat`.
-    pub fn lstat(&self) -> IoResult<FileStat> { lstat(self) }
+    fn lstat(&self) -> IoResult<FileStat>;
 
     /// Boolean value indicator whether the underlying file exists on the local
     /// filesystem. Returns false in exactly the cases where `fs::stat` fails.
-    pub fn exists(&self) -> bool {
-        self.stat().is_ok()
-    }
+    fn exists(&self) -> bool;
 
     /// Whether the underlying implementation (be it a file path, or something
     /// else) points at a "regular file" on the FS. Will return false for paths
     /// to non-existent locations or directories or other non-regular files
     /// (named pipes, etc). Follows links when making this determination.
-    pub fn is_file(&self) -> bool {
-        match self.stat() {
-            Ok(s) => s.kind == io::TypeFile,
-            Err(..) => false
-        }
-    }
+    fn is_file(&self) -> bool;
 
     /// Whether the underlying implementation (be it a file path, or something
     /// else) is pointing at a directory in the underlying FS. Will return
     /// false for paths to non-existent locations or if the item is not a
     /// directory (eg files, named pipes, etc). Follows links when making this
     /// determination.
-    pub fn is_dir(&self) -> bool {
+    fn is_dir(&self) -> bool;
+}
+
+impl PathExtensions for path::Path {
+    fn stat(&self) -> IoResult<FileStat> { stat(self) }
+    fn lstat(&self) -> IoResult<FileStat> { lstat(self) }
+    fn exists(&self) -> bool {
+        self.stat().is_ok()
+    }
+    fn is_file(&self) -> bool {
+        match self.stat() {
+            Ok(s) => s.kind == io::TypeFile,
+            Err(..) => false
+        }
+    }
+    fn is_dir(&self) -> bool {
         match self.stat() {
             Ok(s) => s.kind == io::TypeDirectory,
             Err(..) => false
@@ -1048,11 +1059,11 @@ mod test {
         {
             let mut read_stream = File::open_mode(filename, Open, Read);
             {
-                let read_buf = read_mem.mut_slice(0, 4);
+                let read_buf = read_mem.slice_mut(0, 4);
                 check!(read_stream.read(read_buf));
             }
             {
-                let read_buf = read_mem.mut_slice(4, 8);
+                let read_buf = read_mem.slice_mut(4, 8);
                 check!(read_stream.read(read_buf));
             }
         }

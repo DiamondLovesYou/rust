@@ -21,7 +21,7 @@ use middle::subst::{ParamSpace, FnSpace, TypeSpace};
 use middle::ty::{ExplicitSelfCategory, StaticExplicitSelfCategory};
 use util::nodemap::{NodeMap, DefIdSet, FnvHashMap};
 
-use syntax::ast::{Arm, BindByRef, BindByValue, BindingMode, Block, Crate};
+use syntax::ast::{Arm, BindByRef, BindByValue, BindingMode, Block, Crate, CrateNum};
 use syntax::ast::{DeclItem, DefId, Expr, ExprAgain, ExprBreak, ExprField};
 use syntax::ast::{ExprFnBlock, ExprForLoop, ExprLoop, ExprWhile, ExprMethodCall};
 use syntax::ast::{ExprPath, ExprProc, ExprStruct, ExprUnboxedFn, FnDecl};
@@ -30,7 +30,7 @@ use syntax::ast::{Ident, ImplItem, Item, ItemEnum, ItemFn, ItemForeignMod};
 use syntax::ast::{ItemImpl, ItemMac, ItemMod, ItemStatic, ItemStruct};
 use syntax::ast::{ItemTrait, ItemTy, LOCAL_CRATE, Local, Method};
 use syntax::ast::{MethodImplItem, Mod, Name, NamedField, NodeId};
-use syntax::ast::{P, Pat, PatEnum, PatIdent, PatLit};
+use syntax::ast::{Pat, PatEnum, PatIdent, PatLit};
 use syntax::ast::{PatRange, PatStruct, Path, PathListIdent, PathListMod};
 use syntax::ast::{PrimTy, Public, SelfExplicit, SelfStatic};
 use syntax::ast::{RegionTyParamBound, StmtDecl, StructField};
@@ -43,8 +43,7 @@ use syntax::ast::{UnboxedFnTyParamBound, UnnamedField, UnsafeFn, Variant};
 use syntax::ast::{ViewItem, ViewItemExternCrate, ViewItemUse, ViewPathGlob};
 use syntax::ast::{ViewPathList, ViewPathSimple, Visibility};
 use syntax::ast;
-use syntax::ast_util::{PostExpansionMethod, local_def};
-use syntax::ast_util::{trait_item_to_ty_method, walk_pat};
+use syntax::ast_util::{PostExpansionMethod, local_def, walk_pat};
 use syntax::attr::AttrMetaMethods;
 use syntax::ext::mtwt;
 use syntax::parse::token::special_names;
@@ -52,6 +51,7 @@ use syntax::parse::token::special_idents;
 use syntax::parse::token;
 use syntax::codemap::{Span, DUMMY_SP, Pos};
 use syntax::owned_slice::OwnedSlice;
+use syntax::ptr::P;
 use syntax::visit;
 use syntax::visit::Visitor;
 
@@ -185,23 +185,23 @@ enum NameDefinition {
     ImportNameDefinition(Def, LastPrivate) //< The name identifies an import.
 }
 
-impl<'a> Visitor<()> for Resolver<'a> {
-    fn visit_item(&mut self, item: &Item, _: ()) {
+impl<'a, 'v> Visitor<'v> for Resolver<'a> {
+    fn visit_item(&mut self, item: &Item) {
         self.resolve_item(item);
     }
-    fn visit_arm(&mut self, arm: &Arm, _: ()) {
+    fn visit_arm(&mut self, arm: &Arm) {
         self.resolve_arm(arm);
     }
-    fn visit_block(&mut self, block: &Block, _: ()) {
+    fn visit_block(&mut self, block: &Block) {
         self.resolve_block(block);
     }
-    fn visit_expr(&mut self, expr: &Expr, _: ()) {
+    fn visit_expr(&mut self, expr: &Expr) {
         self.resolve_expr(expr);
     }
-    fn visit_local(&mut self, local: &Local, _: ()) {
+    fn visit_local(&mut self, local: &Local) {
         self.resolve_local(local);
     }
-    fn visit_ty(&mut self, ty: &Ty, _: ()) {
+    fn visit_ty(&mut self, ty: &Ty) {
         self.resolve_type(ty);
     }
 }
@@ -899,36 +899,45 @@ struct Resolver<'a> {
     emit_errors: bool,
 
     used_imports: HashSet<(NodeId, Namespace)>,
+    used_crates: HashSet<CrateNum>,
 }
 
 struct BuildReducedGraphVisitor<'a, 'b:'a> {
     resolver: &'a mut Resolver<'b>,
+    parent: ReducedGraphParent
 }
 
-impl<'a, 'b> Visitor<ReducedGraphParent> for BuildReducedGraphVisitor<'a, 'b> {
+impl<'a, 'b, 'v> Visitor<'v> for BuildReducedGraphVisitor<'a, 'b> {
 
-    fn visit_item(&mut self, item: &Item, context: ReducedGraphParent) {
-        let p = self.resolver.build_reduced_graph_for_item(item, context);
-        visit::walk_item(self, item, p);
+    fn visit_item(&mut self, item: &Item) {
+        let p = self.resolver.build_reduced_graph_for_item(item, self.parent.clone());
+        let old_parent = replace(&mut self.parent, p);
+        visit::walk_item(self, item);
+        self.parent = old_parent;
     }
 
-    fn visit_foreign_item(&mut self, foreign_item: &ForeignItem,
-                          context: ReducedGraphParent) {
+    fn visit_foreign_item(&mut self, foreign_item: &ForeignItem) {
+        let parent = self.parent.clone();
         self.resolver.build_reduced_graph_for_foreign_item(foreign_item,
-                                                           context.clone(),
+                                                           parent.clone(),
                                                            |r| {
-            let mut v = BuildReducedGraphVisitor{ resolver: r };
-            visit::walk_foreign_item(&mut v, foreign_item, context.clone());
+            let mut v = BuildReducedGraphVisitor {
+                resolver: r,
+                parent: parent.clone()
+            };
+            visit::walk_foreign_item(&mut v, foreign_item);
         })
     }
 
-    fn visit_view_item(&mut self, view_item: &ViewItem, context: ReducedGraphParent) {
-        self.resolver.build_reduced_graph_for_view_item(view_item, context);
+    fn visit_view_item(&mut self, view_item: &ViewItem) {
+        self.resolver.build_reduced_graph_for_view_item(view_item, self.parent.clone());
     }
 
-    fn visit_block(&mut self, block: &Block, context: ReducedGraphParent) {
-        let np = self.resolver.build_reduced_graph_for_block(block, context);
-        visit::walk_block(self, block, np);
+    fn visit_block(&mut self, block: &Block) {
+        let np = self.resolver.build_reduced_graph_for_block(block, self.parent.clone());
+        let old_parent = replace(&mut self.parent, np);
+        visit::walk_block(self, block);
+        self.parent = old_parent;
     }
 
 }
@@ -937,10 +946,10 @@ struct UnusedImportCheckVisitor<'a, 'b:'a> {
     resolver: &'a mut Resolver<'b>
 }
 
-impl<'a, 'b> Visitor<()> for UnusedImportCheckVisitor<'a, 'b> {
-    fn visit_view_item(&mut self, vi: &ViewItem, _: ()) {
+impl<'a, 'b, 'v> Visitor<'v> for UnusedImportCheckVisitor<'a, 'b> {
+    fn visit_view_item(&mut self, vi: &ViewItem) {
         self.resolver.check_for_item_unused_imports(vi);
-        visit::walk_view_item(self, vi, ());
+        visit::walk_view_item(self, vi);
     }
 }
 
@@ -987,6 +996,7 @@ impl<'a> Resolver<'a> {
             export_map2: RefCell::new(NodeMap::new()),
             trait_map: NodeMap::new(),
             used_imports: HashSet::new(),
+            used_crates: HashSet::new(),
             external_exports: DefIdSet::new(),
             last_private: NodeMap::new(),
 
@@ -1019,11 +1029,12 @@ impl<'a> Resolver<'a> {
 
     /// Constructs the reduced graph for the entire crate.
     fn build_reduced_graph(&mut self, krate: &ast::Crate) {
-        let initial_parent =
-            ModuleReducedGraphParent(self.graph_root.get_module());
-
-        let mut visitor = BuildReducedGraphVisitor { resolver: self, };
-        visit::walk_crate(&mut visitor, krate, initial_parent);
+        let parent = ModuleReducedGraphParent(self.graph_root.get_module());
+        let mut visitor = BuildReducedGraphVisitor {
+            resolver: self,
+            parent: parent
+        };
+        visit::walk_crate(&mut visitor, krate);
     }
 
     /**
@@ -1153,7 +1164,7 @@ impl<'a> Resolver<'a> {
         // Check each statement.
         for statement in block.stmts.iter() {
             match statement.node {
-                StmtDecl(declaration, _) => {
+                StmtDecl(ref declaration, _) => {
                     match declaration.node {
                         DeclItem(_) => {
                             return true;
@@ -1266,7 +1277,7 @@ impl<'a> Resolver<'a> {
             }
 
             // These items live in both the type and value namespaces.
-            ItemStruct(struct_def, _) => {
+            ItemStruct(ref struct_def, _) => {
                 // Adding to both Type and Value namespaces or just Type?
                 let (forbid, ctor_id) = match struct_def.ctor_id {
                     Some(ctor_id)   => (ForbidDuplicateTypesAndValues, Some(ctor_id)),
@@ -1298,14 +1309,10 @@ impl<'a> Resolver<'a> {
                 parent
             }
 
-            ItemImpl(_, None, ty, ref impl_items) => {
+            ItemImpl(_, None, ref ty, ref impl_items) => {
                 // If this implements an anonymous trait, then add all the
                 // methods within to a new module, if the type was defined
                 // within this module.
-                //
-                // FIXME (#3785): This is quite unsatisfactory. Perhaps we
-                // should modify anonymous traits to only be implementable in
-                // the same module that declared the type.
 
                 // Create the module and add all methods.
                 match ty.node {
@@ -1353,7 +1360,7 @@ impl<'a> Resolver<'a> {
                         // For each implementation item...
                         for impl_item in impl_items.iter() {
                             match *impl_item {
-                                MethodImplItem(method) => {
+                                MethodImplItem(ref method) => {
                                     // Add the method to the module.
                                     let ident = method.pe_ident();
                                     let method_name_bindings =
@@ -1389,7 +1396,13 @@ impl<'a> Resolver<'a> {
                             }
                         }
                     }
-                    _ => {}
+                    _ => {
+                        self.resolve_error(ty.span,
+                                           "inherent implementations may \
+                                            only be implemented in the same \
+                                            module as the type they are \
+                                            implemented for")
+                    }
                 }
 
                 parent
@@ -1419,37 +1432,42 @@ impl<'a> Resolver<'a> {
 
                 // Add the names of all the methods to the trait info.
                 for method in methods.iter() {
-                    let ty_m = trait_item_to_ty_method(method);
-
-                    let ident = ty_m.ident;
+                    let (m_id, m_ident, m_fn_style, m_self, m_span) = match *method {
+                        ast::RequiredMethod(ref m) => {
+                            (m.id, m.ident, m.fn_style, &m.explicit_self, m.span)
+                        }
+                        ast::ProvidedMethod(ref m) => {
+                            (m.id, m.pe_ident(), m.pe_fn_style(), m.pe_explicit_self(), m.span)
+                        }
+                    };
 
                     // Add it as a name in the trait module.
-                    let (def, static_flag) = match ty_m.explicit_self.node {
+                    let (def, static_flag) = match m_self.node {
                         SelfStatic => {
                             // Static methods become `def_static_method`s.
-                            (DefStaticMethod(local_def(ty_m.id),
+                            (DefStaticMethod(local_def(m_id),
                                               FromTrait(local_def(item.id)),
-                                              ty_m.fn_style),
+                                              m_fn_style),
                              StaticMethodTraitItemKind)
                         }
                         _ => {
                             // Non-static methods become `def_method`s.
-                            (DefMethod(local_def(ty_m.id),
+                            (DefMethod(local_def(m_id),
                                        Some(local_def(item.id))),
                              NonstaticMethodTraitItemKind)
                         }
                     };
 
                     let method_name_bindings =
-                        self.add_child(ident,
+                        self.add_child(m_ident,
                                        module_parent.clone(),
                                        ForbidDuplicateValues,
-                                       ty_m.span);
-                    method_name_bindings.define_value(def, ty_m.span, true);
+                                       m_span);
+                    method_name_bindings.define_value(def, m_span, true);
 
                     self.trait_item_map
                         .borrow_mut()
-                        .insert((ident.name, def_id), static_flag);
+                        .insert((m_ident.name, def_id), static_flag);
                 }
 
                 name_bindings.define_type(DefTrait(def_id), sp, is_public);
@@ -2453,7 +2471,14 @@ impl<'a> Resolver<'a> {
                                     debug!("(resolving single import) found \
                                             import in ns {:?}", namespace);
                                     let id = import_resolution.id(namespace);
+                                    // track used imports and extern crates as well
                                     this.used_imports.insert((id, namespace));
+                                    match target_module.def_id.get() {
+                                        Some(DefId{krate: kid, ..}) => {
+                                            this.used_crates.insert(kid);
+                                        },
+                                        _ => {}
+                                    }
                                     return BoundResult(target_module, bindings);
                                 }
                             }
@@ -2496,6 +2521,11 @@ impl<'a> Resolver<'a> {
                     Some(module) => {
                         debug!("(resolving single import) found external \
                                 module");
+                        // track the module as used.
+                        match module.def_id.get() {
+                            Some(DefId{krate: kid, ..}) => { self.used_crates.insert(kid); },
+                            _ => {}
+                        }
                         let name_bindings =
                             Rc::new(Resolver::create_name_bindings_from_module(
                                 module));
@@ -3030,6 +3060,14 @@ impl<'a> Resolver<'a> {
                                         (_, _) => {
                                             search_module = module_def.clone();
 
+                                            // track extern crates for unused_extern_crate lint
+                                            match module_def.def_id.get() {
+                                                Some(did) => {
+                                                    self.used_crates.insert(did.krate);
+                                                }
+                                                _ => {}
+                                            }
+
                                             // Keep track of the closest
                                             // private module used when
                                             // resolving this import chain.
@@ -3213,7 +3251,12 @@ impl<'a> Resolver<'a> {
                     Some(target) => {
                         debug!("(resolving item in lexical scope) using \
                                 import resolution");
+                        // track used imports and extern crates as well
                         self.used_imports.insert((import_resolution.id(namespace), namespace));
+                        match target.target_module.def_id.get() {
+                            Some(DefId{krate: kid, ..}) => { self.used_crates.insert(kid); },
+                            _ => {}
+                        }
                         return Success((target, false));
                     }
                 }
@@ -3492,7 +3535,12 @@ impl<'a> Resolver<'a> {
                     Some(target) => {
                         debug!("(resolving name in module) resolved to \
                                 import");
+                        // track used imports and extern crates as well
                         self.used_imports.insert((import_resolution.id(namespace), namespace));
+                        match target.target_module.def_id.get() {
+                            Some(DefId{krate: kid, ..}) => { self.used_crates.insert(kid); },
+                            _ => {}
+                        }
                         return Success((target, true));
                     }
                 }
@@ -3889,7 +3937,7 @@ impl<'a> Resolver<'a> {
     fn resolve_crate(&mut self, krate: &ast::Crate) {
         debug!("(resolving crate) starting");
 
-        visit::walk_crate(self, krate, ());
+        visit::walk_crate(self, krate);
     }
 
     fn resolve_item(&mut self, item: &Item) {
@@ -3921,7 +3969,7 @@ impl<'a> Resolver<'a> {
                                              |this| {
                     this.resolve_type_parameters(&generics.ty_params);
                     this.resolve_where_clause(&generics.where_clause);
-                    visit::walk_item(this, item, ());
+                    visit::walk_item(this, item);
                 });
             }
 
@@ -3932,7 +3980,7 @@ impl<'a> Resolver<'a> {
                                                                ItemRibKind),
                                              |this| {
                     this.resolve_type_parameters(&generics.ty_params);
-                    visit::walk_item(this, item, ());
+                    visit::walk_item(this, item);
                 });
             }
 
@@ -4027,7 +4075,7 @@ impl<'a> Resolver<'a> {
             ItemStruct(ref struct_def, ref generics) => {
                 self.resolve_struct(item.id,
                                     generics,
-                                    struct_def.super_struct,
+                                    &struct_def.super_struct,
                                     struct_def.fields.as_slice());
             }
 
@@ -4048,33 +4096,31 @@ impl<'a> Resolver<'a> {
                                         generics, FnSpace, foreign_item.id,
                                         ItemRibKind),
                                     |this| visit::walk_foreign_item(this,
-                                                                &**foreign_item,
-                                                                ()));
+                                                                    &**foreign_item));
                             }
                             ForeignItemStatic(..) => {
                                 visit::walk_foreign_item(this,
-                                                         &**foreign_item,
-                                                         ());
+                                                         &**foreign_item);
                             }
                         }
                     }
                 });
             }
 
-            ItemFn(fn_decl, _, _, ref generics, block) => {
+            ItemFn(ref fn_decl, _, _, ref generics, ref block) => {
                 self.resolve_function(ItemRibKind,
-                                      Some(fn_decl),
+                                      Some(&**fn_decl),
                                       HasTypeParameters
                                         (generics,
                                          FnSpace,
                                          item.id,
                                          ItemRibKind),
-                                      block);
+                                      &**block);
             }
 
             ItemStatic(..) => {
                 self.with_constant_rib(|this| {
-                    visit::walk_item(this, item, ());
+                    visit::walk_item(this, item);
                 });
             }
 
@@ -4140,9 +4186,9 @@ impl<'a> Resolver<'a> {
 
     fn resolve_function(&mut self,
                         rib_kind: RibKind,
-                        optional_declaration: Option<P<FnDecl>>,
+                        optional_declaration: Option<&FnDecl>,
                         type_parameters: TypeParameters,
-                        block: P<Block>) {
+                        block: &Block) {
         // Create a value rib for the function.
         let function_value_rib = Rib::new(rib_kind);
         self.value_ribs.borrow_mut().push(function_value_rib);
@@ -4318,7 +4364,7 @@ impl<'a> Resolver<'a> {
     fn resolve_struct(&mut self,
                       id: NodeId,
                       generics: &Generics,
-                      super_struct: Option<P<Ty>>,
+                      super_struct: &Option<P<Ty>>,
                       fields: &[StructField]) {
         // If applicable, create a rib for the type parameters.
         self.with_type_parameter_rib(HasTypeParameters(generics,
@@ -4331,8 +4377,8 @@ impl<'a> Resolver<'a> {
             this.resolve_where_clause(&generics.where_clause);
 
             // Resolve the super struct.
-            match super_struct {
-                Some(t) => match t.node {
+            match *super_struct {
+                Some(ref t) => match t.node {
                     TyPath(ref path, None, path_id) => {
                         match this.resolve_path(id, path, TypeNS, true) {
                             Some((DefTy(def_id), lp)) if this.structs.contains_key(&def_id) => {
@@ -4450,7 +4496,7 @@ impl<'a> Resolver<'a> {
                 this.with_current_self_type(self_type, |this| {
                     for impl_item in impl_items.iter() {
                         match *impl_item {
-                            MethodImplItem(method) => {
+                            MethodImplItem(ref method) => {
                                 // If this is a trait impl, ensure the method
                                 // exists in trait
                                 this.check_trait_item(method.pe_ident(),
@@ -4461,7 +4507,7 @@ impl<'a> Resolver<'a> {
                                 this.resolve_method(
                                     MethodRibKind(id,
                                                   ProvidedMethod(method.id)),
-                                    &*method);
+                                    &**method);
                             }
                         }
                     }
@@ -4489,7 +4535,7 @@ impl<'a> Resolver<'a> {
                       _name: Ident, id: NodeId) {
         // Write the implementations in scope into the module metadata.
         debug!("(resolving module) resolving module ID {}", id);
-        visit::walk_mod(self, module, ());
+        visit::walk_mod(self, module);
     }
 
     fn resolve_local(&mut self, local: &Local) {
@@ -4586,7 +4632,7 @@ impl<'a> Resolver<'a> {
         // pat_idents are variants
         self.check_consistent_bindings(arm);
 
-        visit::walk_expr_opt(self, arm.guard, ());
+        visit::walk_expr_opt(self, &arm.guard);
         self.resolve_expr(&*arm.body);
 
         self.value_ribs.borrow_mut().pop();
@@ -4608,7 +4654,7 @@ impl<'a> Resolver<'a> {
         }
 
         // Descend into the block.
-        visit::walk_block(self, block, ());
+        visit::walk_block(self, block);
 
         // Move back up.
         self.current_module = orig_module;
@@ -4699,15 +4745,15 @@ impl<'a> Resolver<'a> {
                 });
             }
 
-            TyClosure(c) | TyProc(c) => {
+            TyClosure(ref c) | TyProc(ref c) => {
                 self.resolve_type_parameter_bounds(ty.id, &c.bounds,
                                                    TraitBoundingTypeParameter);
-                visit::walk_ty(self, ty, ());
+                visit::walk_ty(self, ty);
             }
 
             _ => {
                 // Just resolve embedded types.
-                visit::walk_ty(self, ty, ());
+                visit::walk_ty(self, ty);
             }
         }
     }
@@ -4736,7 +4782,7 @@ impl<'a> Resolver<'a> {
                     let renamed = mtwt::resolve(ident);
 
                     match self.resolve_bare_identifier_pattern(ident, pattern.span) {
-                        FoundStructOrEnumVariant(def, lp)
+                        FoundStructOrEnumVariant(ref def, lp)
                                 if mode == RefutableMode => {
                             debug!("(resolving pattern) resolving `{}` to \
                                     struct or enum variant",
@@ -4746,7 +4792,7 @@ impl<'a> Resolver<'a> {
                                 pattern,
                                 binding_mode,
                                 "an enum variant");
-                            self.record_def(pattern.id, (def, lp));
+                            self.record_def(pattern.id, (def.clone(), lp));
                         }
                         FoundStructOrEnumVariant(..) => {
                             self.resolve_error(
@@ -4756,7 +4802,7 @@ impl<'a> Resolver<'a> {
                                          scope",
                                         token::get_name(renamed)).as_slice());
                         }
-                        FoundConst(def, lp) if mode == RefutableMode => {
+                        FoundConst(ref def, lp) if mode == RefutableMode => {
                             debug!("(resolving pattern) resolving `{}` to \
                                     constant",
                                    token::get_name(renamed));
@@ -4765,7 +4811,7 @@ impl<'a> Resolver<'a> {
                                 pattern,
                                 binding_mode,
                                 "a constant");
-                            self.record_def(pattern.id, (def, lp));
+                            self.record_def(pattern.id, (def.clone(), lp));
                         }
                         FoundConst(..) => {
                             self.resolve_error(pattern.span,
@@ -4985,7 +5031,7 @@ impl<'a> Resolver<'a> {
         if path.segments.len() > 1 {
             let def = self.resolve_module_relative_path(path, namespace);
             match (def, unqualified_def) {
-                (Some((d, _)), Some((ud, _))) if d == ud => {
+                (Some((ref d, _)), Some((ref ud, _))) if *d == *ud => {
                     self.session
                         .add_lint(lint::builtin::UNNECESSARY_QUALIFICATION,
                                   id,
@@ -5061,7 +5107,14 @@ impl<'a> Resolver<'a> {
                             Some(def) => {
                                 // Found it.
                                 let id = import_resolution.id(namespace);
+                                // track imports and extern crates as well
                                 self.used_imports.insert((id, namespace));
+                                match target.target_module.def_id.get() {
+                                    Some(DefId{krate: kid, ..}) => {
+                                        self.used_crates.insert(kid);
+                                    },
+                                    _ => {}
+                                }
                                 return ImportNameDefinition(def, LastMod(AllPublic));
                             }
                             None => {
@@ -5085,6 +5138,8 @@ impl<'a> Resolver<'a> {
                     match module.def_id.get() {
                         None => {} // Continue.
                         Some(def_id) => {
+                            // track used crates
+                            self.used_crates.insert(def_id.krate);
                             let lp = if module.is_public {LastMod(AllPublic)} else {
                                 LastMod(DependsOn(def_id))
                             };
@@ -5167,6 +5222,10 @@ impl<'a> Resolver<'a> {
                 }
             },
             _ => (),
+        }
+        match containing_module.def_id.get() {
+            Some(DefId{krate: kid, ..}) => { self.used_crates.insert(kid); },
+            _ => {}
         }
         return Some(def);
     }
@@ -5334,8 +5393,8 @@ impl<'a> Resolver<'a> {
                                                     -> Option<(Path, NodeId, FallbackChecks)> {
             match t.node {
                 TyPath(ref path, _, node_id) => Some((path.clone(), node_id, allow)),
-                TyPtr(mut_ty) => extract_path_and_node_id(&*mut_ty.ty, OnlyTraitAndStatics),
-                TyRptr(_, mut_ty) => extract_path_and_node_id(&*mut_ty.ty, allow),
+                TyPtr(ref mut_ty) => extract_path_and_node_id(&*mut_ty.ty, OnlyTraitAndStatics),
+                TyRptr(_, ref mut_ty) => extract_path_and_node_id(&*mut_ty.ty, allow),
                 // This doesn't handle the remaining `Ty` variants as they are not
                 // that commonly the self_type, it might be interesting to provide
                 // support for those in future.
@@ -5592,15 +5651,15 @@ impl<'a> Resolver<'a> {
                     }
                 }
 
-                visit::walk_expr(self, expr, ());
+                visit::walk_expr(self, expr);
             }
 
-            ExprFnBlock(_, fn_decl, block) |
-            ExprProc(fn_decl, block) |
-            ExprUnboxedFn(_, _, fn_decl, block) => {
+            ExprFnBlock(_, ref fn_decl, ref block) |
+            ExprProc(ref fn_decl, ref block) |
+            ExprUnboxedFn(_, _, ref fn_decl, ref block) => {
                 self.resolve_function(FunctionRibKind(expr.id, block.id),
-                                      Some(fn_decl), NoTypeParameters,
-                                      block);
+                                      Some(&**fn_decl), NoTypeParameters,
+                                      &**block);
             }
 
             ExprStruct(ref path, _, _) => {
@@ -5618,7 +5677,7 @@ impl<'a> Resolver<'a> {
                     }
                 }
 
-                visit::walk_expr(self, expr, ());
+                visit::walk_expr(self, expr);
             }
 
             ExprLoop(_, Some(label)) | ExprWhile(_, _, Some(label)) => {
@@ -5633,7 +5692,7 @@ impl<'a> Resolver<'a> {
                         rib.bindings.borrow_mut().insert(renamed, def_like);
                     }
 
-                    visit::walk_expr(this, expr, ());
+                    visit::walk_expr(this, expr);
                 })
             }
 
@@ -5697,7 +5756,7 @@ impl<'a> Resolver<'a> {
             }
 
             _ => {
-                visit::walk_expr(self, expr, ());
+                visit::walk_expr(self, expr);
             }
         }
     }
@@ -5787,6 +5846,10 @@ impl<'a> Resolver<'a> {
                 if self.trait_item_map.borrow().contains_key(&(name, did)) {
                     add_trait_info(&mut found_traits, did, name);
                     self.used_imports.insert((import.type_id, TypeNS));
+                    match target.target_module.def_id.get() {
+                        Some(DefId{krate: kid, ..}) => { self.used_crates.insert(kid); },
+                        _ => {}
+                    }
                 }
             }
 
@@ -5847,7 +5910,7 @@ impl<'a> Resolver<'a> {
 
     fn check_for_unused_imports(&mut self, krate: &ast::Crate) {
         let mut visitor = UnusedImportCheckVisitor{ resolver: self };
-        visit::walk_crate(&mut visitor, krate, ());
+        visit::walk_crate(&mut visitor, krate);
     }
 
     fn check_for_item_unused_imports(&mut self, vi: &ViewItem) {
@@ -5859,10 +5922,22 @@ impl<'a> Resolver<'a> {
         if vi.span == DUMMY_SP { return }
 
         match vi.node {
-            ViewItemExternCrate(..) => {} // ignore
+            ViewItemExternCrate(_, _, id) => {
+                match self.session.cstore.find_extern_mod_stmt_cnum(id)
+                {
+                    Some(crate_num) => if !self.used_crates.contains(&crate_num) {
+                    self.session.add_lint(lint::builtin::UNUSED_EXTERN_CRATE,
+                                          id,
+                                          vi.span,
+                                          "unused extern crate".to_string());
+                    },
+                    _ => {}
+                }
+            },
             ViewItemUse(ref p) => {
                 match p.node {
                     ViewPathSimple(_, _, id) => self.finalize_import(id, p.span),
+
                     ViewPathList(_, ref list, _) => {
                         for i in list.iter() {
                             self.finalize_import(i.node.id(), i.span);
@@ -5970,7 +6045,7 @@ impl<'a> Resolver<'a> {
         if idents.len() == 0 {
             return "???".to_string();
         }
-        self.idents_to_string(idents.move_iter().rev()
+        self.idents_to_string(idents.into_iter().rev()
                                  .collect::<Vec<ast::Ident>>()
                                  .as_slice())
     }

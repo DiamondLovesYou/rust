@@ -75,7 +75,6 @@ use middle::trans::type_of;
 use middle::trans::type_of::*;
 use middle::trans::value::Value;
 use middle::ty;
-use middle::typeck;
 use util::common::indenter;
 use util::ppaux::{Repr, ty_to_string};
 use util::sha2::Sha256;
@@ -384,13 +383,9 @@ pub fn malloc_raw_dyn<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     Result::new(r.bcx, PointerCast(r.bcx, r.val, llty_ptr))
 }
 
-pub fn malloc_raw_dyn_proc<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
-                                       t: ty::t, alloc_fn: LangItem)
-                                       -> Result<'blk, 'tcx> {
+pub fn malloc_raw_dyn_proc<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, t: ty::t) -> Result<'blk, 'tcx> {
     let _icx = push_ctxt("malloc_raw_dyn_proc");
     let ccx = bcx.ccx();
-
-    let langcall = require_alloc_fn(bcx, t, alloc_fn);
 
     // Grab the TypeRef type of ptr_ty.
     let ptr_ty = ty::mk_uniq(bcx.tcx(), t);
@@ -400,18 +395,15 @@ pub fn malloc_raw_dyn_proc<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let size = llsize_of(bcx.ccx(), llty);
     let llalign = C_uint(ccx, llalign_of_min(bcx.ccx(), llty) as uint);
 
-    // Allocate space:
-    let drop_glue = glue::get_drop_glue(ccx, ty::mk_uniq(bcx.tcx(), t));
-    let r = callee::trans_lang_call(
-        bcx,
-        langcall,
-        [
-            PointerCast(bcx, drop_glue, Type::glue_fn(ccx, Type::i8p(ccx)).ptr_to()),
-            size,
-            llalign
-        ],
-        None);
-    Result::new(r.bcx, PointerCast(r.bcx, r.val, ptr_llty))
+    // Allocate space and store the destructor pointer:
+    let Result {bcx: bcx, val: llbox} = malloc_raw_dyn(bcx, ptr_llty, t, size, llalign);
+    let dtor_ptr = GEPi(bcx, llbox, [0u, abi::box_field_drop_glue]);
+    let drop_glue_field_ty = type_of(ccx, ty::mk_nil_ptr(bcx.tcx()));
+    let drop_glue = PointerCast(bcx, glue::get_drop_glue(ccx, ty::mk_uniq(bcx.tcx(), t)),
+                                drop_glue_field_ty);
+    Store(bcx, drop_glue, dtor_ptr);
+
+    Result::new(bcx, llbox)
 }
 
 
@@ -548,8 +540,7 @@ pub fn get_res_dtor(ccx: &CrateContext,
         // Since we're in trans we don't care for any region parameters
         let ref substs = subst::Substs::erased(substs.types.clone());
 
-        let vtables = typeck::check::vtable::trans_resolve_method(ccx.tcx(), did.node, substs);
-        let (val, _) = monomorphize::monomorphic_fn(ccx, did, substs, vtables, None);
+        let (val, _) = monomorphize::monomorphic_fn(ccx, did, substs, None);
 
         val
     } else if did.krate == ast::LOCAL_CRATE {
@@ -1325,18 +1316,32 @@ pub fn make_return_slot_pointer(fcx: &FunctionContext, output_type: ty::t) -> Va
 }
 
 struct CheckForNestedReturnsVisitor {
-    found: bool
+    found: bool,
+    in_return: bool
 }
 
-impl Visitor<bool> for CheckForNestedReturnsVisitor {
-    fn visit_expr(&mut self, e: &ast::Expr, in_return: bool) {
+impl CheckForNestedReturnsVisitor {
+    fn explicit() -> CheckForNestedReturnsVisitor {
+        CheckForNestedReturnsVisitor { found: false, in_return: false }
+    }
+    fn implicit() -> CheckForNestedReturnsVisitor {
+        CheckForNestedReturnsVisitor { found: false, in_return: true }
+    }
+}
+
+impl<'v> Visitor<'v> for CheckForNestedReturnsVisitor {
+    fn visit_expr(&mut self, e: &ast::Expr) {
         match e.node {
-            ast::ExprRet(..) if in_return => {
-                self.found = true;
-                return;
+            ast::ExprRet(..) => {
+                if self.in_return {
+                    self.found = true;
+                } else {
+                    self.in_return = true;
+                    visit::walk_expr(self, e);
+                    self.in_return = false;
+                }
             }
-            ast::ExprRet(..) => visit::walk_expr(self, e, true),
-            _ => visit::walk_expr(self, e, in_return)
+            _ => visit::walk_expr(self, e)
         }
     }
 }
@@ -1345,11 +1350,11 @@ fn has_nested_returns(tcx: &ty::ctxt, id: ast::NodeId) -> bool {
     match tcx.map.find(id) {
         Some(ast_map::NodeItem(i)) => {
             match i.node {
-                ast::ItemFn(_, _, _, _, blk) => {
-                    let mut explicit = CheckForNestedReturnsVisitor { found: false };
-                    let mut implicit = CheckForNestedReturnsVisitor { found: false };
-                    visit::walk_item(&mut explicit, &*i, false);
-                    visit::walk_expr_opt(&mut implicit, blk.expr, true);
+                ast::ItemFn(_, _, _, _, ref blk) => {
+                    let mut explicit = CheckForNestedReturnsVisitor::explicit();
+                    let mut implicit = CheckForNestedReturnsVisitor::implicit();
+                    visit::walk_item(&mut explicit, &*i);
+                    visit::walk_expr_opt(&mut implicit, &blk.expr);
                     explicit.found || implicit.found
                 }
                 _ => tcx.sess.bug("unexpected item variant in has_nested_returns")
@@ -1357,13 +1362,13 @@ fn has_nested_returns(tcx: &ty::ctxt, id: ast::NodeId) -> bool {
         }
         Some(ast_map::NodeTraitItem(trait_method)) => {
             match *trait_method {
-                ast::ProvidedMethod(m) => {
+                ast::ProvidedMethod(ref m) => {
                     match m.node {
-                        ast::MethDecl(_, _, _, _, _, _, blk, _) => {
-                            let mut explicit = CheckForNestedReturnsVisitor { found: false };
-                            let mut implicit = CheckForNestedReturnsVisitor { found: false };
-                            visit::walk_method_helper(&mut explicit, &*m, false);
-                            visit::walk_expr_opt(&mut implicit, blk.expr, true);
+                        ast::MethDecl(_, _, _, _, _, _, ref blk, _) => {
+                            let mut explicit = CheckForNestedReturnsVisitor::explicit();
+                            let mut implicit = CheckForNestedReturnsVisitor::implicit();
+                            visit::walk_method_helper(&mut explicit, &**m);
+                            visit::walk_expr_opt(&mut implicit, &blk.expr);
                             explicit.found || implicit.found
                         }
                         ast::MethMac(_) => tcx.sess.bug("unexpanded macro")
@@ -1375,23 +1380,15 @@ fn has_nested_returns(tcx: &ty::ctxt, id: ast::NodeId) -> bool {
                 }
             }
         }
-        Some(ast_map::NodeImplItem(ref ii)) => {
-            match **ii {
+        Some(ast_map::NodeImplItem(ii)) => {
+            match *ii {
                 ast::MethodImplItem(ref m) => {
                     match m.node {
-                        ast::MethDecl(_, _, _, _, _, _, blk, _) => {
-                            let mut explicit = CheckForNestedReturnsVisitor {
-                                found: false,
-                            };
-                            let mut implicit = CheckForNestedReturnsVisitor {
-                                found: false,
-                            };
-                            visit::walk_method_helper(&mut explicit,
-                                                      &**m,
-                                                      false);
-                            visit::walk_expr_opt(&mut implicit,
-                                                 blk.expr,
-                                                 true);
+                        ast::MethDecl(_, _, _, _, _, _, ref blk, _) => {
+                            let mut explicit = CheckForNestedReturnsVisitor::explicit();
+                            let mut implicit = CheckForNestedReturnsVisitor::implicit();
+                            visit::walk_method_helper(&mut explicit, &**m);
+                            visit::walk_expr_opt(&mut implicit, &blk.expr);
                             explicit.found || implicit.found
                         }
                         ast::MethMac(_) => tcx.sess.bug("unexpanded macro")
@@ -1401,13 +1398,13 @@ fn has_nested_returns(tcx: &ty::ctxt, id: ast::NodeId) -> bool {
         }
         Some(ast_map::NodeExpr(e)) => {
             match e.node {
-                ast::ExprFnBlock(_, _, blk) |
-                ast::ExprProc(_, blk) |
-                ast::ExprUnboxedFn(_, _, _, blk) => {
-                    let mut explicit = CheckForNestedReturnsVisitor { found: false };
-                    let mut implicit = CheckForNestedReturnsVisitor { found: false };
-                    visit::walk_expr(&mut explicit, &*e, false);
-                    visit::walk_expr_opt(&mut implicit, blk.expr, true);
+                ast::ExprFnBlock(_, _, ref blk) |
+                ast::ExprProc(_, ref blk) |
+                ast::ExprUnboxedFn(_, _, _, ref blk) => {
+                    let mut explicit = CheckForNestedReturnsVisitor::explicit();
+                    let mut implicit = CheckForNestedReturnsVisitor::implicit();
+                    visit::walk_expr(&mut explicit, e);
+                    visit::walk_expr_opt(&mut implicit, &blk.expr);
                     explicit.found || implicit.found
                 }
                 _ => tcx.sess.bug("unexpected expr variant in has_nested_returns")
@@ -1637,7 +1634,7 @@ fn copy_args_to_allocas<'blk, 'tcx>(fcx: &FunctionContext<'blk, 'tcx>,
 
     let arg_scope_id = cleanup::CustomScope(arg_scope);
 
-    for (i, arg_datum) in arg_datums.move_iter().enumerate() {
+    for (i, arg_datum) in arg_datums.into_iter().enumerate() {
         // For certain mode/type combinations, the raw llarg values are passed
         // by value.  However, within the fn body itself, we want to always
         // have all locals and arguments be by-ref so that we can cancel the
@@ -1646,7 +1643,7 @@ fn copy_args_to_allocas<'blk, 'tcx>(fcx: &FunctionContext<'blk, 'tcx>,
         // This alloca should be optimized away by LLVM's mem-to-reg pass in
         // the event it's not truly needed.
 
-        bcx = _match::store_arg(bcx, args[i].pat, arg_datum, arg_scope_id);
+        bcx = _match::store_arg(bcx, &*args[i].pat, arg_datum, arg_scope_id);
 
         if fcx.ccx.sess().opts.debuginfo == FullDebugInfo {
             debuginfo::create_argument_metadata(bcx, &args[i]);
@@ -1668,7 +1665,7 @@ fn copy_unboxed_closure_args_to_allocas<'blk, 'tcx>(
 
     assert_eq!(arg_datums.len(), 1);
 
-    let arg_datum = arg_datums.move_iter().next().unwrap();
+    let arg_datum = arg_datums.into_iter().next().unwrap();
 
     // Untuple the rest of the arguments.
     let tuple_datum =
@@ -1698,7 +1695,7 @@ fn copy_unboxed_closure_args_to_allocas<'blk, 'tcx>(
                           tuple_element_datum.to_rvalue_datum(bcx,
                                                               "arg"));
         bcx = _match::store_arg(bcx,
-                                args[j].pat,
+                                &*args[j].pat,
                                 tuple_element_datum,
                                 arg_scope_id);
 
@@ -2005,7 +2002,7 @@ pub fn trans_named_tuple_constructor<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     if !type_is_zero_size(ccx, result_ty) {
         match args {
             callee::ArgExprs(exprs) => {
-                let fields = exprs.iter().map(|x| *x).enumerate().collect::<Vec<_>>();
+                let fields = exprs.iter().map(|x| &**x).enumerate().collect::<Vec<_>>();
                 bcx = expr::trans_adt(bcx, result_ty, disr, fields.as_slice(),
                                       None, expr::SaveIn(llresult));
             }
@@ -2068,7 +2065,7 @@ fn trans_enum_variant_or_tuple_like_struct(ccx: &CrateContext,
     if !type_is_zero_size(fcx.ccx, result_ty) {
         let dest = fcx.get_ret_slot(bcx, result_ty, "eret_slot");
         let repr = adt::represent_type(ccx, result_ty);
-        for (i, arg_datum) in arg_datums.move_iter().enumerate() {
+        for (i, arg_datum) in arg_datums.into_iter().enumerate() {
             let lldestptr = adt::trans_field_ptr(bcx,
                                                  &*repr,
                                                  dest,
@@ -2138,8 +2135,8 @@ pub struct TransItemVisitor<'a, 'tcx: 'a> {
     pub ccx: &'a CrateContext<'a, 'tcx>,
 }
 
-impl<'a, 'tcx> Visitor<()> for TransItemVisitor<'a, 'tcx> {
-    fn visit_item(&mut self, i: &ast::Item, _:()) {
+impl<'a, 'tcx, 'v> Visitor<'v> for TransItemVisitor<'a, 'tcx> {
+    fn visit_item(&mut self, i: &ast::Item) {
         trans_item(self.ccx, i);
     }
 }
@@ -2239,7 +2236,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
         // Be sure to travel more than just one layer deep to catch nested
         // items in blocks and such.
         let mut v = TransItemVisitor{ ccx: ccx };
-        v.visit_block(&**body, ());
+        v.visit_block(&**body);
       }
       ast::ItemImpl(ref generics, _, _, ref impl_items) => {
         meth::trans_impl(ccx,
@@ -2257,7 +2254,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
       ast::ItemStatic(_, m, ref expr) => {
           // Recurse on the expression to catch items in blocks
           let mut v = TransItemVisitor{ ccx: ccx };
-          v.visit_expr(&**expr, ());
+          v.visit_expr(&**expr);
 
           let trans_everywhere = attr::requests_inline(item.attrs.as_slice());
           for (ref ccx, is_origin) in ccx.maybe_iter(!from_external && trans_everywhere) {
@@ -2296,7 +2293,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
         // methods with items will not get translated and will cause ICE's when
         // metadata time comes around.
         let mut v = TransItemVisitor{ ccx: ccx };
-        visit::walk_item(&mut v, item, ());
+        visit::walk_item(&mut v, item);
       }
       _ => {/* fall through */ }
     }
@@ -2789,15 +2786,15 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
                     ccx.sess().bug("unexpected variant: required trait method in \
                                    get_item_val()");
                 }
-                ast::ProvidedMethod(m) => {
-                    register_method(ccx, id, &*m)
+                ast::ProvidedMethod(ref m) => {
+                    register_method(ccx, id, &**m)
                 }
             }
         }
 
         ast_map::NodeImplItem(ii) => {
             match *ii {
-                ast::MethodImplItem(m) => register_method(ccx, id, &*m),
+                ast::MethodImplItem(ref m) => register_method(ccx, id, &**m),
             }
         }
 
@@ -3039,9 +3036,10 @@ fn internalize_symbols(cx: &SharedCrateContext, reachable: &HashSet<String>) {
     }
 }
 
-pub fn trans_crate(krate: ast::Crate,
-                   analysis: CrateAnalysis) -> (ty::ctxt, CrateTranslation) {
+pub fn trans_crate<'tcx>(analysis: CrateAnalysis<'tcx>)
+                         -> (ty::ctxt<'tcx>, CrateTranslation) {
     let CrateAnalysis { ty_cx: tcx, exp_map2, reachable, name, .. } = analysis;
+    let krate = tcx.map.krate();
 
     // Before we touch LLVM, make sure that multithreading is enabled.
     unsafe {
@@ -3061,7 +3059,7 @@ pub fn trans_crate(krate: ast::Crate,
         }
     }
 
-    let link_meta = link::build_link_meta(&tcx.sess, &krate, name);
+    let link_meta = link::build_link_meta(&tcx.sess, krate, name);
 
     let codegen_units = tcx.sess.opts.cg.codegen_units;
     let shared_ccx = SharedCrateContext::new(link_meta.crate_name.as_slice(),
@@ -3093,7 +3091,7 @@ pub fn trans_crate(krate: ast::Crate,
     }
 
     // Translate the metadata.
-    let metadata = write_metadata(&shared_ccx, &krate);
+    let metadata = write_metadata(&shared_ccx, krate);
 
     if shared_ccx.sess().trans_stats() {
         let stats = shared_ccx.stats();
@@ -3138,7 +3136,7 @@ pub fn trans_crate(krate: ast::Crate,
     // the final product, so LTO needs to preserve them.
     shared_ccx.sess().cstore.iter_crate_data(|cnum, _| {
         let syms = csearch::get_reachable_extern_fns(&shared_ccx.sess().cstore, cnum);
-        reachable.extend(syms.move_iter().map(|did| {
+        reachable.extend(syms.into_iter().map(|did| {
             csearch::get_symbol(&shared_ccx.sess().cstore, did)
         }));
     });

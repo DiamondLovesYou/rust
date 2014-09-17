@@ -649,22 +649,18 @@ extern "C" void LLVMDICompositeTypeSetTypeArray(
 #endif
 }
 
-extern "C" char *LLVMTypeToString(LLVMTypeRef Type) {
-    std::string s;
-    llvm::raw_string_ostream os(s);
+extern "C" void LLVMWriteTypeToString(LLVMTypeRef Type, RustStringRef str) {
+    raw_rust_string_ostream os(str);
     unwrap<llvm::Type>(Type)->print(os);
-    return strdup(os.str().data());
 }
 
-extern "C" char *LLVMValueToString(LLVMValueRef Value) {
-    std::string s;
-    llvm::raw_string_ostream os(s);
+extern "C" void LLVMWriteValueToString(LLVMValueRef Value, RustStringRef str) {
+    raw_rust_string_ostream os(str);
     os << "(";
     unwrap<llvm::Value>(Value)->getType()->print(os);
     os << ":";
     unwrap<llvm::Value>(Value)->print(os);
     os << ")";
-    return strdup(os.str().data());
 }
 
 static bool MaterializeModule(Module* M) {
@@ -951,4 +947,50 @@ extern "C" void
 LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(LLVMContextRef C) {
   LLVMContext* Context = unwrap(C);
   Context->setDiagnosticHandler(nullptr);
+}
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(Twine, LLVMTwineRef)
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(DebugLoc, LLVMDebugLocRef)
+
+extern "C" void
+LLVMWriteTwineToString(LLVMTwineRef T, RustStringRef str) {
+    raw_rust_string_ostream os(str);
+    unwrap(T)->print(os);
+}
+
+extern "C" void
+LLVMUnpackOptimizationDiagnostic(
+    LLVMDiagnosticInfoRef di,
+    const char **pass_name_out,
+    LLVMValueRef *function_out,
+    LLVMDebugLocRef *debugloc_out,
+    LLVMTwineRef *message_out)
+{
+    // Undefined to call this not on an optimization diagnostic!
+    llvm::DiagnosticInfoOptimizationBase *opt
+        = static_cast<llvm::DiagnosticInfoOptimizationBase*>(unwrap(di));
+
+    *pass_name_out = opt->getPassName();
+    *function_out = wrap(&opt->getFunction());
+    *debugloc_out = wrap(&opt->getDebugLoc());
+    *message_out = wrap(&opt->getMsg());
+}
+
+extern "C" void LLVMWriteDiagnosticInfoToString(LLVMDiagnosticInfoRef di, RustStringRef str) {
+    raw_rust_string_ostream os(str);
+    DiagnosticPrinterRawOStream dp(os);
+    unwrap(di)->print(dp);
+}
+
+extern "C" int LLVMGetDiagInfoKind(LLVMDiagnosticInfoRef di) {
+    return unwrap(di)->getKind();
+}
+
+extern "C" void LLVMWriteDebugLocToString(
+    LLVMContextRef C,
+    LLVMDebugLocRef dl,
+    RustStringRef str)
+{
+    raw_rust_string_ostream os(str);
+    unwrap(dl)->print(*unwrap(C), os);
 }

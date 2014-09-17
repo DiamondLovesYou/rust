@@ -236,6 +236,21 @@ pub fn debugging_opts_map() -> Vec<(&'static str, &'static str, u64)> {
                        --pretty flowgraph output", FLOWGRAPH_PRINT_ALL))
 }
 
+#[deriving(Clone)]
+pub enum Passes {
+    Passes(Vec<String>),
+    AllPasses,
+}
+
+impl Passes {
+    pub fn is_empty(&self) -> bool {
+        match *self {
+            Passes(ref v) => v.is_empty(),
+            AllPasses => false,
+        }
+    }
+}
+
 /// Declare a macro that will define all CodegenOptions fields and parsers all
 /// at once. The goal of this macro is to define an interface that can be
 /// programmatically used by the option parser in order to initialize the struct
@@ -262,7 +277,7 @@ macro_rules! cgoptions(
         &[ $( (stringify!($opt), cgsetters::$opt, $desc) ),* ];
 
     mod cgsetters {
-        use super::CodegenOptions;
+        use super::{CodegenOptions, Passes, AllPasses};
 
         $(
             pub fn $opt(cg: &mut CodegenOptions, v: Option<&str>) -> bool {
@@ -308,6 +323,24 @@ macro_rules! cgoptions(
             match v.and_then(FromStr::from_str) {
                 Some(i) => { *slot = i; true },
                 None => false
+            }
+        }
+
+        fn parse_passes(slot: &mut Passes, v: Option<&str>) -> bool {
+            match v {
+                Some("all") => {
+                    *slot = AllPasses;
+                    true
+                }
+                v => {
+                    let mut passes = vec!();
+                    if parse_list(&mut passes, v) {
+                        *slot = Passes(passes);
+                        true
+                    } else {
+                        false
+                    }
+                }
             }
         }
     }
@@ -358,6 +391,8 @@ cgoptions!(
         "the path to the target specific toolchain"),
     codegen_units: uint = (1, parse_uint,
         "divide crate into N units to optimize in parallel"),
+    remark: Passes = (Passes(Vec::new()), parse_passes,
+        "print remarks for these optimization passes (space separated, or \"all\")"),
     extra_bitcode: Vec<String> = (Vec::new(), parse_list,
         "a list of bitcode files to include for linking (PNaCl bin output only)"),
     stable_pexe: bool = (false, parse_bool,
@@ -368,7 +403,7 @@ cgoptions!(
 pub fn build_codegen_options(matches: &getopts::Matches) -> CodegenOptions
 {
     let mut cg = basic_codegen_options();
-    for option in matches.opt_strs("C").move_iter() {
+    for option in matches.opt_strs("C").into_iter() {
         let mut iter = option.as_slice().splitn(1, '=');
         let key = iter.next().unwrap();
         let value = iter.next();
@@ -460,7 +495,7 @@ pub fn build_configuration(sess: &Session) -> ast::CrateConfig {
     if sess.opts.test {
         append_configuration(&mut user_cfg, InternedString::new("test"))
     }
-    user_cfg.move_iter().collect::<Vec<_>>().append(default_cfg.as_slice())
+    user_cfg.into_iter().collect::<Vec<_>>().append(default_cfg.as_slice())
 }
 
 pub fn get_os(triple: &str) -> Option<abi::Os> {
@@ -610,7 +645,7 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
 
 // Convert strings provided as --cfg [cfgspec] into a crate_cfg
 fn parse_cfgspecs(cfgspecs: Vec<String> ) -> ast::CrateConfig {
-    cfgspecs.move_iter().map(|s| {
+    cfgspecs.into_iter().map(|s| {
         parse::parse_meta_from_source_str("cfgspec".to_string(),
                                           s.to_string(),
                                           Vec::new(),
@@ -632,7 +667,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     let mut describe_lints = false;
 
     for &level in [lint::Allow, lint::Warn, lint::Deny, lint::Forbid].iter() {
-        for lint_name in matches.opt_strs(level.as_str()).move_iter() {
+        for lint_name in matches.opt_strs(level.as_str()).into_iter() {
             if lint_name.as_slice() == "help" {
                 describe_lints = true;
             } else {
@@ -731,8 +766,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
             None      |
             Some("2") => FullDebugInfo,
             Some(arg) => {
-                early_error(format!("optimization level needs to be between \
-                                     0-3 (instead was `{}`)",
+                early_error(format!("debug info level needs to be between \
+                                     0-2 (instead was `{}`)",
                                     arg).as_slice());
             }
         }
@@ -758,6 +793,10 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                     --print-file-name");
     }
     let cg = build_codegen_options(matches);
+
+    if !cg.remark.is_empty() && debuginfo == NoDebugInfo {
+        early_warn("-C remark will not show source locations without --debuginfo");
+    }
 
     let color = match matches.opt_str("color").as_ref().map(|s| s.as_slice()) {
         Some("auto")   => Auto,

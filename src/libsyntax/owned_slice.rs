@@ -11,7 +11,8 @@
 use std::fmt;
 use std::default::Default;
 use std::hash;
-use std::{mem, raw, ptr, slice};
+use std::{mem, raw, ptr, slice, vec};
+use std::rt::heap::EMPTY;
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 
 /// A non-growable owned slice. This would preferably become `~[T]`
@@ -48,7 +49,7 @@ impl<T> Drop for OwnedSlice<T> {
 
 impl<T> OwnedSlice<T> {
     pub fn empty() -> OwnedSlice<T> {
-        OwnedSlice  { data: ptr::mut_null(), len: 0 }
+        OwnedSlice  { data: ptr::null_mut(), len: 0 }
     }
 
     #[inline(never)]
@@ -81,10 +82,9 @@ impl<T> OwnedSlice<T> {
     }
 
     pub fn as_slice<'a>(&'a self) -> &'a [T] {
-        static PTR_MARKER: u8 = 0;
         let ptr = if self.data.is_null() {
             // length zero, i.e. this will never be read as a T.
-            &PTR_MARKER as *const u8 as *const T
+            EMPTY as *const T
         } else {
             self.data as *const T
         };
@@ -103,6 +103,10 @@ impl<T> OwnedSlice<T> {
 
     pub fn iter<'r>(&'r self) -> slice::Items<'r, T> {
         self.as_slice().iter()
+    }
+
+    pub fn move_iter(self) -> vec::MoveItems<T> {
+        self.into_vec().into_iter()
     }
 
     pub fn map<U>(&self, f: |&T| -> U) -> OwnedSlice<U> {

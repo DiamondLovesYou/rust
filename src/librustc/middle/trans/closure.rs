@@ -15,7 +15,6 @@ use driver::config::FullDebugInfo;
 use llvm::ValueRef;
 use middle::def;
 use middle::freevars;
-use middle::lang_items::ClosureExchangeMallocFnLangItem;
 use middle::trans::adt;
 use middle::trans::base::*;
 use middle::trans::build::*;
@@ -146,7 +145,7 @@ fn allocate_cbox<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let cbox_ty = tuplify_box_ty(tcx, cdata_ty);
     match store {
         ty::UniqTraitStore => {
-            malloc_raw_dyn_proc(bcx, cbox_ty, ClosureExchangeMallocFnLangItem)
+            malloc_raw_dyn_proc(bcx, cbox_ty)
         }
         ty::RegionTraitStore(..) => {
             let llbox = alloc_ty(bcx, cbox_ty, "__closure");
@@ -198,7 +197,7 @@ pub fn store_environment<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     // Copy expr values into boxed bindings.
     let mut bcx = bcx;
-    for (i, bv) in bound_values.move_iter().enumerate() {
+    for (i, bv) in bound_values.into_iter().enumerate() {
         debug!("Copy {} into closure", bv.to_string(ccx));
 
         if ccx.sess().asm_comments() {

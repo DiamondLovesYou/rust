@@ -617,7 +617,7 @@ mod imp {
     }
 
     pub unsafe fn init_cond() -> uint {
-        return CreateEventA(ptr::mut_null(), libc::FALSE, libc::FALSE,
+        return CreateEventA(ptr::null_mut(), libc::FALSE, libc::FALSE,
                             ptr::null()) as uint;
     }
 

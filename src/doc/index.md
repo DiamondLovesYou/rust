@@ -43,6 +43,10 @@ discussion about Rust.
 There is also a [developer forum](http://discuss.rust-lang.org/), where the
 development of Rust itself is discussed.
 
+# Specification
+
+Rust does not have an exact specification, but an effort to describe as much of
+the language in as much detail as possible is in [the manual](rust.html).
 
 # Guides
 
@@ -53,7 +57,6 @@ a guide that can help you out:
 * [Strings](guide-strings.html)
 * [Pointers](guide-pointers.html)
 * [References and Lifetimes](guide-lifetimes.html)
-* [Containers and Iterators](guide-container.html)
 * [Tasks and Communication](guide-tasks.html)
 * [Foreign Function Interface](guide-ffi.html)
 * [Writing Unsafe and Low-Level Code](guide-unsafe.html)
