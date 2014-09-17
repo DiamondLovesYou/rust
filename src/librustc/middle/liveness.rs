@@ -179,7 +179,7 @@ fn live_node_kind_to_string(lnk: LiveNodeKind, cx: &ty::ctxt) -> String {
     }
 }
 
-impl<'a> Visitor<()> for IrMaps<'a> {
+impl<'a, 'tcx> Visitor<()> for IrMaps<'a, 'tcx> {
     fn visit_fn(&mut self, fk: &FnKind, fd: &FnDecl, b: &Block, s: Span, n: NodeId, _: ()) {
         visit_fn(self, fk, fd, b, s, n);
     }
@@ -252,8 +252,8 @@ enum VarKind {
     ImplicitRet
 }
 
-struct IrMaps<'a> {
-    tcx: &'a ty::ctxt,
+struct IrMaps<'a, 'tcx: 'a> {
+    tcx: &'a ty::ctxt<'tcx>,
 
     num_live_nodes: uint,
     num_vars: uint,
@@ -264,8 +264,8 @@ struct IrMaps<'a> {
     lnks: Vec<LiveNodeKind>,
 }
 
-impl<'a> IrMaps<'a> {
-    fn new(tcx: &'a ty::ctxt) -> IrMaps<'a> {
+impl<'a, 'tcx> IrMaps<'a, 'tcx> {
+    fn new(tcx: &'a ty::ctxt<'tcx>) -> IrMaps<'a, 'tcx> {
         IrMaps {
             tcx: tcx,
             num_live_nodes: 0,
@@ -343,7 +343,7 @@ impl<'a> IrMaps<'a> {
     }
 }
 
-impl<'a> Visitor<()> for Liveness<'a> {
+impl<'a, 'tcx> Visitor<()> for Liveness<'a, 'tcx> {
     fn visit_fn(&mut self, fk: &FnKind, fd: &FnDecl, b: &Block, s: Span, n: NodeId, _: ()) {
         check_fn(self, fk, fd, b, s, n);
     }
@@ -511,7 +511,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
       }
 
       // otherwise, live nodes are not required:
-      ExprIndex(..) | ExprField(..) | ExprVec(..) |
+      ExprIndex(..) | ExprField(..) | ExprTupField(..) | ExprVec(..) |
       ExprCall(..) | ExprMethodCall(..) | ExprTup(..) |
       ExprBinary(..) | ExprAddrOf(..) |
       ExprCast(..) | ExprUnary(..) | ExprBreak(_) |
@@ -555,8 +555,8 @@ static ACC_READ: uint = 1u;
 static ACC_WRITE: uint = 2u;
 static ACC_USE: uint = 4u;
 
-struct Liveness<'a> {
-    ir: &'a mut IrMaps<'a>,
+struct Liveness<'a, 'tcx: 'a> {
+    ir: &'a mut IrMaps<'a, 'tcx>,
     s: Specials,
     successors: Vec<LiveNode>,
     users: Vec<Users>,
@@ -570,8 +570,8 @@ struct Liveness<'a> {
     cont_ln: NodeMap<LiveNode>
 }
 
-impl<'a> Liveness<'a> {
-    fn new(ir: &'a mut IrMaps<'a>, specials: Specials) -> Liveness<'a> {
+impl<'a, 'tcx> Liveness<'a, 'tcx> {
+    fn new(ir: &'a mut IrMaps<'a, 'tcx>, specials: Specials) -> Liveness<'a, 'tcx> {
         let num_live_nodes = ir.num_live_nodes;
         let num_vars = ir.num_vars;
         Liveness {
@@ -607,7 +607,7 @@ impl<'a> Liveness<'a> {
 
     fn pat_bindings(&mut self,
                     pat: &Pat,
-                    f: |&mut Liveness<'a>, LiveNode, Variable, Span, NodeId|) {
+                    f: |&mut Liveness<'a, 'tcx>, LiveNode, Variable, Span, NodeId|) {
         pat_util::pat_bindings(&self.ir.tcx.def_map, pat, |_bm, p_id, sp, _n| {
             let ln = self.live_node(p_id, sp);
             let var = self.variable(p_id, sp);
@@ -617,7 +617,7 @@ impl<'a> Liveness<'a> {
 
     fn arm_pats_bindings(&mut self,
                          pats: &[Gc<Pat>],
-                         f: |&mut Liveness<'a>, LiveNode, Variable, Span, NodeId|) {
+                         f: |&mut Liveness<'a, 'tcx>, LiveNode, Variable, Span, NodeId|) {
         // only consider the first pattern; any later patterns must have
         // the same bindings, and we also consider the first pattern to be
         // the "authoritative" set of ids
@@ -683,7 +683,7 @@ impl<'a> Liveness<'a> {
     fn indices2(&mut self,
                 ln: LiveNode,
                 succ_ln: LiveNode,
-                op: |&mut Liveness<'a>, uint, uint|) {
+                op: |&mut Liveness<'a, 'tcx>, uint, uint|) {
         let node_base_idx = self.idx(ln, Variable(0u));
         let succ_base_idx = self.idx(succ_ln, Variable(0u));
         for var_idx in range(0u, self.ir.num_vars) {
@@ -962,6 +962,10 @@ impl<'a> Liveness<'a> {
           }
 
           ExprField(ref e, _, _) => {
+              self.propagate_through_expr(&**e, succ)
+          }
+
+          ExprTupField(ref e, _, _) => {
               self.propagate_through_expr(&**e, succ)
           }
 
@@ -1271,6 +1275,7 @@ impl<'a> Liveness<'a> {
         match expr.node {
             ExprPath(_) => succ,
             ExprField(ref e, _, _) => self.propagate_through_expr(&**e, succ),
+            ExprTupField(ref e, _, _) => self.propagate_through_expr(&**e, succ),
             _ => self.propagate_through_expr(expr, succ)
         }
     }
@@ -1376,7 +1381,7 @@ impl<'a> Liveness<'a> {
                           loop_node_id: NodeId,
                           break_ln: LiveNode,
                           cont_ln: LiveNode,
-                          f: |&mut Liveness<'a>| -> R)
+                          f: |&mut Liveness<'a, 'tcx>| -> R)
                           -> R {
         debug!("with_loop_nodes: {} {}", loop_node_id, break_ln.get());
         self.loop_scope.push(loop_node_id);
@@ -1445,7 +1450,7 @@ fn check_expr(this: &mut Liveness, expr: &Expr) {
       // no correctness conditions related to liveness
       ExprCall(..) | ExprMethodCall(..) | ExprIf(..) | ExprMatch(..) |
       ExprWhile(..) | ExprLoop(..) | ExprIndex(..) | ExprField(..) |
-      ExprVec(..) | ExprTup(..) | ExprBinary(..) |
+      ExprTupField(..) | ExprVec(..) | ExprTup(..) | ExprBinary(..) |
       ExprCast(..) | ExprUnary(..) | ExprRet(..) | ExprBreak(..) |
       ExprAgain(..) | ExprLit(_) | ExprBlock(..) |
       ExprMac(..) | ExprAddrOf(..) | ExprStruct(..) | ExprRepeat(..) |
@@ -1465,7 +1470,7 @@ fn check_fn(_v: &Liveness,
     // do not check contents of nested fns
 }
 
-impl<'a> Liveness<'a> {
+impl<'a, 'tcx> Liveness<'a, 'tcx> {
     fn check_ret(&self,
                  id: NodeId,
                  sp: Span,

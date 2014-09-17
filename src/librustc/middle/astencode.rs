@@ -54,13 +54,13 @@ use serialize::{EncoderHelpers};
 #[cfg(test)] use syntax::print::pprust;
 #[cfg(test)] use std::gc::Gc;
 
-struct DecodeContext<'a> {
+struct DecodeContext<'a, 'tcx: 'a> {
     cdata: &'a cstore::crate_metadata,
-    tcx: &'a ty::ctxt,
+    tcx: &'a ty::ctxt<'tcx>,
 }
 
-struct ExtendedDecodeContext<'a> {
-    dcx: &'a DecodeContext<'a>,
+struct ExtendedDecodeContext<'a, 'tcx: 'a> {
+    dcx: &'a DecodeContext<'a, 'tcx>,
     from_id_range: ast_util::IdRange,
     to_id_range: ast_util::IdRange
 }
@@ -176,7 +176,7 @@ fn reserve_id_range(sess: &Session,
     ast_util::IdRange { min: to_id_min, max: to_id_max }
 }
 
-impl<'a> ExtendedDecodeContext<'a> {
+impl<'a, 'tcx> ExtendedDecodeContext<'a, 'tcx> {
     pub fn tr_id(&self, id: ast::NodeId) -> ast::NodeId {
         /*!
          * Translates an internal id, meaning a node id that is known
@@ -382,11 +382,11 @@ fn decode_ast(par_doc: rbml::Doc) -> ast::InlinedItem {
     Decodable::decode(&mut d).unwrap()
 }
 
-struct AstRenumberer<'a> {
-    xcx: &'a ExtendedDecodeContext<'a>,
+struct AstRenumberer<'a, 'tcx: 'a> {
+    xcx: &'a ExtendedDecodeContext<'a, 'tcx>,
 }
 
-impl<'a> ast_map::FoldOps for AstRenumberer<'a> {
+impl<'a, 'tcx> ast_map::FoldOps for AstRenumberer<'a, 'tcx> {
     fn new_id(&self, id: ast::NodeId) -> ast::NodeId {
         if id == ast::DUMMY_NODE_ID {
             // Used by ast_map to map the NodeInlinedParent.
@@ -914,12 +914,12 @@ fn encode_vec_per_param_space<T>(rbml_w: &mut Encoder,
 // ______________________________________________________________________
 // Encoding and decoding the side tables
 
-trait get_ty_str_ctxt {
-    fn ty_str_ctxt<'a>(&'a self) -> tyencode::ctxt<'a>;
+trait get_ty_str_ctxt<'tcx> {
+    fn ty_str_ctxt<'a>(&'a self) -> tyencode::ctxt<'a, 'tcx>;
 }
 
-impl<'a> get_ty_str_ctxt for e::EncodeContext<'a> {
-    fn ty_str_ctxt<'a>(&'a self) -> tyencode::ctxt<'a> {
+impl<'a, 'tcx> get_ty_str_ctxt<'tcx> for e::EncodeContext<'a, 'tcx> {
+    fn ty_str_ctxt<'a>(&'a self) -> tyencode::ctxt<'a, 'tcx> {
         tyencode::ctxt {
             diag: self.tcx.sess.diagnostic(),
             ds: e::def_to_string,
@@ -1951,7 +1951,7 @@ fn roundtrip(in_item: Option<Gc<ast::Item>>) {
 #[test]
 fn test_basic() {
     let cx = mk_ctxt();
-    roundtrip(quote_item!(cx,
+    roundtrip(quote_item!(&cx,
         fn foo() {}
     ));
 }
@@ -1959,7 +1959,7 @@ fn test_basic() {
 #[test]
 fn test_smalltalk() {
     let cx = mk_ctxt();
-    roundtrip(quote_item!(cx,
+    roundtrip(quote_item!(&cx,
         fn foo() -> int { 3 + 4 } // first smalltalk program ever executed.
     ));
 }
@@ -1968,7 +1968,7 @@ fn test_smalltalk() {
 #[test]
 fn test_more() {
     let cx = mk_ctxt();
-    roundtrip(quote_item!(cx,
+    roundtrip(quote_item!(&cx,
         fn foo(x: uint, y: uint) -> uint {
             let z = x + y;
             return z;
@@ -1987,7 +1987,7 @@ fn test_simplification() {
     ).unwrap();
     let item_in = e::IIItemRef(&*item);
     let item_out = simplify_ast(item_in);
-    let item_exp = ast::IIItem(quote_item!(cx,
+    let item_exp = ast::IIItem(quote_item!(&cx,
         fn new_int_alist<B>() -> alist<int, B> {
             return alist {eq_fn: eq_int, data: Vec::new()};
         }

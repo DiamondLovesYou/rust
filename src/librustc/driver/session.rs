@@ -11,7 +11,7 @@
 
 use driver::config;
 use driver::driver;
-use back::link::OutputType;
+use back::write::OutputType;
 use front;
 use metadata::cstore::CStore;
 use metadata::filesearch;

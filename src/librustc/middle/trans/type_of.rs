@@ -160,7 +160,7 @@ pub fn type_of_fn_from_ty(cx: &CrateContext, fty: ty::t) -> Type {
 //     recursive types. For example, enum types rely on this behavior.
 
 pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
-    match cx.llsizingtypes.borrow().find_copy(&t) {
+    match cx.llsizingtypes().borrow().find_copy(&t) {
         Some(t) => return t,
         None => ()
     }
@@ -221,7 +221,7 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
         ty::ty_vec(_, None) | ty::ty_trait(..) | ty::ty_str => fail!("unreachable")
     };
 
-    cx.llsizingtypes.borrow_mut().insert(t, llsizingty);
+    cx.llsizingtypes().borrow_mut().insert(t, llsizingty);
     llsizingty
 }
 
@@ -253,7 +253,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
     }
 
     // Check the cache.
-    match cx.lltypes.borrow().find(&t) {
+    match cx.lltypes().borrow().find(&t) {
         Some(&llty) => return llty,
         None => ()
     }
@@ -274,8 +274,8 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
                 t,
                 t_norm.repr(cx.tcx()),
                 t_norm,
-                cx.tn.type_to_string(llty));
-        cx.lltypes.borrow_mut().insert(t, llty);
+                cx.tn().type_to_string(llty));
+        cx.lltypes().borrow_mut().insert(t, llty);
         return llty;
     }
 
@@ -312,7 +312,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
               ty::ty_str => {
                   // This means we get a nicer name in the output (str is always
                   // unsized).
-                  cx.tn.find_type("str_slice").unwrap()
+                  cx.tn().find_type("str_slice").unwrap()
               }
               ty::ty_trait(..) => Type::opaque_trait(cx),
               _ if !ty::type_is_sized(cx.tcx(), ty) => {
@@ -389,9 +389,9 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
     debug!("--> mapped t={} {:?} to llty={}",
             t.repr(cx.tcx()),
             t,
-            cx.tn.type_to_string(llty));
+            cx.tn().type_to_string(llty));
 
-    cx.lltypes.borrow_mut().insert(t, llty);
+    cx.lltypes().borrow_mut().insert(t, llty);
 
     // If this was an enum or struct, fill in the type now.
     match ty::get(t).sty {

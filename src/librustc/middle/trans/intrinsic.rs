@@ -89,7 +89,7 @@ pub fn get_simple_intrinsic(ccx: &CrateContext, item: &ast::ForeignItem) -> Opti
 /// Performs late verification that intrinsics are used correctly. At present,
 /// the only intrinsic that needs such verification is `transmute`.
 pub fn check_intrinsics(ccx: &CrateContext) {
-    for transmute_restriction in ccx.tcx
+    for transmute_restriction in ccx.tcx()
                                     .transmute_restrictions
                                     .borrow()
                                     .iter() {
@@ -134,10 +134,11 @@ pub fn check_intrinsics(ccx: &CrateContext) {
     ccx.sess().abort_if_errors();
 }
 
-pub fn trans_intrinsic_call<'a>(mut bcx: &'a Block<'a>, node: ast::NodeId,
-                                callee_ty: ty::t, cleanup_scope: cleanup::CustomScopeIndex,
-                                args: callee::CallArgs, dest: expr::Dest,
-                                substs: subst::Substs, call_info: NodeInfo) -> Result<'a> {
+pub fn trans_intrinsic_call<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>, node: ast::NodeId,
+                                        callee_ty: ty::t, cleanup_scope: cleanup::CustomScopeIndex,
+                                        args: callee::CallArgs, dest: expr::Dest,
+                                        substs: subst::Substs, call_info: NodeInfo)
+                                        -> Result<'blk, 'tcx> {
 
     let fcx = bcx.fcx;
     let ccx = fcx.ccx;
@@ -276,7 +277,7 @@ pub fn trans_intrinsic_call<'a>(mut bcx: &'a Block<'a>, node: ast::NodeId,
             let hash = ty::hash_crate_independent(
                 ccx.tcx(),
                 *substs.types.get(FnSpace, 0),
-                &ccx.link_meta.crate_hash);
+                &ccx.link_meta().crate_hash);
             // NB: This needs to be kept in lockstep with the TypeId struct in
             //     the intrinsic module
             C_named_struct(llret_ty, [C_u64(ccx, hash)])
@@ -548,13 +549,13 @@ pub fn trans_intrinsic_call<'a>(mut bcx: &'a Block<'a>, node: ast::NodeId,
     Result::new(bcx, llresult)
 }
 
-fn copy_intrinsic(bcx: &Block, allow_overlap: bool, volatile: bool,
+fn copy_intrinsic(bcx: Block, allow_overlap: bool, volatile: bool,
                   tp_ty: ty::t, dst: ValueRef, src: ValueRef, count: ValueRef) -> ValueRef {
     let ccx = bcx.ccx();
     let lltp_ty = type_of::type_of(ccx, tp_ty);
     let align = C_i32(ccx, type_of::align_of(ccx, tp_ty) as i32);
     let size = machine::llsize_of(ccx, lltp_ty);
-    let int_size = machine::llbitsize_of_real(ccx, ccx.int_type);
+    let int_size = machine::llbitsize_of_real(ccx, ccx.int_type());
     let name = if allow_overlap {
         if int_size == 32 {
             "llvm.memmove.p0i8.p0i8.i32"
@@ -577,13 +578,13 @@ fn copy_intrinsic(bcx: &Block, allow_overlap: bool, volatile: bool,
                      C_bool(ccx, volatile)], None)
 }
 
-fn memset_intrinsic(bcx: &Block, volatile: bool, tp_ty: ty::t,
+fn memset_intrinsic(bcx: Block, volatile: bool, tp_ty: ty::t,
                     dst: ValueRef, val: ValueRef, count: ValueRef) -> ValueRef {
     let ccx = bcx.ccx();
     let lltp_ty = type_of::type_of(ccx, tp_ty);
     let align = C_i32(ccx, type_of::align_of(ccx, tp_ty) as i32);
     let size = machine::llsize_of(ccx, lltp_ty);
-    let name = if machine::llbitsize_of_real(ccx, ccx.int_type) == 32 {
+    let name = if machine::llbitsize_of_real(ccx, ccx.int_type()) == 32 {
         "llvm.memset.p0i8.i32"
     } else {
         "llvm.memset.p0i8.i64"
@@ -596,13 +597,13 @@ fn memset_intrinsic(bcx: &Block, volatile: bool, tp_ty: ty::t,
                      C_bool(ccx, volatile)], None)
 }
 
-fn count_zeros_intrinsic(bcx: &Block, name: &'static str, val: ValueRef) -> ValueRef {
+fn count_zeros_intrinsic(bcx: Block, name: &'static str, val: ValueRef) -> ValueRef {
     let y = C_bool(bcx.ccx(), false);
     let llfn = bcx.ccx().get_intrinsic(&name);
     Call(bcx, llfn, [val, y], None)
 }
 
-fn with_overflow_intrinsic(bcx: &Block, name: &'static str, t: ty::t,
+fn with_overflow_intrinsic(bcx: Block, name: &'static str, t: ty::t,
                            a: ValueRef, b: ValueRef) -> ValueRef {
     let llfn = bcx.ccx().get_intrinsic(&name);
 

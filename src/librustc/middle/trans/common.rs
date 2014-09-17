@@ -14,7 +14,7 @@
 
 use driver::session::Session;
 use llvm;
-use llvm::{ValueRef, BasicBlockRef, BuilderRef};
+use llvm::{ValueRef, BasicBlockRef, BuilderRef, ContextRef};
 use llvm::{True, False, Bool};
 use middle::def;
 use middle::freevars;
@@ -96,7 +96,7 @@ pub fn type_is_immediate(ccx: &CrateContext, ty: ty::t) -> bool {
         ty::ty_struct(..) | ty::ty_enum(..) | ty::ty_tup(..) |
         ty::ty_unboxed_closure(..) => {
             let llty = sizing_type_of(ccx, ty);
-            llsize_of_alloc(ccx, llty) <= llsize_of_alloc(ccx, ccx.int_type)
+            llsize_of_alloc(ccx, llty) <= llsize_of_alloc(ccx, ccx.int_type())
         }
         _ => type_is_zero_size(ccx, ty)
     }
@@ -247,7 +247,7 @@ pub type LvalueDatum = datum::Datum<datum::Lvalue>;
 
 // Function context.  Every LLVM function we create will have one of
 // these.
-pub struct FunctionContext<'a> {
+pub struct FunctionContext<'a, 'tcx: 'a> {
     // The ValueRef returned from a call to llvm::LLVMAddFunction; the
     // address of the first instruction in the sequence of
     // instructions for this function that will go in the .text
@@ -308,19 +308,19 @@ pub struct FunctionContext<'a> {
     pub span: Option<Span>,
 
     // The arena that blocks are allocated from.
-    pub block_arena: &'a TypedArena<Block<'a>>,
+    pub block_arena: &'a TypedArena<BlockS<'a, 'tcx>>,
 
     // This function's enclosing crate context.
-    pub ccx: &'a CrateContext,
+    pub ccx: &'a CrateContext<'a, 'tcx>,
 
     // Used and maintained by the debuginfo module.
     pub debug_context: debuginfo::FunctionDebugContext,
 
     // Cleanup scopes.
-    pub scopes: RefCell<Vec<cleanup::CleanupScope<'a>> >,
+    pub scopes: RefCell<Vec<cleanup::CleanupScope<'a, 'tcx>>>,
 }
 
-impl<'a> FunctionContext<'a> {
+impl<'a, 'tcx> FunctionContext<'a, 'tcx> {
     pub fn arg_pos(&self, arg: uint) -> uint {
         let arg = self.env_arg_pos() + arg;
         if self.llenv.is_some() {
@@ -356,7 +356,7 @@ impl<'a> FunctionContext<'a> {
 
             self.llreturn.set(Some(unsafe {
                 "return".with_c_str(|buf| {
-                    llvm::LLVMAppendBasicBlockInContext(self.ccx.llcx, self.llfn, buf)
+                    llvm::LLVMAppendBasicBlockInContext(self.ccx.llcx(), self.llfn, buf)
                 })
             }))
         }
@@ -364,7 +364,7 @@ impl<'a> FunctionContext<'a> {
         self.llreturn.get().unwrap()
     }
 
-    pub fn get_ret_slot(&self, bcx: &Block, ty: ty::t, name: &str) -> ValueRef {
+    pub fn get_ret_slot(&self, bcx: Block, ty: ty::t, name: &str) -> ValueRef {
         if self.needs_ret_allocas {
             base::alloca_no_lifetime(bcx, type_of::type_of(bcx.ccx(), ty), name)
         } else {
@@ -376,34 +376,34 @@ impl<'a> FunctionContext<'a> {
                      is_lpad: bool,
                      name: &str,
                      opt_node_id: Option<ast::NodeId>)
-                     -> &'a Block<'a> {
+                     -> Block<'a, 'tcx> {
         unsafe {
             let llbb = name.with_c_str(|buf| {
-                    llvm::LLVMAppendBasicBlockInContext(self.ccx.llcx,
+                    llvm::LLVMAppendBasicBlockInContext(self.ccx.llcx(),
                                                         self.llfn,
                                                         buf)
                 });
-            Block::new(llbb, is_lpad, opt_node_id, self)
+            BlockS::new(llbb, is_lpad, opt_node_id, self)
         }
     }
 
     pub fn new_id_block(&'a self,
                         name: &str,
                         node_id: ast::NodeId)
-                        -> &'a Block<'a> {
+                        -> Block<'a, 'tcx> {
         self.new_block(false, name, Some(node_id))
     }
 
     pub fn new_temp_block(&'a self,
                           name: &str)
-                          -> &'a Block<'a> {
+                          -> Block<'a, 'tcx> {
         self.new_block(false, name, None)
     }
 
     pub fn join_blocks(&'a self,
                        id: ast::NodeId,
-                       in_cxs: &[&'a Block<'a>])
-                       -> &'a Block<'a> {
+                       in_cxs: &[Block<'a, 'tcx>])
+                       -> Block<'a, 'tcx> {
         let out = self.new_id_block("join", id);
         let mut reachable = false;
         for bcx in in_cxs.iter() {
@@ -424,7 +424,7 @@ impl<'a> FunctionContext<'a> {
 // code.  Each basic block we generate is attached to a function, typically
 // with many basic blocks per function.  All the basic blocks attached to a
 // function are organized as a directed graph.
-pub struct Block<'a> {
+pub struct BlockS<'blk, 'tcx: 'blk> {
     // The BasicBlockRef returned from a call to
     // llvm::LLVMAppendBasicBlock(llfn, name), which adds a basic
     // block to the function pointed to by llfn.  We insert
@@ -443,17 +443,18 @@ pub struct Block<'a> {
 
     // The function context for the function to which this block is
     // attached.
-    pub fcx: &'a FunctionContext<'a>,
+    pub fcx: &'blk FunctionContext<'blk, 'tcx>,
 }
 
-impl<'a> Block<'a> {
-    pub fn new<'a>(
-               llbb: BasicBlockRef,
+pub type Block<'blk, 'tcx> = &'blk BlockS<'blk, 'tcx>;
+
+impl<'blk, 'tcx> BlockS<'blk, 'tcx> {
+    pub fn new(llbb: BasicBlockRef,
                is_lpad: bool,
                opt_node_id: Option<ast::NodeId>,
-               fcx: &'a FunctionContext<'a>)
-               -> &'a Block<'a> {
-        fcx.block_arena.alloc(Block {
+               fcx: &'blk FunctionContext<'blk, 'tcx>)
+               -> Block<'blk, 'tcx> {
+        fcx.block_arena.alloc(BlockS {
             llbb: llbb,
             terminated: Cell::new(false),
             unreachable: Cell::new(false),
@@ -463,11 +464,13 @@ impl<'a> Block<'a> {
         })
     }
 
-    pub fn ccx(&self) -> &'a CrateContext { self.fcx.ccx }
-    pub fn tcx(&self) -> &'a ty::ctxt {
-        &self.fcx.ccx.tcx
+    pub fn ccx(&self) -> &'blk CrateContext<'blk, 'tcx> {
+        self.fcx.ccx
     }
-    pub fn sess(&self) -> &'a Session { self.fcx.ccx.sess() }
+    pub fn tcx(&self) -> &'blk ty::ctxt<'tcx> {
+        self.fcx.ccx.tcx()
+    }
+    pub fn sess(&self) -> &'blk Session { self.fcx.ccx.sess() }
 
     pub fn ident(&self, ident: Ident) -> String {
         token::get_ident(ident).get().to_string()
@@ -492,11 +495,11 @@ impl<'a> Block<'a> {
     }
 
     pub fn val_to_string(&self, val: ValueRef) -> String {
-        self.ccx().tn.val_to_string(val)
+        self.ccx().tn().val_to_string(val)
     }
 
     pub fn llty_str(&self, ty: Type) -> String {
-        self.ccx().tn.type_to_string(ty)
+        self.ccx().tn().type_to_string(ty)
     }
 
     pub fn ty_to_string(&self, t: ty::t) -> String {
@@ -504,13 +507,12 @@ impl<'a> Block<'a> {
     }
 
     pub fn to_str(&self) -> String {
-        let blk: *const Block = self;
-        format!("[block {}]", blk)
+        format!("[block {:p}]", self)
     }
 }
 
-impl<'a> mc::Typer for Block<'a> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt {
+impl<'blk, 'tcx> mc::Typer<'tcx> for BlockS<'blk, 'tcx> {
+    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> {
         self.tcx()
     }
 
@@ -549,13 +551,13 @@ impl<'a> mc::Typer for Block<'a> {
     }
 }
 
-pub struct Result<'a> {
-    pub bcx: &'a Block<'a>,
+pub struct Result<'blk, 'tcx: 'blk> {
+    pub bcx: Block<'blk, 'tcx>,
     pub val: ValueRef
 }
 
-impl<'a> Result<'a> {
-    pub fn new(bcx: &'a Block<'a>, val: ValueRef) -> Result<'a> {
+impl<'b, 'tcx> Result<'b, 'tcx> {
+    pub fn new(bcx: Block<'b, 'tcx>, val: ValueRef) -> Result<'b, 'tcx> {
         Result {
             bcx: bcx,
             val: val,
@@ -615,11 +617,11 @@ pub fn C_u64(ccx: &CrateContext, i: u64) -> ValueRef {
 }
 
 pub fn C_int(ccx: &CrateContext, i: int) -> ValueRef {
-    C_integral(ccx.int_type, i as u64, true)
+    C_integral(ccx.int_type(), i as u64, true)
 }
 
 pub fn C_uint(ccx: &CrateContext, i: uint) -> ValueRef {
-    C_integral(ccx.int_type, i as u64, false)
+    C_integral(ccx.int_type(), i as u64, false)
 }
 
 pub fn C_u8(ccx: &CrateContext, i: uint) -> ValueRef {
@@ -631,25 +633,25 @@ pub fn C_u8(ccx: &CrateContext, i: uint) -> ValueRef {
 // our boxed-and-length-annotated strings.
 pub fn C_cstr(cx: &CrateContext, s: InternedString, null_terminated: bool) -> ValueRef {
     unsafe {
-        match cx.const_cstr_cache.borrow().find(&s) {
+        match cx.const_cstr_cache().borrow().find(&s) {
             Some(&llval) => return llval,
             None => ()
         }
 
-        let sc = llvm::LLVMConstStringInContext(cx.llcx,
+        let sc = llvm::LLVMConstStringInContext(cx.llcx(),
                                                 s.get().as_ptr() as *const c_char,
                                                 s.get().len() as c_uint,
                                                 !null_terminated as Bool);
 
         let gsym = token::gensym("str");
         let g = format!("str{}", gsym.uint()).with_c_str(|buf| {
-            llvm::LLVMAddGlobal(cx.llmod, val_ty(sc).to_ref(), buf)
+            llvm::LLVMAddGlobal(cx.llmod(), val_ty(sc).to_ref(), buf)
         });
         llvm::LLVMSetInitializer(g, sc);
         llvm::LLVMSetGlobalConstant(g, True);
         llvm::SetLinkage(g, llvm::InternalLinkage);
 
-        cx.const_cstr_cache.borrow_mut().insert(s, g);
+        cx.const_cstr_cache().borrow_mut().insert(s, g);
         g
     }
 }
@@ -661,7 +663,7 @@ pub fn C_str_slice(cx: &CrateContext, s: InternedString) -> ValueRef {
         let len = s.get().len();
         let cs = llvm::LLVMConstPointerCast(C_cstr(cx, s, false),
                                             Type::i8p(cx).to_ref());
-        C_named_struct(cx.tn.find_type("str_slice").unwrap(), [cs, C_uint(cx, len)])
+        C_named_struct(cx.tn().find_type("str_slice").unwrap(), [cs, C_uint(cx, len)])
     }
 }
 
@@ -672,7 +674,7 @@ pub fn C_binary_slice(cx: &CrateContext, data: &[u8]) -> ValueRef {
 
         let gsym = token::gensym("binary");
         let g = format!("binary{}", gsym.uint()).with_c_str(|buf| {
-            llvm::LLVMAddGlobal(cx.llmod, val_ty(lldata).to_ref(), buf)
+            llvm::LLVMAddGlobal(cx.llmod(), val_ty(lldata).to_ref(), buf)
         });
         llvm::LLVMSetInitializer(g, lldata);
         llvm::LLVMSetGlobalConstant(g, True);
@@ -683,9 +685,13 @@ pub fn C_binary_slice(cx: &CrateContext, data: &[u8]) -> ValueRef {
     }
 }
 
-pub fn C_struct(ccx: &CrateContext, elts: &[ValueRef], packed: bool) -> ValueRef {
+pub fn C_struct(cx: &CrateContext, elts: &[ValueRef], packed: bool) -> ValueRef {
+    C_struct_in_context(cx.llcx(), elts, packed)
+}
+
+pub fn C_struct_in_context(llcx: ContextRef, elts: &[ValueRef], packed: bool) -> ValueRef {
     unsafe {
-        llvm::LLVMConstStructInContext(ccx.llcx,
+        llvm::LLVMConstStructInContext(llcx,
                                        elts.as_ptr(), elts.len() as c_uint,
                                        packed as Bool)
     }
@@ -703,10 +709,14 @@ pub fn C_array(ty: Type, elts: &[ValueRef]) -> ValueRef {
     }
 }
 
-pub fn C_bytes(ccx: &CrateContext, bytes: &[u8]) -> ValueRef {
+pub fn C_bytes(cx: &CrateContext, bytes: &[u8]) -> ValueRef {
+    C_bytes_in_context(cx.llcx(), bytes)
+}
+
+pub fn C_bytes_in_context(llcx: ContextRef, bytes: &[u8]) -> ValueRef {
     unsafe {
         let ptr = bytes.as_ptr() as *const c_char;
-        return llvm::LLVMConstStringInContext(ccx.llcx, ptr, bytes.len() as c_uint, True);
+        return llvm::LLVMConstStringInContext(llcx, ptr, bytes.len() as c_uint, True);
     }
 }
 pub fn C_vector(_: &CrateContext, elts: &Vec<ValueRef>) -> ValueRef {
@@ -721,7 +731,7 @@ pub fn const_get_elt(cx: &CrateContext, v: ValueRef, us: &[c_uint])
         let r = llvm::LLVMConstExtractValue(v, us.as_ptr(), us.len() as c_uint);
 
         debug!("const_get_elt(v={}, us={:?}, r={})",
-               cx.tn.val_to_string(v), us, cx.tn.val_to_string(r));
+               cx.tn().val_to_string(v), us, cx.tn().val_to_string(r));
 
         return r;
     }
@@ -757,21 +767,21 @@ pub fn is_null(val: ValueRef) -> bool {
     }
 }
 
-pub fn monomorphize_type(bcx: &Block, t: ty::t) -> ty::t {
+pub fn monomorphize_type(bcx: &BlockS, t: ty::t) -> ty::t {
     t.subst(bcx.tcx(), &bcx.fcx.param_substs.substs)
 }
 
-pub fn node_id_type(bcx: &Block, id: ast::NodeId) -> ty::t {
+pub fn node_id_type(bcx: &BlockS, id: ast::NodeId) -> ty::t {
     let tcx = bcx.tcx();
     let t = ty::node_id_to_type(tcx, id);
     monomorphize_type(bcx, t)
 }
 
-pub fn expr_ty(bcx: &Block, ex: &ast::Expr) -> ty::t {
+pub fn expr_ty(bcx: Block, ex: &ast::Expr) -> ty::t {
     node_id_type(bcx, ex.id)
 }
 
-pub fn expr_ty_adjusted(bcx: &Block, ex: &ast::Expr) -> ty::t {
+pub fn expr_ty_adjusted(bcx: Block, ex: &ast::Expr) -> ty::t {
     monomorphize_type(bcx, ty::expr_ty_adjusted(bcx.tcx(), ex))
 }
 
@@ -785,7 +795,7 @@ pub enum ExprOrMethodCall {
     MethodCall(typeck::MethodCall)
 }
 
-pub fn node_id_substs(bcx: &Block,
+pub fn node_id_substs(bcx: Block,
                       node: ExprOrMethodCall)
                       -> subst::Substs {
     let tcx = bcx.tcx();
@@ -810,7 +820,7 @@ pub fn node_id_substs(bcx: &Block,
     substs.substp(tcx, bcx.fcx.param_substs)
 }
 
-pub fn node_vtables(bcx: &Block, id: typeck::MethodCall)
+pub fn node_vtables(bcx: Block, id: typeck::MethodCall)
                  -> typeck::vtable_res {
     bcx.tcx().vtable_map.borrow().find(&id).map(|vts| {
         resolve_vtables_in_fn_ctxt(bcx.fcx, vts)
@@ -888,7 +898,7 @@ pub fn find_vtable(tcx: &ty::ctxt,
     param_bounds.get(n_bound).clone()
 }
 
-pub fn langcall(bcx: &Block,
+pub fn langcall(bcx: Block,
                 span: Option<Span>,
                 msg: &str,
                 li: LangItem)

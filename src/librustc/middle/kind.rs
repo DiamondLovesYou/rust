@@ -50,13 +50,13 @@ use syntax::visit;
 // primitives in the stdlib are explicitly annotated to only take sendable
 // types.
 
-pub struct Context<'a> {
-    tcx: &'a ty::ctxt,
+pub struct Context<'a, 'tcx: 'a> {
+    tcx: &'a ty::ctxt<'tcx>,
     struct_and_enum_bounds_checked: HashSet<ty::t>,
     parameter_environments: Vec<ParameterEnvironment>,
 }
 
-impl<'a> Visitor<()> for Context<'a> {
+impl<'a, 'tcx> Visitor<()> for Context<'a, 'tcx> {
     fn visit_expr(&mut self, ex: &Expr, _: ()) {
         check_expr(self, ex);
     }
@@ -94,11 +94,11 @@ pub fn check_crate(tcx: &ty::ctxt,
     tcx.sess.abort_if_errors();
 }
 
-struct EmptySubstsFolder<'a> {
-    tcx: &'a ty::ctxt
+struct EmptySubstsFolder<'a, 'tcx: 'a> {
+    tcx: &'a ty::ctxt<'tcx>
 }
-impl<'a> ty_fold::TypeFolder for EmptySubstsFolder<'a> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt {
+impl<'a, 'tcx> ty_fold::TypeFolder<'tcx> for EmptySubstsFolder<'a, 'tcx> {
+    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> {
         self.tcx
     }
     fn fold_substs(&mut self, _: &subst::Substs) -> subst::Substs {
@@ -175,9 +175,7 @@ fn check_impl_of_trait(cx: &mut Context, it: &Item, trait_ref: &TraitRef, self_t
 fn check_item(cx: &mut Context, item: &Item) {
     if !attr::contains_name(item.attrs.as_slice(), "unsafe_destructor") {
         match item.node {
-            ItemImpl(_, Some(ref trait_ref), ref self_type, _) => {
-                check_impl_of_trait(cx, item, trait_ref, &**self_type);
-
+            ItemImpl(_, ref trait_ref, ref self_type, _) => {
                 let parameter_environment =
                     ParameterEnvironment::for_item(cx.tcx, item.id);
                 cx.parameter_environments.push(parameter_environment);
@@ -188,16 +186,32 @@ fn check_item(cx: &mut Context, item: &Item) {
                     item.span,
                     ty::node_id_to_type(cx.tcx, item.id));
 
-                // Check bounds on the trait ref.
-                match ty::impl_trait_ref(cx.tcx,
-                                         ast_util::local_def(item.id)) {
-                    None => {}
-                    Some(trait_ref) => {
-                        check_bounds_on_structs_or_enums_in_trait_ref(
-                            cx,
-                            item.span,
-                            &*trait_ref);
+                match trait_ref {
+                    &Some(ref trait_ref) => {
+                        check_impl_of_trait(cx, item, trait_ref, &**self_type);
+
+                        // Check bounds on the trait ref.
+                        match ty::impl_trait_ref(cx.tcx,
+                                                 ast_util::local_def(item.id)) {
+                            None => {}
+                            Some(trait_ref) => {
+                                check_bounds_on_structs_or_enums_in_trait_ref(
+                                    cx,
+                                    item.span,
+                                    &*trait_ref);
+
+                                let trait_def = ty::lookup_trait_def(cx.tcx, trait_ref.def_id);
+                                for (ty, type_param_def) in trait_ref.substs.types
+                                                                  .iter()
+                                                                  .zip(trait_def.generics
+                                                                                .types
+                                                                                .iter()) {
+                                    check_typaram_bounds(cx, item.span, *ty, type_param_def);
+                                }
+                            }
+                        }
                     }
+                    &None => {}
                 }
 
                 drop(cx.parameter_environments.pop());

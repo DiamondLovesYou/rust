@@ -71,9 +71,9 @@ pub type EncodeInlinedItem<'a> = |ecx: &EncodeContext,
                                   rbml_w: &mut Encoder,
                                   ii: InlinedItemRef|: 'a;
 
-pub struct EncodeParams<'a> {
+pub struct EncodeParams<'a, 'tcx: 'a> {
     pub diag: &'a SpanHandler,
-    pub tcx: &'a ty::ctxt,
+    pub tcx: &'a ty::ctxt<'tcx>,
     pub reexports2: &'a middle::resolve::ExportMap2,
     pub item_symbols: &'a RefCell<NodeMap<String>>,
     pub non_inlineable_statics: &'a RefCell<NodeSet>,
@@ -83,9 +83,9 @@ pub struct EncodeParams<'a> {
     pub reachable: &'a NodeSet,
 }
 
-pub struct EncodeContext<'a> {
+pub struct EncodeContext<'a, 'tcx: 'a> {
     pub diag: &'a SpanHandler,
-    pub tcx: &'a ty::ctxt,
+    pub tcx: &'a ty::ctxt<'tcx>,
     pub reexports2: &'a middle::resolve::ExportMap2,
     pub item_symbols: &'a RefCell<NodeMap<String>>,
     pub non_inlineable_statics: &'a RefCell<NodeSet>,
@@ -892,7 +892,8 @@ fn encode_info_for_method(ecx: &EncodeContext,
                                 IITraitItemRef(local_def(parent_id),
                                                RequiredInlinedTraitItemRef(
                                                    &*ast_method)));
-        } else {
+        }
+        if !any_types {
             encode_symbol(ecx, rbml_w, m.def_id.node);
         }
         encode_method_argument_names(rbml_w, &*ast_method.pe_fn_decl());
@@ -1047,7 +1048,8 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_attributes(rbml_w, item.attrs.as_slice());
         if tps_len > 0u || should_inline(item.attrs.as_slice()) {
             encode_inlined_item(ecx, rbml_w, IIItemRef(item));
-        } else {
+        }
+        if tps_len == 0 {
             encode_symbol(ecx, rbml_w, item.id);
         }
         encode_visibility(rbml_w, vis);
@@ -1411,9 +1413,8 @@ fn encode_info_for_foreign_item(ecx: &EncodeContext,
         encode_name(rbml_w, nitem.ident.name);
         if abi == abi::RustIntrinsic {
             encode_inlined_item(ecx, rbml_w, IIForeignRef(nitem));
-        } else {
-            encode_symbol(ecx, rbml_w, nitem.id);
         }
+        encode_symbol(ecx, rbml_w, nitem.id);
       }
       ForeignItemStatic(_, mutbl) => {
         if mutbl {
@@ -1792,12 +1793,12 @@ fn encode_struct_field_attrs(rbml_w: &mut Encoder, krate: &Crate) {
 
 
 
-struct ImplVisitor<'a,'b:'a,'c:'a> {
-    ecx: &'a EncodeContext<'b>,
+struct ImplVisitor<'a, 'b:'a, 'c:'a, 'tcx:'b> {
+    ecx: &'a EncodeContext<'b, 'tcx>,
     rbml_w: &'a mut Encoder<'c>,
 }
 
-impl<'a,'b,'c> Visitor<()> for ImplVisitor<'a,'b,'c> {
+impl<'a, 'b, 'c, 'tcx> Visitor<()> for ImplVisitor<'a, 'b, 'c, 'tcx> {
     fn visit_item(&mut self, item: &Item, _: ()) {
         match item.node {
             ItemImpl(_, Some(ref trait_ref), _, _) => {

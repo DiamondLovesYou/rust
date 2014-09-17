@@ -69,6 +69,8 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("rustc_diagnostic_macros", Active),
     ("unboxed_closures", Active),
     ("import_shadowing", Active),
+    ("advanced_slice_patterns", Active),
+    ("tuple_indexing", Active),
 
     // if you change this list without updating src/doc/rust.md, cmr will be sad
 
@@ -337,6 +339,11 @@ impl<'a> Visitor<()> for Context<'a> {
                                   "unboxed closures are a work-in-progress \
                                    feature with known bugs");
             }
+            ast::ExprTupField(..) => {
+                self.gate_feature("tuple_indexing",
+                                  e.span,
+                                  "tuple indexing is experimental");
+            }
             _ => {}
         }
         visit::walk_expr(self, e, ());
@@ -362,6 +369,20 @@ impl<'a> Visitor<()> for Context<'a> {
                               attr.span,
                               "language items are subject to change");
         }
+    }
+
+    fn visit_pat(&mut self, pattern: &ast::Pat, (): ()) {
+        match pattern.node {
+            ast::PatVec(_, Some(_), ref last) if !last.is_empty() => {
+                self.gate_feature("advanced_slice_patterns",
+                                  pattern.span,
+                                  "multiple-element slice matches anywhere \
+                                   but at the end of a slice (e.g. \
+                                   `[0, ..xs, 0]` are experimental")
+            }
+            _ => {}
+        }
+        visit::walk_pat(self, pattern, ())
     }
 
     fn visit_fn(&mut self,

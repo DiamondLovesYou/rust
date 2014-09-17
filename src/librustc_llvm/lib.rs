@@ -335,7 +335,7 @@ pub enum AsmDialect {
     AD_Intel = 1
 }
 
-#[deriving(PartialEq)]
+#[deriving(PartialEq, Clone)]
 #[repr(C)]
 pub enum CodeGenOptLevel {
     CodeGenLevelNone = 0,

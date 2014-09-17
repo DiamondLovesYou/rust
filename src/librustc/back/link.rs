@@ -13,12 +13,11 @@ use super::archive;
 use super::rpath;
 use super::rpath::RPathConfig;
 use super::svh::Svh;
+use super::write::{OutputTypeBitcode, OutputTypeExe, OutputTypeObject};
 use driver::driver::{CrateTranslation, OutputFilenames, Input, FileInput};
 use driver::config::NoDebugInfo;
 use driver::session::Session;
 use driver::config;
-use llvm;
-use llvm::ModuleRef;
 use metadata::common::LinkMeta;
 use metadata::{encoder, cstore, filesearch, csearch, loader, creader};
 use middle::trans::context::CrateContext;
@@ -28,16 +27,16 @@ use util::common::time;
 use util::ppaux;
 use util::sha2::{Digest, Sha256};
 
-use std::c_str::{ToCStr, CString};
 use std::char;
+use std::c_str::CString;
 use std::io::{fs, TempDir, Command};
 use std::io;
 use std::mem;
 use std::ptr;
 use std::str;
 use std::string::String;
-use std::collections::HashSet;
 use flate;
+use llvm;
 use serialize::hex::ToHex;
 use syntax::abi;
 use syntax::ast;
@@ -77,29 +76,6 @@ pub static RLIB_BYTECODE_OBJECT_V1_DATA_OFFSET: uint =
     RLIB_BYTECODE_OBJECT_V1_DATASIZE_OFFSET + 8;
 
 
-#[deriving(Clone, PartialEq, PartialOrd, Ord, Eq)]
-pub enum OutputType {
-    OutputTypeBitcode,
-    OutputTypeAssembly,
-    OutputTypeLlvmAssembly,
-    OutputTypeObject,
-    OutputTypeExe,
-}
-
-pub fn llvm_err(sess: &Session, msg: String) -> ! {
-    unsafe {
-        let cstr = llvm::LLVMRustGetLastError();
-        if cstr == ptr::null() {
-            sess.fatal(msg.as_slice());
-        } else {
-            let err = CString::new(cstr, true);
-            let err = String::from_utf8_lossy(err.as_bytes());
-            sess.fatal(format!("{}: {}",
-                               msg.as_slice(),
-                               err.as_slice()).as_slice());
-        }
-    }
-}
 pub fn llvm_actual_err(sess: &Session, msg: String) {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
@@ -115,6 +91,7 @@ pub fn llvm_actual_err(sess: &Session, msg: String) {
     }
 }
 pub fn llvm_warn(sess: &Session, msg: String) {
+    use llvm;
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
         if cstr == ptr::null() {
@@ -128,504 +105,6 @@ pub fn llvm_warn(sess: &Session, msg: String) {
         }
     }
 }
-
-pub fn write_output_file(
-        sess: &Session,
-        target: llvm::TargetMachineRef,
-        pm: llvm::PassManagerRef,
-        m: ModuleRef,
-        output: &Path,
-        file_type: llvm::FileType) {
-    unsafe {
-        output.with_c_str(|output| {
-            let result = llvm::LLVMRustWriteOutputFile(
-                    target, pm, m, output, file_type);
-            if !result {
-                llvm_err(sess, "could not write output".to_string());
-            }
-        })
-    }
-}
-
-pub mod write {
-
-    use super::super::lto;
-    use super::{write_output_file, OutputType};
-    use super::{OutputTypeAssembly, OutputTypeBitcode};
-    use super::{OutputTypeExe, OutputTypeLlvmAssembly};
-    use super::{OutputTypeObject};
-    use driver::driver::{CrateTranslation, OutputFilenames};
-    use driver::config::NoDebugInfo;
-    use driver::session::Session;
-    use driver::config;
-    use llvm;
-    use llvm::{ModuleRef, TargetMachineRef, PassManagerRef};
-    use util::common::time;
-    use syntax::abi;
-
-    use std::c_str::ToCStr;
-    use std::io::{Command};
-    use libc::{c_uint, c_int};
-    use std::str;
-
-    // On android, we by default compile for armv7 processors. This enables
-    // things like double word CAS instructions (rather than emulating them)
-    // which are *far* more efficient. This is obviously undesirable in some
-    // cases, so if any sort of target feature is specified we don't append v7
-    // to the feature list.
-    //
-    // On iOS only armv7 and newer are supported. So it is useful to
-    // get all hardware potential via VFP3 (hardware floating point)
-    // and NEON (SIMD) instructions supported by LLVM.
-    // Note that without those flags various linking errors might
-    // arise as some of intrinsics are converted into function calls
-    // and nobody provides implementations those functions
-    fn target_feature<'a>(sess: &'a Session) -> &'a str {
-        match sess.targ_cfg.os {
-            abi::OsAndroid => {
-                if "" == sess.opts.cg.target_feature.as_slice() {
-                    "+v7"
-                } else {
-                    sess.opts.cg.target_feature.as_slice()
-                }
-            },
-            abi::OsiOS if sess.targ_cfg.arch == abi::Arm => {
-                "+v7,+thumb2,+vfp3,+neon"
-            },
-            _ => sess.opts.cg.target_feature.as_slice()
-        }
-    }
-
-    // Run optimization passes on llmod. Doesn't run LTO passes.
-    // Only writes to disk if -C save-temps is used.
-    // Used for running passes post link when targeting PNaCl.
-    // If you don't want to immediately dispose of the LLVM target machine,
-    // pass true to need_target_machine. It will be returned.
-    pub fn run_passes_on_mod(sess: &Session,
-                             trans: &CrateTranslation,
-                             llmod: ModuleRef,
-                             output: &OutputFilenames,
-                             need_target_machine: bool,
-                             disable_verify: bool) -> Option<TargetMachineRef> {
-        debug!("running passes");
-        unsafe {
-            configure_llvm(sess);
-
-            if sess.opts.cg.save_temps {
-                output.with_extension("no-opt.bc").with_c_str(|buf| {
-                    llvm::LLVMWriteBitcodeToFile(llmod, buf);
-                })
-            }
-
-            let opt_level = match sess.opts.optimize {
-              config::No => llvm::CodeGenLevelNone,
-              config::Less => llvm::CodeGenLevelLess,
-              config::Default => llvm::CodeGenLevelDefault,
-              config::Aggressive => llvm::CodeGenLevelAggressive,
-            };
-            let use_softfp = sess.opts.cg.soft_float;
-
-            // FIXME: #11906: Omitting frame pointers breaks retrieving the value of a parameter.
-            // FIXME: #11954: mac64 unwinding may not work with fp elim
-            let no_fp_elim = (sess.opts.debuginfo != NoDebugInfo) ||
-                             (sess.targ_cfg.os == abi::OsMacos &&
-                              sess.targ_cfg.arch == abi::X86_64);
-
-            // OSX has -dead_strip, which doesn't rely on ffunction_sections
-            // FIXME(#13846) this should be enabled for windows
-            let ffunction_sections = sess.targ_cfg.os != abi::OsMacos &&
-                                     sess.targ_cfg.os != abi::OsWindows;
-            let fdata_sections = ffunction_sections;
-
-            let reloc_model = match sess.opts.cg.relocation_model.as_slice() {
-                "pic" => llvm::RelocPIC,
-                "static" => llvm::RelocStatic,
-                "default" => llvm::RelocDefault,
-                "dynamic-no-pic" => llvm::RelocDynamicNoPic,
-                _ => {
-                    sess.fatal(format!("{} is not a valid relocation mode",
-                                     sess.opts
-                                         .cg
-                                         .relocation_model).as_slice());
-                }
-            };
-
-            let code_model = match sess.opts.cg.code_model.as_slice() {
-                "default" => llvm::CodeModelDefault,
-                "small" => llvm::CodeModelSmall,
-                "kernel" => llvm::CodeModelKernel,
-                "medium" => llvm::CodeModelMedium,
-                "large" => llvm::CodeModelLarge,
-                _ => {
-                    sess.fatal(format!("{} is not a valid code model",
-                                     sess.opts
-                                         .cg
-                                         .code_model).as_slice());
-                }
-            };
-
-            let triple = if sess.targeting_pnacl() {
-                // Pretend that we are ARM for name mangling and assembly conventions.
-                // https://code.google.com/p/nativeclient/issues/detail?id=2554
-                "armv7a-none-nacl-gnueabi"
-            } else {
-                sess.targ_cfg
-                    .target_strs
-                    .target_triple
-                    .as_slice()
-            };
-            let tm = triple.with_c_str(|t| {
-                sess.opts.cg.target_cpu.as_slice().with_c_str(|cpu| {
-                    target_feature(sess).with_c_str(|features| {
-                        llvm::LLVMRustCreateTargetMachine(
-                            t, cpu, features,
-                            code_model,
-                            reloc_model,
-                            opt_level,
-                            !sess.targeting_pnacl() /* EnableSegstk */,
-                            use_softfp,
-                            no_fp_elim,
-                            ffunction_sections,
-                            fdata_sections,
-                        )
-                    })
-                })
-            });
-
-            // Create the two optimizing pass managers. These mirror what clang
-            // does, and are by populated by LLVM's default PassManagerBuilder.
-            // Each manager has a different set of passes, but they also share
-            // some common passes.
-            let fpm = llvm::LLVMCreateFunctionPassManagerForModule(llmod);
-            let mpm = llvm::LLVMCreatePassManager();
-
-            let addpass = |pass: &str| {
-                pass.as_slice().with_c_str(|s| llvm::LLVMRustAddPass(fpm, s))
-            };
-            // If we're verifying or linting, add them to the function pass
-            // manager.
-            if !sess.no_verify() && !disable_verify { assert!(addpass("verify")); }
-
-            if !sess.opts.cg.no_prepopulate_passes {
-                llvm::LLVMRustAddAnalysisPasses(tm, fpm, llmod);
-                llvm::LLVMRustAddAnalysisPasses(tm, mpm, llmod);
-                populate_llvm_passes(fpm, mpm, llmod, opt_level,
-                                     trans.no_builtins);
-            }
-
-            for pass in sess.opts.cg.passes.iter() {
-                pass.as_slice().with_c_str(|s| {
-                    if !llvm::LLVMRustAddPass(mpm, s) {
-                        sess.warn(format!("unknown pass {}, ignoring",
-                                          *pass).as_slice());
-                    }
-                })
-            }
-
-            // Finally, run the actual optimization passes
-            time(sess.time_passes(), "llvm function passes", (), |()|
-                 llvm::LLVMRustRunFunctionPassManager(fpm, llmod));
-            time(sess.time_passes(), "llvm module passes", (), |()|
-                 llvm::LLVMRunPassManager(mpm, llmod));
-
-            // Deallocate managers that we're now done with
-            llvm::LLVMDisposePassManager(fpm);
-            llvm::LLVMDisposePassManager(mpm);
-
-            if sess.time_llvm_passes() { llvm::LLVMRustPrintPassTimings(); }
-
-            debug!("done running passes");
-
-            if !need_target_machine {
-                llvm::LLVMRustDisposeTargetMachine(tm);
-                None
-            } else {
-                Some(tm)
-            }
-        }
-    }
-
-    pub fn run_passes(sess: &Session,
-                      trans: &CrateTranslation,
-                      output_types: &[OutputType],
-                      output: &OutputFilenames) {
-        let llmod = trans.module;
-        let llcx = trans.context;
-
-        let tm = run_passes_on_mod(sess, trans, llmod, output, true, false).unwrap();
-
-        unsafe {
-            // Emit the bytecode if we're either saving our temporaries or
-            // emitting an rlib. Whenever an rlib is created, the bytecode is
-            // inserted into the archive in order to allow LTO against it.
-            if sess.opts.cg.save_temps ||
-               (sess.crate_types.borrow().contains(&config::CrateTypeRlib) &&
-                sess.opts.output_types.contains(&OutputTypeExe)) {
-                output.temp_path(OutputTypeBitcode).with_c_str(|buf| {
-                    llvm::LLVMWriteBitcodeToFile(llmod, buf);
-                })
-            }
-
-            if sess.lto() {
-                time(sess.time_passes(), "all lto passes", (), |()|
-                     lto::run(sess, llmod, tm, trans.reachable.as_slice()));
-
-                if sess.opts.cg.save_temps {
-                    output.with_extension("lto.bc").with_c_str(|buf| {
-                        llvm::LLVMWriteBitcodeToFile(llmod, buf);
-                    })
-                }
-            }
-
-            // A codegen-specific pass manager is used to generate object
-            // files for an LLVM module.
-            //
-            // Apparently each of these pass managers is a one-shot kind of
-            // thing, so we create a new one for each type of output. The
-            // pass manager passed to the closure should be ensured to not
-            // escape the closure itself, and the manager should only be
-            // used once.
-            fn with_codegen(tm: TargetMachineRef, llmod: ModuleRef,
-                            no_builtins: bool, f: |PassManagerRef|) {
-                unsafe {
-                    let cpm = llvm::LLVMCreatePassManager();
-                    llvm::LLVMRustAddAnalysisPasses(tm, cpm, llmod);
-                    llvm::LLVMRustAddLibraryInfo(cpm, llmod, no_builtins);
-                    f(cpm);
-                    llvm::LLVMDisposePassManager(cpm);
-                }
-            }
-
-            let mut object_file = None;
-            let mut needs_metadata = false;
-            for output_type in output_types.iter() {
-                let path = output.path(*output_type);
-                match *output_type {
-                    OutputTypeBitcode => {
-                        path.with_c_str(|buf| {
-                            llvm::LLVMWriteBitcodeToFile(llmod, buf);
-                        })
-                    }
-                    OutputTypeLlvmAssembly if sess.targeting_pnacl() => {
-                        output.temp_path(*output_type).with_c_str(|output| {
-                            with_codegen(tm, llmod, trans.no_builtins, |cpm| {
-                                llvm::LLVMRustPrintModule(cpm, llmod, output);
-                            })
-                        });
-                        output.with_extension("metadata.ll").with_c_str(|output| {
-                            with_codegen(tm, trans.metadata_module, trans.no_builtins, |cpm| {
-                                llvm::LLVMRustPrintModule(cpm,
-                                                          trans.metadata_module,
-                                                          output);
-                            })
-                        })
-                    }
-                    OutputTypeLlvmAssembly => {
-                        path.with_c_str(|output| {
-                            with_codegen(tm, llmod, trans.no_builtins, |cpm| {
-                                llvm::LLVMRustPrintModule(cpm, llmod, output);
-                            })
-                        })
-                    }
-                    OutputTypeAssembly => {
-                        // If we're not using the LLVM assembler, this function
-                        // could be invoked specially with output_type_assembly,
-                        // so in this case we still want the metadata object
-                        // file.
-                        let ty = OutputTypeAssembly;
-                        let path = if sess.opts.output_types.contains(&ty) {
-                           path
-                        } else {
-                            needs_metadata = true;
-                            output.temp_path(OutputTypeAssembly)
-                        };
-                        with_codegen(tm, llmod, trans.no_builtins, |cpm| {
-                            write_output_file(sess, tm, cpm, llmod, &path,
-                                            llvm::AssemblyFile);
-                        });
-                    }
-                    OutputTypeObject => {
-                        object_file = Some(path);
-                    }
-                    OutputTypeExe => {
-                        object_file = Some(output.temp_path(OutputTypeObject));
-                        needs_metadata = true;
-                    }
-                }
-            }
-
-            time(sess.time_passes(), "codegen passes", (), |()| {
-                match object_file {
-                    Some(ref path) => {
-                        with_codegen(tm, llmod, trans.no_builtins, |cpm| {
-                            write_output_file(sess, tm, cpm, llmod, path,
-                                            llvm::ObjectFile);
-                        });
-                    }
-                    None => {}
-                }
-                if needs_metadata {
-                    with_codegen(tm, trans.metadata_module,
-                                 trans.no_builtins, |cpm| {
-                        let out = output.temp_path(OutputTypeObject)
-                                        .with_extension("metadata.o");
-                        write_output_file(sess, tm, cpm,
-                                        trans.metadata_module, &out,
-                                        llvm::ObjectFile);
-                    })
-                }
-            });
-
-            llvm::LLVMRustDisposeTargetMachine(tm);
-            llvm::LLVMDisposeModule(trans.metadata_module);
-            llvm::LLVMDisposeModule(llmod);
-            llvm::LLVMContextDispose(llcx);
-            if sess.time_llvm_passes() { llvm::LLVMRustPrintPassTimings(); }
-        }
-    }
-
-    pub fn run_assembler(sess: &Session, outputs: &OutputFilenames) {
-        let pname = super::get_cc_prog(sess);
-        let mut cmd = Command::new(pname.as_slice());
-
-        cmd.arg("-c").arg("-o").arg(outputs.path(OutputTypeObject))
-                               .arg(outputs.temp_path(OutputTypeAssembly));
-        debug!("{}", &cmd);
-
-        match cmd.output() {
-            Ok(prog) => {
-                if !prog.status.success() {
-                    sess.err(format!("linking with `{}` failed: {}",
-                                     pname,
-                                     prog.status).as_slice());
-                    sess.note(format!("{}", &cmd).as_slice());
-                    let mut note = prog.error.clone();
-                    note.push_all(prog.output.as_slice());
-                    sess.note(str::from_utf8(note.as_slice()).unwrap());
-                    sess.abort_if_errors();
-                }
-            },
-            Err(e) => {
-                sess.err(format!("could not exec the linker `{}`: {}",
-                                 pname,
-                                 e).as_slice());
-                sess.abort_if_errors();
-            }
-        }
-    }
-
-    unsafe fn configure_llvm(sess: &Session) {
-        use std::sync::{Once, ONCE_INIT};
-        static mut INIT: Once = ONCE_INIT;
-
-        // Copy what clang does by turning on loop vectorization at O2 and
-        // slp vectorization at O3
-        let vectorize_loop = !sess.opts.cg.no_vectorize_loops &&
-                             (sess.opts.optimize == config::Default ||
-                              sess.opts.optimize == config::Aggressive) &&
-                             !sess.targeting_pnacl();
-        let vectorize_slp = !sess.opts.cg.no_vectorize_slp &&
-                             sess.opts.optimize == config::Aggressive &&
-                            !sess.targeting_pnacl();
-
-        let mut llvm_c_strs = Vec::new();
-        let mut llvm_args = Vec::new();
-        {
-            let add = |arg: &str| {
-                let s = arg.to_c_str();
-                llvm_args.push(s.as_ptr());
-                llvm_c_strs.push(s);
-            };
-            add("rustc"); // fake program name
-            if vectorize_loop { add("-vectorize-loops"); }
-            if vectorize_slp  { add("-vectorize-slp");   }
-            if sess.time_llvm_passes() { add("-time-passes"); }
-            if sess.print_llvm_passes() { add("-debug-pass=Structure"); }
-
-            if sess.targeting_pnacl() {
-                add("-pnaclabi-allow-debug-metadata");
-            }
-
-            for arg in sess.opts.cg.llvm_args.iter() {
-                add((*arg).as_slice());
-            }
-        }
-
-        INIT.doit(|| {
-            llvm::LLVMInitializePasses();
-
-            // Only initialize the platforms supported by Rust here, because
-            // using --llvm-root will have multiple platforms that rustllvm
-            // doesn't actually link to and it's pointless to put target info
-            // into the registry that Rust cannot generate machine code for.
-            llvm::LLVMInitializeX86TargetInfo();
-            llvm::LLVMInitializeX86Target();
-            llvm::LLVMInitializeX86TargetMC();
-            llvm::LLVMInitializeX86AsmPrinter();
-            llvm::LLVMInitializeX86AsmParser();
-
-            llvm::LLVMInitializeARMTargetInfo();
-            llvm::LLVMInitializeARMTarget();
-            llvm::LLVMInitializeARMTargetMC();
-            llvm::LLVMInitializeARMAsmPrinter();
-            llvm::LLVMInitializeARMAsmParser();
-
-            llvm::LLVMInitializeMipsTargetInfo();
-            llvm::LLVMInitializeMipsTarget();
-            llvm::LLVMInitializeMipsTargetMC();
-            llvm::LLVMInitializeMipsAsmPrinter();
-            llvm::LLVMInitializeMipsAsmParser();
-
-            llvm::LLVMRustSetLLVMOptions(llvm_args.len() as c_int,
-                                         llvm_args.as_ptr());
-        });
-    }
-
-    unsafe fn populate_llvm_passes(fpm: llvm::PassManagerRef,
-                                   mpm: llvm::PassManagerRef,
-                                   llmod: ModuleRef,
-                                   opt: llvm::CodeGenOptLevel,
-                                   no_builtins: bool) {
-        // Create the PassManagerBuilder for LLVM. We configure it with
-        // reasonable defaults and prepare it to actually populate the pass
-        // manager.
-        let builder = llvm::LLVMPassManagerBuilderCreate();
-        match opt {
-            llvm::CodeGenLevelNone => {
-                // Don't add lifetime intrinsics at O0
-                llvm::LLVMRustAddAlwaysInlinePass(builder, false);
-            }
-            llvm::CodeGenLevelLess => {
-                llvm::LLVMRustAddAlwaysInlinePass(builder, true);
-            }
-            // numeric values copied from clang
-            llvm::CodeGenLevelDefault => {
-                llvm::LLVMPassManagerBuilderUseInlinerWithThreshold(builder,
-                                                                    225);
-            }
-            llvm::CodeGenLevelAggressive => {
-                llvm::LLVMPassManagerBuilderUseInlinerWithThreshold(builder,
-                                                                    275);
-            }
-        }
-        llvm::LLVMPassManagerBuilderSetOptLevel(builder, opt as c_uint);
-        llvm::LLVMRustAddBuilderLibraryInfo(builder, llmod, no_builtins);
-
-        // Use the builder to populate the function/module pass managers.
-        llvm::LLVMPassManagerBuilderPopulateFunctionPassManager(builder, fpm);
-        llvm::LLVMPassManagerBuilderPopulateModulePassManager(builder, mpm);
-        llvm::LLVMPassManagerBuilderDispose(builder);
-
-        match opt {
-            llvm::CodeGenLevelDefault | llvm::CodeGenLevelAggressive => {
-                "mergefunc".with_c_str(|s| llvm::LLVMRustAddPass(mpm, s));
-            }
-            _ => {}
-        };
-    }
-}
-
-
 /*
  * Name mangling and its relationship to metadata. This is complex. Read
  * carefully.
@@ -794,14 +273,14 @@ fn symbol_hash(tcx: &ty::ctxt,
 }
 
 fn get_symbol_hash(ccx: &CrateContext, t: ty::t) -> String {
-    match ccx.type_hashcodes.borrow().find(&t) {
+    match ccx.type_hashcodes().borrow().find(&t) {
         Some(h) => return h.to_string(),
         None => {}
     }
 
-    let mut symbol_hasher = ccx.symbol_hasher.borrow_mut();
-    let hash = symbol_hash(ccx.tcx(), &mut *symbol_hasher, t, &ccx.link_meta);
-    ccx.type_hashcodes.borrow_mut().insert(t, hash.clone());
+    let mut symbol_hasher = ccx.symbol_hasher().borrow_mut();
+    let hash = symbol_hash(ccx.tcx(), &mut *symbol_hasher, t, ccx.link_meta());
+    ccx.type_hashcodes().borrow_mut().insert(t, hash.clone());
     hash
 }
 
@@ -956,7 +435,7 @@ pub fn get_ar_prog(sess: &Session) -> String {
     }
 }
 
-fn remove(sess: &Session, path: &Path) {
+pub fn remove(sess: &Session, path: &Path) {
     match fs::unlink(path) {
         Ok(..) => {}
         Err(e) => {
@@ -1084,7 +563,7 @@ fn link_binary_output(sess: &Session,
                       crate_name: &str) -> Path {
     let (obj_filename, out_filename) = check_outputs(sess, crate_type,
                                                      outputs, crate_name);
-
+    assert!(!sess.targeting_pnacl());
     match crate_type {
         config::CrateTypeRlib => {
             link_rlib(sess, Some(trans), &obj_filename, &out_filename).build();
@@ -1146,26 +625,8 @@ fn link_pnacl_rlib(sess: &Session,
                    trans: &CrateTranslation,
                    outputs: &OutputFilenames,
                    crate_name: &str) {
-    use libc;
-    use llvm::archive_ro::ArchiveRO;
-    use std::collections::HashMap;
-
-    // In this case, all archives just have bitcode in them. Instead of
-    // running all PNaCl passes when we produce pexe's, preprocess the
-    // bitcode files once here.
-
-    write::run_passes_on_mod(sess,
-                             trans,
-                             trans.module,
-                             outputs,
-                             false,
-                             false);
-
-    let (obj_filename, out_filename) = check_outputs(sess, config::CrateTypeRlib,
-                                                     outputs, crate_name);
-    obj_filename.with_c_str(|s| unsafe {
-        llvm::LLVMWriteBitcodeToFile(trans.module, s);
-    });
+    let (_, out_filename) = check_outputs(sess, config::CrateTypeRlib,
+                                          outputs, crate_name);
 
     let mut a = {
         let handler = &sess.diagnostic().handler;
@@ -1180,100 +641,22 @@ fn link_pnacl_rlib(sess: &Session,
         ArchiveBuilder::create(config)
     };
 
-    let _: Result<(), ()> = a
-        .add_file(&obj_filename)
-        .or_else(|e| {
-            sess.err(format!("error adding file to archive: `{}`",
-                             e).as_slice());
-            Ok(())
-        });
-
-    let ctxt = trans.context;
-    let used = sess.cstore.get_used_libraries().borrow();
-    let mut linked = already_linked_libs
-        (sess, &sess.cstore.get_used_crates(cstore::RequireStatic));
-    let lib_paths = pnacl_lib_paths(sess);
-    let tmp = TempDir::new("rlib-bitcode").expect("needs tempdir");
-    let mut renames: HashMap<String, uint> = HashMap::new();
-
-    // Ignore all messages about invalid debug versions (toolchain libraries
-    // cause an abundance of these):
-    unsafe {
-        llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
-    }
-
-    (*used)
-        .iter()
-        .filter_map(|&(ref lib, kind)| {
-            link_attrs_filter(sess, lib, kind, &mut linked, &lib_paths)
-        })
-        .fold(0, |_, (l, p): (String, Path)| {
-            debug!("processing archive `{}`", p.display());
-            let archive = ArchiveRO::open(&p)
-                .expect("maybe invalid archive?");
-            archive.foreach_child(|name, bc| {
-                debug!("processing object `{}`", name);
-                let name_path = Path::new(name);
-                let name_ext_str = name_path.extension_str();
-                if name_ext_str == Some("o") || name_ext_str == Some("obj") {
-                    let llmod = name.with_c_str(|s| unsafe {
-                        llvm::LLVMRustParseBitcode(ctxt,
-                                                   s,
-                                                   bc.as_ptr() as *const libc::c_void,
-                                                   bc.len() as libc::size_t)
-                    });
-                    if llmod == ptr::mut_null() {
-                        let msg = format!("failed to parse external bitcode
-                                          `{}` in archive `{}`",
-                                          name, p.display());
-                        llvm_actual_err(sess, msg);
-                    } else {
-                        let outs = OutputFilenames {
-                            out_directory: tmp.path().clone(),
-                            out_filestem:  name.to_string(),
-                            single_output_file: None,
-                            extra: "".to_string(),
-                        };
-
-                        // Some globals in the bitcode from PNaCl have what is
-                        // considered invalid linkage in our LLVM (their LLVM is
-                        // old). Fortunately, all linkage types get stripped later, so
-                        // it's safe to just ignore them all.
-                        write::run_passes_on_mod(sess,
-                                                 trans,
-                                                 llmod,
-                                                 &outs,
-                                                 false,
-                                                 true);
-                        let name = format!("r-{}-{}",
-                                               l,
-                                               name);
-                        let rename = renames.insert_or_update_with(name.clone(),
-                                                                   0,
-                                                                   |_, renames| {
-                                                                       *renames += 1;
-                                                                   });
-                        let name = format!("{}{}", name, rename);
-                        let p = tmp.path().join(name);
-                        p.with_c_str(|buf| unsafe {
-                            llvm::LLVMWriteBitcodeToFile(llmod, buf);
-                            llvm::LLVMDisposeModule(llmod);
-                        });
-                        let _: Result<(), ()> = a
-                            .add_file(&p)
-                            .or_else(|e| {
-                                sess.err(format!("error adding file to archive: `{}`",
-                                                 e).as_slice());
-                                Ok(())
-                            });
-                    }
-                }
+    for (index, mtrans) in trans.modules.iter().enumerate() {
+        let f = match mtrans.name {
+            Some(ref name) => outputs.with_extension(format!("{}.bc",
+                                                             name)
+                                                     .as_slice()),
+            None => outputs.with_extension(format!("{}.bc",
+                                                   index)
+                                           .as_slice()),
+        };
+        let _: Result<(), ()> = a
+            .add_file(&f)
+            .or_else(|e| {
+                sess.err(format!("error adding file to archive: `{}`",
+                                 e).as_slice());
+                Ok(())
             });
-            0u32
-        });
-
-    unsafe {
-        llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
     }
 
     // Instead of putting the metadata in an object file section, rlibs
@@ -1281,15 +664,18 @@ fn link_pnacl_rlib(sess: &Session,
     // here so concurrent builds in the same directory don't try to use
     // the same filename for metadata (stomping over one another)
     debug!("adding metadata to archive");
-    let metadata = tmp.path().join(METADATA_FILENAME);
+    let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
+    let metadata = tmpdir.path().join(METADATA_FILENAME);
     match fs::File::create(&metadata).write(trans.metadata
-                                            .as_slice()) {
+                                                 .as_slice()) {
         Ok(..) => {}
         Err(e) => {
             sess.fatal(format!("failed to write {}: {}",
-                               metadata.display(), e).as_slice());
+                               metadata.display(),
+                               e).as_slice());
         }
     }
+
     let _: Result<(), ()> = a
         .add_file(&metadata)
         .or_else(|e| {
@@ -1297,24 +683,9 @@ fn link_pnacl_rlib(sess: &Session,
                              e).as_slice());
             Ok(())
         });
-    remove(sess, &metadata);
 
     a.update_symbols();
     a.build();
-
-    sess.remove_temp(&obj_filename, OutputTypeObject);
-
-    sess.create_temp(OutputTypeBitcode, || {
-        let path = outputs.path(OutputTypeBitcode);
-        sess.check_writeable_output(&path, "bitcode");
-        path.with_c_str(|buf| unsafe {
-            llvm::LLVMWriteBitcodeToFile(trans.module, buf);
-        })
-    });
-
-    if sess.opts.cg.save_temps {
-        tmp.unwrap();
-    }
 
     sess.abort_if_errors();
 }
@@ -1324,10 +695,15 @@ pub fn link_outputs_for_pnacl(sess: &Session,
                               outputs: &OutputFilenames,
                               crate_name: &str) {
     use driver::driver::stop_after_phase_5;
+    use super::write;
 
     // We use separate paths for PNaCl targets so we can save LLVM
     // attributes in our module. Otherwise, we'd have to discard them
     // for 'assembly' (llmod -> .o bitcode using pnacl-clang).
+
+    write::run_passes(sess, trans,
+                      sess.opts.output_types.as_slice(),
+                      outputs);
 
     // Rlibs and statics first, then exes.
     for &crate_type in sess.crate_types.borrow().iter() {
@@ -1349,101 +725,22 @@ pub fn link_outputs_for_pnacl(sess: &Session,
             _ => (),
         }
     }
-}
 
-fn search_for_native(paths: &Vec<Path>,
-                     name: &String) -> Option<Path> {
-    use std::os::consts::{DLL_PREFIX};
-    use std::io::fs::stat;
-    let name_path = Path::new(format!("{}{}.a", DLL_PREFIX, name));
-    debug!(">> searching for native lib `{}` starting", name);
-    let found = paths.iter().find(|dir| {
-        debug!("   searching in `{}`", dir.display());
-        match stat(&dir.join(&name_path)) {
-            Ok(_) => true,
-            Err(_) => false,
+    // cleanup:
+    if !sess.opts.cg.save_temps {
+        for (index, mtrans) in trans.modules.iter().enumerate() {
+            let f = match mtrans.name {
+                Some(ref name) => outputs.with_extension(format!("{}.bc",
+                                                                 name)
+                                                         .as_slice()),
+                None => outputs.with_extension(format!("{}.bc",
+                                                       index)
+                                               .as_slice()),
+            };
+            remove(sess, &f);
         }
-    });
-    let found = found.map(|f| f.join(&name_path) );
-    debug!("<< searching for native lib `{}` finished, result=`{}`",
-           name, found.as_ref().map(|f| f.display() ));
-    found
-}
-fn maybe_lib<T>(sess: &Session, name: &String, p_opt: Option<T>) -> Option<T> {
-    p_opt.or_else(|| {
-        sess.err(format!("couldn't find library `{}`", name).as_slice());
-        sess.note("maybe missing `-L`?");
-        None
-    })
-}
 
-fn pnacl_lib_paths(sess: &Session) -> Vec<Path> {
-    use std::os;
-    let native_dep_lib_path = Some({
-        os::make_absolute(&sess.pnacl_toolchain()
-                          .join("lib"))
-    });
-    let native_dep_sdk_lib_path = Some({
-        os::make_absolute(&sess.pnacl_toolchain()
-                          .join("sdk")
-                          .join("lib"))
-    });
-    let native_dep_usr_lib_path = Some({
-        os::make_absolute(&sess.pnacl_toolchain()
-                          .join("usr")
-                          .join("lib"))
-    });
-    let ports_lib_path = Some({
-        os::make_absolute(&sess.expect_cross_path()
-                          .join("lib")
-                          .join("pnacl")
-                          .join(if sess.opts.optimize == config::No {
-                              "Debug"
-                          } else {
-                              "Release"
-                          }))
-    });
-    let addl_lib_paths = sess.opts.addl_lib_search_paths.borrow();
-    let iter = addl_lib_paths.iter();
-    let iter = iter.chain(native_dep_lib_path.iter());
-    let iter = iter.chain(native_dep_sdk_lib_path.iter());
-    let iter = iter.chain(native_dep_usr_lib_path.iter());
-    let iter = iter.chain(ports_lib_path.iter());
-    let mut iter = iter.map(|p| p.clone() );
-    iter.collect()
-}
-
-fn already_linked_libs(sess: &Session, crates: &Vec<(u32, Option<Path>)>) -> HashSet<String> {
-    // Go though all extern crates and insert their deps into our linked set.
-    let linked = crates
-        .iter()
-        .fold(HashSet::new(), |mut led: HashSet<String>, &(cnum, _)| {
-            let libs = csearch::get_native_libraries(&sess.cstore, cnum);
-            for (_, name) in libs.move_iter() {
-                led.insert(name);
-            }
-            led
-        });
-    debug!("linked: `{}`", linked);
-    linked
-}
-fn link_attrs_filter(sess: &Session,
-                     lib: &String,
-                     kind: cstore::NativeLibaryKind,
-                     linked: &mut HashSet<String>,
-                     lib_paths: &Vec<Path>) -> Option<(String, Path)> {
-    match kind {
-        cstore::NativeFramework => {
-            sess.bug("can't link MacOS frameworks into PNaCl modules");
-        }
-        cstore::NativeStatic | cstore::NativeUnknown
-            if !linked.contains(lib) => {
-                // Don't link archives twice:
-                linked.insert(lib.clone());
-                let lib_path = search_for_native(lib_paths, lib);
-                maybe_lib(sess, lib, lib_path.map(|p| (lib.clone(), p) ))
-            }
-        cstore::NativeStatic | cstore::NativeUnknown => { None }
+        remove(sess, &outputs.with_extension("metadata.bc"));
     }
 }
 
@@ -1475,8 +772,9 @@ pub fn link_pnacl_module(sess: &Session,
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
     use std::io::File;
-
-    let llmod = trans.module;
+    use back::write;
+    use back::write::{llvm_err, OutputTypeLlvmAssembly};
+    use metadata::cstore;
 
     fn link_buf_into_module(sess: &Session,
                             ctxt:  ContextRef,
@@ -1513,158 +811,6 @@ pub fn link_pnacl_module(sess: &Session,
         }
     }
 
-    let save_temp = |ext, llmod| {
-        if sess.opts.cg.save_temps {
-            outputs.with_extension(ext).with_c_str(|buf| unsafe {
-                llvm::LLVMWriteBitcodeToFile(llmod, buf);
-            })
-        }
-    };
-
-    // FIXME: Now that objects created with pnacl-clang are linked into a
-    // separate mod, there's no reason we can't attach bitcodes directly to
-    // whatever rlib uses them and run the PNaCl ABI passes on them once when
-    // they're built.
-    // Hopefully, once implemented this will finally bring the link time down
-    // enough for PNaCl crates that running the r-pass checks can complete in
-    // our lifetime.
-
-    // # Pull all 'native' deps into our module:
-    // ## support bitcodes:
-    debug!("linking support bitcodes");
-    {
-        let bcs = vec!("crti.bc",
-                       "crtbegin.bc",
-                       "sjlj_eh_redirect.bc");
-        let mut iter = bcs
-            .iter()
-            .zip(bcs.iter()
-                 .map(|bc| {
-                     sess.pnacl_toolchain()
-                         .join("lib")
-                         .join(bc.clone())
-                 })
-                 .filter_map(|bc_path| {
-                     // load the bitcode into memory:
-                     time(sess.time_passes(),
-                          format!("reading `{}`", bc_path.display()).as_slice(),
-                          (),
-                          |()| match File::open(&bc_path).read_to_end() {
-                              Ok(buf) => Some(buf),
-                              Err(e) => {
-                                  sess.err(format!("error reading file `{}`: `{}`",
-                                                   bc_path.display(), e).as_slice());
-                                  None
-                              }
-                          } )
-                 }));
-        let tc_mod = iter.fold(None, |m, (name, bc)| {
-            let bc: Vec<u8> = bc;
-            link_buf_into_module(sess,
-                                 trans.context,
-                                 m,
-                                 *name,
-                                 bc.as_slice())
-        });
-
-        let tc_mod = sess.opts.cg.extra_bitcode
-            .iter()
-            .map(|file| Path::new(file.clone()) )
-            .fold(tc_mod, |m, extra| {
-                match File::open(&extra).read_to_end() {
-                    Ok(buf) => link_buf_into_module(sess,
-                                                    trans.context,
-                                                    m,
-                                                    extra.display().as_maybe_owned().as_slice(),
-                                                    buf.as_slice()),
-                    Err(e) => {
-                        sess.err(format!("error reading file `{}`: `{}`",
-                                         extra.display(), e).as_slice());
-                        m
-                    }
-                }
-            });
-        sess.abort_if_errors();
-
-        // Merge the toolchain module and our module together.
-        // This also prevents our LLVM tools from stripping debugging info from our
-        // module.
-        save_temp("tc-pre-debug-purge.bc", *tc_mod.get_ref());
-        unsafe {
-            llvm::LLVMRustStripDebugInfo(*tc_mod.get_ref());
-            save_temp("tc-post-debug-purge.bc", *tc_mod.get_ref());
-            if !llvm::LLVMRustLinkInModule(llmod, tc_mod.unwrap()) {
-                llvm_err(sess,
-                         "failed to merge our translated mod with the toolchain mod".to_string());
-            }
-        }
-    }
-
-    {
-        let used = sess.cstore.get_used_libraries().borrow();
-        let mut linked = already_linked_libs
-            (sess, &sess.cstore.get_used_crates(cstore::RequireStatic));
-        let lib_paths = pnacl_lib_paths(sess);
-
-        // Ignore all messages about invalid debug versions (toolchain libraries
-        // cause an abundance of these):
-        unsafe {
-            llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
-        }
-
-        (*used)
-            .iter()
-            .filter_map(|&(ref lib, kind)| {
-                link_attrs_filter(sess, lib, kind, &mut linked, &lib_paths)
-            })
-            .fold((), |(), (l, p): (String, Path)| {
-                use llvm::archive_ro::ArchiveRO;
-                debug!("processing archive `{}`", p.display());
-                let archive = ArchiveRO::open(&p)
-                    .expect("maybe invalid archive?");
-                archive.foreach_child(|name, bc| {
-                    debug!("processing object `{}`", name);
-                    let name_path = Path::new(name);
-                    let name_ext_str = name_path.extension_str();
-                    if name_ext_str == Some("o") || name_ext_str == Some("obj") {
-                        link_buf_into_module(sess,
-                                             trans.context,
-                                             Some(llmod),
-                                             l.as_slice(),
-                                             bc.as_slice());
-                    }
-            });
-        });
-
-        unsafe {
-            llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(trans.context);
-        }
-    }
-
-    // Some globals in the bitcode from PNaCl have what is considered invalid
-    // linkage in our LLVM (their LLVM is old). Fortunately, all linkage types
-    // get stripped later, so it's safe to just ignore them all.
-    let tm = write::run_passes_on_mod(sess,
-                                      trans,
-                                      llmod,
-                                      outputs,
-                                      true,
-                                      false)
-        .unwrap();
-
-    if sess.opts.cg.save_temps {
-        outputs.with_extension("post-opt.bc").with_c_str(|buf| unsafe {
-            llvm::LLVMWriteBitcodeToFile(llmod, buf);
-        })
-    }
-
-    let pre_link_path = outputs.with_extension("pre-link.bc");
-    pre_link_path.with_c_str(|buf| unsafe {
-        llvm::LLVMWriteBitcodeToFile(llmod, buf);
-        llvm::LLVMDisposeModule(trans.module);
-    });
-    trans.module = ptr::mut_null();
-
     let post_link_path = outputs.with_extension("post-link.bc");
 
     let linker = pnacl_host_tool(sess, "ld.gold");
@@ -1692,7 +838,15 @@ pub fn link_pnacl_module(sess: &Session,
               "--undefined=exit",
               "--undefined=_exit",
               ]);
-    cmd.arg(&pre_link_path);
+    for (index, mtrans) in trans.modules.iter().enumerate() {
+        let f = match mtrans.name {
+            Some(ref name) => outputs.with_extension(format!("{}.bc",
+                                                             name).as_slice()),
+            None => outputs.with_extension(format!("{}.bc",
+                                                   index).as_slice()),
+        };
+        cmd.arg(f);
+    }
     cmd.arg("-o").arg(&post_link_path);
 
     cmd.arg("-L").arg(sess.target_filesearch().get_lib_path());
@@ -1741,15 +895,11 @@ pub fn link_pnacl_module(sess: &Session,
             sess.abort_if_errors();
         }
     }
-
-    if !sess.opts.cg.save_temps {
-        remove(sess, &pre_link_path);
-    }
-
+    let llcx = unsafe { llvm::LLVMContextCreate() };
     // Now load the linked module and run LTO + a limited set of passes to cleanup:
-    trans.module = match File::open(&post_link_path).read_to_end() {
+    let llmod = match File::open(&post_link_path).read_to_end() {
         Ok(buf) => link_buf_into_module(sess,
-                                        trans.context,
+                                        llcx,
                                         None,
                                         post_link_path.display().as_maybe_owned().as_slice(),
                                         buf.as_slice()).unwrap(),
@@ -1758,7 +908,6 @@ pub fn link_pnacl_module(sess: &Session,
                                post_link_path.display(), e).as_slice());
         }
     };
-    let llmod = trans.module;
 
     if !sess.opts.cg.save_temps {
         remove(sess, &post_link_path);
@@ -1790,6 +939,7 @@ pub fn link_pnacl_module(sess: &Session,
     if !sess.opts.cg.no_prepopulate_passes {
         unsafe {
             let pm = llvm::LLVMCreatePassManager();
+            let tm = write::create_target_machine(sess);
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
 
             let ap = |s| {
@@ -1843,11 +993,8 @@ pub fn link_pnacl_module(sess: &Session,
                  |()| llvm::LLVMRunPassManager(pm, llmod) );
 
             llvm::LLVMDisposePassManager(pm);
+            llvm::LLVMRustDisposeTargetMachine(tm);
         }
-    }
-
-    unsafe {
-        llvm::LLVMRustDisposeTargetMachine(tm);
     }
 
     let mut warn_about_debuginfo = true;
@@ -1920,7 +1067,7 @@ pub fn link_pnacl_module(sess: &Session,
         sess.check_writeable_output(&out, "final output");
         out.with_c_str(|output| unsafe {
             if !llvm::LLVMRustWritePNaClBitcode(llmod, output, false) {
-                llvm_err(sess, "failed to write output file".to_string());
+                llvm_err(&sess.diagnostic().handler, "failed to write output file".to_string());
             }
         });
     } else {
@@ -1930,15 +1077,15 @@ pub fn link_pnacl_module(sess: &Session,
             llvm::LLVMWriteBitcodeToFile(llmod, buf);
         })
     }
+    unsafe {
+        llvm::LLVMContextDispose(llcx);
+    }
 }
 
 fn archive_search_paths(sess: &Session) -> Vec<Path> {
     let mut rustpath = filesearch::rust_path();
     rustpath.push(sess.target_filesearch().get_lib_path());
-    // FIXME: Addl lib search paths are an unordered HashSet?
-    // Shouldn't this search be done in some order?
-    let addl_lib_paths: HashSet<Path> = sess.opts.addl_lib_search_paths.borrow().clone();
-    let mut search: Vec<Path> = addl_lib_paths.move_iter().collect();
+    let mut search: Vec<Path> = sess.opts.addl_lib_search_paths.borrow().clone();
     search.push_all(rustpath.as_slice());
     return search;
 }
@@ -2011,7 +1158,7 @@ fn link_rlib<'a>(sess: &'a Session,
             // contain the metadata in a separate file. We use a temp directory
             // here so concurrent builds in the same directory don't try to use
             // the same filename for metadata (stomping over one another)
-            let tmpdir = TempDir::new("rustc").expect("needs a temp dir");
+            let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
             let metadata = tmpdir.path().join(METADATA_FILENAME);
             match fs::File::create(&metadata).write(trans.metadata
                                                          .as_slice()) {
@@ -2026,51 +1173,56 @@ fn link_rlib<'a>(sess: &'a Session,
             ab.add_file(&metadata).unwrap();
             remove(sess, &metadata);
 
-            // For LTO purposes, the bytecode of this library is also inserted
-            // into the archive.
-            //
-            // Note that we make sure that the bytecode filename in the archive
-            // is never exactly 16 bytes long by adding a 16 byte extension to
-            // it. This is to work around a bug in LLDB that would cause it to
-            // crash if the name of a file in an archive was exactly 16 bytes.
-            let bc_filename = obj_filename.with_extension("bc");
-            let bc_deflated_filename = obj_filename.with_extension("bytecode.deflate");
+            if sess.opts.cg.codegen_units == 1 {
+                // For LTO purposes, the bytecode of this library is also
+                // inserted into the archive.  We currently do this only when
+                // codegen_units == 1, so we don't have to deal with multiple
+                // bitcode files per crate.
+                //
+                // Note that we make sure that the bytecode filename in the
+                // archive is never exactly 16 bytes long by adding a 16 byte
+                // extension to it. This is to work around a bug in LLDB that
+                // would cause it to crash if the name of a file in an archive
+                // was exactly 16 bytes.
+                let bc_filename = obj_filename.with_extension("bc");
+                let bc_deflated_filename = obj_filename.with_extension("bytecode.deflate");
 
-            let bc_data = match fs::File::open(&bc_filename).read_to_end() {
-                Ok(buffer) => buffer,
-                Err(e) => sess.fatal(format!("failed to read bytecode: {}",
-                                             e).as_slice())
-            };
+                let bc_data = match fs::File::open(&bc_filename).read_to_end() {
+                    Ok(buffer) => buffer,
+                    Err(e) => sess.fatal(format!("failed to read bytecode: {}",
+                                                 e).as_slice())
+                };
 
-            let bc_data_deflated = match flate::deflate_bytes(bc_data.as_slice()) {
-                Some(compressed) => compressed,
-                None => sess.fatal(format!("failed to compress bytecode from {}",
-                                           bc_filename.display()).as_slice())
-            };
+                let bc_data_deflated = match flate::deflate_bytes(bc_data.as_slice()) {
+                    Some(compressed) => compressed,
+                    None => sess.fatal(format!("failed to compress bytecode from {}",
+                                               bc_filename.display()).as_slice())
+                };
 
-            let mut bc_file_deflated = match fs::File::create(&bc_deflated_filename) {
-                Ok(file) => file,
-                Err(e) => {
-                    sess.fatal(format!("failed to create compressed bytecode \
-                                        file: {}", e).as_slice())
+                let mut bc_file_deflated = match fs::File::create(&bc_deflated_filename) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        sess.fatal(format!("failed to create compressed bytecode \
+                                            file: {}", e).as_slice())
+                    }
+                };
+
+                match write_rlib_bytecode_object_v1(&mut bc_file_deflated,
+                                                    bc_data_deflated.as_slice()) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        sess.err(format!("failed to write compressed bytecode: \
+                                          {}", e).as_slice());
+                        sess.abort_if_errors()
+                    }
+                };
+
+                ab.add_file(&bc_deflated_filename).unwrap();
+                remove(sess, &bc_deflated_filename);
+                if !sess.opts.cg.save_temps &&
+                   !sess.opts.output_types.contains(&OutputTypeBitcode) {
+                    remove(sess, &bc_filename);
                 }
-            };
-
-            match write_rlib_bytecode_object_v1(&mut bc_file_deflated,
-                                                bc_data_deflated.as_slice()) {
-                Ok(()) => {}
-                Err(e) => {
-                    sess.err(format!("failed to write compressed bytecode: \
-                                      {}", e).as_slice());
-                    sess.abort_if_errors()
-                }
-            };
-
-            ab.add_file(&bc_deflated_filename).unwrap();
-            remove(sess, &bc_deflated_filename);
-            if !sess.opts.cg.save_temps &&
-               !sess.opts.output_types.contains(&OutputTypeBitcode) {
-                remove(sess, &bc_filename);
             }
         }
 
@@ -2171,7 +1323,7 @@ fn link_staticlib(sess: &Session, obj_filename: &Path, out_filename: &Path) {
 // links to all upstream files as well.
 fn link_natively(sess: &Session, trans: &CrateTranslation, dylib: bool,
                  obj_filename: &Path, out_filename: &Path) {
-    let tmpdir = TempDir::new("rustc").expect("needs a temp dir");
+    let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
 
     // The invocations of cc share some flags across platforms
     let pname = get_cc_prog(sess);
@@ -2378,6 +1530,12 @@ fn link_args(cmd: &mut Command,
 
         // Mark all dynamic libraries and executables as compatible with ASLR
         cmd.arg("-Wl,--dynamicbase");
+
+        // Mark all dynamic libraries and executables as compatible with the larger 4GiB address
+        // space available to x86 Windows binaries on x86_64.
+        if sess.targ_cfg.arch == abi::X86 {
+            cmd.arg("-Wl,--large-address-aware");
+        }
     }
 
     if sess.targ_cfg.os == abi::OsAndroid {

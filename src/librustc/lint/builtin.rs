@@ -172,33 +172,24 @@ impl LintPass for TypeLimits {
             ast::ExprLit(lit) => {
                 match ty::get(ty::expr_ty(cx.tcx, e)).sty {
                     ty::ty_int(t) => {
-                        let int_type = if t == ast::TyI {
-                            cx.sess().targ_cfg.int_type
-                        } else { t };
-                        let (min, max) = int_ty_range(int_type);
-                        let mut lit_val: i64 = match lit.node {
+                        match lit.node {
                             ast::LitInt(v, ast::SignedIntLit(_, ast::Plus)) |
                             ast::LitInt(v, ast::UnsuffixedIntLit(ast::Plus)) => {
-                                if v > i64::MAX as u64{
+                                let int_type = if t == ast::TyI {
+                                    cx.sess().targ_cfg.int_type
+                                } else { t };
+                                let (min, max) = int_ty_range(int_type);
+                                let negative = self.negated_expr_id == e.id;
+
+                                if (negative && v > (min.abs() as u64)) ||
+                                   (!negative && v > (max.abs() as u64)) {
                                     cx.span_lint(TYPE_OVERFLOW, e.span,
                                                  "literal out of range for its type");
                                     return;
                                 }
-                                v as i64
-                            }
-                            ast::LitInt(v, ast::SignedIntLit(_, ast::Minus)) |
-                            ast::LitInt(v, ast::UnsuffixedIntLit(ast::Minus)) => {
-                                -(v as i64)
                             }
                             _ => fail!()
                         };
-                        if self.negated_expr_id == e.id {
-                            lit_val *= -1;
-                        }
-                        if lit_val < min || lit_val > max {
-                            cx.span_lint(TYPE_OVERFLOW, e.span,
-                                         "literal out of range for its type");
-                        }
                     },
                     ty::ty_uint(t) => {
                         let uint_type = if t == ast::TyU {
@@ -340,11 +331,11 @@ impl LintPass for TypeLimits {
 declare_lint!(CTYPES, Warn,
               "proper use of libc types in foreign modules")
 
-struct CTypesVisitor<'a> {
-    cx: &'a Context<'a>
+struct CTypesVisitor<'a, 'tcx: 'a> {
+    cx: &'a Context<'a, 'tcx>
 }
 
-impl<'a> CTypesVisitor<'a> {
+impl<'a, 'tcx> CTypesVisitor<'a, 'tcx> {
     fn check_def(&mut self, sp: Span, ty_id: ast::NodeId, path_id: ast::NodeId) {
         match self.cx.tcx.def_map.borrow().get_copy(&path_id) {
             def::DefPrimTy(ast::TyInt(ast::TyI)) => {
@@ -375,7 +366,7 @@ impl<'a> CTypesVisitor<'a> {
     }
 }
 
-impl<'a> Visitor<()> for CTypesVisitor<'a> {
+impl<'a, 'tcx> Visitor<()> for CTypesVisitor<'a, 'tcx> {
     fn visit_ty(&mut self, ty: &ast::Ty, _: ()) {
         match ty.node {
             ast::TyPath(_, _, id) => self.check_def(ty.span, ty.id, id),
@@ -505,11 +496,11 @@ impl LintPass for HeapMemory {
 declare_lint!(RAW_POINTER_DERIVING, Warn,
               "uses of #[deriving] with raw pointers are rarely correct")
 
-struct RawPtrDerivingVisitor<'a> {
-    cx: &'a Context<'a>
+struct RawPtrDerivingVisitor<'a, 'tcx: 'a> {
+    cx: &'a Context<'a, 'tcx>
 }
 
-impl<'a> Visitor<()> for RawPtrDerivingVisitor<'a> {
+impl<'a, 'tcx> Visitor<()> for RawPtrDerivingVisitor<'a, 'tcx> {
     fn visit_ty(&mut self, ty: &ast::Ty, _: ()) {
         static MSG: &'static str = "use of `#[deriving]` with a raw pointer";
         match ty.node {
@@ -1065,6 +1056,7 @@ impl UnnecessaryParens {
                 ast::ExprUnary(_, ref x) |
                 ast::ExprCast(ref x, _) |
                 ast::ExprField(ref x, _, _) |
+                ast::ExprTupField(ref x, _, _) |
                 ast::ExprIndex(ref x, _) => {
                     // &X { y: 1 }, X { y: 1 }.y
                     contains_exterior_struct_lit(&**x)

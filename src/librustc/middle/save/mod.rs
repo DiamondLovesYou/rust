@@ -74,9 +74,9 @@ fn generated_code(span: Span) -> bool {
     span.expn_info.is_some() || span  == DUMMY_SP
 }
 
-struct DxrVisitor<'l> {
+struct DxrVisitor<'l, 'tcx: 'l> {
     sess: &'l Session,
-    analysis: &'l CrateAnalysis,
+    analysis: &'l CrateAnalysis<'tcx>,
 
     collected_paths: Vec<(NodeId, ast::Path, bool, recorder::Row)>,
     collecting: bool,
@@ -85,7 +85,7 @@ struct DxrVisitor<'l> {
     fmt: FmtStrs<'l>,
 }
 
-impl <'l> DxrVisitor<'l> {
+impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
     fn dump_crate_info(&mut self, name: &str, krate: &ast::Crate) {
         // the current crate
         self.fmt.crate_str(krate.span, name);
@@ -1023,7 +1023,7 @@ impl <'l> DxrVisitor<'l> {
     }
 }
 
-impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
+impl<'l, 'tcx> Visitor<DxrVisitorEnv> for DxrVisitor<'l, 'tcx> {
     fn visit_item(&mut self, item:&ast::Item, e: DxrVisitorEnv) {
         if generated_code(item.span) {
             return
@@ -1300,6 +1300,34 @@ impl<'l> Visitor<DxrVisitorEnv> for DxrVisitor<'l> {
                         let fields = ty::lookup_struct_fields(&self.analysis.ty_cx, def_id);
                         for f in fields.iter() {
                             if f.name == ident.node.name {
+                                let sub_span = self.span.span_for_last_ident(ex.span);
+                                self.fmt.ref_str(recorder::VarRef,
+                                                 ex.span,
+                                                 sub_span,
+                                                 f.id,
+                                                 e.cur_scope);
+                                break;
+                            }
+                        }
+                    },
+                    _ => self.sess.span_bug(ex.span,
+                                            "Expected struct type, but not ty_struct"),
+                }
+            },
+            ast::ExprTupField(sub_ex, idx, _) => {
+                if generated_code(sub_ex.span) {
+                    return
+                }
+
+                self.visit_expr(&*sub_ex, e);
+
+                let t = ty::expr_ty_adjusted(&self.analysis.ty_cx, &*sub_ex);
+                let t_box = ty::get(t);
+                match t_box.sty {
+                    ty::ty_struct(def_id, _) => {
+                        let fields = ty::lookup_struct_fields(&self.analysis.ty_cx, def_id);
+                        for (i, f) in fields.iter().enumerate() {
+                            if i == idx.node {
                                 let sub_span = self.span.span_for_last_ident(ex.span);
                                 self.fmt.ref_str(recorder::VarRef,
                                                  ex.span,

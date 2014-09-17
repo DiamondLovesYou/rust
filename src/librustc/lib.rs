@@ -42,8 +42,8 @@ extern crate flate;
 extern crate getopts;
 extern crate graphviz;
 extern crate libc;
-extern crate "rustc_llvm" as llvm;
-extern crate "rustc_back" as rustc_back;
+extern crate rustc_llvm;
+extern crate rustc_back;
 extern crate serialize;
 extern crate rbml;
 extern crate time;
@@ -52,6 +52,8 @@ extern crate time;
 
 #[cfg(test)]
 extern crate test;
+
+pub use rustc_llvm as llvm;
 
 mod diagnostics;
 
@@ -70,6 +72,7 @@ pub mod back {
 
     pub mod link;
     pub mod lto;
+    pub mod write;
 
 }
 
@@ -80,6 +83,7 @@ pub mod middle {
     pub mod check_const;
     pub mod check_loop;
     pub mod check_match;
+    pub mod check_rvalues;
     pub mod check_static;
     pub mod const_eval;
     pub mod dataflow;

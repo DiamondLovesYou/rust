@@ -19,8 +19,8 @@ use util::nodemap::NodeMap;
 
 use std::gc::Gc;
 
-struct CFGBuilder<'a> {
-    tcx: &'a ty::ctxt,
+struct CFGBuilder<'a, 'tcx: 'a> {
+    tcx: &'a ty::ctxt<'tcx>,
     exit_map: NodeMap<CFGIndex>,
     graph: CFGGraph,
     fn_exit: CFGIndex,
@@ -65,7 +65,7 @@ fn add_initial_dummy_node(g: &mut CFGGraph) -> CFGIndex {
     g.add_node(CFGNodeData { id: ast::DUMMY_NODE_ID })
 }
 
-impl<'a> CFGBuilder<'a> {
+impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
     fn block(&mut self, blk: &ast::Block, pred: CFGIndex) -> CFGIndex {
         let mut stmts_exit = pred;
         for stmt in blk.stmts.iter() {
@@ -467,7 +467,8 @@ impl<'a> CFGBuilder<'a> {
             ast::ExprCast(e, _) |
             ast::ExprUnary(_, e) |
             ast::ExprParen(e) |
-            ast::ExprField(e, _, _) => {
+            ast::ExprField(e, _, _) |
+            ast::ExprTupField(e, _, _) => {
                 self.straightline(expr, pred, [e])
             }
 

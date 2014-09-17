@@ -12,9 +12,8 @@
 // FIXME: #13996: mark the `allocate` and `reallocate` return value as `noalias`
 //                and `nonnull`
 
-use core::ptr::RawPtr;
 #[cfg(not(test))] use core::raw;
-#[cfg(not(test))] use util;
+#[cfg(stage0, not(test))] use util;
 
 /// Returns a pointer to `size` bytes of memory.
 ///
@@ -70,11 +69,6 @@ pub unsafe fn reallocate_inplace(ptr: *mut u8, size: uint, align: uint,
 /// the value returned by `usable_size` for the requested size.
 #[inline]
 pub unsafe fn deallocate(ptr: *mut u8, size: uint, align: uint) {
-    // FIXME(14395) This is only required for DST ~[T], it should be removed once
-    // we fix that representation to not use null pointers.
-    if ptr.is_null() {
-        return;
-    }
     imp::deallocate(ptr, size, align)
 }
 
@@ -119,7 +113,7 @@ unsafe fn exchange_free(ptr: *mut u8, size: uint, align: uint) {
 }
 
 // FIXME: #7496
-#[cfg(not(test))]
+#[cfg(stage0, not(test))]
 #[lang="closure_exchange_malloc"]
 #[inline]
 #[allow(deprecated)]
@@ -134,12 +128,40 @@ unsafe fn closure_exchange_malloc(drop_glue: fn(*mut u8), size: uint,
     alloc as *mut u8
 }
 
+// FIXME: #7496
+#[cfg(not(stage0), not(test))]
+#[lang="closure_exchange_malloc"]
+#[inline]
+#[allow(deprecated)]
+unsafe fn closure_exchange_malloc(drop_glue: fn(*mut u8), size: uint,
+                                  align: uint) -> *mut u8 {
+    let p = allocate(size, align);
+
+    let alloc = p as *mut raw::Box<()>;
+    (*alloc).drop_glue = drop_glue;
+
+    alloc as *mut u8
+}
+
+// The minimum alignment guaranteed by the architecture. This value is used to
+// add fast paths for low alignment values. In practice, the alignment is a
+// constant at the call site and the branch will be optimized out.
+#[cfg(target_arch = "arm")]
+#[cfg(target_arch = "mips")]
+#[cfg(target_arch = "mipsel")]
+static MIN_ALIGN: uint = 8;
+#[cfg(target_arch = "x86")]
+#[cfg(target_arch = "x86_64")]
+#[cfg(target_arch = "le32")]
+static MIN_ALIGN: uint = 16;
+
 #[cfg(jemalloc)]
 mod imp {
     use core::option::{None, Option};
     use core::ptr::{RawPtr, mut_null, null};
     use core::num::Int;
     use libc::{c_char, c_int, c_void, size_t};
+    use super::MIN_ALIGN;
 
     #[link(name = "jemalloc", kind = "static")]
     #[cfg(not(test))]
@@ -151,7 +173,10 @@ mod imp {
                       flags: c_int) -> *mut c_void;
         fn je_xallocx(ptr: *mut c_void, size: size_t, extra: size_t,
                       flags: c_int) -> size_t;
+        #[cfg(stage0)]
         fn je_dallocx(ptr: *mut c_void, flags: c_int);
+        #[cfg(not(stage0))]
+        fn je_sdallocx(ptr: *mut c_void, size: size_t, flags: c_int);
         fn je_nallocx(size: size_t, flags: c_int) -> size_t;
         fn je_malloc_stats_print(write_cb: Option<extern "C" fn(cbopaque: *mut c_void,
                                                                 *const c_char)>,
@@ -168,9 +193,15 @@ mod imp {
     #[inline(always)]
     fn mallocx_align(a: uint) -> c_int { a.trailing_zeros() as c_int }
 
+    #[inline(always)]
+    fn align_to_flags(align: uint) -> c_int {
+        if align <= MIN_ALIGN { 0 } else { mallocx_align(align) }
+    }
+
     #[inline]
     pub unsafe fn allocate(size: uint, align: uint) -> *mut u8 {
-        let ptr = je_mallocx(size as size_t, mallocx_align(align)) as *mut u8;
+        let flags = align_to_flags(align);
+        let ptr = je_mallocx(size as size_t, flags) as *mut u8;
         if ptr.is_null() {
             ::oom()
         }
@@ -180,8 +211,8 @@ mod imp {
     #[inline]
     pub unsafe fn reallocate(ptr: *mut u8, size: uint, align: uint,
                              _old_size: uint) -> *mut u8 {
-        let ptr = je_rallocx(ptr as *mut c_void, size as size_t,
-                             mallocx_align(align)) as *mut u8;
+        let flags = align_to_flags(align);
+        let ptr = je_rallocx(ptr as *mut c_void, size as size_t, flags) as *mut u8;
         if ptr.is_null() {
             ::oom()
         }
@@ -191,18 +222,28 @@ mod imp {
     #[inline]
     pub unsafe fn reallocate_inplace(ptr: *mut u8, size: uint, align: uint,
                                      _old_size: uint) -> bool {
-        je_xallocx(ptr as *mut c_void, size as size_t, 0,
-                   mallocx_align(align)) == size as size_t
+        let flags = align_to_flags(align);
+        je_xallocx(ptr as *mut c_void, size as size_t, 0, flags) == size as size_t
     }
 
     #[inline]
+    #[cfg(stage0)]
     pub unsafe fn deallocate(ptr: *mut u8, _size: uint, align: uint) {
-        je_dallocx(ptr as *mut c_void, mallocx_align(align))
+        let flags = align_to_flags(align);
+        je_dallocx(ptr as *mut c_void, flags)
+    }
+
+    #[inline]
+    #[cfg(not(stage0))]
+    pub unsafe fn deallocate(ptr: *mut u8, size: uint, align: uint) {
+        let flags = align_to_flags(align);
+        je_sdallocx(ptr as *mut c_void, size as size_t, flags)
     }
 
     #[inline]
     pub fn usable_size(size: uint, align: uint) -> uint {
-        unsafe { je_nallocx(size as size_t, mallocx_align(align)) as uint }
+        let flags = align_to_flags(align);
+        unsafe { je_nallocx(size as size_t, flags) as uint }
     }
 
     pub fn stats_print() {
@@ -219,6 +260,7 @@ mod imp {
     use core::ptr;
     use libc;
     use libc_heap;
+    use super::MIN_ALIGN;
 
     extern {
         fn posix_memalign(memptr: *mut *mut libc::c_void,
@@ -228,16 +270,7 @@ mod imp {
 
     #[inline]
     pub unsafe fn allocate(size: uint, align: uint) -> *mut u8 {
-        // The posix_memalign manpage states
-        //
-        //      alignment [...] must be a power of and a multiple of
-        //      sizeof(void *)
-        //
-        // The `align` parameter to this function is the *minimum* alignment for
-        // a block of memory, so we special case everything under `*uint` to
-        // just pass it to malloc, which is guaranteed to align to at least the
-        // size of `*uint`.
-        if align < mem::size_of::<uint>() {
+        if align <= MIN_ALIGN {
             libc_heap::malloc_raw(size)
         } else {
             let mut out = 0 as *mut libc::c_void;
@@ -254,10 +287,14 @@ mod imp {
     #[inline]
     pub unsafe fn reallocate(ptr: *mut u8, size: uint, align: uint,
                              old_size: uint) -> *mut u8 {
-        let new_ptr = allocate(size, align);
-        ptr::copy_memory(new_ptr, ptr as *const u8, cmp::min(size, old_size));
-        deallocate(ptr, old_size, align);
-        return new_ptr;
+        if align <= MIN_ALIGN {
+            libc_heap::realloc_raw(ptr, size)
+        } else {
+            let new_ptr = allocate(size, align);
+            ptr::copy_memory(new_ptr, ptr as *const u8, cmp::min(size, old_size));
+            deallocate(ptr, old_size, align);
+            new_ptr
+        }
     }
 
     #[inline]
@@ -276,14 +313,16 @@ mod imp {
         size
     }
 
-    pub fn stats_print() {
-    }
+    pub fn stats_print() {}
 }
 
 #[cfg(not(jemalloc), windows)]
 mod imp {
     use libc::{c_void, size_t};
+    use libc;
+    use libc_heap;
     use core::ptr::RawPtr;
+    use super::MIN_ALIGN;
 
     extern {
         fn _aligned_malloc(size: size_t, align: size_t) -> *mut c_void;
@@ -294,22 +333,30 @@ mod imp {
 
     #[inline]
     pub unsafe fn allocate(size: uint, align: uint) -> *mut u8 {
-        let ptr = _aligned_malloc(size as size_t, align as size_t);
-        if ptr.is_null() {
-            ::oom();
+        if align <= MIN_ALIGN {
+            libc_heap::malloc_raw(size)
+        } else {
+            let ptr = _aligned_malloc(size as size_t, align as size_t);
+            if ptr.is_null() {
+                ::oom();
+            }
+            ptr as *mut u8
         }
-        ptr as *mut u8
     }
 
     #[inline]
     pub unsafe fn reallocate(ptr: *mut u8, size: uint, align: uint,
                              _old_size: uint) -> *mut u8 {
-        let ptr = _aligned_realloc(ptr as *mut c_void, size as size_t,
-                                   align as size_t);
-        if ptr.is_null() {
-            ::oom();
+        if align <= MIN_ALIGN {
+            libc_heap::realloc_raw(ptr, size)
+        } else {
+            let ptr = _aligned_realloc(ptr as *mut c_void, size as size_t,
+                                       align as size_t);
+            if ptr.is_null() {
+                ::oom();
+            }
+            ptr as *mut u8
         }
-        ptr as *mut u8
     }
 
     #[inline]
@@ -319,8 +366,12 @@ mod imp {
     }
 
     #[inline]
-    pub unsafe fn deallocate(ptr: *mut u8, _size: uint, _align: uint) {
-        _aligned_free(ptr as *mut c_void)
+    pub unsafe fn deallocate(ptr: *mut u8, _size: uint, align: uint) {
+        if align <= MIN_ALIGN {
+            libc::free(ptr as *mut libc::c_void)
+        } else {
+            _aligned_free(ptr as *mut c_void)
+        }
     }
 
     #[inline]

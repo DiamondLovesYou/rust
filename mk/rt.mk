@@ -58,6 +58,11 @@ NATIVE_DEPS_rust_builtin_$(1) := rust_builtin.c \
 			rust_android_dummy.c
 NATIVE_DEPS_rustrt_native_$(1) := \
 			rust_try.ll
+
+ifeq ($(1),le32-unknown-nacl)
+NATIVE_DEPS_rustrt_native_$(1) += crtbegin.bc crti.bc sjlj_eh_redirect.bc
+endif
+
 NATIVE_DEPS_rust_test_helpers_$(1) := rust_test_helpers.c
 
 ifneq ($$(RUNTIME_DISABLE_ASM_$(1)), 1)
@@ -86,8 +91,14 @@ $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll $$(MKFILE_DEPS) \
 else
 # le32-unknown-nacl doesn't have a target machine, so llc chokes.
 # Fortunately, PNaCl object files are just bitcode.
-$$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll $$(MKFILE_DEPS) \
-	    $$(LLVM_CONFIG_$$(CFG_BUILD))
+$$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll \
+            $$(MKFILE_DEPS) $$(LLVM_CONFIG_$$(CFG_BUILD))
+	@mkdir -p $$(@D)
+	@$$(call E, compile: $$@)
+	$$(OPT_$$(CFG_BUILD)) -Oz -o $$@ $$<
+
+$$(RT_OUTPUT_DIR_$(1))/%.o: $(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/lib/%.bc \
+            $$(MKFILE_DEPS) $$(LLVM_CONFIG_$$(CFG_BUILD))
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
 	$$(OPT_$$(CFG_BUILD)) -Oz -o $$@ $$<
@@ -122,6 +133,7 @@ OBJS_$(2)_$(1) := $$(OBJS_$(2)_$(1):.c=.o)
 OBJS_$(2)_$(1) := $$(OBJS_$(2)_$(1):.cpp=.o)
 OBJS_$(2)_$(1) := $$(OBJS_$(2)_$(1):.ll=.o)
 OBJS_$(2)_$(1) := $$(OBJS_$(2)_$(1):.S=.o)
+OBJS_$(2)_$(1) := $$(OBJS_$(2)_$(1):.bc=.o)
 NATIVE_$(2)_$(1) := $$(call CFG_STATIC_LIB_NAME_$(1),$(2))
 $$(RT_OUTPUT_DIR_$(1))/$$(NATIVE_$(2)_$(1)): $$(OBJS_$(2)_$(1))
 	@$$(call E, link: $$@)
@@ -318,7 +330,7 @@ JEMALLOC_LOCAL_$(1) := $$(JEMALLOC_BUILD_DIR_$(1))/lib/$$(JEMALLOC_REAL_NAME_$(1
 $$(JEMALLOC_LOCAL_$(1)): $$(JEMALLOC_DEPS) $$(MKFILE_DEPS)
 	@$$(call E, make: jemalloc)
 	cd "$$(JEMALLOC_BUILD_DIR_$(1))"; "$(S)src/jemalloc/configure" \
-		$$(JEMALLOC_ARGS_$(1)) --with-jemalloc-prefix=je_ \
+		$$(JEMALLOC_ARGS_$(1)) --with-jemalloc-prefix=je_ $(CFG_JEMALLOC_FLAGS) \
 		--build=$(CFG_BUILD) --host=$(1) \
 		CC="$$(CC_$(1))" \
 		AR="$$(AR_$(1))" \
@@ -345,7 +357,6 @@ endif
 else
 $$(JEMALLOC_LIB_$(1)): $$(MKFILE_DEPS)
 	$$(Q)touch $$@
-endif
 endif
 
 ################################################################################

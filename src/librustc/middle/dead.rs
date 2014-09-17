@@ -47,9 +47,9 @@ fn should_explore(tcx: &ty::ctxt, def_id: ast::DefId) -> bool {
     }
 }
 
-struct MarkSymbolVisitor<'a> {
+struct MarkSymbolVisitor<'a, 'tcx: 'a> {
     worklist: Vec<ast::NodeId>,
-    tcx: &'a ty::ctxt,
+    tcx: &'a ty::ctxt<'tcx>,
     live_symbols: Box<HashSet<ast::NodeId>>,
 }
 
@@ -58,9 +58,9 @@ struct MarkSymbolVisitorContext {
     struct_has_extern_repr: bool
 }
 
-impl<'a> MarkSymbolVisitor<'a> {
-    fn new(tcx: &'a ty::ctxt,
-           worklist: Vec<ast::NodeId>) -> MarkSymbolVisitor<'a> {
+impl<'a, 'tcx> MarkSymbolVisitor<'a, 'tcx> {
+    fn new(tcx: &'a ty::ctxt<'tcx>,
+           worklist: Vec<ast::NodeId>) -> MarkSymbolVisitor<'a, 'tcx> {
         MarkSymbolVisitor {
             worklist: worklist,
             tcx: tcx,
@@ -139,6 +139,17 @@ impl<'a> MarkSymbolVisitor<'a> {
                 let fields = ty::lookup_struct_fields(self.tcx, id);
                 let field_id = fields.iter()
                     .find(|field| field.name == name.name).unwrap().id;
+                self.live_symbols.insert(field_id.node);
+            },
+            _ => ()
+        }
+    }
+
+    fn handle_tup_field_access(&mut self, lhs: &ast::Expr, idx: uint) {
+        match ty::get(ty::expr_ty_adjusted(self.tcx, lhs)).sty {
+            ty::ty_struct(id, _) => {
+                let fields = ty::lookup_struct_fields(self.tcx, id);
+                let field_id = fields[idx].id;
                 self.live_symbols.insert(field_id.node);
             },
             _ => ()
@@ -232,7 +243,7 @@ impl<'a> MarkSymbolVisitor<'a> {
     }
 }
 
-impl<'a> Visitor<MarkSymbolVisitorContext> for MarkSymbolVisitor<'a> {
+impl<'a, 'tcx> Visitor<MarkSymbolVisitorContext> for MarkSymbolVisitor<'a, 'tcx> {
 
     fn visit_struct_def(&mut self, def: &ast::StructDef, _: ast::Ident, _: &ast::Generics,
                         _: ast::NodeId, ctxt: MarkSymbolVisitorContext) {
@@ -254,6 +265,9 @@ impl<'a> Visitor<MarkSymbolVisitorContext> for MarkSymbolVisitor<'a> {
             }
             ast::ExprField(ref lhs, ref ident, _) => {
                 self.handle_field_access(&**lhs, &ident.node);
+            }
+            ast::ExprTupField(ref lhs, idx, _) => {
+                self.handle_tup_field_access(&**lhs, idx.node);
             }
             _ => ()
         }
@@ -418,12 +432,12 @@ fn get_struct_ctor_id(item: &ast::Item) -> Option<ast::NodeId> {
     }
 }
 
-struct DeadVisitor<'a> {
-    tcx: &'a ty::ctxt,
+struct DeadVisitor<'a, 'tcx: 'a> {
+    tcx: &'a ty::ctxt<'tcx>,
     live_symbols: Box<HashSet<ast::NodeId>>,
 }
 
-impl<'a> DeadVisitor<'a> {
+impl<'a, 'tcx> DeadVisitor<'a, 'tcx> {
     fn should_warn_about_field(&mut self, node: &ast::StructField_) -> bool {
         let is_named = node.ident().is_some();
         let field_type = ty::node_id_to_type(self.tcx, node.id);
@@ -490,7 +504,7 @@ impl<'a> DeadVisitor<'a> {
     }
 }
 
-impl<'a> Visitor<()> for DeadVisitor<'a> {
+impl<'a, 'tcx> Visitor<()> for DeadVisitor<'a, 'tcx> {
     fn visit_item(&mut self, item: &ast::Item, _: ()) {
         let ctor_id = get_struct_ctor_id(item);
         if !self.symbol_is_live(item.id, ctor_id) && should_warn(item) {

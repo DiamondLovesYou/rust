@@ -150,7 +150,7 @@ pub enum MutabilityCategory {
 // like `*x`, the type of this deref node is the deref'd type (`T`),
 // but in a pattern like `@x`, the `@x` pattern is again a
 // dereference, but its type is the type *before* the dereference
-// (`@T`). So use `cmt.type` to find the type of the value in a consistent
+// (`@T`). So use `cmt.ty` to find the type of the value in a consistent
 // fashion. For more details, see the method `cat_pattern`
 #[deriving(Clone, PartialEq)]
 pub struct cmt_ {
@@ -264,8 +264,8 @@ pub type McResult<T> = Result<T, ()>;
  * know that no errors have occurred, so we simply consult the tcx and we
  * can be sure that only `Ok` results will occur.
  */
-pub trait Typer {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt;
+pub trait Typer<'tcx> {
+    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx>;
     fn node_ty(&self, id: ast::NodeId) -> McResult<ty::t>;
     fn node_method_ty(&self, method_call: typeck::MethodCall) -> Option<ty::t>;
     fn adjustments<'a>(&'a self) -> &'a RefCell<NodeMap<ty::AutoAdjustment>>;
@@ -375,12 +375,12 @@ macro_rules! if_ok(
     )
 )
 
-impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
+impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
     pub fn new(typer: &'t TYPER) -> MemCategorizationContext<'t,TYPER> {
         MemCategorizationContext { typer: typer }
     }
 
-    fn tcx(&self) -> &'t ty::ctxt {
+    fn tcx(&self) -> &'t ty::ctxt<'tcx> {
         self.typer.tcx()
     }
 
@@ -463,6 +463,11 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
           ast::ExprField(ref base, f_name, _) => {
             let base_cmt = if_ok!(self.cat_expr(&**base));
             Ok(self.cat_field(expr, base_cmt, f_name.node, expr_ty))
+          }
+
+          ast::ExprTupField(ref base, idx, _) => {
+            let base_cmt = if_ok!(self.cat_expr(&**base));
+            Ok(self.cat_tup_field(expr, base_cmt, idx.node, expr_ty))
           }
 
           ast::ExprIndex(ref base, _) => {
@@ -733,6 +738,21 @@ impl<'t,TYPER:Typer> MemCategorizationContext<'t,TYPER> {
             span: node.span(),
             mutbl: base_cmt.mutbl.inherit(),
             cat: cat_interior(base_cmt, InteriorField(NamedField(f_name.name))),
+            ty: f_ty
+        })
+    }
+
+    pub fn cat_tup_field<N:ast_node>(&self,
+                                     node: &N,
+                                     base_cmt: cmt,
+                                     f_idx: uint,
+                                     f_ty: ty::t)
+                                     -> cmt {
+        Rc::new(cmt_ {
+            id: node.id(),
+            span: node.span(),
+            mutbl: base_cmt.mutbl.inherit(),
+            cat: cat_interior(base_cmt, InteriorField(PositionalField(f_idx))),
             ty: f_ty
         })
     }

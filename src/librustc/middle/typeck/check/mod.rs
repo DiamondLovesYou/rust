@@ -89,7 +89,7 @@ use middle::subst;
 use middle::subst::{Subst, Substs, VecPerParamSpace, ParamSpace};
 use middle::ty::{FnSig, VariantInfo};
 use middle::ty::{Polytype};
-use middle::ty::{Disr, ExprTyProvider, ParamTy, ParameterEnvironment};
+use middle::ty::{Disr, ParamTy, ParameterEnvironment};
 use middle::ty;
 use middle::ty_fold::TypeFolder;
 use middle::typeck::astconv::AstConv;
@@ -159,8 +159,8 @@ pub mod method;
 /// Here, the function `foo()` and the closure passed to
 /// `bar()` will each have their own `FnCtxt`, but they will
 /// share the inherited fields.
-pub struct Inherited<'a> {
-    infcx: infer::InferCtxt<'a>,
+pub struct Inherited<'a, 'tcx: 'a> {
+    infcx: infer::InferCtxt<'a, 'tcx>,
     locals: RefCell<NodeMap<ty::t>>,
     param_env: ty::ParameterEnvironment,
 
@@ -267,7 +267,7 @@ enum IsBinopAssignment{
 }
 
 #[deriving(Clone)]
-pub struct FnCtxt<'a> {
+pub struct FnCtxt<'a, 'tcx: 'a> {
     body_id: ast::NodeId,
 
     // This flag is set to true if, during the writeback phase, we encounter
@@ -284,13 +284,13 @@ pub struct FnCtxt<'a> {
 
     ps: RefCell<FnStyleState>,
 
-    inh: &'a Inherited<'a>,
+    inh: &'a Inherited<'a, 'tcx>,
 
-    ccx: &'a CrateCtxt<'a>,
+    ccx: &'a CrateCtxt<'a, 'tcx>,
 }
 
-impl<'a> mem_categorization::Typer for FnCtxt<'a> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt {
+impl<'a, 'tcx> mem_categorization::Typer<'tcx> for FnCtxt<'a, 'tcx> {
+    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> {
         self.ccx.tcx
     }
     fn node_ty(&self, id: ast::NodeId) -> McResult<ty::t> {
@@ -322,10 +322,10 @@ impl<'a> mem_categorization::Typer for FnCtxt<'a> {
     }
 }
 
-impl<'a> Inherited<'a> {
-    fn new(tcx: &'a ty::ctxt,
+impl<'a, 'tcx> Inherited<'a, 'tcx> {
+    fn new(tcx: &'a ty::ctxt<'tcx>,
            param_env: ty::ParameterEnvironment)
-           -> Inherited<'a> {
+           -> Inherited<'a, 'tcx> {
         Inherited {
             infcx: infer::new_infer_ctxt(tcx),
             locals: RefCell::new(NodeMap::new()),
@@ -344,12 +344,11 @@ impl<'a> Inherited<'a> {
 }
 
 // Used by check_const and check_enum_variants
-pub fn blank_fn_ctxt<'a>(
-                     ccx: &'a CrateCtxt<'a>,
-                     inh: &'a Inherited<'a>,
-                     rty: ty::t,
-                     body_id: ast::NodeId)
-                     -> FnCtxt<'a> {
+pub fn blank_fn_ctxt<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
+                               inh: &'a Inherited<'a, 'tcx>,
+                               rty: ty::t,
+                               body_id: ast::NodeId)
+                               -> FnCtxt<'a, 'tcx> {
     FnCtxt {
         body_id: body_id,
         writeback_errors: Cell::new(false),
@@ -361,7 +360,8 @@ pub fn blank_fn_ctxt<'a>(
     }
 }
 
-fn static_inherited_fields<'a>(ccx: &'a CrateCtxt<'a>) -> Inherited<'a> {
+fn static_inherited_fields<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>)
+                                    -> Inherited<'a, 'tcx> {
     // It's kind of a kludge to manufacture a fake function context
     // and statement context, but we might as well do write the code only once
     let param_env = ty::ParameterEnvironment {
@@ -372,37 +372,29 @@ fn static_inherited_fields<'a>(ccx: &'a CrateCtxt<'a>) -> Inherited<'a> {
     Inherited::new(ccx.tcx, param_env)
 }
 
-impl<'a> ExprTyProvider for FnCtxt<'a> {
-    fn expr_ty(&self, ex: &ast::Expr) -> ty::t {
-        self.expr_ty(ex)
-    }
+struct CheckItemTypesVisitor<'a, 'tcx: 'a> { ccx: &'a CrateCtxt<'a, 'tcx> }
+struct CheckTypeWellFormedVisitor<'a, 'tcx: 'a> { ccx: &'a CrateCtxt<'a, 'tcx> }
 
-    fn ty_ctxt<'a>(&'a self) -> &'a ty::ctxt {
-        self.ccx.tcx
-    }
-}
-
-struct CheckTypeWellFormedVisitor<'a> { ccx: &'a CrateCtxt<'a> }
-
-impl<'a> Visitor<()> for CheckTypeWellFormedVisitor<'a> {
+impl<'a, 'tcx> Visitor<()> for CheckTypeWellFormedVisitor<'a, 'tcx> {
     fn visit_item(&mut self, i: &ast::Item, _: ()) {
         check_type_well_formed(self.ccx, i);
         visit::walk_item(self, i, ());
     }
 }
 
-struct CheckItemTypesVisitor<'a> { ccx: &'a CrateCtxt<'a> }
 
-impl<'a> Visitor<()> for CheckItemTypesVisitor<'a> {
+impl<'a, 'tcx> Visitor<()> for CheckItemTypesVisitor<'a, 'tcx> {
     fn visit_item(&mut self, i: &ast::Item, _: ()) {
         check_item(self.ccx, i);
         visit::walk_item(self, i, ());
     }
 }
 
-struct CheckItemSizedTypesVisitor<'a> { ccx: &'a CrateCtxt<'a> }
+struct CheckItemSizedTypesVisitor<'a, 'tcx: 'a> {
+    ccx: &'a CrateCtxt<'a, 'tcx>
+}
 
-impl<'a> Visitor<()> for CheckItemSizedTypesVisitor<'a> {
+impl<'a, 'tcx> Visitor<()> for CheckItemSizedTypesVisitor<'a, 'tcx> {
     fn visit_item(&mut self, i: &ast::Item, _: ()) {
         check_item_sized(self.ccx, i);
         visit::walk_item(self, i, ());
@@ -451,11 +443,11 @@ fn check_bare_fn(ccx: &CrateCtxt,
     }
 }
 
-struct GatherLocalsVisitor<'a> {
-    fcx: &'a FnCtxt<'a>
+struct GatherLocalsVisitor<'a, 'tcx: 'a> {
+    fcx: &'a FnCtxt<'a, 'tcx>
 }
 
-impl<'a> GatherLocalsVisitor<'a> {
+impl<'a, 'tcx> GatherLocalsVisitor<'a, 'tcx> {
     fn assign(&mut self, nid: ast::NodeId, ty_opt: Option<ty::t>) {
             match ty_opt {
                 None => {
@@ -472,7 +464,7 @@ impl<'a> GatherLocalsVisitor<'a> {
     }
 }
 
-impl<'a> Visitor<()> for GatherLocalsVisitor<'a> {
+impl<'a, 'tcx> Visitor<()> for GatherLocalsVisitor<'a, 'tcx> {
     // Add explicitly-declared locals.
     fn visit_local(&mut self, local: &ast::Local, _: ()) {
         let o_ty = match local.ty.node {
@@ -530,17 +522,15 @@ impl<'a> Visitor<()> for GatherLocalsVisitor<'a> {
 
 }
 
-fn check_fn<'a>(
-    ccx: &'a CrateCtxt<'a>,
-    fn_style: ast::FnStyle,
-    fn_style_id: ast::NodeId,
-    fn_sig: &ty::FnSig,
-    decl: &ast::FnDecl,
-    fn_id: ast::NodeId,
-    body: &ast::Block,
-    inherited: &'a Inherited<'a>)
-    -> FnCtxt<'a>
-{
+fn check_fn<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
+                      fn_style: ast::FnStyle,
+                      fn_style_id: ast::NodeId,
+                      fn_sig: &ty::FnSig,
+                      decl: &ast::FnDecl,
+                      fn_id: ast::NodeId,
+                      body: &ast::Block,
+                      inherited: &'a Inherited<'a, 'tcx>)
+                      -> FnCtxt<'a, 'tcx> {
     /*!
      * Helper used by check_bare_fn and check_expr_fn.  Does the
      * grungy work of checking a function body and returns the
@@ -1563,8 +1553,8 @@ fn check_cast(fcx: &FnCtxt,
     fcx.write_ty(id, t_1);
 }
 
-impl<'a> AstConv for FnCtxt<'a> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt { self.ccx.tcx }
+impl<'a, 'tcx> AstConv<'tcx> for FnCtxt<'a, 'tcx> {
+    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> { self.ccx.tcx }
 
     fn get_item_ty(&self, id: ast::DefId) -> ty::Polytype {
         ty::lookup_item_type(self.tcx(), id)
@@ -1579,10 +1569,10 @@ impl<'a> AstConv for FnCtxt<'a> {
     }
 }
 
-impl<'a> FnCtxt<'a> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt { self.ccx.tcx }
+impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
+    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> { self.ccx.tcx }
 
-    pub fn infcx<'b>(&'b self) -> &'b infer::InferCtxt<'a> {
+    pub fn infcx<'b>(&'b self) -> &'b infer::InferCtxt<'a, 'tcx> {
         &self.inh.infcx
     }
 
@@ -1590,7 +1580,7 @@ impl<'a> FnCtxt<'a> {
         self.ccx.tcx.sess.err_count() - self.err_count_on_creation
     }
 
-    pub fn vtable_context<'a>(&'a self) -> VtableContext<'a> {
+    pub fn vtable_context<'a>(&'a self) -> VtableContext<'a, 'tcx> {
         VtableContext {
             infcx: self.infcx(),
             param_env: &self.inh.param_env,
@@ -1599,7 +1589,7 @@ impl<'a> FnCtxt<'a> {
     }
 }
 
-impl<'a> RegionScope for infer::InferCtxt<'a> {
+impl<'a, 'tcx> RegionScope for infer::InferCtxt<'a, 'tcx> {
     fn default_region_bound(&self, span: Span) -> Option<ty::Region> {
         Some(self.next_region_var(infer::MiscVariable(span)))
     }
@@ -1612,7 +1602,7 @@ impl<'a> RegionScope for infer::InferCtxt<'a> {
     }
 }
 
-impl<'a> FnCtxt<'a> {
+impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     pub fn tag(&self) -> String {
         format!("{}", self as *const FnCtxt)
     }
@@ -2613,6 +2603,16 @@ pub fn lookup_field_ty(tcx: &ty::ctxt,
     o_field.map(|f| ty::lookup_field_type(tcx, class_id, f.id, substs))
 }
 
+pub fn lookup_tup_field_ty(tcx: &ty::ctxt,
+                           class_id: ast::DefId,
+                           items: &[ty::field_ty],
+                           idx: uint,
+                           substs: &subst::Substs) -> Option<ty::t> {
+
+    let o_field = if idx < items.len() { Some(&items[idx]) } else { None };
+    o_field.map(|f| ty::lookup_field_type(tcx, class_id, f.id, substs))
+}
+
 // Controls whether the arguments are automatically referenced. This is useful
 // for overloaded binary and unary operators.
 pub enum DerefArgs {
@@ -3296,6 +3296,68 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         fcx.write_error(expr.id);
     }
 
+    // Check tuple index expressions
+    fn check_tup_field(fcx: &FnCtxt,
+                       expr: &ast::Expr,
+                       lvalue_pref: LvaluePreference,
+                       base: &ast::Expr,
+                       idx: codemap::Spanned<uint>,
+                       _tys: &[ast::P<ast::Ty>]) {
+        let tcx = fcx.ccx.tcx;
+        check_expr_with_lvalue_pref(fcx, base, lvalue_pref);
+        let expr_t = structurally_resolved_type(fcx, expr.span,
+                                                fcx.expr_ty(base));
+        let mut tuple_like = false;
+        // FIXME(eddyb) #12808 Integrate privacy into this auto-deref loop.
+        let (_, autoderefs, field_ty) =
+            autoderef(fcx, expr.span, expr_t, Some(base.id), lvalue_pref, |base_t, _| {
+                match ty::get(base_t).sty {
+                    ty::ty_struct(base_id, ref substs) => {
+                        tuple_like = ty::is_tuple_struct(tcx, base_id);
+                        if tuple_like {
+                            debug!("tuple struct named {}", ppaux::ty_to_string(tcx, base_t));
+                            let fields = ty::lookup_struct_fields(tcx, base_id);
+                            lookup_tup_field_ty(tcx, base_id, fields.as_slice(),
+                                                idx.node, &(*substs))
+                        } else {
+                            None
+                        }
+                    }
+                    ty::ty_tup(ref v) => {
+                        tuple_like = true;
+                        if idx.node < v.len() { Some(v[idx.node]) } else { None }
+                    }
+                    _ => None
+                }
+            });
+        match field_ty {
+            Some(field_ty) => {
+                fcx.write_ty(expr.id, field_ty);
+                fcx.write_autoderef_adjustment(base.id, autoderefs);
+                return;
+            }
+            None => {}
+        }
+        fcx.type_error_message(
+            expr.span,
+            |actual| {
+                if tuple_like {
+                    format!("attempted out-of-bounds tuple index `{}` on \
+                                    type `{}`",
+                                   idx.node,
+                                   actual)
+                } else {
+                    format!("attempted tuple index `{}` on type `{}`, but the \
+                                     type was not a tuple or tuple struct",
+                                    idx.node,
+                                    actual)
+                }
+            },
+            expr_t, None);
+
+        fcx.write_error(expr.id);
+    }
+
     fn check_struct_or_variant_fields(fcx: &FnCtxt,
                                       struct_ty: ty::t,
                                       span: Span,
@@ -3919,7 +3981,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
       }
       ast::ExprRepeat(ref element, ref count_expr) => {
         check_expr_has_type(fcx, &**count_expr, ty::mk_uint());
-        let count = ty::eval_repeat_count(fcx, &**count_expr);
+        let count = ty::eval_repeat_count(fcx.tcx(), &**count_expr);
 
         let uty = match expected {
             ExpectHasType(uty) => {
@@ -4074,6 +4136,9 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
       }
       ast::ExprField(ref base, ref field, ref tys) => {
         check_field(fcx, expr, lvalue_pref, &**base, field, tys.as_slice());
+      }
+      ast::ExprTupField(ref base, idx, ref tys) => {
+        check_tup_field(fcx, expr, lvalue_pref, &**base, idx, tys.as_slice());
       }
       ast::ExprIndex(ref base, ref idx) => {
           check_expr_with_lvalue_pref(fcx, &**base, lvalue_pref);

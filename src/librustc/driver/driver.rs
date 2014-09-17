@@ -10,6 +10,7 @@
 
 
 use back::link;
+use back::write;
 use driver::session::Session;
 use driver::config;
 use front;
@@ -31,7 +32,7 @@ use serialize::{json, Encodable};
 
 use std::io;
 use std::io::fs;
-use std::ptr;
+use arena::TypedArena;
 use syntax::ast;
 use syntax::attr;
 use syntax::attr::{AttrMetaMethods};
@@ -59,7 +60,6 @@ pub fn compile_input(sess: Session,
                      outdir: &Option<Path>,
                      output: &Option<Path>,
                      addl_plugins: Option<Plugins>) {
-    use llvm;
     // We need nested scopes here, because the intermediate results can keep
     // large chunks of memory alive and we want to free them as soon as
     // possible to keep the peak memory usage low
@@ -87,8 +87,9 @@ pub fn compile_input(sess: Session,
 
         if stop_after_phase_2(&sess) { return; }
 
+        let type_arena = TypedArena::new();
         let analysis = phase_3_run_analysis_passes(sess, &expanded_crate,
-                                                   ast_map, id);
+                                                   ast_map, &type_arena, id);
         phase_save_analysis(&analysis.ty_cx.sess, &expanded_crate, &analysis, outdir);
         if stop_after_phase_3(&analysis.ty_cx.sess) { return; }
         let (tcx, trans) = phase_4_translate_to_llvm(expanded_crate, analysis);
@@ -99,7 +100,7 @@ pub fn compile_input(sess: Session,
         (outputs, trans, tcx.sess)
     };
     if !sess.targeting_pnacl() {
-        phase_5_run_llvm_passes(&sess, &trans, &outputs);
+        phase_5_run_llvm_passes(&sess, &mut trans, &outputs);
         if stop_after_phase_5(&sess) { return; }
         phase_6_link_output(&sess, &trans, &outputs);
     } else {
@@ -108,17 +109,6 @@ pub fn compile_input(sess: Session,
                                      &mut trans,
                                      &outputs,
                                      cid.as_slice());
-        unsafe {
-            if trans.metadata_module != ptr::mut_null() {
-                llvm::LLVMDisposeModule(trans.metadata_module);
-            }
-            if trans.module != ptr::mut_null() {
-                llvm::LLVMDisposeModule(trans.module);
-            }
-            if trans.context != ptr::mut_null() {
-                llvm::LLVMContextDispose(trans.context);
-            }
-        }
     }
 }
 
@@ -319,11 +309,11 @@ pub fn phase_2_configure_and_expand(sess: &Session,
     Some((krate, map))
 }
 
-pub struct CrateAnalysis {
+pub struct CrateAnalysis<'tcx> {
     pub exp_map2: middle::resolve::ExportMap2,
     pub exported_items: middle::privacy::ExportedItems,
     pub public_items: middle::privacy::PublicItems,
-    pub ty_cx: ty::ctxt,
+    pub ty_cx: ty::ctxt<'tcx>,
     pub reachable: NodeSet,
     pub name: String,
 }
@@ -332,10 +322,11 @@ pub struct CrateAnalysis {
 /// Run the resolution, typechecking, region checking and other
 /// miscellaneous analysis passes on the crate. Return various
 /// structures carrying the results of the analysis.
-pub fn phase_3_run_analysis_passes(sess: Session,
-                                   krate: &ast::Crate,
-                                   ast_map: syntax::ast_map::Map,
-                                   name: String) -> CrateAnalysis {
+pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
+                                         krate: &ast::Crate,
+                                         ast_map: syntax::ast_map::Map,
+                                         type_arena: &'tcx TypedArena<ty::t_box_>,
+                                         name: String) -> CrateAnalysis<'tcx> {
     let time_passes = sess.time_passes();
 
     time(time_passes, "external crate/lib resolution", (), |_|
@@ -382,6 +373,7 @@ pub fn phase_3_run_analysis_passes(sess: Session,
                                stability::Index::build(krate));
 
     let ty_cx = ty::mk_ctxt(sess,
+                            type_arena,
                             def_map,
                             named_region_map,
                             ast_map,
@@ -424,6 +416,9 @@ pub fn phase_3_run_analysis_passes(sess: Session,
     time(time_passes, "borrow checking", (), |_|
          middle::borrowck::check_crate(&ty_cx, krate));
 
+    time(time_passes, "rvalue checking", (), |_|
+         middle::check_rvalues::check_crate(&ty_cx, krate));
+
     time(time_passes, "kind checking", (), |_|
          kind::check_crate(&ty_cx, krate));
 
@@ -461,11 +456,16 @@ pub fn phase_save_analysis(sess: &Session,
     time(sess.time_passes(), "save analysis", krate, |krate|
          middle::save::process_crate(sess, krate, analysis, odir));
 }
+#[deriving(Clone, Eq, PartialEq)]
+pub struct ModuleTranslation {
+    pub llcx: ContextRef,
+    pub llmod: ModuleRef,
+    pub name: Option<String>,
+}
 
 pub struct CrateTranslation {
-    pub context: ContextRef,
-    pub module: ModuleRef,
-    pub metadata_module: ModuleRef,
+    pub modules: Vec<ModuleTranslation>,
+    pub metadata_module: ModuleTranslation,
     pub link: LinkMeta,
     pub metadata: Vec<u8>,
     pub reachable: Vec<String>,
@@ -490,28 +490,27 @@ pub fn phase_4_translate_to_llvm(krate: ast::Crate,
 /// Run LLVM itself, producing a bitcode file, assembly file or object file
 /// as a side effect.
 pub fn phase_5_run_llvm_passes(sess: &Session,
-                               trans: &CrateTranslation,
+                               trans: &mut CrateTranslation,
                                outputs: &OutputFilenames) {
     if sess.opts.cg.no_integrated_as {
-        let output_type = if !sess.targeting_pnacl() { link::OutputTypeAssembly }
-                          else                       { link::OutputTypeLlvmAssembly };
+        let output_type = write::OutputTypeAssembly;
 
         time(sess.time_passes(), "LLVM passes", (), |_|
-            link::write::run_passes(sess, trans, [output_type], outputs));
+            write::run_passes(sess, trans, [output_type], outputs));
 
-        link::write::run_assembler(sess, outputs);
+        write::run_assembler(sess, outputs);
 
 
         // Remove assembly source, unless --save-temps was specified
         if !sess.opts.cg.save_temps {
-            fs::unlink(&outputs.temp_path(output_type)).unwrap();
+            fs::unlink(&outputs.temp_path(write::OutputTypeAssembly)).unwrap();
         }
     } else {
         time(sess.time_passes(), "LLVM passes", (), |_|
-            link::write::run_passes(sess,
-                                    trans,
-                                    sess.opts.output_types.as_slice(),
-                                    outputs));
+            write::run_passes(sess,
+                              trans,
+                              sess.opts.output_types.as_slice(),
+                              outputs));
     }
 }
 
@@ -555,7 +554,7 @@ pub fn stop_after_phase_2(sess: &Session) -> bool {
 }
 
 pub fn stop_after_phase_5(sess: &Session) -> bool {
-    if !sess.opts.output_types.iter().any(|&i| i == link::OutputTypeExe) {
+    if !sess.opts.output_types.iter().any(|&i| i == write::OutputTypeExe) {
         debug!("not building executable, returning early from compile_input");
         return true;
     }
@@ -571,7 +570,7 @@ fn write_out_deps(sess: &Session,
     for output_type in sess.opts.output_types.iter() {
         let file = outputs.path(*output_type);
         match *output_type {
-            link::OutputTypeExe => {
+            write::OutputTypeExe => {
                 for output in sess.crate_types.borrow().iter() {
                     if sess.targeting_pnacl() && *output == config::CrateTypeDylib {
                         continue;
@@ -705,6 +704,7 @@ pub fn collect_crate_metadata(session: &Session,
     session.opts.cg.metadata.clone()
 }
 
+#[deriving(Clone)]
 pub struct OutputFilenames {
     pub out_directory: Path,
     pub out_filestem: String,
@@ -713,7 +713,7 @@ pub struct OutputFilenames {
 }
 
 impl OutputFilenames {
-    pub fn path(&self, flavor: link::OutputType) -> Path {
+    pub fn path(&self, flavor: write::OutputType) -> Path {
         match self.single_output_file {
             Some(ref path) => return path.clone(),
             None => {}
@@ -721,14 +721,14 @@ impl OutputFilenames {
         self.temp_path(flavor)
     }
 
-    pub fn temp_path(&self, flavor: link::OutputType) -> Path {
+    pub fn temp_path(&self, flavor: write::OutputType) -> Path {
         let base = self.out_directory.join(self.filestem());
         match flavor {
-            link::OutputTypeBitcode => base.with_extension("bc"),
-            link::OutputTypeAssembly => base.with_extension("s"),
-            link::OutputTypeLlvmAssembly => base.with_extension("ll"),
-            link::OutputTypeObject => base.with_extension("o"),
-            link::OutputTypeExe => base,
+            write::OutputTypeBitcode => base.with_extension("bc"),
+            write::OutputTypeAssembly => base.with_extension("s"),
+            write::OutputTypeLlvmAssembly => base.with_extension("ll"),
+            write::OutputTypeObject => base.with_extension("o"),
+            write::OutputTypeExe => base,
         }
     }
 

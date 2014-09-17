@@ -214,7 +214,7 @@ macro_rules! return_if_err(
     )
 )
 
-impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
+impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
     pub fn new(delegate: &'d mut Delegate,
                typer: &'t TYPER)
                -> ExprUseVisitor<'d,'t,TYPER> {
@@ -246,7 +246,7 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
         }
     }
 
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt {
+    fn tcx(&self) -> &'t ty::ctxt<'tcx> {
         self.typer.tcx()
     }
 
@@ -321,6 +321,10 @@ impl<'d,'t,TYPER:mc::Typer> ExprUseVisitor<'d,'t,TYPER> {
             }
 
             ast::ExprField(ref base, _, _) => {         // base.f
+                self.select_from_expr(&**base);
+            }
+
+            ast::ExprTupField(ref base, _, _) => {         // base.<n>
                 self.select_from_expr(&**base);
             }
 

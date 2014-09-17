@@ -2221,8 +2221,8 @@ These types help drive the compiler's analysis
   : This type does not implement "copy", even if eligible
 * `no_send_bound`
   : This type does not implement "send", even if eligible
-* `no_share_bound`
-  : This type does not implement "share", even if eligible
+* `no_sync_bound`
+  : This type does not implement "sync", even if eligible
 * `eh_personality`
   : ___Needs filling in___
 * `exchange_free`
@@ -2554,6 +2554,8 @@ The currently implemented features of the reference compiler are:
 * `unsafe_destructor` - Allows use of the `#[unsafe_destructor]` attribute,
                         which is considered wildly unsafe and will be
                         obsoleted by language improvements.
+
+* `tuple_indexing` - Allows use of tuple indexing (expressions like `expr.0`)
 
 If a feature is promoted to a language feature, then all existing programs will
 start to receive compilation warnings about #[feature] directives which enabled
@@ -3290,17 +3292,19 @@ between `_` and `..` is that the pattern `C(_)` is only type-correct if `C` has
 exactly one argument, while the pattern `C(..)` is type-correct for any enum
 variant `C`, regardless of how many arguments `C` has.
 
-Used inside a vector pattern, `..` stands for any number of elements. This
-wildcard can be used at most once for a given vector, which implies that it
-cannot be used to specifically match elements that are at an unknown distance
-from both ends of a vector, like `[.., 42, ..]`. If followed by a variable name,
-it will bind the corresponding slice to the variable. Example:
+Used inside a vector pattern, `..` stands for any number of elements, when the
+`advanced_slice_patterns` feature gate is turned on. This wildcard can be used
+at most once for a given vector, which implies that it cannot be used to
+specifically match elements that are at an unknown distance from both ends of a
+vector, like `[.., 42, ..]`.  If followed by a variable name, it will bind the
+corresponding slice to the variable.  Example:
 
 ~~~~
+# #![feature(advanced_slice_patterns)]
 fn is_symmetric(list: &[uint]) -> bool {
     match list {
         [] | [_]                   => true,
-        [x, ..inside, y] if x == y => is_symmetric(inside),
+        [x, inside.., y] if x == y => is_symmetric(inside),
         _                          => false
     }
 }
@@ -3564,34 +3568,36 @@ let (a, b) = p;
 assert!(b != "world");
 ~~~~
 
-### Vector types
+### Vector, Array, and Slice types
 
-The vector type constructor represents a homogeneous array of values of a given type.
-A vector has a fixed size.
-(Operations like `vec.push` operate solely on owned vectors.)
-A vector type can be annotated with a _definite_ size, such as `[int, ..10]`.
-Such a definite-sized vector type is a first-class type, since its size is known statically.
-A vector without such a size is said to be of _indefinite_ size,
-and is therefore not a _first-class_ type.
-An indefinite-size vector can only be instantiated through a pointer type,
-such as `&[T]` or `Vec<T>`.
-The kind of a vector type depends on the kind of its element type,
-as with other simple structural types.
+Rust has three different types for a list of items:
 
-Expressions producing vectors of definite size cannot be evaluated in a
-context expecting a vector of indefinite size; one must copy the
-definite-sized vector contents into a distinct vector of indefinite size.
+* `Vec<T>`, a 'vector'
+* `[T ..N]`, an 'array'
+* `&[T]`, a 'slice'.
 
-An example of a vector type and its use:
+A vector is a heap-allocated list of `T`. A vector has ownership over the data
+inside of it. It is also able to grow and change in size. It's important to note
+that `Vec<T>` is a library type, it's not actually part of the core language.
 
-~~~~
-let v: &[int] = &[7, 5, 3];
-let i: int = v[2];
-assert!(i == 3);
-~~~~
+An array has a fixed size, and can be allocated on either the stack or the heap.
 
-All in-bounds elements of a vector are always initialized,
-and access to a vector is always bounds-checked.
+A slice is a 'view' into a vector or array. It doesn't own the data it points
+to, it borrows it.
+
+An example of each kind:
+
+```{rust}
+let vec: Vec<int>  = vec![1, 2, 3];
+let arr: [int, ..3] = [1, 2, 3];
+let s: &[int]      = vec.as_slice();
+```
+
+As you can see, the `vec!` macro allows you to create a `Vec<T>` easily. The
+`vec!` macro is also part of the standard library, rather than the language.
+
+All in-bounds elements of vectors, arrays, and slices are always initialized,
+and access to a vector, array, or slice is always bounds-checked.
 
 ### Structure types
 

@@ -13,8 +13,7 @@ use libc;
 use std::mem;
 use std::ptr;
 use std::rt::mutex;
-use std::rt::rtio;
-use std::rt::rtio::{IoResult, IoError};
+use std::rt::rtio::{mod, IoResult, IoError};
 use std::sync::atomic;
 
 use super::{retry, keep_going};
@@ -966,7 +965,7 @@ pub fn read<T>(fd: sock_t,
             // wait for the socket to become readable again.
             let _guard = lock();
             match retry(|| read(deadline.is_some())) {
-                -1 if util::wouldblock() => { assert!(deadline.is_some()); }
+                -1 if util::wouldblock() => {}
                 -1 => return Err(os::last_error()),
                n => { ret = n; break }
             }
@@ -995,9 +994,7 @@ pub fn write<T>(fd: sock_t,
                 write(false, inner, len)
             });
         } else {
-            ret = retry(|| {
-                write(false, buf.as_ptr(), buf.len()) as libc::c_int
-            }) as i64;
+            ret = retry(|| { write(false, buf.as_ptr(), buf.len()) });
             if ret > 0 { written = ret as uint; }
         }
     }
@@ -1024,7 +1021,7 @@ pub fn write<T>(fd: sock_t,
             let _guard = lock();
             let ptr = buf.slice_from(written).as_ptr();
             let len = buf.len() - written;
-            match retry(|| write(deadline.is_some(), ptr, len) as libc::c_int) {
+            match retry(|| write(deadline.is_some(), ptr, len)) {
                 -1 if util::wouldblock() => {}
                 -1 => return Err(os::last_error()),
                 n => { written += n as uint; }

@@ -38,7 +38,7 @@ use util::ppaux::Repr;
 use std::c_str::ToCStr;
 use syntax::abi::{Rust, RustCall};
 use syntax::parse::token;
-use syntax::{ast, ast_map, visit};
+use syntax::{ast, ast_map, attr, visit};
 use syntax::ast_util::PostExpansionMethod;
 
 // drop_glue pointer, size, align.
@@ -77,14 +77,21 @@ pub fn trans_impl(ccx: &CrateContext,
         match *impl_item {
             ast::MethodImplItem(method) => {
                 if method.pe_generics().ty_params.len() == 0u {
-                    let llfn = get_item_val(ccx, method.id);
-                    trans_fn(ccx,
-                             &*method.pe_fn_decl(),
-                             &*method.pe_body(),
-                             llfn,
-                             &param_substs::empty(),
-                             method.id,
-                             []);
+                    let trans_everywhere = attr::requests_inline(method.attrs.as_slice());
+                    for (ref ccx, is_origin) in ccx.maybe_iter(trans_everywhere) {
+                        let llfn = get_item_val(ccx, method.id);
+                        trans_fn(ccx,
+                                 &*method.pe_fn_decl(),
+                                 &*method.pe_body(),
+                                 llfn,
+                                 &param_substs::empty(),
+                                 method.id,
+                                 []);
+                        update_linkage(ccx,
+                                       llfn,
+                                       Some(method.id),
+                                       if is_origin { OriginalTranslation } else { InlinedCopy });
+                    }
                 }
                 let mut v = TransItemVisitor {
                     ccx: ccx,
@@ -95,12 +102,11 @@ pub fn trans_impl(ccx: &CrateContext,
     }
 }
 
-pub fn trans_method_callee<'a>(
-                           bcx: &'a Block<'a>,
-                           method_call: MethodCall,
-                           self_expr: Option<&ast::Expr>,
-                           arg_cleanup_scope: cleanup::ScopeId)
-                           -> Callee<'a> {
+pub fn trans_method_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
+                                       method_call: MethodCall,
+                                       self_expr: Option<&ast::Expr>,
+                                       arg_cleanup_scope: cleanup::ScopeId)
+                                       -> Callee<'blk, 'tcx> {
     let _icx = push_ctxt("meth::trans_method_callee");
 
     let (origin, method_ty) = match bcx.tcx().method_map
@@ -159,7 +165,7 @@ pub fn trans_method_callee<'a>(
     }
 }
 
-pub fn trans_static_method_callee(bcx: &Block,
+pub fn trans_static_method_callee(bcx: Block,
                                   method_id: ast::DefId,
                                   trait_id: ast::DefId,
                                   expr_id: ast::NodeId)
@@ -196,7 +202,7 @@ pub fn trans_static_method_callee(bcx: &Block,
     let vtable_key = MethodCall::expr(expr_id);
     let vtbls = resolve_vtables_in_fn_ctxt(
         bcx.fcx,
-        ccx.tcx.vtable_map.borrow().get(&vtable_key));
+        ccx.tcx().vtable_map.borrow().get(&vtable_key));
 
     match *vtbls.get_self().unwrap().get(0) {
         typeck::vtable_static(impl_did, ref rcvr_substs, ref rcvr_origins) => {
@@ -228,12 +234,12 @@ pub fn trans_static_method_callee(bcx: &Block,
 
 fn method_with_name(ccx: &CrateContext, impl_id: ast::DefId, name: ast::Name)
                     -> ast::DefId {
-    match ccx.impl_method_cache.borrow().find_copy(&(impl_id, name)) {
+    match ccx.impl_method_cache().borrow().find_copy(&(impl_id, name)) {
         Some(m) => return m,
         None => {}
     }
 
-    let impl_items = ccx.tcx.impl_items.borrow();
+    let impl_items = ccx.tcx().impl_items.borrow();
     let impl_items =
         impl_items.find(&impl_id)
                   .expect("could not find impl while translating");
@@ -241,7 +247,7 @@ fn method_with_name(ccx: &CrateContext, impl_id: ast::DefId, name: ast::Name)
                              .find(|&did| {
                                 match *did {
                                     ty::MethodTraitItemId(did) => {
-                                        ty::impl_or_trait_item(&ccx.tcx,
+                                        ty::impl_or_trait_item(ccx.tcx(),
                                                                did).ident()
                                                                    .name ==
                                             name
@@ -250,18 +256,17 @@ fn method_with_name(ccx: &CrateContext, impl_id: ast::DefId, name: ast::Name)
                              }).expect("could not find method while \
                                         translating");
 
-    ccx.impl_method_cache.borrow_mut().insert((impl_id, name),
+    ccx.impl_method_cache().borrow_mut().insert((impl_id, name),
                                               meth_did.def_id());
     meth_did.def_id()
 }
 
-fn trans_monomorphized_callee<'a>(
-                              bcx: &'a Block<'a>,
-                              method_call: MethodCall,
-                              trait_id: ast::DefId,
-                              n_method: uint,
-                              vtbl: typeck::vtable_origin)
-                              -> Callee<'a> {
+fn trans_monomorphized_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
+                                          method_call: MethodCall,
+                                          trait_id: ast::DefId,
+                                          n_method: uint,
+                                          vtbl: typeck::vtable_origin)
+                                          -> Callee<'blk, 'tcx> {
     let _icx = push_ctxt("meth::trans_monomorphized_callee");
     match vtbl {
       typeck::vtable_static(impl_did, rcvr_substs, rcvr_origins) => {
@@ -317,7 +322,7 @@ fn trans_monomorphized_callee<'a>(
     }
 }
 
-fn combine_impl_and_methods_tps(bcx: &Block,
+fn combine_impl_and_methods_tps(bcx: Block,
                                 node: ExprOrMethodCall,
                                 rcvr_substs: subst::Substs,
                                 rcvr_origins: typeck::vtable_res)
@@ -371,12 +376,12 @@ fn combine_impl_and_methods_tps(bcx: &Block,
     (ty_substs, vtables)
 }
 
-fn trans_trait_callee<'a>(bcx: &'a Block<'a>,
-                          method_ty: ty::t,
-                          n_method: uint,
-                          self_expr: &ast::Expr,
-                          arg_cleanup_scope: cleanup::ScopeId)
-                          -> Callee<'a> {
+fn trans_trait_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
+                                  method_ty: ty::t,
+                                  n_method: uint,
+                                  self_expr: &ast::Expr,
+                                  arg_cleanup_scope: cleanup::ScopeId)
+                                  -> Callee<'blk, 'tcx> {
     /*!
      * Create a method callee where the method is coming from a trait
      * object (e.g., Box<Trait> type).  In this case, we must pull the fn
@@ -415,11 +420,11 @@ fn trans_trait_callee<'a>(bcx: &'a Block<'a>,
     trans_trait_callee_from_llval(bcx, method_ty, n_method, llval)
 }
 
-pub fn trans_trait_callee_from_llval<'a>(bcx: &'a Block<'a>,
-                                         callee_ty: ty::t,
-                                         n_method: uint,
-                                         llpair: ValueRef)
-                                         -> Callee<'a> {
+pub fn trans_trait_callee_from_llval<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
+                                                 callee_ty: ty::t,
+                                                 n_method: uint,
+                                                 llpair: ValueRef)
+                                                 -> Callee<'blk, 'tcx> {
     /*!
      * Same as `trans_trait_callee()` above, except that it is given
      * a by-ref pointer to the object pair.
@@ -469,7 +474,7 @@ pub fn trans_trait_callee_from_llval<'a>(bcx: &'a Block<'a>,
 /// Creates the self type and (fake) callee substitutions for an unboxed
 /// closure with the given def ID. The static region and type parameters are
 /// lies, but we're in trans so it doesn't matter.
-fn get_callee_substitutions_for_unboxed_closure(bcx: &Block,
+fn get_callee_substitutions_for_unboxed_closure(bcx: Block,
                                                 def_id: ast::DefId)
                                                 -> subst::Substs {
     let self_ty = ty::mk_unboxed_closure(bcx.tcx(), def_id, ty::ReStatic);
@@ -488,7 +493,7 @@ fn get_callee_substitutions_for_unboxed_closure(bcx: &Block,
 
 /// Creates a returns a dynamic vtable for the given type and vtable origin.
 /// This is used only for objects.
-fn get_vtable(bcx: &Block,
+fn get_vtable(bcx: Block,
               self_ty: ty::t,
               origins: typeck::vtable_param_res)
               -> ValueRef
@@ -502,7 +507,7 @@ fn get_vtable(bcx: &Block,
 
     // Check the cache.
     let hash_id = (self_ty, monomorphize::make_vtable_id(ccx, origins.get(0)));
-    match ccx.vtables.borrow().find(&hash_id) {
+    match ccx.vtables().borrow().find(&hash_id) {
         Some(&val) => { return val }
         None => { }
     }
@@ -594,7 +599,7 @@ fn get_vtable(bcx: &Block,
     let drop_glue = glue::get_drop_glue(ccx, self_ty);
     let vtable = make_vtable(ccx, drop_glue, ll_size, ll_align, methods);
 
-    ccx.vtables.borrow_mut().insert(hash_id, vtable);
+    ccx.vtables().borrow_mut().insert(hash_id, vtable);
     vtable
 }
 
@@ -614,7 +619,7 @@ pub fn make_vtable<I: Iterator<ValueRef>>(ccx: &CrateContext,
         let tbl = C_struct(ccx, components.as_slice(), false);
         let sym = token::gensym("vtable");
         let vt_gvar = format!("vtable{}", sym.uint()).with_c_str(|buf| {
-            llvm::LLVMAddGlobal(ccx.llmod, val_ty(tbl).to_ref(), buf)
+            llvm::LLVMAddGlobal(ccx.llmod(), val_ty(tbl).to_ref(), buf)
         });
         llvm::LLVMSetInitializer(vt_gvar, tbl);
         llvm::LLVMSetGlobalConstant(vt_gvar, llvm::True);
@@ -623,7 +628,7 @@ pub fn make_vtable<I: Iterator<ValueRef>>(ccx: &CrateContext,
     }
 }
 
-fn emit_vtable_methods(bcx: &Block,
+fn emit_vtable_methods(bcx: Block,
                        impl_id: ast::DefId,
                        substs: subst::Substs,
                        vtables: typeck::vtable_res)
@@ -679,14 +684,14 @@ fn emit_vtable_methods(bcx: &Block,
     }).collect()
 }
 
-pub fn vtable_ptr<'a>(bcx: &'a Block<'a>,
-                      id: ast::NodeId,
-                      self_ty: ty::t) -> ValueRef {
+pub fn vtable_ptr(bcx: Block,
+                  id: ast::NodeId,
+                  self_ty: ty::t) -> ValueRef {
     let ccx = bcx.ccx();
     let origins = {
-        let vtable_map = ccx.tcx.vtable_map.borrow();
+        let vtable_map = ccx.tcx().vtable_map.borrow();
         // This trait cast might be because of implicit coercion
-        let adjs = ccx.tcx.adjustments.borrow();
+        let adjs = ccx.tcx().adjustments.borrow();
         let adjust = adjs.find(&id);
         let method_call = if adjust.is_some() && ty::adjust_is_object(adjust.unwrap()) {
             MethodCall::autoobject(id)
@@ -699,11 +704,11 @@ pub fn vtable_ptr<'a>(bcx: &'a Block<'a>,
     get_vtable(bcx, self_ty, origins)
 }
 
-pub fn trans_trait_cast<'a>(bcx: &'a Block<'a>,
-                            datum: Datum<Expr>,
-                            id: ast::NodeId,
-                            dest: expr::Dest)
-                            -> &'a Block<'a> {
+pub fn trans_trait_cast<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
+                                    datum: Datum<Expr>,
+                                    id: ast::NodeId,
+                                    dest: expr::Dest)
+                                    -> Block<'blk, 'tcx> {
     /*!
      * Generates the code to convert from a pointer (`Box<T>`, `&T`, etc)
      * into an object (`Box<Trait>`, `&Trait`, etc). This means creating a

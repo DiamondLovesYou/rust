@@ -16,7 +16,7 @@ use driver::driver;
 use driver::session::Session;
 
 use back;
-use back::link;
+use back::write;
 use back::target_strs;
 use back::{arm, x86, x86_64, mips, mipsel, le32};
 use lint;
@@ -30,7 +30,7 @@ use syntax::diagnostic::{ColorConfig, Auto, Always, Never};
 use syntax::parse;
 use syntax::parse::token::InternedString;
 
-use std::collections::{HashSet, HashMap};
+use std::collections::HashMap;
 use getopts::{optopt, optmulti, optflag, optflagopt};
 use getopts;
 
@@ -73,11 +73,11 @@ pub struct Options {
     pub debuginfo: DebugInfoLevel,
     pub lint_opts: Vec<(String, lint::Level)>,
     pub describe_lints: bool,
-    pub output_types: Vec<back::link::OutputType> ,
+    pub output_types: Vec<back::write::OutputType> ,
     // This was mutable for rustpkg, which updates search paths based on the
     // parsed code. It remains mutable in case its replacements wants to use
     // this.
-    pub addl_lib_search_paths: RefCell<HashSet<Path>>,
+    pub addl_lib_search_paths: RefCell<Vec<Path>>,
     pub maybe_sysroot: Option<Path>,
     pub target_triple: String,
     // User-specified cfg meta items. The compiler itself will add additional
@@ -114,7 +114,7 @@ pub fn basic_options() -> Options {
         lint_opts: Vec::new(),
         describe_lints: false,
         output_types: Vec::new(),
-        addl_lib_search_paths: RefCell::new(HashSet::new()),
+        addl_lib_search_paths: RefCell::new(Vec::new()),
         maybe_sysroot: None,
         target_triple: driver::host_triple().to_string(),
         cfg: Vec::new(),
@@ -303,6 +303,13 @@ macro_rules! cgoptions(
                 None => false,
             }
         }
+        fn parse_uint(slot: &mut uint, v: Option<&str>) -> bool {
+            use std::from_str::FromStr;
+            match v.and_then(FromStr::from_str) {
+                Some(i) => { *slot = i; true },
+                None => false
+            }
+        }
     }
 ) )
 
@@ -349,6 +356,8 @@ cgoptions!(
          "extra data to put in each output filename"),
     cross_path: Option<String> = (None, parse_opt_string,
         "the path to the target specific toolchain"),
+    codegen_units: uint = (1, parse_uint,
+        "divide crate into N units to optimize in parallel"),
     extra_bitcode: Vec<String> = (Vec::new(), parse_list,
         "a list of bitcode files to include for linking (PNaCl bin output only)"),
     stable_pexe: bool = (false, parse_bool,
@@ -661,11 +670,11 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
         for unparsed_output_type in unparsed_output_types.iter() {
             for part in unparsed_output_type.as_slice().split(',') {
                 let output_type = match part.as_slice() {
-                    "asm"  => link::OutputTypeAssembly,
-                    "ir"   => link::OutputTypeLlvmAssembly,
-                    "bc"   => link::OutputTypeBitcode,
-                    "obj"  => link::OutputTypeObject,
-                    "link" => link::OutputTypeExe,
+                    "asm"  => write::OutputTypeAssembly,
+                    "ir"   => write::OutputTypeLlvmAssembly,
+                    "bc"   => write::OutputTypeBitcode,
+                    "obj"  => write::OutputTypeObject,
+                    "link" => write::OutputTypeExe,
                     _ => {
                         early_error(format!("unknown emission type: `{}`",
                                             part).as_slice())
@@ -678,7 +687,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     output_types.as_mut_slice().sort();
     output_types.dedup();
     if output_types.len() == 0 {
-        output_types.push(link::OutputTypeExe);
+        output_types.push(write::OutputTypeExe);
     }
 
     let sysroot_opt = matches.opt_str("sysroot").map(|m| Path::new(m));
