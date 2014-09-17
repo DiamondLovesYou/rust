@@ -1121,9 +1121,11 @@ unsafe fn configure_llvm(sess: &Session) {
     // slp vectorization at O3
     let vectorize_loop = !sess.opts.cg.no_vectorize_loops &&
                          (sess.opts.optimize == config::Default ||
-                          sess.opts.optimize == config::Aggressive);
+                          sess.opts.optimize == config::Aggressive) &&
+                         !sess.targeting_pnacl();
     let vectorize_slp = !sess.opts.cg.no_vectorize_slp &&
-                        sess.opts.optimize == config::Aggressive;
+                        sess.opts.optimize == config::Aggressive &&
+                        !sess.targeting_pnacl();
 
     let mut llvm_c_strs = Vec::new();
     let mut llvm_args = Vec::new();
