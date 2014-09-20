@@ -287,7 +287,7 @@ impl TypeFoldable for ty::ExistentialBounds {
 impl TypeFoldable for ty::ParamBounds {
     fn fold_with<'tcx, F: TypeFolder<'tcx>>(&self, folder: &mut F) -> ty::ParamBounds {
         ty::ParamBounds {
-            opt_region_bound: self.opt_region_bound.fold_with(folder),
+            region_bounds: self.region_bounds.fold_with(folder),
             builtin_bounds: self.builtin_bounds.fold_with(folder),
             trait_bounds: self.trait_bounds.fold_with(folder),
         }
@@ -301,6 +301,7 @@ impl TypeFoldable for ty::TypeParameterDef {
             def_id: self.def_id,
             space: self.space,
             index: self.index,
+            associated_with: self.associated_with,
             bounds: self.bounds.fold_with(folder),
             default: self.default.fold_with(folder),
         }

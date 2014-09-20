@@ -25,7 +25,8 @@ pub enum Def {
     DefArg(ast::NodeId, ast::BindingMode),
     DefLocal(ast::NodeId, ast::BindingMode),
     DefVariant(ast::DefId /* enum */, ast::DefId /* variant */, bool /* is_structure */),
-    DefTy(ast::DefId),
+    DefTy(ast::DefId, bool /* is_enum */),
+    DefAssociatedTy(ast::DefId),
     DefTrait(ast::DefId),
     DefPrimTy(ast::PrimTy),
     DefTyParam(ParamSpace, ast::DefId, uint),
@@ -62,8 +63,9 @@ impl Def {
         match *self {
             DefFn(id, _) | DefStaticMethod(id, _, _) | DefMod(id) |
             DefForeignMod(id) | DefStatic(id, _) |
-            DefVariant(_, id, _) | DefTy(id) | DefTyParam(_, id, _) |
-            DefUse(id) | DefStruct(id) | DefTrait(id) | DefMethod(id, _) => {
+            DefVariant(_, id, _) | DefTy(id, _) | DefAssociatedTy(id) |
+            DefTyParam(_, id, _) | DefUse(id) | DefStruct(id) | DefTrait(id) |
+            DefMethod(id, _) => {
                 id
             }
             DefArg(id, _) |
@@ -90,3 +92,4 @@ impl Def {
         }
     }
 }
+

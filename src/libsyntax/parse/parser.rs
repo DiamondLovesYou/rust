@@ -11,11 +11,11 @@
 #![macro_escape]
 
 use abi;
-use ast::{BareFnTy, ClosureTy};
+use ast::{AssociatedType, BareFnTy, ClosureTy};
 use ast::{RegionTyParamBound, TraitTyParamBound};
 use ast::{ProvidedMethod, Public, FnStyle};
 use ast::{Mod, BiAdd, Arg, Arm, Attribute, BindByRef, BindByValue};
-use ast::{BiBitAnd, BiBitOr, BiBitXor, Block};
+use ast::{BiBitAnd, BiBitOr, BiBitXor, BiRem, Block};
 use ast::{BlockCheckMode, UnBox};
 use ast::{CaptureByRef, CaptureByValue, CaptureClause};
 use ast::{Crate, CrateConfig, Decl, DeclItem};
@@ -42,7 +42,7 @@ use ast::{MatchSeq, MatchTok, Method, MutTy, BiMul, Mutability};
 use ast::{MethodImplItem, NamedField, UnNeg, NoReturn, UnNot};
 use ast::{Pat, PatEnum, PatIdent, PatLit, PatRange, PatRegion, PatStruct};
 use ast::{PatTup, PatBox, PatWild, PatWildMulti, PatWildSingle};
-use ast::{BiRem, RequiredMethod};
+use ast::{QPath, RequiredMethod};
 use ast::{RetStyle, Return, BiShl, BiShr, Stmt, StmtDecl};
 use ast::{StmtExpr, StmtSemi, StmtMac, StructDef, StructField};
 use ast::{StructVariantKind, BiSub};
@@ -52,10 +52,10 @@ use ast::{TokenTree, TraitItem, TraitRef, TTDelim, TTSeq, TTTok};
 use ast::{TTNonterminal, TupleVariantKind, Ty, Ty_, TyBot, TyBox};
 use ast::{TypeField, TyFixedLengthVec, TyClosure, TyProc, TyBareFn};
 use ast::{TyTypeof, TyInfer, TypeMethod};
-use ast::{TyNil, TyParam, TyParamBound, TyParen, TyPath, TyPtr, TyRptr};
-use ast::{TyTup, TyU32, TyUnboxedFn, TyUniq, TyVec, UnUniq};
-use ast::{UnboxedClosureKind, UnboxedFnTy, UnboxedFnTyParamBound};
-use ast::{UnnamedField, UnsafeBlock};
+use ast::{TyNil, TyParam, TyParamBound, TyParen, TyPath, TyPtr, TyQPath};
+use ast::{TyRptr, TyTup, TyU32, TyUnboxedFn, TyUniq, TyVec, UnUniq};
+use ast::{TypeImplItem, TypeTraitItem, Typedef, UnboxedClosureKind};
+use ast::{UnboxedFnTy, UnboxedFnTyParamBound, UnnamedField, UnsafeBlock};
 use ast::{UnsafeFn, ViewItem, ViewItem_, ViewItemExternCrate, ViewItemUse};
 use ast::{ViewPath, ViewPathGlob, ViewPathList, ViewPathSimple};
 use ast::{Visibility, WhereClause, WherePredicate};
@@ -88,14 +88,13 @@ use std::mem;
 use std::rc::Rc;
 use std::iter;
 
-#[allow(non_camel_case_types)]
-#[deriving(PartialEq)]
-pub enum restriction {
-    UNRESTRICTED,
-    RESTRICT_STMT_EXPR,
-    RESTRICT_NO_BAR_OP,
-    RESTRICT_NO_BAR_OR_DOUBLEBAR_OP,
-    RESTRICT_NO_STRUCT_LITERAL,
+bitflags! {
+    flags Restrictions: u8 {
+        static Unrestricted               = 0b0000,
+        static RestrictionStmtExpr        = 0b0001,
+        static RestrictionNoBarOp         = 0b0010,
+        static RestrictionNoStructLiteral = 0b0100
+    }
 }
 
 type ItemInfo = (Ident, Item_, Option<Vec<Attribute> >);
@@ -314,7 +313,7 @@ pub struct Parser<'a> {
     pub buffer_start: int,
     pub buffer_end: int,
     pub tokens_consumed: uint,
-    pub restriction: restriction,
+    pub restrictions: Restrictions,
     pub quote_depth: uint, // not (yet) related to the quasiquoter
     pub reader: Box<Reader+'a>,
     pub interner: Rc<token::IdentInterner>,
@@ -383,7 +382,7 @@ impl<'a> Parser<'a> {
             buffer_start: 0,
             buffer_end: 0,
             tokens_consumed: 0,
-            restriction: UNRESTRICTED,
+            restrictions: Unrestricted,
             quote_depth: 0,
             obsolete_set: HashSet::new(),
             mod_path_stack: Vec::new(),
@@ -1236,86 +1235,125 @@ impl<'a> Parser<'a> {
         (decl, lifetime_defs)
     }
 
-    /// Parse the methods in a trait declaration
-    pub fn parse_trait_methods(&mut self) -> Vec<TraitItem> {
+    /// Parses `type Foo;` in a trait declaration only. The `type` keyword has
+    /// already been parsed.
+    fn parse_associated_type(&mut self, attrs: Vec<Attribute>)
+                             -> AssociatedType {
+        let lo = self.span.lo;
+        let ident = self.parse_ident();
+        let hi = self.span.hi;
+        self.expect(&token::SEMI);
+        AssociatedType {
+            id: ast::DUMMY_NODE_ID,
+            span: mk_sp(lo, hi),
+            ident: ident,
+            attrs: attrs,
+        }
+    }
+
+    /// Parses `type Foo = TYPE;` in an implementation declaration only. The
+    /// `type` keyword has already been parsed.
+    fn parse_typedef(&mut self, attrs: Vec<Attribute>, vis: Visibility)
+                     -> Typedef {
+        let lo = self.span.lo;
+        let ident = self.parse_ident();
+        self.expect(&token::EQ);
+        let typ = self.parse_ty(true);
+        let hi = self.span.hi;
+        self.expect(&token::SEMI);
+        Typedef {
+            id: ast::DUMMY_NODE_ID,
+            span: mk_sp(lo, hi),
+            ident: ident,
+            vis: vis,
+            attrs: attrs,
+            typ: typ,
+        }
+    }
+
+    /// Parse the items in a trait declaration
+    pub fn parse_trait_items(&mut self) -> Vec<TraitItem> {
         self.parse_unspanned_seq(
             &token::LBRACE,
             &token::RBRACE,
             seq_sep_none(),
             |p| {
             let attrs = p.parse_outer_attributes();
-            let lo = p.span.lo;
 
-            // NB: at the moment, trait methods are public by default; this
-            // could change.
-            let vis = p.parse_visibility();
-            let abi = if p.eat_keyword(keywords::Extern) {
-                p.parse_opt_abi().unwrap_or(abi::C)
-            } else if attr::contains_name(attrs.as_slice(),
-                                          "rust_call_abi_hack") {
-                // FIXME(stage0, pcwalton): Remove this awful hack after a
-                // snapshot, and change to `extern "rust-call" fn`.
-                abi::RustCall
+            if p.eat_keyword(keywords::Type) {
+                TypeTraitItem(P(p.parse_associated_type(attrs)))
             } else {
-                abi::Rust
-            };
-            let style = p.parse_fn_style();
-            let ident = p.parse_ident();
+                let lo = p.span.lo;
 
-            let mut generics = p.parse_generics();
+                let vis = p.parse_visibility();
+                let abi = if p.eat_keyword(keywords::Extern) {
+                    p.parse_opt_abi().unwrap_or(abi::C)
+                } else if attr::contains_name(attrs.as_slice(),
+                                              "rust_call_abi_hack") {
+                    // FIXME(stage0, pcwalton): Remove this awful hack after a
+                    // snapshot, and change to `extern "rust-call" fn`.
+                    abi::RustCall
+                } else {
+                    abi::Rust
+                };
 
-            let (explicit_self, d) = p.parse_fn_decl_with_self(|p| {
-                // This is somewhat dubious; We don't want to allow argument
-                // names to be left off if there is a definition...
-                p.parse_arg_general(false)
-            });
+                let style = p.parse_fn_style();
+                let ident = p.parse_ident();
+                let mut generics = p.parse_generics();
 
-            p.parse_where_clause(&mut generics);
+                let (explicit_self, d) = p.parse_fn_decl_with_self(|p| {
+                    // This is somewhat dubious; We don't want to allow
+                    // argument names to be left off if there is a
+                    // definition...
+                    p.parse_arg_general(false)
+                });
 
-            let hi = p.last_span.hi;
-            match p.token {
-              token::SEMI => {
-                p.bump();
-                debug!("parse_trait_methods(): parsing required method");
-                RequiredMethod(TypeMethod {
-                    ident: ident,
-                    attrs: attrs,
-                    fn_style: style,
-                    decl: d,
-                    generics: generics,
-                    abi: abi,
-                    explicit_self: explicit_self,
-                    id: ast::DUMMY_NODE_ID,
-                    span: mk_sp(lo, hi),
-                    vis: vis,
-                })
-              }
-              token::LBRACE => {
-                debug!("parse_trait_methods(): parsing provided method");
-                let (inner_attrs, body) =
-                    p.parse_inner_attrs_and_block();
-                let mut attrs = attrs;
-                attrs.extend(inner_attrs.into_iter());
-                ProvidedMethod(P(ast::Method {
-                    attrs: attrs,
-                    id: ast::DUMMY_NODE_ID,
-                    span: mk_sp(lo, hi),
-                    node: ast::MethDecl(ident,
-                                        generics,
-                                        abi,
-                                        explicit_self,
-                                        style,
-                                        d,
-                                        body,
-                                        vis)
-                }))
-              }
+                p.parse_where_clause(&mut generics);
 
-              _ => {
-                  let token_str = p.this_token_to_string();
-                  p.fatal((format!("expected `;` or `{{`, found `{}`",
-                                   token_str)).as_slice())
-              }
+                let hi = p.last_span.hi;
+                match p.token {
+                  token::SEMI => {
+                    p.bump();
+                    debug!("parse_trait_methods(): parsing required method");
+                    RequiredMethod(TypeMethod {
+                        ident: ident,
+                        attrs: attrs,
+                        fn_style: style,
+                        decl: d,
+                        generics: generics,
+                        abi: abi,
+                        explicit_self: explicit_self,
+                        id: ast::DUMMY_NODE_ID,
+                        span: mk_sp(lo, hi),
+                        vis: vis,
+                    })
+                  }
+                  token::LBRACE => {
+                    debug!("parse_trait_methods(): parsing provided method");
+                    let (inner_attrs, body) =
+                        p.parse_inner_attrs_and_block();
+                    let attrs = attrs.append(inner_attrs.as_slice());
+                    ProvidedMethod(P(ast::Method {
+                        attrs: attrs,
+                        id: ast::DUMMY_NODE_ID,
+                        span: mk_sp(lo, hi),
+                        node: ast::MethDecl(ident,
+                                            generics,
+                                            abi,
+                                            explicit_self,
+                                            style,
+                                            d,
+                                            body,
+                                            vis)
+                    }))
+                  }
+
+                  _ => {
+                      let token_str = p.this_token_to_string();
+                      p.fatal((format!("expected `;` or `{{`, found `{}`",
+                                       token_str)).as_slice())
+                  }
+                }
             }
         })
     }
@@ -1456,12 +1494,11 @@ impl<'a> Parser<'a> {
         } else if self.token_is_closure_keyword() ||
                 self.token == token::BINOP(token::OR) ||
                 self.token == token::OROR ||
-                self.token == token::LT {
+                (self.token == token::LT &&
+                 self.look_ahead(1, |t| {
+                     *t == token::GT || Parser::token_is_lifetime(t)
+                 })) {
             // CLOSURE
-            //
-            // FIXME(pcwalton): Eventually `token::LT` will not unambiguously
-            // introduce a closure, once procs can have lifetime bounds. We
-            // will need to refactor the grammar a little bit at that point.
 
             self.parse_ty_closure()
         } else if self.eat_keyword(keywords::Typeof) {
@@ -1473,6 +1510,20 @@ impl<'a> Parser<'a> {
             TyTypeof(e)
         } else if self.eat_keyword(keywords::Proc) {
             self.parse_proc_type()
+        } else if self.token == token::LT {
+            // QUALIFIED PATH
+            self.bump();
+            let for_type = self.parse_ty(true);
+            self.expect_keyword(keywords::As);
+            let trait_name = self.parse_path(LifetimeAndTypesWithoutColons);
+            self.expect(&token::GT);
+            self.expect(&token::MOD_SEP);
+            let item_name = self.parse_ident();
+            TyQPath(P(QPath {
+                for_type: for_type,
+                trait_name: trait_name.path,
+                item_name: item_name,
+            }))
         } else if self.token == token::MOD_SEP
             || is_ident_or_path(&self.token) {
             // NAMED TYPE
@@ -2072,7 +2123,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 hi = self.last_span.hi;
-            },
+            }
             _ => {
                 if self.eat_keyword(keywords::Ref) {
                     return self.parse_lambda_expr(CaptureByRef);
@@ -2189,7 +2240,7 @@ impl<'a> Parser<'a> {
                     if self.token == token::LBRACE {
                         // This is a struct literal, unless we're prohibited
                         // from parsing struct literals here.
-                        if self.restriction != RESTRICT_NO_STRUCT_LITERAL {
+                        if !self.restrictions.contains(RestrictionNoStructLiteral) {
                             // It's a struct literal.
                             self.bump();
                             let mut fields = Vec::new();
@@ -2651,12 +2702,9 @@ impl<'a> Parser<'a> {
 
         // Prevent dynamic borrow errors later on by limiting the
         // scope of the borrows.
-        match (&self.token, &self.restriction) {
-            (&token::BINOP(token::OR), &RESTRICT_NO_BAR_OP) => return lhs,
-            (&token::BINOP(token::OR),
-                &RESTRICT_NO_BAR_OR_DOUBLEBAR_OP) => return lhs,
-            (&token::OROR, &RESTRICT_NO_BAR_OR_DOUBLEBAR_OP) => return lhs,
-            _ => { }
+        if self.token == token::BINOP(token::OR) &&
+            self.restrictions.contains(RestrictionNoBarOp) {
+            return lhs;
         }
 
         let cur_opt = token_to_binop(&self.token);
@@ -2696,15 +2744,16 @@ impl<'a> Parser<'a> {
     pub fn parse_assign_expr(&mut self) -> P<Expr> {
         let lo = self.span.lo;
         let lhs = self.parse_binops();
+        let restrictions = self.restrictions & RestrictionNoStructLiteral;
         match self.token {
           token::EQ => {
               self.bump();
-              let rhs = self.parse_expr();
+              let rhs = self.parse_expr_res(restrictions);
               self.mk_expr(lo, rhs.span.hi, ExprAssign(lhs, rhs))
           }
           token::BINOPEQ(op) => {
               self.bump();
-              let rhs = self.parse_expr();
+              let rhs = self.parse_expr_res(restrictions);
               let aop = match op {
                   token::PLUS =>    BiAdd,
                   token::MINUS =>   BiSub,
@@ -2730,7 +2779,7 @@ impl<'a> Parser<'a> {
     /// Parse an 'if' expression ('if' token already eaten)
     pub fn parse_if_expr(&mut self) -> P<Expr> {
         let lo = self.last_span.lo;
-        let cond = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
+        let cond = self.parse_expr_res(RestrictionNoStructLiteral);
         let thn = self.parse_block();
         let mut els: Option<P<Expr>> = None;
         let mut hi = thn.span.hi;
@@ -2791,7 +2840,7 @@ impl<'a> Parser<'a> {
         let lo = self.last_span.lo;
         let pat = self.parse_pat();
         self.expect_keyword(keywords::In);
-        let expr = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
+        let expr = self.parse_expr_res(RestrictionNoStructLiteral);
         let loop_block = self.parse_block();
         let hi = self.span.hi;
 
@@ -2800,7 +2849,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse_while_expr(&mut self, opt_ident: Option<ast::Ident>) -> P<Expr> {
         let lo = self.last_span.lo;
-        let cond = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
+        let cond = self.parse_expr_res(RestrictionNoStructLiteral);
         let body = self.parse_block();
         let hi = body.span.hi;
         return self.mk_expr(lo, hi, ExprWhile(cond, body, opt_ident));
@@ -2815,7 +2864,7 @@ impl<'a> Parser<'a> {
 
     fn parse_match_expr(&mut self) -> P<Expr> {
         let lo = self.last_span.lo;
-        let discriminant = self.parse_expr_res(RESTRICT_NO_STRUCT_LITERAL);
+        let discriminant = self.parse_expr_res(RestrictionNoStructLiteral);
         self.commit_expr_expecting(&*discriminant, token::LBRACE);
         let mut arms: Vec<Arm> = Vec::new();
         while self.token != token::RBRACE {
@@ -2834,7 +2883,7 @@ impl<'a> Parser<'a> {
             guard = Some(self.parse_expr());
         }
         self.expect(&token::FAT_ARROW);
-        let expr = self.parse_expr_res(RESTRICT_STMT_EXPR);
+        let expr = self.parse_expr_res(RestrictionStmtExpr);
 
         let require_comma =
             !classify::expr_is_simple_block(&*expr)
@@ -2856,15 +2905,15 @@ impl<'a> Parser<'a> {
 
     /// Parse an expression
     pub fn parse_expr(&mut self) -> P<Expr> {
-        return self.parse_expr_res(UNRESTRICTED);
+        return self.parse_expr_res(Unrestricted);
     }
 
-    /// Parse an expression, subject to the given restriction
-    pub fn parse_expr_res(&mut self, r: restriction) -> P<Expr> {
-        let old = self.restriction;
-        self.restriction = r;
+    /// Parse an expression, subject to the given restrictions
+    pub fn parse_expr_res(&mut self, r: Restrictions) -> P<Expr> {
+        let old = self.restrictions;
+        self.restrictions = r;
         let e = self.parse_assign_expr();
-        self.restriction = old;
+        self.restrictions = old;
         return e;
     }
 
@@ -3153,9 +3202,9 @@ impl<'a> Parser<'a> {
                     self.look_ahead(2, |t| {
                         *t != token::COMMA && *t != token::RBRACKET
                     }) {
-                let start = self.parse_expr_res(RESTRICT_NO_BAR_OP);
+                let start = self.parse_expr_res(RestrictionNoBarOp);
                 self.eat(&token::DOTDOT);
-                let end = self.parse_expr_res(RESTRICT_NO_BAR_OP);
+                let end = self.parse_expr_res(RestrictionNoBarOp);
                 pat = PatRange(start, end);
             } else if is_plain_ident(&self.token) && !can_be_enum_or_struct {
                 let id = self.parse_ident();
@@ -3441,7 +3490,7 @@ impl<'a> Parser<'a> {
                     check_expected_item(self, found_attrs);
 
                     // Remainder are line-expr stmts.
-                    let e = self.parse_expr_res(RESTRICT_STMT_EXPR);
+                    let e = self.parse_expr_res(RestrictionStmtExpr);
                     P(spanned(lo, e.span.hi, StmtExpr(e, ast::DUMMY_NODE_ID)))
                 }
             }
@@ -3450,7 +3499,7 @@ impl<'a> Parser<'a> {
 
     /// Is this expression a successfully-parsed statement?
     fn expr_is_complete(&mut self, e: &Expr) -> bool {
-        self.restriction == RESTRICT_STMT_EXPR &&
+        self.restrictions.contains(RestrictionStmtExpr) &&
             !classify::expr_requires_semi_to_be_stmt(e)
     }
 
@@ -4143,20 +4192,20 @@ impl<'a> Parser<'a> {
                 (optional_unboxed_closure_kind, args)
             }
         };
-        let output = if self.eat(&token::RARROW) {
-            self.parse_ty(true)
+        let (style, output) = if self.token == token::RARROW {
+            self.parse_ret_ty()
         } else {
-            P(Ty {
+            (Return, P(Ty {
                 id: ast::DUMMY_NODE_ID,
                 node: TyInfer,
                 span: self.span,
-            })
+            }))
         };
 
         (P(FnDecl {
             inputs: inputs_captures,
             output: output,
-            cf: Return,
+            cf: style,
             variadic: false
         }), optional_unboxed_closure_kind)
     }
@@ -4169,20 +4218,20 @@ impl<'a> Parser<'a> {
                                      seq_sep_trailing_allowed(token::COMMA),
                                      |p| p.parse_fn_block_arg());
 
-        let output = if self.eat(&token::RARROW) {
-            self.parse_ty(true)
+        let (style, output) = if self.token == token::RARROW {
+            self.parse_ret_ty()
         } else {
-            P(Ty {
+            (Return, P(Ty {
                 id: ast::DUMMY_NODE_ID,
                 node: TyInfer,
                 span: self.span,
-            })
+            }))
         };
 
         P(FnDecl {
             inputs: inputs,
             output: output,
-            cf: Return,
+            cf: style,
             variadic: false
         })
     }
@@ -4218,14 +4267,9 @@ impl<'a> Parser<'a> {
 
     /// Parse a method in a trait impl, starting with `attrs` attributes.
     pub fn parse_method(&mut self,
-                        already_parsed_attrs: Option<Vec<Attribute>>)
+                        attrs: Vec<Attribute>,
+                        visa: Visibility)
                         -> P<Method> {
-        let next_attrs = self.parse_outer_attributes();
-        let attrs = match already_parsed_attrs {
-            Some(mut a) => { a.push_all_move(next_attrs); a }
-            None => next_attrs
-        };
-
         let lo = self.span.lo;
 
         // code copied from parse_macro_use_or_failure... abstraction!
@@ -4254,7 +4298,6 @@ impl<'a> Parser<'a> {
                                                              self.span.hi) };
                 (ast::MethMac(m), self.span.hi, attrs)
             } else {
-                let visa = self.parse_visibility();
                 let abi = if self.eat_keyword(keywords::Extern) {
                     self.parse_opt_abi().unwrap_or(abi::C)
                 } else if attr::contains_name(attrs.as_slice(),
@@ -4305,18 +4348,28 @@ impl<'a> Parser<'a> {
 
         self.parse_where_clause(&mut tps);
 
-        let meths = self.parse_trait_methods();
+        let meths = self.parse_trait_items();
         (ident, ItemTrait(tps, sized, bounds, meths), None)
     }
 
     fn parse_impl_items(&mut self) -> (Vec<ImplItem>, Vec<Attribute>) {
         let mut impl_items = Vec::new();
         self.expect(&token::LBRACE);
-        let (inner_attrs, next) = self.parse_inner_attrs_and_next();
-        let mut method_attrs = Some(next);
+        let (inner_attrs, mut method_attrs) =
+            self.parse_inner_attrs_and_next();
         while !self.eat(&token::RBRACE) {
-            impl_items.push(MethodImplItem(self.parse_method(method_attrs)));
-            method_attrs = None;
+            method_attrs.push_all_move(self.parse_outer_attributes());
+            let vis = self.parse_visibility();
+            if self.eat_keyword(keywords::Type) {
+                impl_items.push(TypeImplItem(P(self.parse_typedef(
+                            method_attrs,
+                            vis))))
+            } else {
+                impl_items.push(MethodImplItem(self.parse_method(
+                            method_attrs,
+                            vis)));
+            }
+            method_attrs = self.parse_outer_attributes();
         }
         (impl_items, inner_attrs)
     }

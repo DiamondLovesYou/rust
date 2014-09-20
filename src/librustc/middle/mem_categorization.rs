@@ -319,7 +319,9 @@ impl MutabilityCategory {
             def::DefTy(..) | def::DefTrait(..) | def::DefPrimTy(..) |
             def::DefTyParam(..) | def::DefUse(..) | def::DefStruct(..) |
             def::DefTyParamBinder(..) | def::DefRegion(..) | def::DefLabel(..) |
-            def::DefMethod(..) => fail!("no MutabilityCategory for def: {}", *def),
+            def::DefMethod(..) | def::DefAssociatedTy(..) => {
+                fail!("no MutabilityCategory for def: {}", *def)
+            }
 
             def::DefStatic(_, false) => McImmutable,
             def::DefStatic(_, true) => McDeclared,
@@ -531,9 +533,10 @@ impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
                 Ok(self.cat_rvalue_node(id, span, expr_ty))
           }
           def::DefMod(_) | def::DefForeignMod(_) | def::DefUse(_) |
-          def::DefTrait(_) | def::DefTy(_) | def::DefPrimTy(_) |
+          def::DefTrait(_) | def::DefTy(..) | def::DefPrimTy(_) |
           def::DefTyParam(..) | def::DefTyParamBinder(..) | def::DefRegion(_) |
-          def::DefLabel(_) | def::DefSelfTy(..) | def::DefMethod(..) => {
+          def::DefLabel(_) | def::DefSelfTy(..) | def::DefMethod(..) |
+          def::DefAssociatedTy(..) => {
               Ok(Rc::new(cmt_ {
                   id:id,
                   span:span,

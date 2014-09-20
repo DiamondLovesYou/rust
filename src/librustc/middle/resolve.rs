@@ -37,13 +37,15 @@ use syntax::ast::{RegionTyParamBound, StmtDecl, StructField};
 use syntax::ast::{StructVariantKind, TraitRef, TraitTyParamBound};
 use syntax::ast::{TupleVariantKind, Ty, TyBool, TyChar, TyClosure, TyF32};
 use syntax::ast::{TyF64, TyFloat, TyI, TyI8, TyI16, TyI32, TyI64, TyInt};
-use syntax::ast::{TyParam, TyParamBound, TyPath, TyPtr, TyProc, TyRptr};
-use syntax::ast::{TyStr, TyU, TyU8, TyU16, TyU32, TyU64, TyUint};
-use syntax::ast::{UnboxedFnTyParamBound, UnnamedField, UnsafeFn, Variant};
-use syntax::ast::{ViewItem, ViewItemExternCrate, ViewItemUse, ViewPathGlob};
-use syntax::ast::{ViewPathList, ViewPathSimple, Visibility};
+use syntax::ast::{TyParam, TyParamBound, TyPath, TyPtr, TyProc, TyQPath};
+use syntax::ast::{TyRptr, TyStr, TyU, TyU8, TyU16, TyU32, TyU64, TyUint};
+use syntax::ast::{TypeImplItem, UnboxedFnTyParamBound, UnnamedField};
+use syntax::ast::{UnsafeFn, Variant, ViewItem, ViewItemExternCrate};
+use syntax::ast::{ViewItemUse, ViewPathGlob, ViewPathList, ViewPathSimple};
+use syntax::ast::{Visibility};
 use syntax::ast;
 use syntax::ast_util::{PostExpansionMethod, local_def, walk_pat};
+use syntax::ast_util;
 use syntax::attr::AttrMetaMethods;
 use syntax::ext::mtwt;
 use syntax::parse::token::special_names;
@@ -313,6 +315,7 @@ enum ModulePrefixResult {
 pub enum TraitItemKind {
     NonstaticMethodTraitItemKind,
     StaticMethodTraitItemKind,
+    TypeTraitItemKind,
 }
 
 impl TraitItemKind {
@@ -1252,7 +1255,7 @@ impl<'a> Resolver<'a> {
                                    sp);
 
                 name_bindings.define_type
-                    (DefTy(local_def(item.id)), sp, is_public);
+                    (DefTy(local_def(item.id), false), sp, is_public);
                 parent
             }
 
@@ -1264,7 +1267,7 @@ impl<'a> Resolver<'a> {
                                    sp);
 
                 name_bindings.define_type
-                    (DefTy(local_def(item.id)), sp, is_public);
+                    (DefTy(local_def(item.id), true), sp, is_public);
 
                 for variant in (*enum_definition).variants.iter() {
                     self.build_reduced_graph_for_variant(
@@ -1287,7 +1290,7 @@ impl<'a> Resolver<'a> {
                 let name_bindings = self.add_child(ident, parent.clone(), forbid, sp);
 
                 // Define a name in the type namespace.
-                name_bindings.define_type(DefTy(local_def(item.id)), sp, is_public);
+                name_bindings.define_type(DefTy(local_def(item.id), false), sp, is_public);
 
                 // If this is a newtype or unit-like struct, define a name
                 // in the value namespace as well
@@ -1393,6 +1396,24 @@ impl<'a> Resolver<'a> {
                                         method.span,
                                         is_public);
                                 }
+                                TypeImplItem(ref typedef) => {
+                                    // Add the typedef to the module.
+                                    let ident = typedef.ident;
+                                    let typedef_name_bindings =
+                                        self.add_child(
+                                            ident,
+                                            new_parent.clone(),
+                                            ForbidDuplicateTypesAndModules,
+                                            typedef.span);
+                                    let def = DefAssociatedTy(local_def(
+                                            typedef.id));
+                                    let is_public = typedef.vis ==
+                                        ast::Public;
+                                    typedef_name_bindings.define_type(
+                                        def,
+                                        typedef.span,
+                                        is_public);
+                                }
                             }
                         }
                     }
@@ -1432,42 +1453,66 @@ impl<'a> Resolver<'a> {
 
                 // Add the names of all the methods to the trait info.
                 for method in methods.iter() {
-                    let (m_id, m_ident, m_fn_style, m_self, m_span) = match *method {
-                        ast::RequiredMethod(ref m) => {
-                            (m.id, m.ident, m.fn_style, &m.explicit_self, m.span)
+                    let (ident, kind) = match *method {
+                        ast::RequiredMethod(_) |
+                        ast::ProvidedMethod(_) => {
+                            let ty_m =
+                                ast_util::trait_item_to_ty_method(method);
+
+                            let ident = ty_m.ident;
+
+                            // Add it as a name in the trait module.
+                            let (def, static_flag) = match ty_m.explicit_self
+                                                               .node {
+                                SelfStatic => {
+                                    // Static methods become
+                                    // `def_static_method`s.
+                                    (DefStaticMethod(
+                                            local_def(ty_m.id),
+                                            FromTrait(local_def(item.id)),
+                                            ty_m.fn_style),
+                                     StaticMethodTraitItemKind)
+                                }
+                                _ => {
+                                    // Non-static methods become
+                                    // `def_method`s.
+                                    (DefMethod(local_def(ty_m.id),
+                                               Some(local_def(item.id))),
+                                     NonstaticMethodTraitItemKind)
+                                }
+                            };
+
+                            let method_name_bindings =
+                                self.add_child(ident,
+                                               module_parent.clone(),
+                                               ForbidDuplicateTypesAndValues,
+                                               ty_m.span);
+                            method_name_bindings.define_value(def,
+                                                              ty_m.span,
+                                                              true);
+
+                            (ident, static_flag)
                         }
-                        ast::ProvidedMethod(ref m) => {
-                            (m.id, m.pe_ident(), m.pe_fn_style(), m.pe_explicit_self(), m.span)
+                        ast::TypeTraitItem(ref associated_type) => {
+                            let def = DefAssociatedTy(local_def(
+                                    associated_type.id));
+
+                            let name_bindings =
+                                self.add_child(associated_type.ident,
+                                               module_parent.clone(),
+                                               ForbidDuplicateTypesAndValues,
+                                               associated_type.span);
+                            name_bindings.define_type(def,
+                                                      associated_type.span,
+                                                      true);
+
+                            (associated_type.ident, TypeTraitItemKind)
                         }
                     };
-
-                    // Add it as a name in the trait module.
-                    let (def, static_flag) = match m_self.node {
-                        SelfStatic => {
-                            // Static methods become `def_static_method`s.
-                            (DefStaticMethod(local_def(m_id),
-                                              FromTrait(local_def(item.id)),
-                                              m_fn_style),
-                             StaticMethodTraitItemKind)
-                        }
-                        _ => {
-                            // Non-static methods become `def_method`s.
-                            (DefMethod(local_def(m_id),
-                                       Some(local_def(item.id))),
-                             NonstaticMethodTraitItemKind)
-                        }
-                    };
-
-                    let method_name_bindings =
-                        self.add_child(m_ident,
-                                       module_parent.clone(),
-                                       ForbidDuplicateValues,
-                                       m_span);
-                    method_name_bindings.define_value(def, m_span, true);
 
                     self.trait_item_map
                         .borrow_mut()
-                        .insert((m_ident.name, def_id), static_flag);
+                        .insert((ident.name, def_id), kind);
                 }
 
                 name_bindings.define_type(DefTrait(def_id), sp, is_public);
@@ -1732,7 +1777,7 @@ impl<'a> Resolver<'a> {
 
         match def {
           DefMod(def_id) | DefForeignMod(def_id) | DefStruct(def_id) |
-          DefTy(def_id) => {
+          DefTy(def_id, _) => {
             let type_def = child_name_bindings.type_def.borrow().clone();
             match type_def {
               Some(TypeNsDef { module_def: Some(module_def), .. }) => {
@@ -1823,7 +1868,7 @@ impl<'a> Resolver<'a> {
                                                   is_public,
                                                   DUMMY_SP)
           }
-          DefTy(_) => {
+          DefTy(..) | DefAssociatedTy(..) => {
               debug!("(building reduced graph for external \
                       crate) building type {}", final_ident);
 
@@ -2811,7 +2856,7 @@ impl<'a> Resolver<'a> {
                                     import_span: Span,
                                     name: Name,
                                     namespace: Namespace) {
-        if self.session.features.import_shadowing.get() {
+        if self.session.features.borrow().import_shadowing {
             return
         }
 
@@ -2837,7 +2882,7 @@ impl<'a> Resolver<'a> {
                                                      &mut ImportResolution,
                                                      import_span: Span,
                                                      name: Name) {
-        if self.session.features.import_shadowing.get() {
+        if self.session.features.borrow().import_shadowing {
             return
         }
 
@@ -2919,7 +2964,7 @@ impl<'a> Resolver<'a> {
                                                    module: &Module,
                                                    name: Name,
                                                    span: Span) {
-        if self.session.features.import_shadowing.get() {
+        if self.session.features.borrow().import_shadowing {
             return
         }
 
@@ -2937,7 +2982,7 @@ impl<'a> Resolver<'a> {
                                                              module: &Module,
                                                              name: Name,
                                                              span: Span) {
-        if self.session.features.import_shadowing.get() {
+        if self.session.features.borrow().import_shadowing {
             return
         }
 
@@ -4065,6 +4110,9 @@ impl<'a> Resolver<'a> {
                                                                 ProvidedMethod(m.id)),
                                                   &**m)
                           }
+                          ast::TypeTraitItem(_) => {
+                              visit::walk_trait_item(this, method);
+                          }
                         }
                     }
                 });
@@ -4320,7 +4368,7 @@ impl<'a> Resolver<'a> {
 
                         // If it's a typedef, give a note
                         match def {
-                            DefTy(_) => {
+                            DefTy(..) => {
                                 self.session.span_note(
                                                 trait_reference.path.span,
                                                 format!("`type` aliases cannot \
@@ -4381,7 +4429,7 @@ impl<'a> Resolver<'a> {
                 Some(ref t) => match t.node {
                     TyPath(ref path, None, path_id) => {
                         match this.resolve_path(id, path, TypeNS, true) {
-                            Some((DefTy(def_id), lp)) if this.structs.contains_key(&def_id) => {
+                            Some((DefTy(def_id, _), lp)) if this.structs.contains_key(&def_id) => {
                                 let def = DefStruct(def_id);
                                 debug!("(resolving struct) resolved `{}` to type {:?}",
                                        token::get_ident(path.segments
@@ -4508,6 +4556,14 @@ impl<'a> Resolver<'a> {
                                     MethodRibKind(id,
                                                   ProvidedMethod(method.id)),
                                     &**method);
+                            }
+                            TypeImplItem(ref typedef) => {
+                                // If this is a trait impl, ensure the method
+                                // exists in trait
+                                this.check_trait_item(typedef.ident,
+                                                      typedef.span);
+
+                                this.resolve_type(&*typedef.typ);
                             }
                         }
                     }
@@ -4745,9 +4801,73 @@ impl<'a> Resolver<'a> {
                 });
             }
 
+            TyQPath(ref qpath) => {
+                self.resolve_type(&*qpath.for_type);
+
+                let current_module = self.current_module.clone();
+                let module_path_idents: Vec<_> =
+                    qpath.trait_name
+                         .segments
+                         .iter()
+                         .map(|ps| ps.identifier)
+                         .collect();
+                match self.resolve_module_path(
+                        current_module,
+                        module_path_idents.as_slice(),
+                        UseLexicalScope,
+                        qpath.trait_name.span,
+                        PathSearch) {
+                    Success((ref module, _)) if module.kind.get() ==
+                            TraitModuleKind => {
+                        match self.resolve_definition_of_name_in_module(
+                                (*module).clone(),
+                                qpath.item_name.name,
+                                TypeNS) {
+                            ChildNameDefinition(def, lp) |
+                            ImportNameDefinition(def, lp) => {
+                                match def {
+                                    DefAssociatedTy(trait_type_id) => {
+                                        let def = DefAssociatedTy(
+                                            trait_type_id);
+                                        self.record_def(ty.id, (def, lp));
+                                    }
+                                    _ => {
+                                        self.resolve_error(
+                                            ty.span,
+                                            "not an associated type");
+                                    }
+                                }
+                            }
+                            NoNameDefinition => {
+                                self.resolve_error(ty.span,
+                                                   "unresolved associated \
+                                                    type");
+                            }
+                        }
+                    }
+                    Success(..) => self.resolve_error(ty.span, "not a trait"),
+                    Indeterminate => {
+                        self.session.span_bug(ty.span,
+                                              "indeterminate result when \
+                                               resolving associated type")
+                    }
+                    Failed(error) => {
+                        let (span, help) = match error {
+                            Some((span, msg)) => (span, format!("; {}", msg)),
+                            None => (ty.span, String::new()),
+                        };
+                        self.resolve_error(span,
+                                           format!("unresolved trait: {}",
+                                                   help).as_slice())
+                    }
+                }
+            }
+
             TyClosure(ref c) | TyProc(ref c) => {
-                self.resolve_type_parameter_bounds(ty.id, &c.bounds,
-                                                   TraitBoundingTypeParameter);
+                self.resolve_type_parameter_bounds(
+                    ty.id,
+                    &c.bounds,
+                    TraitBoundingTypeParameter);
                 visit::walk_ty(self, ty);
             }
 
@@ -5210,8 +5330,9 @@ impl<'a> Resolver<'a> {
                     Some(def_id) => {
                         match self.trait_item_map.borrow().find(&(ident.name, def_id)) {
                             Some(&StaticMethodTraitItemKind) => (),
+                            Some(&TypeTraitItemKind) => (),
                             None => (),
-                            _ => {
+                            Some(&NonstaticMethodTraitItemKind) => {
                                 debug!("containing module was a trait or impl \
                                 and name was a method -> not resolved");
                                 return None;
@@ -5440,7 +5561,7 @@ impl<'a> Resolver<'a> {
         if allowed == Everything {
             // Look for a field with the same name in the current self_type.
             match self.def_map.borrow().find(&node_id) {
-                 Some(&DefTy(did))
+                 Some(&DefTy(did, _))
                 | Some(&DefStruct(did))
                 | Some(&DefVariant(_, did, _)) => match self.structs.find(&did) {
                     None => {}
@@ -5582,7 +5703,7 @@ impl<'a> Resolver<'a> {
                         // structs, which wouldn't result in this error.)
                         match self.with_no_errors(|this|
                             this.resolve_path(expr.id, path, TypeNS, false)) {
-                            Some((DefTy(struct_id), _))
+                            Some((DefTy(struct_id, _), _))
                               if self.structs.contains_key(&struct_id) => {
                                 self.resolve_error(expr.span,
                                         format!("`{}` is a structure name, but \

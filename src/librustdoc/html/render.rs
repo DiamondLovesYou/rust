@@ -308,6 +308,7 @@ pub fn run(mut krate: clean::Crate, external_html: &ExternalHtml, dst: Path) -> 
                 clean::TypeModule => item_type::Module,
                 clean::TypeStatic => item_type::Static,
                 clean::TypeVariant => item_type::Variant,
+                clean::TypeTypedef => item_type::Typedef,
             }))
         }).collect()
     }).unwrap_or(HashMap::new());
@@ -1511,6 +1512,7 @@ fn item_module(w: &mut fmt::Formatter, cx: &Context,
                 clean::ForeignStaticItem(..)   => ("ffi-statics", "Foreign Statics"),
                 clean::MacroItem(..)           => ("macros", "Macros"),
                 clean::PrimitiveItem(..)       => ("primitives", "Primitive Types"),
+                clean::AssociatedTypeItem(..)  => ("associated-types", "Associated Types"),
             };
             try!(write!(w,
                         "<h2 id='{id}' class='section-header'>\

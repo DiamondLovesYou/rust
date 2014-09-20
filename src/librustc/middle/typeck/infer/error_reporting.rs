@@ -871,6 +871,7 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
                                   Some(&m.pe_explicit_self().node),
                                   m.span))
                         }
+                        ast::TypeImplItem(_) => None,
                     }
                 },
                 _ => None
@@ -1235,7 +1236,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                         Some(&d) => d
                     };
                     match a_def {
-                        def::DefTy(did) | def::DefStruct(did) => {
+                        def::DefTy(did, _) | def::DefStruct(did) => {
                             let generics = ty::lookup_item_type(self.tcx, did).generics;
 
                             let expected =
@@ -1687,6 +1688,7 @@ fn lifetimes_in_scope(tcx: &ty::ctxt,
                         taken.push_all(m.pe_generics().lifetimes.as_slice());
                         Some(m.id)
                     }
+                    ast::TypeImplItem(_) => None,
                 }
             }
             _ => None

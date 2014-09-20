@@ -82,8 +82,13 @@ impl<'v> Visitor<'v> for ParentVisitor {
             ast::ItemTrait(_, _, _, ref methods) if item.vis != ast::Public => {
                 for m in methods.iter() {
                     match *m {
-                        ast::ProvidedMethod(ref m) => self.parents.insert(m.id, item.id),
-                        ast::RequiredMethod(ref m) => self.parents.insert(m.id, item.id),
+                        ast::ProvidedMethod(ref m) => {
+                            self.parents.insert(m.id, item.id);
+                        }
+                        ast::RequiredMethod(ref m) => {
+                            self.parents.insert(m.id, item.id);
+                        }
+                        ast::TypeTraitItem(_) => {}
                     };
                 }
             }
@@ -272,6 +277,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for EmbargoVisitor<'a, 'tcx> {
                                     self.exported_items.insert(method.id);
                                 }
                             }
+                            ast::TypeImplItem(_) => {}
                         }
                     }
                 }
@@ -289,6 +295,10 @@ impl<'a, 'tcx, 'v> Visitor<'v> for EmbargoVisitor<'a, 'tcx> {
                         ast::RequiredMethod(ref m) => {
                             debug!("required {}", m.id);
                             self.exported_items.insert(m.id);
+                        }
+                        ast::TypeTraitItem(ref t) => {
+                            debug!("typedef {}", t.id);
+                            self.exported_items.insert(t.id);
                         }
                     }
                 }
@@ -419,6 +429,31 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                         }
                     }
                 }
+                Some(&ty::TypeTraitItem(ref typedef)) => {
+                    match typedef.container {
+                        ty::TraitContainer(id) => {
+                            debug!("privacy - recursing on trait {:?}", id);
+                            self.def_privacy(id)
+                        }
+                        ty::ImplContainer(id) => {
+                            match ty::impl_trait_ref(self.tcx, id) {
+                                Some(t) => {
+                                    debug!("privacy - impl of trait {:?}", id);
+                                    self.def_privacy(t.def_id)
+                                }
+                                None => {
+                                    debug!("privacy - found a typedef {:?}",
+                                            typedef.vis);
+                                    if typedef.vis == ast::Public {
+                                        Allowable
+                                    } else {
+                                        ExternallyDenied
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 None => {
                     debug!("privacy - nope, not even a method");
                     ExternallyDenied
@@ -469,6 +504,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                                 _ => m.pe_vis()
                             }
                         }
+                        ast::TypeImplItem(_) => return Allowable,
                     }
                 }
                 Some(ast_map::NodeTraitItem(_)) => {
@@ -670,6 +706,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
             ty::MethodTraitItem(method_type) => {
                 method_type.provided_source.unwrap_or(method_id)
             }
+            ty::TypeTraitItem(_) => method_id,
         };
 
         let string = token::get_ident(name);
@@ -771,7 +808,8 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
             def::DefFn(..) => ck("function"),
             def::DefStatic(..) => ck("static"),
             def::DefVariant(..) => ck("variant"),
-            def::DefTy(..) => ck("type"),
+            def::DefTy(_, false) => ck("type"),
+            def::DefTy(_, true) => ck("enum"),
             def::DefTrait(..) => ck("trait"),
             def::DefStruct(..) => ck("struct"),
             def::DefMethod(_, Some(..)) => ck("trait method"),
@@ -1109,6 +1147,7 @@ impl<'a, 'tcx> SanePrivacyVisitor<'a, 'tcx> {
                         ast::MethodImplItem(ref m) => {
                             check_inherited(m.span, m.pe_vis(), "");
                         }
+                        ast::TypeImplItem(_) => {}
                     }
                 }
             }
@@ -1148,6 +1187,7 @@ impl<'a, 'tcx> SanePrivacyVisitor<'a, 'tcx> {
                             check_inherited(m.span, m.vis,
                                             "unnecessary visibility");
                         }
+                        ast::TypeTraitItem(_) => {}
                     }
                 }
             }
@@ -1183,6 +1223,7 @@ impl<'a, 'tcx> SanePrivacyVisitor<'a, 'tcx> {
                         ast::MethodImplItem(ref m) => {
                             check_inherited(tcx, m.span, m.pe_vis());
                         }
+                        ast::TypeImplItem(_) => {}
                     }
                 }
             }
@@ -1210,6 +1251,7 @@ impl<'a, 'tcx> SanePrivacyVisitor<'a, 'tcx> {
                         ast::RequiredMethod(..) => {}
                         ast::ProvidedMethod(ref m) => check_inherited(tcx, m.span,
                                                                 m.pe_vis()),
+                        ast::TypeTraitItem(_) => {}
                     }
                 }
             }
@@ -1350,6 +1392,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
                                       ast::MethodImplItem(ref m) => {
                                           self.exported_items.contains(&m.id)
                                       }
+                                      ast::TypeImplItem(_) => false,
                                   }
                               });
 
@@ -1366,6 +1409,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
                                     ast::MethodImplItem(ref method) => {
                                         visit::walk_method_helper(self, &**method)
                                     }
+                                    ast::TypeImplItem(_) => {}
                                 }
                             }
                         }
@@ -1400,6 +1444,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
                                     visit::walk_method_helper(self, &**method);
                                 }
                             }
+                            ast::TypeImplItem(_) => {}
                         }
                     }
                     if found_pub_static {
