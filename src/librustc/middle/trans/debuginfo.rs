@@ -738,10 +738,6 @@ pub fn finalize(cx: &CrateContext) {
             cx.sess().targ_cfg.os == abi::OsiOS {
             "Dwarf Version".with_c_str(
                 |s| llvm::LLVMRustAddModuleFlag(cx.llmod(), s, 2));
-        } else if !cx.sess().targeting_pnacl() {
-            // The PNaCl/NaCl toolchain uses dwarf4, so match that for the C/C++
-            // libs we inevitably link against.
-            "Dwarf Version".with_c_str(|s| llvm::LLVMRustAddModuleFlag(cx.llmod(), s, 4));
         }
         // Prevent bitcode readers from deleting the debug info.
         "Debug Info Version".with_c_str(
