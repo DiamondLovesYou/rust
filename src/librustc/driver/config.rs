@@ -177,11 +177,9 @@ debugging_opts!(
         SHOW_SPAN,
         COUNT_TYPE_SIZES,
         META_STATS,
-        NO_OPT,
         GC,
         PRINT_LINK_ARGS,
         PRINT_LLVM_PASSES,
-        LTO,
         AST_JSON,
         AST_JSON_NOEXPAND,
         LS,
@@ -213,14 +211,12 @@ pub fn debugging_opts_map() -> Vec<(&'static str, &'static str, u64)> {
      ("count-type-sizes", "count the sizes of aggregate types",
       COUNT_TYPE_SIZES),
      ("meta-stats", "gather metadata statistics", META_STATS),
-     ("no-opt", "do not optimize, even if -O is passed", NO_OPT),
      ("print-link-args", "Print the arguments passed to the linker",
       PRINT_LINK_ARGS),
      ("gc", "Garbage collect shared data (experimental)", GC),
      ("print-llvm-passes",
       "Prints the llvm optimization passes being run",
       PRINT_LLVM_PASSES),
-     ("lto", "Perform LLVM link-time optimizations", LTO),
      ("ast-json", "Print the AST as JSON and halt", AST_JSON),
      ("ast-json-noexpand", "Print the pre-expansion AST as JSON and halt", AST_JSON_NOEXPAND),
      ("ls", "List the symbols defined by a library crate", LS),
@@ -238,14 +234,14 @@ pub fn debugging_opts_map() -> Vec<(&'static str, &'static str, u64)> {
 
 #[deriving(Clone)]
 pub enum Passes {
-    Passes(Vec<String>),
+    SomePasses(Vec<String>),
     AllPasses,
 }
 
 impl Passes {
     pub fn is_empty(&self) -> bool {
         match *self {
-            Passes(ref v) => v.is_empty(),
+            SomePasses(ref v) => v.is_empty(),
             AllPasses => false,
         }
     }
@@ -277,7 +273,7 @@ macro_rules! cgoptions(
         &[ $( (stringify!($opt), cgsetters::$opt, $desc) ),* ];
 
     mod cgsetters {
-        use super::{CodegenOptions, Passes, AllPasses};
+        use super::{CodegenOptions, Passes, SomePasses, AllPasses};
 
         $(
             pub fn $opt(cg: &mut CodegenOptions, v: Option<&str>) -> bool {
@@ -335,7 +331,7 @@ macro_rules! cgoptions(
                 v => {
                     let mut passes = vec!();
                     if parse_list(&mut passes, v) {
-                        *slot = Passes(passes);
+                        *slot = SomePasses(passes);
                         true
                     } else {
                         false
@@ -353,6 +349,8 @@ cgoptions!(
         "system linker to link outputs with"),
     link_args: Vec<String> = (Vec::new(), parse_list,
         "extra arguments to pass to the linker (space separated)"),
+    lto: bool = (false, parse_bool,
+        "perform LLVM link-time optimizations"),
     target_cpu: String = ("generic".to_string(), parse_string,
         "select target processor (llc -mcpu=help for details)"),
     target_feature: String = ("".to_string(), parse_string,
@@ -391,7 +389,7 @@ cgoptions!(
         "the path to the target specific toolchain"),
     codegen_units: uint = (1, parse_uint,
         "divide crate into N units to optimize in parallel"),
-    remark: Passes = (Passes(Vec::new()), parse_passes,
+    remark: Passes = (SomePasses(Vec::new()), parse_passes,
         "print remarks for these optimization passes (space separated, or \"all\")"),
     extra_bitcode: Vec<String> = (Vec::new(), parse_list,
         "a list of bitcode files to include for linking (PNaCl bin output only)"),
@@ -729,9 +727,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     let target = matches.opt_str("target").unwrap_or(
         driver::host_triple().to_string());
     let opt_level = {
-        if (debugging_opts & NO_OPT) != 0 {
-            No
-        } else if matches.opt_present("O") {
+        if matches.opt_present("O") {
             if matches.opt_present("opt-level") {
                 early_error("-O and --opt-level both provided");
             }

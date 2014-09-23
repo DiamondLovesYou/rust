@@ -260,7 +260,7 @@ pub mod dl {
         dlclose(handle as *mut libc::c_void); ()
     }
 
-    pub enum RTLD {
+    pub enum Rtld {
         Lazy = 1,
         Now = 2,
         Global = 256,
@@ -281,6 +281,7 @@ pub mod dl {
 #[cfg(target_os = "windows")]
 pub mod dl {
     use c_str::ToCStr;
+    use collections::MutableSeq;
     use iter::Iterator;
     use libc;
     use os;
@@ -295,8 +296,8 @@ pub mod dl {
         // Windows expects Unicode data
         let filename_cstr = filename.to_c_str();
         let filename_str = str::from_utf8(filename_cstr.as_bytes_no_nul()).unwrap();
-        let filename_str: Vec<u16> = filename_str.utf16_units().collect();
-        let filename_str = filename_str.append_one(0);
+        let mut filename_str: Vec<u16> = filename_str.utf16_units().collect();
+        filename_str.push(0);
         LoadLibraryW(filename_str.as_ptr() as *const libc::c_void) as *mut u8
     }
 
@@ -350,11 +351,11 @@ pub mod dl {
     use string::String;
 
     pub unsafe fn open_external<T: ToCStr>(_filename: T) -> *mut u8 {
-        ptr::mut_null()
+        ptr::null_mut()
     }
 
     pub unsafe fn open_internal() -> *mut u8 {
-        ptr::mut_null()
+        ptr::null_mut()
     }
 
     pub fn check_for_errors_in<T>(_f: || -> T) -> Result<T, String> {
@@ -362,7 +363,7 @@ pub mod dl {
     }
 
     pub unsafe fn symbol(_handle: *mut u8, _symbol: *const libc::c_char) -> *mut u8 {
-        ptr::mut_null()
+        ptr::null_mut()
     }
     pub unsafe fn close(_handle: *mut u8) { }
 }

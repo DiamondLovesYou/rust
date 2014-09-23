@@ -603,9 +603,11 @@ impl Repr for def::Def {
 
 impl Repr for ty::TypeParameterDef {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("TypeParameterDef({}, {})",
-                self.def_id.repr(tcx),
-                self.bounds.repr(tcx))
+        format!("TypeParameterDef({}, {}, {}/{})",
+                self.def_id,
+                self.bounds.repr(tcx),
+                self.space,
+                self.index)
     }
 }
 
@@ -960,10 +962,10 @@ impl Repr for typeck::MethodOrigin {
             &typeck::MethodStaticUnboxedClosure(def_id) => {
                 format!("MethodStaticUnboxedClosure({})", def_id.repr(tcx))
             }
-            &typeck::MethodParam(ref p) => {
+            &typeck::MethodTypeParam(ref p) => {
                 p.repr(tcx)
             }
-            &typeck::MethodObject(ref p) => {
+            &typeck::MethodTraitObject(ref p) => {
                 p.repr(tcx)
             }
         }

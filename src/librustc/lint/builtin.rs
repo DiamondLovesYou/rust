@@ -42,7 +42,7 @@ use syntax::abi;
 use syntax::ast_map;
 use syntax::attr::AttrMetaMethods;
 use syntax::attr;
-use syntax::codemap::Span;
+use syntax::codemap::{Span, NO_EXPANSION};
 use syntax::parse::token;
 use syntax::{ast, ast_util, visit};
 use syntax::ptr::P;
@@ -689,11 +689,7 @@ impl LintPass for UnusedResult {
             ast::StmtSemi(ref expr, _) => &**expr,
             _ => return
         };
-        let t = ty::expr_ty(cx.tcx, expr);
-        match ty::get(t).sty {
-            ty::ty_nil | ty::ty_bot | ty::ty_bool => return,
-            _ => {}
-        }
+
         match expr.node {
             ast::ExprRet(..) => return,
             _ => {}
@@ -702,6 +698,7 @@ impl LintPass for UnusedResult {
         let t = ty::expr_ty(cx.tcx, expr);
         let mut warned = false;
         match ty::get(t).sty {
+            ty::ty_nil | ty::ty_bot | ty::ty_bool => return,
             ty::ty_struct(did, _) |
             ty::ty_enum(did, _) => {
                 if ast_util::is_local(did) {
@@ -847,6 +844,17 @@ fn method_context(cx: &Context, m: &ast::Method) -> MethodContext {
                         }
                     }
                 }
+                ty::TypeTraitItem(typedef) => {
+                    match typedef.container {
+                        ty::TraitContainer(..) => TraitDefaultImpl,
+                        ty::ImplContainer(cid) => {
+                            match ty::impl_trait_ref(cx.tcx, cid) {
+                                Some(..) => TraitImpl,
+                                None => PlainImpl
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -946,8 +954,7 @@ impl LintPass for NonSnakeCase {
         match &p.node {
             &ast::PatIdent(_, ref path1, _) => {
                 match cx.tcx.def_map.borrow().find(&p.id) {
-                    Some(&def::DefLocal(_, _)) | Some(&def::DefBinding(_, _)) |
-                            Some(&def::DefArg(_, _)) => {
+                    Some(&def::DefLocal(_)) => {
                         self.check_snake_case(cx, "variable", path1.node, p.span);
                     }
                     _ => {}
@@ -1107,6 +1114,41 @@ impl LintPass for UnnecessaryParens {
     }
 }
 
+declare_lint!(UNNECESSARY_IMPORT_BRACES, Allow,
+              "unnecessary braces around an imported item")
+
+pub struct UnnecessaryImportBraces;
+
+impl LintPass for UnnecessaryImportBraces {
+    fn get_lints(&self) -> LintArray {
+        lint_array!(UNNECESSARY_IMPORT_BRACES)
+    }
+
+    fn check_view_item(&mut self, cx: &Context, view_item: &ast::ViewItem) {
+        match view_item.node {
+            ast::ViewItemUse(ref view_path) => {
+                match view_path.node {
+                    ast::ViewPathList(_, ref items, _) => {
+                        if items.len() == 1 {
+                            match items[0].node {
+                                ast::PathListIdent {ref name, ..} => {
+                                    let m = format!("braces around {} is unnecessary",
+                                                    token::get_ident(*name).get());
+                                    cx.span_lint(UNNECESSARY_IMPORT_BRACES, view_item.span,
+                                                 m.as_slice());
+                                },
+                                _ => ()
+                            }
+                        }
+                    }
+                    _ => ()
+                }
+            },
+            _ => ()
+        }
+    }
+}
+
 declare_lint!(UNUSED_UNSAFE, Warn,
               "unnecessary use of an `unsafe` block")
 
@@ -1254,7 +1296,7 @@ impl LintPass for UnnecessaryAllocation {
         match cx.tcx.adjustments.borrow().find(&e.id) {
             Some(adjustment) => {
                 match *adjustment {
-                    ty::AutoDerefRef(ty::AutoDerefRef { ref autoref, .. }) => {
+                    ty::AdjustDerefRef(ty::AutoDerefRef { ref autoref, .. }) => {
                         match (allocation, autoref) {
                             (VectorAllocation, &Some(ty::AutoPtr(_, _, None))) => {
                                 cx.span_lint(UNNECESSARY_ALLOCATION, e.span,
@@ -1449,7 +1491,7 @@ impl LintPass for Stability {
 
     fn check_expr(&mut self, cx: &Context, e: &ast::Expr) {
         // if the expression was produced by a macro expansion,
-        if e.span.expn_info.is_some() { return }
+        if e.span.expn_id != NO_EXPANSION { return }
 
         let id = match e.node {
             ast::ExprPath(..) | ast::ExprStruct(..) => {
@@ -1469,23 +1511,19 @@ impl LintPass for Stability {
                             typeck::MethodStaticUnboxedClosure(def_id) => {
                                 def_id
                             }
-                            typeck::MethodParam(typeck::MethodParam {
+                            typeck::MethodTypeParam(typeck::MethodParam {
                                 trait_ref: ref trait_ref,
                                 method_num: index,
                                 ..
                             }) |
-                            typeck::MethodObject(typeck::MethodObject {
+                            typeck::MethodTraitObject(typeck::MethodObject {
                                 trait_ref: ref trait_ref,
                                 method_num: index,
                                 ..
                             }) => {
-                                match ty::trait_item(cx.tcx,
-                                                     trait_ref.def_id,
-                                                     index) {
-                                    ty::MethodTraitItem(method) => {
-                                        method.def_id
-                                    }
-                                }
+                                ty::trait_item(cx.tcx,
+                                               trait_ref.def_id,
+                                               index).def_id()
                             }
                         }
                     }

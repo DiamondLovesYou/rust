@@ -295,7 +295,7 @@ pub fn main() {
                                                   pm,
                                                   llmod,
                                                   o,
-                                                  llvm::ObjectFile)
+                                                  llvm::ObjectFileType)
                 });
 
                 llvm::LLVMDisposePassManager(pm);

@@ -165,45 +165,45 @@ pub fn binop_to_string(o: BinOp) -> &'static str {
 
 pub fn to_string(t: &Token) -> String {
     match *t {
-      EQ => "=".to_string(),
-      LT => "<".to_string(),
-      LE => "<=".to_string(),
-      EQEQ => "==".to_string(),
-      NE => "!=".to_string(),
-      GE => ">=".to_string(),
-      GT => ">".to_string(),
-      NOT => "!".to_string(),
-      TILDE => "~".to_string(),
-      OROR => "||".to_string(),
-      ANDAND => "&&".to_string(),
-      BINOP(op) => binop_to_string(op).to_string(),
+      EQ => "=".into_string(),
+      LT => "<".into_string(),
+      LE => "<=".into_string(),
+      EQEQ => "==".into_string(),
+      NE => "!=".into_string(),
+      GE => ">=".into_string(),
+      GT => ">".into_string(),
+      NOT => "!".into_string(),
+      TILDE => "~".into_string(),
+      OROR => "||".into_string(),
+      ANDAND => "&&".into_string(),
+      BINOP(op) => binop_to_string(op).into_string(),
       BINOPEQ(op) => {
-          let mut s = binop_to_string(op).to_string();
+          let mut s = binop_to_string(op).into_string();
           s.push_str("=");
           s
       }
 
       /* Structural symbols */
-      AT => "@".to_string(),
-      DOT => ".".to_string(),
-      DOTDOT => "..".to_string(),
-      DOTDOTDOT => "...".to_string(),
-      COMMA => ",".to_string(),
-      SEMI => ";".to_string(),
-      COLON => ":".to_string(),
-      MOD_SEP => "::".to_string(),
-      RARROW => "->".to_string(),
-      LARROW => "<-".to_string(),
-      FAT_ARROW => "=>".to_string(),
-      LPAREN => "(".to_string(),
-      RPAREN => ")".to_string(),
-      LBRACKET => "[".to_string(),
-      RBRACKET => "]".to_string(),
-      LBRACE => "{".to_string(),
-      RBRACE => "}".to_string(),
-      POUND => "#".to_string(),
-      DOLLAR => "$".to_string(),
-      QUESTION => "?".to_string(),
+      AT => "@".into_string(),
+      DOT => ".".into_string(),
+      DOTDOT => "..".into_string(),
+      DOTDOTDOT => "...".into_string(),
+      COMMA => ",".into_string(),
+      SEMI => ";".into_string(),
+      COLON => ":".into_string(),
+      MOD_SEP => "::".into_string(),
+      RARROW => "->".into_string(),
+      LARROW => "<-".into_string(),
+      FAT_ARROW => "=>".into_string(),
+      LPAREN => "(".into_string(),
+      RPAREN => ")".into_string(),
+      LBRACKET => "[".into_string(),
+      RBRACKET => "]".into_string(),
+      LBRACE => "{".into_string(),
+      RBRACE => "}".into_string(),
+      POUND => "#".into_string(),
+      DOLLAR => "$".into_string(),
+      QUESTION => "?".into_string(),
 
       /* Literals */
       LIT_BYTE(b) => {
@@ -213,7 +213,7 @@ pub fn to_string(t: &Token) -> String {
           format!("'{}'", c.as_str())
       }
       LIT_INTEGER(c) | LIT_FLOAT(c) => {
-          c.as_str().to_string()
+          c.as_str().into_string()
       }
 
       LIT_STR(s) => {
@@ -232,17 +232,17 @@ pub fn to_string(t: &Token) -> String {
       }
 
       /* Name components */
-      IDENT(s, _) => get_ident(s).get().to_string(),
+      IDENT(s, _) => get_ident(s).get().into_string(),
       LIFETIME(s) => {
           format!("{}", get_ident(s))
       }
-      UNDERSCORE => "_".to_string(),
+      UNDERSCORE => "_".into_string(),
 
       /* Other */
-      DOC_COMMENT(s) => s.as_str().to_string(),
-      EOF => "<eof>".to_string(),
-      WS => " ".to_string(),
-      COMMENT => "/* */".to_string(),
+      DOC_COMMENT(s) => s.as_str().into_string(),
+      EOF => "<eof>".into_string(),
+      WS => " ".into_string(),
+      COMMENT => "/* */".into_string(),
       SHEBANG(s) => format!("/* shebang: {}*/", s.as_str()),
 
       INTERPOLATED(ref nt) => {
@@ -252,7 +252,7 @@ pub fn to_string(t: &Token) -> String {
             &NtTy(ref e) => ::print::pprust::ty_to_string(&**e),
             &NtPath(ref e) => ::print::pprust::path_to_string(&**e),
             _ => {
-                let mut s = "an interpolated ".to_string();
+                let mut s = "an interpolated ".into_string();
                 match *nt {
                     NtItem(..) => s.push_str("item"),
                     NtBlock(..) => s.push_str("block"),
@@ -431,9 +431,11 @@ macro_rules! declare_special_idents_and_keywords {(
 // If the special idents get renumbered, remember to modify these two as appropriate
 pub static SELF_KEYWORD_NAME: Name = Name(SELF_KEYWORD_NAME_NUM);
 static STATIC_KEYWORD_NAME: Name = Name(STATIC_KEYWORD_NAME_NUM);
+static SUPER_KEYWORD_NAME: Name = Name(SUPER_KEYWORD_NAME_NUM);
 
 pub static SELF_KEYWORD_NAME_NUM: u32 = 1;
 static STATIC_KEYWORD_NAME_NUM: u32 = 2;
+static SUPER_KEYWORD_NAME_NUM: u32 = 3;
 
 // NB: leaving holes in the ident table is bad! a different ident will get
 // interned with the id from the hole, but it will be between the min and max
@@ -443,52 +445,53 @@ declare_special_idents_and_keywords! {
     pub mod special_idents {
         // These ones are statics
         (0,                          invalid,                "");
-        (super::SELF_KEYWORD_NAME_NUM,   self_,                  "self");
-        (super::STATIC_KEYWORD_NAME_NUM, statik,                 "static");
-        (3,                          static_lifetime,        "'static");
+        (super::SELF_KEYWORD_NAME_NUM,   self_,              "self");
+        (super::STATIC_KEYWORD_NAME_NUM, statik,             "static");
+        (super::SUPER_KEYWORD_NAME_NUM, super_,              "super");
+        (4,                          static_lifetime,        "'static");
 
         // for matcher NTs
-        (4,                          tt,                     "tt");
-        (5,                          matchers,               "matchers");
+        (5,                          tt,                     "tt");
+        (6,                          matchers,               "matchers");
 
         // outside of libsyntax
-        (6,                          clownshoe_abi,          "__rust_abi");
-        (7,                          opaque,                 "<opaque>");
-        (8,                          unnamed_field,          "<unnamed_field>");
-        (9,                          type_self,              "Self");
-        (10,                         prelude_import,         "prelude_import");
+        (7,                          clownshoe_abi,          "__rust_abi");
+        (8,                          opaque,                 "<opaque>");
+        (9,                          unnamed_field,          "<unnamed_field>");
+        (10,                         type_self,              "Self");
+        (11,                         prelude_import,         "prelude_import");
     }
 
     pub mod keywords {
         // These ones are variants of the Keyword enum
 
         'strict:
-        (11,                         As,         "as");
-        (12,                         Break,      "break");
-        (13,                         Crate,      "crate");
-        (14,                         Else,       "else");
-        (15,                         Enum,       "enum");
-        (16,                         Extern,     "extern");
-        (17,                         False,      "false");
-        (18,                         Fn,         "fn");
-        (19,                         For,        "for");
-        (20,                         If,         "if");
-        (21,                         Impl,       "impl");
-        (22,                         In,         "in");
-        (23,                         Let,        "let");
-        (24,                         Loop,       "loop");
-        (25,                         Match,      "match");
-        (26,                         Mod,        "mod");
-        (27,                         Mut,        "mut");
-        (28,                         Once,       "once");
-        (29,                         Pub,        "pub");
-        (30,                         Ref,        "ref");
-        (31,                         Return,     "return");
+        (12,                         As,         "as");
+        (13,                         Break,      "break");
+        (14,                         Crate,      "crate");
+        (15,                         Else,       "else");
+        (16,                         Enum,       "enum");
+        (17,                         Extern,     "extern");
+        (18,                         False,      "false");
+        (19,                         Fn,         "fn");
+        (20,                         For,        "for");
+        (21,                         If,         "if");
+        (22,                         Impl,       "impl");
+        (23,                         In,         "in");
+        (24,                         Let,        "let");
+        (25,                         Loop,       "loop");
+        (26,                         Match,      "match");
+        (27,                         Mod,        "mod");
+        (28,                         Mut,        "mut");
+        (29,                         Once,       "once");
+        (30,                         Pub,        "pub");
+        (31,                         Ref,        "ref");
+        (32,                         Return,     "return");
         // Static and Self are also special idents (prefill de-dupes)
-        (super::STATIC_KEYWORD_NAME_NUM, Static,     "static");
-        (super::SELF_KEYWORD_NAME_NUM,   Self,       "self");
-        (32,                         Struct,     "struct");
-        (33,                         Super,      "super");
+        (super::STATIC_KEYWORD_NAME_NUM, Static, "static");
+        (super::SELF_KEYWORD_NAME_NUM,   Self,   "self");
+        (33,                         Struct,     "struct");
+        (super::SUPER_KEYWORD_NAME_NUM, Super,   "super");
         (34,                         True,       "true");
         (35,                         Trait,      "trait");
         (36,                         Type,       "type");
@@ -713,6 +716,7 @@ pub fn is_any_keyword(tok: &Token) -> bool {
 
                n == SELF_KEYWORD_NAME
             || n == STATIC_KEYWORD_NAME
+            || n == SUPER_KEYWORD_NAME
             || STRICT_KEYWORD_START <= n
             && n <= RESERVED_KEYWORD_FINAL
         },
@@ -727,9 +731,18 @@ pub fn is_strict_keyword(tok: &Token) -> bool {
 
                n == SELF_KEYWORD_NAME
             || n == STATIC_KEYWORD_NAME
+            || n == SUPER_KEYWORD_NAME
             || STRICT_KEYWORD_START <= n
             && n <= STRICT_KEYWORD_FINAL
         },
+        token::IDENT(sid, true) => {
+            let n = sid.name;
+
+               n != SELF_KEYWORD_NAME
+            && n != SUPER_KEYWORD_NAME
+            && STRICT_KEYWORD_START <= n
+            && n <= STRICT_KEYWORD_FINAL
+        }
         _ => false,
     }
 }
