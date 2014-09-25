@@ -429,13 +429,6 @@ pub fn get_cc_prog(sess: &Session) -> String {
     }.to_string()
 }
 
-pub fn get_ar_prog(sess: &Session) -> String {
-    match sess.opts.cg.ar {
-        Some(ref ar) => (*ar).clone(),
-        None => "ar".to_string()
-    }
-}
-
 pub fn remove(sess: &Session, path: &Path) {
     match fs::unlink(path) {
         Ok(..) => {}
@@ -1506,10 +1499,15 @@ fn link_args(cmd: &mut Command,
     }
 
     if sess.targ_cfg.os == abi::OsWindows {
-        // Make sure that we link to the dynamic libgcc, otherwise cross-module
-        // DWARF stack unwinding will not work.
-        // This behavior may be overridden by --link-args "-static-libgcc"
-        cmd.arg("-shared-libgcc");
+        if sess.targ_cfg.arch == abi::X86 {
+            // Make sure that we link to the dynamic libgcc, otherwise cross-module
+            // DWARF stack unwinding will not work.
+            // This behavior may be overridden by -Clink-args="-static-libgcc"
+            cmd.arg("-shared-libgcc");
+        } else {
+            // On Win64 unwinding is handled by the OS, so we can link libgcc statically.
+            cmd.arg("-static-libgcc");
+        }
 
         // And here, we see obscure linker flags #45. On windows, it has been
         // found to be necessary to have this flag to compile liblibc.

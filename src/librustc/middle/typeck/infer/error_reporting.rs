@@ -1110,6 +1110,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                     ast::TraitTyParamBound(ast::TraitRef {
                         path: new_path,
                         ref_id: tr.ref_id,
+                        lifetimes: tr.lifetimes.clone(),
                     })
                 }
             }
@@ -1645,7 +1646,7 @@ impl<'a, 'tcx> ErrorReportingHelpers for InferCtxt<'a, 'tcx> {
     }
 }
 
-trait Resolvable {
+pub trait Resolvable {
     fn resolve(&self, infcx: &InferCtxt) -> Self;
     fn contains_error(&self) -> bool;
 }

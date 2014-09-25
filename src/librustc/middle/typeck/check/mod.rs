@@ -1901,18 +1901,6 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         }
     }
 
-    pub fn method_ty_substs(&self, id: ast::NodeId) -> subst::Substs {
-        match self.inh.method_map.borrow().find(&MethodCall::expr(id)) {
-            Some(method) => method.substs.clone(),
-            None => {
-                self.tcx().sess.bug(
-                    format!("no method entry for node {}: {} in fcx {}",
-                            id, self.tcx().map.node_to_string(id),
-                            self.tag()).as_slice());
-            }
-        }
-    }
-
     pub fn opt_node_ty_substs(&self,
                               id: ast::NodeId,
                               f: |&ty::ItemSubsts|) {
@@ -1982,18 +1970,6 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                               actual_ty: ty::t,
                               err: Option<&ty::type_err>) {
         self.infcx().type_error_message(sp, mk_msg, actual_ty, err);
-    }
-
-    pub fn report_mismatched_return_types(&self,
-                                          sp: Span,
-                                          e: ty::t,
-                                          a: ty::t,
-                                          err: &ty::type_err) {
-        // Derived error
-        if ty::type_is_error(e) || ty::type_is_error(a) {
-            return;
-        }
-        self.infcx().report_mismatched_types(sp, e, a, err)
     }
 
     pub fn report_mismatched_types(&self,
@@ -2153,6 +2129,10 @@ pub fn autoderef<T>(fcx: &FnCtxt, sp: Span, base_ty: ty::t,
     let mut t = base_ty;
     for autoderefs in range(0, fcx.tcx().sess.recursion_limit.get()) {
         let resolved_t = structurally_resolved_type(fcx, sp, t);
+
+        if ty::type_is_bot(resolved_t) {
+            return (resolved_t, autoderefs, None);
+        }
 
         match should_stop(resolved_t, autoderefs) {
             Some(x) => return (resolved_t, autoderefs, Some(x)),
@@ -3951,13 +3931,18 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         check_expr_with_expectation_and_lvalue_pref(
             fcx, &**oprnd, expected_inner, lvalue_pref);
         let mut oprnd_t = fcx.expr_ty(&**oprnd);
-        if !ty::type_is_error(oprnd_t) && !ty::type_is_bot(oprnd_t) {
+
+        if !ty::type_is_error(oprnd_t) {
             match unop {
                 ast::UnBox => {
-                    oprnd_t = ty::mk_box(tcx, oprnd_t)
+                    if !ty::type_is_bot(oprnd_t) {
+                        oprnd_t = ty::mk_box(tcx, oprnd_t)
+                    }
                 }
                 ast::UnUniq => {
-                    oprnd_t = ty::mk_uniq(tcx, oprnd_t);
+                    if !ty::type_is_bot(oprnd_t) {
+                        oprnd_t = ty::mk_uniq(tcx, oprnd_t);
+                    }
                 }
                 ast::UnDeref => {
                     oprnd_t = structurally_resolved_type(fcx, expr.span, oprnd_t);
@@ -3994,23 +3979,27 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                     };
                 }
                 ast::UnNot => {
-                    oprnd_t = structurally_resolved_type(fcx, oprnd.span,
-                                                         oprnd_t);
-                    if !(ty::type_is_integral(oprnd_t) ||
-                         ty::get(oprnd_t).sty == ty::ty_bool) {
-                        oprnd_t = check_user_unop(fcx, "!", "not",
-                                                  tcx.lang_items.not_trait(),
-                                                  expr, &**oprnd, oprnd_t);
+                    if !ty::type_is_bot(oprnd_t) {
+                        oprnd_t = structurally_resolved_type(fcx, oprnd.span,
+                                                             oprnd_t);
+                        if !(ty::type_is_integral(oprnd_t) ||
+                             ty::get(oprnd_t).sty == ty::ty_bool) {
+                            oprnd_t = check_user_unop(fcx, "!", "not",
+                                                      tcx.lang_items.not_trait(),
+                                                      expr, &**oprnd, oprnd_t);
+                        }
                     }
                 }
                 ast::UnNeg => {
-                    oprnd_t = structurally_resolved_type(fcx, oprnd.span,
-                                                         oprnd_t);
-                    if !(ty::type_is_integral(oprnd_t) ||
-                         ty::type_is_fp(oprnd_t)) {
-                        oprnd_t = check_user_unop(fcx, "-", "neg",
-                                                  tcx.lang_items.neg_trait(),
-                                                  expr, &**oprnd, oprnd_t);
+                    if !ty::type_is_bot(oprnd_t) {
+                        oprnd_t = structurally_resolved_type(fcx, oprnd.span,
+                                                             oprnd_t);
+                        if !(ty::type_is_integral(oprnd_t) ||
+                             ty::type_is_fp(oprnd_t)) {
+                            oprnd_t = check_user_unop(fcx, "-", "neg",
+                                                      tcx.lang_items.neg_trait(),
+                                                      expr, &**oprnd, oprnd_t);
+                        }
                     }
                 }
             }
@@ -4468,21 +4457,21 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
           check_expr(fcx, &**idx);
           let raw_base_t = fcx.expr_ty(&**base);
           let idx_t = fcx.expr_ty(&**idx);
-          if ty::type_is_error(raw_base_t) || ty::type_is_bot(raw_base_t) {
+          if ty::type_is_error(raw_base_t) {
               fcx.write_ty(id, raw_base_t);
-          } else if ty::type_is_error(idx_t) || ty::type_is_bot(idx_t) {
+          } else if ty::type_is_error(idx_t) {
               fcx.write_ty(id, idx_t);
           } else {
               let (_, autoderefs, field_ty) =
                 autoderef(fcx, expr.span, raw_base_t, Some(base.id),
                           lvalue_pref, |base_t, _| ty::index(base_t));
               match field_ty {
-                  Some(ty) => {
+                  Some(ty) if !ty::type_is_bot(ty) => {
                       check_expr_has_type(fcx, &**idx, ty::mk_uint());
                       fcx.write_ty(id, ty);
                       fcx.write_autoderef_adjustment(base.id, base.span, autoderefs);
                   }
-                  None => {
+                  _ => {
                       // This is an overloaded method.
                       let base_t = structurally_resolved_type(fcx,
                                                               expr.span,
@@ -4647,24 +4636,6 @@ impl Repr for Expectation {
             ExpectCastableToType(t) => format!("ExpectCastableToType({})",
                                                t.repr(tcx)),
         }
-    }
-}
-
-pub fn require_uint(fcx: &FnCtxt, sp: Span, t: ty::t) {
-    if !type_is_uint(fcx, sp, t) {
-        fcx.type_error_message(sp, |actual| {
-            format!("mismatched types: expected `uint` type, found `{}`",
-                    actual)
-        }, t, None);
-    }
-}
-
-pub fn require_integral(fcx: &FnCtxt, sp: Span, t: ty::t) {
-    if !type_is_integral(fcx, sp, t) {
-        fcx.type_error_message(sp, |actual| {
-            format!("mismatched types: expected integral type, found `{}`",
-                    actual)
-        }, t, None);
     }
 }
 
@@ -5587,51 +5558,6 @@ pub fn structurally_resolved_type(fcx: &FnCtxt, sp: Span, tp: ty::t) -> ty::t {
 pub fn structure_of<'a>(fcx: &FnCtxt, sp: Span, typ: ty::t)
                         -> &'a ty::sty {
     &ty::get(structurally_resolved_type(fcx, sp, typ)).sty
-}
-
-pub fn type_is_integral(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_integral(typ_s);
-}
-
-pub fn type_is_uint(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_uint(typ_s);
-}
-
-pub fn type_is_scalar(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_scalar(typ_s);
-}
-
-pub fn type_is_char(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_char(typ_s);
-}
-
-pub fn type_is_bare_fn(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_bare_fn(typ_s);
-}
-
-pub fn type_is_floating_point(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_floating_point(typ_s);
-}
-
-pub fn type_is_unsafe_ptr(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_unsafe_ptr(typ_s);
-}
-
-pub fn type_is_region_ptr(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_region_ptr(typ_s);
-}
-
-pub fn type_is_c_like_enum(fcx: &FnCtxt, sp: Span, typ: ty::t) -> bool {
-    let typ_s = structurally_resolved_type(fcx, sp, typ);
-    return ty::type_is_c_like_enum(fcx.ccx.tcx, typ_s);
 }
 
 // Returns true if b contains a break that can exit from b

@@ -224,7 +224,7 @@ pub fn deref_kind(tcx: &ty::ctxt, t: ty::t) -> deref_kind {
     }
 }
 
-trait ast_node {
+pub trait ast_node {
     fn id(&self) -> ast::NodeId;
     fn span(&self) -> Span;
 }
@@ -733,10 +733,6 @@ impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
             cat: cat_interior(base_cmt, InteriorField(PositionalField(f_idx))),
             ty: f_ty
         })
-    }
-
-    pub fn cat_deref_obj<N:ast_node>(&self, node: &N, base_cmt: cmt) -> cmt {
-        self.cat_deref_common(node, base_cmt, 0, ty::mk_nil(), false)
     }
 
     fn cat_deref<N:ast_node>(&self,

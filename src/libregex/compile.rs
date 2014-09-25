@@ -10,7 +10,6 @@
 
 // Enable this to squash warnings due to exporting pieces of the representation
 // for use with the regex! macro. See lib.rs for explanation.
-#![allow(visible_private_types)]
 
 use std::cmp;
 use parse;
@@ -105,7 +104,7 @@ impl Program {
         let mut pre = String::with_capacity(5);
         for inst in c.insts.slice_from(1).iter() {
             match *inst {
-                OneChar(c, FLAG_EMPTY) => pre.push_char(c),
+                OneChar(c, FLAG_EMPTY) => pre.push(c),
                 _ => break
             }
         }

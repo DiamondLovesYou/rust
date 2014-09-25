@@ -26,9 +26,9 @@ pub fn quote(text: &str) -> String {
     let mut quoted = String::with_capacity(text.len());
     for c in text.chars() {
         if parse::is_punct(c) {
-            quoted.push_char('\\')
+            quoted.push('\\')
         }
-        quoted.push_char(c);
+        quoted.push(c);
     }
     quoted
 }
@@ -102,7 +102,6 @@ pub fn is_match(regex: &str, text: &str) -> Result<bool, parse::Error> {
 /// More details about the `regex!` macro can be found in the `regex` crate
 /// documentation.
 #[deriving(Clone)]
-#[allow(visible_private_types)]
 pub enum Regex {
     // The representation of `Regex` is exported to support the `regex!`
     // syntax extension. Do not rely on it.
@@ -504,7 +503,8 @@ impl Regex {
             new.push_str(rep.reg_replace(&cap).as_slice());
             last_match = e;
         }
-        new.append(text.slice(last_match, text.len()))
+        new.push_str(text.slice(last_match, text.len()));
+        return new;
     }
 
     /// Returns the original string of this regex.
@@ -516,7 +516,6 @@ impl Regex {
     }
 
     #[doc(hidden)]
-    #[allow(visible_private_types)]
     #[experimental]
     pub fn names_iter<'a>(&'a self) -> NamesIter<'a> {
         match *self {
@@ -534,7 +533,7 @@ impl Regex {
 
 }
 
-enum NamesIter<'a> {
+pub enum NamesIter<'a> {
     NamesIterNative(::std::slice::Items<'a, Option<&'static str>>),
     NamesIterDynamic(::std::slice::Items<'a, Option<String>>)
 }
