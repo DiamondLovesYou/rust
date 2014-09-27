@@ -96,7 +96,6 @@ pub mod middle {
     pub mod expr_use_visitor;
     pub mod graph;
     pub mod intrinsicck;
-    pub mod kind;
     pub mod lang_items;
     pub mod liveness;
     pub mod mem_categorization;

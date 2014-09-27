@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,11 +8,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn foo(b: bool) -> Result<bool,String> {
-    Err("bar".to_string());
-    //~^ ERROR type annotations required
+#![feature(globs)]
+
+pub mod longhands {
+    pub use super::*;
+
+    pub use super::common_types::computed::compute_CSSColor as to_computed_value;
+
+    pub fn computed_as_specified() {}
 }
 
-fn main() {
-    foo(false);
+pub mod common_types {
+    pub mod computed {
+        pub use super::super::longhands::computed_as_specified as compute_CSSColor;
+    }
 }

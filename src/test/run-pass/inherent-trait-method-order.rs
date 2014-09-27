@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,11 +8,27 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn foo(b: bool) -> Result<bool,String> {
-    Err("bar".to_string());
-    //~^ ERROR type annotations required
+struct Foo;
+
+impl Foo {
+    #[allow(dead_code)]
+    fn foo(self) {
+        fail!("wrong method!")
+    }
+}
+
+trait Trait {
+    fn foo(self);
+}
+
+impl<'a,'b,'c> Trait for &'a &'b &'c Foo {
+    fn foo(self) {
+        // ok
+    }
 }
 
 fn main() {
-    foo(false);
+    let x = &(&(&Foo));
+    x.foo();
 }
+
