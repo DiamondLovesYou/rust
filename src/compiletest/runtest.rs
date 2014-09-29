@@ -1341,12 +1341,6 @@ fn make_compile_args(config: &Config,
     } else {
         config.target.as_slice()
     };
-    let extras = if config.targeting_pnacl() {
-        extras.append(&["-Z".to_string(),
-                        "no-opt".to_string()])
-    } else {
-        extras
-    };
     // FIXME (#9639): This needs to handle non-utf8 paths
     let mut args = vec!(testfile.as_str().unwrap().to_string(),
                         "-L".to_string(),
@@ -1748,11 +1742,10 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     if tls_use_call {
         pnacl_trans_args.push("-mtls-use-call".to_string());
     }
-    let pnacl_trans_args = pnacl_trans_args
-        .append(vec!(format!("-mtriple={}-none-nacl-gnu", arch),
-                     "-filetype=obj".to_string(),
-                     format!("-o={}", obj_path.display()),
-                     format!("{}", pexe_path.display())).as_slice());
+    pnacl_trans_args.push(format!("-mtriple={}-none-nacl-gnu", arch));
+    pnacl_trans_args.push("-filetype=obj".to_string());
+    pnacl_trans_args.push(format!("-o={}", obj_path.display()));
+    pnacl_trans_args.push(format!("{}", pexe_path.display()));
 
     match program_output(config,
                          testfile,
@@ -1841,14 +1834,14 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     if run_background {
         sel_ldr_args.push("-d".to_string());
     }
-    let sel_ldr_args = sel_ldr_args.append
-        (&["--".to_string(),
-           nexe_path.display().as_maybe_owned().to_string()]);
+    sel_ldr_args.push("--".to_string());
+    sel_ldr_args.push(nexe_path.display().as_maybe_owned().to_string());
+
     let ProcArgs {
         args: run_args,
         ..
     } = make_run_args(config, props, testfile);
-    let sel_ldr_args = sel_ldr_args.append(run_args.as_slice());
+    sel_ldr_args.extend(run_args.into_iter());
 
     let mut process = procsrv::run_background("",
                                               sel_ldr.display().as_maybe_owned().as_slice(),
