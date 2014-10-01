@@ -428,8 +428,11 @@ pub enum DiagnosticInfo_opaque {}
 pub type DiagnosticInfoRef = *mut DiagnosticInfo_opaque;
 pub enum DebugLoc_opaque {}
 pub type DebugLocRef = *mut DebugLoc_opaque;
+pub enum SMDiagnostic_opaque {}
+pub type SMDiagnosticRef = *mut SMDiagnostic_opaque;
 
 pub type DiagnosticHandler = unsafe extern "C" fn(DiagnosticInfoRef, *mut c_void);
+pub type InlineAsmDiagHandler = unsafe extern "C" fn(SMDiagnosticRef, *const c_void, c_uint);
 
 pub mod debuginfo {
     use super::{ValueRef};
@@ -1991,6 +1994,11 @@ extern {
     pub fn LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(C: ContextRef);
     pub fn LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(C: ContextRef);
 
+    pub fn LLVMSetInlineAsmDiagnosticHandler(C: ContextRef,
+                                             H: InlineAsmDiagHandler,
+                                             CX: *mut c_void);
+
+    pub fn LLVMWriteSMDiagnosticToString(d: SMDiagnosticRef, s: RustStringRef);
 }
 
 pub fn SetInstructionCallConv(instr: ValueRef, cc: CallConv) {

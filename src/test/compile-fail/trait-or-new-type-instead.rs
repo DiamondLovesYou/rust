@@ -8,8 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// FIXME(#8767) bad error message; Option is not a module
-impl<T> Option<T> { //~ERROR found module name used as a type
+// ignore-tidy-linelength
+
+impl<T> Option<T> { //~ERROR inherent implementations are not allowed for types not defined in the current module.
     pub fn foo(&self) { }
 }
 

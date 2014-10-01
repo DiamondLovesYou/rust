@@ -234,7 +234,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
     // baz! should not use this definition unless foo is enabled.
 
     krate = time(time_passes, "configuration 1", krate, |krate|
-                 syntax::config::strip_unconfigured_items(krate));
+                 syntax::config::strip_unconfigured_items(sess.diagnostic(), krate));
 
     let mut addl_plugins = Some(addl_plugins);
     let Plugins { macros, registrars }
@@ -296,8 +296,9 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                 os::setenv("PATH", os::join_paths(new_path.as_slice()).unwrap());
             }
             let cfg = syntax::ext::expand::ExpansionConfig {
-                deriving_hash_type_parameter: sess.features.borrow().default_type_params,
                 crate_name: crate_name.to_string(),
+                deriving_hash_type_parameter: sess.features.borrow().default_type_params,
+                enable_quotes: sess.features.borrow().quote,
             };
             let ret = syntax::ext::expand::expand_crate(&sess.parse_sess,
                                               cfg,
@@ -315,7 +316,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
 
     // strip again, in case expansion added anything with a #[cfg].
     krate = time(time_passes, "configuration 2", krate, |krate|
-                 syntax::config::strip_unconfigured_items(krate));
+                 syntax::config::strip_unconfigured_items(sess.diagnostic(), krate));
 
     krate = time(time_passes, "maybe building test harness", krate, |krate|
                  syntax::test::modify_for_testing(&sess.parse_sess,
@@ -566,6 +567,8 @@ pub fn phase_5_run_llvm_passes(sess: &Session,
                               sess.opts.output_types.as_slice(),
                               outputs));
     }
+
+    sess.abort_if_errors();
 }
 
 /// Run the linker on any artifacts that resulted from the LLVM run.

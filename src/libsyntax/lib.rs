@@ -33,6 +33,7 @@ extern crate debug;
 #[phase(plugin, link)] extern crate log;
 extern crate serialize;
 extern crate term;
+extern crate libc;
 
 pub mod util {
     pub mod interner;
@@ -83,6 +84,7 @@ pub mod ext {
     pub mod build;
     pub mod bytes;
     pub mod cfg;
+    pub mod cfg_attr;
     pub mod concat;
     pub mod concat_idents;
     pub mod deriving;
