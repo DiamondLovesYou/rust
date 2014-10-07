@@ -337,7 +337,7 @@ pub fn getenv(n: &str) -> Option<String> {
     getenv_as_bytes(n).map(|v| String::from_utf8_lossy(v.as_slice()).into_string())
 }
 
-#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 /// Fetches the environment variable `n` byte vector from the current process,
 /// returning None if the variable isn't set.
 ///
@@ -359,7 +359,7 @@ pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
     }
 }
 
-#[cfg(unix, target_os = "nacl")]
+#[cfg(all(unix, target_os = "nacl"))]
 /// Fetches the environment variable `n` byte vector from the current process,
 /// returning None if the variable isn't set.
 ///
@@ -662,8 +662,7 @@ pub fn dll_filename(base: &str) -> String {
 /// ```
 pub fn self_exe_name() -> Option<Path> {
 
-    #[cfg(target_os = "freebsd")]
-    #[cfg(target_os = "dragonfly")]
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
     fn load_self() -> Option<Vec<u8>> {
         unsafe {
             use libc::funcs::bsd44::*;
@@ -689,8 +688,7 @@ pub fn self_exe_name() -> Option<Path> {
         }
     }
 
-    #[cfg(target_os = "linux")]
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     fn load_self() -> Option<Vec<u8>> {
         use std::io;
 
@@ -700,8 +698,7 @@ pub fn self_exe_name() -> Option<Path> {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn load_self() -> Option<Vec<u8>> {
         unsafe {
             use libc::funcs::extra::_NSGetExecutablePath;
@@ -923,9 +920,9 @@ pub fn change_dir(p: &Path) -> bool {
 #[cfg(unix)]
 /// Returns the platform-specific value of errno
 pub fn errno() -> int {
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "ios")]
-    #[cfg(target_os = "freebsd")]
+    #[cfg(any(target_os = "macos",
+              target_os = "ios",
+              target_os = "freebsd"))]
     fn errno_location() -> *const c_int {
         extern {
             fn __error() -> *const c_int;
@@ -945,9 +942,8 @@ pub fn errno() -> int {
         }
     }
 
-    #[cfg(target_os = "linux")]
-    #[cfg(target_os = "android")]
-    #[cfg(target_os = "nacl", target_libc = "glibc")]
+    #[cfg(any(target_os = "linux", target_os = "android",
+              all(target_os = "nacl", target_libc = "glibc")))]
     fn errno_location() -> *const c_int {
         extern {
             fn __errno_location() -> *const c_int;
@@ -957,7 +953,7 @@ pub fn errno() -> int {
         }
     }
 
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
     fn errno_location() -> *const c_int {
         extern {
             fn __errno() -> *const c_int;
@@ -1000,11 +996,11 @@ pub fn error_string(errnum: uint) -> String {
 
     #[cfg(unix)]
     fn strerror(errnum: uint) -> String {
-        #[cfg(target_os = "macos")]
-        #[cfg(target_os = "ios")]
-        #[cfg(target_os = "android")]
-        #[cfg(target_os = "freebsd")]
-        #[cfg(target_os = "dragonfly")]
+        #[cfg(any(target_os = "macos",
+                  target_os = "ios",
+                  target_os = "android",
+                  target_os = "freebsd",
+                  target_os = "dragonfly"))]
         fn strerror_r(errnum: c_int, buf: *mut c_char, buflen: libc::size_t)
                       -> c_int {
             extern {
@@ -1019,8 +1015,7 @@ pub fn error_string(errnum: uint) -> String {
         // GNU libc provides a non-compliant version of strerror_r by default
         // and requires macros to instead use the POSIX compliant variant.
         // So we just use __xpg_strerror_r which is always POSIX compliant
-        #[cfg(target_os = "linux")]
-        #[cfg(target_os = "nacl")]
+        #[cfg(any(target_os = "linux", target_os = "nacl"))]
         fn strerror_r(errnum: c_int, buf: *mut c_char,
                       buflen: libc::size_t) -> c_int {
             extern {
@@ -1206,11 +1201,11 @@ fn real_args_as_bytes() -> Vec<Vec<u8>> {
     res
 }
 
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "android")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "nacl")]
-#[cfg(target_os = "dragonfly")]
+#[cfg(any(target_os = "linux",
+          target_os = "android",
+          target_os = "freebsd",
+          target_os = "dragonfly",
+          target_os = "nacl"))]
 fn real_args_as_bytes() -> Vec<Vec<u8>> {
     use rt;
 
@@ -1872,7 +1867,7 @@ pub mod consts {
     /// on this platform: in this case, the empty string.
     pub static EXE_EXTENSION: &'static str = "";
 }
-#[cfg(target_os = "nacl", not(target_arch = "le32"))]
+#[cfg(all(target_os = "nacl", not(target_arch = "le32")))]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1902,7 +1897,7 @@ pub mod consts {
     /// on this platform: in this case, `nexe`.
     pub static EXE_EXTENSION: &'static str = "nexe";
 }
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 

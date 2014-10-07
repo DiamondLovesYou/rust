@@ -376,9 +376,9 @@ fn get_os_for_nacl_toolchain(_sess: &Session) -> String { "win".to_string() }
 fn get_os_for_nacl_toolchain(_sess: &Session) -> String { "linux".to_string() }
 #[cfg(target_os = "macos")]
 fn get_os_for_nacl_toolchain(_sess: &Session) -> String { "mac".to_string() }
-#[cfg(not(windows),
-      not(target_os = "linux"),
-      not(target_os = "macos"))]
+#[cfg(all(not(windows),
+          not(target_os = "linux"),
+          not(target_os = "macos")))]
 fn get_os_for_nacl_toolchain(sess: &Session) -> ! {
     sess.fatal("NaCl/PNaCl toolchain unsupported on this OS (update this if that's changed)");
 }

@@ -8,9 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// aux-build:issue-12660-aux.rs
+
+extern crate issue12660aux;
+
+use issue12660aux::{my_fn, MyStruct};
+
+#[allow(path_statement)]
 fn main() {
-    match 1 {
-        1...2u => 1, //~ ERROR mismatched types in range
-        _ => 2,
-    };
+    my_fn(MyStruct);
+    MyStruct;
 }

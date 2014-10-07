@@ -346,8 +346,7 @@ mod imp {
     type pthread_mutexattr_t = libc::c_void;
     type pthread_condattr_t = libc::c_void;
 
-    #[cfg(target_os = "freebsd")]
-    #[cfg(target_os = "dragonfly")]
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
     mod os {
         use libc;
 
@@ -360,8 +359,7 @@ mod imp {
             0 as pthread_cond_t;
     }
 
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     mod os {
         use libc;
 
@@ -402,8 +400,8 @@ mod imp {
         };
     }
 
-    #[cfg(target_os = "linux")]
-    #[cfg(target_os = "nacl", target_libc = "glibc")]
+    #[cfg(any(target_os = "linux",
+              all(target_os = "nacl", target_libc = "glibc")))]
     mod os {
         use libc;
 
@@ -449,8 +447,8 @@ mod imp {
             size: [0, ..__SIZEOF_PTHREAD_COND_T],
         };
     }
-    #[cfg(target_os = "android")]
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(any(target_os = "android",
+              all(target_os = "nacl", target_libc = "newlib")))]
     mod os {
         use libc;
 

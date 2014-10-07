@@ -1013,7 +1013,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         ast::ExprIf(ref cond, ref thn, ref els) => {
             controlflow::trans_if(bcx, expr.id, &**cond, &**thn, els.as_ref().map(|e| &**e), dest)
         }
-        ast::ExprMatch(ref discr, ref arms) => {
+        ast::ExprMatch(ref discr, ref arms, _) => {
             _match::trans_match(bcx, expr, &**discr, arms.as_slice(), dest)
         }
         ast::ExprBlock(ref blk) => {
@@ -1194,7 +1194,7 @@ fn trans_def_fn_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let _icx = push_ctxt("trans_def_datum_unadjusted");
 
     let llfn = match def {
-        def::DefFn(did, _) |
+        def::DefFn(did, _, _) |
         def::DefStruct(did) | def::DefVariant(_, did, _) |
         def::DefStaticMethod(did, def::FromImpl(_), _) => {
             callee::trans_fn_ref(bcx, did, ExprId(ref_expr.id))

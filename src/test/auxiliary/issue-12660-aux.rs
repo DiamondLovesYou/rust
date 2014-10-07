@@ -8,9 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn main() {
-    match 1 {
-        1...2u => 1, //~ ERROR mismatched types in range
-        _ => 2,
-    };
+#![crate_type="lib"]
+#![crate_name="issue12660aux"]
+
+pub use my_mod::{MyStruct, my_fn};
+
+mod my_mod {
+    pub struct MyStruct;
+
+    pub fn my_fn(my_struct: MyStruct) {
+    }
 }

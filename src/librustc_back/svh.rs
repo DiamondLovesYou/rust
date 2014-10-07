@@ -110,7 +110,7 @@ impl Svh {
         fn hex(b: u64) -> char {
             let b = (b & 0xf) as u8;
             let b = match b {
-                0 .. 9 => '0' as u8 + b,
+                0 ... 9 => '0' as u8 + b,
                 _ => 'a' as u8 + b - 10,
             };
             b as char
@@ -293,6 +293,7 @@ mod svh_visitor {
             ExprForLoop(..)          => SawExprForLoop,
 
             // just syntactic artifacts, expanded away by time of SVH.
+            ExprIfLet(..)            => unreachable!(),
             ExprMac(..)              => unreachable!(),
         }
     }

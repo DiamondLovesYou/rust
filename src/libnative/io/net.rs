@@ -235,7 +235,7 @@ impl Inner {
 }
 
 impl TcpStream {
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     pub fn connect(addr: rtio::SocketAddr,
                    timeout: Option<u64>) -> IoResult<TcpStream> {
         let fd = try!(socket(addr, libc::SOCK_STREAM));
@@ -259,7 +259,7 @@ impl TcpStream {
         }
     }
 
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
     pub fn connect(_addr: rtio::SocketAddr,
                    _timeout: Option<u64>) -> IoResult<TcpStream> {
         Err(super::unimpl())
@@ -289,20 +289,20 @@ impl TcpStream {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn set_tcp_keepalive(&mut self, seconds: uint) -> IoResult<()> {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_KEEPALIVE,
                    seconds as libc::c_int)
     }
-    #[cfg(target_os = "freebsd")]
-    #[cfg(target_os = "dragonfly")]
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
     fn set_tcp_keepalive(&mut self, seconds: uint) -> IoResult<()> {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_KEEPIDLE,
                    seconds as libc::c_int)
     }
-    #[cfg(not(target_os = "macos"), not(target_os = "ios"), not(target_os = "freebsd"),
-      not(target_os = "dragonfly"))]
+    #[cfg(not(any(target_os = "macos",
+                  target_os = "ios",
+                  target_os = "freebsd",
+                  target_os = "dragonfly")))]
     fn set_tcp_keepalive(&mut self, _seconds: uint) -> IoResult<()> {
         Ok(())
     }

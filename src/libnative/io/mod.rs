@@ -50,13 +50,13 @@ pub mod file;
 #[path = "file_windows.rs"]
 pub mod file;
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "ios")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
-#[cfg(target_os = "android")]
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "nacl")]
+#[cfg(any(target_os = "macos",
+          target_os = "ios",
+          target_os = "freebsd",
+          target_os = "dragonfly",
+          target_os = "android",
+          target_os = "linux",
+          target_os = "nacl"))]
 #[path = "timer_unix.rs"]
 pub mod timer;
 
@@ -64,7 +64,7 @@ pub mod timer;
 #[path = "timer_windows.rs"]
 pub mod timer;
 
-#[cfg(unix, not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(unix, not(target_os = "nacl"), not(target_libc = "newlib")))]
 #[path = "pipe_unix.rs"]
 pub mod pipe;
 
@@ -195,26 +195,26 @@ impl rtio::IoFactory for IoFactory {
             box u as Box<rtio::RtioUdpSocket + Send>
         })
     }
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     fn unix_bind(&mut self, path: &CString)
                  -> IoResult<Box<rtio::RtioUnixListener + Send>> {
         pipe::UnixListener::bind(path).map(|s| {
             box s as Box<rtio::RtioUnixListener + Send>
         })
     }
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
     fn unix_bind(&mut self, _path: &CString) -> IoResult<Box<rtio::RtioUnixListener + Send>> {
         // FIXME nacl_io doesn't emulate the C funs needed for this.
         Err(unimpl())
     }
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     fn unix_connect(&mut self, path: &CString,
                     timeout: Option<u64>) -> IoResult<Box<rtio::RtioPipe + Send>> {
         pipe::UnixStream::connect(path, timeout).map(|s| {
             box s as Box<rtio::RtioPipe + Send>
         })
     }
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
     fn unix_connect(&mut self,
                     _path: &CString,
                     _timeout: Option<u64>) -> IoResult<Box<rtio::RtioPipe + Send>> {

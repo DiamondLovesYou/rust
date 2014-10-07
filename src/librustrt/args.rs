@@ -39,10 +39,10 @@ pub fn put(args: Vec<Vec<u8>>) { imp::put(args) }
 /// Make a clone of the global arguments.
 pub fn clone() -> Option<Vec<Vec<u8>>> { imp::clone() }
 
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "android")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
+#[cfg(any(target_os = "linux",
+          target_os = "android",
+          target_os = "freebsd",
+          target_os = "dragonfly"))]
 mod imp {
     use core::prelude::*;
 
@@ -146,7 +146,7 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "nacl")]
+#[cfg(any(target_os = "nacl"))]
 mod imp {
     use std::option::{Option, None};
     use collections::vec::Vec;
@@ -169,9 +169,10 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "ios")]
-#[cfg(target_os = "windows")]
+
+#[cfg(any(target_os = "macos",
+          target_os = "ios",
+          target_os = "windows"))]
 mod imp {
     use core::prelude::*;
     use collections::vec::Vec;

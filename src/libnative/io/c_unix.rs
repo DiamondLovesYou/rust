@@ -14,55 +14,56 @@
 
 pub use self::select::fd_set;
 pub use self::signal::{sigaction, siginfo, sigset_t};
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
 pub use self::signal::{SA_ONSTACK, SA_RESTART, SA_RESETHAND, SA_NOCLDSTOP};
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
 pub use self::signal::{SA_NODEFER, SA_NOCLDWAIT, SA_SIGINFO, SIGCHLD};
 
-#[cfg(target_os = "nacl", target_libc = "newlib")]
+#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
 pub use self::signal::{SA_NOCLDSTOP, SA_SIGINFO};
 
 use libc;
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "ios")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
+#[cfg(any(target_os = "macos",
+          target_os = "ios",
+          target_os = "freebsd",
+          target_os = "dragonfly"))]
 pub static FIONBIO: libc::c_ulong = 0x8004667e;
-#[cfg(target_os = "linux", target_arch = "x86")]
-#[cfg(target_os = "linux", target_arch = "x86_64")]
-#[cfg(target_os = "linux", target_arch = "arm")]
-#[cfg(target_os = "android")]
-#[cfg(target_os = "nacl", target_libc = "glib")]
+#[cfg(any(all(target_os = "linux",
+              any(target_arch = "x86",
+                  target_arch = "x86_64",
+                  target_arch = "arm")),
+          target_os = "android",
+          all(target_os = "nacl", target_libc = "glibc")))]
 pub static FIONBIO: libc::c_ulong = 0x5421;
-#[cfg(target_os = "linux", target_arch = "mips")]
-#[cfg(target_os = "linux", target_arch = "mipsel")]
+#[cfg(all(target_os = "linux",
+          any(target_arch = "mips", target_arch = "mipsel")))]
 pub static FIONBIO: libc::c_ulong = 0x667e;
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "ios")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
+#[cfg(any(target_os = "macos",
+          target_os = "ios",
+          target_os = "freebsd",
+          target_os = "dragonfly"))]
 pub static FIOCLEX: libc::c_ulong = 0x20006601;
-#[cfg(target_os = "linux", target_arch = "x86")]
-#[cfg(target_os = "linux", target_arch = "x86_64")]
-#[cfg(target_os = "linux", target_arch = "arm")]
-#[cfg(target_os = "android")]
-#[cfg(target_os = "nacl", target_libc = "glib")]
+#[cfg(any(all(target_os = "linux",
+              any(target_arch = "x86",
+                  target_arch = "x86_64",
+                  target_arch = "arm")),
+          target_os = "android",
+          all(target_os = "nacl", target_libc = "glibc")))]
 pub static FIOCLEX: libc::c_ulong = 0x5451;
-#[cfg(target_os = "linux", target_arch = "mips")]
-#[cfg(target_os = "linux", target_arch = "mipsel")]
+#[cfg(all(target_os = "linux",
+          any(target_arch = "mips", target_arch = "mipsel")))]
 pub static FIOCLEX: libc::c_ulong = 0x6601;
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "ios")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
-#[cfg(target_os = "nacl", target_libc = "newlib")]
+#[cfg(any(target_os = "macos",
+          target_os = "ios",
+          target_os = "freebsd",
+          target_os = "dragonfly",
+          all(target_os = "nacl", target_libc = "newlib")))]
 pub static MSG_DONTWAIT: libc::c_int = 0x80;
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "android")]
-#[cfg(target_os = "nacl", target_libc = "glibc")]
+#[cfg(any(target_os = "linux", target_os = "android",
+          all(target_os = "nacl", target_libc = "glibc")))]
 pub static MSG_DONTWAIT: libc::c_int = 0x40;
 
 pub static WNOHANG: libc::c_int = 1;
@@ -70,7 +71,7 @@ pub static WNOHANG: libc::c_int = 1;
 extern {
     pub fn gettimeofday(timeval: *mut libc::timeval,
                         tzp: *mut libc::c_void) -> libc::c_int;
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     pub fn select(nfds: libc::c_int,
                   readfds: *mut fd_set,
                   writefds: *mut fd_set,
@@ -81,7 +82,7 @@ extern {
                       optname: libc::c_int,
                       optval: *mut libc::c_void,
                       optlen: *mut libc::socklen_t) -> libc::c_int;
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     pub fn ioctl(fd: libc::c_int, req: libc::c_ulong, ...) -> libc::c_int;
 
 
@@ -97,8 +98,7 @@ extern {
     pub fn sigemptyset(set: *mut sigset_t) -> libc::c_int;
 }
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod select {
     pub static FD_SETSIZE: uint = 1024;
 
@@ -112,11 +112,11 @@ mod select {
     }
 }
 
-#[cfg(target_os = "android")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "nacl")]
+#[cfg(any(target_os = "android",
+          target_os = "freebsd",
+          target_os = "dragonfly",
+          target_os = "linux",
+          target_os = "nacl"))]
 mod select {
     #![allow(dead_code)]
     use std::uint;
@@ -136,7 +136,7 @@ mod select {
     }
 }
 
-#[cfg(target_os = "nacl", target_libc = "newlib")]
+#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
 mod signal {
     use libc;
 
@@ -157,10 +157,11 @@ mod signal {
     }
 }
 
-#[cfg(target_os = "linux", target_arch = "x86")]
-#[cfg(target_os = "linux", target_arch = "x86_64")]
-#[cfg(target_os = "linux", target_arch = "arm")]
-#[cfg(target_os = "android")]
+#[cfg(any(all(target_os = "linux",
+              any(target_arch = "x86",
+                  target_arch = "x86_64",
+                  target_arch = "arm")),
+          target_os = "android"))]
 mod signal {
     use libc;
 
@@ -207,8 +208,8 @@ mod signal {
     }
 }
 
-#[cfg(target_os = "linux", target_arch = "mips")]
-#[cfg(target_os = "linux", target_arch = "mipsel")]
+#[cfg(all(target_os = "linux",
+          any(target_arch = "mips", target_arch = "mipsel")))]
 mod signal {
     use libc;
 
@@ -249,10 +250,10 @@ mod signal {
     }
 }
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "ios")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
+#[cfg(any(target_os = "macos",
+          target_os = "ios",
+          target_os = "freebsd",
+          target_os = "dragonfly"))]
 mod signal {
     use libc;
 

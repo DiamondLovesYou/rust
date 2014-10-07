@@ -120,14 +120,14 @@
 // things and all of the std::io tests have an I/O interface to run on top
 // of. Sadly, libuv uses a boatload of Glibc functions that Newlibc just
 // doesn't implement.
-#[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(test, not(target_os = "nacl", target_libc = "newlib")))]
 extern crate rustuv;
 #[cfg(test)] extern crate native;
 #[cfg(test)] extern crate debug;
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
 
 // libgreen doesn't exist for le32-unknown-nacl targets:
-#[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(test, not(target_os = "nacl", target_libc = "newlib")))]
 extern crate green;
 
 
@@ -196,12 +196,12 @@ pub use core_sync::comm;
 // Run tests with libgreen instead of libnative, but not while targeting a
 // platform using Newlibc.
 
-#[cfg(test, not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(test, not(target_os = "nacl", target_libc = "newlib")))]
 #[start]
 fn start(argc: int, argv: *const *const u8) -> int {
     green::start(argc, argv, rustuv::event_loop, test_main)
 }
-#[cfg(test, target_os = "nacl", target_libc = "newlib")]
+#[cfg(all(test, target_os = "nacl", target_libc = "newlib"))]
 #[start]
 fn start(argc: int, argv: *const *const u8) -> int {
     native::start(argc, argv, __test::main)

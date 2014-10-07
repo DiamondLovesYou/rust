@@ -547,7 +547,7 @@ extern "rust-intrinsic" {
 /// We sneakily redirect some of them to libm, while the
 /// *.with.overflow functions are just written with manual checks.
 /// They're in all likelyhood slower, but they're effective.
-#[cfg(not(target_os = "nacl", target_arch = "le32"))]
+#[cfg(all(not(target_os = "nacl"), not(target_arch = "le32")))]
 extern "rust-intrinsic" {
 
     /// Raises an `f32` to an `f32` power.
@@ -688,29 +688,29 @@ _def_fun!(fabsf64  => fabs   (f64) -> f64)
 _def_fun!(floorf32 => floorf (f32) -> f32)
 _def_fun!(floorf64 => floor  (f64) -> f64)*/
 
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn powif32(a: f32, x: i32) -> f32 { powf64(a as f64, x as f64) as f32 }
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn powif64(a: f64, x: i32) -> f64 { powf64(a, x as f64) }
 
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn ctpop8(x: u8) -> u8 { ctpop32(x as u32) as u8 }
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn ctpop16(x: u16) -> u16 { ctpop32(x as u32) as u16 }
 
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn ctlz8(x: u8) -> u8 { ctlz32(x as u32) as u8 }
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn ctlz16(x: u16) -> u16 { ctlz32(x as u32) as u16 }
 
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn cttz8(x: u8) -> u8 { cttz32(x as u32) as u8 }
-#[cfg(target_os = "nacl", target_arch = "le32")]
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline] pub unsafe fn cttz16(x: u16) -> u16 { cttz32(x as u32) as u16 }
 
 macro_rules! add_with_overflow(
     ($ty:ty, $id:ident) => (
-        #[cfg(target_os = "nacl", target_arch = "le32")]
+        #[cfg(all(target_os = "nacl", target_arch = "le32"))]
         pub unsafe fn $id (x: $ty,
                            y: $ty) -> ($ty,
                                        bool) {
@@ -727,7 +727,7 @@ macro_rules! add_with_overflow(
 )
 macro_rules! sub_with_overflow(
     ($ty:ty, $id:ident) => (
-        #[cfg(target_os = "nacl", target_arch = "le32")]
+        #[cfg(all(target_os = "nacl", target_arch = "le32"))]
         pub unsafe fn $id (x: $ty,
                            y: $ty) -> ($ty,
                                        bool) {
@@ -744,7 +744,7 @@ macro_rules! sub_with_overflow(
 )
 macro_rules! mul_with_overflow(
     ($ty:ty, $id:ident) => (
-        #[cfg(target_os = "nacl", target_arch = "le32")]
+        #[cfg(all(target_os = "nacl", target_arch = "le32"))]
         pub unsafe fn $id (x: $ty,
                            y: $ty) -> ($ty,
                                        bool) {

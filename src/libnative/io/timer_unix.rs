@@ -91,7 +91,7 @@ pub fn now() -> u64 {
         return (now.tv_sec as u64) * 1000 + (now.tv_usec as u64) / 1000;
     }
 }
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
 fn helper(input: libc::c_int, messages: Receiver<Req>, _: ()) {
     let mut set: c::fd_set = unsafe { mem::zeroed() };
 
@@ -201,7 +201,7 @@ fn helper(input: libc::c_int, messages: Receiver<Req>, _: ()) {
 }
 
 impl Timer {
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     pub fn new() -> IoResult<Timer> {
         // See notes above regarding using int return value
         // instead of ()
@@ -220,7 +220,7 @@ impl Timer {
             })
         })
     }
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
     pub fn new() -> IoResult<Timer> {
         Err(super::unavailable())
     }

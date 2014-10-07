@@ -28,10 +28,10 @@ use super::util;
 #[cfg(windows)] use std::io::fs::PathExtensions;
 #[cfg(windows)] use std::string::String;
 #[cfg(unix)] use super::c;
-#[cfg(unix, not(target_os = "nacl"))] use super::retry;
-#[cfg(unix, not(target_os = "nacl"))] use io::helper_thread::Helper;
+#[cfg(all(unix, not(target_os = "nacl")))] use super::retry;
+#[cfg(all(unix, not(target_os = "nacl")))] use io::helper_thread::Helper;
 
-#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 helper_init!(static mut HELPER: Helper<Req>)
 
 #[cfg(target_os = "nacl")]
@@ -554,7 +554,7 @@ fn make_command_line(prog: &CString, args: &[CString]) -> String {
     }
 }
 
-#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 fn spawn_process_os(cfg: ProcessConfig,
                     in_fd: Option<file::FileDesc>,
                     out_fd: Option<file::FileDesc>,
@@ -761,7 +761,7 @@ fn spawn_process_os(cfg: ProcessConfig,
         })
     })
 }
-#[cfg(unix, target_os = "nacl")]
+#[cfg(all(unix, target_os = "nacl"))]
 fn spawn_process_os(_cfg: ProcessConfig,
                     _in_fd: c_int,
                     _out_fd: c_int,
@@ -769,7 +769,7 @@ fn spawn_process_os(_cfg: ProcessConfig,
     Err(permission_denied())
 }
 
-#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 fn with_argv<T>(prog: &CString, args: &[CString],
                 cb: proc(*const *const libc::c_char) -> T) -> T {
     let mut ptrs: Vec<*const libc::c_char> = Vec::with_capacity(args.len()+1);
@@ -788,7 +788,7 @@ fn with_argv<T>(prog: &CString, args: &[CString],
     cb(ptrs.as_ptr())
 }
 
-#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 fn with_envp<T>(env: Option<&[(&CString, &CString)]>,
                 cb: proc(*const c_void) -> T) -> T {
     // On posixy systems we can pass a char** for envp, which is a
@@ -873,21 +873,20 @@ fn free_handle(_handle: *mut ()) {
     // unix has no process handle object, just a pid
 }
 
-#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 fn translate_status(status: c_int) -> rtio::ProcessExit {
     #![allow(non_snake_case)]
-    #[cfg(target_os = "linux")]
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     mod imp {
         pub fn WIFEXITED(status: i32) -> bool { (status & 0xff) == 0 }
         pub fn WEXITSTATUS(status: i32) -> i32 { (status >> 8) & 0xff }
         pub fn WTERMSIG(status: i32) -> i32 { status & 0x7f }
     }
 
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "ios")]
-    #[cfg(target_os = "freebsd")]
-    #[cfg(target_os = "dragonfly")]
+    #[cfg(any(target_os = "macos",
+              target_os = "ios",
+              target_os = "freebsd",
+              target_os = "dragonfly"))]
     mod imp {
         pub fn WIFEXITED(status: i32) -> bool { (status & 0x7f) == 0 }
         pub fn WEXITSTATUS(status: i32) -> i32 { status >> 8 }
@@ -971,7 +970,7 @@ fn waitpid(pid: pid_t, deadline: u64) -> IoResult<rtio::ProcessExit> {
     }
 }
 
-#[cfg(unix, not(target_os = "nacl"))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 fn waitpid(pid: pid_t, deadline: u64) -> IoResult<rtio::ProcessExit> {
     use std::cmp;
     use std::comm;

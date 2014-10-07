@@ -130,8 +130,7 @@ impl rtio::RtioFileStream for FileDesc {
     fn datasync(&mut self) -> IoResult<()> {
         return super::mkerr_libc(os_datasync(self.fd()));
 
-        #[cfg(target_os = "macos")]
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         fn os_datasync(fd: c_int) -> c_int {
             unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) }
         }
@@ -139,7 +138,7 @@ impl rtio::RtioFileStream for FileDesc {
         fn os_datasync(fd: c_int) -> c_int {
             retry(|| unsafe { libc::fdatasync(fd) })
         }
-        #[cfg(not(target_os = "macos"), not(target_os = "ios"), not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
         fn os_datasync(fd: c_int) -> c_int {
             retry(|| unsafe { libc::fsync(fd) })
         }
@@ -414,11 +413,11 @@ pub fn chown(p: &CString, uid: int, gid: int) -> IoResult<()> {
 }
 
 pub fn readlink(p: &CString) -> IoResult<CString> {
-    #[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     fn pathconf(p: *mut libc::c_char) -> i64 {
         unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) as i64 }
     }
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
     fn pathconf(_: *mut libc::c_char) -> i64 {
         unsafe { libc::sysconf(libc::_PC_NAME_MAX) as i64 }
     }
@@ -454,18 +453,18 @@ fn mkstat(stat: &libc::stat) -> rtio::FileStat {
     // FileStat times are in milliseconds
     fn mktime(secs: u64, nsecs: u64) -> u64 { secs * 1000 + nsecs / 1000000 }
 
-    #[cfg(not(target_os = "linux"), not(target_os = "android"),
-          not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android",
+                  all(target_os = "nacl", target_libc = "newlib"))))]
     fn flags(stat: &libc::stat) -> u64 { stat.st_flags as u64 }
-    #[cfg(target_os = "linux")] #[cfg(target_os = "android")]
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(any(target_os = "linux", target_os = "android",
+              all(target_os = "nacl", target_libc = "newlib")))]
     fn flags(_stat: &libc::stat) -> u64 { 0 }
 
-    #[cfg(not(target_os = "linux"), not(target_os = "android"),
-          not(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android",
+                  all(target_os = "nacl", target_libc = "newlib"))))]
     fn gen(stat: &libc::stat) -> u64 { stat.st_gen as u64 }
-    #[cfg(target_os = "linux")] #[cfg(target_os = "android")]
-    #[cfg(target_os = "nacl", target_libc = "newlib")]
+    #[cfg(any(target_os = "linux", target_os = "android",
+              all(target_os = "nacl", target_libc = "newlib")))]
     fn gen(_stat: &libc::stat) -> u64 { 0 }
 
     rtio::FileStat {

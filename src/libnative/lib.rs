@@ -77,10 +77,9 @@ pub use task::NativeTaskBuilder;
 pub mod io;
 pub mod task;
 
-#[cfg(windows)]
-#[cfg(android)]
+#[cfg(any(windows, android))]
 static OS_DEFAULT_STACK_ESTIMATE: uint = 1 << 20;
-#[cfg(unix, not(android))]
+#[cfg(all(unix, not(android)))]
 static OS_DEFAULT_STACK_ESTIMATE: uint = 2 * (1 << 20);
 
 #[lang = "start"]
@@ -120,8 +119,8 @@ pub fn start(argc: int, argv: *const *const u8, main: proc()) -> int {
     //
     // Hence, we set SIGPIPE to ignore when the program starts up in order to
     // prevent this problem.
-    #[cfg(windows)] #[cfg(target_os = "nacl")] fn ignore_sigpipe() {}
-    #[cfg(unix, not(target_os = "nacl"))] fn ignore_sigpipe() {
+    #[cfg(any(windows, target_os = "nacl"))] fn ignore_sigpipe() {}
+    #[cfg(all(unix, not(target_os = "nacl")))] fn ignore_sigpipe() {
         use libc;
         use libc::funcs::posix01::signal::signal;
         unsafe {
@@ -155,5 +154,5 @@ pub fn run(main: proc()) -> int {
     os::get_exit_status()
 }
 
-#[cfg(target_os = "nacl", target_libc = "newlib")]
+#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
 #[link(name = "nacl_io", kind = "static")] extern {}

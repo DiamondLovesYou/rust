@@ -254,7 +254,7 @@ mod imp {
     /// play well with green threads, so while it is extremely nice
     /// and simple to use it should be used only on iOS devices as the
     /// only viable option.
-    #[cfg(target_os = "ios", target_arch = "arm")]
+    #[cfg(all(target_os = "ios", target_arch = "arm"))]
     #[inline(never)]
     pub fn write(w: &mut Writer) -> IoResult<()> {
         use iter::{Iterator, range};
@@ -285,7 +285,7 @@ mod imp {
         result::fold(iter, (), |_, _| ())
     }
 
-    #[cfg(not(target_os = "ios", target_arch = "arm"))]
+    #[cfg(not(all(target_os = "ios", target_arch = "arm")))]
     #[inline(never)] // if we know this is a function call, we can skip it when
                      // tracing
     pub fn write(w: &mut Writer) -> IoResult<()> {
@@ -366,8 +366,7 @@ mod imp {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn print(w: &mut Writer, idx: int, addr: *mut libc::c_void) -> IoResult<()> {
         use intrinsics;
         #[repr(C)]
@@ -392,7 +391,7 @@ mod imp {
         }
     }
 
-    #[cfg(not(target_os = "macos"), not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     fn print(w: &mut Writer, idx: int, addr: *mut libc::c_void) -> IoResult<()> {
         use collections::Collection;
         use iter::Iterator;
@@ -572,19 +571,20 @@ mod imp {
 
         extern {
             // No native _Unwind_Backtrace on iOS
-            #[cfg(not(target_os = "ios", target_arch = "arm"),
-                  not(target_os = "nacl", target_libc = "newlib"))]
+            #[cfg(all(not(all(target_os = "ios", target_arch = "arm")),
+                      not(all(target_os = "nacl", target_libc = "newlib"))))]
             pub fn _Unwind_Backtrace(trace: _Unwind_Trace_Fn,
                                      trace_argument: *mut libc::c_void)
                         -> _Unwind_Reason_Code;
 
-            #[cfg(not(target_os = "android"),
-                  not(target_os = "linux", target_arch = "arm"),
-                  not(target_os = "nacl", target_libc = "newlib"))]
+            #[cfg(all(not(target_os = "android"),
+                      not(all(target_os = "linux", target_arch = "arm")),
+                      not(all(target_os = "nacl", target_libc = "newlib"))))]
             pub fn _Unwind_GetIP(ctx: *mut _Unwind_Context) -> libc::uintptr_t;
-            #[cfg(not(target_os = "android"),
-                  not(target_os = "linux", target_arch = "arm"),
-                  not(target_os = "nacl", target_libc = "newlib"))]
+
+            #[cfg(all(not(target_os = "android"),
+                      not(all(target_os = "linux", target_arch = "arm")),
+                      not(all(target_os = "nacl", target_libc = "newlib"))))]
             pub fn _Unwind_FindEnclosingFunction(pc: *mut libc::c_void)
                 -> *mut libc::c_void;
         }
@@ -592,8 +592,8 @@ mod imp {
         // On android, the function _Unwind_GetIP is a macro, and this is the
         // expansion of the macro. This is all copy/pasted directly from the
         // header file with the definition of _Unwind_GetIP.
-        #[cfg(target_os = "android")]
-        #[cfg(target_os = "linux", target_arch = "arm")]
+        #[cfg(any(target_os = "android",
+                  all(target_os = "linux", target_arch = "arm")))]
         pub unsafe fn _Unwind_GetIP(ctx: *mut _Unwind_Context) -> libc::uintptr_t {
             #[repr(C)]
             enum _Unwind_VRS_Result {
@@ -638,12 +638,12 @@ mod imp {
 
         // _Unwind_GetIP isn't allowed on PNaCl for obvious reasons, so this is
         // here as dummy stub that always returns 0 for linking.
-        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
         pub unsafe fn _Unwind_GetIP(_ctx: *mut _Unwind_Context) -> libc::uintptr_t {
             0
         }
 
-        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
         pub unsafe fn _Unwind_Backtrace
             (_trace: _Unwind_Trace_Fn,
              _trace_argument: *mut libc::c_void) -> _Unwind_Reason_Code {
@@ -652,9 +652,9 @@ mod imp {
 
         // This function also doesn't exist on Android or ARM/Linux, so make it
         // a no-op
-        #[cfg(target_os = "android")]
-        #[cfg(target_os = "linux", target_arch = "arm")]
-        #[cfg(target_os = "nacl", target_libc = "newlib")]
+        #[cfg(any(target_os = "android",
+                  all(target_os = "linux", target_arch = "arm"),
+                  all(target_os = "nacl", target_libc = "newlib")))]
         pub unsafe fn _Unwind_FindEnclosingFunction(pc: *mut libc::c_void)
             -> *mut libc::c_void
         {

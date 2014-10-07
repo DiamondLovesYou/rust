@@ -16,7 +16,7 @@ use std::os;
 use std::ptr;
 use std::rt::rtio::{IoResult, IoError};
 
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))] use super::c;
+#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))] use super::c;
 use super::net;
 use super::{retry, last_error};
 
@@ -26,7 +26,7 @@ pub enum SocketStatus {
     Writable,
 }
 
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
 pub fn timeout(desc: &'static str) -> IoError {
     #[cfg(unix)] use libc::ETIMEDOUT as ERROR;
     #[cfg(windows)] use libc::ERROR_OPERATION_ABORTED as ERROR;
@@ -61,7 +61,8 @@ pub fn ms_to_timeval(ms: u64) -> libc::timeval {
         tv_usec: ((ms % 1000) * 1000) as libc::c_long,
     }
 }
-#[cfg(not(windows), not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(not(windows),
+          not(target_os = "nacl"), not(dtarget_libc = "newlib")))]
 pub fn ms_to_timeval(ms: u64) -> libc::timeval {
     libc::timeval {
         tv_sec: (ms / 1000) as libc::time_t,
@@ -81,14 +82,13 @@ pub fn wouldblock() -> bool {
     err == libc::WSAEWOULDBLOCK as uint
 }
 
-#[cfg(unix, not(target_os = "nacl"))]
-#[cfg(target_os = "nacl", target_libc = "glibc")]
+#[cfg(all(unix, not(target_os = "nacl")))]
 pub fn set_nonblocking(fd: net::sock_t, nb: bool) -> IoResult<()> {
     let set = nb as libc::c_int;
     super::mkerr_libc(retry(|| unsafe { c::ioctl(fd, c::FIONBIO, &set) }))
 }
 
-#[cfg(target_os = "nacl", not(target_libc = "glibc"))]
+#[cfg(all(target_os = "nacl", not(target_libc = "glibc")))]
 pub fn set_nonblocking(_fd: net::sock_t, _nb: bool) -> IoResult<()> {
     use super::unavailable;
     Err(unavailable())
@@ -106,7 +106,7 @@ pub fn set_nonblocking(fd: net::sock_t, nb: bool) -> IoResult<()> {
 
 // See http://developerweb.net/viewtopic.php?id=3196 for where this is
 // derived from.
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
 pub fn connect_timeout(fd: net::sock_t,
                        addrp: *const libc::sockaddr,
                        len: libc::socklen_t,
@@ -175,7 +175,7 @@ pub fn connect_timeout(fd: net::sock_t,
         unsafe { c::select(1, ptr::null_mut(), set, ptr::null_mut(), &mut tv) }
     }
 }
-#[cfg(target_os = "nacl", target_libc = "newlib")]
+#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
 pub fn await(_fds: &[net::sock_t], _deadline: Option<u64>,
              _status: SocketStatus) -> IoResult<()> {
     // FIXME Technically, this could be impl-ed using a delayed callback in ppapi,
@@ -183,7 +183,7 @@ pub fn await(_fds: &[net::sock_t], _deadline: Option<u64>,
     Err(super::unimpl())
 }
 
-#[cfg(not(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
 pub fn await(fds: &[net::sock_t], deadline: Option<u64>,
              status: SocketStatus) -> IoResult<()> {
     let mut set: c::fd_set = unsafe { mem::zeroed() };

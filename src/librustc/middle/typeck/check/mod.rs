@@ -2078,6 +2078,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     }
 }
 
+#[deriving(Show)]
 pub enum LvaluePreference {
     PreferMutLvalue,
     NoPreference
@@ -4106,6 +4107,9 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         check_then_else(fcx, &**cond, &**then_blk, opt_else_expr.as_ref().map(|e| &**e),
                         id, expr.span, expected);
       }
+      ast::ExprIfLet(..) => {
+        tcx.sess.span_bug(expr.span, "non-desugared ExprIfLet");
+      }
       ast::ExprWhile(ref cond, ref body, _) => {
         check_expr_has_type(fcx, &**cond, ty::mk_bool());
         check_block_no_value(fcx, &**body);
@@ -4143,7 +4147,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
             fcx.write_nil(id);
         }
       }
-      ast::ExprMatch(ref discrim, ref arms) => {
+      ast::ExprMatch(ref discrim, ref arms, _) => {
         _match::check_match(fcx, expr, &**discrim, arms.as_slice());
       }
       ast::ExprFnBlock(_, ref decl, ref body) => {
@@ -5082,7 +5086,7 @@ pub fn polytype_for_def(fcx: &FnCtxt,
           let typ = fcx.local_ty(sp, nid);
           return no_params(typ);
       }
-      def::DefFn(id, _) | def::DefStaticMethod(id, _, _) |
+      def::DefFn(id, _, _) | def::DefStaticMethod(id, _, _) |
       def::DefStatic(id, _) | def::DefVariant(_, id, _) |
       def::DefStruct(id) => {
         return ty::lookup_item_type(fcx.ccx.tcx, id);
