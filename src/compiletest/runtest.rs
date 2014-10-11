@@ -979,7 +979,7 @@ fn check_error_patterns(props: &TestProps,
     if done { return; }
 
     let missing_patterns =
-        props.error_patterns.slice(next_err_idx, props.error_patterns.len());
+        props.error_patterns[next_err_idx..];
     if missing_patterns.len() == 1u {
         fatal_proc_rec(format!("error pattern '{}' not found!",
                               missing_patterns[0]).as_slice(),
@@ -1311,7 +1311,7 @@ fn compose_and_run_compiler(
 
 fn ensure_dir(path: &Path) {
     if path.is_dir() { return; }
-    fs::mkdir(path, io::UserRWX).unwrap();
+    fs::mkdir(path, io::USER_RWX).unwrap();
 }
 
 fn compose_and_run(config: &Config, testfile: &Path,

@@ -502,7 +502,7 @@ pub fn invalid_output_for_target(sess: &Session,
 fn is_writeable(p: &Path) -> bool {
     match p.stat() {
         Err(..) => true,
-        Ok(m) => m.perm & io::UserWrite == io::UserWrite
+        Ok(m) => m.perm & io::USER_WRITE == io::USER_WRITE
     }
 }
 
@@ -1540,10 +1540,10 @@ fn link_args(cmd: &mut Command,
         cmd.arg("-Wl,--nxcompat");
 
         // Mark all dynamic libraries and executables as compatible with ASLR
-        // FIXME #17098: ASLR breaks gdb
-        if sess.opts.debuginfo == NoDebugInfo {
-            cmd.arg("-Wl,--dynamicbase");
-        }
+        // FIXME #16514: ASLR is disabled on Windows due to MinGW-w64 bugs:
+        // FIXME #17098: ASLR breaks gdb on Windows
+        // FIXME #17684: ASLR breaks thread-local storage on Windows
+        //cmd.arg("-Wl,--dynamicbase");
 
         // Mark all dynamic libraries and executables as compatible with the larger 4GiB address
         // space available to x86 Windows binaries on x86_64.
@@ -1837,7 +1837,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
                 // Fix up permissions of the copy, as fs::copy() preserves
                 // permissions, but the original file may have been installed
                 // by a package manager and may be read-only.
-                match fs::chmod(&dst, io::UserRead | io::UserWrite) {
+                match fs::chmod(&dst, io::USER_READ | io::USER_WRITE) {
                     Ok(..) => {}
                     Err(e) => {
                         sess.err(format!("failed to chmod {} when preparing \

@@ -39,6 +39,7 @@ extern crate core;
 use core::prelude::*;
 
 pub use isaac::{IsaacRng, Isaac64Rng};
+pub use chacha::ChaChaRng;
 
 use distributions::{Range, IndependentSample};
 use distributions::range::SampleRange;
@@ -48,6 +49,7 @@ static RAND_BENCH_N: u64 = 100;
 
 pub mod distributions;
 pub mod isaac;
+pub mod chacha;
 pub mod reseeding;
 mod rand_impls;
 
@@ -228,7 +230,7 @@ pub trait Rng {
     /// let choices = [1i, 2, 4, 8, 16, 32];
     /// let mut rng = task_rng();
     /// println!("{}", rng.choose(choices));
-    /// assert_eq!(rng.choose(choices.slice_to(0)), None);
+    /// assert_eq!(rng.choose(choices[..0]), None);
     /// ```
     fn choose<'a, T>(&mut self, values: &'a [T]) -> Option<&'a T> {
         if values.is_empty() {

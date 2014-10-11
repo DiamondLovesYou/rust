@@ -18,7 +18,7 @@ fn main() {
     let e = B(REB(()), Tau { t: 3 });
     let u = match e {
         B(
-          Tau{t: x},    //~ ERROR mismatched types
+          Tau{t: x}, //~ ERROR `Tau` does not name a variant
           _) => x,
     };
 }

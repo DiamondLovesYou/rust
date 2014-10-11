@@ -334,7 +334,7 @@ pub fn escape_bytes(wr: &mut io::Writer, bytes: &[u8]) -> Result<(), io::IoError
         };
 
         if start < i {
-            try!(wr.write(bytes.slice(start, i)));
+            try!(wr.write(bytes[start..i]));
         }
 
         try!(wr.write_str(escaped));
@@ -343,7 +343,7 @@ pub fn escape_bytes(wr: &mut io::Writer, bytes: &[u8]) -> Result<(), io::IoError
     }
 
     if start != bytes.len() {
-        try!(wr.write(bytes.slice_from(start)));
+        try!(wr.write(bytes[start..]));
     }
 
     wr.write_str("\"")
@@ -360,7 +360,9 @@ fn escape_char(writer: &mut io::Writer, v: char) -> Result<(), io::IoError> {
 }
 
 fn spaces(wr: &mut io::Writer, mut n: uint) -> Result<(), io::IoError> {
+    #[allow(non_uppercase_statics)]
     static len: uint = 16;
+    #[allow(non_uppercase_statics)]
     static buf: [u8, ..len] = [b' ', ..len];
 
     while n >= len {
@@ -369,7 +371,7 @@ fn spaces(wr: &mut io::Writer, mut n: uint) -> Result<(), io::IoError> {
     }
 
     if n > 0 {
-        wr.write(buf.slice_to(n))
+        wr.write(buf[..n])
     } else {
         Ok(())
     }
@@ -1149,7 +1151,7 @@ impl Stack {
             InternalIndex(i) => { Index(i) }
             InternalKey(start, size) => {
                 Key(str::from_utf8(
-                    self.str_buffer.slice(start as uint, start as uint + size as uint)).unwrap())
+                    self.str_buffer[start as uint .. start as uint + size as uint]).unwrap())
             }
         }
     }
@@ -1191,7 +1193,7 @@ impl Stack {
             Some(&InternalIndex(i)) => Some(Index(i)),
             Some(&InternalKey(start, size)) => {
                 Some(Key(str::from_utf8(
-                    self.str_buffer.slice(start as uint, (start+size) as uint)
+                    self.str_buffer[start as uint .. (start+size) as uint]
                 ).unwrap()))
             }
         }

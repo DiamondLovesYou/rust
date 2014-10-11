@@ -16,8 +16,7 @@ use ast::{RegionTyParamBound, TraitTyParamBound};
 use ast::{ProvidedMethod, Public, FnStyle};
 use ast::{Mod, BiAdd, Arg, Arm, Attribute, BindByRef, BindByValue};
 use ast::{BiBitAnd, BiBitOr, BiBitXor, BiRem, Block};
-use ast::{BlockCheckMode, UnBox};
-use ast::{CaptureByRef, CaptureByValue, CaptureClause};
+use ast::{BlockCheckMode, CaptureByRef, CaptureByValue, CaptureClause};
 use ast::{Crate, CrateConfig, Decl, DeclItem};
 use ast::{DeclLocal, DefaultBlock, UnDeref, BiDiv, EMPTY_CTXT, EnumDef, ExplicitSelf};
 use ast::{Expr, Expr_, ExprAddrOf, ExprMatch, ExprAgain};
@@ -50,7 +49,7 @@ use ast::{StructVariantKind, BiSub};
 use ast::StrStyle;
 use ast::{SelfExplicit, SelfRegion, SelfStatic, SelfValue};
 use ast::{TokenTree, TraitItem, TraitRef, TTDelim, TTSeq, TTTok};
-use ast::{TTNonterminal, TupleVariantKind, Ty, Ty_, TyBot, TyBox};
+use ast::{TTNonterminal, TupleVariantKind, Ty, Ty_, TyBot};
 use ast::{TypeField, TyFixedLengthVec, TyClosure, TyProc, TyBareFn};
 use ast::{TyTypeof, TyInfer, TypeMethod};
 use ast::{TyNil, TyParam, TyParamBound, TyParen, TyPath, TyPtr, TyQPath};
@@ -92,10 +91,10 @@ use std::iter;
 
 bitflags! {
     flags Restrictions: u8 {
-        static Unrestricted               = 0b0000,
-        static RestrictionStmtExpr        = 0b0001,
-        static RestrictionNoBarOp         = 0b0010,
-        static RestrictionNoStructLiteral = 0b0100
+        static UNRESTRICTED                  = 0b0000,
+        static RESTRICTION_STMT_EXPR         = 0b0001,
+        static RESTRICTION_NO_BAR_OP         = 0b0010,
+        static RESTRICTION_NO_STRUCT_LITERAL = 0b0100
     }
 }
 
@@ -384,7 +383,7 @@ impl<'a> Parser<'a> {
             buffer_start: 0,
             buffer_end: 0,
             tokens_consumed: 0,
-            restrictions: Unrestricted,
+            restrictions: UNRESTRICTED,
             quote_depth: 0,
             obsolete_set: HashSet::new(),
             mod_path_stack: Vec::new(),
@@ -1450,12 +1449,6 @@ impl<'a> Parser<'a> {
                     t
                 }
             }
-        } else if self.token == token::AT {
-            // MANAGED POINTER
-            self.bump();
-            let span = self.last_span;
-            self.obsolete(span, ObsoleteManagedType);
-            TyBox(self.parse_ty(plus_allowed))
         } else if self.token == token::TILDE {
             // OWNED POINTER
             self.bump();
@@ -2249,7 +2242,7 @@ impl<'a> Parser<'a> {
                     if self.token == token::LBRACE {
                         // This is a struct literal, unless we're prohibited
                         // from parsing struct literals here.
-                        if !self.restrictions.contains(RestrictionNoStructLiteral) {
+                        if !self.restrictions.contains(RESTRICTION_NO_STRUCT_LITERAL) {
                             // It's a struct literal.
                             self.bump();
                             let mut fields = Vec::new();
@@ -2723,14 +2716,6 @@ impl<'a> Parser<'a> {
             hi = e.span.hi;
             ex = ExprAddrOf(m, e);
           }
-          token::AT => {
-            self.bump();
-            let span = self.last_span;
-            self.obsolete(span, ObsoleteManagedExpr);
-            let e = self.parse_prefix_expr();
-            hi = e.span.hi;
-            ex = self.mk_unary(UnBox, e);
-          }
           token::TILDE => {
             self.bump();
             let last_span = self.last_span;
@@ -2786,7 +2771,7 @@ impl<'a> Parser<'a> {
         // Prevent dynamic borrow errors later on by limiting the
         // scope of the borrows.
         if self.token == token::BINOP(token::OR) &&
-            self.restrictions.contains(RestrictionNoBarOp) {
+            self.restrictions.contains(RESTRICTION_NO_BAR_OP) {
             return lhs;
         }
 
@@ -2827,7 +2812,7 @@ impl<'a> Parser<'a> {
     pub fn parse_assign_expr(&mut self) -> P<Expr> {
         let lo = self.span.lo;
         let lhs = self.parse_binops();
-        let restrictions = self.restrictions & RestrictionNoStructLiteral;
+        let restrictions = self.restrictions & RESTRICTION_NO_STRUCT_LITERAL;
         match self.token {
           token::EQ => {
               self.bump();
@@ -2865,7 +2850,7 @@ impl<'a> Parser<'a> {
             return self.parse_if_let_expr();
         }
         let lo = self.last_span.lo;
-        let cond = self.parse_expr_res(RestrictionNoStructLiteral);
+        let cond = self.parse_expr_res(RESTRICTION_NO_STRUCT_LITERAL);
         let thn = self.parse_block();
         let mut els: Option<P<Expr>> = None;
         let mut hi = thn.span.hi;
@@ -2883,7 +2868,7 @@ impl<'a> Parser<'a> {
         self.expect_keyword(keywords::Let);
         let pat = self.parse_pat();
         self.expect(&token::EQ);
-        let expr = self.parse_expr_res(RestrictionNoStructLiteral);
+        let expr = self.parse_expr_res(RESTRICTION_NO_STRUCT_LITERAL);
         let thn = self.parse_block();
         let (hi, els) = if self.eat_keyword(keywords::Else) {
             let expr = self.parse_else_expr();
@@ -2943,7 +2928,7 @@ impl<'a> Parser<'a> {
         let lo = self.last_span.lo;
         let pat = self.parse_pat();
         self.expect_keyword(keywords::In);
-        let expr = self.parse_expr_res(RestrictionNoStructLiteral);
+        let expr = self.parse_expr_res(RESTRICTION_NO_STRUCT_LITERAL);
         let loop_block = self.parse_block();
         let hi = self.span.hi;
 
@@ -2952,7 +2937,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse_while_expr(&mut self, opt_ident: Option<ast::Ident>) -> P<Expr> {
         let lo = self.last_span.lo;
-        let cond = self.parse_expr_res(RestrictionNoStructLiteral);
+        let cond = self.parse_expr_res(RESTRICTION_NO_STRUCT_LITERAL);
         let body = self.parse_block();
         let hi = body.span.hi;
         return self.mk_expr(lo, hi, ExprWhile(cond, body, opt_ident));
@@ -2967,7 +2952,7 @@ impl<'a> Parser<'a> {
 
     fn parse_match_expr(&mut self) -> P<Expr> {
         let lo = self.last_span.lo;
-        let discriminant = self.parse_expr_res(RestrictionNoStructLiteral);
+        let discriminant = self.parse_expr_res(RESTRICTION_NO_STRUCT_LITERAL);
         self.commit_expr_expecting(&*discriminant, token::LBRACE);
         let mut arms: Vec<Arm> = Vec::new();
         while self.token != token::RBRACE {
@@ -2986,7 +2971,7 @@ impl<'a> Parser<'a> {
             guard = Some(self.parse_expr());
         }
         self.expect(&token::FAT_ARROW);
-        let expr = self.parse_expr_res(RestrictionStmtExpr);
+        let expr = self.parse_expr_res(RESTRICTION_STMT_EXPR);
 
         let require_comma =
             !classify::expr_is_simple_block(&*expr)
@@ -3008,7 +2993,7 @@ impl<'a> Parser<'a> {
 
     /// Parse an expression
     pub fn parse_expr(&mut self) -> P<Expr> {
-        return self.parse_expr_res(Unrestricted);
+        return self.parse_expr_res(UNRESTRICTED);
     }
 
     /// Parse an expression, subject to the given restrictions
@@ -3305,9 +3290,9 @@ impl<'a> Parser<'a> {
                     self.look_ahead(2, |t| {
                         *t != token::COMMA && *t != token::RBRACKET
                     }) {
-                let start = self.parse_expr_res(RestrictionNoBarOp);
+                let start = self.parse_expr_res(RESTRICTION_NO_BAR_OP);
                 self.eat(&token::DOTDOTDOT);
-                let end = self.parse_expr_res(RestrictionNoBarOp);
+                let end = self.parse_expr_res(RESTRICTION_NO_BAR_OP);
                 pat = PatRange(start, end);
             } else if is_plain_ident(&self.token) && !can_be_enum_or_struct {
                 let id = self.parse_ident();
@@ -3417,9 +3402,10 @@ impl<'a> Parser<'a> {
                        binding_mode: ast::BindingMode)
                        -> ast::Pat_ {
         if !is_plain_ident(&self.token) {
-            let last_span = self.last_span;
-            self.span_fatal(last_span,
-                            "expected identifier, found path");
+            let span = self.span;
+            let tok_str = self.this_token_to_string();
+            self.span_fatal(span,
+                            format!("expected identifier, found `{}`", tok_str).as_slice());
         }
         let ident = self.parse_ident();
         let last_span = self.last_span;
@@ -3607,7 +3593,7 @@ impl<'a> Parser<'a> {
                     }
 
                     // Remainder are line-expr stmts.
-                    let e = self.parse_expr_res(RestrictionStmtExpr);
+                    let e = self.parse_expr_res(RESTRICTION_STMT_EXPR);
                     P(spanned(lo, e.span.hi, StmtExpr(e, ast::DUMMY_NODE_ID)))
                 }
             }
@@ -3616,7 +3602,7 @@ impl<'a> Parser<'a> {
 
     /// Is this expression a successfully-parsed statement?
     fn expr_is_complete(&mut self, e: &Expr) -> bool {
-        self.restrictions.contains(RestrictionStmtExpr) &&
+        self.restrictions.contains(RESTRICTION_STMT_EXPR) &&
             !classify::expr_requires_semi_to_be_stmt(e)
     }
 
@@ -4746,8 +4732,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_item_const(&mut self) -> ItemInfo {
-        let m = if self.eat_keyword(keywords::Mut) {MutMutable} else {MutImmutable};
+    fn parse_item_const(&mut self, m: Mutability) -> ItemInfo {
         let id = self.parse_ident();
         self.expect(&token::COLON);
         let ty = self.parse_ty(true);
@@ -5303,7 +5288,26 @@ impl<'a> Parser<'a> {
         if self.is_keyword(keywords::Static) {
             // STATIC ITEM
             self.bump();
-            let (ident, item_, extra_attrs) = self.parse_item_const();
+            let m = if self.eat_keyword(keywords::Mut) {MutMutable} else {MutImmutable};
+            let (ident, item_, extra_attrs) = self.parse_item_const(m);
+            let last_span = self.last_span;
+            let item = self.mk_item(lo,
+                                    last_span.hi,
+                                    ident,
+                                    item_,
+                                    visibility,
+                                    maybe_append(attrs, extra_attrs));
+            return IoviItem(item);
+        }
+        if self.is_keyword(keywords::Const) {
+            // CONST ITEM
+            self.bump();
+            if self.eat_keyword(keywords::Mut) {
+                let last_span = self.last_span;
+                self.span_err(last_span, "const globals cannot be mutable, \
+                                          did you mean to declare a static?");
+            }
+            let (ident, item_, extra_attrs) = self.parse_item_const(MutImmutable);
             let last_span = self.last_span;
             let item = self.mk_item(lo,
                                     last_span.hi,

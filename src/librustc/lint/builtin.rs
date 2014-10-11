@@ -412,26 +412,16 @@ impl LintPass for CTypes {
     }
 }
 
-declare_lint!(MANAGED_HEAP_MEMORY, Allow,
-              "use of managed (@ type) heap memory")
-
 declare_lint!(OWNED_HEAP_MEMORY, Allow,
               "use of owned (Box type) heap memory")
-
-declare_lint!(HEAP_MEMORY, Allow,
-              "use of any (Box type or @ type) heap memory")
 
 pub struct HeapMemory;
 
 impl HeapMemory {
     fn check_heap_type(&self, cx: &Context, span: Span, ty: ty::t) {
-        let mut n_box = 0i;
         let mut n_uniq = 0i;
         ty::fold_ty(cx.tcx, ty, |t| {
             match ty::get(t).sty {
-                ty::ty_box(_) => {
-                    n_box += 1;
-                }
                 ty::ty_uniq(_) |
                 ty::ty_closure(box ty::ClosureTy {
                     store: ty::UniqTraitStore,
@@ -449,21 +439,13 @@ impl HeapMemory {
             let s = ty_to_string(cx.tcx, ty);
             let m = format!("type uses owned (Box type) pointers: {}", s);
             cx.span_lint(OWNED_HEAP_MEMORY, span, m.as_slice());
-            cx.span_lint(HEAP_MEMORY, span, m.as_slice());
-        }
-
-        if n_box > 0 {
-            let s = ty_to_string(cx.tcx, ty);
-            let m = format!("type uses managed (@ type) pointers: {}", s);
-            cx.span_lint(MANAGED_HEAP_MEMORY, span, m.as_slice());
-            cx.span_lint(HEAP_MEMORY, span, m.as_slice());
         }
     }
 }
 
 impl LintPass for HeapMemory {
     fn get_lints(&self) -> LintArray {
-        lint_array!(MANAGED_HEAP_MEMORY, OWNED_HEAP_MEMORY, HEAP_MEMORY)
+        lint_array!(OWNED_HEAP_MEMORY)
     }
 
     fn check_item(&mut self, cx: &Context, it: &ast::Item) {
@@ -649,7 +631,7 @@ impl LintPass for UnusedAttribute {
     }
 }
 
-declare_lint!(PATH_STATEMENT, Warn,
+declare_lint!(pub PATH_STATEMENT, Warn,
               "path statements with no effect")
 
 pub struct PathStatement;
@@ -673,10 +655,10 @@ impl LintPass for PathStatement {
     }
 }
 
-declare_lint!(UNUSED_MUST_USE, Warn,
+declare_lint!(pub UNUSED_MUST_USE, Warn,
               "unused result of a type flagged as #[must_use]")
 
-declare_lint!(UNUSED_RESULT, Allow,
+declare_lint!(pub UNUSED_RESULT, Allow,
               "unused result of an expression in a statement")
 
 pub struct UnusedResult;
@@ -889,13 +871,17 @@ impl NonSnakeCase {
         fn to_snake_case(str: &str) -> String {
             let mut words = vec![];
             for s in str.split('_') {
+                let mut last_upper = false;
                 let mut buf = String::new();
                 if s.is_empty() { continue; }
                 for ch in s.chars() {
-                    if !buf.is_empty() && buf.as_slice() != "'" && ch.is_uppercase() {
+                    if !buf.is_empty() && buf.as_slice() != "'"
+                                       && ch.is_uppercase()
+                                       && !last_upper {
                         words.push(buf);
                         buf = String::new();
                     }
+                    last_upper = ch.is_uppercase();
                     buf.push_char(ch.to_lowercase());
                 }
                 words.push(buf);
@@ -979,7 +965,7 @@ impl LintPass for NonSnakeCase {
     }
 }
 
-declare_lint!(pub NON_UPPERCASE_STATICS, Allow,
+declare_lint!(pub NON_UPPERCASE_STATICS, Warn,
               "static constants should have uppercase identifiers")
 
 pub struct NonUppercaseStatics;
@@ -1154,7 +1140,7 @@ impl LintPass for UnnecessaryImportBraces {
     }
 }
 
-declare_lint!(UNUSED_UNSAFE, Warn,
+declare_lint!(pub UNUSED_UNSAFE, Warn,
               "unnecessary use of an `unsafe` block")
 
 pub struct UnusedUnsafe;
@@ -1289,7 +1275,7 @@ impl LintPass for UnnecessaryAllocation {
 
     fn check_expr(&mut self, cx: &Context, e: &ast::Expr) {
         match e.node {
-            ast::ExprUnary(ast::UnUniq, _) | ast::ExprUnary(ast::UnBox, _) => (),
+            ast::ExprUnary(ast::UnUniq, _) => (),
             _ => return
         }
 
@@ -1506,6 +1492,8 @@ impl LintPass for Stability {
         });
         if skip { return; }
 
+        let mut span = e.span;
+
         let id = match e.node {
             ast::ExprPath(..) | ast::ExprStruct(..) => {
                 match cx.tcx.def_map.borrow().find(&e.id) {
@@ -1513,7 +1501,8 @@ impl LintPass for Stability {
                     None => return
                 }
             }
-            ast::ExprMethodCall(..) => {
+            ast::ExprMethodCall(i, _, _) => {
+                span = i.span;
                 let method_call = typeck::MethodCall::expr(e.id);
                 match cx.tcx.method_map.borrow().find(&method_call) {
                     Some(method) => {
@@ -1570,7 +1559,7 @@ impl LintPass for Stability {
             _ => format!("use of {} item", label)
         };
 
-        cx.span_lint(lint, e.span, msg.as_slice());
+        cx.span_lint(lint, span, msg.as_slice());
     }
 }
 

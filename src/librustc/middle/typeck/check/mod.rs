@@ -693,16 +693,6 @@ pub fn check_item(ccx: &CrateCtxt, it: &ast::Item) {
         debug!("ItemImpl {} with id {}", token::get_ident(it.ident), it.id);
 
         let impl_pty = ty::lookup_item_type(ccx.tcx, ast_util::local_def(it.id));
-        for impl_item in impl_items.iter() {
-            match *impl_item {
-                ast::MethodImplItem(ref m) => {
-                    check_method_body(ccx, &impl_pty.generics, &**m);
-                }
-                ast::TypeImplItem(_) => {
-                    // Nothing to do here.
-                }
-            }
-        }
 
         match *opt_trait_ref {
             Some(ref ast_trait_ref) => {
@@ -715,6 +705,17 @@ pub fn check_item(ccx: &CrateCtxt, it: &ast::Item) {
                                                impl_items.as_slice());
             }
             None => { }
+        }
+
+        for impl_item in impl_items.iter() {
+            match *impl_item {
+                ast::MethodImplItem(ref m) => {
+                    check_method_body(ccx, &impl_pty.generics, &**m);
+                }
+                ast::TypeImplItem(_) => {
+                    // Nothing to do here.
+                }
+            }
         }
 
       }
@@ -1468,7 +1469,7 @@ fn check_cast(fcx: &FnCtxt,
     // casts to scalars other than `char` and `bare fn` are trivial
     let t_1_is_trivial = t_1_is_scalar && !t_1_is_char && !t_1_is_bare_fn;
     if ty::type_is_c_like_enum(fcx.tcx(), t_e) && t_1_is_trivial {
-        if t_1_is_float {
+        if t_1_is_float || ty::type_is_unsafe_ptr(t_1) {
             fcx.type_error_message(span, |actual| {
                 format!("illegal cast; cast through an \
                          integer first: `{}` as `{}`",
@@ -1601,7 +1602,7 @@ impl<'a, 'tcx> RegionScope for infer::InferCtxt<'a, 'tcx> {
     }
 
     fn anon_regions(&self, span: Span, count: uint)
-                    -> Result<Vec<ty::Region> , ()> {
+                    -> Result<Vec<ty::Region>, Option<Vec<(String, uint)>>> {
         Ok(Vec::from_fn(count, |_| {
             self.next_region_var(infer::MiscVariable(span))
         }))
@@ -2271,9 +2272,9 @@ fn try_overloaded_slice(fcx: &FnCtxt,
         match fcx.tcx().lang_items.slice_mut_trait() {
             Some(trait_did) => {
                 let method_name = match (start_expr, end_expr) {
-                    (&Some(_), &Some(_)) => "slice_mut_",
-                    (&Some(_), &None) => "slice_from_mut_",
-                    (&None, &Some(_)) => "slice_to_mut_",
+                    (&Some(_), &Some(_)) => "slice_or_fail_mut",
+                    (&Some(_), &None) => "slice_from_or_fail_mut",
+                    (&None, &Some(_)) => "slice_to_or_fail_mut",
                     (&None, &None) => "as_mut_slice_",
                 };
 
@@ -2296,9 +2297,9 @@ fn try_overloaded_slice(fcx: &FnCtxt,
         match fcx.tcx().lang_items.slice_trait() {
             Some(trait_did) => {
                 let method_name = match (start_expr, end_expr) {
-                    (&Some(_), &Some(_)) => "slice_",
-                    (&Some(_), &None) => "slice_from_",
-                    (&None, &Some(_)) => "slice_to_",
+                    (&Some(_), &Some(_)) => "slice_or_fail",
+                    (&Some(_), &None) => "slice_from_or_fail",
+                    (&None, &Some(_)) => "slice_to_or_fail",
                     (&None, &None) => "as_slice_",
                 };
 
@@ -3032,7 +3033,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         };
 
         // Call the generic checker.
-        let args: Vec<_> = args.slice_from(1).iter().map(|x| x).collect();
+        let args: Vec<_> = args[1..].iter().map(|x| x).collect();
         let ret_ty = check_method_argument_types(fcx,
                                                  method_name.span,
                                                  fn_ty,
@@ -3820,12 +3821,6 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                   if tcx.lang_items.exchange_heap() == Some(def_id) {
                       fcx.write_ty(id, ty::mk_uniq(tcx, referent_ty));
                       checked = true
-                  } else if tcx.lang_items.managed_heap() == Some(def_id) {
-                      fcx.register_region_obligation(infer::Managed(expr.span),
-                                                     referent_ty,
-                                                     ty::ReStatic);
-                      fcx.write_ty(id, ty::mk_box(tcx, referent_ty));
-                      checked = true
                   }
               }
               _ => {}
@@ -3881,8 +3876,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
       ast::ExprUnary(unop, ref oprnd) => {
         let expected_inner = expected.map(fcx, |sty| {
             match unop {
-                ast::UnBox | ast::UnUniq => match *sty {
-                    ty::ty_box(ty) | ty::ty_uniq(ty) => {
+                ast::UnUniq => match *sty {
+                    ty::ty_uniq(ty) => {
                         ExpectHasType(ty)
                     }
                     _ => {
@@ -3907,11 +3902,6 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
 
         if !ty::type_is_error(oprnd_t) {
             match unop {
-                ast::UnBox => {
-                    if !ty::type_is_bot(oprnd_t) {
-                        oprnd_t = ty::mk_box(tcx, oprnd_t)
-                    }
-                }
                 ast::UnUniq => {
                     if !ty::type_is_bot(oprnd_t) {
                         oprnd_t = ty::mk_uniq(tcx, oprnd_t);
@@ -4340,7 +4330,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         // Resolve the path.
         let def = tcx.def_map.borrow().find(&id).map(|i| *i);
         let struct_id = match def {
-            Some(def::DefVariant(enum_id, variant_id, _)) => {
+            Some(def::DefVariant(enum_id, variant_id, true)) => {
                 check_struct_enum_variant(fcx, id, expr.span, enum_id,
                                           variant_id, fields.as_slice());
                 enum_id
@@ -5014,9 +5004,14 @@ pub fn check_enum_variants(ccx: &CrateCtxt,
             };
 
             // Check for duplicate discriminant values
-            if disr_vals.contains(&current_disr_val) {
-                span_err!(ccx.tcx.sess, v.span, E0081,
-                    "discriminant value already exists");
+            match disr_vals.iter().position(|&x| x == current_disr_val) {
+                Some(i) => {
+                    span_err!(ccx.tcx.sess, v.span, E0081,
+                        "discriminant value `{}` already exists", disr_vals[i]);
+                    span_note!(ccx.tcx.sess, ccx.tcx().map.span(variants[i].id.node),
+                        "conflicting discriminant here")
+                }
+                None => {}
             }
             // Check for unrepresentable discriminant values
             match hint {
@@ -5596,6 +5591,7 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
     } else {
         match name.get() {
             "abort" => (0, Vec::new(), ty::mk_bot()),
+            "unreachable" => (0, Vec::new(), ty::mk_bot()),
             "breakpoint" => (0, Vec::new(), ty::mk_nil()),
             "size_of" |
             "pref_align_of" | "min_align_of" => (1u, Vec::new(), ty::mk_uint()),

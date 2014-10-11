@@ -160,7 +160,7 @@ impl String {
 
         if i > 0 {
             unsafe {
-                res.as_mut_vec().push_all(v.slice_to(i))
+                res.as_mut_vec().push_all(v[..i])
             };
         }
 
@@ -177,7 +177,7 @@ impl String {
             macro_rules! error(() => ({
                 unsafe {
                     if subseqidx != i_ {
-                        res.as_mut_vec().push_all(v.slice(subseqidx, i_));
+                        res.as_mut_vec().push_all(v[subseqidx..i_]);
                     }
                     subseqidx = i;
                     res.as_mut_vec().push_all(REPLACEMENT);
@@ -246,7 +246,7 @@ impl String {
         }
         if subseqidx < total {
             unsafe {
-                res.as_mut_vec().push_all(v.slice(subseqidx, total))
+                res.as_mut_vec().push_all(v[subseqidx..total])
             };
         }
         Owned(res.into_string())
@@ -269,7 +269,7 @@ impl String {
     /// ```
     #[unstable = "error value in return may change"]
     pub fn from_utf16(v: &[u16]) -> Option<String> {
-        let mut s = String::with_capacity(v.len() / 2);
+        let mut s = String::with_capacity(v.len());
         for c in str::utf16_items(v) {
             match c {
                 str::ScalarValue(c) => s.push(c),
@@ -613,7 +613,8 @@ impl String {
     ///
     /// # Failure
     ///
-    /// Fails if `len` > current length.
+    /// Fails if `new_len` > current length,
+    /// or if `new_len` is not a character boundary.
     ///
     /// # Example
     ///
@@ -624,9 +625,9 @@ impl String {
     /// ```
     #[inline]
     #[unstable = "the failure conventions for strings are under development"]
-    pub fn truncate(&mut self, len: uint) {
-        assert!(self.as_slice().is_char_boundary(len));
-        self.vec.truncate(len)
+    pub fn truncate(&mut self, new_len: uint) {
+        assert!(self.as_slice().is_char_boundary(new_len));
+        self.vec.truncate(new_len)
     }
 
     /// Appends a byte to this string buffer.
@@ -927,6 +928,7 @@ impl<S: Str> Add<S, String> for String {
     }
 }
 
+#[cfg(stage0)]
 impl ops::Slice<uint, str> for String {
     #[inline]
     fn as_slice_<'a>(&'a self) -> &'a str {
@@ -945,6 +947,28 @@ impl ops::Slice<uint, str> for String {
 
     #[inline]
     fn slice_<'a>(&'a self, from: &uint, to: &uint) -> &'a str {
+        self[][*from..*to]
+    }
+}
+#[cfg(not(stage0))]
+impl ops::Slice<uint, str> for String {
+    #[inline]
+    fn as_slice_<'a>(&'a self) -> &'a str {
+        self.as_slice()
+    }
+
+    #[inline]
+    fn slice_from_or_fail<'a>(&'a self, from: &uint) -> &'a str {
+        self[][*from..]
+    }
+
+    #[inline]
+    fn slice_to_or_fail<'a>(&'a self, to: &uint) -> &'a str {
+        self[][..*to]
+    }
+
+    #[inline]
+    fn slice_or_fail<'a>(&'a self, from: &uint, to: &uint) -> &'a str {
         self[][*from..*to]
     }
 }

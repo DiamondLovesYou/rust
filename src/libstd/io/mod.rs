@@ -21,7 +21,7 @@
 `std::io` provides Rust's basic I/O types,
 for reading and writing to files, TCP, UDP,
 and other types of sockets and pipes,
-manipulating the file system, spawning processes and signal handling.
+manipulating the file system, spawning processes.
 
 # Examples
 
@@ -235,7 +235,7 @@ use os;
 use boxed::Box;
 use result::{Ok, Err, Result};
 use rt::rtio;
-use slice::{Slice, MutableSlice, ImmutableSlice};
+use slice::{AsSlice, ImmutableSlice};
 use str::{Str, StrSlice};
 use str;
 use string::String;
@@ -265,9 +265,6 @@ pub use self::buffered::{BufferedReader, BufferedWriter, BufferedStream,
                          LineBufferedWriter};
 pub use self::comm_adapters::{ChanReader, ChanWriter};
 
-// this comes first to get the iotest! macro
-pub mod test;
-
 mod buffered;
 mod comm_adapters;
 mod mem;
@@ -278,8 +275,8 @@ pub mod fs;
 pub mod net;
 pub mod pipe;
 pub mod process;
-pub mod signal;
 pub mod stdio;
+pub mod test;
 pub mod timer;
 pub mod util;
 
@@ -578,7 +575,7 @@ pub trait Reader {
         while read < min {
             let mut zeroes = 0;
             loop {
-                match self.read(buf.slice_from_mut(read)) {
+                match self.read(buf[mut read..]) {
                     Ok(0) => {
                         zeroes += 1;
                         if zeroes >= NO_PROGRESS_LIMIT {
@@ -1114,8 +1111,8 @@ pub trait Writer {
     #[inline]
     fn write_char(&mut self, c: char) -> IoResult<()> {
         let mut buf = [0u8, ..4];
-        let n = c.encode_utf8(buf.as_mut_slice()).unwrap_or(0);
-        self.write(buf.slice_to(n))
+        let n = c.encode_utf8(buf[mut]).unwrap_or(0);
+        self.write(buf[..n])
     }
 
     /// Write the result of passing n through `int::to_str_bytes`.
@@ -1296,10 +1293,10 @@ impl<'a> Writer for Box<Writer+'a> {
 
 impl<'a> Writer for &'a mut Writer+'a {
     #[inline]
-    fn write(&mut self, buf: &[u8]) -> IoResult<()> { self.write(buf) }
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> { (**self).write(buf) }
 
     #[inline]
-    fn flush(&mut self) -> IoResult<()> { self.flush() }
+    fn flush(&mut self) -> IoResult<()> { (**self).flush() }
 }
 
 /// A `RefWriter` is a struct implementing `Writer` which contains a reference
@@ -1499,7 +1496,7 @@ pub trait Buffer: Reader {
                 };
                 match available.iter().position(|&b| b == byte) {
                     Some(i) => {
-                        res.push_all(available.slice_to(i + 1));
+                        res.push_all(available[..i + 1]);
                         used = i + 1;
                         break
                     }
@@ -1531,14 +1528,14 @@ pub trait Buffer: Reader {
         {
             let mut start = 1;
             while start < width {
-                match try!(self.read(buf.slice_mut(start, width))) {
+                match try!(self.read(buf[mut start..width])) {
                     n if n == width - start => break,
                     n if n < width - start => { start += n; }
                     _ => return Err(standard_error(InvalidInput)),
                 }
             }
         }
-        match str::from_utf8(buf.slice_to(width)) {
+        match str::from_utf8(buf[..width]) {
             Some(s) => Ok(s.char_at(0)),
             None => Err(standard_error(InvalidInput))
         }
@@ -1806,35 +1803,93 @@ bitflags! {
     #[doc = "A set of permissions for a file or directory is represented"]
     #[doc = "by a set of flags which are or'd together."]
     flags FilePermission: u32 {
-        static UserRead     = 0o400,
-        static UserWrite    = 0o200,
-        static UserExecute  = 0o100,
-        static GroupRead    = 0o040,
-        static GroupWrite   = 0o020,
-        static GroupExecute = 0o010,
-        static OtherRead    = 0o004,
-        static OtherWrite   = 0o002,
-        static OtherExecute = 0o001,
+        static USER_READ     = 0o400,
+        static USER_WRITE    = 0o200,
+        static USER_EXECUTE  = 0o100,
+        static GROUP_READ    = 0o040,
+        static GROUP_WRITE   = 0o020,
+        static GROUP_EXECUTE = 0o010,
+        static OTHER_READ    = 0o004,
+        static OTHER_WRITE   = 0o002,
+        static OTHER_EXECUTE = 0o001,
 
-        static UserRWX  = UserRead.bits | UserWrite.bits | UserExecute.bits,
-        static GroupRWX = GroupRead.bits | GroupWrite.bits | GroupExecute.bits,
-        static OtherRWX = OtherRead.bits | OtherWrite.bits | OtherExecute.bits,
+        static USER_RWX  = USER_READ.bits | USER_WRITE.bits | USER_EXECUTE.bits,
+        static GROUP_RWX = GROUP_READ.bits | GROUP_WRITE.bits | GROUP_EXECUTE.bits,
+        static OTHER_RWX = OTHER_READ.bits | OTHER_WRITE.bits | OTHER_EXECUTE.bits,
 
         #[doc = "Permissions for user owned files, equivalent to 0644 on"]
         #[doc = "unix-like systems."]
-        static UserFile = UserRead.bits | UserWrite.bits | GroupRead.bits | OtherRead.bits,
+        static USER_FILE = USER_READ.bits | USER_WRITE.bits | GROUP_READ.bits | OTHER_READ.bits,
 
         #[doc = "Permissions for user owned directories, equivalent to 0755 on"]
         #[doc = "unix-like systems."]
-        static UserDir  = UserRWX.bits | GroupRead.bits | GroupExecute.bits |
-                   OtherRead.bits | OtherExecute.bits,
+        static USER_DIR  = USER_RWX.bits | GROUP_READ.bits | GROUP_EXECUTE.bits |
+                   OTHER_READ.bits | OTHER_EXECUTE.bits,
 
         #[doc = "Permissions for user owned executables, equivalent to 0755"]
         #[doc = "on unix-like systems."]
-        static UserExec = UserDir.bits,
+        static USER_EXEC = USER_DIR.bits,
 
         #[doc = "All possible permissions enabled."]
-        static AllPermissions = UserRWX.bits | GroupRWX.bits | OtherRWX.bits,
+        static ALL_PERMISSIONS = USER_RWX.bits | GROUP_RWX.bits | OTHER_RWX.bits,
+
+        // Deprecated names
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use USER_READ instead"]
+        static UserRead     = USER_READ.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use USER_WRITE instead"]
+        static UserWrite    = USER_WRITE.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use USER_EXECUTE instead"]
+        static UserExecute  = USER_EXECUTE.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use GROUP_READ instead"]
+        static GroupRead    = GROUP_READ.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use GROUP_WRITE instead"]
+        static GroupWrite   = GROUP_WRITE.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use GROUP_EXECUTE instead"]
+        static GroupExecute = GROUP_EXECUTE.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use OTHER_READ instead"]
+        static OtherRead    = OTHER_READ.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use OTHER_WRITE instead"]
+        static OtherWrite   = OTHER_WRITE.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use OTHER_EXECUTE instead"]
+        static OtherExecute = OTHER_EXECUTE.bits,
+
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use USER_RWX instead"]
+        static UserRWX  = USER_RWX.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use GROUP_RWX instead"]
+        static GroupRWX = GROUP_RWX.bits,
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use OTHER_RWX instead"]
+        static OtherRWX = OTHER_RWX.bits,
+
+        #[doc = "Deprecated: use `USER_FILE` instead."]
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use USER_FILE instead"]
+        static UserFile = USER_FILE.bits,
+
+        #[doc = "Deprecated: use `USER_DIR` instead."]
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use USER_DIR instead"]
+        static UserDir  = USER_DIR.bits,
+        #[doc = "Deprecated: use `USER_EXEC` instead."]
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use USER_EXEC instead"]
+        static UserExec = USER_EXEC.bits,
+
+        #[doc = "Deprecated: use `ALL_PERMISSIONS` instead"]
+        #[allow(non_uppercase_statics)]
+        #[deprecated = "use ALL_PERMISSIONS instead"]
+        static AllPermissions = ALL_PERMISSIONS.bits,
     }
 }
 
@@ -1957,13 +2012,13 @@ mod tests {
     fn test_show() {
         use super::*;
 
-        assert_eq!(format!("{}", UserRead), "0400".to_string());
-        assert_eq!(format!("{}", UserFile), "0644".to_string());
-        assert_eq!(format!("{}", UserExec), "0755".to_string());
-        assert_eq!(format!("{}", UserRWX),  "0700".to_string());
-        assert_eq!(format!("{}", GroupRWX), "0070".to_string());
-        assert_eq!(format!("{}", OtherRWX), "0007".to_string());
-        assert_eq!(format!("{}", AllPermissions), "0777".to_string());
-        assert_eq!(format!("{}", UserRead | UserWrite | OtherWrite), "0602".to_string());
+        assert_eq!(format!("{}", USER_READ), "0400".to_string());
+        assert_eq!(format!("{}", USER_FILE), "0644".to_string());
+        assert_eq!(format!("{}", USER_EXEC), "0755".to_string());
+        assert_eq!(format!("{}", USER_RWX),  "0700".to_string());
+        assert_eq!(format!("{}", GROUP_RWX), "0070".to_string());
+        assert_eq!(format!("{}", OTHER_RWX), "0007".to_string());
+        assert_eq!(format!("{}", ALL_PERMISSIONS), "0777".to_string());
+        assert_eq!(format!("{}", USER_READ | USER_WRITE | OTHER_WRITE), "0602".to_string());
     }
 }

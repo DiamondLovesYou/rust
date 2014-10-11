@@ -40,7 +40,7 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("struct_variant", Active),
     ("once_fns", Active),
     ("asm", Active),
-    ("managed_boxes", Active),
+    ("managed_boxes", Removed),
     ("non_ascii_idents", Active),
     ("thread_local", Active),
     ("link_args", Active),
@@ -70,10 +70,11 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("tuple_indexing", Active),
     ("associated_types", Active),
     ("visible_private_types", Active),
+    ("slicing_syntax", Active),
 
     ("if_let", Active),
 
-    // if you change this list without updating src/doc/rust.md, cmr will be sad
+    // if you change this list without updating src/doc/reference.md, cmr will be sad
 
     // A temporary feature gate used to enable parser extensions needed
     // to bootstrap fix for #5723.
@@ -133,14 +134,6 @@ impl<'a> Context<'a> {
                                                        crate attributes to enable",
                                                       feature).as_slice());
         }
-    }
-
-    fn gate_box(&self, span: Span) {
-        self.gate_feature("managed_boxes", span,
-                          "The managed box syntax is being replaced by the \
-                           `std::gc::Gc` and `std::rc::Rc` types. Equivalent \
-                           functionality to managed trait objects will be \
-                           implemented but is currently missing.");
     }
 
     fn has_feature(&self, feature: &str) -> bool {
@@ -330,7 +323,6 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
                                    experimental and likely to be removed");
 
             },
-            ast::TyBox(_) => { self.gate_box(t.span); }
             ast::TyUnboxedFn(..) => {
                 self.gate_feature("unboxed_closure_sugar",
                                   t.span,
@@ -344,9 +336,6 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
 
     fn visit_expr(&mut self, e: &ast::Expr) {
         match e.node {
-            ast::ExprUnary(ast::UnBox, _) => {
-                self.gate_box(e.span);
-            }
             ast::ExprUnboxedFn(..) => {
                 self.gate_feature("unboxed_closures",
                                   e.span,
@@ -361,6 +350,11 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
             ast::ExprIfLet(..) => {
                 self.gate_feature("if_let", e.span,
                                   "`if let` syntax is experimental");
+            }
+            ast::ExprSlice(..) => {
+                self.gate_feature("slicing_syntax",
+                                  e.span,
+                                  "slicing syntax is experimental");
             }
             _ => {}
         }

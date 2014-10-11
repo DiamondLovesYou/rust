@@ -31,8 +31,8 @@ pub struct Builder<'a, 'tcx: 'a> {
 // This is a really awful way to get a zero-length c-string, but better (and a
 // lot more efficient) than doing str::as_c_str("", ...) every time.
 pub fn noname() -> *const c_char {
-    static cnull: c_char = 0;
-    &cnull as *const c_char
+    static CNULL: c_char = 0;
+    &CNULL as *const c_char
 }
 
 impl<'a, 'tcx> Builder<'a, 'tcx> {
@@ -550,7 +550,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             for (small_vec_e, &ix) in small_vec.iter_mut().zip(ixs.iter()) {
                 *small_vec_e = C_i32(self.ccx, ix as i32);
             }
-            self.inbounds_gep(base, small_vec.slice(0, ixs.len()))
+            self.inbounds_gep(base, small_vec[..ixs.len()])
         } else {
             let v = ixs.iter().map(|i| C_i32(self.ccx, *i as i32)).collect::<Vec<ValueRef>>();
             self.count_insn("gepi");

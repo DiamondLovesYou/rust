@@ -321,9 +321,6 @@ impl Case {
                     _ => return Some(ThinPointer(i))
                 },
 
-                // Gc<T> is just a pointer
-                ty::ty_box(..) => return Some(ThinPointer(i)),
-
                 // Functions are just pointers
                 ty::ty_bare_fn(..) => return Some(ThinPointer(i)),
 
@@ -392,10 +389,12 @@ fn mk_cenum(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> Repr {
 fn range_to_inttype(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> IntType {
     debug!("range_to_inttype: {:?} {:?}", hint, bounds);
     // Lists of sizes to try.  u64 is always allowed as a fallback.
+    #[allow(non_uppercase_statics)]
     static choose_shortest: &'static[IntType] = &[
         attr::UnsignedInt(ast::TyU8), attr::SignedInt(ast::TyI8),
         attr::UnsignedInt(ast::TyU16), attr::SignedInt(ast::TyI16),
         attr::UnsignedInt(ast::TyU32), attr::SignedInt(ast::TyI32)];
+    #[allow(non_uppercase_statics)]
     static at_least_32: &'static[IntType] = &[
         attr::UnsignedInt(ast::TyU32), attr::SignedInt(ast::TyI32)];
 

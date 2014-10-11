@@ -382,24 +382,41 @@ pub fn check_struct_like_enum_variant_pat(pcx: &pat_ctxt,
 
     // Find the variant that was specified.
     match tcx.def_map.borrow().find(&pat_id) {
-        Some(&def::DefVariant(found_enum_id, variant_id, _))
+        Some(&def::DefVariant(found_enum_id, variant_id, true))
                 if found_enum_id == enum_id => {
             // Get the struct fields from this struct-like enum variant.
-            let class_fields = ty::lookup_struct_fields(tcx, variant_id);
-
-            check_struct_pat_fields(pcx, span, fields, class_fields,
+            let struct_fields = ty::lookup_struct_fields(tcx, variant_id);
+            check_struct_pat_fields(pcx, span, fields, struct_fields,
                                     variant_id, substitutions, etc);
+            fcx.write_ty(pat_id, expected);
+        }
+        Some(&def::DefVariant(_, _, false)) => {
+            let name = pprust::path_to_string(path);
+            span_err!(tcx.sess, span, E0163,
+                "`{}` does not name a struct variant", name);
+            fcx.write_error(pat_id);
+        }
+        Some(&def::DefVariant(_, _, true)) => {
+            let name = pprust::path_to_string(path);
+            span_err!(tcx.sess, span, E0164,
+                "`{}` does not name a variant of the type being matched against", name);
+            fcx.write_error(pat_id);
         }
         Some(&def::DefStruct(..)) |
-        Some(&def::DefVariant(..)) |
         Some(&def::DefTy(..)) => {
             let name = pprust::path_to_string(path);
             span_err!(tcx.sess, span, E0028,
-                "mismatched types: expected `{}`, found `{}`",
-                fcx.infcx().ty_to_string(expected), name);
+                "`{}` does not name a variant", name);
+            fcx.write_error(pat_id);
         }
         _ => {
             tcx.sess.span_bug(span, "resolve didn't write in variant");
+        }
+    }
+
+    if ty::type_is_error(fcx.node_ty(pat_id)) {
+        for field in fields.iter() {
+            check_pat(pcx, &*field.pat, ty::mk_err());
         }
     }
 }
@@ -670,19 +687,19 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
                   (ty, default_region_var, ast::MutImmutable, None)
               }
               _ => {
-                  check_err("a vector pattern".to_string());
+                  check_err("an array  pattern".to_string());
                   return;
               }
           },
           ty::ty_rptr(r, mt) => match ty::get(mt.ty).sty {
               ty::ty_vec(ty, None) => (ty, r, mt.mutbl, None),
               _ => {
-                  check_err("a vector pattern".to_string());
+                  check_err("an array pattern".to_string());
                   return;
               }
           },
           _ => {
-              check_err("a vector pattern".to_string());
+              check_err("an array pattern".to_string());
               return;
           }
         };
@@ -690,10 +707,10 @@ pub fn check_pat(pcx: &pat_ctxt, pat: &ast::Pat, expected: ty::t) {
         let min_len = before.len() + after.len();
         fixed.and_then(|count| match *slice {
             Some(_) if count < min_len =>
-                Some(format!("a fixed vector pattern of size at least {}", min_len)),
+                Some(format!("a fixed array pattern of size at least {}", min_len)),
 
             None if count != min_len =>
-                Some(format!("a fixed vector pattern of size {}", min_len)),
+                Some(format!("a fixed array pattern of size {}", min_len)),
 
             _ => None
         }).map(check_err);

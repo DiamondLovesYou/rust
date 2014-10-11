@@ -105,9 +105,10 @@
        html_root_url = "http://doc.rust-lang.org/master/",
        html_playground_url = "http://play.rust-lang.org/")]
 
-#![feature(macro_rules, globs, managed_boxes, linkage)]
+#![allow(unknown_features)]
+#![feature(macro_rules, globs, linkage)]
 #![feature(default_type_params, phase, lang_items, unsafe_destructor)]
-#![feature(import_shadowing)]
+#![feature(import_shadowing, slicing_syntax)]
 
 // Don't link to std. We are std.
 #![no_std]
@@ -116,20 +117,14 @@
 
 #![reexport_test_harness_main = "test_main"]
 
-// When testing libstd, bring in libuv as the I/O backend so tests can print
-// things and all of the std::io tests have an I/O interface to run on top
-// of. Sadly, libuv uses a boatload of Glibc functions that Newlibc just
-// doesn't implement.
-#[cfg(all(test, not(target_os = "nacl", target_libc = "newlib")))]
-extern crate rustuv;
-#[cfg(test)] extern crate native;
+// Sadly, libuv uses a boatload of Glibc functions that Newlibc just
+// doesn't implement, so use native instead on PNaCl.
+#[cfg(all(test, not(target_os = "nacl"), not(target_libc = "newlib")))]
+extern crate green;
+#[cfg(all(test, target_os = "nacl", target_libc = "newlib"))]
+extern crate native;
 #[cfg(test)] extern crate debug;
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
-
-// libgreen doesn't exist for le32-unknown-nacl targets:
-#[cfg(all(test, not(target_os = "nacl", target_libc = "newlib")))]
-extern crate green;
-
 
 extern crate alloc;
 extern crate unicode;
@@ -147,7 +142,6 @@ extern crate rustrt;
 #[cfg(test)] pub use realstd::cmp;
 #[cfg(test)] pub use realstd::ty;
 #[cfg(test)] pub use realstd::boxed;
-#[cfg(test)] pub use realstd::gc;
 
 
 // NB: These reexports are in the order they should be listed in rustdoc
@@ -243,9 +237,6 @@ pub mod prelude;
 pub mod rand;
 
 pub mod ascii;
-
-#[cfg(not(test))]
-pub mod gc;
 
 pub mod time;
 

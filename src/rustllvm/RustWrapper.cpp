@@ -286,7 +286,7 @@ extern "C" LLVMValueRef LLVMDIBuilderCreateSubroutineType(
     LLVMValueRef ParameterTypes) {
     return wrap(Builder->createSubroutineType(
         unwrapDI<DIFile>(File),
-#if LLVM_VERSION_MINOR >= 6
+#if LLVM_VERSION_MINOR >= 5
         unwrapDI<DITypeArray>(ParameterTypes)));
 #else
         unwrapDI<DIArray>(ParameterTypes)));
@@ -395,13 +395,12 @@ extern "C" LLVMValueRef LLVMDIBuilderCreateLexicalBlock(
     LLVMValueRef Scope,
     LLVMValueRef File,
     unsigned Line,
-    unsigned Col,
-    unsigned Discriminator) {
+    unsigned Col) {
     return wrap(Builder->createLexicalBlock(
         unwrapDI<DIDescriptor>(Scope),
         unwrapDI<DIFile>(File), Line, Col
-#if LLVM_VERSION_MINOR >= 5
-        , Discriminator
+#if LLVM_VERSION_MINOR == 5
+        , 0
 #endif
         ));
 }
@@ -417,7 +416,11 @@ extern "C" LLVMValueRef LLVMDIBuilderCreateStaticVariable(
     bool isLocalToUnit,
     LLVMValueRef Val,
     LLVMValueRef Decl = NULL) {
+#if LLVM_VERSION_MINOR == 6
+    return wrap(Builder->createGlobalVariable(unwrapDI<DIDescriptor>(Context),
+#else
     return wrap(Builder->createStaticVariable(unwrapDI<DIDescriptor>(Context),
+#endif
         Name,
         LinkageName,
         unwrapDI<DIFile>(File),
@@ -642,7 +645,7 @@ extern "C" void LLVMDICompositeTypeSetTypeArray(
     LLVMValueRef CompositeType,
     LLVMValueRef TypeArray)
 {
-#if LLVM_VERSION_MINOR >= 6
+#if LLVM_VERSION_MINOR >= 5
     unwrapDI<DICompositeType>(CompositeType).setArrays(unwrapDI<DIArray>(TypeArray));
 #else
     unwrapDI<DICompositeType>(CompositeType).setTypeArray(unwrapDI<DIArray>(TypeArray));
@@ -680,11 +683,18 @@ static bool MaterializeModule(Module* M) {
 extern "C" bool
 LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
     Module *Dst = unwrap(dst);
+#if LLVM_VERSION_MINOR == 5
     MemoryBuffer* buf = MemoryBuffer::getMemBufferCopy(StringRef(bc, len));
     ErrorOr<Module *> Src = llvm::getLazyBitcodeModule(buf, Dst->getContext());
+#else
+    std::unique_ptr<MemoryBuffer> buf = MemoryBuffer::getMemBufferCopy(StringRef(bc, len));
+    ErrorOr<Module *> Src = llvm::getLazyBitcodeModule(std::move(buf), Dst->getContext());
+#endif
     if (!Src) {
         LLVMRustSetLastError(Src.getError().message().c_str());
+#if LLVM_VERSION_MINOR == 5
         delete buf;
+#endif
         return false;
     }
 
@@ -748,12 +758,26 @@ LLVMRustOpenArchive(char *path) {
         return nullptr;
     }
 
+#if LLVM_VERSION_MINOR >= 6
+    ErrorOr<std::unique_ptr<Archive>> archive_or =
+        Archive::create(buf_or.get()->getMemBufferRef());
+
+    if (!archive_or) {
+        LLVMRustSetLastError(archive_or.getError().message().c_str());
+        return nullptr;
+    }
+
+    OwningBinary<Archive> *ret = new OwningBinary<Archive>(
+            std::move(archive_or.get()), std::move(buf_or.get()));
+#else
     std::error_code err;
     Archive *ret = new Archive(std::move(buf_or.get()), err);
     if (err) {
         LLVMRustSetLastError(err.message().c_str());
-        return NULL;
+        return nullptr;
     }
+#endif
+
     return ret;
 }
 #else
@@ -775,7 +799,14 @@ LLVMRustOpenArchive(char *path) {
 #endif
 
 extern "C" const char*
+#if LLVM_VERSION_MINOR >= 6
+LLVMRustArchiveReadSection(OwningBinary<Archive> *ob, char *name, size_t *size) {
+
+    std::unique_ptr<Archive> &ar = ob->getBinary();
+#else
 LLVMRustArchiveReadSection(Archive *ar, char *name, size_t *size) {
+#endif
+
 #if LLVM_VERSION_MINOR >= 5
     Archive::child_iterator child = ar->child_begin(),
                               end = ar->child_end();
@@ -825,7 +856,11 @@ LLVMRustArchiveReadAllChildren(Archive *ar,
 }
 
 extern "C" void
+#if LLVM_VERSION_MINOR >= 6
+LLVMRustDestroyArchive(OwningBinary<Archive> *ar) {
+#else
 LLVMRustDestroyArchive(Archive *ar) {
+#endif
     delete ar;
 }
 

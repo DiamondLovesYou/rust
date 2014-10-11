@@ -19,7 +19,7 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
 
-#![feature(plugin_registrar, managed_boxes, quote)]
+#![feature(plugin_registrar, quote)]
 
 extern crate regex;
 extern crate syntax;
@@ -550,7 +550,7 @@ fn exec<'t>(which: ::regex::native::MatchKind, input: &'t str,
         } else {
             quote_expr!(self.cx,
                 if clist.size == 0 {
-                    let haystack = self.input.as_bytes().slice_from(self.ic);
+                    let haystack = self.input.as_bytes()[self.ic..];
                     match find_prefix(prefix_bytes, haystack) {
                         None => break,
                         Some(i) => {

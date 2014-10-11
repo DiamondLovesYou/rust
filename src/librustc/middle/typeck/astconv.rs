@@ -59,7 +59,7 @@ use middle::subst::{VecPerParamSpace};
 use middle::ty;
 use middle::typeck::lookup_def_tcx;
 use middle::typeck::infer;
-use middle::typeck::rscope::{ExplicitRscope, RegionScope, SpecificRscope};
+use middle::typeck::rscope::{UnelidableRscope, RegionScope, SpecificRscope};
 use middle::typeck::rscope;
 use middle::typeck::TypeAndSubsts;
 use middle::typeck;
@@ -67,10 +67,11 @@ use util::ppaux::{Repr, UserString};
 
 use std::collections::HashMap;
 use std::rc::Rc;
-use syntax::abi;
-use syntax::{ast, ast_util};
+use std::iter::AdditiveIterator;
+use syntax::{abi, ast, ast_util};
 use syntax::codemap::Span;
 use syntax::parse::token;
+use syntax::print::pprust;
 
 pub trait AstConv<'tcx> {
     fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx>;
@@ -147,10 +148,49 @@ pub fn opt_ast_region_to_region<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
 
         None => {
             match rscope.anon_regions(default_span, 1) {
-                Err(()) => {
+                Err(v) => {
                     debug!("optional region in illegal location");
                     span_err!(this.tcx().sess, default_span, E0106,
                         "missing lifetime specifier");
+                    match v {
+                        Some(v) => {
+                            let mut m = String::new();
+                            let len = v.len();
+                            for (i, (name, n)) in v.move_iter().enumerate() {
+                                m.push_str(if n == 1 {
+                                    format!("`{}`", name)
+                                } else {
+                                    format!("one of `{}`'s {} elided lifetimes", name, n)
+                                }.as_slice());
+
+                                if len == 2 && i == 0 {
+                                    m.push_str(" or ");
+                                } else if i == len - 2 {
+                                    m.push_str(", or ");
+                                } else if i != len - 1 {
+                                    m.push_str(", ");
+                                }
+                            }
+                            if len == 1 {
+                                span_note!(this.tcx().sess, default_span,
+                                    "this function's return type contains a borrowed value, but \
+                                     the signature does not say which {} it is borrowed from",
+                                    m);
+                            } else if len == 0 {
+                                span_note!(this.tcx().sess, default_span,
+                                    "this function's return type contains a borrowed value, but \
+                                     there is no value for it to be borrowed from");
+                                span_note!(this.tcx().sess, default_span,
+                                    "consider giving it a 'static lifetime");
+                            } else {
+                                span_note!(this.tcx().sess, default_span,
+                                    "this function's return type contains a borrowed value, but \
+                                     the signature does not say whether it is borrowed from {}",
+                                    m);
+                            }
+                        }
+                        None => {},
+                    }
                     ty::ReStatic
                 }
 
@@ -217,7 +257,7 @@ fn ast_path_substs<'tcx,AC,RS>(
 
         match anon_regions {
             Ok(v) => v.into_iter().collect(),
-            Err(()) => Vec::from_fn(expected_num_region_params,
+            Err(_) => Vec::from_fn(expected_num_region_params,
                                     |_| ty::ReStatic) // hokey
         }
     };
@@ -290,7 +330,7 @@ fn ast_path_substs<'tcx,AC,RS>(
         }
     }
 
-    for param in ty_param_defs.slice_from(supplied_ty_param_count).iter() {
+    for param in ty_param_defs[supplied_ty_param_count..].iter() {
         match param.default {
             Some(default) => {
                 // This is a default type parameter.
@@ -519,44 +559,6 @@ pub fn ast_ty_to_builtin_ty<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                               "not enough type parameters supplied to `Box<T>`");
                     Some(ty::mk_err())
                 }
-                def::DefTy(did, _) | def::DefStruct(did)
-                        if Some(did) == this.tcx().lang_items.gc() => {
-                    if path.segments
-                           .iter()
-                           .flat_map(|s| s.types.iter())
-                           .count() > 1 {
-                        span_err!(this.tcx().sess, path.span, E0048,
-                                  "`Gc` has only one type parameter");
-                    }
-
-                    for inner_ast_type in path.segments
-                                              .iter()
-                                              .flat_map(|s| s.types.iter()) {
-                        return Some(mk_pointer(this,
-                                               rscope,
-                                               ast::MutImmutable,
-                                               &**inner_ast_type,
-                                               Box,
-                                               |typ| {
-                            match ty::get(typ).sty {
-                                ty::ty_str => {
-                                    span_err!(this.tcx().sess, path.span, E0114,
-                                              "`Gc<str>` is not a type");
-                                    ty::mk_err()
-                                }
-                                ty::ty_vec(_, None) => {
-                                    span_err!(this.tcx().sess, path.span, E0115,
-                                              "`Gc<[T]>` is not a type");
-                                    ty::mk_err()
-                                }
-                                _ => ty::mk_box(this.tcx(), typ),
-                            }
-                        }))
-                    }
-                    this.tcx().sess.span_bug(path.span,
-                                             "not enough type parameters \
-                                              supplied to `Gc<T>`")
-                }
                 _ => None
             }
         }
@@ -566,7 +568,6 @@ pub fn ast_ty_to_builtin_ty<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
 
 #[deriving(Show)]
 enum PointerTy {
-    Box,
     RPtr(ty::Region),
     Uniq
 }
@@ -574,7 +575,6 @@ enum PointerTy {
 impl PointerTy {
     fn default_region(&self) -> ty::Region {
         match *self {
-            Box => ty::ReStatic,
             Uniq => ty::ReStatic,
             RPtr(r) => r,
         }
@@ -662,14 +662,6 @@ fn mk_pointer<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                                        r,
                                        ty::mt {mutbl: a_seq_mutbl, ty: tr});
                 }
-                _ => {
-                    tcx.sess.span_err(
-                        a_seq_ty.span,
-                        "~trait or &trait are the only supported \
-                         forms of casting-to-trait");
-                    return ty::mk_err();
-                }
-
             }
         }
         ast::TyPath(ref path, ref opt_bounds, id) => {
@@ -685,11 +677,6 @@ fn mk_pointer<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                         }
                         RPtr(r) => {
                             return ty::mk_str_slice(tcx, r, ast::MutImmutable);
-                        }
-                        _ => {
-                            tcx.sess
-                               .span_err(path.span,
-                                         "managed strings are not supported")
                         }
                     }
                 }
@@ -726,13 +713,6 @@ fn mk_pointer<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                         }
                         RPtr(r) => {
                             return ty::mk_rptr(tcx, r, ty::mt{mutbl: a_seq_mutbl, ty: tr});
-                        }
-                        _ => {
-                            tcx.sess.span_err(
-                                path.span,
-                                "~trait or &trait are the only supported \
-                                 forms of casting-to-trait");
-                            return ty::mk_err();
                         }
                     };
                 }
@@ -816,10 +796,6 @@ pub fn ast_ty_to_ty<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
         match ast_ty.node {
             ast::TyNil => ty::mk_nil(),
             ast::TyBot => ty::mk_bot(),
-            ast::TyBox(ref ty) => {
-                mk_pointer(this, rscope, ast::MutImmutable, &**ty, Box,
-                           |ty| ty::mk_box(tcx, ty))
-            }
             ast::TyUniq(ref ty) => {
                 mk_pointer(this, rscope, ast::MutImmutable, &**ty, Uniq,
                            |ty| ty::mk_uniq(tcx, ty))
@@ -1153,14 +1129,19 @@ fn ty_of_method_or_bare_fn<'tcx, AC: AstConv<'tcx>>(
     };
 
     // HACK(eddyb) replace the fake self type in the AST with the actual type.
-    let input_tys = if self_ty.is_some() {
+    let input_params = if self_ty.is_some() {
         decl.inputs.slice_from(1)
     } else {
         decl.inputs.as_slice()
     };
-    let input_tys = input_tys.iter().map(|a| ty_of_arg(this, &rb, a, None));
-    let self_and_input_tys: Vec<_> =
+    let input_tys = input_params.iter().map(|a| ty_of_arg(this, &rb, a, None));
+    let input_pats: Vec<String> = input_params.iter()
+                                              .map(|a| pprust::pat_to_string(&*a.pat))
+                                              .collect();
+    let self_and_input_tys: Vec<ty::t> =
         self_ty.into_iter().chain(input_tys).collect();
+
+    let mut lifetimes_for_params: Vec<(String, Vec<ty::Region>)> = Vec::new();
 
     // Second, if there was exactly one lifetime (either a substitution or a
     // reference) in the arguments, then any anonymous regions in the output
@@ -1172,14 +1153,24 @@ fn ty_of_method_or_bare_fn<'tcx, AC: AstConv<'tcx>>(
             drop(self_and_input_tys_iter.next())
         }
 
-        let mut accumulator = Vec::new();
-        for input_type in self_and_input_tys_iter {
-            ty::accumulate_lifetimes_in_type(&mut accumulator, *input_type)
+        for (input_type, input_pat) in self_and_input_tys_iter.zip(input_pats.into_iter()) {
+            let mut accumulator = Vec::new();
+            ty::accumulate_lifetimes_in_type(&mut accumulator, *input_type);
+            lifetimes_for_params.push((input_pat, accumulator));
         }
-        if accumulator.len() == 1 {
-            implied_output_region = Some(*accumulator.get(0));
+
+        if lifetimes_for_params.iter().map(|&(_, ref x)| x.len()).sum() == 1 {
+            implied_output_region =
+                Some(lifetimes_for_params.iter()
+                                         .filter_map(|&(_, ref x)|
+                                            if x.len() == 1 { Some(x[0]) } else { None })
+                                         .next().unwrap());
         }
     }
+
+    let param_lifetimes: Vec<(String, uint)> = lifetimes_for_params.into_iter()
+                                                                   .map(|(n, v)| (n, v.len()))
+                                                                   .collect();
 
     let output_ty = match decl.output.node {
         ast::TyInfer => this.ty_infer(decl.output.span),
@@ -1193,7 +1184,7 @@ fn ty_of_method_or_bare_fn<'tcx, AC: AstConv<'tcx>>(
                     // All regions must be explicitly specified in the output
                     // if the lifetime elision rules do not apply. This saves
                     // the user from potentially-confusing errors.
-                    let rb = ExplicitRscope;
+                    let rb = UnelidableRscope::new(param_lifetimes);
                     ast_ty_to_ty(this, &rb, &*decl.output)
                 }
             }
