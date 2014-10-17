@@ -164,7 +164,7 @@
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/master/",
+       html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![feature(macro_rules)]
 #![deny(missing_doc)]
@@ -188,10 +188,10 @@ mod directive;
 
 /// Maximum logging level of a module that can be specified. Common logging
 /// levels are found in the DEBUG/INFO/WARN/ERROR constants.
-pub static MAX_LOG_LEVEL: u32 = 255;
+pub const MAX_LOG_LEVEL: u32 = 255;
 
 /// The default logging level of a crate if no other is specified.
-static DEFAULT_LOG_LEVEL: u32 = 1;
+const DEFAULT_LOG_LEVEL: u32 = 1;
 
 /// An unsafe constant that is the maximum logging level of any module
 /// specified. This is the first line of defense to determining whether a
@@ -205,13 +205,13 @@ static mut DIRECTIVES: *const Vec<directive::LogDirective> =
 static mut FILTER: *const Regex = 0 as *const _;
 
 /// Debug log level
-pub static DEBUG: u32 = 4;
+pub const DEBUG: u32 = 4;
 /// Info log level
-pub static INFO: u32 = 3;
+pub const INFO: u32 = 3;
 /// Warn log level
-pub static WARN: u32 = 2;
+pub const WARN: u32 = 2;
 /// Error log level
-pub static ERROR: u32 = 1;
+pub const ERROR: u32 = 1;
 
 local_data_key!(local_logger: Box<Logger + Send>)
 
@@ -348,8 +348,8 @@ pub struct LogLocation {
 /// module's log statement should be emitted or not.
 #[doc(hidden)]
 pub fn mod_enabled(level: u32, module: &str) -> bool {
-    static mut INIT: Once = ONCE_INIT;
-    unsafe { INIT.doit(init); }
+    static INIT: Once = ONCE_INIT;
+    INIT.doit(init);
 
     // It's possible for many threads are in this function, only one of them
     // will perform the global initialization, but all of them will need to check

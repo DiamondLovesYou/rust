@@ -8,11 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test struct inheritance.
-#![feature(struct_inherit)]
+#[deny(warnings)]
 
-struct s9;
-struct s10 : s9; //~ ERROR struct inheritance is only allowed from virtual structs
+const foo: int = 3;
+//~^ ERROR: should have an uppercase name such as
 
-pub fn main() {
-}
+fn main() {}

@@ -8,12 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test struct inheritance.
-#![feature(struct_inherit)]
-
-virtual trait Foo {} //~ ERROR `virtual` keyword may only be used with `struct`
-virtual enum Bar {} //~ ERROR `virtual` keyword may only be used with `struct`
-virtual fn baz() {} //~ ERROR `virtual` keyword may only be used with `struct`
-
-pub fn main() {
+fn main() {
+    let final = (); //~ ERROR `final` is a reserved keyword
 }

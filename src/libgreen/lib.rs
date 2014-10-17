@@ -180,7 +180,7 @@
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/master/",
+       html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 // NB this does *not* include globs, please keep it that way.
@@ -335,7 +335,7 @@ impl SchedPool {
     /// This will configure the pool according to the `config` parameter, and
     /// initially run `main` inside the pool of schedulers.
     pub fn new(config: PoolConfig) -> SchedPool {
-        static mut POOL_ID: AtomicUint = INIT_ATOMIC_UINT;
+        static POOL_ID: AtomicUint = INIT_ATOMIC_UINT;
 
         let PoolConfig {
             threads: nscheds,
@@ -349,7 +349,7 @@ impl SchedPool {
             threads: vec![],
             handles: vec![],
             stealers: vec![],
-            id: unsafe { POOL_ID.fetch_add(1, SeqCst) },
+            id: POOL_ID.fetch_add(1, SeqCst),
             sleepers: SleeperList::new(),
             stack_pool: StackPool::new(),
             deque_pool: deque::BufferPool::new(),

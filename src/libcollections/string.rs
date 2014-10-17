@@ -28,7 +28,7 @@ use slice::CloneableVector;
 use str;
 use str::{CharRange, StrAllocating, MaybeOwned, Owned};
 use str::Slice as MaybeOwnedSlice; // So many `Slice`s...
-use vec::Vec;
+use vec::{DerefVec, Vec, as_vec};
 
 /// A growable string stored as a UTF-8 encoded buffer.
 #[deriving(Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -928,29 +928,6 @@ impl<S: Str> Add<S, String> for String {
     }
 }
 
-#[cfg(stage0)]
-impl ops::Slice<uint, str> for String {
-    #[inline]
-    fn as_slice_<'a>(&'a self) -> &'a str {
-        self.as_slice()
-    }
-
-    #[inline]
-    fn slice_from_<'a>(&'a self, from: &uint) -> &'a str {
-        self[][*from..]
-    }
-
-    #[inline]
-    fn slice_to_<'a>(&'a self, to: &uint) -> &'a str {
-        self[][..*to]
-    }
-
-    #[inline]
-    fn slice_<'a>(&'a self, from: &uint, to: &uint) -> &'a str {
-        self[][*from..*to]
-    }
-}
-#[cfg(not(stage0))]
 impl ops::Slice<uint, str> for String {
     #[inline]
     fn as_slice_<'a>(&'a self) -> &'a str {
@@ -971,6 +948,24 @@ impl ops::Slice<uint, str> for String {
     fn slice_or_fail<'a>(&'a self, from: &uint, to: &uint) -> &'a str {
         self[][*from..*to]
     }
+}
+
+/// Wrapper type providing a `&String` reference via `Deref`.
+#[experimental]
+pub struct DerefString<'a> {
+    x: DerefVec<'a, u8>
+}
+
+impl<'a> Deref<String> for DerefString<'a> {
+    fn deref<'b>(&'b self) -> &'b String {
+        unsafe { mem::transmute(&*self.x) }
+    }
+}
+
+/// Convert a string slice to a wrapper type providing a `&String` reference.
+#[experimental]
+pub fn as_string<'a>(x: &'a str) -> DerefString<'a> {
+    DerefString { x: as_vec(x.as_bytes()) }
 }
 
 /// Unsafe operations
@@ -1039,8 +1034,14 @@ mod tests {
     use {Mutable, MutableSeq};
     use str;
     use str::{Str, StrSlice, Owned};
-    use super::String;
+    use super::{as_string, String};
     use vec::Vec;
+
+    #[test]
+    fn test_as_string() {
+        let x = "foo";
+        assert_eq!(x, as_string(x).as_slice());
+    }
 
     #[test]
     fn test_from_str() {

@@ -8,13 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test struct inheritance on structs from another crate.
-#![feature(struct_inherit)]
+#![feature(macro_rules)]
 
-// aux-build:inherit_struct_lib.rs
-extern crate inherit_struct_lib;
+macro_rules! list (
+    ( ($($id:ident),*) ) => (());
+    ( [$($id:ident),*] ) => (());
+    ( {$($id:ident),*} ) => (());
+)
 
-struct S3 : inherit_struct_lib::S1; //~ ERROR super-struct is defined in a different crate
+macro_rules! tt_list (
+    ( ($($tt:tt),*) ) => (());
+)
 
 pub fn main() {
+    list!( () );
+    list!( [] );
+    list!( {} );
+
+    tt_list!( (a, b, c) );
+    tt_list!( () );
 }

@@ -8,18 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test struct inheritance on structs from another crate.
-
-// aux-build:inherit_struct_lib.rs
-extern crate inherit_struct_lib;
-
-pub fn main() {
-    let s = inherit_struct_lib::S2{f1: 115, f2: 113};
-    assert!(s.f1 == 115);
-    assert!(s.f2 == 113);
-
-    assert!(inherit_struct_lib::glob_s.f1 == 32);
-    assert!(inherit_struct_lib::glob_s.f2 == -45);
-
-    inherit_struct_lib::test_s2(s);
+extern {
+    const FOO: uint; //~ ERROR: unexpected token: `const`
 }
+
+fn main() {}

@@ -571,6 +571,7 @@ impl LintPass for UnusedAttribute {
             "no_builtins",
             "no_mangle",
             "no_split_stack",
+            "no_stack_check",
             "packed",
             "static_assert",
             "thread_local",
@@ -978,7 +979,8 @@ impl LintPass for NonUppercaseStatics {
     fn check_item(&mut self, cx: &Context, it: &ast::Item) {
         match it.node {
             // only check static constants
-            ast::ItemStatic(_, ast::MutImmutable, _) => {
+            ast::ItemStatic(_, ast::MutImmutable, _) |
+            ast::ItemConst(..) => {
                 let s = token::get_ident(it.ident);
                 // check for lowercase letters rather than non-uppercase
                 // ones (some scripts don't have a concept of
@@ -998,7 +1000,7 @@ impl LintPass for NonUppercaseStatics {
     fn check_pat(&mut self, cx: &Context, p: &ast::Pat) {
         // Lint for constants that look like binding identifiers (#7526)
         match (&p.node, cx.tcx.def_map.borrow().find(&p.id)) {
-            (&ast::PatIdent(_, ref path1, _), Some(&def::DefStatic(_, false))) => {
+            (&ast::PatIdent(_, ref path1, _), Some(&def::DefConst(..))) => {
                 let s = token::get_ident(path1.node);
                 if s.get().chars().any(|c| c.is_lowercase()) {
                     cx.span_lint(NON_UPPERCASE_STATICS, path1.span,

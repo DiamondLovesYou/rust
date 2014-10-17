@@ -8,18 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test struct inheritance.
-#![feature(struct_inherit)]
-
-virtual struct S1 {
-    f1: int,
-}
-
-struct S6 : S1 {
-    f2: int,
-}
-
-pub fn main() {
-    let s = S6{f2: 3}; //~ ERROR missing field: `f1`
-    let s = S6{f1: 3}; //~ ERROR missing field: `f2`
+fn main() {
+    let abstract = (); //~ ERROR `abstract` is a reserved keyword
 }

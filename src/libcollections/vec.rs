@@ -14,11 +14,12 @@
 
 use core::prelude::*;
 
+use alloc::boxed::Box;
 use alloc::heap::{EMPTY, allocate, reallocate, deallocate};
 use core::cmp::max;
 use core::default::Default;
 use core::fmt;
-use core::kinds::marker::InvariantType;
+use core::kinds::marker::{ContravariantLifetime, InvariantType};
 use core::mem;
 use core::num;
 use core::ops;
@@ -460,28 +461,6 @@ impl<T> Index<uint,T> for Vec<T> {
     }
 }*/
 
-#[cfg(stage0)]
-impl<T> ops::Slice<uint, [T]> for Vec<T> {
-    #[inline]
-    fn as_slice_<'a>(&'a self) -> &'a [T] {
-        self.as_slice()
-    }
-
-    #[inline]
-    fn slice_from_<'a>(&'a self, start: &uint) -> &'a [T] {
-        self.as_slice().slice_from_(start)
-    }
-
-    #[inline]
-    fn slice_to_<'a>(&'a self, end: &uint) -> &'a [T] {
-        self.as_slice().slice_to_(end)
-    }
-    #[inline]
-    fn slice_<'a>(&'a self, start: &uint, end: &uint) -> &'a [T] {
-        self.as_slice().slice_(start, end)
-    }
-}
-#[cfg(not(stage0))]
 impl<T> ops::Slice<uint, [T]> for Vec<T> {
     #[inline]
     fn as_slice_<'a>(&'a self) -> &'a [T] {
@@ -503,28 +482,6 @@ impl<T> ops::Slice<uint, [T]> for Vec<T> {
     }
 }
 
-#[cfg(stage0)]
-impl<T> ops::SliceMut<uint, [T]> for Vec<T> {
-    #[inline]
-    fn as_mut_slice_<'a>(&'a mut self) -> &'a mut [T] {
-        self.as_mut_slice()
-    }
-
-    #[inline]
-    fn slice_from_mut_<'a>(&'a mut self, start: &uint) -> &'a mut [T] {
-        self.as_mut_slice().slice_from_mut_(start)
-    }
-
-    #[inline]
-    fn slice_to_mut_<'a>(&'a mut self, end: &uint) -> &'a mut [T] {
-        self.as_mut_slice().slice_to_mut_(end)
-    }
-    #[inline]
-    fn slice_mut_<'a>(&'a mut self, start: &uint, end: &uint) -> &'a mut [T] {
-        self.as_mut_slice().slice_mut_(start, end)
-    }
-}
-#[cfg(not(stage0))]
 impl<T> ops::SliceMut<uint, [T]> for Vec<T> {
     #[inline]
     fn as_mut_slice_<'a>(&'a mut self) -> &'a mut [T] {
@@ -613,21 +570,13 @@ impl<T> Collection for Vec<T> {
     }
 }
 
-impl<T: Clone> CloneableVector<T> for Vec<T> {
-    #[deprecated = "call .clone() instead"]
-    fn to_vec(&self) -> Vec<T> { self.clone() }
-    #[deprecated = "move the vector instead"]
-    fn into_vec(self) -> Vec<T> { self }
-}
-
 // FIXME: #13996: need a way to mark the return value as `noalias`
 #[inline(never)]
-unsafe fn alloc_or_realloc<T>(ptr: *mut T, size: uint, old_size: uint) -> *mut T {
+unsafe fn alloc_or_realloc<T>(ptr: *mut T, old_size: uint, size: uint) -> *mut T {
     if old_size == 0 {
         allocate(size, mem::min_align_of::<T>()) as *mut T
     } else {
-        reallocate(ptr as *mut u8, size,
-                   mem::min_align_of::<T>(), old_size) as *mut T
+        reallocate(ptr as *mut u8, old_size, size, mem::min_align_of::<T>()) as *mut T
     }
 }
 
@@ -720,8 +669,7 @@ impl<T> Vec<T> {
             let size = capacity.checked_mul(&mem::size_of::<T>())
                                .expect("capacity overflow");
             unsafe {
-                self.ptr = alloc_or_realloc(self.ptr, size,
-                                            self.cap * mem::size_of::<T>());
+                self.ptr = alloc_or_realloc(self.ptr, self.cap * mem::size_of::<T>(), size);
             }
             self.cap = capacity;
         }
@@ -751,11 +699,25 @@ impl<T> Vec<T> {
                 // Overflow check is unnecessary as the vector is already at
                 // least this large.
                 self.ptr = reallocate(self.ptr as *mut u8,
+                                      self.cap * mem::size_of::<T>(),
                                       self.len * mem::size_of::<T>(),
-                                      mem::min_align_of::<T>(),
-                                      self.cap * mem::size_of::<T>()) as *mut T;
+                                      mem::min_align_of::<T>()) as *mut T;
             }
             self.cap = self.len;
+        }
+    }
+
+    /// Convert the vector into Box<[T]>.
+    ///
+    /// Note that this will drop any excess capacity. Calling this and converting back to a vector
+    /// with `into_vec()` is equivalent to calling `shrink_to_fit()`.
+    #[experimental]
+    pub fn into_boxed_slice(mut self) -> Box<[T]> {
+        self.shrink_to_fit();
+        unsafe {
+            let xs: Box<[T]> = mem::transmute(self.as_mut_slice());
+            mem::forget(self);
+            xs
         }
     }
 
@@ -1736,8 +1698,7 @@ impl<T> MutableSeq<T> for Vec<T> {
             let size = max(old_size, 2 * mem::size_of::<T>()) * 2;
             if old_size > size { fail!("capacity overflow") }
             unsafe {
-                self.ptr = alloc_or_realloc(self.ptr, size,
-                                            self.cap * mem::size_of::<T>());
+                self.ptr = alloc_or_realloc(self.ptr, old_size, size);
             }
             self.cap = max(self.cap, 2) * 2;
         }
@@ -1761,7 +1722,6 @@ impl<T> MutableSeq<T> for Vec<T> {
             }
         }
     }
-
 }
 
 /// An iterator that moves out of a vector.
@@ -1873,6 +1833,39 @@ pub fn unzip<T, U, V: Iterator<(T, U)>>(mut iter: V) -> (Vec<T>, Vec<U>) {
         us.push(u);
     }
     (ts, us)
+}
+
+/// Wrapper type providing a `&Vec<T>` reference via `Deref`.
+#[experimental]
+pub struct DerefVec<'a, T> {
+    x: Vec<T>,
+    l: ContravariantLifetime<'a>
+}
+
+impl<'a, T> Deref<Vec<T>> for DerefVec<'a, T> {
+    fn deref<'b>(&'b self) -> &'b Vec<T> {
+        &self.x
+    }
+}
+
+// Prevent the inner `Vec<T>` from attempting to deallocate memory.
+#[unsafe_destructor]
+impl<'a, T> Drop for DerefVec<'a, T> {
+    fn drop(&mut self) {
+        self.x.len = 0;
+        self.x.cap = 0;
+    }
+}
+
+/// Convert a slice to a wrapper type providing a `&Vec<T>` reference.
+#[experimental]
+pub fn as_vec<'a, T>(x: &'a [T]) -> DerefVec<'a, T> {
+    unsafe {
+        DerefVec {
+            x: Vec::from_raw_parts(x.len(), x.len(), x.as_ptr() as *mut T),
+            l: ContravariantLifetime::<'a>
+        }
+    }
 }
 
 /// Unsafe vector operations.
@@ -2169,9 +2162,37 @@ mod tests {
     use std::prelude::*;
     use std::mem::size_of;
     use test::Bencher;
-    use super::{unzip, raw, Vec};
+    use super::{as_vec, unzip, raw, Vec};
 
     use MutableSeq;
+
+    struct DropCounter<'a> {
+        count: &'a mut int
+    }
+
+    #[unsafe_destructor]
+    impl<'a> Drop for DropCounter<'a> {
+        fn drop(&mut self) {
+            *self.count += 1;
+        }
+    }
+
+    #[test]
+    fn test_as_vec() {
+        let xs = [1u8, 2u8, 3u8];
+        assert_eq!(as_vec(xs).as_slice(), xs.as_slice());
+    }
+
+    #[test]
+    fn test_as_vec_dtor() {
+        let (mut count_x, mut count_y) = (0, 0);
+        {
+            let xs = &[DropCounter { count: &mut count_x }, DropCounter { count: &mut count_y }];
+            assert_eq!(as_vec(xs).len(), 2);
+        }
+        assert_eq!(count_x, 1);
+        assert_eq!(count_y, 1);
+    }
 
     #[test]
     fn test_small_vec_struct() {
@@ -2183,17 +2204,6 @@ mod tests {
         struct TwoVec<T> {
             x: Vec<T>,
             y: Vec<T>
-        }
-
-        struct DropCounter<'a> {
-            count: &'a mut int
-        }
-
-        #[unsafe_destructor]
-        impl<'a> Drop for DropCounter<'a> {
-            fn drop(&mut self) {
-                *self.count += 1;
-            }
         }
 
         let (mut count_x, mut count_y) = (0, 0);
@@ -2583,6 +2593,13 @@ mod tests {
             vec2.push(i);
         }
         assert!(vec2 == vec!((), (), ()));
+    }
+
+    #[test]
+    fn test_into_boxed_slice() {
+        let xs = vec![1u, 2, 3];
+        let ys = xs.into_boxed_slice();
+        assert_eq!(ys.as_slice(), [1u, 2, 3].as_slice());
     }
 
     #[bench]

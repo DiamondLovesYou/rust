@@ -24,13 +24,11 @@ use middle::mem_categorization as mc;
 use middle::resolve;
 use middle::resolve_lifetime;
 use middle::stability;
-use middle::subst::{Subst, Substs, VecPerParamSpace};
-use middle::subst;
+use middle::subst::{mod, Subst, Substs, VecPerParamSpace};
 use middle::traits;
 use middle::ty;
 use middle::typeck;
-use middle::ty_fold;
-use middle::ty_fold::{TypeFoldable,TypeFolder};
+use middle::ty_fold::{mod, TypeFoldable,TypeFolder};
 use middle;
 use util::ppaux::{note_and_explain_region, bound_region_ptr_to_string};
 use util::ppaux::{trait_store_to_string, ty_to_string};
@@ -40,10 +38,8 @@ use util::nodemap::{NodeMap, NodeSet, DefIdMap, DefIdSet, FnvHashMap};
 
 use std::cell::{Cell, RefCell};
 use std::cmp;
-use std::fmt::Show;
-use std::fmt;
+use std::fmt::{mod, Show};
 use std::hash::{Hash, sip, Writer};
-use std::iter::AdditiveIterator;
 use std::mem;
 use std::ops;
 use std::rc::Rc;
@@ -55,20 +51,16 @@ use syntax::ast::{CrateNum, DefId, FnStyle, Ident, ItemTrait, LOCAL_CRATE};
 use syntax::ast::{MutImmutable, MutMutable, Name, NamedField, NodeId};
 use syntax::ast::{Onceness, StmtExpr, StmtSemi, StructField, UnnamedField};
 use syntax::ast::{Visibility};
-use syntax::ast_util::{PostExpansionMethod, is_local, lit_is_str};
-use syntax::ast_util;
-use syntax::attr;
-use syntax::attr::AttrMetaMethods;
+use syntax::ast_util::{mod, PostExpansionMethod, is_local, lit_is_str};
+use syntax::attr::{mod, AttrMetaMethods};
 use syntax::codemap::Span;
-use syntax::parse::token;
-use syntax::parse::token::InternedString;
+use syntax::parse::token::{mod, InternedString};
 use syntax::{ast, ast_map};
-use syntax::util::small_vector::SmallVector;
 use std::collections::enum_set::{EnumSet, CLike};
 
 pub type Disr = u64;
 
-pub static INITIAL_DISCRIMINANT_VALUE: Disr = 0;
+pub const INITIAL_DISCRIMINANT_VALUE: Disr = 0;
 
 // Data types
 
@@ -493,7 +485,6 @@ pub struct ctxt<'tcx> {
     pub lang_items: middle::lang_items::LanguageItems,
     /// A mapping of fake provided method def_ids to the default implementation
     pub provided_method_sources: RefCell<DefIdMap<ast::DefId>>,
-    pub superstructs: RefCell<DefIdMap<Option<ast::DefId>>>,
     pub struct_fields: RefCell<DefIdMap<Rc<Vec<field_ty>>>>,
 
     /// Maps from def-id of a type or region parameter to its
@@ -918,7 +909,7 @@ mod primitives {
         flags: super::has_ty_err as uint,
     };
 
-    pub static LAST_PRIMITIVE_ID: uint = 18;
+    pub const LAST_PRIMITIVE_ID: uint = 18;
 }
 
 // NB: If you change this, you'll probably want to change the corresponding
@@ -1374,6 +1365,7 @@ impl ParameterEnvironment {
                     ast::ItemEnum(..) |
                     ast::ItemStruct(..) |
                     ast::ItemImpl(..) |
+                    ast::ItemConst(..) |
                     ast::ItemStatic(..) => {
                         let def_id = ast_util::local_def(id);
                         let pty = ty::lookup_item_type(cx, def_id);
@@ -1511,7 +1503,6 @@ pub fn mk_ctxt<'tcx>(s: Session,
         normalized_cache: RefCell::new(HashMap::new()),
         lang_items: lang_items,
         provided_method_sources: RefCell::new(DefIdMap::new()),
-        superstructs: RefCell::new(DefIdMap::new()),
         struct_fields: RefCell::new(DefIdMap::new()),
         destructor_for_type: RefCell::new(DefIdMap::new()),
         destructors: RefCell::new(DefIdSet::new()),
@@ -2199,7 +2190,7 @@ macro_rules! def_type_content_sets(
             use middle::ty::TypeContents;
             $(
                 #[allow(non_uppercase_statics)]
-                pub static $name: TypeContents = TypeContents { bits: $bits };
+                pub const $name: TypeContents = TypeContents { bits: $bits };
              )+
         }
     }
@@ -3576,6 +3567,8 @@ pub fn expr_kind(tcx: &ctxt, expr: &ast::Expr) -> ExprKind {
                 def::DefUpvar(..) |
                 def::DefLocal(..) => LvalueExpr,
 
+                def::DefConst(..) => RvalueDatumExpr,
+
                 def => {
                     tcx.sess.span_bug(
                         expr.span,
@@ -4536,53 +4529,19 @@ pub fn lookup_field_type(tcx: &ctxt,
     t.subst(tcx, substs)
 }
 
-// Lookup all ancestor structs of a struct indicated by did. That is the reflexive,
-// transitive closure of doing a single lookup in cx.superstructs.
-fn each_super_struct(cx: &ctxt, mut did: ast::DefId, f: |ast::DefId|) {
-    let superstructs = cx.superstructs.borrow();
-
-    loop {
-        f(did);
-        match superstructs.find(&did) {
-            Some(&Some(def_id)) => {
-                did = def_id;
-            },
-            Some(&None) => break,
-            None => {
-                cx.sess.bug(
-                    format!("ID not mapped to super-struct: {}",
-                            cx.map.node_to_string(did.node)).as_slice());
-            }
-        }
-    }
-}
-
 // Look up the list of field names and IDs for a given struct.
 // Fails if the id is not bound to a struct.
 pub fn lookup_struct_fields(cx: &ctxt, did: ast::DefId) -> Vec<field_ty> {
     if did.krate == ast::LOCAL_CRATE {
-        // We store the fields which are syntactically in each struct in cx. So
-        // we have to walk the inheritance chain of the struct to get all the
-        // fields (explicit and inherited) for a struct. If this is expensive
-        // we could cache the whole list of fields here.
         let struct_fields = cx.struct_fields.borrow();
-        let mut results: SmallVector<&[field_ty]> = SmallVector::zero();
-        each_super_struct(cx, did, |s| {
-            match struct_fields.find(&s) {
-                Some(fields) => results.push(fields.as_slice()),
-                _ => {
-                    cx.sess.bug(
-                        format!("ID not mapped to struct fields: {}",
-                                cx.map.node_to_string(did.node)).as_slice());
-                }
+        match struct_fields.find(&did) {
+            Some(fields) => (**fields).clone(),
+            _ => {
+                cx.sess.bug(
+                    format!("ID not mapped to struct fields: {}",
+                            cx.map.node_to_string(did.node)).as_slice());
             }
-        });
-
-        let len = results.as_slice().iter().map(|x| x.len()).sum();
-        let mut result: Vec<field_ty> = Vec::with_capacity(len);
-        result.extend(results.as_slice().iter().flat_map(|rs| rs.iter().map(|f| f.clone())));
-        assert!(result.len() == len);
-        result
+        }
     } else {
         csearch::get_struct_fields(&cx.sess.cstore, did)
     }

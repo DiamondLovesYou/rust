@@ -32,7 +32,7 @@ use ast::{FnUnboxedClosureKind, FnMutUnboxedClosureKind};
 use ast::{FnOnceUnboxedClosureKind};
 use ast::{ForeignItem, ForeignItemStatic, ForeignItemFn, ForeignMod};
 use ast::{Ident, NormalFn, Inherited, ImplItem, Item, Item_, ItemStatic};
-use ast::{ItemEnum, ItemFn, ItemForeignMod, ItemImpl};
+use ast::{ItemEnum, ItemFn, ItemForeignMod, ItemImpl, ItemConst};
 use ast::{ItemMac, ItemMod, ItemStruct, ItemTrait, ItemTy};
 use ast::{LifetimeDef, Lit, Lit_};
 use ast::{LitBool, LitChar, LitByte, LitBinary};
@@ -91,10 +91,10 @@ use std::iter;
 
 bitflags! {
     flags Restrictions: u8 {
-        static UNRESTRICTED                  = 0b0000,
-        static RESTRICTION_STMT_EXPR         = 0b0001,
-        static RESTRICTION_NO_BAR_OP         = 0b0010,
-        static RESTRICTION_NO_STRUCT_LITERAL = 0b0100
+        const UNRESTRICTED                  = 0b0000,
+        const RESTRICTION_STMT_EXPR         = 0b0001,
+        const RESTRICTION_NO_BAR_OP         = 0b0010,
+        const RESTRICTION_NO_STRUCT_LITERAL = 0b0100
     }
 }
 
@@ -4371,6 +4371,13 @@ impl<'a> Parser<'a> {
         (ident, ItemFn(decl, fn_style, abi, generics, body), Some(inner_attrs))
     }
 
+    /// Parse a method in a trait impl
+    pub fn parse_method_with_outer_attributes(&mut self) -> P<Method> {
+        let attrs = self.parse_outer_attributes();
+        let visa = self.parse_visibility();
+        self.parse_method(attrs, visa)
+    }
+
     /// Parse a method in a trait impl, starting with `attrs` attributes.
     pub fn parse_method(&mut self,
                         attrs: Vec<Attribute>,
@@ -4533,24 +4540,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse struct Foo { ... }
-    fn parse_item_struct(&mut self, is_virtual: bool) -> ItemInfo {
+    fn parse_item_struct(&mut self) -> ItemInfo {
         let class_name = self.parse_ident();
         let mut generics = self.parse_generics();
 
-        let super_struct = if self.eat(&token::COLON) {
+        if self.eat(&token::COLON) {
             let ty = self.parse_ty(true);
-            match ty.node {
-                TyPath(_, None, _) => {
-                    Some(ty)
-                }
-                _ => {
-                    self.span_err(ty.span, "not a struct");
-                    None
-                }
-            }
-        } else {
-            None
-        };
+            self.span_err(ty.span, "`virtual` structs have been removed from the language");
+        }
 
         self.parse_where_clause(&mut generics);
 
@@ -4611,8 +4608,6 @@ impl<'a> Parser<'a> {
          ItemStruct(P(ast::StructDef {
              fields: fields,
              ctor_id: if is_tuple_like { Some(new_id) } else { None },
-             super_struct: super_struct,
-             is_virtual: is_virtual,
          }), generics),
          None)
     }
@@ -4732,14 +4727,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_item_const(&mut self, m: Mutability) -> ItemInfo {
+    fn parse_item_const(&mut self, m: Option<Mutability>) -> ItemInfo {
         let id = self.parse_ident();
         self.expect(&token::COLON);
         let ty = self.parse_ty(true);
         self.expect(&token::EQ);
         let e = self.parse_expr();
         self.commit_expr_expecting(&*e, token::SEMI);
-        (id, ItemStatic(ty, m, e), None)
+        let item = match m {
+            Some(m) => ItemStatic(ty, m, e),
+            None => ItemConst(ty, e),
+        };
+        (id, item, None)
     }
 
     /// Parse a `mod <foo> { ... }` or `mod <foo>;` item
@@ -5079,8 +5078,6 @@ impl<'a> Parser<'a> {
         P(StructDef {
             fields: fields,
             ctor_id: None,
-            super_struct: None,
-            is_virtual: false,
         })
     }
 
@@ -5277,11 +5274,9 @@ impl<'a> Parser<'a> {
                                     token_str).as_slice());
         }
 
-        let is_virtual = self.eat_keyword(keywords::Virtual);
-        if is_virtual && !self.is_keyword(keywords::Struct) {
+        if self.eat_keyword(keywords::Virtual) {
             let span = self.span;
-            self.span_err(span,
-                          "`virtual` keyword may only be used with `struct`");
+            self.span_err(span, "`virtual` structs have been removed from the language");
         }
 
         // the rest are all guaranteed to be items:
@@ -5289,7 +5284,7 @@ impl<'a> Parser<'a> {
             // STATIC ITEM
             self.bump();
             let m = if self.eat_keyword(keywords::Mut) {MutMutable} else {MutImmutable};
-            let (ident, item_, extra_attrs) = self.parse_item_const(m);
+            let (ident, item_, extra_attrs) = self.parse_item_const(Some(m));
             let last_span = self.last_span;
             let item = self.mk_item(lo,
                                     last_span.hi,
@@ -5307,7 +5302,7 @@ impl<'a> Parser<'a> {
                 self.span_err(last_span, "const globals cannot be mutable, \
                                           did you mean to declare a static?");
             }
-            let (ident, item_, extra_attrs) = self.parse_item_const(MutImmutable);
+            let (ident, item_, extra_attrs) = self.parse_item_const(None);
             let last_span = self.last_span;
             let item = self.mk_item(lo,
                                     last_span.hi,
@@ -5416,7 +5411,7 @@ impl<'a> Parser<'a> {
         }
         if self.eat_keyword(keywords::Struct) {
             // STRUCT ITEM
-            let (ident, item_, extra_attrs) = self.parse_item_struct(is_virtual);
+            let (ident, item_, extra_attrs) = self.parse_item_struct();
             let last_span = self.last_span;
             let item = self.mk_item(lo,
                                     last_span.hi,

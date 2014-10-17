@@ -70,9 +70,9 @@ use rustrt::thread::Thread;
 
 use mpsc_intrusive as q;
 
-pub static LOCKED: uint = 1 << 0;
-pub static GREEN_BLOCKED: uint = 1 << 1;
-pub static NATIVE_BLOCKED: uint = 1 << 2;
+pub const LOCKED: uint = 1 << 0;
+pub const GREEN_BLOCKED: uint = 1 << 1;
+pub const NATIVE_BLOCKED: uint = 1 << 2;
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///
@@ -127,9 +127,9 @@ enum Flavor {
 /// ```rust
 /// use sync::mutex::{StaticMutex, MUTEX_INIT};
 ///
-/// static mut LOCK: StaticMutex = MUTEX_INIT;
+/// static LOCK: StaticMutex = MUTEX_INIT;
 ///
-/// unsafe {
+/// {
 ///     let _g = LOCK.lock();
 ///     // do some productive work
 /// }
@@ -163,7 +163,7 @@ pub struct Guard<'a> {
 
 /// Static initialization of a mutex. This constant can be used to initialize
 /// other mutex constants.
-pub static MUTEX_INIT: StaticMutex = StaticMutex {
+pub const MUTEX_INIT: StaticMutex = StaticMutex {
     lock: mutex::NATIVE_MUTEX_INIT,
     state: atomic::INIT_ATOMIC_UINT,
     flavor: UnsafeCell { value: Unlocked },
@@ -536,7 +536,7 @@ mod test {
 
     #[test]
     fn smoke_static() {
-        static mut m: StaticMutex = MUTEX_INIT;
+        static m: StaticMutex = MUTEX_INIT;
         unsafe {
             drop(m.lock());
             drop(m.lock());
@@ -546,7 +546,7 @@ mod test {
 
     #[test]
     fn lots_and_lots() {
-        static mut m: StaticMutex = MUTEX_INIT;
+        static m: StaticMutex = MUTEX_INIT;
         static mut CNT: uint = 0;
         static M: uint = 1000;
         static N: uint = 3;

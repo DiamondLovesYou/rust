@@ -8,18 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test struct inheritance.
-#![feature(struct_inherit)]
+struct S { a: uint }
+static A: S  = S { a: 3 };
+static B: &'static uint = &A.a;
+//~^ ERROR: cannot refer to the interior of another static
+static C: &'static uint = &(A.a);
+//~^ ERROR: cannot refer to the interior of another static
 
-struct S2 : S0 { //~ ERROR super-struct could not be resolved
-    f2: int,
-}
+static D: [uint, ..1] = [1];
+static E: uint = D[0];
+//~^ ERROR: cannot refer to other statics by value
+static F: &'static uint = &D[0];
+//~^ ERROR: cannot refer to the interior of another static
 
-trait T {}
-
-struct S3 : T { //~ ERROR super-struct is not a struct type
-    f3: int,
-}
-
-pub fn main() {
-}
+fn main() {}

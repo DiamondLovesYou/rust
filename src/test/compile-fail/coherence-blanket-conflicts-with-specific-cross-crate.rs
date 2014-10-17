@@ -8,17 +8,22 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test struct inheritance.
-#![feature(struct_inherit)]
+// aux-build:go_trait.rs
 
-// With lifetime parameters.
-struct S5<'a> : S4 { //~ ERROR wrong number of lifetime parameters: expected 1, found 0
-    f4: int,
+extern crate go_trait;
+
+use go_trait::{Go,GoMut};
+use std::fmt::Show;
+use std::default::Default;
+
+struct MyThingy;
+
+impl Go for MyThingy {
+    fn go(&self, arg: int) { }
 }
 
-virtual struct S4<'a> {
-    f3: &'a int,
+impl GoMut for MyThingy { //~ ERROR conflicting implementations
+    fn go_mut(&mut self, arg: int) { }
 }
 
-pub fn main() {
-}
+fn main() { }

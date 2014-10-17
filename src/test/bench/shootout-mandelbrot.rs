@@ -49,9 +49,9 @@ use std::os;
 use std::simd::f64x2;
 use std::sync::{Arc, Future};
 
-static ITER: int = 50;
-static LIMIT: f64 = 2.0;
-static WORKERS: uint = 16;
+const ITER: int = 50;
+const LIMIT: f64 = 2.0;
+const WORKERS: uint = 16;
 
 #[inline(always)]
 fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
@@ -109,8 +109,8 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
 
     for res in precalc_futures.into_iter() {
         let (rs, is) = res.unwrap();
-        precalc_r.push_all_move(rs);
-        precalc_i.push_all_move(is);
+        precalc_r.extend(rs.into_iter());
+        precalc_i.extend(is.into_iter());
     }
 
     assert_eq!(precalc_r.len(), w);
@@ -144,7 +144,7 @@ fn mandelbrot<W: io::Writer>(w: uint, mut out: W) -> io::IoResult<()> {
 fn write_line(init_i: f64, vec_init_r: &[f64], res: &mut Vec<u8>) {
     let v_init_i : f64x2 = f64x2(init_i, init_i);
     let v_2 : f64x2 = f64x2(2.0, 2.0);
-    static LIMIT_SQUARED: f64 = LIMIT * LIMIT;
+    const LIMIT_SQUARED: f64 = LIMIT * LIMIT;
 
     for chunk_init_r in vec_init_r.chunks(8) {
         let mut cur_byte = 0xff;

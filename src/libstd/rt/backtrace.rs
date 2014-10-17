@@ -28,25 +28,23 @@ pub use self::imp::write;
 // For now logging is turned off by default, and this function checks to see
 // whether the magical environment variable is present to see if it's turned on.
 pub fn log_enabled() -> bool {
-    static mut ENABLED: atomic::AtomicInt = atomic::INIT_ATOMIC_INT;
-    unsafe {
-        match ENABLED.load(atomic::SeqCst) {
-            1 => return false,
-            2 => return true,
-            _ => {}
-        }
+    static ENABLED: atomic::AtomicInt = atomic::INIT_ATOMIC_INT;
+    match ENABLED.load(atomic::SeqCst) {
+        1 => return false,
+        2 => return true,
+        _ => {}
     }
 
     let val = match os::getenv("RUST_BACKTRACE") {
         Some(..) => 2,
         None => 1,
     };
-    unsafe { ENABLED.store(val, atomic::SeqCst); }
+    ENABLED.store(val, atomic::SeqCst);
     val == 2
 }
 
-#[cfg(target_word_size = "64")] static HEX_WIDTH: uint = 18;
-#[cfg(target_word_size = "32")] static HEX_WIDTH: uint = 10;
+#[cfg(target_word_size = "64")] const HEX_WIDTH: uint = 18;
+#[cfg(target_word_size = "32")] const HEX_WIDTH: uint = 10;
 
 // All rust symbols are in theory lists of "::"-separated identifiers. Some
 // assemblers, however, can't handle these characters in symbol names. To get
@@ -269,12 +267,12 @@ mod imp {
         // while it doesn't requires lock for work as everything is
         // local, it still displays much nicer backtraces when a
         // couple of tasks fail simultaneously
-        static mut LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
+        static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
         let _g = unsafe { LOCK.lock() };
 
         try!(writeln!(w, "stack backtrace:"));
         // 100 lines should be enough
-        static SIZE: uint = 100;
+        const SIZE: uint = 100;
         let mut buf: [*mut libc::c_void, ..SIZE] = unsafe {mem::zeroed()};
         let cnt = unsafe { backtrace(buf.as_mut_ptr(), SIZE as libc::c_int) as uint};
 
@@ -302,7 +300,7 @@ mod imp {
         // is semi-reasonable in terms of printing anyway, and we know that all
         // I/O done here is blocking I/O, not green I/O, so we don't have to
         // worry about this being a native vs green mutex.
-        static mut LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
+        static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
         let _g = unsafe { LOCK.lock() };
 
         try!(writeln!(w, "stack backtrace:"));
@@ -716,10 +714,10 @@ mod imp {
                            *mut libc::c_void, *mut libc::c_void,
                            *mut libc::c_void, *mut libc::c_void) -> libc::BOOL;
 
-    static MAX_SYM_NAME: uint = 2000;
-    static IMAGE_FILE_MACHINE_I386: libc::DWORD = 0x014c;
-    static IMAGE_FILE_MACHINE_IA64: libc::DWORD = 0x0200;
-    static IMAGE_FILE_MACHINE_AMD64: libc::DWORD = 0x8664;
+    const MAX_SYM_NAME: uint = 2000;
+    const IMAGE_FILE_MACHINE_I386: libc::DWORD = 0x014c;
+    const IMAGE_FILE_MACHINE_IA64: libc::DWORD = 0x0200;
+    const IMAGE_FILE_MACHINE_AMD64: libc::DWORD = 0x8664;
 
     #[repr(C)]
     struct SYMBOL_INFO {
@@ -791,7 +789,7 @@ mod imp {
     mod arch {
         use libc;
 
-        static MAXIMUM_SUPPORTED_EXTENSION: uint = 512;
+        const MAXIMUM_SUPPORTED_EXTENSION: uint = 512;
 
         #[repr(C)]
         pub struct CONTEXT {
@@ -950,7 +948,7 @@ mod imp {
     pub fn write(w: &mut Writer) -> IoResult<()> {
         // According to windows documentation, all dbghelp functions are
         // single-threaded.
-        static mut LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
+        static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
         let _g = unsafe { LOCK.lock() };
 
         // Open up dbghelp.dll, we don't link to it explicitly because it can't

@@ -155,10 +155,10 @@ pub enum CrateType {
 
 macro_rules! debugging_opts(
     ([ $opt:ident ] $cnt:expr ) => (
-        pub static $opt: u64 = 1 << $cnt;
+        pub const $opt: u64 = 1 << $cnt;
     );
     ([ $opt:ident, $($rest:ident),* ] $cnt:expr ) => (
-        pub static $opt: u64 = 1 << $cnt;
+        pub const $opt: u64 = 1 << $cnt;
         debugging_opts!([ $($rest),* ] $cnt + 1)
     )
 )
@@ -269,7 +269,7 @@ macro_rules! cgoptions(
     }
 
     pub type CodegenSetter = fn(&mut CodegenOptions, v: Option<&str>) -> bool;
-    pub static CG_OPTIONS: &'static [(&'static str, CodegenSetter,
+    pub const CG_OPTIONS: &'static [(&'static str, CodegenSetter,
                                       &'static str)] =
         &[ $( (stringify!($opt), cgsetters::$opt, $desc) ),* ];
 
@@ -392,6 +392,8 @@ cgoptions!(
         "divide crate into N units to optimize in parallel"),
     remark: Passes = (SomePasses(Vec::new()), parse_passes,
         "print remarks for these optimization passes (space separated, or \"all\")"),
+    no_stack_check: bool = (false, parse_bool,
+        "disable checks for stack exhaustion (a memory-safety hazard!)"),
     extra_bitcode: Vec<String> = (Vec::new(), parse_list,
         "a list of bitcode files to include for linking (PNaCl bin output only)"),
     stable_pexe: bool = (false, parse_bool,

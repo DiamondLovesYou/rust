@@ -242,13 +242,12 @@ static UNKNOWN_FILE_METADATA: DIFile = (0 as DIFile);
 static UNKNOWN_SCOPE_METADATA: DIScope = (0 as DIScope);
 
 static FLAGS_NONE: c_uint = 0;
-static FLAGS_ARTIFICAL: c_uint = llvm::debuginfo::FlagArtificial as c_uint;
 
 //=-----------------------------------------------------------------------------
 //  Public Interface of debuginfo module
 //=-----------------------------------------------------------------------------
 
-#[deriving(Copy, Show, Hash, Eq, PartialEq, Clone)]
+#[deriving(Show, Hash, Eq, PartialEq, Clone)]
 struct UniqueTypeId(ast::Name);
 
 // The TypeMap is where the CrateDebugContext holds the type metadata nodes
@@ -776,6 +775,7 @@ pub fn create_global_var_metadata(cx: &CrateContext,
         ast_map::NodeItem(item) => {
             match item.node {
                 ast::ItemStatic(..) => (item.ident, item.span),
+                ast::ItemConst(..) => (item.ident, item.span),
                 _ => {
                     cx.sess()
                       .span_bug(item.span,
@@ -2275,11 +2275,7 @@ impl VariantMemberDescriptionFactory {
                     _ => type_metadata(cx, ty, self.span)
                 },
                 offset: ComputedMemberOffset,
-                flags: if self.discriminant_type_metadata.is_some() &&  i == 0 {
-                    FLAGS_ARTIFICAL
-                } else {
-                    FLAGS_NONE
-                }
+                flags: FLAGS_NONE
             }
         }).collect()
     }
@@ -2338,9 +2334,9 @@ fn describe_enum_variant(cx: &CrateContext,
         None => variant_info.args.iter().map(|_| "".to_string()).collect()
     };
 
-    // If this is not a univariant enum, there is also the (unnamed) discriminant field.
+    // If this is not a univariant enum, there is also the discriminant field.
     match discriminant_info {
-        RegularDiscriminant(_) => arg_names.insert(0, "".to_string()),
+        RegularDiscriminant(_) => arg_names.insert(0, "RUST$ENUM$DISR".to_string()),
         _ => { /* do nothing */ }
     };
 
@@ -2712,14 +2708,14 @@ fn vec_slice_metadata(cx: &CrateContext,
             llvm_type: *member_llvm_types.get(0),
             type_metadata: element_type_metadata,
             offset: ComputedMemberOffset,
-            flags: FLAGS_ARTIFICAL
+            flags: FLAGS_NONE
         },
         MemberDescription {
             name: "length".to_string(),
             llvm_type: *member_llvm_types.get(1),
             type_metadata: type_metadata(cx, ty::mk_uint(), span),
             offset: ComputedMemberOffset,
-            flags: FLAGS_ARTIFICAL
+            flags: FLAGS_NONE
         },
     ];
 

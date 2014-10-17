@@ -8,27 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-test FIXME: #13991
+use std::fmt::Show;
+use std::default::Default;
 
+// Test that an impl for homogeneous pairs does not conflict with a
+// heterogeneous pair.
 
-// Test struct inheritance.
-#![feature(struct_inherit)]
-
-virtual struct S1 {
-    f1: int,
+trait MyTrait {
+    fn get(&self) -> uint;
 }
 
-virtual struct S6 : S1 {
-    f2: int,
+impl<T> MyTrait for (T,T) {
+    fn get(&self) -> uint { 0 }
 }
 
-struct S7 : S1 {
-    f1: int, //~ ERROR field `f1` hides field declared in super-struct
+impl MyTrait for (uint,int) {
+    fn get(&self) -> uint { 0 }
 }
 
-struct S8 : S6 {
-    f1: int, //~ ERROR field `f1` hides field declared in super-struct
-}
-
-pub fn main() {
+fn main() {
 }

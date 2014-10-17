@@ -57,24 +57,24 @@ pub type _Unwind_Exception_Class = u64;
 pub type _Unwind_Word = libc::uintptr_t;
 
 #[cfg(target_arch = "x86")]
-pub static unwinder_private_data_size: uint = 5;
+pub const unwinder_private_data_size: uint = 5;
 
 #[cfg(target_arch = "x86_64")]
-pub static unwinder_private_data_size: uint = 6;
+pub const unwinder_private_data_size: uint = 6;
 
 #[cfg(all(target_arch = "arm", not(target_os = "ios")))]
-pub static unwinder_private_data_size: uint = 20;
+pub const unwinder_private_data_size: uint = 20;
 
 #[cfg(all(target_arch = "arm", target_os = "ios"))]
-pub static unwinder_private_data_size: uint = 5;
+pub const unwinder_private_data_size: uint = 5;
 
 #[cfg(any(target_arch = "mips", target_arch = "mipsel"))]
-pub static unwinder_private_data_size: uint = 2;
+pub const unwinder_private_data_size: uint = 2;
 
 #[cfg(all(target_os = "nacl", not(target_arch = "arm")))]
-pub static unwinder_private_data_size: uint = 2;
+pub const unwinder_private_data_size: uint = 2;
 #[cfg(all(target_os = "nacl", target_arch = "arm"))]
-pub static unwinder_private_data_size: uint =
+pub const unwinder_private_data_size: uint =
     5 + // unwinder_cache
     6 + // barrier_cache
     4 + // cleanup_cache

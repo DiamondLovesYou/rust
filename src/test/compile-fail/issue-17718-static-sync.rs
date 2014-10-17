@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-trait Foo {
-}
+use std::kinds::marker;
 
-impl Foo for int { //~ ERROR conflicting implementations
+struct Foo { marker: marker::NoSync }
 
-}
+static FOO: uint = 3;
+static BAR: Foo = Foo { marker: marker::NoSync };
+//~^ ERROR: shared static items must have a type which implements Sync
 
-impl<A> Foo for A { //~ NOTE conflicting implementation here
-
-}
-
-fn main() {
-}
+fn main() {}

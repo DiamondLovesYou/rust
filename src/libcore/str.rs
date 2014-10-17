@@ -1049,9 +1049,9 @@ pub struct CharRange {
 }
 
 /// Mask of the value bits of a continuation byte
-static CONT_MASK: u8 = 0b0011_1111u8;
+const CONT_MASK: u8 = 0b0011_1111u8;
 /// Value of the tag bits (tag mask is !CONT_MASK) of a continuation byte
-static TAG_CONT_U8: u8 = 0b1000_0000u8;
+const TAG_CONT_U8: u8 = 0b1000_0000u8;
 
 /// Unsafe operations
 pub mod raw {
@@ -1164,29 +1164,6 @@ pub mod traits {
         fn equiv(&self, other: &S) -> bool { eq_slice(*self, other.as_slice()) }
     }
 
-    #[cfg(stage0)]
-    impl ops::Slice<uint, str> for str {
-        #[inline]
-        fn as_slice_<'a>(&'a self) -> &'a str {
-            self
-        }
-
-        #[inline]
-        fn slice_from_<'a>(&'a self, from: &uint) -> &'a str {
-            self.slice_from(*from)
-        }
-
-        #[inline]
-        fn slice_to_<'a>(&'a self, to: &uint) -> &'a str {
-            self.slice_to(*to)
-        }
-
-        #[inline]
-        fn slice_<'a>(&'a self, from: &uint, to: &uint) -> &'a str {
-            self.slice(*from, *to)
-        }
-    }
-    #[cfg(not(stage0))]
     impl ops::Slice<uint, str> for str {
         #[inline]
         fn as_slice_<'a>(&'a self) -> &'a str {

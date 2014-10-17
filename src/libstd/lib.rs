@@ -102,7 +102,7 @@
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/master/",
+       html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![allow(unknown_features)]
@@ -291,7 +291,9 @@ mod std {
     // The test runner calls ::std::os::args() but really wants realstd
     #[cfg(test)] pub use realstd::os as os;
     // The test runner requires std::slice::Vector, so re-export std::slice just for it.
-    #[cfg(test)] pub use slice;
+    //
+    // It is also used in vec![]
+    pub use slice;
 
-    pub use collections; // vec!() uses MutableSeq
+    pub use boxed; // used for vec![]
 }
