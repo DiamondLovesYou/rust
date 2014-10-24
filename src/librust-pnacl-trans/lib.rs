@@ -264,6 +264,7 @@ pub fn main() {
                         false /* EnableSegstk */,
                         false /* soft fp */,
                         false /* frame elim */,
+                        true  /* pie */,
                         true  /* ffunction_sections */,
                         true  /* fdata_sections */)
                 })

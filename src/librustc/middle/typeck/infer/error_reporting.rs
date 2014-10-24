@@ -256,7 +256,7 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
             }
         }
         if !same_regions.is_empty() {
-            let common_scope_id = same_regions.get(0).scope_id;
+            let common_scope_id = same_regions[0].scope_id;
             for sr in same_regions.iter() {
                 // Since ProcessedErrors is used to reconstruct the function
                 // declaration, we want to make sure that they are, in fact,
@@ -268,7 +268,7 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
                 }
             }
             let pe = ProcessedErrors(var_origins, trace_origins, same_regions);
-            debug!("errors processed: {:?}", pe);
+            debug!("errors processed: {}", pe);
             processed_errors.push(pe);
         }
         return processed_errors;
@@ -297,7 +297,7 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
                                      sub: Region,
                                      sup: Region)
                                      -> Option<FreeRegionsFromSameFn> {
-            debug!("free_regions_from_same_fn(sub={:?}, sup={:?})", sub, sup);
+            debug!("free_regions_from_same_fn(sub={}, sup={})", sub, sup);
             let (scope_id, fr1, fr2) = match (sub, sup) {
                 (ReFree(fr1), ReFree(fr2)) => {
                     if fr1.scope_id != fr2.scope_id {
@@ -366,6 +366,7 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
             infer::RelateOutputImplTypes(_) => "mismatched types",
             infer::MatchExpressionArm(_, _) => "match arms have incompatible types",
             infer::IfExpression(_) => "if and else have incompatible types",
+            infer::IfExpressionWithNoElse(_) => "if may be missing an else clause",
         };
 
         self.tcx.sess.span_err(
@@ -1002,7 +1003,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                 names.push(lt_name);
             }
             names.sort();
-            let name = token::str_to_ident(names.get(0).as_slice()).name;
+            let name = token::str_to_ident(names[0].as_slice()).name;
             return (name_to_dummy_lifetime(name), Kept);
         }
         return (self.life_giver.give_lifetime(), Fresh);
@@ -1208,7 +1209,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
         let mut new_ty = P(ty.clone());
         let mut ty_queue = vec!(ty);
         while !ty_queue.is_empty() {
-            let cur_ty = ty_queue.shift().unwrap();
+            let cur_ty = ty_queue.remove(0).unwrap();
             match cur_ty.node {
                 ast::TyRptr(lt_opt, ref mut_ty) => {
                     let rebuild = match lt_opt {
@@ -1416,7 +1417,7 @@ impl<'a, 'tcx> ErrorReportingHelpers for InferCtxt<'a, 'tcx> {
                                               opt_explicit_self, generics);
         let msg = format!("consider using an explicit lifetime \
                            parameter as shown: {}", suggested_fn);
-        self.tcx.sess.span_note(span, msg.as_slice());
+        self.tcx.sess.span_help(span, msg.as_slice());
     }
 
     fn report_inference_failure(&self,
@@ -1485,6 +1486,9 @@ impl<'a, 'tcx> ErrorReportingHelpers for InferCtxt<'a, 'tcx> {
                     }
                     infer::IfExpression(_) => {
                         format!("if and else have compatible types")
+                    }
+                    infer::IfExpressionWithNoElse(_) => {
+                        format!("if may be missing an else clause")
                     }
                 };
 
@@ -1764,7 +1768,7 @@ impl LifeGiver {
             let (n, r) = (counter/26 + 1, counter % 26);
             let letter: char = from_u32((r+97) as u32).unwrap();
             for _ in range(0, n) {
-                s.push_char(letter);
+                s.push(letter);
             }
             s
         }

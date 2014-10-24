@@ -93,8 +93,9 @@ pub fn get_item_path(tcx: &ty::ctxt, def: ast::DefId) -> Vec<ast_map::PathElem> 
 
     // FIXME #1920: This path is not always correct if the crate is not linked
     // into the root namespace.
-    (vec!(ast_map::PathMod(token::intern(cdata.name.as_slice())))).append(
-        path.as_slice())
+    let mut r = vec![ast_map::PathMod(token::intern(cdata.name.as_slice()))];
+    r.push_all(path.as_slice());
+    r
 }
 
 pub enum found_ast<'ast> {
@@ -226,13 +227,13 @@ pub fn get_field_type(tcx: &ty::ctxt, class_id: ast::DefId,
     let class_doc = expect(tcx.sess.diagnostic(),
                            decoder::maybe_find_item(class_id.node, all_items),
                            || {
-        (format!("get_field_type: class ID {:?} not found",
+        (format!("get_field_type: class ID {} not found",
                  class_id)).to_string()
     });
     let the_field = expect(tcx.sess.diagnostic(),
         decoder::maybe_find_item(def.node, class_doc),
         || {
-            (format!("get_field_type: in class {:?}, field ID {:?} not found",
+            (format!("get_field_type: in class {}, field ID {} not found",
                     class_id,
                     def)).to_string()
         });

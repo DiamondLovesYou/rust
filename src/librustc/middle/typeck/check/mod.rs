@@ -555,16 +555,12 @@ fn check_fn<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
 
     // Remember return type so that regionck can access it later.
     let fn_sig_tys: Vec<ty::t> =
-        arg_tys.iter()
-        .chain([ret_ty].iter())
-        .map(|&ty| ty)
-        .collect();
+        arg_tys.iter().chain([ret_ty].iter()).map(|&ty| ty).collect();
     debug!("fn-sig-map: fn_id={} fn_sig_tys={}",
            fn_id,
            fn_sig_tys.repr(tcx));
-    inherited.fn_sig_map
-        .borrow_mut()
-        .insert(fn_id, fn_sig_tys);
+
+    inherited.fn_sig_map.borrow_mut().insert(fn_id, fn_sig_tys);
 
     {
         let mut visit = GatherLocalsVisitor { fcx: &fcx, };
@@ -591,6 +587,7 @@ fn check_fn<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
 
         visit.visit_block(body);
     }
+    fcx.require_type_is_sized(ret_ty, decl.output.span, traits::ReturnType);
 
     check_block_with_expected(&fcx, body, ExpectHasType(ret_ty));
 
@@ -1059,8 +1056,8 @@ fn compare_impl_method(tcx: &ty::ctxt,
     let trait_to_skol_substs =
         trait_to_impl_substs
         .subst(tcx, &impl_to_skol_substs)
-        .with_method(Vec::from_slice(skol_tps.get_slice(subst::FnSpace)),
-                     Vec::from_slice(skol_regions.get_slice(subst::FnSpace)));
+        .with_method(skol_tps.get_slice(subst::FnSpace).to_vec(),
+                     skol_regions.get_slice(subst::FnSpace).to_vec());
 
     // Check region bounds.
     if !check_region_bounds_on_impl_method(tcx,
@@ -1563,7 +1560,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             None => {
                 self.tcx().sess.span_bug(
                     span,
-                    format!("no type for local variable {:?}",
+                    format!("no type for local variable {}",
                             nid).as_slice());
             }
         }
@@ -1622,7 +1619,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                             node_id: ast::NodeId,
                             span: Span,
                             adj: ty::AutoAdjustment) {
-        debug!("write_adjustment(node_id={:?}, adj={:?})", node_id, adj);
+        debug!("write_adjustment(node_id={}, adj={})", node_id, adj);
 
         // Careful: adjustments can imply trait obligations if we are
         // casting from a concrete type to an object type. I think
@@ -1673,7 +1670,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     fn register_unsize_obligations(&self,
                                    span: Span,
                                    unsize: &ty::UnsizeKind) {
-        debug!("register_unsize_obligations: unsize={:?}", unsize);
+        debug!("register_unsize_obligations: unsize={}", unsize);
 
         match *unsize {
             ty::UnsizeLength(..) => {}
@@ -1681,10 +1678,17 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 self.register_unsize_obligations(span, &**u)
             }
             ty::UnsizeVtable(ref ty_trait, self_ty) => {
+                // If the type is `Foo+'a`, ensures that the type
+                // being cast to `Foo+'a` implements `Foo`:
                 vtable2::register_object_cast_obligations(self,
                                                           span,
                                                           ty_trait,
                                                           self_ty);
+
+                // If the type is `Foo+'a`, ensures that the type
+                // being cast to `Foo+'a` outlives `'a`:
+                let origin = infer::RelateObjectBound(span);
+                self.register_region_obligation(origin, self_ty, ty_trait.bounds.region_bound);
             }
         }
     }
@@ -2516,8 +2520,10 @@ fn check_argument_types<'a>(fcx: &FnCtxt,
                         "this function takes 0 parameters but {} parameter{} supplied",
                         args.len(),
                         if args.len() == 1 {" was"} else {"s were"});
+                    err_args(args.len())
+                } else {
+                    vec![]
                 }
-                Vec::new()
             }
             _ => {
                 span_err!(tcx.sess, sp, E0059,
@@ -2551,7 +2557,7 @@ fn check_argument_types<'a>(fcx: &FnCtxt,
         err_args(supplied_arg_count)
     };
 
-    debug!("check_argument_types: formal_tys={:?}",
+    debug!("check_argument_types: formal_tys={}",
            formal_tys.iter().map(|t| fcx.infcx().ty_to_string(*t)).collect::<Vec<String>>());
 
     // Check the arguments.
@@ -2592,7 +2598,7 @@ fn check_argument_types<'a>(fcx: &FnCtxt,
 
             if is_block == check_blocks {
                 debug!("checking the argument");
-                let mut formal_ty = *formal_tys.get(i);
+                let mut formal_ty = formal_tys[i];
 
                 match deref_args {
                     DoDerefArgs => {
@@ -2918,12 +2924,10 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                          expr: &ast::Expr,
                          method_name: ast::SpannedIdent,
                          args: &[P<ast::Expr>],
-                         tps: &[P<ast::Ty>]) {
+                         tps: &[P<ast::Ty>],
+                         lvalue_pref: LvaluePreference) {
         let rcvr = &*args[0];
-        // We can't know if we need &mut self before we look up the method,
-        // so treat the receiver as mutable just in case - only explicit
-        // overloaded dereferences care about the distinction.
-        check_expr_with_lvalue_pref(fcx, &*rcvr, PreferMutLvalue);
+        check_expr_with_lvalue_pref(fcx, &*rcvr, lvalue_pref);
 
         // no need to check for bot/err -- callee does that
         let expr_t = structurally_resolved_type(fcx,
@@ -2999,35 +3003,36 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                        expected: Expectation) {
         check_expr_has_type(fcx, cond_expr, ty::mk_bool());
 
+        // Disregard "castable to" expectations because they
+        // can lead us astray. Consider for example `if cond
+        // {22} else {c} as u8` -- if we propagate the
+        // "castable to u8" constraint to 22, it will pick the
+        // type 22u8, which is overly constrained (c might not
+        // be a u8). In effect, the problem is that the
+        // "castable to" expectation is not the tightest thing
+        // we can say, so we want to drop it in this case.
+        // The tightest thing we can say is "must unify with
+        // else branch". Note that in the case of a "has type"
+        // constraint, this limitation does not hold.
+
+        // If the expected type is just a type variable, then don't use
+        // an expected type. Otherwise, we might write parts of the type
+        // when checking the 'then' block which are incompatible with the
+        // 'else' branch.
+        let expected = match expected.only_has_type() {
+            ExpectHasType(ety) => {
+                match infer::resolve_type(fcx.infcx(), Some(sp), ety, force_tvar) {
+                    Ok(rty) if !ty::type_is_ty_var(rty) => ExpectHasType(rty),
+                    _ => NoExpectation
+                }
+            }
+            _ => NoExpectation
+        };
+        check_block_with_expected(fcx, then_blk, expected);
+        let then_ty = fcx.node_ty(then_blk.id);
+
         let branches_ty = match opt_else_expr {
             Some(ref else_expr) => {
-                // Disregard "castable to" expectations because they
-                // can lead us astray. Consider for example `if cond
-                // {22} else {c} as u8` -- if we propagate the
-                // "castable to u8" constraint to 22, it will pick the
-                // type 22u8, which is overly constrained (c might not
-                // be a u8). In effect, the problem is that the
-                // "castable to" expectation is not the tightest thing
-                // we can say, so we want to drop it in this case.
-                // The tightest thing we can say is "must unify with
-                // else branch". Note that in the case of a "has type"
-                // constraint, this limitation does not hold.
-
-                // If the expected type is just a type variable, then don't use
-                // an expected type. Otherwise, we might write parts of the type
-                // when checking the 'then' block which are incompatible with the
-                // 'else' branch.
-                let expected = match expected.only_has_type() {
-                    ExpectHasType(ety) => {
-                        match infer::resolve_type(fcx.infcx(), Some(sp), ety, force_tvar) {
-                            Ok(rty) if !ty::type_is_ty_var(rty) => ExpectHasType(rty),
-                            _ => NoExpectation
-                        }
-                    }
-                    _ => NoExpectation
-                };
-                check_block_with_expected(fcx, then_blk, expected);
-                let then_ty = fcx.node_ty(then_blk.id);
                 check_expr_with_expectation(fcx, &**else_expr, expected);
                 let else_ty = fcx.expr_ty(&**else_expr);
                 infer::common_supertype(fcx.infcx(),
@@ -3037,8 +3042,11 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                         else_ty)
             }
             None => {
-                check_block_no_value(fcx, then_blk);
-                ty::mk_nil()
+                infer::common_supertype(fcx.infcx(),
+                                        infer::IfExpressionWithNoElse(sp),
+                                        false,
+                                        then_ty,
+                                        ty::mk_nil())
             }
         };
 
@@ -3293,7 +3301,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 fcx.ccx.tcx.sess.span_bug(expr.span,
                                           "can't make anon regions here?!")
             }
-            Ok(regions) => *regions.get(0),
+            Ok(regions) => regions[0],
         };
         let closure_type = ty::mk_unboxed_closure(fcx.ccx.tcx,
                                                   local_def(expr.id),
@@ -3635,7 +3643,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                 let mut missing_fields = Vec::new();
                 for class_field in field_types.iter() {
                     let name = class_field.name;
-                    let (_, seen) = *class_field_map.get(&name);
+                    let (_, seen) = class_field_map[name];
                     if !seen {
                         missing_fields.push(
                             format!("`{}`", token::get_name(name).get()))
@@ -3863,7 +3871,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                     ty::ty_struct(did, ref substs) => {
                                         let fields = ty::struct_fields(fcx.tcx(), did, substs);
                                         fields.len() == 1
-                                        && fields.get(0).ident ==
+                                        && fields[0].ident ==
                                         token::special_idents::unnamed_field
                                     }
                                     _ => false
@@ -4058,6 +4066,9 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
             fcx.write_nil(id);
         }
       }
+      ast::ExprWhileLet(..) => {
+        tcx.sess.span_bug(expr.span, "non-desugared ExprWhileLet");
+      }
       ast::ExprForLoop(ref pat, ref head, ref block, _) => {
         check_expr(fcx, &**head);
         let typ = lookup_method_for_for_loop(fcx, &**head, expr.id);
@@ -4138,7 +4149,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
           }
       }
       ast::ExprMethodCall(ident, ref tps, ref args) => {
-        check_method_call(fcx, expr, ident, args.as_slice(), tps.as_slice());
+        check_method_call(fcx, expr, ident, args.as_slice(), tps.as_slice(), lvalue_pref);
         let mut arg_tys = args.iter().map(|a| fcx.expr_ty(&**a));
         let (args_bot, args_err) = arg_tys.fold((false, false),
              |(rest_bot, rest_err), a| {
@@ -4247,7 +4258,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         let elt_ts = elts.iter().enumerate().map(|(i, e)| {
             let t = match flds {
                 Some(ref fs) if i < fs.len() => {
-                    let ety = *fs.get(i);
+                    let ety = fs[i];
                     check_expr_coercable_to_type(fcx, &**e, ety);
                     ety
                 }
@@ -4752,7 +4763,7 @@ pub fn check_const(ccx: &CrateCtxt,
     let inh = static_inherited_fields(ccx);
     let rty = ty::node_id_to_type(ccx.tcx, id);
     let fcx = blank_fn_ctxt(ccx, &inh, rty, e.id);
-    let declty = fcx.ccx.tcx.tcache.borrow().get(&local_def(id)).ty;
+    let declty = (*fcx.ccx.tcx.tcache.borrow())[local_def(id)].ty;
     check_const_with_ty(&fcx, sp, e, declty);
 }
 
@@ -4842,7 +4853,7 @@ pub fn check_simd(tcx: &ty::ctxt, sp: Span, id: ast::NodeId) {
                 span_err!(tcx.sess, sp, E0075, "SIMD vector cannot be empty");
                 return;
             }
-            let e = ty::lookup_field_type(tcx, did, fields.get(0).id, substs);
+            let e = ty::lookup_field_type(tcx, did, fields[0].id, substs);
             if !fields.iter().all(
                          |f| ty::lookup_field_type(tcx, did, f.id, substs) == e) {
                 span_err!(tcx.sess, sp, E0076, "SIMD vector should be homogeneous");
@@ -5024,7 +5035,7 @@ pub fn polytype_for_def(fcx: &FnCtxt,
           let typ = fcx.local_ty(sp, nid);
           return no_params(typ);
       }
-      def::DefFn(id, _, _) | def::DefStaticMethod(id, _, _) |
+      def::DefFn(id, _, _) | def::DefStaticMethod(id, _, _) | def::DefMethod(id, _, _) |
       def::DefStatic(id, _) | def::DefVariant(_, id, _) |
       def::DefStruct(id) | def::DefConst(id) => {
         return ty::lookup_item_type(fcx.ccx.tcx, id);
@@ -5053,9 +5064,6 @@ pub fn polytype_for_def(fcx: &FnCtxt,
       }
       def::DefSelfTy(..) => {
         fcx.ccx.tcx.sess.span_bug(sp, "expected value, found self ty");
-      }
-      def::DefMethod(..) => {
-        fcx.ccx.tcx.sess.span_bug(sp, "expected value, found method");
       }
     }
 }
@@ -5228,8 +5236,7 @@ pub fn instantiate_path(fcx: &FnCtxt,
     }
 
     fcx.add_obligations_for_parameters(
-        traits::ObligationCause::new(span,
-                                     traits::ItemObligation(def.def_id())),
+        traits::ObligationCause::new(span, traits::ItemObligation(def.def_id())),
         &substs,
         &polytype.generics);
 
@@ -5507,7 +5514,7 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
         assert!(split.len() >= 2, "Atomic intrinsic not correct format");
 
         //We only care about the operation here
-        match *split.get(1) {
+        match split[1] {
             "cxchg" => (1, vec!(ty::mk_mut_ptr(tcx, param(ccx, 0)),
                                 param(ccx, 0),
                                 param(ccx, 0)),
@@ -5577,25 +5584,6 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
                     }
                 }
             },
-            "visit_tydesc" => {
-              let tydesc_ty = match ty::get_tydesc_ty(ccx.tcx) {
-                  Ok(t) => t,
-                  Err(s) => { tcx.sess.span_fatal(it.span, s.as_slice()); }
-              };
-              let region0 = ty::ReLateBound(it.id, ty::BrAnon(0));
-              let region1 = ty::ReLateBound(it.id, ty::BrAnon(1));
-              let visitor_object_ty =
-                    match ty::visitor_object_ty(tcx, region0, region1) {
-                        Ok((_, vot)) => vot,
-                        Err(s) => { tcx.sess.span_fatal(it.span, s.as_slice()); }
-                    };
-
-              let td_ptr = ty::mk_ptr(ccx.tcx, ty::mt {
-                  ty: tydesc_ty,
-                  mutbl: ast::MutImmutable
-              });
-              (0, vec!( td_ptr, visitor_object_ty ), ty::mk_nil())
-            }
             "offset" => {
               (1,
                vec!(

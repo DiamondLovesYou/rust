@@ -8,10 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern crate debug;
-
 use std::mem::swap;
 
+#[deriving(Show)]
 struct Ints {sum: Box<int>, values: Vec<int> }
 
 fn add_int(x: &mut Ints, v: int) {
@@ -24,7 +23,7 @@ fn add_int(x: &mut Ints, v: int) {
 
 fn iter_ints(x: &Ints, f: |x: &int| -> bool) -> bool {
     let l = x.values.len();
-    range(0u, l).all(|i| f(x.values.get(i)))
+    range(0u, l).all(|i| f(&x.values[i]))
 }
 
 pub fn main() {
@@ -37,5 +36,5 @@ pub fn main() {
         true
     });
 
-    println!("ints={:?}", ints);
+    println!("ints={}", ints);
 }

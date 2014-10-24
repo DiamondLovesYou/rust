@@ -34,7 +34,7 @@ use middle::typeck::infer::lub::Lub;
 use middle::typeck::infer::glb::Glb;
 use syntax::codemap;
 use syntax::codemap::{Span, CodeMap, DUMMY_SP};
-use syntax::diagnostic::{Level, RenderSpan, Bug, Fatal, Error, Warning, Note};
+use syntax::diagnostic::{Level, RenderSpan, Bug, Fatal, Error, Warning, Note, Help};
 use syntax::{ast, ast_map};
 use util::ppaux::{ty_to_string, UserString};
 
@@ -58,7 +58,7 @@ struct ExpectErrorEmitter {
 fn remove_message(e: &mut ExpectErrorEmitter, msg: &str, lvl: Level) {
     match lvl {
         Bug | Fatal | Error => { }
-        Warning | Note => { return; }
+        Warning | Note | Help => { return; }
     }
 
     debug!("Error: {}", msg);
@@ -315,7 +315,7 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
     pub fn make_lub_ty(&self, t1: ty::t, t2: ty::t) -> ty::t {
         match self.lub().tys(t1, t2) {
             Ok(t) => t,
-            Err(ref e) => fail!("unexpected error computing LUB: {:?}",
+            Err(ref e) => fail!("unexpected error computing LUB: {}",
                                 ty::type_err_to_str(self.infcx.tcx, e))
         }
     }
@@ -341,7 +341,7 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
                self.ty_to_string(t_glb));
         match self.glb().tys(t1, t2) {
             Err(e) => {
-                fail!("unexpected error computing LUB: {:?}", e)
+                fail!("unexpected error computing LUB: {}", e)
             }
             Ok(t) => {
                 self.assert_eq(t, t_glb);

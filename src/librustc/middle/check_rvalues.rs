@@ -32,13 +32,16 @@ struct RvalueContext<'a, 'tcx: 'a> {
 
 impl<'a, 'tcx, 'v> visit::Visitor<'v> for RvalueContext<'a, 'tcx> {
     fn visit_fn(&mut self,
-                _: visit::FnKind<'v>,
+                fk: visit::FnKind<'v>,
                 fd: &'v ast::FnDecl,
                 b: &'v ast::Block,
-                _: Span,
+                s: Span,
                 _: ast::NodeId) {
-        let mut euv = euv::ExprUseVisitor::new(self, self.tcx);
-        euv.walk_fn(fd, b);
+        {
+            let mut euv = euv::ExprUseVisitor::new(self, self.tcx);
+            euv.walk_fn(fd, b);
+        }
+        visit::walk_fn(self, fk, fd, b, s)
     }
 }
 
@@ -48,7 +51,7 @@ impl<'a, 'tcx> euv::Delegate for RvalueContext<'a, 'tcx> {
                span: Span,
                cmt: mc::cmt,
                _: euv::ConsumeMode) {
-        debug!("consume; cmt: {:?}; type: {}", *cmt, ty_to_string(self.tcx, cmt.ty));
+        debug!("consume; cmt: {}; type: {}", *cmt, ty_to_string(self.tcx, cmt.ty));
         if !ty::type_is_sized(self.tcx, cmt.ty) {
             span_err!(self.tcx.sess, span, E0161,
                 "cannot move a value of type {0}: the size of {0} cannot be statically determined",

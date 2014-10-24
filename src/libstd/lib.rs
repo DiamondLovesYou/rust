@@ -123,7 +123,6 @@
 extern crate green;
 #[cfg(all(test, target_os = "nacl", target_libc = "newlib"))]
 extern crate native;
-#[cfg(test)] extern crate debug;
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
 
 extern crate alloc;
@@ -140,7 +139,6 @@ extern crate rustrt;
 #[cfg(test)] pub use realstd::kinds;
 #[cfg(test)] pub use realstd::ops;
 #[cfg(test)] pub use realstd::cmp;
-#[cfg(test)] pub use realstd::ty;
 #[cfg(test)] pub use realstd::boxed;
 
 
@@ -165,13 +163,10 @@ pub use core::tuple;
 // FIXME #15320: primitive documentation needs top-level modules, this
 // should be `std::tuple::unit`.
 pub use core::unit;
-#[cfg(not(test))] pub use core::ty;
 pub use core::result;
 pub use core::option;
 
 pub use alloc::boxed;
-#[deprecated = "use boxed instead"]
-pub use boxed as owned;
 
 pub use alloc::rc;
 

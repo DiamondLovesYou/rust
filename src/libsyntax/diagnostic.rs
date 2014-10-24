@@ -105,6 +105,9 @@ impl SpanHandler {
     pub fn span_end_note(&self, sp: Span, msg: &str) {
         self.handler.custom_emit(&self.cm, FullSpan(sp), msg, Note);
     }
+    pub fn span_help(&self, sp: Span, msg: &str) {
+        self.handler.emit(Some((&self.cm, sp)), msg, Help);
+    }
     pub fn fileline_note(&self, sp: Span, msg: &str) {
         self.handler.custom_emit(&self.cm, FileLine(sp), msg, Note);
     }
@@ -164,6 +167,9 @@ impl Handler {
     pub fn note(&self, msg: &str) {
         self.emit.borrow_mut().emit(None, msg, None, Note);
     }
+    pub fn help(&self, msg: &str) {
+        self.emit.borrow_mut().emit(None, msg, None, Help);
+    }
     pub fn bug(&self, msg: &str) -> ! {
         self.emit.borrow_mut().emit(None, msg, None, Bug);
         fail!(ExplicitBug);
@@ -216,6 +222,7 @@ pub enum Level {
     Error,
     Warning,
     Note,
+    Help,
 }
 
 impl fmt::Show for Level {
@@ -227,6 +234,7 @@ impl fmt::Show for Level {
             Fatal | Error => "error".fmt(f),
             Warning => "warning".fmt(f),
             Note => "note".fmt(f),
+            Help => "help".fmt(f),
         }
     }
 }
@@ -236,7 +244,8 @@ impl Level {
         match self {
             Bug | Fatal | Error => term::color::BRIGHT_RED,
             Warning => term::color::BRIGHT_YELLOW,
-            Note => term::color::BRIGHT_GREEN
+            Note => term::color::BRIGHT_GREEN,
+            Help => term::color::BRIGHT_CYAN,
         }
     }
 }
@@ -293,15 +302,6 @@ fn print_diagnostic(dst: &mut EmitterWriter, topic: &str, lvl: Level,
         Some(code) => {
             let style = term::attr::ForegroundColor(term::color::BRIGHT_MAGENTA);
             try!(print_maybe_styled(dst, format!(" [{}]", code.clone()).as_slice(), style));
-            match dst.registry.as_ref().and_then(|registry| registry.find_description(code)) {
-                Some(_) => {
-                    try!(write!(&mut dst.dst,
-                        " (pass `--explain {}` to see a detailed explanation)",
-                        code
-                    ));
-                }
-                None => ()
-            }
         }
         None => ()
     }
@@ -401,7 +401,20 @@ fn emit(dst: &mut EmitterWriter, cm: &codemap::CodeMap, rsp: RenderSpan,
             try!(highlight_lines(dst, cm, sp, lvl, lines));
         }
     }
-    print_macro_backtrace(dst, cm, sp)
+    try!(print_macro_backtrace(dst, cm, sp));
+    match code {
+        Some(code) =>
+            match dst.registry.as_ref().and_then(|registry| registry.find_description(code)) {
+                Some(_) => {
+                    try!(print_diagnostic(dst, ss.as_slice(), Help,
+                                          format!("pass `--explain {}` to see a detailed \
+                                                   explanation", code).as_slice(), None));
+                }
+                None => ()
+            },
+        None => (),
+    }
+    Ok(())
 }
 
 fn highlight_lines(err: &mut EmitterWriter,
@@ -433,7 +446,7 @@ fn highlight_lines(err: &mut EmitterWriter,
     if lines.lines.len() == 1u {
         let lo = cm.lookup_char_pos(sp.lo);
         let mut digits = 0u;
-        let mut num = (*lines.lines.get(0) + 1u) / 10u;
+        let mut num = (lines.lines[0] + 1u) / 10u;
 
         // how many digits must be indent past?
         while num > 0u { num /= 10u; digits += 1u; }
@@ -445,9 +458,9 @@ fn highlight_lines(err: &mut EmitterWriter,
         // part of the 'filename:line ' part of the previous line.
         let skip = fm.name.len() + digits + 3u;
         for _ in range(0, skip) {
-            s.push_char(' ');
+            s.push(' ');
         }
-        let orig = fm.get_line(*lines.lines.get(0) as int);
+        let orig = fm.get_line(lines.lines[0] as int);
         for pos in range(0u, left-skip) {
             let cur_char = orig.as_bytes()[pos] as char;
             // Whenever a tab occurs on the previous line, we insert one on
@@ -455,8 +468,8 @@ fn highlight_lines(err: &mut EmitterWriter,
             // That way the squiggly line will usually appear in the correct
             // position.
             match cur_char {
-                '\t' => s.push_char('\t'),
-                _ => s.push_char(' '),
+                '\t' => s.push('\t'),
+                _ => s.push(' '),
             };
         }
         try!(write!(&mut err.dst, "{}", s));
@@ -466,7 +479,7 @@ fn highlight_lines(err: &mut EmitterWriter,
             // the ^ already takes up one space
             let num_squigglies = hi.col.to_uint()-lo.col.to_uint()-1u;
             for _ in range(0, num_squigglies) {
-                s.push_char('~');
+                s.push('~');
             }
         }
         try!(print_maybe_styled(err,
@@ -510,10 +523,10 @@ fn custom_highlight_lines(w: &mut EmitterWriter,
     let skip = last_line_start.len() + hi.col.to_uint() - 1;
     let mut s = String::new();
     for _ in range(0, skip) {
-        s.push_char(' ');
+        s.push(' ');
     }
-    s.push_char('^');
-    s.push_char('\n');
+    s.push('^');
+    s.push('\n');
     print_maybe_styled(w,
                        s.as_slice(),
                        term::attr::ForegroundColor(lvl.color()))

@@ -30,10 +30,10 @@ pub fn main() {
     }
 }
 
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "macos",
+          target_os = "linux",
+          target_os = "freebsd",
+          target_os = "dragonfly",
+          target_os = "android"))]
 #[cfg(target_os = "nacl")]
 pub fn main() { }

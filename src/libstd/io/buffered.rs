@@ -104,6 +104,9 @@ impl<R: Reader> Buffer for BufferedReader<R> {
 
 impl<R: Reader> Reader for BufferedReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
+        if self.pos == self.cap && buf.len() >= self.buf.capacity() {
+            return self.inner.read(buf);
+        }
         let nread = {
             let available = try!(self.fill_buf());
             let nread = cmp::min(available.len(), buf.len());
@@ -400,7 +403,7 @@ mod test {
 
     impl Reader for ShortReader {
         fn read(&mut self, _: &mut [u8]) -> io::IoResult<uint> {
-            match self.lengths.shift() {
+            match self.lengths.remove(0) {
                 Some(i) => Ok(i),
                 None => Err(io::standard_error(io::EndOfFile))
             }
@@ -409,13 +412,19 @@ mod test {
 
     #[test]
     fn test_buffered_reader() {
-        let inner = MemReader::new(vec!(0, 1, 2, 3, 4));
+        let inner = MemReader::new(vec!(5, 6, 7, 0, 1, 2, 3, 4));
         let mut reader = BufferedReader::with_capacity(2, inner);
 
         let mut buf = [0, 0, 0];
         let nread = reader.read(buf);
+        assert_eq!(Ok(3), nread);
+        let b: &[_] = &[5, 6, 7];
+        assert_eq!(buf.as_slice(), b);
+
+        let mut buf = [0, 0];
+        let nread = reader.read(buf);
         assert_eq!(Ok(2), nread);
-        let b: &[_] = &[0, 1, 0];
+        let b: &[_] = &[0, 1];
         assert_eq!(buf.as_slice(), b);
 
         let mut buf = [0];
@@ -551,7 +560,7 @@ mod test {
 
     #[test]
     fn test_read_line() {
-        let in_buf = MemReader::new(Vec::from_slice(b"a\nb\nc"));
+        let in_buf = MemReader::new(b"a\nb\nc".to_vec());
         let mut reader = BufferedReader::with_capacity(2, in_buf);
         assert_eq!(reader.read_line(), Ok("a\n".to_string()));
         assert_eq!(reader.read_line(), Ok("b\n".to_string()));
@@ -561,7 +570,7 @@ mod test {
 
     #[test]
     fn test_lines() {
-        let in_buf = MemReader::new(Vec::from_slice(b"a\nb\nc"));
+        let in_buf = MemReader::new(b"a\nb\nc".to_vec());
         let mut reader = BufferedReader::with_capacity(2, in_buf);
         let mut it = reader.lines();
         assert_eq!(it.next(), Some(Ok("a\n".to_string())));

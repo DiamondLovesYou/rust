@@ -26,6 +26,7 @@ use middle::trans::build;
 use middle::trans::cleanup;
 use middle::trans::datum;
 use middle::trans::debuginfo;
+use middle::trans::machine;
 use middle::trans::type_::Type;
 use middle::trans::type_of;
 use middle::traits;
@@ -39,7 +40,7 @@ use util::nodemap::{DefIdMap, NodeMap};
 
 use arena::TypedArena;
 use std::collections::HashMap;
-use libc::{c_uint, c_longlong, c_ulonglong, c_char};
+use libc::{c_uint, c_char};
 use std::c_str::ToCStr;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -58,9 +59,9 @@ fn type_is_newtype_immediate(ccx: &CrateContext, ty: ty::t) -> bool {
         ty::ty_struct(def_id, ref substs) => {
             let fields = ty::struct_fields(ccx.tcx(), def_id, substs);
             fields.len() == 1 &&
-                fields.get(0).ident.name ==
+                fields[0].ident.name ==
                     token::special_idents::unnamed_field.name &&
-                type_is_immediate(ccx, fields.get(0).mt.ty)
+                type_is_immediate(ccx, fields[0].mt.ty)
         }
         _ => false
     }
@@ -144,7 +145,6 @@ pub struct tydesc_info {
     pub size: ValueRef,
     pub align: ValueRef,
     pub name: ValueRef,
-    pub visit_glue: Cell<Option<ValueRef>>,
 }
 
 /*
@@ -482,7 +482,7 @@ impl<'blk, 'tcx> BlockS<'blk, 'tcx> {
             Some(v) => v.clone(),
             None => {
                 self.tcx().sess.bug(format!(
-                    "no def associated with node id {:?}", nid).as_slice());
+                    "no def associated with node id {}", nid).as_slice());
             }
         }
     }
@@ -609,13 +609,42 @@ pub fn C_u64(ccx: &CrateContext, i: u64) -> ValueRef {
     C_integral(Type::i64(ccx), i, false)
 }
 
-pub fn C_int(ccx: &CrateContext, i: int) -> ValueRef {
-    C_integral(ccx.int_type(), i as u64, true)
+pub fn C_int<I: AsI64>(ccx: &CrateContext, i: I) -> ValueRef {
+    let v = i.as_i64();
+
+    match machine::llbitsize_of_real(ccx, ccx.int_type()) {
+        32 => assert!(v < (1<<31) && v >= -(1<<31)),
+        64 => {},
+        n => fail!("unsupported target size: {}", n)
+    }
+
+    C_integral(ccx.int_type(), v as u64, true)
 }
 
-pub fn C_uint(ccx: &CrateContext, i: uint) -> ValueRef {
-    C_integral(ccx.int_type(), i as u64, false)
+pub fn C_uint<I: AsU64>(ccx: &CrateContext, i: I) -> ValueRef {
+    let v = i.as_u64();
+
+    match machine::llbitsize_of_real(ccx, ccx.int_type()) {
+        32 => assert!(v < (1<<32)),
+        64 => {},
+        n => fail!("unsupported target size: {}", n)
+    }
+
+    C_integral(ccx.int_type(), v, false)
 }
+
+pub trait AsI64 { fn as_i64(self) -> i64; }
+pub trait AsU64 { fn as_u64(self) -> u64; }
+
+// FIXME: remove the intptr conversions, because they
+// are host-architecture-dependent
+impl AsI64 for i64 { fn as_i64(self) -> i64 { self as i64 }}
+impl AsI64 for i32 { fn as_i64(self) -> i64 { self as i64 }}
+impl AsI64 for int { fn as_i64(self) -> i64 { self as i64 }}
+
+impl AsU64 for u64  { fn as_u64(self) -> u64 { self as u64 }}
+impl AsU64 for u32  { fn as_u64(self) -> u64 { self as u64 }}
+impl AsU64 for uint { fn as_u64(self) -> u64 { self as u64 }}
 
 pub fn C_u8(ccx: &CrateContext, i: uint) -> ValueRef {
     C_integral(Type::i8(ccx), i as u64, false)
@@ -723,7 +752,7 @@ pub fn const_get_elt(cx: &CrateContext, v: ValueRef, us: &[c_uint])
     unsafe {
         let r = llvm::LLVMConstExtractValue(v, us.as_ptr(), us.len() as c_uint);
 
-        debug!("const_get_elt(v={}, us={:?}, r={})",
+        debug!("const_get_elt(v={}, us={}, r={})",
                cx.tn().val_to_string(v), us, cx.tn().val_to_string(r));
 
         return r;
@@ -736,13 +765,13 @@ pub fn is_const(v: ValueRef) -> bool {
     }
 }
 
-pub fn const_to_int(v: ValueRef) -> c_longlong {
+pub fn const_to_int(v: ValueRef) -> i64 {
     unsafe {
         llvm::LLVMConstIntGetSExtValue(v)
     }
 }
 
-pub fn const_to_uint(v: ValueRef) -> c_ulonglong {
+pub fn const_to_uint(v: ValueRef) -> u64 {
     unsafe {
         llvm::LLVMConstIntGetZExtValue(v)
     }
@@ -884,7 +913,7 @@ pub fn fulfill_obligation(ccx: &CrateContext,
 }
 
 // Key used to lookup values supplied for type parameters in an expr.
-#[deriving(PartialEq)]
+#[deriving(PartialEq, Show)]
 pub enum ExprOrMethodCall {
     // Type parameters for a path like `None::<int>`
     ExprId(ast::NodeId),
@@ -904,13 +933,13 @@ pub fn node_id_substs(bcx: Block,
             ty::node_id_item_substs(tcx, id).substs
         }
         MethodCall(method_call) => {
-            tcx.method_map.borrow().get(&method_call).substs.clone()
+            (*tcx.method_map.borrow())[method_call].substs.clone()
         }
     };
 
     if substs.types.any(|t| ty::type_needs_infer(*t)) {
         bcx.sess().bug(
-            format!("type parameters for node {:?} include inference types: \
+            format!("type parameters for node {} include inference types: \
                      {}",
                     node,
                     substs.repr(bcx.tcx())).as_slice());

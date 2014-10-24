@@ -77,10 +77,12 @@ pub fn collect_item_types(ccx: &CrateCtxt) {
     }
 
     match ccx.tcx.lang_items.ty_desc() {
-        Some(id) => { collect_intrinsic_type(ccx, id); } None => {}
+        Some(id) => { collect_intrinsic_type(ccx, id); }
+        None => {}
     }
     match ccx.tcx.lang_items.opaque() {
-        Some(id) => { collect_intrinsic_type(ccx, id); } None => {}
+        Some(id) => { collect_intrinsic_type(ccx, id); }
+        None => {}
     }
 
     let mut visitor = CollectTraitDefVisitor{ ccx: ccx };
@@ -169,7 +171,7 @@ impl<'a, 'tcx> AstConv<'tcx> for CrateCtxt<'a, 'tcx> {
             }
             x => {
                 self.tcx.sess.bug(format!("unexpected sort of node \
-                                           in get_item_ty(): {:?}",
+                                           in get_item_ty(): {}",
                                           x).as_slice());
             }
         }
@@ -306,10 +308,7 @@ fn collect_trait_methods(ccx: &CrateCtxt,
                                     }
                                 });
 
-                                if ty_method.explicit_self ==
-                                        ty::StaticExplicitSelfCategory {
-                                    make_static_method_ty(ccx, &*ty_method);
-                                }
+                                make_method_ty(ccx, &*ty_method);
 
                                 tcx.impl_or_trait_items
                                    .borrow_mut()
@@ -364,7 +363,7 @@ fn collect_trait_methods(ccx: &CrateCtxt,
         _ => { /* Ignore things that aren't traits */ }
     }
 
-    fn make_static_method_ty(ccx: &CrateCtxt, m: &ty::Method) {
+    fn make_method_ty(ccx: &CrateCtxt, m: &ty::Method) {
         ccx.tcx.tcache.borrow_mut().insert(
             m.def_id,
             Polytype {
@@ -1299,11 +1298,11 @@ pub fn convert_struct(ccx: &CrateCtxt,
                 write_ty_to_tcx(tcx, ctor_id, selfty);
 
                 tcx.tcache.borrow_mut().insert(local_def(ctor_id), pty);
-            } else if struct_def.fields.get(0).node.kind.is_unnamed() {
+            } else if struct_def.fields[0].node.kind.is_unnamed() {
                 // Tuple-like.
                 let inputs: Vec<_> = struct_def.fields.iter().map(
-                        |field| tcx.tcache.borrow().get(
-                            &local_def(field.node.id)).ty).collect();
+                        |field| (*tcx.tcache.borrow())[
+                            local_def(field.node.id)].ty).collect();
                 let ctor_fn_ty = ty::mk_ctor_fn(tcx,
                                                 ctor_id,
                                                 inputs.as_slice(),
@@ -1422,7 +1421,7 @@ pub fn trait_def_of_item(ccx: &CrateCtxt, it: &ast::Item) -> Rc<ty::TraitDef> {
         ref s => {
             tcx.sess.span_bug(
                 it.span,
-                format!("trait_def_of_item invoked on {:?}", s).as_slice());
+                format!("trait_def_of_item invoked on {}", s).as_slice());
         }
     };
 
@@ -2125,8 +2124,8 @@ fn conv_param_bounds<'tcx,AC>(this: &AC,
                                      unboxed_fn_ty_bounds } =
         astconv::partition_bounds(this.tcx(), span, all_bounds.as_slice());
 
-    let unboxed_fn_ty_bounds = unboxed_fn_ty_bounds.move_iter().map(|b| {
-        let trait_id = this.tcx().def_map.borrow().get(&b.ref_id).def_id();
+    let unboxed_fn_ty_bounds = unboxed_fn_ty_bounds.into_iter().map(|b| {
+        let trait_id = (*this.tcx().def_map.borrow())[b.ref_id].def_id();
         let mut kind = None;
         for &(lang_item, this_kind) in [
             (this.tcx().lang_items.fn_trait(), ast::FnUnboxedClosureKind),
@@ -2171,7 +2170,7 @@ fn conv_param_bounds<'tcx,AC>(this: &AC,
         .chain(unboxed_fn_ty_bounds)
         .collect();
     let region_bounds: Vec<ty::Region> =
-        region_bounds.move_iter()
+        region_bounds.into_iter()
         .map(|r| ast_region_to_region(this.tcx(), r))
         .collect();
     ty::ParamBounds {

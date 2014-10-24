@@ -11,7 +11,6 @@
 
 extern crate collections;
 extern crate serialize;
-extern crate debug;
 
 use std::collections::HashMap;
 use serialize::json;
@@ -29,7 +28,7 @@ fn lookup(table: json::JsonObject, key: String, default: String) -> String
             s.to_string()
         }
         option::Some(value) => {
-            println!("{} was expected to be a string but is a {:?}", key, value);
+            println!("{} was expected to be a string but is a {}", key, value);
             default
         }
         option::None => {
@@ -50,7 +49,7 @@ fn add_interface(_store: int, managed_ip: String, data: json::Json) -> (String, 
             (label, bool_value(false))
         }
         _ => {
-            println!("Expected dict for {} interfaces, found {:?}", managed_ip, data);
+            println!("Expected dict for {} interfaces, found {}", managed_ip, data);
             ("gnos:missing-interface".to_string(), bool_value(true))
         }
     }
@@ -58,9 +57,9 @@ fn add_interface(_store: int, managed_ip: String, data: json::Json) -> (String, 
 
 fn add_interfaces(store: int, managed_ip: String, device: HashMap<String, json::Json>)
 -> Vec<(String, object)> {
-    match device.get(&"interfaces".to_string())
+    match device["interfaces".to_string()]
     {
-        &json::List(ref interfaces) =>
+        json::List(ref interfaces) =>
         {
           interfaces.iter().map(|interface| {
                 add_interface(store, managed_ip.clone(), (*interface).clone())
@@ -68,8 +67,8 @@ fn add_interfaces(store: int, managed_ip: String, device: HashMap<String, json::
         }
         _ =>
         {
-            println!("Expected list for {} interfaces, found {:?}", managed_ip,
-                   device.get(&"interfaces".to_string()));
+            println!("Expected list for {} interfaces, found {}", managed_ip,
+                   device["interfaces".to_string()]);
             Vec::new()
         }
     }

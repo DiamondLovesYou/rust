@@ -12,5 +12,7 @@ enum E1 { V1(E2<E1>), }
 enum E2<T> { V2(E2<E1>), }
 //~^ ERROR illegal recursive enum type; wrap the inner value in a box to make it representable
 
+impl E1 { fn foo(&self) {} }
+
 fn main() {
 }

@@ -232,6 +232,7 @@ pub fn infer_variance(tcx: &ty::ctxt) {
 
 type VarianceTermPtr<'a> = &'a VarianceTerm<'a>;
 
+#[deriving(Show)]
 struct InferredIndex(uint);
 
 enum VarianceTerm<'a> {
@@ -325,10 +326,10 @@ impl<'a, 'tcx> TermsContext<'a, 'tcx> {
         assert!(newly_added);
 
         debug!("add_inferred(item_id={}, \
-                kind={:?}, \
+                kind={}, \
                 index={}, \
                 param_id={},
-                inf_index={:?})",
+                inf_index={})",
                 item_id, kind, index, param_id, inf_index);
     }
 
@@ -656,7 +657,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
             // variance not yet inferred, so return a symbolic
             // variance.
             let InferredIndex(index) = self.inferred_index(param_def_id.node);
-            self.terms_cx.inferred_infos.get(index).term
+            self.terms_cx.inferred_infos[index].term
         } else {
             // Parameter on an item defined within another crate:
             // variance already inferred, just look it up.
@@ -852,7 +853,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
                                    region_param_defs: &[ty::RegionParameterDef],
                                    substs: &subst::Substs,
                                    variance: VarianceTermPtr<'a>) {
-        debug!("add_constraints_from_substs(def_id={:?})", def_id);
+        debug!("add_constraints_from_substs(def_id={})", def_id);
 
         for p in type_param_defs.iter() {
             let variance_decl =
@@ -979,15 +980,14 @@ impl<'a, 'tcx> SolveContext<'a, 'tcx> {
                 let Constraint { inferred, variance: term } = *constraint;
                 let InferredIndex(inferred) = inferred;
                 let variance = self.evaluate(term);
-                let old_value = *self.solutions.get(inferred);
+                let old_value = self.solutions[inferred];
                 let new_value = glb(variance, old_value);
                 if old_value != new_value {
                     debug!("Updating inferred {} (node {}) \
                             from {} to {} due to {}",
                             inferred,
                             self.terms_cx
-                                .inferred_infos
-                                .get(inferred)
+                                .inferred_infos[inferred]
                                 .param_id,
                             old_value,
                             new_value,
@@ -1016,14 +1016,14 @@ impl<'a, 'tcx> SolveContext<'a, 'tcx> {
         let mut index = 0;
         let num_inferred = self.terms_cx.num_inferred();
         while index < num_inferred {
-            let item_id = inferred_infos.get(index).item_id;
+            let item_id = inferred_infos[index].item_id;
             let mut types = VecPerParamSpace::empty();
             let mut regions = VecPerParamSpace::empty();
 
             while index < num_inferred &&
-                  inferred_infos.get(index).item_id == item_id {
-                let info = inferred_infos.get(index);
-                let variance = *solutions.get(index);
+                  inferred_infos[index].item_id == item_id {
+                let info = inferred_infos[index];
+                let variance = solutions[index];
                 debug!("Index {} Info {} / {} / {} Variance {}",
                        index, info.index, info.kind, info.space, variance);
                 match info.kind {
@@ -1073,7 +1073,7 @@ impl<'a, 'tcx> SolveContext<'a, 'tcx> {
             }
 
             InferredTerm(InferredIndex(index)) => {
-                *self.solutions.get(index)
+                self.solutions[index]
             }
         }
     }

@@ -175,7 +175,7 @@ pub fn to_string(f: |&mut State| -> IoResult<()>) -> String {
         let obj: TraitObject = mem::transmute_copy(&s.s.out);
         let wr: Box<MemWriter> = mem::transmute(obj.data);
         let result =
-            String::from_utf8(Vec::from_slice(wr.get_ref().as_slice())).unwrap();
+            String::from_utf8(wr.get_ref().as_slice().to_vec()).unwrap();
         mem::forget(wr);
         result.to_string()
     }
@@ -1466,7 +1466,7 @@ impl<'a> State<'a> {
             }
             ast::ExprMethodCall(ident, ref tys, ref args) => {
                 let base_args = args.slice_from(1);
-                try!(self.print_expr(&**args.get(0)));
+                try!(self.print_expr(&*args[0]));
                 try!(word(&mut self.s, "."));
                 try!(self.print_ident(ident.node));
                 if tys.len() > 0u {
@@ -1512,6 +1512,19 @@ impl<'a> State<'a> {
                 }
                 try!(self.head("while"));
                 try!(self.print_expr(&**test));
+                try!(space(&mut self.s));
+                try!(self.print_block(&**blk));
+            }
+            ast::ExprWhileLet(ref pat, ref expr, ref blk, opt_ident) => {
+                for ident in opt_ident.iter() {
+                    try!(self.print_ident(*ident));
+                    try!(self.word_space(":"));
+                }
+                try!(self.head("while let"));
+                try!(self.print_pat(&**pat));
+                try!(space(&mut self.s));
+                try!(self.word_space("="));
+                try!(self.print_expr(&**expr));
                 try!(space(&mut self.s));
                 try!(self.print_block(&**blk));
             }
@@ -2131,7 +2144,7 @@ impl<'a> State<'a> {
         for &explicit_self in opt_explicit_self.iter() {
             let m = match explicit_self {
                 &ast::SelfStatic => ast::MutImmutable,
-                _ => match decl.inputs.get(0).pat.node {
+                _ => match decl.inputs[0].pat.node {
                     ast::PatIdent(ast::BindByValue(m), _, _) => m,
                     _ => ast::MutImmutable
                 }
@@ -2306,7 +2319,7 @@ impl<'a> State<'a> {
 
         try!(self.commasep(Inconsistent, ints.as_slice(), |s, &idx| {
             if idx < generics.lifetimes.len() {
-                let lifetime = generics.lifetimes.get(idx);
+                let lifetime = &generics.lifetimes[idx];
                 s.print_lifetime_def(lifetime)
             } else {
                 let idx = idx - generics.lifetimes.len();
@@ -2650,14 +2663,14 @@ impl<'a> State<'a> {
             ast::LitStr(ref st, style) => self.print_string(st.get(), style),
             ast::LitByte(byte) => {
                 let mut res = String::from_str("b'");
-                (byte as char).escape_default(|c| res.push_char(c));
-                res.push_char('\'');
+                (byte as char).escape_default(|c| res.push(c));
+                res.push('\'');
                 word(&mut self.s, res.as_slice())
             }
             ast::LitChar(ch) => {
                 let mut res = String::from_str("'");
-                ch.escape_default(|c| res.push_char(c));
-                res.push_char('\'');
+                ch.escape_default(|c| res.push(c));
+                res.push('\'');
                 word(&mut self.s, res.as_slice())
             }
             ast::LitInt(i, t) => {
@@ -2667,8 +2680,9 @@ impl<'a> State<'a> {
                              ast_util::int_ty_to_string(st, Some(i as i64)).as_slice())
                     }
                     ast::SignedIntLit(st, ast::Minus) => {
+                        let istr = ast_util::int_ty_to_string(st, Some(-(i as i64)));
                         word(&mut self.s,
-                             ast_util::int_ty_to_string(st, Some(-(i as i64))).as_slice())
+                             format!("-{}", istr).as_slice())
                     }
                     ast::UnsignedIntLit(ut) => {
                         word(&mut self.s, ast_util::uint_ty_to_string(ut, Some(i)).as_slice())
@@ -2704,7 +2718,7 @@ impl<'a> State<'a> {
         match self.literals {
             Some(ref lits) => {
                 while self.cur_cmnt_and_lit.cur_lit < lits.len() {
-                    let ltrl = (*(*lits).get(self.cur_cmnt_and_lit.cur_lit)).clone();
+                    let ltrl = (*lits)[self.cur_cmnt_and_lit.cur_lit].clone();
                     if ltrl.pos > pos { return None; }
                     self.cur_cmnt_and_lit.cur_lit += 1u;
                     if ltrl.pos == pos { return Some(ltrl); }
@@ -2736,7 +2750,7 @@ impl<'a> State<'a> {
             comments::Mixed => {
                 assert_eq!(cmnt.lines.len(), 1u);
                 try!(zerobreak(&mut self.s));
-                try!(word(&mut self.s, cmnt.lines.get(0).as_slice()));
+                try!(word(&mut self.s, cmnt.lines[0].as_slice()));
                 zerobreak(&mut self.s)
             }
             comments::Isolated => {
@@ -2754,7 +2768,7 @@ impl<'a> State<'a> {
             comments::Trailing => {
                 try!(word(&mut self.s, " "));
                 if cmnt.lines.len() == 1u {
-                    try!(word(&mut self.s, cmnt.lines.get(0).as_slice()));
+                    try!(word(&mut self.s, cmnt.lines[0].as_slice()));
                     hardbreak(&mut self.s)
                 } else {
                     try!(self.ibox(0u));
@@ -2800,7 +2814,7 @@ impl<'a> State<'a> {
         match self.comments {
             Some(ref cmnts) => {
                 if self.cur_cmnt_and_lit.cur_cmnt < cmnts.len() {
-                    Some((*cmnts.get(self.cur_cmnt_and_lit.cur_cmnt)).clone())
+                    Some(cmnts[self.cur_cmnt_and_lit.cur_cmnt].clone())
                 } else {
                     None
                 }
@@ -2916,5 +2930,13 @@ mod test {
 
         let varstr = variant_to_string(&var);
         assert_eq!(&varstr,&"pub principal_skinner".to_string());
+    }
+
+    #[test]
+    fn test_signed_int_to_string() {
+        let pos_int = ast::LitInt(42, ast::SignedIntLit(ast::TyI32, ast::Plus));
+        let neg_int = ast::LitInt((-42) as u64, ast::SignedIntLit(ast::TyI32, ast::Minus));
+        assert_eq!(format!("-{}", lit_to_string(&codemap::dummy_spanned(pos_int))),
+                   lit_to_string(&codemap::dummy_spanned(neg_int)));
     }
 }

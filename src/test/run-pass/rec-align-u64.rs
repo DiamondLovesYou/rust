@@ -12,8 +12,6 @@
 
 #![feature(intrinsics)]
 
-extern crate debug;
-
 use std::mem;
 
 mod rusti {
@@ -24,22 +22,24 @@ mod rusti {
 }
 
 // This is the type with the questionable alignment
+#[deriving(Show)]
 struct Inner {
     c64: u64
 }
 
 // This is the type that contains the type with the
 // questionable alignment, for testing
+#[deriving(Show)]
 struct Outer {
     c8: u8,
     t: Inner
 }
 
 
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "macos")]
-#[cfg(target_os = "freebsd")]
-#[cfg(target_os = "dragonfly")]
+#[cfg(any(target_os = "linux",
+          target_os = "macos",
+          target_os = "freebsd",
+          target_os = "dragonfly"))]
 mod m {
     #[cfg(target_arch = "x86")]
     pub mod m {
@@ -47,8 +47,7 @@ mod m {
         pub fn size() -> uint { 12u }
     }
 
-    #[cfg(target_arch = "x86_64")]
-    #[cfg(target_arch = "arm")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "arm"))]
     pub mod m {
         pub fn align() -> uint { 8u }
         pub fn size() -> uint { 16u }
@@ -83,8 +82,7 @@ pub fn main() {
     unsafe {
         let x = Outer {c8: 22u8, t: Inner {c64: 44u64}};
 
-        // Send it through the shape code
-        let y = format!("{:?}", x);
+        let y = format!("{}", x);
 
         println!("align inner = {}", rusti::min_align_of::<Inner>());
         println!("size outer = {}", mem::size_of::<Outer>());
@@ -97,6 +95,6 @@ pub fn main() {
         // because `Inner`s alignment was 4.
         assert_eq!(mem::size_of::<Outer>(), m::m::size());
 
-        assert_eq!(y, "Outer{c8: 22u8, t: Inner{c64: 44u64}}".to_string());
+        assert_eq!(y, "Outer { c8: 22, t: Inner { c64: 44 } }".to_string());
     }
 }

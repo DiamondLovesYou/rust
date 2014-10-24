@@ -138,7 +138,7 @@ pub fn trans_if<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                             els: Option<&ast::Expr>,
                             dest: expr::Dest)
                             -> Block<'blk, 'tcx> {
-    debug!("trans_if(bcx={}, if_id={}, cond={}, thn={:?}, dest={})",
+    debug!("trans_if(bcx={}, if_id={}, cond={}, thn={}, dest={})",
            bcx.to_str(), if_id, bcx.expr_to_string(cond), thn.id,
            dest.to_string(bcx.ccx()));
     let _icx = push_ctxt("trans_if");
@@ -291,10 +291,9 @@ pub fn trans_for<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
 
     // Set up the method call (to `.next()`).
     let method_call = MethodCall::expr(loop_info.id);
-    let method_type = loopback_bcx_in.tcx()
+    let method_type = (*loopback_bcx_in.tcx()
                                      .method_map
-                                     .borrow()
-                                     .get(&method_call)
+                                     .borrow())[method_call]
                                      .ty;
     let method_type = monomorphize_type(loopback_bcx_in, method_type);
     let method_result_type = ty::ty_fn_ret(method_type);
@@ -429,7 +428,7 @@ pub fn trans_break_cont<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             match bcx.tcx().def_map.borrow().find(&expr_id) {
                 Some(&def::DefLabel(loop_id)) => loop_id,
                 ref r => {
-                    bcx.tcx().sess.bug(format!("{:?} in def-map for label",
+                    bcx.tcx().sess.bug(format!("{} in def-map for label",
                                                r).as_slice())
                 }
             }
@@ -499,7 +498,7 @@ pub fn trans_fail<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let loc = bcx.sess().codemap().lookup_char_pos(sp.lo);
     let filename = token::intern_and_get_ident(loc.file.name.as_slice());
     let filename = C_str_slice(ccx, filename);
-    let line = C_int(ccx, loc.line as int);
+    let line = C_uint(ccx, loc.line);
     let expr_file_line_const = C_struct(ccx, &[v_str, filename, line], false);
     let expr_file_line = consts::const_addr_of(ccx, expr_file_line_const, ast::MutImmutable);
     let args = vec!(expr_file_line);
@@ -526,7 +525,7 @@ pub fn trans_fail_bounds_check<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     // Invoke the lang item
     let filename = C_str_slice(ccx,  filename);
-    let line = C_int(ccx, loc.line as int);
+    let line = C_uint(ccx, loc.line);
     let file_line_const = C_struct(ccx, &[filename, line], false);
     let file_line = consts::const_addr_of(ccx, file_line_const, ast::MutImmutable);
     let args = vec!(file_line, index, len);

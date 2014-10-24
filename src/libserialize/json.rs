@@ -406,14 +406,6 @@ impl<'a> Encoder<'a> {
         }
         m.unwrap()
     }
-
-    /// Encode the specified struct into a json str
-    ///
-    /// Note: this function is deprecated. Consider using `json::encode` instead.
-    #[deprecated = "Replaced by `json::encode`"]
-    pub fn str_encode<T: Encodable<Encoder<'a>, io::IoError>>(object: &T) -> string::String {
-        encode(object)
-    }
 }
 
 impl<'a> ::Encoder<io::IoError> for Encoder<'a> {
@@ -2964,8 +2956,8 @@ mod tests {
         let s = "{\"f\":null,\"a\":[null,123]}";
         let obj: FloatStruct = super::decode(s).unwrap();
         assert!(obj.f.is_nan());
-        assert!(obj.a.get(0).is_nan());
-        assert_eq!(obj.a.get(1), &123f64);
+        assert!(obj.a[0].is_nan());
+        assert_eq!(obj.a[1], 123f64);
     }
 
     #[test]

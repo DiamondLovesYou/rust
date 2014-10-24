@@ -210,7 +210,7 @@ pub fn const_expr(cx: &CrateContext, e: &ast::Expr) -> (ValueRef, ty::t) {
                 ty::AdjustAddEnv(store) => {
                     cx.sess()
                       .span_bug(e.span,
-                                format!("unexpected static function: {:?}",
+                                format!("unexpected static function: {}",
                                         store).as_slice())
                 }
                 ty::AdjustDerefRef(ref adj) => {
@@ -279,7 +279,7 @@ pub fn const_expr(cx: &CrateContext, e: &ast::Expr) -> (ValueRef, ty::t) {
                                     cx.sess()
                                       .span_bug(e.span,
                                                 format!("unimplemented const \
-                                                         autoref {:?}",
+                                                         autoref {}",
                                                         autoref).as_slice())
                                 }
                             }
@@ -311,7 +311,7 @@ pub fn const_expr(cx: &CrateContext, e: &ast::Expr) -> (ValueRef, ty::t) {
 fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
     let map_list = |exprs: &[P<ast::Expr>]| {
         exprs.iter().map(|e| const_expr(cx, &**e).val0())
-             .fold(Vec::new(), |l, val| l.append_one(val))
+             .fold(Vec::new(), |mut l, val| { l.push(val); l })
     };
     unsafe {
         let _icx = push_ctxt("const_expr");

@@ -25,6 +25,7 @@ use middle::trans::debuginfo;
 use middle::trans::monomorphize::MonoId;
 use middle::trans::type_::{Type, TypeNames};
 use middle::ty;
+use util::ppaux::Repr;
 use util::sha2::Sha256;
 use util::nodemap::{NodeMap, NodeSet, DefIdMap};
 
@@ -72,7 +73,6 @@ pub struct SharedCrateContext<'tcx> {
 
     available_monomorphizations: RefCell<HashSet<String>>,
     available_drop_glues: RefCell<HashMap<ty::t, String>>,
-    available_visit_glues: RefCell<HashMap<ty::t, String>>,
 }
 
 /// The local portion of a `CrateContext`.  There is one `LocalCrateContext`
@@ -275,7 +275,6 @@ impl<'tcx> SharedCrateContext<'tcx> {
             },
             available_monomorphizations: RefCell::new(HashSet::new()),
             available_drop_glues: RefCell::new(HashMap::new()),
-            available_visit_glues: RefCell::new(HashMap::new()),
         };
 
         for i in range(0, local_count) {
@@ -683,10 +682,6 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
         &self.shared.available_drop_glues
     }
 
-    pub fn available_visit_glues<'a>(&'a self) -> &'a RefCell<HashMap<ty::t, String>> {
-        &self.shared.available_visit_glues
-    }
-
     pub fn int_type(&self) -> Type {
         self.local.int_type
     }
@@ -717,6 +712,16 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
 
     pub fn trait_cache(&self) -> &RefCell<HashMap<Rc<ty::TraitRef>, traits::Vtable<()>>> {
         &self.local.trait_cache
+    }
+
+    pub fn max_obj_size(&self) -> u64 {
+        1<<31 /* FIXME #18069: select based on architecture */
+    }
+
+    pub fn report_overbig_object(&self, obj: ty::t) -> ! {
+        self.sess().fatal(
+            format!("the type `{}` is too big for the current architecture",
+                    obj.repr(self.tcx())).as_slice())
     }
 }
 

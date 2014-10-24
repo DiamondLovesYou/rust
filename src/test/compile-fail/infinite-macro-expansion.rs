@@ -12,7 +12,7 @@
 
 macro_rules! recursive(
       () => (
-                recursive!() //~ ERROR Recursion limit reached while expanding the macro `recursive`
+                recursive!() //~ ERROR recursion limit reached while expanding the macro `recursive`
               )
       )
 

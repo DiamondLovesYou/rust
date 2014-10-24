@@ -34,7 +34,6 @@ use std::sync::{Arc, Mutex};
 use std::task::TaskBuilder;
 use libc::{c_uint, c_int, c_void};
 
-
 #[deriving(Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub enum OutputType {
     OutputTypeBitcode,
@@ -43,7 +42,6 @@ pub enum OutputType {
     OutputTypeObject,
     OutputTypeExe,
 }
-
 
 pub fn llvm_err(handler: &diagnostic::Handler, msg: String) -> ! {
     unsafe {
@@ -202,6 +200,10 @@ pub fn create_target_machine(sess: &Session) -> TargetMachineRef {
                      (sess.targ_cfg.os == abi::OsMacos &&
                       sess.targ_cfg.arch == abi::X86_64);
 
+    let any_library = sess.crate_types.borrow().iter().any(|ty| {
+        *ty != config::CrateTypeExecutable
+    });
+
     // OSX has -dead_strip, which doesn't rely on ffunction_sections
     // FIXME(#13846) this should be enabled for windows
     let ffunction_sections = sess.targ_cfg.os != abi::OsMacos &&
@@ -247,6 +249,7 @@ pub fn create_target_machine(sess: &Session) -> TargetMachineRef {
                         true /* EnableSegstk */,
                         use_softfp,
                         no_fp_elim,
+                        !any_library && reloc_model == llvm::RelocPIC,
                         ffunction_sections,
                         fdata_sections,
                     )
@@ -665,7 +668,7 @@ pub fn run_passes(sess: &Session,
             .iter()
             .fold(HashSet::new(), |mut led: HashSet<String>, &(cnum, _)| {
                 let libs = csearch::get_native_libraries(&sess.cstore, cnum);
-                for (_, name) in libs.move_iter() {
+                for (_, name) in libs.into_iter() {
                     led.insert(name);
                 }
                 led
@@ -791,7 +794,7 @@ pub fn run_passes(sess: &Session,
                         unsafe {
                             llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
                         }
-                        if llmod == ptr::mut_null() {
+                        if llmod == ptr::null_mut() {
                             let msg = format!("failed to parse external bitcode
                                               `{}` in archive `{}`",
                                               name, p.display());
@@ -828,7 +831,7 @@ pub fn run_passes(sess: &Session,
                         }
                     }
                 });
-                bitcodes.move_iter()
+                bitcodes.into_iter()
             })
             .collect();
         trans.modules.push_all(bitcodes.as_slice());

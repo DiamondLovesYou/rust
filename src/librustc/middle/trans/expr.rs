@@ -666,7 +666,7 @@ fn trans_datum_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             bcx.tcx().sess.span_bug(
                 expr.span,
                 format!("trans_rvalue_datum_unadjusted reached \
-                         fall-through case: {:?}",
+                         fall-through case: {}",
                         expr.node).as_slice());
         }
     }
@@ -982,7 +982,7 @@ fn trans_rvalue_stmt_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             bcx.tcx().sess.span_bug(
                 expr.span,
                 format!("trans_rvalue_stmt_unadjusted reached \
-                         fall-through case: {:?}",
+                         fall-through case: {}",
                         expr.node).as_slice());
         }
     }
@@ -1079,7 +1079,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         ast::ExprMethodCall(_, _, ref args) => {
             callee::trans_method_call(bcx,
                                       expr,
-                                      &**args.get(0),
+                                      &*args[0],
                                       callee::ArgExprs(args.as_slice()),
                                       dest)
         }
@@ -1128,7 +1128,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             bcx.tcx().sess.span_bug(
                 expr.span,
                 format!("trans_rvalue_dps_unadjusted reached fall-through \
-                         case: {:?}",
+                         case: {}",
                         expr.node).as_slice());
         }
     }
@@ -1176,7 +1176,7 @@ fn trans_def_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         }
         _ => {
             bcx.tcx().sess.span_bug(ref_expr.span, format!(
-                "Non-DPS def {:?} referened by {}",
+                "Non-DPS def {} referened by {}",
                 def, bcx.node_id_to_string(ref_expr.id)).as_slice());
         }
     }
@@ -1200,7 +1200,7 @@ fn trans_def_fn_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         }
         _ => {
             bcx.tcx().sess.span_bug(ref_expr.span, format!(
-                    "trans_def_fn_unadjusted invoked on: {:?} for {}",
+                    "trans_def_fn_unadjusted invoked on: {} for {}",
                     def,
                     ref_expr.repr(bcx.tcx())).as_slice());
         }
@@ -1228,7 +1228,7 @@ pub fn trans_local_var<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 Some(&val) => Datum::new(val, local_ty, Lvalue),
                 None => {
                     bcx.sess().bug(format!(
-                        "trans_local_var: no llval for upvar {:?} found",
+                        "trans_local_var: no llval for upvar {} found",
                         nid).as_slice());
                 }
             }
@@ -1238,17 +1238,17 @@ pub fn trans_local_var<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 Some(&v) => v,
                 None => {
                     bcx.sess().bug(format!(
-                        "trans_local_var: no datum for local/arg {:?} found",
+                        "trans_local_var: no datum for local/arg {} found",
                         nid).as_slice());
                 }
             };
-            debug!("take_local(nid={:?}, v={}, ty={})",
+            debug!("take_local(nid={}, v={}, ty={})",
                    nid, bcx.val_to_string(datum.val), bcx.ty_to_string(datum.ty));
             datum
         }
         _ => {
             bcx.sess().unimpl(format!(
-                "unsupported def type in trans_local_var: {:?}",
+                "unsupported def type in trans_local_var: {}",
                 def).as_slice());
         }
     }
@@ -1548,7 +1548,7 @@ fn trans_uniq_expr<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     assert!(ty::type_is_sized(bcx.tcx(), contents_ty));
     let llty = type_of::type_of(bcx.ccx(), contents_ty);
     let size = llsize_of(bcx.ccx(), llty);
-    let align = C_uint(bcx.ccx(), type_of::align_of(bcx.ccx(), contents_ty) as uint);
+    let align = C_uint(bcx.ccx(), type_of::align_of(bcx.ccx(), contents_ty));
     let llty_ptr = llty.ptr_to();
     let Result { bcx, val } = malloc_raw_dyn(bcx, llty_ptr, box_ty, size, align);
     // Unique boxes do not allocate for zero-size types. The standard library
@@ -1787,7 +1787,7 @@ fn trans_overloaded_op<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                    rhs: Vec<(Datum<Expr>, ast::NodeId)>,
                                    dest: Option<Dest>)
                                    -> Result<'blk, 'tcx> {
-    let method_ty = bcx.tcx().method_map.borrow().get(&method_call).ty;
+    let method_ty = (*bcx.tcx().method_map.borrow())[method_call].ty;
     callee::trans_call_inner(bcx,
                              Some(expr_info(expr)),
                              monomorphize_type(bcx, method_ty),
@@ -1808,11 +1808,10 @@ fn trans_overloaded_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                                          dest: Option<Dest>)
                                          -> Block<'blk, 'tcx> {
     let method_call = MethodCall::expr(expr.id);
-    let method_type = bcx.tcx()
-                         .method_map
-                         .borrow()
-                         .get(&method_call)
-                         .ty;
+    let method_type = (*bcx.tcx()
+                           .method_map
+                           .borrow())[method_call]
+                           .ty;
     let mut all_args = vec!(callee);
     all_args.extend(args.iter().map(|e| &**e));
     unpack_result!(bcx,
@@ -1869,7 +1868,7 @@ fn float_cast(bcx: Block,
     } else { llsrc };
 }
 
-#[deriving(PartialEq)]
+#[deriving(PartialEq, Show)]
 pub enum cast_kind {
     cast_pointer,
     cast_integral,
@@ -1981,7 +1980,7 @@ fn trans_imm_cast<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 cast_float => SIToFP(bcx, lldiscrim_a, ll_t_out),
                 _ => {
                     ccx.sess().bug(format!("translating unsupported cast: \
-                                            {} ({:?}) -> {} ({:?})",
+                                            {} ({}) -> {} ({})",
                                             t_in.repr(bcx.tcx()),
                                             k_in,
                                             t_out.repr(bcx.tcx()),
@@ -1990,7 +1989,7 @@ fn trans_imm_cast<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             }
         }
         _ => ccx.sess().bug(format!("translating unsupported cast: \
-                                    {} ({:?}) -> {} ({:?})",
+                                    {} ({}) -> {} ({})",
                                     t_in.repr(bcx.tcx()),
                                     k_in,
                                     t_out.repr(bcx.tcx()),

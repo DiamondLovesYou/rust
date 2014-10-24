@@ -22,9 +22,10 @@ use ast::*;
 use ast;
 use ast_util;
 use codemap::{respan, Span, Spanned};
+use owned_slice::OwnedSlice;
 use parse::token;
 use ptr::P;
-use owned_slice::OwnedSlice;
+use std::ptr;
 use util::small_vector::SmallVector;
 
 use std::rc::Rc;
@@ -36,11 +37,10 @@ pub trait MoveMap<T> {
 
 impl<T> MoveMap<T> for Vec<T> {
     fn move_map(mut self, f: |T| -> T) -> Vec<T> {
-        use std::{mem, ptr};
         for p in self.iter_mut() {
             unsafe {
                 // FIXME(#5016) this shouldn't need to zero to be safe.
-                mem::move_val_init(p, f(ptr::read_and_zero(p)));
+                ptr::write(p, f(ptr::read_and_zero(p)));
             }
         }
         self
@@ -935,7 +935,7 @@ pub fn noop_fold_item_underscore<T: Folder>(i: Item_, folder: &mut T) -> Item_ {
                 match *impl_item {
                     MethodImplItem(ref x) => {
                         for method in folder.fold_method((*x).clone())
-                                            .move_iter() {
+                                            .into_iter() {
                             new_impl_items.push(MethodImplItem(method))
                         }
                     }
@@ -963,7 +963,7 @@ pub fn noop_fold_item_underscore<T: Folder>(i: Item_, folder: &mut T) -> Item_ {
                     RequiredMethod(m) => {
                             SmallVector::one(RequiredMethod(
                                     folder.fold_type_method(m)))
-                                .move_iter()
+                                .into_iter()
                     }
                     ProvidedMethod(method) => {
                         // the awkward collect/iter idiom here is because
@@ -971,15 +971,15 @@ pub fn noop_fold_item_underscore<T: Folder>(i: Item_, folder: &mut T) -> Item_ {
                         // trait bound, they're not actually the same type, so
                         // the method arms don't unify.
                         let methods: SmallVector<ast::TraitItem> =
-                            folder.fold_method(method).move_iter()
+                            folder.fold_method(method).into_iter()
                             .map(|m| ProvidedMethod(m)).collect();
-                        methods.move_iter()
+                        methods.into_iter()
                     }
                     TypeTraitItem(at) => {
                         SmallVector::one(TypeTraitItem(P(
                                     folder.fold_associated_type(
                                         (*at).clone()))))
-                            .move_iter()
+                            .into_iter()
                     }
                 };
                 r
@@ -1216,6 +1216,12 @@ pub fn noop_fold_expr<T: Folder>(Expr {id, node, span}: Expr, folder: &mut T) ->
                           folder.fold_block(body),
                           opt_ident.map(|i| folder.fold_ident(i)))
             }
+            ExprWhileLet(pat, expr, body, opt_ident) => {
+                ExprWhileLet(folder.fold_pat(pat),
+                             folder.fold_expr(expr),
+                             folder.fold_block(body),
+                             opt_ident.map(|i| folder.fold_ident(i)))
+            }
             ExprForLoop(pat, iter, body, opt_ident) => {
                 ExprForLoop(folder.fold_pat(pat),
                             folder.fold_expr(iter),
@@ -1383,7 +1389,7 @@ mod test {
                 let a_val = $a;
                 let b_val = $b;
                 if !(pred_val(a_val.as_slice(),b_val.as_slice())) {
-                    fail!("expected args satisfying {}, got {:?} and {:?}",
+                    fail!("expected args satisfying {}, got {} and {}",
                           $predname, a_val, b_val);
                 }
             }

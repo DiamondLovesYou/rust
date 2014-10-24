@@ -74,10 +74,10 @@ pub fn make_drop_glue_unboxed<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             let unit_size = llsize_of_alloc(ccx, llty);
             if unit_size != 0 {
                 let len = get_len(bcx, vptr);
-                let not_empty = ICmp(bcx, llvm::IntNE, len, C_uint(ccx, 0));
+                let not_empty = ICmp(bcx, llvm::IntNE, len, C_uint(ccx, 0u));
                 with_cond(bcx, not_empty, |bcx| {
-                    let llalign = C_uint(ccx, machine::llalign_of_min(ccx, llty) as uint);
-                    let size = Mul(bcx, C_uint(ccx, unit_size as uint), len);
+                    let llalign = C_uint(ccx, machine::llalign_of_min(ccx, llty));
+                    let size = Mul(bcx, C_uint(ccx, unit_size), len);
                     glue::trans_exchange_free_dyn(bcx, dataptr, size, llalign)
                 })
             } else {
@@ -118,7 +118,7 @@ pub fn trans_fixed_vstore<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     // to store the array of the suitable size, so all we have to do is
     // generate the content.
 
-    debug!("trans_fixed_vstore(expr={}, dest={:?})",
+    debug!("trans_fixed_vstore(expr={}, dest={})",
            bcx.expr_to_string(expr), dest.to_string(bcx.ccx()));
 
     let vt = vec_types_from_expr(bcx, expr);
@@ -175,7 +175,7 @@ pub fn trans_slice_vec<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     // Handle the &[...] case:
     let vt = vec_types_from_expr(bcx, content_expr);
     let count = elements_required(bcx, content_expr);
-    debug!("    vt={}, count={:?}", vt.to_string(ccx), count);
+    debug!("    vt={}, count={}", vt.to_string(ccx), count);
     let llcount = C_uint(ccx, count);
 
     let fixed_ty = ty::mk_vec(bcx.tcx(),
@@ -249,7 +249,7 @@ pub fn write_content<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let fcx = bcx.fcx;
     let mut bcx = bcx;
 
-    debug!("write_content(vt={}, dest={}, vstore_expr={:?})",
+    debug!("write_content(vt={}, dest={}, vstore_expr={})",
            vt.to_string(bcx.ccx()),
            dest.to_string(bcx.ccx()),
            bcx.expr_to_string(vstore_expr));
@@ -291,7 +291,7 @@ pub fn write_content<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                     let temp_scope = fcx.push_custom_cleanup_scope();
                     for (i, element) in elements.iter().enumerate() {
                         let lleltptr = GEPi(bcx, lldest, [i]);
-                        debug!("writing index {:?} with lleltptr={:?}",
+                        debug!("writing index {} with lleltptr={}",
                                i, bcx.val_to_string(lleltptr));
                         bcx = expr::trans_into(bcx, &**element,
                                                SaveIn(lleltptr));
@@ -461,7 +461,7 @@ pub fn iter_vec_loop<'a, 'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let loop_counter = {
         // i = 0
         let i = alloca(loop_bcx, bcx.ccx().int_type(), "__i");
-        Store(loop_bcx, C_uint(bcx.ccx(), 0), i);
+        Store(loop_bcx, C_uint(bcx.ccx(), 0u), i);
 
         Br(loop_bcx, cond_bcx.llbb);
         i
@@ -489,7 +489,7 @@ pub fn iter_vec_loop<'a, 'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     { // i += 1
         let i = Load(inc_bcx, loop_counter);
-        let plusone = Add(inc_bcx, i, C_uint(bcx.ccx(), 1));
+        let plusone = Add(inc_bcx, i, C_uint(bcx.ccx(), 1u));
         Store(inc_bcx, plusone, loop_counter);
 
         Br(inc_bcx, cond_bcx.llbb);
@@ -532,7 +532,7 @@ pub fn iter_vec_raw<'a, 'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         CondBr(header_bcx, not_yet_at_end, body_bcx.llbb, next_bcx.llbb);
         let body_bcx = f(body_bcx, data_ptr, vt.unit_ty);
         AddIncomingToPhi(data_ptr, InBoundsGEP(body_bcx, data_ptr,
-                                               [C_int(bcx.ccx(), 1)]),
+                                               [C_int(bcx.ccx(), 1i)]),
                          body_bcx.llbb);
         Br(body_bcx, header_bcx.llbb);
         next_bcx

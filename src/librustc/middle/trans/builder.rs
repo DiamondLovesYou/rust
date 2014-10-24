@@ -19,7 +19,7 @@ use middle::trans::common::*;
 use middle::trans::machine::llalign_of_pref;
 use middle::trans::type_::Type;
 use std::collections::HashMap;
-use libc::{c_uint, c_ulonglong, c_char};
+use libc::{c_uint, c_char};
 use std::string::String;
 use syntax::codemap::Span;
 
@@ -72,13 +72,13 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 let mut s = String::from_str(".");
                 i = 0u;
                 while i < len {
-                    i = *mm.get(&v[i]);
-                    s.push_char('/');
+                    i = mm[v[i]];
+                    s.push('/');
                     s.push_str(v[i]);
                     i += 1u;
                 }
 
-                s.push_char('/');
+                s.push('/');
                 s.push_str(category);
 
                 let n = match h.find(&s) {
@@ -477,8 +477,8 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     }
 
 
-    pub fn load_range_assert(&self, ptr: ValueRef, lo: c_ulonglong,
-                           hi: c_ulonglong, signed: llvm::Bool) -> ValueRef {
+    pub fn load_range_assert(&self, ptr: ValueRef, lo: u64,
+                             hi: u64, signed: llvm::Bool) -> ValueRef {
         let value = self.load(ptr);
 
         unsafe {
@@ -490,7 +490,8 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
 
             llvm::LLVMSetMetadata(value, llvm::MD_range as c_uint,
                                   llvm::LLVMMDNodeInContext(self.ccx.llcx(),
-                                                            v.as_ptr(), v.len() as c_uint));
+                                                            v.as_ptr(),
+                                                            v.len() as c_uint));
         }
 
         value
@@ -795,11 +796,11 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                          else          { llvm::False };
 
         let argtys = inputs.iter().map(|v| {
-            debug!("Asm Input Type: {:?}", self.ccx.tn().val_to_string(*v));
+            debug!("Asm Input Type: {}", self.ccx.tn().val_to_string(*v));
             val_ty(*v)
         }).collect::<Vec<_>>();
 
-        debug!("Asm Output Type: {:?}", self.ccx.tn().type_to_string(output));
+        debug!("Asm Output Type: {}", self.ccx.tn().type_to_string(output));
         let fty = Type::func(argtys.as_slice(), &output);
         unsafe {
             let v = llvm::LLVMInlineAsm(

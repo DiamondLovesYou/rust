@@ -15,7 +15,7 @@ use middle::subst;
 use middle::ty::{BoundRegion, BrAnon, BrNamed};
 use middle::ty::{ReEarlyBound, BrFresh, ctxt};
 use middle::ty::{ReFree, ReScope, ReInfer, ReStatic, Region, ReEmpty};
-use middle::ty::{ReSkolemized, ReVar};
+use middle::ty::{ReSkolemized, ReVar, BrEnv};
 use middle::ty::{mt, t, ParamTy};
 use middle::ty::{ty_bool, ty_char, ty_bot, ty_struct, ty_enum};
 use middle::ty::{ty_err, ty_str, ty_vec, ty_float, ty_bare_fn, ty_closure};
@@ -93,6 +93,9 @@ pub fn explain_region_and_span(cx: &ctxt, region: ty::Region)
                 explain_span(cx, "method call", expr.span)
               },
               ast::ExprMatch(_, _, ast::MatchIfLetDesugar) => explain_span(cx, "if let", expr.span),
+              ast::ExprMatch(_, _, ast::MatchWhileLetDesugar) => {
+                  explain_span(cx, "while let", expr.span)
+              },
               ast::ExprMatch(..) => explain_span(cx, "match", expr.span),
               _ => explain_span(cx, "expression", expr.span)
             }
@@ -151,7 +154,7 @@ pub fn explain_region_and_span(cx: &ctxt, region: ty::Region)
       // I believe these cases should not occur (except when debugging,
       // perhaps)
       ty::ReInfer(_) | ty::ReLateBound(..) => {
-        (format!("lifetime {:?}", region), None)
+        (format!("lifetime {}", region), None)
       }
     };
 
@@ -180,8 +183,7 @@ pub fn bound_region_to_string(cx: &ctxt,
         BrNamed(_, name) => {
             format!("{}{}{}", prefix, token::get_name(name), space_str)
         }
-        BrAnon(_) => prefix.to_string(),
-        BrFresh(_) => prefix.to_string(),
+        BrAnon(_) | BrFresh(_) | BrEnv => prefix.to_string()
     }
 }
 
@@ -268,7 +270,7 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
             ast::NormalFn => {}
             _ => {
                 s.push_str(fn_style.to_string().as_slice());
-                s.push_char(' ');
+                s.push(' ');
             }
         };
 
@@ -280,7 +282,7 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
 
         match ident {
             Some(i) => {
-                s.push_char(' ');
+                s.push(' ');
                 s.push_str(token::get_ident(i).get());
             }
             _ => { }
@@ -305,7 +307,7 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
             ast::NormalFn => {}
             _ => {
                 s.push_str(cty.fn_style.to_string().as_slice());
-                s.push_char(' ');
+                s.push(' ');
             }
         };
 
@@ -328,7 +330,7 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
             }
         }
 
-        s.into_owned()
+        s
     }
 
     fn push_sig_to_string(cx: &ctxt,
@@ -337,13 +339,13 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
                        ket: char,
                        sig: &ty::FnSig,
                        bounds: &str) {
-        s.push_char(bra);
+        s.push(bra);
         let strs: Vec<String> = sig.inputs.iter().map(|a| fn_input_to_string(cx, *a)).collect();
         s.push_str(strs.connect(", ").as_slice());
         if sig.variadic {
             s.push_str(", ...");
         }
-        s.push_char(ket);
+        s.push(ket);
 
         if !bounds.is_empty() {
             s.push_str(":");
@@ -353,7 +355,7 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
         if ty::get(sig.output).sty != ty_nil {
             s.push_str(" -> ");
             if ty::type_is_bot(sig.output) {
-                s.push_char('!');
+                s.push('!');
             } else {
                 s.push_str(ty_to_string(cx, sig.output).as_slice());
             }
@@ -596,7 +598,7 @@ impl<T:UserString> UserString for Vec<T> {
 
 impl Repr for def::Def {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
@@ -668,10 +670,10 @@ impl Repr for ty::BuiltinBounds {
         let mut res = Vec::new();
         for b in self.iter() {
             res.push(match b {
-                ty::BoundSend => "Send".to_owned(),
-                ty::BoundSized => "Sized".to_owned(),
-                ty::BoundCopy => "Copy".to_owned(),
-                ty::BoundSync => "Sync".to_owned(),
+                ty::BoundSend => "Send".to_string(),
+                ty::BoundSized => "Sized".to_string(),
+                ty::BoundCopy => "Copy".to_string(),
+                ty::BoundSync => "Sync".to_string(),
             });
         }
         res.connect("+")
@@ -766,6 +768,7 @@ impl Repr for ty::BoundRegion {
                 format!("BrNamed({}, {})", id.repr(tcx), token::get_name(name))
             }
             ty::BrFresh(id) => format!("BrFresh({})", id),
+            ty::BrEnv => "BrEnv".to_string()
         }
     }
 }
@@ -840,14 +843,14 @@ impl Repr for ast::DefId {
                 Some(ast_map::NodeVariant(..)) |
                 Some(ast_map::NodeStructCtor(..)) => {
                     return format!(
-                                "{:?}:{}",
+                                "{}:{}",
                                 *self,
                                 ty::item_path_str(tcx, *self))
                 }
                 _ => {}
             }
         }
-        return format!("{:?}", *self)
+        return format!("{}", *self)
     }
 }
 
@@ -919,19 +922,19 @@ impl Repr for ast::Ident {
 
 impl Repr for ast::ExplicitSelf_ {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
 impl Repr for ast::Visibility {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
 impl Repr for ty::BareFnTy {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("BareFnTy {{fn_style: {:?}, abi: {}, sig: {}}}",
+        format!("BareFnTy {{fn_style: {}, abi: {}, sig: {}}}",
                 self.fn_style,
                 self.abi.to_string(),
                 self.sig.repr(tcx))
@@ -982,7 +985,7 @@ impl Repr for typeck::MethodParam {
 
 impl Repr for typeck::MethodObject {
     fn repr(&self, tcx: &ctxt) -> String {
-        format!("MethodObject({},{:?},{:?})",
+        format!("MethodObject({},{},{})",
                 self.trait_ref.repr(tcx),
                 self.method_num,
                 self.real_index)
@@ -997,17 +1000,17 @@ impl Repr for ty::TraitStore {
 
 impl Repr for ty::BuiltinBound {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
 impl UserString for ty::BuiltinBound {
     fn user_string(&self, _tcx: &ctxt) -> String {
         match *self {
-            ty::BoundSend => "Send".to_owned(),
-            ty::BoundSized => "Sized".to_owned(),
-            ty::BoundCopy => "Copy".to_owned(),
-            ty::BoundSync => "Sync".to_owned(),
+            ty::BoundSend => "Send".to_string(),
+            ty::BoundSized => "Sized".to_string(),
+            ty::BoundCopy => "Copy".to_string(),
+            ty::BoundSync => "Sync".to_string(),
         }
     }
 }
@@ -1115,13 +1118,13 @@ impl Repr for ty::UpvarId {
 
 impl Repr for ast::Mutability {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
 impl Repr for ty::BorrowKind {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
@@ -1159,25 +1162,25 @@ impl Repr for ty::TyVid {
 
 impl Repr for ty::IntVarValue {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
 impl Repr for ast::IntTy {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
 impl Repr for ast::UintTy {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 
 impl Repr for ast::FloatTy {
     fn repr(&self, _tcx: &ctxt) -> String {
-        format!("{:?}", *self)
+        format!("{}", *self)
     }
 }
 

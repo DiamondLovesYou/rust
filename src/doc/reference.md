@@ -185,40 +185,24 @@ grammar as double-quoted strings. Other tokens have exact rules given.
 
 ### Keywords
 
-The keywords are the following strings, organized by first letter:
+<p id="keyword-table-marker">The keywords are the following strings, organized by first letter:</p>
 
-<div id="keywords">
 |          |        |        |       |
 |----------|--------|--------|-------|
 | as       |        |        |       |
-|----------|--------|--------|-------|
 | box      | break  |        |       |
-|----------|--------|--------|-------|
 | continue | crate  |        |       |
-|----------|--------|--------|-------|
 | else     | enum   | extern |       |
-|----------|--------|--------|-------|
 | false    | fn     | for    |       |
-|----------|--------|--------|-------|
 | if       | impl   | in     |       |
-|----------|--------|--------|-------|
 | let      | loop   |        |       |
-|----------|--------|--------|-------|
 | match    | mod    | mut    |       |
-|----------|--------|--------|-------|
 | priv     | proc   | pub    |       |
-|----------|--------|--------|-------|
 | ref      | return |        |       |
-|----------|--------|--------|-------|
 | self     | static | struct | super |
-|----------|--------|--------|-------|
 | trait    | true   | type   |       |
-|----------|--------|--------|-------|
 | unsafe   | use    |        |       |
-|----------|--------|--------|-------|
 | while    |        |        |       |
-|----------|--------|--------|-------|
-</div>
 
 Each of these keywords has special meaning in its grammar, and all of them are
 excluded from the `ident` rule.
@@ -357,7 +341,7 @@ following forms:
   escaped in order to denote its ASCII encoding `0x5C`.
 
 Raw byte string literals do not process any escapes. They start with the
-character `U+0072` (`r`), followed by `U+0062` (`b`), followed by zero or more
+character `U+0062` (`b`), followed by `U+0072` (`r`), followed by zero or more
 of the character `U+0023` (`#`), and a `U+0022` (double-quote) character. The
 _raw string body_ is not defined in the EBNF grammar above: it can contain any
 sequence of ASCII characters and is terminated only by another `U+0022`
@@ -1193,7 +1177,7 @@ This is a list of behaviour not considered *unsafe* in Rust terms, but that may
 be undesired.
 
 * Deadlocks
-* Reading data from private fields (`std::repr`, `format!("{:?}", x)`)
+* Reading data from private fields (`std::repr`)
 * Leaks due to reference count cycles, even in the global heap
 * Exiting without calling destructors
 * Sending signals
@@ -2049,26 +2033,28 @@ fn macos_only() {
 }
 
 // This function is only included when either foo or bar is defined
-#[cfg(foo)]
-#[cfg(bar)]
+#[cfg(any(foo, bar))]
 fn needs_foo_or_bar() {
   // ...
 }
 
 // This function is only included when compiling for a unixish OS with a 32-bit
 // architecture
-#[cfg(unix, target_word_size = "32")]
+#[cfg(all(unix, target_word_size = "32"))]
 fn on_32bit_unix() {
+  // ...
+}
+
+// This function is only included when foo is not defined
+#[cfg(not(foo))]
+fn needs_not_foo() {
   // ...
 }
 ```
 
 This illustrates some conditional compilation can be achieved using the
-`#[cfg(...)]` attribute. Note that `#[cfg(foo, bar)]` is a condition that needs
-both `foo` and `bar` to be defined while `#[cfg(foo)] #[cfg(bar)]` only needs
-one of `foo` and `bar` to be defined (this resembles in the disjunctive normal
-form). Additionally, one can reverse a condition by enclosing it in a
-`not(...)`, like e. g. `#[cfg(not(target_os = "win32"))]`.
+`#[cfg(...)]` attribute. `any`, `all` and `not` can be used to assemble
+arbitrarily complex configurations through nesting.
 
 The following configurations must be defined by the implementation:
 
@@ -2293,8 +2279,6 @@ These types help drive the compiler's analysis
   : The lifetime parameter should be considered invariant
 * `malloc`
   : Allocate memory on the managed heap.
-* `opaque`
-  : ___Needs filling in___
 * `owned_box`
   : ___Needs filling in___
 * `stack_exhausted`
@@ -2308,8 +2292,6 @@ These types help drive the compiler's analysis
 * `invariant_type`
   : The type parameter should be considered invariant
 * `ty_desc`
-  : ___Needs filling in___
-* `ty_visitor`
   : ___Needs filling in___
 
 > **Note:** This list is likely to become out of date. We should auto-generate
@@ -2485,6 +2467,8 @@ The currently implemented features of the reference compiler are:
                           this feature is uncertain.
 
 * `if_let` - Allows use of the `if let` syntax.
+
+* `while_let` - Allows use of the `while let` syntax.
 
 * `intrinsics` - Allows use of the "rust-intrinsics" ABI. Compiler intrinsics
                  are inherently unstable and no promise about them is made.
@@ -3491,6 +3475,18 @@ An `if let` expression is semantically identical to an `if` expression but in pl
 of a condition expression it expects a refutable let statement. If the value of the
 expression on the right hand side of the let statement matches the pattern, the corresponding
 block will execute, otherwise flow proceeds to the first `else` block that follows.
+
+### While let loops
+
+```{.ebnf .gram}
+while_let_expr : "while" "let" pat '=' expr '{' block '}' ;
+```
+
+A `while let` loop is semantically identical to a `while` loop but in place of a
+condition expression it expects a refutable let statement. If the value of the
+expression on the right hand side of the let statement matches the pattern, the
+loop body block executes and control returns to the pattern matching statement.
+Otherwise, the while expression completes.
 
 ### Return expressions
 

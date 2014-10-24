@@ -260,7 +260,7 @@ pub fn self_type_for_unboxed_closure(ccx: &CrateContext,
                                                       closure_id,
                                                       ty::ReStatic);
     let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
-    let unboxed_closure = unboxed_closures.get(&closure_id);
+    let unboxed_closure = &(*unboxed_closures)[closure_id];
     match unboxed_closure.kind {
         ty::FnUnboxedClosureKind => {
             ty::mk_imm_rptr(ccx.tcx(), ty::ReStatic, unboxed_closure_type)
@@ -275,7 +275,7 @@ pub fn self_type_for_unboxed_closure(ccx: &CrateContext,
 pub fn kind_for_unboxed_closure(ccx: &CrateContext, closure_id: ast::DefId)
                                 -> ty::UnboxedClosureKind {
     let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
-    unboxed_closures.get(&closure_id).kind
+    (*unboxed_closures)[closure_id].kind
 }
 
 pub fn decl_rust_fn(ccx: &CrateContext, fn_ty: ty::t, name: &str) -> ValueRef {
@@ -288,7 +288,7 @@ pub fn decl_rust_fn(ccx: &CrateContext, fn_ty: ty::t, name: &str) -> ValueRef {
         }
         ty::ty_unboxed_closure(closure_did, _) => {
             let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
-            let unboxed_closure = unboxed_closures.get(&closure_did);
+            let unboxed_closure = &(*unboxed_closures)[closure_did];
             let function_type = unboxed_closure.closure_type.clone();
             let self_type = self_type_for_unboxed_closure(ccx, closure_did);
             let llenvironment_type = type_of_explicit_arg(ccx, self_type);
@@ -399,7 +399,7 @@ pub fn malloc_raw_dyn_proc<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, t: ty::t) -> Resu
 
     let llty = type_of(bcx.ccx(), t);
     let size = llsize_of(bcx.ccx(), llty);
-    let llalign = C_uint(ccx, llalign_of_min(bcx.ccx(), llty) as uint);
+    let llalign = C_uint(ccx, llalign_of_min(bcx.ccx(), llty));
 
     // Allocate space and store the destructor pointer:
     let Result {bcx: bcx, val: llbox} = malloc_raw_dyn(bcx, ptr_llty, t, size, llalign);
@@ -772,7 +772,7 @@ pub fn iter_structural_ty<'a, 'blk, 'tcx>(cx: Block<'blk, 'tcx>,
 
           match adt::trans_switch(cx, &*repr, av) {
               (_match::Single, None) => {
-                  cx = iter_variant(cx, &*repr, av, &**variants.get(0),
+                  cx = iter_variant(cx, &*repr, av, &*(*variants)[0],
                                     substs, f);
               }
               (_match::Switch, Some(lldiscrim_a)) => {
@@ -1089,7 +1089,7 @@ pub fn ignore_lhs(_bcx: Block, local: &ast::Local) -> bool {
 
 pub fn init_local<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, local: &ast::Local)
                               -> Block<'blk, 'tcx> {
-    debug!("init_local(bcx={}, local.id={:?})", bcx.to_str(), local.id);
+    debug!("init_local(bcx={}, local.id={})", bcx.to_str(), local.id);
     let _indenter = indenter();
     let _icx = push_ctxt("init_local");
     _match::store_local(bcx, local)
@@ -2081,7 +2081,7 @@ fn enum_variant_size_lint(ccx: &CrateContext, enum_def: &ast::EnumDef, sp: Span,
     let mut sizes = Vec::new(); // does no allocation if no pushes, thankfully
 
     let levels = ccx.tcx().node_lint_levels.borrow();
-    let lint_id = lint::LintId::of(lint::builtin::VARIANT_SIZE_DIFFERENCE);
+    let lint_id = lint::LintId::of(lint::builtin::VARIANT_SIZE_DIFFERENCES);
     let lvlsrc = match levels.find(&(id, lint_id)) {
         None | Some(&(lint::Allow, _)) => return,
         Some(&lvlsrc) => lvlsrc,
@@ -2118,13 +2118,13 @@ fn enum_variant_size_lint(ccx: &CrateContext, enum_def: &ast::EnumDef, sp: Span,
     if largest > slargest * 3 && slargest > 0 {
         // Use lint::raw_emit_lint rather than sess.add_lint because the lint-printing
         // pass for the latter already ran.
-        lint::raw_emit_lint(&ccx.tcx().sess, lint::builtin::VARIANT_SIZE_DIFFERENCE,
+        lint::raw_emit_lint(&ccx.tcx().sess, lint::builtin::VARIANT_SIZE_DIFFERENCES,
                             lvlsrc, Some(sp),
                             format!("enum variant is more than three times larger \
                                      ({} bytes) than the next largest (ignoring padding)",
                                     largest).as_slice());
 
-        ccx.sess().span_note(enum_def.variants.get(largest_index).span,
+        ccx.sess().span_note(enum_def.variants[largest_index].span,
                              "this variant is the largest");
     }
 }
@@ -2356,7 +2356,7 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
         ty::ty_bare_fn(ref f) => (f.sig.clone(), f.abi, false),
         ty::ty_unboxed_closure(closure_did, _) => {
             let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
-            let ref function_type = unboxed_closures.get(&closure_did)
+            let ref function_type = (*unboxed_closures)[closure_did]
                                                     .closure_type;
 
             (function_type.sig.clone(), RustCall, true)
@@ -2384,11 +2384,14 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
             }
         },
         ty::ty_bare_fn(_) if abi == RustCall => {
-            let inputs = vec![fn_sig.inputs[0]];
+            let mut inputs = vec![fn_sig.inputs[0]];
 
             match ty::get(fn_sig.inputs[1]).sty {
                 ty::ty_nil => inputs,
-                ty::ty_tup(ref t_in) => inputs.append(t_in.as_slice()),
+                ty::ty_tup(ref t_in) => {
+                    inputs.push_all(t_in.as_slice());
+                    inputs
+                }
                 _ => ccx.sess().bug("expected tuple'd inputs")
             }
         }
@@ -2469,24 +2472,6 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
 
                 attrs.arg(idx, llvm::NoAliasAttribute)
                      .arg(idx, llvm::DereferenceableAttribute(llsz));
-            }
-
-            // The visit glue deals only with opaque pointers so we don't
-            // actually know the concrete type of Self thus we don't know how
-            // many bytes to mark as dereferenceable so instead we just mark
-            // it as nonnull which still holds true
-            ty::ty_rptr(b, ty::mt { ty: it, mutbl }) if match ty::get(it).sty {
-                ty::ty_param(_) => true, _ => false
-            } && mutbl == ast::MutMutable => {
-                attrs.arg(idx, llvm::NoAliasAttribute)
-                     .arg(idx, llvm::NonNullAttribute);
-
-                match b {
-                    ReLateBound(_, BrAnon(_)) => {
-                        attrs.arg(idx, llvm::NoCaptureAttribute);
-                    }
-                    _ => {}
-                }
             }
 
             // `&mut` pointer parameters never alias other parameters, or mutable global data
@@ -2675,7 +2660,7 @@ fn contains_null(s: &str) -> bool {
 }
 
 pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
-    debug!("get_item_val(id=`{:?}`)", id);
+    debug!("get_item_val(id=`{}`)", id);
 
     match ccx.item_vals().borrow().find_copy(&id) {
         Some(v) => return v,
@@ -2860,7 +2845,7 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
         }
 
         ref variant => {
-            ccx.sess().bug(format!("get_item_val(): unexpected variant: {:?}",
+            ccx.sess().bug(format!("get_item_val(): unexpected variant: {}",
                                    variant).as_slice())
         }
     };
@@ -2925,13 +2910,11 @@ pub fn write_metadata(cx: &SharedCrateContext, krate: &ast::Crate) -> Vec<u8> {
 
     let encode_parms = crate_ctxt_to_encode_parms(cx, encode_inlined_item);
     let metadata = encoder::encode_metadata(encode_parms, krate);
-    let compressed = Vec::from_slice(encoder::metadata_encoding_version)
-                     .append(match flate::deflate_bytes(metadata.as_slice()) {
-                         Some(compressed) => compressed,
-                         None => {
-                             cx.sess().fatal("failed to compress metadata")
-                         }
-                     }.as_slice());
+    let mut compressed = encoder::metadata_encoding_version.to_vec();
+    compressed.push_all(match flate::deflate_bytes(metadata.as_slice()) {
+        Some(compressed) => compressed,
+        None => cx.sess().fatal("failed to compress metadata"),
+    }.as_slice());
     let llmeta = C_bytes_in_context(cx.metadata_llcx(), compressed.as_slice());
     let llconst = C_struct_in_context(cx.metadata_llcx(), [llmeta], false);
     let name = format!("rust_metadata_{}_{}",

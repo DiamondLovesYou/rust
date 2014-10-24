@@ -202,7 +202,7 @@ pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: &Ty) -> Ident {
     let mut pretty = pprust::ty_to_string(ty);
     match *trait_ref {
         Some(ref trait_ref) => {
-            pretty.push_char('.');
+            pretty.push('.');
             pretty.push_str(pprust::path_to_string(&trait_ref.path).as_slice());
         }
         None => {}
@@ -308,7 +308,7 @@ pub fn empty_generics() -> Generics {
 // ______________________________________________________________________
 // Enumerating the IDs which appear in an AST
 
-#[deriving(Encodable, Decodable)]
+#[deriving(Encodable, Decodable, Show)]
 pub struct IdRange {
     pub min: NodeId,
     pub max: NodeId,

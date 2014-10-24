@@ -84,7 +84,7 @@ pub fn llvm_actual_err(sess: &Session, msg: String) {
             sess.err(msg.as_slice());
         } else {
             let err = CString::new(cstr, true);
-            let err = str::from_utf8_lossy(err.as_bytes());
+            let err = str::from_utf8(err.as_bytes()).unwrap();
             sess.err(format!("{}: {}",
                              msg.as_slice(),
                              err.as_slice()).as_slice());
@@ -99,7 +99,7 @@ pub fn llvm_warn(sess: &Session, msg: String) {
             sess.warn(msg.as_slice());
         } else {
             let err = CString::new(cstr, true);
-            let err = str::from_utf8_lossy(err.as_bytes());
+            let err = str::from_utf8(err.as_bytes()).unwrap();
             sess.warn(format!("{}: {}",
                               msg.as_slice(),
                               err.as_slice()).as_slice());
@@ -161,8 +161,6 @@ pub fn llvm_warn(sess: &Session, msg: String) {
 pub fn find_crate_name(sess: Option<&Session>,
                        attrs: &[ast::Attribute],
                        input: &Input) -> String {
-    use syntax::crateid::CrateId;
-
     let validate = |s: String, span: Option<Span>| {
         creader::validate_crate_name(sess, s.as_slice(), span);
         s
@@ -198,25 +196,6 @@ pub fn find_crate_name(sess: Option<&Session>,
 
     match attr_crate_name {
         Some((attr, s)) => return validate(s.get().to_string(), Some(attr.span)),
-        None => {}
-    }
-    let crate_id = attrs.iter().find(|at| at.check_name("crate_id"))
-                        .and_then(|at| at.value_str().map(|s| (at, s)))
-                        .and_then(|(at, s)| {
-                            from_str::<CrateId>(s.get()).map(|id| (at, id))
-                        });
-    match crate_id {
-        Some((attr, id)) => {
-            match sess {
-                Some(sess) => {
-                    sess.span_warn(attr.span, "the #[crate_id] attribute is \
-                                               deprecated for the \
-                                               #[crate_name] attribute");
-                }
-                None => {}
-            }
-            return validate(id.name, Some(attr.span))
-        }
         None => {}
     }
     match *input {
@@ -306,18 +285,18 @@ pub fn sanitize(s: &str) -> String {
 
             // '.' doesn't occur in types and functions, so reuse it
             // for ':' and '-'
-            '-' | ':' => result.push_char('.'),
+            '-' | ':' => result.push('.'),
 
             // These are legal symbols
             'a' ... 'z'
             | 'A' ... 'Z'
             | '0' ... '9'
-            | '_' | '.' | '$' => result.push_char(c),
+            | '_' | '.' | '$' => result.push(c),
 
             _ => {
                 let mut tstr = String::new();
-                char::escape_unicode(c, |c| tstr.push_char(c));
-                result.push_char('$');
+                char::escape_unicode(c, |c| tstr.push(c));
+                result.push('$');
                 result.push_str(tstr.as_slice().slice_from(1));
             }
         }
@@ -366,7 +345,7 @@ pub fn mangle<PI: Iterator<PathElem>>(mut path: PI,
         None => {}
     }
 
-    n.push_char('E'); // End name-sequence.
+    n.push('E'); // End name-sequence.
     n
 }
 
@@ -392,9 +371,9 @@ pub fn mangle_exported_name(ccx: &CrateContext, path: PathElems,
     let extra2 = id % EXTRA_CHARS.len();
     let id = id / EXTRA_CHARS.len();
     let extra3 = id % EXTRA_CHARS.len();
-    hash.push_char(EXTRA_CHARS.as_bytes()[extra1] as char);
-    hash.push_char(EXTRA_CHARS.as_bytes()[extra2] as char);
-    hash.push_char(EXTRA_CHARS.as_bytes()[extra3] as char);
+    hash.push(EXTRA_CHARS.as_bytes()[extra1] as char);
+    hash.push(EXTRA_CHARS.as_bytes()[extra2] as char);
+    hash.push(EXTRA_CHARS.as_bytes()[extra3] as char);
 
     exported_name(path, hash.as_slice())
 }
@@ -794,7 +773,7 @@ pub fn link_pnacl_module(sess: &Session,
                                                bc.as_ptr() as *const libc::c_void,
                                                bc.len() as libc::size_t)
                 });
-                if llmod == ptr::mut_null() {
+                if llmod == ptr::null_mut() {
                     llvm_warn(sess, format!("failed to parse external bitcode `{}`",
                                             name));
                     None
@@ -912,7 +891,7 @@ pub fn link_pnacl_module(sess: &Session,
     // Internalize everything.
     unsafe {
         let start = "_start".to_c_str();
-        let reachable = vec!(start.with_ref(|p| p ));
+        let reachable = vec!(start.as_ptr());
         llvm::LLVMRustRunRestrictionPass(llmod,
                                          reachable.as_ptr() as *const *const libc::c_char,
                                          reachable.len() as libc::size_t);
@@ -1353,8 +1332,8 @@ fn link_natively(sess: &Session, trans: &CrateTranslation, dylib: bool,
                 sess.note(str::from_utf8(output.as_slice()).unwrap());
                 sess.abort_if_errors();
             }
-            debug!("linker stderr:\n{}", str::from_utf8_owned(prog.error).unwrap());
-            debug!("linker stdout:\n{}", str::from_utf8_owned(prog.output).unwrap());
+            debug!("linker stderr:\n{}", String::from_utf8(prog.error).unwrap());
+            debug!("linker stdout:\n{}", String::from_utf8(prog.output).unwrap());
         },
         Err(e) => {
             sess.err(format!("could not exec the linker `{}`: {}",
@@ -1603,7 +1582,7 @@ fn link_args(cmd: &mut Command,
             cmd.args(["-dynamiclib", "-Wl,-dylib"]);
 
             if sess.opts.cg.rpath {
-                let mut v = Vec::from_slice("-Wl,-install_name,@rpath/".as_bytes());
+                let mut v = "-Wl,-install_name,@rpath/".as_bytes().to_vec();
                 v.push_all(out_filename.filename().unwrap());
                 cmd.arg(v.as_slice());
             }
@@ -1762,9 +1741,9 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
     // involves just passing the right -l flag.
 
     let data = if dylib {
-        trans.crate_formats.get(&config::CrateTypeDylib)
+        &trans.crate_formats[config::CrateTypeDylib]
     } else {
-        trans.crate_formats.get(&config::CrateTypeExecutable)
+        &trans.crate_formats[config::CrateTypeExecutable]
     };
 
     // Invoke get_used_crates to ensure that we get a topological sorting of
@@ -1775,7 +1754,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
         // We may not pass all crates through to the linker. Some crates may
         // appear statically in an existing dylib, meaning we'll pick up all the
         // symbols from the dylib.
-        let kind = match *data.get(cnum as uint - 1) {
+        let kind = match data[cnum as uint - 1] {
             Some(t) => t,
             None => continue
         };
@@ -1794,7 +1773,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
     // Converts a library file-stem into a cc -l argument
     fn unlib<'a>(config: &config::Config, stem: &'a [u8]) -> &'a [u8] {
         if stem.starts_with("lib".as_bytes()) && config.os != abi::OsWindows {
-            stem.tailn(3)
+            stem[3..]
         } else {
             stem
         }
@@ -1878,7 +1857,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
         let dir = cratepath.dirname();
         if !dir.is_empty() { cmd.arg("-L").arg(dir); }
 
-        let mut v = Vec::from_slice("-l".as_bytes());
+        let mut v = "-l".as_bytes().to_vec();
         v.push_all(unlib(&sess.targ_cfg, cratepath.filestem().unwrap()));
         cmd.arg(v.as_slice());
     }

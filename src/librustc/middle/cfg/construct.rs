@@ -259,6 +259,10 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
                 expr_exit
             }
 
+            ast::ExprWhileLet(..) => {
+                self.tcx.sess.span_bug(expr.span, "non-desugared ExprWhileLet");
+            }
+
             ast::ExprForLoop(ref pat, ref head, ref body, _) => {
                 //
                 //          [pred]
@@ -420,7 +424,7 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
             }
 
             ast::ExprMethodCall(_, _, ref args) => {
-                self.call(expr, pred, &**args.get(0), args.slice_from(1).iter().map(|e| &**e))
+                self.call(expr, pred, &*args[0], args.slice_from(1).iter().map(|e| &**e))
             }
 
             ast::ExprIndex(ref l, ref r) |
@@ -479,12 +483,12 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
                 let inputs = inline_asm.inputs.iter();
                 let outputs = inline_asm.outputs.iter();
                 let post_inputs = self.exprs(inputs.map(|a| {
-                    debug!("cfg::construct InlineAsm id:{} input:{:?}", expr.id, a);
+                    debug!("cfg::construct InlineAsm id:{} input:{}", expr.id, a);
                     let &(_, ref expr) = a;
                     &**expr
                 }), pred);
                 let post_outputs = self.exprs(outputs.map(|a| {
-                    debug!("cfg::construct InlineAsm id:{} output:{:?}", expr.id, a);
+                    debug!("cfg::construct InlineAsm id:{} output:{}", expr.id, a);
                     let &(_, ref expr, _) = a;
                     &**expr
                 }), post_inputs);
@@ -612,14 +616,14 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
                         }
                         self.tcx.sess.span_bug(
                             expr.span,
-                            format!("no loop scope for id {:?}",
+                            format!("no loop scope for id {}",
                                     loop_id).as_slice());
                     }
 
                     r => {
                         self.tcx.sess.span_bug(
                             expr.span,
-                            format!("bad entry `{:?}` in def_map for label",
+                            format!("bad entry `{}` in def_map for label",
                                     r).as_slice());
                     }
                 }

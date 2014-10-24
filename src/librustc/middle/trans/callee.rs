@@ -137,7 +137,9 @@ fn trans<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, expr: &ast::Expr)
         };
     }
 
-    fn trans_def<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, def: def::Def, ref_expr: &ast::Expr)
+    fn trans_def<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
+                             def: def::Def,
+                             ref_expr: &ast::Expr)
                              -> Callee<'blk, 'tcx> {
         debug!("trans_def(def={}, ref_expr={})", def.repr(bcx.tcx()), ref_expr.repr(bcx.tcx()));
         let expr_ty = node_id_type(bcx, ref_expr.id);
@@ -165,14 +167,13 @@ fn trans<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, expr: &ast::Expr)
                 let def_id = inline::maybe_instantiate_inline(bcx.ccx(), did);
                 Callee { bcx: bcx, data: Intrinsic(def_id.node, substs) }
             }
-            def::DefFn(did, _, _) |
+            def::DefFn(did, _, _) | def::DefMethod(did, _, def::FromImpl(_)) |
             def::DefStaticMethod(did, def::FromImpl(_), _) => {
                 fn_callee(bcx, trans_fn_ref(bcx, did, ExprId(ref_expr.id)))
             }
-            def::DefStaticMethod(impl_did,
-                                 def::FromTrait(trait_did),
-                                 _) => {
-                fn_callee(bcx, meth::trans_static_method_callee(bcx, impl_did,
+            def::DefStaticMethod(meth_did, def::FromTrait(trait_did), _) |
+            def::DefMethod(meth_did, _, def::FromTrait(trait_did)) => {
+                fn_callee(bcx, meth::trans_static_method_callee(bcx, meth_did,
                                                                 trait_did,
                                                                 ref_expr.id))
             }
@@ -205,10 +206,10 @@ fn trans<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, expr: &ast::Expr)
             def::DefTy(..) | def::DefPrimTy(..) | def::DefAssociatedTy(..) |
             def::DefUse(..) | def::DefTyParamBinder(..) |
             def::DefRegion(..) | def::DefLabel(..) | def::DefTyParam(..) |
-            def::DefSelfTy(..) | def::DefMethod(..) => {
+            def::DefSelfTy(..) => {
                 bcx.tcx().sess.span_bug(
                     ref_expr.span,
-                    format!("cannot translate def {:?} \
+                    format!("cannot translate def {} \
                              to a callable thing!", def).as_slice());
             }
         }
@@ -225,7 +226,7 @@ pub fn trans_fn_ref(bcx: Block, def_id: ast::DefId, node: ExprOrMethodCall) -> V
     let _icx = push_ctxt("trans_fn_ref");
 
     let substs = node_id_substs(bcx, node);
-    debug!("trans_fn_ref(def_id={}, node={:?}, substs={})",
+    debug!("trans_fn_ref(def_id={}, node={}, substs={})",
            def_id.repr(bcx.tcx()),
            node,
            substs.repr(bcx.tcx()));
@@ -259,7 +260,7 @@ pub fn trans_unboxing_shim(bcx: Block,
     let tcx = bcx.tcx();
 
     // Transform the self type to `Box<self_type>`.
-    let self_type = *fty.sig.inputs.get(0);
+    let self_type = fty.sig.inputs[0];
     let boxed_self_type = ty::mk_uniq(tcx, self_type);
     let boxed_function_type = ty::FnSig {
         binder_id: fty.sig.binder_id,
@@ -280,8 +281,32 @@ pub fn trans_unboxing_shim(bcx: Block,
     };
     let boxed_function_type =
         ty::mk_bare_fn(tcx, boxed_function_type).subst(tcx, &substs);
-    let function_type =
-        ty::mk_bare_fn(tcx, (*fty).clone()).subst(tcx, &substs);
+    let function_type = match fty.abi {
+        synabi::RustCall => {
+            // We're passing through to a RustCall ABI function, but
+            // because the shim will already perform untupling, we
+            // need to pretend the shimmed function does not use
+            // RustCall so the untupled arguments can be passed
+            // through verbatim.  This is kind of ugly.
+            let fake_ty = ty::FnSig {
+                binder_id: fty.sig.binder_id,
+                inputs: type_of::untuple_arguments_if_necessary(ccx,
+                                                                fty.sig.inputs.as_slice(),
+                                                                fty.abi),
+                output: fty.sig.output,
+                variadic: false,
+            };
+            let fake_ty = ty::BareFnTy {
+                fn_style: fty.fn_style,
+                abi: synabi::Rust,
+                sig: fake_ty,
+            };
+            ty::mk_bare_fn(tcx, fake_ty).subst(tcx, &substs)
+        }
+        _ => {
+            ty::mk_bare_fn(tcx, (*fty).clone()).subst(tcx, &substs)
+        }
+    };
 
     let function_name = ty::with_path(tcx, method_id, |path| {
         link::mangle_internal_name_by_path_and_seq(path, "unboxing_shim")
@@ -307,9 +332,9 @@ pub fn trans_unboxing_shim(bcx: Block,
     let arg_scope = fcx.push_custom_cleanup_scope();
     let arg_scope_id = cleanup::CustomScope(arg_scope);
     let boxed_arg_types = ty::ty_fn_args(boxed_function_type);
-    let boxed_self_type = *boxed_arg_types.get(0);
+    let boxed_self_type = boxed_arg_types[0];
     let arg_types = ty::ty_fn_args(function_type);
-    let self_type = *arg_types.get(0);
+    let self_type = arg_types[0];
     let boxed_self_kind = arg_kind(&fcx, boxed_self_type);
 
     // Create a datum for self.
@@ -397,7 +422,7 @@ pub fn trans_fn_ref_with_substs(
     let ccx = bcx.ccx();
     let tcx = bcx.tcx();
 
-    debug!("trans_fn_ref_with_substs(bcx={}, def_id={}, node={:?}, \
+    debug!("trans_fn_ref_with_substs(bcx={}, def_id={}, node={}, \
             substs={})",
            bcx.to_str(),
            def_id.repr(tcx),
@@ -516,7 +541,7 @@ pub fn trans_fn_ref_with_substs(
             let ref_ty = match node {
                 ExprId(id) => node_id_type(bcx, id),
                 MethodCall(method_call) => {
-                    let t = bcx.tcx().method_map.borrow().get(&method_call).ty;
+                    let t = (*bcx.tcx().method_map.borrow())[method_call].ty;
                     monomorphize_type(bcx, t)
                 }
             };
@@ -603,7 +628,7 @@ pub fn trans_method_call<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let _icx = push_ctxt("trans_method_call");
     debug!("trans_method_call(call_ex={})", call_ex.repr(bcx.tcx()));
     let method_call = MethodCall::expr(call_ex.id);
-    let method_ty = bcx.tcx().method_map.borrow().get(&method_call).ty;
+    let method_ty = (*bcx.tcx().method_map.borrow())[method_call].ty;
     trans_call_inner(
         bcx,
         Some(common::expr_info(call_ex)),
@@ -788,7 +813,7 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                          llself.is_some(),
                          abi);
 
-        fcx.pop_custom_cleanup_scope(arg_cleanup_scope);
+        fcx.scopes.borrow_mut().last_mut().unwrap().drop_non_lifetime_clean();
 
         // Invoke the actual rust fn and update bcx/llresult.
         let (llret, b) = base::invoke(bcx,
@@ -829,11 +854,14 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                          cleanup::CustomScope(arg_cleanup_scope),
                          false,
                          abi);
-        fcx.pop_custom_cleanup_scope(arg_cleanup_scope);
+        fcx.scopes.borrow_mut().last_mut().unwrap().drop_non_lifetime_clean();
+
         bcx = foreign::trans_native_call(bcx, callee_ty,
                                          llfn, opt_llretslot.unwrap(),
                                          llargs.as_slice(), arg_tys);
     }
+
+    fcx.pop_and_trans_custom_cleanup_scope(bcx, arg_cleanup_scope);
 
     // If the caller doesn't care about the result of this fn call,
     // drop the temporary slot we made.
@@ -887,7 +915,7 @@ fn trans_args_under_call_abi<'blk, 'tcx>(
         let arg_datum = unpack_datum!(bcx, expr::trans(bcx, &*arg_exprs[0]));
         llargs.push(unpack_result!(bcx, {
             trans_arg_datum(bcx,
-                            *arg_tys.get(0),
+                            arg_tys[0],
                             arg_datum,
                             arg_cleanup_scope,
                             DontAutorefArg)
@@ -912,7 +940,7 @@ fn trans_args_under_call_abi<'blk, 'tcx>(
             for i in range(0, field_types.len()) {
                 let arg_datum = tuple_lvalue_datum.get_element(
                     bcx,
-                    *field_types.get(i),
+                    field_types[i],
                     |srcval| {
                         adt::trans_field_ptr(bcx, repr_ptr, srcval, 0, i)
                     });
@@ -948,7 +976,7 @@ fn trans_overloaded_call_args<'blk, 'tcx>(
         let arg_datum = unpack_datum!(bcx, expr::trans(bcx, arg_exprs[0]));
         llargs.push(unpack_result!(bcx, {
             trans_arg_datum(bcx,
-                            *arg_tys.get(0),
+                            arg_tys[0],
                             arg_datum,
                             arg_cleanup_scope,
                             DontAutorefArg)
@@ -956,7 +984,7 @@ fn trans_overloaded_call_args<'blk, 'tcx>(
     }
 
     // Now untuple the rest of the arguments.
-    let tuple_type = *arg_tys.get(1);
+    let tuple_type = arg_tys[1];
     match ty::get(tuple_type).sty {
         ty::ty_tup(ref field_types) => {
             for (i, &field_type) in field_types.iter().enumerate() {
@@ -1022,7 +1050,7 @@ pub fn trans_args<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                     assert!(variadic);
                     expr_ty_adjusted(cx, &**arg_expr)
                 } else {
-                    *arg_tys.get(i)
+                    arg_tys[i]
                 };
 
                 let arg_datum = unpack_datum!(bcx, expr::trans(bcx, &**arg_expr));
@@ -1045,15 +1073,15 @@ pub fn trans_args<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
             assert!(!variadic);
 
             llargs.push(unpack_result!(bcx, {
-                trans_arg_datum(bcx, *arg_tys.get(0), lhs,
+                trans_arg_datum(bcx, arg_tys[0], lhs,
                                 arg_cleanup_scope,
                                 DontAutorefArg)
             }));
 
             assert_eq!(arg_tys.len(), 1 + rhs.len());
-            for (rhs, rhs_id) in rhs.move_iter() {
+            for (rhs, rhs_id) in rhs.into_iter() {
                 llargs.push(unpack_result!(bcx, {
-                    trans_arg_datum(bcx, *arg_tys.get(1), rhs,
+                    trans_arg_datum(bcx, arg_tys[1], rhs,
                                     arg_cleanup_scope,
                                     DoAutorefArg(rhs_id))
                 }));

@@ -347,8 +347,8 @@ impl<'a, 'tcx, 'v> Visitor<'v> for EmbargoVisitor<'a, 'tcx> {
         // This code is here instead of in visit_item so that the
         // crate module gets processed as well.
         if self.prev_exported {
-            assert!(self.exp_map2.contains_key(&id), "wut {:?}", id);
-            for export in self.exp_map2.get(&id).iter() {
+            assert!(self.exp_map2.contains_key(&id), "wut {}", id);
+            for export in self.exp_map2[id].iter() {
                 if is_local(export.def_id) {
                     self.reexports.insert(export.def_id.node);
                 }
@@ -394,28 +394,28 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
     fn def_privacy(&self, did: ast::DefId) -> PrivacyResult {
         if !is_local(did) {
             if self.external_exports.contains(&did) {
-                debug!("privacy - {:?} was externally exported", did);
+                debug!("privacy - {} was externally exported", did);
                 return Allowable;
             }
-            debug!("privacy - is {:?} a public method", did);
+            debug!("privacy - is {} a public method", did);
 
             return match self.tcx.impl_or_trait_items.borrow().find(&did) {
                 Some(&ty::MethodTraitItem(ref meth)) => {
-                    debug!("privacy - well at least it's a method: {:?}",
+                    debug!("privacy - well at least it's a method: {}",
                            *meth);
                     match meth.container {
                         ty::TraitContainer(id) => {
-                            debug!("privacy - recursing on trait {:?}", id);
+                            debug!("privacy - recursing on trait {}", id);
                             self.def_privacy(id)
                         }
                         ty::ImplContainer(id) => {
                             match ty::impl_trait_ref(self.tcx, id) {
                                 Some(t) => {
-                                    debug!("privacy - impl of trait {:?}", id);
+                                    debug!("privacy - impl of trait {}", id);
                                     self.def_privacy(t.def_id)
                                 }
                                 None => {
-                                    debug!("privacy - found a method {:?}",
+                                    debug!("privacy - found a method {}",
                                             meth.vis);
                                     if meth.vis == ast::Public {
                                         Allowable
@@ -430,17 +430,17 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                 Some(&ty::TypeTraitItem(ref typedef)) => {
                     match typedef.container {
                         ty::TraitContainer(id) => {
-                            debug!("privacy - recursing on trait {:?}", id);
+                            debug!("privacy - recursing on trait {}", id);
                             self.def_privacy(id)
                         }
                         ty::ImplContainer(id) => {
                             match ty::impl_trait_ref(self.tcx, id) {
                                 Some(t) => {
-                                    debug!("privacy - impl of trait {:?}", id);
+                                    debug!("privacy - impl of trait {}", id);
                                     self.def_privacy(t.def_id)
                                 }
                                 None => {
-                                    debug!("privacy - found a typedef {:?}",
+                                    debug!("privacy - found a typedef {}",
                                             typedef.vis);
                                     if typedef.vis == ast::Public {
                                         Allowable
@@ -524,7 +524,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
             // if we've reached the root, then everything was allowable and this
             // access is public.
             if closest_private_id == ast::CRATE_NODE_ID { return Allowable }
-            closest_private_id = *self.parents.get(&closest_private_id);
+            closest_private_id = self.parents[closest_private_id];
 
             // If we reached the top, then we were public all the way down and
             // we can allow this access.
@@ -542,7 +542,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
     /// whether the node is accessible by the current module that iteration is
     /// inside.
     fn private_accessible(&self, id: ast::NodeId) -> bool {
-        let parent = *self.parents.get(&id);
+        let parent = self.parents[id];
         debug!("privacy - accessible parent {}", self.nodestr(parent));
 
         // After finding `did`'s closest private member, we roll ourselves back
@@ -551,7 +551,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
         // members, so that's why we test the parent, and not the did itself.
         let mut cur = self.curitem;
         loop {
-            debug!("privacy - questioning {}, {:?}", self.nodestr(cur), cur);
+            debug!("privacy - questioning {}, {}", self.nodestr(cur), cur);
             match cur {
                 // If the relevant parent is in our history, then we're allowed
                 // to look inside any of our ancestor's immediate private items,
@@ -566,7 +566,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                 _ => {}
             }
 
-            cur = *self.parents.get(&cur);
+            cur = self.parents[cur];
         }
     }
 
@@ -658,7 +658,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                 debug!("privacy - check named field {} in struct {}", ident.name, id);
                 fields.iter().find(|f| f.name == ident.name).unwrap()
             }
-            UnnamedField(idx) => fields.get(idx)
+            UnnamedField(idx) => &fields[idx]
         };
         if field.vis == ast::Public ||
             (is_local(field.id) && self.private_accessible(field.id.node)) {
@@ -734,7 +734,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                                            name).as_slice())
             };
 
-            match *self.last_private_map.get(&path_id) {
+            match self.last_private_map[path_id] {
                 resolve::LastMod(resolve::AllPublic) => {},
                 resolve::LastMod(resolve::DependsOn(def)) => {
                     self.report_error(ck_public(def));
@@ -811,7 +811,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
             def::DefTy(_, true) => ck("enum"),
             def::DefTrait(..) => ck("trait"),
             def::DefStruct(..) => ck("struct"),
-            def::DefMethod(_, Some(..)) => ck("trait method"),
+            def::DefMethod(_, Some(..), _) => ck("trait method"),
             def::DefMethod(..) => ck("method"),
             def::DefMod(..) => ck("module"),
             _ => {}

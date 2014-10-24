@@ -34,7 +34,6 @@ extern crate core;
 #[cfg(test)] #[phase(plugin, link)] extern crate std;
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
 #[cfg(test)] extern crate native;
-#[cfg(test)] extern crate debug;
 
 use core::prelude::*;
 
@@ -238,12 +237,6 @@ pub trait Rng {
         } else {
             Some(&values[self.gen_range(0u, values.len())])
         }
-    }
-
-    /// Deprecated name for `choose()`.
-    #[deprecated = "replaced by .choose()"]
-    fn choose_option<'a, T>(&mut self, values: &'a [T]) -> Option<&'a T> {
-        self.choose(values)
     }
 
     /// Shuffle a mutable slice in place.

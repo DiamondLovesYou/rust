@@ -9,8 +9,7 @@
 // except according to those terms.
 
 
-#[cfg(target_arch = "x86")]
-#[cfg(target_arch = "arm")]
+#[cfg(any(target_arch = "x86", target_arch = "arm"))]
 #[cfg(target_arch = "le32")]
 #[cfg(target_arch = "x86_64", target_os = "nacl")]
 fn target() {

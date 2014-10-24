@@ -495,7 +495,7 @@ impl<'a> ExtCtxt<'a> {
 
     pub fn new_parser_from_tts(&self, tts: &[ast::TokenTree])
         -> parser::Parser<'a> {
-        parse::tts_to_parser(self.parse_sess, Vec::from_slice(tts), self.cfg())
+        parse::tts_to_parser(self.parse_sess, tts.to_vec(), self.cfg())
     }
 
     pub fn codemap(&self) -> &'a CodeMap { &self.parse_sess.span_diagnostic.cm }
@@ -557,7 +557,7 @@ impl<'a> ExtCtxt<'a> {
         self.recursion_count += 1;
         if self.recursion_count > self.ecfg.recursion_limit {
             self.span_fatal(ei.call_site,
-                            format!("Recursion limit reached while expanding the macro `{}`",
+                            format!("recursion limit reached while expanding the macro `{}`",
                                     ei.callee.name).as_slice());
         }
 
@@ -619,6 +619,10 @@ impl<'a> ExtCtxt<'a> {
     pub fn span_note(&self, sp: Span, msg: &str) {
         self.print_backtrace();
         self.parse_sess.span_diagnostic.span_note(sp, msg);
+    }
+    pub fn span_help(&self, sp: Span, msg: &str) {
+        self.print_backtrace();
+        self.parse_sess.span_diagnostic.span_help(sp, msg);
     }
     pub fn bug(&self, msg: &str) -> ! {
         self.print_backtrace();

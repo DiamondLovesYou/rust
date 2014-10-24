@@ -357,6 +357,7 @@ pub enum CodeGenOptLevel {
     CodeGenLevelAggressive = 3,
 }
 
+#[deriving(PartialEq)]
 #[repr(C)]
 pub enum RelocMode {
     RelocDefault = 0,
@@ -1461,7 +1462,7 @@ extern {
 
     /** Distance between successive elements in an array of T.
     Includes ABI padding. */
-    pub fn LLVMABISizeOfType(TD: TargetDataRef, Ty: TypeRef) -> c_uint;
+    pub fn LLVMABISizeOfType(TD: TargetDataRef, Ty: TypeRef) -> c_ulonglong;
 
     /** Returns the preferred alignment of a type. */
     pub fn LLVMPreferredAlignmentOfType(TD: TargetDataRef, Ty: TypeRef)
@@ -1911,6 +1912,7 @@ extern {
                                        EnableSegstk: bool,
                                        UseSoftFP: bool,
                                        NoFramePointerElim: bool,
+                                       PositionIndependentExecutable: bool,
                                        FunctionSections: bool,
                                        DataSections: bool) -> TargetMachineRef;
     pub fn LLVMRustDisposeTargetMachine(T: TargetMachineRef);

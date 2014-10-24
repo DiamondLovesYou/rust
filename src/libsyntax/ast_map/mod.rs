@@ -96,6 +96,7 @@ pub fn path_to_string<PI: Iterator<PathElem>>(mut path: PI) -> String {
     }).to_string()
 }
 
+#[deriving(Show)]
 pub enum Node<'ast> {
     NodeItem(&'ast Item),
     NodeForeignItem(&'ast ForeignItem),
@@ -387,7 +388,7 @@ impl<'ast> Map<'ast> {
                                 PathName(ident.name)
                             }
                             MethMac(_) => {
-                                fail!("no path elem for {:?}", node)
+                                fail!("no path elem for {}", node)
                             }
                         }
                     }
@@ -401,13 +402,13 @@ impl<'ast> Map<'ast> {
                         MethDecl(ident, _, _, _, _, _, _, _) => {
                             PathName(ident.name)
                         }
-                        MethMac(_) => fail!("no path elem for {:?}", node),
+                        MethMac(_) => fail!("no path elem for {}", node),
                     }
                 }
                 TypeTraitItem(ref m) => PathName(m.ident.name),
             },
             NodeVariant(v) => PathName(v.node.name.name),
-            _ => fail!("no path elem for {:?}", node)
+            _ => fail!("no path elem for {}", node)
         }
     }
 
@@ -698,8 +699,12 @@ struct NodeCollector<'ast> {
 
 impl<'ast> NodeCollector<'ast> {
     fn insert_entry(&mut self, id: NodeId, entry: MapEntry<'ast>) {
-        self.map.grow_set(id as uint, &NotPresent, entry);
         debug!("ast_map: {} => {}", id, entry);
+        let len = self.map.len();
+        if id as uint >= len {
+            self.map.grow(id as uint - len + 1, NotPresent);
+        }
+        *self.map.get_mut(id as uint) = entry;
     }
 
     fn insert(&mut self, id: NodeId, node: Node<'ast>) {

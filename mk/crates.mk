@@ -49,11 +49,11 @@
 # automatically generated for all stage/host/target combinations.
 ################################################################################
 
-TARGET_CRATES := libc std green native flate arena glob term semver \
-                 uuid serialize sync getopts collections num test time rand \
-                 url log regex graphviz core rbml rlibc alloc debug rustrt \
+TARGET_CRATES := libc std green native flate arena term \
+                 serialize sync getopts collections test time rand \
+                 log regex graphviz core rbml rlibc alloc rustrt \
                  unicode
-HOST_CRATES := syntax rustc rustdoc fourcc hexfloat regex_macros fmt_macros \
+HOST_CRATES := syntax rustc rustdoc regex_macros fmt_macros \
 	       rustc_llvm rustc_back rust-pnacl-trans
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
 TOOLS := compiletest rustdoc rustc rust-pnacl-trans
@@ -63,20 +63,19 @@ DEPS_libc := core
 DEPS_rlibc := core
 DEPS_unicode := core
 DEPS_alloc := core libc native:jemalloc
-DEPS_debug := std
 DEPS_rustrt := alloc core libc collections native:rustrt_native
 DEPS_std := core libc rand alloc collections rustrt sync unicode \
 	native:rust_builtin native:backtrace
 DEPS_graphviz := std
 DEPS_green := std native:context_switch
 DEPS_native := std
-DEPS_syntax := std term serialize log fmt_macros debug arena libc
+DEPS_syntax := std term serialize log fmt_macros arena libc
 DEPS_rustc := syntax flate arena serialize getopts rbml \
-              time log graphviz debug rustc_llvm rustc_back
+              time log graphviz rustc_llvm rustc_back
 DEPS_rustc_llvm := native:rustllvm libc std log
 DEPS_rustc_back := std syntax rustc_llvm flate log libc
 DEPS_rustdoc := rustc native:hoedown serialize getopts \
-                test time debug
+                test time
 DEPS_rust-pnacl-trans := libc getopts log rustc_llvm native
 DEPS_flate := std native:miniz
 DEPS_arena := std
@@ -85,18 +84,13 @@ DEPS_glob := std
 DEPS_serialize := std log
 DEPS_rbml := std log serialize
 DEPS_term := std log
-DEPS_semver := std
-DEPS_uuid := std serialize
 DEPS_sync := core alloc rustrt collections
 DEPS_getopts := std
 DEPS_collections := core alloc unicode
-DEPS_fourcc := rustc syntax std
-DEPS_hexfloat := rustc syntax std
 DEPS_num := std
 DEPS_test := std getopts serialize rbml term time regex native:rust_test_helpers
 DEPS_time := std serialize rustrt
 DEPS_rand := core
-DEPS_url := std
 DEPS_log := std regex
 DEPS_regex := std
 DEPS_regex_macros = rustc syntax std regex

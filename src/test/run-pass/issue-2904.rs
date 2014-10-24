@@ -10,8 +10,6 @@
 // except according to those terms.
 
 
-extern crate debug;
-
 /// Map representation
 
 use std::io;
@@ -54,7 +52,7 @@ fn square_from_char(c: char) -> square {
       '.'  => { earth }
       ' '  => { empty }
       _ => {
-        println!("invalid square: {:?}", c);
+        println!("invalid square: {}", c);
         fail!()
       }
     }
@@ -71,7 +69,7 @@ fn read_board_grid<rdr:'static + io::Reader>(mut input: rdr)
         row.push(square_from_char(*c as char))
     }
     grid.push(row);
-    let width = grid.get(0).len();
+    let width = grid[0].len();
     for row in grid.iter() { assert!(row.len() == width) }
     grid
 }

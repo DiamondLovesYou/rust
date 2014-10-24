@@ -119,7 +119,7 @@ impl<'a, 'tcx> euv::Delegate for CheckLoanCtxt<'a, 'tcx> {
               loan_cause: euv::LoanCause)
     {
         debug!("borrow(borrow_id={}, cmt={}, loan_region={}, \
-               bk={}, loan_cause={:?})",
+               bk={}, loan_cause={})",
                borrow_id, cmt.repr(self.tcx()), loan_region,
                bk, loan_cause);
 
@@ -185,7 +185,7 @@ pub fn check_loans<'a, 'b, 'c, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
                                      all_loans: &[Loan],
                                      decl: &ast::FnDecl,
                                      body: &ast::Block) {
-    debug!("check_loans(body id={:?})", body.id);
+    debug!("check_loans(body id={})", body.id);
 
     let mut clcx = CheckLoanCtxt {
         bccx: bccx,
@@ -336,10 +336,10 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
         //! issued when we enter `scope_id` (for example, we do not
         //! permit two `&mut` borrows of the same variable).
 
-        debug!("check_for_conflicting_loans(scope_id={:?})", scope_id);
+        debug!("check_for_conflicting_loans(scope_id={})", scope_id);
 
         let new_loan_indices = self.loans_generated_by(scope_id);
-        debug!("new_loan_indices = {:?}", new_loan_indices);
+        debug!("new_loan_indices = {}", new_loan_indices);
 
         self.each_issued_loan(scope_id, |issued_loan| {
             for &new_loan_index in new_loan_indices.iter() {
@@ -651,7 +651,7 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
                                        use_path: &LoanPath,
                                        borrow_kind: ty::BorrowKind)
                                        -> UseError {
-        debug!("analyze_restrictions_on_use(expr_id={:?}, use_path={})",
+        debug!("analyze_restrictions_on_use(expr_id={}, use_path={})",
                self.tcx().map.node_to_string(expr_id),
                use_path.repr(self.tcx()));
 
@@ -679,7 +679,7 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
          * is using a moved/uninitialized value
          */
 
-        debug!("check_if_path_is_moved(id={:?}, use_kind={:?}, lp={})",
+        debug!("check_if_path_is_moved(id={}, use_kind={}, lp={})",
                id, use_kind, lp.repr(self.bccx.tcx));
         let base_lp = owned_ptr_base_path_rc(lp);
         self.move_data.each_move_of(id, &base_lp, |the_move, moved_lp| {
@@ -775,21 +775,32 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
         }
 
         // Otherwise, just a plain error.
-        match opt_loan_path(&assignee_cmt) {
-            Some(lp) => {
+        match assignee_cmt.note {
+            mc::NoteClosureEnv(upvar_id) => {
                 self.bccx.span_err(
                     assignment_span,
-                    format!("cannot assign to {} {} `{}`",
-                            assignee_cmt.mutbl.to_user_str(),
-                            self.bccx.cmt_to_string(&*assignee_cmt),
-                            self.bccx.loan_path_to_string(&*lp)).as_slice());
-            }
-            None => {
-                self.bccx.span_err(
-                    assignment_span,
-                    format!("cannot assign to {} {}",
-                            assignee_cmt.mutbl.to_user_str(),
+                    format!("cannot assign to {}",
                             self.bccx.cmt_to_string(&*assignee_cmt)).as_slice());
+                self.bccx.span_note(
+                    self.tcx().map.span(upvar_id.closure_expr_id),
+                    "consider changing this closure to take self by mutable reference");
+            }
+            _ => match opt_loan_path(&assignee_cmt) {
+                Some(lp) => {
+                    self.bccx.span_err(
+                        assignment_span,
+                        format!("cannot assign to {} {} `{}`",
+                                assignee_cmt.mutbl.to_user_str(),
+                                self.bccx.cmt_to_string(&*assignee_cmt),
+                                self.bccx.loan_path_to_string(&*lp)).as_slice());
+                }
+                None => {
+                    self.bccx.span_err(
+                        assignment_span,
+                        format!("cannot assign to {} {}",
+                                assignee_cmt.mutbl.to_user_str(),
+                                self.bccx.cmt_to_string(&*assignee_cmt)).as_slice());
+                }
             }
         }
         return;
@@ -805,13 +816,9 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
             loop {
                 debug!("mark_variable_as_used_mut(cmt={})", cmt.repr(this.tcx()));
                 match cmt.cat.clone() {
-                    mc::cat_copied_upvar(mc::CopiedUpvar { upvar_id: id, .. }) |
+                    mc::cat_upvar(mc::Upvar { id: ty::UpvarId { var_id: id, .. }, .. }) |
                     mc::cat_local(id) => {
                         this.tcx().used_mut_nodes.borrow_mut().insert(id);
-                        return;
-                    }
-
-                    mc::cat_upvar(..) => {
                         return;
                     }
 
@@ -852,12 +859,6 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
                     // Statically prohibit writes to `&mut` when aliasable
 
                     check_for_aliasability_violation(this, span, b.clone());
-                }
-
-                mc::cat_copied_upvar(mc::CopiedUpvar {
-                    kind: mc::Unboxed(ty::FnUnboxedClosureKind), ..}) => {
-                    // Prohibit writes to capture-by-move upvars in non-once closures
-                    check_for_aliasability_violation(this, span, guarantor.clone());
                 }
 
                 _ => {}

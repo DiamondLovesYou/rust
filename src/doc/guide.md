@@ -482,7 +482,7 @@ but it will still print "Hello, world!":
    Compiling hello_world v0.0.1 (file:///home/you/projects/hello_world)
 src/main.rs:2:9: 2:10 warning: unused variable: `x`, #[warn(unused_variable)] on by default
 src/main.rs:2     let x: int;
-                             ^
+                      ^
 ```
 
 Rust warns us that we never use the variable binding, but since we never use it,
@@ -1255,8 +1255,9 @@ version, if we had forgotten the `Greater` case, for example, our program would
 have happily compiled. If we forget in the `match`, it will not. Rust helps us
 make sure to cover all of our bases.
 
-`match` is also an expression, which means we can use it on the right hand side
-of a `let` binding. We could also implement the previous line like this:
+`match` is also an expression, which means we can use it on the right
+hand side of a `let` binding or directly where an expression is
+used. We could also implement the previous line like this:
 
 ```{rust}
 fn cmp(a: int, b: int) -> Ordering {
@@ -1269,18 +1270,15 @@ fn main() {
     let x = 5i;
     let y = 10i;
 
-    let result = match cmp(x, y) {
+    println!("{}", match cmp(x, y) {
         Less    => "less",
         Greater => "greater",
         Equal   => "equal",
-    };
-
-    println!("{}", result);
+    });
 }
 ```
 
-In this case, it doesn't make a lot of sense, as we are just making a temporary
-string where we don't need to, but sometimes, it's a nice pattern.
+Sometimes, it's a nice pattern.
 
 # Looping
 
@@ -1496,73 +1494,42 @@ low-level details matter, they really matter. Just remember that `String`s
 allocate memory and control their data, while `&str`s are a reference to
 another string, and you'll be all set.
 
-# Vectors
+# Arrays, Vectors, and Slices
 
-Like many programming languages, Rust has a list type for when you want a list
-of things. But similar to strings, Rust has different types to represent this
-idea: `Vec<T>` (a 'vector'), `[T, .. N]` (an 'array'), and `&[T]` (a 'slice').
-Whew!
-
-Vectors are similar to `String`s: they have a dynamic length, and they
-allocate enough memory to fit. You can create a vector with the `vec!` macro:
+Like many programming languages, Rust has list types to represent a sequence of
+things. The most basic is the **array**, a fixed-size list of elements of the
+same type. By default, arrays are immutable.
 
 ```{rust}
-let nums = vec![1i, 2i, 3i];
+let a = [1i, 2i, 3i];
+let mut m = [1i, 2i, 3i];
 ```
 
-Notice that unlike the `println!` macro we've used in the past, we use square
-brackets (`[]`) with `vec!`. Rust allows you to use either in either situation,
-this is just convention.
-
-You can create an array with just square brackets:
+You can create an array with a given number of elements, all initialized to the
+same value, with `[val, ..N]` syntax. The compiler ensures that arrays are
+always initialized.
 
 ```{rust}
-let nums = [1i, 2i, 3i];
-let nums = [1i, ..20]; // Shorthand for an array of 20 elements all initialized to 1
+let a = [0i, ..20];  // Shorthand for array of 20 elements all initialized to 0
 ```
 
-So what's the difference? An array has a fixed size, so you can't add or
-subtract elements:
+Arrays have type `[T,..N]`. We'll talk about this `T` notation later, when we
+cover generics.
 
-```{rust,ignore}
-let mut nums = vec![1i, 2i, 3i];
-nums.push(4i); // works
-
-let mut nums = [1i, 2i, 3i];
-nums.push(4i); //  error: type `[int, .. 3]` does not implement any method
-               // in scope named `push`
-```
-
-The `push()` method lets you append a value to the end of the vector. But
-since arrays have fixed sizes, adding an element doesn't make any sense.
-You can see how it has the exact type in the error message: `[int, .. 3]`.
-An array of `int`s, with length 3.
-
-Similar to `&str`, a slice is a reference to another array. We can get a
-slice from a vector by using the `as_slice()` method:
+You can get the number of elements in an array `a` with `a.len()`, and use
+`a.iter()` to iterate over them with a for loop. This code will print each
+number in order:
 
 ```{rust}
-let vec = vec![1i, 2i, 3i];
-let slice = vec.as_slice();
-```
+let a = [1i, 2, 3];     // Only the first item needs a type suffix
 
-All three types implement an `iter()` method, which returns an iterator. We'll
-talk more about the details of iterators later, but for now, the `iter()` method
-allows you to write a `for` loop that prints out the contents of a vector, array,
-or slice:
-
-```{rust}
-let vec = vec![1i, 2i, 3i];
-
-for i in vec.iter() {
-    println!("{}", i);
+println!("a has {} elements", a.len());
+for e in a.iter() {
+    println!("{}", e);
 }
 ```
 
-This code will print each number in order, on its own line.
-
-You can access a particular element of a vector, array, or slice by using
-**subscript notation**:
+You can access a particular element of an array with **subscript notation**:
 
 ```{rust}
 let names = ["Graydon", "Brian", "Niko"];
@@ -1570,13 +1537,59 @@ let names = ["Graydon", "Brian", "Niko"];
 println!("The second name is: {}", names[1]);
 ```
 
-These subscripts start at zero, like in most programming languages, so the
-first name is `names[0]` and the second name is `names[1]`. The above example
-prints `The second name is: Brian`.
+Subscripts start at zero, like in most programming languages, so the first name
+is `names[0]` and the second name is `names[1]`. The above example prints
+`The second name is: Brian`. If you try to use a subscript that is not in the
+array, you will get an error: array access is bounds-checked at run-time. Such
+errant access is the source of many bugs in other systems programming
+languages.
 
-There's a whole lot more to vectors, but that's enough to get started. We have
-now learned all of the most basic Rust concepts. We're ready to start building
-our guessing game, but we need to know how to do one last thing first: get
+A **vector** is a dynamic or "growable" array, implemented as the standard
+library type [`Vec<T>`](std/vec/) (we'll talk about what the `<T>` means
+later). Vectors are to arrays what `String` is to `&str`. You can create them
+with the `vec!` macro:
+
+```{rust}
+let v = vec![1i, 2, 3];
+```
+
+(Notice that unlike the `println!` macro we've used in the past, we use square
+brackets `[]` with `vec!`. Rust allows you to use either in either situation,
+this is just convention.)
+
+You can get the length of, iterate over, and subscript vectors just like
+arrays. In addition, (mutable) vectors can grow automatically:
+
+```{rust}
+let mut nums = vec![1i, 2, 3];
+nums.push(4);
+println!("The length of nums is now {}", nums.len());   // Prints 4
+```
+
+Vectors have many more useful methods.
+
+A **slice** is a reference to (or "view" into) an array. They are useful for
+allowing safe, efficient access to a portion of an array without copying. For
+example, you might want to reference just one line of a file read into memory.
+By nature, a slice is not created directly, but from an existing variable.
+Slices have a length, can be mutable or not, and in many ways behave like
+arrays:
+
+```{rust}
+let a = [0i, 1, 2, 3, 4];
+let middle = a.slice(1, 4);     // A slice of a: just the elements [1,2,3]
+
+for e in middle.iter() {
+    println!("{}", e);          // Prints 1, 2, 3
+}
+```
+
+You can also take a slice of a vector, `String`, or `&str`, because they are
+backed by arrays. Slices have type `&[T]`, which we'll talk about when we cover
+generics.
+
+We have now learned all of the most basic Rust concepts. We're ready to start
+building our guessing game, we just need to know one last thing: how to get
 input from the keyboard. You can't have a guessing game without the ability to
 guess!
 
@@ -1746,8 +1759,7 @@ For our first project, we'll implement a classic beginner programming problem:
 the guessing game. Here's how it works: Our program will generate a random
 integer between one and a hundred. It will then prompt us to enter a guess.
 Upon entering our guess, it will tell us if we're too low or too high. Once we
-guess correctly, it will congratulate us, and print the number of guesses we've
-taken to the screen. Sound good?
+guess correctly, it will congratulate us. Sound good?
 
 ## Set up
 
@@ -3083,10 +3095,10 @@ And try to run the test:
 
 ```{notrust,ignore}
 $ cargo test
-   Compiling testing v0.0.1 (file:///home/youg/projects/testing)
-/home/youg/projects/testing/tests/lib.rs:3:18: 3:38 error: unresolved name `add_three_times_four`.
-/home/youg/projects/testing/tests/lib.rs:3     let result = add_three_times_four(5i);
-                                                            ^~~~~~~~~~~~~~~~~~~~
+   Compiling testing v0.0.1 (file:///home/you/projects/testing)
+/home/you/projects/testing/tests/lib.rs:3:18: 3:38 error: unresolved name `add_three_times_four`.
+/home/you/projects/testing/tests/lib.rs:3     let result = add_three_times_four(5i);
+                                                           ^~~~~~~~~~~~~~~~~~~~
 error: aborting due to previous error
 Build failed, waiting for other jobs to finish...
 Could not compile `testing`.
@@ -3272,11 +3284,11 @@ Let's give it a shot:
 $ cargo test
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
 
-running 1 test
+running 2 tests
 test test::test_times_four ... ok
 test test::test_add_three ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured
 
 
 running 0 tests
@@ -3538,9 +3550,8 @@ restriction:
 
 1. If the borrow is immutable, you may read the data the pointer points to.
 2. If the borrow is mutable, you may read and write the data the pointer points to.
-3. You may lend the pointer to someone else in an immutable fashion, **BUT**
-4. When you do so, they must return it to you before you must give your own
-   borrow back.
+3. You may lend the pointer to someone else, **BUT**
+4. When you do so, they must return it before you can give your own borrow back.
 
 This last requirement can seem odd, but it also makes sense. If you have to
 return something, and you've lent it to someone, they need to give it back to
@@ -4352,7 +4363,7 @@ element, `find` returns an `Option` rather than the element itself.
 Another important consumer is `fold`. Here's what it looks like:
 
 ```{rust}
-let sum = range(1i, 100i)
+let sum = range(1i, 4i)
               .fold(0i, |sum, x| sum + x);
 ```
 
@@ -4376,7 +4387,7 @@ in this iterator:
 We called `fold()` with these arguments:
 
 ```{rust}
-# range(1i, 5i)
+# range(1i, 4i)
 .fold(0i, |sum, x| sum + x);
 ```
 
@@ -5062,8 +5073,8 @@ println!("The value of x[0] is: {}", x[0]); // error: use of moved value: `x`
 ```
 
 `x` is now owned by the proc, and so we can't use it anymore. Many other
-languages would let us do this, but it's not safe to do so. Rust's type system
-catches the error.
+languages would let us do this, but it's not safe to do so. Rust's borrow
+checker catches the error.
 
 If tasks were only able to capture these values, they wouldn't be very useful.
 Luckily, tasks can communicate with each other through **channel**s. Channels
