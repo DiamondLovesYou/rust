@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,20 +8,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Test that we correctly ignore the blanket impl
+// because (in this case) `T` does not impl `Clone`.
+//
+// Issue #17594.
 
-trait foo {
-    fn foo(&self) -> int;
+use std::cell::RefCell;
+
+trait Foo {
+    fn foo(&self) {}
 }
 
-impl foo for Vec<uint> {
-    fn foo(&self) -> int {1} //~ NOTE candidate #1 is `Vec<uint>.foo::foo`
-}
+impl<T> Foo for T where T: Clone {}
 
-impl foo for Vec<int> {
-    fn foo(&self) -> int {2} //~ NOTE candidate #2 is `Vec<int>.foo::foo`
+struct Bar;
+
+impl Bar {
+    fn foo(&self) {}
 }
 
 fn main() {
-    let x = Vec::new();
-    x.foo(); //~ ERROR multiple applicable methods in scope
+    let b = RefCell::new(Bar);
+    b.borrow().foo()
 }

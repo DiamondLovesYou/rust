@@ -17,7 +17,7 @@ use syntax::ast_util;
 use syntax::ast_util::PostExpansionMethod;
 use syntax::attr;
 use syntax::attr::{AttributeMethods, AttrMetaMethods};
-use syntax::codemap::{DUMMY_SP, Pos};
+use syntax::codemap::{DUMMY_SP, Pos, Spanned};
 use syntax::parse::token::InternedString;
 use syntax::parse::token;
 use syntax::ptr::P;
@@ -463,10 +463,9 @@ impl Clean<TyParam> for ast::TyParam {
 impl Clean<TyParam> for ty::TypeParameterDef {
     fn clean(&self, cx: &DocContext) -> TyParam {
         cx.external_typarams.borrow_mut().as_mut().unwrap()
-          .insert(self.def_id, self.ident.clean(cx));
-
+          .insert(self.def_id, self.name.clean(cx));
         TyParam {
-            name: self.ident.clean(cx),
+            name: self.name.clean(cx),
             did: self.def_id,
             bounds: self.bounds.clean(cx),
             default: self.default.clean(cx)
@@ -1056,7 +1055,7 @@ impl Clean<Item> for ty::Method {
         };
 
         Item {
-            name: Some(self.ident.clean(cx)),
+            name: Some(self.name.clean(cx)),
             visibility: Some(ast::Inherited),
             stability: get_stability(cx, self.def_id),
             def_id: self.def_id,
@@ -2046,7 +2045,7 @@ fn name_from_pat(p: &ast::Pat) -> String {
         PatEnum(ref p, _) => path_to_string(p),
         PatStruct(ref name, ref fields, etc) => {
             format!("{} {{ {}{} }}", path_to_string(name),
-                fields.iter().map(|fp|
+                fields.iter().map(|&Spanned { node: ref fp, .. }|
                                   format!("{}: {}", fp.ident.as_str(), name_from_pat(&*fp.pat)))
                              .collect::<Vec<String>>().connect(", "),
                 if etc { ", ..." } else { "" }
@@ -2211,7 +2210,7 @@ impl Clean<Item> for ty::AssociatedType {
     fn clean(&self, cx: &DocContext) -> Item {
         Item {
             source: DUMMY_SP.clean(cx),
-            name: Some(self.ident.clean(cx)),
+            name: Some(self.name.clean(cx)),
             attrs: Vec::new(),
             inner: AssociatedTypeItem,
             visibility: None,

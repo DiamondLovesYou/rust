@@ -794,7 +794,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                                                  def_id)
                                     .iter()
                                     .find(|mr| {
-                                        mr.ident().name == ti.ident().name
+                                        mr.name() == ti.name()
                                     })
                                     .unwrap()
                                     .def_id())
@@ -807,10 +807,10 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                             Some((*impl_items)[def_id]
                                            .iter()
                                            .find(|mr| {
-                                            ty::impl_or_trait_item(
-                                                &self.analysis.ty_cx,
-                                                mr.def_id()).ident().name ==
-                                                ti.ident().name
+                                                ty::impl_or_trait_item(
+                                                    &self.analysis.ty_cx,
+                                                    mr.def_id()
+                                                ).name() == ti.name()
                                             })
                                            .unwrap()
                                            .def_id())
@@ -972,28 +972,14 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                                                    self.span.snippet(p.span)).as_slice());
                     }
                 };
-                // The AST doesn't give us a span for the struct field, so we have
-                // to figure out where it is by assuming it's the token before each colon.
-                let field_spans = self.span.sub_spans_before_tokens(p.span,
-                                                                    token::COMMA,
-                                                                    token::COLON);
-                if fields.len() != field_spans.len() {
-                    self.sess.span_bug(p.span,
-                        format!("Mismatched field count in '{}', found {}, expected {}",
-                                self.span.snippet(p.span), field_spans.len(), fields.len()
-                               ).as_slice());
-                }
-                for (field, &span) in fields.iter().zip(field_spans.iter()) {
+                for &Spanned { node: ref field, span } in fields.iter() {
                     self.visit_pat(&*field.pat);
-                    if span.is_none() {
-                        continue;
-                    }
                     let fields = ty::lookup_struct_fields(&self.analysis.ty_cx, struct_def);
                     for f in fields.iter() {
                         if f.name == field.ident.name {
                             self.fmt.ref_str(recorder::VarRef,
                                              p.span,
-                                             span,
+                                             Some(span),
                                              f.id,
                                              self.cur_scope);
                             break;

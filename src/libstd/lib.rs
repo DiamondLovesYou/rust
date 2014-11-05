@@ -185,10 +185,10 @@ pub use core_sync::comm;
 // Run tests with libgreen instead of libnative, but not while targeting a
 // platform using Newlibc.
 
-#[cfg(all(test, not(target_os = "nacl", target_libc = "newlib")))]
+#[cfg(all(test, all(not(target_os = "nacl"), not(target_libc = "newlib"))))]
 #[start]
 fn start(argc: int, argv: *const *const u8) -> int {
-    green::start(argc, argv, rustuv::event_loop, test_main)
+    green::start(argc, argv, green::basic::event_loop, test_main)
 }
 #[cfg(all(test, target_os = "nacl", target_libc = "newlib"))]
 #[start]

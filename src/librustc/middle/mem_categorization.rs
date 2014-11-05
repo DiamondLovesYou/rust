@@ -433,7 +433,7 @@ impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
 
                     ty::AdjustDerefRef(
                         ty::AutoDerefRef {
-                            autoref: None, autoderefs: autoderefs}) => {
+                            autoref: None, autoderefs}) => {
                         // Equivalent to *expr or something similar.
                         self.cat_expr_autoderefd(expr, autoderefs)
                     }
@@ -472,7 +472,7 @@ impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
                    expr.id,
                    expr.repr(self.tcx()),
                    base_cmt.repr(self.tcx()));
-            Ok(self.cat_field(expr, base_cmt, f_name.node, expr_ty))
+            Ok(self.cat_field(expr, base_cmt, f_name.node.name, expr_ty))
           }
 
           ast::ExprTupField(ref base, idx, _) => {
@@ -820,14 +820,14 @@ impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
     pub fn cat_field<N:ast_node>(&self,
                                  node: &N,
                                  base_cmt: cmt,
-                                 f_name: ast::Ident,
+                                 f_name: ast::Name,
                                  f_ty: ty::t)
                                  -> cmt {
         Rc::new(cmt_ {
             id: node.id(),
             span: node.span(),
             mutbl: base_cmt.mutbl.inherit(),
-            cat: cat_interior(base_cmt, InteriorField(NamedField(f_name.name))),
+            cat: cat_interior(base_cmt, InteriorField(NamedField(f_name))),
             ty: f_ty,
             note: NoteNone
         })
@@ -1222,9 +1222,9 @@ impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
           ast::PatStruct(_, ref field_pats, _) => {
             // {f1: p1, ..., fN: pN}
             for fp in field_pats.iter() {
-                let field_ty = if_ok!(self.pat_ty(&*fp.pat)); // see (*2)
-                let cmt_field = self.cat_field(pat, cmt.clone(), fp.ident, field_ty);
-                if_ok!(self.cat_pattern(cmt_field, &*fp.pat, |x,y,z| op(x,y,z)));
+                let field_ty = if_ok!(self.pat_ty(&*fp.node.pat)); // see (*2)
+                let cmt_field = self.cat_field(pat, cmt.clone(), fp.node.ident.name, field_ty);
+                if_ok!(self.cat_pattern(cmt_field, &*fp.node.pat, |x,y,z| op(x,y,z)));
             }
           }
 
@@ -1524,7 +1524,7 @@ impl Repr for InteriorKind {
 
 fn element_kind(t: ty::t) -> ElementKind {
     match ty::get(t).sty {
-        ty::ty_rptr(_, ty::mt{ty:ty, ..}) |
+        ty::ty_rptr(_, ty::mt{ty, ..}) |
         ty::ty_uniq(ty) => match ty::get(ty).sty {
             ty::ty_vec(_, None) => VecElement,
             _ => OtherElement

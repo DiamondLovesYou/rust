@@ -179,8 +179,8 @@ impl OverloadedCallType {
             MethodStaticUnboxedClosure(def_id) => {
                 OverloadedCallType::from_unboxed_closure(tcx, def_id)
             }
-            MethodTypeParam(MethodParam { trait_ref: ref trait_ref, .. }) |
-            MethodTraitObject(MethodObject { trait_ref: ref trait_ref, .. }) => {
+            MethodTypeParam(MethodParam { ref trait_ref, .. }) |
+            MethodTraitObject(MethodObject { ref trait_ref, .. }) => {
                 OverloadedCallType::from_trait_id(tcx, trait_ref.def_id)
             }
         }
@@ -670,7 +670,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
             if !contains_field_named(with_field, fields) {
                 let cmt_field = self.mc.cat_field(&*with_expr,
                                                   with_cmt.clone(),
-                                                  with_field.ident,
+                                                  with_field.name,
                                                   with_field.mt.ty);
                 self.delegate_consume(with_expr.id, with_expr.span, cmt_field);
             }
@@ -681,7 +681,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
                                 -> bool
         {
             fields.iter().any(
-                |f| f.ident.node.name == field.ident.name)
+                |f| f.ident.node.name == field.name)
         }
     }
 

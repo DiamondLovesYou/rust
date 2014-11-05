@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use common::Config;
-use common::{CompileFail, Pretty, RunFail, RunPass, DebugInfoGdb};
+use common::{CompileFail, Pretty, RunFail, RunPass, RunPassValgrind, DebugInfoGdb};
 use common::{Codegen, DebugInfoLldb};
 use errors;
 use header::TestProps;
@@ -35,7 +35,6 @@ use std::time::Duration;
 use test::MetricMap;
 
 pub fn run(config: Config, testfile: String) {
-
     match config.target.as_slice() {
 
         "arm-linux-androideabi" => {
@@ -64,6 +63,7 @@ pub fn run_metrics(config: Config, testfile: String, mm: &mut MetricMap) {
       CompileFail => run_cfail_test(&config, &props, &testfile),
       RunFail => run_rfail_test(&config, &props, &testfile),
       RunPass => run_rpass_test(&config, &props, &testfile),
+      RunPassValgrind => run_valgrind_test(&config, &props, &testfile),
       Pretty => run_pretty_test(&config, &props, &testfile),
       DebugInfoGdb => run_debuginfo_gdb_test(&config, &props, &testfile),
       DebugInfoLldb => run_debuginfo_lldb_test(&config, &props, &testfile),
@@ -161,6 +161,27 @@ fn run_rpass_test(config: &Config, props: &TestProps, testfile: &Path) {
         if !proc_res.status.success() {
             fatal_proc_rec("jit failed!", &proc_res);
         }
+    }
+}
+
+fn run_valgrind_test(config: &Config, props: &TestProps, testfile: &Path) {
+    if config.valgrind_path.is_none() {
+        assert!(!config.force_valgrind);
+        return run_rpass_test(config, props, testfile);
+    }
+
+    let mut proc_res = compile_test(config, props, testfile);
+
+    if !proc_res.status.success() {
+        fatal_proc_rec("compilation failed!", &proc_res);
+    }
+
+    let mut new_config = config.clone();
+    new_config.runtool = new_config.valgrind_path.clone();
+    proc_res = exec_compiled_test(&new_config, props, testfile);
+
+    if !proc_res.status.success() {
+        fatal_proc_rec("test run failed!", &proc_res);
     }
 }
 
@@ -758,7 +779,15 @@ fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) 
     script_str.push_str("version\n");
 
     // Switch LLDB into "Rust mode"
-    script_str.push_str("command script import ./src/etc/lldb_rust_formatters.py\n");
+    let rust_src_root = find_rust_src_root(config)
+        .expect("Could not find Rust source root");
+    let rust_pp_module_rel_path = Path::new("./src/etc/lldb_rust_formatters.py");
+    let rust_pp_module_abs_path = rust_src_root.join(rust_pp_module_rel_path)
+                                               .as_str()
+                                               .unwrap()
+                                               .to_string();
+
+    script_str.push_str(format!("command script import {}\n", rust_pp_module_abs_path[])[]);
     script_str.push_str("type summary add --no-value ");
     script_str.push_str("--python-function lldb_rust_formatters.print_val ");
     script_str.push_str("-x \".*\" --category Rust\n");
@@ -788,7 +817,10 @@ fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) 
     let debugger_script = make_out_name(config, testfile, "debugger.script");
 
     // Let LLDB execute the script via lldb_batchmode.py
-    let debugger_run_result = run_lldb(config, &exe_file, &debugger_script);
+    let debugger_run_result = run_lldb(config,
+                                       &exe_file,
+                                       &debugger_script,
+                                       &rust_src_root);
 
     if !debugger_run_result.status.success() {
         fatal_proc_rec("Error while running LLDB", &debugger_run_result);
@@ -796,10 +828,16 @@ fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) 
 
     check_debugger_output(&debugger_run_result, check_lines.as_slice());
 
-    fn run_lldb(config: &Config, test_executable: &Path, debugger_script: &Path) -> ProcRes {
+    fn run_lldb(config: &Config,
+                test_executable: &Path,
+                debugger_script: &Path,
+                rust_src_root: &Path)
+                -> ProcRes {
         // Prepare the lldb_batchmode which executes the debugger script
+        let lldb_script_path = rust_src_root.join(Path::new("./src/etc/lldb_batchmode.py"));
+
         let mut cmd = Command::new("python");
-        cmd.arg("./src/etc/lldb_batchmode.py")
+        cmd.arg(lldb_script_path)
            .arg(test_executable)
            .arg(debugger_script)
            .env_set_all([("PYTHONPATH", config.lldb_python_dir.clone().unwrap().as_slice())]);

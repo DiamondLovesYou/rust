@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,13 +8,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-trait A { fn foo(&self); }
-trait B { fn foo(&self); }
+// Test that we correctly report an ambiguity where two applicable traits
+// are in scope and the method being invoked is a default method not
+// defined directly in the impl.
 
-fn foo<T:A + B>(t: T) {
-    t.foo(); //~ ERROR multiple applicable methods in scope
-    //~^ NOTE candidate #1 derives from the bound `A`
-    //~^^ NOTE candidate #2 derives from the bound `B`
+trait Foo { fn method(&self) {} }
+trait Bar { fn method(&self) {} }
+
+impl Foo for uint {}
+impl Bar for uint {}
+
+fn main() {
+    1u.method(); //~ ERROR E0034
 }
-
-fn main() {}

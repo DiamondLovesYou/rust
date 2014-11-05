@@ -324,7 +324,7 @@ impl TypeFoldable for ty::ParamBounds {
 impl TypeFoldable for ty::TypeParameterDef {
     fn fold_with<'tcx, F: TypeFolder<'tcx>>(&self, folder: &mut F) -> ty::TypeParameterDef {
         ty::TypeParameterDef {
-            ident: self.ident,
+            name: self.name,
             def_id: self.def_id,
             space: self.space,
             index: self.index,
@@ -361,7 +361,7 @@ impl TypeFoldable for ty::UnsizeKind {
         match *self {
             ty::UnsizeLength(len) => ty::UnsizeLength(len),
             ty::UnsizeStruct(box ref k, n) => ty::UnsizeStruct(box k.fold_with(folder), n),
-            ty::UnsizeVtable(ty::TyTrait{bounds, def_id, substs: ref substs}, self_ty) => {
+            ty::UnsizeVtable(ty::TyTrait{bounds, def_id, ref substs}, self_ty) => {
                 ty::UnsizeVtable(
                     ty::TyTrait {
                         bounds: bounds.fold_with(folder),

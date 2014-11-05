@@ -104,6 +104,7 @@ pub use types::os::arch::c95::{c_ushort, clock_t, ptrdiff_t, c_schar};
 pub use types::os::arch::c95::{size_t, time_t, suseconds_t};
 pub use types::os::arch::c99::{c_longlong, c_ulonglong};
 pub use types::os::arch::c99::{intptr_t, uintptr_t};
+pub use types::os::arch::c99::{intmax_t, uintmax_t};
 pub use types::os::arch::posix88::{dev_t, ino_t, mode_t};
 pub use types::os::arch::posix88::{off_t, pid_t, ssize_t};
 
@@ -559,6 +560,8 @@ pub mod types {
                 pub type c_ulonglong = u64;
                 pub type intptr_t = i32;
                 pub type uintptr_t = u32;
+                pub type intmax_t = i64;
+                pub type uintmax_t = u64;
             }
             #[cfg(any(target_arch = "x86",
                       target_arch = "mips",
@@ -768,6 +771,8 @@ pub mod types {
                 pub type c_ulonglong = u64;
                 pub type intptr_t = i64;
                 pub type uintptr_t = u64;
+                pub type intmax_t = i64;
+                pub type uintmax_t = u64;
             }
             pub mod posix88 {
                 pub type off_t = i64;
@@ -1001,6 +1006,8 @@ pub mod types {
                 pub type c_ulonglong = u64;
                 pub type intptr_t = i64;
                 pub type uintptr_t = u64;
+                pub type intmax_t = i64;
+                pub type uintmax_t = u64;
             }
             pub mod posix88 {
                 pub type off_t = i64;
@@ -1214,6 +1221,8 @@ pub mod types {
                 pub type c_ulonglong = u64;
                 pub type intptr_t = i64;
                 pub type uintptr_t = u64;
+                pub type intmax_t = i64;
+                pub type uintmax_t = u64;
             }
             pub mod posix88 {
                 pub type off_t = i64;
@@ -1454,6 +1463,9 @@ pub mod types {
                 pub type uintptr_t = u32;
                 #[cfg(target_arch = "x86_64")]
                 pub type uintptr_t = u64;
+
+                pub type intmax_t = i64;
+                pub type uintmax_t = u64;
             }
 
             pub mod posix88 {
@@ -1843,6 +1855,8 @@ pub mod types {
                 pub type c_ulonglong = u64;
                 pub type intptr_t = i32;
                 pub type uintptr_t = u32;
+                pub type intmax_t = i64;
+                pub type uintmax_t = u64;
             }
             pub mod posix88 {
                 pub type off_t = i64;
@@ -1944,6 +1958,8 @@ pub mod types {
                 pub type c_ulonglong = u64;
                 pub type intptr_t = i64;
                 pub type uintptr_t = u64;
+                pub type intmax_t = i64;
+                pub type uintmax_t = u64;
             }
             pub mod posix88 {
                 pub type off_t = i64;

@@ -3100,7 +3100,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse the fields of a struct-like pattern
-    fn parse_pat_fields(&mut self) -> (Vec<ast::FieldPat> , bool) {
+    fn parse_pat_fields(&mut self) -> (Vec<codemap::Spanned<ast::FieldPat>> , bool) {
         let mut fields = Vec::new();
         let mut etc = false;
         let mut first = true;
@@ -3112,6 +3112,9 @@ impl<'a> Parser<'a> {
                 // accept trailing commas
                 if self.token == token::RBRACE { break }
             }
+
+            let lo = self.span.lo;
+            let hi;
 
             if self.token == token::DOTDOT {
                 self.bump();
@@ -3134,7 +3137,7 @@ impl<'a> Parser<'a> {
 
             let fieldname = self.parse_ident();
 
-            let subpat = if self.token == token::COLON {
+            let (subpat, is_shorthand) = if self.token == token::COLON {
                 match bind_type {
                     BindByRef(..) | BindByValue(MutMutable) => {
                         let token_str = self.this_token_to_string();
@@ -3145,16 +3148,22 @@ impl<'a> Parser<'a> {
                 }
 
                 self.bump();
-                self.parse_pat()
+                let pat = self.parse_pat();
+                hi = pat.span.hi;
+                (pat, false)
             } else {
+                hi = self.last_span.hi;
                 let fieldpath = codemap::Spanned{span:self.last_span, node: fieldname};
-                P(ast::Pat {
+                (P(ast::Pat {
                     id: ast::DUMMY_NODE_ID,
                     node: PatIdent(bind_type, fieldpath, None),
                     span: self.last_span
-                })
+                }), true)
             };
-            fields.push(ast::FieldPat { ident: fieldname, pat: subpat });
+            fields.push(codemap::Spanned { span: mk_sp(lo, hi),
+                                           node: ast::FieldPat { ident: fieldname,
+                                                                 pat: subpat,
+                                                                 is_shorthand: is_shorthand }});
         }
         return (fields, etc);
     }
@@ -3665,9 +3674,9 @@ impl<'a> Parser<'a> {
 
         // wouldn't it be more uniform to parse view items only, here?
         let ParsedItemsAndViewItems {
-            attrs_remaining: attrs_remaining,
-            view_items: view_items,
-            items: items,
+            attrs_remaining,
+            view_items,
+            items,
             ..
         } = self.parse_items_and_view_items(first_item_attrs,
                                             false, false);
@@ -4165,10 +4174,16 @@ impl<'a> Parser<'a> {
         // A bit of complexity and lookahead is needed here in order to be
         // backwards compatible.
         let lo = self.span.lo;
+        let mut self_ident_lo = self.span.lo;
+        let mut self_ident_hi = self.span.hi;
+
         let mut mutbl_self = MutImmutable;
         let explicit_self = match self.token {
             token::BINOP(token::AND) => {
-                maybe_parse_borrowed_explicit_self(self)
+                let eself = maybe_parse_borrowed_explicit_self(self);
+                self_ident_lo = self.last_span.lo;
+                self_ident_hi = self.last_span.hi;
+                eself
             }
             token::TILDE => {
                 // We need to make sure it isn't a type
@@ -4240,7 +4255,7 @@ impl<'a> Parser<'a> {
             _ => SelfStatic,
         };
 
-        let explicit_self_sp = mk_sp(lo, self.span.hi);
+        let explicit_self_sp = mk_sp(self_ident_lo, self_ident_hi);
 
         // shared fall-through for the three cases below. borrowing prevents simply
         // writing this as a closure
@@ -4699,8 +4714,8 @@ impl<'a> Parser<'a> {
         // parse all of the items up to closing or an attribute.
         // view items are legal here.
         let ParsedItemsAndViewItems {
-            attrs_remaining: attrs_remaining,
-            view_items: view_items,
+            attrs_remaining,
+            view_items,
             items: starting_items,
             ..
         } = self.parse_items_and_view_items(first_item_attrs, true, true);
@@ -4972,10 +4987,10 @@ impl<'a> Parser<'a> {
                                first_item_attrs: Vec<Attribute> )
                                -> ForeignMod {
         let ParsedItemsAndViewItems {
-            attrs_remaining: attrs_remaining,
-            view_items: view_items,
+            attrs_remaining,
+            view_items,
             items: _,
-            foreign_items: foreign_items
+            foreign_items,
         } = self.parse_foreign_items(first_item_attrs, true);
         if !attrs_remaining.is_empty() {
             let last_span = self.last_span;

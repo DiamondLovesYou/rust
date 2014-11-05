@@ -77,6 +77,7 @@ type parameter).
 */
 
 
+use driver::session::Session;
 use middle::const_eval;
 use middle::def;
 use middle::lang_items::IteratorItem;
@@ -97,11 +98,8 @@ use middle::typeck::astconv::{ast_region_to_region, ast_ty_to_ty};
 use middle::typeck::astconv;
 use middle::typeck::check::_match::pat_ctxt;
 use middle::typeck::check::method::{AutoderefReceiver};
-use middle::typeck::check::method::{AutoderefReceiverFlag};
 use middle::typeck::check::method::{CheckTraitsAndInherentMethods};
-use middle::typeck::check::method::{DontAutoderefReceiver};
-use middle::typeck::check::method::{IgnoreStaticMethods, ReportStaticMethods};
-use middle::typeck::check::regionmanip::replace_late_bound_regions_in_fn_sig;
+use middle::typeck::check::regionmanip::replace_late_bound_regions;
 use middle::typeck::CrateCtxt;
 use middle::typeck::infer::{resolve_type, force_tvar};
 use middle::typeck::infer;
@@ -529,7 +527,7 @@ fn check_fn<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
 
     // First, we have to replace any bound regions in the fn type with free ones.
     // The free region references will be bound the node_id of the body block.
-    let (_, fn_sig) = replace_late_bound_regions_in_fn_sig(tcx, fn_sig, |br| {
+    let (_, fn_sig) = replace_late_bound_regions(tcx, fn_sig.binder_id, fn_sig, |br| {
         ty::ReFree(ty::FreeRegion {scope_id: body.id, bound_region: br})
     });
 
@@ -763,8 +761,7 @@ fn check_impl_items_against_trait(ccx: &CrateCtxt,
                 let opt_trait_method_ty =
                     trait_items.iter()
                                .find(|ti| {
-                                   ti.ident().name == impl_item_ty.ident()
-                                                                  .name
+                                   ti.name() == impl_item_ty.name()
                                });
                 match opt_trait_method_ty {
                     Some(trait_method_ty) => {
@@ -786,8 +783,8 @@ fn check_impl_items_against_trait(ccx: &CrateCtxt,
                                              format!("item `{}` is of a \
                                                       different kind from \
                                                       its trait `{}`",
-                                                     token::get_ident(
-                                                        impl_item_ty.ident()),
+                                                     token::get_name(
+                                                        impl_item_ty.name()),
                                                      pprust::path_to_string(
                                                         &ast_trait_ref.path))
                                              .as_slice());
@@ -801,7 +798,7 @@ fn check_impl_items_against_trait(ccx: &CrateCtxt,
                             impl_method.span,
                             format!(
                                 "method `{}` is not a member of trait `{}`",
-                                token::get_ident(impl_item_ty.ident()),
+                                token::get_name(impl_item_ty.name()),
                                 pprust::path_to_string(
                                     &ast_trait_ref.path)).as_slice());
                     }
@@ -817,7 +814,7 @@ fn check_impl_items_against_trait(ccx: &CrateCtxt,
                 let opt_associated_type =
                     trait_items.iter()
                                .find(|ti| {
-                                   ti.ident().name == typedef_ty.ident().name
+                                   ti.name() == typedef_ty.name()
                                });
                 match opt_associated_type {
                     Some(associated_type) => {
@@ -832,8 +829,8 @@ fn check_impl_items_against_trait(ccx: &CrateCtxt,
                                              format!("item `{}` is of a \
                                                       different kind from \
                                                       its trait `{}`",
-                                                     token::get_ident(
-                                                        typedef_ty.ident()),
+                                                     token::get_name(
+                                                        typedef_ty.name()),
                                                      pprust::path_to_string(
                                                         &ast_trait_ref.path))
                                              .as_slice());
@@ -848,7 +845,7 @@ fn check_impl_items_against_trait(ccx: &CrateCtxt,
                             format!(
                                 "associated type `{}` is not a member of \
                                  trait `{}`",
-                                token::get_ident(typedef_ty.ident()),
+                                token::get_name(typedef_ty.name()),
                                 pprust::path_to_string(
                                     &ast_trait_ref.path)).as_slice());
                     }
@@ -868,33 +865,29 @@ fn check_impl_items_against_trait(ccx: &CrateCtxt,
                     impl_items.iter().any(|ii| {
                         match *ii {
                             ast::MethodImplItem(ref m) => {
-                                m.pe_ident().name == trait_method.ident.name
+                                m.pe_ident().name == trait_method.name
                             }
                             ast::TypeImplItem(_) => false,
                         }
                     });
                 let is_provided =
                     provided_methods.iter().any(
-                        |m| m.ident.name == trait_method.ident.name);
+                        |m| m.name == trait_method.name);
                 if !is_implemented && !is_provided {
-                    missing_methods.push(
-                        format!("`{}`",
-                                token::get_ident(trait_method.ident)));
+                    missing_methods.push(format!("`{}`", token::get_name(trait_method.name)));
                 }
             }
             ty::TypeTraitItem(ref associated_type) => {
                 let is_implemented = impl_items.iter().any(|ii| {
                     match *ii {
                         ast::TypeImplItem(ref typedef) => {
-                            typedef.ident.name == associated_type.ident.name
+                            typedef.ident.name == associated_type.name
                         }
                         ast::MethodImplItem(_) => false,
                     }
                 });
                 if !is_implemented {
-                    missing_methods.push(
-                        format!("`{}`",
-                                token::get_ident(associated_type.ident)));
+                    missing_methods.push(format!("`{}`", token::get_name(associated_type.name)));
                 }
             }
         }
@@ -945,7 +938,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
                 impl_m_span,
                 format!("method `{}` has a `{}` declaration in the impl, \
                         but not in the trait",
-                        token::get_ident(trait_m.ident),
+                        token::get_name(trait_m.name),
                         ppaux::explicit_self_category_to_str(
                             &impl_m.explicit_self)).as_slice());
             return;
@@ -955,7 +948,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
                 impl_m_span,
                 format!("method `{}` has a `{}` declaration in the trait, \
                         but not in the impl",
-                        token::get_ident(trait_m.ident),
+                        token::get_name(trait_m.name),
                         ppaux::explicit_self_category_to_str(
                             &trait_m.explicit_self)).as_slice());
             return;
@@ -971,7 +964,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
         span_err!(tcx.sess, impl_m_span, E0049,
             "method `{}` has {} type parameter{} \
              but its trait declaration has {} type parameter{}",
-            token::get_ident(trait_m.ident),
+            token::get_name(trait_m.name),
             num_impl_m_type_params,
             if num_impl_m_type_params == 1 {""} else {"s"},
             num_trait_m_type_params,
@@ -983,7 +976,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
         span_err!(tcx.sess, impl_m_span, E0050,
             "method `{}` has {} parameter{} \
              but the declaration in trait `{}` has {}",
-            token::get_ident(trait_m.ident),
+            token::get_name(trait_m.name),
             impl_m.fty.sig.inputs.len(),
             if impl_m.fty.sig.inputs.len() == 1 {""} else {"s"},
             ty::item_path_str(tcx, trait_m.def_id),
@@ -1084,7 +1077,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
                 "in method `{}`, type parameter {} requires `{}`, \
                  which is not required by the corresponding type parameter \
                  in the trait declaration",
-                token::get_ident(trait_m.ident),
+                token::get_name(trait_m.name),
                 i,
                 extra_bounds.user_string(tcx));
            return;
@@ -1123,7 +1116,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
                 span_err!(tcx.sess, impl_m_span, E0052,
                     "in method `{}`, type parameter {} requires bound `{}`, which is not \
                      required by the corresponding type parameter in the trait declaration",
-                    token::get_ident(trait_m.ident),
+                    token::get_name(trait_m.name),
                     i,
                     ppaux::trait_ref_to_string(tcx, &*impl_trait_bound));
             }
@@ -1154,7 +1147,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
         Err(ref terr) => {
             span_err!(tcx.sess, impl_m_span, E0053,
                 "method `{}` has an incompatible type for trait: {}",
-                token::get_ident(trait_m.ident),
+                token::get_name(trait_m.name),
                 ty::type_err_to_str(tcx, terr));
             ty::note_and_explain_type_err(tcx, terr);
         }
@@ -1230,7 +1223,7 @@ fn compare_impl_method(tcx: &ty::ctxt,
                 span,
                 format!("lifetime parameters or bounds on method `{}` do \
                          not match the trait declaration",
-                        token::get_ident(impl_m.ident)).as_slice());
+                        token::get_name(impl_m.name)).as_slice());
             return false;
         }
 
@@ -1529,6 +1522,10 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
 
     pub fn infcx<'b>(&'b self) -> &'b infer::InferCtxt<'a, 'tcx> {
         &self.inh.infcx
+    }
+
+    pub fn sess(&self) -> &Session {
+        &self.tcx().sess
     }
 
     pub fn err_count_since_creation(&self) -> uint {
@@ -2117,9 +2114,7 @@ fn try_overloaded_call<'a>(fcx: &FnCtxt,
                 method_name,
                 function_trait,
                 callee_type,
-                [],
-                DontAutoderefReceiver,
-                IgnoreStaticMethods) {
+                []) {
             None => continue,
             Some(method_callee) => method_callee,
         };
@@ -2160,7 +2155,7 @@ fn try_overloaded_deref(fcx: &FnCtxt,
         (PreferMutLvalue, Some(trait_did)) => {
             method::lookup_in_trait(fcx, span, base_expr.map(|x| &*x),
                                     token::intern("deref_mut"), trait_did,
-                                    base_ty, [], DontAutoderefReceiver, IgnoreStaticMethods)
+                                    base_ty, [])
         }
         _ => None
     };
@@ -2170,7 +2165,7 @@ fn try_overloaded_deref(fcx: &FnCtxt,
         (None, Some(trait_did)) => {
             method::lookup_in_trait(fcx, span, base_expr.map(|x| &*x),
                                     token::intern("deref"), trait_did,
-                                    base_ty, [], DontAutoderefReceiver, IgnoreStaticMethods)
+                                    base_ty, [])
         }
         (method, _) => method
     };
@@ -2231,9 +2226,7 @@ fn try_overloaded_slice(fcx: &FnCtxt,
                                         token::intern(method_name),
                                         trait_did,
                                         base_ty,
-                                        [],
-                                        DontAutoderefReceiver,
-                                        IgnoreStaticMethods)
+                                        [])
             }
             _ => None,
         }
@@ -2256,9 +2249,7 @@ fn try_overloaded_slice(fcx: &FnCtxt,
                                         token::intern(method_name),
                                         trait_did,
                                         base_ty,
-                                        [],
-                                        DontAutoderefReceiver,
-                                        IgnoreStaticMethods)
+                                        [])
             }
             _ => None,
         }
@@ -2314,9 +2305,7 @@ fn try_overloaded_index(fcx: &FnCtxt,
                                     token::intern("index_mut"),
                                     trait_did,
                                     base_ty,
-                                    [],
-                                    DontAutoderefReceiver,
-                                    IgnoreStaticMethods)
+                                    [])
         }
         _ => None,
     };
@@ -2330,9 +2319,7 @@ fn try_overloaded_index(fcx: &FnCtxt,
                                     token::intern("index"),
                                     trait_did,
                                     base_ty,
-                                    [],
-                                    DontAutoderefReceiver,
-                                    IgnoreStaticMethods)
+                                    [])
         }
         (method, _) => method,
     };
@@ -2376,9 +2363,7 @@ fn lookup_method_for_for_loop(fcx: &FnCtxt,
                                          token::intern("next"),
                                          trait_did,
                                          expr_type,
-                                         [],
-                                         DontAutoderefReceiver,
-                                         IgnoreStaticMethods);
+                                         []);
 
     // Regardless of whether the lookup succeeds, check the method arguments
     // so that we have *some* type for each argument.
@@ -2890,8 +2875,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
         };
 
         let fn_sig = match *fn_sty {
-            ty::ty_bare_fn(ty::BareFnTy {sig: ref sig, ..}) |
-            ty::ty_closure(box ty::ClosureTy {sig: ref sig, ..}) => sig,
+            ty::ty_bare_fn(ty::BareFnTy {ref sig, ..}) |
+            ty::ty_closure(box ty::ClosureTy {ref sig, ..}) => sig,
             _ => {
                 fcx.type_error_message(call_expr.span, |actual| {
                     format!("expected function, found `{}`", actual)
@@ -2902,7 +2887,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
 
         // Replace any bound regions that appear in the function
         // signature with region variables
-        let (_, fn_sig) = replace_late_bound_regions_in_fn_sig(fcx.tcx(), fn_sig, |br| {
+        let (_, fn_sig) = replace_late_bound_regions(fcx.tcx(), fn_sig.binder_id, fn_sig, |br| {
             fcx.infcx().next_region_var(infer::LateBoundRegion(call_expr.span, br))
         });
 
@@ -2935,46 +2920,24 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                                 fcx.expr_ty(&*rcvr));
 
         let tps = tps.iter().map(|ast_ty| fcx.to_ty(&**ast_ty)).collect::<Vec<_>>();
-        let fn_ty = match method::lookup(fcx, expr, &*rcvr,
+        let fn_ty = match method::lookup(fcx,
+                                         expr,
+                                         &*rcvr,
                                          method_name.node.name,
-                                         expr_t, tps.as_slice(),
+                                         expr_t,
+                                         tps.as_slice(),
                                          DontDerefArgs,
                                          CheckTraitsAndInherentMethods,
-                                         AutoderefReceiver, IgnoreStaticMethods) {
-            Some(method) => {
+                                         AutoderefReceiver) {
+            Ok(method) => {
                 let method_ty = method.ty;
                 let method_call = MethodCall::expr(expr.id);
                 fcx.inh.method_map.borrow_mut().insert(method_call, method);
                 method_ty
             }
-            None => {
-                debug!("(checking method call) failing expr is {}", expr.id);
-
-                fcx.type_error_message(method_name.span,
-                  |actual| {
-                      format!("type `{}` does not implement any \
-                               method in scope named `{}`",
-                              actual,
-                              token::get_ident(method_name.node))
-                  },
-                  expr_t,
-                  None);
-
-                // Add error type for the result
+            Err(error) => {
+                method::report_error(fcx, method_name.span, expr_t, method_name.node.name, error);
                 fcx.write_error(expr.id);
-
-                // Check for potential static matches (missing self parameters)
-                method::lookup(fcx,
-                               expr,
-                               &*rcvr,
-                               method_name.node.name,
-                               expr_t,
-                               tps.as_slice(),
-                               DontDerefArgs,
-                               CheckTraitsAndInherentMethods,
-                               DontAutoderefReceiver,
-                               ReportStaticMethods);
-
                 ty::mk_err()
             }
         };
@@ -3069,13 +3032,11 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                   trait_did: Option<ast::DefId>,
                                   lhs: &'a ast::Expr,
                                   rhs: Option<&P<ast::Expr>>,
-                                  autoderef_receiver: AutoderefReceiverFlag,
                                   unbound_method: ||) -> ty::t {
         let method = match trait_did {
             Some(trait_did) => {
                 method::lookup_in_trait(fcx, op_ex.span, Some(lhs), opname,
-                                        trait_did, lhs_ty, &[], autoderef_receiver,
-                                        IgnoreStaticMethods)
+                                        trait_did, lhs_ty, &[])
             }
             None => None
         };
@@ -3249,7 +3210,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
             }
         };
         lookup_op_method(fcx, ex, lhs_resolved_t, token::intern(name),
-                         trait_did, lhs_expr, Some(rhs), DontAutoderefReceiver, || {
+                         trait_did, lhs_expr, Some(rhs), || {
             fcx.type_error_message(ex.span, |actual| {
                 format!("binary operation `{}` cannot be applied to type `{}`",
                         ast_util::binop_to_string(op),
@@ -3266,7 +3227,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                        rhs_expr: &ast::Expr,
                        rhs_t: ty::t) -> ty::t {
        lookup_op_method(fcx, ex, rhs_t, token::intern(mname),
-                        trait_did, rhs_expr, None, DontAutoderefReceiver, || {
+                        trait_did, rhs_expr, None, || {
             fcx.type_error_message(ex.span, |actual| {
                 format!("cannot apply unary operator `{}` to type `{}`",
                         op_str, actual)
@@ -3360,8 +3321,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
             match expected_sty {
                 Some(ty::ty_closure(ref cenv)) => {
                     let (_, sig) =
-                        replace_late_bound_regions_in_fn_sig(
-                            tcx, &cenv.sig,
+                        replace_late_bound_regions(
+                            tcx, cenv.sig.binder_id, &cenv.sig,
                             |_| fcx.inh.infcx.fresh_bound_region(expr.id));
                     let onceness = match (&store, &cenv.store) {
                         // As the closure type and onceness go, only three
@@ -3479,9 +3440,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                              tps.as_slice(),
                              DontDerefArgs,
                              CheckTraitsAndInherentMethods,
-                             AutoderefReceiver,
-                             IgnoreStaticMethods) {
-            Some(_) => {
+                             AutoderefReceiver) {
+            Ok(_) => {
                 fcx.type_error_message(
                     field.span,
                     |actual| {
@@ -3494,7 +3454,7 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                     "maybe a missing `()` to call it? If not, try an anonymous function.");
             }
 
-            None => {
+            Err(_) => {
                 fcx.type_error_message(
                     expr.span,
                     |actual| {
@@ -3871,8 +3831,8 @@ fn check_expr_with_unifier(fcx: &FnCtxt,
                                     ty::ty_struct(did, ref substs) => {
                                         let fields = ty::struct_fields(fcx.tcx(), did, substs);
                                         fields.len() == 1
-                                        && fields[0].ident ==
-                                        token::special_idents::unnamed_field
+                                        && fields[0].name ==
+                                        token::special_idents::unnamed_field.name
                                     }
                                     _ => false
                                 };

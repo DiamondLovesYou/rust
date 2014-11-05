@@ -324,7 +324,7 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 _ => bcx.sess().bug(format!("UnsizeStruct with bad sty: {}",
                                           bcx.ty_to_string(unsized_ty)).as_slice())
             },
-            &ty::UnsizeVtable(ty::TyTrait { def_id: def_id, substs: ref substs, .. }, _) => {
+            &ty::UnsizeVtable(ty::TyTrait { def_id, ref substs, .. }, _) => {
                 let substs = substs.with_self_ty(unsized_ty);
                 let trait_ref =
                     Rc::new(ty::TraitRef { def_id: def_id,
@@ -1328,7 +1328,7 @@ fn trans_struct<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         let numbered_fields = fields.iter().map(|field| {
             let opt_pos =
                 field_tys.iter().position(|field_ty|
-                                          field_ty.ident.name == field.ident.node.name);
+                                          field_ty.name == field.ident.node.name);
             match opt_pos {
                 Some(i) => {
                     *need_base.get_mut(i) = false;
