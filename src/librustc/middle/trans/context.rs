@@ -541,7 +541,7 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
     pub fn is_split_stack_supported(&self) -> bool {
         let ref cfg = self.sess().targ_cfg;
         (cfg.os != abi::OsiOS || cfg.arch != abi::Arm) && cfg.os != abi::OsWindows
-        	&& cfg.os != abi::OsNaCl
+            && cfg.os != abi::OsNaCl
     }
 
 
