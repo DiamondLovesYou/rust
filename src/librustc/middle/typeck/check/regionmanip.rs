@@ -18,7 +18,7 @@ use middle::ty_fold::{TypeFolder, TypeFoldable};
 use syntax::ast;
 
 use std::collections::HashMap;
-use std::collections::hashmap::{Occupied, Vacant};
+use std::collections::hash_map::{Occupied, Vacant};
 use util::ppaux::Repr;
 
 // Helper functions related to manipulating region types.
@@ -92,7 +92,6 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
 
         match ty::get(ty).sty {
             ty::ty_nil |
-            ty::ty_bot |
             ty::ty_bool |
             ty::ty_char |
             ty::ty_int(..) |
@@ -108,7 +107,7 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
                 self.accumulate_from_closure_ty(ty, c);
             }
 
-            ty::ty_unboxed_closure(_, region) => {
+            ty::ty_unboxed_closure(_, region, _) => {
                 // An "unboxed closure type" is basically
                 // modeled here as equivalent to a struct like
                 //
@@ -118,6 +117,18 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
                 //
                 // where the `'b` is the lifetime bound of the
                 // contents (i.e., all contents must outlive 'b).
+                //
+                // Even though unboxed closures are glorified structs
+                // of upvars, we do not need to consider them as they
+                // can't generate any new constraints.  The
+                // substitutions on the closure are equal to the free
+                // substitutions of the enclosing parameter
+                // environment.  An upvar captured by value has the
+                // same type as the original local variable which is
+                // already checked for consistency.  If the upvar is
+                // captured by reference it must also outlive the
+                // region bound on the closure, but this is explicitly
+                // handled by logic in regionck.
                 self.push_region_constraint_from_top(region);
             }
 

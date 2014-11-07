@@ -121,14 +121,15 @@ impl<'a, 'tcx, 'v> Visitor<'v> for IntrinsicCheckingVisitor<'a, 'tcx> {
         match expr.node {
             ast::ExprPath(..) => {
                 match ty::resolve_expr(self.tcx, expr) {
-                    DefFn(did, _, _) if self.def_id_is_transmute(did) => {
+                    DefFn(did, _) if self.def_id_is_transmute(did) => {
                         let typ = ty::node_id_to_type(self.tcx, expr.id);
                         match ty::get(typ).sty {
                             ty_bare_fn(ref bare_fn_ty)
                                     if bare_fn_ty.abi == RustIntrinsic => {
-                                let from = bare_fn_ty.sig.inputs[0];
-                                let to = bare_fn_ty.sig.output;
-                                self.check_transmute(expr.span, from, to, expr.id);
+                                if let ty::FnConverging(to) = bare_fn_ty.sig.output {
+                                    let from = bare_fn_ty.sig.inputs[0];
+                                    self.check_transmute(expr.span, from, to, expr.id);
+                                }
                             }
                             _ => {
                                 self.tcx

@@ -111,7 +111,7 @@ pub trait ErrorReporting {
 
     fn values_str(&self, values: &ValuePairs) -> Option<String>;
 
-    fn expected_found_str<T:UserString+Resolvable>(
+    fn expected_found_str<T: UserString + Resolvable>(
         &self,
         exp_found: &ty::expected_found<T>)
         -> Option<String>;
@@ -396,16 +396,12 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
          * or None if this is a derived error.
          */
         match *values {
-            infer::Types(ref exp_found) => {
-                self.expected_found_str(exp_found)
-            }
-            infer::TraitRefs(ref exp_found) => {
-                self.expected_found_str(exp_found)
-            }
+            infer::Types(ref exp_found) => self.expected_found_str(exp_found),
+            infer::TraitRefs(ref exp_found) => self.expected_found_str(exp_found)
         }
     }
 
-    fn expected_found_str<T:UserString+Resolvable>(
+    fn expected_found_str<T: UserString + Resolvable>(
         &self,
         exp_found: &ty::expected_found<T>)
         -> Option<String>
@@ -442,9 +438,12 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
                 self.tcx.sess.span_err(
                     origin.span(),
                     format!(
-                        "the parameter type `{}` may not live long enough; \
-                         consider adding an explicit lifetime bound `{}:{}`...",
-                        param_ty.user_string(self.tcx),
+                        "the parameter type `{}` may not live long enough",
+                        param_ty.user_string(self.tcx)).as_slice());
+                self.tcx.sess.span_help(
+                    origin.span(),
+                    format!(
+                        "consider adding an explicit lifetime bound `{}: {}`...",
                         param_ty.user_string(self.tcx),
                         sub.user_string(self.tcx)).as_slice());
             }
@@ -454,9 +453,12 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
                 self.tcx.sess.span_err(
                     origin.span(),
                     format!(
-                        "the parameter type `{}` may not live long enough; \
-                         consider adding an explicit lifetime bound `{}:'static`...",
-                        param_ty.user_string(self.tcx),
+                        "the parameter type `{}` may not live long enough",
+                        param_ty.user_string(self.tcx)).as_slice());
+                self.tcx.sess.span_help(
+                    origin.span(),
+                    format!(
+                        "consider adding an explicit lifetime bound `{}: 'static`...",
                         param_ty.user_string(self.tcx)).as_slice());
             }
 
@@ -465,9 +467,12 @@ impl<'a, 'tcx> ErrorReporting for InferCtxt<'a, 'tcx> {
                 self.tcx.sess.span_err(
                     origin.span(),
                     format!(
-                        "the parameter type `{}` may not live long enough; \
-                         consider adding an explicit lifetime bound to `{}`",
-                        param_ty.user_string(self.tcx),
+                        "the parameter type `{}` may not live long enough",
+                        param_ty.user_string(self.tcx)).as_slice());
+                self.tcx.sess.span_help(
+                    origin.span(),
+                    format!(
+                        "consider adding an explicit lifetime bound to `{}`",
                         param_ty.user_string(self.tcx)).as_slice());
                 note_and_explain_region(
                     self.tcx,

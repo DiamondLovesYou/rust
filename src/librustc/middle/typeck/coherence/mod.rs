@@ -23,7 +23,7 @@ use middle::subst::{Substs};
 use middle::ty::get;
 use middle::ty::{ImplContainer, ImplOrTraitItemId, MethodTraitItemId};
 use middle::ty::{TypeTraitItemId, lookup_item_type};
-use middle::ty::{t, ty_bool, ty_char, ty_bot, ty_enum, ty_err};
+use middle::ty::{t, ty_bool, ty_char, ty_enum, ty_err};
 use middle::ty::{ty_str, ty_vec, ty_float, ty_infer, ty_int, ty_nil, ty_open};
 use middle::ty::{ty_param, Polytype, ty_ptr};
 use middle::ty::{ty_rptr, ty_struct, ty_trait, ty_tup};
@@ -82,7 +82,7 @@ fn get_base_type(inference_context: &InferCtxt,
             Some(resolved_type)
         }
 
-        ty_nil | ty_bot | ty_bool | ty_char | ty_int(..) | ty_uint(..) | ty_float(..) |
+        ty_nil | ty_bool | ty_char | ty_int(..) | ty_uint(..) | ty_float(..) |
         ty_str(..) | ty_vec(..) | ty_bare_fn(..) | ty_closure(..) | ty_tup(..) |
         ty_infer(..) | ty_param(..) | ty_err | ty_open(..) | ty_uniq(_) |
         ty_ptr(_) | ty_rptr(_, _) => {
@@ -90,7 +90,7 @@ fn get_base_type(inference_context: &InferCtxt,
                    get(original_type).sty);
             None
         }
-        ty_trait(..) => fail!("should have been caught")
+        ty_trait(..) => panic!("should have been caught")
     }
 }
 
@@ -105,7 +105,7 @@ fn get_base_type_def_id(inference_context: &InferCtxt,
             match get(base_type).sty {
                 ty_enum(def_id, _) |
                 ty_struct(def_id, _) |
-                ty_unboxed_closure(def_id, _) => {
+                ty_unboxed_closure(def_id, _, _) => {
                     Some(def_id)
                 }
                 ty_ptr(ty::mt {ty, ..}) |
@@ -116,7 +116,7 @@ fn get_base_type_def_id(inference_context: &InferCtxt,
                             Some(def_id)
                         }
                         _ => {
-                            fail!("get_base_type() returned a type that wasn't an \
+                            panic!("get_base_type() returned a type that wasn't an \
                                    enum, struct, or trait");
                         }
                     }
@@ -125,7 +125,7 @@ fn get_base_type_def_id(inference_context: &InferCtxt,
                     Some(def_id)
                 }
                 _ => {
-                    fail!("get_base_type() returned a type that wasn't an \
+                    panic!("get_base_type() returned a type that wasn't an \
                            enum, struct, or trait");
                 }
             }
@@ -207,8 +207,8 @@ impl<'a, 'tcx> CoherenceChecker<'a, 'tcx> {
         let impl_items = self.create_impl_from_item(item);
 
         for associated_trait in associated_traits.iter() {
-            let trait_ref = ty::node_id_to_trait_ref(
-                self.crate_context.tcx, associated_trait.ref_id);
+            let trait_ref = ty::node_id_to_trait_ref(self.crate_context.tcx,
+                                                     associated_trait.ref_id);
             debug!("(checking implementation) adding impl for trait '{}', item '{}'",
                    trait_ref.repr(self.crate_context.tcx),
                    token::get_ident(item.ident));
@@ -445,7 +445,7 @@ impl<'a, 'tcx> CoherenceChecker<'a, 'tcx> {
             match ty::get(self_type.ty).sty {
                 ty::ty_enum(type_def_id, _) |
                 ty::ty_struct(type_def_id, _) |
-                ty::ty_unboxed_closure(type_def_id, _) => {
+                ty::ty_unboxed_closure(type_def_id, _, _) => {
                     tcx.destructor_for_type
                        .borrow_mut()
                        .insert(type_def_id, method_def_id.def_id());

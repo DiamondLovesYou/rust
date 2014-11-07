@@ -23,7 +23,6 @@ use middle::ty;
 use std::rc::Rc;
 use std::str;
 use std::string::String;
-use std::uint;
 use syntax::abi;
 use syntax::ast;
 use syntax::ast::*;
@@ -56,6 +55,9 @@ pub enum DefIdSource {
 
     // Identifies a region parameter (`fn foo<'X>() { ... }`).
     RegionParameter,
+
+    // Identifies an unboxed closure
+    UnboxedClosureSource
 }
 pub type conv_did<'a> =
     |source: DefIdSource, ast::DefId|: 'a -> ast::DefId;
@@ -260,7 +262,7 @@ fn parse_region_substs(st: &mut PState, conv: conv_did) -> subst::RegionSubsts {
                 parse_vec_per_param_space(
                     st, |st| parse_region(st, |x,y| conv(x,y))))
         }
-        _ => fail!("parse_bound_region: bad input")
+        _ => panic!("parse_bound_region: bad input")
     }
 }
 
@@ -282,7 +284,7 @@ fn parse_bound_region(st: &mut PState, conv: conv_did) -> ty::BoundRegion {
             ty::BrFresh(id)
         }
         'e' => ty::BrEnv,
-        _ => fail!("parse_bound_region: bad input")
+        _ => panic!("parse_bound_region: bad input")
     }
 }
 
@@ -327,7 +329,7 @@ fn parse_region(st: &mut PState, conv: conv_did) -> ty::Region {
       'e' => {
         ty::ReStatic
       }
-      _ => fail!("parse_region: bad input")
+      _ => panic!("parse_region: bad input")
     }
 }
 
@@ -335,7 +337,7 @@ fn parse_opt<T>(st: &mut PState, f: |&mut PState| -> T) -> Option<T> {
     match next(st) {
       'n' => None,
       's' => Some(f(st)),
-      _ => fail!("parse_opt: bad input")
+      _ => panic!("parse_opt: bad input")
     }
 }
 
@@ -359,7 +361,6 @@ fn parse_trait_ref(st: &mut PState, conv: conv_did) -> ty::TraitRef {
 fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
     match next(st) {
       'n' => return ty::mk_nil(),
-      'z' => return ty::mk_bot(),
       'b' => return ty::mk_bool(),
       'i' => return ty::mk_int(),
       'u' => return ty::mk_uint(),
@@ -375,7 +376,7 @@ fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
           'D' => return ty::mk_mach_int(ast::TyI64),
           'f' => return ty::mk_mach_float(ast::TyF32),
           'F' => return ty::mk_mach_float(ast::TyF64),
-          _ => fail!("parse_ty: bad numeric type")
+          _ => panic!("parse_ty: bad numeric type")
         }
       }
       'c' => return ty::mk_char(),
@@ -465,14 +466,17 @@ fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
           return ty::mk_struct(st.tcx, did, substs);
       }
       'k' => {
-          let did = parse_def(st, NominalType, |x,y| conv(x,y));
-          let region = parse_region(st, conv);
-          return ty::mk_unboxed_closure(st.tcx, did, region);
+          assert_eq!(next(st), '[');
+          let did = parse_def(st, UnboxedClosureSource, |x,y| conv(x,y));
+          let region = parse_region(st, |x,y| conv(x,y));
+          let substs = parse_substs(st, |x,y| conv(x,y));
+          assert_eq!(next(st), ']');
+          return ty::mk_unboxed_closure(st.tcx, did, region, substs);
       }
       'e' => {
           return ty::mk_err();
       }
-      c => { fail!("unexpected char in type string: {}", c);}
+      c => { panic!("unexpected char in type string: {}", c);}
     }
 }
 
@@ -525,7 +529,7 @@ fn parse_fn_style(c: char) -> FnStyle {
     match c {
         'u' => UnsafeFn,
         'n' => NormalFn,
-        _ => fail!("parse_fn_style: bad fn_style {}", c)
+        _ => panic!("parse_fn_style: bad fn_style {}", c)
     }
 }
 
@@ -541,7 +545,7 @@ fn parse_onceness(c: char) -> ast::Onceness {
     match c {
         'o' => ast::Once,
         'm' => ast::Many,
-        _ => fail!("parse_onceness: bad onceness")
+        _ => panic!("parse_onceness: bad onceness")
     }
 }
 
@@ -585,12 +589,18 @@ fn parse_sig(st: &mut PState, conv: conv_did) -> ty::FnSig {
     let variadic = match next(st) {
         'V' => true,
         'N' => false,
-        r => fail!(format!("bad variadic: {}", r)),
+        r => panic!(format!("bad variadic: {}", r)),
     };
-    let ret_ty = parse_ty(st, |x,y| conv(x,y));
+    let output = match peek(st) {
+        'z' => {
+          st.pos += 1u;
+          ty::FnDiverging
+        }
+        _ => ty::FnConverging(parse_ty(st, |x,y| conv(x,y)))
+    };
     ty::FnSig {binder_id: id,
                inputs: inputs,
-               output: ret_ty,
+               output: output,
                variadic: variadic}
 }
 
@@ -601,20 +611,20 @@ pub fn parse_def_id(buf: &[u8]) -> ast::DefId {
     while colon_idx < len && buf[colon_idx] != ':' as u8 { colon_idx += 1u; }
     if colon_idx == len {
         error!("didn't find ':' when parsing def id");
-        fail!();
+        panic!();
     }
 
     let crate_part = buf[0u..colon_idx];
     let def_part = buf[colon_idx + 1u..len];
 
-    let crate_num = match uint::parse_bytes(crate_part, 10u) {
+    let crate_num = match str::from_utf8(crate_part).and_then(from_str::<uint>) {
        Some(cn) => cn as ast::CrateNum,
-       None => fail!("internal error: parse_def_id: crate number expected, found {}",
+       None => panic!("internal error: parse_def_id: crate number expected, found {}",
                      crate_part)
     };
-    let def_num = match uint::parse_bytes(def_part, 10u) {
+    let def_num = match str::from_utf8(def_part).and_then(from_str::<uint>) {
        Some(dn) => dn as ast::NodeId,
-       None => fail!("internal error: parse_def_id: id expected, found {}",
+       None => panic!("internal error: parse_def_id: id expected, found {}",
                      def_part)
     };
     ast::DefId { krate: crate_num, node: def_num }
@@ -680,7 +690,7 @@ fn parse_builtin_bounds(st: &mut PState, _conv: conv_did) -> ty::BuiltinBounds {
                 return builtin_bounds;
             }
             c => {
-                fail!("parse_bounds: bad builtin bounds ('{}')", c)
+                panic!("parse_bounds: bad builtin bounds ('{}')", c)
             }
         }
     }
@@ -706,7 +716,7 @@ fn parse_bounds(st: &mut PState, conv: conv_did) -> ty::ParamBounds {
                 return param_bounds;
             }
             c => {
-                fail!("parse_bounds: bad bounds ('{}')", c)
+                panic!("parse_bounds: bad bounds ('{}')", c)
             }
         }
     }

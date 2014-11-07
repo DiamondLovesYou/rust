@@ -18,7 +18,7 @@ use std::io::IoResult;
 
 use attr;
 use color;
-use Terminal;
+use {Terminal,UnwrappableTerminal};
 
 /// A Terminal implementation which uses the Win32 Console API.
 pub struct WinConsole<T> {
@@ -83,14 +83,10 @@ fn bits_to_color(bits: u16) -> color::Color {
         _ => unreachable!()
     };
 
-    if bits >= 8 {
-        color | 0x8
-    } else {
-        color
-    }
+    color | (bits & 0x8) // copy the hi-intensity bit
 }
 
-impl<T: Writer> WinConsole<T> {
+impl<T: Writer+Send> WinConsole<T> {
     fn apply(&mut self) {
         let _unused = self.buf.flush();
         let mut accum: libc::WORD = 0;
@@ -111,20 +107,10 @@ impl<T: Writer> WinConsole<T> {
             SetConsoleTextAttribute(out, accum);
         }
     }
-}
 
-impl<T: Writer> Writer for WinConsole<T> {
-    fn write(&mut self, buf: &[u8]) -> IoResult<()> {
-        self.buf.write(buf)
-    }
-
-    fn flush(&mut self) -> IoResult<()> {
-        self.buf.flush()
-    }
-}
-
-impl<T: Writer> Terminal<T> for WinConsole<T> {
-    fn new(out: T) -> Option<WinConsole<T>> {
+    /// Returns `None` whenever the terminal cannot be created for some
+    /// reason.
+    pub fn new(out: T) -> Option<Box<Terminal<T>+Send+'static>> {
         let fg;
         let bg;
         unsafe {
@@ -137,11 +123,23 @@ impl<T: Writer> Terminal<T> for WinConsole<T> {
                 bg = color::BLACK;
             }
         }
-        Some(WinConsole { buf: out,
-                          def_foreground: fg, def_background: bg,
-                          foreground: fg, background: bg } )
+        Some(box WinConsole { buf: out,
+                              def_foreground: fg, def_background: bg,
+                              foreground: fg, background: bg } as Box<Terminal<T>+Send>)
+    }
+}
+
+impl<T: Writer> Writer for WinConsole<T> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<()> {
+        self.buf.write(buf)
     }
 
+    fn flush(&mut self) -> IoResult<()> {
+        self.buf.flush()
+    }
+}
+
+impl<T: Writer+Send> Terminal<T> for WinConsole<T> {
     fn fg(&mut self, color: color::Color) -> IoResult<bool> {
         self.foreground = color;
         self.apply();
@@ -189,9 +187,11 @@ impl<T: Writer> Terminal<T> for WinConsole<T> {
         Ok(())
     }
 
-    fn unwrap(self) -> T { self.buf }
-
     fn get_ref<'a>(&'a self) -> &'a T { &self.buf }
 
     fn get_mut<'a>(&'a mut self) -> &'a mut T { &mut self.buf }
+}
+
+impl<T: Writer+Send> UnwrappableTerminal<T> for WinConsole<T> {
+    fn unwrap(self) -> T { self.buf }
 }

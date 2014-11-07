@@ -12,9 +12,7 @@
 // min-lldb-version: 310
 
 // compile-flags:-g
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 // gdb-command:print string1.length
 // gdb-check:$1 = 48
 // gdb-command:print string2.length
@@ -37,7 +35,7 @@
 
 // lldb-command:continue
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 // This test case makes sure that debug info does not ICE when include_str is
 // used multiple times (see issue #11322).

@@ -24,7 +24,7 @@ fn main() {
 }
 
 fn test() {
-    let mut l = TcpListener::bind("127.0.0.1", 0).unwrap();
+    let mut l = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = l.socket_name().unwrap();
     let mut a = l.listen().unwrap();
     let cnt = Arc::new(atomic::AtomicUint::new(0));
@@ -45,7 +45,7 @@ fn test() {
                         }
                     }
                     Err(ref e) if e.kind == EndOfFile => break,
-                    Err(e) => fail!("{}", e),
+                    Err(e) => panic!("{}", e),
                 }
             }
             srv_tx.send(());
@@ -56,8 +56,7 @@ fn test() {
         let cli_tx = cli_tx.clone();
         spawn(proc() {
             for _ in range(0, M) {
-                let _s = TcpStream::connect(addr.ip.to_string().as_slice(),
-                                            addr.port).unwrap();
+                let _s = TcpStream::connect(addr).unwrap();
             }
             cli_tx.send(());
         });
@@ -67,7 +66,7 @@ fn test() {
     // wait for senders
     if cli_rx.iter().take(N).count() != N {
         a.close_accept().unwrap();
-        fail!("clients failed");
+        panic!("clients panicked");
     }
 
     // wait for one acceptor to die

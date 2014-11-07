@@ -255,7 +255,8 @@ Available lint options:
         for (name, to) in lints.into_iter() {
             let name = name.chars().map(|x| x.to_lowercase())
                            .collect::<String>().replace("_", "-");
-            let desc = to.into_iter().map(|x| x.as_str()).collect::<Vec<String>>().connect(", ");
+            let desc = to.into_iter().map(|x| x.as_str().replace("_", "-"))
+                         .collect::<Vec<String>>().connect(", ");
             println!("    {}  {}",
                      padded(name.as_slice()), desc);
         }
@@ -269,7 +270,7 @@ Available lint options:
             println!("Compiler plugins can provide additional lints and lint groups. To see a \
                       listing of these, re-run `rustc -W help` with a crate filename.");
         }
-        (false, _, _) => fail!("didn't load lint plugins but got them anyway!"),
+        (false, _, _) => panic!("didn't load lint plugins but got them anyway!"),
         (true, 0, 0) => println!("This crate does not load any lint plugins or lint groups."),
         (true, l, g) => {
             if l > 0 {
@@ -427,7 +428,7 @@ fn parse_crate_attrs(sess: &Session, input: &Input) ->
 pub fn early_error(msg: &str) -> ! {
     let mut emitter = diagnostic::EmitterWriter::stderr(diagnostic::Auto, None);
     emitter.emit(None, msg, None, diagnostic::Fatal);
-    fail!(diagnostic::FatalError);
+    panic!(diagnostic::FatalError);
 }
 
 pub fn early_warn(msg: &str) {
@@ -437,7 +438,7 @@ pub fn early_warn(msg: &str) {
 
 pub fn list_metadata(sess: &Session, path: &Path,
                      out: &mut io::Writer) -> io::IoResult<()> {
-    metadata::loader::list_file_metadata(sess.targ_cfg.os, path, out)
+    metadata::loader::list_file_metadata(sess.target.target.options.is_like_osx, path, out)
 }
 
 /// Run a procedure which will detect failures in the compiler and print nicer
@@ -469,7 +470,7 @@ pub fn monitor(f: proc():Send) {
     match task.try(f) {
         Ok(()) => { /* fallthrough */ }
         Err(value) => {
-            // Task failed without emitting a fatal diagnostic
+            // Task panicked without emitting a fatal diagnostic
             if !value.is::<diagnostic::FatalError>() {
                 let mut emitter = diagnostic::EmitterWriter::stderr(diagnostic::Auto, None);
 
@@ -478,13 +479,13 @@ pub fn monitor(f: proc():Send) {
                 if !value.is::<diagnostic::ExplicitBug>() {
                     emitter.emit(
                         None,
-                        "unexpected failure",
+                        "unexpected panic",
                         None,
                         diagnostic::Bug);
                 }
 
                 let xs = [
-                    "the compiler hit an unexpected failure path. this is a bug.".to_string(),
+                    "the compiler unexpectedly panicked. this is a bug.".to_string(),
                     format!("we would appreciate a bug report: {}",
                             BUG_REPORT_URL),
                     "run with `RUST_BACKTRACE=1` for a backtrace".to_string(),
@@ -506,11 +507,11 @@ pub fn monitor(f: proc():Send) {
                 }
             }
 
-            // Fail so the process returns a failure code, but don't pollute the
+            // Panic so the process returns a failure code, but don't pollute the
             // output with some unnecessary failure messages, we've already
             // printed everything that we needed to.
             io::stdio::set_stderr(box io::util::NullWriter);
-            fail!();
+            panic!();
         }
     }
 }

@@ -38,7 +38,7 @@ enum FormatState {
 }
 
 /// Types of parameters a capability can use
-#[allow(missing_doc)]
+#[allow(missing_docs)]
 #[deriving(Clone)]
 pub enum Param {
     Words(String),
@@ -474,7 +474,7 @@ impl FormatOp {
             'x' => FormatHex,
             'X' => FormatHEX,
             's' => FormatString,
-            _ => fail!("bad FormatOp char")
+            _ => panic!("bad FormatOp char")
         }
     }
     fn to_char(self) -> char {

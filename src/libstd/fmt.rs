@@ -424,16 +424,6 @@ pub use core::fmt::{Argument, Arguments, write, radix, Radix, RadixFmt};
 
 #[doc(hidden)]
 pub use core::fmt::{argument, argumentstr, argumentuint};
-#[doc(hidden)]
-pub use core::fmt::{secret_show, secret_string, secret_unsigned};
-#[doc(hidden)]
-pub use core::fmt::{secret_signed, secret_lower_hex, secret_upper_hex};
-#[doc(hidden)]
-pub use core::fmt::{secret_bool, secret_char, secret_octal, secret_binary};
-#[doc(hidden)]
-pub use core::fmt::{secret_float, secret_upper_exp, secret_lower_exp};
-#[doc(hidden)]
-pub use core::fmt::{secret_pointer};
 
 /// The format function takes a precompiled format string and a list of
 /// arguments, to return the resulting formatted string.

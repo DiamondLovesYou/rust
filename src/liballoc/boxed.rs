@@ -16,6 +16,7 @@ use core::cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering};
 use core::default::Default;
 use core::fmt;
 use core::intrinsics;
+use core::kinds::Sized;
 use core::mem;
 use core::option::Option;
 use core::raw::TraitObject;
@@ -120,7 +121,7 @@ impl BoxAny for Box<Any+'static> {
     }
 }
 
-impl<T: fmt::Show> fmt::Show for Box<T> {
+impl<Sized? T: fmt::Show> fmt::Show for Box<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         (**self).fmt(f)
     }
@@ -148,11 +149,11 @@ mod test {
 
         match a.downcast::<uint>() {
             Ok(a) => { assert!(a == box 8u); }
-            Err(..) => fail!()
+            Err(..) => panic!()
         }
         match b.downcast::<Test>() {
             Ok(a) => { assert!(a == box Test); }
-            Err(..) => fail!()
+            Err(..) => panic!()
         }
 
         let a = box 8u as Box<Any>;

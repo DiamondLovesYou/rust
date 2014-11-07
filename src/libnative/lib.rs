@@ -55,7 +55,7 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![deny(unused_result, unused_must_use)]
+#![deny(unused_results, unused_must_use)]
 #![allow(non_camel_case_types)]
 #![allow(unknown_features)]
 #![feature(default_type_params, lang_items, slicing_syntax)]
@@ -132,7 +132,8 @@ pub fn start(argc: int, argv: *const *const u8, main: proc()) -> int {
     rt::init(argc, argv);
     let mut exit_code = None;
     let mut main = Some(main);
-    let mut task = task::new((my_stack_bottom, my_stack_top));
+    let mut task = task::new((my_stack_bottom, my_stack_top),
+                             rt::thread::main_guard_page());
     task.name = Some(str::Slice("<main>"));
     drop(task.run(|| {
         unsafe {
@@ -141,7 +142,7 @@ pub fn start(argc: int, argv: *const *const u8, main: proc()) -> int {
         exit_code = Some(run(main.take().unwrap()));
     }).destroy());
     unsafe { rt::cleanup(); }
-    // If the exit code wasn't set, then the task block must have failed.
+    // If the exit code wasn't set, then the task block must have panicked.
     return exit_code.unwrap_or(rt::DEFAULT_ERROR_CODE);
 }
 

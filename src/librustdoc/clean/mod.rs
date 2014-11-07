@@ -880,6 +880,15 @@ impl Clean<FnDecl> for ast::FnDecl {
     }
 }
 
+impl<'a> Clean<Type> for ty::FnOutput {
+    fn clean(&self, cx: &DocContext) -> Type {
+        match *self {
+            ty::FnConverging(ty) => ty.clean(cx),
+            ty::FnDiverging => Bottom
+        }
+    }
+}
+
 impl<'a> Clean<FnDecl> for (ast::DefId, &'a ty::FnSig) {
     fn clean(&self, cx: &DocContext) -> FnDecl {
         let (did, sig) = *self;
@@ -1250,7 +1259,7 @@ impl Clean<Type> for ast::Ty {
             TyBareFn(ref barefn) => BareFunction(box barefn.clean(cx)),
             TyParen(ref ty) => ty.clean(cx),
             TyBot => Bottom,
-            ref x => fail!("Unimplemented type {}", x),
+            ref x => panic!("Unimplemented type {}", x),
         }
     }
 }
@@ -1258,7 +1267,6 @@ impl Clean<Type> for ast::Ty {
 impl Clean<Type> for ty::t {
     fn clean(&self, cx: &DocContext) -> Type {
         match ty::get(*self).sty {
-            ty::ty_bot => Bottom,
             ty::ty_nil => Primitive(Unit),
             ty::ty_bool => Primitive(Bool),
             ty::ty_char => Primitive(Char),
@@ -1346,9 +1354,9 @@ impl Clean<Type> for ty::t {
 
             ty::ty_unboxed_closure(..) => Primitive(Unit), // FIXME(pcwalton)
 
-            ty::ty_infer(..) => fail!("ty_infer"),
-            ty::ty_open(..) => fail!("ty_open"),
-            ty::ty_err => fail!("ty_err"),
+            ty::ty_infer(..) => panic!("ty_infer"),
+            ty::ty_open(..) => panic!("ty_open"),
+            ty::ty_err => panic!("ty_err"),
         }
     }
 }
@@ -2060,9 +2068,9 @@ fn name_from_pat(p: &ast::Pat) -> String {
                   which is silly in function arguments");
             "()".to_string()
         },
-        PatRange(..) => fail!("tried to get argument name from PatRange, \
+        PatRange(..) => panic!("tried to get argument name from PatRange, \
                               which is not allowed in function arguments"),
-        PatVec(..) => fail!("tried to get argument name from pat_vec, \
+        PatVec(..) => panic!("tried to get argument name from pat_vec, \
                              which is not allowed in function arguments"),
         PatMac(..) => {
             warn!("can't document the name of a function argument \
@@ -2084,7 +2092,7 @@ fn resolve_type(cx: &DocContext, path: Path,
     debug!("searching for {} in defmap", id);
     let def = match tcx.def_map.borrow().find(&id) {
         Some(&k) => k,
-        None => fail!("unresolved id not in defmap")
+        None => panic!("unresolved id not in defmap")
     };
 
     match def {
@@ -2116,7 +2124,7 @@ fn resolve_type(cx: &DocContext, path: Path,
 
 fn register_def(cx: &DocContext, def: def::Def) -> ast::DefId {
     let (did, kind) = match def {
-        def::DefFn(i, _, _) => (i, TypeFunction),
+        def::DefFn(i, _) => (i, TypeFunction),
         def::DefTy(i, false) => (i, TypeTypedef),
         def::DefTy(i, true) => (i, TypeEnum),
         def::DefTrait(i) => (i, TypeTrait),
@@ -2195,12 +2203,12 @@ impl Clean<Stability> for attr::Stability {
 impl Clean<Item> for ast::AssociatedType {
     fn clean(&self, cx: &DocContext) -> Item {
         Item {
-            source: self.span.clean(cx),
-            name: Some(self.ident.clean(cx)),
+            source: self.ty_param.span.clean(cx),
+            name: Some(self.ty_param.ident.clean(cx)),
             attrs: self.attrs.clean(cx),
             inner: AssociatedTypeItem,
             visibility: None,
-            def_id: ast_util::local_def(self.id),
+            def_id: ast_util::local_def(self.ty_param.id),
             stability: None,
         }
     }

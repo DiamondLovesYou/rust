@@ -133,10 +133,10 @@ fn report_cannot_move_out_of(bccx: &BorrowckCtxt, move_from: mc::cmt) {
                                  which defines the `Drop` trait",
                                 b.ty.user_string(bccx.tcx)).as_slice());
                 },
-                _ => fail!("this path should not cause illegal move")
+                _ => panic!("this path should not cause illegal move")
             }
         }
-        _ => fail!("this path should not cause illegal move")
+        _ => panic!("this path should not cause illegal move")
     }
 }
 
@@ -148,9 +148,12 @@ fn note_move_destination(bccx: &BorrowckCtxt,
     if is_first_note {
         bccx.span_note(
             move_to_span,
-            format!("attempting to move value to here (to prevent the move, \
+            "attempting to move value to here");
+        bccx.span_help(
+            move_to_span,
+            format!("to prevent the move, \
                      use `ref {0}` or `ref mut {0}` to capture value by \
-                     reference)",
+                     reference",
                     pat_name).as_slice());
     } else {
         bccx.span_note(move_to_span,

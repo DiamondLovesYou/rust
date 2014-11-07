@@ -34,7 +34,7 @@
 //! both occur before the crate is rendered.
 
 use std::collections::{HashMap, HashSet};
-use std::collections::hashmap::{Occupied, Vacant};
+use std::collections::hash_map::{Occupied, Vacant};
 use std::fmt;
 use std::io::fs::PathExtensions;
 use std::io::{fs, File, BufferedWriter, MemWriter, BufferedReader};
@@ -1042,7 +1042,7 @@ impl Context {
     /// sure it always points to the top (relatively)
     fn recurse<T>(&mut self, s: String, f: |&mut Context| -> T) -> T {
         if s.len() == 0 {
-            fail!("Unexpected empty destination: {}", self.current);
+            panic!("Unexpected empty destination: {}", self.current);
         }
         let prev = self.dst.clone();
         self.dst.push(s.as_slice());
@@ -2123,7 +2123,7 @@ impl<'a> fmt::Show for Sidebar<'a> {
 
         fn block(w: &mut fmt::Formatter, short: &str, longty: &str,
                  cur: &clean::Item, cx: &Context) -> fmt::Result {
-            let items = match cx.sidebar.find_equiv(&short) {
+            let items = match cx.sidebar.find_equiv(short) {
                 Some(items) => items.as_slice(),
                 None => return Ok(())
             };

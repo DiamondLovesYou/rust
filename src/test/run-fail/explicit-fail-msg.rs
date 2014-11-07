@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(dead_assignment)]
-#![allow(unused_variable)]
+#![allow(unused_assignments)]
+#![allow(unused_variables)]
 
 // error-pattern:wooooo
 fn main() {
     let mut a = 1i;
     if 1i == 1 { a = 2; }
-    fail!(format!("woooo{}", "o"));
+    panic!(format!("woooo{}", "o"));
 }

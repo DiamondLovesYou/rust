@@ -15,15 +15,13 @@
 fn id(x: bool) -> bool { x }
 
 fn call_id() {
-    let c = fail!();
+    let c = panic!();
     id(c);
 }
 
 fn call_id_2() { id(true) && id(return); }
 
 fn call_id_3() { id(return) && id(return); }
-
-fn ret_ret() -> int { return (return 2i) + 3i; }
 
 fn ret_guard() {
     match 2i {

@@ -62,7 +62,6 @@ mod imp {
 mod imp {
     extern crate libc;
 
-    use collections::Collection;
     use io::{IoResult};
     use kinds::marker;
     use mem;
@@ -70,7 +69,7 @@ mod imp {
     use rand::Rng;
     use result::{Ok};
     use self::libc::{c_int, size_t};
-    use slice::MutableSlice;
+    use slice::{ImmutableSlice, MutableSlice};
 
     /// A random number generator that retrieves randomness straight from
     /// the operating system. Platform sources:
@@ -88,7 +87,7 @@ mod imp {
     #[repr(C)]
     struct SecRandom;
 
-    #[allow(non_uppercase_statics)]
+    #[allow(non_upper_case_globals)]
     static kSecRandomDefault: *const SecRandom = 0 as *const SecRandom;
 
     #[link(name = "Security", kind = "framework")]
@@ -120,7 +119,7 @@ mod imp {
                 SecRandomCopyBytes(kSecRandomDefault, v.len() as size_t, v.as_mut_ptr())
             };
             if ret == -1 {
-                fail!("couldn't generate random bytes: {}", os::last_os_error());
+                panic!("couldn't generate random bytes: {}", os::last_os_error());
             }
         }
     }
@@ -130,7 +129,6 @@ mod imp {
 mod imp {
     extern crate libc;
 
-    use core_collections::Collection;
     use io::{IoResult, IoError};
     use mem;
     use ops::Drop;
@@ -139,7 +137,7 @@ mod imp {
     use result::{Ok, Err};
     use self::libc::{DWORD, BYTE, LPCSTR, BOOL};
     use self::libc::types::os::arch::extra::{LONG_PTR};
-    use slice::MutableSlice;
+    use slice::{ImmutableSlice, MutableSlice};
 
     type HCRYPTPROV = LONG_PTR;
 
@@ -208,7 +206,7 @@ mod imp {
                                v.as_mut_ptr())
             };
             if ret == 0 {
-                fail!("couldn't generate random bytes: {}", os::last_os_error());
+                panic!("couldn't generate random bytes: {}", os::last_os_error());
             }
         }
     }
@@ -219,7 +217,7 @@ mod imp {
                 CryptReleaseContext(self.hcryptprov, 0)
             };
             if ret == 0 {
-                fail!("couldn't release context: {}", os::last_os_error());
+                panic!("couldn't release context: {}", os::last_os_error());
             }
         }
     }

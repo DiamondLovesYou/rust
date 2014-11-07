@@ -15,20 +15,16 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print a
 // gdb-check:$1 = 10101
 // gdb-command:continue
 
-// gdb-command:finish
 // gdb-command:print b
 // gdb-check:$2 = 20202
 // gdb-command:continue
 
-// gdb-command:finish
 // gdb-command:print c
 // gdb-check:$3 = 30303
 
@@ -48,7 +44,7 @@
 // lldb-command:print c
 // lldb-check:[...]$2 = 30303
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 fn function_one() {
     let a = 10101i;

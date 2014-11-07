@@ -777,7 +777,7 @@ fn add_one(x: int) -> int {
      x + 1;
 }
 
-note: consider removing this semicolon:
+help: consider removing this semicolon:
      x + 1;
           ^
 ```
@@ -1124,21 +1124,6 @@ enum OptionalInt {
     Value(int),
     Missing,
 }
-
-fn main() {
-    let x = Value(5);
-    let y = Missing;
-
-    match x {
-        Value(n) => println!("x is {:d}", n),
-        Missing  => println!("x is missing!"),
-    }
-
-    match y {
-        Value(n) => println!("y is {:d}", n),
-        Missing  => println!("y is missing!"),
-    }
-}
 ```
 
 This enum represents an `int` that we may or may not have. In the `Missing`
@@ -1146,7 +1131,7 @@ case, we have no value, but in the `Value` case, we do. This enum is specific
 to `int`s, though. We can make it usable by any type, but we haven't quite
 gotten there yet!
 
-You can have any number of values in an enum:
+You can also have any number of values in an enum:
 
 ```{rust}
 enum OptionalColor {
@@ -1155,10 +1140,23 @@ enum OptionalColor {
 }
 ```
 
-Enums with values are quite useful, but as I mentioned, they're even more
-useful when they're generic across types. But before we get to generics, let's
-talk about how to fix these big `if`/`else` statements we've been writing. We'll
-do that with `match`.
+And you can also have something like this:
+
+```{rust}
+enum StringResult {
+    StringOK(String),
+    ErrorReason(String),
+}
+```
+Where a `StringResult` is either an `StringOK`, with the result of a computation, or an
+`ErrorReason` with a `String` explaining what caused the computation to fail. This kind of
+`enum`s are actually very useful and are even part of the standard library.
+
+As you can see `enum`s with values are quite a powerful tool for data representation,
+and can be even more useful when they're generic across types. But before we get to
+generics, let's talk about how to use them with pattern matching, a tool that will
+let us deconstruct this sum type (the type theory term for enums) in a very elegant
+way and avoid all these messy `if`/`else`s.
 
 # Match
 
@@ -1188,7 +1186,7 @@ expression will be evaluated. It's called `match` because of the term 'pattern
 matching,' which `match` is an implementation of.
 
 So what's the big advantage here? Well, there are a few. First of all, `match`
-does 'exhaustiveness checking.' Do you see that last arm, the one with the
+enforces 'exhaustiveness checking.' Do you see that last arm, the one with the
 underscore (`_`)? If we remove that arm, Rust will give us an error:
 
 ```{ignore,notrust}
@@ -1255,6 +1253,37 @@ version, if we had forgotten the `Greater` case, for example, our program would
 have happily compiled. If we forget in the `match`, it will not. Rust helps us
 make sure to cover all of our bases.
 
+`match` expressions also allow us to get the values contained in an `enum`
+(also known as destructuring) as follows:
+
+```{rust}
+enum OptionalInt {
+    Value(int),
+    Missing,
+}
+
+fn main() {
+    let x = Value(5);
+    let y = Missing;
+
+    match x {
+        Value(n) => println!("x is {}", n),
+        Missing  => println!("x is missing!"),
+    }
+
+    match y {
+        Value(n) => println!("y is {}", n),
+        Missing  => println!("y is missing!"),
+    }
+}
+```
+
+That is how you can get and use the values contained in `enum`s.
+It can also allow us to treat errors or unexpected computations, for example, a
+function that is not guaranteed to be able to compute a result (an `int` here),
+could return an `OptionalInt`, and we would handle that value with a `match`.
+As you can see, `enum` and `match` used together are quite useful!
+
 `match` is also an expression, which means we can use it on the right
 hand side of a `let` binding or directly where an expression is
 used. We could also implement the previous line like this:
@@ -1301,7 +1330,7 @@ Instead, it looks like this:
 
 ```{rust}
 for x in range(0i, 10i) {
-    println!("{:d}", x);
+    println!("{}", x);
 }
 ```
 
@@ -1408,7 +1437,7 @@ iteration: This will only print the odd numbers:
 for x in range(0i, 10i) {
     if x % 2 == 0 { continue; }
 
-    println!("{:d}", x);
+    println!("{}", x);
 }
 ```
 
@@ -1677,12 +1706,12 @@ fn main() {
     let y = Missing;
 
     match x {
-        Value(n) => println!("x is {:d}", n),
+        Value(n) => println!("x is {}", n),
         Missing  => println!("x is missing!"),
     }
 
     match y {
-        Value(n) => println!("y is {:d}", n),
+        Value(n) => println!("y is {}", n),
         Missing  => println!("y is missing!"),
     }
 }
@@ -1793,7 +1822,7 @@ Finally, Cargo generated a hello, world for us. Check out `src/main.rs`:
 
 ```{rust}
 fn main() {
-    println!("Hello, world!");
+    println!("Hello, world!")
 }
 ```
 
@@ -2682,12 +2711,12 @@ like this:
 
 ```
 fn main() {
-    println!("Hello, world!");
+    println!("Hello, world!")
 }
 
 mod hello {
     fn print_hello() {
-        println!("Hello, world!");
+        println!("Hello, world!")
     }
 }
 ```
@@ -2721,7 +2750,7 @@ fn main() {
 
 mod hello {
     fn print_hello() {
-        println!("Hello, world!");
+        println!("Hello, world!")
     }
 }
 ```
@@ -2744,7 +2773,7 @@ fn main() {
 
 mod hello {
     pub fn print_hello() {
-        println!("Hello, world!");
+        println!("Hello, world!")
     }
 }
 ```
@@ -2921,15 +2950,11 @@ it `false`, so this test should fail. Let's try it!
 ```{notrust,ignore}
 $ cargo test
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
-/home/you/projects/testing/src/main.rs:1:1: 3:2 warning: code is never used: `main`, #[warn(dead_code)] on by default
+/home/you/projects/testing/src/main.rs:1:1: 3:2 warning: function is never used: `main`, #[warn(dead_code)] on by default
 /home/you/projects/testing/src/main.rs:1 fn main() {
-/home/you/projects/testing/src/main.rs:2     println!("Hello, world");
+/home/you/projects/testing/src/main.rs:2     println!("Hello, world!")
 /home/you/projects/testing/src/main.rs:3 }
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
+     Running target/lib-654ce120f310a3a5
 
 running 1 test
 test foo ... FAILED
@@ -2946,7 +2971,7 @@ failures:
 
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured
 
-task '<main>' failed at 'Some tests failed', /home/you/src/rust/src/libtest/lib.rs:242
+task '<main>' failed at 'Some tests failed', /home/you/src/rust/src/libtest/lib.rs:243
 ```
 
 Lots of output! Let's break this down:
@@ -2960,9 +2985,9 @@ You can run all of your tests with `cargo test`. This runs both your tests in
 `tests`, as well as the tests you put inside of your crate.
 
 ```{notrust,ignore}
-/home/you/projects/testing/src/main.rs:1:1: 3:2 warning: code is never used: `main`, #[warn(dead_code)] on by default
+/home/you/projects/testing/src/main.rs:1:1: 3:2 warning: function is never used: `main`, #[warn(dead_code)] on by default
 /home/you/projects/testing/src/main.rs:1 fn main() {
-/home/you/projects/testing/src/main.rs:2     println!("Hello, world");
+/home/you/projects/testing/src/main.rs:2     println!("Hello, world!")
 /home/you/projects/testing/src/main.rs:3 }
 ```
 
@@ -2974,18 +2999,8 @@ We'll turn this lint off for just this function soon. For now, just ignore this
 output.
 
 ```{notrust,ignore}
-running 0 tests
+     Running target/lib-654ce120f310a3a5
 
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-```
-
-Wait a minute, zero tests? Didn't we define one? Yup. This output is from
-attempting to run the tests in our crate, of which we don't have any.
-You'll note that Rust reports on several kinds of tests: passed, failed,
-ignored, and measured. The 'measured' tests refer to benchmark tests, which
-we'll cover soon enough!
-
-```{notrust,ignore}
 running 1 test
 test foo ... FAILED
 ```
@@ -3008,7 +3023,7 @@ failures:
 
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured
 
-task '<main>' failed at 'Some tests failed', /home/you/src/rust/src/libtest/lib.rs:242
+task '<main>' failed at 'Some tests failed', /home/you/src/rust/src/libtest/lib.rs:243
 ```
 
 After all the tests run, Rust will show us any output from our failed tests.
@@ -3029,29 +3044,30 @@ And then try to run our tests again:
 ```{notrust,ignore}
 $ cargo test
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
-/home/you/projects/testing/src/main.rs:1:1: 3:2 warning: code is never used: `main`, #[warn(dead_code)] on by default
-/home/you/projects/testing/src/main.rs:1 fn main() {
-/home/you/projects/testing/src/main.rs:2     println!("Hello, world");
-/home/you/projects/testing/src/main.rs:3 }
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
+     Running target/lib-654ce120f310a3a5
 
 running 1 test
 test foo ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-6d7518593c7c3ee5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
 ```
 
-Nice! Our test passes, as we expected. Let's get rid of that warning for our `main`
-function. Change your `src/main.rs` to look like this:
+Nice! Our test passes, as we expected. Note how we didn't get the
+`main` warning this time? This is because `src/main.rs` didn't
+need recompiling, but we'll get that warning again if we
+change (and recompile) that file. Let's get rid of that
+warning; change your `src/main.rs` to look like this:
 
 ```{rust}
 #[cfg(not(test))]
 fn main() {
-    println!("Hello, world");
+    println!("Hello, world!")
 }
 ```
 
@@ -3062,21 +3078,24 @@ our tests, it sets things up so that `cfg(test)` is true. But we want to only
 include `main` when it's _not_ true. So we use `not` to negate things:
 `cfg(not(test))` will only compile our code when the `cfg(test)` is false.
 
-With this attribute, we won't get the warning:
+With this attribute we won't get the warning (even
+though `src/main.rs` gets recompiled this time):
 
 ```{notrust,ignore}
 $ cargo test
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
+     Running target/lib-654ce120f310a3a5
 
 running 1 test
 test foo ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-6d7518593c7c3ee5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
 ```
 
 Nice. Okay, let's write a real test now. Change your `tests/lib.rs`
@@ -3133,7 +3152,7 @@ extern crate testing;
 
 #[cfg(not(test))]
 fn main() {
-    println!("Hello, world");
+    println!("Hello, world!")
 }
 ```
 
@@ -3156,21 +3175,30 @@ Let's give it a run:
 ```{ignore,notrust}
 $ cargo test
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
+     Running target/lib-654ce120f310a3a5
 
 running 1 test
 test math_checks_out ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-6d7518593c7c3ee5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-8a94b31f7fd2e8fe
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
+
+   Doc-tests testing
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
 ```
 
 Great! One test passed. We've got an integration test showing that our public
@@ -3196,21 +3224,30 @@ If you run `cargo test`, you should get the same output:
 ```{ignore,notrust}
 $ cargo test
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
+     Running target/lib-654ce120f310a3a5
 
 running 1 test
 test math_checks_out ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-6d7518593c7c3ee5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-8a94b31f7fd2e8fe
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
+
+   Doc-tests testing
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
 ```
 
 If we tried to write a test for these two new functions, it wouldn't
@@ -3283,6 +3320,20 @@ Let's give it a shot:
 ```{ignore,notrust}
 $ cargo test
    Compiling testing v0.0.1 (file:///home/you/projects/testing)
+     Running target/lib-654ce120f310a3a5
+
+running 1 test
+test math_checks_out ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-6d7518593c7c3ee5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
+
+     Running target/testing-8a94b31f7fd2e8fe
 
 running 2 tests
 test test::test_times_four ... ok
@@ -3290,16 +3341,11 @@ test test::test_add_three ... ok
 
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured
 
+   Doc-tests testing
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
-
-
-running 1 test
-test math_checks_out ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
 ```
 
 Cool! We now have two tests of our internal functions. You'll note that there
@@ -3402,7 +3448,7 @@ let y = &mut x;
 Rust will complain:
 
 ```{ignore,notrust}
-6:19 error: cannot borrow immutable local variable `x` as mutable
+error: cannot borrow immutable local variable `x` as mutable
  let y = &mut x;
               ^
 ```
@@ -3446,7 +3492,7 @@ note: previous borrow ends here
 
 This is a big error message. Let's dig into it for a moment. There are three
 parts: the error and two notes. The error says what we expected, we cannot have
-two pointers that point to the same memory.
+two mutable pointers that point to the same memory.
 
 The two notes give some extra context. Rust's error messages often contain this
 kind of extra information when the error is complex. Rust is telling us two
@@ -3466,13 +3512,14 @@ for destroying that resource as well. Given that we're discussing pointers
 right now, let's discuss this in the context of memory allocation, though
 it applies to other resources as well.
 
-When you allocate heap memory, you need a mechanism to free that memory.  Many
-languages let the programmer control the allocation, and then use a garbage
-collector to handle the deallocation. This is a valid, time-tested strategy,
-but it's not without its drawbacks. Because the programmer does not have to
-think as much about deallocation, allocation becomes something commonplace,
-because it's easy. And if you need precise control over when something is
-deallocated, leaving it up to your runtime can make this difficult.
+When you allocate heap memory, you need a mechanism to free that memory. Many
+languages use a garbage collector to handle deallocation. This is a valid,
+time-tested strategy, but it's not without its drawbacks: it adds overhead, and
+can lead to unpredictable pauses in execution. Because the programmer does not
+have to think as much about deallocation, allocation becomes something
+commonplace, leading to more memory usage. And if you need precise control
+over when something is deallocated, leaving it up to your runtime can make this
+difficult.
 
 Rust chooses a different path, and that path is called **ownership**. Any
 binding that creates a resource is the **owner** of that resource.
@@ -3498,17 +3545,19 @@ memory. The length of time that the borrower is borrowing the pointer
 from you is called a **lifetime**.
 
 If two distinct bindings share a pointer, and the memory that pointer points to
-is immutable, then there are no problems. But if it's mutable, both pointers
-can attempt to write to the memory at the same time, causing a **race
-condition**. Therefore, if someone wants to mutate something that they've
-borrowed from you, you must not have lent out that pointer to anyone else.
+is immutable, then there are no problems. But if it's mutable, the result of
+changing it can vary unpredictably depending on who happens to access it first,
+which is called a **race condition**. To avoid this, if someone wants to mutate
+something that they've borrowed from you, you must not have lent out that
+pointer to anyone else.
 
 Rust has a sophisticated system called the **borrow checker** to make sure that
 everyone plays by these rules. At compile time, it verifies that none of these
-rules are broken. If there's no problem, our program compiles successfully, and
-there is no runtime overhead for any of this. The borrow checker works only at
-compile time. If the borrow checker did find a problem, it will report a
-**lifetime error**, and your program will refuse to compile.
+rules are broken. If our program compiles successfully, Rust can guarantee it
+is free of data races and other memory errors, and there is no runtime overhead
+for any of this. The borrow checker works only at compile time. If the borrow
+checker did find a problem, it will report an error and your program will
+refuse to compile.
 
 That's a lot to take in. It's also one of the _most_ important concepts in
 all of Rust. Let's see this syntax in action:
@@ -3634,40 +3683,72 @@ pub fn as_maybe_owned(&self) -> MaybeOwned<'a> { ... }
 
 ## Boxes
 
-All of our references so far have been to variables we've created on the stack.
-In Rust, the simplest way to allocate heap variables is using a *box*.  To
-create a box, use the `box` keyword:
+Most of the types we've seen so far have a fixed size or number of components.
+The compiler needs this fact to lay out values in memory. However, some data
+structures, such as a linked list, do not have a fixed size. You might think to
+implement a linked list with an enum that's either a `Node` or the end of the
+list (`Nil`), like this:
 
-```{rust}
-let x = box 5i;
+```{rust,ignore}
+enum List {             // error: illegal recursive enum type
+    Node(u32, List),
+    Nil
+}
 ```
 
-This allocates an integer `5` on the heap, and creates a binding `x` that
-refers to it. The great thing about boxed pointers is that we don't have to
-manually free this allocation! If we write
+But the compiler complains that the type is recursive, that is, it could be
+arbitrarily large. To remedy this, Rust provides a fixed-size container called
+a **box** that can hold any type. You can box up any value with the `box`
+keyword. Our boxed List gets the type `Box<List>` (more on the notation when we
+get to generics):
+
+```{rust}
+enum List {
+    Node(u32, Box<List>),
+    Nil
+}
+
+fn main() {
+    let list = Node(0, box Node(1, box Nil));
+}
+```
+
+A box dynamically allocates memory to hold its contents. The great thing about
+Rust is that that memory is *automatically*, *efficiently*, and *predictably*
+deallocated when you're done with the box.
+
+A box is a pointer type, and you access what's inside using the `*` operator,
+just like regular references. This (rather silly) example dynamically allocates
+an integer `5` and makes `x` a pointer to it:
 
 ```{rust}
 {
     let x = box 5i;
-    // do stuff
+    println!("{}", *x);     // Prints 5
 }
 ```
 
-then Rust will automatically free `x` at the end of the block. This isn't
-because Rust has a garbage collector -- it doesn't. Instead, when `x` goes out
-of scope, Rust `free`s `x`. This Rust code will do the same thing as the
-following C code:
+The great thing about boxes is that we don't have to manually free this
+allocation! Instead, when `x` reaches the end of its lifetime -- in this case,
+when it goes out of scope at the end of the block -- Rust `free`s `x`. This
+isn't because Rust has a garbage collector (it doesn't). Instead, by tracking
+the ownership and lifetime of a variable (with a little help from you, the
+programmer), the compiler knows precisely when it is no longer used.
+
+The Rust code above will do the same thing as the following C code:
 
 ```{c,ignore}
 {
     int *x = (int *)malloc(sizeof(int));
-    // do stuff
+    if (!x) abort();
+    *x = 5;
+    printf("%d\n", *x);
     free(x);
 }
 ```
 
-This means we get the benefits of manual memory management, but the compiler
-ensures that we don't do something wrong. We can't forget to `free` our memory.
+We get the benefits of manual memory management, while ensuring we don't
+introduce any bugs. We can't forget to `free` our memory.
 
 Boxes are the sole owner of their contents, so you cannot take a mutable
 reference to them and then use the original box:
@@ -3682,10 +3763,10 @@ let y = &mut x;
 This gives us this error:
 
 ```{notrust,ignore}
-8:7 error: cannot use `*x` because it was mutably borrowed
+error: cannot use `*x` because it was mutably borrowed
  *x;
  ^~
- 6:19 note: borrow of `x` occurs here
+note: borrow of `x` occurs here
  let y = &mut x;
               ^
 ```
@@ -3703,48 +3784,50 @@ let mut x = box 5i;
 *x;
 ```
 
+Boxes are simple and efficient pointers to dynamically allocated values with a
+single owner. They are useful for tree-like structures where the lifetime of a
+child depends solely on the lifetime of its (single) parent. If you need a
+value that must persist as long as any of several referrers, read on.
+
 ## Rc and Arc
 
-Sometimes, you need to allocate something on the heap, but give out multiple
-references to the memory. Rust's `Rc<T>` (pronounced 'arr cee tee') and
-`Arc<T>` types (again, the `T` is for generics, we'll learn more later) provide
-you with this ability.  **Rc** stands for 'reference counted,' and **Arc** for
-'atomically reference counted.' This is how Rust keeps track of the multiple
-owners: every time we make a new reference to the `Rc<T>`, we add one to its
-internal 'reference count.' Every time a reference goes out of scope, we
-subtract one from the count. When the count is zero, the `Rc<T>` can be safely
-deallocated. `Arc<T>` is almost identical to `Rc<T>`, except for one thing: The
-'atomically' in 'Arc' means that increasing and decreasing the count uses a
-thread-safe mechanism to do so. Why two types? `Rc<T>` is faster, so if you're
-not in a multi-threaded scenario, you can have that advantage. Since we haven't
-talked about threading yet in Rust, we'll show you `Rc<T>` for the rest of this
-section.
+Sometimes you need a variable that is referenced from multiple places
+(immutably!), lasting as long as any of those places, and disappearing when it
+is no longer referenced. For instance, in a graph-like data structure, a node
+might be referenced from all of its neighbors. In this case, it is not possible
+for the compiler to determine ahead of time when the value can be freed -- it
+needs a little run-time support.
 
-To create an `Rc<T>`, use `Rc::new()`:
+Rust's **Rc** type provides shared ownership of a dynamically allocated value
+that is automatically freed at the end of its last owner's lifetime. (`Rc`
+stands for 'reference counted,' referring to the way these library types are
+implemented.) This provides more flexibility than single-owner boxes, but has
+some runtime overhead.
 
-```{rust}
-use std::rc::Rc;
-
-let x = Rc::new(5i);
-```
-
-To create a second reference, use the `.clone()` method:
+To create an `Rc` value, use `Rc::new()`. To create a second owner, use the
+`.clone()` method:
 
 ```{rust}
 use std::rc::Rc;
 
 let x = Rc::new(5i);
 let y = x.clone();
+
+println!("{} {}", *x, *y);      // Prints 5 5
 ```
 
-The `Rc<T>` will live as long as any of its references are alive. After they
-all go out of scope, the memory will be `free`d.
+The `Rc` will live as long as any of its owners are alive. After that, the
+memory will be `free`d.
 
-If you use `Rc<T>` or `Arc<T>`, you have to be careful about introducing
-cycles. If you have two `Rc<T>`s that point to each other, the reference counts
-will never drop to zero, and you'll have a memory leak. To learn more, check
-out [the section on `Rc<T>` and `Arc<T>` in the pointers
-guide](guide-pointers.html#rc-and-arc).
+**Arc** is an 'atomically reference counted' value, identical to `Rc` except
+that ownership can be safely shared among multiple threads. Why two types?
+`Arc` has more overhead, so if you're not in a multi-threaded scenario, you
+don't have to pay the price.
+
+If you use `Rc` or `Arc`, you have to be careful about introducing cycles. If
+you have two `Rc`s that point to each other, they will happily keep each other
+alive forever, creating a memory leak. To learn more, check out [the section on
+`Rc` and `Arc` in the pointers guide](guide-pointers.html#rc-and-arc).
 
 # Patterns
 
@@ -3798,13 +3881,13 @@ the value to a name with `@`:
 let x = 1i;
 
 match x {
-    x @ 1 ... 5 => println!("got {}", x),
+    e @ 1 ... 5 => println!("got a range element {}", e),
     _ => println!("anything"),
 }
 ```
 
 If you're matching on an enum which has variants, you can use `..` to
-ignore the value in the variant:
+ignore the value and type in the variant:
 
 ```{rust}
 enum OptionalInt {
@@ -3831,7 +3914,7 @@ enum OptionalInt {
 let x = Value(5i);
 
 match x {
-    Value(x) if x > 5 => println!("Got an int bigger than five!"),
+    Value(i) if i > 5 => println!("Got an int bigger than five!"),
     Value(..) => println!("Got an int!"),
     Missing   => println!("No such luck."),
 }
@@ -3844,12 +3927,12 @@ with. First, `&`:
 let x = &5i;
 
 match x {
-    &x => println!("Got a value: {}", x),
+    &val => println!("Got a value: {}", val),
 }
 ```
 
-Here, the `x` inside the `match` has type `int`. In other words, the left hand
-side of the pattern destructures the value. If we have `&5i`, then in `&x`, `x`
+Here, the `val` inside the `match` has type `int`. In other words, the left hand
+side of the pattern destructures the value. If we have `&5i`, then in `&val`, `val`
 would be `5i`.
 
 If you want to get a reference, use the `ref` keyword:
@@ -3858,11 +3941,11 @@ If you want to get a reference, use the `ref` keyword:
 let x = 5i;
 
 match x {
-    ref x => println!("Got a reference to {}", x),
+    ref r => println!("Got a reference to {}", r),
 }
 ```
 
-Here, the `x` inside the `match` has the type `&int`. In other words, the `ref`
+Here, the `r` inside the `match` has the type `&int`. In other words, the `ref`
 keyword _creates_ a reference, for use in the pattern. If you need a mutable
 reference, `ref mut` will work in the same way:
 
@@ -3870,7 +3953,7 @@ reference, `ref mut` will work in the same way:
 let mut x = 5i;
 
 match x {
-    ref mut x => println!("Got a mutable reference to {}", x),
+    ref mut mr => println!("Got a mutable reference to {}", mr),
 }
 ```
 
@@ -4007,8 +4090,8 @@ syntax.
 
 # Closures
 
-So far, we've made lots of functions in Rust. But we've given them all names.
-Rust also allows us to create anonymous functions too. Rust's anonymous
+So far, we've made lots of functions in Rust, but we've given them all names.
+Rust also allows us to create anonymous functions. Rust's anonymous
 functions are called **closure**s. By themselves, closures aren't all that
 interesting, but when you combine them with functions that take closures as
 arguments, really powerful things are possible.
@@ -4037,7 +4120,7 @@ don't need to declare one. This is different from named functions, which
 default to returning unit (`()`).
 
 There's one big difference between a closure and named functions, and it's in
-the name: a closure "closes over its environment." What's that mean? It means
+the name: a closure "closes over its environment." What does that mean? It means
 this:
 
 ```{rust}
@@ -4053,8 +4136,8 @@ fn main() {
 The `||` syntax means this is an anonymous closure that takes no arguments.
 Without it, we'd just have a block of code in `{}`s.
 
-In other words, a closure has access to variables in the scope that it's
-defined. The closure borrows any variables that it uses. This will error:
+In other words, a closure has access to variables in the scope where it's
+defined. The closure borrows any variables it uses, so this will error:
 
 ```{rust,ignore}
 fn main() {
@@ -4078,7 +4161,7 @@ let p = proc() { x * x };
 println!("{}", p()); // prints 25
 ```
 
-Procs have a big difference from closures: they may only be called once. This
+There is a big difference between procs and closures: procs may only be called once. This
 will error when we try to compile:
 
 ```{rust,ignore}
@@ -4171,10 +4254,10 @@ before. And we pass in our `x` argument to each one. Hence 'twice.'
 If you do the math, `(5 * 5) + (5 * 5) == 50`, so that's the output we get.
 
 Play around with this concept until you're comfortable with it. Rust's standard
-library uses lots of closures, where appropriate, so you'll be using
+library uses lots of closures where appropriate, so you'll be using
 this technique a lot.
 
-If we didn't want to give `square` a name, we could also just define it inline.
+If we didn't want to give `square` a name, we could just define it inline.
 This example is the same as the previous one:
 
 ```{rust}
@@ -4202,12 +4285,12 @@ fn main() {
 }
 ```
 
-Doing this is not particularly common, but every once in a while, it's useful.
+Doing this is not particularly common, but it's useful every once in a while.
 
 That's all you need to get the hang of closures! Closures are a little bit
-strange at first, but once you're used to using them, you'll miss them in any
-language that doesn't have them. Passing functions to other functions is
-incredibly powerful. Next, let's look at one of those things: iterators.
+strange at first, but once you're used to them, you'll miss them
+in other languages. Passing functions to other functions is
+incredibly powerful, as you will see in the following chapter about iterators.
 
 # Iterators
 
@@ -4217,7 +4300,7 @@ Remember Rust's `for` loop? Here's an example:
 
 ```{rust}
 for x in range(0i, 10i) {
-    println!("{:d}", x);
+    println!("{}", x);
 }
 ```
 
@@ -4350,7 +4433,7 @@ is one:
 
 ```{rust}
 let greater_than_forty_two = range(0i, 100i)
-                             .find(|x| *x >= 42);
+                             .find(|x| *x > 42);
 
 match greater_than_forty_two {
     Some(_) => println!("We got some numbers!"),
@@ -4413,18 +4496,19 @@ see why consumers matter.
 
 ## Iterators
 
-As we've said before, an iterator is something that we can call the `.next()`
-method on repeatedly, and it gives us a sequence of things. Because you need
-to call the method, this means that iterators are **lazy**. This code, for
-example, does not actually generate the numbers `1-100`, and just creates a
-value that represents the sequence:
+As we've said before, an iterator is something that we can call the
+`.next()` method on repeatedly, and it gives us a sequence of things.
+Because you need to call the method, this means that iterators
+are **lazy** and don't need to generate all of the values upfront.
+This code, for example, does not actually generate the numbers
+`1-100`, and just creates a value that represents the sequence:
 
 ```{rust}
 let nums = range(1i, 100i);
 ```
 
 Since we didn't do anything with the range, it didn't generate the sequence.
-Once we add the consumer:
+Let's add the consumer:
 
 ```{rust}
 let nums = range(1i, 100i).collect::<Vec<int>>();
@@ -4453,8 +4537,8 @@ std::iter::count(1i, 5i);
 ```
 
 This iterator counts up from one, adding five each time. It will give
-you a new integer every time, forever. Well, technically, until the
-maximum number that an `int` can represent. But since iterators are lazy,
+you a new integer every time, forever (well, technically, until it reaches the
+maximum number representable by an `int`). But since iterators are lazy,
 that's okay! You probably don't want to use `collect()` on it, though...
 
 That's enough about iterators. Iterator adapters are the last concept
@@ -4471,12 +4555,12 @@ range(1i, 100i).map(|x| x + 1i);
 
 `map` is called upon another iterator, and produces a new iterator where each
 element reference has the closure it's been given as an argument called on it.
-So this would give us the numbers from `2-101`. Well, almost! If you
+So this would give us the numbers from `2-100`. Well, almost! If you
 compile the example, you'll get a warning:
 
 ```{notrust,ignore}
-2:37 warning: unused result which must be used: iterator adaptors are lazy and
-              do nothing unless consumed, #[warn(unused_must_use)] on by default
+warning: unused result which must be used: iterator adaptors are lazy and
+         do nothing unless consumed, #[warn(unused_must_use)] on by default
  range(1i, 100i).map(|x| x + 1i);
  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ```
@@ -4491,9 +4575,10 @@ range(1i, 100i).map(|x| println!("{}", x));
 If you are trying to execute a closure on an iterator for its side effects,
 just use `for` instead.
 
-There are tons of interesting iterator adapters. `take(n)` will get the
-first `n` items out of an iterator, and return them as a list. Let's
-try it out with our infinite iterator from before, `count()`:
+There are tons of interesting iterator adapters. `take(n)` will return an
+iterator over the next `n` elements of the original iterator, note that this
+has no side effect on the original iterator. Let's try it out with our infinite
+iterator from before, `count()`:
 
 ```{rust}
 for i in std::iter::count(1i, 5i).take(5) {
@@ -5158,17 +5243,17 @@ immediately.
 
 ## Success and failure
 
-Tasks don't always succeed, they can also fail. A task that wishes to fail
-can call the `fail!` macro, passing a message:
+Tasks don't always succeed, they can also panic. A task that wishes to panic 
+can call the `panic!` macro, passing a message:
 
 ```{rust}
 spawn(proc() {
-    fail!("Nope.");
+    panic!("Nope.");
 });
 ```
 
-If a task fails, it is not possible for it to recover. However, it can
-notify other tasks that it has failed. We can do this with `task::try`:
+If a task panics, it is not possible for it to recover. However, it can
+notify other tasks that it has panicked. We can do this with `task::try`:
 
 ```{rust}
 use std::task;
@@ -5178,14 +5263,14 @@ let result = task::try(proc() {
     if rand::random() {
         println!("OK");
     } else {
-        fail!("oops!");
+        panic!("oops!");
     }
 });
 ```
 
-This task will randomly fail or succeed. `task::try` returns a `Result`
+This task will randomly panic or succeed. `task::try` returns a `Result`
 type, so we can handle the response like any other computation that may
-fail.
+panic.
 
 # Macros
 
@@ -5196,8 +5281,8 @@ to do something that it can't currently do? You may be able to write a macro
 to extend Rust's capabilities.
 
 You've already used one macro extensively: `println!`. When we invoke
-a Rust macro, we need to use the exclamation mark (`!`). There's two reasons
-that this is true: the first is that it makes it clear when you're using a
+a Rust macro, we need to use the exclamation mark (`!`). There are two reasons
+why this is so: the first is that it makes it clear when you're using a
 macro. The second is that macros allow for flexible syntax, and so Rust must
 be able to tell where a macro starts and ends. The `!(...)` helps with this.
 
@@ -5212,7 +5297,7 @@ println!("x is: {}", x);
 
 The `println!` macro does a few things:
 
-1. It parses the string to find any `{}`s
+1. It parses the string to find any `{}`s.
 2. It checks that the number of `{}`s matches the number of other arguments.
 3. It generates a bunch of Rust code, taking this in mind.
 
@@ -5221,8 +5306,8 @@ Rust will generate code that takes all of the types into account. If
 `println!` was a function, it could still do this type checking, but it
 would happen at run time rather than compile time.
 
-We can check this out using a special flag to `rustc`. This code, in a file
-`print.rs`:
+We can check this out using a special flag to `rustc`. Put this code in a file
+called `print.rs`:
 
 ```{rust}
 fn main() {
@@ -5231,7 +5316,7 @@ fn main() {
 }
 ```
 
-Can have its macros expanded like this: `rustc print.rs --pretty=expanded`, will
+You can have the macros expanded like this: `rustc print.rs --pretty=expanded` – which will
 give us this huge result:
 
 ```{rust,ignore}
@@ -5270,12 +5355,12 @@ invoke the `println_args` function with the generated arguments.
 This is the code that Rust actually compiles. You can see all of the extra
 information that's here. We get all of the type safety and options that it
 provides, but at compile time, and without needing to type all of this out.
-This is how macros are powerful. Without them, you would need to type all of
-this by hand to get a type checked `println`.
+This is how macros are powerful: without them you would need to type all of
+this by hand to get a type-checked `println`.
 
 For more on macros, please consult [the Macros Guide](guide-macros.html).
-Macros are a very advanced and still slightly experimental feature, but don't
-require a deep understanding to call, since they look just like functions. The
+Macros are a very advanced and still slightly experimental feature, but they don't
+require a deep understanding to be called, since they look just like functions. The
 Guide can help you if you want to write your own.
 
 # Unsafe
@@ -5285,15 +5370,15 @@ There are two circumstances where Rust's safety provisions don't work well.
 The first is when interfacing with C code, and the second is when building
 certain kinds of abstractions.
 
-Rust has support for FFI (which you can read about in the [FFI
-Guide](guide-ffi.html)), but can't guarantee that the C code will be safe.
-Therefore, Rust marks such functions with the `unsafe`
+Rust has support for [FFI](http://en.wikipedia.org/wiki/Foreign_function_interface)
+(which you can read about in the [FFI Guide](guide-ffi.html)), but can't guarantee
+that the C code will be safe. Therefore, Rust marks such functions with the `unsafe`
 keyword, which indicates that the function may not behave properly.
 
 Second, if you'd like to create some sort of shared-memory data structure, Rust
 won't allow it, because memory must be owned by a single owner. However, if
-you're planning on making access to that shared memory safe, such as with a
-mutex, _you_ know that it's safe, but Rust can't know. Writing an `unsafe`
+you're planning on making access to that shared memory safe – such as with a
+mutex – _you_ know that it's safe, but Rust can't know. Writing an `unsafe`
 block allows you to ask the compiler to trust you. In this case, the _internal_
 implementation of the mutex is considered unsafe, but the _external_ interface
 we present is safe. This allows it to be effectively used in normal Rust, while

@@ -673,7 +673,7 @@ fn write_out_deps(sess: &Session,
         _ => return,
     };
 
-    let result = (|| {
+    let result = (|| -> io::IoResult<()> {
         // Build a list of files used to compile the output and
         // write Makefile-compatible dependency rules
         let files: Vec<String> = sess.codemap().files.borrow()
@@ -762,8 +762,8 @@ pub fn collect_crate_types(session: &Session,
 
         if !res {
             session.warn(format!("dropping unsupported crate type `{}` \
-                                   for target os `{}`",
-                                 *crate_type, session.targ_cfg.os).as_slice());
+                                   for target `{}`",
+                                 *crate_type, session.opts.target_triple).as_slice());
         }
 
         res

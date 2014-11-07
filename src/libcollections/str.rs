@@ -33,21 +33,18 @@
 //! }
 //! ```
 //!
-//! From the example above, you can see that Rust's string literals have the
+//! From the example above, you can guess that Rust's string literals have the
 //! `'static` lifetime. This is akin to C's concept of a static string.
-//!
-//! String literals are allocated statically in the rodata of the
-//! executable/library. The string then has the type `&'static str` meaning that
-//! the string is valid for the `'static` lifetime, otherwise known as the
-//! lifetime of the entire program. As can be inferred from the type, these static
-//! strings are not mutable.
+//! More precisely, string literals are immutable views with a 'static lifetime
+//! (otherwise known as the lifetime of the entire program), and thus have the
+//! type `&'static str`.
 //!
 //! # Representation
 //!
 //! Rust's string type, `str`, is a sequence of Unicode scalar values encoded as a
 //! stream of UTF-8 bytes. All strings are guaranteed to be validly encoded UTF-8
-//! sequences. Additionally, strings are not null-terminated and can contain null
-//! bytes.
+//! sequences. Additionally, strings are not null-terminated and can thus contain
+//! null bytes.
 //!
 //! The actual representation of strings have direct mappings to slices: `&str`
 //! is the same as `&[u8]`.
@@ -58,14 +55,14 @@ use core::default::Default;
 use core::fmt;
 use core::cmp;
 use core::iter::AdditiveIterator;
-use core::prelude::{Char, Clone, Collection, Eq, Equiv, ImmutableSlice};
+use core::kinds::Sized;
+use core::prelude::{Char, Clone, Eq, Equiv, ImmutableSlice};
 use core::prelude::{Iterator, MutableSlice, None, Option, Ord, Ordering};
 use core::prelude::{PartialEq, PartialOrd, Result, AsSlice, Some, Tuple2};
 use core::prelude::{range};
 
-use {Deque, MutableSeq};
 use hash;
-use ringbuf::RingBuf;
+use ring_buf::RingBuf;
 use string::String;
 use unicode;
 use vec::Vec;
@@ -84,7 +81,7 @@ Section: Creating a string
 */
 
 /// Methods for vectors of strings.
-pub trait StrVector {
+pub trait StrVector for Sized? {
     /// Concatenates a vector of strings.
     ///
     /// # Example
@@ -110,7 +107,7 @@ pub trait StrVector {
     fn connect(&self, sep: &str) -> String;
 }
 
-impl<'a, S: Str> StrVector for &'a [S] {
+impl<S: Str> StrVector for [S] {
     fn concat(&self) -> String {
         if self.is_empty() {
             return String::new();
@@ -157,7 +154,7 @@ impl<'a, S: Str> StrVector for &'a [S] {
     }
 }
 
-impl<'a, S: Str> StrVector for Vec<S> {
+impl<S: Str> StrVector for Vec<S> {
     #[inline]
     fn concat(&self) -> String {
         self.as_slice().concat()
@@ -463,6 +460,14 @@ impl<'a> MaybeOwned<'a> {
             Owned(_) => false
         }
     }
+
+    /// Return the number of bytes in this string.
+    #[inline]
+    pub fn len(&self) -> uint { self.as_slice().len() }
+
+    /// Returns true if the string contains no bytes
+    #[inline]
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 }
 
 /// Trait for moving into a `MaybeOwned`.
@@ -558,11 +563,6 @@ impl<'a> StrAllocating for MaybeOwned<'a> {
             Owned(s) => s
         }
     }
-}
-
-impl<'a> Collection for MaybeOwned<'a> {
-    #[inline]
-    fn len(&self) -> uint { self.as_slice().len() }
 }
 
 impl<'a> Clone for MaybeOwned<'a> {
@@ -691,17 +691,17 @@ pub trait StrAllocating: Str {
         for (i, sc) in me.chars().enumerate() {
 
             let mut current = i;
-            *dcol.get_mut(0) = current + 1;
+            dcol[0] = current + 1;
 
             for (j, tc) in t.chars().enumerate() {
 
                 let next = dcol[j + 1];
 
                 if sc == tc {
-                    *dcol.get_mut(j + 1) = current;
+                    dcol[j + 1] = current;
                 } else {
-                    *dcol.get_mut(j + 1) = cmp::min(current, next);
-                    *dcol.get_mut(j + 1) = cmp::min(dcol[j + 1], dcol[j]) + 1;
+                    dcol[j + 1] = cmp::min(current, next);
+                    dcol[j + 1] = cmp::min(dcol[j + 1], dcol[j]) + 1;
                 }
 
                 current = next;
@@ -781,7 +781,6 @@ mod tests {
     use std::option::{Some, None};
     use std::ptr::RawPtr;
     use std::iter::{Iterator, DoubleEndedIterator};
-    use {Collection, MutableSeq};
 
     use super::*;
     use std::slice::{AsSlice, ImmutableSlice};
@@ -811,7 +810,7 @@ mod tests {
         assert_eq!("".len(), 0u);
         assert_eq!("hello world".len(), 11u);
         assert_eq!("\x63".len(), 1u);
-        assert_eq!("\xa2".len(), 2u);
+        assert_eq!("\u00a2".len(), 2u);
         assert_eq!("\u03c0".len(), 2u);
         assert_eq!("\u2620".len(), 3u);
         assert_eq!("\U0001d11e".len(), 4u);
@@ -819,7 +818,7 @@ mod tests {
         assert_eq!("".char_len(), 0u);
         assert_eq!("hello world".char_len(), 11u);
         assert_eq!("\x63".char_len(), 1u);
-        assert_eq!("\xa2".char_len(), 1u);
+        assert_eq!("\u00a2".char_len(), 1u);
         assert_eq!("\u03c0".char_len(), 1u);
         assert_eq!("\u2620".char_len(), 1u);
         assert_eq!("\U0001d11e".char_len(), 1u);
@@ -1366,7 +1365,7 @@ mod tests {
         // original problem code path anymore.)
         let s = String::from_str("");
         let _bytes = s.as_bytes();
-        fail!();
+        panic!();
     }
 
     #[test]
@@ -1500,7 +1499,8 @@ mod tests {
         assert_eq!("a c".escape_unicode(), String::from_str("\\x61\\x20\\x63"));
         assert_eq!("\r\n\t".escape_unicode(), String::from_str("\\x0d\\x0a\\x09"));
         assert_eq!("'\"\\".escape_unicode(), String::from_str("\\x27\\x22\\x5c"));
-        assert_eq!("\x00\x01\xfe\xff".escape_unicode(), String::from_str("\\x00\\x01\\xfe\\xff"));
+        assert_eq!("\x00\x01\u00fe\u00ff".escape_unicode(),
+                   String::from_str("\\x00\\x01\\u00fe\\u00ff"));
         assert_eq!("\u0100\uffff".escape_unicode(), String::from_str("\\u0100\\uffff"));
         assert_eq!("\U00010000\U0010ffff".escape_unicode(),
                    String::from_str("\\U00010000\\U0010ffff"));
@@ -1585,7 +1585,7 @@ mod tests {
             let len = c.encode_utf8(bytes).unwrap_or(0);
             let s = ::core::str::from_utf8(bytes[..len]).unwrap();
             if Some(c) != s.chars().next() {
-                fail!("character {:x}={} does not decode correctly", c as u32, c);
+                panic!("character {:x}={} does not decode correctly", c as u32, c);
             }
         }
     }
@@ -1597,7 +1597,7 @@ mod tests {
             let len = c.encode_utf8(bytes).unwrap_or(0);
             let s = ::core::str::from_utf8(bytes[..len]).unwrap();
             if Some(c) != s.chars().rev().next() {
-                fail!("character {:x}={} does not decode correctly", c as u32, c);
+                panic!("character {:x}={} does not decode correctly", c as u32, c);
             }
         }
     }
@@ -1677,40 +1677,6 @@ mod tests {
     }
 
     #[test]
-    fn test_split_char_iterator() {
-        let data = "\nMäry häd ä little lämb\nLittle lämb\n";
-
-        let split: Vec<&str> = data.split(' ').collect();
-        assert_eq!( split, vec!["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
-
-        let mut rsplit: Vec<&str> = data.split(' ').rev().collect();
-        rsplit.reverse();
-        assert_eq!(rsplit, vec!["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
-
-        let split: Vec<&str> = data.split(|c: char| c == ' ').collect();
-        assert_eq!( split, vec!["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
-
-        let mut rsplit: Vec<&str> = data.split(|c: char| c == ' ').rev().collect();
-        rsplit.reverse();
-        assert_eq!(rsplit, vec!["\nMäry", "häd", "ä", "little", "lämb\nLittle", "lämb\n"]);
-
-        // Unicode
-        let split: Vec<&str> = data.split('ä').collect();
-        assert_eq!( split, vec!["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
-
-        let mut rsplit: Vec<&str> = data.split('ä').rev().collect();
-        rsplit.reverse();
-        assert_eq!(rsplit, vec!["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
-
-        let split: Vec<&str> = data.split(|c: char| c == 'ä').collect();
-        assert_eq!( split, vec!["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
-
-        let mut rsplit: Vec<&str> = data.split(|c: char| c == 'ä').rev().collect();
-        rsplit.reverse();
-        assert_eq!(rsplit, vec!["\nM", "ry h", "d ", " little l", "mb\nLittle l", "mb\n"]);
-    }
-
-    #[test]
     fn test_splitn_char_iterator() {
         let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
@@ -1729,28 +1695,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rsplitn_char_iterator() {
-        let data = "\nMäry häd ä little lämb\nLittle lämb\n";
-
-        let mut split: Vec<&str> = data.rsplitn(3, ' ').collect();
-        split.reverse();
-        assert_eq!(split, vec!["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
-
-        let mut split: Vec<&str> = data.rsplitn(3, |c: char| c == ' ').collect();
-        split.reverse();
-        assert_eq!(split, vec!["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
-
-        // Unicode
-        let mut split: Vec<&str> = data.rsplitn(3, 'ä').collect();
-        split.reverse();
-        assert_eq!(split, vec!["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
-
-        let mut split: Vec<&str> = data.rsplitn(3, |c: char| c == 'ä').collect();
-        split.reverse();
-        assert_eq!(split, vec!["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
-    }
-
-    #[test]
     fn test_split_char_iterator_no_trailing() {
         let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
@@ -1758,19 +1702,6 @@ mod tests {
         assert_eq!(split, vec!["", "Märy häd ä little lämb", "Little lämb", ""]);
 
         let split: Vec<&str> = data.split_terminator('\n').collect();
-        assert_eq!(split, vec!["", "Märy häd ä little lämb", "Little lämb"]);
-    }
-
-    #[test]
-    fn test_rev_split_char_iterator_no_trailing() {
-        let data = "\nMäry häd ä little lämb\nLittle lämb\n";
-
-        let mut split: Vec<&str> = data.split('\n').rev().collect();
-        split.reverse();
-        assert_eq!(split, vec!["", "Märy häd ä little lämb", "Little lämb", ""]);
-
-        let mut split: Vec<&str> = data.split_terminator('\n').rev().collect();
-        split.reverse();
         assert_eq!(split, vec!["", "Märy häd ä little lämb", "Little lämb"]);
     }
 
@@ -1853,11 +1784,11 @@ mod tests {
         t!("\u2126", "\u03a9");
         t!("\u1e0b\u0323", "\u1e0d\u0307");
         t!("\u1e0d\u0307", "\u1e0d\u0307");
-        t!("a\u0301", "\xe1");
+        t!("a\u0301", "\u00e1");
         t!("\u0301a", "\u0301a");
         t!("\ud4db", "\ud4db");
         t!("\uac1c", "\uac1c");
-        t!("a\u0300\u0305\u0315\u05aeb", "\xe0\u05ae\u0305\u0315b");
+        t!("a\u0300\u0305\u0315\u05aeb", "\u00e0\u05ae\u0305\u0315b");
     }
 
     #[test]
@@ -1873,11 +1804,11 @@ mod tests {
         t!("\u2126", "\u03a9");
         t!("\u1e0b\u0323", "\u1e0d\u0307");
         t!("\u1e0d\u0307", "\u1e0d\u0307");
-        t!("a\u0301", "\xe1");
+        t!("a\u0301", "\u00e1");
         t!("\u0301a", "\u0301a");
         t!("\ud4db", "\ud4db");
         t!("\uac1c", "\uac1c");
-        t!("a\u0300\u0305\u0315\u05aeb", "\xe0\u05ae\u0305\u0315b");
+        t!("a\u0300\u0305\u0315\u05aeb", "\u00e0\u05ae\u0305\u0315b");
     }
 
     #[test]
@@ -2210,14 +2141,16 @@ mod tests {
 
     #[test]
     fn test_str_container() {
-        fn sum_len<S: Collection>(v: &[S]) -> uint {
+        fn sum_len(v: &[&str]) -> uint {
             v.iter().map(|x| x.len()).sum()
         }
 
         let s = String::from_str("01234");
         assert_eq!(5, sum_len(["012", "", "34"]));
-        assert_eq!(5, sum_len([String::from_str("01"), String::from_str("2"),
-                               String::from_str("34"), String::from_str("")]));
+        assert_eq!(5, sum_len([String::from_str("01").as_slice(),
+                               String::from_str("2").as_slice(),
+                               String::from_str("34").as_slice(),
+                               String::from_str("").as_slice()]));
         assert_eq!(5, sum_len([s.as_slice()]));
     }
 
@@ -2300,7 +2233,8 @@ mod bench {
     use test::black_box;
     use super::*;
     use std::iter::{Iterator, DoubleEndedIterator};
-    use std::collections::Collection;
+    use std::str::StrSlice;
+    use std::slice::ImmutableSlice;
 
     #[bench]
     fn char_iterator(b: &mut Bencher) {

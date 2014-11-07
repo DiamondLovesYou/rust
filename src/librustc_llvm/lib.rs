@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(non_uppercase_statics)]
+#![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(dead_code)]
@@ -551,7 +551,7 @@ extern {
     pub fn LLVMIsFunctionVarArg(FunctionTy: TypeRef) -> Bool;
     pub fn LLVMGetReturnType(FunctionTy: TypeRef) -> TypeRef;
     pub fn LLVMCountParamTypes(FunctionTy: TypeRef) -> c_uint;
-    pub fn LLVMGetParamTypes(FunctionTy: TypeRef, Dest: *const TypeRef);
+    pub fn LLVMGetParamTypes(FunctionTy: TypeRef, Dest: *mut TypeRef);
 
     /* Operations on struct types */
     pub fn LLVMStructTypeInContext(C: ContextRef,

@@ -244,7 +244,7 @@ fn trans_struct_drop<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     adt::fold_variants(bcx, &*repr, struct_data, |variant_cx, st, value| {
         // Be sure to put all of the fields into a scope so we can use an invoke
         // instruction to call the user destructor but still call the field
-        // destructors if the user destructor fails.
+        // destructors if the user destructor panics.
         let field_scope = variant_cx.fcx.push_custom_cleanup_scope();
 
         // Class dtors have no explicit args, so the params should
@@ -538,10 +538,10 @@ fn make_generic_glue(ccx: &CrateContext,
 
     let arena = TypedArena::new();
     let empty_param_substs = param_substs::empty();
-    let fcx = new_fn_ctxt(ccx, llfn, ast::DUMMY_NODE_ID, false, ty::mk_nil(),
+    let fcx = new_fn_ctxt(ccx, llfn, ast::DUMMY_NODE_ID, false, ty::FnConverging(ty::mk_nil()),
                           &empty_param_substs, None, &arena);
 
-    let bcx = init_function(&fcx, false, ty::mk_nil());
+    let bcx = init_function(&fcx, false, ty::FnConverging(ty::mk_nil()));
 
     update_linkage(ccx, llfn, None, OriginalTranslation);
 
@@ -556,7 +556,7 @@ fn make_generic_glue(ccx: &CrateContext,
 
     let llrawptr0 = get_param(llfn, fcx.arg_pos(0) as c_uint);
     let bcx = helper(bcx, llrawptr0, t);
-    finish_fn(&fcx, bcx, ty::mk_nil());
+    finish_fn(&fcx, bcx, ty::FnConverging(ty::mk_nil()));
 
     llfn
 }

@@ -57,7 +57,7 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("default_type_params", Active),
     ("quote", Active),
     ("linkage", Active),
-    ("struct_inherit", Active),
+    ("struct_inherit", Removed),
     ("overloaded_calls", Active),
     ("unboxed_closure_sugar", Active),
 
@@ -131,7 +131,7 @@ impl<'a> Context<'a> {
     fn gate_feature(&self, feature: &str, span: Span, explain: &str) {
         if !self.has_feature(feature) {
             self.span_handler.span_err(span, explain);
-            self.span_handler.span_note(span, format!("add #![feature({})] to the \
+            self.span_handler.span_help(span, format!("add #![feature({})] to the \
                                                        crate attributes to enable",
                                                       feature).as_slice());
         }
@@ -260,7 +260,7 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
             ast::RequiredMethod(_) | ast::ProvidedMethod(_) => {}
             ast::TypeTraitItem(ref ti) => {
                 self.gate_feature("associated_types",
-                                  ti.span,
+                                  ti.ty_param.span,
                                   "associated types are experimental")
             }
         }

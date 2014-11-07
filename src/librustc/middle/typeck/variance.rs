@@ -572,7 +572,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
         match tcx.named_region_map.find(&param_id) {
             Some(&rl::DefEarlyBoundRegion(_, _, lifetime_decl_id))
                 => lifetime_decl_id,
-            Some(_) => fail!("should not encounter non early-bound cases"),
+            Some(_) => panic!("should not encounter non early-bound cases"),
 
             // The lookup should only fail when `param_id` is
             // itself a lifetime binding: use it as the decl_id.
@@ -597,11 +597,11 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
             assert!(is_lifetime(&tcx.map, param_id));
             let parent_id = tcx.map.get_parent(decl_id);
             let parent = tcx.map.find(parent_id).unwrap_or_else(
-                || fail!("tcx.map missing entry for id: {}", parent_id));
+                || panic!("tcx.map missing entry for id: {}", parent_id));
 
             let is_inferred;
             macro_rules! cannot_happen { () => { {
-                fail!("invalid parent: {:s} for {:s}",
+                panic!("invalid parent: {:s} for {:s}",
                       tcx.map.node_to_string(parent_id),
                       tcx.map.node_to_string(param_id));
             } } }
@@ -715,7 +715,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
             }
 
             _ => {
-                self.terms_cx.arena.alloc(|| TransformTerm(v1, v2))
+                &*self.terms_cx.arena.alloc(|| TransformTerm(v1, v2))
             }
         }
     }
@@ -728,15 +728,14 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
         debug!("add_constraints_from_ty(ty={})", ty.repr(self.tcx()));
 
         match ty::get(ty).sty {
-            ty::ty_nil | ty::ty_bot | ty::ty_bool |
+            ty::ty_nil | ty::ty_bool |
             ty::ty_char | ty::ty_int(_) | ty::ty_uint(_) |
             ty::ty_float(_) | ty::ty_str => {
                 /* leaf type -- noop */
             }
 
-            ty::ty_unboxed_closure(_, region) => {
-                let contra = self.contravariant(variance);
-                self.add_constraints_from_region(region, contra);
+            ty::ty_unboxed_closure(..) => {
+                self.tcx().sess.bug("Unexpected unboxed closure type in variance computation");
             }
 
             ty::ty_rptr(region, ref mt) => {
@@ -779,7 +778,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
                     variance);
             }
 
-            ty::ty_trait(box ty::TyTrait { def_id, ref substs, .. }) => {
+            ty::ty_trait(box ty::TyTrait { def_id, ref substs, bounds }) => {
                 let trait_def = ty::lookup_trait_def(self.tcx(), def_id);
                 let generics = &trait_def.generics;
 
@@ -796,6 +795,10 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
                 // fn space.
                 assert!(generics.types.is_empty_in(subst::FnSpace));
                 assert!(generics.regions.is_empty_in(subst::FnSpace));
+
+                // The type `Foo<T+'a>` is contravariant w/r/t `'a`:
+                let contra = self.contravariant(variance);
+                self.add_constraints_from_region(bounds.region_bound, contra);
 
                 self.add_constraints_from_substs(
                     def_id,
@@ -883,7 +886,9 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
         for &input in sig.inputs.iter() {
             self.add_constraints_from_ty(input, contra);
         }
-        self.add_constraints_from_ty(sig.output, variance);
+        if let ty::FnConverging(result_type) = sig.output {
+            self.add_constraints_from_ty(result_type, variance);
+        }
     }
 
     /// Adds constraints appropriate for a region appearing in a
@@ -993,7 +998,7 @@ impl<'a, 'tcx> SolveContext<'a, 'tcx> {
                             new_value,
                             term.to_string());
 
-                    *self.solutions.get_mut(inferred) = new_value;
+                    self.solutions[inferred] = new_value;
                     changed = true;
                 }
             }

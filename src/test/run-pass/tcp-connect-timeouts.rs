@@ -31,13 +31,11 @@ use std::time::Duration;
 #[cfg_attr(target_os = "freebsd", ignore)]
 fn eventual_timeout() {
     let addr = next_test_ip4();
-    let host = addr.ip.to_string();
-    let port = addr.port;
 
     let (tx1, rx1) = channel();
     let (_tx2, rx2) = channel::<()>();
     std::task::spawn(proc() {
-        let _l = TcpListener::bind(host.as_slice(), port).unwrap().listen();
+        let _l = TcpListener::bind(addr).unwrap().listen();
         tx1.send(());
         let _ = rx2.recv_opt();
     });
@@ -48,17 +46,15 @@ fn eventual_timeout() {
         match TcpStream::connect_timeout(addr, Duration::milliseconds(100)) {
             Ok(e) => v.push(e),
             Err(ref e) if e.kind == io::TimedOut => return,
-            Err(e) => fail!("other error: {}", e),
+            Err(e) => panic!("other error: {}", e),
         }
     }
-    fail!("never timed out!");
+    panic!("never timed out!");
 }
 
 fn timeout_success() {
     let addr = next_test_ip4();
-    let host = addr.ip.to_string();
-    let port = addr.port;
-    let _l = TcpListener::bind(host.as_slice(), port).unwrap().listen();
+    let _l = TcpListener::bind(addr).unwrap().listen();
 
     assert!(TcpStream::connect_timeout(addr, Duration::milliseconds(1000)).is_ok());
 }

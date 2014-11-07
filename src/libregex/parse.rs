@@ -117,7 +117,7 @@ impl BuildAst {
     fn flags(&self) -> Flags {
         match *self {
             Paren(flags, _, _) => flags,
-            _ => fail!("Cannot get flags from {}", self),
+            _ => panic!("Cannot get flags from {}", self),
         }
     }
 
@@ -125,7 +125,7 @@ impl BuildAst {
         match *self {
             Paren(_, 0, _) => None,
             Paren(_, c, _) => Some(c),
-            _ => fail!("Cannot get capture group from {}", self),
+            _ => panic!("Cannot get capture group from {}", self),
         }
     }
 
@@ -139,7 +139,7 @@ impl BuildAst {
                     Some(name.clone())
                 }
             }
-            _ => fail!("Cannot get capture name from {}", self),
+            _ => panic!("Cannot get capture name from {}", self),
         }
     }
 
@@ -153,7 +153,7 @@ impl BuildAst {
     fn unwrap(self) -> Result<Ast, Error> {
         match self {
             Expr(x) => Ok(x),
-            _ => fail!("Tried to unwrap non-AST item: {}", self),
+            _ => panic!("Tried to unwrap non-AST item: {}", self),
         }
     }
 }
@@ -321,7 +321,7 @@ impl<'a> Parser<'a> {
         }
         let rep: Repeater = match c {
             '?' => ZeroOne, '*' => ZeroMore, '+' => OneMore,
-            _ => fail!("Not a valid repeater operator."),
+            _ => panic!("Not a valid repeater operator."),
         };
 
         match self.peek(1) {
@@ -374,16 +374,12 @@ impl<'a> Parser<'a> {
         let mut ranges: Vec<(char, char)> = vec!();
         let mut alts: Vec<Ast> = vec!();
 
-        if self.peek_is(1, ']') {
-            try!(self.expect(']'))
-            ranges.push((']', ']'))
-        }
         while self.peek_is(1, '-') {
-            try!(self.expect('-'))
+            try!(self.expect('-'));
             ranges.push(('-', '-'))
         }
         loop {
-            try!(self.noteof("a closing ']' or a non-empty character class)"))
+            try!(self.noteof("a closing ']' or a non-empty character class)"));
             let mut c = self.cur();
             match c {
                 '[' =>
@@ -393,7 +389,7 @@ impl<'a> Parser<'a> {
                             continue
                         }
                         Some(ast) =>
-                            fail!("Expected Class AST but got '{}'", ast),
+                            panic!("Expected Class AST but got '{}'", ast),
                         // Just drop down and try to add as a regular character.
                         None => {},
                     },
@@ -408,13 +404,10 @@ impl<'a> Parser<'a> {
                             return self.err(
                                 "\\A, \\z, \\b and \\B are not valid escape \
                                  sequences inside a character class."),
-                        ast => fail!("Unexpected AST item '{}'", ast),
+                        ast => panic!("Unexpected AST item '{}'", ast),
                     }
                 }
-                _ => {},
-            }
-            match c {
-                ']' => {
+                ']' if ranges.len() > 0 || alts.len() > 0 => {
                     if ranges.len() > 0 {
                         let flags = negated | (self.flags & FLAG_NOCASE);
                         let mut ast = AstClass(combine_ranges(ranges), flags);
@@ -431,22 +424,32 @@ impl<'a> Parser<'a> {
                     }
                     return Ok(())
                 }
-                c => {
-                    if self.peek_is(1, '-') && !self.peek_is(2, ']') {
-                        try!(self.expect('-'))
-                        try!(self.noteof("not a ']'"))
-                        let c2 = self.cur();
-                        if c2 < c {
-                            return self.err(format!("Invalid character class \
-                                                     range '{}-{}'",
-                                                    c,
-                                                    c2).as_slice())
-                        }
-                        ranges.push((c, self.cur()))
-                    } else {
-                        ranges.push((c, c))
+                _ => {}
+            }
+
+            if self.peek_is(1, '-') && !self.peek_is(2, ']') {
+                try!(self.expect('-'));
+                // The regex can't end here.
+                try!(self.noteof("not a ']'"));
+                // End the range with a single character or character escape.
+                let mut c2 = self.cur();
+                if c2 == '\\' {
+                    match try!(self.parse_escape()) {
+                        Literal(c3, _) => c2 = c3, // allow literal escapes below
+                        ast =>
+                            return self.err(format!("Expected a literal, but got {}.",
+                                                    ast).as_slice()),
                     }
                 }
+                if c2 < c {
+                    return self.err(format!("Invalid character class \
+                                             range '{}-{}'",
+                                            c,
+                                            c2).as_slice())
+                }
+                ranges.push((c, self.cur()))
+            } else {
+                ranges.push((c, c))
             }
         }
     }
@@ -975,7 +978,7 @@ fn combine_ranges(unordered: Vec<(char, char)>) -> Vec<(char, char)> {
         }
         match which {
             None => ordered.push((us, ue)),
-            Some(i) => *ordered.get_mut(i) = (us, ue),
+            Some(i) => ordered[i] = (us, ue),
         }
     }
     ordered.sort();

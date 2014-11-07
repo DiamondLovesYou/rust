@@ -24,7 +24,6 @@ extern crate time;
 use std::os;
 use std::result::{Ok, Err};
 use std::task;
-use std::uint;
 
 fn fib(n: int) -> int {
     fn pfib(tx: &Sender<int>, n: int) {
@@ -61,7 +60,7 @@ fn parse_opts(argv: Vec<String> ) -> Config {
       Ok(ref m) => {
           return Config {stress: m.opt_present("stress")}
       }
-      Err(_) => { fail!(); }
+      Err(_) => { panic!(); }
     }
 }
 
@@ -102,8 +101,7 @@ fn main() {
     if opts.stress {
         stress(2);
     } else {
-        let max = uint::parse_bytes(args[1].as_bytes(), 10u).unwrap() as
-            int;
+        let max = from_str::<uint>(args[1].as_slice()).unwrap() as int;
 
         let num_trials = 10;
 

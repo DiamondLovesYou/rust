@@ -46,18 +46,9 @@ impl<T> cat<T> {
             return false;
         }
     }
-}
-
-impl<T> Collection for cat<T> {
     fn len(&self) -> uint { self.meows as uint }
     fn is_empty(&self) -> bool { self.meows == 0 }
-}
-
-impl<T> Mutable for cat<T> {
     fn clear(&mut self) {}
-}
-
-impl<T> Map<int, T> for cat<T> {
     fn contains_key(&self, k: &int) -> bool { *k <= self.meows }
 
     fn find(&self, k: &int) -> Option<&T> {
@@ -67,15 +58,12 @@ impl<T> Map<int, T> for cat<T> {
             None
         }
     }
-}
-
-impl<T> MutableMap<int, T> for cat<T> {
     fn insert(&mut self, k: int, _: T) -> bool {
         self.meows += k;
         true
     }
 
-    fn find_mut(&mut self, _k: &int) -> Option<&mut T> { fail!() }
+    fn find_mut(&mut self, _k: &int) -> Option<&mut T> { panic!() }
 
     fn remove(&mut self, k: &int) -> bool {
         if self.find(k).is_some() {
@@ -85,16 +73,16 @@ impl<T> MutableMap<int, T> for cat<T> {
         }
     }
 
-    fn pop(&mut self, _k: &int) -> Option<T> { fail!() }
+    fn pop(&mut self, _k: &int) -> Option<T> { panic!() }
 
-    fn swap(&mut self, _k: int, _v: T) -> Option<T> { fail!() }
+    fn swap(&mut self, _k: int, _v: T) -> Option<T> { panic!() }
 }
 
 impl<T> cat<T> {
     pub fn get(&self, k: &int) -> &T {
         match self.find(k) {
           Some(v) => { v }
-          None    => { fail!("epic fail"); }
+          None    => { panic!("epic fail"); }
         }
     }
 

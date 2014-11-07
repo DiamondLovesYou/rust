@@ -144,7 +144,7 @@ fn trans<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, expr: &ast::Expr)
         debug!("trans_def(def={}, ref_expr={})", def.repr(bcx.tcx()), ref_expr.repr(bcx.tcx()));
         let expr_ty = node_id_type(bcx, ref_expr.id);
         match def {
-            def::DefFn(did, _, _) if {
+            def::DefFn(did, _) if {
                 let maybe_def_id = inline::get_local_instance(bcx.ccx(), did);
                 let maybe_ast_node = maybe_def_id.and_then(|def_id| bcx.tcx().map
                                                                              .find(def_id.node));
@@ -159,7 +159,7 @@ fn trans<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, expr: &ast::Expr)
                     data: NamedTupleConstructor(substs, 0)
                 }
             }
-            def::DefFn(did, _, _) if match ty::get(expr_ty).sty {
+            def::DefFn(did, _) if match ty::get(expr_ty).sty {
                 ty::ty_bare_fn(ref f) => f.abi == synabi::RustIntrinsic,
                 _ => false
             } => {
@@ -167,11 +167,11 @@ fn trans<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, expr: &ast::Expr)
                 let def_id = inline::maybe_instantiate_inline(bcx.ccx(), did);
                 Callee { bcx: bcx, data: Intrinsic(def_id.node, substs) }
             }
-            def::DefFn(did, _, _) | def::DefMethod(did, _, def::FromImpl(_)) |
-            def::DefStaticMethod(did, def::FromImpl(_), _) => {
+            def::DefFn(did, _) | def::DefMethod(did, _, def::FromImpl(_)) |
+            def::DefStaticMethod(did, def::FromImpl(_)) => {
                 fn_callee(bcx, trans_fn_ref(bcx, did, ExprId(ref_expr.id)))
             }
-            def::DefStaticMethod(meth_did, def::FromTrait(trait_did), _) |
+            def::DefStaticMethod(meth_did, def::FromTrait(trait_did)) |
             def::DefMethod(meth_did, _, def::FromTrait(trait_did)) => {
                 fn_callee(bcx, meth::trans_static_method_callee(bcx, meth_did,
                                                                 trait_did,
@@ -375,10 +375,9 @@ pub fn trans_unboxing_shim(bcx: Block,
         llshimmedargs.push(get_param(fcx.llfn, fcx.arg_pos(i) as u32));
     }
     assert!(!fcx.needs_ret_allocas);
-    let dest = match fcx.llretslotptr.get() {
-        Some(_) => Some(expr::SaveIn(fcx.get_ret_slot(bcx, return_type, "ret_slot"))),
-        None => None
-    };
+    let dest = fcx.llretslotptr.get().map(|_|
+        expr::SaveIn(fcx.get_ret_slot(bcx, return_type, "ret_slot"))
+    );
     bcx = trans_call_inner(bcx,
                            None,
                            function_type,
@@ -491,7 +490,7 @@ pub fn trans_fn_ref_with_substs(
     };
 
     // If this is an unboxed closure, redirect to it.
-    match closure::get_or_create_declaration_if_unboxed_closure(ccx, def_id) {
+    match closure::get_or_create_declaration_if_unboxed_closure(bcx, def_id) {
         None => {}
         Some(llfn) => return llfn,
     }
@@ -690,9 +689,9 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     // Introduce a temporary cleanup scope that will contain cleanups
     // for the arguments while they are being evaluated. The purpose
-    // this cleanup is to ensure that, should a failure occur while
+    // this cleanup is to ensure that, should a panic occur while
     // evaluating argument N, the values for arguments 0...N-1 are all
-    // cleaned up. If no failure occurs, the values are handed off to
+    // cleaned up. If no panic occurs, the values are handed off to
     // the callee, and hence none of the cleanups in this temporary
     // scope will ever execute.
     let fcx = bcx.fcx;
@@ -705,7 +704,7 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let (abi, ret_ty) = match ty::get(callee_ty).sty {
         ty::ty_bare_fn(ref f) => (f.abi, f.sig.output),
         ty::ty_closure(ref f) => (f.abi, f.sig.output),
-        _ => fail!("expected bare rust fn or closure in trans_call_inner")
+        _ => panic!("expected bare rust fn or closure in trans_call_inner")
     };
 
     let (llfn, llenv, llself) = match callee.data {
@@ -757,24 +756,29 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     // Generate a location to store the result. If the user does
     // not care about the result, just make a stack slot.
-    let opt_llretslot = match dest {
-        None => {
-            assert!(!type_of::return_uses_outptr(ccx, ret_ty));
-            None
-        }
-        Some(expr::SaveIn(dst)) => Some(dst),
-        Some(expr::Ignore) if !is_rust_fn ||
-                type_of::return_uses_outptr(ccx, ret_ty) ||
-                ty::type_needs_drop(bcx.tcx(), ret_ty) => {
-            if !type_is_zero_size(ccx, ret_ty) {
-                Some(alloc_ty(bcx, ret_ty, "__llret"))
+    let opt_llretslot = dest.and_then(|dest| match dest {
+        expr::SaveIn(dst) => Some(dst),
+        expr::Ignore => {
+            let ret_ty = match ret_ty {
+                ty::FnConverging(ret_ty) => ret_ty,
+                ty::FnDiverging => ty::mk_nil()
+            };
+            if !is_rust_fn ||
+              type_of::return_uses_outptr(ccx, ret_ty) ||
+              ty::type_needs_drop(bcx.tcx(), ret_ty) {
+                // Push the out-pointer if we use an out-pointer for this
+                // return type, otherwise push "undef".
+                if type_is_zero_size(ccx, ret_ty) {
+                    let llty = type_of::type_of(ccx, ret_ty);
+                    Some(C_undef(llty.ptr_to()))
+                } else {
+                    Some(alloc_ty(bcx, ret_ty, "__llret"))
+                }
             } else {
-                let llty = type_of::type_of(ccx, ret_ty);
-                Some(C_undef(llty.ptr_to()))
+                None
             }
         }
-        Some(expr::Ignore) => None
-    };
+    });
 
     let mut llresult = unsafe {
         llvm::LLVMGetUndef(Type::nil(ccx).ptr_to().to_ref())
@@ -789,17 +793,15 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     if is_rust_fn {
         let mut llargs = Vec::new();
 
-        // Push the out-pointer if we use an out-pointer for this
-        // return type, otherwise push "undef".
-        if type_of::return_uses_outptr(ccx, ret_ty) {
-            llargs.push(opt_llretslot.unwrap());
+        if let (ty::FnConverging(ret_ty), Some(llretslot)) = (ret_ty, opt_llretslot) {
+            if type_of::return_uses_outptr(ccx, ret_ty) {
+                llargs.push(llretslot);
+            }
         }
 
         // Push the environment (or a trait object's self).
         match (llenv, llself) {
-            (Some(llenv), None) => {
-                llargs.push(llenv)
-            },
+            (Some(llenv), None) => llargs.push(llenv),
             (None, Some(llself)) => llargs.push(llself),
             _ => {}
         }
@@ -827,15 +829,15 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
         // If the Rust convention for this type is return via
         // the return value, copy it into llretslot.
-        match opt_llretslot {
-            Some(llretslot) => {
+        match (opt_llretslot, ret_ty) {
+            (Some(llretslot), ty::FnConverging(ret_ty)) => {
                 if !type_of::return_uses_outptr(bcx.ccx(), ret_ty) &&
                     !type_is_zero_size(bcx.ccx(), ret_ty)
                 {
                     store_ty(bcx, llret, llretslot, ret_ty)
                 }
             }
-            None => {}
+            (_, _) => {}
         }
     } else {
         // Lang items are the only case where dest is None, and
@@ -845,7 +847,7 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         let mut llargs = Vec::new();
         let arg_tys = match args {
             ArgExprs(a) => a.iter().map(|x| expr_ty(bcx, &**x)).collect(),
-            _ => fail!("expected arg exprs.")
+            _ => panic!("expected arg exprs.")
         };
         bcx = trans_args(bcx,
                          args,
@@ -865,8 +867,8 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     // If the caller doesn't care about the result of this fn call,
     // drop the temporary slot we made.
-    match (dest, opt_llretslot) {
-        (Some(expr::Ignore), Some(llretslot)) => {
+    match (dest, opt_llretslot, ret_ty) {
+        (Some(expr::Ignore), Some(llretslot), ty::FnConverging(ret_ty)) => {
             // drop the value if it is not being saved.
             bcx = glue::drop_ty(bcx, llretslot, ret_ty, call_info);
             call_lifetime_end(bcx, llretslot);
@@ -874,7 +876,7 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         _ => {}
     }
 
-    if ty::type_is_bot(ret_ty) {
+    if ret_ty == ty::FnDiverging {
         Unreachable(bcx);
     }
 
@@ -1118,52 +1120,41 @@ pub fn trans_arg_datum<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     debug!("   arg datum: {}", arg_datum.to_string(bcx.ccx()));
 
     let mut val;
-    if ty::type_is_bot(arg_datum_ty) {
-        // For values of type _|_, we generate an
-        // "undef" value, as such a value should never
-        // be inspected. It's important for the value
-        // to have type lldestty (the callee's expected type).
+    // FIXME(#3548) use the adjustments table
+    match autoref_arg {
+        DoAutorefArg(arg_id) => {
+            // We will pass argument by reference
+            // We want an lvalue, so that we can pass by reference and
+            let arg_datum = unpack_datum!(
+                bcx, arg_datum.to_lvalue_datum(bcx, "arg", arg_id));
+            val = arg_datum.val;
+        }
+        DontAutorefArg => {
+            // Make this an rvalue, since we are going to be
+            // passing ownership.
+            let arg_datum = unpack_datum!(
+                bcx, arg_datum.to_rvalue_datum(bcx, "arg"));
+
+            // Now that arg_datum is owned, get it into the appropriate
+            // mode (ref vs value).
+            let arg_datum = unpack_datum!(
+                bcx, arg_datum.to_appropriate_datum(bcx));
+
+            // Technically, ownership of val passes to the callee.
+            // However, we must cleanup should we panic before the
+            // callee is actually invoked.
+            val = arg_datum.add_clean(bcx.fcx, arg_cleanup_scope);
+        }
+    }
+
+    if formal_arg_ty != arg_datum_ty {
+        // this could happen due to e.g. subtyping
         let llformal_arg_ty = type_of::type_of_explicit_arg(ccx, formal_arg_ty);
-        unsafe {
-            val = llvm::LLVMGetUndef(llformal_arg_ty.to_ref());
-        }
-    } else {
-        // FIXME(#3548) use the adjustments table
-        match autoref_arg {
-            DoAutorefArg(arg_id) => {
-                // We will pass argument by reference
-                // We want an lvalue, so that we can pass by reference and
-                let arg_datum = unpack_datum!(
-                    bcx, arg_datum.to_lvalue_datum(bcx, "arg", arg_id));
-                val = arg_datum.val;
-            }
-            DontAutorefArg => {
-                // Make this an rvalue, since we are going to be
-                // passing ownership.
-                let arg_datum = unpack_datum!(
-                    bcx, arg_datum.to_rvalue_datum(bcx, "arg"));
-
-                // Now that arg_datum is owned, get it into the appropriate
-                // mode (ref vs value).
-                let arg_datum = unpack_datum!(
-                    bcx, arg_datum.to_appropriate_datum(bcx));
-
-                // Technically, ownership of val passes to the callee.
-                // However, we must cleanup should we fail before the
-                // callee is actually invoked.
-                val = arg_datum.add_clean(bcx.fcx, arg_cleanup_scope);
-            }
-        }
-
-        if formal_arg_ty != arg_datum_ty {
-            // this could happen due to e.g. subtyping
-            let llformal_arg_ty = type_of::type_of_explicit_arg(ccx, formal_arg_ty);
-            debug!("casting actual type ({}) to match formal ({})",
-                   bcx.val_to_string(val), bcx.llty_str(llformal_arg_ty));
-            debug!("Rust types: {}; {}", ty_to_string(bcx.tcx(), arg_datum_ty),
-                                         ty_to_string(bcx.tcx(), formal_arg_ty));
-            val = PointerCast(bcx, val, llformal_arg_ty);
-        }
+        debug!("casting actual type ({}) to match formal ({})",
+               bcx.val_to_string(val), bcx.llty_str(llformal_arg_ty));
+        debug!("Rust types: {}; {}", ty_to_string(bcx.tcx(), arg_datum_ty),
+                                     ty_to_string(bcx.tcx(), formal_arg_ty));
+        val = PointerCast(bcx, val, llformal_arg_ty);
     }
 
     debug!("--- trans_arg_datum passing {}", bcx.val_to_string(val));

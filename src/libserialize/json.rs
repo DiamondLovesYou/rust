@@ -12,7 +12,7 @@
 // Copyright (c) 2011 Google Inc.
 
 #![forbid(non_camel_case_types)]
-#![allow(missing_doc)]
+#![allow(missing_docs)]
 
 /*!
 JSON parsing and serialization
@@ -203,6 +203,7 @@ use std::num::{FPNaN, FPInfinite};
 use std::str::ScalarValue;
 use std::string;
 use std::vec::Vec;
+use std::ops;
 
 use Encodable;
 
@@ -311,6 +312,11 @@ impl fmt::Show for ErrorCode {
 
 fn io_error_to_error(io: io::IoError) -> ParserError {
     IoError(io.kind, io.desc)
+}
+
+impl std::error::Error for DecoderError {
+    fn description(&self) -> &str { "decoder error" }
+    fn detail(&self) -> Option<std::string::String> { Some(self.to_string()) }
 }
 
 pub type EncodeResult = io::IoResult<()>;
@@ -884,9 +890,9 @@ impl Json {
 
      /// If the Json value is an Object, returns the value associated with the provided key.
     /// Otherwise, returns None.
-    pub fn find<'a>(&'a self, key: &string::String) -> Option<&'a Json>{
+    pub fn find<'a>(&'a self, key: &str) -> Option<&'a Json>{
         match self {
-            &Object(ref map) => map.find(key),
+            &Object(ref map) => map.find_with(|s| key.cmp(&s.as_slice())),
             _ => None
         }
     }
@@ -894,7 +900,7 @@ impl Json {
     /// Attempts to get a nested Json Object for each key in `keys`.
     /// If any key is found not to exist, find_path will return None.
     /// Otherwise, it will return the Json value associated with the final key.
-    pub fn find_path<'a>(&'a self, keys: &[&string::String]) -> Option<&'a Json>{
+    pub fn find_path<'a>(&'a self, keys: &[&str]) -> Option<&'a Json>{
         let mut target = self;
         for key in keys.iter() {
             match target.find(*key) {
@@ -908,20 +914,19 @@ impl Json {
     /// If the Json value is an Object, performs a depth-first search until
     /// a value associated with the provided key is found. If no value is found
     /// or the Json value is not an Object, returns None.
-    pub fn search<'a>(&'a self, key: &string::String) -> Option<&'a Json> {
+    pub fn search<'a>(&'a self, key: &str) -> Option<&'a Json> {
         match self {
             &Object(ref map) => {
-                match map.find(key) {
+                match map.find_with(|s| key.cmp(&s.as_slice())) {
                     Some(json_value) => Some(json_value),
                     None => {
-                        let mut value : Option<&'a Json> = None;
                         for (_, v) in map.iter() {
-                            value = v.search(key);
-                            if value.is_some() {
-                                break;
+                            match v.search(key) {
+                                x if x.is_some() => return x,
+                                _ => ()
                             }
                         }
-                        value
+                        None
                     }
                 }
             },
@@ -1059,6 +1064,21 @@ impl Json {
         match self {
             &Null => Some(()),
             _ => None
+        }
+    }
+}
+
+impl<'a> ops::Index<&'a str, Json>  for Json {
+    fn index<'a>(&'a self, idx: & &str) -> &'a Json {
+        self.find(*idx).unwrap()
+    }
+}
+
+impl ops::Index<uint, Json> for Json {
+    fn index<'a>(&'a self, idx: &uint) -> &'a Json {
+        match self {
+            &List(ref v) => v.index(idx),
+            _ => panic!("can only index Json with uint if it is a list")
         }
     }
 }
@@ -1229,9 +1249,9 @@ impl Stack {
         let len = self.stack.len();
         let idx = match *self.stack.last().unwrap() {
             InternalIndex(i) => { i + 1 }
-            _ => { fail!(); }
+            _ => { panic!(); }
         };
-        *self.stack.get_mut(len - 1) = InternalIndex(idx);
+        self.stack[len - 1] = InternalIndex(idx);
     }
 }
 
@@ -1814,7 +1834,7 @@ impl<T: Iterator<char>> Builder<T> {
         match self.token {
             None => {}
             Some(Error(e)) => { return Err(e); }
-            ref tok => { fail!("unexpected token {}", tok.clone()); }
+            ref tok => { panic!("unexpected token {}", tok.clone()); }
         }
         result
     }
@@ -1874,7 +1894,7 @@ impl<T: Iterator<char>> Builder<T> {
             }
             let key = match self.parser.stack().top() {
                 Some(Key(k)) => { k.to_string() }
-                _ => { fail!("invalid state"); }
+                _ => { panic!("invalid state"); }
             };
             match self.build_value() {
                 Ok(value) => { values.insert(key, value); }
@@ -2153,9 +2173,18 @@ impl ::Decoder<DecoderError> for Decoder {
         Ok(value)
     }
 
-    fn read_tuple<T>(&mut self, f: |&mut Decoder, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+    fn read_tuple<T>(&mut self,
+                     tuple_len: uint,
+                     f: |&mut Decoder| -> DecodeResult<T>)
+                     -> DecodeResult<T> {
         debug!("read_tuple()");
-        self.read_seq(f)
+        self.read_seq(|d, len| {
+            if len == tuple_len {
+                f(d)
+            } else {
+                Err(ExpectedError(format!("Tuple{}", tuple_len), format!("Tuple{}", len)))
+            }
+        })
     }
 
     fn read_tuple_arg<T>(&mut self,
@@ -2167,10 +2196,11 @@ impl ::Decoder<DecoderError> for Decoder {
 
     fn read_tuple_struct<T>(&mut self,
                             name: &str,
-                            f: |&mut Decoder, uint| -> DecodeResult<T>)
+                            len: uint,
+                            f: |&mut Decoder| -> DecodeResult<T>)
                             -> DecodeResult<T> {
         debug!("read_tuple_struct(name={})", name);
-        self.read_tuple(f)
+        self.read_tuple(len, f)
     }
 
     fn read_tuple_struct_arg<T>(&mut self,
@@ -2873,6 +2903,25 @@ mod tests {
     }
 
     #[test]
+    fn test_decode_tuple() {
+        let t: (uint, uint, uint) = super::decode("[1, 2, 3]").unwrap();
+        assert_eq!(t, (1u, 2, 3))
+
+        let t: (uint, string::String) = super::decode("[1, \"two\"]").unwrap();
+        assert_eq!(t, (1u, "two".to_string()));
+    }
+
+    #[test]
+    fn test_decode_tuple_malformed_types() {
+        assert!(super::decode::<(uint, string::String)>("[1, 2]").is_err());
+    }
+
+    #[test]
+    fn test_decode_tuple_malformed_length() {
+        assert!(super::decode::<(uint, uint)>("[1, 2, 3]").is_err());
+    }
+
+    #[test]
     fn test_read_object() {
         assert_eq!(from_str("{"),       Err(SyntaxError(EOFWhileParsingObject, 1, 2)));
         assert_eq!(from_str("{ "),      Err(SyntaxError(EOFWhileParsingObject, 1, 3)));
@@ -3015,9 +3064,9 @@ mod tests {
             Ok(json) => Decodable::decode(&mut Decoder::new(json))
         };
         match res {
-            Ok(_) => fail!("`{}` parsed & decoded ok, expecting error `{}`",
+            Ok(_) => panic!("`{}` parsed & decoded ok, expecting error `{}`",
                               to_parse, expected),
-            Err(ParseError(e)) => fail!("`{}` is not valid json: {}",
+            Err(ParseError(e)) => panic!("`{}` is not valid json: {}",
                                            to_parse, e),
             Err(e) => {
                 assert_eq!(e, expected);
@@ -3055,24 +3104,31 @@ mod tests {
     #[test]
     fn test_find(){
         let json_value = from_str("{\"dog\" : \"cat\"}").unwrap();
-        let found_str = json_value.find(&"dog".to_string());
-        assert!(found_str.is_some() && found_str.unwrap().as_string().unwrap() == "cat");
+        let found_str = json_value.find("dog");
+        assert!(found_str.unwrap().as_string().unwrap() == "cat");
     }
 
     #[test]
     fn test_find_path(){
         let json_value = from_str("{\"dog\":{\"cat\": {\"mouse\" : \"cheese\"}}}").unwrap();
-        let found_str = json_value.find_path(&[&"dog".to_string(),
-                                             &"cat".to_string(), &"mouse".to_string()]);
-        assert!(found_str.is_some() && found_str.unwrap().as_string().unwrap() == "cheese");
+        let found_str = json_value.find_path(&["dog", "cat", "mouse"]);
+        assert!(found_str.unwrap().as_string().unwrap() == "cheese");
     }
 
     #[test]
     fn test_search(){
         let json_value = from_str("{\"dog\":{\"cat\": {\"mouse\" : \"cheese\"}}}").unwrap();
-        let found_str = json_value.search(&"mouse".to_string()).and_then(|j| j.as_string());
-        assert!(found_str.is_some());
+        let found_str = json_value.search("mouse").and_then(|j| j.as_string());
         assert!(found_str.unwrap() == "cheese");
+    }
+
+    #[test]
+    fn test_index(){
+        let json_value = from_str("{\"animals\":[\"dog\",\"cat\",\"mouse\"]}").unwrap();
+        let ref list = json_value["animals"];
+        assert_eq!(list[0].as_string().unwrap(), "dog");
+        assert_eq!(list[1].as_string().unwrap(), "cat");
+        assert_eq!(list[2].as_string().unwrap(), "mouse");
     }
 
     #[test]
@@ -3226,7 +3282,7 @@ mod tests {
         let bytes = mem_buf.unwrap();
         let json_str = from_utf8(bytes.as_slice()).unwrap();
         match from_str(json_str) {
-            Err(_) => fail!("Unable to parse json_str: {}", json_str),
+            Err(_) => panic!("Unable to parse json_str: {}", json_str),
             _ => {} // it parsed and we are good to go
         }
     }
@@ -3247,7 +3303,7 @@ mod tests {
         let bytes = mem_buf.unwrap();
         let json_str = from_utf8(bytes.as_slice()).unwrap();
         match from_str(json_str) {
-            Err(_) => fail!("Unable to parse json_str: {}", json_str),
+            Err(_) => panic!("Unable to parse json_str: {}", json_str),
             _ => {} // it parsed and we are good to go
         }
     }
@@ -3315,7 +3371,7 @@ mod tests {
         use Decodable;
         let json_str = "{\"1\":true}";
         let json_obj = match from_str(json_str) {
-            Err(_) => fail!("Unable to parse json_str: {}", json_str),
+            Err(_) => panic!("Unable to parse json_str: {}", json_str),
             Ok(o) => o
         };
         let mut decoder = Decoder::new(json_obj);
@@ -3328,7 +3384,7 @@ mod tests {
         use Decodable;
         let json_str = "{\"a\":true}";
         let json_obj = match from_str(json_str) {
-            Err(_) => fail!("Unable to parse json_str: {}", json_str),
+            Err(_) => panic!("Unable to parse json_str: {}", json_str),
             Ok(o) => o
         };
         let mut decoder = Decoder::new(json_obj);
@@ -3347,7 +3403,7 @@ mod tests {
             };
             let (ref expected_evt, ref expected_stack) = expected[i];
             if !parser.stack().is_equal_to(expected_stack.as_slice()) {
-                fail!("Parser stack is not equal to {}", expected_stack);
+                panic!("Parser stack is not equal to {}", expected_stack);
             }
             assert_eq!(&evt, expected_evt);
             i+=1;

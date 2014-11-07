@@ -8,13 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern: unreachable statement
-
 #![deny(unreachable_code)]
 
 fn f() -> ! {
-    return fail!();
-    fail!(); // the unreachable statement error is in <std macro>, at this line, there
+    return panic!(); //~ ERROR `return` in a function declared as diverging
+    panic!(); // the unreachable statement error is in <std macro>, at this line, there
              // only is a note
 }
 

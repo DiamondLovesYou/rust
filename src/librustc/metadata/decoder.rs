@@ -15,7 +15,7 @@
 use back::svh::Svh;
 use metadata::cstore::crate_metadata;
 use metadata::common::*;
-use metadata::csearch::StaticMethodInfo;
+use metadata::csearch::MethodInfo;
 use metadata::csearch;
 use metadata::cstore;
 use metadata::tydecode::{parse_ty_data, parse_region_data, parse_def_id,
@@ -34,9 +34,9 @@ use std::hash::Hash;
 use std::hash;
 use std::io::extensions::u64_from_be_bytes;
 use std::io;
-use std::collections::hashmap::HashMap;
+use std::collections::hash_map::HashMap;
 use std::rc::Rc;
-use std::u64;
+use std::str;
 use rbml::reader;
 use rbml;
 use serialize::Decodable;
@@ -94,7 +94,7 @@ pub fn maybe_find_item<'a>(item_id: ast::NodeId,
 
 fn find_item<'a>(item_id: ast::NodeId, items: rbml::Doc<'a>) -> rbml::Doc<'a> {
     match maybe_find_item(item_id, items) {
-       None => fail!("lookup_item: id not found: {}", item_id),
+       None => panic!("lookup_item: id not found: {}", item_id),
        Some(d) => d
     }
 }
@@ -111,10 +111,9 @@ enum Family {
     ImmStatic,             // c
     MutStatic,             // b
     Fn,                    // f
-    UnsafeFn,              // u
     CtorFn,                // o
     StaticMethod,          // F
-    UnsafeStaticMethod,    // U
+    Method,                // h
     Type,                  // y
     ForeignType,           // T
     Mod,                   // m
@@ -137,10 +136,9 @@ fn item_family(item: rbml::Doc) -> Family {
       'c' => ImmStatic,
       'b' => MutStatic,
       'f' => Fn,
-      'u' => UnsafeFn,
       'o' => CtorFn,
       'F' => StaticMethod,
-      'U' => UnsafeStaticMethod,
+      'h' => Method,
       'y' => Type,
       'T' => ForeignType,
       'm' => Mod,
@@ -153,7 +151,7 @@ fn item_family(item: rbml::Doc) -> Family {
       'S' => Struct,
       'g' => PublicField,
       'N' => InheritedField,
-       c => fail!("unexpected family char: {}", c)
+       c => panic!("unexpected family char: {}", c)
     }
 }
 
@@ -164,7 +162,7 @@ fn item_visibility(item: rbml::Doc) -> ast::Visibility {
             match reader::doc_as_u8(visibility_doc) as char {
                 'y' => ast::Public,
                 'i' => ast::Inherited,
-                _ => fail!("unknown visibility character")
+                _ => panic!("unknown visibility character")
             }
         }
     }
@@ -217,7 +215,9 @@ fn each_reexport(d: rbml::Doc, f: |rbml::Doc| -> bool) -> bool {
 
 fn variant_disr_val(d: rbml::Doc) -> Option<ty::Disr> {
     reader::maybe_get_doc(d, tag_disr_val).and_then(|val_doc| {
-        reader::with_doc_data(val_doc, |data| u64::parse_bytes(data, 10u))
+        reader::with_doc_data(val_doc, |data| {
+            str::from_utf8(data).and_then(from_str)
+        })
     })
 }
 
@@ -295,7 +295,7 @@ fn item_path(item_doc: rbml::Doc) -> Vec<ast_map::PathElem> {
 fn item_name(intr: &IdentInterner, item: rbml::Doc) -> ast::Name {
     let name = reader::get_doc(item, tag_paths_data_name);
     let string = name.as_str_slice();
-    match intr.find_equiv(&string) {
+    match intr.find_equiv(string) {
         None => token::intern(string),
         Some(val) => val,
     }
@@ -309,15 +309,9 @@ fn item_to_def_like(item: rbml::Doc, did: ast::DefId, cnum: ast::CrateNum)
         ImmStatic => DlDef(def::DefStatic(did, false)),
         MutStatic => DlDef(def::DefStatic(did, true)),
         Struct    => DlDef(def::DefStruct(did)),
-        UnsafeFn  => DlDef(def::DefFn(did, ast::UnsafeFn, false)),
-        Fn        => DlDef(def::DefFn(did, ast::NormalFn, false)),
-        CtorFn    => DlDef(def::DefFn(did, ast::NormalFn, true)),
-        StaticMethod | UnsafeStaticMethod => {
-            let fn_style = if fam == UnsafeStaticMethod {
-                ast::UnsafeFn
-            } else {
-                ast::NormalFn
-            };
+        Fn        => DlDef(def::DefFn(did, false)),
+        CtorFn    => DlDef(def::DefFn(did, true)),
+        Method | StaticMethod => {
             // def_static_method carries an optional field of its enclosing
             // trait or enclosing impl (if this is an inherent static method).
             // So we need to detect whether this is in a trait or not, which
@@ -331,7 +325,12 @@ fn item_to_def_like(item: rbml::Doc, did: ast::DefId, cnum: ast::CrateNum)
                 def::FromImpl(item_reqd_and_translated_parent_item(cnum,
                                                                    item))
             };
-            DlDef(def::DefStaticMethod(did, provenance, fn_style))
+            match fam {
+                // We don't bother to get encode/decode the trait id, we don't need it.
+                Method => DlDef(def::DefMethod(did, None, provenance)),
+                StaticMethod => DlDef(def::DefStaticMethod(did, provenance)),
+                _ => panic!()
+            }
         }
         Type | ForeignType => DlDef(def::DefTy(did, false)),
         Mod => DlDef(def::DefMod(did)),
@@ -518,7 +517,7 @@ fn each_child_of_item_or_crate(intr: Rc<IdentInterner>,
                         None => {}
                         Some(impl_method_doc) => {
                             match item_family(impl_method_doc) {
-                                StaticMethod | UnsafeStaticMethod => {
+                                StaticMethod => {
                                     // Hand off the static method
                                     // to the callback.
                                     let static_method_name =
@@ -662,6 +661,24 @@ pub fn maybe_get_item_ast<'tcx>(cdata: Cmd, tcx: &ty::ctxt<'tcx>, id: ast::NodeI
     }
 }
 
+pub fn get_enum_variant_defs(intr: &IdentInterner,
+                             cdata: Cmd,
+                             id: ast::NodeId)
+                             -> Vec<(def::Def, ast::Name, ast::Visibility)> {
+    let data = cdata.data();
+    let items = reader::get_doc(rbml::Doc::new(data), tag_items);
+    let item = find_item(id, items);
+    enum_variant_ids(item, cdata).iter().map(|did| {
+        let item = find_item(did.node, items);
+        let name = item_name(intr, item);
+        let visibility = item_visibility(item);
+        match item_to_def_like(item, *did, cdata.cnum) {
+            DlDef(def @ def::DefVariant(..)) => (def, name, visibility),
+            _ => unreachable!()
+        }
+    }).collect()
+}
+
 pub fn get_enum_variants(intr: Rc<IdentInterner>, cdata: Cmd, id: ast::NodeId,
                      tcx: &ty::ctxt) -> Vec<Rc<ty::VariantInfo>> {
     let data = cdata.data();
@@ -673,9 +690,14 @@ pub fn get_enum_variants(intr: Rc<IdentInterner>, cdata: Cmd, id: ast::NodeId,
         let ctor_ty = item_type(ast::DefId { krate: cdata.cnum, node: id},
                                 item, tcx, cdata);
         let name = item_name(&*intr, item);
-        let arg_tys = match ty::get(ctor_ty).sty {
-            ty::ty_bare_fn(ref f) => f.sig.inputs.clone(),
-            _ => Vec::new(), // Nullary enum variant.
+        let (ctor_ty, arg_tys) = match ty::get(ctor_ty).sty {
+            ty::ty_bare_fn(ref f) =>
+                (Some(ctor_ty), f.sig.inputs.clone()),
+            _ => // Nullary or struct enum variant.
+                (None, get_struct_fields(intr.clone(), cdata, did.node)
+                    .iter()
+                    .map(|field_ty| get_type(cdata, field_ty.id.node, tcx).ty)
+                    .collect())
         };
         match variant_disr_val(item) {
             Some(val) => { disr_val = val; }
@@ -702,7 +724,7 @@ fn get_explicit_self(item: rbml::Doc) -> ty::ExplicitSelfCategory {
         match ch as char {
             'i' => ast::MutImmutable,
             'm' => ast::MutMutable,
-            _ => fail!("unknown mutability character: `{}`", ch as char),
+            _ => panic!("unknown mutability character: `{}`", ch as char),
         }
     }
 
@@ -720,7 +742,7 @@ fn get_explicit_self(item: rbml::Doc) -> ty::ExplicitSelfCategory {
                 ty::ReEmpty,
                 get_mutability(string.as_bytes()[1]))
         }
-        _ => fail!("unknown self type code: `{}`", explicit_self_kind as char)
+        _ => panic!("unknown self type code: `{}`", explicit_self_kind as char)
     }
 }
 
@@ -734,7 +756,7 @@ pub fn get_impl_items(cdata: Cmd, impl_id: ast::NodeId)
         match item_sort(doc) {
             'r' | 'p' => impl_items.push(ty::MethodTraitItemId(def_id)),
             't' => impl_items.push(ty::TypeTraitItemId(def_id)),
-            _ => fail!("unknown impl item sort"),
+            _ => panic!("unknown impl item sort"),
         }
         true
     });
@@ -755,7 +777,7 @@ pub fn get_trait_item_name_and_kind(intr: Rc<IdentInterner>,
         }
         't' => (name, TypeTraitItemKind),
         c => {
-            fail!("get_trait_item_name_and_kind(): unknown trait item kind \
+            panic!("get_trait_item_name_and_kind(): unknown trait item kind \
                    in metadata: `{}`", c)
         }
     }
@@ -806,7 +828,7 @@ pub fn get_impl_or_trait_item(intr: Rc<IdentInterner>,
                 container: container,
             }))
         }
-        _ => fail!("unknown impl/trait item sort"),
+        _ => panic!("unknown impl/trait item sort"),
     }
 }
 
@@ -820,7 +842,7 @@ pub fn get_trait_item_def_ids(cdata: Cmd, id: ast::NodeId)
         match item_sort(mth) {
             'r' | 'p' => result.push(ty::MethodTraitItemId(def_id)),
             't' => result.push(ty::TypeTraitItemId(def_id)),
-            _ => fail!("unknown trait item sort"),
+            _ => panic!("unknown trait item sort"),
         }
         true
     });
@@ -900,10 +922,10 @@ pub fn get_type_name_if_impl(cdata: Cmd,
     ret
 }
 
-pub fn get_static_methods_if_impl(intr: Rc<IdentInterner>,
+pub fn get_methods_if_impl(intr: Rc<IdentInterner>,
                                   cdata: Cmd,
                                   node_id: ast::NodeId)
-                               -> Option<Vec<StaticMethodInfo> > {
+                               -> Option<Vec<MethodInfo> > {
     let item = lookup_item(node_id, cdata.data());
     if item_family(item) != Impl {
         return None;
@@ -922,23 +944,15 @@ pub fn get_static_methods_if_impl(intr: Rc<IdentInterner>,
         true
     });
 
-    let mut static_impl_methods = Vec::new();
+    let mut impl_methods = Vec::new();
     for impl_method_id in impl_method_ids.iter() {
         let impl_method_doc = lookup_item(impl_method_id.node, cdata.data());
         let family = item_family(impl_method_doc);
         match family {
-            StaticMethod | UnsafeStaticMethod => {
-                let fn_style;
-                match item_family(impl_method_doc) {
-                    StaticMethod => fn_style = ast::NormalFn,
-                    UnsafeStaticMethod => fn_style = ast::UnsafeFn,
-                    _ => fail!()
-                }
-
-                static_impl_methods.push(StaticMethodInfo {
+            StaticMethod | Method => {
+                impl_methods.push(MethodInfo {
                     name: item_name(&*intr, impl_method_doc),
                     def_id: item_def_id(impl_method_doc, cdata),
-                    fn_style: fn_style,
                     vis: item_visibility(impl_method_doc),
                 });
             }
@@ -946,7 +960,7 @@ pub fn get_static_methods_if_impl(intr: Rc<IdentInterner>,
         }
     }
 
-    return Some(static_impl_methods);
+    return Some(impl_methods);
 }
 
 /// If node_id is the constructor of a tuple struct, retrieve the NodeId of
@@ -993,7 +1007,7 @@ fn struct_field_family_to_visibility(family: Family) -> ast::Visibility {
     match family {
       PublicField => ast::Public,
       InheritedField => ast::Inherited,
-      _ => fail!()
+      _ => panic!()
     }
 }
 
@@ -1202,7 +1216,7 @@ pub fn translate_def_id(cdata: Cmd, did: ast::DefId) -> ast::DefId {
                 node: did.node,
             }
         }
-        None => fail!("didn't find a crate in the cnum_map")
+        None => panic!("didn't find a crate in the cnum_map")
     }
 }
 
@@ -1309,7 +1323,7 @@ pub fn get_dylib_dependency_formats(cdata: Cmd)
         let cnum = from_str(cnum).unwrap();
         let cnum = match cdata.cnum_map.find(&cnum) {
             Some(&n) => n,
-            None => fail!("didn't find a crate in the cnum_map")
+            None => panic!("didn't find a crate in the cnum_map")
         };
         result.push((cnum, if link == "d" {
             cstore::RequireDynamic
@@ -1325,9 +1339,9 @@ pub fn get_missing_lang_items(cdata: Cmd)
 {
     let items = reader::get_doc(rbml::Doc::new(cdata.data()), tag_lang_items);
     let mut result = Vec::new();
-    reader::tagged_docs(items, tag_lang_items_missing, |missing_doc| {
+    reader::tagged_docs(items, tag_lang_items_missing, |missing_docs| {
         let item: lang_items::LangItem =
-            FromPrimitive::from_u32(reader::doc_as_u32(missing_doc)).unwrap();
+            FromPrimitive::from_u32(reader::doc_as_u32(missing_docs)).unwrap();
         result.push(item);
         true
     });

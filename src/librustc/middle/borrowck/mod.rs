@@ -284,9 +284,9 @@ pub fn closure_to_block(closure_id: ast::NodeId,
             ast::ExprProc(_, ref block) |
             ast::ExprFnBlock(_, _, ref block) |
             ast::ExprUnboxedFn(_, _, _, ref block) => { block.id }
-            _ => fail!("encountered non-closure id: {}", closure_id)
+            _ => panic!("encountered non-closure id: {}", closure_id)
         },
-        _ => fail!("encountered non-expr id: {}", closure_id)
+        _ => panic!("encountered non-expr id: {}", closure_id)
     }
 }
 
@@ -379,8 +379,7 @@ pub fn opt_loan_path(cmt: &mc::cmt) -> Option<Rc<LoanPath>> {
             })
         }
 
-        mc::cat_downcast(ref cmt_base) |
-        mc::cat_discr(ref cmt_base, _) => {
+        mc::cat_downcast(ref cmt_base) => {
             opt_loan_path(cmt_base)
         }
     }
@@ -528,8 +527,8 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
                                                   r).as_slice())
                     }
                 };
-                let suggestion = move_suggestion(self.tcx, expr_ty,
-                        "moved by default (use `copy` to override)");
+                let (suggestion, _) = move_suggestion(self.tcx, expr_ty,
+                        ("moved by default", ""));
                 self.tcx.sess.span_note(
                     expr_span,
                     format!("`{}` moved here{} because it has type `{}`, which is {}",
@@ -541,13 +540,15 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
 
             move_data::MovePat => {
                 let pat_ty = ty::node_id_to_type(self.tcx, the_move.id);
-                self.tcx.sess.span_note(self.tcx.map.span(the_move.id),
+                let span = self.tcx.map.span(the_move.id);
+                self.tcx.sess.span_note(span,
                     format!("`{}` moved here{} because it has type `{}`, \
-                             which is moved by default (use `ref` to \
-                             override)",
+                             which is moved by default",
                             ol,
                             moved_lp_msg,
                             pat_ty.user_string(self.tcx)).as_slice());
+                self.tcx.sess.span_help(span,
+                    "use `ref` to override");
             }
 
             move_data::Captured => {
@@ -564,9 +565,9 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
                                                   r).as_slice())
                     }
                 };
-                let suggestion = move_suggestion(self.tcx, expr_ty,
-                        "moved by default (make a copy and \
-                         capture that instead to override)");
+                let (suggestion, help) = move_suggestion(self.tcx, expr_ty,
+                        ("moved by default", "make a copy and \
+                         capture that instead to override"));
                 self.tcx.sess.span_note(
                     expr_span,
                     format!("`{}` moved into closure environment here{} because it \
@@ -575,21 +576,23 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
                             moved_lp_msg,
                             expr_ty.user_string(self.tcx),
                             suggestion).as_slice());
+                self.tcx.sess.span_help(expr_span, help);
             }
         }
 
-        fn move_suggestion(tcx: &ty::ctxt, ty: ty::t, default_msg: &'static str)
-                          -> &'static str {
+        fn move_suggestion(tcx: &ty::ctxt, ty: ty::t, default_msgs: (&'static str, &'static str))
+                          -> (&'static str, &'static str) {
             match ty::get(ty).sty {
                 ty::ty_closure(box ty::ClosureTy {
                         store: ty::RegionTraitStore(..),
                         ..
                     }) =>
-                    "a non-copyable stack closure (capture it in a new closure, \
-                     e.g. `|x| f(x)`, to override)",
+                    ("a non-copyable stack closure",
+                     "capture it in a new closure, e.g. `|x| f(x)`, to override"),
                 _ if ty::type_moves_by_default(tcx, ty) =>
-                    "non-copyable (perhaps you meant to use clone()?)",
-                _ => default_msg,
+                    ("non-copyable",
+                     "perhaps you meant to use `clone()`?"),
+                _ => default_msgs,
             }
         }
     }
@@ -626,7 +629,7 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
         match err.code {
             err_mutbl => {
                 let descr = match err.cmt.note {
-                    mc::NoteClosureEnv(_) => {
+                    mc::NoteClosureEnv(_) | mc::NoteUpvarRef(_) => {
                         self.cmt_to_string(&*err.cmt)
                     }
                     _ => match opt_loan_path(&err.cmt) {
@@ -734,7 +737,7 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
                 self.tcx.sess.span_err(span,
                                        format!("{} in a captured outer \
                                                variable in an `Fn` closure", prefix).as_slice());
-                span_note!(self.tcx.sess, self.tcx.map.span(id),
+                span_help!(self.tcx.sess, self.tcx.map.span(id),
                            "consider changing this closure to take self by mutable reference");
             }
             mc::AliasableStatic(..) |
@@ -751,7 +754,7 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
         }
 
         if is_closure {
-            self.tcx.sess.span_note(
+            self.tcx.sess.span_help(
                 span,
                 "closures behind references must be called via `&mut`");
         }
@@ -762,11 +765,20 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
         match code {
             err_mutbl(..) => {
                 match err.cmt.note {
-                    mc::NoteClosureEnv(upvar_id) => {
-                        self.tcx.sess.span_note(
-                            self.tcx.map.span(upvar_id.closure_expr_id),
-                            "consider changing this closure to take \
-                             self by mutable reference");
+                    mc::NoteClosureEnv(upvar_id) | mc::NoteUpvarRef(upvar_id) => {
+                        // If this is an `Fn` closure, it simply can't mutate upvars.
+                        // If it's an `FnMut` closure, the original variable was declared immutable.
+                        // We need to determine which is the case here.
+                        let kind = match err.cmt.upvar().unwrap().cat {
+                            mc::cat_upvar(mc::Upvar { kind, .. }) => kind,
+                            _ => unreachable!()
+                        };
+                        if kind == ty::FnUnboxedClosureKind {
+                            self.tcx.sess.span_help(
+                                self.tcx.map.span(upvar_id.closure_expr_id),
+                                "consider changing this closure to take \
+                                 self by mutable reference");
+                        }
                     }
                     _ => {}
                 }
@@ -779,15 +791,20 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
                     sub_scope,
                     "...");
                 let suggestion = if is_statement_scope(self.tcx, super_scope) {
-                    "; consider using a `let` binding to increase its lifetime"
+                    Some("consider using a `let` binding to increase its lifetime")
                 } else {
-                    ""
+                    None
                 };
-                note_and_explain_region(
+                let span = note_and_explain_region(
                     self.tcx,
                     "...but borrowed value is only valid for ",
                     super_scope,
-                    suggestion);
+                    "");
+                match (span, suggestion) {
+                    (_, None) => {},
+                    (Some(span), Some(msg)) => self.tcx.sess.span_help(span, msg),
+                    (None, Some(msg)) => self.tcx.sess.help(msg),
+                }
             }
 
             err_borrowed_pointer_too_short(loan_scope, ptr_scope) => {

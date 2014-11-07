@@ -41,8 +41,7 @@ assert_eq!(*key_vector.get().unwrap(), vec![4]);
 use core::prelude::*;
 
 use alloc::heap;
-use collections::treemap::TreeMap;
-use collections::MutableMap;
+use collections::TreeMap;
 use core::cmp;
 use core::kinds::marker;
 use core::mem;
@@ -66,7 +65,7 @@ use task::{Task, LocalStorage};
  */
 pub type Key<T> = &'static KeyValue<T>;
 
-#[allow(missing_doc)]
+#[allow(missing_docs)]
 pub enum KeyValue<T> { KeyValueKey }
 
 // The task-local-map stores all TLD information for the currently running
@@ -134,7 +133,7 @@ unsafe fn get_local_map<'a>() -> Option<&'a mut Map> {
             *slot = Some(TreeMap::new());
             match *slot {
                 Some(ref mut map_ptr) => { return Some(map_ptr) }
-                None => fail!("unreachable code"),
+                None => panic!("unreachable code"),
             }
         }
     }
@@ -161,12 +160,12 @@ impl<T: 'static> KeyValue<T> {
     /// If this key is already present in TLD, then the previous value is
     /// replaced with the provided data, and then returned.
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// This function will fail if the key is present in TLD and currently on
+    /// This function will panic if the key is present in TLD and currently on
     /// loan with the `get` method.
     ///
-    /// It will also fail if there is no local task (because the current thread
+    /// It will also panic if there is no local task (because the current thread
     /// is not owned by the runtime).
     ///
     /// # Example
@@ -181,7 +180,7 @@ impl<T: 'static> KeyValue<T> {
     pub fn replace(&'static self, data: Option<T>) -> Option<T> {
         let map = match unsafe { get_local_map() } {
             Some(map) => map,
-            None => fail!("must have a local task to insert into TLD"),
+            None => panic!("must have a local task to insert into TLD"),
         };
         let keyval = key_to_key_value(self);
 
@@ -233,7 +232,7 @@ impl<T: 'static> KeyValue<T> {
                     }
                     _ => {
                         // Refcount is 2+, which means we have a live borrow.
-                        fail!("TLD value cannot be replaced because it is already borrowed");
+                        panic!("TLD value cannot be replaced because it is already borrowed");
                     }
                 }
             }
@@ -261,8 +260,6 @@ impl<T: 'static> KeyValue<T> {
     /// assert_eq!(*key.get().unwrap(), 3);
     /// ```
     pub fn get(&'static self) -> Option<Ref<T>> {
-        use collections::Map;
-
         let map = match unsafe { get_local_map() } {
             Some(map) => map,
             None => return None,
@@ -357,6 +354,7 @@ impl TLDValue {
         let box_ptr = unsafe {
             let allocation = heap::allocate(mem::size_of::<TLDValueBox<T>>(),
                                             mem::min_align_of::<TLDValueBox<T>>());
+            if allocation.is_null() { ::alloc::oom() }
             let value_box = allocation as *mut TLDValueBox<T>;
             ptr::write(value_box, TLDValueBox {
                 value: value,
@@ -369,7 +367,7 @@ impl TLDValue {
         unsafe fn d<T>(p: *mut ()) {
             let value_box = p as *mut TLDValueBox<T>;
             debug_assert!(*(*value_box).refcount.get() < 2, "TLDValue destructed while borrowed");
-            // use a RAII type here to ensure we always deallocate even if we fail while
+            // use a RAII type here to ensure we always deallocate even if we panic while
             // running the destructor for the value.
             struct Guard<T> {
                 p: *mut TLDValueBox<T>
@@ -495,7 +493,7 @@ mod tests {
 
     #[test]
     #[should_fail]
-    fn test_tls_cleanup_on_failure() {
+    fn test_tls_cleanup_on_panic() {
         static STR_KEY: Key<String> = &KeyValueKey;
         static BOX_KEY: Key<Box<int>> = &KeyValueKey;
         static INT_KEY: Key<int> = &KeyValueKey;
@@ -505,11 +503,11 @@ mod tests {
             STR_KEY.replace(Some("string data".to_string()));
             BOX_KEY.replace(Some(box 2));
             INT_KEY.replace(Some(42));
-            fail!();
+            panic!();
         });
         // Not quite nondeterministic.
         INT_KEY.replace(Some(31337));
-        fail!();
+        panic!();
     }
 
     #[test]

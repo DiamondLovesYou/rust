@@ -85,8 +85,9 @@ use parse::lexer::*; //resolve bug?
 use parse::ParseSess;
 use parse::attr::ParserAttr;
 use parse::parser::{LifetimeAndTypesWithoutColons, Parser};
-use parse::token::{Token, EOF, Nonterminal};
+use parse::token::{Token, Nonterminal};
 use parse::token;
+use print::pprust;
 use ptr::P;
 
 use std::rc::Rc;
@@ -226,8 +227,8 @@ pub fn parse_or_else(sess: &ParseSess,
 /// unhygienic comparison)
 pub fn token_name_eq(t1 : &Token, t2 : &Token) -> bool {
     match (t1,t2) {
-        (&token::IDENT(id1,_),&token::IDENT(id2,_))
-        | (&token::LIFETIME(id1),&token::LIFETIME(id2)) =>
+        (&token::Ident(id1,_),&token::Ident(id2,_))
+        | (&token::Lifetime(id1),&token::Lifetime(id2)) =>
             id1.name == id2.name,
         _ => *t1 == *t2
     }
@@ -287,8 +288,7 @@ pub fn parse(sess: &ParseSess,
                         // Only touch the binders we have actually bound
                         for idx in range(ei.match_lo, ei.match_hi) {
                             let sub = (ei.matches[idx]).clone();
-                            new_pos.matches
-                                   .get_mut(idx)
+                            new_pos.matches[idx]
                                    .push(Rc::new(MatchedSeq(sub, mk_sp(ei.sp_lo,
                                                                        sp.hi))));
                         }
@@ -323,15 +323,14 @@ pub fn parse(sess: &ParseSess,
             } else {
                 match ei.elts[idx].node.clone() {
                   /* need to descend into sequence */
-                  MatchSeq(ref matchers, ref sep, zero_ok,
+                  MatchSeq(ref matchers, ref sep, kleene_op,
                            match_idx_lo, match_idx_hi) => {
-                    if zero_ok {
+                    if kleene_op == ast::ZeroOrMore {
                         let mut new_ei = ei.clone();
                         new_ei.idx += 1u;
                         //we specifically matched zero repeats.
                         for idx in range(match_idx_lo, match_idx_hi) {
-                            new_ei.matches
-                                  .get_mut(idx)
+                            new_ei.matches[idx]
                                   .push(Rc::new(MatchedSeq(Vec::new(), sp)));
                         }
 
@@ -354,10 +353,8 @@ pub fn parse(sess: &ParseSess,
                     // Built-in nonterminals never start with these tokens,
                     // so we can eliminate them from consideration.
                     match tok {
-                        token::RPAREN |
-                        token::RBRACE |
-                        token::RBRACKET => {},
-                        _ => bb_eis.push(ei)
+                        token::CloseDelim(_) => {},
+                        _ => bb_eis.push(ei),
                     }
                   }
                   MatchTok(ref t) => {
@@ -372,10 +369,10 @@ pub fn parse(sess: &ParseSess,
         }
 
         /* error messages here could be improved with links to orig. rules */
-        if token_name_eq(&tok, &EOF) {
+        if token_name_eq(&tok, &token::Eof) {
             if eof_eis.len() == 1u {
                 let mut v = Vec::new();
-                for dv in eof_eis.get_mut(0).matches.iter_mut() {
+                for dv in eof_eis[0].matches.iter_mut() {
                     v.push(dv.pop().unwrap());
                 }
                 return Success(nameize(sess, ms, v.as_slice()));
@@ -394,7 +391,7 @@ pub fn parse(sess: &ParseSess,
                                 token::get_ident(name),
                                 token::get_ident(bind))).to_string()
                       }
-                      _ => fail!()
+                      _ => panic!()
                     } }).collect::<Vec<String>>().connect(" or ");
                 return Error(sp, format!(
                     "local ambiguity: multiple parsing options: \
@@ -402,7 +399,7 @@ pub fn parse(sess: &ParseSess,
                     nts, next_eis.len()).to_string());
             } else if bb_eis.len() == 0u && next_eis.len() == 0u {
                 return Failure(sp, format!("no rules expected the token `{}`",
-                            token::to_string(&tok)).to_string());
+                            pprust::token_to_string(&tok)).to_string());
             } else if next_eis.len() > 0u {
                 /* Now process the next token */
                 while next_eis.len() > 0u {
@@ -416,11 +413,11 @@ pub fn parse(sess: &ParseSess,
                 match ei.elts[ei.idx].node {
                   MatchNonterminal(_, name, idx) => {
                     let name_string = token::get_ident(name);
-                    ei.matches.get_mut(idx).push(Rc::new(MatchedNonterminal(
+                    ei.matches[idx].push(Rc::new(MatchedNonterminal(
                         parse_nt(&mut rust_parser, name_string.get()))));
                     ei.idx += 1u;
                   }
-                  _ => fail!()
+                  _ => panic!()
                 }
                 cur_eis.push(ei);
 
@@ -447,9 +444,9 @@ pub fn parse_nt(p: &mut Parser, name: &str) -> Nonterminal {
       "ty" => token::NtTy(p.parse_ty(false /* no need to disambiguate*/)),
       // this could be handled like a token, since it is one
       "ident" => match p.token {
-        token::IDENT(sn,b) => { p.bump(); token::NtIdent(box sn,b) }
+        token::Ident(sn,b) => { p.bump(); token::NtIdent(box sn,b) }
         _ => {
-            let token_str = token::to_string(&p.token);
+            let token_str = pprust::token_to_string(&p.token);
             p.fatal((format!("expected ident, found {}",
                              token_str.as_slice())).as_slice())
         }

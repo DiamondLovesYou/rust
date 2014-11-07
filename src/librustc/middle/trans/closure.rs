@@ -23,6 +23,7 @@ use middle::trans::common::*;
 use middle::trans::datum::{Datum, DatumBlock, Expr, Lvalue, rvalue_scratch_datum};
 use middle::trans::debuginfo;
 use middle::trans::expr;
+use middle::trans::monomorphize::MonoId;
 use middle::trans::type_of::*;
 use middle::trans::type_::Type;
 use middle::ty;
@@ -312,7 +313,8 @@ fn load_unboxed_closure_environment<'blk, 'tcx>(
     }
 
     // Special case for small by-value selfs.
-    let self_type = self_type_for_unboxed_closure(bcx.ccx(), closure_id);
+    let self_type = self_type_for_unboxed_closure(bcx.ccx(), closure_id,
+                                                  node_id_type(bcx, closure_id.node));
     let kind = kind_for_unboxed_closure(bcx.ccx(), closure_id);
     let llenv = if kind == ty::FnOnceUnboxedClosureKind &&
             !arg_is_indirect(bcx.ccx(), self_type) {
@@ -406,7 +408,6 @@ pub fn trans_expr_fn<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                   bcx.fcx.param_substs,
                   id,
                   [],
-                  ty::ty_fn_args(fty),
                   ty::ty_fn_ret(fty),
                   ty::ty_fn_abi(fty),
                   true,
@@ -418,15 +419,26 @@ pub fn trans_expr_fn<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
 /// Returns the LLVM function declaration for an unboxed closure, creating it
 /// if necessary. If the ID does not correspond to a closure ID, returns None.
-pub fn get_or_create_declaration_if_unboxed_closure(ccx: &CrateContext,
-                                                    closure_id: ast::DefId)
-                                                    -> Option<ValueRef> {
+pub fn get_or_create_declaration_if_unboxed_closure<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
+                                                                closure_id: ast::DefId)
+                                                                -> Option<ValueRef> {
+    let ccx = bcx.ccx();
     if !ccx.tcx().unboxed_closures.borrow().contains_key(&closure_id) {
         // Not an unboxed closure.
         return None
     }
 
-    match ccx.unboxed_closure_vals().borrow().find(&closure_id) {
+    let function_type = node_id_type(bcx, closure_id.node);
+    let params = match ty::get(function_type).sty {
+        ty::ty_unboxed_closure(_, _, ref substs) => substs.types.clone(),
+        _ => unreachable!()
+    };
+    let mono_id = MonoId {
+        def: closure_id,
+        params: params
+    };
+
+    match ccx.unboxed_closure_vals().borrow().find(&mono_id) {
         Some(llfn) => {
             debug!("get_or_create_declaration_if_unboxed_closure(): found \
                     closure");
@@ -435,9 +447,7 @@ pub fn get_or_create_declaration_if_unboxed_closure(ccx: &CrateContext,
         None => {}
     }
 
-    let function_type = ty::mk_unboxed_closure(ccx.tcx(),
-                                               closure_id,
-                                               ty::ReStatic);
+    let function_type = node_id_type(bcx, closure_id.node);
     let symbol = ccx.tcx().map.with_path(closure_id.node, |path| {
         mangle_internal_name_by_path_and_seq(path, "unboxed_closure")
     });
@@ -449,9 +459,9 @@ pub fn get_or_create_declaration_if_unboxed_closure(ccx: &CrateContext,
 
     debug!("get_or_create_declaration_if_unboxed_closure(): inserting new \
             closure {} (type {})",
-           closure_id,
+           mono_id,
            ccx.tn().type_to_string(val_ty(llfn)));
-    ccx.unboxed_closure_vals().borrow_mut().insert(closure_id, llfn);
+    ccx.unboxed_closure_vals().borrow_mut().insert(mono_id, llfn);
 
     Some(llfn)
 }
@@ -469,7 +479,7 @@ pub fn trans_unboxed_closure<'blk, 'tcx>(
 
     let closure_id = ast_util::local_def(id);
     let llfn = get_or_create_declaration_if_unboxed_closure(
-        bcx.ccx(),
+        bcx,
         closure_id).unwrap();
 
     let unboxed_closures = bcx.tcx().unboxed_closures.borrow();
@@ -490,7 +500,6 @@ pub fn trans_unboxed_closure<'blk, 'tcx>(
                   bcx.fcx.param_substs,
                   id,
                   [],
-                  ty::ty_fn_args(function_type),
                   ty::ty_fn_ret(function_type),
                   ty::ty_fn_abi(function_type),
                   true,
@@ -545,7 +554,7 @@ pub fn get_wrapper_for_bare_fn(ccx: &CrateContext,
                                is_local: bool) -> ValueRef {
 
     let def_id = match def {
-        def::DefFn(did, _, _) | def::DefStaticMethod(did, _, _) |
+        def::DefFn(did, _) | def::DefStaticMethod(did, _) |
         def::DefVariant(_, did, _) | def::DefStruct(did) => did,
         _ => {
             ccx.sess().bug(format!("get_wrapper_for_bare_fn: \
@@ -612,10 +621,17 @@ pub fn get_wrapper_for_bare_fn(ccx: &CrateContext,
     llargs.extend(args.iter().map(|arg| arg.val));
 
     let retval = Call(bcx, fn_ptr, llargs.as_slice(), None);
-    if type_is_zero_size(ccx, f.sig.output) || fcx.llretslotptr.get().is_some() {
-        RetVoid(bcx);
-    } else {
-        Ret(bcx, retval);
+    match f.sig.output {
+        ty::FnConverging(output_type) => {
+            if return_type_is_void(ccx, output_type) || fcx.llretslotptr.get().is_some() {
+                RetVoid(bcx);
+            } else {
+                Ret(bcx, retval);
+            }
+        }
+        ty::FnDiverging => {
+            RetVoid(bcx);
+        }
     }
 
     // HACK(eddyb) finish_fn cannot be used here, we returned directly.

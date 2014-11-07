@@ -14,7 +14,7 @@
 
 use back::svh::Svh;
 use driver::session::Session;
-use driver::{driver, config};
+use driver::driver;
 use metadata::cstore;
 use metadata::cstore::{CStore, CrateSource};
 use metadata::decoder;
@@ -24,7 +24,7 @@ use plugin::load::PluginMetadata;
 
 use std::rc::Rc;
 use std::collections::HashMap;
-use std::collections::hashmap::{Occupied, Vacant};
+use std::collections::hash_map::{Occupied, Vacant};
 use syntax::ast;
 use syntax::abi;
 use syntax::attr;
@@ -52,7 +52,11 @@ pub fn read_crates(sess: &Session,
     visit_crate(&e, krate);
     visit::walk_crate(&mut e, krate);
     dump_crates(&sess.cstore);
-    warn_if_multiple_versions(sess.diagnostic(), &sess.cstore)
+    warn_if_multiple_versions(sess.diagnostic(), &sess.cstore);
+
+    for &(ref name, kind) in sess.opts.libs.iter() {
+        register_native_lib(sess, None, name.clone(), kind);
+    }
 }
 
 impl<'a, 'v> visit::Visitor<'v> for Env<'a> {
@@ -174,7 +178,7 @@ fn extract_crate_info(e: &Env, i: &ast::ViewItem) -> Option<CrateInfo> {
 pub fn validate_crate_name(sess: Option<&Session>, s: &str, sp: Option<Span>) {
     let err = |s: &str| {
         match (sp, sess) {
-            (_, None) => fail!("{}", s),
+            (_, None) => panic!("{}", s),
             (Some(sp), Some(sess)) => sess.span_err(sp, s),
             (None, Some(sess)) => sess.err(s),
         }
@@ -233,15 +237,11 @@ fn visit_item(e: &Env, i: &ast::Item) {
                             Some(k) => {
                                 if k.equiv(&("static")) {
                                     cstore::NativeStatic
-                                } else if (e.sess.targ_cfg.os == abi::OsMacos ||
-                                           e.sess.targ_cfg.os == abi::OsiOS) &&
-                                          k.equiv(&("framework")) {
+                                } else if e.sess.target.target.options.is_like_osx
+                                          && k.equiv(&("framework")) {
                                     cstore::NativeFramework
                                 } else if k.equiv(&("framework")) {
-                                    e.sess.span_err(m.span,
-                                        "native frameworks are only available \
-                                         on OSX targets");
-                                    cstore::NativeUnknown
+                                    cstore::NativeFramework
                                 } else {
                                     e.sess.span_err(m.span,
                                         format!("unknown kind: `{}`",
@@ -263,15 +263,8 @@ fn visit_item(e: &Env, i: &ast::Item) {
                                 InternedString::new("foo")
                             }
                         };
-                        if n.get().is_empty() {
-                            e.sess.span_err(m.span,
-                                            "#[link(name = \"\")] given with \
-                                             empty name");
-                        } else {
-                            e.sess
-                             .cstore
-                             .add_used_library(n.get().to_string(), kind);
-                        }
+                        register_native_lib(e.sess, Some(m.span),
+                                            n.get().to_string(), kind);
                     }
                     None => {}
                 }
@@ -279,6 +272,31 @@ fn visit_item(e: &Env, i: &ast::Item) {
         }
         _ => { }
     }
+}
+
+fn register_native_lib(sess: &Session, span: Option<Span>, name: String,
+                       kind: cstore::NativeLibaryKind) {
+    if name.as_slice().is_empty() {
+        match span {
+            Some(span) => {
+                sess.span_err(span, "#[link(name = \"\")] given with \
+                                     empty name");
+            }
+            None => {
+                sess.err("empty library name given via `-l`");
+            }
+        }
+        return
+    }
+    let is_osx = sess.target.target.options.is_like_osx;
+    if kind == cstore::NativeFramework && !is_osx {
+        let msg = "native frameworks are only available on OSX targets";
+        match span {
+            Some(span) => sess.span_err(span, msg),
+            None => sess.err(msg),
+        }
+    }
+    sess.cstore.add_used_library(name, kind);
 }
 
 fn existing_match(e: &Env, name: &str,
@@ -303,7 +321,7 @@ fn existing_match(e: &Env, name: &str,
         // `source` stores paths which are normalized which may be different
         // from the strings on the command line.
         let source = e.sess.cstore.get_used_crate_source(cnum).unwrap();
-        match e.sess.opts.externs.find_equiv(&name) {
+        match e.sess.opts.externs.find_equiv(name) {
             Some(locs) => {
                 let found = locs.iter().any(|l| {
                     let l = fs::realpath(&Path::new(l.as_slice())).ok();
@@ -384,8 +402,7 @@ fn resolve_crate<'a>(e: &mut Env,
                 crate_name: name,
                 hash: hash.map(|a| &*a),
                 filesearch: e.sess.target_filesearch(),
-                os: e.sess.targ_cfg.os,
-                triple: e.sess.targ_cfg.target_strs.target_triple.as_slice(),
+                triple: e.sess.opts.target_triple.as_slice(),
                 root: root,
                 rejected_via_hash: vec!(),
                 rejected_via_triple: vec!(),
@@ -435,10 +452,9 @@ impl<'a> PluginMetadataReader<'a> {
 
     pub fn read_plugin_metadata(&mut self, krate: &ast::ViewItem) -> PluginMetadata {
         let info = extract_crate_info(&self.env, krate).unwrap();
-        let target_triple = self.env.sess.targ_cfg.target_strs.target_triple.as_slice();
+        let target_triple = self.env.sess.opts.target_triple.as_slice();
         let is_cross = target_triple != driver::host_triple();
         let mut should_link = info.should_link && !is_cross;
-        let os = config::get_os(driver::host_triple()).unwrap();
         let mut load_ctxt = loader::Context {
             sess: self.env.sess,
             span: krate.span,
@@ -447,7 +463,6 @@ impl<'a> PluginMetadataReader<'a> {
             hash: None,
             filesearch: self.env.sess.host_filesearch(),
             triple: driver::host_triple(),
-            os: os,
             root: &None,
             rejected_via_hash: vec!(),
             rejected_via_triple: vec!(),
@@ -459,7 +474,6 @@ impl<'a> PluginMetadataReader<'a> {
                 // try loading from target crates (only valid if there are
                 // no syntax extensions)
                 load_ctxt.triple = target_triple;
-                load_ctxt.os = self.env.sess.targ_cfg.os;
                 load_ctxt.filesearch = self.env.sess.target_filesearch();
                 let lib = load_ctxt.load_library_crate();
                 if decoder::get_plugin_registrar_fn(lib.metadata.as_slice()).is_some() {

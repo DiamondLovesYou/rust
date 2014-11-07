@@ -15,9 +15,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print constant
 // gdb-check:$1 = 1
@@ -38,7 +36,7 @@
 // lldb-command:print *owned
 // lldb-check:[...]$2 = 5
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 struct Struct {
     a: int,

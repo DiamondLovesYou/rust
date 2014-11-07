@@ -25,7 +25,7 @@ use syntax::feature_gate;
 use syntax::parse;
 use syntax::parse::token;
 use syntax::parse::ParseSess;
-use syntax::{abi, ast, codemap};
+use syntax::{ast, codemap};
 
 use std::os;
 use std::cell::{Cell, RefCell};
@@ -33,7 +33,7 @@ use std::cell::{Cell, RefCell};
 // Represents the data associated with a compilation
 // session for a single crate.
 pub struct Session {
-    pub targ_cfg: config::Config,
+    pub target: config::Config,
     pub opts: config::Options,
     pub cstore: CStore,
     pub parse_sess: ParseSess,
@@ -203,21 +203,21 @@ impl Session {
     }
 
     pub fn no_morestack(&self) -> bool {
-        self.targ_cfg.target_strs.target_triple == "le32-unknown-nacl".to_string()
+        self.target.target.arch.as_slice() == "le32"
+            && self.target.target.target_os.as_slice() == "nacl"
     }
 
     pub fn get_nacl_tool_path(&self,
                               nacl_suffix: &str,
                               pnacl_suffix: &str) -> String {
-        use syntax::abi;
         let toolchain = self.expect_cross_path();
-        let (arch_libc, prefix, suffix) = match self.targ_cfg.arch {
-            abi::X86 =>    ("x86_newlib", "i686-nacl-", nacl_suffix),
-            abi::X86_64 => ("x86_newlib", "x86_64-nacl-", nacl_suffix),
-            abi::Arm =>    ("arm_newlib", "arm-nacl-", nacl_suffix),
-            abi::Le32 =>   ("pnacl",      "pnacl-", pnacl_suffix),
-            abi::Mips | abi::Mipsel =>
-                self.fatal("PNaCl/NaCl can't target the Mips arch"),
+        let (arch_libc, prefix, suffix) = match self.target.target.arch.as_slice() {
+            "x86" =>    ("x86_newlib", "i686-nacl-", nacl_suffix),
+            "x86_64" => ("x86_newlib", "x86_64-nacl-", nacl_suffix),
+            "arm" =>    ("arm_newlib", "arm-nacl-", nacl_suffix),
+            "le32" =>   ("pnacl",      "pnacl-", pnacl_suffix),
+            _ =>
+                self.fatal("PNaCl/NaCl can't target this arch"),
         };
         let post_toolchain = format!("{}_{}",
                                      get_os_for_nacl_toolchain(self),
@@ -250,15 +250,13 @@ impl Session {
 
     /// Shortcut to test if we need to do special things because we are targeting PNaCl.
     pub fn targeting_pnacl(&self) -> bool {
-        self.targ_cfg.os == abi::OsNaCl && self.targ_cfg.arch == abi::Le32
+        self.target.target.target_os.as_slice() == "nacl"
+            && self.target.target.arch.as_slice() == "le32"
     }
     /// Shortcut to test if we need to do special things because we are targeting NaCl.
     pub fn targeting_nacl(&self) -> bool {
-        self.targ_cfg.os == abi::OsNaCl &&
-            (self.targ_cfg.arch == abi::X86 ||
-             self.targ_cfg.arch == abi::X86_64 ||
-             self.targ_cfg.arch == abi::Arm ||
-             self.targ_cfg.arch == abi::Mips)
+        self.target.target.target_os.as_slice() == "nacl"
+            && self.target.target.arch.as_slice() != "le32"
     }
     pub fn would_use_ppapi(&self) -> bool {
         self.targeting_pnacl() || self.targeting_nacl()
@@ -332,7 +330,7 @@ pub fn build_session_(sopts: config::Options,
                       local_crate_source_file: Option<Path>,
                       span_diagnostic: diagnostic::SpanHandler)
                       -> Session {
-    let target_cfg = config::build_target_config(&sopts);
+    let target_cfg = config::build_target_config(&sopts, &span_diagnostic);
     let p_s = parse::new_parse_sess_special_handler(span_diagnostic);
     let default_sysroot = match sopts.maybe_sysroot {
         Some(_) => None,
@@ -344,12 +342,12 @@ pub fn build_session_(sopts: config::Options,
         if path.is_absolute() {
             path.clone()
         } else {
-            os::getcwd().join(path.clone())
+            os::getcwd().join(&path)
         }
     );
 
     let sess = Session {
-        targ_cfg: target_cfg,
+        target: target_cfg,
         opts: sopts,
         cstore: CStore::new(token::get_ident_interner()),
         parse_sess: p_s,

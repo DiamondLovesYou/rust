@@ -17,7 +17,8 @@ pub struct TypeVariableTable {
 }
 
 struct TypeVariableData {
-    value: TypeVariableValue
+    value: TypeVariableValue,
+    diverging: bool
 }
 
 enum TypeVariableValue {
@@ -63,6 +64,10 @@ impl TypeVariableTable {
         relations(self.values.get_mut(a.index))
     }
 
+    pub fn var_diverges<'a>(&'a self, vid: ty::TyVid) -> bool {
+        self.values.get(vid.index).diverging
+    }
+
     pub fn relate_vars(&mut self, a: ty::TyVid, dir: RelationDir, b: ty::TyVid) {
         /*!
          * Records that `a <: b`, `a :> b`, or `a == b`, depending on `dir`.
@@ -97,7 +102,7 @@ impl TypeVariableTable {
 
         let relations = match old_value {
             Bounded(b) => b,
-            Known(_) => fail!("Asked to instantiate variable that is \
+            Known(_) => panic!("Asked to instantiate variable that is \
                                already instantiated")
         };
 
@@ -108,10 +113,11 @@ impl TypeVariableTable {
         self.values.record(SpecifyVar(vid, relations));
     }
 
-    pub fn new_var(&mut self) -> ty::TyVid {
-        let index =
-            self.values.push(
-                TypeVariableData { value: Bounded(Vec::new()) });
+    pub fn new_var(&mut self, diverging: bool) -> ty::TyVid {
+        let index = self.values.push(TypeVariableData {
+            value: Bounded(vec![]),
+            diverging: diverging
+        });
         ty::TyVid { index: index }
     }
 
@@ -153,12 +159,12 @@ impl sv::SnapshotVecDelegate<TypeVariableData,UndoEntry> for Delegate {
                action: UndoEntry) {
         match action {
             SpecifyVar(vid, relations) => {
-                values.get_mut(vid.index).value = Bounded(relations);
+                values[vid.index].value = Bounded(relations);
             }
 
             Relate(a, b) => {
-                relations(values.get_mut(a.index)).pop();
-                relations(values.get_mut(b.index)).pop();
+                relations(&mut (*values)[a.index]).pop();
+                relations(&mut (*values)[b.index]).pop();
             }
         }
     }
@@ -166,7 +172,7 @@ impl sv::SnapshotVecDelegate<TypeVariableData,UndoEntry> for Delegate {
 
 fn relations<'a>(v: &'a mut TypeVariableData) -> &'a mut Vec<Relation> {
     match v.value {
-        Known(_) => fail!("var_sub_var: variable is known"),
+        Known(_) => panic!("var_sub_var: variable is known"),
         Bounded(ref mut relations) => relations
     }
 }

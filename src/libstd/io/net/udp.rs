@@ -16,13 +16,13 @@
 //! datagram protocol.
 
 use clone::Clone;
-use io::net::ip::{SocketAddr, IpAddr};
+use io::net::ip::{SocketAddr, IpAddr, ToSocketAddr};
 use io::{Reader, Writer, IoResult, IoError};
 use kinds::Send;
 use boxed::Box;
 use option::Option;
 use result::{Ok, Err};
-use rt::rtio::{RtioSocket, RtioUdpSocket, IoFactory, LocalIo};
+use rt::rtio::{RtioSocket, RtioUdpSocket, IoFactory};
 use rt::rtio;
 
 /// A User Datagram Protocol socket.
@@ -43,7 +43,7 @@ use rt::rtio;
 ///     let addr = SocketAddr { ip: Ipv4Addr(127, 0, 0, 1), port: 34254 };
 ///     let mut socket = match UdpSocket::bind(addr) {
 ///         Ok(s) => s,
-///         Err(e) => fail!("couldn't bind socket: {}", e),
+///         Err(e) => panic!("couldn't bind socket: {}", e),
 ///     };
 ///
 ///     let mut buf = [0, ..10];
@@ -64,19 +64,17 @@ pub struct UdpSocket {
 }
 
 impl UdpSocket {
-    /// Creates a UDP socket from the given socket address.
-    pub fn bind(addr: SocketAddr) -> IoResult<UdpSocket> {
-        let SocketAddr { ip, port } = addr;
-        LocalIo::maybe_raise(|io| {
-            let addr = rtio::SocketAddr { ip: super::to_rtio(ip), port: port };
-            io.udp_bind(addr).map(|s| UdpSocket { obj: s })
-        }).map_err(IoError::from_rtio_error)
+    /// Creates a UDP socket from the given address.
+    ///
+    /// Address type can be any implementor of `ToSocketAddr` trait. See its
+    /// documentation for concrete examples.
+    pub fn bind<A: ToSocketAddr>(addr: A) -> IoResult<UdpSocket> {
+        super::with_addresses_io(addr, |io, addr| io.udp_bind(addr).map(|s| UdpSocket { obj: s }))
     }
 
     /// Receives data from the socket. On success, returns the number of bytes
     /// read and the address from whence the data came.
-    pub fn recv_from(&mut self, buf: &mut [u8])
-                    -> IoResult<(uint, SocketAddr)> {
+    pub fn recv_from(&mut self, buf: &mut [u8]) -> IoResult<(uint, SocketAddr)> {
         match self.obj.recv_from(buf) {
             Ok((amt, rtio::SocketAddr { ip, port })) => {
                 Ok((amt, SocketAddr { ip: super::from_rtio(ip), port: port }))
@@ -87,11 +85,14 @@ impl UdpSocket {
 
     /// Sends data on the socket to the given address. Returns nothing on
     /// success.
-    pub fn send_to(&mut self, buf: &[u8], dst: SocketAddr) -> IoResult<()> {
-        self.obj.send_to(buf, rtio::SocketAddr {
-            ip: super::to_rtio(dst.ip),
-            port: dst.port,
-        }).map_err(IoError::from_rtio_error)
+    ///
+    /// Address type can be any implementor of `ToSocketAddr` trait. See its
+    /// documentation for concrete examples.
+    pub fn send_to<A: ToSocketAddr>(&mut self, buf: &[u8], addr: A) -> IoResult<()> {
+        super::with_addresses(addr, |addr| self.obj.send_to(buf, rtio::SocketAddr {
+            ip: super::to_rtio(addr.ip),
+            port: addr.port,
+        }).map_err(IoError::from_rtio_error))
     }
 
     /// Creates a `UdpStream`, which allows use of the `Reader` and `Writer`
@@ -100,6 +101,8 @@ impl UdpSocket {
     ///
     /// Note that this call does not perform any actual network communication,
     /// because UDP is a datagram protocol.
+    #[deprecated = "`UdpStream` has been deprecated"]
+    #[allow(deprecated)]
     pub fn connect(self, other: SocketAddr) -> UdpStream {
         UdpStream {
             socket: self,
@@ -205,6 +208,14 @@ impl Clone for UdpSocket {
 
 /// A type that allows convenient usage of a UDP stream connected to one
 /// address via the `Reader` and `Writer` traits.
+///
+/// # Note
+///
+/// This structure has been deprecated because `Reader` is a stream-oriented API but UDP
+/// is a packet-oriented protocol. Every `Reader` method will read a whole packet and
+/// throw all superfluous bytes away so that they are no longer available for further
+/// method calls.
+#[deprecated]
 pub struct UdpStream {
     socket: UdpSocket,
     connected_to: SocketAddr
@@ -225,13 +236,15 @@ impl UdpStream {
 }
 
 impl Reader for UdpStream {
+    /// Returns the next non-empty message from the specified address.
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
         let peer = self.connected_to;
         self.as_socket(|sock| {
-            match sock.recv_from(buf) {
-                Ok((_nread, src)) if src != peer => Ok(0),
-                Ok((nread, _src)) => Ok(nread),
-                Err(e) => Err(e),
+            loop {
+                let (nread, src) = try!(sock.recv_from(buf));
+                if nread > 0 && src == peer {
+                    return Ok(nread);
+                }
             }
         })
     }
@@ -259,7 +272,7 @@ mod test {
     fn bind_error() {
         let addr = SocketAddr { ip: Ipv4Addr(0, 0, 0, 0), port: 1 };
         match UdpSocket::bind(addr) {
-            Ok(..) => fail!(),
+            Ok(..) => panic!(),
             Err(e) => assert_eq!(e.kind, PermissionDenied),
         }
     }
@@ -277,7 +290,7 @@ mod test {
                     rx1.recv();
                     client.send_to([99], server_ip).unwrap()
                 }
-                Err(..) => fail!()
+                Err(..) => panic!()
             }
             tx2.send(());
         });
@@ -292,10 +305,10 @@ mod test {
                         assert_eq!(buf[0], 99);
                         assert_eq!(src, client_ip);
                     }
-                    Err(..) => fail!()
+                    Err(..) => panic!()
                 }
             }
-            Err(..) => fail!()
+            Err(..) => panic!()
         }
         rx2.recv();
     }
@@ -312,7 +325,7 @@ mod test {
                     rx.recv();
                     client.send_to([99], server_ip).unwrap()
                 }
-                Err(..) => fail!()
+                Err(..) => panic!()
             }
         });
 
@@ -326,30 +339,36 @@ mod test {
                         assert_eq!(buf[0], 99);
                         assert_eq!(src, client_ip);
                     }
-                    Err(..) => fail!()
+                    Err(..) => panic!()
                 }
             }
-            Err(..) => fail!()
+            Err(..) => panic!()
         }
     }
 
     #[test]
+    #[allow(deprecated)]
     fn stream_smoke_test_ip4() {
         let server_ip = next_test_ip4();
         let client_ip = next_test_ip4();
+        let dummy_ip = next_test_ip4();
         let (tx1, rx1) = channel();
         let (tx2, rx2) = channel();
 
         spawn(proc() {
-            match UdpSocket::bind(client_ip) {
-                Ok(client) => {
-                    let client = box client;
-                    let mut stream = client.connect(server_ip);
-                    rx1.recv();
-                    stream.write([99]).unwrap();
+            let send_as = |ip, val: &[u8]| {
+                match UdpSocket::bind(ip) {
+                    Ok(client) => {
+                        let client = box client;
+                        let mut stream = client.connect(server_ip);
+                        stream.write(val).unwrap();
+                    }
+                    Err(..) => panic!()
                 }
-                Err(..) => fail!()
-            }
+            };
+            rx1.recv();
+            send_as(dummy_ip, [98]);
+            send_as(client_ip, [99]);
             tx2.send(());
         });
 
@@ -364,15 +383,16 @@ mod test {
                         assert_eq!(nread, 1);
                         assert_eq!(buf[0], 99);
                     }
-                    Err(..) => fail!()
+                    Err(..) => panic!(),
                 }
             }
-            Err(..) => fail!()
+            Err(..) => panic!()
         }
         rx2.recv();
     }
 
     #[test]
+    #[allow(deprecated)]
     fn stream_smoke_test_ip6() {
         let server_ip = next_test_ip6();
         let client_ip = next_test_ip6();
@@ -387,7 +407,7 @@ mod test {
                     rx1.recv();
                     stream.write([99]).unwrap();
                 }
-                Err(..) => fail!()
+                Err(..) => panic!()
             }
             tx2.send(());
         });
@@ -403,10 +423,10 @@ mod test {
                         assert_eq!(nread, 1);
                         assert_eq!(buf[0], 99);
                     }
-                    Err(..) => fail!()
+                    Err(..) => panic!()
                 }
             }
-            Err(..) => fail!()
+            Err(..) => panic!()
         }
         rx2.recv();
     }
@@ -516,7 +536,7 @@ mod test {
             rx.recv();
             match sock2.recv_from(buf) {
                 Ok(..) => {}
-                Err(e) => fail!("failed receive: {}", e),
+                Err(e) => panic!("failed receive: {}", e),
             }
             serv_tx.send(());
         });
@@ -593,7 +613,7 @@ mod test {
             match a.send_to([0, ..4*1024], addr2) {
                 Ok(()) | Err(IoError { kind: ShortWrite(..), .. }) => {},
                 Err(IoError { kind: TimedOut, .. }) => break,
-                Err(e) => fail!("other error: {}", e),
+                Err(e) => panic!("other error: {}", e),
             }
         }
     }

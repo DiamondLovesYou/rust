@@ -18,9 +18,8 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
+
 // gdb-command:print *bool_ref
 // gdb-check:$1 = true
 
@@ -112,7 +111,7 @@
 // lldb-command:print *f64_ref
 // lldb-check:[...]$12 = 3.5
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 
 fn main() {

@@ -16,9 +16,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print tuple_interior_padding
 // gdb-check:$1 = {0, OneHundred}
@@ -66,7 +64,7 @@
 // lldb-command:print struct_with_drop
 // lldb-check:[...]$6 = (StructWithDrop { a: OneHundred, b: Vienna }, 9)
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 enum AnEnum {
     OneHundred = 100,

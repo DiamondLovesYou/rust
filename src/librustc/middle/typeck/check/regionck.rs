@@ -126,7 +126,7 @@ use middle::ty;
 use middle::typeck::astconv::AstConv;
 use middle::typeck::check::FnCtxt;
 use middle::typeck::check::regionmanip;
-use middle::typeck::check::vtable2;
+use middle::typeck::check::vtable;
 use middle::typeck::infer::resolve_and_force_all_but_regions;
 use middle::typeck::infer::resolve_type;
 use middle::typeck::infer;
@@ -142,7 +142,7 @@ use syntax::visit::Visitor;
 
 use std::cell::{RefCell};
 use std::collections::HashMap;
-use std::collections::hashmap::{Vacant, Occupied};
+use std::collections::hash_map::{Vacant, Occupied};
 
 ///////////////////////////////////////////////////////////////////////////
 // PUBLIC ENTRY POINTS
@@ -172,7 +172,7 @@ pub fn regionck_fn(fcx: &FnCtxt, id: ast::NodeId, blk: &ast::Block) {
 
     // Region checking a fn can introduce new trait obligations,
     // particularly around closure bounds.
-    vtable2::select_all_fcx_obligations_or_error(fcx);
+    vtable::select_all_fcx_obligations_or_error(fcx);
 
     fcx.infcx().resolve_regions_and_report_errors();
 }
@@ -334,7 +334,7 @@ impl<'a, 'tcx> Rcx<'a, 'tcx> {
     /// Try to resolve the type for the given node.
     pub fn resolve_expr_type_adjusted(&mut self, expr: &ast::Expr) -> ty::t {
         let ty_unadjusted = self.resolve_node_type(expr.id);
-        if ty::type_is_error(ty_unadjusted) || ty::type_is_bot(ty_unadjusted) {
+        if ty::type_is_error(ty_unadjusted) {
             ty_unadjusted
         } else {
             let tcx = self.fcx.tcx();
@@ -690,7 +690,7 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
                 Some(method) => {
                     constrain_call(rcx, expr, Some(&**base),
                                    None::<ast::Expr>.iter(), true);
-                    ty::ty_fn_ret(method.ty)
+                    ty::ty_fn_ret(method.ty).unwrap()
                 }
                 None => rcx.resolve_node_type(base.id)
             };
@@ -867,7 +867,7 @@ fn check_expr_fn_block(rcx: &mut Rcx,
                 }
             });
         }
-        ty::ty_unboxed_closure(_, region) => {
+        ty::ty_unboxed_closure(_, region, _) => {
             if tcx.capture_modes.borrow().get_copy(&expr.id) == ast::CaptureByRef {
                 ty::with_freevars(tcx, expr.id, |freevars| {
                     if !freevars.is_empty() {
@@ -908,7 +908,7 @@ fn check_expr_fn_block(rcx: &mut Rcx,
                 ensure_free_variable_types_outlive_closure_bound(rcx, bounds, expr, freevars);
             })
         }
-        ty::ty_unboxed_closure(_, region) => {
+        ty::ty_unboxed_closure(_, region, _) => {
             ty::with_freevars(tcx, expr.id, |freevars| {
                 let bounds = ty::region_existential_bound(region);
                 ensure_free_variable_types_outlive_closure_bound(rcx, bounds, expr, freevars);
@@ -1217,9 +1217,14 @@ fn constrain_autoderefs(rcx: &mut Rcx,
                 // Specialized version of constrain_call.
                 type_must_outlive(rcx, infer::CallRcvr(deref_expr.span),
                                   self_ty, r_deref_expr);
-                type_must_outlive(rcx, infer::CallReturn(deref_expr.span),
-                                  fn_sig.output, r_deref_expr);
-                fn_sig.output
+                match fn_sig.output {
+                    ty::FnConverging(return_type) => {
+                        type_must_outlive(rcx, infer::CallReturn(deref_expr.span),
+                                          return_type, r_deref_expr);
+                        return_type
+                    }
+                    ty::FnDiverging => unreachable!()
+                }
             }
             None => derefd_ty
         };
@@ -1445,7 +1450,7 @@ fn link_region_from_node_type(rcx: &Rcx,
      */
 
     let rptr_ty = rcx.resolve_node_type(id);
-    if !ty::type_is_bot(rptr_ty) && !ty::type_is_error(rptr_ty) {
+    if !ty::type_is_error(rptr_ty) {
         let tcx = rcx.fcx.ccx.tcx;
         debug!("rptr_ty={}", ty_to_string(tcx, rptr_ty));
         let r = ty::ty_region(tcx, span, rptr_ty);
@@ -1494,7 +1499,6 @@ fn link_region(rcx: &Rcx,
                 }
             }
 
-            mc::cat_discr(cmt_base, _) |
             mc::cat_downcast(cmt_base) |
             mc::cat_deref(cmt_base, _, mc::OwnedPtr) |
             mc::cat_interior(cmt_base, _) => {
@@ -1675,7 +1679,7 @@ fn link_reborrowed_region(rcx: &Rcx,
             //
             // If mutability was inferred from an upvar, we may be
             // forced to revisit this decision later if processing
-            // another borrow or nested closure ends up coverting the
+            // another borrow or nested closure ends up converting the
             // upvar borrow kind to mutable/unique.  Record the
             // information needed to perform the recursive link in the
             // maybe link map.
@@ -1736,8 +1740,7 @@ fn adjust_upvar_borrow_kind_for_mut(rcx: &Rcx,
         match cmt.cat.clone() {
             mc::cat_deref(base, _, mc::OwnedPtr) |
             mc::cat_interior(base, _) |
-            mc::cat_downcast(base) |
-            mc::cat_discr(base, _) => {
+            mc::cat_downcast(base) => {
                 // Interior or owned data is mutable if base is
                 // mutable, so iterate to the base.
                 cmt = base;
@@ -1754,7 +1757,7 @@ fn adjust_upvar_borrow_kind_for_mut(rcx: &Rcx,
                         // is inferred to mutable if necessary
                         let mut upvar_borrow_map =
                             rcx.fcx.inh.upvar_borrow_map.borrow_mut();
-                        let ub = upvar_borrow_map.get_mut(upvar_id);
+                        let ub = &mut (*upvar_borrow_map)[*upvar_id];
                         return adjust_upvar_borrow_kind(rcx, *upvar_id, ub, ty::MutBorrow);
                     }
 
@@ -1788,8 +1791,7 @@ fn adjust_upvar_borrow_kind_for_unique(rcx: &Rcx, cmt: mc::cmt) {
         match cmt.cat.clone() {
             mc::cat_deref(base, _, mc::OwnedPtr) |
             mc::cat_interior(base, _) |
-            mc::cat_downcast(base) |
-            mc::cat_discr(base, _) => {
+            mc::cat_downcast(base) => {
                 // Interior or owned data is unique if base is
                 // unique.
                 cmt = base;
@@ -1805,7 +1807,7 @@ fn adjust_upvar_borrow_kind_for_unique(rcx: &Rcx, cmt: mc::cmt) {
                         // borrow_kind of the upvar to make sure it
                         // is inferred to unique if necessary
                         let mut ub = rcx.fcx.inh.upvar_borrow_map.borrow_mut();
-                        let ub = ub.get_mut(upvar_id);
+                        let ub = &mut (*ub)[*upvar_id];
                         return adjust_upvar_borrow_kind(rcx, *upvar_id, ub, ty::UniqueImmBorrow);
                     }
 

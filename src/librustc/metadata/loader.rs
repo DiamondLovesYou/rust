@@ -222,7 +222,6 @@ use metadata::cstore::{MetadataBlob, MetadataVec, MetadataArchive};
 use metadata::decoder;
 use metadata::encoder;
 use metadata::filesearch::{FileSearch, FileMatches, FileDoesntMatch};
-use syntax::abi;
 use syntax::codemap::Span;
 use syntax::diagnostic::SpanHandler;
 use util::fs;
@@ -231,33 +230,14 @@ use std::c_str::ToCStr;
 use std::cmp;
 use std::io::fs::PathExtensions;
 use std::io;
-use std::mem;
 use std::ptr;
 use std::slice;
 use std::string;
 
 use std::collections::{HashMap, HashSet};
-use std::collections::hashmap::{Occupied, Vacant};
+use std::collections::hash_map::{Occupied, Vacant};
 use flate;
 use time;
-
-pub const MACOS_DLL_PREFIX: &'static str = "lib";
-pub const MACOS_DLL_SUFFIX: &'static str = ".dylib";
-
-pub const WIN32_DLL_PREFIX: &'static str = "";
-pub const WIN32_DLL_SUFFIX: &'static str = ".dll";
-
-pub const LINUX_DLL_PREFIX: &'static str = "lib";
-pub const LINUX_DLL_SUFFIX: &'static str = ".so";
-
-pub const FREEBSD_DLL_PREFIX: &'static str = "lib";
-pub const FREEBSD_DLL_SUFFIX: &'static str = ".so";
-
-pub const DRAGONFLY_DLL_PREFIX: &'static str = "lib";
-pub const DRAGONFLY_DLL_SUFFIX: &'static str = ".so";
-
-pub const ANDROID_DLL_PREFIX: &'static str = "lib";
-pub const ANDROID_DLL_SUFFIX: &'static str = ".so";
 
 pub static NACL_DLL_PREFIX: &'static str = "lib";
 pub static NACL_DLL_SUFFIX: &'static str = ".so";
@@ -274,7 +254,6 @@ pub struct Context<'a> {
     pub crate_name: &'a str,
     pub hash: Option<&'a Svh>,
     pub triple: &'a str,
-    pub os: abi::Os,
     pub filesearch: FileSearch<'a>,
     pub root: &'a Option<CratePaths>,
     pub rejected_via_hash: Vec<CrateMismatch>,
@@ -290,8 +269,8 @@ pub struct Library {
 
 pub struct ArchiveMetadata {
     _archive: ArchiveRO,
-    // See comments in ArchiveMetadata::new for why this is static
-    data: &'static [u8],
+    // points into self._archive
+    data: *const [u8],
 }
 
 pub struct CratePaths {
@@ -391,9 +370,7 @@ impl<'a> Context<'a> {
         let dypair = self.dylibname();
 
         // want: crate_name.dir_part() + prefix + crate_name.file_part + "-"
-        let dylib_prefix = dypair.map(|(prefix, _)| {
-            format!("{}{}", prefix, self.crate_name)
-        });
+        let dylib_prefix = format!("{}{}", dypair.ref0(), self.crate_name);
         let rlib_prefix = format!("lib{}", self.crate_name);
 
         let mut candidates = HashMap::new();
@@ -420,13 +397,9 @@ impl<'a> Context<'a> {
                     file.ends_with(".rlib") {
                 (file.slice(rlib_prefix.len(), file.len() - ".rlib".len()),
                  true)
-            } else if dypair.map_or(false, |(_, suffix)| {
-                file.starts_with(dylib_prefix.as_ref().unwrap().as_slice()) &&
-                file.ends_with(suffix)
-            }) {
-                let (_, suffix) = dypair.unwrap();
-                let dylib_prefix = dylib_prefix.as_ref().unwrap().as_slice();
-                (file.slice(dylib_prefix.len(), file.len() - suffix.len()),
+            } else if file.starts_with(dylib_prefix.as_slice()) &&
+                      file.ends_with(dypair.ref1().as_slice()) {
+                (file.slice(dylib_prefix.len(), file.len() - dypair.ref1().len()),
                  false)
             } else {
                 return FileDoesntMatch
@@ -534,7 +507,8 @@ impl<'a> Context<'a> {
 
         for lib in m.into_iter() {
             info!("{} reading metadata from: {}", flavor, lib.display());
-            let metadata = match get_metadata_section(self.os, &lib) {
+            let metadata = match get_metadata_section(self.sess.target.target.options.is_like_osx,
+                                                      &lib) {
                 Ok(blob) => {
                     if self.crate_matches(blob.as_slice(), &lib) {
                         blob
@@ -621,21 +595,13 @@ impl<'a> Context<'a> {
 
     // Returns the corresponding (prefix, suffix) that files need to have for
     // dynamic libraries
-    fn dylibname(&self) -> Option<(&'static str, &'static str)> {
-        match self.os {
-            abi::OsWindows => Some((WIN32_DLL_PREFIX, WIN32_DLL_SUFFIX)),
-            abi::OsMacos => Some((MACOS_DLL_PREFIX, MACOS_DLL_SUFFIX)),
-            abi::OsLinux => Some((LINUX_DLL_PREFIX, LINUX_DLL_SUFFIX)),
-            abi::OsAndroid => Some((ANDROID_DLL_PREFIX, ANDROID_DLL_SUFFIX)),
-            abi::OsFreebsd => Some((FREEBSD_DLL_PREFIX, FREEBSD_DLL_SUFFIX)),
-            abi::OsDragonfly => Some((DRAGONFLY_DLL_PREFIX, DRAGONFLY_DLL_SUFFIX)),
-            abi::OsiOS => None,
-            abi::OsNaCl => None,
-        }
+    fn dylibname(&self) -> (String, String) {
+        let t = &self.sess.target.target;
+        (t.options.dll_prefix.clone(), t.options.dll_suffix.clone())
     }
 
     fn find_commandline_library(&mut self) -> Option<Library> {
-        let locs = match self.sess.opts.externs.find_equiv(&self.crate_name) {
+        let locs = match self.sess.opts.externs.find_equiv(self.crate_name) {
             Some(s) => s,
             None => return None,
         };
@@ -665,13 +631,9 @@ impl<'a> Context<'a> {
                 if file.starts_with("lib") && file.ends_with(".rlib") {
                     return true
                 } else {
-                    match dylibname {
-                        Some((prefix, suffix)) => {
-                            if file.starts_with(prefix) && file.ends_with(suffix) {
-                                return true
-                            }
-                        }
-                        None => {}
+                    let (ref prefix, ref suffix) = dylibname;
+                    if file.starts_with(prefix.as_slice()) && file.ends_with(suffix.as_slice()) {
+                        return true
                     }
                 }
                 sess.err(format!("extern location for {} is of an unknown type: {}",
@@ -713,45 +675,33 @@ pub fn note_crate_name(diag: &SpanHandler, name: &str) {
 
 impl ArchiveMetadata {
     fn new(ar: ArchiveRO) -> Option<ArchiveMetadata> {
-        let data: &'static [u8] = {
-            let data = match ar.read(METADATA_FILENAME) {
-                Some(data) => data,
-                None => {
-                    debug!("didn't find '{}' in the archive", METADATA_FILENAME);
-                    return None;
-                }
-            };
-            // This data is actually a pointer inside of the archive itself, but
-            // we essentially want to cache it because the lookup inside the
-            // archive is a fairly expensive operation (and it's queried for
-            // *very* frequently). For this reason, we transmute it to the
-            // static lifetime to put into the struct. Note that the buffer is
-            // never actually handed out with a static lifetime, but rather the
-            // buffer is loaned with the lifetime of this containing object.
-            // Hence, we're guaranteed that the buffer will never be used after
-            // this object is dead, so this is a safe operation to transmute and
-            // store the data as a static buffer.
-            unsafe { mem::transmute(data) }
+        let data = match ar.read(METADATA_FILENAME) {
+            Some(data) => data as *const [u8],
+            None => {
+                debug!("didn't find '{}' in the archive", METADATA_FILENAME);
+                return None;
+            }
         };
+
         Some(ArchiveMetadata {
             _archive: ar,
             data: data,
         })
     }
 
-    pub fn as_slice<'a>(&'a self) -> &'a [u8] { self.data }
+    pub fn as_slice<'a>(&'a self) -> &'a [u8] { unsafe { &*self.data } }
 }
 
 // Just a small wrapper to time how long reading metadata takes.
-fn get_metadata_section(os: abi::Os, filename: &Path) -> Result<MetadataBlob, String> {
+fn get_metadata_section(is_osx: bool, filename: &Path) -> Result<MetadataBlob, String> {
     let start = time::precise_time_ns();
-    let ret = get_metadata_section_imp(os, filename);
+    let ret = get_metadata_section_imp(is_osx, filename);
     info!("reading {} => {}ms", filename.filename_display(),
            (time::precise_time_ns() - start) / 1000000);
     return ret;
 }
 
-fn get_metadata_section_imp(os: abi::Os, filename: &Path) -> Result<MetadataBlob, String> {
+fn get_metadata_section_imp(is_osx: bool, filename: &Path) -> Result<MetadataBlob, String> {
     if !filename.exists() {
         return Err(format!("no such file: '{}'", filename.display()));
     }
@@ -797,12 +747,12 @@ fn get_metadata_section_imp(os: abi::Os, filename: &Path) -> Result<MetadataBlob
             let name = string::raw::from_buf_len(name_buf as *const u8,
                                               name_len as uint);
             debug!("get_metadata_section: name {}", name);
-            if read_meta_section_name(os).as_slice() == name.as_slice() {
+            if read_meta_section_name(is_osx).as_slice() == name.as_slice() {
                 let cbuf = llvm::LLVMGetSectionContents(si.llsi);
                 let csz = llvm::LLVMGetSectionSize(si.llsi) as uint;
                 let mut found =
                     Err(format!("metadata not found: '{}'", filename.display()));
-                let cvbuf: *const u8 = mem::transmute(cbuf);
+                let cvbuf: *const u8 = cbuf as *const u8;
                 let vlen = encoder::metadata_encoding_version.len();
                 debug!("checking {} bytes of metadata-version stamp",
                        vlen);
@@ -838,36 +788,26 @@ fn get_metadata_section_imp(os: abi::Os, filename: &Path) -> Result<MetadataBlob
     }
 }
 
-pub fn meta_section_name(os: abi::Os) -> Option<&'static str> {
-    match os {
-        abi::OsMacos => Some("__DATA,__note.rustc"),
-        abi::OsiOS => Some("__DATA,__note.rustc"),
-        abi::OsWindows => Some(".note.rustc"),
-        abi::OsLinux => Some(".note.rustc"),
-        abi::OsAndroid => Some(".note.rustc"),
-        abi::OsFreebsd => Some(".note.rustc"),
-        abi::OsDragonfly => Some(".note.rustc"),
-        abi::OsNaCl => None,
+pub fn meta_section_name(is_osx: bool) -> &'static str {
+    if is_osx {
+        "__DATA,__note.rustc"
+    } else {
+        ".note.rustc"
     }
 }
 
-pub fn read_meta_section_name(os: abi::Os) -> &'static str {
-    match os {
-        abi::OsMacos => "__note.rustc",
-        abi::OsiOS => unreachable!(),
-        abi::OsWindows => ".note.rustc",
-        abi::OsLinux => ".note.rustc",
-        abi::OsAndroid => ".note.rustc",
-        abi::OsFreebsd => ".note.rustc",
-        abi::OsDragonfly => ".note.rustc",
-        abi::OsNaCl => ".note.rustc",
+pub fn read_meta_section_name(is_osx: bool) -> &'static str {
+    if is_osx {
+        "__note.rustc"
+    } else {
+        ".note.rustc"
     }
 }
 
 // A diagnostic function for dumping crate metadata to an output stream
-pub fn list_file_metadata(os: abi::Os, path: &Path,
+pub fn list_file_metadata(is_osx: bool, path: &Path,
                           out: &mut io::Writer) -> io::IoResult<()> {
-    match get_metadata_section(os, path) {
+    match get_metadata_section(is_osx, path) {
         Ok(bytes) => decoder::list_crate_metadata(bytes.as_slice(), out),
         Err(msg) => {
             write!(out, "{}\n", msg)

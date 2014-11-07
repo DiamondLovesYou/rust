@@ -17,9 +17,7 @@
 // === GDB TESTS ===================================================================================
 
 // gdb-command:set print union on
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print case1
 // gdb-check:$1 = {{RUST$ENUM$DISR = Case1, a = 0, b = 31868, c = 31868, d = 31868, e = 31868}, {RUST$ENUM$DISR = Case1, a = 0, b = 2088533116, c = 2088533116}, {RUST$ENUM$DISR = Case1, a = 0, b = 8970181431921507452}}
@@ -50,7 +48,7 @@
 // lldb-command:print univariant
 // lldb-check:[...]$3 = TheOnlyCase { a: -1 }
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 #![feature(struct_variant)]
 
 // The first element is to ensure proper alignment, irrespective of the machines word size. Since

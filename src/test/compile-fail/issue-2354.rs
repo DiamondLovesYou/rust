@@ -8,10 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn foo() { //~ NOTE Did you mean to close this delimiter?
+fn foo() { //~ HELP did you mean to close this delimiter?
   match Some(x) {
-      Some(y) { fail!(); }
-      None    { fail!(); }
+      Some(y) { panic!(); }
+      None    { panic!(); }
 }
 
 fn bar() {

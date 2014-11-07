@@ -8,7 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-windows: FIXME #13256
 // ignore-android: FIXME(#10381)
 // min-lldb-version: 310
 
@@ -16,10 +15,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:set print pretty off
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 // gdb-command:print empty.length
 // gdb-check:$1 = 0
 
@@ -80,7 +76,7 @@
 // lldb-command:print padded_struct
 // lldb-check:[...]$5 = &[AStruct { x: 10, y: 11, z: 12 }, AStruct { x: 13, y: 14, z: 15 }]
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 #![feature(slicing_syntax)]
 
 struct AStruct {

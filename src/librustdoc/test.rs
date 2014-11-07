@@ -183,7 +183,7 @@ fn runtest(test: &str, cratename: &str, libs: Vec<Path>, externs: core::Externs,
     // environment to ensure that the target loads the right libraries at
     // runtime. It would be a sad day if the *host* libraries were loaded as a
     // mistake.
-    let mut cmd = Command::new(outdir.path().join("rust_out"));
+    let mut cmd = Command::new(outdir.path().join("rust-out"));
     let newpath = {
         let mut path = DynamicLibrary::search_path();
         path.insert(0, libdir.clone());
@@ -192,15 +192,15 @@ fn runtest(test: &str, cratename: &str, libs: Vec<Path>, externs: core::Externs,
     cmd.env(DynamicLibrary::envvar(), newpath.as_slice());
 
     match cmd.output() {
-        Err(e) => fail!("couldn't run the test: {}{}", e,
+        Err(e) => panic!("couldn't run the test: {}{}", e,
                         if e.kind == io::PermissionDenied {
                             " - maybe your tempdir is mounted with noexec?"
                         } else { "" }),
         Ok(out) => {
             if should_fail && out.status.success() {
-                fail!("test executable succeeded when it should have failed");
+                panic!("test executable succeeded when it should have failed");
             } else if !should_fail && !out.status.success() {
-                fail!("test executable failed:\n{}",
+                panic!("test executable failed:\n{}",
                       str::from_utf8(out.error.as_slice()));
             }
         }
@@ -212,7 +212,7 @@ pub fn maketest(s: &str, cratename: Option<&str>, lints: bool, dont_insert_main:
     if lints {
         prog.push_str(r"
 #![deny(warnings)]
-#![allow(unused_variable, dead_assignment, unused_mut, unused_attribute, dead_code)]
+#![allow(unused_variables, unused_assignments, unused_mut, unused_attributes, dead_code)]
 ");
     }
 

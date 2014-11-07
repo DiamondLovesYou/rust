@@ -22,7 +22,6 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:set print pretty off
 // gdb-command:rbreak immediate_args
 // gdb-command:rbreak binding
 // gdb-command:rbreak assignment
@@ -245,11 +244,11 @@
 // lldb-check:[...]$31 = 45
 // lldb-command:continue
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 #[no_stack_check]
 fn immediate_args(a: int, b: bool, c: f64) {
-    ()
+    ::std::io::print("");
 }
 
 struct BigStruct {
@@ -265,17 +264,19 @@ struct BigStruct {
 
 #[no_stack_check]
 fn non_immediate_args(a: BigStruct, b: BigStruct) {
-    ()
+    ::std::io::print("");
 }
 
 #[no_stack_check]
 fn binding(a: i64, b: u64, c: f64) {
     let x = 0i;
+    ::std::io::print("");
 }
 
 #[no_stack_check]
 fn assignment(mut a: u64, b: u64, c: f64) {
     a = b;
+    ::std::io::print("");
 }
 
 #[no_stack_check]

@@ -16,10 +16,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:set print pretty off
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print packed
 // gdb-check:$1 = {x = 123, y = 234, z = 345}
@@ -62,7 +59,7 @@
 // lldb-command:print sizeof(packedInPacked)
 // lldb-check:[...]$5 = 40
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 #[repr(packed)]
 struct Packed {

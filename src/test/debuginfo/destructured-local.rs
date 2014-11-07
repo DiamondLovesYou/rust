@@ -15,9 +15,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print a
 // gdb-check:$1 = 1
@@ -245,7 +243,7 @@
 // lldb-check:[...]$42 = 56
 
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 struct Struct {
     a: i64,

@@ -91,7 +91,7 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, allow_method: bool,
     // Parse the leading function expression (maybe a block, maybe a path)
     let invocation = if allow_method {
         let e = p.parse_expr();
-        if !p.eat(&token::COMMA) {
+        if !p.eat(&token::Comma) {
             ecx.span_err(sp, "expected token: `,`");
             return (Call(e), None);
         }
@@ -99,28 +99,27 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, allow_method: bool,
     } else {
         Call(p.parse_expr())
     };
-    if !p.eat(&token::COMMA) {
+    if !p.eat(&token::Comma) {
         ecx.span_err(sp, "expected token: `,`");
         return (invocation, None);
     }
 
-    if p.token == token::EOF {
+    if p.token == token::Eof {
         ecx.span_err(sp, "requires at least a format string argument");
         return (invocation, None);
     }
     let fmtstr = p.parse_expr();
     let mut named = false;
-    while p.token != token::EOF {
-        if !p.eat(&token::COMMA) {
+    while p.token != token::Eof {
+        if !p.eat(&token::Comma) {
             ecx.span_err(sp, "expected token: `,`");
             return (invocation, None);
         }
-        if p.token == token::EOF { break } // accept trailing commas
-        if named || (token::is_ident(&p.token) &&
-                     p.look_ahead(1, |t| *t == token::EQ)) {
+        if p.token == token::Eof { break } // accept trailing commas
+        if named || (p.token.is_ident() && p.look_ahead(1, |t| *t == token::Eq)) {
             named = true;
             let ident = match p.token {
-                token::IDENT(i, _) => {
+                token::Ident(i, _) => {
                     p.bump();
                     i
                 }
@@ -139,9 +138,9 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, allow_method: bool,
             };
             let interned_name = token::get_ident(ident);
             let name = interned_name.get();
-            p.expect(&token::EQ);
+            p.expect(&token::Eq);
             let e = p.parse_expr();
-            match names.find_equiv(&name) {
+            match names.find_equiv(name) {
                 None => {}
                 Some(prev) => {
                     ecx.span_err(e.span,
@@ -248,7 +247,7 @@ impl<'a, 'b> Context<'a, 'b> {
                     self.verify_same(self.args[arg].span, &ty, arg_type);
                 }
                 if self.arg_types[arg].is_none() {
-                    *self.arg_types.get_mut(arg) = Some(ty);
+                    self.arg_types[arg] = Some(ty);
                 }
             }
 
@@ -363,7 +362,7 @@ impl<'a, 'b> Context<'a, 'b> {
                 self.ecx.expr_path(path)
             }
             parse::CountIsName(n) => {
-                let i = match self.name_positions.find_equiv(&n) {
+                let i = match self.name_positions.find_equiv(n) {
                     Some(&i) => i,
                     None => 0, // error already emitted elsewhere
                 };
@@ -407,7 +406,7 @@ impl<'a, 'b> Context<'a, 'b> {
                     // Named arguments are converted to positional arguments at
                     // the end of the list of arguments
                     parse::ArgumentNamed(n) => {
-                        let i = match self.name_positions.find_equiv(&n) {
+                        let i = match self.name_positions.find_equiv(n) {
                             Some(&i) => i,
                             None => 0, // error already emitted elsewhere
                         };
@@ -568,7 +567,7 @@ impl<'a, 'b> Context<'a, 'b> {
             let lname = self.ecx.ident_of(format!("__arg{}",
                                                   *name).as_slice());
             pats.push(self.ecx.pat_ident(e.span, lname));
-            *names.get_mut(self.name_positions[*name]) =
+            names[self.name_positions[*name]] =
                 Some(Context::format_arg(self.ecx, e.span, arg_ty,
                                          self.ecx.expr_ident(e.span, lname)));
             heads.push(self.ecx.expr_addr_of(e.span, e));
@@ -664,28 +663,28 @@ impl<'a, 'b> Context<'a, 'b> {
     fn format_arg(ecx: &ExtCtxt, sp: Span,
                   ty: &ArgumentType, arg: P<ast::Expr>)
                   -> P<ast::Expr> {
-        let (krate, fmt_fn) = match *ty {
+        let trait_ = match *ty {
             Known(ref tyname) => {
                 match tyname.as_slice() {
-                    ""  => ("std", "secret_show"),
-                    "b" => ("std", "secret_bool"),
-                    "c" => ("std", "secret_char"),
-                    "d" | "i" => ("std", "secret_signed"),
-                    "e" => ("std", "secret_lower_exp"),
-                    "E" => ("std", "secret_upper_exp"),
-                    "f" => ("std", "secret_float"),
-                    "o" => ("std", "secret_octal"),
-                    "p" => ("std", "secret_pointer"),
-                    "s" => ("std", "secret_string"),
-                    "t" => ("std", "secret_binary"),
-                    "u" => ("std", "secret_unsigned"),
-                    "x" => ("std", "secret_lower_hex"),
-                    "X" => ("std", "secret_upper_hex"),
+                    ""  => "Show",
+                    "b" => "Bool",
+                    "c" => "Char",
+                    "d" | "i" => "Signed",
+                    "e" => "LowerExp",
+                    "E" => "UpperExp",
+                    "f" => "Float",
+                    "o" => "Octal",
+                    "p" => "Pointer",
+                    "s" => "String",
+                    "t" => "Binary",
+                    "u" => "Unsigned",
+                    "x" => "LowerHex",
+                    "X" => "UpperHex",
                     _ => {
                         ecx.span_err(sp,
                                      format!("unknown format trait `{}`",
                                              *tyname).as_slice());
-                        ("std", "dummy")
+                        "Dummy"
                     }
                 }
             }
@@ -698,9 +697,10 @@ impl<'a, 'b> Context<'a, 'b> {
         };
 
         let format_fn = ecx.path_global(sp, vec![
-                ecx.ident_of(krate),
+                ecx.ident_of("std"),
                 ecx.ident_of("fmt"),
-                ecx.ident_of(fmt_fn)]);
+                ecx.ident_of(trait_),
+                ecx.ident_of("fmt")]);
         ecx.expr_call_global(sp, vec![
                 ecx.ident_of("std"),
                 ecx.ident_of("fmt"),

@@ -12,13 +12,12 @@
 
 // FIXME: #6220 Implement floating point formatting
 
-#![allow(unsigned_negate)]
+#![allow(unsigned_negation)]
 
-use collections::Collection;
 use fmt;
 use iter::DoubleEndedIterator;
 use num::{Int, cast, zero};
-use slice::{MutableSlice};
+use slice::{ImmutableSlice, MutableSlice};
 
 /// A type that represents a specific radix
 #[doc(hidden)]
@@ -92,7 +91,7 @@ macro_rules! radix {
             fn digit(&self, x: u8) -> u8 {
                 match x {
                     $($x => $conv,)+
-                    x => fail!("number not in the range 0..{}: {}", self.base() - 1, x),
+                    x => panic!("number not in the range 0..{}: {}", self.base() - 1, x),
                 }
             }
         }
@@ -126,7 +125,7 @@ impl GenericRadix for Radix {
         match x {
             x @  0 ... 9 => b'0' + x,
             x if x < self.base() => b'a' + (x - 10),
-            x => fail!("number not in the range 0..{}: {}", self.base() - 1, x),
+            x => panic!("number not in the range 0..{}: {}", self.base() - 1, x),
         }
     }
 }

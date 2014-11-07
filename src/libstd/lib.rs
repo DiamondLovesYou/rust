@@ -91,7 +91,7 @@
 //! Finally, the [`prelude`](prelude/index.html) defines a
 //! common set of traits, types, and functions that are made available
 //! to all code by default. [`macros`](macros/index.html) contains
-//! all the standard macros, such as `assert!`, `fail!`, `println!`,
+//! all the standard macros, such as `assert!`, `panic!`, `println!`,
 //! and `format!`, also available to all Rust code.
 
 #![crate_name = "std"]
@@ -113,7 +113,7 @@
 // Don't link to std. We are std.
 #![no_std]
 
-#![deny(missing_doc)]
+#![deny(missing_docs)]
 
 #![reexport_test_harness_main = "test_main"]
 
@@ -237,6 +237,7 @@ pub mod time;
 
 /* Common traits */
 
+pub mod error;
 pub mod from_str;
 pub mod num;
 pub mod to_string;
@@ -276,11 +277,12 @@ mod std {
     pub use hash;
 
     pub use comm; // used for select!()
+    pub use error; // used for try!()
     pub use fmt; // used for any formatting strings
     pub use io; // used for println!()
     pub use local_data; // used for local_data_key!()
     pub use option; // used for bitflags!{}
-    pub use rt; // used for fail!()
+    pub use rt; // used for panic!()
     pub use vec; // used for vec![]
 
     // The test runner calls ::std::os::args() but really wants realstd

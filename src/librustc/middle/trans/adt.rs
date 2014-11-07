@@ -43,9 +43,8 @@
  *   taken to it, implementing them for Rust seems difficult.
  */
 
-#![allow(unsigned_negate)]
+#![allow(unsigned_negation)]
 
-use std::collections::Map;
 use std::num::Int;
 use std::rc::Rc;
 
@@ -63,7 +62,6 @@ use middle::trans::type_::Type;
 use middle::trans::type_of;
 use middle::ty;
 use middle::ty::Disr;
-use syntax::abi::{X86, X86_64, Arm, Mips, Mipsel, Le32};
 use syntax::ast;
 use syntax::attr;
 use syntax::attr::IntType;
@@ -176,8 +174,8 @@ fn represent_type_uncached(cx: &CrateContext, t: ty::t) -> Repr {
 
             return Univariant(mk_struct(cx, ftys.as_slice(), packed, t), dtor)
         }
-        ty::ty_unboxed_closure(def_id, _) => {
-            let upvars = ty::unboxed_closure_upvars(cx.tcx(), def_id);
+        ty::ty_unboxed_closure(def_id, _, ref substs) => {
+            let upvars = ty::unboxed_closure_upvars(cx.tcx(), def_id, substs);
             let upvar_types = upvars.iter().map(|u| u.ty).collect::<Vec<_>>();
             return Univariant(mk_struct(cx, upvar_types.as_slice(), false, t),
                               false)
@@ -393,12 +391,12 @@ fn mk_cenum(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> Repr {
 fn range_to_inttype(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> IntType {
     debug!("range_to_inttype: {} {}", hint, bounds);
     // Lists of sizes to try.  u64 is always allowed as a fallback.
-    #[allow(non_uppercase_statics)]
+    #[allow(non_upper_case_globals)]
     static choose_shortest: &'static[IntType] = &[
         attr::UnsignedInt(ast::TyU8), attr::SignedInt(ast::TyI8),
         attr::UnsignedInt(ast::TyU16), attr::SignedInt(ast::TyI16),
         attr::UnsignedInt(ast::TyU32), attr::SignedInt(ast::TyI32)];
-    #[allow(non_uppercase_statics)]
+    #[allow(non_upper_case_globals)]
     static at_least_32: &'static[IntType] = &[
         attr::UnsignedInt(ast::TyU32), attr::SignedInt(ast::TyI32)];
 
@@ -411,14 +409,12 @@ fn range_to_inttype(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> IntTyp
             return ity;
         }
         attr::ReprExtern => {
-            attempts = match cx.sess().targ_cfg.arch {
-                X86 | X86_64 | Le32 => at_least_32,
+            attempts = match cx.sess().target.target.arch.as_slice() {
                 // WARNING: the ARM EABI has two variants; the one corresponding to `at_least_32`
                 // appears to be used on Linux and NetBSD, but some systems may use the variant
                 // corresponding to `choose_shortest`.  However, we don't run on those yet...?
-                Arm => at_least_32,
-                Mips => at_least_32,
-                Mipsel => at_least_32,
+                "arm" => at_least_32,
+                _ => at_least_32,
             }
         }
         attr::ReprAny => {
@@ -595,7 +591,7 @@ fn generic_type_of(cx: &CrateContext,
                                  Type::array(&Type::i64(cx), align_units),
                 a if a.count_ones() == 1 => Type::array(&Type::vector(&Type::i32(cx), a / 4),
                                                               align_units),
-                _ => fail!("unsupported enum alignment: {}", align)
+                _ => panic!("unsupported enum alignment: {}", align)
             };
 
             // This check will fail in the presence of SIMD types while

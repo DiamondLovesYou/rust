@@ -18,7 +18,7 @@
 use mem::transmute;
 use option::{None, Option, Some};
 use iter::range_step;
-use collections::Collection;
+use slice::ImmutableSlice;
 
 // UTF-8 ranges and tags for encoding characters
 static TAG_CONT: u8    = 0b1000_0000u8;
@@ -120,7 +120,7 @@ pub fn is_digit_radix(c: char, radix: uint) -> bool {
 #[inline]
 pub fn to_digit(c: char, radix: uint) -> Option<uint> {
     if radix > 36 {
-        fail!("to_digit: radix is too high (maximum 36)");
+        panic!("to_digit: radix is too high (maximum 36)");
     }
     let val = match c {
       '0' ... '9' => c as uint - ('0' as uint),
@@ -147,7 +147,7 @@ pub fn to_digit(c: char, radix: uint) -> Option<uint> {
 #[inline]
 pub fn from_digit(num: uint, radix: uint) -> Option<char> {
     if radix > 36 {
-        fail!("from_digit: radix is too high (maximum 36)");
+        panic!("from_digit: radix is to high (maximum 36)");
     }
     if num < radix {
         unsafe {
@@ -176,7 +176,7 @@ pub fn escape_unicode(c: char, f: |char|) {
     // here.
     f('\\');
     let pad = match () {
-        _ if c <= '\xff'    => { f('x'); 2 }
+        _ if c <= '\x7f'    => { f('x'); 2 }
         _ if c <= '\uffff'  => { f('u'); 4 }
         _                   => { f('U'); 8 }
     };

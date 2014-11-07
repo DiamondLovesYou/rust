@@ -13,6 +13,7 @@
 //! Base64 binary-to-text encoding
 use std::fmt;
 use std::string;
+use std::error;
 
 /// Available encoding character sets
 pub enum CharacterSet {
@@ -144,7 +145,7 @@ impl<'a> ToBase64 for &'a [u8] {
                     v.push(b'=');
                 }
             }
-            _ => fail!("Algebra is broken, please alert the math police")
+            _ => panic!("Algebra is broken, please alert the math police")
         }
 
         unsafe {
@@ -175,6 +176,19 @@ impl fmt::Show for FromBase64Error {
                 write!(f, "Invalid character '{}' at position {}", ch, idx),
             InvalidBase64Length => write!(f, "Invalid length"),
         }
+    }
+}
+
+impl error::Error for FromBase64Error {
+    fn description(&self) -> &str {
+        match *self {
+            InvalidBase64Byte(_, _) => "invalid character",
+            InvalidBase64Length => "invalid length",
+        }
+    }
+
+    fn detail(&self) -> Option<String> {
+        Some(self.to_string())
     }
 }
 

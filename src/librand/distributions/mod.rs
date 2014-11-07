@@ -129,7 +129,7 @@ impl<'a, T: Clone> WeightedChoice<'a, T> {
         for item in items.iter_mut() {
             running_total = match running_total.checked_add(&item.weight) {
                 Some(n) => n,
-                None => fail!("WeightedChoice::new called with a total weight \
+                None => panic!("WeightedChoice::new called with a total weight \
                                larger than a uint can contain")
             };
 
@@ -227,6 +227,13 @@ fn ziggurat<R:Rng>(
         // creating a f64), so we might as well reuse some to save
         // generating a whole extra random number. (Seems to be 15%
         // faster.)
+        //
+        // This unfortunately misses out on the benefits of direct
+        // floating point generation if an RNG like dSMFT is
+        // used. (That is, such RNGs create floats directly, highly
+        // efficiently and overload next_f32/f64, so by not calling it
+        // this may be slower than it would be otherwise.)
+        // FIXME: investigate/optimise for the above.
         let bits: u64 = rng.gen();
         let i = (bits & 0xff) as uint;
         let f = (bits >> 11) as f64 / SCALE;

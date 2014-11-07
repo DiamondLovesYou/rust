@@ -65,7 +65,7 @@ impl ParseSess {
 
         match v.checked_add(&count) {
             Some(next) => { self.node_id.set(next); }
-            None => fail!("Input too large, ran out of node ids!")
+            None => panic!("Input too large, ran out of node ids!")
         }
 
         v
@@ -381,7 +381,7 @@ pub fn char_lit(lit: &str) -> (char, int) {
             '0' => Some('\0'),
             _ => { None }
         },
-        _ => fail!("lexer accepted invalid char escape `{}`", lit)
+        _ => panic!("lexer accepted invalid char escape `{}`", lit)
     };
 
     match c {
@@ -434,7 +434,7 @@ pub fn str_lit(lit: &str) -> String {
                 match c {
                     '\\' => {
                         let ch = chars.peek().unwrap_or_else(|| {
-                            fail!("{}", error(i).as_slice())
+                            panic!("{}", error(i).as_slice())
                         }).val1();
 
                         if ch == '\n' {
@@ -442,11 +442,11 @@ pub fn str_lit(lit: &str) -> String {
                         } else if ch == '\r' {
                             chars.next();
                             let ch = chars.peek().unwrap_or_else(|| {
-                                fail!("{}", error(i).as_slice())
+                                panic!("{}", error(i).as_slice())
                             }).val1();
 
                             if ch != '\n' {
-                                fail!("lexer accepted bare CR");
+                                panic!("lexer accepted bare CR");
                             }
                             eat(&mut chars);
                         } else {
@@ -460,11 +460,11 @@ pub fn str_lit(lit: &str) -> String {
                     },
                     '\r' => {
                         let ch = chars.peek().unwrap_or_else(|| {
-                            fail!("{}", error(i).as_slice())
+                            panic!("{}", error(i).as_slice())
                         }).val1();
 
                         if ch != '\n' {
-                            fail!("lexer accepted bare CR");
+                            panic!("lexer accepted bare CR");
                         }
                         chars.next();
                         res.push('\n');
@@ -494,7 +494,7 @@ pub fn raw_str_lit(lit: &str) -> String {
             Some(c) => {
                 if c == '\r' {
                     if *chars.peek().unwrap() != '\n' {
-                        fail!("lexer accepted bare CR");
+                        panic!("lexer accepted bare CR");
                     }
                     chars.next();
                     res.push('\n');
@@ -553,11 +553,11 @@ pub fn byte_lit(lit: &str) -> (u8, uint) {
                 match ::std::num::from_str_radix::<u64>(lit.slice(2, 4), 16) {
                     Some(c) =>
                         if c > 0xFF {
-                            fail!(err(2))
+                            panic!(err(2))
                         } else {
                             return (c as u8, 4)
                         },
-                    None => fail!(err(3))
+                    None => panic!(err(3))
                 }
             }
         };
@@ -594,7 +594,7 @@ pub fn binary_lit(lit: &str) -> Rc<Vec<u8>> {
                     b'\r' => {
                         chars.next();
                         if chars.peek().expect(em.as_slice()).val1() != b'\n' {
-                            fail!("lexer accepted bare CR");
+                            panic!("lexer accepted bare CR");
                         }
                         eat(&mut chars);
                     }
@@ -612,7 +612,7 @@ pub fn binary_lit(lit: &str) -> Rc<Vec<u8>> {
             Some((i, b'\r')) => {
                 let em = error(i);
                 if chars.peek().expect(em.as_slice()).val1() != b'\n' {
-                    fail!("lexer accepted bare CR");
+                    panic!("lexer accepted bare CR");
                 }
                 chars.next();
                 res.push(b'\n');
@@ -788,182 +788,152 @@ mod test {
     }
 
     // check the token-tree-ization of macros
-    #[test] fn string_to_tts_macro () {
+    #[test]
+    fn string_to_tts_macro () {
         let tts = string_to_tts("macro_rules! zip (($a)=>($a))".to_string());
         let tts: &[ast::TokenTree] = tts.as_slice();
         match tts {
-            [ast::TTTok(_,_),
-             ast::TTTok(_,token::NOT),
-             ast::TTTok(_,_),
-             ast::TTDelim(ref delim_elts)] => {
-                let delim_elts: &[ast::TokenTree] = delim_elts.as_slice();
-                match delim_elts {
-                    [ast::TTTok(_,token::LPAREN),
-                     ast::TTDelim(ref first_set),
-                     ast::TTTok(_,token::FAT_ARROW),
-                     ast::TTDelim(ref second_set),
-                     ast::TTTok(_,token::RPAREN)] => {
-                        let first_set: &[ast::TokenTree] =
-                            first_set.as_slice();
-                        match first_set {
-                            [ast::TTTok(_,token::LPAREN),
-                             ast::TTTok(_,token::DOLLAR),
-                             ast::TTTok(_,_),
-                             ast::TTTok(_,token::RPAREN)] => {
-                                let second_set: &[ast::TokenTree] =
-                                    second_set.as_slice();
-                                match second_set {
-                                    [ast::TTTok(_,token::LPAREN),
-                                     ast::TTTok(_,token::DOLLAR),
-                                     ast::TTTok(_,_),
-                                     ast::TTTok(_,token::RPAREN)] => {
-                                        assert_eq!("correct","correct")
-                                    }
-                                    _ => assert_eq!("wrong 4","correct")
-                                }
-                            },
-                            _ => {
-                                error!("failing value 3: {}",first_set);
-                                assert_eq!("wrong 3","correct")
-                            }
+            [ast::TtToken(_, token::Ident(name_macro_rules, token::Plain)),
+             ast::TtToken(_, token::Not),
+             ast::TtToken(_, token::Ident(name_zip, token::Plain)),
+             ast::TtDelimited(_, ref macro_delimed)]
+            if name_macro_rules.as_str() == "macro_rules"
+            && name_zip.as_str() == "zip" => {
+                match macro_delimed.tts.as_slice() {
+                    [ast::TtDelimited(_, ref first_delimed),
+                     ast::TtToken(_, token::FatArrow),
+                     ast::TtDelimited(_, ref second_delimed)]
+                    if macro_delimed.delim == token::Paren => {
+                        match first_delimed.tts.as_slice() {
+                            [ast::TtToken(_, token::Dollar),
+                             ast::TtToken(_, token::Ident(name, token::Plain))]
+                            if first_delimed.delim == token::Paren
+                            && name.as_str() == "a" => {},
+                            _ => panic!("value 3: {}", **first_delimed),
+                        }
+                        match second_delimed.tts.as_slice() {
+                            [ast::TtToken(_, token::Dollar),
+                             ast::TtToken(_, token::Ident(name, token::Plain))]
+                            if second_delimed.delim == token::Paren
+                            && name.as_str() == "a" => {},
+                            _ => panic!("value 4: {}", **second_delimed),
                         }
                     },
-                    _ => {
-                        error!("failing value 2: {}",delim_elts);
-                        assert_eq!("wrong","correct");
-                    }
+                    _ => panic!("value 2: {}", **macro_delimed),
                 }
             },
-            _ => {
-                error!("failing value: {}",tts);
-                assert_eq!("wrong 1","correct");
-            }
+            _ => panic!("value: {}",tts),
         }
     }
 
-    #[test] fn string_to_tts_1 () {
+    #[test]
+    fn string_to_tts_1 () {
         let tts = string_to_tts("fn a (b : int) { b; }".to_string());
         assert_eq!(json::encode(&tts),
         "[\
     {\
-        \"variant\":\"TTTok\",\
+        \"variant\":\"TtToken\",\
         \"fields\":[\
             null,\
             {\
-                \"variant\":\"IDENT\",\
+                \"variant\":\"Ident\",\
                 \"fields\":[\
                     \"fn\",\
-                    false\
+                    \"Plain\"\
                 ]\
             }\
         ]\
     },\
     {\
-        \"variant\":\"TTTok\",\
+        \"variant\":\"TtToken\",\
         \"fields\":[\
             null,\
             {\
-                \"variant\":\"IDENT\",\
+                \"variant\":\"Ident\",\
                 \"fields\":[\
                     \"a\",\
-                    false\
+                    \"Plain\"\
                 ]\
             }\
         ]\
     },\
     {\
-        \"variant\":\"TTDelim\",\
+        \"variant\":\"TtDelimited\",\
         \"fields\":[\
-            [\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        \"LPAREN\"\
-                    ]\
-                },\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        {\
-                            \"variant\":\"IDENT\",\
-                            \"fields\":[\
-                                \"b\",\
-                                false\
-                            ]\
-                        }\
-                    ]\
-                },\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        \"COLON\"\
-                    ]\
-                },\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        {\
-                            \"variant\":\"IDENT\",\
-                            \"fields\":[\
-                                \"int\",\
-                                false\
-                            ]\
-                        }\
-                    ]\
-                },\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        \"RPAREN\"\
-                    ]\
-                }\
-            ]\
+            null,\
+            {\
+                \"delim\":\"Paren\",\
+                \"open_span\":null,\
+                \"tts\":[\
+                    {\
+                        \"variant\":\"TtToken\",\
+                        \"fields\":[\
+                            null,\
+                            {\
+                                \"variant\":\"Ident\",\
+                                \"fields\":[\
+                                    \"b\",\
+                                    \"Plain\"\
+                                ]\
+                            }\
+                        ]\
+                    },\
+                    {\
+                        \"variant\":\"TtToken\",\
+                        \"fields\":[\
+                            null,\
+                            \"Colon\"\
+                        ]\
+                    },\
+                    {\
+                        \"variant\":\"TtToken\",\
+                        \"fields\":[\
+                            null,\
+                            {\
+                                \"variant\":\"Ident\",\
+                                \"fields\":[\
+                                    \"int\",\
+                                    \"Plain\"\
+                                ]\
+                            }\
+                        ]\
+                    }\
+                ],\
+                \"close_span\":null\
+            }\
         ]\
     },\
     {\
-        \"variant\":\"TTDelim\",\
+        \"variant\":\"TtDelimited\",\
         \"fields\":[\
-            [\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        \"LBRACE\"\
-                    ]\
-                },\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        {\
-                            \"variant\":\"IDENT\",\
-                            \"fields\":[\
-                                \"b\",\
-                                false\
-                            ]\
-                        }\
-                    ]\
-                },\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        \"SEMI\"\
-                    ]\
-                },\
-                {\
-                    \"variant\":\"TTTok\",\
-                    \"fields\":[\
-                        null,\
-                        \"RBRACE\"\
-                    ]\
-                }\
-            ]\
+            null,\
+            {\
+                \"delim\":\"Brace\",\
+                \"open_span\":null,\
+                \"tts\":[\
+                    {\
+                        \"variant\":\"TtToken\",\
+                        \"fields\":[\
+                            null,\
+                            {\
+                                \"variant\":\"Ident\",\
+                                \"fields\":[\
+                                    \"b\",\
+                                    \"Plain\"\
+                                ]\
+                            }\
+                        ]\
+                    },\
+                    {\
+                        \"variant\":\"TtToken\",\
+                        \"fields\":[\
+                            null,\
+                            \"Semi\"\
+                        ]\
+                    }\
+                ],\
+                \"close_span\":null\
+            }\
         ]\
     }\
 ]".to_string()
@@ -1016,7 +986,7 @@ mod test {
     }
 
     fn parser_done(p: Parser){
-        assert_eq!(p.token.clone(), token::EOF);
+        assert_eq!(p.token.clone(), token::Eof);
     }
 
     #[test] fn parse_ident_pat () {

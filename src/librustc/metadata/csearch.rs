@@ -15,6 +15,7 @@
 use metadata::common::*;
 use metadata::cstore;
 use metadata::decoder;
+use middle::def;
 use middle::lang_items;
 use middle::resolve;
 use middle::ty;
@@ -30,12 +31,11 @@ use syntax::attr;
 use syntax::diagnostic::expect;
 use syntax::parse::token;
 
-use std::collections::hashmap::HashMap;
+use std::collections::hash_map::HashMap;
 
-pub struct StaticMethodInfo {
+pub struct MethodInfo {
     pub name: ast::Name,
     pub def_id: ast::DefId,
-    pub fn_style: ast::FnStyle,
     pub vis: ast::Visibility,
 }
 
@@ -115,6 +115,12 @@ pub fn maybe_get_item_ast<'tcx>(tcx: &ty::ctxt<'tcx>, def: ast::DefId,
     decoder::maybe_get_item_ast(&*cdata, tcx, def.node, decode_inlined_item)
 }
 
+pub fn get_enum_variant_defs(cstore: &cstore::CStore, enum_id: ast::DefId)
+                             -> Vec<(def::Def, ast::Name, ast::Visibility)> {
+    let cdata = cstore.get_crate_data(enum_id.krate);
+    decoder::get_enum_variant_defs(&*cstore.intr, &*cdata, enum_id.node)
+}
+
 pub fn get_enum_variants(tcx: &ty::ctxt, def: ast::DefId)
                       -> Vec<Rc<ty::VariantInfo>> {
     let cstore = &tcx.sess.cstore;
@@ -178,11 +184,11 @@ pub fn get_type_name_if_impl(cstore: &cstore::CStore, def: ast::DefId)
     decoder::get_type_name_if_impl(&*cdata, def.node)
 }
 
-pub fn get_static_methods_if_impl(cstore: &cstore::CStore,
+pub fn get_methods_if_impl(cstore: &cstore::CStore,
                                   def: ast::DefId)
-                               -> Option<Vec<StaticMethodInfo> > {
+                               -> Option<Vec<MethodInfo> > {
     let cdata = cstore.get_crate_data(def.krate);
-    decoder::get_static_methods_if_impl(cstore.intr.clone(), &*cdata, def.node)
+    decoder::get_methods_if_impl(cstore.intr.clone(), &*cdata, def.node)
 }
 
 pub fn get_item_attrs(cstore: &cstore::CStore,

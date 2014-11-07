@@ -31,7 +31,7 @@
 //! use regex::Regex;
 //! let re = match Regex::new(r"^\d{4}-\d{2}-\d{2}$") {
 //!     Ok(re) => re,
-//!     Err(err) => fail!("{}", err),
+//!     Err(err) => panic!("{}", err),
 //! };
 //! assert_eq!(re.is_match("2014-01-01"), true);
 //! ```
@@ -370,7 +370,7 @@
 
 #![allow(unknown_features)]
 #![feature(macro_rules, phase, slicing_syntax)]
-#![deny(missing_doc)]
+#![deny(missing_docs)]
 
 #[cfg(test)]
 extern crate "test" as stdtest;

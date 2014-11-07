@@ -17,7 +17,7 @@
 // lifetimes are sublifetimes of 'static.
 
 #![allow(dead_code)]
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 struct S;
 
@@ -31,17 +31,17 @@ fn want_G(f: G) { }
 
 // Should meet both.
 fn foo(x: &S) -> &'static S {
-    fail!()
+    panic!()
 }
 
 // Should meet both.
 fn bar<'a,'b>(x: &'a S) -> &'b S {
-    fail!()
+    panic!()
 }
 
 // Meets F, but not G.
 fn baz(x: &S) -> &S {
-    fail!()
+    panic!()
 }
 
 fn supply_F() {

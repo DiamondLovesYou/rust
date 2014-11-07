@@ -8,17 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(missing_doc)]
+#![allow(missing_docs)]
 
 use char;
-use collections::Collection;
 use fmt;
 use iter::{range, DoubleEndedIterator};
 use num::{Float, FPNaN, FPInfinite, ToPrimitive, Primitive};
 use num::{Zero, One, cast};
 use result::Ok;
-use slice::MutableSlice;
-use slice;
+use slice::{mod, ImmutableSlice, MutableSlice};
 use str::StrSlice;
 
 /// A flag that specifies whether to use exponential (scientific) notation.
@@ -94,7 +92,7 @@ pub fn float_to_str_bytes_common<T: Primitive + Float, U>(
     assert!(2 <= radix && radix <= 36);
     match exp_format {
         ExpDec if radix >= DIGIT_E_RADIX       // decimal exponent 'e'
-          => fail!("float_to_str_bytes_common: radix {} incompatible with \
+          => panic!("float_to_str_bytes_common: radix {} incompatible with \
                     use of 'e' as decimal exponent", radix),
         _ => ()
     }
@@ -127,7 +125,7 @@ pub fn float_to_str_bytes_common<T: Primitive + Float, U>(
         ExpDec => {
             let (exp, exp_base) = match exp_format {
                 ExpDec => (num.abs().log10().floor(), cast::<f64, T>(10.0f64).unwrap()),
-                ExpNone => fail!("unreachable"),
+                ExpNone => panic!("unreachable"),
             };
 
             (num / exp_base.powf(exp), cast::<T, i32>(exp).unwrap())
@@ -299,7 +297,7 @@ pub fn float_to_str_bytes_common<T: Primitive + Float, U>(
             buf[end] = match exp_format {
                 ExpDec if exp_upper => 'E',
                 ExpDec if !exp_upper => 'e',
-                _ => fail!("unreachable"),
+                _ => panic!("unreachable"),
             } as u8;
             end += 1;
 

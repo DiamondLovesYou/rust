@@ -19,7 +19,7 @@
 /// which means that every successful send is paired with a successful recv.
 ///
 /// This flavor of channels defines a new `send_opt` method for channels which
-/// is the method by which a message is sent but the task does not fail if it
+/// is the method by which a message is sent but the task does not panic if it
 /// cannot be delivered.
 ///
 /// Another major difference is that send() will *always* return back the data
@@ -193,7 +193,7 @@ impl<T: Send> Packet<T> {
             // success, someone's about to receive our buffered data.
             BlockedReceiver(task) => { wakeup(task, guard); Ok(()) }
 
-            BlockedSender(..) => fail!("lolwut"),
+            BlockedSender(..) => panic!("lolwut"),
         }
     }
 
@@ -426,7 +426,7 @@ impl<T> Buffer<T> {
     fn enqueue(&mut self, t: T) {
         let pos = (self.start + self.size) % self.buf.len();
         self.size += 1;
-        let prev = mem::replace(self.buf.get_mut(pos), Some(t));
+        let prev = mem::replace(&mut self.buf[pos], Some(t));
         assert!(prev.is_none());
     }
 
@@ -434,7 +434,7 @@ impl<T> Buffer<T> {
         let start = self.start;
         self.size -= 1;
         self.start = (self.start + 1) % self.buf.len();
-        self.buf.get_mut(start).take().unwrap()
+        self.buf[start].take().unwrap()
     }
 
     fn size(&self) -> uint { self.size }

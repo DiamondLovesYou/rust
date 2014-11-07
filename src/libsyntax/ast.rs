@@ -79,9 +79,9 @@ impl PartialEq for Ident {
             //
             // On the other hand, if the comparison does need to be hygienic,
             // one example and its non-hygienic counterpart would be:
-            //      syntax::parse::token::mtwt_token_eq
+            //      syntax::parse::token::Token::mtwt_eq
             //      syntax::ext::tt::macro_parser::token_name_eq
-            fail!("not allowed to compare these idents: {}, {}. \
+            panic!("not allowed to compare these idents: {}, {}. \
                    Probably related to issue \\#6993", self, other);
         }
     }
@@ -116,7 +116,7 @@ impl Name {
     pub fn as_str<'a>(&'a self) -> &'a str {
         unsafe {
             // FIXME #12938: can't use copy_lifetime since &str isn't a &T
-            ::std::mem::transmute(token::get_name(*self).get())
+            ::std::mem::transmute::<&str,&str>(token::get_name(*self).get())
         }
     }
 
@@ -382,7 +382,7 @@ pub enum Pat_ {
     PatLit(P<Expr>),
     PatRange(P<Expr>, P<Expr>),
     /// [a, b, ..i, y, z] is represented as:
-    ///     PatVec(~[a, b], Some(i), ~[y, z])
+    ///     PatVec(box [a, b], Some(i), box [y, z])
     PatVec(Vec<P<Pat>>, Option<P<Pat>>, Vec<P<Pat>>),
     PatMac(Mac),
 }
@@ -436,7 +436,7 @@ pub enum Stmt_ {
     /// Expr with trailing semi-colon (may have any type):
     StmtSemi(P<Expr>, NodeId),
 
-    /// bool: is there a trailing sem-colon?
+    /// bool: is there a trailing semi-colon?
     StmtMac(Mac, bool),
 }
 
@@ -592,6 +592,49 @@ pub enum CaptureClause {
     CaptureByRef,
 }
 
+/// A delimited sequence of token trees
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub struct Delimited {
+    /// The type of delimiter
+    pub delim: token::DelimToken,
+    /// The span covering the opening delimiter
+    pub open_span: Span,
+    /// The delimited sequence of token trees
+    pub tts: Vec<TokenTree>,
+    /// The span covering the closing delimiter
+    pub close_span: Span,
+}
+
+impl Delimited {
+    /// Returns the opening delimiter as a token.
+    pub fn open_token(&self) -> token::Token {
+        token::OpenDelim(self.delim)
+    }
+
+    /// Returns the closing delimiter as a token.
+    pub fn close_token(&self) -> token::Token {
+        token::CloseDelim(self.delim)
+    }
+
+    /// Returns the opening delimiter as a token tree.
+    pub fn open_tt(&self) -> TokenTree {
+        TtToken(self.open_span, self.open_token())
+    }
+
+    /// Returns the closing delimiter as a token tree.
+    pub fn close_tt(&self) -> TokenTree {
+        TtToken(self.close_span, self.close_token())
+    }
+}
+
+/// A Kleene-style [repetition operator](http://en.wikipedia.org/wiki/Kleene_star)
+/// for token sequences.
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub enum KleeneOp {
+    ZeroOrMore,
+    OneOrMore,
+}
+
 /// When the main rust parser encounters a syntax-extension invocation, it
 /// parses the arguments to the invocation as a token-tree. This is a very
 /// loose structure, such that all sorts of different AST-fragments can
@@ -600,9 +643,9 @@ pub enum CaptureClause {
 /// If the syntax extension is an MBE macro, it will attempt to match its
 /// LHS "matchers" against the provided token tree, and if it finds a
 /// match, will transcribe the RHS token tree, splicing in any captured
-/// macro_parser::matched_nonterminals into the TTNonterminals it finds.
+/// `macro_parser::matched_nonterminals` into the `TtNonterminal`s it finds.
 ///
-/// The RHS of an MBE macro is the only place a TTNonterminal or TTSeq
+/// The RHS of an MBE macro is the only place a `TtNonterminal` or `TtSequence`
 /// makes any real sense. You could write them elsewhere but nothing
 /// else knows what to do with them, so you'll probably get a syntax
 /// error.
@@ -610,22 +653,29 @@ pub enum CaptureClause {
 #[doc="For macro invocations; parsing is delegated to the macro"]
 pub enum TokenTree {
     /// A single token
-    TTTok(Span, ::parse::token::Token),
-    /// A delimited sequence (the delimiters appear as the first
-    /// and last elements of the vector)
-    // FIXME(eddyb) #6308 Use Rc<[TokenTree]> after DST.
-    TTDelim(Rc<Vec<TokenTree>>),
+    TtToken(Span, token::Token),
+    /// A delimited sequence of token trees
+    TtDelimited(Span, Rc<Delimited>),
 
     // These only make sense for right-hand-sides of MBE macros:
 
-    /// A kleene-style repetition sequence with a span, a TTForest,
-    /// an optional separator, and a boolean where true indicates
-    /// zero or more (..), and false indicates one or more (+).
+    /// A Kleene-style repetition sequence with an optional separator.
     // FIXME(eddyb) #6308 Use Rc<[TokenTree]> after DST.
-    TTSeq(Span, Rc<Vec<TokenTree>>, Option<::parse::token::Token>, bool),
-
+    TtSequence(Span, Rc<Vec<TokenTree>>, Option<token::Token>, KleeneOp),
     /// A syntactic variable that will be filled in by macro expansion.
-    TTNonterminal(Span, Ident)
+    TtNonterminal(Span, Ident)
+}
+
+impl TokenTree {
+    /// Returns the `Span` corresponding to this token tree.
+    pub fn get_span(&self) -> Span {
+        match *self {
+            TtToken(span, _)           => span,
+            TtDelimited(span, _)       => span,
+            TtSequence(span, _, _, _)  => span,
+            TtNonterminal(span, _)     => span,
+        }
+    }
 }
 
 // Matchers are nodes defined-by and recognized-by the main rust parser and
@@ -683,10 +733,10 @@ pub type Matcher = Spanned<Matcher_>;
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub enum Matcher_ {
     /// Match one token
-    MatchTok(::parse::token::Token),
-    /// Match repetitions of a sequence: body, separator, zero ok?,
+    MatchTok(token::Token),
+    /// Match repetitions of a sequence: body, separator, Kleene operator,
     /// lo, hi position-in-match-array used:
-    MatchSeq(Vec<Matcher> , Option<::parse::token::Token>, bool, uint, uint),
+    MatchSeq(Vec<Matcher>, Option<token::Token>, KleeneOp, uint, uint),
     /// Parse a Rust NT: name to bind, name of NT, position in match array:
     MatchNonterminal(Ident, Ident, uint)
 }
@@ -808,10 +858,8 @@ pub enum ImplItem {
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub struct AssociatedType {
-    pub id: NodeId,
-    pub span: Span,
-    pub ident: Ident,
     pub attrs: Vec<Attribute>,
+    pub ty_param: TyParam,
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]

@@ -71,13 +71,12 @@ fn main() {
 
 */
 
-use alloc::libc_heap::malloc_raw;
 use collections::string::String;
 use collections::hash;
 use core::fmt;
-use core::kinds::marker;
+use core::kinds::{Sized, marker};
 use core::mem;
-use core::prelude::{Clone, Collection, Drop, Eq, ImmutableSlice, Iterator};
+use core::prelude::{Clone, Drop, Eq, ImmutableSlice, Iterator};
 use core::prelude::{MutableSlice, None, Option, Ordering, PartialEq};
 use core::prelude::{PartialOrd, RawPtr, Some, StrSlice, range};
 use core::ptr;
@@ -101,7 +100,8 @@ impl Clone for CString {
     /// with C's allocator API, rather than the usual shallow clone.
     fn clone(&self) -> CString {
         let len = self.len() + 1;
-        let buf = unsafe { malloc_raw(len) } as *mut libc::c_char;
+        let buf = unsafe { libc::malloc(len as libc::size_t) } as *mut libc::c_char;
+        if buf.is_null() { ::alloc::oom() }
         unsafe { ptr::copy_nonoverlapping_memory(buf, self.buf, len); }
         CString { buf: buf as *const libc::c_char, owns_buffer_: true }
     }
@@ -259,6 +259,16 @@ impl CString {
         self.buf
     }
 
+    /// Return the number of bytes in the CString (not including the NUL
+    /// terminator).
+    #[inline]
+    pub fn len(&self) -> uint {
+        unsafe { libc::strlen(self.buf) as uint }
+    }
+
+    /// Returns if there are no bytes in this string
+    #[inline]
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 }
 
 impl Drop for CString {
@@ -271,14 +281,6 @@ impl Drop for CString {
     }
 }
 
-impl Collection for CString {
-    /// Return the number of bytes in the CString (not including the NUL terminator).
-    #[inline]
-    fn len(&self) -> uint {
-        unsafe { libc::strlen(self.buf) as uint }
-    }
-}
-
 impl fmt::Show for CString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         String::from_utf8_lossy(self.as_bytes_no_nul()).fmt(f)
@@ -286,7 +288,7 @@ impl fmt::Show for CString {
 }
 
 /// A generic trait for converting a value to a CString.
-pub trait ToCStr {
+pub trait ToCStr for Sized? {
     /// Copy the receiver into a CString.
     ///
     /// # Failure
@@ -329,15 +331,7 @@ pub trait ToCStr {
     }
 }
 
-// FIXME (#12938): Until DST lands, we cannot decompose &str into &
-// and str, so we cannot usefully take ToCStr arguments by reference
-// (without forcing an additional & around &str). So we are instead
-// temporarily adding an instance for ~str and String, so that we can
-// take ToCStr as owned. When DST lands, the string instances should
-// be revisited, and arguments bound by ToCStr should be passed by
-// reference.
-
-impl<'a> ToCStr for &'a str {
+impl ToCStr for str {
     #[inline]
     fn to_c_str(&self) -> CString {
         self.as_bytes().to_c_str()
@@ -384,16 +378,17 @@ impl ToCStr for String {
 // The length of the stack allocated buffer for `vec.with_c_str()`
 const BUF_LEN: uint = 128;
 
-impl<'a> ToCStr for &'a [u8] {
+impl ToCStr for [u8] {
     fn to_c_str(&self) -> CString {
         let mut cs = unsafe { self.to_c_str_unchecked() };
-        check_for_null(*self, cs.as_mut_ptr());
+        check_for_null(self, cs.as_mut_ptr());
         cs
     }
 
     unsafe fn to_c_str_unchecked(&self) -> CString {
         let self_len = self.len();
-        let buf = malloc_raw(self_len + 1);
+        let buf = libc::malloc(self_len as libc::size_t + 1) as *mut u8;
+        if buf.is_null() { ::alloc::oom() }
 
         ptr::copy_memory(buf, self.as_ptr(), self_len);
         *buf.offset(self_len as int) = 0;
@@ -402,11 +397,33 @@ impl<'a> ToCStr for &'a [u8] {
     }
 
     fn with_c_str<T>(&self, f: |*const libc::c_char| -> T) -> T {
-        unsafe { with_c_str(*self, true, f) }
+        unsafe { with_c_str(self, true, f) }
     }
 
     unsafe fn with_c_str_unchecked<T>(&self, f: |*const libc::c_char| -> T) -> T {
-        with_c_str(*self, false, f)
+        with_c_str(self, false, f)
+    }
+}
+
+impl<'a, Sized? T: ToCStr> ToCStr for &'a T {
+    #[inline]
+    fn to_c_str(&self) -> CString {
+        (**self).to_c_str()
+    }
+
+    #[inline]
+    unsafe fn to_c_str_unchecked(&self) -> CString {
+        (**self).to_c_str_unchecked()
+    }
+
+    #[inline]
+    fn with_c_str<T>(&self, f: |*const libc::c_char| -> T) -> T {
+        (**self).with_c_str(f)
+    }
+
+    #[inline]
+    unsafe fn with_c_str_unchecked<T>(&self, f: |*const libc::c_char| -> T) -> T {
+        (**self).with_c_str_unchecked(f)
     }
 }
 

@@ -15,10 +15,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:set print pretty off
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print no_padding1
 // gdb-check:$1 = {{0, 1}, 2, 3}
@@ -59,7 +56,7 @@
 // lldb-command:print padding_at_end2
 // lldb-check:[...]$6 = ((21, 22), 23)
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 fn main() {
     let no_padding1: ((u32, u32), u32, u32) = ((0, 1), 2, 3);

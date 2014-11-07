@@ -9,7 +9,7 @@
 // except according to those terms.
 
 #![allow(non_camel_case_types)]
-#![allow(unsigned_negate)]
+#![allow(unsigned_negation)]
 
 use metadata::csearch;
 use middle::astencode;
@@ -28,7 +28,7 @@ use syntax::visit;
 use syntax::{ast, ast_map, ast_util, codemap};
 
 use std::rc::Rc;
-use std::collections::hashmap::Vacant;
+use std::collections::hash_map::Vacant;
 
 //
 // This pass classifies expressions by their constant-ness.
@@ -341,7 +341,7 @@ pub fn const_expr_to_pat(tcx: &ty::ctxt, expr: &Expr) -> P<Pat> {
                 node: FieldPat {
                     ident: field.ident.node,
                     pat: const_expr_to_pat(tcx, &*field.expr),
-                    is_shorthand: true,
+                    is_shorthand: false,
                 },
             }).collect();
             PatStruct(path.clone(), field_pats, false)

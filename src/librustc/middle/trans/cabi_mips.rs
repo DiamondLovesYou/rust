@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(non_uppercase_statics)]
+#![allow(non_upper_case_globals)]
 
 use libc::c_uint;
 use std::cmp;
@@ -50,7 +50,7 @@ fn ty_align(ty: Type) -> uint {
             let elt = ty.element_type();
             ty_align(elt)
         }
-        _ => fail!("ty_size: unhandled type")
+        _ => panic!("ty_size: unhandled type")
     }
 }
 
@@ -80,7 +80,7 @@ fn ty_size(ty: Type) -> uint {
             let eltsz = ty_size(elt);
             len * eltsz
         }
-        _ => fail!("ty_size: unhandled type")
+        _ => panic!("ty_size: unhandled type")
     }
 }
 

@@ -88,7 +88,7 @@ use middle::ty;
 use middle::typeck::astconv::AstConv;
 use middle::typeck::check::{FnCtxt, NoPreference, PreferMutLvalue};
 use middle::typeck::check::{impl_self_ty};
-use middle::typeck::check::vtable2::select_fcx_obligations_where_possible;
+use middle::typeck::check::vtable::select_new_fcx_obligations;
 use middle::typeck::check;
 use middle::typeck::infer;
 use middle::typeck::{MethodCall, MethodCallee};
@@ -223,16 +223,36 @@ pub fn report_error(fcx: &FnCtxt,
 {
     match error {
         NoMatch(static_sources) => {
+            let cx = fcx.tcx();
+            let method_ustring = method_name.user_string(cx);
+
+            // True if the type is a struct and contains a field with
+            // the same name as the not-found method
+            let is_field = match ty::get(rcvr_ty).sty {
+                ty_struct(did, _) =>
+                    ty::lookup_struct_fields(cx, did)
+                        .iter()
+                        .any(|f| f.name.user_string(cx) == method_ustring),
+                _ => false
+            };
+
             fcx.type_error_message(
                 span,
                 |actual| {
                     format!("type `{}` does not implement any \
                              method in scope named `{}`",
                             actual,
-                            method_name.user_string(fcx.tcx()))
+                            method_ustring)
                 },
                 rcvr_ty,
                 None);
+
+            // If the method has the name of a field, give a help note
+            if is_field {
+                cx.sess.span_note(span,
+                    format!("use `(s.{0})(...)` if you meant to call the \
+                            function stored in the `{0}` field", method_ustring).as_slice());
+            }
 
             if static_sources.len() > 0 {
                 fcx.tcx().sess.fileline_note(
@@ -485,7 +505,7 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
                 }
                 ty_enum(did, _) |
                 ty_struct(did, _) |
-                ty_unboxed_closure(did, _) => {
+                ty_unboxed_closure(did, _, _) => {
                     if self.check_traits == CheckTraitsAndInherentMethods {
                         self.push_inherent_impl_candidates_for_type(did);
                     }
@@ -599,14 +619,12 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
 
         let tcx = self.tcx();
 
-        // It is illegal to invoke a method on a trait instance that
-        // refers to the `Self` type. An error will be reported by
-        // `enforce_object_limitations()` if the method refers to the
-        // `Self` type anywhere other than the receiver. Here, we use
-        // a substitution that replaces `Self` with the object type
-        // itself. Hence, a `&self` method will wind up with an
-        // argument type like `&Trait`.
+        // It is illegal to invoke a method on a trait instance that refers to
+        // the `Self` type.  Here, we use a substitution that replaces `Self`
+        // with the object type itself. Hence, a `&self` method will wind up
+        // with an argument type like `&Trait`.
         let rcvr_substs = substs.with_self_ty(self_ty);
+
         let trait_ref = Rc::new(TraitRef {
             def_id: did,
             substs: rcvr_substs.clone()
@@ -630,7 +648,7 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
                     ByValueExplicitSelfCategory => {
                         let mut n = (*m).clone();
                         let self_ty = n.fty.sig.inputs[0];
-                        *n.fty.sig.inputs.get_mut(0) = ty::mk_uniq(tcx, self_ty);
+                        n.fty.sig.inputs[0] = ty::mk_uniq(tcx, self_ty);
                         m = Rc::new(n);
                     }
                     _ => { }
@@ -896,7 +914,7 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
             // FIXME(#6129). Default methods can't deal with autoref.
             //
             // I am a horrible monster and I pray for death. Currently
-            // the default method code fails when you try to reborrow
+            // the default method code panics when you try to reborrow
             // because it is not handling types correctly. In lieu of
             // fixing that, I am introducing this horrible hack. - ndm
             self_mt.mutbl == MutImmutable && ty::type_is_self(self_mt.ty)
@@ -1014,7 +1032,7 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
                         ty::mk_rptr(tcx, r, ty::mt{ ty: tr, mutbl: m })
                     })
             }
-            _ => fail!("Expected ty_trait in auto_slice_trait")
+            _ => panic!("Expected ty_trait in auto_slice_trait")
         }
     }
 
@@ -1062,7 +1080,7 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
             ty_bare_fn(..) | ty_uniq(..) | ty_rptr(..) |
             ty_infer(IntVar(_)) |
             ty_infer(FloatVar(_)) |
-            ty_param(..) | ty_nil | ty_bot | ty_bool |
+            ty_param(..) | ty_nil | ty_bool |
             ty_char | ty_int(..) | ty_uint(..) |
             ty_float(..) | ty_enum(..) | ty_ptr(..) | ty_struct(..) |
             ty_unboxed_closure(..) | ty_tup(..) | ty_open(..) |
@@ -1282,7 +1300,7 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
         // the `Self` trait).
         let callee = self.confirm_candidate(rcvr_ty, &candidate);
 
-        select_fcx_obligations_where_possible(self.fcx);
+        select_new_fcx_obligations(self.fcx);
 
         Some(Ok(callee))
     }
@@ -1316,16 +1334,7 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
                self.ty_to_string(rcvr_ty),
                candidate.repr(self.tcx()));
 
-        let mut rcvr_substs = candidate.rcvr_substs.clone();
-
-        if !self.enforce_object_limitations(candidate) {
-            // Here we change `Self` from `Trait` to `err` in the case that
-            // this is an illegal object method. This is necessary to prevent
-            // the user from getting strange, derivative errors when the method
-            // takes an argument/return-type of type `Self` etc.
-            rcvr_substs.types.get_mut_slice(SelfSpace)[0] = ty::mk_err();
-        }
-
+        let rcvr_substs = candidate.rcvr_substs.clone();
         self.enforce_drop_trait_limitations(candidate);
 
         // Determine the values for the generic parameters of the method.
@@ -1534,69 +1543,6 @@ impl<'a, 'tcx> LookupContext<'a, 'tcx> {
         }
     }
 
-    fn enforce_object_limitations(&self, candidate: &Candidate) -> bool {
-        /*!
-         * There are some limitations to calling functions through an
-         * object, because (a) the self type is not known
-         * (that's the whole point of a trait instance, after all, to
-         * obscure the self type) and (b) the call must go through a
-         * vtable and hence cannot be monomorphized.
-         */
-
-        match candidate.origin {
-            MethodStatic(..) |
-            MethodTypeParam(..) |
-            MethodStaticUnboxedClosure(..) => {
-                return true; // not a call to a trait instance
-            }
-            MethodTraitObject(..) => {}
-        }
-
-        match candidate.method_ty.explicit_self {
-            ty::StaticExplicitSelfCategory => { // reason (a) above
-                self.tcx().sess.span_err(
-                    self.span,
-                    "cannot call a method without a receiver \
-                     through an object");
-                return false;
-            }
-
-            ty::ByValueExplicitSelfCategory |
-            ty::ByReferenceExplicitSelfCategory(..) |
-            ty::ByBoxExplicitSelfCategory => {}
-        }
-
-        // reason (a) above
-        let check_for_self_ty = |ty| -> bool {
-            if ty::type_has_self(ty) {
-                span_err!(self.tcx().sess, self.span, E0038,
-                    "cannot call a method whose type contains a \
-                     self-type through an object");
-                false
-            } else {
-                true
-            }
-        };
-        let ref sig = candidate.method_ty.fty.sig;
-        for &input_ty in sig.inputs[1..].iter() {
-            if !check_for_self_ty(input_ty) {
-                return false;
-            }
-        }
-        if !check_for_self_ty(sig.output) {
-            return false;
-        }
-
-        if candidate.method_ty.generics.has_type_params(subst::FnSpace) {
-            // reason (b) above
-            span_err!(self.tcx().sess, self.span, E0039,
-                "cannot call a generic method through an object");
-            return false;
-        }
-
-        true
-    }
-
     fn enforce_drop_trait_limitations(&self, candidate: &Candidate) {
         // No code can call the finalize method explicitly.
         let bad = match candidate.origin {
@@ -1745,7 +1691,7 @@ impl Candidate {
                 ImplSource(def_id)
             }
             MethodStaticUnboxedClosure(..) => {
-                fail!("MethodStaticUnboxedClosure only used in trans")
+                panic!("MethodStaticUnboxedClosure only used in trans")
             }
             MethodTypeParam(ref param) => {
                 TraitSource(param.trait_ref.def_id)

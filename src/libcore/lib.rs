@@ -40,8 +40,8 @@
 //!
 //! * `rust_begin_unwind` - This function takes three arguments, a
 //!   `&fmt::Arguments`, a `&str`, and a `uint`. These three arguments dictate
-//!   the failure message, the file at which failure was invoked, and the line.
-//!   It is up to consumers of this core library to define this failure
+//!   the panic message, the file at which panic was invoked, and the line.
+//!   It is up to consumers of this core library to define this panic
 //!   function; it is only required to never return.
 
 // Since libcore defines many fundamental lang items, all tests live in a
@@ -60,7 +60,7 @@
 #![allow(unknown_features)]
 #![feature(globs, intrinsics, lang_items, macro_rules, phase)]
 #![feature(simd, unsafe_destructor, slicing_syntax)]
-#![deny(missing_doc)]
+#![deny(missing_docs)]
 
 mod macros;
 
@@ -102,7 +102,6 @@ pub mod ops;
 pub mod cmp;
 pub mod clone;
 pub mod default;
-pub mod collections;
 
 /* Core types and methods on primitives */
 
@@ -111,7 +110,7 @@ pub mod atomic;
 pub mod bool;
 pub mod cell;
 pub mod char;
-pub mod failure;
+pub mod panicking;
 pub mod finally;
 pub mod iter;
 pub mod option;
@@ -129,7 +128,7 @@ pub mod fmt;
 
 #[doc(hidden)]
 mod core {
-    pub use failure;
+    pub use panicking;
 }
 
 #[doc(hidden)]

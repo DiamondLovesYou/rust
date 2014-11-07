@@ -8,10 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(missing_doc)]
+#![allow(missing_docs)]
 
-use std::collections::hashmap;
-use std::collections::hashmap::{Occupied, Vacant};
+use std::collections::hash_map;
+use std::collections::hash_map::{Occupied, Vacant};
 use std::fmt::Show;
 use std::hash::Hash;
 use std::io;
@@ -128,7 +128,7 @@ pub trait Stats <T: FloatMath + FromPrimitive>{
 
 /// Extracted collection of all the summary statistics of a sample set.
 #[deriving(Clone, PartialEq)]
-#[allow(missing_doc)]
+#[allow(missing_docs)]
 pub struct Summary<T> {
     pub sum: T,
     pub min: T,
@@ -185,7 +185,7 @@ impl<'a, T: FloatMath + FromPrimitive> Stats<T> for &'a [T] {
                 let hi = x + y;
                 let lo = y - (hi - x);
                 if !lo.is_zero() {
-                    *partials.get_mut(j) = lo;
+                    partials[j] = lo;
                     j += 1;
                 }
                 x = hi;
@@ -193,7 +193,7 @@ impl<'a, T: FloatMath + FromPrimitive> Stats<T> for &'a [T] {
             if j >= partials.len() {
                 partials.push(x);
             } else {
-                *partials.get_mut(j) = x;
+                partials[j] = x;
                 partials.truncate(j+1);
             }
         }
@@ -440,8 +440,8 @@ pub fn write_boxplot<T: Float + Show + FromPrimitive>(
 
 /// Returns a HashMap with the number of occurrences of every element in the
 /// sequence that the iterator exposes.
-pub fn freq_count<T: Iterator<U>, U: Eq+Hash>(mut iter: T) -> hashmap::HashMap<U, uint> {
-    let mut map: hashmap::HashMap<U,uint> = hashmap::HashMap::new();
+pub fn freq_count<T: Iterator<U>, U: Eq+Hash>(mut iter: T) -> hash_map::HashMap<U, uint> {
+    let mut map: hash_map::HashMap<U,uint> = hash_map::HashMap::new();
     for elem in iter {
         match map.entry(elem) {
             Occupied(mut entry) => { *entry.get_mut() += 1; },

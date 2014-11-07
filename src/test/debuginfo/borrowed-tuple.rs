@@ -15,9 +15,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print *stack_val_ref
 // gdb-check:$1 = {-14, -19}
@@ -43,7 +41,7 @@
 // lldb-check:[...]$2 = (-17, -22)
 
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 fn main() {
     let stack_val: (i16, f32) = (-14, -19f32);

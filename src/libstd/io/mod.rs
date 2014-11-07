@@ -91,7 +91,7 @@ Some examples of obvious things you might want to do
     # // locally, we still want to be type checking this code, so lets
     # // just stop it running (#11576)
     # if false {
-    let mut socket = TcpStream::connect("127.0.0.1", 8080).unwrap();
+    let mut socket = TcpStream::connect("127.0.0.1:8080").unwrap();
     socket.write(b"GET / HTTP/1.0\n\n");
     let response = socket.read_to_end();
     # }
@@ -106,7 +106,7 @@ Some examples of obvious things you might want to do
     use std::io::{TcpListener, TcpStream};
     use std::io::{Acceptor, Listener};
 
-    let listener = TcpListener::bind("127.0.0.1", 80);
+    let listener = TcpListener::bind("127.0.0.1:80");
 
     // bind the listener to the specified address
     let mut acceptor = listener.listen();
@@ -222,8 +222,9 @@ responding to errors that may occur while attempting to read the numbers.
 #![deny(unused_must_use)]
 
 use char::Char;
-use collections::Collection;
+use clone::Clone;
 use default::Default;
+use error::{FromError, Error};
 use fmt;
 use int;
 use iter::Iterator;
@@ -431,6 +432,22 @@ impl fmt::Show for IoError {
             IoError { detail: Some(ref detail), desc, .. } =>
                 write!(fmt, "{} ({})", desc, detail)
         }
+    }
+}
+
+impl Error for IoError {
+    fn description(&self) -> &str {
+        self.desc
+    }
+
+    fn detail(&self) -> Option<String> {
+        self.detail.clone()
+    }
+}
+
+impl FromError<IoError> for Box<Error> {
+    fn from_error(err: IoError) -> Box<Error> {
+        box err
     }
 }
 
@@ -712,17 +729,6 @@ pub trait Reader {
         })
     }
 
-    /// Create an iterator that reads a single byte on
-    /// each iteration, until EOF.
-    ///
-    /// # Error
-    ///
-    /// Any error other than `EndOfFile` that is produced by the underlying Reader
-    /// is returned by the iterator and should be handled by the caller.
-    fn bytes<'r>(&'r mut self) -> extensions::Bytes<'r, Self> {
-        extensions::Bytes::new(self)
-    }
-
     // Byte conversion helpers
 
     /// Reads `n` little-endian unsigned integer bytes.
@@ -932,13 +938,38 @@ pub trait Reader {
     fn read_i8(&mut self) -> IoResult<i8> {
         self.read_byte().map(|i| i as i8)
     }
+}
 
+/// A reader which can be converted to a RefReader.
+pub trait AsRefReader {
     /// Creates a wrapper around a mutable reference to the reader.
     ///
     /// This is useful to allow applying adaptors while still
     /// retaining ownership of the original value.
-    fn by_ref<'a>(&'a mut self) -> RefReader<'a, Self> {
+    fn by_ref<'a>(&'a mut self) -> RefReader<'a, Self>;
+}
+
+impl<T: Reader> AsRefReader for T {
+    fn by_ref<'a>(&'a mut self) -> RefReader<'a, T> {
         RefReader { inner: self }
+    }
+}
+
+/// A reader which can be converted to bytes.
+pub trait BytesReader {
+    /// Create an iterator that reads a single byte on
+    /// each iteration, until EOF.
+    ///
+    /// # Error
+    ///
+    /// Any error other than `EndOfFile` that is produced by the underlying Reader
+    /// is returned by the iterator and should be handled by the caller.
+    fn bytes<'r>(&'r mut self) -> extensions::Bytes<'r, Self>;
+}
+
+impl<T: Reader> BytesReader for T {
+    fn bytes<'r>(&'r mut self) -> extensions::Bytes<'r, T> {
+        extensions::Bytes::new(self)
     }
 }
 
@@ -986,6 +1017,7 @@ unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -
 /// # fn process_input<R: Reader>(r: R) {}
 /// # fn foo() {
 /// use std::io;
+/// use std::io::AsRefReader;
 /// use std::io::util::LimitReader;
 ///
 /// let mut stream = io::stdin();
@@ -1268,13 +1300,20 @@ pub trait Writer {
     fn write_i8(&mut self, n: i8) -> IoResult<()> {
         self.write([n as u8])
     }
+}
 
+/// A writer which can be converted to a RefWriter.
+pub trait AsRefWriter {
     /// Creates a wrapper around a mutable reference to the writer.
     ///
     /// This is useful to allow applying wrappers while still
     /// retaining ownership of the original value.
     #[inline]
-    fn by_ref<'a>(&'a mut self) -> RefWriter<'a, Self> {
+    fn by_ref<'a>(&'a mut self) -> RefWriter<'a, Self>;
+}
+
+impl<T: Writer> AsRefWriter for T {
+    fn by_ref<'a>(&'a mut self) -> RefWriter<'a, T> {
         RefWriter { inner: self }
     }
 }
@@ -1309,7 +1348,7 @@ impl<'a> Writer for &'a mut Writer+'a {
 /// # fn process_input<R: Reader>(r: R) {}
 /// # fn foo () {
 /// use std::io::util::TeeReader;
-/// use std::io::{stdin, MemWriter};
+/// use std::io::{stdin, MemWriter, AsRefWriter};
 ///
 /// let mut output = MemWriter::new();
 ///
@@ -1730,7 +1769,7 @@ pub enum FileType {
 /// # fn foo() {
 /// let info = match Path::new("foo.txt").stat() {
 ///     Ok(stat) => stat,
-///     Err(e) => fail!("couldn't read foo.txt: {}", e),
+///     Err(e) => panic!("couldn't read foo.txt: {}", e),
 /// };
 ///
 /// println!("byte size: {}", info.size);
@@ -1834,60 +1873,60 @@ bitflags! {
         const ALL_PERMISSIONS = USER_RWX.bits | GROUP_RWX.bits | OTHER_RWX.bits,
 
         // Deprecated names
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use USER_READ instead"]
         const UserRead     = USER_READ.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use USER_WRITE instead"]
         const UserWrite    = USER_WRITE.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use USER_EXECUTE instead"]
         const UserExecute  = USER_EXECUTE.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use GROUP_READ instead"]
         const GroupRead    = GROUP_READ.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use GROUP_WRITE instead"]
         const GroupWrite   = GROUP_WRITE.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use GROUP_EXECUTE instead"]
         const GroupExecute = GROUP_EXECUTE.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use OTHER_READ instead"]
         const OtherRead    = OTHER_READ.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use OTHER_WRITE instead"]
         const OtherWrite   = OTHER_WRITE.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use OTHER_EXECUTE instead"]
         const OtherExecute = OTHER_EXECUTE.bits,
 
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use USER_RWX instead"]
         const UserRWX  = USER_RWX.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use GROUP_RWX instead"]
         const GroupRWX = GROUP_RWX.bits,
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use OTHER_RWX instead"]
         const OtherRWX = OTHER_RWX.bits,
 
         #[doc = "Deprecated: use `USER_FILE` instead."]
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use USER_FILE instead"]
         const UserFile = USER_FILE.bits,
 
         #[doc = "Deprecated: use `USER_DIR` instead."]
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use USER_DIR instead"]
         const UserDir  = USER_DIR.bits,
         #[doc = "Deprecated: use `USER_EXEC` instead."]
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use USER_EXEC instead"]
         const UserExec = USER_EXEC.bits,
 
         #[doc = "Deprecated: use `ALL_PERMISSIONS` instead"]
-        #[allow(non_uppercase_statics)]
+        #[allow(non_upper_case_globals)]
         #[deprecated = "use ALL_PERMISSIONS instead"]
         const AllPermissions = ALL_PERMISSIONS.bits,
     }

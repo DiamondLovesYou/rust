@@ -101,7 +101,7 @@ pub fn untuple_arguments_if_necessary(ccx: &CrateContext,
 pub fn type_of_rust_fn(cx: &CrateContext,
                        llenvironment_type: Option<Type>,
                        inputs: &[ty::t],
-                       output: ty::t,
+                       output: ty::FnOutput,
                        abi: abi::Abi)
                        -> Type {
     let mut atys: Vec<Type> = Vec::new();
@@ -111,11 +111,22 @@ pub fn type_of_rust_fn(cx: &CrateContext,
 
     // Arg 0: Output pointer.
     // (if the output type is non-immediate)
-    let use_out_pointer = return_uses_outptr(cx, output);
-    let lloutputtype = arg_type_of(cx, output);
-    if use_out_pointer {
-        atys.push(lloutputtype.ptr_to());
-    }
+    let lloutputtype = match output {
+        ty::FnConverging(output) => {
+            let use_out_pointer = return_uses_outptr(cx, output);
+            let lloutputtype = arg_type_of(cx, output);
+            // Use the output as the actual return value if it's immediate.
+            if use_out_pointer {
+                atys.push(lloutputtype.ptr_to());
+                Type::void(cx)
+            } else if return_type_is_void(cx, output) {
+                Type::void(cx)
+            } else {
+                lloutputtype
+            }
+        }
+        ty::FnDiverging => Type::void(cx)
+    };
 
     // Arg 1: Environment
     match llenvironment_type {
@@ -127,12 +138,7 @@ pub fn type_of_rust_fn(cx: &CrateContext,
     let input_tys = inputs.iter().map(|&arg_ty| type_of_explicit_arg(cx, arg_ty));
     atys.extend(input_tys);
 
-    // Use the output as the actual return value if it's immediate.
-    if use_out_pointer || return_type_is_void(cx, output) {
-        Type::func(atys.as_slice(), &Type::void(cx))
-    } else {
-        Type::func(atys.as_slice(), &lloutputtype)
-    }
+    Type::func(atys.as_slice(), &lloutputtype)
 }
 
 // Given a function type and a count of ty params, construct an llvm type
@@ -185,7 +191,7 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
                                   ppaux::ty_to_string(cx.tcx(), t)).as_slice())
         }
 
-        ty::ty_nil | ty::ty_bot => Type::nil(cx),
+        ty::ty_nil => Type::nil(cx),
         ty::ty_bool => Type::bool(cx),
         ty::ty_char => Type::char(cx),
         ty::ty_int(t) => Type::int_from_ty(cx, t),
@@ -235,7 +241,7 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
             cx.sess().bug(format!("fictitious type {} in sizing_type_of()",
                                   ppaux::ty_to_string(cx.tcx(), t)).as_slice())
         }
-        ty::ty_vec(_, None) | ty::ty_trait(..) | ty::ty_str => fail!("unreachable")
+        ty::ty_vec(_, None) | ty::ty_trait(..) | ty::ty_str => panic!("unreachable")
     };
 
     cx.llsizingtypes().borrow_mut().insert(t, llsizingty);
@@ -264,7 +270,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
         match ty::get(ty::unsized_part_of_type(cx.tcx(), t)).sty {
             ty::ty_str | ty::ty_vec(..) => Type::uint_from_ty(cx, ast::TyU),
             ty::ty_trait(_) => Type::vtable_ptr(cx),
-            _ => fail!("Unexpected type returned from unsized_part_of_type : {}",
+            _ => panic!("Unexpected type returned from unsized_part_of_type : {}",
                        t.repr(cx.tcx()))
         }
     }
@@ -297,7 +303,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
     }
 
     let mut llty = match ty::get(t).sty {
-      ty::ty_nil | ty::ty_bot => Type::nil(cx),
+      ty::ty_nil => Type::nil(cx),
       ty::ty_bool => Type::bool(cx),
       ty::ty_char => Type::char(cx),
       ty::ty_int(t) => Type::int_from_ty(cx, t),
@@ -313,11 +319,15 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
           let name = llvm_type_name(cx, an_enum, did, tps);
           adt::incomplete_type_of(cx, &*repr, name.as_slice())
       }
-      ty::ty_unboxed_closure(did, _) => {
+      ty::ty_unboxed_closure(did, _, ref substs) => {
           // Only create the named struct, but don't fill it in. We
           // fill it in *after* placing it into the type cache.
           let repr = adt::represent_type(cx, t);
-          let name = llvm_type_name(cx, an_unboxed_closure, did, []);
+          // Unboxed closures can have substitutions in all spaces
+          // inherited from their environment, so we use entire
+          // contents of the VecPerParamSpace to to construct the llvm
+          // name
+          let name = llvm_type_name(cx, an_unboxed_closure, did, substs.types.as_slice());
           adt::incomplete_type_of(cx, &*repr, name.as_slice())
       }
 

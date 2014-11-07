@@ -12,28 +12,33 @@ enum A { B, C }
 
 fn main() {
     match (true, false) {
-        B => (), //~ ERROR expected `(bool,bool)`, found an enum or structure pattern
+        B => (),
+//~^ ERROR mismatched types: expected `(bool, bool)`, found `A` (expected tuple, found enum A)
         _ => ()
     }
 
     match (true, false) {
         (true, false, false) => ()
-        //~^ ERROR mismatched types: expected `(bool,bool)`, found tuple
-        //         (expected a tuple with 2 elements, found one with 3 elements)
+//~^ ERROR mismatched types: expected `(bool, bool)`, found `(_, _, _)`
+    }
+
+    match (true, false) {
+        (true, false, false) => ()
+//~^ ERROR (expected a tuple with 2 elements, found one with 3 elements)
     }
 
     match (true, false) {
         box (true, false) => ()
-        //~^ ERROR mismatched types: expected `(bool,bool)`, found a box pattern
+//~^ ERROR mismatched types: expected `(bool, bool)`, found `Box<_>` (expected tuple, found box)
     }
 
     match (true, false) {
         &(true, false) => ()
-        //~^ ERROR mismatched types: expected `(bool,bool)`, found an `&`-pointer pattern
+//~^ ERROR mismatched types: expected `(bool, bool)`, found `&_` (expected tuple, found &-ptr)
     }
 
 
-    let v = [('a', 'b')   //~ ERROR expected function, found `(char,char)`
+    let v = [('a', 'b')   //~ ERROR expected function, found `(char, char)`
              ('c', 'd'),
              ('e', 'f')];
 

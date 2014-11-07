@@ -49,7 +49,7 @@ value. To run the tests in a crate, it must be compiled with the
 `--test` flag: `rustc myprogram.rs --test -o myprogram-tests`. Running
 the resulting executable will run all the tests in the crate. A test
 is considered successful if its function returns; if the task running
-the test fails, through a call to `fail!`, a failed `assert`, or some
+the test fails, through a call to `panic!`, a failed `assert`, or some
 other (`assert_eq`, ...) means, then the test fails.
 
 When compiling a crate with the `--test` flag `--cfg test` is also
@@ -77,7 +77,7 @@ test on windows you can write `#[cfg_attr(windows, ignore)]`.
 
 Tests that are intended to fail can be annotated with the
 `should_fail` attribute. The test will be run, and if it causes its
-task to fail then the test will be counted as successful; otherwise it
+task to panic then the test will be counted as successful; otherwise it
 will be counted as a failure. For example:
 
 ~~~test_harness
@@ -287,7 +287,7 @@ The benchmarking runner offers two ways to avoid this. Either, the
 closure that the `iter` method receives can return an arbitrary value
 which forces the optimizer to consider the result used and ensures it
 cannot remove the computation entirely. This could be done for the
-example above by adjusting the `bh.iter` call to
+example above by adjusting the `b.iter` call to
 
 ~~~
 # struct X; impl X { fn iter<T>(&self, _: || -> T) {} } let b = X;

@@ -185,27 +185,28 @@ grammar as double-quoted strings. Other tokens have exact rules given.
 
 ### Keywords
 
-<p id="keyword-table-marker">The keywords are the following strings, organized by first letter:</p>
+<p id="keyword-table-marker"></p>
 
-|          |        |        |       |
-|----------|--------|--------|-------|
-| as       |        |        |       |
-| box      | break  |        |       |
-| continue | crate  |        |       |
-| else     | enum   | extern |       |
-| false    | fn     | for    |       |
-| if       | impl   | in     |       |
-| let      | loop   |        |       |
-| match    | mod    | mut    |       |
-| priv     | proc   | pub    |       |
-| ref      | return |        |       |
-| self     | static | struct | super |
-| trait    | true   | type   |       |
-| unsafe   | use    |        |       |
-| while    |        |        |       |
+|          |          |          |          |        |
+|----------|----------|----------|----------|--------|
+| abstract | alignof  | as       | be       | box    |
+| break    | const    | continue | crate    | do     |
+| else     | enum     | extern   | false    | final  |
+| fn       | for      | if       | impl     | in     |
+| let      | loop     | match    | mod      | move   |
+| mut      | offsetof | once     | override | priv   |
+| proc     | pub      | pure     | ref      | return |
+| sizeof   | static   | self     | struct   | super  |
+| true     | trait    | type     | typeof   | unsafe |
+| unsized  | use      | virtual  | where    | while  |
+| yield    |          |          |          |        |
+
 
 Each of these keywords has special meaning in its grammar, and all of them are
 excluded from the `ident` rule.
+
+Note that some of these keywords are reserved, and do not currently do
+anything.
 
 ### Literals
 
@@ -399,11 +400,11 @@ An _integer literal_ has one of four forms:
 * A _decimal literal_ starts with a *decimal digit* and continues with any
   mixture of *decimal digits* and _underscores_.
 * A _hex literal_ starts with the character sequence `U+0030` `U+0078`
-  (`0x`) and continues as any mixture hex digits and underscores.
+  (`0x`) and continues as any mixture of hex digits and underscores.
 * An _octal literal_ starts with the character sequence `U+0030` `U+006F`
-  (`0o`) and continues as any mixture octal digits and underscores.
+  (`0o`) and continues as any mixture of octal digits and underscores.
 * A _binary literal_ starts with the character sequence `U+0030` `U+0062`
-  (`0b`) and continues as any mixture binary digits and underscores.
+  (`0b`) and continues as any mixture of binary digits and underscores.
 
 An integer literal may be followed (immediately, without any spaces) by an
 _integer suffix_, which changes the type of the literal. There are two kinds of
@@ -817,20 +818,20 @@ mod math {
     type Complex = (f64, f64);
     fn sin(f: f64) -> f64 {
         /* ... */
-# fail!();
+# panic!();
     }
     fn cos(f: f64) -> f64 {
         /* ... */
-# fail!();
+# panic!();
     }
     fn tan(f: f64) -> f64 {
         /* ... */
-# fail!();
+# panic!();
     }
 }
 ```
 
-Modules and types share the same namespace. Declaring a named type that has
+Modules and types share the same namespace. Declaring a named type with
 the same name as a module in scope is forbidden: that is, a type definition,
 trait, struct, enumeration, or type parameter can't shadow the name of a module
 in scope, or vice versa.
@@ -869,8 +870,8 @@ view_item : extern_crate_decl | use_decl ;
 ```
 
 A view item manages the namespace of a module. View items do not define new
-items, but rather, simply change other items' visibility. There are several
-kinds of view item:
+items, but rather, simply change other items' visibility. There are two
+kinds of view items:
 
 * [`extern crate` declarations](#extern-crate-declarations)
 * [`use` declarations](#use-declarations)
@@ -895,7 +896,7 @@ external crate when it was compiled. If no `crateid` is provided, a default
 `name` attribute is assumed, equal to the `ident` given in the
 `extern_crate_decl`.
 
-Four examples of `extern crate` declarations:
+Three examples of `extern crate` declarations:
 
 ```{.ignore}
 extern crate pcre;
@@ -943,10 +944,10 @@ An example of `use` declarations:
 ```
 use std::iter::range_step;
 use std::option::{Some, None};
-use std::collections::hashmap::{mod, HashMap};
+use std::collections::hash_map::{mod, HashMap};
 
-# fn foo<T>(_: T){}
-# fn bar(map: HashMap<String, uint>, set: hashmap::HashSet<String>){}
+fn foo<T>(_: T){}
+fn bar(map1: HashMap<String, uint>, map2: hash_map::HashMap<String, uint>){}
 
 fn main() {
     // Equivalent to 'std::iter::range_step(0u, 10u, 2u);'
@@ -956,10 +957,10 @@ fn main() {
     // std::option::None]);'
     foo(vec![Some(1.0f64), None]);
 
-    // Both `hash` and `HashMap` are in scope.
-    let map = HashMap::new();
-    let set = hashmap::HashSet::new();
-    bar(map, set);
+    // Both `hash_map` and `HashMap` are in scope.
+    let map1 = HashMap::new();
+    let map2 = hash_map::HashMap::new();
+    bar(map1, map2);
 }
 ```
 
@@ -1152,7 +1153,7 @@ exposing an API making it possible for it to occur in safe code.
 
 * Data races
 * Dereferencing a null/dangling raw pointer
-* Mutating an immutable value/reference
+* Mutating an immutable value/reference without `UnsafeCell`
 * Reads of [undef](http://llvm.org/docs/LangRef.html#undefined-values)
   (uninitialized) memory
 * Breaking the [pointer aliasing
@@ -1165,11 +1166,14 @@ exposing an API making it possible for it to occur in safe code.
   * Using `std::ptr::copy_nonoverlapping_memory` (`memcpy32`/`memcpy64`
     instrinsics) on overlapping buffers
 * Invalid values in primitive types, even in private fields/locals:
-  * Dangling/null pointers in non-raw pointers, or slices
+  * Dangling/null references or boxes
   * A value other than `false` (0) or `true` (1) in a `bool`
   * A discriminant in an `enum` not included in the type definition
   * A value in a `char` which is a surrogate or above `char::MAX`
   * non-UTF-8 byte sequences in a `str`
+* Unwinding into Rust from foreign code or unwinding from Rust into foreign
+  code. Rust's failure system is not compatible with exception handling in
+  other languages. Unwinding must be caught and handled at FFI boundaries.
 
 ##### Behaviour not considered unsafe
 
@@ -1194,12 +1198,12 @@ output slot type would normally be. For example:
 ```
 fn my_err(s: &str) -> ! {
     println!("{}", s);
-    fail!();
+    panic!();
 }
 ```
 
 We call such functions "diverging" because they never return a value to the
-caller. Every control path in a diverging function must end with a `fail!()` or
+caller. Every control path in a diverging function must end with a `panic!()` or
 a call to another diverging function on every control path. The `!` annotation
 does *not* denote a type. Rather, the result type of a diverging function is a
 special type called $\bot$ ("bottom") that unifies with any type. Rust has no
@@ -1212,7 +1216,7 @@ were declared without the `!` annotation, the following code would not
 typecheck:
 
 ```
-# fn my_err(s: &str) -> ! { fail!() }
+# fn my_err(s: &str) -> ! { panic!() }
 
 fn f(i: int) -> int {
    if i == 42 {
@@ -2013,6 +2017,7 @@ On `struct`s:
 - `unsafe_no_drop_flag` - on structs, remove the flag that prevents
   destructors from being run twice. Destructors might be run multiple times on
   the same object with this attribute.
+- `doc` - Doc comments such as `/// foo` are equivalent to `#[doc = "foo"]`.
 
 ### Conditional compilation
 
@@ -2095,15 +2100,15 @@ plugins](guide-plugin.html#lint-plugins) can provide additional lint checks.
 ```{.ignore}
 mod m1 {
     // Missing documentation is ignored here
-    #[allow(missing_doc)]
+    #[allow(missing_docs)]
     pub fn undocumented_one() -> int { 1 }
 
     // Missing documentation signals a warning here
-    #[warn(missing_doc)]
+    #[warn(missing_docs)]
     pub fn undocumented_too() -> int { 2 }
 
     // Missing documentation signals an error here
-    #[deny(missing_doc)]
+    #[deny(missing_docs)]
     pub fn undocumented_end() -> int { 3 }
 }
 ```
@@ -2112,16 +2117,16 @@ This example shows how one can use `allow` and `warn` to toggle a particular
 check on and off.
 
 ```{.ignore}
-#[warn(missing_doc)]
+#[warn(missing_docs)]
 mod m2{
-    #[allow(missing_doc)]
+    #[allow(missing_docs)]
     mod nested {
         // Missing documentation is ignored here
         pub fn undocumented_one() -> int { 1 }
 
         // Missing documentation signals a warning here,
         // despite the allow above.
-        #[warn(missing_doc)]
+        #[warn(missing_docs)]
         pub fn undocumented_two() -> int { 2 }
     }
 
@@ -2134,10 +2139,10 @@ This example shows how one can use `forbid` to disallow uses of `allow` for
 that lint check.
 
 ```{.ignore}
-#[forbid(missing_doc)]
+#[forbid(missing_docs)]
 mod m3 {
     // Attempting to toggle warning signals an error here
-    #[allow(missing_doc)]
+    #[allow(missing_docs)]
     /// Returns 2.
     pub fn undocumented_too() -> int { 2 }
 }
@@ -2259,7 +2264,7 @@ These types help drive the compiler's analysis
   : Allocate memory on the exchange heap.
 * `closure_exchange_malloc`
   : ___Needs filling in___
-* `fail_`
+* `panic`
   : Abort the program with an error.
 * `fail_bounds_check`
   : Abort the program with a bounds check error.
@@ -2866,11 +2871,11 @@ be assigned to.
 
 Indices are zero-based, and may be of any integral type. Vector access is
 bounds-checked at run-time. When the check fails, it will put the task in a
-_failing state_.
+_panicked state_.
 
 ```{should-fail}
 ([1, 2, 3, 4])[0];
-(["a", "b"])[10]; // fails
+(["a", "b"])[10]; // panics
 ```
 
 ### Unary operator expressions
@@ -3300,9 +3305,9 @@ enum List<X> { Nil, Cons(X, Box<List<X>>) }
 let x: List<int> = Cons(10, box Cons(11, box Nil));
 
 match x {
-    Cons(_, box Nil) => fail!("singleton list"),
+    Cons(_, box Nil) => panic!("singleton list"),
     Cons(..)         => return,
-    Nil              => fail!("empty list")
+    Nil              => panic!("empty list")
 }
 ```
 
@@ -3373,7 +3378,7 @@ match x {
         return;
     }
     _ => {
-        fail!();
+        panic!();
     }
 }
 ```
@@ -3395,7 +3400,7 @@ fn is_sorted(list: &List) -> bool {
         Cons(x, ref r @ box Cons(_, _)) => {
             match *r {
                 box Cons(y, _) => (x <= y) && is_sorted(&**r),
-                _ => fail!()
+                _ => panic!()
             }
         }
     }
@@ -3459,7 +3464,7 @@ may refer to the variables bound within the pattern they follow.
 let message = match maybe_digit {
   Some(x) if x < 10 => process_digit(x),
   Some(x) => process_other(x),
-  None => fail!()
+  None => panic!()
 };
 ```
 
@@ -4091,7 +4096,7 @@ cause transitions between the states. The lifecycle states of a task are:
 
 * running
 * blocked
-* failing
+* panicked
 * dead
 
 A task begins its lifecycle &mdash; once it has been spawned &mdash; in the
@@ -4103,21 +4108,21 @@ it makes a blocking communication call. When the call can be completed &mdash;
 when a message arrives at a sender, or a buffer opens to receive a message
 &mdash; then the blocked task will unblock and transition back to *running*.
 
-A task may transition to the *failing* state at any time, due being killed by
-some external event or internally, from the evaluation of a `fail!()` macro.
-Once *failing*, a task unwinds its stack and transitions to the *dead* state.
+A task may transition to the *panicked* state at any time, due being killed by
+some external event or internally, from the evaluation of a `panic!()` macro.
+Once *panicking*, a task unwinds its stack and transitions to the *dead* state.
 Unwinding the stack of a task is done by the task itself, on its own control
 stack. If a value with a destructor is freed during unwinding, the code for the
 destructor is run, also on the task's control stack. Running the destructor
 code causes a temporary transition to a *running* state, and allows the
 destructor code to cause any subsequent state transitions. The original task
-of unwinding and failing thereby may suspend temporarily, and may involve
+of unwinding and panicking thereby may suspend temporarily, and may involve
 (recursive) unwinding of the stack of a failed destructor. Nonetheless, the
 outermost unwinding activity will continue until the stack is unwound and the
 task transitions to the *dead* state. There is no way to "recover" from task
-failure. Once a task has temporarily suspended its unwinding in the *failing*
-state, failure occurring from within this destructor results in *hard* failure.
-A hard failure currently results in the process aborting.
+panics. Once a task has temporarily suspended its unwinding in the *panicking*
+state, a panic occurring from within this destructor results in *hard* panic.
+A hard panic currently results in the process aborting.
 
 A task in the *dead* state cannot transition to other states; it exists only to
 have its termination status inspected by other tasks, and/or to await

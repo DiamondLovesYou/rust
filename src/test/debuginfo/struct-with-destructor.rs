@@ -15,9 +15,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 // gdb-command:print simple
 // gdb-check:$1 = {x = 10, y = 20}
 
@@ -46,7 +44,7 @@
 // lldb-command:print nested
 // lldb-check:[...]$3 = NestedOuter { a: NestedInner { a: WithDestructor { x: 7890, y: 9870 } } }
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 struct NoDestructor {
     x: i32,

@@ -8,15 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern:explicit failure
+// error-pattern:explicit panic
 
 #![allow(unreachable_code)]
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 fn foo(s: String) { }
 
 fn main() {
     let i =
-        match Some::<int>(3) { None::<int> => { fail!() } Some::<int>(_) => { fail!() } };
+        match Some::<int>(3) { None::<int> => { panic!() } Some::<int>(_) => { panic!() } };
     foo(i);
 }

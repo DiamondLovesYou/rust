@@ -164,9 +164,9 @@ impl LintStore {
     }
 
     fn register_renamed(&mut self, old_name: &str, new_name: &str) {
-        let target = match self.by_name.find_equiv(&new_name) {
+        let target = match self.by_name.find_equiv(new_name) {
             Some(&Id(lint_id)) => lint_id.clone(),
-            _ => fail!("invalid lint renaming of {} to {}", old_name, new_name)
+            _ => panic!("invalid lint renaming of {} to {}", old_name, new_name)
         };
         self.by_name.insert(old_name.to_string(), Renamed(new_name.to_string(), target));
     }
@@ -221,8 +221,8 @@ impl LintStore {
 
         add_lint_group!(sess, "unused",
                         UNUSED_IMPORTS, UNUSED_VARIABLES, UNUSED_ASSIGNMENTS, DEAD_CODE,
-                        UNUSED_MUT, UNREACHABLE_CODE, UNUSED_EXTERN_CRATES, UNUSED_MUST_USE,
-                        UNUSED_UNSAFE, UNUSED_RESULTS, PATH_STATEMENTS)
+                        UNUSED_MUT, UNREACHABLE_CODE, UNUSED_MUST_USE,
+                        UNUSED_UNSAFE, PATH_STATEMENTS)
 
         // We have one lint pass defined in this module.
         self.register_pass(sess, false, box GatherNodeLevels as LintPassObject);
@@ -254,21 +254,19 @@ impl LintStore {
 
     }
 
-    #[allow(unused_variable)]
+    #[allow(unused_variables)]
     fn find_lint(&self, lint_name: &str, sess: &Session, span: Option<Span>)
                  -> Option<LintId>
     {
-        match self.by_name.find_equiv(&lint_name) {
+        match self.by_name.find_equiv(lint_name) {
             Some(&Id(lint_id)) => Some(lint_id),
             Some(&Renamed(ref new_name, lint_id)) => {
-                // NOTE(stage0): add the following code after the next snapshot
-
-                // let warning = format!("lint {} has been renamed to {}",
-                //                       lint_name, new_name);
-                // match span {
-                //     Some(span) => sess.span_warn(span, warning.as_slice()),
-                //     None => sess.warn(warning.as_slice()),
-                // };
+                let warning = format!("lint {} has been renamed to {}",
+                                      lint_name, new_name);
+                match span {
+                    Some(span) => sess.span_warn(span, warning.as_slice()),
+                    None => sess.warn(warning.as_slice()),
+                };
                 Some(lint_id)
             }
             None => None
@@ -282,7 +280,7 @@ impl LintStore {
                 None => {
                     match self.lint_groups.iter().map(|(&x, pair)| (x, pair.ref0().clone()))
                                                  .collect::<HashMap<&'static str, Vec<LintId>>>()
-                                                 .find_equiv(&lint_name.as_slice()) {
+                                                 .find_equiv(lint_name.as_slice()) {
                         Some(v) => {
                             v.iter()
                              .map(|lint_id: &LintId|
@@ -388,7 +386,7 @@ pub fn raw_emit_lint(sess: &Session, lint: &'static Lint,
             format!("{} [-{} {}]", msg,
                     match level {
                         Warn => 'W', Deny => 'D', Forbid => 'F',
-                        Allow => fail!()
+                        Allow => panic!()
                     }, name.replace("_", "-"))
         },
         Node(src) => {
@@ -489,7 +487,7 @@ impl<'a, 'tcx> Context<'a, 'tcx> {
                     match self.lints.find_lint(lint_name.get(), &self.tcx.sess, Some(span)) {
                         Some(lint_id) => vec![(lint_id, level, span)],
                         None => {
-                            match self.lints.lint_groups.find_equiv(&lint_name.get()) {
+                            match self.lints.lint_groups.find_equiv(lint_name.get()) {
                                 Some(&(ref v, _)) => v.iter()
                                                       .map(|lint_id: &LintId|
                                                            (*lint_id, level, span))
@@ -534,7 +532,7 @@ impl<'a, 'tcx> Context<'a, 'tcx> {
         }
     }
 
-    fn visit_ids(&self, f: |&mut ast_util::IdVisitor<Context>|) {
+    fn visit_ids(&mut self, f: |&mut ast_util::IdVisitor<Context>|) {
         let mut v = ast_util::IdVisitor {
             operation: self,
             pass_through_items: false,
@@ -751,7 +749,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for Context<'a, 'tcx> {
 
 // Output any lints that were previously added to the session.
 impl<'a, 'tcx> IdVisitingOperation for Context<'a, 'tcx> {
-    fn visit_id(&self, id: ast::NodeId) {
+    fn visit_id(&mut self, id: ast::NodeId) {
         match self.tcx.sess.lints.borrow_mut().pop(&id) {
             None => {}
             Some(lints) => {

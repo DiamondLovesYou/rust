@@ -241,7 +241,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
             def::DefRegion(_) |
             def::DefTyParamBinder(_) |
             def::DefLabel(_) |
-            def::DefStaticMethod(_, _, _) |
+            def::DefStaticMethod(..) |
             def::DefTyParam(..) |
             def::DefUse(_) |
             def::DefMethod(..) |
@@ -428,7 +428,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                 let qualname = format!("{}::{}", qualname, name);
                 let typ = ppaux::ty_to_string(&self.analysis.ty_cx,
                     (*self.analysis.ty_cx.node_types.borrow())[field.node.id as uint]);
-                match self.span.sub_span_before_token(field.span, token::COLON) {
+                match self.span.sub_span_before_token(field.span, token::Colon) {
                     Some(sub_span) => self.fmt.field_str(field.span,
                                                          Some(sub_span),
                                                          field.node.id,
@@ -783,7 +783,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                                                        sub_span,
                                                        def_id,
                                                         self.cur_scope),
-            def::DefStaticMethod(declid, provenence, _) => {
+            def::DefStaticMethod(declid, provenence) => {
                 let sub_span = self.span.sub_span_for_meth_name(ex.span);
                 let defid = if declid.krate == ast::LOCAL_CRATE {
                     let ti = ty::impl_or_trait_item(&self.analysis.ty_cx,
@@ -825,7 +825,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                                        Some(declid),
                                        self.cur_scope);
             },
-            def::DefFn(def_id, _, _) => self.fmt.fn_call_str(ex.span,
+            def::DefFn(def_id, _) => self.fmt.fn_call_str(ex.span,
                                                              sub_span,
                                                              def_id,
                                                              self.cur_scope),
@@ -835,7 +835,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
         }
         // modules or types in the path prefix
         match *def {
-            def::DefStaticMethod(_, _, _) => {
+            def::DefStaticMethod(..) => {
                 self.write_sub_path_trait_truncated(path);
             },
             def::DefLocal(_) |
@@ -1175,7 +1175,7 @@ impl<'l, 'tcx, 'v> Visitor<'v> for DxrVisitor<'l, 'tcx> {
                         // 'use' always introduces an alias, if there is not an explicit
                         // one, there is an implicit one.
                         let sub_span =
-                            match self.span.sub_span_before_token(path.span, token::EQ) {
+                            match self.span.sub_span_before_token(path.span, token::Eq) {
                                 Some(sub_span) => Some(sub_span),
                                 None => sub_span,
                             };

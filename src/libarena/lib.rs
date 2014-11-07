@@ -29,7 +29,9 @@
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
 #![feature(unsafe_destructor)]
-#![allow(missing_doc)]
+#![allow(missing_docs)]
+
+extern crate alloc;
 
 use std::cell::{Cell, RefCell};
 use std::cmp;
@@ -69,7 +71,7 @@ impl Chunk {
 /// element). When the arena is destroyed, it iterates through all of its
 /// chunks, and uses the tydesc information to trace through the objects,
 /// calling the destructors on them. One subtle point that needs to be
-/// addressed is how to handle failures while running the user provided
+/// addressed is how to handle panics while running the user provided
 /// initializer function. It is important to not run the destructor on
 /// uninitialized objects, but how to detect them is somewhat subtle. Since
 /// `alloc()` can be invoked recursively, it is not sufficient to simply exclude
@@ -162,7 +164,7 @@ unsafe fn destroy_chunk(chunk: &Chunk) {
 
 // We encode whether the object a tydesc describes has been
 // initialized in the arena in the low bit of the tydesc pointer. This
-// is necessary in order to properly do cleanup if a failure occurs
+// is necessary in order to properly do cleanup if a panic occurs
 // during an initializer.
 #[inline]
 fn bitpack_tydesc_ptr(p: *const TyDesc, is_done: bool) -> uint {
@@ -208,13 +210,13 @@ impl Arena {
     }
 
     #[inline]
-    fn alloc_copy<T>(&self, op: || -> T) -> &T {
+    fn alloc_copy<T>(&self, op: || -> T) -> &mut T {
         unsafe {
             let ptr = self.alloc_copy_inner(mem::size_of::<T>(),
                                             mem::min_align_of::<T>());
             let ptr = ptr as *mut T;
             ptr::write(&mut (*ptr), op());
-            return &*ptr;
+            return &mut *ptr;
         }
     }
 
@@ -262,7 +264,7 @@ impl Arena {
     }
 
     #[inline]
-    fn alloc_noncopy<T>(&self, op: || -> T) -> &T {
+    fn alloc_noncopy<T>(&self, op: || -> T) -> &mut T {
         unsafe {
             let tydesc = get_tydesc::<T>();
             let (ty_ptr, ptr) =
@@ -279,14 +281,14 @@ impl Arena {
             // the object is there.
             *ty_ptr = bitpack_tydesc_ptr(tydesc, true);
 
-            return &*ptr;
+            return &mut *ptr;
         }
     }
 
     /// Allocates a new item in the arena, using `op` to initialize the value,
     /// and returns a reference to it.
     #[inline]
-    pub fn alloc<T>(&self, op: || -> T) -> &T {
+    pub fn alloc<T>(&self, op: || -> T) -> &mut T {
         unsafe {
             if intrinsics::needs_drop::<T>() {
                 self.alloc_noncopy(op)
@@ -337,10 +339,9 @@ fn test_arena_destructors_fail() {
         // things interesting.
         arena.alloc(|| { [0u8, 1u8, 2u8] });
     }
-    // Now, fail while allocating
+    // Now, panic while allocating
     arena.alloc::<Rc<int>>(|| {
-        // Now fail.
-        fail!();
+        panic!();
     });
 }
 
@@ -387,6 +388,7 @@ impl<T> TypedArenaChunk<T> {
         let size = calculate_size::<T>(capacity);
         let chunk = allocate(size, mem::min_align_of::<TypedArenaChunk<T>>())
                     as *mut TypedArenaChunk<T>;
+        if chunk.is_null() { alloc::oom() }
         (*chunk).next = next;
         (*chunk).capacity = capacity;
         chunk
@@ -459,12 +461,12 @@ impl<T> TypedArena<T> {
 
     /// Allocates an object in the `TypedArena`, returning a reference to it.
     #[inline]
-    pub fn alloc(&self, object: T) -> &T {
+    pub fn alloc(&self, object: T) -> &mut T {
         if self.ptr == self.end {
             self.grow()
         }
 
-        let ptr: &T = unsafe {
+        let ptr: &mut T = unsafe {
             let ptr: &mut T = mem::transmute(self.ptr);
             ptr::write(ptr, object);
             self.ptr.set(self.ptr.get().offset(1));

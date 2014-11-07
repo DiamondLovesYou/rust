@@ -15,9 +15,7 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print *the_a_ref
 // gdb-check:$1 = TheA
@@ -42,7 +40,7 @@
 // lldb-command:print *the_c_ref
 // lldb-check:[...]$2 = TheC
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 enum ABC { TheA, TheB, TheC }
 

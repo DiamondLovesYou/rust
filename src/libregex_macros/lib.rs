@@ -179,7 +179,7 @@ fn exec<'t>(which: ::regex::native::MatchKind, input: &'t str,
     }
 
     impl<'t> Nfa<'t> {
-        #[allow(unused_variable)]
+        #[allow(unused_variables)]
         fn run(&mut self, start: uint, end: uint) -> Vec<Option<uint>> {
             let mut matched = false;
             let prefix_bytes: &[u8] = $prefix_bytes;
@@ -226,7 +226,7 @@ fn exec<'t>(which: ::regex::native::MatchKind, input: &'t str,
         }
 
         // Sometimes `nlist` is never used (for empty regexes).
-        #[allow(unused_variable)]
+        #[allow(unused_variables)]
         #[inline]
         fn step(&self, groups: &mut Captures, nlist: &mut Threads,
                 caps: &mut Captures, pc: uint) -> StepState {
@@ -634,7 +634,7 @@ fn parse(cx: &mut ExtCtxt, tts: &[ast::TokenTree]) -> Option<String> {
             return None
         }
     };
-    if !parser.eat(&token::EOF) {
+    if !parser.eat(&token::Eof) {
         cx.span_err(parser.span, "only one string literal allowed");
         return None;
     }

@@ -11,7 +11,7 @@
 // The classification code for the x86_64 ABI is taken from the clay language
 // https://github.com/jckarter/clay/blob/master/compiler/src/externals.cpp
 
-#![allow(non_uppercase_statics)]
+#![allow(non_upper_case_globals)]
 
 use llvm;
 use llvm::{Integer, Pointer, Float, Double};
@@ -111,7 +111,7 @@ fn classify_ty(ty: Type) -> Vec<RegClass> {
                 let elt = ty.element_type();
                 ty_align(elt)
             }
-            _ => fail!("ty_size: unhandled type")
+            _ => panic!("ty_size: unhandled type")
         }
     }
 
@@ -140,7 +140,7 @@ fn classify_ty(ty: Type) -> Vec<RegClass> {
                 let eltsz = ty_size(elt);
                 len * eltsz
             }
-            _ => fail!("ty_size: unhandled type")
+            _ => panic!("ty_size: unhandled type")
         }
     }
 
@@ -235,7 +235,7 @@ fn classify_ty(ty: Type) -> Vec<RegClass> {
                     i += 1u;
                 }
             }
-            _ => fail!("classify: unhandled type")
+            _ => panic!("classify: unhandled type")
         }
     }
 
@@ -328,7 +328,7 @@ fn llreg_ty(ccx: &CrateContext, cls: &[RegClass]) -> Type {
             SSEDs => {
                 tys.push(Type::f64(ccx));
             }
-            _ => fail!("llregtype: unhandled class")
+            _ => panic!("llregtype: unhandled class")
         }
         i += 1u;
     }

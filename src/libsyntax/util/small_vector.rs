@@ -25,16 +25,6 @@ enum SmallVectorRepr<T> {
     Many(Vec<T>),
 }
 
-impl<T> Collection for SmallVector<T> {
-    fn len(&self) -> uint {
-        match self.repr {
-            Zero => 0,
-            One(..) => 1,
-            Many(ref vals) => vals.len()
-        }
-    }
-}
-
 impl<T> FromIterator<T> for SmallVector<T> {
     fn from_iter<I: Iterator<T>>(iter: I) -> SmallVector<T> {
         let mut v = SmallVector::zero();
@@ -99,7 +89,7 @@ impl<T> SmallVector<T> {
         match self.repr {
             One(ref v) if idx == 0 => v,
             Many(ref vs) => &vs[idx],
-            _ => fail!("out of bounds access")
+            _ => panic!("out of bounds access")
         }
     }
 
@@ -110,10 +100,10 @@ impl<T> SmallVector<T> {
                 if v.len() == 1 {
                     v.into_iter().next().unwrap()
                 } else {
-                    fail!(err)
+                    panic!(err)
                 }
             }
-            _ => fail!(err)
+            _ => panic!(err)
         }
     }
 
@@ -131,6 +121,16 @@ impl<T> SmallVector<T> {
         };
         MoveItems { repr: repr }
     }
+
+    pub fn len(&self) -> uint {
+        match self.repr {
+            Zero => 0,
+            One(..) => 1,
+            Many(ref vals) => vals.len()
+        }
+    }
+
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 }
 
 pub struct MoveItems<T> {

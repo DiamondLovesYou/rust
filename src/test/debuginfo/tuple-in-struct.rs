@@ -12,10 +12,8 @@
 // min-lldb-version: 310
 
 // compile-flags:-g
-// gdb-command:set print pretty off
-// gdb-command:rbreak zzz
+
 // gdb-command:run
-// gdb-command:finish
 
 // gdb-command:print no_padding1
 // gdb-check:$1 = {x = {0, 1}, y = 2, z = {3, 4, 5}}
@@ -42,7 +40,7 @@
 // gdb-command:print mixed_padding
 // gdb-check:$10 = {x = {{40, 41, 42}, {43, 44}}, y = {45, 46, 47, 48}}
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 struct NoPadding1 {
     x: (i32, i32),
@@ -148,7 +146,7 @@ fn main() {
         y: (45, 46, 47, 48)
     };
 
-    zzz();
+    zzz(); // #break
 }
 
 fn zzz() {()}

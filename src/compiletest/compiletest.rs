@@ -25,7 +25,7 @@ use std::io::fs;
 use std::from_str::FromStr;
 use getopts::{optopt, optflag, reqopt};
 use common::Config;
-use common::{Pretty, DebugInfoGdb, Codegen};
+use common::{Pretty, DebugInfoGdb, DebugInfoLldb, Codegen};
 use util::logv;
 use regex::Regex;
 
@@ -41,7 +41,7 @@ pub fn main() {
     let config = parse_config(args);
 
     if config.valgrind_path.is_none() && config.force_valgrind {
-        fail!("Can't find Valgrind to run Valgrind tests");
+        panic!("Can't find Valgrind to run Valgrind tests");
     }
 
     log_config(&config);
@@ -95,20 +95,20 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         let message = format!("Usage: {} [OPTIONS] [TESTNAME...]", argv0);
         println!("{}", getopts::usage(message.as_slice(), groups.as_slice()));
         println!("");
-        fail!()
+        panic!()
     }
 
     let matches =
         &match getopts::getopts(args_.as_slice(), groups.as_slice()) {
           Ok(m) => m,
-          Err(f) => fail!("{}", f)
+          Err(f) => panic!("{}", f)
         };
 
     if matches.opt_present("h") || matches.opt_present("help") {
         let message = format!("Usage: {} [OPTIONS]  [TESTNAME...]", argv0);
         println!("{}", getopts::usage(message.as_slice(), groups.as_slice()));
         println!("");
-        fail!()
+        panic!()
     }
 
     fn opt_path(m: &getopts::Matches, nm: &str) -> Path {
@@ -121,7 +121,7 @@ pub fn parse_config(args: Vec<String> ) -> Config {
             Ok(re) => Some(re),
             Err(e) => {
                 println!("failed to parse filter /{}/: {}", s, e);
-                fail!()
+                panic!()
             }
         }
     } else {
@@ -250,6 +250,16 @@ pub fn run_tests(config: &Config) {
         os::setenv("RUST_TEST_TASKS","1");
     }
 
+    match config.mode {
+        DebugInfoLldb => {
+            // Some older versions of LLDB seem to have problems with multiple
+            // instances running in parallel, so only run one test task at a
+            // time.
+            os::setenv("RUST_TEST_TASKS", "1");
+        }
+        _ => { /* proceed */ }
+    }
+
     let opts = test_opts(config);
     let tests = make_tests(config);
     // sadly osx needs some file descriptor limits raised for running tests in
@@ -259,7 +269,7 @@ pub fn run_tests(config: &Config) {
     let res = test::run_tests_console(&opts, tests.into_iter().collect());
     match res {
         Ok(true) => {}
-        Ok(false) => fail!("Some tests failed"),
+        Ok(false) => panic!("Some tests failed"),
         Err(e) => {
             println!("I/O failure during tests: {}", e);
         }

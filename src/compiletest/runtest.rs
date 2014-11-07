@@ -39,7 +39,7 @@ pub fn run(config: Config, testfile: String) {
 
         "arm-linux-androideabi" => {
             if !config.adb_device_status {
-                fail!("android device not available");
+                panic!("android device not available");
             }
         }
 
@@ -316,7 +316,7 @@ actual:\n\
 ------------------------------------------\n\
 \n",
                      expected, actual);
-            fail!();
+            panic!();
         }
     }
 
@@ -364,7 +364,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
         commands,
         check_lines,
         use_gdb_pretty_printer,
-        ..
+        breakpoint_lines
     } = parse_debugger_commands(testfile, "gdb");
     let mut cmds = commands.connect("\n");
 
@@ -444,7 +444,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 //waiting 1 second for gdbserver start
                 timer::sleep(Duration::milliseconds(1000));
                 let result = task::try(proc() {
-                    tcp::TcpStream::connect("127.0.0.1", 5039).unwrap();
+                    tcp::TcpStream::connect("127.0.0.1:5039").unwrap();
                 });
                 if result.is_err() {
                     continue;
@@ -556,7 +556,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 // wait for a quarter second for sel_ldr to start
                 timer::sleep(Duration::milliseconds(250));
                 let result = task::try(proc() {
-                    tcp::TcpStream::connect("127.0.0.1", 4014).unwrap();
+                    tcp::TcpStream::connect("127.0.0.1:4014").unwrap();
                 });
                 if result.is_err() {
                     continue;
@@ -640,10 +640,21 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 }
             }
 
+            // The following line actually doesn't have to do anything with
+            // pretty printing, it just tells GDB to print values on one line:
+            script_str.push_str("set print pretty off\n");
+
             // Load the target executable
             script_str.push_str(format!("file {}\n",
                                         exe_file.as_str().unwrap().replace("\\", "\\\\"))
                                     .as_slice());
+
+            // Add line breakpoints
+            for line in breakpoint_lines.iter() {
+                script_str.push_str(format!("break '{}':{}\n",
+                                            testfile.filename_display(),
+                                            *line)[]);
+            }
 
             script_str.push_str(cmds.as_slice());
             script_str.push_str("quit\n");
@@ -721,7 +732,7 @@ fn find_rust_src_root(config: &Config) -> Option<Path> {
     let path_postfix = Path::new("src/etc/lldb_batchmode.py");
 
     while path.pop() {
-        if path.join(path_postfix.clone()).is_file() {
+        if path.join(&path_postfix).is_file() {
             return Some(path);
         }
     }
@@ -1118,7 +1129,7 @@ fn check_expected_errors(expected_errors: Vec<errors::ExpectedError> ,
                 if prefix_matches(line, prefixes[i].as_slice()) &&
                     line.contains(ee.kind.as_slice()) &&
                     line.contains(ee.msg.as_slice()) {
-                    *found_flags.get_mut(i) = true;
+                    found_flags[i] = true;
                     was_expected = true;
                     break;
                 }
@@ -1568,7 +1579,7 @@ fn maybe_dump_to_stdout(config: &Config, out: &str, err: &str) {
 
 fn error(err: &str) { println!("\nerror: {}", err); }
 
-fn fatal(err: &str) -> ! { error(err); fail!(); }
+fn fatal(err: &str) -> ! { error(err); panic!(); }
 
 fn fatal_proc_rec(err: &str, proc_res: &ProcRes) -> ! {
     print!("\n\
@@ -1586,7 +1597,7 @@ stderr:\n\
 \n",
              err, proc_res.status, proc_res.cmdline, proc_res.stdout,
              proc_res.stderr);
-    fail!();
+    panic!();
 }
 
 fn _arm_exec_compiled_test(config: &Config,
@@ -1809,7 +1820,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let arch = match ARCH {
         "x86" => "x86-32",
         "x86_64" => "x86-64",
-        _ => fail!("unsupported arch: `{}`!", ARCH),
+        _ => panic!("unsupported arch: `{}`!", ARCH),
     };
     let lib_path = cross_path.join_many(["toolchain".to_string(),
                                          {
@@ -1922,7 +1933,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
 
         match process.signal_exit() {
             Ok(..) => {}
-            Err(e) => fail!("couldn't signal for the test to exit: `{}`", e),
+            Err(e) => panic!("couldn't signal for the test to exit: `{}`", e),
         }
         process.set_timeout(Some(1_000));
         match process.wait() {

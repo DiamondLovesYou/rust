@@ -41,7 +41,7 @@ use syntax::ast::{TyF64, TyFloat, TyI, TyI8, TyI16, TyI32, TyI64, TyInt};
 use syntax::ast::{TyParam, TyParamBound, TyPath, TyPtr, TyProc, TyQPath};
 use syntax::ast::{TyRptr, TyStr, TyU, TyU8, TyU16, TyU32, TyU64, TyUint};
 use syntax::ast::{TypeImplItem, UnboxedFnTyParamBound, UnnamedField};
-use syntax::ast::{UnsafeFn, Variant, ViewItem, ViewItemExternCrate};
+use syntax::ast::{Variant, ViewItem, ViewItemExternCrate};
 use syntax::ast::{ViewItemUse, ViewPathGlob, ViewPathList, ViewPathSimple};
 use syntax::ast::{Visibility};
 use syntax::ast;
@@ -58,7 +58,7 @@ use syntax::visit;
 use syntax::visit::Visitor;
 
 use std::collections::{HashMap, HashSet};
-use std::collections::hashmap::{Occupied, Vacant};
+use std::collections::hash_map::{Occupied, Vacant};
 use std::cell::{Cell, RefCell};
 use std::mem::replace;
 use std::rc::{Rc, Weak};
@@ -492,6 +492,7 @@ enum ModuleKind {
     NormalModuleKind,
     TraitModuleKind,
     ImplModuleKind,
+    EnumModuleKind,
     AnonymousModuleKind,
 }
 
@@ -568,10 +569,19 @@ impl Module {
     }
 }
 
+bitflags! {
+    #[deriving(Show)]
+    flags DefModifiers: u8 {
+        const PUBLIC            = 0b0000_0001,
+        const IMPORTABLE        = 0b0000_0010,
+        const ENUM_STAGING_HACK = 0b0000_0100,
+    }
+}
+
 // Records a possibly-private type definition.
 #[deriving(Clone)]
 struct TypeNsDef {
-    is_public: bool, // see note in ImportResolution about how to use this
+    modifiers: DefModifiers, // see note in ImportResolution about how to use this
     module_def: Option<Rc<Module>>,
     type_def: Option<Def>,
     type_span: Option<Span>
@@ -580,7 +590,7 @@ struct TypeNsDef {
 // Records a possibly-private value definition.
 #[deriving(Clone, Show)]
 struct ValueNsDef {
-    is_public: bool, // see note in ImportResolution about how to use this
+    modifiers: DefModifiers, // see note in ImportResolution about how to use this
     def: Def,
     value_span: Option<Span>,
 }
@@ -616,13 +626,17 @@ impl NameBindings {
                      is_public: bool,
                      sp: Span) {
         // Merges the module with the existing type def or creates a new one.
-        let module_ = Rc::new(Module::new(parent_link, def_id, kind, external,
+        let modifiers = if is_public { PUBLIC } else { DefModifiers::empty() } | IMPORTABLE;
+        let module_ = Rc::new(Module::new(parent_link,
+                                          def_id,
+                                          kind,
+                                          external,
                                           is_public));
         let type_def = self.type_def.borrow().clone();
         match type_def {
             None => {
                 *self.type_def.borrow_mut() = Some(TypeNsDef {
-                    is_public: is_public,
+                    modifiers: modifiers,
                     module_def: Some(module_),
                     type_def: None,
                     type_span: Some(sp)
@@ -630,7 +644,7 @@ impl NameBindings {
             }
             Some(type_def) => {
                 *self.type_def.borrow_mut() = Some(TypeNsDef {
-                    is_public: is_public,
+                    modifiers: modifiers,
                     module_def: Some(module_),
                     type_span: Some(sp),
                     type_def: type_def.type_def
@@ -647,13 +661,14 @@ impl NameBindings {
                        external: bool,
                        is_public: bool,
                        _sp: Span) {
+        let modifiers = if is_public { PUBLIC } else { DefModifiers::empty() } | IMPORTABLE;
         let type_def = self.type_def.borrow().clone();
         match type_def {
             None => {
                 let module = Module::new(parent_link, def_id, kind,
                                          external, is_public);
                 *self.type_def.borrow_mut() = Some(TypeNsDef {
-                    is_public: is_public,
+                    modifiers: modifiers,
                     module_def: Some(Rc::new(module)),
                     type_def: None,
                     type_span: None,
@@ -668,7 +683,7 @@ impl NameBindings {
                                                  external,
                                                  is_public);
                         *self.type_def.borrow_mut() = Some(TypeNsDef {
-                            is_public: is_public,
+                            modifiers: modifiers,
                             module_def: Some(Rc::new(module)),
                             type_def: type_def.type_def,
                             type_span: None,
@@ -681,7 +696,8 @@ impl NameBindings {
     }
 
     /// Records a type definition.
-    fn define_type(&self, def: Def, sp: Span, is_public: bool) {
+    fn define_type(&self, def: Def, sp: Span, modifiers: DefModifiers) {
+        debug!("defining type for def {} with modifiers {}", def, modifiers);
         // Merges the type with the existing type def or creates a new one.
         let type_def = self.type_def.borrow().clone();
         match type_def {
@@ -690,7 +706,7 @@ impl NameBindings {
                     module_def: None,
                     type_def: Some(def),
                     type_span: Some(sp),
-                    is_public: is_public,
+                    modifiers: modifiers,
                 });
             }
             Some(type_def) => {
@@ -698,18 +714,19 @@ impl NameBindings {
                     type_def: Some(def),
                     type_span: Some(sp),
                     module_def: type_def.module_def,
-                    is_public: is_public,
+                    modifiers: modifiers,
                 });
             }
         }
     }
 
     /// Records a value definition.
-    fn define_value(&self, def: Def, sp: Span, is_public: bool) {
+    fn define_value(&self, def: Def, sp: Span, modifiers: DefModifiers) {
+        debug!("defining value for def {} with modifiers {}", def, modifiers);
         *self.value_def.borrow_mut() = Some(ValueNsDef {
             def: def,
             value_span: Some(sp),
-            is_public: is_public,
+            modifiers: modifiers,
         });
     }
 
@@ -728,7 +745,7 @@ impl NameBindings {
     fn get_module(&self) -> Rc<Module> {
         match self.get_module_if_available() {
             None => {
-                fail!("get_module called on a node with no module \
+                panic!("get_module called on a node with no module \
                        definition!")
             }
             Some(module_def) => module_def
@@ -743,12 +760,16 @@ impl NameBindings {
     }
 
     fn defined_in_public_namespace(&self, namespace: Namespace) -> bool {
+        self.defined_in_namespace_with(namespace, PUBLIC)
+    }
+
+    fn defined_in_namespace_with(&self, namespace: Namespace, modifiers: DefModifiers) -> bool {
         match namespace {
             TypeNS => match *self.type_def.borrow() {
-                Some(ref def) => def.is_public, None => false
+                Some(ref def) => def.modifiers.contains(modifiers), None => false
             },
             ValueNS => match *self.value_def.borrow() {
-                Some(ref def) => def.is_public, None => false
+                Some(ref def) => def.modifiers.contains(modifiers), None => false
             }
         }
     }
@@ -1214,6 +1235,7 @@ impl<'a> Resolver<'a> {
         let name = item.ident.name;
         let sp = item.span;
         let is_public = item.vis == ast::Public;
+        let modifiers = if is_public { PUBLIC } else { DefModifiers::empty() } | IMPORTABLE;
 
         match item.node {
             ItemMod(..) => {
@@ -1241,21 +1263,21 @@ impl<'a> Resolver<'a> {
                 let mutbl = m == ast::MutMutable;
 
                 name_bindings.define_value
-                    (DefStatic(local_def(item.id), mutbl), sp, is_public);
+                    (DefStatic(local_def(item.id), mutbl), sp, modifiers);
                 parent
             }
             ItemConst(_, _) => {
                 self.add_child(name, parent.clone(), ForbidDuplicateValues, sp)
                     .define_value(DefConst(local_def(item.id)),
-                                  sp, is_public);
+                                  sp, modifiers);
                 parent
             }
-            ItemFn(_, fn_style, _, _, _) => {
+            ItemFn(_, _, _, _, _) => {
                 let name_bindings =
                     self.add_child(name, parent.clone(), ForbidDuplicateValues, sp);
 
-                let def = DefFn(local_def(item.id), fn_style, false);
-                name_bindings.define_value(def, sp, is_public);
+                let def = DefFn(local_def(item.id), false);
+                name_bindings.define_value(def, sp, modifiers);
                 parent
             }
 
@@ -1268,7 +1290,7 @@ impl<'a> Resolver<'a> {
                                    sp);
 
                 name_bindings.define_type
-                    (DefTy(local_def(item.id), false), sp, is_public);
+                    (DefTy(local_def(item.id), false), sp, modifiers);
                 parent
             }
 
@@ -1280,14 +1302,32 @@ impl<'a> Resolver<'a> {
                                    sp);
 
                 name_bindings.define_type
-                    (DefTy(local_def(item.id), true), sp, is_public);
+                    (DefTy(local_def(item.id), true), sp, modifiers);
+
+                let parent_link = self.get_parent_link(parent.clone(), name);
+                // We want to make sure the module type is EnumModuleKind
+                // even if there's already an ImplModuleKind module defined,
+                // since that's how we prevent duplicate enum definitions
+                name_bindings.set_module_kind(parent_link,
+                                              Some(local_def(item.id)),
+                                              EnumModuleKind,
+                                              false,
+                                              is_public,
+                                              sp);
 
                 for variant in (*enum_definition).variants.iter() {
                     self.build_reduced_graph_for_variant(
                         &**variant,
                         local_def(item.id),
+                        ModuleReducedGraphParent(name_bindings.get_module()),
+                        modifiers);
+
+                    // Temporary staging hack
+                    self.build_reduced_graph_for_variant(
+                        &**variant,
+                        local_def(item.id),
                         parent.clone(),
-                        is_public);
+                        modifiers | ENUM_STAGING_HACK);
                 }
                 parent
             }
@@ -1303,14 +1343,14 @@ impl<'a> Resolver<'a> {
                 let name_bindings = self.add_child(name, parent.clone(), forbid, sp);
 
                 // Define a name in the type namespace.
-                name_bindings.define_type(DefTy(local_def(item.id), false), sp, is_public);
+                name_bindings.define_type(DefTy(local_def(item.id), false), sp, modifiers);
 
                 // If this is a newtype or unit-like struct, define a name
                 // in the value namespace as well
                 match ctor_id {
                     Some(cid) => {
                         name_bindings.define_value(DefStruct(local_def(cid)),
-                                                   sp, is_public);
+                                                   sp, modifiers);
                     }
                     None => {}
                 }
@@ -1335,6 +1375,8 @@ impl<'a> Resolver<'a> {
                 // Create the module and add all methods.
                 match ty.node {
                     TyPath(ref path, _, _) if path.segments.len() == 1 => {
+                        // FIXME(18446) we should distinguish between the name of
+                        // a trait and the name of an impl of that trait.
                         let mod_name = path.segments.last().unwrap().identifier.name;
 
                         let parent_opt = parent.module().children.borrow()
@@ -1343,8 +1385,14 @@ impl<'a> Resolver<'a> {
                             // It already exists
                             Some(ref child) if child.get_module_if_available()
                                                 .is_some() &&
+                                           (child.get_module().kind.get() == ImplModuleKind ||
+                                            child.get_module().kind.get() == TraitModuleKind) => {
+                                ModuleReducedGraphParent(child.get_module())
+                            }
+                            Some(ref child) if child.get_module_if_available()
+                                                .is_some() &&
                                            child.get_module().kind.get() ==
-                                                ImplModuleKind => {
+                                                EnumModuleKind => {
                                 ModuleReducedGraphParent(child.get_module())
                             }
                             // Create the module
@@ -1392,8 +1440,7 @@ impl<'a> Resolver<'a> {
                                             // Static methods become
                                             // `DefStaticMethod`s.
                                             DefStaticMethod(local_def(method.id),
-                                                            FromImpl(local_def(item.id)),
-                                                                     method.pe_fn_style())
+                                                            FromImpl(local_def(item.id)))
                                         }
                                         _ => {
                                             // Non-static methods become
@@ -1404,12 +1451,16 @@ impl<'a> Resolver<'a> {
                                         }
                                     };
 
-                                    let is_public =
-                                        method.pe_vis() == ast::Public;
+                                    // NB: not IMPORTABLE
+                                    let modifiers = if method.pe_vis() == ast::Public {
+                                        PUBLIC
+                                    } else {
+                                        DefModifiers::empty()
+                                    };
                                     method_name_bindings.define_value(
                                         def,
                                         method.span,
-                                        is_public);
+                                        modifiers);
                                 }
                                 TypeImplItem(ref typedef) => {
                                     // Add the typedef to the module.
@@ -1422,12 +1473,16 @@ impl<'a> Resolver<'a> {
                                             typedef.span);
                                     let def = DefAssociatedTy(local_def(
                                             typedef.id));
-                                    let is_public = typedef.vis ==
-                                        ast::Public;
+                                    // NB: not IMPORTABLE
+                                    let modifiers = if typedef.vis == ast::Public {
+                                        PUBLIC
+                                    } else {
+                                        DefModifiers::empty()
+                                    };
                                     typedef_name_bindings.define_type(
                                         def,
                                         typedef.span,
-                                        is_public);
+                                        modifiers);
                                 }
                             }
                         }
@@ -1483,8 +1538,7 @@ impl<'a> Resolver<'a> {
                                     // Static methods become `DefStaticMethod`s.
                                     (DefStaticMethod(
                                             local_def(ty_m.id),
-                                            FromTrait(local_def(item.id)),
-                                            ty_m.fn_style),
+                                            FromTrait(local_def(item.id))),
                                      StaticMethodTraitItemKind)
                                 }
                                 _ => {
@@ -1501,33 +1555,35 @@ impl<'a> Resolver<'a> {
                                                module_parent.clone(),
                                                ForbidDuplicateTypesAndValues,
                                                ty_m.span);
+                            // NB: not IMPORTABLE
                             method_name_bindings.define_value(def,
                                                               ty_m.span,
-                                                              true);
+                                                              PUBLIC);
 
                             (name, static_flag)
                         }
                         ast::TypeTraitItem(ref associated_type) => {
                             let def = DefAssociatedTy(local_def(
-                                    associated_type.id));
+                                    associated_type.ty_param.id));
 
                             let name_bindings =
-                                self.add_child(associated_type.ident.name,
+                                self.add_child(associated_type.ty_param.ident.name,
                                                module_parent.clone(),
                                                ForbidDuplicateTypesAndValues,
-                                               associated_type.span);
+                                               associated_type.ty_param.span);
+                            // NB: not IMPORTABLE
                             name_bindings.define_type(def,
-                                                      associated_type.span,
-                                                      true);
+                                                      associated_type.ty_param.span,
+                                                      PUBLIC);
 
-                            (associated_type.ident.name, TypeTraitItemKind)
+                            (associated_type.ty_param.ident.name, TypeTraitItemKind)
                         }
                     };
 
                     self.trait_item_map.insert((name, def_id), kind);
                 }
 
-                name_bindings.define_type(DefTrait(def_id), sp, is_public);
+                name_bindings.define_type(DefTrait(def_id), sp, modifiers);
                 parent
             }
             ItemMac(..) => parent
@@ -1540,7 +1596,7 @@ impl<'a> Resolver<'a> {
                                        variant: &Variant,
                                        item_id: DefId,
                                        parent: ReducedGraphParent,
-                                       is_public: bool) {
+                                       modifiers: DefModifiers) {
         let name = variant.node.name.name;
         let is_exported = match variant.node.kind {
             TupleVariantKind(_) => false,
@@ -1556,10 +1612,10 @@ impl<'a> Resolver<'a> {
                                    variant.span);
         child.define_value(DefVariant(item_id,
                                       local_def(variant.node.id), is_exported),
-                           variant.span, is_public);
+                           variant.span, modifiers);
         child.define_type(DefVariant(item_id,
                                      local_def(variant.node.id), is_exported),
-                          variant.span, is_public);
+                          variant.span, modifiers);
     }
 
     /// Constructs the reduced graph for one 'view item'. View items consist
@@ -1705,14 +1761,15 @@ impl<'a> Resolver<'a> {
                                             f: |&mut Resolver|) {
         let name = foreign_item.ident.name;
         let is_public = foreign_item.vis == ast::Public;
+        let modifiers = if is_public { PUBLIC } else { DefModifiers::empty() } | IMPORTABLE;
         let name_bindings =
             self.add_child(name, parent, ForbidDuplicateValues,
                            foreign_item.span);
 
         match foreign_item.node {
             ForeignItemFn(_, ref generics) => {
-                let def = DefFn(local_def(foreign_item.id), UnsafeFn, false);
-                name_bindings.define_value(def, foreign_item.span, is_public);
+                let def = DefFn(local_def(foreign_item.id), false);
+                name_bindings.define_value(def, foreign_item.span, modifiers);
 
                 self.with_type_parameter_rib(
                     HasTypeParameters(generics,
@@ -1723,7 +1780,7 @@ impl<'a> Resolver<'a> {
             }
             ForeignItemStatic(_, m) => {
                 let def = DefStatic(local_def(foreign_item.id), m);
-                name_bindings.define_value(def, foreign_item.span, is_public);
+                name_bindings.define_value(def, foreign_item.span, modifiers);
 
                 f(self)
             }
@@ -1768,6 +1825,7 @@ impl<'a> Resolver<'a> {
                 external crate) building external def, priv {}",
                vis);
         let is_public = vis == ast::Public;
+        let modifiers = if is_public { PUBLIC } else { DefModifiers::empty() } | IMPORTABLE;
         let is_exported = is_public && match new_parent {
             ModuleReducedGraphParent(ref module) => {
                 match module.def_id.get() {
@@ -1781,6 +1839,7 @@ impl<'a> Resolver<'a> {
         }
 
         let kind = match def {
+            DefTy(_, true) => EnumModuleKind,
             DefStruct(..) | DefTy(..) => ImplModuleKind,
             _ => NormalModuleKind
         };
@@ -1815,6 +1874,7 @@ impl<'a> Resolver<'a> {
 
         match def {
           DefMod(_) | DefForeignMod(_) => {}
+          // Still here for staging
           DefVariant(enum_did, variant_id, is_struct) => {
             debug!("(building reduced graph for external crate) building \
                     variant {}",
@@ -1824,23 +1884,36 @@ impl<'a> Resolver<'a> {
             // definition.
             let is_exported = is_public ||
                               self.external_exports.contains(&enum_did);
+            let modifiers = IMPORTABLE | ENUM_STAGING_HACK | if is_exported {
+                PUBLIC
+            } else {
+                DefModifiers::empty()
+            };
             if is_struct {
-                child_name_bindings.define_type(def, DUMMY_SP, is_exported);
+                child_name_bindings.define_type(def, DUMMY_SP, modifiers);
                 // Not adding fields for variants as they are not accessed with a self receiver
                 self.structs.insert(variant_id, Vec::new());
             } else {
-                child_name_bindings.define_value(def, DUMMY_SP, is_exported);
+                child_name_bindings.define_value(def, DUMMY_SP, modifiers);
             }
           }
-          DefFn(ctor_id, _, true) => {
+          DefFn(ctor_id, true) => {
             child_name_bindings.define_value(
                 csearch::get_tuple_struct_definition_if_ctor(&self.session.cstore, ctor_id)
-                    .map_or(def, |_| DefStruct(ctor_id)), DUMMY_SP, is_public);
+                    .map_or(def, |_| DefStruct(ctor_id)), DUMMY_SP, modifiers);
           }
-          DefFn(..) | DefStaticMethod(..) | DefStatic(..) | DefConst(..) => {
+          DefFn(..) | DefStaticMethod(..) | DefStatic(..) | DefConst(..) | DefMethod(..) => {
             debug!("(building reduced graph for external \
                     crate) building value (fn/static) {}", final_ident);
-            child_name_bindings.define_value(def, DUMMY_SP, is_public);
+            // impl methods have already been defined with the correct importability modifier
+            let mut modifiers = match *child_name_bindings.value_def.borrow() {
+                Some(ref def) => (modifiers & !IMPORTABLE) | (def.modifiers & IMPORTABLE),
+                None => modifiers
+            };
+            if new_parent.module().kind.get() != NormalModuleKind {
+                modifiers = modifiers & !IMPORTABLE;
+            }
+            child_name_bindings.define_value(def, DUMMY_SP, modifiers);
           }
           DefTrait(def_id) => {
               debug!("(building reduced graph for external \
@@ -1869,7 +1942,7 @@ impl<'a> Resolver<'a> {
                   }
               }
 
-              child_name_bindings.define_type(def, DUMMY_SP, is_public);
+              child_name_bindings.define_type(def, DUMMY_SP, modifiers);
 
               // Define a module if necessary.
               let parent_link = self.get_parent_link(new_parent, name);
@@ -1880,37 +1953,66 @@ impl<'a> Resolver<'a> {
                                                   is_public,
                                                   DUMMY_SP)
           }
+          DefTy(def_id, true) => { // enums
+              debug!("(building reduced graph for external crate) building enum {}", final_ident);
+              child_name_bindings.define_type(def, DUMMY_SP, modifiers);
+              let enum_module = ModuleReducedGraphParent(child_name_bindings.get_module());
+
+              let variants = csearch::get_enum_variant_defs(&self.session.cstore, def_id);
+              for &(v_def, name, vis) in variants.iter() {
+                  let (variant_id, is_struct) = match v_def {
+                      DefVariant(_, variant_id, is_struct) => (variant_id, is_struct),
+                      _ => unreachable!()
+                  };
+                  let child = self.add_child(name, enum_module.clone(),
+                                             OverwriteDuplicates,
+                                             DUMMY_SP);
+
+                  // If this variant is public, then it was publicly reexported,
+                  // otherwise we need to inherit the visibility of the enum
+                  // definition.
+                  let variant_exported = vis == ast::Public || is_exported;
+                  let modifiers = IMPORTABLE | if variant_exported {
+                      PUBLIC
+                  } else {
+                      DefModifiers::empty()
+                  };
+                  if is_struct {
+                      child.define_type(v_def, DUMMY_SP, modifiers);
+                      // Not adding fields for variants as they are not accessed with a self
+                      // receiver
+                      self.structs.insert(variant_id, Vec::new());
+                  } else {
+                      child.define_value(v_def, DUMMY_SP, modifiers);
+                  }
+              }
+          }
           DefTy(..) | DefAssociatedTy(..) => {
               debug!("(building reduced graph for external \
                       crate) building type {}", final_ident);
 
-              child_name_bindings.define_type(def, DUMMY_SP, is_public);
+              child_name_bindings.define_type(def, DUMMY_SP, modifiers);
           }
           DefStruct(def_id) => {
             debug!("(building reduced graph for external \
                     crate) building type and value for {}",
                    final_ident);
-            child_name_bindings.define_type(def, DUMMY_SP, is_public);
+            child_name_bindings.define_type(def, DUMMY_SP, modifiers);
             let fields = csearch::get_struct_fields(&self.session.cstore, def_id).iter().map(|f| {
                 f.name
             }).collect::<Vec<_>>();
 
             if fields.len() == 0 {
-                child_name_bindings.define_value(def, DUMMY_SP, is_public);
+                child_name_bindings.define_value(def, DUMMY_SP, modifiers);
             }
 
             // Record the def ID and fields of this struct.
             self.structs.insert(def_id, fields);
           }
-          DefMethod(..) => {
-              debug!("(building reduced graph for external crate) \
-                      ignoring {}", def);
-              // Ignored; handled elsewhere.
-          }
           DefLocal(..) | DefPrimTy(..) | DefTyParam(..) |
           DefUse(..) | DefUpvar(..) | DefRegion(..) |
           DefTyParamBinder(..) | DefLabel(..) | DefSelfTy(..) => {
-            fail!("didn't expect `{}`", def);
+            panic!("didn't expect `{}`", def);
           }
         }
     }
@@ -1957,15 +2059,14 @@ impl<'a> Resolver<'a> {
                 }
             }
             DlImpl(def) => {
-                // We only process static methods of impls here.
                 match csearch::get_type_name_if_impl(&self.session.cstore, def) {
                     None => {}
                     Some(final_name) => {
-                        let static_methods_opt =
-                            csearch::get_static_methods_if_impl(&self.session.cstore, def);
-                        match static_methods_opt {
-                            Some(ref static_methods) if
-                                static_methods.len() >= 1 => {
+                        let methods_opt =
+                            csearch::get_methods_if_impl(&self.session.cstore, def);
+                        match methods_opt {
+                            Some(ref methods) if
+                                methods.len() >= 1 => {
                                 debug!("(building reduced graph for \
                                         external crate) processing \
                                         static methods for type name {}",
@@ -2015,9 +2116,8 @@ impl<'a> Resolver<'a> {
                                 // Add each static method to the module.
                                 let new_parent =
                                     ModuleReducedGraphParent(type_module);
-                                for static_method_info in
-                                        static_methods.iter() {
-                                    let name = static_method_info.name;
+                                for method_info in methods.iter() {
+                                    let name = method_info.name;
                                     debug!("(building reduced graph for \
                                              external crate) creating \
                                              static method '{}'",
@@ -2028,14 +2128,16 @@ impl<'a> Resolver<'a> {
                                                        new_parent.clone(),
                                                        OverwriteDuplicates,
                                                        DUMMY_SP);
-                                    let def = DefFn(
-                                        static_method_info.def_id,
-                                        static_method_info.fn_style,
-                                        false);
+                                    let def = DefFn(method_info.def_id, false);
 
+                                    // NB: not IMPORTABLE
+                                    let modifiers = if visibility == ast::Public {
+                                        PUBLIC
+                                    } else {
+                                        DefModifiers::empty()
+                                    };
                                     method_name_bindings.define_value(
-                                        def, DUMMY_SP,
-                                        visibility == ast::Public);
+                                        def, DUMMY_SP, modifiers);
                                 }
                             }
 
@@ -2406,7 +2508,7 @@ impl<'a> Resolver<'a> {
     fn create_name_bindings_from_module(module: Rc<Module>) -> NameBindings {
         NameBindings {
             type_def: RefCell::new(Some(TypeNsDef {
-                is_public: false,
+                modifiers: IMPORTABLE,
                 module_def: Some(module),
                 type_def: None,
                 type_span: None
@@ -2596,7 +2698,7 @@ impl<'a> Resolver<'a> {
 
         // We've successfully resolved the import. Write the results in.
         let mut import_resolutions = module_.import_resolutions.borrow_mut();
-        let import_resolution = import_resolutions.get_mut(&target);
+        let import_resolution = &mut (*import_resolutions)[target];
 
         match value_result {
             BoundResult(ref target_module, ref name_bindings) => {
@@ -2604,6 +2706,12 @@ impl<'a> Resolver<'a> {
                        { name_bindings.value_def.borrow().clone().unwrap().def });
                 self.check_for_conflicting_import(
                     &import_resolution.value_target,
+                    directive.span,
+                    target,
+                    ValueNS);
+
+                self.check_that_import_is_importable(
+                    &**name_bindings,
                     directive.span,
                     target,
                     ValueNS);
@@ -2618,7 +2726,7 @@ impl<'a> Resolver<'a> {
             }
             UnboundResult => { /* Continue. */ }
             UnknownResult => {
-                fail!("value result should be known at this point");
+                panic!("value result should be known at this point");
             }
         }
         match type_result {
@@ -2627,6 +2735,12 @@ impl<'a> Resolver<'a> {
                        { name_bindings.type_def.borrow().clone().unwrap().type_def });
                 self.check_for_conflicting_import(
                     &import_resolution.type_target,
+                    directive.span,
+                    target,
+                    TypeNS);
+
+                self.check_that_import_is_importable(
+                    &**name_bindings,
                     directive.span,
                     target,
                     TypeNS);
@@ -2641,7 +2755,7 @@ impl<'a> Resolver<'a> {
             }
             UnboundResult => { /* Continue. */ }
             UnknownResult => {
-                fail!("type result should be known at this point");
+                panic!("type result should be known at this point");
             }
         }
 
@@ -2841,7 +2955,7 @@ impl<'a> Resolver<'a> {
                self.module_to_string(module_));
 
         // Merge the child item into the import resolution.
-        if name_bindings.defined_in_public_namespace(ValueNS) {
+        if name_bindings.defined_in_namespace_with(ValueNS, IMPORTABLE | PUBLIC) {
             debug!("(resolving glob import) ... for value target");
             dest_import_resolution.value_target =
                 Some(Target::new(containing_module.clone(),
@@ -2849,7 +2963,7 @@ impl<'a> Resolver<'a> {
                                  import_directive.shadowable));
             dest_import_resolution.value_id = id;
         }
-        if name_bindings.defined_in_public_namespace(TypeNS) {
+        if name_bindings.defined_in_namespace_with(TypeNS, IMPORTABLE | PUBLIC) {
             debug!("(resolving glob import) ... for type target");
             dest_import_resolution.type_target =
                 Some(Target::new(containing_module,
@@ -2888,6 +3002,19 @@ impl<'a> Resolver<'a> {
                 self.session.span_err(import_span, msg.as_slice());
             }
             Some(_) | None => {}
+        }
+    }
+
+    /// Checks that an import is actually importable
+    fn check_that_import_is_importable(&mut self,
+                                       name_bindings: &NameBindings,
+                                       import_span: Span,
+                                       name: Name,
+                                       namespace: Namespace) {
+        if !name_bindings.defined_in_namespace_with(namespace, IMPORTABLE) {
+            let msg = format!("`{}` is not directly importable",
+                              token::get_name(name));
+            self.session.span_err(import_span, msg.as_slice());
         }
     }
 
@@ -2930,8 +3057,8 @@ impl<'a> Resolver<'a> {
         match import_resolution.value_target {
             Some(ref target) if !target.shadowable => {
                 match *name_bindings.value_def.borrow() {
-                    None => {}
-                    Some(ref value) => {
+                    // We want to allow the "flat" def of enum variants to be shadowed
+                    Some(ref value) if !value.modifiers.contains(ENUM_STAGING_HACK) => {
                         let msg = format!("import `{}` conflicts with value \
                                            in this module",
                                           token::get_name(name).get());
@@ -2945,6 +3072,7 @@ impl<'a> Resolver<'a> {
                             }
                         }
                     }
+                    _ => {}
                 }
             }
             Some(_) | None => {}
@@ -2953,8 +3081,8 @@ impl<'a> Resolver<'a> {
         match import_resolution.type_target {
             Some(ref target) if !target.shadowable => {
                 match *name_bindings.type_def.borrow() {
-                    None => {}
-                    Some(ref ty) => {
+                    // We want to allow the "flat" def of enum variants to be shadowed
+                    Some(ref ty) if !ty.modifiers.contains(ENUM_STAGING_HACK) => {
                         match ty.module_def {
                             None => {
                                 let msg = format!("import `{}` conflicts with type in \
@@ -3005,6 +3133,7 @@ impl<'a> Resolver<'a> {
                             }
                         }
                     }
+                    _ => {}
                 }
             }
             Some(_) | None => {}
@@ -3143,43 +3272,28 @@ impl<'a> Resolver<'a> {
                                     return Failed(Some((span, msg)));
                                 }
                                 Some(ref module_def) => {
-                                    // If we're doing the search for an
-                                    // import, do not allow traits and impls
-                                    // to be selected.
-                                    match (name_search_type,
-                                           module_def.kind.get()) {
-                                        (ImportSearch, TraitModuleKind) |
-                                        (ImportSearch, ImplModuleKind) => {
-                                            let msg =
-                                                "Cannot import from a trait or \
-                                                type implementation".to_string();
-                                            return Failed(Some((span, msg)));
+                                    search_module = module_def.clone();
+
+                                    // track extern crates for unused_extern_crate lint
+                                    match module_def.def_id.get() {
+                                        Some(did) => {
+                                            self.used_crates.insert(did.krate);
                                         }
-                                        (_, _) => {
-                                            search_module = module_def.clone();
+                                        _ => {}
+                                    }
 
-                                            // track extern crates for unused_extern_crate lint
-                                            match module_def.def_id.get() {
-                                                Some(did) => {
-                                                    self.used_crates.insert(did.krate);
-                                                }
-                                                _ => {}
+                                    // Keep track of the closest
+                                    // private module used when
+                                    // resolving this import chain.
+                                    if !used_proxy &&
+                                       !search_module.is_public {
+                                        match search_module.def_id
+                                                           .get() {
+                                            Some(did) => {
+                                                closest_private =
+                                                    LastMod(DependsOn(did));
                                             }
-
-                                            // Keep track of the closest
-                                            // private module used when
-                                            // resolving this import chain.
-                                            if !used_proxy &&
-                                               !search_module.is_public {
-                                                match search_module.def_id
-                                                                   .get() {
-                                                    Some(did) => {
-                                                        closest_private =
-                                                            LastMod(DependsOn(did));
-                                                    }
-                                                    None => {}
-                                                }
-                                            }
+                                            None => {}
                                         }
                                     }
                                 }
@@ -3400,6 +3514,7 @@ impl<'a> Resolver<'a> {
                         }
                         TraitModuleKind |
                         ImplModuleKind |
+                        EnumModuleKind |
                         AnonymousModuleKind => {
                             search_module = parent_module_node.upgrade().unwrap();
                         }
@@ -3497,6 +3612,7 @@ impl<'a> Resolver<'a> {
                         NormalModuleKind => return Some(new_module),
                         TraitModuleKind |
                         ImplModuleKind |
+                        EnumModuleKind |
                         AnonymousModuleKind => module_ = new_module,
                     }
                 }
@@ -3512,6 +3628,7 @@ impl<'a> Resolver<'a> {
             NormalModuleKind => return module_,
             TraitModuleKind |
             ImplModuleKind |
+            EnumModuleKind |
             AnonymousModuleKind => {
                 match self.get_nearest_normal_module_parent(module_.clone()) {
                     None => module_,
@@ -4106,7 +4223,7 @@ impl<'a> Resolver<'a> {
                                             impl_items.as_slice());
             }
 
-            ItemTrait(ref generics, ref unbound, ref bounds, ref methods) => {
+            ItemTrait(ref generics, ref unbound, ref bounds, ref trait_items) => {
                 // Create a new rib for the self type.
                 let mut self_type_rib = Rib::new(ItemRibKind);
 
@@ -4134,13 +4251,13 @@ impl<'a> Resolver<'a> {
                         _ => {}
                     }
 
-                    for method in (*methods).iter() {
-                        // Create a new rib for the method-specific type
+                    for trait_item in (*trait_items).iter() {
+                        // Create a new rib for the trait_item-specific type
                         // parameters.
                         //
                         // FIXME #4951: Do we need a node ID here?
 
-                        match *method {
+                        match *trait_item {
                           ast::RequiredMethod(ref ty_m) => {
                             this.with_type_parameter_rib
                                 (HasTypeParameters(&ty_m.generics,
@@ -4175,8 +4292,9 @@ impl<'a> Resolver<'a> {
                                                                 ProvidedMethod(m.id)),
                                                   &**m)
                           }
-                          ast::TypeTraitItem(_) => {
-                              visit::walk_trait_item(this, method);
+                          ast::TypeTraitItem(ref data) => {
+                              this.resolve_type_parameter(&data.ty_param);
+                              visit::walk_trait_item(this, trait_item);
                           }
                         }
                     }
@@ -4365,20 +4483,25 @@ impl<'a> Resolver<'a> {
     fn resolve_type_parameters(&mut self,
                                type_parameters: &OwnedSlice<TyParam>) {
         for type_parameter in type_parameters.iter() {
-            for bound in type_parameter.bounds.iter() {
-                self.resolve_type_parameter_bound(type_parameter.id, bound,
-                                                  TraitBoundingTypeParameter);
-            }
-            match &type_parameter.unbound {
-                &Some(ref unbound) =>
-                    self.resolve_type_parameter_bound(
-                        type_parameter.id, unbound, TraitBoundingTypeParameter),
-                &None => {}
-            }
-            match type_parameter.default {
-                Some(ref ty) => self.resolve_type(&**ty),
-                None => {}
-            }
+            self.resolve_type_parameter(type_parameter);
+        }
+    }
+
+    fn resolve_type_parameter(&mut self,
+                              type_parameter: &TyParam) {
+        for bound in type_parameter.bounds.iter() {
+            self.resolve_type_parameter_bound(type_parameter.id, bound,
+                                              TraitBoundingTypeParameter);
+        }
+        match &type_parameter.unbound {
+            &Some(ref unbound) =>
+                self.resolve_type_parameter_bound(
+                    type_parameter.id, unbound, TraitBoundingTypeParameter),
+            &None => {}
+        }
+        match type_parameter.default {
+            Some(ref ty) => self.resolve_type(&**ty),
+            None => {}
         }
     }
 
@@ -4465,14 +4588,14 @@ impl<'a> Resolver<'a> {
                         self.resolve_error(trait_reference.path.span,
                                            format!("`{}` is not a trait",
                                                    self.path_names_to_string(
-                                                        &trait_reference.path)));
+                                                       &trait_reference.path)));
 
                         // If it's a typedef, give a note
                         match def {
                             DefTy(..) => {
                                 self.session.span_note(
-                                                trait_reference.path.span,
-                                                format!("`type` aliases cannot \
+                                    trait_reference.path.span,
+                                    format!("`type` aliases cannot \
                                                         be used for traits")
                                                         .as_slice());
                             }
@@ -5077,7 +5200,6 @@ impl<'a> Resolver<'a> {
                 PatEnum(ref path, _) => {
                     // This must be an enum variant, struct or const.
                     match self.resolve_path(pat_id, path, ValueNS, false) {
-                        Some(def @ (DefFn(..), _))      |
                         Some(def @ (DefVariant(..), _)) |
                         Some(def @ (DefStruct(..), _))  |
                         Some(def @ (DefConst(..), _)) => {
@@ -5162,7 +5284,7 @@ impl<'a> Resolver<'a> {
                         target.bindings.value_def.borrow());
                 match *target.bindings.value_def.borrow() {
                     None => {
-                        fail!("resolved name in the value namespace to a \
+                        panic!("resolved name in the value namespace to a \
                               set of name bindings with no def?!");
                     }
                     Some(def) => {
@@ -5192,7 +5314,7 @@ impl<'a> Resolver<'a> {
             }
 
             Indeterminate => {
-                fail!("unexpected indeterminate result");
+                panic!("unexpected indeterminate result");
             }
             Failed(err) => {
                 match err {
@@ -5390,7 +5512,7 @@ impl<'a> Resolver<'a> {
                                                  msg.as_slice()));
                 return None;
             }
-            Indeterminate => fail!("indeterminate unexpected"),
+            Indeterminate => panic!("indeterminate unexpected"),
             Success((resulting_module, resulting_last_private)) => {
                 containing_module = resulting_module;
                 last_private = resulting_last_private;
@@ -5452,7 +5574,7 @@ impl<'a> Resolver<'a> {
             }
 
             Indeterminate => {
-                fail!("indeterminate unexpected");
+                panic!("indeterminate unexpected");
             }
 
             Success((resulting_module, resulting_last_private)) => {
@@ -5538,7 +5660,7 @@ impl<'a> Resolver<'a> {
                 }
             }
             Indeterminate => {
-                fail!("unexpected indeterminate result");
+                panic!("unexpected indeterminate result");
             }
             Failed(err) => {
                 match err {
@@ -5647,7 +5769,7 @@ impl<'a> Resolver<'a> {
                 Some(binding) => {
                     let p_str = self.path_names_to_string(&path);
                     match binding.def_for_namespace(ValueNS) {
-                        Some(DefStaticMethod(_, provenance, _)) => {
+                        Some(DefStaticMethod(_, provenance)) => {
                             match provenance {
                                 FromImpl(_) => return StaticMethod(p_str),
                                 FromTrait(_) => unreachable!()
@@ -5698,7 +5820,7 @@ impl<'a> Resolver<'a> {
 
         let mut smallest = 0;
         for (i, other) in maybes.iter().enumerate() {
-            *values.get_mut(i) = name.lev_distance(other.get());
+            values[i] = name.lev_distance(other.get());
 
             if values[i] <= values[smallest] {
                 smallest = i;
@@ -5757,7 +5879,7 @@ impl<'a> Resolver<'a> {
                                                  uses it like a function name",
                                                 wrong_name).as_slice());
 
-                                self.session.span_note(expr.span,
+                                self.session.span_help(expr.span,
                                     format!("Did you mean to write: \
                                             `{} {{ /* fields */ }}`?",
                                             wrong_name).as_slice());
@@ -6156,7 +6278,7 @@ impl<'a> Resolver<'a> {
                 type_used: _
             }) => (v, t),
             Some(_) => {
-                fail!("we should only have LastImport for `use` directives")
+                panic!("we should only have LastImport for `use` directives")
             }
             _ => return,
         };

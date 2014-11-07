@@ -13,8 +13,6 @@
 
 // compile-flags:-g
 
-// gdb-command:break 'no-debug-attribute.rs':32
-// gdb-command:break 'no-debug-attribute.rs':38
 // gdb-command:run
 
 // gdb-command:info locals
@@ -25,7 +23,7 @@
 // gdb-check:abc = 10
 // gdb-command:continue
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 fn function_with_debuginfo() {
     let abc = 10u;

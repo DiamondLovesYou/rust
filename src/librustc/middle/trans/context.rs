@@ -34,7 +34,6 @@ use std::c_str::ToCStr;
 use std::ptr;
 use std::rc::Rc;
 use std::collections::{HashMap, HashSet};
-use syntax::abi;
 use syntax::ast;
 use syntax::parse::token::InternedString;
 
@@ -138,7 +137,7 @@ pub struct LocalCrateContext {
     builder: BuilderRef_res,
 
     /// Holds the LLVM values for closure IDs.
-    unboxed_closure_vals: RefCell<DefIdMap<ValueRef>>,
+    unboxed_closure_vals: RefCell<HashMap<MonoId, ValueRef>>,
 
     dbg_cx: Option<debuginfo::CrateDebugContext>,
 
@@ -220,16 +219,16 @@ unsafe fn create_context_and_module(sess: &Session, mod_name: &str) -> (ContextR
     let llmod = mod_name.with_c_str(|buf| {
         llvm::LLVMModuleCreateWithNameInContext(buf, llcx)
     });
-    sess.targ_cfg
-        .target_strs
+    sess.target
+        .target
         .data_layout
         .as_slice()
         .with_c_str(|buf| {
         llvm::LLVMSetDataLayout(llmod, buf);
     });
-    sess.targ_cfg
-        .target_strs
-        .target_triple
+    sess.target
+        .target
+        .llvm_target
         .as_slice()
         .with_c_str(|buf| {
         llvm::LLVMRustSetNormalizedTarget(llmod, buf);
@@ -378,8 +377,8 @@ impl LocalCrateContext {
 
             let td = mk_target_data(shared.tcx
                                           .sess
-                                          .targ_cfg
-                                          .target_strs
+                                          .target
+                                          .target
                                           .data_layout
                                           .as_slice());
 
@@ -419,7 +418,7 @@ impl LocalCrateContext {
                 int_type: Type::from_ref(ptr::null_mut()),
                 opaque_vec_type: Type::from_ref(ptr::null_mut()),
                 builder: BuilderRef_res(llvm::LLVMCreateBuilderInContext(llcx)),
-                unboxed_closure_vals: RefCell::new(DefIdMap::new()),
+                unboxed_closure_vals: RefCell::new(HashMap::new()),
                 dbg_cx: dbg_cx,
                 eh_personality: RefCell::new(None),
                 intrinsics: RefCell::new(HashMap::new()),
@@ -453,7 +452,7 @@ impl LocalCrateContext {
     /// Create a dummy `CrateContext` from `self` and  the provided
     /// `SharedCrateContext`.  This is somewhat dangerous because `self` may
     /// not actually be an element of `shared.local_ccxs`, which can cause some
-    /// operations to `fail` unexpectedly.
+    /// operations to panic unexpectedly.
     ///
     /// This is used in the `LocalCrateContext` constructor to allow calling
     /// functions that expect a complete `CrateContext`, even before the local
@@ -527,21 +526,13 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
         }
         match declare_intrinsic(self, key) {
             Some(v) => return v,
-            None => fail!()
+            None => panic!()
         }
     }
 
-    // Although there is an experimental implementation of LLVM which
-    // supports SS on armv7 it wasn't approved by Apple, see:
-    // http://lists.cs.uiuc.edu/pipermail/llvm-commits/Week-of-Mon-20140505/216350.html
-    // It looks like it might be never accepted to upstream LLVM.
-    //
-    // So far the decision was to disable them in default builds
-    // but it could be enabled (with patched LLVM)
     pub fn is_split_stack_supported(&self) -> bool {
-        let ref cfg = self.sess().targ_cfg;
-        (cfg.os != abi::OsiOS || cfg.arch != abi::Arm) && cfg.os != abi::OsWindows
-            && cfg.os != abi::OsNaCl
+        self.sess().target.target.options.morestack
+            && self.sess().target.target.target_os.as_slice() != "nacl"
     }
 
 
@@ -690,7 +681,7 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
         self.local.opaque_vec_type
     }
 
-    pub fn unboxed_closure_vals<'a>(&'a self) -> &'a RefCell<DefIdMap<ValueRef>> {
+    pub fn unboxed_closure_vals<'a>(&'a self) -> &'a RefCell<HashMap<MonoId,ValueRef>> {
         &self.local.unboxed_closure_vals
     }
 
@@ -866,6 +857,7 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
     ifn!("llvm.lifetime.end" fn(t_i64, i8p) -> void);
 
     ifn!("llvm.expect.i1" fn(i1, i1) -> i1);
+    ifn!("llvm.assume" fn(i1) -> void);
 
     // Some intrinsics were introduced in later versions of LLVM, but they have
     // fallbacks in libc or libm and such. Currently, all of these intrinsics

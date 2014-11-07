@@ -71,7 +71,7 @@ fn optgroups() -> Vec<OptGroup> {
 fn fatal<T: Str + Show>(msg: T) -> ! {
     println!("error: {}", msg);
     os::set_exit_status(1);
-    fail!("fatal error");
+    panic!("fatal error");
 }
 
 fn warn<T: Str + Show>(msg: T) {
@@ -99,7 +99,7 @@ pub fn main() {
 
     let matches = match getopts(args.tail(), opts.as_slice()) {
         Ok(m) => m,
-        Err(f) => fail!(f.to_string()),
+        Err(f) => panic!(f.to_string()),
     };
     if matches.opt_present("h") {
         println!("{}", getopts::usage("pexe/bc -> nexe translator and linker", opts.as_slice()));

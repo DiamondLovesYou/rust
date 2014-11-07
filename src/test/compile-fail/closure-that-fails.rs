@@ -12,9 +12,9 @@ fn foo(f: || -> !) {}
 
 fn main() {
     // Type inference didn't use to be able to handle this:
-    foo(|| fail!());
-    foo(|| -> ! fail!());
-    foo(|| 22); //~ ERROR mismatched types
-    foo(|| -> ! 22); //~ ERROR mismatched types
-    let x = || -> ! 1; //~ ERROR mismatched types
+    foo(|| panic!());
+    foo(|| -> ! panic!());
+    foo(|| 22i); //~ ERROR computation may converge in a function marked as diverging
+    foo(|| -> ! 22i); //~ ERROR computation may converge in a function marked as diverging
+    let x = || -> ! 1i; //~ ERROR computation may converge in a function marked as diverging
 }

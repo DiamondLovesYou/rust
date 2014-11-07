@@ -54,7 +54,7 @@ use middle::def;
 use middle::lang_items::{FnTraitLangItem, FnMutTraitLangItem};
 use middle::lang_items::{FnOnceTraitLangItem};
 use middle::resolve_lifetime as rl;
-use middle::subst::{FnSpace, TypeSpace, SelfSpace, Subst, Substs};
+use middle::subst::{FnSpace, TypeSpace, AssocSpace, SelfSpace, Subst, Substs};
 use middle::subst::{VecPerParamSpace};
 use middle::ty;
 use middle::typeck::lookup_def_tcx;
@@ -172,18 +172,18 @@ pub fn opt_ast_region_to_region<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                                 }
                             }
                             if len == 1 {
-                                span_note!(this.tcx().sess, default_span,
+                                span_help!(this.tcx().sess, default_span,
                                     "this function's return type contains a borrowed value, but \
                                      the signature does not say which {} it is borrowed from",
                                     m);
                             } else if len == 0 {
-                                span_note!(this.tcx().sess, default_span,
+                                span_help!(this.tcx().sess, default_span,
                                     "this function's return type contains a borrowed value, but \
                                      there is no value for it to be borrowed from");
-                                span_note!(this.tcx().sess, default_span,
+                                span_help!(this.tcx().sess, default_span,
                                     "consider giving it a 'static lifetime");
                             } else {
-                                span_note!(this.tcx().sess, default_span,
+                                span_help!(this.tcx().sess, default_span,
                                     "this function's return type contains a borrowed value, but \
                                      the signature does not say whether it is borrowed from {}",
                                     m);
@@ -215,7 +215,8 @@ fn ast_path_substs<'tcx,AC,RS>(
                    associated_ty: Option<ty::t>,
                    path: &ast::Path)
                    -> Substs
-                   where AC: AstConv<'tcx>, RS: RegionScope {
+                   where AC: AstConv<'tcx>, RS: RegionScope
+{
     /*!
      * Given a path `path` that refers to an item `I` with the
      * declared generics `decl_generics`, returns an appropriate
@@ -302,7 +303,7 @@ fn ast_path_substs<'tcx,AC,RS>(
         && !this.tcx().sess.features.borrow().default_type_params {
         span_err!(this.tcx().sess, path.span, E0108,
             "default type parameters are experimental and possibly buggy");
-        span_note!(this.tcx().sess, path.span,
+        span_help!(this.tcx().sess, path.span,
             "add #![feature(default_type_params)] to the crate attributes to enable");
     }
 
@@ -338,15 +339,19 @@ fn ast_path_substs<'tcx,AC,RS>(
                 substs.types.push(TypeSpace, default);
             }
             None => {
-                // This is an associated type.
-                substs.types.push(
-                    TypeSpace,
-                    this.associated_type_binding(path.span,
-                                                 associated_ty,
-                                                 decl_def_id,
-                                                 param.def_id))
+                tcx.sess.span_bug(path.span,
+                                  "extra parameter without default");
             }
         }
+    }
+
+    for param in decl_generics.types.get_slice(AssocSpace).iter() {
+        substs.types.push(
+            AssocSpace,
+            this.associated_type_binding(path.span,
+                                         associated_ty,
+                                         decl_def_id,
+                                         param.def_id))
     }
 
     substs
@@ -628,9 +633,13 @@ fn mk_pointer<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
         a_seq_ty: &ast::Ty,
         ptr_ty: PointerTy,
         constr: |ty::t| -> ty::t)
-        -> ty::t {
+        -> ty::t
+{
     let tcx = this.tcx();
-    debug!("mk_pointer(ptr_ty={})", ptr_ty);
+
+    debug!("mk_pointer(ptr_ty={}, a_seq_ty={})",
+           ptr_ty,
+           a_seq_ty.repr(tcx));
 
     match a_seq_ty.node {
         ast::TyVec(ref ty) => {
@@ -674,7 +683,7 @@ fn mk_pointer<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                             return constr(ty::mk_str(tcx));
                         }
                         RPtr(r) => {
-                            return ty::mk_str_slice(tcx, r, ast::MutImmutable);
+                            return ty::mk_str_slice(tcx, r, a_seq_mutbl);
                         }
                     }
                 }
@@ -730,7 +739,13 @@ fn associated_ty_to_ty<'tcx,AC,RS>(this: &AC,
                                    trait_type_id: ast::DefId,
                                    span: Span)
                                    -> ty::t
-                                   where AC: AstConv<'tcx>, RS: RegionScope {
+                                   where AC: AstConv<'tcx>, RS: RegionScope
+{
+    debug!("associated_ty_to_ty(trait_path={}, for_ast_type={}, trait_type_id={})",
+           trait_path.repr(this.tcx()),
+           for_ast_type.repr(this.tcx()),
+           trait_type_id.repr(this.tcx()));
+
     // Find the trait that this associated type belongs to.
     let trait_did = match ty::impl_or_trait_item(this.tcx(),
                                                  trait_type_id).container() {
@@ -757,9 +772,16 @@ fn associated_ty_to_ty<'tcx,AC,RS>(this: &AC,
                                           None,
                                           Some(for_type),
                                           trait_path);
+
+    debug!("associated_ty_to_ty(trait_ref={})",
+           trait_ref.repr(this.tcx()));
+
     let trait_def = this.get_trait_def(trait_did);
     for type_parameter in trait_def.generics.types.iter() {
         if type_parameter.def_id == trait_type_id {
+            debug!("associated_ty_to_ty(type_parameter={} substs={})",
+                   type_parameter.repr(this.tcx()),
+                   trait_ref.substs.repr(this.tcx()));
             return *trait_ref.substs.types.get(type_parameter.space,
                                                type_parameter.index)
         }
@@ -772,7 +794,10 @@ fn associated_ty_to_ty<'tcx,AC,RS>(this: &AC,
 // Parses the programmer's textual representation of a type into our
 // internal notion of a type.
 pub fn ast_ty_to_ty<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
-        this: &AC, rscope: &RS, ast_ty: &ast::Ty) -> ty::t {
+        this: &AC, rscope: &RS, ast_ty: &ast::Ty) -> ty::t
+{
+    debug!("ast_ty_to_ty(ast_ty={})",
+           ast_ty.repr(this.tcx()));
 
     let tcx = this.tcx();
 
@@ -793,7 +818,7 @@ pub fn ast_ty_to_ty<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
     let typ = ast_ty_to_builtin_ty(this, rscope, ast_ty).unwrap_or_else(|| {
         match ast_ty.node {
             ast::TyNil => ty::mk_nil(),
-            ast::TyBot => ty::mk_bot(),
+            ast::TyBot => unreachable!(),
             ast::TyUniq(ref ty) => {
                 mk_pointer(this, rscope, ast::MutImmutable, &**ty, Uniq,
                            |ty| ty::mk_uniq(tcx, ty))
@@ -937,7 +962,7 @@ pub fn ast_ty_to_ty<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                                     tcx.map.node_to_string(id.node)).as_slice());
                     }
                     def::DefPrimTy(_) => {
-                        fail!("DefPrimTy arm missed in previous ast_ty_to_prim_ty call");
+                        panic!("DefPrimTy arm missed in previous ast_ty_to_prim_ty call");
                     }
                     def::DefAssociatedTy(trait_type_id) => {
                         let path_str = tcx.map.path_to_string(
@@ -998,14 +1023,14 @@ pub fn ast_ty_to_ty<'tcx, AC: AstConv<'tcx>, RS: RegionScope>(
                                            Some(i as uint)),
                             _ => {
                                 tcx.sess.span_fatal(
-                                    ast_ty.span, "expected constant expr for vector length");
+                                    ast_ty.span, "expected constant expr for array length");
                             }
                         }
                     }
                     Err(ref r) => {
                         tcx.sess.span_fatal(
                             ast_ty.span,
-                            format!("expected constant expr for vector \
+                            format!("expected constant expr for array \
                                      length: {}",
                                     *r).as_slice());
                     }
@@ -1168,25 +1193,25 @@ fn ty_of_method_or_bare_fn<'tcx, AC: AstConv<'tcx>>(
 
     let param_lifetimes: Vec<(String, uint)> = lifetimes_for_params.into_iter()
                                                                    .map(|(n, v)| (n, v.len()))
+                                                                   .filter(|&(_, l)| l != 0)
                                                                    .collect();
 
     let output_ty = match decl.output.node {
-        ast::TyInfer => this.ty_infer(decl.output.span),
-        _ => {
-            match implied_output_region {
-                Some(implied_output_region) => {
-                    let rb = SpecificRscope::new(implied_output_region);
-                    ast_ty_to_ty(this, &rb, &*decl.output)
-                }
-                None => {
-                    // All regions must be explicitly specified in the output
-                    // if the lifetime elision rules do not apply. This saves
-                    // the user from potentially-confusing errors.
-                    let rb = UnelidableRscope::new(param_lifetimes);
-                    ast_ty_to_ty(this, &rb, &*decl.output)
-                }
+        ast::TyBot => ty::FnDiverging,
+        ast::TyInfer => ty::FnConverging(this.ty_infer(decl.output.span)),
+        _ => ty::FnConverging(match implied_output_region {
+            Some(implied_output_region) => {
+                let rb = SpecificRscope::new(implied_output_region);
+                ast_ty_to_ty(this, &rb, &*decl.output)
             }
-        }
+            None => {
+                // All regions must be explicitly specified in the output
+                // if the lifetime elision rules do not apply. This saves
+                // the user from potentially-confusing errors.
+                let rb = UnelidableRscope::new(param_lifetimes);
+                ast_ty_to_ty(this, &rb, &*decl.output)
+            }
+        })
     };
 
     (ty::BareFnTy {
@@ -1308,10 +1333,12 @@ pub fn ty_of_closure<'tcx, AC: AstConv<'tcx>>(
     }).collect();
 
     let expected_ret_ty = expected_sig.map(|e| e.output);
+
     let output_ty = match decl.output.node {
+        ast::TyBot => ty::FnDiverging,
         ast::TyInfer if expected_ret_ty.is_some() => expected_ret_ty.unwrap(),
-        ast::TyInfer => this.ty_infer(decl.output.span),
-        _ => ast_ty_to_ty(this, &rb, &*decl.output)
+        ast::TyInfer => ty::FnConverging(this.ty_infer(decl.output.span)),
+        _ => ty::FnConverging(ast_ty_to_ty(this, &rb, &*decl.output))
     };
 
     ty::ClosureTy {

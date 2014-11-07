@@ -13,7 +13,6 @@
 //! Buffering wrappers for I/O traits
 
 use cmp;
-use collections::Collection;
 use io::{Reader, Writer, Stream, Buffer, DEFAULT_BUF_SIZE, IoResult};
 use iter::ExactSize;
 use ops::Drop;
@@ -130,14 +129,13 @@ impl<R: Reader> Reader for BufferedReader<R> {
 /// # Example
 ///
 /// ```rust
-/// # #![allow(unused_must_use)]
 /// use std::io::{BufferedWriter, File};
 ///
-/// let file = File::open(&Path::new("message.txt"));
+/// let file = File::create(&Path::new("message.txt")).unwrap();
 /// let mut writer = BufferedWriter::new(file);
 ///
-/// writer.write_str("hello, world");
-/// writer.flush();
+/// writer.write_str("hello, world").unwrap();
+/// writer.flush().unwrap();
 /// ```
 pub struct BufferedWriter<W> {
     inner: Option<W>,
@@ -183,7 +181,7 @@ impl<W: Writer> BufferedWriter<W> {
     ///
     /// The buffer is flushed before returning the writer.
     pub fn unwrap(mut self) -> W {
-        // FIXME(#12628): is failing the right thing to do if flushing fails?
+        // FIXME(#12628): is panicking the right thing to do if flushing panicks?
         self.flush_buf().unwrap();
         self.inner.take().unwrap()
     }
@@ -214,7 +212,7 @@ impl<W: Writer> Writer for BufferedWriter<W> {
 impl<W: Writer> Drop for BufferedWriter<W> {
     fn drop(&mut self) {
         if self.inner.is_some() {
-            // dtors should not fail, so we ignore a failed flush
+            // dtors should not panic, so we ignore a panicked flush
             let _ = self.flush_buf();
         }
     }
@@ -612,7 +610,7 @@ mod test {
 
     #[test]
     #[should_fail]
-    fn dont_fail_in_drop_on_failed_flush() {
+    fn dont_panic_in_drop_on_panicked_flush() {
         struct FailFlushWriter;
 
         impl Writer for FailFlushWriter {
@@ -623,9 +621,8 @@ mod test {
         let writer = FailFlushWriter;
         let _writer = BufferedWriter::new(writer);
 
-        // Trigger failure. If writer fails *again* due to the flush
-        // error then the process will abort.
-        fail!();
+        // If writer panics *again* due to the flush error then the process will abort.
+        panic!();
     }
 
     #[bench]

@@ -15,9 +15,10 @@ struct Col<D, C> {
     col: C,
 }
 
+trait Collection { fn len(&self) -> uint; }
+
 impl<T, M: MatrixShape> Collection for Col<M, uint> {
-//~^ ERROR unable to infer enough type information to locate the impl of the trait
-//~^^ NOTE the trait `core::kinds::Sized` must be implemented because it is required by
+//~^ ERROR unable to infer enough type information
     fn len(&self) -> uint {
         unimplemented!()
     }

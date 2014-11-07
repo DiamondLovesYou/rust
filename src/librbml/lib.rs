@@ -26,7 +26,7 @@
        html_playground_url = "http://play.rust-lang.org/")]
 #![allow(unknown_features)]
 #![feature(macro_rules, phase, slicing_syntax)]
-#![allow(missing_doc)]
+#![allow(missing_docs)]
 
 extern crate serialize;
 
@@ -244,7 +244,7 @@ pub mod reader {
             Some(d) => d,
             None => {
                 error!("failed to find block with tag {}", tg);
-                fail!();
+                panic!();
             }
         }
     }
@@ -558,9 +558,17 @@ pub mod reader {
         }
 
         fn read_tuple<T>(&mut self,
-                         f: |&mut Decoder<'doc>, uint| -> DecodeResult<T>) -> DecodeResult<T> {
+                         tuple_len: uint,
+                         f: |&mut Decoder<'doc>| -> DecodeResult<T>) -> DecodeResult<T> {
             debug!("read_tuple()");
-            self.read_seq(f)
+            self.read_seq(|d, len| {
+                if len == tuple_len {
+                    f(d)
+                } else {
+                    Err(Expected(format!("Expected tuple of length `{}`, \
+                                          found tuple of length `{}`", tuple_len, len)))
+                }
+            })
         }
 
         fn read_tuple_arg<T>(&mut self, idx: uint, f: |&mut Decoder<'doc>| -> DecodeResult<T>)
@@ -571,10 +579,11 @@ pub mod reader {
 
         fn read_tuple_struct<T>(&mut self,
                                 name: &str,
-                                f: |&mut Decoder<'doc>, uint| -> DecodeResult<T>)
+                                len: uint,
+                                f: |&mut Decoder<'doc>| -> DecodeResult<T>)
                                 -> DecodeResult<T> {
             debug!("read_tuple_struct(name={})", name);
-            self.read_tuple(f)
+            self.read_tuple(len, f)
         }
 
         fn read_tuple_struct_arg<T>(&mut self,

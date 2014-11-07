@@ -15,10 +15,8 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:set print pretty off
-// gdb-command:rbreak zzz
 // gdb-command:run
-// gdb-command:finish
+
 // gdb-command:print *a
 // gdb-check:$1 = 1
 // gdb-command:print *b
@@ -33,7 +31,7 @@
 // lldb-command:print *b
 // lldb-check:[...]$1 = (2, 3.5)
 
-#![allow(unused_variable)]
+#![allow(unused_variables)]
 
 fn main() {
     let a = box 1i;
