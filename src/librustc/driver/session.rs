@@ -235,10 +235,11 @@ impl Session {
     }
 
     pub fn expect_cross_path(&self) -> Path {
-        match self.opts.cg.cross_path {
-            None => self.fatal("need cross path (-C cross-path) \
+        let cross_path = self.opts.cg.cross_path.clone();
+        match cross_path.or_else(|| os::getenv("NACL_SDK_ROOT") ) {
+            None => self.fatal("need cross path (-C cross-path, or via NACL_SDK_ROOT) \
                                 for this target"),
-            Some(ref p) => Path::new(p.clone()),
+            Some(p) => Path::new(p),
         }
     }
 
