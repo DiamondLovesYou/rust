@@ -56,8 +56,8 @@ use core::fmt;
 use core::cmp;
 use core::iter::AdditiveIterator;
 use core::kinds::Sized;
-use core::prelude::{Char, Clone, Eq, Equiv, ImmutableSlice};
-use core::prelude::{Iterator, MutableSlice, None, Option, Ord, Ordering};
+use core::prelude::{Char, Clone, Eq, Equiv};
+use core::prelude::{Iterator, SlicePrelude, None, Option, Ord, Ordering};
 use core::prelude::{PartialEq, PartialOrd, Result, AsSlice, Some, Tuple2};
 use core::prelude::{range};
 
@@ -73,8 +73,10 @@ pub use core::str::{CharSplitsN, AnyLines, MatchIndices, StrSplits};
 pub use core::str::{Utf16CodeUnits, eq_slice, is_utf8, is_utf16, Utf16Items};
 pub use core::str::{Utf16Item, ScalarValue, LoneSurrogate, utf16_items};
 pub use core::str::{truncate_utf16_at_nul, utf8_char_width, CharRange};
-pub use core::str::{Str, StrSlice};
-pub use unicode::str::{UnicodeStrSlice, Words, Graphemes, GraphemeIndices};
+pub use core::str::{Str, StrPrelude};
+pub use unicode::str::{UnicodeStrPrelude, Words, Graphemes, GraphemeIndices};
+
+// FIXME(conventions): ensure bit/char conventions are followed by str's API
 
 /*
 Section: Creating a string
@@ -308,7 +310,7 @@ impl<'a> Iterator<char> for Recompositions<'a> {
                                             self.composee = Some(ch);
                                             return Some(k);
                                         }
-                                        self.buffer.push(ch);
+                                        self.buffer.push_back(ch);
                                         self.last_ccc = Some(ch_class);
                                     }
                                 }
@@ -322,7 +324,7 @@ impl<'a> Iterator<char> for Recompositions<'a> {
                                         self.state = Purging;
                                         return Some(k);
                                     }
-                                    self.buffer.push(ch);
+                                    self.buffer.push_back(ch);
                                     self.last_ccc = Some(ch_class);
                                     continue;
                                 }
@@ -332,7 +334,7 @@ impl<'a> Iterator<char> for Recompositions<'a> {
                                         continue;
                                     }
                                     None => {
-                                        self.buffer.push(ch);
+                                        self.buffer.push_back(ch);
                                         self.last_ccc = Some(ch_class);
                                     }
                                 }
@@ -532,9 +534,16 @@ impl<'a> PartialOrd for MaybeOwned<'a> {
 }
 
 impl<'a> Ord for MaybeOwned<'a> {
+    // NOTE(stage0): remove method after a snapshot
+    #[cfg(stage0)]
     #[inline]
     fn cmp(&self, other: &MaybeOwned) -> Ordering {
         self.as_slice().cmp(&other.as_slice())
+    }
+    #[cfg(not(stage0))]  // NOTE(stage0): remove cfg after a snapshot
+    #[inline]
+    fn cmp(&self, other: &MaybeOwned) -> Ordering {
+        self.as_slice().cmp(other.as_slice())
     }
 }
 
@@ -783,10 +792,10 @@ mod tests {
     use std::iter::{Iterator, DoubleEndedIterator};
 
     use super::*;
-    use std::slice::{AsSlice, ImmutableSlice};
+    use std::slice::{AsSlice, SlicePrelude};
     use string::String;
     use vec::Vec;
-    use slice::CloneableVector;
+    use slice::CloneSliceAllocPrelude;
 
     use unicode::char::UnicodeChar;
 
@@ -1523,11 +1532,11 @@ mod tests {
 
     #[test]
     fn test_total_ord() {
-        "1234".cmp(&("123")) == Greater;
-        "123".cmp(&("1234")) == Less;
-        "1234".cmp(&("1234")) == Equal;
-        "12345555".cmp(&("123456")) == Less;
-        "22".cmp(&("1234")) == Greater;
+        "1234".cmp("123") == Greater;
+        "123".cmp("1234") == Less;
+        "1234".cmp("1234") == Equal;
+        "12345555".cmp("123456") == Less;
+        "22".cmp("1234") == Greater;
     }
 
     #[test]
@@ -2233,8 +2242,8 @@ mod bench {
     use test::black_box;
     use super::*;
     use std::iter::{Iterator, DoubleEndedIterator};
-    use std::str::StrSlice;
-    use std::slice::ImmutableSlice;
+    use std::str::StrPrelude;
+    use std::slice::SlicePrelude;
 
     #[bench]
     fn char_iterator(b: &mut Bencher) {

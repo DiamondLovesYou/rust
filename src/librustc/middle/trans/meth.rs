@@ -116,7 +116,7 @@ pub fn trans_method_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let (origin, method_ty) =
         bcx.tcx().method_map
                  .borrow()
-                 .find(&method_call)
+                 .get(&method_call)
                  .map(|method| (method.origin.clone(), method.ty))
                  .unwrap();
 
@@ -308,7 +308,7 @@ fn method_with_name(ccx: &CrateContext, impl_id: ast::DefId, name: ast::Name)
 
     let impl_items = ccx.tcx().impl_items.borrow();
     let impl_items =
-        impl_items.find(&impl_id)
+        impl_items.get(&impl_id)
                   .expect("could not find impl while translating");
     let meth_did = impl_items.iter()
                              .find(|&did| {
@@ -355,16 +355,13 @@ fn trans_monomorphized_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
             Callee { bcx: bcx, data: Fn(llfn) }
         }
-        traits::VtableUnboxedClosure(closure_def_id) => {
-            let self_ty = node_id_type(bcx, closure_def_id.node);
-            let callee_substs = get_callee_substitutions_for_unboxed_closure(
-                bcx,
-                self_ty);
-
+        traits::VtableUnboxedClosure(closure_def_id, substs) => {
+            // The substitutions should have no type parameters remaining
+            // after passing through fulfill_obligation
             let llfn = trans_fn_ref_with_substs(bcx,
                                                 closure_def_id,
                                                 MethodCall(method_call),
-                                                callee_substs);
+                                                substs);
 
             Callee {
                 bcx: bcx,
@@ -518,24 +515,6 @@ pub fn trans_trait_callee_from_llval<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     };
 }
 
-/// Looks up the substitutions for an unboxed closure and adds the
-/// self type
-fn get_callee_substitutions_for_unboxed_closure(bcx: Block,
-                                                self_ty: ty::t)
-                                                -> subst::Substs {
-    match ty::get(self_ty).sty {
-        ty::ty_unboxed_closure(_, _, ref substs) => {
-            substs.with_self_ty(ty::mk_rptr(bcx.tcx(),
-                                            ty::ReStatic,
-                                            ty::mt {
-                                                ty: self_ty,
-                                                mutbl: ast::MutMutable,
-                                            }))
-        },
-        _ => unreachable!()
-    }
-}
-
 /// Creates a returns a dynamic vtable for the given type and vtable origin.
 /// This is used only for objects.
 ///
@@ -559,7 +538,7 @@ pub fn get_vtable(bcx: Block,
 
     // Check the cache.
     let cache_key = (box_ty, trait_ref.clone());
-    match ccx.vtables().borrow().find(&cache_key) {
+    match ccx.vtables().borrow().get(&cache_key) {
         Some(&val) => { return val }
         None => { }
     }
@@ -580,26 +559,26 @@ pub fn get_vtable(bcx: Block,
                     nested: _ }) => {
                 emit_vtable_methods(bcx, id, substs).into_iter()
             }
-            traits::VtableUnboxedClosure(closure_def_id) => {
-                let self_ty = node_id_type(bcx, closure_def_id.node);
-
-                let callee_substs =
-                    get_callee_substitutions_for_unboxed_closure(
-                        bcx,
-                        self_ty.clone());
+            traits::VtableUnboxedClosure(closure_def_id, substs) => {
+                // Look up closure type
+                let self_ty = ty::node_id_to_type(bcx.tcx(), closure_def_id.node);
+                // Apply substitutions from closure param environment.
+                // The substitutions should have no type parameters
+                // remaining after passing through fulfill_obligation
+                let self_ty = self_ty.subst(bcx.tcx(), &substs);
 
                 let mut llfn = trans_fn_ref_with_substs(
                     bcx,
                     closure_def_id,
                     ExprId(0),
-                    callee_substs.clone());
+                    substs.clone());
 
                 {
                     let unboxed_closures = bcx.tcx()
                                               .unboxed_closures
                                               .borrow();
                     let closure_info =
-                        unboxed_closures.find(&closure_def_id)
+                        unboxed_closures.get(&closure_def_id)
                                         .expect("get_vtable(): didn't find \
                                                  unboxed closure");
                     if closure_info.kind == ty::FnOnceUnboxedClosureKind {
@@ -645,7 +624,7 @@ pub fn get_vtable(bcx: Block,
                                                    llfn,
                                                    &closure_type,
                                                    closure_def_id,
-                                                   callee_substs);
+                                                   substs);
                     }
                 }
 

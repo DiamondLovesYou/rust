@@ -32,6 +32,7 @@ use syntax::ast_map;
 use syntax::codemap::{Span, Pos};
 use syntax::parse::token;
 use syntax::print::pprust;
+use syntax::ptr::P;
 use syntax::{ast, ast_util};
 use syntax::owned_slice::OwnedSlice;
 
@@ -372,14 +373,10 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
     fn infer_ty_to_string(cx: &ctxt, ty: ty::InferTy) -> String {
         let print_var_ids = cx.sess.verbose();
         match ty {
-            ty::TyVar(ty::TyVid { index: vid }) if print_var_ids =>
-                format!("_#{}", vid),
-            ty::IntVar(ty::IntVid { index: vid }) if print_var_ids =>
-                format!("_#{}i", vid),
-            ty::FloatVar(ty::FloatVid { index: vid }) if print_var_ids =>
-                format!("_#{}f", vid),
-            ty::TyVar(_) | ty::IntVar(_) | ty::FloatVar(_) =>
-                "_".to_string(),
+            ty::TyVar(ref vid) if print_var_ids => vid.repr(cx),
+            ty::IntVar(ref vid) if print_var_ids => vid.repr(cx),
+            ty::FloatVar(ref vid) if print_var_ids => vid.repr(cx),
+            ty::TyVar(_) | ty::IntVar(_) | ty::FloatVar(_) => format!("_"),
             ty::SkolemizedTy(v) => format!("SkolemizedTy({})", v),
             ty::SkolemizedIntTy(v) => format!("SkolemizedIntTy({})", v)
         }
@@ -454,7 +451,7 @@ pub fn ty_to_string(cx: &ctxt, typ: t) -> String {
         ty_str => "str".to_string(),
         ty_unboxed_closure(ref did, _, ref substs) => {
             let unboxed_closures = cx.unboxed_closures.borrow();
-            unboxed_closures.find(did).map(|cl| {
+            unboxed_closures.get(did).map(|cl| {
                 closure_to_string(cx, &cl.closure_type.subst(cx, substs))
             }).unwrap_or_else(|| "closure".to_string())
         }
@@ -558,6 +555,12 @@ impl<T:Repr> Repr for Option<T> {
             &None => "None".to_string(),
             &Some(ref t) => t.repr(tcx),
         }
+    }
+}
+
+impl<T:Repr> Repr for P<T> {
+    fn repr(&self, tcx: &ctxt) -> String {
+        (*self).repr(tcx)
     }
 }
 
@@ -851,7 +854,7 @@ impl Repr for ty::Region {
             }
 
             ty::ReInfer(ReVar(ref vid)) => {
-                format!("ReInfer({})", vid.index)
+                format!("{}", vid)
             }
 
             ty::ReInfer(ReSkolemized(id, ref bound_region)) => {
@@ -1105,7 +1108,7 @@ impl UserString for ty::ParamBounds {
 
 impl UserString for ty::ExistentialBounds {
     fn user_string(&self, tcx: &ctxt) -> String {
-        if self.builtin_bounds.contains_elem(ty::BoundSend) &&
+        if self.builtin_bounds.contains(&ty::BoundSend) &&
             self.region_bound == ty::ReStatic
         { // Region bound is implied by builtin bounds:
             return self.builtin_bounds.repr(tcx);
@@ -1274,7 +1277,7 @@ impl UserString for ParamTy {
     fn user_string(&self, tcx: &ctxt) -> String {
         let id = self.idx;
         let did = self.def_id;
-        let ident = match tcx.ty_param_defs.borrow().find(&did.node) {
+        let ident = match tcx.ty_param_defs.borrow().get(&did.node) {
             Some(def) => token::get_name(def.name).get().to_string(),
 
             // This can only happen when a type mismatch error happens and

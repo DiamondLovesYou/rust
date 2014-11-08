@@ -201,7 +201,7 @@ pub fn main() {
                     llvm::LLVMDisposePassManager(pm);
                 }
             }
-            if !bc_input.insert(i.clone(), llmod) {
+            if bc_input.insert(i.clone(), llmod).is_some() {
                 warn(format!("file specified two or more times: `{}`", i));
             }
         }

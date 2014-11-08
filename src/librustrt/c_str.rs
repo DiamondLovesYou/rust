@@ -76,9 +76,9 @@ use collections::hash;
 use core::fmt;
 use core::kinds::{Sized, marker};
 use core::mem;
-use core::prelude::{Clone, Drop, Eq, ImmutableSlice, Iterator};
-use core::prelude::{MutableSlice, None, Option, Ordering, PartialEq};
-use core::prelude::{PartialOrd, RawPtr, Some, StrSlice, range};
+use core::prelude::{Clone, Drop, Eq, Iterator};
+use core::prelude::{SlicePrelude, None, Option, Ordering, PartialEq};
+use core::prelude::{PartialOrd, RawPtr, Some, StrPrelude, range};
 use core::ptr;
 use core::raw::Slice;
 use core::slice;
@@ -121,9 +121,16 @@ impl PartialEq for CString {
 }
 
 impl PartialOrd for CString {
+    // NOTE(stage0): remove method after a snapshot
+    #[cfg(stage0)]
     #[inline]
     fn partial_cmp(&self, other: &CString) -> Option<Ordering> {
         self.as_bytes().partial_cmp(&other.as_bytes())
+    }
+    #[cfg(not(stage0))]  // NOTE(stage0): remove cfg after a snapshot
+    #[inline]
+    fn partial_cmp(&self, other: &CString) -> Option<Ordering> {
+        self.as_bytes().partial_cmp(other.as_bytes())
     }
 }
 

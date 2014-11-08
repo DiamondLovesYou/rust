@@ -162,7 +162,7 @@ impl OverloadedCallType {
         let trait_did =
             tcx.unboxed_closures
                .borrow()
-               .find(&closure_did)
+               .get(&closure_did)
                .expect("OverloadedCallType::from_unboxed_closure: didn't \
                         find closure id")
                .kind
@@ -535,7 +535,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
                     match self.tcx()
                               .method_map
                               .borrow()
-                              .find(&MethodCall::expr(call.id)) {
+                              .get(&MethodCall::expr(call.id)) {
                     Some(ref method_callee) => {
                         OverloadedCallType::from_method_origin(
                             self.tcx(),
@@ -672,6 +672,10 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
             }
         }
 
+        // walk the with expression so that complex expressions
+        // are properly handled.
+        self.walk_expr(with_expr);
+
         fn contains_field_named(field: &ty::field,
                                 fields: &Vec<ast::Field>)
                                 -> bool
@@ -686,7 +690,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
     // process.
     fn walk_adjustment(&mut self, expr: &ast::Expr) {
         let typer = self.typer;
-        match typer.adjustments().borrow().find(&expr.id) {
+        match typer.adjustments().borrow().get(&expr.id) {
             None => { }
             Some(adjustment) => {
                 match *adjustment {

@@ -973,6 +973,8 @@ fn get_concurrency() -> uint {
     }
 }
 
+// NOTE(stage0): remove function after a snapshot
+#[cfg(stage0)]
 pub fn filter_tests(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> Vec<TestDescAndFn> {
     let mut filtered = tests;
 
@@ -1005,6 +1007,54 @@ pub fn filter_tests(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> Vec<TestDescA
 
     // Sort the tests alphabetically
     filtered.sort_by(|t1, t2| t1.desc.name.as_slice().cmp(&t2.desc.name.as_slice()));
+
+    // Shard the remaining tests, if sharding requested.
+    match opts.test_shard {
+        None => filtered,
+        Some((a,b)) => {
+            filtered.into_iter().enumerate()
+            // note: using a - 1 so that the valid shards, for example, are
+            // 1.2 and 2.2 instead of 0.2 and 1.2
+            .filter(|&(i,_)| i % b == (a - 1))
+            .map(|(_,t)| t)
+            .collect()
+        }
+    }
+}
+
+#[cfg(not(stage0))]  // NOTE(stage0): remove cfg after a snapshot
+pub fn filter_tests(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> Vec<TestDescAndFn> {
+    let mut filtered = tests;
+
+    // Remove tests that don't match the test filter
+    filtered = match opts.filter {
+        None => filtered,
+        Some(ref re) => {
+            filtered.into_iter()
+                .filter(|test| re.is_match(test.desc.name.as_slice())).collect()
+        }
+    };
+
+    // Maybe pull out the ignored test and unignore them
+    filtered = if !opts.run_ignored {
+        filtered
+    } else {
+        fn filter(test: TestDescAndFn) -> Option<TestDescAndFn> {
+            if test.desc.ignore {
+                let TestDescAndFn {desc, testfn} = test;
+                Some(TestDescAndFn {
+                    desc: TestDesc {ignore: false, ..desc},
+                    testfn: testfn
+                })
+            } else {
+                None
+            }
+        };
+        filtered.into_iter().filter_map(|x| filter(x)).collect()
+    };
+
+    // Sort the tests alphabetically
+    filtered.sort_by(|t1, t2| t1.desc.name.as_slice().cmp(t2.desc.name.as_slice()));
 
     // Shard the remaining tests, if sharding requested.
     match opts.test_shard {
@@ -1159,7 +1209,7 @@ impl MetricMap {
         let MetricMap(ref selfmap) = *self;
         let MetricMap(ref old) = *old;
         for (k, vold) in old.iter() {
-            let r = match selfmap.find(k) {
+            let r = match selfmap.get(k) {
                 None => MetricRemoved,
                 Some(v) => {
                     let delta = v.value - vold.value;
@@ -1628,31 +1678,31 @@ mod tests {
 
         let diff1 = m2.compare_to_old(&m1, None);
 
-        assert_eq!(*(diff1.find(&"in-both-noise".to_string()).unwrap()), LikelyNoise);
-        assert_eq!(*(diff1.find(&"in-first-noise".to_string()).unwrap()), MetricRemoved);
-        assert_eq!(*(diff1.find(&"in-second-noise".to_string()).unwrap()), MetricAdded);
-        assert_eq!(*(diff1.find(&"in-both-want-downwards-but-regressed".to_string()).unwrap()),
+        assert_eq!(*(diff1.get(&"in-both-noise".to_string()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff1.get(&"in-first-noise".to_string()).unwrap()), MetricRemoved);
+        assert_eq!(*(diff1.get(&"in-second-noise".to_string()).unwrap()), MetricAdded);
+        assert_eq!(*(diff1.get(&"in-both-want-downwards-but-regressed".to_string()).unwrap()),
                    Regression(100.0));
-        assert_eq!(*(diff1.find(&"in-both-want-downwards-and-improved".to_string()).unwrap()),
+        assert_eq!(*(diff1.get(&"in-both-want-downwards-and-improved".to_string()).unwrap()),
                    Improvement(50.0));
-        assert_eq!(*(diff1.find(&"in-both-want-upwards-but-regressed".to_string()).unwrap()),
+        assert_eq!(*(diff1.get(&"in-both-want-upwards-but-regressed".to_string()).unwrap()),
                    Regression(50.0));
-        assert_eq!(*(diff1.find(&"in-both-want-upwards-and-improved".to_string()).unwrap()),
+        assert_eq!(*(diff1.get(&"in-both-want-upwards-and-improved".to_string()).unwrap()),
                    Improvement(100.0));
         assert_eq!(diff1.len(), 7);
 
         let diff2 = m2.compare_to_old(&m1, Some(200.0));
 
-        assert_eq!(*(diff2.find(&"in-both-noise".to_string()).unwrap()), LikelyNoise);
-        assert_eq!(*(diff2.find(&"in-first-noise".to_string()).unwrap()), MetricRemoved);
-        assert_eq!(*(diff2.find(&"in-second-noise".to_string()).unwrap()), MetricAdded);
-        assert_eq!(*(diff2.find(&"in-both-want-downwards-but-regressed".to_string()).unwrap()),
+        assert_eq!(*(diff2.get(&"in-both-noise".to_string()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff2.get(&"in-first-noise".to_string()).unwrap()), MetricRemoved);
+        assert_eq!(*(diff2.get(&"in-second-noise".to_string()).unwrap()), MetricAdded);
+        assert_eq!(*(diff2.get(&"in-both-want-downwards-but-regressed".to_string()).unwrap()),
                    LikelyNoise);
-        assert_eq!(*(diff2.find(&"in-both-want-downwards-and-improved".to_string()).unwrap()),
+        assert_eq!(*(diff2.get(&"in-both-want-downwards-and-improved".to_string()).unwrap()),
                    LikelyNoise);
-        assert_eq!(*(diff2.find(&"in-both-want-upwards-but-regressed".to_string()).unwrap()),
+        assert_eq!(*(diff2.get(&"in-both-want-upwards-but-regressed".to_string()).unwrap()),
                    LikelyNoise);
-        assert_eq!(*(diff2.find(&"in-both-want-upwards-and-improved".to_string()).unwrap()),
+        assert_eq!(*(diff2.get(&"in-both-want-upwards-and-improved".to_string()).unwrap()),
                    LikelyNoise);
         assert_eq!(diff2.len(), 7);
     }
@@ -1677,29 +1727,29 @@ mod tests {
         let (diff1, ok1) = m2.ratchet(&pth, None);
         assert_eq!(ok1, false);
         assert_eq!(diff1.len(), 2);
-        assert_eq!(*(diff1.find(&"runtime".to_string()).unwrap()), Regression(10.0));
-        assert_eq!(*(diff1.find(&"throughput".to_string()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff1.get(&"runtime".to_string()).unwrap()), Regression(10.0));
+        assert_eq!(*(diff1.get(&"throughput".to_string()).unwrap()), LikelyNoise);
 
         // Check that it was not rewritten.
         let m3 = MetricMap::load(&pth);
         let MetricMap(m3) = m3;
         assert_eq!(m3.len(), 2);
-        assert_eq!(*(m3.find(&"runtime".to_string()).unwrap()), Metric::new(1000.0, 2.0));
-        assert_eq!(*(m3.find(&"throughput".to_string()).unwrap()), Metric::new(50.0, 2.0));
+        assert_eq!(*(m3.get(&"runtime".to_string()).unwrap()), Metric::new(1000.0, 2.0));
+        assert_eq!(*(m3.get(&"throughput".to_string()).unwrap()), Metric::new(50.0, 2.0));
 
         // Ask for a ratchet with an explicit noise-percentage override,
         // that should advance.
         let (diff2, ok2) = m2.ratchet(&pth, Some(10.0));
         assert_eq!(ok2, true);
         assert_eq!(diff2.len(), 2);
-        assert_eq!(*(diff2.find(&"runtime".to_string()).unwrap()), LikelyNoise);
-        assert_eq!(*(diff2.find(&"throughput".to_string()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff2.get(&"runtime".to_string()).unwrap()), LikelyNoise);
+        assert_eq!(*(diff2.get(&"throughput".to_string()).unwrap()), LikelyNoise);
 
         // Check that it was rewritten.
         let m4 = MetricMap::load(&pth);
         let MetricMap(m4) = m4;
         assert_eq!(m4.len(), 2);
-        assert_eq!(*(m4.find(&"runtime".to_string()).unwrap()), Metric::new(1100.0, 2.0));
-        assert_eq!(*(m4.find(&"throughput".to_string()).unwrap()), Metric::new(50.0, 2.0));
+        assert_eq!(*(m4.get(&"runtime".to_string()).unwrap()), Metric::new(1100.0, 2.0));
+        assert_eq!(*(m4.get(&"throughput".to_string()).unwrap()), Metric::new(50.0, 2.0));
     }
 }

@@ -33,6 +33,18 @@ impl IndexMut<int,int> for Foo {
     }
 }
 
+trait Int {
+    fn get(self) -> int;
+    fn get_from_ref(&self) -> int;
+    fn inc(&mut self);
+}
+
+impl Int for int {
+    fn get(self) -> int { self }
+    fn get_from_ref(&self) -> int { *self }
+    fn inc(&mut self) { *self += 1; }
+}
+
 fn main() {
     let mut f = Foo {
         x: 1,
@@ -49,5 +61,10 @@ fn main() {
         let p = &f[1];
         assert_eq!(*p, 4);
     }
+
+    // Test calling methods with `&mut self`, `self, and `&self` receivers:
+    f[1].inc();
+    assert_eq!(f[1].get(), 5);
+    assert_eq!(f[1].get_from_ref(), 5);
 }
 

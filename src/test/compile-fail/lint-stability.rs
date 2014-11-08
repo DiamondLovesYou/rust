@@ -10,6 +10,8 @@
 
 // aux-build:lint_stability.rs
 // aux-build:inherited_stability.rs
+// aux-build:stability_cfg1.rs
+// aux-build:stability_cfg2.rs
 
 #![feature(globs, phase)]
 #![deny(unstable)]
@@ -18,8 +20,11 @@
 #![allow(dead_code)]
 
 mod cross_crate {
+    extern crate stability_cfg1;
+    extern crate stability_cfg2; //~ ERROR: use of experimental item
+
     #[phase(plugin, link)]
-    extern crate lint_stability;
+    extern crate lint_stability; //~ ERROR: use of unmarked item
     use self::lint_stability::*;
 
     fn test() {
@@ -141,10 +146,16 @@ mod cross_crate {
         foo.trait_unmarked(); //~ ERROR use of unmarked item
         foo.trait_stable();
     }
+
+    struct S;
+
+    impl ExperimentalTrait for S { } //~ ERROR use of experimental item
+
+    trait LocalTrait : ExperimentalTrait { } //~ ERROR use of experimental item
 }
 
 mod inheritance {
-    extern crate inherited_stability;
+    extern crate inherited_stability; //~ ERROR: use of experimental item
     use self::inherited_stability::*;
 
     fn test_inheritance() {
@@ -444,6 +455,15 @@ mod this_crate {
         foo.trait_unmarked();
         foo.trait_stable();
     }
+
+    #[deprecated]
+    pub trait DeprecatedTrait {}
+
+    struct S;
+
+    impl DeprecatedTrait for S { } //~ ERROR use of deprecated item
+
+    trait LocalTrait : DeprecatedTrait { } //~ ERROR use of deprecated item
 }
 
 fn main() {}

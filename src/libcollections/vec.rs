@@ -27,7 +27,7 @@ use core::ptr;
 use core::raw::Slice as RawSlice;
 use core::uint;
 
-use slice::{CloneableVector};
+use slice::{CloneSliceAllocPrelude};
 
 /// An owned, growable vector.
 ///
@@ -312,7 +312,7 @@ impl<T: Clone> Vec<T> {
     #[inline]
     #[experimental]
     pub fn push_all(&mut self, other: &[T]) {
-        self.reserve_additional(other.len());
+        self.reserve(other.len());
 
         for i in range(0, other.len()) {
             let len = self.len();
@@ -342,7 +342,7 @@ impl<T: Clone> Vec<T> {
     /// ```
     #[stable]
     pub fn grow(&mut self, n: uint, value: T) {
-        self.reserve_additional(n);
+        self.reserve(n);
         let mut i: uint = 0u;
 
         while i < n {
@@ -489,7 +489,7 @@ impl<T> Extendable<T> for Vec<T> {
     #[inline]
     fn extend<I: Iterator<T>>(&mut self, mut iterator: I) {
         let (lower, _) = iterator.size_hint();
-        self.reserve_additional(lower);
+        self.reserve(lower);
         for element in iterator {
             self.push(element)
         }
@@ -506,9 +506,16 @@ impl<T: PartialEq> PartialEq for Vec<T> {
 
 #[unstable = "waiting on PartialOrd stability"]
 impl<T: PartialOrd> PartialOrd for Vec<T> {
+    // NOTE(stage0): remove method after a snapshot
+    #[cfg(stage0)]
     #[inline]
     fn partial_cmp(&self, other: &Vec<T>) -> Option<Ordering> {
         self.as_slice().partial_cmp(&other.as_slice())
+    }
+    #[cfg(not(stage0))]  // NOTE(stage0): remove cfg after a snapshot
+    #[inline]
+    fn partial_cmp(&self, other: &Vec<T>) -> Option<Ordering> {
+        self.as_slice().partial_cmp(other.as_slice())
     }
 }
 
@@ -523,9 +530,16 @@ impl<T: PartialEq, V: AsSlice<T>> Equiv<V> for Vec<T> {
 
 #[unstable = "waiting on Ord stability"]
 impl<T: Ord> Ord for Vec<T> {
+    // NOTE(stage0): remove method after a snapshot
+    #[cfg(stage0)]
     #[inline]
     fn cmp(&self, other: &Vec<T>) -> Ordering {
         self.as_slice().cmp(&other.as_slice())
+    }
+    #[cfg(not(stage0))]  // NOTE(stage0): remove cfg after a snapshot
+    #[inline]
+    fn cmp(&self, other: &Vec<T>) -> Ordering {
+        self.as_slice().cmp(other.as_slice())
     }
 }
 
@@ -564,74 +578,70 @@ impl<T> Vec<T> {
         self.cap
     }
 
-     /// Reserves capacity for at least `n` additional elements in the given
-     /// vector.
-     ///
-     /// # Failure
-     ///
-     /// Fails if the new capacity overflows `uint`.
-     ///
-     /// # Example
-     ///
-     /// ```
-     /// let mut vec: Vec<int> = vec![1i];
-     /// vec.reserve_additional(10);
-     /// assert!(vec.capacity() >= 11);
-     /// ```
+    /// Deprecated: Renamed to `reserve`.
+    #[deprecated = "Renamed to `reserve`"]
     pub fn reserve_additional(&mut self, extra: uint) {
-        if self.cap - self.len < extra {
-            match self.len.checked_add(&extra) {
-                None => panic!("Vec::reserve_additional: `uint` overflow"),
-                Some(new_cap) => self.reserve(new_cap)
-            }
-        }
+        self.reserve(extra)
     }
 
-    /// Reserves capacity for at least `n` elements in the given vector.
+    /// Reserves capacity for at least `additional` more elements to be inserted in the given
+    /// `Vec`. The collection may reserve more space to avoid frequent reallocations.
     ///
-    /// This function will over-allocate in order to amortize the allocation
-    /// costs in scenarios where the caller may need to repeatedly reserve
-    /// additional space.
+    /// # Panics
     ///
-    /// If the capacity for `self` is already equal to or greater than the
-    /// requested capacity, then no action is taken.
+    /// Panics if the new capacity overflows `uint`.
     ///
     /// # Example
     ///
     /// ```
-    /// let mut vec = vec![1i, 2, 3];
+    /// let mut vec: Vec<int> = vec![1];
     /// vec.reserve(10);
-    /// assert!(vec.capacity() >= 10);
+    /// assert!(vec.capacity() >= 11);
     /// ```
-    pub fn reserve(&mut self, capacity: uint) {
-        if capacity > self.cap {
-            self.reserve_exact(num::next_power_of_two(capacity))
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    pub fn reserve(&mut self, additional: uint) {
+        if self.cap - self.len < additional {
+            match self.len.checked_add(&additional) {
+                None => panic!("Vec::reserve: `uint` overflow"),
+                // if the checked_add
+                Some(new_cap) => {
+                    let amort_cap = num::next_power_of_two(new_cap);
+                    // next_power_of_two will overflow to exactly 0 for really big capacities
+                    if amort_cap == 0 {
+                        self.grow_capacity(new_cap);
+                    } else {
+                        self.grow_capacity(amort_cap);
+                    }
+                }
+            }
         }
     }
 
-    /// Reserves capacity for exactly `capacity` elements in the given vector.
+    /// Reserves the minimum capacity for exactly `additional` more elements to be inserted in the
+    /// given `Vec`. Does nothing if the capacity is already sufficient.
     ///
-    /// If the capacity for `self` is already equal to or greater than the
-    /// requested capacity, then no action is taken.
+    /// Note that the allocator may give the collection more space than it requests. Therefore
+    /// capacity can not be relied upon to be precisely minimal. Prefer `reserve` if future
+    /// insertions are expected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new capacity overflows `uint`.
     ///
     /// # Example
     ///
     /// ```
-    /// let mut vec: Vec<int> = Vec::with_capacity(10);
-    /// vec.reserve_exact(11);
-    /// assert_eq!(vec.capacity(), 11);
+    /// let mut vec: Vec<int> = vec![1];
+    /// vec.reserve_exact(10);
+    /// assert!(vec.capacity() >= 11);
     /// ```
-    pub fn reserve_exact(&mut self, capacity: uint) {
-        if mem::size_of::<T>() == 0 { return }
-
-        if capacity > self.cap {
-            let size = capacity.checked_mul(&mem::size_of::<T>())
-                               .expect("capacity overflow");
-            unsafe {
-                self.ptr = alloc_or_realloc(self.ptr, self.cap * mem::size_of::<T>(), size);
-                if self.ptr.is_null() { ::alloc::oom() }
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    pub fn reserve_exact(&mut self, additional: uint) {
+        if self.cap - self.len < additional {
+            match self.len.checked_add(&additional) {
+                None => panic!("Vec::reserve: `uint` overflow"),
+                Some(new_cap) => self.grow_capacity(new_cap)
             }
-            self.cap = capacity;
         }
     }
 
@@ -649,6 +659,7 @@ impl<T> Vec<T> {
     /// assert!(vec.capacity() >= 3);
     /// ```
     #[stable]
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn shrink_to_fit(&mut self) {
         if mem::size_of::<T>() == 0 { return }
 
@@ -699,7 +710,7 @@ impl<T> Vec<T> {
     /// vec.truncate(2);
     /// assert_eq!(vec, vec![1, 2]);
     /// ```
-    #[unstable = "waiting on panic semantics"]
+    #[unstable = "matches collection reform specification; waiting on panic semantics"]
     pub fn truncate(&mut self, len: uint) {
         unsafe {
             // drop any extra elements
@@ -747,6 +758,7 @@ impl<T> Vec<T> {
     /// }
     /// ```
     #[inline]
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn into_iter(self) -> MoveItems<T> {
         unsafe {
             let ptr = self.ptr;
@@ -782,26 +794,6 @@ impl<T> Vec<T> {
         self.len = len;
     }
 
-    /// Returns a mutable reference to the value at index `index`.
-    ///
-    /// # Failure
-    ///
-    /// Fails if `index` is out of bounds
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # #![allow(deprecated)]
-    /// let mut vec = vec![1i, 2, 3];
-    /// *vec.get_mut(1) = 4;
-    /// assert_eq!(vec, vec![1i, 4, 3]);
-    /// ```
-    #[inline]
-    #[deprecated = "use `foo[index] = bar` instead"]
-    pub fn get_mut<'a>(&'a mut self, index: uint) -> &'a mut T {
-        &mut self.as_mut_slice()[index]
-    }
-
     /// Removes an element from anywhere in the vector and return it, replacing
     /// it with the last element. This does not preserve ordering, but is O(1).
     ///
@@ -809,14 +801,13 @@ impl<T> Vec<T> {
     ///
     /// # Example
     /// ```
-    /// let mut v = vec!["foo".to_string(), "bar".to_string(),
-    ///                  "baz".to_string(), "qux".to_string()];
+    /// let mut v = vec!["foo", "bar", "baz", "qux"];
     ///
-    /// assert_eq!(v.swap_remove(1), Some("bar".to_string()));
-    /// assert_eq!(v, vec!["foo".to_string(), "qux".to_string(), "baz".to_string()]);
+    /// assert_eq!(v.swap_remove(1), Some("bar"));
+    /// assert_eq!(v, vec!["foo", "qux", "baz"]);
     ///
-    /// assert_eq!(v.swap_remove(0), Some("foo".to_string()));
-    /// assert_eq!(v, vec!["baz".to_string(), "qux".to_string()]);
+    /// assert_eq!(v.swap_remove(0), Some("foo"));
+    /// assert_eq!(v, vec!["baz", "qux"]);
     ///
     /// assert_eq!(v.swap_remove(2), None);
     /// ```
@@ -854,7 +845,7 @@ impl<T> Vec<T> {
         let len = self.len();
         assert!(index <= len);
         // space for the new element
-        self.reserve(len + 1);
+        self.reserve(1);
 
         unsafe { // infallible
             // The spot to put the new value
@@ -919,7 +910,7 @@ impl<T> Vec<T> {
     ///
     /// ```
     /// let mut vec = vec![1i, 2, 3, 4];
-    /// vec.retain(|x| x%2 == 0);
+    /// vec.retain(|&x| x%2 == 0);
     /// assert_eq!(vec, vec![2, 4]);
     /// ```
     #[unstable = "the closure argument may become an unboxed closure"]
@@ -956,7 +947,7 @@ impl<T> Vec<T> {
     /// ```
     #[unstable = "this function may be renamed or change to unboxed closures"]
     pub fn grow_fn(&mut self, n: uint, f: |uint| -> T) {
-        self.reserve_additional(n);
+        self.reserve(n);
         for i in range(0u, n) {
             self.push(f(i));
         }
@@ -1062,7 +1053,26 @@ impl<T> Vec<T> {
     /// v.push(1i);
     /// assert!(!v.is_empty());
     /// ```
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
+
+    /// Reserves capacity for exactly `capacity` elements in the given vector.
+    ///
+    /// If the capacity for `self` is already equal to or greater than the
+    /// requested capacity, then no action is taken.
+    fn grow_capacity(&mut self, capacity: uint) {
+        if mem::size_of::<T>() == 0 { return }
+
+        if capacity > self.cap {
+            let size = capacity.checked_mul(&mem::size_of::<T>())
+                               .expect("capacity overflow");
+            unsafe {
+                self.ptr = alloc_or_realloc(self.ptr, self.cap * mem::size_of::<T>(), size);
+                if self.ptr.is_null() { ::alloc::oom() }
+            }
+            self.cap = capacity;
+        }
+    }
 }
 
 impl<T: PartialEq> Vec<T> {
@@ -1375,7 +1385,7 @@ pub fn as_vec<'a, T>(x: &'a [T]) -> DerefVec<'a, T> {
 pub mod raw {
     use super::Vec;
     use core::ptr;
-    use core::slice::MutableSlice;
+    use core::slice::SlicePrelude;
 
     /// Constructs a vector from an unsafe pointer to a buffer.
     ///
@@ -1728,11 +1738,11 @@ mod tests {
     }
 
     #[test]
-    fn test_reserve_additional() {
+    fn test_reserve() {
         let mut v = Vec::new();
         assert_eq!(v.capacity(), 0);
 
-        v.reserve_additional(2);
+        v.reserve(2);
         assert!(v.capacity() >= 2);
 
         for i in range(0i, 16) {
@@ -1740,12 +1750,12 @@ mod tests {
         }
 
         assert!(v.capacity() >= 16);
-        v.reserve_additional(16);
+        v.reserve(16);
         assert!(v.capacity() >= 32);
 
         v.push(16);
 
-        v.reserve_additional(16);
+        v.reserve(16);
         assert!(v.capacity() >= 33)
     }
 
@@ -1800,7 +1810,7 @@ mod tests {
             let (left, right) = values.split_at_mut(2);
             {
                 let left: &[_] = left;
-                assert!(left[0..left.len()] == [1, 2]);
+                assert!(left[0..left.len()] == [1, 2][]);
             }
             for p in left.iter_mut() {
                 *p += 1;
@@ -1808,7 +1818,7 @@ mod tests {
 
             {
                 let right: &[_] = right;
-                assert!(right[0..right.len()] == [3, 4, 5]);
+                assert!(right[0..right.len()] == [3, 4, 5][]);
             }
             for p in right.iter_mut() {
                 *p += 2;
@@ -1863,7 +1873,7 @@ mod tests {
     #[test]
     fn test_retain() {
         let mut vec = vec![1u, 2, 3, 4];
-        vec.retain(|x| x%2 == 0);
+        vec.retain(|&x| x % 2 == 0);
         assert!(vec == vec![2u, 4]);
     }
 

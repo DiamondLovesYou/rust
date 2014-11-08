@@ -10,7 +10,7 @@
 
 // The Rust abstract syntax tree.
 
-use codemap::{Span, Spanned, DUMMY_SP, ExpnId};
+use codemap::{Span, Spanned, DUMMY_SP, ExpnId, respan};
 use abi::Abi;
 use ast_util;
 use owned_slice::OwnedSlice;
@@ -171,7 +171,7 @@ pub struct Path {
     /// module (like paths in an import).
     pub global: bool,
     /// The segments in the path: the things separated by `::`.
-    pub segments: Vec<PathSegment> ,
+    pub segments: Vec<PathSegment>,
 }
 
 /// A segment of a path: an identifier, an optional lifetime, and a set of
@@ -180,10 +180,105 @@ pub struct Path {
 pub struct PathSegment {
     /// The identifier portion of this path segment.
     pub identifier: Ident,
+
+    /// Type/lifetime parameters attached to this path. They come in
+    /// two flavors: `Path<A,B,C>` and `Path(A,B) -> C`. Note that
+    /// this is more than just simple syntactic sugar; the use of
+    /// parens affects the region binding rules, so we preserve the
+    /// distinction.
+    pub parameters: PathParameters,
+}
+
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub enum PathParameters {
+    AngleBracketedParameters(AngleBracketedParameterData),
+    ParenthesizedParameters(ParenthesizedParameterData),
+}
+
+impl PathParameters {
+    pub fn none() -> PathParameters {
+        AngleBracketedParameters(AngleBracketedParameterData {
+            lifetimes: Vec::new(),
+            types: OwnedSlice::empty(),
+        })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match *self {
+            AngleBracketedParameters(ref data) => data.is_empty(),
+
+            // Even if the user supplied no types, something like
+            // `X()` is equivalent to `X<(),()>`.
+            ParenthesizedParameters(..) => false,
+        }
+    }
+
+    pub fn has_lifetimes(&self) -> bool {
+        match *self {
+            AngleBracketedParameters(ref data) => !data.lifetimes.is_empty(),
+            ParenthesizedParameters(_) => false,
+        }
+    }
+
+    pub fn has_types(&self) -> bool {
+        match *self {
+            AngleBracketedParameters(ref data) => !data.types.is_empty(),
+            ParenthesizedParameters(..) => true,
+        }
+    }
+
+    pub fn types(&self) -> Vec<&P<Ty>> {
+        /*!
+         * Returns the types that the user wrote. Note that these do not
+         * necessarily map to the type parameters in the parenthesized case.
+         */
+        match *self {
+            AngleBracketedParameters(ref data) => {
+                data.types.iter().collect()
+            }
+            ParenthesizedParameters(ref data) => {
+                data.inputs.iter()
+                    .chain(data.output.iter())
+                    .collect()
+            }
+        }
+    }
+
+    pub fn lifetimes(&self) -> Vec<&Lifetime> {
+        match *self {
+            AngleBracketedParameters(ref data) => {
+                data.lifetimes.iter().collect()
+            }
+            ParenthesizedParameters(_) => {
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// A path like `Foo<'a, T>`
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub struct AngleBracketedParameterData {
     /// The lifetime parameters for this path segment.
     pub lifetimes: Vec<Lifetime>,
     /// The type parameters for this path segment, if present.
     pub types: OwnedSlice<P<Ty>>,
+}
+
+impl AngleBracketedParameterData {
+    fn is_empty(&self) -> bool {
+        self.lifetimes.is_empty() && self.types.is_empty()
+    }
+}
+
+/// A path like `Foo(A,B) -> C`
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub struct ParenthesizedParameterData {
+    /// `(A,B)`
+    pub inputs: Vec<P<Ty>>,
+
+    /// `C`
+    pub output: Option<P<Ty>>,
 }
 
 pub type CrateNum = u32;
@@ -213,19 +308,10 @@ pub const DUMMY_NODE_ID: NodeId = -1;
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub enum TyParamBound {
     TraitTyParamBound(TraitRef),
-    UnboxedFnTyParamBound(P<UnboxedFnBound>),
     RegionTyParamBound(Lifetime)
 }
 
 pub type TyParamBounds = OwnedSlice<TyParamBound>;
-
-#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
-pub struct UnboxedFnBound {
-    pub path: Path,
-    pub decl: P<FnDecl>,
-    pub lifetimes: Vec<LifetimeDef>,
-    pub ref_id: NodeId,
-}
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub struct TyParam {
@@ -627,6 +713,19 @@ impl Delimited {
     }
 }
 
+/// A sequence of token treesee
+#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+pub struct SequenceRepetition {
+    /// The sequence of token trees
+    pub tts: Vec<TokenTree>,
+    /// The optional separator
+    pub separator: Option<token::Token>,
+    /// Whether the sequence can be repeated zero (*), or one or more times (+)
+    pub op: KleeneOp,
+    /// The number of `MatchNt`s that appear in the sequence (and subsequences)
+    pub num_captures: uint,
+}
+
 /// A Kleene-style [repetition operator](http://en.wikipedia.org/wiki/Kleene_star)
 /// for token sequences.
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
@@ -641,14 +740,12 @@ pub enum KleeneOp {
 /// be passed to syntax extensions using a uniform type.
 ///
 /// If the syntax extension is an MBE macro, it will attempt to match its
-/// LHS "matchers" against the provided token tree, and if it finds a
+/// LHS token tree against the provided token tree, and if it finds a
 /// match, will transcribe the RHS token tree, splicing in any captured
-/// `macro_parser::matched_nonterminals` into the `TtNonterminal`s it finds.
+/// macro_parser::matched_nonterminals into the `SubstNt`s it finds.
 ///
-/// The RHS of an MBE macro is the only place a `TtNonterminal` or `TtSequence`
-/// makes any real sense. You could write them elsewhere but nothing
-/// else knows what to do with them, so you'll probably get a syntax
-/// error.
+/// The RHS of an MBE macro is the only place `SubstNt`s are substituted.
+/// Nothing special happens to misnamed or misplaced `SubstNt`s.
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 #[doc="For macro invocations; parsing is delegated to the macro"]
 pub enum TokenTree {
@@ -657,88 +754,80 @@ pub enum TokenTree {
     /// A delimited sequence of token trees
     TtDelimited(Span, Rc<Delimited>),
 
-    // These only make sense for right-hand-sides of MBE macros:
+    // This only makes sense in MBE macros.
 
-    /// A Kleene-style repetition sequence with an optional separator.
-    // FIXME(eddyb) #6308 Use Rc<[TokenTree]> after DST.
-    TtSequence(Span, Rc<Vec<TokenTree>>, Option<token::Token>, KleeneOp),
-    /// A syntactic variable that will be filled in by macro expansion.
-    TtNonterminal(Span, Ident)
+    /// A kleene-style repetition sequence with a span
+    // FIXME(eddyb) #12938 Use DST.
+    TtSequence(Span, Rc<SequenceRepetition>),
 }
 
 impl TokenTree {
+    pub fn len(&self) -> uint {
+        match *self {
+            TtToken(_, token::DocComment(_)) => 2,
+            TtToken(_, token::SubstNt(..)) => 2,
+            TtToken(_, token::MatchNt(..)) => 3,
+            TtDelimited(_, ref delimed) => {
+                delimed.tts.len() + 2
+            }
+            TtSequence(_, ref seq) => {
+                seq.tts.len()
+            }
+            TtToken(..) => 0
+        }
+    }
+
+    pub fn get_tt(&self, index: uint) -> TokenTree {
+        match (self, index) {
+            (&TtToken(sp, token::DocComment(_)), 0) => {
+                TtToken(sp, token::Pound)
+            }
+            (&TtToken(sp, token::DocComment(name)), 1) => {
+                let doc = MetaNameValue(token::intern_and_get_ident("doc"),
+                                        respan(sp, LitStr(token::get_name(name), CookedStr)));
+                let doc = token::NtMeta(P(respan(sp, doc)));
+                TtDelimited(sp, Rc::new(Delimited {
+                    delim: token::Bracket,
+                    open_span: sp,
+                    tts: vec![TtToken(sp, token::Interpolated(doc))],
+                    close_span: sp,
+                }))
+            }
+            (&TtDelimited(_, ref delimed), _) => {
+                if index == 0 {
+                    return delimed.open_tt();
+                }
+                if index == delimed.tts.len() + 1 {
+                    return delimed.close_tt();
+                }
+                delimed.tts[index - 1].clone()
+            }
+            (&TtToken(sp, token::SubstNt(name, name_st)), _) => {
+                let v = [TtToken(sp, token::Dollar),
+                         TtToken(sp, token::Ident(name, name_st))];
+                v[index]
+            }
+            (&TtToken(sp, token::MatchNt(name, kind, name_st, kind_st)), _) => {
+                let v = [TtToken(sp, token::SubstNt(name, name_st)),
+                         TtToken(sp, token::Colon),
+                         TtToken(sp, token::Ident(kind, kind_st))];
+                v[index]
+            }
+            (&TtSequence(_, ref seq), _) => {
+                seq.tts[index].clone()
+            }
+            _ => panic!("Cannot expand a token tree")
+        }
+    }
+
     /// Returns the `Span` corresponding to this token tree.
     pub fn get_span(&self) -> Span {
         match *self {
-            TtToken(span, _)           => span,
-            TtDelimited(span, _)       => span,
-            TtSequence(span, _, _, _)  => span,
-            TtNonterminal(span, _)     => span,
+            TtToken(span, _)     => span,
+            TtDelimited(span, _) => span,
+            TtSequence(span, _)  => span,
         }
     }
-}
-
-// Matchers are nodes defined-by and recognized-by the main rust parser and
-// language, but they're only ever found inside syntax-extension invocations;
-// indeed, the only thing that ever _activates_ the rules in the rust parser
-// for parsing a matcher is a matcher looking for the 'matchers' nonterminal
-// itself. Matchers represent a small sub-language for pattern-matching
-// token-trees, and are thus primarily used by the macro-defining extension
-// itself.
-//
-// MatchTok
-// --------
-//
-//     A matcher that matches a single token, denoted by the token itself. So
-//     long as there's no $ involved.
-//
-//
-// MatchSeq
-// --------
-//
-//     A matcher that matches a sequence of sub-matchers, denoted various
-//     possible ways:
-//
-//             $(M)*       zero or more Ms
-//             $(M)+       one or more Ms
-//             $(M),+      one or more comma-separated Ms
-//             $(A B C);*  zero or more semi-separated 'A B C' seqs
-//
-//
-// MatchNonterminal
-// -----------------
-//
-//     A matcher that matches one of a few interesting named rust
-//     nonterminals, such as types, expressions, items, or raw token-trees. A
-//     black-box matcher on expr, for example, binds an expr to a given ident,
-//     and that ident can re-occur as an interpolation in the RHS of a
-//     macro-by-example rule. For example:
-//
-//        $foo:expr   =>     1 + $foo    // interpolate an expr
-//        $foo:tt     =>     $foo        // interpolate a token-tree
-//        $foo:tt     =>     bar! $foo   // only other valid interpolation
-//                                       // is in arg position for another
-//                                       // macro
-//
-// As a final, horrifying aside, note that macro-by-example's input is
-// also matched by one of these matchers. Holy self-referential! It is matched
-// by a MatchSeq, specifically this one:
-//
-//                   $( $lhs:matchers => $rhs:tt );+
-//
-// If you understand that, you have closed the loop and understand the whole
-// macro system. Congratulations.
-pub type Matcher = Spanned<Matcher_>;
-
-#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
-pub enum Matcher_ {
-    /// Match one token
-    MatchTok(token::Token),
-    /// Match repetitions of a sequence: body, separator, Kleene operator,
-    /// lo, hi position-in-match-array used:
-    MatchSeq(Vec<Matcher>, Option<token::Token>, KleeneOp, uint, uint),
-    /// Parse a Rust NT: name to bind, name of NT, position in match array:
-    MatchNonterminal(Ident, Ident, uint)
 }
 
 pub type Mac = Spanned<Mac_>;
@@ -995,12 +1084,6 @@ pub struct BareFnTy {
 }
 
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
-pub struct UnboxedFnTy {
-    pub kind: UnboxedClosureKind,
-    pub decl: P<FnDecl>,
-}
-
-#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub enum Ty_ {
     TyNil,
     TyBot, /* bottom type */
@@ -1012,7 +1095,6 @@ pub enum Ty_ {
     TyClosure(P<ClosureTy>),
     TyProc(P<ClosureTy>),
     TyBareFn(P<BareFnTy>),
-    TyUnboxedFn(P<UnboxedFnTy>),
     TyTup(Vec<P<Ty>> ),
     TyPath(Path, Option<TyParamBounds>, NodeId), // for #7264; see above
     /// A "qualified path", e.g. `<Vec<T> as SomeTrait>::SomeType`

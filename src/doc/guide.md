@@ -1149,7 +1149,7 @@ enum StringResult {
 }
 ```
 Where a `StringResult` is either an `StringOK`, with the result of a computation, or an
-`ErrorReason` with a `String` explaining what caused the computation to fail. This kind of
+`ErrorReason` with a `String` explaining what caused the computation to fail. These kinds of
 `enum`s are actually very useful and are even part of the standard library.
 
 As you can see `enum`s with values are quite a powerful tool for data representation,
@@ -1901,8 +1901,8 @@ result is a link to
 click on that result, we'll be taken to its documentation page.
 
 This page shows us a few things: the type signature of the function, some
-explanatory text, and then an example. Let's modify our code to add in the
-`random` function:
+explanatory text, and then an example. Let's try to modify our code to add in the
+`random` function and see what happens:
 
 ```{rust,ignore}
 use std::io;
@@ -4601,20 +4601,24 @@ returns `true` or `false`. The new iterator `filter()` produces
 only the elements that that closure returns `true` for:
 
 ```{rust}
-for i in range(1i, 100i).filter(|x| x % 2 == 0) {
+for i in range(1i, 100i).filter(|&x| x % 2 == 0) {
     println!("{}", i);
 }
 ```
 
 This will print all of the even numbers between one and a hundred.
+(Note that because `filter` doesn't consume the elements that are
+being iterated over, it is passed a reference to each element, and
+thus the filter predicate uses the `&x` pattern to extract the integer
+itself.)
 
 You can chain all three things together: start with an iterator, adapt it
 a few times, and then consume the result. Check it out:
 
 ```{rust}
 range(1i, 1000i)
-    .filter(|x| x % 2 == 0)
-    .filter(|x| x % 3 == 0)
+    .filter(|&x| x % 2 == 0)
+    .filter(|&x| x % 3 == 0)
     .take(5)
     .collect::<Vec<int>>();
 ```

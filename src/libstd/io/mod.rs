@@ -236,8 +236,8 @@ use os;
 use boxed::Box;
 use result::{Ok, Err, Result};
 use rt::rtio;
-use slice::{AsSlice, ImmutableSlice};
-use str::{Str, StrSlice};
+use slice::{AsSlice, SlicePrelude};
+use str::{Str, StrPrelude};
 use str;
 use string::String;
 use uint;
@@ -627,7 +627,7 @@ pub trait Reader {
     /// as `Err(IoError)`. See `read()` for more details.
     fn push(&mut self, len: uint, buf: &mut Vec<u8>) -> IoResult<uint> {
         let start_len = buf.len();
-        buf.reserve_additional(len);
+        buf.reserve(len);
 
         let n = {
             let s = unsafe { slice_vec_capacity(buf, start_len, start_len + len) };
@@ -658,7 +658,7 @@ pub trait Reader {
         }
 
         let start_len = buf.len();
-        buf.reserve_additional(len);
+        buf.reserve(len);
 
         // we can't just use self.read_at_least(min, slice) because we need to push
         // successful reads onto the vector before any returned errors.
@@ -1737,7 +1737,7 @@ pub enum FileAccess {
 }
 
 /// Different kinds of files which can be identified by a call to stat
-#[deriving(PartialEq, Show, Hash)]
+#[deriving(PartialEq, Show, Hash, Clone)]
 pub enum FileType {
     /// This is a normal file, corresponding to `S_IFREG`
     TypeFile,

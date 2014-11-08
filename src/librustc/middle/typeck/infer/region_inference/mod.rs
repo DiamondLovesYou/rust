@@ -367,7 +367,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
         debug!("RegionVarBindings: add_constraint({})",
                constraint.repr(self.tcx));
 
-        if self.constraints.borrow_mut().insert(constraint, origin) {
+        if self.constraints.borrow_mut().insert(constraint, origin).is_none() {
             if self.in_snapshot() {
                 self.undo_log.borrow_mut().push(AddConstraint(constraint));
             }
@@ -559,7 +559,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
                                  new_r: Region|)
                         -> Region {
         let vars = TwoRegions { a: a, b: b };
-        match self.combine_map(t).borrow().find(&vars) {
+        match self.combine_map(t).borrow().get(&vars) {
             Some(&c) => {
                 return ReInfer(ReVar(c));
             }
@@ -952,6 +952,11 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
                              -> Vec<VarValue>
     {
         let mut var_data = self.construct_var_data();
+
+        // Dorky hack to cause `dump_constraints` to only get called
+        // if debug mode is enabled:
+        debug!("----() End constraint listing {}---", self.dump_constraints());
+
         self.expansion(var_data.as_mut_slice());
         self.contraction(var_data.as_mut_slice());
         let values =
@@ -974,12 +979,19 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
         })
     }
 
+    fn dump_constraints(&self) {
+        debug!("----() Start constraint listing ()----");
+        for (idx, (constraint, _)) in self.constraints.borrow().iter().enumerate() {
+            debug!("Constraint {} => {}", idx, constraint.repr(self.tcx));
+        }
+    }
+
     fn expansion(&self, var_data: &mut [VarData]) {
         self.iterate_until_fixed_point("Expansion", |constraint| {
             debug!("expansion: constraint={} origin={}",
                    constraint.repr(self.tcx),
                    self.constraints.borrow()
-                                   .find(constraint)
+                                   .get(constraint)
                                    .unwrap()
                                    .repr(self.tcx));
             match *constraint {
@@ -1063,7 +1075,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
             debug!("contraction: constraint={} origin={}",
                    constraint.repr(self.tcx),
                    self.constraints.borrow()
-                                   .find(constraint)
+                                   .get(constraint)
                                    .unwrap()
                                    .repr(self.tcx));
             match *constraint {

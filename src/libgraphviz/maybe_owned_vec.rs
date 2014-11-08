@@ -12,7 +12,7 @@ use std::default::Default;
 use std::fmt;
 use std::iter::FromIterator;
 use std::path::BytesContainer;
-use std::slice;
+use std::slice::{mod, Permutations};
 
 // Note 1: It is not clear whether the flexibility of providing both
 // the `Growable` and `FixedLen` variants is sufficiently useful.
@@ -76,14 +76,26 @@ impl<'a, T: PartialEq> PartialEq for MaybeOwnedVector<'a, T> {
 impl<'a, T: Eq> Eq for MaybeOwnedVector<'a, T> {}
 
 impl<'a, T: PartialOrd> PartialOrd for MaybeOwnedVector<'a, T> {
+    // NOTE(stage0): remove method after a snapshot
+    #[cfg(stage0)]
     fn partial_cmp(&self, other: &MaybeOwnedVector<T>) -> Option<Ordering> {
         self.as_slice().partial_cmp(&other.as_slice())
+    }
+    #[cfg(not(stage0))]  // NOTE(stage0): remove cfg after a snapshot
+    fn partial_cmp(&self, other: &MaybeOwnedVector<T>) -> Option<Ordering> {
+        self.as_slice().partial_cmp(other.as_slice())
     }
 }
 
 impl<'a, T: Ord> Ord for MaybeOwnedVector<'a, T> {
+    // NOTE(stage0): remove method after a snapshot
+    #[cfg(stage0)]
     fn cmp(&self, other: &MaybeOwnedVector<T>) -> Ordering {
         self.as_slice().cmp(&other.as_slice())
+    }
+    #[cfg(not(stage0))]  // NOTE(stage0): remove cfg after a snapshot
+    fn cmp(&self, other: &MaybeOwnedVector<T>) -> Ordering {
+        self.as_slice().cmp(other.as_slice())
     }
 }
 
@@ -125,10 +137,18 @@ impl<'a,T:fmt::Show> fmt::Show for MaybeOwnedVector<'a,T> {
     }
 }
 
-impl<'a,T:Clone> CloneableVector<T> for MaybeOwnedVector<'a,T> {
+impl<'a,T:Clone> CloneSliceAllocPrelude<T> for MaybeOwnedVector<'a,T> {
     /// Returns a copy of `self`.
     fn to_vec(&self) -> Vec<T> {
         self.as_slice().to_vec()
+    }
+
+    fn partitioned(&self, f: |&T| -> bool) -> (Vec<T>, Vec<T>) {
+        self.as_slice().partitioned(f)
+    }
+
+    fn permutations(&self) -> Permutations<T> {
+        self.as_slice().permutations()
     }
 }
 
@@ -140,7 +160,6 @@ impl<'a, T: Clone> Clone for MaybeOwnedVector<'a, T> {
         }
     }
 }
-
 
 impl<'a, T> Default for MaybeOwnedVector<'a, T> {
     fn default() -> MaybeOwnedVector<'a, T> {

@@ -13,7 +13,7 @@ use ast::{FnUnboxedClosureKind, FnMutUnboxedClosureKind};
 use ast::{FnOnceUnboxedClosureKind};
 use ast::{MethodImplItem, RegionTyParamBound, TraitTyParamBound};
 use ast::{RequiredMethod, ProvidedMethod, TypeImplItem, TypeTraitItem};
-use ast::{UnboxedClosureKind, UnboxedFnTyParamBound};
+use ast::{UnboxedClosureKind};
 use ast;
 use ast_util;
 use owned_slice::OwnedSlice;
@@ -254,6 +254,8 @@ pub fn token_to_string(tok: &Token) -> String {
 
         /* Other */
         token::DocComment(s)        => s.as_str().into_string(),
+        token::SubstNt(s, _)        => format!("${}", s),
+        token::MatchNt(s, t, _, _)  => format!("${}:{}", s, t),
         token::Eof                  => "<eof>".into_string(),
         token::Whitespace           => " ".into_string(),
         token::Comment              => "/* */".into_string(),
@@ -270,7 +272,6 @@ pub fn token_to_string(tok: &Token) -> String {
             token::NtPat(..)      => "an interpolated pattern".into_string(),
             token::NtIdent(..)    => "an interpolated identifier".into_string(),
             token::NtTT(..)       => "an interpolated tt".into_string(),
-            token::NtMatchers(..) => "an interpolated matcher sequence".into_string(),
         }
     }
 }
@@ -699,7 +700,6 @@ impl<'a> State<'a> {
                                       None,
                                       &OwnedSlice::empty(),
                                       Some(&generics),
-                                      None,
                                       None));
             }
             ast::TyClosure(ref f) => {
@@ -719,7 +719,6 @@ impl<'a> State<'a> {
                                       None,
                                       &f.bounds,
                                       Some(&generics),
-                                      None,
                                       None));
             }
             ast::TyProc(ref f) => {
@@ -739,20 +738,7 @@ impl<'a> State<'a> {
                                       None,
                                       &f.bounds,
                                       Some(&generics),
-                                      None,
                                       None));
-            }
-            ast::TyUnboxedFn(ref f) => {
-                try!(self.print_ty_fn(None,
-                                      None,
-                                      ast::NormalFn,
-                                      ast::Many,
-                                      &*f.decl,
-                                      None,
-                                      &OwnedSlice::empty(),
-                                      None,
-                                      None,
-                                      Some(f.kind)));
             }
             ast::TyPath(ref path, ref bounds, _) => {
                 try!(self.print_bounded_path(path, bounds));
@@ -1120,13 +1106,6 @@ impl<'a> State<'a> {
     /// expression arguments as expressions). It can be done! I think.
     pub fn print_tt(&mut self, tt: &ast::TokenTree) -> IoResult<()> {
         match *tt {
-            ast::TtDelimited(_, ref delimed) => {
-                try!(word(&mut self.s, token_to_string(&delimed.open_token()).as_slice()));
-                try!(space(&mut self.s));
-                try!(self.print_tts(delimed.tts.as_slice()));
-                try!(space(&mut self.s));
-                word(&mut self.s, token_to_string(&delimed.close_token()).as_slice())
-            },
             ast::TtToken(_, ref tk) => {
                 try!(word(&mut self.s, token_to_string(tk).as_slice()));
                 match *tk {
@@ -1136,26 +1115,29 @@ impl<'a> State<'a> {
                     _ => Ok(())
                 }
             }
-            ast::TtSequence(_, ref tts, ref separator, kleene_op) => {
+            ast::TtDelimited(_, ref delimed) => {
+                try!(word(&mut self.s, token_to_string(&delimed.open_token()).as_slice()));
+                try!(space(&mut self.s));
+                try!(self.print_tts(delimed.tts.as_slice()));
+                try!(space(&mut self.s));
+                word(&mut self.s, token_to_string(&delimed.close_token()).as_slice())
+            },
+            ast::TtSequence(_, ref seq) => {
                 try!(word(&mut self.s, "$("));
-                for tt_elt in (*tts).iter() {
+                for tt_elt in seq.tts.iter() {
                     try!(self.print_tt(tt_elt));
                 }
                 try!(word(&mut self.s, ")"));
-                match *separator {
+                match seq.separator {
                     Some(ref tk) => {
                         try!(word(&mut self.s, token_to_string(tk).as_slice()));
                     }
                     None => {},
                 }
-                match kleene_op {
+                match seq.op {
                     ast::ZeroOrMore => word(&mut self.s, "*"),
                     ast::OneOrMore => word(&mut self.s, "+"),
                 }
-            }
-            ast::TtNonterminal(_, name) => {
-                try!(word(&mut self.s, "$"));
-                self.print_ident(name)
             }
         }
     }
@@ -1212,8 +1194,7 @@ impl<'a> State<'a> {
                               Some(m.ident),
                               &OwnedSlice::empty(),
                               Some(&m.generics),
-                              Some(&m.explicit_self.node),
-                              None));
+                              Some(&m.explicit_self.node)));
         word(&mut self.s, ";")
     }
 
@@ -1995,14 +1976,34 @@ impl<'a> State<'a> {
 
             try!(self.print_ident(segment.identifier));
 
-            if !segment.lifetimes.is_empty() || !segment.types.is_empty() {
-                if colons_before_params {
-                    try!(word(&mut self.s, "::"))
-                }
+            try!(self.print_path_parameters(&segment.parameters, colons_before_params));
+        }
+
+        match *opt_bounds {
+            None => Ok(()),
+            Some(ref bounds) => self.print_bounds("+", bounds)
+        }
+    }
+
+    fn print_path_parameters(&mut self,
+                             parameters: &ast::PathParameters,
+                             colons_before_params: bool)
+                             -> IoResult<()>
+    {
+        if parameters.is_empty() {
+            return Ok(());
+        }
+
+        if colons_before_params {
+            try!(word(&mut self.s, "::"))
+        }
+
+        match *parameters {
+            ast::AngleBracketedParameters(ref data) => {
                 try!(word(&mut self.s, "<"));
 
                 let mut comma = false;
-                for lifetime in segment.lifetimes.iter() {
+                for lifetime in data.lifetimes.iter() {
                     if comma {
                         try!(self.word_space(","))
                     }
@@ -2010,24 +2011,38 @@ impl<'a> State<'a> {
                     comma = true;
                 }
 
-                if !segment.types.is_empty() {
+                if !data.types.is_empty() {
                     if comma {
                         try!(self.word_space(","))
                     }
                     try!(self.commasep(
                         Inconsistent,
-                        segment.types.as_slice(),
+                        data.types.as_slice(),
                         |s, ty| s.print_type(&**ty)));
                 }
 
                 try!(word(&mut self.s, ">"))
             }
+
+            ast::ParenthesizedParameters(ref data) => {
+                try!(word(&mut self.s, "("));
+                try!(self.commasep(
+                    Inconsistent,
+                    data.inputs.as_slice(),
+                    |s, ty| s.print_type(&**ty)));
+                try!(word(&mut self.s, ")"));
+
+                match data.output {
+                    None => { }
+                    Some(ref ty) => {
+                        try!(self.word_space("->"));
+                        try!(self.print_type(&**ty));
+                    }
+                }
+            }
         }
 
-        match *opt_bounds {
-            None => Ok(()),
-            Some(ref bounds) => self.print_bounds("+", bounds)
-        }
+        Ok(())
     }
 
     fn print_path(&mut self, path: &ast::Path,
@@ -2373,15 +2388,6 @@ impl<'a> State<'a> {
                     RegionTyParamBound(ref lt) => {
                         self.print_lifetime(lt)
                     }
-                    UnboxedFnTyParamBound(ref unboxed_function_type) => {
-                        try!(self.print_path(&unboxed_function_type.path,
-                                             false));
-                        try!(self.popen());
-                        try!(self.print_fn_args(&*unboxed_function_type.decl,
-                                                None));
-                        try!(self.pclose());
-                        self.print_fn_output(&*unboxed_function_type.decl)
-                    }
                 })
             }
             Ok(())
@@ -2641,9 +2647,7 @@ impl<'a> State<'a> {
                        id: Option<ast::Ident>,
                        bounds: &OwnedSlice<ast::TyParamBound>,
                        generics: Option<&ast::Generics>,
-                       opt_explicit_self: Option<&ast::ExplicitSelf_>,
-                       opt_unboxed_closure_kind:
-                        Option<ast::UnboxedClosureKind>)
+                       opt_explicit_self: Option<&ast::ExplicitSelf_>)
                        -> IoResult<()> {
         try!(self.ibox(indent_unit));
 
@@ -2660,9 +2664,7 @@ impl<'a> State<'a> {
             try!(self.print_fn_style(fn_style));
             try!(self.print_opt_abi_and_extern_if_nondefault(opt_abi));
             try!(self.print_onceness(onceness));
-            if opt_unboxed_closure_kind.is_none() {
-                try!(word(&mut self.s, "fn"));
-            }
+            try!(word(&mut self.s, "fn"));
         }
 
         match id {
@@ -2676,30 +2678,15 @@ impl<'a> State<'a> {
         match generics { Some(g) => try!(self.print_generics(g)), _ => () }
         try!(zerobreak(&mut self.s));
 
-        if opt_unboxed_closure_kind.is_some() || opt_sigil == Some('&') {
+        if opt_sigil == Some('&') {
             try!(word(&mut self.s, "|"));
         } else {
             try!(self.popen());
         }
 
-        match opt_unboxed_closure_kind {
-            Some(ast::FnUnboxedClosureKind) => {
-                try!(word(&mut self.s, "&"));
-                try!(self.word_space(":"));
-            }
-            Some(ast::FnMutUnboxedClosureKind) => {
-                try!(word(&mut self.s, "&mut"));
-                try!(self.word_space(":"));
-            }
-            Some(ast::FnOnceUnboxedClosureKind) => {
-                try!(self.word_space(":"));
-            }
-            None => {}
-        }
-
         try!(self.print_fn_args(decl, opt_explicit_self));
 
-        if opt_unboxed_closure_kind.is_some() || opt_sigil == Some('&') {
+        if opt_sigil == Some('&') {
             try!(word(&mut self.s, "|"));
         } else {
             if decl.variadic {

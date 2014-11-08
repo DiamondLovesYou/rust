@@ -10,7 +10,7 @@
 
 #![feature(macro_rules)]
 
-// error-pattern: unknown macro variable `nonexistent`
+// error-pattern: unexpected token
 
 macro_rules! e(
     ($inp:ident) => (
