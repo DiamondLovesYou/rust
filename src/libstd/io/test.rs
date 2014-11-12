@@ -28,9 +28,9 @@ pub fn next_test_port() -> u16 {
 pub fn next_test_unix() -> Path {
     static COUNT: AtomicUint = INIT_ATOMIC_UINT;
 
-    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+    #[cfg(not(target_os = "nacl"))]
     fn getpid() -> libc::pid_t { unsafe { libc::getpid() } }
-    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(target_os = "nacl")]
     fn getpid() -> libc::pid_t {
         use rand::random;
         random()
