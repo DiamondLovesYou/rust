@@ -203,7 +203,7 @@ pub use funcs::posix88::unistd::setsid;
 #[cfg(all(unix, not(target_os = "nacl"), not(target_libc = "newlib")))]
 pub use funcs::posix88::unistd::pathconf;
 #[cfg(unix)] pub use funcs::posix88::unistd::{chown};
-#[cfg(all(unix, not(target_os = "nacl"), not(target_libc = "newlib")))]
+#[cfg(all(unix, not(target_libc = "newlib")))]
 pub use funcs::posix88::mman::mprotect;
 #[cfg(unix)] pub use funcs::posix88::mman::{mmap, munmap};
 #[cfg(unix)] pub use funcs::posix88::dirent::{opendir, readdir_r, closedir};
@@ -4511,7 +4511,7 @@ pub mod funcs {
             use types::os::arch::c95::{size_t, c_int, c_char};
             use types::os::arch::posix88::{mode_t, off_t};
 
-            #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+            #[cfg(not(target_libc = "newlib"))]
             extern {
                 pub fn mlock(addr: *const c_void, len: size_t) -> c_int;
                 pub fn munlock(addr: *const c_void, len: size_t) -> c_int;
