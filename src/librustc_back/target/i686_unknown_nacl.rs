@@ -20,6 +20,6 @@ pub fn target() -> Target {
 
     b.options.cpu = "core2".to_string();
     b.options.morestack = true;
-    b.options.exe_suffix = "nexe".to_string();
+    b.options.exe_suffix = ".nexe".to_string();
     b
 }

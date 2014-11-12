@@ -20,6 +20,6 @@ pub fn target() -> Target {
     b.arch = "x86_64".to_string();
 
     b.options.cpu = "core2".to_string();
-    b.options.exe_suffix = "nexe".to_string();
+    b.options.exe_suffix = ".nexe".to_string();
     b
 }

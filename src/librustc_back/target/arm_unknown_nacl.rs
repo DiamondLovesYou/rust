@@ -19,6 +19,6 @@ pub fn target() -> Target {
     b.arch = "arm".to_string();
 
     b.options.morestack = true;
-    b.options.exe_suffix = "nexe".to_string();
+    b.options.exe_suffix = ".nexe".to_string();
     b
 }

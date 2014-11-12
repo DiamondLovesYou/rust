@@ -19,7 +19,7 @@ pub fn target() -> Target {
     b.arch = "le32".to_string();
 
     b.options.morestack = false;
-    b.options.exe_suffix = "pexe".to_string();
+    b.options.exe_suffix = ".pexe".to_string();
     b.options.no_compiler_rt = true;
     b
 }
