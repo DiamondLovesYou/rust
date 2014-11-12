@@ -13,7 +13,10 @@ use super::nacl_base;
 
 pub fn target() -> Target {
     let mut b = nacl_base::base_target();
-    b.llvm_target = "armv7a-unknown-nacl-gnueabi".to_string();
+
+    b.data_layout = "e-i1:8:8-i8:8:8-i16:16:16-i32:32:32-\
+                     i64:64:64-f32:32:32-f64:64:64-p:32:32:32-v128:32:32".to_string();
+    b.llvm_target = "le32-unknown-nacl".to_string();
     b.target_endian = "little".to_string();
     b.target_word_size = "32".to_string();
     b.arch = "le32".to_string();

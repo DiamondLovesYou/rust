@@ -14,6 +14,9 @@ use super::nacl_base;
 pub fn target() -> Target {
     let mut b = nacl_base::base_target();
 
+    b.data_layout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-\
+                     f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-\
+                     s0:64:64-f80:128:128-n8:16:32:64-S128".to_string();
     b.llvm_target = "x86_64-unknown-nacl".to_string();
     b.target_endian = "little".to_string();
     b.target_word_size = "64".to_string();
