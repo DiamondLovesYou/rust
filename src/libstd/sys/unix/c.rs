@@ -167,6 +167,39 @@ mod signal {
         pub handler:  extern fn(libc::c_int),
     }
 }
+#[cfg(all(target_os = "nacl", target_libc = "glibc"))]
+mod signal {
+    use libc;
+
+    pub const SA_NOCLDSTOP: libc::c_ulong = 1;
+    pub const SA_NOCLDWAIT: libc::c_ulong = 2;
+    pub const SA_SIGINFO:   libc::c_ulong = 4;
+
+    const __SI_MAX_SIZE: uint = 128;
+    #[cfg(target_word_size = "64")]
+    const __SI_PAD_SIZE: uint = (__SI_MAX_SIZE / 4) - 4;
+    #[cfg(target_word_size = "32")]
+    const __SI_PAD_SIZE: uint = (__SI_MAX_SIZE / 4) - 3;
+
+    #[repr(C)]
+    pub struct siginfo {
+        si_signo: libc::c_int,
+        si_code:  libc::c_int,
+        si_errno: libc::c_int,
+
+        _pad: [libc::c_int, ..__SI_PAD_SIZE],
+    }
+    pub type sigset_t = libc::c_ulong;
+
+    #[repr(C)]
+    pub struct sigaction {
+        pub sa_handler: extern "C" fn(libc::c_int),
+        pub sa_sigaction: extern "C" fn(libc::c_int, *mut siginfo, *mut libc::c_void),
+        pub sa_mask:  sigset_t,
+        pub sa_flags: libc::c_int,
+        pub sa_restorer:  extern "C" fn(),
+    }
+}
 
 #[cfg(any(all(target_os = "linux",
               any(target_arch = "x86",
