@@ -87,7 +87,7 @@ impl GetAddrInfoRequest {
     }
 }
 
-#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+#[cfg(not(target_libc = "newlib"))]
 extern "system" {
     fn getaddrinfo(node: *const c_char, service: *const c_char,
                    hints: *const libc::addrinfo,

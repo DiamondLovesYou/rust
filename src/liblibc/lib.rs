@@ -4441,7 +4441,7 @@ pub mod funcs {
                 pub fn execvp(c: *const c_char,
                               argv: *mut *const c_char) -> c_int;
                 pub fn fork() -> pid_t;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_libc = "newlib"))]
                 pub fn fpathconf(filedes: c_int, name: c_int) -> c_long;
                 pub fn getcwd(buf: *mut c_char, size: size_t) -> *mut c_char;
                 pub fn getegid() -> gid_t;

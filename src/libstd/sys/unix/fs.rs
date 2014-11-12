@@ -256,11 +256,11 @@ pub fn chown(p: &Path, uid: int, gid: int) -> IoResult<()> {
 }
 
 pub fn readlink(p: &Path) -> IoResult<Path> {
-    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+    #[cfg(not(target_libc = "newlib"))]
     fn pathconf(p: *mut libc::c_char) -> i64 {
         unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) as i64 }
     }
-    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(target_libc = "newlib")]
     fn pathconf(_: *mut libc::c_char) -> i64 {
         unsafe { libc::sysconf(libc::_PC_NAME_MAX) as i64 }
     }
