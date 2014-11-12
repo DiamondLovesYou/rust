@@ -20,8 +20,7 @@ use os::TMPBUF_SZ;
 pub fn errno() -> int {
     #[cfg(any(target_os = "macos",
               target_os = "ios",
-              target_os = "freebsd",
-              all(target_os = "nacl", target_libc = "newlib")))]
+              target_os = "freebsd"))]
     fn errno_location() -> *const c_int {
         extern {
             fn __error() -> *const c_int;
@@ -49,6 +48,15 @@ pub fn errno() -> int {
         }
         unsafe {
             __errno_location()
+        }
+    }
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+    fn errno_location() -> *const c_int {
+        extern {
+            fn __errno() -> *const c_int;
+        }
+        unsafe {
+            __errno()
         }
     }
 
