@@ -1,4 +1,4 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,20 +8,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Testing guarantees provided by once functions.
+// aux-build:struct_variant_privacy.rs
+#![feature(struct_variant)]
 
+extern crate struct_variant_privacy;
 
-#![feature(once_fns)]
-use std::sync::Arc;
-
-fn foo(blk: once ||) {
-    blk();
+fn f(b: struct_variant_privacy::Bar) { //~ ERROR enum `Bar` is private
+    match b {
+        struct_variant_privacy::Bar::Baz { a: _a } => {} //~ ERROR variant `Baz` is private
+    }
 }
 
-pub fn main() {
-    let x = Arc::new(true);
-    foo(|| {
-        assert!(*x);
-        drop(x);
-    })
-}
+fn main() {}
+

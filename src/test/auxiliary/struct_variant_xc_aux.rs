@@ -15,5 +15,5 @@
 
 pub enum Enum {
     Variant(u8),
-    StructVariant { pub arg: u8 }
+    StructVariant { arg: u8 }
 }

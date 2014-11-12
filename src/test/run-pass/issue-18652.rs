@@ -8,10 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(struct_variant)]
+// Tests multiple free variables being passed by value into an unboxed
+// once closure as an optimization by trans.  This used to hit an
+// incorrect assert.
 
-pub enum Foo {
-    Bar {
-        baz: int
-    }
+#![feature(unboxed_closures, overloaded_calls)]
+
+fn main() {
+    let x = 2u8;
+    let y = 3u8;
+    assert_eq!((move |:| x + y)(), 5);
 }

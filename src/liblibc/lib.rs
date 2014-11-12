@@ -4795,7 +4795,8 @@ pub mod funcs {
     }
 
 
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android",
+              all(target_os = "nacl", target_libc = "glibc")))]
     pub mod bsd44 {
         use types::common::c95::{c_void};
         use types::os::arch::c95::{c_uchar, c_int, size_t};
@@ -4810,8 +4811,15 @@ pub mod funcs {
         }
     }
 
+    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+    pub mod bsd44 {
+        use types::os::arch::c95::c_int;
+        extern {
+            pub fn getdtablesize() -> c_int;
+        }
+    }
 
-    #[cfg(any(target_os = "windows", target_os = "nacl"))]
+    #[cfg(target_os = "windows")]
     pub mod bsd44 {
     }
 

@@ -11,6 +11,7 @@
 //! C definitions used by libnative that don't belong in liblibc
 
 #![allow(dead_code)]
+#![allow(non_camel_case_types)]
 
 pub use self::select::fd_set;
 pub use self::signal::{sigaction, siginfo, sigset_t};
@@ -23,6 +24,18 @@ pub use self::signal::{SA_NODEFER, SA_NOCLDWAIT, SA_SIGINFO, SIGCHLD};
 pub use self::signal::{SA_NOCLDSTOP, SA_SIGINFO};
 
 use libc;
+
+// For (P)NaCl targets, nacl_io provides some C functions that Newlib doesn't implement.
+#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+#[link(name = "nacl_io", kind = "static")] extern {}
+
+
+// Rust requires EH, which is implemented in libc++ for PNaCl. Thus for PNaCl,
+// libc++ is linked in liblibc. However libnacl_io still requires access to
+// libc++/libstdc++, so we still need to link that here.
+#[cfg(all(target_os = "nacl", not(target_arch = "le32")))]
+#[link(name = "stdc++", kind = "static")]
+extern {}
 
 #[cfg(any(target_os = "macos",
           target_os = "ios",
@@ -71,7 +84,6 @@ pub const WNOHANG: libc::c_int = 1;
 extern {
     pub fn gettimeofday(timeval: *mut libc::timeval,
                         tzp: *mut libc::c_void) -> libc::c_int;
-    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     pub fn select(nfds: libc::c_int,
                   readfds: *mut fd_set,
                   writefds: *mut fd_set,
@@ -82,7 +94,6 @@ extern {
                       optname: libc::c_int,
                       optval: *mut libc::c_void,
                       optlen: *mut libc::socklen_t) -> libc::c_int;
-    #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
     pub fn ioctl(fd: libc::c_int, req: libc::c_ulong, ...) -> libc::c_int;
 
 
@@ -119,7 +130,7 @@ mod select {
           target_os = "nacl"))]
 mod select {
     #![allow(dead_code)]
-    use std::uint;
+    use uint;
     use libc;
 
     pub const FD_SETSIZE: uint = 1024;
