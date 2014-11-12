@@ -56,10 +56,10 @@ pub type _Unwind_Exception_Class = u64;
 
 pub type _Unwind_Word = libc::uintptr_t;
 
-#[cfg(target_arch = "x86")]
+#[cfg(all(target_arch = "x86", not(target_os = "nacl")))]
 pub const unwinder_private_data_size: uint = 5;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", not(target_os = "nacl")))]
 pub const unwinder_private_data_size: uint = 6;
 
 #[cfg(all(target_arch = "arm", not(target_os = "ios")))]
