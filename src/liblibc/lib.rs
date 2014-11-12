@@ -325,10 +325,12 @@ extern {}
 // I know, this is quite a few. However, practically all of these are needed for
 // any program targeting NaCl.
 #[cfg(target_os = "nacl")]
-#[link(name = "c++", kind = "static")] // for __pnacl_eh_sjlj_*. I know, I know: :(
-#[link(name = "pnaclmm", kind = "static")]
 #[link(name = "nacl", kind = "static")]
 #[link(name = "pthread", kind = "static")]
+extern {}
+#[cfg(all(target_os = "nacl", target_arch = "le32"))]
+#[link(name = "c++", kind = "static")] // for __pnacl_eh_sjlj_*. I know, I know: :(
+#[link(name = "pnaclmm", kind = "static")]
 extern {}
 
 /// A wrapper for a nullable pointer. Don't use this except for interacting
