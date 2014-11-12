@@ -2937,15 +2937,14 @@ pub mod consts {
 
             #[cfg(target_os = "android")]
             pub const PTHREAD_STACK_MIN: size_t = 8192;
-            #[cfg(any(all(target_os = "nacl", target_arch = "le32"),
-                      all(target_os = "nacl", target_arch = "arm")))]
-            pub static PTHREAD_STACK_MIN: size_t = 1024;
+            #[cfg(all(target_os = "nacl", target_arch = "newlib"))]
+            pub const PTHREAD_STACK_MIN: size_t = 1024;
 
-            #[cfg(all(target_os = "linux",
-                      any(target_arch = "arm",
-                          target_arch = "x86",
-                          target_arch = "x86_64"),
-                      not(target_os = "nacl")))]
+            #[cfg(any(all(target_os = "linux",
+                          any(target_arch = "arm",
+                              target_arch = "x86",
+                              target_arch = "x86_64")),
+                      all(target_os = "nacl", target_libc = "glibc")))]
             pub const PTHREAD_STACK_MIN: size_t = 16384;
 
             #[cfg(all(target_os = "linux",
