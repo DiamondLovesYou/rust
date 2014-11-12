@@ -228,7 +228,7 @@ pub unsafe fn record_sp_limit(limit: uint) {
 
     // iOS segmented stack is disabled for now, see related notes
     #[cfg(any(all(target_arch = "arm", target_os = "ios"),
-              target_arch = "le32"))]
+              target_os = "nacl"))]
     #[inline(always)]
     unsafe fn target_record_sp_limit(_: uint) {
     }
@@ -321,7 +321,7 @@ pub unsafe fn get_sp_limit() -> uint {
     // be called by runtime though so it is unsafe to mark it as
     // unreachable, let's return a fixed constant.
     #[cfg(any(all(target_arch = "arm", target_os = "ios"),
-              target_arch = "le32"))]
+              target_os = "nacl"))]
     #[inline(always)]
     unsafe fn target_get_sp_limit() -> uint {
         1024
