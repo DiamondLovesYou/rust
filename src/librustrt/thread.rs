@@ -216,7 +216,7 @@ mod imp {
         }
     }
 
-pub unsafe fn create(stack: uint, p: Box<proc():Send>, detach: bool) -> Option<rust_thread> {
+    pub unsafe fn create(stack: uint, p: Box<proc():Send>, detach: bool) -> Option<rust_thread> {
         let arg: *mut libc::c_void = mem::transmute(p);
         // FIXME On UNIX, we guard against stack sizes that are too small but
         // that's because pthreads enforces that stacks are at least
@@ -414,7 +414,7 @@ mod imp {
         }
     }
 
-pub unsafe fn create(stack: uint, p: Box<proc():Send>,
+    pub unsafe fn create(stack: uint, p: Box<proc():Send>,
                          create_detached: bool) -> Option<rust_thread> {
         let mut native: libc::pthread_t = mem::zeroed();
         let mut attr: libc::pthread_attr_t = mem::zeroed();
