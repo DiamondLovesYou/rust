@@ -2937,7 +2937,7 @@ pub mod consts {
 
             #[cfg(target_os = "android")]
             pub const PTHREAD_STACK_MIN: size_t = 8192;
-            #[cfg(all(target_os = "nacl", target_arch = "newlib"))]
+            #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
             pub const PTHREAD_STACK_MIN: size_t = 1024;
 
             #[cfg(any(all(target_os = "linux",
@@ -3472,6 +3472,11 @@ pub mod consts {
 
             #[cfg(target_arch = "arm")]
             pub const PTHREAD_STACK_MIN: size_t = 4096;
+
+            #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+            pub const PTHREAD_STACK_MIN: size_t = 1024;
+            #[cfg(all(target_os = "nacl", target_libc = "glibc"))]
+            pub const PTHREAD_STACK_MIN: size_t = 16384;
 
             #[cfg(all(target_os = "freebsd",
                       any(target_arch = "mips",
