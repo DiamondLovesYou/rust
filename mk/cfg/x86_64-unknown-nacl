@@ -6,11 +6,13 @@ else
   NACL_TOOLCHAIN_OS_PATH:=linux
 endif
 
+NACL_TC_PATH := $(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc
+
 # x86_64-unknown-nacl (non-portable)
-CC_x86_64-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/x86_64-nacl-gcc
-CXX_x86_64-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/x86_64-nacl-g++
+CC_x86_64-unknown-nacl=$(NACL_TC_PATH)/bin/x86_64-nacl-gcc
+CXX_x86_64-unknown-nacl=$(NACL_TC_PATH)/bin/x86_64-nacl-g++
 CPP_x86_64-unknown-nacl=$(CXX_x86_64-unknown-nacl) -E
-AR_x86_64-unknown-nacl=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_x86_glibc/bin/x86_64-nacl-ar
+AR_x86_64-unknown-nacl=$(NACL_TC_PATH)/bin/x86_64-nacl-ar
 CFG_LIB_NAME_x86_64-unknown-nacl=lib$(1).so
 CFG_STATIC_LIB_NAME_x86_64-unknown-nacl=lib$(1).a
 CFG_LIB_GLOB_x86_64-unknown-nacl=lib$(1)-*.so
@@ -34,5 +36,5 @@ CFG_RUN_x86_64-unknown-nacl=$(2)
 CFG_RUN_TARG_x86_64-unknown-nacl=$(call CFG_RUN_x86_64-unknown-nacl,,$(2))
 SHARED_LIBS_DISABLED_x86_64-unknown-nacl := 1
 RUSTC_FLAGS_x86_64-unknown-nacl:=
-RUSTC_CROSS_FLAGS_x86_64-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"glibc\""
+RUSTC_CROSS_FLAGS_x86_64-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"glibc\"" -L $(NACL_TC_PATH)/x86_64-nacl/lib64
 CFG_GNU_TRIPLE_x86_64-unknown-nacl := x86_64-unknown-nacl
