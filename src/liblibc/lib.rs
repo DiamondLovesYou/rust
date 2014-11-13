@@ -200,10 +200,10 @@ pub use funcs::posix88::unistd::setsid;
 #[cfg(unix)] pub use funcs::posix88::unistd::{sysconf, setgid, setuid, pread, pwrite};
 #[cfg(unix)] pub use funcs::posix88::unistd::{getgid, getuid};
 #[cfg(unix)] pub use funcs::posix88::unistd::{_PC_NAME_MAX, utime, nanosleep, link};
-#[cfg(all(unix, not(target_os = "nacl"), not(target_libc = "newlib")))]
+#[cfg(all(unix, not(all(target_os = "nacl", target_libc = "newlib"))))]
 pub use funcs::posix88::unistd::pathconf;
 #[cfg(unix)] pub use funcs::posix88::unistd::{chown};
-#[cfg(all(unix, not(target_libc = "newlib")))]
+#[cfg(all(unix, not(all(target_os = "nacl", target_libc = "newlib"))))]
 pub use funcs::posix88::mman::mprotect;
 #[cfg(unix)] pub use funcs::posix88::mman::{mmap, munmap};
 #[cfg(unix)] pub use funcs::posix88::dirent::{opendir, readdir_r, closedir};
@@ -4441,7 +4441,7 @@ pub mod funcs {
                 pub fn execvp(c: *const c_char,
                               argv: *mut *const c_char) -> c_int;
                 pub fn fork() -> pid_t;
-                #[cfg(not(target_libc = "newlib"))]
+                #[cfg(not(all(target_os = "nacl", target_libc = "newlib")))]
                 pub fn fpathconf(filedes: c_int, name: c_int) -> c_long;
                 pub fn getcwd(buf: *mut c_char, size: size_t) -> *mut c_char;
                 pub fn getegid() -> gid_t;
@@ -4464,7 +4464,7 @@ pub mod funcs {
                 pub fn link(src: *const c_char, dst: *const c_char) -> c_int;
                 pub fn lseek(fd: c_int, offset: off_t, whence: c_int)
                              -> off_t;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(all(target_os = "nacl", target_libc = "newlib")))]
                 pub fn pathconf(path: *mut c_char, name: c_int) -> c_long;
                 #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
                 pub fn pause() -> c_int;
@@ -4511,7 +4511,7 @@ pub mod funcs {
             use types::os::arch::c95::{size_t, c_int, c_char};
             use types::os::arch::posix88::{mode_t, off_t};
 
-            #[cfg(not(target_libc = "newlib"))]
+            #[cfg(not(all(target_os = "nacl", target_libc = "newlib")))]
             extern {
                 pub fn mlock(addr: *const c_void, len: size_t) -> c_int;
                 pub fn munlock(addr: *const c_void, len: size_t) -> c_int;
