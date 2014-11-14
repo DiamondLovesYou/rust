@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,8 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::num::SignedInt;
+// Test that we don't ICE due to encountering unsubstituted type
+// parameters when untupling FnOnce parameters during translation of
+// an unboxing shim.
+
+#![feature(unboxed_closures)]
 
 fn main() {
-    let _f = 10i.abs; //~ ERROR attempted to take value of method
+    let _: Box<FnOnce<(),()>> = box move |&mut:| {};
 }
