@@ -68,7 +68,9 @@ mod imp {
     use libc::{c_int, timespec};
 
     // Apparently android provides this in some other library?
-    #[cfg(not(target_os = "android"))]
+    #[cfg(all(not(target_os = "android"),
+              all(not(target_os = "nacl"),
+                  not(target_libc = "newlib"))))]
     #[link(name = "rt")]
     extern {}
 
