@@ -17,6 +17,7 @@
 //!
 //! Features are enabled in programs via the crate-level attributes of
 //! `#![feature(...)]` with a comma-separated list of features.
+use self::Status::*;
 
 use abi::RustIntrinsic;
 use ast::NodeId;
@@ -37,7 +38,7 @@ use std::slice;
 static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("globs", Active),
     ("macro_rules", Active),
-    ("struct_variant", Active),
+    ("struct_variant", Accepted),
     ("asm", Active),
     ("managed_boxes", Removed),
     ("non_ascii_idents", Active),
@@ -181,22 +182,13 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
                                   "`#[thread_local]` is an experimental feature, and does not \
                                   currently handle destructors. There is no corresponding \
                                   `#[task_local]` mapping to the task model");
+            } else if attr.name().equiv(&("linkage")) {
+                self.gate_feature("linkage", i.span,
+                                  "the `linkage` attribute is experimental \
+                                   and not portable across platforms")
             }
         }
         match i.node {
-            ast::ItemEnum(ref def, _) => {
-                for variant in def.variants.iter() {
-                    match variant.node.kind {
-                        ast::StructVariantKind(..) => {
-                            self.gate_feature("struct_variant", variant.span,
-                                              "enum struct variants are \
-                                               experimental and possibly buggy");
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
             ast::ItemForeignMod(ref foreign_module) => {
                 if attr::contains_name(i.attrs.as_slice(), "link_args") {
                     self.gate_feature("link_args", i.span,

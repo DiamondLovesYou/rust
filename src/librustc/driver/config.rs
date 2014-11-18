@@ -11,6 +11,12 @@
 //! Contains infrastructure for configuring the compiler, including parsing
 //! command line options.
 
+pub use self::EntryFnType::*;
+pub use self::CrateType::*;
+pub use self::Passes::*;
+pub use self::OptLevel::*;
+pub use self::DebugInfoLevel::*;
+
 use driver::{early_error, early_warn};
 use driver::driver;
 use driver::session::Session;
@@ -269,8 +275,21 @@ macro_rules! cgoptions(
 
     pub type CodegenSetter = fn(&mut CodegenOptions, v: Option<&str>) -> bool;
     pub const CG_OPTIONS: &'static [(&'static str, CodegenSetter,
-                                      &'static str)] =
-        &[ $( (stringify!($opt), cgsetters::$opt, $desc) ),* ];
+                                     Option<&'static str>, &'static str)] =
+        &[ $( (stringify!($opt), cgsetters::$opt, cg_type_descs::$parse, $desc) ),* ];
+
+    #[allow(non_upper_case_globals)]
+    mod cg_type_descs {
+        pub const parse_bool: Option<&'static str> = None;
+        pub const parse_opt_bool: Option<&'static str> = None;
+        pub const parse_string: Option<&'static str> = Some("a string");
+        pub const parse_opt_string: Option<&'static str> = Some("a string");
+        pub const parse_list: Option<&'static str> = Some("a space-separated list of strings");
+        pub const parse_opt_list: Option<&'static str> = Some("a space-separated list of strings");
+        pub const parse_uint: Option<&'static str> = Some("a number");
+        pub const parse_passes: Option<&'static str> =
+            Some("a space-separated list of passes, or `all`");
+    }
 
     mod cgsetters {
         use super::{CodegenOptions, Passes, SomePasses, AllPasses};
@@ -334,8 +353,7 @@ macro_rules! cgoptions(
         }
 
         fn parse_uint(slot: &mut uint, v: Option<&str>) -> bool {
-            use std::from_str::FromStr;
-            match v.and_then(FromStr::from_str) {
+            match v.and_then(from_str) {
                 Some(i) => { *slot = i; true },
                 None => false
             }
@@ -428,19 +446,25 @@ pub fn build_codegen_options(matches: &getopts::Matches) -> CodegenOptions
         let value = iter.next();
         let option_to_lookup = key.replace("-", "_");
         let mut found = false;
-        for &(candidate, setter, _) in CG_OPTIONS.iter() {
+        for &(candidate, setter, opt_type_desc, _) in CG_OPTIONS.iter() {
             if option_to_lookup.as_slice() != candidate { continue }
             if !setter(&mut cg, value) {
-                match value {
-                    Some(..) => {
+                match (value, opt_type_desc) {
+                    (Some(..), None) => {
                         early_error(format!("codegen option `{}` takes no \
                                              value", key).as_slice())
                     }
-                    None => {
+                    (None, Some(type_desc)) => {
                         early_error(format!("codegen option `{0}` requires \
-                                             a value (-C {0}=<value>)",
-                                            key).as_slice())
+                                             {1} (-C {0}=<value>)",
+                                            key, type_desc).as_slice())
                     }
+                    (Some(value), Some(type_desc)) => {
+                        early_error(format!("incorrect value `{}` for codegen \
+                                             option `{}` - {} was expected",
+                                             value, key, type_desc).as_slice())
+                    }
+                    (None, None) => unreachable!()
                 }
             }
             found = true;
@@ -875,11 +899,11 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test() {
         let matches =
-            &match getopts(["--test".to_string()], optgroups().as_slice()) {
+            &match getopts(&["--test".to_string()], optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => panic!("test_switch_implies_cfg_test: {}", f)
             };
-        let registry = diagnostics::registry::Registry::new([]);
+        let registry = diagnostics::registry::Registry::new(&[]);
         let sessopts = build_session_options(matches);
         let sess = build_session(sessopts, None, registry);
         let cfg = build_configuration(&sess);
@@ -891,14 +915,14 @@ mod test {
     #[test]
     fn test_switch_implies_cfg_test_unless_cfg_test() {
         let matches =
-            &match getopts(["--test".to_string(), "--cfg=test".to_string()],
+            &match getopts(&["--test".to_string(), "--cfg=test".to_string()],
                            optgroups().as_slice()) {
               Ok(m) => m,
               Err(f) => {
                 panic!("test_switch_implies_cfg_test_unless_cfg_test: {}", f)
               }
             };
-        let registry = diagnostics::registry::Registry::new([]);
+        let registry = diagnostics::registry::Registry::new(&[]);
         let sessopts = build_session_options(matches);
         let sess = build_session(sessopts, None, registry);
         let cfg = build_configuration(&sess);

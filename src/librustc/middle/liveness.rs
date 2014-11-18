@@ -107,6 +107,9 @@
  *   It is the responsibility of typeck to ensure that there are no
  *   `return` expressions in a function declared as diverging.
  */
+use self::LoopKind::*;
+use self::LiveNodeKind::*;
+use self::VarKind::*;
 
 use middle::def::*;
 use middle::mem_categorization::Typer;
@@ -119,7 +122,6 @@ use util::nodemap::NodeMap;
 use std::fmt;
 use std::io;
 use std::rc::Rc;
-use std::str;
 use std::uint;
 use syntax::ast;
 use syntax::ast::*;
@@ -449,7 +451,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
     match expr.node {
       // live nodes required for uses or definitions of variables:
       ExprPath(_) => {
-        let def = ir.tcx.def_map.borrow().get_copy(&expr.id);
+        let def = ir.tcx.def_map.borrow()[expr.id].clone();
         debug!("expr {}: path that leads to {}", expr.id, def);
         match def {
             DefLocal(..) => ir.add_live_node_for_node(expr.id, ExprNode(expr.span)),
@@ -739,7 +741,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
 
     #[allow(unused_must_use)]
     fn ln_str(&self, ln: LiveNode) -> String {
-        let mut wr = io::MemWriter::new();
+        let mut wr = Vec::new();
         {
             let wr = &mut wr as &mut io::Writer;
             write!(wr, "[ln({}) of kind {} reads", ln.get(), self.ir.lnk(ln));
@@ -748,7 +750,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
             self.write_vars(wr, ln, |idx| self.users[idx].writer);
             write!(wr, "  precedes {}]", self.successors[ln.get()].to_string());
         }
-        str::from_utf8(wr.unwrap().as_slice()).unwrap().to_string()
+        String::from_utf8(wr).unwrap()
     }
 
     fn init_empty(&mut self, ln: LiveNode, succ_ln: LiveNode) {
@@ -1316,7 +1318,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
 
     fn access_path(&mut self, expr: &Expr, succ: LiveNode, acc: uint)
                    -> LiveNode {
-        match self.ir.tcx.def_map.borrow().get_copy(&expr.id) {
+        match self.ir.tcx.def_map.borrow()[expr.id].clone() {
           DefLocal(nid) => {
             let ln = self.live_node(expr.id, expr.span);
             if acc != 0u {
@@ -1582,7 +1584,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
     fn check_lvalue(&mut self, expr: &Expr) {
         match expr.node {
           ExprPath(_) => {
-            match self.ir.tcx.def_map.borrow().get_copy(&expr.id) {
+            match self.ir.tcx.def_map.borrow()[expr.id].clone() {
               DefLocal(nid) => {
                 // Assignment to an immutable variable or argument: only legal
                 // if there is no later assignment. If this local is actually

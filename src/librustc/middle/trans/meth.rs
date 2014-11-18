@@ -89,7 +89,7 @@ pub fn trans_impl(ccx: &CrateContext,
                                  llfn,
                                  &param_substs::empty(),
                                  method.id,
-                                 []);
+                                 &[]);
                         update_linkage(ccx,
                                        llfn,
                                        Some(method.id),
@@ -301,7 +301,7 @@ pub fn trans_static_method_callee(bcx: Block,
 
 fn method_with_name(ccx: &CrateContext, impl_id: ast::DefId, name: ast::Name)
                     -> ast::DefId {
-    match ccx.impl_method_cache().borrow().find_copy(&(impl_id, name)) {
+    match ccx.impl_method_cache().borrow().get(&(impl_id, name)).cloned() {
         Some(m) => return m,
         None => {}
     }
@@ -479,7 +479,7 @@ pub fn trans_trait_callee_from_llval<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     // Load the data pointer from the object.
     debug!("(translating trait callee) loading second index from pair");
-    let llboxptr = GEPi(bcx, llpair, [0u, abi::trt_field_box]);
+    let llboxptr = GEPi(bcx, llpair, &[0u, abi::trt_field_box]);
     let llbox = Load(bcx, llboxptr);
     let llself = PointerCast(bcx, llbox, Type::i8p(ccx));
 
@@ -501,9 +501,9 @@ pub fn trans_trait_callee_from_llval<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let llvtable = Load(bcx,
                         PointerCast(bcx,
                                     GEPi(bcx, llpair,
-                                         [0u, abi::trt_field_vtable]),
+                                         &[0u, abi::trt_field_vtable]),
                                     Type::vtable(ccx).ptr_to().ptr_to()));
-    let mptr = Load(bcx, GEPi(bcx, llvtable, [0u, n_method + VTABLE_OFFSET]));
+    let mptr = Load(bcx, GEPi(bcx, llvtable, &[0u, n_method + VTABLE_OFFSET]));
     let mptr = PointerCast(bcx, mptr, llcallee_ty.ptr_to());
 
     return Callee {
@@ -594,7 +594,6 @@ pub fn get_vtable(bcx: Block,
                                             new_inputs.push(element.subst(bcx.tcx(), substs));
                                         }
                                     }
-                                    ty::ty_nil => {}
                                     _ => {
                                         bcx.tcx().sess.bug("get_vtable(): closure \
                                                             type wasn't a tuple")
@@ -765,13 +764,13 @@ pub fn trans_trait_cast<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let llbox_ty = type_of(bcx.ccx(), datum_ty);
 
     // Store the pointer into the first half of pair.
-    let llboxdest = GEPi(bcx, lldest, [0u, abi::trt_field_box]);
+    let llboxdest = GEPi(bcx, lldest, &[0u, abi::trt_field_box]);
     let llboxdest = PointerCast(bcx, llboxdest, llbox_ty.ptr_to());
     bcx = datum.store_to(bcx, llboxdest);
 
     // Store the vtable into the second half of pair.
     let vtable = get_vtable(bcx, datum_ty, trait_ref);
-    let llvtabledest = GEPi(bcx, lldest, [0u, abi::trt_field_vtable]);
+    let llvtabledest = GEPi(bcx, lldest, &[0u, abi::trt_field_vtable]);
     let llvtabledest = PointerCast(bcx, llvtabledest, val_ty(vtable).ptr_to());
     Store(bcx, vtable, llvtabledest);
 

@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,12 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(struct_variant)]
-
-enum Foo { C { a: int, b: int } }
-struct C { a: int, b: int }         //~ ERROR error: duplicate definition of type or module `C`
-
-struct A { x: int }
-enum Bar { A { x: int } }           //~ ERROR error: duplicate definition of type or module `A`
+enum Foo {
+    Bar {
+        pub a: int //~ ERROR: `pub` is not allowed here
+    }
+}
 
 fn main() {}

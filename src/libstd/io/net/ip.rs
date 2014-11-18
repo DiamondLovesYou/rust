@@ -15,14 +15,15 @@
 
 #![allow(missing_docs)]
 
+pub use self::IpAddr::*;
+
 use fmt;
-use from_str::FromStr;
 use io::{mod, IoResult, IoError};
 use io::net;
 use iter::Iterator;
 use option::{Option, None, Some};
 use result::{Ok, Err};
-use str::StrPrelude;
+use str::{FromStr, StrPrelude};
 use slice::{CloneSlicePrelude, SlicePrelude};
 use vec::Vec;
 
@@ -540,7 +541,7 @@ impl<'a> ToSocketAddr for &'a str {
 mod test {
     use prelude::*;
     use super::*;
-    use from_str::FromStr;
+    use str::FromStr;
 
     #[test]
     fn test_from_str_ipv4() {

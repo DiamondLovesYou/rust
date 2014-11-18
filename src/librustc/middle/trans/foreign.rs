@@ -10,10 +10,10 @@
 
 
 use back::{link};
-use llvm::{ValueRef, CallConv, Linkage, get_param};
+use llvm::{ValueRef, CallConv, get_param};
 use llvm;
 use middle::weak_lang_items;
-use middle::trans::base::push_ctxt;
+use middle::trans::base::{llvm_linkage_by_name, push_ctxt};
 use middle::trans::base;
 use middle::trans::build::*;
 use middle::trans::cabi;
@@ -98,31 +98,6 @@ pub fn llvm_calling_convention(ccx: &CrateContext,
         // These API constants ought to be more specific...
         Cdecl => llvm::CCallConv,
         Aapcs => llvm::CCallConv,
-    }
-}
-
-pub fn llvm_linkage_by_name(name: &str) -> Option<Linkage> {
-    // Use the names from src/llvm/docs/LangRef.rst here. Most types are only
-    // applicable to variable declarations and may not really make sense for
-    // Rust code in the first place but whitelist them anyway and trust that
-    // the user knows what s/he's doing. Who knows, unanticipated use cases
-    // may pop up in the future.
-    //
-    // ghost, dllimport, dllexport and linkonce_odr_autohide are not supported
-    // and don't have to be, LLVM treats them as no-ops.
-    match name {
-        "appending" => Some(llvm::AppendingLinkage),
-        "available_externally" => Some(llvm::AvailableExternallyLinkage),
-        "common" => Some(llvm::CommonLinkage),
-        "extern_weak" => Some(llvm::ExternalWeakLinkage),
-        "external" => Some(llvm::ExternalLinkage),
-        "internal" => Some(llvm::InternalLinkage),
-        "linkonce" => Some(llvm::LinkOnceAnyLinkage),
-        "linkonce_odr" => Some(llvm::LinkOnceODRLinkage),
-        "private" => Some(llvm::PrivateLinkage),
-        "weak" => Some(llvm::WeakAnyLinkage),
-        "weak_odr" => Some(llvm::WeakODRLinkage),
-        _ => None,
     }
 }
 
@@ -520,7 +495,7 @@ pub fn decl_rust_fn_with_foreign_abi(ccx: &CrateContext,
         }
         _ => panic!("expected bare fn in decl_rust_fn_with_foreign_abi")
     };
-    let llfn = base::decl_fn(ccx, name, cconv, llfn_ty, ty::FnConverging(ty::mk_nil()));
+    let llfn = base::decl_fn(ccx, name, cconv, llfn_ty, ty::FnConverging(ty::mk_nil(ccx.tcx())));
     add_argument_attributes(&tys, llfn);
     debug!("decl_rust_fn_with_foreign_abi(llfn_ty={}, llfn={})",
            ccx.tn().type_to_string(llfn_ty), ccx.tn().val_to_string(llfn));
@@ -610,7 +585,7 @@ pub fn trans_rust_fn_with_foreign_abi(ccx: &CrateContext,
 
         let llfn = base::decl_internal_rust_fn(ccx, t, ps.as_slice());
         base::set_llvm_fn_attrs(ccx, attrs, llfn);
-        base::trans_fn(ccx, decl, body, llfn, param_substs, id, []);
+        base::trans_fn(ccx, decl, body, llfn, param_substs, id, &[]);
         llfn
     }
 

@@ -157,6 +157,7 @@
 
 use clone::Clone;
 use cmp::PartialEq;
+use default::Default;
 use kinds::{marker, Copy};
 use ops::{Deref, DerefMut, Drop};
 use option::{None, Option, Some};
@@ -168,9 +169,9 @@ pub struct Cell<T> {
     noshare: marker::NoSync,
 }
 
-#[stable]
 impl<T:Copy> Cell<T> {
     /// Creates a new `Cell` containing the given value.
+    #[stable]
     pub fn new(value: T) -> Cell<T> {
         Cell {
             value: UnsafeCell::new(value),
@@ -180,12 +181,14 @@ impl<T:Copy> Cell<T> {
 
     /// Returns a copy of the contained value.
     #[inline]
+    #[stable]
     pub fn get(&self) -> T {
         unsafe{ *self.value.get() }
     }
 
     /// Sets the contained value.
     #[inline]
+    #[stable]
     pub fn set(&self, value: T) {
         unsafe {
             *self.value.get() = value;
@@ -208,6 +211,13 @@ impl<T:Copy> Cell<T> {
 impl<T:Copy> Clone for Cell<T> {
     fn clone(&self) -> Cell<T> {
         Cell::new(self.get())
+    }
+}
+
+#[unstable]
+impl<T:Default + Copy> Default for Cell<T> {
+    fn default() -> Cell<T> {
+        Cell::new(Default::default())
     }
 }
 
@@ -274,9 +284,9 @@ impl<T> RefCell<T> {
     /// The borrow lasts until the returned `Ref` exits scope. Multiple
     /// immutable borrows can be taken out at the same time.
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if the value is currently mutably borrowed.
+    /// Panics if the value is currently mutably borrowed.
     #[unstable]
     pub fn borrow<'a>(&'a self) -> Ref<'a, T> {
         match self.try_borrow() {
@@ -307,9 +317,9 @@ impl<T> RefCell<T> {
     /// The borrow lasts until the returned `RefMut` exits scope. The value
     /// cannot be borrowed while this borrow is active.
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if the value is currently borrowed.
+    /// Panics if the value is currently borrowed.
     #[unstable]
     pub fn borrow_mut<'a>(&'a self) -> RefMut<'a, T> {
         match self.try_borrow_mut() {
@@ -334,6 +344,13 @@ impl<T> RefCell<T> {
 impl<T: Clone> Clone for RefCell<T> {
     fn clone(&self) -> RefCell<T> {
         RefCell::new(self.borrow().clone())
+    }
+}
+
+#[unstable]
+impl<T:Default> Default for RefCell<T> {
+    fn default() -> RefCell<T> {
+        RefCell::new(Default::default())
     }
 }
 

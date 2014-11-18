@@ -225,10 +225,10 @@ impl Session {
         let tool_name = format!("{}{}",
                                 prefix,
                                 suffix);
-        toolchain.join_many(["toolchain".into_string(),
-                             post_toolchain,
-                             "bin".into_string(),
-                             tool_name])
+        toolchain.join_many(&["toolchain".into_string(),
+                              post_toolchain,
+                              "bin".into_string(),
+                              tool_name])
             .as_str()
             .unwrap()
             .into_string()
@@ -245,8 +245,8 @@ impl Session {
 
     pub fn pnacl_toolchain(&self) -> Path {
         let tc = self.expect_cross_path();
-        tc.join_many(["toolchain".into_string(),
-                      format!("{}_pnacl", get_os_for_nacl_toolchain(self))])
+        tc.join_many(&["toolchain".into_string(),
+                       format!("{}_pnacl", get_os_for_nacl_toolchain(self))])
     }
 
     /// Shortcut to test if we need to do special things because we are targeting PNaCl.
@@ -305,12 +305,12 @@ impl Session {
 
     // Gets the filepath for the gold LTO plugin.
     pub fn gold_plugin_path(&self) -> Path {
-        self.sysroot().join_many(["lib".to_string(),
-                                  "rustlib".to_string(),
-                                  driver::host_triple().to_string(),
-                                  "lib".to_string(),
-                                  format!("LLVMgold{}",
-                                          os::consts::DLL_SUFFIX)])
+        self.sysroot().join_many(&["lib".to_string(),
+                                   "rustlib".to_string(),
+                                   driver::host_triple().to_string(),
+                                   "lib".to_string(),
+                                   format!("LLVMgold{}",
+                                           os::consts::DLL_SUFFIX)])
     }
 }
 

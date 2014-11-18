@@ -24,6 +24,7 @@
 //! `add_builtin!` or `add_builtin_with_new!` invocation in `context.rs`.
 //! Use the former for unit-like structs and the latter for structs with
 //! a `pub fn new()`.
+use self::MethodContext::*;
 
 use metadata::csearch;
 use middle::def::*;
@@ -391,7 +392,7 @@ struct ImproperCTypesVisitor<'a, 'tcx: 'a> {
 
 impl<'a, 'tcx> ImproperCTypesVisitor<'a, 'tcx> {
     fn check_def(&mut self, sp: Span, ty_id: ast::NodeId, path_id: ast::NodeId) {
-        match self.cx.tcx.def_map.borrow().get_copy(&path_id) {
+        match self.cx.tcx.def_map.borrow()[path_id].clone() {
             def::DefPrimTy(ast::TyInt(ast::TyI)) => {
                 self.cx.span_lint(IMPROPER_CTYPES, sp,
                                   "found rust type `int` in foreign module, while \
@@ -447,7 +448,9 @@ impl LintPass for ImproperCTypes {
             for input in decl.inputs.iter() {
                 check_ty(cx, &*input.ty);
             }
-            check_ty(cx, &*decl.output)
+            if let ast::Return(ref ret_ty) = decl.output {
+                check_ty(cx, &**ret_ty);
+            }
         }
 
         match it.node {
@@ -620,6 +623,7 @@ impl LintPass for UnusedAttributes {
             "link",
             "link_name",
             "link_section",
+            "linkage",
             "no_builtins",
             "no_mangle",
             "no_split_stack",
@@ -735,7 +739,8 @@ impl LintPass for UnusedResults {
         let t = ty::expr_ty(cx.tcx, expr);
         let mut warned = false;
         match ty::get(t).sty {
-            ty::ty_nil | ty::ty_bool => return,
+            ty::ty_tup(ref tys) if tys.is_empty() => return,
+            ty::ty_bool => return,
             ty::ty_struct(did, _) |
             ty::ty_enum(did, _) => {
                 if ast_util::is_local(did) {
@@ -866,7 +871,7 @@ fn method_context(cx: &Context, m: &ast::Method) -> MethodContext {
         node: m.id
     };
 
-    match cx.tcx.impl_or_trait_items.borrow().find_copy(&did) {
+    match cx.tcx.impl_or_trait_items.borrow().get(&did).cloned() {
         None => cx.sess().span_bug(m.span, "missing method descriptor?!"),
         Some(md) => {
             match md {
@@ -1399,6 +1404,9 @@ pub struct MissingDoc {
     /// Stack of IDs of struct definitions.
     struct_def_stack: Vec<ast::NodeId>,
 
+    /// True if inside variant definition
+    in_variant: bool,
+
     /// Stack of whether #[doc(hidden)] is set
     /// at each level which has lint attributes.
     doc_hidden_stack: Vec<bool>,
@@ -1408,6 +1416,7 @@ impl MissingDoc {
     pub fn new() -> MissingDoc {
         MissingDoc {
             struct_def_stack: vec!(),
+            in_variant: false,
             doc_hidden_stack: vec!(false),
         }
     }
@@ -1522,7 +1531,7 @@ impl LintPass for MissingDoc {
 
     fn check_struct_field(&mut self, cx: &Context, sf: &ast::StructField) {
         match sf.node.kind {
-            ast::NamedField(_, vis) if vis == ast::Public => {
+            ast::NamedField(_, vis) if vis == ast::Public || self.in_variant => {
                 let cur_struct_def = *self.struct_def_stack.last()
                     .expect("empty struct_def_stack");
                 self.check_missing_docs_attrs(cx, Some(cur_struct_def),
@@ -1536,6 +1545,13 @@ impl LintPass for MissingDoc {
     fn check_variant(&mut self, cx: &Context, v: &ast::Variant, _: &ast::Generics) {
         self.check_missing_docs_attrs(cx, Some(v.node.id), v.node.attrs.as_slice(),
                                      v.span, "a variant");
+        assert!(!self.in_variant);
+        self.in_variant = true;
+    }
+
+    fn check_variant_post(&mut self, _: &Context, _: &ast::Variant, _: &ast::Generics) {
+        assert!(self.in_variant);
+        self.in_variant = false;
     }
 }
 

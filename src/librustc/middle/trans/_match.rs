@@ -186,6 +186,12 @@
  *
  */
 
+pub use self::BranchKind::*;
+pub use self::OptResult::*;
+pub use self::TransBindingMode::*;
+use self::Opt::*;
+use self::FailureHandler::*;
+
 use back::abi;
 use driver::config::FullDebugInfo;
 use llvm::{ValueRef, BasicBlockRef};
@@ -544,7 +550,7 @@ fn enter_opt<'a, 'p, 'blk, 'tcx>(
         &SliceLengthGreaterOrEqual(before, after) =>
             check_match::SliceWithSubslice(before, after),
         &Variant(_, _, def_id) =>
-            check_match::Variant(def_id)
+            check_match::Constructor::Variant(def_id)
     };
 
     let mcx = check_match::MatchCheckCtxt { tcx: bcx.tcx() };
@@ -568,7 +574,7 @@ fn get_branches<'a, 'p, 'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             ast::PatLit(ref l) => ConstantValue(ConstantExpr(&**l)),
             ast::PatIdent(..) | ast::PatEnum(..) | ast::PatStruct(..) => {
                 // This is either an enum variant or a variable binding.
-                let opt_def = tcx.def_map.borrow().find_copy(&cur.id);
+                let opt_def = tcx.def_map.borrow().get(&cur.id).cloned();
                 match opt_def {
                     Some(def::DefVariant(enum_id, var_id, _)) => {
                         let variant = ty::enum_variant_with_id(tcx, enum_id, var_id);
@@ -643,8 +649,8 @@ fn bind_subslice_pat(bcx: Block,
                                 ty::mt {ty: vt.unit_ty, mutbl: ast::MutImmutable});
     let scratch = rvalue_scratch_datum(bcx, slice_ty, "");
     Store(bcx, slice_begin,
-          GEPi(bcx, scratch.val, [0u, abi::slice_elt_base]));
-    Store(bcx, slice_len, GEPi(bcx, scratch.val, [0u, abi::slice_elt_len]));
+          GEPi(bcx, scratch.val, &[0u, abi::slice_elt_base]));
+    Store(bcx, slice_len, GEPi(bcx, scratch.val, &[0u, abi::slice_elt_len]));
     scratch.val
 }
 
@@ -658,9 +664,9 @@ fn extract_vec_elems<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let vec_datum = match_datum(val, left_ty);
     let (base, len) = vec_datum.get_vec_base_and_len(bcx);
     let mut elems = vec![];
-    elems.extend(range(0, before).map(|i| GEPi(bcx, base, [i])));
+    elems.extend(range(0, before).map(|i| GEPi(bcx, base, &[i])));
     elems.extend(range(0, after).rev().map(|i| {
-        InBoundsGEP(bcx, base, [
+        InBoundsGEP(bcx, base, &[
             Sub(bcx, len, C_uint(bcx.ccx(), i + 1))
         ])
     }));
@@ -796,7 +802,7 @@ fn compare_values<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                            format!("comparison of `{}`",
                                    cx.ty_to_string(rhs_t)).as_slice(),
                            StrEqFnLangItem);
-        callee::trans_lang_call(cx, did, [lhs, rhs], None)
+        callee::trans_lang_call(cx, did, &[lhs, rhs], None)
     }
 
     let _icx = push_ctxt("compare_values");
@@ -1012,7 +1018,7 @@ fn compile_submatch_continue<'a, 'p, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                          .unwrap_or(DUMMY_NODE_ID);
 
     let left_ty = if pat_id == DUMMY_NODE_ID {
-        ty::mk_nil()
+        ty::mk_nil(tcx)
     } else {
         node_id_type(bcx, pat_id)
     };
@@ -1390,7 +1396,7 @@ fn trans_match_inner<'blk, 'tcx>(scope_cx: Block<'blk, 'tcx>,
         && arm.pats.last().unwrap().node == ast::PatWild(ast::PatWildSingle)
     });
 
-    compile_submatch(bcx, matches.as_slice(), [discr_datum.val], &chk, has_default);
+    compile_submatch(bcx, matches.as_slice(), &[discr_datum.val], &chk, has_default);
 
     let mut arm_cxs = Vec::new();
     for arm_data in arm_datas.iter() {
@@ -1642,7 +1648,7 @@ fn bind_irrefutable_pat<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             }
         }
         ast::PatEnum(_, ref sub_pats) => {
-            let opt_def = bcx.tcx().def_map.borrow().find_copy(&pat.id);
+            let opt_def = bcx.tcx().def_map.borrow().get(&pat.id).cloned();
             match opt_def {
                 Some(def::DefVariant(enum_id, var_id, _)) => {
                     let repr = adt::represent_node(bcx, pat.id);

@@ -30,6 +30,9 @@
 
 #![macro_escape]
 
+pub use self::Level::*;
+pub use self::LintSource::*;
+
 use std::hash;
 use std::ascii::AsciiExt;
 use syntax::codemap::Span;
@@ -149,6 +152,7 @@ pub trait LintPass {
         _: &ast::StructDef, _: ast::Ident, _: &ast::Generics, _: ast::NodeId) { }
     fn check_struct_field(&mut self, _: &Context, _: &ast::StructField) { }
     fn check_variant(&mut self, _: &Context, _: &ast::Variant, _: &ast::Generics) { }
+    fn check_variant_post(&mut self, _: &Context, _: &ast::Variant, _: &ast::Generics) { }
     fn check_opt_lifetime_ref(&mut self, _: &Context, _: Span, _: &Option<ast::Lifetime>) { }
     fn check_lifetime_ref(&mut self, _: &Context, _: &ast::Lifetime) { }
     fn check_lifetime_decl(&mut self, _: &Context, _: &ast::LifetimeDef) { }

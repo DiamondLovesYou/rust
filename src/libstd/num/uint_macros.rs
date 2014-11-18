@@ -15,22 +15,6 @@
 
 macro_rules! uint_module (($T:ty) => (
 
-#[experimental = "might need to return Result"]
-impl FromStr for $T {
-    #[inline]
-    fn from_str(s: &str) -> Option<$T> {
-        strconv::from_str_radix_int(s, 10)
-    }
-}
-
-#[experimental = "might need to return Result"]
-impl FromStrRadix for $T {
-    #[inline]
-    fn from_str_radix(s: &str, radix: uint) -> Option<$T> {
-        strconv::from_str_radix_int(s, radix)
-    }
-}
-
 // String conversion functions and impl num -> str
 
 /// Convert to a string as a byte slice in a given base.
@@ -54,7 +38,7 @@ pub fn to_str_bytes<U>(n: $T, radix: uint, f: |v: &[u8]| -> U) -> U {
     // base 2 number, and then we need another for a possible '-' character.
     let mut buf = [0u8, ..65];
     let amt = {
-        let mut wr = ::io::BufWriter::new(buf);
+        let mut wr = ::io::BufWriter::new(&mut buf);
         (write!(&mut wr, "{}", ::fmt::radix(n, radix as u8))).unwrap();
         wr.tell().unwrap() as uint
     };

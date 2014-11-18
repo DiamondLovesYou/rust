@@ -16,6 +16,9 @@
 
 #![doc(primitive = "str")]
 
+pub use self::Utf16Item::*;
+pub use self::Searcher::{Naive, TwoWay, TwoWayLong};
+
 use mem;
 use char;
 use char::Char;
@@ -30,6 +33,42 @@ use option::{Option, None, Some};
 use raw::Repr;
 use slice::{mod, SlicePrelude};
 use uint;
+
+/// A trait to abstract the idea of creating a new instance of a type from a
+/// string.
+#[experimental = "might need to return Result"]
+pub trait FromStr {
+    /// Parses a string `s` to return an optional value of this type. If the
+    /// string is ill-formatted, the None is returned.
+    fn from_str(s: &str) -> Option<Self>;
+}
+
+/// A utility function that just calls FromStr::from_str
+pub fn from_str<A: FromStr>(s: &str) -> Option<A> {
+    FromStr::from_str(s)
+}
+
+impl FromStr for bool {
+    /// Parse a `bool` from a string.
+    ///
+    /// Yields an `Option<bool>`, because `s` may or may not actually be parseable.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!(from_str::<bool>("true"), Some(true));
+    /// assert_eq!(from_str::<bool>("false"), Some(false));
+    /// assert_eq!(from_str::<bool>("not even a boolean"), None);
+    /// ```
+    #[inline]
+    fn from_str(s: &str) -> Option<bool> {
+        match s {
+            "true"  => Some(true),
+            "false" => Some(false),
+            _       => None,
+        }
+    }
+}
 
 /*
 Section: Creating a string
@@ -972,7 +1011,7 @@ impl<'a> Iterator<Utf16Item> for Utf16Items<'a> {
 ///          0x0073, 0xDD1E, 0x0069, 0x0063,
 ///          0xD834];
 ///
-/// assert_eq!(str::utf16_items(v).collect::<Vec<_>>(),
+/// assert_eq!(str::utf16_items(&v).collect::<Vec<_>>(),
 ///            vec![ScalarValue('𝄞'),
 ///                 ScalarValue('m'), ScalarValue('u'), ScalarValue('s'),
 ///                 LoneSurrogate(0xDD1E),
@@ -994,12 +1033,12 @@ pub fn utf16_items<'a>(v: &'a [u16]) -> Utf16Items<'a> {
 /// // "abcd"
 /// let mut v = ['a' as u16, 'b' as u16, 'c' as u16, 'd' as u16];
 /// // no NULs so no change
-/// assert_eq!(str::truncate_utf16_at_nul(v), v.as_slice());
+/// assert_eq!(str::truncate_utf16_at_nul(&v), v.as_slice());
 ///
 /// // "ab\0d"
 /// v[2] = 0;
 /// let b: &[_] = &['a' as u16, 'b' as u16];
-/// assert_eq!(str::truncate_utf16_at_nul(v), b);
+/// assert_eq!(str::truncate_utf16_at_nul(&v), b);
 /// ```
 pub fn truncate_utf16_at_nul<'a>(v: &'a [u16]) -> &'a [u16] {
     match v.iter().position(|c| *c == 0) {
@@ -1084,7 +1123,7 @@ pub mod raw {
     ///
     /// Returns the substring from [`begin`..`end`).
     ///
-    /// # Failure
+    /// # Panics
     ///
     /// If begin is greater than end.
     /// If end is greater than the length of the string.
@@ -1432,7 +1471,7 @@ pub trait StrPrelude for Sized? {
     ///
     /// This operation is `O(1)`.
     ///
-    /// Fails when `begin` and `end` do not point to valid characters
+    /// Panics when `begin` and `end` do not point to valid characters
     /// or point beyond the last character of the string.
     ///
     /// See also `slice_to` and `slice_from` for slicing prefixes and
@@ -1463,7 +1502,7 @@ pub trait StrPrelude for Sized? {
     ///
     /// Equivalent to `self.slice(begin, self.len())`.
     ///
-    /// Fails when `begin` does not point to a valid character, or is
+    /// Panics when `begin` does not point to a valid character, or is
     /// out of bounds.
     ///
     /// See also `slice`, `slice_to` and `slice_chars`.
@@ -1474,7 +1513,7 @@ pub trait StrPrelude for Sized? {
     ///
     /// Equivalent to `self.slice(0, end)`.
     ///
-    /// Fails when `end` does not point to a valid character, or is
+    /// Panics when `end` does not point to a valid character, or is
     /// out of bounds.
     ///
     /// See also `slice`, `slice_from` and `slice_chars`.
@@ -1493,7 +1532,7 @@ pub trait StrPrelude for Sized? {
     /// variants that use byte indices rather than code point
     /// indices.
     ///
-    /// Fails if `begin` > `end` or the either `begin` or `end` are
+    /// Panics if `begin` > `end` or the either `begin` or `end` are
     /// beyond the last character of the string.
     ///
     /// # Example
@@ -1577,7 +1616,7 @@ pub trait StrPrelude for Sized? {
     /// The start and end of the string (when `index == self.len()`)
     /// are considered to be boundaries.
     ///
-    /// Fails if `index` is greater than `self.len()`.
+    /// Panics if `index` is greater than `self.len()`.
     ///
     /// # Example
     ///
@@ -1645,7 +1684,7 @@ pub trait StrPrelude for Sized? {
     /// A record {ch: char, next: uint} containing the char value and the byte
     /// index of the next Unicode character.
     ///
-    /// # Failure
+    /// # Panics
     ///
     /// If `i` is greater than or equal to the length of the string.
     /// If `i` is not the index of the beginning of a valid UTF-8 character.
@@ -1657,7 +1696,7 @@ pub trait StrPrelude for Sized? {
     ///
     /// Returns 0 for next index if called on start index 0.
     ///
-    /// # Failure
+    /// # Panics
     ///
     /// If `i` is greater than the length of the string.
     /// If `i` is not an index following a valid UTF-8 character.
@@ -1674,7 +1713,7 @@ pub trait StrPrelude for Sized? {
     /// assert_eq!(s.char_at(4), 'c');
     /// ```
     ///
-    /// # Failure
+    /// # Panics
     ///
     /// If `i` is greater than or equal to the length of the string.
     /// If `i` is not the index of the beginning of a valid UTF-8 character.
@@ -1682,7 +1721,7 @@ pub trait StrPrelude for Sized? {
 
     /// Plucks the character ending at the `i`th byte of a string.
     ///
-    /// # Failure
+    /// # Panics
     ///
     /// If `i` is greater than the length of the string.
     /// If `i` is not an index following a valid UTF-8 character.
@@ -1772,25 +1811,25 @@ pub trait StrPrelude for Sized? {
     /// it. This does not allocate a new string; instead, it returns a
     /// slice that point one character beyond the character that was
     /// shifted. If the string does not contain any characters,
-    /// a tuple of None and an empty string is returned instead.
+    /// None is returned instead.
     ///
     /// # Example
     ///
     /// ```rust
     /// let s = "Löwe 老虎 Léopard";
-    /// let (c, s1) = s.slice_shift_char();
-    /// assert_eq!(c, Some('L'));
+    /// let (c, s1) = s.slice_shift_char().unwrap();
+    /// assert_eq!(c, 'L');
     /// assert_eq!(s1, "öwe 老虎 Léopard");
     ///
-    /// let (c, s2) = s1.slice_shift_char();
-    /// assert_eq!(c, Some('ö'));
+    /// let (c, s2) = s1.slice_shift_char().unwrap();
+    /// assert_eq!(c, 'ö');
     /// assert_eq!(s2, "we 老虎 Léopard");
     /// ```
-    fn slice_shift_char<'a>(&'a self) -> (Option<char>, &'a str);
+    fn slice_shift_char<'a>(&'a self) -> Option<(char, &'a str)>;
 
     /// Returns the byte offset of an inner slice relative to an enclosing outer slice.
     ///
-    /// Fails if `inner` is not a direct slice contained within self.
+    /// Panics if `inner` is not a direct slice contained within self.
     ///
     /// # Example
     ///
@@ -2158,13 +2197,13 @@ impl StrPrelude for str {
     }
 
     #[inline]
-    fn slice_shift_char(&self) -> (Option<char>, &str) {
+    fn slice_shift_char(&self) -> Option<(char, &str)> {
         if self.is_empty() {
-            return (None, self);
+            None
         } else {
             let CharRange {ch, next} = self.char_range_at(0u);
             let next_s = unsafe { raw::slice_bytes(self, next, self.len()) };
-            return (Some(ch), next_s);
+            Some((ch, next_s))
         }
     }
 

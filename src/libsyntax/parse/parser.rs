@@ -10,6 +10,9 @@
 
 #![macro_escape]
 
+pub use self::PathParsingMode::*;
+use self::ItemOrViewItem::*;
+
 use abi;
 use ast::{AssociatedType, BareFnTy, ClosureTy};
 use ast::{RegionTyParamBound, TraitTyParamBound};
@@ -30,13 +33,13 @@ use ast::{ExprVec, ExprWhile, ExprWhileLet, ExprForLoop, Field, FnDecl};
 use ast::{Once, Many};
 use ast::{FnUnboxedClosureKind, FnMutUnboxedClosureKind};
 use ast::{FnOnceUnboxedClosureKind};
-use ast::{ForeignItem, ForeignItemStatic, ForeignItemFn, ForeignMod};
+use ast::{ForeignItem, ForeignItemStatic, ForeignItemFn, ForeignMod, FunctionRetTy};
 use ast::{Ident, NormalFn, Inherited, ImplItem, Item, Item_, ItemStatic};
 use ast::{ItemEnum, ItemFn, ItemForeignMod, ItemImpl, ItemConst};
 use ast::{ItemMac, ItemMod, ItemStruct, ItemTrait, ItemTy};
 use ast::{LifetimeDef, Lit, Lit_};
 use ast::{LitBool, LitChar, LitByte, LitBinary};
-use ast::{LitNil, LitStr, LitInt, Local, LocalLet};
+use ast::{LitStr, LitInt, Local, LocalLet};
 use ast::{MutImmutable, MutMutable, Mac_, MacInvocTT, MatchNormal};
 use ast::{Method, MutTy, BiMul, Mutability};
 use ast::{MethodImplItem, NamedField, UnNeg, NoReturn, UnNot};
@@ -44,18 +47,18 @@ use ast::{Pat, PatEnum, PatIdent, PatLit, PatRange, PatRegion, PatStruct};
 use ast::{PatTup, PatBox, PatWild, PatWildMulti, PatWildSingle};
 use ast::{PolyTraitRef};
 use ast::{QPath, RequiredMethod};
-use ast::{RetStyle, Return, BiShl, BiShr, Stmt, StmtDecl};
+use ast::{Return, BiShl, BiShr, Stmt, StmtDecl};
 use ast::{StmtExpr, StmtSemi, StmtMac, StructDef, StructField};
 use ast::{StructVariantKind, BiSub};
 use ast::StrStyle;
 use ast::{SelfExplicit, SelfRegion, SelfStatic, SelfValue};
 use ast::{Delimited, SequenceRepetition, TokenTree, TraitItem, TraitRef};
 use ast::{TtDelimited, TtSequence, TtToken};
-use ast::{TupleVariantKind, Ty, Ty_, TyBot};
+use ast::{TupleVariantKind, Ty, Ty_};
 use ast::{TypeField, TyFixedLengthVec, TyClosure, TyProc, TyBareFn};
 use ast::{TyTypeof, TyInfer, TypeMethod};
-use ast::{TyNil, TyParam, TyParamBound, TyParen, TyPath, TyPolyTraitRef, TyPtr, TyQPath};
-use ast::{TyRptr, TyTup, TyU32, TyUniq, TyVec, UnUniq};
+use ast::{TyParam, TyParamBound, TyParen, TyPath, TyPolyTraitRef, TyPtr, TyQPath};
+use ast::{TyRptr, TyTup, TyU32, TyVec, UnUniq};
 use ast::{TypeImplItem, TypeTraitItem, Typedef, UnboxedClosureKind};
 use ast::{UnnamedField, UnsafeBlock};
 use ast::{UnsafeFn, ViewItem, ViewItem_, ViewItemExternCrate, ViewItemUse};
@@ -1066,11 +1069,10 @@ impl<'a> Parser<'a> {
         self.expect_keyword(keywords::Fn);
         let lifetime_defs = self.parse_legacy_lifetime_defs(lifetime_defs);
         let (inputs, variadic) = self.parse_fn_args(false, true);
-        let (ret_style, ret_ty) = self.parse_ret_ty();
+        let ret_ty = self.parse_ret_ty();
         let decl = P(FnDecl {
             inputs: inputs,
             output: ret_ty,
-            cf: ret_style,
             variadic: variadic
         });
         TyBareFn(P(BareFnTy {
@@ -1100,11 +1102,10 @@ impl<'a> Parser<'a> {
         let lifetime_defs = self.parse_legacy_lifetime_defs(lifetime_defs);
         let (inputs, variadic) = self.parse_fn_args(false, false);
         let bounds = self.parse_colon_then_ty_param_bounds();
-        let (ret_style, ret_ty) = self.parse_ret_ty();
+        let ret_ty = self.parse_ret_ty();
         let decl = P(FnDecl {
             inputs: inputs,
             output: ret_ty,
-            cf: ret_style,
             variadic: variadic
         });
         TyProc(P(ClosureTy {
@@ -1200,11 +1201,10 @@ impl<'a> Parser<'a> {
 
         let bounds = self.parse_colon_then_ty_param_bounds();
 
-        let (return_style, output) = self.parse_ret_ty();
+        let output = self.parse_ret_ty();
         let decl = P(FnDecl {
             inputs: inputs,
             output: output,
-            cf: return_style,
             variadic: false
         });
 
@@ -1232,7 +1232,8 @@ impl<'a> Parser<'a> {
     {
         if self.eat(&token::Lt) {
             if lifetime_defs.is_empty() {
-                self.warn("deprecated syntax, use `for` keyword now");
+                self.warn("deprecated syntax; use the `for` keyword now \
+                            (e.g. change `fn<'a>` to `for<'a> fn`)");
                 let lifetime_defs = self.parse_lifetime_defs();
                 self.expect_gt();
                 lifetime_defs
@@ -1384,31 +1385,20 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse optional return type [ -> TY ] in function decl
-    pub fn parse_ret_ty(&mut self) -> (RetStyle, P<Ty>) {
-        return if self.eat(&token::RArrow) {
-            let lo = self.span.lo;
+    pub fn parse_ret_ty(&mut self) -> FunctionRetTy {
+        if self.eat(&token::RArrow) {
             if self.eat(&token::Not) {
-                (
-                    NoReturn,
-                    P(Ty {
-                        id: ast::DUMMY_NODE_ID,
-                        node: TyBot,
-                        span: mk_sp(lo, self.last_span.hi)
-                    })
-                )
+                NoReturn(self.span)
             } else {
-                (Return, self.parse_ty(true))
+                Return(self.parse_ty(true))
             }
         } else {
             let pos = self.span.lo;
-            (
-                Return,
-                P(Ty {
-                    id: ast::DUMMY_NODE_ID,
-                    node: TyNil,
-                    span: mk_sp(pos, pos),
-                })
-            )
+            Return(P(Ty {
+                id: ast::DUMMY_NODE_ID,
+                node: TyTup(vec![]),
+                span: mk_sp(pos, pos),
+            }))
         }
     }
 
@@ -1423,33 +1413,28 @@ impl<'a> Parser<'a> {
 
         let t = if self.token == token::OpenDelim(token::Paren) {
             self.bump();
-            if self.token == token::CloseDelim(token::Paren) {
-                self.bump();
-                TyNil
-            } else {
-                // (t) is a parenthesized ty
-                // (t,) is the type of a tuple with only one field,
-                // of type t
-                let mut ts = vec!(self.parse_ty(true));
-                let mut one_tuple = false;
-                while self.token == token::Comma {
-                    self.bump();
-                    if self.token != token::CloseDelim(token::Paren) {
-                        ts.push(self.parse_ty(true));
-                    }
-                    else {
-                        one_tuple = true;
-                    }
-                }
 
-                if ts.len() == 1 && !one_tuple {
-                    self.expect(&token::CloseDelim(token::Paren));
-                    TyParen(ts.into_iter().nth(0).unwrap())
+            // (t) is a parenthesized ty
+            // (t,) is the type of a tuple with only one field,
+            // of type t
+            let mut ts = vec![];
+            let mut last_comma = false;
+            while self.token != token::CloseDelim(token::Paren) {
+                ts.push(self.parse_ty(true));
+                if self.token == token::Comma {
+                    last_comma = true;
+                    self.bump();
                 } else {
-                    let t = TyTup(ts);
-                    self.expect(&token::CloseDelim(token::Paren));
-                    t
+                    last_comma = false;
+                    break;
                 }
+            }
+
+            self.expect(&token::CloseDelim(token::Paren));
+            if ts.len() == 1 && !last_comma {
+                TyParen(ts.into_iter().nth(0).unwrap())
+            } else {
+                TyTup(ts)
             }
         } else if self.token == token::Tilde {
             // OWNED POINTER
@@ -1459,7 +1444,7 @@ impl<'a> Parser<'a> {
                 token::OpenDelim(token::Bracket) => self.obsolete(last_span, ObsoleteOwnedVector),
                 _ => self.obsolete(last_span, ObsoleteOwnedType)
             }
-            TyUniq(self.parse_ty(false))
+            TyTup(vec![self.parse_ty(false)])
         } else if self.token == token::BinOp(token::Star) {
             // STAR POINTER (bare pointer?)
             self.bump();
@@ -1662,10 +1647,6 @@ impl<'a> Parser<'a> {
                 LitBinary(parse::binary_lit(i.as_str())),
             token::LitBinaryRaw(i, _) =>
                 LitBinary(Rc::new(i.as_str().as_bytes().iter().map(|&x| x).collect())),
-            token::OpenDelim(token::Paren) => {
-                self.expect(&token::CloseDelim(token::Paren));
-                LitNil
-            },
             _ => { self.unexpected_last(tok); }
         }
     }
@@ -2126,33 +2107,29 @@ impl<'a> Parser<'a> {
         match self.token {
             token::OpenDelim(token::Paren) => {
                 self.bump();
+
                 // (e) is parenthesized e
                 // (e,) is a tuple with only one field, e
+                let mut es = vec![];
                 let mut trailing_comma = false;
-                if self.token == token::CloseDelim(token::Paren) {
-                    hi = self.span.hi;
-                    self.bump();
-                    let lit = P(spanned(lo, hi, LitNil));
-                    return self.mk_expr(lo, hi, ExprLit(lit));
-                }
-                let mut es = vec!(self.parse_expr());
-                self.commit_expr(&**es.last().unwrap(), &[],
-                                 &[token::Comma, token::CloseDelim(token::Paren)]);
-                while self.token == token::Comma {
-                    self.bump();
-                    if self.token != token::CloseDelim(token::Paren) {
-                        es.push(self.parse_expr());
-                        self.commit_expr(&**es.last().unwrap(), &[],
-                                         &[token::Comma, token::CloseDelim(token::Paren)]);
-                    } else {
+                while self.token != token::CloseDelim(token::Paren) {
+                    es.push(self.parse_expr());
+                    self.commit_expr(&**es.last().unwrap(), &[],
+                                     &[token::Comma, token::CloseDelim(token::Paren)]);
+                    if self.token == token::Comma {
                         trailing_comma = true;
+
+                        self.bump();
+                    } else {
+                        trailing_comma = false;
+                        break;
                     }
                 }
-                hi = self.span.hi;
-                self.commit_expr_expecting(&**es.last().unwrap(), token::CloseDelim(token::Paren));
+                self.bump();
 
+                hi = self.span.hi;
                 return if es.len() == 1 && !trailing_comma {
-                   self.mk_expr(lo, hi, ExprParen(es.into_iter().nth(0).unwrap()))
+                    self.mk_expr(lo, hi, ExprParen(es.into_iter().nth(0).unwrap()))
                 } else {
                     self.mk_expr(lo, hi, ExprTup(es))
                 }
@@ -3293,13 +3270,8 @@ impl<'a> Parser<'a> {
             // parse (pat,pat,pat,...) as tuple
             self.bump();
             if self.token == token::CloseDelim(token::Paren) {
-                hi = self.span.hi;
                 self.bump();
-                let lit = P(codemap::Spanned {
-                    node: LitNil,
-                    span: mk_sp(lo, hi)});
-                let expr = self.mk_expr(lo, hi, ExprLit(lit));
-                pat = PatLit(expr);
+                pat = PatTup(vec![]);
             } else {
                 let mut fields = vec!(self.parse_pat());
                 if self.look_ahead(1, |t| *t != token::CloseDelim(token::Paren)) {
@@ -4137,12 +4109,11 @@ impl<'a> Parser<'a> {
     pub fn parse_fn_decl(&mut self, allow_variadic: bool) -> P<FnDecl> {
 
         let (args, variadic) = self.parse_fn_args(true, allow_variadic);
-        let (ret_style, ret_ty) = self.parse_ret_ty();
+        let ret_ty = self.parse_ret_ty();
 
         P(FnDecl {
             inputs: args,
             output: ret_ty,
-            cf: ret_style,
             variadic: variadic
         })
     }
@@ -4337,12 +4308,11 @@ impl<'a> Parser<'a> {
 
         let hi = self.span.hi;
 
-        let (ret_style, ret_ty) = self.parse_ret_ty();
+        let ret_ty = self.parse_ret_ty();
 
         let fn_decl = P(FnDecl {
             inputs: fn_inputs,
             output: ret_ty,
-            cf: ret_style,
             variadic: false
         });
 
@@ -4368,10 +4338,10 @@ impl<'a> Parser<'a> {
                 (optional_unboxed_closure_kind, args)
             }
         };
-        let (style, output) = if self.token == token::RArrow {
+        let output = if self.token == token::RArrow {
             self.parse_ret_ty()
         } else {
-            (Return, P(Ty {
+            Return(P(Ty {
                 id: ast::DUMMY_NODE_ID,
                 node: TyInfer,
                 span: self.span,
@@ -4381,7 +4351,6 @@ impl<'a> Parser<'a> {
         (P(FnDecl {
             inputs: inputs_captures,
             output: output,
-            cf: style,
             variadic: false
         }), optional_unboxed_closure_kind)
     }
@@ -4394,10 +4363,10 @@ impl<'a> Parser<'a> {
                                      seq_sep_trailing_allowed(token::Comma),
                                      |p| p.parse_fn_block_arg());
 
-        let (style, output) = if self.token == token::RArrow {
+        let output = if self.token == token::RArrow {
             self.parse_ret_ty()
         } else {
-            (Return, P(Ty {
+            Return(P(Ty {
                 id: ast::DUMMY_NODE_ID,
                 node: TyInfer,
                 span: self.span,
@@ -4407,7 +4376,6 @@ impl<'a> Parser<'a> {
         P(FnDecl {
             inputs: inputs,
             output: output,
-            cf: style,
             variadic: false
         })
     }
@@ -4648,7 +4616,7 @@ impl<'a> Parser<'a> {
             is_tuple_like = false;
             fields = Vec::new();
             while self.token != token::CloseDelim(token::Brace) {
-                fields.push(self.parse_struct_decl_field());
+                fields.push(self.parse_struct_decl_field(true));
             }
             if fields.len() == 0 {
                 self.fatal(format!("unit-like struct definition should be \
@@ -4725,12 +4693,16 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse an element of a struct definition
-    fn parse_struct_decl_field(&mut self) -> StructField {
+    fn parse_struct_decl_field(&mut self, allow_pub: bool) -> StructField {
 
         let attrs = self.parse_outer_attributes();
 
         if self.eat_keyword(keywords::Pub) {
-           return self.parse_single_struct_field(Public, attrs);
+            if !allow_pub {
+                let span = self.last_span;
+                self.span_err(span, "`pub` is not allowed here");
+            }
+            return self.parse_single_struct_field(Public, attrs);
         }
 
         return self.parse_single_struct_field(Inherited, attrs);
@@ -5178,7 +5150,7 @@ impl<'a> Parser<'a> {
     fn parse_struct_def(&mut self) -> P<StructDef> {
         let mut fields: Vec<StructField> = Vec::new();
         while self.token != token::CloseDelim(token::Brace) {
-            fields.push(self.parse_struct_decl_field());
+            fields.push(self.parse_struct_decl_field(false));
         }
         self.bump();
 
@@ -5207,7 +5179,15 @@ impl<'a> Parser<'a> {
             if self.eat(&token::OpenDelim(token::Brace)) {
                 // Parse a struct variant.
                 all_nullary = false;
-                kind = StructVariantKind(self.parse_struct_def());
+                let start_span = self.span;
+                let struct_def = self.parse_struct_def();
+                if struct_def.fields.len() == 0 {
+                    self.span_err(start_span,
+                        format!("unit-like struct variant should be written \
+                                 without braces, as `{},`",
+                                token::get_ident(ident)).as_slice());
+                }
+                kind = StructVariantKind(struct_def);
             } else if self.token == token::OpenDelim(token::Paren) {
                 all_nullary = false;
                 let arg_tys = self.parse_enum_variant_seq(

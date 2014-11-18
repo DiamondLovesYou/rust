@@ -13,6 +13,11 @@
  * drop glue. See discussion in `doc.rs` for a high-level summary.
  */
 
+pub use self::ScopeId::*;
+pub use self::CleanupScopeKind::*;
+pub use self::EarlyExitLabel::*;
+pub use self::Heap::*;
+
 use llvm::{BasicBlockRef, ValueRef};
 use middle::trans::base;
 use middle::trans::build;
@@ -785,7 +790,7 @@ impl<'blk, 'tcx> CleanupHelperMethods<'blk, 'tcx> for FunctionContext<'blk, 'tcx
         // this represents but it's determined by the personality function and
         // this is what the EH proposal example uses.
         let llretty = Type::struct_(self.ccx,
-                                    [Type::i8p(self.ccx), Type::i32(self.ccx)],
+                                    &[Type::i8p(self.ccx), Type::i32(self.ccx)],
                                     false);
 
         // The exception handling personality function.

@@ -19,6 +19,7 @@
 //
 // * Functions called by the compiler itself.
 
+pub use self::LangItem::*;
 
 use driver::session::Session;
 use metadata::csearch::each_lang_item;
@@ -131,7 +132,7 @@ impl<'a, 'v> Visitor<'v> for LanguageItemCollector<'a> {
     fn visit_item(&mut self, item: &ast::Item) {
         match extract(item.attrs.as_slice()) {
             Some(value) => {
-                let item_index = self.item_refs.find_equiv(&value).map(|x| *x);
+                let item_index = self.item_refs.get(value.get()).map(|x| *x);
 
                 match item_index {
                     Some(item_index) => {

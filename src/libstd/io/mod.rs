@@ -221,6 +221,12 @@ responding to errors that may occur while attempting to read the numbers.
 #![experimental]
 #![deny(unused_must_use)]
 
+pub use self::SeekStyle::*;
+pub use self::FileMode::*;
+pub use self::FileAccess::*;
+pub use self::FileType::*;
+pub use self::IoErrorKind::*;
+
 use char::Char;
 use clone::Clone;
 use default::Default;
@@ -521,7 +527,7 @@ pub trait Reader {
     /// Reads a single byte. Returns `Err` on EOF.
     fn read_byte(&mut self) -> IoResult<u8> {
         let mut buf = [0];
-        try!(self.read_at_least(1, buf));
+        try!(self.read_at_least(1, &mut buf));
         Ok(buf[0])
     }
 
@@ -914,9 +920,9 @@ impl<'a> Reader for &'a mut Reader+'a {
 /// Similar to `slice()` except this function only bounds the slice on the
 /// capacity of `v`, not the length.
 ///
-/// # Failure
+/// # Panics
 ///
-/// Fails when `start` or `end` point outside the capacity of `v`, or when
+/// Panics when `start` or `end` point outside the capacity of `v`, or when
 /// `start` > `end`.
 // Private function here because we aren't sure if we want to expose this as
 // API yet. If so, it should be a method on Vec.
@@ -1061,7 +1067,7 @@ pub trait Writer {
     /// that the `write` method is used specifically instead.
     #[inline]
     fn write_line(&mut self, s: &str) -> IoResult<()> {
-        self.write_str(s).and_then(|()| self.write([b'\n']))
+        self.write_str(s).and_then(|()| self.write(&[b'\n']))
     }
 
     /// Write a single char, encoded as UTF-8.
@@ -1217,13 +1223,13 @@ pub trait Writer {
     /// Write a u8 (1 byte).
     #[inline]
     fn write_u8(&mut self, n: u8) -> IoResult<()> {
-        self.write([n])
+        self.write(&[n])
     }
 
     /// Write an i8 (1 byte).
     #[inline]
     fn write_i8(&mut self, n: i8) -> IoResult<()> {
-        self.write([n as u8])
+        self.write(&[n as u8])
     }
 }
 
@@ -1291,9 +1297,9 @@ impl<'a> Writer for &'a mut Writer+'a {
 /// # fn process_input<R: Reader>(r: R) {}
 /// # fn foo () {
 /// use std::io::util::TeeReader;
-/// use std::io::{stdin, MemWriter, ByRefWriter};
+/// use std::io::{stdin, ByRefWriter};
 ///
-/// let mut output = MemWriter::new();
+/// let mut output = Vec::new();
 ///
 /// {
 ///     // Don't give ownership of 'output' to the 'tee'. Instead we keep a
@@ -1302,7 +1308,7 @@ impl<'a> Writer for &'a mut Writer+'a {
 ///     process_input(tee);
 /// }
 ///
-/// println!("input processed: {}", output.unwrap());
+/// println!("input processed: {}", output);
 /// # }
 /// ```
 pub struct RefWriter<'a, W:'a> {
@@ -1437,16 +1443,6 @@ pub trait Buffer: Reader {
         )
     }
 
-    /// Create an iterator that reads a line on each iteration until EOF.
-    ///
-    /// # Error
-    ///
-    /// Any error other than `EndOfFile` that is produced by the underlying Reader
-    /// is returned by the iterator and should be handled by the caller.
-    fn lines<'r>(&'r mut self) -> Lines<'r, Self> {
-        Lines { buffer: self }
-    }
-
     /// Reads a sequence of bytes leading up to a specified delimiter. Once the
     /// specified byte is encountered, reading ceases and the bytes up to and
     /// including the delimiter are returned.
@@ -1522,7 +1518,10 @@ pub trait Buffer: Reader {
             None => Err(standard_error(InvalidInput))
         }
     }
+}
 
+/// Extension methods for the Buffer trait which are included in the prelude.
+pub trait BufferPrelude {
     /// Create an iterator that reads a utf8-encoded character on each iteration
     /// until EOF.
     ///
@@ -1530,8 +1529,24 @@ pub trait Buffer: Reader {
     ///
     /// Any error other than `EndOfFile` that is produced by the underlying Reader
     /// is returned by the iterator and should be handled by the caller.
-    fn chars<'r>(&'r mut self) -> Chars<'r, Self> {
+    fn chars<'r>(&'r mut self) -> Chars<'r, Self>;
+
+    /// Create an iterator that reads a line on each iteration until EOF.
+    ///
+    /// # Error
+    ///
+    /// Any error other than `EndOfFile` that is produced by the underlying Reader
+    /// is returned by the iterator and should be handled by the caller.
+    fn lines<'r>(&'r mut self) -> Lines<'r, Self>;
+}
+
+impl<T: Buffer> BufferPrelude for T {
+    fn chars<'r>(&'r mut self) -> Chars<'r, T> {
         Chars { buffer: self }
+    }
+
+    fn lines<'r>(&'r mut self) -> Lines<'r, T> {
+        Lines { buffer: self }
     }
 }
 
@@ -1890,6 +1905,7 @@ impl fmt::Show for FilePermission {
 
 #[cfg(test)]
 mod tests {
+    use self::BadReaderBehavior::*;
     use super::{IoResult, Reader, MemReader, NoProgress, InvalidInput};
     use prelude::*;
     use uint;
@@ -1940,7 +1956,7 @@ mod tests {
     fn test_read_at_least() {
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
                                    vec![GoodBehavior(uint::MAX)]);
-        let mut buf = [0u8, ..5];
+        let buf = &mut [0u8, ..5];
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
         assert!(r.read_exact(5).unwrap().len() == 5); // read_exact uses read_at_least
         assert!(r.read_at_least(0, buf).is_ok());
@@ -2002,5 +2018,9 @@ mod tests {
         assert_eq!(format!("{}", OTHER_RWX), "0007".to_string());
         assert_eq!(format!("{}", ALL_PERMISSIONS), "0777".to_string());
         assert_eq!(format!("{}", USER_READ | USER_WRITE | OTHER_WRITE), "0602".to_string());
+    }
+
+    fn _ensure_buffer_is_object_safe<T: Buffer>(x: &T) -> &Buffer {
+        x as &Buffer
     }
 }

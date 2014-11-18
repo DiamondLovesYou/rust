@@ -8,9 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+pub use self::NamesIter::*;
+pub use self::Regex::*;
+
 use std::collections::HashMap;
 use std::fmt;
-use std::from_str::from_str;
 use std::str::{MaybeOwned, Owned, Slice};
 
 use compile::Program;
@@ -559,7 +561,7 @@ pub struct NoExpand<'t>(pub &'t str);
 /// Replacer describes types that can be used to replace matches in a string.
 pub trait Replacer {
     /// Returns a possibly owned string that is used to replace the match
-    /// corresponding the the `caps` capture group.
+    /// corresponding to the `caps` capture group.
     ///
     /// The `'a` lifetime refers to the lifetime of a borrowed string when
     /// a new owned string isn't needed (e.g., for `NoExpand`).
@@ -724,7 +726,7 @@ impl<'t> Captures<'t> {
         match self.named {
             None => "",
             Some(ref h) => {
-                match h.find_equiv(name) {
+                match h.get(name) {
                     None => "",
                     Some(i) => self.at(*i),
                 }

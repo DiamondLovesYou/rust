@@ -12,6 +12,8 @@
 
 //! Code that is useful in various trans modules.
 
+pub use self::ExprOrMethodCall::*;
+
 use driver::session::Session;
 use llvm;
 use llvm::{ValueRef, BasicBlockRef, BuilderRef, ContextRef};
@@ -540,12 +542,12 @@ impl<'blk, 'tcx> mc::Typer<'tcx> for BlockS<'blk, 'tcx> {
     }
 
     fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow {
-        self.tcx().upvar_borrow_map.borrow().get_copy(&upvar_id)
+        self.tcx().upvar_borrow_map.borrow()[upvar_id].clone()
     }
 
     fn capture_mode(&self, closure_expr_id: ast::NodeId)
                     -> ast::CaptureClause {
-        self.tcx().capture_modes.borrow().get_copy(&closure_expr_id)
+        self.tcx().capture_modes.borrow()[closure_expr_id].clone()
     }
 }
 
@@ -595,7 +597,7 @@ pub fn C_floating(s: &str, t: Type) -> ValueRef {
 }
 
 pub fn C_nil(ccx: &CrateContext) -> ValueRef {
-    C_struct(ccx, [], false)
+    C_struct(ccx, &[], false)
 }
 
 pub fn C_bool(ccx: &CrateContext, val: bool) -> ValueRef {
@@ -690,7 +692,7 @@ pub fn C_str_slice(cx: &CrateContext, s: InternedString) -> ValueRef {
         let len = s.get().len();
         let cs = llvm::LLVMConstPointerCast(C_cstr(cx, s, false),
                                             Type::i8p(cx).to_ref());
-        C_named_struct(cx.tn().find_type("str_slice").unwrap(), [cs, C_uint(cx, len)])
+        C_named_struct(cx.tn().find_type("str_slice").unwrap(), &[cs, C_uint(cx, len)])
     }
 }
 
@@ -708,7 +710,7 @@ pub fn C_binary_slice(cx: &CrateContext, data: &[u8]) -> ValueRef {
         llvm::SetLinkage(g, llvm::InternalLinkage);
 
         let cs = llvm::LLVMConstPointerCast(g, Type::i8p(cx).to_ref());
-        C_struct(cx, [cs, C_uint(cx, len)], false)
+        C_struct(cx, &[cs, C_uint(cx, len)], false)
     }
 }
 

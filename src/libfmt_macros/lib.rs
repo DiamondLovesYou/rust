@@ -20,6 +20,11 @@
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![feature(macro_rules, globs, import_shadowing)]
+pub use self::Piece::*;
+pub use self::Position::*;
+pub use self::Alignment::*;
+pub use self::Flag::*;
+pub use self::Count::*;
 
 use std::char;
 use std::str;
@@ -454,12 +459,12 @@ mod tests {
 
     #[test]
     fn simple() {
-        same("asdf", [String("asdf")]);
-        same("a{{b", [String("a"), String("{b")]);
-        same("a}}b", [String("a"), String("}b")]);
-        same("a}}", [String("a"), String("}")]);
-        same("}}", [String("}")]);
-        same("\\}}", [String("\\"), String("}")]);
+        same("asdf", &[String("asdf")]);
+        same("a{{b", &[String("a"), String("{b")]);
+        same("a}}b", &[String("a"), String("}b")]);
+        same("a}}", &[String("a"), String("}")]);
+        same("}}", &[String("}")]);
+        same("\\}}", &[String("\\"), String("}")]);
     }
 
     #[test] fn invalid01() { musterr("{") }
@@ -470,28 +475,28 @@ mod tests {
 
     #[test]
     fn format_nothing() {
-        same("{}", [NextArgument(Argument {
+        same("{}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: fmtdflt(),
         })]);
     }
     #[test]
     fn format_position() {
-        same("{3}", [NextArgument(Argument {
+        same("{3}", &[NextArgument(Argument {
             position: ArgumentIs(3),
             format: fmtdflt(),
         })]);
     }
     #[test]
     fn format_position_nothing_else() {
-        same("{3:}", [NextArgument(Argument {
+        same("{3:}", &[NextArgument(Argument {
             position: ArgumentIs(3),
             format: fmtdflt(),
         })]);
     }
     #[test]
     fn format_type() {
-        same("{3:a}", [NextArgument(Argument {
+        same("{3:a}", &[NextArgument(Argument {
             position: ArgumentIs(3),
             format: FormatSpec {
                 fill: None,
@@ -505,7 +510,7 @@ mod tests {
     }
     #[test]
     fn format_align_fill() {
-        same("{3:>}", [NextArgument(Argument {
+        same("{3:>}", &[NextArgument(Argument {
             position: ArgumentIs(3),
             format: FormatSpec {
                 fill: None,
@@ -516,7 +521,7 @@ mod tests {
                 ty: "",
             },
         })]);
-        same("{3:0<}", [NextArgument(Argument {
+        same("{3:0<}", &[NextArgument(Argument {
             position: ArgumentIs(3),
             format: FormatSpec {
                 fill: Some('0'),
@@ -527,7 +532,7 @@ mod tests {
                 ty: "",
             },
         })]);
-        same("{3:*<abcd}", [NextArgument(Argument {
+        same("{3:*<abcd}", &[NextArgument(Argument {
             position: ArgumentIs(3),
             format: FormatSpec {
                 fill: Some('*'),
@@ -541,7 +546,7 @@ mod tests {
     }
     #[test]
     fn format_counts() {
-        same("{:10s}", [NextArgument(Argument {
+        same("{:10s}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: FormatSpec {
                 fill: None,
@@ -552,7 +557,7 @@ mod tests {
                 ty: "s",
             },
         })]);
-        same("{:10$.10s}", [NextArgument(Argument {
+        same("{:10$.10s}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: FormatSpec {
                 fill: None,
@@ -563,7 +568,7 @@ mod tests {
                 ty: "s",
             },
         })]);
-        same("{:.*s}", [NextArgument(Argument {
+        same("{:.*s}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: FormatSpec {
                 fill: None,
@@ -574,7 +579,7 @@ mod tests {
                 ty: "s",
             },
         })]);
-        same("{:.10$s}", [NextArgument(Argument {
+        same("{:.10$s}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: FormatSpec {
                 fill: None,
@@ -585,7 +590,7 @@ mod tests {
                 ty: "s",
             },
         })]);
-        same("{:a$.b$s}", [NextArgument(Argument {
+        same("{:a$.b$s}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: FormatSpec {
                 fill: None,
@@ -599,7 +604,7 @@ mod tests {
     }
     #[test]
     fn format_flags() {
-        same("{:-}", [NextArgument(Argument {
+        same("{:-}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: FormatSpec {
                 fill: None,
@@ -610,7 +615,7 @@ mod tests {
                 ty: "",
             },
         })]);
-        same("{:+#}", [NextArgument(Argument {
+        same("{:+#}", &[NextArgument(Argument {
             position: ArgumentNext,
             format: FormatSpec {
                 fill: None,
@@ -624,7 +629,7 @@ mod tests {
     }
     #[test]
     fn format_mixture() {
-        same("abcd {3:a} efg", [String("abcd "), NextArgument(Argument {
+        same("abcd {3:a} efg", &[String("abcd "), NextArgument(Argument {
             position: ArgumentIs(3),
             format: FormatSpec {
                 fill: None,

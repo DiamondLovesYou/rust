@@ -8,13 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+pub use self::Invocation::*;
+use self::ArgumentType::*;
+use self::Position::*;
+
 use ast;
 use codemap::{Span, respan};
 use ext::base::*;
 use ext::base;
 use ext::build::AstBuilder;
 use fmt_macros as parse;
-use parse::token::InternedString;
+use parse::token::{InternedString, special_idents};
 use parse::token;
 use ptr::P;
 
@@ -140,7 +144,7 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, allow_method: bool,
             let name = interned_name.get();
             p.expect(&token::Eq);
             let e = p.parse_expr();
-            match names.find_equiv(name) {
+            match names.get(name) {
                 None => {}
                 Some(prev) => {
                     ecx.span_err(e.span,
@@ -362,7 +366,7 @@ impl<'a, 'b> Context<'a, 'b> {
                 self.ecx.expr_path(path)
             }
             parse::CountIsName(n) => {
-                let i = match self.name_positions.find_equiv(n) {
+                let i = match self.name_positions.get(n) {
                     Some(&i) => i,
                     None => 0, // error already emitted elsewhere
                 };
@@ -406,7 +410,7 @@ impl<'a, 'b> Context<'a, 'b> {
                     // Named arguments are converted to positional arguments at
                     // the end of the list of arguments
                     parse::ArgumentNamed(n) => {
-                        let i = match self.name_positions.find_equiv(n) {
+                        let i = match self.name_positions.get(n) {
                             Some(&i) => i,
                             None => 0, // error already emitted elsewhere
                         };
@@ -476,12 +480,11 @@ impl<'a, 'b> Context<'a, 'b> {
                          pieces: Vec<P<ast::Expr>>)
                          -> P<ast::Stmt> {
         let fmtsp = piece_ty.span;
-        let pieces_len = ecx.expr_uint(fmtsp, pieces.len());
         let fmt = ecx.expr_vec(fmtsp, pieces);
-        let ty = ast::TyFixedLengthVec(
-            piece_ty,
-            pieces_len
-        );
+        let fmt = ecx.expr_addr_of(fmtsp, fmt);
+        let ty = ast::TyVec(piece_ty);
+        let ty = ast::TyRptr(Some(ecx.lifetime(fmtsp, special_idents::static_lifetime.name)),
+                             ast::MutTy{ mutbl: ast::MutImmutable, ty: ecx.ty(fmtsp, ty) });
         let ty = ecx.ty(fmtsp, ty);
         let st = ast::ItemStatic(ty, ast::MutImmutable, fmt);
         let item = ecx.item(fmtsp, name, Context::static_attrs(ecx, fmtsp), st);
@@ -654,7 +657,7 @@ impl<'a, 'b> Context<'a, 'b> {
         //
         // But the nested match expression is proved to perform not as well
         // as series of let's; the first approach does.
-        let pat = self.ecx.pat(self.fmtsp, ast::PatTup(pats));
+        let pat = self.ecx.pat_tuple(self.fmtsp, pats);
         let arm = self.ecx.arm(self.fmtsp, vec!(pat), body);
         let head = self.ecx.expr(self.fmtsp, ast::ExprTup(heads));
         self.ecx.expr_match(self.fmtsp, head, vec!(arm))

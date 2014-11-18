@@ -9,7 +9,7 @@
 // except according to those terms.
 
 #![crate_type = "bin"]
-#![feature(phase, slicing_syntax)]
+#![feature(phase, slicing_syntax, globs)]
 
 #![deny(warnings)]
 
@@ -22,7 +22,7 @@ extern crate regex;
 use std::os;
 use std::io;
 use std::io::fs;
-use std::from_str::FromStr;
+use std::str::FromStr;
 use getopts::{optopt, optflag, reqopt};
 use common::Config;
 use common::{Pretty, DebugInfoGdb, DebugInfoLldb, Codegen};

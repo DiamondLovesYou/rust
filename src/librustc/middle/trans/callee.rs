@@ -16,6 +16,10 @@
  * closure.
  */
 
+pub use self::AutorefArg::*;
+pub use self::CalleeData::*;
+pub use self::CallArgs::*;
+
 use arena::TypedArena;
 use back::abi;
 use back::link;
@@ -721,9 +725,9 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             // Closures are represented as (llfn, llclosure) pair:
             // load the requisite values out.
             let pair = d.to_llref();
-            let llfn = GEPi(bcx, pair, [0u, abi::fn_field_code]);
+            let llfn = GEPi(bcx, pair, &[0u, abi::fn_field_code]);
             let llfn = Load(bcx, llfn);
-            let llenv = GEPi(bcx, pair, [0u, abi::fn_field_box]);
+            let llenv = GEPi(bcx, pair, &[0u, abi::fn_field_box]);
             let llenv = Load(bcx, llenv);
             (llfn, Some(llenv), None)
         }
@@ -764,7 +768,7 @@ pub fn trans_call_inner<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         expr::Ignore => {
             let ret_ty = match ret_ty {
                 ty::FnConverging(ret_ty) => ret_ty,
-                ty::FnDiverging => ty::mk_nil()
+                ty::FnDiverging => ty::mk_nil(ccx.tcx())
             };
             if !is_rust_fn ||
               type_of::return_uses_outptr(ccx, ret_ty) ||
@@ -957,7 +961,6 @@ fn trans_args_under_call_abi<'blk, 'tcx>(
                 llargs.push(arg_datum.add_clean(bcx.fcx, arg_cleanup_scope));
             }
         }
-        ty::ty_nil => {}
         _ => {
             bcx.sess().span_bug(tuple_expr.span,
                                 "argument to `.call()` wasn't a tuple?!")
@@ -1004,7 +1007,6 @@ fn trans_overloaded_call_args<'blk, 'tcx>(
                 }))
             }
         }
-        ty::ty_nil => {}
         _ => {
             bcx.sess().span_bug(arg_exprs[0].span,
                                 "argument to `.call()` wasn't a tuple?!")

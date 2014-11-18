@@ -13,6 +13,9 @@ A mini version of ast::Ty, which is easier to use, and features an
 explicit `Self` type to use when specifying impls to be derived.
 */
 
+pub use self::PtrTy::*;
+pub use self::Ty::*;
+
 use ast;
 use ast::{Expr,Generics,Ident};
 use ext::base::ExtCtxt;
@@ -152,14 +155,9 @@ impl<'a> Ty<'a> {
                 cx.ty_path(self.to_path(cx, span, self_ty, self_generics), None)
             }
             Tuple(ref fields) => {
-                let ty = if fields.is_empty() {
-                    ast::TyNil
-                } else {
-                    ast::TyTup(fields.iter()
-                                     .map(|f| f.to_ty(cx, span, self_ty, self_generics))
-                                     .collect())
-                };
-
+                let ty = ast::TyTup(fields.iter()
+                    .map(|f| f.to_ty(cx, span, self_ty, self_generics))
+                    .collect());
                 cx.ty(span, ty)
             }
         }

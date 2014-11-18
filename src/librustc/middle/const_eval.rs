@@ -11,6 +11,9 @@
 #![allow(non_camel_case_types)]
 #![allow(unsigned_negation)]
 
+pub use self::const_val::*;
+pub use self::constness::*;
+
 use metadata::csearch;
 use middle::astencode;
 use middle::def;
@@ -85,7 +88,7 @@ pub fn join_all<It: Iterator<constness>>(mut cs: It) -> constness {
 }
 
 fn lookup_const<'a>(tcx: &'a ty::ctxt, e: &Expr) -> Option<&'a Expr> {
-    let opt_def = tcx.def_map.borrow().find_copy(&e.id);
+    let opt_def = tcx.def_map.borrow().get(&e.id).cloned();
     match opt_def {
         Some(def::DefConst(def_id)) => {
             lookup_const_by_id(tcx, def_id)
@@ -311,8 +314,7 @@ pub enum const_val {
     const_uint(u64),
     const_str(InternedString),
     const_binary(Rc<Vec<u8> >),
-    const_bool(bool),
-    const_nil
+    const_bool(bool)
 }
 
 pub fn const_expr_to_pat(tcx: &ty::ctxt, expr: &Expr) -> P<Pat> {
@@ -321,7 +323,7 @@ pub fn const_expr_to_pat(tcx: &ty::ctxt, expr: &Expr) -> P<Pat> {
             PatTup(exprs.iter().map(|expr| const_expr_to_pat(tcx, &**expr)).collect()),
 
         ExprCall(ref callee, ref args) => {
-            let def = tcx.def_map.borrow().get_copy(&callee.id);
+            let def = tcx.def_map.borrow()[callee.id].clone();
             match tcx.def_map.borrow_mut().entry(expr.id) {
               Vacant(entry) => { entry.set(def); }
               _ => {}
@@ -353,7 +355,7 @@ pub fn const_expr_to_pat(tcx: &ty::ctxt, expr: &Expr) -> P<Pat> {
         }
 
         ExprPath(ref path) => {
-            let opt_def = tcx.def_map.borrow().find_copy(&expr.id);
+            let opt_def = tcx.def_map.borrow().get(&expr.id).cloned();
             match opt_def {
                 Some(def::DefStruct(..)) =>
                     PatStruct(path.clone(), vec![], false),
@@ -589,7 +591,6 @@ pub fn lit_to_const(lit: &Lit) -> const_val {
         LitFloatUnsuffixed(ref n) => {
             const_float(from_str::<f64>(n.get()).unwrap() as f64)
         }
-        LitNil => const_nil,
         LitBool(b) => const_bool(b)
     }
 }
@@ -605,7 +606,6 @@ pub fn compare_const_vals(a: &const_val, b: &const_val) -> Option<int> {
         (&const_str(ref a), &const_str(ref b)) => compare_vals(a, b),
         (&const_bool(a), &const_bool(b)) => compare_vals(a, b),
         (&const_binary(ref a), &const_binary(ref b)) => compare_vals(a, b),
-        (&const_nil, &const_nil) => compare_vals((), ()),
         _ => None
     }
 }

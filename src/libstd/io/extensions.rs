@@ -82,9 +82,9 @@ pub fn u64_to_le_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
     assert!(size <= 8u);
     match size {
       1u => f(&[n as u8]),
-      2u => f(unsafe { transmute::<_, [u8, ..2]>((n as u16).to_le()) }),
-      4u => f(unsafe { transmute::<_, [u8, ..4]>((n as u32).to_le()) }),
-      8u => f(unsafe { transmute::<_, [u8, ..8]>(n.to_le()) }),
+      2u => f(unsafe { & transmute::<_, [u8, ..2]>((n as u16).to_le()) }),
+      4u => f(unsafe { & transmute::<_, [u8, ..4]>((n as u32).to_le()) }),
+      8u => f(unsafe { & transmute::<_, [u8, ..8]>(n.to_le()) }),
       _ => {
 
         let mut bytes = vec!();
@@ -121,9 +121,9 @@ pub fn u64_to_be_bytes<T>(n: u64, size: uint, f: |v: &[u8]| -> T) -> T {
     assert!(size <= 8u);
     match size {
       1u => f(&[n as u8]),
-      2u => f(unsafe { transmute::<_, [u8, ..2]>((n as u16).to_be()) }),
-      4u => f(unsafe { transmute::<_, [u8, ..4]>((n as u32).to_be()) }),
-      8u => f(unsafe { transmute::<_, [u8, ..8]>(n.to_be()) }),
+      2u => f(unsafe { & transmute::<_, [u8, ..2]>((n as u16).to_be()) }),
+      4u => f(unsafe { & transmute::<_, [u8, ..4]>((n as u32).to_be()) }),
+      8u => f(unsafe { & transmute::<_, [u8, ..8]>(n.to_be()) }),
       _ => {
         let mut bytes = vec!();
         let mut i = size;
@@ -171,7 +171,7 @@ pub fn u64_from_be_bytes(data: &[u8], start: uint, size: uint) -> u64 {
 mod test {
     use prelude::*;
     use io;
-    use io::{MemReader, MemWriter, BytesReader};
+    use io::{MemReader, BytesReader};
 
     struct InitialZeroByteReader {
         count: int,
@@ -397,12 +397,12 @@ mod test {
     fn test_read_write_le_mem() {
         let uints = [0, 1, 2, 42, 10_123, 100_123_456, ::u64::MAX];
 
-        let mut writer = MemWriter::new();
+        let mut writer = Vec::new();
         for i in uints.iter() {
             writer.write_le_u64(*i).unwrap();
         }
 
-        let mut reader = MemReader::new(writer.unwrap());
+        let mut reader = MemReader::new(writer);
         for i in uints.iter() {
             assert!(reader.read_le_u64().unwrap() == *i);
         }
@@ -413,12 +413,12 @@ mod test {
     fn test_read_write_be() {
         let uints = [0, 1, 2, 42, 10_123, 100_123_456, ::u64::MAX];
 
-        let mut writer = MemWriter::new();
+        let mut writer = Vec::new();
         for i in uints.iter() {
             writer.write_be_u64(*i).unwrap();
         }
 
-        let mut reader = MemReader::new(writer.unwrap());
+        let mut reader = MemReader::new(writer);
         for i in uints.iter() {
             assert!(reader.read_be_u64().unwrap() == *i);
         }
@@ -428,12 +428,12 @@ mod test {
     fn test_read_be_int_n() {
         let ints = [::i32::MIN, -123456, -42, -5, 0, 1, ::i32::MAX];
 
-        let mut writer = MemWriter::new();
+        let mut writer = Vec::new();
         for i in ints.iter() {
             writer.write_be_i32(*i).unwrap();
         }
 
-        let mut reader = MemReader::new(writer.unwrap());
+        let mut reader = MemReader::new(writer);
         for i in ints.iter() {
             // this tests that the sign extension is working
             // (comparing the values as i32 would not test this)
@@ -446,10 +446,10 @@ mod test {
         //big-endian floating-point 8.1250
         let buf = vec![0x41, 0x02, 0x00, 0x00];
 
-        let mut writer = MemWriter::new();
+        let mut writer = Vec::new();
         writer.write(buf.as_slice()).unwrap();
 
-        let mut reader = MemReader::new(writer.unwrap());
+        let mut reader = MemReader::new(writer);
         let f = reader.read_be_f32().unwrap();
         assert!(f == 8.1250);
     }
@@ -458,11 +458,11 @@ mod test {
     fn test_read_write_f32() {
         let f:f32 = 8.1250;
 
-        let mut writer = MemWriter::new();
+        let mut writer = Vec::new();
         writer.write_be_f32(f).unwrap();
         writer.write_le_f32(f).unwrap();
 
-        let mut reader = MemReader::new(writer.unwrap());
+        let mut reader = MemReader::new(writer);
         assert!(reader.read_be_f32().unwrap() == 8.1250);
         assert!(reader.read_le_f32().unwrap() == 8.1250);
     }
@@ -474,26 +474,26 @@ mod test {
         let buf = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
 
         // Aligned access
-        assert_eq!(u64_from_be_bytes(buf, 0, 0), 0);
-        assert_eq!(u64_from_be_bytes(buf, 0, 1), 0x01);
-        assert_eq!(u64_from_be_bytes(buf, 0, 2), 0x0102);
-        assert_eq!(u64_from_be_bytes(buf, 0, 3), 0x010203);
-        assert_eq!(u64_from_be_bytes(buf, 0, 4), 0x01020304);
-        assert_eq!(u64_from_be_bytes(buf, 0, 5), 0x0102030405);
-        assert_eq!(u64_from_be_bytes(buf, 0, 6), 0x010203040506);
-        assert_eq!(u64_from_be_bytes(buf, 0, 7), 0x01020304050607);
-        assert_eq!(u64_from_be_bytes(buf, 0, 8), 0x0102030405060708);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 0), 0);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 1), 0x01);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 2), 0x0102);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 3), 0x010203);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 4), 0x01020304);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 5), 0x0102030405);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 6), 0x010203040506);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 7), 0x01020304050607);
+        assert_eq!(u64_from_be_bytes(&buf, 0, 8), 0x0102030405060708);
 
         // Unaligned access
-        assert_eq!(u64_from_be_bytes(buf, 1, 0), 0);
-        assert_eq!(u64_from_be_bytes(buf, 1, 1), 0x02);
-        assert_eq!(u64_from_be_bytes(buf, 1, 2), 0x0203);
-        assert_eq!(u64_from_be_bytes(buf, 1, 3), 0x020304);
-        assert_eq!(u64_from_be_bytes(buf, 1, 4), 0x02030405);
-        assert_eq!(u64_from_be_bytes(buf, 1, 5), 0x0203040506);
-        assert_eq!(u64_from_be_bytes(buf, 1, 6), 0x020304050607);
-        assert_eq!(u64_from_be_bytes(buf, 1, 7), 0x02030405060708);
-        assert_eq!(u64_from_be_bytes(buf, 1, 8), 0x0203040506070809);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 0), 0);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 1), 0x02);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 2), 0x0203);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 3), 0x020304);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 4), 0x02030405);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 5), 0x0203040506);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 6), 0x020304050607);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 7), 0x02030405060708);
+        assert_eq!(u64_from_be_bytes(&buf, 1, 8), 0x0203040506070809);
     }
 }
 

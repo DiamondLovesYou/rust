@@ -16,6 +16,8 @@
 
 #![allow(non_camel_case_types)]
 
+pub use self::DefIdSource::*;
+
 use middle::subst;
 use middle::subst::VecPerParamSpace;
 use middle::ty;
@@ -345,7 +347,7 @@ fn parse_str(st: &mut PState, term: char) -> String {
     let mut result = String::new();
     while peek(st) != term {
         unsafe {
-            result.as_mut_vec().push_all([next_byte(st)])
+            result.as_mut_vec().push_all(&[next_byte(st)])
         }
     }
     next(st);
@@ -360,7 +362,6 @@ fn parse_trait_ref(st: &mut PState, conv: conv_did) -> ty::TraitRef {
 
 fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
     match next(st) {
-      'n' => return ty::mk_nil(),
       'b' => return ty::mk_bool(),
       'i' => return ty::mk_int(),
       'u' => return ty::mk_uint(),
@@ -440,7 +441,7 @@ fn parse_ty(st: &mut PState, conv: conv_did) -> ty::t {
                                          pos: pos,
                                          len: len };
 
-        match st.tcx.rcache.borrow().find_copy(&key) {
+        match st.tcx.rcache.borrow().get(&key).cloned() {
           Some(tt) => return tt,
           None => {}
         }

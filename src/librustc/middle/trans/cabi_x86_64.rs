@@ -12,6 +12,7 @@
 // https://github.com/jckarter/clay/blob/master/compiler/src/externals.cpp
 
 #![allow(non_upper_case_globals)]
+use self::RegClass::*;
 
 use llvm;
 use llvm::{Integer, Pointer, Float, Double};
@@ -61,12 +62,12 @@ impl RegClass {
     }
 }
 
-trait ClassList {
+trait ClassList for Sized? {
     fn is_pass_byval(&self) -> bool;
     fn is_ret_bysret(&self) -> bool;
 }
 
-impl<'a> ClassList for &'a [RegClass] {
+impl ClassList for [RegClass] {
     fn is_pass_byval(&self) -> bool {
         if self.len() == 0 { return false; }
 

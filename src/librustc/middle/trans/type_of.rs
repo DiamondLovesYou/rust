@@ -10,6 +10,8 @@
 
 #![allow(non_camel_case_types)]
 
+pub use self::named_ty::*;
+
 use middle::subst;
 use middle::trans::adt;
 use middle::trans::common::*;
@@ -87,7 +89,6 @@ pub fn untuple_arguments_if_necessary(ccx: &CrateContext,
                 result.push(tupled_argument);
             }
         }
-        ty::ty_nil => {}
         _ => {
             ccx.tcx().sess.bug("argument to function with \"rust-call\" ABI \
                                 is neither a tuple nor unit")
@@ -179,7 +180,7 @@ pub fn type_of_fn_from_ty(cx: &CrateContext, fty: ty::t) -> Type {
 //     recursive types. For example, enum types rely on this behavior.
 
 pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
-    match cx.llsizingtypes().borrow().find_copy(&t) {
+    match cx.llsizingtypes().borrow().get(&t).cloned() {
         Some(t) => return t,
         None => ()
     }
@@ -190,7 +191,6 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
                                   ppaux::ty_to_string(cx.tcx(), t)).as_slice())
         }
 
-        ty::ty_nil => Type::nil(cx),
         ty::ty_bool => Type::bool(cx),
         ty::ty_char => Type::char(cx),
         ty::ty_int(t) => Type::int_from_ty(cx, t),
@@ -201,18 +201,22 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
             if ty::type_is_sized(cx.tcx(), ty) {
                 Type::i8p(cx)
             } else {
-                Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false)
+                Type::struct_(cx, &[Type::i8p(cx), Type::i8p(cx)], false)
             }
         }
 
         ty::ty_bare_fn(..) => Type::i8p(cx),
-        ty::ty_closure(..) => Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false),
+        ty::ty_closure(..) => Type::struct_(cx, &[Type::i8p(cx), Type::i8p(cx)], false),
 
         ty::ty_vec(ty, Some(size)) => {
             let llty = sizing_type_of(cx, ty);
             let size = size as u64;
             ensure_array_fits_in_address_space(cx, llty, size, t);
             Type::array(&llty, size)
+        }
+
+        ty::ty_tup(ref tys) if tys.is_empty() => {
+            Type::nil(cx)
         }
 
         ty::ty_tup(..) | ty::ty_enum(..) | ty::ty_unboxed_closure(..) => {
@@ -233,7 +237,7 @@ pub fn sizing_type_of(cx: &CrateContext, t: ty::t) -> Type {
         }
 
         ty::ty_open(_) => {
-            Type::struct_(cx, [Type::i8p(cx), Type::i8p(cx)], false)
+            Type::struct_(cx, &[Type::i8p(cx), Type::i8p(cx)], false)
         }
 
         ty::ty_infer(..) | ty::ty_param(..) | ty::ty_err(..) => {
@@ -302,7 +306,6 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
     }
 
     let mut llty = match ty::get(t).sty {
-      ty::ty_nil => Type::nil(cx),
       ty::ty_bool => Type::bool(cx),
       ty::ty_char => Type::char(cx),
       ty::ty_int(t) => Type::int_from_ty(cx, t),
@@ -340,7 +343,7 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
               ty::ty_trait(..) => Type::opaque_trait(cx),
               _ if !ty::type_is_sized(cx.tcx(), ty) => {
                   let p_ty = type_of(cx, ty).ptr_to();
-                  Type::struct_(cx, [p_ty, type_of_unsize_info(cx, ty)], false)
+                  Type::struct_(cx, &[p_ty, type_of_unsize_info(cx, ty)], false)
               }
               _ => type_of(cx, ty).ptr_to(),
           }
@@ -367,8 +370,9 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
       }
       ty::ty_closure(_) => {
           let fn_ty = type_of_fn_from_ty(cx, t).ptr_to();
-          Type::struct_(cx, [fn_ty, Type::i8p(cx)], false)
+          Type::struct_(cx, &[fn_ty, Type::i8p(cx)], false)
       }
+      ty::ty_tup(ref tys) if tys.is_empty() => Type::nil(cx),
       ty::ty_tup(..) => {
           let repr = adt::represent_type(cx, t);
           adt::type_of(cx, &*repr)
@@ -393,15 +397,15 @@ pub fn type_of(cx: &CrateContext, t: ty::t) -> Type {
       ty::ty_open(t) => match ty::get(t).sty {
           ty::ty_struct(..) => {
               let p_ty = type_of(cx, t).ptr_to();
-              Type::struct_(cx, [p_ty, type_of_unsize_info(cx, t)], false)
+              Type::struct_(cx, &[p_ty, type_of_unsize_info(cx, t)], false)
           }
           ty::ty_vec(ty, None) => {
               let p_ty = type_of(cx, ty).ptr_to();
-              Type::struct_(cx, [p_ty, type_of_unsize_info(cx, t)], false)
+              Type::struct_(cx, &[p_ty, type_of_unsize_info(cx, t)], false)
           }
           ty::ty_str => {
               let p_ty = Type::i8p(cx);
-              Type::struct_(cx, [p_ty, type_of_unsize_info(cx, t)], false)
+              Type::struct_(cx, &[p_ty, type_of_unsize_info(cx, t)], false)
           }
           ty::ty_trait(..) => Type::opaque_trait(cx),
           _ => cx.sess().bug(format!("ty_open with sized type: {}",
@@ -459,7 +463,12 @@ pub fn llvm_type_name(cx: &CrateContext,
 
     let base = ty::item_path_str(cx.tcx(), did);
     let strings: Vec<String> = tps.iter().map(|t| t.repr(cx.tcx())).collect();
-    let tstr = format!("{}<{}>", base, strings);
+    let tstr = if strings.is_empty() {
+        base
+    } else {
+        format!("{}<{}>", base, strings)
+    };
+
     if did.krate == 0 {
         format!("{}.{}", name, tstr)
     } else {
@@ -469,5 +478,5 @@ pub fn llvm_type_name(cx: &CrateContext,
 
 pub fn type_of_dtor(ccx: &CrateContext, self_ty: ty::t) -> Type {
     let self_ty = type_of(ccx, self_ty).ptr_to();
-    Type::func([self_ty], &Type::void(ccx))
+    Type::func(&[self_ty], &Type::void(ccx))
 }

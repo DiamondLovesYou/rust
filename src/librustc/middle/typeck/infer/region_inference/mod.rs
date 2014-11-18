@@ -10,6 +10,13 @@
 
 /*! See doc.rs */
 
+pub use self::Constraint::*;
+pub use self::Verify::*;
+pub use self::UndoLogEntry::*;
+pub use self::CombineMapType::*;
+pub use self::RegionResolutionError::*;
+pub use self::VarValue::*;
+use self::Classification::*;
 
 use middle::ty;
 use middle::ty::{BoundRegion, FreeRegion, Region, RegionVid};
@@ -1520,7 +1527,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
                     ConstrainVarSubReg(_, region) => {
                         state.result.push(RegionAndOrigin {
                             region: region,
-                            origin: this.constraints.borrow().get_copy(&edge.data)
+                            origin: this.constraints.borrow()[edge.data].clone()
                         });
                     }
                 }

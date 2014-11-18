@@ -14,6 +14,12 @@
  * `ExprUseVisitor` determines how expressions are being used.
  */
 
+pub use self::MutateMode::*;
+pub use self::LoanCause::*;
+pub use self::ConsumeMode::*;
+pub use self::MoveReason::*;
+use self::OverloadedCallType::*;
+
 use middle::mem_categorization as mc;
 use middle::def;
 use middle::mem_categorization::Typer;
@@ -850,7 +856,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
 
                 // Each match binding is effectively an assignment to the
                 // binding being produced.
-                let def = def_map.borrow().get_copy(&pat.id);
+                let def = def_map.borrow()[pat.id].clone();
                 match mc.cat_def(pat.id, pat.span, pat_ty, def) {
                     Ok(binding_cmt) => {
                         delegate.mutate(pat.id, pat.span, binding_cmt, Init);
@@ -957,8 +963,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,TYPER> {
             // inferred by regionbk
             let upvar_id = ty::UpvarId { var_id: id_var,
                                          closure_expr_id: closure_expr.id };
-            let upvar_borrow = self.tcx().upvar_borrow_map.borrow()
-                                   .get_copy(&upvar_id);
+            let upvar_borrow = self.tcx().upvar_borrow_map.borrow()[upvar_id].clone();
 
             self.delegate.borrow(closure_expr.id,
                                  closure_expr.span,

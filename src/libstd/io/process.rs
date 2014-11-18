@@ -13,6 +13,9 @@
 #![allow(experimental)]
 #![allow(non_upper_case_globals)]
 
+pub use self::StdioContainer::*;
+pub use self::ProcessExit::*;
+
 use prelude::*;
 
 use fmt;
@@ -1190,7 +1193,7 @@ mod tests {
             Path::new("/dev/null")
         };
 
-        let mut fdes = match fs::open(&path, Truncate, Write) {
+        let fdes = match fs::open(&path, Truncate, Write) {
             Ok(f) => f,
             Err(_) => panic!("failed to open file descriptor"),
         };

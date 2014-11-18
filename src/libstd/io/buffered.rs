@@ -38,7 +38,7 @@ use vec::Vec;
 /// let mut reader = BufferedReader::new(file);
 ///
 /// let mut buf = [0, ..100];
-/// match reader.read(buf) {
+/// match reader.read(&mut buf) {
 ///     Ok(nread) => println!("Read {} bytes", nread),
 ///     Err(e) => println!("error reading: {}", e)
 /// }
@@ -300,7 +300,7 @@ impl<W: Reader> Reader for InternalBufferedWriter<W> {
 /// stream.flush();
 ///
 /// let mut buf = [0, ..100];
-/// match stream.read(buf) {
+/// match stream.read(&mut buf) {
 ///     Ok(nread) => println!("Read {} bytes", nread),
 ///     Err(e) => println!("error reading: {}", e)
 /// }
@@ -374,7 +374,7 @@ mod test {
     use prelude::*;
     use super::*;
     use super::super::{IoResult, EndOfFile};
-    use super::super::mem::{MemReader, MemWriter, BufReader};
+    use super::super::mem::{MemReader, BufReader};
     use self::test::Bencher;
     use str::StrPrelude;
 
@@ -414,90 +414,90 @@ mod test {
         let mut reader = BufferedReader::with_capacity(2, inner);
 
         let mut buf = [0, 0, 0];
-        let nread = reader.read(buf);
+        let nread = reader.read(&mut buf);
         assert_eq!(Ok(3), nread);
         let b: &[_] = &[5, 6, 7];
         assert_eq!(buf.as_slice(), b);
 
         let mut buf = [0, 0];
-        let nread = reader.read(buf);
+        let nread = reader.read(&mut buf);
         assert_eq!(Ok(2), nread);
         let b: &[_] = &[0, 1];
         assert_eq!(buf.as_slice(), b);
 
         let mut buf = [0];
-        let nread = reader.read(buf);
+        let nread = reader.read(&mut buf);
         assert_eq!(Ok(1), nread);
         let b: &[_] = &[2];
         assert_eq!(buf.as_slice(), b);
 
         let mut buf = [0, 0, 0];
-        let nread = reader.read(buf);
+        let nread = reader.read(&mut buf);
         assert_eq!(Ok(1), nread);
         let b: &[_] = &[3, 0, 0];
         assert_eq!(buf.as_slice(), b);
 
-        let nread = reader.read(buf);
+        let nread = reader.read(&mut buf);
         assert_eq!(Ok(1), nread);
         let b: &[_] = &[4, 0, 0];
         assert_eq!(buf.as_slice(), b);
 
-        assert!(reader.read(buf).is_err());
+        assert!(reader.read(&mut buf).is_err());
     }
 
     #[test]
     fn test_buffered_writer() {
-        let inner = MemWriter::new();
+        let inner = Vec::new();
         let mut writer = BufferedWriter::with_capacity(2, inner);
 
-        writer.write([0, 1]).unwrap();
+        writer.write(&[0, 1]).unwrap();
         let b: &[_] = &[];
-        assert_eq!(writer.get_ref().get_ref(), b);
+        assert_eq!(writer.get_ref()[], b);
 
-        writer.write([2]).unwrap();
+        writer.write(&[2]).unwrap();
         let b: &[_] = &[0, 1];
-        assert_eq!(writer.get_ref().get_ref(), b);
+        assert_eq!(writer.get_ref()[], b);
 
-        writer.write([3]).unwrap();
-        assert_eq!(writer.get_ref().get_ref(), b);
+        writer.write(&[3]).unwrap();
+        assert_eq!(writer.get_ref()[], b);
 
         writer.flush().unwrap();
         let a: &[_] = &[0, 1, 2, 3];
-        assert_eq!(a, writer.get_ref().get_ref());
+        assert_eq!(a, writer.get_ref()[]);
 
-        writer.write([4]).unwrap();
-        writer.write([5]).unwrap();
-        assert_eq!(a, writer.get_ref().get_ref());
+        writer.write(&[4]).unwrap();
+        writer.write(&[5]).unwrap();
+        assert_eq!(a, writer.get_ref()[]);
 
-        writer.write([6]).unwrap();
+        writer.write(&[6]).unwrap();
         let a: &[_] = &[0, 1, 2, 3, 4, 5];
         assert_eq!(a,
-                   writer.get_ref().get_ref());
+                   writer.get_ref()[]);
 
-        writer.write([7, 8]).unwrap();
+        writer.write(&[7, 8]).unwrap();
         let a: &[_] = &[0, 1, 2, 3, 4, 5, 6];
         assert_eq!(a,
-                   writer.get_ref().get_ref());
+                   writer.get_ref()[]);
 
-        writer.write([9, 10, 11]).unwrap();
+        writer.write(&[9, 10, 11]).unwrap();
         let a: &[_] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
         assert_eq!(a,
-                   writer.get_ref().get_ref());
+                   writer.get_ref()[]);
 
         writer.flush().unwrap();
         assert_eq!(a,
-                   writer.get_ref().get_ref());
+                   writer.get_ref()[]);
     }
 
     #[test]
     fn test_buffered_writer_inner_flushes() {
-        let mut w = BufferedWriter::with_capacity(3, MemWriter::new());
-        w.write([0, 1]).unwrap();
+        let mut w = BufferedWriter::with_capacity(3, Vec::new());
+        w.write(&[0, 1]).unwrap();
         let a: &[_] = &[];
-        assert_eq!(a, w.get_ref().get_ref());
+        assert_eq!(a, w.get_ref()[]);
         let w = w.unwrap();
         let a: &[_] = &[0, 1];
-        assert_eq!(a, w.get_ref());
+        assert_eq!(a, w[]);
     }
 
     // This is just here to make sure that we don't infinite loop in the
@@ -518,8 +518,8 @@ mod test {
 
         let mut stream = BufferedStream::new(S);
         let mut buf = [];
-        assert!(stream.read(buf).is_err());
-        stream.write(buf).unwrap();
+        assert!(stream.read(&mut buf).is_err());
+        stream.write(&buf).unwrap();
         stream.flush().unwrap();
     }
 
@@ -536,24 +536,24 @@ mod test {
 
     #[test]
     fn test_line_buffer() {
-        let mut writer = LineBufferedWriter::new(MemWriter::new());
-        writer.write([0]).unwrap();
+        let mut writer = LineBufferedWriter::new(Vec::new());
+        writer.write(&[0]).unwrap();
         let b: &[_] = &[];
-        assert_eq!(writer.get_ref().get_ref(), b);
-        writer.write([1]).unwrap();
-        assert_eq!(writer.get_ref().get_ref(), b);
+        assert_eq!(writer.get_ref()[], b);
+        writer.write(&[1]).unwrap();
+        assert_eq!(writer.get_ref()[], b);
         writer.flush().unwrap();
         let b: &[_] = &[0, 1];
-        assert_eq!(writer.get_ref().get_ref(), b);
-        writer.write([0, b'\n', 1, b'\n', 2]).unwrap();
+        assert_eq!(writer.get_ref()[], b);
+        writer.write(&[0, b'\n', 1, b'\n', 2]).unwrap();
         let b: &[_] = &[0, 1, 0, b'\n', 1, b'\n'];
-        assert_eq!(writer.get_ref().get_ref(), b);
+        assert_eq!(writer.get_ref()[], b);
         writer.flush().unwrap();
         let b: &[_] = &[0, 1, 0, b'\n', 1, b'\n', 2];
-        assert_eq!(writer.get_ref().get_ref(), b);
-        writer.write([3, b'\n']).unwrap();
+        assert_eq!(writer.get_ref()[], b);
+        writer.write(&[3, b'\n']).unwrap();
         let b: &[_] = &[0, 1, 0, b'\n', 1, b'\n', 2, 3, b'\n'];
-        assert_eq!(writer.get_ref().get_ref(), b);
+        assert_eq!(writer.get_ref()[], b);
     }
 
     #[test]
@@ -582,26 +582,26 @@ mod test {
         let inner = ShortReader{lengths: vec![0, 1, 2, 0, 1, 0]};
         let mut reader = BufferedReader::new(inner);
         let mut buf = [0, 0];
-        assert_eq!(reader.read(buf), Ok(0));
-        assert_eq!(reader.read(buf), Ok(1));
-        assert_eq!(reader.read(buf), Ok(2));
-        assert_eq!(reader.read(buf), Ok(0));
-        assert_eq!(reader.read(buf), Ok(1));
-        assert_eq!(reader.read(buf), Ok(0));
-        assert!(reader.read(buf).is_err());
+        assert_eq!(reader.read(&mut buf), Ok(0));
+        assert_eq!(reader.read(&mut buf), Ok(1));
+        assert_eq!(reader.read(&mut buf), Ok(2));
+        assert_eq!(reader.read(&mut buf), Ok(0));
+        assert_eq!(reader.read(&mut buf), Ok(1));
+        assert_eq!(reader.read(&mut buf), Ok(0));
+        assert!(reader.read(&mut buf).is_err());
     }
 
     #[test]
     fn read_char_buffered() {
         let buf = [195u8, 159u8];
-        let mut reader = BufferedReader::with_capacity(1, BufReader::new(buf));
+        let mut reader = BufferedReader::with_capacity(1, BufReader::new(&buf));
         assert_eq!(reader.read_char(), Ok('ß'));
     }
 
     #[test]
     fn test_chars() {
         let buf = [195u8, 159u8, b'a'];
-        let mut reader = BufferedReader::with_capacity(1, BufReader::new(buf));
+        let mut reader = BufferedReader::with_capacity(1, BufReader::new(&buf));
         let mut it = reader.chars();
         assert_eq!(it.next(), Some(Ok('ß')));
         assert_eq!(it.next(), Some(Ok('a')));

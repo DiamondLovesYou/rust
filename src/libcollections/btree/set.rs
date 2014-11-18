@@ -15,6 +15,7 @@ use core::prelude::*;
 
 use btree_map::{BTreeMap, Keys, MoveEntries};
 use std::hash::Hash;
+use core::borrow::BorrowFrom;
 use core::default::Default;
 use core::{iter, fmt};
 use core::iter::Peekable;
@@ -167,6 +168,10 @@ impl<T: Ord> BTreeSet<T> {
 
     /// Returns `true` if the set contains a value.
     ///
+    /// The value may be any borrowed form of the set's value type,
+    /// but the ordering on the borrowed form *must* match the
+    /// ordering on the value type.
+    ///
     /// # Example
     ///
     /// ```
@@ -177,7 +182,7 @@ impl<T: Ord> BTreeSet<T> {
     /// assert_eq!(set.contains(&4), false);
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn contains(&self, value: &T) -> bool {
+    pub fn contains<Sized? Q>(&self, value: &Q) -> bool where Q: BorrowFrom<T> + Ord {
         self.map.contains_key(value)
     }
 
@@ -291,6 +296,10 @@ impl<T: Ord> BTreeSet<T> {
     /// Removes a value from the set. Returns `true` if the value was
     /// present in the set.
     ///
+    /// The value may be any borrowed form of the set's value type,
+    /// but the ordering on the borrowed form *must* match the
+    /// ordering on the value type.
+    ///
     /// # Example
     ///
     /// ```
@@ -303,7 +312,7 @@ impl<T: Ord> BTreeSet<T> {
     /// assert_eq!(set.remove(&2), false);
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn remove(&mut self, value: &T) -> bool {
+    pub fn remove<Sized? Q>(&mut self, value: &Q) -> bool where Q: BorrowFrom<T> + Ord {
         self.map.remove(value).is_some()
     }
 }
@@ -467,14 +476,14 @@ mod test {
             check(a, b, expected, |x, y, f| x.intersection(y).all(f))
         }
 
-        check_intersection([], [], []);
-        check_intersection([1, 2, 3], [], []);
-        check_intersection([], [1, 2, 3], []);
-        check_intersection([2], [1, 2, 3], [2]);
-        check_intersection([1, 2, 3], [2], [2]);
-        check_intersection([11, 1, 3, 77, 103, 5, -5],
-                           [2, 11, 77, -9, -42, 5, 3],
-                           [3, 5, 11, 77]);
+        check_intersection(&[], &[], &[]);
+        check_intersection(&[1, 2, 3], &[], &[]);
+        check_intersection(&[], &[1, 2, 3], &[]);
+        check_intersection(&[2], &[1, 2, 3], &[2]);
+        check_intersection(&[1, 2, 3], &[2], &[2]);
+        check_intersection(&[11, 1, 3, 77, 103, 5, -5],
+                           &[2, 11, 77, -9, -42, 5, 3],
+                           &[3, 5, 11, 77]);
     }
 
     #[test]
@@ -483,15 +492,15 @@ mod test {
             check(a, b, expected, |x, y, f| x.difference(y).all(f))
         }
 
-        check_difference([], [], []);
-        check_difference([1, 12], [], [1, 12]);
-        check_difference([], [1, 2, 3, 9], []);
-        check_difference([1, 3, 5, 9, 11],
-                         [3, 9],
-                         [1, 5, 11]);
-        check_difference([-5, 11, 22, 33, 40, 42],
-                         [-12, -5, 14, 23, 34, 38, 39, 50],
-                         [11, 22, 33, 40, 42]);
+        check_difference(&[], &[], &[]);
+        check_difference(&[1, 12], &[], &[1, 12]);
+        check_difference(&[], &[1, 2, 3, 9], &[]);
+        check_difference(&[1, 3, 5, 9, 11],
+                         &[3, 9],
+                         &[1, 5, 11]);
+        check_difference(&[-5, 11, 22, 33, 40, 42],
+                         &[-12, -5, 14, 23, 34, 38, 39, 50],
+                         &[11, 22, 33, 40, 42]);
     }
 
     #[test]
@@ -501,12 +510,12 @@ mod test {
             check(a, b, expected, |x, y, f| x.symmetric_difference(y).all(f))
         }
 
-        check_symmetric_difference([], [], []);
-        check_symmetric_difference([1, 2, 3], [2], [1, 3]);
-        check_symmetric_difference([2], [1, 2, 3], [1, 3]);
-        check_symmetric_difference([1, 3, 5, 9, 11],
-                                   [-2, 3, 9, 14, 22],
-                                   [-2, 1, 5, 11, 14, 22]);
+        check_symmetric_difference(&[], &[], &[]);
+        check_symmetric_difference(&[1, 2, 3], &[2], &[1, 3]);
+        check_symmetric_difference(&[2], &[1, 2, 3], &[1, 3]);
+        check_symmetric_difference(&[1, 3, 5, 9, 11],
+                                   &[-2, 3, 9, 14, 22],
+                                   &[-2, 1, 5, 11, 14, 22]);
     }
 
     #[test]
@@ -516,12 +525,12 @@ mod test {
             check(a, b, expected, |x, y, f| x.union(y).all(f))
         }
 
-        check_union([], [], []);
-        check_union([1, 2, 3], [2], [1, 2, 3]);
-        check_union([2], [1, 2, 3], [1, 2, 3]);
-        check_union([1, 3, 5, 9, 11, 16, 19, 24],
-                    [-2, 1, 5, 9, 13, 19],
-                    [-2, 1, 3, 5, 9, 11, 13, 16, 19, 24]);
+        check_union(&[], &[], &[]);
+        check_union(&[1, 2, 3], &[2], &[1, 2, 3]);
+        check_union(&[2], &[1, 2, 3], &[1, 2, 3]);
+        check_union(&[1, 3, 5, 9, 11, 16, 19, 24],
+                    &[-2, 1, 5, 9, 13, 19],
+                    &[-2, 1, 3, 5, 9, 11, 13, 16, 19, 24]);
     }
 
     #[test]

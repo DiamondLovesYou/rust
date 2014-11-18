@@ -25,6 +25,10 @@
 
 #![allow(non_camel_case_types)]
 
+pub use self::IsUnboxedClosureFlag::*;
+pub use self::ValueOrigin::*;
+pub use self::scalar_type::*;
+
 use back::link::{mangle_exported_name};
 use back::{link, abi};
 use driver::config;
@@ -32,7 +36,7 @@ use driver::config::{NoDebugInfo, FullDebugInfo};
 use driver::driver::{CrateAnalysis, CrateTranslation, ModuleTranslation};
 use driver::session::Session;
 use lint;
-use llvm::{BasicBlockRef, ValueRef, Vector, get_param};
+use llvm::{BasicBlockRef, Linkage, ValueRef, Vector, get_param};
 use llvm;
 use metadata::{csearch, encoder, loader};
 use middle::astencode;
@@ -47,7 +51,7 @@ use middle::trans::builder::{Builder, noname};
 use middle::trans::callee;
 use middle::trans::cleanup::{CleanupMethods, ScopeId};
 use middle::trans::cleanup;
-use middle::trans::common::{Block, C_bool, C_bytes_in_context, C_i32, C_integral, C_nil};
+use middle::trans::common::{Block, C_bool, C_bytes_in_context, C_i32, C_integral};
 use middle::trans::common::{C_null, C_struct_in_context, C_u64, C_u8, C_uint, C_undef};
 use middle::trans::common::{CrateContext, ExternMap, FunctionContext};
 use middle::trans::common::{NodeInfo, Result, SubstP};
@@ -212,7 +216,7 @@ pub fn get_extern_fn(ccx: &CrateContext,
                      ty: Type,
                      output: ty::t)
                      -> ValueRef {
-    match externs.find_equiv(name) {
+    match externs.get(name) {
         Some(n) => return *n,
         None => {}
     }
@@ -222,7 +226,7 @@ pub fn get_extern_fn(ccx: &CrateContext,
 }
 
 fn get_extern_rust_fn(ccx: &CrateContext, fn_ty: ty::t, name: &str, did: ast::DefId) -> ValueRef {
-    match ccx.externs().borrow().find_equiv(name) {
+    match ccx.externs().borrow().get(name) {
         Some(n) => return *n,
         None => ()
     }
@@ -337,7 +341,7 @@ pub fn at_box_body(bcx: Block, body_t: ty::t, boxptr: ValueRef) -> ValueRef {
     let ccx = bcx.ccx();
     let ty = Type::at_box(ccx, type_of(ccx, body_t));
     let boxptr = PointerCast(bcx, boxptr, ty.ptr_to());
-    GEPi(bcx, boxptr, [0u, abi::box_field_body])
+    GEPi(bcx, boxptr, &[0u, abi::box_field_body])
 }
 
 fn require_alloc_fn(bcx: Block, info_ty: ty::t, it: LangItem) -> ast::DefId {
@@ -365,7 +369,7 @@ pub fn malloc_raw_dyn<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     // Allocate space:
     let r = callee::trans_lang_call(bcx,
         require_alloc_fn(bcx, info_ty, ExchangeMallocFnLangItem),
-        [size, align],
+        &[size, align],
         None);
 
     Result::new(r.bcx, PointerCast(r.bcx, r.val, llty_ptr))
@@ -385,7 +389,7 @@ pub fn malloc_raw_dyn_proc<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, t: ty::t) -> Resu
 
     // Allocate space and store the destructor pointer:
     let Result {bcx, val: llbox} = malloc_raw_dyn(bcx, ptr_llty, t, size, llalign);
-    let dtor_ptr = GEPi(bcx, llbox, [0u, abi::box_field_drop_glue]);
+    let dtor_ptr = GEPi(bcx, llbox, &[0u, abi::box_field_drop_glue]);
     let drop_glue_field_ty = type_of(ccx, ty::mk_nil_ptr(bcx.tcx()));
     let drop_glue = PointerCast(bcx, glue::get_drop_glue(ccx, ty::mk_uniq(bcx.tcx(), t)),
                                 drop_glue_field_ty);
@@ -517,7 +521,7 @@ pub fn get_res_dtor(ccx: &CrateContext,
         let class_ty = ty::lookup_item_type(tcx, parent_id).ty.subst(tcx, substs);
         let llty = type_of_dtor(ccx, class_ty);
         let dtor_ty = ty::mk_ctor_fn(ccx.tcx(), ast::DUMMY_NODE_ID,
-                                     [glue::get_drop_glue_type(ccx, t)], ty::mk_nil());
+                                     &[glue::get_drop_glue_type(ccx, t)], ty::mk_nil(ccx.tcx()));
         get_extern_fn(ccx,
                       &mut *ccx.externs().borrow_mut(),
                       name.as_slice(),
@@ -551,7 +555,7 @@ pub fn compare_scalar_types<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
     let f = |a| Result::new(cx, compare_scalar_values(cx, lhs, rhs, a, op));
 
     match ty::get(t).sty {
-        ty::ty_nil => f(nil_type),
+        ty::ty_tup(ref tys) if tys.is_empty() => f(nil_type),
         ty::ty_bool | ty::ty_uint(_) | ty::ty_char => f(unsigned_int),
         ty::ty_ptr(mt) if ty::type_is_sized(cx.tcx(), mt.ty) => f(unsigned_int),
         ty::ty_int(_) => f(signed_int),
@@ -694,8 +698,8 @@ pub fn iter_structural_ty<'a, 'blk, 'tcx>(cx: Block<'blk, 'tcx>,
     let (data_ptr, info) = if ty::type_is_sized(cx.tcx(), t) {
         (av, None)
     } else {
-        let data = GEPi(cx, av, [0, abi::slice_elt_base]);
-        let info = GEPi(cx, av, [0, abi::slice_elt_len]);
+        let data = GEPi(cx, av, &[0, abi::slice_elt_base]);
+        let info = GEPi(cx, av, &[0, abi::slice_elt_len]);
         (Load(cx, data), Some(Load(cx, info)))
     };
 
@@ -713,8 +717,8 @@ pub fn iter_structural_ty<'a, 'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                   } else {
                       let boxed_ty = ty::mk_open(cx.tcx(), field_ty);
                       let scratch = datum::rvalue_scratch_datum(cx, boxed_ty, "__fat_ptr_iter");
-                      Store(cx, llfld_a, GEPi(cx, scratch.val, [0, abi::slice_elt_base]));
-                      Store(cx, info.unwrap(), GEPi(cx, scratch.val, [0, abi::slice_elt_len]));
+                      Store(cx, llfld_a, GEPi(cx, scratch.val, &[0, abi::slice_elt_base]));
+                      Store(cx, info.unwrap(), GEPi(cx, scratch.val, &[0, abi::slice_elt_len]));
                       scratch.val
                   };
                   cx = f(cx, val, field_ty);
@@ -1110,7 +1114,7 @@ pub fn call_lifetime_start(cx: Block, ptr: ValueRef) {
     let llsize = C_u64(ccx, machine::llsize_of_alloc(ccx, val_ty(ptr).element_type()));
     let ptr = PointerCast(cx, ptr, Type::i8p(ccx));
     let lifetime_start = ccx.get_intrinsic(&"llvm.lifetime.start");
-    Call(cx, lifetime_start, [llsize, ptr], None);
+    Call(cx, lifetime_start, &[llsize, ptr], None);
 }
 
 pub fn call_lifetime_end(cx: Block, ptr: ValueRef) {
@@ -1124,7 +1128,7 @@ pub fn call_lifetime_end(cx: Block, ptr: ValueRef) {
     let llsize = C_u64(ccx, machine::llsize_of_alloc(ccx, val_ty(ptr).element_type()));
     let ptr = PointerCast(cx, ptr, Type::i8p(ccx));
     let lifetime_end = ccx.get_intrinsic(&"llvm.lifetime.end");
-    Call(cx, lifetime_end, [llsize, ptr], None);
+    Call(cx, lifetime_end, &[llsize, ptr], None);
 }
 
 pub fn call_memcpy(cx: Block, dst: ValueRef, src: ValueRef, n_bytes: ValueRef, align: u32) {
@@ -1141,7 +1145,7 @@ pub fn call_memcpy(cx: Block, dst: ValueRef, src: ValueRef, n_bytes: ValueRef, a
     let size = IntCast(cx, n_bytes, ccx.int_type());
     let align = C_i32(ccx, align as i32);
     let volatile = C_bool(ccx, false);
-    Call(cx, memcpy, [dst_ptr, src_ptr, size, align, volatile], None);
+    Call(cx, memcpy, &[dst_ptr, src_ptr, size, align, volatile], None);
 }
 
 pub fn memcpy_ty(bcx: Block, dst: ValueRef, src: ValueRef, t: ty::t) {
@@ -1187,7 +1191,7 @@ fn memzero(b: &Builder, llptr: ValueRef, ty: ty::t) {
     let size = machine::llsize_of(ccx, llty);
     let align = C_i32(ccx, type_of::align_of(ccx, ty) as i32);
     let volatile = C_bool(ccx, false);
-    b.call(llintrinsicfn, [llptr, llzeroval, size, align, volatile], None);
+    b.call(llintrinsicfn, &[llptr, llzeroval, size, align, volatile], None);
 }
 
 pub fn alloc_ty(bcx: Block, t: ty::t, name: &str) -> ValueRef {
@@ -1563,7 +1567,7 @@ fn create_datums_for_fn_args_under_call_abi(
                             let llarg =
                                 get_param(bcx.fcx.llfn,
                                           bcx.fcx.arg_pos(i + j) as c_uint);
-                            let lldest = GEPi(bcx, llval, [0, j]);
+                            let lldest = GEPi(bcx, llval, &[0, j]);
                             let datum = datum::Datum::new(
                                 llarg,
                                 tupled_arg_ty,
@@ -1577,12 +1581,6 @@ fn create_datums_for_fn_args_under_call_abi(
                                                .to_rvalue_datum(bcx,
                                                                 "argtuple"));
                 result.push(tuple);
-            }
-            ty::ty_nil => {
-                let mode = datum::Rvalue::new(datum::ByValue);
-                result.push(datum::Datum::new(C_nil(bcx.ccx()),
-                                              ty::mk_nil(),
-                                              mode))
             }
             _ => {
                 bcx.tcx().sess.bug("last argument of a function with \
@@ -1647,10 +1645,8 @@ fn copy_unboxed_closure_args_to_allocas<'blk, 'tcx>(
                       arg_datum.to_lvalue_datum_in_scope(bcx,
                                                          "argtuple",
                                                          arg_scope_id));
-    let empty = Vec::new();
     let untupled_arg_types = match ty::get(monomorphized_arg_types[0]).sty {
         ty::ty_tup(ref types) => types.as_slice(),
-        ty::ty_nil => empty.as_slice(),
         _ => {
             bcx.tcx().sess.span_bug(args[0].pat.span,
                                     "first arg to `rust-call` ABI function \
@@ -1662,7 +1658,7 @@ fn copy_unboxed_closure_args_to_allocas<'blk, 'tcx>(
         let tuple_element_datum =
             tuple_datum.get_element(bcx,
                                     tuple_element_type,
-                                    |llval| GEPi(bcx, llval, [0, j]));
+                                    |llval| GEPi(bcx, llval, &[0, j]));
         let tuple_element_datum = tuple_element_datum.to_expr_datum();
         let tuple_element_datum =
             unpack_datum!(bcx,
@@ -1787,8 +1783,8 @@ pub fn trans_closure(ccx: &CrateContext,
                      abi: Abi,
                      has_env: bool,
                      is_unboxed_closure: IsUnboxedClosureFlag,
-                     maybe_load_env: <'blk, 'tcx> |Block<'blk, 'tcx>, ScopeId|
-                                                  -> Block<'blk, 'tcx>) {
+                     maybe_load_env: for<'blk, 'tcx> |Block<'blk, 'tcx>, ScopeId|
+                                                     -> Block<'blk, 'tcx>) {
     ccx.stats().n_closures.set(ccx.stats().n_closures.get() + 1);
 
     let _icx = push_ctxt("trans_closure");
@@ -1824,7 +1820,7 @@ pub fn trans_closure(ccx: &CrateContext,
         NotUnboxedClosure => monomorphized_arg_types,
 
         // Tuple up closure argument types for the "rust-call" ABI.
-        IsUnboxedClosure => vec![ty::mk_tup_or_nil(ccx.tcx(), monomorphized_arg_types)]
+        IsUnboxedClosure => vec![ty::mk_tup(ccx.tcx(), monomorphized_arg_types)]
     };
     for monomorphized_arg_type in monomorphized_arg_types.iter() {
         debug!("trans_closure: monomorphized_arg_type: {}",
@@ -2141,6 +2137,32 @@ impl<'a, 'tcx, 'v> Visitor<'v> for TransItemVisitor<'a, 'tcx> {
     }
 }
 
+pub fn llvm_linkage_by_name(name: &str) -> Option<Linkage> {
+    // Use the names from src/llvm/docs/LangRef.rst here. Most types are only
+    // applicable to variable declarations and may not really make sense for
+    // Rust code in the first place but whitelist them anyway and trust that
+    // the user knows what s/he's doing. Who knows, unanticipated use cases
+    // may pop up in the future.
+    //
+    // ghost, dllimport, dllexport and linkonce_odr_autohide are not supported
+    // and don't have to be, LLVM treats them as no-ops.
+    match name {
+        "appending" => Some(llvm::AppendingLinkage),
+        "available_externally" => Some(llvm::AvailableExternallyLinkage),
+        "common" => Some(llvm::CommonLinkage),
+        "extern_weak" => Some(llvm::ExternalWeakLinkage),
+        "external" => Some(llvm::ExternalLinkage),
+        "internal" => Some(llvm::InternalLinkage),
+        "linkonce" => Some(llvm::LinkOnceAnyLinkage),
+        "linkonce_odr" => Some(llvm::LinkOnceODRLinkage),
+        "private" => Some(llvm::PrivateLinkage),
+        "weak" => Some(llvm::WeakAnyLinkage),
+        "weak_odr" => Some(llvm::WeakODRLinkage),
+        _ => None,
+    }
+}
+
+
 /// Enum describing the origin of an LLVM `Value`, for linkage purposes.
 pub enum ValueOrigin {
     /// The LLVM `Value` is in this context because the corresponding item was
@@ -2176,6 +2198,23 @@ pub fn update_linkage(ccx: &CrateContext,
             return;
         },
         OriginalTranslation => {},
+    }
+
+    match id {
+        Some(id) => {
+            let item = ccx.tcx().map.get(id);
+            if let ast_map::NodeItem(i) = item {
+                if let Some(name) =  attr::first_attr_value_str_by_name(i.attrs[], "linkage") {
+                    if let Some(linkage) = llvm_linkage_by_name(name.get()) {
+                        llvm::SetLinkage(llval, linkage);
+                    } else {
+                        ccx.sess().span_fatal(i.span, "invalid linkage specified");
+                    }
+                    return;
+                }
+            }
+        }
+        _ => {}
     }
 
     match id {
@@ -2274,7 +2313,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
                                          static");
               }
 
-              let v = ccx.static_values().borrow().get_copy(&item.id);
+              let v = ccx.static_values().borrow()[item.id].clone();
               unsafe {
                   if !(llvm::LLVMConstIntGetZExtValue(v) != 0) {
                       ccx.sess().span_fatal(expr.span, "static assertion failed");
@@ -2380,7 +2419,6 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
             assert!(abi == RustCall);
 
             match ty::get(fn_sig.inputs[0]).sty {
-                ty::ty_nil => Vec::new(),
                 ty::ty_tup(ref inputs) => inputs.clone(),
                 _ => ccx.sess().bug("expected tuple'd inputs")
             }
@@ -2389,7 +2427,6 @@ pub fn get_fn_llvm_attributes(ccx: &CrateContext, fn_ty: ty::t)
             let mut inputs = vec![fn_sig.inputs[0]];
 
             match ty::get(fn_sig.inputs[1]).sty {
-                ty::ty_nil => inputs,
                 ty::ty_tup(ref t_in) => {
                     inputs.push_all(t_in.as_slice());
                     inputs
@@ -2532,7 +2569,7 @@ pub fn register_fn_llvmty(ccx: &CrateContext,
                           llfty: Type) -> ValueRef {
     debug!("register_fn_llvmty id={} sym={}", node_id, sym);
 
-    let llfn = decl_fn(ccx, sym.as_slice(), cc, llfty, ty::FnConverging(ty::mk_nil()));
+    let llfn = decl_fn(ccx, sym.as_slice(), cc, llfty, ty::FnConverging(ty::mk_nil(ccx.tcx())));
     finish_register_fn(ccx, sp, sym, node_id, llfn);
     llfn
 }
@@ -2561,10 +2598,10 @@ pub fn create_entry_wrapper(ccx: &CrateContext,
     fn create_entry_fn(ccx: &CrateContext,
                        rust_main: ValueRef,
                        use_start_lang_item: bool) {
-        let llfty = Type::func([ccx.int_type(), Type::i8p(ccx).ptr_to()],
+        let llfty = Type::func(&[ccx.int_type(), Type::i8p(ccx).ptr_to()],
                                &ccx.int_type());
 
-        let llfn = decl_cdecl_fn(ccx, "main", llfty, ty::mk_nil());
+        let llfn = decl_cdecl_fn(ccx, "main", llfty, ty::mk_nil(ccx.tcx()));
 
         // FIXME: #16581: Marking a symbol in the executable with `dllexport`
         // linkage forces MinGW's linker to output a `.reloc` section for ASLR
@@ -2666,7 +2703,7 @@ fn contains_null(s: &str) -> bool {
 pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
     debug!("get_item_val(id=`{}`)", id);
 
-    match ccx.item_vals().borrow().find_copy(&id) {
+    match ccx.item_vals().borrow().get(&id).cloned() {
         Some(v) => return v,
         None => {}
     }
@@ -2918,7 +2955,7 @@ pub fn write_metadata(cx: &SharedCrateContext, krate: &ast::Crate) -> Vec<u8> {
         None => cx.sess().fatal("failed to compress metadata"),
     }.as_slice());
     let llmeta = C_bytes_in_context(cx.metadata_llcx(), compressed.as_slice());
-    let llconst = C_struct_in_context(cx.metadata_llcx(), [llmeta], false);
+    let llconst = C_struct_in_context(cx.metadata_llcx(), &[llmeta], false);
     let name = format!("rust_metadata_{}_{}",
                        cx.link_meta().crate_name,
                        cx.link_meta().crate_hash);
@@ -2989,7 +3026,7 @@ fn internalize_symbols(cx: &SharedCrateContext, reachable: &HashSet<String>) {
 
                 let name = CString::new(llvm::LLVMGetValueName(val), false);
                 if !declared.contains(&name) &&
-                   !reachable.contains_equiv(name.as_str().unwrap()) {
+                   !reachable.contains(name.as_str().unwrap()) {
                     llvm::SetLinkage(val, llvm::InternalLinkage);
                 }
             }

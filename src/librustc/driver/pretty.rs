@@ -10,6 +10,11 @@
 
 //! The various pretty print routines.
 
+pub use self::UserIdentifiedItem::*;
+pub use self::PpSourceMode::*;
+pub use self::PpMode::*;
+use self::NodesMatchingUII::*;
+
 use back::link;
 
 use driver::config;
@@ -31,8 +36,8 @@ use syntax::print::{pp, pprust};
 use graphviz as dot;
 
 use std::io::{mod, MemReader};
-use std::from_str::FromStr;
 use std::option;
+use std::str::FromStr;
 use arena::TypedArena;
 
 #[deriving(PartialEq, Show)]

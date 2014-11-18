@@ -81,7 +81,6 @@ pub fn const_lit(cx: &CrateContext, e: &ast::Expr, lit: &ast::Lit)
             }
         }
         ast::LitBool(b) => C_bool(cx, b),
-        ast::LitNil => C_nil(cx),
         ast::LitStr(ref s, _) => C_str_slice(cx, (*s).clone()),
         ast::LitBinary(ref data) => C_binary_slice(cx, data.as_slice()),
     }
@@ -185,7 +184,7 @@ pub fn get_const_val(cx: &CrateContext,
         }
     }
 
-    cx.const_values().borrow().get_copy(&def_id.node)
+    cx.const_values().borrow()[def_id.node].clone()
 }
 
 pub fn const_expr(cx: &CrateContext, e: &ast::Expr) -> (ValueRef, ty::t) {
@@ -193,7 +192,7 @@ pub fn const_expr(cx: &CrateContext, e: &ast::Expr) -> (ValueRef, ty::t) {
     let mut llconst = llconst;
     let ety = ty::expr_ty(cx.tcx(), e);
     let mut ety_adjusted = ty::expr_ty_adjusted(cx.tcx(), e);
-    let opt_adj = cx.tcx().adjustments.borrow().find_copy(&e.id);
+    let opt_adj = cx.tcx().adjustments.borrow().get(&e.id).cloned();
     match opt_adj {
         None => { }
         Some(adj) => {
@@ -205,7 +204,7 @@ pub fn const_expr(cx: &CrateContext, e: &ast::Expr) -> (ValueRef, ty::t) {
                                                                    def,
                                                                    llconst,
                                                                    true);
-                    llconst = C_struct(cx, [wrapper, C_null(Type::i8p(cx))], false)
+                    llconst = C_struct(cx, &[wrapper, C_null(Type::i8p(cx))], false)
                 }
                 ty::AdjustAddEnv(store) => {
                     cx.sess()
@@ -265,7 +264,7 @@ pub fn const_expr(cx: &CrateContext, e: &ast::Expr) -> (ValueRef, ty::t) {
                                             let llptr = const_ptrcast(cx, llconst, llunitty);
                                             assert_eq!(abi::slice_elt_base, 0);
                                             assert_eq!(abi::slice_elt_len, 1);
-                                            llconst = C_struct(cx, [
+                                            llconst = C_struct(cx, &[
                                                 llptr,
                                                 C_uint(cx, len)
                                             ], false);
@@ -445,8 +444,8 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
                   ty::ty_vec(_, Some(u)) => (bv, C_uint(cx, u)),
                   ty::ty_open(ty) => match ty::get(ty).sty {
                       ty::ty_vec(_, None) | ty::ty_str => {
-                          let e1 = const_get_elt(cx, bv, [0]);
-                          (const_deref_ptr(cx, e1), const_get_elt(cx, bv, [1]))
+                          let e1 = const_get_elt(cx, bv, &[0]);
+                          (const_deref_ptr(cx, e1), const_get_elt(cx, bv, &[1]))
                       },
                       _ => cx.sess().span_bug(base.span,
                                               format!("index-expr base must be a vector \
@@ -485,7 +484,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
                   cx.sess().span_err(e.span,
                                      "const index-expr is out of bounds");
               }
-              const_get_elt(cx, arr, [iv as c_uint])
+              const_get_elt(cx, arr, &[iv as c_uint])
           }
           ast::ExprCast(ref base, _) => {
             let ety = ty::expr_ty(cx.tcx(), e);
@@ -552,7 +551,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
                       _ => break,
                   }
               }
-              let opt_def = cx.tcx().def_map.borrow().find_copy(&cur.id);
+              let opt_def = cx.tcx().def_map.borrow().get(&cur.id).cloned();
               match opt_def {
                   Some(def::DefStatic(def_id, _)) => {
                       let ty = ty::expr_ty(cx.tcx(), e);
@@ -627,7 +626,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
             // Assert that there are no type parameters in this path.
             assert!(pth.segments.iter().all(|seg| !seg.parameters.has_types()));
 
-            let opt_def = cx.tcx().def_map.borrow().find_copy(&e.id);
+            let opt_def = cx.tcx().def_map.borrow().get(&e.id).cloned();
             match opt_def {
                 Some(def::DefFn(def_id, _)) => {
                     if !ast_util::is_local(def_id) {
@@ -647,7 +646,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
                     let vinfo = ty::enum_variant_with_id(cx.tcx(),
                                                          enum_did,
                                                          variant_did);
-                    adt::trans_const(cx, &*repr, vinfo.disr_val, [])
+                    adt::trans_const(cx, &*repr, vinfo.disr_val, &[])
                 }
                 Some(def::DefStruct(_)) => {
                     let ety = ty::expr_ty(cx.tcx(), e);
@@ -661,7 +660,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
             }
           }
           ast::ExprCall(ref callee, ref args) => {
-              let opt_def = cx.tcx().def_map.borrow().find_copy(&callee.id);
+              let opt_def = cx.tcx().def_map.borrow().get(&callee.id).cloned();
               match opt_def {
                   Some(def::DefStruct(_)) => {
                       let ety = ty::expr_ty(cx.tcx(), e);
@@ -703,7 +702,7 @@ pub fn trans_static(ccx: &CrateContext, m: ast::Mutability, id: ast::NodeId) {
         let g = base::get_item_val(ccx, id);
         // At this point, get_item_val has already translated the
         // constant's initializer to determine its LLVM type.
-        let v = ccx.static_values().borrow().get_copy(&id);
+        let v = ccx.static_values().borrow()[id].clone();
         // boolean SSA values are i1, but they have to be stored in i8 slots,
         // otherwise some LLVM optimization passes don't work as expected
         let v = if llvm::LLVMTypeOf(v) == Type::i1(ccx).to_ref() {

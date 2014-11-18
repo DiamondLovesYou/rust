@@ -388,7 +388,7 @@ mod tests {
     use super::{Duration, MIN, MAX};
     use {i32, i64};
     use option::{Some, None};
-    use to_string::ToString;
+    use string::ToString;
 
     #[test]
     fn test_duration() {
@@ -553,12 +553,5 @@ mod tests {
         // the format specifier should have no effect on `Duration`
         assert_eq!(format!("{:30}", Duration::days(1) + Duration::milliseconds(2345)),
                    "P1DT2.345S".to_string());
-    }
-
-    #[test]
-    fn span() {
-        use io::timer::sleep;
-        let dur = Duration::span(|| sleep(Duration::milliseconds(5)));
-        assert!(dur > Duration::milliseconds(1));
     }
 }

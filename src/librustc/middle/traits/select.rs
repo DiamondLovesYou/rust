@@ -11,6 +11,12 @@
 /*! See `doc.rs` for high-level documentation */
 #![allow(dead_code)] // FIXME -- just temporarily
 
+pub use self::MethodMatchResult::*;
+pub use self::MethodMatchedData::*;
+use self::Candidate::*;
+use self::BuiltinBoundConditions::*;
+use self::EvaluationResult::*;
+
 use super::{ErrorReported};
 use super::{Obligation, ObligationCause};
 use super::{SelectionError, Unimplemented, Overflow,
@@ -21,11 +27,13 @@ use super::{VtableBuiltin, VtableImpl, VtableParam, VtableUnboxedClosure};
 use super::{VtableImplData, VtableParamData, VtableBuiltinData};
 use super::{util};
 
+use middle::fast_reject;
 use middle::mem_categorization::Typer;
 use middle::subst::{Subst, Substs, VecPerParamSpace};
 use middle::ty;
 use middle::typeck::check::regionmanip;
 use middle::typeck::infer;
+use middle::typeck::infer::LateBoundRegionConversionTime::*;
 use middle::typeck::infer::{InferCtxt, TypeSkolemizer};
 use middle::ty_fold::TypeFoldable;
 use std::cell::RefCell;
@@ -345,7 +353,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         // matches this obligation, then we can assume that the
         // obligation is satisfied for now (still all other conditions
         // must be met of course). One obvious case this comes up is
-        // marker traits like `Send`. Think of a a linked list:
+        // marker traits like `Send`. Think of a linked list:
         //
         //    struct List<T> { data: T, next: Option<Box<List<T>>> {
         //
@@ -1227,7 +1235,6 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             ty::ty_infer(ty::FloatVar(_)) |
             ty::ty_uint(_) |
             ty::ty_int(_) |
-            ty::ty_nil |
             ty::ty_bool |
             ty::ty_float(_) |
             ty::ty_bare_fn(_) |
@@ -1709,7 +1716,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 closure_type.sig.binder_id,
                 &closure_type.sig,
                 |br| self.infcx.next_region_var(
-                         infer::LateBoundRegion(obligation.cause.span, br)));
+                         infer::LateBoundRegion(obligation.cause.span, br,
+                                                infer::FnCall)));
 
         let arguments_tuple = new_signature.inputs[0];
         let trait_ref = Rc::new(ty::TraitRef {
@@ -1761,12 +1769,20 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                   obligation: &Obligation)
                   -> Result<Substs, ()>
     {
+        let impl_trait_ref = ty::impl_trait_ref(self.tcx(),
+                                                impl_def_id).unwrap();
+
+        // Before we create the substitutions and everything, first
+        // consider a "quick reject". This avoids creating more types
+        // and so forth that we need to.
+        if self.fast_reject_trait_refs(obligation, &*impl_trait_ref) {
+            return Err(());
+        }
+
         let impl_substs = util::fresh_substs_for_impl(self.infcx,
                                                       obligation.cause.span,
                                                       impl_def_id);
 
-        let impl_trait_ref = ty::impl_trait_ref(self.tcx(),
-                                                impl_def_id).unwrap();
         let impl_trait_ref = impl_trait_ref.subst(self.tcx(),
                                                   &impl_substs);
 
@@ -1774,6 +1790,29 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             Ok(()) => Ok(impl_substs),
             Err(()) => Err(())
         }
+    }
+
+    fn fast_reject_trait_refs(&mut self,
+                              obligation: &Obligation,
+                              impl_trait_ref: &ty::TraitRef)
+                              -> bool
+    {
+        // We can avoid creating type variables and doing the full
+        // substitution if we find that any of the input types, when
+        // simplified, do not match.
+
+        obligation.trait_ref.input_types().iter()
+            .zip(impl_trait_ref.input_types().iter())
+            .any(|(&obligation_ty, &impl_ty)| {
+                let simplified_obligation_ty =
+                    fast_reject::simplify_type(self.tcx(), obligation_ty, true);
+                let simplified_impl_ty =
+                    fast_reject::simplify_type(self.tcx(), impl_ty, false);
+
+                simplified_obligation_ty.is_some() &&
+                    simplified_impl_ty.is_some() &&
+                    simplified_obligation_ty != simplified_impl_ty
+            })
     }
 
     fn match_trait_refs(&mut self,

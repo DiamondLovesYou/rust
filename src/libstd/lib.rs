@@ -54,7 +54,7 @@
 //!
 //! For converting to strings use the [`format!`](fmt/index.html)
 //! macro, and for converting from strings use the
-//! [`FromStr`](from_str/index.html) trait.
+//! [`FromStr`](str/trait.FromStr.html) trait.
 //!
 //! ## Platform abstractions
 //!
@@ -146,6 +146,7 @@ extern crate rustrt;
 
 pub use core::any;
 pub use core::bool;
+pub use core::borrow;
 pub use core::cell;
 pub use core::clone;
 #[cfg(not(test))] pub use core::cmp;
@@ -238,9 +239,7 @@ pub mod time;
 /* Common traits */
 
 pub mod error;
-pub mod from_str;
 pub mod num;
-pub mod to_string;
 
 /* Common data structures */
 

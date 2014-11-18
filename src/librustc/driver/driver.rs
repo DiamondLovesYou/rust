@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+pub use self::Input::*;
 
 use back::link;
 use back::write;
@@ -552,7 +553,7 @@ pub fn phase_5_run_llvm_passes(sess: &Session,
         let output_type = write::OutputTypeAssembly;
 
         time(sess.time_passes(), "LLVM passes", (), |_|
-            write::run_passes(sess, trans, [output_type], outputs));
+            write::run_passes(sess, trans, &[output_type], outputs));
 
         write::run_assembler(sess, outputs);
 

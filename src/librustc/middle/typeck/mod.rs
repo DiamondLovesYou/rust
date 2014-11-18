@@ -61,6 +61,10 @@ independently:
 
 #![allow(non_camel_case_types)]
 
+pub use self::ExprAdjustment::*;
+pub use self::vtable_origin::*;
+pub use self::MethodOrigin::*;
+
 use driver::config;
 
 use middle::def;
@@ -382,7 +386,7 @@ fn check_main_fn_ty(ccx: &CrateCtxt,
                 sig: ty::FnSig {
                     binder_id: main_id,
                     inputs: Vec::new(),
-                    output: ty::FnConverging(ty::mk_nil()),
+                    output: ty::FnConverging(ty::mk_nil(tcx)),
                     variadic: false
                 }
             });

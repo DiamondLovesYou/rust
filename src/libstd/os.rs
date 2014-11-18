@@ -31,6 +31,10 @@
 #![allow(missing_docs)]
 #![allow(non_snake_case)]
 
+pub use self::MemoryMapKind::*;
+pub use self::MapOption::*;
+pub use self::MapError::*;
+
 use clone::Clone;
 use error::{FromError, Error};
 use fmt;
@@ -51,8 +55,7 @@ use result::{Err, Ok, Result};
 use slice::{AsSlice, SlicePrelude, PartialEqSlicePrelude};
 use slice::CloneSliceAllocPrelude;
 use str::{Str, StrPrelude, StrAllocating};
-use string::String;
-use to_string::ToString;
+use string::{String, ToString};
 use sync::atomic::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
 use vec::Vec;
 
@@ -78,7 +81,7 @@ const BUF_BYTES : uint = 2048u;
 /// # Failure
 ///
 /// Fails if the current working directory value is invalid:
-/// Possibles cases:
+/// Possible cases:
 ///
 /// * Current directory does not exist.
 /// * There are insufficient permissions to access the current directory.
@@ -137,7 +140,7 @@ pub fn getcwd() -> Path {
             panic!();
         }
     }
-    Path::new(String::from_utf16(::str::truncate_utf16_at_nul(buf))
+    Path::new(String::from_utf16(::str::truncate_utf16_at_nul(&buf))
               .expect("GetCurrentDirectoryW returned invalid UTF-16"))
 }
 
@@ -322,9 +325,9 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>,Vec<u8>)> {
 /// Any invalid UTF-8 bytes in the value are replaced by \uFFFD. See
 /// `String::from_utf8_lossy()` for details.
 ///
-/// # Failure
+/// # Panics
 ///
-/// Fails if `n` has any interior NULs.
+/// Panics if `n` has any interior NULs.
 ///
 /// # Example
 ///
@@ -345,9 +348,9 @@ pub fn getenv(n: &str) -> Option<String> {
 /// Fetches the environment variable `n` byte vector from the current process,
 /// returning None if the variable isn't set.
 ///
-/// # Failure
+/// # Panics
 ///
-/// Fails if `n` has any interior NULs.
+/// Panics if `n` has any interior NULs.
 pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
     use c_str::CString;
 
@@ -903,6 +906,7 @@ pub fn errno() -> uint {
 }
 
 /// Return the string corresponding to an `errno()` value of `errnum`.
+///
 /// # Example
 /// ```rust
 /// use std::os;
@@ -1489,7 +1493,7 @@ impl MemoryMap {
 
 #[cfg(windows)]
 impl Drop for MemoryMap {
-    /// Unmap the mapping. Fails the task if any of `VirtualFree`,
+    /// Unmap the mapping. Panics the task if any of `VirtualFree`,
     /// `UnmapViewOfFile`, or `CloseHandle` fail.
     fn drop(&mut self) {
         use libc::types::os::arch::extra::{LPCVOID, HANDLE};
@@ -2015,7 +2019,7 @@ mod tests {
     fn memory_map_rw() {
         use result::{Ok, Err};
 
-        let chunk = match os::MemoryMap::new(16, [
+        let chunk = match os::MemoryMap::new(16, &[
             os::MapReadable,
             os::MapWritable
         ]) {
@@ -2062,7 +2066,7 @@ mod tests {
             "x".with_c_str(|x| assert!(write(fd, x as *const c_void, 1) == 1));
             fd
         };
-        let chunk = match MemoryMap::new(size / 2, [
+        let chunk = match MemoryMap::new(size / 2, &[
             MapReadable,
             MapWritable,
             MapFd(fd),
@@ -2091,16 +2095,16 @@ mod tests {
                 parsed.iter().map(|s| Path::new(*s)).collect()
         }
 
-        assert!(check_parse("", [""]));
-        assert!(check_parse(r#""""#, [""]));
-        assert!(check_parse(";;", ["", "", ""]));
-        assert!(check_parse(r"c:\", [r"c:\"]));
-        assert!(check_parse(r"c:\;", [r"c:\", ""]));
+        assert!(check_parse("", &mut [""]));
+        assert!(check_parse(r#""""#, &mut [""]));
+        assert!(check_parse(";;", &mut ["", "", ""]));
+        assert!(check_parse(r"c:\", &mut [r"c:\"]));
+        assert!(check_parse(r"c:\;", &mut [r"c:\", ""]));
         assert!(check_parse(r"c:\;c:\Program Files\",
-                            [r"c:\", r"c:\Program Files\"]));
-        assert!(check_parse(r#"c:\;c:\"foo"\"#, [r"c:\", r"c:\foo\"]));
+                            &mut [r"c:\", r"c:\Program Files\"]));
+        assert!(check_parse(r#"c:\;c:\"foo"\"#, &mut [r"c:\", r"c:\foo\"]));
         assert!(check_parse(r#"c:\;c:\"foo;bar"\;c:\baz"#,
-                            [r"c:\", r"c:\foo;bar\", r"c:\baz"]));
+                            &mut [r"c:\", r"c:\foo;bar\", r"c:\baz"]));
     }
 
     #[test]
@@ -2111,11 +2115,11 @@ mod tests {
                 parsed.iter().map(|s| Path::new(*s)).collect()
         }
 
-        assert!(check_parse("", [""]));
-        assert!(check_parse("::", ["", "", ""]));
-        assert!(check_parse("/", ["/"]));
-        assert!(check_parse("/:", ["/", ""]));
-        assert!(check_parse("/:/usr/local", ["/", "/usr/local"]));
+        assert!(check_parse("", &mut [""]));
+        assert!(check_parse("::", &mut ["", "", ""]));
+        assert!(check_parse("/", &mut ["/"]));
+        assert!(check_parse("/:", &mut ["/", ""]));
+        assert!(check_parse("/:/usr/local", &mut ["/", "/usr/local"]));
     }
 
     #[test]
@@ -2125,12 +2129,12 @@ mod tests {
             join_paths(input).unwrap().as_slice() == output.as_bytes()
         }
 
-        assert!(test_eq([], ""));
-        assert!(test_eq(["/bin", "/usr/bin", "/usr/local/bin"],
-                        "/bin:/usr/bin:/usr/local/bin"));
-        assert!(test_eq(["", "/bin", "", "", "/usr/bin", ""],
-                        ":/bin:::/usr/bin:"));
-        assert!(join_paths(["/te:st"]).is_err());
+        assert!(test_eq(&[], ""));
+        assert!(test_eq(&["/bin", "/usr/bin", "/usr/local/bin"],
+                         "/bin:/usr/bin:/usr/local/bin"));
+        assert!(test_eq(&["", "/bin", "", "", "/usr/bin", ""],
+                         ":/bin:::/usr/bin:"));
+        assert!(join_paths(&["/te:st"]).is_err());
     }
 
     #[test]
@@ -2140,14 +2144,14 @@ mod tests {
             join_paths(input).unwrap().as_slice() == output.as_bytes()
         }
 
-        assert!(test_eq([], ""));
-        assert!(test_eq([r"c:\windows", r"c:\"],
+        assert!(test_eq(&[], ""));
+        assert!(test_eq(&[r"c:\windows", r"c:\"],
                         r"c:\windows;c:\"));
-        assert!(test_eq(["", r"c:\windows", "", "", r"c:\", ""],
+        assert!(test_eq(&["", r"c:\windows", "", "", r"c:\", ""],
                         r";c:\windows;;;c:\;"));
-        assert!(test_eq([r"c:\te;st", r"c:\"],
+        assert!(test_eq(&[r"c:\te;st", r"c:\"],
                         r#""c:\te;st";c:\"#));
-        assert!(join_paths([r#"c:\te"st"#]).is_err());
+        assert!(join_paths(&[r#"c:\te"st"#]).is_err());
     }
 
     // More recursive_mkdir tests are in extra::tempfile

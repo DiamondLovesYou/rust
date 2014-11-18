@@ -11,6 +11,22 @@
 //! This module contains the "cleaned" pieces of the AST, and the functions
 //! that clean them.
 
+pub use self::ImplMethod::*;
+pub use self::Type::*;
+pub use self::PrimitiveType::*;
+pub use self::TypeKind::*;
+pub use self::StructField::*;
+pub use self::VariantKind::*;
+pub use self::Mutability::*;
+pub use self::ViewItemInner::*;
+pub use self::ViewPath::*;
+pub use self::ItemEnum::*;
+pub use self::Attribute::*;
+pub use self::TyParamBound::*;
+pub use self::SelfTy::*;
+pub use self::FunctionRetTy::*;
+pub use self::TraitMethod::*;
+
 use syntax;
 use syntax::ast;
 use syntax::ast_util;
@@ -35,6 +51,8 @@ use rustc::middle::stability;
 
 use std::rc::Rc;
 use std::u32;
+use std::str::Str as StrTrait; // Conflicts with Str variant
+use std::char::Char as CharTrait; // Conflicts with Char variant
 
 use core::DocContext;
 use doctree;
@@ -710,8 +728,7 @@ impl Clean<Item> for ast::Method {
             inputs: Arguments {
                 values: inputs.iter().map(|x| x.clean(cx)).collect(),
             },
-            output: (self.pe_fn_decl().output.clean(cx)),
-            cf: self.pe_fn_decl().cf.clean(cx),
+            output: self.pe_fn_decl().output.clean(cx),
             attrs: Vec::new()
         };
         Item {
@@ -749,8 +766,7 @@ impl Clean<Item> for ast::TypeMethod {
             inputs: Arguments {
                 values: inputs.iter().map(|x| x.clean(cx)).collect(),
             },
-            output: (self.decl.output.clean(cx)),
-            cf: self.decl.cf.clean(cx),
+            output: self.decl.output.clean(cx),
             attrs: Vec::new()
         };
         Item {
@@ -840,8 +856,7 @@ impl Clean<ClosureDecl> for ast::ClosureTy {
 #[deriving(Clone, Encodable, Decodable, PartialEq)]
 pub struct FnDecl {
     pub inputs: Arguments,
-    pub output: Type,
-    pub cf: RetStyle,
+    pub output: FunctionRetTy,
     pub attrs: Vec<Attribute>,
 }
 
@@ -857,7 +872,6 @@ impl Clean<FnDecl> for ast::FnDecl {
                 values: self.inputs.clean(cx),
             },
             output: self.output.clean(cx),
-            cf: self.cf.clean(cx),
             attrs: Vec::new()
         }
     }
@@ -884,8 +898,7 @@ impl<'a> Clean<FnDecl> for (ast::DefId, &'a ty::FnSig) {
             let _ = names.next();
         }
         FnDecl {
-            output: sig.output.clean(cx),
-            cf: Return,
+            output: Return(sig.output.clean(cx)),
             attrs: Vec::new(),
             inputs: Arguments {
                 values: sig.inputs.iter().map(|t| {
@@ -918,16 +931,16 @@ impl Clean<Argument> for ast::Arg {
 }
 
 #[deriving(Clone, Encodable, Decodable, PartialEq)]
-pub enum RetStyle {
-    NoReturn,
-    Return
+pub enum FunctionRetTy {
+    Return(Type),
+    NoReturn
 }
 
-impl Clean<RetStyle> for ast::RetStyle {
-    fn clean(&self, _: &DocContext) -> RetStyle {
+impl Clean<FunctionRetTy> for ast::FunctionRetTy {
+    fn clean(&self, cx: &DocContext) -> FunctionRetTy {
         match *self {
-            ast::Return => Return,
-            ast::NoReturn => NoReturn
+            ast::Return(ref typ) => Return(typ.clean(cx)),
+            ast::NoReturn(_) => NoReturn
         }
     }
 }
@@ -1085,9 +1098,9 @@ impl Clean<Item> for ty::ImplOrTraitItem {
 pub enum Type {
     /// structs/enums/traits (anything that'd be an ast::TyPath)
     ResolvedPath {
-        pub path: Path,
-        pub typarams: Option<Vec<TyParamBound>>,
-        pub did: ast::DefId,
+        path: Path,
+        typarams: Option<Vec<TyParamBound>>,
+        did: ast::DefId,
     },
     // I have no idea how to usefully use this.
     TyParamBinder(ast::NodeId),
@@ -1110,9 +1123,9 @@ pub enum Type {
     Unique(Box<Type>),
     RawPointer(Mutability, Box<Type>),
     BorrowedRef {
-        pub lifetime: Option<Lifetime>,
-        pub mutability: Mutability,
-        pub type_: Box<Type>,
+        lifetime: Option<Lifetime>,
+        mutability: Mutability,
+        type_: Box<Type>,
     },
     // region, raw, other boxes, mutable
 }
@@ -1124,7 +1137,6 @@ pub enum PrimitiveType {
     F32, F64,
     Char,
     Bool,
-    Unit,
     Str,
     Slice,
     PrimitiveTuple,
@@ -1156,7 +1168,6 @@ impl PrimitiveType {
             "u32" => Some(U32),
             "u64" => Some(U64),
             "bool" => Some(Bool),
-            "unit" => Some(Unit),
             "char" => Some(Char),
             "str" => Some(Str),
             "f32" => Some(F32),
@@ -1205,17 +1216,13 @@ impl PrimitiveType {
             Str => "str",
             Bool => "bool",
             Char => "char",
-            Unit => "()",
             Slice => "slice",
             PrimitiveTuple => "tuple",
         }
     }
 
     pub fn to_url_str(&self) -> &'static str {
-        match *self {
-            Unit => "unit",
-            other => other.to_string(),
-        }
+        self.to_string()
     }
 
     /// Creates a rustdoc-specific node id for primitive types.
@@ -1230,12 +1237,10 @@ impl Clean<Type> for ast::Ty {
     fn clean(&self, cx: &DocContext) -> Type {
         use syntax::ast::*;
         match self.node {
-            TyNil => Primitive(Unit),
             TyPtr(ref m) => RawPointer(m.mutbl.clean(cx), box m.ty.clean(cx)),
             TyRptr(ref l, ref m) =>
                 BorrowedRef {lifetime: l.clean(cx), mutability: m.mutbl.clean(cx),
                              type_: box m.ty.clean(cx)},
-            TyUniq(ref ty) => Unique(box ty.clean(cx)),
             TyVec(ref ty) => Vector(box ty.clean(cx)),
             TyFixedLengthVec(ref ty, ref e) => FixedVector(box ty.clean(cx),
                                                            e.span.to_src(cx)),
@@ -1247,7 +1252,6 @@ impl Clean<Type> for ast::Ty {
             TyProc(ref c) => Proc(box c.clean(cx)),
             TyBareFn(ref barefn) => BareFunction(box barefn.clean(cx)),
             TyParen(ref ty) => ty.clean(cx),
-            TyBot => Bottom,
             ref x => panic!("Unimplemented type {}", x),
         }
     }
@@ -1256,7 +1260,6 @@ impl Clean<Type> for ast::Ty {
 impl Clean<Type> for ty::t {
     fn clean(&self, cx: &DocContext) -> Type {
         match ty::get(*self).sty {
-            ty::ty_nil => Primitive(Unit),
             ty::ty_bool => Primitive(Bool),
             ty::ty_char => Primitive(Char),
             ty::ty_int(ast::TyI) => Primitive(Int),
@@ -1342,7 +1345,7 @@ impl Clean<Type> for ty::t {
                 }
             }
 
-            ty::ty_unboxed_closure(..) => Primitive(Unit), // FIXME(pcwalton)
+            ty::ty_unboxed_closure(..) => Tuple(vec![]), // FIXME(pcwalton)
 
             ty::ty_infer(..) => panic!("ty_infer"),
             ty::ty_open(..) => panic!("ty_open"),
@@ -2041,7 +2044,6 @@ fn lit_to_string(lit: &ast::Lit) -> String {
         ast::LitFloat(ref f, _t) => f.get().to_string(),
         ast::LitFloatUnsuffixed(ref f) => f.get().to_string(),
         ast::LitBool(b) => b.to_string(),
-        ast::LitNil => "".to_string(),
     }
 }
 

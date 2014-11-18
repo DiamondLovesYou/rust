@@ -112,12 +112,12 @@
 //!
 //! // A list of data to search through.
 //! let all_the_big_things = [
-//!     Plant(250, "redwood"),
-//!     Plant(230, "noble fir"),
-//!     Plant(229, "sugar pine"),
-//!     Animal(25, "blue whale"),
-//!     Animal(19, "fin whale"),
-//!     Animal(15, "north pacific right whale"),
+//!     Kingdom::Plant(250, "redwood"),
+//!     Kingdom::Plant(230, "noble fir"),
+//!     Kingdom::Plant(229, "sugar pine"),
+//!     Kingdom::Animal(25, "blue whale"),
+//!     Kingdom::Animal(19, "fin whale"),
+//!     Kingdom::Animal(15, "north pacific right whale"),
 //! ];
 //!
 //! // We're going to search for the name of the biggest animal,
@@ -126,12 +126,12 @@
 //! let mut size_of_biggest_animal = 0;
 //! for big_thing in all_the_big_things.iter() {
 //!     match *big_thing {
-//!         Animal(size, name) if size > size_of_biggest_animal => {
+//!         Kingdom::Animal(size, name) if size > size_of_biggest_animal => {
 //!             // Now we've found the name of some big animal
 //!             size_of_biggest_animal = size;
 //!             name_of_biggest_animal = Some(name);
 //!         }
-//!         Animal(..) | Plant(..) => ()
+//!         Kingdom::Animal(..) | Kingdom::Plant(..) => ()
 //!     }
 //! }
 //!
@@ -143,6 +143,8 @@
 
 #![stable]
 
+pub use self::Option::*;
+
 use cmp::{Eq, Ord};
 use default::Default;
 use iter::{Iterator, DoubleEndedIterator, FromIterator, ExactSize};
@@ -150,6 +152,7 @@ use mem;
 use result::{Result, Ok, Err};
 use slice;
 use slice::AsSlice;
+use clone::Clone;
 
 // Note that this is not a lang item per se, but it has a hidden dependency on
 // `Iterator`, which is one. The compiler assumes that the `next` method of
@@ -235,7 +238,10 @@ impl<T> Option<T> {
     #[inline]
     #[stable]
     pub fn as_ref<'r>(&'r self) -> Option<&'r T> {
-        match *self { Some(ref x) => Some(x), None => None }
+        match *self {
+            Some(ref x) => Some(x),
+            None => None
+        }
     }
 
     /// Convert from `Option<T>` to `Option<&mut T>`
@@ -253,7 +259,10 @@ impl<T> Option<T> {
     #[inline]
     #[unstable = "waiting for mut conventions"]
     pub fn as_mut<'r>(&'r mut self) -> Option<&'r mut T> {
-        match *self { Some(ref mut x) => Some(x), None => None }
+        match *self {
+            Some(ref mut x) => Some(x),
+            None => None
+        }
     }
 
     /// Convert from `Option<T>` to `&mut [T]` (without copying)
@@ -264,9 +273,9 @@ impl<T> Option<T> {
     /// let mut x = Some("Diamonds");
     /// {
     ///     let v = x.as_mut_slice();
-    ///     assert!(v == ["Diamonds"]);
+    ///     assert!(v == &mut ["Diamonds"]);
     ///     v[0] = "Dirt";
-    ///     assert!(v == ["Dirt"]);
+    ///     assert!(v == &mut ["Dirt"]);
     /// }
     /// assert_eq!(x, Some("Dirt"));
     /// ```
@@ -401,7 +410,10 @@ impl<T> Option<T> {
     #[inline]
     #[unstable = "waiting for unboxed closures"]
     pub fn map<U>(self, f: |T| -> U) -> Option<U> {
-        match self { Some(x) => Some(f(x)), None => None }
+        match self {
+            Some(x) => Some(f(x)),
+            None => None
+        }
     }
 
     /// Applies a function to the contained value or returns a default.
@@ -418,7 +430,10 @@ impl<T> Option<T> {
     #[inline]
     #[unstable = "waiting for unboxed closures"]
     pub fn map_or<U>(self, def: U, f: |T| -> U) -> U {
-        match self { None => def, Some(t) => f(t) }
+        match self {
+            Some(t) => f(t),
+            None => def
+        }
     }
 
     /// Applies a function to the contained value or computes a default.
@@ -437,7 +452,10 @@ impl<T> Option<T> {
     #[inline]
     #[unstable = "waiting for unboxed closures"]
     pub fn map_or_else<U>(self, def: || -> U, f: |T| -> U) -> U {
-        match self { None => def(), Some(t) => f(t) }
+        match self {
+            Some(t) => f(t),
+            None => def()
+        }
     }
 
     /// Transforms the `Option<T>` into a `Result<T, E>`, mapping `Some(v)` to
@@ -676,6 +694,14 @@ impl<T> Option<T> {
     }
 }
 
+impl<'a, T: Clone> Option<&'a T> {
+    /// Maps an Option<&T> to an Option<T> by cloning the contents of the Option<&T>.
+    #[unstable = "recently added as part of collections reform"]
+    pub fn cloned(self) -> Option<T> {
+        self.map(|t| t.clone())
+    }
+}
+
 impl<T: Default> Option<T> {
     /// Returns the contained value or a default
     ///
@@ -716,7 +742,6 @@ impl<T: Default> Option<T> {
 impl<T> AsSlice<T> for Option<T> {
     /// Convert from `Option<T>` to `&[T]` (without copying)
     #[inline]
-    #[stable]
     fn as_slice<'a>(&'a self) -> &'a [T] {
         match *self {
             Some(ref x) => slice::ref_slice(x),
@@ -728,6 +753,7 @@ impl<T> AsSlice<T> for Option<T> {
     }
 }
 
+#[stable]
 impl<T> Default for Option<T> {
     #[inline]
     fn default() -> Option<T> { None }
@@ -772,9 +798,10 @@ impl<A> DoubleEndedIterator<A> for Item<A> {
 impl<A> ExactSize<A> for Item<A> {}
 
 /////////////////////////////////////////////////////////////////////////////
-// Free functions
+// FromIterator
 /////////////////////////////////////////////////////////////////////////////
 
+#[stable]
 impl<A, V: FromIterator<A>> FromIterator<Option<A>> for Option<V> {
     /// Takes each element in the `Iterator`: if it is `None`, no further
     /// elements are taken, and the `None` is returned. Should no `None` occur, a

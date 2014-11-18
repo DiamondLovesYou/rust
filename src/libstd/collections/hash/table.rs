@@ -10,6 +10,8 @@
 //
 // ignore-lexer-test FIXME #15883
 
+pub use self::BucketState::*;
+
 use clone::Clone;
 use cmp;
 use hash::{Hash, Hasher};
@@ -489,9 +491,9 @@ impl<K, V, M: Deref<RawTable<K, V>>> GapThenFull<K, V, M> {
 /// Rounds up to a multiple of a power of two. Returns the closest multiple
 /// of `target_alignment` that is higher or equal to `unrounded`.
 ///
-/// # Failure
+/// # Panics
 ///
-/// Fails if `target_alignment` is not a power of two.
+/// Panics if `target_alignment` is not a power of two.
 fn round_up_to_next(unrounded: uint, target_alignment: uint) -> uint {
     assert!(target_alignment.is_power_of_two());
     (unrounded + target_alignment - 1) & !(target_alignment - 1)
@@ -716,7 +718,7 @@ impl<'a, K, V> Iterator<RawBucket<K, V>> for RawBuckets<'a, K, V> {
 }
 
 /// An iterator that moves out buckets in reverse order. It leaves the table
-/// in an an inconsistent state and should only be used for dropping
+/// in an inconsistent state and should only be used for dropping
 /// the table's remaining entries. It's used in the implementation of Drop.
 struct RevMoveBuckets<'a, K, V> {
     raw: RawBucket<K, V>,

@@ -334,13 +334,13 @@ pub fn main() {
 
     debug!("linking");
     let lib_path = cross_path
-        .join_many(["toolchain".to_string(),
-                    {
-                        let mut s = pnacl_toolchain_prefix();
-                        s.push_str("_pnacl");
-                        s
-                    },
-                    format!("lib-{}", arch)]);
+        .join_many(&["toolchain".to_string(),
+                     {
+                         let mut s = pnacl_toolchain_prefix();
+                         s.push_str("_pnacl");
+                         s
+                     },
+                     format!("lib-{}", arch)]);
 
     let nexe_link_args = vec!("-nostdlib".to_string(),
                               "--no-fix-cortex-a8".to_string(),
@@ -369,11 +369,11 @@ pub fn main() {
         .chain(nexe_link_args_suffix.into_iter())
         .collect();
 
-    let gold = sysroot.join_many(["lib".to_string(),
-                                  "rustlib".to_string(),
-                                  host_triple().to_string(),
-                                  "bin".to_string(),
-                                  "le32-nacl-ld.gold".to_string()]);
+    let gold = sysroot.join_many(&["lib".to_string(),
+                                   "rustlib".to_string(),
+                                   host_triple().to_string(),
+                                   "bin".to_string(),
+                                   "le32-nacl-ld.gold".to_string()]);
 
     fn cleanup_objs(m: &Matches, objs: Vec<String>) {
         use std::io::fs::unlink;

@@ -141,9 +141,9 @@ impl CString {
     /// API, so avoid calling it with a pointer to memory managed by Rust's
     /// allocator API, as the behaviour would not be well defined.
     ///
-    ///# Failure
+    ///# Panics
     ///
-    /// Fails if `buf` is null
+    /// Panics if `buf` is null
     pub unsafe fn new(buf: *const libc::c_char, owns_buffer: bool) -> CString {
         assert!(!buf.is_null());
         CString { buf: buf, owns_buffer_: owns_buffer }
@@ -291,9 +291,9 @@ impl fmt::Show for CString {
 pub trait ToCStr for Sized? {
     /// Copy the receiver into a CString.
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails the task if the receiver has an interior null.
+    /// Panics the task if the receiver has an interior null.
     fn to_c_str(&self) -> CString;
 
     /// Unsafe variant of `to_c_str()` that doesn't check for nulls.
@@ -314,9 +314,9 @@ pub trait ToCStr for Sized? {
     /// }
     /// ```
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails the task if the receiver has an interior null.
+    /// Panics the task if the receiver has an interior null.
     #[inline]
     fn with_c_str<T>(&self, f: |*const libc::c_char| -> T) -> T {
         let c_str = self.to_c_str();
@@ -432,7 +432,7 @@ unsafe fn with_c_str<T>(v: &[u8], checked: bool,
                         f: |*const libc::c_char| -> T) -> T {
     let c_str = if v.len() < BUF_LEN {
         let mut buf: [u8, .. BUF_LEN] = mem::uninitialized();
-        slice::bytes::copy_memory(buf, v);
+        slice::bytes::copy_memory(&mut buf, v);
         buf[v.len()] = 0;
 
         let buf = buf.as_mut_ptr();
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn test_vec_to_c_str() {
-        let b: &[u8] = [];
+        let b: &[u8] = &[];
         let c_str = b.to_c_str();
         unsafe {
             assert_eq!(*c_str.as_ptr().offset(0), 0);
@@ -646,7 +646,7 @@ mod tests {
         let c_str = "hello".to_c_str();
         assert_eq!(c_str.as_bytes_no_nul(), b"hello");
         let c_str = "".to_c_str();
-        let exp: &[u8] = [];
+        let exp: &[u8] = &[];
         assert_eq!(c_str.as_bytes_no_nul(), exp);
         let c_str = b"foo\xFF".to_c_str();
         assert_eq!(c_str.as_bytes_no_nul(), b"foo\xFF");

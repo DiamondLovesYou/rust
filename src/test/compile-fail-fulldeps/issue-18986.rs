@@ -8,16 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that enum variants are in the type namespace.
+// aux-build:use_from_trait_xc.rs
 
-enum Foo {
-    Foo //~ERROR duplicate definition of type or module `Foo`
+extern crate use_from_trait_xc;
+pub use use_from_trait_xc::Trait;
+
+fn main() {
+    match () {
+        Trait { x: 42u } => () //~ ERROR use of trait `Trait` in a struct pattern
+    }
 }
-
-enum Bar {
-    Baz
-}
-
-trait Baz {} //~ERROR duplicate definition of type or module `Baz`
-
-pub fn main() {}

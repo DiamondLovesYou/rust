@@ -12,6 +12,8 @@
 
 #![stable]
 
+pub use self::Ordering::*;
+
 use intrinsics;
 use std::kinds::marker;
 use cell::UnsafeCell;
@@ -58,20 +60,25 @@ pub struct AtomicPtr<T> {
 #[stable]
 pub enum Ordering {
     /// No ordering constraints, only atomic operations
+    #[stable]
     Relaxed,
     /// When coupled with a store, all previous writes become visible
     /// to another thread that performs a load with `Acquire` ordering
     /// on the same value
+    #[stable]
     Release,
     /// When coupled with a load, all subsequent loads will see data
     /// written before a store with `Release` ordering on the same value
     /// in another thread
+    #[stable]
     Acquire,
     /// When coupled with a load, uses `Acquire` ordering, and with a store
     /// `Release` ordering
+    #[stable]
     AcqRel,
     /// Like `AcqRel` with the additional guarantee that all threads see all
     /// sequentially consistent operations in the same order.
+    #[stable]
     SeqCst
 }
 
@@ -91,10 +98,10 @@ pub const INIT_ATOMIC_UINT: AtomicUint =
 // NB: Needs to be -1 (0b11111111...) to make fetch_nand work correctly
 const UINT_TRUE: uint = -1;
 
-#[stable]
 impl AtomicBool {
     /// Create a new `AtomicBool`
     #[inline]
+    #[stable]
     pub fn new(v: bool) -> AtomicBool {
         let val = if v { UINT_TRUE } else { 0 };
         AtomicBool { v: UnsafeCell::new(val), nocopy: marker::NoCopy }
@@ -102,20 +109,22 @@ impl AtomicBool {
 
     /// Load the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Release` or `AcqRel`.
+    /// Panics if `order` is `Release` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn load(&self, order: Ordering) -> bool {
         unsafe { atomic_load(self.v.get() as *const uint, order) > 0 }
     }
 
     /// Store the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Acquire` or `AcqRel`.
+    /// Panics if `order` is `Acquire` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn store(&self, val: bool, order: Ordering) {
         let val = if val { UINT_TRUE } else { 0 };
 
@@ -124,6 +133,7 @@ impl AtomicBool {
 
     /// Store a value, returning the old value
     #[inline]
+    #[stable]
     pub fn swap(&self, val: bool, order: Ordering) -> bool {
         let val = if val { UINT_TRUE } else { 0 };
 
@@ -174,6 +184,7 @@ impl AtomicBool {
     /// }
     /// ```
     #[inline]
+    #[stable]
     pub fn compare_and_swap(&self, old: bool, new: bool, order: Ordering) -> bool {
         let old = if old { UINT_TRUE } else { 0 };
         let new = if new { UINT_TRUE } else { 0 };
@@ -205,6 +216,7 @@ impl AtomicBool {
     /// assert_eq!(false, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_and(&self, val: bool, order: Ordering) -> bool {
         let val = if val { UINT_TRUE } else { 0 };
 
@@ -236,6 +248,7 @@ impl AtomicBool {
     /// assert_eq!(true, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_nand(&self, val: bool, order: Ordering) -> bool {
         let val = if val { UINT_TRUE } else { 0 };
 
@@ -266,6 +279,7 @@ impl AtomicBool {
     /// assert_eq!(false, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_or(&self, val: bool, order: Ordering) -> bool {
         let val = if val { UINT_TRUE } else { 0 };
 
@@ -296,6 +310,7 @@ impl AtomicBool {
     /// assert_eq!(false, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_xor(&self, val: bool, order: Ordering) -> bool {
         let val = if val { UINT_TRUE } else { 0 };
 
@@ -303,36 +318,39 @@ impl AtomicBool {
     }
 }
 
-#[stable]
 impl AtomicInt {
     /// Create a new `AtomicInt`
     #[inline]
+    #[stable]
     pub fn new(v: int) -> AtomicInt {
         AtomicInt {v: UnsafeCell::new(v), nocopy: marker::NoCopy}
     }
 
     /// Load the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Release` or `AcqRel`.
+    /// Panics if `order` is `Release` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn load(&self, order: Ordering) -> int {
         unsafe { atomic_load(self.v.get() as *const int, order) }
     }
 
     /// Store the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Acquire` or `AcqRel`.
+    /// Panics if `order` is `Acquire` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn store(&self, val: int, order: Ordering) {
         unsafe { atomic_store(self.v.get(), val, order); }
     }
 
     /// Store a value, returning the old value
     #[inline]
+    #[stable]
     pub fn swap(&self, val: int, order: Ordering) -> int {
         unsafe { atomic_swap(self.v.get(), val, order) }
     }
@@ -343,6 +361,7 @@ impl AtomicInt {
     /// replace the current value with `new`. Return the previous value.
     /// If the return value is equal to `old` then the value was updated.
     #[inline]
+    #[stable]
     pub fn compare_and_swap(&self, old: int, new: int, order: Ordering) -> int {
         unsafe { atomic_compare_and_swap(self.v.get(), old, new, order) }
     }
@@ -359,6 +378,7 @@ impl AtomicInt {
     /// assert_eq!(10, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_add(&self, val: int, order: Ordering) -> int {
         unsafe { atomic_add(self.v.get(), val, order) }
     }
@@ -375,6 +395,7 @@ impl AtomicInt {
     /// assert_eq!(-10, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_sub(&self, val: int, order: Ordering) -> int {
         unsafe { atomic_sub(self.v.get(), val, order) }
     }
@@ -390,6 +411,7 @@ impl AtomicInt {
     /// assert_eq!(0b101101, foo.fetch_and(0b110011, SeqCst));
     /// assert_eq!(0b100001, foo.load(SeqCst));
     #[inline]
+    #[stable]
     pub fn fetch_and(&self, val: int, order: Ordering) -> int {
         unsafe { atomic_and(self.v.get(), val, order) }
     }
@@ -405,6 +427,7 @@ impl AtomicInt {
     /// assert_eq!(0b101101, foo.fetch_or(0b110011, SeqCst));
     /// assert_eq!(0b111111, foo.load(SeqCst));
     #[inline]
+    #[stable]
     pub fn fetch_or(&self, val: int, order: Ordering) -> int {
         unsafe { atomic_or(self.v.get(), val, order) }
     }
@@ -420,41 +443,45 @@ impl AtomicInt {
     /// assert_eq!(0b101101, foo.fetch_xor(0b110011, SeqCst));
     /// assert_eq!(0b011110, foo.load(SeqCst));
     #[inline]
+    #[stable]
     pub fn fetch_xor(&self, val: int, order: Ordering) -> int {
         unsafe { atomic_xor(self.v.get(), val, order) }
     }
 }
 
-#[stable]
 impl AtomicUint {
     /// Create a new `AtomicUint`
     #[inline]
+    #[stable]
     pub fn new(v: uint) -> AtomicUint {
         AtomicUint { v: UnsafeCell::new(v), nocopy: marker::NoCopy }
     }
 
     /// Load the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Release` or `AcqRel`.
+    /// Panics if `order` is `Release` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn load(&self, order: Ordering) -> uint {
         unsafe { atomic_load(self.v.get() as *const uint, order) }
     }
 
     /// Store the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Acquire` or `AcqRel`.
+    /// Panics if `order` is `Acquire` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn store(&self, val: uint, order: Ordering) {
         unsafe { atomic_store(self.v.get(), val, order); }
     }
 
     /// Store a value, returning the old value
     #[inline]
+    #[stable]
     pub fn swap(&self, val: uint, order: Ordering) -> uint {
         unsafe { atomic_swap(self.v.get(), val, order) }
     }
@@ -465,6 +492,7 @@ impl AtomicUint {
     /// replace the current value with `new`. Return the previous value.
     /// If the return value is equal to `old` then the value was updated.
     #[inline]
+    #[stable]
     pub fn compare_and_swap(&self, old: uint, new: uint, order: Ordering) -> uint {
         unsafe { atomic_compare_and_swap(self.v.get(), old, new, order) }
     }
@@ -481,6 +509,7 @@ impl AtomicUint {
     /// assert_eq!(10, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_add(&self, val: uint, order: Ordering) -> uint {
         unsafe { atomic_add(self.v.get(), val, order) }
     }
@@ -497,6 +526,7 @@ impl AtomicUint {
     /// assert_eq!(0, foo.load(SeqCst));
     /// ```
     #[inline]
+    #[stable]
     pub fn fetch_sub(&self, val: uint, order: Ordering) -> uint {
         unsafe { atomic_sub(self.v.get(), val, order) }
     }
@@ -512,6 +542,7 @@ impl AtomicUint {
     /// assert_eq!(0b101101, foo.fetch_and(0b110011, SeqCst));
     /// assert_eq!(0b100001, foo.load(SeqCst));
     #[inline]
+    #[stable]
     pub fn fetch_and(&self, val: uint, order: Ordering) -> uint {
         unsafe { atomic_and(self.v.get(), val, order) }
     }
@@ -527,6 +558,7 @@ impl AtomicUint {
     /// assert_eq!(0b101101, foo.fetch_or(0b110011, SeqCst));
     /// assert_eq!(0b111111, foo.load(SeqCst));
     #[inline]
+    #[stable]
     pub fn fetch_or(&self, val: uint, order: Ordering) -> uint {
         unsafe { atomic_or(self.v.get(), val, order) }
     }
@@ -542,25 +574,27 @@ impl AtomicUint {
     /// assert_eq!(0b101101, foo.fetch_xor(0b110011, SeqCst));
     /// assert_eq!(0b011110, foo.load(SeqCst));
     #[inline]
+    #[stable]
     pub fn fetch_xor(&self, val: uint, order: Ordering) -> uint {
         unsafe { atomic_xor(self.v.get(), val, order) }
     }
 }
 
-#[stable]
 impl<T> AtomicPtr<T> {
     /// Create a new `AtomicPtr`
     #[inline]
+    #[stable]
     pub fn new(p: *mut T) -> AtomicPtr<T> {
         AtomicPtr { p: UnsafeCell::new(p as uint), nocopy: marker::NoCopy }
     }
 
     /// Load the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Release` or `AcqRel`.
+    /// Panics if `order` is `Release` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn load(&self, order: Ordering) -> *mut T {
         unsafe {
             atomic_load(self.p.get() as *const *mut T, order) as *mut T
@@ -569,16 +603,18 @@ impl<T> AtomicPtr<T> {
 
     /// Store the value
     ///
-    /// # Failure
+    /// # Panics
     ///
-    /// Fails if `order` is `Acquire` or `AcqRel`.
+    /// Panics if `order` is `Acquire` or `AcqRel`.
     #[inline]
+    #[stable]
     pub fn store(&self, ptr: *mut T, order: Ordering) {
         unsafe { atomic_store(self.p.get(), ptr as uint, order); }
     }
 
     /// Store a value, returning the old value
     #[inline]
+    #[stable]
     pub fn swap(&self, ptr: *mut T, order: Ordering) -> *mut T {
         unsafe { atomic_swap(self.p.get(), ptr as uint, order) as *mut T }
     }
@@ -589,6 +625,7 @@ impl<T> AtomicPtr<T> {
     /// replace the current value with `new`. Return the previous value.
     /// If the return value is equal to `old` then the value was updated.
     #[inline]
+    #[stable]
     pub fn compare_and_swap(&self, old: *mut T, new: *mut T, order: Ordering) -> *mut T {
         unsafe {
             atomic_compare_and_swap(self.p.get(), old as uint,
@@ -609,6 +646,7 @@ unsafe fn atomic_store<T>(dst: *mut T, val: T, order:Ordering) {
 }
 
 #[inline]
+#[stable]
 unsafe fn atomic_load<T>(dst: *const T, order:Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_load_acq(dst),
@@ -620,6 +658,7 @@ unsafe fn atomic_load<T>(dst: *const T, order:Ordering) -> T {
 }
 
 #[inline]
+#[stable]
 unsafe fn atomic_swap<T>(dst: *mut T, val: T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_xchg_acq(dst, val),
@@ -632,6 +671,7 @@ unsafe fn atomic_swap<T>(dst: *mut T, val: T, order: Ordering) -> T {
 
 /// Returns the old value (like __sync_fetch_and_add).
 #[inline]
+#[stable]
 unsafe fn atomic_add<T>(dst: *mut T, val: T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_xadd_acq(dst, val),
@@ -644,6 +684,7 @@ unsafe fn atomic_add<T>(dst: *mut T, val: T, order: Ordering) -> T {
 
 /// Returns the old value (like __sync_fetch_and_sub).
 #[inline]
+#[stable]
 unsafe fn atomic_sub<T>(dst: *mut T, val: T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_xsub_acq(dst, val),
@@ -655,6 +696,7 @@ unsafe fn atomic_sub<T>(dst: *mut T, val: T, order: Ordering) -> T {
 }
 
 #[inline]
+#[stable]
 unsafe fn atomic_compare_and_swap<T>(dst: *mut T, old:T, new:T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_cxchg_acq(dst, old, new),
@@ -666,6 +708,7 @@ unsafe fn atomic_compare_and_swap<T>(dst: *mut T, old:T, new:T, order: Ordering)
 }
 
 #[inline]
+#[stable]
 unsafe fn atomic_and<T>(dst: *mut T, val: T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_and_acq(dst, val),
@@ -677,6 +720,7 @@ unsafe fn atomic_and<T>(dst: *mut T, val: T, order: Ordering) -> T {
 }
 
 #[inline]
+#[stable]
 unsafe fn atomic_nand<T>(dst: *mut T, val: T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_nand_acq(dst, val),
@@ -689,6 +733,7 @@ unsafe fn atomic_nand<T>(dst: *mut T, val: T, order: Ordering) -> T {
 
 
 #[inline]
+#[stable]
 unsafe fn atomic_or<T>(dst: *mut T, val: T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_or_acq(dst, val),
@@ -701,6 +746,7 @@ unsafe fn atomic_or<T>(dst: *mut T, val: T, order: Ordering) -> T {
 
 
 #[inline]
+#[stable]
 unsafe fn atomic_xor<T>(dst: *mut T, val: T, order: Ordering) -> T {
     match order {
         Acquire => intrinsics::atomic_xor_acq(dst, val),
@@ -729,9 +775,9 @@ unsafe fn atomic_xor<T>(dst: *mut T, val: T, order: Ordering) -> T {
 ///
 /// Accepts `Acquire`, `Release`, `AcqRel` and `SeqCst` orderings.
 ///
-/// # Failure
+/// # Panics
 ///
-/// Fails if `order` is `Relaxed`
+/// Panics if `order` is `Relaxed`
 #[inline]
 #[stable]
 pub fn fence(order: Ordering) {

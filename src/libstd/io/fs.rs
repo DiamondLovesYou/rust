@@ -381,16 +381,8 @@ pub fn copy(from: &Path, to: &Path) -> IoResult<()> {
 
     let mut reader = try!(File::open(from));
     let mut writer = try!(File::create(to));
-    let mut buf = [0, ..io::DEFAULT_BUF_SIZE];
 
-    loop {
-        let amt = match reader.read(buf) {
-            Ok(n) => n,
-            Err(ref e) if e.kind == io::EndOfFile => { break }
-            Err(e) => return update_err(Err(e), from, to)
-        };
-        try!(writer.write(buf[..amt]));
-    }
+    try!(update_err(super::util::copy(&mut reader, &mut writer), from, to));
 
     chmod(to, try!(update_err(from.stat(), from, to)).perm)
 }
@@ -881,7 +873,7 @@ mod test {
         {
             let mut read_stream = File::open_mode(filename, Open, Read);
             let mut read_buf = [0, .. 1028];
-            let read_str = match check!(read_stream.read(read_buf)) {
+            let read_str = match check!(read_stream.read(&mut read_buf)) {
                 -1|0 => panic!("shouldn't happen"),
                 n => str::from_utf8(read_buf[..n]).unwrap().to_string()
             };
@@ -939,7 +931,7 @@ mod test {
             }
         }
         check!(unlink(filename));
-        let read_str = str::from_utf8(read_mem).unwrap();
+        let read_str = str::from_utf8(&read_mem).unwrap();
         assert_eq!(read_str, message);
     }
 
@@ -960,11 +952,11 @@ mod test {
             let mut read_stream = File::open_mode(filename, Open, Read);
             check!(read_stream.seek(set_cursor as i64, SeekSet));
             tell_pos_pre_read = check!(read_stream.tell());
-            check!(read_stream.read(read_mem));
+            check!(read_stream.read(&mut read_mem));
             tell_pos_post_read = check!(read_stream.tell());
         }
         check!(unlink(filename));
-        let read_str = str::from_utf8(read_mem).unwrap();
+        let read_str = str::from_utf8(&read_mem).unwrap();
         assert_eq!(read_str, message.slice(4, 8));
         assert_eq!(tell_pos_pre_read, set_cursor);
         assert_eq!(tell_pos_post_read, message.len() as u64);
@@ -987,10 +979,10 @@ mod test {
         }
         {
             let mut read_stream = File::open_mode(filename, Open, Read);
-            check!(read_stream.read(read_mem));
+            check!(read_stream.read(&mut read_mem));
         }
         check!(unlink(filename));
-        let read_str = str::from_utf8(read_mem).unwrap();
+        let read_str = str::from_utf8(&read_mem).unwrap();
         assert!(read_str.as_slice() == final_msg.as_slice());
     }
 
@@ -1012,16 +1004,16 @@ mod test {
             let mut read_stream = File::open_mode(filename, Open, Read);
 
             check!(read_stream.seek(-4, SeekEnd));
-            check!(read_stream.read(read_mem));
-            assert_eq!(str::from_utf8(read_mem).unwrap(), chunk_three);
+            check!(read_stream.read(&mut read_mem));
+            assert_eq!(str::from_utf8(&read_mem).unwrap(), chunk_three);
 
             check!(read_stream.seek(-9, SeekCur));
-            check!(read_stream.read(read_mem));
-            assert_eq!(str::from_utf8(read_mem).unwrap(), chunk_two);
+            check!(read_stream.read(&mut read_mem));
+            assert_eq!(str::from_utf8(&read_mem).unwrap(), chunk_two);
 
             check!(read_stream.seek(0, SeekSet));
-            check!(read_stream.read(read_mem));
-            assert_eq!(str::from_utf8(read_mem).unwrap(), chunk_one);
+            check!(read_stream.read(&mut read_mem));
+            assert_eq!(str::from_utf8(&read_mem).unwrap(), chunk_one);
         }
         check!(unlink(filename));
     }
@@ -1107,8 +1099,8 @@ mod test {
         for f in files.iter() {
             {
                 let n = f.filestem_str();
-                check!(File::open(f).read(mem));
-                let read_str = str::from_utf8(mem).unwrap();
+                check!(File::open(f).read(&mut mem));
+                let read_str = str::from_utf8(&mem).unwrap();
                 let expected = match n {
                     None|Some("") => panic!("really shouldn't happen.."),
                     Some(n) => format!("{}{}", prefix, n),
@@ -1532,13 +1524,13 @@ mod test {
         use rand::{StdRng, Rng};
 
         let mut bytes = [0, ..1024];
-        StdRng::new().ok().unwrap().fill_bytes(bytes);
+        StdRng::new().ok().unwrap().fill_bytes(&mut bytes);
 
         let tmpdir = tmpdir();
 
-        check!(File::create(&tmpdir.join("test")).write(bytes));
+        check!(File::create(&tmpdir.join("test")).write(&bytes));
         let actual = check!(File::open(&tmpdir.join("test")).read_to_end());
-        assert!(actual.as_slice() == bytes);
+        assert!(actual.as_slice() == &bytes);
     }
 
     #[test]

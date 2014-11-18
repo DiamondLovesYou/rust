@@ -8,6 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+pub use self::Node::*;
+pub use self::PathElem::*;
+use self::MapEntry::*;
+
 use abi;
 use ast::*;
 use ast_util;
@@ -540,7 +544,7 @@ impl<'ast> Map<'ast> {
 
     pub fn def_id_span(&self, def_id: DefId, fallback: Span) -> Span {
         if def_id.krate == LOCAL_CRATE {
-            self.span(def_id.node)
+            self.opt_span(def_id.node).unwrap_or(fallback)
         } else {
             fallback
         }

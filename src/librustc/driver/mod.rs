@@ -48,7 +48,7 @@ fn run_compiler(args: &[String]) {
         None => return
     };
 
-    let descriptions = diagnostics::registry::Registry::new(super::DIAGNOSTICS);
+    let descriptions = diagnostics::registry::Registry::new(&super::DIAGNOSTICS);
     match matches.opt_str("explain") {
         Some(ref code) => {
             match descriptions.find_description(code.as_slice()) {
@@ -299,14 +299,10 @@ fn describe_debug_flags() {
 
 fn describe_codegen_flags() {
     println!("\nAvailable codegen options:\n");
-    let mut cg = config::basic_codegen_options();
-    for &(name, parser, desc) in config::CG_OPTIONS.iter() {
-        // we invoke the parser function on `None` to see if this option needs
-        // an argument or not.
-        let (width, extra) = if parser(&mut cg, None) {
-            (25, "")
-        } else {
-            (21, "=val")
+    for &(name, _, opt_type_desc, desc) in config::CG_OPTIONS.iter() {
+        let (width, extra) = match opt_type_desc {
+            Some(..) => (21, "=val"),
+            None => (25, "")
         };
         println!("    -C {:>width$s}{} -- {}", name.replace("_", "-"),
                  extra, desc, width=width);

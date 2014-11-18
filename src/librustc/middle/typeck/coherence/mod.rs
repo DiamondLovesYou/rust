@@ -24,7 +24,7 @@ use middle::ty::get;
 use middle::ty::{ImplContainer, ImplOrTraitItemId, MethodTraitItemId};
 use middle::ty::{TypeTraitItemId, lookup_item_type};
 use middle::ty::{t, ty_bool, ty_char, ty_enum, ty_err};
-use middle::ty::{ty_str, ty_vec, ty_float, ty_infer, ty_int, ty_nil, ty_open};
+use middle::ty::{ty_str, ty_vec, ty_float, ty_infer, ty_int, ty_open};
 use middle::ty::{ty_param, Polytype, ty_ptr};
 use middle::ty::{ty_rptr, ty_struct, ty_trait, ty_tup};
 use middle::ty::{ty_uint, ty_unboxed_closure, ty_uniq, ty_bare_fn};
@@ -82,7 +82,7 @@ fn get_base_type(inference_context: &InferCtxt,
             Some(resolved_type)
         }
 
-        ty_nil | ty_bool | ty_char | ty_int(..) | ty_uint(..) | ty_float(..) |
+        ty_bool | ty_char | ty_int(..) | ty_uint(..) | ty_float(..) |
         ty_str(..) | ty_vec(..) | ty_bare_fn(..) | ty_closure(..) | ty_tup(..) |
         ty_infer(..) | ty_param(..) | ty_err | ty_open(..) | ty_uniq(_) |
         ty_ptr(_) | ty_rptr(_, _) => {
@@ -152,9 +152,9 @@ impl<'a, 'tcx, 'v> visit::Visitor<'v> for CoherenceCheckVisitor<'a, 'tcx> {
             ItemImpl(_, ref opt_trait, _, _) => {
                 match opt_trait.clone() {
                     Some(opt_trait) => {
-                        self.cc.check_implementation(item, [opt_trait]);
+                        self.cc.check_implementation(item, &[opt_trait]);
                     }
-                    None => self.cc.check_implementation(item, [])
+                    None => self.cc.check_implementation(item, &[])
                 }
             }
             _ => {
@@ -317,7 +317,7 @@ impl<'a, 'tcx> CoherenceChecker<'a, 'tcx> {
 
     fn get_self_type_for_implementation(&self, impl_did: DefId)
                                         -> Polytype {
-        self.crate_context.tcx.tcache.borrow().get_copy(&impl_did)
+        self.crate_context.tcx.tcache.borrow()[impl_did].clone()
     }
 
     // Converts an implementation in the AST to a vector of items.
@@ -428,7 +428,7 @@ impl<'a, 'tcx> CoherenceChecker<'a, 'tcx> {
         };
 
         let impl_items = tcx.impl_items.borrow();
-        let trait_impls = match tcx.trait_impls.borrow().find_copy(&drop_trait) {
+        let trait_impls = match tcx.trait_impls.borrow().get(&drop_trait).cloned() {
             None => return, // No types with (new-style) dtors present.
             Some(found_impls) => found_impls
         };

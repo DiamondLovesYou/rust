@@ -10,6 +10,8 @@
 
 // #![warn(deprecated_mode)]
 
+pub use self::WfConstraint::*;
+
 use middle::subst::{ParamSpace, Subst, Substs};
 use middle::ty;
 use middle::ty_fold;
@@ -91,7 +93,6 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
                ty.repr(self.tcx));
 
         match ty::get(ty).sty {
-            ty::ty_nil |
             ty::ty_bool |
             ty::ty_char |
             ty::ty_int(..) |
@@ -413,9 +414,9 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
         // region bounds required from all of the trait types:
         let required_region_bounds =
             ty::required_region_bounds(self.tcx,
-                                       [],
+                                       &[],
                                        bounds.builtin_bounds,
-                                       []);
+                                       &[]);
         for &r_d in required_region_bounds.iter() {
             // Each of these is an instance of the `'c <= 'b`
             // constraint above

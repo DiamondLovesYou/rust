@@ -38,8 +38,8 @@
 //!         return Err("invalid header length");
 //!     }
 //!     match header[0] {
-//!         1 => Ok(Version1),
-//!         2 => Ok(Version2),
+//!         1 => Ok(Version::Version1),
+//!         2 => Ok(Version::Version2),
 //!         _ => Err("invalid version")
 //!     }
 //! }
@@ -267,7 +267,7 @@
 //! a bug.
 //!
 //! A module that instead returns `Results` is alerting the caller
-//! that panics are possible, and providing precise control over how
+//! that failure is possible, and providing precise control over how
 //! it is handled.
 //!
 //! Furthermore, panics may not be recoverable at all, depending on
@@ -275,6 +275,8 @@
 //! will not resume after the panic, that a panic is catastrophic.
 
 #![stable]
+
+pub use self::Result::*;
 
 use std::fmt::Show;
 use slice;
@@ -451,14 +453,14 @@ impl<T, E> Result<T, E> {
     /// let mut x: Result<&str, uint> = Ok("Gold");
     /// {
     ///     let v = x.as_mut_slice();
-    ///     assert!(v == ["Gold"]);
+    ///     assert!(v == &mut ["Gold"]);
     ///     v[0] = "Silver";
-    ///     assert!(v == ["Silver"]);
+    ///     assert!(v == &mut ["Silver"]);
     /// }
     /// assert_eq!(x, Ok("Silver"));
     ///
     /// let mut x: Result<&str, uint> = Err(45);
-    /// assert!(x.as_mut_slice() == []);
+    /// assert!(x.as_mut_slice() == &mut []);
     /// ```
     #[inline]
     #[unstable = "waiting for mut conventions"]
@@ -878,9 +880,10 @@ impl<A> DoubleEndedIterator<A> for Item<A> {
 impl<A> ExactSize<A> for Item<A> {}
 
 /////////////////////////////////////////////////////////////////////////////
-// Free functions
+// FromIterator
 /////////////////////////////////////////////////////////////////////////////
 
+#[stable]
 impl<A, E, V: FromIterator<A>> FromIterator<Result<A, E>> for Result<V, E> {
     /// Takes each element in the `Iterator`: if it is an `Err`, no further
     /// elements are taken, and the `Err` is returned. Should no `Err` occur, a
@@ -932,6 +935,10 @@ impl<A, E, V: FromIterator<A>> FromIterator<Result<A, E>> for Result<V, E> {
         }
     }
 }
+
+/////////////////////////////////////////////////////////////////////////////
+// FromIterator
+/////////////////////////////////////////////////////////////////////////////
 
 /// Perform a fold operation over the result values from an iterator.
 ///

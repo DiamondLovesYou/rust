@@ -12,6 +12,7 @@
 
 #![allow(dead_code)]
 #![allow(unused_imports)]
+use self::HasTestSignature::*;
 
 use std::slice;
 use std::mem;
@@ -276,22 +277,26 @@ fn strip_test_functions(krate: ast::Crate) -> ast::Crate {
     })
 }
 
+#[deriving(PartialEq)]
+enum HasTestSignature {
+    Yes,
+    No,
+    NotEvenAFunction,
+}
+
+
 fn is_test_fn(cx: &TestCtxt, i: &ast::Item) -> bool {
     let has_test_attr = attr::contains_name(i.attrs.as_slice(), "test");
-
-    #[deriving(PartialEq)]
-    enum HasTestSignature {
-        Yes,
-        No,
-        NotEvenAFunction,
-    }
 
     fn has_test_signature(i: &ast::Item) -> HasTestSignature {
         match &i.node {
           &ast::ItemFn(ref decl, _, _, ref generics, _) => {
-            let no_output = match decl.output.node {
-                ast::TyNil => true,
-                _ => false,
+            let no_output = match decl.output {
+                ast::Return(ref ret_ty) => match ret_ty.node {
+                    ast::TyTup(ref tys) if tys.is_empty() => true,
+                    _ => false,
+                },
+                ast::NoReturn(_) => false
             };
             if decl.inputs.is_empty()
                    && no_output
@@ -325,9 +330,12 @@ fn is_bench_fn(cx: &TestCtxt, i: &ast::Item) -> bool {
         match i.node {
             ast::ItemFn(ref decl, _, _, ref generics, _) => {
                 let input_cnt = decl.inputs.len();
-                let no_output = match decl.output.node {
-                    ast::TyNil => true,
-                    _ => false
+                let no_output = match decl.output {
+                    ast::Return(ref ret_ty) => match ret_ty.node {
+                        ast::TyTup(ref tys) if tys.is_empty() => true,
+                        _ => false,
+                    },
+                    ast::NoReturn(_) => false
                 };
                 let tparm_cnt = generics.ty_params.len();
                 // NB: inadequate check, but we're running

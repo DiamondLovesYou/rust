@@ -18,7 +18,7 @@
 //! let vec = vec!(1i, 2, 3);
 //! let int_slice = vec.as_slice();
 //! // coercing an array to a slice
-//! let str_slice: &[&str] = ["one", "two", "three"];
+//! let str_slice: &[&str] = &["one", "two", "three"];
 //! ```
 //!
 //! Slices are either mutable or shared. The shared slice type is `&[T]`,
@@ -26,7 +26,7 @@
 //! block of memory that a mutable slice points to:
 //!
 //! ```rust
-//! let x: &mut[int] = [1i, 2, 3];
+//! let x: &mut[int] = &mut [1i, 2, 3];
 //! x[1] = 7;
 //! assert_eq!(x[0], 1);
 //! assert_eq!(x[1], 7);
@@ -87,7 +87,9 @@
 
 #![doc(primitive = "slice")]
 
+use self::Direction::*;
 use alloc::boxed::Box;
+use core::borrow::{BorrowFrom, BorrowFromMut};
 use core::cmp;
 use core::kinds::Sized;
 use core::mem::size_of;
@@ -644,6 +646,16 @@ impl<T> SliceAllocPrelude<T> for [T] {
         }
         cmp::min(self.len(), end-start)
     }
+}
+
+#[unstable = "trait is unstable"]
+impl<T> BorrowFrom<Vec<T>> for [T] {
+    fn borrow_from(owned: &Vec<T>) -> &[T] { owned[] }
+}
+
+#[unstable = "trait is unstable"]
+impl<T> BorrowFromMut<Vec<T>> for [T] {
+    fn borrow_from_mut(owned: &mut Vec<T>) -> &mut [T] { owned[mut] }
 }
 
 /// Unsafe operations
@@ -1962,7 +1974,7 @@ mod tests {
         assert!(!b"foo".starts_with(b"foobar"));
         assert!(!b"bar".starts_with(b"foobar"));
         assert!(b"foobar".starts_with(b"foobar"));
-        let empty: &[u8] = [];
+        let empty: &[u8] = &[];
         assert!(empty.starts_with(empty));
         assert!(!empty.starts_with(b"foo"));
         assert!(b"foobar".starts_with(empty));
@@ -1976,7 +1988,7 @@ mod tests {
         assert!(!b"foo".ends_with(b"foobar"));
         assert!(!b"bar".ends_with(b"foobar"));
         assert!(b"foobar".ends_with(b"foobar"));
-        let empty: &[u8] = [];
+        let empty: &[u8] = &[];
         assert!(empty.ends_with(empty));
         assert!(!empty.ends_with(b"foo"));
         assert!(b"foobar".ends_with(empty));
@@ -2054,7 +2066,7 @@ mod tests {
         let h = x.last_mut();
         assert_eq!(*h.unwrap(), 5);
 
-        let y: &mut [int] = [];
+        let y: &mut [int] = &mut [];
         assert!(y.last_mut().is_none());
     }
 

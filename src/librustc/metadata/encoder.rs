@@ -13,6 +13,8 @@
 #![allow(unused_must_use)] // everything is just a MemWriter, can't fail
 #![allow(non_camel_case_types)]
 
+pub use self::InlinedItemRef::*;
+
 use back::svh::Svh;
 use driver::config;
 use metadata::common::*;
@@ -150,6 +152,10 @@ fn encode_variant_id(rbml_w: &mut Encoder, vid: DefId) {
     rbml_w.start_tag(tag_items_data_item_variant);
     let s = def_to_string(vid);
     rbml_w.writer.write(s.as_bytes());
+    rbml_w.end_tag();
+
+    rbml_w.start_tag(tag_mod_child);
+    rbml_w.wr_str(s.as_slice());
     rbml_w.end_tag();
 }
 
@@ -1863,7 +1869,7 @@ impl<'a, 'b, 'c, 'tcx, 'v> Visitor<'v> for ImplVisitor<'a, 'b, 'c, 'tcx> {
         match item.node {
             ItemImpl(_, Some(ref trait_ref), _, _) => {
                 let def_map = &self.ecx.tcx.def_map;
-                let trait_def = def_map.borrow().get_copy(&trait_ref.ref_id);
+                let trait_def = def_map.borrow()[trait_ref.ref_id].clone();
                 let def_id = trait_def.def_id();
 
                 // Load eagerly if this is an implementation of the Drop trait

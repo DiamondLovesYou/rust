@@ -194,13 +194,21 @@ fn main() {
 
 */
 
+pub use self::JsonEvent::*;
+pub use self::StackElement::*;
+pub use self::Json::*;
+pub use self::ErrorCode::*;
+pub use self::ParserError::*;
+pub use self::DecoderError::*;
+use self::ParserState::*;
+use self::InternalStackElement::*;
+
 use std;
 use std::collections::{HashMap, TreeMap};
 use std::{char, f64, fmt, io, num, str};
-use std::io::MemWriter;
 use std::mem::{swap, transmute};
 use std::num::{Float, FPNaN, FPInfinite, Int};
-use std::str::ScalarValue;
+use std::str::{FromStr, ScalarValue};
 use std::string;
 use std::vec::Vec;
 use std::ops;
@@ -361,8 +369,8 @@ fn escape_str(writer: &mut io::Writer, v: &str) -> Result<(), io::IoError> {
 
 fn escape_char(writer: &mut io::Writer, v: char) -> Result<(), io::IoError> {
     let mut buf = [0, .. 4];
-    v.encode_utf8(buf);
-    escape_bytes(writer, buf)
+    v.encode_utf8(&mut buf);
+    escape_bytes(writer, &mut buf)
 }
 
 fn spaces(wr: &mut io::Writer, mut n: uint) -> Result<(), io::IoError> {
@@ -370,7 +378,7 @@ fn spaces(wr: &mut io::Writer, mut n: uint) -> Result<(), io::IoError> {
     static BUF: [u8, ..LEN] = [b' ', ..LEN];
 
     while n >= LEN {
-        try!(wr.write(BUF));
+        try!(wr.write(&BUF));
         n -= LEN;
     }
 
@@ -403,14 +411,14 @@ impl<'a> Encoder<'a> {
     /// Encode the specified struct into a json [u8]
     pub fn buffer_encode<T:Encodable<Encoder<'a>, io::IoError>>(object: &T) -> Vec<u8>  {
         //Serialize the object in a string using a writer
-        let mut m = MemWriter::new();
+        let mut m = Vec::new();
         // FIXME(14302) remove the transmute and unsafe block.
         unsafe {
             let mut encoder = Encoder::new(&mut m as &mut io::Writer);
-            // MemWriter never Errs
+            // Vec<u8> never Errs
             let _ = object.encode(transmute(&mut encoder));
         }
-        m.unwrap()
+        m
     }
 }
 
@@ -569,13 +577,13 @@ impl<'a> ::Encoder<io::IoError> for Encoder<'a> {
         if idx != 0 { try!(write!(self.writer, ",")) }
         // ref #12967, make sure to wrap a key in double quotes,
         // in the event that its of a type that omits them (eg numbers)
-        let mut buf = MemWriter::new();
+        let mut buf = Vec::new();
         // FIXME(14302) remove the transmute and unsafe block.
         unsafe {
             let mut check_encoder = Encoder::new(&mut buf);
             try!(f(transmute(&mut check_encoder)));
         }
-        let out = str::from_utf8(buf.get_ref()).unwrap();
+        let out = str::from_utf8(buf[]).unwrap();
         let needs_wrapping = out.char_at(0) != '"' && out.char_at_reverse(out.len()) != '"';
         if needs_wrapping { try!(write!(self.writer, "\"")); }
         try!(f(self));
@@ -830,13 +838,13 @@ impl<'a> ::Encoder<io::IoError> for PrettyEncoder<'a> {
         try!(spaces(self.writer, self.curr_indent));
         // ref #12967, make sure to wrap a key in double quotes,
         // in the event that its of a type that omits them (eg numbers)
-        let mut buf = MemWriter::new();
+        let mut buf = Vec::new();
         // FIXME(14302) remove the transmute and unsafe block.
         unsafe {
             let mut check_encoder = PrettyEncoder::new(&mut buf);
             try!(f(transmute(&mut check_encoder)));
         }
-        let out = str::from_utf8(buf.get_ref()).unwrap();
+        let out = str::from_utf8(buf[]).unwrap();
         let needs_wrapping = out.char_at(0) != '"' && out.char_at_reverse(out.len()) != '"';
         if needs_wrapping { try!(write!(self.writer, "\"")); }
         try!(f(self));
@@ -883,16 +891,16 @@ impl Json {
 
     /// Encodes a json value into a string
     pub fn to_pretty_str(&self) -> string::String {
-        let mut s = MemWriter::new();
+        let mut s = Vec::new();
         self.to_pretty_writer(&mut s as &mut io::Writer).unwrap();
-        string::String::from_utf8(s.unwrap()).unwrap()
+        string::String::from_utf8(s).unwrap()
     }
 
      /// If the Json value is an Object, returns the value associated with the provided key.
     /// Otherwise, returns None.
     pub fn find<'a>(&'a self, key: &str) -> Option<&'a Json>{
         match self {
-            &Object(ref map) => map.find_with(|s| key.cmp(s.as_slice())),
+            &Object(ref map) => map.get(key),
             _ => None
         }
     }
@@ -917,7 +925,7 @@ impl Json {
     pub fn search<'a>(&'a self, key: &str) -> Option<&'a Json> {
         match self {
             &Object(ref map) => {
-                match map.find_with(|s| key.cmp(s.as_slice())) {
+                match map.get(key) {
                     Some(json_value) => Some(json_value),
                     None => {
                         for (_, v) in map.iter() {
@@ -1988,7 +1996,7 @@ macro_rules! read_primitive {
                 String(s) => {
                     // re: #12967.. a type w/ numeric keys (ie HashMap<uint, V> etc)
                     // is going to have a string here, as per JSON spec.
-                    match std::from_str::from_str(s.as_slice()) {
+                    match std::str::from_str(s.as_slice()) {
                         Some(f) => Ok(f),
                         None => Err(ExpectedError("Number".to_string(), s)),
                     }
@@ -2027,7 +2035,7 @@ impl ::Decoder<DecoderError> for Decoder {
             String(s) => {
                 // re: #12967.. a type w/ numeric keys (ie HashMap<uint, V> etc)
                 // is going to have a string here, as per JSON spec.
-                match std::from_str::from_str(s.as_slice()) {
+                match std::str::from_str(s.as_slice()) {
                     Some(f) => Ok(f),
                     None => Err(ExpectedError("Number".to_string(), s)),
                 }
@@ -2315,6 +2323,10 @@ impl ToJson for bool {
     fn to_json(&self) -> Json { Boolean(*self) }
 }
 
+impl ToJson for str {
+    fn to_json(&self) -> Json { String(self.into_string()) }
+}
+
 impl ToJson for string::String {
     fn to_json(&self) -> Json { String((*self).clone()) }
 }
@@ -2395,7 +2407,7 @@ impl fmt::Show for Json {
     }
 }
 
-impl std::from_str::FromStr for Json {
+impl FromStr for Json {
     fn from_str(s: &str) -> Option<Json> {
         from_str(s).ok()
     }
@@ -2404,6 +2416,8 @@ impl std::from_str::FromStr for Json {
 #[cfg(test)]
 mod tests {
     extern crate test;
+    use self::Animal::*;
+    use self::DecodeEnum::*;
     use self::test::Bencher;
     use {Encodable, Decodable};
     use super::{List, Encoder, Decoder, Error, Boolean, I64, U64, F64, String, Null,
@@ -2480,7 +2494,7 @@ mod tests {
     #[test]
     fn test_from_str_trait() {
         let s = "null";
-        assert!(::std::from_str::from_str::<Json>(s).unwrap() == from_str(s).unwrap());
+        assert!(::std::str::from_str::<Json>(s).unwrap() == from_str(s).unwrap());
     }
 
     #[test]
@@ -2580,27 +2594,27 @@ mod tests {
 
     #[test]
     fn test_write_object() {
-        assert_eq!(mk_object([]).to_string().into_string(), "{}".to_string());
-        assert_eq!(mk_object([]).to_pretty_str().into_string(), "{}".to_string());
+        assert_eq!(mk_object(&[]).to_string().into_string(), "{}".to_string());
+        assert_eq!(mk_object(&[]).to_pretty_str().into_string(), "{}".to_string());
 
         assert_eq!(
-            mk_object([
+            mk_object(&[
                 ("a".to_string(), Boolean(true))
             ]).to_string().into_string(),
             "{\"a\":true}".to_string()
         );
         assert_eq!(
-            mk_object([("a".to_string(), Boolean(true))]).to_pretty_str(),
+            mk_object(&[("a".to_string(), Boolean(true))]).to_pretty_str(),
             "\
             {\n  \
                 \"a\": true\n\
             }".to_string()
         );
 
-        let complex_obj = mk_object([
+        let complex_obj = mk_object(&[
                 ("b".to_string(), List(vec![
-                    mk_object([("c".to_string(), String("\x0c\r".to_string()))]),
-                    mk_object([("d".to_string(), String("".to_string()))])
+                    mk_object(&[("c".to_string(), String("\x0c\r".to_string()))]),
+                    mk_object(&[("d".to_string(), String("".to_string()))])
                 ]))
             ]);
 
@@ -2628,11 +2642,11 @@ mod tests {
             }".to_string()
         );
 
-        let a = mk_object([
+        let a = mk_object(&[
             ("a".to_string(), Boolean(true)),
             ("b".to_string(), List(vec![
-                mk_object([("c".to_string(), String("\x0c\r".to_string()))]),
-                mk_object([("d".to_string(), String("".to_string()))])
+                mk_object(&[("c".to_string(), String("\x0c\r".to_string()))]),
+                mk_object(&[("d".to_string(), String("".to_string()))])
             ]))
         ]);
 
@@ -2644,12 +2658,11 @@ mod tests {
     }
 
     fn with_str_writer(f: |&mut io::Writer|) -> string::String {
-        use std::io::MemWriter;
         use std::str;
 
-        let mut m = MemWriter::new();
+        let mut m = Vec::new();
         f(&mut m as &mut io::Writer);
-        str::from_utf8(m.unwrap().as_slice()).unwrap().to_string()
+        string::String::from_utf8(m).unwrap()
     }
 
     #[test]
@@ -2937,22 +2950,22 @@ mod tests {
         assert_eq!(from_str("{\"a\":1 1"), Err(SyntaxError(InvalidSyntax,         1, 8)));
         assert_eq!(from_str("{\"a\":1,"),  Err(SyntaxError(EOFWhileParsingObject, 1, 8)));
 
-        assert_eq!(from_str("{}").unwrap(), mk_object([]));
+        assert_eq!(from_str("{}").unwrap(), mk_object(&[]));
         assert_eq!(from_str("{\"a\": 3}").unwrap(),
-                  mk_object([("a".to_string(), U64(3))]));
+                  mk_object(&[("a".to_string(), U64(3))]));
 
         assert_eq!(from_str(
                       "{ \"a\": null, \"b\" : true }").unwrap(),
-                  mk_object([
+                  mk_object(&[
                       ("a".to_string(), Null),
                       ("b".to_string(), Boolean(true))]));
         assert_eq!(from_str("\n{ \"a\": null, \"b\" : true }\n").unwrap(),
-                  mk_object([
+                  mk_object(&[
                       ("a".to_string(), Null),
                       ("b".to_string(), Boolean(true))]));
         assert_eq!(from_str(
                       "{\"a\" : 1.0 ,\"b\": [ true ]}").unwrap(),
-                  mk_object([
+                  mk_object(&[
                       ("a".to_string(), F64(1.0)),
                       ("b".to_string(), List(vec![Boolean(true)]))
                   ]));
@@ -2965,13 +2978,13 @@ mod tests {
                               { \"c\": {\"d\": null} } \
                           ]\
                       }").unwrap(),
-                  mk_object([
+                  mk_object(&[
                       ("a".to_string(), F64(1.0)),
                       ("b".to_string(), List(vec![
                           Boolean(true),
                           String("foo\nbar".to_string()),
-                          mk_object([
-                              ("c".to_string(), mk_object([("d".to_string(), Null)]))
+                          mk_object(&[
+                              ("c".to_string(), mk_object(&[("d".to_string(), Null)]))
                           ])
                       ]))
                   ]));
@@ -3271,17 +3284,15 @@ mod tests {
     fn test_encode_hashmap_with_numeric_key() {
         use std::str::from_utf8;
         use std::io::Writer;
-        use std::io::MemWriter;
         use std::collections::HashMap;
         let mut hm: HashMap<uint, bool> = HashMap::new();
         hm.insert(1, true);
-        let mut mem_buf = MemWriter::new();
+        let mut mem_buf = Vec::new();
         {
             let mut encoder = Encoder::new(&mut mem_buf as &mut io::Writer);
             hm.encode(&mut encoder).unwrap();
         }
-        let bytes = mem_buf.unwrap();
-        let json_str = from_utf8(bytes.as_slice()).unwrap();
+        let json_str = from_utf8(mem_buf[]).unwrap();
         match from_str(json_str) {
             Err(_) => panic!("Unable to parse json_str: {}", json_str),
             _ => {} // it parsed and we are good to go
@@ -3292,17 +3303,15 @@ mod tests {
     fn test_prettyencode_hashmap_with_numeric_key() {
         use std::str::from_utf8;
         use std::io::Writer;
-        use std::io::MemWriter;
         use std::collections::HashMap;
         let mut hm: HashMap<uint, bool> = HashMap::new();
         hm.insert(1, true);
-        let mut mem_buf = MemWriter::new();
+        let mut mem_buf = Vec::new();
         {
             let mut encoder = PrettyEncoder::new(&mut mem_buf as &mut io::Writer);
             hm.encode(&mut encoder).unwrap()
         }
-        let bytes = mem_buf.unwrap();
-        let json_str = from_utf8(bytes.as_slice()).unwrap();
+        let json_str = from_utf8(mem_buf[]).unwrap();
         match from_str(json_str) {
             Err(_) => panic!("Unable to parse json_str: {}", json_str),
             _ => {} // it parsed and we are good to go
@@ -3312,7 +3321,6 @@ mod tests {
     #[test]
     fn test_prettyencoder_indent_level_param() {
         use std::str::from_utf8;
-        use std::io::MemWriter;
         use std::collections::TreeMap;
 
         let mut tree = TreeMap::new();
@@ -3339,15 +3347,14 @@ mod tests {
 
         // Test up to 4 spaces of indents (more?)
         for i in range(0, 4u) {
-            let mut writer = MemWriter::new();
+            let mut writer = Vec::new();
             {
                 let ref mut encoder = PrettyEncoder::new(&mut writer);
                 encoder.set_indent(i);
                 json.encode(encoder).unwrap();
             }
 
-            let bytes = writer.unwrap();
-            let printed = from_utf8(bytes.as_slice()).unwrap();
+            let printed = from_utf8(writer[]).unwrap();
 
             // Check for indents at each line
             let lines: Vec<&str> = printed.lines().collect();
@@ -3635,20 +3642,20 @@ mod tests {
         stack.bump_index();
 
         assert!(stack.len() == 1);
-        assert!(stack.is_equal_to([Index(1)]));
-        assert!(stack.starts_with([Index(1)]));
-        assert!(stack.ends_with([Index(1)]));
+        assert!(stack.is_equal_to(&[Index(1)]));
+        assert!(stack.starts_with(&[Index(1)]));
+        assert!(stack.ends_with(&[Index(1)]));
         assert!(stack.last_is_index());
         assert!(stack.get(0) == Index(1));
 
         stack.push_key("foo".to_string());
 
         assert!(stack.len() == 2);
-        assert!(stack.is_equal_to([Index(1), Key("foo")]));
-        assert!(stack.starts_with([Index(1), Key("foo")]));
-        assert!(stack.starts_with([Index(1)]));
-        assert!(stack.ends_with([Index(1), Key("foo")]));
-        assert!(stack.ends_with([Key("foo")]));
+        assert!(stack.is_equal_to(&[Index(1), Key("foo")]));
+        assert!(stack.starts_with(&[Index(1), Key("foo")]));
+        assert!(stack.starts_with(&[Index(1)]));
+        assert!(stack.ends_with(&[Index(1), Key("foo")]));
+        assert!(stack.ends_with(&[Key("foo")]));
         assert!(!stack.last_is_index());
         assert!(stack.get(0) == Index(1));
         assert!(stack.get(1) == Key("foo"));
@@ -3656,13 +3663,13 @@ mod tests {
         stack.push_key("bar".to_string());
 
         assert!(stack.len() == 3);
-        assert!(stack.is_equal_to([Index(1), Key("foo"), Key("bar")]));
-        assert!(stack.starts_with([Index(1)]));
-        assert!(stack.starts_with([Index(1), Key("foo")]));
-        assert!(stack.starts_with([Index(1), Key("foo"), Key("bar")]));
-        assert!(stack.ends_with([Key("bar")]));
-        assert!(stack.ends_with([Key("foo"), Key("bar")]));
-        assert!(stack.ends_with([Index(1), Key("foo"), Key("bar")]));
+        assert!(stack.is_equal_to(&[Index(1), Key("foo"), Key("bar")]));
+        assert!(stack.starts_with(&[Index(1)]));
+        assert!(stack.starts_with(&[Index(1), Key("foo")]));
+        assert!(stack.starts_with(&[Index(1), Key("foo"), Key("bar")]));
+        assert!(stack.ends_with(&[Key("bar")]));
+        assert!(stack.ends_with(&[Key("foo"), Key("bar")]));
+        assert!(stack.ends_with(&[Index(1), Key("foo"), Key("bar")]));
         assert!(!stack.last_is_index());
         assert!(stack.get(0) == Index(1));
         assert!(stack.get(1) == Key("foo"));
@@ -3671,11 +3678,11 @@ mod tests {
         stack.pop();
 
         assert!(stack.len() == 2);
-        assert!(stack.is_equal_to([Index(1), Key("foo")]));
-        assert!(stack.starts_with([Index(1), Key("foo")]));
-        assert!(stack.starts_with([Index(1)]));
-        assert!(stack.ends_with([Index(1), Key("foo")]));
-        assert!(stack.ends_with([Key("foo")]));
+        assert!(stack.is_equal_to(&[Index(1), Key("foo")]));
+        assert!(stack.starts_with(&[Index(1), Key("foo")]));
+        assert!(stack.starts_with(&[Index(1)]));
+        assert!(stack.ends_with(&[Index(1), Key("foo")]));
+        assert!(stack.ends_with(&[Key("foo")]));
         assert!(!stack.last_is_index());
         assert!(stack.get(0) == Index(1));
         assert!(stack.get(1) == Key("foo"));
@@ -3714,7 +3721,8 @@ mod tests {
         assert_eq!(f64::NAN.to_json(), Null);
         assert_eq!(true.to_json(), Boolean(true));
         assert_eq!(false.to_json(), Boolean(false));
-        assert_eq!("abc".to_string().to_json(), String("abc".to_string()));
+        assert_eq!("abc".to_json(), String("abc".into_string()));
+        assert_eq!("abc".into_string().to_json(), String("abc".into_string()));
         assert_eq!((1u, 2u).to_json(), list2);
         assert_eq!((1u, 2u, 3u).to_json(), list3);
         assert_eq!([1u, 2].to_json(), list2);

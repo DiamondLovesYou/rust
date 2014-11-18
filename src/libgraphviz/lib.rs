@@ -60,10 +60,10 @@ pub fn render_to<W:Writer>(output: &mut W) {
 }
 
 impl<'a> dot::Labeller<'a, Nd, Ed> for Edges {
-    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new("example1") }
+    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new("example1").unwrap() }
 
     fn node_id(&'a self, n: &Nd) -> dot::Id<'a> {
-        dot::Id::new(format!("N{}", *n))
+        dot::Id::new(format!("N{}", *n)).unwrap()
     }
 }
 
@@ -90,7 +90,7 @@ impl<'a> dot::GraphWalk<'a, Nd, Ed> for Edges {
     fn target(&self, e: &Ed) -> Nd { let &(_,t) = e; t }
 }
 
-# pub fn main() { use std::io::MemWriter; render_to(&mut MemWriter::new()) }
+# pub fn main() { render_to(&mut Vec::new()) }
 ```
 
 ```no_run
@@ -163,9 +163,9 @@ pub fn render_to<W:Writer>(output: &mut W) {
 }
 
 impl<'a> dot::Labeller<'a, Nd, Ed<'a>> for Graph {
-    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new("example2") }
+    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new("example2").unwrap() }
     fn node_id(&'a self, n: &Nd) -> dot::Id<'a> {
-        dot::Id::new(format!("N{}", n))
+        dot::Id::new(format!("N{}", n)).unwrap()
     }
     fn node_label<'a>(&'a self, n: &Nd) -> dot::LabelText<'a> {
         dot::LabelStr(str::Slice(self.nodes[*n].as_slice()))
@@ -182,7 +182,7 @@ impl<'a> dot::GraphWalk<'a, Nd, Ed<'a>> for Graph {
     fn target(&self, e: &Ed) -> Nd { let & &(_,t) = e; t }
 }
 
-# pub fn main() { use std::io::MemWriter; render_to(&mut MemWriter::new()) }
+# pub fn main() { render_to(&mut Vec::new()) }
 ```
 
 ```no_run
@@ -219,9 +219,9 @@ pub fn render_to<W:Writer>(output: &mut W) {
 }
 
 impl<'a> dot::Labeller<'a, Nd<'a>, Ed<'a>> for Graph {
-    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new("example3") }
+    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new("example3").unwrap() }
     fn node_id(&'a self, n: &Nd<'a>) -> dot::Id<'a> {
-        dot::Id::new(format!("N{:u}", n.val0()))
+        dot::Id::new(format!("N{:u}", n.val0())).unwrap()
     }
     fn node_label<'a>(&'a self, n: &Nd<'a>) -> dot::LabelText<'a> {
         let &(i, _) = n;
@@ -246,7 +246,7 @@ impl<'a> dot::GraphWalk<'a, Nd<'a>, Ed<'a>> for Graph {
     fn target(&self, e: &Ed<'a>) -> Nd<'a> { let &(_,t) = e; t }
 }
 
-# pub fn main() { use std::io::MemWriter; render_to(&mut MemWriter::new()) }
+# pub fn main() { render_to(&mut Vec::new()) }
 ```
 
 ```no_run
@@ -274,6 +274,9 @@ pub fn main() {
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
+#![feature(globs, slicing_syntax)]
+
+pub use self::LabelText::*;
 
 use std::io;
 use std::str;
@@ -351,14 +354,22 @@ impl<'a> Id<'a> {
     /// defined by the DOT language.  This function may change in the
     /// future to accept a broader subset, or the entirety, of DOT's
     /// `ID` format.)
-    pub fn new<Name:str::IntoMaybeOwned<'a>>(name: Name) -> Id<'a> {
+    ///
+    /// Passing an invalid string (containing spaces, brackets,
+    /// quotes, ...) will return an empty `Err` value.
+    pub fn new<Name:str::IntoMaybeOwned<'a>>(name: Name) -> Result<Id<'a>, ()> {
         let name = name.into_maybe_owned();
         {
             let mut chars = name.as_slice().chars();
-            assert!(is_letter_or_underscore(chars.next().unwrap()));
-            assert!(chars.all(is_constituent));
+            match chars.next() {
+                Some(c) if is_letter_or_underscore(c) => { ; },
+                _ => return Err(())
+            }
+            if !chars.all(is_constituent) {
+                return Err(());
+            }
         }
-        return Id{ name: name };
+        return Ok(Id{ name: name });
 
         fn is_letter_or_underscore(c: char) -> bool {
             in_range('a', c, 'z') || in_range('A', c, 'Z') || c == '_'
@@ -514,13 +525,13 @@ pub fn render<'a, N:'a, E:'a, G:Labeller<'a,N,E>+GraphWalk<'a,N,E>, W:Writer>(
         w.write_str("    ")
     }
 
-    try!(writeln(w, ["digraph ", g.graph_id().as_slice(), " {"]));
+    try!(writeln(w, &["digraph ", g.graph_id().as_slice(), " {"]));
     for n in g.nodes().iter() {
         try!(indent(w));
         let id = g.node_id(n);
         let escaped = g.node_label(n).escape();
-        try!(writeln(w, [id.as_slice(),
-                         "[label=\"", escaped.as_slice(), "\"];"]));
+        try!(writeln(w, &[id.as_slice(),
+                          "[label=\"", escaped.as_slice(), "\"];"]));
     }
 
     for e in g.edges().iter() {
@@ -530,18 +541,19 @@ pub fn render<'a, N:'a, E:'a, G:Labeller<'a,N,E>+GraphWalk<'a,N,E>, W:Writer>(
         let target = g.target(e);
         let source_id = g.node_id(&source);
         let target_id = g.node_id(&target);
-        try!(writeln(w, [source_id.as_slice(), " -> ", target_id.as_slice(),
-                         "[label=\"", escaped_label.as_slice(), "\"];"]));
+        try!(writeln(w, &[source_id.as_slice(), " -> ", target_id.as_slice(),
+                          "[label=\"", escaped_label.as_slice(), "\"];"]));
     }
 
-    writeln(w, ["}"])
+    writeln(w, &["}"])
 }
 
 #[cfg(test)]
 mod tests {
+    use self::NodeLabels::*;
     use super::{Id, LabelText, LabelStr, EscStr, Labeller};
     use super::{Nodes, Edges, GraphWalk, render};
-    use std::io::{MemWriter, BufReader, IoResult};
+    use std::io::{BufReader, IoResult};
     use std::str;
 
     /// each node is an index in a vector in the graph.
@@ -623,12 +635,12 @@ mod tests {
     }
 
     fn id_name<'a>(n: &Node) -> Id<'a> {
-        Id::new(format!("N{:u}", *n))
+        Id::new(format!("N{:u}", *n)).unwrap()
     }
 
     impl<'a> Labeller<'a, Node, &'a Edge> for LabelledGraph {
         fn graph_id(&'a self) -> Id<'a> {
-            Id::new(self.name.as_slice())
+            Id::new(self.name.as_slice()).unwrap()
         }
         fn node_id(&'a self, n: &Node) -> Id<'a> {
             id_name(n)
@@ -690,9 +702,9 @@ mod tests {
     }
 
     fn test_input(g: LabelledGraph) -> IoResult<String> {
-        let mut writer = MemWriter::new();
+        let mut writer = Vec::new();
         render(&g, &mut writer).unwrap();
-        let mut r = BufReader::new(writer.get_ref());
+        let mut r = BufReader::new(writer[]);
         r.read_to_string()
     }
 
@@ -797,7 +809,7 @@ r#"digraph hasse_diagram {
             "branch2",
             "afterward"));
 
-        let mut writer = MemWriter::new();
+        let mut writer = Vec::new();
 
         let g = LabelledGraphWithEscStrs::new(
             "syntax_tree", labels,
@@ -805,7 +817,7 @@ r#"digraph hasse_diagram {
                  edge(1, 3, ";"),    edge(2, 3, ";"   )));
 
         render(&g, &mut writer).unwrap();
-        let mut r = BufReader::new(writer.get_ref());
+        let mut r = BufReader::new(writer[]);
         let r = r.read_to_string();
 
         assert_eq!(r.unwrap().as_slice(),
@@ -820,5 +832,23 @@ r#"digraph syntax_tree {
     N2 -> N3[label=";"];
 }
 "#);
+    }
+
+    #[test]
+    fn simple_id_construction() {
+        let id1 = Id::new("hello");
+        match id1 {
+            Ok(_) => {;},
+            Err(_) => panic!("'hello' is not a valid value for id anymore")
+        }
+    }
+
+    #[test]
+    fn badly_formatted_id() {
+        let id2 = Id::new("Weird { struct : ure } !!!");
+        match id2 {
+            Ok(_) => panic!("graphviz id suddenly allows spaces, brackets and stuff"),
+            Err(_) => {;}
+        }
     }
 }
