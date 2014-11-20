@@ -13,64 +13,31 @@
 pub use self::WfConstraint::*;
 
 use middle::subst::{ParamSpace, Subst, Substs};
-use middle::ty;
-use middle::ty_fold;
-use middle::ty_fold::{TypeFolder, TypeFoldable};
+use middle::ty::{mod, Ty};
+use middle::ty_fold::{TypeFolder};
 
 use syntax::ast;
 
-use std::collections::hash_map::{Occupied, Vacant};
-use util::nodemap::FnvHashMap;
 use util::ppaux::Repr;
 
 // Helper functions related to manipulating region types.
 
-pub fn replace_late_bound_regions<T>(
-    tcx: &ty::ctxt,
-    binder_id: ast::NodeId,
-    value: &T,
-    map_fn: |ty::BoundRegion| -> ty::Region)
-    -> (FnvHashMap<ty::BoundRegion,ty::Region>, T)
-    where T : TypeFoldable + Repr
-{
-    debug!("replace_late_bound_regions(binder_id={}, value={})",
-           binder_id, value.repr(tcx));
-
-    let mut map = FnvHashMap::new();
-    let new_value = {
-        let mut folder = ty_fold::RegionFolder::regions(tcx, |r| {
-            match r {
-                ty::ReLateBound(s, br) if s == binder_id => {
-                    match map.entry(br) {
-                        Vacant(entry) => *entry.set(map_fn(br)),
-                        Occupied(entry) => *entry.into_mut(),
-                    }
-                }
-                _ => r
-            }
-        });
-        value.fold_with(&mut folder)
-    };
-    debug!("resulting map: {}", map);
-    (map, new_value)
-}
-
-pub enum WfConstraint {
-    RegionSubRegionConstraint(Option<ty::t>, ty::Region, ty::Region),
-    RegionSubParamConstraint(Option<ty::t>, ty::Region, ty::ParamTy),
+pub enum WfConstraint<'tcx> {
+    RegionSubRegionConstraint(Option<Ty<'tcx>>, ty::Region, ty::Region),
+    RegionSubParamConstraint(Option<Ty<'tcx>>, ty::Region, ty::ParamTy),
 }
 
 struct Wf<'a, 'tcx: 'a> {
     tcx: &'a ty::ctxt<'tcx>,
-    stack: Vec<(ty::Region, Option<ty::t>)>,
-    out: Vec<WfConstraint>,
+    stack: Vec<(ty::Region, Option<Ty<'tcx>>)>,
+    out: Vec<WfConstraint<'tcx>>,
 }
 
-pub fn region_wf_constraints(
-    tcx: &ty::ctxt,
-    ty: ty::t,
+pub fn region_wf_constraints<'tcx>(
+    tcx: &ty::ctxt<'tcx>,
+    ty: Ty<'tcx>,
     outer_region: ty::Region)
-    -> Vec<WfConstraint>
+    -> Vec<WfConstraint<'tcx>>
 {
     /*!
      * This routine computes the well-formedness constraints that must
@@ -88,11 +55,11 @@ pub fn region_wf_constraints(
 }
 
 impl<'a, 'tcx> Wf<'a, 'tcx> {
-    fn accumulate_from_ty(&mut self, ty: ty::t) {
+    fn accumulate_from_ty(&mut self, ty: Ty<'tcx>) {
         debug!("Wf::accumulate_from_ty(ty={})",
                ty.repr(self.tcx));
 
-        match ty::get(ty).sty {
+        match ty.sty {
             ty::ty_bool |
             ty::ty_char |
             ty::ty_int(..) |
@@ -179,9 +146,9 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
     }
 
     fn accumulate_from_rptr(&mut self,
-                            ty: ty::t,
+                            ty: Ty<'tcx>,
                             r_b: ty::Region,
-                            ty_b: ty::t) {
+                            ty_b: Ty<'tcx>) {
         // We are walking down a type like this, and current
         // position is indicated by caret:
         //
@@ -226,7 +193,7 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
     }
 
     fn push_sub_region_constraint(&mut self,
-                                  opt_ty: Option<ty::t>,
+                                  opt_ty: Option<Ty<'tcx>>,
                                   r_a: ty::Region,
                                   r_b: ty::Region) {
         /*! Pushes a constraint that `r_a <= r_b`, due to `opt_ty` */
@@ -246,16 +213,16 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
 
     fn push_param_constraint(&mut self,
                              region: ty::Region,
-                             opt_ty: Option<ty::t>,
+                             opt_ty: Option<Ty<'tcx>>,
                              param_ty: ty::ParamTy) {
         /*! Pushes a constraint that `region <= param_ty`, due to `opt_ty` */
         self.out.push(RegionSubParamConstraint(opt_ty, region, param_ty));
     }
 
     fn accumulate_from_adt(&mut self,
-                           ty: ty::t,
+                           ty: Ty<'tcx>,
                            def_id: ast::DefId,
-                           substs: &Substs)
+                           substs: &Substs<'tcx>)
     {
         // The generic declarations from the type, appropriately
         // substituted for the actual substitutions.
@@ -355,8 +322,8 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
     }
 
     fn accumulate_from_closure_ty(&mut self,
-                                  ty: ty::t,
-                                  c: &ty::ClosureTy)
+                                  ty: Ty<'tcx>,
+                                  c: &ty::ClosureTy<'tcx>)
     {
         match c.store {
             ty::RegionTraitStore(r_b, _) => {
@@ -369,7 +336,7 @@ impl<'a, 'tcx> Wf<'a, 'tcx> {
     }
 
     fn accumulate_from_object_ty(&mut self,
-                                 ty: ty::t,
+                                 ty: Ty<'tcx>,
                                  bounds: &ty::ExistentialBounds)
     {
         // Imagine a type like this:

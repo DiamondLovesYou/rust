@@ -31,23 +31,22 @@
  * a lattice.
  */
 
-use middle::ty::{RegionVid, TyVar};
-use middle::ty;
+use middle::ty::{TyVar};
+use middle::ty::{mod, Ty};
 use middle::typeck::infer::*;
 use middle::typeck::infer::combine::*;
 use middle::typeck::infer::glb::Glb;
 use middle::typeck::infer::lub::Lub;
-use util::nodemap::FnvHashMap;
 use util::ppaux::Repr;
 
-pub trait LatticeDir {
+pub trait LatticeDir<'tcx> {
     // Relates the type `v` to `a` and `b` such that `v` represents
     // the LUB/GLB of `a` and `b` as appropriate.
-    fn relate_bound<'a>(&'a self, v: ty::t, a: ty::t, b: ty::t) -> cres<()>;
+    fn relate_bound(&self, v: Ty<'tcx>, a: Ty<'tcx>, b: Ty<'tcx>) -> cres<'tcx, ()>;
 }
 
-impl<'a, 'tcx> LatticeDir for Lub<'a, 'tcx> {
-    fn relate_bound<'a>(&'a self, v: ty::t, a: ty::t, b: ty::t) -> cres<()> {
+impl<'a, 'tcx> LatticeDir<'tcx> for Lub<'a, 'tcx> {
+    fn relate_bound(&self, v: Ty<'tcx>, a: Ty<'tcx>, b: Ty<'tcx>) -> cres<'tcx, ()> {
         let sub = self.sub();
         try!(sub.tys(a, v));
         try!(sub.tys(b, v));
@@ -55,8 +54,8 @@ impl<'a, 'tcx> LatticeDir for Lub<'a, 'tcx> {
     }
 }
 
-impl<'a, 'tcx> LatticeDir for Glb<'a, 'tcx> {
-    fn relate_bound<'a>(&'a self, v: ty::t, a: ty::t, b: ty::t) -> cres<()> {
+impl<'a, 'tcx> LatticeDir<'tcx> for Glb<'a, 'tcx> {
+    fn relate_bound(&self, v: Ty<'tcx>, a: Ty<'tcx>, b: Ty<'tcx>) -> cres<'tcx, ()> {
         let sub = self.sub();
         try!(sub.tys(v, a));
         try!(sub.tys(v, b));
@@ -64,10 +63,10 @@ impl<'a, 'tcx> LatticeDir for Glb<'a, 'tcx> {
     }
 }
 
-pub fn super_lattice_tys<'tcx, L:LatticeDir+Combine<'tcx>>(this: &L,
-                                                           a: ty::t,
-                                                           b: ty::t)
-                                                           -> cres<ty::t>
+pub fn super_lattice_tys<'tcx, L:LatticeDir<'tcx>+Combine<'tcx>>(this: &L,
+                                                                 a: Ty<'tcx>,
+                                                                 b: Ty<'tcx>)
+                                                                 -> cres<'tcx, Ty<'tcx>>
 {
     debug!("{}.lattice_tys({}, {})",
            this.tag(),
@@ -81,7 +80,7 @@ pub fn super_lattice_tys<'tcx, L:LatticeDir+Combine<'tcx>>(this: &L,
     let infcx = this.infcx();
     let a = infcx.type_variables.borrow().replace_if_possible(a);
     let b = infcx.type_variables.borrow().replace_if_possible(b);
-    match (&ty::get(a).sty, &ty::get(b).sty) {
+    match (&a.sty, &b.sty) {
         (&ty::ty_infer(TyVar(..)), &ty::ty_infer(TyVar(..)))
             if infcx.type_var_diverges(a) && infcx.type_var_diverges(b) => {
             let v = infcx.next_diverging_ty_var();
@@ -99,29 +98,5 @@ pub fn super_lattice_tys<'tcx, L:LatticeDir+Combine<'tcx>>(this: &L,
         _ => {
             super_tys(this, a, b)
         }
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////
-// Random utility functions used by LUB/GLB when computing LUB/GLB of
-// fn types
-
-pub fn var_ids<'tcx, T: Combine<'tcx>>(this: &T,
-                                       map: &FnvHashMap<ty::BoundRegion, ty::Region>)
-                                       -> Vec<RegionVid> {
-    map.iter().map(|(_, r)| match *r {
-            ty::ReInfer(ty::ReVar(r)) => { r }
-            r => {
-                this.infcx().tcx.sess.span_bug(
-                    this.trace().origin.span(),
-                    format!("found non-region-vid: {}", r).as_slice());
-            }
-        }).collect()
-}
-
-pub fn is_var_in_set(new_vars: &[RegionVid], r: ty::Region) -> bool {
-    match r {
-        ty::ReInfer(ty::ReVar(ref v)) => new_vars.iter().any(|x| x == v),
-        _ => false
     }
 }

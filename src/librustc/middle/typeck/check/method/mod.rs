@@ -56,12 +56,12 @@ pub enum CandidateSource {
 
 type MethodIndex = uint; // just for doc purposes
 
-pub fn exists(fcx: &FnCtxt,
-              span: Span,
-              method_name: ast::Name,
-              self_ty: ty::t,
-              call_expr_id: ast::NodeId)
-              -> bool
+pub fn exists<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
+                        span: Span,
+                        method_name: ast::Name,
+                        self_ty: Ty<'tcx>,
+                        call_expr_id: ast::NodeId)
+                        -> bool
 {
     /*!
      * Determines whether the type `self_ty` supports a method name `method_name` or not.
@@ -74,14 +74,14 @@ pub fn exists(fcx: &FnCtxt,
     }
 }
 
-pub fn lookup(fcx: &FnCtxt,
-              span: Span,
-              method_name: ast::Name,
-              self_ty: ty::t,
-              supplied_method_types: Vec<ty::t>,
-              call_expr_id: ast::NodeId,
-              self_expr: &ast::Expr)
-              -> Result<MethodCallee, MethodError>
+pub fn lookup<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
+                        span: Span,
+                        method_name: ast::Name,
+                        self_ty: Ty<'tcx>,
+                        supplied_method_types: Vec<Ty<'tcx>>,
+                        call_expr_id: ast::NodeId,
+                        self_expr: &ast::Expr)
+                        -> Result<MethodCallee<'tcx>, MethodError>
 {
     /*!
      * Performs method lookup. If lookup is successful, it will return the callee
@@ -115,9 +115,9 @@ pub fn lookup_in_trait<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
                                  self_expr: Option<&'a ast::Expr>,
                                  m_name: ast::Name,
                                  trait_def_id: DefId,
-                                 self_ty: ty::t,
-                                 opt_input_types: Option<Vec<ty::t>>)
-                                 -> Option<MethodCallee>
+                                 self_ty: Ty<'tcx>,
+                                 opt_input_types: Option<Vec<Ty<'tcx>>>)
+                                 -> Option<MethodCallee<'tcx>>
 {
     lookup_in_trait_adjusted(fcx, span, self_expr, m_name, trait_def_id,
                              ty::AutoDerefRef { autoderefs: 0, autoref: None },
@@ -129,10 +129,10 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
                                           self_expr: Option<&'a ast::Expr>,
                                           m_name: ast::Name,
                                           trait_def_id: DefId,
-                                          autoderefref: ty::AutoDerefRef,
-                                          self_ty: ty::t,
-                                          opt_input_types: Option<Vec<ty::t>>)
-                                          -> Option<MethodCallee>
+                                          autoderefref: ty::AutoDerefRef<'tcx>,
+                                          self_ty: Ty<'tcx>,
+                                          opt_input_types: Option<Vec<Ty<'tcx>>>)
+                                          -> Option<MethodCallee<'tcx>>
 {
     /*!
      * `lookup_in_trait_adjusted` is used for overloaded operators. It
@@ -200,10 +200,12 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
 
     // Substitute the trait parameters into the method type and
     // instantiate late-bound regions to get the actual method type.
+    //
+    // Note that as the method comes from a trait, it can only have
+    // late-bound regions from the fn itself, not the impl.
     let ref bare_fn_ty = method_ty.fty;
     let fn_sig = bare_fn_ty.sig.subst(tcx, &trait_ref.substs);
-    let fn_sig = fcx.infcx().replace_late_bound_regions_with_fresh_var(fn_sig.binder_id,
-                                                                       span,
+    let fn_sig = fcx.infcx().replace_late_bound_regions_with_fresh_var(span,
                                                                        infer::FnCall,
                                                                        &fn_sig).0;
     let transformed_self_ty = fn_sig.inputs[0];
@@ -222,10 +224,15 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
     // so this also effectively registers `obligation` as well.  (We
     // used to register `obligation` explicitly, but that resulted in
     // double error messages being reported.)
+    //
+    // Note that as the method comes from a trait, it should not have
+    // any late-bound regions appearing in its bounds.
+    let method_bounds = method_ty.generics.to_bounds(fcx.tcx(), &trait_ref.substs);
+    assert!(!method_bounds.has_escaping_regions());
     fcx.add_obligations_for_parameters(
         traits::ObligationCause::misc(span),
         &trait_ref.substs,
-        &method_ty.generics);
+        &method_bounds);
 
     // FIXME(#18653) -- Try to resolve obligations, giving us more
     // typing information, which can sometimes be needed to avoid
@@ -255,7 +262,7 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
                 ty::ByReferenceExplicitSelfCategory(..) => {
                     // Trait method is fn(&self) or fn(&mut self), need an
                     // autoref. Pull the region etc out of the type of first argument.
-                    match ty::get(transformed_self_ty).sty {
+                    match transformed_self_ty.sty {
                         ty::ty_rptr(region, ty::mt { mutbl, ty: _ }) => {
                             let ty::AutoDerefRef { autoderefs, autoref } = autoderefref;
                             let autoref = autoref.map(|r| box r);
@@ -301,11 +308,11 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
     Some(callee)
 }
 
-pub fn report_error(fcx: &FnCtxt,
-                    span: Span,
-                    rcvr_ty: ty::t,
-                    method_name: ast::Name,
-                    error: MethodError)
+pub fn report_error<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
+                              span: Span,
+                              rcvr_ty: Ty<'tcx>,
+                              method_name: ast::Name,
+                              error: MethodError)
 {
     match error {
         NoMatch(static_sources) => {
@@ -314,7 +321,7 @@ pub fn report_error(fcx: &FnCtxt,
 
             // True if the type is a struct and contains a field with
             // the same name as the not-found method
-            let is_field = match ty::get(rcvr_ty).sty {
+            let is_field = match rcvr_ty.sty {
                 ty_struct(did, _) =>
                     ty::lookup_struct_fields(cx, did)
                         .iter()
@@ -401,10 +408,10 @@ pub fn report_error(fcx: &FnCtxt,
     }
 }
 
-fn trait_method(tcx: &ty::ctxt,
-                trait_def_id: ast::DefId,
-                method_name: ast::Name)
-                -> Option<(uint, Rc<ty::Method>)>
+fn trait_method<'tcx>(tcx: &ty::ctxt<'tcx>,
+                      trait_def_id: ast::DefId,
+                      method_name: ast::Name)
+                      -> Option<(uint, Rc<ty::Method<'tcx>>)>
 {
     /*!
      * Find method with name `method_name` defined in `trait_def_id` and return it,
@@ -419,10 +426,10 @@ fn trait_method(tcx: &ty::ctxt,
         .and_then(|(idx, item)| item.as_opt_method().map(|m| (idx, m)))
 }
 
-fn impl_method(tcx: &ty::ctxt,
-               impl_def_id: ast::DefId,
-               method_name: ast::Name)
-               -> Option<Rc<ty::Method>>
+fn impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
+                     impl_def_id: ast::DefId,
+                     method_name: ast::Name)
+                     -> Option<Rc<ty::Method<'tcx>>>
 {
     let impl_items = tcx.impl_items.borrow();
     let impl_items = impl_items.get(&impl_def_id).unwrap();

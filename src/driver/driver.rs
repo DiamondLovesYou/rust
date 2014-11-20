@@ -12,7 +12,7 @@
 extern crate "rustdoc" as this;
 
 #[cfg(rustc)]
-extern crate "rustc" as this;
+extern crate "rustc_trans" as this;
 
 #[cfg(rust_pnacl_trans)]
 extern crate "rust-pnacl-trans" as this;

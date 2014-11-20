@@ -138,7 +138,8 @@ pub fn main() {
         }
     };
     let cross_path = matches.opt_str("cross-path").unwrap();
-    let cross_path = os::make_absolute(&Path::new(cross_path));
+    let cross_path = os::make_absolute(&Path::new(cross_path))
+        .unwrap();
     let all_raw = matches.opt_present("all-raw");
     let mut input: Vec<(String, bool)> = matches.free
             .iter()

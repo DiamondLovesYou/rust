@@ -16,8 +16,8 @@ use super::util;
 
 use middle::subst;
 use middle::subst::Subst;
-use middle::ty;
-use middle::typeck::infer::InferCtxt;
+use middle::ty::{mod, Ty};
+use middle::typeck::infer::{mod, InferCtxt};
 use syntax::ast;
 use syntax::codemap::DUMMY_SP;
 use util::ppaux::Repr;
@@ -38,14 +38,18 @@ pub fn impl_can_satisfy(infcx: &InferCtxt,
         util::fresh_substs_for_impl(infcx, DUMMY_SP, impl1_def_id);
     let impl1_trait_ref =
         ty::impl_trait_ref(infcx.tcx, impl1_def_id).unwrap()
-            .subst(infcx.tcx, &impl1_substs);
+                                                   .subst(infcx.tcx, &impl1_substs);
+    let impl1_trait_ref =
+        infcx.replace_late_bound_regions_with_fresh_var(DUMMY_SP,
+                                                        infer::FnCall,
+                                                        &impl1_trait_ref).0;
 
     // Determine whether `impl2` can provide an implementation for those
     // same types.
     let param_env = ty::empty_parameter_environment();
     let mut selcx = SelectionContext::intercrate(infcx, &param_env, infcx.tcx);
     let obligation = Obligation::misc(DUMMY_SP, impl1_trait_ref);
-    debug!("impl_can_satisfy obligation={}", obligation.repr(infcx.tcx));
+    debug!("impl_can_satisfy(obligation={})", obligation.repr(infcx.tcx));
     selcx.evaluate_impl(impl2_def_id, &obligation)
 }
 
@@ -72,13 +76,10 @@ pub fn impl_is_local(tcx: &ty::ctxt,
     trait_ref.input_types().iter().any(|&t| ty_is_local(tcx, t))
 }
 
-pub fn ty_is_local(tcx: &ty::ctxt,
-                   ty: ty::t)
-                   -> bool
-{
+pub fn ty_is_local<'tcx>(tcx: &ty::ctxt<'tcx>, ty: Ty<'tcx>) -> bool {
     debug!("ty_is_local({})", ty.repr(tcx));
 
-    match ty::get(ty).sty {
+    match ty.sty {
         ty::ty_bool |
         ty::ty_char |
         ty::ty_int(..) |

@@ -36,7 +36,7 @@ use self::ModuleKind::*;
 use self::TraitReferenceType::*;
 use self::FallbackChecks::*;
 
-use driver::session::Session;
+use session::Session;
 use lint;
 use metadata::csearch;
 use metadata::decoder::{DefLike, DlDef, DlField, DlImpl};
@@ -5038,10 +5038,10 @@ impl<'a> Resolver<'a> {
                 visit::walk_ty(self, ty);
             }
 
-            TyPolyTraitRef(ref poly_trait_ref) => {
-                self.resolve_poly_trait_reference(
+            TyPolyTraitRef(ref bounds) => {
+                self.resolve_type_parameter_bounds(
                     ty.id,
-                    &**poly_trait_ref,
+                    bounds,
                     TraitObject);
                 visit::walk_ty(self, ty);
             }

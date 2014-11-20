@@ -1023,10 +1023,21 @@ impl<'a> Parser<'a> {
             self.parse_ty_bare_fn_or_ty_closure(lifetime_defs)
         } else if self.token == token::ModSep ||
                   self.token.is_ident() ||
-                  self.token.is_path() {
+                  self.token.is_path()
+        {
             let trait_ref = self.parse_trait_ref();
-            TyPolyTraitRef(P(PolyTraitRef { bound_lifetimes: lifetime_defs,
-                                            trait_ref: trait_ref }))
+            let poly_trait_ref = ast::PolyTraitRef { bound_lifetimes: lifetime_defs,
+                                                     trait_ref: trait_ref };
+            let other_bounds = if self.eat(&token::BinOp(token::Plus)) {
+                self.parse_ty_param_bounds()
+            } else {
+                OwnedSlice::empty()
+            };
+            let all_bounds =
+                Some(TraitTyParamBound(poly_trait_ref)).into_iter()
+                .chain(other_bounds.into_vec().into_iter())
+                .collect();
+            ast::TyPolyTraitRef(all_bounds)
         } else {
             self.parse_ty_closure(lifetime_defs)
         }
@@ -5606,6 +5617,14 @@ impl<'a> Parser<'a> {
             IoviForeignItem(_) =>
                 self.fatal("foreign items are not allowed here"),
             IoviItem(item) => Some(item)
+        }
+    }
+
+    /// Parse a ViewItem, e.g. `use foo::bar` or `extern crate foo`
+    pub fn parse_view_item(&mut self, attrs: Vec<Attribute>) -> ViewItem {
+        match self.parse_item_or_view_item(attrs, false) {
+            IoviViewItem(vi) => vi,
+            _ => self.fatal("expected `use` or `extern crate`"),
         }
     }
 
