@@ -35,6 +35,7 @@ use self::CreateTypeParametersForAssociatedTypesFlag::*;
 use metadata::csearch;
 use middle::def;
 use middle::lang_items::SizedTraitLangItem;
+use middle::region;
 use middle::resolve_lifetime;
 use middle::subst;
 use middle::subst::{Substs};
@@ -684,7 +685,11 @@ fn find_associated_type_in_generics<'tcx>(tcx: &ty::ctxt<'tcx>,
                                           ty: Option<Ty<'tcx>>,
                                           associated_type_id: ast::DefId,
                                           generics: &ty::Generics<'tcx>)
-                                          -> Ty<'tcx> {
+                                          -> Ty<'tcx>
+{
+    debug!("find_associated_type_in_generics(ty={}, associated_type_id={}, generics={}",
+           ty.repr(tcx), associated_type_id.repr(tcx), generics.repr(tcx));
+
     let ty = match ty {
         None => {
             tcx.sess.span_bug(span,
@@ -703,20 +708,22 @@ fn find_associated_type_in_generics<'tcx>(tcx: &ty::ctxt<'tcx>,
             for type_parameter in generics.types.iter() {
                 if type_parameter.def_id == associated_type_id
                     && type_parameter.associated_with == Some(param_id) {
-                    return ty::mk_param_from_def(tcx, type_parameter)
+                    return ty::mk_param_from_def(tcx, type_parameter);
                 }
             }
 
-            tcx.sess.span_bug(span,
-                              "find_associated_type_in_generics(): didn't \
-                               find associated type anywhere in the generics \
-                               list")
+            tcx.sess.span_err(
+                span,
+                format!("no suitable bound on `{}`",
+                        ty.user_string(tcx))[]);
+            ty::mk_err()
         }
         _ => {
-            tcx.sess.span_bug(span,
-                              "find_associated_type_in_generics(): self type \
-                               is not a parameter")
-
+            tcx.sess.span_err(
+                span,
+                "it is currently unsupported to access associated types except \
+                 through a type parameter; this restriction will be lifted in time");
+            ty::mk_err()
         }
     }
 }
@@ -1155,7 +1162,7 @@ pub fn convert(ccx: &CrateCtxt, it: &ast::Item) {
 
             for trait_ref in opt_trait_ref.iter() {
                 astconv::instantiate_trait_ref(&icx, &ExplicitRscope, trait_ref,
-                                               Some(selfty), None);
+                                               Some(selfty));
             }
         },
         ast::ItemTrait(_, _, _, ref trait_methods) => {
@@ -1627,7 +1634,7 @@ fn ty_generics_for_trait<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
                         ccx,
                         subst::AssocSpace,
                         &associated_type.ty_param,
-                        generics.types.len(subst::TypeSpace),
+                        generics.types.len(subst::AssocSpace),
                         &ast_generics.where_clause,
                         Some(local_def(trait_id)));
                 ccx.tcx.ty_param_defs.borrow_mut().insert(associated_type.ty_param.id,
@@ -2019,7 +2026,6 @@ fn conv_param_bounds<'tcx,AC>(this: &AC,
             astconv::instantiate_poly_trait_ref(this,
                                                 &ExplicitRscope,
                                                 bound,
-                                                Some(param_ty.to_ty(this.tcx())),
                                                 Some(param_ty.to_ty(this.tcx())))
         })
         .collect();
@@ -2156,6 +2162,8 @@ fn check_method_self_type<'a, 'tcx, RS:RegionScope>(
                 _ => typ,
             };
 
+            let body_scope = region::CodeExtent::from_node_id(body_id);
+
             // "Required type" comes from the trait definition. It may
             // contain late-bound regions from the method, but not the
             // trait (since traits only have early-bound region
@@ -2163,22 +2171,16 @@ fn check_method_self_type<'a, 'tcx, RS:RegionScope>(
             assert!(!ty::type_escapes_depth(required_type, 1));
             let required_type_free =
                 ty::liberate_late_bound_regions(
-                    crate_context.tcx,
-                    body_id,
-                    &ty::bind(required_type)).value;
+                    crate_context.tcx, body_scope, &ty::bind(required_type)).value;
 
             // The "base type" comes from the impl. It may have late-bound
             // regions from the impl or the method.
             let base_type_free = // liberate impl regions:
                 ty::liberate_late_bound_regions(
-                    crate_context.tcx,
-                    body_id,
-                    &ty::bind(ty::bind(base_type))).value.value;
+                    crate_context.tcx, body_scope, &ty::bind(ty::bind(base_type))).value.value;
             let base_type_free = // liberate method regions:
                 ty::liberate_late_bound_regions(
-                    crate_context.tcx,
-                    body_id,
-                    &ty::bind(base_type_free)).value;
+                    crate_context.tcx, body_scope, &ty::bind(base_type_free)).value;
 
             debug!("required_type={} required_type_free={} \
                     base_type={} base_type_free={}",

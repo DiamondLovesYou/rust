@@ -141,8 +141,8 @@ impl<'a> Context<'a> {
 }
 
 impl<'a, 'v> Visitor<'v> for Context<'a> {
-    fn visit_ident(&mut self, sp: Span, id: ast::Ident) {
-        if !token::get_ident(id).get().is_ascii() {
+    fn visit_name(&mut self, sp: Span, name: ast::Name) {
+        if !token::get_name(name).get().is_ascii() {
             self.gate_feature("non_ascii_idents", sp,
                               "non-ascii idents are not fully supported.");
         }
@@ -309,7 +309,7 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
 
     fn visit_expr(&mut self, e: &ast::Expr) {
         match e.node {
-            ast::ExprUnboxedFn(..) => {
+            ast::ExprClosure(_, Some(_), _, _) => {
                 self.gate_feature("unboxed_closures",
                                   e.span,
                                   "unboxed closures are a work-in-progress \

@@ -216,8 +216,14 @@ rather than referring to it by name or some other evaluation rule. A literal is
 a form of constant expression, so is evaluated (primarily) at compile time.
 
 ```{.ebnf .gram}
-literal : string_lit | char_lit | byte_string_lit | byte_lit | num_lit ;
+lit_suffix : ident;
+literal : [ string_lit | char_lit | byte_string_lit | byte_lit | num_lit ] lit_suffix ?;
 ```
+
+The optional suffix is only used for certain numeric literals, but is
+reserved for future extension, that is, the above gives the lexical
+grammar, but a Rust parser will reject everything but the 12 special
+cases mentioned in [Number literals](#number-literals) below.
 
 #### Character and string literals
 
@@ -371,27 +377,20 @@ b"\\x52"; br"\x52";                  // \x52
 #### Number literals
 
 ```{.ebnf .gram}
-num_lit : nonzero_dec [ dec_digit | '_' ] * num_suffix ?
-        | '0' [       [ dec_digit | '_' ] * num_suffix ?
-              | 'b'   [ '1' | '0' | '_' ] + int_suffix ?
-              | 'o'   [ oct_digit | '_' ] + int_suffix ?
-              | 'x'   [ hex_digit | '_' ] + int_suffix ? ] ;
+num_lit : nonzero_dec [ dec_digit | '_' ] * float_suffix ?
+        | '0' [       [ dec_digit | '_' ] * float_suffix ?
+              | 'b'   [ '1' | '0' | '_' ] +
+              | 'o'   [ oct_digit | '_' ] +
+              | 'x'   [ hex_digit | '_' ] +  ] ;
 
-num_suffix : int_suffix | float_suffix ;
+float_suffix : [ exponent | '.' dec_lit exponent ? ] ? ;
 
-int_suffix : 'u' int_suffix_size ?
-           | 'i' int_suffix_size ? ;
-int_suffix_size : [ '8' | "16" | "32" | "64" ] ;
-
-float_suffix : [ exponent | '.' dec_lit exponent ? ] ? float_suffix_ty ? ;
-float_suffix_ty : 'f' [ "32" | "64" ] ;
 exponent : ['E' | 'e'] ['-' | '+' ] ? dec_lit ;
 dec_lit : [ dec_digit | '_' ] + ;
 ```
 
 A _number literal_ is either an _integer literal_ or a _floating-point
-literal_. The grammar for recognizing the two kinds of literals is mixed, as
-they are differentiated by suffixes.
+literal_. The grammar for recognizing the two kinds of literals is mixed.
 
 ##### Integer literals
 
@@ -406,9 +405,9 @@ An _integer literal_ has one of four forms:
 * A _binary literal_ starts with the character sequence `U+0030` `U+0062`
   (`0b`) and continues as any mixture of binary digits and underscores.
 
-An integer literal may be followed (immediately, without any spaces) by an
-_integer suffix_, which changes the type of the literal. There are two kinds of
-integer literal suffix:
+Like any literal, an integer literal may be followed (immediately,
+without any spaces) by an _integer suffix_, which forcibly sets the
+type of the literal. There are 10 valid values for an integer suffix:
 
 * The `i` and `u` suffixes give the literal type `int` or `uint`,
   respectively.
@@ -443,11 +442,9 @@ A _floating-point literal_ has one of two forms:
 * A single _decimal literal_ followed by an _exponent_.
 
 By default, a floating-point literal has a generic type, and, like integer
-literals, the type must be uniquely determined from the context. A
-floating-point literal may be followed (immediately, without any spaces) by a
-_floating-point suffix_, which changes the type of the literal. There are two
-floating-point suffixes: `f32`, and `f64` (the 32-bit and 64-bit floating point
-types).
+literals, the type must be uniquely determined from the context. There are two valid
+_floating-point suffixes_, `f32` and `f64` (the 32-bit and 64-bit floating point
+types), which explicitly determine the type of the literal.
 
 Examples of floating-point literals of various forms:
 
@@ -1117,13 +1114,13 @@ Rust:
 ##### Unsafe functions
 
 Unsafe functions are functions that are not safe in all contexts and/or for all
-possible inputs. Such a function must be prefixed with the keyword `unsafe`.
+possible inputs. Such a function must be prefixed with the keyword `unsafe` and
+can only be called from an `unsafe` block or another `unsafe` function.
 
 ##### Unsafe blocks
 
-A block of code can also be prefixed with the `unsafe` keyword, to permit
-calling `unsafe` functions or dereferencing raw pointers within a safe
-function.
+A block of code can be prefixed with the `unsafe` keyword, to permit calling
+`unsafe` functions or dereferencing raw pointers within a safe function.
 
 When a programmer has sufficient conviction that a sequence of potentially
 unsafe operations is actually safe, they can encapsulate that sequence (taken
@@ -1143,12 +1140,11 @@ represented with reference-counted pointers in safe code. By using `unsafe`
 blocks to represent the reverse links as raw pointers, it can be implemented
 with only boxes.
 
-##### Behavior considered unsafe
+##### Behavior considered undefined
 
-This is a list of behavior which is forbidden in all Rust code. Type checking
-provides the guarantee that these issues are never caused by safe code. An
-`unsafe` block or function is responsible for never invoking this behaviour or
-exposing an API making it possible for it to occur in safe code.
+The following is a list of behavior which is forbidden in all Rust code,
+including within `unsafe` blocks and `unsafe` functions. Type checking provides
+the guarantee that these issues are never caused by safe code.
 
 * Data races
 * Dereferencing a null/dangling raw pointer
@@ -3433,7 +3429,7 @@ use to avoid conflicts is simply to name variants with upper-case letters, and
 local variables with lower-case letters.
 
 Multiple match patterns may be joined with the `|` operator. A range of values
-may be specified with `..`. For example:
+may be specified with `...`. For example:
 
 ```
 # let x = 2i;
@@ -3557,17 +3553,14 @@ The machine types are the following:
 
 #### Machine-dependent integer types
 
-The Rust type `uint` [^rustuint] is an
-unsigned integer type with target-machine-dependent size. Its size, in
-bits, is equal to the number of bits required to hold any memory address on
-the target machine.
+The `uint` type is an unsigned integer type with the same number of bits as the
+platform's pointer type. It can represent every memory address in the process.
 
-The Rust type `int` [^rustint]  is a two's complement signed integer type with
-target-machine-dependent size. Its size, in bits, is equal to the size of the
-rust type `uint` on the same target machine.
-
-[^rustuint]: A Rust `uint` is analogous to a C99 `uintptr_t`.
-[^rustint]: A Rust `int` is analogous to a C99 `intptr_t`.
+The `int` type is a signed integer type with the same number of bits as the
+platform's pointer type. The theoretical upper bound on object and array size
+is the maximum `int` value. This ensures that `int` can be used to calculate
+differences between pointers into an object or array and can address every byte
+within an object along with one byte past the end.
 
 ### Textual types
 
@@ -4045,19 +4038,19 @@ initialized; this is enforced by the compiler.
 
 ### Boxes
 
-An  _box_ is a reference to a heap allocation holding another value, which is
+A _box_ is a reference to a heap allocation holding another value, which is
 constructed by the prefix operator `box`. When the standard library is in use,
-the type of an box is `std::owned::Box<T>`.
+the type of a box is `std::owned::Box<T>`.
 
-An example of an box type and value:
+An example of a box type and value:
 
 ```
 let x: Box<int> = box 10;
 ```
 
-Box values exist in 1:1 correspondence with their heap allocation, copying an
+Box values exist in 1:1 correspondence with their heap allocation, copying a
 box value makes a shallow copy of the pointer. Rust will consider a shallow
-copy of an box to move ownership of the value. After a value has been moved,
+copy of a box to move ownership of the value. After a value has been moved,
 the source location cannot be used unless it is reinitialized.
 
 ```

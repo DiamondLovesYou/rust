@@ -42,7 +42,7 @@ use cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering, Less, Equal, Greater, Equiv}
 use cmp;
 use default::Default;
 use iter::*;
-use num::{Int, div_rem};
+use num::Int;
 use ops;
 use option::{None, Option, Some};
 use ptr;
@@ -1008,15 +1008,25 @@ impl<T: Clone> CloneSlicePrelude<T> for [T] {
 
 /// Data that is viewable as a slice.
 #[unstable = "may merge with other traits"]
-pub trait AsSlice<T> {
+pub trait AsSlice<T> for Sized? {
     /// Work with `self` as a slice.
     fn as_slice<'a>(&'a self) -> &'a [T];
 }
 
 #[unstable = "trait is unstable"]
-impl<'a,T> AsSlice<T> for &'a [T] {
+impl<T> AsSlice<T> for [T] {
     #[inline(always)]
-    fn as_slice<'a>(&'a self) -> &'a [T] { *self }
+    fn as_slice<'a>(&'a self) -> &'a [T] { self }
+}
+
+impl<'a, T, Sized? U: AsSlice<T>> AsSlice<T> for &'a U {
+    #[inline(always)]
+    fn as_slice<'a>(&'a self) -> &'a [T] { AsSlice::as_slice(*self) }
+}
+
+impl<'a, T, Sized? U: AsSlice<T>> AsSlice<T> for &'a mut U {
+    #[inline(always)]
+    fn as_slice<'a>(&'a self) -> &'a [T] { AsSlice::as_slice(*self) }
 }
 
 #[unstable = "waiting for DST"]
@@ -1384,7 +1394,8 @@ impl<'a, T> Iterator<&'a [T]> for Chunks<'a, T> {
         if self.v.len() == 0 {
             (0, Some(0))
         } else {
-            let (n, rem) = div_rem(self.v.len(), self.size);
+            let n = self.v.len() / self.size;
+            let rem = self.v.len() % self.size;
             let n = if rem > 0 { n+1 } else { n };
             (n, Some(n))
         }
@@ -1457,7 +1468,8 @@ impl<'a, T> Iterator<&'a mut [T]> for MutChunks<'a, T> {
         if self.v.len() == 0 {
             (0, Some(0))
         } else {
-            let (n, rem) = div_rem(self.v.len(), self.chunk_size);
+            let n = self.v.len() / self.chunk_size;
+            let rem = self.v.len() % self.chunk_size;
             let n = if rem > 0 { n + 1 } else { n };
             (n, Some(n))
         }
@@ -1679,13 +1691,13 @@ impl<T: PartialEq> PartialEq for [T] {
 impl<T: Eq> Eq for [T] {}
 
 #[unstable = "waiting for DST"]
-impl<T: PartialEq, V: AsSlice<T>> Equiv<V> for [T] {
+impl<T: PartialEq, Sized? V: AsSlice<T>> Equiv<V> for [T] {
     #[inline]
     fn equiv(&self, other: &V) -> bool { self.as_slice() == other.as_slice() }
 }
 
 #[unstable = "waiting for DST"]
-impl<'a,T:PartialEq, V: AsSlice<T>> Equiv<V> for &'a mut [T] {
+impl<'a,T:PartialEq, Sized? V: AsSlice<T>> Equiv<V> for &'a mut [T] {
     #[inline]
     fn equiv(&self, other: &V) -> bool { self.as_slice() == other.as_slice() }
 }

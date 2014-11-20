@@ -78,7 +78,7 @@ type parameter).
 
 pub use self::LvaluePreference::*;
 pub use self::DerefArgs::*;
-use self::Expectation::*;
+pub use self::Expectation::*;
 use self::IsBinopAssignment::*;
 use self::TupleArgumentsFlag::*;
 
@@ -90,6 +90,7 @@ use middle::mem_categorization::McResult;
 use middle::mem_categorization;
 use middle::pat_util::pat_id_map;
 use middle::pat_util;
+use middle::region::CodeExtent;
 use middle::subst;
 use middle::subst::{Subst, Substs, VecPerParamSpace, ParamSpace};
 use middle::traits;
@@ -97,7 +98,7 @@ use middle::ty::{FnSig, VariantInfo};
 use middle::ty::{Polytype};
 use middle::ty::{Disr, ParamTy, ParameterEnvironment};
 use middle::ty::{mod, Ty};
-use middle::ty::{replace_late_bound_regions, liberate_late_bound_regions};
+use middle::ty::liberate_late_bound_regions;
 use middle::ty_fold::TypeFolder;
 use middle::typeck::astconv::AstConv;
 use middle::typeck::astconv::{ast_region_to_region, ast_ty_to_ty};
@@ -147,6 +148,7 @@ pub mod regionck;
 pub mod demand;
 pub mod method;
 pub mod wf;
+mod closure;
 
 /// Fields that are part of a `FnCtxt` which are inherited by
 /// closures defined within the function.  For example:
@@ -308,7 +310,7 @@ impl<'a, 'tcx> mem_categorization::Typer<'tcx> for FnCtxt<'a, 'tcx> {
     fn is_method_call(&self, id: ast::NodeId) -> bool {
         self.inh.method_map.borrow().contains_key(&typeck::MethodCall::expr(id))
     }
-    fn temporary_scope(&self, rvalue_id: ast::NodeId) -> Option<ast::NodeId> {
+    fn temporary_scope(&self, rvalue_id: ast::NodeId) -> Option<CodeExtent> {
         self.tcx().temporary_scope(rvalue_id)
     }
     fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow {
@@ -529,7 +531,7 @@ fn check_fn<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
 
     // First, we have to replace any bound regions in the fn type with free ones.
     // The free region references will be bound the node_id of the body block.
-    let fn_sig = liberate_late_bound_regions(tcx, body.id, fn_sig);
+    let fn_sig = liberate_late_bound_regions(tcx, CodeExtent::from_node_id(body.id), fn_sig);
 
     let arg_tys = fn_sig.inputs.as_slice();
     let ret_ty = fn_sig.output;
@@ -742,7 +744,8 @@ fn check_method_body<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
     debug!("fty (raw): {}", fty.repr(ccx.tcx));
 
     let body_id = method.pe_body().id;
-    let fty = liberate_late_bound_regions(ccx.tcx, body_id, &ty::bind(fty)).value;
+    let fty = liberate_late_bound_regions(
+        ccx.tcx, CodeExtent::from_node_id(body_id), &ty::bind(fty)).value;
     debug!("fty (liberated): {}", fty.repr(ccx.tcx));
 
     check_bare_fn(ccx,
@@ -937,6 +940,8 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
     debug!("compare_impl_method(impl_trait_ref={})",
            impl_trait_ref.repr(tcx));
 
+    let impl_m_body_scope = CodeExtent::from_node_id(impl_m_body_id);
+
     // The impl's trait ref may bind late-bound regions from the impl.
     // Liberate them and assign them the scope of the method body.
     //
@@ -954,7 +959,7 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
     //     Foo<&'A T>
     //
     // where `'A` is the `ReFree` version of `'a`.
-    let impl_trait_ref = liberate_late_bound_regions(tcx, impl_m_body_id, impl_trait_ref);
+    let impl_trait_ref = liberate_late_bound_regions(tcx, impl_m_body_scope, impl_trait_ref);
 
     debug!("impl_trait_ref (liberated) = {}",
            impl_trait_ref.repr(tcx));
@@ -1097,7 +1102,7 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
     if !check_region_bounds_on_impl_method(tcx,
                                            impl_m_span,
                                            impl_m,
-                                           impl_m_body_id,
+                                           impl_m_body_scope,
                                            &trait_m.generics,
                                            &impl_m.generics,
                                            &trait_to_skol_substs,
@@ -1139,7 +1144,7 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
         .map(|impl_param_def|
              liberate_late_bound_regions(
                  tcx,
-                 impl_m_body_id,
+                 impl_m_body_scope,
                  &ty::bind(ty::bind(impl_param_def.bounds.clone()))).value.value);
     for (i, (trait_param_bounds, impl_param_bounds)) in
         trait_bounds.zip(impl_bounds).enumerate()
@@ -1205,7 +1210,8 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
     // that we must liberate the late-bound regions from the impl.
     let impl_fty = ty::mk_bare_fn(tcx, impl_m.fty.clone());
     let impl_fty = impl_fty.subst(tcx, &impl_to_skol_substs);
-    let impl_fty = liberate_late_bound_regions(tcx, impl_m_body_id, &ty::bind(impl_fty)).value;
+    let impl_fty = liberate_late_bound_regions(
+        tcx, impl_m_body_scope, &ty::bind(impl_fty)).value;
     let trait_fty = ty::mk_bare_fn(tcx, trait_m.fty.clone());
     let trait_fty = trait_fty.subst(tcx, &trait_to_skol_substs);
 
@@ -1240,7 +1246,7 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
     fn check_region_bounds_on_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
                                                 span: Span,
                                                 impl_m: &ty::Method<'tcx>,
-                                                impl_m_body_id: ast::NodeId,
+                                                impl_m_body_scope: CodeExtent,
                                                 trait_generics: &ty::Generics<'tcx>,
                                                 impl_generics: &ty::Generics<'tcx>,
                                                 trait_to_skol_substs: &Substs<'tcx>,
@@ -1331,9 +1337,7 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
             // impl, and the method.
             let impl_bounds =
                 ty::liberate_late_bound_regions(
-                    tcx,
-                    impl_m_body_id,
-                    &ty::bind(ty::bind(impl_bounds))).value.value;
+                    tcx, impl_m_body_scope, &ty::bind(ty::bind(impl_bounds))).value.value;
 
             debug!("check_region_bounds_on_impl_method: \
                    trait_param={} \
@@ -1881,7 +1885,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
 
         let mut bounds_checker = wf::BoundsChecker::new(self,
                                                         ast_t.span,
-                                                        self.body_id,
+                                                        CodeExtent::from_node_id(self.body_id),
                                                         None);
         bounds_checker.check_ty(t);
 
@@ -2047,6 +2051,17 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         match region_obligations.entry(self.body_id) {
             Vacant(entry) => { entry.set(vec![region_obligation]); },
             Occupied(mut entry) => { entry.get_mut().push(region_obligation); },
+        }
+    }
+
+    pub fn add_default_region_param_bounds(&self,
+                                           substs: &Substs<'tcx>,
+                                           expr: &ast::Expr)
+    {
+        for &ty in substs.types.iter() {
+            let default_bound = ty::ReScope(CodeExtent::from_node_id(expr.id));
+            let origin = infer::RelateDefaultParamBound(expr.span, ty);
+            self.register_region_obligation(origin, ty, default_bound);
         }
     }
 
@@ -2822,9 +2837,7 @@ fn check_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         };
         for (i, arg) in args.iter().take(t).enumerate() {
             let is_block = match arg.node {
-                ast::ExprFnBlock(..) |
-                ast::ExprProc(..) |
-                ast::ExprUnboxedFn(..) => true,
+                ast::ExprClosure(..) | ast::ExprProc(..) => true,
                 _ => false
             };
 
@@ -3180,7 +3193,7 @@ fn check_expr_with_unifier<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                          method_name.node.name,
                                          expr_t,
                                          tps,
-                                         expr.id,
+                                         expr,
                                          rcvr) {
             Ok(method) => {
                 let method_ty = method.ty;
@@ -3518,174 +3531,6 @@ fn check_expr_with_unifier<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
             }, rhs_t, None);
         })
     }
-
-    fn check_unboxed_closure(fcx: &FnCtxt,
-                             expr: &ast::Expr,
-                             kind: ast::UnboxedClosureKind,
-                             decl: &ast::FnDecl,
-                             body: &ast::Block) {
-        let mut fn_ty = astconv::ty_of_closure(
-            fcx,
-            ast::NormalFn,
-            ast::Many,
-
-            // The `RegionTraitStore` and region_existential_bounds
-            // are lies, but we ignore them so it doesn't matter.
-            //
-            // FIXME(pcwalton): Refactor this API.
-            ty::region_existential_bound(ty::ReStatic),
-            ty::RegionTraitStore(ty::ReStatic, ast::MutImmutable),
-
-            decl,
-            abi::RustCall,
-            None);
-
-        let region = match fcx.infcx().anon_regions(expr.span, 1) {
-            Err(_) => {
-                fcx.ccx.tcx.sess.span_bug(expr.span,
-                                          "can't make anon regions here?!")
-            }
-            Ok(regions) => regions[0],
-        };
-        let closure_type = ty::mk_unboxed_closure(fcx.ccx.tcx,
-                                                  local_def(expr.id),
-                                                  region,
-                                                  fcx.inh.param_env.free_substs.clone());
-        fcx.write_ty(expr.id, closure_type);
-
-        check_fn(fcx.ccx,
-                 ast::NormalFn,
-                 expr.id,
-                 &fn_ty.sig,
-                 decl,
-                 expr.id,
-                 &*body,
-                 fcx.inh);
-
-        // Tuple up the arguments and insert the resulting function type into
-        // the `unboxed_closures` table.
-        fn_ty.sig.inputs = vec![ty::mk_tup(fcx.tcx(), fn_ty.sig.inputs)];
-
-        let kind = match kind {
-            ast::FnUnboxedClosureKind => ty::FnUnboxedClosureKind,
-            ast::FnMutUnboxedClosureKind => ty::FnMutUnboxedClosureKind,
-            ast::FnOnceUnboxedClosureKind => ty::FnOnceUnboxedClosureKind,
-        };
-
-        debug!("unboxed_closure for {} --> sig={} kind={}",
-               local_def(expr.id).repr(fcx.tcx()),
-               fn_ty.sig.repr(fcx.tcx()),
-               kind);
-
-        let unboxed_closure = ty::UnboxedClosure {
-            closure_type: fn_ty,
-            kind: kind,
-        };
-
-        fcx.inh
-           .unboxed_closures
-           .borrow_mut()
-           .insert(local_def(expr.id), unboxed_closure);
-    }
-
-    fn check_expr_fn<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
-                               expr: &ast::Expr,
-                               store: ty::TraitStore,
-                               decl: &ast::FnDecl,
-                               body: &ast::Block,
-                               expected: Expectation<'tcx>) {
-        let tcx = fcx.ccx.tcx;
-
-        debug!("check_expr_fn(expr={}, expected={})",
-               expr.repr(tcx),
-               expected.repr(tcx));
-
-        // Find the expected input/output types (if any). Substitute
-        // fresh bound regions for any bound regions we find in the
-        // expected types so as to avoid capture.
-        let expected_sty = expected.map_to_option(fcx, |x| Some((*x).clone()));
-        let (expected_sig,
-             expected_onceness,
-             expected_bounds) = {
-            match expected_sty {
-                Some(ty::ty_closure(ref cenv)) => {
-                    let (sig, _) =
-                        replace_late_bound_regions(
-                            tcx,
-                            &cenv.sig,
-                            |_, debruijn| fcx.inh.infcx.fresh_bound_region(debruijn));
-                    let onceness = match (&store, &cenv.store) {
-                        // As the closure type and onceness go, only three
-                        // combinations are legit:
-                        //      once closure
-                        //      many closure
-                        //      once proc
-                        // If the actual and expected closure type disagree with
-                        // each other, set expected onceness to be always Once or
-                        // Many according to the actual type. Otherwise, it will
-                        // yield either an illegal "many proc" or a less known
-                        // "once closure" in the error message.
-                        (&ty::UniqTraitStore, &ty::UniqTraitStore) |
-                        (&ty::RegionTraitStore(..), &ty::RegionTraitStore(..)) =>
-                            cenv.onceness,
-                        (&ty::UniqTraitStore, _) => ast::Once,
-                        (&ty::RegionTraitStore(..), _) => ast::Many,
-                    };
-                    (Some(sig), onceness, cenv.bounds)
-                }
-                _ => {
-                    // Not an error! Means we're inferring the closure type
-                    let (bounds, onceness) = match expr.node {
-                        ast::ExprProc(..) => {
-                            let mut bounds = ty::region_existential_bound(ty::ReStatic);
-                            bounds.builtin_bounds.insert(ty::BoundSend); // FIXME
-                            (bounds, ast::Once)
-                        }
-                        _ => {
-                            let region = fcx.infcx().next_region_var(
-                                infer::AddrOfRegion(expr.span));
-                            (ty::region_existential_bound(region), ast::Many)
-                        }
-                    };
-                    (None, onceness, bounds)
-                }
-            }
-        };
-
-        // construct the function type
-        let fn_ty = astconv::ty_of_closure(fcx,
-                                           ast::NormalFn,
-                                           expected_onceness,
-                                           expected_bounds,
-                                           store,
-                                           decl,
-                                           abi::Rust,
-                                           expected_sig);
-        let fty_sig = fn_ty.sig.clone();
-        let fty = ty::mk_closure(tcx, fn_ty);
-        debug!("check_expr_fn fty={}", fcx.infcx().ty_to_string(fty));
-
-        fcx.write_ty(expr.id, fty);
-
-        // If the closure is a stack closure and hasn't had some non-standard
-        // style inferred for it, then check it under its parent's style.
-        // Otherwise, use its own
-        let (inherited_style, inherited_style_id) = match store {
-            ty::RegionTraitStore(..) => (fcx.ps.borrow().fn_style,
-                                         fcx.ps.borrow().def),
-            ty::UniqTraitStore => (ast::NormalFn, expr.id)
-        };
-
-        check_fn(fcx.ccx,
-                 inherited_style,
-                 inherited_style_id,
-                 &fty_sig,
-                 &*decl,
-                 expr.id,
-                 &*body,
-                 fcx.inh);
-    }
-
 
     // Check field access expressions
     fn check_field(fcx: &FnCtxt,
@@ -4315,32 +4160,16 @@ fn check_expr_with_unifier<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
       ast::ExprMatch(ref discrim, ref arms, _) => {
         _match::check_match(fcx, expr, &**discrim, arms.as_slice());
       }
-      ast::ExprFnBlock(_, ref decl, ref body) => {
-        let region = astconv::opt_ast_region_to_region(fcx,
-                                                       fcx.infcx(),
-                                                       expr.span,
-                                                       &None);
-        check_expr_fn(fcx,
-                      expr,
-                      ty::RegionTraitStore(region, ast::MutMutable),
-                      &**decl,
-                      &**body,
-                      expected);
-      }
-      ast::ExprUnboxedFn(_, kind, ref decl, ref body) => {
-        check_unboxed_closure(fcx,
-                              expr,
-                              kind,
-                              &**decl,
-                              &**body);
+      ast::ExprClosure(_, opt_kind, ref decl, ref body) => {
+          closure::check_expr_closure(fcx, expr, opt_kind, &**decl, &**body, expected);
       }
       ast::ExprProc(ref decl, ref body) => {
-        check_expr_fn(fcx,
-                      expr,
-                      ty::UniqTraitStore,
-                      &**decl,
-                      &**body,
-                      expected);
+          closure::check_boxed_closure(fcx,
+                                       expr,
+                                       ty::UniqTraitStore,
+                                       &**decl,
+                                       &**body,
+                                       expected);
       }
       ast::ExprBlock(ref b) => {
         check_block_with_expected(fcx, &**b, expected);
@@ -4693,11 +4522,7 @@ fn constrain_path_type_parameters(fcx: &FnCtxt,
                                   expr: &ast::Expr)
 {
     fcx.opt_node_ty_substs(expr.id, |item_substs| {
-        for &ty in item_substs.substs.types.iter() {
-            let default_bound = ty::ReScope(expr.id);
-            let origin = infer::RelateDefaultParamBound(expr.span, ty);
-            fcx.register_region_obligation(origin, ty, default_bound);
-        }
+        fcx.add_default_region_param_bounds(&item_substs.substs, expr);
     });
 }
 

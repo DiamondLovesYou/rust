@@ -11,6 +11,7 @@
 use middle::cfg::*;
 use middle::def;
 use middle::graph;
+use middle::region::CodeExtent;
 use middle::typeck;
 use middle::ty;
 use syntax::ast;
@@ -496,9 +497,8 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
             }
 
             ast::ExprMac(..) |
-            ast::ExprFnBlock(..) |
+            ast::ExprClosure(..) |
             ast::ExprProc(..) |
-            ast::ExprUnboxedFn(..) |
             ast::ExprLit(..) |
             ast::ExprPath(..) => {
                 self.straightline(expr, pred, None::<ast::Expr>.iter())
@@ -580,11 +580,12 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
                         to_loop: LoopScope,
                         to_index: CFGIndex) {
         let mut data = CFGEdgeData {exiting_scopes: vec!() };
-        let mut scope_id = from_expr.id;
-        while scope_id != to_loop.loop_id {
+        let mut scope = CodeExtent::from_node_id(from_expr.id);
+        let target_scope = CodeExtent::from_node_id(to_loop.loop_id);
+        while scope != target_scope {
 
-            data.exiting_scopes.push(scope_id);
-            scope_id = self.tcx.region_maps.encl_scope(scope_id);
+            data.exiting_scopes.push(scope.node_id());
+            scope = self.tcx.region_maps.encl_scope(scope);
         }
         self.graph.add_edge(from_index, to_index, data);
     }

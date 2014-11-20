@@ -1385,9 +1385,8 @@ fn has_nested_returns(tcx: &ty::ctxt, id: ast::NodeId) -> bool {
         }
         Some(ast_map::NodeExpr(e)) => {
             match e.node {
-                ast::ExprFnBlock(_, _, ref blk) |
-                ast::ExprProc(_, ref blk) |
-                ast::ExprUnboxedFn(_, _, _, ref blk) => {
+                ast::ExprClosure(_, _, _, ref blk) |
+                ast::ExprProc(_, ref blk) => {
                     let mut explicit = CheckForNestedReturnsVisitor::explicit();
                     let mut implicit = CheckForNestedReturnsVisitor::implicit();
                     visit::walk_expr(&mut explicit, e);
@@ -3146,7 +3145,7 @@ pub fn trans_crate<'tcx>(analysis: CrateAnalysis<'tcx>)
     }
     if shared_ccx.sess().count_llvm_insns() {
         for (k, v) in shared_ccx.stats().llvm_insns.borrow().iter() {
-            println!("{:7u} {}", *v, *k);
+            println!("{:7} {}", *v, *k);
         }
     }
 

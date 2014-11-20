@@ -121,7 +121,7 @@ pub trait VectorVector<T> for Sized? {
     fn connect_vec(&self, sep: &T) -> Vec<T>;
 }
 
-impl<T: Clone, V: AsSlice<T>> VectorVector<T> for [V] {
+impl<'a, T: Clone, V: AsSlice<T>> VectorVector<T> for [V] {
     fn concat_vec(&self) -> Vec<T> {
         let size = self.iter().fold(0u, |acc, v| acc + v.as_slice().len());
         let mut result = Vec::with_capacity(size);
@@ -2084,7 +2084,7 @@ mod bench {
     use std::rand::{weak_rng, Rng};
     use std::mem;
     use std::ptr;
-    use test::Bencher;
+    use test::{Bencher, black_box};
 
     use vec::Vec;
 
@@ -2140,8 +2140,8 @@ mod bench {
         let mut vec: Vec<uint> = vec![];
         b.iter(|| {
             vec.push(0);
-            &vec
-        })
+            black_box(&vec);
+        });
     }
 
     #[bench]

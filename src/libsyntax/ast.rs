@@ -95,7 +95,7 @@ impl Ident {
     }
 
     pub fn encode_with_hygiene(&self) -> String {
-        format!("\x00name_{:u},ctxt_{:u}\x00",
+        format!("\x00name_{},ctxt_{}\x00",
                 self.name.uint(),
                 self.ctxt)
     }
@@ -667,9 +667,8 @@ pub enum Expr_ {
     // FIXME #6993: change to Option<Name> ... or not, if these are hygienic.
     ExprLoop(P<Block>, Option<Ident>),
     ExprMatch(P<Expr>, Vec<Arm>, MatchSource),
-    ExprFnBlock(CaptureClause, P<FnDecl>, P<Block>),
+    ExprClosure(CaptureClause, Option<UnboxedClosureKind>, P<FnDecl>, P<Block>),
     ExprProc(P<FnDecl>, P<Block>),
-    ExprUnboxedFn(CaptureClause, UnboxedClosureKind, P<FnDecl>, P<Block>),
     ExprBlock(P<Block>),
 
     ExprAssign(P<Expr>, P<Expr>),
@@ -706,11 +705,11 @@ pub enum Expr_ {
 ///
 ///     <Vec<T> as SomeTrait>::SomeAssociatedItem
 ///      ^~~~~     ^~~~~~~~~   ^~~~~~~~~~~~~~~~~~
-///      for_type  trait_name  item_name
+///      self_type  trait_name  item_name
 #[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
 pub struct QPath {
-    pub for_type: P<Ty>,
-    pub trait_name: Path,
+    pub self_type: P<Ty>,
+    pub trait_ref: P<TraitRef>,
     pub item_name: Ident,
 }
 
@@ -838,7 +837,7 @@ impl TokenTree {
                     tts: vec![TtToken(sp, token::Ident(token::str_to_ident("doc"),
                                                        token::Plain)),
                               TtToken(sp, token::Eq),
-                              TtToken(sp, token::LitStr(name))],
+                              TtToken(sp, token::Literal(token::Str_(name), None))],
                     close_span: sp,
                 }))
             }
