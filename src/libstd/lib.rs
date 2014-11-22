@@ -117,12 +117,6 @@
 
 #![reexport_test_harness_main = "test_main"]
 
-// Sadly, libuv uses a boatload of Glibc functions that Newlibc just
-// doesn't implement, so use native instead on PNaCl.
-#[cfg(all(test, not(target_os = "nacl"), not(target_libc = "newlib")))]
-extern crate green;
-#[cfg(all(test, target_os = "nacl", target_libc = "newlib"))]
-extern crate native;
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
 
 extern crate alloc;
@@ -168,7 +162,6 @@ pub use core::result;
 pub use core::option;
 
 pub use alloc::boxed;
-
 pub use alloc::rc;
 
 pub use core_collections::slice;
@@ -182,20 +175,6 @@ pub use rustrt::local_data;
 pub use unicode::char;
 
 pub use core_sync::comm;
-
-// Run tests with libgreen instead of libnative, but not while targeting a
-// platform using Newlibc.
-
-#[cfg(all(test, all(not(target_os = "nacl"), not(target_libc = "newlib"))))]
-#[start]
-fn start(argc: int, argv: *const *const u8) -> int {
-    green::start(argc, argv, green::basic::event_loop, test_main)
-}
-#[cfg(all(test, target_os = "nacl", target_libc = "newlib"))]
-#[start]
-fn start(argc: int, argv: *const *const u8) -> int {
-    native::start(argc, argv, __test::main)
-}
 
 /* Exported macros */
 
@@ -267,8 +246,6 @@ pub mod fmt;
 
 #[path = "sys/common/mod.rs"] mod sys_common;
 
-// FIXME #7809: This shouldn't be pub, and it should be reexported under 'unstable'
-// but name resolution doesn't work without it being pub.
 pub mod rt;
 mod failure;
 

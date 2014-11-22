@@ -424,7 +424,7 @@ fn merge_sort<T>(v: &mut [T], compare: |&T, &T| -> Ordering) {
     // allocate some memory to use as scratch memory, we keep the
     // length 0 so we can keep shallow copies of the contents of `v`
     // without risking the dtors running on an object twice if
-    // `compare` fails.
+    // `compare` panics.
     let mut working_space = Vec::with_capacity(2 * len);
     // these both are buffers of length `len`.
     let mut buf_dat = working_space.as_mut_ptr();
@@ -666,6 +666,8 @@ pub mod raw {
 
 #[cfg(test)]
 mod tests {
+    extern crate rustrt;
+
     use std::cell::Cell;
     use std::default::Default;
     use std::mem;
@@ -949,9 +951,9 @@ mod tests {
     #[test]
     fn test_swap_remove_noncopyable() {
         // Tests that we don't accidentally run destructors twice.
-        let mut v = vec![rt::exclusive::Exclusive::new(()),
-                         rt::exclusive::Exclusive::new(()),
-                         rt::exclusive::Exclusive::new(())];
+        let mut v = vec![rustrt::exclusive::Exclusive::new(()),
+                         rustrt::exclusive::Exclusive::new(()),
+                         rustrt::exclusive::Exclusive::new(())];
         let mut _e = v.swap_remove(0);
         assert_eq!(v.len(), 2);
         _e = v.swap_remove(1);

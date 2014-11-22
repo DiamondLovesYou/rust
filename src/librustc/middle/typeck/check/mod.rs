@@ -1775,12 +1775,13 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
             }
             ty::UnsizeVtable(ref ty_trait, self_ty) => {
                 vtable::check_object_safety(self.tcx(), ty_trait, span);
+
                 // If the type is `Foo+'a`, ensures that the type
                 // being cast to `Foo+'a` implements `Foo`:
                 vtable::register_object_cast_obligations(self,
-                                                          span,
-                                                          ty_trait,
-                                                          self_ty);
+                                                         span,
+                                                         ty_trait,
+                                                         self_ty);
 
                 // If the type is `Foo+'a`, ensures that the type
                 // being cast to `Foo+'a` outlives `'a`:
@@ -2605,7 +2606,7 @@ fn try_index_step<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
 }
 
 /// Given the head of a `for` expression, looks up the `next` method in the
-/// `Iterator` trait. Fails if the expression does not implement `next`.
+/// `Iterator` trait. Panics if the expression does not implement `next`.
 ///
 /// The return type of this function represents the concrete element type
 /// `A` in the type `Iterator<A>` that the method returns.
@@ -2642,7 +2643,8 @@ fn lookup_method_for_for_loop<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                 let ty_string = fcx.infcx().ty_to_string(true_expr_type);
                 fcx.tcx().sess.span_err(iterator_expr.span,
                                         format!("`for` loop expression has type `{}` which does \
-                                                 not implement the `Iterator` trait",
+                                                not implement the `Iterator` trait; \
+                                                maybe try .iter()",
                                                 ty_string).as_slice());
             }
             ty::mk_err()
