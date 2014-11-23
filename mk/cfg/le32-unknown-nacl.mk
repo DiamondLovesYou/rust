@@ -44,5 +44,5 @@ SHARED_LIBS_DISABLED_le32-unknown-nacl := 1
 RUNTIME_CFLAGS_le32-unknown-nacl:= -I$(CFG_NACL_CROSS_PATH)/include/pnacl
 RUNTIME_DISABLE_ASM_le32-unknown-nacl := 1
 RUSTC_FLAGS_le32-unknown-nacl:=
-RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"newlib\""
+RUSTC_CROSS_FLAGS_le32-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"newlib\"" -L $(CFG_NACL_CROSS_PATH)/lib/pnacl/Release
 CFG_GNU_TRIPLE_le32-unknown-nacl := le32-unknown-nacl

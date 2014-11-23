@@ -36,5 +36,5 @@ CFG_RUN_x86_64-unknown-nacl=$(2)
 CFG_RUN_TARG_x86_64-unknown-nacl=$(call CFG_RUN_x86_64-unknown-nacl,,$(2))
 SHARED_LIBS_DISABLED_x86_64-unknown-nacl := 1
 RUSTC_FLAGS_x86_64-unknown-nacl:=
-RUSTC_CROSS_FLAGS_x86_64-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"newlib\"" -L $(NACL_TC_PATH)/x86_64-nacl/lib64
+RUSTC_CROSS_FLAGS_x86_64-unknown-nacl=-C cross-path=$(CFG_NACL_CROSS_PATH) --cfg "target_libc=\"newlib\"" -L $(NACL_TC_PATH)/x86_64-nacl/lib64 -L $(CFG_NACL_CROSS_PATH)/lib/newlib_x86_64/Release
 CFG_GNU_TRIPLE_x86_64-unknown-nacl := x86_64-unknown-nacl

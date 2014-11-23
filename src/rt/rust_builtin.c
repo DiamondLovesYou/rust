@@ -84,11 +84,6 @@ char**
 rust_env_pairs() {
     return 0;
 }
-#elif defined(__native_client__) && !(defined(__arm__) || defined(__pnacl__))
-char**
-rust_env_pairs() {
-    return __environ;
-}
 #else
 char**
 rust_env_pairs() {
@@ -182,7 +177,7 @@ struct tm* LOCALTIME(const time_t *clock, struct tm *result) {
 #define GMTIME(clock, result) gmtime_r((clock), (result))
 #define LOCALTIME(clock, result) localtime_r((clock), (result))
 
-#ifdef __pnacl__
+#ifdef __native_client__
 #define TIMEGM(result) mktime((result)) - _timezone
 #else
 #define TIMEGM(result) timegm(result)
@@ -212,7 +207,7 @@ rust_localtime(int64_t sec, int32_t nsec, rust_tm *timeptr) {
 
 #if defined(__WIN32__)
     int32_t gmtoff = -timezone;
-#elif defined(__pnacl__)
+#elif defined(__native_client__)
     int32_t gmtoff = _timezone;
 #else
     int32_t gmtoff = tm.tm_gmtoff;
