@@ -1,13 +1,20 @@
 # The Rust Programming Language
 
 This is a compiler for Rust, including standard libraries, tools and
-documentation.
+documentation. In contrast to
+[Rust proper](https://github.com/rust-lang/rust.git), this Rust can target
+PNaCl/NaCl platforms, including ```le32-unknown-nacl```,
+```x86_64-unknown-nacl```, ```i686-unknown-nacl```(WIP), and ```arm-unknown-nacl```(WIP).
 
 ## Quick Start
 
 1. Download a [binary installer][installer] for your platform.
 2. Read the [guide].
 3. Enjoy!
+
+If you'd like to cross compile to a (P)NaCl target, you'll need to build from
+source. I (Richard Diamond) am working on creating some build infrastructure so
+I may offer nightly downloads, however that isn't finished yet.
 
 > ***Note:*** Windows users can read the detailed
 > [using Rust on Windows][win-wiki] notes on the wiki.
@@ -25,24 +32,18 @@ documentation.
     * GNU `make` 3.81 or later
     * `curl`
     * `git`
+    * `pepper_37` from the [NaCl SDK](https://developer.chrome.com/native-client).
 2. Download and build Rust:
-
-    You can either download a [tarball] or build directly from the [repo].
-
-    To build from the [tarball] do:
-
-        $ curl -O https://static.rust-lang.org/dist/rust-nightly.tar.gz
-        $ tar -xzf rust-nightly.tar.gz
-        $ cd rust-nightly
 
     Or to build from the [repo] do:
 
-        $ git clone https://github.com/rust-lang/rust.git
+        $ git clone https://github.com/DiamondLovesYou/rust.git
         $ cd rust
 
-    Now that you have Rust's source code, you can configure and build it:
+    Now that you have Rust's source code, you can configure and build it for
+    PNaCl with (add `x86_64-unknown-nacl` if you'd like to target NaCl):
 
-        $ ./configure
+        $ ./configure --target=le32-unknown-nacl --nacl-cross-path=path/to/pepper_37
         $ make && make install
 
     > ***Note:*** You may need to use `sudo make install` if you do not normally have
@@ -54,9 +55,21 @@ documentation.
     `/usr/local/bin`: `rustc`, the Rust compiler, and `rustdoc`, the
     API-documentation tool.
 3. Read the [guide].
+4. Compile with:
+
+        $ rustc --target=le32-unknown-nacl
+
+to target PNaCl, or with:
+
+        $ rustc --target=x86_64-unknown-nacl
+
+to target NaCl.
+        
 4. Enjoy!
 
 ### Building on Windows
+
+> ***Note:*** building on Windows is not tested by me (Richard Diamond)
 
 To easily build on windows we can use [MSYS2](http://sourceforge.net/projects/msys2/):
 
