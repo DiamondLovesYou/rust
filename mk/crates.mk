@@ -74,7 +74,7 @@ DEPS_rustc_llvm := native:rustllvm libc std log
 DEPS_rustc_back := std syntax rustc_llvm flate log libc
 DEPS_rustdoc := rustc rustc_trans native:hoedown serialize getopts \
                 test time
-DEPS_rust-pnacl-trans := libc getopts log rustc_llvm native
+DEPS_rust-pnacl-trans := libc getopts log rustc_llvm
 DEPS_flate := std native:miniz
 DEPS_arena := std
 DEPS_graphviz := std
