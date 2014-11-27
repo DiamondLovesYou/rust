@@ -86,7 +86,7 @@ $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll $$(MKFILE_DEPS) \
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
 	$$(Q)$$(LLC_$$(CFG_BUILD)) $$(CFG_LLC_FLAGS_$(1)) \
-	    -filetype=obj -mtriple=$(1) -relocation-model=pic -o $$@ $$<
+	    -filetype=obj -mtriple=$$(CFG_LLVM_TARGET_$(1)) -relocation-model=pic -o $$@ $$<
 else
 # le32-unknown-nacl doesn't have a target machine, so llc chokes.
 # Fortunately, PNaCl object files are just bitcode.

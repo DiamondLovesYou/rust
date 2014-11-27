@@ -649,8 +649,8 @@ fn bind_subslice_pat(bcx: Block,
                                 ty::mt {ty: vt.unit_ty, mutbl: ast::MutImmutable});
     let scratch = rvalue_scratch_datum(bcx, slice_ty, "");
     Store(bcx, slice_begin,
-          GEPi(bcx, scratch.val, &[0u, abi::slice_elt_base]));
-    Store(bcx, slice_len, GEPi(bcx, scratch.val, &[0u, abi::slice_elt_len]));
+          GEPi(bcx, scratch.val, &[0u, abi::FAT_PTR_ADDR]));
+    Store(bcx, slice_len, GEPi(bcx, scratch.val, &[0u, abi::FAT_PTR_EXTRA]));
     scratch.val
 }
 
@@ -1274,6 +1274,7 @@ struct ReassignmentChecker {
 
 impl<'tcx> euv::Delegate<'tcx> for ReassignmentChecker {
     fn consume(&mut self, _: ast::NodeId, _: Span, _: mc::cmt, _: euv::ConsumeMode) {}
+    fn matched_pat(&mut self, _: &ast::Pat, _: mc::cmt, _: euv::MatchMode) {}
     fn consume_pat(&mut self, _: &ast::Pat, _: mc::cmt, _: euv::ConsumeMode) {}
     fn borrow(&mut self, _: ast::NodeId, _: Span, _: mc::cmt, _: ty::Region,
               _: ty::BorrowKind, _: euv::LoanCause) {}

@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Testing that we can't store a reference in task-local storage
+#![feature(tuple_indexing)]
 
-local_data_key!(key: Box<&int>)
-//~^ ERROR missing lifetime specifier
-
-fn main() {}
+fn main() {
+    let t = (42i, 42i);
+    t.0::<int>; //~ ERROR expected one of `;`, `}`, found `::`
+}

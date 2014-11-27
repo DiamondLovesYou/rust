@@ -13,22 +13,14 @@ use back::abi;
 use llvm;
 use llvm::{ConstFCmp, ConstICmp, SetLinkage, PrivateLinkage, ValueRef, Bool, True, False};
 use llvm::{IntEQ, IntNE, IntUGT, IntUGE, IntULT, IntULE, IntSGT, IntSGE, IntSLT, IntSLE,
-    RealOEQ, RealOGT, RealOGE, RealOLT, RealOLE, RealONE};
+           RealOEQ, RealOGT, RealOGE, RealOLT, RealOLE, RealONE};
 use metadata::csearch;
-use middle::const_eval;
-use middle::def;
-use trans::adt;
-use trans::base;
-use trans::base::push_ctxt;
-use trans::closure;
+use middle::{const_eval, def};
+use trans::{adt, closure, consts, debuginfo, expr, inline, machine};
+use trans::base::{mod, push_ctxt};
 use trans::common::*;
-use trans::consts;
-use trans::expr;
-use trans::inline;
-use trans::machine;
 use trans::type_::Type;
 use trans::type_of;
-use trans::debuginfo;
 use middle::ty::{mod, Ty};
 use util::ppaux::{Repr, ty_to_string};
 
@@ -264,8 +256,8 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>, e: &ast::Expr)
                                         ty::ty_vec(unit_ty, Some(len)) => {
                                             let llunitty = type_of::type_of(cx, unit_ty);
                                             let llptr = const_ptrcast(cx, llconst, llunitty);
-                                            assert_eq!(abi::slice_elt_base, 0);
-                                            assert_eq!(abi::slice_elt_len, 1);
+                                            assert_eq!(abi::FAT_PTR_ADDR, 0);
+                                            assert_eq!(abi::FAT_PTR_EXTRA, 1);
                                             llconst = C_struct(cx, &[
                                                 llptr,
                                                 C_uint(cx, len)
@@ -418,7 +410,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
               }
             }
           }
-          ast::ExprField(ref base, field, _) => {
+          ast::ExprField(ref base, field) => {
               let (bv, bt) = const_expr(cx, &**base);
               let brepr = adt::represent_type(cx, bt);
               expr::with_field_tys(cx.tcx(), bt, None, |discr, field_tys| {
@@ -426,7 +418,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
                   adt::const_get_field(cx, &*brepr, bv, discr, ix)
               })
           }
-          ast::ExprTupField(ref base, idx, _) => {
+          ast::ExprTupField(ref base, idx) => {
               let (bv, bt) = const_expr(cx, &**base);
               let brepr = adt::represent_type(cx, bt);
               expr::with_field_tys(cx.tcx(), bt, None, |discr, _| {
