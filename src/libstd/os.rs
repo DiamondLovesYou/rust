@@ -8,23 +8,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/*!
- * Higher-level interfaces to libc::* functions and operating system services.
- *
- * In general these take and return rust types, use rust idioms (enums,
- * closures, vectors) rather than C idioms, and do more extensive safety
- * checks.
- *
- * This module is not meant to only contain 1:1 mappings to libc entries; any
- * os-interface code that is reasonably useful and broadly applicable can go
- * here. Including utility routines that merely build on other os code.
- *
- * We assume the general case is that users do not care, and do not want to
- * be made to care, which operating system they are on. While they may want
- * to special case various special cases -- and so we will not _hide_ the
- * facts of which OS the user is on -- they should be given the opportunity
- * to write OS-ignorant code by default.
- */
+//! Higher-level interfaces to libc::* functions and operating system services.
+//!
+//! In general these take and return rust types, use rust idioms (enums, closures, vectors) rather
+//! than C idioms, and do more extensive safety checks.
+//!
+//! This module is not meant to only contain 1:1 mappings to libc entries; any os-interface code
+//! that is reasonably useful and broadly applicable can go here. Including utility routines that
+//! merely build on other os code.
+//!
+//! We assume the general case is that users do not care, and do not want to be made to care, which
+//! operating system they are on. While they may want to special case various special cases -- and
+//! so we will not _hide_ the facts of which OS the user is on -- they should be given the
+//! opportunity to write OS-ignorant code by default.
 
 #![experimental]
 
@@ -39,7 +35,7 @@ use clone::Clone;
 use error::{FromError, Error};
 use fmt;
 use io::{IoResult, IoError};
-use iter::Iterator;
+use iter::{Iterator, IteratorExt};
 use libc::{c_void, c_int};
 use libc;
 use boxed::Box;
@@ -61,6 +57,11 @@ use vec::Vec;
 
 #[cfg(unix)] use c_str::ToCStr;
 #[cfg(unix)] use libc::c_char;
+
+#[cfg(unix)]
+pub use sys::ext as unix;
+#[cfg(windows)]
+pub use sys::ext as windows;
 
 /// Get the number of cores available
 pub fn num_cpus() -> uint {
@@ -802,18 +803,16 @@ pub fn homedir() -> Option<Path> {
     _homedir()
 }
 
-/**
- * Returns the path to a temporary directory.
- *
- * On Unix, returns the value of the 'TMPDIR' environment variable if it is
- * set, otherwise for non-Android it returns '/tmp'. If Android, since there
- * is no global temporary folder (it is usually allocated per-app), we return
- * '/data/local/tmp'.
- *
- * On Windows, returns the value of, in order, the 'TMP', 'TEMP',
- * 'USERPROFILE' environment variable  if any are set and not the empty
- * string. Otherwise, tmpdir returns the path to the Windows directory.
- */
+/// Returns the path to a temporary directory.
+///
+/// On Unix, returns the value of the 'TMPDIR' environment variable if it is
+/// set, otherwise for non-Android it returns '/tmp'. If Android, since there
+/// is no global temporary folder (it is usually allocated per-app), we return
+/// '/data/local/tmp'.
+///
+/// On Windows, returns the value of, in order, the 'TMP', 'TEMP',
+/// 'USERPROFILE' environment variable  if any are set and not the empty
+/// string. Otherwise, tmpdir returns the path to the Windows directory.
 pub fn tmpdir() -> Path {
     return lookup();
 
@@ -947,16 +946,14 @@ pub fn last_os_error() -> String {
 
 static EXIT_STATUS: AtomicInt = INIT_ATOMIC_INT;
 
-/**
- * Sets the process exit code
- *
- * Sets the exit code returned by the process if all supervised tasks
- * terminate successfully (without panicking). If the current root task panics
- * and is supervised by the scheduler then any user-specified exit status is
- * ignored and the process exits with the default panic status.
- *
- * Note that this is not synchronized against modifications of other threads.
- */
+/// Sets the process exit code
+///
+/// Sets the exit code returned by the process if all supervised tasks
+/// terminate successfully (without panicking). If the current root task panics
+/// and is supervised by the scheduler then any user-specified exit status is
+/// ignored and the process exits with the default panic status.
+///
+/// Note that this is not synchronized against modifications of other threads.
 pub fn set_exit_status(code: int) {
     EXIT_STATUS.store(code, SeqCst)
 }
@@ -977,11 +974,9 @@ unsafe fn load_argc_and_argv(argc: int,
     })
 }
 
-/**
- * Returns the command line arguments
- *
- * Returns a list of the command line arguments.
- */
+/// Returns the command line arguments
+///
+/// Returns a list of the command line arguments.
 #[cfg(target_os = "macos")]
 fn real_args_as_bytes() -> Vec<Vec<u8>> {
     unsafe {

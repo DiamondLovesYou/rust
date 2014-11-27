@@ -10,17 +10,16 @@
 //
 // ignore-lexer-test FIXME #15679
 
-/*!
- * Unicode-intensive string manipulations.
- *
- * This module provides functionality to `str` that requires the Unicode
- * methods provided by the UnicodeChar trait.
- */
+//! Unicode-intensive string manipulations.
+//!
+//! This module provides functionality to `str` that requires the Unicode methods provided by the
+//! UnicodeChar trait.
 
 use self::GraphemeState::*;
 use core::cmp;
 use core::slice::SlicePrelude;
-use core::iter::{Filter, AdditiveIterator, Iterator, DoubleEndedIterator};
+use core::iter::{Filter, AdditiveIterator, Iterator, IteratorExt};
+use core::iter::{DoubleEndedIterator, DoubleEndedIteratorExt};
 use core::kinds::Sized;
 use core::option::{Option, None, Some};
 use core::str::{CharSplits, StrPrelude};

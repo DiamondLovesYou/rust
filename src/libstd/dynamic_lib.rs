@@ -8,20 +8,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/*!
-
-Dynamic library facilities.
-
-A simple wrapper over the platform's dynamic library facilities
-
-*/
+//! Dynamic library facilities.
+//!
+//! A simple wrapper over the platform's dynamic library facilities
 
 #![experimental]
 #![allow(missing_docs)]
 
 use clone::Clone;
 use c_str::ToCStr;
-use iter::Iterator;
+use iter::IteratorExt;
 use mem;
 use ops::*;
 use option::*;
@@ -280,7 +276,7 @@ pub mod dl {
 #[cfg(target_os = "windows")]
 pub mod dl {
     use c_str::ToCStr;
-    use iter::Iterator;
+    use iter::IteratorExt;
     use libc;
     use os;
     use ptr;

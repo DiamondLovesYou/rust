@@ -8,19 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/*!
-
-Named pipes
-
-This module contains the ability to communicate over named pipes with
-synchronous I/O. On windows, this corresponds to talking over a Named Pipe,
-while on Unix it corresponds to UNIX domain sockets.
-
-These pipes are similar to TCP in the sense that you can have both a stream to a
-server and a server itself. The server provided accepts other `UnixStream`
-instances as clients.
-
-*/
+//! Named pipes
+//!
+//! This module contains the ability to communicate over named pipes with
+//! synchronous I/O. On windows, this corresponds to talking over a Named Pipe,
+//! while on Unix it corresponds to UNIX domain sockets.
+//!
+//! These pipes are similar to TCP in the sense that you can have both a stream to a
+//! server and a server itself. The server provided accepts other `UnixStream`
+//! instances as clients.
 
 #![allow(missing_docs)]
 
@@ -32,6 +28,8 @@ use time::Duration;
 use sys::pipe::UnixStream as UnixStreamImp;
 use sys::pipe::UnixListener as UnixListenerImp;
 use sys::pipe::UnixAcceptor as UnixAcceptorImp;
+
+use sys_common;
 
 /// A stream which communicates over a named pipe.
 pub struct UnixStream {
@@ -145,6 +143,12 @@ impl Writer for UnixStream {
     }
 }
 
+impl sys_common::AsInner<UnixStreamImp> for UnixStream {
+    fn as_inner(&self) -> &UnixStreamImp {
+        &self.inner
+    }
+}
+
 /// A value that can listen for incoming named pipe connection requests.
 pub struct UnixListener {
     /// The internal, opaque runtime Unix listener.
@@ -183,6 +187,12 @@ impl Listener<UnixStream, UnixAcceptor> for UnixListener {
     fn listen(self) -> IoResult<UnixAcceptor> {
         self.inner.listen()
             .map(|inner| UnixAcceptor { inner: inner })
+    }
+}
+
+impl sys_common::AsInner<UnixListenerImp> for UnixListener {
+    fn as_inner(&self) -> &UnixListenerImp {
+        &self.inner
     }
 }
 
@@ -244,6 +254,12 @@ impl Clone for UnixAcceptor {
     /// on to wake up any other task blocked in `accept`.
     fn clone(&self) -> UnixAcceptor {
         UnixAcceptor { inner: self.inner.clone() }
+    }
+}
+
+impl sys_common::AsInner<UnixAcceptorImp> for UnixAcceptor {
+    fn as_inner(&self) -> &UnixAcceptorImp {
+        &self.inner
     }
 }
 

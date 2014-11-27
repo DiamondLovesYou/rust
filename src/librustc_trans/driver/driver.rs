@@ -106,10 +106,8 @@ pub fn compile_input(sess: Session,
     }
 }
 
-/**
- * The name used for source code that doesn't originate in a file
- * (e.g. source from stdin or a string)
- */
+/// The name used for source code that doesn't originate in a file
+/// (e.g. source from stdin or a string)
 pub fn anon_src() -> String {
     "<anon>".to_string()
 }

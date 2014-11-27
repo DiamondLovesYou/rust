@@ -531,7 +531,7 @@ impl<'a, 'b> Context<'a, 'b> {
                     true, Context::rtpath(self.ecx, "Argument"),
                     vec![static_lifetime],
                     vec![]
-                ), None);
+                ));
             lets.push(Context::item_static_array(self.ecx,
                                                  static_args_name,
                                                  piece_ty,
@@ -580,7 +580,7 @@ impl<'a, 'b> Context<'a, 'b> {
         let slicename = self.ecx.ident_of("__args_vec");
         {
             let args = names.into_iter().map(|a| a.unwrap());
-            let mut args = locals.into_iter().chain(args);
+            let args = locals.into_iter().chain(args);
             let args = self.ecx.expr_vec_slice(self.fmtsp, args.collect());
             lets.push(self.ecx.stmt_let(self.fmtsp, false, slicename, args));
         }

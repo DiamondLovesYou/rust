@@ -858,7 +858,7 @@ pub fn link_pnacl_module(sess: &Session,
         Ok(buf) => link_buf_into_module(sess,
                                         llcx,
                                         None,
-                                        post_link_path.display().as_maybe_owned().as_slice(),
+                                        &*post_link_path.display().as_cow(),
                                         buf.as_slice()).unwrap(),
         Err(e) => {
             sess.fatal(format!("error reading file `{}`: `{}`",

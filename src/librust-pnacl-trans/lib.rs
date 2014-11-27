@@ -10,8 +10,6 @@
 
 #![crate_name = "rust-pnacl-trans"]
 #![experimental]
-#![comment = "The Rust translator for PNaCl targets"]
-#![license = "MIT/ASL2"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
@@ -351,17 +349,17 @@ pub fn main() {
                               "--entry=__pnacl_start".to_string(),
                               "-static".to_string(),
                               lib_path.join("crtbegin.o")
-                                  .display().as_maybe_owned().to_string());
+                                  .display().as_cow().into_owned());
     let nexe_link_args_suffix = vec!(lib_path.join("libpnacl_irt_shim.a")
-                                         .display().as_maybe_owned().to_string(),
+                                         .display().as_cow().into_owned(),
                                      "--start-group".to_string(),
                                      lib_path.join("libgcc.a")
-                                         .display().as_maybe_owned().to_string(),
+                                         .display().as_cow().into_owned(),
                                      lib_path.join("libcrt_platform.a")
-                                         .display().as_maybe_owned().to_string(),
+                                         .display().as_cow().into_owned(),
                                      "--end-group".to_string(),
                                      lib_path.join("crtend.o")
-                                         .display().as_maybe_owned().to_string(),
+                                         .display().as_cow().into_owned(),
                                      "--undefined=_start".to_string(),
                                      "-o".to_string(),
                                      output.clone());

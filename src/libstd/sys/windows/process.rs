@@ -26,20 +26,18 @@ use sys::fs;
 use sys::{mod, retry, c, wouldblock, set_nonblocking, ms_to_timeval, timer};
 use sys::fs::FileDesc;
 use sys_common::helper_thread::Helper;
-use sys_common::{AsFileDesc, mkerr_libc, timeout};
+use sys_common::{AsInner, mkerr_libc, timeout};
 
 use io::fs::PathExtensions;
 use string::String;
 
 pub use sys_common::ProcessConfig;
 
-/**
- * A value representing a child process.
- *
- * The lifetime of this value is linked to the lifetime of the actual
- * process - the Process destructor calls self.finish() which waits
- * for the process to terminate.
- */
+/// A value representing a child process.
+///
+/// The lifetime of this value is linked to the lifetime of the actual
+/// process - the Process destructor calls self.finish() which waits
+/// for the process to terminate.
 pub struct Process {
     /// The unique id of the process (this should never be negative).
     pid: pid_t,
@@ -105,7 +103,7 @@ impl Process {
     pub fn spawn<K, V, C, P>(cfg: &C, in_fd: Option<P>,
                               out_fd: Option<P>, err_fd: Option<P>)
                               -> IoResult<Process>
-        where C: ProcessConfig<K, V>, P: AsFileDesc,
+        where C: ProcessConfig<K, V>, P: AsInner<FileDesc>,
               K: BytesContainer + Eq + Hash, V: BytesContainer
     {
         use libc::types::os::arch::extra::{DWORD, HANDLE, STARTUPINFO};
@@ -124,7 +122,7 @@ impl Process {
         use libc::funcs::extra::msvcrt::get_osfhandle;
 
         use mem;
-        use iter::Iterator;
+        use iter::{Iterator, IteratorExt};
         use str::StrPrelude;
 
         if cfg.gid().is_some() || cfg.uid().is_some() {
@@ -195,7 +193,7 @@ impl Process {
                         }
                     }
                     Some(ref fd) => {
-                        let orig = get_osfhandle(fd.as_fd().fd()) as HANDLE;
+                        let orig = get_osfhandle(fd.as_inner().fd()) as HANDLE;
                         if orig == INVALID_HANDLE_VALUE {
                             return Err(super::last_error())
                         }
@@ -263,16 +261,14 @@ impl Process {
         }
     }
 
-    /**
-     * Waits for a process to exit and returns the exit code, failing
-     * if there is no process with the specified id.
-     *
-     * Note that this is private to avoid race conditions on unix where if
-     * a user calls waitpid(some_process.get_id()) then some_process.finish()
-     * and some_process.destroy() and some_process.finalize() will then either
-     * operate on a none-existent process or, even worse, on a newer process
-     * with the same id.
-     */
+    /// Waits for a process to exit and returns the exit code, failing
+    /// if there is no process with the specified id.
+    ///
+    /// Note that this is private to avoid race conditions on unix where if
+    /// a user calls waitpid(some_process.get_id()) then some_process.finish()
+    /// and some_process.destroy() and some_process.finalize() will then either
+    /// operate on a none-existent process or, even worse, on a newer process
+    /// with the same id.
     pub fn wait(&self, deadline: u64) -> IoResult<ProcessExit> {
         use libc::types::os::arch::extra::DWORD;
         use libc::consts::os::extra::{

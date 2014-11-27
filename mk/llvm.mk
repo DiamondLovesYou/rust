@@ -49,6 +49,12 @@ else
 LLVM_STDCPP_LOCATION_$(1) =
 endif
 
+
+# LLVM linkage:
+LLVM_LINKAGE_PATH_$(1):=$$(abspath $$(RT_OUTPUT_DIR_$(1))/llvmdeps.rs)
+$$(LLVM_LINKAGE_PATH_$(1)): $(S)src/etc/mklldeps.py $$(LLVM_CONFIG_$(1))
+	$(Q)$(CFG_PYTHON) "$$<" "$$@" "$(filter-out lto,$$(LLVM_COMPONENTS))" "$$(CFG_ENABLE_LLVM_STATIC_STDCPP)" \
+		$$(LLVM_CONFIG_$(1))
 endef
 
 $(foreach host,$(CFG_HOST), \
@@ -56,6 +62,18 @@ $(foreach host,$(CFG_HOST), \
 
 $(foreach host,$(CFG_HOST), \
  $(eval LLVM_CONFIGS := $(LLVM_CONFIGS) $(LLVM_CONFIG_$(host))))
+
+# This can't be done in target.mk because it's included before this file.
+define LLVM_LINKAGE_DEPS
+$$(TLIB$(1)_T_$(2)_H_$(3))/stamp.rustc_llvm: $$(LLVM_LINKAGE_PATH_$(3))
+endef
+
+$(foreach source,$(CFG_HOST), \
+ $(foreach target,$(CFG_TARGET), \
+  $(eval $(call LLVM_LINKAGE_DEPS,0,$(target),$(source))) \
+  $(eval $(call LLVM_LINKAGE_DEPS,1,$(target),$(source))) \
+  $(eval $(call LLVM_LINKAGE_DEPS,2,$(target),$(source))) \
+  $(eval $(call LLVM_LINKAGE_DEPS,3,$(target),$(source)))))
 
 define DEF_LLVM_GOLD_RULES
 $$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO): $$(LLVM_CONFIG_$(2))
@@ -70,10 +88,3 @@ $(foreach stage,1 2 3, \
  $(foreach host,$(CFG_HOST), \
   $(eval $(call DEF_LLVM_GOLD_RULES,$(stage),$(host)))))
 
-$(S)src/librustc_llvm/llvmdeps.rs: \
-		    $(LLVM_CONFIGS) \
-		    $(S)src/etc/mklldeps.py \
-		    $(MKFILE_DEPS)
-	$(Q)$(CFG_PYTHON) $(S)src/etc/mklldeps.py \
-		"$@" "$(filter-out lto,$(LLVM_COMPONENTS))" "$(CFG_ENABLE_LLVM_STATIC_STDCPP)" \
-		$(LLVM_CONFIGS)

@@ -94,6 +94,9 @@ impl fmt::Show for clean::Generics {
                 if i > 0 {
                     try!(f.write(", ".as_bytes()))
                 }
+                if let Some(ref unbound) = tp.default_unbound {
+                    try!(write!(f, "{}? ", unbound));
+                };
                 try!(f.write(tp.name.as_bytes()));
 
                 if tp.bounds.len() > 0 {
@@ -422,7 +425,7 @@ impl fmt::Show for clean::Type {
                        bounds = if decl.bounds.len() == 0 {
                            "".to_string()
                        } else {
-                           let mut m = decl.bounds
+                           let m = decl.bounds
                                            .iter()
                                            .map(|s| s.to_string());
                            format!(

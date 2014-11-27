@@ -173,7 +173,7 @@ prepare-base-$(1): PREPARE_DEST_MAN_DIR=$$(PREPARE_DEST_DIR)/share/man/man1
 prepare-base-$(1): PREPARE_DEST_TARGET_HOST_BIN_DIR=$$(PREPARE_DEST_DIR)/$$(CFG_LIBDIR_RELATIVE)/rustlib/$$(subst dir-,,$(1))/bin
 prepare-base-$(1): prepare-everything-$(1)
 
-prepare-everything-$(1): prepare-host-$(1) prepare-targets-$(1)
+prepare-everything-$(1): prepare-host-$(1) prepare-targets-$(1) prepare-debugger-scripts-$(1)
 
 prepare-host-$(1): prepare-host-tools-$(1)
 
@@ -185,9 +185,14 @@ prepare-host-tools-$(1): \
 prepare-host-dirs-$(1): prepare-maybe-clean-$(1)
 	$$(call PREPARE_DIR,$$(PREPARE_DEST_BIN_DIR))
 	$$(call PREPARE_DIR,$$(PREPARE_DEST_LIB_DIR))
+	$$(call PREPARE_DIR,$$(PREPARE_DEST_LIB_DIR)/rustlib/etc)
 	$$(call PREPARE_DIR,$$(PREPARE_DEST_MAN_DIR))
 	$$(if $$(findstring nacl,$$(PREPARE_TARGETS)),\
 	  $$(call PREPARE_DIR,$$(PREPARE_DEST_TARGET_HOST_BIN_DIR)),)
+
+prepare-debugger-scripts-$(1): prepare-host-dirs-$(1) $(DEBUGGER_SCRIPTS_ALL)
+	$$(Q)$$(PREPARE_BIN_CMD) $(DEBUGGER_BIN_SCRIPTS_ABS) $$(PREPARE_DEST_BIN_DIR)
+	$$(Q)$$(PREPARE_LIB_CMD) $(DEBUGGER_RUSTLIB_ETC_SCRIPTS_ABS) $$(PREPARE_DEST_LIB_DIR)/rustlib/etc
 
 $$(foreach tool,$$(PREPARE_TOOLS), \
   $$(foreach host,$$(CFG_HOST), \

@@ -80,7 +80,7 @@ pub fn join(a: constness, b: constness) -> constness {
     }
 }
 
-pub fn join_all<It: Iterator<constness>>(mut cs: It) -> constness {
+pub fn join_all<It: Iterator<constness>>(cs: It) -> constness {
     cs.fold(integral_const, |a, b| join(a, b))
 }
 
@@ -566,6 +566,34 @@ pub fn eval_const_expr_partial(tcx: &ty::ctxt, e: &Expr) -> Result<const_val, St
             Some(ref expr) => eval_const_expr_partial(tcx, &**expr),
             None => Ok(const_int(0i64))
         }
+      }
+      ast::ExprTupField(ref base, index) => {
+        // Get the base tuple if it is constant
+        if let Some(&ast::ExprTup(ref fields)) = lookup_const(tcx, &**base).map(|s| &s.node) {
+            // Check that the given index is within bounds and evaluate its value
+            if fields.len() > index.node {
+                return eval_const_expr_partial(tcx, &*fields[index.node])
+            } else {
+                return Err("tuple index out of bounds".to_string())
+            }
+        }
+
+        Err("non-constant struct in constant expr".to_string())
+      }
+      ast::ExprField(ref base, field_name) => {
+        // Get the base expression if it is a struct and it is constant
+        if let Some(&ast::ExprStruct(_, ref fields, _)) = lookup_const(tcx, &**base)
+                                                            .map(|s| &s.node) {
+            // Check that the given field exists and evaluate it
+            if let Some(f) = fields.iter().find(|f|
+                                           f.ident.node.as_str() == field_name.node.as_str()) {
+                return eval_const_expr_partial(tcx, &*f.expr)
+            } else {
+                return Err("nonexistent struct field".to_string())
+            }
+        }
+
+        Err("non-constant struct in constant expr".to_string())
       }
       _ => Err("unsupported constant expr".to_string())
     }

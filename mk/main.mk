@@ -375,7 +375,8 @@ else
 HSREQ$(1)_H_$(3) = \
 	$$(TROOT$(1)_T_$(3)_H_$(3))/lib/LLVMgold.so \
 	$$(HBIN$(1)_H_$(3))/rustc$$(X_$(3)) \
-	$$(MKFILE_DEPS)
+	$$(MKFILE_DEPS) \
+	tmp/install-debugger-scripts$(1)_H_$(3).done
 
 ifeq ($(1),2)
 HSREQ$(1)_H_$(3) += $$(BINUTILS_STAMP_$(3))
@@ -394,7 +395,8 @@ SREQ$(1)_T_$(2)_H_$(3) = \
 	$$(TSREQ$(1)_T_$(2)_H_$(3)) \
 	$$(foreach dep, \
 		$$(filter-out $$(DISABLED_CRATES_$(2)),$$(TARGET_CRATES)),\
-	    	$$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(dep))
+	    	$$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(dep)) \
+	tmp/install-debugger-scripts$(1)_T_$(2)_H_$(3).done
 
 # Prerequisites for a working stageN compiler and complete set of target
 # libraries
