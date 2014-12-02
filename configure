@@ -954,7 +954,7 @@ do
 		apple-darwin)
 		    PNACL_TOOLCHAIN_PATH=$CFG_NACL_CROSS_PATH/toolchain/mac_pnacl/bin
 		    ;;
-		pc-mingw32)
+		pc-windows-gnu)
 		    PNACL_TOOLCHAIN_PATH=$CFG_NACL_CROSS_PATH/toolchain/win_pnacl/bin
 		    ;;
 		unknown-linux-gnu)
