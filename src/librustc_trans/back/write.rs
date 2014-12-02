@@ -729,9 +729,8 @@ pub fn run_passes(sess: &Session,
 
     fn search_for_native(paths: &Vec<Path>,
                          name: &String) -> Option<Path> {
-        use std::os::consts::{DLL_PREFIX};
         use std::io::fs::stat;
-        let name_path = Path::new(format!("{}{}.a", DLL_PREFIX, name));
+        let name_path = Path::new(format!("lib{}.a", name));
         debug!(">> searching for native lib `{}` starting", name);
         let found = paths.iter().find(|dir| {
             debug!("   searching in `{}`", dir.display());
