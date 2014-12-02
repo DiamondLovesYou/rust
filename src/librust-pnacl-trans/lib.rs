@@ -419,3 +419,7 @@ pub fn main() {
 fn pnacl_toolchain_prefix() -> String {
     "linux".to_string()
 }
+#[cfg(windows)]
+fn pnacl_toolchain_prefix() -> String {
+    "win".to_string()
+}

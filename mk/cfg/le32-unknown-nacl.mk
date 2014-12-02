@@ -1,11 +1,3 @@
-ifeq ($(CFG_OSTYPE),pc-mingw32)
-  NACL_TOOLCHAIN_OS_PATH:=win
-else ifeq ($(CFG_OSTYPE),apple-darwin)
-  NACL_TOOLCHAIN_OS_PATH:=mac
-else
-  NACL_TOOLCHAIN_OS_PATH:=linux
-endif
-
 # le32-unknown-nacl (portable, PNaCl)
 CROSS_PREFIX_le32-unknown-nacl:=$(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/bin/pnacl-
 CC_le32-unknown-nacl=clang
