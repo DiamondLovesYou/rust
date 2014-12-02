@@ -517,16 +517,17 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                                                                      testfile,
                                                                      props.exec_env.clone(),
                                                                      true) {
-                ProcResResult(_) => unreachable!(),
-                ProcessResult(p) => p,
+                ProcResOrProcessResult::ProcResResult(_) => unreachable!(),
+                ProcResOrProcessResult::ProcessResult(p) => p,
             };
 
             cmds = cmds.replace("run", "continue").to_string();
 
-            let pexe_path = make_absolute(&output_base_name(config, testfile));
+            let pexe_path = make_absolute(&output_base_name(config, testfile))
+                .unwrap();
             let nexe_path =
                 // add an extension, don't replace it:
-                Path::new(format!("{}.nexe",pexe_path.display()));
+                Path::new(format!("{}.nexe", pexe_path.display()));
 
             // write debugger script
             let script_str = [
@@ -545,14 +546,14 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             let cross_path = config.nacl_cross_path
                 .clone()
                 .expect("need the NaCl SDK path!");
-            let gdb_path = cross_path.join_many(["toolchain".to_string(),
-                                                 {
-                                                     let mut s = pnacl_toolchain_prefix();
-                                                     s.push_str("_x86_newlib");
-                                                     s
-                                                 },
-                                                 "bin".to_string(),
-                                                 gdb.clone()]);
+            let gdb_path = cross_path.join_many(&["toolchain".to_string(),
+                                                  {
+                                                      let mut s = pnacl_toolchain_prefix();
+                                                      s.push_str("_x86_newlib");
+                                                      s
+                                                  },
+                                                  "bin".to_string(),
+                                                  gdb.clone()]);
 
             loop {
                 // wait for a quarter second for sel_ldr to start
@@ -1284,8 +1285,8 @@ fn exec_compiled_test(config: &Config, props: &TestProps,
         "le32-unknown-nacl" => {
             match pnacl_exec_compiled_test(config, props,
                                            testfile, env, false) {
-                ProcResResult(p) => p,
-                ProcessResult(_) => unreachable!(),
+                ProcResOrProcessResult::ProcResResult(p) => p,
+                ProcResOrProcessResult::ProcessResult(_) => unreachable!(),
             }
         }
 
@@ -1782,13 +1783,14 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         .expect("need the LLVM bin path!")
         .join("llc");
 
-    let pexe_path = make_absolute(&output_base_name(config, testfile));
+    let pexe_path = make_absolute(&output_base_name(config, testfile))
+        .unwrap();
     let obj_path =
         // add an extension, don't replace it:
-        Path::new(format!("{}.o",pexe_path.display()));
+        Path::new(format!("{}.o", pexe_path.display()));
     let nexe_path =
         // add an extension, don't replace it:
-        Path::new(format!("{}.nexe",pexe_path.display()));
+        Path::new(format!("{}.nexe", pexe_path.display()));
 
     let (arch, tls_use_call) = match ARCH {
         "x86" => ("i686", false),
@@ -1806,14 +1808,14 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     match program_output(config,
                          testfile,
                          config.compile_lib_path.as_slice(),
-                         llc.display().as_maybe_owned().to_string(),
+                         llc.display().to_string(),
                          None,
                          pnacl_trans_args,
                          env.clone(),
                          None) {
         ProcRes { status: ExitStatus(0), .. } => { }
         res => {
-            return ProcResResult(res);
+            return ProcResOrProcessResult::ProcResResult(res);
         }
     }
 
@@ -1830,7 +1832,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                              s.push_str("_pnacl");
                                              s
                                          },
-                                         format!("lib-{}", arch)]);
+                                         format!("lib-{}", arch)].as_slice());
 
     let nexe_link_args = vec!("-nostdlib".to_string(),
                               "--no-fix-cortex-a8".to_string(),
@@ -1840,22 +1842,22 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                               "--entry=__pnacl_start".to_string(),
                               "-static".to_string(),
                               lib_path.join("crtbegin.o")
-                                  .display().as_maybe_owned().to_string(),
-                              obj_path.display().as_maybe_owned().to_string(),
+                                  .display().to_string(),
+                              obj_path.display().to_string(),
                               lib_path.join("libpnacl_irt_shim.a")
-                                  .display().as_maybe_owned().to_string(),
+                                  .display().to_string(),
                               "--start-group".to_string(),
                               lib_path.join("libgcc.a")
-                                  .display().as_maybe_owned().to_string(),
+                                  .display().to_string(),
                               lib_path.join("libcrt_platform.a")
-                                  .display().as_maybe_owned().to_string(),
+                                  .display().to_string(),
                               "--end-group".to_string(),
                               lib_path.join("crtend.o")
-                                  .display().as_maybe_owned().to_string(),
+                                  .display().to_string(),
                               "--undefined=_start".to_string(),
                               "-o".to_string(),
                               nexe_path
-                                  .display().as_maybe_owned().to_string(),);
+                                  .display().to_string(),);
 
     let gold = Path::new(config.rustc_path.clone())
         .dir_path()
@@ -1864,19 +1866,19 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                     "rustlib".to_string(),
                     config.host.clone(),
                     "bin".to_string(),
-                    "le32-nacl-ld.gold".to_string()]);
+                    "le32-nacl-ld.gold".to_string()].as_slice());
 
     match program_output(config,
                          testfile,
                          config.compile_lib_path.as_slice(),
-                         gold.display().as_maybe_owned().to_string(),
+                         gold.display().to_string(),
                          None,
                          nexe_link_args,
                          env.clone(),
                          None) {
         ProcRes { status: ExitStatus(0), .. } => { }
         res => {
-            return ProcResResult(res);
+            return ProcResOrProcessResult::ProcResResult(res);
         }
     }
 
@@ -1884,14 +1886,14 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let _ = fs::unlink(&obj_path);
 
     let sel_ldr = cross_path.join_many(["tools",
-                                        "sel_ldr.py"]);
+                                        "sel_ldr.py"].as_slice());
     let mut sel_ldr_args = vec!("--debug-libs".to_string(),
                             "-v".to_string());
     if run_background {
         sel_ldr_args.push("-d".to_string());
     }
     sel_ldr_args.push("--".to_string());
-    sel_ldr_args.push(nexe_path.display().as_maybe_owned().to_string());
+    sel_ldr_args.push(nexe_path.display().to_string());
 
     let ProcArgs {
         args: run_args,
@@ -1899,8 +1901,10 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     } = make_run_args(config, props, testfile);
     sel_ldr_args.extend(run_args.into_iter());
 
+    let sel_ldr_dsp = sel_ldr.display().to_string();
+
     let mut process = procsrv::run_background("",
-                                              sel_ldr.display().as_maybe_owned().as_slice(),
+                                              sel_ldr_dsp.as_slice(),
                                               None,
                                               sel_ldr_args.as_slice(),
                                               env,
@@ -1911,7 +1915,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         process.set_timeout(Some(10_000));
         match process.wait() {
             Ok(status) => {
-                return ProcResResult(ProcRes {
+                return ProcResOrProcessResult::ProcResResult(ProcRes {
                     status: status,
                     stdout: String::from_utf8(process.stdout
                                               .as_mut()
@@ -1924,7 +1928,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
-                                          sel_ldr.display().as_maybe_owned().as_slice(),
+                                          sel_ldr_dsp.as_slice(),
                                           sel_ldr_args.as_slice()),
                 });
             }
@@ -1940,7 +1944,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         process.set_timeout(Some(1_000));
         match process.wait() {
             Ok(status) => {
-                return ProcResResult(ProcRes {
+                return ProcResOrProcessResult::ProcResResult(ProcRes {
                     status: status,
                     stdout: String::from_utf8(process.stdout
                                               .as_mut()
@@ -1953,7 +1957,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
-                                          sel_ldr.display().as_maybe_owned().as_slice(),
+                                          sel_ldr_dsp.as_slice(),
                                           sel_ldr_args.as_slice()),
                 });
             }
@@ -1963,7 +1967,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         debug!("finished waiting for SIGTERM. Killing.");
 
         let _ = process.signal_kill();
-        return ProcResResult(ProcRes {
+        return ProcResOrProcessResult::ProcResResult(ProcRes {
             status: ExitSignal(9),
             stdout: String::from_utf8(process.stdout
                                       .as_mut()
@@ -1976,11 +1980,11 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                       .read_to_end()
                                       .unwrap()).unwrap(),
             cmdline: make_cmdline("",
-                                  sel_ldr.display().as_maybe_owned().as_slice(),
+                                  sel_ldr_dsp.as_slice(),
                                   sel_ldr_args.as_slice()),
         });
     } else {
-        return ProcessResult(process);
+        return ProcResOrProcessResult::ProcessResult(process);
     }
 }
 
