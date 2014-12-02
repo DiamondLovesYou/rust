@@ -65,26 +65,20 @@ pub fn strip_hidden(krate: clean::Crate) -> plugins::PluginResult {
         };
         impl<'a> fold::DocFolder for ImplStripper<'a> {
             fn fold_item(&mut self, i: Item) -> Option<Item> {
-                match i.inner {
-                    clean::ImplItem(clean::Impl{
-                        for_: clean::ResolvedPath{ did, .. },
-                        ref trait_, ..
-                    }) => {
-                        // Impls for stripped types don't need to exist
+                if let clean::ImplItem(clean::Impl{
+                           for_: clean::ResolvedPath{ did, .. },
+                           ref trait_, ..
+                }) = i.inner {
+                    // Impls for stripped types don't need to exist
+                    if self.stripped.contains(&did.node) {
+                        return None;
+                    }
+                    // Impls of stripped traits also don't need to exist
+                    if let Some(clean::ResolvedPath { did, .. }) = *trait_ {
                         if self.stripped.contains(&did.node) {
                             return None;
                         }
-                        // Impls of stripped traits also don't need to exist
-                        match *trait_ {
-                            Some(clean::ResolvedPath { did, .. }) => {
-                                if self.stripped.contains(&did.node) {
-                                    return None
-                                }
-                            }
-                            _ => {}
-                        }
                     }
-                    _ => {}
                 }
                 self.fold_item_recur(i)
             }
@@ -202,6 +196,10 @@ impl<'a> fold::DocFolder for Stripper<'a> {
             // implementations of traits are always public.
             clean::ImplItem(ref imp) if imp.trait_.is_some() => true,
 
+            // Struct variant fields have inherited visibility
+            clean::VariantItem(clean::Variant {
+                kind: clean::StructVariant(..)
+            }) => true,
             _ => false,
         };
 
@@ -235,19 +233,16 @@ impl<'a> fold::DocFolder for Stripper<'a> {
 struct ImplStripper<'a>(&'a HashSet<ast::NodeId>);
 impl<'a> fold::DocFolder for ImplStripper<'a> {
     fn fold_item(&mut self, i: Item) -> Option<Item> {
-        match i.inner {
-            clean::ImplItem(ref imp) => {
-                match imp.trait_ {
-                    Some(clean::ResolvedPath{ did, .. }) => {
-                        let ImplStripper(s) = *self;
-                        if ast_util::is_local(did) && !s.contains(&did.node) {
-                            return None;
-                        }
+        if let clean::ImplItem(ref imp) = i.inner {
+            match imp.trait_ {
+                Some(clean::ResolvedPath{ did, .. }) => {
+                    let ImplStripper(s) = *self;
+                    if ast_util::is_local(did) && !s.contains(&did.node) {
+                        return None;
                     }
-                    Some(..) | None => {}
                 }
+                Some(..) | None => {}
             }
-            _ => {}
         }
         self.fold_item_recur(i)
     }

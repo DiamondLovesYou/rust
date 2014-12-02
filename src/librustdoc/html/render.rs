@@ -83,6 +83,9 @@ pub struct Context {
     /// String representation of how to get back to the root path of the 'doc/'
     /// folder in terms of a relative URL.
     pub root_path: String,
+    /// The path to the crate root source minus the file name.
+    /// Used for simplifying paths to the highlighted source code files.
+    pub src_root: Path,
     /// The current destination folder of where HTML artifacts should be placed.
     /// This changes as the context descends into the module hierarchy.
     pub dst: Path,
@@ -249,6 +252,7 @@ pub fn run(mut krate: clean::Crate,
            passes: HashSet<String>) -> io::IoResult<()> {
     let mut cx = Context {
         dst: dst,
+        src_root: krate.src.dir_path(),
         passes: passes,
         current: Vec::new(),
         root_path: String::new(),
@@ -642,8 +646,13 @@ fn mkdir(path: &Path) -> io::IoResult<()> {
 /// things like ".." to components which preserve the "top down" hierarchy of a
 /// static HTML tree.
 // FIXME (#9639): The closure should deal with &[u8] instead of &str
-fn clean_srcpath(src: &[u8], f: |&str|) {
+// FIXME (#9639): This is too conservative, rejecting non-UTF-8 paths
+fn clean_srcpath(src_root: &Path, src: &[u8], f: |&str|) {
     let p = Path::new(src);
+
+    // make it relative, if possible
+    let p = p.path_relative_from(src_root).unwrap_or(p);
+
     if p.as_vec() != b"." {
         for c in p.str_components().map(|x|x.unwrap()) {
             if ".." == c {
@@ -749,7 +758,7 @@ impl<'a> SourceCollector<'a> {
         // Create the intermediate directories
         let mut cur = self.dst.clone();
         let mut root_path = String::from_str("../../");
-        clean_srcpath(p.dirname(), |component| {
+        clean_srcpath(&self.cx.src_root, p.dirname(), |component| {
             cur.push(component);
             mkdir(&cur).unwrap();
             root_path.push_str("../");
@@ -805,96 +814,87 @@ impl DocFolder for Cache {
 
         // Propagate a trait methods' documentation to all implementors of the
         // trait
-        match item.inner {
-            clean::TraitItem(ref t) => {
-                self.traits.insert(item.def_id, t.clone());
-            }
-            _ => {}
+        if let clean::TraitItem(ref t) = item.inner {
+            self.traits.insert(item.def_id, t.clone());
         }
 
         // Collect all the implementors of traits.
-        match item.inner {
-            clean::ImplItem(ref i) => {
-                match i.trait_ {
-                    Some(clean::ResolvedPath{ did, .. }) => {
-                        let v = match self.implementors.entry(did) {
-                            Vacant(entry) => entry.set(Vec::with_capacity(1)),
-                            Occupied(entry) => entry.into_mut(),
-                        };
-                        v.push(Implementor {
-                            def_id: item.def_id,
-                            generics: i.generics.clone(),
-                            trait_: i.trait_.as_ref().unwrap().clone(),
-                            for_: i.for_.clone(),
-                            stability: item.stability.clone(),
-                        });
-                    }
-                    Some(..) | None => {}
+        if let clean::ImplItem(ref i) = item.inner {
+            match i.trait_ {
+                Some(clean::ResolvedPath{ did, .. }) => {
+                    let v = match self.implementors.entry(did) {
+                        Vacant(entry) => entry.set(Vec::with_capacity(1)),
+                        Occupied(entry) => entry.into_mut(),
+                    };
+                    v.push(Implementor {
+                        def_id: item.def_id,
+                        generics: i.generics.clone(),
+                        trait_: i.trait_.as_ref().unwrap().clone(),
+                        for_: i.for_.clone(),
+                        stability: item.stability.clone(),
+                    });
                 }
+                Some(..) | None => {}
             }
-            _ => {}
         }
 
         // Index this method for searching later on
-        match item.name {
-            Some(ref s) => {
-                let (parent, is_method) = match item.inner {
-                    clean::TyMethodItem(..) |
-                    clean::StructFieldItem(..) |
-                    clean::VariantItem(..) => {
-                        ((Some(*self.parent_stack.last().unwrap()),
-                          Some(self.stack[..self.stack.len() - 1])),
-                          false)
-                    }
-                    clean::MethodItem(..) => {
-                        if self.parent_stack.len() == 0 {
-                            ((None, None), false)
-                        } else {
-                            let last = self.parent_stack.last().unwrap();
-                            let did = *last;
-                            let path = match self.paths.get(&did) {
-                                Some(&(_, item_type::Trait)) =>
-                                    Some(self.stack[..self.stack.len() - 1]),
-                                // The current stack not necessarily has correlation for
-                                // where the type was defined. On the other hand,
-                                // `paths` always has the right information if present.
-                                Some(&(ref fqp, item_type::Struct)) |
-                                Some(&(ref fqp, item_type::Enum)) =>
-                                    Some(fqp[..fqp.len() - 1]),
-                                Some(..) => Some(self.stack.as_slice()),
-                                None => None
-                            };
-                            ((Some(*last), path), true)
-                        }
-                    }
-                    _ => ((None, Some(self.stack.as_slice())), false)
-                };
-                let hidden_field = match item.inner {
-                    clean::StructFieldItem(clean::HiddenStructField) => true,
-                    _ => false
-                };
-
-                match parent {
-                    (parent, Some(path)) if is_method || (!self.privmod && !hidden_field) => {
-                        self.search_index.push(IndexItem {
-                            ty: shortty(&item),
-                            name: s.to_string(),
-                            path: path.connect("::").to_string(),
-                            desc: shorter(item.doc_value()).to_string(),
-                            parent: parent,
-                        });
-                    }
-                    (Some(parent), None) if is_method || (!self.privmod && !hidden_field)=> {
-                        if ast_util::is_local(parent) {
-                            // We have a parent, but we don't know where they're
-                            // defined yet. Wait for later to index this item.
-                            self.orphan_methods.push((parent.node, item.clone()))
-                        }
-                    }
-                    _ => {}
+        if let Some(ref s) = item.name {
+            let (parent, is_method) = match item.inner {
+                clean::TyMethodItem(..) |
+                clean::StructFieldItem(..) |
+                clean::VariantItem(..) => {
+                    ((Some(*self.parent_stack.last().unwrap()),
+                      Some(self.stack[..self.stack.len() - 1])),
+                     false)
                 }
+                clean::MethodItem(..) => {
+                    if self.parent_stack.len() == 0 {
+                        ((None, None), false)
+                    } else {
+                        let last = self.parent_stack.last().unwrap();
+                        let did = *last;
+                        let path = match self.paths.get(&did) {
+                            Some(&(_, item_type::Trait)) =>
+                                Some(self.stack[..self.stack.len() - 1]),
+                            // The current stack not necessarily has correlation for
+                            // where the type was defined. On the other hand,
+                            // `paths` always has the right information if present.
+                            Some(&(ref fqp, item_type::Struct)) |
+                            Some(&(ref fqp, item_type::Enum)) =>
+                                Some(fqp[..fqp.len() - 1]),
+                            Some(..) => Some(self.stack.as_slice()),
+                            None => None
+                        };
+                        ((Some(*last), path), true)
+                    }
+                }
+                _ => ((None, Some(self.stack.as_slice())), false)
+            };
+            let hidden_field = match item.inner {
+                clean::StructFieldItem(clean::HiddenStructField) => true,
+                _ => false
+            };
+
+            match parent {
+                (parent, Some(path)) if is_method || (!self.privmod && !hidden_field) => {
+                    self.search_index.push(IndexItem {
+                        ty: shortty(&item),
+                        name: s.to_string(),
+                        path: path.connect("::").to_string(),
+                        desc: shorter(item.doc_value()).to_string(),
+                        parent: parent,
+                    });
+                }
+                (Some(parent), None) if is_method || (!self.privmod && !hidden_field)=> {
+                    if ast_util::is_local(parent) {
+                        // We have a parent, but we don't know where they're
+                        // defined yet. Wait for later to index this item.
+                        self.orphan_methods.push((parent.node, item.clone()))
+                    }
+                }
+                _ => {}
             }
-            None => {}
         }
 
         // Keep track of the fully qualified path for this item.
@@ -1013,20 +1013,18 @@ impl DocFolder for Cache {
                             _ => None,
                         };
 
-                        match did {
-                            Some(did) => {
-                                let v = match self.impls.entry(did) {
-                                    Vacant(entry) => entry.set(Vec::with_capacity(1)),
-                                    Occupied(entry) => entry.into_mut(),
-                                };
-                                v.push(Impl {
-                                    impl_: i,
-                                    dox: dox,
-                                    stability: item.stability.clone(),
-                                });
-                            }
-                            None => {}
+                        if let Some(did) = did {
+                            let v = match self.impls.entry(did) {
+                                Vacant(entry) => entry.set(Vec::with_capacity(1)),
+                                Occupied(entry) => entry.into_mut(),
+                            };
+                            v.push(Impl {
+                                impl_: i,
+                                dox: dox,
+                                stability: item.stability.clone(),
+                            });
                         }
+
                         None
                     }
 
@@ -1299,13 +1297,13 @@ impl<'a> Item<'a> {
     /// If `None` is returned, then a source link couldn't be generated. This
     /// may happen, for example, with externally inlined items where the source
     /// of their crate documentation isn't known.
-    fn href(&self) -> Option<String> {
+    fn href(&self, cx: &Context) -> Option<String> {
         // If this item is part of the local crate, then we're guaranteed to
         // know the span, so we plow forward and generate a proper url. The url
         // has anchors for the line numbers that we're linking to.
         if ast_util::is_local(self.item.def_id) {
             let mut path = Vec::new();
-            clean_srcpath(self.item.source.filename.as_bytes(), |component| {
+            clean_srcpath(&cx.src_root, self.item.source.filename.as_bytes(), |component| {
                 path.push(component.to_string());
             });
             let href = if self.item.source.loline == self.item.source.hiline {
@@ -1412,7 +1410,7 @@ impl<'a> fmt::Show for Item<'a> {
         // this page, and this link will be auto-clicked. The `id` attribute is
         // used to find the link to auto-click.
         if self.cx.include_sources && !is_primitive {
-            match self.href() {
+            match self.href(self.cx) {
                 Some(l) => {
                     try!(write!(fmt, "<a id='src-{}' href='{}'>[src]</a>",
                                 self.item.def_id.node, l));
@@ -1865,22 +1863,19 @@ fn item_struct(w: &mut fmt::Formatter, it: &clean::Item,
             _ => false,
         }
     }).peekable();
-    match s.struct_type {
-        doctree::Plain => {
-            if fields.peek().is_some() {
-                try!(write!(w, "<h2 class='fields'>Fields</h2>\n<table>"));
-                for field in fields {
-                    try!(write!(w, "<tr><td id='structfield.{name}'>\
-                                      {stab}<code>{name}</code></td><td>",
-                                  stab = ConciseStability(&field.stability),
-                                  name = field.name.as_ref().unwrap().as_slice()));
-                    try!(document(w, field));
-                    try!(write!(w, "</td></tr>"));
-                }
-                try!(write!(w, "</table>"));
+    if let doctree::Plain = s.struct_type {
+        if fields.peek().is_some() {
+            try!(write!(w, "<h2 class='fields'>Fields</h2>\n<table>"));
+            for field in fields {
+                try!(write!(w, "<tr><td id='structfield.{name}'>\
+                                  {stab}<code>{name}</code></td><td>",
+                            stab = ConciseStability(&field.stability),
+                            name = field.name.as_ref().unwrap().as_slice()));
+                try!(document(w, field));
+                try!(write!(w, "</td></tr>"));
             }
+            try!(write!(w, "</table>"));
         }
-        _ => {}
     }
     render_methods(w, it)
 }

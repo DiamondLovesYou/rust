@@ -178,11 +178,8 @@ macro_rules! maybe_whole (
                 }
                 _ => None
             };
-            match found {
-                Some(token::Interpolated(token::$constructor(x))) => {
-                    return x.clone()
-                }
-                _ => {}
+            if let Some(token::Interpolated(token::$constructor(x))) = found {
+                return x.clone();
             }
         }
     );
@@ -194,11 +191,8 @@ macro_rules! maybe_whole (
                 }
                 _ => None
             };
-            match found {
-                Some(token::Interpolated(token::$constructor(x))) => {
-                    return x
-                }
-                _ => {}
+            if let Some(token::Interpolated(token::$constructor(x))) = found {
+                return x;
             }
         }
     );
@@ -210,11 +204,8 @@ macro_rules! maybe_whole (
                 }
                 _ => None
             };
-            match found {
-                Some(token::Interpolated(token::$constructor(x))) => {
-                    return (*x).clone()
-                }
-                _ => {}
+            if let Some(token::Interpolated(token::$constructor(x))) = found {
+                return (*x).clone();
             }
         }
     );
@@ -226,11 +217,8 @@ macro_rules! maybe_whole (
                 }
                 _ => None
             };
-            match found {
-                Some(token::Interpolated(token::$constructor(x))) => {
-                    return Some(x.clone()),
-                }
-                _ => {}
+            if let Some(token::Interpolated(token::$constructor(x))) = found {
+                return Some(x.clone());
             }
         }
     );
@@ -242,11 +230,8 @@ macro_rules! maybe_whole (
                 }
                 _ => None
             };
-            match found {
-                Some(token::Interpolated(token::$constructor(x))) => {
-                    return IoviItem(x.clone())
-                }
-                _ => {}
+            if let Some(token::Interpolated(token::$constructor(x))) = found {
+                return IoviItem(x.clone());
             }
         }
     );
@@ -258,11 +243,8 @@ macro_rules! maybe_whole (
                 }
                 _ => None
             };
-            match found {
-                Some(token::Interpolated(token::$constructor(x))) => {
-                    return (Vec::new(), x)
-                }
-                _ => {}
+            if let Some(token::Interpolated(token::$constructor(x))) = found {
+                return (Vec::new(), x);
             }
         }
     )
@@ -469,15 +451,11 @@ impl<'a> Parser<'a> {
     /// from anticipated input errors, discarding erroneous characters.
     pub fn commit_expr(&mut self, e: &Expr, edible: &[token::Token], inedible: &[token::Token]) {
         debug!("commit_expr {}", e);
-        match e.node {
-            ExprPath(..) => {
-                // might be unit-struct construction; check for recoverableinput error.
-                let mut expected = edible.iter().map(|x| x.clone()).collect::<Vec<_>>();
-                expected.push_all(inedible);
-                self.check_for_erroneous_unit_struct_expecting(
-                    expected.as_slice());
-            }
-            _ => {}
+        if let ExprPath(..) = e.node {
+            // might be unit-struct construction; check for recoverableinput error.
+            let mut expected = edible.iter().map(|x| x.clone()).collect::<Vec<_>>();
+            expected.push_all(inedible);
+            self.check_for_erroneous_unit_struct_expecting(expected.as_slice());
         }
         self.expect_one_of(edible, inedible)
     }
@@ -1296,13 +1274,14 @@ impl<'a> Parser<'a> {
                 let lo = p.span.lo;
 
                 let vis = p.parse_visibility();
+                let style = p.parse_fn_style();
                 let abi = if p.eat_keyword(keywords::Extern) {
                     p.parse_opt_abi().unwrap_or(abi::C)
                 } else {
                     abi::Rust
                 };
+                p.expect_keyword(keywords::Fn);
 
-                let style = p.parse_fn_style();
                 let ident = p.parse_ident();
                 let mut generics = p.parse_generics();
 
@@ -1764,11 +1743,8 @@ impl<'a> Parser<'a> {
             token::Interpolated(token::NtPath(_)) => Some(self.bump_and_get()),
             _ => None,
         };
-        match found {
-            Some(token::Interpolated(token::NtPath(box path))) => {
-                return path;
-            }
-            _ => {}
+        if let Some(token::Interpolated(token::NtPath(box path))) = found {
+            return path;
         }
 
         let lo = self.span.lo;
@@ -4458,12 +4434,13 @@ impl<'a> Parser<'a> {
                                                              self.span.hi) };
                 (ast::MethMac(m), self.span.hi, attrs)
             } else {
+                let fn_style = self.parse_fn_style();
                 let abi = if self.eat_keyword(keywords::Extern) {
                     self.parse_opt_abi().unwrap_or(abi::C)
                 } else {
                     abi::Rust
                 };
-                let fn_style = self.parse_fn_style();
+                self.expect_keyword(keywords::Fn);
                 let ident = self.parse_ident();
                 let mut generics = self.parse_generics();
                 let (explicit_self, decl) = self.parse_fn_decl_with_self(|p| {
@@ -5009,14 +4986,13 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse safe/unsafe and fn
+    /// Parse unsafe or not
     fn parse_fn_style(&mut self) -> FnStyle {
-        if self.eat_keyword(keywords::Fn) { NormalFn }
-        else if self.eat_keyword(keywords::Unsafe) {
-            self.expect_keyword(keywords::Fn);
+        if self.eat_keyword(keywords::Unsafe) {
             UnsafeFn
+        } else {
+            NormalFn
         }
-        else { self.unexpected(); }
     }
 
 
