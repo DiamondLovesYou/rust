@@ -76,12 +76,21 @@ $(foreach source,$(CFG_HOST), \
   $(eval $(call LLVM_LINKAGE_DEPS,3,$(target),$(source)))))
 
 define DEF_LLVM_GOLD_RULES
+ifeq ($$(CFG_WINDOWSY_$(2)),1)
+# when targeting Windows, LLVM helpfully puts dlls in the bin dir.
+$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO): $$(LLVM_CONFIG_$(2))
+	$$(Q)cp $$(LLVM_BINDIR_$(2))/$$(call CFG_LIB_NAME_$(2),LTO) $$@
+$$(TROOT$(1)_T_$(2)_H_$(2))/lib/LLVMgold.dll: $$(LLVM_CONFIG_$(2)) \
+	$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO)
+	$$(Q)cp $$(LLVM_BINDIR_$(2))/LLVMgold.dll $$@
+else
 $$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO): $$(LLVM_CONFIG_$(2))
 	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(call CFG_LIB_NAME_$(2),LTO) $$@
 $$(TROOT$(1)_T_$(2)_H_$(2))/lib/LLVMgold.so: $$(LLVM_CONFIG_$(2)) \
 	$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO)
-# FIXME: This assumes linux.
 	$$(Q)cp $$(LLVM_LIBDIR_$(2))/LLVMgold.so $$@
+endif
+
 endef
 
 $(foreach stage,1 2 3, \

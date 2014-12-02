@@ -1158,34 +1158,43 @@ for t in $CFG_HOST
 do
     do_reconfigure=1
 
+    # LLVM's configure doesn't recognize the new Windows triples yet
+    gnu_t=$(to_gnu_triple $t)
+    if [ "$t" != "$CFG_BUILD" ]
+    then
+        LLVMBINUTILS_PREFIX="$gnu_t-"
+    else
+        LLVMBINUTILS_PREFIX=""
+    fi
+
     case "$CFG_CC" in
         ("ccache clang")
-            LLVMBINUTILS_CXX_32="ccache clang++ -Qunused-arguments"
-            LLVMBINUTILS_CC_32="ccache clang -Qunused-arguments"
+            LLVMBINUTILS_CXX_32="ccache ${LLVMBINUTILS_PREFIX}clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_32="ccache ${LLVMBINUTILS_PREFIX}clang -Qunused-arguments"
 
-            LLVMBINUTILS_CXX_64="ccache clang++ -Qunused-arguments"
-            LLVMBINUTILS_CC_64="ccache clang -Qunused-arguments"
+            LLVMBINUTILS_CXX_64="ccache ${LLVMBINUTILS_PREFIX}clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_64="ccache ${LLVMBINUTILS_PREFIX}clang -Qunused-arguments"
             ;;
         ("clang")
-            LLVMBINUTILS_CXX_32="clang++ -Qunused-arguments"
-            LLVMBINUTILS_CC_32="clang -Qunused-arguments"
+            LLVMBINUTILS_CXX_32="${LLVMBINUTILS_PREFIX}clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_32="${LLVMBINUTILS_PREFIX}clang -Qunused-arguments"
 
-            LLVMBINUTILS_CXX_64="clang++ -Qunused-arguments"
-            LLVMBINUTILS_CC_64="clang -Qunused-arguments"
+            LLVMBINUTILS_CXX_64="${LLVMBINUTILS_PREFIX}clang++ -Qunused-arguments"
+            LLVMBINUTILS_CC_64="${LLVMBINUTILS_PREFIX}clang -Qunused-arguments"
             ;;
         ("ccache gcc")
-            LLVMBINUTILS_CXX_32="ccache g++"
-            LLVMBINUTILS_CC_32="ccache gcc"
+            LLVMBINUTILS_CXX_32="ccache ${LLVMBINUTILS_PREFIX}g++"
+            LLVMBINUTILS_CC_32="ccache ${LLVMBINUTILS_PREFIX}gcc"
 
-            LLVMBINUTILS_CXX_64="ccache g++"
-            LLVMBINUTILS_CC_64="ccache gcc"
+            LLVMBINUTILS_CXX_64="ccache ${LLVMBINUTILS_PREFIX}g++"
+            LLVMBINUTILS_CC_64="ccache ${LLVMBINUTILS_PREFIX}gcc"
             ;;
         ("gcc")
-            LLVMBINUTILS_CXX_32="g++"
-            LLVMBINUTILS_CC_32="gcc"
+            LLVMBINUTILS_CXX_32="${LLVMBINUTILS_PREFIX}g++"
+            LLVMBINUTILS_CC_32="${LLVMBINUTILS_PREFIX}gcc"
 
-            LLVMBINUTILS_CXX_64="g++"
-            LLVMBINUTILS_CC_64="gcc"
+            LLVMBINUTILS_CXX_64="${LLVMBINUTILS_PREFIX}g++"
+            LLVMBINUTILS_CC_64="${LLVMBINUTILS_PREFIX}gcc"
             ;;
 
         (*)
@@ -1255,18 +1264,20 @@ do
             LLVM_DBG_OPTS="--enable-debug-symbols --disable-optimized"
             # Just use LLVM straight from its build directory to
             # avoid 'make install' time
-            LLVM_INST_DIR=$LLVM_BUILD_DIR/Debug
+            LLVM_BUILD_SUBDIR=Debug
         else
             LLVM_DBG_OPTS="--enable-optimized"
-            LLVM_INST_DIR=$LLVM_BUILD_DIR/Release
+            LLVM_BUILD_SUBDIR=Release
         fi
         if [ ! -z "$CFG_DISABLE_LLVM_ASSERTIONS" ]
         then
             LLVM_ASSERTION_OPTS="--disable-assertions"
         else
             LLVM_ASSERTION_OPTS="--enable-assertions"
-            LLVM_INST_DIR=${LLVM_INST_DIR}+Asserts
+            LLVM_BUILD_SUBDIR=${LLVM_BUILD_SUBDIR}+Asserts
         fi
+
+        LLVM_INST_DIR=$LLVM_BUILD_DIR/$LLVM_BUILD_SUBDIR
     else
         msg "not reconfiguring LLVM, external LLVM root"
         # The user is using their own LLVM
@@ -1297,13 +1308,10 @@ do
 
     if [ ${do_reconfigure} -ne 0 ]
     then
-        # LLVM's configure doesn't recognize the new Windows triples yet
-        gnu_t=$(to_gnu_triple $t)
-
         msg "configuring LLVM for $gnu_t"
 
         LLVM_TARGETS="--enable-targets=x86,x86_64,arm,mips"
-        LLVM_BUILD="--build=$gnu_t"
+        LLVM_BUILD="--build=$(to_gnu_triple $CFG_BUILD)"
         LLVM_HOST="--host=$gnu_t"
         LLVM_TARGET="--target=$gnu_t"
 
@@ -1315,7 +1323,7 @@ do
         # Try to have LLVM pull in as few dependencies as possible (#9397)
         LLVM_OPTS="$LLVM_OPTS --disable-zlib --disable-libffi"
 
-        # NaCl's ld-specific includes (thus causing LLVM to build its gold plugin): 
+        # NaCl's ld-specific includes (thus causing LLVM to build its gold plugin):
         LLVM_OPTS="$LLVM_OPTS --with-binutils-include=${CFG_SRC_DIR}src/nacl-binutils/include"
 
         # Use win32 native thread/lock apis instead of pthread wrapper.
@@ -1384,8 +1392,8 @@ do
 
         # Note we keep CC/CXX/etc from above.
 
-        BINUTILS_BUILD="--build=$t"
-        BINUTILS_HOST="--host=$t"
+        BINUTILS_BUILD="--build=$gnu_t"
+        BINUTILS_HOST="--host=$gnu_t"
         BINUTILS_TARGET="--target=arm-pc-nacl"
 
         # Most of these flags were pulled from native client's build scripts.
@@ -1422,8 +1430,10 @@ do
     # variables can't contain hyphens. The makefile will then have to
     # convert back.
     CFG_LLVM_BUILD_DIR=$(echo CFG_LLVM_BUILD_DIR_${t} | tr - _)
+    CFG_LLVM_BUILD_SUBDIR=$(echo CFG_LLVM_BUILD_SUBDIR_${t} | tr - _)
     CFG_LLVM_INST_DIR=$(echo CFG_LLVM_INST_DIR_${t} | tr - _)
     eval ${CFG_LLVM_BUILD_DIR}="'$LLVM_BUILD_DIR'"
+    eval ${CFG_LLVM_BUILD_SUBDIR}="'$LLVM_BUILD_SUBDIR'"
     eval ${CFG_LLVM_INST_DIR}="'$LLVM_INST_DIR'"
 
     CFG_BINUTILS_BUILD_DIR=$(echo CFG_BINUTILS_BUILD_DIR_${t} | tr - _)
@@ -1474,8 +1484,10 @@ putvar CFG_LLVM_SRC_DIR
 for t in $CFG_HOST
 do
     CFG_LLVM_BUILD_DIR=$(echo CFG_LLVM_BUILD_DIR_${t} | tr - _)
+    CFG_LLVM_BUILD_SUBDIR=$(echo CFG_LLVM_BUILD_SUBDIR_${t} | tr - _)
     CFG_LLVM_INST_DIR=$(echo CFG_LLVM_INST_DIR_${t} | tr - _)
     putvar $CFG_LLVM_BUILD_DIR
+    putvar $CFG_LLVM_BUILD_SUBDIR
     putvar $CFG_LLVM_INST_DIR
 done
 

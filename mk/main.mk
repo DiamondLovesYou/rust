@@ -274,8 +274,14 @@ else
 CFG_LLVM_INST_DIR_$(1):=$$(CFG_LLVM_ROOT)
 endif
 
+# We need to use a copy of llvm-config that can run on the build machine:
+ifneq ($$(CFG_BUILD),$(1))
+LLVM_CONFIG_$(1):=$$(CFG_LLVM_BUILD_DIR_$(subst -,_,$(1)))/BuildTools/$$(CFG_LLVM_BUILD_SUBDIR_$(subst -,_,$(1)))/bin/llvm-config$$(X_$$(CFG_BUILD))
+else
 # Any rules that depend on LLVM should depend on LLVM_CONFIG
 LLVM_CONFIG_$(1):=$$(CFG_LLVM_INST_DIR_$(1))/bin/llvm-config$$(X_$(1))
+endif
+
 LLVM_MC_$(1):=$$(CFG_LLVM_INST_DIR_$(1))/bin/llvm-mc$$(X_$(1))
 LLVM_VERSION_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --version)
 LLVM_BINDIR_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --bindir)
@@ -373,7 +379,7 @@ ifeq ($(1),0)
 HSREQ$(1)_H_$(3) = $$(HBIN$(1)_H_$(3))/rustc$$(X_$(3))
 else
 HSREQ$(1)_H_$(3) = \
-	$$(TROOT$(1)_T_$(3)_H_$(3))/lib/LLVMgold.so \
+	$$(TROOT$(1)_T_$(3)_H_$(3))/lib/LLVMgold.$$(if $$(findstring 1,$$(CFG_WINDOWSY_$(3))),dll,so) \
 	$$(HBIN$(1)_H_$(3))/rustc$$(X_$(3)) \
 	$$(MKFILE_DEPS) \
 	tmp/install-debugger-scripts$(1)_H_$(3).done
