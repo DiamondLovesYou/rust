@@ -42,7 +42,7 @@ impl TempDir {
         static CNT: atomic::AtomicUint = atomic::INIT_ATOMIC_UINT;
 
         #[cfg(not(target_os = "nacl"))]
-        fn getpid() -> libc::pid_t { unsafe { libc::getpid() } }
+        fn getpid() -> libc::pid_t { unsafe { libc::getpid() as libc::pid_t } }
         #[cfg(target_os = "nacl")]
         fn getpid() -> libc::pid_t {
             use rand::random;

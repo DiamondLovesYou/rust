@@ -29,7 +29,7 @@ pub fn next_test_unix() -> Path {
     static COUNT: AtomicUint = INIT_ATOMIC_UINT;
 
     #[cfg(not(target_os = "nacl"))]
-    fn getpid() -> libc::pid_t { unsafe { libc::getpid() } }
+    fn getpid() -> libc::pid_t { unsafe { libc::getpid() as libc::pid_t } }
     #[cfg(target_os = "nacl")]
     fn getpid() -> libc::pid_t {
         use rand::random;
