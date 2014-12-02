@@ -216,7 +216,7 @@ mod imp {
         }
     }
 
-    pub unsafe fn create(stack: uint, p: Box<proc():Send>, detach: bool) -> Option<rust_thread> {
+    pub unsafe fn create(stack: uint, p: Box<proc():Send>, detach_: bool) -> Option<rust_thread> {
         let arg: *mut libc::c_void = mem::transmute(p);
         // FIXME On UNIX, we guard against stack sizes that are too small but
         // that's because pthreads enforces that stacks are at least
@@ -236,7 +236,7 @@ mod imp {
             let _p: Box<proc():Send> = mem::transmute(arg);
             panic!("failed to spawn native thread: {}", ret);
         }
-        if detach {
+        if detach_ {
             detach(ret);
             return None;
         } else {
