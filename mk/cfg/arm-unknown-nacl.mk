@@ -21,6 +21,7 @@ CFG_LLVM_BUILD_ENV_arm-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
 CFG_EXE_SUFFIX_arm-unknown-nacl = .nexe
 CFG_WINDOWSY_arm-unknown-nacl :=
 CFG_UNIXY_arm-unknown-nacl := 1
+CFG_NACLY_arm-unknown-nacl := 1
 CFG_PATH_MUNGE_arm-unknown-nacl := true
 CFG_LDPATH_arm-unknown-nacl :=
 CFG_RUN_arm-unknown-nacl=$(2)

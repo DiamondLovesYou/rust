@@ -23,6 +23,7 @@ CFG_LLVM_BUILD_ENV_i686-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
 CFG_EXE_SUFFIX_i686-unknown-nacl = .nexe
 CFG_WINDOWSY_i686-unknown-nacl :=
 CFG_UNIXY_i686-unknown-nacl := 1
+CFG_NACLY_i686-unknown-nacl := 1
 CFG_PATH_MUNGE_i686-unknown-nacl := true
 CFG_LDPATH_i686-unknown-nacl :=
 CFG_RUN_i686-unknown-nacl=$(2)

@@ -23,6 +23,7 @@ CFG_LLVM_BUILD_ENV_le32-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
 CFG_EXE_SUFFIX_le32-unknown-nacl = .pexe
 CFG_WINDOWSY_le32-unknown-nacl :=
 CFG_UNIXY_le32-unknown-nacl := 1
+CFG_NACLY_le32-unknown-nacl := 1
 CFG_PATH_MUNGE_le32-unknown-nacl := true
 CFG_LDPATH_le32-unknown-nacl :=
 CFG_RUN_le32-unknown-nacl=$(2)
