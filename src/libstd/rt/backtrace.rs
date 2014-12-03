@@ -230,7 +230,7 @@ fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
 /// pointers, and we use dladdr() or libbacktrace to translate these addresses
 /// to symbols. This is a bit of a hokey implementation as-is, but it works for
 /// all unix platforms we support right now, so it at least gets the job done.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "nacl")))]
 #[allow(unused_unsafe)]
 mod imp {
     use c_str::CString;
@@ -660,6 +660,14 @@ mod imp {
         }
     }
 }
+
+#[cfg(target_os = "nacl")]
+mod imp {
+    use io::{IoResult, Writer};
+    use result::Ok;
+    pub fn write(_w: &mut Writer) -> IoResult<()> { Ok(()) }
+}
+
 
 /// As always, windows has something very different than unix, we mainly want
 /// to avoid having to depend too much on libunwind for windows.
