@@ -8,16 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// aux-build:issue-13560-1.rs
-// aux-build:issue-13560-2.rs
-// aux-build:issue-13560-3.rs
-// ignore-pretty FIXME #19501
-// ignore-stage1
+#[doc = $not_there] //~ error: unexpected token: `$`
+fn main() { }
 
-// Regression test for issue #13560, the test itself is all in the dependent
-// libraries. The fail which previously failed to compile is the one numbered 3.
-
-extern crate "issue-13560-2" as t2;
-extern crate "issue-13560-3" as t3;
-
-fn main() {}
