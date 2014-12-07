@@ -22,7 +22,7 @@ use super::{SelectionError, Unimplemented, Overflow,
             OutputTypeParameterMismatch};
 use super::{Selection};
 use super::{SelectionResult};
-use super::{VtableBuiltin, VtableImpl, VtableParam, VtableUnboxedClosure};
+use super::{VtableBuiltin, VtableImpl, VtableParam, VtableUnboxedClosure, VtableFnPointer};
 use super::{VtableImplData, VtableParamData, VtableBuiltinData};
 use super::{util};
 
@@ -30,13 +30,13 @@ use middle::fast_reject;
 use middle::mem_categorization::Typer;
 use middle::subst::{Subst, Substs, VecPerParamSpace};
 use middle::ty::{mod, Ty};
-use middle::typeck::infer;
-use middle::typeck::infer::{InferCtxt, TypeSkolemizer};
+use middle::infer;
+use middle::infer::{InferCtxt, TypeSkolemizer};
 use middle::ty_fold::TypeFoldable;
 use std::cell::RefCell;
 use std::collections::hash_map::HashMap;
 use std::rc::Rc;
-use syntax::ast;
+use syntax::{abi, ast};
 use util::common::ErrorReported;
 use util::ppaux::Repr;
 
@@ -113,7 +113,7 @@ pub enum MethodMatchedData {
 /// candidate is one that might match or might not, depending on how
 /// type variables wind up being resolved. This only occurs during inference.
 ///
-/// For selection to suceed, there must be exactly one non-ambiguous
+/// For selection to succeed, there must be exactly one non-ambiguous
 /// candidate.  Usually, it is not possible to have more than one
 /// definitive candidate, due to the coherence rules. However, there is
 /// one case where it could occur: if there is a blanket impl for a
@@ -131,7 +131,15 @@ enum Candidate<'tcx> {
     BuiltinCandidate(ty::BuiltinBound),
     ParamCandidate(VtableParamData<'tcx>),
     ImplCandidate(ast::DefId),
+
+    /// Implementation of a `Fn`-family trait by one of the
+    /// anonymous types generated for a `||` expression.
     UnboxedClosureCandidate(/* closure */ ast::DefId, Substs<'tcx>),
+
+    /// Implementation of a `Fn`-family trait by one of the anonymous
+    /// types generated for a fn pointer type (e.g., `fn(int)->int`)
+    FnPointerCandidate,
+
     ErrorCandidate,
 }
 
@@ -917,7 +925,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             None => {
                 // For the time being, we ignore user-defined impls for builtin-bounds.
                 // (And unboxed candidates only apply to the Fn/FnMut/etc traits.)
-                try!(self.assemble_unboxed_candidates(obligation, &mut candidates));
+                try!(self.assemble_unboxed_closure_candidates(obligation, &mut candidates));
+                try!(self.assemble_fn_pointer_candidates(obligation, &mut candidates));
                 try!(self.assemble_candidates_from_impls(obligation, &mut candidates));
             }
         }
@@ -968,20 +977,14 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
     /// Note: the type parameters on an unboxed closure candidate are modeled as *output* type
     /// parameters and hence do not affect whether this trait is a match or not. They will be
     /// unified during the confirmation step.
-    fn assemble_unboxed_candidates(&mut self,
-                                   obligation: &Obligation<'tcx>,
-                                   candidates: &mut CandidateSet<'tcx>)
-                                   -> Result<(),SelectionError<'tcx>>
+    fn assemble_unboxed_closure_candidates(&mut self,
+                                           obligation: &Obligation<'tcx>,
+                                           candidates: &mut CandidateSet<'tcx>)
+                                           -> Result<(),SelectionError<'tcx>>
     {
-        let tcx = self.tcx();
-        let kind = if Some(obligation.trait_ref.def_id) == tcx.lang_items.fn_trait() {
-            ty::FnUnboxedClosureKind
-        } else if Some(obligation.trait_ref.def_id) == tcx.lang_items.fn_mut_trait() {
-            ty::FnMutUnboxedClosureKind
-        } else if Some(obligation.trait_ref.def_id) == tcx.lang_items.fn_once_trait() {
-            ty::FnOnceUnboxedClosureKind
-        } else {
-            return Ok(()); // not a fn trait, ignore
+        let kind = match self.fn_family_trait_kind(obligation.trait_ref.def_id) {
+            Some(k) => k,
+            None => { return Ok(()); }
         };
 
         let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
@@ -1010,6 +1013,44 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
         if closure_kind == kind {
             candidates.vec.push(UnboxedClosureCandidate(closure_def_id, substs.clone()));
+        }
+
+        Ok(())
+    }
+
+    /// Implement one of the `Fn()` family for a fn pointer.
+    fn assemble_fn_pointer_candidates(&mut self,
+                                      obligation: &Obligation<'tcx>,
+                                      candidates: &mut CandidateSet<'tcx>)
+                                      -> Result<(),SelectionError<'tcx>>
+    {
+        // We provide a `Fn` impl for fn pointers. There is no need to provide
+        // the other traits (e.g. `FnMut`) since those are provided by blanket
+        // impls.
+        if Some(obligation.trait_ref.def_id) != self.tcx().lang_items.fn_trait() {
+            return Ok(());
+        }
+
+        let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
+        match self_ty.sty {
+            ty::ty_infer(..) => {
+                candidates.ambiguous = true; // could wind up being a fn() type
+            }
+
+            // provide an impl, but only for suitable `fn` pointers
+            ty::ty_bare_fn(ty::BareFnTy {
+                fn_style: ast::NormalFn,
+                abi: abi::Rust,
+                sig: ty::FnSig {
+                    inputs: _,
+                    output: ty::FnConverging(_),
+                    variadic: false
+                }
+            }) => {
+                candidates.vec.push(FnPointerCandidate);
+            }
+
+            _ => { }
         }
 
         Ok(())
@@ -1149,24 +1190,12 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                                              candidates: &mut CandidateSet<'tcx>)
                                              -> Result<(),SelectionError<'tcx>>
     {
-        // FIXME -- To be more like a normal impl, we should just
-        // ignore the nested cases here, and instead generate nested
-        // obligations in `confirm_candidate`. However, this doesn't
-        // work because we require handling the recursive cases to
-        // avoid infinite cycles (that is, with recursive types,
-        // sometimes `Foo : Copy` only holds if `Foo : Copy`).
-
         match self.builtin_bound(bound, stack.obligation.self_ty()) {
-            Ok(If(nested)) => {
-                debug!("builtin_bound: bound={} nested={}",
-                       bound.repr(self.tcx()),
-                       nested.repr(self.tcx()));
-                let data = self.vtable_builtin_data(stack.obligation, bound, nested);
-                match self.winnow_selection(Some(stack), VtableBuiltin(data)) {
-                    EvaluatedToOk => { Ok(candidates.vec.push(BuiltinCandidate(bound))) }
-                    EvaluatedToAmbig => { Ok(candidates.ambiguous = true) }
-                    EvaluatedToErr => { Err(Unimplemented) }
-                }
+            Ok(If(_)) => {
+                debug!("builtin_bound: bound={}",
+                       bound.repr(self.tcx()));
+                candidates.vec.push(BuiltinCandidate(bound));
+                Ok(())
             }
             Ok(ParameterBuiltin) => { Ok(()) }
             Ok(AmbiguousBuiltin) => { Ok(candidates.ambiguous = true) }
@@ -1539,8 +1568,11 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                candidate.repr(self.tcx()));
 
         match candidate {
-            // FIXME -- see assemble_builtin_bound_candidates()
-            BuiltinCandidate(_) |
+            BuiltinCandidate(builtin_bound) => {
+                Ok(VtableBuiltin(
+                    try!(self.confirm_builtin_candidate(obligation, builtin_bound))))
+            }
+
             ErrorCandidate => {
                 Ok(VtableBuiltin(VtableBuiltinData { nested: VecPerParamSpace::empty() }))
             }
@@ -1559,6 +1591,12 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             UnboxedClosureCandidate(closure_def_id, substs) => {
                 try!(self.confirm_unboxed_closure_candidate(obligation, closure_def_id, &substs));
                 Ok(VtableUnboxedClosure(closure_def_id, substs))
+            }
+
+            FnPointerCandidate => {
+                let fn_type =
+                    try!(self.confirm_fn_pointer_candidate(obligation));
+                Ok(VtableFnPointer(fn_type))
             }
         }
     }
@@ -1590,8 +1628,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
         match try!(self.builtin_bound(bound, obligation.self_ty())) {
             If(nested) => Ok(self.vtable_builtin_data(obligation, bound, nested)),
-            AmbiguousBuiltin |
-            ParameterBuiltin => {
+            AmbiguousBuiltin | ParameterBuiltin => {
                 self.tcx().sess.span_bug(
                     obligation.cause.span,
                     format!("builtin bound for {} was ambig",
@@ -1654,6 +1691,51 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         VtableImplData { impl_def_id: impl_def_id,
                          substs: substs,
                          nested: impl_obligations }
+    }
+
+    fn confirm_fn_pointer_candidate(&mut self,
+                                    obligation: &Obligation<'tcx>)
+                                    -> Result<ty::Ty<'tcx>,SelectionError<'tcx>>
+    {
+        debug!("confirm_fn_pointer_candidate({})",
+               obligation.repr(self.tcx()));
+
+        let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
+        let sig = match self_ty.sty {
+            ty::ty_bare_fn(ty::BareFnTy {
+                fn_style: ast::NormalFn,
+                abi: abi::Rust,
+                ref sig
+            }) => {
+                sig
+            }
+            _ => {
+                self.tcx().sess.span_bug(
+                    obligation.cause.span,
+                    format!("Fn pointer candidate for inappropriate self type: {}",
+                            self_ty.repr(self.tcx())).as_slice());
+            }
+        };
+
+        let arguments_tuple = ty::mk_tup(self.tcx(), sig.inputs.to_vec());
+        let output_type = sig.output.unwrap();
+        let substs =
+            Substs::new_trait(
+                vec![arguments_tuple, output_type],
+                vec![],
+                vec![],
+                self_ty);
+        let trait_ref = Rc::new(ty::TraitRef {
+            def_id: obligation.trait_ref.def_id,
+            substs: substs,
+        });
+
+        let () =
+            try!(self.confirm(obligation.cause,
+                              obligation.trait_ref.clone(),
+                              trait_ref));
+
+        Ok(self_ty)
     }
 
     fn confirm_unboxed_closure_candidate(&mut self,
@@ -1974,6 +2056,22 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         util::obligations_for_generics(self.tcx(), cause, recursion_depth,
                                        &bounds, &impl_substs.types)
     }
+
+    fn fn_family_trait_kind(&self,
+                            trait_def_id: ast::DefId)
+                            -> Option<ty::UnboxedClosureKind>
+    {
+        let tcx = self.tcx();
+        if Some(trait_def_id) == tcx.lang_items.fn_trait() {
+            Some(ty::FnUnboxedClosureKind)
+        } else if Some(trait_def_id) == tcx.lang_items.fn_mut_trait() {
+            Some(ty::FnMutUnboxedClosureKind)
+        } else if Some(trait_def_id) == tcx.lang_items.fn_once_trait() {
+            Some(ty::FnOnceUnboxedClosureKind)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'tcx> Repr<'tcx> for Candidate<'tcx> {
@@ -1982,7 +2080,10 @@ impl<'tcx> Repr<'tcx> for Candidate<'tcx> {
             ErrorCandidate => format!("ErrorCandidate"),
             BuiltinCandidate(b) => format!("BuiltinCandidate({})", b),
             UnboxedClosureCandidate(c, ref s) => {
-                format!("MatchedUnboxedClosureCandidate({},{})", c, s.repr(tcx))
+                format!("UnboxedClosureCandidate({},{})", c, s.repr(tcx))
+            }
+            FnPointerCandidate => {
+                format!("FnPointerCandidate")
             }
             ParamCandidate(ref a) => format!("ParamCandidate({})", a.repr(tcx)),
             ImplCandidate(a) => format!("ImplCandidate({})", a.repr(tcx)),

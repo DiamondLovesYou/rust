@@ -11,7 +11,7 @@
 
 use middle::subst;
 use middle::subst::{ParamSpace, Substs, VecPerParamSpace};
-use middle::typeck::infer::InferCtxt;
+use middle::infer::InferCtxt;
 use middle::ty::{mod, Ty};
 use std::collections::HashSet;
 use std::fmt;
@@ -301,6 +301,10 @@ impl<'tcx, N:Repr<'tcx>> Repr<'tcx> for super::Vtable<'tcx, N> {
                 format!("VtableUnboxedClosure({},{})",
                         d.repr(tcx),
                         s.repr(tcx)),
+
+            super::VtableFnPointer(ref d) =>
+                format!("VtableFnPointer({})",
+                        d.repr(tcx)),
 
             super::VtableParam(ref v) =>
                 format!("VtableParam({})", v.repr(tcx)),

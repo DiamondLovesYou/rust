@@ -31,8 +31,7 @@ use trans::machine;
 use trans::type_::Type;
 use trans::type_of::*;
 use middle::ty::{mod, Ty};
-use middle::typeck;
-use middle::typeck::MethodCall;
+use middle::ty::MethodCall;
 use util::ppaux::Repr;
 
 use std::c_str::ToCStr;
@@ -119,8 +118,8 @@ pub fn trans_method_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                  .unwrap();
 
     match origin {
-        typeck::MethodStatic(did) |
-        typeck::MethodStaticUnboxedClosure(did) => {
+        ty::MethodStatic(did) |
+        ty::MethodStaticUnboxedClosure(did) => {
             Callee {
                 bcx: bcx,
                 data: Fn(callee::trans_fn_ref(bcx,
@@ -129,7 +128,7 @@ pub fn trans_method_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             }
         }
 
-        typeck::MethodTypeParam(typeck::MethodParam {
+        ty::MethodTypeParam(ty::MethodParam {
             ref trait_ref,
             method_num
         }) => {
@@ -147,7 +146,7 @@ pub fn trans_method_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                        method_num, origin)
         }
 
-        typeck::MethodTraitObject(ref mt) => {
+        ty::MethodTraitObject(ref mt) => {
             let self_expr = match self_expr {
                 Some(self_expr) => self_expr,
                 None => {
@@ -368,9 +367,15 @@ fn trans_monomorphized_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 data: Fn(llfn),
             }
         }
-        _ => {
-            bcx.tcx().sess.bug(
-                "vtable_param left in monomorphized function's vtable substs");
+        traits::VtableFnPointer(fn_ty) => {
+            let llfn = trans_fn_pointer_shim(bcx.ccx(), fn_ty);
+            Callee { bcx: bcx, data: Fn(llfn) }
+        }
+        traits::VtableBuiltin(..) |
+        traits::VtableParam(..) => {
+            bcx.sess().bug(
+                format!("resolved vtable bad vtable {} in trans",
+                        vtable.repr(bcx.tcx())).as_slice());
         }
     }
 }
@@ -608,6 +613,10 @@ pub fn get_vtable<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 }
 
                 (vec!(llfn)).into_iter()
+            }
+            traits::VtableFnPointer(bare_fn_ty) => {
+                let llfn = vec![trans_fn_pointer_shim(bcx.ccx(), bare_fn_ty)];
+                llfn.into_iter()
             }
             traits::VtableParam(..) => {
                 bcx.sess().bug(
