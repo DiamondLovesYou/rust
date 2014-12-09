@@ -10,7 +10,7 @@
 
 //! rustc compiler intrinsics.
 //!
-//! The corresponding definitions are in librustc/middle/trans/foreign.rs.
+//! The corresponding definitions are in librustc_trans/trans/intrinsic.rs.
 //!
 //! # Volatiles
 //!
@@ -46,6 +46,8 @@
 use f32;
 use f64;
 
+use kinds::Copy;
+
 pub type GlueFn = extern "Rust" fn(*const i8);
 
 #[lang="ty_desc"]
@@ -62,6 +64,8 @@ pub struct TyDesc {
     // Name corresponding to the type
     pub name: &'static str,
 }
+
+impl Copy for TyDesc {}
 
 extern "rust-intrinsic" {
 
@@ -713,6 +717,8 @@ mul_with_overflow!(u64, u64_mul_with_overflow)
 pub struct TypeId {
     t: u64,
 }
+
+impl Copy for TypeId {}
 
 impl TypeId {
     /// Returns the `TypeId` of the type this generic function has been instantiated with

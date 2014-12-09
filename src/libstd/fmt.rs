@@ -406,7 +406,7 @@
 
 use io::Writer;
 use io;
-use result::{Ok, Err};
+use result::Result::{Ok, Err};
 use string;
 use vec::Vec;
 
@@ -418,7 +418,7 @@ pub use core::fmt::Error;
 pub use core::fmt::{Argument, Arguments, write, radix, Radix, RadixFmt};
 
 #[doc(hidden)]
-pub use core::fmt::{argument, argumentstr, argumentuint};
+pub use core::fmt::{argument, argumentuint};
 
 /// The format function takes a precompiled format string and a list of
 /// arguments, to return the resulting formatted string.

@@ -251,6 +251,8 @@ static FLAGS_NONE: c_uint = 0;
 #[deriving(Show, Hash, Eq, PartialEq, Clone)]
 struct UniqueTypeId(ast::Name);
 
+impl Copy for UniqueTypeId {}
+
 // The TypeMap is where the CrateDebugContext holds the type metadata nodes
 // created so far. The metadata nodes are indexed by UniqueTypeId, and, for
 // faster lookup, also by Ty. The TypeMap is responsible for creating
@@ -823,8 +825,8 @@ pub fn create_global_var_metadata(cx: &CrateContext,
         namespace_node.mangled_name_of_contained_item(var_name.as_slice());
     let var_scope = namespace_node.scope;
 
-    var_name.as_slice().with_c_str(|var_name| {
-        linkage_name.as_slice().with_c_str(|linkage_name| {
+    var_name.with_c_str(|var_name| {
+        linkage_name.with_c_str(|linkage_name| {
             unsafe {
                 llvm::LLVMDIBuilderCreateStaticVariable(DIB(cx),
                                                         var_scope,
@@ -1322,7 +1324,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         let containing_scope = namespace_node.scope;
         (linkage_name, containing_scope)
     } else {
-        (function_name.as_slice().to_string(), file_metadata)
+        (function_name.clone(), file_metadata)
     };
 
     // Clang sets this parameter to the opening brace of the function's block,
@@ -1331,8 +1333,8 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
     let is_local_to_unit = is_node_local_to_unit(cx, fn_ast_id);
 
-    let fn_metadata = function_name.as_slice().with_c_str(|function_name| {
-                          linkage_name.as_slice().with_c_str(|linkage_name| {
+    let fn_metadata = function_name.with_c_str(|function_name| {
+                          linkage_name.with_c_str(|linkage_name| {
             unsafe {
                 llvm::LLVMDIBuilderCreateFunction(
                     DIB(cx),
@@ -1553,7 +1555,7 @@ fn compile_unit_metadata(cx: &CrateContext) {
                                 path_bytes.insert(1, prefix[1]);
                             }
 
-                            path_bytes.as_slice().to_c_str()
+                            path_bytes.to_c_str()
                         }
                     _ => fallback_path(cx)
                 }
@@ -1588,7 +1590,7 @@ fn compile_unit_metadata(cx: &CrateContext) {
     });
 
     fn fallback_path(cx: &CrateContext) -> CString {
-        cx.link_meta().crate_name.as_slice().to_c_str()
+        cx.link_meta().crate_name.to_c_str()
     }
 }
 
@@ -1795,7 +1797,7 @@ fn pointer_type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     let pointer_llvm_type = type_of::type_of(cx, pointer_type);
     let (pointer_size, pointer_align) = size_and_align_of(cx, pointer_llvm_type);
     let name = compute_debuginfo_type_name(cx, pointer_type, false);
-    let ptr_metadata = name.as_slice().with_c_str(|name| {
+    let ptr_metadata = name.with_c_str(|name| {
         unsafe {
             llvm::LLVMDIBuilderCreatePointerType(
                 DIB(cx),
@@ -2322,6 +2324,8 @@ enum EnumDiscriminantInfo {
     NoDiscriminant
 }
 
+impl Copy for EnumDiscriminantInfo {}
+
 // Returns a tuple of (1) type_metadata_stub of the variant, (2) the llvm_type
 // of the variant, and (3) a MemberDescriptionFactory for producing the
 // descriptions of the fields of the variant. This is a rudimentary version of a
@@ -2487,8 +2491,8 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                              .borrow()
                              .get_unique_type_id_as_string(unique_type_id);
 
-    let enum_metadata = enum_name.as_slice().with_c_str(|enum_name| {
-        unique_type_id_str.as_slice().with_c_str(|unique_type_id_str| {
+    let enum_metadata = enum_name.with_c_str(|enum_name| {
+        unique_type_id_str.with_c_str(|unique_type_id_str| {
             unsafe {
                 llvm::LLVMDIBuilderCreateUnionType(
                 DIB(cx),
@@ -2615,7 +2619,7 @@ fn set_members_of_composite_type(cx: &CrateContext,
                 ComputedMemberOffset => machine::llelement_offset(cx, composite_llvm_type, i)
             };
 
-            member_description.name.as_slice().with_c_str(|member_name| {
+            member_description.name.with_c_str(|member_name| {
                 unsafe {
                     llvm::LLVMDIBuilderCreateMemberType(
                         DIB(cx),
@@ -2655,7 +2659,7 @@ fn create_struct_stub(cx: &CrateContext,
                                               .get_unique_type_id_as_string(unique_type_id);
     let metadata_stub = unsafe {
         struct_type_name.with_c_str(|name| {
-            unique_type_id_str.as_slice().with_c_str(|unique_type_id| {
+            unique_type_id_str.with_c_str(|unique_type_id| {
                 // LLVMDIBuilderCreateStructType() wants an empty array. A null
                 // pointer will lead to hard to trace and debug LLVM assertions
                 // later on in llvm/lib/IR/Value.cpp.
@@ -3046,6 +3050,8 @@ enum DebugLocation {
     KnownLocation { scope: DIScope, line: uint, col: uint },
     UnknownLocation
 }
+
+impl Copy for DebugLocation {}
 
 impl DebugLocation {
     fn new(scope: DIScope, line: uint, col: uint) -> DebugLocation {

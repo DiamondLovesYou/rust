@@ -81,11 +81,15 @@ pub enum CallConv {
     X86_64_Win64 = 79,
 }
 
+impl Copy for CallConv {}
+
 pub enum Visibility {
     LLVMDefaultVisibility = 0,
     HiddenVisibility = 1,
     ProtectedVisibility = 2,
 }
+
+impl Copy for Visibility {}
 
 // This enum omits the obsolete (and no-op) linkage types DLLImportLinkage,
 // DLLExportLinkage, GhostLinkage and LinkOnceODRAutoHideLinkage.
@@ -105,6 +109,8 @@ pub enum Linkage {
     CommonLinkage = 14,
 }
 
+impl Copy for Linkage {}
+
 #[repr(C)]
 #[deriving(Show)]
 pub enum DiagnosticSeverity {
@@ -113,6 +119,8 @@ pub enum DiagnosticSeverity {
     Remark,
     Note,
 }
+
+impl Copy for DiagnosticSeverity {}
 
 bitflags! {
     flags Attribute : u32 {
@@ -145,6 +153,8 @@ bitflags! {
     }
 }
 
+impl Copy for Attribute {}
+
 #[repr(u64)]
 pub enum OtherAttribute {
     // The following are not really exposed in
@@ -166,15 +176,21 @@ pub enum OtherAttribute {
     NonNullAttribute = 1 << 44,
 }
 
+impl Copy for OtherAttribute {}
+
 pub enum SpecialAttribute {
     DereferenceableAttribute(u64)
 }
+
+impl Copy for SpecialAttribute {}
 
 #[repr(C)]
 pub enum AttributeSet {
     ReturnIndex = 0,
     FunctionIndex = !0
 }
+
+impl Copy for AttributeSet {}
 
 pub trait AttrHelper {
     fn apply_llfn(&self, idx: c_uint, llfn: ValueRef);
@@ -275,6 +291,8 @@ pub enum IntPredicate {
     IntSLE = 41,
 }
 
+impl Copy for IntPredicate {}
+
 // enum for the LLVM RealPredicate type
 pub enum RealPredicate {
     RealPredicateFalse = 0,
@@ -294,6 +312,8 @@ pub enum RealPredicate {
     RealUNE = 14,
     RealPredicateTrue = 15,
 }
+
+impl Copy for RealPredicate {}
 
 // The LLVM TypeKind type - must stay in sync with the def of
 // LLVMTypeKind in llvm/include/llvm-c/Core.h
@@ -318,6 +338,8 @@ pub enum TypeKind {
     X86_MMX   = 15,
 }
 
+impl Copy for TypeKind {}
+
 #[repr(C)]
 pub enum AtomicBinOp {
     AtomicXchg = 0,
@@ -333,6 +355,8 @@ pub enum AtomicBinOp {
     AtomicUMin = 10,
 }
 
+impl Copy for AtomicBinOp {}
+
 #[repr(C)]
 pub enum AtomicOrdering {
     NotAtomic = 0,
@@ -345,12 +369,16 @@ pub enum AtomicOrdering {
     SequentiallyConsistent = 7
 }
 
+impl Copy for AtomicOrdering {}
+
 // Consts for the LLVMCodeGenFileType type (in include/llvm/c/TargetMachine.h)
 #[repr(C)]
 pub enum FileType {
     AssemblyFileType = 0,
     ObjectFileType = 1
 }
+
+impl Copy for FileType {}
 
 pub enum MetadataType {
     MD_dbg = 0,
@@ -361,11 +389,15 @@ pub enum MetadataType {
     MD_tbaa_struct = 5
 }
 
+impl Copy for MetadataType {}
+
 // Inline Asm Dialect
 pub enum AsmDialect {
     AD_ATT   = 0,
     AD_Intel = 1
 }
+
+impl Copy for AsmDialect {}
 
 #[deriving(PartialEq, Clone)]
 #[repr(C)]
@@ -376,6 +408,8 @@ pub enum CodeGenOptLevel {
     CodeGenLevelAggressive = 3,
 }
 
+impl Copy for CodeGenOptLevel {}
+
 #[deriving(PartialEq)]
 #[repr(C)]
 pub enum RelocMode {
@@ -384,6 +418,8 @@ pub enum RelocMode {
     RelocPIC = 2,
     RelocDynamicNoPic = 3,
 }
+
+impl Copy for RelocMode {}
 
 #[repr(C)]
 pub enum CodeGenModel {
@@ -394,6 +430,8 @@ pub enum CodeGenModel {
     CodeModelMedium = 4,
     CodeModelLarge = 5,
 }
+
+impl Copy for CodeGenModel {}
 
 #[repr(C)]
 pub enum DiagnosticKind {
@@ -407,47 +445,70 @@ pub enum DiagnosticKind {
     DK_OptimizationFailure,
 }
 
+impl Copy for DiagnosticKind {}
+
 // Opaque pointer types
+#[allow(missing_copy_implementations)]
 pub enum Module_opaque {}
 pub type ModuleRef = *mut Module_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Context_opaque {}
 pub type ContextRef = *mut Context_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Type_opaque {}
 pub type TypeRef = *mut Type_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Value_opaque {}
 pub type ValueRef = *mut Value_opaque;
+#[allow(missing_copy_implementations)]
 pub enum BasicBlock_opaque {}
 pub type BasicBlockRef = *mut BasicBlock_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Builder_opaque {}
 pub type BuilderRef = *mut Builder_opaque;
+#[allow(missing_copy_implementations)]
 pub enum ExecutionEngine_opaque {}
 pub type ExecutionEngineRef = *mut ExecutionEngine_opaque;
+#[allow(missing_copy_implementations)]
 pub enum MemoryBuffer_opaque {}
 pub type MemoryBufferRef = *mut MemoryBuffer_opaque;
+#[allow(missing_copy_implementations)]
 pub enum PassManager_opaque {}
 pub type PassManagerRef = *mut PassManager_opaque;
+#[allow(missing_copy_implementations)]
 pub enum PassManagerBuilder_opaque {}
 pub type PassManagerBuilderRef = *mut PassManagerBuilder_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Use_opaque {}
 pub type UseRef = *mut Use_opaque;
+#[allow(missing_copy_implementations)]
 pub enum TargetData_opaque {}
 pub type TargetDataRef = *mut TargetData_opaque;
+#[allow(missing_copy_implementations)]
 pub enum ObjectFile_opaque {}
 pub type ObjectFileRef = *mut ObjectFile_opaque;
+#[allow(missing_copy_implementations)]
 pub enum SectionIterator_opaque {}
 pub type SectionIteratorRef = *mut SectionIterator_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Pass_opaque {}
 pub type PassRef = *mut Pass_opaque;
+#[allow(missing_copy_implementations)]
 pub enum TargetMachine_opaque {}
 pub type TargetMachineRef = *mut TargetMachine_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Archive_opaque {}
 pub type ArchiveRef = *mut Archive_opaque;
+#[allow(missing_copy_implementations)]
 pub enum Twine_opaque {}
 pub type TwineRef = *mut Twine_opaque;
+#[allow(missing_copy_implementations)]
 pub enum DiagnosticInfo_opaque {}
 pub type DiagnosticInfoRef = *mut DiagnosticInfo_opaque;
+#[allow(missing_copy_implementations)]
 pub enum DebugLoc_opaque {}
 pub type DebugLocRef = *mut DebugLoc_opaque;
+#[allow(missing_copy_implementations)]
 pub enum SMDiagnostic_opaque {}
 pub type SMDiagnosticRef = *mut SMDiagnostic_opaque;
 
@@ -458,6 +519,7 @@ pub mod debuginfo {
     pub use self::DIDescriptorFlags::*;
     use super::{ValueRef};
 
+    #[allow(missing_copy_implementations)]
     pub enum DIBuilder_opaque {}
     pub type DIBuilderRef = *mut DIBuilder_opaque;
 
@@ -494,6 +556,8 @@ pub mod debuginfo {
       FlagLValueReference    = 1 << 14,
       FlagRValueReference    = 1 << 15
     }
+
+    impl Copy for DIDescriptorFlags {}
 }
 
 
@@ -2146,6 +2210,7 @@ pub fn get_param(llfn: ValueRef, index: c_uint) -> ValueRef {
     }
 }
 
+#[allow(missing_copy_implementations)]
 pub enum RustString_opaque {}
 pub type RustStringRef = *mut RustString_opaque;
 type RustStringRepr = *mut RefCell<Vec<u8>>;

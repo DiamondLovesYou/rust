@@ -33,6 +33,17 @@ use std::sync::{Arc, Mutex};
 use std::task::TaskBuilder;
 use libc::{c_uint, c_int, c_void};
 
+#[deriving(Clone, PartialEq, PartialOrd, Ord, Eq)]
+pub enum OutputType {
+    OutputTypeBitcode,
+    OutputTypeAssembly,
+    OutputTypeLlvmAssembly,
+    OutputTypeObject,
+    OutputTypeExe,
+}
+
+impl Copy for OutputType {}
+
 pub fn llvm_err(handler: &diagnostic::Handler, msg: String) -> ! {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
@@ -369,7 +380,7 @@ unsafe extern "C" fn diagnostic_handler(info: DiagnosticInfoRef, user: *mut c_vo
             let pass_name = pass_name.as_str().expect("got a non-UTF8 pass name from LLVM");
             let enabled = match cgcx.remark {
                 AllPasses => true,
-                SomePasses(ref v) => v.iter().any(|s| s.as_slice() == pass_name),
+                SomePasses(ref v) => v.iter().any(|s| *s == pass_name),
             };
 
             if enabled {
@@ -427,7 +438,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
             // If we're verifying or linting, add them to the function pass
             // manager.
             let addpass = |pass: &str| {
-                pass.as_slice().with_c_str(|s| llvm::LLVMRustAddPass(fpm, s))
+                pass.with_c_str(|s| llvm::LLVMRustAddPass(fpm, s))
             };
             if !config.no_verify { assert!(addpass("verify")); }
 
@@ -439,7 +450,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
             }
 
             for pass in config.passes.iter() {
-                pass.as_slice().with_c_str(|s| {
+                pass.with_c_str(|s| {
                     if !llvm::LLVMRustAddPass(mpm, s) {
                         cgcx.handler.warn(format!("unknown pass {}, ignoring",
                                                   *pass).as_slice());
@@ -709,7 +720,7 @@ pub fn run_passes(sess: &Session,
 
     fn link_attrs_filter(sess: &Session,
                          lib: &String,
-                         kind: cstore::NativeLibaryKind,
+                         kind: cstore::NativeLibraryKind,
                          linked: &mut HashSet<String>,
                          lib_paths: &Vec<Path>) -> Option<(String, Path)> {
         match kind {

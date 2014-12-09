@@ -79,7 +79,13 @@ mod imp {
 
 /// A record specifying a time value in seconds and nanoseconds.
 #[deriving(Clone, PartialEq, Eq, PartialOrd, Ord, Encodable, Decodable, Show)]
-pub struct Timespec { pub sec: i64, pub nsec: i32 }
+pub struct Timespec {
+    pub sec: i64,
+    pub nsec: i32,
+}
+
+impl Copy for Timespec {}
+
 /*
  * Timespec assumes that pre-epoch Timespecs have negative sec and positive
  * nsec fields. Darwin's and Linux's struct timespec functions handle pre-
@@ -271,6 +277,8 @@ pub struct Tm {
     pub tm_nsec: i32,
 }
 
+impl Copy for Tm {}
+
 pub fn empty_tm() -> Tm {
     Tm {
         tm_sec: 0_i32,
@@ -429,6 +437,8 @@ pub enum ParseError {
     InvalidFormatSpecifier(char),
     UnexpectedCharacter(char, char),
 }
+
+impl Copy for ParseError {}
 
 impl Show for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1264,7 +1274,7 @@ mod tests {
                 InvalidFormatSpecifier};
 
     use std::f64;
-    use std::result::{Err, Ok};
+    use std::result::Result::{Err, Ok};
     use std::time::Duration;
     use self::test::Bencher;
 
@@ -1566,8 +1576,8 @@ mod tests {
 
         debug!("test_ctime: {} {}", utc.asctime(), local.asctime());
 
-        assert_eq!(utc.asctime().to_string(), "Fri Feb 13 23:31:30 2009".to_string());
-        assert_eq!(local.asctime().to_string(), "Fri Feb 13 15:31:30 2009".to_string());
+        assert_eq!(utc.asctime().to_string(), "Fri Feb 13 23:31:30 2009");
+        assert_eq!(local.asctime().to_string(), "Fri Feb 13 15:31:30 2009");
     }
 
     fn test_ctime() {
@@ -1579,8 +1589,8 @@ mod tests {
 
         debug!("test_ctime: {} {}", utc.ctime(), local.ctime());
 
-        assert_eq!(utc.ctime().to_string(), "Fri Feb 13 15:31:30 2009".to_string());
-        assert_eq!(local.ctime().to_string(), "Fri Feb 13 15:31:30 2009".to_string());
+        assert_eq!(utc.ctime().to_string(), "Fri Feb 13 15:31:30 2009");
+        assert_eq!(local.ctime().to_string(), "Fri Feb 13 15:31:30 2009");
     }
 
     fn test_strftime() {
@@ -1590,56 +1600,56 @@ mod tests {
         let utc = at_utc(time);
         let local = at(time);
 
-        assert_eq!(local.strftime("").unwrap().to_string(), "".to_string());
-        assert_eq!(local.strftime("%A").unwrap().to_string(), "Friday".to_string());
-        assert_eq!(local.strftime("%a").unwrap().to_string(), "Fri".to_string());
-        assert_eq!(local.strftime("%B").unwrap().to_string(), "February".to_string());
-        assert_eq!(local.strftime("%b").unwrap().to_string(), "Feb".to_string());
-        assert_eq!(local.strftime("%C").unwrap().to_string(), "20".to_string());
+        assert_eq!(local.strftime("").unwrap().to_string(), "");
+        assert_eq!(local.strftime("%A").unwrap().to_string(), "Friday");
+        assert_eq!(local.strftime("%a").unwrap().to_string(), "Fri");
+        assert_eq!(local.strftime("%B").unwrap().to_string(), "February");
+        assert_eq!(local.strftime("%b").unwrap().to_string(), "Feb");
+        assert_eq!(local.strftime("%C").unwrap().to_string(), "20");
         assert_eq!(local.strftime("%c").unwrap().to_string(),
-                   "Fri Feb 13 15:31:30 2009".to_string());
-        assert_eq!(local.strftime("%D").unwrap().to_string(), "02/13/09".to_string());
-        assert_eq!(local.strftime("%d").unwrap().to_string(), "13".to_string());
-        assert_eq!(local.strftime("%e").unwrap().to_string(), "13".to_string());
-        assert_eq!(local.strftime("%F").unwrap().to_string(), "2009-02-13".to_string());
-        assert_eq!(local.strftime("%f").unwrap().to_string(), "000054321".to_string());
-        assert_eq!(local.strftime("%G").unwrap().to_string(), "2009".to_string());
-        assert_eq!(local.strftime("%g").unwrap().to_string(), "09".to_string());
-        assert_eq!(local.strftime("%H").unwrap().to_string(), "15".to_string());
-        assert_eq!(local.strftime("%h").unwrap().to_string(), "Feb".to_string());
-        assert_eq!(local.strftime("%I").unwrap().to_string(), "03".to_string());
-        assert_eq!(local.strftime("%j").unwrap().to_string(), "044".to_string());
-        assert_eq!(local.strftime("%k").unwrap().to_string(), "15".to_string());
-        assert_eq!(local.strftime("%l").unwrap().to_string(), " 3".to_string());
-        assert_eq!(local.strftime("%M").unwrap().to_string(), "31".to_string());
-        assert_eq!(local.strftime("%m").unwrap().to_string(), "02".to_string());
-        assert_eq!(local.strftime("%n").unwrap().to_string(), "\n".to_string());
-        assert_eq!(local.strftime("%P").unwrap().to_string(), "pm".to_string());
-        assert_eq!(local.strftime("%p").unwrap().to_string(), "PM".to_string());
-        assert_eq!(local.strftime("%R").unwrap().to_string(), "15:31".to_string());
-        assert_eq!(local.strftime("%r").unwrap().to_string(), "03:31:30 PM".to_string());
-        assert_eq!(local.strftime("%S").unwrap().to_string(), "30".to_string());
-        assert_eq!(local.strftime("%s").unwrap().to_string(), "1234567890".to_string());
-        assert_eq!(local.strftime("%T").unwrap().to_string(), "15:31:30".to_string());
-        assert_eq!(local.strftime("%t").unwrap().to_string(), "\t".to_string());
-        assert_eq!(local.strftime("%U").unwrap().to_string(), "06".to_string());
-        assert_eq!(local.strftime("%u").unwrap().to_string(), "5".to_string());
-        assert_eq!(local.strftime("%V").unwrap().to_string(), "07".to_string());
-        assert_eq!(local.strftime("%v").unwrap().to_string(), "13-Feb-2009".to_string());
-        assert_eq!(local.strftime("%W").unwrap().to_string(), "06".to_string());
-        assert_eq!(local.strftime("%w").unwrap().to_string(), "5".to_string());
+                   "Fri Feb 13 15:31:30 2009");
+        assert_eq!(local.strftime("%D").unwrap().to_string(), "02/13/09");
+        assert_eq!(local.strftime("%d").unwrap().to_string(), "13");
+        assert_eq!(local.strftime("%e").unwrap().to_string(), "13");
+        assert_eq!(local.strftime("%F").unwrap().to_string(), "2009-02-13");
+        assert_eq!(local.strftime("%f").unwrap().to_string(), "000054321");
+        assert_eq!(local.strftime("%G").unwrap().to_string(), "2009");
+        assert_eq!(local.strftime("%g").unwrap().to_string(), "09");
+        assert_eq!(local.strftime("%H").unwrap().to_string(), "15");
+        assert_eq!(local.strftime("%h").unwrap().to_string(), "Feb");
+        assert_eq!(local.strftime("%I").unwrap().to_string(), "03");
+        assert_eq!(local.strftime("%j").unwrap().to_string(), "044");
+        assert_eq!(local.strftime("%k").unwrap().to_string(), "15");
+        assert_eq!(local.strftime("%l").unwrap().to_string(), " 3");
+        assert_eq!(local.strftime("%M").unwrap().to_string(), "31");
+        assert_eq!(local.strftime("%m").unwrap().to_string(), "02");
+        assert_eq!(local.strftime("%n").unwrap().to_string(), "\n");
+        assert_eq!(local.strftime("%P").unwrap().to_string(), "pm");
+        assert_eq!(local.strftime("%p").unwrap().to_string(), "PM");
+        assert_eq!(local.strftime("%R").unwrap().to_string(), "15:31");
+        assert_eq!(local.strftime("%r").unwrap().to_string(), "03:31:30 PM");
+        assert_eq!(local.strftime("%S").unwrap().to_string(), "30");
+        assert_eq!(local.strftime("%s").unwrap().to_string(), "1234567890");
+        assert_eq!(local.strftime("%T").unwrap().to_string(), "15:31:30");
+        assert_eq!(local.strftime("%t").unwrap().to_string(), "\t");
+        assert_eq!(local.strftime("%U").unwrap().to_string(), "06");
+        assert_eq!(local.strftime("%u").unwrap().to_string(), "5");
+        assert_eq!(local.strftime("%V").unwrap().to_string(), "07");
+        assert_eq!(local.strftime("%v").unwrap().to_string(), "13-Feb-2009");
+        assert_eq!(local.strftime("%W").unwrap().to_string(), "06");
+        assert_eq!(local.strftime("%w").unwrap().to_string(), "5");
         // FIXME (#2350): support locale
-        assert_eq!(local.strftime("%X").unwrap().to_string(), "15:31:30".to_string());
+        assert_eq!(local.strftime("%X").unwrap().to_string(), "15:31:30");
         // FIXME (#2350): support locale
-        assert_eq!(local.strftime("%x").unwrap().to_string(), "02/13/09".to_string());
-        assert_eq!(local.strftime("%Y").unwrap().to_string(), "2009".to_string());
-        assert_eq!(local.strftime("%y").unwrap().to_string(), "09".to_string());
+        assert_eq!(local.strftime("%x").unwrap().to_string(), "02/13/09");
+        assert_eq!(local.strftime("%Y").unwrap().to_string(), "2009");
+        assert_eq!(local.strftime("%y").unwrap().to_string(), "09");
         // FIXME (#2350): support locale
-        assert_eq!(local.strftime("%Z").unwrap().to_string(), "".to_string());
-        assert_eq!(local.strftime("%z").unwrap().to_string(), "-0800".to_string());
+        assert_eq!(local.strftime("%Z").unwrap().to_string(), "");
+        assert_eq!(local.strftime("%z").unwrap().to_string(), "-0800");
         assert_eq!(local.strftime("%+").unwrap().to_string(),
-                   "2009-02-13T15:31:30-08:00".to_string());
-        assert_eq!(local.strftime("%%").unwrap().to_string(), "%".to_string());
+                   "2009-02-13T15:31:30-08:00");
+        assert_eq!(local.strftime("%%").unwrap().to_string(), "%");
 
          let invalid_specifiers = ["%E", "%J", "%K", "%L", "%N", "%O", "%o", "%Q", "%q"];
         for &sp in invalid_specifiers.iter() {
@@ -1648,16 +1658,16 @@ mod tests {
         assert_eq!(local.strftime("%").unwrap_err(), MissingFormatConverter);
         assert_eq!(local.strftime("%A %").unwrap_err(), MissingFormatConverter);
 
-        assert_eq!(local.asctime().to_string(), "Fri Feb 13 15:31:30 2009".to_string());
-        assert_eq!(local.ctime().to_string(), "Fri Feb 13 15:31:30 2009".to_string());
-        assert_eq!(local.rfc822z().to_string(), "Fri, 13 Feb 2009 15:31:30 -0800".to_string());
-        assert_eq!(local.rfc3339().to_string(), "2009-02-13T15:31:30-08:00".to_string());
+        assert_eq!(local.asctime().to_string(), "Fri Feb 13 15:31:30 2009");
+        assert_eq!(local.ctime().to_string(), "Fri Feb 13 15:31:30 2009");
+        assert_eq!(local.rfc822z().to_string(), "Fri, 13 Feb 2009 15:31:30 -0800");
+        assert_eq!(local.rfc3339().to_string(), "2009-02-13T15:31:30-08:00");
 
-        assert_eq!(utc.asctime().to_string(), "Fri Feb 13 23:31:30 2009".to_string());
-        assert_eq!(utc.ctime().to_string(), "Fri Feb 13 15:31:30 2009".to_string());
-        assert_eq!(utc.rfc822().to_string(), "Fri, 13 Feb 2009 23:31:30 GMT".to_string());
-        assert_eq!(utc.rfc822z().to_string(), "Fri, 13 Feb 2009 23:31:30 -0000".to_string());
-        assert_eq!(utc.rfc3339().to_string(), "2009-02-13T23:31:30Z".to_string());
+        assert_eq!(utc.asctime().to_string(), "Fri Feb 13 23:31:30 2009");
+        assert_eq!(utc.ctime().to_string(), "Fri Feb 13 15:31:30 2009");
+        assert_eq!(utc.rfc822().to_string(), "Fri, 13 Feb 2009 23:31:30 GMT");
+        assert_eq!(utc.rfc822z().to_string(), "Fri, 13 Feb 2009 23:31:30 -0000");
+        assert_eq!(utc.rfc3339().to_string(), "2009-02-13T23:31:30Z");
     }
 
     fn test_timespec_eq_ord() {

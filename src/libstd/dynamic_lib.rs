@@ -29,7 +29,10 @@ use str;
 use string::String;
 use vec::Vec;
 
-pub struct DynamicLibrary { handle: *mut u8 }
+#[allow(missing_copy_implementations)]
+pub struct DynamicLibrary {
+    handle: *mut u8
+}
 
 impl Drop for DynamicLibrary {
     fn drop(&mut self) {
@@ -210,6 +213,7 @@ pub mod dl {
 
     use c_str::{CString, ToCStr};
     use libc;
+    use kinds::Copy;
     use ptr;
     use result::*;
     use string::String;
@@ -225,8 +229,8 @@ pub mod dl {
     }
 
     pub fn check_for_errors_in<T>(f: || -> T) -> Result<T, String> {
-        use rustrt::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
-        static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
+        use sync::{StaticMutex, MUTEX_INIT};
+        static LOCK: StaticMutex = MUTEX_INIT;
         unsafe {
             // dlerror isn't thread safe, so we need to lock around this entire
             // sequence
@@ -262,6 +266,8 @@ pub mod dl {
         Local = 0,
     }
 
+    impl Copy for Rtld {}
+
     #[link_name = "dl"]
     extern {
         fn dlopen(filename: *const libc::c_char,
@@ -280,7 +286,8 @@ pub mod dl {
     use libc;
     use os;
     use ptr;
-    use result::{Ok, Err, Result};
+    use result::Result;
+    use result::Result::{Ok, Err};
     use slice::SlicePrelude;
     use str::StrPrelude;
     use str;

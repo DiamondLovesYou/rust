@@ -354,6 +354,8 @@ mod select;
 mod shared;
 mod stream;
 mod sync;
+mod mpsc_queue;
+mod spsc_queue;
 
 /// The receiving-half of Rust's channel type. This half can only be owned by
 /// one task
@@ -402,6 +404,8 @@ pub enum TryRecvError {
     /// never be any more data received on this channel
     Disconnected,
 }
+
+impl Copy for TryRecvError {}
 
 /// This enumeration is the list of the possible error outcomes for the
 /// `SyncSender::try_send` method.
@@ -628,24 +632,26 @@ impl<T: Send> Sender<T> {
 #[unstable]
 impl<T: Send> Clone for Sender<T> {
     fn clone(&self) -> Sender<T> {
-        let (packet, sleeper) = match *unsafe { self.inner() } {
+        let (packet, sleeper, guard) = match *unsafe { self.inner() } {
             Oneshot(ref p) => {
                 let a = Arc::new(UnsafeCell::new(shared::Packet::new()));
                 unsafe {
-                    (*a.get()).postinit_lock();
+                    let guard = (*a.get()).postinit_lock();
                     match (*p.get()).upgrade(Receiver::new(Shared(a.clone()))) {
-                        oneshot::UpSuccess | oneshot::UpDisconnected => (a, None),
-                        oneshot::UpWoke(task) => (a, Some(task))
+                        oneshot::UpSuccess |
+                        oneshot::UpDisconnected => (a, None, guard),
+                        oneshot::UpWoke(task) => (a, Some(task), guard)
                     }
                 }
             }
             Stream(ref p) => {
                 let a = Arc::new(UnsafeCell::new(shared::Packet::new()));
                 unsafe {
-                    (*a.get()).postinit_lock();
+                    let guard = (*a.get()).postinit_lock();
                     match (*p.get()).upgrade(Receiver::new(Shared(a.clone()))) {
-                        stream::UpSuccess | stream::UpDisconnected => (a, None),
-                        stream::UpWoke(task) => (a, Some(task)),
+                        stream::UpSuccess |
+                        stream::UpDisconnected => (a, None, guard),
+                        stream::UpWoke(task) => (a, Some(task), guard),
                     }
                 }
             }
@@ -657,7 +663,7 @@ impl<T: Send> Clone for Sender<T> {
         };
 
         unsafe {
-            (*packet.get()).inherit_blocker(sleeper);
+            (*packet.get()).inherit_blocker(sleeper, guard);
 
             let tmp = Sender::new(Shared(packet.clone()));
             mem::swap(self.inner_mut(), tmp.inner_mut());

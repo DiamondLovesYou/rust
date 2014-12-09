@@ -18,6 +18,7 @@ pub use self::SignFormat::*;
 
 use char;
 use char::Char;
+use kinds::Copy;
 use num;
 use num::{Int, Float, FPNaN, FPInfinite, ToPrimitive};
 use slice::{SlicePrelude, CloneSliceAllocPrelude};
@@ -38,6 +39,8 @@ pub enum ExponentFormat {
     ExpBin,
 }
 
+impl Copy for ExponentFormat {}
+
 /// The number of digits used for emitting the fractional part of a number, if
 /// any.
 pub enum SignificantDigits {
@@ -55,6 +58,8 @@ pub enum SignificantDigits {
     DigExact(uint)
 }
 
+impl Copy for SignificantDigits {}
+
 /// How to emit the sign of a number.
 pub enum SignFormat {
     /// No sign will be printed. The exponent sign will also be emitted.
@@ -67,25 +72,33 @@ pub enum SignFormat {
     SignAll,
 }
 
-/// Converts an integral number to its string representation as a byte vector.
-/// This is meant to be a common base implementation for all integral string
-/// conversion functions like `to_string()` or `to_str_radix()`.
-///
-/// # Arguments
-///
-/// - `num`           - The number to convert. Accepts any number that
-///                     implements the numeric traits.
-/// - `radix`         - Base to use. Accepts only the values 2-36.
-/// - `sign`          - How to emit the sign. Options are:
-///     - `SignNone`: No sign at all. Basically emits `abs(num)`.
-///     - `SignNeg`:  Only `-` on negative values.
-///     - `SignAll`:  Both `+` on positive, and `-` on negative numbers.
-/// - `f`             - a callback which will be invoked for each ascii character
-///                     which composes the string representation of this integer
-///
-/// # Panics
-///
-/// - Panics if `radix` < 2 or `radix` > 36.
+impl Copy for SignFormat {}
+
+/**
+ * Converts an integral number to its string representation as a byte vector.
+ * This is meant to be a common base implementation for all integral string
+ * conversion functions like `to_string()` or `to_str_radix()`.
+ *
+ * # Arguments
+ * - `num`           - The number to convert. Accepts any number that
+ *                     implements the numeric traits.
+ * - `radix`         - Base to use. Accepts only the values 2-36.
+ * - `sign`          - How to emit the sign. Options are:
+ *     - `SignNone`: No sign at all. Basically emits `abs(num)`.
+ *     - `SignNeg`:  Only `-` on negative values.
+ *     - `SignAll`:  Both `+` on positive, and `-` on negative numbers.
+ * - `f`             - a callback which will be invoked for each ascii character
+ *                     which composes the string representation of this integer
+ *
+ * # Return value
+ * A tuple containing the byte vector, and a boolean flag indicating
+ * whether it represents a special value like `inf`, `-inf`, `NaN` or not.
+ * It returns a tuple because there can be ambiguity between a special value
+ * and a number representation at higher bases.
+ *
+ * # Failure
+ * - Fails if `radix` < 2 or `radix` > 36.
+ */
 fn int_to_str_bytes_common<T: Int>(num: T, radix: uint, sign: SignFormat, f: |u8|) {
     assert!(2 <= radix && radix <= 36);
 
@@ -428,28 +441,28 @@ mod tests {
     #[test]
     fn test_int_to_str_overflow() {
         let mut i8_val: i8 = 127_i8;
-        assert_eq!(i8_val.to_string(), "127".to_string());
+        assert_eq!(i8_val.to_string(), "127");
 
         i8_val += 1 as i8;
-        assert_eq!(i8_val.to_string(), "-128".to_string());
+        assert_eq!(i8_val.to_string(), "-128");
 
         let mut i16_val: i16 = 32_767_i16;
-        assert_eq!(i16_val.to_string(), "32767".to_string());
+        assert_eq!(i16_val.to_string(), "32767");
 
         i16_val += 1 as i16;
-        assert_eq!(i16_val.to_string(), "-32768".to_string());
+        assert_eq!(i16_val.to_string(), "-32768");
 
         let mut i32_val: i32 = 2_147_483_647_i32;
-        assert_eq!(i32_val.to_string(), "2147483647".to_string());
+        assert_eq!(i32_val.to_string(), "2147483647");
 
         i32_val += 1 as i32;
-        assert_eq!(i32_val.to_string(), "-2147483648".to_string());
+        assert_eq!(i32_val.to_string(), "-2147483648");
 
         let mut i64_val: i64 = 9_223_372_036_854_775_807_i64;
-        assert_eq!(i64_val.to_string(), "9223372036854775807".to_string());
+        assert_eq!(i64_val.to_string(), "9223372036854775807");
 
         i64_val += 1 as i64;
-        assert_eq!(i64_val.to_string(), "-9223372036854775808".to_string());
+        assert_eq!(i64_val.to_string(), "-9223372036854775808");
     }
 }
 

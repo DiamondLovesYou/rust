@@ -59,10 +59,11 @@ use io::{Read, Truncate, ReadWrite, Append};
 use io::UpdateIoError;
 use io;
 use iter::{Iterator, Extend};
-use option::{Some, None, Option};
+use option::Option;
+use option::Option::{Some, None};
 use path::{Path, GenericPath};
 use path;
-use result::{Err, Ok};
+use result::Result::{Err, Ok};
 use slice::SlicePrelude;
 use string::String;
 use vec::Vec;
@@ -837,7 +838,7 @@ mod test {
     macro_rules! error( ($e:expr, $s:expr) => (
         match $e {
             Ok(_) => panic!("Unexpected success. Should've been: {}", $s),
-            Err(ref err) => assert!(err.to_string().as_slice().contains($s.as_slice()),
+            Err(ref err) => assert!(err.to_string().contains($s.as_slice()),
                                     format!("`{}` did not contain `{}`", err, $s))
         }
     ) )
@@ -995,7 +996,7 @@ mod test {
         }
         check!(unlink(filename));
         let read_str = str::from_utf8(&read_mem).unwrap();
-        assert!(read_str.as_slice() == final_msg.as_slice());
+        assert!(read_str == final_msg);
     }
 
     #[test]
@@ -1103,7 +1104,7 @@ mod test {
             let f = dir.join(format!("{}.txt", n));
             let mut w = check!(File::create(&f));
             let msg_str = format!("{}{}", prefix, n.to_string());
-            let msg = msg_str.as_slice().as_bytes();
+            let msg = msg_str.as_bytes();
             check!(w.write(msg));
         }
         let files = check!(readdir(dir));

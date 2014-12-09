@@ -209,12 +209,16 @@ enum Expectation<'tcx> {
     ExpectCastableToType(Ty<'tcx>),
 }
 
+impl<'tcx> Copy for Expectation<'tcx> {}
+
 #[deriving(Clone)]
 pub struct FnStyleState {
     pub def: ast::NodeId,
     pub fn_style: ast::FnStyle,
     from_fn: bool
 }
+
+impl Copy for FnStyleState {}
 
 impl FnStyleState {
     pub fn function(fn_style: ast::FnStyle, def: ast::NodeId) -> FnStyleState {
@@ -406,7 +410,7 @@ fn check_bare_fn<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
                                decl, id, body, &inh);
 
             vtable::select_all_fcx_obligations_or_error(&fcx);
-            regionck::regionck_fn(&fcx, id, body);
+            regionck::regionck_fn(&fcx, id, decl, body);
             fcx.default_diverging_type_variables_to_nil();
             writeback::resolve_type_vars_in_fn(&fcx, decl, body);
         }
@@ -1747,8 +1751,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 self.register_unsize_obligations(span, &**u)
             }
             ty::UnsizeVtable(ref ty_trait, self_ty) => {
-                vtable::check_object_safety(self.tcx(), ty_trait, span);
-
+                vtable::check_object_safety(self.tcx(), &ty_trait.principal, span);
                 // If the type is `Foo+'a`, ensures that the type
                 // being cast to `Foo+'a` implements `Foo`:
                 vtable::register_object_cast_obligations(self,
@@ -2117,6 +2120,8 @@ pub enum LvaluePreference {
     PreferMutLvalue,
     NoPreference
 }
+
+impl Copy for LvaluePreference {}
 
 /// Executes an autoderef loop for the type `t`. At each step, invokes `should_stop` to decide
 /// whether to terminate the loop. Returns the final type and number of derefs that it performed.
@@ -2993,6 +2998,8 @@ pub enum DerefArgs {
     DontDerefArgs,
     DoDerefArgs
 }
+
+impl Copy for DerefArgs {}
 
 /// Controls whether the arguments are tupled. This is used for the call
 /// operator.

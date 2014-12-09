@@ -19,7 +19,8 @@ use core::kinds::Sized;
 use core::mem;
 use core::option::Option;
 use core::raw::TraitObject;
-use core::result::{Ok, Err, Result};
+use core::result::Result;
+use core::result::Result::{Ok, Err};
 
 /// A value that represents the global exchange heap. This is the default
 /// place that the `box` keyword allocates into when no place is supplied.
@@ -169,14 +170,14 @@ mod test {
         let b = box Test as Box<Any>;
         let a_str = a.to_str();
         let b_str = b.to_str();
-        assert_eq!(a_str.as_slice(), "Box<Any>");
-        assert_eq!(b_str.as_slice(), "Box<Any>");
+        assert_eq!(a_str, "Box<Any>");
+        assert_eq!(b_str, "Box<Any>");
 
         let a = &8u as &Any;
         let b = &Test as &Any;
         let s = format!("{}", a);
-        assert_eq!(s.as_slice(), "&Any");
+        assert_eq!(s, "&Any");
         let s = format!("{}", b);
-        assert_eq!(s.as_slice(), "&Any");
+        assert_eq!(s, "&Any");
     }
 }

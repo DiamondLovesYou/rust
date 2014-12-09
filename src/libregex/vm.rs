@@ -60,6 +60,8 @@ pub enum MatchKind {
     Submatches,
 }
 
+impl Copy for MatchKind {}
+
 /// Runs an NFA simulation on the compiled expression given on the search text
 /// `input`. The search begins at byte index `start` and ends at byte index
 /// `end`. (The range is specified here so that zero-width assertions will work
@@ -107,6 +109,8 @@ pub enum StepState {
     StepContinue,
 }
 
+impl Copy for StepState {}
+
 impl<'r, 't> Nfa<'r, 't> {
     fn run(&mut self) -> CaptureLocs {
         let ncaps = match self.which {
@@ -147,7 +151,7 @@ impl<'r, 't> Nfa<'r, 't> {
                 // jump ahead quickly. If it can't be found, then we can bail
                 // out early.
                 if self.prog.prefix.len() > 0 && clist.size == 0 {
-                    let needle = self.prog.prefix.as_slice().as_bytes();
+                    let needle = self.prog.prefix.as_bytes();
                     let haystack = self.input.as_bytes()[self.ic..];
                     match find_prefix(needle, haystack) {
                         None => break,

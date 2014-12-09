@@ -32,9 +32,7 @@ use parse::token;
 
 use std::slice;
 
-/// This is a list of all known features since the beginning of time. This list
-/// can never shrink, it may only be expanded (in order to prevent old programs
-/// from failing to compile). The status of each feature may change, however.
+// if you change this list without updating src/doc/reference.md, @cmr will be sad
 static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("globs", Active),
     ("macro_rules", Active),
@@ -65,19 +63,20 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("unboxed_closures", Active),
     ("import_shadowing", Active),
     ("advanced_slice_patterns", Active),
-    ("tuple_indexing", Active),
+    ("tuple_indexing", Accepted),
     ("associated_types", Active),
     ("visible_private_types", Active),
     ("slicing_syntax", Active),
 
-    ("if_let", Active),
-    ("while_let", Active),
-
-    // if you change this list without updating src/doc/reference.md, cmr will be sad
+    ("if_let", Accepted),
+    ("while_let", Accepted),
 
     // A temporary feature gate used to enable parser extensions needed
     // to bootstrap fix for #5723.
     ("issue_5723_bootstrap", Accepted),
+
+    // A way to temporary opt out of opt in copy. This will *never* be accepted.
+    ("opt_out_copy", Active),
 
     // These are used to test this portion of the compiler, they don't actually
     // mean anything
@@ -105,7 +104,10 @@ pub struct Features {
     pub import_shadowing: bool,
     pub visible_private_types: bool,
     pub quote: bool,
+    pub opt_out_copy: bool,
 }
+
+impl Copy for Features {}
 
 impl Features {
     pub fn new() -> Features {
@@ -116,6 +118,7 @@ impl Features {
             import_shadowing: false,
             visible_private_types: false,
             quote: false,
+            opt_out_copy: false,
         }
     }
 }
@@ -136,7 +139,7 @@ impl<'a> Context<'a> {
     }
 
     fn has_feature(&self, feature: &str) -> bool {
-        self.features.iter().any(|n| n.as_slice() == feature)
+        self.features.iter().any(|&n| n == feature)
     }
 }
 
@@ -309,23 +312,10 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
                                   "unboxed closures are a work-in-progress \
                                    feature with known bugs");
             }
-            ast::ExprTupField(..) => {
-                self.gate_feature("tuple_indexing",
-                                  e.span,
-                                  "tuple indexing is experimental");
-            }
-            ast::ExprIfLet(..) => {
-                self.gate_feature("if_let", e.span,
-                                  "`if let` syntax is experimental");
-            }
             ast::ExprSlice(..) => {
                 self.gate_feature("slicing_syntax",
                                   e.span,
                                   "slicing syntax is experimental");
-            }
-            ast::ExprWhileLet(..) => {
-                self.gate_feature("while_let", e.span,
-                                  "`while let` syntax is experimental");
             }
             _ => {}
         }
@@ -456,6 +446,7 @@ pub fn check_crate(span_handler: &SpanHandler, krate: &ast::Crate) -> (Features,
         import_shadowing: cx.has_feature("import_shadowing"),
         visible_private_types: cx.has_feature("visible_private_types"),
         quote: cx.has_feature("quote"),
+        opt_out_copy: cx.has_feature("opt_out_copy"),
     },
     unknown_features)
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,8 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern {
-    const FOO: uint; //~ ERROR: unexpected token: `const`
+use self::A; //~ ERROR import `A` conflicts with existing submodule
+use self::B; //~ ERROR import `B` conflicts with existing submodule
+mod A {}
+pub mod B {}
+
+mod C {
+    use C::D; //~ ERROR import `D` conflicts with existing submodule
+    mod D {}
 }
 
 fn main() {}

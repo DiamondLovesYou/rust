@@ -225,9 +225,10 @@ use cell::RefCell;
 use clone::Clone;
 use io::IoResult;
 use iter::{Iterator, IteratorExt};
+use kinds::Copy;
 use mem;
 use rc::Rc;
-use result::{Ok, Err};
+use result::Result::{Ok, Err};
 use vec::Vec;
 
 #[cfg(not(target_word_size="64"))]
@@ -245,7 +246,11 @@ pub mod reader;
 
 /// The standard RNG. This is designed to be efficient on the current
 /// platform.
-pub struct StdRng { rng: IsaacWordRng }
+pub struct StdRng {
+    rng: IsaacWordRng,
+}
+
+impl Copy for StdRng {}
 
 impl StdRng {
     /// Create a randomly seeded instance of `StdRng`.
@@ -529,7 +534,7 @@ mod test {
         let mut one = [1i];
         r.shuffle(&mut one);
         let b: &[_] = &[1];
-        assert_eq!(one.as_slice(), b);
+        assert_eq!(one, b);
 
         let mut two = [1i, 2];
         r.shuffle(&mut two);
@@ -538,7 +543,7 @@ mod test {
         let mut x = [1i, 1, 1];
         r.shuffle(&mut x);
         let b: &[_] = &[1, 1, 1];
-        assert_eq!(x.as_slice(), b);
+        assert_eq!(x, b);
     }
 
     #[test]
@@ -548,7 +553,7 @@ mod test {
         let mut v = [1i, 1, 1];
         r.shuffle(&mut v);
         let b: &[_] = &[1, 1, 1];
-        assert_eq!(v.as_slice(), b);
+        assert_eq!(v, b);
         assert_eq!(r.gen_range(0u, 1u), 0u);
     }
 

@@ -20,7 +20,12 @@ use std::os;
 
 use util::fs as myfs;
 
-pub enum FileMatch { FileMatches, FileDoesntMatch }
+pub enum FileMatch {
+    FileMatches,
+    FileDoesntMatch,
+}
+
+impl Copy for FileMatch {}
 
 // A module for searching for libraries
 // FIXME (#2658): I'm not happy how this module turned out. Should
@@ -218,7 +223,7 @@ pub fn rust_path() -> Vec<Path> {
     let mut env_rust_path: Vec<Path> = match get_rust_path() {
         Some(env_path) => {
             let env_path_components =
-                env_path.as_slice().split_str(PATH_ENTRY_SEPARATOR);
+                env_path.split_str(PATH_ENTRY_SEPARATOR);
             env_path_components.map(|s| Path::new(s)).collect()
         }
         None => Vec::new()

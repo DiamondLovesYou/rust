@@ -14,9 +14,9 @@
 
 use io::{IoResult, Writer};
 use iter::{Iterator, IteratorExt};
-use option::{Some, None};
+use option::Option::{Some, None};
 use os;
-use result::{Ok, Err};
+use result::Result::{Ok, Err};
 use str::{StrPrelude, from_str};
 use sync::atomic;
 use unicode::char::UnicodeChar;
@@ -237,9 +237,10 @@ mod imp {
     use io::{IoResult, Writer};
     use libc;
     use mem;
-    use option::{Some, None, Option};
-    use result::{Ok, Err};
-    use rustrt::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
+    use option::Option;
+    use option::Option::{Some, None};
+    use result::Result::{Ok, Err};
+    use sync::{StaticMutex, MUTEX_INIT};
 
     /// As always - iOS on arm uses SjLj exceptions and
     /// _Unwind_Backtrace is even not available there. Still,
@@ -265,8 +266,8 @@ mod imp {
         // while it doesn't requires lock for work as everything is
         // local, it still displays much nicer backtraces when a
         // couple of tasks panic simultaneously
-        static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
-        let _g = unsafe { LOCK.lock() };
+        static LOCK: StaticMutex = MUTEX_INIT;
+        let _g = LOCK.lock();
 
         try!(writeln!(w, "stack backtrace:"));
         // 100 lines should be enough
@@ -298,8 +299,8 @@ mod imp {
         // is semi-reasonable in terms of printing anyway, and we know that all
         // I/O done here is blocking I/O, not green I/O, so we don't have to
         // worry about this being a native vs green mutex.
-        static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
-        let _g = unsafe { LOCK.lock() };
+        static LOCK: StaticMutex = MUTEX_INIT;
+        let _g = LOCK.lock();
 
         try!(writeln!(w, "stack backtrace:"));
 
@@ -691,10 +692,10 @@ mod imp {
     use libc;
     use mem;
     use ops::Drop;
-    use option::{Some, None};
+    use option::Option::{Some, None};
     use path::Path;
-    use result::{Ok, Err};
-    use rustrt::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
+    use result::Result::{Ok, Err};
+    use sync::{StaticMutex, MUTEX_INIT};
     use slice::SlicePrelude;
     use str::StrPrelude;
     use dynamic_lib::DynamicLibrary;
@@ -955,8 +956,8 @@ mod imp {
     pub fn write(w: &mut Writer) -> IoResult<()> {
         // According to windows documentation, all dbghelp functions are
         // single-threaded.
-        static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
-        let _g = unsafe { LOCK.lock() };
+        static LOCK: StaticMutex = MUTEX_INIT;
+        let _g = LOCK.lock();
 
         // Open up dbghelp.dll, we don't link to it explicitly because it can't
         // always be found. Additionally, it's nice having fewer dependencies.
@@ -1039,7 +1040,7 @@ mod test {
     macro_rules! t( ($a:expr, $b:expr) => ({
         let mut m = Vec::new();
         super::demangle(&mut m, $a).unwrap();
-        assert_eq!(String::from_utf8(m).unwrap(), $b.to_string());
+        assert_eq!(String::from_utf8(m).unwrap(), $b);
     }) )
 
     #[test]

@@ -94,6 +94,8 @@ struct binding_info {
     binding_mode: BindingMode,
 }
 
+impl Copy for binding_info {}
+
 // Map from the name in a pattern to its binding mode.
 type BindingMap = HashMap<Name,binding_info>;
 
@@ -130,11 +132,15 @@ pub enum LastPrivate {
                type_used: ImportUse},
 }
 
+impl Copy for LastPrivate {}
+
 #[deriving(Show)]
 pub enum PrivateDep {
     AllPublic,
     DependsOn(DefId),
 }
+
+impl Copy for PrivateDep {}
 
 // How an import is used.
 #[deriving(PartialEq, Show)]
@@ -142,6 +148,8 @@ pub enum ImportUse {
     Unused,       // The import is not used.
     Used,         // The import is used.
 }
+
+impl Copy for ImportUse {}
 
 impl LastPrivate {
     fn or(self, other: LastPrivate) -> LastPrivate {
@@ -159,11 +167,15 @@ enum PatternBindingMode {
     ArgumentIrrefutableMode,
 }
 
+impl Copy for PatternBindingMode {}
+
 #[deriving(PartialEq, Eq, Hash, Show)]
 enum Namespace {
     TypeNS,
     ValueNS
 }
+
+impl Copy for Namespace {}
 
 #[deriving(PartialEq)]
 enum NamespaceError {
@@ -172,6 +184,8 @@ enum NamespaceError {
     TypeError,
     ValueError
 }
+
+impl Copy for NamespaceError {}
 
 /// A NamespaceResult represents the result of resolving an import in
 /// a particular namespace. The result is either definitely-resolved,
@@ -238,6 +252,8 @@ enum ImportDirectiveSubclass {
     GlobImport
 }
 
+impl Copy for ImportDirectiveSubclass {}
+
 /// The context that we thread through while building the reduced graph.
 #[deriving(Clone)]
 enum ReducedGraphParent {
@@ -294,6 +310,8 @@ enum TypeParameters<'a> {
         RibKind)
 }
 
+impl<'a> Copy for TypeParameters<'a> {}
+
 // The rib kind controls the translation of local
 // definitions (`DefLocal`) to upvars (`DefUpvar`).
 
@@ -319,16 +337,22 @@ enum RibKind {
     ConstantItemRibKind
 }
 
+impl Copy for RibKind {}
+
 // Methods can be required or provided. RequiredMethod methods only occur in traits.
 enum MethodSort {
     RequiredMethod,
     ProvidedMethod(NodeId)
 }
 
+impl Copy for MethodSort {}
+
 enum UseLexicalScopeFlag {
     DontUseLexicalScope,
     UseLexicalScope
 }
+
+impl Copy for UseLexicalScopeFlag {}
 
 enum ModulePrefixResult {
     NoPrefixFound,
@@ -341,6 +365,8 @@ pub enum TraitItemKind {
     StaticMethodTraitItemKind,
     TypeTraitItemKind,
 }
+
+impl Copy for TraitItemKind {}
 
 impl TraitItemKind {
     pub fn from_explicit_self_category(explicit_self_category:
@@ -364,11 +390,15 @@ enum NameSearchType {
     PathSearch,
 }
 
+impl Copy for NameSearchType {}
+
 enum BareIdentifierPatternResolution {
     FoundStructOrEnumVariant(Def, LastPrivate),
     FoundConst(Def, LastPrivate),
     BareIdentifierPatternUnresolved
 }
+
+impl Copy for BareIdentifierPatternResolution {}
 
 // Specifies how duplicates should be handled when adding a child item if
 // another item exists with the same name in some namespace.
@@ -380,6 +410,8 @@ enum DuplicateCheckingMode {
     ForbidDuplicateTypesAndValues,
     OverwriteDuplicates
 }
+
+impl Copy for DuplicateCheckingMode {}
 
 /// One local scope.
 struct Rib {
@@ -518,6 +550,8 @@ enum ModuleKind {
     AnonymousModuleKind,
 }
 
+impl Copy for ModuleKind {}
+
 /// One node in the tree of modules.
 struct Module {
     parent_link: ParentLink,
@@ -599,6 +633,8 @@ bitflags! {
     }
 }
 
+impl Copy for DefModifiers {}
+
 // Records a possibly-private type definition.
 #[deriving(Clone)]
 struct TypeNsDef {
@@ -616,6 +652,8 @@ struct ValueNsDef {
     value_span: Option<Span>,
 }
 
+impl Copy for ValueNsDef {}
+
 // Records the definitions (at most one for each namespace) that a name is
 // bound to.
 struct NameBindings {
@@ -631,6 +669,8 @@ enum TraitReferenceType {
     TraitObject,                     // Box<for<'a> SomeTrait>
     TraitQPath,                      // <T as SomeTrait>::
 }
+
+impl Copy for TraitReferenceType {}
 
 impl NameBindings {
     fn new() -> NameBindings {
@@ -1668,7 +1708,7 @@ impl<'a> Resolver<'a> {
                 let module_path = match view_path.node {
                     ViewPathSimple(_, ref full_path, _) => {
                         full_path.segments
-                            .as_slice().init()
+                            .init()
                             .iter().map(|ident| ident.identifier.name)
                             .collect()
                     }
@@ -1739,7 +1779,7 @@ impl<'a> Resolver<'a> {
                                             continue;
                                         }
                                     };
-                                    let module_path = module_path.as_slice().init();
+                                    let module_path = module_path.init();
                                     (module_path.to_vec(), name)
                                 }
                             };
@@ -2654,10 +2694,34 @@ impl<'a> Resolver<'a> {
 
                     }
                     Some(_) => {
-                        // The import is unresolved. Bail out.
-                        debug!("(resolving single import) unresolved import; \
-                                bailing out");
-                        return Indeterminate;
+                        // If containing_module is the same module whose import we are resolving
+                        // and there it has an unresolved import with the same name as `source`,
+                        // then the user is actually trying to import an item that is declared
+                        // in the same scope
+                        //
+                        // e.g
+                        // use self::submodule;
+                        // pub mod submodule;
+                        //
+                        // In this case we continue as if we resolved the import and let the
+                        // check_for_conflicts_between_imports_and_items call below handle
+                        // the conflict
+                        match (module_.def_id.get(),  containing_module.def_id.get()) {
+                            (Some(id1), Some(id2)) if id1 == id2  => {
+                                if value_result.is_unknown() {
+                                    value_result = UnboundResult;
+                                }
+                                if type_result.is_unknown() {
+                                    type_result = UnboundResult;
+                                }
+                            }
+                            _ =>  {
+                                // The import is unresolved. Bail out.
+                                debug!("(resolving single import) unresolved import; \
+                                        bailing out");
+                                return Indeterminate;
+                            }
+                        }
                     }
                 }
             }
@@ -3018,7 +3082,7 @@ impl<'a> Resolver<'a> {
     fn check_for_conflicts_between_imports_and_items(&mut self,
                                                      module: &Module,
                                                      import_resolution:
-                                                     &mut ImportResolution,
+                                                     &ImportResolution,
                                                      import_span: Span,
                                                      name: Name) {
         if self.session.features.borrow().import_shadowing {
@@ -3031,8 +3095,9 @@ impl<'a> Resolver<'a> {
                  .contains_key(&name) {
             match import_resolution.type_target {
                 Some(ref target) if !target.shadowable => {
-                    let msg = format!("import `{}` conflicts with imported \
-                                       crate in this module",
+                    let msg = format!("import `{0}` conflicts with imported \
+                                       crate in this module \
+                                       (maybe you meant `use {0}::*`?)",
                                       token::get_name(name).get());
                     self.session.span_err(import_span, msg.as_slice());
                 }
@@ -3735,12 +3800,12 @@ impl<'a> Resolver<'a> {
                          .codemap()
                          .span_to_snippet((*imports)[index].span)
                          .unwrap();
-            if sn.as_slice().contains("::") {
+            if sn.contains("::") {
                 self.resolve_error((*imports)[index].span,
                                    "unresolved import");
             } else {
                 let err = format!("unresolved import (maybe you meant `{}::*`?)",
-                                  sn.as_slice().slice(0, sn.len()));
+                                  sn.slice(0, sn.len()));
                 self.resolve_error((*imports)[index].span, err.as_slice());
             }
         }
@@ -5748,7 +5813,7 @@ impl<'a> Resolver<'a> {
                                 });
 
                                 if method_scope && token::get_name(self.self_name).get()
-                                                                   == wrong_name.as_slice() {
+                                                                   == wrong_name {
                                         self.resolve_error(
                                             expr.span,
                                             "`self` is not available \

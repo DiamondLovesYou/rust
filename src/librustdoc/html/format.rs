@@ -23,7 +23,6 @@ use syntax::ast_util;
 
 use clean;
 use stability_summary::ModuleSummary;
-use html::item_type;
 use html::item_type::ItemType;
 use html::render;
 use html::render::{cache, CURRENT_LOCATION_KEY};
@@ -48,6 +47,11 @@ pub struct ConciseStability<'a>(pub &'a Option<clean::Stability>);
 pub struct WhereClause<'a>(pub &'a clean::Generics);
 /// Wrapper struct for emitting type parameter bounds.
 pub struct TyParamBounds<'a>(pub &'a [clean::TyParamBound]);
+
+impl Copy for VisSpace {}
+impl Copy for FnStyleSpace {}
+impl Copy for MutableSpace {}
+impl Copy for RawMutableSpace {}
 
 impl VisSpace {
     pub fn get(&self) -> Option<ast::Visibility> {
@@ -252,8 +256,8 @@ fn path(w: &mut fmt::Formatter, path: &clean::Path, print_all: bool,
             Some(root) => {
                 let mut root = String::from_str(root.as_slice());
                 for seg in path.segments[..amt].iter() {
-                    if "super" == seg.name.as_slice() ||
-                            "self" == seg.name.as_slice() {
+                    if "super" == seg.name ||
+                            "self" == seg.name {
                         try!(write!(w, "{}::", seg.name));
                     } else {
                         root.push_str(seg.name.as_slice());
@@ -283,7 +287,7 @@ fn path(w: &mut fmt::Formatter, path: &clean::Path, print_all: bool,
                 url.push_str("/");
             }
             match shortty {
-                item_type::Module => {
+                ItemType::Module => {
                     url.push_str(fqp.last().unwrap().as_slice());
                     url.push_str("/index.html");
                 }
@@ -338,7 +342,7 @@ fn primitive_link(f: &mut fmt::Formatter,
                 Some(root) => {
                     try!(write!(f, "<a href='{}{}/primitive.{}.html'>",
                                 root,
-                                path.ref0().as_slice().head().unwrap(),
+                                path.ref0().head().unwrap(),
                                 prim.to_url_str()));
                     needs_termination = true;
                 }

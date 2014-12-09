@@ -36,13 +36,16 @@
 
 use mem::transmute;
 use clone::Clone;
-use cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering, Less, Equal, Greater, Equiv};
+use cmp::{Ordering, PartialEq, PartialOrd, Eq, Ord, Equiv};
+use cmp::Ordering::{Less, Equal, Greater};
 use cmp;
 use default::Default;
 use iter::*;
+use kinds::Copy;
 use num::Int;
 use ops;
-use option::{None, Option, Some};
+use option::Option;
+use option::Option::{None, Some};
 use ptr;
 use ptr::RawPtr;
 use mem;
@@ -1155,6 +1158,8 @@ impl<'a, T> Items<'a, T> {
     }
 }
 
+impl<'a,T> Copy for Items<'a,T> {}
+
 iterator!{struct Items -> *const T, &'a T}
 
 #[experimental = "needs review"]
@@ -1605,6 +1610,8 @@ pub enum BinarySearchResult {
     NotFound(uint)
 }
 
+impl Copy for BinarySearchResult {}
+
 #[experimental = "needs review"]
 impl BinarySearchResult {
     /// Converts a `Found` to `Some`, `NotFound` to `None`.
@@ -1702,7 +1709,8 @@ pub mod raw {
     use mem::transmute;
     use ptr::RawPtr;
     use raw::Slice;
-    use option::{None, Option, Some};
+    use option::Option;
+    use option::Option::{None, Some};
 
     /// Form a slice from a pointer and length (as a number of units,
     /// not bytes).
@@ -1781,12 +1789,13 @@ pub mod bytes {
 
     /// Copies data from `src` to `dst`
     ///
-    /// `src` and `dst` must not overlap. Panics if the length of `dst`
-    /// is less than the length of `src`.
+    /// Panics if the length of `dst` is less than the length of `src`.
     #[inline]
     pub fn copy_memory(dst: &mut [u8], src: &[u8]) {
         let len_src = src.len();
         assert!(dst.len() >= len_src);
+        // `dst` is unaliasable, so we know statically it doesn't overlap
+        // with `src`.
         unsafe {
             ptr::copy_nonoverlapping_memory(dst.as_mut_ptr(),
                                             src.as_ptr(),
@@ -1916,3 +1925,4 @@ impl_int_slice!(u16,  i16)
 impl_int_slice!(u32,  i32)
 impl_int_slice!(u64,  i64)
 impl_int_slice!(uint, int)
+

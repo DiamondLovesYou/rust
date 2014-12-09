@@ -26,6 +26,7 @@ pub enum Os {
     OsDragonfly,
     OsNaCl,
 }
+impl Copy for Os {}
 
 #[deriving(PartialEq, Eq, Hash, Encodable, Decodable, Clone)]
 pub enum Abi {
@@ -47,6 +48,8 @@ pub enum Abi {
     RustCall,
 }
 
+impl Copy for Abi {}
+
 #[allow(non_camel_case_types)]
 #[deriving(PartialEq)]
 pub enum Architecture {
@@ -58,12 +61,16 @@ pub enum Architecture {
     Le32,
 }
 
+impl Copy for Architecture {}
+
 pub struct AbiData {
     abi: Abi,
 
     // Name of this ABI as we like it called.
     name: &'static str,
 }
+
+impl Copy for AbiData {}
 
 pub enum AbiArchitecture {
     /// Not a real ABI (e.g., intrinsic)
@@ -73,6 +80,9 @@ pub enum AbiArchitecture {
     /// Multiple architectures (bitset)
     Archs(u32)
 }
+
+#[allow(non_upper_case_globals)]
+impl Copy for AbiArchitecture {}
 
 #[allow(non_upper_case_globals)]
 static AbiDatas: &'static [AbiData] = &[

@@ -211,22 +211,16 @@ impl<T> Vec<T> {
             let mut xs = Vec::with_capacity(length);
             while xs.len < length {
                 let len = xs.len;
-                ptr::write(xs.as_mut_slice().unsafe_mut(len), op(len));
+                ptr::write(xs.unsafe_mut(len), op(len));
                 xs.len += 1;
             }
             xs
         }
     }
 
-    /// Creates a `Vec<T>` directly from the raw constituents.
+    /// Creates a `Vec<T>` directly from the raw components of another vector.
     ///
-    /// This is highly unsafe:
-    ///
-    /// - if `ptr` is null, then `length` and `capacity` should be 0
-    /// - `ptr` must point to an allocation of size `capacity`
-    /// - there must be `length` valid instances of type `T` at the
-    ///   beginning of that allocation
-    /// - `ptr` must be allocated by the default `Vec` allocator
+    /// This is highly unsafe, due to the number of invariants that aren't checked.
     ///
     /// # Example
     ///
@@ -328,7 +322,7 @@ impl<T: Clone> Vec<T> {
             let mut xs = Vec::with_capacity(length);
             while xs.len < length {
                 let len = xs.len;
-                ptr::write(xs.as_mut_slice().unsafe_mut(len),
+                ptr::write(xs.unsafe_mut(len),
                            value.clone());
                 xs.len += 1;
             }
@@ -361,7 +355,7 @@ impl<T: Clone> Vec<T> {
             // during the loop can prevent this optimisation.
             unsafe {
                 ptr::write(
-                    self.as_mut_slice().unsafe_mut(len),
+                    self.unsafe_mut(len),
                     other.unsafe_get(i).clone());
                 self.set_len(len + 1);
             }
@@ -688,11 +682,12 @@ impl<T> Vec<T> {
                 Some(new_cap) => {
                     let amort_cap = new_cap.next_power_of_two();
                     // next_power_of_two will overflow to exactly 0 for really big capacities
-                    if amort_cap == 0 {
-                        self.grow_capacity(new_cap);
+                    let cap = if amort_cap == 0 {
+                        new_cap
                     } else {
-                        self.grow_capacity(amort_cap);
-                    }
+                        amort_cap
+                    };
+                    self.grow_capacity(cap)
                 }
             }
         }
@@ -798,7 +793,7 @@ impl<T> Vec<T> {
                 // decrement len before the read(), so a panic on Drop doesn't
                 // re-drop the just-failed value.
                 self.len -= 1;
-                ptr::read(self.as_slice().unsafe_get(self.len));
+                ptr::read(self.unsafe_get(self.len));
             }
         }
     }
@@ -896,7 +891,7 @@ impl<T> Vec<T> {
     pub fn swap_remove(&mut self, index: uint) -> Option<T> {
         let length = self.len();
         if length > 0 && index < length - 1 {
-            self.as_mut_slice().swap(index, length - 1);
+            self.swap(index, length - 1);
         } else if index >= length {
             return None
         }
@@ -1091,7 +1086,7 @@ impl<T> Vec<T> {
         } else {
             unsafe {
                 self.len -= 1;
-                Some(ptr::read(self.as_slice().unsafe_get(self.len())))
+                Some(ptr::read(self.unsafe_get(self.len())))
             }
         }
     }
@@ -1231,7 +1226,7 @@ impl<T: PartialEq> Vec<T> {
             if ln < 1 { return; }
 
             // Avoid bounds checks by using unsafe pointers.
-            let p = self.as_mut_slice().as_mut_ptr();
+            let p = self.as_mut_ptr();
             let mut r = 1;
             let mut w = 1;
 
@@ -1293,7 +1288,7 @@ impl<T> Drop for Vec<T> {
         // zeroed (when moving out, because of #[unsafe_no_drop_flag]).
         if self.cap != 0 {
             unsafe {
-                for x in self.as_mut_slice().iter() {
+                for x in self.iter() {
                     ptr::read(x);
                 }
                 dealloc(self.ptr, self.cap)
@@ -1779,7 +1774,7 @@ mod tests {
     #[test]
     fn test_as_vec() {
         let xs = [1u8, 2u8, 3u8];
-        assert_eq!(as_vec(&xs).as_slice(), xs.as_slice());
+        assert_eq!(as_vec(&xs).as_slice(), xs);
     }
 
     #[test]
@@ -1875,7 +1870,7 @@ mod tests {
             }
         }
 
-        assert!(values.as_slice() == [1, 2, 5, 6, 7]);
+        assert!(values == [1, 2, 5, 6, 7]);
     }
 
     #[test]
@@ -1889,7 +1884,7 @@ mod tests {
             }
         }
 
-        assert!(values.as_slice() == [2, 3, 3, 4, 5]);
+        assert!(values == [2, 3, 3, 4, 5]);
     }
 
     #[test]
@@ -2019,7 +2014,6 @@ mod tests {
 
         let (left, right) = unzip(z1.iter().map(|&x| x));
 
-        let (left, right) = (left.as_slice(), right.as_slice());
         assert_eq!((1, 4), (left[0], right[0]));
         assert_eq!((2, 5), (left[1], right[1]));
         assert_eq!((3, 6), (left[2], right[2]));
@@ -2153,7 +2147,7 @@ mod tests {
     #[test]
     fn test_map_in_place() {
         let v = vec![0u, 1, 2];
-        assert_eq!(v.map_in_place(|i: uint| i as int - 1).as_slice(), [-1i, 0, 1].as_slice());
+        assert_eq!(v.map_in_place(|i: uint| i as int - 1), [-1i, 0, 1]);
     }
 
     #[test]
@@ -2161,7 +2155,7 @@ mod tests {
         let v = vec![(), ()];
         #[deriving(PartialEq, Show)]
         struct ZeroSized;
-        assert_eq!(v.map_in_place(|_| ZeroSized).as_slice(), [ZeroSized, ZeroSized].as_slice());
+        assert_eq!(v.map_in_place(|_| ZeroSized), [ZeroSized, ZeroSized]);
     }
 
     #[test]
@@ -2198,7 +2192,7 @@ mod tests {
     fn test_into_boxed_slice() {
         let xs = vec![1u, 2, 3];
         let ys = xs.into_boxed_slice();
-        assert_eq!(ys.as_slice(), [1u, 2, 3].as_slice());
+        assert_eq!(ys.as_slice(), [1u, 2, 3]);
     }
 
     #[bench]

@@ -36,18 +36,21 @@ use error::{FromError, Error};
 use fmt;
 use io::{IoResult, IoError};
 use iter::{Iterator, IteratorExt};
+use kinds::Copy;
 use libc::{c_void, c_int};
 use libc;
 use boxed::Box;
 use ops::Drop;
-use option::{Some, None, Option};
+use option::Option;
+use option::Option::{Some, None};
 use os;
 use path::{Path, GenericPath, BytesContainer};
 use sys;
 use sys::os as os_imp;
 use ptr::RawPtr;
 use ptr;
-use result::{Err, Ok, Result};
+use result::Result;
+use result::Result::{Err, Ok};
 use slice::{AsSlice, SlicePrelude, PartialEqSlicePrelude};
 use slice::CloneSliceAllocPrelude;
 use str::{Str, StrPrelude, StrAllocating};
@@ -160,7 +163,8 @@ pub fn getcwd() -> IoResult<Path> {
 pub mod windows {
     use libc::types::os::arch::extra::DWORD;
     use libc;
-    use option::{None, Option};
+    use option::Option;
+    use option::Option::None;
     use option;
     use os::TMPBUF_SZ;
     use slice::{SlicePrelude};
@@ -196,7 +200,7 @@ pub mod windows {
                     // set `res` to None and continue.
                     let s = String::from_utf16(sub)
                         .expect("fill_utf16_buf_and_decode: closure created invalid UTF-16");
-                    res = option::Some(s)
+                    res = option::Option::Some(s)
                 }
             }
             return res;
@@ -209,14 +213,12 @@ Accessing environment variables is not generally threadsafe.
 Serialize access through a global lock.
 */
 fn with_env_lock<T>(f: || -> T) -> T {
-    use rustrt::mutex::{StaticNativeMutex, NATIVE_MUTEX_INIT};
+    use sync::{StaticMutex, MUTEX_INIT};
 
-    static LOCK: StaticNativeMutex = NATIVE_MUTEX_INIT;
+    static LOCK: StaticMutex = MUTEX_INIT;
 
-    unsafe {
-        let _guard = LOCK.lock();
-        f()
-    }
+    let _guard = LOCK.lock();
+    f()
 }
 
 /// Returns a vector of (variable, value) pairs, for all the environment
@@ -315,7 +317,7 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>,Vec<u8>)> {
         fn env_convert(input: Vec<Vec<u8>>) -> Vec<(Vec<u8>, Vec<u8>)> {
             let mut pairs = Vec::new();
             for p in input.iter() {
-                let mut it = p.as_slice().splitn(1, |b| *b == b'=');
+                let mut it = p.splitn(1, |b| *b == b'=');
                 let key = it.next().unwrap().to_vec();
                 let default: &[u8] = &[];
                 let val = it.next().unwrap_or(default).to_vec();
@@ -626,6 +628,8 @@ pub struct Pipe {
     /// to this file descriptor can be read from the `input` file descriptor.
     pub writer: c_int,
 }
+
+impl Copy for Pipe {}
 
 /// Creates a new low-level OS in-memory pipe.
 ///
@@ -1199,6 +1203,9 @@ pub struct MemoryMap {
     kind: MemoryMapKind,
 }
 
+#[cfg(not(stage0))]
+impl Copy for MemoryMap {}
+
 /// Type of memory map
 pub enum MemoryMapKind {
     /// Virtual memory map. Usually used to change the permissions of a given
@@ -1209,6 +1216,8 @@ pub enum MemoryMapKind {
     /// Windows.
     MapVirtual
 }
+
+impl Copy for MemoryMapKind {}
 
 /// Options the memory map is created with
 pub enum MapOption {
@@ -1232,6 +1241,8 @@ pub enum MapOption {
     /// (the exact values used) and ignored on Windows.
     MapNonStandardFlags(c_int),
 }
+
+impl Copy for MapOption {}
 
 /// Possible errors when creating a map.
 pub enum MapError {
@@ -1277,6 +1288,8 @@ pub enum MapError {
     /// value of `GetLastError`.
     ErrMapViewOfFile(uint)
 }
+
+impl Copy for MapError {}
 
 impl fmt::Show for MapError {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
@@ -1878,7 +1891,7 @@ mod tests {
     fn test_setenv() {
         let n = make_rand_name();
         setenv(n.as_slice(), "VALUE");
-        assert_eq!(getenv(n.as_slice()), option::Some("VALUE".to_string()));
+        assert_eq!(getenv(n.as_slice()), option::Option::Some("VALUE".to_string()));
     }
 
     #[test]
@@ -1886,7 +1899,7 @@ mod tests {
         let n = make_rand_name();
         setenv(n.as_slice(), "VALUE");
         unsetenv(n.as_slice());
-        assert_eq!(getenv(n.as_slice()), option::None);
+        assert_eq!(getenv(n.as_slice()), option::Option::None);
     }
 
     #[test]
@@ -1895,9 +1908,9 @@ mod tests {
         let n = make_rand_name();
         setenv(n.as_slice(), "1");
         setenv(n.as_slice(), "2");
-        assert_eq!(getenv(n.as_slice()), option::Some("2".to_string()));
+        assert_eq!(getenv(n.as_slice()), option::Option::Some("2".to_string()));
         setenv(n.as_slice(), "");
-        assert_eq!(getenv(n.as_slice()), option::Some("".to_string()));
+        assert_eq!(getenv(n.as_slice()), option::Option::Some("".to_string()));
     }
 
     // Windows GetEnvironmentVariable requires some extra work to make sure
@@ -1914,7 +1927,7 @@ mod tests {
         let n = make_rand_name();
         setenv(n.as_slice(), s.as_slice());
         debug!("{}", s.clone());
-        assert_eq!(getenv(n.as_slice()), option::Some(s));
+        assert_eq!(getenv(n.as_slice()), option::Option::Some(s));
     }
 
     #[test]
@@ -1951,7 +1964,7 @@ mod tests {
             // MingW seems to set some funky environment variables like
             // "=C:=C:\MinGW\msys\1.0\bin" and "!::=::\" that are returned
             // from env() but not visible from getenv().
-            assert!(v2.is_none() || v2 == option::Some(v));
+            assert!(v2.is_none() || v2 == option::Option::Some(v));
         }
     }
 
@@ -2038,7 +2051,7 @@ mod tests {
 
     #[test]
     fn memory_map_rw() {
-        use result::{Ok, Err};
+        use result::Result::{Ok, Err};
 
         let chunk = match os::MemoryMap::new(16, &[
             os::MapReadable,
@@ -2057,7 +2070,7 @@ mod tests {
 
     #[test]
     fn memory_map_file() {
-        use result::{Ok, Err};
+        use result::Result::{Ok, Err};
         use os::*;
         use libc::*;
         use io::fs;
@@ -2147,7 +2160,7 @@ mod tests {
     #[cfg(unix)]
     fn join_paths_unix() {
         fn test_eq(input: &[&str], output: &str) -> bool {
-            join_paths(input).unwrap().as_slice() == output.as_bytes()
+            join_paths(input).unwrap() == output.as_bytes()
         }
 
         assert!(test_eq(&[], ""));
@@ -2162,7 +2175,7 @@ mod tests {
     #[cfg(windows)]
     fn join_paths_windows() {
         fn test_eq(input: &[&str], output: &str) -> bool {
-            join_paths(input).unwrap().as_slice() == output.as_bytes()
+            join_paths(input).unwrap() == output.as_bytes()
         }
 
         assert!(test_eq(&[], ""));

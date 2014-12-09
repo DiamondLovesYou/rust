@@ -232,11 +232,13 @@
 
 pub use self::Result::*;
 
+use kinds::Copy;
 use std::fmt::Show;
 use slice;
 use slice::AsSlice;
 use iter::{Iterator, IteratorExt, DoubleEndedIterator, FromIterator, ExactSizeIterator};
-use option::{None, Option, Some};
+use option::Option;
+use option::Option::{None, Some};
 
 /// `Result` is a type that represents either success (`Ok`) or failure (`Err`).
 ///
@@ -915,3 +917,7 @@ pub fn fold<T,
     }
     Ok(init)
 }
+
+#[cfg(not(stage0))]
+impl<T:Copy,U:Copy> Copy for Result<T,U> {}
+

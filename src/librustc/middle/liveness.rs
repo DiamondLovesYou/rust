@@ -137,8 +137,13 @@ enum LoopKind<'a> {
 
 #[deriving(PartialEq)]
 struct Variable(uint);
+
+impl Copy for Variable {}
+
 #[deriving(PartialEq)]
 struct LiveNode(uint);
+
+impl Copy for LiveNode {}
 
 impl Variable {
     fn get(&self) -> uint { let Variable(v) = *self; v }
@@ -161,6 +166,8 @@ enum LiveNodeKind {
     VarDefNode(Span),
     ExitNode
 }
+
+impl Copy for LiveNodeKind {}
 
 fn live_node_kind_to_string(lnk: LiveNodeKind, cx: &ty::ctxt) -> String {
     let cm = cx.sess.codemap();
@@ -246,6 +253,8 @@ struct LocalInfo {
     ident: ast::Ident
 }
 
+impl Copy for LocalInfo {}
+
 #[deriving(Show)]
 enum VarKind {
     Arg(NodeId, ast::Ident),
@@ -253,6 +262,8 @@ enum VarKind {
     ImplicitRet,
     CleanExit
 }
+
+impl Copy for VarKind {}
 
 struct IrMaps<'a, 'tcx: 'a> {
     tcx: &'a ty::ctxt<'tcx>,
@@ -532,6 +543,8 @@ struct Users {
     used: bool
 }
 
+impl Copy for Users {}
+
 fn invalid_users() -> Users {
     Users {
         reader: invalid_node(),
@@ -546,6 +559,8 @@ struct Specials {
     no_ret_var: Variable,
     clean_exit_var: Variable
 }
+
+impl Copy for Specials {}
 
 static ACC_READ: uint = 1u;
 static ACC_WRITE: uint = 2u;
@@ -1065,7 +1080,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
                 // the same bindings, and we also consider the first pattern to be
                 // the "authoritative" set of ids
                 let arm_succ =
-                    self.define_bindings_in_arm_pats(arm.pats.as_slice().head().map(|p| &**p),
+                    self.define_bindings_in_arm_pats(arm.pats.head().map(|p| &**p),
                                                      guard_succ);
                 self.merge_from_succ(ln, arm_succ, first_merge);
                 first_merge = false;
@@ -1431,7 +1446,7 @@ fn check_arm(this: &mut Liveness, arm: &ast::Arm) {
     // only consider the first pattern; any later patterns must have
     // the same bindings, and we also consider the first pattern to be
     // the "authoritative" set of ids
-    this.arm_pats_bindings(arm.pats.as_slice().head().map(|p| &**p), |this, ln, var, sp, id| {
+    this.arm_pats_bindings(arm.pats.head().map(|p| &**p), |this, ln, var, sp, id| {
         this.warn_about_unused(sp, id, ln, var);
     });
     visit::walk_arm(this, arm);

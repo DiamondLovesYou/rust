@@ -26,10 +26,11 @@ use default::Default;
 use iter::{Map, Iterator, IteratorExt, DoubleEndedIterator};
 use iter::{DoubleEndedIteratorExt, ExactSizeIterator};
 use iter::range;
-use kinds::Sized;
+use kinds::{Copy, Sized};
 use mem;
 use num::Int;
-use option::{Option, None, Some};
+use option::Option;
+use option::Option::{None, Some};
 use ptr::RawPtr;
 use raw::{Repr, Slice};
 use slice::{mod, SlicePrelude};
@@ -174,6 +175,8 @@ Section: Iterators
 pub struct Chars<'a> {
     iter: slice::Items<'a, u8>
 }
+
+impl<'a> Copy for Chars<'a> {}
 
 // Return the initial codepoint accumulator for the first byte.
 // The first byte is special, only want bottom 5 bits for width 2, 4 bits
@@ -995,6 +998,8 @@ pub enum Utf16Item {
     LoneSurrogate(u16)
 }
 
+impl Copy for Utf16Item {}
+
 impl Utf16Item {
     /// Convert `self` to a `char`, taking `LoneSurrogate`s to the
     /// replacement character (U+FFFD).
@@ -1138,6 +1143,8 @@ pub struct CharRange {
     pub next: uint,
 }
 
+impl Copy for CharRange {}
+
 /// Mask of the value bits of a continuation byte
 const CONT_MASK: u8 = 0b0011_1111u8;
 /// Value of the tag bits (tag mask is !CONT_MASK) of a continuation byte
@@ -1209,9 +1216,11 @@ Section: Trait implementations
 
 #[allow(missing_docs)]
 pub mod traits {
-    use cmp::{Ord, Ordering, Less, Equal, Greater, PartialEq, PartialOrd, Equiv, Eq};
+    use cmp::{Ordering, Ord, PartialEq, PartialOrd, Equiv, Eq};
+    use cmp::Ordering::{Less, Equal, Greater};
     use iter::IteratorExt;
-    use option::{Option, Some};
+    use option::Option;
+    use option::Option::Some;
     use ops;
     use str::{Str, StrPrelude, eq_slice};
 
@@ -2312,3 +2321,4 @@ impl StrPrelude for str {
 impl<'a> Default for &'a str {
     fn default() -> &'a str { "" }
 }
+

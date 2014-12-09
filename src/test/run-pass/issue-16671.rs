@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-android seems to block forever
+
 #![forbid(warnings)]
 
 // Pretty printing tests complain about `use std::predule::*`
@@ -19,6 +21,6 @@
 pub fn main() {
     let mut stdin = std::io::stdin();
     spawn(proc() {
-        let _ = stdin.lines();
+        let _ = stdin.read_to_end();
     });
 }

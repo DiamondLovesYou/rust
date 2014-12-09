@@ -49,12 +49,13 @@ use boxed::Box;
 use comm::channel;
 use io::{Writer, stdio};
 use kinds::{Send, marker};
-use option::{None, Some, Option};
+use option::Option;
+use option::Option::{None, Some};
 use result::Result;
 use rustrt::local::Local;
 use rustrt::task::Task;
 use rustrt::task;
-use str::{Str, SendStr};
+use str::SendStr;
 use string::{String, ToString};
 use sync::Future;
 
@@ -172,9 +173,10 @@ impl TaskBuilder {
     /// # Return value
     ///
     /// If the child task executes successfully (without panicking) then the
-    /// future returns `result::Ok` containing the value returned by the
-    /// function. If the child task panics then the future returns `result::Err`
-    /// containing the argument to `panic!(...)` as an `Any` trait object.
+    /// future returns `result::Result::Ok` containing the value returned by the
+    /// function. If the child task panics then the future returns
+    /// `result::Result::Err` containing the argument to `panic!(...)` as an
+    /// `Any` trait object.
     #[experimental = "Futures are experimental."]
     pub fn try_future<T:Send>(self, f: proc():Send -> T)
                               -> Future<Result<T, Box<Any + Send>>> {
@@ -242,7 +244,7 @@ pub fn name() -> Option<String> {
 
     let task = Local::borrow(None::<Task>);
     match task.name {
-        Some(ref name) => Some(name.as_slice().to_string()),
+        Some(ref name) => Some(name.to_string()),
         None => None
     }
 }
@@ -268,7 +270,7 @@ mod test {
     use borrow::IntoCow;
     use boxed::BoxAny;
     use prelude::*;
-    use result::{Ok, Err};
+    use result::Result::{Ok, Err};
     use result;
     use std::io::{ChanReader, ChanWriter};
     use string::String;
@@ -287,21 +289,21 @@ mod test {
     #[test]
     fn test_owned_named_task() {
         TaskBuilder::new().named("ada lovelace".to_string()).try(proc() {
-            assert!(name().unwrap() == "ada lovelace".to_string());
+            assert!(name().unwrap() == "ada lovelace");
         }).map_err(|_| ()).unwrap();
     }
 
     #[test]
     fn test_static_named_task() {
         TaskBuilder::new().named("ada lovelace").try(proc() {
-            assert!(name().unwrap() == "ada lovelace".to_string());
+            assert!(name().unwrap() == "ada lovelace");
         }).map_err(|_| ()).unwrap();
     }
 
     #[test]
     fn test_send_named_task() {
         TaskBuilder::new().named("ada lovelace".into_cow()).try(proc() {
-            assert!(name().unwrap() == "ada lovelace".to_string());
+            assert!(name().unwrap() == "ada lovelace");
         }).map_err(|_| ()).unwrap();
     }
 
@@ -330,7 +332,7 @@ mod test {
         match try(proc() {
             "Success!".to_string()
         }).as_ref().map(|s| s.as_slice()) {
-            result::Ok("Success!") => (),
+            result::Result::Ok("Success!") => (),
             _ => panic!()
         }
     }
@@ -340,8 +342,8 @@ mod test {
         match try(proc() {
             panic!()
         }) {
-            result::Err(_) => (),
-            result::Ok(()) => panic!()
+            result::Result::Err(_) => (),
+            result::Result::Ok(()) => panic!()
         }
     }
 
@@ -462,7 +464,7 @@ mod test {
             Err(e) => {
                 type T = String;
                 assert!(e.is::<T>());
-                assert_eq!(*e.downcast::<T>().unwrap(), "owned string".to_string());
+                assert_eq!(*e.downcast::<T>().unwrap(), "owned string");
             }
             Ok(()) => panic!()
         }
@@ -509,7 +511,7 @@ mod test {
         assert!(r.is_ok());
 
         let output = reader.read_to_string().unwrap();
-        assert_eq!(output, "Hello, world!".to_string());
+        assert_eq!(output, "Hello, world!");
     }
 
     // NOTE: the corresponding test for stderr is in run-pass/task-stderr, due

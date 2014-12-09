@@ -188,6 +188,10 @@ pub fn phase_2_configure_and_expand(sess: &Session,
         *sess.features.borrow_mut() = features;
     });
 
+    time(time_passes, "recursion limit", (), |_| {
+        middle::recursion_limit::update_recursion_limit(sess, &krate);
+    });
+
     // strip before expansion to allow macros to depend on
     // configuration variables e.g/ in
     //
@@ -693,7 +697,7 @@ pub fn collect_crate_types(session: &Session,
         if base.len() == 0 {
             base.push(link::default_output_for_target(session));
         }
-        base.as_mut_slice().sort();
+        base.sort();
         base.dedup();
     }
 

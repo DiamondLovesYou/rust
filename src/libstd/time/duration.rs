@@ -13,10 +13,13 @@
 #![experimental]
 
 use {fmt, i64};
+use kinds::Copy;
 use ops::{Add, Sub, Mul, Div, Neg};
-use option::{Option, Some, None};
+use option::Option;
+use option::Option::{Some, None};
 use num::Int;
-use result::{Result, Ok, Err};
+use result::Result;
+use result::Result::{Ok, Err};
 
 /// The number of nanoseconds in a microsecond.
 const NANOS_PER_MICRO: i32 = 1000;
@@ -61,6 +64,8 @@ pub const MAX: Duration = Duration {
     secs: i64::MAX / MILLIS_PER_SEC,
     nanos: (i64::MAX % MILLIS_PER_SEC) as i32 * NANOS_PER_MILLI
 };
+
+impl Copy for Duration {}
 
 impl Duration {
     /// Makes a new `Duration` with given number of weeks.
@@ -387,7 +392,7 @@ fn div_rem_64(this: i64, other: i64) -> (i64, i64) {
 mod tests {
     use super::{Duration, MIN, MAX};
     use {i32, i64};
-    use option::{Some, None};
+    use option::Option::{Some, None};
     use string::ToString;
 
     #[test]
@@ -538,20 +543,20 @@ mod tests {
 
     #[test]
     fn test_duration_fmt() {
-        assert_eq!(Duration::zero().to_string(), "PT0S".to_string());
-        assert_eq!(Duration::days(42).to_string(), "P42D".to_string());
-        assert_eq!(Duration::days(-42).to_string(), "-P42D".to_string());
-        assert_eq!(Duration::seconds(42).to_string(), "PT42S".to_string());
-        assert_eq!(Duration::milliseconds(42).to_string(), "PT0.042S".to_string());
-        assert_eq!(Duration::microseconds(42).to_string(), "PT0.000042S".to_string());
-        assert_eq!(Duration::nanoseconds(42).to_string(), "PT0.000000042S".to_string());
+        assert_eq!(Duration::zero().to_string(), "PT0S");
+        assert_eq!(Duration::days(42).to_string(), "P42D");
+        assert_eq!(Duration::days(-42).to_string(), "-P42D");
+        assert_eq!(Duration::seconds(42).to_string(), "PT42S");
+        assert_eq!(Duration::milliseconds(42).to_string(), "PT0.042S");
+        assert_eq!(Duration::microseconds(42).to_string(), "PT0.000042S");
+        assert_eq!(Duration::nanoseconds(42).to_string(), "PT0.000000042S");
         assert_eq!((Duration::days(7) + Duration::milliseconds(6543)).to_string(),
-                   "P7DT6.543S".to_string());
-        assert_eq!(Duration::seconds(-86401).to_string(), "-P1DT1S".to_string());
-        assert_eq!(Duration::nanoseconds(-1).to_string(), "-PT0.000000001S".to_string());
+                   "P7DT6.543S");
+        assert_eq!(Duration::seconds(-86401).to_string(), "-P1DT1S");
+        assert_eq!(Duration::nanoseconds(-1).to_string(), "-PT0.000000001S");
 
         // the format specifier should have no effect on `Duration`
         assert_eq!(format!("{:30}", Duration::days(1) + Duration::milliseconds(2345)),
-                   "P1DT2.345S".to_string());
+                   "P1DT2.345S");
     }
 }

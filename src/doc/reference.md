@@ -522,7 +522,7 @@ The two values of the boolean type are written `true` and `false`.
 ### Symbols
 
 ```{.ebnf .gram}
-symbol : "::" "->"
+symbol : "::" | "->"
        | '#' | '[' | ']' | '(' | ')' | '{' | '}'
        | ',' | ';' ;
 ```
@@ -994,7 +994,7 @@ An example of `use` declarations:
 
 ```
 use std::iter::range_step;
-use std::option::{Some, None};
+use std::option::Option::{Some, None};
 use std::collections::hash_map::{mod, HashMap};
 
 fn foo<T>(_: T){}
@@ -1004,8 +1004,8 @@ fn main() {
     // Equivalent to 'std::iter::range_step(0u, 10u, 2u);'
     range_step(0u, 10u, 2u);
 
-    // Equivalent to 'foo(vec![std::option::Some(1.0f64),
-    // std::option::None]);'
+    // Equivalent to 'foo(vec![std::option::Option::Some(1.0f64),
+    // std::option::Option::None]);'
     foo(vec![Some(1.0f64), None]);
 
     // Both `hash_map` and `HashMap` are in scope.
@@ -1660,6 +1660,7 @@ Implementations are defined with the keyword `impl`.
 
 ```
 # struct Point {x: f64, y: f64};
+# impl Copy for Point {}
 # type Surface = int;
 # struct BoundingBox {x: f64, y: f64, width: f64, height: f64};
 # trait Shape { fn draw(&self, Surface); fn bounding_box(&self) -> BoundingBox; }
@@ -1668,6 +1669,8 @@ struct Circle {
     radius: f64,
     center: Point,
 }
+
+impl Copy for Circle {}
 
 impl Shape for Circle {
     fn draw(&self, s: Surface) { do_draw_circle(s, *self); }
@@ -1791,6 +1794,7 @@ default visibility with the `priv` keyword. When an item is declared as `pub`,
 it can be thought of as being accessible to the outside world. For example:
 
 ```
+# #![allow(missing_copy_implementations)]
 # fn main() {}
 // Declare a private struct
 struct Foo;

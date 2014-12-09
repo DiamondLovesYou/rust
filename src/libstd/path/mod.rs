@@ -66,7 +66,8 @@ use c_str::CString;
 use clone::Clone;
 use fmt;
 use iter::IteratorExt;
-use option::{Option, None, Some};
+use option::Option;
+use option::Option::{None, Some};
 use str;
 use str::{CowString, MaybeOwned, Str, StrPrelude};
 use string::String;
@@ -941,6 +942,6 @@ mod tests {
 
         let input = r"\foo\bar\baz";
         let path: WindowsPath = WindowsPath::new(input.to_c_str());
-        assert_eq!(path.as_str().unwrap(), input.as_slice());
+        assert_eq!(path.as_str().unwrap(), input);
     }
 }

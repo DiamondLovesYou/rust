@@ -22,7 +22,8 @@ use core::kinds::{Sync, Send};
 use core::mem::{min_align_of, size_of, drop};
 use core::mem;
 use core::ops::{Drop, Deref};
-use core::option::{Some, None, Option};
+use core::option::Option;
+use core::option::Option::{Some, None};
 use core::ptr::RawPtr;
 use core::ptr;
 use heap::deallocate;
@@ -326,7 +327,8 @@ mod tests {
     use std::comm::channel;
     use std::mem::drop;
     use std::ops::Drop;
-    use std::option::{Option, Some, None};
+    use std::option::Option;
+    use std::option::Option::{Some, None};
     use std::str::Str;
     use std::sync::atomic;
     use std::task;
@@ -521,7 +523,7 @@ mod tests {
     #[test]
     fn show_arc() {
         let a = Arc::new(5u32);
-        assert!(format!("{}", a).as_slice() == "5")
+        assert!(format!("{}", a) == "5")
     }
 
     // Make sure deriving works with Arc<T>

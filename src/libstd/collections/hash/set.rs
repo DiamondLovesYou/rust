@@ -19,8 +19,8 @@ use fmt;
 use hash::{Hash, Hasher, RandomSipHasher};
 use iter::{Iterator, IteratorExt, FromIterator, FilterMap, Chain, Repeat, Zip, Extend, repeat};
 use iter;
-use option::{Some, None};
-use result::{Ok, Err};
+use option::Option::{Some, None};
+use result::Result::{Ok, Err};
 
 use super::map::{HashMap, Entries, MoveEntries, INITIAL_CAPACITY};
 
@@ -827,7 +827,7 @@ mod test_set {
         };
 
         let v = hs.into_iter().collect::<Vec<char>>();
-        assert!(['a', 'b'][] == v.as_slice() || ['b', 'a'][] == v.as_slice());
+        assert!(['a', 'b'] == v || ['b', 'a'] == v);
     }
 
     #[test]
@@ -862,7 +862,7 @@ mod test_set {
 
         let set_str = format!("{}", set);
 
-        assert!(set_str == "{1, 2}".to_string() || set_str == "{2, 1}".to_string());
-        assert_eq!(format!("{}", empty), "{}".to_string());
+        assert!(set_str == "{1, 2}" || set_str == "{2, 1}");
+        assert_eq!(format!("{}", empty), "{}");
     }
 }
