@@ -10,7 +10,7 @@ CFG_LIB_NAME_x86_64-unknown-nacl=lib$(1).so
 CFG_STATIC_LIB_NAME_x86_64-unknown-nacl=lib$(1).a
 CFG_LIB_GLOB_x86_64-unknown-nacl=lib$(1)-*.so
 CFG_LIB_DSYM_GLOB_x86_64-unknown-nacl=lib$(1)-*.dylib.dSYM
-CFG_GCCISH_CFLAGS_x86_64-unknown-nacl := -Wall -g -fPIC -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0
+CFG_GCCISH_CFLAGS_x86_64-unknown-nacl := -std=c99 -Wall -g -fPIC -D_YUGA_LITTLE_ENDIAN=1 -D_YUGA_BIG_ENDIAN=0
 CFG_GCCISH_CXXFLAGS_x86_64-unknown-nacl := -fno-rtti
 CFG_GCCISH_LINK_FLAGS_x86_64-unknown-nacl := -static -fPIC -ldl -pthread  -lrt -g
 CFG_GCCISH_DEF_FLAG_x86_64-unknown-nacl := -Wl,--export-dynamic,--dynamic-list=
