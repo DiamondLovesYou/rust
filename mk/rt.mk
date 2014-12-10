@@ -54,7 +54,8 @@ ifneq ($$(CFG_DISABLE_LIBUV_$(1)), 1)
 endif
 NATIVE_DEPS_miniz_$(1) = miniz.c
 NATIVE_DEPS_rust_builtin_$(1) := rust_builtin.c \
-			rust_android_dummy.c
+			rust_android_dummy.c \
+			rust_nacl_pthread_rwlock.c
 NATIVE_DEPS_rustrt_native_$(1) := \
 			rust_try.ll
 

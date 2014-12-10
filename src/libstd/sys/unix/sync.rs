@@ -215,9 +215,15 @@ mod os {
     #[repr(C)]
     pub type pthread_cond_t = libc::c_int;
     #[repr(C)]
-    pub type pthread_rwlock_t = libc::c_int;
+    pub struct pthread_rwlock_t {
+        readers: libc::c_int,
+        writers: libc::c_int,
+    }
 
     pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = 0 as pthread_mutex_t;
     pub const PTHREAD_COND_INITIALIZER: pthread_cond_t = 0 as pthread_cond_t;
-    pub const PTHREAD_RWLOCK_INITIALIZER: pthread_rwlock_t = 0 as pthread_rwlock_t;
+    pub const PTHREAD_RWLOCK_INITIALIZER: pthread_rwlock_t = pthread_rwlock_t {
+        readers: 0,
+        writers: 0,
+    };
 }
