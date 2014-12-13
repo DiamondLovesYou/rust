@@ -11,7 +11,6 @@
 //! This crate implements a double-ended queue with `O(1)` amortized inserts and removals from both
 //! ends of the container. It also has `O(1)` indexing like a vector. The contained elements are
 //! not required to be copyable, and the queue will be sendable if the contained type is sendable.
-//! Its interface `Deque` is defined in `collections`.
 
 use core::prelude::*;
 
@@ -35,7 +34,7 @@ static MINIMUM_CAPACITY: uint = 2u;
 // FIXME(conventions): implement shrink_to_fit. Awkward with the current design, but it should
 // be scrapped anyway. Defer to rewrite?
 
-/// `RingBuf` is a circular buffer that implements `Deque`.
+/// `RingBuf` is a circular buffer.
 pub struct RingBuf<T> {
     // tail and head are pointers into the buffer. Tail always points
     // to the first element that could be read, Head always points
@@ -100,6 +99,21 @@ impl<T> RingBuf<T> {
     /// Returns the index in the underlying buffer for a given logical element index.
     #[inline]
     fn wrap_index(&self, idx: uint) -> uint { wrap_index(idx, self.cap) }
+
+    /// Copies a contiguous block of memory len long from src to dst
+    #[inline]
+    fn copy(&self, dst: uint, src: uint, len: uint) {
+        unsafe {
+            debug_assert!(dst + len <= self.cap, "dst={} src={} len={} cap={}", dst, src, len,
+                          self.cap);
+            debug_assert!(src + len <= self.cap, "dst={} src={} len={} cap={}", dst, src, len,
+                          self.cap);
+            ptr::copy_memory(
+                self.ptr.offset(dst as int),
+                self.ptr.offset(src as int) as *const T,
+                len);
+        }
+    }
 }
 
 impl<T> RingBuf<T> {
@@ -137,7 +151,7 @@ impl<T> RingBuf<T> {
 
     /// Retrieves an element in the `RingBuf` by index.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::collections::RingBuf;
@@ -160,7 +174,7 @@ impl<T> RingBuf<T> {
 
     /// Retrieves an element in the `RingBuf` mutably by index.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::collections::RingBuf;
@@ -194,7 +208,7 @@ impl<T> RingBuf<T> {
     ///
     /// Fails if there is no element with either index.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::collections::RingBuf;
@@ -220,7 +234,7 @@ impl<T> RingBuf<T> {
     /// Returns the number of elements the `RingBuf` can hold without
     /// reallocating.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -243,7 +257,7 @@ impl<T> RingBuf<T> {
     ///
     /// Panics if the new capacity overflows `uint`.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -264,7 +278,7 @@ impl<T> RingBuf<T> {
     ///
     /// Panics if the new capacity overflows `uint`.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -342,7 +356,7 @@ impl<T> RingBuf<T> {
 
     /// Returns a front-to-back iterator.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::collections::RingBuf;
@@ -365,7 +379,7 @@ impl<T> RingBuf<T> {
 
     /// Returns a front-to-back iterator which returns mutable references.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::collections::RingBuf;
@@ -402,7 +416,7 @@ impl<T> RingBuf<T> {
 
     /// Returns the number of elements in the `RingBuf`.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -417,7 +431,7 @@ impl<T> RingBuf<T> {
 
     /// Returns true if the buffer contains no elements
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -432,7 +446,7 @@ impl<T> RingBuf<T> {
 
     /// Clears the buffer, removing all values.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -452,7 +466,7 @@ impl<T> RingBuf<T> {
     /// Provides a reference to the front element, or `None` if the sequence is
     /// empty.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -472,7 +486,7 @@ impl<T> RingBuf<T> {
     /// Provides a mutable reference to the front element, or `None` if the
     /// sequence is empty.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -496,7 +510,7 @@ impl<T> RingBuf<T> {
     /// Provides a reference to the back element, or `None` if the sequence is
     /// empty.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -516,7 +530,7 @@ impl<T> RingBuf<T> {
     /// Provides a mutable reference to the back element, or `None` if the
     /// sequence is empty.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -541,7 +555,7 @@ impl<T> RingBuf<T> {
     /// Removes the first element and returns it, or `None` if the sequence is
     /// empty.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -567,7 +581,7 @@ impl<T> RingBuf<T> {
 
     /// Inserts an element first in the sequence.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::collections::RingBuf;
@@ -597,7 +611,7 @@ impl<T> RingBuf<T> {
 
     /// Appends an element to the back of a buffer
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::collections::RingBuf;
@@ -628,7 +642,7 @@ impl<T> RingBuf<T> {
     /// Removes the last element from a buffer and returns it, or `None` if
     /// it is empty.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::collections::RingBuf;
@@ -647,6 +661,213 @@ impl<T> RingBuf<T> {
             self.head = self.wrap_index(self.head - 1);
             let head = self.head;
             unsafe { Some(self.buffer_read(head)) }
+        }
+    }
+
+    /// Inserts an element at position `i` within the ringbuf. Whichever
+    /// end is closer to the insertion point will be moved to make room,
+    /// and all the affected elements will be moved to new positions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i` is greater than ringbuf's length
+    ///
+    /// # Example
+    /// ```rust
+    /// use std::collections::RingBuf;
+    ///
+    /// let mut buf = RingBuf::new();
+    /// buf.push_back(10i);
+    /// buf.push_back(12);
+    /// buf.insert(1,11);
+    /// assert_eq!(Some(&11), buf.get(1));
+    /// ```
+    pub fn insert(&mut self, i: uint, t: T) {
+        assert!(i <= self.len(), "index out of bounds");
+        if self.is_full() {
+            self.reserve(1);
+            debug_assert!(!self.is_full());
+        }
+
+        // Move the least number of elements in the ring buffer and insert
+        // the given object
+        //
+        // At most len/2 - 1 elements will be moved. O(min(n, n-i))
+        //
+        // There are three main cases:
+        //  Elements are contiguous
+        //      - special case when tail is 0
+        //  Elements are discontiguous and the insert is in the tail section
+        //  Elements are discontiguous and the insert is in the head section
+        //
+        // For each of those there are two more cases:
+        //  Insert is closer to tail
+        //  Insert is closer to head
+        //
+        // Key: H - self.head
+        //      T - self.tail
+        //      o - Valid element
+        //      I - Insertion element
+        //      A - The element that should be after the insertion point
+        //      M - Indicates element was moved
+
+        let idx = self.wrap_index(self.tail + i);
+
+        let distance_to_tail = i;
+        let distance_to_head = self.len() - i;
+
+        let contiguous = self.tail <= self.head;
+
+        match (contiguous, distance_to_tail <= distance_to_head, idx >= self.tail) {
+            (true, true, _) if i == 0 => {
+                // push_front
+                //
+                //       T
+                //       I             H
+                //      [A o o o o o o . . . . . . . . .]
+                //
+                //                       H         T
+                //      [A o o o o o o o . . . . . I]
+                //
+
+                self.tail = self.wrap_index(self.tail - 1);
+            },
+            (true, true, _) => {
+                // contiguous, insert closer to tail:
+                //
+                //             T   I         H
+                //      [. . . o o A o o o o . . . . . .]
+                //
+                //           T               H
+                //      [. . o o I A o o o o . . . . . .]
+                //           M M
+                //
+                // contiguous, insert closer to tail and tail is 0:
+                //
+                //
+                //       T   I         H
+                //      [o o A o o o o . . . . . . . . .]
+                //
+                //                       H             T
+                //      [o I A o o o o o . . . . . . . o]
+                //       M                             M
+
+                let old_tail = self.tail;
+                self.tail = self.wrap_index(self.tail - 1);
+
+                self.copy(self.tail, old_tail, 1);
+                self.copy(old_tail, old_tail + 1, i);
+            },
+            (true, false, _) => {
+                //  contiguous, insert closer to head:
+                //
+                //             T       I     H
+                //      [. . . o o o o A o o . . . . . .]
+                //
+                //             T               H
+                //      [. . . o o o o I A o o . . . . .]
+                //                       M M M
+
+                let old_head = self.head;
+                self.head = self.wrap_index(self.head + 1);
+                self.copy(idx + 1, idx, old_head - idx);
+            },
+            (false, true, true) => {
+                // discontiguous, tail section, insert closer to tail:
+                //
+                //                   H         T   I
+                //      [o o o o o o . . . . . o o A o o]
+                //
+                //                   H       T
+                //      [o o o o o o . . . . o o I A o o]
+                //                           M M
+
+                let old_tail = self.tail;
+                self.tail = self.tail - 1;
+                self.copy(self.tail, old_tail, i);
+            },
+            (false, false, true) => {
+                // discontiguous, tail section, insert closer to head:
+                //
+                //           H             T         I
+                //      [o o . . . . . . . o o o o o A o]
+                //
+                //             H           T
+                //      [o o o . . . . . . o o o o o I A]
+                //       M M M                         M
+
+                let old_head = self.head;
+                self.head = self.head + 1;
+
+                // copy elements up to new head
+                self.copy(1, 0, old_head);
+
+                // copy last element into empty spot at bottom of buffer
+                self.copy(0, self.cap - 1, 1);
+
+                // move elements from idx to end forward not including ^ element
+                self.copy(idx + 1, idx, self.cap - 1 - idx);
+            },
+            (false, true, false) if idx == 0 => {
+                // discontiguous, head section, insert is closer to tail,
+                // and is at index zero in the internal buffer:
+                //
+                //       I                   H     T
+                //      [A o o o o o o o o o . . . o o o]
+                //
+                //                           H   T
+                //      [A o o o o o o o o o . . o o o I]
+                //                               M M M
+
+                let old_tail = self.tail;
+                self.tail = self.tail - 1;
+                // copy elements up to new tail
+                self.copy(old_tail - 1, old_tail, i);
+
+                // copy last element into empty spot at bottom of buffer
+                self.copy(self.cap - 1, 0, 1);
+            },
+            (false, true, false) => {
+                // discontiguous, head section, insert closer to tail:
+                //
+                //             I             H     T
+                //      [o o o A o o o o o o . . . o o o]
+                //
+                //                           H   T
+                //      [o o I A o o o o o o . . o o o o]
+                //       M M                     M M M M
+
+                let old_tail = self.tail;
+                self.tail = self.tail - 1;
+                // copy elements up to new tail
+                self.copy(old_tail - 1, old_tail, i);
+
+                // copy last element into empty spot at bottom of buffer
+                self.copy(self.cap - 1, 0, 1);
+
+                // move elements from idx-1 to end forward not including ^ element
+                self.copy(0, 1, idx - 1);
+            }
+            (false, false, false) => {
+                // discontiguous, head section, insert closer to head:
+                //
+                //               I     H           T
+                //      [o o o o A o o . . . . . . o o o]
+                //
+                //                     H           T
+                //      [o o o o I A o o . . . . . o o o]
+                //                 M M M
+
+                let old_head = self.head;
+                self.head = self.head + 1;
+                self.copy(idx + 1, idx, old_head - idx);
+            }
+        }
+
+        // tail might've been changed so we need to recalculate
+        let new_idx = self.wrap_index(self.tail + i);
+        unsafe {
+            self.buffer_write(new_idx, t);
         }
     }
 }
@@ -879,6 +1100,7 @@ impl<T: fmt::Show> fmt::Show for RingBuf<T> {
 
 #[cfg(test)]
 mod tests {
+    use core::iter;
     use self::Taggy::*;
     use self::Taggypar::*;
     use std::fmt::Show;
@@ -1102,7 +1324,6 @@ mod tests {
             test::black_box(sum);
         })
     }
-
 
     #[deriving(Clone, PartialEq, Show)]
     enum Taggy {
@@ -1666,5 +1887,49 @@ mod tests {
         assert_eq!(ring.get_mut(0), Some(&mut -1));
         assert_eq!(ring.get_mut(1), Some(&mut 2));
         assert_eq!(ring.get_mut(2), None);
+    }
+
+    #[test]
+    fn test_insert() {
+        // This test checks that every single combination of tail position, length, and
+        // insertion position is tested. Capacity 7 should be large enough to cover every case.
+
+        let mut tester = RingBuf::with_capacity(7);
+        // can't guarantee we got 7, so have to get what we got.
+        // 7 would be great, but we will definitely get 2^k - 1, for k >= 3, or else
+        // this test isn't covering what it wants to
+        let cap = tester.capacity();
+
+
+        // len is the length *after* insertion
+        for len in range(1, cap) {
+            // 0, 1, 2, .., len - 1
+            let expected = iter::count(0, 1).take(len).collect();
+            for tail_pos in range(0, cap) {
+                for to_insert in range(0, len) {
+                    tester.tail = tail_pos;
+                    tester.head = tail_pos;
+                    for i in range(0, len) {
+                        if i != to_insert {
+                            tester.push_back(i);
+                        }
+                    }
+                    tester.insert(to_insert, to_insert);
+                    assert_eq!(tester, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_front() {
+        let mut ring = RingBuf::new();
+        ring.push_back(10i);
+        ring.push_back(20i);
+        assert_eq!(ring.front(), Some(&10));
+        ring.pop_front();
+        assert_eq!(ring.front(), Some(&20));
+        ring.pop_front();
+        assert_eq!(ring.front(), None);
     }
 }

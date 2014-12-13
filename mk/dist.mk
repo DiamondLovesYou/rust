@@ -48,7 +48,6 @@ PKG_FILES := \
     $(S)configure $(S)Makefile.in              \
     $(S)man                                    \
     $(addprefix $(S)src/,                      \
-      README.md                                \
       compiletest                              \
       doc                                      \
       driver                                   \
@@ -123,7 +122,8 @@ PKG_EXE = dist/$(PKG_NAME)-$(CFG_BUILD).exe
 $(PKG_EXE): rust.iss modpath.iss upgrade.iss LICENSE.txt rust-logo.ico \
             $(CSREQ3_T_$(CFG_BUILD)_H_$(CFG_BUILD)) \
             dist-prepare-win
-	$(CFG_PYTHON) $(S)src/etc/make-win-dist.py tmp/dist/win $(CFG_BUILD)
+	$(Q)rm -rf tmp/dist/win/gcc
+	$(CFG_PYTHON) $(S)src/etc/make-win-dist.py tmp/dist/win/rust tmp/dist/win/gcc $(CFG_BUILD)
 	@$(call E, ISCC: $@)
 	$(Q)$(CFG_ISCC) $<
 
@@ -131,7 +131,7 @@ $(eval $(call DEF_PREPARE,win))
 
 dist-prepare-win: PREPARE_HOST=$(CFG_BUILD)
 dist-prepare-win: PREPARE_TARGETS=$(CFG_BUILD)
-dist-prepare-win: PREPARE_DEST_DIR=tmp/dist/win
+dist-prepare-win: PREPARE_DEST_DIR=tmp/dist/win/rust
 dist-prepare-win: PREPARE_DIR_CMD=$(DEFAULT_PREPARE_DIR_CMD)
 dist-prepare-win: PREPARE_BIN_CMD=$(DEFAULT_PREPARE_BIN_CMD)
 dist-prepare-win: PREPARE_LIB_CMD=$(DEFAULT_PREPARE_LIB_CMD)

@@ -844,12 +844,12 @@ pub trait FnMut<Args,Result> for Sized? {
 
 /// A version of the call operator that takes a by-value receiver.
 #[lang="fn_once"]
-pub trait FnOnce<Args,Result> for Sized? {
+pub trait FnOnce<Args,Result> {
     /// This is called when the call operator is used.
     extern "rust-call" fn call_once(self, args: Args) -> Result;
 }
 
-impl<F,A,R> FnMut<A,R> for F
+impl<Sized? F,A,R> FnMut<A,R> for F
     where F : Fn<A,R>
 {
     extern "rust-call" fn call_mut(&mut self, args: A) -> R {
@@ -863,54 +863,4 @@ impl<F,A,R> FnOnce<A,R> for F
     extern "rust-call" fn call_once(mut self, args: A) -> R {
         self.call_mut(args)
     }
-}
-
-#[cfg(stage0)]
-mod fn_impls {
-    use super::Fn;
-
-    impl<Result> Fn<(),Result> for extern "Rust" fn() -> Result {
-        #[allow(non_snake_case)]
-        extern "rust-call" fn call(&self, _args: ()) -> Result {
-            (*self)()
-        }
-    }
-
-    impl<Result,A0> Fn<(A0,),Result> for extern "Rust" fn(A0) -> Result {
-        #[allow(non_snake_case)]
-        extern "rust-call" fn call(&self, args: (A0,)) -> Result {
-            let (a0,) = args;
-            (*self)(a0)
-        }
-    }
-
-    macro_rules! def_fn(
-        ($($args:ident)*) => (
-            impl<Result$(,$args)*>
-            Fn<($($args,)*),Result>
-            for extern "Rust" fn($($args: $args,)*) -> Result {
-                #[allow(non_snake_case)]
-                extern "rust-call" fn call(&self, args: ($($args,)*)) -> Result {
-                    let ($($args,)*) = args;
-                    (*self)($($args,)*)
-                }
-            }
-        )
-    )
-
-    def_fn!(A0 A1)
-    def_fn!(A0 A1 A2)
-    def_fn!(A0 A1 A2 A3)
-    def_fn!(A0 A1 A2 A3 A4)
-    def_fn!(A0 A1 A2 A3 A4 A5)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8 A9)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 A10)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 A10 A11)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 A10 A11 A12)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 A10 A11 A12 A13)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 A10 A11 A12 A13 A14)
-    def_fn!(A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 A10 A11 A12 A13 A14 A15)
 }
