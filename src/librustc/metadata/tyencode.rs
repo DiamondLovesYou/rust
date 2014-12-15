@@ -86,7 +86,9 @@ fn enc_mt<'a, 'tcx>(w: &mut SeekableMemWriter, cx: &ctxt<'a, 'tcx>,
     enc_ty(w, cx, mt.ty);
 }
 
-fn enc_opt<T>(w: &mut SeekableMemWriter, t: Option<T>, enc_f: |&mut SeekableMemWriter, T|) {
+fn enc_opt<T, F>(w: &mut SeekableMemWriter, t: Option<T>, enc_f: F) where
+    F: FnOnce(&mut SeekableMemWriter, T),
+{
     match t {
         None => mywrite!(w, "n"),
         Some(v) => {
@@ -96,10 +98,12 @@ fn enc_opt<T>(w: &mut SeekableMemWriter, t: Option<T>, enc_f: |&mut SeekableMemW
     }
 }
 
-fn enc_vec_per_param_space<'a, 'tcx, T>(w: &mut SeekableMemWriter,
-                                        cx: &ctxt<'a, 'tcx>,
-                                        v: &VecPerParamSpace<T>,
-                                        op: |&mut SeekableMemWriter, &ctxt<'a, 'tcx>, &T|) {
+fn enc_vec_per_param_space<'a, 'tcx, T, F>(w: &mut SeekableMemWriter,
+                                           cx: &ctxt<'a, 'tcx>,
+                                           v: &VecPerParamSpace<T>,
+                                           mut op: F) where
+    F: FnMut(&mut SeekableMemWriter, &ctxt<'a, 'tcx>, &T),
+{
     for &space in subst::ParamSpace::all().iter() {
         mywrite!(w, "[");
         for t in v.get_slice(space).iter() {
@@ -309,10 +313,10 @@ fn enc_sty<'a, 'tcx>(w: &mut SeekableMemWriter, cx: &ctxt<'a, 'tcx>,
     }
 }
 
-fn enc_fn_style(w: &mut SeekableMemWriter, p: ast::FnStyle) {
+fn enc_unsafety(w: &mut SeekableMemWriter, p: ast::Unsafety) {
     match p {
-        ast::NormalFn => mywrite!(w, "n"),
-        ast::UnsafeFn => mywrite!(w, "u"),
+        ast::Unsafety::Normal => mywrite!(w, "n"),
+        ast::Unsafety::Unsafe => mywrite!(w, "u"),
     }
 }
 
@@ -331,14 +335,14 @@ fn enc_onceness(w: &mut SeekableMemWriter, o: ast::Onceness) {
 
 pub fn enc_bare_fn_ty<'a, 'tcx>(w: &mut SeekableMemWriter, cx: &ctxt<'a, 'tcx>,
                                 ft: &ty::BareFnTy<'tcx>) {
-    enc_fn_style(w, ft.fn_style);
+    enc_unsafety(w, ft.unsafety);
     enc_abi(w, ft.abi);
     enc_fn_sig(w, cx, &ft.sig);
 }
 
 pub fn enc_closure_ty<'a, 'tcx>(w: &mut SeekableMemWriter, cx: &ctxt<'a, 'tcx>,
                                 ft: &ty::ClosureTy<'tcx>) {
-    enc_fn_style(w, ft.fn_style);
+    enc_unsafety(w, ft.unsafety);
     enc_onceness(w, ft.onceness);
     enc_trait_store(w, cx, ft.store);
     enc_existential_bounds(w, cx, &ft.bounds);
@@ -412,4 +416,31 @@ pub fn enc_type_param_def<'a, 'tcx>(w: &mut SeekableMemWriter, cx: &ctxt<'a, 'tc
     mywrite!(w, "|");
     enc_bounds(w, cx, &v.bounds);
     enc_opt(w, v.default, |w, t| enc_ty(w, cx, t));
+}
+
+pub fn enc_predicate<'a, 'tcx>(w: &mut SeekableMemWriter,
+                               cx: &ctxt<'a, 'tcx>,
+                               p: &ty::Predicate<'tcx>)
+{
+    match *p {
+        ty::Predicate::Trait(ref trait_ref) => {
+            mywrite!(w, "t");
+            enc_trait_ref(w, cx, &**trait_ref);
+        }
+        ty::Predicate::Equate(a, b) => {
+            mywrite!(w, "e");
+            enc_ty(w, cx, a);
+            enc_ty(w, cx, b);
+        }
+        ty::Predicate::RegionOutlives(a, b) => {
+            mywrite!(w, "r");
+            enc_region(w, cx, a);
+            enc_region(w, cx, b);
+        }
+        ty::Predicate::TypeOutlives(a, b) => {
+            mywrite!(w, "o");
+            enc_ty(w, cx, a);
+            enc_region(w, cx, b);
+        }
+    }
 }

@@ -13,6 +13,8 @@
 
 // backtraces aren't supported for nexe's, yet.
 // ignore-nacl
+#![feature(unboxed_closures)]
+
 
 use std::os;
 use std::io::process::Command;
@@ -29,7 +31,7 @@ fn foo() {
 
 #[inline(never)]
 fn double() {
-    (|| {
+    (|&mut:| {
         panic!("once");
     }).finally(|| {
         panic!("twice");

@@ -93,9 +93,11 @@ fn errors(msgs: &[&str]) -> (Box<Emitter+Send>, uint) {
     (box ExpectErrorEmitter { messages: v } as Box<Emitter+Send>, msgs.len())
 }
 
-fn test_env(source_string: &str,
-            (emitter, expected_err_count): (Box<Emitter+Send>, uint),
-            body: |Env|) {
+fn test_env<F>(source_string: &str,
+               (emitter, expected_err_count): (Box<Emitter+Send>, uint),
+               body: F) where
+    F: FnOnce(Env),
+{
     let mut options =
         config::basic_options();
     options.debugging_opts |= config::VERBOSE;
@@ -268,7 +270,7 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
                      -> Ty<'tcx>
     {
         ty::mk_closure(self.infcx.tcx, ty::ClosureTy {
-            fn_style: ast::NormalFn,
+            unsafety: ast::Unsafety::Normal,
             onceness: ast::Many,
             store: ty::RegionTraitStore(region_bound, ast::MutMutable),
             bounds: ty::region_existential_bound(region_bound),

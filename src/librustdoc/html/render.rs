@@ -58,7 +58,7 @@ use rustc::util::nodemap::NodeSet;
 use clean;
 use doctree;
 use fold::DocFolder;
-use html::format::{VisSpace, Method, FnStyleSpace, MutableSpace, Stability};
+use html::format::{VisSpace, Method, UnsafetySpace, MutableSpace, Stability};
 use html::format::{ConciseStability, TyParamBounds, WhereClause};
 use html::highlight;
 use html::item_type::ItemType;
@@ -323,7 +323,7 @@ pub fn run(mut krate: clean::Crate,
       }).unwrap_or(HashMap::new());
     let mut cache = Cache {
         impls: HashMap::new(),
-        external_paths: paths.iter().map(|(&k, v)| (k, v.ref0().clone()))
+        external_paths: paths.iter().map(|(&k, v)| (k, v.0.clone()))
                              .collect(),
         paths: paths,
         implementors: HashMap::new(),
@@ -646,7 +646,9 @@ fn shortty(item: &clean::Item) -> ItemType {
 /// static HTML tree.
 // FIXME (#9639): The closure should deal with &[u8] instead of &str
 // FIXME (#9639): This is too conservative, rejecting non-UTF-8 paths
-fn clean_srcpath(src_root: &Path, src: &[u8], f: |&str|) {
+fn clean_srcpath<F>(src_root: &Path, src: &[u8], mut f: F) where
+    F: FnMut(&str),
+{
     let p = Path::new(src);
 
     // make it relative, if possible
@@ -1051,7 +1053,9 @@ impl<'a> Cache {
 impl Context {
     /// Recurse in the directory structure and change the "root path" to make
     /// sure it always points to the top (relatively)
-    fn recurse<T>(&mut self, s: String, f: |&mut Context| -> T) -> T {
+    fn recurse<T, F>(&mut self, s: String, f: F) -> T where
+        F: FnOnce(&mut Context) -> T,
+    {
         if s.len() == 0 {
             panic!("Unexpected empty destination: {}", self.current);
         }
@@ -1131,8 +1135,9 @@ impl Context {
     /// all sub-items which need to be rendered.
     ///
     /// The rendering driver uses this closure to queue up more work.
-    fn item(&mut self, item: clean::Item,
-            f: |&mut Context, clean::Item|) -> io::IoResult<()> {
+    fn item<F>(&mut self, item: clean::Item, mut f: F) -> io::IoResult<()> where
+        F: FnMut(&mut Context, clean::Item),
+    {
         fn render(w: io::File, cx: &Context, it: &clean::Item,
                   pushname: bool) -> io::IoResult<()> {
             info!("Rendering an item to {}", w.path().display());
@@ -1659,10 +1664,10 @@ fn item_static(w: &mut fmt::Formatter, it: &clean::Item,
 
 fn item_function(w: &mut fmt::Formatter, it: &clean::Item,
                  f: &clean::Function) -> fmt::Result {
-    try!(write!(w, "<pre class='rust fn'>{vis}{fn_style}fn \
+    try!(write!(w, "<pre class='rust fn'>{vis}{unsafety}fn \
                     {name}{generics}{decl}{where_clause}</pre>",
            vis = VisSpace(it.visibility),
-           fn_style = FnStyleSpace(f.fn_style),
+           unsafety = UnsafetySpace(f.unsafety),
            name = it.name.as_ref().unwrap().as_slice(),
            generics = f.generics,
            where_clause = WhereClause(&f.generics),
@@ -1688,8 +1693,9 @@ fn item_trait(w: &mut fmt::Formatter, cx: &Context, it: &clean::Item,
     }
 
     // Output the trait definition
-    try!(write!(w, "<pre class='rust trait'>{}trait {}{}{}{} ",
+    try!(write!(w, "<pre class='rust trait'>{}{}trait {}{}{}{} ",
                   VisSpace(it.visibility),
+                  UnsafetySpace(t.unsafety),
                   it.name.as_ref().unwrap().as_slice(),
                   t.generics,
                   bounds,
@@ -1808,13 +1814,13 @@ fn item_trait(w: &mut fmt::Formatter, cx: &Context, it: &clean::Item,
 }
 
 fn render_method(w: &mut fmt::Formatter, meth: &clean::Item) -> fmt::Result {
-    fn method(w: &mut fmt::Formatter, it: &clean::Item, fn_style: ast::FnStyle,
+    fn method(w: &mut fmt::Formatter, it: &clean::Item, unsafety: ast::Unsafety,
            g: &clean::Generics, selfty: &clean::SelfTy,
            d: &clean::FnDecl) -> fmt::Result {
         write!(w, "{}fn <a href='#{ty}.{name}' class='fnname'>{name}</a>\
                    {generics}{decl}{where_clause}",
-               match fn_style {
-                   ast::UnsafeFn => "unsafe ",
+               match unsafety {
+                   ast::Unsafety::Unsafe => "unsafe ",
                    _ => "",
                },
                ty = shortty(it),
@@ -1836,10 +1842,10 @@ fn render_method(w: &mut fmt::Formatter, meth: &clean::Item) -> fmt::Result {
     }
     match meth.inner {
         clean::TyMethodItem(ref m) => {
-            method(w, meth, m.fn_style, &m.generics, &m.self_, &m.decl)
+            method(w, meth, m.unsafety, &m.generics, &m.self_, &m.decl)
         }
         clean::MethodItem(ref m) => {
-            method(w, meth, m.fn_style, &m.generics, &m.self_, &m.decl)
+            method(w, meth, m.unsafety, &m.generics, &m.self_, &m.decl)
         }
         clean::AssociatedTypeItem(ref typ) => {
             assoc_type(w, meth, typ)

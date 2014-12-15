@@ -19,8 +19,7 @@ pub use self::CalleeData::*;
 pub use self::CallArgs::*;
 
 use arena::TypedArena;
-use back::abi;
-use back::link;
+use back::{abi,link};
 use session;
 use llvm::{ValueRef, get_param};
 use llvm;
@@ -279,7 +278,7 @@ pub fn trans_fn_pointer_shim<'a, 'tcx>(
     // which is the fn pointer, and `args`, which is the arguments tuple.
     let (input_tys, output_ty) =
         match bare_fn_ty.sty {
-            ty::ty_bare_fn(ty::BareFnTy { fn_style: ast::NormalFn,
+            ty::ty_bare_fn(ty::BareFnTy { unsafety: ast::Unsafety::Normal,
                                           abi: synabi::Rust,
                                           sig: ty::FnSig { inputs: ref input_tys,
                                                            output: output_ty,
@@ -295,7 +294,7 @@ pub fn trans_fn_pointer_shim<'a, 'tcx>(
         };
     let tuple_input_ty = ty::mk_tup(tcx, input_tys.to_vec());
     let tuple_fn_ty = ty::mk_bare_fn(tcx,
-                                     ty::BareFnTy { fn_style: ast::NormalFn,
+                                     ty::BareFnTy { unsafety: ast::Unsafety::Normal,
                                                     abi: synabi::RustCall,
                                                     sig: ty::FnSig {
                                                         inputs: vec![bare_fn_ty_ref,
@@ -353,153 +352,6 @@ pub fn trans_fn_pointer_shim<'a, 'tcx>(
     finish_fn(&fcx, bcx, output_ty);
 
     ccx.fn_pointer_shims().borrow_mut().insert(bare_fn_ty, llfn);
-
-    llfn
-}
-
-/// Translates the adapter that deconstructs a `Box<Trait>` object into
-/// `Trait` so that a by-value self method can be called.
-pub fn trans_unboxing_shim<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
-                                       llshimmedfn: ValueRef,
-                                       fty: &ty::BareFnTy<'tcx>,
-                                       method_id: ast::DefId,
-                                       substs: &subst::Substs<'tcx>)
-                                       -> ValueRef {
-    let _icx = push_ctxt("trans_unboxing_shim");
-    let ccx = bcx.ccx();
-    let tcx = bcx.tcx();
-
-    let fty = fty.subst(tcx, substs);
-
-    // Transform the self type to `Box<self_type>`.
-    let self_type = fty.sig.inputs[0];
-    let boxed_self_type = ty::mk_uniq(tcx, self_type);
-    let boxed_function_type = ty::FnSig {
-        inputs: fty.sig.inputs.iter().enumerate().map(|(i, typ)| {
-            if i == 0 {
-                boxed_self_type
-            } else {
-                *typ
-            }
-        }).collect(),
-        output: fty.sig.output,
-        variadic: false,
-    };
-    let boxed_function_type = ty::BareFnTy {
-        fn_style: fty.fn_style,
-        abi: fty.abi,
-        sig: boxed_function_type,
-    };
-    let boxed_function_type = ty::mk_bare_fn(tcx, boxed_function_type);
-    let function_type = match fty.abi {
-        synabi::RustCall => {
-            // We're passing through to a RustCall ABI function, but
-            // because the shim will already perform untupling, we
-            // need to pretend the shimmed function does not use
-            // RustCall so the untupled arguments can be passed
-            // through verbatim.  This is kind of ugly.
-            let fake_ty = ty::FnSig {
-                inputs: type_of::untuple_arguments_if_necessary(ccx,
-                                                                fty.sig.inputs.as_slice(),
-                                                                fty.abi),
-                output: fty.sig.output,
-                variadic: false,
-            };
-            let fake_ty = ty::BareFnTy {
-                fn_style: fty.fn_style,
-                abi: synabi::Rust,
-                sig: fake_ty,
-            };
-            ty::mk_bare_fn(tcx, fake_ty)
-        }
-        _ => {
-            ty::mk_bare_fn(tcx, fty)
-        }
-    };
-
-    let function_name = ty::with_path(tcx, method_id, |path| {
-        link::mangle_internal_name_by_path_and_seq(path, "unboxing_shim")
-    });
-    let llfn = decl_internal_rust_fn(ccx,
-                                     boxed_function_type,
-                                     function_name.as_slice());
-
-    let block_arena = TypedArena::new();
-    let empty_param_substs = Substs::trans_empty();
-    let return_type = ty::ty_fn_ret(boxed_function_type);
-    let fcx = new_fn_ctxt(ccx,
-                          llfn,
-                          ast::DUMMY_NODE_ID,
-                          false,
-                          return_type,
-                          &empty_param_substs,
-                          None,
-                          &block_arena);
-    let mut bcx = init_function(&fcx, false, return_type);
-
-    // Create the substituted versions of the self type.
-    let arg_scope = fcx.push_custom_cleanup_scope();
-    let arg_scope_id = cleanup::CustomScope(arg_scope);
-    let boxed_self_type = ty::ty_fn_args(boxed_function_type)[0];
-    let arg_types = ty::ty_fn_args(function_type);
-    let self_type = arg_types[0];
-    let boxed_self_kind = arg_kind(&fcx, boxed_self_type);
-
-    // Create a datum for self.
-    let llboxedself = get_param(fcx.llfn, fcx.arg_pos(0) as u32);
-    let llboxedself = Datum::new(llboxedself,
-                                 boxed_self_type,
-                                 boxed_self_kind);
-    let boxed_self =
-        unpack_datum!(bcx,
-                      llboxedself.to_lvalue_datum_in_scope(bcx,
-                                                           "boxedself",
-                                                           arg_scope_id));
-
-    // This `Load` is needed because lvalue data are always by-ref.
-    let llboxedself = Load(bcx, boxed_self.val);
-
-    let llself = if type_is_immediate(ccx, self_type) {
-        let llboxedself = Load(bcx, llboxedself);
-        immediate_rvalue(llboxedself, self_type)
-    } else {
-        let llself = rvalue_scratch_datum(bcx, self_type, "self");
-        memcpy_ty(bcx, llself.val, llboxedself, self_type);
-        llself
-    };
-
-    // Make sure we don't free the box twice!
-    boxed_self.kind.post_store(bcx, boxed_self.val, boxed_self_type);
-
-    // Schedule a cleanup to free the box.
-    fcx.schedule_free_value(arg_scope_id,
-                            llboxedself,
-                            cleanup::HeapExchange,
-                            self_type);
-
-    // Now call the function.
-    let mut llshimmedargs = vec!(llself.val);
-    for i in range(1, arg_types.len()) {
-        llshimmedargs.push(get_param(fcx.llfn, fcx.arg_pos(i) as u32));
-    }
-    assert!(!fcx.needs_ret_allocas);
-    let dest = fcx.llretslotptr.get().map(|_|
-        expr::SaveIn(fcx.get_ret_slot(bcx, return_type, "ret_slot"))
-    );
-    bcx = trans_call_inner(bcx,
-                           None,
-                           function_type,
-                           |bcx, _| {
-                               Callee {
-                                   bcx: bcx,
-                                   data: Fn(llshimmedfn),
-                               }
-                           },
-                           ArgVals(llshimmedargs.as_slice()),
-                           dest).bcx;
-
-    bcx = fcx.pop_and_trans_custom_cleanup_scope(bcx, arg_scope);
-    finish_fn(&fcx, bcx, return_type);
 
     llfn
 }
@@ -781,15 +633,15 @@ pub fn trans_lang_call<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 ///
 /// For non-lang items, `dest` is always Some, and hence the result is written into memory
 /// somewhere. Nonetheless we return the actual return value of the function.
-pub fn trans_call_inner<'a, 'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
-                                        call_info: Option<NodeInfo>,
-                                        callee_ty: Ty<'tcx>,
-                                        get_callee: |bcx: Block<'blk, 'tcx>,
-                                                     arg_cleanup_scope: cleanup::ScopeId|
-                                                     -> Callee<'blk, 'tcx>,
-                                        args: CallArgs<'a, 'tcx>,
-                                        dest: Option<expr::Dest>)
-                                        -> Result<'blk, 'tcx> {
+pub fn trans_call_inner<'a, 'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
+                                           call_info: Option<NodeInfo>,
+                                           callee_ty: Ty<'tcx>,
+                                           get_callee: F,
+                                           args: CallArgs<'a, 'tcx>,
+                                           dest: Option<expr::Dest>)
+                                           -> Result<'blk, 'tcx> where
+    F: FnOnce(Block<'blk, 'tcx>, cleanup::ScopeId) -> Callee<'blk, 'tcx>,
+{
     // Introduce a temporary cleanup scope that will contain cleanups
     // for the arguments while they are being evaluated. The purpose
     // this cleanup is to ensure that, should a panic occur while

@@ -8,13 +8,22 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn is_static<T: 'static>() {}
+// Test that parentheses form doesn't work in expression paths.
 
-fn foo<'a>() {
-    is_static::<proc():'a>();
-    //~^ ERROR does not fulfill the required lifetime
+struct Bar<A,R> {
+    f: A, r: R
+}
 
-    is_static::<proc():'static>();
+impl<A,B> Bar<A,B> {
+    fn new() -> Bar<A,B> { panic!() }
+}
+
+fn bar() {
+    let b = Box::Bar::<int,uint>::new(); // OK
+
+    let b = Box::Bar::()::new();
+    //~^ ERROR expected ident, found `(`
 }
 
 fn main() { }
+

@@ -10,7 +10,7 @@
 
 //! Utilities for program-wide and customizable logging
 //!
-//! ## Example
+//! # Examples
 //!
 //! ```
 //! #![feature(phase)]
@@ -64,8 +64,7 @@
 //! INFO:main: the answer was: 12
 //! ```
 //!
-//!
-//! ## Logging Macros
+//! # Logging Macros
 //!
 //! There are five macros that the logging subsystem uses:
 //!
@@ -86,7 +85,7 @@
 //!
 //! * `log_enabled!(level)` - returns true if logging of the given level is enabled
 //!
-//! ## Enabling logging
+//! # Enabling logging
 //!
 //! Log levels are controlled on a per-module basis, and by default all logging is
 //! disabled except for `error!` (a log level of 1). Logging is controlled via the
@@ -123,7 +122,7 @@
 //! * `hello,std::option` turns on hello, and std's option logging
 //! * `error,hello=warn` turn on global error logging and also warn for hello
 //!
-//! ## Filtering results
+//! # Filtering results
 //!
 //! A RUST_LOG directive may include a regex filter. The syntax is to append `/`
 //! followed by a regex. Each message is checked against the regex, and is only
@@ -143,7 +142,7 @@
 //!  hello. In both cases the log message must include a single digit number
 //!  followed by 'scopes'
 //!
-//! ## Performance and Side Effects
+//! # Performance and Side Effects
 //!
 //! Each of these macros will expand to code similar to:
 //!
@@ -165,7 +164,7 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
-#![feature(macro_rules)]
+#![feature(macro_rules, unboxed_closures)]
 #![deny(missing_docs)]
 
 extern crate regex;
@@ -422,7 +421,7 @@ fn init() {
         DIRECTIVES = mem::transmute(box directives);
 
         // Schedule the cleanup for the globals for when the runtime exits.
-        rt::at_exit(proc() {
+        rt::at_exit(move |:| {
             assert!(!DIRECTIVES.is_null());
             let _directives: Box<Vec<directive::LogDirective>> =
                 mem::transmute(DIRECTIVES);

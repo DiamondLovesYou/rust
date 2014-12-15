@@ -129,7 +129,10 @@ pub enum TypeOrigin {
     IfExpression(Span),
 
     // Computing common supertype of an if expression with no else counter-part
-    IfExpressionWithNoElse(Span)
+    IfExpressionWithNoElse(Span),
+
+    // `where a == b`
+    EquatePredicate(Span),
 }
 
 impl Copy for TypeOrigin {}
@@ -172,19 +175,12 @@ pub enum SubregionOrigin<'tcx> {
     // Closure bound must not outlive captured free variables
     FreeVariable(Span, ast::NodeId),
 
-    // Proc upvars must be 'static
-    ProcCapture(Span, ast::NodeId),
-
     // Index into slice must be within its lifetime
     IndexSlice(Span),
 
     // When casting `&'a T` to an `&'b Trait` object,
     // relating `'a` to `'b`
     RelateObjectBound(Span),
-
-    // When closing over a variable in a closure/proc, ensure that the
-    // type of the variable outlives the lifetime bound.
-    RelateProcBound(Span, ast::NodeId, Ty<'tcx>),
 
     // Some type parameter was instantiated with the given type,
     // and that type must outlive some region.
@@ -474,14 +470,17 @@ pub fn resolve_region(cx: &InferCtxt, r: ty::Region, modes: uint)
 }
 
 trait then<'tcx> {
-    fn then<T:Clone>(&self, f: || -> Result<T,ty::type_err<'tcx>>)
-        -> Result<T,ty::type_err<'tcx>>;
+    fn then<T, F>(&self, f: F) -> Result<T, ty::type_err<'tcx>> where
+        T: Clone,
+        F: FnOnce() -> Result<T, ty::type_err<'tcx>>;
 }
 
 impl<'tcx> then<'tcx> for ures<'tcx> {
-    fn then<T:Clone>(&self, f: || -> Result<T,ty::type_err<'tcx>>)
-        -> Result<T,ty::type_err<'tcx>> {
-        self.and_then(|_i| f())
+    fn then<T, F>(&self, f: F) -> Result<T, ty::type_err<'tcx>> where
+        T: Clone,
+        F: FnOnce() -> Result<T, ty::type_err<'tcx>>,
+    {
+        self.and_then(move |_| f())
     }
 }
 
@@ -499,12 +498,15 @@ impl<'tcx, T> ToUres<'tcx> for cres<'tcx, T> {
 }
 
 trait CresCompare<'tcx, T> {
-    fn compare(&self, t: T, f: || -> ty::type_err<'tcx>) -> cres<'tcx, T>;
+    fn compare<F>(&self, t: T, f: F) -> cres<'tcx, T> where
+        F: FnOnce() -> ty::type_err<'tcx>;
 }
 
 impl<'tcx, T:Clone + PartialEq> CresCompare<'tcx, T> for cres<'tcx, T> {
-    fn compare(&self, t: T, f: || -> ty::type_err<'tcx>) -> cres<'tcx, T> {
-        (*self).clone().and_then(|s| {
+    fn compare<F>(&self, t: T, f: F) -> cres<'tcx, T> where
+        F: FnOnce() -> ty::type_err<'tcx>,
+    {
+        (*self).clone().and_then(move |s| {
             if s == t {
                 (*self).clone()
             } else {
@@ -613,7 +615,9 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
     }
 
     /// Execute `f` and commit the bindings
-    pub fn commit_unconditionally<R>(&self, f: || -> R) -> R {
+    pub fn commit_unconditionally<R, F>(&self, f: F) -> R where
+        F: FnOnce() -> R,
+    {
         debug!("commit()");
         let snapshot = self.start_snapshot();
         let r = f();
@@ -622,12 +626,16 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
     }
 
     /// Execute `f` and commit the bindings if successful
-    pub fn commit_if_ok<T,E>(&self, f: || -> Result<T,E>) -> Result<T,E> {
-        self.commit_unconditionally(|| self.try(|| f()))
+    pub fn commit_if_ok<T, E, F>(&self, f: F) -> Result<T, E> where
+        F: FnOnce() -> Result<T, E>
+    {
+        self.commit_unconditionally(move || self.try(move || f()))
     }
 
     /// Execute `f`, unroll bindings on panic
-    pub fn try<T,E>(&self, f: || -> Result<T,E>) -> Result<T,E> {
+    pub fn try<T, E, F>(&self, f: F) -> Result<T, E> where
+        F: FnOnce() -> Result<T, E>
+    {
         debug!("try()");
         let snapshot = self.start_snapshot();
         let r = f();
@@ -644,7 +652,9 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
     }
 
     /// Execute `f` then unroll any bindings it creates
-    pub fn probe<R>(&self, f: || -> R) -> R {
+    pub fn probe<R, F>(&self, f: F) -> R where
+        F: FnOnce() -> R,
+    {
         debug!("probe()");
         let snapshot = self.start_snapshot();
         let r = f();
@@ -899,22 +909,24 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
     // in this case. The typechecker should only ever report type errors involving mismatched
     // types using one of these four methods, and should not call span_err directly for such
     // errors.
-    pub fn type_error_message_str(&self,
-                                  sp: Span,
-                                  mk_msg: |Option<String>, String| -> String,
-                                  actual_ty: String,
-                                  err: Option<&ty::type_err<'tcx>>) {
+    pub fn type_error_message_str<M>(&self,
+                                     sp: Span,
+                                     mk_msg: M,
+                                     actual_ty: String,
+                                     err: Option<&ty::type_err<'tcx>>) where
+        M: FnOnce(Option<String>, String) -> String,
+    {
         self.type_error_message_str_with_expected(sp, mk_msg, None, actual_ty, err)
     }
 
-    pub fn type_error_message_str_with_expected(&self,
-                                                sp: Span,
-                                                mk_msg: |Option<String>,
-                                                         String|
-                                                         -> String,
-                                                expected_ty: Option<Ty<'tcx>>,
-                                                actual_ty: String,
-                                                err: Option<&ty::type_err<'tcx>>) {
+    pub fn type_error_message_str_with_expected<M>(&self,
+                                                   sp: Span,
+                                                   mk_msg: M,
+                                                   expected_ty: Option<Ty<'tcx>>,
+                                                   actual_ty: String,
+                                                   err: Option<&ty::type_err<'tcx>>) where
+        M: FnOnce(Option<String>, String) -> String,
+    {
         debug!("hi! expected_ty = {}, actual_ty = {}", expected_ty, actual_ty);
 
         let resolved_expected = expected_ty.map(|e_ty| {
@@ -939,11 +951,13 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
         }
     }
 
-    pub fn type_error_message(&self,
-                              sp: Span,
-                              mk_msg: |String| -> String,
-                              actual_ty: Ty<'tcx>,
-                              err: Option<&ty::type_err<'tcx>>) {
+    pub fn type_error_message<M>(&self,
+                                 sp: Span,
+                                 mk_msg: M,
+                                 actual_ty: Ty<'tcx>,
+                                 err: Option<&ty::type_err<'tcx>>) where
+        M: FnOnce(String) -> String,
+    {
         let actual_ty = self.resolve_type_vars_if_possible(actual_ty);
 
         // Don't report an error if actual type is ty_err.
@@ -951,7 +965,9 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
             return;
         }
 
-        self.type_error_message_str(sp, |_e, a| { mk_msg(a) }, self.ty_to_string(actual_ty), err);
+        self.type_error_message_str(sp,
+            move |_e, a| { mk_msg(a) },
+            self.ty_to_string(actual_ty), err);
     }
 
     pub fn report_mismatched_types(&self,
@@ -1017,7 +1033,8 @@ impl TypeOrigin {
             RelateOutputImplTypes(span) => span,
             MatchExpressionArm(match_span, _) => match_span,
             IfExpression(span) => span,
-            IfExpressionWithNoElse(span) => span
+            IfExpressionWithNoElse(span) => span,
+            EquatePredicate(span) => span,
         }
     }
 }
@@ -1050,6 +1067,9 @@ impl<'tcx> Repr<'tcx> for TypeOrigin {
             IfExpressionWithNoElse(a) => {
                 format!("IfExpressionWithNoElse({})", a.repr(tcx))
             }
+            EquatePredicate(a) => {
+                format!("EquatePredicate({})", a.repr(tcx))
+            }
         }
     }
 }
@@ -1062,10 +1082,8 @@ impl<'tcx> SubregionOrigin<'tcx> {
             InvokeClosure(a) => a,
             DerefPointer(a) => a,
             FreeVariable(a, _) => a,
-            ProcCapture(a, _) => a,
             IndexSlice(a) => a,
             RelateObjectBound(a) => a,
-            RelateProcBound(a, _, _) => a,
             RelateParamBound(a, _) => a,
             RelateRegionParamBound(a) => a,
             RelateDefaultParamBound(a, _) => a,
@@ -1101,20 +1119,11 @@ impl<'tcx> Repr<'tcx> for SubregionOrigin<'tcx> {
             FreeVariable(a, b) => {
                 format!("FreeVariable({}, {})", a.repr(tcx), b)
             }
-            ProcCapture(a, b) => {
-                format!("ProcCapture({}, {})", a.repr(tcx), b)
-            }
             IndexSlice(a) => {
                 format!("IndexSlice({})", a.repr(tcx))
             }
             RelateObjectBound(a) => {
                 format!("RelateObjectBound({})", a.repr(tcx))
-            }
-            RelateProcBound(a, b, c) => {
-                format!("RelateProcBound({},{},{})",
-                        a.repr(tcx),
-                        b,
-                        c.repr(tcx))
             }
             RelateParamBound(a, b) => {
                 format!("RelateParamBound({},{})",

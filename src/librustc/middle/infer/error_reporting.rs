@@ -157,7 +157,7 @@ trait ErrorReportingHelpers<'tcx> {
 
     fn give_expl_lifetime_param(&self,
                                 decl: &ast::FnDecl,
-                                fn_style: ast::FnStyle,
+                                unsafety: ast::Unsafety,
                                 ident: ast::Ident,
                                 opt_explicit_self: Option<&ast::ExplicitSelf_>,
                                 generics: &ast::Generics,
@@ -366,6 +366,7 @@ impl<'a, 'tcx> ErrorReporting<'tcx> for InferCtxt<'a, 'tcx> {
             infer::MatchExpressionArm(_, _) => "match arms have incompatible types",
             infer::IfExpression(_) => "if and else have incompatible types",
             infer::IfExpressionWithNoElse(_) => "if may be missing an else clause",
+            infer::EquatePredicate(_) => "equality predicate not satisfied",
         };
 
         self.tcx.sess.span_err(
@@ -586,19 +587,6 @@ impl<'a, 'tcx> ErrorReporting<'tcx> for InferCtxt<'a, 'tcx> {
                     sub,
                     "");
             }
-            infer::ProcCapture(span, id) => {
-                self.tcx.sess.span_err(
-                    span,
-                    format!("captured variable `{}` must be 'static \
-                             to be captured in a proc",
-                            ty::local_var_name_str(self.tcx, id).get())
-                        .as_slice());
-                note_and_explain_region(
-                    self.tcx,
-                    "captured variable is only valid for ",
-                    sup,
-                    "");
-            }
             infer::IndexSlice(span) => {
                 self.tcx.sess.span_err(span,
                                        "index of slice outside its lifetime");
@@ -621,28 +609,6 @@ impl<'a, 'tcx> ErrorReporting<'tcx> for InferCtxt<'a, 'tcx> {
                 note_and_explain_region(
                     self.tcx,
                     "source pointer is only valid for ",
-                    sup,
-                    "");
-            }
-            infer::RelateProcBound(span, var_node_id, ty) => {
-                self.tcx.sess.span_err(
-                    span,
-                    format!(
-                        "the type `{}` of captured variable `{}` \
-                         outlives the `proc()` it \
-                         is captured in",
-                        self.ty_to_string(ty),
-                        ty::local_var_name_str(self.tcx,
-                                               var_node_id)).as_slice());
-                note_and_explain_region(
-                    self.tcx,
-                    "`proc()` is valid for ",
-                    sub,
-                    "");
-                note_and_explain_region(
-                    self.tcx,
-                    format!("the type `{}` is only valid for ",
-                            self.ty_to_string(ty)).as_slice(),
                     sup,
                     "");
             }
@@ -862,7 +828,7 @@ impl<'a, 'tcx> ErrorReporting<'tcx> for InferCtxt<'a, 'tcx> {
                         ast::MethodImplItem(ref m) => {
                             Some((m.pe_fn_decl(),
                                   m.pe_generics(),
-                                  m.pe_fn_style(),
+                                  m.pe_unsafety(),
                                   m.pe_ident(),
                                   Some(&m.pe_explicit_self().node),
                                   m.span))
@@ -875,7 +841,7 @@ impl<'a, 'tcx> ErrorReporting<'tcx> for InferCtxt<'a, 'tcx> {
                         ast::ProvidedMethod(ref m) => {
                             Some((m.pe_fn_decl(),
                                   m.pe_generics(),
-                                  m.pe_fn_style(),
+                                  m.pe_unsafety(),
                                   m.pe_ident(),
                                   Some(&m.pe_explicit_self().node),
                                   m.span))
@@ -887,14 +853,14 @@ impl<'a, 'tcx> ErrorReporting<'tcx> for InferCtxt<'a, 'tcx> {
             },
             None => None
         };
-        let (fn_decl, generics, fn_style, ident, expl_self, span)
+        let (fn_decl, generics, unsafety, ident, expl_self, span)
                                     = node_inner.expect("expect item fn");
         let taken = lifetimes_in_scope(self.tcx, scope_id);
         let life_giver = LifeGiver::with_taken(taken.as_slice());
         let rebuilder = Rebuilder::new(self.tcx, fn_decl, expl_self,
                                        generics, same_regions, &life_giver);
         let (fn_decl, expl_self, generics) = rebuilder.rebuild();
-        self.give_expl_lifetime_param(&fn_decl, fn_style, ident,
+        self.give_expl_lifetime_param(&fn_decl, unsafety, ident,
                                       expl_self.as_ref(), &generics, span);
     }
 }
@@ -1441,12 +1407,12 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
 impl<'a, 'tcx> ErrorReportingHelpers<'tcx> for InferCtxt<'a, 'tcx> {
     fn give_expl_lifetime_param(&self,
                                 decl: &ast::FnDecl,
-                                fn_style: ast::FnStyle,
+                                unsafety: ast::Unsafety,
                                 ident: ast::Ident,
                                 opt_explicit_self: Option<&ast::ExplicitSelf_>,
                                 generics: &ast::Generics,
                                 span: codemap::Span) {
-        let suggested_fn = pprust::fun_to_string(decl, fn_style, ident,
+        let suggested_fn = pprust::fun_to_string(decl, unsafety, ident,
                                               opt_explicit_self, generics);
         let msg = format!("consider using an explicit lifetime \
                            parameter as shown: {}", suggested_fn);
@@ -1523,6 +1489,9 @@ impl<'a, 'tcx> ErrorReportingHelpers<'tcx> for InferCtxt<'a, 'tcx> {
                     infer::IfExpressionWithNoElse(_) => {
                         format!("if may be missing an else clause")
                     }
+                    infer::EquatePredicate(_) => {
+                        format!("equality where clause is satisfied")
+                    }
                 };
 
                 match self.values_str(&trace.values) {
@@ -1583,15 +1552,6 @@ impl<'a, 'tcx> ErrorReportingHelpers<'tcx> for InferCtxt<'a, 'tcx> {
                                 self.tcx,
                                 id).get().to_string()).as_slice());
             }
-            infer::ProcCapture(span, id) => {
-                self.tcx.sess.span_note(
-                    span,
-                    format!("...so that captured variable `{}` \
-                            is 'static",
-                            ty::local_var_name_str(
-                                self.tcx,
-                                id).get()).as_slice());
-            }
             infer::IndexSlice(span) => {
                 self.tcx.sess.span_note(
                     span,
@@ -1601,15 +1561,6 @@ impl<'a, 'tcx> ErrorReportingHelpers<'tcx> for InferCtxt<'a, 'tcx> {
                 self.tcx.sess.span_note(
                     span,
                     "...so that it can be closed over into an object");
-            }
-            infer::RelateProcBound(span, var_node_id, _ty) => {
-                self.tcx.sess.span_note(
-                    span,
-                    format!(
-                        "...so that the variable `{}` can be captured \
-                         into a proc",
-                        ty::local_var_name_str(self.tcx,
-                                               var_node_id)).as_slice());
             }
             infer::CallRcvr(span) => {
                 self.tcx.sess.span_note(
@@ -1739,7 +1690,7 @@ fn lifetimes_in_scope(tcx: &ty::ctxt,
         match tcx.map.find(parent) {
             Some(node) => match node {
                 ast_map::NodeItem(item) => match item.node {
-                    ast::ItemImpl(ref gen, _, _, _) => {
+                    ast::ItemImpl(_, ref gen, _, _, _) => {
                         taken.push_all(gen.lifetimes.as_slice());
                     }
                     _ => ()

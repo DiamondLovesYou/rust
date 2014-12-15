@@ -187,19 +187,18 @@ grammar as double-quoted strings. Other tokens have exact rules given.
 
 <p id="keyword-table-marker"></p>
 
-|          |          |          |          |        |
-|----------|----------|----------|----------|--------|
-| abstract | alignof  | as       | be       | box    |
-| break    | const    | continue | crate    | do     |
-| else     | enum     | extern   | false    | final  |
-| fn       | for      | if       | impl     | in     |
-| let      | loop     | match    | mod      | move   |
-| mut      | offsetof | once     | override | priv   |
-| proc     | pub      | pure     | ref      | return |
-| sizeof   | static   | self     | struct   | super  |
-| true     | trait    | type     | typeof   | unsafe |
-| unsized  | use      | virtual  | where    | while  |
-| yield    |          |          |          |        |
+|          |          |          |          |         |
+|----------|----------|----------|----------|---------|
+| abstract | alignof  | as       | be       | box     |
+| break    | const    | continue | crate    | do      |
+| else     | enum     | extern   | false    | final   |
+| fn       | for      | if       | impl     | in      |
+| let      | loop     | match    | mod      | move    |
+| mut      | offsetof | once     | override | priv    |
+| pub      | pure     | ref      | return   | sizeof  |
+| static   | self     | struct   | super    | true    |
+| trait    | type     | typeof   | unsafe   | unsized |
+| use      | virtual  | where    | while    | yield   |
 
 
 Each of these keywords has special meaning in its grammar, and all of them are
@@ -1318,10 +1317,10 @@ let fptr: extern "C" fn() -> int = new_int;
 Extern functions may be called directly from Rust code as Rust uses large,
 contiguous stack segments like C.
 
-### Type definitions
+### Type aliases
 
-A _type definition_ defines a new name for an existing [type](#types). Type
-definitions are declared with the keyword `type`. Every value has a single,
+A _type alias_ defines a new name for an existing [type](#types). Type
+aliases are declared with the keyword `type`. Every value has a single,
 specific type; the type-specified aspects of a value include:
 
 * Whether the value is composed of sub-values or is indivisible.
@@ -2549,10 +2548,6 @@ The currently implemented features of the reference compiler are:
 * `default_type_params` - Allows use of default type parameters. The future of
                           this feature is uncertain.
 
-* `if_let` - Allows use of the `if let` syntax.
-
-* `while_let` - Allows use of the `while let` syntax.
-
 * `intrinsics` - Allows use of the "rust-intrinsics" ABI. Compiler intrinsics
                  are inherently unstable and no promise about them is made.
 
@@ -2638,8 +2633,6 @@ The currently implemented features of the reference compiler are:
 * `unsafe_destructor` - Allows use of the `#[unsafe_destructor]` attribute,
                         which is considered wildly unsafe and will be
                         obsoleted by language improvements.
-
-* `tuple_indexing` - Allows use of tuple indexing (expressions like `expr.0`)
 
 * `associated_types` - Allows type aliases in traits. Experimental.
 
@@ -3145,8 +3138,8 @@ as
 ```
 
 Operators at the same precedence level are evaluated left-to-right. [Unary
-operators](#unary-operator-expressions) have the same precedence level and it
-is stronger than any of the binary operators'.
+operators](#unary-operator-expressions) have the same precedence level and are
+stronger than any of the binary operators.
 
 ### Grouped expressions
 
@@ -3842,8 +3835,6 @@ x = bo(5,7);
 ```{.ebnf .notation}
 closure_type := [ 'unsafe' ] [ '<' lifetime-list '>' ] '|' arg-list '|'
                 [ ':' bound-list ] [ '->' type ]
-procedure_type := 'proc' [ '<' lifetime-list '>' ] '(' arg-list ')'
-                  [ ':' bound-list ] [ '->' type ]
 lifetime-list := lifetime | lifetime ',' lifetime-list
 arg-list := ident ':' type | ident ':' type ',' arg-list
 bound-list := bound | bound '+' bound-list
@@ -3852,8 +3843,6 @@ bound := path | lifetime
 
 The type of a closure mapping an input of type `A` to an output of type `B` is
 `|A| -> B`. A closure with no arguments or return values has type `||`.
-Similarly, a procedure mapping `A` to `B` is `proc(A) -> B` and a no-argument
-and no-return value closure has type `proc()`.
 
 An example of creating and calling a closure:
 
@@ -3873,30 +3862,6 @@ fn call_closure(c1: ||, c2: |int| -> int) {
 }
 
 call_closure(closure_no_args, closure_args);
-
-```
-
-Unlike closures, procedures may only be invoked once, but own their
-environment, and are allowed to move out of their environment. Procedures are
-allocated on the heap (unlike closures). An example of creating and calling a
-procedure:
-
-```rust
-let string = "Hello".to_string();
-
-// Creates a new procedure, passing it to the `spawn` function.
-spawn(proc() {
-  println!("{} world!", string);
-});
-
-// the variable `string` has been moved into the previous procedure, so it is
-// no longer usable.
-
-
-// Create an invoke a procedure. Note that the procedure is *moved* when
-// invoked, so it cannot be invoked again.
-let f = proc(n: int) { n + 22 };
-println!("answer: {}", f(20));
 
 ```
 

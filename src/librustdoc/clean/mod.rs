@@ -740,7 +740,7 @@ impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>, subst::ParamSpace) {
 pub struct Method {
     pub generics: Generics,
     pub self_: SelfTy,
-    pub fn_style: ast::FnStyle,
+    pub unsafety: ast::Unsafety,
     pub decl: FnDecl,
 }
 
@@ -768,7 +768,7 @@ impl Clean<Item> for ast::Method {
             inner: MethodItem(Method {
                 generics: self.pe_generics().clean(cx),
                 self_: self.pe_explicit_self().node.clean(cx),
-                fn_style: self.pe_fn_style().clone(),
+                unsafety: self.pe_unsafety().clone(),
                 decl: decl,
             }),
         }
@@ -777,7 +777,7 @@ impl Clean<Item> for ast::Method {
 
 #[deriving(Clone, Encodable, Decodable)]
 pub struct TyMethod {
-    pub fn_style: ast::FnStyle,
+    pub unsafety: ast::Unsafety,
     pub decl: FnDecl,
     pub generics: Generics,
     pub self_: SelfTy,
@@ -804,7 +804,7 @@ impl Clean<Item> for ast::TypeMethod {
             visibility: None,
             stability: get_stability(cx, ast_util::local_def(self.id)),
             inner: TyMethodItem(TyMethod {
-                fn_style: self.fn_style.clone(),
+                unsafety: self.unsafety.clone(),
                 decl: decl,
                 self_: self.explicit_self.node.clean(cx),
                 generics: self.generics.clean(cx),
@@ -838,7 +838,7 @@ impl Clean<SelfTy> for ast::ExplicitSelf_ {
 pub struct Function {
     pub decl: FnDecl,
     pub generics: Generics,
-    pub fn_style: ast::FnStyle,
+    pub unsafety: ast::Unsafety,
 }
 
 impl Clean<Item> for doctree::Function {
@@ -853,7 +853,7 @@ impl Clean<Item> for doctree::Function {
             inner: FunctionItem(Function {
                 decl: self.decl.clean(cx),
                 generics: self.generics.clean(cx),
-                fn_style: self.fn_style,
+                unsafety: self.unsafety,
             }),
         }
     }
@@ -864,7 +864,7 @@ pub struct ClosureDecl {
     pub lifetimes: Vec<Lifetime>,
     pub decl: FnDecl,
     pub onceness: ast::Onceness,
-    pub fn_style: ast::FnStyle,
+    pub unsafety: ast::Unsafety,
     pub bounds: Vec<TyParamBound>,
 }
 
@@ -874,7 +874,7 @@ impl Clean<ClosureDecl> for ast::ClosureTy {
             lifetimes: self.lifetimes.clean(cx),
             decl: self.decl.clean(cx),
             onceness: self.onceness,
-            fn_style: self.fn_style,
+            unsafety: self.unsafety,
             bounds: self.bounds.clean(cx)
         }
     }
@@ -974,6 +974,7 @@ impl Clean<FunctionRetTy> for ast::FunctionRetTy {
 
 #[deriving(Clone, Encodable, Decodable)]
 pub struct Trait {
+    pub unsafety: ast::Unsafety,
     pub items: Vec<TraitMethod>,
     pub generics: Generics,
     pub bounds: Vec<TyParamBound>,
@@ -991,6 +992,7 @@ impl Clean<Item> for doctree::Trait {
             visibility: self.vis.clean(cx),
             stability: self.stab.clean(cx),
             inner: TraitItem(Trait {
+                unsafety: self.unsafety,
                 items: self.items.clean(cx),
                 generics: self.generics.clean(cx),
                 bounds: self.bounds.clean(cx),
@@ -1111,7 +1113,7 @@ impl<'tcx> Clean<Item> for ty::Method<'tcx> {
             attrs: inline::load_attrs(cx, cx.tcx(), self.def_id),
             source: Span::empty(),
             inner: TyMethodItem(TyMethod {
-                fn_style: self.fty.fn_style,
+                unsafety: self.fty.unsafety,
                 generics: (&self.generics, subst::FnSpace).clean(cx),
                 self_: self_,
                 decl: (self.def_id, &sig).clean(cx),
@@ -1165,12 +1167,19 @@ pub enum Type {
         mutability: Mutability,
         type_: Box<Type>,
     },
+
+    // <Type as Trait>::Name
     QPath {
         name: String,
         self_type: Box<Type>,
         trait_: Box<Type>
     },
-    // region, raw, other boxes, mutable
+
+    // _
+    Infer,
+
+    // for<'a> Foo(&'a)
+    PolyTraitRef(Vec<TyParamBound>),
 }
 
 #[deriving(Clone, Encodable, Decodable, PartialEq, Eq, Hash)]
@@ -1192,6 +1201,7 @@ pub enum TypeKind {
     TypeEnum,
     TypeFunction,
     TypeModule,
+    TypeConst,
     TypeStatic,
     TypeStruct,
     TypeTrait,
@@ -1307,11 +1317,18 @@ impl Clean<Type> for ast::Ty {
                 }
             }
             TyClosure(ref c) => Closure(box c.clean(cx)),
-            TyProc(ref c) => Proc(box c.clean(cx)),
             TyBareFn(ref barefn) => BareFunction(box barefn.clean(cx)),
             TyParen(ref ty) => ty.clean(cx),
             TyQPath(ref qp) => qp.clean(cx),
-            ref x => panic!("Unimplemented type {}", x),
+            TyPolyTraitRef(ref bounds) => {
+                PolyTraitRef(bounds.clean(cx))
+            },
+            TyInfer(..) => {
+                Infer
+            },
+            TyTypeof(..) => {
+                panic!("Unimplemented type {}", self.node)
+            },
         }
     }
 }
@@ -1350,7 +1367,7 @@ impl<'tcx> Clean<Type> for ty::Ty<'tcx> {
                 type_: box mt.ty.clean(cx),
             },
             ty::ty_bare_fn(ref fty) => BareFunction(box BareFunctionDecl {
-                fn_style: fty.fn_style,
+                unsafety: fty.unsafety,
                 generics: Generics {
                     lifetimes: Vec::new(),
                     type_params: Vec::new(),
@@ -1364,7 +1381,7 @@ impl<'tcx> Clean<Type> for ty::Ty<'tcx> {
                     lifetimes: Vec::new(), // FIXME: this looks wrong...
                     decl: (ast_util::local_def(0), &fty.sig).clean(cx),
                     onceness: fty.onceness,
-                    fn_style: fty.fn_style,
+                    unsafety: fty.unsafety,
                     bounds: fty.bounds.clean(cx),
                 };
                 match fty.store {
@@ -1775,7 +1792,7 @@ impl Clean<Item> for doctree::Typedef {
 
 #[deriving(Clone, Encodable, Decodable, PartialEq)]
 pub struct BareFunctionDecl {
-    pub fn_style: ast::FnStyle,
+    pub unsafety: ast::Unsafety,
     pub generics: Generics,
     pub decl: FnDecl,
     pub abi: String,
@@ -1784,7 +1801,7 @@ pub struct BareFunctionDecl {
 impl Clean<BareFunctionDecl> for ast::BareFnTy {
     fn clean(&self, cx: &DocContext) -> BareFunctionDecl {
         BareFunctionDecl {
-            fn_style: self.fn_style,
+            unsafety: self.unsafety,
             generics: Generics {
                 lifetimes: self.lifetimes.clean(cx),
                 type_params: Vec::new(),
@@ -1825,7 +1842,7 @@ impl Clean<Item> for doctree::Static {
     }
 }
 
-#[deriving(Clone, Encodable, Decodable)]
+#[deriving(Clone, Encodable, Decodable, Show)]
 pub struct Constant {
     pub type_: Type,
     pub expr: String,
@@ -2057,7 +2074,7 @@ impl Clean<Item> for ast::ForeignItem {
                 ForeignFunctionItem(Function {
                     decl: decl.clean(cx),
                     generics: generics.clean(cx),
-                    fn_style: ast::UnsafeFn,
+                    unsafety: ast::Unsafety::Unsafe,
                 })
             }
             ast::ForeignItemStatic(ref ty, mutbl) => {

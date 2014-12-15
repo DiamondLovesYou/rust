@@ -217,13 +217,6 @@ pub fn expand_expr(e: P<ast::Expr>, fld: &mut MacroExpander) -> P<ast::Expr> {
             P(ast::Expr{id:id, node: new_node, span: fld.new_span(span)})
         }
 
-        ast::ExprProc(fn_decl, block) => {
-            let (rewritten_fn_decl, rewritten_block)
-                = expand_and_rename_fn_decl_and_block(fn_decl, block, fld);
-            let new_node = ast::ExprProc(rewritten_fn_decl, rewritten_block);
-            P(ast::Expr{id:id, node: new_node, span: fld.new_span(span)})
-        }
-
         _ => {
             P(noop_fold_expr(ast::Expr {
                 id: id,
@@ -238,11 +231,13 @@ pub fn expand_expr(e: P<ast::Expr>, fld: &mut MacroExpander) -> P<ast::Expr> {
 /// of expansion and the mark which must be applied to the result.
 /// Our current interface doesn't allow us to apply the mark to the
 /// result until after calling make_expr, make_items, etc.
-fn expand_mac_invoc<T>(mac: ast::Mac, span: codemap::Span,
-                       parse_thunk: |Box<MacResult>|->Option<T>,
-                       mark_thunk: |T,Mrk|->T,
-                       fld: &mut MacroExpander)
-                       -> Option<T>
+fn expand_mac_invoc<T, F, G>(mac: ast::Mac, span: codemap::Span,
+                             parse_thunk: F,
+                             mark_thunk: G,
+                             fld: &mut MacroExpander)
+                             -> Option<T> where
+    F: FnOnce(Box<MacResult>) -> Option<T>,
+    G: FnOnce(T, Mrk) -> T,
 {
     match mac.node {
         // it would almost certainly be cleaner to pass the whole
@@ -1026,16 +1021,17 @@ fn expand_method(m: P<ast::Method>, fld: &mut MacroExpander) -> SmallVector<P<as
                                  |meths, mark| meths.move_map(|m| mark_method(m, mark)),
                                  fld);
 
-            let new_methods = match maybe_new_methods {
-                Some(methods) => methods,
+            match maybe_new_methods {
+                Some(methods) => {
+                    // expand again if necessary
+                    let new_methods = methods.into_iter()
+                                             .flat_map(|m| fld.fold_method(m).into_iter())
+                                             .collect();
+                    fld.cx.bt_pop();
+                    new_methods
+                }
                 None => SmallVector::zero()
-            };
-
-            // expand again if necessary
-            let new_methods = new_methods.into_iter()
-                                  .flat_map(|m| fld.fold_method(m).into_iter()).collect();
-            fld.cx.bt_pop();
-            new_methods
+            }
         }
     })
 }
@@ -1569,17 +1565,6 @@ mod test {
         run_renaming_test(
             &("macro_rules! inject_x (()=>(x))
             fn f(){(|x : int| {(inject_x!() + x)})(3);}",
-              vec!(vec!(1)),
-              true),
-            0)
-    }
-
-    // closure arg hygiene (ExprProc)
-    // expands to fn f(){(proc(x_1 : int) {(x_2 + x_1)})(3);}
-    #[test] fn closure_arg_hygiene_2(){
-        run_renaming_test(
-            &("macro_rules! inject_x (()=>(x))
-              fn f(){ (proc(x : int){(inject_x!() + x)})(3); }",
               vec!(vec!(1)),
               true),
             0)

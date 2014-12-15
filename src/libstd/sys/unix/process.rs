@@ -117,8 +117,8 @@ impl Process {
             mem::transmute::<&ProcessConfig<K,V>,&'static ProcessConfig<K,V>>(cfg)
         };
 
-        with_envp(cfg.env(), proc(envp) {
-            with_argv(cfg.program(), cfg.args(), proc(argv) unsafe {
+        with_envp(cfg.env(), move|: envp: *const c_void| {
+            with_argv(cfg.program(), cfg.args(), move|: argv: *const *const libc::c_char| unsafe {
                 let (input, mut output) = try!(sys::os::pipe());
 
                 // We may use this in the child, so perform allocations before the
@@ -408,8 +408,8 @@ impl Process {
                 // wait indefinitely for a message to arrive.
                 //
                 // FIXME: sure would be nice to not have to scan the entire array
-                let min = active.iter().map(|a| *a.ref2()).enumerate().min_by(|p| {
-                    p.val1()
+                let min = active.iter().map(|a| a.2).enumerate().min_by(|p| {
+                    p.1
                 });
                 let (p, idx) = match min {
                     Some((idx, deadline)) => {
@@ -566,8 +566,11 @@ impl Process {
     }
 }
 
-fn with_argv<T>(prog: &CString, args: &[CString],
-                cb: proc(*const *const libc::c_char) -> T) -> T {
+fn with_argv<T,F>(prog: &CString, args: &[CString],
+                  cb: F)
+                  -> T
+    where F : FnOnce(*const *const libc::c_char) -> T
+{
     let mut ptrs: Vec<*const libc::c_char> = Vec::with_capacity(args.len()+1);
 
     // Convert the CStrings into an array of pointers. Note: the
@@ -584,9 +587,12 @@ fn with_argv<T>(prog: &CString, args: &[CString],
     cb(ptrs.as_ptr())
 }
 
-fn with_envp<K, V, T>(env: Option<&collections::HashMap<K, V>>,
-                      cb: proc(*const c_void) -> T) -> T
-    where K: BytesContainer + Eq + Hash, V: BytesContainer
+fn with_envp<K,V,T,F>(env: Option<&collections::HashMap<K, V>>,
+                      cb: F)
+                      -> T
+    where F : FnOnce(*const c_void) -> T,
+          K : BytesContainer + Eq + Hash,
+          V : BytesContainer
 {
     // On posixy systems we can pass a char** for envp, which is a
     // null-terminated array of "k=v\0" strings. Since we must create
@@ -599,9 +605,9 @@ fn with_envp<K, V, T>(env: Option<&collections::HashMap<K, V>>,
 
             for pair in env.iter() {
                 let mut kv = Vec::new();
-                kv.push_all(pair.ref0().container_as_bytes());
+                kv.push_all(pair.0.container_as_bytes());
                 kv.push('=' as u8);
-                kv.push_all(pair.ref1().container_as_bytes());
+                kv.push_all(pair.1.container_as_bytes());
                 kv.push(0); // terminating null
                 tmps.push(kv);
             }

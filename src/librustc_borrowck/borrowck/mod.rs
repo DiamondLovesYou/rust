@@ -18,16 +18,15 @@ pub use self::bckerr_code::*;
 pub use self::AliasableViolationKind::*;
 pub use self::MovedValueUseKind::*;
 
-use middle::cfg;
-use middle::dataflow::DataFlowContext;
-use middle::dataflow::BitwiseOperator;
-use middle::dataflow::DataFlowOperator;
-use middle::expr_use_visitor as euv;
-use middle::mem_categorization as mc;
-use middle::region;
-use middle::ty::{mod, ParameterEnvironment, Ty};
-use util::ppaux::{note_and_explain_region, Repr, UserString};
-
+use rustc::middle::cfg;
+use rustc::middle::dataflow::DataFlowContext;
+use rustc::middle::dataflow::BitwiseOperator;
+use rustc::middle::dataflow::DataFlowOperator;
+use rustc::middle::expr_use_visitor as euv;
+use rustc::middle::mem_categorization as mc;
+use rustc::middle::region;
+use rustc::middle::ty::{mod, Ty};
+use rustc::util::ppaux::{note_and_explain_region, Repr, UserString};
 use std::rc::Rc;
 use std::string::String;
 use syntax::ast;
@@ -54,8 +53,6 @@ pub mod doc;
 pub mod check_loans;
 
 pub mod gather_loans;
-
-pub mod graphviz;
 
 pub mod move_data;
 
@@ -298,18 +295,6 @@ pub struct LoanPath<'tcx> {
     ty: ty::Ty<'tcx>,
 }
 
-impl<'tcx> LoanPath<'tcx> {
-    pub fn eq_debug(&self, that: &LoanPath<'tcx>, tcx: &ty::ctxt<'tcx>) -> bool {
-        let r = self.kind == that.kind;
-        if r && self.ty != that.ty {
-            panic!("eq variants ineq types: {} == {}, {} != {}",
-                   self.repr(tcx), that.repr(tcx),
-                   self.ty.repr(tcx), that.ty.repr(tcx));
-        }
-        r
-    }
-}
-
 impl<'tcx> PartialEq for LoanPath<'tcx> {
     fn eq(&self, that: &LoanPath<'tcx>) -> bool {
         let r = self.kind == that.kind;
@@ -352,7 +337,6 @@ pub fn closure_to_block(closure_id: ast::NodeId,
                         tcx: &ty::ctxt) -> ast::NodeId {
     match tcx.map.get(closure_id) {
         ast_map::NodeExpr(expr) => match expr.node {
-            ast::ExprProc(_, ref block) |
             ast::ExprClosure(_, _, _, ref block) => {
                 block.id
             }
@@ -560,7 +544,7 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
                                      lp: &LoanPath<'tcx>,
                                      the_move: &move_data::Move,
                                      moved_lp: &LoanPath<'tcx>,
-                                     param_env: &ParameterEnvironment<'tcx>) {
+                                     param_env: &ty::ParameterEnvironment<'tcx>) {
         let verb = match use_kind {
             MovedInUse => "use",
             MovedInCapture => "capture",

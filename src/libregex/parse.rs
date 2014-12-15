@@ -838,8 +838,9 @@ impl<'a> Parser<'a> {
     // Otherwise, an error will be returned.
     // Generally, `allow_start` is only true when you're *not* expecting an
     // opening parenthesis.
-    fn pos_last(&self, allow_start: bool, pred: |&BuildAst| -> bool)
-               -> Result<uint, Error> {
+    fn pos_last<P>(&self, allow_start: bool, pred: P) -> Result<uint, Error> where
+        P: FnMut(&BuildAst) -> bool,
+   {
         let from = match self.stack.iter().rev().position(pred) {
             Some(i) => i,
             None => {
@@ -887,8 +888,9 @@ impl<'a> Parser<'a> {
     // build_from combines all AST elements starting at 'from' in the
     // parser's stack using 'mk' to combine them. If any such element is not an
     // AST then it is popped off the stack and ignored.
-    fn build_from(&mut self, from: uint, mk: |Ast, Ast| -> Ast)
-                 -> Result<Ast, Error> {
+    fn build_from<F>(&mut self, from: uint, mut mk: F) -> Result<Ast, Error> where
+        F: FnMut(Ast, Ast) -> Ast,
+    {
         if from >= self.stack.len() {
             return self.err("Empty group or alternate not allowed.")
         }
@@ -1029,7 +1031,7 @@ fn is_valid_cap(c: char) -> bool {
 
 fn find_class(classes: NamedClasses, name: &str) -> Option<Vec<(char, char)>> {
     match classes.binary_search(|&(s, _)| s.cmp(name)) {
-        BinarySearchResult::Found(i) => Some(classes[i].val1().to_vec()),
+        BinarySearchResult::Found(i) => Some(classes[i].1.to_vec()),
         BinarySearchResult::NotFound(_) => None,
     }
 }

@@ -34,7 +34,7 @@ use owned_slice::OwnedSlice;
 
 pub enum FnKind<'a> {
     /// fn foo() or extern "Abi" fn foo()
-    FkItemFn(Ident, &'a Generics, FnStyle, Abi),
+    FkItemFn(Ident, &'a Generics, Unsafety, Abi),
 
     /// fn foo(&self)
     FkMethod(Ident, &'a Generics, &'a Method),
@@ -282,7 +282,8 @@ pub fn walk_item<'v, V: Visitor<'v>>(visitor: &mut V, item: &'v Item) {
             visitor.visit_generics(type_parameters);
             walk_enum_def(visitor, enum_definition, type_parameters)
         }
-        ItemImpl(ref type_parameters,
+        ItemImpl(_,
+                 ref type_parameters,
                  ref trait_reference,
                  ref typ,
                  ref impl_items) => {
@@ -311,7 +312,7 @@ pub fn walk_item<'v, V: Visitor<'v>>(visitor: &mut V, item: &'v Item) {
                                      generics,
                                      item.id)
         }
-        ItemTrait(ref generics, _, ref bounds, ref methods) => {
+        ItemTrait(_, ref generics, _, ref bounds, ref methods) => {
             visitor.visit_generics(generics);
             walk_ty_param_bounds_helper(visitor, bounds);
             for method in methods.iter() {
@@ -382,14 +383,6 @@ pub fn walk_ty<'v, V: Visitor<'v>>(visitor: &mut V, typ: &'v Ty) {
             }
         }
         TyClosure(ref function_declaration) => {
-            for argument in function_declaration.decl.inputs.iter() {
-                visitor.visit_ty(&*argument.ty)
-            }
-            walk_fn_ret_ty(visitor, &function_declaration.decl.output);
-            walk_ty_param_bounds_helper(visitor, &function_declaration.bounds);
-            walk_lifetime_decls_helper(visitor, &function_declaration.lifetimes);
-        }
-        TyProc(ref function_declaration) => {
             for argument in function_declaration.decl.inputs.iter() {
                 visitor.visit_ty(&*argument.ty)
             }
@@ -825,13 +818,6 @@ pub fn walk_expr<'v, V: Visitor<'v>>(visitor: &mut V, expression: &'v Expr) {
             }
         }
         ExprClosure(_, _, ref function_declaration, ref body) => {
-            visitor.visit_fn(FkFnBlock,
-                             &**function_declaration,
-                             &**body,
-                             expression.span,
-                             expression.id)
-        }
-        ExprProc(ref function_declaration, ref body) => {
             visitor.visit_fn(FkFnBlock,
                              &**function_declaration,
                              &**body,

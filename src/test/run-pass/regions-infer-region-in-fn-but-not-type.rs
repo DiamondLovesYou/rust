@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,12 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-struct Foo {
-    f: proc():'static
-}
 
-fn call(x: Foo) {
-    x.f(); //~ ERROR does not implement any method in scope named `f`
+// check that the &int here does not cause us to think that `foo`
+// contains region pointers
+struct foo(Box<FnMut(&int)+'static>);
+
+fn take_foo<T:'static>(x: T) {}
+
+fn have_foo(f: foo) {
+    take_foo(f);
 }
 
 fn main() {}

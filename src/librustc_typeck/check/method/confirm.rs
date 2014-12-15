@@ -115,7 +115,7 @@ impl<'a,'tcx> ConfirmContext<'a,'tcx> {
         // Create the final `MethodCallee`.
         let fty = ty::mk_bare_fn(self.tcx(), ty::BareFnTy {
             sig: method_sig,
-            fn_style: pick.method_ty.fty.fn_style,
+            unsafety: pick.method_ty.fty.unsafety,
             abi: pick.method_ty.fty.abi.clone(),
         });
         let callee = MethodCallee {
@@ -286,11 +286,8 @@ impl<'a,'tcx> ConfirmContext<'a,'tcx> {
         }
     }
 
-    fn extract_trait_ref<R>(&mut self,
-                            self_ty: Ty<'tcx>,
-                            closure: |&mut ConfirmContext<'a,'tcx>,
-                                      Ty<'tcx>, &ty::TyTrait<'tcx>| -> R)
-                            -> R
+    fn extract_trait_ref<R, F>(&mut self, self_ty: Ty<'tcx>, mut closure: F) -> R where
+        F: FnMut(&mut ConfirmContext<'a, 'tcx>, Ty<'tcx>, &ty::TyTrait<'tcx>) -> R,
     {
         // If we specified that this is an object method, then the
         // self-type ought to be something that can be dereferenced to
@@ -462,8 +459,7 @@ impl<'a,'tcx> ConfirmContext<'a,'tcx> {
                method_bounds.repr(self.tcx()));
 
         self.fcx.add_obligations_for_parameters(
-            traits::ObligationCause::misc(self.span),
-            method_bounds_substs,
+            traits::ObligationCause::misc(self.span, self.fcx.body_id),
             method_bounds);
 
         self.fcx.add_default_region_param_bounds(
@@ -666,9 +662,11 @@ impl<'a,'tcx> ConfirmContext<'a,'tcx> {
     }
 }
 
-fn wrap_autoref<'tcx>(mut deref: ty::AutoDerefRef<'tcx>,
-                      base_fn: |Option<Box<ty::AutoRef<'tcx>>>| -> ty::AutoRef<'tcx>)
-                      -> ty::AutoDerefRef<'tcx> {
+fn wrap_autoref<'tcx, F>(mut deref: ty::AutoDerefRef<'tcx>,
+                         base_fn: F)
+                         -> ty::AutoDerefRef<'tcx> where
+    F: FnOnce(Option<Box<ty::AutoRef<'tcx>>>) -> ty::AutoRef<'tcx>,
+{
     let autoref = mem::replace(&mut deref.autoref, None);
     let autoref = autoref.map(|r| box r);
     deref.autoref = Some(base_fn(autoref));

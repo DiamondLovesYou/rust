@@ -315,23 +315,6 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
                 get_method_index(tcx, &*new_trait_ref,
                                  trait_ref.clone(), method_num);
 
-            // FIXME Hacky. By-value `self` methods in objects ought to be
-            // just a special case of passing ownership of a DST value
-            // as a parameter. *But* we currently hack them in and tie them to
-            // the particulars of the `Box` type. So basically for a `fn foo(self,...)`
-            // method invoked on an object, we don't want the receiver type to be
-            // `TheTrait`, but rather `Box<TheTrait>`. Yuck.
-            let mut m = m;
-            match m.explicit_self {
-                ty::ByValueExplicitSelfCategory => {
-                    let mut n = (*m).clone();
-                    let self_ty = n.fty.sig.inputs[0];
-                    n.fty.sig.inputs[0] = ty::mk_uniq(tcx, self_ty);
-                    m = Rc::new(n);
-                }
-                _ => { }
-            }
-
             let xform_self_ty =
                 this.xform_self_ty(&m, &new_trait_ref.substs);
 
@@ -353,11 +336,27 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
                                                param_ty: ty::ParamTy) {
         // FIXME -- Do we want to commit to this behavior for param bounds?
 
-        let ty::ParamTy { space, idx: index, .. } = param_ty;
-        let bounds =
-            self.fcx.inh.param_env.bounds.get(space, index).trait_bounds
-            .as_slice();
-        self.elaborate_bounds(bounds, true, |this, trait_ref, m, method_num| {
+        let bounds: Vec<_> =
+            self.fcx.inh.param_env.caller_bounds.predicates
+            .iter()
+            .filter_map(|predicate| {
+                match *predicate {
+                    ty::Predicate::Trait(ref trait_ref) => {
+                        match trait_ref.self_ty().sty {
+                            ty::ty_param(ref p) if *p == param_ty => Some(trait_ref.clone()),
+                            _ => None
+                        }
+                    }
+                    ty::Predicate::Equate(..) |
+                    ty::Predicate::RegionOutlives(..) |
+                    ty::Predicate::TypeOutlives(..) => {
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        self.elaborate_bounds(bounds.as_slice(), true, |this, trait_ref, m, method_num| {
             let xform_self_ty =
                 this.xform_self_ty(&m, &trait_ref.substs);
 
@@ -400,6 +399,8 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
                           m: Rc<ty::Method<'tcx>>,
                           method_num: uint|)
     {
+        debug!("elaborate_bounds(bounds={})", bounds.repr(self.tcx()));
+
         let tcx = self.tcx();
         let mut cache = HashSet::new();
         for bound_trait_ref in traits::transitive_bounds(tcx, bounds) {
@@ -692,10 +693,12 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
                                                mutbl: m }))
     }
 
-    fn search_mutabilities(&mut self,
-                           mk_adjustment: |ast::Mutability| -> PickAdjustment,
-                           mk_autoref_ty: |ast::Mutability, ty::Region| -> Ty<'tcx>)
-                           -> Option<PickResult<'tcx>>
+    fn search_mutabilities<F, G>(&mut self,
+                                 mut mk_adjustment: F,
+                                 mut mk_autoref_ty: G)
+                                 -> Option<PickResult<'tcx>> where
+        F: FnMut(ast::Mutability) -> PickAdjustment,
+        G: FnMut(ast::Mutability, ty::Region) -> Ty<'tcx>,
     {
         // In general, during probing we erase regions. See
         // `impl_self_ty()` for an explanation.
@@ -802,11 +805,10 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
 
                     // Convert the bounds into obligations.
                     let obligations =
-                        traits::obligations_for_generics(
+                        traits::predicates_for_generics(
                             self.tcx(),
-                            traits::ObligationCause::misc(self.span),
-                            &impl_bounds,
-                            &substs.types);
+                            traits::ObligationCause::misc(self.span, self.fcx.body_id),
+                            &impl_bounds);
                     debug!("impl_obligations={}", obligations.repr(self.tcx()));
 
                     // Evaluate those obligations to see if they might possibly hold.

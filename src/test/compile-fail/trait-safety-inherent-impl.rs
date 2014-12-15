@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that we don't ICE due to encountering unsubstituted type
-// parameters when untupling FnOnce parameters during translation of
-// an unboxing shim.
+// Check that inherent impls cannot be unsafe.
 
-#![feature(unboxed_closures)]
+struct SomeStruct;
 
-fn main() {
-    let _: Box<FnOnce<(),()>> = box move |&mut:| {};
+unsafe impl SomeStruct { //~ ERROR inherent impls cannot be declared as unsafe
+    fn foo(self) { }
 }
+
+fn main() { }

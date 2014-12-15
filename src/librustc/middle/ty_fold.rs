@@ -137,11 +137,6 @@ pub trait TypeFolder<'tcx> {
     fn fold_item_substs(&mut self, i: ty::ItemSubsts<'tcx>) -> ty::ItemSubsts<'tcx> {
         super_fold_item_substs(self, i)
     }
-
-    fn fold_obligation(&mut self, o: &traits::Obligation<'tcx>)
-                       -> traits::Obligation<'tcx> {
-        super_fold_obligation(self, o)
-    }
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -404,6 +399,25 @@ impl<'tcx> TypeFoldable<'tcx> for ty::Generics<'tcx> {
         ty::Generics {
             types: self.types.fold_with(folder),
             regions: self.regions.fold_with(folder),
+            predicates: self.predicates.fold_with(folder),
+        }
+    }
+}
+
+impl<'tcx> TypeFoldable<'tcx> for ty::Predicate<'tcx> {
+    fn fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> ty::Predicate<'tcx> {
+        match *self {
+            ty::Predicate::Trait(ref a) =>
+                ty::Predicate::Trait(a.fold_with(folder)),
+            ty::Predicate::Equate(ref a, ref b) =>
+                ty::Predicate::Equate(a.fold_with(folder),
+                                        b.fold_with(folder)),
+            ty::Predicate::RegionOutlives(ref a, ref b) =>
+                ty::Predicate::RegionOutlives(a.fold_with(folder),
+                                                b.fold_with(folder)),
+            ty::Predicate::TypeOutlives(ref a, ref b) =>
+                ty::Predicate::TypeOutlives(a.fold_with(folder),
+                                              b.fold_with(folder)),
         }
     }
 }
@@ -411,8 +425,7 @@ impl<'tcx> TypeFoldable<'tcx> for ty::Generics<'tcx> {
 impl<'tcx> TypeFoldable<'tcx> for ty::GenericBounds<'tcx> {
     fn fold_with<F: TypeFolder<'tcx>>(&self, folder: &mut F) -> ty::GenericBounds<'tcx> {
         ty::GenericBounds {
-            types: self.types.fold_with(folder),
-            regions: self.regions.fold_with(folder),
+            predicates: self.predicates.fold_with(folder),
         }
     }
 }
@@ -434,9 +447,15 @@ impl<'tcx> TypeFoldable<'tcx> for ty::UnsizeKind<'tcx> {
     }
 }
 
-impl<'tcx> TypeFoldable<'tcx> for traits::Obligation<'tcx> {
-    fn fold_with<F:TypeFolder<'tcx>>(&self, folder: &mut F) -> traits::Obligation<'tcx> {
-        folder.fold_obligation(self)
+impl<'tcx,O> TypeFoldable<'tcx> for traits::Obligation<'tcx,O>
+    where O : TypeFoldable<'tcx>
+{
+    fn fold_with<F:TypeFolder<'tcx>>(&self, folder: &mut F) -> traits::Obligation<'tcx, O> {
+        traits::Obligation {
+            cause: self.cause,
+            recursion_depth: self.recursion_depth,
+            trait_ref: self.trait_ref.fold_with(folder),
+        }
     }
 }
 
@@ -544,7 +563,7 @@ pub fn super_fold_bare_fn_ty<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
 {
     ty::BareFnTy { sig: fty.sig.fold_with(this),
                    abi: fty.abi,
-                   fn_style: fty.fn_style }
+                   unsafety: fty.unsafety }
 }
 
 pub fn super_fold_closure_ty<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
@@ -554,7 +573,7 @@ pub fn super_fold_closure_ty<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
     ty::ClosureTy {
         store: fty.store.fold_with(this),
         sig: fty.sig.fold_with(this),
-        fn_style: fty.fn_style,
+        unsafety: fty.unsafety,
         onceness: fty.onceness,
         bounds: fty.bounds.fold_with(this),
         abi: fty.abi,
@@ -687,17 +706,6 @@ pub fn super_fold_item_substs<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
     }
 }
 
-pub fn super_fold_obligation<'tcx, T:TypeFolder<'tcx>>(this: &mut T,
-                                                       obligation: &traits::Obligation<'tcx>)
-                                                       -> traits::Obligation<'tcx>
-{
-    traits::Obligation {
-        cause: obligation.cause,
-        recursion_depth: obligation.recursion_depth,
-        trait_ref: obligation.trait_ref.fold_with(this),
-    }
-}
-
 ///////////////////////////////////////////////////////////////////////////
 // Higher-ranked things
 
@@ -735,12 +743,14 @@ impl<'tcx, T:HigherRankedFoldable<'tcx>> HigherRankedFoldable<'tcx> for Rc<T> {
 ///////////////////////////////////////////////////////////////////////////
 // Some sample folders
 
-pub struct BottomUpFolder<'a, 'tcx: 'a> {
+pub struct BottomUpFolder<'a, 'tcx: 'a, F> where F: FnMut(Ty<'tcx>) -> Ty<'tcx> {
     pub tcx: &'a ty::ctxt<'tcx>,
-    pub fldop: |Ty<'tcx>|: 'a -> Ty<'tcx>,
+    pub fldop: F,
 }
 
-impl<'a, 'tcx> TypeFolder<'tcx> for BottomUpFolder<'a, 'tcx> {
+impl<'a, 'tcx, F> TypeFolder<'tcx> for BottomUpFolder<'a, 'tcx, F> where
+    F: FnMut(Ty<'tcx>) -> Ty<'tcx>,
+{
     fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> { self.tcx }
 
     fn fold_ty(&mut self, ty: Ty<'tcx>) -> Ty<'tcx> {
@@ -764,15 +774,14 @@ impl<'a, 'tcx> TypeFolder<'tcx> for BottomUpFolder<'a, 'tcx> {
 /// (The distinction between "free" and "bound" is represented by
 /// keeping track of each `FnSig` in the lexical context of the
 /// current position of the fold.)
-pub struct RegionFolder<'a, 'tcx: 'a> {
+pub struct RegionFolder<'a, 'tcx: 'a, F> where F: FnMut(ty::Region, uint) -> ty::Region {
     tcx: &'a ty::ctxt<'tcx>,
     current_depth: uint,
-    fld_r: |ty::Region, uint|: 'a -> ty::Region,
+    fld_r: F,
 }
 
-impl<'a, 'tcx> RegionFolder<'a, 'tcx> {
-    pub fn new(tcx: &'a ty::ctxt<'tcx>, fld_r: |ty::Region, uint|: 'a -> ty::Region)
-               -> RegionFolder<'a, 'tcx> {
+impl<'a, 'tcx, F> RegionFolder<'a, 'tcx, F> where F: FnMut(ty::Region, uint) -> ty::Region {
+    pub fn new(tcx: &'a ty::ctxt<'tcx>, fld_r: F) -> RegionFolder<'a, 'tcx, F> {
         RegionFolder {
             tcx: tcx,
             current_depth: 1,
@@ -781,7 +790,9 @@ impl<'a, 'tcx> RegionFolder<'a, 'tcx> {
     }
 }
 
-impl<'a, 'tcx> TypeFolder<'tcx> for RegionFolder<'a, 'tcx> {
+impl<'a, 'tcx, F> TypeFolder<'tcx> for RegionFolder<'a, 'tcx, F> where
+    F: FnMut(ty::Region, uint) -> ty::Region,
+{
     fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> { self.tcx }
 
     fn enter_region_binder(&mut self) {

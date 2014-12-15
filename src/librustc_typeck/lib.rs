@@ -74,6 +74,7 @@ This API is completely unstable and subject to change.
 #![feature(default_type_params, globs, import_shadowing, macro_rules, phase, quote)]
 #![feature(slicing_syntax, unsafe_destructor)]
 #![feature(rustc_diagnostic_macros)]
+#![feature(unboxed_closures)]
 #![allow(non_camel_case_types)]
 
 #[phase(plugin, link)] extern crate log;
@@ -160,20 +161,25 @@ fn lookup_def_ccx(ccx: &CrateCtxt, sp: Span, id: ast::NodeId)
 
 fn no_params<'tcx>(t: Ty<'tcx>) -> ty::Polytype<'tcx> {
     ty::Polytype {
-        generics: ty::Generics {types: VecPerParamSpace::empty(),
-                                regions: VecPerParamSpace::empty()},
+        generics: ty::Generics {
+            types: VecPerParamSpace::empty(),
+            regions: VecPerParamSpace::empty(),
+            predicates: VecPerParamSpace::empty(),
+        },
         ty: t
     }
 }
 
-fn require_same_types<'a, 'tcx>(tcx: &ty::ctxt<'tcx>,
-                                    maybe_infcx: Option<&infer::InferCtxt<'a, 'tcx>>,
-                                    t1_is_expected: bool,
-                                    span: Span,
-                                    t1: Ty<'tcx>,
-                                    t2: Ty<'tcx>,
-                                    msg: || -> String)
-                                    -> bool {
+fn require_same_types<'a, 'tcx, M>(tcx: &ty::ctxt<'tcx>,
+                                   maybe_infcx: Option<&infer::InferCtxt<'a, 'tcx>>,
+                                   t1_is_expected: bool,
+                                   span: Span,
+                                   t1: Ty<'tcx>,
+                                   t2: Ty<'tcx>,
+                                   msg: M)
+                                   -> bool where
+    M: FnOnce() -> String,
+{
     let result = match maybe_infcx {
         None => {
             let infcx = infer::new_infer_ctxt(tcx);
@@ -220,7 +226,7 @@ fn check_main_fn_ty(ccx: &CrateCtxt,
                 _ => ()
             }
             let se_ty = ty::mk_bare_fn(tcx, ty::BareFnTy {
-                fn_style: ast::NormalFn,
+                unsafety: ast::Unsafety::Normal,
                 abi: abi::Rust,
                 sig: ty::FnSig {
                     inputs: Vec::new(),
@@ -268,7 +274,7 @@ fn check_start_fn_ty(ccx: &CrateCtxt,
             }
 
             let se_ty = ty::mk_bare_fn(tcx, ty::BareFnTy {
-                fn_style: ast::NormalFn,
+                unsafety: ast::Unsafety::Normal,
                 abi: abi::Rust,
                 sig: ty::FnSig {
                     inputs: vec!(

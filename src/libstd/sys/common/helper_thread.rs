@@ -70,9 +70,10 @@ impl<M: Send> Helper<M> {
     /// passed to the helper thread in a separate task.
     ///
     /// This function is safe to be called many times.
-    pub fn boot<T: Send>(&'static self,
-                         f: || -> T,
-                         helper: fn(helper_signal::signal, Receiver<M>, T)) {
+    pub fn boot<T, F>(&'static self, f: F, helper: fn(helper_signal::signal, Receiver<M>, T)) where
+        T: Send,
+        F: FnOnce() -> T,
+    {
         unsafe {
             let _guard = self.lock.lock();
             if !*self.initialized.get() {
@@ -82,7 +83,7 @@ impl<M: Send> Helper<M> {
                 *self.signal.get() = send as uint;
 
                 let t = f();
-                task::spawn(proc() {
+                task::spawn(move |:| {
                     bookkeeping::decrement();
                     helper(receive, rx, t);
                     let _g = self.lock.lock();
@@ -90,7 +91,7 @@ impl<M: Send> Helper<M> {
                     self.cond.notify_one()
                 });
 
-                rustrt::at_exit(proc() { self.shutdown() });
+                rustrt::at_exit(move|:| { self.shutdown() });
                 *self.initialized.get() = true;
             }
         }

@@ -22,6 +22,7 @@ use alloc::boxed::Box;
 use core::mem;
 use core::uint;
 use libc;
+use thunk::{Thunk};
 
 use stack;
 use stack_overflow;
@@ -60,8 +61,8 @@ fn start_thread(main: *mut libc::c_void) -> imp::rust_thread_return {
     unsafe {
         stack::record_os_managed_stack_bounds(0, uint::MAX);
         let handler = stack_overflow::Handler::new();
-        let f: Box<proc()> = mem::transmute(main);
-        (*f)();
+        let f: Box<Thunk> = mem::transmute(main);
+        f.invoke(());
         drop(handler);
         mem::transmute(0 as imp::rust_thread_return)
     }
@@ -113,14 +114,17 @@ impl Thread<()> {
     /// to finish executing. This means that even if `join` is not explicitly
     /// called, when the `Thread` falls out of scope its destructor will block
     /// waiting for the OS thread.
-    pub fn start<T: Send>(main: proc():Send -> T) -> Thread<T> {
+    pub fn start<T,F>(main: F) -> Thread<T>
+        where T:Send, F:FnOnce() -> T, F:Send
+    {
         Thread::start_stack(DEFAULT_STACK_SIZE, main)
     }
 
     /// Performs the same functionality as `start`, but specifies an explicit
     /// stack size for the new thread.
-    pub fn start_stack<T: Send>(stack: uint, main: proc():Send -> T) -> Thread<T> {
-
+    pub fn start_stack<T, F>(stack: uint, main: F) -> Thread<T>
+        where T:Send, F:FnOnce() -> T, F:Send
+    {
         // We need the address of the packet to fill in to be stable so when
         // `main` fills it in it's still valid, so allocate an extra box to do
         // so.
@@ -128,8 +132,11 @@ impl Thread<()> {
         let packet2: *mut Option<T> = unsafe {
             *mem::transmute::<&Box<Option<T>>, *const *mut Option<T>>(&packet)
         };
-        let main = proc() unsafe { *packet2 = Some(main()); };
-        let native = unsafe { imp::create(stack, box main, false).unwrap() };
+        let native = unsafe {
+            imp::create(stack, Thunk::new(move |:| {
+                *packet2 = Some(main.call_once(()));
+            }), true)
+        };
 
         Thread {
             native: native,
@@ -144,15 +151,19 @@ impl Thread<()> {
     /// This corresponds to creating threads in the 'detached' state on unix
     /// systems. Note that platforms may not keep the main program alive even if
     /// there are detached thread still running around.
-    pub fn spawn(main: proc():Send) {
+    pub fn spawn<F>(main: F)
+        where F : FnOnce() + Send
+    {
         Thread::spawn_stack(DEFAULT_STACK_SIZE, main)
     }
 
     /// Performs the same functionality as `spawn`, but explicitly specifies a
     /// stack size for the new thread.
-    pub fn spawn_stack(stack: uint, main: proc():Send) {
+    pub fn spawn_stack<F>(stack: uint, main: F)
+        where F : FnOnce() + Send
+    {
         unsafe {
-            imp::create(stack, box main, true);
+            imp::create(stack, Thunk::new(main), true);
         }
     }
 
@@ -189,8 +200,6 @@ impl<T: Send> Drop for Thread<T> {
 #[cfg(windows)]
 #[allow(non_snake_case)]
 mod imp {
-    use core::prelude::*;
-
     use alloc::boxed::Box;
     use core::cmp;
     use core::mem;
@@ -199,6 +208,7 @@ mod imp {
     use libc::types::os::arch::extra::{LPSECURITY_ATTRIBUTES, SIZE_T, BOOL,
                                        LPVOID, DWORD, LPDWORD, HANDLE};
     use stack::RED_ZONE;
+    use thunk::Thunk;
 
     pub type rust_thread = HANDLE;
     pub type rust_thread_return = DWORD;
@@ -216,8 +226,9 @@ mod imp {
         }
     }
 
-    pub unsafe fn create(stack: uint, p: Box<proc():Send>, detach_: bool) -> Option<rust_thread> {
-        let arg: *mut libc::c_void = mem::transmute(p);
+    pub unsafe fn create(stack: uint, p: Thunk, _detach: bool) -> rust_thread {
+        let arg: *mut libc::c_void = mem::transmute(box p);
+
         // FIXME On UNIX, we guard against stack sizes that are too small but
         // that's because pthreads enforces that stacks are at least
         // PTHREAD_STACK_MIN bytes big.  Windows has no such lower limit, it's
@@ -233,7 +244,7 @@ mod imp {
 
         if ret as uint == 0 {
             // be sure to not leak the closure
-            let _p: Box<proc():Send> = mem::transmute(arg);
+            let _p: Box<Thunk> = mem::transmute(arg);
             panic!("failed to spawn native thread: {}", ret);
         }
         if detach_ {
@@ -284,6 +295,7 @@ mod imp {
     use libc::consts::os::posix01::{PTHREAD_CREATE_JOINABLE, PTHREAD_CREATE_DETACHED,
                                     PTHREAD_STACK_MIN};
     use libc;
+    use thunk::Thunk;
 
     use stack::RED_ZONE;
 
@@ -414,8 +426,7 @@ mod imp {
         }
     }
 
-    pub unsafe fn create(stack: uint, p: Box<proc():Send>,
-                         create_detached: bool) -> Option<rust_thread> {
+    pub unsafe fn create(stack: uint, p: Thunk, create_detached: bool) -> rust_thread {
         let mut native: libc::pthread_t = mem::zeroed();
         let mut attr: libc::pthread_attr_t = mem::zeroed();
         assert_eq!(pthread_attr_init(&mut attr), 0);
@@ -448,20 +459,16 @@ mod imp {
             },
         };
 
-        let arg: *mut libc::c_void = mem::transmute(p);
+        let arg: *mut libc::c_void = mem::transmute(box p); // must box since sizeof(p)=2*uint
         let ret = pthread_create(&mut native, &attr, super::thread_start, arg);
         assert_eq!(pthread_attr_destroy(&mut attr), 0);
 
         if ret != 0 {
             // be sure to not leak the closure
-            let _p: Box<proc():Send> = mem::transmute(arg);
+            let _p: Box<Box<FnOnce()+Send>> = mem::transmute(arg);
             panic!("failed to spawn native thread: {}", ret);
         }
-        if create_detached {
-            return None;
-        } else {
-            return Some(native);
-        }
+        native
     }
 
     pub unsafe fn join(native: rust_thread) {
@@ -541,17 +548,17 @@ mod tests {
     use super::Thread;
 
     #[test]
-    fn smoke() { Thread::start(proc (){}).join(); }
+    fn smoke() { Thread::start(move|| {}).join(); }
 
     #[test]
-    fn data() { assert_eq!(Thread::start(proc () { 1i }).join(), 1); }
+    fn data() { assert_eq!(Thread::start(move|| { 1i }).join(), 1); }
 
     #[test]
-    fn detached() { Thread::spawn(proc () {}) }
+    fn detached() { Thread::spawn(move|| {}) }
 
     #[test]
     fn small_stacks() {
-        assert_eq!(42i, Thread::start_stack(0, proc () 42i).join());
-        assert_eq!(42i, Thread::start_stack(1, proc () 42i).join());
+        assert_eq!(42i, Thread::start_stack(0, move|| 42i).join());
+        assert_eq!(42i, Thread::start_stack(1, move|| 42i).join());
     }
 }

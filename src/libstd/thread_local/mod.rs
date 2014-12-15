@@ -77,7 +77,7 @@ pub mod scoped;
 /// });
 ///
 /// // each thread starts out with the initial value of 1
-/// spawn(proc() {
+/// spawn(move|| {
 ///     FOO.with(|f| {
 ///         assert_eq!(*f.borrow(), 1);
 ///         *f.borrow_mut() = 3;
@@ -218,7 +218,9 @@ impl<T: 'static> Key<T> {
     /// This function will `panic!()` if the key currently has its
     /// destructor running, and it **may** panic if the destructor has
     /// previously been run for this thread.
-    pub fn with<R>(&'static self, f: |&T| -> R) -> R {
+    pub fn with<R, F>(&'static self, f: F) -> R where
+        F: FnOnce(&T) -> R,
+    {
         let slot = (self.inner)();
         unsafe {
             let slot = slot.get().expect("cannot access a TLS value during or \
@@ -469,7 +471,7 @@ mod tests {
             *f.get() = 2;
         });
         let (tx, rx) = channel();
-        spawn(proc() {
+        spawn(move|| {
             FOO.with(|f| unsafe {
                 assert_eq!(*f.get(), 1);
             });
@@ -489,7 +491,7 @@ mod tests {
         })
 
         let (tx, rx) = channel();
-        spawn(proc() unsafe {
+        spawn(move|| unsafe {
             let mut tx = Some(tx);
             FOO.with(|f| {
                 *f.get() = Some(Foo(tx.take().unwrap()));
@@ -537,7 +539,7 @@ mod tests {
             }
         }
 
-        Thread::start(proc() {
+        Thread::start(move|| {
             drop(S1);
         }).join();
     }
@@ -555,7 +557,7 @@ mod tests {
             }
         }
 
-        Thread::start(proc() unsafe {
+        Thread::start(move|| unsafe {
             K1.with(|s| *s.get() = Some(S1));
         }).join();
     }
@@ -582,7 +584,7 @@ mod tests {
         }
 
         let (tx, rx) = channel();
-        spawn(proc() unsafe {
+        spawn(move|| unsafe {
             let mut tx = Some(tx);
             K1.with(|s| *s.get() = Some(S1(tx.take().unwrap())));
         });

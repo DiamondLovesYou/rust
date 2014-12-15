@@ -433,8 +433,8 @@ impl<'tcx> TypeMap<'tcx> {
                                        &trait_data.principal.substs,
                                        &mut unique_type_id);
             },
-            ty::ty_bare_fn(ty::BareFnTy{ fn_style, abi, ref sig } ) => {
-                if fn_style == ast::UnsafeFn {
+            ty::ty_bare_fn(ty::BareFnTy{ unsafety, abi, ref sig } ) => {
+                if unsafety == ast::Unsafety::Unsafe {
                     unique_type_id.push_str("unsafe ");
                 }
 
@@ -551,13 +551,13 @@ impl<'tcx> TypeMap<'tcx> {
                                               cx: &CrateContext<'a, 'tcx>,
                                               closure_ty: ty::ClosureTy<'tcx>,
                                               unique_type_id: &mut String) {
-        let ty::ClosureTy { fn_style,
+        let ty::ClosureTy { unsafety,
                             onceness,
                             store,
                             ref bounds,
                             ref sig,
                             abi: _ } = closure_ty;
-        if fn_style == ast::UnsafeFn {
+        if unsafety == ast::Unsafety::Unsafe {
             unique_type_id.push_str("unsafe ");
         }
 
@@ -1238,7 +1238,6 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         }
         ast_map::NodeExpr(ref expr) => {
             match expr.node {
-                ast::ExprProc(ref fn_decl, ref top_level_block) |
                 ast::ExprClosure(_, _, ref fn_decl, ref top_level_block) => {
                     let name = format!("fn{}", token::gensym("fn"));
                     let name = token::str_to_ident(name.as_slice());
@@ -3211,13 +3210,13 @@ fn populate_scope_map(cx: &CrateContext,
     });
 
     // local helper functions for walking the AST.
-    fn with_new_scope(cx: &CrateContext,
-                      scope_span: Span,
-                      scope_stack: &mut Vec<ScopeStackEntry> ,
-                      scope_map: &mut NodeMap<DIScope>,
-                      inner_walk: |&CrateContext,
-                                   &mut Vec<ScopeStackEntry> ,
-                                   &mut NodeMap<DIScope>|) {
+    fn with_new_scope<F>(cx: &CrateContext,
+                         scope_span: Span,
+                         scope_stack: &mut Vec<ScopeStackEntry> ,
+                         scope_map: &mut NodeMap<DIScope>,
+                         inner_walk: F) where
+        F: FnOnce(&CrateContext, &mut Vec<ScopeStackEntry>, &mut NodeMap<DIScope>),
+    {
         // Create a new lexical scope and push it onto the stack
         let loc = cx.sess().codemap().lookup_char_pos(scope_span.lo);
         let file_metadata = file_metadata(cx, loc.file.name.as_slice());
@@ -3587,7 +3586,6 @@ fn populate_scope_map(cx: &CrateContext,
                 })
             }
 
-            ast::ExprProc(ref decl, ref block) |
             ast::ExprClosure(_, _, ref decl, ref block) => {
                 with_new_scope(cx,
                                block.span,
@@ -3768,8 +3766,8 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             push_item_name(cx, trait_data.principal.def_id, false, output);
             push_type_params(cx, &trait_data.principal.substs, output);
         },
-        ty::ty_bare_fn(ty::BareFnTy{ fn_style, abi, ref sig } ) => {
-            if fn_style == ast::UnsafeFn {
+        ty::ty_bare_fn(ty::BareFnTy{ unsafety, abi, ref sig } ) => {
+            if unsafety == ast::Unsafety::Unsafe {
                 output.push_str("unsafe ");
             }
 
@@ -3811,13 +3809,13 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 }
             }
         },
-        ty::ty_closure(box ty::ClosureTy { fn_style,
+        ty::ty_closure(box ty::ClosureTy { unsafety,
                                            onceness,
                                            store,
                                            ref sig,
                                            .. // omitting bounds ...
                                            }) => {
-            if fn_style == ast::UnsafeFn {
+            if unsafety == ast::Unsafety::Unsafe {
                 output.push_str("unsafe ");
             }
 

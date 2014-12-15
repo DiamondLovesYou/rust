@@ -21,7 +21,9 @@ use core::any::Any;
 use core::atomic::{AtomicUint, SeqCst};
 use core::iter::{IteratorExt, Take};
 use core::kinds::marker;
+use core::ops::FnOnce;
 use core::mem;
+use core::ops::FnMut;
 use core::prelude::{Clone, Drop, Err, Iterator, None, Ok, Option, Send, Some};
 use core::prelude::{drop};
 
@@ -33,6 +35,7 @@ use stack;
 use unwind;
 use unwind::Unwinder;
 use collections::str::SendStr;
+use thunk::Thunk;
 
 /// State associated with Rust tasks.
 ///
@@ -66,7 +69,7 @@ enum TaskState {
 
 pub struct TaskOpts {
     /// Invoke this procedure with the result of the task when it finishes.
-    pub on_exit: Option<proc(Result): Send>,
+    pub on_exit: Option<Thunk<Result>>,
     /// A name for the task-to-be, for identification in panic messages
     pub name: Option<SendStr>,
     /// The size of the stack for the spawned task
@@ -91,7 +94,7 @@ pub enum BlockedTask {
 
 /// Per-task state related to task death, killing, panic, etc.
 pub struct Death {
-    pub on_exit: Option<proc(Result):Send>,
+    pub on_exit: Option<Thunk<Result>>,
     marker: marker::NoCopy,
 }
 
@@ -115,7 +118,13 @@ impl Task {
         }
     }
 
-    pub fn spawn(opts: TaskOpts, f: proc():Send) {
+    pub fn spawn<F>(opts: TaskOpts, f: F)
+        where F : FnOnce(), F : Send
+    {
+        Task::spawn_thunk(opts, Thunk::new(f))
+    }
+
+    fn spawn_thunk(opts: TaskOpts, f: Thunk) {
         let TaskOpts { name, stack_size, on_exit } = opts;
 
         let mut task = box Task::new(None, None);
@@ -137,7 +146,7 @@ impl Task {
         // because by the time that this function is executing we've already
         // consumed at least a little bit of stack (we don't know the exact byte
         // address at which our stack started).
-        Thread::spawn_stack(stack, proc() {
+        Thread::spawn_stack(stack, move|| {
             let something_around_the_top_of_the_stack = 1;
             let addr = &something_around_the_top_of_the_stack as *const int;
             let my_stack = addr as uint;
@@ -149,7 +158,7 @@ impl Task {
             task.stack_bounds = (my_stack - stack + 1024, my_stack);
 
             let mut f = Some(f);
-            drop(task.run(|| { f.take().unwrap()() }).destroy());
+            drop(task.run(|| { f.take().unwrap().invoke(()) }).destroy());
             drop(token);
         })
     }
@@ -240,7 +249,7 @@ impl Task {
         //        reconsideration to whether it's a reasonable thing to let a
         //        task to do or not.
         match what_to_do {
-            Some(f) => { f(result) }
+            Some(f) => { f.invoke(result) }
             None => { drop(result) }
         }
 
@@ -297,9 +306,9 @@ impl Task {
     // `awoken` field which indicates whether we were actually woken up via some
     // invocation of `reawaken`. This flag is only ever accessed inside the
     // lock, so there's no need to make it atomic.
-    pub fn deschedule(mut self: Box<Task>,
-                      times: uint,
-                      f: |BlockedTask| -> ::core::result::Result<(), BlockedTask>) {
+    pub fn deschedule<F>(mut self: Box<Task>, times: uint, mut f: F) where
+        F: FnMut(BlockedTask) -> ::core::result::Result<(), BlockedTask>,
+    {
         unsafe {
             let me = &mut *self as *mut Task;
             let task = BlockedTask::block(self);
@@ -499,14 +508,13 @@ mod test {
     use super::*;
     use std::prelude::*;
     use std::task;
-    use unwind;
 
     #[test]
     fn unwind() {
-        let result = task::try(proc()());
+        let result = task::try(move|| ());
         rtdebug!("trying first assert");
         assert!(result.is_ok());
-        let result = task::try::<()>(proc() panic!());
+        let result = task::try(move|| -> () panic!());
         rtdebug!("trying second assert");
         assert!(result.is_err());
     }

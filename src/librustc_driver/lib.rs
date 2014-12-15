@@ -25,6 +25,7 @@
 #![feature(default_type_params, globs, import_shadowing, macro_rules, phase, quote)]
 #![feature(slicing_syntax, unsafe_destructor)]
 #![feature(rustc_diagnostic_macros)]
+#![feature(unboxed_closures)]
 
 extern crate arena;
 extern crate flate;
@@ -32,9 +33,10 @@ extern crate getopts;
 extern crate graphviz;
 extern crate libc;
 extern crate rustc;
-extern crate rustc_typeck;
 extern crate rustc_back;
+extern crate rustc_borrowck;
 extern crate rustc_trans;
+extern crate rustc_typeck;
 #[phase(plugin, link)] extern crate log;
 #[phase(plugin, link)] extern crate syntax;
 extern crate serialize;
@@ -69,7 +71,7 @@ pub mod driver;
 pub mod pretty;
 
 pub fn run(args: Vec<String>) -> int {
-    monitor(proc() run_compiler(args.as_slice()));
+    monitor(move |:| run_compiler(args.as_slice()));
     0
 }
 
@@ -472,7 +474,7 @@ pub fn list_metadata(sess: &Session, path: &Path,
 ///
 /// The diagnostic emitter yielded to the procedure should be used for reporting
 /// errors of the compiler.
-pub fn monitor(f: proc():Send) {
+pub fn monitor<F:FnOnce()+Send>(f: F) {
     static STACK_SIZE: uint = 32000000; // 32MB
 
     let (tx, rx) = channel();

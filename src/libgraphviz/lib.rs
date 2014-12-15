@@ -218,7 +218,7 @@
 //! impl<'a> dot::Labeller<'a, Nd<'a>, Ed<'a>> for Graph {
 //!     fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new("example3").unwrap() }
 //!     fn node_id(&'a self, n: &Nd<'a>) -> dot::Id<'a> {
-//!         dot::Id::new(format!("N{}", n.val0())).unwrap()
+//!         dot::Id::new(format!("N{}", n.0)).unwrap()
 //!     }
 //!     fn node_label<'a>(&'a self, n: &Nd<'a>) -> dot::LabelText<'a> {
 //!         let &(i, _) = n;
@@ -269,6 +269,7 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 #![feature(globs, slicing_syntax)]
+#![feature(unboxed_closures)]
 
 pub use self::LabelText::*;
 
@@ -420,7 +421,7 @@ pub trait Labeller<'a,N,E> {
 }
 
 impl<'a> LabelText<'a> {
-    fn escape_char(c: char, f: |char|) {
+    fn escape_char<F>(c: char, mut f: F) where F: FnMut(char) {
         match c {
             // not escaping \\, since Graphviz escString needs to
             // interpret backslashes; see EscStr above.

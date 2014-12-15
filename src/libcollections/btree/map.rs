@@ -107,10 +107,12 @@ pub struct MoveEntries<K, V> {
 }
 
 /// An iterator over a BTreeMap's keys.
-pub type Keys<'a, K, V> = iter::Map<'static, (&'a K, &'a V), &'a K, Entries<'a, K, V>>;
+pub type Keys<'a, K, V> =
+    iter::Map<(&'a K, &'a V), &'a K, Entries<'a, K, V>, fn((&'a K, &'a V)) -> &'a K>;
 
 /// An iterator over a BTreeMap's values.
-pub type Values<'a, K, V> = iter::Map<'static, (&'a K, &'a V), &'a V, Entries<'a, K, V>>;
+pub type Values<'a, K, V> =
+    iter::Map<(&'a K, &'a V), &'a V, Entries<'a, K, V>, fn((&'a K, &'a V)) -> &'a V>;
 
 /// A view into a single entry in a map, which may either be vacant or occupied.
 pub enum Entry<'a, K:'a, V:'a> {
@@ -1131,6 +1133,24 @@ impl<K, V> BTreeMap<K, V> {
     }
 
     /// Gets a mutable iterator over the entries of the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    ///
+    /// let mut map = BTreeMap::new();
+    /// map.insert("a", 1u);
+    /// map.insert("b", 2u);
+    /// map.insert("c", 3u);
+    ///
+    /// // add 10 to the value if the key isn't "a"
+    /// for (key, value) in map.iter_mut() {
+    ///     if key != &"a" {
+    ///         *value += 10;
+    ///     }
+    /// }
+    /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn iter_mut<'a>(&'a mut self) -> MutEntries<'a, K, V> {
         let len = self.len();
@@ -1145,6 +1165,21 @@ impl<K, V> BTreeMap<K, V> {
     }
 
     /// Gets an owning iterator over the entries of the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    ///
+    /// let mut map = BTreeMap::new();
+    /// map.insert(1u, "a");
+    /// map.insert(2u, "b");
+    /// map.insert(3u, "c");
+    ///
+    /// for (key, value) in map.into_iter() {
+    ///     println!("{}: {}", key, value);
+    /// }
+    /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn into_iter(self) -> MoveEntries<K, V> {
         let len = self.len();
@@ -1174,7 +1209,9 @@ impl<K, V> BTreeMap<K, V> {
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn keys<'a>(&'a self) -> Keys<'a, K, V> {
-        self.iter().map(|(k, _)| k)
+        fn first<A, B>((a, _): (A, B)) -> A { a }
+
+        self.iter().map(first)
     }
 
     /// Gets an iterator over the values of the map.
@@ -1193,7 +1230,9 @@ impl<K, V> BTreeMap<K, V> {
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn values<'a>(&'a self) -> Values<'a, K, V> {
-        self.iter().map(|(_, v)| v)
+        fn second<A, B>((_, b): (A, B)) -> B { b }
+
+        self.iter().map(second)
     }
 
     /// Return the number of elements in the map.

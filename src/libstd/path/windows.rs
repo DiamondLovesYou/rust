@@ -38,12 +38,12 @@ use super::{contains_nul, BytesContainer, GenericPath, GenericPathUnsafe};
 ///
 /// Each component is yielded as Option<&str> for compatibility with PosixPath, but
 /// every component in WindowsPath is guaranteed to be Some.
-pub type StrComponents<'a> = Map<'a, &'a str, Option<&'a str>,
-                                       CharSplits<'a, char>>;
+pub type StrComponents<'a> =
+    Map<&'a str, Option<&'a str>, CharSplits<'a, char>, fn(&'a str) -> Option<&'a str>>;
 
 /// Iterator that yields successive components of a Path as &[u8]
-pub type Components<'a> = Map<'a, Option<&'a str>, &'a [u8],
-                                    StrComponents<'a>>;
+pub type Components<'a> =
+    Map<Option<&'a str>, &'a [u8], StrComponents<'a>, fn(Option<&str>) -> &[u8]>;
 
 /// Represents a Windows path
 // Notes for Windows path impl:
@@ -1038,9 +1038,8 @@ fn parse_prefix<'a>(mut path: &'a str) -> Option<PathPrefix> {
     }
     return None;
 
-    fn parse_two_comps<'a>(mut path: &'a str, f: |char| -> bool)
-                       -> Option<(uint, uint)> {
-        let idx_a = match path.find(|x| f(x)) {
+    fn parse_two_comps(mut path: &str, f: fn(char) -> bool) -> Option<(uint, uint)> {
+        let idx_a = match path.find(f) {
             None => return None,
             Some(x) => x
         };
@@ -1300,17 +1299,17 @@ mod tests {
     #[test]
     fn test_null_byte() {
         use task;
-        let result = task::try(proc() {
+        let result = task::try(move|| {
             Path::new(b"foo/bar\0")
         });
         assert!(result.is_err());
 
-        let result = task::try(proc() {
+        let result = task::try(move|| {
             Path::new("test").set_filename(b"f\0o")
         });
         assert!(result.is_err());
 
-        let result = task::try(proc() {
+        let result = task::try(move|| {
             Path::new("test").push(b"f\0o");
         });
         assert!(result.is_err());

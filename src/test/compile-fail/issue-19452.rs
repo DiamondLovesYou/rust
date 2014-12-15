@@ -8,12 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(unboxed_closures)]
-
-use std::ops::FnOnce;
-
-fn main() {
-    let task: Box<FnOnce(int) -> int> = box |: x| x;
-    assert!(task.call_once((1234i,)) == 1234i);
+enum Homura {
+    Madoka { age: u32 }
 }
 
+fn main() {
+    let homura = Homura::Madoka; //~ ERROR uses it like a function
+}

@@ -107,6 +107,7 @@
 #![feature(macro_rules, globs, linkage)]
 #![feature(default_type_params, phase, lang_items, unsafe_destructor)]
 #![feature(import_shadowing, slicing_syntax)]
+#![feature(unboxed_closures)]
 
 // Don't link to std. We are std.
 #![no_std]
@@ -169,6 +170,8 @@ pub use core_collections::vec;
 pub use rustrt::c_str;
 
 pub use unicode::char;
+
+pub use rustrt::thunk;
 
 /* Exported macros */
 

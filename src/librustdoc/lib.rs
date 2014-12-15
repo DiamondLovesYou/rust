@@ -19,6 +19,7 @@
 
 #![allow(unknown_features)]
 #![feature(globs, macro_rules, phase, slicing_syntax)]
+#![feature(unboxed_closures)]
 
 extern crate arena;
 extern crate getopts;
@@ -341,7 +342,7 @@ fn rust_input(cratefile: &str, externs: core::Externs, matches: &getopts::Matche
 
     let cr = Path::new(cratefile);
     info!("starting to run rustc");
-    let (mut krate, analysis) = std::task::try(proc() {
+    let (mut krate, analysis) = std::task::try(move |:| {
         let cr = cr;
         core::run_core(libs, cfgs, externs, &cr, triple)
     }).map_err(|_| "rustc failed").unwrap();
@@ -399,7 +400,7 @@ fn rust_input(cratefile: &str, externs: core::Externs, matches: &getopts::Matche
                                  .position(|&(p, _, _)| {
                                      p == *pass
                                  }) {
-            Some(i) => PASSES[i].val1(),
+            Some(i) => PASSES[i].1,
             None => {
                 error!("unknown pass {}, skipping", *pass);
                 continue

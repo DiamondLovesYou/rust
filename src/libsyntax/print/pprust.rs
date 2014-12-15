@@ -165,7 +165,9 @@ impl<'a> State<'a> {
     }
 }
 
-pub fn to_string(f: |&mut State| -> IoResult<()>) -> String {
+pub fn to_string<F>(f: F) -> String where
+    F: FnOnce(&mut State) -> IoResult<()>,
+{
     use std::raw::TraitObject;
     let mut s = rust_printer(box Vec::new());
     f(&mut s).unwrap();
@@ -361,11 +363,11 @@ pub fn ident_to_string(id: &ast::Ident) -> String {
     $to_string(|s| s.print_ident(*id))
 }
 
-pub fn fun_to_string(decl: &ast::FnDecl, fn_style: ast::FnStyle, name: ast::Ident,
+pub fn fun_to_string(decl: &ast::FnDecl, unsafety: ast::Unsafety, name: ast::Ident,
                   opt_explicit_self: Option<&ast::ExplicitSelf_>,
                   generics: &ast::Generics) -> String {
     $to_string(|s| {
-        try!(s.print_fn(decl, Some(fn_style), abi::Rust,
+        try!(s.print_fn(decl, Some(unsafety), abi::Rust,
                         name, generics, opt_explicit_self, ast::Inherited));
         try!(s.end()); // Close the head box
         s.end() // Close the outer box
@@ -426,8 +428,10 @@ pub mod with_hygiene {
 
     // This function is the trick that all the rest of the routines
     // hang on.
-    pub fn to_string_hyg(f: |&mut super::State| -> IoResult<()>) -> String {
-        super::to_string(|s| {
+    pub fn to_string_hyg<F>(f: F) -> String where
+        F: FnOnce(&mut super::State) -> IoResult<()>,
+    {
+        super::to_string(move |s| {
             s.encode_idents_with_hygiene = true;
             f(s)
         })
@@ -446,7 +450,7 @@ pub fn visibility_qualified(vis: ast::Visibility, s: &str) -> String {
 fn needs_parentheses(expr: &ast::Expr) -> bool {
     match expr.node {
         ast::ExprAssign(..) | ast::ExprBinary(..) |
-        ast::ExprClosure(..) | ast::ExprProc(..) |
+        ast::ExprClosure(..) |
         ast::ExprAssignOp(..) | ast::ExprCast(..) => true,
         _ => false,
     }
@@ -580,9 +584,9 @@ impl<'a> State<'a> {
         word(&mut self.s, "*/")
     }
 
-    pub fn commasep<T>(&mut self, b: Breaks, elts: &[T],
-                       op: |&mut State, &T| -> IoResult<()>)
-        -> IoResult<()> {
+    pub fn commasep<T, F>(&mut self, b: Breaks, elts: &[T], mut op: F) -> IoResult<()> where
+        F: FnMut(&mut State, &T) -> IoResult<()>,
+    {
         try!(self.rbox(0u, b));
         let mut first = true;
         for elt in elts.iter() {
@@ -593,12 +597,14 @@ impl<'a> State<'a> {
     }
 
 
-    pub fn commasep_cmnt<T>(
-                         &mut self,
-                         b: Breaks,
-                         elts: &[T],
-                         op: |&mut State, &T| -> IoResult<()>,
-                         get_span: |&T| -> codemap::Span) -> IoResult<()> {
+    pub fn commasep_cmnt<T, F, G>(&mut self,
+                                  b: Breaks,
+                                  elts: &[T],
+                                  mut op: F,
+                                  mut get_span: G) -> IoResult<()> where
+        F: FnMut(&mut State, &T) -> IoResult<()>,
+        G: FnMut(&T) -> codemap::Span,
+    {
         try!(self.rbox(0u, b));
         let len = elts.len();
         let mut i = 0u;
@@ -701,7 +707,7 @@ impl<'a> State<'a> {
                 };
                 try!(self.print_ty_fn(Some(f.abi),
                                       None,
-                                      f.fn_style,
+                                      f.unsafety,
                                       ast::Many,
                                       &*f.decl,
                                       None,
@@ -720,26 +726,7 @@ impl<'a> State<'a> {
                 };
                 try!(self.print_ty_fn(None,
                                       Some('&'),
-                                      f.fn_style,
-                                      f.onceness,
-                                      &*f.decl,
-                                      None,
-                                      &f.bounds,
-                                      Some(&generics),
-                                      None));
-            }
-            ast::TyProc(ref f) => {
-                let generics = ast::Generics {
-                    lifetimes: f.lifetimes.clone(),
-                    ty_params: OwnedSlice::empty(),
-                    where_clause: ast::WhereClause {
-                        id: ast::DUMMY_NODE_ID,
-                        predicates: Vec::new(),
-                    },
-                };
-                try!(self.print_ty_fn(None,
-                                      Some('~'),
-                                      f.fn_style,
+                                      f.unsafety,
                                       f.onceness,
                                       &*f.decl,
                                       None,
@@ -871,10 +858,10 @@ impl<'a> State<'a> {
                 try!(word(&mut self.s, ";"));
                 try!(self.end()); // end the outer cbox
             }
-            ast::ItemFn(ref decl, fn_style, abi, ref typarams, ref body) => {
+            ast::ItemFn(ref decl, unsafety, abi, ref typarams, ref body) => {
                 try!(self.print_fn(
                     &**decl,
-                    Some(fn_style),
+                    Some(unsafety),
                     abi,
                     item.ident,
                     typarams,
@@ -930,12 +917,16 @@ impl<'a> State<'a> {
                 try!(self.print_struct(&**struct_def, generics, item.ident, item.span));
             }
 
-            ast::ItemImpl(ref generics,
+            ast::ItemImpl(unsafety,
+                          ref generics,
                           ref opt_trait,
                           ref ty,
                           ref impl_items) => {
-                try!(self.head(visibility_qualified(item.vis,
-                                                    "impl").as_slice()));
+                try!(self.head(""));
+                try!(self.print_visibility(item.vis));
+                try!(self.print_unsafety(unsafety));
+                try!(self.word_nbsp("impl"));
+
                 if generics.is_parameterized() {
                     try!(self.print_generics(generics));
                     try!(space(&mut self.s));
@@ -968,9 +959,11 @@ impl<'a> State<'a> {
                 }
                 try!(self.bclose(item.span));
             }
-            ast::ItemTrait(ref generics, ref unbound, ref bounds, ref methods) => {
-                try!(self.head(visibility_qualified(item.vis,
-                                                    "trait").as_slice()));
+            ast::ItemTrait(unsafety, ref generics, ref unbound, ref bounds, ref methods) => {
+                try!(self.head(""));
+                try!(self.print_visibility(item.vis));
+                try!(self.print_unsafety(unsafety));
+                try!(self.word_nbsp("trait"));
                 try!(self.print_ident(item.ident));
                 try!(self.print_generics(generics));
                 if let &Some(ref tref) = unbound {
@@ -1201,7 +1194,7 @@ impl<'a> State<'a> {
         try!(self.print_outer_attributes(m.attrs.as_slice()));
         try!(self.print_ty_fn(None,
                               None,
-                              m.fn_style,
+                              m.unsafety,
                               ast::Many,
                               &*m.decl,
                               Some(m.ident),
@@ -1236,12 +1229,12 @@ impl<'a> State<'a> {
                           ref generics,
                           abi,
                           ref explicit_self,
-                          fn_style,
+                          unsafety,
                           ref decl,
                           ref body,
                           vis) => {
                 try!(self.print_fn(&**decl,
-                                   Some(fn_style),
+                                   Some(unsafety),
                                    abi,
                                    ident,
                                    generics,
@@ -1690,33 +1683,6 @@ impl<'a> State<'a> {
                 // empty box to satisfy the close.
                 try!(self.ibox(0));
             }
-            ast::ExprProc(ref decl, ref body) => {
-                // in do/for blocks we don't want to show an empty
-                // argument list, but at this point we don't know which
-                // we are inside.
-                //
-                // if !decl.inputs.is_empty() {
-                try!(self.print_proc_args(&**decl));
-                try!(space(&mut self.s));
-                // }
-                assert!(body.stmts.is_empty());
-                assert!(body.expr.is_some());
-                // we extract the block, so as not to create another set of boxes
-                match body.expr.as_ref().unwrap().node {
-                    ast::ExprBlock(ref blk) => {
-                        try!(self.print_block_unclosed(&**blk));
-                    }
-                    _ => {
-                        // this is a bare expression
-                        try!(self.print_expr(body.expr.as_ref().map(|e| &**e).unwrap()));
-                        try!(self.end()); // need to close a box
-                    }
-                }
-                // a box will be closed by print_expr, but we didn't want an overall
-                // wrapper so we closed the corresponding opening. so create an
-                // empty box to satisfy the close.
-                try!(self.ibox(0));
-            }
             ast::ExprBlock(ref blk) => {
                 // containing cbox, will be closed by print-block at }
                 try!(self.cbox(indent_unit));
@@ -2004,6 +1970,7 @@ impl<'a> State<'a> {
                 match data.output {
                     None => { }
                     Some(ref ty) => {
+                        try!(self.space_if_not_bol());
                         try!(self.word_space("->"));
                         try!(self.print_type(&**ty));
                     }
@@ -2203,14 +2170,14 @@ impl<'a> State<'a> {
 
     pub fn print_fn(&mut self,
                     decl: &ast::FnDecl,
-                    fn_style: Option<ast::FnStyle>,
+                    unsafety: Option<ast::Unsafety>,
                     abi: abi::Abi,
                     name: ast::Ident,
                     generics: &ast::Generics,
                     opt_explicit_self: Option<&ast::ExplicitSelf_>,
                     vis: ast::Visibility) -> IoResult<()> {
         try!(self.head(""));
-        try!(self.print_fn_header_info(opt_explicit_self, fn_style, abi, vis));
+        try!(self.print_fn_header_info(opt_explicit_self, unsafety, abi, vis));
         try!(self.nbsp());
         try!(self.print_ident(name));
         try!(self.print_generics(generics));
@@ -2627,7 +2594,7 @@ impl<'a> State<'a> {
     pub fn print_ty_fn(&mut self,
                        opt_abi: Option<abi::Abi>,
                        opt_sigil: Option<char>,
-                       fn_style: ast::FnStyle,
+                       unsafety: ast::Unsafety,
                        onceness: ast::Onceness,
                        decl: &ast::FnDecl,
                        id: Option<ast::Ident>,
@@ -2642,11 +2609,11 @@ impl<'a> State<'a> {
         if opt_sigil == Some('~') && onceness == ast::Once {
             try!(word(&mut self.s, "proc"));
         } else if opt_sigil == Some('&') {
-            try!(self.print_fn_style(fn_style));
+            try!(self.print_unsafety(unsafety));
             try!(self.print_extern_opt_abi(opt_abi));
         } else {
             assert!(opt_sigil.is_none());
-            try!(self.print_fn_style(fn_style));
+            try!(self.print_unsafety(unsafety));
             try!(self.print_opt_abi_and_extern_if_nondefault(opt_abi));
             try!(word(&mut self.s, "fn"));
         }
@@ -2911,10 +2878,10 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn print_opt_fn_style(&mut self,
-                            opt_fn_style: Option<ast::FnStyle>) -> IoResult<()> {
-        match opt_fn_style {
-            Some(fn_style) => self.print_fn_style(fn_style),
+    pub fn print_opt_unsafety(&mut self,
+                            opt_unsafety: Option<ast::Unsafety>) -> IoResult<()> {
+        match opt_unsafety {
+            Some(unsafety) => self.print_unsafety(unsafety),
             None => Ok(())
         }
     }
@@ -2945,11 +2912,11 @@ impl<'a> State<'a> {
 
     pub fn print_fn_header_info(&mut self,
                                 _opt_explicit_self: Option<&ast::ExplicitSelf_>,
-                                opt_fn_style: Option<ast::FnStyle>,
+                                opt_unsafety: Option<ast::Unsafety>,
                                 abi: abi::Abi,
                                 vis: ast::Visibility) -> IoResult<()> {
         try!(word(&mut self.s, visibility_qualified(vis, "").as_slice()));
-        try!(self.print_opt_fn_style(opt_fn_style));
+        try!(self.print_opt_unsafety(opt_unsafety));
 
         if abi != abi::Rust {
             try!(self.word_nbsp("extern"));
@@ -2959,10 +2926,10 @@ impl<'a> State<'a> {
         word(&mut self.s, "fn")
     }
 
-    pub fn print_fn_style(&mut self, s: ast::FnStyle) -> IoResult<()> {
+    pub fn print_unsafety(&mut self, s: ast::Unsafety) -> IoResult<()> {
         match s {
-            ast::NormalFn => Ok(()),
-            ast::UnsafeFn => self.word_nbsp("unsafe"),
+            ast::Unsafety::Normal => Ok(()),
+            ast::Unsafety::Unsafe => self.word_nbsp("unsafe"),
         }
     }
 }
@@ -2989,7 +2956,7 @@ mod test {
             variadic: false
         };
         let generics = ast_util::empty_generics();
-        assert_eq!(fun_to_string(&decl, ast::NormalFn, abba_ident,
+        assert_eq!(fun_to_string(&decl, ast::Unsafety::Normal, abba_ident,
                                None, &generics),
                    "fn abba()");
     }

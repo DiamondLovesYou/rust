@@ -84,13 +84,14 @@ use self::TupleArgumentsFlag::*;
 
 use astconv::{mod, ast_region_to_region, ast_ty_to_ty, AstConv};
 use check::_match::pat_ctxt;
-use middle::{const_eval, def, traits};
+use middle::{const_eval, def};
 use middle::infer;
 use middle::lang_items::IteratorItem;
 use middle::mem_categorization::{mod, McResult};
 use middle::pat_util::{mod, pat_id_map};
 use middle::region::CodeExtent;
 use middle::subst::{mod, Subst, Substs, VecPerParamSpace, ParamSpace};
+use middle::traits;
 use middle::ty::{FnSig, VariantInfo, Polytype};
 use middle::ty::{Disr, ParamTy, ParameterEnvironment};
 use middle::ty::{mod, Ty};
@@ -108,7 +109,6 @@ use util::ppaux::{mod, UserString, Repr};
 use util::nodemap::{DefIdMap, FnvHashMap, NodeMap};
 
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::hash_map::{Occupied, Vacant};
 use std::mem::replace;
 use std::rc::Rc;
 use syntax::{mod, abi, attr};
@@ -136,7 +136,7 @@ mod callee;
 /// closures defined within the function.  For example:
 ///
 ///     fn foo() {
-///         bar(proc() { ... })
+///         bar(move|| { ... })
 ///     }
 ///
 /// Here, the function `foo()` and the closure passed to
@@ -161,40 +161,8 @@ pub struct Inherited<'a, 'tcx: 'a> {
     // one is never copied into the tcx: it is only used by regionck.
     fn_sig_map: RefCell<NodeMap<Vec<Ty<'tcx>>>>,
 
-    // A set of constraints that regionck must validate. Each
-    // constraint has the form `T:'a`, meaning "some type `T` must
-    // outlive the lifetime 'a". These constraints derive from
-    // instantiated type parameters. So if you had a struct defined
-    // like
-    //
-    //     struct Foo<T:'static> { ... }
-    //
-    // then in some expression `let x = Foo { ... }` it will
-    // instantiate the type parameter `T` with a fresh type `$0`. At
-    // the same time, it will record a region obligation of
-    // `$0:'static`. This will get checked later by regionck. (We
-    // can't generally check these things right away because we have
-    // to wait until types are resolved.)
-    //
-    // These are stored in a map keyed to the id of the innermost
-    // enclosing fn body / static initializer expression. This is
-    // because the location where the obligation was incurred can be
-    // relevant with respect to which sublifetime assumptions are in
-    // place. The reason that we store under the fn-id, and not
-    // something more fine-grained, is so that it is easier for
-    // regionck to be sure that it has found *all* the region
-    // obligations (otherwise, it's easy to fail to walk to a
-    // particular node-id).
-    region_obligations: RefCell<NodeMap<Vec<RegionObligation<'tcx>>>>,
-
     // Tracks trait obligations incurred during this function body.
     fulfillment_cx: RefCell<traits::FulfillmentContext<'tcx>>,
-}
-
-struct RegionObligation<'tcx> {
-    sub_region: ty::Region,
-    sup_type: Ty<'tcx>,
-    origin: infer::SubregionOrigin<'tcx>,
 }
 
 /// When type-checking an expression, we propagate downward
@@ -212,35 +180,33 @@ enum Expectation<'tcx> {
 
 impl<'tcx> Copy for Expectation<'tcx> {}
 
-#[deriving(Clone)]
-pub struct FnStyleState {
+#[deriving(Copy, Clone)]
+pub struct UnsafetyState {
     pub def: ast::NodeId,
-    pub fn_style: ast::FnStyle,
+    pub unsafety: ast::Unsafety,
     from_fn: bool
 }
 
-impl Copy for FnStyleState {}
-
-impl FnStyleState {
-    pub fn function(fn_style: ast::FnStyle, def: ast::NodeId) -> FnStyleState {
-        FnStyleState { def: def, fn_style: fn_style, from_fn: true }
+impl UnsafetyState {
+    pub fn function(unsafety: ast::Unsafety, def: ast::NodeId) -> UnsafetyState {
+        UnsafetyState { def: def, unsafety: unsafety, from_fn: true }
     }
 
-    pub fn recurse(&mut self, blk: &ast::Block) -> FnStyleState {
-        match self.fn_style {
+    pub fn recurse(&mut self, blk: &ast::Block) -> UnsafetyState {
+        match self.unsafety {
             // If this unsafe, then if the outer function was already marked as
             // unsafe we shouldn't attribute the unsafe'ness to the block. This
             // way the block can be warned about instead of ignoring this
             // extraneous block (functions are never warned about).
-            ast::UnsafeFn if self.from_fn => *self,
+            ast::Unsafety::Unsafe if self.from_fn => *self,
 
-            fn_style => {
-                let (fn_style, def) = match blk.rules {
-                    ast::UnsafeBlock(..) => (ast::UnsafeFn, blk.id),
-                    ast::DefaultBlock => (fn_style, self.def),
+            unsafety => {
+                let (unsafety, def) = match blk.rules {
+                    ast::UnsafeBlock(..) => (ast::Unsafety::Unsafe, blk.id),
+                    ast::DefaultBlock => (unsafety, self.def),
                 };
-                FnStyleState{ def: def,
-                             fn_style: fn_style,
+                UnsafetyState{ def: def,
+                             unsafety: unsafety,
                              from_fn: false }
             }
         }
@@ -272,7 +238,7 @@ pub struct FnCtxt<'a, 'tcx: 'a> {
 
     ret_ty: ty::FnOutput<'tcx>,
 
-    ps: RefCell<FnStyleState>,
+    ps: RefCell<UnsafetyState>,
 
     inh: &'a Inherited<'a, 'tcx>,
 
@@ -328,7 +294,6 @@ impl<'a, 'tcx> Inherited<'a, 'tcx> {
             upvar_borrow_map: RefCell::new(FnvHashMap::new()),
             unboxed_closures: RefCell::new(DefIdMap::new()),
             fn_sig_map: RefCell::new(NodeMap::new()),
-            region_obligations: RefCell::new(NodeMap::new()),
             fulfillment_cx: RefCell::new(traits::FulfillmentContext::new()),
         }
     }
@@ -345,7 +310,7 @@ pub fn blank_fn_ctxt<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
         writeback_errors: Cell::new(false),
         err_count_on_creation: ccx.tcx.sess.err_count(),
         ret_ty: rty,
-        ps: RefCell::new(FnStyleState::function(ast::NormalFn, 0)),
+        ps: RefCell::new(UnsafetyState::function(ast::Unsafety::Normal, 0)),
         inh: inh,
         ccx: ccx
     }
@@ -407,7 +372,7 @@ fn check_bare_fn<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
     match fty.sty {
         ty::ty_bare_fn(ref fn_ty) => {
             let inh = Inherited::new(ccx.tcx, param_env);
-            let fcx = check_fn(ccx, fn_ty.fn_style, id, &fn_ty.sig,
+            let fcx = check_fn(ccx, fn_ty.unsafety, id, &fn_ty.sig,
                                decl, id, body, &inh);
 
             vtable::select_all_fcx_obligations_or_error(&fcx);
@@ -509,8 +474,8 @@ impl<'a, 'tcx, 'v> Visitor<'v> for GatherLocalsVisitor<'a, 'tcx> {
 /// * ...
 /// * inherited: other fields inherited from the enclosing fn (if any)
 fn check_fn<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
-                      fn_style: ast::FnStyle,
-                      fn_style_id: ast::NodeId,
+                      unsafety: ast::Unsafety,
+                      unsafety_id: ast::NodeId,
                       fn_sig: &ty::FnSig<'tcx>,
                       decl: &ast::FnDecl,
                       fn_id: ast::NodeId,
@@ -539,7 +504,7 @@ fn check_fn<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>,
         writeback_errors: Cell::new(false),
         err_count_on_creation: err_count_on_creation,
         ret_ty: ret_ty,
-        ps: RefCell::new(FnStyleState::function(fn_style, fn_style_id)),
+        ps: RefCell::new(UnsafetyState::function(unsafety, unsafety_id)),
         inh: inherited,
         ccx: ccx
     };
@@ -630,7 +595,7 @@ pub fn check_item(ccx: &CrateCtxt, it: &ast::Item) {
         let param_env = ParameterEnvironment::for_item(ccx.tcx, it.id);
         check_bare_fn(ccx, &**decl, &**body, it.id, fn_pty.ty, param_env);
       }
-      ast::ItemImpl(_, ref opt_trait_ref, _, ref impl_items) => {
+      ast::ItemImpl(_, _, ref opt_trait_ref, _, ref impl_items) => {
         debug!("ItemImpl {} with id {}", token::get_ident(it.ident), it.id);
 
         let impl_pty = ty::lookup_item_type(ccx.tcx, ast_util::local_def(it.id));
@@ -660,7 +625,7 @@ pub fn check_item(ccx: &CrateCtxt, it: &ast::Item) {
         }
 
       }
-      ast::ItemTrait(_, _, _, ref trait_methods) => {
+      ast::ItemTrait(_, _, _, _, ref trait_methods) => {
         let trait_def = ty::lookup_trait_def(ccx.tcx, local_def(it.id));
         for trait_method in trait_methods.iter() {
             match *trait_method {
@@ -1762,8 +1727,10 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
 
                 // If the type is `Foo+'a`, ensures that the type
                 // being cast to `Foo+'a` outlives `'a`:
-                let origin = infer::RelateObjectBound(span);
-                self.register_region_obligation(origin, self_ty, ty_trait.bounds.region_bound);
+                let cause = traits::ObligationCause { span: span,
+                                                      body_id: self.body_id,
+                                                      code: traits::ObjectCastObligation(self_ty) };
+                self.register_region_obligation(self_ty, ty_trait.bounds.region_bound, cause);
             }
         }
     }
@@ -1790,8 +1757,8 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         self.add_obligations_for_parameters(
             traits::ObligationCause::new(
                 span,
+                self.body_id,
                 traits::ItemObligation(def_id)),
-            &substs,
             &bounds);
         let monotype =
             polytype.ty.subst(self.tcx(), &substs);
@@ -1815,14 +1782,10 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                               code: traits::ObligationCauseCode<'tcx>,
                               bound: ty::BuiltinBound)
     {
-        let obligation = traits::obligation_for_builtin_bound(
-            self.tcx(),
-            traits::ObligationCause::new(span, code),
+        self.register_builtin_bound(
             ty,
-            bound);
-        if let Ok(ob) = obligation {
-            self.register_obligation(ob);
-        }
+            bound,
+            traits::ObligationCause::new(span, self.body_id, code));
     }
 
     pub fn require_type_is_sized(&self,
@@ -1840,15 +1803,24 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         self.require_type_is_sized(self.expr_ty(expr), expr.span, code);
     }
 
-    pub fn register_obligation(&self,
-                               obligation: traits::Obligation<'tcx>)
+    pub fn register_builtin_bound(&self,
+                                  ty: Ty<'tcx>,
+                                  builtin_bound: ty::BuiltinBound,
+                                  cause: traits::ObligationCause<'tcx>)
     {
-        debug!("register_obligation({})",
+        self.inh.fulfillment_cx.borrow_mut()
+            .register_builtin_bound(self.tcx(), ty, builtin_bound, cause);
+    }
+
+    pub fn register_predicate(&self,
+                              obligation: traits::PredicateObligation<'tcx>)
+    {
+        debug!("register_predicate({})",
                obligation.repr(self.tcx()));
 
         self.inh.fulfillment_cx
             .borrow_mut()
-            .register_obligation(self.tcx(), obligation);
+            .register_predicate(self.tcx(), obligation);
     }
 
     pub fn to_ty(&self, ast_t: &ast::Ty) -> Ty<'tcx> {
@@ -1911,9 +1883,11 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         self.inh.item_substs.borrow()
     }
 
-    pub fn opt_node_ty_substs(&self,
-                              id: ast::NodeId,
-                              f: |&ty::ItemSubsts<'tcx>|) {
+    pub fn opt_node_ty_substs<F>(&self,
+                                 id: ast::NodeId,
+                                 f: F) where
+        F: FnOnce(&ty::ItemSubsts<'tcx>),
+    {
         match self.inh.item_substs.borrow().get(&id) {
             Some(s) => { f(s) }
             None => { }
@@ -1964,11 +1938,13 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         infer::mk_subr(self.infcx(), origin, sub, sup)
     }
 
-    pub fn type_error_message(&self,
-                              sp: Span,
-                              mk_msg: |String| -> String,
-                              actual_ty: Ty<'tcx>,
-                              err: Option<&ty::type_err<'tcx>>) {
+    pub fn type_error_message<M>(&self,
+                                 sp: Span,
+                                 mk_msg: M,
+                                 actual_ty: Ty<'tcx>,
+                                 err: Option<&ty::type_err<'tcx>>) where
+        M: FnOnce(String) -> String,
+    {
         self.infcx().type_error_message(sp, mk_msg, actual_ty, err);
     }
 
@@ -1983,19 +1959,12 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     /// Registers an obligation for checking later, during regionck, that the type `ty` must
     /// outlive the region `r`.
     pub fn register_region_obligation(&self,
-                                      origin: infer::SubregionOrigin<'tcx>,
                                       ty: Ty<'tcx>,
-                                      r: ty::Region)
+                                      region: ty::Region,
+                                      cause: traits::ObligationCause<'tcx>)
     {
-        let mut region_obligations = self.inh.region_obligations.borrow_mut();
-        let region_obligation = RegionObligation { sub_region: r,
-                                                   sup_type: ty,
-                                                   origin: origin };
-
-        match region_obligations.entry(self.body_id) {
-            Vacant(entry) => { entry.set(vec![region_obligation]); },
-            Occupied(mut entry) => { entry.get_mut().push(region_obligation); },
-        }
+        let mut fulfillment_cx = self.inh.fulfillment_cx.borrow_mut();
+        fulfillment_cx.register_region_obligation(self.tcx(), ty, region, cause);
     }
 
     pub fn add_default_region_param_bounds(&self,
@@ -2004,8 +1973,9 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     {
         for &ty in substs.types.iter() {
             let default_bound = ty::ReScope(CodeExtent::from_node_id(expr.id));
-            let origin = infer::RelateDefaultParamBound(expr.span, ty);
-            self.register_region_obligation(origin, ty, default_bound);
+            let cause = traits::ObligationCause::new(expr.span, self.body_id,
+                                                     traits::MiscObligation);
+            self.register_region_obligation(ty, default_bound, cause);
         }
     }
 
@@ -2029,90 +1999,18 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     /// and `T`. This routine will add a region obligation `$1:'$0` and register it locally.
     pub fn add_obligations_for_parameters(&self,
                                           cause: traits::ObligationCause<'tcx>,
-                                          substs: &Substs<'tcx>,
                                           generic_bounds: &ty::GenericBounds<'tcx>)
     {
         assert!(!generic_bounds.has_escaping_regions());
 
-        debug!("add_obligations_for_parameters(substs={}, generic_bounds={})",
-               substs.repr(self.tcx()),
+        debug!("add_obligations_for_parameters(generic_bounds={})",
                generic_bounds.repr(self.tcx()));
 
-        self.add_trait_obligations_for_generics(cause, substs, generic_bounds);
-        self.add_region_obligations_for_generics(cause, substs, generic_bounds);
-    }
+        let obligations = traits::predicates_for_generics(self.tcx(),
+                                                          cause,
+                                                          generic_bounds);
 
-    fn add_trait_obligations_for_generics(&self,
-                                          cause: traits::ObligationCause<'tcx>,
-                                          substs: &Substs<'tcx>,
-                                          generic_bounds: &ty::GenericBounds<'tcx>) {
-        assert!(!generic_bounds.has_escaping_regions());
-        assert!(!substs.has_regions_escaping_depth(0));
-
-        let obligations =
-            traits::obligations_for_generics(self.tcx(),
-                                             cause,
-                                             generic_bounds,
-                                             &substs.types);
-        obligations.map_move(|o| self.register_obligation(o));
-    }
-
-    fn add_region_obligations_for_generics(&self,
-                                           cause: traits::ObligationCause<'tcx>,
-                                           substs: &Substs<'tcx>,
-                                           generic_bounds: &ty::GenericBounds<'tcx>)
-    {
-        assert!(!generic_bounds.has_escaping_regions());
-        assert_eq!(generic_bounds.types.iter().len(), substs.types.iter().len());
-
-        for (type_bounds, &type_param) in
-            generic_bounds.types.iter().zip(
-                substs.types.iter())
-        {
-            self.add_region_obligations_for_type_parameter(
-                cause.span, type_bounds, type_param);
-        }
-
-        assert_eq!(generic_bounds.regions.iter().len(),
-                   substs.regions().iter().len());
-        for (region_bounds, &region_param) in
-            generic_bounds.regions.iter().zip(
-                substs.regions().iter())
-        {
-            self.add_region_obligations_for_region_parameter(
-                cause.span, region_bounds.as_slice(), region_param);
-        }
-    }
-
-    fn add_region_obligations_for_type_parameter(&self,
-                                                 span: Span,
-                                                 param_bound: &ty::ParamBounds<'tcx>,
-                                                 ty: Ty<'tcx>)
-    {
-        // For each declared region bound `T:r`, `T` must outlive `r`.
-        let region_bounds =
-            ty::required_region_bounds(
-                self.tcx(),
-                param_bound.region_bounds.as_slice(),
-                param_bound.builtin_bounds,
-                param_bound.trait_bounds.as_slice());
-        for &r in region_bounds.iter() {
-            let origin = infer::RelateParamBound(span, ty);
-            self.register_region_obligation(origin, ty, r);
-        }
-    }
-
-    fn add_region_obligations_for_region_parameter(&self,
-                                                   span: Span,
-                                                   region_bounds: &[ty::Region],
-                                                   region_param: ty::Region)
-    {
-        for &b in region_bounds.iter() {
-            // For each bound `region:b`, `b <= region` must hold
-            // (i.e., `region` must outlive `b`).
-            let origin = infer::RelateRegionParamBound(span);
-            self.mk_subr(origin, b, region_param);
-        }
+        obligations.map_move(|o| self.register_predicate(o));
     }
 }
 
@@ -2129,12 +2027,14 @@ impl Copy for LvaluePreference {}
 ///
 /// Note: this method does not modify the adjustments table. The caller is responsible for
 /// inserting an AutoAdjustment record into the `fcx` using one of the suitable methods.
-pub fn autoderef<'a, 'tcx, T>(fcx: &FnCtxt<'a, 'tcx>, sp: Span,
-                              base_ty: Ty<'tcx>,
-                              expr_id: Option<ast::NodeId>,
-                              mut lvalue_pref: LvaluePreference,
-                              should_stop: |Ty<'tcx>, uint| -> Option<T>)
-                              -> (Ty<'tcx>, uint, Option<T>) {
+pub fn autoderef<'a, 'tcx, T, F>(fcx: &FnCtxt<'a, 'tcx>, sp: Span,
+                                 base_ty: Ty<'tcx>,
+                                 expr_id: Option<ast::NodeId>,
+                                 mut lvalue_pref: LvaluePreference,
+                                 mut should_stop: F)
+                                 -> (Ty<'tcx>, uint, Option<T>) where
+    F: FnMut(Ty<'tcx>, uint) -> Option<T>,
+{
     let mut t = base_ty;
     for autoderefs in range(0, fcx.tcx().sess.recursion_limit.get()) {
         let resolved_t = structurally_resolved_type(fcx, sp, t);
@@ -2220,14 +2120,6 @@ fn try_overloaded_call<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         fcx.inh.method_map.borrow_mut().insert(method_call, method_callee);
         write_call(fcx, call_expression, output_type);
 
-        if !fcx.tcx().sess.features.borrow().unboxed_closures {
-            span_err!(fcx.tcx().sess, call_expression.span, E0056,
-                "overloaded calls are experimental");
-            span_help!(fcx.tcx().sess, call_expression.span,
-                "add `#![feature(unboxed_closures)]` to \
-                the crate attributes to enable");
-        }
-
         return true
     }
 
@@ -2296,12 +2188,13 @@ fn make_overloaded_lvalue_return_type<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
     }
 }
 
-fn autoderef_for_index<'a, 'tcx, T>(fcx: &FnCtxt<'a, 'tcx>,
-                                    base_expr: &ast::Expr,
-                                    base_ty: Ty<'tcx>,
-                                    lvalue_pref: LvaluePreference,
-                                    step: |Ty<'tcx>, ty::AutoDerefRef<'tcx>| -> Option<T>)
-                                    -> Option<T>
+fn autoderef_for_index<'a, 'tcx, T, F>(fcx: &FnCtxt<'a, 'tcx>,
+                                       base_expr: &ast::Expr,
+                                       base_ty: Ty<'tcx>,
+                                       lvalue_pref: LvaluePreference,
+                                       mut step: F)
+                                       -> Option<T> where
+    F: FnMut(Ty<'tcx>, ty::AutoDerefRef<'tcx>) -> Option<T>,
 {
     // FIXME(#18741) -- this is almost but not quite the same as the
     // autoderef that normal method probing does. They could likely be
@@ -2763,7 +2656,7 @@ fn check_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         };
         for (i, arg) in args.iter().take(t).enumerate() {
             let is_block = match arg.node {
-                ast::ExprClosure(..) | ast::ExprProc(..) => true,
+                ast::ExprClosure(..) => true,
                 _ => false
             };
 
@@ -3040,11 +2933,12 @@ enum TupleArgumentsFlag {
 /// Note that inspecting a type's structure *directly* may expose the fact
 /// that there are actually multiple representations for `ty_err`, so avoid
 /// that when err needs to be handled differently.
-fn check_expr_with_unifier<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
-                                     expr: &ast::Expr,
-                                     expected: Expectation<'tcx>,
-                                     lvalue_pref: LvaluePreference,
-                                     unifier: ||)
+fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
+                                        expr: &ast::Expr,
+                                        expected: Expectation<'tcx>,
+                                        lvalue_pref: LvaluePreference,
+                                        unifier: F) where
+    F: FnOnce(),
 {
     debug!(">> typechecking: expr={} expected={}",
            expr.repr(fcx.tcx()), expected.repr(fcx.tcx()));
@@ -3219,14 +3113,16 @@ fn check_expr_with_unifier<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         fcx.write_ty(id, if_ty);
     }
 
-    fn lookup_op_method<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
-                                  op_ex: &ast::Expr,
-                                  lhs_ty: Ty<'tcx>,
-                                  opname: ast::Name,
-                                  trait_did: Option<ast::DefId>,
-                                  lhs: &'a ast::Expr,
-                                  rhs: Option<&P<ast::Expr>>,
-                                  unbound_method: ||) -> Ty<'tcx> {
+    fn lookup_op_method<'a, 'tcx, F>(fcx: &'a FnCtxt<'a, 'tcx>,
+                                     op_ex: &ast::Expr,
+                                     lhs_ty: Ty<'tcx>,
+                                     opname: ast::Name,
+                                     trait_did: Option<ast::DefId>,
+                                     lhs: &'a ast::Expr,
+                                     rhs: Option<&P<ast::Expr>>,
+                                     unbound_method: F) -> Ty<'tcx> where
+        F: FnOnce(),
+    {
         let method = match trait_did {
             Some(trait_did) => {
                 // We do eager coercions to make using operators
@@ -4065,6 +3961,9 @@ fn check_expr_with_unifier<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         let typ = lookup_method_for_for_loop(fcx, &**head, expr.id);
         vtable::select_new_fcx_obligations(fcx);
 
+        debug!("ExprForLoop each item has type {}",
+               fcx.infcx().resolve_type_vars_if_possible(typ).repr(fcx.tcx()));
+
         let pcx = pat_ctxt {
             fcx: fcx,
             map: pat_id_map(&tcx.def_map, &**pat),
@@ -4087,14 +3986,6 @@ fn check_expr_with_unifier<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
       }
       ast::ExprClosure(_, opt_kind, ref decl, ref body) => {
           closure::check_expr_closure(fcx, expr, opt_kind, &**decl, &**body, expected);
-      }
-      ast::ExprProc(ref decl, ref body) => {
-          closure::check_boxed_closure(fcx,
-                                       expr,
-                                       ty::UniqTraitStore,
-                                       &**decl,
-                                       &**body,
-                                       expected);
       }
       ast::ExprBlock(ref b) => {
         check_block_with_expected(fcx, &**b, expected);
@@ -4475,19 +4366,17 @@ impl<'tcx> Expectation<'tcx> {
         }
     }
 
-    fn map<'a>(self, fcx: &FnCtxt<'a, 'tcx>,
-               unpack: |&ty::sty<'tcx>| -> Expectation<'tcx>)
-               -> Expectation<'tcx> {
+    fn map<'a, F>(self, fcx: &FnCtxt<'a, 'tcx>, unpack: F) -> Expectation<'tcx> where
+        F: FnOnce(&ty::sty<'tcx>) -> Expectation<'tcx>
+    {
         match self.resolve(fcx) {
             NoExpectation => NoExpectation,
             ExpectCastableToType(t) | ExpectHasType(t) => unpack(&t.sty),
         }
     }
 
-    fn map_to_option<'a, O>(self,
-                            fcx: &FnCtxt<'a, 'tcx>,
-                            unpack: |&ty::sty<'tcx>| -> Option<O>)
-                            -> Option<O>
+    fn map_to_option<'a, O, F>(self, fcx: &FnCtxt<'a, 'tcx>, unpack: F) -> Option<O> where
+        F: FnOnce(&ty::sty<'tcx>) -> Option<O>,
     {
         match self.resolve(fcx) {
             NoExpectation => None,
@@ -4602,8 +4491,8 @@ fn check_block_with_expected<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                        expected: Expectation<'tcx>) {
     let prev = {
         let mut fcx_ps = fcx.ps.borrow_mut();
-        let fn_style_state = fcx_ps.recurse(blk);
-        replace(&mut *fcx_ps, fn_style_state)
+        let unsafety_state = fcx_ps.recurse(blk);
+        replace(&mut *fcx_ps, unsafety_state)
     };
 
     let mut warned = false;
@@ -5197,8 +5086,7 @@ pub fn instantiate_path<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
     debug!("after late-bounds have been replaced: bounds={}", bounds.repr(fcx.tcx()));
 
     fcx.add_obligations_for_parameters(
-        traits::ObligationCause::new(span, traits::ItemObligation(def.def_id())),
-        &substs,
+        traits::ObligationCause::new(span, fcx.body_id, traits::ItemObligation(def.def_id())),
         &bounds);
 
     // Substitute the values for the type parameters into the type of
@@ -5253,6 +5141,9 @@ pub fn instantiate_path<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
             }
 
             ast::ParenthesizedParameters(ref data) => {
+                fcx.tcx().sess.span_err(
+                    span,
+                    "parenthesized parameters may only be used with a trait");
                 push_explicit_parenthesized_parameters_from_segment_to_substs(
                     fcx, space, span, type_defs, data, substs);
             }
@@ -5803,7 +5694,7 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
         (n_tps, inputs, ty::FnConverging(output))
     };
     let fty = ty::mk_bare_fn(tcx, ty::BareFnTy {
-        fn_style: ast::UnsafeFn,
+        unsafety: ast::Unsafety::Unsafe,
         abi: abi::RustIntrinsic,
         sig: FnSig {
             inputs: inputs,
@@ -5832,11 +5723,3 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
     }
 }
 
-impl<'tcx> Repr<'tcx> for RegionObligation<'tcx> {
-    fn repr(&self, tcx: &ty::ctxt<'tcx>) -> String {
-        format!("RegionObligation(sub_region={}, sup_type={}, origin={})",
-                self.sub_region.repr(tcx),
-                self.sup_type.repr(tcx),
-                self.origin.repr(tcx))
-    }
-}

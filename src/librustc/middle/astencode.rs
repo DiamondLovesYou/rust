@@ -680,9 +680,8 @@ pub fn encode_unboxed_closure_kind(ebml_w: &mut Encoder,
 }
 
 pub trait vtable_decoder_helpers<'tcx> {
-    fn read_vec_per_param_space<T>(&mut self,
-                                   f: |&mut Self| -> T)
-                                   -> VecPerParamSpace<T>;
+    fn read_vec_per_param_space<T, F>(&mut self, f: F) -> VecPerParamSpace<T> where
+        F: FnMut(&mut Self) -> T;
     fn read_vtable_res_with_key(&mut self,
                                 tcx: &ty::ctxt<'tcx>,
                                 cdata: &cstore::crate_metadata)
@@ -699,9 +698,8 @@ pub trait vtable_decoder_helpers<'tcx> {
 }
 
 impl<'tcx, 'a> vtable_decoder_helpers<'tcx> for reader::Decoder<'a> {
-    fn read_vec_per_param_space<T>(&mut self,
-                                   f: |&mut reader::Decoder<'a>| -> T)
-                                   -> VecPerParamSpace<T>
+    fn read_vec_per_param_space<T, F>(&mut self, mut f: F) -> VecPerParamSpace<T> where
+        F: FnMut(&mut reader::Decoder<'a>) -> T,
     {
         let types = self.read_to_vec(|this| Ok(f(this))).unwrap();
         let selfs = self.read_to_vec(|this| Ok(f(this))).unwrap();
@@ -793,9 +791,11 @@ impl<'tcx, 'a> vtable_decoder_helpers<'tcx> for reader::Decoder<'a> {
 // ___________________________________________________________________________
 //
 
-fn encode_vec_per_param_space<T>(rbml_w: &mut Encoder,
-                                 v: &subst::VecPerParamSpace<T>,
-                                 f: |&mut Encoder, &T|) {
+fn encode_vec_per_param_space<T, F>(rbml_w: &mut Encoder,
+                                    v: &subst::VecPerParamSpace<T>,
+                                    mut f: F) where
+    F: FnMut(&mut Encoder, &T),
+{
     for &space in subst::ParamSpace::all().iter() {
         rbml_w.emit_from_vec(v.get_slice(space),
                              |rbml_w, n| Ok(f(rbml_w, n))).unwrap();
@@ -830,6 +830,8 @@ trait rbml_writer_helpers<'tcx> {
     fn emit_tys<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>, tys: &[Ty<'tcx>]);
     fn emit_type_param_def<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>,
                                type_param_def: &ty::TypeParameterDef<'tcx>);
+    fn emit_predicate<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>,
+                          predicate: &ty::Predicate<'tcx>);
     fn emit_trait_ref<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>,
                           ty: &ty::TraitRef<'tcx>);
     fn emit_polytype<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>,
@@ -936,6 +938,15 @@ impl<'a, 'tcx> rbml_writer_helpers<'tcx> for Encoder<'a> {
         });
     }
 
+    fn emit_predicate<'a>(&mut self, ecx: &e::EncodeContext<'a, 'tcx>,
+                          predicate: &ty::Predicate<'tcx>) {
+        self.emit_opaque(|this| {
+            Ok(tyencode::enc_predicate(this.writer,
+                                       &ecx.ty_str_ctxt(),
+                                       predicate))
+        });
+    }
+
     fn emit_polytype<'a>(&mut self,
                          ecx: &e::EncodeContext<'a, 'tcx>,
                          pty: ty::Polytype<'tcx>) {
@@ -953,6 +964,11 @@ impl<'a, 'tcx> rbml_writer_helpers<'tcx> for Encoder<'a> {
                         Ok(encode_vec_per_param_space(
                             this, &pty.generics.regions,
                             |this, def| def.encode(this).unwrap()))
+                    });
+                    this.emit_struct_field("predicates", 2, |this| {
+                        Ok(encode_vec_per_param_space(
+                            this, &pty.generics.predicates,
+                            |this, def| this.emit_predicate(ecx, def)))
                     })
                 })
             });
@@ -1108,14 +1124,16 @@ impl<'a, 'tcx> rbml_writer_helpers<'tcx> for Encoder<'a> {
 }
 
 trait write_tag_and_id {
-    fn tag(&mut self, tag_id: c::astencode_tag, f: |&mut Self|);
+    fn tag<F>(&mut self, tag_id: c::astencode_tag, f: F) where F: FnOnce(&mut Self);
     fn id(&mut self, id: ast::NodeId);
 }
 
 impl<'a> write_tag_and_id for Encoder<'a> {
-    fn tag(&mut self,
-           tag_id: c::astencode_tag,
-           f: |&mut Encoder<'a>|) {
+    fn tag<F>(&mut self,
+              tag_id: c::astencode_tag,
+              f: F) where
+        F: FnOnce(&mut Encoder<'a>),
+    {
         self.start_tag(tag_id as uint);
         f(self);
         self.end_tag();
@@ -1336,6 +1354,8 @@ trait rbml_decoder_decoder_helpers<'tcx> {
                               -> Rc<ty::TraitRef<'tcx>>;
     fn read_type_param_def<'a, 'b>(&mut self, dcx: &DecodeContext<'a, 'b, 'tcx>)
                                    -> ty::TypeParameterDef<'tcx>;
+    fn read_predicate<'a, 'b>(&mut self, dcx: &DecodeContext<'a, 'b, 'tcx>)
+                              -> ty::Predicate<'tcx>;
     fn read_polytype<'a, 'b>(&mut self, dcx: &DecodeContext<'a, 'b, 'tcx>)
                              -> ty::Polytype<'tcx>;
     fn read_existential_bounds<'a, 'b>(&mut self, dcx: &DecodeContext<'a, 'b, 'tcx>)
@@ -1536,6 +1556,15 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
         }).unwrap()
     }
 
+    fn read_predicate<'a, 'b>(&mut self, dcx: &DecodeContext<'a, 'b, 'tcx>)
+                              -> ty::Predicate<'tcx>
+    {
+        self.read_opaque(|this, doc| {
+            Ok(tydecode::parse_predicate_data(doc.data, doc.start, dcx.cdata.cnum, dcx.tcx,
+                                              |s, a| this.convert_def_id(dcx, s, a)))
+        }).unwrap()
+    }
+
     fn read_polytype<'a, 'b>(&mut self, dcx: &DecodeContext<'a, 'b, 'tcx>)
                              -> ty::Polytype<'tcx> {
         self.read_struct("Polytype", 2, |this| {
@@ -1553,7 +1582,13 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
                             this.read_struct_field("regions", 1, |this| {
                                 Ok(this.read_vec_per_param_space(
                                     |this| Decodable::decode(this).unwrap()))
-                            }).unwrap()
+                            }).unwrap(),
+
+                            predicates:
+                            this.read_struct_field("predicates", 2, |this| {
+                                Ok(this.read_vec_per_param_space(
+                                    |this| this.read_predicate(dcx)))
+                            }).unwrap(),
                         })
                     })
                 }).unwrap(),

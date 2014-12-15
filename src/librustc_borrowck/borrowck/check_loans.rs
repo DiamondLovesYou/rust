@@ -18,18 +18,16 @@
 // 4. moves do not affect things loaned out in any way
 use self::UseError::*;
 
-use middle::borrowck::*;
-use middle::borrowck::LoanPathElem::*;
-use middle::borrowck::LoanPathKind::*;
-use middle::expr_use_visitor as euv;
-use middle::mem_categorization as mc;
-use middle::region;
-use middle::ty::ParameterEnvironment;
-use middle::ty;
-use syntax::ast::NodeId;
+use borrowck::*;
+use borrowck::LoanPathElem::*;
+use borrowck::LoanPathKind::*;
+use rustc::middle::expr_use_visitor as euv;
+use rustc::middle::mem_categorization as mc;
+use rustc::middle::region;
+use rustc::middle::ty;
+use rustc::util::ppaux::Repr;
 use syntax::ast;
 use syntax::codemap::Span;
-use util::ppaux::Repr;
 
 use std::rc::Rc;
 
@@ -91,7 +89,7 @@ struct CheckLoanCtxt<'a, 'tcx: 'a> {
     dfcx_loans: &'a LoanDataFlow<'a, 'tcx>,
     move_data: move_data::FlowedMoveData<'a, 'tcx>,
     all_loans: &'a [Loan<'tcx>],
-    param_env: &'a ParameterEnvironment<'tcx>,
+    param_env: &'a ty::ParameterEnvironment<'tcx>,
 }
 
 impl<'a, 'tcx> euv::Delegate<'tcx> for CheckLoanCtxt<'a, 'tcx> {
@@ -196,12 +194,12 @@ pub fn check_loans<'a, 'b, 'c, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
                                      dfcx_loans: &LoanDataFlow<'b, 'tcx>,
                                      move_data: move_data::FlowedMoveData<'c, 'tcx>,
                                      all_loans: &[Loan<'tcx>],
-                                     fn_id: NodeId,
+                                     fn_id: ast::NodeId,
                                      decl: &ast::FnDecl,
                                      body: &ast::Block) {
     debug!("check_loans(body id={})", body.id);
 
-    let param_env = ParameterEnvironment::for_item(bccx.tcx, fn_id);
+    let param_env = ty::ParameterEnvironment::for_item(bccx.tcx, fn_id);
 
     let mut clcx = CheckLoanCtxt {
         bccx: bccx,
@@ -234,8 +232,9 @@ fn compatible_borrow_kinds(borrow_kind1: ty::BorrowKind,
 impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
     pub fn tcx(&self) -> &'a ty::ctxt<'tcx> { self.bccx.tcx }
 
-    pub fn each_issued_loan(&self, scope: region::CodeExtent, op: |&Loan<'tcx>| -> bool)
-                            -> bool {
+    pub fn each_issued_loan<F>(&self, scope: region::CodeExtent, mut op: F) -> bool where
+        F: FnMut(&Loan<'tcx>) -> bool,
+    {
         //! Iterates over each loan that has been issued
         //! on entrance to `scope`, regardless of whether it is
         //! actually *in scope* at that point.  Sometimes loans
@@ -248,10 +247,9 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
         })
     }
 
-    pub fn each_in_scope_loan(&self,
-                              scope: region::CodeExtent,
-                              op: |&Loan<'tcx>| -> bool)
-                              -> bool {
+    pub fn each_in_scope_loan<F>(&self, scope: region::CodeExtent, mut op: F) -> bool where
+        F: FnMut(&Loan<'tcx>) -> bool,
+    {
         //! Like `each_issued_loan()`, but only considers loans that are
         //! currently in scope.
 
@@ -265,11 +263,13 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
         })
     }
 
-    fn each_in_scope_loan_affecting_path(&self,
-                                         scope: region::CodeExtent,
-                                         loan_path: &LoanPath<'tcx>,
-                                         op: |&Loan<'tcx>| -> bool)
-                                         -> bool {
+    fn each_in_scope_loan_affecting_path<F>(&self,
+                                            scope: region::CodeExtent,
+                                            loan_path: &LoanPath<'tcx>,
+                                            mut op: F)
+                                            -> bool where
+        F: FnMut(&Loan<'tcx>) -> bool,
+    {
         //! Iterates through all of the in-scope loans affecting `loan_path`,
         //! calling `op`, and ceasing iteration if `false` is returned.
 

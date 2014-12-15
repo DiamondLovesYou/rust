@@ -81,8 +81,9 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                     break;
                 },
             };
-            let bc_extractor = if is_versioned_bytecode_format(bc_encoded) {
-                |_| {
+
+            let bc_decoded = if is_versioned_bytecode_format(bc_encoded) {
+                time(sess.time_passes(), format!("decode {}.{}.bc", file, i).as_slice(), (), |_| {
                     // Read the version
                     let version = extract_bytecode_format_version(bc_encoded);
 
@@ -104,11 +105,11 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                         sess.fatal(format!("Unsupported bytecode format version {}",
                                            version).as_slice())
                     }
-                }
+                })
             } else {
+                time(sess.time_passes(), format!("decode {}.{}.bc", file, i).as_slice(), (), |_| {
                 // the object must be in the old, pre-versioning format, so simply
                 // inflate everything and let LLVM decide if it can make sense of it
-                |_| {
                     match flate::inflate_bytes(bc_encoded) {
                         Some(bc) => bc,
                         None => {
@@ -116,13 +117,8 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                                                name).as_slice())
                         }
                     }
-                }
+                })
             };
-
-            let bc_decoded = time(sess.time_passes(),
-                                  format!("decode {}.{}.bc", file, i).as_slice(),
-                                  (),
-                                  bc_extractor);
 
             let ptr = bc_decoded.as_slice().as_ptr();
             debug!("linking {}, part {}", name, i);
@@ -144,7 +140,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
     // Internalize everything but the reachable symbols of the current module
     let cstrs: Vec<::std::c_str::CString> =
         reachable.iter().map(|s| s.to_c_str()).collect();
-    let arr: Vec<*const i8> = cstrs.iter().map(|c| c.as_ptr()).collect();
+    let arr: Vec<*const libc::c_char> = cstrs.iter().map(|c| c.as_ptr()).collect();
     let ptr = arr.as_ptr();
     unsafe {
         llvm::LLVMRustRunRestrictionPass(llmod,

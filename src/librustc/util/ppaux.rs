@@ -241,7 +241,9 @@ pub fn trait_store_to_string(cx: &ctxt, s: ty::TraitStore) -> String {
     }
 }
 
-pub fn vec_map_to_string<T>(ts: &[T], f: |t: &T| -> String) -> String {
+pub fn vec_map_to_string<T, F>(ts: &[T], f: F) -> String where
+    F: FnMut(&T) -> String,
+{
     let tstrs = ts.iter().map(f).collect::<Vec<String>>();
     format!("[{}]", tstrs.connect(", "))
 }
@@ -257,16 +259,16 @@ pub fn trait_ref_to_string<'tcx>(cx: &ctxt<'tcx>,
 
 pub fn ty_to_string<'tcx>(cx: &ctxt<'tcx>, typ: &ty::TyS<'tcx>) -> String {
     fn bare_fn_to_string<'tcx>(cx: &ctxt<'tcx>,
-                               fn_style: ast::FnStyle,
+                               unsafety: ast::Unsafety,
                                abi: abi::Abi,
                                ident: Option<ast::Ident>,
                                sig: &ty::FnSig<'tcx>)
                                -> String {
         let mut s = String::new();
-        match fn_style {
-            ast::NormalFn => {}
-            _ => {
-                s.push_str(fn_style.to_string().as_slice());
+        match unsafety {
+            ast::Unsafety::Normal => {}
+            ast::Unsafety::Unsafe => {
+                s.push_str(unsafety.to_string().as_slice());
                 s.push(' ');
             }
         };
@@ -300,10 +302,10 @@ pub fn ty_to_string<'tcx>(cx: &ctxt<'tcx>, typ: &ty::TyS<'tcx>) -> String {
             }
         }
 
-        match cty.fn_style {
-            ast::NormalFn => {}
-            _ => {
-                s.push_str(cty.fn_style.to_string().as_slice());
+        match cty.unsafety {
+            ast::Unsafety::Normal => {}
+            ast::Unsafety::Unsafe => {
+                s.push_str(cty.unsafety.to_string().as_slice());
                 s.push(' ');
             }
         };
@@ -412,7 +414,7 @@ pub fn ty_to_string<'tcx>(cx: &ctxt<'tcx>, typ: &ty::TyS<'tcx>) -> String {
             closure_to_string(cx, &**f)
         }
         ty_bare_fn(ref f) => {
-            bare_fn_to_string(cx, f.fn_style, f.abi, None, &f.sig)
+            bare_fn_to_string(cx, f.unsafety, f.abi, None, &f.sig)
         }
         ty_infer(infer_ty) => infer_ty_to_string(cx, infer_ty),
         ty_err => "[type error]".to_string(),
@@ -447,7 +449,14 @@ pub fn ty_to_string<'tcx>(cx: &ctxt<'tcx>, typ: &ty::TyS<'tcx>) -> String {
             let unboxed_closures = cx.unboxed_closures.borrow();
             unboxed_closures.get(did).map(|cl| {
                 closure_to_string(cx, &cl.closure_type.subst(cx, substs))
-            }).unwrap_or_else(|| "closure".to_string())
+            }).unwrap_or_else(|| {
+                if did.krate == ast::LOCAL_CRATE {
+                    let span = cx.map.span(did.node);
+                    format!("closure[{}]", span.repr(cx))
+                } else {
+                    format!("closure")
+                }
+            })
         }
         ty_vec(t, sz) => {
             let inner_str = ty_to_string(cx, t);
@@ -914,17 +923,17 @@ impl<'tcx> Repr<'tcx> for ty::Polytype<'tcx> {
 
 impl<'tcx> Repr<'tcx> for ty::Generics<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
-        format!("Generics(types: {}, regions: {})",
+        format!("Generics(types: {}, regions: {}, predicates: {})",
                 self.types.repr(tcx),
-                self.regions.repr(tcx))
+                self.regions.repr(tcx),
+                self.predicates.repr(tcx))
     }
 }
 
 impl<'tcx> Repr<'tcx> for ty::GenericBounds<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
-        format!("GenericBounds(types: {}, regions: {})",
-                self.types.repr(tcx),
-                self.regions.repr(tcx))
+        format!("GenericBounds({})",
+                self.predicates.repr(tcx))
     }
 }
 
@@ -992,8 +1001,8 @@ impl<'tcx> Repr<'tcx> for ast::Visibility {
 
 impl<'tcx> Repr<'tcx> for ty::BareFnTy<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
-        format!("BareFnTy {{fn_style: {}, abi: {}, sig: {}}}",
-                self.fn_style,
+        format!("BareFnTy {{unsafety: {}, abi: {}, sig: {}}}",
+                self.unsafety,
                 self.abi.to_string(),
                 self.sig.repr(tcx))
     }

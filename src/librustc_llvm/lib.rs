@@ -23,6 +23,7 @@
 
 #![feature(globs)]
 #![feature(link_args)]
+#![feature(unboxed_closures)]
 #![feature(phase)]
 
 extern crate libc;
@@ -153,7 +154,6 @@ bitflags! {
     }
 }
 
-impl Copy for Attribute {}
 
 #[repr(u64)]
 pub enum OtherAttribute {
@@ -469,6 +469,9 @@ pub type BuilderRef = *mut Builder_opaque;
 #[allow(missing_copy_implementations)]
 pub enum ExecutionEngine_opaque {}
 pub type ExecutionEngineRef = *mut ExecutionEngine_opaque;
+#[allow(missing_copy_implementations)]
+pub enum RustJITMemoryManager_opaque {}
+pub type RustJITMemoryManagerRef = *mut RustJITMemoryManager_opaque;
 #[allow(missing_copy_implementations)]
 pub enum MemoryBuffer_opaque {}
 pub type MemoryBufferRef = *mut MemoryBuffer_opaque;
@@ -1068,7 +1071,18 @@ extern {
                                          Instr: ValueRef,
                                          Name: *const c_char);
     pub fn LLVMDisposeBuilder(Builder: BuilderRef);
+
+    /* Execution engine */
+    pub fn LLVMRustCreateJITMemoryManager(morestack: *const ())
+                                          -> RustJITMemoryManagerRef;
+    pub fn LLVMBuildExecutionEngine(Mod: ModuleRef,
+                                    MM: RustJITMemoryManagerRef) -> ExecutionEngineRef;
     pub fn LLVMDisposeExecutionEngine(EE: ExecutionEngineRef);
+    pub fn LLVMExecutionEngineFinalizeObject(EE: ExecutionEngineRef);
+    pub fn LLVMRustLoadDynamicLibrary(path: *const c_char) -> Bool;
+    pub fn LLVMExecutionEngineAddModule(EE: ExecutionEngineRef, M: ModuleRef);
+    pub fn LLVMExecutionEngineRemoveModule(EE: ExecutionEngineRef, M: ModuleRef)
+                                           -> Bool;
 
     /* Metadata */
     pub fn LLVMSetCurrentDebugLocation(Builder: BuilderRef, L: ValueRef);
@@ -2229,7 +2243,7 @@ pub unsafe extern "C" fn rust_llvm_string_write_impl(sr: RustStringRef,
     (*sr).borrow_mut().push_all(slice);
 }
 
-pub fn build_string(f: |RustStringRef|) -> Option<String> {
+pub fn build_string<F>(f: F) -> Option<String> where F: FnOnce(RustStringRef){
     let mut buf = RefCell::new(Vec::new());
     f(&mut buf as RustStringRepr as RustStringRef);
     String::from_utf8(buf.into_inner()).ok()

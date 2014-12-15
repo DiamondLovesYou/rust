@@ -10,7 +10,8 @@
 
 //! A doubly-linked list with owned nodes.
 //!
-//! The `DList` allows pushing and popping elements at either end.
+//! The `DList` allows pushing and popping elements at either end and is thus
+//! efficiently usable as a double-ended queue.
 
 // DList is constructed like a singly-linked list over the field `next`.
 // including the last link being None; each Node owns its `next` field.
@@ -350,18 +351,16 @@ impl<T> DList<T> {
     ///     println!("{}", e); // prints 2, then 4, then 11, then 7, then 8
     /// }
     /// ```
-    pub fn insert_when(&mut self, elt: T, f: |&T, &T| -> bool) {
-        {
-            let mut it = self.iter_mut();
-            loop {
-                match it.peek_next() {
-                    None => break,
-                    Some(x) => if f(x, &elt) { break }
-                }
-                it.next();
+    pub fn insert_when<F>(&mut self, elt: T, mut f: F) where F: FnMut(&T, &T) -> bool {
+        let mut it = self.iter_mut();
+        loop {
+            match it.peek_next() {
+                None => break,
+                Some(x) => if f(x, &elt) { break }
             }
-            it.insert_next(elt);
+            it.next();
         }
+        it.insert_next(elt);
     }
 
     /// Merges `other` into this `DList`, using the function `f`.
@@ -370,7 +369,7 @@ impl<T> DList<T> {
     /// put `a` in the result if `f(a, b)` is true, and otherwise `b`.
     ///
     /// This operation should compute in O(max(N, M)) time.
-    pub fn merge(&mut self, mut other: DList<T>, f: |&T, &T| -> bool) {
+    pub fn merge<F>(&mut self, mut other: DList<T>, mut f: F) where F: FnMut(&T, &T) -> bool {
         {
             let mut it = self.iter_mut();
             loop {
@@ -1134,7 +1133,7 @@ mod tests {
     #[test]
     fn test_send() {
         let n = list_from(&[1i,2,3]);
-        spawn(proc() {
+        spawn(move || {
             check_links(&n);
             let a: &[_] = &[&1,&2,&3];
             assert_eq!(a, n.iter().collect::<Vec<&int>>());

@@ -18,11 +18,13 @@ use ext::deriving::generic::ty::*;
 use parse::token::InternedString;
 use ptr::P;
 
-pub fn expand_deriving_totalord(cx: &mut ExtCtxt,
-                                span: Span,
-                                mitem: &MetaItem,
-                                item: &Item,
-                                push: |P<Item>|) {
+pub fn expand_deriving_totalord<F>(cx: &mut ExtCtxt,
+                                   span: Span,
+                                   mitem: &MetaItem,
+                                   item: &Item,
+                                   push: F) where
+    F: FnOnce(P<Item>),
+{
     let inline = cx.meta_word(span, InternedString::new("inline"));
     let attrs = vec!(cx.attribute(span, inline));
     let trait_def = TraitDef {
@@ -64,6 +66,7 @@ pub fn cs_cmp(cx: &mut ExtCtxt, span: Span,
     let equals_path = cx.path_global(span,
                                      vec!(cx.ident_of("std"),
                                           cx.ident_of("cmp"),
+                                          cx.ident_of("Ordering"),
                                           cx.ident_of("Equal")));
 
     let cmp_path = vec![

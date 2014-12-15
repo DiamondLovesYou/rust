@@ -14,17 +14,15 @@
 
 pub use self::Variant::*;
 
-/// For clarity, rename the graphviz crate locally to dot.
-use graphviz as dot;
-pub use middle::cfg::graphviz::{Node, Edge};
-use middle::cfg::graphviz as cfg_dot;
+pub use rustc::middle::cfg::graphviz::{Node, Edge};
+use rustc::middle::cfg::graphviz as cfg_dot;
 
-use middle::borrowck;
-use middle::borrowck::{BorrowckCtxt, LoanPath};
-use middle::cfg::{CFGIndex};
-use middle::dataflow::{DataFlowOperator, DataFlowContext, EntryOrExit};
-use middle::dataflow;
-
+use borrowck;
+use borrowck::{BorrowckCtxt, LoanPath};
+use dot;
+use rustc::middle::cfg::{CFGIndex};
+use rustc::middle::dataflow::{DataFlowOperator, DataFlowContext, EntryOrExit};
+use rustc::middle::dataflow;
 use std::rc::Rc;
 
 #[deriving(Show)]
@@ -55,7 +53,7 @@ pub struct DataflowLabeller<'a, 'tcx: 'a> {
 
 impl<'a, 'tcx> DataflowLabeller<'a, 'tcx> {
     fn dataflow_for(&self, e: EntryOrExit, n: &Node<'a>) -> String {
-        let id = n.val1().data.id;
+        let id = n.1.data.id;
         debug!("dataflow_for({}, id={}) {}", e, id, self.variants);
         let mut sets = "".to_string();
         let mut seen_one = false;
@@ -69,7 +67,7 @@ impl<'a, 'tcx> DataflowLabeller<'a, 'tcx> {
     }
 
     fn dataflow_for_variant(&self, e: EntryOrExit, n: &Node, v: Variant) -> String {
-        let cfgidx = n.val0();
+        let cfgidx = n.0;
         match v {
             Loans   => self.dataflow_loans_for(e, cfgidx),
             Moves   => self.dataflow_moves_for(e, cfgidx),
@@ -77,11 +75,13 @@ impl<'a, 'tcx> DataflowLabeller<'a, 'tcx> {
         }
     }
 
-    fn build_set<O:DataFlowOperator>(&self,
-                                     e: EntryOrExit,
-                                     cfgidx: CFGIndex,
-                                     dfcx: &DataFlowContext<'a, 'tcx, O>,
-                                     to_lp: |uint| -> Rc<LoanPath<'tcx>>) -> String {
+    fn build_set<O:DataFlowOperator, F>(&self,
+                                        e: EntryOrExit,
+                                        cfgidx: CFGIndex,
+                                        dfcx: &DataFlowContext<'a, 'tcx, O>,
+                                        mut to_lp: F) -> String where
+        F: FnMut(uint) -> Rc<LoanPath<'tcx>>,
+    {
         let mut saw_some = false;
         let mut set = "{".to_string();
         dfcx.each_bit_for_node(e, cfgidx, |index| {
@@ -100,7 +100,7 @@ impl<'a, 'tcx> DataflowLabeller<'a, 'tcx> {
 
     fn dataflow_loans_for(&self, e: EntryOrExit, cfgidx: CFGIndex) -> String {
         let dfcx = &self.analysis_data.loans;
-        let loan_index_to_path = |loan_index| {
+        let loan_index_to_path = |&mut: loan_index| {
             let all_loans = &self.analysis_data.all_loans;
             all_loans[loan_index].loan_path()
         };
@@ -109,7 +109,7 @@ impl<'a, 'tcx> DataflowLabeller<'a, 'tcx> {
 
     fn dataflow_moves_for(&self, e: EntryOrExit, cfgidx: CFGIndex) -> String {
         let dfcx = &self.analysis_data.move_data.dfcx_moves;
-        let move_index_to_path = |move_index| {
+        let move_index_to_path = |&mut: move_index| {
             let move_data = &self.analysis_data.move_data.move_data;
             let moves = move_data.moves.borrow();
             let the_move = &(*moves)[move_index];
@@ -120,7 +120,7 @@ impl<'a, 'tcx> DataflowLabeller<'a, 'tcx> {
 
     fn dataflow_assigns_for(&self, e: EntryOrExit, cfgidx: CFGIndex) -> String {
         let dfcx = &self.analysis_data.move_data.dfcx_assign;
-        let assign_index_to_path = |assign_index| {
+        let assign_index_to_path = |&mut: assign_index| {
             let move_data = &self.analysis_data.move_data.move_data;
             let assignments = move_data.var_assignments.borrow();
             let assignment = &(*assignments)[assign_index];

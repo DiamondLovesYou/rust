@@ -42,7 +42,8 @@ pub fn clone() -> Option<Vec<Vec<u8>>> { imp::clone() }
 #[cfg(any(target_os = "linux",
           target_os = "android",
           target_os = "freebsd",
-          target_os = "dragonfly"))]
+          target_os = "dragonfly",
+          target_os = "nacl"))]
 mod imp {
     use core::prelude::*;
 
@@ -89,7 +90,7 @@ mod imp {
         })
     }
 
-    fn with_lock<T>(f: || -> T) -> T {
+    fn with_lock<T, F>(f: F) -> T where F: FnOnce() -> T {
         unsafe {
             let _guard = LOCK.lock();
             f()
@@ -128,7 +129,7 @@ mod imp {
             assert!(take() == Some(expected.clone()));
             assert!(take() == None);
 
-            (|| {
+            (|&mut:| {
             }).finally(|| {
                 // Restore the actual global state.
                 match saved_value {
@@ -139,30 +140,6 @@ mod imp {
         }
     }
 }
-
-#[cfg(any(target_os = "nacl"))]
-mod imp {
-    use std::option::{Option, None};
-    use collections::vec::Vec;
-
-    pub unsafe fn init(_argc: int, _argv: *const *const u8) {
-    }
-
-    pub fn cleanup() {
-    }
-
-    pub fn take() -> Option<Vec<Vec<u8>>> {
-        None
-    }
-
-    pub fn put(_args: Vec<Vec<u8>>) {
-    }
-
-    pub fn clone() -> Option<Vec<Vec<u8>>> {
-        None
-    }
-}
-
 
 #[cfg(any(target_os = "macos",
           target_os = "ios",

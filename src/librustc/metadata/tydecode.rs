@@ -89,7 +89,10 @@ fn next_byte(st: &mut PState) -> u8 {
     return b;
 }
 
-fn scan<R>(st: &mut PState, is_last: |char| -> bool, op: |&[u8]| -> R) -> R {
+fn scan<R, F, G>(st: &mut PState, mut is_last: F, op: G) -> R where
+    F: FnMut(char) -> bool,
+    G: FnOnce(&[u8]) -> R,
+{
     let start_pos = st.pos;
     debug!("scan: '{}' (start)", st.data[st.pos] as char);
     while !is_last(st.data[st.pos] as char) {
@@ -110,7 +113,9 @@ pub fn parse_name(st: &mut PState, last: char) -> ast::Name {
     parse_name_(st, |a| is_last(last, a) )
 }
 
-fn parse_name_(st: &mut PState, is_last: |char| -> bool) -> ast::Name {
+fn parse_name_<F>(st: &mut PState, is_last: F) -> ast::Name where
+    F: FnMut(char) -> bool,
+{
     scan(st, is_last, |bytes| {
         token::intern(str::from_utf8(bytes).unwrap())
     })
@@ -234,9 +239,10 @@ fn parse_trait_store(st: &mut PState, conv: conv_did) -> ty::TraitStore {
     }
 }
 
-fn parse_vec_per_param_space<'a, 'tcx, T>(st: &mut PState<'a, 'tcx>,
-                                          f: |&mut PState<'a, 'tcx>| -> T)
-                                          -> VecPerParamSpace<T>
+fn parse_vec_per_param_space<'a, 'tcx, T, F>(st: &mut PState<'a, 'tcx>,
+                                             mut f: F)
+                                             -> VecPerParamSpace<T> where
+    F: FnMut(&mut PState<'a, 'tcx>) -> T,
 {
     let mut r = VecPerParamSpace::empty();
     for &space in subst::ParamSpace::all().iter() {
@@ -350,8 +356,9 @@ fn parse_scope(st: &mut PState) -> region::CodeExtent {
     }
 }
 
-fn parse_opt<'a, 'tcx, T>(st: &mut PState<'a, 'tcx>, f: |&mut PState<'a, 'tcx>| -> T)
-                          -> Option<T> {
+fn parse_opt<'a, 'tcx, T, F>(st: &mut PState<'a, 'tcx>, f: F) -> Option<T> where
+    F: FnOnce(&mut PState<'a, 'tcx>) -> T,
+{
     match next(st) {
       'n' => None,
       's' => Some(f(st)),
@@ -470,7 +477,7 @@ fn parse_ty<'a, 'tcx>(st: &mut PState<'a, 'tcx>, conv: conv_did) -> Ty<'tcx> {
         st.tcx.rcache.borrow_mut().insert(key, tt);
         return tt;
       }
-      '"' => {
+      '\"' => {
         let _ = parse_def(st, TypeWithId, |x,y| conv(x,y));
         let inner = parse_ty(st, |x,y| conv(x,y));
         inner
@@ -542,11 +549,11 @@ fn parse_hex(st: &mut PState) -> uint {
     };
 }
 
-fn parse_fn_style(c: char) -> ast::FnStyle {
+fn parse_unsafety(c: char) -> ast::Unsafety {
     match c {
-        'u' => ast::UnsafeFn,
-        'n' => ast::NormalFn,
-        _ => panic!("parse_fn_style: bad fn_style {}", c)
+        'u' => ast::Unsafety::Unsafe,
+        'n' => ast::Unsafety::Normal,
+        _ => panic!("parse_unsafety: bad unsafety {}", c)
     }
 }
 
@@ -568,14 +575,14 @@ fn parse_onceness(c: char) -> ast::Onceness {
 
 fn parse_closure_ty<'a, 'tcx>(st: &mut PState<'a, 'tcx>,
                               conv: conv_did) -> ty::ClosureTy<'tcx> {
-    let fn_style = parse_fn_style(next(st));
+    let unsafety = parse_unsafety(next(st));
     let onceness = parse_onceness(next(st));
     let store = parse_trait_store(st, |x,y| conv(x,y));
     let bounds = parse_existential_bounds(st, |x,y| conv(x,y));
     let sig = parse_sig(st, |x,y| conv(x,y));
     let abi = parse_abi_set(st);
     ty::ClosureTy {
-        fn_style: fn_style,
+        unsafety: unsafety,
         onceness: onceness,
         store: store,
         bounds: bounds,
@@ -586,11 +593,11 @@ fn parse_closure_ty<'a, 'tcx>(st: &mut PState<'a, 'tcx>,
 
 fn parse_bare_fn_ty<'a, 'tcx>(st: &mut PState<'a, 'tcx>,
                               conv: conv_did) -> ty::BareFnTy<'tcx> {
-    let fn_style = parse_fn_style(next(st));
+    let unsafety = parse_unsafety(next(st));
     let abi = parse_abi_set(st);
     let sig = parse_sig(st, |x,y| conv(x,y));
     ty::BareFnTy {
-        fn_style: fn_style,
+        unsafety: unsafety,
         abi: abi,
         sig: sig
     }
@@ -644,6 +651,33 @@ pub fn parse_def_id(buf: &[u8]) -> ast::DefId {
                      def_part)
     };
     ast::DefId { krate: crate_num, node: def_num }
+}
+
+pub fn parse_predicate_data<'tcx>(data: &[u8],
+                                  start: uint,
+                                  crate_num: ast::CrateNum,
+                                  tcx: &ty::ctxt<'tcx>,
+                                  conv: conv_did)
+                                  -> ty::Predicate<'tcx>
+{
+    let mut st = parse_state_from_data(data, crate_num, start, tcx);
+    parse_predicate(&mut st, conv)
+}
+
+pub fn parse_predicate<'a,'tcx>(st: &mut PState<'a, 'tcx>,
+                                conv: conv_did)
+                                -> ty::Predicate<'tcx>
+{
+    match next(st) {
+        't' => ty::Predicate::Trait(Rc::new(parse_trait_ref(st, conv))),
+        'e' => ty::Predicate::Equate(parse_ty(st, |x,y| conv(x,y)),
+                                     parse_ty(st, |x,y| conv(x,y))),
+        'r' => ty::Predicate::RegionOutlives(parse_region(st, |x,y| conv(x,y)),
+                                             parse_region(st, |x,y| conv(x,y))),
+        'o' => ty::Predicate::TypeOutlives(parse_ty(st, |x,y| conv(x,y)),
+                                           parse_region(st, |x,y| conv(x,y))),
+        c => panic!("Encountered invalid character in metadata: {}", c)
+    }
 }
 
 pub fn parse_type_param_def_data<'tcx>(data: &[u8], start: uint,
