@@ -1885,14 +1885,20 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     // delete the tmp object file:
     let _ = fs::unlink(&obj_path);
 
-    let sel_ldr = cross_path.join_many(["tools",
-                                        "sel_ldr.py"].as_slice());
-    let mut sel_ldr_args = vec!("--debug-libs".to_string(),
-                            "-v".to_string());
+    let tools = cross_path.join("tools");
+    let nacl_helper_bootstrap = tools.join("nacl_helper_bootstrap_x86_64");
+    let sel_ldr_bin = tools.join("sel_ldr_x86_64");
+    let irt_core = tools.join("irt_core_x86_64.nexe");
+
+    let mut sel_ldr_args = vec!(sel_ldr_bin.display().to_string(),
+                                "--r_debug=0xXXXXXXXXXXXXXXXX".to_string(),
+                                "--reserved_at_zero=0xXXXXXXXXXXXXXXXX".to_string(),
+                                "-a".to_string(),
+                                "-B".to_string(),
+                                irt_core.display().to_string());
     if run_background {
-        sel_ldr_args.push("-d".to_string());
+        unreachable!("TODO");
     }
-    sel_ldr_args.push("--".to_string());
     sel_ldr_args.push(nexe_path.display().to_string());
 
     let ProcArgs {
@@ -1901,7 +1907,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     } = make_run_args(config, props, testfile);
     sel_ldr_args.extend(run_args.into_iter());
 
-    let sel_ldr_dsp = sel_ldr.display().to_string();
+    let sel_ldr_dsp = nacl_helper_bootstrap.display().to_string();
 
     let mut process = procsrv::run_background("",
                                               sel_ldr_dsp.as_slice(),
@@ -1909,7 +1915,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                               sel_ldr_args.as_slice(),
                                               env,
                                               None)
-        .expect(format!("failed to exec `{}`", gold.display()).as_slice());
+        .expect(format!("failed to exec `{}`", sel_ldr_dsp).as_slice());
 
     if !run_background {
         process.set_timeout(Some(10_000));
