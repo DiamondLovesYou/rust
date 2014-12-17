@@ -169,17 +169,22 @@ macro_rules! thread_local(
 #[macro_export]
 macro_rules! __thread_local_inner(
     (static $name:ident: $t:ty = $init:expr) => (
-        #[cfg_attr(any(target_os = "macos", target_os = "linux"), thread_local)]
+        #[cfg_attr(any(target_os = "macos",
+                       target_os = "linux",
+                       target_os = "nacl"), thread_local)]
         static $name: ::std::thread_local::KeyInner<$t> =
             __thread_local_inner!($init, $t);
     );
     (pub static $name:ident: $t:ty = $init:expr) => (
-        #[cfg_attr(any(target_os = "macos", target_os = "linux"), thread_local)]
+        #[cfg_attr(any(target_os = "macos",
+                       target_os = "linux",
+                       target_os = "nacl"), thread_local)]
         pub static $name: ::std::thread_local::KeyInner<$t> =
             __thread_local_inner!($init, $t);
     );
     ($init:expr, $t:ty) => ({
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        #[cfg(any(target_os = "macos", target_os = "linux",
+                  target_os = "nacl"))]
         const INIT: ::std::thread_local::KeyInner<$t> = {
             ::std::thread_local::KeyInner {
                 inner: ::std::cell::UnsafeCell { value: $init },
@@ -189,7 +194,8 @@ macro_rules! __thread_local_inner(
             }
         };
 
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux",
+                      target_os = "nacl")))]
         const INIT: ::std::thread_local::KeyInner<$t> = {
             unsafe extern fn __destroy(ptr: *mut u8) {
                 ::std::thread_local::destroy_value::<$t>(ptr);
@@ -241,7 +247,8 @@ impl<T: 'static> Key<T> {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux",
+          target_os = "nacl"))]
 mod imp {
     use prelude::*;
 
@@ -299,13 +306,14 @@ mod imp {
     // fallback implementation to use as well.
     //
     // Due to rust-lang/rust#18804, make sure this is not generic!
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "nacl"))]
     unsafe fn register_dtor(t: *mut u8, dtor: unsafe extern fn(*mut u8)) {
         use mem;
         use libc;
         use sys_common::thread_local as os;
 
         extern {
+            #[linkage = "extern_weak"]
             static __dso_handle: *mut u8;
             #[linkage = "extern_weak"]
             static __cxa_thread_atexit_impl: *const ();
@@ -375,7 +383,8 @@ mod imp {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux",
+              target_os = "nacl")))]
 mod imp {
     use prelude::*;
 

@@ -24,12 +24,11 @@ use alloc::boxed::Box;
 
 #[cfg(any(windows, // mingw-w32 doesn't like thread_local things
           target_os = "android", // see #10686
-          target_os = "ios",
-          target_os = "nacl"))]
+          target_os = "ios"))]
 pub use self::native::{init, cleanup, put, take, try_take, unsafe_take, exists,
                        unsafe_borrow, try_unsafe_borrow};
 
-#[cfg(not(any(windows, target_os = "android", target_os = "ios", target_os = "nacl")))]
+#[cfg(not(any(windows, target_os = "android", target_os = "ios")))]
 pub use self::compiled::{init, cleanup, put, take, try_take, unsafe_take, exists,
                          unsafe_borrow, try_unsafe_borrow};
 
