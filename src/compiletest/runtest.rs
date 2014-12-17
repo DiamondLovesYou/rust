@@ -558,7 +558,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             loop {
                 // wait for a quarter second for sel_ldr to start
                 timer::sleep(Duration::milliseconds(250));
-                let result = task::try(proc() {
+                let result = task::try(move || {
                     tcp::TcpStream::connect("127.0.0.1:4014").unwrap();
                 });
                 if result.is_err() {
