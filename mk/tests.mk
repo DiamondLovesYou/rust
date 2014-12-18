@@ -456,12 +456,18 @@ $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4)): \
 		exit 101; \
 	fi
 endef
-#define DEF_TEST_CRATE_RULES_le32-unknown-nacl
-#check-stage$(1)-T-$(2)-H-$(3)-$(4)-exec: $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4))
-#$$(call TEST_OK_FILE,$(1),$(2),$(3),$(4)): \
-#		$(3)/stage$(1)/test/$(4)test-$(2)$$(X_$(2))
-#		
-#endef
+define DEF_TEST_CRATE_RULES_le32-unknown-nacl
+check-stage$(1)-T-$(2)-H-$(3)-$(4)-exec: $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4))
+$$(call TEST_OK_FILE,$(1),$(2),$(3),$(4)): \
+		$(3)/stage$(1)/test/$(4)test-$(2)$$(X_$(2))
+	@$$(call E, run: rust-pnacl-trans $$<)
+	$$(Q)$$(RPATH_VAR$(1)_T_$(2)_H_$(3)) \
+		$$(HBIN$(1)_H_$(3))/rust-pnacl-trans$$(X_$(3)) \
+		--cross-path=$$(CFG_NACL_CROSS_PATH) $$< \
+		-o $$<.nexe
+	@$$(call E, run: $$<.nexe)
+	$$(Q)$$(CFG_NACL_CROSS_PATH)/tools/sel_ldr.py -- $$<.nexe
+endef
 
 define DEF_TEST_CRATE_RULES_null
 check-stage$(1)-T-$(2)-H-$(3)-$(4)-exec: $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4))
@@ -483,8 +489,10 @@ $(foreach host,$(CFG_HOST), \
        $(eval $(call DEF_TEST_CRATE_RULES_arm-linux-androideabi,$(stage),$(target),$(host),$(crate))), \
        $(eval $(call DEF_TEST_CRATE_RULES_null,$(stage),$(target),$(host),$(crate))) \
       ), \
+     $(if $(findstring $(target),"le32-unknown-nacl"), \
+       $(eval $(call DEF_TEST_CRATE_RULES_le32-unknown-nacl,$(stage),$(target),$(host),$(crate))), \
       $(eval $(call DEF_TEST_CRATE_RULES,$(stage),$(target),$(host),$(crate))) \
-     ))))))
+     )))))))
 
 ######################################################################
 # Rules for the compiletest tests (rpass, rfail, etc.)
