@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-nacl
+
 use std::io::{TempDir, Command, fs};
 use std::os;
 use std::task::TaskBuilder;
