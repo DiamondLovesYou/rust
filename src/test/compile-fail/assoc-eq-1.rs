@@ -20,8 +20,6 @@ pub trait Foo {
 
 fn foo2<I: Foo>(x: I) {
     let _: A = x.boo(); //~ERROR use of undeclared
-    let _: I::A = x.boo(); //~ERROR failed to resolve
-    //~^ERROR use of undeclared type name `I::A`
 }
 
 pub fn main() {}

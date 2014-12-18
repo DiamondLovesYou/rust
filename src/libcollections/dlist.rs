@@ -192,8 +192,10 @@ impl<T> DList<T> {
     }
 }
 
+#[stable]
 impl<T> Default for DList<T> {
     #[inline]
+    #[stable]
     fn default() -> DList<T> { DList::new() }
 }
 
@@ -692,7 +694,7 @@ impl<'a, A> ListInsertion<A> for MutItems<'a, A> {
     }
 
     #[inline]
-    fn peek_next<'a>(&'a mut self) -> Option<&'a mut A> {
+    fn peek_next(&mut self) -> Option<&mut A> {
         if self.nelem == 0 {
             return None
         }

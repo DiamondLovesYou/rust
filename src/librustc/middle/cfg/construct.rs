@@ -151,7 +151,7 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
         }
     }
 
-    fn pats_all<'a, I: Iterator<&'a P<ast::Pat>>>(&mut self,
+    fn pats_all<'b, I: Iterator<&'b P<ast::Pat>>>(&mut self,
                                           pats: I,
                                           pred: CFGIndex) -> CFGIndex {
         //! Handles case where all of the patterns must match.
@@ -462,15 +462,13 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
                 self.straightline(expr, pred, [r, l].iter().map(|&e| &**e))
             }
 
+            ast::ExprBox(Some(ref l), ref r) |
             ast::ExprIndex(ref l, ref r) |
             ast::ExprBinary(_, ref l, ref r) => { // NB: && and || handled earlier
                 self.straightline(expr, pred, [l, r].iter().map(|&e| &**e))
             }
 
-            ast::ExprBox(ref p, ref e) => {
-                self.straightline(expr, pred, [p, e].iter().map(|&e| &**e))
-            }
-
+            ast::ExprBox(None, ref e) |
             ast::ExprAddrOf(_, ref e) |
             ast::ExprCast(ref e, _) |
             ast::ExprUnary(_, ref e) |
@@ -505,7 +503,7 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
         }
     }
 
-    fn call<'a, I: Iterator<&'a ast::Expr>>(&mut self,
+    fn call<'b, I: Iterator<&'b ast::Expr>>(&mut self,
             call_expr: &ast::Expr,
             pred: CFGIndex,
             func_or_rcvr: &ast::Expr,
@@ -525,7 +523,7 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
         }
     }
 
-    fn exprs<'a, I: Iterator<&'a ast::Expr>>(&mut self,
+    fn exprs<'b, I: Iterator<&'b ast::Expr>>(&mut self,
                                              exprs: I,
                                              pred: CFGIndex) -> CFGIndex {
         //! Constructs graph for `exprs` evaluated in order
@@ -539,7 +537,7 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
         opt_expr.iter().fold(pred, |p, e| self.expr(&**e, p))
     }
 
-    fn straightline<'a, I: Iterator<&'a ast::Expr>>(&mut self,
+    fn straightline<'b, I: Iterator<&'b ast::Expr>>(&mut self,
                     expr: &ast::Expr,
                     pred: CFGIndex,
                     subexprs: I) -> CFGIndex {

@@ -24,7 +24,7 @@ mod imp {
     use rand::Rng;
     use rand::reader::ReaderRng;
     use result::Result::{Ok, Err};
-    use slice::SlicePrelude;
+    use slice::SliceExt;
     use mem;
     use os::errno;
 
@@ -117,7 +117,8 @@ mod imp {
     ///   `/dev/urandom`, or from `getrandom(2)` system call if available.
     /// - Windows: calls `CryptGenRandom`, using the default cryptographic
     ///   service provider with the `PROV_RSA_FULL` type.
-    /// - iOS: calls SecRandomCopyBytes as /dev/(u)random is sandboxed
+    /// - iOS: calls SecRandomCopyBytes as /dev/(u)random is sandboxed.
+    ///
     /// This does not block.
     pub struct OsRng {
         inner: OsRngInner,
@@ -175,7 +176,7 @@ mod imp {
     use rand::Rng;
     use result::Result::{Ok};
     use self::libc::{c_int, size_t};
-    use slice::{SlicePrelude};
+    use slice::SliceExt;
 
     /// A random number generator that retrieves randomness straight from
     /// the operating system. Platform sources:
@@ -184,10 +185,13 @@ mod imp {
     ///   `/dev/urandom`, or from `getrandom(2)` system call if available.
     /// - Windows: calls `CryptGenRandom`, using the default cryptographic
     ///   service provider with the `PROV_RSA_FULL` type.
-    /// - iOS: calls SecRandomCopyBytes as /dev/(u)random is sandboxed
+    /// - iOS: calls SecRandomCopyBytes as /dev/(u)random is sandboxed.
+    ///
     /// This does not block.
+    #[allow(missing_copy_implementations)]
     pub struct OsRng {
-        marker: marker::NoCopy
+        // dummy field to ensure that this struct cannot be constructed outside of this module
+        _dummy: (),
     }
 
     #[repr(C)]
@@ -205,7 +209,7 @@ mod imp {
     impl OsRng {
         /// Create a new `OsRng`.
         pub fn new() -> IoResult<OsRng> {
-            Ok(OsRng {marker: marker::NoCopy} )
+            Ok(OsRng { _dummy: () })
         }
     }
 
@@ -243,7 +247,7 @@ mod imp {
     use result::Result::{Ok, Err};
     use self::libc::{DWORD, BYTE, LPCSTR, BOOL};
     use self::libc::types::os::arch::extra::{LONG_PTR};
-    use slice::{SlicePrelude};
+    use slice::SliceExt;
 
     type HCRYPTPROV = LONG_PTR;
 
@@ -254,7 +258,8 @@ mod imp {
     ///   `/dev/urandom`, or from `getrandom(2)` system call if available.
     /// - Windows: calls `CryptGenRandom`, using the default cryptographic
     ///   service provider with the `PROV_RSA_FULL` type.
-    /// - iOS: calls SecRandomCopyBytes as /dev/(u)random is sandboxed
+    /// - iOS: calls SecRandomCopyBytes as /dev/(u)random is sandboxed.
+    ///
     /// This does not block.
     pub struct OsRng {
         hcryptprov: HCRYPTPROV

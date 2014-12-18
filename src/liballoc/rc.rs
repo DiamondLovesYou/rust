@@ -147,6 +147,7 @@ use core::clone::Clone;
 use core::cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering};
 use core::default::Default;
 use core::fmt;
+use core::hash::{mod, Hash};
 use core::kinds::marker;
 use core::mem::{transmute, min_align_of, size_of, forget};
 use core::ops::{Deref, Drop};
@@ -447,6 +448,7 @@ impl<T: Default> Default for Rc<T> {
     /// let x: Rc<int> = Default::default();
     /// ```
     #[inline]
+    #[stable]
     fn default() -> Rc<T> {
         Rc::new(Default::default())
     }
@@ -592,6 +594,14 @@ impl<T: Ord> Ord for Rc<T> {
     /// ```
     #[inline]
     fn cmp(&self, other: &Rc<T>) -> Ordering { (**self).cmp(&**other) }
+}
+
+// FIXME (#18248) Make `T` `Sized?`
+impl<S: hash::Writer, T: Hash<S>> Hash<S> for Rc<T> {
+    #[inline]
+    fn hash(&self, state: &mut S) {
+        (**self).hash(state);
+    }
 }
 
 #[experimental = "Show is experimental."]

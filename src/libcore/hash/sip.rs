@@ -24,9 +24,8 @@
 //! As such, all cryptographic uses of this implementation are strongly
 //! discouraged.
 
-use core::prelude::*;
-
-use core::default::Default;
+use prelude::*;
+use default::Default;
 
 use super::{Hash, Hasher, Writer};
 
@@ -204,8 +203,10 @@ impl Clone for SipState {
     }
 }
 
+#[stable]
 impl Default for SipState {
     #[inline]
+    #[stable]
     fn default() -> SipState {
         SipState::new()
     }
@@ -276,7 +277,7 @@ mod tests {
 
     use str::Str;
     use string::String;
-    use slice::{AsSlice, SlicePrelude};
+    use slice::{AsSlice, SliceExt};
     use vec::Vec;
 
     use super::super::{Hash, Writer};

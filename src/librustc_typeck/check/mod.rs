@@ -77,7 +77,6 @@ type parameter).
 */
 
 pub use self::LvaluePreference::*;
-pub use self::DerefArgs::*;
 pub use self::Expectation::*;
 use self::IsBinopAssignment::*;
 use self::TupleArgumentsFlag::*;
@@ -180,6 +179,38 @@ enum Expectation<'tcx> {
 
 impl<'tcx> Copy for Expectation<'tcx> {}
 
+impl<'tcx> Expectation<'tcx> {
+    // Disregard "castable to" expectations because they
+    // can lead us astray. Consider for example `if cond
+    // {22} else {c} as u8` -- if we propagate the
+    // "castable to u8" constraint to 22, it will pick the
+    // type 22u8, which is overly constrained (c might not
+    // be a u8). In effect, the problem is that the
+    // "castable to" expectation is not the tightest thing
+    // we can say, so we want to drop it in this case.
+    // The tightest thing we can say is "must unify with
+    // else branch". Note that in the case of a "has type"
+    // constraint, this limitation does not hold.
+
+    // If the expected type is just a type variable, then don't use
+    // an expected type. Otherwise, we might write parts of the type
+    // when checking the 'then' block which are incompatible with the
+    // 'else' branch.
+    fn adjust_for_branches<'a>(&self, fcx: &FnCtxt<'a, 'tcx>) -> Expectation<'tcx> {
+        match self.only_has_type() {
+            ExpectHasType(ety) => {
+                let ety = fcx.infcx().shallow_resolve(ety);
+                if !ty::type_is_ty_var(ety) {
+                    ExpectHasType(ety)
+                } else {
+                    NoExpectation
+                }
+            }
+            _ => NoExpectation
+        }
+    }
+}
+
 #[deriving(Copy, Clone)]
 pub struct UnsafetyState {
     pub def: ast::NodeId,
@@ -246,7 +277,7 @@ pub struct FnCtxt<'a, 'tcx: 'a> {
 }
 
 impl<'a, 'tcx> mem_categorization::Typer<'tcx> for FnCtxt<'a, 'tcx> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> {
+    fn tcx(&self) -> &ty::ctxt<'tcx> {
         self.ccx.tcx
     }
     fn node_ty(&self, id: ast::NodeId) -> McResult<Ty<'tcx>> {
@@ -256,7 +287,7 @@ impl<'a, 'tcx> mem_categorization::Typer<'tcx> for FnCtxt<'a, 'tcx> {
                       -> Option<Ty<'tcx>> {
         self.inh.method_map.borrow().get(&method_call).map(|m| m.ty)
     }
-    fn adjustments<'a>(&'a self) -> &'a RefCell<NodeMap<ty::AutoAdjustment<'tcx>>> {
+    fn adjustments(&self) -> &RefCell<NodeMap<ty::AutoAdjustment<'tcx>>> {
         &self.inh.adjustments
     }
     fn is_method_call(&self, id: ast::NodeId) -> bool {
@@ -272,8 +303,7 @@ impl<'a, 'tcx> mem_categorization::Typer<'tcx> for FnCtxt<'a, 'tcx> {
                     -> ast::CaptureClause {
         self.ccx.tcx.capture_mode(closure_expr_id)
     }
-    fn unboxed_closures<'a>(&'a self)
-                        -> &'a RefCell<DefIdMap<ty::UnboxedClosure<'tcx>>> {
+    fn unboxed_closures(&self) -> &RefCell<DefIdMap<ty::UnboxedClosure<'tcx>>> {
         &self.inh.unboxed_closures
     }
 }
@@ -1190,7 +1220,7 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
 
     // Finally, resolve all regions. This catches wily misuses of lifetime
     // parameters.
-    infcx.resolve_regions_and_report_errors();
+    infcx.resolve_regions_and_report_errors(impl_m_body_id);
 
     /// Check that region bounds on impl method are the same as those on the trait. In principle,
     /// it could be ok for there to be fewer region bounds on the impl method, but this leads to an
@@ -1526,7 +1556,7 @@ fn check_cast(fcx: &FnCtxt,
 }
 
 impl<'a, 'tcx> AstConv<'tcx> for FnCtxt<'a, 'tcx> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> { self.ccx.tcx }
+    fn tcx(&self) -> &ty::ctxt<'tcx> { self.ccx.tcx }
 
     fn get_item_ty(&self, id: ast::DefId) -> ty::Polytype<'tcx> {
         ty::lookup_item_type(self.tcx(), id)
@@ -1534,6 +1564,10 @@ impl<'a, 'tcx> AstConv<'tcx> for FnCtxt<'a, 'tcx> {
 
     fn get_trait_def(&self, id: ast::DefId) -> Rc<ty::TraitDef<'tcx>> {
         ty::lookup_trait_def(self.tcx(), id)
+    }
+
+    fn get_free_substs(&self) -> Option<&Substs<'tcx>> {
+        Some(&self.inh.param_env.free_substs)
     }
 
     fn ty_infer(&self, _span: Span) -> Ty<'tcx> {
@@ -1557,7 +1591,7 @@ impl<'a, 'tcx> AstConv<'tcx> for FnCtxt<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> { self.ccx.tcx }
+    fn tcx(&self) -> &ty::ctxt<'tcx> { self.ccx.tcx }
 
     pub fn infcx<'b>(&'b self) -> &'b infer::InferCtxt<'a, 'tcx> {
         &self.inh.infcx
@@ -1879,7 +1913,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         }
     }
 
-    pub fn item_substs<'a>(&'a self) -> Ref<'a, NodeMap<ty::ItemSubsts<'tcx>>> {
+    pub fn item_substs(&self) -> Ref<NodeMap<ty::ItemSubsts<'tcx>>> {
         self.inh.item_substs.borrow()
     }
 
@@ -2115,7 +2149,7 @@ fn try_overloaded_call<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                                       method_callee.ty,
                                                       call_expression,
                                                       args,
-                                                      DontDerefArgs,
+                                                      AutorefArgs::No,
                                                       TupleArguments);
         fcx.inh.method_map.borrow_mut().insert(method_call, method_callee);
         write_call(fcx, call_expression, output_type);
@@ -2264,7 +2298,7 @@ fn try_overloaded_slice<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                 method_ty_or_err,
                                 expr,
                                 args.as_slice(),
-                                DoDerefArgs,
+                                AutorefArgs::Yes,
                                 DontTupleArguments);
 
     opt_method_ty.map(|method_ty| {
@@ -2470,7 +2504,7 @@ fn lookup_method_for_for_loop<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                                   method_type,
                                                   iterator_expr,
                                                   &[],
-                                                  DontDerefArgs,
+                                                  AutorefArgs::No,
                                                   DontTupleArguments);
 
     match method {
@@ -2512,7 +2546,7 @@ fn check_method_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                          method_fn_ty: Ty<'tcx>,
                                          callee_expr: &ast::Expr,
                                          args_no_rcvr: &[&P<ast::Expr>],
-                                         deref_args: DerefArgs,
+                                         autoref_args: AutorefArgs,
                                          tuple_arguments: TupleArgumentsFlag)
                                          -> ty::FnOutput<'tcx> {
     if ty::type_is_error(method_fn_ty) {
@@ -2528,7 +2562,7 @@ fn check_method_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                              err_inputs.as_slice(),
                              callee_expr,
                              args_no_rcvr,
-                             deref_args,
+                             autoref_args,
                              false,
                              tuple_arguments);
         ty::FnConverging(ty::mk_err())
@@ -2541,7 +2575,7 @@ fn check_method_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                      fty.sig.inputs.slice_from(1),
                                      callee_expr,
                                      args_no_rcvr,
-                                     deref_args,
+                                     autoref_args,
                                      fty.sig.variadic,
                                      tuple_arguments);
                 fty.sig.output
@@ -2561,7 +2595,7 @@ fn check_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                   fn_inputs: &[Ty<'tcx>],
                                   _callee_expr: &ast::Expr,
                                   args: &[&P<ast::Expr>],
-                                  deref_args: DerefArgs,
+                                  autoref_args: AutorefArgs,
                                   variadic: bool,
                                   tuple_arguments: TupleArgumentsFlag) {
     let tcx = fcx.ccx.tcx;
@@ -2664,8 +2698,8 @@ fn check_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                 debug!("checking the argument");
                 let mut formal_ty = formal_tys[i];
 
-                match deref_args {
-                    DoDerefArgs => {
+                match autoref_args {
+                    AutorefArgs::Yes => {
                         match formal_ty.sty {
                             ty::ty_rptr(_, mt) => formal_ty = mt.ty,
                             ty::ty_err => (),
@@ -2680,7 +2714,7 @@ fn check_argument_types<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                             }
                         }
                     }
-                    DontDerefArgs => {}
+                    AutorefArgs::No => {}
                 }
 
                 check_expr_coercable_to_type(fcx, &***arg, formal_ty);
@@ -2894,12 +2928,13 @@ pub fn lookup_tup_field_ty<'tcx>(tcx: &ty::ctxt<'tcx>,
 
 // Controls whether the arguments are automatically referenced. This is useful
 // for overloaded binary and unary operators.
-pub enum DerefArgs {
-    DontDerefArgs,
-    DoDerefArgs
+#[deriving(PartialEq)]
+pub enum AutorefArgs {
+    Yes,
+    No,
 }
 
-impl Copy for DerefArgs {}
+impl Copy for AutorefArgs {}
 
 /// Controls whether the arguments are tupled. This is used for the call
 /// operator.
@@ -2987,7 +3022,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                              fn_sig.inputs.as_slice(),
                              f,
                              args,
-                             DontDerefArgs,
+                             AutorefArgs::No,
                              fn_sig.variadic,
                              DontTupleArguments);
 
@@ -3037,14 +3072,14 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                                  fn_ty,
                                                  expr,
                                                  args.as_slice(),
-                                                 DontDerefArgs,
+                                                 AutorefArgs::No,
                                                  DontTupleArguments);
 
         write_call(fcx, expr, ret_ty);
     }
 
     // A generic function for checking the then and else in an if
-    // or if-check
+    // or if-else.
     fn check_then_else<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                  cond_expr: &ast::Expr,
                                  then_blk: &ast::Block,
@@ -3054,33 +3089,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                  expected: Expectation<'tcx>) {
         check_expr_has_type(fcx, cond_expr, ty::mk_bool());
 
-        // Disregard "castable to" expectations because they
-        // can lead us astray. Consider for example `if cond
-        // {22} else {c} as u8` -- if we propagate the
-        // "castable to u8" constraint to 22, it will pick the
-        // type 22u8, which is overly constrained (c might not
-        // be a u8). In effect, the problem is that the
-        // "castable to" expectation is not the tightest thing
-        // we can say, so we want to drop it in this case.
-        // The tightest thing we can say is "must unify with
-        // else branch". Note that in the case of a "has type"
-        // constraint, this limitation does not hold.
-
-        // If the expected type is just a type variable, then don't use
-        // an expected type. Otherwise, we might write parts of the type
-        // when checking the 'then' block which are incompatible with the
-        // 'else' branch.
-        let expected = match expected.only_has_type() {
-            ExpectHasType(ety) => {
-                let ety = fcx.infcx().shallow_resolve(ety);
-                if !ty::type_is_ty_var(ety) {
-                    ExpectHasType(ety)
-                } else {
-                    NoExpectation
-                }
-            }
-            _ => NoExpectation
-        };
+        let expected = expected.adjust_for_branches(fcx);
         check_block_with_expected(fcx, then_blk, expected);
         let then_ty = fcx.node_ty(then_blk.id);
 
@@ -3120,7 +3129,8 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                      trait_did: Option<ast::DefId>,
                                      lhs: &'a ast::Expr,
                                      rhs: Option<&P<ast::Expr>>,
-                                     unbound_method: F) -> Ty<'tcx> where
+                                     unbound_method: F,
+                                     autoref_args: AutorefArgs) -> Ty<'tcx> where
         F: FnOnce(),
     {
         let method = match trait_did {
@@ -3173,7 +3183,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                             method_ty,
                                             op_ex,
                                             args.as_slice(),
-                                            DoDerefArgs,
+                                            autoref_args,
                                             DontTupleArguments) {
                     ty::FnConverging(result_type) => result_type,
                     ty::FnDiverging => ty::mk_err()
@@ -3189,7 +3199,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                             expected_ty,
                                             op_ex,
                                             args.as_slice(),
-                                            DoDerefArgs,
+                                            autoref_args,
                                             DontTupleArguments);
                 ty::mk_err()
             }
@@ -3337,7 +3347,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                         ast_util::binop_to_string(op),
                         actual)
             }, lhs_resolved_t, None)
-        })
+        }, if ast_util::is_by_value_binop(op) { AutorefArgs::No } else { AutorefArgs::Yes })
     }
 
     fn check_user_unop<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
@@ -3353,7 +3363,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                 format!("cannot apply unary operator `{}` to type `{}`",
                         op_str, actual)
             }, rhs_t, None);
-        })
+        }, AutorefArgs::Yes)
     }
 
     // Check field access expressions
@@ -3658,22 +3668,25 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
     let tcx = fcx.ccx.tcx;
     let id = expr.id;
     match expr.node {
-      ast::ExprBox(ref place, ref subexpr) => {
-          check_expr(fcx, &**place);
+      ast::ExprBox(ref opt_place, ref subexpr) => {
+          opt_place.as_ref().map(|place|check_expr(fcx, &**place));
           check_expr(fcx, &**subexpr);
 
           let mut checked = false;
-          if let ast::ExprPath(ref path) = place.node {
-              // FIXME(pcwalton): For now we hardcode the two permissible
-              // places: the exchange heap and the managed heap.
-              let definition = lookup_def(fcx, path.span, place.id);
-              let def_id = definition.def_id();
-              let referent_ty = fcx.expr_ty(&**subexpr);
-              if tcx.lang_items.exchange_heap() == Some(def_id) {
-                  fcx.write_ty(id, ty::mk_uniq(tcx, referent_ty));
-                  checked = true
+          opt_place.as_ref().map(|place| match place.node {
+              ast::ExprPath(ref path) => {
+                  // FIXME(pcwalton): For now we hardcode the two permissible
+                  // places: the exchange heap and the managed heap.
+                  let definition = lookup_def(fcx, path.span, place.id);
+                  let def_id = definition.def_id();
+                  let referent_ty = fcx.expr_ty(&**subexpr);
+                  if tcx.lang_items.exchange_heap() == Some(def_id) {
+                      fcx.write_ty(id, ty::mk_uniq(tcx, referent_ty));
+                      checked = true
+                  }
               }
-          }
+              _ => {}
+          });
 
           if !checked {
               span_err!(tcx.sess, expr.span, E0066,
@@ -3982,7 +3995,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
         }
       }
       ast::ExprMatch(ref discrim, ref arms, _) => {
-        _match::check_match(fcx, expr, &**discrim, arms.as_slice());
+        _match::check_match(fcx, expr, &**discrim, arms.as_slice(), expected);
       }
       ast::ExprClosure(_, opt_kind, ref decl, ref body) => {
           closure::check_expr_closure(fcx, expr, opt_kind, &**decl, &**body, expected);
@@ -4865,6 +4878,7 @@ pub fn polytype_for_def<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
       def::DefTrait(_) |
       def::DefTy(..) |
       def::DefAssociatedTy(..) |
+      def::DefAssociatedPath(..) |
       def::DefPrimTy(_) |
       def::DefTyParam(..)=> {
         fcx.ccx.tcx.sess.span_bug(sp, "expected value, found type");
@@ -4973,6 +4987,7 @@ pub fn instantiate_path<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         def::DefTyParamBinder(..) |
         def::DefTy(..) |
         def::DefAssociatedTy(..) |
+        def::DefAssociatedPath(..) |
         def::DefTrait(..) |
         def::DefPrimTy(..) |
         def::DefTyParam(..) => {

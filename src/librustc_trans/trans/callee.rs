@@ -205,7 +205,7 @@ fn trans<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, expr: &ast::Expr)
             def::DefTy(..) | def::DefPrimTy(..) | def::DefAssociatedTy(..) |
             def::DefUse(..) | def::DefTyParamBinder(..) |
             def::DefRegion(..) | def::DefLabel(..) | def::DefTyParam(..) |
-            def::DefSelfTy(..) => {
+            def::DefSelfTy(..) | def::DefAssociatedPath(..) => {
                 bcx.tcx().sess.span_bug(
                     ref_expr.span,
                     format!("cannot translate def {} \
@@ -848,10 +848,11 @@ pub enum CallArgs<'a, 'tcx> {
     // value.
     ArgVals(&'a [ValueRef]),
 
-    // For overloaded operators: `(lhs, Vec(rhs, rhs_id))`. `lhs`
+    // For overloaded operators: `(lhs, Vec(rhs, rhs_id), autoref)`. `lhs`
     // is the left-hand-side and `rhs/rhs_id` is the datum/expr-id of
-    // the right-hand-side arguments (if any).
-    ArgOverloadedOp(Datum<'tcx, Expr>, Vec<(Datum<'tcx, Expr>, ast::NodeId)>),
+    // the right-hand-side arguments (if any). `autoref` indicates whether the `rhs`
+    // arguments should be auto-referenced
+    ArgOverloadedOp(Datum<'tcx, Expr>, Vec<(Datum<'tcx, Expr>, ast::NodeId)>, bool),
 
     // Supply value of arguments as a list of expressions that must be
     // translated, for overloaded call operators.
@@ -1023,7 +1024,7 @@ pub fn trans_args<'a, 'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                                               arg_cleanup_scope,
                                               ignore_self)
         }
-        ArgOverloadedOp(lhs, rhs) => {
+        ArgOverloadedOp(lhs, rhs, autoref) => {
             assert!(!variadic);
 
             llargs.push(unpack_result!(bcx, {
@@ -1037,7 +1038,7 @@ pub fn trans_args<'a, 'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                 llargs.push(unpack_result!(bcx, {
                     trans_arg_datum(bcx, arg_tys[1], rhs,
                                     arg_cleanup_scope,
-                                    DoAutorefArg(rhs_id))
+                                    if autoref { DoAutorefArg(rhs_id) } else { DontAutorefArg })
                 }));
             }
         }

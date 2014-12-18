@@ -131,7 +131,7 @@ use middle::pat_util;
 use util::nodemap::{DefIdMap, NodeMap, FnvHashMap};
 use util::ppaux::{ty_to_string, Repr};
 
-use syntax::ast;
+use syntax::{ast, ast_util};
 use syntax::codemap::Span;
 use syntax::visit;
 use syntax::visit::Visitor;
@@ -139,27 +139,31 @@ use syntax::visit::Visitor;
 use std::cell::{RefCell};
 use std::collections::hash_map::{Vacant, Occupied};
 
+use self::RepeatingScope::Repeating;
+use self::SubjectNode::Subject;
+
+
 ///////////////////////////////////////////////////////////////////////////
 // PUBLIC ENTRY POINTS
 
 pub fn regionck_expr(fcx: &FnCtxt, e: &ast::Expr) {
-    let mut rcx = Rcx::new(fcx, e.id);
+    let mut rcx = Rcx::new(fcx, Repeating(e.id), Subject(e.id));
     if fcx.err_count_since_creation() == 0 {
         // regionck assumes typeck succeeded
         rcx.visit_expr(e);
         rcx.visit_region_obligations(e.id);
     }
-    fcx.infcx().resolve_regions_and_report_errors();
+    rcx.resolve_regions_and_report_errors();
 }
 
 pub fn regionck_item(fcx: &FnCtxt, item: &ast::Item) {
-    let mut rcx = Rcx::new(fcx, item.id);
+    let mut rcx = Rcx::new(fcx, Repeating(item.id), Subject(item.id));
     rcx.visit_region_obligations(item.id);
-    fcx.infcx().resolve_regions_and_report_errors();
+    rcx.resolve_regions_and_report_errors();
 }
 
 pub fn regionck_fn(fcx: &FnCtxt, id: ast::NodeId, decl: &ast::FnDecl, blk: &ast::Block) {
-    let mut rcx = Rcx::new(fcx, blk.id);
+    let mut rcx = Rcx::new(fcx, Repeating(blk.id), Subject(id));
     if fcx.err_count_since_creation() == 0 {
         // regionck assumes typeck succeeded
         rcx.visit_fn_body(id, decl, blk);
@@ -169,7 +173,7 @@ pub fn regionck_fn(fcx: &FnCtxt, id: ast::NodeId, decl: &ast::FnDecl, blk: &ast:
     // particularly around closure bounds.
     vtable::select_all_fcx_obligations_or_error(fcx);
 
-    fcx.infcx().resolve_regions_and_report_errors();
+    rcx.resolve_regions_and_report_errors();
 }
 
 /// Checks that the types in `component_tys` are well-formed. This will add constraints into the
@@ -177,7 +181,7 @@ pub fn regionck_fn(fcx: &FnCtxt, id: ast::NodeId, decl: &ast::FnDecl, blk: &ast:
 pub fn regionck_ensure_component_tys_wf<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                                   span: Span,
                                                   component_tys: &[Ty<'tcx>]) {
-    let mut rcx = Rcx::new(fcx, 0);
+    let mut rcx = Rcx::new(fcx, Repeating(0), SubjectNode::None);
     for &component_ty in component_tys.iter() {
         // Check that each type outlives the empty region. Since the
         // empty region is a subregion of all others, this can't fail
@@ -225,6 +229,9 @@ pub struct Rcx<'a, 'tcx: 'a> {
     // id of innermost fn or loop
     repeating_scope: ast::NodeId,
 
+    // id of AST node being analyzed (the subject of the analysis).
+    subject: SubjectNode,
+
     // Possible region links we will establish if an upvar
     // turns out to be unique/mutable
     maybe_links: MaybeLinkMap<'tcx>
@@ -251,11 +258,17 @@ fn region_of_def(fcx: &FnCtxt, def: def::Def) -> ty::Region {
     }
 }
 
+pub enum RepeatingScope { Repeating(ast::NodeId) }
+pub enum SubjectNode { Subject(ast::NodeId), None }
+
 impl<'a, 'tcx> Rcx<'a, 'tcx> {
     pub fn new(fcx: &'a FnCtxt<'a, 'tcx>,
-               initial_repeating_scope: ast::NodeId) -> Rcx<'a, 'tcx> {
+               initial_repeating_scope: RepeatingScope,
+               subject: SubjectNode) -> Rcx<'a, 'tcx> {
+        let Repeating(initial_repeating_scope) = initial_repeating_scope;
         Rcx { fcx: fcx,
               repeating_scope: initial_repeating_scope,
+              subject: subject,
               region_param_pairs: Vec::new(),
               maybe_links: RefCell::new(FnvHashMap::new()) }
     }
@@ -424,6 +437,18 @@ impl<'a, 'tcx> Rcx<'a, 'tcx> {
         }
 
         debug!("<< relate_free_regions");
+    }
+
+    fn resolve_regions_and_report_errors(&self) {
+        let subject_node_id = match self.subject {
+            Subject(s) => s,
+            SubjectNode::None => {
+                self.tcx().sess.bug("cannot resolve_regions_and_report_errors \
+                                     without subject node");
+            }
+        };
+
+        self.fcx.infcx().resolve_regions_and_report_errors(subject_node_id);
     }
 }
 
@@ -637,14 +662,22 @@ fn visit_expr(rcx: &mut Rcx, expr: &ast::Expr) {
             visit::walk_expr(rcx, expr);
         }
 
-        ast::ExprIndex(ref lhs, ref rhs) |
-        ast::ExprBinary(_, ref lhs, ref rhs) if has_method_map => {
+        ast::ExprIndex(ref lhs, ref rhs) if has_method_map => {
+            constrain_call(rcx, expr, Some(&**lhs),
+                           Some(&**rhs).into_iter(), true);
+
+            visit::walk_expr(rcx, expr);
+        },
+
+        ast::ExprBinary(op, ref lhs, ref rhs) if has_method_map => {
+            let implicitly_ref_args = !ast_util::is_by_value_binop(op);
+
             // As `expr_method_call`, but the call is via an
             // overloaded op.  Note that we (sadly) currently use an
             // implicit "by ref" sort of passing style here.  This
             // should be converted to an adjustment!
             constrain_call(rcx, expr, Some(&**lhs),
-                           Some(&**rhs).into_iter(), true);
+                           Some(&**rhs).into_iter(), implicitly_ref_args);
 
             visit::walk_expr(rcx, expr);
         }

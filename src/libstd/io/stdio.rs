@@ -41,10 +41,11 @@ use option::Option;
 use option::Option::{Some, None};
 use ops::{Deref, DerefMut, FnOnce};
 use result::Result::{Ok, Err};
+use rt;
 use rustrt;
 use rustrt::local::Local;
 use rustrt::task::Task;
-use slice::SlicePrelude;
+use slice::SliceExt;
 use str::StrPrelude;
 use string::String;
 use sys::{fs, tty};
@@ -224,6 +225,12 @@ pub fn stdin() -> StdinReader {
                 inner: Arc::new(Mutex::new(stdin))
             };
             STDIN = mem::transmute(box stdin);
+
+            // Make sure to free it at exit
+            rt::at_exit(|| {
+                mem::transmute::<_, Box<StdinReader>>(STDIN);
+                STDIN = 0 as *const _;
+            });
         });
 
         (*STDIN).clone()

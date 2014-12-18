@@ -16,7 +16,7 @@ use std::default::Default;
 use std::fmt;
 use std::iter::FromIterator;
 use std::path::BytesContainer;
-use std::slice::{mod, Permutations};
+use std::slice;
 
 // Note 1: It is not clear whether the flexibility of providing both
 // the `Growable` and `FixedLen` variants is sufficiently useful.
@@ -136,21 +136,6 @@ impl<'a,T:fmt::Show> fmt::Show for MaybeOwnedVector<'a,T> {
     }
 }
 
-impl<'a,T:Clone> CloneSliceAllocPrelude<T> for MaybeOwnedVector<'a,T> {
-    /// Returns a copy of `self`.
-    fn to_vec(&self) -> Vec<T> {
-        self.as_slice().to_vec()
-    }
-
-    fn partitioned<F>(&self, f: F) -> (Vec<T>, Vec<T>) where F: FnMut(&T) -> bool {
-        self.as_slice().partitioned(f)
-    }
-
-    fn permutations(&self) -> Permutations<T> {
-        self.as_slice().permutations()
-    }
-}
-
 impl<'a, T: Clone> Clone for MaybeOwnedVector<'a, T> {
     #[allow(deprecated)]
     fn clone(&self) -> MaybeOwnedVector<'a, T> {
@@ -169,7 +154,7 @@ impl<'a, T> Default for MaybeOwnedVector<'a, T> {
 }
 
 impl<'a> BytesContainer for MaybeOwnedVector<'a, u8> {
-    fn container_as_bytes<'a>(&'a self) -> &'a [u8] {
+    fn container_as_bytes(&self) -> &[u8] {
         self.as_slice()
     }
 }

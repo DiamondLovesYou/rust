@@ -51,21 +51,19 @@
 
 #![doc(primitive = "str")]
 
+use core::prelude::*;
+
 pub use self::MaybeOwned::*;
 use self::RecompositionState::*;
 use self::DecompositionType::*;
+
 use core::borrow::{BorrowFrom, Cow, ToOwned};
 use core::default::Default;
 use core::fmt;
+use core::hash;
 use core::cmp;
 use core::iter::AdditiveIterator;
-use core::kinds::Sized;
-use core::prelude::{Char, Clone, Eq, Equiv};
-use core::prelude::{Iterator, IteratorExt, SlicePrelude, None, Option, Ord, Ordering};
-use core::prelude::{PartialEq, PartialOrd, Result, AsSlice, Some};
-use core::prelude::{range};
 
-use hash;
 use ring_buf::RingBuf;
 use string::String;
 use unicode;
@@ -849,10 +847,10 @@ mod tests {
     use std::iter::{Iterator, IteratorExt, DoubleEndedIteratorExt};
 
     use super::*;
-    use std::slice::{AsSlice, SlicePrelude};
+    use std::slice::{AsSlice, SliceExt};
     use string::String;
     use vec::Vec;
-    use slice::CloneSliceAllocPrelude;
+    use slice::CloneSliceExt;
 
     use unicode::char::UnicodeChar;
 
@@ -1599,17 +1597,24 @@ mod tests {
 
     #[test]
     fn test_escape_unicode() {
-        assert_eq!("abc".escape_unicode(), String::from_str("\\x61\\x62\\x63"));
-        assert_eq!("a c".escape_unicode(), String::from_str("\\x61\\x20\\x63"));
-        assert_eq!("\r\n\t".escape_unicode(), String::from_str("\\x0d\\x0a\\x09"));
-        assert_eq!("'\"\\".escape_unicode(), String::from_str("\\x27\\x22\\x5c"));
+        assert_eq!("abc".escape_unicode(),
+                   String::from_str("\\u{61}\\u{62}\\u{63}"));
+        assert_eq!("a c".escape_unicode(),
+                   String::from_str("\\u{61}\\u{20}\\u{63}"));
+        assert_eq!("\r\n\t".escape_unicode(),
+                   String::from_str("\\u{d}\\u{a}\\u{9}"));
+        assert_eq!("'\"\\".escape_unicode(),
+                   String::from_str("\\u{27}\\u{22}\\u{5c}"));
         assert_eq!("\x00\x01\u{fe}\u{ff}".escape_unicode(),
-                   String::from_str("\\x00\\x01\\u00fe\\u00ff"));
-        assert_eq!("\u{100}\u{ffff}".escape_unicode(), String::from_str("\\u0100\\uffff"));
+                   String::from_str("\\u{0}\\u{1}\\u{fe}\\u{ff}"));
+        assert_eq!("\u{100}\u{ffff}".escape_unicode(),
+                   String::from_str("\\u{100}\\u{ffff}"));
         assert_eq!("\u{10000}\u{10ffff}".escape_unicode(),
-                   String::from_str("\\U00010000\\U0010ffff"));
-        assert_eq!("ab\u{fb00}".escape_unicode(), String::from_str("\\x61\\x62\\ufb00"));
-        assert_eq!("\u{1d4ea}\r".escape_unicode(), String::from_str("\\U0001d4ea\\x0d"));
+                   String::from_str("\\u{10000}\\u{10ffff}"));
+        assert_eq!("ab\u{fb00}".escape_unicode(),
+                   String::from_str("\\u{61}\\u{62}\\u{fb00}"));
+        assert_eq!("\u{1d4ea}\r".escape_unicode(),
+                   String::from_str("\\u{1d4ea}\\u{d}"));
     }
 
     #[test]
@@ -1618,11 +1623,14 @@ mod tests {
         assert_eq!("a c".escape_default(), String::from_str("a c"));
         assert_eq!("\r\n\t".escape_default(), String::from_str("\\r\\n\\t"));
         assert_eq!("'\"\\".escape_default(), String::from_str("\\'\\\"\\\\"));
-        assert_eq!("\u{100}\u{ffff}".escape_default(), String::from_str("\\u0100\\uffff"));
+        assert_eq!("\u{100}\u{ffff}".escape_default(),
+                   String::from_str("\\u{100}\\u{ffff}"));
         assert_eq!("\u{10000}\u{10ffff}".escape_default(),
-                   String::from_str("\\U00010000\\U0010ffff"));
-        assert_eq!("ab\u{fb00}".escape_default(), String::from_str("ab\\ufb00"));
-        assert_eq!("\u{1d4ea}\r".escape_default(), String::from_str("\\U0001d4ea\\r"));
+                   String::from_str("\\u{10000}\\u{10ffff}"));
+        assert_eq!("ab\u{fb00}".escape_default(),
+                   String::from_str("ab\\u{fb00}"));
+        assert_eq!("\u{1d4ea}\r".escape_default(),
+                   String::from_str("\\u{1d4ea}\\r"));
     }
 
     #[test]
@@ -2464,7 +2472,7 @@ mod bench {
     use super::*;
     use std::iter::{IteratorExt, DoubleEndedIteratorExt};
     use std::str::StrPrelude;
-    use std::slice::SlicePrelude;
+    use std::slice::SliceExt;
 
     #[bench]
     fn char_iterator(b: &mut Bencher) {
