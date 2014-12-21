@@ -228,10 +228,8 @@ use syntax::codemap::Span;
 use syntax::fold::Folder;
 use syntax::ptr::P;
 
-#[deriving(Show)]
+#[deriving(Copy, Show)]
 struct ConstantExpr<'a>(&'a ast::Expr);
-
-impl<'a> Copy for ConstantExpr<'a> {}
 
 impl<'a> ConstantExpr<'a> {
     fn eq(self, other: ConstantExpr<'a>, tcx: &ty::ctxt) -> bool {
@@ -301,7 +299,7 @@ impl<'a, 'tcx> Opt<'a, 'tcx> {
     }
 }
 
-#[deriving(PartialEq)]
+#[deriving(Copy, PartialEq)]
 pub enum BranchKind {
     NoBranch,
     Single,
@@ -310,22 +308,18 @@ pub enum BranchKind {
     CompareSliceLength
 }
 
-impl Copy for BranchKind {}
-
 pub enum OptResult<'blk, 'tcx: 'blk> {
     SingleResult(Result<'blk, 'tcx>),
     RangeResult(Result<'blk, 'tcx>, Result<'blk, 'tcx>),
     LowerBound(Result<'blk, 'tcx>)
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 pub enum TransBindingMode {
     TrByCopy(/* llbinding */ ValueRef),
     TrByMove,
     TrByRef,
 }
-
-impl Copy for TransBindingMode {}
 
 /// Information about a pattern binding:
 /// - `llmatch` is a pointer to a stack slot.  The stack slot contains a
@@ -334,7 +328,7 @@ impl Copy for TransBindingMode {}
 /// - `trmode` is the trans binding mode
 /// - `id` is the node id of the binding
 /// - `ty` is the Rust type of the binding
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 pub struct BindingInfo<'tcx> {
     pub llmatch: ValueRef,
     pub trmode: TransBindingMode,
@@ -342,8 +336,6 @@ pub struct BindingInfo<'tcx> {
     pub span: Span,
     pub ty: Ty<'tcx>,
 }
-
-impl<'tcx> Copy for BindingInfo<'tcx> {}
 
 type BindingsMap<'tcx> = FnvHashMap<Ident, BindingInfo<'tcx>>;
 
@@ -676,7 +668,7 @@ fn extract_vec_elems<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 // pattern.  Note that, because the macro is well-typed, either ALL of the
 // matches should fit that sort of pattern or NONE (however, some of the
 // matches may be wildcards like _ or identifiers).
-macro_rules! any_pat (
+macro_rules! any_pat {
     ($m:expr, $col:expr, $pattern:pat) => (
         ($m).iter().any(|br| {
             match br.pats[$col].node {
@@ -685,7 +677,7 @@ macro_rules! any_pat (
             }
         })
     )
-)
+}
 
 fn any_uniq_pat(m: &[Match], col: uint) -> bool {
     any_pat!(m, col, ast::PatBox(_))

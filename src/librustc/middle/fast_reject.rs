@@ -14,7 +14,7 @@ use syntax::ast;
 use self::SimplifiedType::*;
 
 /// See `simplify_type
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SimplifiedType {
     BoolSimplifiedType,
     CharSimplifiedType,
@@ -32,8 +32,6 @@ pub enum SimplifiedType {
     FunctionSimplifiedType(uint),
     ParameterSimplifiedType,
 }
-
-impl Copy for SimplifiedType {}
 
 /// Tries to simplify a type by dropping type parameters, deref'ing away any reference types, etc.
 /// The idea is to get something simple that we can use to quickly decide if two types could unify
@@ -60,7 +58,7 @@ pub fn simplify_type(tcx: &ty::ctxt,
         ty::ty_vec(..) => Some(VecSimplifiedType),
         ty::ty_ptr(_) => Some(PtrSimplifiedType),
         ty::ty_trait(ref trait_info) => {
-            Some(TraitSimplifiedType(trait_info.principal.def_id))
+            Some(TraitSimplifiedType(trait_info.principal.def_id()))
         }
         ty::ty_struct(def_id, _) => {
             Some(StructSimplifiedType(def_id))
@@ -83,10 +81,10 @@ pub fn simplify_type(tcx: &ty::ctxt,
             Some(TupleSimplifiedType(tys.len()))
         }
         ty::ty_closure(ref f) => {
-            Some(FunctionSimplifiedType(f.sig.inputs.len()))
+            Some(FunctionSimplifiedType(f.sig.0.inputs.len()))
         }
         ty::ty_bare_fn(ref f) => {
-            Some(FunctionSimplifiedType(f.sig.inputs.len()))
+            Some(FunctionSimplifiedType(f.sig.0.inputs.len()))
         }
         ty::ty_param(_) => {
             if can_simplify_params {

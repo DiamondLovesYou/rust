@@ -161,7 +161,7 @@ mod tests {
     use u64;
     use uint;
 
-    macro_rules! test_cast_20(
+    macro_rules! test_cast_20 {
         ($_20:expr) => ({
             let _20 = $_20;
 
@@ -204,7 +204,7 @@ mod tests {
             assert_eq!(_20, cast(20f32).unwrap());
             assert_eq!(_20, cast(20f64).unwrap());
         })
-    )
+    }
 
     #[test] fn test_u8_cast()    { test_cast_20!(20u8)  }
     #[test] fn test_u16_cast()   { test_cast_20!(20u16) }
@@ -664,11 +664,32 @@ mod tests {
         assert_eq!(third.checked_mul(4), None);
     }
 
-    macro_rules! test_next_power_of_two(
+    macro_rules! test_is_power_of_two {
         ($test_name:ident, $T:ident) => (
             fn $test_name() {
                 #![test]
-                assert_eq!((0 as $T).next_power_of_two(), 0);
+                assert_eq!((0 as $T).is_power_of_two(), false);
+                assert_eq!((1 as $T).is_power_of_two(), true);
+                assert_eq!((2 as $T).is_power_of_two(), true);
+                assert_eq!((3 as $T).is_power_of_two(), false);
+                assert_eq!((4 as $T).is_power_of_two(), true);
+                assert_eq!((5 as $T).is_power_of_two(), false);
+                assert!(($T::MAX / 2 + 1).is_power_of_two(), true);
+            }
+        )
+    }
+
+    test_is_power_of_two!{ test_is_power_of_two_u8, u8 }
+    test_is_power_of_two!{ test_is_power_of_two_u16, u16 }
+    test_is_power_of_two!{ test_is_power_of_two_u32, u32 }
+    test_is_power_of_two!{ test_is_power_of_two_u64, u64 }
+    test_is_power_of_two!{ test_is_power_of_two_uint, uint }
+
+    macro_rules! test_next_power_of_two {
+        ($test_name:ident, $T:ident) => (
+            fn $test_name() {
+                #![test]
+                assert_eq!((0 as $T).next_power_of_two(), 1);
                 let mut next_power = 1;
                 for i in range::<$T>(1, 40) {
                      assert_eq!(i.next_power_of_two(), next_power);
@@ -676,36 +697,36 @@ mod tests {
                 }
             }
         )
-    )
+    }
 
-    test_next_power_of_two!(test_next_power_of_two_u8, u8)
-    test_next_power_of_two!(test_next_power_of_two_u16, u16)
-    test_next_power_of_two!(test_next_power_of_two_u32, u32)
-    test_next_power_of_two!(test_next_power_of_two_u64, u64)
-    test_next_power_of_two!(test_next_power_of_two_uint, uint)
+    test_next_power_of_two! { test_next_power_of_two_u8, u8 }
+    test_next_power_of_two! { test_next_power_of_two_u16, u16 }
+    test_next_power_of_two! { test_next_power_of_two_u32, u32 }
+    test_next_power_of_two! { test_next_power_of_two_u64, u64 }
+    test_next_power_of_two! { test_next_power_of_two_uint, uint }
 
-    macro_rules! test_checked_next_power_of_two(
+    macro_rules! test_checked_next_power_of_two {
         ($test_name:ident, $T:ident) => (
             fn $test_name() {
                 #![test]
-                assert_eq!((0 as $T).checked_next_power_of_two(), None);
+                assert_eq!((0 as $T).checked_next_power_of_two(), Some(1));
+                assert!(($T::MAX / 2).checked_next_power_of_two().is_some());
+                assert_eq!(($T::MAX - 1).checked_next_power_of_two(), None);
+                assert_eq!($T::MAX.checked_next_power_of_two(), None);
                 let mut next_power = 1;
                 for i in range::<$T>(1, 40) {
                      assert_eq!(i.checked_next_power_of_two(), Some(next_power));
                      if i == next_power { next_power *= 2 }
                 }
-                assert!(($T::MAX / 2).checked_next_power_of_two().is_some());
-                assert_eq!(($T::MAX - 1).checked_next_power_of_two(), None);
-                assert_eq!($T::MAX.checked_next_power_of_two(), None);
             }
         )
-    )
+    }
 
-    test_checked_next_power_of_two!(test_checked_next_power_of_two_u8, u8)
-    test_checked_next_power_of_two!(test_checked_next_power_of_two_u16, u16)
-    test_checked_next_power_of_two!(test_checked_next_power_of_two_u32, u32)
-    test_checked_next_power_of_two!(test_checked_next_power_of_two_u64, u64)
-    test_checked_next_power_of_two!(test_checked_next_power_of_two_uint, uint)
+    test_checked_next_power_of_two! { test_checked_next_power_of_two_u8, u8 }
+    test_checked_next_power_of_two! { test_checked_next_power_of_two_u16, u16 }
+    test_checked_next_power_of_two! { test_checked_next_power_of_two_u32, u32 }
+    test_checked_next_power_of_two! { test_checked_next_power_of_two_u64, u64 }
+    test_checked_next_power_of_two! { test_checked_next_power_of_two_uint, uint }
 
     #[deriving(PartialEq, Show)]
     struct Value { x: int }
@@ -759,13 +780,13 @@ mod tests {
             let one: T = Int::one();
             range(0, exp).fold(one, |acc, _| acc * base)
         }
-        macro_rules! assert_pow(
+        macro_rules! assert_pow {
             (($num:expr, $exp:expr) => $expected:expr) => {{
                 let result = $num.pow($exp);
                 assert_eq!(result, $expected);
                 assert_eq!(result, naive_pow($num, $exp));
             }}
-        )
+        }
         assert_pow!((3i,     0 ) => 1);
         assert_pow!((5i,     1 ) => 5);
         assert_pow!((-4i,    2 ) => 16);

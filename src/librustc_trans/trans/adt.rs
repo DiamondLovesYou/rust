@@ -147,7 +147,7 @@ pub fn represent_type<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     }
 
     let repr = Rc::new(represent_type_uncached(cx, t));
-    debug!("Represented as: {}", repr)
+    debug!("Represented as: {}", repr);
     cx.adt_reprs().borrow_mut().insert(t, repr.clone());
     repr
 }
@@ -281,13 +281,11 @@ struct Case<'tcx> {
 }
 
 
-#[deriving(Eq, PartialEq, Show)]
+#[deriving(Copy, Eq, PartialEq, Show)]
 pub enum PointerField {
     ThinPointer(uint),
     FatPointer(uint)
 }
-
-impl Copy for PointerField {}
 
 impl<'tcx> Case<'tcx> {
     fn is_zerolen<'a>(&self, cx: &CrateContext<'a, 'tcx>, scapegoat: Ty<'tcx>)

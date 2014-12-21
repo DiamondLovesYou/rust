@@ -62,13 +62,12 @@ use std::collections::hash_map::Vacant;
 //   - Non-constants: everything else.
 //
 
+#[deriving(Copy)]
 pub enum constness {
     integral_const,
     general_const,
     non_const
 }
-
-impl Copy for constness {}
 
 type constness_cache = DefIdMap<constness>;
 
@@ -525,7 +524,7 @@ pub fn eval_const_expr_partial(tcx: &ty::ctxt, e: &Expr) -> Result<const_val, St
                 },)*
                 _ => Err("can't cast this type".to_string())
             })
-        )
+        );
 
         eval_const_expr_partial(tcx, &**base)
             .and_then(|val| define_casts!(val, {

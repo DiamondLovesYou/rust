@@ -30,6 +30,7 @@ use default::Default;
 use super::{Hash, Hasher, Writer};
 
 /// `SipState` computes a SipHash 2-4 hash over a stream of bytes.
+#[deriving(Copy)]
 pub struct SipState {
     k0: u64,
     k1: u64,
@@ -42,13 +43,11 @@ pub struct SipState {
     ntail: uint,  // how many bytes in tail are valid
 }
 
-impl Copy for SipState {}
-
 // sadly, these macro definitions can't appear later,
 // because they're needed in the following defs;
 // this design could be improved.
 
-macro_rules! u8to64_le (
+macro_rules! u8to64_le {
     ($buf:expr, $i:expr) =>
     ($buf[0+$i] as u64 |
      $buf[1+$i] as u64 << 8 |
@@ -68,14 +67,14 @@ macro_rules! u8to64_le (
         }
         out
     });
-)
+}
 
-macro_rules! rotl (
+macro_rules! rotl {
     ($x:expr, $b:expr) =>
     (($x << $b) | ($x >> (64 - $b)))
-)
+}
 
-macro_rules! compress (
+macro_rules! compress {
     ($v0:expr, $v1:expr, $v2:expr, $v3:expr) =>
     ({
         $v0 += $v1; $v1 = rotl!($v1, 13); $v1 ^= $v0;
@@ -85,7 +84,7 @@ macro_rules! compress (
         $v2 += $v1; $v1 = rotl!($v1, 17); $v1 ^= $v2;
         $v2 = rotl!($v2, 32);
     })
-)
+}
 
 impl SipState {
     /// Creates a `SipState` that is keyed off the provided keys.

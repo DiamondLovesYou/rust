@@ -450,14 +450,12 @@ pub fn get_symbol(data: &[u8], id: ast::NodeId) -> String {
 }
 
 // Something that a name can resolve to.
-#[deriving(Clone,Show)]
+#[deriving(Copy, Clone, Show)]
 pub enum DefLike {
     DlDef(def::Def),
     DlImpl(ast::DefId),
     DlField
 }
-
-impl Copy for DefLike {}
 
 /// Iterates over the language items in the given crate.
 pub fn each_lang_item<F>(cdata: Cmd, mut f: F) -> bool where
@@ -704,7 +702,7 @@ pub fn get_enum_variants<'tcx>(intr: Rc<IdentInterner>, cdata: Cmd, id: ast::Nod
         let name = item_name(&*intr, item);
         let (ctor_ty, arg_tys, arg_names) = match ctor_ty.sty {
             ty::ty_bare_fn(ref f) =>
-                (Some(ctor_ty), f.sig.inputs.clone(), None),
+                (Some(ctor_ty), f.sig.0.inputs.clone(), None),
             _ => { // Nullary or struct enum variant.
                 let mut arg_names = Vec::new();
                 let arg_tys = get_struct_fields(intr.clone(), cdata, did.node)

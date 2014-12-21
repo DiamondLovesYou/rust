@@ -44,9 +44,8 @@ pub type Result = result::Result<(), Error>;
 /// occurred. Any extra information must be arranged to be transmitted through
 /// some other means.
 #[experimental = "core and I/O reconciliation may alter this definition"]
+#[deriving(Copy)]
 pub struct Error;
-
-impl Copy for Error {}
 
 /// A collection of methods that are required to format a message into a stream.
 ///
@@ -104,6 +103,7 @@ enum Void {}
 /// compile time it is ensured that the function and the value have the correct
 /// types, and then this struct is used to canonicalize arguments to one type.
 #[experimental = "implementation detail of the `format_args!` macro"]
+#[deriving(Copy)]
 pub struct Argument<'a> {
     value: &'a Void,
     formatter: fn(&Void, &mut Formatter) -> Result,
@@ -136,8 +136,6 @@ impl<'a> Argument<'a> {
         }
     }
 }
-
-impl<'a> Copy for Argument<'a> {}
 
 impl<'a> Arguments<'a> {
     /// When using the format_args!() macro, this function is used to generate the
@@ -639,7 +637,7 @@ impl<'a, T> Pointer for &'a mut T {
     }
 }
 
-macro_rules! floating(($ty:ident) => {
+macro_rules! floating { ($ty:ident) => {
     impl Show for $ty {
         fn fmt(&self, fmt: &mut Formatter) -> Result {
             use num::Float;
@@ -702,9 +700,9 @@ macro_rules! floating(($ty:ident) => {
             })
         }
     }
-})
-floating!(f32)
-floating!(f64)
+} }
+floating! { f32 }
+floating! { f64 }
 
 // Implementation of Show for various core types
 
@@ -716,9 +714,11 @@ impl<T> Show for *mut T {
     fn fmt(&self, f: &mut Formatter) -> Result { Pointer::fmt(self, f) }
 }
 
-macro_rules! peel(($name:ident, $($other:ident,)*) => (tuple!($($other,)*)))
+macro_rules! peel {
+    ($name:ident, $($other:ident,)*) => (tuple! { $($other,)* })
+}
 
-macro_rules! tuple (
+macro_rules! tuple {
     () => ();
     ( $($name:ident,)+ ) => (
         impl<$($name:Show),*> Show for ($($name,)*) {
@@ -740,9 +740,9 @@ macro_rules! tuple (
                 write!(f, ")")
             }
         }
-        peel!($($name,)*)
+        peel! { $($name,)* }
     )
-)
+}
 
 tuple! { T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, }
 

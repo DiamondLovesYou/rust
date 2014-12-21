@@ -103,9 +103,11 @@ use syntax::visit::Visitor;
 use syntax::visit;
 use syntax::{ast, ast_util, ast_map};
 
-thread_local!(static TASK_LOCAL_INSN_KEY: RefCell<Option<Vec<&'static str>>> = {
-    RefCell::new(None)
-})
+thread_local! {
+    static TASK_LOCAL_INSN_KEY: RefCell<Option<Vec<&'static str>>> = {
+        RefCell::new(None)
+    }
+}
 
 pub fn with_insn_ctxt<F>(blk: F) where
     F: FnOnce(&[&'static str]),
@@ -280,10 +282,10 @@ pub fn decl_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                               fn_ty: Ty<'tcx>, name: &str) -> ValueRef {
     let (inputs, output, abi, env) = match fn_ty.sty {
         ty::ty_bare_fn(ref f) => {
-            (f.sig.inputs.clone(), f.sig.output, f.abi, None)
+            (f.sig.0.inputs.clone(), f.sig.0.output, f.abi, None)
         }
         ty::ty_closure(ref f) => {
-            (f.sig.inputs.clone(), f.sig.output, f.abi, Some(Type::i8p(ccx)))
+            (f.sig.0.inputs.clone(), f.sig.0.output, f.abi, Some(Type::i8p(ccx)))
         }
         ty::ty_unboxed_closure(closure_did, _, ref substs) => {
             let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
@@ -291,8 +293,8 @@ pub fn decl_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
             let function_type = unboxed_closure.closure_type.clone();
             let self_type = self_type_for_unboxed_closure(ccx, closure_did, fn_ty);
             let llenvironment_type = type_of_explicit_arg(ccx, self_type);
-            (function_type.sig.inputs.iter().map(|t| t.subst(ccx.tcx(), substs)).collect(),
-             function_type.sig.output.subst(ccx.tcx(), substs),
+            (function_type.sig.0.inputs.iter().map(|t| t.subst(ccx.tcx(), substs)).collect(),
+             function_type.sig.0.output.subst(ccx.tcx(), substs),
              RustCall,
              Some(llenvironment_type))
         }
@@ -563,9 +565,8 @@ pub fn maybe_name_value(cx: &CrateContext, v: ValueRef, s: &str) {
 
 
 // Used only for creating scalar comparison glue.
+#[deriving(Copy)]
 pub enum scalar_type { nil_type, signed_int, unsigned_int, floating_point, }
-
-impl Copy for scalar_type {}
 
 pub fn compare_scalar_types<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                                         lhs: ValueRef,
@@ -1790,13 +1791,11 @@ pub fn build_return_block<'blk, 'tcx>(fcx: &FunctionContext<'blk, 'tcx>,
     }
 }
 
-#[deriving(Clone, Eq, PartialEq)]
+#[deriving(Clone, Copy, Eq, PartialEq)]
 pub enum IsUnboxedClosureFlag {
     NotUnboxedClosure,
     IsUnboxedClosure,
 }
-
-impl Copy for IsUnboxedClosureFlag {}
 
 // trans_closure: Builds an LLVM function out of a source function.
 // If the function closes over its environment a closure will be
@@ -1996,7 +1995,7 @@ pub fn trans_named_tuple_constructor<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     let tcx = ccx.tcx();
 
     let result_ty = match ctor_ty.sty {
-        ty::ty_bare_fn(ref bft) => bft.sig.output.unwrap(),
+        ty::ty_bare_fn(ref bft) => bft.sig.0.output.unwrap(),
         _ => ccx.sess().bug(
             format!("trans_enum_variant_constructor: \
                      unexpected ctor return type {}",
@@ -2068,7 +2067,7 @@ fn trans_enum_variant_or_tuple_like_struct<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx
     let ctor_ty = ctor_ty.subst(ccx.tcx(), param_substs);
 
     let result_ty = match ctor_ty.sty {
-        ty::ty_bare_fn(ref bft) => bft.sig.output,
+        ty::ty_bare_fn(ref bft) => bft.sig.0.output,
         _ => ccx.sess().bug(
             format!("trans_enum_variant_or_tuple_like_struct: \
                      unexpected ctor return type {}",
@@ -2192,6 +2191,7 @@ pub fn llvm_linkage_by_name(name: &str) -> Option<Linkage> {
 
 
 /// Enum describing the origin of an LLVM `Value`, for linkage purposes.
+#[deriving(Copy)]
 pub enum ValueOrigin {
     /// The LLVM `Value` is in this context because the corresponding item was
     /// assigned to the current compilation unit.
@@ -2201,8 +2201,6 @@ pub enum ValueOrigin {
     /// item is marked `#[inline]`.
     InlinedCopy,
 }
-
-impl Copy for ValueOrigin {}
 
 /// Set the appropriate linkage for an LLVM `ValueRef` (function or global).
 /// If the `llval` is the direct translation of a specific Rust item, `id`
@@ -2437,7 +2435,7 @@ pub fn get_fn_llvm_attributes<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<
     // at either 1 or 2 depending on whether there's an env slot or not
     let mut first_arg_offset = if has_env { 2 } else { 1 };
     let mut attrs = llvm::AttrBuilder::new();
-    let ret_ty = fn_sig.output;
+    let ret_ty = fn_sig.0.output;
 
     // These have an odd calling convention, so we need to manually
     // unpack the input ty's
@@ -2445,15 +2443,15 @@ pub fn get_fn_llvm_attributes<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<
         ty::ty_unboxed_closure(_, _, _) => {
             assert!(abi == RustCall);
 
-            match fn_sig.inputs[0].sty {
+            match fn_sig.0.inputs[0].sty {
                 ty::ty_tup(ref inputs) => inputs.clone(),
                 _ => ccx.sess().bug("expected tuple'd inputs")
             }
         },
         ty::ty_bare_fn(_) if abi == RustCall => {
-            let mut inputs = vec![fn_sig.inputs[0]];
+            let mut inputs = vec![fn_sig.0.inputs[0]];
 
-            match fn_sig.inputs[1].sty {
+            match fn_sig.0.inputs[1].sty {
                 ty::ty_tup(ref t_in) => {
                     inputs.push_all(t_in.as_slice());
                     inputs
@@ -2461,7 +2459,7 @@ pub fn get_fn_llvm_attributes<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<
                 _ => ccx.sess().bug("expected tuple'd inputs")
             }
         }
-        _ => fn_sig.inputs.clone()
+        _ => fn_sig.0.inputs.clone()
     };
 
     if let ty::FnConverging(ret_ty) = ret_ty {

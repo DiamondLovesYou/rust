@@ -36,6 +36,7 @@ extern crate rustc_llvm;
 extern crate rustc_back;
 extern crate serialize;
 extern crate rbml;
+extern crate collections;
 #[phase(plugin, link)] extern crate log;
 #[phase(plugin, link)] extern crate syntax;
 
@@ -122,7 +123,7 @@ pub mod lib {
     pub use llvm;
 }
 
-__build_diagnostic_array!(DIAGNOSTICS)
+__build_diagnostic_array! { DIAGNOSTICS }
 
 // A private module so that macro-expanded idents like
 // `::rustc::lint::Lint` will also work in `rustc` itself.

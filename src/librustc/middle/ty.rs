@@ -60,7 +60,7 @@ use middle::subst::{mod, Subst, Substs, VecPerParamSpace};
 use middle::traits::ObligationCause;
 use middle::traits;
 use middle::ty;
-use middle::ty_fold::{mod, TypeFoldable, TypeFolder, HigherRankedFoldable};
+use middle::ty_fold::{mod, TypeFoldable, TypeFolder};
 use util::ppaux::{note_and_explain_region, bound_region_ptr_to_string};
 use util::ppaux::{trait_store_to_string, ty_to_string};
 use util::ppaux::{Repr, UserString};
@@ -77,7 +77,7 @@ use std::hash::{Hash, sip, Writer};
 use std::mem;
 use std::ops;
 use std::rc::Rc;
-use std::collections::enum_set::{EnumSet, CLike};
+use collections::enum_set::{EnumSet, CLike};
 use std::collections::hash_map::{HashMap, Occupied, Vacant};
 use syntax::abi;
 use syntax::ast::{CrateNum, DefId, DUMMY_NODE_ID, Ident, ItemTrait, LOCAL_CRATE};
@@ -107,21 +107,17 @@ pub struct CrateAnalysis<'tcx> {
     pub name: String,
 }
 
-#[deriving(PartialEq, Eq, Hash)]
+#[deriving(Copy, PartialEq, Eq, Hash)]
 pub struct field<'tcx> {
     pub name: ast::Name,
     pub mt: mt<'tcx>
 }
 
-impl<'tcx> Copy for field<'tcx> {}
-
-#[deriving(Clone, Show)]
+#[deriving(Clone, Copy, Show)]
 pub enum ImplOrTraitItemContainer {
     TraitContainer(ast::DefId),
     ImplContainer(ast::DefId),
 }
-
-impl Copy for ImplOrTraitItemContainer {}
 
 impl ImplOrTraitItemContainer {
     pub fn id(&self) -> ast::DefId {
@@ -177,13 +173,11 @@ impl<'tcx> ImplOrTraitItem<'tcx> {
     }
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 pub enum ImplOrTraitItemId {
     MethodTraitItemId(ast::DefId),
     TypeTraitItemId(ast::DefId),
 }
-
-impl Copy for ImplOrTraitItemId {}
 
 impl ImplOrTraitItemId {
     pub fn def_id(&self) -> ast::DefId {
@@ -238,7 +232,7 @@ impl<'tcx> Method<'tcx> {
     }
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 pub struct AssociatedType {
     pub name: ast::Name,
     pub vis: ast::Visibility,
@@ -246,17 +240,13 @@ pub struct AssociatedType {
     pub container: ImplOrTraitItemContainer,
 }
 
-impl Copy for AssociatedType {}
-
-#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Show)]
 pub struct mt<'tcx> {
     pub ty: Ty<'tcx>,
     pub mutbl: ast::Mutability,
 }
 
-impl<'tcx> Copy for mt<'tcx> {}
-
-#[deriving(Clone, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
 pub enum TraitStore {
     /// Box<Trait>
     UniqTraitStore,
@@ -264,9 +254,7 @@ pub enum TraitStore {
     RegionTraitStore(Region, ast::Mutability),
 }
 
-impl Copy for TraitStore {}
-
-#[deriving(Clone, Show)]
+#[deriving(Clone, Copy, Show)]
 pub struct field_ty {
     pub name: Name,
     pub id: DefId,
@@ -274,25 +262,20 @@ pub struct field_ty {
     pub origin: ast::DefId,  // The DefId of the struct in which the field is declared.
 }
 
-impl Copy for field_ty {}
-
 // Contains information needed to resolve types and (in the future) look up
 // the types of AST nodes.
-#[deriving(PartialEq, Eq, Hash)]
+#[deriving(Copy, PartialEq, Eq, Hash)]
 pub struct creader_cache_key {
     pub cnum: CrateNum,
     pub pos: uint,
     pub len: uint
 }
 
-impl Copy for creader_cache_key {}
-
+#[deriving(Copy)]
 pub enum ast_ty_to_ty_cache_entry<'tcx> {
     atttce_unresolved,  /* not resolved yet */
     atttce_resolved(Ty<'tcx>)  /* resolved to a type, irrespective of region */
 }
-
-impl<'tcx> Copy for ast_ty_to_ty_cache_entry<'tcx> {}
 
 #[deriving(Clone, PartialEq, Decodable, Encodable)]
 pub struct ItemVariances {
@@ -300,15 +283,13 @@ pub struct ItemVariances {
     pub regions: VecPerParamSpace<Variance>,
 }
 
-#[deriving(Clone, PartialEq, Decodable, Encodable, Show)]
+#[deriving(Clone, Copy, PartialEq, Decodable, Encodable, Show)]
 pub enum Variance {
     Covariant,      // T<A> <: T<B> iff A <: B -- e.g., function return type
     Invariant,      // T<A> <: T<B> iff B == A -- e.g., type of mutable cell
     Contravariant,  // T<A> <: T<B> iff B <: A -- e.g., function param type
     Bivariant,      // T<A> <: T<B>            -- e.g., unused type parameter
 }
-
-impl Copy for Variance {}
 
 #[deriving(Clone, Show)]
 pub enum AutoAdjustment<'tcx> {
@@ -449,13 +430,11 @@ pub fn type_of_adjust<'tcx>(cx: &ctxt<'tcx>, adj: &AutoAdjustment<'tcx>) -> Opti
     }
 }
 
-#[deriving(Clone, Encodable, Decodable, PartialEq, PartialOrd, Show)]
+#[deriving(Clone, Copy, Encodable, Decodable, PartialEq, PartialOrd, Show)]
 pub struct param_index {
     pub space: subst::ParamSpace,
     pub index: uint
 }
-
-impl Copy for param_index {}
 
 #[deriving(Clone, Show)]
 pub enum MethodOrigin<'tcx> {
@@ -478,7 +457,9 @@ pub enum MethodOrigin<'tcx> {
 #[deriving(Clone, Show)]
 pub struct MethodParam<'tcx> {
     // the precise trait reference that occurs as a bound -- this may
-    // be a supertrait of what the user actually typed.
+    // be a supertrait of what the user actually typed. Note that it
+    // never contains bound regions; those regions should have been
+    // instantiated with fresh variables at this point.
     pub trait_ref: Rc<ty::TraitRef<'tcx>>,
 
     // index of uint in the list of methods for the trait
@@ -511,8 +492,6 @@ pub struct MethodCallee<'tcx> {
     pub substs: subst::Substs<'tcx>
 }
 
-impl Copy for MethodCall {}
-
 /// With method calls, we store some extra information in
 /// side tables (i.e method_map). We use
 /// MethodCall as a key to index into these tables instead of
@@ -525,20 +504,18 @@ impl Copy for MethodCall {}
 /// needed to add to the side tables. Thus to disambiguate
 /// we also keep track of whether there's an adjustment in
 /// our key.
-#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Show)]
 pub struct MethodCall {
     pub expr_id: ast::NodeId,
     pub adjustment: ExprAdjustment
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash, Show, Encodable, Decodable)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Show, Encodable, Decodable)]
 pub enum ExprAdjustment {
     NoAdjustment,
     AutoDeref(uint),
     AutoObject
 }
-
-impl Copy for ExprAdjustment {}
 
 impl MethodCall {
     pub fn expr(id: ast::NodeId) -> MethodCall {
@@ -609,10 +586,11 @@ pub enum vtable_origin<'tcx> {
 
 // For every explicit cast into an object type, maps from the cast
 // expr to the associated trait ref.
-pub type ObjectCastMap<'tcx> = RefCell<NodeMap<Rc<ty::TraitRef<'tcx>>>>;
+pub type ObjectCastMap<'tcx> = RefCell<NodeMap<Rc<ty::PolyTraitRef<'tcx>>>>;
 
 /// A restriction that certain types must be the same size. The use of
 /// `transmute` gives rise to these restrictions.
+#[deriving(Copy)]
 pub struct TransmuteRestriction<'tcx> {
     /// The span from whence the restriction comes.
     pub span: Span,
@@ -623,8 +601,6 @@ pub struct TransmuteRestriction<'tcx> {
     /// NodeIf of the transmute intrinsic.
     pub id: ast::NodeId,
 }
-
-impl<'tcx> Copy for TransmuteRestriction<'tcx> {}
 
 /// The data structure to keep track of all the information that typechecker
 /// generates so that so that it can be reused and doesn't have to be redone
@@ -908,7 +884,7 @@ pub fn type_escapes_depth(ty: Ty, depth: uint) -> bool {
 pub struct BareFnTy<'tcx> {
     pub unsafety: ast::Unsafety,
     pub abi: abi::Abi,
-    pub sig: FnSig<'tcx>,
+    pub sig: PolyFnSig<'tcx>,
 }
 
 #[deriving(Clone, PartialEq, Eq, Hash, Show)]
@@ -917,11 +893,11 @@ pub struct ClosureTy<'tcx> {
     pub onceness: ast::Onceness,
     pub store: TraitStore,
     pub bounds: ExistentialBounds,
-    pub sig: FnSig<'tcx>,
+    pub sig: PolyFnSig<'tcx>,
     pub abi: abi::Abi,
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FnOutput<'tcx> {
     FnConverging(Ty<'tcx>),
     FnDiverging
@@ -936,18 +912,12 @@ impl<'tcx> FnOutput<'tcx> {
     }
 }
 
-impl<'tcx> Copy for FnOutput<'tcx> {}
-
 /// Signature of a function type, which I have arbitrarily
 /// decided to use to refer to the input/output types.
 ///
 /// - `inputs` is the list of arguments and their modes.
 /// - `output` is the return type.
 /// - `variadic` indicates whether this is a varidic function. (only true for foreign fns)
-///
-/// Note that a `FnSig` introduces a level of region binding, to
-/// account for late-bound parameters that appear in the types of the
-/// fn's arguments or the fn's return type.
 #[deriving(Clone, PartialEq, Eq, Hash)]
 pub struct FnSig<'tcx> {
     pub inputs: Vec<Ty<'tcx>>,
@@ -955,14 +925,14 @@ pub struct FnSig<'tcx> {
     pub variadic: bool
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+pub type PolyFnSig<'tcx> = Binder<FnSig<'tcx>>;
+
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Show)]
 pub struct ParamTy {
     pub space: subst::ParamSpace,
     pub idx: uint,
     pub def_id: DefId
 }
-
-impl Copy for ParamTy {}
 
 /// A [De Bruijn index][dbi] is a standard means of representing
 /// regions (and perhaps later types) in a higher-ranked setting. In
@@ -1003,7 +973,7 @@ impl Copy for ParamTy {}
 /// is the outer fn.
 ///
 /// [dbi]: http://en.wikipedia.org/wiki/De_Bruijn_index
-#[deriving(Clone, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
 pub struct DebruijnIndex {
     // We maintain the invariant that this is never 0. So 1 indicates
     // the innermost binder. To ensure this, create with `DebruijnIndex::new`.
@@ -1011,7 +981,7 @@ pub struct DebruijnIndex {
 }
 
 /// Representation of regions:
-#[deriving(Clone, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
 pub enum Region {
     // Region bound in a type or fn declaration which will be
     // substituted 'early' -- that is, at the same time when type
@@ -1052,15 +1022,13 @@ pub enum Region {
 /// Upvars do not get their own node-id. Instead, we use the pair of
 /// the original var id (that is, the root variable that is referenced
 /// by the upvar) and the id of the closure expression.
-#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Show)]
 pub struct UpvarId {
     pub var_id: ast::NodeId,
     pub closure_expr_id: ast::NodeId,
 }
 
-impl Copy for UpvarId {}
-
-#[deriving(Clone, PartialEq, Eq, Hash, Show, Encodable, Decodable)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, Show, Encodable, Decodable)]
 pub enum BorrowKind {
     /// Data must be immutable and is aliasable.
     ImmBorrow,
@@ -1105,8 +1073,6 @@ pub enum BorrowKind {
     /// Data is mutable and not aliasable.
     MutBorrow
 }
-
-impl Copy for BorrowKind {}
 
 /// Information describing the borrowing of an upvar. This is computed
 /// during `typeck`, specifically by `regionck`. The general idea is
@@ -1155,15 +1121,13 @@ impl Copy for BorrowKind {}
 /// - Through mutation, the borrowed upvars can actually escape
 ///   the closure, so sometimes it is necessary for them to be larger
 ///   than the closure lifetime itself.
-#[deriving(PartialEq, Clone, Encodable, Decodable, Show)]
+#[deriving(Copy, PartialEq, Clone, Encodable, Decodable, Show)]
 pub struct UpvarBorrow {
     pub kind: BorrowKind,
     pub region: ty::Region,
 }
 
 pub type UpvarBorrowMap = FnvHashMap<UpvarId, UpvarBorrow>;
-
-impl Copy for UpvarBorrow {}
 
 impl Region {
     pub fn is_bound(&self) -> bool {
@@ -1182,9 +1146,7 @@ impl Region {
     }
 }
 
-impl Copy for Region {}
-
-#[deriving(Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Encodable, Decodable, Show)]
+#[deriving(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Encodable, Decodable, Show)]
 /// A "free" region `fr` can be interpreted as "some region
 /// at least as big as the scope `fr.scope`".
 pub struct FreeRegion {
@@ -1192,9 +1154,7 @@ pub struct FreeRegion {
     pub bound_region: BoundRegion
 }
 
-impl Copy for FreeRegion {}
-
-#[deriving(Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Encodable, Decodable, Show)]
+#[deriving(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Encodable, Decodable, Show)]
 pub enum BoundRegion {
     /// An anonymous region parameter for a given fn (&T)
     BrAnon(uint),
@@ -1213,8 +1173,6 @@ pub enum BoundRegion {
     BrEnv
 }
 
-impl Copy for BoundRegion {}
-
 #[inline]
 pub fn mk_prim_t<'tcx>(primitive: &'tcx TyS<'static>) -> Ty<'tcx> {
     // FIXME(#17596) Ty<'tcx> is incorrectly invariant w.r.t 'tcx.
@@ -1223,7 +1181,7 @@ pub fn mk_prim_t<'tcx>(primitive: &'tcx TyS<'static>) -> Ty<'tcx> {
 
 // Do not change these from static to const, interning types requires
 // the primitives to have a significant address.
-macro_rules! def_prim_tys(
+macro_rules! def_prim_tys {
     ($($name:ident -> $sty:expr;)*) => (
         $(#[inline] pub fn $name<'tcx>() -> Ty<'tcx> {
             static PRIM_TY: TyS<'static> = TyS {
@@ -1234,7 +1192,7 @@ macro_rules! def_prim_tys(
             mk_prim_t(&PRIM_TY)
         })*
     )
-)
+}
 
 def_prim_tys!{
     mk_bool ->  ty_bool;
@@ -1308,8 +1266,23 @@ pub enum sty<'tcx> {
 #[deriving(Clone, PartialEq, Eq, Hash, Show)]
 pub struct TyTrait<'tcx> {
     // Principal trait reference.
-    pub principal: TraitRef<'tcx>, // would use Rc<TraitRef>, but it runs afoul of some static rules
+    pub principal: PolyTraitRef<'tcx>,
     pub bounds: ExistentialBounds
+}
+
+impl<'tcx> TyTrait<'tcx> {
+    /// Object types don't have a self-type specified. Therefore, when
+    /// we convert the principal trait-ref into a normal trait-ref,
+    /// you must give *some* self-type. A common choice is `mk_err()`
+    /// or some skolemized type.
+    pub fn principal_trait_ref_with_self_ty(&self, self_ty: Ty<'tcx>)
+                                            -> Rc<ty::PolyTraitRef<'tcx>>
+    {
+        Rc::new(ty::Binder(ty::TraitRef {
+            def_id: self.principal.def_id(),
+            substs: self.principal.substs().with_self_ty(self_ty),
+        }))
+    }
 }
 
 /// A complete reference to a trait. These take numerous guises in syntax,
@@ -1333,30 +1306,43 @@ pub struct TraitRef<'tcx> {
     pub substs: Substs<'tcx>,
 }
 
-/// Binder serves as a synthetic binder for lifetimes. It is used when
-/// we wish to replace the escaping higher-ranked lifetimes in a type
-/// or something else that is not itself a binder (this is because the
-/// `replace_late_bound_regions` function replaces all lifetimes bound
-/// by the binder supplied to it; but a type is not a binder, so you
-/// must introduce an artificial one).
+pub type PolyTraitRef<'tcx> = Binder<TraitRef<'tcx>>;
+
+impl<'tcx> PolyTraitRef<'tcx> {
+    pub fn self_ty(&self) -> Ty<'tcx> {
+        self.0.self_ty()
+    }
+
+    pub fn def_id(&self) -> ast::DefId {
+        self.0.def_id
+    }
+
+    pub fn substs(&self) -> &Substs<'tcx> {
+        &self.0.substs
+    }
+
+    pub fn input_types(&self) -> &[Ty<'tcx>] {
+        self.0.input_types()
+    }
+}
+
+/// Binder is a binder for higher-ranked lifetimes. It is part of the
+/// compiler's representation for things like `for<'a> Fn(&'a int)`
+/// (which would be represented by the type `PolyTraitRef ==
+/// Binder<TraitRef>`). Note that when we skolemize, instantiate,
+/// erase, or otherwise "discharge" these bound reons, we change the
+/// type from `Binder<T>` to just `T` (see
+/// e.g. `liberate_late_bound_regions`).
 #[deriving(Clone, PartialEq, Eq, Hash, Show)]
-pub struct Binder<T> {
-    pub value: T
-}
+pub struct Binder<T>(pub T);
 
-pub fn bind<T>(value: T) -> Binder<T> {
-    Binder { value: value }
-}
-
-#[deriving(Clone, PartialEq)]
+#[deriving(Clone, Copy, PartialEq)]
 pub enum IntVarValue {
     IntType(ast::IntTy),
     UintType(ast::UintTy),
 }
 
-impl Copy for IntVarValue {}
-
-#[deriving(Clone, Show)]
+#[deriving(Clone, Copy, Show)]
 pub enum terr_vstore_kind {
     terr_vec,
     terr_str,
@@ -1364,18 +1350,14 @@ pub enum terr_vstore_kind {
     terr_trait
 }
 
-impl Copy for terr_vstore_kind {}
-
-#[deriving(Clone, Show)]
+#[deriving(Clone, Copy, Show)]
 pub struct expected_found<T> {
     pub expected: T,
     pub found: T
 }
 
-impl<T:Copy> Copy for expected_found<T> {}
-
 // Data structures used in type unification
-#[deriving(Clone, Show)]
+#[deriving(Clone, Copy, Show)]
 pub enum type_err<'tcx> {
     terr_mismatch,
     terr_unsafety_mismatch(expected_found<ast::Unsafety>),
@@ -1408,15 +1390,13 @@ pub enum type_err<'tcx> {
     terr_convergence_mismatch(expected_found<bool>)
 }
 
-impl<'tcx> Copy for type_err<'tcx> {}
-
 /// Bounds suitable for a named type parameter like `A` in `fn foo<A>`
 /// as well as the existential type parameter in an object type.
 #[deriving(PartialEq, Eq, Hash, Clone, Show)]
 pub struct ParamBounds<'tcx> {
     pub region_bounds: Vec<ty::Region>,
     pub builtin_bounds: BuiltinBounds,
-    pub trait_bounds: Vec<Rc<TraitRef<'tcx>>>
+    pub trait_bounds: Vec<Rc<PolyTraitRef<'tcx>>>
 }
 
 /// Bounds suitable for an existentially quantified type parameter
@@ -1424,17 +1404,15 @@ pub struct ParamBounds<'tcx> {
 /// major difference between this case and `ParamBounds` is that
 /// general purpose trait bounds are omitted and there must be
 /// *exactly one* region.
-#[deriving(PartialEq, Eq, Hash, Clone, Show)]
+#[deriving(Copy, PartialEq, Eq, Hash, Clone, Show)]
 pub struct ExistentialBounds {
     pub region_bound: ty::Region,
     pub builtin_bounds: BuiltinBounds
 }
 
-impl Copy for ExistentialBounds {}
-
 pub type BuiltinBounds = EnumSet<BuiltinBound>;
 
-#[deriving(Clone, Encodable, PartialEq, Eq, Decodable, Hash, Show)]
+#[deriving(Copy, Clone, Encodable, PartialEq, Eq, Decodable, Hash, Show)]
 #[repr(uint)]
 pub enum BuiltinBound {
     BoundSend,
@@ -1442,8 +1420,6 @@ pub enum BuiltinBound {
     BoundCopy,
     BoundSync,
 }
-
-impl Copy for BuiltinBound {}
 
 pub fn empty_builtin_bounds() -> BuiltinBounds {
     EnumSet::new()
@@ -1472,56 +1448,48 @@ impl CLike for BuiltinBound {
     }
 }
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TyVid {
     pub index: uint
 }
 
-impl Copy for TyVid {}
-
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IntVid {
     pub index: uint
 }
 
-impl Copy for IntVid {}
-
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FloatVid {
     pub index: uint
 }
 
-impl Copy for FloatVid {}
-
-#[deriving(Clone, PartialEq, Eq, Encodable, Decodable, Hash)]
+#[deriving(Clone, Copy, PartialEq, Eq, Encodable, Decodable, Hash)]
 pub struct RegionVid {
     pub index: uint
 }
 
-impl Copy for RegionVid {}
-
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InferTy {
     TyVar(TyVid),
     IntVar(IntVid),
     FloatVar(FloatVid),
-    SkolemizedTy(uint),
+
+    /// A `FreshTy` is one that is generated as a replacement for an
+    /// unbound type variable. This is convenient for caching etc. See
+    /// `middle::infer::freshen` for more details.
+    FreshTy(uint),
 
     // FIXME -- once integral fallback is impl'd, we should remove
     // this type. It's only needed to prevent spurious errors for
     // integers whose type winds up never being constrained.
-    SkolemizedIntTy(uint),
+    FreshIntTy(uint),
 }
 
-impl Copy for InferTy {}
-
-#[deriving(Clone, Encodable, Decodable, Eq, Hash, Show)]
+#[deriving(Clone, Copy, Encodable, Decodable, Eq, Hash, Show)]
 pub enum InferRegion {
     ReVar(RegionVid),
     ReSkolemized(uint, BoundRegion)
 }
-
-impl Copy for InferRegion {}
 
 impl cmp::PartialEq for InferRegion {
     fn eq(&self, other: &InferRegion) -> bool {
@@ -1577,8 +1545,8 @@ impl fmt::Show for InferTy {
             TyVar(ref v) => v.fmt(f),
             IntVar(ref v) => v.fmt(f),
             FloatVar(ref v) => v.fmt(f),
-            SkolemizedTy(v) => write!(f, "SkolemizedTy({})", v),
-            SkolemizedIntTy(v) => write!(f, "SkolemizedIntTy({})", v),
+            FreshTy(v) => write!(f, "FreshTy({})", v),
+            FreshIntTy(v) => write!(f, "FreshIntTy({})", v),
         }
     }
 }
@@ -1657,30 +1625,67 @@ pub enum Predicate<'tcx> {
     /// Corresponds to `where Foo : Bar<A,B,C>`. `Foo` here would be
     /// the `Self` type of the trait reference and `A`, `B`, and `C`
     /// would be the parameters in the `TypeSpace`.
-    Trait(Rc<TraitRef<'tcx>>),
+    Trait(Rc<PolyTraitRef<'tcx>>),
 
     /// where `T1 == T2`.
-    Equate(/* T1 */ Ty<'tcx>, /* T2 */ Ty<'tcx>),
+    Equate(PolyEquatePredicate<'tcx>),
 
     /// where 'a : 'b
-    RegionOutlives(/* 'a */ Region, /* 'b */ Region),
+    RegionOutlives(PolyRegionOutlivesPredicate),
 
     /// where T : 'a
-    TypeOutlives(Ty<'tcx>, Region),
+    TypeOutlives(PolyTypeOutlivesPredicate<'tcx>),
+}
+
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+pub struct EquatePredicate<'tcx>(pub Ty<'tcx>, pub Ty<'tcx>); // `0 == 1`
+pub type PolyEquatePredicate<'tcx> = ty::Binder<EquatePredicate<'tcx>>;
+
+#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+pub struct OutlivesPredicate<A,B>(pub A, pub B); // `A : B`
+pub type PolyOutlivesPredicate<A,B> = ty::Binder<OutlivesPredicate<A,B>>;
+pub type PolyRegionOutlivesPredicate = PolyOutlivesPredicate<ty::Region, ty::Region>;
+pub type PolyTypeOutlivesPredicate<'tcx> = PolyOutlivesPredicate<Ty<'tcx>, ty::Region>;
+
+pub trait AsPredicate<'tcx> {
+    fn as_predicate(&self) -> Predicate<'tcx>;
+}
+
+impl<'tcx> AsPredicate<'tcx> for Rc<PolyTraitRef<'tcx>> {
+    fn as_predicate(&self) -> Predicate<'tcx> {
+        Predicate::Trait(self.clone())
+    }
+}
+
+impl<'tcx> AsPredicate<'tcx> for PolyEquatePredicate<'tcx> {
+    fn as_predicate(&self) -> Predicate<'tcx> {
+        Predicate::Equate(self.clone())
+    }
+}
+
+impl<'tcx> AsPredicate<'tcx> for PolyRegionOutlivesPredicate {
+    fn as_predicate(&self) -> Predicate<'tcx> {
+        Predicate::RegionOutlives(self.clone())
+    }
+}
+
+impl<'tcx> AsPredicate<'tcx> for PolyTypeOutlivesPredicate<'tcx> {
+    fn as_predicate(&self) -> Predicate<'tcx> {
+        Predicate::TypeOutlives(self.clone())
+    }
 }
 
 impl<'tcx> Predicate<'tcx> {
     pub fn has_escaping_regions(&self) -> bool {
         match *self {
             Predicate::Trait(ref trait_ref) => trait_ref.has_escaping_regions(),
-            Predicate::Equate(a, b) => (ty::type_has_escaping_regions(a) ||
-                                        ty::type_has_escaping_regions(b)),
-            Predicate::RegionOutlives(a, b) => a.escapes_depth(0) || b.escapes_depth(0),
-            Predicate::TypeOutlives(a, b) => ty::type_has_escaping_regions(a) || b.escapes_depth(0),
+            Predicate::Equate(ref p) => p.has_escaping_regions(),
+            Predicate::RegionOutlives(ref p) => p.has_escaping_regions(),
+            Predicate::TypeOutlives(ref p) => p.has_escaping_regions(),
         }
     }
 
-    pub fn to_trait(&self) -> Option<Rc<TraitRef<'tcx>>> {
+    pub fn to_trait(&self) -> Option<Rc<PolyTraitRef<'tcx>>> {
         match *self {
             Predicate::Trait(ref t) => {
                 Some(t.clone())
@@ -1747,14 +1752,6 @@ impl<'tcx> TraitRef<'tcx> {
         // trait-reference, but it should eventually exclude
         // associated types.
         self.substs.types.as_slice()
-    }
-
-    pub fn has_escaping_regions(&self) -> bool {
-        self.substs.has_regions_escaping_depth(1)
-    }
-
-    pub fn has_bound_regions(&self) -> bool {
-        self.substs.has_regions_escaping_depth(0)
     }
 }
 
@@ -1943,14 +1940,12 @@ pub struct UnboxedClosure<'tcx> {
     pub kind: UnboxedClosureKind,
 }
 
-#[deriving(Clone, PartialEq, Eq, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Show)]
 pub enum UnboxedClosureKind {
     FnUnboxedClosureKind,
     FnMutUnboxedClosureKind,
     FnOnceUnboxedClosureKind,
 }
-
-impl Copy for UnboxedClosureKind {}
 
 impl UnboxedClosureKind {
     pub fn trait_did(&self, cx: &ctxt) -> ast::DefId {
@@ -2160,7 +2155,7 @@ impl FlagComputation {
 
             &ty_trait(box TyTrait { ref principal, ref bounds }) => {
                 let mut computation = FlagComputation::new();
-                computation.add_substs(&principal.substs);
+                computation.add_substs(principal.substs());
                 self.add_bound_computation(&computation);
 
                 self.add_bounds(bounds);
@@ -2208,12 +2203,12 @@ impl FlagComputation {
         }
     }
 
-    fn add_fn_sig(&mut self, fn_sig: &FnSig) {
+    fn add_fn_sig(&mut self, fn_sig: &PolyFnSig) {
         let mut computation = FlagComputation::new();
 
-        computation.add_tys(fn_sig.inputs[]);
+        computation.add_tys(fn_sig.0.inputs[]);
 
-        if let ty::FnConverging(output) = fn_sig.output {
+        if let ty::FnConverging(output) = fn_sig.0.output {
             computation.add_ty(output);
         }
 
@@ -2356,17 +2351,17 @@ pub fn mk_ctor_fn<'tcx>(cx: &ctxt<'tcx>,
                BareFnTy {
                    unsafety: ast::Unsafety::Normal,
                    abi: abi::Rust,
-                   sig: FnSig {
+                   sig: ty::Binder(FnSig {
                     inputs: input_args,
                     output: ty::FnConverging(output),
                     variadic: false
-                   }
+                   })
                 })
 }
 
 
 pub fn mk_trait<'tcx>(cx: &ctxt<'tcx>,
-                      principal: ty::TraitRef<'tcx>,
+                      principal: ty::PolyTraitRef<'tcx>,
                       bounds: ExistentialBounds)
                       -> Ty<'tcx> {
     // take a copy of substs so that we own the vectors inside
@@ -2439,7 +2434,7 @@ pub fn maybe_walk_ty<'tcx>(ty: Ty<'tcx>, f: |Ty<'tcx>| -> bool) {
             maybe_walk_ty(tm.ty, f);
         }
         ty_trait(box TyTrait { ref principal, .. }) => {
-            for subty in principal.substs.types.iter() {
+            for subty in principal.substs().types.iter() {
                 maybe_walk_ty(*subty, |x| f(x));
             }
         }
@@ -2452,14 +2447,14 @@ pub fn maybe_walk_ty<'tcx>(ty: Ty<'tcx>, f: |Ty<'tcx>| -> bool) {
         }
         ty_tup(ref ts) => { for tt in ts.iter() { maybe_walk_ty(*tt, |x| f(x)); } }
         ty_bare_fn(ref ft) => {
-            for a in ft.sig.inputs.iter() { maybe_walk_ty(*a, |x| f(x)); }
-            if let ty::FnConverging(output) = ft.sig.output {
+            for a in ft.sig.0.inputs.iter() { maybe_walk_ty(*a, |x| f(x)); }
+            if let ty::FnConverging(output) = ft.sig.0.output {
                 maybe_walk_ty(output, f);
             }
         }
         ty_closure(ref ft) => {
-            for a in ft.sig.inputs.iter() { maybe_walk_ty(*a, |x| f(x)); }
-            if let ty::FnConverging(output) = ft.sig.output {
+            for a in ft.sig.0.inputs.iter() { maybe_walk_ty(*a, |x| f(x)); }
+            if let ty::FnConverging(output) = ft.sig.0.output {
                 maybe_walk_ty(output, f);
             }
         }
@@ -2732,14 +2727,12 @@ pub fn type_needs_unwind_cleanup<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> bool {
 /// The reason we compute type contents and not kinds is that it is
 /// easier for me (nmatsakis) to think about what is contained within
 /// a type than to think about what is *not* contained within a type.
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 pub struct TypeContents {
     pub bits: u64
 }
 
-impl Copy for TypeContents {}
-
-macro_rules! def_type_content_sets(
+macro_rules! def_type_content_sets {
     (mod $mname:ident { $($name:ident = $bits:expr),+ }) => {
         #[allow(non_snake_case)]
         mod $mname {
@@ -2750,9 +2743,9 @@ macro_rules! def_type_content_sets(
              )+
         }
     }
-)
+}
 
-def_type_content_sets!(
+def_type_content_sets! {
     mod TC {
         None                                = 0b0000_0000__0000_0000__0000,
 
@@ -2790,7 +2783,7 @@ def_type_content_sets!(
         // All bits
         All                                 = 0b1111_1111__1111_1111__1111
     }
-)
+}
 
 impl TypeContents {
     pub fn when(&self, cond: bool) -> TypeContents {
@@ -2961,7 +2954,7 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
             }
 
             // Scalar and unique types are sendable, and durable
-            ty_infer(ty::SkolemizedIntTy(_)) |
+            ty_infer(ty::FreshIntTy(_)) |
             ty_bool | ty_int(_) | ty_uint(_) | ty_float(_) |
             ty_bare_fn(_) | ty::ty_char => {
                 TC::None
@@ -3113,7 +3106,7 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
 
             ty_open(ty) => {
                 let result = tc_ty(cx, ty, cache);
-                assert!(!result.is_sized(cx))
+                assert!(!result.is_sized(cx));
                 result.unsafe_pointer() | TC::Nonsized
             }
 
@@ -3182,7 +3175,7 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
 
     fn kind_bounds_to_contents<'tcx>(cx: &ctxt<'tcx>,
                                      bounds: BuiltinBounds,
-                                     traits: &[Rc<TraitRef<'tcx>>])
+                                     traits: &[Rc<PolyTraitRef<'tcx>>])
                                      -> TypeContents {
         let _i = indenter();
         let mut tc = TC::All;
@@ -3198,7 +3191,7 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
         // those inherited from traits with builtin-kind-supertraits.
         fn each_inherited_builtin_bound<'tcx, F>(cx: &ctxt<'tcx>,
                                                  bounds: BuiltinBounds,
-                                                 traits: &[Rc<TraitRef<'tcx>>],
+                                                 traits: &[Rc<PolyTraitRef<'tcx>>],
                                                  mut f: F) where
             F: FnMut(BuiltinBound),
         {
@@ -3207,7 +3200,7 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
             }
 
             each_bound_trait_and_supertraits(cx, traits, |trait_ref| {
-                let trait_def = lookup_trait_def(cx, trait_ref.def_id);
+                let trait_def = lookup_trait_def(cx, trait_ref.def_id());
                 for bound in trait_def.bounds.builtin_bounds.iter() {
                     f(bound);
                 }
@@ -3380,14 +3373,12 @@ pub fn is_instantiable<'tcx>(cx: &ctxt<'tcx>, r_ty: Ty<'tcx>) -> bool {
 ///
 /// The ordering of the cases is significant. They are sorted so that cmp::max
 /// will keep the "more erroneous" of two values.
-#[deriving(PartialOrd, Ord, Eq, PartialEq, Show)]
+#[deriving(Copy, PartialOrd, Ord, Eq, PartialEq, Show)]
 pub enum Representability {
     Representable,
     ContainsRecursive,
     SelfRecursive,
 }
-
-impl Copy for Representability {}
 
 /// Check whether a type is representable. This means it cannot contain unboxed
 /// structural recursion. This check is needed for structs and enums.
@@ -3567,10 +3558,10 @@ pub fn type_is_integral(ty: Ty) -> bool {
     }
 }
 
-pub fn type_is_skolemized(ty: Ty) -> bool {
+pub fn type_is_fresh(ty: Ty) -> bool {
     match ty.sty {
-      ty_infer(SkolemizedTy(_)) => true,
-      ty_infer(SkolemizedIntTy(_)) => true,
+      ty_infer(FreshTy(_)) => true,
+      ty_infer(FreshIntTy(_)) => true,
       _ => false
     }
 }
@@ -3644,7 +3635,7 @@ pub fn unsized_part_of_type<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> Ty<'tcx> {
             let unsized_fields: Vec<_> = struct_fields(cx, def_id, substs).iter()
                 .map(|f| f.mt.ty).filter(|ty| !type_is_sized(cx, *ty)).collect();
             // Exactly one of the fields must be unsized.
-            assert!(unsized_fields.len() == 1)
+            assert!(unsized_fields.len() == 1);
 
             unsized_part_of_type(cx, unsized_fields[0])
         }
@@ -3828,15 +3819,15 @@ pub fn node_id_item_substs<'tcx>(cx: &ctxt<'tcx>, id: ast::NodeId) -> ItemSubsts
 
 pub fn fn_is_variadic(fty: Ty) -> bool {
     match fty.sty {
-        ty_bare_fn(ref f) => f.sig.variadic,
-        ty_closure(ref f) => f.sig.variadic,
+        ty_bare_fn(ref f) => f.sig.0.variadic,
+        ty_closure(ref f) => f.sig.0.variadic,
         ref s => {
             panic!("fn_is_variadic() called on non-fn type: {}", s)
         }
     }
 }
 
-pub fn ty_fn_sig<'tcx>(fty: Ty<'tcx>) -> &'tcx FnSig<'tcx> {
+pub fn ty_fn_sig<'tcx>(fty: Ty<'tcx>) -> &'tcx PolyFnSig<'tcx> {
     match fty.sty {
         ty_bare_fn(ref f) => &f.sig,
         ty_closure(ref f) => &f.sig,
@@ -3857,7 +3848,7 @@ pub fn ty_fn_abi(fty: Ty) -> abi::Abi {
 
 // Type accessors for substructures of types
 pub fn ty_fn_args<'tcx>(fty: Ty<'tcx>) -> &'tcx [Ty<'tcx>] {
-    ty_fn_sig(fty).inputs.as_slice()
+    ty_fn_sig(fty).0.inputs.as_slice()
 }
 
 pub fn ty_closure_store(fty: Ty) -> TraitStore {
@@ -3876,8 +3867,8 @@ pub fn ty_closure_store(fty: Ty) -> TraitStore {
 
 pub fn ty_fn_ret<'tcx>(fty: Ty<'tcx>) -> FnOutput<'tcx> {
     match fty.sty {
-        ty_bare_fn(ref f) => f.sig.output,
-        ty_closure(ref f) => f.sig.output,
+        ty_bare_fn(ref f) => f.sig.0.output,
+        ty_closure(ref f) => f.sig.0.output,
         ref s => {
             panic!("ty_fn_ret() called on non-fn type: {}", s)
         }
@@ -4165,14 +4156,13 @@ pub fn expr_is_lval(tcx: &ctxt, e: &ast::Expr) -> bool {
 /// two kinds of rvalues is an artifact of trans which reflects how we will
 /// generate code for that kind of expression.  See trans/expr.rs for more
 /// information.
+#[deriving(Copy)]
 pub enum ExprKind {
     LvalueExpr,
     RvalueDpsExpr,
     RvalueDatumExpr,
     RvalueStmtExpr
 }
-
-impl Copy for ExprKind {}
 
 pub fn expr_kind(tcx: &ctxt, expr: &ast::Expr) -> ExprKind {
     if tcx.method_map.borrow().contains_key(&MethodCall::expr(expr.id)) {
@@ -4393,7 +4383,7 @@ pub fn ty_sort_string<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> String {
         ty_bare_fn(_) => "extern fn".to_string(),
         ty_closure(_) => "fn".to_string(),
         ty_trait(ref inner) => {
-            format!("trait {}", item_path_str(cx, inner.principal.def_id))
+            format!("trait {}", item_path_str(cx, inner.principal.def_id()))
         }
         ty_struct(id, _) => {
             format!("struct {}", item_path_str(cx, id))
@@ -4403,8 +4393,8 @@ pub fn ty_sort_string<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> String {
         ty_infer(TyVar(_)) => "inferred type".to_string(),
         ty_infer(IntVar(_)) => "integral variable".to_string(),
         ty_infer(FloatVar(_)) => "floating-point variable".to_string(),
-        ty_infer(SkolemizedTy(_)) => "skolemized type".to_string(),
-        ty_infer(SkolemizedIntTy(_)) => "skolemized integral type".to_string(),
+        ty_infer(FreshTy(_)) => "skolemized type".to_string(),
+        ty_infer(FreshIntTy(_)) => "skolemized integral type".to_string(),
         ty_param(ref p) => {
             if p.space == subst::SelfSpace {
                 "Self".to_string()
@@ -4728,14 +4718,12 @@ pub fn associated_type_parameter_index(cx: &ctxt,
     cx.sess.bug("couldn't find associated type parameter index")
 }
 
-#[deriving(PartialEq, Eq)]
+#[deriving(Copy, PartialEq, Eq)]
 pub struct AssociatedTypeInfo {
     pub def_id: ast::DefId,
     pub index: uint,
     pub name: ast::Name,
 }
-
-impl Copy for AssociatedTypeInfo {}
 
 impl PartialOrd for AssociatedTypeInfo {
     fn partial_cmp(&self, other: &AssociatedTypeInfo) -> Option<Ordering> {
@@ -4770,7 +4758,8 @@ pub fn impl_trait_ref<'tcx>(cx: &ctxt<'tcx>, id: ast::DefId)
                         ast::ItemImpl(_, _, ref opt_trait, _, _) => {
                             match opt_trait {
                                 &Some(ref t) => {
-                                    Some(ty::node_id_to_trait_ref(cx, t.ref_id))
+                                    let trait_ref = ty::node_id_to_trait_ref(cx, t.ref_id);
+                                    Some(trait_ref)
                                 }
                                 &None => None
                             }
@@ -4813,7 +4802,7 @@ pub fn try_add_builtin_trait(
 pub fn ty_to_def_id(ty: Ty) -> Option<ast::DefId> {
     match ty.sty {
         ty_trait(ref tt) =>
-            Some(tt.principal.def_id),
+            Some(tt.principal.def_id()),
         ty_struct(id, _) |
         ty_enum(id, _) |
         ty_unboxed_closure(id, _, _) =>
@@ -4915,12 +4904,11 @@ pub fn item_path_str(cx: &ctxt, id: ast::DefId) -> String {
     with_path(cx, id, |path| ast_map::path_to_string(path)).to_string()
 }
 
+#[deriving(Copy)]
 pub enum DtorKind {
     NoDtor,
     TraitDtor(DefId, bool)
 }
-
-impl Copy for DtorKind {}
 
 impl DtorKind {
     pub fn is_present(&self) -> bool {
@@ -5073,10 +5061,10 @@ pub fn lookup_trait_def<'tcx>(cx: &ctxt<'tcx>, did: ast::DefId)
 /// Given a reference to a trait, returns the "superbounds" declared
 /// on the trait, with appropriate substitutions applied.
 pub fn predicates_for_trait_ref<'tcx>(tcx: &ctxt<'tcx>,
-                                      trait_ref: &TraitRef<'tcx>)
+                                      trait_ref: &PolyTraitRef<'tcx>)
                                       -> Vec<ty::Predicate<'tcx>>
 {
-    let trait_def = lookup_trait_def(tcx, trait_ref.def_id);
+    let trait_def = lookup_trait_def(tcx, trait_ref.def_id());
 
     debug!("bounds_for_trait_ref(trait_def={}, trait_ref={})",
            trait_def.repr(tcx), trait_ref.repr(tcx));
@@ -5149,8 +5137,9 @@ pub fn predicates_for_trait_ref<'tcx>(tcx: &ctxt<'tcx>,
         trait_def.bounds.trait_bounds
         .iter()
         .map(|bound_trait_ref| {
-            ty::TraitRef::new(bound_trait_ref.def_id,
-                              bound_trait_ref.substs.subst(tcx, &trait_ref.substs))
+            ty::Binder(
+                ty::TraitRef::new(bound_trait_ref.def_id(),
+                                  bound_trait_ref.substs().subst(tcx, trait_ref.substs())))
         })
         .map(|bound_trait_ref| Rc::new(bound_trait_ref))
         .collect();
@@ -5161,9 +5150,9 @@ pub fn predicates_for_trait_ref<'tcx>(tcx: &ctxt<'tcx>,
     // The region bounds and builtin bounds do not currently introduce
     // binders so we can just substitute in a straightforward way here.
     let region_bounds =
-        trait_def.bounds.region_bounds.subst(tcx, &trait_ref.substs);
+        trait_def.bounds.region_bounds.subst(tcx, trait_ref.substs());
     let builtin_bounds =
-        trait_def.bounds.builtin_bounds.subst(tcx, &trait_ref.substs);
+        trait_def.bounds.builtin_bounds.subst(tcx, trait_ref.substs());
 
     let bounds = ty::ParamBounds {
         trait_bounds: trait_bounds,
@@ -5183,18 +5172,21 @@ pub fn predicates<'tcx>(
     let mut vec = Vec::new();
 
     for builtin_bound in bounds.builtin_bounds.iter() {
-        match traits::trait_ref_for_builtin_bound(tcx, builtin_bound, param_ty) {
-            Ok(trait_ref) => { vec.push(Predicate::Trait(trait_ref)); }
+        match traits::poly_trait_ref_for_builtin_bound(tcx, builtin_bound, param_ty) {
+            Ok(trait_ref) => { vec.push(trait_ref.as_predicate()); }
             Err(ErrorReported) => { }
         }
     }
 
     for &region_bound in bounds.region_bounds.iter() {
-        vec.push(Predicate::TypeOutlives(param_ty, region_bound));
+        // account for the binder being introduced below; no need to shift `param_ty`
+        // because, at present at least, it can only refer to early-bound regions
+        let region_bound = ty_fold::shift_region(region_bound, 1);
+        vec.push(ty::Binder(ty::OutlivesPredicate(param_ty, region_bound)).as_predicate());
     }
 
     for bound_trait_ref in bounds.trait_bounds.iter() {
-        vec.push(Predicate::Trait((*bound_trait_ref).clone()));
+        vec.push(bound_trait_ref.as_predicate());
     }
 
     vec
@@ -5335,13 +5327,12 @@ pub fn tup_fields<'tcx>(v: &[Ty<'tcx>]) -> Vec<field<'tcx>> {
     }).collect()
 }
 
+#[deriving(Copy)]
 pub struct UnboxedClosureUpvar<'tcx> {
     pub def: def::Def,
     pub span: Span,
     pub ty: Ty<'tcx>,
 }
-
-impl<'tcx> Copy for UnboxedClosureUpvar<'tcx> {}
 
 // Returns a list of `UnboxedClosureUpvar`s for each upvar.
 pub fn unboxed_closure_upvars<'tcx>(tcx: &ctxt<'tcx>, closure_id: ast::DefId, substs: &Substs<'tcx>)
@@ -5483,18 +5474,6 @@ pub fn normalize_ty<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> Ty<'tcx> {
             subst::Substs { regions: subst::ErasedRegions,
                             types: substs.types.fold_with(self) }
         }
-
-        fn fold_fn_sig(&mut self,
-                       sig: &ty::FnSig<'tcx>)
-                       -> ty::FnSig<'tcx> {
-            // The binder-id is only relevant to bound regions, which
-            // are erased at trans time.
-            ty::FnSig {
-                inputs: sig.inputs.fold_with(self),
-                output: sig.output.fold_with(self),
-                variadic: sig.variadic,
-            }
-        }
     }
 }
 
@@ -5545,10 +5524,10 @@ pub fn eval_repeat_count(tcx: &ctxt, count_expr: &ast::Expr) -> uint {
 // relation on the supertraits from each bounded trait's constraint
 // list.
 pub fn each_bound_trait_and_supertraits<'tcx, F>(tcx: &ctxt<'tcx>,
-                                                 bounds: &[Rc<TraitRef<'tcx>>],
+                                                 bounds: &[Rc<PolyTraitRef<'tcx>>],
                                                  mut f: F)
                                                  -> bool where
-    F: FnMut(Rc<TraitRef<'tcx>>) -> bool,
+    F: FnMut(Rc<PolyTraitRef<'tcx>>) -> bool,
 {
     for bound_trait_ref in traits::transitive_bounds(tcx, bounds) {
         if !f(bound_trait_ref) {
@@ -5559,18 +5538,18 @@ pub fn each_bound_trait_and_supertraits<'tcx, F>(tcx: &ctxt<'tcx>,
 }
 
 pub fn object_region_bounds<'tcx>(tcx: &ctxt<'tcx>,
-                                  opt_principal: Option<&TraitRef<'tcx>>, // None for boxed closures
+                                  opt_principal: Option<&PolyTraitRef<'tcx>>, // None for closures
                                   others: BuiltinBounds)
                                   -> Vec<ty::Region>
 {
     // Since we don't actually *know* the self type for an object,
     // this "open(err)" serves as a kind of dummy standin -- basically
     // a skolemized type.
-    let open_ty = ty::mk_infer(tcx, SkolemizedTy(0));
+    let open_ty = ty::mk_infer(tcx, FreshTy(0));
 
     let opt_trait_ref = opt_principal.map_or(Vec::new(), |principal| {
-        let substs = principal.substs.with_self_ty(open_ty);
-        vec!(Rc::new(ty::TraitRef::new(principal.def_id, substs)))
+        let substs = principal.substs().with_self_ty(open_ty);
+        vec!(Rc::new(ty::Binder(ty::TraitRef::new(principal.def_id(), substs))))
     });
 
     let param_bounds = ty::ParamBounds {
@@ -5583,18 +5562,26 @@ pub fn object_region_bounds<'tcx>(tcx: &ctxt<'tcx>,
     ty::required_region_bounds(tcx, open_ty, predicates)
 }
 
-/// Given a type which must meet the builtin bounds and trait bounds, returns a set of lifetimes
-/// which the type must outlive.
+/// Given a set of predicates that apply to an object type, returns
+/// the region bounds that the (erased) `Self` type must
+/// outlive. Precisely *because* the `Self` type is erased, the
+/// parameter `erased_self_ty` must be supplied to indicate what type
+/// has been used to represent `Self` in the predicates
+/// themselves. This should really be a unique type; `FreshTy(0)` is a
+/// popular choice (see `object_region_bounds` above).
 ///
-/// Requires that trait definitions have been processed.
+/// Requires that trait definitions have been processed so that we can
+/// elaborate predicates and walk supertraits.
 pub fn required_region_bounds<'tcx>(tcx: &ctxt<'tcx>,
-                                    param_ty: Ty<'tcx>,
+                                    erased_self_ty: Ty<'tcx>,
                                     predicates: Vec<ty::Predicate<'tcx>>)
                                     -> Vec<ty::Region>
 {
-    debug!("required_region_bounds(param_ty={}, predicates={})",
-           param_ty.repr(tcx),
+    debug!("required_region_bounds(erased_self_ty={}, predicates={})",
+           erased_self_ty.repr(tcx),
            predicates.repr(tcx));
+
+    assert!(!erased_self_ty.has_escaping_regions());
 
     traits::elaborate_predicates(tcx, predicates)
         .filter_map(|predicate| {
@@ -5604,9 +5591,22 @@ pub fn required_region_bounds<'tcx>(tcx: &ctxt<'tcx>,
                 ty::Predicate::RegionOutlives(..) => {
                     None
                 }
-                ty::Predicate::TypeOutlives(t, r) => {
-                    if t == param_ty {
-                        Some(r)
+                ty::Predicate::TypeOutlives(ty::Binder(ty::OutlivesPredicate(t, r))) => {
+                    // Search for a bound of the form `erased_self_ty
+                    // : 'a`, but be wary of something like `for<'a>
+                    // erased_self_ty : 'a` (we interpret a
+                    // higher-ranked bound like that as 'static,
+                    // though at present the code in `fulfill.rs`
+                    // considers such bounds to be unsatisfiable, so
+                    // it's kind of a moot point since you could never
+                    // construct such an object, but this seems
+                    // correct even if that code changes).
+                    if t == erased_self_ty && !r.has_escaping_regions() {
+                        if r.has_escaping_regions() {
+                            Some(ty::ReStatic)
+                        } else {
+                            Some(r)
+                        }
                     } else {
                         None
                     }
@@ -5824,12 +5824,12 @@ pub fn trait_item_of_item(tcx: &ctxt, def_id: ast::DefId)
 
 /// Creates a hash of the type `Ty` which will be the same no matter what crate
 /// context it's calculated within. This is used by the `type_id` intrinsic.
-pub fn hash_crate_independent(tcx: &ctxt, ty: Ty, svh: &Svh) -> u64 {
+pub fn hash_crate_independent<'tcx>(tcx: &ctxt<'tcx>, ty: Ty<'tcx>, svh: &Svh) -> u64 {
     let mut state = sip::SipState::new();
     helper(tcx, ty, svh, &mut state);
     return state.result();
 
-    fn helper(tcx: &ctxt, ty: Ty, svh: &Svh, state: &mut sip::SipState) {
+    fn helper<'tcx>(tcx: &ctxt<'tcx>, ty: Ty<'tcx>, svh: &Svh, state: &mut sip::SipState) {
         macro_rules! byte( ($b:expr) => { ($b as u8).hash(state) } );
         macro_rules! hash( ($e:expr) => { $e.hash(state) } );
 
@@ -5862,7 +5862,7 @@ pub fn hash_crate_independent(tcx: &ctxt, ty: Ty, svh: &Svh) -> u64 {
         let mt = |state: &mut sip::SipState, mt: mt| {
             mt.mutbl.hash(state);
         };
-        let fn_sig = |state: &mut sip::SipState, sig: &FnSig| {
+        let fn_sig = |state: &mut sip::SipState, sig: &Binder<FnSig<'tcx>>| {
             let sig = anonymize_late_bound_regions(tcx, sig);
             for a in sig.inputs.iter() { helper(tcx, *a, svh, state); }
             if let ty::FnConverging(output) = sig.output {
@@ -5938,7 +5938,7 @@ pub fn hash_crate_independent(tcx: &ctxt, ty: Ty, svh: &Svh) -> u64 {
                 }
                 ty_trait(box TyTrait { ref principal, bounds }) => {
                     byte!(17);
-                    did(state, principal.def_id);
+                    did(state, principal.def_id());
                     hash!(bounds);
 
                     let principal = anonymize_late_bound_regions(tcx, principal);
@@ -6033,7 +6033,7 @@ pub fn construct_parameter_environment<'tcx>(
     //
 
     let bounds = generics.to_bounds(tcx, &free_substs);
-    let bounds = liberate_late_bound_regions(tcx, free_id_scope, &bind(bounds)).value;
+    let bounds = liberate_late_bound_regions(tcx, free_id_scope, &ty::Binder(bounds));
 
     //
     // Compute region bounds. For now, these relations are stored in a
@@ -6088,16 +6088,20 @@ pub fn construct_parameter_environment<'tcx>(
                 Predicate::Trait(..) | Predicate::Equate(..) | Predicate::TypeOutlives(..) => {
                     // No region bounds here
                 }
-                Predicate::RegionOutlives(ty::ReFree(fr_a), ty::ReFree(fr_b)) => {
-                    // Record that `'a:'b`. Or, put another way, `'b <= 'a`.
-                    tcx.region_maps.relate_free_regions(fr_b, fr_a);
-                }
-                Predicate::RegionOutlives(r_a, r_b) => {
-                    // All named regions are instantiated with free regions.
-                    tcx.sess.bug(
-                        format!("record_region_bounds: non free region: {} / {}",
-                                r_a.repr(tcx),
-                                r_b.repr(tcx)).as_slice());
+                Predicate::RegionOutlives(ty::Binder(ty::OutlivesPredicate(r_a, r_b))) => {
+                    match (r_a, r_b) {
+                        (ty::ReFree(fr_a), ty::ReFree(fr_b)) => {
+                            // Record that `'a:'b`. Or, put another way, `'b <= 'a`.
+                            tcx.region_maps.relate_free_regions(fr_b, fr_a);
+                        }
+                        _ => {
+                            // All named regions are instantiated with free regions.
+                            tcx.sess.bug(
+                                format!("record_region_bounds: non free region: {} / {}",
+                                        r_a.repr(tcx),
+                                        r_b.repr(tcx)).as_slice());
+                        }
+                    }
                 }
             }
         }
@@ -6178,15 +6182,13 @@ impl<'tcx> mc::Typer<'tcx> for ty::ctxt<'tcx> {
 }
 
 /// The category of explicit self.
-#[deriving(Clone, Eq, PartialEq, Show)]
+#[deriving(Clone, Copy, Eq, PartialEq, Show)]
 pub enum ExplicitSelfCategory {
     StaticExplicitSelfCategory,
     ByValueExplicitSelfCategory,
     ByReferenceExplicitSelfCategory(Region, ast::Mutability),
     ByBoxExplicitSelfCategory,
 }
-
-impl Copy for ExplicitSelfCategory {}
 
 /// Pushes all the lifetimes in the given type onto the given list. A
 /// "lifetime in a type" is a lifetime specified by a reference or a lifetime
@@ -6200,7 +6202,7 @@ pub fn accumulate_lifetimes_in_type(accumulator: &mut Vec<ty::Region>,
                 accumulator.push(region)
             }
             ty_trait(ref t) => {
-                accumulator.push_all(t.principal.substs.regions().as_slice());
+                accumulator.push_all(t.principal.substs().regions().as_slice());
             }
             ty_enum(_, ref substs) |
             ty_struct(_, ref substs) => {
@@ -6248,7 +6250,7 @@ pub fn accumulate_lifetimes_in_type(accumulator: &mut Vec<ty::Region>,
 }
 
 /// A free variable referred to in a function.
-#[deriving(Encodable, Decodable)]
+#[deriving(Copy, Encodable, Decodable)]
 pub struct Freevar {
     /// The variable being accessed free.
     pub def: def::Def,
@@ -6256,8 +6258,6 @@ pub struct Freevar {
     // First span where it is accessed (there can be multiple).
     pub span: Span
 }
-
-impl Copy for Freevar {}
 
 pub type FreevarMap = NodeMap<Vec<Freevar>>;
 
@@ -6289,25 +6289,35 @@ impl<'tcx> AutoDerefRef<'tcx> {
 
 /// Replace any late-bound regions bound in `value` with free variants attached to scope-id
 /// `scope_id`.
-pub fn liberate_late_bound_regions<'tcx, HR>(
+pub fn liberate_late_bound_regions<'tcx, T>(
     tcx: &ty::ctxt<'tcx>,
     scope: region::CodeExtent,
-    value: &HR)
-    -> HR
-    where HR : HigherRankedFoldable<'tcx>
+    value: &Binder<T>)
+    -> T
+    where T : TypeFoldable<'tcx> + Repr<'tcx>
 {
     replace_late_bound_regions(
         tcx, value,
         |br, _| ty::ReFree(ty::FreeRegion{scope: scope, bound_region: br})).0
 }
 
+pub fn count_late_bound_regions<'tcx, T>(
+    tcx: &ty::ctxt<'tcx>,
+    value: &Binder<T>)
+    -> uint
+    where T : TypeFoldable<'tcx> + Repr<'tcx>
+{
+    let (_, skol_map) = replace_late_bound_regions(tcx, value, |_, _| ty::ReStatic);
+    skol_map.len()
+}
+
 /// Replace any late-bound regions bound in `value` with `'static`. Useful in trans but also
 /// method lookup and a few other places where precise region relationships are not required.
-pub fn erase_late_bound_regions<'tcx, HR>(
+pub fn erase_late_bound_regions<'tcx, T>(
     tcx: &ty::ctxt<'tcx>,
-    value: &HR)
-    -> HR
-    where HR : HigherRankedFoldable<'tcx>
+    value: &Binder<T>)
+    -> T
+    where T : TypeFoldable<'tcx> + Repr<'tcx>
 {
     replace_late_bound_regions(tcx, value, |_, _| ty::ReStatic).0
 }
@@ -6320,8 +6330,12 @@ pub fn erase_late_bound_regions<'tcx, HR>(
 /// `FnSig`s or `TraitRef`s which are equivalent up to region naming will become
 /// structurally identical.  For example, `for<'a, 'b> fn(&'a int, &'b int)` and
 /// `for<'a, 'b> fn(&'b int, &'a int)` will become identical after anonymization.
-pub fn anonymize_late_bound_regions<'tcx, HR>(tcx: &ctxt<'tcx>, sig: &HR) -> HR
-                                              where HR: HigherRankedFoldable<'tcx> {
+pub fn anonymize_late_bound_regions<'tcx, T>(
+    tcx: &ctxt<'tcx>,
+    sig: &Binder<T>)
+    -> T
+    where T : TypeFoldable<'tcx> + Repr<'tcx>,
+{
     let mut counter = 0;
     replace_late_bound_regions(tcx, sig, |_, db| {
         counter += 1;
@@ -6330,39 +6344,35 @@ pub fn anonymize_late_bound_regions<'tcx, HR>(tcx: &ctxt<'tcx>, sig: &HR) -> HR
 }
 
 /// Replaces the late-bound-regions in `value` that are bound by `value`.
-pub fn replace_late_bound_regions<'tcx, HR, F>(
+pub fn replace_late_bound_regions<'tcx, T, F>(
     tcx: &ty::ctxt<'tcx>,
-    value: &HR,
+    binder: &Binder<T>,
     mut mapf: F)
--> (HR, FnvHashMap<ty::BoundRegion, ty::Region>) where
-    HR : HigherRankedFoldable<'tcx>,
-    F: FnMut(BoundRegion, DebruijnIndex) -> ty::Region,
+    -> (T, FnvHashMap<ty::BoundRegion,ty::Region>)
+    where T : TypeFoldable<'tcx> + Repr<'tcx>,
+          F : FnMut(BoundRegion, DebruijnIndex) -> ty::Region,
 {
-    debug!("replace_late_bound_regions({})", value.repr(tcx));
+    debug!("replace_late_bound_regions({})", binder.repr(tcx));
 
     let mut map = FnvHashMap::new();
-    let value = {
-        let mut f = ty_fold::RegionFolder::new(tcx, |region, current_depth| {
-            debug!("region={}", region.repr(tcx));
-            match region {
-                ty::ReLateBound(debruijn, br) if debruijn.depth == current_depth => {
-                    * match map.entry(br) {
-                        Vacant(entry) => entry.set(mapf(br, debruijn)),
-                        Occupied(entry) => entry.into_mut(),
-                    }
-                }
-                _ => {
-                    region
+
+    // Note: fold the field `0`, not the binder, so that late-bound
+    // regions bound by `binder` are considered free.
+    let value = ty_fold::fold_regions(tcx, &binder.0, |region, current_depth| {
+        debug!("region={}", region.repr(tcx));
+        match region {
+            ty::ReLateBound(debruijn, br) if debruijn.depth == current_depth => {
+                * match map.entry(br) {
+                    Vacant(entry) => entry.set(mapf(br, debruijn)),
+                    Occupied(entry) => entry.into_mut(),
                 }
             }
-        });
+            _ => {
+                region
+            }
+        }
+    });
 
-        // Note: use `fold_contents` not `fold_with`. If we used
-        // `fold_with`, it would consider the late-bound regions bound
-        // by `value` to be bound, but we want to consider them as
-        // `free`.
-        value.fold_contents(&mut f)
-    };
     debug!("resulting map: {} value: {}", map, value.repr(tcx));
     (value, map)
 }
@@ -6377,8 +6387,6 @@ impl DebruijnIndex {
         DebruijnIndex { depth: self.depth + amount }
     }
 }
-
-impl Copy for DebruijnIndex {}
 
 impl<'tcx> Repr<'tcx> for AutoAdjustment<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
@@ -6440,9 +6448,9 @@ impl<'tcx> Repr<'tcx> for ty::Predicate<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
         match *self {
             Predicate::Trait(ref a) => a.repr(tcx),
-            Predicate::Equate(a, b) => format!("Equate({},{})", a.repr(tcx), b.repr(tcx)),
-            Predicate::RegionOutlives(a, b) => format!("Outlives({}:{})", a.repr(tcx), b.repr(tcx)),
-            Predicate::TypeOutlives(a, b) => format!("Outlives({}:{})", a.repr(tcx), b.repr(tcx)),
+            Predicate::Equate(ref pair) => format!("Equate({})", pair.repr(tcx)),
+            Predicate::RegionOutlives(ref pair) => format!("Outlives({})", pair.repr(tcx)),
+            Predicate::TypeOutlives(ref pair) => format!("Outlives({})", pair.repr(tcx)),
         }
     }
 }
@@ -6498,13 +6506,12 @@ pub fn make_substs_for_receiver_types<'tcx>(tcx: &ty::ctxt<'tcx>,
     trait_ref.substs.clone().with_method(meth_tps, meth_regions)
 }
 
+#[deriving(Copy)]
 pub enum CopyImplementationError {
     FieldDoesNotImplementCopy(ast::Name),
     VariantDoesNotImplementCopy(ast::Name),
     TypeIsStructural,
 }
-
-impl Copy for CopyImplementationError {}
 
 pub fn can_type_implement_copy<'tcx>(tcx: &ctxt<'tcx>,
                                      self_type: Ty<'tcx>,
@@ -6538,3 +6545,49 @@ pub fn can_type_implement_copy<'tcx>(tcx: &ctxt<'tcx>,
 
     Ok(())
 }
+
+pub trait RegionEscape {
+    fn has_escaping_regions(&self) -> bool {
+        self.has_regions_escaping_depth(0)
+    }
+
+    fn has_regions_escaping_depth(&self, depth: uint) -> bool;
+}
+
+impl<'tcx> RegionEscape for Ty<'tcx> {
+    fn has_regions_escaping_depth(&self, depth: uint) -> bool {
+        ty::type_escapes_depth(*self, depth)
+    }
+}
+
+impl RegionEscape for Region {
+    fn has_regions_escaping_depth(&self, depth: uint) -> bool {
+        self.escapes_depth(depth)
+    }
+}
+
+impl<'tcx> RegionEscape for TraitRef<'tcx> {
+    fn has_regions_escaping_depth(&self, depth: uint) -> bool {
+        self.substs.types.iter().any(|t| t.has_regions_escaping_depth(depth)) &&
+            self.substs.regions().iter().any(|t| t.has_regions_escaping_depth(depth))
+    }
+}
+
+impl<'tcx,T:RegionEscape> RegionEscape for Binder<T> {
+    fn has_regions_escaping_depth(&self, depth: uint) -> bool {
+        self.0.has_regions_escaping_depth(depth + 1)
+    }
+}
+
+impl<'tcx> RegionEscape for EquatePredicate<'tcx> {
+    fn has_regions_escaping_depth(&self, depth: uint) -> bool {
+        self.0.has_regions_escaping_depth(depth) || self.1.has_regions_escaping_depth(depth)
+    }
+}
+
+impl<T:RegionEscape,U:RegionEscape> RegionEscape for OutlivesPredicate<T,U> {
+    fn has_regions_escaping_depth(&self, depth: uint) -> bool {
+        self.0.has_regions_escaping_depth(depth) || self.1.has_regions_escaping_depth(depth)
+    }
+}
+

@@ -31,7 +31,6 @@ use middle::infer;
 use middle::traits;
 use middle::mem_categorization as mc;
 use middle::expr_use_visitor as euv;
-use util::common::ErrorReported;
 use util::nodemap::NodeSet;
 
 use syntax::ast;
@@ -40,15 +39,13 @@ use syntax::visit::Visitor;
 use syntax::codemap::Span;
 use syntax::visit;
 
-#[deriving(Eq, PartialEq)]
+#[deriving(Copy, Eq, PartialEq)]
 enum Mode {
     InConstant,
     InStatic,
     InStaticMut,
     InNothing,
 }
-
-impl Copy for Mode {}
 
 struct CheckStaticVisitor<'a, 'tcx: 'a> {
     tcx: &'a ty::ctxt<'tcx>,
@@ -122,17 +119,12 @@ impl<'a, 'tcx> CheckStaticVisitor<'a, 'tcx> {
         let ty = ty::node_id_to_type(self.tcx, e.id);
         let infcx = infer::new_infer_ctxt(self.tcx);
         let mut fulfill_cx = traits::FulfillmentContext::new();
-        match traits::trait_ref_for_builtin_bound(self.tcx, ty::BoundSync, ty) {
-            Ok(trait_ref) => {
-                fulfill_cx.register_trait_ref(self.tcx, trait_ref,
-                                              traits::ObligationCause::dummy());
-                let env = ty::empty_parameter_environment();
-                if !fulfill_cx.select_all_or_error(&infcx, &env, self.tcx).is_ok() {
-                    self.tcx.sess.span_err(e.span, "shared static items must have a \
-                                                    type which implements Sync");
-                }
-            }
-            Err(ErrorReported) => { }
+        fulfill_cx.register_builtin_bound(self.tcx, ty, ty::BoundSync,
+                                          traits::ObligationCause::dummy());
+        let env = ty::empty_parameter_environment();
+        if !fulfill_cx.select_all_or_error(&infcx, &env, self.tcx).is_ok() {
+            self.tcx.sess.span_err(e.span, "shared static items must have a \
+                                            type which implements Sync");
         }
     }
 }

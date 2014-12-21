@@ -582,8 +582,8 @@ macro_rules! impl_eq {
     }
 }
 
-impl_eq!(Vec<A>, &'b [B])
-impl_eq!(Vec<A>, &'b mut [B])
+impl_eq! { Vec<A>, &'b [B] }
+impl_eq! { Vec<A>, &'b mut [B] }
 
 impl<'a, A, B> PartialEq<Vec<B>> for CowVec<'a, A> where A: PartialEq<B> + Clone {
     #[inline]
@@ -617,8 +617,8 @@ macro_rules! impl_eq_for_cowvec {
     }
 }
 
-impl_eq_for_cowvec!(&'b [B])
-impl_eq_for_cowvec!(&'b mut [B])
+impl_eq_for_cowvec! { &'b [B] }
+impl_eq_for_cowvec! { &'b mut [B] }
 
 #[unstable = "waiting on PartialOrd stability"]
 impl<T: PartialOrd> PartialOrd for Vec<T> {
@@ -710,20 +710,10 @@ impl<T> Vec<T> {
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn reserve(&mut self, additional: uint) {
         if self.cap - self.len < additional {
-            match self.len.checked_add(additional) {
-                None => panic!("Vec::reserve: `uint` overflow"),
-                // if the checked_add
-                Some(new_cap) => {
-                    let amort_cap = new_cap.next_power_of_two();
-                    // next_power_of_two will overflow to exactly 0 for really big capacities
-                    let cap = if amort_cap == 0 {
-                        new_cap
-                    } else {
-                        amort_cap
-                    };
-                    self.grow_capacity(cap)
-                }
-            }
+            let err_msg = "Vec::reserve: `uint` overflow";
+            let new_cap = self.len.checked_add(additional).expect(err_msg)
+                                  .checked_next_power_of_two().expect(err_msg);
+            self.grow_capacity(new_cap);
         }
     }
 
@@ -2065,7 +2055,7 @@ mod tests {
 
     #[test]
     fn test_partitioned() {
-        assert_eq!(vec![].partitioned(|x: &int| *x < 3), (vec![], vec![]))
+        assert_eq!(vec![].partitioned(|x: &int| *x < 3), (vec![], vec![]));
         assert_eq!(vec![1i, 2, 3].partitioned(|x: &int| *x < 4), (vec![1, 2, 3], vec![]));
         assert_eq!(vec![1i, 2, 3].partitioned(|x: &int| *x < 2), (vec![1], vec![2, 3]));
         assert_eq!(vec![1i, 2, 3].partitioned(|x: &int| *x < 0), (vec![], vec![1, 2, 3]));

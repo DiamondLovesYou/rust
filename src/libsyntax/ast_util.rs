@@ -85,13 +85,21 @@ pub fn is_shift_binop(b: BinOp) -> bool {
     }
 }
 
-/// Returns `true` is the binary operator takes its arguments by value
+/// Returns `true` if the binary operator takes its arguments by value
 pub fn is_by_value_binop(b: BinOp) -> bool {
     match b {
         BiAdd | BiSub | BiMul | BiDiv | BiRem | BiBitXor | BiBitAnd | BiBitOr | BiShl | BiShr => {
             true
         }
         _ => false
+    }
+}
+
+/// Returns `true` if the unary operator takes its argument by value
+pub fn is_by_value_unop(u: UnOp) -> bool {
+    match u {
+        UnNeg | UnNot => true,
+        _ => false,
     }
 }
 
@@ -335,13 +343,11 @@ pub fn empty_generics() -> Generics {
 // ______________________________________________________________________
 // Enumerating the IDs which appear in an AST
 
-#[deriving(Encodable, Decodable, Show)]
+#[deriving(Copy, Encodable, Decodable, Show)]
 pub struct IdRange {
     pub min: NodeId,
     pub max: NodeId,
 }
-
-impl Copy for IdRange {}
 
 impl IdRange {
     pub fn max() -> IdRange {
@@ -753,16 +759,20 @@ macro_rules! mf_method{
 
 
 impl PostExpansionMethod for Method {
-    mf_method!(pe_ident,ast::Ident,MethDecl(ident,_,_,_,_,_,_,_),ident)
-    mf_method!(pe_generics,&'a ast::Generics,
-               MethDecl(_,ref generics,_,_,_,_,_,_),generics)
-    mf_method!(pe_abi,Abi,MethDecl(_,_,abi,_,_,_,_,_),abi)
-    mf_method!(pe_explicit_self,&'a ast::ExplicitSelf,
-               MethDecl(_,_,_,ref explicit_self,_,_,_,_),explicit_self)
-    mf_method!(pe_unsafety,ast::Unsafety,MethDecl(_,_,_,_,unsafety,_,_,_),unsafety)
-    mf_method!(pe_fn_decl,&'a ast::FnDecl,MethDecl(_,_,_,_,_,ref decl,_,_),&**decl)
-    mf_method!(pe_body,&'a ast::Block,MethDecl(_,_,_,_,_,_,ref body,_),&**body)
-    mf_method!(pe_vis,ast::Visibility,MethDecl(_,_,_,_,_,_,_,vis),vis)
+    mf_method! { pe_ident,ast::Ident,MethDecl(ident,_,_,_,_,_,_,_),ident }
+    mf_method! {
+        pe_generics,&'a ast::Generics,
+        MethDecl(_,ref generics,_,_,_,_,_,_),generics
+    }
+    mf_method! { pe_abi,Abi,MethDecl(_,_,abi,_,_,_,_,_),abi }
+    mf_method! {
+        pe_explicit_self,&'a ast::ExplicitSelf,
+        MethDecl(_,_,_,ref explicit_self,_,_,_,_),explicit_self
+    }
+    mf_method! { pe_unsafety,ast::Unsafety,MethDecl(_,_,_,_,unsafety,_,_,_),unsafety }
+    mf_method! { pe_fn_decl,&'a ast::FnDecl,MethDecl(_,_,_,_,_,ref decl,_,_),&**decl }
+    mf_method! { pe_body,&'a ast::Block,MethDecl(_,_,_,_,_,_,ref body,_),&**body }
+    mf_method! { pe_vis,ast::Visibility,MethDecl(_,_,_,_,_,_,_,vis),vis }
 }
 
 #[cfg(test)]

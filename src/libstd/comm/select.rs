@@ -54,15 +54,13 @@
 
 use core::prelude::*;
 
-use alloc::boxed::Box;
 use core::cell::Cell;
 use core::kinds::marker;
 use core::mem;
 use core::uint;
-use rustrt::local::Local;
-use rustrt::task::{Task, BlockedTask};
 
 use comm::Receiver;
+use comm::blocking::{mod, SignalToken};
 
 /// The "receiver set" of the select interface. This structure is used to manage
 /// a set of receivers which are being selected over.
@@ -94,9 +92,16 @@ pub struct Handle<'rx, T:'rx> {
 struct Packets { cur: *mut Handle<'static, ()> }
 
 #[doc(hidden)]
+#[deriving(PartialEq)]
+pub enum StartResult {
+    Installed,
+    Abort,
+}
+
+#[doc(hidden)]
 pub trait Packet {
     fn can_recv(&self) -> bool;
-    fn start_selection(&self, task: BlockedTask) -> Result<(), BlockedTask>;
+    fn start_selection(&self, token: SignalToken) -> StartResult;
     fn abort_selection(&self) -> bool;
 }
 
@@ -165,36 +170,39 @@ impl Select {
         // Most notably, the iterations over all of the receivers shouldn't be
         // necessary.
         unsafe {
-            let mut amt = 0;
-            for p in self.iter() {
-                amt += 1;
-                if do_preflight_checks && (*p).packet.can_recv() {
-                    return (*p).id;
-                }
-            }
-            assert!(amt > 0);
-
-            let mut ready_index = amt;
-            let mut ready_id = uint::MAX;
-            let mut iter = self.iter().enumerate();
-
-            // Acquire a number of blocking contexts, and block on each one
-            // sequentially until one fails. If one fails, then abort
-            // immediately so we can go unblock on all the other receivers.
-            let task: Box<Task> = Local::take();
-            task.deschedule(amt, |task| {
-                // Prepare for the block
-                let (i, handle) = iter.next().unwrap();
-                match (*handle).packet.start_selection(task) {
-                    Ok(()) => Ok(()),
-                    Err(task) => {
-                        ready_index = i;
-                        ready_id = (*handle).id;
-                        Err(task)
+            // Stage 1: preflight checks. Look for any packets ready to receive
+            if do_preflight_checks {
+                for handle in self.iter() {
+                    if (*handle).packet.can_recv() {
+                        return (*handle).id();
                     }
                 }
-            });
+            }
 
+            // Stage 2: begin the blocking process
+            //
+            // Create a number of signal tokens, and install each one
+            // sequentially until one fails. If one fails, then abort the
+            // selection on the already-installed tokens.
+            let (wait_token, signal_token) = blocking::tokens();
+            for (i, handle) in self.iter().enumerate() {
+                match (*handle).packet.start_selection(signal_token.clone()) {
+                    StartResult::Installed => {}
+                    StartResult::Abort => {
+                        // Go back and abort the already-begun selections
+                        for handle in self.iter().take(i) {
+                            (*handle).packet.abort_selection();
+                        }
+                        return (*handle).id;
+                    }
+                }
+            }
+
+            // Stage 3: no messages available, actually block
+            wait_token.wait();
+
+            // Stage 4: there *must* be message available; find it.
+            //
             // Abort the selection process on each receiver. If the abort
             // process returns `true`, then that means that the receiver is
             // ready to receive some data. Note that this also means that the
@@ -216,12 +224,14 @@ impl Select {
             // A rewrite should focus on avoiding a yield loop, and for now this
             // implementation is tying us over to a more efficient "don't
             // iterate over everything every time" implementation.
-            for handle in self.iter().take(ready_index) {
+            let mut ready_id = uint::MAX;
+            for handle in self.iter() {
                 if (*handle).packet.abort_selection() {
                     ready_id = (*handle).id;
                 }
             }
 
+            // We must have found a ready receiver
             assert!(ready_id != uint::MAX);
             return ready_id;
         }
@@ -347,106 +357,106 @@ mod test {
         })
     }
 
-    test!(fn smoke() {
+    test! { fn smoke() {
         let (tx1, rx1) = channel::<int>();
         let (tx2, rx2) = channel::<int>();
         tx1.send(1);
-        select! (
+        select! {
             foo = rx1.recv() => { assert_eq!(foo, 1); },
             _bar = rx2.recv() => { panic!() }
-        )
+        }
         tx2.send(2);
-        select! (
+        select! {
             _foo = rx1.recv() => { panic!() },
             bar = rx2.recv() => { assert_eq!(bar, 2) }
-        )
+        }
         drop(tx1);
-        select! (
+        select! {
             foo = rx1.recv_opt() => { assert_eq!(foo, Err(())); },
             _bar = rx2.recv() => { panic!() }
-        )
+        }
         drop(tx2);
-        select! (
+        select! {
             bar = rx2.recv_opt() => { assert_eq!(bar, Err(())); }
-        )
-    })
+        }
+    } }
 
-    test!(fn smoke2() {
+    test! { fn smoke2() {
         let (_tx1, rx1) = channel::<int>();
         let (_tx2, rx2) = channel::<int>();
         let (_tx3, rx3) = channel::<int>();
         let (_tx4, rx4) = channel::<int>();
         let (tx5, rx5) = channel::<int>();
         tx5.send(4);
-        select! (
+        select! {
             _foo = rx1.recv() => { panic!("1") },
             _foo = rx2.recv() => { panic!("2") },
             _foo = rx3.recv() => { panic!("3") },
             _foo = rx4.recv() => { panic!("4") },
             foo = rx5.recv() => { assert_eq!(foo, 4); }
-        )
-    })
+        }
+    } }
 
-    test!(fn closed() {
+    test! { fn closed() {
         let (_tx1, rx1) = channel::<int>();
         let (tx2, rx2) = channel::<int>();
         drop(tx2);
 
-        select! (
+        select! {
             _a1 = rx1.recv_opt() => { panic!() },
             a2 = rx2.recv_opt() => { assert_eq!(a2, Err(())); }
-        )
-    })
+        }
+    } }
 
-    test!(fn unblocks() {
+    test! { fn unblocks() {
         let (tx1, rx1) = channel::<int>();
         let (_tx2, rx2) = channel::<int>();
         let (tx3, rx3) = channel::<int>();
 
         spawn(move|| {
-            for _ in range(0u, 20) { task::deschedule(); }
+            for _ in range(0u, 20) { Thread::yield_now(); }
             tx1.send(1);
             rx3.recv();
-            for _ in range(0u, 20) { task::deschedule(); }
+            for _ in range(0u, 20) { Thread::yield_now(); }
         });
 
-        select! (
+        select! {
             a = rx1.recv() => { assert_eq!(a, 1); },
             _b = rx2.recv() => { panic!() }
-        )
+        }
         tx3.send(1);
-        select! (
+        select! {
             a = rx1.recv_opt() => { assert_eq!(a, Err(())); },
             _b = rx2.recv() => { panic!() }
-        )
-    })
+        }
+    } }
 
-    test!(fn both_ready() {
+    test! { fn both_ready() {
         let (tx1, rx1) = channel::<int>();
         let (tx2, rx2) = channel::<int>();
         let (tx3, rx3) = channel::<()>();
 
         spawn(move|| {
-            for _ in range(0u, 20) { task::deschedule(); }
+            for _ in range(0u, 20) { Thread::yield_now(); }
             tx1.send(1);
             tx2.send(2);
             rx3.recv();
         });
 
-        select! (
+        select! {
             a = rx1.recv() => { assert_eq!(a, 1); },
             a = rx2.recv() => { assert_eq!(a, 2); }
-        )
-        select! (
+        }
+        select! {
             a = rx1.recv() => { assert_eq!(a, 1); },
             a = rx2.recv() => { assert_eq!(a, 2); }
-        )
+        }
         assert_eq!(rx1.try_recv(), Err(Empty));
         assert_eq!(rx2.try_recv(), Err(Empty));
         tx3.send(());
-    })
+    } }
 
-    test!(fn stress() {
+    test! { fn stress() {
         static AMT: int = 10000;
         let (tx1, rx1) = channel::<int>();
         let (tx2, rx2) = channel::<int>();
@@ -464,15 +474,15 @@ mod test {
         });
 
         for i in range(0, AMT) {
-            select! (
+            select! {
                 i1 = rx1.recv() => { assert!(i % 2 == 0 && i == i1); },
                 i2 = rx2.recv() => { assert!(i % 2 == 1 && i == i2); }
-            )
+            }
             tx3.send(());
         }
-    })
+    } }
 
-    test!(fn cloning() {
+    test! { fn cloning() {
         let (tx1, rx1) = channel::<int>();
         let (_tx2, rx2) = channel::<int>();
         let (tx3, rx3) = channel::<()>();
@@ -486,14 +496,14 @@ mod test {
         });
 
         tx3.send(());
-        select!(
+        select! {
             _i1 = rx1.recv() => {},
             _i2 = rx2.recv() => panic!()
-        )
+        }
         tx3.send(());
-    })
+    } }
 
-    test!(fn cloning2() {
+    test! { fn cloning2() {
         let (tx1, rx1) = channel::<int>();
         let (_tx2, rx2) = channel::<int>();
         let (tx3, rx3) = channel::<()>();
@@ -507,14 +517,14 @@ mod test {
         });
 
         tx3.send(());
-        select!(
+        select! {
             _i1 = rx1.recv() => {},
             _i2 = rx2.recv() => panic!()
-        )
+        }
         tx3.send(());
-    })
+    } }
 
-    test!(fn cloning3() {
+    test! { fn cloning3() {
         let (tx1, rx1) = channel::<()>();
         let (tx2, rx2) = channel::<()>();
         let (tx3, rx3) = channel::<()>();
@@ -528,48 +538,48 @@ mod test {
             tx3.send(());
         });
 
-        for _ in range(0u, 1000) { task::deschedule(); }
+        for _ in range(0u, 1000) { Thread::yield_now(); }
         drop(tx1.clone());
         tx2.send(());
         rx3.recv();
-    })
+    } }
 
-    test!(fn preflight1() {
+    test! { fn preflight1() {
         let (tx, rx) = channel();
         tx.send(());
-        select!(
+        select! {
             () = rx.recv() => {}
-        )
-    })
+        }
+    } }
 
-    test!(fn preflight2() {
+    test! { fn preflight2() {
         let (tx, rx) = channel();
         tx.send(());
         tx.send(());
-        select!(
+        select! {
             () = rx.recv() => {}
-        )
-    })
+        }
+    } }
 
-    test!(fn preflight3() {
+    test! { fn preflight3() {
         let (tx, rx) = channel();
         drop(tx.clone());
         tx.send(());
-        select!(
+        select! {
             () = rx.recv() => {}
-        )
-    })
+        }
+    } }
 
-    test!(fn preflight4() {
+    test! { fn preflight4() {
         let (tx, rx) = channel();
         tx.send(());
         let s = Select::new();
         let mut h = s.handle(&rx);
         unsafe { h.add(); }
         assert_eq!(s.wait2(false), h.id);
-    })
+    } }
 
-    test!(fn preflight5() {
+    test! { fn preflight5() {
         let (tx, rx) = channel();
         tx.send(());
         tx.send(());
@@ -577,9 +587,9 @@ mod test {
         let mut h = s.handle(&rx);
         unsafe { h.add(); }
         assert_eq!(s.wait2(false), h.id);
-    })
+    } }
 
-    test!(fn preflight6() {
+    test! { fn preflight6() {
         let (tx, rx) = channel();
         drop(tx.clone());
         tx.send(());
@@ -587,18 +597,18 @@ mod test {
         let mut h = s.handle(&rx);
         unsafe { h.add(); }
         assert_eq!(s.wait2(false), h.id);
-    })
+    } }
 
-    test!(fn preflight7() {
+    test! { fn preflight7() {
         let (tx, rx) = channel::<()>();
         drop(tx);
         let s = Select::new();
         let mut h = s.handle(&rx);
         unsafe { h.add(); }
         assert_eq!(s.wait2(false), h.id);
-    })
+    } }
 
-    test!(fn preflight8() {
+    test! { fn preflight8() {
         let (tx, rx) = channel();
         tx.send(());
         drop(tx);
@@ -607,9 +617,9 @@ mod test {
         let mut h = s.handle(&rx);
         unsafe { h.add(); }
         assert_eq!(s.wait2(false), h.id);
-    })
+    } }
 
-    test!(fn preflight9() {
+    test! { fn preflight9() {
         let (tx, rx) = channel();
         drop(tx.clone());
         tx.send(());
@@ -619,9 +629,9 @@ mod test {
         let mut h = s.handle(&rx);
         unsafe { h.add(); }
         assert_eq!(s.wait2(false), h.id);
-    })
+    } }
 
-    test!(fn oneshot_data_waiting() {
+    test! { fn oneshot_data_waiting() {
         let (tx1, rx1) = channel();
         let (tx2, rx2) = channel();
         spawn(move|| {
@@ -631,12 +641,12 @@ mod test {
             tx2.send(());
         });
 
-        for _ in range(0u, 100) { task::deschedule() }
+        for _ in range(0u, 100) { Thread::yield_now() }
         tx1.send(());
         rx2.recv();
-    })
+    } }
 
-    test!(fn stream_data_waiting() {
+    test! { fn stream_data_waiting() {
         let (tx1, rx1) = channel();
         let (tx2, rx2) = channel();
         tx1.send(());
@@ -650,12 +660,12 @@ mod test {
             tx2.send(());
         });
 
-        for _ in range(0u, 100) { task::deschedule() }
+        for _ in range(0u, 100) { Thread::yield_now() }
         tx1.send(());
         rx2.recv();
-    })
+    } }
 
-    test!(fn shared_data_waiting() {
+    test! { fn shared_data_waiting() {
         let (tx1, rx1) = channel();
         let (tx2, rx2) = channel();
         drop(tx1.clone());
@@ -668,31 +678,31 @@ mod test {
             tx2.send(());
         });
 
-        for _ in range(0u, 100) { task::deschedule() }
+        for _ in range(0u, 100) { Thread::yield_now() }
         tx1.send(());
         rx2.recv();
-    })
+    } }
 
-    test!(fn sync1() {
+    test! { fn sync1() {
         let (tx, rx) = sync_channel::<int>(1);
         tx.send(1);
         select! {
             n = rx.recv() => { assert_eq!(n, 1); }
         }
-    })
+    } }
 
-    test!(fn sync2() {
+    test! { fn sync2() {
         let (tx, rx) = sync_channel::<int>(0);
         spawn(move|| {
-            for _ in range(0u, 100) { task::deschedule() }
+            for _ in range(0u, 100) { Thread::yield_now() }
             tx.send(1);
         });
         select! {
             n = rx.recv() => { assert_eq!(n, 1); }
         }
-    })
+    } }
 
-    test!(fn sync3() {
+    test! { fn sync3() {
         let (tx1, rx1) = sync_channel::<int>(0);
         let (tx2, rx2): (Sender<int>, Receiver<int>) = channel();
         spawn(move|| { tx1.send(1); });
@@ -707,5 +717,5 @@ mod test {
                 assert_eq!(rx1.recv(), 1);
             }
         }
-    })
+    } }
 }

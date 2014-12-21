@@ -93,7 +93,7 @@ static DEFAULT_PASSES: &'static [&'static str] = &[
 
 thread_local!(pub static ANALYSISKEY: Rc<RefCell<Option<core::CrateAnalysis>>> = {
     Rc::new(RefCell::new(None))
-})
+});
 
 struct Output {
     krate: clean::Crate,
@@ -102,7 +102,11 @@ struct Output {
 }
 
 pub fn main() {
-    std::os::set_exit_status(main_args(std::os::args().as_slice()));
+    static STACK_SIZE: uint = 32000000; // 32MB
+    let res = std::thread::Builder::new().stack_size(STACK_SIZE).spawn(move || {
+        main_args(std::os::args().as_slice())
+    }).join();
+    std::os::set_exit_status(res.map_err(|_| ()).unwrap());
 }
 
 pub fn opts() -> Vec<getopts::OptGroup> {
@@ -342,10 +346,11 @@ fn rust_input(cratefile: &str, externs: core::Externs, matches: &getopts::Matche
 
     let cr = Path::new(cratefile);
     info!("starting to run rustc");
-    let (mut krate, analysis) = std::task::try(move |:| {
+
+    let (mut krate, analysis) = std::thread::Thread::spawn(move |:| {
         let cr = cr;
         core::run_core(libs, cfgs, externs, &cr, triple)
-    }).map_err(|_| "rustc failed").unwrap();
+    }).join().map_err(|_| "rustc failed").unwrap();
     info!("finished with rustc");
     let mut analysis = Some(analysis);
     ANALYSISKEY.with(|s| {
@@ -472,7 +477,7 @@ fn json_output(krate: clean::Crate, res: Vec<plugins::PluginJson> ,
     //   "crate": { parsed crate ... },
     //   "plugins": { output of plugins ... }
     // }
-    let mut json = std::collections::TreeMap::new();
+    let mut json = std::collections::BTreeMap::new();
     json.insert("schema".to_string(), Json::String(SCHEMA_VERSION.to_string()));
     let plugins_json = res.into_iter()
                           .filter_map(|opt| {

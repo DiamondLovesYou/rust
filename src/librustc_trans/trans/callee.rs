@@ -57,12 +57,11 @@ use syntax::ast;
 use syntax::ast_map;
 use syntax::ptr::P;
 
+#[deriving(Copy)]
 pub struct MethodData {
     pub llfn: ValueRef,
     pub llself: ValueRef,
 }
-
-impl Copy for MethodData {}
 
 pub enum CalleeData<'tcx> {
     Closure(Datum<'tcx, Lvalue>),
@@ -280,9 +279,9 @@ pub fn trans_fn_pointer_shim<'a, 'tcx>(
         match bare_fn_ty.sty {
             ty::ty_bare_fn(ty::BareFnTy { unsafety: ast::Unsafety::Normal,
                                           abi: synabi::Rust,
-                                          sig: ty::FnSig { inputs: ref input_tys,
-                                                           output: output_ty,
-                                                           variadic: false }}) =>
+                                          sig: ty::Binder(ty::FnSig { inputs: ref input_tys,
+                                                                      output: output_ty,
+                                                                      variadic: false })}) =>
             {
                 (input_tys, output_ty)
             }
@@ -296,12 +295,12 @@ pub fn trans_fn_pointer_shim<'a, 'tcx>(
     let tuple_fn_ty = ty::mk_bare_fn(tcx,
                                      ty::BareFnTy { unsafety: ast::Unsafety::Normal,
                                                     abi: synabi::RustCall,
-                                                    sig: ty::FnSig {
+                                                    sig: ty::Binder(ty::FnSig {
                                                         inputs: vec![bare_fn_ty_ref,
                                                                      tuple_input_ty],
                                                         output: output_ty,
                                                         variadic: false
-                                                    }});
+                                                    })});
     debug!("tuple_fn_ty: {}", tuple_fn_ty.repr(tcx));
 
     //
@@ -422,7 +421,6 @@ pub fn trans_fn_ref_with_substs<'blk, 'tcx>(
             match impl_or_trait_item {
                 ty::MethodTraitItem(method) => {
                     let trait_ref = ty::impl_trait_ref(tcx, impl_id).unwrap();
-                    let trait_ref = ty::erase_late_bound_regions(tcx, &trait_ref);
 
                     // Compute the first substitution
                     let first_subst =
@@ -657,8 +655,8 @@ pub fn trans_call_inner<'a, 'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
     let mut bcx = callee.bcx;
 
     let (abi, ret_ty) = match callee_ty.sty {
-        ty::ty_bare_fn(ref f) => (f.abi, f.sig.output),
-        ty::ty_closure(ref f) => (f.abi, f.sig.output),
+        ty::ty_bare_fn(ref f) => (f.abi, f.sig.0.output),
+        ty::ty_closure(ref f) => (f.abi, f.sig.0.output),
         _ => panic!("expected bare rust fn or closure in trans_call_inner")
     };
 
@@ -1050,12 +1048,11 @@ pub fn trans_args<'a, 'blk, 'tcx>(cx: Block<'blk, 'tcx>,
     bcx
 }
 
+#[deriving(Copy)]
 pub enum AutorefArg {
     DontAutorefArg,
     DoAutorefArg(ast::NodeId)
 }
-
-impl Copy for AutorefArg {}
 
 pub fn trans_arg_datum<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                    formal_arg_ty: Ty<'tcx>,

@@ -13,7 +13,6 @@
 #![experimental]
 
 use {fmt, i64};
-use kinds::Copy;
 use ops::{Add, Sub, Mul, Div, Neg, FnOnce};
 use option::Option;
 use option::Option::{Some, None};
@@ -40,14 +39,14 @@ const SECS_PER_DAY: i64 = 86400;
 /// The number of (non-leap) seconds in a week.
 const SECS_PER_WEEK: i64 = 604800;
 
-macro_rules! try_opt(
+macro_rules! try_opt {
     ($e:expr) => (match $e { Some(v) => v, None => return None })
-)
+}
 
 
 /// ISO 8601 time duration with nanosecond precision.
 /// This also allows for the negative duration; see individual methods for details.
-#[deriving(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[deriving(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Duration {
     secs: i64,
     nanos: i32, // Always 0 <= nanos < NANOS_PER_SEC
@@ -64,8 +63,6 @@ pub const MAX: Duration = Duration {
     secs: i64::MAX / MILLIS_PER_SEC,
     nanos: (i64::MAX % MILLIS_PER_SEC) as i32 * NANOS_PER_MILLI
 };
-
-impl Copy for Duration {}
 
 impl Duration {
     /// Makes a new `Duration` with given number of weeks.
@@ -265,9 +262,23 @@ impl Duration {
     }
 }
 
+// NOTE(stage0): Remove impl after a snapshot
+#[cfg(stage0)]
 impl Neg<Duration> for Duration {
     #[inline]
     fn neg(&self) -> Duration {
+        if self.nanos == 0 {
+            Duration { secs: -self.secs, nanos: 0 }
+        } else {
+            Duration { secs: -self.secs - 1, nanos: NANOS_PER_SEC - self.nanos }
+        }
+    }
+}
+
+#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
+impl Neg<Duration> for Duration {
+    #[inline]
+    fn neg(self) -> Duration {
         if self.nanos == 0 {
             Duration { secs: -self.secs, nanos: 0 }
         } else {

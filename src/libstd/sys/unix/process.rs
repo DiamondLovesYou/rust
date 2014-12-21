@@ -28,7 +28,7 @@ use sys_common::{AsInner, mkerr_libc, timeout};
 
 pub use sys_common::ProcessConfig;
 
-helper_init!(static HELPER: Helper<Req>)
+helper_init! { static HELPER: Helper<Req> }
 
 #[cfg(target_os = "nacl")]
 fn permission_denied() -> IoError {

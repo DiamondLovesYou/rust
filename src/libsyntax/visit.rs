@@ -32,6 +32,7 @@ use codemap::Span;
 use ptr::P;
 use owned_slice::OwnedSlice;
 
+#[deriving(Copy)]
 pub enum FnKind<'a> {
     /// fn foo() or extern "Abi" fn foo()
     FkItemFn(Ident, &'a Generics, Unsafety, Abi),
@@ -43,8 +44,6 @@ pub enum FnKind<'a> {
     /// proc(x, y) ...
     FkFnBlock,
 }
-
-impl<'a> Copy for FnKind<'a> {}
 
 /// Each method of the Visitor trait is a hook to be potentially
 /// overridden.  Each method's default implementation recursively visits
@@ -105,8 +104,11 @@ pub trait Visitor<'v> {
             None => ()
         }
     }
+    fn visit_lifetime_bound(&mut self, lifetime: &'v Lifetime) {
+        walk_lifetime_bound(self, lifetime)
+    }
     fn visit_lifetime_ref(&mut self, lifetime: &'v Lifetime) {
-        self.visit_name(lifetime.span, lifetime.name)
+        walk_lifetime_ref(self, lifetime)
     }
     fn visit_lifetime_def(&mut self, lifetime: &'v LifetimeDef) {
         walk_lifetime_def(self, lifetime)
@@ -214,8 +216,18 @@ pub fn walk_lifetime_def<'v, V: Visitor<'v>>(visitor: &mut V,
                                               lifetime_def: &'v LifetimeDef) {
     visitor.visit_name(lifetime_def.lifetime.span, lifetime_def.lifetime.name);
     for bound in lifetime_def.bounds.iter() {
-        visitor.visit_lifetime_ref(bound);
+        visitor.visit_lifetime_bound(bound);
     }
+}
+
+pub fn walk_lifetime_bound<'v, V: Visitor<'v>>(visitor: &mut V,
+                                               lifetime_ref: &'v Lifetime) {
+    visitor.visit_lifetime_ref(lifetime_ref)
+}
+
+pub fn walk_lifetime_ref<'v, V: Visitor<'v>>(visitor: &mut V,
+                                             lifetime_ref: &'v Lifetime) {
+    visitor.visit_name(lifetime_ref.span, lifetime_ref.name)
 }
 
 pub fn walk_explicit_self<'v, V: Visitor<'v>>(visitor: &mut V,
@@ -550,7 +562,7 @@ pub fn walk_ty_param_bound<'v, V: Visitor<'v>>(visitor: &mut V,
             visitor.visit_poly_trait_ref(typ);
         }
         RegionTyParamBound(ref lifetime) => {
-            visitor.visit_lifetime_ref(lifetime);
+            visitor.visit_lifetime_bound(lifetime);
         }
     }
 }

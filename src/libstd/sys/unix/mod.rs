@@ -23,7 +23,7 @@ use prelude::*;
 use io::{mod, IoResult, IoError};
 use sys_common::mkerr_libc;
 
-macro_rules! helper_init( (static $name:ident: Helper<$m:ty>) => (
+macro_rules! helper_init { (static $name:ident: Helper<$m:ty>) => (
     static $name: Helper<$m> = Helper {
         lock: ::sync::MUTEX_INIT,
         cond: ::sync::CONDVAR_INIT,
@@ -32,8 +32,9 @@ macro_rules! helper_init( (static $name:ident: Helper<$m:ty>) => (
         initialized: ::cell::UnsafeCell { value: false },
         shutdown: ::cell::UnsafeCell { value: false },
     };
-) )
+) }
 
+pub mod backtrace;
 pub mod c;
 pub mod ext;
 pub mod condvar;
@@ -44,8 +45,10 @@ pub mod os;
 pub mod pipe;
 pub mod process;
 pub mod rwlock;
+pub mod stack_overflow;
 pub mod sync;
 pub mod tcp;
+pub mod thread;
 pub mod thread_local;
 pub mod timer;
 pub mod tty;

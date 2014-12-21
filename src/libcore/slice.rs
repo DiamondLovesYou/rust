@@ -1229,7 +1229,7 @@ impl<'a, T> DoubleEndedIterator<&'a mut [T]> for MutChunks<'a, T> {
 /// index of the matching element. `NotFound` means the search
 /// succeeded, and the contained value is an index where a matching
 /// value could be inserted while maintaining sort order.
-#[deriving(PartialEq, Show)]
+#[deriving(Copy, PartialEq, Show)]
 #[experimental = "needs review"]
 pub enum BinarySearchResult {
     /// The index of the found value.
@@ -1237,8 +1237,6 @@ pub enum BinarySearchResult {
     /// The index where the value should have been found.
     NotFound(uint)
 }
-
-impl Copy for BinarySearchResult {}
 
 #[experimental = "needs review"]
 impl BinarySearchResult {
@@ -1540,16 +1538,16 @@ macro_rules! impl_mut_int_slice {
 
 macro_rules! impl_int_slice {
     ($u:ty, $s:ty) => {
-        impl_immut_int_slice!($u, $s, $u)
-        impl_immut_int_slice!($u, $s, $s)
-        impl_mut_int_slice!($u, $s, $u)
-        impl_mut_int_slice!($u, $s, $s)
+        impl_immut_int_slice! { $u, $s, $u }
+        impl_immut_int_slice! { $u, $s, $s }
+        impl_mut_int_slice! { $u, $s, $u }
+        impl_mut_int_slice! { $u, $s, $s }
     }
 }
 
-impl_int_slice!(u8,   i8)
-impl_int_slice!(u16,  i16)
-impl_int_slice!(u32,  i32)
-impl_int_slice!(u64,  i64)
-impl_int_slice!(uint, int)
+impl_int_slice! { u8,   i8 }
+impl_int_slice! { u16,  i16 }
+impl_int_slice! { u32,  i32 }
+impl_int_slice! { u64,  i64 }
+impl_int_slice! { uint, int }
 

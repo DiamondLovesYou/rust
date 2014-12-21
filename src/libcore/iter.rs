@@ -59,7 +59,6 @@ pub use self::MinMaxResult::*;
 use clone::Clone;
 use cmp;
 use cmp::Ord;
-use kinds::Copy;
 use mem;
 use num::{ToPrimitive, Int};
 use ops::{Add, Deref, FnMut};
@@ -875,18 +874,18 @@ macro_rules! impl_additive {
         }
     };
 }
-impl_additive!(i8,   0)
-impl_additive!(i16,  0)
-impl_additive!(i32,  0)
-impl_additive!(i64,  0)
-impl_additive!(int,  0)
-impl_additive!(u8,   0)
-impl_additive!(u16,  0)
-impl_additive!(u32,  0)
-impl_additive!(u64,  0)
-impl_additive!(uint, 0)
-impl_additive!(f32,  0.0)
-impl_additive!(f64,  0.0)
+impl_additive! { i8,   0 }
+impl_additive! { i16,  0 }
+impl_additive! { i32,  0 }
+impl_additive! { i64,  0 }
+impl_additive! { int,  0 }
+impl_additive! { u8,   0 }
+impl_additive! { u16,  0 }
+impl_additive! { u32,  0 }
+impl_additive! { u64,  0 }
+impl_additive! { uint, 0 }
+impl_additive! { f32,  0.0 }
+impl_additive! { f64,  0.0 }
 
 /// A trait for iterators over elements which can be multiplied together.
 #[experimental = "needs to be re-evaluated as part of numerics reform"]
@@ -919,18 +918,18 @@ macro_rules! impl_multiplicative {
         }
     };
 }
-impl_multiplicative!(i8,   1)
-impl_multiplicative!(i16,  1)
-impl_multiplicative!(i32,  1)
-impl_multiplicative!(i64,  1)
-impl_multiplicative!(int,  1)
-impl_multiplicative!(u8,   1)
-impl_multiplicative!(u16,  1)
-impl_multiplicative!(u32,  1)
-impl_multiplicative!(u64,  1)
-impl_multiplicative!(uint, 1)
-impl_multiplicative!(f32,  1.0)
-impl_multiplicative!(f64,  1.0)
+impl_multiplicative! { i8,   1 }
+impl_multiplicative! { i16,  1 }
+impl_multiplicative! { i32,  1 }
+impl_multiplicative! { i64,  1 }
+impl_multiplicative! { int,  1 }
+impl_multiplicative! { u8,   1 }
+impl_multiplicative! { u16,  1 }
+impl_multiplicative! { u32,  1 }
+impl_multiplicative! { u64,  1 }
+impl_multiplicative! { uint, 1 }
+impl_multiplicative! { f32,  1.0 }
+impl_multiplicative! { f64,  1.0 }
 
 /// A trait for iterators over elements which can be compared to one another.
 #[unstable = "recently renamed for new extension trait conventions"]
@@ -1084,7 +1083,7 @@ impl<T: Clone> MinMaxResult<T> {
     /// use std::iter::{NoElements, OneElement, MinMax, MinMaxResult};
     ///
     /// let r: MinMaxResult<int> = NoElements;
-    /// assert_eq!(r.into_option(), None)
+    /// assert_eq!(r.into_option(), None);
     ///
     /// let r = OneElement(1i);
     /// assert_eq!(r.into_option(), Some((1,1)));
@@ -1168,15 +1167,13 @@ impl<A, I> CloneIteratorExt for I where I: Iterator<A> + Clone {
 }
 
 /// An iterator that repeats endlessly
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 #[stable]
 pub struct Cycle<T> {
     orig: T,
     iter: T,
 }
-
-impl<T:Copy> Copy for Cycle<T> {}
 
 impl<A, T: Clone + Iterator<A>> Iterator<A> for Cycle<T> {
     #[inline]
@@ -1635,12 +1632,11 @@ impl<A, T: RandomAccessIterator<A>> RandomAccessIterator<(uint, A)> for Enumerat
 /// An iterator with a `peek()` that returns an optional reference to the next element.
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 #[stable]
+#[deriving(Copy)]
 pub struct Peekable<A, T> {
     iter: T,
     peeked: Option<A>,
 }
-
-impl<T:Copy,A:Copy> Copy for Peekable<A,T> {}
 
 impl<A, T: Iterator<A>> Iterator<A> for Peekable<A, T> {
     #[inline]
@@ -2267,7 +2263,7 @@ impl<A, St, F> Iterator<A> for Unfold<A, St, F> where F: FnMut(&mut St) -> Optio
 
 /// An infinite iterator starting at `start` and advancing by `step` with each
 /// iteration
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 #[unstable = "may be renamed"]
 pub struct Counter<A> {
     /// The current state the counter is at (next value to be yielded)
@@ -2275,8 +2271,6 @@ pub struct Counter<A> {
     /// The amount that this iterator is stepping by
     step: A,
 }
-
-impl<A:Copy> Copy for Counter<A> {}
 
 /// Creates a new counter with the specified start/step
 #[inline]
@@ -2301,15 +2295,13 @@ impl<A: Add<A, A> + Clone> Iterator<A> for Counter<A> {
 }
 
 /// An iterator over the range [start, stop)
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 #[unstable = "may be refactored due to numerics reform or ops reform"]
 pub struct Range<A> {
     state: A,
     stop: A,
     one: A,
 }
-
-impl<A:Copy> Copy for Range<A> {}
 
 /// Returns an iterator over the given range [start, stop) (that is, starting
 /// at start (inclusive), and ending at stop (exclusive)).

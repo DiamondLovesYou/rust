@@ -39,7 +39,7 @@ pub struct SCTable {
     rename_memo: RefCell<HashMap<(SyntaxContext,Ident,Name),SyntaxContext>>,
 }
 
-#[deriving(PartialEq, Encodable, Decodable, Hash, Show)]
+#[deriving(Copy, PartialEq, Encodable, Decodable, Hash, Show)]
 pub enum SyntaxContext_ {
     EmptyCtxt,
     Mark (Mrk,SyntaxContext),
@@ -55,8 +55,6 @@ pub enum SyntaxContext_ {
     /// actually, IllegalCtxt may not be necessary.
     IllegalCtxt
 }
-
-impl Copy for SyntaxContext_ {}
 
 /// A list of ident->name renamings
 pub type RenameList = Vec<(Ident, Name)>;
@@ -108,7 +106,7 @@ pub fn apply_renames(renames: &RenameList, ctxt: SyntaxContext) -> SyntaxContext
 pub fn with_sctable<T, F>(op: F) -> T where
     F: FnOnce(&SCTable) -> T,
 {
-    thread_local!(static SCTABLE_KEY: SCTable = new_sctable_internal())
+    thread_local!(static SCTABLE_KEY: SCTable = new_sctable_internal());
     SCTABLE_KEY.with(move |slot| op(slot))
 }
 
@@ -174,7 +172,7 @@ fn with_resolve_table_mut<T, F>(op: F) -> T where
 {
     thread_local!(static RESOLVE_TABLE_KEY: RefCell<ResolveTable> = {
         RefCell::new(HashMap::new())
-    })
+    });
 
     RESOLVE_TABLE_KEY.with(move |slot| op(&mut *slot.borrow_mut()))
 }

@@ -18,7 +18,6 @@
 use core::kinds::Sized;
 use fmt;
 use iter::IteratorExt;
-use kinds::Copy;
 use mem;
 use ops::FnMut;
 use option::Option;
@@ -29,10 +28,8 @@ use string::{String, IntoString};
 use vec::Vec;
 
 /// Datatype to hold one ascii character. It wraps a `u8`, with the highest bit always zero.
-#[deriving(Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[deriving(Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct Ascii { chr: u8 }
-
-impl Copy for Ascii {}
 
 impl Ascii {
     /// Converts an ascii character into a `u8`.
@@ -638,14 +635,14 @@ mod tests {
     use char::from_u32;
     use str::StrPrelude;
 
-    macro_rules! v2ascii (
+    macro_rules! v2ascii {
         ( [$($e:expr),*]) => (&[$(Ascii{chr:$e}),*]);
         (&[$($e:expr),*]) => (&[$(Ascii{chr:$e}),*]);
-    )
+    }
 
-    macro_rules! vec2ascii (
+    macro_rules! vec2ascii {
         ($($e:expr),*) => ([$(Ascii{chr:$e}),*].to_vec());
-    )
+    }
 
     #[test]
     fn test_ascii() {
@@ -788,7 +785,7 @@ mod tests {
             let upper = if 'a' as u32 <= i && i <= 'z' as u32 { i + 'A' as u32 - 'a' as u32 }
                         else { i };
             assert_eq!((from_u32(i).unwrap()).to_string().to_ascii_upper(),
-                       (from_u32(upper).unwrap()).to_string())
+                       (from_u32(upper).unwrap()).to_string());
             i += 1;
         }
     }
@@ -804,7 +801,7 @@ mod tests {
             let lower = if 'A' as u32 <= i && i <= 'Z' as u32 { i + 'a' as u32 - 'A' as u32 }
                         else { i };
             assert_eq!((from_u32(i).unwrap()).to_string().to_ascii_lower(),
-                       (from_u32(lower).unwrap()).to_string())
+                       (from_u32(lower).unwrap()).to_string());
             i += 1;
         }
     }
@@ -820,7 +817,7 @@ mod tests {
             let upper = if 'a' as u32 <= i && i <= 'z' as u32 { i + 'A' as u32 - 'a' as u32 }
                         else { i };
             assert_eq!((from_u32(i).unwrap()).to_string().into_ascii_upper(),
-                       (from_u32(upper).unwrap()).to_string())
+                       (from_u32(upper).unwrap()).to_string());
             i += 1;
         }
     }
@@ -837,7 +834,7 @@ mod tests {
             let lower = if 'A' as u32 <= i && i <= 'Z' as u32 { i + 'a' as u32 - 'A' as u32 }
                         else { i };
             assert_eq!((from_u32(i).unwrap()).to_string().into_ascii_lower(),
-                       (from_u32(lower).unwrap()).to_string())
+                       (from_u32(lower).unwrap()).to_string());
             i += 1;
         }
     }

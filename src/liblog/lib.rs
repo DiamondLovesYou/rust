@@ -213,9 +213,11 @@ pub const WARN: u32 = 2;
 /// Error log level
 pub const ERROR: u32 = 1;
 
-thread_local!(static LOCAL_LOGGER: RefCell<Option<Box<Logger + Send>>> = {
-    RefCell::new(None)
-})
+thread_local! {
+    static LOCAL_LOGGER: RefCell<Option<Box<Logger + Send>>> = {
+        RefCell::new(None)
+    }
+}
 
 /// A trait used to represent an interface to a task-local logger. Each task
 /// can have its own custom logger which can respond to logging messages
@@ -230,10 +232,8 @@ struct DefaultLogger {
 }
 
 /// Wraps the log level with fmt implementations.
-#[deriving(PartialEq, PartialOrd)]
+#[deriving(Copy, PartialEq, PartialOrd)]
 pub struct LogLevel(pub u32);
-
-impl Copy for LogLevel {}
 
 impl fmt::Show for LogLevel {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -339,13 +339,12 @@ pub struct LogRecord<'a> {
 }
 
 #[doc(hidden)]
+#[deriving(Copy)]
 pub struct LogLocation {
     pub module_path: &'static str,
     pub file: &'static str,
     pub line: uint,
 }
-
-impl Copy for LogLocation {}
 
 /// Tests whether a given module's name is enabled for a particular level of
 /// logging. This is the second layer of defense about determining whether a

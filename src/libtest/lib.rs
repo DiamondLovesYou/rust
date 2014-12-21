@@ -49,7 +49,7 @@ use self::NamePadding::*;
 use self::OutputLocation::*;
 
 use std::any::{Any, AnyRefExt};
-use std::collections::TreeMap;
+use std::collections::BTreeMap;
 use stats::Stats;
 use getopts::{OptGroup, optflag, optopt};
 use regex::Regex;
@@ -69,7 +69,7 @@ use std::num::{Float, FloatMath, Int};
 use std::os;
 use std::str::FromStr;
 use std::string::String;
-use std::task::TaskBuilder;
+use std::thread::{mod, Thread};
 use std::time::Duration;
 use std::thunk::{Thunk, Invoke};
 
@@ -110,14 +110,12 @@ impl Show for TestName {
     }
 }
 
-#[deriving(Clone)]
+#[deriving(Clone, Copy)]
 enum NamePadding {
     PadNone,
     PadOnLeft,
     PadOnRight,
 }
-
-impl Copy for NamePadding {}
 
 impl TestDesc {
     fn padded_name(&self, column_count: uint, align: NamePadding) -> String {
@@ -215,13 +213,11 @@ pub struct TestDescAndFn {
     pub testfn: TestFn,
 }
 
-#[deriving(Clone, Encodable, Decodable, PartialEq, Show)]
+#[deriving(Clone, Copy, Encodable, Decodable, PartialEq, Show)]
 pub struct Metric {
     value: f64,
     noise: f64
 }
-
-impl Copy for Metric {}
 
 impl Metric {
     pub fn new(value: f64, noise: f64) -> Metric {
@@ -230,7 +226,7 @@ impl Metric {
 }
 
 #[deriving(PartialEq)]
-pub struct MetricMap(TreeMap<String,Metric>);
+pub struct MetricMap(BTreeMap<String,Metric>);
 
 impl Clone for MetricMap {
     fn clone(&self) -> MetricMap {
@@ -240,7 +236,7 @@ impl Clone for MetricMap {
 }
 
 /// Analysis of a single change in metric
-#[deriving(PartialEq, Show)]
+#[deriving(Copy, PartialEq, Show)]
 pub enum MetricChange {
     LikelyNoise,
     MetricAdded,
@@ -249,9 +245,7 @@ pub enum MetricChange {
     Regression(f64)
 }
 
-impl Copy for MetricChange {}
-
-pub type MetricDiff = TreeMap<String,MetricChange>;
+pub type MetricDiff = BTreeMap<String,MetricChange>;
 
 // The default console test runner. It accepts the command line
 // arguments and a vector of test_descs.
@@ -287,13 +281,12 @@ pub fn test_main_static(args: &[String], tests: &[TestDescAndFn]) {
     test_main(args, owned_tests)
 }
 
+#[deriving(Copy)]
 pub enum ColorConfig {
     AutoColor,
     AlwaysColor,
     NeverColor,
 }
-
-impl Copy for ColorConfig {}
 
 pub struct TestOpts {
     pub filter: Option<Regex>,
@@ -1121,28 +1114,27 @@ pub fn run_test(opts: &TestOpts,
                       monitor_ch: Sender<MonitorMsg>,
                       nocapture: bool,
                       testfn: Thunk) {
-        spawn(move || {
+        Thread::spawn(move || {
             let (tx, rx) = channel();
             let mut reader = ChanReader::new(rx);
             let stdout = ChanWriter::new(tx.clone());
             let stderr = ChanWriter::new(tx);
-            let mut task = TaskBuilder::new().named(match desc.name {
+            let mut cfg = thread::Builder::new().name(match desc.name {
                 DynTestName(ref name) => name.clone().to_string(),
                 StaticTestName(name) => name.to_string(),
             });
             if nocapture {
                 drop((stdout, stderr));
             } else {
-                task = task.stdout(box stdout as Box<Writer + Send>);
-                task = task.stderr(box stderr as Box<Writer + Send>);
+                cfg = cfg.stdout(box stdout as Box<Writer + Send>);
+                cfg = cfg.stderr(box stderr as Box<Writer + Send>);
             }
-            let result_future = task.try_future(move || testfn.invoke(()));
 
+            let result_guard = cfg.spawn(move || { testfn.invoke(()) });
             let stdout = reader.read_to_end().unwrap().into_iter().collect();
-            let task_result = result_future.into_inner();
-            let test_result = calc_result(&desc, task_result);
+            let test_result = calc_result(&desc, result_guard.join());
             monitor_ch.send((desc.clone(), test_result, stdout));
-        })
+        }).detach();
     }
 
     match testfn {
@@ -1191,7 +1183,7 @@ fn calc_result(desc: &TestDesc, task_result: Result<(), Box<Any+Send>>) -> TestR
 impl MetricMap {
 
     pub fn new() -> MetricMap {
-        MetricMap(TreeMap::new())
+        MetricMap(BTreeMap::new())
     }
 
     /// Load MetricDiff from a file.
@@ -1227,7 +1219,7 @@ impl MetricMap {
     /// map.
     pub fn compare_to_old(&self, old: &MetricMap,
                           noise_pct: Option<f64>) -> MetricDiff {
-        let mut diff : MetricDiff = TreeMap::new();
+        let mut diff : MetricDiff = BTreeMap::new();
         let MetricMap(ref selfmap) = *self;
         let MetricMap(ref old) = *old;
         for (k, vold) in old.iter() {

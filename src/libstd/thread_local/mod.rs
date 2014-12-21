@@ -68,6 +68,7 @@ pub mod scoped;
 ///
 /// ```
 /// use std::cell::RefCell;
+/// use std::thread::Thread;
 ///
 /// thread_local!(static FOO: RefCell<uint> = RefCell::new(1));
 ///
@@ -77,12 +78,12 @@ pub mod scoped;
 /// });
 ///
 /// // each thread starts out with the initial value of 1
-/// spawn(move|| {
+/// Thread::spawn(move|| {
 ///     FOO.with(|f| {
 ///         assert_eq!(*f.borrow(), 1);
 ///         *f.borrow_mut() = 3;
 ///     });
-/// });
+/// }).detach();
 ///
 /// // we retain our original value of 2 despite the child thread
 /// FOO.with(|f| {
@@ -109,7 +110,7 @@ pub struct Key<T> {
 /// Declare a new thread local storage key of type `std::thread_local::Key`.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! thread_local(
+macro_rules! thread_local {
     (static $name:ident: $t:ty = $init:expr) => (
         static $name: ::std::thread_local::Key<$t> = {
             use std::cell::UnsafeCell as __UnsafeCell;
@@ -119,7 +120,7 @@ macro_rules! thread_local(
 
             __thread_local_inner!(static __KEY: __UnsafeCell<__Option<$t>> = {
                 __UnsafeCell { value: __None }
-            })
+            });
             fn __init() -> $t { $init }
             fn __getit() -> &'static __KeyInner<__UnsafeCell<__Option<$t>>> {
                 &__KEY
@@ -136,7 +137,7 @@ macro_rules! thread_local(
 
             __thread_local_inner!(static __KEY: __UnsafeCell<__Option<$t>> = {
                 __UnsafeCell { value: __None }
-            })
+            });
             fn __init() -> $t { $init }
             fn __getit() -> &'static __KeyInner<__UnsafeCell<__Option<$t>>> {
                 &__KEY
@@ -144,7 +145,7 @@ macro_rules! thread_local(
             ::std::thread_local::Key { inner: __getit, init: __init }
         };
     );
-)
+}
 
 // Macro pain #4586:
 //
@@ -167,7 +168,7 @@ macro_rules! thread_local(
 // itself. Woohoo.
 
 #[macro_export]
-macro_rules! __thread_local_inner(
+macro_rules! __thread_local_inner {
     (static $name:ident: $t:ty = $init:expr) => (
         #[cfg_attr(any(target_os = "macos", target_os = "linux"), thread_local)]
         static $name: ::std::thread_local::KeyInner<$t> =
@@ -204,7 +205,7 @@ macro_rules! __thread_local_inner(
 
         INIT
     });
-)
+}
 
 impl<T: 'static> Key<T> {
     /// Acquire a reference to the value in this TLS key.
@@ -217,9 +218,8 @@ impl<T: 'static> Key<T> {
     /// This function will `panic!()` if the key currently has its
     /// destructor running, and it **may** panic if the destructor has
     /// previously been run for this thread.
-    pub fn with<R, F>(&'static self, f: F) -> R where
-        F: FnOnce(&T) -> R,
-    {
+    pub fn with<F, R>(&'static self, f: F) -> R
+                      where F: FnOnce(&T) -> R {
         let slot = (self.inner)();
         unsafe {
             let slot = slot.get().expect("cannot access a TLS value during or \
@@ -446,7 +446,7 @@ mod tests {
     use prelude::*;
 
     use cell::UnsafeCell;
-    use rustrt::thread::Thread;
+    use thread::Thread;
 
     struct Foo(Sender<()>);
 
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn smoke_no_dtor() {
-        thread_local!(static FOO: UnsafeCell<int> = UnsafeCell { value: 1 })
+        thread_local!(static FOO: UnsafeCell<int> = UnsafeCell { value: 1 });
 
         FOO.with(|f| unsafe {
             assert_eq!(*f.get(), 1);
@@ -483,7 +483,7 @@ mod tests {
     fn smoke_dtor() {
         thread_local!(static FOO: UnsafeCell<Option<Foo>> = UnsafeCell {
             value: None
-        })
+        });
 
         let (tx, rx) = channel();
         spawn(move|| unsafe {
@@ -501,10 +501,10 @@ mod tests {
         struct S2;
         thread_local!(static K1: UnsafeCell<Option<S1>> = UnsafeCell {
             value: None
-        })
+        });
         thread_local!(static K2: UnsafeCell<Option<S2>> = UnsafeCell {
             value: None
-        })
+        });
         static mut HITS: uint = 0;
 
         impl Drop for S1 {
@@ -534,7 +534,7 @@ mod tests {
             }
         }
 
-        Thread::start(move|| {
+        Thread::spawn(move|| {
             drop(S1);
         }).join();
     }
@@ -544,7 +544,7 @@ mod tests {
         struct S1;
         thread_local!(static K1: UnsafeCell<Option<S1>> = UnsafeCell {
             value: None
-        })
+        });
 
         impl Drop for S1 {
             fn drop(&mut self) {
@@ -552,7 +552,7 @@ mod tests {
             }
         }
 
-        Thread::start(move|| unsafe {
+        Thread::spawn(move|| unsafe {
             K1.with(|s| *s.get() = Some(S1));
         }).join();
     }
@@ -562,10 +562,10 @@ mod tests {
         struct S1(Sender<()>);
         thread_local!(static K1: UnsafeCell<Option<S1>> = UnsafeCell {
             value: None
-        })
+        });
         thread_local!(static K2: UnsafeCell<Option<Foo>> = UnsafeCell {
             value: None
-        })
+        });
 
         impl Drop for S1 {
             fn drop(&mut self) {
@@ -597,7 +597,7 @@ mod dynamic_tests {
     #[test]
     fn smoke() {
         fn square(i: int) -> int { i * i }
-        thread_local!(static FOO: int = square(3))
+        thread_local!(static FOO: int = square(3));
 
         FOO.with(|f| {
             assert_eq!(*f, 9);
@@ -611,7 +611,7 @@ mod dynamic_tests {
             m.insert(1, 2);
             RefCell::new(m)
         }
-        thread_local!(static FOO: RefCell<HashMap<int, int>> = map())
+        thread_local!(static FOO: RefCell<HashMap<int, int>> = map());
 
         FOO.with(|map| {
             assert_eq!(map.borrow()[1], 2);
@@ -620,7 +620,7 @@ mod dynamic_tests {
 
     #[test]
     fn refcell_vec() {
-        thread_local!(static FOO: RefCell<Vec<uint>> = RefCell::new(vec![1, 2, 3]))
+        thread_local!(static FOO: RefCell<Vec<uint>> = RefCell::new(vec![1, 2, 3]));
 
         FOO.with(|vec| {
             assert_eq!(vec.borrow().len(), 3);

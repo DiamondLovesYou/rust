@@ -51,9 +51,9 @@
 
 TARGET_CRATES := libc std flate arena term \
                  serialize getopts collections test time rand \
-                 log regex graphviz core rbml alloc rustrt \
+                 log regex graphviz core rbml alloc \
                  unicode
-RUSTC_CRATES := rustc rustc_typeck rustc_borrowck rustc_driver rustc_trans rustc_back rustc_llvm 
+RUSTC_CRATES := rustc rustc_typeck rustc_borrowck rustc_driver rustc_trans rustc_back rustc_llvm
 HOST_CRATES := syntax $(RUSTC_CRATES) rustdoc regex_macros fmt_macros rust-pnacl-trans
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
 TOOLS := compiletest rustdoc rustc rust-pnacl-trans
@@ -62,9 +62,8 @@ DEPS_core :=
 DEPS_libc := core
 DEPS_unicode := core
 DEPS_alloc := core libc native:jemalloc
-DEPS_rustrt := alloc core libc collections native:rustrt_native
-DEPS_std := core libc rand alloc collections rustrt unicode \
-	native:rust_builtin native:backtrace
+DEPS_std := core libc rand alloc collections unicode \
+	native:rust_builtin native:backtrace native:rustrt_native
 DEPS_graphviz := std
 DEPS_syntax := std term serialize log fmt_macros arena libc
 DEPS_rustc_driver := arena flate getopts graphviz libc rustc rustc_back rustc_borrowck \
@@ -91,7 +90,7 @@ DEPS_getopts := std
 DEPS_collections := core alloc unicode
 DEPS_num := std
 DEPS_test := std getopts serialize rbml term time regex native:rust_test_helpers
-DEPS_time := std serialize rustrt
+DEPS_time := std serialize
 DEPS_rand := core
 DEPS_log := std regex
 DEPS_regex := std

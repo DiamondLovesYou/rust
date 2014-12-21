@@ -46,11 +46,10 @@
 use f32;
 use f64;
 
-use kinds::Copy;
-
 pub type GlueFn = extern "Rust" fn(*const i8);
 
 #[lang="ty_desc"]
+#[deriving(Copy)]
 pub struct TyDesc {
     // sizeof(T)
     pub size: uint,
@@ -64,8 +63,6 @@ pub struct TyDesc {
     // Name corresponding to the type
     pub name: &'static str,
 }
-
-impl Copy for TyDesc {}
 
 extern "rust-intrinsic" {
 
@@ -550,7 +547,7 @@ extern "rust-intrinsic" {
     pub fn u64_mul_with_overflow(x: u64, y: u64) -> (u64, bool);
 }
 /// We mark these as unsafe to emulate the "unsafety" of the regular ol' intrinsics.
-macro_rules! _def_fun(
+macro_rules! _def_fun {
     ($intrinsic_name:ident => $libm_name:ident ($arg_ty:ty) -> $ret_ty:ty) => {
         #[cfg(target_os = "nacl")]
         #[inline] pub unsafe fn $intrinsic_name(x: $arg_ty) -> $ret_ty {
@@ -579,7 +576,7 @@ macro_rules! _def_fun(
             return $libm_name(x, y, z);
         }
     };
-)
+}
 /*_def_fun!(sinf32   => sinf   (f32) -> f32)
 _def_fun!(sinf64   => sin    (f64) -> f64)
 
@@ -633,7 +630,7 @@ _def_fun!(floorf64 => floor  (f64) -> f64)*/
 #[cfg(target_os = "nacl")]
 #[inline] pub unsafe fn cttz16(x: u16) -> u16 { cttz32(x as u32) as u16 }
 
-macro_rules! add_with_overflow(
+macro_rules! add_with_overflow {
     ($ty:ty, $id:ident) => (
         #[cfg(target_os = "nacl")]
         pub unsafe fn $id (x: $ty,
@@ -649,8 +646,8 @@ macro_rules! add_with_overflow(
                 })
         }
     )
-)
-macro_rules! sub_with_overflow(
+}
+macro_rules! sub_with_overflow {
     ($ty:ty, $id:ident) => (
         #[cfg(target_os = "nacl")]
         pub unsafe fn $id (x: $ty,
@@ -666,8 +663,8 @@ macro_rules! sub_with_overflow(
                 })
         }
     )
-)
-macro_rules! mul_with_overflow(
+}
+macro_rules! mul_with_overflow {
     ($ty:ty, $id:ident) => (
         #[cfg(target_os = "nacl")]
         pub unsafe fn $id (x: $ty,
@@ -683,44 +680,42 @@ macro_rules! mul_with_overflow(
                 })
         }
     )
-)
+}
 
-add_with_overflow!(i8,  i8_add_with_overflow )
-add_with_overflow!(i16, i16_add_with_overflow)
-add_with_overflow!(i32, i32_add_with_overflow)
-add_with_overflow!(i64, i64_add_with_overflow)
-add_with_overflow!(u8,  u8_add_with_overflow )
-add_with_overflow!(u16, u16_add_with_overflow)
-add_with_overflow!(u32, u32_add_with_overflow)
-add_with_overflow!(u64, u64_add_with_overflow)
+add_with_overflow!{i8,  i8_add_with_overflow }
+add_with_overflow!{i16, i16_add_with_overflow}
+add_with_overflow!{i32, i32_add_with_overflow}
+add_with_overflow!{i64, i64_add_with_overflow}
+add_with_overflow!{u8,  u8_add_with_overflow }
+add_with_overflow!{u16, u16_add_with_overflow}
+add_with_overflow!{u32, u32_add_with_overflow}
+add_with_overflow!{u64, u64_add_with_overflow}
 
-sub_with_overflow!(i8,  i8_sub_with_overflow )
-sub_with_overflow!(i16, i16_sub_with_overflow)
-sub_with_overflow!(i32, i32_sub_with_overflow)
-sub_with_overflow!(i64, i64_sub_with_overflow)
-sub_with_overflow!(u8,  u8_sub_with_overflow )
-sub_with_overflow!(u16, u16_sub_with_overflow)
-sub_with_overflow!(u32, u32_sub_with_overflow)
-sub_with_overflow!(u64, u64_sub_with_overflow)
+sub_with_overflow!{i8,  i8_sub_with_overflow }
+sub_with_overflow!{i16, i16_sub_with_overflow}
+sub_with_overflow!{i32, i32_sub_with_overflow}
+sub_with_overflow!{i64, i64_sub_with_overflow}
+sub_with_overflow!{u8,  u8_sub_with_overflow }
+sub_with_overflow!{u16, u16_sub_with_overflow}
+sub_with_overflow!{u32, u32_sub_with_overflow}
+sub_with_overflow!{u64, u64_sub_with_overflow}
 
-mul_with_overflow!(i8,  i8_mul_with_overflow )
-mul_with_overflow!(i16, i16_mul_with_overflow)
-mul_with_overflow!(i32, i32_mul_with_overflow)
-mul_with_overflow!(i64, i64_mul_with_overflow)
-mul_with_overflow!(u8,  u8_mul_with_overflow )
-mul_with_overflow!(u16, u16_mul_with_overflow)
-mul_with_overflow!(u32, u32_mul_with_overflow)
-mul_with_overflow!(u64, u64_mul_with_overflow)
+mul_with_overflow!{i8,  i8_mul_with_overflow }
+mul_with_overflow!{i16, i16_mul_with_overflow}
+mul_with_overflow!{i32, i32_mul_with_overflow}
+mul_with_overflow!{i64, i64_mul_with_overflow}
+mul_with_overflow!{u8,  u8_mul_with_overflow }
+mul_with_overflow!{u16, u16_mul_with_overflow}
+mul_with_overflow!{u32, u32_mul_with_overflow}
+mul_with_overflow!{u64, u64_mul_with_overflow}
 
 /// `TypeId` represents a globally unique identifier for a type
 #[lang="type_id"] // This needs to be kept in lockstep with the code in trans/intrinsic.rs and
                   // middle/lang_items.rs
-#[deriving(Clone, PartialEq, Eq, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Show)]
 pub struct TypeId {
     t: u64,
 }
-
-impl Copy for TypeId {}
 
 impl TypeId {
     /// Returns the `TypeId` of the type this generic function has been instantiated with

@@ -225,12 +225,11 @@ struct Source<'a>(&'a str);
 // Helper structs for rendering items/sidebars and carrying along contextual
 // information
 
+#[deriving(Copy)]
 struct Item<'a> {
     cx: &'a Context,
     item: &'a clean::Item,
 }
-
-impl<'a> Copy for Item<'a> {}
 
 struct Sidebar<'a> { cx: &'a Context, item: &'a clean::Item, }
 
@@ -246,9 +245,9 @@ struct IndexItem {
 
 // TLS keys used to carry information around during rendering.
 
-thread_local!(static CACHE_KEY: RefCell<Arc<Cache>> = Default::default())
+thread_local!(static CACHE_KEY: RefCell<Arc<Cache>> = Default::default());
 thread_local!(pub static CURRENT_LOCATION_KEY: RefCell<Vec<String>> =
-                    RefCell::new(Vec::new()))
+                    RefCell::new(Vec::new()));
 
 /// Generates the documentation for `crate` into the directory `dst`
 pub fn run(mut krate: clean::Crate,
