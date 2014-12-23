@@ -1771,7 +1771,6 @@ enum ProcResOrProcessResult {
 fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                             testfile: &Path, env: Vec<(String, String)>,
                             run_background: bool) -> ProcResOrProcessResult {
-    use std::os::consts::ARCH;
     use std::os::make_absolute;
     use std::io::process::{ExitStatus, ExitSignal};
 
@@ -1779,37 +1778,31 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         .clone()
         .expect("need the NaCl SDK path!");
 
-    let llc = config.llvm_bin_path
-        .clone()
-        .expect("need the LLVM bin path!")
-        .join("llc");
-
     let pexe_path = make_absolute(&output_base_name(config, testfile))
         .unwrap();
-    let obj_path =
-        // add an extension, don't replace it:
-        Path::new(format!("{}.o", pexe_path.display()));
     let nexe_path =
         // add an extension, don't replace it:
         Path::new(format!("{}.nexe", pexe_path.display()));
 
-    let (arch, tls_use_call) = match ARCH {
-        "x86" => ("i686", false),
-        _ => (ARCH, true),
+    let pnacl_trans_args = vec!(format!("-o{}", nexe_path.display()),
+                                format!("{}", pexe_path.display()),
+                                "--cross-path".to_string(),
+                                format!("{}", cross_path.display()));
+    let pnacl_trans = {
+        let rustc_path = Path::new(config.rustc_path.as_str().unwrap());
+        let pnacl_trans = rustc_path
+            .dir_path()
+            .join("rust-pnacl-trans");
+        if let Some(str) = rustc_path.extension_str() {
+            pnacl_trans.with_extension(str)
+        } else {
+            pnacl_trans
+        }
     };
-    let mut pnacl_trans_args = vec!("-O1".to_string());
-    if tls_use_call {
-        pnacl_trans_args.push("-mtls-use-call".to_string());
-    }
-    pnacl_trans_args.push(format!("-mtriple={}-none-nacl-gnu", arch));
-    pnacl_trans_args.push("-filetype=obj".to_string());
-    pnacl_trans_args.push(format!("-o={}", obj_path.display()));
-    pnacl_trans_args.push(format!("{}", pexe_path.display()));
-
     match program_output(config,
                          testfile,
                          config.compile_lib_path.as_slice(),
-                         llc.display().to_string(),
+                         pnacl_trans.display().to_string(),
                          None,
                          pnacl_trans_args,
                          env.clone(),
@@ -1821,70 +1814,6 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     }
 
     let _ = fs::unlink(&pexe_path);
-
-    let arch = match ARCH {
-        "x86" => "x86-32",
-        "x86_64" => "x86-64",
-        _ => panic!("unsupported arch: `{}`!", ARCH),
-    };
-    let lib_path = cross_path.join_many(["toolchain".to_string(),
-                                         {
-                                             let mut s = pnacl_toolchain_prefix();
-                                             s.push_str("_pnacl");
-                                             s
-                                         },
-                                         format!("lib-{}", arch)].as_slice());
-
-    let nexe_link_args = vec!("-nostdlib".to_string(),
-                              "--no-fix-cortex-a8".to_string(),
-                              "--eh-frame-hdr".to_string(),
-                              "-z".to_string(), "text".to_string(),
-                              "--build-id".to_string(),
-                              "--entry=__pnacl_start".to_string(),
-                              "-static".to_string(),
-                              lib_path.join("crtbegin.o")
-                                  .display().to_string(),
-                              obj_path.display().to_string(),
-                              lib_path.join("libpnacl_irt_shim.a")
-                                  .display().to_string(),
-                              "--start-group".to_string(),
-                              lib_path.join("libgcc.a")
-                                  .display().to_string(),
-                              lib_path.join("libcrt_platform.a")
-                                  .display().to_string(),
-                              "--end-group".to_string(),
-                              lib_path.join("crtend.o")
-                                  .display().to_string(),
-                              "--undefined=_start".to_string(),
-                              "-o".to_string(),
-                              nexe_path
-                                  .display().to_string(),);
-
-    let gold = Path::new(config.rustc_path.clone())
-        .dir_path()
-        .join_many(["..".to_string(),
-                    "lib".to_string(),
-                    "rustlib".to_string(),
-                    config.host.clone(),
-                    "bin".to_string(),
-                    "le32-nacl-ld.gold".to_string()].as_slice());
-
-    match program_output(config,
-                         testfile,
-                         config.compile_lib_path.as_slice(),
-                         gold.display().to_string(),
-                         None,
-                         nexe_link_args,
-                         env.clone(),
-                         None) {
-        ProcRes { status: ExitStatus(0), .. } => { }
-        res => {
-            return ProcResOrProcessResult::ProcResResult(res);
-        }
-    }
-
-    // delete the tmp object file:
-    let _ = fs::unlink(&obj_path);
 
     let tools = cross_path.join("tools");
     let nacl_helper_bootstrap = tools.join("nacl_helper_bootstrap_x86_64");

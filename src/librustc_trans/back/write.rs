@@ -684,18 +684,7 @@ pub fn run_passes(sess: &Session,
         use std::os;
         let native_dep_lib_path = Some({
             os::make_absolute(&sess.pnacl_toolchain()
-                              .join("lib"))
-                .unwrap()
-        });
-        let native_dep_sdk_lib_path = Some({
-            os::make_absolute(&sess.pnacl_toolchain()
-                              .join("sdk")
-                              .join("lib"))
-                .unwrap()
-        });
-        let native_dep_usr_lib_path = Some({
-            os::make_absolute(&sess.pnacl_toolchain()
-                              .join("usr")
+                              .join("le32-nacl")
                               .join("lib"))
                 .unwrap()
         });
@@ -713,8 +702,6 @@ pub fn run_passes(sess: &Session,
         let addl_lib_paths = sess.opts.addl_lib_search_paths.borrow();
         let iter = addl_lib_paths.iter();
         let iter = iter.chain(native_dep_lib_path.iter());
-        let iter = iter.chain(native_dep_sdk_lib_path.iter());
-        let iter = iter.chain(native_dep_usr_lib_path.iter());
         let iter = iter.chain(ports_lib_path.iter());
         let iter = iter.map(|p| p.clone() );
         iter.collect()

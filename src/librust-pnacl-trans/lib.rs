@@ -104,11 +104,6 @@ pub fn main() {
         return;
     }
 
-    let sysroot = match os::self_exe_path().map(|p| p.join("..") ) {
-        Some(sysroot) => sysroot,
-        None => fatal("I need the sysroot"),
-    };
-
     let opt_level = {
         let opt_level_str = match matches.opt_str("opt-level") {
             Some(level) => level,
@@ -332,14 +327,16 @@ pub fn main() {
     };
 
     debug!("linking");
-    let lib_path = cross_path
+
+    let toolchain_path = cross_path
         .join_many(&["toolchain".to_string(),
                      {
                          let mut s = pnacl_toolchain_prefix();
                          s.push_str("_pnacl");
                          s
-                     },
-                     format!("lib-{}", arch)]);
+                     }]);
+    let lib_path = toolchain_path
+        .join_many(&["translator", arch, "lib"]);
 
     let nexe_link_args = vec!("-nostdlib".to_string(),
                               "--no-fix-cortex-a8".to_string(),
@@ -368,11 +365,8 @@ pub fn main() {
         .chain(nexe_link_args_suffix.into_iter())
         .collect();
 
-    let gold = sysroot.join_many(&["lib".to_string(),
-                                   "rustlib".to_string(),
-                                   host_triple().to_string(),
-                                   "bin".to_string(),
-                                   "le32-nacl-ld.gold".to_string()]);
+    let gold = toolchain_path
+        .join_many(&["bin", "le32-nacl-ld.gold"]);
 
     fn cleanup_objs(m: &Matches, objs: Vec<String>) {
         use std::io::fs::unlink;

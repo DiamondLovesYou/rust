@@ -32,7 +32,7 @@ I may offer nightly downloads, however that isn't finished yet.
     * GNU `make` 3.81 or later
     * `curl`
     * `git`
-    * `pepper_37` from the [NaCl SDK](https://developer.chrome.com/native-client).
+    * `pepper_39` or newer from the [NaCl SDK](https://developer.chrome.com/native-client).
 2. Download and build Rust:
 
     Or to build from the [repo] do:
@@ -64,7 +64,7 @@ to target PNaCl, or with:
         $ rustc --target=x86_64-unknown-nacl
 
 to target NaCl.
-        
+
 4. Enjoy!
 
 ### Building on Windows

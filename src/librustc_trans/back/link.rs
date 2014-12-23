@@ -551,8 +551,9 @@ pub fn check_outputs(sess: &Session,
 fn pnacl_host_tool(sess: &Session, tool: &str) -> Path {
     use std::os;
     let tool = format!("le32-nacl-{}{}", tool, os::consts::EXE_SUFFIX);
-    // Somewhat hacky...
-    sess.host_filesearch().get_lib_path().join("../bin").join(tool)
+    sess.pnacl_toolchain()
+        .join("bin")
+        .join(tool)
 }
 
 fn link_pnacl_rlib(sess: &Session,
