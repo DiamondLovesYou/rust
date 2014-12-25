@@ -200,8 +200,6 @@ include $(CFG_SRC_DIR)mk/docs.mk
 include $(CFG_SRC_DIR)mk/llvm.mk
 # Rules for installing debugger scripts
 include $(CFG_SRC_DIR)mk/debuggers.mk
-# NaCl Binutils
-include $(CFG_SRC_DIR)mk/binutils.mk
 
 ######################################################################
 # Secondary makefiles, conditionalized for speed

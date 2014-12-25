@@ -383,10 +383,6 @@ HSREQ$(1)_H_$(3) = \
 	$$(HBIN$(1)_H_$(3))/rustc$$(X_$(3)) \
 	$$(MKFILE_DEPS) \
 	tmp/install-debugger-scripts$(1)_H_$(3).done
-
-ifeq ($(1),2)
-HSREQ$(1)_H_$(3) += $$(BINUTILS_STAMP_$(3))
-endif
 endif
 
 # Prerequisites for using the stageN compiler to build target artifacts

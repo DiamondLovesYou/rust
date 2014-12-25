@@ -1149,7 +1149,7 @@ then
 fi
 
 # Configure llvm and binutils, only if necessary
-step_msg "looking at LLVM/Binutils"
+step_msg "looking at LLVM"
 CFG_LLVM_SRC_DIR=${CFG_SRC_DIR}src/llvm/
 CFG_BINUTILS_SRC_DIR=${CFG_SRC_DIR}src/nacl-binutils/
 for t in $CFG_HOST
@@ -1379,48 +1379,6 @@ do
         done
     fi
 
-    # now, binutils:
-    BINUTILS_BUILD_DIR=${CFG_BUILD_DIR}$t/nacl-binutils
-    if [ ${do_reconfigure} -ne 0 ]
-    then
-        step_msg "configuring Binutils for $t"
-
-        rm -fr $t/nacl-binutils/
-        make_dir $t/nacl-binutils/
-
-        # Note we keep CC/CXX/etc from above.
-
-        BINUTILS_BUILD="--build=$gnu_t"
-        BINUTILS_HOST="--host=$gnu_t"
-        BINUTILS_TARGET="--target=arm-pc-nacl"
-
-        # Most of these flags were pulled from native client's build scripts.
-        BINUTILS_OPTS="--enable-gold=yes --enable-ld=no --enable-plugins\
-        --without-gas --without-zlib --enable-shared=no                 \
-        --enable-deterministic-archives --disable-silent-rules          \
-        --disable-werror"
-
-        BINUTILS_FLAGS="$BINUTILS_TARGETS $BINUTILS_OPTS $BINUTILS_BUILD\
-                        $BINUTILS_HOST $BINUTILS_TARGET"
-
-        msg "configuring Binutils with:"
-        msg "$BINUTILS_FLAGS"
-
-        cd $BINUTILS_BUILD_DIR
-        case $CFG_SRC_DIR in
-            /* | [a-z]:* | [A-Z]:*)
-                ${CFG_BINUTILS_SRC_DIR}configure $BINUTILS_FLAGS
-                ;;
-            *)
-                ${CFG_BUILD_DIR}${CFG_BINUTILS_SRC_DIR}configure \
-                    $BINUTILS_FLAGS
-                ;;
-        esac
-        need_ok "Binutils configure failed"
-
-        cd $CFG_BUILD_DIR
-    fi
-
     # Construct variables for LLVM build and install directories for
     # each target. These will be named
     # CFG_LLVM_BUILD_DIR_${target_triple} but all the hyphens in
@@ -1433,9 +1391,6 @@ do
     eval ${CFG_LLVM_BUILD_DIR}="'$LLVM_BUILD_DIR'"
     eval ${CFG_LLVM_BUILD_SUBDIR}="'$LLVM_BUILD_SUBDIR'"
     eval ${CFG_LLVM_INST_DIR}="'$LLVM_INST_DIR'"
-
-    CFG_BINUTILS_BUILD_DIR=$(echo CFG_BINUTILS_BUILD_DIR_${t} | tr - _)
-    eval ${CFG_BINUTILS_BUILD_DIR}="'$BINUTILS_BUILD_DIR'"
 done
 
 

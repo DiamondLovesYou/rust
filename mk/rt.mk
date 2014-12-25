@@ -97,7 +97,7 @@ $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll \
 	@$$(call E, compile: $$@)
 	$$(OPT_$$(CFG_BUILD)) -Oz -o $$@ $$<
 
-$$(RT_OUTPUT_DIR_$(1))/%.o: $(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/lib/%.bc \
+$$(RT_OUTPUT_DIR_$(1))/%.o: $(CFG_NACL_CROSS_PATH)/toolchain/$(NACL_TOOLCHAIN_OS_PATH)_pnacl/lib/clang/3.4/lib/le32-nacl/%.bc \
             $$(MKFILE_DEPS) $$(LLVM_CONFIG_$$(CFG_BUILD))
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
