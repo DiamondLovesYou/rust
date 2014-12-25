@@ -27,7 +27,6 @@ use metadata::tydecode::{parse_ty_data, parse_region_data, parse_def_id,
                          parse_predicate_data};
 use middle::def;
 use middle::lang_items;
-use middle::resolve::{TraitItemKind, TypeTraitItemKind};
 use middle::subst;
 use middle::ty::{ImplContainer, TraitContainer};
 use middle::ty::{mod, Ty};
@@ -222,7 +221,7 @@ fn each_reexport<F>(d: rbml::Doc, f: F) -> bool where
 fn variant_disr_val(d: rbml::Doc) -> Option<ty::Disr> {
     reader::maybe_get_doc(d, tag_disr_val).and_then(|val_doc| {
         reader::with_doc_data(val_doc, |data| {
-            str::from_utf8(data).and_then(from_str)
+            str::from_utf8(data).ok().and_then(|s| s.parse())
         })
     })
 }
@@ -701,7 +700,7 @@ pub fn get_enum_variants<'tcx>(intr: Rc<IdentInterner>, cdata: Cmd, id: ast::Nod
                                 item, tcx, cdata);
         let name = item_name(&*intr, item);
         let (ctor_ty, arg_tys, arg_names) = match ctor_ty.sty {
-            ty::ty_bare_fn(ref f) =>
+            ty::ty_bare_fn(_, ref f) =>
                 (Some(ctor_ty), f.sig.0.inputs.clone(), None),
             _ => { // Nullary or struct enum variant.
                 let mut arg_names = Vec::new();
@@ -785,15 +784,15 @@ pub fn get_impl_items(cdata: Cmd, impl_id: ast::NodeId)
 pub fn get_trait_item_name_and_kind(intr: Rc<IdentInterner>,
                                     cdata: Cmd,
                                     id: ast::NodeId)
-                                    -> (ast::Name, TraitItemKind) {
+                                    -> (ast::Name, def::TraitItemKind) {
     let doc = lookup_item(id, cdata.data());
     let name = item_name(&*intr, doc);
     match item_sort(doc) {
         'r' | 'p' => {
             let explicit_self = get_explicit_self(doc);
-            (name, TraitItemKind::from_explicit_self_category(explicit_self))
+            (name, def::TraitItemKind::from_explicit_self_category(explicit_self))
         }
-        't' => (name, TypeTraitItemKind),
+        't' => (name, def::TypeTraitItemKind),
         c => {
             panic!("get_trait_item_name_and_kind(): unknown trait item kind \
                    in metadata: `{}`", c)
@@ -1161,7 +1160,7 @@ pub fn get_crate_deps(data: &[u8]) -> Vec<CrateDep> {
     }
     reader::tagged_docs(depsdoc, tag_crate_dep, |depdoc| {
         let name = docstr(depdoc, tag_crate_dep_crate_name);
-        let hash = Svh::new(docstr(depdoc, tag_crate_dep_hash).as_slice());
+        let hash = Svh::new(docstr(depdoc, tag_crate_dep_hash)[]);
         deps.push(CrateDep {
             cnum: crate_num,
             name: name,
@@ -1346,7 +1345,7 @@ pub fn get_dylib_dependency_formats(cdata: Cmd)
         if spec.len() == 0 { continue }
         let cnum = spec.split(':').nth(0).unwrap();
         let link = spec.split(':').nth(1).unwrap();
-        let cnum = from_str(cnum).unwrap();
+        let cnum = cnum.parse().unwrap();
         let cnum = match cdata.cnum_map.get(&cnum) {
             Some(&n) => n,
             None => panic!("didn't find a crate in the cnum_map")

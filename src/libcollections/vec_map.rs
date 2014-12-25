@@ -21,7 +21,6 @@ use core::hash::{Hash, Writer};
 use core::iter;
 use core::iter::{Enumerate, FilterMap, Map};
 use core::mem::replace;
-use core::ops::FnOnce;
 
 use {vec, slice};
 use vec::Vec;
@@ -61,7 +60,6 @@ use vec::Vec;
 /// months.clear();
 /// assert!(months.is_empty());
 /// ```
-#[deriving(PartialEq, Eq)]
 pub struct VecMap<V> {
     v: Vec<Option<V>>,
 }
@@ -145,6 +143,7 @@ impl<V> VecMap<V> {
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn keys<'r>(&'r self) -> Keys<'r, V> {
         fn first<A, B>((a, _): (A, B)) -> A { a }
+        let first: fn((uint, &'r V)) -> uint = first; // coerce to fn pointer
 
         Keys { iter: self.iter().map(first) }
     }
@@ -154,6 +153,7 @@ impl<V> VecMap<V> {
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn values<'r>(&'r self) -> Values<'r, V> {
         fn second<A, B>((_, b): (A, B)) -> B { b }
+        let second: fn((uint, &'r V)) -> &'r V = second; // coerce to fn pointer
 
         Values { iter: self.iter().map(second) }
     }
@@ -177,8 +177,8 @@ impl<V> VecMap<V> {
     /// }
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter<'r>(&'r self) -> Entries<'r, V> {
-        Entries {
+    pub fn iter<'r>(&'r self) -> Iter<'r, V> {
+        Iter {
             front: 0,
             back: self.v.len(),
             iter: self.v.iter()
@@ -208,8 +208,8 @@ impl<V> VecMap<V> {
     /// }
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter_mut<'r>(&'r mut self) -> MutEntries<'r, V> {
-        MutEntries {
+    pub fn iter_mut<'r>(&'r mut self) -> IterMut<'r, V> {
+        IterMut {
             front: 0,
             back: self.v.len(),
             iter: self.v.iter_mut()
@@ -236,13 +236,14 @@ impl<V> VecMap<V> {
     /// assert_eq!(vec, vec![(1, "a"), (2, "b"), (3, "c")]);
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn into_iter(&mut self) -> MoveItems<V> {
+    pub fn into_iter(&mut self) -> IntoIter<V> {
         fn filter<A>((i, v): (uint, Option<A>)) -> Option<(uint, A)> {
             v.map(|v| (i, v))
         }
+        let filter: fn((uint, Option<V>)) -> Option<(uint, V)> = filter; // coerce to fn ptr
 
         let values = replace(&mut self.v, vec!());
-        MoveItems { iter: values.into_iter().enumerate().filter_map(filter) }
+        IntoIter { iter: values.into_iter().enumerate().filter_map(filter) }
     }
 
     /// Return the number of elements in the map.
@@ -490,6 +491,14 @@ impl<V:Clone> VecMap<V> {
     }
 }
 
+impl<V: PartialEq> PartialEq for VecMap<V> {
+    fn eq(&self, other: &VecMap<V>) -> bool {
+        iter::order::eq(self.iter(), other.iter())
+    }
+}
+
+impl<V: Eq> Eq for VecMap<V> {}
+
 impl<V: PartialOrd> PartialOrd for VecMap<V> {
     #[inline]
     fn partial_cmp(&self, other: &VecMap<V>) -> Option<Ordering> {
@@ -606,42 +615,42 @@ macro_rules! double_ended_iterator {
 }
 
 /// An iterator over the key-value pairs of a map.
-pub struct Entries<'a, V:'a> {
+pub struct Iter<'a, V:'a> {
     front: uint,
     back: uint,
-    iter: slice::Items<'a, Option<V>>
+    iter: slice::Iter<'a, Option<V>>
 }
 
-iterator! { impl Entries -> (uint, &'a V), as_ref }
-double_ended_iterator! { impl Entries -> (uint, &'a V), as_ref }
+iterator! { impl Iter -> (uint, &'a V), as_ref }
+double_ended_iterator! { impl Iter -> (uint, &'a V), as_ref }
 
 /// An iterator over the key-value pairs of a map, with the
 /// values being mutable.
-pub struct MutEntries<'a, V:'a> {
+pub struct IterMut<'a, V:'a> {
     front: uint,
     back: uint,
-    iter: slice::MutItems<'a, Option<V>>
+    iter: slice::IterMut<'a, Option<V>>
 }
 
-iterator! { impl MutEntries -> (uint, &'a mut V), as_mut }
-double_ended_iterator! { impl MutEntries -> (uint, &'a mut V), as_mut }
+iterator! { impl IterMut -> (uint, &'a mut V), as_mut }
+double_ended_iterator! { impl IterMut -> (uint, &'a mut V), as_mut }
 
 /// An iterator over the keys of a map.
 pub struct Keys<'a, V: 'a> {
-    iter: Map<(uint, &'a V), uint, Entries<'a, V>, fn((uint, &'a V)) -> uint>
+    iter: Map<(uint, &'a V), uint, Iter<'a, V>, fn((uint, &'a V)) -> uint>
 }
 
 /// An iterator over the values of a map.
 pub struct Values<'a, V: 'a> {
-    iter: Map<(uint, &'a V), &'a V, Entries<'a, V>, fn((uint, &'a V)) -> &'a V>
+    iter: Map<(uint, &'a V), &'a V, Iter<'a, V>, fn((uint, &'a V)) -> &'a V>
 }
 
 /// A consuming iterator over the key-value pairs of a map.
-pub struct MoveItems<V> {
+pub struct IntoIter<V> {
     iter: FilterMap<
     (uint, Option<V>),
     (uint, V),
-    Enumerate<vec::MoveItems<Option<V>>>,
+    Enumerate<vec::IntoIter<Option<V>>>,
     fn((uint, Option<V>)) -> Option<(uint, V)>>
 }
 
@@ -663,18 +672,17 @@ impl<'a, V> DoubleEndedIterator<&'a V> for Values<'a, V> {
 }
 
 
-impl<V> Iterator<(uint, V)> for MoveItems<V> {
+impl<V> Iterator<(uint, V)> for IntoIter<V> {
     fn next(&mut self) -> Option<(uint, V)> { self.iter.next() }
     fn size_hint(&self) -> (uint, Option<uint>) { self.iter.size_hint() }
 }
-impl<V> DoubleEndedIterator<(uint, V)> for MoveItems<V> {
+impl<V> DoubleEndedIterator<(uint, V)> for IntoIter<V> {
     fn next_back(&mut self) -> Option<(uint, V)> { self.iter.next_back() }
 }
 
 #[cfg(test)]
 mod test_map {
-    use std::prelude::*;
-    use vec::Vec;
+    use prelude::*;
     use core::hash::hash;
 
     use super::VecMap;
@@ -954,6 +962,10 @@ mod test_map {
         assert!(a != b);
         assert!(b.insert(5, 19).is_none());
         assert!(a == b);
+
+        a = VecMap::new();
+        b = VecMap::with_capacity(1);
+        assert!(a == b);
     }
 
     #[test]
@@ -1047,8 +1059,7 @@ mod test_map {
 
 #[cfg(test)]
 mod bench {
-    extern crate test;
-    use self::test::Bencher;
+    use test::Bencher;
     use super::VecMap;
     use bench::{insert_rand_n, insert_seq_n, find_rand_n, find_seq_n};
 

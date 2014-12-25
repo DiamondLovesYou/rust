@@ -518,7 +518,7 @@ This last example is different because it is not possible to use the suffix
 syntax with a floating point literal ending in a period. `2.f64` would attempt
 to call a method named `f64` on `2`.
 
-##### Boolean literals
+#### Boolean literals
 
 The two values of the boolean type are written `true` and `false`.
 
@@ -640,7 +640,7 @@ names, and invoked through a consistent syntax: `name!(...)`. Examples include:
 * `stringify!` : pretty-print the Rust expression given as an argument
 * `include!` : include the Rust expression in the given file
 * `include_str!` : include the contents of the given file as a string
-* `include_bin!` : include the contents of the given file as a binary blob
+* `include_bytes!` : include the contents of the given file as a binary blob
 * `error!`, `warn!`, `info!`, `debug!` : provide diagnostic information.
 
 All of the above extensions are expressions with values.
@@ -934,7 +934,7 @@ kinds of view items:
 
 ```{.ebnf .gram}
 extern_crate_decl : "extern" "crate" crate_name
-crate_name: ident | ( string_lit as ident )
+crate_name: ident | ( string_lit "as" ident )
 ```
 
 An _`extern crate` declaration_ specifies a dependency on an external crate.
@@ -3177,7 +3177,7 @@ Some examples of call expressions:
 # fn add(x: int, y: int) -> int { 0 }
 
 let x: int = add(1, 2);
-let pi: Option<f32> = from_str("3.14");
+let pi: Option<f32> = "3.14".parse();
 ```
 
 ### Lambda expressions

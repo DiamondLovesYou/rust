@@ -8,6 +8,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn main() {
-    let [_, ..,] = [(), ()]; //~ ERROR unexpected token: `]`
+fn require_copy<T: Copy>(x: T) {}
+
+struct Bar<T> { x: T }
+
+trait Foo<T> {
+    fn needs_copy(self) where T: Copy;
+    fn fails_copy(self);
 }
+
+// Ensure constraints are only attached to methods locally
+impl<T> Foo<T> for Bar<T> {
+    fn needs_copy(self) where T: Copy {
+        require_copy(self.x);
+
+    }
+
+    fn fails_copy(self) {
+        require_copy(self.x);
+        //~^ ERROR the trait `core::kinds::Copy` is not implemented for the type `T`
+    }
+}
+
+fn main() {}

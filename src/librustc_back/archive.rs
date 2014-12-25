@@ -103,7 +103,7 @@ impl<'a> Archive<'a> {
     fn run_ar(&self, args: &str, cwd: Option<&Path>,
               paths: &[&Path]) -> ProcessOutput {
         let ar = match self.maybe_ar_prog {
-            Some(ref ar) => ar.as_slice(),
+            Some(ref ar) => ar[],
             None => "ar"
         };
         let mut cmd = Command::new(ar);
@@ -134,22 +134,22 @@ impl<'a> Archive<'a> {
                 if !o.status.success() {
                     self.handler.err(format!("{} failed with: {}",
                                              cmd,
-                                             o.status).as_slice());
+                                     o.status)[]);
                     self.handler.note(format!("stdout ---\n{}",
                                               str::from_utf8(o.output
-                                                             .as_slice()).unwrap())
-                                      .as_slice());
+                                                             []).unwrap())
+                                      []);
                     self.handler.note(format!("stderr ---\n{}",
                                               str::from_utf8(o.error
-                                                             .as_slice()).unwrap())
-                                      .as_slice());
+                                                             []).unwrap())
+                                      []);
                     self.handler.abort_if_errors();
                 }
                 o
             },
             Err(e) => {
-                self.handler.err(format!("could not exec `{}`: {}", ar.as_slice(),
-                                         e).as_slice());
+                self.handler.err(format!("could not exec `{}`: {}", ar[],
+                                 e)[]);
                 self.handler.abort_if_errors();
                 panic!("rustc::back::archive::run_ar() should not reach this point");
             }
@@ -166,16 +166,16 @@ pub fn find_library(name: &str, osprefix: &str, ossuffix: &str,
 
     for path in search_paths.iter() {
         debug!("looking for {} inside {}", name, path.display());
-        let test = path.join(oslibname.as_slice());
+        let test = path.join(oslibname[]);
         if test.exists() { return test }
         if oslibname != unixlibname {
-            let test = path.join(unixlibname.as_slice());
+            let test = path.join(unixlibname[]);
             if test.exists() { return test }
         }
     }
     handler.fatal(format!("could not find native static library `{}`, \
                            perhaps an -L flag is missing?",
-                          name).as_slice());
+                          name)[]);
 }
 
 impl<'a> ArchiveBuilder<'a> {
@@ -198,9 +198,9 @@ impl<'a> ArchiveBuilder<'a> {
     /// search in the relevant locations for a library named `name`.
     pub fn add_native_library(&mut self, name: &str) -> io::IoResult<()> {
         let location = find_library(name,
-                                    self.archive.slib_prefix.as_slice(),
-                                    self.archive.slib_suffix.as_slice(),
-                                    self.archive.lib_search_paths.as_slice(),
+                                    self.archive.slib_prefix[],
+                                    self.archive.slib_suffix[],
+                                    self.archive.lib_search_paths[],
                                     self.archive.handler);
         self.add_archive(&location, name, |_| false)
     }
@@ -216,12 +216,12 @@ impl<'a> ArchiveBuilder<'a> {
         // as simple comparison is not enough - there
         // might be also an extra name suffix
         let obj_start = format!("{}", name);
-        let obj_start = obj_start.as_slice();
+        let obj_start = obj_start[];
         // Ignoring all bytecode files, no matter of
         // name
         let bc_ext = ".bytecode.deflate";
 
-        self.add_archive(rlib, name.as_slice(), |fname: &str| {
+        self.add_archive(rlib, name[], |fname: &str| {
             let skip_obj = lto && fname.starts_with(obj_start)
                 && fname.ends_with(".o");
             skip_obj || fname.ends_with(bc_ext) || fname == METADATA_FILENAME
@@ -257,7 +257,7 @@ impl<'a> ArchiveBuilder<'a> {
             // OSX `ar` does not allow using `r` with no members, but it does
             // allow running `ar s file.a` to update symbols only.
             if self.should_update_symbols {
-                self.archive.run_ar("s", Some(self.work_dir.path()), args.as_slice());
+                self.archive.run_ar("s", Some(self.work_dir.path()), args[]);
             }
             return self.archive;
         }
@@ -290,7 +290,7 @@ impl<'a> ArchiveBuilder<'a> {
         // Add the remaining archive members, and update the symbol table if
         // necessary.
         let flags = if self.should_update_symbols { "crus" } else { "cruS" };
-        self.archive.run_ar(flags, Some(self.work_dir.path()), args.as_slice());
+        self.archive.run_ar(flags, Some(self.work_dir.path()), args[]);
 
         self.archive
     }
@@ -331,7 +331,7 @@ impl<'a> ArchiveBuilder<'a> {
             } else {
                 filename
             };
-            let new_filename = self.work_dir.path().join(filename.as_slice());
+            let new_filename = self.work_dir.path().join(filename[]);
             try!(fs::rename(file, &new_filename));
             self.members.push(Path::new(filename));
         }

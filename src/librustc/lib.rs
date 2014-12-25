@@ -22,7 +22,7 @@
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![feature(default_type_params, globs, import_shadowing, macro_rules, phase, quote)]
+#![feature(default_type_params, globs, macro_rules, phase, quote)]
 #![feature(slicing_syntax, unsafe_destructor)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(unboxed_closures)]
@@ -39,6 +39,8 @@ extern crate rbml;
 extern crate collections;
 #[phase(plugin, link)] extern crate log;
 #[phase(plugin, link)] extern crate syntax;
+
+extern crate "serialize" as rustc_serialize; // used by deriving
 
 #[cfg(test)]
 extern crate test;
@@ -91,7 +93,6 @@ pub mod middle {
     pub mod reachable;
     pub mod region;
     pub mod recursion_limit;
-    pub mod resolve;
     pub mod resolve_lifetime;
     pub mod stability;
     pub mod subst;
@@ -117,6 +118,7 @@ pub mod util {
     pub mod ppaux;
     pub mod nodemap;
     pub mod snapshot_vec;
+    pub mod lev_distance;
 }
 
 pub mod lib {

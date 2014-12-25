@@ -1386,6 +1386,7 @@ pub struct Map<A, B, I: Iterator<A>, F: FnMut(A) -> B> {
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, B, I, F> Clone for Map<A, B, I, F> where
     I: Clone + Iterator<A>,
     F: Clone + FnMut(A) -> B,
@@ -1460,6 +1461,7 @@ pub struct Filter<A, I, P> where I: Iterator<A>, P: FnMut(&A) -> bool {
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, I, P> Clone for Filter<A, I, P> where
     I: Clone + Iterator<A>,
     P: Clone + FnMut(&A) -> bool,
@@ -1518,6 +1520,7 @@ pub struct FilterMap<A, B, I, F> where I: Iterator<A>, F: FnMut(A) -> Option<B> 
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, B, I, F> Clone for FilterMap<A, B, I, F> where
     I: Clone + Iterator<A>,
     F: Clone + FnMut(A) -> Option<B>,
@@ -1693,6 +1696,7 @@ pub struct SkipWhile<A, I, P> where I: Iterator<A>, P: FnMut(&A) -> bool {
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, I, P> Clone for SkipWhile<A, I, P> where
     I: Clone + Iterator<A>,
     P: Clone + FnMut(&A) -> bool,
@@ -1736,6 +1740,7 @@ pub struct TakeWhile<A, I, P> where I: Iterator<A>, P: FnMut(&A) -> bool {
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, I, P> Clone for TakeWhile<A, I, P> where
     I: Clone + Iterator<A>,
     P: Clone + FnMut(&A) -> bool,
@@ -1911,6 +1916,7 @@ pub struct Scan<A, B, I, St, F> where I: Iterator<A>, F: FnMut(&mut St, A) -> Op
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, B, I, St, F> Clone for Scan<A, B, I, St, F> where
     I: Clone + Iterator<A>,
     St: Clone,
@@ -1955,6 +1961,7 @@ pub struct FlatMap<A, B, I, U, F> where I: Iterator<A>, U: Iterator<B>, F: FnMut
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, B, I, U, F> Clone for FlatMap<A, B, I, U, F> where
     I: Clone + Iterator<A>,
     U: Clone + Iterator<B>,
@@ -2115,6 +2122,7 @@ pub struct Inspect<A, I, F> where I: Iterator<A>, F: FnMut(&A) {
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, I, F> Clone for Inspect<A, I, F> where
     I: Clone + Iterator<A>,
     F: Clone + FnMut(&A),
@@ -2222,6 +2230,7 @@ pub struct Unfold<A, St, F> where F: FnMut(&mut St) -> Option<A> {
 }
 
 // FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+#[stable]
 impl<A, St, F> Clone for Unfold<A, St, F> where
     F: Clone + FnMut(&mut St) -> Option<A>,
     St: Clone,
@@ -2533,6 +2542,64 @@ impl<A: Int> Iterator<A> for RangeStepInclusive<A> {
     }
 }
 
+
+/// The `Step` trait identifies objects which can be stepped over in both
+/// directions. The `steps_between` function provides a way to
+/// compare two Step objects (it could be provided using `step()` and `Ord`,
+/// but the implementation would be so inefficient as to be useless).
+#[unstable = "Trait is unstable."]
+pub trait Step: Ord {
+    /// Change self to the next object.
+    fn step(&mut self);
+    /// Change self to the previous object.
+    fn step_back(&mut self);
+    /// The steps_between two step objects.
+    /// a should always be less than b, so the result should never be negative.
+    /// Return None if it is not possible to calculate steps_between without
+    /// overflow.
+    fn steps_between(a: &Self, b: &Self) -> Option<uint>;
+}
+
+macro_rules! step_impl {
+    ($($t:ty)*) => ($(
+        #[unstable = "Trait is unstable."]
+        impl Step for $t {
+            #[inline]
+            fn step(&mut self) { *self += 1; }
+            #[inline]
+            fn step_back(&mut self) { *self -= 1; }
+            #[inline]
+            fn steps_between(a: &$t, b: &$t) -> Option<uint> {
+                debug_assert!(a < b);
+                Some((*a - *b) as uint)
+            }
+        }
+    )*)
+}
+
+macro_rules! step_impl_no_between {
+    ($($t:ty)*) => ($(
+        #[unstable = "Trait is unstable."]
+        impl Step for $t {
+            #[inline]
+            fn step(&mut self) { *self += 1; }
+            #[inline]
+            fn step_back(&mut self) { *self -= 1; }
+            #[inline]
+            fn steps_between(_a: &$t, _b: &$t) -> Option<uint> {
+                None
+            }
+        }
+    )*)
+}
+
+step_impl!(uint u8 u16 u32 int i8 i16 i32);
+#[cfg(target_word_size = "64")]
+step_impl!(u64 i64);
+#[cfg(target_word_size = "32")]
+step_impl_no_between!(u64 i64);
+
+
 /// An iterator that repeats an element endlessly
 #[deriving(Clone)]
 #[stable]
@@ -2602,6 +2669,9 @@ pub fn iterate<T, F>(seed: T, f: F) -> Iterate<T, F> where
         }
         val.clone()
     }
+
+    // coerce to a fn pointer
+    let next: fn(&mut IterateState<T,F>) -> Option<T> = next;
 
     Unfold::new((f, Some(seed), true), next)
 }

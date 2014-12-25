@@ -88,7 +88,7 @@ pub struct BTreeMap<K, V> {
 }
 
 /// An abstract base over-which all other BTree iterators are built.
-struct AbsEntries<T> {
+struct AbsIter<T> {
     lca: T,
     left: RingBuf<T>,
     right: RingBuf<T>,
@@ -96,28 +96,28 @@ struct AbsEntries<T> {
 }
 
 /// An iterator over a BTreeMap's entries.
-pub struct Entries<'a, K: 'a, V: 'a> {
-    inner: AbsEntries<Traversal<'a, K, V>>
+pub struct Iter<'a, K: 'a, V: 'a> {
+    inner: AbsIter<Traversal<'a, K, V>>
 }
 
 /// A mutable iterator over a BTreeMap's entries.
-pub struct MutEntries<'a, K: 'a, V: 'a> {
-    inner: AbsEntries<MutTraversal<'a, K, V>>
+pub struct IterMut<'a, K: 'a, V: 'a> {
+    inner: AbsIter<MutTraversal<'a, K, V>>
 }
 
 /// An owning iterator over a BTreeMap's entries.
-pub struct MoveEntries<K, V> {
-    inner: AbsEntries<MoveTraversal<K, V>>
+pub struct IntoIter<K, V> {
+    inner: AbsIter<MoveTraversal<K, V>>
 }
 
 /// An iterator over a BTreeMap's keys.
 pub struct Keys<'a, K: 'a, V: 'a> {
-    inner: Map<(&'a K, &'a V), &'a K, Entries<'a, K, V>, fn((&'a K, &'a V)) -> &'a K>
+    inner: Map<(&'a K, &'a V), &'a K, Iter<'a, K, V>, fn((&'a K, &'a V)) -> &'a K>
 }
 
 /// An iterator over a BTreeMap's values.
 pub struct Values<'a, K: 'a, V: 'a> {
-    inner: Map<(&'a K, &'a V), &'a V, Entries<'a, K, V>, fn((&'a K, &'a V)) -> &'a V>
+    inner: Map<(&'a K, &'a V), &'a V, Iter<'a, K, V>, fn((&'a K, &'a V)) -> &'a V>
 }
 
 /// A view into a single entry in a map, which may either be vacant or occupied.
@@ -131,12 +131,12 @@ pub enum Entry<'a, K:'a, V:'a> {
 /// A vacant Entry.
 pub struct VacantEntry<'a, K:'a, V:'a> {
     key: K,
-    stack: stack::SearchStack<'a, K, V, node::Edge, node::Leaf>,
+    stack: stack::SearchStack<'a, K, V, node::handle::Edge, node::handle::Leaf>,
 }
 
 /// An occupied Entry.
 pub struct OccupiedEntry<'a, K:'a, V:'a> {
-    stack: stack::SearchStack<'a, K, V, node::KV, node::LeafOrInternal>,
+    stack: stack::SearchStack<'a, K, V, node::handle::KV, node::handle::LeafOrInternal>,
 }
 
 impl<K: Ord, V> BTreeMap<K, V> {
@@ -496,7 +496,8 @@ mod stack {
     use core::kinds::marker;
     use core::mem;
     use super::BTreeMap;
-    use super::super::node::{mod, Node, Fit, Split, KV, Edge, Internal, Leaf, LeafOrInternal};
+    use super::super::node::{mod, Node, Fit, Split, Internal, Leaf};
+    use super::super::node::handle;
     use vec::Vec;
 
     /// A generic mutable reference, identical to `&mut` except for the fact that its lifetime
@@ -520,7 +521,7 @@ mod stack {
         }
     }
 
-    type StackItem<K, V> = node::Handle<*mut Node<K, V>, Edge, Internal>;
+    type StackItem<K, V> = node::Handle<*mut Node<K, V>, handle::Edge, handle::Internal>;
     type Stack<K, V> = Vec<StackItem<K, V>>;
 
     /// A `PartialSearchStack` handles the construction of a search stack.
@@ -595,7 +596,9 @@ mod stack {
         /// Pushes the requested child of the stack's current top on top of the stack. If the child
         /// exists, then a new PartialSearchStack is yielded. Otherwise, a VacantSearchStack is
         /// yielded.
-        pub fn push(mut self, mut edge: node::Handle<IdRef<'id, Node<K, V>>, Edge, Internal>)
+        pub fn push(mut self, mut edge: node::Handle<IdRef<'id, Node<K, V>>,
+                                                     handle::Edge,
+                                                     handle::Internal>)
                     -> PartialSearchStack<'a, K, V> {
             self.stack.push(edge.as_raw());
             PartialSearchStack {
@@ -617,7 +620,7 @@ mod stack {
         }
     }
 
-    impl<'a, K, V, NodeType> SearchStack<'a, K, V, KV, NodeType> {
+    impl<'a, K, V, NodeType> SearchStack<'a, K, V, handle::KV, NodeType> {
         /// Gets a reference to the value the stack points to.
         pub fn peek(&self) -> &V {
             unsafe { self.top.from_raw().into_kv().1 }
@@ -640,7 +643,7 @@ mod stack {
         }
     }
 
-    impl<'a, K, V> SearchStack<'a, K, V, KV, Leaf> {
+    impl<'a, K, V> SearchStack<'a, K, V, handle::KV, handle::Leaf> {
         /// Removes the key and value in the top element of the stack, then handles underflows as
         /// described in BTree's pop function.
         fn remove_leaf(mut self) -> V {
@@ -686,7 +689,7 @@ mod stack {
         }
     }
 
-    impl<'a, K, V> SearchStack<'a, K, V, KV, LeafOrInternal> {
+    impl<'a, K, V> SearchStack<'a, K, V, handle::KV, handle::LeafOrInternal> {
         /// Removes the key and value in the top element of the stack, then handles underflows as
         /// described in BTree's pop function.
         pub fn remove(self) -> V {
@@ -703,7 +706,7 @@ mod stack {
         /// leaves the tree in an inconsistent state that must be repaired by the caller by
         /// removing the entry in question. Specifically the key-value pair and its successor will
         /// become swapped.
-        fn into_leaf(mut self) -> SearchStack<'a, K, V, KV, Leaf> {
+        fn into_leaf(mut self) -> SearchStack<'a, K, V, handle::KV, handle::Leaf> {
             unsafe {
                 let mut top_raw = self.top;
                 let mut top = top_raw.from_raw_mut();
@@ -757,7 +760,7 @@ mod stack {
         }
     }
 
-    impl<'a, K, V> SearchStack<'a, K, V, Edge, Leaf> {
+    impl<'a, K, V> SearchStack<'a, K, V, handle::Edge, handle::Leaf> {
         /// Inserts the key and value into the top element in the stack, and if that node has to
         /// split recursively inserts the split contents into the next element stack until
         /// splits stop.
@@ -926,7 +929,7 @@ enum StackOp<T> {
 }
 
 impl<K, V, E, T: Traverse<E> + DoubleEndedIterator<TraversalItem<K, V, E>>>
-        Iterator<(K, V)> for AbsEntries<T> {
+        Iterator<(K, V)> for AbsIter<T> {
     // This function is pretty long, but only because there's a lot of cases to consider.
     // Our iterator represents two search paths, left and right, to the smallest and largest
     // elements we have yet to yield. lca represents the least common ancestor of these two paths,
@@ -992,7 +995,7 @@ impl<K, V, E, T: Traverse<E> + DoubleEndedIterator<TraversalItem<K, V, E>>>
 }
 
 impl<K, V, E, T: Traverse<E> + DoubleEndedIterator<TraversalItem<K, V, E>>>
-        DoubleEndedIterator<(K, V)> for AbsEntries<T> {
+        DoubleEndedIterator<(K, V)> for AbsIter<T> {
     // next_back is totally symmetric to next
     fn next_back(&mut self) -> Option<(K, V)> {
         loop {
@@ -1029,34 +1032,34 @@ impl<K, V, E, T: Traverse<E> + DoubleEndedIterator<TraversalItem<K, V, E>>>
     }
 }
 
-impl<'a, K, V> Iterator<(&'a K, &'a V)> for Entries<'a, K, V> {
+impl<'a, K, V> Iterator<(&'a K, &'a V)> for Iter<'a, K, V> {
     fn next(&mut self) -> Option<(&'a K, &'a V)> { self.inner.next() }
     fn size_hint(&self) -> (uint, Option<uint>) { self.inner.size_hint() }
 }
-impl<'a, K, V> DoubleEndedIterator<(&'a K, &'a V)> for Entries<'a, K, V> {
+impl<'a, K, V> DoubleEndedIterator<(&'a K, &'a V)> for Iter<'a, K, V> {
     fn next_back(&mut self) -> Option<(&'a K, &'a V)> { self.inner.next_back() }
 }
-impl<'a, K, V> ExactSizeIterator<(&'a K, &'a V)> for Entries<'a, K, V> {}
+impl<'a, K, V> ExactSizeIterator<(&'a K, &'a V)> for Iter<'a, K, V> {}
 
 
-impl<'a, K, V> Iterator<(&'a K, &'a mut V)> for MutEntries<'a, K, V> {
+impl<'a, K, V> Iterator<(&'a K, &'a mut V)> for IterMut<'a, K, V> {
     fn next(&mut self) -> Option<(&'a K, &'a mut V)> { self.inner.next() }
     fn size_hint(&self) -> (uint, Option<uint>) { self.inner.size_hint() }
 }
-impl<'a, K, V> DoubleEndedIterator<(&'a K, &'a mut V)> for MutEntries<'a, K, V> {
+impl<'a, K, V> DoubleEndedIterator<(&'a K, &'a mut V)> for IterMut<'a, K, V> {
     fn next_back(&mut self) -> Option<(&'a K, &'a mut V)> { self.inner.next_back() }
 }
-impl<'a, K, V> ExactSizeIterator<(&'a K, &'a mut V)> for MutEntries<'a, K, V> {}
+impl<'a, K, V> ExactSizeIterator<(&'a K, &'a mut V)> for IterMut<'a, K, V> {}
 
 
-impl<K, V> Iterator<(K, V)> for MoveEntries<K, V> {
+impl<K, V> Iterator<(K, V)> for IntoIter<K, V> {
     fn next(&mut self) -> Option<(K, V)> { self.inner.next() }
     fn size_hint(&self) -> (uint, Option<uint>) { self.inner.size_hint() }
 }
-impl<K, V> DoubleEndedIterator<(K, V)> for MoveEntries<K, V> {
+impl<K, V> DoubleEndedIterator<(K, V)> for IntoIter<K, V> {
     fn next_back(&mut self) -> Option<(K, V)> { self.inner.next_back() }
 }
-impl<K, V> ExactSizeIterator<(K, V)> for MoveEntries<K, V> {}
+impl<K, V> ExactSizeIterator<(K, V)> for IntoIter<K, V> {}
 
 
 impl<'a, K, V> Iterator<&'a K> for Keys<'a, K, V> {
@@ -1137,10 +1140,10 @@ impl<K, V> BTreeMap<K, V> {
     /// assert_eq!((*first_key, *first_value), (1u, "a"));
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter<'a>(&'a self) -> Entries<'a, K, V> {
+    pub fn iter<'a>(&'a self) -> Iter<'a, K, V> {
         let len = self.len();
-        Entries {
-            inner: AbsEntries {
+        Iter {
+            inner: AbsIter {
                 lca: Traverse::traverse(&self.root),
                 left: RingBuf::new(),
                 right: RingBuf::new(),
@@ -1169,10 +1172,10 @@ impl<K, V> BTreeMap<K, V> {
     /// }
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter_mut<'a>(&'a mut self) -> MutEntries<'a, K, V> {
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, K, V> {
         let len = self.len();
-        MutEntries {
-            inner: AbsEntries {
+        IterMut {
+            inner: AbsIter {
                 lca: Traverse::traverse(&mut self.root),
                 left: RingBuf::new(),
                 right: RingBuf::new(),
@@ -1198,10 +1201,10 @@ impl<K, V> BTreeMap<K, V> {
     /// }
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn into_iter(self) -> MoveEntries<K, V> {
+    pub fn into_iter(self) -> IntoIter<K, V> {
         let len = self.len();
-        MoveEntries {
-            inner: AbsEntries {
+        IntoIter {
+            inner: AbsIter {
                 lca: Traverse::traverse(self.root),
                 left: RingBuf::new(),
                 right: RingBuf::new(),
@@ -1227,6 +1230,7 @@ impl<K, V> BTreeMap<K, V> {
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn keys<'a>(&'a self) -> Keys<'a, K, V> {
         fn first<A, B>((a, _): (A, B)) -> A { a }
+        let first: fn((&'a K, &'a V)) -> &'a K = first; // coerce to fn pointer
 
         Keys { inner: self.iter().map(first) }
     }
@@ -1248,6 +1252,7 @@ impl<K, V> BTreeMap<K, V> {
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn values<'a>(&'a self) -> Values<'a, K, V> {
         fn second<A, B>((_, b): (A, B)) -> B { b }
+        let second: fn((&'a K, &'a V)) -> &'a V = second; // coerce to fn pointer
 
         Values { inner: self.iter().map(second) }
     }
@@ -1285,6 +1290,30 @@ impl<K, V> BTreeMap<K, V> {
 
 impl<K: Ord, V> BTreeMap<K, V> {
     /// Gets the given key's corresponding entry in the map for in-place manipulation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use std::collections::btree_map::Entry;
+    ///
+    /// let mut count: BTreeMap<&str, uint> = BTreeMap::new();
+    ///
+    /// // count the number of occurrences of letters in the vec
+    /// for x in vec!["a","b","a","c","a","b"].iter() {
+    ///     match count.entry(*x) {
+    ///         Entry::Vacant(view) => {
+    ///             view.set(1);
+    ///         },
+    ///         Entry::Occupied(mut view) => {
+    ///             let v = view.get_mut();
+    ///             *v += 1;
+    ///         },
+    ///     }
+    /// }
+    ///
+    /// assert_eq!(count["a"], 3u);
+    /// ```
     pub fn entry<'a>(&'a mut self, mut key: K) -> Entry<'a, K, V> {
         // same basic logic of `swap` and `pop`, blended together
         let mut stack = stack::PartialSearchStack::new(self);
@@ -1332,7 +1361,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
 
 #[cfg(test)]
 mod test {
-    use std::prelude::*;
+    use prelude::*;
 
     use super::{BTreeMap, Occupied, Vacant};
 
@@ -1534,7 +1563,7 @@ mod test {
 
 #[cfg(test)]
 mod bench {
-    use std::prelude::*;
+    use prelude::*;
     use std::rand::{weak_rng, Rng};
     use test::{Bencher, black_box};
 

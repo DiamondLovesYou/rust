@@ -23,7 +23,7 @@ use ops::FnMut;
 use option::Option;
 use option::Option::{Some, None};
 use slice::{SliceExt, AsSlice};
-use str::{Str, StrPrelude};
+use str::{Str, StrExt};
 use string::{String, IntoString};
 use vec::Vec;
 
@@ -39,7 +39,7 @@ impl Ascii {
         self.chr
     }
 
-    /// Deprecated: use `as_byte` isntead.
+    /// Deprecated: use `as_byte` instead.
     #[deprecated = "use as_byte"]
     pub fn to_byte(self) -> u8 {
         self.as_byte()
@@ -52,7 +52,7 @@ impl Ascii {
         self.chr as char
     }
 
-    /// Deprecated: use `as_char` isntead.
+    /// Deprecated: use `as_char` instead.
     #[deprecated = "use as_char"]
     pub fn to_char(self) -> char {
         self.as_char()
@@ -633,7 +633,6 @@ mod tests {
     use prelude::*;
     use super::*;
     use char::from_u32;
-    use str::StrPrelude;
 
     macro_rules! v2ascii {
         ( [$($e:expr),*]) => (&[$(Ascii{chr:$e}),*]);

@@ -19,9 +19,8 @@ pub use self::DefRegion::*;
 use self::ScopeChain::*;
 
 use session::Session;
-use middle::def;
+use middle::def::{mod, DefMap};
 use middle::region;
-use middle::resolve::DefMap;
 use middle::subst;
 use middle::ty;
 use std::fmt;
@@ -34,7 +33,7 @@ use syntax::visit;
 use syntax::visit::Visitor;
 use util::nodemap::NodeMap;
 
-#[deriving(Clone, Copy, PartialEq, Eq, Hash, Encodable, Decodable, Show)]
+#[deriving(Clone, Copy, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable, Show)]
 pub enum DefRegion {
     DefStaticRegion,
     DefEarlyBoundRegion(/* space */ subst::ParamSpace,
@@ -207,12 +206,20 @@ impl<'a, 'v> Visitor<'v> for LifetimeContext<'a> {
         }
         for predicate in generics.where_clause.predicates.iter() {
             match predicate {
-                &ast::WherePredicate::BoundPredicate(ast::WhereBoundPredicate{ ident,
+                &ast::WherePredicate::BoundPredicate(ast::WhereBoundPredicate{ ref bounded_ty,
                                                                                ref bounds,
-                                                                               span,
                                                                                .. }) => {
-                    self.visit_ident(span, ident);
+                    self.visit_ty(&**bounded_ty);
                     visit::walk_ty_param_bounds_helper(self, bounds);
+                }
+                &ast::WherePredicate::RegionPredicate(ast::WhereRegionPredicate{ref lifetime,
+                                                                                ref bounds,
+                                                                                .. }) => {
+
+                    self.visit_lifetime_ref(lifetime);
+                    for bound in bounds.iter() {
+                        self.visit_lifetime_ref(bound);
+                    }
                 }
                 &ast::WherePredicate::EqPredicate(ast::WhereEqPredicate{ id,
                                                                          ref path,
@@ -402,7 +409,7 @@ impl<'a> LifetimeContext<'a> {
         self.sess.span_err(
             lifetime_ref.span,
             format!("use of undeclared lifetime name `{}`",
-                    token::get_name(lifetime_ref.name)).as_slice());
+                    token::get_name(lifetime_ref.name))[]);
     }
 
     fn check_lifetime_defs(&mut self, old_scope: Scope, lifetimes: &Vec<ast::LifetimeDef>) {
@@ -416,7 +423,7 @@ impl<'a> LifetimeContext<'a> {
                         lifetime.lifetime.span,
                         format!("illegal lifetime parameter name: `{}`",
                                 token::get_name(lifetime.lifetime.name))
-                            .as_slice());
+                            []);
                 }
             }
 
@@ -430,7 +437,7 @@ impl<'a> LifetimeContext<'a> {
                         format!("lifetime name `{}` declared twice in \
                                 the same scope",
                                 token::get_name(lifetime_j.lifetime.name))
-                            .as_slice());
+                            []);
                 }
             }
 
@@ -546,8 +553,20 @@ fn early_bound_lifetime_names(generics: &ast::Generics) -> Vec<ast::Name> {
         }
         for predicate in generics.where_clause.predicates.iter() {
             match predicate {
-                &ast::WherePredicate::BoundPredicate(ast::WhereBoundPredicate{ref bounds, ..}) => {
+                &ast::WherePredicate::BoundPredicate(ast::WhereBoundPredicate{ref bounds,
+                                                                              ref bounded_ty,
+                                                                              ..}) => {
+                    collector.visit_ty(&**bounded_ty);
                     visit::walk_ty_param_bounds_helper(&mut collector, bounds);
+                }
+                &ast::WherePredicate::RegionPredicate(ast::WhereRegionPredicate{ref lifetime,
+                                                                                ref bounds,
+                                                                                ..}) => {
+                    collector.visit_lifetime_ref(lifetime);
+
+                    for bound in bounds.iter() {
+                        collector.visit_lifetime_ref(bound);
+                    }
                 }
                 &ast::WherePredicate::EqPredicate(_) => unimplemented!()
             }

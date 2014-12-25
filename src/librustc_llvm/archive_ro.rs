@@ -70,11 +70,11 @@ impl ArchiveRO {
             let name = name as *const u8;
             unsafe {
                 let name_buf = from_raw_buf(&name, name_len as uint);
-                let name = String::from_utf8_lossy(name_buf).into_string();
+                let name = String::from_utf8_lossy(name_buf);
                 debug!("running f on `{}`", name);
                 let buf = from_raw_buf(&buffer, buffer_len as uint);
                 let f: |&str, &[u8]| = transmute_copy(f);
-                f(name.as_slice(), buf);
+                f(name[], buf);
             }
         }
         unsafe {

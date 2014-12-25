@@ -22,7 +22,7 @@ use middle::expr_use_visitor as euv;
 use middle::mem_categorization::cmt;
 use middle::pat_util::*;
 use middle::ty::*;
-use middle::ty::{mod, Ty};
+use middle::ty;
 use std::fmt;
 use std::iter::AdditiveIterator;
 use std::iter::range_inclusive;
@@ -162,7 +162,7 @@ fn check_expr(cx: &mut MatchCheckCtxt, ex: &ast::Expr) {
                 // First, check legality of move bindings.
                 check_legality_of_move_bindings(cx,
                                                 arm.guard.is_some(),
-                                                arm.pats.as_slice());
+                                                arm.pats[]);
 
                 // Second, if there is a guard on each arm, make sure it isn't
                 // assigning or borrowing anything mutably.
@@ -199,7 +199,7 @@ fn check_expr(cx: &mut MatchCheckCtxt, ex: &ast::Expr) {
             }
 
             // Fourth, check for unreachable arms.
-            check_arms(cx, inlined_arms.as_slice(), source);
+            check_arms(cx, inlined_arms[], source);
 
             // Finally, check if the whole match expression is exhaustive.
             // Check for empty enum, because is_useful only works on inhabited types.
@@ -231,7 +231,7 @@ fn check_expr(cx: &mut MatchCheckCtxt, ex: &ast::Expr) {
                     pat.span,
                     format!("refutable pattern in `for` loop binding: \
                             `{}` not covered",
-                            pat_to_string(uncovered_pat)).as_slice());
+                            pat_to_string(uncovered_pat))[]);
             });
 
             // Check legality of move bindings.
@@ -304,10 +304,10 @@ fn check_arms(cx: &MatchCheckCtxt,
         for pat in pats.iter() {
             let v = vec![&**pat];
 
-            match is_useful(cx, &seen, v.as_slice(), LeaveOutWitness) {
+            match is_useful(cx, &seen, v[], LeaveOutWitness) {
                 NotUseful => {
                     match source {
-                        ast::MatchIfLetDesugar => {
+                        ast::MatchSource::IfLetDesugar { .. } => {
                             if printed_if_let_err {
                                 // we already printed an irrefutable if-let pattern error.
                                 // We don't want two, that's just confusing.
@@ -321,7 +321,7 @@ fn check_arms(cx: &MatchCheckCtxt,
                             }
                         },
 
-                        ast::MatchWhileLetDesugar => {
+                        ast::MatchSource::WhileLetDesugar => {
                             // find the first arm pattern so we can use its span
                             let &(ref first_arm_pats, _) = &arms[0];
                             let first_pat = &first_arm_pats[0];
@@ -329,7 +329,7 @@ fn check_arms(cx: &MatchCheckCtxt,
                             span_err!(cx.tcx.sess, span, E0165, "irrefutable while-let pattern");
                         },
 
-                        ast::MatchNormal => {
+                        ast::MatchSource::Normal => {
                             span_err!(cx.tcx.sess, pat.span, E0001, "unreachable pattern")
                         },
                     }
@@ -356,7 +356,7 @@ fn raw_pat<'a>(p: &'a Pat) -> &'a Pat {
 fn check_exhaustive(cx: &MatchCheckCtxt, sp: Span, matrix: &Matrix) {
     match is_useful(cx, matrix, &[DUMMY_WILD_PAT], ConstructWitness) {
         UsefulWithWitness(pats) => {
-            let witness = match pats.as_slice() {
+            let witness = match pats[] {
                 [ref witness] => &**witness,
                 [] => DUMMY_WILD_PAT,
                 _ => unreachable!()
@@ -610,7 +610,7 @@ fn is_useful(cx: &MatchCheckCtxt,
                         UsefulWithWitness(pats) => UsefulWithWitness({
                             let arity = constructor_arity(cx, &c, left_ty);
                             let mut result = {
-                                let pat_slice = pats.as_slice();
+                                let pat_slice = pats[];
                                 let subpats = Vec::from_fn(arity, |i| {
                                     pat_slice.get(i).map_or(DUMMY_WILD_PAT, |p| &**p)
                                 });
@@ -657,10 +657,10 @@ fn is_useful_specialized(cx: &MatchCheckCtxt, &Matrix(ref m): &Matrix,
                          witness: WitnessPreference) -> Usefulness {
     let arity = constructor_arity(cx, &ctor, lty);
     let matrix = Matrix(m.iter().filter_map(|r| {
-        specialize(cx, r.as_slice(), &ctor, 0u, arity)
+        specialize(cx, r[], &ctor, 0u, arity)
     }).collect());
     match specialize(cx, v, &ctor, 0u, arity) {
-        Some(v) => is_useful(cx, &matrix, v.as_slice(), witness),
+        Some(v) => is_useful(cx, &matrix, v[], witness),
         None => NotUseful
     }
 }
@@ -1047,7 +1047,7 @@ fn check_legality_of_move_bindings(cx: &MatchCheckCtxt,
                             format!("binding pattern {} is not an \
                                      identifier: {}",
                                     p.id,
-                                    p.node).as_slice());
+                                    p.node)[]);
                     }
                 }
             }

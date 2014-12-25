@@ -48,30 +48,12 @@ impl Pos for BytePos {
     fn to_uint(&self) -> uint { let BytePos(n) = *self; n as uint }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl Add<BytePos, BytePos> for BytePos {
-    fn add(&self, rhs: &BytePos) -> BytePos {
-        BytePos((self.to_uint() + rhs.to_uint()) as u32)
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl Add<BytePos, BytePos> for BytePos {
     fn add(self, rhs: BytePos) -> BytePos {
         BytePos((self.to_uint() + rhs.to_uint()) as u32)
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl Sub<BytePos, BytePos> for BytePos {
-    fn sub(&self, rhs: &BytePos) -> BytePos {
-        BytePos((self.to_uint() - rhs.to_uint()) as u32)
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl Sub<BytePos, BytePos> for BytePos {
     fn sub(self, rhs: BytePos) -> BytePos {
         BytePos((self.to_uint() - rhs.to_uint()) as u32)
@@ -83,30 +65,12 @@ impl Pos for CharPos {
     fn to_uint(&self) -> uint { let CharPos(n) = *self; n }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl Add<CharPos,CharPos> for CharPos {
-    fn add(&self, rhs: &CharPos) -> CharPos {
-        CharPos(self.to_uint() + rhs.to_uint())
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl Add<CharPos, CharPos> for CharPos {
     fn add(self, rhs: CharPos) -> CharPos {
         CharPos(self.to_uint() + rhs.to_uint())
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl Sub<CharPos,CharPos> for CharPos {
-    fn sub(&self, rhs: &CharPos) -> CharPos {
-        CharPos(self.to_uint() - rhs.to_uint())
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl Sub<CharPos, CharPos> for CharPos {
     fn sub(self, rhs: CharPos) -> CharPos {
         CharPos(self.to_uint() - rhs.to_uint())
@@ -128,7 +92,7 @@ pub struct Span {
 
 pub const DUMMY_SP: Span = Span { lo: BytePos(0), hi: BytePos(0), expn_id: NO_EXPANSION };
 
-#[deriving(Clone, Copy, PartialEq, Eq, Encodable, Decodable, Hash, Show)]
+#[deriving(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show, Copy)]
 pub struct Spanned<T> {
     pub node: T,
     pub span: Span,
@@ -254,7 +218,7 @@ pub struct ExpnInfo {
     pub callee: NameAndSpan
 }
 
-#[deriving(Copy, PartialEq, Eq, Clone, Show, Hash, Encodable, Decodable)]
+#[deriving(PartialEq, Eq, Clone, Show, Hash, RustcEncodable, RustcDecodable, Copy)]
 pub struct ExpnId(u32);
 
 pub const NO_EXPANSION: ExpnId = ExpnId(-1);
@@ -327,9 +291,9 @@ impl FileMap {
         lines.get(line_number).map(|&line| {
             let begin: BytePos = line - self.start_pos;
             let begin = begin.to_uint();
-            let slice = self.src.slice_from(begin);
+            let slice = self.src[begin..];
             match slice.find('\n') {
-                Some(e) => slice.slice_to(e),
+                Some(e) => slice[0..e],
                 None => slice
             }.to_string()
         })
@@ -374,9 +338,9 @@ impl CodeMap {
         // FIXME #12884: no efficient/safe way to remove from the start of a string
         // and reuse the allocation.
         let mut src = if src.starts_with("\u{feff}") {
-            String::from_str(src.slice_from(3))
+            String::from_str(src[3..])
         } else {
-            String::from_str(src.as_slice())
+            String::from_str(src[])
         };
 
         // Append '\n' in case it's not already there.
@@ -463,8 +427,8 @@ impl CodeMap {
         if begin.fm.start_pos != end.fm.start_pos {
             None
         } else {
-            Some(begin.fm.src.slice(begin.pos.to_uint(),
-                                    end.pos.to_uint()).to_string())
+            Some(begin.fm.src[begin.pos.to_uint()..
+                              end.pos.to_uint()].to_string())
         }
     }
 

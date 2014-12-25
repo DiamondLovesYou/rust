@@ -65,7 +65,7 @@ impl Svh {
     }
 
     pub fn as_str<'a>(&'a self) -> &'a str {
-        self.hash.as_slice()
+        self.hash[]
     }
 
     pub fn calculate(metadata: &Vec<String>, krate: &ast::Crate) -> Svh {
@@ -247,6 +247,7 @@ mod svh_visitor {
         SawExprAssignOp(ast::BinOp),
         SawExprIndex,
         SawExprSlice,
+        SawExprRange,
         SawExprPath,
         SawExprAddrOf(ast::Mutability),
         SawExprRet,
@@ -280,6 +281,7 @@ mod svh_visitor {
             ExprTupField(_, id)      => SawExprTupField(id.node),
             ExprIndex(..)            => SawExprIndex,
             ExprSlice(..)            => SawExprSlice,
+            ExprRange(..)            => SawExprRange,
             ExprPath(..)             => SawExprPath,
             ExprAddrOf(m, _)         => SawExprAddrOf(m),
             ExprBreak(id)            => SawExprBreak(id.map(content)),
@@ -358,7 +360,7 @@ mod svh_visitor {
             fn macro_name(macro: &Mac) -> token::InternedString {
                 match &macro.node {
                     &MacInvocTT(ref path, ref _tts, ref _stx_ctxt) => {
-                        let s = path.segments.as_slice();
+                        let s = path.segments[];
                         assert_eq!(s.len(), 1);
                         content(s[0].identifier)
                     }

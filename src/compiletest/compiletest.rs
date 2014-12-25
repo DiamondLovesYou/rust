@@ -153,7 +153,7 @@ pub fn parse_config(args: Vec<String> ) -> Config {
             matches.opt_str("ratchet-metrics").map(|s| Path::new(s)),
         ratchet_noise_percent:
             matches.opt_str("ratchet-noise-percent")
-                   .and_then(|s| from_str::<f64>(s.as_slice())),
+                   .and_then(|s| s.as_slice().parse::<f64>()),
         runtool: matches.opt_str("runtool"),
         host_rustcflags: matches.opt_str("host-rustcflags"),
         target_rustcflags: matches.opt_str("target-rustcflags"),
@@ -192,9 +192,7 @@ pub fn log_config(config: &Config) {
     logv(c, format!("filter: {}",
                     opt_str(&config.filter
                                    .as_ref()
-                                   .map(|re| {
-                                       re.to_string().into_string()
-                                   }))));
+                                   .map(|re| re.to_string()))));
     logv(c, format!("runtool: {}", opt_str(&config.runtool)));
     logv(c, format!("host-rustcflags: {}",
                     opt_str(&config.host_rustcflags)));

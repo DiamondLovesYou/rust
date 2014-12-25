@@ -27,6 +27,7 @@ use syntax::{ast, codemap};
 
 use std::os;
 use std::cell::{Cell, RefCell};
+use std::borrow::ToOwned;
 
 pub mod config;
 
@@ -173,7 +174,7 @@ impl Session {
     // cases later on
     pub fn impossible_case(&self, sp: Span, msg: &str) -> ! {
         self.span_bug(sp,
-                      format!("impossible case reached: {}", msg).as_slice());
+                      format!("impossible case reached: {}", msg)[]);
     }
     pub fn verbose(&self) -> bool { self.debugging_opt(config::VERBOSE) }
     pub fn time_passes(&self) -> bool { self.debugging_opt(config::TIME_PASSES) }
@@ -212,7 +213,7 @@ impl Session {
     }
     pub fn target_filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
         filesearch::FileSearch::new(self.sysroot(),
-                                    self.opts.target_triple.as_slice(),
+                                    self.opts.target_triple[],
                                     &self.opts.addl_lib_search_paths)
     }
     pub fn host_filesearch<'a>(&'a self) -> filesearch::FileSearch<'a> {
@@ -245,13 +246,13 @@ impl Session {
         let tool_name = format!("{}{}",
                                 prefix,
                                 suffix);
-        toolchain.join_many(&["toolchain".into_string(),
+        toolchain.join_many(&["toolchain".to_owned(),
                               post_toolchain,
-                              "bin".into_string(),
+                              "bin".to_owned(),
                               tool_name])
             .as_str()
             .unwrap()
-            .into_string()
+            .to_owned()
     }
 
     pub fn expect_cross_path(&self) -> Path {
@@ -265,7 +266,7 @@ impl Session {
 
     pub fn pnacl_toolchain(&self) -> Path {
         let tc = self.expect_cross_path();
-        tc.join_many(&["toolchain".into_string(),
+        tc.join_many(&["toolchain".to_owned(),
                        format!("{}_pnacl", get_os_for_nacl_toolchain(self))])
     }
 
@@ -429,4 +430,3 @@ pub fn early_warn(msg: &str) {
     let mut emitter = diagnostic::EmitterWriter::stderr(diagnostic::Auto, None);
     emitter.emit(None, msg, None, diagnostic::Warning);
 }
-

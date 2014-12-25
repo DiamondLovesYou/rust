@@ -18,6 +18,7 @@ use session::Session;
 use llvm;
 use llvm::{ValueRef, BasicBlockRef, BuilderRef, ContextRef};
 use llvm::{True, False, Bool};
+use middle::cfg;
 use middle::def;
 use middle::infer;
 use middle::lang_items::LangItem;
@@ -131,7 +132,7 @@ pub fn gensym_name(name: &str) -> PathElem {
     let num = token::gensym(name).uint();
     // use one colon which will get translated to a period by the mangler, and
     // we're guaranteed that `num` is globally unique for this crate.
-    PathName(token::gensym(format!("{}:{}", name, num).as_slice()))
+    PathName(token::gensym(format!("{}:{}", name, num)[]))
 }
 
 #[deriving(Copy)]
@@ -277,6 +278,8 @@ pub struct FunctionContext<'a, 'tcx: 'a> {
 
     // Cleanup scopes.
     pub scopes: RefCell<Vec<cleanup::CleanupScope<'a, 'tcx>>>,
+
+    pub cfg: Option<cfg::CFG>,
 }
 
 impl<'a, 'tcx> FunctionContext<'a, 'tcx> {
@@ -448,7 +451,7 @@ impl<'blk, 'tcx> BlockS<'blk, 'tcx> {
             Some(v) => v.clone(),
             None => {
                 self.tcx().sess.bug(format!(
-                    "no def associated with node id {}", nid).as_slice());
+                    "no def associated with node id {}", nid)[]);
             }
         }
     }
@@ -829,7 +832,7 @@ pub fn fulfill_obligation<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                 span,
                 format!("Encountered error `{}` selecting `{}` during trans",
                         e.repr(tcx),
-                        trait_ref.repr(tcx)).as_slice())
+                        trait_ref.repr(tcx))[])
         }
     };
 
@@ -856,7 +859,7 @@ pub fn fulfill_obligation<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                     span,
                     format!("Encountered errors `{}` fulfilling `{}` during trans",
                             errors.repr(tcx),
-                            trait_ref.repr(tcx)).as_slice());
+                            trait_ref.repr(tcx))[]);
             }
         }
     }
@@ -882,7 +885,7 @@ pub enum ExprOrMethodCall {
     ExprId(ast::NodeId),
 
     // Type parameters for a method call like `a.foo::<int>()`
-    MethodCall(ty::MethodCall)
+    MethodCallKey(ty::MethodCall)
 }
 
 pub fn node_id_substs<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
@@ -894,7 +897,7 @@ pub fn node_id_substs<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         ExprId(id) => {
             ty::node_id_item_substs(tcx, id).substs
         }
-        MethodCall(method_call) => {
+        MethodCallKey(method_call) => {
             (*tcx.method_map.borrow())[method_call].substs.clone()
         }
     };
@@ -904,7 +907,7 @@ pub fn node_id_substs<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             format!("type parameters for node {} include inference types: \
                      {}",
                     node,
-                    substs.repr(bcx.tcx())).as_slice());
+                    substs.repr(bcx.tcx()))[]);
     }
 
     let substs = substs.erase_regions();
@@ -921,8 +924,8 @@ pub fn langcall(bcx: Block,
         Err(s) => {
             let msg = format!("{} {}", msg, s);
             match span {
-                Some(span) => bcx.tcx().sess.span_fatal(span, msg.as_slice()),
-                None => bcx.tcx().sess.fatal(msg.as_slice()),
+                Some(span) => bcx.tcx().sess.span_fatal(span, msg[]),
+                None => bcx.tcx().sess.fatal(msg[]),
             }
         }
     }

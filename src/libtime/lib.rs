@@ -24,7 +24,9 @@
 
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
 
+#[cfg(stage0)]
 extern crate serialize;
+extern crate "serialize" as rustc_serialize;
 extern crate libc;
 
 pub use self::ParseError::*;
@@ -78,7 +80,8 @@ mod imp {
 }
 
 /// A record specifying a time value in seconds and nanoseconds.
-#[deriving(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Encodable, Decodable, Show)]
+#[deriving(Clone, PartialEq, Eq, PartialOrd, Ord, RustcEncodable,
+           RustcDecodable, Show, Copy)]
 pub struct Timespec {
     pub sec: i64,
     pub nsec: i32,
@@ -99,29 +102,6 @@ impl Timespec {
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl Add<Duration, Timespec> for Timespec {
-    fn add(&self, other: &Duration) -> Timespec {
-        let d_sec = other.num_seconds();
-        // It is safe to unwrap the nanoseconds, because there cannot be
-        // more than one second left, which fits in i64 and in i32.
-        let d_nsec = (*other - Duration::seconds(d_sec))
-                     .num_nanoseconds().unwrap() as i32;
-        let mut sec = self.sec + d_sec;
-        let mut nsec = self.nsec + d_nsec;
-        if nsec >= NSEC_PER_SEC {
-            nsec -= NSEC_PER_SEC;
-            sec += 1;
-        } else if nsec < 0 {
-            nsec += NSEC_PER_SEC;
-            sec -= 1;
-        }
-        Timespec::new(sec, nsec)
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl Add<Duration, Timespec> for Timespec {
     fn add(self, other: Duration) -> Timespec {
         let d_sec = other.num_seconds();
@@ -142,17 +122,6 @@ impl Add<Duration, Timespec> for Timespec {
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl Sub<Timespec, Duration> for Timespec {
-    fn sub(&self, other: &Timespec) -> Duration {
-        let sec = self.sec - other.sec;
-        let nsec = self.nsec - other.nsec;
-        Duration::seconds(sec) + Duration::nanoseconds(nsec as i64)
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl Sub<Timespec, Duration> for Timespec {
     fn sub(self, other: Timespec) -> Duration {
         let sec = self.sec - other.sec;

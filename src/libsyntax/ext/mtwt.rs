@@ -21,7 +21,7 @@ use ast::{Ident, Mrk, Name, SyntaxContext};
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::hash_map::{Occupied, Vacant};
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 
 /// The SCTable contains a table of SyntaxContext_'s. It
 /// represents a flattened tree structure, to avoid having
@@ -39,7 +39,7 @@ pub struct SCTable {
     rename_memo: RefCell<HashMap<(SyntaxContext,Ident,Name),SyntaxContext>>,
 }
 
-#[deriving(Copy, PartialEq, Encodable, Decodable, Hash, Show)]
+#[deriving(PartialEq, RustcEncodable, RustcDecodable, Hash, Show, Copy)]
 pub enum SyntaxContext_ {
     EmptyCtxt,
     Mark (Mrk,SyntaxContext),

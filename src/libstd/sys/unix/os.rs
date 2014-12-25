@@ -16,8 +16,8 @@ use error::{FromError, Error};
 use fmt;
 use io::{IoError, IoResult};
 use libc::{mod, c_int, c_char, c_void};
-use path::{Path, GenericPath, BytesContainer};
-use ptr::{mod, RawPtr};
+use path::BytesContainer;
+use ptr;
 use sync::atomic::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
 use sys::fs::FileDesc;
 use os;
@@ -199,7 +199,7 @@ pub fn load_self() -> Option<Vec<u8>> {
         if sz == 0 { return None; }
         let mut v: Vec<u8> = Vec::with_capacity(sz as uint);
         let err = sysctl(mib.as_mut_ptr(), mib.len() as ::libc::c_uint,
-                         v.as_mut_ptr() as *mut c_void, &mut sz,
+                         v.as_mut_ptr() as *mut libc::c_void, &mut sz,
                          ptr::null_mut(), 0u as libc::size_t);
         if err != 0 { return None; }
         if sz == 0 { return None; }

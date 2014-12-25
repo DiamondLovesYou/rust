@@ -62,15 +62,14 @@
 //! assert_eq!(d, (0u32, 0.0f32));
 //! ```
 
-#![doc(primitive = "tuple")]
 #![stable]
 
 #[unstable = "this is just a documentation module and should not be part \
               of the public api"]
-pub use unit;
 
 use clone::Clone;
 use cmp::*;
+use cmp::Ordering::*;
 use default::Default;
 use option::Option;
 use option::Option::Some;
@@ -126,7 +125,7 @@ macro_rules! tuple_impls {
                 )+
             }
 
-            #[unstable = "waiting for Clone to stabilize"]
+            #[stable]
             impl<$($T:Clone),+> Clone for ($($T,)+) {
                 fn clone(&self) -> ($($T,)+) {
                     ($(e!(self.$idx.clone()),)+)
@@ -328,4 +327,3 @@ tuple_impls! {
         (val11, ref11, mut11, 11) -> L
     }
 }
-

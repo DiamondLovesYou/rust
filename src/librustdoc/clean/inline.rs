@@ -176,7 +176,7 @@ pub fn build_external_trait(cx: &DocContext, tcx: &ty::ctxt,
 fn build_external_function(cx: &DocContext, tcx: &ty::ctxt, did: ast::DefId) -> clean::Function {
     let t = ty::lookup_item_type(tcx, did);
     let (decl, style) = match t.ty.sty {
-        ty::ty_bare_fn(ref f) => ((did, &f.sig).clean(cx), f.unsafety),
+        ty::ty_bare_fn(_, ref f) => ((did, &f.sig).clean(cx), f.unsafety),
         _ => panic!("bad function"),
     };
     clean::Function {
@@ -328,7 +328,7 @@ fn build_impl(cx: &DocContext, tcx: &ty::ctxt,
             derived: clean::detect_derived(attrs.as_slice()),
             trait_: associated_trait.clean(cx).map(|bound| {
                 match bound {
-                    clean::TraitBound(ty) => ty,
+                    clean::TraitBound(polyt) => polyt.trait_,
                     clean::RegionBound(..) => unreachable!(),
                 }
             }),

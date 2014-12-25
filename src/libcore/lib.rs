@@ -59,7 +59,7 @@
 #![allow(unknown_features, raw_pointer_deriving)]
 #![feature(globs, intrinsics, lang_items, macro_rules, phase)]
 #![feature(simd, unsafe_destructor, slicing_syntax)]
-#![feature(default_type_params, unboxed_closures)]
+#![feature(default_type_params, unboxed_closures, associated_types)]
 #![deny(missing_docs)]
 
 mod macros;
@@ -107,7 +107,6 @@ pub mod default;
 
 pub mod any;
 pub mod atomic;
-pub mod bool;
 pub mod borrow;
 pub mod cell;
 pub mod char;
@@ -120,15 +119,11 @@ pub mod result;
 pub mod simd;
 pub mod slice;
 pub mod str;
-pub mod tuple;
 pub mod hash;
-// FIXME #15320: primitive documentation needs top-level modules, this
-// should be `core::tuple::unit`.
-#[path = "tuple/unit.rs"]
-pub mod unit;
 pub mod fmt;
 
 // note: does not need to be public
+mod tuple;
 mod array;
 
 #[doc(hidden)]

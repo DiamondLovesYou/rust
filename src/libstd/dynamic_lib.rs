@@ -15,21 +15,10 @@
 #![experimental]
 #![allow(missing_docs)]
 
-use clone::Clone;
-use c_str::ToCStr;
-use iter::IteratorExt;
+use prelude::*;
 use mem;
-use ops::*;
-use option::*;
-use option::Option::{None, Some};
 use os;
-use path::{Path,GenericPath};
-use result::*;
-use result::Result::{Err, Ok};
-use slice::{AsSlice,SliceExt};
 use str;
-use string::String;
-use vec::Vec;
 
 #[allow(missing_copy_implementations)]
 pub struct DynamicLibrary {
@@ -211,15 +200,12 @@ mod test {
           target_os = "freebsd",
           target_os = "dragonfly"))]
 pub mod dl {
-    pub use self::Rtld::*;
+    use self::Rtld::*;
 
-    use c_str::{CString, ToCStr};
+    use prelude::*;
+    use c_str::CString;
     use libc;
-    use ops::FnOnce;
     use ptr;
-    use result::*;
-    use result::Result::{Err, Ok};
-    use string::String;
 
     pub unsafe fn open_external<T: ToCStr>(filename: T) -> *mut u8 {
         filename.with_c_str(|raw_name| {
@@ -294,7 +280,7 @@ pub mod dl {
     use result::Result;
     use result::Result::{Ok, Err};
     use slice::SliceExt;
-    use str::StrPrelude;
+    use str::StrExt;
     use str;
     use string::String;
     use vec::Vec;

@@ -32,9 +32,11 @@ extern crate syntax;
 extern crate "test" as testing;
 #[phase(plugin, link)] extern crate log;
 
+extern crate "serialize" as rustc_serialize; // used by deriving
+
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::collections::hash_map::{Occupied, Vacant};
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::io::File;
 use std::io;
 use std::rc::Rc;
@@ -173,13 +175,8 @@ pub fn main_args(args: &[String]) -> int {
         usage(args[0].as_slice());
         return 0;
     } else if matches.opt_present("version") {
-        match rustc_driver::version("rustdoc", &matches) {
-            Some(err) => {
-                println!("{}", err);
-                return 1
-            },
-            None => return 0
-        }
+        rustc_driver::version("rustdoc", &matches);
+        return 0;
     }
 
     if matches.opt_strs("passes") == ["list"] {

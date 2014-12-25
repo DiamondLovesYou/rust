@@ -106,8 +106,7 @@
 #![allow(unknown_features)]
 #![feature(macro_rules, globs, linkage, thread_local, asm)]
 #![feature(default_type_params, phase, lang_items, unsafe_destructor)]
-#![feature(import_shadowing, slicing_syntax, tuple_indexing)]
-#![feature(unboxed_closures)]
+#![feature(slicing_syntax, unboxed_closures)]
 
 // Don't link to std. We are std.
 #![no_std]
@@ -136,7 +135,6 @@ extern crate libc;
 // NB: These reexports are in the order they should be listed in rustdoc
 
 pub use core::any;
-pub use core::bool;
 pub use core::borrow;
 pub use core::cell;
 pub use core::clone;
@@ -151,14 +149,10 @@ pub use core::mem;
 pub use core::ptr;
 pub use core::raw;
 pub use core::simd;
-pub use core::tuple;
-// FIXME #15320: primitive documentation needs top-level modules, this
-// should be `std::tuple::unit`.
-pub use core::unit;
 pub use core::result;
 pub use core::option;
 
-pub use alloc::boxed;
+#[cfg(not(test))] pub use alloc::boxed;
 pub use alloc::rc;
 
 pub use core_collections::slice;
@@ -243,6 +237,12 @@ pub mod comm;
 
 pub mod rt;
 mod failure;
+
+// Documentation for primitive types
+
+mod bool;
+mod unit;
+mod tuple;
 
 // A curious inner-module that's not exported that contains the binding
 // 'std' so that macro-expanded references to std::error and such

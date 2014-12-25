@@ -814,15 +814,22 @@ pub fn noop_fold_where_predicate<T: Folder>(
                                  fld: &mut T)
                                  -> WherePredicate {
     match pred {
-        ast::WherePredicate::BoundPredicate(ast::WhereBoundPredicate{id,
-                                                                     ident,
+        ast::WherePredicate::BoundPredicate(ast::WhereBoundPredicate{bounded_ty,
                                                                      bounds,
                                                                      span}) => {
             ast::WherePredicate::BoundPredicate(ast::WhereBoundPredicate {
-                id: fld.new_id(id),
-                ident: fld.fold_ident(ident),
+                bounded_ty: fld.fold_ty(bounded_ty),
                 bounds: bounds.move_map(|x| fld.fold_ty_param_bound(x)),
                 span: fld.new_span(span)
+            })
+        }
+        ast::WherePredicate::RegionPredicate(ast::WhereRegionPredicate{lifetime,
+                                                                       bounds,
+                                                                       span}) => {
+            ast::WherePredicate::RegionPredicate(ast::WhereRegionPredicate {
+                span: fld.new_span(span),
+                lifetime: fld.fold_lifetime(lifetime),
+                bounds: bounds.move_map(|bound| fld.fold_lifetime(bound))
             })
         }
         ast::WherePredicate::EqPredicate(ast::WhereEqPredicate{id,
@@ -1382,6 +1389,10 @@ pub fn noop_fold_expr<T: Folder>(Expr {id, node, span}: Expr, folder: &mut T) ->
                           e1.map(|x| folder.fold_expr(x)),
                           e2.map(|x| folder.fold_expr(x)),
                           m)
+            }
+            ExprRange(e1, e2) => {
+                ExprRange(folder.fold_expr(e1),
+                          e2.map(|x| folder.fold_expr(x)))
             }
             ExprPath(pth) => ExprPath(folder.fold_path(pth)),
             ExprBreak(opt_ident) => ExprBreak(opt_ident.map(|x| folder.fold_ident(x))),

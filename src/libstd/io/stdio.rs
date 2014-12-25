@@ -43,7 +43,7 @@ use ops::{Deref, DerefMut, FnOnce};
 use result::Result::{Ok, Err};
 use rt;
 use slice::SliceExt;
-use str::StrPrelude;
+use str::StrExt;
 use string::String;
 use sys::{fs, tty};
 use sync::{Arc, Mutex, MutexGuard, Once, ONCE_INIT};
@@ -104,7 +104,7 @@ pub struct StdinReader {
     inner: Arc<Mutex<BufferedReader<StdReader>>>,
 }
 
-/// A guard for exlusive access to `StdinReader`'s internal `BufferedReader`.
+/// A guard for exclusive access to `StdinReader`'s internal `BufferedReader`.
 pub struct StdinReaderGuard<'a> {
     inner: MutexGuard<'a, BufferedReader<StdReader>>,
 }

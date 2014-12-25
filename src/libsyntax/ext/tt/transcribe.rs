@@ -106,30 +106,6 @@ enum LockstepIterSize {
     LisContradiction(String),
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl Add<LockstepIterSize, LockstepIterSize> for LockstepIterSize {
-    fn add(&self, other: &LockstepIterSize) -> LockstepIterSize {
-        match *self {
-            LisUnconstrained => other.clone(),
-            LisContradiction(_) => self.clone(),
-            LisConstraint(l_len, l_id) => match *other {
-                LisUnconstrained => self.clone(),
-                LisContradiction(_) => other.clone(),
-                LisConstraint(r_len, _) if l_len == r_len => self.clone(),
-                LisConstraint(r_len, r_id) => {
-                    let l_n = token::get_ident(l_id);
-                    let r_n = token::get_ident(r_id);
-                    LisContradiction(format!("inconsistent lockstep iteration: \
-                                              '{}' has {} items, but '{}' has {}",
-                                              l_n, l_len, r_n, r_len).to_string())
-                }
-            },
-        }
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl Add<LockstepIterSize, LockstepIterSize> for LockstepIterSize {
     fn add(self, other: LockstepIterSize) -> LockstepIterSize {
         match self {
@@ -247,7 +223,7 @@ pub fn tt_next_token(r: &mut TtReader) -> TokenAndSpan {
                     }
                     LisContradiction(ref msg) => {
                         // FIXME #2887 blame macro invoker instead
-                        r.sp_diag.span_fatal(sp.clone(), msg.as_slice());
+                        r.sp_diag.span_fatal(sp.clone(), msg[]);
                     }
                     LisConstraint(len, _) => {
                         if len == 0 {
@@ -304,7 +280,7 @@ pub fn tt_next_token(r: &mut TtReader) -> TokenAndSpan {
                                 r.sp_diag.span_fatal(
                                     r.cur_span, /* blame the macro writer */
                                     format!("variable '{}' is still repeating at this depth",
-                                            token::get_ident(ident)).as_slice());
+                                            token::get_ident(ident))[]);
                             }
                         }
                     }

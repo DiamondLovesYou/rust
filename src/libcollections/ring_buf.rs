@@ -48,6 +48,7 @@ pub struct RingBuf<T> {
     ptr: *mut T
 }
 
+#[stable]
 impl<T: Clone> Clone for RingBuf<T> {
     fn clone(&self) -> RingBuf<T> {
         self.iter().map(|t| t.clone()).collect()
@@ -78,7 +79,13 @@ impl<T> Default for RingBuf<T> {
 impl<T> RingBuf<T> {
     /// Turn ptr into a slice
     #[inline]
-    unsafe fn buffer_as_slice(&self) -> &[T] {
+    unsafe fn buffer_as_slice<'a>(&'a self) -> &'a [T] {
+        mem::transmute(RawSlice { data: self.ptr as *const T, len: self.cap })
+    }
+
+    /// Turn ptr into a mut slice
+    #[inline]
+    unsafe fn buffer_as_mut_slice<'a>(&'a mut self) -> &'a mut [T] {
         mem::transmute(RawSlice { data: self.ptr as *const T, len: self.cap })
     }
 
@@ -221,6 +228,7 @@ impl<T> RingBuf<T> {
     /// assert_eq!(buf[0], 5);
     /// assert_eq!(buf[2], 3);
     /// ```
+    #[stable]
     pub fn swap(&mut self, i: uint, j: uint) {
         assert!(i < self.len());
         assert!(j < self.len());
@@ -369,8 +377,8 @@ impl<T> RingBuf<T> {
     /// assert_eq!(buf.iter().collect::<Vec<&int>>().as_slice(), b);
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter(&self) -> Items<T> {
-        Items {
+    pub fn iter(&self) -> Iter<T> {
+        Iter {
             tail: self.tail,
             head: self.head,
             ring: unsafe { self.buffer_as_slice() }
@@ -395,8 +403,8 @@ impl<T> RingBuf<T> {
     /// assert_eq!(buf.iter_mut().collect::<Vec<&mut int>>()[], b);
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter_mut<'a>(&'a mut self) -> MutItems<'a, T> {
-        MutItems {
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, T> {
+        IterMut {
             tail: self.tail,
             head: self.head,
             cap: self.cap,
@@ -407,9 +415,51 @@ impl<T> RingBuf<T> {
 
     /// Consumes the list into an iterator yielding elements by value.
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn into_iter(self) -> MoveItems<T> {
-        MoveItems {
+    pub fn into_iter(self) -> IntoIter<T> {
+        IntoIter {
             inner: self,
+        }
+    }
+
+    /// Returns a pair of slices which contain, in order, the contents of the
+    /// `RingBuf`.
+    #[inline]
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    pub fn as_slices<'a>(&'a self) -> (&'a [T], &'a [T]) {
+        unsafe {
+            let contiguous = self.is_contiguous();
+            let buf = self.buffer_as_slice();
+            if contiguous {
+                let (empty, buf) = buf.split_at(0);
+                (buf[self.tail..self.head], empty)
+            } else {
+                let (mid, right) = buf.split_at(self.tail);
+                let (left, _) = mid.split_at(self.head);
+                (right, left)
+            }
+        }
+    }
+
+    /// Returns a pair of slices which contain, in order, the contents of the
+    /// `RingBuf`.
+    #[inline]
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    pub fn as_mut_slices<'a>(&'a mut self) -> (&'a mut [T], &'a mut [T]) {
+        unsafe {
+            let contiguous = self.is_contiguous();
+            let head = self.head;
+            let tail = self.tail;
+            let buf = self.buffer_as_mut_slice();
+
+            if contiguous {
+                let (empty, buf) = buf.split_at_mut(0);
+                (buf[mut tail..head], empty)
+            } else {
+                let (mid, right) = buf.split_at_mut(tail);
+                let (left, _) = mid.split_at_mut(head);
+
+                (right, left)
+            }
         }
     }
 
@@ -443,6 +493,27 @@ impl<T> RingBuf<T> {
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
+    /// Creates a draining iterator that clears the `RingBuf` and iterates over
+    /// the removed items from start to end.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::RingBuf;
+    ///
+    /// let mut v = RingBuf::new();
+    /// v.push_back(1i);
+    /// assert_eq!(v.drain().next(), Some(1));
+    /// assert!(v.is_empty());
+    /// ```
+    #[inline]
+    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    pub fn drain<'a>(&'a mut self) -> Drain<'a, T> {
+        Drain {
+            inner: self,
+        }
+    }
+
     /// Clears the buffer, removing all values.
     ///
     /// # Examples
@@ -456,10 +527,9 @@ impl<T> RingBuf<T> {
     /// assert!(v.is_empty());
     /// ```
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[inline]
     pub fn clear(&mut self) {
-        while self.pop_front().is_some() {}
-        self.head = 0;
-        self.tail = 0;
+        self.drain();
     }
 
     /// Provides a reference to the front element, or `None` if the sequence is
@@ -477,7 +547,7 @@ impl<T> RingBuf<T> {
     /// d.push_back(2i);
     /// assert_eq!(d.front(), Some(&1i));
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn front(&self) -> Option<&T> {
         if !self.is_empty() { Some(&self[0]) } else { None }
     }
@@ -501,7 +571,7 @@ impl<T> RingBuf<T> {
     /// }
     /// assert_eq!(d.front(), Some(&9i));
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn front_mut(&mut self) -> Option<&mut T> {
         if !self.is_empty() { Some(&mut self[0]) } else { None }
     }
@@ -521,7 +591,7 @@ impl<T> RingBuf<T> {
     /// d.push_back(2i);
     /// assert_eq!(d.back(), Some(&2i));
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn back(&self) -> Option<&T> {
         if !self.is_empty() { Some(&self[self.len() - 1]) } else { None }
     }
@@ -545,7 +615,7 @@ impl<T> RingBuf<T> {
     /// }
     /// assert_eq!(d.back(), Some(&9i));
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn back_mut(&mut self) -> Option<&mut T> {
         let len = self.len();
         if !self.is_empty() { Some(&mut self[len - 1]) } else { None }
@@ -663,6 +733,11 @@ impl<T> RingBuf<T> {
         }
     }
 
+    #[inline]
+    fn is_contiguous(&self) -> bool {
+        self.tail <= self.head
+    }
+
     /// Inserts an element at position `i` within the ringbuf. Whichever
     /// end is closer to the insertion point will be moved to make room,
     /// and all the affected elements will be moved to new positions.
@@ -715,7 +790,7 @@ impl<T> RingBuf<T> {
         let distance_to_tail = i;
         let distance_to_head = self.len() - i;
 
-        let contiguous = self.tail <= self.head;
+        let contiguous = self.is_contiguous();
 
         match (contiguous, distance_to_tail <= distance_to_head, idx >= self.tail) {
             (true, true, _) if i == 0 => {
@@ -1048,13 +1123,13 @@ fn count(tail: uint, head: uint, size: uint) -> uint {
 }
 
 /// `RingBuf` iterator.
-pub struct Items<'a, T:'a> {
+pub struct Iter<'a, T:'a> {
     ring: &'a [T],
     tail: uint,
     head: uint
 }
 
-impl<'a, T> Iterator<&'a T> for Items<'a, T> {
+impl<'a, T> Iterator<&'a T> for Iter<'a, T> {
     #[inline]
     fn next(&mut self) -> Option<&'a T> {
         if self.tail == self.head {
@@ -1072,7 +1147,7 @@ impl<'a, T> Iterator<&'a T> for Items<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator<&'a T> for Items<'a, T> {
+impl<'a, T> DoubleEndedIterator<&'a T> for Iter<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a T> {
         if self.tail == self.head {
@@ -1083,9 +1158,9 @@ impl<'a, T> DoubleEndedIterator<&'a T> for Items<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator<&'a T> for Items<'a, T> {}
+impl<'a, T> ExactSizeIterator<&'a T> for Iter<'a, T> {}
 
-impl<'a, T> RandomAccessIterator<&'a T> for Items<'a, T> {
+impl<'a, T> RandomAccessIterator<&'a T> for Iter<'a, T> {
     #[inline]
     fn indexable(&self) -> uint {
         let (len, _) = self.size_hint();
@@ -1103,11 +1178,11 @@ impl<'a, T> RandomAccessIterator<&'a T> for Items<'a, T> {
     }
 }
 
-// FIXME This was implemented differently from Items because of a problem
+// FIXME This was implemented differently from Iter because of a problem
 //       with returning the mutable reference. I couldn't find a way to
 //       make the lifetime checker happy so, but there should be a way.
 /// `RingBuf` mutable iterator.
-pub struct MutItems<'a, T:'a> {
+pub struct IterMut<'a, T:'a> {
     ptr: *mut T,
     tail: uint,
     head: uint,
@@ -1115,7 +1190,7 @@ pub struct MutItems<'a, T:'a> {
     marker: marker::ContravariantLifetime<'a>,
 }
 
-impl<'a, T> Iterator<&'a mut T> for MutItems<'a, T> {
+impl<'a, T> Iterator<&'a mut T> for IterMut<'a, T> {
     #[inline]
     fn next(&mut self) -> Option<&'a mut T> {
         if self.tail == self.head {
@@ -1136,7 +1211,7 @@ impl<'a, T> Iterator<&'a mut T> for MutItems<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator<&'a mut T> for MutItems<'a, T> {
+impl<'a, T> DoubleEndedIterator<&'a mut T> for IterMut<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a mut T> {
         if self.tail == self.head {
@@ -1150,14 +1225,14 @@ impl<'a, T> DoubleEndedIterator<&'a mut T> for MutItems<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator<&'a mut T> for MutItems<'a, T> {}
+impl<'a, T> ExactSizeIterator<&'a mut T> for IterMut<'a, T> {}
 
 // A by-value RingBuf iterator
-pub struct MoveItems<T> {
+pub struct IntoIter<T> {
     inner: RingBuf<T>,
 }
 
-impl<T> Iterator<T> for MoveItems<T> {
+impl<T> Iterator<T> for IntoIter<T> {
     #[inline]
     fn next(&mut self) -> Option<T> {
         self.inner.pop_front()
@@ -1170,23 +1245,55 @@ impl<T> Iterator<T> for MoveItems<T> {
     }
 }
 
-impl<T> DoubleEndedIterator<T> for MoveItems<T> {
+impl<T> DoubleEndedIterator<T> for IntoIter<T> {
     #[inline]
     fn next_back(&mut self) -> Option<T> {
         self.inner.pop_back()
     }
 }
 
+impl<T> ExactSizeIterator<T> for IntoIter<T> {}
 
-impl<T> ExactSizeIterator<T> for MoveItems<T> {}
+/// A draining RingBuf iterator
+pub struct Drain<'a, T: 'a> {
+    inner: &'a mut RingBuf<T>,
+}
+
+#[unsafe_destructor]
+impl<'a, T: 'a> Drop for Drain<'a, T> {
+    fn drop(&mut self) {
+        for _ in *self {}
+        self.inner.head = 0;
+        self.inner.tail = 0;
+    }
+}
+
+impl<'a, T: 'a> Iterator<T> for Drain<'a, T> {
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.inner.pop_front()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (uint, Option<uint>) {
+        let len = self.inner.len();
+        (len, Some(len))
+    }
+}
+
+impl<'a, T: 'a> DoubleEndedIterator<T> for Drain<'a, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<T> {
+        self.inner.pop_back()
+    }
+}
+
+impl<'a, T: 'a> ExactSizeIterator<T> for Drain<'a, T> {}
 
 impl<A: PartialEq> PartialEq for RingBuf<A> {
     fn eq(&self, other: &RingBuf<A>) -> bool {
         self.len() == other.len() &&
             self.iter().zip(other.iter()).all(|(a, b)| a.eq(b))
-    }
-    fn ne(&self, other: &RingBuf<A>) -> bool {
-        !self.eq(other)
     }
 }
 
@@ -1260,18 +1367,17 @@ impl<T: fmt::Show> fmt::Show for RingBuf<T> {
 
 #[cfg(test)]
 mod tests {
-    use core::iter;
     use self::Taggy::*;
     use self::Taggypar::*;
-    use std::cmp;
+    use prelude::*;
+    use core::cmp;
+    use core::iter;
     use std::fmt::Show;
-    use std::prelude::*;
     use std::hash;
     use test::Bencher;
     use test;
 
     use super::RingBuf;
-    use vec::Vec;
 
     #[test]
     #[allow(deprecated)]
@@ -1790,8 +1896,75 @@ mod tests {
     }
 
     #[test]
+    fn test_drain() {
+
+        // Empty iter
+        {
+            let mut d: RingBuf<int> = RingBuf::new();
+
+            {
+                let mut iter = d.drain();
+
+                assert_eq!(iter.size_hint(), (0, Some(0)));
+                assert_eq!(iter.next(), None);
+                assert_eq!(iter.size_hint(), (0, Some(0)));
+            }
+
+            assert!(d.is_empty());
+        }
+
+        // simple iter
+        {
+            let mut d = RingBuf::new();
+            for i in range(0i, 5) {
+                d.push_back(i);
+            }
+
+            assert_eq!(d.drain().collect::<Vec<int>>(), [0, 1, 2, 3, 4]);
+            assert!(d.is_empty());
+        }
+
+        // wrapped iter
+        {
+            let mut d = RingBuf::new();
+            for i in range(0i, 5) {
+                d.push_back(i);
+            }
+            for i in range(6, 9) {
+                d.push_front(i);
+            }
+
+            assert_eq!(d.drain().collect::<Vec<int>>(), [8,7,6,0,1,2,3,4]);
+            assert!(d.is_empty());
+        }
+
+        // partially used
+        {
+            let mut d = RingBuf::new();
+            for i in range(0i, 5) {
+                d.push_back(i);
+            }
+            for i in range(6, 9) {
+                d.push_front(i);
+            }
+
+            {
+                let mut it = d.drain();
+                assert_eq!(it.size_hint(), (8, Some(8)));
+                assert_eq!(it.next(), Some(8));
+                assert_eq!(it.size_hint(), (7, Some(7)));
+                assert_eq!(it.next_back(), Some(4));
+                assert_eq!(it.size_hint(), (6, Some(6)));
+                assert_eq!(it.next(), Some(7));
+                assert_eq!(it.size_hint(), (5, Some(5)));
+            }
+            assert!(d.is_empty());
+        }
+    }
+
+    #[test]
     fn test_from_iter() {
-        use std::iter;
+        use core::iter;
         let v = vec!(1i,2,3,4,5,6,7);
         let deq: RingBuf<int> = v.iter().map(|&x| x).collect();
         let u: Vec<int> = deq.iter().map(|&x| x).collect();
@@ -2131,5 +2304,61 @@ mod tests {
         assert_eq!(ring.front(), Some(&20));
         ring.pop_front();
         assert_eq!(ring.front(), None);
+    }
+
+    #[test]
+    fn test_as_slices() {
+        let mut ring: RingBuf<int> = RingBuf::with_capacity(127);
+        let cap = ring.capacity() as int;
+        let first = cap/2;
+        let last  = cap - first;
+        for i in range(0, first) {
+            ring.push_back(i);
+
+            let (left, right) = ring.as_slices();
+            let expected: Vec<_> = range(0, i+1).collect();
+            assert_eq!(left, expected);
+            assert_eq!(right, []);
+        }
+
+        for j in range(-last, 0) {
+            ring.push_front(j);
+            let (left, right) = ring.as_slices();
+            let expected_left: Vec<_> = range(-last, j+1).rev().collect();
+            let expected_right: Vec<_> = range(0, first).collect();
+            assert_eq!(left, expected_left);
+            assert_eq!(right, expected_right);
+        }
+
+        assert_eq!(ring.len() as int, cap);
+        assert_eq!(ring.capacity() as int, cap);
+    }
+
+    #[test]
+    fn test_as_mut_slices() {
+        let mut ring: RingBuf<int> = RingBuf::with_capacity(127);
+        let cap = ring.capacity() as int;
+        let first = cap/2;
+        let last  = cap - first;
+        for i in range(0, first) {
+            ring.push_back(i);
+
+            let (left, right) = ring.as_mut_slices();
+            let expected: Vec<_> = range(0, i+1).collect();
+            assert_eq!(left, expected);
+            assert_eq!(right, []);
+        }
+
+        for j in range(-last, 0) {
+            ring.push_front(j);
+            let (left, right) = ring.as_mut_slices();
+            let expected_left: Vec<_> = range(-last, j+1).rev().collect();
+            let expected_right: Vec<_> = range(0, first).collect();
+            assert_eq!(left, expected_left);
+            assert_eq!(right, expected_right);
+        }
+
+        assert_eq!(ring.len() as int, cap);
+        assert_eq!(ring.capacity() as int, cap);
     }
 }

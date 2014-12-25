@@ -24,7 +24,7 @@
 
 #![allow(unknown_features)]
 #![feature(macro_rules, globs, default_type_params, phase, slicing_syntax)]
-#![feature(quote, unsafe_destructor, import_shadowing)]
+#![feature(quote, unsafe_destructor)]
 #![feature(unboxed_closures)]
 
 extern crate arena;
@@ -33,6 +33,8 @@ extern crate fmt_macros;
 extern crate serialize;
 extern crate term;
 extern crate libc;
+
+extern crate "serialize" as rustc_serialize; // used by deriving
 
 pub mod util {
     pub mod interner;

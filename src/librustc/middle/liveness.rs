@@ -323,7 +323,7 @@ impl<'a, 'tcx> IrMaps<'a, 'tcx> {
             self.tcx
                 .sess
                 .span_bug(span, format!("no variable registered for id {}",
-                                        node_id).as_slice());
+                                        node_id)[]);
           }
         }
     }
@@ -514,7 +514,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
       ast::ExprBlock(..) | ast::ExprAssign(..) | ast::ExprAssignOp(..) |
       ast::ExprMac(..) | ast::ExprStruct(..) | ast::ExprRepeat(..) |
       ast::ExprParen(..) | ast::ExprInlineAsm(..) | ast::ExprBox(..) |
-      ast::ExprSlice(..) => {
+      ast::ExprSlice(..) | ast::ExprRange(..) => {
           visit::walk_expr(ir, expr);
       }
     }
@@ -594,7 +594,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
             self.ir.tcx.sess.span_bug(
                 span,
                 format!("no live node registered for node {}",
-                        node_id).as_slice());
+                        node_id)[]);
           }
         }
     }
@@ -1129,7 +1129,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
           // Uninteresting cases: just propagate in rev exec order
 
           ast::ExprVec(ref exprs) => {
-            self.propagate_through_exprs(exprs.as_slice(), succ)
+            self.propagate_through_exprs(exprs[], succ)
           }
 
           ast::ExprRepeat(ref element, ref count) => {
@@ -1154,7 +1154,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
             } else {
                 succ
             };
-            let succ = self.propagate_through_exprs(args.as_slice(), succ);
+            let succ = self.propagate_through_exprs(args[], succ);
             self.propagate_through_expr(&**f, succ)
           }
 
@@ -1167,11 +1167,11 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
             } else {
                 succ
             };
-            self.propagate_through_exprs(args.as_slice(), succ)
+            self.propagate_through_exprs(args[], succ)
           }
 
           ast::ExprTup(ref exprs) => {
-            self.propagate_through_exprs(exprs.as_slice(), succ)
+            self.propagate_through_exprs(exprs[], succ)
           }
 
           ast::ExprBinary(op, ref l, ref r) if ast_util::lazy_binop(op) => {
@@ -1193,6 +1193,11 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
 
           ast::ExprSlice(ref e1, ref e2, ref e3, _) => {
             let succ = e3.as_ref().map_or(succ, |e| self.propagate_through_expr(&**e, succ));
+            let succ = e2.as_ref().map_or(succ, |e| self.propagate_through_expr(&**e, succ));
+            self.propagate_through_expr(&**e1, succ)
+          }
+
+          ast::ExprRange(ref e1, ref e2) => {
             let succ = e2.as_ref().map_or(succ, |e| self.propagate_through_expr(&**e, succ));
             self.propagate_through_expr(&**e1, succ)
           }
@@ -1489,7 +1494,8 @@ fn check_expr(this: &mut Liveness, expr: &Expr) {
       ast::ExprBreak(..) | ast::ExprAgain(..) | ast::ExprLit(_) |
       ast::ExprBlock(..) | ast::ExprMac(..) | ast::ExprAddrOf(..) |
       ast::ExprStruct(..) | ast::ExprRepeat(..) | ast::ExprParen(..) |
-      ast::ExprClosure(..) | ast::ExprPath(..) | ast::ExprBox(..) | ast::ExprSlice(..) => {
+      ast::ExprClosure(..) | ast::ExprPath(..) | ast::ExprBox(..) |
+      ast::ExprSlice(..) | ast::ExprRange(..) => {
         visit::walk_expr(this, expr);
       }
       ast::ExprIfLet(..) => {

@@ -17,7 +17,7 @@ use middle::subst::{Subst};
 use middle::traits;
 use middle::ty::{mod, Ty};
 use middle::ty::liberate_late_bound_regions;
-use middle::ty_fold::{TypeFolder, TypeFoldable};
+use middle::ty_fold::{TypeFolder, TypeFoldable, super_fold_ty};
 use util::ppaux::Repr;
 
 use std::collections::HashSet;
@@ -355,7 +355,7 @@ impl<'cx,'tcx> TypeFolder<'tcx> for BoundsChecker<'cx,'tcx> {
 
                 self.fold_substs(substs);
             }
-            ty::ty_bare_fn(ty::BareFnTy{sig: ref fn_sig, ..}) |
+            ty::ty_bare_fn(_, ty::BareFnTy{sig: ref fn_sig, ..}) |
             ty::ty_closure(box ty::ClosureTy{sig: ref fn_sig, ..}) => {
                 self.binding_count += 1;
 
@@ -368,8 +368,8 @@ impl<'cx,'tcx> TypeFolder<'tcx> for BoundsChecker<'cx,'tcx> {
 
                 self.binding_count -= 1;
             }
-            ref sty => {
-                self.fold_sty(sty);
+            _ => {
+                super_fold_ty(self, t);
             }
         }
 

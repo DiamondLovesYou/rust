@@ -178,65 +178,29 @@ impl<E:CLike> EnumSet<E> {
 
     /// Returns an iterator over an `EnumSet`.
     #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter(&self) -> Items<E> {
-        Items::new(self.bits)
+    pub fn iter(&self) -> Iter<E> {
+        Iter::new(self.bits)
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl<E:CLike> Sub<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
-    fn sub(&self, e: &EnumSet<E>) -> EnumSet<E> {
-        EnumSet {bits: self.bits & !e.bits}
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl<E:CLike> Sub<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
     fn sub(self, e: EnumSet<E>) -> EnumSet<E> {
         EnumSet {bits: self.bits & !e.bits}
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl<E:CLike> BitOr<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
-    fn bitor(&self, e: &EnumSet<E>) -> EnumSet<E> {
-        EnumSet {bits: self.bits | e.bits}
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl<E:CLike> BitOr<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
     fn bitor(self, e: EnumSet<E>) -> EnumSet<E> {
         EnumSet {bits: self.bits | e.bits}
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl<E:CLike> BitAnd<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
-    fn bitand(&self, e: &EnumSet<E>) -> EnumSet<E> {
-        EnumSet {bits: self.bits & e.bits}
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl<E:CLike> BitAnd<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
     fn bitand(self, e: EnumSet<E>) -> EnumSet<E> {
         EnumSet {bits: self.bits & e.bits}
     }
 }
 
-// NOTE(stage0): Remove impl after a snapshot
-#[cfg(stage0)]
-impl<E:CLike> BitXor<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
-    fn bitxor(&self, e: &EnumSet<E>) -> EnumSet<E> {
-        EnumSet {bits: self.bits ^ e.bits}
-    }
-}
-
-#[cfg(not(stage0))]  // NOTE(stage0): Remove cfg after a snapshot
 impl<E:CLike> BitXor<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
     fn bitxor(self, e: EnumSet<E>) -> EnumSet<E> {
         EnumSet {bits: self.bits ^ e.bits}
@@ -244,18 +208,18 @@ impl<E:CLike> BitXor<EnumSet<E>, EnumSet<E>> for EnumSet<E> {
 }
 
 /// An iterator over an EnumSet
-pub struct Items<E> {
+pub struct Iter<E> {
     index: uint,
     bits: uint,
 }
 
-impl<E:CLike> Items<E> {
-    fn new(bits: uint) -> Items<E> {
-        Items { index: 0, bits: bits }
+impl<E:CLike> Iter<E> {
+    fn new(bits: uint) -> Iter<E> {
+        Iter { index: 0, bits: bits }
     }
 }
 
-impl<E:CLike> Iterator<E> for Items<E> {
+impl<E:CLike> Iterator<E> for Iter<E> {
     fn next(&mut self) -> Option<E> {
         if self.bits == 0 {
             return None;
@@ -295,9 +259,9 @@ impl<E:CLike> Extend<E> for EnumSet<E> {
 
 #[cfg(test)]
 mod test {
-    use std::prelude::*;
     use self::Foo::*;
-    use std::mem;
+    use prelude::*;
+    use core::mem;
 
     use super::{EnumSet, CLike};
 

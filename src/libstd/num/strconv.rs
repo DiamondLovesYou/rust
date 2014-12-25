@@ -12,15 +12,16 @@
 
 #![allow(missing_docs)]
 
-pub use self::ExponentFormat::*;
-pub use self::SignificantDigits::*;
-pub use self::SignFormat::*;
+use self::ExponentFormat::*;
+use self::SignificantDigits::*;
+use self::SignFormat::*;
 
 use char::{mod, Char};
-use num::{mod, Int, Float, FPNaN, FPInfinite, ToPrimitive};
+use num::{mod, Int, Float, ToPrimitive};
+use num::FpCategory as Fp;
 use ops::FnMut;
 use slice::{SliceExt, CloneSliceExt};
-use str::StrPrelude;
+use str::StrExt;
 use string::String;
 use vec::Vec;
 
@@ -199,14 +200,14 @@ pub fn float_to_str_bytes_common<T: Float>(
     let _1: T = Float::one();
 
     match num.classify() {
-        FPNaN => { return (b"NaN".to_vec(), true); }
-        FPInfinite if num > _0 => {
+        Fp::Nan => { return (b"NaN".to_vec(), true); }
+        Fp::Infinite if num > _0 => {
             return match sign {
                 SignAll => (b"+inf".to_vec(), true),
                 _       => (b"inf".to_vec(), true)
             };
         }
-        FPInfinite if num < _0 => {
+        Fp::Infinite if num < _0 => {
             return match sign {
                 SignNone => (b"inf".to_vec(), true),
                 _        => (b"-inf".to_vec(), true),

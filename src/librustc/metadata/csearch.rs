@@ -19,7 +19,6 @@ use metadata::cstore;
 use metadata::decoder;
 use middle::def;
 use middle::lang_items;
-use middle::resolve;
 use middle::ty;
 
 use rbml;
@@ -96,7 +95,7 @@ pub fn get_item_path(tcx: &ty::ctxt, def: ast::DefId) -> Vec<ast_map::PathElem> 
 
     // FIXME #1920: This path is not always correct if the crate is not linked
     // into the root namespace.
-    let mut r = vec![ast_map::PathMod(token::intern(cdata.name.as_slice()))];
+    let mut r = vec![ast_map::PathMod(token::intern(cdata.name[]))];
     r.push_all(path.as_slice());
     r
 }
@@ -148,7 +147,7 @@ pub fn get_impl_or_trait_item<'tcx>(tcx: &ty::ctxt<'tcx>, def: ast::DefId)
 }
 
 pub fn get_trait_item_name_and_kind(cstore: &cstore::CStore, def: ast::DefId)
-                                    -> (ast::Name, resolve::TraitItemKind) {
+                                    -> (ast::Name, def::TraitItemKind) {
     let cdata = cstore.get_crate_data(def.krate);
     decoder::get_trait_item_name_and_kind(cstore.intr.clone(),
                                           &*cdata,

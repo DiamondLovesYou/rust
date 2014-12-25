@@ -127,6 +127,9 @@ pub enum TypeOrigin {
     // Computing common supertype of an if expression with no else counter-part
     IfExpressionWithNoElse(Span),
 
+    // Computing common supertype in a range expression
+    RangeExpression(Span),
+
     // `where a == b`
     EquatePredicate(Span),
 }
@@ -992,7 +995,7 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
 
                 self.tcx.sess.span_err(sp, format!("{}{}",
                     mk_msg(resolved_expected.map(|t| self.ty_to_string(t)), actual_ty),
-                    error_str).as_slice());
+                    error_str)[]);
 
                 for err in err.iter() {
                     ty::note_and_explain_type_err(self.tcx, *err)
@@ -1084,6 +1087,7 @@ impl TypeOrigin {
             MatchExpressionArm(match_span, _) => match_span,
             IfExpression(span) => span,
             IfExpressionWithNoElse(span) => span,
+            RangeExpression(span) => span,
             EquatePredicate(span) => span,
         }
     }
@@ -1116,6 +1120,9 @@ impl<'tcx> Repr<'tcx> for TypeOrigin {
             }
             IfExpressionWithNoElse(a) => {
                 format!("IfExpressionWithNoElse({})", a.repr(tcx))
+            }
+            RangeExpression(a) => {
+                format!("RangeExpression({})", a.repr(tcx))
             }
             EquatePredicate(a) => {
                 format!("EquatePredicate({})", a.repr(tcx))

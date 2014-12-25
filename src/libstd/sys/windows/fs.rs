@@ -23,13 +23,13 @@ use io;
 
 use prelude::*;
 use sys;
+use sys::os;
 use sys_common::{keep_going, eof, mkerr_libc};
 
 use io::{FilePermission, Write, UnstableFileStat, Open, FileAccess, FileMode};
-use io::{IoResult, IoError, FileStat, SeekStyle, Seek, Writer, Reader};
+use io::{IoResult, IoError, FileStat, SeekStyle};
 use io::{Read, Truncate, SeekCur, SeekSet, ReadWrite, SeekEnd, Append};
 
-pub use path::WindowsPath as Path;
 pub type fd_t = libc::c_int;
 
 pub struct FileDesc {
@@ -263,7 +263,7 @@ pub fn readdir(p: &Path) -> IoResult<Vec<Path>> {
             let mut more_files = 1 as libc::BOOL;
             while more_files != 0 {
                 {
-                    let filename = str::truncate_utf16_at_nul(&wfd.cFileName);
+                    let filename = os::truncate_utf16_at_nul(&wfd.cFileName);
                     match String::from_utf16(filename) {
                         Some(filename) => paths.push(Path::new(filename)),
                         None => {

@@ -46,10 +46,10 @@ use std::string::String;
 use std::slice;
 use std::sync::{Arc, Future};
 
-static TABLE: [u8, ..4] = [ 'A' as u8, 'C' as u8, 'G' as u8, 'T' as u8 ];
+static TABLE: [u8;4] = [ 'A' as u8, 'C' as u8, 'G' as u8, 'T' as u8 ];
 static TABLE_SIZE: uint = 2 << 16;
 
-static OCCURRENCES: [&'static str, ..5] = [
+static OCCURRENCES: [&'static str;5] = [
     "GGT",
     "GGTA",
     "GGTATT",
@@ -130,7 +130,7 @@ struct Table {
 
 struct Items<'a> {
     cur: Option<&'a Entry>,
-    items: slice::Items<'a, Option<Box<Entry>>>,
+    items: slice::Iter<'a, Option<Box<Entry>>>,
 }
 
 impl Table {

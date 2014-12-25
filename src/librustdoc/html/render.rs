@@ -35,15 +35,15 @@
 pub use self::ExternalLocation::*;
 
 use std::cell::RefCell;
-use std::collections::hash_map::{Occupied, Vacant};
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::fmt;
 use std::io::fs::PathExtensions;
 use std::io::{fs, File, BufferedWriter, BufferedReader};
 use std::io;
+use std::iter::repeat;
 use std::str;
-use std::string::String;
 use std::sync::Arc;
 
 use externalfiles::ExternalHtml;
@@ -491,26 +491,26 @@ fn write_shared(cx: &Context,
     // Add all the static files. These may already exist, but we just
     // overwrite them anyway to make sure that they're fresh and up-to-date.
     try!(write(cx.dst.join("jquery.js"),
-               include_bin!("static/jquery-2.1.0.min.js")));
-    try!(write(cx.dst.join("main.js"), include_bin!("static/main.js")));
-    try!(write(cx.dst.join("playpen.js"), include_bin!("static/playpen.js")));
-    try!(write(cx.dst.join("main.css"), include_bin!("static/main.css")));
+               include_bytes!("static/jquery-2.1.0.min.js")));
+    try!(write(cx.dst.join("main.js"), include_bytes!("static/main.js")));
+    try!(write(cx.dst.join("playpen.js"), include_bytes!("static/playpen.js")));
+    try!(write(cx.dst.join("main.css"), include_bytes!("static/main.css")));
     try!(write(cx.dst.join("normalize.css"),
-               include_bin!("static/normalize.css")));
+               include_bytes!("static/normalize.css")));
     try!(write(cx.dst.join("FiraSans-Regular.woff"),
-               include_bin!("static/FiraSans-Regular.woff")));
+               include_bytes!("static/FiraSans-Regular.woff")));
     try!(write(cx.dst.join("FiraSans-Medium.woff"),
-               include_bin!("static/FiraSans-Medium.woff")));
+               include_bytes!("static/FiraSans-Medium.woff")));
     try!(write(cx.dst.join("Heuristica-Italic.woff"),
-               include_bin!("static/Heuristica-Italic.woff")));
+               include_bytes!("static/Heuristica-Italic.woff")));
     try!(write(cx.dst.join("SourceSerifPro-Regular.woff"),
-               include_bin!("static/SourceSerifPro-Regular.woff")));
+               include_bytes!("static/SourceSerifPro-Regular.woff")));
     try!(write(cx.dst.join("SourceSerifPro-Bold.woff"),
-               include_bin!("static/SourceSerifPro-Bold.woff")));
+               include_bytes!("static/SourceSerifPro-Bold.woff")));
     try!(write(cx.dst.join("SourceCodePro-Regular.woff"),
-               include_bin!("static/SourceCodePro-Regular.woff")));
+               include_bytes!("static/SourceCodePro-Regular.woff")));
     try!(write(cx.dst.join("SourceCodePro-Semibold.woff"),
-               include_bin!("static/SourceCodePro-Semibold.woff")));
+               include_bytes!("static/SourceCodePro-Semibold.woff")));
 
     fn collect(path: &Path, krate: &str,
                key: &str) -> io::IoResult<Vec<String>> {
@@ -1186,7 +1186,8 @@ impl Context {
                                     &Sidebar{ cx: cx, item: it },
                                     &Item{ cx: cx, item: it }));
             } else {
-                let mut url = "../".repeat(cx.current.len());
+                let mut url = repeat("../").take(cx.current.len())
+                                           .collect::<String>();
                 match cache().paths.get(&it.def_id) {
                     Some(&(ref names, _)) => {
                         for name in names[..names.len() - 1].iter() {
@@ -1382,7 +1383,8 @@ impl<'a> fmt::Show for Item<'a> {
             let amt = if self.ismodule() { cur.len() - 1 } else { cur.len() };
             for (i, component) in cur.iter().enumerate().take(amt) {
                 try!(write!(fmt, "<a href='{}index.html'>{}</a>::<wbr>",
-                            "../".repeat(cur.len() - i - 1),
+                            repeat("../").take(cur.len() - i - 1)
+                                         .collect::<String>(),
                             component.as_slice()));
             }
         }

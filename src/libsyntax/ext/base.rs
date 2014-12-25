@@ -50,14 +50,16 @@ pub trait ItemDecorator {
               push: |P<ast::Item>|);
 }
 
-impl ItemDecorator for fn(&mut ExtCtxt, Span, &ast::MetaItem, &ast::Item, |P<ast::Item>|) {
+impl<F> ItemDecorator for F
+    where F : Fn(&mut ExtCtxt, Span, &ast::MetaItem, &ast::Item, |P<ast::Item>|)
+{
     fn expand(&self,
               ecx: &mut ExtCtxt,
               sp: Span,
               meta_item: &ast::MetaItem,
               item: &ast::Item,
               push: |P<ast::Item>|) {
-        self.clone()(ecx, sp, meta_item, item, push)
+        (*self)(ecx, sp, meta_item, item, push)
     }
 }
 
@@ -70,14 +72,16 @@ pub trait ItemModifier {
               -> P<ast::Item>;
 }
 
-impl ItemModifier for fn(&mut ExtCtxt, Span, &ast::MetaItem, P<ast::Item>) -> P<ast::Item> {
+impl<F> ItemModifier for F
+    where F : Fn(&mut ExtCtxt, Span, &ast::MetaItem, P<ast::Item>) -> P<ast::Item>
+{
     fn expand(&self,
               ecx: &mut ExtCtxt,
               span: Span,
               meta_item: &ast::MetaItem,
               item: P<ast::Item>)
               -> P<ast::Item> {
-        self.clone()(ecx, span, meta_item, item)
+        (*self)(ecx, span, meta_item, item)
     }
 }
 
@@ -93,13 +97,15 @@ pub trait TTMacroExpander {
 pub type MacroExpanderFn =
     for<'cx> fn(&'cx mut ExtCtxt, Span, &[ast::TokenTree]) -> Box<MacResult+'cx>;
 
-impl TTMacroExpander for MacroExpanderFn {
+impl<F> TTMacroExpander for F
+    where F : for<'cx> Fn(&'cx mut ExtCtxt, Span, &[ast::TokenTree]) -> Box<MacResult+'cx>
+{
     fn expand<'cx>(&self,
                    ecx: &'cx mut ExtCtxt,
                    span: Span,
                    token_tree: &[ast::TokenTree])
                    -> Box<MacResult+'cx> {
-        self.clone()(ecx, span, token_tree)
+        (*self)(ecx, span, token_tree)
     }
 }
 
@@ -115,14 +121,18 @@ pub trait IdentMacroExpander {
 pub type IdentMacroExpanderFn =
     for<'cx> fn(&'cx mut ExtCtxt, Span, ast::Ident, Vec<ast::TokenTree>) -> Box<MacResult+'cx>;
 
-impl IdentMacroExpander for IdentMacroExpanderFn {
+impl<F> IdentMacroExpander for F
+    where F : for<'cx> Fn(&'cx mut ExtCtxt, Span, ast::Ident,
+                          Vec<ast::TokenTree>) -> Box<MacResult+'cx>
+{
     fn expand<'cx>(&self,
                    cx: &'cx mut ExtCtxt,
                    sp: Span,
                    ident: ast::Ident,
                    token_tree: Vec<ast::TokenTree> )
-                   -> Box<MacResult+'cx> {
-        self.clone()(cx, sp, ident, token_tree)
+                   -> Box<MacResult+'cx>
+    {
+        (*self)(cx, sp, ident, token_tree)
     }
 }
 
@@ -432,6 +442,9 @@ fn initial_syntax_expander_table(ecfg: &expand::ExpansionConfig) -> SyntaxEnv {
     syntax_expanders.insert(intern("include_bin"),
                             builtin_normal_expander(
                                     ext::source_util::expand_include_bin));
+    syntax_expanders.insert(intern("include_bytes"),
+                            builtin_normal_expander(
+                                    ext::source_util::expand_include_bytes));
     syntax_expanders.insert(intern("module_path"),
                             builtin_normal_expander(
                                     ext::source_util::expand_mod));
@@ -490,7 +503,7 @@ impl<'a> ExtCtxt<'a> {
 
     /// Returns a `Folder` for deeply expanding all macros in a AST node.
     pub fn expander<'b>(&'b mut self) -> expand::MacroExpander<'b, 'a> {
-        expand::MacroExpander { cx: self }
+        expand::MacroExpander::new(self)
     }
 
     pub fn new_parser_from_tts(&self, tts: &[ast::TokenTree])
@@ -549,7 +562,7 @@ impl<'a> ExtCtxt<'a> {
     pub fn mod_pop(&mut self) { self.mod_path.pop().unwrap(); }
     pub fn mod_path(&self) -> Vec<ast::Ident> {
         let mut v = Vec::new();
-        v.push(token::str_to_ident(self.ecfg.crate_name.as_slice()));
+        v.push(token::str_to_ident(self.ecfg.crate_name[]));
         v.extend(self.mod_path.iter().map(|a| *a));
         return v;
     }
@@ -558,7 +571,7 @@ impl<'a> ExtCtxt<'a> {
         if self.recursion_count > self.ecfg.recursion_limit {
             self.span_fatal(ei.call_site,
                             format!("recursion limit reached while expanding the macro `{}`",
-                                    ei.callee.name).as_slice());
+                                    ei.callee.name)[]);
         }
 
         let mut call_site = ei.call_site;
@@ -669,7 +682,7 @@ pub fn check_zero_tts(cx: &ExtCtxt,
                       tts: &[ast::TokenTree],
                       name: &str) {
     if tts.len() != 0 {
-        cx.span_err(sp, format!("{} takes no arguments", name).as_slice());
+        cx.span_err(sp, format!("{} takes no arguments", name)[]);
     }
 }
 
@@ -682,12 +695,12 @@ pub fn get_single_str_from_tts(cx: &mut ExtCtxt,
                                -> Option<String> {
     let mut p = cx.new_parser_from_tts(tts);
     if p.token == token::Eof {
-        cx.span_err(sp, format!("{} takes 1 argument", name).as_slice());
+        cx.span_err(sp, format!("{} takes 1 argument", name)[]);
         return None
     }
     let ret = cx.expander().fold_expr(p.parse_expr());
     if p.token != token::Eof {
-        cx.span_err(sp, format!("{} takes 1 argument", name).as_slice());
+        cx.span_err(sp, format!("{} takes 1 argument", name)[]);
     }
     expr_to_string(cx, ret, "argument must be a string literal").map(|(s, _)| {
         s.get().to_string()

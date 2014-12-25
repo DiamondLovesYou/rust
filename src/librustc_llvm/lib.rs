@@ -25,6 +25,7 @@
 #![feature(link_args)]
 #![feature(unboxed_closures)]
 #![feature(phase)]
+#![feature(slicing_syntax)]
 
 extern crate libc;
 #[phase(plugin, link)]

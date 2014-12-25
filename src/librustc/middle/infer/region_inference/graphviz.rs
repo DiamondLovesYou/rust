@@ -26,7 +26,7 @@ use session::config;
 use util::nodemap::{FnvHashMap, FnvHashSet};
 use util::ppaux::Repr;
 
-use std::collections::hash_map::Vacant;
+use std::collections::hash_map::Entry::Vacant;
 use std::io::{mod, File};
 use std::os;
 use std::sync::atomic;
@@ -60,7 +60,7 @@ pub fn maybe_print_constraints_for<'a, 'tcx>(region_vars: &RegionVarBindings<'a,
     }
 
     let requested_node : Option<ast::NodeId> =
-        os::getenv("RUST_REGION_GRAPH_NODE").and_then(|s|from_str(s.as_slice()));
+        os::getenv("RUST_REGION_GRAPH_NODE").and_then(|s| s.parse());
 
     if requested_node.is_some() && requested_node != Some(subject_node) {
         return;

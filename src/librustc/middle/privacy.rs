@@ -11,17 +11,20 @@
 //! A pass that checks to make sure private fields and methods aren't used
 //! outside their scopes. This pass will also generate a set of exported items
 //! which are available for use externally when compiled as a library.
+pub use self::PrivateDep::*;
+pub use self::ImportUse::*;
+pub use self::LastPrivate::*;
 use self::PrivacyResult::*;
 use self::FieldName::*;
 
 use std::mem::replace;
 
 use metadata::csearch;
-use middle::{def, resolve};
+use middle::def;
 use middle::ty::{mod, Ty};
 use middle::ty::{MethodCall, MethodMap, MethodOrigin, MethodParam, MethodTypeParam};
 use middle::ty::{MethodStatic, MethodStaticUnboxedClosure, MethodObject, MethodTraitObject};
-use util::nodemap::{NodeMap, NodeSet};
+use util::nodemap::{DefIdSet, NodeMap, NodeSet};
 
 use syntax::{ast, ast_map};
 use syntax::ast_util::{is_local, local_def, PostExpansionMethod};
@@ -29,15 +32,58 @@ use syntax::codemap::Span;
 use syntax::parse::token;
 use syntax::visit::{mod, Visitor};
 
-type Context<'a, 'tcx> = (&'a MethodMap<'tcx>, &'a resolve::ExportMap2);
+type Context<'a, 'tcx> = (&'a MethodMap<'tcx>, &'a def::ExportMap);
 
 /// A set of AST nodes exported by the crate.
 pub type ExportedItems = NodeSet;
+
+/// A set containing all exported definitions from external crates.
+/// The set does not contain any entries from local crates.
+pub type ExternalExports = DefIdSet;
 
 /// A set of AST nodes that are fully public in the crate. This map is used for
 /// documentation purposes (reexporting a private struct inlines the doc,
 /// reexporting a public struct doesn't inline the doc).
 pub type PublicItems = NodeSet;
+
+// FIXME: dox
+pub type LastPrivateMap = NodeMap<LastPrivate>;
+
+#[deriving(Copy, Show)]
+pub enum LastPrivate {
+    LastMod(PrivateDep),
+    // `use` directives (imports) can refer to two separate definitions in the
+    // type and value namespaces. We record here the last private node for each
+    // and whether the import is in fact used for each.
+    // If the Option<PrivateDep> fields are None, it means there is no definition
+    // in that namespace.
+    LastImport{value_priv: Option<PrivateDep>,
+               value_used: ImportUse,
+               type_priv: Option<PrivateDep>,
+               type_used: ImportUse},
+}
+
+#[deriving(Copy, Show)]
+pub enum PrivateDep {
+    AllPublic,
+    DependsOn(ast::DefId),
+}
+
+// How an import is used.
+#[deriving(Copy, PartialEq, Show)]
+pub enum ImportUse {
+    Unused,       // The import is not used.
+    Used,         // The import is used.
+}
+
+impl LastPrivate {
+    pub fn or(self, other: LastPrivate) -> LastPrivate {
+        match (self, other) {
+            (me, LastMod(AllPublic)) => me,
+            (_, other) => other,
+        }
+    }
+}
 
 /// Result of a checking operation - None => no errors were found. Some => an
 /// error and contains the span and message for reporting that error and
@@ -136,7 +182,7 @@ impl<'v> Visitor<'v> for ParentVisitor {
 
 struct EmbargoVisitor<'a, 'tcx: 'a> {
     tcx: &'a ty::ctxt<'tcx>,
-    exp_map2: &'a resolve::ExportMap2,
+    export_map: &'a def::ExportMap,
 
     // This flag is an indicator of whether the previous item in the
     // hierarchical chain was exported or not. This is the indicator of whether
@@ -342,8 +388,8 @@ impl<'a, 'tcx, 'v> Visitor<'v> for EmbargoVisitor<'a, 'tcx> {
         // This code is here instead of in visit_item so that the
         // crate module gets processed as well.
         if self.prev_exported {
-            assert!(self.exp_map2.contains_key(&id), "wut {}", id);
-            for export in self.exp_map2[id].iter() {
+            assert!(self.export_map.contains_key(&id), "wut {}", id);
+            for export in self.export_map[id].iter() {
                 if is_local(export.def_id) {
                     self.reexports.insert(export.def_id.node);
                 }
@@ -362,8 +408,8 @@ struct PrivacyVisitor<'a, 'tcx: 'a> {
     curitem: ast::NodeId,
     in_foreign: bool,
     parents: NodeMap<ast::NodeId>,
-    external_exports: resolve::ExternalExports,
-    last_private_map: resolve::LastPrivateMap,
+    external_exports: ExternalExports,
+    last_private_map: LastPrivateMap,
 }
 
 enum PrivacyResult {
@@ -569,10 +615,10 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
         match result {
             None => true,
             Some((span, msg, note)) => {
-                self.tcx.sess.span_err(span, msg.as_slice());
+                self.tcx.sess.span_err(span, msg[]);
                 match note {
                     Some((span, msg)) => {
-                        self.tcx.sess.span_note(span, msg.as_slice())
+                        self.tcx.sess.span_note(span, msg[])
                     }
                     None => {},
                 }
@@ -674,7 +720,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
             UnnamedField(idx) => format!("field #{} of {} is private",
                                          idx + 1, struct_desc),
         };
-        self.tcx.sess.span_err(span, msg.as_slice());
+        self.tcx.sess.span_err(span, msg[]);
     }
 
     // Given the ID of a method, checks to ensure it's in scope.
@@ -696,7 +742,7 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                                              method_id,
                                              None,
                                              format!("method `{}`",
-                                                     string).as_slice()));
+                                                     string)[]));
     }
 
     // Checks that a path is in scope.
@@ -713,31 +759,29 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                 self.ensure_public(span,
                                    def,
                                    Some(origdid),
-                                   format!("{} `{}`",
-                                           tyname,
-                                           name).as_slice())
+                                   format!("{} `{}`", tyname, name)[])
             };
 
             match self.last_private_map[path_id] {
-                resolve::LastMod(resolve::AllPublic) => {},
-                resolve::LastMod(resolve::DependsOn(def)) => {
+                LastMod(AllPublic) => {},
+                LastMod(DependsOn(def)) => {
                     self.report_error(ck_public(def));
                 },
-                resolve::LastImport{value_priv,
-                                    value_used: check_value,
-                                    type_priv,
-                                    type_used: check_type} => {
+                LastImport { value_priv,
+                             value_used: check_value,
+                             type_priv,
+                             type_used: check_type } => {
                     // This dance with found_error is because we don't want to report
                     // a privacy error twice for the same directive.
                     let found_error = match (type_priv, check_type) {
-                        (Some(resolve::DependsOn(def)), resolve::Used) => {
+                        (Some(DependsOn(def)), Used) => {
                             !self.report_error(ck_public(def))
                         },
                         _ => false,
                     };
                     if !found_error {
                         match (value_priv, check_value) {
-                            (Some(resolve::DependsOn(def)), resolve::Used) => {
+                            (Some(DependsOn(def)), Used) => {
                                 self.report_error(ck_public(def));
                             },
                             _ => {},
@@ -749,24 +793,24 @@ impl<'a, 'tcx> PrivacyVisitor<'a, 'tcx> {
                     // be illegal. We only report one error, even if it is
                     // illegal to import from both namespaces.
                     match (value_priv, check_value, type_priv, check_type) {
-                        (Some(p), resolve::Unused, None, _) |
-                        (None, _, Some(p), resolve::Unused) => {
+                        (Some(p), Unused, None, _) |
+                        (None, _, Some(p), Unused) => {
                             let p = match p {
-                                resolve::AllPublic => None,
-                                resolve::DependsOn(def) => ck_public(def),
+                                AllPublic => None,
+                                DependsOn(def) => ck_public(def),
                             };
                             if p.is_some() {
                                 self.report_error(p);
                             }
                         },
-                        (Some(v), resolve::Unused, Some(t), resolve::Unused) => {
+                        (Some(v), Unused, Some(t), Unused) => {
                             let v = match v {
-                                resolve::AllPublic => None,
-                                resolve::DependsOn(def) => ck_public(def),
+                                AllPublic => None,
+                                DependsOn(def) => ck_public(def),
                             };
                             let t = match t {
-                                resolve::AllPublic => None,
-                                resolve::DependsOn(def) => ck_public(def),
+                                AllPublic => None,
+                                DependsOn(def) => ck_public(def),
                             };
                             if let (Some(_), Some(t)) = (v, t) {
                                 self.report_error(Some(t));
@@ -1261,13 +1305,13 @@ impl<'a, 'tcx> VisiblePrivateTypesVisitor<'a, 'tcx> {
     }
 
     fn check_ty_param_bound(&self,
-                            span: Span,
                             ty_param_bound: &ast::TyParamBound) {
         if let ast::TraitTyParamBound(ref trait_ref) = *ty_param_bound {
             if !self.tcx.sess.features.borrow().visible_private_types &&
                 self.path_is_private_type(trait_ref.trait_ref.ref_id) {
+                    let span = trait_ref.trait_ref.path.span;
                     self.tcx.sess.span_err(span,
-                                           "private type in exported type \
+                                           "private trait in exported type \
                                             parameter bound");
             }
         }
@@ -1311,7 +1355,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
                 }
 
                 for bound in bounds.iter() {
-                    self.check_ty_param_bound(item.span, bound)
+                    self.check_ty_param_bound(bound)
                 }
             }
 
@@ -1449,16 +1493,17 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
     fn visit_generics(&mut self, generics: &ast::Generics) {
         for ty_param in generics.ty_params.iter() {
             for bound in ty_param.bounds.iter() {
-                self.check_ty_param_bound(ty_param.span, bound)
+                self.check_ty_param_bound(bound)
             }
         }
         for predicate in generics.where_clause.predicates.iter() {
             match predicate {
                 &ast::WherePredicate::BoundPredicate(ref bound_pred) => {
                     for bound in bound_pred.bounds.iter() {
-                        self.check_ty_param_bound(bound_pred.span, bound)
+                        self.check_ty_param_bound(bound)
                     }
                 }
+                &ast::WherePredicate::RegionPredicate(_) => {}
                 &ast::WherePredicate::EqPredicate(ref eq_pred) => {
                     self.visit_ty(&*eq_pred.ty);
                 }
@@ -1520,9 +1565,9 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
 }
 
 pub fn check_crate(tcx: &ty::ctxt,
-                   exp_map2: &resolve::ExportMap2,
-                   external_exports: resolve::ExternalExports,
-                   last_private_map: resolve::LastPrivateMap)
+                   export_map: &def::ExportMap,
+                   external_exports: ExternalExports,
+                   last_private_map: LastPrivateMap)
                    -> (ExportedItems, PublicItems) {
     let krate = tcx.map.krate();
 
@@ -1561,7 +1606,7 @@ pub fn check_crate(tcx: &ty::ctxt,
         exported_items: NodeSet::new(),
         public_items: NodeSet::new(),
         reexports: NodeSet::new(),
-        exp_map2: exp_map2,
+        export_map: export_map,
         prev_exported: true,
         prev_public: true,
     };

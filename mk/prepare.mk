@@ -156,9 +156,7 @@ prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
 	  $$(if $$(filter $(3),$(2)),\
 	    $$(if $$(findstring nacl,$$(PREPARE_TARGETS)),\
 	      $$(call PREPARE_LIB,$$(subst lib,,$$(call CFG_LIB_NAME_$(3),LLVMgold))) \
-	      $$(call PREPARE_LIB,$$(call CFG_LIB_NAME_$(3),LTO)) \
-	      $$(call PREPARE_TARGET_HOST_BIN,le32-nacl-ld.gold$$(X_$(3)),$(2)) \
-	      $$(call PREPARE_TARGET_HOST_BIN,le32-nacl-ar$$(X_$(3)),$(2)),),),),),)
+	      $$(call PREPARE_LIB,$$(call CFG_LIB_NAME_$(3),LTO)),),),),),)
 endef
 
 define DEF_PREPARE
