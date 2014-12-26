@@ -753,7 +753,7 @@ pub fn run_passes(sess: &Session,
         })
     }
 
-    if sess.targeting_pnacl() {
+    if sess.targeting_pnacl() && !sess.opts.test {
         let used = sess.cstore.get_used_libraries().borrow();
         let mut linked = already_linked_libs
             (sess, &sess.cstore.get_used_crates(cstore::RequireStatic));
