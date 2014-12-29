@@ -47,9 +47,8 @@ LLVMInitializePasses() {
   initializeTarget(Registry);
 
   initializeAddPNaClExternalDeclsPass(Registry);
+  initializeBackendCanonicalizePass(Registry);
   initializeCanonicalizeMemIntrinsicsPass(Registry);
-  initializeCombineNoopCastsPass(Registry);
-  initializeCombineVectorInstructionsPass(Registry);
   initializeConstantInsertExtractElementIndexPass(Registry);
   initializeExpandArithWithOverflowPass(Registry);
   initializeExpandByValPass(Registry);
@@ -80,9 +79,10 @@ LLVMInitializePasses() {
   initializeRewriteAtomicsPass(Registry);
   initializeRewriteLLVMIntrinsicsPass(Registry);
   initializeRewritePNaClLibraryCallsPass(Registry);
+  initializeSimplifyAllocasPass(Registry);
   initializeStripAttributesPass(Registry);
   initializeStripMetadataPass(Registry);
-  initializeSimplifyAllocasPass(Registry);
+  initializeStripModuleFlagsPass(Registry);
 }
 
 extern "C" bool

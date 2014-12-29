@@ -312,7 +312,7 @@ extern "C" LLVMMetadataRef LLVMDIBuilderCreateSubroutineType(
     LLVMMetadataRef ParameterTypes) {
     return wrap(Builder->createSubroutineType(
         unwrapDI<DIFile>(File),
-#if LLVM_VERSION_MINOR >= 5
+#if LLVM_VERSION_MINOR >= 6
         unwrapDI<DITypeArray>(ParameterTypes)));
 #else
         unwrapDI<DIArray>(ParameterTypes)));
