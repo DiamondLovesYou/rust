@@ -94,9 +94,9 @@ use core::iter::{range_step, MultiplicativeIterator};
 use core::kinds::Sized;
 use core::mem::size_of;
 use core::mem;
-use core::ops::FnMut;
+use core::ops::{FnMut,SliceMut};
 use core::prelude::{Clone, Greater, Iterator, IteratorExt, Less, None, Option};
-use core::prelude::{Ord, Ordering, RawPtr, Some, range};
+use core::prelude::{Ord, Ordering, PtrExt, Some, range};
 use core::ptr;
 use core::slice as core_slice;
 use self::Direction::*;
@@ -1110,7 +1110,7 @@ impl<T> SliceExt<T> for [T] {
 
     #[inline]
     fn move_from(&mut self, mut src: Vec<T>, start: uint, end: uint) -> uint {
-        for (a, b) in self.iter_mut().zip(src[mut start..end].iter_mut()) {
+        for (a, b) in self.iter_mut().zip(src.slice_mut(start, end).iter_mut()) {
             mem::swap(a, b);
         }
         cmp::min(self.len(), end-start)
@@ -1326,7 +1326,7 @@ impl<T> BorrowFrom<Vec<T>> for [T] {
 
 #[unstable = "trait is unstable"]
 impl<T> BorrowFromMut<Vec<T>> for [T] {
-    fn borrow_from_mut(owned: &mut Vec<T>) -> &mut [T] { owned[mut] }
+    fn borrow_from_mut(owned: &mut Vec<T>) -> &mut [T] { owned.as_mut_slice_() }
 }
 
 #[unstable = "trait is unstable"]
@@ -1343,11 +1343,14 @@ pub mod raw {
 #[cfg(test)]
 mod tests {
     use std::boxed::Box;
-    use prelude::*;
+    use prelude::{Some, None, range, Vec, ToString, Clone, Greater, Less, Equal};
+    use prelude::{SliceExt, Iterator, IteratorExt, DoubleEndedIteratorExt};
+    use prelude::{OrdSliceExt, CloneSliceExt, PartialEqSliceExt, AsSlice};
+    use prelude::{RandomAccessIterator, Ord, VectorVector};
     use core::cell::Cell;
     use core::default::Default;
     use core::mem;
-    use std::rand::{Rng, task_rng};
+    use std::rand::{Rng, thread_rng};
     use std::rc::Rc;
     use super::ElementSwaps;
 
@@ -1963,7 +1966,7 @@ mod tests {
     fn test_sort() {
         for len in range(4u, 25) {
             for _ in range(0i, 100) {
-                let mut v = task_rng().gen_iter::<uint>().take(len)
+                let mut v = thread_rng().gen_iter::<uint>().take(len)
                                       .collect::<Vec<uint>>();
                 let mut v1 = v.clone();
 
@@ -1999,7 +2002,7 @@ mod tests {
                 // number this element is, i.e. the second elements
                 // will occur in sorted order.
                 let mut v = range(0, len).map(|_| {
-                        let n = task_rng().gen::<uint>() % 10;
+                        let n = thread_rng().gen::<uint>() % 10;
                         counts[n] += 1;
                         (n, counts[n])
                     }).collect::<Vec<(uint, int)>>();
@@ -2491,14 +2494,14 @@ mod tests {
         assert!(a == [7i,2,3,4]);
         let mut a = [1i,2,3,4,5];
         let b = vec![5i,6,7,8,9,0];
-        assert_eq!(a[mut 2..4].move_from(b,1,6), 2);
+        assert_eq!(a.slice_mut(2, 4).move_from(b,1,6), 2);
         assert!(a == [1i,2,6,7,5]);
     }
 
     #[test]
     fn test_reverse_part() {
         let mut values = [1i,2,3,4,5];
-        values[mut 1..4].reverse();
+        values.slice_mut(1, 4).reverse();
         assert!(values == [1,4,3,2,5]);
     }
 
@@ -2545,9 +2548,9 @@ mod tests {
     fn test_bytes_set_memory() {
         use slice::bytes::MutableByteVector;
         let mut values = [1u8,2,3,4,5];
-        values[mut 0..5].set_memory(0xAB);
+        values.slice_mut(0, 5).set_memory(0xAB);
         assert!(values == [0xAB, 0xAB, 0xAB, 0xAB, 0xAB]);
-        values[mut 2..4].set_memory(0xFF);
+        values.slice_mut(2, 4).set_memory(0xFF);
         assert!(values == [0xAB, 0xAB, 0xFF, 0xFF, 0xAB]);
     }
 

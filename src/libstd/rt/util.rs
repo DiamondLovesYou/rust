@@ -112,12 +112,25 @@ impl fmt::FormatWriter for Stdio {
     }
 }
 
+// NOTE(stage0): Remove cfg after a snapshot
+#[cfg(not(stage0))]
+pub fn dumb_print(args: fmt::Arguments) {
+    let _ = Stderr.write_fmt(args);
+}
+
+// NOTE(stage0): Remove function after a snapshot
+#[cfg(stage0)]
 pub fn dumb_print(args: &fmt::Arguments) {
     let mut w = Stderr;
     let _ = write!(&mut w, "{}", args);
 }
 
-pub fn abort(args: &fmt::Arguments) -> ! {
+// NOTE(stage0): Remove wrappers after a snapshot
+#[cfg(not(stage0))] pub fn abort(args: fmt::Arguments) -> ! { abort_(&args) }
+#[cfg(stage0)] pub fn abort(args: &fmt::Arguments) -> ! { abort_(args) }
+
+// NOTE(stage0): Change to `pub fn abort(args: fmt::Arguments) -> !` after a snapshot
+fn abort_(args: &fmt::Arguments) -> ! {
     use fmt::FormatWriter;
 
     struct BufWriter<'a> {
@@ -126,7 +139,7 @@ pub fn abort(args: &fmt::Arguments) -> ! {
     }
     impl<'a> FormatWriter for BufWriter<'a> {
         fn write(&mut self, bytes: &[u8]) -> fmt::Result {
-            let left = self.buf[mut self.pos..];
+            let left = self.buf.slice_from_mut(self.pos);
             let to_write = bytes[..cmp::min(bytes.len(), left.len())];
             slice::bytes::copy_memory(left, to_write);
             self.pos += to_write.len();

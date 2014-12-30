@@ -11,7 +11,6 @@
 //! Computes moves.
 
 use borrowck::*;
-use borrowck::LoanPathKind::*;
 use borrowck::gather_loans::move_error::MoveSpanAndPath;
 use borrowck::gather_loans::move_error::{MoveError, MoveErrorCollector};
 use borrowck::move_data::*;
@@ -190,7 +189,7 @@ fn check_and_get_illegal_move_origin<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
             }
         }
 
-        mc::cat_deref(ref b, _, mc::OwnedPtr) => {
+        mc::cat_deref(ref b, _, mc::Unique) => {
             check_and_get_illegal_move_origin(bccx, b)
         }
     }

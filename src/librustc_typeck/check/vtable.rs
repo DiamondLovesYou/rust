@@ -9,18 +9,16 @@
 // except according to those terms.
 
 use check::{FnCtxt, structurally_resolved_type};
-use middle::subst::{FnSpace};
+use middle::subst::{FnSpace, SelfSpace};
 use middle::traits;
-use middle::traits::{SelectionError, OutputTypeParameterMismatch, Overflow, Unimplemented};
 use middle::traits::{Obligation, ObligationCause};
-use middle::traits::{FulfillmentError, CodeSelectionError, CodeAmbiguity};
-use middle::traits::{PredicateObligation};
-use middle::ty::{mod, Ty};
+use middle::traits::report_fulfillment_errors;
+use middle::ty::{mod, Ty, AsPredicate};
 use middle::infer;
-use std::rc::Rc;
 use syntax::ast;
 use syntax::codemap::Span;
-use util::ppaux::{UserString, Repr, ty_to_string};
+use util::nodemap::FnvHashSet;
+use util::ppaux::{Repr, UserString};
 
 pub fn check_object_cast<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                    cast_expr: &ast::Expr,
@@ -65,8 +63,8 @@ pub fn check_object_cast<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                 // Ensure that if &'a T is cast to &'b Trait, then 'b <= 'a
                 infer::mk_subr(fcx.infcx(),
                                infer::RelateObjectBound(source_expr.span),
-                               target_region,
-                               referent_region);
+                               *target_region,
+                               *referent_region);
 
                 check_object_safety(fcx.tcx(), object_trait, source_expr.span);
             }
@@ -135,22 +133,46 @@ pub fn check_object_safety<'tcx>(tcx: &ty::ctxt<'tcx>,
                                  object_trait: &ty::TyTrait<'tcx>,
                                  span: Span)
 {
-    let object_trait_ref = object_trait.principal_trait_ref_with_self_ty(ty::mk_err());
-    for tr in traits::supertraits(tcx, object_trait_ref) {
-        check_object_safety_inner(tcx, &*tr, span);
+    // Also check that the type `object_trait` specifies all
+    // associated types for all supertraits.
+    let mut associated_types: FnvHashSet<(ast::DefId, ast::Name)> = FnvHashSet::new();
+
+    let object_trait_ref =
+        object_trait.principal_trait_ref_with_self_ty(tcx, tcx.types.err);
+    for tr in traits::supertraits(tcx, object_trait_ref.clone()) {
+        check_object_safety_inner(tcx, &tr, span);
+
+        let trait_def = ty::lookup_trait_def(tcx, object_trait_ref.def_id());
+        for &associated_type_name in trait_def.associated_type_names.iter() {
+            associated_types.insert((object_trait_ref.def_id(), associated_type_name));
+        }
+    }
+
+    for projection_bound in object_trait.bounds.projection_bounds.iter() {
+        let pair = (projection_bound.0.projection_ty.trait_ref.def_id,
+                    projection_bound.0.projection_ty.item_name);
+        associated_types.remove(&pair);
+    }
+
+    for (trait_def_id, name) in associated_types.into_iter() {
+        tcx.sess.span_err(
+            span,
+            format!("the value of the associated type `{}` (from the trait `{}`) must be specified",
+                    name.user_string(tcx),
+                    ty::item_path_str(tcx, trait_def_id)).as_slice());
     }
 }
 
 fn check_object_safety_inner<'tcx>(tcx: &ty::ctxt<'tcx>,
-                                 object_trait: &ty::PolyTraitRef<'tcx>,
-                                 span: Span) {
+                                   object_trait: &ty::PolyTraitRef<'tcx>,
+                                   span: Span) {
     let trait_items = ty::trait_items(tcx, object_trait.def_id());
 
     let mut errors = Vec::new();
     for item in trait_items.iter() {
         match *item {
             ty::MethodTraitItem(ref m) => {
-                errors.push(check_object_safety_of_method(tcx, &**m))
+                errors.push(check_object_safety_of_method(tcx, object_trait, &**m))
             }
             ty::TypeTraitItem(_) => {}
         }
@@ -174,6 +196,7 @@ fn check_object_safety_inner<'tcx>(tcx: &ty::ctxt<'tcx>,
     /// type is not known (that's the whole point of a trait instance, after all, to obscure the
     /// self type) and (b) the call must go through a vtable and hence cannot be monomorphized.
     fn check_object_safety_of_method<'tcx>(tcx: &ty::ctxt<'tcx>,
+                                           object_trait: &ty::PolyTraitRef<'tcx>,
                                            method: &ty::Method<'tcx>)
                                            -> Vec<String> {
         let mut msgs = Vec::new();
@@ -197,11 +220,11 @@ fn check_object_safety_inner<'tcx>(tcx: &ty::ctxt<'tcx>,
 
         // reason (a) above
         let check_for_self_ty = |ty| {
-            if ty::type_has_self(ty) {
+            if contains_illegal_self_type_reference(tcx, object_trait.def_id(), ty) {
                 Some(format!(
                     "cannot call a method (`{}`) whose type contains \
                      a self-type (`{}`) through a trait object",
-                    method_name, ty_to_string(tcx, ty)))
+                    method_name, ty.user_string(tcx)))
             } else {
                 None
             }
@@ -226,13 +249,105 @@ fn check_object_safety_inner<'tcx>(tcx: &ty::ctxt<'tcx>,
 
         msgs
     }
+
+    fn contains_illegal_self_type_reference<'tcx>(tcx: &ty::ctxt<'tcx>,
+                                                  trait_def_id: ast::DefId,
+                                                  ty: Ty<'tcx>)
+                                                  -> bool
+    {
+        // This is somewhat subtle. In general, we want to forbid
+        // references to `Self` in the argument and return types,
+        // since the value of `Self` is erased. However, there is one
+        // exception: it is ok to reference `Self` in order to access
+        // an associated type of the current trait, since we retain
+        // the value of those associated types in the object type
+        // itself.
+        //
+        // ```rust
+        // trait SuperTrait {
+        //     type X;
+        // }
+        //
+        // trait Trait : SuperTrait {
+        //     type Y;
+        //     fn foo(&self, x: Self) // bad
+        //     fn foo(&self) -> Self // bad
+        //     fn foo(&self) -> Option<Self> // bad
+        //     fn foo(&self) -> Self::Y // OK, desugars to next example
+        //     fn foo(&self) -> <Self as Trait>::Y // OK
+        //     fn foo(&self) -> Self::X // OK, desugars to next example
+        //     fn foo(&self) -> <Self as SuperTrait>::X // OK
+        // }
+        // ```
+        //
+        // However, it is not as simple as allowing `Self` in a projected
+        // type, because there are illegal ways to use `Self` as well:
+        //
+        // ```rust
+        // trait Trait : SuperTrait {
+        //     ...
+        //     fn foo(&self) -> <Self as SomeOtherTrait>::X;
+        // }
+        // ```
+        //
+        // Here we will not have the type of `X` recorded in the
+        // object type, and we cannot resolve `Self as SomeOtherTrait`
+        // without knowing what `Self` is.
+
+        let mut supertraits: Option<Vec<ty::PolyTraitRef<'tcx>>> = None;
+        let mut error = false;
+        ty::maybe_walk_ty(ty, |ty| {
+            match ty.sty {
+                ty::ty_param(ref param_ty) => {
+                    if param_ty.space == SelfSpace {
+                        error = true;
+                    }
+
+                    false // no contained types to walk
+                }
+
+                ty::ty_projection(ref data) => {
+                    // This is a projected type `<Foo as SomeTrait>::X`.
+
+                    // Compute supertraits of current trait lazilly.
+                    if supertraits.is_none() {
+                        let trait_def = ty::lookup_trait_def(tcx, trait_def_id);
+                        let trait_ref = ty::Binder(trait_def.trait_ref.clone());
+                        supertraits = Some(traits::supertraits(tcx, trait_ref).collect());
+                    }
+
+                    // Determine whether the trait reference `Foo as
+                    // SomeTrait` is in fact a supertrait of the
+                    // current trait. In that case, this type is
+                    // legal, because the type `X` will be specified
+                    // in the object type.  Note that we can just use
+                    // direct equality here because all of these types
+                    // are part of the formal parameter listing, and
+                    // hence there should be no inference variables.
+                    let projection_trait_ref = ty::Binder(data.trait_ref.clone());
+                    let is_supertrait_of_current_trait =
+                        supertraits.as_ref().unwrap().contains(&projection_trait_ref);
+
+                    if is_supertrait_of_current_trait {
+                        false // do not walk contained types, do not report error, do collect $200
+                    } else {
+                        true // DO walk contained types, POSSIBLY reporting an error
+                    }
+                }
+
+                _ => true, // walk contained types, if any
+            }
+        });
+
+        error
+    }
 }
 
 pub fn register_object_cast_obligations<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                                   span: Span,
                                                   object_trait: &ty::TyTrait<'tcx>,
                                                   referent_ty: Ty<'tcx>)
-                                                  -> Rc<ty::PolyTraitRef<'tcx>>
+                                                  -> ty::PolyTraitRef<'tcx>
 {
     // We can only make objects from sized types.
     fcx.register_builtin_bound(
@@ -245,21 +360,21 @@ pub fn register_object_cast_obligations<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
     let object_trait_ty =
         ty::mk_trait(fcx.tcx(),
                      object_trait.principal.clone(),
-                     object_trait.bounds);
+                     object_trait.bounds.clone());
 
     debug!("register_object_cast_obligations: referent_ty={} object_trait_ty={}",
            referent_ty.repr(fcx.tcx()),
            object_trait_ty.repr(fcx.tcx()));
 
+    let cause = ObligationCause::new(span,
+                                     fcx.body_id,
+                                     traits::ObjectCastObligation(object_trait_ty));
+
     // Create the obligation for casting from T to Trait.
     let object_trait_ref =
-        object_trait.principal_trait_ref_with_self_ty(referent_ty);
+        object_trait.principal_trait_ref_with_self_ty(fcx.tcx(), referent_ty);
     let object_obligation =
-        Obligation::new(
-            ObligationCause::new(span,
-                                 fcx.body_id,
-                                 traits::ObjectCastObligation(object_trait_ty)),
-            ty::Predicate::Trait(object_trait_ref.clone()));
+        Obligation::new(cause.clone(), object_trait_ref.as_predicate());
     fcx.register_predicate(object_obligation);
 
     // Create additional obligations for all the various builtin
@@ -270,7 +385,16 @@ pub fn register_object_cast_obligations<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         fcx.register_builtin_bound(
             referent_ty,
             builtin_bound,
-            ObligationCause::new(span, fcx.body_id, traits::ObjectCastObligation(object_trait_ty)));
+            cause.clone());
+    }
+
+    // Finally, create obligations for the projection predicates.
+    let projection_bounds =
+        object_trait.projection_bounds_with_self_ty(fcx.tcx(), referent_ty);
+    for projection_bound in projection_bounds.iter() {
+        let projection_obligation =
+            Obligation::new(cause.clone(), projection_bound.as_predicate());
+        fcx.register_predicate(projection_obligation);
     }
 
     object_trait_ref
@@ -285,199 +409,7 @@ pub fn select_all_fcx_obligations_or_error(fcx: &FnCtxt) {
                                                fcx);
     match r {
         Ok(()) => { }
-        Err(errors) => { report_fulfillment_errors(fcx, &errors); }
-    }
-}
-
-pub fn report_fulfillment_errors<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
-                                           errors: &Vec<FulfillmentError<'tcx>>) {
-    for error in errors.iter() {
-        report_fulfillment_error(fcx, error);
-    }
-}
-
-pub fn report_fulfillment_error<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
-                                          error: &FulfillmentError<'tcx>) {
-    match error.code {
-        CodeSelectionError(ref e) => {
-            report_selection_error(fcx, &error.obligation, e);
-        }
-        CodeAmbiguity => {
-            maybe_report_ambiguity(fcx, &error.obligation);
-        }
-    }
-}
-
-pub fn report_selection_error<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
-                                        obligation: &PredicateObligation<'tcx>,
-                                        error: &SelectionError<'tcx>)
-{
-    match *error {
-        Overflow => {
-            // We could track the stack here more precisely if we wanted, I imagine.
-            let predicate =
-                fcx.infcx().resolve_type_vars_if_possible(&obligation.trait_ref);
-            fcx.tcx().sess.span_err(
-                obligation.cause.span,
-                format!(
-                    "overflow evaluating the requirement `{}`",
-                    predicate.user_string(fcx.tcx())).as_slice());
-
-            let current_limit = fcx.tcx().sess.recursion_limit.get();
-            let suggested_limit = current_limit * 2;
-            fcx.tcx().sess.span_note(
-                obligation.cause.span,
-                format!(
-                    "consider adding a `#![recursion_limit=\"{}\"]` attribute to your crate",
-                    suggested_limit)[]);
-
-            note_obligation_cause(fcx, obligation);
-        }
-        Unimplemented => {
-            match obligation.trait_ref {
-                ty::Predicate::Trait(ref trait_ref) => {
-                    let trait_ref = fcx.infcx().resolve_type_vars_if_possible(&**trait_ref);
-                    if !ty::type_is_error(trait_ref.self_ty()) {
-                        fcx.tcx().sess.span_err(
-                            obligation.cause.span,
-                            format!(
-                                "the trait `{}` is not implemented for the type `{}`",
-                                trait_ref.user_string(fcx.tcx()),
-                                trait_ref.self_ty().user_string(fcx.tcx())).as_slice());
-                    }
-                }
-
-                ty::Predicate::Equate(ref predicate) => {
-                    let predicate = fcx.infcx().resolve_type_vars_if_possible(predicate);
-                    let err = fcx.infcx().equality_predicate(obligation.cause.span,
-                                                             &predicate).unwrap_err();
-                    fcx.tcx().sess.span_err(
-                        obligation.cause.span,
-                        format!(
-                            "the requirement `{}` is not satisfied (`{}`)",
-                            predicate.user_string(fcx.tcx()),
-                            ty::type_err_to_str(fcx.tcx(), &err)).as_slice());
-                }
-
-                ty::Predicate::RegionOutlives(ref predicate) => {
-                    let predicate = fcx.infcx().resolve_type_vars_if_possible(predicate);
-                    let err = fcx.infcx().region_outlives_predicate(obligation.cause.span,
-                                                                    &predicate).unwrap_err();
-                    fcx.tcx().sess.span_err(
-                        obligation.cause.span,
-                        format!(
-                            "the requirement `{}` is not satisfied (`{}`)",
-                            predicate.user_string(fcx.tcx()),
-                            ty::type_err_to_str(fcx.tcx(), &err)).as_slice());
-                }
-
-                ty::Predicate::TypeOutlives(ref predicate) => {
-                    let predicate = fcx.infcx().resolve_type_vars_if_possible(predicate);
-                    fcx.tcx().sess.span_err(
-                        obligation.cause.span,
-                        format!(
-                            "the requirement `{}` is not satisfied",
-                            predicate.user_string(fcx.tcx())).as_slice());
-                }
-            }
-
-            note_obligation_cause(fcx, obligation);
-        }
-        OutputTypeParameterMismatch(ref expected_trait_ref, ref actual_trait_ref, ref e) => {
-            let expected_trait_ref =
-                fcx.infcx().resolve_type_vars_if_possible(
-                    &**expected_trait_ref);
-            let actual_trait_ref =
-                fcx.infcx().resolve_type_vars_if_possible(
-                    &**actual_trait_ref);
-            if !ty::type_is_error(actual_trait_ref.self_ty()) {
-                fcx.tcx().sess.span_err(
-                    obligation.cause.span,
-                    format!(
-                        "type mismatch: the type `{}` implements the trait `{}`, \
-                         but the trait `{}` is required ({})",
-                        expected_trait_ref.self_ty().user_string(fcx.tcx()),
-                        expected_trait_ref.user_string(fcx.tcx()),
-                        actual_trait_ref.user_string(fcx.tcx()),
-                        ty::type_err_to_str(fcx.tcx(), e)).as_slice());
-                note_obligation_cause(fcx, obligation);
-            }
-        }
-    }
-}
-
-pub fn maybe_report_ambiguity<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
-                                        obligation: &PredicateObligation<'tcx>) {
-    // Unable to successfully determine, probably means
-    // insufficient type information, but could mean
-    // ambiguous impls. The latter *ought* to be a
-    // coherence violation, so we don't report it here.
-
-    let trait_ref = match obligation.trait_ref {
-        ty::Predicate::Trait(ref trait_ref) => {
-            fcx.infcx().resolve_type_vars_if_possible(&**trait_ref)
-        }
-        _ => {
-            fcx.tcx().sess.span_bug(
-                obligation.cause.span,
-                format!("ambiguity from something other than a trait: {}",
-                        obligation.trait_ref.repr(fcx.tcx())).as_slice());
-        }
-    };
-    let self_ty = trait_ref.self_ty();
-
-    debug!("maybe_report_ambiguity(trait_ref={}, self_ty={}, obligation={})",
-           trait_ref.repr(fcx.tcx()),
-           self_ty.repr(fcx.tcx()),
-           obligation.repr(fcx.tcx()));
-    let all_types = &trait_ref.substs().types;
-    if all_types.iter().any(|&t| ty::type_is_error(t)) {
-    } else if all_types.iter().any(|&t| ty::type_needs_infer(t)) {
-        // This is kind of a hack: it frequently happens that some earlier
-        // error prevents types from being fully inferred, and then we get
-        // a bunch of uninteresting errors saying something like "<generic
-        // #0> doesn't implement Sized".  It may even be true that we
-        // could just skip over all checks where the self-ty is an
-        // inference variable, but I was afraid that there might be an
-        // inference variable created, registered as an obligation, and
-        // then never forced by writeback, and hence by skipping here we'd
-        // be ignoring the fact that we don't KNOW the type works
-        // out. Though even that would probably be harmless, given that
-        // we're only talking about builtin traits, which are known to be
-        // inhabited. But in any case I just threw in this check for
-        // has_errors() to be sure that compilation isn't happening
-        // anyway. In that case, why inundate the user.
-        if !fcx.tcx().sess.has_errors() {
-            if fcx.ccx.tcx.lang_items.sized_trait()
-                  .map_or(false, |sized_id| sized_id == trait_ref.def_id()) {
-                fcx.tcx().sess.span_err(
-                    obligation.cause.span,
-                    format!(
-                        "unable to infer enough type information about `{}`; type annotations \
-                         required",
-                        self_ty.user_string(fcx.tcx()))[]);
-            } else {
-                fcx.tcx().sess.span_err(
-                    obligation.cause.span,
-                    format!(
-                        "unable to infer enough type information to \
-                         locate the impl of the trait `{}` for \
-                         the type `{}`; type annotations required",
-                        trait_ref.user_string(fcx.tcx()),
-                        self_ty.user_string(fcx.tcx()))[]);
-                note_obligation_cause(fcx, obligation);
-            }
-        }
-    } else if !fcx.tcx().sess.has_errors() {
-         // Ambiguity. Coherence should have reported an error.
-        fcx.tcx().sess.span_bug(
-            obligation.cause.span,
-            format!(
-                "coherence failed to report ambiguity: \
-                 cannot locate the impl of the trait `{}` for \
-                 the type `{}`",
-                trait_ref.user_string(fcx.tcx()),
-                self_ty.user_string(fcx.tcx()))[]);
+        Err(errors) => { report_fulfillment_errors(fcx.infcx(), &errors); }
     }
 }
 
@@ -490,7 +422,7 @@ pub fn select_fcx_obligations_where_possible(fcx: &FnCtxt)
         .select_where_possible(fcx.infcx(), &fcx.inh.param_env, fcx)
     {
         Ok(()) => { }
-        Err(errors) => { report_fulfillment_errors(fcx, &errors); }
+        Err(errors) => { report_fulfillment_errors(fcx.infcx(), &errors); }
     }
 }
 
@@ -504,83 +436,7 @@ pub fn select_new_fcx_obligations(fcx: &FnCtxt) {
         .select_new_obligations(fcx.infcx(), &fcx.inh.param_env, fcx)
     {
         Ok(()) => { }
-        Err(errors) => { report_fulfillment_errors(fcx, &errors); }
+        Err(errors) => { report_fulfillment_errors(fcx.infcx(), &errors); }
     }
 }
 
-fn note_obligation_cause<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
-                                   obligation: &PredicateObligation<'tcx>) {
-    let tcx = fcx.tcx();
-    match obligation.cause.code {
-        traits::MiscObligation => { }
-        traits::ItemObligation(item_def_id) => {
-            let item_name = ty::item_path_str(tcx, item_def_id);
-            tcx.sess.span_note(
-                obligation.cause.span,
-                format!(
-                    "required by `{}`",
-                    item_name).as_slice());
-        }
-        traits::ObjectCastObligation(object_ty) => {
-            tcx.sess.span_note(
-                obligation.cause.span,
-                format!(
-                    "required for the cast to the object type `{}`",
-                    fcx.infcx().ty_to_string(object_ty)).as_slice());
-        }
-        traits::RepeatVec => {
-            tcx.sess.span_note(
-                obligation.cause.span,
-                "the `Copy` trait is required because the \
-                 repeated element will be copied");
-        }
-        traits::VariableType(_) => {
-            tcx.sess.span_note(
-                obligation.cause.span,
-                "all local variables must have a statically known size");
-        }
-        traits::ReturnType => {
-            tcx.sess.span_note(
-                obligation.cause.span,
-                "the return type of a function must have a \
-                 statically known size");
-        }
-        traits::AssignmentLhsSized => {
-            tcx.sess.span_note(
-                obligation.cause.span,
-                "the left-hand-side of an assignment must have a statically known size");
-        }
-        traits::StructInitializerSized => {
-            tcx.sess.span_note(
-                obligation.cause.span,
-                "structs must have a statically known size to be initialized");
-        }
-        traits::DropTrait => {
-            span_note!(tcx.sess, obligation.cause.span,
-                      "cannot implement a destructor on a \
-                      structure or enumeration that does not satisfy Send");
-            span_help!(tcx.sess, obligation.cause.span,
-                       "use \"#[unsafe_destructor]\" on the implementation \
-                       to force the compiler to allow this");
-        }
-        traits::ClosureCapture(var_id, closure_span, builtin_bound) => {
-            let def_id = tcx.lang_items.from_builtin_kind(builtin_bound).unwrap();
-            let trait_name = ty::item_path_str(tcx, def_id);
-            let name = ty::local_var_name_str(tcx, var_id);
-            span_note!(tcx.sess, closure_span,
-                       "the closure that captures `{}` requires that all captured variables \"
-                       implement the trait `{}`",
-                       name,
-                       trait_name);
-        }
-        traits::FieldSized => {
-            span_note!(tcx.sess, obligation.cause.span,
-                       "only the last field of a struct or enum variant \
-                       may have a dynamically sized type")
-        }
-        traits::ObjectSized => {
-            span_note!(tcx.sess, obligation.cause.span,
-                       "only sized types can be made into objects");
-        }
-    }
-}

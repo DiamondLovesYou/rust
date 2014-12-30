@@ -320,9 +320,10 @@ impl<'a> Parser<'a> {
     }
 
     fn push_repeater(&mut self, c: char) -> Result<(), Error> {
-        if self.stack.len() == 0 {
-            return self.err(
-                "A repeat operator must be preceded by a valid expression.")
+        match self.stack.last() {
+            Some(&Expr(..)) => (),
+            // self.stack is empty, or the top item is not an Expr
+            _ => return self.err("A repeat operator must be preceded by a valid expression."),
         }
         let rep: Repeater = match c {
             '?' => ZeroOne, '*' => ZeroMore, '+' => OneMore,
@@ -518,8 +519,8 @@ impl<'a> Parser<'a> {
             };
         self.chari = closer;
         let greed = try!(self.get_next_greedy());
-        let inner = String::from_chars(
-            self.chars[start+1..closer]);
+        let inner = self.chars[start+1..closer].iter().cloned()
+                                               .collect::<String>();
 
         // Parse the min and max values from the regex.
         let (mut min, mut max): (uint, Option<uint>);
@@ -953,7 +954,7 @@ impl<'a> Parser<'a> {
     }
 
     fn slice(&self, start: uint, end: uint) -> String {
-        String::from_chars(self.chars[start..end])
+        self.chars[start..end].iter().cloned().collect()
     }
 }
 

@@ -8,27 +8,21 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test type checking of uses of associated types via sugary paths.
+// Test you can't use a higher-ranked trait bound inside of a qualified
+// path (just won't parse).
 
 #![feature(associated_types)]
 
-pub trait Foo {
+pub trait Foo<T> {
     type A;
+
+    fn get(&self, t: T) -> Self::A;
 }
 
-impl Foo for int {
-    type A = uint;
+fn foo2<I>(x: <I as for<'x> Foo<&'x int>>::A)
+    //~^ ERROR expected identifier, found keyword `for`
+    //~| ERROR expected one of `::` or `>`
+{
 }
 
-pub fn f1<T: Foo>(a: T, x: T::A) {}
-pub fn f2<T: Foo>(a: T) -> T::A {
-    panic!();
-}
-
-pub fn main() {
-    f1(2i, 4i); //~ERROR the trait `Foo` is not implemented
-    f1(2u, 4u); //~ERROR the trait `Foo` is not implemented
-    f1(2u, 4i); //~ERROR the trait `Foo` is not implemented
-
-    let _: int = f2(2i); //~ERROR mismatched types: expected `int`, found `uint`
-}
+pub fn main() {}

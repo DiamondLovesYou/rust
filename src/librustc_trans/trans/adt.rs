@@ -43,14 +43,13 @@
 
 #![allow(unsigned_negation)]
 
-pub use self::PointerField::*;
 pub use self::Repr::*;
 
 use std::num::Int;
 use std::rc::Rc;
 
 use llvm::{ValueRef, True, IntEQ, IntNE};
-use back::abi;
+use back::abi::FAT_PTR_ADDR;
 use middle::subst;
 use middle::subst::Subst;
 use trans::_match;
@@ -70,7 +69,6 @@ use syntax::attr::IntType;
 use util::ppaux::ty_to_string;
 
 type Hint = attr::ReprAttr;
-
 
 /// Representations.
 #[deriving(Eq, PartialEq, Show)]
@@ -101,7 +99,7 @@ pub enum Repr<'tcx> {
         nullfields: Vec<Ty<'tcx>>
     },
     /// Two cases distinguished by a nullable pointer: the case with discriminant
-    /// `nndiscr` is represented by the struct `nonnull`, where the `ptrfield`th
+    /// `nndiscr` is represented by the struct `nonnull`, where the `discrfield`th
     /// field is known to be nonnull due to its type; if that field is null, then
     /// it represents the other case, which is inhabited by at most one value
     /// (and all other fields are undefined/unused).
@@ -112,7 +110,7 @@ pub enum Repr<'tcx> {
     StructWrappedNullablePointer {
         nonnull: Struct<'tcx>,
         nndiscr: Disr,
-        ptrfield: PointerField,
+        discrfield: DiscrField,
         nullfields: Vec<Ty<'tcx>>,
     }
 }
@@ -158,23 +156,23 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_tup(ref elems) => {
             Univariant(mk_struct(cx, elems[], false, t), false)
         }
-        ty::ty_struct(def_id, ref substs) => {
+        ty::ty_struct(def_id, substs) => {
             let fields = ty::lookup_struct_fields(cx.tcx(), def_id);
             let mut ftys = fields.iter().map(|field| {
                 ty::lookup_field_type(cx.tcx(), def_id, field.id, substs)
             }).collect::<Vec<_>>();
             let packed = ty::lookup_packed(cx.tcx(), def_id);
             let dtor = ty::ty_dtor(cx.tcx(), def_id).has_drop_flag();
-            if dtor { ftys.push(ty::mk_bool()); }
+            if dtor { ftys.push(cx.tcx().types.bool); }
 
             Univariant(mk_struct(cx, ftys[], packed, t), dtor)
         }
-        ty::ty_unboxed_closure(def_id, _, ref substs) => {
+        ty::ty_unboxed_closure(def_id, _, substs) => {
             let upvars = ty::unboxed_closure_upvars(cx.tcx(), def_id, substs);
             let upvar_types = upvars.iter().map(|u| u.ty).collect::<Vec<_>>();
             Univariant(mk_struct(cx, upvar_types[], false, t), false)
         }
-        ty::ty_enum(def_id, ref substs) => {
+        ty::ty_enum(def_id, substs) => {
             let cases = get_cases(cx.tcx(), def_id, substs);
             let hint = *ty::lookup_repr_hints(cx.tcx(), def_id)[].get(0)
                 .unwrap_or(&attr::ReprAny);
@@ -185,7 +183,7 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 // Uninhabitable; represent as unit
                 // (Typechecking will reject discriminant-sizing attrs.)
                 assert_eq!(hint, attr::ReprAny);
-                let ftys = if dtor { vec!(ty::mk_bool()) } else { vec!() };
+                let ftys = if dtor { vec!(cx.tcx().types.bool) } else { vec!() };
                 return Univariant(mk_struct(cx, ftys[], false, t),
                                   dtor);
             }
@@ -217,7 +215,7 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 // (Typechecking will reject discriminant-sizing attrs.)
                 assert_eq!(hint, attr::ReprAny);
                 let mut ftys = cases[0].tys.clone();
-                if dtor { ftys.push(ty::mk_bool()); }
+                if dtor { ftys.push(cx.tcx().types.bool); }
                 return Univariant(mk_struct(cx, ftys[], false, t),
                                   dtor);
             }
@@ -230,22 +228,24 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                         let st = mk_struct(cx, cases[discr].tys[],
                                            false, t);
                         match cases[discr].find_ptr(cx) {
-                            Some(ThinPointer(_)) if st.fields.len() == 1 => {
+                            Some(ref df) if df.len() == 1 && st.fields.len() == 1 => {
                                 return RawNullablePointer {
                                     nndiscr: discr as Disr,
                                     nnty: st.fields[0],
                                     nullfields: cases[1 - discr].tys.clone()
                                 };
                             }
-                            Some(ptrfield) => {
+                            Some(mut discrfield) => {
+                                discrfield.push(0);
+                                discrfield.reverse();
                                 return StructWrappedNullablePointer {
                                     nndiscr: discr as Disr,
                                     nonnull: st,
-                                    ptrfield: ptrfield,
+                                    discrfield: discrfield,
                                     nullfields: cases[1 - discr].tys.clone()
                                 };
                             }
-                            None => { }
+                            None => {}
                         }
                     }
                     discr += 1;
@@ -261,9 +261,9 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             // Create the set of structs that represent each variant
             // Use the minimum integer type we figured out above
             let fields : Vec<_> = cases.iter().map(|c| {
-                let mut ftys = vec!(ty_of_inttype(min_ity));
+                let mut ftys = vec!(ty_of_inttype(cx.tcx(), min_ity));
                 ftys.push_all(c.tys.as_slice());
-                if dtor { ftys.push(ty::mk_bool()); }
+                if dtor { ftys.push(cx.tcx().types.bool); }
                 mk_struct(cx, ftys.as_slice(), false, t)
             }).collect();
 
@@ -314,9 +314,9 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             };
 
             let fields : Vec<_> = cases.iter().map(|c| {
-                let mut ftys = vec!(ty_of_inttype(ity));
+                let mut ftys = vec!(ty_of_inttype(cx.tcx(), ity));
                 ftys.push_all(c.tys[]);
-                if dtor { ftys.push(ty::mk_bool()); }
+                if dtor { ftys.push(cx.tcx().types.bool); }
                 mk_struct(cx, ftys[], false, t)
             }).collect();
 
@@ -335,49 +335,98 @@ struct Case<'tcx> {
     tys: Vec<Ty<'tcx>>
 }
 
+/// This represents the (GEP) indices to follow to get to the discriminant field
+pub type DiscrField = Vec<uint>;
 
-#[deriving(Copy, Eq, PartialEq, Show)]
-pub enum PointerField {
-    ThinPointer(uint),
-    FatPointer(uint)
+fn find_discr_field_candidate<'tcx>(tcx: &ty::ctxt<'tcx>,
+                                    ty: Ty<'tcx>,
+                                    mut path: DiscrField) -> Option<DiscrField> {
+    match ty.sty {
+        // Fat &T/&mut T/Box<T> i.e. T is [T], str, or Trait
+        ty::ty_rptr(_, ty::mt { ty, .. }) | ty::ty_uniq(ty) if !type_is_sized(tcx, ty) => {
+            path.push(FAT_PTR_ADDR);
+            Some(path)
+        },
+
+        // Regular thin pointer: &T/&mut T/Box<T>
+        ty::ty_rptr(..) | ty::ty_uniq(..) => Some(path),
+
+        // Functions are just pointers
+        ty::ty_bare_fn(..) => Some(path),
+
+        // Closures are a pair of pointers: the code and environment
+        ty::ty_closure(..) => {
+            path.push(FAT_PTR_ADDR);
+            Some(path)
+        },
+
+        // Is this the NonZero lang item wrapping a pointer or integer type?
+        ty::ty_struct(did, substs) if Some(did) == tcx.lang_items.non_zero() => {
+            let nonzero_fields = ty::lookup_struct_fields(tcx, did);
+            assert_eq!(nonzero_fields.len(), 1);
+            let nonzero_field = ty::lookup_field_type(tcx, did, nonzero_fields[0].id, substs);
+            match nonzero_field.sty {
+                ty::ty_ptr(..) | ty::ty_int(..) | ty::ty_uint(..) => {
+                    path.push(0);
+                    Some(path)
+                },
+                _ => None
+            }
+        },
+
+        // Perhaps one of the fields of this struct is non-zero
+        // let's recurse and find out
+        ty::ty_struct(def_id, substs) => {
+            let fields = ty::lookup_struct_fields(tcx, def_id);
+            for (j, field) in fields.iter().enumerate() {
+                let field_ty = ty::lookup_field_type(tcx, def_id, field.id, substs);
+                if let Some(mut fpath) = find_discr_field_candidate(tcx, field_ty, path.clone()) {
+                    fpath.push(j);
+                    return Some(fpath);
+                }
+            }
+            None
+        },
+
+        // Can we use one of the fields in this tuple?
+        ty::ty_tup(ref tys) => {
+            for (j, &ty) in tys.iter().enumerate() {
+                if let Some(mut fpath) = find_discr_field_candidate(tcx, ty, path.clone()) {
+                    fpath.push(j);
+                    return Some(fpath);
+                }
+            }
+            None
+        },
+
+        // Is this a fixed-size array of something non-zero
+        // with at least one element?
+        ty::ty_vec(ety, Some(d)) if d > 0 => {
+            if let Some(mut vpath) = find_discr_field_candidate(tcx, ety, path) {
+                vpath.push(0);
+                Some(vpath)
+            } else {
+                None
+            }
+        },
+
+        // Anything else is not a pointer
+        _ => None
+    }
 }
 
 impl<'tcx> Case<'tcx> {
-    fn is_zerolen<'a>(&self, cx: &CrateContext<'a, 'tcx>, scapegoat: Ty<'tcx>)
-                      -> bool {
+    fn is_zerolen<'a>(&self, cx: &CrateContext<'a, 'tcx>, scapegoat: Ty<'tcx>) -> bool {
         mk_struct(cx, self.tys[], false, scapegoat).size == 0
     }
 
-    fn find_ptr<'a>(&self, cx: &CrateContext<'a, 'tcx>) -> Option<PointerField> {
+    fn find_ptr<'a>(&self, cx: &CrateContext<'a, 'tcx>) -> Option<DiscrField> {
         for (i, &ty) in self.tys.iter().enumerate() {
-            match ty.sty {
-                // &T/&mut T/Box<T> could either be a thin or fat pointer depending on T
-                ty::ty_rptr(_, ty::mt { ty, .. }) | ty::ty_uniq(ty) => match ty.sty {
-                    // &[T] and &str are a pointer and length pair
-                    ty::ty_vec(_, None) | ty::ty_str => return Some(FatPointer(i)),
-
-                    // &Trait is a pair of pointers: the actual object and a vtable
-                    ty::ty_trait(..) => return Some(FatPointer(i)),
-
-                    ty::ty_struct(..) if !ty::type_is_sized(cx.tcx(), ty) => {
-                        return Some(FatPointer(i))
-                    }
-
-                    // Any other &T is just a pointer
-                    _ => return Some(ThinPointer(i))
-                },
-
-                // Functions are just pointers
-                ty::ty_bare_fn(..) => return Some(ThinPointer(i)),
-
-                // Closures are a pair of pointers: the code and environment
-                ty::ty_closure(..) => return Some(FatPointer(i)),
-
-                // Anything else is not a pointer
-                _ => continue
+            if let Some(mut path) = find_discr_field_candidate(cx.tcx(), ty, vec![]) {
+                path.push(i);
+                return Some(path);
             }
         }
-
         None
     }
 }
@@ -398,12 +447,12 @@ fn mk_struct<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                        tys: &[Ty<'tcx>], packed: bool,
                        scapegoat: Ty<'tcx>)
                        -> Struct<'tcx> {
-    let sized = tys.iter().all(|&ty| ty::type_is_sized(cx.tcx(), ty));
+    let sized = tys.iter().all(|&ty| type_is_sized(cx.tcx(), ty));
     let lltys : Vec<Type> = if sized {
         tys.iter()
            .map(|&ty| type_of::sizing_type_of(cx, ty)).collect()
     } else {
-        tys.iter().filter(|&ty| ty::type_is_sized(cx.tcx(), *ty))
+        tys.iter().filter(|&ty| type_is_sized(cx.tcx(), *ty))
            .map(|&ty| type_of::sizing_type_of(cx, ty)).collect()
     };
 
@@ -504,11 +553,10 @@ fn bounds_usable(cx: &CrateContext, ity: IntType, bounds: &IntBounds) -> bool {
     }
 }
 
-// FIXME(#17596) Ty<'tcx> is incorrectly invariant w.r.t 'tcx.
-pub fn ty_of_inttype<'tcx>(ity: IntType) -> Ty<'tcx> {
+pub fn ty_of_inttype<'tcx>(tcx: &ty::ctxt<'tcx>, ity: IntType) -> Ty<'tcx> {
     match ity {
-        attr::SignedInt(t) => ty::mk_mach_int(t),
-        attr::UnsignedInt(t) => ty::mk_mach_uint(t)
+        attr::SignedInt(t) => ty::mk_mach_int(tcx, t),
+        attr::UnsignedInt(t) => ty::mk_mach_uint(tcx, t)
     }
 }
 
@@ -671,7 +719,7 @@ fn generic_type_of<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 fn struct_llfields<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>, st: &Struct<'tcx>,
                              sizing: bool, dst: bool) -> Vec<Type> {
     if sizing {
-        st.fields.iter().filter(|&ty| !dst || ty::type_is_sized(cx.tcx(), *ty))
+        st.fields.iter().filter(|&ty| !dst || type_is_sized(cx.tcx(), *ty))
             .map(|&ty| type_of::sizing_type_of(cx, ty)).collect()
     } else {
         st.fields.iter().map(|&ty| type_of::type_of(cx, ty)).collect()
@@ -725,8 +773,8 @@ pub fn trans_get_discr<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, r: &Repr<'tcx>,
             val = ICmp(bcx, cmp, Load(bcx, scrutinee), C_null(llptrty));
             signed = false;
         }
-        StructWrappedNullablePointer { nndiscr, ptrfield, .. } => {
-            val = struct_wrapped_nullable_bitdiscr(bcx, nndiscr, ptrfield, scrutinee);
+        StructWrappedNullablePointer { nndiscr, ref discrfield, .. } => {
+            val = struct_wrapped_nullable_bitdiscr(bcx, nndiscr, discrfield, scrutinee);
             signed = false;
         }
     }
@@ -736,12 +784,9 @@ pub fn trans_get_discr<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, r: &Repr<'tcx>,
     }
 }
 
-fn struct_wrapped_nullable_bitdiscr(bcx: Block, nndiscr: Disr, ptrfield: PointerField,
+fn struct_wrapped_nullable_bitdiscr(bcx: Block, nndiscr: Disr, discrfield: &DiscrField,
                                     scrutinee: ValueRef) -> ValueRef {
-    let llptrptr = match ptrfield {
-        ThinPointer(field) => GEPi(bcx, scrutinee, &[0, field]),
-        FatPointer(field) => GEPi(bcx, scrutinee, &[0, field, abi::FAT_PTR_ADDR])
-    };
+    let llptrptr = GEPi(bcx, scrutinee, discrfield[]);
     let llptr = Load(bcx, llptrptr);
     let cmp = if nndiscr == 0 { IntEQ } else { IntNE };
     ICmp(bcx, cmp, llptr, C_null(val_ty(llptr)))
@@ -827,17 +872,10 @@ pub fn trans_set_discr<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, r: &Repr<'tcx>,
                 Store(bcx, C_null(llptrty), val)
             }
         }
-        StructWrappedNullablePointer { ref nonnull, nndiscr, ptrfield, .. } => {
+        StructWrappedNullablePointer { nndiscr, ref discrfield, .. } => {
             if discr != nndiscr {
-                let (llptrptr, llptrty) = match ptrfield {
-                    ThinPointer(field) =>
-                        (GEPi(bcx, val, &[0, field]),
-                         type_of::type_of(bcx.ccx(), nonnull.fields[field])),
-                    FatPointer(field) => {
-                        let v = GEPi(bcx, val, &[0, field, abi::FAT_PTR_ADDR]);
-                        (v, val_ty(v).element_type())
-                    }
-                };
+                let llptrptr = GEPi(bcx, val, discrfield[]);
+                let llptrty = val_ty(llptrptr).element_type();
                 Store(bcx, C_null(llptrty), llptrptr)
             }
         }
@@ -972,8 +1010,10 @@ pub fn fold_variants<'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
 
 /// Access the struct drop flag, if present.
 pub fn trans_drop_flag_ptr<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>, r: &Repr<'tcx>, val: ValueRef)
-                                       -> datum::DatumBlock<'blk, 'tcx, datum::Expr> {
-    let ptr_ty = ty::mk_imm_ptr(bcx.tcx(), ty::mk_bool());
+                                       -> datum::DatumBlock<'blk, 'tcx, datum::Expr>
+{
+    let tcx = bcx.tcx();
+    let ptr_ty = ty::mk_imm_ptr(bcx.tcx(), tcx.types.bool);
     match *r {
         Univariant(ref st, true) => {
             let flag_ptr = GEPi(bcx, val, &[0, st.fields.len() - 1]);
@@ -983,7 +1023,7 @@ pub fn trans_drop_flag_ptr<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>, r: &Repr<'tcx
             let fcx = bcx.fcx;
             let custom_cleanup_scope = fcx.push_custom_cleanup_scope();
             let scratch = unpack_datum!(bcx, datum::lvalue_scratch_datum(
-                bcx, ty::mk_bool(), "drop_flag", false,
+                bcx, tcx.types.bool, "drop_flag", false,
                 cleanup::CustomScope(custom_cleanup_scope), (), |_, bcx, _| bcx
             ));
             bcx = fold_variants(bcx, r, val, |variant_cx, st, value| {
@@ -1057,7 +1097,7 @@ pub fn trans_const<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, r: &Repr<'tcx>, discr
                          false)
             } else {
                 let vals = nonnull.fields.iter().map(|&ty| {
-                    // Always use null even if it's not the `ptrfield`th
+                    // Always use null even if it's not the `discrfield`th
                     // field; see #8506.
                     C_null(type_of::sizing_type_of(ccx, ty))
                 }).collect::<Vec<ValueRef>>();
@@ -1137,9 +1177,8 @@ fn padding(ccx: &CrateContext, size: u64) -> ValueRef {
 #[inline]
 fn roundup(x: u64, a: u32) -> u64 { let a = a as u64; ((x + (a - 1)) / a) * a }
 
-/// Get the discriminant of a constant value.  (Not currently used.)
-pub fn const_get_discrim(ccx: &CrateContext, r: &Repr, val: ValueRef)
-    -> Disr {
+/// Get the discriminant of a constant value.
+pub fn const_get_discrim(ccx: &CrateContext, r: &Repr, val: ValueRef) -> Disr {
     match *r {
         CEnum(ity, _, _) => {
             match ity {
@@ -1154,25 +1193,8 @@ pub fn const_get_discrim(ccx: &CrateContext, r: &Repr, val: ValueRef)
             }
         }
         Univariant(..) => 0,
-        RawNullablePointer { nndiscr, .. } => {
-            if is_null(val) {
-                /* subtraction as uint is ok because nndiscr is either 0 or 1 */
-                (1 - nndiscr) as Disr
-            } else {
-                nndiscr
-            }
-        }
-        StructWrappedNullablePointer { nndiscr, ptrfield, .. } => {
-            let (idx, sub_idx) = match ptrfield {
-                ThinPointer(field) => (field, None),
-                FatPointer(field) => (field, Some(abi::FAT_PTR_ADDR))
-            };
-            if is_null(const_struct_field(ccx, val, idx, sub_idx)) {
-                /* subtraction as uint is ok because nndiscr is either 0 or 1 */
-                (1 - nndiscr) as Disr
-            } else {
-                nndiscr
-            }
+        RawNullablePointer { .. } | StructWrappedNullablePointer { .. } => {
+            ccx.sess().bug("const discrim access of non c-like enum")
         }
     }
 }
@@ -1186,29 +1208,25 @@ pub fn const_get_field(ccx: &CrateContext, r: &Repr, val: ValueRef,
                        _discr: Disr, ix: uint) -> ValueRef {
     match *r {
         CEnum(..) => ccx.sess().bug("element access in C-like enum const"),
-        Univariant(..) => const_struct_field(ccx, val, ix, None),
-        General(..) => const_struct_field(ccx, val, ix + 1, None),
+        Univariant(..) => const_struct_field(ccx, val, ix),
+        General(..) => const_struct_field(ccx, val, ix + 1),
         RawNullablePointer { .. } => {
             assert_eq!(ix, 0);
             val
-        }
-        StructWrappedNullablePointer{ .. } => const_struct_field(ccx, val, ix, None)
+        },
+        StructWrappedNullablePointer{ .. } => const_struct_field(ccx, val, ix)
     }
 }
 
 /// Extract field of struct-like const, skipping our alignment padding.
-fn const_struct_field(ccx: &CrateContext, val: ValueRef, ix: uint, sub_idx: Option<uint>)
-    -> ValueRef {
+fn const_struct_field(ccx: &CrateContext, val: ValueRef, ix: uint) -> ValueRef {
     // Get the ix-th non-undef element of the struct.
     let mut real_ix = 0; // actual position in the struct
     let mut ix = ix; // logical index relative to real_ix
     let mut field;
     loop {
         loop {
-            field = match sub_idx {
-                Some(si) => const_get_elt(ccx, val, &[real_ix, si as u32]),
-                None => const_get_elt(ccx, val, &[real_ix])
-            };
+            field = const_get_elt(ccx, val, &[real_ix]);
             if !is_undef(field) {
                 break;
             }

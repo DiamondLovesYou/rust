@@ -41,7 +41,7 @@ use super::unify::InferCtxtMethodsForSimplyUnifiableTypes;
 
 pub struct TypeFreshener<'a, 'tcx:'a> {
     infcx: &'a InferCtxt<'a, 'tcx>,
-    freshen_count: uint,
+    freshen_count: u32,
     freshen_map: hash_map::HashMap<ty::InferTy, Ty<'tcx>>,
 }
 
@@ -59,7 +59,7 @@ impl<'a, 'tcx> TypeFreshener<'a, 'tcx> {
                   key: ty::InferTy,
                   freshener: F)
                   -> Ty<'tcx> where
-        F: FnOnce(uint) -> ty::InferTy,
+        F: FnOnce(u32) -> ty::InferTy,
     {
         match opt_ty {
             Some(ty) => { return ty.fold_with(self); }
@@ -157,6 +157,7 @@ impl<'a, 'tcx> TypeFolder<'tcx> for TypeFreshener<'a, 'tcx> {
             ty::ty_struct(..) |
             ty::ty_unboxed_closure(..) |
             ty::ty_tup(..) |
+            ty::ty_projection(..) |
             ty::ty_param(..) => {
                 ty_fold::super_fold_ty(self, t)
             }

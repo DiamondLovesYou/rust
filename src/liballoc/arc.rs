@@ -58,7 +58,7 @@
 //!     let five = five.clone();
 //!
 //!     Thread::spawn(move || {
-//!         let mut number = five.lock();
+//!         let mut number = five.lock().unwrap();
 //!
 //!         *number += 1;
 //!
@@ -76,11 +76,11 @@ use core::default::Default;
 use core::kinds::{Sync, Send};
 use core::mem::{min_align_of, size_of, drop};
 use core::mem;
+use core::nonzero::NonZero;
 use core::ops::{Drop, Deref};
 use core::option::Option;
 use core::option::Option::{Some, None};
-use core::ptr::RawPtr;
-use core::ptr;
+use core::ptr::{mod, PtrExt};
 use heap::deallocate;
 
 /// An atomically reference counted wrapper for shared state.
@@ -114,8 +114,12 @@ use heap::deallocate;
 pub struct Arc<T> {
     // FIXME #12808: strange name to try to avoid interfering with
     // field accesses of the contained type via Deref
-    _ptr: *mut ArcInner<T>,
+    _ptr: NonZero<*mut ArcInner<T>>,
 }
+
+unsafe impl<T: Sync + Send> Send for Arc<T> { }
+unsafe impl<T: Sync + Send> Sync for Arc<T> { }
+
 
 /// A weak pointer to an `Arc`.
 ///
@@ -126,8 +130,11 @@ pub struct Arc<T> {
 pub struct Weak<T> {
     // FIXME #12808: strange name to try to avoid interfering with
     // field accesses of the contained type via Deref
-    _ptr: *mut ArcInner<T>,
+    _ptr: NonZero<*mut ArcInner<T>>,
 }
+
+unsafe impl<T: Sync + Send> Send for Weak<T> { }
+unsafe impl<T: Sync + Send> Sync for Weak<T> { }
 
 struct ArcInner<T> {
     strong: atomic::AtomicUint,
@@ -135,7 +142,10 @@ struct ArcInner<T> {
     data: T,
 }
 
-impl<T: Sync + Send> Arc<T> {
+unsafe impl<T: Sync + Send> Send for ArcInner<T> {}
+unsafe impl<T: Sync + Send> Sync for ArcInner<T> {}
+
+impl<T> Arc<T> {
     /// Constructs a new `Arc<T>`.
     ///
     /// # Examples
@@ -155,7 +165,7 @@ impl<T: Sync + Send> Arc<T> {
             weak: atomic::AtomicUint::new(1),
             data: data,
         };
-        Arc { _ptr: unsafe { mem::transmute(x) } }
+        Arc { _ptr: unsafe { NonZero::new(mem::transmute(x)) } }
     }
 
     /// Downgrades the `Arc<T>` to a `Weak<T>` reference.
@@ -184,7 +194,7 @@ impl<T> Arc<T> {
         // pointer is valid. Furthermore, we know that the `ArcInner` structure itself is `Sync`
         // because the inner data is `Sync` as well, so we're ok loaning out an immutable pointer
         // to these contents.
-        unsafe { &*self._ptr }
+        unsafe { &**self._ptr }
     }
 }
 
@@ -271,7 +281,7 @@ impl<T: Send + Sync + Clone> Arc<T> {
         // pointer that will ever be returned to T. Our reference count is guaranteed to be 1 at
         // this point, and we required the Arc itself to be `mut`, so we're returning the only
         // possible reference to the inner data.
-        let inner = unsafe { &mut *self._ptr };
+        let inner = unsafe { &mut **self._ptr };
         &mut inner.data
     }
 }
@@ -306,7 +316,8 @@ impl<T: Sync + Send> Drop for Arc<T> {
     fn drop(&mut self) {
         // This structure has #[unsafe_no_drop_flag], so this drop glue may run more than once (but
         // it is guaranteed to be zeroed after the first if it's run more than once)
-        if self._ptr.is_null() { return }
+        let ptr = *self._ptr;
+        if ptr.is_null() { return }
 
         // Because `fetch_sub` is already atomic, we do not need to synchronize with other threads
         // unless we are going to delete the object. This same logic applies to the below
@@ -336,7 +347,7 @@ impl<T: Sync + Send> Drop for Arc<T> {
 
         if self.inner().weak.fetch_sub(1, atomic::Release) == 1 {
             atomic::fence(atomic::Acquire);
-            unsafe { deallocate(self._ptr as *mut u8, size_of::<ArcInner<T>>(),
+            unsafe { deallocate(ptr as *mut u8, size_of::<ArcInner<T>>(),
                                 min_align_of::<ArcInner<T>>()) }
         }
     }
@@ -376,7 +387,7 @@ impl<T: Sync + Send> Weak<T> {
     #[inline]
     fn inner(&self) -> &ArcInner<T> {
         // See comments above for why this is "safe"
-        unsafe { &*self._ptr }
+        unsafe { &**self._ptr }
     }
 }
 
@@ -432,14 +443,16 @@ impl<T: Sync + Send> Drop for Weak<T> {
     /// } // implicit drop
     /// ```
     fn drop(&mut self) {
+        let ptr = *self._ptr;
+
         // see comments above for why this check is here
-        if self._ptr.is_null() { return }
+        if ptr.is_null() { return }
 
         // If we find out that we were the last weak pointer, then its time to deallocate the data
         // entirely. See the discussion in Arc::drop() about the memory orderings
         if self.inner().weak.fetch_sub(1, atomic::Release) == 1 {
             atomic::fence(atomic::Acquire);
-            unsafe { deallocate(self._ptr as *mut u8, size_of::<ArcInner<T>>(),
+            unsafe { deallocate(ptr as *mut u8, size_of::<ArcInner<T>>(),
                                 min_align_of::<ArcInner<T>>()) }
         }
     }
@@ -587,6 +600,7 @@ mod tests {
     use std::str::Str;
     use std::sync::atomic;
     use std::task;
+    use std::kinds::Send;
     use std::vec::Vec;
     use super::{Arc, Weak, weak_count, strong_count};
     use std::sync::Mutex;
@@ -708,7 +722,7 @@ mod tests {
 
         let a = Arc::new(Cycle { x: Mutex::new(None) });
         let b = a.clone().downgrade();
-        *a.x.lock() = Some(b);
+        *a.x.lock().unwrap() = Some(b);
 
         // hopefully we don't double-free (or leak)...
     }

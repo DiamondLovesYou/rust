@@ -37,7 +37,7 @@ use util::nodemap::NodeMap;
 pub enum DefRegion {
     DefStaticRegion,
     DefEarlyBoundRegion(/* space */ subst::ParamSpace,
-                        /* index */ uint,
+                        /* index */ u32,
                         /* lifetime decl */ ast::NodeId),
     DefLateBoundRegion(ty::DebruijnIndex,
                        /* lifetime decl */ ast::NodeId),
@@ -105,7 +105,7 @@ impl<'a, 'v> Visitor<'v> for LifetimeContext<'a> {
                 ast::ItemTy(_, ref generics) |
                 ast::ItemEnum(_, ref generics) |
                 ast::ItemStruct(_, ref generics) |
-                ast::ItemTrait(_, ref generics, _, _, _) |
+                ast::ItemTrait(_, ref generics, _, _) |
                 ast::ItemImpl(_, ref generics, _, _, _) => {
                     // These kinds of items have only early bound lifetime parameters.
                     let lifetimes = &generics.lifetimes;
@@ -232,7 +232,9 @@ impl<'a, 'v> Visitor<'v> for LifetimeContext<'a> {
         }
     }
 
-    fn visit_poly_trait_ref(&mut self, trait_ref: &ast::PolyTraitRef) {
+    fn visit_poly_trait_ref(&mut self, trait_ref:
+                            &ast::PolyTraitRef,
+                            _modifier: &ast::TraitBoundModifier) {
         debug!("visit_poly_trait_ref trait_ref={}", trait_ref);
 
         self.with(LateScope(&trait_ref.bound_lifetimes, self.scope), |old_scope, this| {
@@ -508,10 +510,10 @@ impl<'a> LifetimeContext<'a> {
 
 fn search_lifetimes<'a>(lifetimes: &'a Vec<ast::LifetimeDef>,
                     lifetime_ref: &ast::Lifetime)
-                    -> Option<(uint, &'a ast::Lifetime)> {
+                    -> Option<(u32, &'a ast::Lifetime)> {
     for (i, lifetime_decl) in lifetimes.iter().enumerate() {
         if lifetime_decl.lifetime.name == lifetime_ref.name {
-            return Some((i, &lifetime_decl.lifetime));
+            return Some((i as u32, &lifetime_decl.lifetime));
         }
     }
     return None;

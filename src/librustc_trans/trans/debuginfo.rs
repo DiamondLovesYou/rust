@@ -198,6 +198,7 @@ use middle::subst::{mod, Subst, Substs};
 use trans::{mod, adt, machine, type_of};
 use trans::common::*;
 use trans::_match::{BindingInfo, TrByCopy, TrByMove, TrByRef};
+use trans::monomorphize;
 use trans::type_::Type;
 use middle::ty::{mod, Ty};
 use middle::pat_util;
@@ -216,32 +217,32 @@ use syntax::{ast, codemap, ast_util, ast_map};
 use syntax::ast_util::PostExpansionMethod;
 use syntax::parse::token::{mod, special_idents};
 
-static DW_LANG_RUST: c_uint = 0x9000;
+const DW_LANG_RUST: c_uint = 0x9000;
 
 #[allow(non_upper_case_globals)]
-static DW_TAG_auto_variable: c_uint = 0x100;
+const DW_TAG_auto_variable: c_uint = 0x100;
 #[allow(non_upper_case_globals)]
-static DW_TAG_arg_variable: c_uint = 0x101;
+const DW_TAG_arg_variable: c_uint = 0x101;
 
 #[allow(non_upper_case_globals)]
-static DW_ATE_boolean: c_uint = 0x02;
+const DW_ATE_boolean: c_uint = 0x02;
 #[allow(non_upper_case_globals)]
-static DW_ATE_float: c_uint = 0x04;
+const DW_ATE_float: c_uint = 0x04;
 #[allow(non_upper_case_globals)]
-static DW_ATE_signed: c_uint = 0x05;
+const DW_ATE_signed: c_uint = 0x05;
 #[allow(non_upper_case_globals)]
-static DW_ATE_unsigned: c_uint = 0x07;
+const DW_ATE_unsigned: c_uint = 0x07;
 #[allow(non_upper_case_globals)]
-static DW_ATE_unsigned_char: c_uint = 0x08;
+const DW_ATE_unsigned_char: c_uint = 0x08;
 
-static UNKNOWN_LINE_NUMBER: c_uint = 0;
-static UNKNOWN_COLUMN_NUMBER: c_uint = 0;
+const UNKNOWN_LINE_NUMBER: c_uint = 0;
+const UNKNOWN_COLUMN_NUMBER: c_uint = 0;
 
 // ptr::null() doesn't work :(
-static UNKNOWN_FILE_METADATA: DIFile = (0 as DIFile);
-static UNKNOWN_SCOPE_METADATA: DIScope = (0 as DIScope);
+const UNKNOWN_FILE_METADATA: DIFile = (0 as DIFile);
+const UNKNOWN_SCOPE_METADATA: DIScope = (0 as DIScope);
 
-static FLAGS_NONE: c_uint = 0;
+const FLAGS_NONE: c_uint = 0;
 
 //=-----------------------------------------------------------------------------
 //  Public Interface of debuginfo module
@@ -360,11 +361,11 @@ impl<'tcx> TypeMap<'tcx> {
             ty::ty_float(_) => {
                 push_debuginfo_type_name(cx, type_, false, &mut unique_type_id);
             },
-            ty::ty_enum(def_id, ref substs) => {
+            ty::ty_enum(def_id, substs) => {
                 unique_type_id.push_str("enum ");
                 from_def_id_and_substs(self, cx, def_id, substs, &mut unique_type_id);
             },
-            ty::ty_struct(def_id, ref substs) => {
+            ty::ty_struct(def_id, substs) => {
                 unique_type_id.push_str("struct ");
                 from_def_id_and_substs(self, cx, def_id, substs, &mut unique_type_id);
             },
@@ -426,11 +427,11 @@ impl<'tcx> TypeMap<'tcx> {
 
                 from_def_id_and_substs(self,
                                        cx,
-                                       trait_data.principal.def_id(),
-                                       trait_data.principal.substs(),
+                                       trait_data.principal_def_id(),
+                                       trait_data.principal.0.substs,
                                        &mut unique_type_id);
             },
-            ty::ty_bare_fn(_, ty::BareFnTy{ unsafety, abi, ref sig } ) => {
+            ty::ty_bare_fn(_, &ty::BareFnTy{ unsafety, abi, ref sig } ) => {
                 if unsafety == ast::Unsafety::Unsafe {
                     unique_type_id.push_str("unsafe ");
                 }
@@ -469,7 +470,7 @@ impl<'tcx> TypeMap<'tcx> {
                                                         closure_ty.clone(),
                                                         &mut unique_type_id);
             },
-            ty::ty_unboxed_closure(ref def_id, _, ref substs) => {
+            ty::ty_unboxed_closure(ref def_id, _, substs) => {
                 let closure_ty = cx.tcx().unboxed_closures.borrow()
                                    .get(def_id).unwrap().closure_type.subst(cx.tcx(), substs);
                 self.get_unique_type_id_of_closure_type(cx,
@@ -1437,7 +1438,9 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 assert_type_for_node_id(cx, fn_ast_id, error_reporting_span);
 
                 let return_type = ty::node_id_to_type(cx.tcx(), fn_ast_id);
-                let return_type = return_type.subst(cx.tcx(), param_substs);
+                let return_type = monomorphize::apply_param_substs(cx.tcx(),
+                                                                   param_substs,
+                                                                   &return_type);
                 signature.push(type_metadata(cx, return_type, codemap::DUMMY_SP));
             }
         }
@@ -1446,7 +1449,9 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         for arg in fn_decl.inputs.iter() {
             assert_type_for_node_id(cx, arg.pat.id, arg.pat.span);
             let arg_type = ty::node_id_to_type(cx.tcx(), arg.pat.id);
-            let arg_type = arg_type.subst(cx.tcx(), param_substs);
+            let arg_type = monomorphize::apply_param_substs(cx.tcx(),
+                                                            param_substs,
+                                                            &arg_type);
             signature.push(type_metadata(cx, arg_type, codemap::DUMMY_SP));
         }
 
@@ -1458,8 +1463,10 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                          param_substs: &Substs<'tcx>,
                                          file_metadata: DIFile,
                                          name_to_append_suffix_to: &mut String)
-                                         -> DIArray {
+                                         -> DIArray
+    {
         let self_type = param_substs.self_ty();
+        let self_type = monomorphize::normalize_associated_type(cx.tcx(), &self_type);
 
         // Only true for static default methods:
         let has_self_type = self_type.is_some();
@@ -2291,14 +2298,14 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
             },
             adt::StructWrappedNullablePointer { nonnull: ref struct_def,
                                                 nndiscr,
-                                                ptrfield, ..} => {
+                                                ref discrfield, ..} => {
                 // Create a description of the non-null variant
                 let (variant_type_metadata, variant_llvm_type, member_description_factory) =
                     describe_enum_variant(cx,
                                           self.enum_type,
                                           struct_def,
                                           &*(*self.variants)[nndiscr as uint],
-                                          OptimizedDiscriminant(ptrfield),
+                                          OptimizedDiscriminant,
                                           self.containing_scope,
                                           self.span);
 
@@ -2314,10 +2321,10 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                 // member's name.
                 let null_variant_index = (1 - nndiscr) as uint;
                 let null_variant_name = token::get_name((*self.variants)[null_variant_index].name);
-                let discrfield = match ptrfield {
-                    adt::ThinPointer(field) => format!("{}", field),
-                    adt::FatPointer(field) => format!("{}", field)
-                };
+                let discrfield = discrfield.iter()
+                                           .skip(1)
+                                           .map(|x| x.to_string())
+                                           .collect::<Vec<_>>().connect("$");
                 let union_member_name = format!("RUST$ENCODED$ENUM${}${}",
                                                 discrfield,
                                                 null_variant_name);
@@ -2366,7 +2373,7 @@ impl<'tcx> VariantMemberDescriptionFactory<'tcx> {
 #[deriving(Copy)]
 enum EnumDiscriminantInfo {
     RegularDiscriminant(DIType),
-    OptimizedDiscriminant(adt::PointerField),
+    OptimizedDiscriminant,
     NoDiscriminant
 }
 
@@ -2486,9 +2493,10 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 let discriminant_llvm_type = adt::ll_inttype(cx, inttype);
                 let (discriminant_size, discriminant_align) =
                     size_and_align_of(cx, discriminant_llvm_type);
-                let discriminant_base_type_metadata = type_metadata(cx,
-                                                                    adt::ty_of_inttype(inttype),
-                                                                    codemap::DUMMY_SP);
+                let discriminant_base_type_metadata =
+                    type_metadata(cx,
+                                  adt::ty_of_inttype(cx.tcx(), inttype),
+                                  codemap::DUMMY_SP);
                 let discriminant_name = get_enum_discriminant_name(cx, enum_def_id);
 
                 let discriminant_type_metadata = discriminant_name.get().with_c_str(|name| {
@@ -2796,7 +2804,7 @@ fn vec_slice_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         MemberDescription {
             name: "length".to_string(),
             llvm_type: member_llvm_types[1],
-            type_metadata: type_metadata(cx, ty::mk_uint(), span),
+            type_metadata: type_metadata(cx, cx.tcx().types.uint, span),
             offset: ComputedMemberOffset,
             flags: FLAGS_NONE
         },
@@ -2876,7 +2884,7 @@ fn trait_pointer_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     // But it does not describe the trait's methods.
 
     let def_id = match trait_type.sty {
-        ty::ty_trait(box ty::TyTrait { ref principal, .. }) => principal.def_id(),
+        ty::ty_trait(ref data) => data.principal_def_id(),
         _ => {
             let pp_type_name = ppaux::ty_to_string(cx.tcx(), trait_type);
             cx.sess().bug(format!("debuginfo: Unexpected trait-object type in \
@@ -2962,7 +2970,7 @@ fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         }
         // FIXME Can we do better than this for unsized vec/str fields?
         ty::ty_vec(typ, None) => fixed_vec_metadata(cx, unique_type_id, typ, 0, usage_site_span),
-        ty::ty_str => fixed_vec_metadata(cx, unique_type_id, ty::mk_i8(), 0, usage_site_span),
+        ty::ty_str => fixed_vec_metadata(cx, unique_type_id, cx.tcx().types.i8, 0, usage_site_span),
         ty::ty_trait(..) => {
             MetadataCreationResult::new(
                         trait_pointer_metadata(cx, t, None, unique_type_id),
@@ -2974,7 +2982,7 @@ fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                     vec_slice_metadata(cx, t, typ, unique_type_id, usage_site_span)
                 }
                 ty::ty_str => {
-                    vec_slice_metadata(cx, t, ty::mk_u8(), unique_type_id, usage_site_span)
+                    vec_slice_metadata(cx, t, cx.tcx().types.u8, unique_type_id, usage_site_span)
                 }
                 ty::ty_trait(..) => {
                     MetadataCreationResult::new(
@@ -3002,12 +3010,12 @@ fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_closure(ref closurety) => {
             subroutine_type_metadata(cx, unique_type_id, &closurety.sig, usage_site_span)
         }
-        ty::ty_unboxed_closure(ref def_id, _, ref substs) => {
+        ty::ty_unboxed_closure(ref def_id, _, substs) => {
             let sig = cx.tcx().unboxed_closures.borrow()
                         .get(def_id).unwrap().closure_type.sig.subst(cx.tcx(), substs);
             subroutine_type_metadata(cx, unique_type_id, &sig, usage_site_span)
         }
-        ty::ty_struct(def_id, ref substs) => {
+        ty::ty_struct(def_id, substs) => {
             prepare_struct_metadata(cx,
                                     t,
                                     def_id,
@@ -3532,20 +3540,14 @@ fn create_scope_map(cx: &CrateContext,
             }
 
             ast::ExprAssignOp(_, ref lhs, ref rhs) |
-            ast::ExprIndex(ref lhs, ref rhs)        |
+            ast::ExprIndex(ref lhs, ref rhs) |
             ast::ExprBinary(_, ref lhs, ref rhs)    => {
                 walk_expr(cx, &**lhs, scope_stack, scope_map);
                 walk_expr(cx, &**rhs, scope_stack, scope_map);
             }
 
-            ast::ExprSlice(ref base, ref start, ref end, _) => {
-                walk_expr(cx, &**base, scope_stack, scope_map);
-                start.as_ref().map(|x| walk_expr(cx, &**x, scope_stack, scope_map));
-                end.as_ref().map(|x| walk_expr(cx, &**x, scope_stack, scope_map));
-            }
-
             ast::ExprRange(ref start, ref end) => {
-                walk_expr(cx, &**start, scope_stack, scope_map);
+                start.as_ref().map(|e| walk_expr(cx, &**e, scope_stack, scope_map));
                 end.as_ref().map(|e| walk_expr(cx, &**e, scope_stack, scope_map));
             }
 
@@ -3762,8 +3764,8 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_uint(ast::TyU64)  => output.push_str("u64"),
         ty::ty_float(ast::TyF32) => output.push_str("f32"),
         ty::ty_float(ast::TyF64) => output.push_str("f64"),
-        ty::ty_struct(def_id, ref substs) |
-        ty::ty_enum(def_id, ref substs) => {
+        ty::ty_struct(def_id, substs) |
+        ty::ty_enum(def_id, substs) => {
             push_item_name(cx, def_id, qualified, output);
             push_type_params(cx, substs, output);
         },
@@ -3815,10 +3817,10 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             output.push(']');
         },
         ty::ty_trait(ref trait_data) => {
-            push_item_name(cx, trait_data.principal.def_id(), false, output);
-            push_type_params(cx, trait_data.principal.substs(), output);
+            push_item_name(cx, trait_data.principal_def_id(), false, output);
+            push_type_params(cx, trait_data.principal.0.substs, output);
         },
-        ty::ty_bare_fn(_, ty::BareFnTy{ unsafety, abi, ref sig } ) => {
+        ty::ty_bare_fn(_, &ty::BareFnTy{ unsafety, abi, ref sig } ) => {
             if unsafety == ast::Unsafety::Unsafe {
                 output.push_str("unsafe ");
             }
@@ -3924,9 +3926,10 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_unboxed_closure(..) => {
             output.push_str("closure");
         }
-        ty::ty_err      |
+        ty::ty_err |
         ty::ty_infer(_) |
         ty::ty_open(_) |
+        ty::ty_projection(..) |
         ty::ty_param(_) => {
             cx.sess().bug(format!("debuginfo: Trying to create type name for \
                 unexpected type: {}", ppaux::ty_to_string(cx.tcx(), t))[]);

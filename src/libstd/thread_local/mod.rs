@@ -240,11 +240,16 @@ impl<T: 'static> Key<T> {
         unsafe {
             let slot = slot.get().expect("cannot access a TLS value during or \
                                           after it is destroyed");
-            if (*slot.get()).is_none() {
-                *slot.get() = Some((self.init)());
-            }
-            f((*slot.get()).as_ref().unwrap())
+            f(match *slot.get() {
+                Some(ref inner) => inner,
+                None => self.init(slot),
+            })
         }
+    }
+
+    unsafe fn init(&self, slot: &UnsafeCell<Option<T>>) -> &T {
+        *slot.get() = Some((self.init)());
+        (*slot.get()).as_ref().unwrap()
     }
 
     /// Test this TLS key to determine whether its value has been destroyed for
@@ -279,6 +284,8 @@ mod imp {
         pub dtor_registered: UnsafeCell<bool>, // should be Cell
         pub dtor_running: UnsafeCell<bool>, // should be Cell
     }
+
+    unsafe impl<T> ::kinds::Sync for Key<T> { }
 
     #[doc(hidden)]
     impl<T> Key<T> {
@@ -409,6 +416,8 @@ mod imp {
         // OS-TLS key that we'll use to key off.
         pub os: OsStaticKey,
     }
+
+    unsafe impl<T> ::kinds::Sync for Key<T> { }
 
     struct Value<T: 'static> {
         key: &'static Key<T>,

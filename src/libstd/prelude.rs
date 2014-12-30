@@ -56,8 +56,6 @@
 
 // Reexported types and traits
 
-#[doc(no_inline)] pub use ascii::{Ascii, AsciiCast, OwnedAsciiCast, AsciiStr};
-#[doc(no_inline)] pub use ascii::IntoBytes;
 #[doc(no_inline)] pub use borrow::IntoCow;
 #[doc(no_inline)] pub use c_str::ToCStr;
 #[doc(no_inline)] pub use char::{Char, UnicodeChar};
@@ -75,7 +73,7 @@
 #[doc(no_inline)] pub use option::Option;
 #[doc(no_inline)] pub use option::Option::{Some, None};
 #[doc(no_inline)] pub use path::{GenericPath, Path, PosixPath, WindowsPath};
-#[doc(no_inline)] pub use ptr::{RawPtr, RawMutPtr};
+#[doc(no_inline)] pub use ptr::{PtrExt, MutPtrExt};
 #[doc(no_inline)] pub use result::Result;
 #[doc(no_inline)] pub use result::Result::{Ok, Err};
 #[doc(no_inline)] pub use io::{Buffer, Writer, Reader, Seek, BufferPrelude};

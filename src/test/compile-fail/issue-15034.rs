@@ -8,25 +8,25 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(associated_types)]
-
-trait Get {
-    type Value;
-    fn get(&self) -> <Self as Get>::Value;
+pub struct Lexer<'a> {
+    input: &'a str,
 }
 
-fn get(x: int) -> <int as Get>::Value {}
-//~^ ERROR unsupported
-
-struct Struct {
-    x: int,
+impl<'a> Lexer<'a> {
+    pub fn new(input: &'a str) -> Lexer<'a> {
+        Lexer { input: input }
+    }
 }
 
-impl Struct {
-    fn uhoh<T>(foo: <T as Get>::Value) {}
-    //~^ ERROR no suitable bound on `T`
+struct Parser<'a> {
+    lexer: &'a mut Lexer<'a>,
 }
 
-fn main() {
+impl<'a> Parser<'a> {
+    pub fn new(lexer: &'a mut Lexer) -> Parser<'a> {
+        Parser { lexer: lexer }
+        //~^ ERROR cannot infer an appropriate lifetime for lifetime parameter
+    }
 }
 
+fn main() {}

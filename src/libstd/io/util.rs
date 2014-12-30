@@ -51,7 +51,7 @@ impl<R: Reader> Reader for LimitReader<R> {
         }
 
         let len = cmp::min(self.limit, buf.len());
-        let res = self.inner.read(buf[mut ..len]);
+        let res = self.inner.read(buf.slice_to_mut(len));
         match res {
             Ok(len) => self.limit -= len,
             _ => {}
@@ -280,7 +280,7 @@ mod test {
     use io;
     use boxed::Box;
     use super::*;
-    use prelude::*;
+    use prelude::{Ok, range, Vec, Buffer, Writer, Reader, ToString, AsSlice};
 
     #[test]
     fn test_limit_reader_unlimited() {

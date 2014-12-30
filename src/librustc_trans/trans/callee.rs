@@ -272,14 +272,14 @@ pub fn trans_fn_pointer_shim<'a, 'tcx>(
            bare_fn_ty.repr(tcx));
 
     // This is an impl of `Fn` trait, so receiver is `&self`.
-    let bare_fn_ty_ref = ty::mk_imm_rptr(tcx, ty::ReStatic, bare_fn_ty);
+    let bare_fn_ty_ref = ty::mk_imm_rptr(tcx, tcx.mk_region(ty::ReStatic), bare_fn_ty);
 
     // Construct the "tuply" version of `bare_fn_ty`. It takes two arguments: `self`,
     // which is the fn pointer, and `args`, which is the arguments tuple.
     let (opt_def_id, input_tys, output_ty) =
         match bare_fn_ty.sty {
             ty::ty_bare_fn(opt_def_id,
-                           ty::BareFnTy { unsafety: ast::Unsafety::Normal,
+                           &ty::BareFnTy { unsafety: ast::Unsafety::Normal,
                                           abi: synabi::Rust,
                                           sig: ty::Binder(ty::FnSig { inputs: ref input_tys,
                                                                       output: output_ty,
@@ -296,14 +296,15 @@ pub fn trans_fn_pointer_shim<'a, 'tcx>(
     let tuple_input_ty = ty::mk_tup(tcx, input_tys.to_vec());
     let tuple_fn_ty = ty::mk_bare_fn(tcx,
                                      opt_def_id,
-                                     ty::BareFnTy { unsafety: ast::Unsafety::Normal,
-                                                    abi: synabi::RustCall,
-                                                    sig: ty::Binder(ty::FnSig {
-                                                        inputs: vec![bare_fn_ty_ref,
-                                                                     tuple_input_ty],
-                                                        output: output_ty,
-                                                        variadic: false
-                                                    })});
+                                     tcx.mk_bare_fn(ty::BareFnTy {
+                                         unsafety: ast::Unsafety::Normal,
+                                         abi: synabi::RustCall,
+                                         sig: ty::Binder(ty::FnSig {
+                                             inputs: vec![bare_fn_ty_ref,
+                                                          tuple_input_ty],
+                                             output: output_ty,
+                                             variadic: false
+                                         })}));
     debug!("tuple_fn_ty: {}", tuple_fn_ty.repr(tcx));
 
     //
@@ -513,8 +514,9 @@ pub fn trans_fn_ref_with_substs<'blk, 'tcx>(
         return val;
     }
 
-    // Polytype of the function item (may have type params)
-    let fn_tpt = ty::lookup_item_type(tcx, def_id);
+    // Type scheme of the function item (may have type params)
+    let fn_type_scheme = ty::lookup_item_type(tcx, def_id);
+    let fn_type = monomorphize::normalize_associated_type(tcx, &fn_type_scheme.ty);
 
     // Find the actual function pointer.
     let mut val = {
@@ -523,7 +525,7 @@ pub fn trans_fn_ref_with_substs<'blk, 'tcx>(
             get_item_val(ccx, def_id.node)
         } else {
             // External reference.
-            trans_external_path(ccx, def_id, fn_tpt.ty)
+            trans_external_path(ccx, def_id, fn_type)
         }
     };
 
@@ -550,7 +552,7 @@ pub fn trans_fn_ref_with_substs<'blk, 'tcx>(
     // This can occur on either a crate-local or crate-external
     // reference. It also occurs when testing libcore and in some
     // other weird situations. Annoying.
-    let llty = type_of::type_of_fn_from_ty(ccx, fn_tpt.ty);
+    let llty = type_of::type_of_fn_from_ty(ccx, fn_type);
     let llptrty = llty.ptr_to();
     if val_ty(val) != llptrty {
         debug!("trans_fn_ref_with_vtables(): casting pointer!");
@@ -721,7 +723,7 @@ pub fn trans_call_inner<'a, 'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
             };
             if !is_rust_fn ||
               type_of::return_uses_outptr(ccx, ret_ty) ||
-              ty::type_needs_drop(bcx.tcx(), ret_ty) {
+              type_needs_drop(bcx.tcx(), ret_ty) {
                 // Push the out-pointer if we use an out-pointer for this
                 // return type, otherwise push "undef".
                 if type_is_zero_size(ccx, ret_ty) {
@@ -778,8 +780,7 @@ pub fn trans_call_inner<'a, 'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
                                       llfn,
                                       llargs[],
                                       callee_ty,
-                                      call_info,
-                                      dest.is_none());
+                                      call_info);
         bcx = b;
         llresult = llret;
 

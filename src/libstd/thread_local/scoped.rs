@@ -62,10 +62,10 @@ pub struct Key<T> { #[doc(hidden)] pub inner: KeyInner<T> }
 #[macro_export]
 macro_rules! scoped_thread_local {
     (static $name:ident: $t:ty) => (
-        __scoped_thread_local_inner!(static $name: $t)
+        __scoped_thread_local_inner!(static $name: $t);
     );
     (pub static $name:ident: $t:ty) => (
-        __scoped_thread_local_inner!(pub static $name: $t)
+        __scoped_thread_local_inner!(pub static $name: $t);
     );
 }
 
@@ -198,9 +198,10 @@ impl<T> Key<T> {
 mod imp {
     use std::cell::UnsafeCell;
 
-    // FIXME: Should be a `Cell`, but that's not `Sync`
     #[doc(hidden)]
     pub struct KeyInner<T> { pub inner: UnsafeCell<*mut T> }
+
+    unsafe impl<T> ::kinds::Sync for KeyInner<T> { }
 
     #[doc(hidden)]
     impl<T> KeyInner<T> {
@@ -222,6 +223,8 @@ mod imp {
         pub marker: marker::InvariantType<T>,
     }
 
+    unsafe impl<T> ::kinds::Sync for KeyInner<T> { }
+
     #[doc(hidden)]
     impl<T> KeyInner<T> {
         #[doc(hidden)]
@@ -236,6 +239,8 @@ mod imp {
 mod tests {
     use cell::Cell;
     use prelude::*;
+
+    scoped_thread_local!(static FOO: uint);
 
     #[test]
     fn smoke() {
@@ -260,5 +265,17 @@ mod tests {
                 assert_eq!(slot.get(), 1);
             });
         });
+    }
+
+    #[test]
+    fn scope_item_allowed() {
+        assert!(!FOO.is_set());
+        FOO.set(&1, || {
+            assert!(FOO.is_set());
+            FOO.with(|slot| {
+                assert_eq!(*slot, 1);
+            });
+        });
+        assert!(!FOO.is_set());
     }
 }

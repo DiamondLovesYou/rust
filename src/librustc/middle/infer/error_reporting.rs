@@ -870,11 +870,11 @@ impl<'a, 'tcx> ErrorReporting<'tcx> for InferCtxt<'a, 'tcx> {
 struct RebuildPathInfo<'a> {
     path: &'a ast::Path,
     // indexes to insert lifetime on path.lifetimes
-    indexes: Vec<uint>,
+    indexes: Vec<u32>,
     // number of lifetimes we expect to see on the type referred by `path`
     // (e.g., expected=1 for struct Foo<'a>)
-    expected: uint,
-    anon_nums: &'a HashSet<uint>,
+    expected: u32,
+    anon_nums: &'a HashSet<u32>,
     region_names: &'a HashSet<ast::Name>
 }
 
@@ -885,8 +885,8 @@ struct Rebuilder<'a, 'tcx: 'a> {
     generics: &'a ast::Generics,
     same_regions: &'a [SameRegions],
     life_giver: &'a LifeGiver,
-    cur_anon: Cell<uint>,
-    inserted_anons: RefCell<HashSet<uint>>,
+    cur_anon: Cell<u32>,
+    inserted_anons: RefCell<HashSet<u32>>,
 }
 
 enum FreshOrKept {
@@ -976,7 +976,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
     }
 
     fn extract_anon_nums_and_names(&self, same_regions: &SameRegions)
-                                   -> (HashSet<uint>, HashSet<ast::Name>) {
+                                   -> (HashSet<u32>, HashSet<ast::Name>) {
         let mut anon_nums = HashSet::new();
         let mut region_names = HashSet::new();
         for br in same_regions.regions.iter() {
@@ -1008,7 +1008,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
         all_region_names
     }
 
-    fn inc_cur_anon(&self, n: uint) {
+    fn inc_cur_anon(&self, n: u32) {
         let anon = self.cur_anon.get();
         self.cur_anon.set(anon+n);
     }
@@ -1021,12 +1021,12 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
         self.cur_anon.set(anon);
     }
 
-    fn inc_and_offset_cur_anon(&self, n: uint) {
+    fn inc_and_offset_cur_anon(&self, n: u32) {
         self.inc_cur_anon(n);
         self.offset_cur_anon();
     }
 
-    fn track_anon(&self, anon: uint) {
+    fn track_anon(&self, anon: u32) {
         self.inserted_anons.borrow_mut().insert(anon);
     }
 
@@ -1043,7 +1043,6 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                 ident: ty_param.ident,
                 id: ty_param.id,
                 bounds: bounds,
-                unbound: ty_param.unbound.clone(),
                 default: ty_param.default.clone(),
                 span: ty_param.span,
             }
@@ -1063,20 +1062,20 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                     // be passing down a map.
                     ast::RegionTyParamBound(lt)
                 }
-                &ast::TraitTyParamBound(ref poly_tr) => {
+                &ast::TraitTyParamBound(ref poly_tr, modifier) => {
                     let tr = &poly_tr.trait_ref;
                     let last_seg = tr.path.segments.last().unwrap();
                     let mut insert = Vec::new();
                     let lifetimes = last_seg.parameters.lifetimes();
                     for (i, lt) in lifetimes.iter().enumerate() {
                         if region_names.contains(&lt.name) {
-                            insert.push(i);
+                            insert.push(i as u32);
                         }
                     }
                     let rebuild_info = RebuildPathInfo {
                         path: &tr.path,
                         indexes: insert,
-                        expected: lifetimes.len(),
+                        expected: lifetimes.len() as u32,
                         anon_nums: &HashSet::new(),
                         region_names: region_names
                     };
@@ -1087,7 +1086,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                             path: new_path,
                             ref_id: tr.ref_id,
                         }
-                    })
+                    }, modifier)
                 }
             }
         })
@@ -1096,7 +1095,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
     fn rebuild_expl_self(&self,
                          expl_self_opt: Option<ast::ExplicitSelf_>,
                          lifetime: ast::Lifetime,
-                         anon_nums: &HashSet<uint>,
+                         anon_nums: &HashSet<u32>,
                          region_names: &HashSet<ast::Name>)
                          -> Option<ast::ExplicitSelf_> {
         match expl_self_opt {
@@ -1150,7 +1149,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
     fn rebuild_args_ty(&self,
                        inputs: &[ast::Arg],
                        lifetime: ast::Lifetime,
-                       anon_nums: &HashSet<uint>,
+                       anon_nums: &HashSet<u32>,
                        region_names: &HashSet<ast::Name>)
                        -> Vec<ast::Arg> {
         let mut new_inputs = Vec::new();
@@ -1169,7 +1168,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
 
     fn rebuild_output(&self, ty: &ast::FunctionRetTy,
                       lifetime: ast::Lifetime,
-                      anon_nums: &HashSet<uint>,
+                      anon_nums: &HashSet<u32>,
                       region_names: &HashSet<ast::Name>) -> ast::FunctionRetTy {
         match *ty {
             ast::Return(ref ret_ty) => ast::Return(
@@ -1182,7 +1181,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
     fn rebuild_arg_ty_or_output(&self,
                                 ty: &ast::Ty,
                                 lifetime: ast::Lifetime,
-                                anon_nums: &HashSet<uint>,
+                                anon_nums: &HashSet<u32>,
                                 region_names: &HashSet<ast::Name>)
                                 -> P<ast::Ty> {
         let mut new_ty = P(ty.clone());
@@ -1229,7 +1228,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                             let generics = ty::lookup_item_type(self.tcx, did).generics;
 
                             let expected =
-                                generics.regions.len(subst::TypeSpace);
+                                generics.regions.len(subst::TypeSpace) as u32;
                             let lifetimes =
                                 path.segments.last().unwrap().parameters.lifetimes();
                             let mut insert = Vec::new();
@@ -1238,7 +1237,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                                 for (i, a) in range(anon,
                                                     anon+expected).enumerate() {
                                     if anon_nums.contains(&a) {
-                                        insert.push(i);
+                                        insert.push(i as u32);
                                     }
                                     self.track_anon(a);
                                 }
@@ -1246,7 +1245,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                             } else {
                                 for (i, lt) in lifetimes.iter().enumerate() {
                                     if region_names.contains(&lt.name) {
-                                        insert.push(i);
+                                        insert.push(i as u32);
                                     }
                                 }
                             }
@@ -1363,7 +1362,7 @@ impl<'a, 'tcx> Rebuilder<'a, 'tcx> {
                     }
                 } else {
                     for (i, lt) in data.lifetimes.iter().enumerate() {
-                        if indexes.contains(&i) {
+                        if indexes.contains(&(i as u32)) {
                             new_lts.push(lifetime);
                         } else {
                             new_lts.push(*lt);
@@ -1437,6 +1436,11 @@ impl<'a, 'tcx> ErrorReportingHelpers<'tcx> for InferCtxt<'a, 'tcx> {
             infer::LateBoundRegion(_, br, infer::HigherRankedType) => {
                 format!(" for {}in generic type",
                         bound_region_to_string(self.tcx, "lifetime parameter ", true, br))
+            }
+            infer::LateBoundRegion(_, br, infer::AssocTypeProjection(type_name)) => {
+                format!(" for {}in trait containing associated type `{}`",
+                        bound_region_to_string(self.tcx, "lifetime parameter ", true, br),
+                        token::get_name(type_name))
             }
             infer::EarlyBoundRegion(_, name) => {
                 format!(" for lifetime parameter `{}`",
@@ -1662,13 +1666,16 @@ impl<'tcx> Resolvable<'tcx> for Rc<ty::TraitRef<'tcx>> {
     }
 }
 
-impl<'tcx> Resolvable<'tcx> for Rc<ty::PolyTraitRef<'tcx>> {
-    fn resolve<'a>(&self, infcx: &InferCtxt<'a, 'tcx>)
-                   -> Rc<ty::PolyTraitRef<'tcx>> {
-        Rc::new(infcx.resolve_type_vars_if_possible(&**self))
+impl<'tcx> Resolvable<'tcx> for ty::PolyTraitRef<'tcx> {
+    fn resolve<'a>(&self,
+                   infcx: &InferCtxt<'a, 'tcx>)
+                   -> ty::PolyTraitRef<'tcx>
+    {
+        infcx.resolve_type_vars_if_possible(self)
     }
+
     fn contains_error(&self) -> bool {
-        ty::trait_ref_contains_error(&self.0)
+        ty::trait_ref_contains_error(&*self.0)
     }
 }
 

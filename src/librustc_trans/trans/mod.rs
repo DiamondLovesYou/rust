@@ -61,6 +61,9 @@ pub struct ModuleTranslation {
     pub name: Option<String>,
 }
 
+unsafe impl Send for ModuleTranslation { }
+unsafe impl Sync for ModuleTranslation { }
+
 pub struct CrateTranslation {
     pub modules: Vec<ModuleTranslation>,
     pub metadata_module: ModuleTranslation,

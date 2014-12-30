@@ -28,7 +28,7 @@ use rustc_typeck::middle::infer::glb::Glb;
 use rustc_typeck::middle::infer::sub::Sub;
 use rustc_typeck::util::ppaux::{ty_to_string, Repr, UserString};
 use rustc::session::{mod,config};
-use syntax::{abi, ast, ast_map, ast_util};
+use syntax::{abi, ast, ast_map};
 use syntax::codemap;
 use syntax::codemap::{Span, CodeMap, DUMMY_SP};
 use syntax::diagnostic::{Level, RenderSpan, Bug, Fatal, Error, Warning, Note, Help};
@@ -123,13 +123,13 @@ fn test_env<F>(source_string: &str,
     // run just enough stuff to build a tcx:
     let lang_items = lang_items::collect_language_items(krate, &sess);
     let resolve::CrateMap { def_map, freevars, capture_mode_map, .. } =
-        resolve::resolve_crate(&sess, &lang_items, krate);
+        resolve::resolve_crate(&sess, &ast_map, &lang_items, krate, resolve::MakeGlobMap::No);
     let named_region_map = resolve_lifetime::krate(&sess, krate, &def_map);
     let region_map = region::resolve_crate(&sess, krate);
     let stability_index = stability::Index::build(krate);
-    let type_arena = TypedArena::new();
+    let arenas = ty::CtxtArenas::new();
     let tcx = ty::mk_ctxt(sess,
-                          &type_arena,
+                          &arenas,
                           def_map,
                           named_region_map,
                           ast_map,
@@ -145,6 +145,10 @@ fn test_env<F>(source_string: &str,
 }
 
 impl<'a, 'tcx> Env<'a, 'tcx> {
+    pub fn tcx(&self) -> &ty::ctxt<'tcx> {
+        self.infcx.tcx
+    }
+
     pub fn create_region_hierarchy(&self, rh: &RH) {
         for child_rh in rh.sub.iter() {
             self.create_region_hierarchy(child_rh);
@@ -256,7 +260,7 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
         let input_args = input_tys.iter().map(|ty| *ty).collect();
         ty::mk_bare_fn(self.infcx.tcx,
                        None,
-                       ty::BareFnTy {
+                       self.infcx.tcx.mk_bare_fn(ty::BareFnTy {
                            unsafety: ast::Unsafety::Normal,
                            abi: abi::Rust,
                            sig: ty::Binder(ty::FnSig {
@@ -264,7 +268,7 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
                                output: ty::FnConverging(output_ty),
                                variadic: false
                            })
-                       })
+                       }))
     }
 
     pub fn t_nil(&self) -> Ty<'tcx> {
@@ -295,13 +299,14 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
         })
     }
 
-    pub fn t_param(&self, space: subst::ParamSpace, index: uint) -> Ty<'tcx> {
-        ty::mk_param(self.infcx.tcx, space, index, ast_util::local_def(ast::DUMMY_NODE_ID))
+    pub fn t_param(&self, space: subst::ParamSpace, index: u32) -> Ty<'tcx> {
+        let name = format!("T{}", index);
+        ty::mk_param(self.infcx.tcx, space, index, token::intern(name[]))
     }
 
     pub fn re_early_bound(&self,
                           space: subst::ParamSpace,
-                          index: uint,
+                          index: u32,
                           name: &'static str)
                           -> ty::Region
     {
@@ -309,48 +314,59 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
         ty::ReEarlyBound(ast::DUMMY_NODE_ID, space, index, name)
     }
 
-    pub fn re_late_bound_with_debruijn(&self, id: uint, debruijn: ty::DebruijnIndex) -> ty::Region {
+    pub fn re_late_bound_with_debruijn(&self, id: u32, debruijn: ty::DebruijnIndex) -> ty::Region {
         ty::ReLateBound(debruijn, ty::BrAnon(id))
     }
 
     pub fn t_rptr(&self, r: ty::Region) -> Ty<'tcx> {
-        ty::mk_imm_rptr(self.infcx.tcx, r, ty::mk_int())
+        ty::mk_imm_rptr(self.infcx.tcx,
+                        self.infcx.tcx.mk_region(r),
+                        self.tcx().types.int)
     }
 
-    pub fn t_rptr_late_bound(&self, id: uint) -> Ty<'tcx> {
+    pub fn t_rptr_late_bound(&self, id: u32) -> Ty<'tcx> {
+        let r = self.re_late_bound_with_debruijn(id, ty::DebruijnIndex::new(1));
         ty::mk_imm_rptr(self.infcx.tcx,
-                        self.re_late_bound_with_debruijn(id, ty::DebruijnIndex::new(1)),
-                        ty::mk_int())
+                        self.infcx.tcx.mk_region(r),
+                        self.tcx().types.int)
     }
 
     pub fn t_rptr_late_bound_with_debruijn(&self,
-                                           id: uint,
+                                           id: u32,
                                            debruijn: ty::DebruijnIndex)
                                            -> Ty<'tcx> {
+        let r = self.re_late_bound_with_debruijn(id, debruijn);
         ty::mk_imm_rptr(self.infcx.tcx,
-                        self.re_late_bound_with_debruijn(id, debruijn),
-                        ty::mk_int())
+                        self.infcx.tcx.mk_region(r),
+                        self.tcx().types.int)
     }
 
     pub fn t_rptr_scope(&self, id: ast::NodeId) -> Ty<'tcx> {
-        ty::mk_imm_rptr(self.infcx.tcx, ty::ReScope(CodeExtent::from_node_id(id)), ty::mk_int())
+        let r = ty::ReScope(CodeExtent::from_node_id(id));
+        ty::mk_imm_rptr(self.infcx.tcx, self.infcx.tcx.mk_region(r),
+                        self.tcx().types.int)
     }
 
-    pub fn re_free(&self, nid: ast::NodeId, id: uint) -> ty::Region {
+    pub fn re_free(&self, nid: ast::NodeId, id: u32) -> ty::Region {
         ty::ReFree(ty::FreeRegion { scope: CodeExtent::from_node_id(nid),
                                     bound_region: ty::BrAnon(id)})
     }
 
-    pub fn t_rptr_free(&self, nid: ast::NodeId, id: uint) -> Ty<'tcx> {
-        ty::mk_imm_rptr(self.infcx.tcx, self.re_free(nid, id), ty::mk_int())
+    pub fn t_rptr_free(&self, nid: ast::NodeId, id: u32) -> Ty<'tcx> {
+        let r = self.re_free(nid, id);
+        ty::mk_imm_rptr(self.infcx.tcx,
+                        self.infcx.tcx.mk_region(r),
+                        self.tcx().types.int)
     }
 
     pub fn t_rptr_static(&self) -> Ty<'tcx> {
-        ty::mk_imm_rptr(self.infcx.tcx, ty::ReStatic, ty::mk_int())
+        ty::mk_imm_rptr(self.infcx.tcx,
+                        self.infcx.tcx.mk_region(ty::ReStatic),
+                        self.tcx().types.int)
     }
 
     pub fn dummy_type_trace(&self) -> infer::TypeTrace<'tcx> {
-        infer::TypeTrace::dummy()
+        infer::TypeTrace::dummy(self.tcx())
     }
 
     pub fn sub(&self) -> Sub<'a, 'tcx> {
@@ -476,8 +492,8 @@ fn sub_free_bound_false() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_free1 = env.t_rptr_free(0, 1);
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
-        env.check_not_sub(env.t_fn(&[t_rptr_free1], ty::mk_int()),
-                          env.t_fn(&[t_rptr_bound1], ty::mk_int()));
+        env.check_not_sub(env.t_fn(&[t_rptr_free1], env.tcx().types.int),
+                          env.t_fn(&[t_rptr_bound1], env.tcx().types.int));
     })
 }
 
@@ -492,8 +508,8 @@ fn sub_bound_free_true() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_free1 = env.t_rptr_free(0, 1);
-        env.check_sub(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_free1], ty::mk_int()));
+        env.check_sub(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_free1], env.tcx().types.int));
     })
 }
 
@@ -508,8 +524,8 @@ fn sub_free_bound_false_infer() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_infer1 = env.infcx.next_ty_var();
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
-        env.check_not_sub(env.t_fn(&[t_infer1], ty::mk_int()),
-                          env.t_fn(&[t_rptr_bound1], ty::mk_int()));
+        env.check_not_sub(env.t_fn(&[t_infer1], env.tcx().types.int),
+                          env.t_fn(&[t_rptr_bound1], env.tcx().types.int));
     })
 }
 
@@ -527,9 +543,9 @@ fn lub_free_bound_infer() {
         let t_infer1 = env.infcx.next_ty_var();
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_free1 = env.t_rptr_free(0, 1);
-        env.check_lub(env.t_fn(&[t_infer1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_free1], ty::mk_int()));
+        env.check_lub(env.t_fn(&[t_infer1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_free1], env.tcx().types.int));
     });
 }
 
@@ -538,9 +554,9 @@ fn lub_bound_bound() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_bound2 = env.t_rptr_late_bound(2);
-        env.check_lub(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound2], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound1], ty::mk_int()));
+        env.check_lub(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound2], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound1], env.tcx().types.int));
     })
 }
 
@@ -549,9 +565,9 @@ fn lub_bound_free() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_free1 = env.t_rptr_free(0, 1);
-        env.check_lub(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_free1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_free1], ty::mk_int()));
+        env.check_lub(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_free1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_free1], env.tcx().types.int));
     })
 }
 
@@ -560,9 +576,9 @@ fn lub_bound_static() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_static = env.t_rptr_static();
-        env.check_lub(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_static], ty::mk_int()),
-                      env.t_fn(&[t_rptr_static], ty::mk_int()));
+        env.check_lub(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_static], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_static], env.tcx().types.int));
     })
 }
 
@@ -583,9 +599,9 @@ fn lub_free_free() {
         let t_rptr_free1 = env.t_rptr_free(0, 1);
         let t_rptr_free2 = env.t_rptr_free(0, 2);
         let t_rptr_static = env.t_rptr_static();
-        env.check_lub(env.t_fn(&[t_rptr_free1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_free2], ty::mk_int()),
-                      env.t_fn(&[t_rptr_static], ty::mk_int()));
+        env.check_lub(env.t_fn(&[t_rptr_free1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_free2], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_static], env.tcx().types.int));
     })
 }
 
@@ -608,9 +624,9 @@ fn glb_free_free_with_common_scope() {
         let t_rptr_free1 = env.t_rptr_free(0, 1);
         let t_rptr_free2 = env.t_rptr_free(0, 2);
         let t_rptr_scope = env.t_rptr_scope(0);
-        env.check_glb(env.t_fn(&[t_rptr_free1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_free2], ty::mk_int()),
-                      env.t_fn(&[t_rptr_scope], ty::mk_int()));
+        env.check_glb(env.t_fn(&[t_rptr_free1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_free2], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_scope], env.tcx().types.int));
     })
 }
 
@@ -619,9 +635,9 @@ fn glb_bound_bound() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_bound2 = env.t_rptr_late_bound(2);
-        env.check_glb(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound2], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound1], ty::mk_int()));
+        env.check_glb(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound2], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound1], env.tcx().types.int));
     })
 }
 
@@ -630,9 +646,9 @@ fn glb_bound_free() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_free1 = env.t_rptr_free(0, 1);
-        env.check_glb(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_free1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound1], ty::mk_int()));
+        env.check_glb(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_free1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound1], env.tcx().types.int));
     })
 }
 
@@ -644,9 +660,9 @@ fn glb_bound_free_infer() {
 
         // compute GLB(fn(_) -> int, for<'b> fn(&'b int) -> int),
         // which should yield for<'b> fn(&'b int) -> int
-        env.check_glb(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_infer1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound1], ty::mk_int()));
+        env.check_glb(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_infer1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound1], env.tcx().types.int));
 
         // as a side-effect, computing GLB should unify `_` with
         // `&'_ int`
@@ -663,9 +679,9 @@ fn glb_bound_static() {
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let t_rptr_bound1 = env.t_rptr_late_bound(1);
         let t_rptr_static = env.t_rptr_static();
-        env.check_glb(env.t_fn(&[t_rptr_bound1], ty::mk_int()),
-                      env.t_fn(&[t_rptr_static], ty::mk_int()),
-                      env.t_fn(&[t_rptr_bound1], ty::mk_int()));
+        env.check_glb(env.t_fn(&[t_rptr_bound1], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_static], env.tcx().types.int),
+                      env.t_fn(&[t_rptr_bound1], env.tcx().types.int));
     })
 }
 
@@ -786,7 +802,6 @@ fn escaping() {
 /// late-bound region.
 #[test]
 fn subst_region_renumber_region() {
-
     test_env(EMPTY_SOURCE_STR, errors(&[]), |env| {
         let re_bound1 = env.re_late_bound_with_debruijn(1, ty::DebruijnIndex::new(1));
 
@@ -816,4 +831,3 @@ fn subst_region_renumber_region() {
         assert_eq!(t_substituted, t_expected);
     })
 }
-

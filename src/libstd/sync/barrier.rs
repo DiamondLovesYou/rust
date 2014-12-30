@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use kinds::{Send, Sync};
 use sync::{Mutex, Condvar};
 
 /// A barrier enables multiple tasks to synchronize the beginning
@@ -35,11 +36,17 @@ pub struct Barrier {
     num_threads: uint,
 }
 
+unsafe impl Send for Barrier {}
+unsafe impl Sync for Barrier {}
+
 // The inner state of a double barrier
 struct BarrierState {
     count: uint,
     generation_id: uint,
 }
+
+unsafe impl Send for BarrierState {}
+unsafe impl Sync for BarrierState {}
 
 impl Barrier {
     /// Create a new barrier that can block a given number of threads.
@@ -62,7 +69,7 @@ impl Barrier {
     /// Barriers are re-usable after all threads have rendezvoused once, and can
     /// be used continuously.
     pub fn wait(&self) {
-        let mut lock = self.lock.lock();
+        let mut lock = self.lock.lock().unwrap();
         let local_gen = lock.generation_id;
         lock.count += 1;
         if lock.count < self.num_threads {
@@ -70,7 +77,7 @@ impl Barrier {
             // http://en.wikipedia.org/wiki/Spurious_wakeup
             while local_gen == lock.generation_id &&
                   lock.count < self.num_threads {
-                self.cvar.wait(&lock);
+                lock = self.cvar.wait(lock).unwrap();
             }
         } else {
             lock.count = 0;

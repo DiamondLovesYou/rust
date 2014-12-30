@@ -31,6 +31,8 @@ use visit::Visitor;
 use parse::token;
 
 use std::slice;
+use std::ascii::AsciiExt;
+
 
 // if you change this list without updating src/doc/reference.md, @cmr will be sad
 static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
@@ -305,10 +307,10 @@ impl<'a, 'v> Visitor<'v> for Context<'a> {
 
     fn visit_expr(&mut self, e: &ast::Expr) {
         match e.node {
-            ast::ExprSlice(..) => {
+            ast::ExprRange(..) => {
                 self.gate_feature("slicing_syntax",
                                   e.span,
-                                  "slicing syntax is experimental");
+                                  "range syntax is experimental");
             }
             _ => {}
         }

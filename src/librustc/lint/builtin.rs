@@ -817,7 +817,7 @@ impl NonCamelCaseTypes {
         fn is_camel_case(ident: ast::Ident) -> bool {
             let ident = token::get_ident(ident);
             if ident.get().is_empty() { return true; }
-            let ident = ident.get().trim_chars('_');
+            let ident = ident.get().trim_matches('_');
 
             // start with a non-lowercase letter rather than non-uppercase
             // ones (some scripts don't have a concept of upper/lowercase)
@@ -940,8 +940,8 @@ impl NonSnakeCase {
         fn is_snake_case(ident: ast::Ident) -> bool {
             let ident = token::get_ident(ident);
             if ident.get().is_empty() { return true; }
-            let ident = ident.get().trim_left_chars('\'');
-            let ident = ident.trim_chars('_');
+            let ident = ident.get().trim_left_matches('\'');
+            let ident = ident.trim_matches('_');
 
             let mut allow_underscore = true;
             ident.chars().all(|c| {
@@ -1598,7 +1598,7 @@ impl LintPass for MissingCopyImplementations {
                 }
                 ty::mk_struct(cx.tcx,
                               ast_util::local_def(item.id),
-                              Substs::empty())
+                              cx.tcx.mk_substs(Substs::empty()))
             }
             ast::ItemEnum(_, ref ast_generics) => {
                 if ast_generics.is_parameterized() {
@@ -1606,7 +1606,7 @@ impl LintPass for MissingCopyImplementations {
                 }
                 ty::mk_enum(cx.tcx,
                             ast_util::local_def(item.id),
-                            Substs::empty())
+                            cx.tcx.mk_substs(Substs::empty()))
             }
             _ => return,
         };
@@ -1782,9 +1782,9 @@ impl LintPass for Stability {
         if self.is_internal(cx, item.span) { return }
 
         match item.node {
-            ast::ItemTrait(_, _, _, ref supertraits, _) => {
+            ast::ItemTrait(_, _, ref supertraits, _) => {
                 for t in supertraits.iter() {
-                    if let ast::TraitTyParamBound(ref t) = *t {
+                    if let ast::TraitTyParamBound(ref t, _) = *t {
                         let id = ty::trait_ref_to_def_id(cx.tcx, &t.trait_ref);
                         self.lint(cx, id, t.trait_ref.path.span);
                     }

@@ -258,7 +258,7 @@ fn print(w: &mut Writer, idx: int, addr: *mut libc::c_void) -> IoResult<()> {
     use iter::{Iterator, IteratorExt};
     use os;
     use path::GenericPath;
-    use ptr::RawPtr;
+    use ptr::PtrExt;
     use ptr;
     use slice::SliceExt;
 

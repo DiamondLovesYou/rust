@@ -71,7 +71,7 @@ pub fn check_crate(tcx: &ty::ctxt) {
     };
     {
         let param_env = ty::empty_parameter_environment();
-        let visitor = euv::ExprUseVisitor::new(&mut checker, tcx, param_env);
+        let visitor = euv::ExprUseVisitor::new(&mut checker, tcx, &param_env);
         visit::walk_crate(&mut GlobalVisitor(visitor), tcx.map.krate());
     }
     visit::walk_crate(&mut CheckStaticVisitor {
@@ -119,12 +119,14 @@ impl<'a, 'tcx> CheckStaticVisitor<'a, 'tcx> {
         let ty = ty::node_id_to_type(self.tcx, e.id);
         let infcx = infer::new_infer_ctxt(self.tcx);
         let mut fulfill_cx = traits::FulfillmentContext::new();
-        fulfill_cx.register_builtin_bound(self.tcx, ty, ty::BoundSync,
-                                          traits::ObligationCause::dummy());
+        let cause = traits::ObligationCause::new(e.span, e.id, traits::SharedStatic);
+        fulfill_cx.register_builtin_bound(&infcx, ty, ty::BoundSync, cause);
         let env = ty::empty_parameter_environment();
-        if !fulfill_cx.select_all_or_error(&infcx, &env, self.tcx).is_ok() {
-            self.tcx.sess.span_err(e.span, "shared static items must have a \
-                                            type which implements Sync");
+        match fulfill_cx.select_all_or_error(&infcx, &env, self.tcx) {
+            Ok(()) => { },
+            Err(ref errors) => {
+                traits::report_fulfillment_errors(&infcx, errors);
+            }
         }
     }
 }

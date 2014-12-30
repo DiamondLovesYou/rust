@@ -24,16 +24,15 @@ use core::iter::{Filter, AdditiveIterator};
 use core::mem;
 use core::num::Int;
 use core::slice;
-use core::str::CharSplits;
+use core::str::Split;
 
 use u_char::UnicodeChar;
 use tables::grapheme::GraphemeCat;
 
 /// An iterator over the words of a string, separated by a sequence of whitespace
-/// FIXME: This should be opaque
 #[stable]
 pub struct Words<'a> {
-    inner: Filter<&'a str, CharSplits<'a, fn(char) -> bool>, fn(&&str) -> bool>,
+    inner: Filter<&'a str, Split<'a, fn(char) -> bool>, fn(&&str) -> bool>,
 }
 
 /// Methods for Unicode string slices
@@ -90,12 +89,12 @@ impl UnicodeStr for str {
 
     #[inline]
     fn trim_left(&self) -> &str {
-        self.trim_left_chars(|&: c: char| c.is_whitespace())
+        self.trim_left_matches(|&: c: char| c.is_whitespace())
     }
 
     #[inline]
     fn trim_right(&self) -> &str {
-        self.trim_right_chars(|&: c: char| c.is_whitespace())
+        self.trim_right_matches(|&: c: char| c.is_whitespace())
     }
 }
 
@@ -522,7 +521,7 @@ impl<I> Iterator<u16> for Utf16Encoder<I> where I: Iterator<char> {
 
         let mut buf = [0u16, ..2];
         self.chars.next().map(|ch| {
-            let n = ch.encode_utf16(buf[mut]).unwrap_or(0);
+            let n = ch.encode_utf16(buf.as_mut_slice()).unwrap_or(0);
             if n == 2 { self.extra = buf[1]; }
             buf[0]
         })

@@ -39,7 +39,7 @@ use back::abi;
 use llvm::{mod, ValueRef};
 use middle::def;
 use middle::mem_categorization::Typer;
-use middle::subst::{mod, Subst, Substs};
+use middle::subst::{mod, Substs};
 use trans::{_match, adt, asm, base, callee, closure, consts, controlflow};
 use trans::base::*;
 use trans::build::*;
@@ -280,7 +280,7 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                expr.repr(bcx.tcx()),
                datum.to_string(bcx.ccx()));
 
-        if !ty::type_is_sized(bcx.tcx(), datum.ty) {
+        if !type_is_sized(bcx.tcx(), datum.ty) {
             debug!("Taking address of unsized type {}",
                    bcx.ty_to_string(datum.ty));
             ref_fat_ptr(bcx, expr, datum)
@@ -319,11 +319,13 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                           bcx.ty_to_string(unadjusted_ty))[])
             },
             &ty::UnsizeVtable(ty::TyTrait { ref principal, .. }, _) => {
-                let substs = principal.substs().with_self_ty(unadjusted_ty).erase_regions();
+                // Note that we preserve binding levels here:
+                let substs = principal.0.substs.with_self_ty(unadjusted_ty).erase_regions();
+                let substs = bcx.tcx().mk_substs(substs);
                 let trait_ref =
-                    Rc::new(ty::Binder(ty::TraitRef { def_id: principal.def_id(),
+                    ty::Binder(Rc::new(ty::TraitRef { def_id: principal.def_id(),
                                                       substs: substs }));
-                let trait_ref = trait_ref.subst(bcx.tcx(), bcx.fcx.param_substs);
+                let trait_ref = bcx.monomorphize(&trait_ref);
                 let box_ty = mk_ty(unadjusted_ty);
                 PointerCast(bcx,
                             meth::get_vtable(bcx, box_ty, trait_ref),
@@ -350,7 +352,7 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                               expr.id,
                                               datum_ty,
                                               |t| ty::mk_rptr(tcx,
-                                                              ty::ReStatic,
+                                                              tcx.mk_region(ty::ReStatic),
                                                               ty::mt{
                                                                   ty: t,
                                                                   mutbl: ast::MutImmutable
@@ -585,36 +587,40 @@ fn trans_datum_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             trans_rec_tup_field(bcx, &**base, idx.node)
         }
         ast::ExprIndex(ref base, ref idx) => {
-            trans_index(bcx, expr, &**base, &**idx, MethodCall::expr(expr.id))
-        }
-        ast::ExprSlice(ref base, ref start, ref end, _) => {
-            let _icx = push_ctxt("trans_slice");
-            let ccx = bcx.ccx();
+            match idx.node {
+                ast::ExprRange(ref start, ref end) => {
+                    // Special case for slicing syntax (KILLME).
+                    let _icx = push_ctxt("trans_slice");
+                    let ccx = bcx.ccx();
 
-            let method_call = MethodCall::expr(expr.id);
-            let method_ty = ccx.tcx()
-                               .method_map
-                               .borrow()
-                               .get(&method_call)
-                               .map(|method| method.ty);
-            let base_datum = unpack_datum!(bcx, trans(bcx, &**base));
+                    let method_call = MethodCall::expr(expr.id);
+                    let method_ty = ccx.tcx()
+                                       .method_map
+                                       .borrow()
+                                       .get(&method_call)
+                                       .map(|method| method.ty);
+                    let base_datum = unpack_datum!(bcx, trans(bcx, &**base));
 
-            let mut args = vec![];
-            start.as_ref().map(|e| args.push((unpack_datum!(bcx, trans(bcx, &**e)), e.id)));
-            end.as_ref().map(|e| args.push((unpack_datum!(bcx, trans(bcx, &**e)), e.id)));
+                    let mut args = vec![];
+                    start.as_ref().map(|e| args.push((unpack_datum!(bcx, trans(bcx, &**e)), e.id)));
+                    end.as_ref().map(|e| args.push((unpack_datum!(bcx, trans(bcx, &**e)), e.id)));
 
-            let result_ty = ty::ty_fn_ret(monomorphize_type(bcx, method_ty.unwrap())).unwrap();
-            let scratch = rvalue_scratch_datum(bcx, result_ty, "trans_slice");
+                    let result_ty = ty::ty_fn_ret(monomorphize_type(bcx,
+                                                                    method_ty.unwrap())).unwrap();
+                    let scratch = rvalue_scratch_datum(bcx, result_ty, "trans_slice");
 
-            unpack_result!(bcx,
-                           trans_overloaded_op(bcx,
-                                               expr,
-                                               method_call,
-                                               base_datum,
-                                               args,
-                                               Some(SaveIn(scratch.val)),
-                                               true));
-            DatumBlock::new(bcx, scratch.to_expr_datum())
+                    unpack_result!(bcx,
+                                   trans_overloaded_op(bcx,
+                                                       expr,
+                                                       method_call,
+                                                       base_datum,
+                                                       args,
+                                                       Some(SaveIn(scratch.val)),
+                                                       true));
+                    DatumBlock::new(bcx, scratch.to_expr_datum())
+                }
+                _ => trans_index(bcx, expr, &**base, &**idx, MethodCall::expr(expr.id))
+            }
         }
         ast::ExprBox(_, ref contents) => {
             // Special case for `Box<T>`
@@ -689,7 +695,7 @@ fn trans_field<'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
             field_tys[ix].mt.ty,
             |srcval| adt::trans_field_ptr(bcx, &*repr, srcval, discr, ix));
 
-        if ty::type_is_sized(bcx.tcx(), d.ty) {
+        if type_is_sized(bcx.tcx(), d.ty) {
             DatumBlock { datum: d.to_expr_datum(), bcx: bcx }
         } else {
             let scratch = rvalue_scratch_datum(bcx, ty::mk_open(bcx.tcx(), d.ty), "");
@@ -769,7 +775,7 @@ fn trans_index<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                                Some(SaveIn(scratch.val)),
                                                true));
             let datum = scratch.to_expr_datum();
-            if ty::type_is_sized(bcx.tcx(), elt_ty) {
+            if type_is_sized(bcx.tcx(), elt_ty) {
                 Datum::new(datum.to_llscalarish(bcx), elt_ty, LvalueExpr)
             } else {
                 Datum::new(datum.val, ty::mk_open(bcx.tcx(), elt_ty), LvalueExpr)
@@ -972,7 +978,7 @@ fn trans_rvalue_stmt_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             let src_datum = unpack_datum!(bcx, trans(bcx, &**src));
             let dst_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, &**dst, "assign"));
 
-            if ty::type_needs_drop(bcx.tcx(), dst_datum.ty) {
+            if type_needs_drop(bcx.tcx(), dst_datum.ty) {
                 // If there are destructors involved, make sure we
                 // are copying from an rvalue, since that cannot possible
                 // alias an lvalue. We are concerned about code like:
@@ -1064,28 +1070,40 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             }
 
             // A range just desugars into a struct.
-            let (did, fields) = match end {
-                &Some(ref end) => {
+            // Note that the type of the start and end may not be the same, but
+            // they should only differ in their lifetime, which should not matter
+            // in trans.
+            let (did, fields, ty_params) = match (start, end) {
+                (&Some(ref start), &Some(ref end)) => {
                     // Desugar to Range
-                    let fields = vec!(make_field("start", start.clone()),
-                                      make_field("end", end.clone()));
-                    (tcx.lang_items.range_struct(), fields)
+                    let fields = vec![make_field("start", start.clone()),
+                                      make_field("end", end.clone())];
+                    (tcx.lang_items.range_struct(), fields, vec![node_id_type(bcx, start.id)])
                 }
-                &None => {
+                (&Some(ref start), &None) => {
                     // Desugar to RangeFrom
-                    let fields = vec!(make_field("start", start.clone()));
-                    (tcx.lang_items.range_from_struct(), fields)
+                    let fields = vec![make_field("start", start.clone())];
+                    (tcx.lang_items.range_from_struct(), fields, vec![node_id_type(bcx, start.id)])
+                }
+                (&None, &Some(ref end)) => {
+                    // Desugar to RangeTo
+                    let fields = vec![make_field("end", end.clone())];
+                    (tcx.lang_items.range_to_struct(), fields, vec![node_id_type(bcx, end.id)])
+                }
+                _ => {
+                    // Desugar to FullRange
+                    (tcx.lang_items.full_range_struct(), vec![], vec![])
                 }
             };
 
             if let Some(did) = did {
-                let substs = Substs::new_type(vec![node_id_type(bcx, start.id)], vec![]);
+                let substs = Substs::new_type(ty_params, vec![]);
                 trans_struct(bcx,
                              fields.as_slice(),
                              None,
                              expr.span,
                              expr.id,
-                             ty::mk_struct(tcx, did, substs),
+                             ty::mk_struct(tcx, did, tcx.mk_substs(substs)),
                              dest)
             } else {
                 tcx.sess.span_bug(expr.span,
@@ -1188,7 +1206,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                              .get(&expr.id)
                                              .map(|t| (*t).clone())
                                              .unwrap();
-                let trait_ref = trait_ref.subst(bcx.tcx(), bcx.fcx.param_substs);
+                let trait_ref = bcx.monomorphize(&trait_ref);
                 let datum = unpack_datum!(bcx, trans(bcx, &**val));
                 meth::trans_trait_cast(bcx, datum, expr.id,
                                        trait_ref, dest)
@@ -1339,7 +1357,7 @@ pub fn with_field_tys<'tcx, R, F>(tcx: &ty::ctxt<'tcx>,
     F: FnOnce(ty::Disr, &[ty::field<'tcx>]) -> R,
 {
     match ty.sty {
-        ty::ty_struct(did, ref substs) => {
+        ty::ty_struct(did, substs) => {
             op(0, struct_fields(tcx, did, substs)[])
         }
 
@@ -1347,7 +1365,7 @@ pub fn with_field_tys<'tcx, R, F>(tcx: &ty::ctxt<'tcx>,
             op(0, tup_fields(v[])[])
         }
 
-        ty::ty_enum(_, ref substs) => {
+        ty::ty_enum(_, substs) => {
             // We want the *variant* ID here, not the enum ID.
             match node_id_opt {
                 None => {
@@ -1497,7 +1515,7 @@ pub fn trans_adt<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
         assert_eq!(discr, 0);
 
         match ty::expr_kind(bcx.tcx(), &*base.expr) {
-            ty::RvalueDpsExpr | ty::RvalueDatumExpr if !ty::type_needs_drop(bcx.tcx(), ty) => {
+            ty::RvalueDpsExpr | ty::RvalueDatumExpr if !type_needs_drop(bcx.tcx(), ty) => {
                 bcx = trans_into(bcx, &*base.expr, SaveIn(addr));
             },
             ty::RvalueStmtExpr => bcx.tcx().sess.bug("unexpected expr kind for struct base expr"),
@@ -1506,7 +1524,7 @@ pub fn trans_adt<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                 for &(i, t) in base.fields.iter() {
                     let datum = base_datum.get_element(
                             bcx, t, |srcval| adt::trans_field_ptr(bcx, &*repr, srcval, discr, i));
-                    assert!(ty::type_is_sized(bcx.tcx(), datum.ty));
+                    assert!(type_is_sized(bcx.tcx(), datum.ty));
                     let dest = adt::trans_field_ptr(bcx, &*repr, addr, discr, i);
                     bcx = datum.store_to(bcx, dest);
                 }
@@ -1634,7 +1652,7 @@ fn trans_uniq_expr<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                -> DatumBlock<'blk, 'tcx, Expr> {
     let _icx = push_ctxt("trans_uniq_expr");
     let fcx = bcx.fcx;
-    assert!(ty::type_is_sized(bcx.tcx(), contents_ty));
+    assert!(type_is_sized(bcx.tcx(), contents_ty));
     let llty = type_of::type_of(bcx.ccx(), contents_ty);
     let size = llsize_of(bcx.ccx(), llty);
     let align = C_uint(bcx.ccx(), type_of::align_of(bcx.ccx(), contents_ty));
@@ -1969,7 +1987,7 @@ pub fn cast_type_kind<'tcx>(tcx: &ty::ctxt<'tcx>, t: Ty<'tcx>) -> cast_kind {
         ty::ty_char        => cast_integral,
         ty::ty_float(..)   => cast_float,
         ty::ty_rptr(_, mt) | ty::ty_ptr(mt) => {
-            if ty::type_is_sized(tcx, mt.ty) {
+            if type_is_sized(tcx, mt.ty) {
                 cast_pointer
             } else {
                 cast_other
@@ -2101,7 +2119,7 @@ fn trans_assign_op<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     // Evaluate LHS (destination), which should be an lvalue
     let dst_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, dst, "assign_op"));
-    assert!(!ty::type_needs_drop(bcx.tcx(), dst_datum.ty));
+    assert!(!type_needs_drop(bcx.tcx(), dst_datum.ty));
     let dst_ty = dst_datum.ty;
     let dst = load_ty(bcx, dst_datum.val, dst_datum.ty);
 
@@ -2130,7 +2148,7 @@ fn auto_ref<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     // Compute final type. Note that we are loose with the region and
     // mutability, since those things don't matter in trans.
     let referent_ty = lv_datum.ty;
-    let ptr_ty = ty::mk_imm_rptr(bcx.tcx(), ty::ReStatic, referent_ty);
+    let ptr_ty = ty::mk_imm_rptr(bcx.tcx(), bcx.tcx().mk_region(ty::ReStatic), referent_ty);
 
     // Get the pointer.
     let llref = lv_datum.to_llref();
@@ -2201,7 +2219,7 @@ fn deref_once<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     let r = match datum.ty.sty {
         ty::ty_uniq(content_ty) => {
-            if ty::type_is_sized(bcx.tcx(), content_ty) {
+            if type_is_sized(bcx.tcx(), content_ty) {
                 deref_owned_pointer(bcx, expr, datum, content_ty)
             } else {
                 // A fat pointer and an opened DST value have the same
@@ -2220,7 +2238,7 @@ fn deref_once<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
         ty::ty_ptr(ty::mt { ty: content_ty, .. }) |
         ty::ty_rptr(_, ty::mt { ty: content_ty, .. }) => {
-            if ty::type_is_sized(bcx.tcx(), content_ty) {
+            if type_is_sized(bcx.tcx(), content_ty) {
                 let ptr = datum.to_llscalarish(bcx);
 
                 // Always generate an lvalue datum, even if datum.mode is

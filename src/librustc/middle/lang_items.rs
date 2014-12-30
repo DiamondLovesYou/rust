@@ -269,6 +269,7 @@ lets_do_this! {
     SliceMutTraitLangItem,           "slice_mut",               slice_mut_trait;
     RangeStructLangItem,             "range",                   range_struct;
     RangeFromStructLangItem,         "range_from",              range_from_struct;
+    RangeToStructLangItem,           "range_to",                range_to_struct;
     FullRangeStructLangItem,         "full_range",              full_range_struct;
 
     UnsafeTypeLangItem,              "unsafe",                  unsafe_type;
@@ -326,6 +327,8 @@ lets_do_this! {
     NoCopyItem,                      "no_copy_bound",           no_copy_bound;
     NoSyncItem,                      "no_sync_bound",           no_sync_bound;
     ManagedItem,                     "managed_bound",           managed_bound;
+
+    NonZeroItem,                     "non_zero",                non_zero;
 
     IteratorItem,                    "iterator",                iterator;
 

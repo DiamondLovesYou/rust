@@ -17,7 +17,6 @@
 // sure that all of these loans are honored.
 
 use borrowck::*;
-use borrowck::LoanPathKind::*;
 use borrowck::move_data::MoveData;
 use rustc::middle::expr_use_visitor as euv;
 use rustc::middle::mem_categorization as mc;
@@ -54,7 +53,7 @@ pub fn gather_loans_in_fn<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
     {
         let mut euv = euv::ExprUseVisitor::new(&mut glcx,
                                                bccx.tcx,
-                                               param_env);
+                                               &param_env);
         euv.walk_fn(decl, body);
     }
 

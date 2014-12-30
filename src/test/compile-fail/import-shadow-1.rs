@@ -8,18 +8,24 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(associated_types)]
+// Test that import shadowing using globs causes errors
 
-pub trait Hasher{
-    type State;
+#![no_implicit_prelude]
+#![feature(globs)]
 
-    fn hash<T: Hash<
-        <Self as Hasher>::State //~ ERROR no suitable bound on `Self`
-    >>(&self, value: &T) -> u64;
+use foo::*;
+use bar::*; //~ERROR a type named `Baz` has already been imported in this module
+
+mod foo {
+    pub type Baz = int;
 }
 
-trait Hash<S> {
-    fn hash(&self, state: &mut S);
+mod bar {
+    pub type Baz = int;
+}
+
+mod qux {
+    pub use bar::Baz;
 }
 
 fn main() {}

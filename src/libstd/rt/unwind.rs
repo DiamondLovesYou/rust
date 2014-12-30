@@ -79,7 +79,7 @@ struct Exception {
 
 pub type Callback = fn(msg: &(Any + Send), file: &'static str, line: uint);
 
-// Variables used for invoking callbacks when a task starts to unwind.
+// Variables used for invoking callbacks when a thread starts to unwind.
 //
 // For more information, see below.
 const MAX_CALLBACKS: uint = 16;
@@ -106,14 +106,14 @@ thread_local! { static PANICKING: Cell<bool> = Cell::new(false) }
 ///
 /// * This is not safe to call in a nested fashion. The unwinding
 ///   interface for Rust is designed to have at most one try/catch block per
-///   task, not multiple. No runtime checking is currently performed to uphold
+///   thread, not multiple. No runtime checking is currently performed to uphold
 ///   this invariant, so this function is not safe. A nested try/catch block
 ///   may result in corruption of the outer try/catch block's state, especially
-///   if this is used within a task itself.
+///   if this is used within a thread itself.
 ///
-/// * It is not sound to trigger unwinding while already unwinding. Rust tasks
+/// * It is not sound to trigger unwinding while already unwinding. Rust threads
 ///   have runtime checks in place to ensure this invariant, but it is not
-///   guaranteed that a rust task is in place when invoking this function.
+///   guaranteed that a rust thread is in place when invoking this function.
 ///   Unwinding twice can lead to resource leaks where some destructors are not
 ///   run.
 pub unsafe fn try<F: FnOnce()>(f: F) -> Result<(), Box<Any + Send>> {
@@ -211,7 +211,7 @@ fn rust_exception_class() -> uw::_Unwind_Exception_Class {
 // _URC_INSTALL_CONTEXT (i.e. "invoke cleanup code") in cleanup phase.
 //
 // This is pretty close to Rust's exception handling approach, except that Rust
-// does have a single "catch-all" handler at the bottom of each task's stack.
+// does have a single "catch-all" handler at the bottom of each thread's stack.
 // So we have two versions of the personality routine:
 // - rust_eh_personality, used by all cleanup landing pads, which never catches,
 //   so the behavior of __gcc_personality_v0 is perfectly adequate there, and
@@ -499,14 +499,61 @@ pub mod eabi {
     }
 }
 
-// Entry point of panic from the libcore crate
+// NOTE(stage0): Remove cfg after a snapshot
+#[cfg(not(stage0))]
 #[cfg(not(test))]
+/// Entry point of panic from the libcore crate.
+#[lang = "panic_fmt"]
+pub extern fn rust_begin_unwind(msg: fmt::Arguments,
+                                file: &'static str, line: uint) -> ! {
+    begin_unwind_fmt(msg, &(file, line))
+}
+
+// NOTE(stage0): Remove function after a snapshot
+#[cfg(stage0)]
+#[cfg(not(test))]
+/// Entry point of panic from the libcore crate.
 #[lang = "panic_fmt"]
 pub extern fn rust_begin_unwind(msg: &fmt::Arguments,
                                 file: &'static str, line: uint) -> ! {
     begin_unwind_fmt(msg, &(file, line))
 }
 
+// NOTE(stage0): Remove cfg after a snapshot
+#[cfg(not(stage0))]
+/// The entry point for unwinding with a formatted message.
+///
+/// This is designed to reduce the amount of code required at the call
+/// site as much as possible (so that `panic!()` has as low an impact
+/// on (e.g.) the inlining of other functions as possible), by moving
+/// the actual formatting into this shared place.
+#[inline(never)] #[cold]
+pub fn begin_unwind_fmt(msg: fmt::Arguments, file_line: &(&'static str, uint)) -> ! {
+    use fmt::FormatWriter;
+
+    // We do two allocations here, unfortunately. But (a) they're
+    // required with the current scheme, and (b) we don't handle
+    // panic + OOM properly anyway (see comment in begin_unwind
+    // below).
+
+    struct VecWriter<'a> { v: &'a mut Vec<u8> }
+
+    impl<'a> fmt::FormatWriter for VecWriter<'a> {
+        fn write(&mut self, buf: &[u8]) -> fmt::Result {
+            self.v.push_all(buf);
+            Ok(())
+        }
+    }
+
+    let mut v = Vec::new();
+    let _ = write!(&mut VecWriter { v: &mut v }, "{}", msg);
+
+    let msg = box String::from_utf8_lossy(v.as_slice()).into_owned();
+    begin_unwind_inner(msg, file_line)
+}
+
+// NOTE(stage0): Remove function after a snapshot
+#[cfg(stage0)]
 /// The entry point for unwinding with a formatted message.
 ///
 /// This is designed to reduce the amount of code required at the call
@@ -545,7 +592,7 @@ pub fn begin_unwind<M: Any + Send>(msg: M, file_line: &(&'static str, uint)) -> 
     // Currently this means that panic!() on OOM will invoke this code path,
     // but then again we're not really ready for panic on OOM anyway. If
     // we do start doing this, then we should propagate this allocation to
-    // be performed in the parent of this task instead of the task that's
+    // be performed in the parent of this thread instead of the thread that's
     // panicking.
 
     // see below for why we do the `Any` coercion here.
@@ -568,7 +615,7 @@ fn begin_unwind_inner(msg: Box<Any + Send>, file_line: &(&'static str, uint)) ->
     static INIT: Once = ONCE_INIT;
     INIT.doit(|| unsafe { register(failure::on_fail); });
 
-    // First, invoke call the user-defined callbacks triggered on task panic.
+    // First, invoke call the user-defined callbacks triggered on thread panic.
     //
     // By the time that we see a callback has been registered (by reading
     // MAX_CALLBACKS), the actual callback itself may have not been stored yet,
@@ -596,7 +643,7 @@ fn begin_unwind_inner(msg: Box<Any + Send>, file_line: &(&'static str, uint)) ->
         // If a thread panics while it's already unwinding then we
         // have limited options. Currently our preference is to
         // just abort. In the future we may consider resuming
-        // unwinding or otherwise exiting the task cleanly.
+        // unwinding or otherwise exiting the thread cleanly.
         rterrln!("thread panicked while panicking. aborting.");
         unsafe { intrinsics::abort() }
     }
@@ -604,10 +651,10 @@ fn begin_unwind_inner(msg: Box<Any + Send>, file_line: &(&'static str, uint)) ->
     rust_panic(msg);
 }
 
-/// Register a callback to be invoked when a task unwinds.
+/// Register a callback to be invoked when a thread unwinds.
 ///
 /// This is an unsafe and experimental API which allows for an arbitrary
-/// callback to be invoked when a task panics. This callback is invoked on both
+/// callback to be invoked when a thread panics. This callback is invoked on both
 /// the initial unwinding and a double unwinding if one occurs. Additionally,
 /// the local `Task` will be in place for the duration of the callback, and
 /// the callback must ensure that it remains in place once the callback returns.

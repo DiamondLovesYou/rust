@@ -513,7 +513,7 @@ pub trait Reader {
         while read < min {
             let mut zeroes = 0;
             loop {
-                match self.read(buf[mut read..]) {
+                match self.read(buf.slice_from_mut(read)) {
                     Ok(0) => {
                         zeroes += 1;
                         if zeroes >= NO_PROGRESS_LIMIT {
@@ -935,7 +935,7 @@ impl<'a> Reader for &'a mut (Reader+'a) {
 // API yet. If so, it should be a method on Vec.
 unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -> &'a mut [T] {
     use raw::Slice;
-    use ptr::RawPtr;
+    use ptr::PtrExt;
 
     assert!(start <= end);
     assert!(end <= v.capacity());
@@ -1017,6 +1017,48 @@ pub trait Writer {
     /// decide whether their stream needs to be buffered or not.
     fn flush(&mut self) -> IoResult<()> { Ok(()) }
 
+    // NOTE(stage0): Remove cfg after a snapshot
+    #[cfg(not(stage0))]
+    /// Writes a formatted string into this writer, returning any error
+    /// encountered.
+    ///
+    /// This method is primarily used to interface with the `format_args!`
+    /// macro, but it is rare that this should explicitly be called. The
+    /// `write!` macro should be favored to invoke this method instead.
+    ///
+    /// # Errors
+    ///
+    /// This function will return any I/O error reported while formatting.
+    fn write_fmt(&mut self, fmt: fmt::Arguments) -> IoResult<()> {
+        // Create a shim which translates a Writer to a FormatWriter and saves
+        // off I/O errors. instead of discarding them
+        struct Adaptor<'a, T:'a> {
+            inner: &'a mut T,
+            error: IoResult<()>,
+        }
+
+        impl<'a, T: Writer> fmt::FormatWriter for Adaptor<'a, T> {
+            fn write(&mut self, bytes: &[u8]) -> fmt::Result {
+                match self.inner.write(bytes) {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        self.error = Err(e);
+                        Err(fmt::Error)
+                    }
+                }
+            }
+        }
+
+        let mut output = Adaptor { inner: self, error: Ok(()) };
+        match fmt::write(&mut output, fmt) {
+            Ok(()) => Ok(()),
+            Err(..) => output.error
+        }
+    }
+
+
+    // NOTE(stage0): Remove method after a snapshot
+    #[cfg(stage0)]
     /// Writes a formatted string into this writer, returning any error
     /// encountered.
     ///
@@ -1081,7 +1123,7 @@ pub trait Writer {
     #[inline]
     fn write_char(&mut self, c: char) -> IoResult<()> {
         let mut buf = [0u8, ..4];
-        let n = c.encode_utf8(buf[mut]).unwrap_or(0);
+        let n = c.encode_utf8(buf.as_mut_slice()).unwrap_or(0);
         self.write(buf[..n])
     }
 
@@ -1513,7 +1555,7 @@ pub trait Buffer: Reader {
         {
             let mut start = 1;
             while start < width {
-                match try!(self.read(buf[mut start..width])) {
+                match try!(self.read(buf.slice_mut(start, width))) {
                     n if n == width - start => break,
                     n if n < width - start => { start += n; }
                     _ => return Err(standard_error(InvalidInput)),
@@ -1682,7 +1724,7 @@ pub fn standard_error(kind: IoErrorKind) -> IoError {
 /// A mode specifies how a file should be opened or created. These modes are
 /// passed to `File::open_mode` and are used to control where the file is
 /// positioned when it is initially opened.
-#[deriving(Copy)]
+#[deriving(Copy, Clone, PartialEq, Eq)]
 pub enum FileMode {
     /// Opens a file positioned at the beginning.
     Open,
@@ -1694,7 +1736,7 @@ pub enum FileMode {
 
 /// Access permissions with which the file should be opened. `File`s
 /// opened with `Read` will return an error if written to.
-#[deriving(Copy)]
+#[deriving(Copy, Clone, PartialEq, Eq)]
 pub enum FileAccess {
     /// Read-only access, requests to write will result in an error
     Read,
@@ -1917,8 +1959,8 @@ impl fmt::Show for FilePermission {
 #[cfg(test)]
 mod tests {
     use self::BadReaderBehavior::*;
-    use super::{IoResult, Reader, MemReader, NoProgress, InvalidInput};
-    use prelude::*;
+    use super::{IoResult, Reader, MemReader, NoProgress, InvalidInput, Writer};
+    use prelude::{Ok, Vec, Buffer, CloneSliceExt};
     use uint;
 
     #[deriving(Clone, PartialEq, Show)]

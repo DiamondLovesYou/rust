@@ -8,23 +8,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test equality constraints on associated types. Check we get an error when an
-// equality constraint is used in a qualified path.
-
-#![feature(associated_types)]
-
-pub trait Foo {
-    type A;
-    fn boo(&self) -> <Self as Foo>::A;
+mod Y {
+    type X = uint;
+    extern {
+        static x: *const uint;
+    }
+    fn foo(value: *const X) -> *const X {
+        value
+    }
 }
 
-struct Bar;
+static foo: *const Y::X = Y::foo(Y::x as *const Y::X);
+//~^ ERROR cannot refer to other statics by value
+//~| ERROR: the trait `core::kinds::Sync` is not implemented for the type
 
-impl Foo for int {
-    type A = uint;
-    fn boo(&self) -> uint { 42 }
-}
-
-fn baz<I: Foo>(x: &<I as Foo<A=Bar>>::A) {} //~ERROR equality constraints are not allowed in this
-
-pub fn main() {}
+fn main() {}

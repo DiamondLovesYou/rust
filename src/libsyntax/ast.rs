@@ -371,8 +371,16 @@ pub const DUMMY_NODE_ID: NodeId = -1;
 /// detects Copy, Send and Sync.
 #[deriving(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show)]
 pub enum TyParamBound {
-    TraitTyParamBound(PolyTraitRef),
+    TraitTyParamBound(PolyTraitRef, TraitBoundModifier),
     RegionTyParamBound(Lifetime)
+}
+
+/// A modifier on a bound, currently this is only used for `?Sized`, where the
+/// modifier is `Maybe`. Negative bounds should also be handled here.
+#[deriving(Copy, Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show)]
+pub enum TraitBoundModifier {
+    None,
+    Maybe,
 }
 
 pub type TyParamBounds = OwnedSlice<TyParamBound>;
@@ -382,7 +390,6 @@ pub struct TyParam {
     pub ident: Ident,
     pub id: NodeId,
     pub bounds: TyParamBounds,
-    pub unbound: Option<TraitRef>,
     pub default: Option<P<Ty>>,
     pub span: Span
 }
@@ -607,7 +614,7 @@ pub enum Stmt_ {
     /// Expr with trailing semi-colon (may have any type):
     StmtSemi(P<Expr>, NodeId),
 
-    StmtMac(Mac, MacStmtStyle),
+    StmtMac(P<Mac>, MacStmtStyle),
 }
 
 #[deriving(Clone, Copy, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show)]
@@ -723,8 +730,7 @@ pub enum Expr_ {
     ExprField(P<Expr>, SpannedIdent),
     ExprTupField(P<Expr>, Spanned<uint>),
     ExprIndex(P<Expr>, P<Expr>),
-    ExprSlice(P<Expr>, Option<P<Expr>>, Option<P<Expr>>, Mutability),
-    ExprRange(P<Expr>, Option<P<Expr>>),
+    ExprRange(Option<P<Expr>>, Option<P<Expr>>),
 
     /// Variable reference, possibly containing `::` and/or
     /// type parameters, e.g. foo::bar::<baz>
@@ -758,7 +764,7 @@ pub enum Expr_ {
 pub struct QPath {
     pub self_type: P<Ty>,
     pub trait_ref: P<TraitRef>,
-    pub item_name: Ident,
+    pub item_name: Ident, // FIXME(#20301) -- should use Name
 }
 
 #[deriving(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show, Copy)]
@@ -1489,7 +1495,7 @@ pub struct PolyTraitRef {
     pub bound_lifetimes: Vec<LifetimeDef>,
 
     /// The `Foo<&'a T>` in `<'a> Foo<&'a T>`
-    pub trait_ref: TraitRef
+    pub trait_ref: TraitRef,
 }
 
 #[deriving(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show, Copy)]
@@ -1578,8 +1584,6 @@ pub enum Item_ {
     /// Represents a Trait Declaration
     ItemTrait(Unsafety,
               Generics,
-              Option<TraitRef>, // (optional) default bound not required for Self.
-                                // Currently, only Sized makes sense here.
               TyParamBounds,
               Vec<TraitItem>),
     ItemImpl(Unsafety,

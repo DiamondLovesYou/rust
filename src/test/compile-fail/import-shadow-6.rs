@@ -8,25 +8,24 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that we correctly infer that `E` must be `()` here.  This is
-// known because there is just one impl that could apply where
-// `Self=()`.
+// Test that import shadowing using globs causes errors
 
-pub trait FromError<E> {
-    fn from_error(err: E) -> Self;
+#![no_implicit_prelude]
+#![feature(globs)]
+
+use qux::*;
+use foo::*; //~ERROR a type named `Baz` has already been imported in this module
+
+mod foo {
+    pub type Baz = int;
 }
 
-impl<E> FromError<E> for E {
-    fn from_error(err: E) -> E {
-        err
-    }
+mod bar {
+    pub type Baz = int;
 }
 
-fn test() -> Result<(), ()> {
-    Err(FromError::from_error(()))
+mod qux {
+    pub use bar::Baz;
 }
 
-fn main() {
-    let result = (|| Err(FromError::from_error(())))();
-    let foo: () = result.unwrap_or(());
-}
+fn main() {}

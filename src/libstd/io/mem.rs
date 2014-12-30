@@ -169,7 +169,7 @@ impl Reader for MemReader {
         let write_len = min(buf.len(), self.buf.len() - self.pos);
         {
             let input = self.buf[self.pos.. self.pos + write_len];
-            let output = buf[mut ..write_len];
+            let output = buf.slice_to_mut(write_len);
             assert_eq!(input.len(), output.len());
             slice::bytes::copy_memory(output, input);
         }
@@ -214,7 +214,7 @@ impl<'a> Reader for &'a [u8] {
         let write_len = min(buf.len(), self.len());
         {
             let input = self[..write_len];
-            let output = buf[mut ..write_len];
+            let output = buf.slice_to_mut(write_len);
             slice::bytes::copy_memory(output, input);
         }
 
@@ -279,7 +279,7 @@ impl<'a> BufWriter<'a> {
 impl<'a> Writer for BufWriter<'a> {
     #[inline]
     fn write(&mut self, src: &[u8]) -> IoResult<()> {
-        let dst = self.buf[mut self.pos..];
+        let dst = self.buf.slice_from_mut(self.pos);
         let dst_len = dst.len();
 
         if dst_len == 0 {
@@ -359,7 +359,7 @@ impl<'a> Reader for BufReader<'a> {
         let write_len = min(buf.len(), self.buf.len() - self.pos);
         {
             let input = self.buf[self.pos.. self.pos + write_len];
-            let output = buf[mut ..write_len];
+            let output = buf.slice_to_mut(write_len);
             assert_eq!(input.len(), output.len());
             slice::bytes::copy_memory(output, input);
         }
@@ -399,9 +399,9 @@ impl<'a> Buffer for BufReader<'a> {
 #[cfg(test)]
 mod test {
     extern crate "test" as test_crate;
-    use prelude::*;
     use super::*;
-    use io::*;
+    use io::{SeekSet, SeekCur, SeekEnd, Reader, Writer, Seek};
+    use prelude::{Ok, Err, range,  Vec, Buffer,  AsSlice, SliceExt, IteratorExt, CloneSliceExt};
     use io;
     use self::test_crate::Bencher;
 
@@ -652,7 +652,7 @@ mod test {
         assert!(r.read_at_least(buf.len(), &mut buf).is_ok());
         let b: &[_] = &[1, 2, 3];
         assert_eq!(buf, b);
-        assert!(r.read_at_least(0, buf[mut ..0]).is_ok());
+        assert!(r.read_at_least(0, buf.slice_to_mut(0)).is_ok());
         assert_eq!(buf, b);
         assert!(r.read_at_least(buf.len(), &mut buf).is_ok());
         let b: &[_] = &[4, 5, 6];

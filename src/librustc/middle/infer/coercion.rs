@@ -174,7 +174,7 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
 
         self.unpack_actual_value(a, |a| {
             match a.sty {
-                ty::ty_bare_fn(Some(a_def_id), ref a_f) => {
+                ty::ty_bare_fn(Some(a_def_id), a_f) => {
                     // Function items are coercible to any closure
                     // type; function pointers are not (that would
                     // require double indirection).
@@ -230,7 +230,7 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
         };
 
         let a_borrowed = ty::mk_rptr(self.tcx(),
-                                     r_borrow,
+                                     self.tcx().mk_region(r_borrow),
                                      mt {ty: inner_ty, mutbl: mutbl_b});
         try!(sub.tys(a_borrowed, b));
 
@@ -271,7 +271,7 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                             let coercion = Coercion(self.get_ref().trace.clone());
                             let r_borrow = self.get_ref().infcx.next_region_var(coercion);
                             let ty = ty::mk_rptr(self.tcx(),
-                                                 r_borrow,
+                                                 self.tcx().mk_region(r_borrow),
                                                  ty::mt{ty: ty, mutbl: mt_b.mutbl});
                             try!(self.get_ref().infcx.try(|_| sub.tys(ty, b)));
                             debug!("Success, coerced with AutoDerefRef(1, \
@@ -351,14 +351,14 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                 (&ty::ty_trait(..), &ty::ty_trait(..)) => {
                     None
                 }
-                (_, &ty::ty_trait(box ty::TyTrait { ref principal, bounds })) => {
+                (_, &ty::ty_trait(box ty::TyTrait { ref principal, ref bounds })) => {
                     // FIXME what is the purpose of `ty`?
-                    let ty = ty::mk_trait(tcx, principal.clone(), bounds);
-                    Some((ty, ty::UnsizeVtable(ty::TyTrait { principal: (*principal).clone(),
-                                                             bounds: bounds },
+                    let ty = ty::mk_trait(tcx, principal.clone(), bounds.clone());
+                    Some((ty, ty::UnsizeVtable(ty::TyTrait { principal: principal.clone(),
+                                                             bounds: bounds.clone() },
                                                ty_a)))
                 }
-                (&ty::ty_struct(did_a, ref substs_a), &ty::ty_struct(did_b, ref substs_b))
+                (&ty::ty_struct(did_a, substs_a), &ty::ty_struct(did_b, substs_b))
                   if did_a == did_b => {
                     debug!("unsizing a struct");
                     // Try unsizing each type param in turn to see if we end up with ty_b.
@@ -383,7 +383,7 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                                 // Check that the whole types match.
                                 let mut new_substs = substs_a.clone();
                                 new_substs.types.get_mut_slice(subst::TypeSpace)[i] = new_tp;
-                                let ty = ty::mk_struct(tcx, did_a, new_substs);
+                                let ty = ty::mk_struct(tcx, did_a, tcx.mk_substs(new_substs));
                                 if self.get_ref().infcx.try(|_| sub.tys(ty, ty_b)).is_err() {
                                     debug!("Unsized type parameter '{}', but still \
                                             could not match types {} and {}",
@@ -424,7 +424,8 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
         let r_a = self.get_ref().infcx.next_region_var(coercion);
 
         self.coerce_object(a, b, b_mutbl,
-                           |tr| ty::mk_rptr(tcx, r_a, ty::mt{ mutbl: b_mutbl, ty: tr }),
+                           |tr| ty::mk_rptr(tcx, tcx.mk_region(r_a),
+                                            ty::mt{ mutbl: b_mutbl, ty: tr }),
                            || AutoPtr(r_a, b_mutbl, None))
     }
 
@@ -457,10 +458,9 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
 
         match a.sty {
             ty::ty_rptr(_, ty::mt{ty, mutbl}) => match ty.sty {
-                ty::ty_trait(box ty::TyTrait { ref principal, bounds }) => {
+                ty::ty_trait(box ty::TyTrait { ref principal, ref bounds }) => {
                     debug!("mutbl={} b_mutbl={}", mutbl, b_mutbl);
-                    // FIXME what is purpose of this type `tr`?
-                    let tr = ty::mk_trait(tcx, principal.clone(), bounds);
+                    let tr = ty::mk_trait(tcx, principal.clone(), bounds.clone());
                     try!(self.subtype(mk_ty(tr), b));
                     Ok(Some(AdjustDerefRef(AutoDerefRef {
                         autoderefs: 1,
@@ -486,7 +486,7 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                b.repr(self.tcx()));
 
         match a.sty {
-            ty::ty_bare_fn(Some(a_def_id), ref f) => {
+            ty::ty_bare_fn(Some(a_def_id), f) => {
                 self.coerce_from_fn_item(a, a_def_id, f, b)
             }
             _ => {
@@ -498,7 +498,7 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
     fn coerce_from_fn_item(&self,
                            a: Ty<'tcx>,
                            fn_def_id_a: ast::DefId,
-                           fn_ty_a: &ty::BareFnTy<'tcx>,
+                           fn_ty_a: &'tcx ty::BareFnTy<'tcx>,
                            b: Ty<'tcx>)
                            -> CoerceResult<'tcx> {
         /*!
@@ -527,7 +527,7 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                     Ok(Some(adj))
                 }
                 ty::ty_bare_fn(None, _) => {
-                    let a_fn_pointer = ty::mk_bare_fn(self.tcx(), None, (*fn_ty_a).clone());
+                    let a_fn_pointer = ty::mk_bare_fn(self.tcx(), None, fn_ty_a);
                     try!(self.subtype(a_fn_pointer, b));
                     Ok(Some(ty::AdjustReifyFnPointer(fn_def_id_a)))
                 }

@@ -72,13 +72,12 @@ use libc;
 
 use fmt;
 use hash;
-use kinds::marker;
 use mem;
 use ptr;
 use slice::{mod, ImmutableIntSlice};
 use str;
 use string::String;
-
+use core::kinds::marker;
 
 /// The representation of a C String.
 ///
@@ -89,6 +88,9 @@ pub struct CString {
     buf: *const libc::c_char,
     owns_buffer_: bool,
 }
+
+unsafe impl Send for CString { }
+unsafe impl Sync for CString { }
 
 impl Clone for CString {
     /// Clone this CString into a new, uniquely owned CString. For safety
@@ -534,12 +536,12 @@ pub unsafe fn from_c_multistring<F>(buf: *const libc::c_char,
 
 #[cfg(test)]
 mod tests {
-    use prelude::*;
+    use super::*;
+    use prelude::{spawn, Some, None, Option, FnOnce, ToString, CloneSliceExt};
+    use prelude::{Clone, PtrExt, Iterator, SliceExt, StrExt};
     use ptr;
     use thread::Thread;
     use libc;
-
-    use super::*;
 
     #[test]
     fn test_str_multistring_parsing() {

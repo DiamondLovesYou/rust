@@ -13,8 +13,6 @@
 pub use self::RestrictionResult::*;
 
 use borrowck::*;
-use borrowck::LoanPathElem::*;
-use borrowck::LoanPathKind::*;
 use rustc::middle::expr_use_visitor as euv;
 use rustc::middle::mem_categorization as mc;
 use rustc::middle::ty;
@@ -107,7 +105,7 @@ impl<'a, 'tcx> RestrictionsContext<'a, 'tcx> {
 
             mc::cat_deref(cmt_base, _, pk) => {
                 match pk {
-                    mc::OwnedPtr => {
+                    mc::Unique => {
                         // R-Deref-Send-Pointer
                         //
                         // When we borrow the interior of an owned pointer, we

@@ -179,7 +179,7 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
         _ => ()
     }
 
-    buf[mut ..end].reverse();
+    buf.slice_to_mut(end).reverse();
 
     // Remember start of the fractional digits.
     // Points one beyond end of buf if none get generated,
@@ -316,7 +316,7 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
 
             impl<'a> fmt::FormatWriter for Filler<'a> {
                 fn write(&mut self, bytes: &[u8]) -> fmt::Result {
-                    slice::bytes::copy_memory(self.buf[mut *self.end..],
+                    slice::bytes::copy_memory(self.buf.slice_from_mut(*self.end),
                                               bytes);
                     *self.end += bytes.len();
                     Ok(())
@@ -325,6 +325,13 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
 
             let mut filler = Filler { buf: &mut buf, end: &mut end };
             match sign {
+                // NOTE(stage0): Remove cfg after a snapshot
+                #[cfg(not(stage0))]
+                SignNeg => {
+                    let _ = fmt::write(&mut filler, format_args!("{:-}", exp));
+                }
+                // NOTE(stage0): Remove match arm after a snapshot
+                #[cfg(stage0)]
                 SignNeg => {
                     let _ = format_args!(|args| {
                         fmt::write(&mut filler, args)

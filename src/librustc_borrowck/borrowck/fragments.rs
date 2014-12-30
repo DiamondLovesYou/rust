@@ -291,9 +291,9 @@ fn add_fragment_siblings<'tcx>(this: &MoveData<'tcx>,
             add_fragment_siblings(this, tcx, gathered_fragments, loan_parent.clone(), origin_id);
         }
 
-        // *LV for OwnedPtr consumes the contents of the box (at
+        // *LV for Unique consumes the contents of the box (at
         // least when it is non-copy...), so propagate inward.
-        LpExtend(ref loan_parent, _, LpDeref(mc::OwnedPtr)) => {
+        LpExtend(ref loan_parent, _, LpDeref(mc::Unique)) => {
             add_fragment_siblings(this, tcx, gathered_fragments, loan_parent.clone(), origin_id);
         }
 
@@ -391,7 +391,7 @@ fn add_fragment_siblings_for_extension<'tcx>(this: &MoveData<'tcx>,
             }
         }
 
-        (&ty::ty_enum(enum_def_id, ref substs), ref enum_variant_info) => {
+        (&ty::ty_enum(enum_def_id, substs), ref enum_variant_info) => {
             let variant_info = {
                 let mut variants = ty::substd_enum_variants(tcx, enum_def_id, substs);
                 match *enum_variant_info {

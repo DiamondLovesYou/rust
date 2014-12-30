@@ -24,7 +24,8 @@ use trans::common;
 use trans::common::{Block, FunctionContext, ExprId, NodeInfo};
 use trans::debuginfo;
 use trans::glue;
-use middle::region;
+// Temporary due to slicing syntax hacks (KILLME)
+//use middle::region;
 use trans::type_::Type;
 use middle::ty::{mod, Ty};
 use std::fmt;
@@ -128,7 +129,8 @@ impl<'blk, 'tcx> CleanupMethods<'blk, 'tcx> for FunctionContext<'blk, 'tcx> {
         // excluding id's that correspond to closure bodies only). For
         // now we just say that if there is already an AST scope on the stack,
         // this new AST scope had better be its immediate child.
-        let top_scope = self.top_ast_scope();
+        // Temporarily removed due to slicing syntax hacks (KILLME).
+        /*let top_scope = self.top_ast_scope();
         if top_scope.is_some() {
             assert_eq!(self.ccx
                            .tcx()
@@ -136,7 +138,7 @@ impl<'blk, 'tcx> CleanupMethods<'blk, 'tcx> for FunctionContext<'blk, 'tcx> {
                            .opt_encl_scope(region::CodeExtent::from_node_id(debug_loc.id))
                            .map(|s|s.node_id()),
                        top_scope);
-        }
+        }*/
 
         self.push_scope(CleanupScope::new(AstScopeKind(debug_loc.id),
                                           Some(debug_loc)));
@@ -277,10 +279,10 @@ impl<'blk, 'tcx> CleanupMethods<'blk, 'tcx> for FunctionContext<'blk, 'tcx> {
                          cleanup_scope: ScopeId,
                          val: ValueRef,
                          ty: Ty<'tcx>) {
-        if !ty::type_needs_drop(self.ccx.tcx(), ty) { return; }
+        if !common::type_needs_drop(self.ccx.tcx(), ty) { return; }
         let drop = box DropValue {
             is_immediate: false,
-            must_unwind: ty::type_needs_unwind_cleanup(self.ccx.tcx(), ty),
+            must_unwind: common::type_needs_unwind_cleanup(self.ccx, ty),
             val: val,
             ty: ty,
             zero: false
@@ -299,10 +301,10 @@ impl<'blk, 'tcx> CleanupMethods<'blk, 'tcx> for FunctionContext<'blk, 'tcx> {
                                   cleanup_scope: ScopeId,
                                   val: ValueRef,
                                   ty: Ty<'tcx>) {
-        if !ty::type_needs_drop(self.ccx.tcx(), ty) { return; }
+        if !common::type_needs_drop(self.ccx.tcx(), ty) { return; }
         let drop = box DropValue {
             is_immediate: false,
-            must_unwind: ty::type_needs_unwind_cleanup(self.ccx.tcx(), ty),
+            must_unwind: common::type_needs_unwind_cleanup(self.ccx, ty),
             val: val,
             ty: ty,
             zero: true
@@ -323,10 +325,10 @@ impl<'blk, 'tcx> CleanupMethods<'blk, 'tcx> for FunctionContext<'blk, 'tcx> {
                                val: ValueRef,
                                ty: Ty<'tcx>) {
 
-        if !ty::type_needs_drop(self.ccx.tcx(), ty) { return; }
+        if !common::type_needs_drop(self.ccx.tcx(), ty) { return; }
         let drop = box DropValue {
             is_immediate: true,
-            must_unwind: ty::type_needs_unwind_cleanup(self.ccx.tcx(), ty),
+            must_unwind: common::type_needs_unwind_cleanup(self.ccx, ty),
             val: val,
             ty: ty,
             zero: false
@@ -734,7 +736,7 @@ impl<'blk, 'tcx> CleanupHelperMethods<'blk, 'tcx> for FunctionContext<'blk, 'tcx
                         let f = base::decl_cdecl_fn(self.ccx,
                                                     "rust_eh_personality",
                                                     fty,
-                                                    ty::mk_i32());
+                                                    self.ccx.tcx().types.i32);
                         *personality = Some(f);
                         f
                     }

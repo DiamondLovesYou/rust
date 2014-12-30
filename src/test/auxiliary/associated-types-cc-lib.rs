@@ -8,15 +8,20 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that a partially specified trait object with unspecified associated
-// type does not ICE.
+// Helper for test issue-18048, which tests associated types in a
+// cross-crate scenario.
 
+#![crate_type="lib"]
 #![feature(associated_types)]
 
-trait Foo {
-    type A;
+pub trait Bar {
+    type T;
+
+    fn get(x: Option<Self>) -> <Self as Bar>::T;
 }
 
-fn bar(x: &Foo) {} //~ERROR missing type for associated type `A`
+impl Bar for int {
+    type T = uint;
 
-pub fn main() {}
+    fn get(_: Option<int>) -> uint { 22 }
+}
