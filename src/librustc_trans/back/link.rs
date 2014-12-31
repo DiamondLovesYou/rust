@@ -787,7 +787,7 @@ pub fn link_pnacl_module(sess: &Session,
     }
     cmd.arg("-o").arg(&post_link_path);
 
-    cmd.arg("-L").arg(sess.target_filesearch().get_lib_path());
+    cmd.arg("-L").arg(sess.target_filesearch(PathKind::Crate).get_lib_path());
 
     match sess.opts.cg.link_args {
         Some(ref args) => {
