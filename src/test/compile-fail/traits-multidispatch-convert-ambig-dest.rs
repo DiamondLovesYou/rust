@@ -33,7 +33,7 @@ where T : Convert<U>
 }
 
 fn a() {
-    test(22_i32, 44); //~ ERROR unable to infer
+    test(22_i32, 44); //~ ERROR type annotations required
 }
 
 fn main() {}
