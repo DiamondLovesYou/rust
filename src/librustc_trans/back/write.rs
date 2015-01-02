@@ -849,7 +849,7 @@ pub fn run_passes(sess: &Session,
         return;
     }
 
-let copy_if_one_unit = |&: ext: &str, output_type: config::OutputType, keep_numbered: bool| {
+    let copy_if_one_unit = |&: ext: &str, output_type: config::OutputType, keep_numbered: bool| {
         // Three cases:
         if sess.opts.cg.codegen_units == 1 {
             // 1) Only one codegen unit.  In this case it's no difficulty
