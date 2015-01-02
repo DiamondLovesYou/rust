@@ -621,6 +621,7 @@ pub fn run_passes(sess: &Session,
                 metadata_config.emit_obj = true;
             },
             config::OutputTypeDepInfo => {}
+            config::OutputTypeStablePexe => {}
         }
     }
 
@@ -977,6 +978,7 @@ let copy_if_one_unit = |&: ext: &str, output_type: config::OutputType, keep_numb
                 }
             }
             config::OutputTypeDepInfo => {}
+            config::OutputTypeStablePexe => {}
         }
     }
     let user_wants_bitcode = user_wants_bitcode;

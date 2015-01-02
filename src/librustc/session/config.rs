@@ -70,6 +70,7 @@ pub enum OutputType {
     OutputTypeObject,
     OutputTypeExe,
     OutputTypeDepInfo,
+    OutputTypeStablePexe,
 }
 
 #[deriving(Clone)]
@@ -163,7 +164,7 @@ impl OutputFilenames {
             OutputTypeLlvmAssembly => base.with_extension("ll"),
             OutputTypeObject => base.with_extension("o"),
             OutputTypeDepInfo => base.with_extension("d"),
-            OutputTypeExe => base,
+            OutputTypeExe | OutputTypeStablePexe => base,
         }
     }
 
@@ -539,11 +540,6 @@ cgoptions! {
         "print remarks for these optimization passes (space separated, or \"all\")"),
     no_stack_check: bool = (false, parse_bool,
         "disable checks for stack exhaustion (a memory-safety hazard!)"),
-    extra_bitcode: Vec<String> = (Vec::new(), parse_list,
-        "a list of bitcode files to include for linking (PNaCl bin output only)"),
-    stable_pexe: bool = (false, parse_bool,
-        "write finalized, stable PNaCl bitcode. PNaCl binaries only. Combine with --emit=link,bc \
-         if you'd like debugging info."),
     debuginfo: Option<uint> = (None, parse_opt_uint,
         "debug info emission level, 0 = no debug info, 1 = line tables only, \
          2 = full debug info with variable and type information"),
@@ -758,7 +754,7 @@ pub fn rustc_short_optgroups() -> Vec<RustcOptGroup> {
                "NAME"),
         opt::multi("", "emit", "Comma separated list of types of output for \
                               the compiler to emit",
-                 "[asm|llvm-bc|llvm-ir|obj|link|dep-info]"),
+                 "[asm|llvm-bc|llvm-ir|obj|link|dep-info|stable-pexe]"),
         opt::multi("", "print", "Comma separated list of compiler information to \
                                print on stdout",
                  "[crate-name|output-file-names|sysroot]"),
@@ -912,6 +908,9 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 
     let mut output_types = Vec::new();
     if !parse_only && !no_trans {
+        let target = matches.opt_str("target");
+        let target_slice = target.as_ref().map(|t| t.as_slice() );
+
         let unparsed_output_types = matches.opt_strs("emit");
         for unparsed_output_type in unparsed_output_types.iter() {
             for part in unparsed_output_type.split(',') {
@@ -922,6 +921,13 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                     "obj" => OutputTypeObject,
                     "link" => OutputTypeExe,
                     "dep-info" => OutputTypeDepInfo,
+                    "stable-pexe" => {
+                        if target_slice == Some("le32-unknown-nacl") {
+                            OutputTypeStablePexe
+                        } else {
+                            OutputTypeExe
+                        }
+                    }
                     _ => {
                         early_error(format!("unknown emission type: `{}`",
                                             part)[])
@@ -934,7 +940,11 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     output_types.sort();
     output_types.dedup();
     if output_types.len() == 0 {
-        output_types.push(OutputTypeExe);
+        if matches.opt_str("target") == Some("le32-unknown-nacl".to_string()) {
+            output_types.push(OutputTypeStablePexe);
+        } else {
+            output_types.push(OutputTypeExe);
+        }
     }
 
     let cg = build_codegen_options(matches);
