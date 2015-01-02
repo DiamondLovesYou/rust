@@ -708,7 +708,7 @@ pub fn link_pnacl_module(sess: &Session,
     // This function should not be called on non-exe outputs.
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
-    use std::io::File;
+    use std::io::{File, USER_EXEC};
     use back::write;
     use back::write::llvm_err;
     use session::config::OutputTypeLlvmAssembly;
@@ -1022,6 +1022,7 @@ pub fn link_pnacl_module(sess: &Session,
             llvm::LLVMWriteBitcodeToFile(llmod, buf);
         })
     }
+    fs::chmod(&out, USER_EXEC).unwrap();
     unsafe {
         llvm::LLVMContextDispose(llcx);
     }
