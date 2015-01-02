@@ -437,7 +437,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
 
             // If we're verifying or linting, add them to the function pass
             // manager.
-            let addpass = |pass: &str| {
+            let addpass = |&: pass: &str| {
                 pass.with_c_str(|s| llvm::LLVMRustAddPass(fpm, s))
             };
             if !config.no_verify { assert!(addpass("verify")); }
@@ -848,7 +848,7 @@ pub fn run_passes(sess: &Session,
         return;
     }
 
-    let copy_if_one_unit = |ext: &str, output_type: config::OutputType, keep_numbered: bool| {
+let copy_if_one_unit = |&: ext: &str, output_type: config::OutputType, keep_numbered: bool| {
         // Three cases:
         if sess.opts.cg.codegen_units == 1 {
             // 1) Only one codegen unit.  In this case it's no difficulty
@@ -873,7 +873,7 @@ pub fn run_passes(sess: &Session,
         }
     };
 
-    let link_obj = |output_path: &Path| {
+    let link_obj = |&: output_path: &Path| {
         // Running `ld -r` on a single input is kind of pointless.
         if sess.opts.cg.codegen_units == 1 {
             fs::copy(&crate_output.with_extension("0.o"),
@@ -1196,7 +1196,7 @@ unsafe fn configure_llvm(sess: &Session) {
     let mut llvm_c_strs = Vec::new();
     let mut llvm_args = Vec::new();
     {
-        let add = |arg: &str| {
+        let mut add = |&mut : arg: &str| {
             let s = arg.to_c_str();
             llvm_args.push(s.as_ptr());
             llvm_c_strs.push(s);

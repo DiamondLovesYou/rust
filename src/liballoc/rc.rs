@@ -452,7 +452,7 @@ impl<T: Default> Default for Rc<T> {
     }
 }
 
-#[unstable = "PartialEq is unstable."]
+#[stable]
 impl<T: PartialEq> PartialEq for Rc<T> {
     /// Equality for two `Rc<T>`s.
     ///
@@ -487,10 +487,10 @@ impl<T: PartialEq> PartialEq for Rc<T> {
     fn ne(&self, other: &Rc<T>) -> bool { **self != **other }
 }
 
-#[unstable = "Eq is unstable."]
+#[stable]
 impl<T: Eq> Eq for Rc<T> {}
 
-#[unstable = "PartialOrd is unstable."]
+#[stable]
 impl<T: PartialOrd> PartialOrd for Rc<T> {
     /// Partial comparison for two `Rc<T>`s.
     ///
@@ -575,7 +575,7 @@ impl<T: PartialOrd> PartialOrd for Rc<T> {
     fn ge(&self, other: &Rc<T>) -> bool { **self >= **other }
 }
 
-#[unstable = "Ord is unstable."]
+#[stable]
 impl<T: Ord> Ord for Rc<T> {
     /// Comparison for two `Rc<T>`s.
     ///
@@ -716,6 +716,13 @@ impl<T> Clone for Weak<T> {
     fn clone(&self) -> Weak<T> {
         self.inc_weak();
         Weak { _ptr: self._ptr, _nosend: marker::NoSend, _noshare: marker::NoSync }
+    }
+}
+
+#[experimental = "Show is experimental."]
+impl<T: fmt::Show> fmt::Show for Weak<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(Weak)")
     }
 }
 

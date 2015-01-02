@@ -424,7 +424,7 @@ pub fn expand_item(it: P<ast::Item>, fld: &mut MacroExpander)
                     // but that double-mut-borrows fld
                     let mut items: SmallVector<P<ast::Item>> = SmallVector::zero();
                     dec.expand(fld.cx, attr.span, &*attr.node.value, &*it,
-                               |item| items.push(item));
+                               box |&mut : item| items.push(item));
                     decorator_items.extend(items.into_iter()
                         .flat_map(|item| expand_item(item, fld).into_iter()));
 
@@ -470,7 +470,7 @@ pub fn expand_item(it: P<ast::Item>, fld: &mut MacroExpander)
 fn expand_item_modifiers(mut it: P<ast::Item>, fld: &mut MacroExpander)
                          -> P<ast::Item> {
     // partition the attributes into ItemModifiers and others
-    let (modifiers, other_attrs) = it.attrs.partitioned(|attr| {
+    let (modifiers, other_attrs): (Vec<_>, _) = it.attrs.iter().cloned().partition(|attr| {
         match fld.cx.syntax_env.find(&intern(attr.name().get())) {
             Some(rc) => match *rc { Modifier(_) => true, _ => false },
             _ => false
@@ -1660,7 +1660,7 @@ mod test {
             assert!((shouldmatch.len() == 0) ||
                     (varrefs.len() > *shouldmatch.iter().max().unwrap()));
             for (idx,varref) in varrefs.iter().enumerate() {
-                let print_hygiene_debug_info = || {
+                let print_hygiene_debug_info = |&:| {
                     // good lord, you can't make a path with 0 segments, can you?
                     let final_varref_ident = match varref.segments.last() {
                         Some(pathsegment) => pathsegment.identifier,

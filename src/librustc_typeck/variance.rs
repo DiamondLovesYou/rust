@@ -199,6 +199,7 @@ use middle::subst::{ParamSpace, FnSpace, TypeSpace, SelfSpace, VecPerParamSpace}
 use middle::ty::{mod, Ty};
 use std::fmt;
 use std::rc::Rc;
+use std::iter::repeat;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util;
@@ -592,7 +593,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
         // parameter (by inspecting parent of its binding declaration
         // to see if it is introduced by a type or by a fn/impl).
 
-        let check_result = |this:&ConstraintContext| -> bool {
+        let check_result = |&: this:&ConstraintContext| -> bool {
             let tcx = this.terms_cx.tcx;
             let decl_id = this.find_binding_for_lifetime(param_id);
             // Currently only called on lifetimes; double-checking that.
@@ -971,7 +972,7 @@ struct SolveContext<'a, 'tcx: 'a> {
 
 fn solve_constraints(constraints_cx: ConstraintContext) {
     let ConstraintContext { terms_cx, constraints, .. } = constraints_cx;
-    let solutions = Vec::from_elem(terms_cx.num_inferred(), ty::Bivariant);
+    let solutions: Vec<_> = repeat(ty::Bivariant).take(terms_cx.num_inferred()).collect();
     let mut solutions_cx = SolveContext {
         terms_cx: terms_cx,
         constraints: constraints,

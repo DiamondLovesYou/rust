@@ -24,8 +24,6 @@
 
 #[cfg(test)] #[phase(plugin, link)] extern crate log;
 
-#[cfg(stage0)]
-extern crate serialize;
 extern crate "serialize" as rustc_serialize;
 extern crate libc;
 
@@ -600,7 +598,7 @@ impl<'a> fmt::Show for TmFmt<'a> {
         }
 
         fn parse_type(fmt: &mut fmt::Formatter, ch: char, tm: &Tm) -> fmt::Result {
-            let die = || {
+            let die = |&:| {
                 unreachable!()
             };
             match ch {

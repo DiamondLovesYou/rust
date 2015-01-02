@@ -578,7 +578,7 @@ pub fn getopts(args: &[String], optgrps: &[OptGroup]) -> Result {
 
     fn f(_x: uint) -> Vec<Optval> { return Vec::new(); }
 
-    let mut vals = Vec::from_fn(n_opts, f);
+    let mut vals: Vec<_> = range(0, n_opts).map(f).collect();
     let mut free: Vec<String> = Vec::new();
     let l = args.len();
     let mut i = 0;
@@ -875,7 +875,7 @@ fn each_split_within<F>(ss: &str, lim: uint, mut it: F) -> bool where
         lim = fake_i;
     }
 
-    let machine: |&mut bool, (uint, char)| -> bool = |cont, (i, c)| {
+    let mut machine = |&mut: cont: &mut bool, (i, c): (uint, char)| -> bool {
         let whitespace = if c.is_whitespace() { Ws }       else { Cr };
         let limit      = if (i - slice_start + 1) <= lim  { UnderLim } else { OverLim };
 

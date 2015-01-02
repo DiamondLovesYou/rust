@@ -159,7 +159,7 @@ pub fn llvm_warn(sess: &Session, msg: String) {
 pub fn find_crate_name(sess: Option<&Session>,
                        attrs: &[ast::Attribute],
                        input: &Input) -> String {
-    let validate = |s: String, span: Option<Span>| {
+    let validate = |&: s: String, span: Option<Span>| {
         creader::validate_crate_name(sess, s[], span);
         s
     };

@@ -1402,6 +1402,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
                 }
                 ty::TypeTraitItem(associated_type) => {
                     encode_name(rbml_w, associated_type.name);
+                    encode_def_id(rbml_w, associated_type.def_id);
 
                     let elem = ast_map::PathName(associated_type.name);
                     encode_path(rbml_w,
@@ -1417,7 +1418,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
             encode_parent_sort(rbml_w, 't');
 
             let trait_item = &ms[i];
-            let encode_trait_item = |rbml_w: &mut Encoder| {
+            let encode_trait_item = |&: rbml_w: &mut Encoder| {
                 // If this is a static method, we've already
                 // encoded this.
                 if is_nonstatic_method {
@@ -1599,7 +1600,7 @@ fn encode_index<T, F>(rbml_w: &mut Encoder, index: Vec<entry<T>>, mut write_fn: 
     F: FnMut(&mut SeekableMemWriter, &T),
     T: Hash,
 {
-    let mut buckets: Vec<Vec<entry<T>>> = Vec::from_fn(256, |_| Vec::new());
+    let mut buckets: Vec<Vec<entry<T>>> = range(0, 256u16).map(|_| Vec::new()).collect();
     for elt in index.into_iter() {
         let h = hash::hash(&elt.val) as uint;
         buckets[h % 256].push(elt);

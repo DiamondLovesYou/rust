@@ -25,6 +25,7 @@ use middle::ty::{mod, Ty};
 use util::ppaux::{Repr, ty_to_string};
 
 use std::c_str::ToCStr;
+use std::iter::repeat;
 use libc::c_uint;
 use syntax::{ast, ast_util};
 use syntax::ptr::P;
@@ -304,7 +305,7 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>, e: &ast::Expr)
 // the bool returned is whether this expression can be inlined into other crates
 // if it's assigned to a static.
 fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
-    let map_list = |exprs: &[P<ast::Expr>]| {
+    let map_list = |&: exprs: &[P<ast::Expr>]| {
         exprs.iter().map(|e| const_expr(cx, &**e).0)
              .fold(Vec::new(), |mut l, val| { l.push(val); l })
     };
@@ -608,7 +609,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
                 const_eval::const_uint(i) => i as uint,
                 _ => cx.sess().span_bug(count.span, "count must be integral const expression.")
             };
-            let vs = Vec::from_elem(n, const_expr(cx, &**elem).0);
+            let vs: Vec<_> = repeat(const_expr(cx, &**elem).0).take(n).collect();
             if vs.iter().any(|vi| val_ty(*vi) != llunitty) {
                 C_struct(cx, vs[], false)
             } else {
