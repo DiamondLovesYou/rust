@@ -26,14 +26,14 @@ pub use self::signal::{SA_NOCLDSTOP, SA_SIGINFO};
 use libc;
 
 // For (P)NaCl targets, nacl_io provides some C functions that Newlib doesn't implement.
-#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(all(target_os = "nacl", target_libc = "newlib", not(test)))]
 #[link(name = "nacl_io", kind = "static")] extern {}
 
 
 // Rust requires EH, which is implemented in libc++ for PNaCl. Thus for PNaCl,
 // libc++ is linked in liblibc. However libnacl_io still requires access to
 // libc++/libstdc++, so we still need to link that here.
-#[cfg(all(target_os = "nacl", not(target_arch = "le32")))]
+#[cfg(all(target_os = "nacl", not(target_arch = "le32"), not(test)))]
 #[link(name = "stdc++", kind = "static")]
 extern {}
 
