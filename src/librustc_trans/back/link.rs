@@ -16,7 +16,6 @@ use super::svh::Svh;
 use session::config;
 use session::config::NoDebugInfo;
 use session::config::{OutputFilenames, Input, OutputTypeBitcode, OutputTypeExe, OutputTypeObject};
-use session::config::OutputTypeStablePexe;
 use session::search_paths::PathKind;
 use session::Session;
 use metadata::common::LinkMeta;
@@ -710,7 +709,6 @@ pub fn link_pnacl_module(sess: &Session,
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
     use std::io::{File, USER_EXEC};
-    use std::os;
     use back::write;
     use back::write::llvm_err;
     use session::config::OutputTypeLlvmAssembly;
@@ -958,19 +956,15 @@ pub fn link_pnacl_module(sess: &Session,
         }
         warn_about_debuginfo = false;
     }
-    let force_non_stable_output = os::getenv("RUSTC_FORCE_NON_STABLE_BC_EMISSION").is_some();
-    if force_non_stable_output || sess.opts.output_types.iter().any(|&i| i == OutputTypeExe) {
-        // ignore -o from cmd args.
+    if sess.opts.output_types.iter().any(|&i| i == OutputTypeBitcode) {
         // emit bc
         let out = outputs.with_extension("bc");
         out.with_c_str(|buf| unsafe {
             llvm::LLVMWriteBitcodeToFile(llmod, buf);
         });
-        fs::chmod(&out, USER_EXEC).unwrap(); // for pexe-runner.
         warn_about_debuginfo = false;
     }
-    let emit_stable_pexe = sess.opts.output_types.iter().any(|&i| i == OutputTypeStablePexe);
-    if emit_stable_pexe {
+    if sess.opts.cg.stable_pexe {
         if sess.opts.debuginfo != config::NoDebugInfo && warn_about_debuginfo {
             sess.warn("debugging info isn't supported in stable pexe's");
         }
@@ -1008,23 +1002,21 @@ pub fn link_pnacl_module(sess: &Session,
         }
     };
 
-    if emit_stable_pexe {
+    if sess.opts.cg.stable_pexe {
+        // stable output:
         if sess.opts.cg.save_temps {
             outputs.with_extension("final.bc").with_c_str(|buf| unsafe {
                 llvm::LLVMWriteBitcodeToFile(llmod, buf);
             })
         }
-    }
-
-    sess.check_writeable_output(&out, "final output");
-
-    if emit_stable_pexe {
+        sess.check_writeable_output(&out, "final output");
         out.with_c_str(|output| unsafe {
             if !llvm::LLVMRustWritePNaClBitcode(llmod, output, false) {
                 llvm_err(&sess.diagnostic().handler, "failed to write output file".to_string());
             }
         });
     } else {
+        sess.check_writeable_output(&out, "final output");
         // regular bitcode output:
         out.with_c_str(|buf| unsafe {
             llvm::LLVMWriteBitcodeToFile(llmod, buf);

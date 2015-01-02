@@ -621,7 +621,6 @@ pub fn run_passes(sess: &Session,
                 metadata_config.emit_obj = true;
             },
             config::OutputTypeDepInfo => {}
-            config::OutputTypeStablePexe => {}
         }
     }
 
@@ -978,7 +977,6 @@ pub fn run_passes(sess: &Session,
                 }
             }
             config::OutputTypeDepInfo => {}
-            config::OutputTypeStablePexe => {}
         }
     }
     let user_wants_bitcode = user_wants_bitcode;
