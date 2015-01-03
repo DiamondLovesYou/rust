@@ -946,13 +946,27 @@ LLVMRustParseBitcode(LLVMContextRef ctxt, const char* name, const void* bc, size
                                                            len),
                                                  name,
                                                  false);
-  ErrorOr<Module *> Src = llvm::parseBitcodeFile(buf, *unwrap(ctxt));
+
+  Module *Mod = nullptr;
+  std::string ErrMsg;
+  if (isNaClBitcode(buf)) {
+    Mod = NaClParseBitcodeFile(buf, *unwrap(ctxt),
+                               &ErrMsg, false);
+
+  } else {
+    ErrorOr<Module *> Src = llvm::parseBitcodeFile(buf, *unwrap(ctxt));
+    Mod = Src.get();
+    if (!Src) {
+      ErrMsg = Src.getError().message();
+    }
+  }
+
   delete buf;
-  if (!Src) {
-    LLVMRustSetLastError(Src.getError().message().c_str());
+  if (!Mod) {
+    LLVMRustSetLastError(ErrMsg.c_str());
     return NULL;
   } else {
-    return wrap(*Src);
+    return wrap(Mod);
   }
 }
 extern "C" void
