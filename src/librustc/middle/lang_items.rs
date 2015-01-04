@@ -36,6 +36,7 @@ use syntax::visit::Visitor;
 use syntax::visit;
 
 use std::iter::Enumerate;
+use std::num::FromPrimitive;
 use std::slice;
 
 // The actual lang items defined come at the end of this file in one handy table.
@@ -45,7 +46,7 @@ macro_rules! lets_do_this {
         $( $variant:ident, $name:expr, $method:ident; )*
     ) => {
 
-#[deriving(Copy, FromPrimitive, PartialEq, Eq, Hash)]
+#[derive(Copy, FromPrimitive, PartialEq, Eq, Hash)]
 pub enum LangItem {
     $($variant),*
 }

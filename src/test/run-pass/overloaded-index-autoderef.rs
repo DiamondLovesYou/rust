@@ -10,12 +10,18 @@
 
 // Test overloaded indexing combined with autoderef.
 
+#![feature(associated_types)]
+
+use std::ops::{Index, IndexMut};
+
 struct Foo {
     x: int,
     y: int,
 }
 
-impl Index<int,int> for Foo {
+impl Index<int> for Foo {
+    type Output = int;
+
     fn index(&self, z: &int) -> &int {
         if *z == 0 {
             &self.x
@@ -25,7 +31,9 @@ impl Index<int,int> for Foo {
     }
 }
 
-impl IndexMut<int,int> for Foo {
+impl IndexMut<int> for Foo {
+    type Output = int;
+
     fn index_mut(&mut self, z: &int) -> &mut int {
         if *z == 0 {
             &mut self.x

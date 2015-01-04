@@ -23,7 +23,7 @@ use metadata::decoder;
 use metadata::tyencode;
 use middle::def;
 use middle::ty::{lookup_item_type};
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty};
 use middle::stability;
 use util::nodemap::{FnvHashMap, NodeMap, NodeSet};
 
@@ -32,7 +32,7 @@ use std::cell::RefCell;
 use std::hash::Hash;
 use std::hash;
 use syntax::abi;
-use syntax::ast::{mod, DefId, NodeId};
+use syntax::ast::{self, DefId, NodeId};
 use syntax::ast_map::{PathElem, PathElems};
 use syntax::ast_map;
 use syntax::ast_util::*;
@@ -98,7 +98,7 @@ pub fn encode_def_id(rbml_w: &mut Encoder, id: DefId) {
     rbml_w.wr_tagged_str(tag_def_id, def_to_string(id)[]);
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 struct entry<T> {
     val: T,
     pos: u64
@@ -364,7 +364,7 @@ fn encode_enum_variant_info(ecx: &EncodeContext,
     }
 }
 
-fn encode_path<PI: Iterator<PathElem>>(rbml_w: &mut Encoder, path: PI) {
+fn encode_path<PI: Iterator<Item=PathElem>>(rbml_w: &mut Encoder, path: PI) {
     let path = path.collect::<Vec<_>>();
     rbml_w.start_tag(tag_path);
     rbml_w.wr_tagged_u32(tag_path_len, path.len() as u32);
@@ -1222,8 +1222,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_attributes(rbml_w, item.attrs[]);
         encode_unsafety(rbml_w, unsafety);
         match ty.node {
-            ast::TyPath(ref path, _) if path.segments
-                                                        .len() == 1 => {
+            ast::TyPath(ref path, _) if path.segments.len() == 1 => {
                 let ident = path.segments.last().unwrap().identifier;
                 encode_impl_type_basename(rbml_w, ident);
             }
@@ -1351,6 +1350,9 @@ fn encode_info_for_item(ecx: &EncodeContext,
         // Encode the implementations of this trait.
         encode_extension_implementations(ecx, rbml_w, def_id);
 
+        // Encode inherent implementations for this trait.
+        encode_inherent_implementations(ecx, rbml_w, def_id);
+
         rbml_w.end_tag();
 
         // Now output the trait item info for each trait item.
@@ -1453,9 +1455,6 @@ fn encode_info_for_item(ecx: &EncodeContext,
 
             rbml_w.end_tag();
         }
-
-        // Encode inherent implementations for this trait.
-        encode_inherent_implementations(ecx, rbml_w, def_id);
       }
       ast::ItemMac(..) => {
         // macros are encoded separately

@@ -10,7 +10,7 @@
 
 use super::link;
 use super::write;
-use rustc::session::{mod, config};
+use rustc::session::{self, config};
 use llvm;
 use llvm::archive_ro::ArchiveRO;
 use llvm::{ModuleRef, TargetMachineRef, False, True, PassManagerRef};
@@ -20,6 +20,7 @@ use rustc::util::common::time;
 use libc;
 use flate;
 
+use std::c_str::ToCStr;
 use std::iter;
 use std::mem;
 use std::num::Int;

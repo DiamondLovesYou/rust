@@ -29,16 +29,16 @@ const CHACHA_ROUNDS: uint = 20; // Cryptographically secure from 8 upwards as of
 /// [1]: D. J. Bernstein, [*ChaCha, a variant of
 /// Salsa20*](http://cr.yp.to/chacha.html)
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct ChaChaRng {
-    buffer:  [u32, ..STATE_WORDS], // Internal buffer of output
-    state:   [u32, ..STATE_WORDS], // Initial state
+    buffer:  [u32; STATE_WORDS], // Internal buffer of output
+    state:   [u32; STATE_WORDS], // Initial state
     index:   uint,                 // Index into state
 }
 
 static EMPTY: ChaChaRng = ChaChaRng {
-    buffer:  [0, ..STATE_WORDS],
-    state:   [0, ..STATE_WORDS],
+    buffer:  [0; STATE_WORDS],
+    state:   [0; STATE_WORDS],
     index:   STATE_WORDS
 };
 
@@ -68,7 +68,7 @@ macro_rules! double_round{
 }
 
 #[inline]
-fn core(output: &mut [u32, ..STATE_WORDS], input: &[u32, ..STATE_WORDS]) {
+fn core(output: &mut [u32; STATE_WORDS], input: &[u32; STATE_WORDS]) {
     *output = *input;
 
     for _ in range(0, CHACHA_ROUNDS / 2) {
@@ -86,7 +86,7 @@ impl ChaChaRng {
     /// fixed key of 8 zero words.
     pub fn new_unseeded() -> ChaChaRng {
         let mut rng = EMPTY;
-        rng.init(&[0, ..KEY_WORDS]);
+        rng.init(&[0; KEY_WORDS]);
         rng
     }
 
@@ -124,7 +124,7 @@ impl ChaChaRng {
     /// ```
     /// [1]: Daniel J. Bernstein. [*Extending the Salsa20
     /// nonce.*](http://cr.yp.to/papers.html#xsalsa)
-    fn init(&mut self, key: &[u32, ..KEY_WORDS]) {
+    fn init(&mut self, key: &[u32; KEY_WORDS]) {
         self.state[0] = 0x61707865;
         self.state[1] = 0x3320646E;
         self.state[2] = 0x79622D32;
@@ -174,7 +174,7 @@ impl<'a> SeedableRng<&'a [u32]> for ChaChaRng {
 
     fn reseed(&mut self, seed: &'a [u32]) {
         // reset state
-        self.init(&[0u32, ..KEY_WORDS]);
+        self.init(&[0u32; KEY_WORDS]);
         // set key in place
         let key = self.state.slice_mut(4, 4+KEY_WORDS);
         for (k, s) in key.iter_mut().zip(seed.iter()) {
@@ -195,7 +195,7 @@ impl<'a> SeedableRng<&'a [u32]> for ChaChaRng {
 
 impl Rand for ChaChaRng {
     fn rand<R: Rng>(other: &mut R) -> ChaChaRng {
-        let mut key : [u32, ..KEY_WORDS] = [0, ..KEY_WORDS];
+        let mut key : [u32; KEY_WORDS] = [0; KEY_WORDS];
         for word in key.iter_mut() {
             *word = other.gen();
         }
@@ -206,7 +206,7 @@ impl Rand for ChaChaRng {
 
 #[cfg(test)]
 mod test {
-    use std::prelude::*;
+    use std::prelude::v1::*;
 
     use core::iter::order;
     use {Rng, SeedableRng};
@@ -246,7 +246,7 @@ mod test {
     fn test_rng_true_values() {
         // Test vectors 1 and 2 from
         // http://tools.ietf.org/html/draft-nir-cfrg-chacha20-poly1305-04
-        let seed : &[_] = &[0u32, ..8];
+        let seed : &[_] = &[0u32; 8];
         let mut ra: ChaChaRng = SeedableRng::from_seed(seed);
 
         let v = Vec::from_fn(16, |_| ra.next_u32());

@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -30,7 +30,7 @@ use default::Default;
 use super::{Hash, Hasher, Writer};
 
 /// `SipState` computes a SipHash 2-4 hash over a stream of bytes.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct SipState {
     k0: u64,
     k1: u64,
@@ -50,19 +50,19 @@ pub struct SipState {
 macro_rules! u8to64_le {
     ($buf:expr, $i:expr) =>
     ($buf[0+$i] as u64 |
-     $buf[1+$i] as u64 << 8 |
-     $buf[2+$i] as u64 << 16 |
-     $buf[3+$i] as u64 << 24 |
-     $buf[4+$i] as u64 << 32 |
-     $buf[5+$i] as u64 << 40 |
-     $buf[6+$i] as u64 << 48 |
-     $buf[7+$i] as u64 << 56);
+     ($buf[1+$i] as u64) << 8 |
+     ($buf[2+$i] as u64) << 16 |
+     ($buf[3+$i] as u64) << 24 |
+     ($buf[4+$i] as u64) << 32 |
+     ($buf[5+$i] as u64) << 40 |
+     ($buf[6+$i] as u64) << 48 |
+     ($buf[7+$i] as u64) << 56);
     ($buf:expr, $i:expr, $len:expr) =>
     ({
         let mut t = 0;
         let mut out = 0u64;
         while t < $len {
-            out |= $buf[t+$i] as u64 << t*8;
+            out |= ($buf[t+$i] as u64) << t*8;
             t += 1;
         }
         out
@@ -213,7 +213,7 @@ impl Default for SipState {
 }
 
 /// `SipHasher` computes the SipHash algorithm from a stream of bytes.
-#[deriving(Clone)]
+#[derive(Clone)]
 #[allow(missing_copy_implementations)]
 pub struct SipHasher {
     k0: u64,
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     #[allow(unused_must_use)]
     fn test_siphash() {
-        let vecs : [[u8, ..8], ..64] = [
+        let vecs : [[u8; 8]; 64] = [
             [ 0x31, 0x0e, 0x0e, 0xdd, 0x47, 0xdb, 0x6f, 0x72, ],
             [ 0xfd, 0x67, 0xdc, 0x93, 0xc5, 0x39, 0xf8, 0x74, ],
             [ 0x5a, 0x4f, 0xa9, 0xd9, 0x09, 0x80, 0x6c, 0x0d, ],
@@ -366,7 +366,7 @@ mod tests {
         let mut state_inc = SipState::new_with_keys(k0, k1);
         let mut state_full = SipState::new_with_keys(k0, k1);
 
-        fn to_hex_str(r: &[u8, ..8]) -> String {
+        fn to_hex_str(r: &[u8; 8]) -> String {
             let mut s = String::new();
             for b in r.iter() {
                 s.push_str(format!("{}", fmt::radix(*b, 16)).as_slice());
@@ -419,6 +419,12 @@ mod tests {
         }
     }
 
+    #[test] #[cfg(target_arch = "aarch64")]
+    fn test_hash_uint() {
+        let val = 0xdeadbeef_deadbeef_u64;
+        assert_eq!(hash(&(val as u64)), hash(&(val as uint)));
+        assert!(hash(&(val as u32)) != hash(&(val as uint)));
+    }
     #[test] #[cfg(target_arch = "arm")]
     fn test_hash_uint() {
         let val = 0xdeadbeef_deadbeef_u64;

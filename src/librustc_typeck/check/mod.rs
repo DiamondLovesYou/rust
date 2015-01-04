@@ -81,19 +81,20 @@ pub use self::Expectation::*;
 use self::IsBinopAssignment::*;
 use self::TupleArgumentsFlag::*;
 
-use astconv::{mod, ast_region_to_region, ast_ty_to_ty, AstConv};
+use astconv::{self, ast_region_to_region, ast_ty_to_ty, AstConv};
 use check::_match::pat_ctxt;
 use middle::{const_eval, def};
 use middle::infer;
 use middle::lang_items::IteratorItem;
 use middle::mem_categorization as mc;
-use middle::pat_util::{mod, pat_id_map};
+use middle::mem_categorization::McResult;
+use middle::pat_util::{self, pat_id_map};
 use middle::region::CodeExtent;
-use middle::subst::{mod, Subst, Substs, VecPerParamSpace, ParamSpace};
+use middle::subst::{self, Subst, Substs, VecPerParamSpace, ParamSpace};
 use middle::traits;
 use middle::ty::{FnSig, VariantInfo, TypeScheme};
 use middle::ty::{Disr, ParamTy, ParameterEnvironment};
-use middle::ty::{mod, HasProjectionTypes, RegionEscape, Ty};
+use middle::ty::{self, HasProjectionTypes, RegionEscape, Ty};
 use middle::ty::liberate_late_bound_regions;
 use middle::ty::{MethodCall, MethodCallee, MethodMap, ObjectCastMap};
 use middle::ty_fold::{TypeFolder, TypeFoldable};
@@ -104,22 +105,22 @@ use TypeAndSubsts;
 use middle::lang_items::TypeIdLangItem;
 use lint;
 use util::common::{block_query, indenter, loop_query};
-use util::ppaux::{mod, UserString, Repr};
+use util::ppaux::{self, UserString, Repr};
 use util::nodemap::{DefIdMap, FnvHashMap, NodeMap};
 
 use std::cell::{Cell, Ref, RefCell};
 use std::mem::replace;
 use std::rc::Rc;
 use std::iter::repeat;
-use syntax::{mod, abi, attr};
-use syntax::ast::{mod, ProvidedMethod, RequiredMethod, TypeTraitItem, DefId};
-use syntax::ast_util::{mod, local_def, PostExpansionMethod};
-use syntax::codemap::{mod, Span};
+use syntax::{self, abi, attr};
+use syntax::ast::{self, ProvidedMethod, RequiredMethod, TypeTraitItem, DefId};
+use syntax::ast_util::{self, local_def, PostExpansionMethod};
+use syntax::codemap::{self, Span};
 use syntax::owned_slice::OwnedSlice;
 use syntax::parse::token;
 use syntax::print::pprust;
 use syntax::ptr::P;
-use syntax::visit::{mod, Visitor};
+use syntax::visit::{self, Visitor};
 
 mod assoc;
 pub mod _match;
@@ -129,6 +130,7 @@ pub mod regionmanip;
 pub mod regionck;
 pub mod demand;
 pub mod method;
+mod upvar;
 pub mod wf;
 mod closure;
 mod callee;
@@ -146,7 +148,7 @@ mod callee;
 pub struct Inherited<'a, 'tcx: 'a> {
     infcx: infer::InferCtxt<'a, 'tcx>,
     locals: RefCell<NodeMap<Ty<'tcx>>>,
-    param_env: ty::ParameterEnvironment<'tcx>,
+    param_env: ty::ParameterEnvironment<'a, 'tcx>,
 
     // Temporary tables:
     node_types: RefCell<NodeMap<Ty<'tcx>>>,
@@ -168,7 +170,7 @@ pub struct Inherited<'a, 'tcx: 'a> {
 
 /// When type-checking an expression, we propagate downward
 /// whatever type hint we are able in the form of an `Expectation`.
-#[deriving(Copy)]
+#[derive(Copy)]
 enum Expectation<'tcx> {
     /// We know nothing about what type this expression should have.
     NoExpectation,
@@ -219,7 +221,7 @@ impl<'tcx> Expectation<'tcx> {
     }
 }
 
-#[deriving(Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct UnsafetyState {
     pub def: ast::NodeId,
     pub unsafety: ast::Unsafety,
@@ -255,13 +257,13 @@ impl UnsafetyState {
 /// Whether `check_binop` is part of an assignment or not.
 /// Used to know whether we allow user overloads and to print
 /// better messages on error.
-#[deriving(PartialEq)]
+#[derive(PartialEq)]
 enum IsBinopAssignment{
     SimpleBinop,
     BinopAssignment,
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct FnCtxt<'a, 'tcx: 'a> {
     body_id: ast::NodeId,
 
@@ -288,13 +290,17 @@ impl<'a, 'tcx> mc::Typer<'tcx> for FnCtxt<'a, 'tcx> {
     fn tcx(&self) -> &ty::ctxt<'tcx> {
         self.ccx.tcx
     }
-    fn node_ty(&self, id: ast::NodeId) -> Ty<'tcx> {
+    fn node_ty(&self, id: ast::NodeId) -> McResult<Ty<'tcx>> {
         let ty = self.node_ty(id);
-        self.infcx().resolve_type_vars_if_possible(&ty)
+        self.resolve_type_vars_or_error(&ty)
     }
-    fn expr_ty_adjusted(&self, expr: &ast::Expr) -> Ty<'tcx> {
-        let ty = self.expr_ty_adjusted(expr);
-        self.infcx().resolve_type_vars_if_possible(&ty)
+    fn expr_ty_adjusted(&self, expr: &ast::Expr) -> McResult<Ty<'tcx>> {
+        let ty = self.adjust_expr_ty(expr, self.inh.adjustments.borrow().get(&expr.id));
+        self.resolve_type_vars_or_error(&ty)
+    }
+    fn type_moves_by_default(&self, span: Span, ty: Ty<'tcx>) -> bool {
+        let ty = self.infcx().resolve_type_vars_if_possible(&ty);
+        traits::type_known_to_meet_builtin_bound(self.infcx(), self, ty, ty::BoundCopy, span)
     }
     fn node_method_ty(&self, method_call: ty::MethodCall)
                       -> Option<Ty<'tcx>> {
@@ -317,23 +323,49 @@ impl<'a, 'tcx> mc::Typer<'tcx> for FnCtxt<'a, 'tcx> {
         self.inh.method_map.borrow().contains_key(&ty::MethodCall::expr(id))
     }
     fn temporary_scope(&self, rvalue_id: ast::NodeId) -> Option<CodeExtent> {
-        self.tcx().temporary_scope(rvalue_id)
+        self.param_env().temporary_scope(rvalue_id)
     }
-    fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow {
-        self.inh.upvar_borrow_map.borrow()[upvar_id].clone()
+    fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> Option<ty::UpvarBorrow> {
+        self.inh.upvar_borrow_map.borrow().get(&upvar_id).cloned()
     }
     fn capture_mode(&self, closure_expr_id: ast::NodeId)
                     -> ast::CaptureClause {
         self.ccx.tcx.capture_mode(closure_expr_id)
     }
-    fn unboxed_closures(&self) -> &RefCell<DefIdMap<ty::UnboxedClosure<'tcx>>> {
-        &self.inh.unboxed_closures
+}
+
+impl<'a, 'tcx> ty::UnboxedClosureTyper<'tcx> for FnCtxt<'a, 'tcx> {
+    fn param_env<'b>(&'b self) -> &'b ty::ParameterEnvironment<'b,'tcx> {
+        &self.inh.param_env
+    }
+
+    fn unboxed_closure_kind(&self,
+                            def_id: ast::DefId)
+                            -> ty::UnboxedClosureKind
+    {
+        self.inh.unboxed_closures.borrow()[def_id].kind
+    }
+
+    fn unboxed_closure_type(&self,
+                            def_id: ast::DefId,
+                            substs: &subst::Substs<'tcx>)
+                            -> ty::ClosureTy<'tcx>
+    {
+        self.inh.unboxed_closures.borrow()[def_id].closure_type.subst(self.tcx(), substs)
+    }
+
+    fn unboxed_closure_upvars(&self,
+                              def_id: ast::DefId,
+                              substs: &Substs<'tcx>)
+                              -> Option<Vec<ty::UnboxedClosureUpvar<'tcx>>>
+    {
+        ty::unboxed_closure_upvars(self, def_id, substs)
     }
 }
 
 impl<'a, 'tcx> Inherited<'a, 'tcx> {
     fn new(tcx: &'a ty::ctxt<'tcx>,
-           param_env: ty::ParameterEnvironment<'tcx>)
+           param_env: ty::ParameterEnvironment<'a, 'tcx>)
            -> Inherited<'a, 'tcx> {
         Inherited {
             infcx: infer::new_infer_ctxt(tcx),
@@ -352,7 +384,7 @@ impl<'a, 'tcx> Inherited<'a, 'tcx> {
     }
 
     fn normalize_associated_types_in<T>(&self,
-                                        typer: &mc::Typer<'tcx>,
+                                        typer: &ty::UnboxedClosureTyper<'tcx>,
                                         span: Span,
                                         body_id: ast::NodeId,
                                         value: &T)
@@ -361,7 +393,6 @@ impl<'a, 'tcx> Inherited<'a, 'tcx> {
     {
         let mut fulfillment_cx = self.fulfillment_cx.borrow_mut();
         assoc::normalize_associated_types_in(&self.infcx,
-                                             &self.param_env,
                                              typer,
                                              &mut *fulfillment_cx, span,
                                              body_id,
@@ -391,7 +422,7 @@ fn static_inherited_fields<'a, 'tcx>(ccx: &'a CrateCtxt<'a, 'tcx>)
                                     -> Inherited<'a, 'tcx> {
     // It's kind of a kludge to manufacture a fake function context
     // and statement context, but we might as well do write the code only once
-    let param_env = ty::empty_parameter_environment();
+    let param_env = ty::empty_parameter_environment(ccx.tcx);
     Inherited::new(ccx.tcx, param_env)
 }
 
@@ -435,7 +466,7 @@ fn check_bare_fn<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
                            body: &ast::Block,
                            id: ast::NodeId,
                            raw_fty: Ty<'tcx>,
-                           param_env: ty::ParameterEnvironment<'tcx>) {
+                           param_env: ty::ParameterEnvironment<'a, 'tcx>) {
     match raw_fty.sty {
         ty::ty_bare_fn(_, ref fn_ty) => {
             let inh = Inherited::new(ccx.tcx, param_env);
@@ -446,14 +477,14 @@ fn check_bare_fn<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
             let fn_sig =
                 liberate_late_bound_regions(ccx.tcx, CodeExtent::from_node_id(body.id), &fn_sig);
             let fn_sig =
-                inh.normalize_associated_types_in(ccx.tcx, body.span, body.id, &fn_sig);
+                inh.normalize_associated_types_in(&inh.param_env, body.span, body.id, &fn_sig);
 
             let fcx = check_fn(ccx, fn_ty.unsafety, id, &fn_sig,
                                decl, id, body, &inh);
 
             vtable::select_all_fcx_obligations_or_error(&fcx);
+            upvar::closure_analyze_fn(&fcx, id, decl, body);
             regionck::regionck_fn(&fcx, id, decl, body);
-            fcx.default_diverging_type_variables_to_nil();
             writeback::resolve_type_vars_in_fn(&fcx, decl, body);
         }
         _ => ccx.tcx.sess.impossible_case(body.span,
@@ -486,9 +517,9 @@ impl<'a, 'tcx> GatherLocalsVisitor<'a, 'tcx> {
 impl<'a, 'tcx, 'v> Visitor<'v> for GatherLocalsVisitor<'a, 'tcx> {
     // Add explicitly-declared locals.
     fn visit_local(&mut self, local: &ast::Local) {
-        let o_ty = match local.ty.node {
-            ast::TyInfer => None,
-            _ => Some(self.fcx.to_ty(&*local.ty))
+        let o_ty = match local.ty {
+            Some(ref ty) => Some(self.fcx.to_ty(&**ty)),
+            None => None
         };
         self.assign(local.span, local.id, o_ty);
         debug!("Local variable {} is assigned type {}",
@@ -1199,7 +1230,6 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
         let impl_sig =
             assoc::normalize_associated_types_in(&infcx,
                                                  &impl_param_env,
-                                                 infcx.tcx,
                                                  &mut fulfillment_cx,
                                                  impl_m_span,
                                                  impl_m_body_id,
@@ -1220,7 +1250,6 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
         let trait_sig =
             assoc::normalize_associated_types_in(&infcx,
                                                  &impl_param_env,
-                                                 infcx.tcx,
                                                  &mut fulfillment_cx,
                                                  impl_m_span,
                                                  impl_m_body_id,
@@ -1256,7 +1285,7 @@ fn compare_impl_method<'tcx>(tcx: &ty::ctxt<'tcx>,
 
     // Run the fulfillment context to completion to accommodate any
     // associated type normalizations that may have occurred.
-    match fulfillment_cx.select_all_or_error(&infcx, &impl_param_env, tcx) {
+    match fulfillment_cx.select_all_or_error(&infcx, &impl_param_env) {
         Ok(()) => { }
         Err(errors) => {
             traits::report_fulfillment_errors(&infcx, &errors);
@@ -1436,7 +1465,7 @@ fn check_cast(fcx: &FnCtxt,
         return
     }
 
-    if !fcx.type_is_known_to_be_sized(t_1) {
+    if !fcx.type_is_known_to_be_sized(t_1, cast_expr.span) {
         let tstr = fcx.infcx().ty_to_string(t_1);
         fcx.type_error_message(span, |actual| {
             format!("cast to unsized type: `{}` as `{}`", actual, tstr)
@@ -1634,11 +1663,11 @@ impl<'a, 'tcx> AstConv<'tcx> for FnCtxt<'a, 'tcx> {
 impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     fn tcx(&self) -> &ty::ctxt<'tcx> { self.ccx.tcx }
 
-    pub fn infcx(&self) -> &infer::InferCtxt<'a, 'tcx> {
+    pub fn infcx(&self) -> &infer::InferCtxt<'a,'tcx> {
         &self.inh.infcx
     }
 
-    pub fn param_env(&self) -> &ty::ParameterEnvironment<'tcx> {
+    pub fn param_env(&self) -> &ty::ParameterEnvironment<'a,'tcx> {
         &self.inh.param_env
     }
 
@@ -1648,6 +1677,16 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
 
     pub fn err_count_since_creation(&self) -> uint {
         self.ccx.tcx.sess.err_count() - self.err_count_on_creation
+    }
+
+    /// Resolves all type variables in `t` and then, if any were left
+    /// unresolved, substitutes an error type. This is used after the
+    /// main checking when doing a second pass before writeback. The
+    /// justification is that writeback will produce an error for
+    /// these unconstrained type variables.
+    fn resolve_type_vars_or_error(&self, t: &Ty<'tcx>) -> mc::McResult<Ty<'tcx>> {
+        let t = self.infcx().resolve_type_vars_if_possible(t);
+        if ty::type_has_ty_infer(t) || ty::type_is_error(t) { Err(()) } else { Ok(t) }
     }
 
     pub fn tag(&self) -> String {
@@ -1666,10 +1705,24 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         }
     }
 
-    pub fn default_diverging_type_variables_to_nil(&self) {
+    /// Apply "fallbacks" to some types
+    /// ! gets replaced with (), unconstrained ints with i32, and unconstrained floats with f64.
+    pub fn default_type_parameters(&self) {
+        use middle::ty::UnconstrainedNumeric::{UnconstrainedInt, UnconstrainedFloat, Neither};
         for (_, &ref ty) in self.inh.node_types.borrow_mut().iter_mut() {
-            if self.infcx().type_var_diverges(self.infcx().resolve_type_vars_if_possible(ty)) {
+            let resolved = self.infcx().resolve_type_vars_if_possible(ty);
+            if self.infcx().type_var_diverges(resolved) {
                 demand::eqtype(self, codemap::DUMMY_SP, *ty, ty::mk_nil(self.tcx()));
+            } else {
+                match self.infcx().type_is_unconstrained_numeric(resolved) {
+                    UnconstrainedInt => {
+                        demand::eqtype(self, codemap::DUMMY_SP, *ty, self.tcx().types.i32)
+                    },
+                    UnconstrainedFloat => {
+                        demand::eqtype(self, codemap::DUMMY_SP, *ty, self.tcx().types.f64)
+                    }
+                    Neither => { }
+                }
             }
         }
     }
@@ -1785,7 +1838,6 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         self.inh.fulfillment_cx
             .borrow_mut()
             .normalize_projection_type(self.infcx(),
-                                       &self.inh.param_env,
                                        self,
                                        ty::ProjectionTy {
                                            trait_ref: trait_ref,
@@ -1931,13 +1983,15 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     }
 
     pub fn type_is_known_to_be_sized(&self,
-                                     ty: Ty<'tcx>)
+                                     ty: Ty<'tcx>,
+                                     span: Span)
                                      -> bool
     {
         traits::type_known_to_meet_builtin_bound(self.infcx(),
                                                  self.param_env(),
                                                  ty,
-                                                 ty::BoundSized)
+                                                 ty::BoundSized,
+                                                 span)
     }
 
     pub fn register_builtin_bound(&self,
@@ -2164,7 +2218,7 @@ impl<'a, 'tcx> RegionScope for FnCtxt<'a, 'tcx> {
     }
 }
 
-#[deriving(Copy, Show, PartialEq, Eq)]
+#[derive(Copy, Show, PartialEq, Eq)]
 pub enum LvaluePreference {
     PreferMutLvalue,
     NoPreference
@@ -2489,7 +2543,6 @@ fn try_index_step<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
     }
 
     let input_ty = fcx.infcx().next_ty_var();
-    let return_ty = fcx.infcx().next_ty_var();
 
     // Try `IndexMut` first, if preferred.
     let method = match (lvalue_pref, fcx.tcx().lang_items.index_mut_trait()) {
@@ -2501,7 +2554,7 @@ fn try_index_step<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                              trait_did,
                                              adjustment.clone(),
                                              adjusted_ty,
-                                             Some(vec![input_ty, return_ty]))
+                                             Some(vec![input_ty]))
         }
         _ => None,
     };
@@ -2516,7 +2569,7 @@ fn try_index_step<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                              trait_did,
                                              adjustment,
                                              adjusted_ty,
-                                             Some(vec![input_ty, return_ty]))
+                                             Some(vec![input_ty]))
         }
         (method, _) => method,
     };
@@ -2524,9 +2577,9 @@ fn try_index_step<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
     // If some lookup succeeds, write callee into table and extract index/element
     // type from the method signature.
     // If some lookup succeeded, install method in table
-    method.map(|method| {
-        make_overloaded_lvalue_return_type(fcx, Some(method_call), Some(method));
-        (input_ty, return_ty)
+    method.and_then(|method| {
+        make_overloaded_lvalue_return_type(fcx, Some(method_call), Some(method)).
+            map(|ret| (input_ty, ret.ty))
     })
 }
 
@@ -3005,7 +3058,7 @@ pub fn lookup_tup_field_ty<'tcx>(tcx: &ty::ctxt<'tcx>,
 
 // Controls whether the arguments are automatically referenced. This is useful
 // for overloaded binary and unary operators.
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 pub enum AutorefArgs {
     Yes,
     No,
@@ -3027,7 +3080,7 @@ pub enum AutorefArgs {
 /// Instead of:
 ///
 ///     f((1, 2));
-#[deriving(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 enum TupleArgumentsFlag {
     DontTupleArguments,
     TupleArguments,
@@ -4544,7 +4597,7 @@ impl<'tcx> Expectation<'tcx> {
     /// In this case, the expected type for the `&[1, 2, 3]` expression is
     /// `&[int]`. If however we were to say that `[1, 2, 3]` has the
     /// expectation `ExpectHasType([int])`, that would be too strong --
-    /// `[1, 2, 3]` does not have the type `[int]` but rather `[int, ..3]`.
+    /// `[1, 2, 3]` does not have the type `[int]` but rather `[int; 3]`.
     /// It is only the `&[1, 2, 3]` expression as a whole that can be coerced
     /// to the type `&[int]`. Therefore, we propagate this more limited hint,
     /// which still is useful, because it informs integer literals and the like.

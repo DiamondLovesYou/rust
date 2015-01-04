@@ -28,7 +28,7 @@ use trans::type_of;
 use trans::machine;
 use trans::machine::llsize_of;
 use trans::type_::Type;
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty};
 use syntax::abi::RustIntrinsic;
 use syntax::ast;
 use syntax::parse::token;
@@ -525,6 +525,7 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                 llvm::SequentiallyConsistent
             } else {
                 match split[2] {
+                    "unordered" => llvm::Unordered,
                     "relaxed" => llvm::Monotonic,
                     "acq"     => llvm::Acquire,
                     "rel"     => llvm::Release,

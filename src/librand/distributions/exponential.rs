@@ -29,7 +29,7 @@ use distributions::{ziggurat, ziggurat_tables, Sample, IndependentSample};
 /// Generate Normal Random
 /// Samples*](http://www.doornik.com/research/ziggurat.pdf). Nuffield
 /// College, Oxford
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Exp1(pub f64);
 
 // This could be done via `-rng.gen::<f64>().ln()` but that is slower.
@@ -67,7 +67,7 @@ impl Rand for Exp1 {
 /// let v = exp.ind_sample(&mut rand::thread_rng());
 /// println!("{} is from a Exp(2) distribution", v);
 /// ```
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Exp {
     /// `lambda` stored as `1/lambda`, since this is what we scale by.
     lambda_inverse: f64
@@ -94,7 +94,7 @@ impl IndependentSample<f64> for Exp {
 
 #[cfg(test)]
 mod test {
-    use std::prelude::*;
+    use std::prelude::v1::*;
 
     use distributions::{Sample, IndependentSample};
     use super::Exp;
@@ -124,7 +124,7 @@ mod test {
 mod bench {
     extern crate test;
 
-    use std::prelude::*;
+    use std::prelude::v1::*;
 
     use self::test::Bencher;
     use std::mem::size_of;

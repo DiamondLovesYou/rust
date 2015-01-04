@@ -20,7 +20,7 @@ use trans::machine::llalign_of_pref;
 use trans::type_::Type;
 use util::nodemap::FnvHashMap;
 use libc::{c_uint, c_char};
-use std::string::String;
+use std::c_str::ToCStr;
 use syntax::codemap::Span;
 
 pub struct Builder<'a, 'tcx: 'a> {
@@ -547,7 +547,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         // Small vector optimization. This should catch 100% of the cases that
         // we care about.
         if ixs.len() < 16 {
-            let mut small_vec = [ C_i32(self.ccx, 0), ..16 ];
+            let mut small_vec = [ C_i32(self.ccx, 0); 16 ];
             for (small_vec_e, &ix) in small_vec.iter_mut().zip(ixs.iter()) {
                 *small_vec_e = C_i32(self.ccx, ix as i32);
             }

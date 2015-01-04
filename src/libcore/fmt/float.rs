@@ -17,13 +17,13 @@ pub use self::SignFormat::*;
 use char;
 use char::Char;
 use fmt;
-use iter::{range, DoubleEndedIteratorExt};
+use iter::{IteratorExt, range};
 use num::{cast, Float, ToPrimitive};
 use num::FpCategory as Fp;
 use ops::FnOnce;
 use result::Result::Ok;
-use slice::{mod, SliceExt};
-use str::StrExt;
+use slice::{self, SliceExt};
+use str::{self, StrExt};
 
 /// A flag that specifies whether to use exponential (scientific) notation.
 pub enum ExponentFormat {
@@ -95,7 +95,7 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
     exp_upper: bool,
     f: F
 ) -> U where
-    F: FnOnce(&[u8]) -> U,
+    F: FnOnce(&str) -> U,
 {
     assert!(2 <= radix && radix <= 36);
     match exp_format {
@@ -109,12 +109,12 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
     let _1: T = Float::one();
 
     match num.classify() {
-        Fp::Nan => return f("NaN".as_bytes()),
+        Fp::Nan => return f("NaN"),
         Fp::Infinite if num > _0 => {
-            return f("inf".as_bytes());
+            return f("inf");
         }
         Fp::Infinite if num < _0 => {
-            return f("-inf".as_bytes());
+            return f("-inf");
         }
         _ => {}
     }
@@ -123,7 +123,7 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
     // For an f64 the exponent is in the range of [-1022, 1023] for base 2, so
     // we may have up to that many digits. Give ourselves some extra wiggle room
     // otherwise as well.
-    let mut buf = [0u8, ..1536];
+    let mut buf = [0u8; 1536];
     let mut end = 0;
     let radix_gen: T = cast(radix as int).unwrap();
 
@@ -314,11 +314,11 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
                 end: &'a mut uint,
             }
 
-            impl<'a> fmt::FormatWriter for Filler<'a> {
-                fn write(&mut self, bytes: &[u8]) -> fmt::Result {
+            impl<'a> fmt::Writer for Filler<'a> {
+                fn write_str(&mut self, s: &str) -> fmt::Result {
                     slice::bytes::copy_memory(self.buf.slice_from_mut(*self.end),
-                                              bytes);
-                    *self.end += bytes.len();
+                                              s.as_bytes());
+                    *self.end += s.len();
                     Ok(())
                 }
             }
@@ -332,5 +332,5 @@ pub fn float_to_str_bytes_common<T: Float, U, F>(
         }
     }
 
-    f(buf[..end])
+    f(unsafe { str::from_utf8_unchecked(buf[..end]) })
 }

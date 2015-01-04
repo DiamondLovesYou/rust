@@ -20,7 +20,7 @@ use clone::Clone;
 use cmp::{PartialEq, Eq, PartialOrd, Ord, Ordering};
 use hash;
 use io::Writer;
-use iter::{AdditiveIterator, DoubleEndedIteratorExt, Extend};
+use iter::{AdditiveIterator, Extend};
 use iter::{Iterator, IteratorExt, Map, repeat};
 use mem;
 use option::Option;
@@ -78,7 +78,7 @@ pub type Components<'a> =
 //
 // The only error condition imposed here is valid utf-8. All other invalid paths are simply
 // preserved by the data structure; let the Windows API error out on them.
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Path {
     repr: String, // assumed to never be empty
     prefix: Option<PathPrefix>,
@@ -969,7 +969,7 @@ pub fn is_sep_byte_verbatim(u: &u8) -> bool {
 }
 
 /// Prefix types for Path
-#[deriving(Copy, PartialEq, Clone, Show)]
+#[derive(Copy, PartialEq, Clone, Show)]
 pub enum PathPrefix {
     /// Prefix `\\?\`, uint is the length of the following component
     VerbatimPrefix(uint),
@@ -1119,12 +1119,18 @@ fn prefix_len(p: Option<PathPrefix>) -> uint {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use prelude::Option::{mod, Some, None};
-    use prelude::{Vec, Clone, AsSlice, SliceExt, CloneSliceExt, IteratorExt};
-    use prelude::{DoubleEndedIteratorExt, Str, ToString, GenericPath};
     use super::PathPrefix::*;
     use super::parse_prefix;
+    use super::*;
+
+    use clone::Clone;
+    use iter::IteratorExt;
+    use option::Option::{self, Some, None};
+    use path::GenericPath;
+    use slice::{AsSlice, SliceExt};
+    use str::Str;
+    use string::ToString;
+    use vec::Vec;
 
     macro_rules! t {
         (s: $path:expr, $exp:expr) => (

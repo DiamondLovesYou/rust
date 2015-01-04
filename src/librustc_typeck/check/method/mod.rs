@@ -45,7 +45,7 @@ pub enum MethodError {
 
 // A pared down enum describing just the places from which a method
 // candidate can arise. Used for error reporting only.
-#[deriving(Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub enum CandidateSource {
     ImplSource(ast::DefId),
     TraitSource(/* trait id */ ast::DefId),
@@ -169,9 +169,7 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
                                               poly_trait_ref.as_predicate());
 
     // Now we want to know if this can be matched
-    let mut selcx = traits::SelectionContext::new(fcx.infcx(),
-                                                  &fcx.inh.param_env,
-                                                  fcx);
+    let mut selcx = traits::SelectionContext::new(fcx.infcx(), fcx);
     if !selcx.evaluate_obligation(&obligation) {
         debug!("--> Cannot match obligation");
         return None; // Cannot be matched, no such method resolution is possible.

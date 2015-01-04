@@ -18,7 +18,7 @@ use std::ascii::OwnedAsciiExt;
 use std::mem::replace;
 use std::iter::repeat;
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 enum States {
     Nothing,
     Percent,
@@ -35,7 +35,7 @@ enum States {
     SeekIfEndPercent(int)
 }
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 enum FormatState {
     FormatStateFlags,
     FormatStateWidth,
@@ -44,7 +44,7 @@ enum FormatState {
 
 /// Types of parameters a capability can use
 #[allow(missing_docs)]
-#[deriving(Clone)]
+#[derive(Clone)]
 pub enum Param {
     Words(String),
     Number(int)
@@ -53,9 +53,9 @@ pub enum Param {
 /// Container for static and dynamic variable arrays
 pub struct Variables {
     /// Static variables A-Z
-    sta: [Param, ..26],
+    sta: [Param; 26],
     /// Dynamic variables a-z
-    dyn: [Param, ..26]
+    dyn: [Param; 26]
 }
 
 impl Variables {
@@ -444,7 +444,7 @@ pub fn expand(cap: &[u8], params: &[Param], vars: &mut Variables)
     Ok(output)
 }
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 struct Flags {
     width: uint,
     precision: uint,
@@ -461,7 +461,7 @@ impl Flags {
     }
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 enum FormatOp {
     FormatDigit,
     FormatOctal,

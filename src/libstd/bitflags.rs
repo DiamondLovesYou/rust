@@ -121,7 +121,7 @@ macro_rules! bitflags {
     ($(#[$attr:meta])* flags $BitFlags:ident: $T:ty {
         $($(#[$Flag_attr:meta])* const $Flag:ident = $value:expr),+
     }) => {
-        #[deriving(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
+        #[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
         $(#[$attr])*
         pub struct $BitFlags {
             bits: $T,
@@ -209,7 +209,9 @@ macro_rules! bitflags {
             }
         }
 
-        impl BitOr<$BitFlags, $BitFlags> for $BitFlags {
+        impl ::std::ops::BitOr for $BitFlags {
+            type Output = $BitFlags;
+
             /// Returns the union of the two sets of flags.
             #[inline]
             fn bitor(self, other: $BitFlags) -> $BitFlags {
@@ -217,7 +219,9 @@ macro_rules! bitflags {
             }
         }
 
-        impl BitXor<$BitFlags, $BitFlags> for $BitFlags {
+        impl ::std::ops::BitXor for $BitFlags {
+            type Output = $BitFlags;
+
             /// Returns the left flags, but with all the right flags toggled.
             #[inline]
             fn bitxor(self, other: $BitFlags) -> $BitFlags {
@@ -225,7 +229,9 @@ macro_rules! bitflags {
             }
         }
 
-        impl BitAnd<$BitFlags, $BitFlags> for $BitFlags {
+        impl ::std::ops::BitAnd for $BitFlags {
+            type Output = $BitFlags;
+
             /// Returns the intersection between the two sets of flags.
             #[inline]
             fn bitand(self, other: $BitFlags) -> $BitFlags {
@@ -233,7 +239,9 @@ macro_rules! bitflags {
             }
         }
 
-        impl Sub<$BitFlags, $BitFlags> for $BitFlags {
+        impl ::std::ops::Sub for $BitFlags {
+            type Output = $BitFlags;
+
             /// Returns the set difference of the two sets of flags.
             #[inline]
             fn sub(self, other: $BitFlags) -> $BitFlags {
@@ -241,7 +249,9 @@ macro_rules! bitflags {
             }
         }
 
-        impl Not<$BitFlags> for $BitFlags {
+        impl ::std::ops::Not for $BitFlags {
+            type Output = $BitFlags;
+
             /// Returns the complement of this set of flags.
             #[inline]
             fn not(self) -> $BitFlags {
@@ -266,7 +276,6 @@ macro_rules! bitflags {
 mod tests {
     use hash;
     use option::Option::{Some, None};
-    use ops::{BitOr, BitAnd, BitXor, Sub, Not};
 
     bitflags! {
         #[doc = "> The first principle is that you must not fool yourself — and"]

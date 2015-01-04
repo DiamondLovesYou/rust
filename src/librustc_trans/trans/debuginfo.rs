@@ -194,15 +194,15 @@ use llvm;
 use llvm::{ModuleRef, ContextRef, ValueRef};
 use llvm::debuginfo::*;
 use metadata::csearch;
-use middle::subst::{mod, Subst, Substs};
-use trans::{mod, adt, machine, type_of};
+use middle::subst::{self, Substs};
+use trans::{self, adt, machine, type_of};
 use trans::common::*;
 use trans::_match::{BindingInfo, TrByCopy, TrByMove, TrByRef};
 use trans::monomorphize;
 use trans::type_::Type;
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty, UnboxedClosureTyper};
 use middle::pat_util;
-use session::config::{mod, FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
+use session::config::{self, FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
 use util::nodemap::{DefIdMap, NodeMap, FnvHashMap, FnvHashSet};
 use util::ppaux;
 
@@ -215,7 +215,7 @@ use syntax::util::interner::Interner;
 use syntax::codemap::{Span, Pos};
 use syntax::{ast, codemap, ast_util, ast_map, attr};
 use syntax::ast_util::PostExpansionMethod;
-use syntax::parse::token::{mod, special_idents};
+use syntax::parse::token::{self, special_idents};
 
 const DW_LANG_RUST: c_uint = 0x9000;
 
@@ -248,7 +248,7 @@ const FLAGS_NONE: c_uint = 0;
 //  Public Interface of debuginfo module
 //=-----------------------------------------------------------------------------
 
-#[deriving(Copy, Show, Hash, Eq, PartialEq, Clone)]
+#[derive(Copy, Show, Hash, Eq, PartialEq, Clone)]
 struct UniqueTypeId(ast::Name);
 
 // The TypeMap is where the CrateDebugContext holds the type metadata nodes
@@ -470,9 +470,9 @@ impl<'tcx> TypeMap<'tcx> {
                                                         closure_ty.clone(),
                                                         &mut unique_type_id);
             },
-            ty::ty_unboxed_closure(ref def_id, _, substs) => {
-                let closure_ty = cx.tcx().unboxed_closures.borrow()
-                                   .get(def_id).unwrap().closure_type.subst(cx.tcx(), substs);
+            ty::ty_unboxed_closure(def_id, _, substs) => {
+                let typer = NormalizingUnboxedClosureTyper::new(cx.tcx());
+                let closure_ty = typer.unboxed_closure_type(def_id, substs);
                 self.get_unique_type_id_of_closure_type(cx,
                                                         closure_ty,
                                                         &mut unique_type_id);
@@ -852,7 +852,7 @@ pub fn create_global_var_metadata(cx: &CrateContext,
 /// local in `bcx.fcx.lllocals`.
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_local_var_metadata(bcx: Block, local: &ast::Local) {
-    if fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
         return;
     }
 
@@ -896,7 +896,7 @@ pub fn create_captured_var_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                                 env_index: uint,
                                                 captured_by_ref: bool,
                                                 span: Span) {
-    if fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
         return;
     }
 
@@ -979,7 +979,7 @@ pub fn create_captured_var_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 pub fn create_match_binding_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                                  variable_ident: ast::Ident,
                                                  binding: BindingInfo<'tcx>) {
-    if fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
         return;
     }
 
@@ -1019,7 +1019,7 @@ pub fn create_match_binding_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 /// argument in `bcx.fcx.lllocals`.
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_argument_metadata(bcx: Block, arg: &ast::Arg) {
-    if fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
         return;
     }
 
@@ -1073,7 +1073,7 @@ pub fn create_argument_metadata(bcx: Block, arg: &ast::Arg) {
 /// loop variable in `bcx.fcx.lllocals`.
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_for_loop_var_metadata(bcx: Block, pat: &ast::Pat) {
-    if fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
         return;
     }
 
@@ -2379,7 +2379,7 @@ impl<'tcx> VariantMemberDescriptionFactory<'tcx> {
     }
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 enum EnumDiscriminantInfo {
     RegularDiscriminant(DIType),
     OptimizedDiscriminant,
@@ -3019,9 +3019,9 @@ fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_closure(ref closurety) => {
             subroutine_type_metadata(cx, unique_type_id, &closurety.sig, usage_site_span)
         }
-        ty::ty_unboxed_closure(ref def_id, _, substs) => {
-            let sig = cx.tcx().unboxed_closures.borrow()
-                        .get(def_id).unwrap().closure_type.sig.subst(cx.tcx(), substs);
+        ty::ty_unboxed_closure(def_id, _, substs) => {
+            let typer = NormalizingUnboxedClosureTyper::new(cx.tcx());
+            let sig = typer.unboxed_closure_type(def_id, substs).sig;
             subroutine_type_metadata(cx, unique_type_id, &sig, usage_site_span)
         }
         ty::ty_struct(def_id, substs) => {
@@ -3106,7 +3106,7 @@ impl MetadataCreationResult {
     }
 }
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 enum DebugLocation {
     KnownLocation { scope: DIScope, line: uint, col: uint },
     UnknownLocation

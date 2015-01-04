@@ -20,19 +20,19 @@ use fold::Folder;
 use parse::token;
 use print::pprust;
 use ptr::P;
-use visit::{mod, Visitor};
+use visit::{self, Visitor};
 
 use arena::TypedArena;
 use std::cell::RefCell;
 use std::fmt;
 use std::io::IoResult;
-use std::iter::{mod, repeat};
+use std::iter::{self, repeat};
 use std::mem;
 use std::slice;
 
 pub mod blocks;
 
-#[deriving(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum PathElem {
     PathMod(Name),
     PathName(Name)
@@ -53,7 +53,7 @@ impl fmt::Show for PathElem {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 struct LinkedPathNode<'a> {
     node: PathElem,
     next: LinkedPath<'a>,
@@ -61,7 +61,9 @@ struct LinkedPathNode<'a> {
 
 type LinkedPath<'a> = Option<&'a LinkedPathNode<'a>>;
 
-impl<'a> Iterator<PathElem> for LinkedPath<'a> {
+impl<'a> Iterator for LinkedPath<'a> {
+    type Item = PathElem;
+
     fn next(&mut self) -> Option<PathElem> {
         match *self {
             Some(node) => {
@@ -74,10 +76,12 @@ impl<'a> Iterator<PathElem> for LinkedPath<'a> {
 }
 
 // HACK(eddyb) move this into libstd (value wrapper for slice::Iter).
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Values<'a, T:'a>(pub slice::Iter<'a, T>);
 
-impl<'a, T: Copy> Iterator<T> for Values<'a, T> {
+impl<'a, T: Copy> Iterator for Values<'a, T> {
+    type Item = T;
+
     fn next(&mut self) -> Option<T> {
         let &Values(ref mut items) = self;
         items.next().map(|&x| x)
@@ -87,7 +91,7 @@ impl<'a, T: Copy> Iterator<T> for Values<'a, T> {
 /// The type of the iterator used by with_path.
 pub type PathElems<'a, 'b> = iter::Chain<Values<'a, PathElem>, LinkedPath<'b>>;
 
-pub fn path_to_string<PI: Iterator<PathElem>>(path: PI) -> String {
+pub fn path_to_string<PI: Iterator<Item=PathElem>>(path: PI) -> String {
     let itr = token::get_ident_interner();
 
     path.fold(String::new(), |mut s, e| {
@@ -100,7 +104,7 @@ pub fn path_to_string<PI: Iterator<PathElem>>(path: PI) -> String {
     }).to_string()
 }
 
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 pub enum Node<'ast> {
     NodeItem(&'ast Item),
     NodeForeignItem(&'ast ForeignItem),
@@ -122,7 +126,7 @@ pub enum Node<'ast> {
 
 /// Represents an entry and its parent Node ID
 /// The odd layout is to bring down the total size.
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 enum MapEntry<'ast> {
     /// Placeholder for holes in the map.
     NotPresent,
@@ -153,7 +157,7 @@ impl<'ast> Clone for MapEntry<'ast> {
     }
 }
 
-#[deriving(Show)]
+#[derive(Show)]
 struct InlinedParent {
     path: Vec<PathElem>,
     ii: InlinedItem
@@ -629,7 +633,9 @@ impl<'a, 'ast> NodesMatchingSuffix<'a, 'ast> {
     }
 }
 
-impl<'a, 'ast> Iterator<NodeId> for NodesMatchingSuffix<'a, 'ast> {
+impl<'a, 'ast> Iterator for NodesMatchingSuffix<'a, 'ast> {
+    type Item = NodeId;
+
     fn next(&mut self) -> Option<NodeId> {
         loop {
             let idx = self.idx;

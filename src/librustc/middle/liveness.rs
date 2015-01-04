@@ -111,20 +111,22 @@ use self::VarKind::*;
 
 use middle::def::*;
 use middle::mem_categorization::Typer;
-use middle::{pat_util, ty};
+use middle::pat_util;
+use middle::ty;
+use middle::ty::UnboxedClosureTyper;
 use lint;
 use util::nodemap::NodeMap;
 
 use std::{fmt, io, uint};
 use std::rc::Rc;
 use std::iter::repeat;
-use syntax::ast::{mod, NodeId, Expr};
+use syntax::ast::{self, NodeId, Expr};
 use syntax::codemap::{BytePos, original_sp, Span};
-use syntax::parse::token::{mod, special_idents};
+use syntax::parse::token::{self, special_idents};
 use syntax::print::pprust::{expr_to_string, block_to_string};
 use syntax::ptr::P;
 use syntax::ast_util;
-use syntax::visit::{mod, Visitor, FnKind};
+use syntax::visit::{self, Visitor, FnKind};
 
 /// For use with `propagate_through_loop`.
 enum LoopKind<'a> {
@@ -136,10 +138,10 @@ enum LoopKind<'a> {
     ForLoop(&'a ast::Pat),
 }
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 struct Variable(uint);
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 struct LiveNode(uint);
 
 impl Variable {
@@ -156,7 +158,7 @@ impl Clone for LiveNode {
     }
 }
 
-#[deriving(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Show)]
 enum LiveNodeKind {
     FreeVarNode(Span),
     ExprNode(Span),
@@ -242,13 +244,13 @@ struct CaptureInfo {
     var_nid: NodeId
 }
 
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 struct LocalInfo {
     id: NodeId,
     ident: ast::Ident
 }
 
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 enum VarKind {
     Arg(NodeId, ast::Ident),
     Local(LocalInfo),
@@ -527,7 +529,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
 // Actually we compute just a bit more than just liveness, but we use
 // the same basic propagation framework in all cases.
 
-#[deriving(Clone, Copy)]
+#[derive(Clone, Copy)]
 struct Users {
     reader: LiveNode,
     writer: LiveNode,
@@ -542,7 +544,7 @@ fn invalid_users() -> Users {
     }
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 struct Specials {
     exit_ln: LiveNode,
     fallthrough_ln: LiveNode,
@@ -1515,16 +1517,10 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
     fn fn_ret(&self, id: NodeId) -> ty::FnOutput<'tcx> {
         let fn_ty = ty::node_id_to_type(self.ir.tcx, id);
         match fn_ty.sty {
-            ty::ty_unboxed_closure(closure_def_id, _, _) =>
-                self.ir.tcx.unboxed_closures()
-                    .borrow()
-                    .get(&closure_def_id)
-                    .unwrap()
-                    .closure_type
-                    .sig
-                    .0
-                    .output,
-            _ => ty::ty_fn_ret(fn_ty)
+            ty::ty_unboxed_closure(closure_def_id, _, substs) =>
+                self.ir.tcx.unboxed_closure_type(closure_def_id, substs).sig.0.output,
+            _ =>
+                ty::ty_fn_ret(fn_ty),
         }
     }
 

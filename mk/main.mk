@@ -1,4 +1,4 @@
-# Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+# Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT
 # file at the top-level directory of this distribution and at
 # http://rust-lang.org/COPYRIGHT.
 #
@@ -45,7 +45,7 @@ CFG_PACKAGE_VERS=$(CFG_RELEASE_NUM)-dev
 endif
 
 # The name of the package to use for creating tarballs, installers etc.
-CFG_PACKAGE_NAME=rust-$(CFG_PACKAGE_VERS)
+CFG_PACKAGE_NAME=rustc-$(CFG_PACKAGE_VERS)
 
 # The version string plus commit information - this is what rustc reports
 CFG_VERSION = $(CFG_RELEASE)
@@ -261,7 +261,7 @@ endif
 ######################################################################
 
 # FIXME: x86-ism
-LLVM_COMPONENTS=x86 arm mips ipo bitreader bitwriter linker asmparser mcjit \
+LLVM_COMPONENTS=x86 arm aarch64 mips ipo bitreader bitwriter linker asmparser mcjit \
                 interpreter instrumentation NaClTransforms NaClAnalysis NaClBitWriter \
 		NaClBitReader lto irreader
 

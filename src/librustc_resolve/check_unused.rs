@@ -17,6 +17,8 @@
 // `use` directives.
 //
 
+use std::ops::{Deref, DerefMut};
+
 use Resolver;
 use Namespace::{TypeNS, ValueNS};
 
@@ -26,20 +28,22 @@ use syntax::ast;
 use syntax::ast::{ViewItem, ViewItemExternCrate, ViewItemUse};
 use syntax::ast::{ViewPathGlob, ViewPathList, ViewPathSimple};
 use syntax::codemap::{Span, DUMMY_SP};
-use syntax::visit::{mod, Visitor};
+use syntax::visit::{self, Visitor};
 
 struct UnusedImportCheckVisitor<'a, 'b:'a, 'tcx:'b> {
     resolver: &'a mut Resolver<'b, 'tcx>
 }
 
 // Deref and DerefMut impls allow treating UnusedImportCheckVisitor as Resolver.
-impl<'a, 'b, 'tcx:'b> Deref<Resolver<'b, 'tcx>> for UnusedImportCheckVisitor<'a, 'b, 'tcx> {
+impl<'a, 'b, 'tcx:'b> Deref for UnusedImportCheckVisitor<'a, 'b, 'tcx> {
+    type Target = Resolver<'b, 'tcx>;
+
     fn deref<'c>(&'c self) -> &'c Resolver<'b, 'tcx> {
         &*self.resolver
     }
 }
 
-impl<'a, 'b, 'tcx:'b> DerefMut<Resolver<'b, 'tcx>> for UnusedImportCheckVisitor<'a, 'b, 'tcx> {
+impl<'a, 'b, 'tcx:'b> DerefMut for UnusedImportCheckVisitor<'a, 'b, 'tcx> {
     fn deref_mut<'c>(&'c mut self) -> &'c mut Resolver<'b, 'tcx> {
         &mut *self.resolver
     }

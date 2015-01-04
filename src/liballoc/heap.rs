@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -121,6 +121,7 @@ unsafe fn exchange_free(ptr: *mut u8, old_size: uint, align: uint) {
 const MIN_ALIGN: uint = 8;
 #[cfg(any(target_arch = "x86",
           target_arch = "x86_64",
+          target_arch = "aarch64",
           target_arch = "le32"))]
 const MIN_ALIGN: uint = 16;
 

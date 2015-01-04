@@ -18,26 +18,26 @@
 
 use self::Searcher::{Naive, TwoWay, TwoWayLong};
 
-use cmp::{mod, Eq};
+use cmp::{self, Eq};
 use default::Default;
 use iter::range;
-use iter::{DoubleEndedIteratorExt, ExactSizeIterator};
+use iter::ExactSizeIterator;
 use iter::{Map, Iterator, IteratorExt, DoubleEndedIterator};
 use kinds::Sized;
 use mem;
 use num::Int;
 use ops::{Fn, FnMut};
-use option::Option::{mod, None, Some};
+use option::Option::{self, None, Some};
 use ptr::PtrExt;
 use raw::{Repr, Slice};
-use result::Result::{mod, Ok, Err};
-use slice::{mod, SliceExt};
+use result::Result::{self, Ok, Err};
+use slice::{self, SliceExt};
 use uint;
 
 macro_rules! delegate_iter {
     (exact $te:ty in $ti:ty) => {
         delegate_iter!{$te in $ti}
-        impl<'a> ExactSizeIterator<$te> for $ti {
+        impl<'a> ExactSizeIterator for $ti {
             #[inline]
             fn rposition<P>(&mut self, predicate: P) -> Option<uint> where P: FnMut($te) -> bool{
                 self.0.rposition(predicate)
@@ -49,7 +49,9 @@ macro_rules! delegate_iter {
         }
     };
     ($te:ty in $ti:ty) => {
-        impl<'a> Iterator<$te> for $ti {
+        impl<'a> Iterator for $ti {
+            type Item = $te;
+
             #[inline]
             fn next(&mut self) -> Option<$te> {
                 self.0.next()
@@ -59,7 +61,7 @@ macro_rules! delegate_iter {
                 self.0.size_hint()
             }
         }
-        impl<'a> DoubleEndedIterator<$te> for $ti {
+        impl<'a> DoubleEndedIterator for $ti {
             #[inline]
             fn next_back(&mut self) -> Option<$te> {
                 self.0.next_back()
@@ -67,7 +69,9 @@ macro_rules! delegate_iter {
         }
     };
     (pattern $te:ty in $ti:ty) => {
-        impl<'a, P: CharEq> Iterator<$te> for $ti {
+        impl<'a, P: CharEq> Iterator for $ti {
+            type Item = $te;
+
             #[inline]
             fn next(&mut self) -> Option<$te> {
                 self.0.next()
@@ -77,7 +81,7 @@ macro_rules! delegate_iter {
                 self.0.size_hint()
             }
         }
-        impl<'a, P: CharEq> DoubleEndedIterator<$te> for $ti {
+        impl<'a, P: CharEq> DoubleEndedIterator for $ti {
             #[inline]
             fn next_back(&mut self) -> Option<$te> {
                 self.0.next_back()
@@ -85,7 +89,9 @@ macro_rules! delegate_iter {
         }
     };
     (pattern forward $te:ty in $ti:ty) => {
-        impl<'a, P: CharEq> Iterator<$te> for $ti {
+        impl<'a, P: CharEq> Iterator for $ti {
+            type Item = $te;
+
             #[inline]
             fn next(&mut self) -> Option<$te> {
                 self.0.next()
@@ -141,7 +147,7 @@ Section: Creating a string
 */
 
 /// Errors which can occur when attempting to interpret a byte slice as a `str`.
-#[deriving(Copy, Eq, PartialEq, Clone)]
+#[derive(Copy, Eq, PartialEq, Clone)]
 pub enum Utf8Error {
     /// An invalid byte was detected at the byte offset given.
     ///
@@ -246,7 +252,7 @@ Section: Iterators
 /// Iterator for the char (representing *Unicode Scalar Values*) of a string
 ///
 /// Created with the method `.chars()`.
-#[deriving(Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Chars<'a> {
     iter: slice::Iter<'a, u8>
 }
@@ -275,7 +281,9 @@ fn unwrap_or_0(opt: Option<&u8>) -> u8 {
     }
 }
 
-impl<'a> Iterator<char> for Chars<'a> {
+impl<'a> Iterator for Chars<'a> {
+    type Item = char;
+
     #[inline]
     fn next(&mut self) -> Option<char> {
         // Decode UTF-8, using the valid UTF-8 invariant
@@ -318,7 +326,7 @@ impl<'a> Iterator<char> for Chars<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator<char> for Chars<'a> {
+impl<'a> DoubleEndedIterator for Chars<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<char> {
         let w = match self.iter.next_back() {
@@ -353,13 +361,15 @@ impl<'a> DoubleEndedIterator<char> for Chars<'a> {
 
 /// External iterator for a string's characters and their byte offsets.
 /// Use with the `std::iter` module.
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct CharIndices<'a> {
     front_offset: uint,
     iter: Chars<'a>,
 }
 
-impl<'a> Iterator<(uint, char)> for CharIndices<'a> {
+impl<'a> Iterator for CharIndices<'a> {
+    type Item = (uint, char);
+
     #[inline]
     fn next(&mut self) -> Option<(uint, char)> {
         let (pre_len, _) = self.iter.iter.size_hint();
@@ -380,7 +390,7 @@ impl<'a> Iterator<(uint, char)> for CharIndices<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator<(uint, char)> for CharIndices<'a> {
+impl<'a> DoubleEndedIterator for CharIndices<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<(uint, char)> {
         match self.iter.next_back() {
@@ -399,13 +409,13 @@ impl<'a> DoubleEndedIterator<(uint, char)> for CharIndices<'a> {
 ///
 /// Created with `StrExt::bytes`
 #[stable]
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Bytes<'a>(Map<&'a u8, u8, slice::Iter<'a, u8>, BytesDeref>);
 delegate_iter!{exact u8 in Bytes<'a>}
 
 /// A temporary fn new type that ensures that the `Bytes` iterator
 /// is cloneable.
-#[deriving(Copy, Clone)]
+#[derive(Copy, Clone)]
 struct BytesDeref;
 
 impl<'a> Fn(&'a u8) -> u8 for BytesDeref {
@@ -416,7 +426,7 @@ impl<'a> Fn(&'a u8) -> u8 for BytesDeref {
 }
 
 /// An iterator over the substrings of a string, separated by `sep`.
-#[deriving(Clone)]
+#[derive(Clone)]
 #[deprecated = "Type is now named `Split` or `SplitTerminator`"]
 pub struct CharSplits<'a, Sep> {
     /// The slice remaining to be iterated
@@ -430,7 +440,7 @@ pub struct CharSplits<'a, Sep> {
 
 /// An iterator over the substrings of a string, separated by `sep`,
 /// splitting at most `count` times.
-#[deriving(Clone)]
+#[derive(Clone)]
 #[deprecated = "Type is now named `SplitN` or `RSplitN`"]
 pub struct CharSplitsN<'a, Sep> {
     iter: CharSplits<'a, Sep>,
@@ -463,7 +473,9 @@ impl<'a, Sep> CharSplits<'a, Sep> {
     }
 }
 
-impl<'a, Sep: CharEq> Iterator<&'a str> for CharSplits<'a, Sep> {
+impl<'a, Sep: CharEq> Iterator for CharSplits<'a, Sep> {
+    type Item = &'a str;
+
     #[inline]
     fn next(&mut self) -> Option<&'a str> {
         if self.finished { return None }
@@ -495,8 +507,7 @@ impl<'a, Sep: CharEq> Iterator<&'a str> for CharSplits<'a, Sep> {
     }
 }
 
-impl<'a, Sep: CharEq> DoubleEndedIterator<&'a str>
-for CharSplits<'a, Sep> {
+impl<'a, Sep: CharEq> DoubleEndedIterator for CharSplits<'a, Sep> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a str> {
         if self.finished { return None }
@@ -537,7 +548,9 @@ for CharSplits<'a, Sep> {
     }
 }
 
-impl<'a, Sep: CharEq> Iterator<&'a str> for CharSplitsN<'a, Sep> {
+impl<'a, Sep: CharEq> Iterator for CharSplitsN<'a, Sep> {
+    type Item = &'a str;
+
     #[inline]
     fn next(&mut self) -> Option<&'a str> {
         if self.count != 0 {
@@ -551,7 +564,7 @@ impl<'a, Sep: CharEq> Iterator<&'a str> for CharSplitsN<'a, Sep> {
 
 /// The internal state of an iterator that searches for matches of a substring
 /// within a larger string using naive search
-#[deriving(Clone)]
+#[derive(Clone)]
 struct NaiveSearcher {
     position: uint
 }
@@ -577,7 +590,7 @@ impl NaiveSearcher {
 
 /// The internal state of an iterator that searches for matches of a substring
 /// within a larger string using two-way search
-#[deriving(Clone)]
+#[derive(Clone)]
 struct TwoWaySearcher {
     // constants
     crit_pos: uint,
@@ -814,7 +827,7 @@ impl TwoWaySearcher {
 
 /// The internal state of an iterator that searches for matches of a substring
 /// within a larger string using a dynamically chosen search algorithm
-#[deriving(Clone)]
+#[derive(Clone)]
 enum Searcher {
     Naive(NaiveSearcher),
     TwoWay(TwoWaySearcher),
@@ -842,7 +855,7 @@ impl Searcher {
 
 /// An iterator over the start and end indices of the matches of a
 /// substring within a larger string
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct MatchIndices<'a> {
     // constants
     haystack: &'a str,
@@ -852,7 +865,7 @@ pub struct MatchIndices<'a> {
 
 /// An iterator over the substrings of a string separated by a given
 /// search string
-#[deriving(Clone)]
+#[derive(Clone)]
 #[unstable = "Type might get removed"]
 pub struct SplitStr<'a> {
     it: MatchIndices<'a>,
@@ -864,7 +877,9 @@ pub struct SplitStr<'a> {
 #[deprecated = "Type is now named `SplitStr`"]
 pub type StrSplits<'a> = SplitStr<'a>;
 
-impl<'a> Iterator<(uint, uint)> for MatchIndices<'a> {
+impl<'a> Iterator for MatchIndices<'a> {
+    type Item = (uint, uint);
+
     #[inline]
     fn next(&mut self) -> Option<(uint, uint)> {
         match self.searcher {
@@ -878,7 +893,9 @@ impl<'a> Iterator<(uint, uint)> for MatchIndices<'a> {
     }
 }
 
-impl<'a> Iterator<&'a str> for SplitStr<'a> {
+impl<'a> Iterator for SplitStr<'a> {
+    type Item = &'a str;
+
     #[inline]
     fn next(&mut self) -> Option<&'a str> {
         if self.finished { return None; }
@@ -1027,7 +1044,7 @@ pub fn truncate_utf16_at_nul<'a>(v: &'a [u16]) -> &'a [u16] {
 }
 
 // https://tools.ietf.org/html/rfc3629
-static UTF8_CHAR_WIDTH: [u8, ..256] = [
+static UTF8_CHAR_WIDTH: [u8; 256] = [
 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x1F
 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
@@ -1056,7 +1073,7 @@ pub fn utf8_char_width(b: u8) -> uint {
 /// Struct that contains a `char` and the index of the first byte of
 /// the next `char` in a string.  This can be used as a data structure
 /// for iterating over the UTF-8 bytes of a string.
-#[deriving(Copy)]
+#[derive(Copy)]
 #[unstable = "naming is uncertain with container conventions"]
 pub struct CharRange {
     /// Current `char`
@@ -1232,25 +1249,25 @@ impl<'a, Sized? S> Str for &'a S where S: Str {
 }
 
 /// Return type of `StrExt::split`
-#[deriving(Clone)]
+#[derive(Clone)]
 #[stable]
 pub struct Split<'a, P>(CharSplits<'a, P>);
 delegate_iter!{pattern &'a str in Split<'a, P>}
 
 /// Return type of `StrExt::split_terminator`
-#[deriving(Clone)]
+#[derive(Clone)]
 #[unstable = "might get removed in favour of a constructor method on Split"]
 pub struct SplitTerminator<'a, P>(CharSplits<'a, P>);
 delegate_iter!{pattern &'a str in SplitTerminator<'a, P>}
 
 /// Return type of `StrExt::splitn`
-#[deriving(Clone)]
+#[derive(Clone)]
 #[stable]
 pub struct SplitN<'a, P>(CharSplitsN<'a, P>);
 delegate_iter!{pattern forward &'a str in SplitN<'a, P>}
 
 /// Return type of `StrExt::rsplitn`
-#[deriving(Clone)]
+#[derive(Clone)]
 #[stable]
 pub struct RSplitN<'a, P>(CharSplitsN<'a, P>);
 delegate_iter!{pattern forward &'a str in RSplitN<'a, P>}
@@ -1672,23 +1689,27 @@ impl<'a> Default for &'a str {
     fn default() -> &'a str { "" }
 }
 
-impl<'a> Iterator<&'a str> for Lines<'a> {
+impl<'a> Iterator for Lines<'a> {
+    type Item = &'a str;
+
     #[inline]
     fn next(&mut self) -> Option<&'a str> { self.inner.next() }
     #[inline]
     fn size_hint(&self) -> (uint, Option<uint>) { self.inner.size_hint() }
 }
-impl<'a> DoubleEndedIterator<&'a str> for Lines<'a> {
+impl<'a> DoubleEndedIterator for Lines<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a str> { self.inner.next_back() }
 }
-impl<'a> Iterator<&'a str> for LinesAny<'a> {
+impl<'a> Iterator for LinesAny<'a> {
+    type Item = &'a str;
+
     #[inline]
     fn next(&mut self) -> Option<&'a str> { self.inner.next() }
     #[inline]
     fn size_hint(&self) -> (uint, Option<uint>) { self.inner.size_hint() }
 }
-impl<'a> DoubleEndedIterator<&'a str> for LinesAny<'a> {
+impl<'a> DoubleEndedIterator for LinesAny<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a str> { self.inner.next_back() }
 }

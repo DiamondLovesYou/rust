@@ -15,15 +15,14 @@ use clone::Clone;
 use cmp::{PartialEq, Eq, PartialOrd, Ord, Ordering};
 use hash;
 use io::Writer;
-use iter::{DoubleEndedIteratorExt, AdditiveIterator, Extend};
+use iter::{AdditiveIterator, Extend};
 use iter::{Iterator, IteratorExt, Map};
 use option::Option;
 use option::Option::{None, Some};
 use kinds::Sized;
 use str::{FromStr, Str};
 use str;
-use slice::{CloneSliceExt, Split, AsSlice, SliceConcatExt,
-            PartialEqSliceExt, SliceExt};
+use slice::{Split, AsSlice, SliceConcatExt, SliceExt};
 use vec::Vec;
 
 use super::{BytesContainer, GenericPath, GenericPathUnsafe};
@@ -36,7 +35,7 @@ pub type StrComponents<'a> =
     Map<&'a [u8], Option<&'a str>, Components<'a>, fn(&[u8]) -> Option<&str>>;
 
 /// Represents a POSIX file path
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Path {
     repr: Vec<u8>, // assumed to never be empty or contain NULs
     sepidx: Option<uint> // index of the final separator in repr
@@ -448,10 +447,15 @@ static dot_dot_static: &'static [u8] = b"..";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prelude::Option::{mod, Some, None};
-    use prelude::{Vec, Clone, AsSlice, SliceExt, CloneSliceExt, IteratorExt};
-    use prelude::{DoubleEndedIteratorExt, Str, StrExt, ToString, GenericPath};
-    use str;
+
+    use clone::Clone;
+    use iter::IteratorExt;
+    use option::Option::{self, Some, None};
+    use path::GenericPath;
+    use slice::{AsSlice, SliceExt};
+    use str::{self, Str, StrExt};
+    use string::ToString;
+    use vec::Vec;
 
     macro_rules! t {
         (s: $path:expr, $exp:expr) => (
@@ -1239,7 +1243,7 @@ mod bench {
     extern crate test;
     use self::test::Bencher;
     use super::*;
-    use prelude::{Clone, GenericPath};
+    use prelude::v1::{Clone, GenericPath};
 
     #[bench]
     fn join_home_dir(b: &mut Bencher) {

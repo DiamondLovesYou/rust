@@ -15,10 +15,12 @@
 use ast::Name;
 
 use std::borrow::BorrowFrom;
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
+use std::ops::Deref;
 use std::rc::Rc;
 
 pub struct Interner<T> {
@@ -90,7 +92,7 @@ impl<T: Eq + Hash + Clone + 'static> Interner<T> {
     }
 }
 
-#[deriving(Clone, PartialEq, Hash, PartialOrd)]
+#[derive(Clone, PartialEq, Hash, PartialOrd)]
 pub struct RcStr {
     string: Rc<String>,
 }
@@ -124,7 +126,9 @@ impl BorrowFrom<RcStr> for str {
     }
 }
 
-impl Deref<str> for RcStr {
+impl Deref for RcStr {
+    type Target = str;
+
     fn deref(&self) -> &str { self.string[] }
 }
 

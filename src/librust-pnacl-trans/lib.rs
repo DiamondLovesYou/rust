@@ -25,7 +25,7 @@ extern crate log;
 extern crate "rustc_llvm" as llvm;
 
 use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
-use std::c_str::CString;
+use std::c_str::{ToCStr, CString};
 use std::collections::{HashSet, HashMap};
 use std::fmt::Show;
 use std::io::fs::File;

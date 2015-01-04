@@ -24,8 +24,9 @@ use rustc::middle::cfg::{CFGIndex};
 use rustc::middle::dataflow::{DataFlowOperator, DataFlowContext, EntryOrExit};
 use rustc::middle::dataflow;
 use std::rc::Rc;
+use std::borrow::IntoCow;
 
-#[deriving(Show, Copy)]
+#[derive(Show, Copy)]
 pub enum Variant {
     Loans,
     Moves,

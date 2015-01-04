@@ -8,30 +8,30 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use prelude::v1::*;
 use self::SocketStatus::*;
 use self::InAddr::*;
 
-use alloc::arc::Arc;
-use libc::{mod, c_char, c_int};
+use c_str::ToCStr;
+use io::net::addrinfo;
+use io::net::ip::{SocketAddr, IpAddr, Ipv4Addr, Ipv6Addr};
+use io::{IoResult, IoError};
+use libc::{self, c_char, c_int};
 use c_str::CString;
 use mem;
 use num::Int;
-use ptr::{mod, null, null_mut};
-use io::net::ip::{SocketAddr, IpAddr, Ipv4Addr, Ipv6Addr};
-use io::net::addrinfo;
-use io::{IoResult, IoError};
-use sys::{mod, retry, c, sock_t, last_error, last_net_error, last_gai_error, close_sock,
+use ptr::{self, null, null_mut};
+use sys::{self, retry, c, sock_t, last_error, last_net_error, last_gai_error, close_sock,
           wrlen, msglen_t, os, wouldblock, set_nonblocking, timer, ms_to_timeval,
           decode_error_detailed};
-use sync::{Mutex, MutexGuard};
-use sys_common::{mod, keep_going, short_write, timeout};
-use prelude::*;
+use sync::{Arc, Mutex, MutexGuard};
+use sys_common::{self, keep_going, short_write, timeout};
 use cmp;
 use io;
 
 // FIXME: move uses of Arc and deadline tracking to std::io
 
-#[deriving(Show)]
+#[derive(Show)]
 pub enum SocketStatus {
     Readable,
     Writable,
@@ -56,10 +56,10 @@ pub enum InAddr {
 pub fn ip_to_inaddr(ip: IpAddr) -> InAddr {
     match ip {
         Ipv4Addr(a, b, c, d) => {
-            let ip = (a as u32 << 24) |
-                     (b as u32 << 16) |
-                     (c as u32 <<  8) |
-                     (d as u32 <<  0);
+            let ip = ((a as u32) << 24) |
+                     ((b as u32) << 16) |
+                     ((c as u32) <<  8) |
+                     ((d as u32) <<  0);
             In4Addr(libc::in_addr {
                 s_addr: Int::from_be(ip)
             })
@@ -310,7 +310,7 @@ pub fn get_address_name(addr: IpAddr) -> Result<String, IoError> {
     let mut storage: libc::sockaddr_storage = unsafe { mem::zeroed() };
     let len = addr_to_sockaddr(addr, &mut storage);
 
-    let mut hostbuf = [0 as c_char, ..NI_MAXHOST];
+    let mut hostbuf = [0 as c_char; NI_MAXHOST];
 
     let res = unsafe {
         getnameinfo(&storage as *const _ as *const libc::sockaddr, len,

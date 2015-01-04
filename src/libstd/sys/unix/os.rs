@@ -10,17 +10,18 @@
 
 //! Implementation of `std::os` functionality for unix systems
 
-use prelude::*;
+use prelude::v1::*;
 
+use c_str::ToCStr;
 use error::{FromError, Error};
 use fmt;
 use io::{IoError, IoResult};
-use libc::{mod, c_int, c_char, c_void};
-use path::BytesContainer;
-use ptr;
-use sync::atomic::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
-use sys::fs::FileDesc;
+use libc::{self, c_int, c_char, c_void};
 use os;
+use path::{BytesContainer};
+use ptr;
+use sync::atomic::{AtomicInt, SeqCst};
+use sys::fs::FileDesc;
 
 use os::TMPBUF_SZ;
 
@@ -110,7 +111,7 @@ pub fn error_string(errno: i32) -> String {
         }
     }
 
-    let mut buf = [0 as c_char, ..TMPBUF_SZ];
+    let mut buf = [0 as c_char; TMPBUF_SZ];
 
     let p = buf.as_mut_ptr();
     unsafe {
@@ -123,7 +124,7 @@ pub fn error_string(errno: i32) -> String {
 }
 
 pub unsafe fn pipe() -> IoResult<(FileDesc, FileDesc)> {
-    let mut fds = [0, ..2];
+    let mut fds = [0; 2];
     if libc::pipe(fds.as_mut_ptr()) == 0 {
         Ok((FileDesc::new(fds[0], true), FileDesc::new(fds[1], true)))
     } else {
@@ -134,7 +135,7 @@ pub unsafe fn pipe() -> IoResult<(FileDesc, FileDesc)> {
 pub fn getcwd() -> IoResult<Path> {
     use c_str::CString;
 
-    let mut buf = [0 as c_char, ..BUF_BYTES];
+    let mut buf = [0 as c_char; BUF_BYTES];
     unsafe {
         if libc::getcwd(buf.as_mut_ptr(), buf.len() as libc::size_t).is_null() {
             Err(IoError::last_error())

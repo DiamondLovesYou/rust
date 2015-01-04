@@ -18,6 +18,7 @@
 
 #![feature(globs, phase, slicing_syntax)]
 #![feature(rustc_diagnostic_macros)]
+#![feature(associated_types)]
 
 #[phase(plugin, link)] extern crate log;
 #[phase(plugin, link)] extern crate syntax;
@@ -80,10 +81,10 @@ use syntax::ast_map;
 use syntax::ast_util::{PostExpansionMethod, local_def, walk_pat};
 use syntax::attr::AttrMetaMethods;
 use syntax::ext::mtwt;
-use syntax::parse::token::{mod, special_names, special_idents};
+use syntax::parse::token::{self, special_names, special_idents};
 use syntax::codemap::{Span, Pos};
 use syntax::owned_slice::OwnedSlice;
-use syntax::visit::{mod, Visitor};
+use syntax::visit::{self, Visitor};
 
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
@@ -97,7 +98,7 @@ mod check_unused;
 mod record_exports;
 mod build_reduced_graph;
 
-#[deriving(Copy)]
+#[derive(Copy)]
 struct BindingInfo {
     span: Span,
     binding_mode: BindingMode,
@@ -106,14 +107,14 @@ struct BindingInfo {
 // Map from the name in a pattern to its binding mode.
 type BindingMap = HashMap<Name, BindingInfo>;
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 enum PatternBindingMode {
     RefutableMode,
     LocalIrrefutableMode,
     ArgumentIrrefutableMode,
 }
 
-#[deriving(Copy, PartialEq, Eq, Hash, Show)]
+#[derive(Copy, PartialEq, Eq, Hash, Show)]
 enum Namespace {
     TypeNS,
     ValueNS
@@ -122,7 +123,7 @@ enum Namespace {
 /// A NamespaceResult represents the result of resolving an import in
 /// a particular namespace. The result is either definitely-resolved,
 /// definitely- unresolved, or unknown.
-#[deriving(Clone)]
+#[derive(Clone)]
 enum NamespaceResult {
     /// Means that resolve hasn't gathered enough information yet to determine
     /// whether the name is bound in this namespace. (That is, it hasn't
@@ -179,7 +180,7 @@ impl<'a, 'v, 'tcx> Visitor<'v> for Resolver<'a, 'tcx> {
 }
 
 /// Contains data for specific types of import directives.
-#[deriving(Copy,Show)]
+#[derive(Copy,Show)]
 enum ImportDirectiveSubclass {
     SingleImport(Name /* target */, Name /* source */),
     GlobImport
@@ -208,7 +209,7 @@ enum FallbackSuggestion {
     TraitMethod(String),
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 enum TypeParameters<'a> {
     NoTypeParameters,
     HasTypeParameters(
@@ -228,7 +229,7 @@ enum TypeParameters<'a> {
 
 // The rib kind controls the translation of local
 // definitions (`DefLocal`) to upvars (`DefUpvar`).
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 enum RibKind {
     // No translation needs to be applied.
     NormalRibKind,
@@ -252,13 +253,13 @@ enum RibKind {
 }
 
 // Methods can be required or provided. RequiredMethod methods only occur in traits.
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 enum MethodSort {
     RequiredMethod,
     ProvidedMethod(NodeId)
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 enum UseLexicalScopeFlag {
     DontUseLexicalScope,
     UseLexicalScope
@@ -269,7 +270,7 @@ enum ModulePrefixResult {
     PrefixFound(Rc<Module>, uint)
 }
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 enum NameSearchType {
     /// We're doing a name search in order to resolve a `use` directive.
     ImportSearch,
@@ -279,7 +280,7 @@ enum NameSearchType {
     PathSearch,
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 enum BareIdentifierPatternResolution {
     FoundStructOrEnumVariant(Def, LastPrivate),
     FoundConst(Def, LastPrivate),
@@ -287,7 +288,7 @@ enum BareIdentifierPatternResolution {
 }
 
 /// One local scope.
-#[deriving(Show)]
+#[derive(Show)]
 struct Rib {
     bindings: HashMap<Name, DefLike>,
     kind: RibKind,
@@ -303,14 +304,14 @@ impl Rib {
 }
 
 /// Whether an import can be shadowed by another import.
-#[deriving(Show,PartialEq,Clone,Copy)]
+#[derive(Show,PartialEq,Clone,Copy)]
 enum Shadowable {
     Always,
     Never
 }
 
 /// One import directive.
-#[deriving(Show)]
+#[derive(Show)]
 struct ImportDirective {
     module_path: Vec<Name>,
     subclass: ImportDirectiveSubclass,
@@ -340,7 +341,7 @@ impl ImportDirective {
 }
 
 /// The item that an import resolves to.
-#[deriving(Clone,Show)]
+#[derive(Clone,Show)]
 struct Target {
     target_module: Rc<Module>,
     bindings: Rc<NameBindings>,
@@ -361,7 +362,7 @@ impl Target {
 }
 
 /// An ImportResolution represents a particular `use` directive.
-#[deriving(Show)]
+#[derive(Show)]
 struct ImportResolution {
     /// Whether this resolution came from a `use` or a `pub use`. Note that this
     /// should *not* be used whenever resolution is being performed, this is
@@ -441,7 +442,7 @@ impl ImportResolution {
 }
 
 /// The link from a module up to its nearest parent node.
-#[deriving(Clone,Show)]
+#[derive(Clone,Show)]
 enum ParentLink {
     NoParentLink,
     ModuleParentLink(Weak<Module>, Name),
@@ -449,7 +450,7 @@ enum ParentLink {
 }
 
 /// The type of module this is.
-#[deriving(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Show)]
 enum ModuleKind {
     NormalModuleKind,
     TraitModuleKind,
@@ -541,7 +542,7 @@ impl fmt::Show for Module {
 }
 
 bitflags! {
-    #[deriving(Show)]
+    #[derive(Show)]
     flags DefModifiers: u8 {
         const PUBLIC            = 0b0000_0001,
         const IMPORTABLE        = 0b0000_0010,
@@ -549,7 +550,7 @@ bitflags! {
 }
 
 // Records a possibly-private type definition.
-#[deriving(Clone,Show)]
+#[derive(Clone,Show)]
 struct TypeNsDef {
     modifiers: DefModifiers, // see note in ImportResolution about how to use this
     module_def: Option<Rc<Module>>,
@@ -558,7 +559,7 @@ struct TypeNsDef {
 }
 
 // Records a possibly-private value definition.
-#[deriving(Clone, Copy, Show)]
+#[derive(Clone, Copy, Show)]
 struct ValueNsDef {
     modifiers: DefModifiers, // see note in ImportResolution about how to use this
     def: Def,
@@ -567,14 +568,14 @@ struct ValueNsDef {
 
 // Records the definitions (at most one for each namespace) that a name is
 // bound to.
-#[deriving(Show)]
+#[derive(Show)]
 struct NameBindings {
     type_def: RefCell<Option<TypeNsDef>>,   //< Meaning in type namespace.
     value_def: RefCell<Option<ValueNsDef>>, //< Meaning in value namespace.
 }
 
 /// Ways in which a trait can be referenced
-#[deriving(Copy)]
+#[derive(Copy)]
 enum TraitReferenceType {
     TraitImplementation,             // impl SomeTrait for T { ... }
     TraitDerivation,                 // trait T : SomeTrait { ... }
@@ -903,7 +904,7 @@ struct Resolver<'a, 'tcx:'a> {
     used_crates: HashSet<CrateNum>,
 }
 
-#[deriving(PartialEq)]
+#[derive(PartialEq)]
 enum FallbackChecks {
     Everything,
     OnlyTraitAndStatics
@@ -970,6 +971,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             glob_map: HashMap::new(),
         }
     }
+
 
     // Import resolution
     //
@@ -3401,7 +3403,9 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
     fn resolve_local(&mut self, local: &Local) {
         // Resolve the type.
-        self.resolve_type(&*local.ty);
+        if let Some(ref ty) = local.ty {
+            self.resolve_type(&**ty);
+        }
 
         // Resolve the initializer, if necessary.
         match local.init {
@@ -4830,7 +4834,7 @@ pub struct CrateMap {
     pub glob_map: Option<GlobMap>
 }
 
-#[deriving(PartialEq,Copy)]
+#[derive(PartialEq,Copy)]
 pub enum MakeGlobMap {
     Yes,
     No

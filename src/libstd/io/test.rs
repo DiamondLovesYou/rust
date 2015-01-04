@@ -12,21 +12,22 @@
 
 #![macro_escape]
 
+use prelude::v1::*;
+
 use libc;
 use os;
-use prelude::*;
 use std::io::net::ip::*;
-use sync::atomic::{AtomicUint, INIT_ATOMIC_UINT, Relaxed};
+use sync::atomic::{AtomicUint, ATOMIC_UINT_INIT, Relaxed};
 
 /// Get a port number, starting at 9600, for use in tests
 pub fn next_test_port() -> u16 {
-    static NEXT_OFFSET: AtomicUint = INIT_ATOMIC_UINT;
+    static NEXT_OFFSET: AtomicUint = ATOMIC_UINT_INIT;
     base_port() + NEXT_OFFSET.fetch_add(1, Relaxed) as u16
 }
 
 /// Get a temporary path which could be the location of a unix socket
 pub fn next_test_unix() -> Path {
-    static COUNT: AtomicUint = INIT_ATOMIC_UINT;
+    static COUNT: AtomicUint = ATOMIC_UINT_INIT;
 
     #[cfg(not(target_os = "nacl"))]
     fn getpid() -> libc::pid_t { unsafe { libc::getpid() as libc::pid_t } }
@@ -139,7 +140,7 @@ mod darwin_fd_limit {
         use os::last_os_error;
 
         // Fetch the kern.maxfilesperproc value
-        let mut mib: [libc::c_int, ..2] = [CTL_KERN, KERN_MAXFILESPERPROC];
+        let mut mib: [libc::c_int; 2] = [CTL_KERN, KERN_MAXFILESPERPROC];
         let mut maxfiles: libc::c_int = 0;
         let mut size: libc::size_t = size_of_val(&maxfiles) as libc::size_t;
         if sysctl(&mut mib[0], 2, &mut maxfiles as *mut libc::c_int as *mut libc::c_void, &mut size,

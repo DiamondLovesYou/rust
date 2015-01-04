@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(old_orphan_check)]
+
 extern crate serialize;
 extern crate rand;
 
@@ -15,21 +17,21 @@ mod submod {
     // if any of these are implemented without global calls for any
     // function calls, then being in a submodule will (correctly)
     // cause errors about unrecognised module `std` (or `extra`)
-    #[deriving(PartialEq, PartialOrd, Eq, Ord,
+    #[derive(PartialEq, PartialOrd, Eq, Ord,
                Hash,
                Clone,
                Show, Rand,
                Encodable, Decodable)]
     enum A { A1(uint), A2(int) }
 
-    #[deriving(PartialEq, PartialOrd, Eq, Ord,
+    #[derive(PartialEq, PartialOrd, Eq, Ord,
                Hash,
                Clone,
                Show, Rand,
                Encodable, Decodable)]
     struct B { x: uint, y: int }
 
-    #[deriving(PartialEq, PartialOrd, Eq, Ord,
+    #[derive(PartialEq, PartialOrd, Eq, Ord,
                Hash,
                Clone,
                Show, Rand,

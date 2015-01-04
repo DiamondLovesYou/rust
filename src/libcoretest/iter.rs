@@ -10,6 +10,7 @@
 
 use core::iter::*;
 use core::iter::order::*;
+use core::iter::MinMaxResult::*;
 use core::num::SignedInt;
 use core::uint;
 use core::cmp;
@@ -19,7 +20,7 @@ use test::Bencher;
 
 #[test]
 fn test_lt() {
-    let empty: [int, ..0] = [];
+    let empty: [int; 0] = [];
     let xs = [1i,2,3];
     let ys = [1i,2,0];
 
@@ -560,7 +561,9 @@ fn test_rposition_panic() {
 
 
 #[cfg(test)]
-fn check_randacc_iter<A: PartialEq, T: Clone + RandomAccessIterator<A>>(a: T, len: uint)
+fn check_randacc_iter<A, T>(a: T, len: uint) where
+    A: PartialEq,
+    T: Clone + RandomAccessIterator + Iterator<Item=A>,
 {
     let mut b = a.clone();
     assert_eq!(len, b.indexable());
@@ -781,7 +784,7 @@ fn test_peekable_is_empty() {
 
 #[test]
 fn test_min_max() {
-    let v: [int, ..0] = [];
+    let v: [int; 0] = [];
     assert_eq!(v.iter().min_max(), NoElements);
 
     let v = [1i];

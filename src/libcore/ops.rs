@@ -25,19 +25,27 @@
 //! demonstrates adding and subtracting two `Point`s.
 //!
 //! ```rust
-//! #[deriving(Show)]
+//! #![feature(associated_types)]
+//!
+//! use std::ops::{Add, Sub};
+//!
+//! #[derive(Show)]
 //! struct Point {
 //!     x: int,
 //!     y: int
 //! }
 //!
-//! impl Add<Point, Point> for Point {
+//! impl Add for Point {
+//!     type Output = Point;
+//!
 //!     fn add(self, other: Point) -> Point {
 //!         Point {x: self.x + other.x, y: self.y + other.y}
 //!     }
 //! }
 //!
-//! impl Sub<Point, Point> for Point {
+//! impl Sub for Point {
+//!     type Output = Point;
+//!
 //!     fn sub(self, other: Point) -> Point {
 //!         Point {x: self.x - other.x, y: self.y - other.y}
 //!     }
@@ -54,7 +62,7 @@
 use clone::Clone;
 use iter::{Step, Iterator,DoubleEndedIterator,ExactSizeIterator};
 use kinds::Sized;
-use option::Option::{mod, Some, None};
+use option::Option::{self, Some, None};
 
 /// The `Drop` trait is used to run some code when a value goes out of scope. This
 /// is sometimes called a 'destructor'.
@@ -68,13 +76,13 @@ use option::Option::{mod, Some, None};
 /// struct HasDrop;
 ///
 /// impl Drop for HasDrop {
-///   fn drop(&mut self) {
-///       println!("Dropping!");
-///   }
+///     fn drop(&mut self) {
+///         println!("Dropping!");
+///     }
 /// }
 ///
 /// fn main() {
-///   let _x = HasDrop;
+///     let _x = HasDrop;
 /// }
 /// ```
 #[lang="drop"]
@@ -91,10 +99,16 @@ pub trait Drop {
 /// calling `add`, and therefore, `main` prints `Adding!`.
 ///
 /// ```rust
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Add;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Add<Foo, Foo> for Foo {
+/// impl Add for Foo {
+///     type Output = Foo;
+///
 ///     fn add(self, _rhs: Foo) -> Foo {
 ///       println!("Adding!");
 ///       self
@@ -106,14 +120,18 @@ pub trait Drop {
 /// }
 /// ```
 #[lang="add"]
-pub trait Add<RHS, Result> {
+pub trait Add<RHS=Self> {
+    type Output;
+
     /// The method for the `+` operator
-    fn add(self, rhs: RHS) -> Result;
+    fn add(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! add_impl {
     ($($t:ty)*) => ($(
-        impl Add<$t, $t> for $t {
+        impl Add for $t {
+            type Output = $t;
+
             #[inline]
             fn add(self, other: $t) -> $t { self + other }
         }
@@ -130,10 +148,16 @@ add_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// calling `sub`, and therefore, `main` prints `Subtracting!`.
 ///
 /// ```rust
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Sub;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Sub<Foo, Foo> for Foo {
+/// impl Sub for Foo {
+///     type Output = Foo;
+///
 ///     fn sub(self, _rhs: Foo) -> Foo {
 ///         println!("Subtracting!");
 ///         self
@@ -145,14 +169,18 @@ add_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// }
 /// ```
 #[lang="sub"]
-pub trait Sub<RHS, Result> {
+pub trait Sub<RHS=Self> {
+    type Output;
+
     /// The method for the `-` operator
-    fn sub(self, rhs: RHS) -> Result;
+    fn sub(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! sub_impl {
     ($($t:ty)*) => ($(
-        impl Sub<$t, $t> for $t {
+        impl Sub for $t {
+            type Output = $t;
+
             #[inline]
             fn sub(self, other: $t) -> $t { self - other }
         }
@@ -169,10 +197,16 @@ sub_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// calling `mul`, and therefore, `main` prints `Multiplying!`.
 ///
 /// ```rust
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Mul;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Mul<Foo, Foo> for Foo {
+/// impl Mul for Foo {
+///     type Output = Foo;
+///
 ///     fn mul(self, _rhs: Foo) -> Foo {
 ///         println!("Multiplying!");
 ///         self
@@ -184,14 +218,18 @@ sub_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// }
 /// ```
 #[lang="mul"]
-pub trait Mul<RHS, Result> {
+pub trait Mul<RHS=Self> {
+    type Output;
+
     /// The method for the `*` operator
-    fn mul(self, rhs: RHS) -> Result;
+    fn mul(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! mul_impl {
     ($($t:ty)*) => ($(
-        impl Mul<$t, $t> for $t {
+        impl Mul for $t {
+            type Output = $t;
+
             #[inline]
             fn mul(self, other: $t) -> $t { self * other }
         }
@@ -208,10 +246,16 @@ mul_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// calling `div`, and therefore, `main` prints `Dividing!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Div;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Div<Foo, Foo> for Foo {
+/// impl Div for Foo {
+///     type Output = Foo;
+///
 ///     fn div(self, _rhs: Foo) -> Foo {
 ///         println!("Dividing!");
 ///         self
@@ -223,14 +267,18 @@ mul_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// }
 /// ```
 #[lang="div"]
-pub trait Div<RHS, Result> {
+pub trait Div<RHS=Self> {
+    type Output;
+
     /// The method for the `/` operator
-    fn div(self, rhs: RHS) -> Result;
+    fn div(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! div_impl {
     ($($t:ty)*) => ($(
-        impl Div<$t, $t> for $t {
+        impl Div for $t {
+            type Output = $t;
+
             #[inline]
             fn div(self, other: $t) -> $t { self / other }
         }
@@ -247,10 +295,16 @@ div_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// calling `rem`, and therefore, `main` prints `Remainder-ing!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Rem;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Rem<Foo, Foo> for Foo {
+/// impl Rem for Foo {
+///     type Output = Foo;
+///
 ///     fn rem(self, _rhs: Foo) -> Foo {
 ///         println!("Remainder-ing!");
 ///         self
@@ -262,14 +316,18 @@ div_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
 /// }
 /// ```
 #[lang="rem"]
-pub trait Rem<RHS, Result> {
+pub trait Rem<RHS=Self> {
+    type Output = Self;
+
     /// The method for the `%` operator
-    fn rem(self, rhs: RHS) -> Result;
+    fn rem(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! rem_impl {
     ($($t:ty)*) => ($(
-        impl Rem<$t, $t> for $t {
+        impl Rem for $t {
+            type Output = $t;
+
             #[inline]
             fn rem(self, other: $t) -> $t { self % other }
         }
@@ -278,7 +336,9 @@ macro_rules! rem_impl {
 
 macro_rules! rem_float_impl {
     ($t:ty, $fmod:ident) => {
-        impl Rem<$t, $t> for $t {
+        impl Rem for $t {
+            type Output = $t;
+
             #[inline]
             fn rem(self, other: $t) -> $t {
                 extern { fn $fmod(a: $t, b: $t) -> $t; }
@@ -300,11 +360,17 @@ rem_float_impl! { f64, fmod }
 /// `neg`, and therefore, `main` prints `Negating!`.
 ///
 /// ```
+/// #![feature(associated_types)]
+///
+/// use std::ops::Neg;
+///
 /// struct Foo;
 ///
 /// impl Copy for Foo {}
 ///
-/// impl Neg<Foo> for Foo {
+/// impl Neg for Foo {
+///     type Output = Foo;
+///
 ///     fn neg(self) -> Foo {
 ///         println!("Negating!");
 ///         self
@@ -316,14 +382,18 @@ rem_float_impl! { f64, fmod }
 /// }
 /// ```
 #[lang="neg"]
-pub trait Neg<Result> {
+pub trait Neg {
+    type Output;
+
     /// The method for the unary `-` operator
-    fn neg(self) -> Result;
+    fn neg(self) -> Self::Output;
 }
 
 macro_rules! neg_impl {
     ($($t:ty)*) => ($(
-        impl Neg<$t> for $t {
+        impl Neg for $t {
+            type Output = $t;
+
             #[inline]
             fn neg(self) -> $t { -self }
         }
@@ -332,7 +402,9 @@ macro_rules! neg_impl {
 
 macro_rules! neg_uint_impl {
     ($t:ty, $t_signed:ty) => {
-        impl Neg<$t> for $t {
+        impl Neg for $t {
+            type Output = $t;
+
             #[inline]
             fn neg(self) -> $t { -(self as $t_signed) as $t }
         }
@@ -356,11 +428,17 @@ neg_uint_impl! { u64, i64 }
 /// `not`, and therefore, `main` prints `Not-ing!`.
 ///
 /// ```
+/// #![feature(associated_types)]
+///
+/// use std::ops::Not;
+///
 /// struct Foo;
 ///
 /// impl Copy for Foo {}
 ///
-/// impl Not<Foo> for Foo {
+/// impl Not for Foo {
+///     type Output = Foo;
+///
 ///     fn not(self) -> Foo {
 ///         println!("Not-ing!");
 ///         self
@@ -372,14 +450,18 @@ neg_uint_impl! { u64, i64 }
 /// }
 /// ```
 #[lang="not"]
-pub trait Not<Result> {
+pub trait Not {
+    type Output;
+
     /// The method for the unary `!` operator
-    fn not(self) -> Result;
+    fn not(self) -> Self::Output;
 }
 
 macro_rules! not_impl {
     ($($t:ty)*) => ($(
-        impl Not<$t> for $t {
+        impl Not for $t {
+            type Output = $t;
+
             #[inline]
             fn not(self) -> $t { !self }
         }
@@ -396,10 +478,16 @@ not_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// calling `bitand`, and therefore, `main` prints `Bitwise And-ing!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::BitAnd;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl BitAnd<Foo, Foo> for Foo {
+/// impl BitAnd for Foo {
+///     type Output = Foo;
+///
 ///     fn bitand(self, _rhs: Foo) -> Foo {
 ///         println!("Bitwise And-ing!");
 ///         self
@@ -411,14 +499,18 @@ not_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// }
 /// ```
 #[lang="bitand"]
-pub trait BitAnd<RHS, Result> {
+pub trait BitAnd<RHS=Self> {
+    type Output;
+
     /// The method for the `&` operator
-    fn bitand(self, rhs: RHS) -> Result;
+    fn bitand(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! bitand_impl {
     ($($t:ty)*) => ($(
-        impl BitAnd<$t, $t> for $t {
+        impl BitAnd for $t {
+            type Output = $t;
+
             #[inline]
             fn bitand(self, rhs: $t) -> $t { self & rhs }
         }
@@ -435,10 +527,16 @@ bitand_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// calling `bitor`, and therefore, `main` prints `Bitwise Or-ing!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::BitOr;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl BitOr<Foo, Foo> for Foo {
+/// impl BitOr for Foo {
+///     type Output = Foo;
+///
 ///     fn bitor(self, _rhs: Foo) -> Foo {
 ///         println!("Bitwise Or-ing!");
 ///         self
@@ -450,14 +548,18 @@ bitand_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// }
 /// ```
 #[lang="bitor"]
-pub trait BitOr<RHS, Result> {
+pub trait BitOr<RHS=Self> {
+    type Output;
+
     /// The method for the `|` operator
-    fn bitor(self, rhs: RHS) -> Result;
+    fn bitor(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! bitor_impl {
     ($($t:ty)*) => ($(
-        impl BitOr<$t,$t> for $t {
+        impl BitOr for $t {
+            type Output = $t;
+
             #[inline]
             fn bitor(self, rhs: $t) -> $t { self | rhs }
         }
@@ -474,10 +576,16 @@ bitor_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// calling `bitxor`, and therefore, `main` prints `Bitwise Xor-ing!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::BitXor;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl BitXor<Foo, Foo> for Foo {
+/// impl BitXor for Foo {
+///     type Output = Foo;
+///
 ///     fn bitxor(self, _rhs: Foo) -> Foo {
 ///         println!("Bitwise Xor-ing!");
 ///         self
@@ -489,14 +597,18 @@ bitor_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// }
 /// ```
 #[lang="bitxor"]
-pub trait BitXor<RHS, Result> {
+pub trait BitXor<RHS=Self> {
+    type Output;
+
     /// The method for the `^` operator
-    fn bitxor(self, rhs: RHS) -> Result;
+    fn bitxor(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! bitxor_impl {
     ($($t:ty)*) => ($(
-        impl BitXor<$t, $t> for $t {
+        impl BitXor for $t {
+            type Output = $t;
+
             #[inline]
             fn bitxor(self, other: $t) -> $t { self ^ other }
         }
@@ -513,10 +625,16 @@ bitxor_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// calling `shl`, and therefore, `main` prints `Shifting left!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Shl;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Shl<Foo, Foo> for Foo {
+/// impl Shl<Foo> for Foo {
+///     type Output = Foo;
+///
 ///     fn shl(self, _rhs: Foo) -> Foo {
 ///         println!("Shifting left!");
 ///         self
@@ -528,14 +646,18 @@ bitxor_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// }
 /// ```
 #[lang="shl"]
-pub trait Shl<RHS, Result> {
+pub trait Shl<RHS> {
+    type Output;
+
     /// The method for the `<<` operator
-    fn shl(self, rhs: RHS) -> Result;
+    fn shl(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! shl_impl {
     ($($t:ty)*) => ($(
-        impl Shl<uint, $t> for $t {
+        impl Shl<uint> for $t {
+            type Output = $t;
+
             #[inline]
             fn shl(self, other: uint) -> $t {
                 self << other
@@ -554,10 +676,16 @@ shl_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// calling `shr`, and therefore, `main` prints `Shifting right!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Shr;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Shr<Foo, Foo> for Foo {
+/// impl Shr<Foo> for Foo {
+///     type Output = Foo;
+///
 ///     fn shr(self, _rhs: Foo) -> Foo {
 ///         println!("Shifting right!");
 ///         self
@@ -569,14 +697,18 @@ shl_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// }
 /// ```
 #[lang="shr"]
-pub trait Shr<RHS, Result> {
+pub trait Shr<RHS> {
+    type Output;
+
     /// The method for the `>>` operator
-    fn shr(self, rhs: RHS) -> Result;
+    fn shr(self, rhs: RHS) -> Self::Output;
 }
 
 macro_rules! shr_impl {
     ($($t:ty)*) => ($(
-        impl Shr<uint, $t> for $t {
+        impl Shr<uint> for $t {
+            type Output = $t;
+
             #[inline]
             fn shr(self, other: uint) -> $t { self >> other }
         }
@@ -584,6 +716,15 @@ macro_rules! shr_impl {
 }
 
 shr_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 }
+
+// NOTE(stage0) remove trait after a snapshot
+#[cfg(stage0)]
+#[allow(missing_docs)]
+#[lang="index"]
+pub trait Index<Sized? Index, Sized? Result> for Sized? {
+    /// The method for the indexing (`Foo[Bar]`) operation
+    fn index<'a>(&'a self, index: &Index) -> &'a Result;
+}
 
 /// The `Index` trait is used to specify the functionality of indexing operations
 /// like `arr[idx]` when used in an immutable context.
@@ -594,10 +735,16 @@ shr_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 /// calling `index`, and therefore, `main` prints `Indexing!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::Index;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl Index<Foo, Foo> for Foo {
+/// impl Index<Foo> for Foo {
+///     type Output = Foo;
+///
 ///     fn index<'a>(&'a self, _index: &Foo) -> &'a Foo {
 ///         println!("Indexing!");
 ///         self
@@ -608,10 +755,22 @@ shr_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 }
 ///     Foo[Foo];
 /// }
 /// ```
+#[cfg(not(stage0))]  // NOTE(stage0) remove cfg after a snapshot
 #[lang="index"]
-pub trait Index<Sized? Index, Sized? Result> for Sized? {
+pub trait Index<Sized? Index> for Sized? {
+    type Sized? Output;
+
     /// The method for the indexing (`Foo[Bar]`) operation
-    fn index<'a>(&'a self, index: &Index) -> &'a Result;
+    fn index<'a>(&'a self, index: &Index) -> &'a Self::Output;
+}
+
+// NOTE(stage0) remove trait after a snapshot
+#[cfg(stage0)]
+#[allow(missing_docs)]
+#[lang="index_mut"]
+pub trait IndexMut<Sized? Index, Sized? Result> for Sized? {
+    /// The method for the indexing (`Foo[Bar]`) operation
+    fn index_mut<'a>(&'a mut self, index: &Index) -> &'a mut Result;
 }
 
 /// The `IndexMut` trait is used to specify the functionality of indexing
@@ -623,10 +782,16 @@ pub trait Index<Sized? Index, Sized? Result> for Sized? {
 /// calling `index_mut`, and therefore, `main` prints `Indexing!`.
 ///
 /// ```
-/// #[deriving(Copy)]
+/// #![feature(associated_types)]
+///
+/// use std::ops::IndexMut;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
-/// impl IndexMut<Foo, Foo> for Foo {
+/// impl IndexMut<Foo> for Foo {
+///     type Output = Foo;
+///
 ///     fn index_mut<'a>(&'a mut self, _index: &Foo) -> &'a mut Foo {
 ///         println!("Indexing!");
 ///         self
@@ -637,10 +802,13 @@ pub trait Index<Sized? Index, Sized? Result> for Sized? {
 ///     &mut Foo[Foo];
 /// }
 /// ```
+#[cfg(not(stage0))]  // NOTE(stage0) remove cfg after a snapshot
 #[lang="index_mut"]
-pub trait IndexMut<Sized? Index, Sized? Result> for Sized? {
+pub trait IndexMut<Sized? Index> for Sized? {
+    type Sized? Output;
+
     /// The method for the indexing (`Foo[Bar]`) operation
-    fn index_mut<'a>(&'a mut self, index: &Index) -> &'a mut Result;
+    fn index_mut<'a>(&'a mut self, index: &Index) -> &'a mut Self::Output;
 }
 
 /// The `Slice` trait is used to specify the functionality of slicing operations
@@ -652,7 +820,9 @@ pub trait IndexMut<Sized? Index, Sized? Result> for Sized? {
 /// calling `slice_to`, and therefore, `main` prints `Slicing!`.
 ///
 /// ```ignore
-/// #[deriving(Copy)]
+/// use std::ops::Slice;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
 /// impl Slice<Foo, Foo> for Foo {
@@ -699,7 +869,9 @@ pub trait Slice<Sized? Idx, Sized? Result> for Sized? {
 /// calling `slice_from_mut`, and therefore, `main` prints `Slicing!`.
 ///
 /// ```ignore
-/// #[deriving(Copy)]
+/// use std::ops::SliceMut;
+///
+/// #[derive(Copy)]
 /// struct Foo;
 ///
 /// impl SliceMut<Foo, Foo> for Foo {
@@ -739,12 +911,12 @@ pub trait SliceMut<Sized? Idx, Sized? Result> for Sized? {
 
 
 /// An unbounded range.
-#[deriving(Copy)]
+#[derive(Copy)]
 #[lang="full_range"]
 pub struct FullRange;
 
 /// A (half-open) range which is bounded at both ends.
-#[deriving(Copy)]
+#[derive(Copy)]
 #[lang="range"]
 pub struct Range<Idx> {
     /// The lower bound of the range (inclusive).
@@ -755,7 +927,9 @@ pub struct Range<Idx> {
 
 // FIXME(#19391) needs a snapshot
 //impl<Idx: Clone + Step<T=uint>> Iterator<Idx> for Range<Idx> {
-impl<Idx: Clone + Step> Iterator<Idx> for Range<Idx> {
+impl<Idx: Clone + Step> Iterator for Range<Idx> {
+    type Item = Idx;
+
     #[inline]
     fn next(&mut self) -> Option<Idx> {
         if self.start < self.end {
@@ -777,7 +951,7 @@ impl<Idx: Clone + Step> Iterator<Idx> for Range<Idx> {
     }
 }
 
-impl<Idx: Clone + Step> DoubleEndedIterator<Idx> for Range<Idx> {
+impl<Idx: Clone + Step> DoubleEndedIterator for Range<Idx> {
     #[inline]
     fn next_back(&mut self) -> Option<Idx> {
         if self.start < self.end {
@@ -789,17 +963,19 @@ impl<Idx: Clone + Step> DoubleEndedIterator<Idx> for Range<Idx> {
     }
 }
 
-impl<Idx: Clone + Step> ExactSizeIterator<Idx> for Range<Idx> {}
+impl<Idx: Clone + Step> ExactSizeIterator for Range<Idx> {}
 
 /// A range which is only bounded below.
-#[deriving(Copy)]
+#[derive(Copy)]
 #[lang="range_from"]
 pub struct RangeFrom<Idx> {
     /// The lower bound of the range (inclusive).
     pub start: Idx,
 }
 
-impl<Idx: Clone + Step> Iterator<Idx> for RangeFrom<Idx> {
+impl<Idx: Clone + Step> Iterator for RangeFrom<Idx> {
+    type Item = Idx;
+
     #[inline]
     fn next(&mut self) -> Option<Idx> {
         // Deliberately overflow so we loop forever.
@@ -810,7 +986,7 @@ impl<Idx: Clone + Step> Iterator<Idx> for RangeFrom<Idx> {
 }
 
 /// A range which is only bounded above.
-#[deriving(Copy)]
+#[derive(Copy)]
 #[lang="range_to"]
 pub struct RangeTo<Idx> {
     /// The upper bound of the range (exclusive).
@@ -827,11 +1003,17 @@ pub struct RangeTo<Idx> {
 /// struct.
 ///
 /// ```
+/// #![feature(associated_types)]
+///
+/// use std::ops::Deref;
+///
 /// struct DerefExample<T> {
 ///     value: T
 /// }
 ///
-/// impl<T> Deref<T> for DerefExample<T> {
+/// impl<T> Deref for DerefExample<T> {
+///     type Target = T;
+///
 ///     fn deref<'a>(&'a self) -> &'a T {
 ///         &self.value
 ///     }
@@ -843,16 +1025,22 @@ pub struct RangeTo<Idx> {
 /// }
 /// ```
 #[lang="deref"]
-pub trait Deref<Sized? Result> for Sized? {
+pub trait Deref for Sized? {
+    type Sized? Target;
+
     /// The method called to dereference a value
-    fn deref<'a>(&'a self) -> &'a Result;
+    fn deref<'a>(&'a self) -> &'a Self::Target;
 }
 
-impl<'a, Sized? T> Deref<T> for &'a T {
+impl<'a, Sized? T> Deref for &'a T {
+    type Target = T;
+
     fn deref(&self) -> &T { *self }
 }
 
-impl<'a, Sized? T> Deref<T> for &'a mut T {
+impl<'a, Sized? T> Deref for &'a mut T {
+    type Target = T;
+
     fn deref(&self) -> &T { *self }
 }
 
@@ -865,17 +1053,23 @@ impl<'a, Sized? T> Deref<T> for &'a mut T {
 /// struct.
 ///
 /// ```
+/// #![feature(associated_types)]
+///
+/// use std::ops::{Deref, DerefMut};
+///
 /// struct DerefMutExample<T> {
 ///     value: T
 /// }
 ///
-/// impl<T> Deref<T> for DerefMutExample<T> {
+/// impl<T> Deref for DerefMutExample<T> {
+///     type Target = T;
+///
 ///     fn deref<'a>(&'a self) -> &'a T {
 ///         &self.value
 ///     }
 /// }
 ///
-/// impl<T> DerefMut<T> for DerefMutExample<T> {
+/// impl<T> DerefMut for DerefMutExample<T> {
 ///     fn deref_mut<'a>(&'a mut self) -> &'a mut T {
 ///         &mut self.value
 ///     }
@@ -888,12 +1082,12 @@ impl<'a, Sized? T> Deref<T> for &'a mut T {
 /// }
 /// ```
 #[lang="deref_mut"]
-pub trait DerefMut<Sized? Result> for Sized? : Deref<Result> {
+pub trait DerefMut for Sized? : Deref {
     /// The method called to mutably dereference a value
-    fn deref_mut<'a>(&'a mut self) -> &'a mut Result;
+    fn deref_mut<'a>(&'a mut self) -> &'a mut <Self as Deref>::Target;
 }
 
-impl<'a, Sized? T> DerefMut<T> for &'a mut T {
+impl<'a, Sized? T> DerefMut for &'a mut T {
     fn deref_mut(&mut self) -> &mut T { *self }
 }
 

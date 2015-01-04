@@ -11,8 +11,8 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use io::{mod, IoError, IoResult};
-use prelude::*;
+use io::{self, IoError, IoResult};
+use prelude::v1::*;
 use sys::{last_error, retry};
 use c_str::CString;
 use num::Int;

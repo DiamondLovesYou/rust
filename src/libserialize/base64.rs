@@ -19,7 +19,7 @@ use std::fmt;
 use std::error;
 
 /// Available encoding character sets
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum CharacterSet {
     /// The standard character set (uses `+` and `/`)
     Standard,
@@ -28,7 +28,7 @@ pub enum CharacterSet {
 }
 
 /// Available newline types
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum Newline {
     /// A linefeed (i.e. Unix-style newline)
     LF,
@@ -37,7 +37,7 @@ pub enum Newline {
 }
 
 /// Contains configuration parameters for `to_base64`.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Config {
     /// Character set to use
     pub char_set: CharacterSet,
@@ -177,7 +177,7 @@ pub trait FromBase64 for Sized? {
 }
 
 /// Errors that can occur when decoding a base64 encoded string
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum FromBase64Error {
     /// The input contained a character not part of the base64 format
     InvalidBase64Byte(u8, uint),
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_to_base64_crlf_line_break() {
-        assert!(![0u8, ..1000].to_base64(Config {line_length: None, ..STANDARD})
+        assert!(![0u8; 1000].to_base64(Config {line_length: None, ..STANDARD})
                               .contains("\r\n"));
         assert_eq!(b"foobar".to_base64(Config {line_length: Some(4),
                                                ..STANDARD}),
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_to_base64_lf_line_break() {
-        assert!(![0u8, ..1000].to_base64(Config {line_length: None,
+        assert!(![0u8; 1000].to_base64(Config {line_length: None,
                                                  newline: Newline::LF,
                                                  ..STANDARD})
                               .as_slice()

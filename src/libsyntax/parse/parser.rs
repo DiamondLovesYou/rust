@@ -65,8 +65,8 @@ use ast::{ViewItem, ViewItem_, ViewItemExternCrate, ViewItemUse};
 use ast::{ViewPath, ViewPathGlob, ViewPathList, ViewPathSimple};
 use ast::{Visibility, WhereClause};
 use ast;
-use ast_util::{mod, as_prec, ident_to_path, operator_prec};
-use codemap::{mod, Span, BytePos, Spanned, spanned, mk_sp, DUMMY_SP};
+use ast_util::{self, as_prec, ident_to_path, operator_prec};
+use codemap::{self, Span, BytePos, Spanned, spanned, mk_sp, DUMMY_SP};
 use diagnostic;
 use ext::tt::macro_parser;
 use parse;
@@ -75,7 +75,7 @@ use parse::classify;
 use parse::common::{SeqSep, seq_sep_none, seq_sep_trailing_allowed};
 use parse::lexer::{Reader, TokenAndSpan};
 use parse::obsolete::*;
-use parse::token::{mod, MatchNt, SubstNt, InternedString};
+use parse::token::{self, MatchNt, SubstNt, InternedString};
 use parse::token::{keywords, special_idents};
 use parse::{new_sub_parser_from_file, ParseSess};
 use print::pprust;
@@ -84,11 +84,12 @@ use owned_slice::OwnedSlice;
 
 use std::collections::HashSet;
 use std::io::fs::PathExtensions;
+use std::iter;
 use std::mem;
 use std::num::Float;
 use std::rc::Rc;
-use std::iter;
 use std::slice;
+use std::str::from_str;
 
 bitflags! {
     flags Restrictions: u8 {
@@ -105,7 +106,7 @@ type ItemInfo = (Ident, Item_, Option<Vec<Attribute> >);
 
 /// How to parse a path. There are four different kinds of paths, all of which
 /// are parsed somewhat differently.
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 pub enum PathParsingMode {
     /// A path with no type parameters; e.g. `foo::bar::Baz`
     NoTypesAllowed,
@@ -118,7 +119,7 @@ pub enum PathParsingMode {
 }
 
 /// How to parse a bound, whether to allow bound modifiers such as `?`.
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 pub enum BoundParsingMode {
     Bare,
     Modified,
@@ -292,7 +293,7 @@ pub struct Parser<'a> {
     pub cfg: CrateConfig,
     /// the previous token or None (only stashed sometimes).
     pub last_token: Option<Box<token::Token>>,
-    pub buffer: [TokenAndSpan, ..4],
+    pub buffer: [TokenAndSpan; 4],
     pub buffer_start: int,
     pub buffer_end: int,
     pub tokens_consumed: uint,
@@ -317,7 +318,7 @@ pub struct Parser<'a> {
     pub expected_tokens: Vec<TokenType>,
 }
 
-#[deriving(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum TokenType {
     Token(token::Token),
     Operator,
@@ -546,6 +547,10 @@ impl<'a> Parser<'a> {
     pub fn parse_path_list_item(&mut self) -> ast::PathListItem {
         let lo = self.span.lo;
         let node = if self.eat_keyword(keywords::Mod) {
+            let span = self.last_span;
+            self.span_warn(span, "deprecated syntax; use the `self` keyword now");
+            ast::PathListMod { id: ast::DUMMY_NODE_ID }
+        } else if self.eat_keyword(keywords::Self) {
             ast::PathListMod { id: ast::DUMMY_NODE_ID }
         } else {
             let ident = self.parse_ident();
@@ -676,45 +681,22 @@ impl<'a> Parser<'a> {
     /// `<` and continue. If a `<` is not seen, return false.
     ///
     /// This is meant to be used when parsing generics on a path to get the
-    /// starting token. The `force` parameter is used to forcefully break up a
-    /// `<<` token. If `force` is false, then `<<` is only broken when a lifetime
-    /// shows up next. For example, consider the expression:
-    ///
-    ///      foo as bar << test
-    ///
-    /// The parser needs to know if `bar <<` is the start of a generic path or if
-    /// it's a left-shift token. If `test` were a lifetime, then it's impossible
-    /// for the token to be a left-shift, but if it's not a lifetime, then it's
-    /// considered a left-shift.
-    ///
-    /// The reason for this is that the only current ambiguity with `<<` is when
-    /// parsing closure types:
-    ///
-    ///      foo::<<'a> ||>();
-    ///      impl Foo<<'a> ||>() { ... }
-    fn eat_lt(&mut self, force: bool) -> bool {
+    /// starting token.
+    fn eat_lt(&mut self) -> bool {
         match self.token {
             token::Lt => { self.bump(); true }
             token::BinOp(token::Shl) => {
-                let next_lifetime = self.look_ahead(1, |t| match *t {
-                    token::Lifetime(..) => true,
-                    _ => false,
-                });
-                if force || next_lifetime {
-                    let span = self.span;
-                    let lo = span.lo + BytePos(1);
-                    self.replace_token(token::Lt, lo, span.hi);
-                    true
-                } else {
-                    false
-                }
+                let span = self.span;
+                let lo = span.lo + BytePos(1);
+                self.replace_token(token::Lt, lo, span.hi);
+                true
             }
             _ => false,
         }
     }
 
     fn expect_lt(&mut self) {
-        if !self.eat_lt(true) {
+        if !self.eat_lt() {
             let found_token = self.this_token_to_string();
             let token_str = Parser::token_to_string(&token::Lt);
             self.fatal(format!("expected `{}`, found `{}`",
@@ -1589,9 +1571,8 @@ impl<'a> Parser<'a> {
             TyTypeof(e)
         } else if self.eat_keyword(keywords::Proc) {
             self.parse_proc_type(Vec::new())
-        } else if self.check(&token::Lt) {
+        } else if self.eat_lt() {
             // QUALIFIED PATH `<TYPE as TRAIT_REF>::item`
-            self.bump();
             let self_type = self.parse_ty_sum();
             self.expect_keyword(keywords::As);
             let trait_ref = self.parse_trait_ref();
@@ -1716,12 +1697,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn maybe_parse_fixed_length_of_vec(&mut self) -> Option<P<ast::Expr>> {
-        if self.check(&token::Comma) &&
-                self.look_ahead(1, |t| *t == token::DotDot) {
-            self.bump();
-            self.bump();
-            Some(self.parse_expr_res(RESTRICTION_NO_DOTS))
-        } else if self.check(&token::Semi) {
+        if self.check(&token::Semi) {
             self.bump();
             Some(self.parse_expr())
         } else {
@@ -1877,7 +1853,7 @@ impl<'a> Parser<'a> {
             let identifier = self.parse_ident();
 
             // Parse types, optionally.
-            let parameters = if self.eat_lt(false) {
+            let parameters = if self.eat_lt() {
                 let (lifetimes, types, bindings) = self.parse_generic_values_after_lt();
 
                 ast::AngleBracketedParameters(ast::AngleBracketedParameterData {
@@ -1938,7 +1914,7 @@ impl<'a> Parser<'a> {
             }
 
             // Check for a type segment.
-            if self.eat_lt(false) {
+            if self.eat_lt() {
                 // Consumed `a::b::<`, go look for types
                 let (lifetimes, types, bindings) = self.parse_generic_values_after_lt();
                 segments.push(ast::PathSegment {
@@ -2155,10 +2131,10 @@ impl<'a> Parser<'a> {
     }
 
     pub fn mk_range(&mut self,
-                    start: P<Expr>,
+                    start: Option<P<Expr>>,
                     end: Option<P<Expr>>)
                     -> ast::Expr_ {
-        ExprRange(Some(start), end)
+        ExprRange(start, end)
     }
 
     pub fn mk_field(&mut self, expr: P<Expr>, ident: ast::SpannedIdent) -> ast::Expr_ {
@@ -2277,15 +2253,7 @@ impl<'a> Parser<'a> {
                 } else {
                     // Nonempty vector.
                     let first_expr = self.parse_expr();
-                    if self.check(&token::Comma) &&
-                        self.look_ahead(1, |t| *t == token::DotDot) {
-                        // Repeating vector syntax: [ 0, ..512 ]
-                        self.bump();
-                        self.bump();
-                        let count = self.parse_expr();
-                        self.expect(&token::CloseDelim(token::Bracket));
-                        ex = ExprRepeat(first_expr, count);
-                    } else if self.check(&token::Semi) {
+                    if self.check(&token::Semi) {
                         // Repeating vector syntax: [ 0; 512 ]
                         self.bump();
                         let count = self.parse_expr();
@@ -2689,7 +2657,7 @@ impl<'a> Parser<'a> {
                 };
 
                 let hi = self.span.hi;
-                let range = self.mk_range(e, opt_end);
+                let range = self.mk_range(Some(e), opt_end);
                 return self.mk_expr(lo, hi, range);
               }
               _ => return e
@@ -2901,6 +2869,13 @@ impl<'a> Parser<'a> {
             let e = self.parse_prefix_expr();
             hi = e.span.hi;
             ex = self.mk_unary(UnUniq, e);
+          }
+          token::DotDot if !self.restrictions.contains(RESTRICTION_NO_DOTS) => {
+            // A range, closed above: `..expr`.
+            self.bump();
+            let e = self.parse_prefix_expr();
+            hi = e.span.hi;
+            ex = self.mk_range(None, Some(e));
           }
           token::Ident(_, _) => {
             if !self.token.is_keyword(keywords::Box) {
@@ -3633,13 +3608,9 @@ impl<'a> Parser<'a> {
         let lo = self.span.lo;
         let pat = self.parse_pat();
 
-        let mut ty = P(Ty {
-            id: ast::DUMMY_NODE_ID,
-            node: TyInfer,
-            span: mk_sp(lo, lo),
-        });
+        let mut ty = None;
         if self.eat(&token::Colon) {
-            ty = self.parse_ty_sum();
+            ty = Some(self.parse_ty_sum());
         }
         let init = self.parse_initializer();
         P(ast::Local {

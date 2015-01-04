@@ -47,7 +47,7 @@ pub struct Config {
     pub uint_type: UintTy,
 }
 
-#[deriving(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum OptLevel {
     No, // -O0
     Less, // -O1
@@ -55,14 +55,14 @@ pub enum OptLevel {
     Aggressive // -O3
 }
 
-#[deriving(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum DebugInfoLevel {
     NoDebugInfo,
     LimitedDebugInfo,
     FullDebugInfo,
 }
 
-#[deriving(Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub enum OutputType {
     OutputTypeBitcode,
     OutputTypeAssembly,
@@ -72,7 +72,7 @@ pub enum OutputType {
     OutputTypeDepInfo,
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Options {
     // The crate config requested for the session, which may be combined
     // with additional crate configurations during the compile process
@@ -114,7 +114,7 @@ pub struct Options {
     pub alt_std_name: Option<String>
 }
 
-#[deriving(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[allow(missing_copy_implementations)]
 pub enum PrintRequest {
     FileNames,
@@ -138,7 +138,7 @@ impl Input {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct OutputFilenames {
     pub out_directory: Path,
     pub out_filestem: String,
@@ -223,14 +223,14 @@ pub fn basic_options() -> Options {
 // users can have their own entry
 // functions that don't start a
 // scheduler
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 pub enum EntryFnType {
     EntryMain,
     EntryStart,
     EntryNone,
 }
 
-#[deriving(Copy, PartialEq, PartialOrd, Clone, Ord, Eq, Hash)]
+#[derive(Copy, PartialEq, PartialOrd, Clone, Ord, Eq, Hash)]
 pub enum CrateType {
     CrateTypeExecutable,
     CrateTypeDylib,
@@ -338,7 +338,7 @@ pub fn debugging_opts_map() -> Vec<(&'static str, &'static str, u64)> {
     ]
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub enum Passes {
     SomePasses(Vec<String>),
     AllPasses,
@@ -366,7 +366,7 @@ impl Passes {
 macro_rules! cgoptions {
     ($($opt:ident : $t:ty = ($init:expr, $parse:ident, $desc:expr)),* ,) =>
 (
-    #[deriving(Clone)]
+    #[derive(Clone)]
     pub struct CodegenOptions { $(pub $opt: $t),* }
 
     pub fn basic_codegen_options() -> CodegenOptions {
@@ -395,6 +395,7 @@ macro_rules! cgoptions {
 
     mod cgsetters {
         use super::{CodegenOptions, Passes, SomePasses, AllPasses};
+        use std::str::from_str;
 
         $(
             pub fn $opt(cg: &mut CodegenOptions, v: Option<&str>) -> bool {
@@ -680,10 +681,10 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
         .collect()
 }
 
-#[deriving(Copy, Clone, PartialEq, Eq, Show)]
+#[derive(Copy, Clone, PartialEq, Eq, Show)]
 pub enum OptionStability { Stable, Unstable }
 
-#[deriving(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RustcOptGroup {
     pub opt_group: getopts::OptGroup,
     pub stability: OptionStability,
@@ -750,7 +751,7 @@ pub fn rustc_short_optgroups() -> Vec<RustcOptGroup> {
         opt::multi("l", "",   "Link the generated crate(s) to the specified native
                              library NAME. The optional KIND can be one of,
                              static, dylib, or framework. If omitted, dylib is
-                             assumed.", "NAME[:KIND]"),
+                             assumed.", "[KIND=]NAME"),
         opt::multi("", "crate-type", "Comma separated list of types of crates
                                     for the compiler to emit",
                    "[bin|lib|rlib|dylib|staticlib]"),
@@ -1023,6 +1024,24 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     }
 
     let libs = matches.opt_strs("l").into_iter().map(|s| {
+        let mut parts = s.splitn(1, '=');
+        let kind = parts.next().unwrap();
+        if let Some(name) = parts.next() {
+            let kind = match kind {
+                "dylib" => cstore::NativeUnknown,
+                "framework" => cstore::NativeFramework,
+                "static" => cstore::NativeStatic,
+                s => {
+                    early_error(format!("unknown library kind `{}`, expected \
+                                         one of dylib, framework, or static",
+                                        s)[]);
+                }
+            };
+            return (name.to_string(), kind)
+        }
+
+        // FIXME(acrichto) remove this once crates have stopped using it, this
+        //                 is deprecated behavior now.
         let mut parts = s.rsplitn(1, ':');
         let kind = parts.next().unwrap();
         let (name, kind) = match (parts.next(), kind) {

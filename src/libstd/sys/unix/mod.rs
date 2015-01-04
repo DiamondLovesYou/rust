@@ -19,8 +19,8 @@ extern crate libc;
 
 use num;
 use num::{Int, SignedInt};
-use prelude::*;
-use io::{mod, IoResult, IoError};
+use prelude::v1::*;
+use io::{self, IoResult, IoError};
 use sys_common::mkerr_libc;
 
 macro_rules! helper_init { (static $name:ident: Helper<$m:ty>) => (

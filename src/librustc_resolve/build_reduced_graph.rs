@@ -15,13 +15,13 @@
 
 use {DefModifiers, PUBLIC, IMPORTABLE};
 use ImportDirective;
-use ImportDirectiveSubclass::{mod, SingleImport, GlobImport};
+use ImportDirectiveSubclass::{self, SingleImport, GlobImport};
 use ImportResolution;
 use Module;
 use ModuleKind::*;
 use Namespace::{TypeNS, ValueNS};
 use NameBindings;
-use ParentLink::{mod, ModuleParentLink, BlockParentLink};
+use ParentLink::{self, ModuleParentLink, BlockParentLink};
 use Resolver;
 use RibKind::*;
 use Shadowable;
@@ -55,18 +55,19 @@ use syntax::ast::{ViewItemUse, ViewPathGlob, ViewPathList, ViewPathSimple};
 use syntax::ast::{Visibility};
 use syntax::ast::TyPath;
 use syntax::ast;
-use syntax::ast_util::{mod, PostExpansionMethod, local_def};
+use syntax::ast_util::{self, PostExpansionMethod, local_def};
 use syntax::attr::AttrMetaMethods;
-use syntax::parse::token::{mod, special_idents};
+use syntax::parse::token::{self, special_idents};
 use syntax::codemap::{Span, DUMMY_SP};
-use syntax::visit::{mod, Visitor};
+use syntax::visit::{self, Visitor};
 
-use std::rc::Rc;
 use std::mem::replace;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
 // Specifies how duplicates should be handled when adding a child item if
 // another item exists with the same name in some namespace.
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 enum DuplicateCheckingMode {
     ForbidDuplicateModules,
     ForbidDuplicateTypesAndModules,
@@ -75,7 +76,7 @@ enum DuplicateCheckingMode {
     OverwriteDuplicates
 }
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 enum NamespaceError {
     NoError,
     ModuleError,
@@ -95,13 +96,15 @@ struct GraphBuilder<'a, 'b:'a, 'tcx:'b> {
     resolver: &'a mut Resolver<'b, 'tcx>
 }
 
-impl<'a, 'b:'a, 'tcx:'b> Deref<Resolver<'b, 'tcx>> for GraphBuilder<'a, 'b, 'tcx> {
+impl<'a, 'b:'a, 'tcx:'b> Deref for GraphBuilder<'a, 'b, 'tcx> {
+    type Target = Resolver<'b, 'tcx>;
+
     fn deref(&self) -> &Resolver<'b, 'tcx> {
         &*self.resolver
     }
 }
 
-impl<'a, 'b:'a, 'tcx:'b> DerefMut<Resolver<'b, 'tcx>> for GraphBuilder<'a, 'b, 'tcx> {
+impl<'a, 'b:'a, 'tcx:'b> DerefMut for GraphBuilder<'a, 'b, 'tcx> {
     fn deref_mut(&mut self) -> &mut Resolver<'b, 'tcx> {
         &mut *self.resolver
     }
@@ -681,9 +684,10 @@ impl<'a, 'b:'a, 'tcx:'b> GraphBuilder<'a, 'b, 'tcx> {
                     ViewPathSimple(binding, ref full_path, id) => {
                         let source_name =
                             full_path.segments.last().unwrap().identifier.name;
-                        if token::get_name(source_name).get() == "mod" {
+                        if token::get_name(source_name).get() == "mod" ||
+                           token::get_name(source_name).get() == "self" {
                             self.resolve_error(view_path.span,
-                                "`mod` imports are only allowed within a { } list");
+                                "`self` imports are only allowed within a { } list");
                         }
 
                         let subclass = SingleImport(binding.name,
@@ -704,10 +708,10 @@ impl<'a, 'b:'a, 'tcx:'b> GraphBuilder<'a, 'b, 'tcx> {
                         }).collect::<Vec<Span>>();
                         if mod_spans.len() > 1 {
                             self.resolve_error(mod_spans[0],
-                                "`mod` import can only appear once in the list");
+                                "`self` import can only appear once in the list");
                             for other_span in mod_spans.iter().skip(1) {
                                 self.session.span_note(*other_span,
-                                    "another `mod` import appears here");
+                                    "another `self` import appears here");
                             }
                         }
 
@@ -720,7 +724,7 @@ impl<'a, 'b:'a, 'tcx:'b> GraphBuilder<'a, 'b, 'tcx> {
                                         Some(name) => *name,
                                         None => {
                                             self.resolve_error(source_item.span,
-                                                "`mod` import can only appear in an import list \
+                                                "`self` import can only appear in an import list \
                                                  with a non-empty prefix");
                                             continue;
                                         }

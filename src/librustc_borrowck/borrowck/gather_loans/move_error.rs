@@ -33,7 +33,7 @@ impl<'tcx> MoveErrorCollector<'tcx> {
     }
 
     pub fn report_potential_errors<'a>(&self, bccx: &BorrowckCtxt<'a, 'tcx>) {
-        report_move_errors(bccx, self.errors.borrow().deref())
+        report_move_errors(bccx, &*self.errors.borrow())
     }
 }
 
@@ -53,7 +53,7 @@ impl<'tcx> MoveError<'tcx> {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct MoveSpanAndPath {
     pub span: codemap::Span,
     pub ident: ast::Ident

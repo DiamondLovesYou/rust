@@ -10,7 +10,7 @@
 
 use middle::subst::{Substs, VecPerParamSpace};
 use middle::infer::InferCtxt;
-use middle::ty::{mod, Ty, AsPredicate, ToPolyTraitRef};
+use middle::ty::{self, Ty, AsPredicate, ToPolyTraitRef};
 use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
@@ -133,7 +133,9 @@ impl<'cx, 'tcx> Elaborator<'cx, 'tcx> {
     }
 }
 
-impl<'cx, 'tcx> Iterator<ty::Predicate<'tcx>> for Elaborator<'cx, 'tcx> {
+impl<'cx, 'tcx> Iterator for Elaborator<'cx, 'tcx> {
+    type Item = ty::Predicate<'tcx>;
+
     fn next(&mut self) -> Option<ty::Predicate<'tcx>> {
         loop {
             // Extract next item from top-most stack frame, if any.
@@ -197,7 +199,9 @@ pub fn transitive_bounds<'cx, 'tcx>(tcx: &'cx ty::ctxt<'tcx>,
     elaborate_trait_refs(tcx, bounds).filter_to_traits()
 }
 
-impl<'cx, 'tcx> Iterator<ty::PolyTraitRef<'tcx>> for Supertraits<'cx, 'tcx> {
+impl<'cx, 'tcx> Iterator for Supertraits<'cx, 'tcx> {
+    type Item = ty::PolyTraitRef<'tcx>;
+
     fn next(&mut self) -> Option<ty::PolyTraitRef<'tcx>> {
         loop {
             match self.elaborator.next() {
@@ -235,6 +239,12 @@ pub fn fresh_substs_for_impl<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
 impl<'tcx, N> fmt::Show for VtableImplData<'tcx, N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "VtableImpl({})", self.impl_def_id)
+    }
+}
+
+impl<'tcx> fmt::Show for super::VtableObjectData<'tcx> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "VtableObject(...)")
     }
 }
 
@@ -291,6 +301,58 @@ pub fn predicate_for_builtin_bound<'tcx>(
     })
 }
 
+/// Cast a trait reference into a reference to one of its super
+/// traits; returns `None` if `target_trait_def_id` is not a
+/// supertrait.
+pub fn upcast<'tcx>(tcx: &ty::ctxt<'tcx>,
+                    source_trait_ref: ty::PolyTraitRef<'tcx>,
+                    target_trait_def_id: ast::DefId)
+                    -> Option<ty::PolyTraitRef<'tcx>>
+{
+    if source_trait_ref.def_id() == target_trait_def_id {
+        return Some(source_trait_ref); // shorcut the most common case
+    }
+
+    for super_trait_ref in supertraits(tcx, source_trait_ref) {
+        if super_trait_ref.def_id() == target_trait_def_id {
+            return Some(super_trait_ref);
+        }
+    }
+
+    None
+}
+
+/// Given an object of type `object_trait_ref`, returns the index of
+/// the method `n_method` found in the trait `trait_def_id` (which
+/// should be a supertrait of `object_trait_ref`) within the vtable
+/// for `object_trait_ref`.
+pub fn get_vtable_index_of_object_method<'tcx>(tcx: &ty::ctxt<'tcx>,
+                                               object_trait_ref: ty::PolyTraitRef<'tcx>,
+                                               trait_def_id: ast::DefId,
+                                               method_index_in_trait: uint) -> uint {
+    // We need to figure the "real index" of the method in a
+    // listing of all the methods of an object. We do this by
+    // iterating down the supertraits of the object's trait until
+    // we find the trait the method came from, counting up the
+    // methods from them.
+    let mut method_count = 0;
+    ty::each_bound_trait_and_supertraits(tcx, &[object_trait_ref], |bound_ref| {
+        if bound_ref.def_id() == trait_def_id {
+            false
+        } else {
+            let trait_items = ty::trait_items(tcx, bound_ref.def_id());
+            for trait_item in trait_items.iter() {
+                match *trait_item {
+                    ty::MethodTraitItem(_) => method_count += 1,
+                    ty::TypeTraitItem(_) => {}
+                }
+            }
+            true
+        }
+    });
+    method_count + method_index_in_trait
+}
+
 impl<'tcx,O:Repr<'tcx>> Repr<'tcx> for super::Obligation<'tcx, O> {
     fn repr(&self, tcx: &ty::ctxt<'tcx>) -> String {
         format!("Obligation(predicate={},depth={})",
@@ -312,6 +374,10 @@ impl<'tcx, N:Repr<'tcx>> Repr<'tcx> for super::Vtable<'tcx, N> {
 
             super::VtableFnPointer(ref d) =>
                 format!("VtableFnPointer({})",
+                        d.repr(tcx)),
+
+            super::VtableObject(ref d) =>
+                format!("VtableObject({})",
                         d.repr(tcx)),
 
             super::VtableParam =>
@@ -336,6 +402,13 @@ impl<'tcx, N:Repr<'tcx>> Repr<'tcx> for super::VtableBuiltinData<N> {
     fn repr(&self, tcx: &ty::ctxt<'tcx>) -> String {
         format!("VtableBuiltin(nested={})",
                 self.nested.repr(tcx))
+    }
+}
+
+impl<'tcx> Repr<'tcx> for super::VtableObjectData<'tcx> {
+    fn repr(&self, tcx: &ty::ctxt<'tcx>) -> String {
+        format!("VtableObject(object_ty={})",
+                self.object_ty.repr(tcx))
     }
 }
 

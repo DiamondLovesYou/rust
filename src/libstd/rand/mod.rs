@@ -245,7 +245,7 @@ pub mod reader;
 
 /// The standard RNG. This is designed to be efficient on the current
 /// platform.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct StdRng {
     rng: IsaacWordRng,
 }
@@ -404,7 +404,7 @@ pub fn random<T: Rand>() -> T {
 /// let sample = sample(&mut rng, range(1i, 100), 5);
 /// println!("{}", sample);
 /// ```
-pub fn sample<T, I: Iterator<T>, R: Rng>(rng: &mut R,
+pub fn sample<T, I: Iterator<Item=T>, R: Rng>(rng: &mut R,
                                          mut iter: I,
                                          amount: uint) -> Vec<T> {
     let mut reservoir: Vec<T> = iter.by_ref().take(amount).collect();
@@ -419,7 +419,7 @@ pub fn sample<T, I: Iterator<T>, R: Rng>(rng: &mut R,
 
 #[cfg(test)]
 mod test {
-    use prelude::*;
+    use prelude::v1::*;
     use super::{Rng, thread_rng, random, SeedableRng, StdRng, sample};
     use iter::order;
 
@@ -615,7 +615,7 @@ static RAND_BENCH_N: u64 = 100;
 #[cfg(test)]
 mod bench {
     extern crate test;
-    use prelude::*;
+    use prelude::v1::*;
 
     use self::test::Bencher;
     use super::{XorShiftRng, StdRng, IsaacRng, Isaac64Rng, Rng, RAND_BENCH_N};
@@ -669,7 +669,7 @@ mod bench {
     #[bench]
     fn rand_shuffle_100(b: &mut Bencher) {
         let mut rng = weak_rng();
-        let x : &mut[uint] = &mut [1,..100];
+        let x : &mut[uint] = &mut [1; 100];
         b.iter(|| {
             rng.shuffle(x);
         })

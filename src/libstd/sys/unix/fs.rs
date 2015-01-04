@@ -10,16 +10,15 @@
 
 //! Blocking posix-based file I/O
 
-use libc::{mod, c_int, c_void};
-use c_str::CString;
-use mem;
-use io;
+use prelude::v1::*;
 
-use prelude::*;
-
+use c_str::{CString, ToCStr};
 use io::{FilePermission, Write, UnstableFileStat, Open, FileAccess, FileMode};
 use io::{IoResult, FileStat, SeekStyle};
 use io::{Read, Truncate, SeekCur, SeekSet, ReadWrite, SeekEnd, Append};
+use io;
+use libc::{self, c_int, c_void};
+use mem;
 use sys::retry;
 use sys_common::{keep_going, eof, mkerr_libc};
 
@@ -373,7 +372,7 @@ mod tests {
     use super::FileDesc;
     use libc;
     use os;
-    use prelude::*;
+    use prelude::v1::*;
 
     #[cfg_attr(target_os = "freebsd", ignore)] // hmm, maybe pipes have a tiny buffer
     #[test]
@@ -385,7 +384,7 @@ mod tests {
         let mut writer = FileDesc::new(writer, true);
 
         writer.write(b"test").ok().unwrap();
-        let mut buf = [0u8, ..4];
+        let mut buf = [0u8; 4];
         match reader.read(&mut buf) {
             Ok(4) => {
                 assert_eq!(buf[0], 't' as u8);

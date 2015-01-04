@@ -124,7 +124,7 @@ struct GapThenFull<K, V, M> {
 
 /// A hash that is not zero, since we use a hash of zero to represent empty
 /// buckets.
-#[deriving(PartialEq, Copy)]
+#[derive(PartialEq, Copy)]
 pub struct SafeHash {
     hash: u64,
 }
@@ -210,7 +210,7 @@ impl<K, V, M> Bucket<K, V, M> {
     }
 }
 
-impl<K, V, M: Deref<RawTable<K, V>>> Bucket<K, V, M> {
+impl<K, V, M: Deref<Target=RawTable<K, V>>> Bucket<K, V, M> {
     pub fn new(table: M, hash: SafeHash) -> Bucket<K, V, M> {
         Bucket::at_index(table, hash.inspect() as uint)
     }
@@ -279,7 +279,7 @@ impl<K, V, M: Deref<RawTable<K, V>>> Bucket<K, V, M> {
     }
 }
 
-impl<K, V, M: Deref<RawTable<K, V>>> EmptyBucket<K, V, M> {
+impl<K, V, M: Deref<Target=RawTable<K, V>>> EmptyBucket<K, V, M> {
     #[inline]
     pub fn next(self) -> Bucket<K, V, M> {
         let mut bucket = self.into_bucket();
@@ -315,7 +315,7 @@ impl<K, V, M: Deref<RawTable<K, V>>> EmptyBucket<K, V, M> {
     }
 }
 
-impl<K, V, M: DerefMut<RawTable<K, V>>> EmptyBucket<K, V, M> {
+impl<K, V, M: Deref<Target=RawTable<K, V>> + DerefMut> EmptyBucket<K, V, M> {
     /// Puts given key and value pair, along with the key's hash,
     /// into this bucket in the hashtable. Note how `self` is 'moved' into
     /// this function, because this slot will no longer be empty when
@@ -337,7 +337,7 @@ impl<K, V, M: DerefMut<RawTable<K, V>>> EmptyBucket<K, V, M> {
     }
 }
 
-impl<K, V, M: Deref<RawTable<K, V>>> FullBucket<K, V, M> {
+impl<K, V, M: Deref<Target=RawTable<K, V>>> FullBucket<K, V, M> {
     #[inline]
     pub fn next(self) -> Bucket<K, V, M> {
         let mut bucket = self.into_bucket();
@@ -384,7 +384,7 @@ impl<K, V, M: Deref<RawTable<K, V>>> FullBucket<K, V, M> {
     }
 }
 
-impl<K, V, M: DerefMut<RawTable<K, V>>> FullBucket<K, V, M> {
+impl<K, V, M: Deref<Target=RawTable<K, V>> + DerefMut> FullBucket<K, V, M> {
     /// Removes this bucket's key and value from the hashtable.
     ///
     /// This works similarly to `put`, building an `EmptyBucket` out of the
@@ -428,7 +428,7 @@ impl<K, V, M: DerefMut<RawTable<K, V>>> FullBucket<K, V, M> {
     }
 }
 
-impl<'t, K, V, M: Deref<RawTable<K, V>> + 't> FullBucket<K, V, M> {
+impl<'t, K, V, M: Deref<Target=RawTable<K, V>> + 't> FullBucket<K, V, M> {
     /// Exchange a bucket state for immutable references into the table.
     /// Because the underlying reference to the table is also consumed,
     /// no further changes to the structure of the table are possible;
@@ -442,7 +442,7 @@ impl<'t, K, V, M: Deref<RawTable<K, V>> + 't> FullBucket<K, V, M> {
     }
 }
 
-impl<'t, K, V, M: DerefMut<RawTable<K, V>> + 't> FullBucket<K, V, M> {
+impl<'t, K, V, M: Deref<Target=RawTable<K, V>> + DerefMut + 't> FullBucket<K, V, M> {
     /// This works similarly to `into_refs`, exchanging a bucket state
     /// for mutable references into the table.
     pub fn into_mut_refs(self) -> (&'t mut K, &'t mut V) {
@@ -463,7 +463,7 @@ impl<K, V, M> BucketState<K, V, M> {
     }
 }
 
-impl<K, V, M: Deref<RawTable<K, V>>> GapThenFull<K, V, M> {
+impl<K, V, M: Deref<Target=RawTable<K, V>>> GapThenFull<K, V, M> {
     #[inline]
     pub fn full(&self) -> &FullBucket<K, V, M> {
         &self.full
@@ -718,7 +718,7 @@ struct RawBuckets<'a, K, V> {
     marker: marker::ContravariantLifetime<'a>,
 }
 
-// FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+// FIXME(#19839) Remove in favor of `#[derive(Clone)]`
 impl<'a, K, V> Clone for RawBuckets<'a, K, V> {
     fn clone(&self) -> RawBuckets<'a, K, V> {
         RawBuckets {
@@ -730,7 +730,9 @@ impl<'a, K, V> Clone for RawBuckets<'a, K, V> {
 }
 
 
-impl<'a, K, V> Iterator<RawBucket<K, V>> for RawBuckets<'a, K, V> {
+impl<'a, K, V> Iterator for RawBuckets<'a, K, V> {
+    type Item = RawBucket<K, V>;
+
     fn next(&mut self) -> Option<RawBucket<K, V>> {
         while self.raw.hash != self.hashes_end {
             unsafe {
@@ -757,7 +759,9 @@ struct RevMoveBuckets<'a, K, V> {
     marker: marker::ContravariantLifetime<'a>,
 }
 
-impl<'a, K, V> Iterator<(K, V)> for RevMoveBuckets<'a, K, V> {
+impl<'a, K, V> Iterator for RevMoveBuckets<'a, K, V> {
+    type Item = (K, V);
+
     fn next(&mut self) -> Option<(K, V)> {
         if self.elems_left == 0 {
             return None;
@@ -787,7 +791,7 @@ pub struct Iter<'a, K: 'a, V: 'a> {
     elems_left: uint,
 }
 
-// FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+// FIXME(#19839) Remove in favor of `#[derive(Clone)]`
 impl<'a, K, V> Clone for Iter<'a, K, V> {
     fn clone(&self) -> Iter<'a, K, V> {
         Iter {
@@ -816,7 +820,9 @@ pub struct Drain<'a, K: 'a, V: 'a> {
     iter: RawBuckets<'static, K, V>,
 }
 
-impl<'a, K, V> Iterator<(&'a K, &'a V)> for Iter<'a, K, V> {
+impl<'a, K, V> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
     fn next(&mut self) -> Option<(&'a K, &'a V)> {
         self.iter.next().map(|bucket| {
             self.elems_left -= 1;
@@ -832,7 +838,9 @@ impl<'a, K, V> Iterator<(&'a K, &'a V)> for Iter<'a, K, V> {
     }
 }
 
-impl<'a, K, V> Iterator<(&'a K, &'a mut V)> for IterMut<'a, K, V> {
+impl<'a, K, V> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
     fn next(&mut self) -> Option<(&'a K, &'a mut V)> {
         self.iter.next().map(|bucket| {
             self.elems_left -= 1;
@@ -848,7 +856,9 @@ impl<'a, K, V> Iterator<(&'a K, &'a mut V)> for IterMut<'a, K, V> {
     }
 }
 
-impl<K, V> Iterator<(SafeHash, K, V)> for IntoIter<K, V> {
+impl<K, V> Iterator for IntoIter<K, V> {
+    type Item = (SafeHash, K, V);
+
     fn next(&mut self) -> Option<(SafeHash, K, V)> {
         self.iter.next().map(|bucket| {
             self.table.size -= 1;
@@ -870,7 +880,9 @@ impl<K, V> Iterator<(SafeHash, K, V)> for IntoIter<K, V> {
     }
 }
 
-impl<'a, K: 'a, V: 'a> Iterator<(SafeHash, K, V)> for Drain<'a, K, V> {
+impl<'a, K: 'a, V: 'a> Iterator for Drain<'a, K, V> {
+    type Item = (SafeHash, K, V);
+
     #[inline]
     fn next(&mut self) -> Option<(SafeHash, K, V)> {
         self.iter.next().map(|bucket| {

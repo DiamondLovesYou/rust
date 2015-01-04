@@ -57,7 +57,7 @@
 //!
 //! Currently Rust uses unwind runtime provided by libgcc.
 
-use prelude::*;
+use prelude::v1::*;
 
 use any::Any;
 use cell::Cell;
@@ -83,16 +83,16 @@ pub type Callback = fn(msg: &(Any + Send), file: &'static str, line: uint);
 //
 // For more information, see below.
 const MAX_CALLBACKS: uint = 16;
-static CALLBACKS: [atomic::AtomicUint, ..MAX_CALLBACKS] =
-        [atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT,
-         atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT,
-         atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT,
-         atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT,
-         atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT,
-         atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT,
-         atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT,
-         atomic::INIT_ATOMIC_UINT, atomic::INIT_ATOMIC_UINT];
-static CALLBACK_CNT: atomic::AtomicUint = atomic::INIT_ATOMIC_UINT;
+static CALLBACKS: [atomic::AtomicUint; MAX_CALLBACKS] =
+        [atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
+         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
+         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
+         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
+         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
+         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
+         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
+         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT];
+static CALLBACK_CNT: atomic::AtomicUint = atomic::ATOMIC_UINT_INIT;
 
 thread_local! { static PANICKING: Cell<bool> = Cell::new(false) }
 
@@ -176,7 +176,7 @@ fn rust_panic(cause: Box<Any + Send>) -> ! {
             uwe: uw::_Unwind_Exception {
                 exception_class: rust_exception_class(),
                 exception_cleanup: exception_cleanup,
-                private: [0, ..uw::unwinder_private_data_size],
+                private: [0; uw::unwinder_private_data_size],
             },
             cause: Some(cause),
         };
@@ -418,7 +418,7 @@ pub mod eabi {
     pub struct DISPATCHER_CONTEXT;
 
     #[repr(C)]
-    #[deriving(Copy)]
+    #[derive(Copy)]
     pub enum EXCEPTION_DISPOSITION {
         ExceptionContinueExecution,
         ExceptionContinueSearch,
@@ -515,27 +515,16 @@ pub extern fn rust_begin_unwind(msg: fmt::Arguments,
 /// the actual formatting into this shared place.
 #[inline(never)] #[cold]
 pub fn begin_unwind_fmt(msg: fmt::Arguments, file_line: &(&'static str, uint)) -> ! {
-    use fmt::FormatWriter;
+    use fmt::Writer;
 
     // We do two allocations here, unfortunately. But (a) they're
     // required with the current scheme, and (b) we don't handle
     // panic + OOM properly anyway (see comment in begin_unwind
     // below).
 
-    struct VecWriter<'a> { v: &'a mut Vec<u8> }
-
-    impl<'a> fmt::FormatWriter for VecWriter<'a> {
-        fn write(&mut self, buf: &[u8]) -> fmt::Result {
-            self.v.push_all(buf);
-            Ok(())
-        }
-    }
-
-    let mut v = Vec::new();
-    let _ = write!(&mut VecWriter { v: &mut v }, "{}", msg);
-
-    let msg = box String::from_utf8_lossy(v.as_slice()).into_owned();
-    begin_unwind_inner(msg, file_line)
+    let mut s = String::new();
+    let _ = write!(&mut s, "{}", msg);
+    begin_unwind_inner(box s, file_line)
 }
 
 /// This is the entry point of unwinding for panic!() and assert!().
@@ -566,7 +555,7 @@ fn begin_unwind_inner(msg: Box<Any + Send>, file_line: &(&'static str, uint)) ->
     // Make sure the default failure handler is registered before we look at the
     // callbacks.
     static INIT: Once = ONCE_INIT;
-    INIT.doit(|| unsafe { register(failure::on_fail); });
+    INIT.call_once(|| unsafe { register(failure::on_fail); });
 
     // First, invoke call the user-defined callbacks triggered on thread panic.
     //

@@ -30,20 +30,20 @@
 use session::Session;
 
 use middle::def;
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty};
 
 use std::cell::Cell;
-use std::io::{mod, File, fs};
+use std::io::{self, File, fs};
 use std::os;
 
-use syntax::ast_util::{mod, PostExpansionMethod};
-use syntax::ast::{mod, NodeId, DefId};
+use syntax::ast_util::{self, PostExpansionMethod};
+use syntax::ast::{self, NodeId, DefId};
 use syntax::ast_map::NodeItem;
 use syntax::attr;
 use syntax::codemap::*;
-use syntax::parse::token::{mod, get_ident, keywords};
+use syntax::parse::token::{self, get_ident, keywords};
 use syntax::owned_slice::OwnedSlice;
-use syntax::visit::{mod, Visitor};
+use syntax::visit::{self, Visitor};
 use syntax::print::pprust::{path_to_string,ty_to_string};
 use syntax::ptr::P;
 
@@ -1202,8 +1202,7 @@ impl<'l, 'tcx, 'v> Visitor<'v> for DxrVisitor<'l, 'tcx> {
                         let glob_map = &self.analysis.glob_map;
                         let glob_map = glob_map.as_ref().unwrap();
                         if glob_map.contains_key(&id) {
-                            let names = glob_map.index(&id);
-                            for n in names.iter() {
+                            for n in glob_map[id].iter() {
                                 if name_string.len() > 0 {
                                     name_string.push_str(", ");
                                 }
@@ -1496,7 +1495,7 @@ impl<'l, 'tcx, 'v> Visitor<'v> for DxrVisitor<'l, 'tcx> {
         self.collected_paths.clear();
 
         // Just walk the initialiser and type (don't want to walk the pattern again).
-        self.visit_ty(&*l.ty);
+        visit::walk_ty_opt(self, &l.ty);
         visit::walk_expr_opt(self, &l.init);
     }
 }

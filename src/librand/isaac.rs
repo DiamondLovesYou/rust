@@ -29,11 +29,11 @@ const RAND_SIZE_UINT: uint = 1 << (RAND_SIZE_LEN as uint);
 ///
 /// [1]: Bob Jenkins, [*ISAAC: A fast cryptographic random number
 /// generator*](http://www.burtleburtle.net/bob/rand/isaacafa.html)
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct IsaacRng {
     cnt: u32,
-    rsl: [u32, ..RAND_SIZE_UINT],
-    mem: [u32, ..RAND_SIZE_UINT],
+    rsl: [u32; RAND_SIZE_UINT],
+    mem: [u32; RAND_SIZE_UINT],
     a: u32,
     b: u32,
     c: u32
@@ -41,8 +41,8 @@ pub struct IsaacRng {
 
 static EMPTY: IsaacRng = IsaacRng {
     cnt: 0,
-    rsl: [0, ..RAND_SIZE_UINT],
-    mem: [0, ..RAND_SIZE_UINT],
+    rsl: [0; RAND_SIZE_UINT],
+    mem: [0; RAND_SIZE_UINT],
     a: 0, b: 0, c: 0
 };
 
@@ -264,11 +264,11 @@ const RAND_SIZE_64: uint = 1 << RAND_SIZE_64_LEN;
 ///
 /// [1]: Bob Jenkins, [*ISAAC: A fast cryptographic random number
 /// generator*](http://www.burtleburtle.net/bob/rand/isaacafa.html)
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Isaac64Rng {
     cnt: uint,
-    rsl: [u64, .. RAND_SIZE_64],
-    mem: [u64, .. RAND_SIZE_64],
+    rsl: [u64; RAND_SIZE_64],
+    mem: [u64; RAND_SIZE_64],
     a: u64,
     b: u64,
     c: u64,
@@ -276,8 +276,8 @@ pub struct Isaac64Rng {
 
 static EMPTY_64: Isaac64Rng = Isaac64Rng {
     cnt: 0,
-    rsl: [0, .. RAND_SIZE_64],
-    mem: [0, .. RAND_SIZE_64],
+    rsl: [0; RAND_SIZE_64],
+    mem: [0; RAND_SIZE_64],
     a: 0, b: 0, c: 0,
 };
 
@@ -358,7 +358,7 @@ impl Isaac64Rng {
         let mut a = self.a;
         let mut b = self.b + self.c;
         const MIDPOINT: uint =  RAND_SIZE_64 / 2;
-        const MP_VEC: [(uint, uint), .. 2] = [(0,MIDPOINT), (MIDPOINT, 0)];
+        const MP_VEC: [(uint, uint); 2] = [(0,MIDPOINT), (MIDPOINT, 0)];
         macro_rules! ind (
             ($x:expr) => {
                 *self.mem.get_unchecked(($x as uint >> 3) & (RAND_SIZE_64 - 1))
@@ -487,7 +487,7 @@ impl Rand for Isaac64Rng {
 
 #[cfg(test)]
 mod test {
-    use std::prelude::*;
+    use std::prelude::v1::*;
 
     use core::iter::order;
     use {Rng, SeedableRng};

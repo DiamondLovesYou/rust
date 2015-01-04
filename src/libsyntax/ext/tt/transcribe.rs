@@ -24,7 +24,7 @@ use std::ops::Add;
 use std::collections::HashMap;
 
 ///an unzipping of `TokenTree`s
-#[deriving(Clone)]
+#[derive(Clone)]
 struct TtFrame {
     forest: TokenTree,
     idx: uint,
@@ -32,7 +32,7 @@ struct TtFrame {
     sep: Option<Token>,
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct TtReader<'a> {
     pub sp_diag: &'a SpanHandler,
     /// the unzipped tree:
@@ -99,14 +99,16 @@ fn lookup_cur_matched(r: &TtReader, name: Ident) -> Option<Rc<NamedMatch>> {
     matched_opt.map(|s| lookup_cur_matched_by_matched(r, s))
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 enum LockstepIterSize {
     LisUnconstrained,
     LisConstraint(uint, Ident),
     LisContradiction(String),
 }
 
-impl Add<LockstepIterSize, LockstepIterSize> for LockstepIterSize {
+impl Add for LockstepIterSize {
+    type Output = LockstepIterSize;
+
     fn add(self, other: LockstepIterSize) -> LockstepIterSize {
         match self {
             LisUnconstrained => other,

@@ -93,7 +93,7 @@ use middle::def;
 use middle::infer;
 use middle::subst;
 use middle::subst::VecPerParamSpace;
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty};
 use session::config;
 use util::common::time;
 use util::ppaux::Repr;
@@ -103,9 +103,6 @@ use syntax::codemap::Span;
 use syntax::print::pprust::*;
 use syntax::{ast, ast_map, abi};
 use syntax::ast_util::local_def;
-
-#[cfg(stage0)]
-mod diagnostics;
 
 mod check;
 mod rscope;

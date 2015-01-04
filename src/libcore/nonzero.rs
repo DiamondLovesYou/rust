@@ -31,7 +31,7 @@ unsafe impl Zeroable for u64 {}
 /// A wrapper type for raw pointers and integers that will never be
 /// NULL or 0 that might allow certain optimizations.
 #[lang="non_zero"]
-#[deriving(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Show)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Show)]
 #[experimental]
 pub struct NonZero<T: Zeroable>(T);
 
@@ -44,7 +44,9 @@ impl<T: Zeroable> NonZero<T> {
     }
 }
 
-impl<T: Zeroable> Deref<T> for NonZero<T> {
+impl<T: Zeroable> Deref for NonZero<T> {
+    type Target = T;
+
     #[inline]
     fn deref<'a>(&'a self) -> &'a T {
         let NonZero(ref inner) = *self;

@@ -24,18 +24,17 @@ use middle::pat_util::*;
 use middle::ty::*;
 use middle::ty;
 use std::fmt;
-use std::iter::AdditiveIterator;
-use std::iter::{range_inclusive, repeat};
+use std::iter::{range_inclusive, AdditiveIterator, FromIterator, repeat};
 use std::num::Float;
 use std::slice;
-use syntax::ast::{mod, DUMMY_NODE_ID, NodeId, Pat};
+use syntax::ast::{self, DUMMY_NODE_ID, NodeId, Pat};
 use syntax::ast_util::walk_pat;
 use syntax::codemap::{Span, Spanned, DUMMY_SP};
 use syntax::fold::{Folder, noop_fold_pat};
 use syntax::print::pprust::pat_to_string;
 use syntax::parse::token;
 use syntax::ptr::P;
-use syntax::visit::{mod, Visitor, FnKind};
+use syntax::visit::{self, Visitor, FnKind};
 use util::ppaux::ty_to_string;
 
 pub const DUMMY_WILD_PAT: &'static Pat = &Pat {
@@ -93,17 +92,17 @@ impl<'a> fmt::Show for Matrix<'a> {
 }
 
 impl<'a> FromIterator<Vec<&'a Pat>> for Matrix<'a> {
-    fn from_iter<T: Iterator<Vec<&'a Pat>>>(iterator: T) -> Matrix<'a> {
+    fn from_iter<T: Iterator<Item=Vec<&'a Pat>>>(iterator: T) -> Matrix<'a> {
         Matrix(iterator.collect())
     }
 }
 
 pub struct MatchCheckCtxt<'a, 'tcx: 'a> {
     pub tcx: &'a ty::ctxt<'tcx>,
-    pub param_env: ParameterEnvironment<'tcx>,
+    pub param_env: ParameterEnvironment<'a, 'tcx>,
 }
 
-#[deriving(Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Constructor {
     /// The constructor of all patterns that don't vary by constructor,
     /// e.g. struct patterns and fixed-length arrays.
@@ -120,14 +119,14 @@ pub enum Constructor {
     SliceWithSubslice(uint, uint)
 }
 
-#[deriving(Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Usefulness {
     Useful,
     UsefulWithWitness(Vec<P<Pat>>),
     NotUseful
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 enum WitnessPreference {
     ConstructWitness,
     LeaveOutWitness
@@ -149,7 +148,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for MatchCheckCtxt<'a, 'tcx> {
 pub fn check_crate(tcx: &ty::ctxt) {
     visit::walk_crate(&mut MatchCheckCtxt {
         tcx: tcx,
-        param_env: ty::empty_parameter_environment(),
+        param_env: ty::empty_parameter_environment(tcx),
     }, tcx.map.krate());
     tcx.sess.abort_if_errors();
 }
@@ -1033,9 +1032,7 @@ fn check_legality_of_move_bindings(cx: &MatchCheckCtxt,
                 match p.node {
                     ast::PatIdent(ast::BindByValue(_), _, ref sub) => {
                         let pat_ty = ty::node_id_to_type(tcx, p.id);
-                        if ty::type_moves_by_default(tcx,
-                                                      pat_ty,
-                                                      &cx.param_env) {
+                        if ty::type_moves_by_default(&cx.param_env, pat.span, pat_ty) {
                             check_move(p, sub.as_ref().map(|p| &**p));
                         }
                     }
@@ -1064,8 +1061,7 @@ fn check_for_mutation_in_guard<'a, 'tcx>(cx: &'a MatchCheckCtxt<'a, 'tcx>,
         cx: cx,
     };
     let mut visitor = ExprUseVisitor::new(&mut checker,
-                                          checker.cx.tcx,
-                                          &cx.param_env);
+                                          &checker.cx.param_env);
     visitor.walk_expr(guard);
 }
 

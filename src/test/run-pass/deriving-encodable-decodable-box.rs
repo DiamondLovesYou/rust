@@ -8,12 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(old_orphan_check)]
+
 extern crate serialize;
 
 use serialize::{Encodable, Decodable};
 use serialize::json;
 
-#[deriving(Encodable, Decodable)]
+#[derive(Encodable, Decodable)]
 struct A {
     foo: Box<[bool]>,
 }

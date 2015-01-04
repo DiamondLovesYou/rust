@@ -22,7 +22,6 @@ use result::Result::{Ok, Err};
 use slice::{SliceExt};
 use slice;
 use vec::Vec;
-use kinds::{Send,Sync};
 
 /// Wraps a Reader and buffers input from it
 ///
@@ -39,7 +38,7 @@ use kinds::{Send,Sync};
 /// let file = File::open(&Path::new("message.txt"));
 /// let mut reader = BufferedReader::new(file);
 ///
-/// let mut buf = [0, ..100];
+/// let mut buf = [0; 100];
 /// match reader.read(&mut buf) {
 ///     Ok(nread) => println!("Read {} bytes", nread),
 ///     Err(e) => println!("error reading: {}", e)
@@ -51,11 +50,6 @@ pub struct BufferedReader<R> {
     pos: uint,
     cap: uint,
 }
-
-
-unsafe impl<R: Send> Send for BufferedReader<R> {}
-unsafe impl<R: Send+Sync> Sync for BufferedReader<R> {}
-
 
 impl<R: Reader> BufferedReader<R> {
     /// Creates a new `BufferedReader` with the specified buffer capacity
@@ -326,7 +320,7 @@ impl<W: Reader> Reader for InternalBufferedWriter<W> {
 /// stream.write("hello, world".as_bytes());
 /// stream.flush();
 ///
-/// let mut buf = [0, ..100];
+/// let mut buf = [0; 100];
 /// match stream.read(&mut buf) {
 ///     Ok(nread) => println!("Read {} bytes", nread),
 ///     Err(e) => println!("error reading: {}", e)
@@ -410,7 +404,7 @@ impl<S: Stream> Writer for BufferedStream<S> {
 mod test {
     extern crate test;
     use io;
-    use prelude::*;
+    use prelude::v1::*;
     use super::*;
     use super::super::{IoResult, EndOfFile};
     use super::super::mem::MemReader;
@@ -419,7 +413,7 @@ mod test {
     /// A type, free to create, primarily intended for benchmarking creation of
     /// wrappers that, just for construction, don't need a Reader/Writer that
     /// does anything useful. Is equivalent to `/dev/null` in semantics.
-    #[deriving(Clone,PartialEq,PartialOrd)]
+    #[derive(Clone,PartialEq,PartialOrd)]
     pub struct NullStream;
 
     impl Reader for NullStream {
@@ -534,7 +528,7 @@ mod test {
         w.write(&[0, 1]).unwrap();
         let a: &[_] = &[];
         assert_eq!(a, w.get_ref()[]);
-        let w = w.unwrap();
+        let w = w.into_inner();
         let a: &[_] = &[0, 1];
         assert_eq!(a, w[]);
     }

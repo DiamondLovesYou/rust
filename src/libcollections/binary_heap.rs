@@ -26,10 +26,11 @@
 //! [dir_graph]: http://en.wikipedia.org/wiki/Directed_graph
 //!
 //! ```
+//! use std::cmp::Ordering;
 //! use std::collections::BinaryHeap;
 //! use std::uint;
 //!
-//! #[deriving(Copy, Eq, PartialEq)]
+//! #[derive(Copy, Eq, PartialEq)]
 //! struct State {
 //!     cost: uint,
 //!     position: uint,
@@ -151,16 +152,18 @@
 use core::prelude::*;
 
 use core::default::Default;
+use core::iter::FromIterator;
 use core::mem::{zeroed, replace, swap};
 use core::ptr;
 
 use slice;
-use vec::{mod, Vec};
+use vec::{self, Vec};
 
 /// A priority queue implemented with a binary heap.
 ///
 /// This will be a max-heap.
-#[deriving(Clone)]
+#[derive(Clone)]
+#[stable]
 pub struct BinaryHeap<T> {
     data: Vec<T>,
 }
@@ -168,7 +171,6 @@ pub struct BinaryHeap<T> {
 #[stable]
 impl<T: Ord> Default for BinaryHeap<T> {
     #[inline]
-    #[stable]
     fn default() -> BinaryHeap<T> { BinaryHeap::new() }
 }
 
@@ -182,7 +184,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// let mut heap = BinaryHeap::new();
     /// heap.push(4u);
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn new() -> BinaryHeap<T> { BinaryHeap { data: vec![] } }
 
     /// Creates an empty `BinaryHeap` with a specific capacity.
@@ -197,7 +199,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// let mut heap = BinaryHeap::with_capacity(10);
     /// heap.push(4u);
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn with_capacity(capacity: uint) -> BinaryHeap<T> {
         BinaryHeap { data: Vec::with_capacity(capacity) }
     }
@@ -235,7 +237,7 @@ impl<T: Ord> BinaryHeap<T> {
     ///     println!("{}", x);
     /// }
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn iter(&self) -> Iter<T> {
         Iter { iter: self.data.iter() }
     }
@@ -256,7 +258,7 @@ impl<T: Ord> BinaryHeap<T> {
     ///     println!("{}", x);
     /// }
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn into_iter(self) -> IntoIter<T> {
         IntoIter { iter: self.data.into_iter() }
     }
@@ -291,7 +293,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// assert!(heap.capacity() >= 100);
     /// heap.push(4u);
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn capacity(&self) -> uint { self.data.capacity() }
 
     /// Reserves the minimum capacity for exactly `additional` more elements to be inserted in the
@@ -314,7 +316,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// assert!(heap.capacity() >= 100);
     /// heap.push(4u);
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn reserve_exact(&mut self, additional: uint) {
         self.data.reserve_exact(additional);
     }
@@ -335,13 +337,13 @@ impl<T: Ord> BinaryHeap<T> {
     /// assert!(heap.capacity() >= 100);
     /// heap.push(4u);
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn reserve(&mut self, additional: uint) {
         self.data.reserve(additional);
     }
 
     /// Discards as much additional capacity as possible.
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn shrink_to_fit(&mut self) {
         self.data.shrink_to_fit();
     }
@@ -359,7 +361,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// assert_eq!(heap.pop(), Some(1));
     /// assert_eq!(heap.pop(), None);
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn pop(&mut self) -> Option<T> {
         self.data.pop().map(|mut item| {
             if !self.is_empty() {
@@ -384,7 +386,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// assert_eq!(heap.len(), 3);
     /// assert_eq!(heap.peek(), Some(&5));
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn push(&mut self, item: T) {
         let old_len = self.len();
         self.data.push(item);
@@ -539,11 +541,11 @@ impl<T: Ord> BinaryHeap<T> {
     }
 
     /// Returns the length of the binary heap.
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn len(&self) -> uint { self.data.len() }
 
     /// Checks if the binary heap is empty.
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     /// Clears the binary heap, returning an iterator over the removed elements.
@@ -554,7 +556,7 @@ impl<T: Ord> BinaryHeap<T> {
     }
 
     /// Drops all items from the binary heap.
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn clear(&mut self) { self.drain(); }
 }
 
@@ -563,14 +565,17 @@ pub struct Iter <'a, T: 'a> {
     iter: slice::Iter<'a, T>,
 }
 
-// FIXME(#19839) Remove in favor of `#[deriving(Clone)]`
+// FIXME(#19839) Remove in favor of `#[derive(Clone)]`
 impl<'a, T> Clone for Iter<'a, T> {
     fn clone(&self) -> Iter<'a, T> {
         Iter { iter: self.iter.clone() }
     }
 }
 
-impl<'a, T> Iterator<&'a T> for Iter<'a, T> {
+#[stable]
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
     #[inline]
     fn next(&mut self) -> Option<&'a T> { self.iter.next() }
 
@@ -578,19 +583,24 @@ impl<'a, T> Iterator<&'a T> for Iter<'a, T> {
     fn size_hint(&self) -> (uint, Option<uint>) { self.iter.size_hint() }
 }
 
-impl<'a, T> DoubleEndedIterator<&'a T> for Iter<'a, T> {
+#[stable]
+impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a T> { self.iter.next_back() }
 }
 
-impl<'a, T> ExactSizeIterator<&'a T> for Iter<'a, T> {}
+#[stable]
+impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
 /// An iterator that moves out of a `BinaryHeap`.
 pub struct IntoIter<T> {
     iter: vec::IntoIter<T>,
 }
 
-impl<T> Iterator<T> for IntoIter<T> {
+#[stable]
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+
     #[inline]
     fn next(&mut self) -> Option<T> { self.iter.next() }
 
@@ -598,19 +608,24 @@ impl<T> Iterator<T> for IntoIter<T> {
     fn size_hint(&self) -> (uint, Option<uint>) { self.iter.size_hint() }
 }
 
-impl<T> DoubleEndedIterator<T> for IntoIter<T> {
+#[stable]
+impl<T> DoubleEndedIterator for IntoIter<T> {
     #[inline]
     fn next_back(&mut self) -> Option<T> { self.iter.next_back() }
 }
 
-impl<T> ExactSizeIterator<T> for IntoIter<T> {}
+#[stable]
+impl<T> ExactSizeIterator for IntoIter<T> {}
 
 /// An iterator that drains a `BinaryHeap`.
 pub struct Drain<'a, T: 'a> {
     iter: vec::Drain<'a, T>,
 }
 
-impl<'a, T: 'a> Iterator<T> for Drain<'a, T> {
+#[stable]
+impl<'a, T: 'a> Iterator for Drain<'a, T> {
+    type Item = T;
+
     #[inline]
     fn next(&mut self) -> Option<T> { self.iter.next() }
 
@@ -618,21 +633,25 @@ impl<'a, T: 'a> Iterator<T> for Drain<'a, T> {
     fn size_hint(&self) -> (uint, Option<uint>) { self.iter.size_hint() }
 }
 
-impl<'a, T: 'a> DoubleEndedIterator<T> for Drain<'a, T> {
+#[stable]
+impl<'a, T: 'a> DoubleEndedIterator for Drain<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<T> { self.iter.next_back() }
 }
 
-impl<'a, T: 'a> ExactSizeIterator<T> for Drain<'a, T> {}
+#[stable]
+impl<'a, T: 'a> ExactSizeIterator for Drain<'a, T> {}
 
+#[stable]
 impl<T: Ord> FromIterator<T> for BinaryHeap<T> {
-    fn from_iter<Iter: Iterator<T>>(iter: Iter) -> BinaryHeap<T> {
+    fn from_iter<Iter: Iterator<Item=T>>(iter: Iter) -> BinaryHeap<T> {
         BinaryHeap::from_vec(iter.collect())
     }
 }
 
+#[stable]
 impl<T: Ord> Extend<T> for BinaryHeap<T> {
-    fn extend<Iter: Iterator<T>>(&mut self, mut iter: Iter) {
+    fn extend<Iter: Iterator<Item=T>>(&mut self, mut iter: Iter) {
         let (lower, _) = iter.size_hint();
 
         self.reserve(lower);

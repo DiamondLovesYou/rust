@@ -10,7 +10,7 @@
 
 use std::slice;
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct SearchPaths {
     paths: Vec<(PathKind, Path)>,
 }
@@ -20,7 +20,7 @@ pub struct Iter<'a> {
     iter: slice::Iter<'a, (PathKind, Path)>,
 }
 
-#[deriving(Eq, PartialEq, Clone, Copy)]
+#[derive(Eq, PartialEq, Clone, Copy)]
 pub enum PathKind {
     Native,
     Crate,
@@ -34,15 +34,14 @@ impl SearchPaths {
     }
 
     pub fn add_path(&mut self, path: &str) {
-        let (kind, path) = if path.ends_with(":native") {
-            (PathKind::Native, path.slice_to(path.len() - ":native".len()))
-        } else if path.ends_with(":crate") {
-            (PathKind::Crate, path.slice_to(path.len() - ":crate".len()))
-        } else if path.ends_with(":dependency") {
-            (PathKind::Dependency,
-             path.slice_to(path.len() - ":dependency".len()))
-        } else if path.ends_with(":all") {
-            (PathKind::All, path.slice_to(path.len() - ":all".len()))
+        let (kind, path) = if path.starts_with("native=") {
+            (PathKind::Native, path.slice_from("native=".len()))
+        } else if path.starts_with("crate=") {
+            (PathKind::Crate, path.slice_from("crate=".len()))
+        } else if path.starts_with("dependency=") {
+            (PathKind::Dependency, path.slice_from("dependency=".len()))
+        } else if path.starts_with("all=") {
+            (PathKind::All, path.slice_from("all=".len()))
         } else {
             (PathKind::All, path)
         };
@@ -54,7 +53,9 @@ impl SearchPaths {
     }
 }
 
-impl<'a> Iterator<&'a Path> for Iter<'a> {
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a Path;
+
     fn next(&mut self) -> Option<&'a Path> {
         loop {
             match self.iter.next() {

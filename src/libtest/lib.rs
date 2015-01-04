@@ -31,8 +31,10 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
+#![allow(unknown_features)]
 #![feature(asm, macro_rules, phase, globs, slicing_syntax)]
 #![feature(unboxed_closures, default_type_params)]
+#![feature(old_orphan_check)]
 
 extern crate getopts;
 extern crate regex;
@@ -49,8 +51,6 @@ use self::TestEvent::*;
 use self::NamePadding::*;
 use self::OutputLocation::*;
 
-use std::any::{Any, AnyRefExt};
-use std::collections::BTreeMap;
 use stats::Stats;
 use getopts::{OptGroup, optflag, optopt};
 use regex::Regex;
@@ -58,7 +58,9 @@ use serialize::{json, Decodable, Encodable};
 use term::Terminal;
 use term::color::{Color, RED, YELLOW, GREEN, CYAN};
 
+use std::any::{Any, AnyRefExt};
 use std::cmp;
+use std::collections::BTreeMap;
 use std::f64;
 use std::fmt::Show;
 use std::fmt;
@@ -69,11 +71,11 @@ use std::io;
 use std::iter::repeat;
 use std::num::{Float, FloatMath, Int};
 use std::os;
-use std::str::FromStr;
-use std::string::String;
-use std::thread::{mod, Thread};
-use std::time::Duration;
+use std::str::{FromStr, from_str};
+use std::sync::mpsc::{channel, Sender};
+use std::thread::{self, Thread};
 use std::thunk::{Thunk, Invoke};
+use std::time::Duration;
 
 // to be used by rustc to compile tests in libtest
 pub mod test {
@@ -93,7 +95,7 @@ pub mod stats;
 // colons. This way if some test runner wants to arrange the tests
 // hierarchically it may.
 
-#[deriving(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum TestName {
     StaticTestName(&'static str),
     DynTestName(String)
@@ -112,7 +114,7 @@ impl Show for TestName {
     }
 }
 
-#[deriving(Clone, Copy)]
+#[derive(Clone, Copy)]
 enum NamePadding {
     PadNone,
     PadOnLeft,
@@ -171,14 +173,14 @@ impl TestFn {
 
 impl fmt::Show for TestFn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write(match *self {
+        f.write_str(match *self {
             StaticTestFn(..) => "StaticTestFn(..)",
             StaticBenchFn(..) => "StaticBenchFn(..)",
             StaticMetricFn(..) => "StaticMetricFn(..)",
             DynTestFn(..) => "DynTestFn(..)",
             DynMetricFn(..) => "DynMetricFn(..)",
             DynBenchFn(..) => "DynBenchFn(..)"
-        }.as_bytes())
+        })
     }
 }
 
@@ -187,14 +189,14 @@ impl fmt::Show for TestFn {
 /// This is feed into functions marked with `#[bench]` to allow for
 /// set-up & tear-down before running a piece of code repeatedly via a
 /// call to `iter`.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Bencher {
     iterations: u64,
     dur: Duration,
     pub bytes: u64,
 }
 
-#[deriving(Copy, Clone, Show, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Show, PartialEq, Eq, Hash)]
 pub enum ShouldFail {
     No,
     Yes(Option<&'static str>)
@@ -202,20 +204,20 @@ pub enum ShouldFail {
 
 // The definition of a single test. A test runner will run a list of
 // these.
-#[deriving(Clone, Show, PartialEq, Eq, Hash)]
+#[derive(Clone, Show, PartialEq, Eq, Hash)]
 pub struct TestDesc {
     pub name: TestName,
     pub ignore: bool,
     pub should_fail: ShouldFail,
 }
 
-#[deriving(Show)]
+#[derive(Show)]
 pub struct TestDescAndFn {
     pub desc: TestDesc,
     pub testfn: TestFn,
 }
 
-#[deriving(Clone, RustcEncodable, RustcDecodable, PartialEq, Show, Copy)]
+#[derive(Clone, RustcEncodable, RustcDecodable, PartialEq, Show, Copy)]
 pub struct Metric {
     value: f64,
     noise: f64
@@ -227,7 +229,7 @@ impl Metric {
     }
 }
 
-#[deriving(PartialEq)]
+#[derive(PartialEq)]
 pub struct MetricMap(BTreeMap<String,Metric>);
 
 impl Clone for MetricMap {
@@ -238,7 +240,7 @@ impl Clone for MetricMap {
 }
 
 /// Analysis of a single change in metric
-#[deriving(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Show)]
 pub enum MetricChange {
     LikelyNoise,
     MetricAdded,
@@ -283,7 +285,7 @@ pub fn test_main_static(args: &[String], tests: &[TestDescAndFn]) {
     test_main(args, owned_tests)
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum ColorConfig {
     AutoColor,
     AlwaysColor,
@@ -508,13 +510,13 @@ pub fn opt_shard(maybestr: Option<String>) -> Option<(uint,uint)> {
 }
 
 
-#[deriving(Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct BenchSamples {
     ns_iter_summ: stats::Summary<f64>,
     mb_s: uint,
 }
 
-#[deriving(Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum TestResult {
     TrOk,
     TrFailed,
@@ -967,7 +969,7 @@ fn use_color(opts: &TestOpts) -> bool {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 enum TestEvent {
     TeFiltered(Vec<TestDesc> ),
     TeWait(TestDesc, NamePadding),
@@ -1021,7 +1023,7 @@ fn run_tests<F>(opts: &TestOpts,
             pending += 1;
         }
 
-        let (desc, result, stdout) = rx.recv();
+        let (desc, result, stdout) = rx.recv().unwrap();
         if concurrency != 1 {
             try!(callback(TeWait(desc.clone(), PadNone)));
         }
@@ -1034,7 +1036,7 @@ fn run_tests<F>(opts: &TestOpts,
     for b in filtered_benchs_and_metrics.into_iter() {
         try!(callback(TeWait(b.desc.clone(), b.testfn.padding())));
         run_test(opts, !opts.run_benchmarks, b, tx.clone());
-        let (test, result, stdout) = rx.recv();
+        let (test, result, stdout) = rx.recv().unwrap();
         try!(callback(TeResult(test, result, stdout)));
     }
     Ok(())
@@ -1111,7 +1113,7 @@ pub fn run_test(opts: &TestOpts,
     let TestDescAndFn {desc, testfn} = test;
 
     if force_ignore || desc.ignore {
-        monitor_ch.send((desc, TrIgnored, Vec::new()));
+        monitor_ch.send((desc, TrIgnored, Vec::new())).unwrap();
         return;
     }
 
@@ -1138,31 +1140,31 @@ pub fn run_test(opts: &TestOpts,
             let result_guard = cfg.spawn(move || { testfn.invoke(()) });
             let stdout = reader.read_to_end().unwrap().into_iter().collect();
             let test_result = calc_result(&desc, result_guard.join());
-            monitor_ch.send((desc.clone(), test_result, stdout));
+            monitor_ch.send((desc.clone(), test_result, stdout)).unwrap();
         }).detach();
     }
 
     match testfn {
         DynBenchFn(bencher) => {
             let bs = ::bench::benchmark(|harness| bencher.run(harness));
-            monitor_ch.send((desc, TrBench(bs), Vec::new()));
+            monitor_ch.send((desc, TrBench(bs), Vec::new())).unwrap();
             return;
         }
         StaticBenchFn(benchfn) => {
             let bs = ::bench::benchmark(|harness| (benchfn.clone())(harness));
-            monitor_ch.send((desc, TrBench(bs), Vec::new()));
+            monitor_ch.send((desc, TrBench(bs), Vec::new())).unwrap();
             return;
         }
         DynMetricFn(f) => {
             let mut mm = MetricMap::new();
             f.invoke(&mut mm);
-            monitor_ch.send((desc, TrMetrics(mm), Vec::new()));
+            monitor_ch.send((desc, TrMetrics(mm), Vec::new())).unwrap();
             return;
         }
         StaticMetricFn(f) => {
             let mut mm = MetricMap::new();
             f(&mut mm);
-            monitor_ch.send((desc, TrMetrics(mm), Vec::new()));
+            monitor_ch.send((desc, TrMetrics(mm), Vec::new())).unwrap();
             return;
         }
         DynTestFn(f) => run_test_inner(desc, monitor_ch, opts.nocapture, f),
@@ -1212,8 +1214,7 @@ impl MetricMap {
     pub fn save(&self, p: &Path) -> io::IoResult<()> {
         let mut file = try!(File::create(p));
         let MetricMap(ref map) = *self;
-        let mut enc = json::PrettyEncoder::new(&mut file);
-        map.encode(&mut enc)
+        write!(&mut file, "{}", json::as_json(map))
     }
 
     /// Compare against another MetricMap. Optionally compare all
@@ -1387,7 +1388,7 @@ impl Bencher {
         if n == 0 { n = 1; }
 
         let mut total_run = Duration::nanoseconds(0);
-        let samples : &mut [f64] = &mut [0.0_f64, ..50];
+        let samples : &mut [f64] = &mut [0.0_f64; 50];
         loop {
             let mut summ = None;
             let mut summ5 = None;
@@ -1466,6 +1467,7 @@ mod tests {
                StaticTestName, DynTestName, DynTestFn, ShouldFail};
     use std::io::TempDir;
     use std::thunk::Thunk;
+    use std::sync::mpsc::channel;
 
     #[test]
     pub fn do_not_run_ignored_tests() {
@@ -1480,7 +1482,7 @@ mod tests {
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
-        let (_, res, _) = rx.recv();
+        let (_, res, _) = rx.recv().unwrap();
         assert!(res != TrOk);
     }
 
@@ -1497,7 +1499,7 @@ mod tests {
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
-        let (_, res, _) = rx.recv();
+        let (_, res, _) = rx.recv().unwrap();
         assert!(res == TrIgnored);
     }
 
@@ -1514,7 +1516,7 @@ mod tests {
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
-        let (_, res, _) = rx.recv();
+        let (_, res, _) = rx.recv().unwrap();
         assert!(res == TrOk);
     }
 
@@ -1531,7 +1533,7 @@ mod tests {
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
-        let (_, res, _) = rx.recv();
+        let (_, res, _) = rx.recv().unwrap();
         assert!(res == TrOk);
     }
 
@@ -1548,7 +1550,7 @@ mod tests {
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
-        let (_, res, _) = rx.recv();
+        let (_, res, _) = rx.recv().unwrap();
         assert!(res == TrFailed);
     }
 
@@ -1565,7 +1567,7 @@ mod tests {
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
-        let (_, res, _) = rx.recv();
+        let (_, res, _) = rx.recv().unwrap();
         assert!(res == TrFailed);
     }
 

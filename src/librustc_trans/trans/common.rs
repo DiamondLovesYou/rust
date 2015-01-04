@@ -24,7 +24,7 @@ use middle::infer;
 use middle::lang_items::LangItem;
 use middle::mem_categorization as mc;
 use middle::region;
-use middle::subst::{mod, Subst, Substs};
+use middle::subst::{self, Subst, Substs};
 use trans::base;
 use trans::build;
 use trans::cleanup;
@@ -35,11 +35,11 @@ use trans::monomorphize;
 use trans::type_::Type;
 use trans::type_of;
 use middle::traits;
-use middle::ty::{mod, HasProjectionTypes, Ty};
+use middle::ty::{self, HasProjectionTypes, Ty};
 use middle::ty_fold;
 use middle::ty_fold::{TypeFolder, TypeFoldable};
 use util::ppaux::Repr;
-use util::nodemap::{DefIdMap, FnvHashMap, NodeMap};
+use util::nodemap::{FnvHashMap, NodeMap};
 
 use arena::TypedArena;
 use libc::{c_uint, c_char};
@@ -235,7 +235,7 @@ pub fn gensym_name(name: &str) -> PathElem {
     PathName(token::gensym(format!("{}:{}", name, num)[]))
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct tydesc_info<'tcx> {
     pub ty: Ty<'tcx>,
     pub tydesc: ValueRef,
@@ -270,7 +270,7 @@ pub struct tydesc_info<'tcx> {
  *
  */
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct NodeInfo {
     pub id: ast::NodeId,
     pub span: Span,
@@ -316,6 +316,9 @@ pub struct FunctionContext<'a, 'tcx: 'a> {
     // instructions for this function that will go in the .text
     // section of the executable we're generating.
     pub llfn: ValueRef,
+
+    // always an empty parameter-environment
+    pub param_env: ty::ParameterEnvironment<'a, 'tcx>,
 
     // The environment argument in a closure.
     pub llenv: Option<ValueRef>,
@@ -594,12 +597,12 @@ impl<'blk, 'tcx> mc::Typer<'tcx> for BlockS<'blk, 'tcx> {
         self.tcx()
     }
 
-    fn node_ty(&self, id: ast::NodeId) -> Ty<'tcx> {
-        node_id_type(self, id)
+    fn node_ty(&self, id: ast::NodeId) -> mc::McResult<Ty<'tcx>> {
+        Ok(node_id_type(self, id))
     }
 
-    fn expr_ty_adjusted(&self, expr: &ast::Expr) -> Ty<'tcx> {
-        expr_ty_adjusted(self, expr)
+    fn expr_ty_adjusted(&self, expr: &ast::Expr) -> mc::McResult<Ty<'tcx>> {
+        Ok(expr_ty_adjusted(self, expr))
     }
 
     fn node_method_ty(&self, method_call: ty::MethodCall) -> Option<Ty<'tcx>> {
@@ -632,18 +635,49 @@ impl<'blk, 'tcx> mc::Typer<'tcx> for BlockS<'blk, 'tcx> {
         self.tcx().region_maps.temporary_scope(rvalue_id)
     }
 
-    fn unboxed_closures<'a>(&'a self)
-                        -> &'a RefCell<DefIdMap<ty::UnboxedClosure<'tcx>>> {
-        &self.tcx().unboxed_closures
-    }
-
-    fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> ty::UpvarBorrow {
-        self.tcx().upvar_borrow_map.borrow()[upvar_id].clone()
+    fn upvar_borrow(&self, upvar_id: ty::UpvarId) -> Option<ty::UpvarBorrow> {
+        Some(self.tcx().upvar_borrow_map.borrow()[upvar_id].clone())
     }
 
     fn capture_mode(&self, closure_expr_id: ast::NodeId)
                     -> ast::CaptureClause {
         self.tcx().capture_modes.borrow()[closure_expr_id].clone()
+    }
+
+    fn type_moves_by_default(&self, span: Span, ty: Ty<'tcx>) -> bool {
+        self.fcx.param_env.type_moves_by_default(span, ty)
+    }
+}
+
+impl<'blk, 'tcx> ty::UnboxedClosureTyper<'tcx> for BlockS<'blk, 'tcx> {
+    fn param_env<'a>(&'a self) -> &'a ty::ParameterEnvironment<'a, 'tcx> {
+        &self.fcx.param_env
+    }
+
+    fn unboxed_closure_kind(&self,
+                            def_id: ast::DefId)
+                            -> ty::UnboxedClosureKind
+    {
+        let typer = NormalizingUnboxedClosureTyper::new(self.tcx());
+        typer.unboxed_closure_kind(def_id)
+    }
+
+    fn unboxed_closure_type(&self,
+                            def_id: ast::DefId,
+                            substs: &subst::Substs<'tcx>)
+                            -> ty::ClosureTy<'tcx>
+    {
+        let typer = NormalizingUnboxedClosureTyper::new(self.tcx());
+        typer.unboxed_closure_type(def_id, substs)
+    }
+
+    fn unboxed_closure_upvars(&self,
+                              def_id: ast::DefId,
+                              substs: &Substs<'tcx>)
+                              -> Option<Vec<ty::UnboxedClosureUpvar<'tcx>>>
+    {
+        let typer = NormalizingUnboxedClosureTyper::new(self.tcx());
+        typer.unboxed_closure_upvars(def_id, substs)
     }
 }
 
@@ -933,13 +967,10 @@ pub fn fulfill_obligation<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     ty::populate_implementations_for_trait_if_necessary(tcx, trait_ref.def_id());
     let infcx = infer::new_infer_ctxt(tcx);
 
-    // Parameter environment is used to give details about type parameters,
-    // but since we are in trans, everything is fully monomorphized.
-    let param_env = ty::empty_parameter_environment();
-
     // Do the initial selection for the obligation. This yields the
     // shallow result we are looking for -- that is, what specific impl.
-    let mut selcx = traits::SelectionContext::new(&infcx, &param_env, tcx);
+    let typer = NormalizingUnboxedClosureTyper::new(tcx);
+    let mut selcx = traits::SelectionContext::new(&infcx, &typer);
     let obligation = traits::Obligation::new(traits::ObligationCause::dummy(),
                                              trait_ref.to_poly_trait_predicate());
     let selection = match selcx.select(&obligation) {
@@ -974,7 +1005,7 @@ pub fn fulfill_obligation<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     let vtable = selection.map_move_nested(|predicate| {
         fulfill_cx.register_predicate_obligation(&infcx, predicate);
     });
-    let vtable = drain_fulfillment_cx(span, &infcx, &param_env, &mut fulfill_cx, &vtable);
+    let vtable = drain_fulfillment_cx(span, &infcx, &mut fulfill_cx, &vtable);
 
     info!("Cache miss: {}", trait_ref.repr(ccx.tcx()));
     ccx.trait_cache().borrow_mut().insert(trait_ref,
@@ -983,9 +1014,55 @@ pub fn fulfill_obligation<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     vtable
 }
 
+pub struct NormalizingUnboxedClosureTyper<'a,'tcx:'a> {
+    param_env: ty::ParameterEnvironment<'a, 'tcx>
+}
+
+impl<'a,'tcx> NormalizingUnboxedClosureTyper<'a,'tcx> {
+    pub fn new(tcx: &'a ty::ctxt<'tcx>) -> NormalizingUnboxedClosureTyper<'a,'tcx> {
+        // Parameter environment is used to give details about type parameters,
+        // but since we are in trans, everything is fully monomorphized.
+        NormalizingUnboxedClosureTyper { param_env: ty::empty_parameter_environment(tcx) }
+    }
+}
+
+impl<'a,'tcx> ty::UnboxedClosureTyper<'tcx> for NormalizingUnboxedClosureTyper<'a,'tcx> {
+    fn param_env<'b>(&'b self) -> &'b ty::ParameterEnvironment<'b,'tcx> {
+        &self.param_env
+    }
+
+    fn unboxed_closure_kind(&self,
+                            def_id: ast::DefId)
+                            -> ty::UnboxedClosureKind
+    {
+        self.param_env.tcx.unboxed_closure_kind(def_id)
+    }
+
+    fn unboxed_closure_type(&self,
+                            def_id: ast::DefId,
+                            substs: &subst::Substs<'tcx>)
+                            -> ty::ClosureTy<'tcx>
+    {
+        // the substitutions in `substs` are already monomorphized,
+        // but we still must normalize associated types
+        let closure_ty = self.param_env.tcx.unboxed_closure_type(def_id, substs);
+        monomorphize::normalize_associated_type(self.param_env.tcx, &closure_ty)
+    }
+
+    fn unboxed_closure_upvars(&self,
+                              def_id: ast::DefId,
+                              substs: &Substs<'tcx>)
+                              -> Option<Vec<ty::UnboxedClosureUpvar<'tcx>>>
+    {
+        // the substitutions in `substs` are already monomorphized,
+        // but we still must normalize associated types
+        let result = ty::unboxed_closure_upvars(&self.param_env, def_id, substs);
+        monomorphize::normalize_associated_type(self.param_env.tcx, &result)
+    }
+}
+
 pub fn drain_fulfillment_cx<'a,'tcx,T>(span: Span,
                                        infcx: &infer::InferCtxt<'a,'tcx>,
-                                       param_env: &ty::ParameterEnvironment<'tcx>,
                                        fulfill_cx: &mut traits::FulfillmentContext<'tcx>,
                                        result: &T)
                                        -> T
@@ -997,7 +1074,8 @@ pub fn drain_fulfillment_cx<'a,'tcx,T>(span: Span,
     // In principle, we only need to do this so long as `result`
     // contains unbound type parameters. It could be a slight
     // optimization to stop iterating early.
-    match fulfill_cx.select_all_or_error(infcx, param_env, infcx.tcx) {
+    let typer = NormalizingUnboxedClosureTyper::new(infcx.tcx);
+    match fulfill_cx.select_all_or_error(infcx, &typer) {
         Ok(()) => { }
         Err(errors) => {
             if errors.iter().all(|e| e.is_overflow()) {
@@ -1023,7 +1101,7 @@ pub fn drain_fulfillment_cx<'a,'tcx,T>(span: Span,
 }
 
 // Key used to lookup values supplied for type parameters in an expr.
-#[deriving(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Show)]
 pub enum ExprOrMethodCall {
     // Type parameters for a path like `None::<int>`
     ExprId(ast::NodeId),

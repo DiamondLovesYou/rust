@@ -10,7 +10,7 @@
 
 //! Utility implementations of Reader and Writer
 
-use prelude::*;
+use prelude::v1::*;
 use cmp;
 use io;
 use slice::bytes::MutableByteVector;
@@ -81,7 +81,7 @@ impl<R: Buffer> Buffer for LimitReader<R> {
 }
 
 /// A `Writer` which ignores bytes written to it, like /dev/null.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct NullWriter;
 
 impl Writer for NullWriter {
@@ -90,7 +90,7 @@ impl Writer for NullWriter {
 }
 
 /// A `Reader` which returns an infinite stream of 0 bytes, like /dev/zero.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct ZeroReader;
 
 impl Reader for ZeroReader {
@@ -103,7 +103,7 @@ impl Reader for ZeroReader {
 
 impl Buffer for ZeroReader {
     fn fill_buf<'a>(&'a mut self) -> io::IoResult<&'a [u8]> {
-        static DATA: [u8, ..64] = [0, ..64];
+        static DATA: [u8; 64] = [0; 64];
         Ok(DATA.as_slice())
     }
 
@@ -111,7 +111,7 @@ impl Buffer for ZeroReader {
 }
 
 /// A `Reader` which is always at EOF, like /dev/null.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct NullReader;
 
 impl Reader for NullReader {
@@ -163,13 +163,13 @@ impl Writer for MultiWriter {
 
 /// A `Reader` which chains input from multiple `Reader`s, reading each to
 /// completion before moving onto the next.
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct ChainedReader<I, R> {
     readers: I,
     cur_reader: Option<R>,
 }
 
-impl<R: Reader, I: Iterator<R>> ChainedReader<I, R> {
+impl<R: Reader, I: Iterator<Item=R>> ChainedReader<I, R> {
     /// Creates a new `ChainedReader`
     pub fn new(mut readers: I) -> ChainedReader<I, R> {
         let r = readers.next();
@@ -177,7 +177,7 @@ impl<R: Reader, I: Iterator<R>> ChainedReader<I, R> {
     }
 }
 
-impl<R: Reader, I: Iterator<R>> Reader for ChainedReader<I, R> {
+impl<R: Reader, I: Iterator<Item=R>> Reader for ChainedReader<I, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::IoResult<uint> {
         loop {
             let err = match self.cur_reader {
@@ -235,7 +235,7 @@ impl<R: Reader, W: Writer> Reader for TeeReader<R, W> {
 
 /// Copies all data from a `Reader` to a `Writer`.
 pub fn copy<R: Reader, W: Writer>(r: &mut R, w: &mut W) -> io::IoResult<()> {
-    let mut buf = [0, ..super::DEFAULT_BUF_SIZE];
+    let mut buf = [0; super::DEFAULT_BUF_SIZE];
     loop {
         let len = match r.read(&mut buf) {
             Ok(len) => len,
@@ -247,12 +247,12 @@ pub fn copy<R: Reader, W: Writer>(r: &mut R, w: &mut W) -> io::IoResult<()> {
 }
 
 /// An adaptor converting an `Iterator<u8>` to a `Reader`.
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct IterReader<T> {
     iter: T,
 }
 
-impl<T: Iterator<u8>> IterReader<T> {
+impl<T: Iterator<Item=u8>> IterReader<T> {
     /// Creates a new `IterReader` which will read from the specified
     /// `Iterator`.
     pub fn new(iter: T) -> IterReader<T> {
@@ -260,7 +260,7 @@ impl<T: Iterator<u8>> IterReader<T> {
     }
 }
 
-impl<T: Iterator<u8>> Reader for IterReader<T> {
+impl<T: Iterator<Item=u8>> Reader for IterReader<T> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::IoResult<uint> {
         let mut len = 0;
@@ -278,11 +278,11 @@ impl<T: Iterator<u8>> Reader for IterReader<T> {
 
 #[cfg(test)]
 mod test {
+    use prelude::v1::*;
+
     use io::{MemReader, ByRefReader};
     use io;
-    use boxed::Box;
     use super::*;
-    use prelude::{Ok, range, Vec, Buffer, Writer, Reader, ToString, AsSlice};
 
     #[test]
     fn test_limit_reader_unlimited() {
@@ -386,7 +386,7 @@ mod test {
         let mut r = TeeReader::new(MemReader::new(vec!(0, 1, 2)),
                                    Vec::new());
         assert_eq!(vec!(0, 1, 2), r.read_to_end().unwrap());
-        let (_, w) = r.unwrap();
+        let (_, w) = r.into_inner();
         assert_eq!(vec!(0, 1, 2), w);
     }
 

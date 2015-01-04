@@ -90,7 +90,7 @@ impl TempDir {
             return TempDir::new_in(&abs_tmpdir, suffix);
         }
 
-        static CNT: atomic::AtomicUint = atomic::INIT_ATOMIC_UINT;
+        static CNT: atomic::AtomicUint = atomic::ATOMIC_UINT_INIT;
 
         #[cfg(not(target_os = "nacl"))]
         fn getpid() -> libc::pid_t { unsafe { libc::getpid() as libc::pid_t } }

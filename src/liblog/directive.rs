@@ -12,13 +12,13 @@ use regex::Regex;
 use std::ascii::AsciiExt;
 use std::cmp;
 
-#[deriving(Show, Clone)]
+#[derive(Show, Clone)]
 pub struct LogDirective {
     pub name: Option<String>,
     pub level: u32,
 }
 
-pub static LOG_LEVEL_NAMES: [&'static str, ..4] = ["ERROR", "WARN", "INFO",
+pub static LOG_LEVEL_NAMES: [&'static str; 4] = ["ERROR", "WARN", "INFO",
                                                "DEBUG"];
 
 /// Parse an individual log level that is either a number or a symbolic log level

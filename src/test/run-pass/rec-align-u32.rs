@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -22,21 +22,21 @@ mod rusti {
 }
 
 // This is the type with the questionable alignment
-#[deriving(Show)]
+#[derive(Show)]
 struct Inner {
     c64: u32
 }
 
 // This is the type that contains the type with the
 // questionable alignment, for testing
-#[deriving(Show)]
+#[derive(Show)]
 struct Outer {
     c8: u8,
     t: Inner
 }
 
 
-#[cfg(any(target_arch = "x86", target_arch = "arm"))]
+#[cfg(any(target_arch = "x86", target_arch = "arm", target_arch = "aarch64"))]
 mod m {
     pub fn align() -> uint { 4u }
     pub fn size() -> uint { 8u }

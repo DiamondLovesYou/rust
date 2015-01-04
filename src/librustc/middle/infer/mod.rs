@@ -23,9 +23,9 @@ pub use self::freshen::TypeFreshener;
 
 use middle::subst;
 use middle::subst::Substs;
-use middle::ty::{TyVid, IntVid, FloatVid, RegionVid};
+use middle::ty::{TyVid, IntVid, FloatVid, RegionVid, UnconstrainedNumeric};
 use middle::ty::replace_late_bound_regions;
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty};
 use middle::ty_fold::{TypeFolder, TypeFoldable};
 use std::cell::{RefCell};
 use std::rc::Rc;
@@ -97,7 +97,7 @@ pub type SkolemizationMap = FnvHashMap<ty::BoundRegion,ty::Region>;
 /// Why did we require that the two types be related?
 ///
 /// See `error_reporting.rs` for more details
-#[deriving(Clone, Copy, Show)]
+#[derive(Clone, Copy, Show)]
 pub enum TypeOrigin {
     // Not yet categorized in a better way
     Misc(Span),
@@ -135,7 +135,7 @@ pub enum TypeOrigin {
 }
 
 /// See `error_reporting.rs` for more details
-#[deriving(Clone, Show)]
+#[derive(Clone, Show)]
 pub enum ValuePairs<'tcx> {
     Types(ty::expected_found<Ty<'tcx>>),
     TraitRefs(ty::expected_found<Rc<ty::TraitRef<'tcx>>>),
@@ -146,7 +146,7 @@ pub enum ValuePairs<'tcx> {
 /// encounter an error or subtyping constraint.
 ///
 /// See `error_reporting.rs` for more details.
-#[deriving(Clone, Show)]
+#[derive(Clone, Show)]
 pub struct TypeTrace<'tcx> {
     origin: TypeOrigin,
     values: ValuePairs<'tcx>,
@@ -155,7 +155,7 @@ pub struct TypeTrace<'tcx> {
 /// The origin of a `r1 <= r2` constraint.
 ///
 /// See `error_reporting.rs` for more details
-#[deriving(Clone, Show)]
+#[derive(Clone, Show)]
 pub enum SubregionOrigin<'tcx> {
     // Arose from a subtyping relation
     Subtype(TypeTrace<'tcx>),
@@ -224,7 +224,7 @@ pub enum SubregionOrigin<'tcx> {
 }
 
 /// Times when we replace late-bound regions with variables:
-#[deriving(Clone, Copy, Show)]
+#[derive(Clone, Copy, Show)]
 pub enum LateBoundRegionConversionTime {
     /// when a fn is called
     FnCall,
@@ -239,7 +239,7 @@ pub enum LateBoundRegionConversionTime {
 /// Reasons to create a region inference variable
 ///
 /// See `error_reporting.rs` for more details
-#[deriving(Clone, Show)]
+#[derive(Clone, Show)]
 pub enum RegionVariableOrigin<'tcx> {
     // Region variables created for ill-categorized reasons,
     // mostly indicates places in need of refactoring
@@ -272,7 +272,7 @@ pub enum RegionVariableOrigin<'tcx> {
     BoundRegionInCoherence(ast::Name),
 }
 
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 pub enum fixup_err {
     unresolved_int_ty(IntVid),
     unresolved_float_ty(FloatVid),
@@ -523,6 +523,25 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
 
     pub fn freshener<'b>(&'b self) -> TypeFreshener<'b, 'tcx> {
         freshen::TypeFreshener::new(self)
+    }
+
+    pub fn type_is_unconstrained_numeric(&'a self, ty: Ty) -> UnconstrainedNumeric {
+        use middle::ty::UnconstrainedNumeric::{Neither, UnconstrainedInt, UnconstrainedFloat};
+        match ty.sty {
+            ty::ty_infer(ty::IntVar(vid)) => {
+                match self.int_unification_table.borrow_mut().get(self.tcx, vid).value {
+                    None => UnconstrainedInt,
+                    _ => Neither,
+                }
+            },
+            ty::ty_infer(ty::FloatVar(vid)) => {
+                match self.float_unification_table.borrow_mut().get(self.tcx, vid).value {
+                    None => return UnconstrainedFloat,
+                    _ => Neither,
+                }
+            },
+            _ => Neither,
+        }
     }
 
     pub fn combine_fields<'b>(&'b self, a_is_expected: bool, trace: TypeTrace<'tcx>)

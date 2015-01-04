@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -52,10 +52,9 @@ use ptr;
 use result::Result;
 use result::Result::{Err, Ok};
 use slice::{AsSlice, SliceExt};
-use slice::CloneSliceExt;
 use str::{Str, StrExt};
 use string::{String, ToString};
-use sync::atomic::{AtomicInt, INIT_ATOMIC_INT, SeqCst};
+use sync::atomic::{AtomicInt, ATOMIC_INT_INIT, SeqCst};
 use vec::Vec;
 
 #[cfg(unix)] use c_str::ToCStr;
@@ -371,7 +370,7 @@ pub fn join_paths<T: BytesContainer>(paths: &[T]) -> Result<Vec<u8>, &'static st
 }
 
 /// A low-level OS in-memory pipe.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Pipe {
     /// A file descriptor representing the reading end of the pipe. Data written
     /// on the `out` file descriptor can be read from this file descriptor.
@@ -605,7 +604,7 @@ pub fn last_os_error() -> String {
     error_string(errno() as uint)
 }
 
-static EXIT_STATUS: AtomicInt = INIT_ATOMIC_INT;
+static EXIT_STATUS: AtomicInt = ATOMIC_INT_INIT;
 
 /// Sets the process exit code
 ///
@@ -873,7 +872,7 @@ pub enum MapOption {
 impl Copy for MapOption {}
 
 /// Possible errors when creating a map.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum MapError {
     /// # The following are POSIX-specific
     ///
@@ -1485,6 +1484,11 @@ mod arch_consts {
     pub const ARCH: &'static str = "arm";
 }
 
+#[cfg(target_arch = "aarch64")]
+mod arch_consts {
+    pub const ARCH: &'static str = "aarch64";
+}
+
 #[cfg(target_arch = "mips")]
 mod arch_consts {
     pub const ARCH: &'static str = "mips";
@@ -1501,8 +1505,9 @@ mod arch_consts {
 
 #[cfg(test)]
 mod tests {
-    use prelude::*;
-    use option;
+    use prelude::v1::*;
+
+    use iter::repeat;
     use os::{env, getcwd, getenv, make_absolute};
     use os::{split_paths, join_paths, setenv, unsetenv};
     use os;
@@ -1531,7 +1536,7 @@ mod tests {
     fn test_setenv() {
         let n = make_rand_name();
         setenv(n.as_slice(), "VALUE");
-        assert_eq!(getenv(n.as_slice()), option::Option::Some("VALUE".to_string()));
+        assert_eq!(getenv(n.as_slice()), Some("VALUE".to_string()));
     }
 
     #[test]
@@ -1539,7 +1544,7 @@ mod tests {
         let n = make_rand_name();
         setenv(n.as_slice(), "VALUE");
         unsetenv(n.as_slice());
-        assert_eq!(getenv(n.as_slice()), option::Option::None);
+        assert_eq!(getenv(n.as_slice()), None);
     }
 
     #[test]
@@ -1548,9 +1553,9 @@ mod tests {
         let n = make_rand_name();
         setenv(n.as_slice(), "1");
         setenv(n.as_slice(), "2");
-        assert_eq!(getenv(n.as_slice()), option::Option::Some("2".to_string()));
+        assert_eq!(getenv(n.as_slice()), Some("2".to_string()));
         setenv(n.as_slice(), "");
-        assert_eq!(getenv(n.as_slice()), option::Option::Some("".to_string()));
+        assert_eq!(getenv(n.as_slice()), Some("".to_string()));
     }
 
     // Windows GetEnvironmentVariable requires some extra work to make sure
@@ -1567,7 +1572,7 @@ mod tests {
         let n = make_rand_name();
         setenv(n.as_slice(), s.as_slice());
         debug!("{}", s.clone());
-        assert_eq!(getenv(n.as_slice()), option::Option::Some(s));
+        assert_eq!(getenv(n.as_slice()), Some(s));
     }
 
     #[test]
@@ -1604,14 +1609,14 @@ mod tests {
             // MingW seems to set some funky environment variables like
             // "=C:=C:\MinGW\msys\1.0\bin" and "!::=::\" that are returned
             // from env() but not visible from getenv().
-            assert!(v2.is_none() || v2 == option::Option::Some(v));
+            assert!(v2.is_none() || v2 == Some(v));
         }
     }
 
     #[test]
     fn test_env_set_get_huge() {
         let n = make_rand_name();
-        let s = "x".repeat(10000).to_string();
+        let s = repeat("x").take(10000).collect::<String>();
         setenv(n.as_slice(), s.as_slice());
         assert_eq!(getenv(n.as_slice()), Some(s));
         unsetenv(n.as_slice());
@@ -1733,8 +1738,8 @@ mod tests {
         path.push("mmap_file.tmp");
         let size = MemoryMap::granularity() * 2;
         let mut file = File::open_mode(&path, Open, ReadWrite).unwrap();
-        file.seek(size as i64, SeekSet);
-        file.write_u8(0);
+        file.seek(size as i64, SeekSet).unwrap();
+        file.write_u8(0).unwrap();
 
         let chunk = MemoryMap::new(size / 2, &[
             MapOption::MapReadable,

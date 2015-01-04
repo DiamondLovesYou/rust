@@ -133,7 +133,7 @@ pub trait Reseeder<R> {
 
 /// Reseed an RNG using a `Default` instance. This reseeds by
 /// replacing the RNG with the result of a `Default::default` call.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct ReseedWithDefault;
 
 impl<R: Rng + Default> Reseeder<R> for ReseedWithDefault {
@@ -149,7 +149,7 @@ impl Default for ReseedWithDefault {
 
 #[cfg(test)]
 mod test {
-    use std::prelude::*;
+    use std::prelude::v1::*;
 
     use core::iter::order;
     use super::{ReseedingRng, ReseedWithDefault};

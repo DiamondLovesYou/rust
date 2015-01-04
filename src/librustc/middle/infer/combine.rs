@@ -46,7 +46,7 @@ use middle::subst::{ErasedRegions, NonerasedRegions, Substs};
 use middle::ty::{FloatVar, FnSig, IntVar, TyVar};
 use middle::ty::{IntType, UintType};
 use middle::ty::{BuiltinBounds};
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty};
 use middle::ty_fold;
 use middle::ty_fold::{TypeFoldable};
 use util::ppaux::Repr;
@@ -57,7 +57,7 @@ use syntax::ast;
 use syntax::abi;
 use syntax::codemap::Span;
 
-pub trait Combine<'tcx> {
+pub trait Combine<'tcx> : Sized {
     fn infcx<'a>(&'a self) -> &'a InferCtxt<'a, 'tcx>;
     fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> { self.infcx().tcx }
     fn tag(&self) -> String;
@@ -447,7 +447,7 @@ impl<'tcx> Combineable<'tcx> for ty::FnSig<'tcx> {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct CombineFields<'a, 'tcx: 'a> {
     pub infcx: &'a InferCtxt<'a, 'tcx>,
     pub a_is_expected: bool,

@@ -49,7 +49,7 @@ use f64;
 pub type GlueFn = extern "Rust" fn(*const i8);
 
 #[lang="ty_desc"]
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct TyDesc {
     // sizeof(T)
     pub size: uint,
@@ -78,10 +78,12 @@ extern "rust-intrinsic" {
     pub fn atomic_load<T>(src: *const T) -> T;
     pub fn atomic_load_acq<T>(src: *const T) -> T;
     pub fn atomic_load_relaxed<T>(src: *const T) -> T;
+    pub fn atomic_load_unordered<T>(src: *const T) -> T;
 
     pub fn atomic_store<T>(dst: *mut T, val: T);
     pub fn atomic_store_rel<T>(dst: *mut T, val: T);
     pub fn atomic_store_relaxed<T>(dst: *mut T, val: T);
+    pub fn atomic_store_unordered<T>(dst: *mut T, val: T);
 
     pub fn atomic_xchg<T>(dst: *mut T, src: T) -> T;
     pub fn atomic_xchg_acq<T>(dst: *mut T, src: T) -> T;
@@ -718,7 +720,7 @@ mul_with_overflow!{u64, u64_mul_with_overflow}
 /// `TypeId` represents a globally unique identifier for a type
 #[lang="type_id"] // This needs to be kept in lockstep with the code in trans/intrinsic.rs and
                   // middle/lang_items.rs
-#[deriving(Clone, Copy, PartialEq, Eq, Show)]
+#[derive(Clone, Copy, PartialEq, Eq, Show)]
 pub struct TypeId {
     t: u64,
 }

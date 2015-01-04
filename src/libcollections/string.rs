@@ -17,22 +17,23 @@
 use core::prelude::*;
 
 use core::borrow::{Cow, IntoCow};
+use core::cmp::Equiv;
 use core::default::Default;
 use core::fmt;
 use core::hash;
+use core::iter::FromIterator;
 use core::mem;
+use core::ops::{self, Deref, Add};
 use core::ptr;
-use core::ops;
 use core::raw::Slice as RawSlice;
 use unicode::str as unicode_str;
 use unicode::str::Utf16Item;
 
-use slice::CloneSliceExt;
-use str::{mod, CharRange, FromStr, Utf8Error};
+use str::{self, CharRange, FromStr, Utf8Error};
 use vec::{DerefVec, Vec, as_vec};
 
 /// A growable string stored as a UTF-8 encoded buffer.
-#[deriving(Clone, PartialOrd, Eq, Ord)]
+#[derive(Clone, PartialOrd, Eq, Ord)]
 #[stable]
 pub struct String {
     vec: Vec<u8>,
@@ -94,7 +95,7 @@ impl String {
     #[inline]
     #[experimental = "needs investigation to see if to_string() can match perf"]
     pub fn from_str(string: &str) -> String {
-        String { vec: string.as_bytes().to_vec() }
+        String { vec: ::slice::SliceExt::to_vec(string.as_bytes()) }
     }
 
     /// Returns the vector as a string buffer, if possible, taking care not to
@@ -141,14 +142,18 @@ impl String {
     /// ```
     #[stable]
     pub fn from_utf8_lossy<'a>(v: &'a [u8]) -> CowString<'a> {
+        let mut i = 0;
         match str::from_utf8(v) {
             Ok(s) => return Cow::Borrowed(s),
-            Err(..) => {}
+            Err(e) => {
+                if let Utf8Error::InvalidByte(firstbad) = e {
+                    i = firstbad;
+                }
+            }
         }
 
         static TAG_CONT_U8: u8 = 128u8;
         static REPLACEMENT: &'static [u8] = b"\xEF\xBF\xBD"; // U+FFFD in UTF-8
-        let mut i = 0;
         let total = v.len();
         fn unsafe_get(xs: &[u8], i: uint) -> u8 {
             unsafe { *xs.get_unchecked(i) }
@@ -172,7 +177,7 @@ impl String {
         // subseqidx is the index of the first byte of the subsequence we're looking at.
         // It's used to copy a bunch of contiguous good codepoints at once instead of copying
         // them one by one.
-        let mut subseqidx = 0;
+        let mut subseqidx = i;
 
         while i < total {
             let i_ = i;
@@ -675,7 +680,7 @@ impl String {
         assert!(idx <= len);
         assert!(self.is_char_boundary(idx));
         self.vec.reserve(4);
-        let mut bits = [0, ..4];
+        let mut bits = [0; 4];
         let amt = ch.encode_utf8(&mut bits).unwrap();
 
         unsafe {
@@ -776,7 +781,7 @@ impl fmt::Show for FromUtf16Error {
 
 #[experimental = "waiting on FromIterator stabilization"]
 impl FromIterator<char> for String {
-    fn from_iter<I:Iterator<char>>(iterator: I) -> String {
+    fn from_iter<I:Iterator<Item=char>>(iterator: I) -> String {
         let mut buf = String::new();
         buf.extend(iterator);
         buf
@@ -785,7 +790,7 @@ impl FromIterator<char> for String {
 
 #[experimental = "waiting on FromIterator stabilization"]
 impl<'a> FromIterator<&'a str> for String {
-    fn from_iter<I:Iterator<&'a str>>(iterator: I) -> String {
+    fn from_iter<I:Iterator<Item=&'a str>>(iterator: I) -> String {
         let mut buf = String::new();
         buf.extend(iterator);
         buf
@@ -794,7 +799,7 @@ impl<'a> FromIterator<&'a str> for String {
 
 #[experimental = "waiting on Extend stabilization"]
 impl Extend<char> for String {
-    fn extend<I:Iterator<char>>(&mut self, mut iterator: I) {
+    fn extend<I:Iterator<Item=char>>(&mut self, mut iterator: I) {
         let (lower_bound, _) = iterator.size_hint();
         self.reserve(lower_bound);
         for ch in iterator {
@@ -805,7 +810,7 @@ impl Extend<char> for String {
 
 #[experimental = "waiting on Extend stabilization"]
 impl<'a> Extend<&'a str> for String {
-    fn extend<I: Iterator<&'a str>>(&mut self, mut iterator: I) {
+    fn extend<I: Iterator<Item=&'a str>>(&mut self, mut iterator: I) {
         // A guess that at least one byte per iterator element will be needed.
         let (lower_bound, _) = iterator.size_hint();
         self.reserve(lower_bound);
@@ -906,7 +911,9 @@ impl<'a, S: Str> Equiv<S> for String {
 }
 
 #[experimental = "waiting on Add stabilization"]
-impl<'a> Add<&'a str, String> for String {
+impl<'a> Add<&'a str> for String {
+    type Output = String;
+
     fn add(mut self, other: &str) -> String {
         self.push_str(other);
         self
@@ -936,7 +943,9 @@ impl ops::Slice<uint, str> for String {
 }
 
 #[experimental = "waiting on Deref stabilization"]
-impl ops::Deref<str> for String {
+impl ops::Deref for String {
+    type Target = str;
+
     fn deref<'a>(&'a self) -> &'a str {
         unsafe { mem::transmute(self.vec[]) }
     }
@@ -948,7 +957,9 @@ pub struct DerefString<'a> {
     x: DerefVec<'a, u8>
 }
 
-impl<'a> Deref<String> for DerefString<'a> {
+impl<'a> Deref for DerefString<'a> {
+    type Target = String;
+
     fn deref<'b>(&'b self) -> &'b String {
         unsafe { mem::transmute(&*self.x) }
     }
@@ -995,9 +1006,11 @@ pub trait ToString {
 
 impl<T: fmt::Show> ToString for T {
     fn to_string(&self) -> String {
-        let mut buf = Vec::<u8>::new();
-        let _ = fmt::write(&mut buf, format_args!("{}", *self));
-        String::from_utf8(buf).unwrap()
+        use core::fmt::Writer;
+        let mut buf = String::new();
+        let _ = buf.write_fmt(format_args!("{}", self));
+        buf.shrink_to_fit();
+        buf
     }
 }
 
@@ -1070,6 +1083,13 @@ impl<'a> Str for CowString<'a> {
     #[inline]
     fn as_slice<'b>(&'b self) -> &'b str {
         (**self).as_slice()
+    }
+}
+
+impl fmt::Writer for String {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.push_str(s);
+        Ok(())
     }
 }
 

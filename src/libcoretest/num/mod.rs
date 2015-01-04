@@ -13,6 +13,7 @@ use core::fmt::Show;
 use core::num::{NumCast, cast};
 use core::ops::{Add, Sub, Mul, Div, Rem};
 use core::kinds::Copy;
+use std::str::from_str;
 
 mod int_macros;
 mod i8;
@@ -30,9 +31,9 @@ mod uint;
 /// Helper function for testing numeric operations
 pub fn test_num<T>(ten: T, two: T) where
     T: PartialEq + NumCast
-     + Add<T, T> + Sub<T, T>
-     + Mul<T, T> + Div<T, T>
-     + Rem<T, T> + Show
+     + Add<Output=T> + Sub<Output=T>
+     + Mul<Output=T> + Div<Output=T>
+     + Rem<Output=T> + Show
      + Copy
 {
     assert_eq!(ten.add(two),  cast(12i).unwrap());
@@ -54,6 +55,7 @@ mod test {
     use core::option::Option::{Some, None};
     use core::num::Float;
     use core::num::from_str_radix;
+    use core::str::from_str;
 
     #[test]
     fn from_str_issue7588() {

@@ -18,19 +18,22 @@ use self::BuiltinBoundConditions::*;
 use self::EvaluationResult::*;
 
 use super::{DerivedObligationCause};
+use super::{project};
 use super::{PredicateObligation, Obligation, TraitObligation, ObligationCause};
 use super::{ObligationCauseCode, BuiltinDerivedObligation};
 use super::{SelectionError, Unimplemented, Overflow, OutputTypeParameterMismatch};
 use super::{Selection};
 use super::{SelectionResult};
-use super::{VtableBuiltin, VtableImpl, VtableParam, VtableUnboxedClosure, VtableFnPointer};
-use super::{VtableImplData, VtableBuiltinData};
+use super::{VtableBuiltin, VtableImpl, VtableParam, VtableUnboxedClosure,
+            VtableFnPointer, VtableObject};
+use super::{VtableImplData, VtableObjectData, VtableBuiltinData};
+use super::object_safety;
 use super::{util};
 
 use middle::fast_reject;
 use middle::mem_categorization::Typer;
-use middle::subst::{Subst, Substs, VecPerParamSpace};
-use middle::ty::{mod, AsPredicate, RegionEscape, ToPolyTraitRef, Ty};
+use middle::subst::{Subst, Substs, TypeSpace, VecPerParamSpace};
+use middle::ty::{self, AsPredicate, RegionEscape, ToPolyTraitRef, Ty};
 use middle::infer;
 use middle::infer::{InferCtxt, TypeFreshener};
 use middle::ty_fold::TypeFoldable;
@@ -43,8 +46,7 @@ use util::ppaux::Repr;
 
 pub struct SelectionContext<'cx, 'tcx:'cx> {
     infcx: &'cx InferCtxt<'cx, 'tcx>,
-    param_env: &'cx ty::ParameterEnvironment<'tcx>,
-    typer: &'cx (Typer<'tcx>+'cx),
+    closure_typer: &'cx (ty::UnboxedClosureTyper<'tcx>+'cx),
 
     /// Freshener used specifically for skolemizing entries on the
     /// obligation stack. This ensures that all entries on the stack
@@ -81,7 +83,7 @@ struct TraitObligationStack<'prev, 'tcx: 'prev> {
     previous: Option<&'prev TraitObligationStack<'prev, 'tcx>>
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct SelectionCache<'tcx> {
     hashmap: RefCell<HashMap<Rc<ty::TraitRef<'tcx>>,
                              SelectionResult<'tcx, SelectionCandidate<'tcx>>>>,
@@ -93,7 +95,7 @@ pub enum MethodMatchResult {
     MethodDidNotMatch,
 }
 
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 pub enum MethodMatchedData {
     // In the case of a precise match, we don't really need to store
     // how the match was found. So don't.
@@ -128,7 +130,7 @@ pub enum MethodMatchedData {
 /// matching where clause. Part of the reason for this is that where
 /// clauses can give additional information (like, the types of output
 /// parameters) that would have to be inferred from the impl.
-#[deriving(PartialEq,Eq,Show,Clone)]
+#[derive(PartialEq,Eq,Show,Clone)]
 enum SelectionCandidate<'tcx> {
     BuiltinCandidate(ty::BuiltinBound),
     ParamCandidate(ty::PolyTraitRef<'tcx>),
@@ -145,6 +147,8 @@ enum SelectionCandidate<'tcx> {
     /// Implementation of a `Fn`-family trait by one of the anonymous
     /// types generated for a fn pointer type (e.g., `fn(int)->int`)
     FnPointerCandidate,
+
+    ObjectCandidate,
 
     ErrorCandidate,
 }
@@ -167,7 +171,7 @@ enum BuiltinBoundConditions<'tcx> {
     AmbiguousBuiltin
 }
 
-#[deriving(Show)]
+#[derive(Show)]
 enum EvaluationResult<'tcx> {
     EvaluatedToOk,
     EvaluatedToAmbig,
@@ -176,26 +180,22 @@ enum EvaluationResult<'tcx> {
 
 impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
     pub fn new(infcx: &'cx InferCtxt<'cx, 'tcx>,
-               param_env: &'cx ty::ParameterEnvironment<'tcx>,
-               typer: &'cx Typer<'tcx>)
+               closure_typer: &'cx ty::UnboxedClosureTyper<'tcx>)
                -> SelectionContext<'cx, 'tcx> {
         SelectionContext {
             infcx: infcx,
-            param_env: param_env,
-            typer: typer,
+            closure_typer: closure_typer,
             freshener: infcx.freshener(),
             intercrate: false,
         }
     }
 
     pub fn intercrate(infcx: &'cx InferCtxt<'cx, 'tcx>,
-                      param_env: &'cx ty::ParameterEnvironment<'tcx>,
-                      typer: &'cx Typer<'tcx>)
+                      closure_typer: &'cx ty::UnboxedClosureTyper<'tcx>)
                       -> SelectionContext<'cx, 'tcx> {
         SelectionContext {
             infcx: infcx,
-            param_env: param_env,
-            typer: typer,
+            closure_typer: closure_typer,
             freshener: infcx.freshener(),
             intercrate: true,
         }
@@ -205,12 +205,12 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         self.infcx
     }
 
-    pub fn param_env(&self) -> &'cx ty::ParameterEnvironment<'tcx> {
-        self.param_env
-    }
-
     pub fn tcx(&self) -> &'cx ty::ctxt<'tcx> {
         self.infcx.tcx
+    }
+
+    pub fn param_env(&self) -> &'cx ty::ParameterEnvironment<'cx, 'tcx> {
+        self.closure_typer.param_env()
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -288,6 +288,23 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         }
     }
 
+    fn evaluate_predicates_recursively<'a,'o,I>(&mut self,
+                                                stack: Option<&TraitObligationStack<'o, 'tcx>>,
+                                                mut predicates: I)
+                                                -> EvaluationResult<'tcx>
+        where I : Iterator<Item=&'a PredicateObligation<'tcx>>, 'tcx:'a
+    {
+        let mut result = EvaluatedToOk;
+        for obligation in predicates {
+            match self.evaluate_predicate_recursively(stack, obligation) {
+                EvaluatedToErr(e) => { return EvaluatedToErr(e); }
+                EvaluatedToAmbig => { result = EvaluatedToAmbig; }
+                EvaluatedToOk => { }
+            }
+        }
+        result
+    }
+
     fn evaluate_predicate_recursively<'o>(&mut self,
                                           previous_stack: Option<&TraitObligationStack<'o, 'tcx>>,
                                           obligation: &PredicateObligation<'tcx>)
@@ -319,9 +336,22 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 EvaluatedToOk
             }
 
-            ty::Predicate::Projection(..) => {
-                // FIXME(#20296) -- we should be able to give a more precise answer here
-                EvaluatedToAmbig
+            ty::Predicate::Projection(ref data) => {
+                self.infcx.probe(|_| {
+                    let project_obligation = obligation.with(data.clone());
+                    match project::poly_project_and_unify_type(self, &project_obligation) {
+                        Ok(Some(subobligations)) => {
+                            self.evaluate_predicates_recursively(previous_stack,
+                                                                 subobligations.iter())
+                        }
+                        Ok(None) => {
+                            EvaluatedToAmbig
+                        }
+                        Err(_) => {
+                            EvaluatedToErr(Unimplemented)
+                        }
+                    }
+                })
             }
         }
     }
@@ -615,7 +645,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         // it's not worth going to more trouble to increase the
         // hit-rate I don't think.
         if self.intercrate {
-            return &self.param_env.selection_cache;
+            return &self.param_env().selection_cache;
         }
 
         // If the trait refers to any parameters in scope, then use
@@ -624,7 +654,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             cache_fresh_trait_pred.0.input_types().iter().any(
                 |&t| ty::type_has_self(t) || ty::type_has_params(t))
         {
-            return &self.param_env.selection_cache;
+            return &self.param_env().selection_cache;
         }
 
         // If the trait refers to unbound type variables, and there
@@ -633,11 +663,11 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         // common case, then we can use the global environment.
         // See the discussion in doc.rs for more details.
         if
-            !self.param_env.caller_bounds.is_empty() &&
+            !self.param_env().caller_bounds.is_empty() &&
             cache_fresh_trait_pred.0.input_types().iter().any(
                 |&t| ty::type_has_ty_infer(t))
         {
-            return &self.param_env.selection_cache;
+            return &self.param_env().selection_cache;
         }
 
         // Otherwise, we can use the global cache.
@@ -716,6 +746,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 try!(self.assemble_unboxed_closure_candidates(obligation, &mut candidates));
                 try!(self.assemble_fn_pointer_candidates(obligation, &mut candidates));
                 try!(self.assemble_candidates_from_impls(obligation, &mut candidates.vec));
+                self.assemble_candidates_from_object_ty(obligation, &mut candidates);
             }
         }
 
@@ -866,7 +897,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                obligation.repr(self.tcx()));
 
         let caller_trait_refs: Vec<_> =
-            self.param_env.caller_bounds.predicates.iter()
+            self.param_env().caller_bounds.predicates.iter()
             .filter_map(|o| o.to_opt_poly_trait_ref())
             .collect();
 
@@ -877,7 +908,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         let matching_bounds =
             all_bounds.filter(
                 |bound| self.infcx.probe(
-                    |_| self.match_where_clause(obligation, bound.clone())).is_ok());
+                    |_| self.match_poly_trait_ref(obligation, bound.clone())).is_ok());
 
         let param_candidates =
             matching_bounds.map(|bound| ParamCandidate(bound));
@@ -918,15 +949,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                kind,
                obligation.repr(self.tcx()));
 
-        let closure_kind = match self.typer.unboxed_closures().borrow().get(&closure_def_id) {
-            Some(closure) => closure.kind,
-            None => {
-                self.tcx().sess.span_bug(
-                    obligation.cause.span,
-                    format!("No entry for unboxed closure: {}",
-                            closure_def_id.repr(self.tcx()))[]);
-            }
-        };
+        let closure_kind = self.closure_typer.unboxed_closure_kind(closure_def_id);
 
         debug!("closure_kind = {}", closure_kind);
 
@@ -952,7 +975,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
         let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
         match self_ty.sty {
-            ty::ty_infer(..) => {
+            ty::ty_infer(ty::TyVar(_)) => {
                 candidates.ambiguous = true; // could wind up being a fn() type
             }
 
@@ -998,6 +1021,62 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         Ok(())
     }
 
+    /// Search for impls that might apply to `obligation`.
+    fn assemble_candidates_from_object_ty(&mut self,
+                                          obligation: &TraitObligation<'tcx>,
+                                          candidates: &mut SelectionCandidateSet<'tcx>)
+    {
+        let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
+
+        debug!("assemble_candidates_from_object_ty(self_ty={})",
+               self_ty.repr(self.tcx()));
+
+        // Object-safety candidates are only applicable to object-safe
+        // traits. Including this check is useful because it helps
+        // inference in cases of traits like `BorrowFrom`, which are
+        // not object-safe, and which rely on being able to infer the
+        // self-type from one of the other inputs. Without this check,
+        // these cases wind up being considered ambiguous due to a
+        // (spurious) ambiguity introduced here.
+        if !object_safety::is_object_safe(self.tcx(), obligation.predicate.to_poly_trait_ref()) {
+            return;
+        }
+
+        let poly_trait_ref = match self_ty.sty {
+            ty::ty_trait(ref data) => {
+                data.principal_trait_ref_with_self_ty(self.tcx(), self_ty)
+            }
+            ty::ty_infer(ty::TyVar(_)) => {
+                debug!("assemble_candidates_from_object_ty: ambiguous");
+                candidates.ambiguous = true; // could wind up being an object type
+                return;
+            }
+            _ => {
+                return;
+            }
+        };
+
+        debug!("assemble_candidates_from_object_ty: poly_trait_ref={}",
+               poly_trait_ref.repr(self.tcx()));
+
+        // see whether the object trait can be upcast to the trait we are looking for
+        let obligation_def_id = obligation.predicate.def_id();
+        let upcast_trait_ref = match util::upcast(self.tcx(), poly_trait_ref, obligation_def_id) {
+            Some(r) => r,
+            None => { return; }
+        };
+
+        debug!("assemble_candidates_from_object_ty: upcast_trait_ref={}",
+               upcast_trait_ref.repr(self.tcx()));
+
+        // check whether the upcast version of the trait-ref matches what we are looking for
+        if let Ok(()) = self.infcx.probe(|_| self.match_poly_trait_ref(obligation,
+                                                                       upcast_trait_ref.clone())) {
+            debug!("assemble_candidates_from_object_ty: matched, pushing candidate");
+            candidates.vec.push(ObjectCandidate);
+        }
+    }
+
     ///////////////////////////////////////////////////////////////////////////
     // WINNOW
     //
@@ -1033,15 +1112,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                             selection: Selection<'tcx>)
                             -> EvaluationResult<'tcx>
     {
-        let mut result = EvaluatedToOk;
-        for obligation in selection.iter_nested() {
-            match self.evaluate_predicate_recursively(stack, obligation) {
-                EvaluatedToErr(e) => { return EvaluatedToErr(e); }
-                EvaluatedToAmbig => { result = EvaluatedToAmbig; }
-                EvaluatedToOk => { }
-            }
-        }
-        result
+        self.evaluate_predicates_recursively(stack, selection.iter_nested())
     }
 
     /// Returns true if `candidate_i` should be dropped in favor of `candidate_j`.
@@ -1398,32 +1469,21 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                     return Ok(ParameterBuiltin);
                 }
 
-                match self.tcx().freevars.borrow().get(&def_id.node) {
-                    None => {
-                        // No upvars.
-                        Ok(If(Vec::new()))
+                match self.closure_typer.unboxed_closure_upvars(def_id, substs) {
+                    Some(upvars) => {
+                        Ok(If(upvars.iter().map(|c| c.ty).collect()))
                     }
-
-                    Some(freevars) => {
-                        let tys: Vec<Ty> =
-                            freevars
-                            .iter()
-                            .map(|freevar| {
-                                let freevar_def_id = freevar.def.def_id();
-                                self.typer.node_ty(freevar_def_id.node).subst(self.tcx(), substs)
-                            })
-                            .collect();
-                        Ok(If(tys))
+                    None => {
+                        Ok(AmbiguousBuiltin)
                     }
                 }
             }
 
             ty::ty_struct(def_id, substs) => {
                 let types: Vec<Ty> =
-                    ty::struct_fields(self.tcx(), def_id, substs)
-                    .iter()
-                    .map(|f| f.mt.ty)
-                    .collect();
+                    ty::struct_fields(self.tcx(), def_id, substs).iter()
+                                                                 .map(|f| f.mt.ty)
+                                                                 .collect();
                 nominal(self, bound, def_id, types)
             }
 
@@ -1560,6 +1620,11 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             UnboxedClosureCandidate(closure_def_id, substs) => {
                 try!(self.confirm_unboxed_closure_candidate(obligation, closure_def_id, &substs));
                 Ok(VtableUnboxedClosure(closure_def_id, substs))
+            }
+
+            ObjectCandidate => {
+                let data = self.confirm_object_candidate(obligation);
+                Ok(VtableObject(data))
             }
 
             FnPointerCandidate => {
@@ -1745,6 +1810,48 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                          nested: impl_predicates }
     }
 
+    fn confirm_object_candidate(&mut self,
+                                obligation: &TraitObligation<'tcx>)
+                                -> VtableObjectData<'tcx>
+    {
+        debug!("confirm_object_candidate({})",
+               obligation.repr(self.tcx()));
+
+        let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
+        let poly_trait_ref = match self_ty.sty {
+            ty::ty_trait(ref data) => {
+                data.principal_trait_ref_with_self_ty(self.tcx(), self_ty)
+            }
+            _ => {
+                self.tcx().sess.span_bug(obligation.cause.span,
+                                         "object candidate with non-object");
+            }
+        };
+
+        let obligation_def_id = obligation.predicate.def_id();
+        let upcast_trait_ref = match util::upcast(self.tcx(),
+                                                  poly_trait_ref.clone(),
+                                                  obligation_def_id) {
+            Some(r) => r,
+            None => {
+                self.tcx().sess.span_bug(obligation.cause.span,
+                                         format!("unable to upcast from {} to {}",
+                                                 poly_trait_ref.repr(self.tcx()),
+                                                 obligation_def_id.repr(self.tcx())).as_slice());
+            }
+        };
+
+        match self.match_poly_trait_ref(obligation, upcast_trait_ref) {
+            Ok(()) => { }
+            Err(()) => {
+                self.tcx().sess.span_bug(obligation.cause.span,
+                                         "failed to match trait refs");
+            }
+        }
+
+        VtableObjectData { object_ty: self_ty }
+    }
+
     fn confirm_fn_pointer_candidate(&mut self,
                                     obligation: &TraitObligation<'tcx>)
                                     -> Result<ty::Ty<'tcx>,SelectionError<'tcx>>
@@ -1798,27 +1905,22 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                closure_def_id.repr(self.tcx()),
                substs.repr(self.tcx()));
 
-        let closure_type = match self.typer.unboxed_closures().borrow().get(&closure_def_id) {
-            Some(closure) => closure.closure_type.clone(),
-            None => {
-                self.tcx().sess.span_bug(
-                    obligation.cause.span,
-                    format!("No entry for unboxed closure: {}",
-                            closure_def_id.repr(self.tcx()))[]);
-            }
-        };
+        let closure_type = self.closure_typer.unboxed_closure_type(closure_def_id, substs);
+
+        debug!("confirm_unboxed_closure_candidate: closure_def_id={} closure_type={}",
+               closure_def_id.repr(self.tcx()),
+               closure_type.repr(self.tcx()));
 
         let closure_sig = &closure_type.sig;
         let arguments_tuple = closure_sig.0.inputs[0];
-        let substs =
+        let trait_substs =
             Substs::new_trait(
-                vec![arguments_tuple.subst(self.tcx(), substs),
-                     closure_sig.0.output.unwrap().subst(self.tcx(), substs)],
+                vec![arguments_tuple, closure_sig.0.output.unwrap()],
                 vec![],
                 obligation.self_ty());
         let trait_ref = ty::Binder(Rc::new(ty::TraitRef {
             def_id: obligation.predicate.def_id(),
-            substs: self.tcx().mk_substs(substs),
+            substs: self.tcx().mk_substs(trait_substs),
         }));
 
         debug!("confirm_unboxed_closure_candidate(closure_def_id={}, trait_ref={})",
@@ -1985,12 +2087,12 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             })
     }
 
-    fn match_where_clause(&mut self,
-                          obligation: &TraitObligation<'tcx>,
-                          where_clause_trait_ref: ty::PolyTraitRef<'tcx>)
-                        -> Result<(),()>
+    fn match_poly_trait_ref(&mut self,
+                            obligation: &TraitObligation<'tcx>,
+                            where_clause_trait_ref: ty::PolyTraitRef<'tcx>)
+                            -> Result<(),()>
     {
-        debug!("match_where_clause: obligation={} where_clause_trait_ref={}",
+        debug!("match_poly_trait_ref: obligation={} where_clause_trait_ref={}",
                obligation.repr(self.tcx()),
                where_clause_trait_ref.repr(self.tcx()));
 
@@ -2100,7 +2202,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         }
     }
 
-    fn impl_predicates(&self,
+    fn impl_predicates(&mut self,
                        cause: ObligationCause<'tcx>,
                        recursion_depth: uint,
                        impl_def_id: ast::DefId,
@@ -2111,8 +2213,19 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
     {
         let impl_generics = ty::lookup_item_type(self.tcx(), impl_def_id).generics;
         let bounds = impl_generics.to_bounds(self.tcx(), impl_substs);
-        let bounds = self.infcx().plug_leaks(skol_map, snapshot, &bounds);
-        util::predicates_for_generics(self.tcx(), cause, recursion_depth, &bounds)
+        let normalized_bounds =
+            project::normalize_with_depth(self, cause.clone(), recursion_depth, &bounds);
+        let normalized_bounds =
+            self.infcx().plug_leaks(skol_map, snapshot, &normalized_bounds);
+        let mut impl_obligations =
+            util::predicates_for_generics(self.tcx(),
+                                          cause,
+                                          recursion_depth,
+                                          &normalized_bounds.value);
+        for obligation in normalized_bounds.obligations.into_iter() {
+            impl_obligations.push(TypeSpace, obligation);
+        }
+        impl_obligations
     }
 
     fn fn_family_trait_kind(&self,
@@ -2173,6 +2286,9 @@ impl<'tcx> Repr<'tcx> for SelectionCandidate<'tcx> {
             ImplCandidate(a) => format!("ImplCandidate({})", a.repr(tcx)),
             ProjectionCandidate => format!("ProjectionCandidate"),
             FnPointerCandidate => format!("FnPointerCandidate"),
+            ObjectCandidate => {
+                format!("ObjectCandidate")
+            }
             UnboxedClosureCandidate(c, ref s) => {
                 format!("UnboxedClosureCandidate({},{})", c, s.repr(tcx))
             }
@@ -2194,9 +2310,9 @@ impl<'o, 'tcx> TraitObligationStack<'o, 'tcx> {
     }
 }
 
-impl<'o, 'tcx> Iterator<&'o TraitObligationStack<'o,'tcx>>
-           for Option<&'o TraitObligationStack<'o, 'tcx>>
-{
+impl<'o, 'tcx> Iterator for Option<&'o TraitObligationStack<'o, 'tcx>> {
+    type Item = &'o TraitObligationStack<'o,'tcx>;
+
     fn next(&mut self) -> Option<&'o TraitObligationStack<'o, 'tcx>> {
         match *self {
             Some(o) => {

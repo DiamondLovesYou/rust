@@ -232,7 +232,7 @@ struct DefaultLogger {
 }
 
 /// Wraps the log level with fmt implementations.
-#[deriving(Copy, PartialEq, PartialOrd)]
+#[derive(Copy, PartialEq, PartialOrd)]
 pub struct LogLevel(pub u32);
 
 impl fmt::Show for LogLevel {
@@ -319,7 +319,7 @@ pub fn set_logger(logger: Box<Logger + Send>) -> Option<Box<Logger + Send>> {
 
 /// A LogRecord is created by the logging macros, and passed as the only
 /// argument to Loggers.
-#[deriving(Show)]
+#[derive(Show)]
 pub struct LogRecord<'a> {
 
     /// The module path of where the LogRecord originated.
@@ -339,7 +339,7 @@ pub struct LogRecord<'a> {
 }
 
 #[doc(hidden)]
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct LogLocation {
     pub module_path: &'static str,
     pub file: &'static str,
@@ -352,7 +352,7 @@ pub struct LogLocation {
 #[doc(hidden)]
 pub fn mod_enabled(level: u32, module: &str) -> bool {
     static INIT: Once = ONCE_INIT;
-    INIT.doit(init);
+    INIT.call_once(init);
 
     // It's possible for many threads are in this function, only one of them
     // will perform the global initialization, but all of them will need to check

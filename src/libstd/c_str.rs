@@ -45,6 +45,8 @@
 //! ```rust
 //! extern crate libc;
 //!
+//! use std::c_str::ToCStr;
+//!
 //! extern {
 //!     fn puts(s: *const libc::c_char);
 //! }
@@ -70,11 +72,12 @@
 use core::prelude::*;
 use libc;
 
+use cmp::Ordering;
 use fmt;
 use hash;
 use mem;
 use ptr;
-use slice::{mod, IntSliceExt};
+use slice::{self, IntSliceExt};
 use str;
 use string::String;
 use core::kinds::marker;
@@ -155,6 +158,8 @@ impl CString {
     /// one).
     ///
     /// ```rust
+    /// use std::c_str::ToCStr;
+    ///
     /// let foo = "some string";
     ///
     /// // right
@@ -169,6 +174,8 @@ impl CString {
     ///
     /// ```rust
     /// extern crate libc;
+    ///
+    /// use std::c_str::ToCStr;
     ///
     /// fn main() {
     ///     let c_str = "foo bar".to_c_str();
@@ -189,6 +196,8 @@ impl CString {
     /// one).
     ///
     /// ```rust
+    /// use std::c_str::ToCStr;
+    ///
     /// let foo = "some string";
     ///
     /// // right
@@ -308,6 +317,8 @@ pub trait ToCStr for Sized? {
     ///
     /// ```rust
     /// extern crate libc;
+    ///
+    /// use std::c_str::ToCStr;
     ///
     /// fn main() {
     ///     let s = "PATH".with_c_str(|path| unsafe {
@@ -454,7 +465,7 @@ unsafe fn with_c_str<T, F>(v: &[u8], checked: bool, f: F) -> T where
     F: FnOnce(*const libc::c_char) -> T,
 {
     let c_str = if v.len() < BUF_LEN {
-        let mut buf: [u8, .. BUF_LEN] = mem::uninitialized();
+        let mut buf: [u8; BUF_LEN] = mem::uninitialized();
         slice::bytes::copy_memory(&mut buf, v);
         buf[v.len()] = 0;
 
@@ -487,13 +498,15 @@ fn check_for_null(v: &[u8], buf: *mut libc::c_char) {
 ///
 /// Use with the `std::iter` module.
 #[allow(raw_pointer_deriving)]
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct CChars<'a> {
     ptr: *const libc::c_char,
     marker: marker::ContravariantLifetime<'a>,
 }
 
-impl<'a> Iterator<libc::c_char> for CChars<'a> {
+impl<'a> Iterator for CChars<'a> {
+    type Item = libc::c_char;
+
     fn next(&mut self) -> Option<libc::c_char> {
         let ch = unsafe { *self.ptr };
         if ch == 0 {
@@ -538,9 +551,8 @@ pub unsafe fn from_c_multistring<F>(buf: *const libc::c_char,
 
 #[cfg(test)]
 mod tests {
+    use prelude::v1::*;
     use super::*;
-    use prelude::{spawn, Some, None, Option, FnOnce, ToString, CloneSliceExt};
-    use prelude::{Clone, PtrExt, Iterator, SliceExt, StrExt};
     use ptr;
     use thread::Thread;
     use libc;
@@ -613,7 +625,7 @@ mod tests {
     #[test]
     fn test_unwrap() {
         let c_str = "hello".to_c_str();
-        unsafe { libc::free(c_str.unwrap() as *mut libc::c_void) }
+        unsafe { libc::free(c_str.into_inner() as *mut libc::c_void) }
     }
 
     #[test]
@@ -732,9 +744,10 @@ mod tests {
 mod bench {
     extern crate test;
 
+    use prelude::v1::*;
     use self::test::Bencher;
     use libc;
-    use prelude::*;
+    use c_str::ToCStr;
 
     #[inline]
     fn check(s: &str, c_str: *const libc::c_char) {

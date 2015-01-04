@@ -64,10 +64,10 @@ use core::default::Default;
 use core::fmt;
 use core::hash;
 use core::iter::AdditiveIterator;
-use core::iter::{mod, range, Iterator, IteratorExt};
+use core::iter::{self, range, Iterator, IteratorExt};
 use core::kinds::Sized;
 use core::ops;
-use core::option::Option::{mod, Some, None};
+use core::option::Option::{self, Some, None};
 use core::slice::AsSlice;
 use core::str as core_str;
 use unicode::str::{UnicodeStr, Utf16Encoder};
@@ -165,7 +165,7 @@ fn canonical_sort(comb: &mut [(char, u8)]) {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 enum DecompositionType {
     Canonical,
     Compatible
@@ -173,7 +173,7 @@ enum DecompositionType {
 
 /// External iterator for a string's decomposition's characters.
 /// Use with the `std::iter` module.
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Decompositions<'a> {
     kind: DecompositionType,
     iter: Chars<'a>,
@@ -181,7 +181,9 @@ pub struct Decompositions<'a> {
     sorted: bool
 }
 
-impl<'a> Iterator<char> for Decompositions<'a> {
+impl<'a> Iterator for Decompositions<'a> {
+    type Item = char;
+
     #[inline]
     fn next(&mut self) -> Option<char> {
         match self.buffer.first() {
@@ -250,7 +252,7 @@ impl<'a> Iterator<char> for Decompositions<'a> {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 enum RecompositionState {
     Composing,
     Purging,
@@ -259,7 +261,7 @@ enum RecompositionState {
 
 /// External iterator for a string's recomposition's characters.
 /// Use with the `std::iter` module.
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Recompositions<'a> {
     iter: Decompositions<'a>,
     state: RecompositionState,
@@ -268,7 +270,9 @@ pub struct Recompositions<'a> {
     last_ccc: Option<u8>
 }
 
-impl<'a> Iterator<char> for Recompositions<'a> {
+impl<'a> Iterator for Recompositions<'a> {
+    type Item = char;
+
     #[inline]
     fn next(&mut self) -> Option<char> {
         loop {
@@ -352,12 +356,14 @@ impl<'a> Iterator<char> for Recompositions<'a> {
 
 /// External iterator for a string's UTF16 codeunits.
 /// Use with the `std::iter` module.
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Utf16Units<'a> {
     encoder: Utf16Encoder<Chars<'a>>
 }
 
-impl<'a> Iterator<u16> for Utf16Units<'a> {
+impl<'a> Iterator for Utf16Units<'a> {
+    type Item = u16;
+
     #[inline]
     fn next(&mut self) -> Option<u16> { self.encoder.next() }
 
@@ -2517,7 +2523,7 @@ mod tests {
 
     #[test]
     fn test_chars_decoding() {
-        let mut bytes = [0u8, ..4];
+        let mut bytes = [0u8; 4];
         for c in range(0u32, 0x110000).filter_map(|c| ::core::char::from_u32(c)) {
             let len = c.encode_utf8(&mut bytes).unwrap_or(0);
             let s = ::core::str::from_utf8(bytes[..len]).unwrap();
@@ -2529,7 +2535,7 @@ mod tests {
 
     #[test]
     fn test_chars_rev_decoding() {
-        let mut bytes = [0u8, ..4];
+        let mut bytes = [0u8; 4];
         for c in range(0u32, 0x110000).filter_map(|c| ::core::char::from_u32(c)) {
             let len = c.encode_utf8(&mut bytes).unwrap_or(0);
             let s = ::core::str::from_utf8(bytes[..len]).unwrap();
@@ -2743,7 +2749,7 @@ mod tests {
         use core::iter::order;
         // official Unicode test data
         // from http://www.unicode.org/Public/UCD/latest/ucd/auxiliary/GraphemeBreakTest.txt
-        let test_same: [(_, &[_]), .. 325] = [
+        let test_same: [(_, &[_]); 325] = [
             ("\u{20}\u{20}", &["\u{20}", "\u{20}"]),
             ("\u{20}\u{308}\u{20}", &["\u{20}\u{308}", "\u{20}"]),
             ("\u{20}\u{D}", &["\u{20}", "\u{D}"]),
@@ -3075,7 +3081,7 @@ mod tests {
             ("\u{646}\u{200D}\u{20}", &["\u{646}\u{200D}", "\u{20}"]),
         ];
 
-        let test_diff: [(_, &[_], &[_]), .. 23] = [
+        let test_diff: [(_, &[_], &[_]); 23] = [
             ("\u{20}\u{903}", &["\u{20}\u{903}"], &["\u{20}", "\u{903}"]), ("\u{20}\u{308}\u{903}",
             &["\u{20}\u{308}\u{903}"], &["\u{20}\u{308}", "\u{903}"]), ("\u{D}\u{308}\u{903}",
             &["\u{D}", "\u{308}\u{903}"], &["\u{D}", "\u{308}", "\u{903}"]), ("\u{A}\u{308}\u{903}",
@@ -3272,7 +3278,7 @@ mod tests {
 #[cfg(test)]
 mod bench {
     use super::*;
-    use prelude::{SliceExt, IteratorExt, DoubleEndedIteratorExt, SliceConcatExt};
+    use prelude::{SliceExt, IteratorExt, SliceConcatExt};
     use test::Bencher;
     use test::black_box;
 

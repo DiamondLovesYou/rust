@@ -15,7 +15,7 @@ pub use self::AbiArchitecture::*;
 
 use std::fmt;
 
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 pub enum Os {
     OsWindows,
     OsMacos,
@@ -26,7 +26,7 @@ pub enum Os {
     OsDragonfly,
     OsNaCl,
 }
-#[deriving(PartialEq, Eq, Hash, RustcEncodable, RustcDecodable, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, RustcEncodable, RustcDecodable, Clone, Copy)]
 pub enum Abi {
     // NB: This ordering MUST match the AbiDatas array below.
     // (This is ensured by the test indices_are_correct().)
@@ -47,7 +47,7 @@ pub enum Abi {
 }
 
 #[allow(non_camel_case_types)]
-#[deriving(Copy, PartialEq)]
+#[derive(Copy, PartialEq)]
 pub enum Architecture {
     X86,
     X86_64,
@@ -57,7 +57,7 @@ pub enum Architecture {
     Le32,
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct AbiData {
     abi: Abi,
 
@@ -65,7 +65,7 @@ pub struct AbiData {
     name: &'static str,
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum AbiArchitecture {
     /// Not a real ABI (e.g., intrinsic)
     RustArch,

@@ -10,6 +10,8 @@
 
 #![feature(unboxed_closures)]
 
+use std::ops::Add;
+
 #[inline]
 pub fn has_closures() -> uint {
     let x = 1u;
@@ -19,7 +21,7 @@ pub fn has_closures() -> uint {
     f() + g()
 }
 
-pub fn has_generic_closures<T: Add<T,T> + Copy>(x: T, y: T) -> T {
+pub fn has_generic_closures<T: Add<Output=T> + Copy>(x: T, y: T) -> T {
     let mut f = move |&mut:| x;
     let g = |:| y;
     f() + g()

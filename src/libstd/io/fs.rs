@@ -558,12 +558,14 @@ pub fn walk_dir(path: &Path) -> IoResult<Directories> {
 }
 
 /// An iterator that walks over a directory
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Directories {
     stack: Vec<Path>,
 }
 
-impl Iterator<Path> for Directories {
+impl Iterator for Directories {
+    type Item = Path;
+
     fn next(&mut self) -> Option<Path> {
         match self.stack.pop() {
             Some(path) => {
@@ -819,7 +821,7 @@ fn access_string(access: FileAccess) -> &'static str {
 #[allow(unused_variables)]
 #[allow(unused_mut)]
 mod test {
-    use prelude::*;
+    use prelude::v1::*;
     use io::{SeekSet, SeekCur, SeekEnd, Read, Open, ReadWrite, FileType};
     use io;
     use str;
@@ -882,7 +884,7 @@ mod test {
         }
         {
             let mut read_stream = File::open_mode(filename, Open, Read);
-            let mut read_buf = [0, .. 1028];
+            let mut read_buf = [0; 1028];
             let read_str = match check!(read_stream.read(&mut read_buf)) {
                 -1|0 => panic!("shouldn't happen"),
                 n => str::from_utf8(read_buf[..n]).unwrap().to_string()
@@ -922,7 +924,7 @@ mod test {
     #[test]
     fn file_test_io_non_positional_read() {
         let message: &str = "ten-four";
-        let mut read_mem = [0, .. 8];
+        let mut read_mem = [0; 8];
         let tmpdir = tmpdir();
         let filename = &tmpdir.join("file_rt_io_file_test_positional.txt");
         {
@@ -948,7 +950,7 @@ mod test {
     #[test]
     fn file_test_io_seek_and_tell_smoke_test() {
         let message = "ten-four";
-        let mut read_mem = [0, .. 4];
+        let mut read_mem = [0; 4];
         let set_cursor = 4 as u64;
         let mut tell_pos_pre_read;
         let mut tell_pos_post_read;
@@ -978,7 +980,7 @@ mod test {
         let overwrite_msg =    "-the-bar!!";
         let final_msg =     "foo-the-bar!!";
         let seek_idx = 3i;
-        let mut read_mem = [0, .. 13];
+        let mut read_mem = [0; 13];
         let tmpdir = tmpdir();
         let filename = &tmpdir.join("file_rt_io_file_test_seek_and_write.txt");
         {
@@ -1003,7 +1005,7 @@ mod test {
         let chunk_one: &str = "qwer";
         let chunk_two: &str = "asdf";
         let chunk_three: &str = "zxcv";
-        let mut read_mem = [0, .. 4];
+        let mut read_mem = [0; 4];
         let tmpdir = tmpdir();
         let filename = &tmpdir.join("file_rt_io_file_test_seek_shakedown.txt");
         {
@@ -1105,7 +1107,7 @@ mod test {
             check!(w.write(msg));
         }
         let files = check!(readdir(dir));
-        let mut mem = [0u8, .. 4];
+        let mut mem = [0u8; 4];
         for f in files.iter() {
             {
                 let n = f.filestem_str();
@@ -1137,7 +1139,7 @@ mod test {
         check!(File::create(&dir2.join("14")));
 
         let mut files = check!(walk_dir(dir));
-        let mut cur = [0u8, .. 2];
+        let mut cur = [0u8; 2];
         for f in files {
             let stem = f.filestem_str().unwrap();
             let root = stem.as_bytes()[0] - b'0';
@@ -1546,7 +1548,7 @@ mod test {
     fn binary_file() {
         use rand::{StdRng, Rng};
 
-        let mut bytes = [0, ..1024];
+        let mut bytes = [0; 1024];
         StdRng::new().ok().unwrap().fill_bytes(&mut bytes);
 
         let tmpdir = tmpdir();

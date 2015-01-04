@@ -13,8 +13,9 @@
 //! hierarchy, with item counts for every stability level per module. A parent
 //! module's count includes its children's.
 
-use std::ops::Add;
+use std::cmp::Ordering;
 use std::num::Zero;
+use std::ops::Add;
 
 use syntax::attr::{Deprecated, Experimental, Unstable, Stable, Frozen, Locked};
 use syntax::ast::Public;
@@ -25,9 +26,9 @@ use clean::{TypeTraitItem, ViewItemItem, PrimitiveItem, Stability};
 
 use html::render::cache;
 
-#[deriving(Zero, RustcEncodable, RustcDecodable, PartialEq, Eq)]
+#[derive(Zero, RustcEncodable, RustcDecodable, PartialEq, Eq)]
 /// The counts for each stability level.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Counts {
     pub deprecated: uint,
     pub experimental: uint,
@@ -40,7 +41,9 @@ pub struct Counts {
     pub unmarked: uint,
 }
 
-impl Add<Counts, Counts> for Counts {
+impl Add for Counts {
+    type Output = Counts;
+
     fn add(self, other: Counts) -> Counts {
         Counts {
             deprecated:   self.deprecated   + other.deprecated,
@@ -73,7 +76,7 @@ impl Counts {
     }
 }
 
-#[deriving(RustcEncodable, RustcDecodable, PartialEq, Eq)]
+#[derive(RustcEncodable, RustcDecodable, PartialEq, Eq)]
 /// A summarized module, which includes total counts and summarized children
 /// modules.
 pub struct ModuleSummary {

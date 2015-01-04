@@ -41,7 +41,7 @@ use std::str;
 pub mod io;
 
 /// Common data structures
-#[deriving(Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Doc<'a> {
     pub data: &'a [u8],
     pub start: uint,
@@ -71,7 +71,7 @@ pub struct TaggedDoc<'a> {
     pub doc: Doc<'a>,
 }
 
-#[deriving(Copy, Show)]
+#[derive(Copy, Show)]
 pub enum EbmlEncoderTag {
     EsUint,     // 0
     EsU64,      // 1
@@ -105,7 +105,7 @@ pub enum EbmlEncoderTag {
     EsLabel, // Used only when debugging
 }
 
-#[deriving(Show)]
+#[derive(Show)]
 pub enum Error {
     IntTooBig(uint),
     Expected(String),
@@ -147,7 +147,7 @@ pub mod reader {
         )
     }
 
-    #[deriving(Copy)]
+    #[derive(Copy)]
     pub struct Res {
         pub val: uint,
         pub next: uint
@@ -200,7 +200,7 @@ pub mod reader {
         // the most significant bit is set, the second most significant bit is set etc. we can
         // replace up to three "and+branch" with a single table lookup which gives us a measured
         // speedup of around 2x on x86_64.
-        static SHIFT_MASK_TABLE: [(uint, u32), ..16] = [
+        static SHIFT_MASK_TABLE: [(uint, u32); 16] = [
             (0, 0x0), (0, 0x0fffffff),
             (8, 0x1fffff), (8, 0x1fffff),
             (16, 0x3fff), (16, 0x3fff), (16, 0x3fff), (16, 0x3fff),

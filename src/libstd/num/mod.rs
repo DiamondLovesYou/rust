@@ -127,9 +127,9 @@ pub fn abs_sub<T: FloatMath>(x: T, y: T) -> T {
 #[cfg(test)]
 pub fn test_num<T>(ten: T, two: T) where
     T: PartialEq + NumCast
-     + Add<T, T> + Sub<T, T>
-     + Mul<T, T> + Div<T, T>
-     + Rem<T, T> + Show
+     + Add<Output=T> + Sub<Output=T>
+     + Mul<Output=T> + Div<Output=T>
+     + Rem<Output=T> + Show
      + Copy
 {
     assert_eq!(ten.add(two),  cast(12i).unwrap());
@@ -147,10 +147,8 @@ pub fn test_num<T>(ten: T, two: T) where
 
 #[cfg(test)]
 mod tests {
-    use prelude::{range, Some, None, Option, IteratorExt};
-    use super::{from_int, from_uint, from_i32, from_i64, from_u64, from_u32};
-    use super::{from_f64, from_f32, from_u16, from_i16, from_u8, from_i8, Int};
-    use super::{cast, NumCast, ToPrimitive, FromPrimitive, UnsignedInt};
+    use prelude::v1::*;
+    use super::*;
     use i8;
     use i16;
     use i32;
@@ -729,7 +727,7 @@ mod tests {
     test_checked_next_power_of_two! { test_checked_next_power_of_two_u64, u64 }
     test_checked_next_power_of_two! { test_checked_next_power_of_two_uint, uint }
 
-    #[deriving(PartialEq, Show)]
+    #[derive(PartialEq, Show)]
     struct Value { x: int }
 
     impl ToPrimitive for Value {
@@ -802,7 +800,7 @@ mod bench {
     extern crate test;
     use self::test::Bencher;
     use num::Int;
-    use prelude::*;
+    use prelude::v1::*;
 
     #[bench]
     fn bench_pow_function(b: &mut Bencher) {

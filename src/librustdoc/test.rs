@@ -9,18 +9,18 @@
 // except according to those terms.
 
 use std::cell::RefCell;
+use std::sync::mpsc::channel;
 use std::dynamic_lib::DynamicLibrary;
 use std::io::{Command, TempDir};
 use std::io;
 use std::os;
 use std::str;
-use std::string::String;
-use std::thunk::Thunk;
 use std::thread::Thread;
+use std::thunk::Thunk;
 
 use std::collections::{HashSet, HashMap};
 use testing;
-use rustc::session::{mod, config};
+use rustc::session::{self, config};
 use rustc::session::search_paths::{SearchPaths, PathKind};
 use rustc_driver::driver;
 use syntax::ast;

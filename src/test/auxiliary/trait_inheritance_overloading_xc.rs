@@ -8,25 +8,34 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::cmp::PartialEq;
+#![feature(associated_types)]
 
-pub trait MyNum : Add<Self,Self> + Sub<Self,Self> + Mul<Self,Self> + PartialEq + Clone {
+use std::cmp::PartialEq;
+use std::ops::{Add, Sub, Mul};
+
+pub trait MyNum : Add<Output=Self> + Sub<Output=Self> + Mul<Output=Self> + PartialEq + Clone {
 }
 
-#[deriving(Clone, Show)]
+#[derive(Clone, Show)]
 pub struct MyInt {
     pub val: int
 }
 
-impl Add<MyInt, MyInt> for MyInt {
+impl Add for MyInt {
+    type Output = MyInt;
+
     fn add(self, other: MyInt) -> MyInt { mi(self.val + other.val) }
 }
 
-impl Sub<MyInt, MyInt> for MyInt {
+impl Sub for MyInt {
+    type Output = MyInt;
+
     fn sub(self, other: MyInt) -> MyInt { mi(self.val - other.val) }
 }
 
-impl Mul<MyInt, MyInt> for MyInt {
+impl Mul for MyInt {
+    type Output = MyInt;
+
     fn mul(self, other: MyInt) -> MyInt { mi(self.val * other.val) }
 }
 

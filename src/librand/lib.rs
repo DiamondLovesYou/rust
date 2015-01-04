@@ -25,6 +25,7 @@
 
 #![feature(macro_rules, phase, globs)]
 #![feature(unboxed_closures)]
+#![feature(associated_types)]
 #![no_std]
 #![experimental]
 
@@ -52,14 +53,14 @@ pub mod reseeding;
 mod rand_impls;
 
 /// A type that can be randomly generated using an `Rng`.
-pub trait Rand {
+pub trait Rand : Sized {
     /// Generates a random instance of this type using the specified source of
     /// randomness.
     fn rand<R: Rng>(rng: &mut R) -> Self;
 }
 
 /// A random number generator.
-pub trait Rng {
+pub trait Rng : Sized {
     /// Return the next random u32.
     ///
     /// This rarely needs to be called directly, prefer `r.gen()` to
@@ -74,7 +75,7 @@ pub trait Rng {
     /// these two methods. Similarly to `next_u32`, this rarely needs
     /// to be called directly, prefer `r.gen()` to `r.next_u64()`.
     fn next_u64(&mut self) -> u64 {
-        (self.next_u32() as u64 << 32) | (self.next_u32() as u64)
+        ((self.next_u32() as u64) << 32) | (self.next_u32() as u64)
     }
 
     /// Return the next random f32 selected from the half-open
@@ -140,7 +141,7 @@ pub trait Rng {
     /// ```rust
     /// use std::rand::{thread_rng, Rng};
     ///
-    /// let mut v = [0u8, .. 13579];
+    /// let mut v = [0u8; 13579];
     /// thread_rng().fill_bytes(&mut v);
     /// println!("{}", v.as_slice());
     /// ```
@@ -314,7 +315,9 @@ pub struct Generator<'a, T, R:'a> {
     rng: &'a mut R,
 }
 
-impl<'a, T: Rand, R: Rng> Iterator<T> for Generator<'a, T, R> {
+impl<'a, T: Rand, R: Rng> Iterator for Generator<'a, T, R> {
+    type Item = T;
+
     fn next(&mut self) -> Option<T> {
         Some(self.rng.gen())
     }
@@ -327,7 +330,9 @@ pub struct AsciiGenerator<'a, R:'a> {
     rng: &'a mut R,
 }
 
-impl<'a, R: Rng> Iterator<char> for AsciiGenerator<'a, R> {
+impl<'a, R: Rng> Iterator for AsciiGenerator<'a, R> {
+    type Item = char;
+
     fn next(&mut self) -> Option<char> {
         static GEN_ASCII_STR_CHARSET: &'static [u8] =
             b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
@@ -429,9 +434,9 @@ impl Rng for XorShiftRng {
     }
 }
 
-impl SeedableRng<[u32, .. 4]> for XorShiftRng {
+impl SeedableRng<[u32; 4]> for XorShiftRng {
     /// Reseed an XorShiftRng. This will panic if `seed` is entirely 0.
-    fn reseed(&mut self, seed: [u32, .. 4]) {
+    fn reseed(&mut self, seed: [u32; 4]) {
         assert!(!seed.iter().all(|&x| x == 0),
                 "XorShiftRng.reseed called with an all zero seed.");
 
@@ -442,7 +447,7 @@ impl SeedableRng<[u32, .. 4]> for XorShiftRng {
     }
 
     /// Create a new XorShiftRng. This will panic if `seed` is entirely 0.
-    fn from_seed(seed: [u32, .. 4]) -> XorShiftRng {
+    fn from_seed(seed: [u32; 4]) -> XorShiftRng {
         assert!(!seed.iter().all(|&x| x == 0),
                 "XorShiftRng::from_seed called with an all zero seed.");
 

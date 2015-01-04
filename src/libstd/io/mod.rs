@@ -232,8 +232,9 @@ use error::{FromError, Error};
 use fmt;
 use int;
 use iter::{Iterator, IteratorExt};
+use kinds::Sized;
 use mem::transmute;
-use ops::{BitOr, BitXor, BitAnd, Sub, Not, FnOnce};
+use ops::FnOnce;
 use option::Option;
 use option::Option::{Some, None};
 use os;
@@ -300,7 +301,7 @@ pub type IoResult<T> = Result<T, IoError>;
 /// # FIXME
 ///
 /// Is something like this sufficient? It's kind of archaic
-#[deriving(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct IoError {
     /// An enumeration which can be matched against for determining the flavor
     /// of error.
@@ -367,7 +368,7 @@ impl FromError<IoError> for Box<Error> {
 }
 
 /// A list specifying general categories of I/O error.
-#[deriving(Copy, PartialEq, Eq, Clone, Show)]
+#[derive(Copy, PartialEq, Eq, Clone, Show)]
 pub enum IoErrorKind {
     /// Any I/O error not part of this list.
     OtherIoError,
@@ -1028,16 +1029,16 @@ pub trait Writer {
     ///
     /// This function will return any I/O error reported while formatting.
     fn write_fmt(&mut self, fmt: fmt::Arguments) -> IoResult<()> {
-        // Create a shim which translates a Writer to a FormatWriter and saves
+        // Create a shim which translates a Writer to a fmt::Writer and saves
         // off I/O errors. instead of discarding them
-        struct Adaptor<'a, T:'a> {
+        struct Adaptor<'a, Sized? T:'a> {
             inner: &'a mut T,
             error: IoResult<()>,
         }
 
-        impl<'a, T: Writer> fmt::FormatWriter for Adaptor<'a, T> {
-            fn write(&mut self, bytes: &[u8]) -> fmt::Result {
-                match self.inner.write(bytes) {
+        impl<'a, Sized? T: Writer> fmt::Writer for Adaptor<'a, T> {
+            fn write_str(&mut self, s: &str) -> fmt::Result {
+                match self.inner.write(s.as_bytes()) {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         self.error = Err(e);
@@ -1081,7 +1082,7 @@ pub trait Writer {
     /// Write a single char, encoded as UTF-8.
     #[inline]
     fn write_char(&mut self, c: char) -> IoResult<()> {
-        let mut buf = [0u8, ..4];
+        let mut buf = [0u8; 4];
         let n = c.encode_utf8(buf.as_mut_slice()).unwrap_or(0);
         self.write(buf[..n])
     }
@@ -1356,7 +1357,9 @@ pub struct Lines<'r, T:'r> {
     buffer: &'r mut T,
 }
 
-impl<'r, T: Buffer> Iterator<IoResult<String>> for Lines<'r, T> {
+impl<'r, T: Buffer> Iterator for Lines<'r, T> {
+    type Item = IoResult<String>;
+
     fn next(&mut self) -> Option<IoResult<String>> {
         match self.buffer.read_line() {
             Ok(x) => Some(Ok(x)),
@@ -1383,7 +1386,9 @@ pub struct Chars<'r, T:'r> {
     buffer: &'r mut T
 }
 
-impl<'r, T: Buffer> Iterator<IoResult<char>> for Chars<'r, T> {
+impl<'r, T: Buffer> Iterator for Chars<'r, T> {
+    type Item = IoResult<char>;
+
     fn next(&mut self) -> Option<IoResult<char>> {
         match self.buffer.read_char() {
             Ok(x) => Some(Ok(x)),
@@ -1560,7 +1565,7 @@ impl<T: Buffer> BufferPrelude for T {
 
 /// When seeking, the resulting cursor is offset from a base by the offset given
 /// to the `seek` function. The base used is specified by this enumeration.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum SeekStyle {
     /// Seek from the beginning of the stream
     SeekSet,
@@ -1629,11 +1634,13 @@ pub trait Acceptor<T> {
 /// `Some`. The `Some` contains the `IoResult` representing whether the
 /// connection attempt was successful.  A successful connection will be wrapped
 /// in `Ok`. A failed connection is represented as an `Err`.
-pub struct IncomingConnections<'a, A:'a> {
+pub struct IncomingConnections<'a, Sized? A:'a> {
     inc: &'a mut A,
 }
 
-impl<'a, T, A: Acceptor<T>> Iterator<IoResult<T>> for IncomingConnections<'a, A> {
+impl<'a, T, Sized? A: Acceptor<T>> Iterator for IncomingConnections<'a, A> {
+    type Item = IoResult<T>;
+
     fn next(&mut self) -> Option<IoResult<T>> {
         Some(self.inc.accept())
     }
@@ -1683,7 +1690,7 @@ pub fn standard_error(kind: IoErrorKind) -> IoError {
 /// A mode specifies how a file should be opened or created. These modes are
 /// passed to `File::open_mode` and are used to control where the file is
 /// positioned when it is initially opened.
-#[deriving(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum FileMode {
     /// Opens a file positioned at the beginning.
     Open,
@@ -1695,7 +1702,7 @@ pub enum FileMode {
 
 /// Access permissions with which the file should be opened. `File`s
 /// opened with `Read` will return an error if written to.
-#[deriving(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum FileAccess {
     /// Read-only access, requests to write will result in an error
     Read,
@@ -1706,7 +1713,7 @@ pub enum FileAccess {
 }
 
 /// Different kinds of files which can be identified by a call to stat
-#[deriving(Copy, PartialEq, Show, Hash, Clone)]
+#[derive(Copy, PartialEq, Show, Hash, Clone)]
 pub enum FileType {
     /// This is a normal file, corresponding to `S_IFREG`
     RegularFile,
@@ -1744,7 +1751,7 @@ pub enum FileType {
 /// println!("byte size: {}", info.size);
 /// # }
 /// ```
-#[deriving(Copy, Hash)]
+#[derive(Copy, Hash)]
 pub struct FileStat {
     /// The size of the file, in bytes
     pub size: u64,
@@ -1783,7 +1790,7 @@ pub struct FileStat {
 /// structure. This information is not necessarily platform independent, and may
 /// have different meanings or no meaning at all on some platforms.
 #[unstable]
-#[deriving(Copy, Hash)]
+#[derive(Copy, Hash)]
 pub struct UnstableFileStat {
     /// The ID of the device containing the file.
     pub device: u64,
@@ -1919,10 +1926,10 @@ impl fmt::Show for FilePermission {
 mod tests {
     use self::BadReaderBehavior::*;
     use super::{IoResult, Reader, MemReader, NoProgress, InvalidInput, Writer};
-    use prelude::{Ok, Vec, Buffer, CloneSliceExt};
+    use prelude::v1::{Ok, Vec, Buffer, SliceExt};
     use uint;
 
-    #[deriving(Clone, PartialEq, Show)]
+    #[derive(Clone, PartialEq, Show)]
     enum BadReaderBehavior {
         GoodBehavior(uint),
         BadBehavior(uint)
@@ -1968,7 +1975,7 @@ mod tests {
     fn test_read_at_least() {
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
                                    vec![GoodBehavior(uint::MAX)]);
-        let buf = &mut [0u8, ..5];
+        let buf = &mut [0u8; 5];
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
         assert!(r.read_exact(5).unwrap().len() == 5); // read_exact uses read_at_least
         assert!(r.read_at_least(0, buf).is_ok());

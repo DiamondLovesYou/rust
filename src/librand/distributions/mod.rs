@@ -258,12 +258,12 @@ fn ziggurat<R: Rng, P, Z>(
 
 #[cfg(test)]
 mod tests {
-    use std::prelude::*;
+    use std::prelude::v1::*;
 
     use {Rng, Rand};
     use super::{RandSample, WeightedChoice, Weighted, Sample, IndependentSample};
 
-    #[deriving(PartialEq, Show)]
+    #[derive(PartialEq, Show)]
     struct ConstRand(uint);
     impl Rand for ConstRand {
         fn rand<R: Rng>(_: &mut R) -> ConstRand {

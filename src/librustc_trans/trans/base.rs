@@ -43,8 +43,8 @@ use middle::lang_items::{LangItem, ExchangeMallocFnLangItem, StartFnLangItem};
 use middle::subst;
 use middle::weak_lang_items;
 use middle::subst::{Subst, Substs};
-use middle::ty::{mod, Ty};
-use session::config::{mod, NoDebugInfo, FullDebugInfo};
+use middle::ty::{self, Ty, UnboxedClosureTyper};
+use session::config::{self, NoDebugInfo, FullDebugInfo};
 use session::Session;
 use trans::_match;
 use trans::adt;
@@ -257,12 +257,12 @@ fn get_extern_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<'tcx>,
 }
 
 pub fn self_type_for_unboxed_closure<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
-                                     closure_id: ast::DefId,
-                                     fn_ty: Ty<'tcx>)
-                                     -> Ty<'tcx> {
-    let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
-    let unboxed_closure = &(*unboxed_closures)[closure_id];
-    match unboxed_closure.kind {
+                                               closure_id: ast::DefId,
+                                               fn_ty: Ty<'tcx>)
+                                               -> Ty<'tcx>
+{
+    let unboxed_closure_kind = ccx.tcx().unboxed_closure_kind(closure_id);
+    match unboxed_closure_kind {
         ty::FnUnboxedClosureKind => {
             ty::mk_imm_rptr(ccx.tcx(), ccx.tcx().mk_region(ty::ReStatic), fn_ty)
         }
@@ -291,13 +291,15 @@ pub fn decl_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
             (f.sig.0.inputs.clone(), f.sig.0.output, f.abi, Some(Type::i8p(ccx)))
         }
         ty::ty_unboxed_closure(closure_did, _, substs) => {
-            let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
-            let unboxed_closure = &(*unboxed_closures)[closure_did];
-            let function_type = unboxed_closure.closure_type.clone();
+            let typer = common::NormalizingUnboxedClosureTyper::new(ccx.tcx());
+            let function_type = typer.unboxed_closure_type(closure_did, substs);
             let self_type = self_type_for_unboxed_closure(ccx, closure_did, fn_ty);
             let llenvironment_type = type_of_explicit_arg(ccx, self_type);
-            (function_type.sig.0.inputs.iter().map(|t| t.subst(ccx.tcx(), substs)).collect(),
-             function_type.sig.0.output.subst(ccx.tcx(), substs),
+            debug!("decl_rust_fn: function_type={} self_type={}",
+                   function_type.repr(ccx.tcx()),
+                   self_type.repr(ccx.tcx()));
+            (function_type.sig.0.inputs,
+             function_type.sig.0.output,
              RustCall,
              Some(llenvironment_type))
         }
@@ -545,7 +547,7 @@ pub fn maybe_name_value(cx: &CrateContext, v: ValueRef, s: &str) {
 
 
 // Used only for creating scalar comparison glue.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum scalar_type { nil_type, signed_int, unsigned_int, floating_point, }
 
 pub fn compare_scalar_types<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
@@ -729,7 +731,8 @@ pub fn iter_structural_ty<'a, 'blk, 'tcx>(cx: Block<'blk, 'tcx>,
       }
       ty::ty_unboxed_closure(def_id, _, substs) => {
           let repr = adt::represent_type(cx.ccx(), t);
-          let upvars = ty::unboxed_closure_upvars(cx.tcx(), def_id, substs);
+          let typer = common::NormalizingUnboxedClosureTyper::new(cx.tcx());
+          let upvars = typer.unboxed_closure_upvars(def_id, substs).unwrap();
           for (i, upvar) in upvars.iter().enumerate() {
               let llupvar = adt::trans_field_ptr(cx, &*repr, data_ptr, 0, i);
               cx = f(cx, llupvar, upvar.ty);
@@ -1449,6 +1452,7 @@ pub fn new_fn_ctxt<'a, 'tcx>(ccx: &'a CrateContext<'a, 'tcx>,
           llfn: llfndecl,
           llenv: None,
           llretslotptr: Cell::new(None),
+          param_env: ty::empty_parameter_environment(ccx.tcx()),
           alloca_insert_pt: Cell::new(None),
           llreturn: Cell::new(None),
           needs_ret_allocas: nested_returns,
@@ -1780,7 +1784,7 @@ pub fn build_return_block<'blk, 'tcx>(fcx: &FunctionContext<'blk, 'tcx>,
     }
 }
 
-#[deriving(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum IsUnboxedClosureFlag {
     NotUnboxedClosure,
     IsUnboxedClosure,
@@ -2202,7 +2206,7 @@ pub fn llvm_linkage_by_name(name: &str) -> Option<Linkage> {
 
 
 /// Enum describing the origin of an LLVM `Value`, for linkage purposes.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum ValueOrigin {
     /// The LLVM `Value` is in this context because the corresponding item was
     /// assigned to the current compilation unit.
@@ -2436,11 +2440,9 @@ pub fn get_fn_llvm_attributes<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<
         ty::ty_closure(ref f) => (f.sig.clone(), f.abi, true),
         ty::ty_bare_fn(_, ref f) => (f.sig.clone(), f.abi, false),
         ty::ty_unboxed_closure(closure_did, _, substs) => {
-            let unboxed_closures = ccx.tcx().unboxed_closures.borrow();
-            let ref function_type = (*unboxed_closures)[closure_did]
-                                                    .closure_type;
-
-            (function_type.sig.subst(ccx.tcx(), substs), RustCall, true)
+            let typer = common::NormalizingUnboxedClosureTyper::new(ccx.tcx());
+            let function_type = typer.unboxed_closure_type(closure_did, substs);
+            (function_type.sig, RustCall, true)
         }
         _ => ccx.sess().bug("expected closure or function.")
     };
@@ -3070,7 +3072,9 @@ fn internalize_symbols(cx: &SharedCrateContext, reachable: &HashSet<String>) {
         step: unsafe extern "C" fn(ValueRef) -> ValueRef,
     }
 
-    impl Iterator<ValueRef> for ValueIter {
+    impl Iterator for ValueIter {
+        type Item = ValueRef;
+
         fn next(&mut self) -> Option<ValueRef> {
             let old = self.cur;
             if !old.is_null() {
@@ -3097,7 +3101,7 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
         use std::sync::{Once, ONCE_INIT};
         static INIT: Once = ONCE_INIT;
         static mut POISONED: bool = false;
-        INIT.doit(|| {
+        INIT.call_once(|| {
             if llvm::LLVMStartMultithreaded() != 1 {
                 // use an extra bool to make sure that all future usage of LLVM
                 // cannot proceed despite the Once not running more than once.

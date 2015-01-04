@@ -29,26 +29,27 @@ use self::MethodContext::*;
 use metadata::csearch;
 use middle::def::*;
 use middle::subst::Substs;
-use middle::ty::{mod, Ty};
+use middle::ty::{self, Ty};
 use middle::{def, pat_util, stability};
 use middle::const_eval::{eval_const_expr_partial, const_int, const_uint};
 use util::ppaux::{ty_to_string};
 use util::nodemap::{FnvHashMap, NodeSet};
 use lint::{Context, LintPass, LintArray};
 
-use std::{cmp, slice};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::num::SignedInt;
+use std::{cmp, slice};
 use std::{i8, i16, i32, i64, u8, u16, u32, u64, f32, f64};
+
 use syntax::{abi, ast, ast_map};
 use syntax::ast_util::is_shift_binop;
-use syntax::attr::{mod, AttrMetaMethods};
+use syntax::attr::{self, AttrMetaMethods};
 use syntax::codemap::{Span, DUMMY_SP};
 use syntax::parse::token;
 use syntax::ast::{TyI, TyU, TyI8, TyU8, TyI16, TyU16, TyI32, TyU32, TyI64, TyU64};
 use syntax::ast_util;
 use syntax::ptr::P;
-use syntax::visit::{mod, Visitor};
+use syntax::visit::{self, Visitor};
 
 declare_lint! {
     WHILE_TRUE,
@@ -56,7 +57,7 @@ declare_lint! {
     "suggest using `loop { }` instead of `while true { }`"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct WhileTrue;
 
 impl LintPass for WhileTrue {
@@ -82,7 +83,7 @@ declare_lint! {
     "detects unnecessary type casts that can be removed"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedCasts;
 
 impl LintPass for UnusedCasts {
@@ -124,7 +125,7 @@ declare_lint! {
     "shift exceeds the type's number of bits"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct TypeLimits {
     /// Id of the last visited negated expression
     negated_expr_id: ast::NodeId,
@@ -441,7 +442,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for ImproperCTypesVisitor<'a, 'tcx> {
     }
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct ImproperCTypes;
 
 impl LintPass for ImproperCTypes {
@@ -484,7 +485,7 @@ declare_lint! {
     "use of owned (Box type) heap memory"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct BoxPointers;
 
 impl BoxPointers {
@@ -551,7 +552,7 @@ impl LintPass for BoxPointers {
 declare_lint! {
     RAW_POINTER_DERIVING,
     Warn,
-    "uses of #[deriving] with raw pointers are rarely correct"
+    "uses of #[derive] with raw pointers are rarely correct"
 }
 
 struct RawPtrDerivingVisitor<'a, 'tcx: 'a> {
@@ -560,7 +561,7 @@ struct RawPtrDerivingVisitor<'a, 'tcx: 'a> {
 
 impl<'a, 'tcx, 'v> Visitor<'v> for RawPtrDerivingVisitor<'a, 'tcx> {
     fn visit_ty(&mut self, ty: &ast::Ty) {
-        static MSG: &'static str = "use of `#[deriving]` with a raw pointer";
+        static MSG: &'static str = "use of `#[derive]` with a raw pointer";
         if let ast::TyPtr(..) = ty.node {
             self.cx.span_lint(RAW_POINTER_DERIVING, ty.span, MSG);
         }
@@ -624,7 +625,7 @@ declare_lint! {
     "detects attributes that were not used by the compiler"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedAttributes;
 
 impl LintPass for UnusedAttributes {
@@ -708,7 +709,7 @@ declare_lint! {
     "path statements with no effect"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct PathStatements;
 
 impl LintPass for PathStatements {
@@ -742,7 +743,7 @@ declare_lint! {
     "unused result of an expression in a statement"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedResults;
 
 impl LintPass for UnusedResults {
@@ -810,7 +811,7 @@ declare_lint! {
     "types, variants, traits and type parameters should have camel case names"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct NonCamelCaseTypes;
 
 impl NonCamelCaseTypes {
@@ -883,7 +884,7 @@ impl LintPass for NonCamelCaseTypes {
     }
 }
 
-#[deriving(PartialEq)]
+#[derive(PartialEq)]
 enum MethodContext {
     TraitDefaultImpl,
     TraitImpl,
@@ -933,7 +934,7 @@ declare_lint! {
     "methods, functions, lifetime parameters and modules should have snake case names"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct NonSnakeCase;
 
 impl NonSnakeCase {
@@ -1046,7 +1047,7 @@ declare_lint! {
     "static constants should have uppercase identifiers"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct NonUpperCaseGlobals;
 
 impl LintPass for NonUpperCaseGlobals {
@@ -1099,7 +1100,7 @@ declare_lint! {
     "`if`, `match`, `while` and `return` do not need parentheses"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedParens;
 
 impl UnusedParens {
@@ -1193,7 +1194,7 @@ declare_lint! {
     "unnecessary braces around an imported item"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedImportBraces;
 
 impl LintPass for UnusedImportBraces {
@@ -1232,7 +1233,7 @@ declare_lint! {
     "using `Struct { x: x }` instead of `Struct { x }`"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct NonShorthandFieldPatterns;
 
 impl LintPass for NonShorthandFieldPatterns {
@@ -1265,7 +1266,7 @@ declare_lint! {
     "unnecessary use of an `unsafe` block"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedUnsafe;
 
 impl LintPass for UnusedUnsafe {
@@ -1290,7 +1291,7 @@ declare_lint! {
     "usage of an `unsafe` block"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnsafeBlocks;
 
 impl LintPass for UnsafeBlocks {
@@ -1314,7 +1315,7 @@ declare_lint! {
     "detect mut variables which don't need to be mutable"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedMut;
 
 impl UnusedMut {
@@ -1383,7 +1384,7 @@ declare_lint! {
     "detects unnecessary allocations that can be eliminated"
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct UnusedAllocation;
 
 impl LintPass for UnusedAllocation {
@@ -1574,7 +1575,7 @@ impl LintPass for MissingDoc {
     }
 }
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct MissingCopyImplementations;
 
 impl LintPass for MissingCopyImplementations {
@@ -1611,15 +1612,11 @@ impl LintPass for MissingCopyImplementations {
             }
             _ => return,
         };
-        let parameter_environment = ty::empty_parameter_environment();
-        if !ty::type_moves_by_default(cx.tcx,
-                                      ty,
-                                      &parameter_environment) {
+        let parameter_environment = ty::empty_parameter_environment(cx.tcx);
+        if !ty::type_moves_by_default(&parameter_environment, item.span, ty) {
             return
         }
-        if ty::can_type_implement_copy(cx.tcx,
-                                       ty,
-                                       &parameter_environment).is_ok() {
+        if ty::can_type_implement_copy(&parameter_environment, item.span, ty).is_ok() {
             cx.span_lint(MISSING_COPY_IMPLEMENTATIONS,
                          item.span,
                          "type could implement `Copy`; consider adding `impl \
@@ -1649,7 +1646,7 @@ declare_lint! {
 
 /// Checks for use of items with `#[deprecated]`, `#[experimental]` and
 /// `#[unstable]` attributes, or no stability attribute.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct Stability;
 
 impl Stability {
@@ -1860,7 +1857,7 @@ declare_lint!{
 
 /// Does nothing as a lint pass, but registers some `Lint`s
 /// which are used by other parts of the compiler.
-#[deriving(Copy)]
+#[derive(Copy)]
 pub struct HardwiredLints;
 
 impl LintPass for HardwiredLints {

@@ -22,14 +22,16 @@
 use core::prelude::*;
 
 use alloc::boxed::Box;
+use core::cmp::Ordering;
 use core::default::Default;
 use core::fmt;
-use core::iter;
+use core::hash::{Writer, Hash};
+use core::iter::{self, FromIterator};
 use core::mem;
 use core::ptr;
-use std::hash::{Writer, Hash};
 
 /// A doubly-linked list.
+#[stable]
 pub struct DList<T> {
     length: uint,
     list_head: Link<T>,
@@ -53,20 +55,27 @@ struct Node<T> {
 }
 
 /// An iterator over references to the items of a `DList`.
+#[stable]
 pub struct Iter<'a, T:'a> {
     head: &'a Link<T>,
     tail: Rawlink<Node<T>>,
     nelem: uint,
 }
 
-// FIXME #11820: the &'a Option<> of the Link stops clone working.
+// FIXME #19839: deriving is too aggressive on the bounds (T doesn't need to be Clone).
+#[stable]
 impl<'a, T> Clone for Iter<'a, T> {
-    fn clone(&self) -> Iter<'a, T> { *self }
+    fn clone(&self) -> Iter<'a, T> {
+        Iter {
+            head: self.head.clone(),
+            tail: self.tail,
+            nelem: self.nelem,
+        }
+    }
 }
 
-impl<'a,T> Copy for Iter<'a,T> {}
-
 /// An iterator over mutable references to the items of a `DList`.
+#[stable]
 pub struct IterMut<'a, T:'a> {
     list: &'a mut DList<T>,
     head: Rawlink<Node<T>>,
@@ -75,7 +84,8 @@ pub struct IterMut<'a, T:'a> {
 }
 
 /// An iterator over mutable references to the items of a `DList`.
-#[deriving(Clone)]
+#[derive(Clone)]
+#[stable]
 pub struct IntoIter<T> {
     list: DList<T>
 }
@@ -204,59 +214,21 @@ impl<T> Default for DList<T> {
 impl<T> DList<T> {
     /// Creates an empty `DList`.
     #[inline]
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn new() -> DList<T> {
         DList{list_head: None, list_tail: Rawlink::none(), length: 0}
     }
 
-    /// Moves the last element to the front of the list.
-    ///
-    /// If the list is empty, does nothing.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::collections::DList;
-    ///
-    /// let mut dl = DList::new();
-    /// dl.push_back(1i);
-    /// dl.push_back(2);
-    /// dl.push_back(3);
-    ///
-    /// dl.rotate_forward();
-    ///
-    /// for e in dl.iter() {
-    ///     println!("{}", e); // prints 3, then 1, then 2
-    /// }
-    /// ```
-    #[inline]
+    /// Deprecated: Not clearly useful enough; use split and append when available.
+    #[deprecated = "Not clearly useful enough; use split and append when available"]
     pub fn rotate_forward(&mut self) {
         self.pop_back_node().map(|tail| {
             self.push_front_node(tail)
         });
     }
 
-    /// Moves the first element to the back of the list.
-    ///
-    /// If the list is empty, does nothing.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::collections::DList;
-    ///
-    /// let mut dl = DList::new();
-    /// dl.push_back(1i);
-    /// dl.push_back(2);
-    /// dl.push_back(3);
-    ///
-    /// dl.rotate_backward();
-    ///
-    /// for e in dl.iter() {
-    ///     println!("{}", e); // prints 2, then 3, then 1
-    /// }
-    /// ```
-    #[inline]
+    /// Deprecated: Not clearly useful enough; use split and append when available.
+    #[deprecated = "Not clearly useful enough; use split and append when available"]
     pub fn rotate_backward(&mut self) {
         self.pop_front_node().map(|head| {
             self.push_back_node(head)
@@ -285,6 +257,7 @@ impl<T> DList<T> {
     ///     println!("{}", e); // prints 1, then 2, then 3, then 4
     /// }
     /// ```
+    #[unstable = "append should be by-mutable-reference"]
     pub fn append(&mut self, mut other: DList<T>) {
         match self.list_tail.resolve() {
             None => *self = other,
@@ -304,57 +277,15 @@ impl<T> DList<T> {
         }
     }
 
-    /// Adds all elements from `other` to the beginning of the list.
-    ///
-    /// This operation should compute in O(1) time.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::collections::DList;
-    ///
-    /// let mut a = DList::new();
-    /// let mut b = DList::new();
-    /// a.push_back(1i);
-    /// a.push_back(2);
-    /// b.push_back(3i);
-    /// b.push_back(4);
-    ///
-    /// a.prepend(b);
-    ///
-    /// for e in a.iter() {
-    ///     println!("{}", e); // prints 3, then 4, then 1, then 2
-    /// }
-    /// ```
-    #[inline]
+    /// Deprecated: Use append and a swap instead.
+    #[deprecated = "Use append and a swap instead"]
     pub fn prepend(&mut self, mut other: DList<T>) {
         mem::swap(self, &mut other);
         self.append(other);
     }
 
-    /// Inserts `elt` before the first `x` in the list where `f(x, elt)` is
-    /// true, or at the end.
-    ///
-    /// This operation should compute in O(N) time.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::collections::DList;
-    ///
-    /// let mut a: DList<int> = DList::new();
-    /// a.push_back(2i);
-    /// a.push_back(4);
-    /// a.push_back(7);
-    /// a.push_back(8);
-    ///
-    /// // insert 11 before the first odd number in the list
-    /// a.insert_when(11, |&e, _| e % 2 == 1);
-    ///
-    /// for e in a.iter() {
-    ///     println!("{}", e); // prints 2, then 4, then 11, then 7, then 8
-    /// }
-    /// ```
+    /// Deprecated: Use custom methods on IterMut.
+    #[deprecated = "Use custom methods on IterMut"]
     pub fn insert_when<F>(&mut self, elt: T, mut f: F) where F: FnMut(&T, &T) -> bool {
         let mut it = self.iter_mut();
         loop {
@@ -367,12 +298,8 @@ impl<T> DList<T> {
         it.insert_next(elt);
     }
 
-    /// Merges `other` into this `DList`, using the function `f`.
-    ///
-    /// Iterates both `DList`s with `a` from self and `b` from `other`, and
-    /// put `a` in the result if `f(a, b)` is true, and otherwise `b`.
-    ///
-    /// This operation should compute in O(max(N, M)) time.
+    /// Deprecated: Use custom methods on IterMut.
+    #[deprecated = "Use custom methods on IterMut"]
     pub fn merge<F>(&mut self, mut other: DList<T>, mut f: F) where F: FnMut(&T, &T) -> bool {
         {
             let mut it = self.iter_mut();
@@ -395,15 +322,15 @@ impl<T> DList<T> {
 
     /// Provides a forward iterator.
     #[inline]
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter<'a>(&'a self) -> Iter<'a, T> {
+    #[stable]
+    pub fn iter(&self) -> Iter<T> {
         Iter{nelem: self.len(), head: &self.list_head, tail: self.list_tail}
     }
 
     /// Provides a forward iterator with mutable references.
     #[inline]
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
-    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, T> {
+    #[stable]
+    pub fn iter_mut(&mut self) -> IterMut<T> {
         let head_raw = match self.list_head {
             Some(ref mut h) => Rawlink::some(&mut **h),
             None => Rawlink::none(),
@@ -418,7 +345,7 @@ impl<T> DList<T> {
 
     /// Consumes the list into an iterator yielding elements by value.
     #[inline]
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn into_iter(self) -> IntoIter<T> {
         IntoIter{list: self}
     }
@@ -427,7 +354,7 @@ impl<T> DList<T> {
     ///
     /// This operation should compute in O(1) time.
     #[inline]
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn is_empty(&self) -> bool {
         self.list_head.is_none()
     }
@@ -436,7 +363,7 @@ impl<T> DList<T> {
     ///
     /// This operation should compute in O(1) time.
     #[inline]
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn len(&self) -> uint {
         self.length
     }
@@ -445,7 +372,7 @@ impl<T> DList<T> {
     ///
     /// This operation should compute in O(n) time.
     #[inline]
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn clear(&mut self) {
         *self = DList::new()
     }
@@ -485,7 +412,7 @@ impl<T> DList<T> {
     /// Adds an element first in the list.
     ///
     /// This operation should compute in O(1) time.
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn push_front(&mut self, elt: T) {
         self.push_front_node(box Node::new(elt))
     }
@@ -494,7 +421,7 @@ impl<T> DList<T> {
     /// empty.
     ///
     /// This operation should compute in O(1) time.
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn pop_front(&mut self) -> Option<T> {
         self.pop_front_node().map(|box Node{value, ..}| value)
     }
@@ -517,7 +444,7 @@ impl<T> DList<T> {
     /// d.push_back(3);
     /// assert_eq!(3, *d.back().unwrap());
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn push_back(&mut self, elt: T) {
         self.push_back_node(box Node::new(elt))
     }
@@ -542,23 +469,23 @@ impl<T> DList<T> {
     /// d.push_back(3);
     /// assert_eq!(d.pop_back(), Some(3));
     /// ```
-    #[unstable = "matches collection reform specification, waiting for dust to settle"]
+    #[stable]
     pub fn pop_back(&mut self) -> Option<T> {
         self.pop_back_node().map(|box Node{value, ..}| value)
     }
 }
 
 impl<T: Ord> DList<T> {
-    /// Inserts `elt` sorted in ascending order.
-    ///
-    /// This operation should compute in O(N) time.
-    #[inline]
+    /// Deprecated: Why are you maintaining a sorted DList?
+    #[deprecated = "Why are you maintaining a sorted DList?"]
+    #[allow(deprecated)]
     pub fn insert_ordered(&mut self, elt: T) {
         self.insert_when(elt, |a, b| a >= b)
     }
 }
 
 #[unsafe_destructor]
+#[stable]
 impl<T> Drop for DList<T> {
     fn drop(&mut self) {
         // Dissolve the dlist in backwards direction
@@ -580,8 +507,10 @@ impl<T> Drop for DList<T> {
     }
 }
 
+#[stable]
+impl<'a, A> Iterator for Iter<'a, A> {
+    type Item = &'a A;
 
-impl<'a, A> Iterator<&'a A> for Iter<'a, A> {
     #[inline]
     fn next(&mut self) -> Option<&'a A> {
         if self.nelem == 0 {
@@ -600,7 +529,8 @@ impl<'a, A> Iterator<&'a A> for Iter<'a, A> {
     }
 }
 
-impl<'a, A> DoubleEndedIterator<&'a A> for Iter<'a, A> {
+#[stable]
+impl<'a, A> DoubleEndedIterator for Iter<'a, A> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a A> {
         if self.nelem == 0 {
@@ -614,9 +544,12 @@ impl<'a, A> DoubleEndedIterator<&'a A> for Iter<'a, A> {
     }
 }
 
-impl<'a, A> ExactSizeIterator<&'a A> for Iter<'a, A> {}
+#[stable]
+impl<'a, A> ExactSizeIterator for Iter<'a, A> {}
 
-impl<'a, A> Iterator<&'a mut A> for IterMut<'a, A> {
+#[stable]
+impl<'a, A> Iterator for IterMut<'a, A> {
+    type Item = &'a mut A;
     #[inline]
     fn next(&mut self) -> Option<&'a mut A> {
         if self.nelem == 0 {
@@ -638,7 +571,8 @@ impl<'a, A> Iterator<&'a mut A> for IterMut<'a, A> {
     }
 }
 
-impl<'a, A> DoubleEndedIterator<&'a mut A> for IterMut<'a, A> {
+#[stable]
+impl<'a, A> DoubleEndedIterator for IterMut<'a, A> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a mut A> {
         if self.nelem == 0 {
@@ -652,7 +586,8 @@ impl<'a, A> DoubleEndedIterator<&'a mut A> for IterMut<'a, A> {
     }
 }
 
-impl<'a, A> ExactSizeIterator<&'a mut A> for IterMut<'a, A> {}
+#[stable]
+impl<'a, A> ExactSizeIterator for IterMut<'a, A> {}
 
 /// Allows mutating a `DList` while iterating.
 #[deprecated = "Trait is deprecated, use inherent methods on the iterator instead"]
@@ -713,6 +648,7 @@ impl<'a, A> IterMut<'a, A> {
     /// }
     /// ```
     #[inline]
+    #[unstable = "this is probably better handled by a cursor type -- we'll see"]
     pub fn insert_next(&mut self, elt: A) {
         self.insert_next_node(box Node::new(elt))
     }
@@ -733,6 +669,7 @@ impl<'a, A> IterMut<'a, A> {
     /// assert_eq!(it.next().unwrap(), &2);
     /// ```
     #[inline]
+    #[unstable = "this is probably better handled by a cursor type -- we'll see"]
     pub fn peek_next(&mut self) -> Option<&mut A> {
         if self.nelem == 0 {
             return None
@@ -741,7 +678,10 @@ impl<'a, A> IterMut<'a, A> {
     }
 }
 
-impl<A> Iterator<A> for IntoIter<A> {
+#[stable]
+impl<A> Iterator for IntoIter<A> {
+    type Item = A;
+
     #[inline]
     fn next(&mut self) -> Option<A> { self.list.pop_front() }
 
@@ -751,21 +691,24 @@ impl<A> Iterator<A> for IntoIter<A> {
     }
 }
 
-impl<A> DoubleEndedIterator<A> for IntoIter<A> {
+#[stable]
+impl<A> DoubleEndedIterator for IntoIter<A> {
     #[inline]
     fn next_back(&mut self) -> Option<A> { self.list.pop_back() }
 }
 
+#[stable]
 impl<A> FromIterator<A> for DList<A> {
-    fn from_iter<T: Iterator<A>>(iterator: T) -> DList<A> {
+    fn from_iter<T: Iterator<Item=A>>(iterator: T) -> DList<A> {
         let mut ret = DList::new();
         ret.extend(iterator);
         ret
     }
 }
 
+#[stable]
 impl<A> Extend<A> for DList<A> {
-    fn extend<T: Iterator<A>>(&mut self, mut iterator: T) {
+    fn extend<T: Iterator<Item=A>>(&mut self, mut iterator: T) {
         for elt in iterator { self.push_back(elt); }
     }
 }
@@ -808,6 +751,7 @@ impl<A: Clone> Clone for DList<A> {
     }
 }
 
+#[stable]
 impl<A: fmt::Show> fmt::Show for DList<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "["));
@@ -821,6 +765,7 @@ impl<A: fmt::Show> fmt::Show for DList<A> {
     }
 }
 
+#[stable]
 impl<S: Writer, A: Hash<S>> Hash<S> for DList<A> {
     fn hash(&self, state: &mut S) {
         self.len().hash(state);
@@ -1322,7 +1267,7 @@ mod tests {
 
     #[bench]
     fn bench_collect_into(b: &mut test::Bencher) {
-        let v = &[0i, ..64];
+        let v = &[0i; 64];
         b.iter(|| {
             let _: DList<int> = v.iter().map(|x| *x).collect();
         })
@@ -1384,7 +1329,7 @@ mod tests {
 
     #[bench]
     fn bench_iter(b: &mut test::Bencher) {
-        let v = &[0i, ..128];
+        let v = &[0i; 128];
         let m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
             assert!(m.iter().count() == 128);
@@ -1392,7 +1337,7 @@ mod tests {
     }
     #[bench]
     fn bench_iter_mut(b: &mut test::Bencher) {
-        let v = &[0i, ..128];
+        let v = &[0i; 128];
         let mut m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
             assert!(m.iter_mut().count() == 128);
@@ -1400,7 +1345,7 @@ mod tests {
     }
     #[bench]
     fn bench_iter_rev(b: &mut test::Bencher) {
-        let v = &[0i, ..128];
+        let v = &[0i; 128];
         let m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
             assert!(m.iter().rev().count() == 128);
@@ -1408,7 +1353,7 @@ mod tests {
     }
     #[bench]
     fn bench_iter_mut_rev(b: &mut test::Bencher) {
-        let v = &[0i, ..128];
+        let v = &[0i; 128];
         let mut m: DList<int> = v.iter().map(|&x|x).collect();
         b.iter(|| {
             assert!(m.iter_mut().rev().count() == 128);

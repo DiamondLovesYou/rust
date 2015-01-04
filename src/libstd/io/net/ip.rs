@@ -18,20 +18,20 @@
 pub use self::IpAddr::*;
 
 use fmt;
-use io::{mod, IoResult, IoError};
+use io::{self, IoResult, IoError};
 use io::net;
 use iter::{Iterator, IteratorExt};
 use ops::FnOnce;
 use option::Option;
 use option::Option::{None, Some};
 use result::Result::{Ok, Err};
-use slice::{CloneSliceExt, SliceExt};
+use slice::SliceExt;
 use str::{FromStr, StrExt};
 use vec::Vec;
 
 pub type Port = u16;
 
-#[deriving(Copy, PartialEq, Eq, Clone, Hash)]
+#[derive(Copy, PartialEq, Eq, Clone, Hash)]
 pub enum IpAddr {
     Ipv4Addr(u8, u8, u8, u8),
     Ipv6Addr(u16, u16, u16, u16, u16, u16, u16, u16)
@@ -62,7 +62,7 @@ impl fmt::Show for IpAddr {
     }
 }
 
-#[deriving(Copy, PartialEq, Eq, Clone, Hash)]
+#[derive(Copy, PartialEq, Eq, Clone, Hash)]
 pub struct SocketAddr {
     pub ip: IpAddr,
     pub port: Port,
@@ -223,7 +223,7 @@ impl<'a> Parser<'a> {
     }
 
     fn read_ipv4_addr_impl(&mut self) -> Option<IpAddr> {
-        let mut bs = [0u8, ..4];
+        let mut bs = [0u8; 4];
         let mut i = 0;
         while i < 4 {
             if i != 0 && self.read_given_char('.').is_none() {
@@ -248,13 +248,13 @@ impl<'a> Parser<'a> {
     fn read_ipv6_addr_impl(&mut self) -> Option<IpAddr> {
         fn ipv6_addr_from_head_tail(head: &[u16], tail: &[u16]) -> IpAddr {
             assert!(head.len() + tail.len() <= 8);
-            let mut gs = [0u16, ..8];
+            let mut gs = [0u16; 8];
             gs.clone_from_slice(head);
             gs.slice_mut(8 - tail.len(), 8).clone_from_slice(tail);
             Ipv6Addr(gs[0], gs[1], gs[2], gs[3], gs[4], gs[5], gs[6], gs[7])
         }
 
-        fn read_groups(p: &mut Parser, groups: &mut [u16, ..8], limit: uint) -> (uint, bool) {
+        fn read_groups(p: &mut Parser, groups: &mut [u16; 8], limit: uint) -> (uint, bool) {
             let mut i = 0;
             while i < limit {
                 if i < limit - 1 {
@@ -267,8 +267,8 @@ impl<'a> Parser<'a> {
                     });
                     match ipv4 {
                         Some(Ipv4Addr(a, b, c, d)) => {
-                            groups[i + 0] = (a as u16 << 8) | (b as u16);
-                            groups[i + 1] = (c as u16 << 8) | (d as u16);
+                            groups[i + 0] = ((a as u16) << 8) | (b as u16);
+                            groups[i + 1] = ((c as u16) << 8) | (d as u16);
                             return (i + 2, true);
                         }
                         _ => {}
@@ -291,7 +291,7 @@ impl<'a> Parser<'a> {
             (i, false)
         }
 
-        let mut head = [0u16, ..8];
+        let mut head = [0u16; 8];
         let (head_size, head_ipv4) = read_groups(self, &mut head, 8);
 
         if head_size == 8 {
@@ -310,7 +310,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut tail = [0u16, ..8];
+        let mut tail = [0u16; 8];
         let (tail_size, _) = read_groups(self, &mut tail, 8 - head_size);
         Some(ipv6_addr_from_head_tail(head[..head_size], tail[..tail_size]))
     }
@@ -544,7 +544,7 @@ impl<'a> ToSocketAddr for &'a str {
 
 #[cfg(test)]
 mod test {
-    use prelude::*;
+    use prelude::v1::*;
     use super::*;
     use str::FromStr;
 

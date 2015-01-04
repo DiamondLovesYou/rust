@@ -16,25 +16,25 @@
 pub use self::StdioContainer::*;
 pub use self::ProcessExit::*;
 
-use prelude::*;
+use prelude::v1::*;
 
+use c_str::{CString, ToCStr};
+use collections::HashMap;
 use fmt;
-use os;
+use hash::Hash;
+use io::pipe::{PipeStream, PipePair};
 use io::{IoResult, IoError};
 use io;
 use libc;
-use c_str::CString;
-use collections::HashMap;
-use hash::Hash;
-#[cfg(windows)]
-use std::hash::sip::SipState;
-use io::pipe::{PipeStream, PipePair};
+use os;
 use path::BytesContainer;
-use thread::Thread;
-
-use sys;
+use sync::mpsc::{channel, Receiver};
 use sys::fs::FileDesc;
 use sys::process::Process as ProcessImp;
+use sys;
+use thread::Thread;
+
+#[cfg(windows)] use std::hash::sip::SipState;
 
 /// Signal a process to exit, without forcibly killing it. Corresponds to
 /// SIGTERM on unix platforms.
@@ -97,12 +97,12 @@ pub struct Process {
 /// A representation of environment variable name
 /// It compares case-insensitive on Windows and case-sensitive everywhere else.
 #[cfg(not(windows))]
-#[deriving(PartialEq, Eq, Hash, Clone, Show)]
+#[derive(PartialEq, Eq, Hash, Clone, Show)]
 struct EnvKey(CString);
 
 #[doc(hidden)]
 #[cfg(windows)]
-#[deriving(Eq, Clone, Show)]
+#[derive(Eq, Clone, Show)]
 struct EnvKey(CString);
 
 #[cfg(windows)]
@@ -168,7 +168,7 @@ pub type EnvMap = HashMap<EnvKey, CString>;
 ///
 /// let output = process.stdout.as_mut().unwrap().read_to_end();
 /// ```
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct Command {
     // The internal data for the builder. Documented by the builder
     // methods below, and serialized into rt::rtio::ProcessConfig.
@@ -450,7 +450,7 @@ impl sys::process::ProcessConfig<EnvKey, CString> for Command {
 }
 
 /// The output of a finished process.
-#[deriving(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct ProcessOutput {
     /// The status (exit code) of the process.
     pub status: ProcessExit,
@@ -461,7 +461,7 @@ pub struct ProcessOutput {
 }
 
 /// Describes what to do with a standard io stream for a child process.
-#[deriving(Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum StdioContainer {
     /// This stream will be ignored. This is the equivalent of attaching the
     /// stream to `/dev/null`
@@ -483,7 +483,7 @@ pub enum StdioContainer {
 
 /// Describes the result of a process after it has terminated.
 /// Note that Windows have no signals, so the result is usually ExitStatus.
-#[deriving(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum ProcessExit {
     /// Normal termination with an exit status.
     ExitStatus(int),
@@ -693,10 +693,10 @@ impl Process {
                 Some(stream) => {
                     Thread::spawn(move |:| {
                         let mut stream = stream;
-                        tx.send(stream.read_to_end())
+                        tx.send(stream.read_to_end()).unwrap();
                     }).detach();
                 }
-                None => tx.send(Ok(Vec::new()))
+                None => tx.send(Ok(Vec::new())).unwrap()
             }
             rx
         }
@@ -707,8 +707,8 @@ impl Process {
 
         Ok(ProcessOutput {
             status: status,
-            output: stdout.recv().ok().unwrap_or(Vec::new()),
-            error:  stderr.recv().ok().unwrap_or(Vec::new()),
+            output: stdout.recv().unwrap().unwrap_or(Vec::new()),
+            error:  stderr.recv().unwrap().unwrap_or(Vec::new()),
         })
     }
 
@@ -741,18 +741,19 @@ impl Drop for Process {
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
+    use prelude::v1::*;
 
-    use super::*;
-    use io::timer::*;
-    use io::{Truncate, Write, TimedOut, timer, process, FileNotFound};
-    use prelude::{Ok, Err, spawn, range, drop, Box, Some, None, Option, Vec, Buffer};
-    use prelude::{from_str, Path, String, channel, Reader, Writer, Clone, Slice};
-    use prelude::{SliceExt, Str, StrExt, AsSlice, ToString, GenericPath};
     use io::fs::PathExtensions;
-    use time::Duration;
-    use str;
+    use io::process;
+    use io::timer::*;
+    use io::{Truncate, Write, TimedOut, timer, FileNotFound};
     use rt::running_on_valgrind;
+    use str;
+    use super::{CreatePipe};
+    use super::{InheritFd, Process, PleaseExitSignal, Command, ProcessOutput};
+    use sync::mpsc::channel;
+    use thread::Thread;
+    use time::Duration;
 
     // FIXME(#10380) these tests should not all be ignored on android.
 
@@ -1156,22 +1157,22 @@ mod tests {
     fn wait_timeout2() {
         let (tx, rx) = channel();
         let tx2 = tx.clone();
-        spawn(move|| {
+        let _t = Thread::spawn(move|| {
             let mut p = sleeper();
             p.set_timeout(Some(10));
             assert_eq!(p.wait().err().unwrap().kind, TimedOut);
             p.signal_kill().unwrap();
-            tx.send(());
+            tx.send(()).unwrap();
         });
-        spawn(move|| {
+        let _t = Thread::spawn(move|| {
             let mut p = sleeper();
             p.set_timeout(Some(10));
             assert_eq!(p.wait().err().unwrap().kind, TimedOut);
             p.signal_kill().unwrap();
-            tx2.send(());
+            tx2.send(()).unwrap();
         });
-        rx.recv();
-        rx.recv();
+        rx.recv().unwrap();
+        rx.recv().unwrap();
     }
 
     #[test]

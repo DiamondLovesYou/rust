@@ -17,18 +17,18 @@ pub use self::constness::*;
 use metadata::csearch;
 use middle::{astencode, def};
 use middle::pat_util::def_to_path;
-use middle::ty::{mod};
+use middle::ty::{self};
 use middle::astconv_util::{ast_ty_to_prim_ty};
 use util::nodemap::DefIdMap;
 
-use syntax::ast::{mod, Expr};
+use syntax::ast::{self, Expr};
 use syntax::parse::token::InternedString;
 use syntax::ptr::P;
-use syntax::visit::{mod, Visitor};
+use syntax::visit::{self, Visitor};
 use syntax::{ast_map, ast_util, codemap};
 
-use std::rc::Rc;
 use std::collections::hash_map::Entry::Vacant;
+use std::rc::Rc;
 
 //
 // This pass classifies expressions by their constant-ness.
@@ -62,7 +62,7 @@ use std::collections::hash_map::Entry::Vacant;
 //   - Non-constants: everything else.
 //
 
-#[deriving(Copy)]
+#[derive(Copy)]
 pub enum constness {
     integral_const,
     general_const,
@@ -81,7 +81,7 @@ pub fn join(a: constness, b: constness) -> constness {
     }
 }
 
-pub fn join_all<It: Iterator<constness>>(cs: It) -> constness {
+pub fn join_all<It: Iterator<Item=constness>>(cs: It) -> constness {
     cs.fold(integral_const, |a, b| join(a, b))
 }
 
@@ -294,7 +294,7 @@ pub fn process_crate(tcx: &ty::ctxt) {
 
 // FIXME (#33): this doesn't handle big integer/float literals correctly
 // (nor does the rest of our literal handling).
-#[deriving(Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum const_val {
     const_float(f64),
     const_int(i64),

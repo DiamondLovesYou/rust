@@ -7,22 +7,23 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
+
+use prelude::v1::*;
 use self::Req::*;
 
-use libc::{mod, pid_t, c_void, c_int};
-use c_str::CString;
-use io::{mod, IoResult, IoError, EndOfFile};
+use c_str::{CString, ToCStr};
+use collections;
+use hash::Hash;
+use io::process::{ProcessExit, ExitStatus, ExitSignal};
+use io::{self, IoResult, IoError, EndOfFile};
+use libc::{self, pid_t, c_void, c_int};
 use mem;
 use os;
-use ptr;
-use prelude::*;
-use io::process::{ProcessExit, ExitStatus, ExitSignal};
-use collections;
 use path::BytesContainer;
-use hash::Hash;
-
-use sys::{mod, retry, c, wouldblock, set_nonblocking, ms_to_timeval};
+use ptr;
+use sync::mpsc::{channel, Sender, Receiver};
 use sys::fs::FileDesc;
+use sys::{self, retry, c, wouldblock, set_nonblocking, ms_to_timeval};
 use sys_common::helper_thread::Helper;
 use sys_common::{AsInner, mkerr_libc, timeout};
 
@@ -143,7 +144,7 @@ impl Process {
 
                     let p = Process{ pid: pid };
                     drop(output);
-                    let mut bytes = [0, ..8];
+                    let mut bytes = [0; 8];
                     return match input.read(&mut bytes) {
                         Ok(8) => {
                             assert!(combine(CLOEXEC_MSG_FOOTER) == combine(bytes.slice(4, 8)),
@@ -305,8 +306,8 @@ impl Process {
 
     #[cfg(not(target_os = "nacl"))]
     pub fn wait(&self, deadline: u64) -> IoResult<ProcessExit> {
-        use std::cmp;
-        use std::comm;
+        use cmp;
+        use sync::mpsc::TryRecvError;
 
         static mut WRITE_FD: libc::c_int = 0;
 
@@ -365,9 +366,9 @@ impl Process {
 
         let (tx, rx) = channel();
         unsafe { HELPER.send(NewChild(self.pid, tx, deadline)); }
-        return match rx.recv_opt() {
+        return match rx.recv() {
             Ok(e) => Ok(e),
-            Err(()) => Err(timeout("wait timed out")),
+            Err(..) => Err(timeout("wait timed out")),
         };
 
         // Register a new SIGCHLD handler, returning the reading half of the
@@ -377,7 +378,7 @@ impl Process {
         // handler we're going to start receiving signals.
         fn register_sigchld() -> (libc::c_int, c::sigaction) {
             unsafe {
-                let mut pipes = [0, ..2];
+                let mut pipes = [0; 2];
                 assert_eq!(libc::pipe(pipes.as_mut_ptr()), 0);
                 set_nonblocking(pipes[0], true).ok().unwrap();
                 set_nonblocking(pipes[1], true).ok().unwrap();
@@ -448,11 +449,11 @@ impl Process {
                             Ok(NewChild(pid, tx, deadline)) => {
                                 active.push((pid, tx, deadline));
                             }
-                            Err(comm::Disconnected) => {
+                            Err(TryRecvError::Disconnected) => {
                                 assert!(active.len() == 0);
                                 break 'outer;
                             }
-                            Err(comm::Empty) => break,
+                            Err(TryRecvError::Empty) => break,
                         }
                     }
                 }
@@ -488,7 +489,7 @@ impl Process {
                     active.retain(|&(pid, ref tx, _)| {
                         let pr = Process { pid: pid };
                         match pr.try_wait() {
-                            Some(msg) => { tx.send(msg); false }
+                            Some(msg) => { tx.send(msg).unwrap(); false }
                             None => true,
                         }
                     });
@@ -511,7 +512,7 @@ impl Process {
         fn drain(fd: libc::c_int) -> bool {
             let mut ret = false;
             loop {
-                let mut buf = [0u8, ..1];
+                let mut buf = [0u8; 1];
                 match unsafe {
                     libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void,
                                buf.len() as libc::size_t)

@@ -18,7 +18,7 @@ use middle::fast_reject;
 use middle::subst;
 use middle::subst::Subst;
 use middle::traits;
-use middle::ty::{mod, Ty, ToPolyTraitRef};
+use middle::ty::{self, Ty, ToPolyTraitRef};
 use middle::ty_fold::TypeFoldable;
 use middle::infer;
 use middle::infer::InferCtxt;
@@ -70,7 +70,7 @@ pub struct Pick<'tcx> {
     pub kind: PickKind<'tcx>,
 }
 
-#[deriving(Clone,Show)]
+#[derive(Clone,Show)]
 pub enum PickKind<'tcx> {
     InherentImplPick(/* Impl */ ast::DefId),
     ObjectPick(/* Trait */ ast::DefId, /* method_num */ uint, /* real_index */ uint),
@@ -85,7 +85,7 @@ pub type PickResult<'tcx> = Result<Pick<'tcx>, MethodError>;
 // difference is that it doesn't embed any regions or other
 // specifics. The "confirmation" step recreates those details as
 // needed.
-#[deriving(Clone,Show)]
+#[derive(Clone,Show)]
 pub enum PickAdjustment {
     // Indicates that the source expression should be autoderef'd N times
     //
@@ -267,6 +267,8 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
             return; // already visited
         }
 
+        debug!("assemble_inherent_impl_probe {}", impl_def_id);
+
         let method = match impl_method(self.tcx(), impl_def_id, self.method_name) {
             Some(m) => m,
             None => { return; } // No method with correct name on this impl
@@ -308,7 +310,10 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
         let trait_ref = data.principal_trait_ref_with_self_ty(self.tcx(), self_ty);
         self.elaborate_bounds(&[trait_ref.clone()], false, |this, new_trait_ref, m, method_num| {
             let vtable_index =
-                get_method_index(tcx, &new_trait_ref, trait_ref.clone(), method_num);
+                traits::get_vtable_index_of_object_method(tcx,
+                                                          trait_ref.clone(),
+                                                          new_trait_ref.def_id(),
+                                                          method_num);
 
             let xform_self_ty = this.xform_self_ty(&m, new_trait_ref.substs());
 
@@ -432,7 +437,7 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
     }
 
     fn assemble_extension_candidates_for_trait(&mut self,
-                                           trait_def_id: ast::DefId) {
+                                               trait_def_id: ast::DefId) {
         debug!("assemble_extension_candidates_for_trait: trait_def_id={}",
                trait_def_id.repr(self.tcx()));
 
@@ -783,9 +788,7 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
                     debug!("impl_obligations={}", obligations.repr(self.tcx()));
 
                     // Evaluate those obligations to see if they might possibly hold.
-                    let mut selcx = traits::SelectionContext::new(self.infcx(),
-                                                                  &self.fcx.inh.param_env,
-                                                                  self.fcx);
+                    let mut selcx = traits::SelectionContext::new(self.infcx(), self.fcx);
                     obligations.all(|o| selcx.evaluate_obligation(o))
                 }
 
@@ -984,6 +987,7 @@ fn trait_method<'tcx>(tcx: &ty::ctxt<'tcx>,
                       -> Option<(uint, Rc<ty::Method<'tcx>>)>
 {
     let trait_items = ty::trait_items(tcx, trait_def_id);
+    debug!("trait_method; items: {}", trait_items);
     trait_items
         .iter()
         .filter(|item|
@@ -994,35 +998,6 @@ fn trait_method<'tcx>(tcx: &ty::ctxt<'tcx>,
         .enumerate()
         .find(|&(_, ref item)| item.name() == method_name)
         .and_then(|(idx, item)| item.as_opt_method().map(|m| (idx, m)))
-}
-
-// Determine the index of a method in the list of all methods belonging
-// to a trait and its supertraits.
-fn get_method_index<'tcx>(tcx: &ty::ctxt<'tcx>,
-                          trait_ref: &ty::PolyTraitRef<'tcx>,
-                          subtrait: ty::PolyTraitRef<'tcx>,
-                          n_method: uint) -> uint {
-    // We need to figure the "real index" of the method in a
-    // listing of all the methods of an object. We do this by
-    // iterating down the supertraits of the object's trait until
-    // we find the trait the method came from, counting up the
-    // methods from them.
-    let mut method_count = n_method;
-    ty::each_bound_trait_and_supertraits(tcx, &[subtrait], |bound_ref| {
-        if bound_ref.def_id() == trait_ref.def_id() {
-            false
-        } else {
-            let trait_items = ty::trait_items(tcx, bound_ref.def_id());
-            for trait_item in trait_items.iter() {
-                match *trait_item {
-                    ty::MethodTraitItem(_) => method_count += 1,
-                    ty::TypeTraitItem(_) => {}
-                }
-            }
-            true
-        }
-    });
-    method_count
 }
 
 impl<'tcx> Candidate<'tcx> {

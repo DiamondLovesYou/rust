@@ -8,11 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-pub use foo::bar::{mod, First};
+pub use foo::bar::{self, First};
 use self::bar::Second;
 
 mod foo {
-    pub use self::bar::baz::{mod};
+    pub use self::bar::baz::{self};
 
     pub mod bar {
         pub mod baz {
@@ -26,7 +26,7 @@ mod foo {
 }
 
 mod baz {
-    use super::foo::{bar, mod};
+    use super::foo::{bar, self};
     pub use foo::Third;
 }
 

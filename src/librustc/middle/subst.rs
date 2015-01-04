@@ -13,8 +13,8 @@
 pub use self::ParamSpace::*;
 pub use self::RegionSubsts::*;
 
-use middle::ty::{mod, Ty};
-use middle::ty_fold::{mod, TypeFoldable, TypeFolder};
+use middle::ty::{self, Ty};
+use middle::ty_fold::{self, TypeFoldable, TypeFolder};
 use util::ppaux::Repr;
 
 use std::fmt;
@@ -28,7 +28,7 @@ use syntax::codemap::{Span, DUMMY_SP};
 /// identify each in-scope parameter by an *index* and a *parameter
 /// space* (which indices where the parameter is defined; see
 /// `ParamSpace`).
-#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+#[derive(Clone, PartialEq, Eq, Hash, Show)]
 pub struct Substs<'tcx> {
     pub types: VecPerParamSpace<Ty<'tcx>>,
     pub regions: RegionSubsts,
@@ -37,7 +37,7 @@ pub struct Substs<'tcx> {
 /// Represents the values to use when substituting lifetime parameters.
 /// If the value is `ErasedRegions`, then this subst is occurring during
 /// trans, and all region parameters will be replaced with `ty::ReStatic`.
-#[deriving(Clone, PartialEq, Eq, Hash, Show)]
+#[derive(Clone, PartialEq, Eq, Hash, Show)]
 pub enum RegionSubsts {
     ErasedRegions,
     NonerasedRegions(VecPerParamSpace<ty::Region>)
@@ -179,7 +179,7 @@ impl RegionSubsts {
 ///////////////////////////////////////////////////////////////////////////
 // ParamSpace
 
-#[deriving(PartialOrd, Ord, PartialEq, Eq, Copy,
+#[derive(PartialOrd, Ord, PartialEq, Eq, Copy,
            Clone, Hash, RustcEncodable, RustcDecodable, Show)]
 pub enum ParamSpace {
     TypeSpace,  // Type parameters attached to a type definition, trait, or impl
@@ -188,7 +188,7 @@ pub enum ParamSpace {
 }
 
 impl ParamSpace {
-    pub fn all() -> [ParamSpace, ..3] {
+    pub fn all() -> [ParamSpace; 3] {
         [TypeSpace, SelfSpace, FnSpace]
     }
 
@@ -213,7 +213,7 @@ impl ParamSpace {
 /// Vector of things sorted by param space. Used to keep
 /// the set of things declared on the type, self, or method
 /// distinct.
-#[deriving(PartialEq, Eq, Clone, Hash, RustcEncodable, RustcDecodable)]
+#[derive(PartialEq, Eq, Clone, Hash, RustcEncodable, RustcDecodable)]
 pub struct VecPerParamSpace<T> {
     // This was originally represented as a tuple with one Vec<T> for
     // each variant of ParamSpace, and that remains the abstraction
@@ -468,7 +468,7 @@ impl<T> VecPerParamSpace<T> {
     }
 }
 
-#[deriving(Clone)]
+#[derive(Clone)]
 pub struct EnumeratedItems<'a,T:'a> {
     vec: &'a VecPerParamSpace<T>,
     space_index: uint,
@@ -494,7 +494,9 @@ impl<'a,T> EnumeratedItems<'a,T> {
     }
 }
 
-impl<'a,T> Iterator<(ParamSpace, uint, &'a T)> for EnumeratedItems<'a,T> {
+impl<'a,T> Iterator for EnumeratedItems<'a,T> {
+    type Item = (ParamSpace, uint, &'a T);
+
     fn next(&mut self) -> Option<(ParamSpace, uint, &'a T)> {
         let spaces = ParamSpace::all();
         if self.space_index < spaces.len() {
@@ -519,7 +521,7 @@ impl<'a,T> Iterator<(ParamSpace, uint, &'a T)> for EnumeratedItems<'a,T> {
 // `foo`. Or use `foo.subst_spanned(tcx, substs, Some(span))` when
 // there is more information available (for better errors).
 
-pub trait Subst<'tcx> {
+pub trait Subst<'tcx> : Sized {
     fn subst(&self, tcx: &ty::ctxt<'tcx>, substs: &Substs<'tcx>) -> Self {
         self.subst_spanned(tcx, substs, None)
     }

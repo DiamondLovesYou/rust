@@ -45,7 +45,7 @@ pub fn clone() -> Option<Vec<Vec<u8>>> { imp::clone() }
           target_os = "dragonfly",
           target_os = "nacl"))]
 mod imp {
-    use prelude::*;
+    use prelude::v1::*;
 
     use mem;
     use slice;
@@ -108,7 +108,7 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
-        use prelude::*;
+        use prelude::v1::*;
         use finally::Finally;
 
         use super::*;

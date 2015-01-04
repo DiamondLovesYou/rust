@@ -8,12 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::ops::Add;
+
 trait Positioned<S> {
   fn SetX(&mut self, S);
   fn X(&self) -> S;
 }
 
-trait Movable<S: Add<S, S>>: Positioned<S> {
+trait Movable<S: Add<Output=S>>: Positioned<S> {
   fn translate(&mut self, dx: S) {
     let x = self.X() + dx;
     self.SetX(x);

@@ -712,7 +712,7 @@ fn expand_non_macro_stmt(Spanned {node, span: stmt_span}: Stmt, fld: &mut MacroE
                 let rewritten_local = local.map(|Local {id, pat, ty, init, source, span}| {
                     // expand the ty since TyFixedLengthVec contains an Expr
                     // and thus may have a macro use
-                    let expanded_ty = fld.fold_ty(ty);
+                    let expanded_ty = ty.map(|t| fld.fold_ty(t));
                     // expand the pat (it might contain macro uses):
                     let expanded_pat = fld.fold_pat(pat);
                     // find the PatIdents in the pattern:
@@ -802,7 +802,7 @@ fn expand_arm(arm: ast::Arm, fld: &mut MacroExpander) -> ast::Arm {
 /// A visitor that extracts the PatIdent (binding) paths
 /// from a given thingy and puts them in a mutable
 /// array
-#[deriving(Clone)]
+#[derive(Clone)]
 struct PatIdentFinder {
     ident_accumulator: Vec<ast::Ident>
 }
@@ -1320,7 +1320,7 @@ mod test {
     // a visitor that extracts the paths
     // from a given thingy and puts them in a mutable
     // array (passed in to the traversal)
-    #[deriving(Clone)]
+    #[derive(Clone)]
     struct PathExprFinderContext {
         path_accumulator: Vec<ast::Path> ,
     }

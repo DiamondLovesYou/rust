@@ -18,7 +18,7 @@
 
 use metadata::csearch::{each_impl, get_impl_trait};
 use metadata::csearch;
-use middle::subst::{mod, Subst};
+use middle::subst::{self, Subst};
 use middle::ty::RegionEscape;
 use middle::ty::{ImplContainer, ImplOrTraitItemId, MethodTraitItemId};
 use middle::ty::{ParameterEnvironment, TypeTraitItemId, lookup_item_type};
@@ -482,7 +482,7 @@ impl<'a, 'tcx> CoherenceChecker<'a, 'tcx> {
             debug!("check_implementations_of_copy: self_type={} (free)",
                    self_type.repr(tcx));
 
-            match ty::can_type_implement_copy(tcx, self_type, &param_env) {
+            match ty::can_type_implement_copy(&param_env, span, self_type) {
                 Ok(()) => {}
                 Err(ty::FieldDoesNotImplementCopy(name)) => {
                     tcx.sess

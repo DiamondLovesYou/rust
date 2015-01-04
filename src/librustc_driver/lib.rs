@@ -26,6 +26,7 @@
 #![feature(slicing_syntax, unsafe_destructor)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(unboxed_closures)]
+#![feature(associated_types)]
 
 extern crate arena;
 extern crate flate;
@@ -54,9 +55,11 @@ use rustc::metadata;
 use rustc::DIAGNOSTICS;
 
 use std::any::AnyRefExt;
+use std::cmp::Ordering::Equal;
 use std::io;
 use std::iter::repeat;
 use std::os;
+use std::sync::mpsc::channel;
 use std::thread;
 
 use rustc::session::early_error;

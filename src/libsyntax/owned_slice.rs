@@ -8,14 +8,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::fmt;
 use std::default::Default;
+use std::fmt;
+use std::iter::FromIterator;
+use std::ops::Deref;
 use std::vec;
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 
 /// A non-growable owned slice. This is a separate type to allow the
 /// representation to change.
-#[deriving(Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OwnedSlice<T> {
     data: Box<[T]>
 }
@@ -54,7 +56,9 @@ impl<T> OwnedSlice<T> {
     }
 }
 
-impl<T> Deref<[T]> for OwnedSlice<T> {
+impl<T> Deref for OwnedSlice<T> {
+    type Target = [T];
+
     fn deref(&self) -> &[T] {
         self.as_slice()
     }
@@ -73,7 +77,7 @@ impl<T: Clone> Clone for OwnedSlice<T> {
 }
 
 impl<T> FromIterator<T> for OwnedSlice<T> {
-    fn from_iter<I: Iterator<T>>(iter: I) -> OwnedSlice<T> {
+    fn from_iter<I: Iterator<Item=T>>(iter: I) -> OwnedSlice<T> {
         OwnedSlice::from_vec(iter.collect())
     }
 }
