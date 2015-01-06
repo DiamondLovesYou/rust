@@ -58,7 +58,7 @@ use serialize::{json, Decodable, Encodable};
 use term::Terminal;
 use term::color::{Color, RED, YELLOW, GREEN, CYAN};
 
-use std::any::{Any, AnyRefExt};
+use std::any::Any;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::f64;
@@ -71,7 +71,7 @@ use std::io;
 use std::iter::repeat;
 use std::num::{Float, FloatMath, Int};
 use std::os;
-use std::str::{FromStr, from_str};
+use std::str::FromStr;
 use std::sync::mpsc::{channel, Sender};
 use std::thread::{self, Thread};
 use std::thunk::{Thunk, Invoke};

@@ -8,16 +8,20 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// This file was auto-generated using 'src/etc/generate-deriving-span-tests.py'
+fn pairwise_sub(mut t: Box<DoubleEndedIterator<Item=int>>) -> int {
+    let mut result = 0;
+    loop {
+        let front = t.next();
+        let back = t.next_back();
+        match (front, back) {
+            (Some(f), Some(b)) => { result += b - f; }
+            _ => { return result; }
+        }
+    }
+}
 
-extern crate rand;
-
-
-struct Error;
-
-#[derive(Zero)]   //~ ERROR not implemented
-struct Struct(
-    Error
-);
-
-fn main() {}
+fn main() {
+    let v = vec!(1, 2, 3, 4, 5, 6);
+    let r = pairwise_sub(box v.into_iter());
+    assert_eq!(r, 9);
+}

@@ -8,23 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern crate serialize;
+use std::kinds::Send;
 
-use std::fmt;
-use serialize::{Encodable, Encoder};
+struct TestType;
 
-pub fn buffer_encode<'a,
-                     T:Encodable<serialize::json::Encoder<'a>,fmt::Error>>(
-                     to_encode_object: &T)
-                     -> String {
-    let mut m = String::new();
-    {
-        let mut encoder =
-            serialize::json::Encoder::new(&mut m);
-        //~^ ERROR `m` does not live long enough
-        to_encode_object.encode(&mut encoder);
-    }
-    m
-}
+trait TestTrait {}
+
+unsafe impl !Send for TestType {}
+//~^ ERROR negative trait bounds
 
 fn main() {}

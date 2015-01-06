@@ -8,10 +8,21 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::task;
+// Test that the call operator autoderefs when calling a bounded type parameter.
 
-fn main() {
-    // We get an error because return type is `->int` and not `->()`.
-    task::spawn(|| -> int { 10 });
-    //~^ ERROR type mismatch
+#![feature(unboxed_closures)]
+
+use std::ops::FnMut;
+
+fn call_with_2(x: &fn(int) -> int) -> int
+{
+    x(2) // look ma, no `*`
+}
+
+fn subtract_22(x: int) -> int { x - 22 }
+
+pub fn main() {
+    let subtract_22: fn(int) -> int = subtract_22;
+    let z = call_with_2(&subtract_22);
+    assert_eq!(z, -20);
 }

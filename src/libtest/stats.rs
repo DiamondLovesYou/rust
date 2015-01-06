@@ -438,12 +438,14 @@ pub fn write_boxplot<W: Writer, T: Float + Show + FromPrimitive>(
 
 /// Returns a HashMap with the number of occurrences of every element in the
 /// sequence that the iterator exposes.
-pub fn freq_count<T: Iterator<Item=U>, U: Eq+Hash>(mut iter: T) -> hash_map::HashMap<U, uint> {
+pub fn freq_count<T, U>(mut iter: T) -> hash_map::HashMap<U, uint>
+  where T: Iterator<Item=U>, U: Eq + Clone + Hash
+{
     let mut map: hash_map::HashMap<U,uint> = hash_map::HashMap::new();
     for elem in iter {
-        match map.entry(elem) {
+        match map.entry(&elem) {
             Occupied(mut entry) => { *entry.get_mut() += 1; },
-            Vacant(entry) => { entry.set(1); },
+            Vacant(entry) => { entry.insert(1); },
         }
     }
     map
@@ -1066,7 +1068,7 @@ mod bench {
     #[bench]
     pub fn sum_many_f64(b: &mut Bencher) {
         let nums = [-1e30f64, 1e60, 1e30, 1.0, -1e60];
-        let v = Vec::from_fn(500, |i| nums[i%5]);
+        let v = range(0, 500).map(|i| nums[i%5]).collect::<Vec<_>>();
 
         b.iter(|| {
             v.as_slice().sum();

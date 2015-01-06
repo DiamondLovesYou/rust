@@ -182,14 +182,30 @@ impl Name {
 /// A mark represents a unique id associated with a macro expansion
 pub type Mrk = u32;
 
+#[cfg(stage0)]
 impl<S: Encoder<E>, E> Encodable<S, E> for Ident {
     fn encode(&self, s: &mut S) -> Result<(), E> {
         s.emit_str(token::get_ident(*self).get())
     }
 }
 
+#[cfg(not(stage0))]
+impl Encodable for Ident {
+    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        s.emit_str(token::get_ident(*self).get())
+    }
+}
+
+#[cfg(stage0)]
 impl<D: Decoder<E>, E> Decodable<D, E> for Ident {
     fn decode(d: &mut D) -> Result<Ident, E> {
+        Ok(str_to_ident(try!(d.read_str())[]))
+    }
+}
+
+#[cfg(not(stage0))]
+impl Decodable for Ident {
+    fn decode<D: Decoder>(d: &mut D) -> Result<Ident, D::Error> {
         Ok(str_to_ident(try!(d.read_str())[]))
     }
 }
@@ -989,7 +1005,7 @@ impl LitIntType {
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show)]
 pub enum Lit_ {
     LitStr(InternedString, StrStyle),
-    LitBinary(Rc<Vec<u8> >),
+    LitBinary(Rc<Vec<u8>>),
     LitByte(u8),
     LitChar(char),
     LitInt(u64, LitIntType),
@@ -1299,6 +1315,24 @@ impl fmt::Show for Unsafety {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash)]
+pub enum ImplPolarity {
+    /// impl Trait for Type
+    Positive,
+    /// impl !Trait for Type
+    Negative,
+}
+
+impl fmt::Show for ImplPolarity {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ImplPolarity::Positive => "positive".fmt(f),
+            ImplPolarity::Negative => "negative".fmt(f),
+        }
+    }
+}
+
+
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show)]
 pub enum FunctionRetTy {
     /// Functions with return type ! that always
@@ -1587,6 +1621,7 @@ pub enum Item_ {
               TyParamBounds,
               Vec<TraitItem>),
     ItemImpl(Unsafety,
+             ImplPolarity,
              Generics,
              Option<TraitRef>, // (optional) trait this impl implements
              P<Ty>, // self
@@ -1667,27 +1702,7 @@ mod test {
     // are ASTs encodable?
     #[test]
     fn check_asts_encodable() {
-        use std::io;
-        let e = Crate {
-            module: Mod {
-                inner: Span {
-                    lo: BytePos(11),
-                    hi: BytePos(19),
-                    expn_id: NO_EXPANSION,
-                },
-                view_items: Vec::new(),
-                items: Vec::new(),
-            },
-            attrs: Vec::new(),
-            config: Vec::new(),
-            span: Span {
-                lo: BytePos(10),
-                hi: BytePos(20),
-                expn_id: NO_EXPANSION,
-            },
-            exported_macros: Vec::new(),
-        };
-        // doesn't matter which encoder we use....
-        let _f = &e as &serialize::Encodable<json::Encoder, fmt::Error>;
+        fn assert_encodable<T: serialize::Encodable>() {}
+        assert_encodable::<Crate>();
     }
 }

@@ -8,9 +8,24 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::sync::atomic::AtomicOption;
+#![feature(optin_builtin_traits)]
 
-fn main() {
-    let x = 0u;
-    AtomicOption::new(box &x);  //~ ERROR `x` does not live long enough
-}
+use std::kinds::Send;
+
+struct TestType;
+
+impl TestType {}
+
+trait TestTrait {}
+
+unsafe impl !Send for TestType {}
+impl !TestTrait for TestType {}
+
+struct TestType2<T>;
+
+impl<T> TestType2<T> {}
+
+unsafe impl<T> !Send for TestType2<T> {}
+impl<T> !TestTrait for TestType2<T> {}
+
+fn main() {}

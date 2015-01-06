@@ -18,7 +18,7 @@ pub use self::OptLevel::*;
 pub use self::OutputType::*;
 pub use self::DebugInfoLevel::*;
 
-use session::{early_error, Session};
+use session::{early_error, early_warn, Session};
 use session::search_paths::SearchPaths;
 
 use rustc_back::target::Target;
@@ -395,7 +395,6 @@ macro_rules! cgoptions {
 
     mod cgsetters {
         use super::{CodegenOptions, Passes, SomePasses, AllPasses};
-        use std::str::from_str;
 
         $(
             pub fn $opt(cg: &mut CodegenOptions, v: Option<&str>) -> bool {
@@ -456,7 +455,7 @@ macro_rules! cgoptions {
         }
 
         fn parse_uint(slot: &mut uint, v: Option<&str>) -> bool {
-            match v.and_then(from_str) {
+            match v.and_then(|s| s.parse()) {
                 Some(i) => { *slot = i; true },
                 None => false
             }
@@ -464,7 +463,7 @@ macro_rules! cgoptions {
 
         fn parse_opt_uint(slot: &mut Option<uint>, v: Option<&str>) -> bool {
             match v {
-                Some(s) => { *slot = from_str(s); slot.is_some() }
+                Some(s) => { *slot = s.parse(); slot.is_some() }
                 None => { *slot = None; true }
             }
         }
@@ -762,7 +761,7 @@ pub fn rustc_short_optgroups() -> Vec<RustcOptGroup> {
                  "[asm|llvm-bc|llvm-ir|obj|link|dep-info]"),
         opt::multi("", "print", "Comma separated list of compiler information to \
                                print on stdout",
-                 "[crate-name|output-file-names|sysroot]"),
+                 "[crate-name|file-names|sysroot]"),
         opt::flag("g",  "",  "Equivalent to -C debuginfo=2"),
         opt::flag("O", "", "Equivalent to -C opt-level=2"),
         opt::opt("o", "", "Write output to <filename>", "FILENAME"),
@@ -886,22 +885,22 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     }
 
     let parse_only = if matches.opt_present("parse-only") {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("--parse-only is deprecated in favor of -Z parse-only");
+        // FIXME(acrichto) remove this eventually
+        early_warn("--parse-only is deprecated in favor of -Z parse-only");
         true
     } else {
         debugging_opts & PARSE_ONLY != 0
     };
     let no_trans = if matches.opt_present("no-trans") {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("--no-trans is deprecated in favor of -Z no-trans");
+        // FIXME(acrichto) remove this eventually
+        early_warn("--no-trans is deprecated in favor of -Z no-trans");
         true
     } else {
         debugging_opts & NO_TRANS != 0
     };
     let no_analysis = if matches.opt_present("no-analysis") {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("--no-analysis is deprecated in favor of -Z no-analysis");
+        // FIXME(acrichto) remove this eventually
+        early_warn("--no-analysis is deprecated in favor of -Z no-analysis");
         true
     } else {
         debugging_opts & NO_ANALYSIS != 0
@@ -953,8 +952,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
             }
             Default
         } else if matches.opt_present("opt-level") {
-            // FIXME(acrichto) uncomment deprecation warning
-            // early_warn("--opt-level=N is deprecated in favor of -C opt-level=N");
+            // FIXME(acrichto) remove this eventually
+            early_warn("--opt-level=N is deprecated in favor of -C opt-level=N");
             match matches.opt_str("opt-level").as_ref().map(|s| s.as_slice()) {
                 None      |
                 Some("0") => No,
@@ -992,8 +991,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
         }
         FullDebugInfo
     } else if matches.opt_present("debuginfo") {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("--debuginfo=N is deprecated in favor of -C debuginfo=N");
+        // FIXME(acrichto) remove this eventually
+        early_warn("--debuginfo=N is deprecated in favor of -C debuginfo=N");
         match matches.opt_str("debuginfo").as_ref().map(|s| s.as_slice()) {
             Some("0") => NoDebugInfo,
             Some("1") => LimitedDebugInfo,
@@ -1061,8 +1060,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     let cfg = parse_cfgspecs(matches.opt_strs("cfg"));
     let test = matches.opt_present("test");
     let write_dependency_info = if matches.opt_present("dep-info") {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("--dep-info has been deprecated in favor of --emit");
+        // FIXME(acrichto) remove this eventually
+        early_warn("--dep-info has been deprecated in favor of --emit");
         (true, matches.opt_str("dep-info").map(|p| Path::new(p)))
     } else {
         (output_types.contains(&OutputTypeDepInfo), None)
@@ -1079,22 +1078,21 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
         }
     }).collect::<Vec<_>>();
     if matches.opt_present("print-crate-name") {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("--print-crate-name has been deprecated in favor of \
-        //             --print crate-name");
+        // FIXME(acrichto) remove this eventually
+        early_warn("--print-crate-name has been deprecated in favor of \
+                    --print crate-name");
         prints.push(PrintRequest::CrateName);
     }
     if matches.opt_present("print-file-name") {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("--print-file-name has been deprecated in favor of \
-        //             --print file-names");
+        // FIXME(acrichto) remove this eventually
+        early_warn("--print-file-name has been deprecated in favor of \
+                    --print file-names");
         prints.push(PrintRequest::FileNames);
     }
 
     if !cg.remark.is_empty() && debuginfo == NoDebugInfo {
-        // FIXME(acrichto) uncomment deprecation warning
-        // early_warn("-C remark will not show source locations without \
-        //             --debuginfo");
+        early_warn("-C remark will not show source locations without \
+                    --debuginfo");
     }
 
     let color = match matches.opt_str("color").as_ref().map(|s| s[]) {
@@ -1123,8 +1121,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
             None => early_error("--extern value must be of the format `foo=bar`"),
         };
 
-        match externs.entry(name.to_string()) {
-            Vacant(entry) => { entry.set(vec![location.to_string()]); },
+        match externs.entry(&name.to_string()) {
+            Vacant(entry) => { entry.insert(vec![location.to_string()]); },
             Occupied(mut entry) => { entry.get_mut().push(location.to_string()); },
         }
     }

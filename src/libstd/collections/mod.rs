@@ -226,7 +226,7 @@
 //! the key has been seen or not. Normally, this would require a `find` followed by an
 //! `insert`, effectively duplicating the search effort on each insertion.
 //!
-//! When a user calls `map.entry(key)`, the map will search for the key and then yield
+//! When a user calls `map.entry(&key)`, the map will search for the key and then yield
 //! a variant of the `Entry` enum.
 //!
 //! If a `Vacant(entry)` is yielded, then the key *was not* found. In this case the
@@ -255,8 +255,8 @@
 //! let message = "she sells sea shells by the sea shore";
 //!
 //! for c in message.chars() {
-//!     match count.entry(c) {
-//!         Vacant(entry) => { entry.set(1u); },
+//!     match count.entry(&c) {
+//!         Vacant(entry) => { entry.insert(1u); },
 //!         Occupied(mut entry) => *entry.get_mut() += 1,
 //!     }
 //! }
@@ -290,8 +290,8 @@
 //! for id in orders.into_iter() {
 //!     // If this is the first time we've seen this customer, initialize them
 //!     // with no blood alcohol. Otherwise, just retrieve them.
-//!     let person = match blood_alcohol.entry(id) {
-//!         Vacant(entry) => entry.set(Person{id: id, blood_alcohol: 0.0}),
+//!     let person = match blood_alcohol.entry(&id) {
+//!         Vacant(entry) => entry.insert(Person{id: id, blood_alcohol: 0.0}),
 //!         Occupied(entry) => entry.into_mut(),
 //!     };
 //!
@@ -314,16 +314,8 @@
 pub use core_collections::{BinaryHeap, Bitv, BitvSet, BTreeMap, BTreeSet};
 pub use core_collections::{DList, RingBuf, VecMap};
 
-/// Deprecated: Moved to collect-rs: https://github.com/Gankro/collect-rs/
-#[deprecated = "Moved to collect-rs: https://github.com/Gankro/collect-rs/"]
-pub use core_collections::EnumSet;
-
 pub use core_collections::{binary_heap, bitv, bitv_set, btree_map, btree_set};
 pub use core_collections::{dlist, ring_buf, vec_map};
-
-/// Deprecated: Moved to collect-rs: https://github.com/Gankro/collect-rs/
-#[deprecated = "Moved to collect-rs: https://github.com/Gankro/collect-rs/"]
-pub use core_collections::enum_set;
 
 pub use self::hash_map::HashMap;
 pub use self::hash_set::HashSet;

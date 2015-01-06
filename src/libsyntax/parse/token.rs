@@ -22,7 +22,6 @@ use util::interner::{RcStr, StrInterner};
 use util::interner;
 
 use serialize::{Decodable, Decoder, Encodable, Encoder};
-use std::cmp::Equiv;
 use std::fmt;
 use std::mem;
 use std::ops::Deref;
@@ -632,13 +631,6 @@ impl fmt::Show for InternedString {
     }
 }
 
-#[allow(deprecated)]
-impl<'a> Equiv<&'a str> for InternedString {
-    fn equiv(&self, other: & &'a str) -> bool {
-        (*other) == self.string[]
-    }
-}
-
 impl<'a> PartialEq<&'a str> for InternedString {
     #[inline(always)]
     fn eq(&self, other: & &'a str) -> bool {
@@ -661,6 +653,7 @@ impl<'a> PartialEq<InternedString > for &'a str {
     }
 }
 
+#[cfg(stage0)]
 impl<D:Decoder<E>, E> Decodable<D, E> for InternedString {
     fn decode(d: &mut D) -> Result<InternedString, E> {
         Ok(get_name(get_ident_interner().intern(
@@ -668,8 +661,24 @@ impl<D:Decoder<E>, E> Decodable<D, E> for InternedString {
     }
 }
 
+#[cfg(not(stage0))]
+impl Decodable for InternedString {
+    fn decode<D: Decoder>(d: &mut D) -> Result<InternedString, D::Error> {
+        Ok(get_name(get_ident_interner().intern(
+                    try!(d.read_str())[])))
+    }
+}
+
+#[cfg(stage0)]
 impl<S:Encoder<E>, E> Encodable<S, E> for InternedString {
     fn encode(&self, s: &mut S) -> Result<(), E> {
+        s.emit_str(self.string[])
+    }
+}
+
+#[cfg(not(stage0))]
+impl Encodable for InternedString {
+    fn encode<S: Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
         s.emit_str(self.string[])
     }
 }

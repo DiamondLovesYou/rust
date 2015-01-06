@@ -8,19 +8,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-stage1
+// Test that the `wf` checker properly handles bound regions in object
+// types. Compiling this code used to trigger an ICE.
 
-#![feature(phase)]
-
-extern crate regex;
-#[phase(plugin)] extern crate regex_macros;
-
-// Tests to make sure that `regex!` will produce a compile error when given
-// an invalid regular expression.
-// More exhaustive failure tests for the parser are done with the traditional
-// unit testing infrastructure, since both dynamic and native regexes use the
-// same parser.
-
-fn main() {
-    let _ = regex!("("); //~ ERROR Regex syntax error
+pub struct Context<'tcx> {
+    vec: &'tcx Vec<int>
 }
+
+pub type Cmd<'a> = &'a int;
+
+pub type DecodeInlinedItem<'a> =
+    Box<for<'tcx> FnMut(Cmd, &Context<'tcx>) -> Result<&'tcx int, ()> + 'a>;
+
+fn foo(d: DecodeInlinedItem) {
+}
+
+fn main() { }

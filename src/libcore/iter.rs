@@ -68,8 +68,6 @@ use option::Option::{Some, None};
 use std::kinds::Sized;
 use uint;
 
-#[deprecated = "renamed to Extend"] pub use self::Extend as Extendable;
-
 /// An interface for dealing with "external iterators". These types of iterators
 /// can be resumed at any time as all state is stored internally as opposed to
 /// being located on the call stack.
@@ -2728,10 +2726,10 @@ pub trait Step: Ord {
     /// Change self to the previous object.
     fn step_back(&mut self);
     /// The steps_between two step objects.
-    /// a should always be less than b, so the result should never be negative.
+    /// start should always be less than end, so the result should never be negative.
     /// Return None if it is not possible to calculate steps_between without
     /// overflow.
-    fn steps_between(a: &Self, b: &Self) -> Option<uint>;
+    fn steps_between(start: &Self, end: &Self) -> Option<uint>;
 }
 
 macro_rules! step_impl {
@@ -2743,9 +2741,9 @@ macro_rules! step_impl {
             #[inline]
             fn step_back(&mut self) { *self -= 1; }
             #[inline]
-            fn steps_between(a: &$t, b: &$t) -> Option<uint> {
-                debug_assert!(a < b);
-                Some((*a - *b) as uint)
+            fn steps_between(start: &$t, end: &$t) -> Option<uint> {
+                debug_assert!(end >= start);
+                Some((*end - *start) as uint)
             }
         }
     )*)
@@ -2760,7 +2758,7 @@ macro_rules! step_impl_no_between {
             #[inline]
             fn step_back(&mut self) { *self -= 1; }
             #[inline]
-            fn steps_between(_a: &$t, _b: &$t) -> Option<uint> {
+            fn steps_between(_start: &$t, _end: &$t) -> Option<uint> {
                 None
             }
         }
@@ -2779,15 +2777,6 @@ step_impl_no_between!(u64 i64);
 #[stable]
 pub struct Repeat<A> {
     element: A
-}
-
-impl<A: Clone> Repeat<A> {
-    /// Create a new `Repeat` that endlessly repeats the element `elt`.
-    #[inline]
-    #[deprecated = "use iter::repeat instead"]
-    pub fn new(elt: A) -> Repeat<A> {
-        Repeat{element: elt}
-    }
 }
 
 #[unstable = "trait is unstable"]

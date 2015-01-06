@@ -8,9 +8,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::kinds::marker;
-use std::sync::atomic::AtomicOption;
+#![feature(optin_builtin_traits)]
 
-fn main() {
-    AtomicOption::new(box marker::NoSend);  //~ ERROR `core::kinds::Send` is not implemented
+// pp-exact
+
+trait UnsafeTrait {
+    fn foo(&self);
 }
+
+impl !UnsafeTrait for int {
+    fn foo(&self) { }
+}
+
+pub fn main() { }
