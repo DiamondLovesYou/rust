@@ -19,9 +19,23 @@
 #![feature(globs, phase, slicing_syntax)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(associated_types)]
+#![feature(old_orphan_check)]
 
-#[phase(plugin, link)] extern crate log;
-#[phase(plugin, link)] extern crate syntax;
+#[cfg(stage0)]
+#[phase(plugin, link)]
+extern crate log;
+
+#[cfg(not(stage0))]
+#[macro_use]
+extern crate log;
+
+#[cfg(stage0)]
+#[phase(plugin, link)]
+extern crate syntax;
+
+#[cfg(not(stage0))]
+#[macro_use]
+extern crate syntax;
 
 extern crate rustc;
 
@@ -71,7 +85,7 @@ use syntax::ast::{PatRange, PatStruct, Path};
 use syntax::ast::{PolyTraitRef, PrimTy, SelfExplicit};
 use syntax::ast::{RegionTyParamBound, StructField};
 use syntax::ast::{TraitRef, TraitTyParamBound};
-use syntax::ast::{Ty, TyBool, TyChar, TyClosure, TyF32};
+use syntax::ast::{Ty, TyBool, TyChar, TyF32};
 use syntax::ast::{TyF64, TyFloat, TyI, TyI8, TyI16, TyI32, TyI64, TyInt, TyObjectSum};
 use syntax::ast::{TyParam, TyParamBound, TyPath, TyPtr, TyPolyTraitRef, TyQPath};
 use syntax::ast::{TyRptr, TyStr, TyU, TyU8, TyU16, TyU32, TyU64, TyUint};
@@ -3604,14 +3618,6 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             TyQPath(ref qpath) => {
                 self.resolve_type(&*qpath.self_type);
                 self.resolve_trait_reference(ty.id, &*qpath.trait_ref, TraitQPath);
-            }
-
-            TyClosure(ref c) => {
-                self.resolve_type_parameter_bounds(
-                    ty.id,
-                    &c.bounds,
-                    TraitBoundingTypeParameter);
-                visit::walk_ty(self, ty);
             }
 
             TyPolyTraitRef(ref bounds) => {

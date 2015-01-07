@@ -662,27 +662,27 @@ pub fn get_item_path(cdata: Cmd, id: ast::NodeId) -> Vec<ast_map::PathElem> {
     item_path(lookup_item(id, cdata.data()))
 }
 
-pub type DecodeInlinedItem<'a> = for<'tcx> |cdata: Cmd,
-                                            tcx: &ty::ctxt<'tcx>,
-                                            path: Vec<ast_map::PathElem>,
-                                            par_doc: rbml::Doc|: 'a
-                                            -> Result<&'tcx ast::InlinedItem,
-                                                      Vec<ast_map::PathElem>>;
+pub type DecodeInlinedItem<'a> =
+    Box<for<'tcx> FnMut(Cmd,
+                        &ty::ctxt<'tcx>,
+                        Vec<ast_map::PathElem>,
+                        rbml::Doc)
+                        -> Result<&'tcx ast::InlinedItem, Vec<ast_map::PathElem>> + 'a>;
 
 pub fn maybe_get_item_ast<'tcx>(cdata: Cmd, tcx: &ty::ctxt<'tcx>, id: ast::NodeId,
-                                decode_inlined_item: DecodeInlinedItem)
+                                mut decode_inlined_item: DecodeInlinedItem)
                                 -> csearch::found_ast<'tcx> {
     debug!("Looking up item: {}", id);
     let item_doc = lookup_item(id, cdata.data());
     let path = item_path(item_doc).init().to_vec();
-    match decode_inlined_item(cdata, tcx, path, item_doc) {
+    match decode_inlined_item.call_mut((cdata, tcx, path, item_doc)) {
         Ok(ii) => csearch::found(ii),
         Err(path) => {
             match item_parent_item(item_doc) {
                 Some(did) => {
                     let did = translate_def_id(cdata, did);
                     let parent_item = lookup_item(did.node, cdata.data());
-                    match decode_inlined_item(cdata, tcx, path, parent_item) {
+                    match decode_inlined_item.call_mut((cdata, tcx, path, parent_item)) {
                         Ok(ii) => csearch::found_parent(did, ii),
                         Err(_) => csearch::not_found
                     }
@@ -1353,15 +1353,16 @@ pub fn get_plugin_registrar_fn(data: &[u8]) -> Option<ast::NodeId> {
         .map(|doc| FromPrimitive::from_u32(reader::doc_as_u32(doc)).unwrap())
 }
 
-pub fn get_exported_macros(data: &[u8]) -> Vec<String> {
-    let macros = reader::get_doc(rbml::Doc::new(data),
-                                 tag_exported_macros);
-    let mut result = Vec::new();
+pub fn each_exported_macro<F>(data: &[u8], intr: &IdentInterner, mut f: F) where
+    F: FnMut(ast::Name, Vec<ast::Attribute>, String) -> bool,
+{
+    let macros = reader::get_doc(rbml::Doc::new(data), tag_macro_defs);
     reader::tagged_docs(macros, tag_macro_def, |macro_doc| {
-        result.push(macro_doc.as_str().to_string());
-        true
+        let name = item_name(intr, macro_doc);
+        let attrs = get_attributes(macro_doc);
+        let body = reader::get_doc(macro_doc, tag_macro_def_body);
+        f(name, attrs, body.as_str().to_string())
     });
-    result
 }
 
 pub fn get_dylib_dependency_formats(cdata: Cmd)

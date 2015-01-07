@@ -15,7 +15,7 @@ use llvm::{ConstFCmp, ConstICmp, SetLinkage, PrivateLinkage, ValueRef, Bool, Tru
 use llvm::{IntEQ, IntNE, IntUGT, IntUGE, IntULT, IntULE, IntSGT, IntSGE, IntSLT, IntSLE,
            RealOEQ, RealOGT, RealOGE, RealOLT, RealOLE, RealONE};
 use middle::{const_eval, def};
-use trans::{adt, closure, consts, debuginfo, expr, inline, machine};
+use trans::{adt, consts, debuginfo, expr, inline, machine};
 use trans::base::{self, push_ctxt};
 use trans::common::*;
 use trans::type_::Type;
@@ -24,7 +24,6 @@ use middle::subst::Substs;
 use middle::ty::{self, Ty};
 use util::ppaux::{Repr, ty_to_string};
 
-use std::c_str::ToCStr;
 use std::iter::repeat;
 use libc::c_uint;
 use syntax::{ast, ast_util};
@@ -103,9 +102,8 @@ fn const_vec(cx: &CrateContext, e: &ast::Expr,
 
 pub fn const_addr_of(cx: &CrateContext, cv: ValueRef, mutbl: ast::Mutability) -> ValueRef {
     unsafe {
-        let gv = "const".with_c_str(|name| {
-            llvm::LLVMAddGlobal(cx.llmod(), val_ty(cv).to_ref(), name)
-        });
+        let gv = llvm::LLVMAddGlobal(cx.llmod(), val_ty(cv).to_ref(),
+                                     "const\0".as_ptr() as *const _);
         llvm::LLVMSetInitializer(gv, cv);
         llvm::LLVMSetGlobalConstant(gv,
                                     if mutbl == ast::MutImmutable {True} else {False});
@@ -189,20 +187,6 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>, e: &ast::Expr)
         None => { }
         Some(adj) => {
             match adj {
-                ty::AdjustAddEnv(def_id, ty::RegionTraitStore(ty::ReStatic, _)) => {
-                    let wrapper = closure::get_wrapper_for_bare_fn(cx,
-                                                                   ety_adjusted,
-                                                                   def_id,
-                                                                   llconst,
-                                                                   true);
-                    llconst = C_struct(cx, &[wrapper, C_null(Type::i8p(cx))], false)
-                }
-                ty::AdjustAddEnv(_, store) => {
-                    cx.sess()
-                      .span_bug(e.span,
-                                format!("unexpected static function: {}",
-                                        store)[])
-                }
                 ty::AdjustReifyFnPointer(_def_id) => {
                     // FIXME(#19925) once fn item types are
                     // zero-sized, we'll need to do something here

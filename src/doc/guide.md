@@ -355,7 +355,7 @@ Hello, world!
 Bam! We build our project with `cargo build`, and run it with
 `./target/hello_world`. This hasn't bought us a whole lot over our simple use
 of `rustc`, but think about the future: when our project has more than one
-file, we would need to call `rustc` twice, and pass it a bunch of options to
+file, we would need to call `rustc` more than once, and pass it a bunch of options to
 tell it to build everything together. With Cargo, as our project grows, we can
 just `cargo build` and it'll work the right way.
 
@@ -977,7 +977,7 @@ fn main() {
 ```
 
 Even though Rust functions can only return one value, a tuple _is_ one value,
-that happens to be made up of two. You can also see in this example how you
+that happens to be made up of more than one value. You can also see in this example how you
 can destructure a pattern returned by a function, as well.
 
 Tuples are a very simple data structure, and so are not often what you want.
@@ -4232,7 +4232,7 @@ arguments, really powerful things are possible.
 Let's make a closure:
 
 ```{rust}
-let add_one = |x| { 1 + x };
+let add_one = |&: x| { 1 + x };
 
 println!("The sum of 5 plus 1 is {}.", add_one(5));
 ```
@@ -4244,8 +4244,8 @@ binding name and two parentheses, just like we would for a named function.
 Let's compare syntax. The two are pretty close:
 
 ```{rust}
-let add_one = |x: i32| -> i32 { 1 + x };
-fn  add_one   (x: i32) -> i32 { 1 + x }
+let add_one = |&: x: i32| -> i32 { 1 + x };
+fn  add_one      (x: i32) -> i32 { 1 + x }
 ```
 
 As you may have noticed, closures infer their argument and return types, so you
@@ -4258,9 +4258,9 @@ this:
 
 ```{rust}
 fn main() {
-    let x = 5;
+    let x: i32 = 5;
 
-    let printer = || { println!("x is: {}", x); };
+    let printer = |&:| { println!("x is: {}", x); };
 
     printer(); // prints "x is: 5"
 }
@@ -4276,7 +4276,7 @@ defined. The closure borrows any variables it uses, so this will error:
 fn main() {
     let mut x = 5;
 
-    let printer = || { println!("x is: {}", x); };
+    let printer = |&:| { println!("x is: {}", x); };
 
     x = 6; // error: cannot assign to `x` because it is borrowed
 }
@@ -4298,12 +4298,12 @@ now. We'll talk about them more in the "Threads" section of the guide.
 Closures are most useful as an argument to another function. Here's an example:
 
 ```{rust}
-fn twice(x: i32, f: |i32| -> i32) -> i32 {
+fn twice<F: Fn(i32) -> i32>(x: i32, f: F) -> i32 {
     f(x) + f(x)
 }
 
 fn main() {
-    let square = |x: i32| { x * x };
+    let square = |&: x: i32| { x * x };
 
     twice(5, square); // evaluates to 50
 }
@@ -4312,15 +4312,15 @@ fn main() {
 Let's break the example down, starting with `main`:
 
 ```{rust}
-let square = |x: i32| { x * x };
+let square = |&: x: i32| { x * x };
 ```
 
 We've seen this before. We make a closure that takes an integer, and returns
 its square.
 
 ```{rust}
-# fn twice(x: i32, f: |i32| -> i32) -> i32 { f(x) + f(x) }
-# let square = |x: i32| { x * x };
+# fn twice<F: Fn(i32) -> i32>(x: i32, f: F) -> i32 { f(x) + f(x) }
+# let square = |&: x: i32| { x * x };
 twice(5, square); // evaluates to 50
 ```
 
@@ -4343,8 +4343,8 @@ how the `|i32| -> i32` syntax looks a lot like our definition of `square`
 above, if we added the return type in:
 
 ```{rust}
-let square = |x: i32| -> i32 { x * x };
-//           |i32|    -> i32
+let square = |&: x: i32| -> i32 { x * x };
+//           |i32|       -> i32
 ```
 
 This function takes an `i32` and returns an `i32`.
@@ -4358,7 +4358,7 @@ Finally, `twice` returns an `i32` as well.
 Okay, let's look at the body of `twice`:
 
 ```{rust}
-fn twice(x: i32, f: |i32| -> i32) -> i32 {
+fn twice<F: Fn(i32) -> i32>(x: i32, f: F) -> i32 {
   f(x) + f(x)
 }
 ```
@@ -4376,7 +4376,7 @@ If we didn't want to give `square` a name, we could just define it inline.
 This example is the same as the previous one:
 
 ```{rust}
-fn twice(x: i32, f: |i32| -> i32) -> i32 {
+fn twice<F: Fn(i32) -> i32>(x: i32, f: F) -> i32 {
     f(x) + f(x)
 }
 
@@ -4389,7 +4389,7 @@ A named function's name can be used wherever you'd use a closure. Another
 way of writing the previous example:
 
 ```{rust}
-fn twice(x: i32, f: |i32| -> i32) -> i32 {
+fn twice<F: Fn(i32) -> i32>(x: i32, f: F) -> i32 {
     f(x) + f(x)
 }
 

@@ -132,7 +132,7 @@ fn lookup_variant_by_id<'a>(tcx: &'a ty::ctxt,
             None => {}
         }
         let expr_id = match csearch::maybe_get_item_ast(tcx, enum_def,
-            |a, b, c, d| astencode::decode_inlined_item(a, b, c, d)) {
+            box |a, b, c, d| astencode::decode_inlined_item(a, b, c, d)) {
             csearch::found(&ast::IIItem(ref item)) => match item.node {
                 ast::ItemEnum(ast::EnumDef { ref variants }, _) => {
                     // NOTE this doesn't do the right thing, it compares inlined
@@ -172,7 +172,7 @@ pub fn lookup_const_by_id<'a>(tcx: &'a ty::ctxt, def_id: ast::DefId)
             None => {}
         }
         let expr_id = match csearch::maybe_get_item_ast(tcx, def_id,
-            |a, b, c, d| astencode::decode_inlined_item(a, b, c, d)) {
+            box |a, b, c, d| astencode::decode_inlined_item(a, b, c, d)) {
             csearch::found(&ast::IIItem(ref item)) => match item.node {
                 ast::ItemConst(_, ref const_expr) => Some(const_expr.id),
                 _ => None
@@ -503,7 +503,7 @@ pub fn eval_const_expr_partial(tcx: &ty::ctxt, e: &Expr) -> Result<const_val, St
                                         "target type not found for const cast")
                 });
 
-        macro_rules! define_casts(
+        macro_rules! define_casts {
             ($val:ident, {
                 $($ty_pat:pat => (
                     $intermediate_ty:ty,
@@ -524,7 +524,7 @@ pub fn eval_const_expr_partial(tcx: &ty::ctxt, e: &Expr) -> Result<const_val, St
                 },)*
                 _ => Err("can't cast this type".to_string())
             })
-        );
+        }
 
         eval_const_expr_partial(tcx, &**base)
             .and_then(|val| define_casts!(val, {

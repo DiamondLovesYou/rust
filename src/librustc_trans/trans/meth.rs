@@ -34,7 +34,7 @@ use middle::ty::{self, Ty};
 use middle::ty::MethodCall;
 use util::ppaux::Repr;
 
-use std::c_str::ToCStr;
+use std::ffi::CString;
 use std::rc::Rc;
 use syntax::abi::{Rust, RustCall};
 use syntax::parse::token;
@@ -599,8 +599,27 @@ pub fn trans_object_shim<'a, 'tcx>(
            bcx.val_to_string(llobject));
 
     // the remaining arguments will be, well, whatever they are
+    let input_tys =
+        match fty.abi {
+            RustCall => {
+                // unpack the tuple to extract the input type arguments:
+                match fty.sig.0.inputs[1].sty {
+                    ty::ty_tup(ref tys) => tys.as_slice(),
+                    _ => {
+                        bcx.sess().bug(
+                            format!("rust-call expects a tuple not {}",
+                                    fty.sig.0.inputs[1].repr(tcx)).as_slice());
+                    }
+                }
+            }
+            _ => {
+                // skip the self parameter:
+                fty.sig.0.inputs.slice_from(1)
+            }
+        };
+
     let llargs: Vec<_> =
-        fty.sig.0.inputs[1..].iter()
+        input_tys.iter()
         .enumerate()
         .map(|(i, _)| {
             let llarg = get_param(fcx.llfn, fcx.arg_pos(i+1) as u32);
@@ -609,6 +628,7 @@ pub fn trans_object_shim<'a, 'tcx>(
             llarg
         })
         .collect();
+
     assert!(!fcx.needs_ret_allocas);
 
     let dest =
@@ -742,9 +762,9 @@ pub fn make_vtable<I: Iterator<Item=ValueRef>>(ccx: &CrateContext,
     unsafe {
         let tbl = C_struct(ccx, components[], false);
         let sym = token::gensym("vtable");
-        let vt_gvar = format!("vtable{}", sym.uint()).with_c_str(|buf| {
-            llvm::LLVMAddGlobal(ccx.llmod(), val_ty(tbl).to_ref(), buf)
-        });
+        let buf = CString::from_vec(format!("vtable{}", sym.uint()).into_bytes());
+        let vt_gvar = llvm::LLVMAddGlobal(ccx.llmod(), val_ty(tbl).to_ref(),
+                                          buf.as_ptr());
         llvm::LLVMSetInitializer(vt_gvar, tbl);
         llvm::LLVMSetGlobalConstant(vt_gvar, llvm::True);
         llvm::SetLinkage(vt_gvar, llvm::InternalLinkage);

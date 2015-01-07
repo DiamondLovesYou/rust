@@ -1366,7 +1366,6 @@ impl Clean<Type> for ast::Ty {
                     }
                 }
             }
-            TyClosure(ref c) => Closure(box c.clean(cx)),
             TyBareFn(ref barefn) => BareFunction(box barefn.clean(cx)),
             TyParen(ref ty) => ty.clean(cx),
             TyQPath(ref qp) => qp.clean(cx),
@@ -1426,19 +1425,6 @@ impl<'tcx> Clean<Type> for ty::Ty<'tcx> {
                 decl: (ast_util::local_def(0), &fty.sig).clean(cx),
                 abi: fty.abi.to_string(),
             }),
-            ty::ty_closure(ref fty) => {
-                let decl = box ClosureDecl {
-                    lifetimes: Vec::new(), // FIXME: this looks wrong...
-                    decl: (ast_util::local_def(0), &fty.sig).clean(cx),
-                    onceness: fty.onceness,
-                    unsafety: fty.unsafety,
-                    bounds: fty.bounds.clean(cx),
-                };
-                match fty.store {
-                    ty::UniqTraitStore => Proc(decl),
-                    ty::RegionTraitStore(..) => Closure(decl),
-                }
-            }
             ty::ty_struct(did, substs) |
             ty::ty_enum(did, substs) => {
                 let fqn = csearch::get_item_path(cx.tcx(), did);
@@ -2234,7 +2220,7 @@ fn name_from_pat(p: &ast::Pat) -> String {
         PatTup(ref elts) => format!("({})", elts.iter().map(|p| name_from_pat(&**p))
                                             .collect::<Vec<String>>().connect(", ")),
         PatBox(ref p) => name_from_pat(&**p),
-        PatRegion(ref p) => name_from_pat(&**p),
+        PatRegion(ref p, _) => name_from_pat(&**p),
         PatLit(..) => {
             warn!("tried to get argument name from PatLit, \
                   which is silly in function arguments");

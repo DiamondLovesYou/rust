@@ -40,8 +40,8 @@ use util::ppaux::{ty_to_short_str, Repr};
 use util::ppaux;
 
 use arena::TypedArena;
-use std::c_str::ToCStr;
 use libc::c_uint;
+use std::ffi::CString;
 use syntax::ast;
 use syntax::parse::token;
 
@@ -441,18 +441,6 @@ fn make_drop_glue<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, v0: ValueRef, t: Ty<'tcx>)
                                                          v0,
                                                          t,
                                                          |bb, vv, tt| drop_ty(bb, vv, tt, None)),
-        ty::ty_closure(ref f) if f.store == ty::UniqTraitStore => {
-            let box_cell_v = GEPi(bcx, v0, &[0u, abi::FAT_PTR_EXTRA]);
-            let env = Load(bcx, box_cell_v);
-            let env_ptr_ty = Type::at_box(bcx.ccx(), Type::i8(bcx.ccx())).ptr_to();
-            let env = PointerCast(bcx, env, env_ptr_ty);
-            with_cond(bcx, IsNotNull(bcx, env), |bcx| {
-                let dtor_ptr = GEPi(bcx, env, &[0u, abi::BOX_FIELD_DROP_GLUE]);
-                let dtor = Load(bcx, dtor_ptr);
-                Call(bcx, dtor, &[PointerCast(bcx, box_cell_v, Type::i8p(bcx.ccx()))], None);
-                bcx
-            })
-        }
         ty::ty_trait(..) => {
             // No need to do a null check here (as opposed to the Box<trait case
             // above), because this happens for a trait field in an unsized
@@ -498,11 +486,11 @@ pub fn declare_tydesc<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, t: Ty<'tcx>)
     let llalign = llalign_of(ccx, llty);
     let name = mangle_internal_name_by_type_and_seq(ccx, t, "tydesc");
     debug!("+++ declare_tydesc {} {}", ppaux::ty_to_string(ccx.tcx(), t), name);
-    let gvar = name.with_c_str(|buf| {
-        unsafe {
-            llvm::LLVMAddGlobal(ccx.llmod(), ccx.tydesc_type().to_ref(), buf)
-        }
-    });
+    let buf = CString::from_slice(name.as_bytes());
+    let gvar = unsafe {
+        llvm::LLVMAddGlobal(ccx.llmod(), ccx.tydesc_type().to_ref(),
+                            buf.as_ptr())
+    };
     note_unique_llvm_symbol(ccx, name);
 
     let ty_name = token::intern_and_get_ident(
@@ -531,13 +519,14 @@ fn declare_generic_glue<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, t: Ty<'tcx>,
     return (fn_nm, llfn);
 }
 
-fn make_generic_glue<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
-                               t: Ty<'tcx>,
-                               llfn: ValueRef,
-                               helper: for<'blk> |Block<'blk, 'tcx>, ValueRef, Ty<'tcx>|
-                                                  -> Block<'blk, 'tcx>,
-                               name: &str)
-                               -> ValueRef {
+fn make_generic_glue<'a, 'tcx, F>(ccx: &CrateContext<'a, 'tcx>,
+                                  t: Ty<'tcx>,
+                                  llfn: ValueRef,
+                                  helper: F,
+                                  name: &str)
+                                  -> ValueRef where
+    F: for<'blk> FnOnce(Block<'blk, 'tcx>, ValueRef, Ty<'tcx>) -> Block<'blk, 'tcx>,
+{
     let _icx = push_ctxt("make_generic_glue");
     let glue_name = format!("glue {} {}", name, ty_to_short_str(ccx.tcx(), t));
     let _s = StatRecorder::new(ccx, glue_name);

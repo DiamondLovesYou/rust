@@ -29,7 +29,7 @@ fn test_tempdir() {
     let path = {
         let p = TempDir::new_in(&Path::new("."), "foobar").unwrap();
         let p = p.path();
-        assert!(p.as_vec().ends_with(b"foobar"));
+        assert!(p.as_str().unwrap().contains("foobar"));
         p.clone()
     };
     assert!(!path.exists());
@@ -189,7 +189,7 @@ pub fn dont_double_panic() {
     assert!(r.is_err());
 }
 
-fn in_tmpdir(f: ||) {
+fn in_tmpdir<F>(f: F) where F: FnOnce() {
     let tmpdir = TempDir::new("test").ok().expect("can't make tmpdir");
     assert!(os::change_dir(tmpdir.path()).is_ok());
 

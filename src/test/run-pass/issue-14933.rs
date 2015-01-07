@@ -8,9 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(default_type_params)]
 #![allow(missing_doc)]
-
 pub type BigRat<T = int> = T;
 
 fn main() {}

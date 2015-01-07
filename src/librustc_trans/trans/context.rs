@@ -29,8 +29,8 @@ use util::ppaux::Repr;
 use util::sha2::Sha256;
 use util::nodemap::{NodeMap, NodeSet, DefIdMap, FnvHashMap, FnvHashSet};
 
+use std::ffi::CString;
 use std::cell::{Cell, RefCell};
-use std::c_str::ToCStr;
 use std::ptr;
 use std::rc::Rc;
 use syntax::ast;
@@ -221,21 +221,16 @@ impl<'a, 'tcx> Iterator for CrateContextMaybeIterator<'a, 'tcx> {
 
 unsafe fn create_context_and_module(sess: &Session, mod_name: &str) -> (ContextRef, ModuleRef) {
     let llcx = llvm::LLVMContextCreate();
-    let llmod = mod_name.with_c_str(|buf| {
-        llvm::LLVMModuleCreateWithNameInContext(buf, llcx)
-    });
-    sess.target
-        .target
-        .data_layout
-        .with_c_str(|buf| {
-        llvm::LLVMSetDataLayout(llmod, buf);
-    });
-    sess.target
-        .target
-        .llvm_target
-        .with_c_str(|buf| {
-        llvm::LLVMRustSetNormalizedTarget(llmod, buf);
-    });
+    let mod_name = CString::from_slice(mod_name.as_bytes());
+    let llmod = llvm::LLVMModuleCreateWithNameInContext(mod_name.as_ptr(), llcx);
+
+    let data_layout = sess.target.target.data_layout.as_slice();
+    let data_layout = CString::from_slice(data_layout.as_bytes());
+    llvm::LLVMSetDataLayout(llmod, data_layout.as_ptr());
+
+    let llvm_target = sess.target.target.llvm_target.as_slice();
+    let llvm_target = CString::from_slice(llvm_target.as_bytes());
+    llvm::LLVMRustSetNormalizedTarget(llmod, llvm_target.as_ptr());
     (llcx, llmod)
 }
 
@@ -742,7 +737,7 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
 }
 
 pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<ValueRef> {
-    macro_rules! ifn (
+    macro_rules! ifn {
         ($name:expr fn() -> $ret:expr if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
             if $is_pnacl == $is_supported_in_pnacl && *key == $name {
                 let name = $name;
@@ -768,10 +763,11 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
         });
         ($name:expr fn($($arg:expr),+) -> $ret:expr) =>
             (ifn!($name fn($($arg),+) -> $ret if (true) == (true)))
-    );
-    macro_rules! mk_struct (
+    }
+    macro_rules! mk_struct {
+    
         ($($field_ty:expr),*) => (Type::struct_(ccx, &[$($field_ty),*], false))
-    );
+    }
 
     let i8p = Type::i8p(ccx);
     let void = Type::void(ccx);
@@ -891,20 +887,20 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
     // were introduced in LLVM 3.4, so we case on that.
     // Additionally, PNaCl disallows quite a large percentage of LLVM's intrinsics,
     // so when targeting PNaCl we redirect these functions to their libm counterparts.
-    macro_rules! compatible_ifn (
+    macro_rules! compatible_ifn {
         ($name:expr, $cname:ident ($($arg:expr),*) -> $ret:expr) => ({
             let name = $name;
             if unsafe { llvm::LLVMVersionMinor() >= 4 } && !ccx.sess().targeting_pnacl() {
                 ifn!(name fn($($arg),*) -> $ret);
             } else if *key == $name {
                 let f = base::decl_cdecl_fn(ccx, stringify!($cname),
-                                            Type::func(&[$($arg),*], &$ret),
-                                            ty::mk_nil(ccx.tcx()));
-                ccx.intrinsics().borrow_mut().insert(name, f);
+                                      Type::func(&[$($arg),*], &$ret),
+                                      ty::mk_nil(ccx.tcx()));
+                ccx.intrinsics().borrow_mut().insert($name, f.clone());
                 return Some(f);
             }
         })
-    );
+    }
 
     compatible_ifn!("llvm.copysign.f32", copysignf(t_f32, t_f32) -> t_f32);
     compatible_ifn!("llvm.copysign.f64", copysign(t_f64, t_f64) -> t_f64);

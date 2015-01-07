@@ -15,7 +15,14 @@
 
 extern crate test;
 extern crate getopts;
-#[phase(plugin, link)] extern crate log;
+
+#[cfg(stage0)]
+#[phase(plugin, link)]
+extern crate log;
+
+#[cfg(not(stage0))]
+#[macro_use]
+extern crate log;
 
 extern crate regex;
 
@@ -345,8 +352,9 @@ pub fn is_test(config: &Config, testfile: &Path) -> bool {
     return valid;
 }
 
-pub fn make_test(config: &Config, testfile: &Path, f: || -> test::TestFn)
-                 -> test::TestDescAndFn {
+pub fn make_test<F>(config: &Config, testfile: &Path, f: F) -> test::TestDescAndFn where
+    F: FnOnce() -> test::TestFn,
+{
     test::TestDescAndFn {
         desc: test::TestDesc {
             name: make_test_name(config, testfile),

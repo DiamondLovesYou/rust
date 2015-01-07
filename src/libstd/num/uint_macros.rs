@@ -9,13 +9,10 @@
 // except according to those terms.
 
 #![experimental]
-#![macro_escape]
 #![doc(hidden)]
 #![allow(unsigned_negation)]
 
 macro_rules! uint_module { ($T:ty) => (
-
-// String conversion functions and impl num -> str
 
 #[cfg(test)]
 mod tests {

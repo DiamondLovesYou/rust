@@ -20,7 +20,7 @@ use rustc::util::common::time;
 use libc;
 use flate;
 
-use std::c_str::ToCStr;
+use std::ffi::CString;
 use std::iter;
 use std::mem;
 use std::num::Int;
@@ -139,9 +139,10 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
     }
 
     // Internalize everything but the reachable symbols of the current module
-    let cstrs: Vec<::std::c_str::CString> =
-        reachable.iter().map(|s| s.to_c_str()).collect();
-    let arr: Vec<*const libc::c_char> = cstrs.iter().map(|c| c.as_ptr()).collect();
+    let cstrs: Vec<CString> = reachable.iter().map(|s| {
+        CString::from_slice(s.as_bytes())
+    }).collect();
+    let arr: Vec<*const i8> = cstrs.iter().map(|c| c.as_ptr()).collect();
     let ptr = arr.as_ptr();
     unsafe {
         llvm::LLVMRustRunRestrictionPass(llmod,
@@ -174,7 +175,7 @@ pub fn run_passes(sess: &session::Session,
             let pm = llvm::LLVMCreatePassManager();
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
             if !sess.no_verify() {
-                "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+                "verify\0".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
             }
 
             pre(pm);
@@ -192,7 +193,7 @@ pub fn run_passes(sess: &session::Session,
             post(pm);
 
             if !sess.no_verify() {
-                "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+                "verify\0".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
             }
 
             time(sess.time_passes(), "LTO pases", (), |()|
