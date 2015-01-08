@@ -8,6 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(unknown_features)]
+#![feature(box_syntax)]
+
 trait T {
     fn print(&self);
 }
@@ -19,7 +22,7 @@ struct S {
 
 impl T for S {
     fn print(&self) {
-        println!("{}", self);
+        println!("{:?}", self);
     }
 }
 

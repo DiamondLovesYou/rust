@@ -242,17 +242,17 @@ mod signal {
         sa_restorer: *mut libc::c_void,
     }
 
-    unsafe impl ::kinds::Send for sigaction { }
-    unsafe impl ::kinds::Sync for sigaction { }
+    unsafe impl ::marker::Send for sigaction { }
+    unsafe impl ::marker::Sync for sigaction { }
 
     #[repr(C)]
-    #[cfg(target_word_size = "32")]
+    #[cfg(any(all(stage0, target_word_size = "32"), all(not(stage0), target_pointer_width = "32")))]
     pub struct sigset_t {
         __val: [libc::c_ulong; 32],
     }
 
     #[repr(C)]
-    #[cfg(target_word_size = "64")]
+    #[cfg(any(all(stage0, target_word_size = "64"), all(not(stage0), target_pointer_width = "64")))]
     pub struct sigset_t {
         __val: [libc::c_ulong; 16],
     }
@@ -294,8 +294,8 @@ mod signal {
         sa_resv: [libc::c_int; 1],
     }
 
-    unsafe impl ::kinds::Send for sigaction { }
-    unsafe impl ::kinds::Sync for sigaction { }
+    unsafe impl ::marker::Send for sigaction { }
+    unsafe impl ::marker::Sync for sigaction { }
 
     #[repr(C)]
     pub struct sigset_t {

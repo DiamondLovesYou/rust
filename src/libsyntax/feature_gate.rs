@@ -44,7 +44,7 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("non_ascii_idents", Active),
     ("thread_local", Active),
     ("link_args", Active),
-    ("phase", Active),  // NOTE(stage0): switch to Removed after next snapshot
+    ("phase", Removed),
     ("plugin_registrar", Active),
     ("log_syntax", Active),
     ("trace_macros", Active),
@@ -70,6 +70,7 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
     ("associated_types", Accepted),
     ("visible_private_types", Active),
     ("slicing_syntax", Active),
+    ("box_syntax", Active),
 
     ("if_let", Accepted),
     ("while_let", Accepted),
@@ -85,6 +86,9 @@ static KNOWN_FEATURES: &'static [(&'static str, Status)] = &[
 
     // A way to temporarily opt out of the new orphan rules. This will *never* be accepted.
     ("old_orphan_check", Deprecated),
+
+    // A way to temporarily opt out of the new impl rules. This will *never* be accepted.
+    ("old_impl_check", Deprecated),
 
     // OIBIT specific features
     ("optin_builtin_traits", Active),
@@ -147,7 +151,7 @@ impl<'a> Context<'a> {
     fn gate_feature(&self, feature: &str, span: Span, explain: &str) {
         if !self.has_feature(feature) {
             self.span_handler.span_err(span, explain);
-            self.span_handler.span_help(span, format!("add #![feature({})] to the \
+            self.span_handler.span_help(span, &format!("add #![feature({})] to the \
                                                        crate attributes to enable",
                                                       feature)[]);
         }
@@ -240,7 +244,7 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
         }
         match i.node {
             ast::ItemForeignMod(ref foreign_module) => {
-                if attr::contains_name(i.attrs[], "link_args") {
+                if attr::contains_name(&i.attrs[], "link_args") {
                     self.gate_feature("link_args", i.span,
                                       "the `link_args` attribute is not portable \
                                        across platforms, it is recommended to \
@@ -254,14 +258,14 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
             }
 
             ast::ItemFn(..) => {
-                if attr::contains_name(i.attrs[], "plugin_registrar") {
+                if attr::contains_name(&i.attrs[], "plugin_registrar") {
                     self.gate_feature("plugin_registrar", i.span,
                                       "compiler plugins are experimental and possibly buggy");
                 }
             }
 
             ast::ItemStruct(..) => {
-                if attr::contains_name(i.attrs[], "simd") {
+                if attr::contains_name(&i.attrs[], "simd") {
                     self.gate_feature("simd", i.span,
                                       "SIMD types are experimental and possibly buggy");
                 }
@@ -278,7 +282,7 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
                     _ => {}
                 }
 
-                if attr::contains_name(i.attrs[],
+                if attr::contains_name(i.attrs.as_slice(),
                                        "unsafe_destructor") {
                     self.gate_feature("unsafe_destructor",
                                       i.span,
@@ -287,12 +291,19 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
                                        removed in the future");
                 }
 
-                if attr::contains_name(i.attrs[],
+                if attr::contains_name(&i.attrs[],
                                        "old_orphan_check") {
                     self.gate_feature(
                         "old_orphan_check",
                         i.span,
                         "the new orphan check rules will eventually be strictly enforced");
+                }
+
+                if attr::contains_name(&i.attrs[],
+                                       "old_impl_check") {
+                    self.gate_feature("old_impl_check",
+                                      i.span,
+                                      "`#[old_impl_check]` will be removed in the future");
                 }
             }
 
@@ -303,13 +314,14 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
     }
 
     fn visit_foreign_item(&mut self, i: &ast::ForeignItem) {
-        if attr::contains_name(i.attrs[], "linkage") {
+        if attr::contains_name(&i.attrs[], "linkage") {
             self.gate_feature("linkage", i.span,
                               "the `linkage` attribute is experimental \
                                and not portable across platforms")
         }
 
-        let links_to_llvm = match attr::first_attr_value_str_by_name(i.attrs[], "link_name") {
+        let links_to_llvm = match attr::first_attr_value_str_by_name(i.attrs.as_slice(),
+                                                                     "link_name") {
             Some(val) => val.get().starts_with("llvm."),
             _ => false
         };
@@ -327,10 +339,11 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
 
     fn visit_expr(&mut self, e: &ast::Expr) {
         match e.node {
-            ast::ExprRange(..) => {
-                self.gate_feature("slicing_syntax",
+            ast::ExprBox(..) | ast::ExprUnary(ast::UnOp::UnUniq, _) => {
+                self.gate_feature("box_syntax",
                                   e.span,
-                                  "range syntax is experimental");
+                                  "box expression syntax is experimental in alpha release; \
+                                   you can call `Box::new` instead.");
             }
             _ => {}
         }
@@ -353,6 +366,11 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
                                   "multiple-element slice matches anywhere \
                                    but at the end of a slice (e.g. \
                                    `[0, ..xs, 0]` are experimental")
+            }
+            ast::PatBox(..) => {
+                self.gate_feature("box_syntax",
+                                  pattern.span,
+                                  "box pattern syntax is experimental in alpha release");
             }
             _ => {}
         }

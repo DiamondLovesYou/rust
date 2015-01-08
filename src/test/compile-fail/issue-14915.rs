@@ -8,8 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn main() {
-    let x: Box<int> = box 0;
+#![feature(box_syntax)]
 
-    println!("{}", x + 1); //~ ERROR binary operation `+` cannot be applied to type `Box<int>`
+fn main() {
+    let x: Box<isize> = box 0;
+
+    println!("{}", x + 1); //~ ERROR binary operation `+` cannot be applied to type `Box<isize>`
 }

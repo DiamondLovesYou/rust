@@ -10,23 +10,26 @@
 
 //! Thread-local reference-counted boxes (the `Rc<T>` type).
 //!
-//! The `Rc<T>` type provides shared ownership of an immutable value. Destruction is deterministic,
-//! and will occur as soon as the last owner is gone. It is marked as non-sendable because it
-//! avoids the overhead of atomic reference counting.
+//! The `Rc<T>` type provides shared ownership of an immutable value.
+//! Destruction is deterministic, and will occur as soon as the last owner is
+//! gone. It is marked as non-sendable because it avoids the overhead of atomic
+//! reference counting.
 //!
-//! The `downgrade` method can be used to create a non-owning `Weak<T>` pointer to the box. A
-//! `Weak<T>` pointer can be upgraded to an `Rc<T>` pointer, but will return `None` if the value
-//! has already been dropped.
+//! The `downgrade` method can be used to create a non-owning `Weak<T>` pointer
+//! to the box. A `Weak<T>` pointer can be upgraded to an `Rc<T>` pointer, but
+//! will return `None` if the value has already been dropped.
 //!
-//! For example, a tree with parent pointers can be represented by putting the nodes behind strong
-//! `Rc<T>` pointers, and then storing the parent pointers as `Weak<T>` pointers.
+//! For example, a tree with parent pointers can be represented by putting the
+//! nodes behind strong `Rc<T>` pointers, and then storing the parent pointers
+//! as `Weak<T>` pointers.
 //!
 //! # Examples
 //!
-//! Consider a scenario where a set of `Gadget`s are owned by a given `Owner`.  We want to have our
-//! `Gadget`s point to their `Owner`. We can't do this with unique ownership, because more than one
-//! gadget may belong to the same `Owner`. `Rc<T>` allows us to share an `Owner` between multiple
-//! `Gadget`s, and have the `Owner` remain allocated as long as any `Gadget` points at it.
+//! Consider a scenario where a set of `Gadget`s are owned by a given `Owner`.
+//! We want to have our `Gadget`s point to their `Owner`. We can't do this with
+//! unique ownership, because more than one gadget may belong to the same
+//! `Owner`. `Rc<T>` allows us to share an `Owner` between multiple `Gadget`s,
+//! and have the `Owner` remain allocated as long as any `Gadget` points at it.
 //!
 //! ```rust
 //! use std::rc::Rc;
@@ -148,7 +151,7 @@ use core::cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering};
 use core::default::Default;
 use core::fmt;
 use core::hash::{self, Hash};
-use core::kinds::marker;
+use core::marker;
 use core::mem::{transmute, min_align_of, size_of, forget};
 use core::nonzero::NonZero;
 use core::ops::{Deref, Drop};
@@ -597,7 +600,15 @@ impl<T: Ord> Ord for Rc<T> {
 }
 
 // FIXME (#18248) Make `T` `Sized?`
+#[cfg(stage0)]
 impl<S: hash::Writer, T: Hash<S>> Hash<S> for Rc<T> {
+    #[inline]
+    fn hash(&self, state: &mut S) {
+        (**self).hash(state);
+    }
+}
+#[cfg(not(stage0))]
+impl<S: hash::Hasher, T: Hash<S>> Hash<S> for Rc<T> {
     #[inline]
     fn hash(&self, state: &mut S) {
         (**self).hash(state);
@@ -607,7 +618,14 @@ impl<S: hash::Writer, T: Hash<S>> Hash<S> for Rc<T> {
 #[experimental = "Show is experimental."]
 impl<T: fmt::Show> fmt::Show for Rc<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        (**self).fmt(f)
+        write!(f, "Rc({:?})", **self)
+    }
+}
+
+#[stable]
+impl<T: fmt::String> fmt::String for Rc<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::String::fmt(&**self, f)
     }
 }
 
@@ -960,6 +978,12 @@ mod tests {
 
         assert!(76 == *cow0);
         assert!(cow1_weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn test_show() {
+        let foo = Rc::new(75u);
+        assert!(format!("{:?}", foo) == "Rc(75u)")
     }
 
 }

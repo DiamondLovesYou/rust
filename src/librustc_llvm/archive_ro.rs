@@ -72,7 +72,7 @@ impl ArchiveRO {
                 let name = String::from_utf8_lossy(name_buf);
                 debug!("running f on `{}`", name);
                 let buf = from_raw_buf(&buffer, buffer_len as uint);
-                f(name[], buf);
+                f(&name[], buf);
             }
         }
         unsafe {

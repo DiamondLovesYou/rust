@@ -493,7 +493,7 @@ impl<K: Clone, V: Clone> Clone for Node<K, V> {
 ///     // Now the handle still points at index 75, but on the small node, which has no index 75.
 ///     flag.set(true);
 ///
-///     println!("Uninitialized memory: {}", handle.into_kv());
+///     println!("Uninitialized memory: {:?}", handle.into_kv());
 /// }
 /// ```
 #[derive(Copy)]
@@ -1220,7 +1220,7 @@ impl<K, V> Node<K, V> {
     /// Node is full, so split it into two nodes, and yield the middle-most key-value pair
     /// because we have one too many, and our parent now has one too few
     fn split(&mut self) -> (K, V, Node<K, V>) {
-        // Necessary for correctness, but in a private funtion
+        // Necessary for correctness, but in a private function
         debug_assert!(self.len() > 0);
 
         let mut right = if self.is_leaf() {
@@ -1259,7 +1259,7 @@ impl<K, V> Node<K, V> {
         }
     }
 
-    /// Take all the values from right, seperated by the given key and value
+    /// Take all the values from right, separated by the given key and value
     fn absorb(&mut self, key: K, val: V, mut right: Node<K, V>) {
         // Necessary for correctness, but in a private function
         // Just as a sanity check, make sure we can fit this guy in
@@ -1417,7 +1417,7 @@ pub type MutTraversal<'a, K, V> = AbsTraversal<ElemsAndEdges<Zip<slice::Iter<'a,
 /// An owning traversal over a node's entries and edges
 pub type MoveTraversal<K, V> = AbsTraversal<MoveTraversalImpl<K, V>>;
 
-
+#[old_impl_check]
 impl<K, V, E, Impl: TraversalImpl<K, V, E>> Iterator for AbsTraversal<Impl> {
     type Item = TraversalItem<K, V, E>;
 
@@ -1433,6 +1433,7 @@ impl<K, V, E, Impl: TraversalImpl<K, V, E>> Iterator for AbsTraversal<Impl> {
     }
 }
 
+#[old_impl_check]
 impl<K, V, E, Impl: TraversalImpl<K, V, E>> DoubleEndedIterator for AbsTraversal<Impl> {
     fn next_back(&mut self) -> Option<TraversalItem<K, V, E>> {
         let tail_is_edge = self.tail_is_edge;

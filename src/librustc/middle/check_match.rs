@@ -161,7 +161,7 @@ fn check_expr(cx: &mut MatchCheckCtxt, ex: &ast::Expr) {
                 // First, check legality of move bindings.
                 check_legality_of_move_bindings(cx,
                                                 arm.guard.is_some(),
-                                                arm.pats[]);
+                                                &arm.pats[]);
 
                 // Second, if there is a guard on each arm, make sure it isn't
                 // assigning or borrowing anything mutably.
@@ -198,7 +198,7 @@ fn check_expr(cx: &mut MatchCheckCtxt, ex: &ast::Expr) {
             }
 
             // Fourth, check for unreachable arms.
-            check_arms(cx, inlined_arms[], source);
+            check_arms(cx, &inlined_arms[], source);
 
             // Finally, check if the whole match expression is exhaustive.
             // Check for empty enum, because is_useful only works on inhabited types.
@@ -228,7 +228,7 @@ fn check_expr(cx: &mut MatchCheckCtxt, ex: &ast::Expr) {
             is_refutable(cx, &*static_inliner.fold_pat((*pat).clone()), |uncovered_pat| {
                 cx.tcx.sess.span_err(
                     pat.span,
-                    format!("refutable pattern in `for` loop binding: \
+                    &format!("refutable pattern in `for` loop binding: \
                             `{}` not covered",
                             pat_to_string(uncovered_pat))[]);
             });
@@ -303,7 +303,7 @@ fn check_arms(cx: &MatchCheckCtxt,
         for pat in pats.iter() {
             let v = vec![&**pat];
 
-            match is_useful(cx, &seen, v[], LeaveOutWitness) {
+            match is_useful(cx, &seen, &v[], LeaveOutWitness) {
                 NotUseful => {
                     match source {
                         ast::MatchSource::IfLetDesugar { .. } => {
@@ -355,7 +355,7 @@ fn raw_pat<'a>(p: &'a Pat) -> &'a Pat {
 fn check_exhaustive(cx: &MatchCheckCtxt, sp: Span, matrix: &Matrix) {
     match is_useful(cx, matrix, &[DUMMY_WILD_PAT], ConstructWitness) {
         UsefulWithWitness(pats) => {
-            let witness = match pats[] {
+            let witness = match &pats[] {
                 [ref witness] => &**witness,
                 [] => DUMMY_WILD_PAT,
                 _ => unreachable!()
@@ -574,7 +574,7 @@ fn is_useful(cx: &MatchCheckCtxt,
              witness: WitnessPreference)
              -> Usefulness {
     let &Matrix(ref rows) = matrix;
-    debug!("{:}", matrix);
+    debug!("{:?}", matrix);
     if rows.len() == 0u {
         return match witness {
             ConstructWitness => UsefulWithWitness(vec!()),
@@ -609,7 +609,7 @@ fn is_useful(cx: &MatchCheckCtxt,
                         UsefulWithWitness(pats) => UsefulWithWitness({
                             let arity = constructor_arity(cx, &c, left_ty);
                             let mut result = {
-                                let pat_slice = pats[];
+                                let pat_slice = &pats[];
                                 let subpats: Vec<_> = range(0, arity).map(|i| {
                                     pat_slice.get(i).map_or(DUMMY_WILD_PAT, |p| &**p)
                                 }).collect();
@@ -656,10 +656,10 @@ fn is_useful_specialized(cx: &MatchCheckCtxt, &Matrix(ref m): &Matrix,
                          witness: WitnessPreference) -> Usefulness {
     let arity = constructor_arity(cx, &ctor, lty);
     let matrix = Matrix(m.iter().filter_map(|r| {
-        specialize(cx, r[], &ctor, 0u, arity)
+        specialize(cx, &r[], &ctor, 0u, arity)
     }).collect());
     match specialize(cx, v, &ctor, 0u, arity) {
-        Some(v) => is_useful(cx, &matrix, v[], witness),
+        Some(v) => is_useful(cx, &matrix, &v[], witness),
         None => NotUseful
     }
 }
@@ -926,8 +926,8 @@ pub fn specialize<'a>(cx: &MatchCheckCtxt, r: &[&'a Pat],
         }
     };
     head.map(|mut head| {
-        head.push_all(r[..col]);
-        head.push_all(r[col + 1..]);
+        head.push_all(&r[0..col]);
+        head.push_all(&r[(col + 1)..]);
         head
     })
 }
@@ -1041,8 +1041,8 @@ fn check_legality_of_move_bindings(cx: &MatchCheckCtxt,
                     _ => {
                         cx.tcx.sess.span_bug(
                             p.span,
-                            format!("binding pattern {} is not an \
-                                     identifier: {}",
+                            &format!("binding pattern {} is not an \
+                                     identifier: {:?}",
                                     p.id,
                                     p.node)[]);
                     }

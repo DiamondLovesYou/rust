@@ -34,7 +34,7 @@ use sys::process::Process as ProcessImp;
 use sys;
 use thread::Thread;
 
-#[cfg(windows)] use std::hash::sip::SipState;
+#[cfg(windows)] use hash;
 #[cfg(windows)] use str;
 
 /// Signal a process to exit, without forcibly killing it. Corresponds to
@@ -98,7 +98,7 @@ pub struct Process {
 /// A representation of environment variable name
 /// It compares case-insensitive on Windows and case-sensitive everywhere else.
 #[cfg(not(windows))]
-#[derive(PartialEq, Eq, Hash, Clone, Show)]
+#[derive(Hash, PartialEq, Eq, Clone, Show)]
 struct EnvKey(CString);
 
 #[doc(hidden)]
@@ -107,8 +107,8 @@ struct EnvKey(CString);
 struct EnvKey(CString);
 
 #[cfg(windows)]
-impl Hash for EnvKey {
-    fn hash(&self, state: &mut SipState) {
+impl<H: hash::Writer + hash::Hasher> hash::Hash<H> for EnvKey {
+    fn hash(&self, state: &mut H) {
         let &EnvKey(ref x) = self;
         match str::from_utf8(x.as_bytes()) {
             Ok(s) => for ch in s.chars() {
@@ -395,7 +395,7 @@ impl Command {
     }
 }
 
-impl fmt::Show for Command {
+impl fmt::String for Command {
     /// Format the program and arguments of a Command for display. Any
     /// non-utf8 data is lossily converted using the utf8 replacement
     /// character.
@@ -504,6 +504,14 @@ pub enum ProcessExit {
 }
 
 impl fmt::Show for ProcessExit {
+    /// Format a ProcessExit enum, to nicely present the information.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::String::fmt(self, f)
+    }
+}
+
+
+impl fmt::String for ProcessExit {
     /// Format a ProcessExit enum, to nicely present the information.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -705,7 +713,7 @@ impl Process {
                     Thread::spawn(move |:| {
                         let mut stream = stream;
                         tx.send(stream.read_to_end()).unwrap();
-                    }).detach();
+                    });
                 }
                 None => tx.send(Ok(Vec::new())).unwrap()
             }
@@ -752,12 +760,12 @@ impl Drop for Process {
 
 #[cfg(test)]
 mod tests {
-    use prelude::v1::*;
-
+    use io::{Truncate, Write, TimedOut, timer, process, FileNotFound};
+    use prelude::v1::{Ok, Err, range, drop, Some, None, Vec};
+    use prelude::v1::{Path, String, Reader, Writer, Clone};
+    use prelude::v1::{SliceExt, Str, StrExt, AsSlice, ToString, GenericPath};
     use io::fs::PathExtensions;
-    use io::process;
     use io::timer::*;
-    use io::{Truncate, Write, TimedOut, timer, FileNotFound};
     use rt::running_on_valgrind;
     use str;
     use super::{CreatePipe};

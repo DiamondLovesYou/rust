@@ -21,7 +21,7 @@ pub fn target() -> Target {
                      -a0:0:64-n32".to_string();
     b.llvm_target = "armv7a-unknown-nacl-gnueabi".to_string();
     b.target_endian = "little".to_string();
-    b.target_word_size = "32".to_string();
+    b.target_pointer_width = "32".to_string();
     b.arch = "arm".to_string();
 
     b.options.morestack = true;

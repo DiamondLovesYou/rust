@@ -111,7 +111,7 @@ impl<'a, 'tcx> CheckStaticVisitor<'a, 'tcx> {
             return
         };
 
-        self.tcx.sess.span_err(e.span, format!("mutable statics are not allowed \
+        self.tcx.sess.span_err(e.span, &format!("mutable statics are not allowed \
                                                 to have {}", suffix)[]);
     }
 
@@ -169,7 +169,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for CheckStaticVisitor<'a, 'tcx> {
             ty::ty_struct(did, _) |
             ty::ty_enum(did, _) if ty::has_dtor(self.tcx, did) => {
                 self.tcx.sess.span_err(e.span,
-                                       format!("{} are not allowed to have \
+                                       &format!("{} are not allowed to have \
                                                 destructors", self.msg())[])
             }
             _ => {}
@@ -234,7 +234,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for CheckStaticVisitor<'a, 'tcx> {
                         let msg = "constants cannot refer to other statics, \
                                    insert an intermediate constant \
                                    instead";
-                        self.tcx.sess.span_err(e.span, msg[]);
+                        self.tcx.sess.span_err(e.span, &msg[]);
                     }
                     _ => {}
                 }

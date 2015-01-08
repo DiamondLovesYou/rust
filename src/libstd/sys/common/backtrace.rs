@@ -12,8 +12,11 @@ use prelude::v1::*;
 
 use io::IoResult;
 
-#[cfg(target_word_size = "64")] pub const HEX_WIDTH: uint = 18;
-#[cfg(target_word_size = "32")] pub const HEX_WIDTH: uint = 10;
+#[cfg(any(all(stage0, target_word_size = "64"), all(not(stage0), target_pointer_width = "64")))]
+pub const HEX_WIDTH: uint = 18;
+
+#[cfg(any(all(stage0, target_word_size = "32"), all(not(stage0), target_pointer_width = "32")))]
+pub const HEX_WIDTH: uint = 10;
 
 // All rust symbols are in theory lists of "::"-separated identifiers. Some
 // assemblers, however, can't handle these characters in symbol names. To get
@@ -88,7 +91,7 @@ pub fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
             while rest.len() > 0 {
                 if rest.starts_with("$") {
                     macro_rules! demangle {
-                        ($($pat:expr => $demangled:expr),*) => ({
+                        ($($pat:expr, => $demangled:expr),*) => ({
                             $(if rest.starts_with($pat) {
                                 try!(writer.write_str($demangled));
                                 rest = rest.slice_from($pat.len());
@@ -103,22 +106,22 @@ pub fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
 
                     // see src/librustc/back/link.rs for these mappings
                     demangle! (
-                        "$SP$" => "@",
-                        "$UP$" => "Box",
-                        "$RP$" => "*",
-                        "$BP$" => "&",
-                        "$LT$" => "<",
-                        "$GT$" => ">",
-                        "$LP$" => "(",
-                        "$RP$" => ")",
-                        "$C$"  => ",",
+                        "$SP$", => "@",
+                        "$UP$", => "Box",
+                        "$RP$", => "*",
+                        "$BP$", => "&",
+                        "$LT$", => "<",
+                        "$GT$", => ">",
+                        "$LP$", => "(",
+                        "$RP$", => ")",
+                        "$C$", => ",",
 
                         // in theory we can demangle any Unicode code point, but
                         // for simplicity we just catch the common ones.
-                        "$u{20}" => " ",
-                        "$u{27}" => "'",
-                        "$u{5b}" => "[",
-                        "$u{5d}" => "]"
+                        "$u{20}", => " ",
+                        "$u{27}", => "'",
+                        "$u{5b}", => "[",
+                        "$u{5d}", => "]"
                     )
                 } else {
                     let idx = match rest.find('$') {

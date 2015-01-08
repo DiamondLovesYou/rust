@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,7 +8,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(macro_rules)]
+
+// error-pattern: unknown macro variable `nonexistent`
+
+macro_rules! g {
+    ($inp:ident) => (
+        { $inp $nonexistent }
+    );
+}
+
 fn main() {
-    let vec = bytes!(1024u8); //~ ERROR too large u8 literal in bytes!
-    //~^ WARN `bytes!` is deprecated
+    g!(foo);
 }

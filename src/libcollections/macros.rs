@@ -8,25 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/// Creates a `std::vec::Vec` containing the arguments.
-// NOTE: remove after the next snapshot
-#[cfg(stage0)]
-macro_rules! vec {
-    ($($e:expr),*) => ({
-        // leading _ to allow empty construction without a warning.
-        let mut _temp = ::vec::Vec::new();
-        $(_temp.push($e);)*
-        _temp
-    });
-    ($($e:expr),+,) => (vec!($($e),+))
-}
-
 /// Creates a `Vec` containing the arguments.
-#[cfg(not(stage0))]
 #[macro_export]
+#[stable]
 macro_rules! vec {
     ($($x:expr),*) => ({
-        let xs: $crate::boxed::Box<[_]> = box [$($x),*];
+        let xs: $crate::boxed::Box<[_]> = $crate::boxed::Box::new([$($x),*]);
         $crate::slice::SliceExt::into_vec(xs)
     });
     ($($x:expr,)*) => (vec![$($x),*])

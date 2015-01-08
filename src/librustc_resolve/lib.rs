@@ -10,32 +10,18 @@
 
 #![crate_name = "rustc_resolve"]
 #![experimental]
+#![staged_api]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![feature(globs, phase, slicing_syntax)]
+#![feature(slicing_syntax)]
 #![feature(rustc_diagnostic_macros)]
-#![feature(associated_types)]
-#![feature(old_orphan_check)]
 
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate log;
-
-#[cfg(not(stage0))]
-#[macro_use]
-extern crate log;
-
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate syntax;
-
-#[cfg(not(stage0))]
-#[macro_use]
-extern crate syntax;
+#[macro_use] extern crate log;
+#[macro_use] extern crate syntax;
 
 extern crate rustc;
 
@@ -86,9 +72,9 @@ use syntax::ast::{PolyTraitRef, PrimTy, SelfExplicit};
 use syntax::ast::{RegionTyParamBound, StructField};
 use syntax::ast::{TraitRef, TraitTyParamBound};
 use syntax::ast::{Ty, TyBool, TyChar, TyF32};
-use syntax::ast::{TyF64, TyFloat, TyI, TyI8, TyI16, TyI32, TyI64, TyInt, TyObjectSum};
+use syntax::ast::{TyF64, TyFloat, TyIs, TyI8, TyI16, TyI32, TyI64, TyInt, TyObjectSum};
 use syntax::ast::{TyParam, TyParamBound, TyPath, TyPtr, TyPolyTraitRef, TyQPath};
-use syntax::ast::{TyRptr, TyStr, TyU, TyU8, TyU16, TyU32, TyU64, TyUint};
+use syntax::ast::{TyRptr, TyStr, TyUs, TyU8, TyU16, TyU32, TyU64, TyUint};
 use syntax::ast::{TypeImplItem};
 use syntax::ast;
 use syntax::ast_map;
@@ -548,7 +534,7 @@ impl Module {
 
 impl fmt::Show for Module {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}, kind: {}, {}",
+        write!(f, "{:?}, kind: {:?}, {}",
                self.def_id,
                self.kind,
                if self.is_public { "public" } else { "private" } )
@@ -689,7 +675,7 @@ impl NameBindings {
 
     /// Records a type definition.
     fn define_type(&self, def: Def, sp: Span, modifiers: DefModifiers) {
-        debug!("defining type for def {} with modifiers {}", def, modifiers);
+        debug!("defining type for def {:?} with modifiers {:?}", def, modifiers);
         // Merges the type with the existing type def or creates a new one.
         let type_def = self.type_def.borrow().clone();
         match type_def {
@@ -714,7 +700,7 @@ impl NameBindings {
 
     /// Records a value definition.
     fn define_value(&self, def: Def, sp: Span, modifiers: DefModifiers) {
-        debug!("defining value for def {} with modifiers {}", def, modifiers);
+        debug!("defining value for def {:?} with modifiers {:?}", def, modifiers);
         *self.value_def.borrow_mut() = Some(ValueNsDef {
             def: def,
             value_span: Some(sp),
@@ -833,13 +819,15 @@ impl PrimitiveTypeTable {
         table.intern("char",    TyChar);
         table.intern("f32",     TyFloat(TyF32));
         table.intern("f64",     TyFloat(TyF64));
-        table.intern("int",     TyInt(TyI));
+        table.intern("int",     TyInt(TyIs));
+        table.intern("isize",   TyInt(TyIs));
         table.intern("i8",      TyInt(TyI8));
         table.intern("i16",     TyInt(TyI16));
         table.intern("i32",     TyInt(TyI32));
         table.intern("i64",     TyInt(TyI64));
         table.intern("str",     TyStr);
-        table.intern("uint",    TyUint(TyU));
+        table.intern("uint",    TyUint(TyUs));
+        table.intern("usize",   TyUint(TyUs));
         table.intern("u8",      TyUint(TyU8));
         table.intern("u16",     TyUint(TyU16));
         table.intern("u32",     TyUint(TyU32));
@@ -1070,11 +1058,10 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     };
                     let msg = format!("unresolved import `{}`{}",
                                       self.import_path_to_string(
-                                          import_directive.module_path
-                                                          [],
+                                          &import_directive.module_path[],
                                           import_directive.subclass),
                                       help);
-                    self.resolve_error(span, msg[]);
+                    self.resolve_error(span, &msg[]);
                 }
                 Indeterminate => break, // Bail out. We'll come around next time.
                 Success(()) => () // Good. Continue.
@@ -1104,7 +1091,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                         .iter()
                                         .map(|seg| seg.identifier.name)
                                         .collect();
-        self.names_to_string(names[])
+        self.names_to_string(&names[])
     }
 
     fn import_directive_subclass_to_string(&mut self,
@@ -1168,7 +1155,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let module_path = &import_directive.module_path;
 
         debug!("(resolving import for module) resolving import `{}::...` in `{}`",
-               self.names_to_string(module_path[]),
+               self.names_to_string(&module_path[]),
                self.module_to_string(&*module_));
 
         // First, resolve the module path for the directive, if necessary.
@@ -1177,7 +1164,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             Some((self.graph_root.get_module(), LastMod(AllPublic)))
         } else {
             match self.resolve_module_path(module_.clone(),
-                                           module_path[],
+                                           &module_path[],
                                            DontUseLexicalScope,
                                            import_directive.span,
                                            ImportSearch) {
@@ -1272,7 +1259,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                              lp: LastPrivate)
                                  -> ResolveResult<()> {
         debug!("(resolving single import) resolving `{}` = `{}::{}` from \
-                `{}` id {}, last private {}",
+                `{}` id {}, last private {:?}",
                token::get_name(target),
                self.module_to_string(&*containing_module),
                token::get_name(source),
@@ -1375,7 +1362,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                     shadowable: _
                                 }) => {
                                     debug!("(resolving single import) found \
-                                            import in ns {}", namespace);
+                                            import in ns {:?}", namespace);
                                     let id = import_resolution.id(namespace);
                                     // track used imports and extern crates as well
                                     this.used_imports.insert((id, namespace));
@@ -1484,7 +1471,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
                 match *result {
                     BoundResult(ref target_module, ref name_bindings) => {
-                        debug!("(resolving single import) found {} target: {}",
+                        debug!("(resolving single import) found {:?} target: {:?}",
                                namespace_name,
                                name_bindings.def_for_namespace(namespace));
                         self.check_for_conflicting_import(
@@ -1508,7 +1495,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     }
                     UnboundResult => { /* Continue. */ }
                     UnknownResult => {
-                        panic!("{} result should be known at this point", namespace_name);
+                        panic!("{:?} result should be known at this point", namespace_name);
                     }
                 }
             };
@@ -1701,7 +1688,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let is_public = import_directive.is_public;
 
         let mut import_resolutions = module_.import_resolutions.borrow_mut();
-        let dest_import_resolution = import_resolutions.entry(&name).get().unwrap_or_else(
+        let dest_import_resolution = import_resolutions.entry(name).get().unwrap_or_else(
             |vacant_entry| {
                 // Create a new import resolution from this child.
                 vacant_entry.insert(ImportResolution::new(id, is_public))
@@ -1774,7 +1761,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                     ValueNS => "value",
                                   },
                                   token::get_name(name).get());
-                self.session.span_err(import_span, msg[]);
+                self.session.span_err(import_span, &msg[]);
             }
             Some(_) | None => {}
         }
@@ -1789,7 +1776,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         if !name_bindings.defined_in_namespace_with(namespace, IMPORTABLE) {
             let msg = format!("`{}` is not directly importable",
                               token::get_name(name));
-            self.session.span_err(import_span, msg[]);
+            self.session.span_err(import_span, &msg[]);
         }
     }
 
@@ -1814,7 +1801,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                        crate in this module \
                                        (maybe you meant `use {0}::*`?)",
                                       token::get_name(name).get());
-                    self.session.span_err(import_span, msg[]);
+                    self.session.span_err(import_span, &msg[]);
                 }
                 Some(_) | None => {}
             }
@@ -1836,7 +1823,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     let msg = format!("import `{}` conflicts with value \
                                        in this module",
                                       token::get_name(name).get());
-                    self.session.span_err(import_span, msg[]);
+                    self.session.span_err(import_span, &msg[]);
                     if let Some(span) = value.value_span {
                         self.session.span_note(span,
                                                "conflicting value here");
@@ -1854,7 +1841,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                             let msg = format!("import `{}` conflicts with type in \
                                                this module",
                                               token::get_name(name).get());
-                            self.session.span_err(import_span, msg[]);
+                            self.session.span_err(import_span, &msg[]);
                             if let Some(span) = ty.type_span {
                                 self.session.span_note(span,
                                                        "note conflicting type here")
@@ -1867,7 +1854,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                         let msg = format!("inherent implementations \
                                                            are only allowed on types \
                                                            defined in the current module");
-                                        self.session.span_err(span, msg[]);
+                                        self.session.span_err(span, &msg[]);
                                         self.session.span_note(import_span,
                                                                "import from other module here")
                                     }
@@ -1876,7 +1863,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                     let msg = format!("import `{}` conflicts with existing \
                                                        submodule",
                                                       token::get_name(name).get());
-                                    self.session.span_err(import_span, msg[]);
+                                    self.session.span_err(import_span, &msg[]);
                                     if let Some(span) = ty.type_span {
                                         self.session.span_note(span,
                                                                "note conflicting module here")
@@ -1904,7 +1891,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         if module.external_module_children.borrow().contains_key(&name) {
             self.session
                 .span_err(span,
-                          format!("an external crate named `{}` has already \
+                          &format!("an external crate named `{}` has already \
                                    been imported into this module",
                                   token::get_name(name).get())[]);
         }
@@ -1922,7 +1909,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         if module.external_module_children.borrow().contains_key(&name) {
             self.session
                 .span_err(span,
-                          format!("the name `{}` conflicts with an external \
+                          &format!("the name `{}` conflicts with an external \
                                    crate that has been imported into this \
                                    module",
                                   token::get_name(name).get())[]);
@@ -1973,7 +1960,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     let segment_name = token::get_name(name);
                     let module_name = self.module_to_string(&*search_module);
                     let mut span = span;
-                    let msg = if "???" == module_name[] {
+                    let msg = if "???" == &module_name[] {
                         span.hi = span.lo + Pos::from_uint(segment_name.get().len());
 
                         match search_parent_externals(name,
@@ -2086,14 +2073,14 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         match module_prefix_result {
             Failed(None) => {
                 let mpath = self.names_to_string(module_path);
-                let mpath = mpath[];
+                let mpath = &mpath[];
                 match mpath.rfind(':') {
                     Some(idx) => {
                         let msg = format!("Could not find `{}` in `{}`",
                                             // idx +- 1 to account for the
                                             // colons on either side
-                                            mpath[idx + 1..],
-                                            mpath[0..idx - 1]);
+                                            &mpath[(idx + 1)..],
+                                            &mpath[0..(idx - 1)]);
                         return Failed(Some((span, msg)));
                     },
                     None => {
@@ -2165,7 +2152,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                      namespace: Namespace)
                                     -> ResolveResult<(Target, bool)> {
         debug!("(resolving item in lexical scope) resolving `{}` in \
-                namespace {} in `{}`",
+                namespace {:?} in `{}`",
                token::get_name(name),
                namespace,
                self.module_to_string(&*module_));
@@ -2195,7 +2182,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 None => {
                     // Not found; continue.
                     debug!("(resolving item in lexical scope) found \
-                            import resolution, but not in namespace {}",
+                            import resolution, but not in namespace {:?}",
                            namespace);
                 }
                 Some(target) => {
@@ -2267,7 +2254,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                               PathSearch,
                                               true) {
                 Failed(Some((span, msg))) =>
-                    self.resolve_error(span, format!("failed to resolve. {}",
+                    self.resolve_error(span, &format!("failed to resolve. {}",
                                                      msg)[]),
                 Failed(None) => (), // Continue up the search chain.
                 Indeterminate => {
@@ -2475,7 +2462,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 match import_resolution.target_for_namespace(namespace) {
                     None => {
                         debug!("(resolving name in module) name found, \
-                                but not in namespace {}",
+                                but not in namespace {:?}",
                                namespace);
                     }
                     Some(target) => {
@@ -2528,7 +2515,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             } else {
                 let err = format!("unresolved import (maybe you meant `{}::*`?)",
                                   sn);
-                self.resolve_error((*imports)[index].span, err[]);
+                self.resolve_error((*imports)[index].span, &err[]);
             }
         }
 
@@ -2620,7 +2607,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         match def_like {
             DlDef(d @ DefUpvar(..)) => {
                 self.session.span_bug(span,
-                    format!("unexpected {} in bindings", d)[])
+                    &format!("unexpected {:?} in bindings", d)[])
             }
             DlDef(d @ DefLocal(_)) => {
                 let node_id = d.def_id().node;
@@ -2639,14 +2626,14 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                             def = DefUpvar(node_id, function_id, last_proc_body_id);
 
                             let mut seen = self.freevars_seen.borrow_mut();
-                            let seen = match seen.entry(&function_id) {
+                            let seen = match seen.entry(function_id) {
                                 Occupied(v) => v.into_mut(),
                                 Vacant(v) => v.insert(NodeSet::new()),
                             };
                             if seen.contains(&node_id) {
                                 continue;
                             }
-                            match self.freevars.borrow_mut().entry(&function_id) {
+                            match self.freevars.borrow_mut().entry(function_id) {
                                 Occupied(v) => v.into_mut(),
                                 Vacant(v) => v.insert(vec![]),
                             }.push(Freevar { def: prev_def, span: span });
@@ -2766,7 +2753,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         for (i, rib) in ribs.iter().enumerate().rev() {
             match rib.bindings.get(&name).cloned() {
                 Some(def_like) => {
-                    return self.upvarify(ribs[i + 1..], def_like, span);
+                    return self.upvarify(&ribs[(i + 1)..], def_like, span);
                 }
                 None => {
                     // Continue.
@@ -2859,7 +2846,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                             generics,
                                             implemented_traits,
                                             &**self_type,
-                                            impl_items[]);
+                                            &impl_items[]);
             }
 
             ItemTrait(_, ref generics, ref bounds, ref trait_items) => {
@@ -2937,7 +2924,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             ItemStruct(ref struct_def, ref generics) => {
                 self.resolve_struct(item.id,
                                     generics,
-                                    struct_def.fields[]);
+                                    &struct_def.fields[]);
             }
 
             ItemMod(ref module_) => {
@@ -2956,8 +2943,11 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                     HasTypeParameters(
                                         generics, FnSpace, foreign_item.id,
                                         ItemRibKind),
-                                    |this| visit::walk_foreign_item(this,
-                                                                    &**foreign_item));
+                                    |this| {
+                                        this.resolve_type_parameters(&generics.ty_params);
+                                        this.resolve_where_clause(&generics.where_clause);
+                                        visit::walk_foreign_item(this, &**foreign_item)
+                                    });
                             }
                             ForeignItemStatic(..) => {
                                 visit::walk_foreign_item(this,
@@ -3005,7 +2995,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
                     if seen_bindings.contains(&name) {
                         self.resolve_error(type_parameter.span,
-                                           format!("the name `{}` is already \
+                                           &format!("the name `{}` is already \
                                                     used for a type \
                                                     parameter in this type \
                                                     parameter list",
@@ -3182,17 +3172,17 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 };
 
                 let msg = format!("attempt to {} a nonexistent trait `{}`", usage_str, path_str);
-                self.resolve_error(trait_reference.path.span, msg[]);
+                self.resolve_error(trait_reference.path.span, &msg[]);
             }
             Some(def) => {
                 match def {
                     (DefTrait(_), _) => {
-                        debug!("(resolving trait) found trait def: {}", def);
+                        debug!("(resolving trait) found trait def: {:?}", def);
                         self.record_def(trait_reference.ref_id, def);
                     }
                     (def, _) => {
                         self.resolve_error(trait_reference.path.span,
-                                           format!("`{}` is not a trait",
+                                           &format!("`{}` is not a trait",
                                                    self.path_names_to_string(
                                                        &trait_reference.path))[]);
 
@@ -3200,8 +3190,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         if let DefTy(..) = def {
                             self.session.span_note(
                                 trait_reference.path.span,
-                                format!("`type` aliases cannot be used for traits")
-                                    []);
+                                &format!("`type` aliases cannot be used for traits")
+                                []);
                         }
                     }
                 }
@@ -3396,7 +3386,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             if self.trait_item_map.get(&(name, did)).is_none() {
                 let path_str = self.path_names_to_string(&trait_ref.path);
                 self.resolve_error(span,
-                                    format!("method `{}` is not a member of trait `{}`",
+                                    &format!("method `{}` is not a member of trait `{}`",
                                             token::get_name(name),
                                             path_str)[]);
             }
@@ -3464,7 +3454,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                   None => {
                     self.resolve_error(
                         p.span,
-                        format!("variable `{}` from pattern #1 is \
+                        &format!("variable `{}` from pattern #1 is \
                                   not bound in pattern #{}",
                                 token::get_name(key),
                                 i + 1)[]);
@@ -3473,7 +3463,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     if binding_0.binding_mode != binding_i.binding_mode {
                         self.resolve_error(
                             binding_i.span,
-                            format!("variable `{}` is bound with different \
+                            &format!("variable `{}` is bound with different \
                                       mode in pattern #{} than in pattern #1",
                                     token::get_name(key),
                                     i + 1)[]);
@@ -3486,7 +3476,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 if !map_0.contains_key(&key) {
                     self.resolve_error(
                         binding.span,
-                        format!("variable `{}` from pattern {}{} is \
+                        &format!("variable `{}` from pattern {}{} is \
                                   not bound in pattern {}1",
                                 token::get_name(key),
                                 "#", i + 1, "#")[]);
@@ -3578,8 +3568,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     None => {
                         match self.resolve_path(ty.id, path, TypeNS, true) {
                             Some(def) => {
-                                debug!("(resolving type) resolved `{}` to \
-                                        type {}",
+                                debug!("(resolving type) resolved `{:?}` to \
+                                        type {:?}",
                                        token::get_ident(path.segments.last().unwrap() .identifier),
                                        def);
                                 result_def = Some(def);
@@ -3604,7 +3594,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     None => {
                         let msg = format!("use of undeclared type name `{}`",
                                           self.path_names_to_string(path));
-                        self.resolve_error(ty.span, msg[]);
+                        self.resolve_error(ty.span, &msg[]);
                     }
                 }
             }
@@ -3673,7 +3663,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         FoundStructOrEnumVariant(..) => {
                             self.resolve_error(
                                 pattern.span,
-                                format!("declaration of `{}` shadows an enum \
+                                &format!("declaration of `{}` shadows an enum \
                                          variant or unit-like struct in \
                                          scope",
                                         token::get_name(renamed))[]);
@@ -3721,7 +3711,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                 // Forbid duplicate bindings in the same
                                 // parameter list.
                                 self.resolve_error(pattern.span,
-                                                   format!("identifier `{}` \
+                                                   &format!("identifier `{}` \
                                                             is bound more \
                                                             than once in \
                                                             this parameter \
@@ -3734,7 +3724,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                 // Then this is a duplicate variable in the
                                 // same disjunction, which is an error.
                                 self.resolve_error(pattern.span,
-                                    format!("identifier `{}` is bound \
+                                    &format!("identifier `{}` is bound \
                                              more than once in the same \
                                              pattern",
                                             token::get_ident(ident))[]);
@@ -3763,13 +3753,13 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                             self.resolve_error(path.span,
                                 format!("`{}` is not an enum variant, struct or const",
                                     token::get_ident(
-                                        path.segments.last().unwrap().identifier))[]);
+                                        path.segments.last().unwrap().identifier)).as_slice());
                         }
                         None => {
                             self.resolve_error(path.span,
                                 format!("unresolved enum variant, struct or const `{}`",
                                     token::get_ident(
-                                        path.segments.last().unwrap().identifier))[]);
+                                        path.segments.last().unwrap().identifier)).as_slice());
                         }
                     }
 
@@ -3797,10 +3787,10 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         }
                         result => {
                             debug!("(resolving pattern) didn't find struct \
-                                    def: {}", result);
+                                    def: {:?}", result);
                             let msg = format!("`{}` does not name a structure",
                                               self.path_names_to_string(path));
-                            self.resolve_error(path.span, msg[]);
+                            self.resolve_error(path.span, &msg[]);
                         }
                     }
                 }
@@ -3821,7 +3811,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                                  ValueNS) {
             Success((target, _)) => {
                 debug!("(resolve bare identifier pattern) succeeded in \
-                         finding {} at {}",
+                         finding {} at {:?}",
                         token::get_name(name),
                         target.bindings.value_def.borrow());
                 match *target.bindings.value_def.borrow() {
@@ -3861,7 +3851,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             Failed(err) => {
                 match err {
                     Some((span, msg)) => {
-                        self.resolve_error(span, format!("failed to resolve: {}",
+                        self.resolve_error(span, &format!("failed to resolve: {}",
                                                          msg)[]);
                     }
                     None => ()
@@ -4057,7 +4047,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let last_private;
         let module = self.current_module.clone();
         match self.resolve_module_path(module,
-                                       module_path[],
+                                       &module_path[],
                                        UseLexicalScope,
                                        path.span,
                                        PathSearch) {
@@ -4071,7 +4061,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     }
                 };
 
-                self.resolve_error(span, format!("failed to resolve. {}",
+                self.resolve_error(span, &format!("failed to resolve. {}",
                                                  msg)[]);
                 return None;
             }
@@ -4115,7 +4105,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let containing_module;
         let last_private;
         match self.resolve_module_path_from_root(root_module,
-                                                 module_path[],
+                                                 &module_path[],
                                                  0,
                                                  path.span,
                                                  PathSearch,
@@ -4125,12 +4115,12 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     Some((span, msg)) => (span, msg),
                     None => {
                         let msg = format!("Use of undeclared module `::{}`",
-                                          self.names_to_string(module_path[]));
+                                          self.names_to_string(&module_path[]));
                         (path.span, msg)
                     }
                 };
 
-                self.resolve_error(span, format!("failed to resolve. {}",
+                self.resolve_error(span, &format!("failed to resolve. {}",
                                                  msg)[]);
                 return None;
             }
@@ -4172,14 +4162,14 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
             TypeNS => {
                 let name = ident.name;
-                self.search_ribs(self.type_ribs[], name, span)
+                self.search_ribs(&self.type_ribs[], name, span)
             }
         };
 
         match search_result {
             Some(DlDef(def)) => {
                 debug!("(resolving path in local ribs) resolved `{}` to \
-                        local: {}",
+                        local: {:?}",
                        token::get_ident(ident),
                        def);
                 return Some(def);
@@ -4226,7 +4216,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             Failed(err) => {
                 match err {
                     Some((span, msg)) =>
-                        self.resolve_error(span, format!("failed to resolve. {}",
+                        self.resolve_error(span, &format!("failed to resolve. {}",
                                                          msg)[]),
                     None => ()
                 }
@@ -4284,7 +4274,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 }
             } else {
                 match this.resolve_module_path(root,
-                                                name_path[],
+                                                &name_path[],
                                                 UseLexicalScope,
                                                 span,
                                                 PathSearch) {
@@ -4322,7 +4312,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let name_path = path.segments.iter().map(|seg| seg.identifier.name).collect::<Vec<_>>();
 
         // Look for a method in the current self type's impl module.
-        match get_module(self, path.span, name_path[]) {
+        match get_module(self, path.span, &name_path[]) {
             Some(module) => match module.children.borrow().get(&name) {
                 Some(binding) => {
                     let p_str = self.path_names_to_string(&path);
@@ -4530,10 +4520,10 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     Some(definition) => self.record_def(expr.id, definition),
                     result => {
                         debug!("(resolving expression) didn't find struct \
-                                def: {}", result);
+                                def: {:?}", result);
                         let msg = format!("`{}` does not name a structure",
                                           self.path_names_to_string(path));
-                        self.resolve_error(path.span, msg[]);
+                        self.resolve_error(path.span, &msg[]);
                     }
                 }
 
@@ -4593,7 +4583,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     None => {
                         self.resolve_error(
                             expr.span,
-                            format!("use of undeclared label `{}`",
+                            &format!("use of undeclared label `{}`",
                                     token::get_ident(label))[])
                     }
                     Some(DlDef(def @ DefLabel(_))) => {
@@ -4717,20 +4707,20 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
     }
 
     fn record_def(&mut self, node_id: NodeId, (def, lp): (Def, LastPrivate)) {
-        debug!("(recording def) recording {} for {}, last private {}",
+        debug!("(recording def) recording {:?} for {}, last private {:?}",
                 def, node_id, lp);
         assert!(match lp {LastImport{..} => false, _ => true},
                 "Import should only be used for `use` directives");
         self.last_private.insert(node_id, lp);
 
-        match self.def_map.borrow_mut().entry(&node_id) {
+        match self.def_map.borrow_mut().entry(node_id) {
             // Resolve appears to "resolve" the same ID multiple
             // times, so here is a sanity check it at least comes to
             // the same conclusion! - nmatsakis
             Occupied(entry) => if def != *entry.get() {
                 self.session
-                    .bug(format!("node_id {} resolved first to {} and \
-                                  then {}",
+                    .bug(&format!("node_id {} resolved first to {:?} and \
+                                  then {:?}",
                                  node_id,
                                  *entry.get(),
                                  def)[]);
@@ -4747,7 +4737,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             BindByValue(_) => {}
             BindByRef(..) => {
                 self.resolve_error(pat.span,
-                                   format!("cannot use `ref` binding mode \
+                                   &format!("cannot use `ref` binding mode \
                                             with {}",
                                            descr)[]);
             }
@@ -4784,7 +4774,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         if names.len() == 0 {
             return "???".to_string();
         }
-        self.names_to_string(names.into_iter().rev()
+        self.names_to_string(&names.into_iter().rev()
                                   .collect::<Vec<ast::Name>>()[])
     }
 

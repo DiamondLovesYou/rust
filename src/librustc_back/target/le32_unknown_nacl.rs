@@ -18,7 +18,7 @@ pub fn target() -> Target {
                      i64:64:64-f32:32:32-f64:64:64-p:32:32:32-v128:32:32".to_string();
     b.llvm_target = "le32-unknown-nacl".to_string();
     b.target_endian = "little".to_string();
-    b.target_word_size = "32".to_string();
+    b.target_pointer_width = "32".to_string();
     b.arch = "le32".to_string();
 
     b.options.morestack = false;

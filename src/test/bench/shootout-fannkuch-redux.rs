@@ -38,8 +38,6 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 // OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#![feature(slicing_syntax)]
-
 use std::{cmp, iter, mem};
 use std::thread::Thread;
 
@@ -105,7 +103,7 @@ impl Perm {
             let d = idx / self.fact[i] as i32;
             self.cnt[i] = d;
             idx %= self.fact[i] as i32;
-            for (place, val) in pp.iter_mut().zip(self.perm.p[..i+1].iter()) {
+            for (place, val) in pp.iter_mut().zip(self.perm.p[..(i+1)].iter()) {
                 *place = (*val) as u8
             }
 
@@ -168,7 +166,7 @@ fn fannkuch(n: i32) -> (i32, i32) {
     for (i, j) in range(0, N).zip(iter::count(0, k)) {
         let max = cmp::min(j+k, perm.max());
 
-        futures.push(Thread::spawn(move|| {
+        futures.push(Thread::scoped(move|| {
             work(perm, j as uint, max as uint)
         }))
     }

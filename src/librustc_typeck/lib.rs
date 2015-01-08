@@ -65,33 +65,22 @@ This API is completely unstable and subject to change.
 
 #![crate_name = "rustc_typeck"]
 #![experimental]
+#![staged_api]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![feature(default_type_params, globs, macro_rules, phase, quote)]
+#![allow(unknown_features)]
+#![feature(quote)]
 #![feature(slicing_syntax, unsafe_destructor)]
+#![feature(box_syntax)]
 #![feature(rustc_diagnostic_macros)]
-#![feature(unboxed_closures)]
 #![allow(non_camel_case_types)]
 
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate log;
-
-#[cfg(not(stage0))]
-#[macro_use]
-extern crate log;
-
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate syntax;
-
-#[cfg(not(stage0))]
-#[macro_use]
-extern crate syntax;
+#[macro_use] extern crate log;
+#[macro_use] extern crate syntax;
 
 extern crate arena;
 extern crate rustc;
@@ -204,7 +193,7 @@ fn require_same_types<'a, 'tcx, M>(tcx: &ty::ctxt<'tcx>,
         Ok(_) => true,
         Err(ref terr) => {
             tcx.sess.span_err(span,
-                              format!("{}: {}",
+                              &format!("{}: {}",
                                       msg(),
                                       ty::type_err_to_str(tcx,
                                                           terr))[]);
@@ -253,7 +242,7 @@ fn check_main_fn_ty(ccx: &CrateCtxt,
         }
         _ => {
             tcx.sess.span_bug(main_span,
-                              format!("main has a non-function type: found \
+                              &format!("main has a non-function type: found \
                                        `{}`",
                                       ppaux::ty_to_string(tcx,
                                                        main_t))[]);
@@ -305,7 +294,7 @@ fn check_start_fn_ty(ccx: &CrateCtxt,
         }
         _ => {
             tcx.sess.span_bug(start_span,
-                              format!("start has a non-function type: found \
+                              &format!("start has a non-function type: found \
                                        `{}`",
                                       ppaux::ty_to_string(tcx, start_t))[]);
         }

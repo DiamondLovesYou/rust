@@ -21,7 +21,7 @@ pub fn base_target() -> Target {
         data_layout: "".to_string(),
         llvm_target: "".to_string(),
         target_endian: "".to_string(),
-        target_word_size: "".to_string(),
+        target_pointer_width: "".to_string(),
         target_os: "nacl".to_string(),
         arch: "".to_string(),
         options: opts,

@@ -11,6 +11,8 @@
 //
 // ignore-lexer-test FIXME #15883
 
+#![allow(unknown_features)]
+#![feature(box_syntax)]
 #![feature(unsafe_destructor)]
 
 pub type Task = int;
@@ -23,7 +25,7 @@ pub mod pipes {
     use std::mem::{replace, swap};
     use std::mem;
     use std::thread::Thread;
-    use std::kinds::Send;
+    use std::marker::Send;
 
     pub struct Stuff<T> {
         state: state,

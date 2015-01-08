@@ -58,6 +58,7 @@
 
 #![crate_name = "alloc"]
 #![experimental]
+#![staged_api]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
@@ -65,36 +66,19 @@
 
 #![no_std]
 #![allow(unknown_features)]
-#![feature(lang_items, phase, unsafe_destructor, default_type_params, old_orphan_check)]
-#![feature(associated_types)]
+#![feature(lang_items, unsafe_destructor)]
+#![feature(box_syntax)]
 
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate core;
-
-#[cfg(not(stage0))]
 #[macro_use]
 extern crate core;
 
+#[cfg(all(not(feature = "external_funcs"), not(feature = "external_crate")))]
 extern crate libc;
 
 // Allow testing this library
 
-#[cfg(all(test, stage0))]
-#[phase(plugin, link)]
-extern crate std;
-
-#[cfg(all(test, not(stage0)))]
-#[macro_use]
-extern crate std;
-
-#[cfg(all(test, stage0))]
-#[phase(plugin, link)]
-extern crate log;
-
-#[cfg(all(test, not(stage0)))]
-#[macro_use]
-extern crate log;
+#[cfg(test)] #[macro_use] extern crate std;
+#[cfg(test)] #[macro_use] extern crate log;
 
 // Heaps provided for low-level allocation strategies
 

@@ -71,7 +71,7 @@
 ///     let mut flags = FLAG_A | FLAG_B;
 ///     flags.clear();
 ///     assert!(flags.is_empty());
-///     assert_eq!(format!("{}", flags).as_slice(), "hi!");
+///     assert_eq!(format!("{:?}", flags).as_slice(), "hi!");
 /// }
 /// ```
 ///
@@ -273,7 +273,7 @@ macro_rules! bitflags {
 #[cfg(test)]
 #[allow(non_upper_case_globals)]
 mod tests {
-    use hash;
+    use hash::{self, SipHasher};
     use option::Option::{Some, None};
 
     bitflags! {
@@ -467,9 +467,9 @@ mod tests {
     fn test_hash() {
       let mut x = Flags::empty();
       let mut y = Flags::empty();
-      assert!(hash::hash(&x) == hash::hash(&y));
+      assert!(hash::hash::<Flags, SipHasher>(&x) == hash::hash::<Flags, SipHasher>(&y));
       x = Flags::all();
       y = FlagABC;
-      assert!(hash::hash(&x) == hash::hash(&y));
+      assert!(hash::hash::<Flags, SipHasher>(&x) == hash::hash::<Flags, SipHasher>(&y));
     }
 }

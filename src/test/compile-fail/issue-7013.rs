@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(box_syntax)]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -32,6 +34,6 @@ struct A {
 
 fn main() {
     let a = A {v: box B{v: None} as Box<Foo+Send>};
-    //~^ ERROR the trait `core::kinds::Send` is not implemented
-    //~^^ ERROR the trait `core::kinds::Send` is not implemented
+    //~^ ERROR the trait `core::marker::Send` is not implemented
+    //~^^ ERROR the trait `core::marker::Send` is not implemented
 }

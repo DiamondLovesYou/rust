@@ -231,7 +231,7 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
 
         Some(self_expr) => {
             debug!("lookup_in_trait_adjusted: inserting adjustment if needed \
-                   (self-id={}, base adjustment={}, explicit_self={})",
+                   (self-id={}, base adjustment={:?}, explicit_self={:?})",
                    self_expr.id, autoderefref, method_ty.explicit_self);
 
             match method_ty.explicit_self {
@@ -264,7 +264,7 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
                         _ => {
                             fcx.tcx().sess.span_bug(
                                 span,
-                                format!(
+                                &format!(
                                     "trait method is &self but first arg is: {}",
                                     transformed_self_ty.repr(fcx.tcx()))[]);
                         }
@@ -274,8 +274,8 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &'a FnCtxt<'a, 'tcx>,
                 _ => {
                     fcx.tcx().sess.span_bug(
                         span,
-                        format!(
-                            "unexpected explicit self type in operator method: {}",
+                        &format!(
+                            "unexpected explicit self type in operator method: {:?}",
                             method_ty.explicit_self)[]);
                 }
             }
@@ -329,7 +329,7 @@ pub fn report_error<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
             // If the method has the name of a field, give a help note
             if is_field {
                 cx.sess.span_note(span,
-                    format!("use `(s.{0})(...)` if you meant to call the \
+                    &format!("use `(s.{0})(...)` if you meant to call the \
                             function stored in the `{0}` field", method_ustring)[]);
             }
 

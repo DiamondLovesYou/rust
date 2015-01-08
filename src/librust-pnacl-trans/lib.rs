@@ -16,8 +16,6 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
 
-#![feature(phase)]
-
 extern crate getopts;
 extern crate libc;
 extern crate "rustc_llvm" as llvm;
@@ -72,14 +70,14 @@ fn optgroups() -> Vec<OptGroup> {
                               legalization passes run on them", ""),
          optflag("", "all-raw", "All input bitcodes are of raw form"))
 }
-fn fatal<T: Str + Show>(msg: T) -> ! {
-    println!("error: {}", msg);
+fn fatal<T: Show>(msg: T) -> ! {
+    println!("error: {:?}", msg);
     os::set_exit_status(1);
     panic!("fatal error");
 }
 
-fn warn<T: Str + Show>(msg: T) {
-    println!("warning: {}", msg);
+fn warn<T: Show>(msg: T) {
+    println!("warning: {:?}", msg);
 }
 
 pub fn llvm_warn<T: Str + Show>(msg: T) {
@@ -90,7 +88,7 @@ pub fn llvm_warn<T: Str + Show>(msg: T) {
         } else {
             let err = ffi::c_str_to_bytes(&cstr);
             let err = String::from_utf8_lossy(err.as_slice()).to_string();
-            warn(format!("{}: {}",
+            warn(format!("{:?}: {:?}",
                          msg.as_slice(),
                          err.as_slice()));
         }

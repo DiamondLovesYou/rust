@@ -10,7 +10,7 @@
 
 //! HTML formatting module
 //!
-//! This module contains a large number of `fmt::Show` implementations for
+//! This module contains a large number of `fmt::String` implementations for
 //! various types in `rustdoc::clean`. These implementations all currently
 //! assume that HTML output is desired, although it may be possible to redesign
 //! them in the future to instead emit any format desired.
@@ -51,6 +51,8 @@ pub struct ConciseStability<'a>(pub &'a Option<clean::Stability>);
 pub struct WhereClause<'a>(pub &'a clean::Generics);
 /// Wrapper struct for emitting type parameter bounds.
 pub struct TyParamBounds<'a>(pub &'a [clean::TyParamBound]);
+/// Wrapper struct for emitting a comma-separated list of items
+pub struct CommaSep<'a, T: 'a>(pub &'a [T]);
 
 impl VisSpace {
     pub fn get(&self) -> Option<ast::Visibility> {
@@ -64,7 +66,17 @@ impl UnsafetySpace {
     }
 }
 
-impl<'a> fmt::Show for TyParamBounds<'a> {
+impl<'a, T: fmt::String> fmt::String for CommaSep<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, item) in self.0.iter().enumerate() {
+            if i != 0 { try!(write!(f, ", ")); }
+            try!(write!(f, "{}", item));
+        }
+        Ok(())
+    }
+}
+
+impl<'a> fmt::String for TyParamBounds<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let &TyParamBounds(bounds) = self;
         for (i, bound) in bounds.iter().enumerate() {
@@ -77,7 +89,7 @@ impl<'a> fmt::Show for TyParamBounds<'a> {
     }
 }
 
-impl fmt::Show for clean::Generics {
+impl fmt::String for clean::Generics {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.lifetimes.len() == 0 && self.type_params.len() == 0 { return Ok(()) }
         try!(f.write_str("&lt;"));
@@ -97,7 +109,7 @@ impl fmt::Show for clean::Generics {
                 if i > 0 {
                     try!(f.write_str(", "))
                 }
-                try!(f.write_str(tp.name[]));
+                try!(f.write_str(tp.name.as_slice()));
 
                 if tp.bounds.len() > 0 {
                     try!(write!(f, ": {}", TyParamBounds(tp.bounds.as_slice())));
@@ -114,7 +126,7 @@ impl fmt::Show for clean::Generics {
     }
 }
 
-impl<'a> fmt::Show for WhereClause<'a> {
+impl<'a> fmt::String for WhereClause<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let &WhereClause(gens) = self;
         if gens.where_predicates.len() == 0 {
@@ -151,14 +163,14 @@ impl<'a> fmt::Show for WhereClause<'a> {
     }
 }
 
-impl fmt::Show for clean::Lifetime {
+impl fmt::String for clean::Lifetime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(f.write_str(self.get_ref()));
         Ok(())
     }
 }
 
-impl fmt::Show for clean::PolyTrait {
+impl fmt::String for clean::PolyTrait {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.lifetimes.len() > 0 {
             try!(f.write_str("for&lt;"));
@@ -174,7 +186,7 @@ impl fmt::Show for clean::PolyTrait {
     }
 }
 
-impl fmt::Show for clean::TyParamBound {
+impl fmt::String for clean::TyParamBound {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             clean::RegionBound(ref lt) => {
@@ -191,11 +203,13 @@ impl fmt::Show for clean::TyParamBound {
     }
 }
 
-impl fmt::Show for clean::PathParameters {
+impl fmt::String for clean::PathParameters {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            clean::PathParameters::AngleBracketed { ref lifetimes, ref types } => {
-                if lifetimes.len() > 0 || types.len() > 0 {
+            clean::PathParameters::AngleBracketed {
+                ref lifetimes, ref types, ref bindings
+            } => {
+                if lifetimes.len() > 0 || types.len() > 0 || bindings.len() > 0 {
                     try!(f.write_str("&lt;"));
                     let mut comma = false;
                     for lifetime in lifetimes.iter() {
@@ -211,6 +225,13 @@ impl fmt::Show for clean::PathParameters {
                         }
                         comma = true;
                         try!(write!(f, "{}", *ty));
+                    }
+                    for binding in bindings.iter() {
+                        if comma {
+                            try!(f.write_str(", "));
+                        }
+                        comma = true;
+                        try!(write!(f, "{}", *binding));
                     }
                     try!(f.write_str("&gt;"));
                 }
@@ -236,14 +257,14 @@ impl fmt::Show for clean::PathParameters {
     }
 }
 
-impl fmt::Show for clean::PathSegment {
+impl fmt::String for clean::PathSegment {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(f.write_str(self.name.as_slice()));
         write!(f, "{}", self.params)
     }
 }
 
-impl fmt::Show for clean::Path {
+impl fmt::String for clean::Path {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.global {
             try!(f.write_str("::"))
@@ -311,7 +332,7 @@ fn path<F, G>(w: &mut fmt::Formatter,
         match rel_root {
             Some(root) => {
                 let mut root = String::from_str(root.as_slice());
-                for seg in path.segments[..amt].iter() {
+                for seg in path.segments[0..amt].iter() {
                     if "super" == seg.name ||
                             "self" == seg.name {
                         try!(write!(w, "{}::", seg.name));
@@ -326,7 +347,7 @@ fn path<F, G>(w: &mut fmt::Formatter,
                 }
             }
             None => {
-                for seg in path.segments[..amt].iter() {
+                for seg in path.segments[0..amt].iter() {
                     try!(write!(w, "{}::", seg.name));
                 }
             }
@@ -337,7 +358,7 @@ fn path<F, G>(w: &mut fmt::Formatter,
         // This is a documented path, link to it!
         Some((ref fqp, shortty)) if abs_root.is_some() => {
             let mut url = String::from_str(abs_root.unwrap().as_slice());
-            let to_link = fqp[..fqp.len() - 1];
+            let to_link = &fqp[..(fqp.len() - 1)];
             for component in to_link.iter() {
                 url.push_str(component.as_slice());
                 url.push_str("/");
@@ -429,11 +450,11 @@ fn tybounds(w: &mut fmt::Formatter,
     }
 }
 
-impl fmt::Show for clean::Type {
+impl fmt::String for clean::Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             clean::TyParamBinder(id) => {
-                f.write_str(cache().typarams[ast_util::local_def(id)][])
+                f.write_str(cache().typarams[ast_util::local_def(id)].as_slice())
             }
             clean::Generic(ref name) => {
                 f.write_str(name.as_slice())
@@ -450,7 +471,8 @@ impl fmt::Show for clean::Type {
                        lifetimes = if decl.lifetimes.len() == 0 {
                            "".to_string()
                        } else {
-                           format!("for &lt;{:#}&gt;", decl.lifetimes)
+                           format!("for &lt;{}&gt;",
+                                   CommaSep(decl.lifetimes.as_slice()))
                        },
                        args = decl.decl.inputs,
                        arrow = decl.decl.output,
@@ -482,7 +504,8 @@ impl fmt::Show for clean::Type {
                        lifetimes = if decl.lifetimes.len() == 0 {
                            "".to_string()
                        } else {
-                           format!("for &lt;{:#}&gt;", decl.lifetimes)
+                           format!("for &lt;{}&gt;",
+                                   CommaSep(decl.lifetimes.as_slice()))
                        },
                        args = decl.decl.inputs,
                        bounds = if decl.bounds.len() == 0 {
@@ -512,7 +535,8 @@ impl fmt::Show for clean::Type {
                 primitive_link(f, clean::PrimitiveTuple,
                                match typs.as_slice() {
                                     [ref one] => format!("({},)", one),
-                                    many => format!("({:#})", many)
+                                    many => format!("({})",
+                                                    CommaSep(many.as_slice()))
                                }.as_slice())
             }
             clean::Vector(ref t) => {
@@ -570,7 +594,7 @@ impl fmt::Show for clean::Type {
     }
 }
 
-impl fmt::Show for clean::Arguments {
+impl fmt::String for clean::Arguments {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (i, input) in self.values.iter().enumerate() {
             if i > 0 { try!(write!(f, ", ")); }
@@ -583,7 +607,7 @@ impl fmt::Show for clean::Arguments {
     }
 }
 
-impl fmt::Show for clean::FunctionRetTy {
+impl fmt::String for clean::FunctionRetTy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             clean::Return(clean::Tuple(ref tys)) if tys.is_empty() => Ok(()),
@@ -593,13 +617,13 @@ impl fmt::Show for clean::FunctionRetTy {
     }
 }
 
-impl fmt::Show for clean::FnDecl {
+impl fmt::String for clean::FnDecl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "({args}){arrow}", args = self.inputs, arrow = self.output)
     }
 }
 
-impl<'a> fmt::Show for Method<'a> {
+impl<'a> fmt::String for Method<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let Method(selfty, d) = *self;
         let mut args = String::new();
@@ -629,7 +653,7 @@ impl<'a> fmt::Show for Method<'a> {
     }
 }
 
-impl fmt::Show for VisSpace {
+impl fmt::String for VisSpace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.get() {
             Some(ast::Public) => write!(f, "pub "),
@@ -638,7 +662,7 @@ impl fmt::Show for VisSpace {
     }
 }
 
-impl fmt::Show for UnsafetySpace {
+impl fmt::String for UnsafetySpace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.get() {
             ast::Unsafety::Unsafe => write!(f, "unsafe "),
@@ -647,7 +671,7 @@ impl fmt::Show for UnsafetySpace {
     }
 }
 
-impl fmt::Show for clean::ViewPath {
+impl fmt::String for clean::ViewPath {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             clean::SimpleImport(ref name, ref src) => {
@@ -674,7 +698,7 @@ impl fmt::Show for clean::ViewPath {
     }
 }
 
-impl fmt::Show for clean::ImportSource {
+impl fmt::String for clean::ImportSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.did {
             Some(did) => resolved_path(f, did, &self.path, true),
@@ -691,7 +715,7 @@ impl fmt::Show for clean::ImportSource {
     }
 }
 
-impl fmt::Show for clean::ViewListIdent {
+impl fmt::String for clean::ViewListIdent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.source {
             Some(did) => {
@@ -702,6 +726,7 @@ impl fmt::Show for clean::ViewListIdent {
                         params: clean::PathParameters::AngleBracketed {
                             lifetimes: Vec::new(),
                             types: Vec::new(),
+                            bindings: Vec::new()
                         }
                     })
                 };
@@ -712,7 +737,13 @@ impl fmt::Show for clean::ViewListIdent {
     }
 }
 
-impl fmt::Show for MutableSpace {
+impl fmt::String for clean::TypeBinding {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}={}", self.name, self.ty)
+    }
+}
+
+impl fmt::String for MutableSpace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             MutableSpace(clean::Immutable) => Ok(()),
@@ -721,7 +752,7 @@ impl fmt::Show for MutableSpace {
     }
 }
 
-impl fmt::Show for RawMutableSpace {
+impl fmt::String for RawMutableSpace {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             RawMutableSpace(clean::Immutable) => write!(f, "const "),
@@ -730,13 +761,13 @@ impl fmt::Show for RawMutableSpace {
     }
 }
 
-impl<'a> fmt::Show for Stability<'a> {
+impl<'a> fmt::String for Stability<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let Stability(stab) = *self;
         match *stab {
             Some(ref stability) => {
                 write!(f, "<a class='stability {lvl}' title='{reason}'>{lvl}</a>",
-                       lvl = stability.level.to_string(),
+                       lvl = stability.level,
                        reason = stability.text)
             }
             None => Ok(())
@@ -744,13 +775,13 @@ impl<'a> fmt::Show for Stability<'a> {
     }
 }
 
-impl<'a> fmt::Show for ConciseStability<'a> {
+impl<'a> fmt::String for ConciseStability<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let ConciseStability(stab) = *self;
         match *stab {
             Some(ref stability) => {
                 write!(f, "<a class='stability {lvl}' title='{lvl}{colon}{reason}'></a>",
-                       lvl = stability.level.to_string(),
+                       lvl = stability.level,
                        colon = if stability.text.len() > 0 { ": " } else { "" },
                        reason = stability.text)
             }
@@ -761,7 +792,7 @@ impl<'a> fmt::Show for ConciseStability<'a> {
     }
 }
 
-impl fmt::Show for ModuleSummary {
+impl fmt::String for ModuleSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn fmt_inner<'a>(f: &mut fmt::Formatter,
                          context: &mut Vec<&'a str>,

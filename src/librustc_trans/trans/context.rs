@@ -284,7 +284,7 @@ impl<'tcx> SharedCrateContext<'tcx> {
             // such as a function name in the module.
             // 1. http://llvm.org/bugs/show_bug.cgi?id=11479
             let llmod_id = format!("{}.{}.rs", crate_name, i);
-            let local_ccx = LocalCrateContext::new(&shared_ccx, llmod_id[]);
+            let local_ccx = LocalCrateContext::new(&shared_ccx, &llmod_id[]);
             shared_ccx.local_ccxs.push(local_ccx);
         }
 
@@ -369,7 +369,7 @@ impl<'tcx> LocalCrateContext<'tcx> {
         unsafe {
             let (llcx, llmod) = create_context_and_module(&shared.tcx.sess, name);
 
-            let td = mk_target_data(shared.tcx
+            let td = mk_target_data(&shared.tcx
                                           .sess
                                           .target
                                           .target
@@ -722,7 +722,7 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
     /// currently conservatively bounded to 1 << 47 as that is enough to cover the current usable
     /// address space on 64-bit ARMv8 and x86_64.
     pub fn obj_size_bound(&self) -> u64 {
-        match self.sess().target.target.target_word_size[] {
+        match &self.sess().target.target.target_pointer_width[] {
             "32" => 1 << 31,
             "64" => 1 << 47,
             _ => unreachable!() // error handled by config::build_target_config
@@ -731,41 +731,42 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
 
     pub fn report_overbig_object(&self, obj: Ty<'tcx>) -> ! {
         self.sess().fatal(
-            format!("the type `{}` is too big for the current architecture",
+            &format!("the type `{}` is too big for the current architecture",
                     obj.repr(self.tcx()))[])
     }
 }
 
 pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<ValueRef> {
     macro_rules! ifn {
-        ($name:expr fn() -> $ret:expr if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
-            if $is_pnacl == $is_supported_in_pnacl && *key == $name {
+        ($name:expr, fn() -> $ret:expr, if ($cond:expr)) => ({
+            let is_key = *key == $name;
+            if $cond && is_key {
                 let name = $name;
                 // HACK(eddyb) dummy output type, shouln't affect anything.
                 let f = base::decl_cdecl_fn(ccx, name, Type::func(&[], &$ret),
                                             ty::mk_nil(ccx.tcx()));
                 ccx.intrinsics().borrow_mut().insert(name, f);
                 return Some(f);
-            }
+            } else if is_key { return None; }
         });
-        ($name:expr fn() -> $ret:expr) => (ifn!($name fn() -> $ret if (true) == (true)));
-        ($name:expr fn($($arg:expr),+) -> $ret:expr
-         if ($is_pnacl:expr) == ($is_supported_in_pnacl:expr)) => ({
-             if $is_pnacl == $is_supported_in_pnacl && *key == $name {
+        ($name:expr, fn() -> $ret:expr) => (ifn!($name, fn() -> $ret, if (true)));
+        ($name:expr, fn($($arg:expr),*) -> $ret:expr,
+         if ($cond:expr)) => ({
+             let is_key = *key == $name;
+             if $cond && is_key {
                  let name = $name;
                  // HACK(eddyb) dummy output type, shouln't affect anything.
                  let f = base::decl_cdecl_fn(ccx, name,
-                                             Type::func(&[$($arg),+], &$ret),
+                                             Type::func(&[$($arg),*], &$ret),
                                              ty::mk_nil(ccx.tcx()));
                  ccx.intrinsics().borrow_mut().insert(name, f);
                  return Some(f);
-             }
+             } else if is_key { return None; }
         });
-        ($name:expr fn($($arg:expr),+) -> $ret:expr) =>
-            (ifn!($name fn($($arg),+) -> $ret if (true) == (true)))
+        ($name:expr, fn($($arg:expr),*) -> $ret:expr) =>
+            (ifn!($name, fn($($arg),*) -> $ret, if (true)))
     }
     macro_rules! mk_struct {
-    
         ($($field_ty:expr),*) => (Type::struct_(ccx, &[$($field_ty),*], false))
     }
 
@@ -779,108 +780,110 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
     let t_f32 = Type::f32(ccx);
     let t_f64 = Type::f64(ccx);
 
-    ifn!("llvm.memcpy.p0i8.p0i8.i32" fn(i8p, i8p, t_i32, t_i32, i1) -> void);
-    ifn!("llvm.memcpy.p0i8.p0i8.i64" fn(i8p, i8p, t_i64, t_i32, i1) -> void);
-    ifn!("llvm.memmove.p0i8.p0i8.i32" fn(i8p, i8p, t_i32, t_i32, i1) -> void);
-    ifn!("llvm.memmove.p0i8.p0i8.i64" fn(i8p, i8p, t_i64, t_i32, i1) -> void);
-    ifn!("llvm.memset.p0i8.i32" fn(i8p, t_i8, t_i32, t_i32, i1) -> void);
-    ifn!("llvm.memset.p0i8.i64" fn(i8p, t_i8, t_i64, t_i32, i1) -> void);
+    ifn!("llvm.memcpy.p0i8.p0i8.i32", fn(i8p, i8p, t_i32, t_i32, i1) -> void);
+    ifn!("llvm.memcpy.p0i8.p0i8.i64", fn(i8p, i8p, t_i64, t_i32, i1) -> void);
+    ifn!("llvm.memmove.p0i8.p0i8.i32", fn(i8p, i8p, t_i32, t_i32, i1) -> void);
+    ifn!("llvm.memmove.p0i8.p0i8.i64", fn(i8p, i8p, t_i64, t_i32, i1) -> void);
+    ifn!("llvm.memset.p0i8.i32", fn(i8p, t_i8, t_i32, t_i32, i1) -> void);
+    ifn!("llvm.memset.p0i8.i64", fn(i8p, t_i8, t_i64, t_i32, i1) -> void);
 
-    ifn!("llvm.trap" fn() -> void);
-    ifn!("llvm.debugtrap" fn() -> void);
-    ifn!("llvm.frameaddress" fn(t_i32) -> i8p
-         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.trap", fn() -> void);
+    ifn!("llvm.debugtrap", fn() -> void);
+    ifn!("llvm.frameaddress", fn(t_i32) -> i8p,
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.powi.f32" fn(t_f32, t_i32) -> t_f32);
-    ifn!("llvm.powi.f64" fn(t_f64, t_i32) -> t_f64);
+    ifn!("llvm.powi.f32", fn(t_f32, t_i32) -> t_f32,
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.powi.f64", fn(t_f64, t_i32) -> t_f64,
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.sqrt.f32" fn(t_f32) -> t_f32);
-    ifn!("llvm.sqrt.f64" fn(t_f64) -> t_f64);
+    ifn!("llvm.sqrt.f32", fn(t_f32) -> t_f32);
+    ifn!("llvm.sqrt.f64", fn(t_f64) -> t_f64);
 
-    ifn!("llvm.ctpop.i8" fn(t_i8) -> t_i8
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctpop.i16" fn(t_i16) -> t_i16
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctpop.i32" fn(t_i32) -> t_i32);
-    ifn!("llvm.ctpop.i64" fn(t_i64) -> t_i64);
+    ifn!("llvm.ctpop.i8", fn(t_i8) -> t_i8,
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ctpop.i16", fn(t_i16) -> t_i16,
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ctpop.i32", fn(t_i32) -> t_i32);
+    ifn!("llvm.ctpop.i64", fn(t_i64) -> t_i64);
 
-    ifn!("llvm.ctlz.i8" fn(t_i8 , i1) -> t_i8
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctlz.i16" fn(t_i16, i1) -> t_i16
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ctlz.i32" fn(t_i32, i1) -> t_i32);
-    ifn!("llvm.ctlz.i64" fn(t_i64, i1) -> t_i64);
+    ifn!("llvm.ctlz.i8", fn(t_i8 , i1) -> t_i8,
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ctlz.i16", fn(t_i16, i1) -> t_i16,
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ctlz.i32", fn(t_i32, i1) -> t_i32);
+    ifn!("llvm.ctlz.i64", fn(t_i64, i1) -> t_i64);
 
-    ifn!("llvm.cttz.i8" fn(t_i8 , i1) -> t_i8
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.cttz.i16" fn(t_i16, i1) -> t_i16
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.cttz.i32" fn(t_i32, i1) -> t_i32);
-    ifn!("llvm.cttz.i64" fn(t_i64, i1) -> t_i64);
+    ifn!("llvm.cttz.i8", fn(t_i8 , i1) -> t_i8,
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.cttz.i16", fn(t_i16, i1) -> t_i16,
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.cttz.i32", fn(t_i32, i1) -> t_i32);
+    ifn!("llvm.cttz.i64", fn(t_i64, i1) -> t_i64);
 
-    ifn!("llvm.bswap.i16" fn(t_i16) -> t_i16);
-    ifn!("llvm.bswap.i32" fn(t_i32) -> t_i32);
-    ifn!("llvm.bswap.i64" fn(t_i64) -> t_i64);
+    ifn!("llvm.bswap.i16", fn(t_i16) -> t_i16);
+    ifn!("llvm.bswap.i32", fn(t_i32) -> t_i32);
+    ifn!("llvm.bswap.i64", fn(t_i64) -> t_i64);
 
-    ifn!("llvm.sadd.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.sadd.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.sadd.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.sadd.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.sadd.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.sadd.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.sadd.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.sadd.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.uadd.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.uadd.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.uadd.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.uadd.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.uadd.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.uadd.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.uadd.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.uadd.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.ssub.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ssub.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ssub.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.ssub.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.ssub.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ssub.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ssub.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ssub.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.usub.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.usub.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.usub.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.usub.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.usub.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.usub.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.usub.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.usub.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.smul.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.smul.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.smul.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.smul.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.smul.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.smul.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.smul.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.smul.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.umul.with.overflow.i8" fn(t_i8, t_i8) -> mk_struct!{t_i8, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.umul.with.overflow.i16" fn(t_i16, t_i16) -> mk_struct!{t_i16, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.umul.with.overflow.i32" fn(t_i32, t_i32) -> mk_struct!{t_i32, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
-    ifn!("llvm.umul.with.overflow.i64" fn(t_i64, t_i64) -> mk_struct!{t_i64, i1}
-         if (ccx.sess().targeting_pnacl()) == (false));
+    ifn!("llvm.umul.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.umul.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.umul.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
+         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.umul.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
+         if (!ccx.sess().targeting_pnacl()));
 
-    ifn!("llvm.lifetime.start" fn(t_i64,i8p) -> void);
-    ifn!("llvm.lifetime.end" fn(t_i64, i8p) -> void);
+    ifn!("llvm.lifetime.start", fn(t_i64,i8p) -> void);
+    ifn!("llvm.lifetime.end", fn(t_i64, i8p) -> void);
 
-    ifn!("llvm.expect.i1" fn(i1, i1) -> i1);
-    ifn!("llvm.assume" fn(i1) -> void);
+    ifn!("llvm.expect.i1", fn(i1, i1) -> i1);
+    ifn!("llvm.assume", fn(i1) -> void);
 
     // Some intrinsics were introduced in later versions of LLVM, but they have
     // fallbacks in libc or libm and such. Currently, all of these intrinsics
@@ -889,9 +892,8 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
     // so when targeting PNaCl we redirect these functions to their libm counterparts.
     macro_rules! compatible_ifn {
         ($name:expr, $cname:ident ($($arg:expr),*) -> $ret:expr) => ({
-            let name = $name;
             if unsafe { llvm::LLVMVersionMinor() >= 4 } && !ccx.sess().targeting_pnacl() {
-                ifn!(name fn($($arg),*) -> $ret);
+                ifn!($name, fn($($arg),*) -> $ret);
             } else if *key == $name {
                 let f = base::decl_cdecl_fn(ccx, stringify!($cname),
                                       Type::func(&[$($arg),*], &$ret),
@@ -944,8 +946,8 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
     compatible_ifn!("llvm.nearbyint.f64", nearbyint(t_f64) -> t_f64);
 
     if ccx.sess().opts.debuginfo != NoDebugInfo {
-        ifn!("llvm.dbg.declare" fn(Type::metadata(ccx), Type::metadata(ccx)) -> void);
-        ifn!("llvm.dbg.value" fn(Type::metadata(ccx), t_i64, Type::metadata(ccx)) -> void);
+        ifn!("llvm.dbg.declare", fn(Type::metadata(ccx), Type::metadata(ccx)) -> void);
+        ifn!("llvm.dbg.value", fn(Type::metadata(ccx), t_i64, Type::metadata(ccx)) -> void);
     }
     return None;
 }

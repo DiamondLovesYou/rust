@@ -40,6 +40,7 @@
 
 #![crate_name = "term"]
 #![experimental = "use the crates.io `term` library instead"]
+#![staged_api]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
@@ -48,17 +49,11 @@
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![allow(unknown_features)]
-#![feature(macro_rules, phase, slicing_syntax, globs)]
-
+#![feature(slicing_syntax)]
+#![feature(box_syntax)]
 #![deny(missing_docs)]
 
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate log;
-
-#[cfg(not(stage0))]
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate log;
 
 pub use terminfo::TerminfoTerminal;
 #[cfg(windows)]

@@ -72,7 +72,7 @@ pub fn check_object_cast<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         (_, &ty::ty_uniq(..)) => {
             fcx.ccx.tcx.sess.span_err(
                 source_expr.span,
-                format!("can only cast an boxed pointer \
+                &format!("can only cast an boxed pointer \
                          to a boxed object, not a {}",
                         ty::ty_sort_string(fcx.tcx(), source_ty))[]);
         }
@@ -80,7 +80,7 @@ pub fn check_object_cast<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
         (_, &ty::ty_rptr(..)) => {
             fcx.ccx.tcx.sess.span_err(
                 source_expr.span,
-                format!("can only cast a &-pointer \
+                &format!("can only cast a &-pointer \
                          to an &-object, not a {}",
                         ty::ty_sort_string(fcx.tcx(), source_ty))[]);
         }

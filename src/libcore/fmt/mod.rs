@@ -11,23 +11,22 @@
 //! Utilities for formatting and printing strings
 
 #![allow(unused_variables)]
+#![stable]
 
 use any;
-use cell::{Cell, Ref, RefMut};
+use cell::{Cell, RefCell, Ref, RefMut};
+use char::CharExt;
 use iter::{Iterator, IteratorExt, range};
-use kinds::{Copy, Sized};
+use marker::{Copy, Sized};
 use mem;
 use option::Option;
 use option::Option::{Some, None};
-use ops::{Deref, FnOnce};
 use result::Result::Ok;
+use ops::{Deref, FnOnce};
 use result;
 use slice::SliceExt;
 use slice;
 use str::{self, StrExt, Utf8Error};
-
-// NOTE: for old macros; remove after the next snapshot
-#[cfg(stage0)] use result::Result::Err;
 
 pub use self::num::radix;
 pub use self::num::Radix;
@@ -217,15 +216,29 @@ pub struct Arguments<'a> {
 
 impl<'a> Show for Arguments<'a> {
     fn fmt(&self, fmt: &mut Formatter) -> Result {
+        String::fmt(self, fmt)
+    }
+}
+
+#[stable]
+impl<'a> String for Arguments<'a> {
+    fn fmt(&self, fmt: &mut Formatter) -> Result {
         write(fmt.buf, *self)
     }
 }
 
-/// When a format is not otherwise specified, types are formatted by ascribing
-/// to this trait. There is not an explicit way of selecting this trait to be
-/// used for formatting, it is only if no other format is specified.
+/// Format trait for the `:?` format. Useful for debugging, most all types
+/// should implement this.
 #[unstable = "I/O and core have yet to be reconciled"]
 pub trait Show {
+    /// Formats the value using the given formatter.
+    fn fmt(&self, &mut Formatter) -> Result;
+}
+
+/// When a value can be semantically expressed as a String, this trait may be
+/// used. It corresponds to the default format, `{}`.
+#[unstable = "I/O and core have yet to be reconciled"]
+pub trait String {
     /// Formats the value using the given formatter.
     fn fmt(&self, &mut Formatter) -> Result;
 }
@@ -413,7 +426,7 @@ impl<'a> Formatter<'a> {
             for c in sign.into_iter() {
                 let mut b = [0; 4];
                 let n = c.encode_utf8(&mut b).unwrap_or(0);
-                let b = unsafe { str::from_utf8_unchecked(b[0..n]) };
+                let b = unsafe { str::from_utf8_unchecked(&b[0..n]) };
                 try!(f.buf.write_str(b));
             }
             if prefixed { f.buf.write_str(prefix) }
@@ -521,7 +534,7 @@ impl<'a> Formatter<'a> {
 
         let mut fill = [0u8; 4];
         let len = self.fill.encode_utf8(&mut fill).unwrap_or(0);
-        let fill = unsafe { str::from_utf8_unchecked(fill[..len]) };
+        let fill = unsafe { str::from_utf8_unchecked(&fill[..len]) };
 
         for _ in range(0, pre_pad) {
             try!(self.buf.write_str(fill));
@@ -572,7 +585,7 @@ impl<'a> Formatter<'a> {
 
 impl Show for Error {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        "an error occurred when formatting an argument".fmt(f)
+        String::fmt("an error occurred when formatting an argument", f)
     }
 }
 
@@ -595,20 +608,46 @@ pub fn argumentuint<'a>(s: &'a uint) -> Argument<'a> {
 
 // Implementations of the core formatting traits
 
-impl<'a, T: ?Sized + Show> Show for &'a T {
-    fn fmt(&self, f: &mut Formatter) -> Result { (**self).fmt(f) }
+macro_rules! fmt_refs {
+    ($($tr:ident),*) => {
+        $(
+        impl<'a, T: ?Sized + $tr> $tr for &'a T {
+            fn fmt(&self, f: &mut Formatter) -> Result { $tr::fmt(&**self, f) }
+        }
+        impl<'a, T: ?Sized + $tr> $tr for &'a mut T {
+            fn fmt(&self, f: &mut Formatter) -> Result { $tr::fmt(&**self, f) }
+        }
+        )*
+    }
 }
-impl<'a, T: ?Sized + Show> Show for &'a mut T {
-    fn fmt(&self, f: &mut Formatter) -> Result { (**self).fmt(f) }
-}
+
+fmt_refs! { Show, String, Octal, Binary, LowerHex, UpperHex, LowerExp, UpperExp }
 
 impl Show for bool {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        Show::fmt(if *self { "true" } else { "false" }, f)
+        String::fmt(self, f)
+    }
+}
+
+#[stable]
+impl String for bool {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        String::fmt(if *self { "true" } else { "false" }, f)
     }
 }
 
 impl Show for str {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        try!(write!(f, "\""));
+        for c in self.chars().flat_map(|c| c.escape_default()) {
+            try!(write!(f, "{}", c));
+        }
+        write!(f, "\"")
+    }
+}
+
+#[stable]
+impl String for str {
     fn fmt(&self, f: &mut Formatter) -> Result {
         f.pad(self)
     }
@@ -617,11 +656,21 @@ impl Show for str {
 impl Show for char {
     fn fmt(&self, f: &mut Formatter) -> Result {
         use char::CharExt;
+        try!(write!(f, "'"));
+        for c in self.escape_default() {
+            try!(write!(f, "{}", c));
+        }
+        write!(f, "'")
+    }
+}
 
+#[stable]
+impl String for char {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         let mut utf8 = [0u8; 4];
         let amt = self.encode_utf8(&mut utf8).unwrap_or(0);
-        let s: &str = unsafe { mem::transmute(utf8[..amt]) };
-        Show::fmt(s, f)
+        let s: &str = unsafe { mem::transmute(&utf8[0..amt]) };
+        String::fmt(s, f)
     }
 }
 
@@ -653,7 +702,16 @@ impl<'a, T> Pointer for &'a mut T {
 }
 
 macro_rules! floating { ($ty:ident) => {
+
     impl Show for $ty {
+        fn fmt(&self, fmt: &mut Formatter) -> Result {
+            try!(String::fmt(self, fmt));
+            fmt.write_str(stringify!($ty))
+        }
+    }
+
+    #[stable]
+    impl String for $ty {
         fn fmt(&self, fmt: &mut Formatter) -> Result {
             use num::Float;
 
@@ -724,7 +782,6 @@ floating! { f64 }
 impl<T> Show for *const T {
     fn fmt(&self, f: &mut Formatter) -> Result { Pointer::fmt(self, f) }
 }
-
 impl<T> Show for *mut T {
     fn fmt(&self, f: &mut Formatter) -> Result { Pointer::fmt(self, f) }
 }
@@ -746,7 +803,7 @@ macro_rules! tuple {
                     if n > 0 {
                         try!(write!(f, ", "));
                     }
-                    try!(write!(f, "{}", *$name));
+                    try!(write!(f, "{:?}", *$name));
                     n += 1;
                 )*
                 if n == 1 {
@@ -777,7 +834,7 @@ impl<T: Show> Show for [T] {
             } else {
                 try!(write!(f, ", "));
             }
-            try!(write!(f, "{}", *x))
+            try!(write!(f, "{:?}", *x))
         }
         if f.flags & (1 << (rt::FlagAlternate as uint)) == 0 {
             try!(write!(f, "]"));
@@ -794,23 +851,34 @@ impl Show for () {
 
 impl<T: Copy + Show> Show for Cell<T> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "Cell {{ value: {} }}", self.get())
+        write!(f, "Cell {{ value: {:?} }}", self.get())
+    }
+}
+
+#[unstable]
+impl<T: Show> Show for RefCell<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self.try_borrow() {
+            Some(val) => write!(f, "RefCell {{ value: {:?} }}", val),
+            None => write!(f, "RefCell {{ <borrowed> }}")
+        }
     }
 }
 
 impl<'b, T: Show> Show for Ref<'b, T> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        (**self).fmt(f)
+        Show::fmt(&**self, f)
     }
 }
 
 impl<'b, T: Show> Show for RefMut<'b, T> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        (*(self.deref())).fmt(f)
+        Show::fmt(&*(self.deref()), f)
     }
 }
 
-impl Show for Utf8Error {
+#[stable]
+impl String for Utf8Error {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match *self {
             Utf8Error::InvalidByte(n) => {

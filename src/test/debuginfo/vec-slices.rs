@@ -77,7 +77,6 @@
 // lldb-check:[...]$5 = &[AStruct { x: 10, y: 11, z: 12 }, AStruct { x: 13, y: 14, z: 15 }]
 
 #![allow(unused_variables)]
-#![feature(slicing_syntax)]
 #![omit_gdb_pretty_printer_section]
 
 struct AStruct {
@@ -93,7 +92,7 @@ fn main() {
     let empty: &[i64] = &[];
     let singleton: &[i64] = &[1];
     let multiple: &[i64] = &[2, 3, 4, 5];
-    let slice_of_slice = multiple[1..3];
+    let slice_of_slice = &multiple[1..3];
 
     let padded_tuple: &[(i32, i16)] = &[(6, 7), (8, 9)];
 

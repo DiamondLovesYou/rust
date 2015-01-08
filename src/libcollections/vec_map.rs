@@ -18,7 +18,7 @@ use core::prelude::*;
 use core::cmp::Ordering;
 use core::default::Default;
 use core::fmt;
-use core::hash::{Hash, Writer};
+use core::hash::{Hash, Writer, Hasher};
 use core::iter::{Enumerate, FilterMap, Map, FromIterator};
 use core::iter;
 use core::mem::replace;
@@ -85,7 +85,7 @@ impl<V:Clone> Clone for VecMap<V> {
     }
 }
 
-impl<S: Writer, V: Hash<S>> Hash<S> for VecMap<V> {
+impl<S: Writer + Hasher, V: Hash<S>> Hash<S> for VecMap<V> {
     fn hash(&self, state: &mut S) {
         // In order to not traverse the `VecMap` twice, count the elements
         // during iteration.
@@ -455,7 +455,8 @@ impl<V> VecMap<V> {
         if *key >= self.v.len() {
             return None;
         }
-        self.v[*key].take()
+        let result = &mut self.v[*key];
+        result.take()
     }
 }
 
@@ -488,11 +489,11 @@ impl<V: Ord> Ord for VecMap<V> {
 #[stable]
 impl<V: fmt::Show> fmt::Show for VecMap<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "{{"));
+        try!(write!(f, "VecMap {{"));
 
         for (i, (k, v)) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
-            try!(write!(f, "{}: {}", k, *v));
+            try!(write!(f, "{}: {:?}", k, *v));
         }
 
         write!(f, "}}")
@@ -711,7 +712,7 @@ impl<V> DoubleEndedIterator for IntoIter<V> {
 #[cfg(test)]
 mod test_map {
     use prelude::*;
-    use core::hash::hash;
+    use core::hash::{hash, SipHasher};
 
     use super::VecMap;
 
@@ -928,9 +929,9 @@ mod test_map {
         map.insert(1, 2i);
         map.insert(3, 4i);
 
-        let map_str = map.to_string();
-        assert!(map_str == "{1: 2, 3: 4}" || map_str == "{3: 4, 1: 2}");
-        assert_eq!(format!("{}", empty), "{}");
+        let map_str = format!("{:?}", map);
+        assert!(map_str == "VecMap {1: 2i, 3: 4i}" || map_str == "{3: 4i, 1: 2i}");
+        assert_eq!(format!("{:?}", empty), "VecMap {}");
     }
 
     #[test]
@@ -1003,7 +1004,7 @@ mod test_map {
         let mut x = VecMap::new();
         let mut y = VecMap::new();
 
-        assert!(hash(&x) == hash(&y));
+        assert!(hash::<_, SipHasher>(&x) == hash::<_, SipHasher>(&y));
         x.insert(1, 'a');
         x.insert(2, 'b');
         x.insert(3, 'c');
@@ -1012,12 +1013,12 @@ mod test_map {
         y.insert(2, 'b');
         y.insert(1, 'a');
 
-        assert!(hash(&x) == hash(&y));
+        assert!(hash::<_, SipHasher>(&x) == hash::<_, SipHasher>(&y));
 
         x.insert(1000, 'd');
         x.remove(&1000);
 
-        assert!(hash(&x) == hash(&y));
+        assert!(hash::<_, SipHasher>(&x) == hash::<_, SipHasher>(&y));
     }
 
     #[test]

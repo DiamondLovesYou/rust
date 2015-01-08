@@ -66,7 +66,7 @@ impl<'a, 'tcx> TypeFreshener<'a, 'tcx> {
             None => { }
         }
 
-        match self.freshen_map.entry(&key) {
+        match self.freshen_map.entry(key) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => {
                 let index = self.freshen_count;
@@ -135,10 +135,7 @@ impl<'a, 'tcx> TypeFolder<'tcx> for TypeFreshener<'a, 'tcx> {
                 t
             }
 
-            ty::ty_open(..) => {
-                self.tcx().sess.bug("Cannot freshen an open existential type");
-            }
-
+            ty::ty_open(..) |
             ty::ty_bool |
             ty::ty_char |
             ty::ty_int(..) |

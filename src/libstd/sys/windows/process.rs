@@ -13,6 +13,7 @@ use prelude::v1::*;
 use collections;
 use ffi::CString;
 use hash::Hash;
+use collections::hash_map::Hasher;
 use io::fs::PathExtensions;
 use io::process::{ProcessExit, ExitStatus, ExitSignal};
 use io::{IoResult, IoError};
@@ -25,12 +26,18 @@ use path::BytesContainer;
 use ptr;
 use str;
 use sys::fs::FileDesc;
+use sync::{StaticMutex, MUTEX_INIT};
+
 use sys::fs;
 use sys::{self, retry, c, wouldblock, set_nonblocking, ms_to_timeval, timer};
 use sys_common::helper_thread::Helper;
 use sys_common::{AsInner, mkerr_libc, timeout};
 
 pub use sys_common::ProcessConfig;
+
+// `CreateProcess` is racy!
+// http://support.microsoft.com/kb/315939
+static CREATE_PROCESS_LOCK: StaticMutex = MUTEX_INIT;
 
 /// A value representing a child process.
 ///
@@ -103,7 +110,7 @@ impl Process {
                               out_fd: Option<P>, err_fd: Option<P>)
                               -> IoResult<Process>
         where C: ProcessConfig<K, V>, P: AsInner<FileDesc>,
-              K: BytesContainer + Eq + Hash, V: BytesContainer
+              K: BytesContainer + Eq + Hash<Hasher>, V: BytesContainer
     {
         use libc::types::os::arch::extra::{DWORD, HANDLE, STARTUPINFO};
         use libc::consts::os::extra::{
@@ -224,6 +231,7 @@ impl Process {
                 with_dirp(cfg.cwd(), |dirp| {
                     let mut cmd_str: Vec<u16> = cmd_str.utf16_units().collect();
                     cmd_str.push(0);
+                    let _lock = CREATE_PROCESS_LOCK.lock().unwrap();
                     let created = CreateProcessW(ptr::null(),
                                                  cmd_str.as_mut_ptr(),
                                                  ptr::null_mut(),
@@ -417,8 +425,10 @@ fn make_command_line(prog: &CString, args: &[CString]) -> String {
     }
 }
 
-fn with_envp<K, V, T, F>(env: Option<&collections::HashMap<K, V>>, cb: F) -> T where
-    K: BytesContainer + Eq + Hash, V: BytesContainer, F: FnOnce(*mut c_void) -> T,
+fn with_envp<K, V, T, F>(env: Option<&collections::HashMap<K, V>>, cb: F) -> T
+    where K: BytesContainer + Eq + Hash<Hasher>,
+          V: BytesContainer,
+          F: FnOnce(*mut c_void) -> T,
 {
     // On Windows we pass an "environment block" which is not a char**, but
     // rather a concatenation of null-terminated k=v\0 sequences, with a final

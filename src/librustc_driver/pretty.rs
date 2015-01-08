@@ -294,7 +294,7 @@ impl<'tcx> pprust::PpAnn for TypedAnnotation<'tcx> {
                 try!(pp::word(&mut s.s, "as"));
                 try!(pp::space(&mut s.s));
                 try!(pp::word(&mut s.s,
-                              ppaux::ty_to_string(
+                              &ppaux::ty_to_string(
                                   tcx,
                                   ty::expr_ty(tcx, expr))[]));
                 s.pclose()
@@ -350,8 +350,8 @@ impl<'a, 'ast> Iterator for NodesMatchingUII<'a, 'ast> {
 
     fn next(&mut self) -> Option<ast::NodeId> {
         match self {
-            &NodesMatchingDirect(ref mut iter) => iter.next(),
-            &NodesMatchingSuffix(ref mut iter) => iter.next(),
+            &mut NodesMatchingDirect(ref mut iter) => iter.next(),
+            &mut NodesMatchingSuffix(ref mut iter) => iter.next(),
         }
     }
 }
@@ -370,7 +370,7 @@ impl UserIdentifiedItem {
             ItemViaNode(node_id) =>
                 NodesMatchingDirect(Some(node_id).into_iter()),
             ItemViaPath(ref parts) =>
-                NodesMatchingSuffix(map.nodes_matching_suffix(parts[])),
+                NodesMatchingSuffix(map.nodes_matching_suffix(&parts[])),
         }
     }
 
@@ -382,7 +382,7 @@ impl UserIdentifiedItem {
                         user_option,
                         self.reconstructed_input(),
                         is_wrong_because);
-            sess.fatal(message[])
+            sess.fatal(&message[])
         };
 
         let mut saw_node = ast::DUMMY_NODE_ID;
@@ -509,7 +509,7 @@ pub fn pretty_print_input(sess: Session,
     let is_expanded = needs_expansion(&ppm);
     let compute_ast_map = needs_ast_map(&ppm, &opt_uii);
     let krate = if compute_ast_map {
-        match driver::phase_2_configure_and_expand(&sess, krate, id[], None) {
+        match driver::phase_2_configure_and_expand(&sess, krate, &id[], None) {
             None => return,
             Some(k) => k
         }
@@ -528,7 +528,7 @@ pub fn pretty_print_input(sess: Session,
     };
 
     let src_name = driver::source_name(input);
-    let src = sess.codemap().get_filemap(src_name[])
+    let src = sess.codemap().get_filemap(&src_name[])
                             .src.as_bytes().to_vec();
     let mut rdr = MemReader::new(src);
 
@@ -548,7 +548,7 @@ pub fn pretty_print_input(sess: Session,
         (PpmSource(s), None) =>
             s.call_with_pp_support(
                 sess, ast_map, &arenas, id, out, |annotation, out| {
-                    debug!("pretty printing source code {}", s);
+                    debug!("pretty printing source code {:?}", s);
                     let sess = annotation.sess();
                     pprust::print_crate(sess.codemap(),
                                         sess.diagnostic(),
@@ -563,7 +563,7 @@ pub fn pretty_print_input(sess: Session,
         (PpmSource(s), Some(uii)) =>
             s.call_with_pp_support(
                 sess, ast_map, &arenas, id, (out,uii), |annotation, (out,uii)| {
-                    debug!("pretty printing source code {}", s);
+                    debug!("pretty printing source code {:?}", s);
                     let sess = annotation.sess();
                     let ast_map = annotation.ast_map()
                         .expect("--pretty missing ast_map");
@@ -586,9 +586,9 @@ pub fn pretty_print_input(sess: Session,
                 }),
 
         (PpmFlowGraph, opt_uii) => {
-            debug!("pretty printing flow graph for {}", opt_uii);
+            debug!("pretty printing flow graph for {:?}", opt_uii);
             let uii = opt_uii.unwrap_or_else(|| {
-                sess.fatal(format!("`pretty flowgraph=..` needs NodeId (int) or
+                sess.fatal(&format!("`pretty flowgraph=..` needs NodeId (int) or
                                      unique path suffix (b::c::d)")[])
 
             });
@@ -596,7 +596,7 @@ pub fn pretty_print_input(sess: Session,
             let nodeid = uii.to_one_node_id("--pretty", &sess, &ast_map);
 
             let node = ast_map.find(nodeid).unwrap_or_else(|| {
-                sess.fatal(format!("--pretty flowgraph couldn't find id: {}",
+                sess.fatal(&format!("--pretty flowgraph couldn't find id: {}",
                                    nodeid)[])
             });
 
@@ -609,14 +609,14 @@ pub fn pretty_print_input(sess: Session,
                 }
                 None => {
                     let message = format!("--pretty=flowgraph needs \
-                                           block, fn, or method; got {}",
+                                           block, fn, or method; got {:?}",
                                           node);
 
                     // point to what was found, if there's an
                     // accessible span.
                     match ast_map.opt_span(nodeid) {
-                        Some(sp) => sess.span_fatal(sp, message[]),
-                        None => sess.fatal(message[])
+                        Some(sp) => sess.span_fatal(sp, &message[]),
+                        None => sess.fatal(&message[])
                     }
                 }
             }

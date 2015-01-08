@@ -337,7 +337,7 @@ fn opt_normalize_projection_type<'a,'b,'tcx>(
 }
 
 /// in various error cases, we just set ty_err and return an obligation
-/// that, when fulfiled, will lead to an error
+/// that, when fulfilled, will lead to an error
 fn normalize_to_error<'a,'tcx>(selcx: &mut SelectionContext<'a,'tcx>,
                                projection_ty: ty::ProjectionTy<'tcx>,
                                cause: ObligationCause<'tcx>,
@@ -452,7 +452,9 @@ fn assemble_candidates_from_predicates<'cx,'tcx>(
     for predicate in elaborate_predicates(selcx.tcx(), env_predicates) {
         match predicate {
             ty::Predicate::Projection(ref data) => {
-                let is_match = infcx.probe(|_| {
+                let same_name = data.item_name() == obligation.predicate.item_name;
+
+                let is_match = same_name && infcx.probe(|_| {
                     let origin = infer::Misc(obligation.cause.span);
                     let obligation_poly_trait_ref =
                         obligation_trait_ref.to_poly_trait_ref();
@@ -465,6 +467,9 @@ fn assemble_candidates_from_predicates<'cx,'tcx>(
                 });
 
                 if is_match {
+                    debug!("assemble_candidates_from_predicates: candidate {}",
+                           data.repr(selcx.tcx()));
+
                     candidate_set.vec.push(
                         ProjectionTyCandidate::ParamEnv(data.clone()));
                 }
@@ -490,7 +495,7 @@ fn assemble_candidates_from_object_type<'cx,'tcx>(
             selcx.tcx().sess.span_bug(
                 obligation.cause.span,
                 format!("assemble_candidates_from_object_type called with non-object: {}",
-                        object_ty.repr(selcx.tcx()))[]);
+                        object_ty.repr(selcx.tcx())).as_slice());
         }
     };
     let projection_bounds = data.projection_bounds_with_self_ty(selcx.tcx(), object_ty);
@@ -527,6 +532,9 @@ fn assemble_candidates_from_impls<'cx,'tcx>(
 
     match vtable {
         super::VtableImpl(data) => {
+            debug!("assemble_candidates_from_impls: impl candidate {}",
+                   data.repr(selcx.tcx()));
+
             candidate_set.vec.push(
                 ProjectionTyCandidate::Impl(data));
         }
@@ -641,7 +649,7 @@ fn confirm_candidate<'cx,'tcx>(
             }
 
             match impl_ty {
-                Some(ty) => (ty, impl_vtable.nested.to_vec()),
+                Some(ty) => (ty, impl_vtable.nested.into_vec()),
                 None => {
                     // This means that the impl is missing a
                     // definition for the associated type. This error

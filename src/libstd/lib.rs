@@ -18,7 +18,7 @@
 //!
 //! The [`ptr`](ptr/index.html) and [`mem`](mem/index.html)
 //! modules deal with unsafe pointers and memory manipulation.
-//! [`kinds`](kinds/index.html) defines the special built-in traits,
+//! [`markers`](markers/index.html) defines the special built-in traits,
 //! and [`raw`](raw/index.html) the runtime representation of Rust types.
 //! These are some of the lowest-level building blocks in Rust.
 //!
@@ -96,6 +96,7 @@
 
 #![crate_name = "std"]
 #![stable]
+#![staged_api]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
@@ -104,42 +105,25 @@
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![allow(unknown_features)]
-#![feature(macro_rules, globs, linkage, thread_local, asm)]
-#![feature(default_type_params, phase, lang_items, unsafe_destructor)]
+#![feature(linkage, thread_local, asm)]
+#![feature(lang_items, unsafe_destructor)]
 #![feature(slicing_syntax, unboxed_closures)]
-#![feature(old_orphan_check)]
-#![feature(associated_types)]
+#![feature(box_syntax)]
+#![feature(old_impl_check)]
 
 // Don't link to std. We are std.
 #![no_std]
 
 #![deny(missing_docs)]
 
-#![reexport_test_harness_main = "test_main"]
-
-#[cfg(all(test, stage0))]
-#[phase(plugin, link)]
-extern crate log;
-
-#[cfg(all(test, not(stage0)))]
+#[cfg(test)]
 #[macro_use]
 extern crate log;
 
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate core;
-
-#[cfg(not(stage0))]
 #[macro_use]
-#[macro_reexport(assert, assert_eq, debug_assert, debug_assert_eq,
-    unreachable, unimplemented, write, writeln)]
+#[macro_reexport(write, writeln)]
 extern crate core;
 
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate "collections" as core_collections;
-
-#[cfg(not(stage0))]
 #[macro_use]
 #[macro_reexport(vec)]
 extern crate "collections" as core_collections;
@@ -151,7 +135,7 @@ extern crate libc;
 
 // Make std testable by not duplicating lang items. See #2912
 #[cfg(test)] extern crate "std" as realstd;
-#[cfg(test)] pub use realstd::kinds;
+#[cfg(test)] pub use realstd::marker;
 #[cfg(test)] pub use realstd::ops;
 #[cfg(test)] pub use realstd::cmp;
 #[cfg(test)] pub use realstd::boxed;
@@ -166,9 +150,10 @@ pub use core::clone;
 #[cfg(not(test))] pub use core::cmp;
 pub use core::default;
 pub use core::finally;
+pub use core::hash;
 pub use core::intrinsics;
 pub use core::iter;
-#[cfg(not(test))] pub use core::kinds;
+#[cfg(not(test))] pub use core::marker;
 pub use core::mem;
 #[cfg(not(test))] pub use core::ops;
 pub use core::ptr;
@@ -190,18 +175,10 @@ pub use unicode::char;
 
 /* Exported macros */
 
-#[cfg(stage0)]
-#[cfg_attr(stage0, macro_escape)]
-#[cfg_attr(not(stage0), macro_use)]
-pub mod macros_stage0;
+#[macro_use]
+mod macros;
 
-#[cfg(not(stage0))]
-#[cfg_attr(stage0, macro_escape)]
-#[cfg_attr(not(stage0), macro_use)]
-pub mod macros;
-
-#[cfg_attr(stage0, macro_escape)]
-#[cfg_attr(not(stage0), macro_use)]
+#[macro_use]
 pub mod bitflags;
 
 mod rtdeps;
@@ -214,27 +191,26 @@ pub mod prelude;
 /* Primitive types */
 
 #[path = "num/float_macros.rs"]
-#[cfg_attr(stage0, macro_escape)]
-#[cfg_attr(not(stage0), macro_use)]
+#[macro_use]
 mod float_macros;
 
 #[path = "num/int_macros.rs"]
-#[cfg_attr(stage0, macro_escape)]
-#[cfg_attr(not(stage0), macro_use)]
+#[macro_use]
 mod int_macros;
 
 #[path = "num/uint_macros.rs"]
-#[cfg_attr(stage0, macro_escape)]
-#[cfg_attr(not(stage0), macro_use)]
+#[macro_use]
 mod uint_macros;
 
 #[path = "num/int.rs"]  pub mod int;
+#[path = "num/isize.rs"]  pub mod isize;
 #[path = "num/i8.rs"]   pub mod i8;
 #[path = "num/i16.rs"]  pub mod i16;
 #[path = "num/i32.rs"]  pub mod i32;
 #[path = "num/i64.rs"]  pub mod i64;
 
 #[path = "num/uint.rs"] pub mod uint;
+#[path = "num/usize.rs"] pub mod usize;
 #[path = "num/u8.rs"]   pub mod u8;
 #[path = "num/u16.rs"]  pub mod u16;
 #[path = "num/u32.rs"]  pub mod u32;
@@ -253,8 +229,7 @@ pub mod num;
 
 /* Runtime and platform support */
 
-#[cfg_attr(stage0, macro_escape)]
-#[cfg_attr(not(stage0), macro_use)]
+#[macro_use]
 pub mod thread_local;
 
 pub mod dynamic_lib;
@@ -269,7 +244,6 @@ pub mod time;
 /* Common data structures */
 
 pub mod collections;
-pub mod hash;
 
 /* Threads and communication */
 
@@ -301,6 +275,7 @@ mod std {
     pub use clone;
     pub use cmp;
     pub use hash;
+    pub use default;
 
     pub use sync; // used for select!()
     pub use error; // used for try!()
@@ -311,7 +286,7 @@ mod std {
     pub use vec; // used for vec![]
     pub use cell; // used for tls!
     pub use thread_local; // used for thread_local!
-    pub use kinds; // used for tls!
+    pub use marker;  // used for tls!
     pub use ops; // used for bitflags!
 
     // The test runner calls ::std::os::args() but really wants realstd

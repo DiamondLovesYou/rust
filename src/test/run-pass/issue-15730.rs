@@ -8,9 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(slicing_syntax)]
-
 fn main() {
     let mut array = [1, 2, 3];
-    let pie_slice = array[1..2];
+    let pie_slice = &array[1..2];
 }

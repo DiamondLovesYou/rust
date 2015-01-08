@@ -197,6 +197,7 @@ extern crate libc;
 use libc::{c_void, size_t, malloc, free};
 use std::mem;
 use std::ptr;
+# use std::boxed::Box;
 
 // Define a wrapper around the handle returned by the foreign code.
 // Unique<T> has the same semantics as Box<T>
@@ -265,7 +266,7 @@ impl<T: Send> Drop for Unique<T> {
 // A comparison between the built-in `Box` and this reimplementation
 fn main() {
     {
-        let mut x = box 5i;
+        let mut x = Box::new(5i);
         *x = 10;
     } // `x` is freed here
 
@@ -653,7 +654,7 @@ sugar for dynamic allocations via `malloc` and `free`:
 
 ```
 #![no_std]
-#![feature(lang_items)]
+#![feature(lang_items, box_syntax)]
 
 extern crate libc;
 
@@ -703,10 +704,10 @@ Other features provided by lang items include:
   `deref`, and `add` respectively.
 - stack unwinding and general failure; the `eh_personality`, `fail`
   and `fail_bounds_checks` lang items.
-- the traits in `std::kinds` used to indicate types that satisfy
+- the traits in `std::markers` used to indicate types of
   various kinds; lang items `send`, `sync` and `copy`.
 - the marker types and variance indicators found in
-  `std::kinds::markers`; lang items `covariant_type`,
+  `std::markers`; lang items `covariant_type`,
   `contravariant_lifetime`, `no_sync_bound`, etc.
 
 Lang items are loaded lazily by the compiler; e.g. if one never uses

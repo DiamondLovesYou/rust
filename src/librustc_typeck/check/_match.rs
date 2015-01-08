@@ -97,7 +97,7 @@ pub fn check_pat<'a, 'tcx>(pcx: &pat_ctxt<'a, 'tcx>,
 
             fcx.write_ty(pat.id, lhs_ty);
 
-            // subtyping doens't matter here, as the value is some kind of scalar
+            // subtyping doesn't matter here, as the value is some kind of scalar
             demand::eqtype(fcx, pat.span, expected, lhs_ty);
         }
         ast::PatEnum(..) | ast::PatIdent(..) if pat_is_const(&tcx.def_map, pat) => {
@@ -194,14 +194,6 @@ pub fn check_pat<'a, 'tcx>(pcx: &pat_ctxt<'a, 'tcx>,
         }
         ast::PatRegion(ref inner, mutbl) => {
             let inner_ty = fcx.infcx().next_ty_var();
-
-            // SNAP b2085d9 remove this `if`-`else` entirely after next snapshot
-            let mutbl = if mutbl == ast::MutImmutable {
-                ty::deref(fcx.infcx().shallow_resolve(expected), true)
-                   .map(|mt| mt.mutbl).unwrap_or(ast::MutImmutable)
-            } else {
-                mutbl
-            };
 
             let mt = ty::mt { ty: inner_ty, mutbl: mutbl };
             let region = fcx.infcx().next_region_var(infer::PatternRegion(pat.span));
@@ -505,9 +497,10 @@ pub fn check_pat_enum<'a, 'tcx>(pcx: &pat_ctxt<'a, 'tcx>, pat: &ast::Pat,
 
     let ctor_scheme = ty::lookup_item_type(tcx, enum_def);
     let path_scheme = if ty::is_fn_ty(ctor_scheme.ty) {
+        let fn_ret = ty::assert_no_late_bound_regions(tcx, &ty::ty_fn_ret(ctor_scheme.ty));
         ty::TypeScheme {
-            ty: ty::ty_fn_ret(ctor_scheme.ty).unwrap(),
-            ..ctor_scheme
+            ty: fn_ret.unwrap(),
+            generics: ctor_scheme.generics,
         }
     } else {
         ctor_scheme
@@ -603,7 +596,7 @@ pub fn check_struct_pat_fields<'a, 'tcx>(pcx: &pat_ctxt<'a, 'tcx>,
 
     // Typecheck each field.
     for &Spanned { node: ref field, span } in fields.iter() {
-        let field_type = match used_fields.entry(&field.ident.name) {
+        let field_type = match used_fields.entry(field.ident.name) {
             Occupied(occupied) => {
                 span_err!(tcx.sess, span, E0025,
                     "field `{}` bound multiple times in the pattern",

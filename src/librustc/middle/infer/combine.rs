@@ -142,7 +142,7 @@ pub trait Combine<'tcx> : Sized {
                             for _ in a_regions.iter() {
                                 invariance.push(ty::Invariant);
                             }
-                            invariance[]
+                            &invariance[]
                         }
                     };
 
@@ -361,7 +361,7 @@ pub trait Combine<'tcx> : Sized {
                     a: ty::TraitStore,
                     b: ty::TraitStore)
                     -> cres<'tcx, ty::TraitStore> {
-        debug!("{}.trait_stores(a={}, b={})", self.tag(), a, b);
+        debug!("{}.trait_stores(a={:?}, b={:?})", self.tag(), a, b);
 
         match (a, b) {
             (ty::RegionTraitStore(a_r, a_m),
@@ -427,6 +427,16 @@ impl<'tcx> Combineable<'tcx> for ty::TraitRef<'tcx> {
     }
 }
 
+impl<'tcx> Combineable<'tcx> for Ty<'tcx> {
+    fn combine<C:Combine<'tcx>>(combiner: &C,
+                                a: &Ty<'tcx>,
+                                b: &Ty<'tcx>)
+                                -> cres<'tcx, Ty<'tcx>>
+    {
+        combiner.tys(*a, *b)
+    }
+}
+
 impl<'tcx> Combineable<'tcx> for ty::ProjectionPredicate<'tcx> {
     fn combine<C:Combine<'tcx>>(combiner: &C,
                                 a: &ty::ProjectionPredicate<'tcx>,
@@ -471,13 +481,13 @@ pub fn super_tys<'tcx, C: Combine<'tcx>>(this: &C,
     let tcx = this.infcx().tcx;
     let a_sty = &a.sty;
     let b_sty = &b.sty;
-    debug!("super_tys: a_sty={} b_sty={}", a_sty, b_sty);
+    debug!("super_tys: a_sty={:?} b_sty={:?}", a_sty, b_sty);
     return match (a_sty, b_sty) {
       // The "subtype" ought to be handling cases involving var:
       (&ty::ty_infer(TyVar(_)), _) |
       (_, &ty::ty_infer(TyVar(_))) => {
         tcx.sess.bug(
-            format!("{}: bot and var types should have been handled ({},{})",
+            &format!("{}: bot and var types should have been handled ({},{})",
                     this.tag(),
                     a.repr(this.infcx().tcx),
                     b.repr(this.infcx().tcx))[]);
@@ -550,7 +560,7 @@ pub fn super_tys<'tcx, C: Combine<'tcx>>(this: &C,
 
       (&ty::ty_trait(ref a_),
        &ty::ty_trait(ref b_)) => {
-          debug!("Trying to match traits {} and {}", a, b);
+          debug!("Trying to match traits {:?} and {:?}", a, b);
           let principal = try!(this.binders(&a_.principal, &b_.principal));
           let bounds = try!(this.existential_bounds(&a_.bounds, &b_.bounds));
           Ok(ty::mk_trait(tcx, principal, bounds))
@@ -724,7 +734,7 @@ impl<'f, 'tcx> CombineFields<'f, 'tcx> {
                 Some(e) => e,
             };
 
-            debug!("instantiate(a_ty={} dir={} b_vid={})",
+            debug!("instantiate(a_ty={} dir={:?} b_vid={})",
                    a_ty.repr(tcx),
                    dir,
                    b_vid.repr(tcx));
@@ -745,7 +755,7 @@ impl<'f, 'tcx> CombineFields<'f, 'tcx> {
                             self.generalize(a_ty, b_vid, true)
                         }
                     });
-                    debug!("instantiate(a_ty={}, dir={}, \
+                    debug!("instantiate(a_ty={}, dir={:?}, \
                                         b_vid={}, generalized_ty={})",
                            a_ty.repr(tcx), dir, b_vid.repr(tcx),
                            generalized_ty.repr(tcx));
@@ -855,7 +865,7 @@ impl<'cx, 'tcx> ty_fold::TypeFolder<'tcx> for Generalizer<'cx, 'tcx> {
             ty::ReEarlyBound(..) => {
                 self.tcx().sess.span_bug(
                     self.span,
-                    format!("Encountered early bound region when generalizing: {}",
+                    &format!("Encountered early bound region when generalizing: {}",
                             r.repr(self.tcx()))[]);
             }
 

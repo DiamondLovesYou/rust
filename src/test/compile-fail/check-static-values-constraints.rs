@@ -10,7 +10,9 @@
 
 // Verifies all possible restrictions for statics values.
 
-use std::kinds::marker;
+#![feature(box_syntax)]
+
+use std::marker;
 
 struct WithDtor;
 

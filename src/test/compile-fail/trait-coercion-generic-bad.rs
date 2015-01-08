@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(box_syntax)]
 
 struct Struct {
     person: &'static str
@@ -24,7 +25,7 @@ impl Trait<&'static str> for Struct {
 }
 
 fn main() {
-    let s: Box<Trait<int>> = box Struct { person: "Fred" };
-    //~^ ERROR the trait `Trait<int>` is not implemented for the type `Struct`
+    let s: Box<Trait<isize>> = box Struct { person: "Fred" };
+    //~^ ERROR the trait `Trait<isize>` is not implemented for the type `Struct`
     s.f(1);
 }

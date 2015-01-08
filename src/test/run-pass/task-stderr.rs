@@ -8,6 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(unknown_features)]
+#![feature(box_syntax)]
+
 use std::sync::mpsc::channel;
 use std::io::{ChanReader, ChanWriter};
 use std::thread;
@@ -17,7 +20,7 @@ fn main() {
     let mut reader = ChanReader::new(rx);
     let stderr = ChanWriter::new(tx);
 
-    let res = thread::Builder::new().stderr(box stderr as Box<Writer + Send>).spawn(move|| -> () {
+    let res = thread::Builder::new().stderr(box stderr as Box<Writer + Send>).scoped(move|| -> () {
         panic!("Hello, world!")
     }).join();
     assert!(res.is_err());

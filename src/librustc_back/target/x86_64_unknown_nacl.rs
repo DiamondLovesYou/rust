@@ -19,7 +19,7 @@ pub fn target() -> Target {
                      s0:64:64-f80:128:128-n8:16:32:64-S128".to_string();
     b.llvm_target = "x86_64-unknown-nacl".to_string();
     b.target_endian = "little".to_string();
-    b.target_word_size = "64".to_string();
+    b.target_pointer_width = "64".to_string();
     b.arch = "x86_64".to_string();
 
     b.options.cpu = "core2".to_string();

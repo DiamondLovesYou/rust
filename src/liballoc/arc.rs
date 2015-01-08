@@ -37,12 +37,12 @@
 //!
 //! let five = Arc::new(5i);
 //!
-//! for i in range(0u, 10) {
+//! for _ in range(0u, 10) {
 //!     let five = five.clone();
 //!
 //!     Thread::spawn(move || {
-//!         println!("{}", five);
-//!     }).detach();
+//!         println!("{:?}", five);
+//!     });
 //! }
 //! ```
 //!
@@ -63,25 +63,24 @@
 //!         *number += 1;
 //!
 //!         println!("{}", *number); // prints 6
-//!     }).detach();
+//!     });
 //! }
 //! ```
+
+use core::prelude::*;
 
 use core::atomic;
 use core::atomic::Ordering::{Relaxed, Release, Acquire, SeqCst};
 use core::borrow::BorrowFrom;
-use core::clone::Clone;
 use core::fmt::{self, Show};
-use core::cmp::{Eq, Ord, PartialEq, PartialOrd, Ordering};
+use core::cmp::{Ordering};
 use core::default::Default;
-use core::kinds::{Sync, Send};
-use core::mem::{min_align_of, size_of, drop};
+use core::mem::{min_align_of, size_of};
 use core::mem;
 use core::nonzero::NonZero;
-use core::ops::{Drop, Deref};
-use core::option::Option;
-use core::option::Option::{Some, None};
-use core::ptr::{self, PtrExt};
+use core::ops::Deref;
+use core::ptr;
+use core::hash::{Hash, Hasher};
 use heap::deallocate;
 
 /// An atomically reference counted wrapper for shared state.
@@ -106,7 +105,7 @@ use heap::deallocate;
 ///             let local_numbers = child_numbers.as_slice();
 ///
 ///             // Work with the local numbers
-///         }).detach();
+///         });
 ///     }
 /// }
 /// ```
@@ -581,7 +580,14 @@ impl<T: Eq> Eq for Arc<T> {}
 
 impl<T: fmt::Show> fmt::Show for Arc<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        (**self).fmt(f)
+        write!(f, "Arc({:?})", (**self))
+    }
+}
+
+#[stable]
+impl<T: fmt::String> fmt::String for Arc<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::String::fmt(&**self, f)
     }
 }
 
@@ -589,6 +595,12 @@ impl<T: fmt::Show> fmt::Show for Arc<T> {
 impl<T: Default + Sync + Send> Default for Arc<T> {
     #[stable]
     fn default() -> Arc<T> { Arc::new(Default::default()) }
+}
+
+impl<H: Hasher, T: Hash<H>> Hash<H> for Arc<T> {
+    fn hash(&self, state: &mut H) {
+        (**self).hash(state)
+    }
 }
 
 #[cfg(test)]
@@ -794,7 +806,7 @@ mod tests {
     #[test]
     fn show_arc() {
         let a = Arc::new(5u32);
-        assert!(format!("{}", a) == "5")
+        assert!(format!("{:?}", a) == "Arc(5u32)")
     }
 
     // Make sure deriving works with Arc<T>

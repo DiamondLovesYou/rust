@@ -8,6 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(unknown_features)]
+#![feature(box_syntax)]
+
 use std::mem::swap;
 
 #[derive(Show)]
@@ -32,9 +35,9 @@ pub fn main() {
     add_int(&mut *ints, 44);
 
     iter_ints(&*ints, |i| {
-        println!("int = {}", *i);
+        println!("int = {:?}", *i);
         true
     });
 
-    println!("ints={}", ints);
+    println!("ints={:?}", ints);
 }

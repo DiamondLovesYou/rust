@@ -13,20 +13,19 @@
 //! Regular expressions implemented in Rust
 //!
 //! For official documentation, see the rust-lang/regex crate
-
 #![crate_name = "regex"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![experimental = "use the crates.io `regex` library instead"]
+#![staged_api]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![allow(unknown_features)]
-#![feature(macro_rules, slicing_syntax, globs)]
-#![feature(unboxed_closures)]
-#![feature(associated_types)]
+#![feature(slicing_syntax)]
+#![feature(box_syntax)]
 #![deny(missing_docs)]
 
 #[cfg(test)]

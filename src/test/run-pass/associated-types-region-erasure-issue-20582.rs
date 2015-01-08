@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,14 +8,20 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-static FOO: &'static [u8] = bytes!("hello, world");
+// Regression test for #20582. This test caused an ICE related to
+// inconsistent region erasure in trans.
 
-pub fn main() {
-    let b: &'static [u8] = match true {
-        true => bytes!("test"),
-        false => unreachable!()
-    };
+struct Foo<'a> {
+    buf: &'a[u8]
+}
 
-    assert_eq!(b, "test".as_bytes());
-    assert_eq!(FOO, "hello, world".as_bytes());
+impl<'a> Iterator for Foo<'a> {
+    type Item = &'a[u8];
+
+    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+        Some(self.buf)
+    }
+}
+
+fn main() {
 }

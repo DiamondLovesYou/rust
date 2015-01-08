@@ -8,10 +8,22 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-fn equal<T>(_: &T, _: &T) -> bool where int : Eq {
-    true
+// Test associated type references in a struct literal. Issue #20535.
+
+pub trait Foo {
+    type Bar;
+}
+
+impl Foo for int {
+    type Bar = int;
+}
+
+struct Thing<F: Foo> {
+    a: F,
+    b: F::Bar,
 }
 
 fn main() {
-    equal(&0i, &0i);
+    let thing = Thing{a: 1i, b: 2i};
+    assert_eq!(thing.a + 1, thing.b);
 }

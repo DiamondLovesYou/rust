@@ -24,6 +24,7 @@ use syntax::ast;
 use syntax::ast_util::{local_def};
 use syntax::attr;
 use syntax::codemap::Span;
+use syntax::parse::token;
 use syntax::visit;
 use syntax::visit::Visitor;
 
@@ -77,6 +78,14 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
                     enum_variants(fcx, enum_def)
                 });
             }
+            ast::ItemTrait(..) => {
+                let trait_def =
+                    ty::lookup_trait_def(ccx.tcx, local_def(item.id));
+                reject_non_type_param_bounds(
+                    ccx.tcx,
+                    item.span,
+                    &trait_def.generics);
+            }
             _ => {}
         }
     }
@@ -86,13 +95,14 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
     {
         let ccx = self.ccx;
         let item_def_id = local_def(item.id);
-        let polytype = ty::lookup_item_type(ccx.tcx, item_def_id);
+        let type_scheme = ty::lookup_item_type(ccx.tcx, item_def_id);
+        reject_non_type_param_bounds(ccx.tcx, item.span, &type_scheme.generics);
         let param_env =
             ty::construct_parameter_environment(ccx.tcx,
-                                                &polytype.generics,
+                                                &type_scheme.generics,
                                                 item.id);
         let inh = Inherited::new(ccx.tcx, param_env);
-        let fcx = blank_fn_ctxt(ccx, &inh, ty::FnConverging(polytype.ty), item.id);
+        let fcx = blank_fn_ctxt(ccx, &inh, ty::FnConverging(type_scheme.ty), item.id);
         f(self, &fcx);
         vtable::select_all_fcx_obligations_or_error(&fcx);
         regionck::regionck_item(&fcx, item);
@@ -143,10 +153,12 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
                                                         item.span,
                                                         region::CodeExtent::from_node_id(item.id),
                                                         Some(&mut this.cache));
+
             let type_scheme = ty::lookup_item_type(fcx.tcx(), local_def(item.id));
             let item_ty = fcx.instantiate_type_scheme(item.span,
                                                       &fcx.inh.param_env.free_substs,
                                                       &type_scheme.ty);
+
             bounds_checker.check_traits_in_ty(item_ty);
         });
     }
@@ -178,6 +190,7 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
                 None => { return; }
                 Some(t) => { t }
             };
+
             let trait_ref = fcx.instantiate_type_scheme(item.span,
                                                         &fcx.inh.param_env.free_substs,
                                                         &trait_ref);
@@ -206,7 +219,7 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
             // We are stricter on the trait-ref in an impl than the
             // self-type.  In particular, we enforce region
             // relationships. The reason for this is that (at least
-            // presently) "appyling" an impl does not require that the
+            // presently) "applying" an impl does not require that the
             // application site check the well-formedness constraints on the
             // trait reference. Instead, this is done at the impl site.
             // Arguably this is wrong and we should treat the trait-reference
@@ -229,10 +242,107 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
     }
 }
 
+// Reject any predicates that do not involve a type parameter.
+fn reject_non_type_param_bounds<'tcx>(tcx: &ty::ctxt<'tcx>,
+                                      span: Span,
+                                      generics: &ty::Generics<'tcx>) {
+
+    for predicate in generics.predicates.iter() {
+        match predicate {
+            &ty::Predicate::Trait(ty::Binder(ref tr)) => {
+                let found_param = tr.input_types().iter()
+                                    .flat_map(|ty| ty.walk())
+                                    .any(is_ty_param);
+                if !found_param { report_bound_error(tcx, span, tr.self_ty() )}
+            }
+            &ty::Predicate::TypeOutlives(ty::Binder(ty::OutlivesPredicate(ty, _))) => {
+                let found_param = ty.walk().any(|t| is_ty_param(t));
+                if !found_param { report_bound_error(tcx, span, ty) }
+            }
+            _ => {}
+        };
+    }
+
+    fn report_bound_error<'t>(tcx: &ty::ctxt<'t>,
+                          span: Span,
+                          bounded_ty: ty::Ty<'t>) {
+        tcx.sess.span_err(
+            span,
+            format!("cannot bound type `{}`, where clause \
+                bounds may only be attached to types involving \
+                type parameters",
+                bounded_ty.repr(tcx)).as_slice())
+    }
+
+    fn is_ty_param(ty: ty::Ty) -> bool {
+        match &ty.sty {
+            &ty::sty::ty_param(_) => true,
+            _ => false
+        }
+    }
+}
+
+fn reject_shadowing_type_parameters<'tcx>(tcx: &ty::ctxt<'tcx>,
+                                          span: Span,
+                                          generics: &ty::Generics<'tcx>) {
+    let impl_params = generics.types.get_slice(subst::TypeSpace).iter()
+        .map(|tp| tp.name).collect::<HashSet<_>>();
+
+    for method_param in generics.types.get_slice(subst::FnSpace).iter() {
+        if impl_params.contains(&method_param.name) {
+            tcx.sess.span_err(
+                span,
+                &*format!("type parameter `{}` shadows another type parameter of the same name",
+                          token::get_name(method_param.name)));
+        }
+    }
+}
+
 impl<'ccx, 'tcx, 'v> Visitor<'v> for CheckTypeWellFormedVisitor<'ccx, 'tcx> {
     fn visit_item(&mut self, i: &ast::Item) {
         self.check_item_well_formed(i);
         visit::walk_item(self, i);
+    }
+
+    fn visit_fn(&mut self,
+                fk: visit::FnKind<'v>, fd: &'v ast::FnDecl,
+                b: &'v ast::Block, span: Span, id: ast::NodeId) {
+        match fk {
+            visit::FkFnBlock | visit::FkItemFn(..) => {}
+            visit::FkMethod(..) => {
+                match ty::impl_or_trait_item(self.ccx.tcx, local_def(id)) {
+                    ty::ImplOrTraitItem::MethodTraitItem(ty_method) => {
+                        reject_shadowing_type_parameters(self.ccx.tcx, span, &ty_method.generics)
+                    }
+                    _ => {}
+                }
+            }
+        }
+        visit::walk_fn(self, fk, fd, b, span)
+    }
+
+    fn visit_trait_item(&mut self, t: &'v ast::TraitItem) {
+        match t {
+            &ast::TraitItem::ProvidedMethod(_) |
+            &ast::TraitItem::TypeTraitItem(_) => {},
+            &ast::TraitItem::RequiredMethod(ref method) => {
+                match ty::impl_or_trait_item(self.ccx.tcx, local_def(method.id)) {
+                    ty::ImplOrTraitItem::MethodTraitItem(ty_method) => {
+                        reject_non_type_param_bounds(
+                            self.ccx.tcx,
+                            method.span,
+                            &ty_method.generics);
+                        reject_shadowing_type_parameters(
+                            self.ccx.tcx,
+                            method.span,
+                            &ty_method.generics);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        visit::walk_trait_item(self, t)
     }
 }
 
@@ -416,7 +526,12 @@ fn enum_variants<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
             match variant.node.kind {
                 ast::TupleVariantKind(ref args) if args.len() > 0 => {
                     let ctor_ty = ty::node_id_to_type(fcx.tcx(), variant.node.id);
-                    let arg_tys = ty::ty_fn_args(ctor_ty);
+
+                    // the regions in the argument types come from the
+                    // enum def'n, and hence will all be early bound
+                    let arg_tys =
+                        ty::assert_no_late_bound_regions(
+                            fcx.tcx(), &ty::ty_fn_args(ctor_ty));
                     AdtVariant {
                         fields: args.iter().enumerate().map(|(index, arg)| {
                             let arg_ty = arg_tys[index];

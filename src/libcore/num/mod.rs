@@ -21,7 +21,7 @@ use cmp::{PartialEq, Eq};
 use cmp::{PartialOrd, Ord};
 use intrinsics;
 use iter::IteratorExt;
-use kinds::Copy;
+use marker::Copy;
 use mem::size_of;
 use ops::{Add, Sub, Mul, Div, Rem, Neg};
 use ops::{Not, BitAnd, BitOr, BitXor, Shl, Shr};
@@ -496,7 +496,7 @@ uint_impl! { u64 = u64, 64,
     intrinsics::u64_sub_with_overflow,
     intrinsics::u64_mul_with_overflow }
 
-#[cfg(target_word_size = "32")]
+#[cfg(any(all(stage0, target_word_size = "32"), all(not(stage0), target_pointer_width = "32")))]
 uint_impl! { uint = u32, 32,
     intrinsics::ctpop32,
     intrinsics::ctlz32,
@@ -506,7 +506,7 @@ uint_impl! { uint = u32, 32,
     intrinsics::u32_sub_with_overflow,
     intrinsics::u32_mul_with_overflow }
 
-#[cfg(target_word_size = "64")]
+#[cfg(any(all(stage0, target_word_size = "64"), all(not(stage0), target_pointer_width = "64")))]
 uint_impl! { uint = u64, 64,
     intrinsics::ctpop64,
     intrinsics::ctlz64,
@@ -601,13 +601,13 @@ int_impl! { i64 = i64, u64, 64,
     intrinsics::i64_sub_with_overflow,
     intrinsics::i64_mul_with_overflow }
 
-#[cfg(target_word_size = "32")]
+#[cfg(any(all(stage0, target_word_size = "32"), all(not(stage0), target_pointer_width = "32")))]
 int_impl! { int = i32, u32, 32,
     intrinsics::i32_add_with_overflow,
     intrinsics::i32_sub_with_overflow,
     intrinsics::i32_mul_with_overflow }
 
-#[cfg(target_word_size = "64")]
+#[cfg(any(all(stage0, target_word_size = "64"), all(not(stage0), target_pointer_width = "64")))]
 int_impl! { int = i64, u64, 64,
     intrinsics::i64_add_with_overflow,
     intrinsics::i64_sub_with_overflow,
@@ -992,7 +992,7 @@ impl_to_primitive_float! { f64 }
 
 /// A generic trait for converting a number to a value.
 #[experimental = "trait is likely to be removed"]
-pub trait FromPrimitive : ::kinds::Sized {
+pub trait FromPrimitive : ::marker::Sized {
     /// Convert an `int` to return an optional value of this type. If the
     /// value cannot be represented by this value, the `None` is returned.
     #[inline]
@@ -1577,7 +1577,7 @@ macro_rules! from_str_radix_float_impl {
                         };
 
                         // Parse the exponent as decimal integer
-                        let src = src[offset..];
+                        let src = &src[offset..];
                         let (is_positive, exp) = match src.slice_shift_char() {
                             Some(('-', src)) => (false, src.parse::<uint>()),
                             Some(('+', src)) => (true,  src.parse::<uint>()),

@@ -27,7 +27,7 @@ use alloc::boxed::Box;
 use core::cmp::Ordering;
 use core::default::Default;
 use core::fmt;
-use core::hash::{Writer, Hash};
+use core::hash::{Writer, Hasher, Hash};
 use core::iter::{self, FromIterator};
 use core::mem;
 use core::ptr;
@@ -663,11 +663,11 @@ impl<A: Clone> Clone for DList<A> {
 #[stable]
 impl<A: fmt::Show> fmt::Show for DList<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "["));
+        try!(write!(f, "DList ["));
 
         for (i, e) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
-            try!(write!(f, "{}", *e));
+            try!(write!(f, "{:?}", *e));
         }
 
         write!(f, "]")
@@ -675,7 +675,7 @@ impl<A: fmt::Show> fmt::Show for DList<A> {
 }
 
 #[stable]
-impl<S: Writer, A: Hash<S>> Hash<S> for DList<A> {
+impl<S: Writer + Hasher, A: Hash<S>> Hash<S> for DList<A> {
     fn hash(&self, state: &mut S) {
         self.len().hash(state);
         for elt in self.iter() {
@@ -688,7 +688,7 @@ impl<S: Writer, A: Hash<S>> Hash<S> for DList<A> {
 mod tests {
     use prelude::*;
     use std::rand;
-    use std::hash;
+    use std::hash::{self, SipHasher};
     use std::thread::Thread;
     use test::Bencher;
     use test;
@@ -924,7 +924,7 @@ mod tests {
     #[test]
     fn test_send() {
         let n = list_from(&[1i,2,3]);
-        Thread::spawn(move || {
+        Thread::scoped(move || {
             check_links(&n);
             let a: &[_] = &[&1,&2,&3];
             assert_eq!(a, n.iter().collect::<Vec<&int>>());
@@ -951,7 +951,7 @@ mod tests {
       let mut x = DList::new();
       let mut y = DList::new();
 
-      assert!(hash::hash(&x) == hash::hash(&y));
+      assert!(hash::hash::<_, SipHasher>(&x) == hash::hash::<_, SipHasher>(&y));
 
       x.push_back(1i);
       x.push_back(2);
@@ -961,7 +961,7 @@ mod tests {
       y.push_front(2);
       y.push_front(1);
 
-      assert!(hash::hash(&x) == hash::hash(&y));
+      assert!(hash::hash::<_, SipHasher>(&x) == hash::hash::<_, SipHasher>(&y));
     }
 
     #[test]
@@ -1018,12 +1018,12 @@ mod tests {
     #[test]
     fn test_show() {
         let list: DList<int> = range(0i, 10).collect();
-        assert!(list.to_string() == "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]");
+        assert_eq!(format!("{:?}", list), "DList [0i, 1i, 2i, 3i, 4i, 5i, 6i, 7i, 8i, 9i]");
 
         let list: DList<&str> = vec!["just", "one", "test", "more"].iter()
                                                                    .map(|&s| s)
                                                                    .collect();
-        assert!(list.to_string() == "[just, one, test, more]");
+        assert_eq!(format!("{:?}", list), "DList [\"just\", \"one\", \"test\", \"more\"]");
     }
 
     #[cfg(test)]

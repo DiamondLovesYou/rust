@@ -161,7 +161,7 @@ pub fn lookup(tcx: &ty::ctxt, id: DefId) -> Option<Stability> {
     // is this definition the implementation of a trait method?
     match ty::trait_item_of_item(tcx, id) {
         Some(ty::MethodTraitItemId(trait_method_id)) if trait_method_id != id => {
-            debug!("lookup: trait_method_id={}", trait_method_id);
+            debug!("lookup: trait_method_id={:?}", trait_method_id);
             return lookup(tcx, trait_method_id)
         }
         _ => {}
@@ -182,10 +182,26 @@ pub fn lookup(tcx: &ty::ctxt, id: DefId) -> Option<Stability> {
             // stability of the trait to determine the stability of any
             // unmarked impls for it. See FIXME above for more details.
 
-            debug!("lookup: trait_id={}", trait_id);
+            debug!("lookup: trait_id={:?}", trait_id);
             lookup(tcx, trait_id)
         } else {
             None
         }
     })
+}
+
+pub fn is_staged_api(tcx: &ty::ctxt, id: DefId) -> bool {
+    match ty::trait_item_of_item(tcx, id) {
+        Some(ty::MethodTraitItemId(trait_method_id))
+            if trait_method_id != id => {
+                is_staged_api(tcx, trait_method_id)
+            }
+        _ if is_local(id) => {
+            // Unused case
+            unreachable!()
+        }
+        _ => {
+            csearch::is_staged_api(&tcx.sess.cstore, id)
+        }
+    }
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,14 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern: unexpected token
+#![feature(unsafe_destructor)]
 
-macro_rules! e {
-    ($inp:ident) => (
-        $nonexistent
-    );
+// issue #20126
+
+#[derive(Copy)] //~ ERROR the trait `Copy` may not be implemented
+struct Foo;
+
+impl Drop for Foo {
+    fn drop(&mut self) {}
 }
 
-fn main() {
-    e!(foo);
+#[derive(Copy)] //~ ERROR the trait `Copy` may not be implemented
+struct Bar<T>;
+
+#[unsafe_destructor]
+impl<T> Drop for Bar<T> {
+    fn drop(&mut self) {}
 }
+
+fn main() {}
