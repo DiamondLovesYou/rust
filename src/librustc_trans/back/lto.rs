@@ -159,11 +159,14 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
     run_passes(sess, llmod, tm, |_| (), |_| ());
 }
 
-pub fn run_passes(sess: &session::Session,
-                  llmod: ModuleRef,
-                  tm: TargetMachineRef,
-                  pre: |PassManagerRef|,
-                  post: |PassManagerRef|) {
+pub fn run_passes<FA, FB>(sess: &session::Session,
+                          llmod: ModuleRef,
+                          tm: TargetMachineRef,
+                          pre: FA,
+                          post: FB)
+    where FA: FnOnce(PassManagerRef),
+          FB: FnOnce(PassManagerRef),
+{
     // Now we have one massive module inside of llmod. Time to run the
     // LTO-specific optimization passes that LLVM provides.
     //
@@ -175,7 +178,7 @@ pub fn run_passes(sess: &session::Session,
             let pm = llvm::LLVMCreatePassManager();
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
             if !sess.no_verify() {
-                "verify\0".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+                llvm::LLVMRustAddPass(pm, "verify\0".as_ptr() as *const i8);
             }
 
             pre(pm);
@@ -193,7 +196,7 @@ pub fn run_passes(sess: &session::Session,
             post(pm);
 
             if !sess.no_verify() {
-                "verify\0".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+                llvm::LLVMRustAddPass(pm, "verify\0".as_ptr() as *const i8);
             }
 
             time(sess.time_passes(), "LTO pases", (), |()|
@@ -228,4 +231,3 @@ fn read_from_le_bytes<T: Int>(bytes: &[u8], position_in_bytes: uint) -> T {
 
     Int::from_le(data)
 }
-

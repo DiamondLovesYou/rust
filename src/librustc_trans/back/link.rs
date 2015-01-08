@@ -27,7 +27,7 @@ use util::common::time;
 use util::ppaux;
 use util::sha2::{Digest, Sha256};
 
-use std::c_str::CString;
+use std::ffi;
 use std::io::fs::PathExtensions;
 use std::io::{fs, TempDir, Command};
 use std::io;
@@ -81,8 +81,8 @@ pub fn llvm_actual_err(sess: &Session, msg: String) {
         if cstr == ptr::null() {
             sess.err(msg.as_slice());
         } else {
-            let err = CString::new(cstr, true);
-            let err = str::from_utf8(err.as_bytes()).unwrap();
+            let err = ffi::c_str_to_bytes(&cstr);
+            let err = String::from_utf8_lossy(err.as_slice()).to_string();
             sess.err(format!("{}: {}",
                              msg.as_slice(),
                              err.as_slice()).as_slice());
@@ -96,8 +96,8 @@ pub fn llvm_warn(sess: &Session, msg: String) {
         if cstr == ptr::null() {
             sess.warn(msg.as_slice());
         } else {
-            let err = CString::new(cstr, true);
-            let err = str::from_utf8(err.as_bytes()).unwrap();
+            let err = ffi::c_str_to_bytes(&cstr);
+            let err = String::from_utf8_lossy(err.as_slice()).to_string();
             sess.warn(format!("{}: {}",
                               msg.as_slice(),
                               err.as_slice()).as_slice());
@@ -708,7 +708,6 @@ pub fn link_pnacl_module(sess: &Session,
     // This function should not be called on non-exe outputs.
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
-    use std::c_str::ToCStr;
     use std::io::{File, USER_EXEC};
     use std::os;
     use back::write;
@@ -734,12 +733,10 @@ pub fn link_pnacl_module(sess: &Session,
                 Some(llmod)
             },
             None => unsafe {
-                let llmod = name.with_c_str(|s| {
-                    llvm::LLVMRustParseBitcode(ctxt,
-                                               s,
-                                               bc.as_ptr() as *const libc::c_void,
-                                               bc.len() as libc::size_t)
-                });
+                let llmod = llvm::LLVMRustParseBitcode(ctxt,
+                                                       name.as_ptr() as *const i8,
+                                                       bc.as_ptr() as *const libc::c_void,
+                                                       bc.len() as libc::size_t);
                 if llmod == ptr::null_mut() {
                     llvm_warn(sess, format!("failed to parse external bitcode `{}`",
                                             name));
@@ -864,8 +861,7 @@ pub fn link_pnacl_module(sess: &Session,
 
     // Internalize everything.
     unsafe {
-        let start = "_start".to_c_str();
-        let reachable = vec!(start.as_ptr());
+        let reachable = vec!("_start\0".as_ptr());
         llvm::LLVMRustRunRestrictionPass(llmod,
                                          reachable.as_ptr() as *const *const libc::c_char,
                                          reachable.len() as libc::size_t);
@@ -878,9 +874,8 @@ pub fn link_pnacl_module(sess: &Session,
     }
 
     if sess.opts.cg.save_temps {
-        outputs.with_extension("pre-lto.bc").with_c_str(|buf| unsafe {
-            llvm::LLVMWriteBitcodeToFile(llmod, buf);
-        })
+        let p = outputs.with_extension("pre-lto.bc").display().to_string();
+        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, p.as_ptr() as *const i8) };
     }
 
     if !sess.opts.cg.no_prepopulate_passes {
@@ -889,51 +884,51 @@ pub fn link_pnacl_module(sess: &Session,
             let tm = write::create_target_machine(sess);
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
 
-            let ap = |s| {
-                assert!(llvm::LLVMRustAddPass(pm, s));
+            let ap = |&: s: &'static str| {
+                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8));
             };
 
-            "pnacl-sjlj-eh".with_c_str(|s| ap(s) );
-            "expand-indirectbr".with_c_str(|s| ap(s) );
-            "lower-expect".with_c_str(|s| ap(s) );
-            "rewrite-llvm-intrinsic-calls".with_c_str(|s| ap(s) );
-            "expand-varargs".with_c_str(|s| ap(s) );
-            "expand-arith-with-overflow".with_c_str(|s| ap(s) );
-            "expand-constant-expr".with_c_str(|s| ap(s) );
-            "expand-struct-regs".with_c_str(|s| ap(s) );
-            "nacl-expand-ctors".with_c_str(|s| ap(s) );
-            "resolve-aliases".with_c_str(|s| ap(s) );
-            "nacl-expand-tls-constant-expr".with_c_str(|s| ap(s) );
-            "nacl-expand-tls".with_c_str(|s| ap(s) );
-            "nacl-global-cleanup".with_c_str(|s| ap(s) );
+            ap("pnacl-sjlj-eh\0");
+            ap("expand-indirectbr\0");
+            ap("lower-expect\0");
+            ap("rewrite-llvm-intrinsic-calls\0");
+            ap("expand-varargs\0");
+            ap("expand-arith-with-overflow\0");
+            ap("expand-constant-expr\0");
+            ap("expand-struct-regs\0");
+            ap("nacl-expand-ctors\0");
+            ap("resolve-aliases\0");
+            ap("nacl-expand-tls-constant-expr\0");
+            ap("nacl-expand-tls\0");
+            ap("nacl-global-cleanup\0");
 
-            "rewrite-pnacl-library-calls".with_c_str(|s| ap(s) );
-            "expand-byval".with_c_str(|s| ap(s) );
-            "expand-small-arguments".with_c_str(|s| ap(s) );
-            "nacl-promote-i1-ops".with_c_str(|s| ap(s) );
-            "expand-shufflevector".with_c_str(|s| ap(s) );
-            "globalize-constant-vectors".with_c_str(|s| ap(s) );
-            "constant-insert-extract-element-index".with_c_str(|s| ap(s) );
-            "fix-vector-load-store-alignment".with_c_str(|s| ap(s) );
-            "canonicalize-mem-intrinsics".with_c_str(|s| ap(s) );
-            "constmerge".with_c_str(|s| ap(s) );
-            "flatten-globals".with_c_str(|s| ap(s) );
-            "expand-constant-expr".with_c_str(|s| ap(s) );
-            "nacl-promote-ints".with_c_str(|s| ap(s) );
-            "expand-getelementptr".with_c_str(|s| ap(s) );
-            "nacl-rewrite-atomics".with_c_str(|s| ap(s) );
-            "expand-struct-regs".with_c_str(|s| ap(s) );
-            "remove-asm-memory".with_c_str(|s| ap(s) );
-            "simplify-allocas".with_c_str(|s| ap(s) );
-            "replace-ptrs-with-ints".with_c_str(|s| ap(s) );
-            "combine-noop-casts".with_c_str(|s| ap(s) );
-            "expand-constant-expr".with_c_str(|s| ap(s) );
-            "strip-dead-prototypes".with_c_str(|s| ap(s) );
-            "die".with_c_str(|s| ap(s) );
-            "dce".with_c_str(|s| ap(s) );
+            ap("rewrite-pnacl-library-calls\0");
+            ap("expand-byval\0");
+            ap("expand-small-arguments\0");
+            ap("nacl-promote-i1-ops\0");
+            ap("expand-shufflevector\0");
+            ap("globalize-constant-vectors\0");
+            ap("constant-insert-extract-element-index\0");
+            ap("fix-vector-load-store-alignment\0");
+            ap("canonicalize-mem-intrinsics\0");
+            ap("constmerge\0");
+            ap("flatten-globals\0");
+            ap("expand-constant-expr\0");
+            ap("nacl-promote-ints\0");
+            ap("expand-getelementptr\0");
+            ap("nacl-rewrite-atomics\0");
+            ap("expand-struct-regs\0");
+            ap("remove-asm-memory\0");
+            ap("simplify-allocas\0");
+            ap("replace-ptrs-with-ints\0");
+            ap("combine-noop-casts\0");
+            ap("expand-constant-expr\0");
+            ap("strip-dead-prototypes\0");
+            ap("die\0");
+            ap("dce\0");
 
             if !sess.no_verify() {
-                "verify".with_c_str(|s| llvm::LLVMRustAddPass(pm, s) );
+                ap("verify\0");
             }
 
             time(sess.time_passes(), "PNaCl simplification passes", (),
@@ -947,12 +942,10 @@ pub fn link_pnacl_module(sess: &Session,
     // Write out IR if asked:
     if sess.opts.output_types.iter().any(|&i| i == OutputTypeLlvmAssembly) {
         // emit ir
-        let p = outputs.path(OutputTypeLlvmAssembly);
+        let p = outputs.path(OutputTypeLlvmAssembly).display().to_string();
         unsafe {
             let pm = llvm::LLVMCreatePassManager();
-            p.with_c_str(|output| {
-                llvm::LLVMRustPrintModule(pm, llmod, output);
-            });
+            llvm::LLVMRustPrintModule(pm, llmod, p.as_ptr() as *const i8);
             llvm::LLVMDisposePassManager(pm);
         }
     }
@@ -960,10 +953,8 @@ pub fn link_pnacl_module(sess: &Session,
     let force_non_stable_output = os::getenv("RUSTC_FORCE_NON_STABLE_BC_EMISSION").is_some();
     if force_non_stable_output || sess.opts.debuginfo != config::NoDebugInfo {
         // emit bc for translation into nexe w/ debugging info.
-        let out = outputs.with_extension("bc");
-        out.with_c_str(|buf| unsafe {
-            llvm::LLVMWriteBitcodeToFile(llmod, buf);
-        });
+        let out = outputs.with_extension("bc").display().to_string();
+        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr() as *const i8) };
     }
 
     let emit_stable_pexe = true; // always emit stable bitcode.
@@ -974,17 +965,17 @@ pub fn link_pnacl_module(sess: &Session,
 
             let pm = llvm::LLVMCreatePassManager();
 
-            let ap = |s| {
-                assert!(llvm::LLVMRustAddPass(pm, s));
+            let ap = |&: s: &'static str| {
+                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8));
             };
 
             // Strip unsupported metadata:
-            "strip-metadata".with_c_str(|s| ap(s) );
-            "nacl-strip-attributes".with_c_str(|s| ap(s) );
+            ap("strip-metadata\0");
+            ap("nacl-strip-attributes\0");
 
             if !sess.no_verify() {
-                "verify-pnaclabi-module".with_c_str(|s| ap(s) );
-                "verify-pnaclabi-functions".with_c_str(|s| ap(s) );
+                ap("verify-pnaclabi-module\0");
+                ap("verify-pnaclabi-functions\0");
             }
 
             llvm::LLVMRunPassManager(pm, llmod);
@@ -1000,28 +991,24 @@ pub fn link_pnacl_module(sess: &Session,
             filename_for_input(sess, config::CrateTypeExecutable, crate_name, &out_filename)
         }
     };
+    let out_str = out.display().to_string();
 
     if emit_stable_pexe {
         if sess.opts.cg.save_temps {
-            outputs.with_extension("final.bc").with_c_str(|buf| unsafe {
-                llvm::LLVMWriteBitcodeToFile(llmod, buf);
-            })
+            let out = outputs.with_extension("final.bc").display().to_string();
+            unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr() as *const i8) };
         }
     }
 
     sess.check_writeable_output(&out, "final output");
 
     if emit_stable_pexe {
-        out.with_c_str(|output| unsafe {
-            if !llvm::LLVMRustWritePNaClBitcode(llmod, output, false) {
-                llvm_err(&sess.diagnostic().handler, "failed to write output file".to_string());
-            }
-        });
+        if !unsafe { llvm::LLVMRustWritePNaClBitcode(llmod, out_str.as_ptr() as *const i8, false) } {
+            llvm_err(&sess.diagnostic().handler, "failed to write output file".to_string());
+        }
     } else {
         // regular bitcode output:
-        out.with_c_str(|buf| unsafe {
-            llvm::LLVMWriteBitcodeToFile(llmod, buf);
-        })
+        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out_str.as_ptr() as *const i8) };
     }
     fs::chmod(&out, USER_EXEC).unwrap();
     unsafe {

@@ -782,12 +782,12 @@ pub fn run_passes(sess: &Session,
                         unsafe {
                             llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
                         }
-                        let llmod = name.with_c_str(|s| unsafe {
+                        let llmod = unsafe {
                             llvm::LLVMRustParseBitcode(llctx,
-                                                       s,
+                                                       name.as_ptr() as *const i8,
                                                        bc.as_ptr() as *const libc::c_void,
                                                        bc.len() as libc::size_t)
-                        });
+                        };
                         unsafe {
                             llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
                         }
@@ -797,13 +797,6 @@ pub fn run_passes(sess: &Session,
                                               name, p.display());
                             llvm_actual_err(sess, msg);
                         } else {
-                            /*let outs = OutputFilenames {
-                                out_directory: crate_output.out_directory.clone(),
-                                out_filestem:  name.to_string(),
-                                single_output_file: None,
-                                extra: "".to_string(),
-                            };*/
-
                             // Some globals in the bitcode from PNaCl have what is
                             // considered invalid linkage in our LLVM (their LLVM is
                             // old). Fortunately, all linkage types get stripped later, so

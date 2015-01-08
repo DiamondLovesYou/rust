@@ -59,27 +59,25 @@ impl ArchiveRO {
     }
 
         // Reads every child, running f on each.
-    pub fn foreach_child(&self, f: |&str, &[u8]|) {
+    pub fn foreach_child<F>(&self, f: F) where F : FnMut(&str, &[u8]), {
         use std::mem::transmute;
-        extern "C" fn cb(name: *const libc::c_uchar,   name_len: libc::size_t,
-                         buffer: *const libc::c_uchar, buffer_len: libc::size_t,
-                         f: *mut libc::c_void) {
+        extern "C" fn cb<F>(name: *const libc::c_uchar,   name_len: libc::size_t,
+                            buffer: *const libc::c_uchar, buffer_len: libc::size_t,
+                            f: *mut libc::c_void) where F : FnMut(&str, &[u8]), {
             use std::slice::from_raw_buf;
-            use std::mem::transmute_copy;
-            let f: &|&str, &[u8]| = unsafe { transmute(f) };
+            let f: &mut F = unsafe { transmute(f) };
             let name = name as *const u8;
             unsafe {
                 let name_buf = from_raw_buf(&name, name_len as uint);
                 let name = String::from_utf8_lossy(name_buf);
                 debug!("running f on `{}`", name);
                 let buf = from_raw_buf(&buffer, buffer_len as uint);
-                let f: |&str, &[u8]| = transmute_copy(f);
                 f(name[], buf);
             }
         }
         unsafe {
             ::LLVMRustArchiveReadAllChildren(self.ptr,
-                                             cb,
+                                             cb::<F>,
                                              transmute(&f));
         }
     }

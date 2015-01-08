@@ -323,7 +323,7 @@ impl Session {
     }
     // Create a 'temp' if we're either saving all temps, or --emit-ing that
     // output type.
-    pub fn create_temp(&self, t: OutputType, f: ||) {
+    pub fn create_temp<F: FnOnce()>(&self, t: OutputType, f: F) {
         if self.opts.cg.save_temps ||
             self.opts.output_types.contains(&t) {
             return;

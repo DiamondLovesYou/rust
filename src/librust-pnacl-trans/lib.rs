@@ -20,18 +20,24 @@
 
 extern crate getopts;
 extern crate libc;
-#[phase(plugin, link)]
-extern crate log;
 extern crate "rustc_llvm" as llvm;
 
+#[cfg(stage0)]
+#[phase(plugin, link)]
+extern crate log;
+
+#[cfg(not(stage0))]
+#[macro_use]
+extern crate log;
+
 use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
-use std::c_str::{ToCStr, CString};
 use std::collections::{HashSet, HashMap};
 use std::fmt::Show;
 use std::io::fs::File;
 use std::io::process::{Command, InheritFd, ExitStatus};
 use std::os;
 use std::ptr;
+use std::ffi;
 
 // From librustc:
 pub fn host_triple() -> &'static str {
@@ -82,8 +88,8 @@ pub fn llvm_warn<T: Str + Show>(msg: T) {
         if cstr == ptr::null() {
             warn(msg);
         } else {
-            let err = CString::new(cstr, true);
-            let err = String::from_utf8_lossy(err.as_bytes());
+            let err = ffi::c_str_to_bytes(&cstr);
+            let err = String::from_utf8_lossy(err.as_slice()).to_string();
             warn(format!("{}: {}",
                          msg.as_slice(),
                          err.as_slice()));
@@ -135,9 +141,9 @@ pub fn main() {
         .unwrap();
     let all_raw = matches.opt_present("all-raw");
     let mut input: Vec<(String, bool)> = matches.free
-            .iter()
-            .map(|i| (i.clone(), all_raw) )
-            .collect();
+        .iter()
+        .map(|i| (i.clone(), all_raw) )
+        .collect();
 
     let output = matches.opt_str("o").unwrap();
     let ctxt = unsafe { llvm::LLVMContextCreate() };
@@ -172,14 +178,12 @@ pub fn main() {
                 continue;
             }
         };
-        let llmod = i.with_c_str(|s| {
-            unsafe {
-                llvm::LLVMRustParseBitcode(ctxt,
-                                           s,
-                                           bc.as_ptr() as *const libc::c_void,
-                                           bc.len() as libc::size_t)
-            }
-        });
+        let llmod = unsafe {
+            llvm::LLVMRustParseBitcode(ctxt,
+                                       i.as_ptr() as *const i8,
+                                       bc.as_ptr() as *const libc::c_void,
+                                       bc.len() as libc::size_t)
+        };
         if llmod == ptr::null_mut() {
             if is_raw {
                 warn(format!("raw bitcode isn't bitcode: `{}`", i));
@@ -189,8 +193,8 @@ pub fn main() {
             if is_raw {
                 unsafe {
                     let pm = llvm::LLVMCreatePassManager();
-                    "pnacl-sjlj-eh".with_c_str(|s| assert!(llvm::LLVMRustAddPass(pm, s)) );
-                    "expand-varargs".with_c_str(|s| assert!(llvm::LLVMRustAddPass(pm, s)) );
+                    assert!(llvm::LLVMRustAddPass(pm, "pnacl-sjlj-eh\0".as_ptr() as *const i8 ));
+                    assert!(llvm::LLVMRustAddPass(pm, "expand-varargs\0".as_ptr() as *const i8 ));
                     llvm::LLVMRunPassManager(pm, llmod);
                     llvm::LLVMDisposePassManager(pm);
                 }
@@ -202,22 +206,19 @@ pub fn main() {
     }
 
     unsafe {
-        let mut llvm_c_strs = Vec::new();
         let mut llvm_args = Vec::new();
         {
-            let add = |arg: &str| {
-                let s = arg.to_c_str();
-                llvm_args.push(s.as_ptr());
-                llvm_c_strs.push(s);
+            let mut add = |&mut : arg: &str| {
+                llvm_args.push(arg.as_ptr() as *const i8);
                 debug!("adding llvm arg: `{}`", arg);
             };
-            add("rust-pnacl-trans");
+            add("rust-pnacl-trans\0");
             if !(triple.as_slice().contains("i386") ||
                  triple.as_slice().contains("i486") ||
                  triple.as_slice().contains("i586") ||
                  triple.as_slice().contains("i686") ||
                  triple.as_slice().contains("i786")) {
-                add("-mtls-use-call");
+                add("-mtls-use-call\0");
             }
         }
 
@@ -247,23 +248,21 @@ pub fn main() {
                                      llvm_args.as_ptr());
     }
     let tm = unsafe {
-        triple.with_c_str(|t| {
-            "generic".with_c_str(|cpu| {
-                "".with_c_str(|features| {
-                    llvm::LLVMRustCreateTargetMachine(
-                        t, cpu, features,
-                        llvm::CodeModelSmall,
-                        llvm::RelocDefault,
-                        opt_level,
-                        false /* EnableSegstk */,
-                        false /* soft fp */,
-                        false /* frame elim */,
-                        true  /* pie */,
-                        true  /* ffunction_sections */,
-                        true  /* fdata_sections */)
-                })
-            })
-        })
+        let triple_ptr = triple.as_ptr() as *const i8;
+        let cpu_ptr = "generic\0".as_ptr() as *const i8;
+        let features_ptr = "\0".as_ptr() as *const i8;
+        llvm::LLVMRustCreateTargetMachine(triple_ptr,
+                                          cpu_ptr,
+                                          features_ptr,
+                                          llvm::CodeModelSmall,
+                                          llvm::RelocDefault,
+                                          opt_level,
+                                          false /* EnableSegstk */,
+                                          false /* soft fp */,
+                                          false /* frame elim */,
+                                          true  /* pie */,
+                                          true  /* ffunction_sections */,
+                                          true  /* fdata_sections */)
     };
 
     let obj_input: Vec<String> = bc_input
@@ -273,25 +272,21 @@ pub fn main() {
             unsafe {
                 let pm = llvm::LLVMCreatePassManager();
 
-                "add-pnacl-external-decls".with_c_str(|s| assert!(llvm::LLVMRustAddPass(pm, s)) );
-                "resolve-pnacl-intrinsics".with_c_str(|s| assert!(llvm::LLVMRustAddPass(pm, s)) );
+                assert!(llvm::LLVMRustAddPass(pm, "add-pnacl-external-decls\0".as_ptr() as *const i8 ));
+                assert!(llvm::LLVMRustAddPass(pm, "resolve-pnacl-intrinsics\0".as_ptr() as *const i8 ));
 
                 llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
                 llvm::LLVMRustAddLibraryInfo(pm, llmod, false);
 
-                "combine-vector-instructions".with_c_str(|s| {
-                    assert!(llvm::LLVMRustAddPass(pm, s))
-                });
+                assert!(llvm::LLVMRustAddPass(pm, "combine-vector-instructions\0".as_ptr() as *const i8 ));
 
                 let out = format!("{}.o", i);
 
-                let success = out.with_c_str(|o| {
-                    llvm::LLVMRustWriteOutputFile(tm,
-                                                  pm,
-                                                  llmod,
-                                                  o,
-                                                  llvm::ObjectFileType)
-                });
+                let success = llvm::LLVMRustWriteOutputFile(tm,
+                                                            pm,
+                                                            llmod,
+                                                            out.as_ptr() as *const i8,
+                                                            llvm::ObjectFileType);
 
                 llvm::LLVMDisposePassManager(pm);
 

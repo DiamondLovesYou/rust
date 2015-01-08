@@ -340,10 +340,10 @@ pub mod dl {
     use result::Result;
     use result::Result::Err;
     use libc;
-    use c_str::ToCStr;
     use string::String;
+    use ops::FnOnce;
 
-    pub unsafe fn open_external<T: ToCStr>(_filename: T) -> *mut u8 {
+    pub unsafe fn open_external(_filename: &[u8]) -> *mut u8 {
         ptr::null_mut()
     }
 
@@ -351,7 +351,9 @@ pub mod dl {
         ptr::null_mut()
     }
 
-    pub fn check_for_errors_in<T>(_f: || -> T) -> Result<T, String> {
+    pub fn check_for_errors_in<T, F>(_f: F) -> Result<T, String> where
+        F: FnOnce() -> T,
+    {
         Err(format!("NaCl doesn't support shared objects"))
     }
 

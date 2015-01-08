@@ -29,7 +29,13 @@
 #![feature(slicing_syntax)]
 
 extern crate libc;
+
+#[cfg(stage0)]
 #[phase(plugin, link)]
+extern crate log;
+
+#[cfg(not(stage0))]
+#[macro_use]
 extern crate log;
 
 pub use self::OtherAttribute::*;
