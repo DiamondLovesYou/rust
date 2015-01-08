@@ -560,69 +560,6 @@ extern "rust-intrinsic" {
     /// Performs checked `u64` multiplication.
     pub fn u64_mul_with_overflow(x: u64, y: u64) -> (u64, bool);
 }
-/// We mark these as unsafe to emulate the "unsafety" of the regular ol' intrinsics.
-macro_rules! _def_fun {
-    ($intrinsic_name:ident => $libm_name:ident ($arg_ty:ty) -> $ret_ty:ty) => {
-        #[cfg(target_os = "nacl")]
-        #[inline] pub unsafe fn $intrinsic_name(x: $arg_ty) -> $ret_ty {
-            extern {
-                fn $libm_name(_: $arg_ty) -> $ret_ty;
-            }
-            return $libm_name(x);
-        }
-    };
-    ($intrinsic_name:ident => $libm_name:ident ($arg_ty:ty, $arg_ty1:ty) -> $ret_ty:ty) => {
-        #[cfg(target_os = "nacl")]
-        #[inline] pub unsafe fn $intrinsic_name(x: $arg_ty, y: $arg_ty1) -> $ret_ty {
-            extern {
-                fn $libm_name(_: $arg_ty, _: $arg_ty1) -> $ret_ty;
-            }
-            return $libm_name(x, y);
-        }
-    };
-    ($intrinsic_name:ident => $libm_name:ident ($arg_ty:ty, $arg_ty1:ty, $arg_ty2:ty)
-                                                -> $ret_ty:ty) => {
-        #[cfg(target_os = "nacl")]
-        #[inline] pub unsafe fn $intrinsic_name(x: $arg_ty, y: $arg_ty, z: $arg_ty) -> $ret_ty {
-            extern {
-                fn $libm_name(_: $arg_ty, _: $arg_ty1, _: $arg_ty2) -> $ret_ty;
-            }
-            return $libm_name(x, y, z);
-        }
-    };
-}
-/*_def_fun!(sinf32   => sinf   (f32) -> f32)
-_def_fun!(sinf64   => sin    (f64) -> f64)
-
-_def_fun!(cosf32   => cosf   (f32) -> f32)
-_def_fun!(cosf64   => cos    (f64) -> f64)
-
-_def_fun!(powf32   => powf   (f32, f32) -> f32)
-_def_fun!(powf64   => pow    (f64, f64) -> f64)
-
-_def_fun!(expf32   => expf   (f32) -> f32)
-_def_fun!(expf64   => exp    (f64) -> f64)
-
-_def_fun!(exp2f32  => exp2f  (f32) -> f32)
-_def_fun!(exp2f64  => exp2   (f64) -> f64)
-
-_def_fun!(logf32   => logf   (f32) -> f32)
-_def_fun!(logf64   => log    (f64) -> f64)
-
-_def_fun!(log10f32 => log10f (f32) -> f32)
-_def_fun!(log10f64 => log10  (f64) -> f64)
-
-_def_fun!(log2f32  => log2f  (f32) -> f32)
-_def_fun!(log2f64  => log2   (f64) -> f64)
-
-_def_fun!(fmaf32   => fmaf   (f32, f32, f32) -> f32)
-_def_fun!(fmaf64   => fma    (f64, f64, f64) -> f64)
-
-_def_fun!(fabsf32  => fabsf  (f32) -> f32)
-_def_fun!(fabsf64  => fabs   (f64) -> f64)
-
-_def_fun!(floorf32 => floorf (f32) -> f32)
-_def_fun!(floorf64 => floor  (f64) -> f64)*/
 
 #[cfg(target_os = "nacl")]
 #[inline] pub unsafe fn powif32(a: f32, x: i32) -> f32 { powf64(a as f64, x as f64) as f32 }
