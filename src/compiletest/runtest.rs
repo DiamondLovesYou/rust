@@ -558,12 +558,14 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                                                   gdb.clone()]);
 
             loop {
-                use std::thread;
+                use std::thread::Builder;
                 // wait for a quarter second for sel_ldr to start
                 timer::sleep(Duration::milliseconds(250));
-                let result = thread::Thread::spawn(move || {
-                    tcp::TcpStream::connect("127.0.0.1:4014").unwrap();
-                }).join();
+                let result = Builder::new()
+                    .scoped(move || {
+                        tcp::TcpStream::connect("127.0.0.1:4014").unwrap();
+                    })
+                    .join();
                 if result.is_err() {
                     continue;
                 }
