@@ -15,7 +15,7 @@
 //! This API is completely unstable and subject to change.
 
 #![crate_name = "rustc_driver"]
-#![experimental]
+#![unstable]
 #![staged_api]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
@@ -28,6 +28,7 @@
 #![feature(slicing_syntax, unsafe_destructor)]
 #![feature(box_syntax)]
 #![feature(rustc_diagnostic_macros)]
+#![allow(unknown_features)] #![feature(int_uint)]
 
 extern crate arena;
 extern crate flate;
@@ -53,6 +54,7 @@ use rustc::session::config::{Input, PrintRequest, UnstableFeatures};
 use rustc::lint::Lint;
 use rustc::lint;
 use rustc::metadata;
+use rustc::metadata::creader::CrateOrString::Str;
 use rustc::DIAGNOSTICS;
 
 use std::cmp::Ordering::Equal;
@@ -185,7 +187,8 @@ fn run_compiler(args: &[String]) {
         return;
     }
 
-    driver::compile_input(sess, cfg, &input, &odir, &ofile, None);
+    let plugins = sess.opts.debugging_opts.extra_plugins.clone();
+    driver::compile_input(sess, cfg, &input, &odir, &ofile, Some(plugins));
 }
 
 pub fn get_unstable_features_setting() -> UnstableFeatures {
@@ -378,13 +381,13 @@ Available lint options:
 
 fn describe_debug_flags() {
     println!("\nAvailable debug options:\n");
-    let r = config::debugging_opts_map();
-    for tuple in r.iter() {
-        match *tuple {
-            (ref name, ref desc, _) => {
-                println!("    -Z {:>20} -- {}", *name, *desc);
-            }
-        }
+    for &(name, _, opt_type_desc, desc) in config::DB_OPTIONS.iter() {
+        let (width, extra) = match opt_type_desc {
+            Some(..) => (21, "=val"),
+            None => (25, "")
+        };
+        println!("    -Z {:>width$}{} -- {}", name.replace("_", "-"),
+                 extra, desc, width=width);
     }
 }
 

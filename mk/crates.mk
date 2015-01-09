@@ -57,7 +57,7 @@ RUSTC_CRATES := rustc rustc_typeck rustc_borrowck rustc_resolve rustc_driver \
                 rustc_trans rustc_back rustc_llvm
 HOST_CRATES := syntax $(RUSTC_CRATES) rustdoc fmt_macros rust-pnacl-trans
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
-TOOLS := compiletest rustdoc rustc rust-pnacl-trans
+TOOLS := compiletest rustdoc rustc rustbook rust-pnacl-trans
 
 DEPS_core :=
 DEPS_libc := core
@@ -100,10 +100,12 @@ DEPS_fmt_macros = std
 TOOL_DEPS_compiletest := test getopts
 TOOL_DEPS_rustdoc := rustdoc
 TOOL_DEPS_rustc := rustc_driver
+TOOL_DEPS_rustbook := std regex rustdoc
 TOOL_DEPS_rust-pnacl-trans := rust-pnacl-trans
 TOOL_SOURCE_compiletest := $(S)src/compiletest/compiletest.rs
 TOOL_SOURCE_rustdoc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustc := $(S)src/driver/driver.rs
+TOOL_SOURCE_rustbook := $(S)src/rustbook/main.rs
 TOOL_SOURCE_rust-pnacl-trans := $(S)src/driver/driver.rs
 
 ONLY_RLIB_core := 1

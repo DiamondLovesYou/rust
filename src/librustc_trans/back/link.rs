@@ -810,10 +810,6 @@ pub fn link_pnacl_module(sess: &Session,
     debug!("running toolchain linker:");
     debug!("{}", &cmd);
 
-    if (sess.opts.debugging_opts & config::PRINT_LINK_ARGS) != 0 {
-        println!("{}", &cmd);
-    }
-
     let prog = time(sess.time_passes(),
                     "running linker",
                     (),
@@ -1288,7 +1284,7 @@ fn link_natively(sess: &Session, trans: &CrateTranslation, dylib: bool,
         cmd.arg("-lcompiler-rt");
     }
 
-    if (sess.opts.debugging_opts & config::PRINT_LINK_ARGS) != 0 {
+    if sess.opts.debugging_opts.print_link_args {
         println!("{}", &cmd);
     }
 

@@ -9,7 +9,7 @@ PNaCl/NaCl platforms, including ```le32-unknown-nacl```,
 ## Quick Start
 
 1. Download a [binary installer][installer] for your platform.
-2. Read the [guide].
+2. Read [The Rust Programming Language][trpl].
 3. Enjoy!
 
 If you'd like to cross compile to a (P)NaCl target, you'll need to build from
@@ -20,7 +20,7 @@ I may offer nightly downloads, however that isn't finished yet.
 > [using Rust on Windows][win-wiki] notes on the wiki.
 
 [installer]: http://www.rust-lang.org/install.html
-[guide]: http://doc.rust-lang.org/guide.html
+[trpl]: http://doc.rust-lang.org/book/index.html
 [win-wiki]: https://github.com/rust-lang/rust/wiki/Using-Rust-on-Windows
 
 ## Building from Source
@@ -54,7 +54,7 @@ I may offer nightly downloads, however that isn't finished yet.
     When complete, `make install` will place several programs into
     `/usr/local/bin`: `rustc`, the Rust compiler, and `rustdoc`, the
     API-documentation tool.
-3. Read the [guide].
+3. Read [The Rust Programming Language][trpl].
 4. Compile with:
 
         $ rustc --target=le32-unknown-nacl
@@ -88,7 +88,7 @@ To easily build on windows we can use [MSYS2](http://sourceforge.net/projects/ms
 
 [repo]: https://github.com/rust-lang/rust
 [tarball]: https://static.rust-lang.org/dist/rust-nightly.tar.gz
-[guide]: http://doc.rust-lang.org/guide.html
+[trpl]: http://doc.rust-lang.org/book/index.html
 
 ## Notes
 
