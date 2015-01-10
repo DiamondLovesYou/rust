@@ -440,13 +440,17 @@ to print "I am never printed" and to run forever.
 
 # Scoping and macro import/export
 
-Macros occupy a single global namespace. The interaction with Rust's system of
-modules and crates is somewhat complex.
+Macros are expanded at an early stage in compilation, before name resolution.
+One downside is that scoping works differently for macros, compared to other
+constructs in the language.
 
 Definition and expansion of macros both happen in a single depth-first,
 lexical-order traversal of a crate's source. So a macro defined at module scope
 is visible to any subsequent code in the same module, which includes the body
 of any subsequent child `mod` items.
+
+A macro defined within the body of a single `fn`, or anywhere else not at
+module scope, is visible only within that item.
 
 If a module has the `macro_use` attribute, its macros are also visible in its
 parent module after the child's `mod` item. If the parent also has `macro_use`
@@ -571,4 +575,4 @@ If Rust's macro system can't do what you need, you may want to write a
 macros, this is significantly more work, the interfaces are much less stable,
 and the warnings about debugging apply ten-fold. In exchange you get the
 flexibility of running arbitrary Rust code within the compiler. Syntax
-extension plugins are sometimes called "procedural macros" for this reason.
+extension plugins are sometimes called *procedural macros* for this reason.
