@@ -870,8 +870,9 @@ pub fn link_pnacl_module(sess: &Session,
     }
 
     if sess.opts.cg.save_temps {
-        let p = outputs.with_extension("pre-lto.bc").display().to_string();
-        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, p.as_ptr() as *const i8) };
+        let out = outputs.with_extension("pre-lto.bc");
+        let out = format!("{}\0", out.display().to_string());
+        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr() as *const i8) };
     }
 
     if !sess.opts.cg.no_prepopulate_passes {
@@ -987,11 +988,12 @@ pub fn link_pnacl_module(sess: &Session,
             filename_for_input(sess, config::CrateTypeExecutable, crate_name, &out_filename)
         }
     };
-    let out_str = out.display().to_string();
+    let out_cstr = format!("{}\0", out.display().to_string());
 
     if emit_stable_pexe {
         if sess.opts.cg.save_temps {
-            let out = outputs.with_extension("final.bc").display().to_string();
+            let out = outputs.with_extension("final.bc");
+            let out = format!("{}\0", out.display().to_string());
             unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr() as *const i8) };
         }
     }
@@ -999,12 +1001,12 @@ pub fn link_pnacl_module(sess: &Session,
     sess.check_writeable_output(&out, "final output");
 
     if emit_stable_pexe {
-        if !unsafe { llvm::LLVMRustWritePNaClBitcode(llmod, out_str.as_ptr() as *const i8, false) } {
+        if !unsafe { llvm::LLVMRustWritePNaClBitcode(llmod, out_cstr.as_ptr() as *const i8, false) } {
             llvm_err(&sess.diagnostic().handler, "failed to write output file".to_string());
         }
     } else {
         // regular bitcode output:
-        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out_str.as_ptr() as *const i8) };
+        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out_cstr.as_ptr() as *const i8) };
     }
     fs::chmod(&out, USER_EXEC).unwrap();
     unsafe {
