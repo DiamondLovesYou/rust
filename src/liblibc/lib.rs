@@ -326,6 +326,7 @@ extern {}
 extern {}
 #[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[link(name = "c++", kind = "static")] // for __pnacl_eh_sjlj_*. I know, I know: :(
+#[link(name = "pnaclmm", kind = "static")]
 extern {}
 
 pub mod types {
