@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,14 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that we use fully-qualified type names in error messages.
+// Related issues: #20401, #20506, #20614, #20752, #20829, #20846, #20885, #20886
 
 fn main() {
-    let x: Option<usize>;
-    x = 5;
-    //~^ ERROR mismatched types
-    //~| expected `core::option::Option<usize>`
-    //~| found `_`
-    //~| expected enum `core::option::Option`
-    //~| found integral variable
+    "".homura[""]; //~ ERROR no field with that name was found
 }

@@ -1890,7 +1890,7 @@ pub type PolyTypeOutlivesPredicate<'tcx> = PolyOutlivesPredicate<Ty<'tcx>, ty::R
 /// normal trait predicate (`T : TraitRef<...>`) and one of these
 /// predicates. Form #2 is a broader form in that it also permits
 /// equality between arbitrary types. Processing an instance of Form
-/// #2 eventually yields one of these `ProjectionPredicate`
+/// \#2 eventually yields one of these `ProjectionPredicate`
 /// instances to normalize the LHS.
 #[derive(Clone, PartialEq, Eq, Hash, Show)]
 pub struct ProjectionPredicate<'tcx> {
@@ -4702,7 +4702,7 @@ pub fn ty_sort_string<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> String {
         }
         ty_tup(ref tys) if tys.is_empty() => ::util::ppaux::ty_to_string(cx, ty),
 
-        ty_enum(id, _) => format!("enum {}", item_path_str(cx, id)),
+        ty_enum(id, _) => format!("enum `{}`", item_path_str(cx, id)),
         ty_uniq(_) => "box".to_string(),
         ty_vec(_, Some(n)) => format!("array of {} elements", n),
         ty_vec(_, None) => "slice".to_string(),
@@ -4714,7 +4714,7 @@ pub fn ty_sort_string<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> String {
             format!("trait {}", item_path_str(cx, inner.principal_def_id()))
         }
         ty_struct(id, _) => {
-            format!("struct {}", item_path_str(cx, id))
+            format!("struct `{}`", item_path_str(cx, id))
         }
         ty_unboxed_closure(..) => "closure".to_string(),
         ty_tup(_) => "tuple".to_string(),

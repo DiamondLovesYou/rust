@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,14 +8,27 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that we use fully-qualified type names in error messages.
+// Test a where clause that uses a non-normalized projection type.
 
-fn main() {
-    let x: Option<usize>;
-    x = 5;
-    //~^ ERROR mismatched types
-    //~| expected `core::option::Option<usize>`
-    //~| found `_`
-    //~| expected enum `core::option::Option`
-    //~| found integral variable
+trait Int
+{
+    type T;
+}
+
+trait NonZero
+{
+    fn non_zero(self) -> bool;
+}
+
+fn foo<I:Int<T=J>,J>(t: I) -> bool
+    where <I as Int>::T : NonZero
+    //    ^~~~~~~~~~~~~ canonical form is just J
+{
+    bar::<J>()
+}
+
+fn bar<NZ:NonZero>() -> bool { true }
+
+fn main ()
+{
 }

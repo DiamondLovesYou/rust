@@ -8,23 +8,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[derive(Show)]
-struct Pair<T, V> (T, V);
+// Check that coercions unify the expected return type of a polymorphic
+// function call, instead of leaving the type variables as they were.
 
-impl Pair<
-    &str, //~ ERROR missing lifetime specifier
-    isize
-> {
-    fn say(self: &Pair<&str, isize>) {
-//~^ ERROR mismatched types
-//~| expected `Pair<&'static str, isize>`
-//~| found `Pair<&str, isize>`
-//~| lifetime mismatch
-        println!("{}", self);
-    }
+struct Foo;
+impl Foo {
+    fn foo<T>(self, x: T) -> Option<T> { Some(x) }
 }
 
-fn main() {
-    let result = &Pair("shane", 1is);
-    result.say();
+pub fn main() {
+    let _: Option<fn()> = Some(main);
+    let _: Option<fn()> = Foo.foo(main);
+
+    // The same two cases, with implicit type variables made explicit.
+    let _: Option<fn()> = Some::<_>(main);
+    let _: Option<fn()> = Foo.foo::<_>(main);
 }

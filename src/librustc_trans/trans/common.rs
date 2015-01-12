@@ -222,10 +222,7 @@ fn type_is_newtype_immediate<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     match ty.sty {
         ty::ty_struct(def_id, substs) => {
             let fields = ty::struct_fields(ccx.tcx(), def_id, substs);
-            fields.len() == 1 &&
-                fields[0].name ==
-                    token::special_idents::unnamed_field.name &&
-                type_is_immediate(ccx, fields[0].mt.ty)
+            fields.len() == 1 && type_is_immediate(ccx, fields[0].mt.ty)
         }
         _ => false
     }
@@ -241,12 +238,16 @@ pub fn pnacl_type_needs_indirection<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: 
         }
     }
 }
-
+#[inline]
 pub fn type_is_immediate<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<'tcx>) -> bool {
+    type_is_immediate_pnacl_check(ccx, ty, true)
+}
+pub fn type_is_immediate_pnacl_check<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<'tcx>,
+                                               check: bool) -> bool {
     use trans::machine::llsize_of_alloc;
     use trans::type_of::sizing_type_of;
 
-    if pnacl_type_needs_indirection(ccx, ty) {
+    if check && pnacl_type_needs_indirection(ccx, ty) {
         return false;
     }
 
@@ -262,7 +263,7 @@ pub fn type_is_immediate<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<'tcx>) -
         return false;
     }
     match ty.sty {
-        ty::ty_struct(..) | ty::ty_enum(..) | ty::ty_tup(..) |
+        ty::ty_struct(..) | ty::ty_enum(..) | ty::ty_tup(..) | ty::ty_vec(_, Some(_)) |
         ty::ty_unboxed_closure(..) => {
             let llty = sizing_type_of(ccx, ty);
             llsize_of_alloc(ccx, llty) <= llsize_of_alloc(ccx, ccx.int_type())
