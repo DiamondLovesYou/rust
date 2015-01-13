@@ -278,7 +278,7 @@ pub fn main() {
 
                 assert!(llvm::LLVMRustAddPass(pm, "combine-vector-instructions\0".as_ptr() as *const i8 ));
 
-                let out = format!("{}.o", i);
+                let out = format!("{}.o\0", i);
 
                 let success = llvm::LLVMRustWriteOutputFile(tm,
                                                             pm,
