@@ -685,13 +685,13 @@ pub fn run_passes(sess: &Session,
     fn pnacl_lib_paths(sess: &Session) -> Vec<Path> {
         use std::os;
         use rustc::session::search_paths::PathKind;
-        let native_dep_lib_path = Some({
+        let native_dep_lib_path = {
             os::make_absolute(&sess.pnacl_toolchain()
                               .join("le32-nacl")
                               .join("lib"))
                 .unwrap()
-        });
-        let ports_lib_path = Some({
+        };
+        let ports_lib_path = {
             os::make_absolute(&sess.expect_cross_path()
                               .join("lib")
                               .join("pnacl")
@@ -701,13 +701,19 @@ pub fn run_passes(sess: &Session,
                                   "Release"
                               }))
                 .unwrap()
+        };
+        let mut paths: Vec<Path> = sess.opts.search_paths
+            .iter(PathKind::Dependency)
+            .map(|p: &Path| p.clone() )
+            .collect();
+        paths.extend({
+            sess.opts.search_paths
+                .iter(PathKind::Native)
+                .map(|p: &Path| p.clone() )
         });
-        let iter = sess.opts.search_paths
-            .iter(PathKind::Dependency);
-        let iter = iter.chain(native_dep_lib_path.iter());
-        let iter = iter.chain(ports_lib_path.iter());
-        let iter = iter.map(|p: &Path| p.clone() );
-        iter.collect()
+        paths.push(native_dep_lib_path);
+        paths.push(ports_lib_path);
+        paths
     }
 
     fn link_attrs_filter(sess: &Session,
