@@ -955,9 +955,10 @@ LLVMRustParseBitcode(LLVMContextRef ctxt, const char* name, const void* bc, size
 
   } else {
     ErrorOr<Module *> Src = llvm::parseBitcodeFile(buf, *unwrap(ctxt));
-    Mod = Src.get();
     if (!Src) {
       ErrMsg = Src.getError().message();
+    } else {
+      Mod = Src.get();
     }
   }
 
