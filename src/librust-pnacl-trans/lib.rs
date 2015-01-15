@@ -246,6 +246,7 @@ pub fn main() {
                                      llvm_args.as_ptr());
     }
     let tm = unsafe {
+        let triple = format!("{}\0", triple);
         let triple_ptr = triple.as_ptr() as *const i8;
         let cpu_ptr = "generic\0".as_ptr() as *const i8;
         let features_ptr = "\0".as_ptr() as *const i8;
