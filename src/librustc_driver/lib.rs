@@ -186,7 +186,7 @@ fn run_compiler(args: &[String]) {
                 list_metadata(&sess, &(*ifile), &mut stdout).unwrap();
             }
             Input::Str(_) => {
-                early_error("can not list metadata for stdin");
+                early_error("cannot list metadata for stdin");
             }
         }
         return;
@@ -207,7 +207,7 @@ fn build_controller<'a>(sess: &Session) -> CompileController<'a> {
     }
 
     if sess.opts.no_analysis || sess.opts.debugging_opts.ast_json {
-        control.after_expand.stop = true;
+        control.after_write_deps.stop = true;
     }
 
     if sess.opts.no_trans {

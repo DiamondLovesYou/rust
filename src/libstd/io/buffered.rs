@@ -15,7 +15,7 @@
 use cmp;
 use fmt;
 use io::{Reader, Writer, Stream, Buffer, DEFAULT_BUF_SIZE, IoResult};
-use iter::{IteratorExt, ExactSizeIterator};
+use iter::{IteratorExt, ExactSizeIterator, repeat};
 use ops::Drop;
 use option::Option;
 use option::Option::{Some, None};
@@ -62,17 +62,11 @@ impl<R> fmt::Show for BufferedReader<R> where R: fmt::Show {
 impl<R: Reader> BufferedReader<R> {
     /// Creates a new `BufferedReader` with the specified buffer capacity
     pub fn with_capacity(cap: uint, inner: R) -> BufferedReader<R> {
-        // It's *much* faster to create an uninitialized buffer than it is to
-        // fill everything in with 0. This buffer is entirely an implementation
-        // detail and is never exposed, so we're safe to not initialize
-        // everything up-front. This allows creation of BufferedReader instances
-        // to be very cheap (large mallocs are not nearly as expensive as large
-        // callocs).
-        let mut buf = Vec::with_capacity(cap);
-        unsafe { buf.set_len(cap); }
         BufferedReader {
             inner: inner,
-            buf: buf,
+            // We can't use the same trick here as we do for BufferedWriter,
+            // since this memory is visible to the inner Reader.
+            buf: repeat(0).take(cap).collect(),
             pos: 0,
             cap: 0,
         }
@@ -122,7 +116,7 @@ impl<R: Reader> Reader for BufferedReader<R> {
         let nread = {
             let available = try!(self.fill_buf());
             let nread = cmp::min(available.len(), buf.len());
-            slice::bytes::copy_memory(buf, &available[0..nread]);
+            slice::bytes::copy_memory(buf, &available[..nread]);
             nread
         };
         self.pos += nread;
@@ -166,7 +160,12 @@ impl<W> fmt::Show for BufferedWriter<W> where W: fmt::Show {
 impl<W: Writer> BufferedWriter<W> {
     /// Creates a new `BufferedWriter` with the specified buffer capacity
     pub fn with_capacity(cap: uint, inner: W) -> BufferedWriter<W> {
-        // See comments in BufferedReader for why this uses unsafe code.
+        // It's *much* faster to create an uninitialized buffer than it is to
+        // fill everything in with 0. This buffer is entirely an implementation
+        // detail and is never exposed, so we're safe to not initialize
+        // everything up-front. This allows creation of BufferedWriter instances
+        // to be very cheap (large mallocs are not nearly as expensive as large
+        // callocs).
         let mut buf = Vec::with_capacity(cap);
         unsafe { buf.set_len(cap); }
         BufferedWriter {
@@ -183,7 +182,7 @@ impl<W: Writer> BufferedWriter<W> {
 
     fn flush_buf(&mut self) -> IoResult<()> {
         if self.pos != 0 {
-            let ret = self.inner.as_mut().unwrap().write(&self.buf[0..self.pos]);
+            let ret = self.inner.as_mut().unwrap().write(&self.buf[..self.pos]);
             self.pos = 0;
             ret
         } else {
@@ -282,7 +281,7 @@ impl<W: Writer> Writer for LineBufferedWriter<W> {
     fn write(&mut self, buf: &[u8]) -> IoResult<()> {
         match buf.iter().rposition(|&b| b == b'\n') {
             Some(i) => {
-                try!(self.inner.write(&buf[0..(i + 1)]));
+                try!(self.inner.write(&buf[..(i + 1)]));
                 try!(self.inner.flush());
                 try!(self.inner.write(&buf[(i + 1)..]));
                 Ok(())

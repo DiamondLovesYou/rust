@@ -774,9 +774,8 @@ impl LintPass for UnusedResults {
                         warned |= check_must_use(cx, &it.attrs[], s.span);
                     }
                 } else {
-                    csearch::get_item_attrs(&cx.sess().cstore, did, |attrs| {
-                        warned |= check_must_use(cx, &attrs[], s.span);
-                    });
+                    let attrs = csearch::get_item_attrs(&cx.sess().cstore, did);
+                    warned |= check_must_use(cx, &attrs[], s.span);
                 }
             }
             _ => {}
@@ -1732,7 +1731,7 @@ impl LintPass for Stability {
         let mut span = e.span;
 
         let id = match e.node {
-            ast::ExprPath(..) | ast::ExprStruct(..) => {
+            ast::ExprPath(..) | ast::ExprQPath(..) | ast::ExprStruct(..) => {
                 match cx.tcx.def_map.borrow().get(&e.id) {
                     Some(&def) => def.def_id(),
                     None => return

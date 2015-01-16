@@ -68,7 +68,7 @@ use util::nodemap::{NodeMap, NodeSet, DefIdMap, DefIdSet};
 use util::nodemap::{FnvHashMap};
 
 use arena::TypedArena;
-use std::borrow::BorrowFrom;
+use std::borrow::{BorrowFrom, Cow};
 use std::cell::{Cell, RefCell};
 use std::cmp::{self, Ordering};
 use std::fmt::{self, Show};
@@ -76,6 +76,7 @@ use std::hash::{Hash, Writer, SipHasher, Hasher};
 use std::mem;
 use std::ops;
 use std::rc::Rc;
+use std::vec::CowVec;
 use collections::enum_set::{EnumSet, CLike};
 use std::collections::{HashMap, HashSet};
 use syntax::abi;
@@ -2604,12 +2605,17 @@ impl FlagComputation {
 
             &ty_projection(ref data) => {
                 self.add_flags(HAS_PROJECTION);
-                self.add_substs(data.trait_ref.substs);
+                self.add_projection_ty(data);
             }
 
             &ty_trait(box TyTrait { ref principal, ref bounds }) => {
                 let mut computation = FlagComputation::new();
                 computation.add_substs(principal.0.substs);
+                for projection_bound in bounds.projection_bounds.iter() {
+                    let mut proj_computation = FlagComputation::new();
+                    proj_computation.add_projection_predicate(&projection_bound.0);
+                    computation.add_bound_computation(&proj_computation);
+                }
                 self.add_bound_computation(&computation);
 
                 self.add_bounds(bounds);
@@ -2671,6 +2677,15 @@ impl FlagComputation {
             }
             _ => { }
         }
+    }
+
+    fn add_projection_predicate(&mut self, projection_predicate: &ProjectionPredicate) {
+        self.add_projection_ty(&projection_predicate.projection_ty);
+        self.add_ty(projection_predicate.ty);
+    }
+
+    fn add_projection_ty(&mut self, projection_ty: &ProjectionTy) {
+        self.add_substs(projection_ty.trait_ref.substs);
     }
 
     fn add_substs(&mut self, substs: &Substs) {
@@ -4132,12 +4147,8 @@ pub fn node_id_to_trait_ref<'tcx>(cx: &ctxt<'tcx>, id: ast::NodeId)
     }
 }
 
-pub fn try_node_id_to_type<'tcx>(cx: &ctxt<'tcx>, id: ast::NodeId) -> Option<Ty<'tcx>> {
-    cx.node_types.borrow().get(&id).cloned()
-}
-
 pub fn node_id_to_type<'tcx>(cx: &ctxt<'tcx>, id: ast::NodeId) -> Ty<'tcx> {
-    match try_node_id_to_type(cx, id) {
+    match node_id_to_type_opt(cx, id) {
        Some(ty) => ty,
        None => cx.sess.bug(
            &format!("node_id_to_type: no type for node `{}`",
@@ -4514,7 +4525,7 @@ pub fn expr_kind(tcx: &ctxt, expr: &ast::Expr) -> ExprKind {
     }
 
     match expr.node {
-        ast::ExprPath(..) => {
+        ast::ExprPath(_) | ast::ExprQPath(_) => {
             match resolve_expr(tcx, expr) {
                 def::DefVariant(tid, vid, _) => {
                     let variant_info = enum_variant_with_id(tcx, tid, vid);
@@ -5555,40 +5566,20 @@ pub fn predicates<'tcx>(
     vec
 }
 
-/// Iterate over attributes of a definition.
-// (This should really be an iterator, but that would require csearch and
-// decoder to use iterators instead of higher-order functions.)
-pub fn each_attr<F>(tcx: &ctxt, did: DefId, mut f: F) -> bool where
-    F: FnMut(&ast::Attribute) -> bool,
-{
+/// Get the attributes of a definition.
+pub fn get_attrs<'tcx>(tcx: &'tcx ctxt, did: DefId)
+                       -> CowVec<'tcx, ast::Attribute> {
     if is_local(did) {
         let item = tcx.map.expect_item(did.node);
-        item.attrs.iter().all(|attr| f(attr))
+        Cow::Borrowed(&item.attrs[])
     } else {
-        info!("getting foreign attrs");
-        let mut cont = true;
-        csearch::get_item_attrs(&tcx.sess.cstore, did, |attrs| {
-            if cont {
-                cont = attrs.iter().all(|attr| f(attr));
-            }
-        });
-        info!("done");
-        cont
+        Cow::Owned(csearch::get_item_attrs(&tcx.sess.cstore, did))
     }
 }
 
 /// Determine whether an item is annotated with an attribute
 pub fn has_attr(tcx: &ctxt, did: DefId, attr: &str) -> bool {
-    let mut found = false;
-    each_attr(tcx, did, |item| {
-        if item.check_name(attr) {
-            found = true;
-            false
-        } else {
-            true
-        }
-    });
-    found
+    get_attrs(tcx, did).iter().any(|item| item.check_name(attr))
 }
 
 /// Determine whether an item is annotated with `#[repr(packed)]`
@@ -5605,13 +5596,9 @@ pub fn lookup_simd(tcx: &ctxt, did: DefId) -> bool {
 pub fn lookup_repr_hints(tcx: &ctxt, did: DefId) -> Rc<Vec<attr::ReprAttr>> {
     memoized(&tcx.repr_hint_cache, did, |did: DefId| {
         Rc::new(if did.krate == LOCAL_CRATE {
-            let mut acc = Vec::new();
-            ty::each_attr(tcx, did, |meta| {
-                acc.extend(attr::find_repr_attrs(tcx.sess.diagnostic(),
-                                                 meta).into_iter());
-                true
-            });
-            acc
+            get_attrs(tcx, did).iter().flat_map(|meta| {
+                attr::find_repr_attrs(tcx.sess.diagnostic(), meta).into_iter()
+            }).collect()
         } else {
             csearch::get_repr_attrs(&tcx.sess.cstore, did)
         })
@@ -7364,3 +7351,15 @@ impl<'tcx> Repr<'tcx> for field<'tcx> {
                 self.mt.repr(tcx))
     }
 }
+
+impl<'a, 'tcx> Repr<'tcx> for ParameterEnvironment<'a, 'tcx> {
+    fn repr(&self, tcx: &ctxt<'tcx>) -> String {
+        format!("ParameterEnvironment(\
+            free_substs={}, \
+            implicit_region_bound={}, \
+            caller_bounds={})",
+            self.free_substs.repr(tcx),
+            self.implicit_region_bound.repr(tcx),
+            self.caller_bounds.repr(tcx))
+        }
+    }

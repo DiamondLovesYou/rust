@@ -564,7 +564,7 @@ fn trans_datum_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         ast::ExprParen(ref e) => {
             trans(bcx, &**e)
         }
-        ast::ExprPath(_) => {
+        ast::ExprPath(_) | ast::ExprQPath(_) => {
             trans_def(bcx, expr, bcx.def(expr.id))
         }
         ast::ExprField(ref base, ident) => {
@@ -768,7 +768,6 @@ fn trans_index<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 tvec::vec_types(bcx,
                                 ty::sequence_element_type(bcx.tcx(),
                                                           base_datum.ty));
-            base::maybe_name_value(bcx.ccx(), vt.llunit_size, "unit_sz");
 
             let (base, len) = base_datum.get_vec_base_and_len(bcx);
 
@@ -997,7 +996,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         ast::ExprParen(ref e) => {
             trans_into(bcx, &**e, dest)
         }
-        ast::ExprPath(_) => {
+        ast::ExprPath(_) | ast::ExprQPath(_) => {
             trans_def_dps_unadjusted(bcx, expr, bcx.def(expr.id), dest)
         }
         ast::ExprIf(ref cond, ref thn, ref els) => {

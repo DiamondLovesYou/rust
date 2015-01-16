@@ -231,6 +231,12 @@ pub unsafe fn record_sp_limit(limit: uint) {
     unsafe fn target_record_sp_limit(_: uint) {
     }
 
+    // powerpc - FIXME(POWERPC): missing...
+    #[cfg(target_arch = "powerpc")]
+    unsafe fn target_record_sp_limit(_: uint) {
+    }
+
+
     // iOS segmented stack is disabled for now, see related notes
     #[cfg(any(all(target_arch = "arm", target_os = "ios"),
               target_os = "nacl"))]
@@ -324,6 +330,12 @@ pub unsafe fn get_sp_limit() -> uint {
 
     // aarch64 - FIXME(AARCH64): missing...
     #[cfg(target_arch = "aarch64")]
+    unsafe fn target_get_sp_limit() -> uint {
+        1024
+    }
+
+    // powepc - FIXME(POWERPC): missing...
+    #[cfg(target_arch = "powerpc")]
     unsafe fn target_get_sp_limit() -> uint {
         1024
     }

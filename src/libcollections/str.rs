@@ -807,7 +807,7 @@ pub trait StrExt: Index<FullRange, Output = str> {
     /// out of bounds.
     ///
     /// See also `slice`, `slice_from` and `slice_chars`.
-    #[unstable = "use slice notation [0..a] instead"]
+    #[unstable = "use slice notation [..a] instead"]
     fn slice_to(&self, end: uint) -> &str {
         core_str::StrExt::slice_to(&self[], end)
     }
@@ -2841,7 +2841,7 @@ mod bench {
         let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
 
         b.iter(|| {
-            for ch in s.chars() { black_box(ch) }
+            for ch in s.chars() { black_box(ch); }
         });
     }
 
@@ -2869,7 +2869,7 @@ mod bench {
         let s = "ศไทย中华Việt Nam; Mary had a little lamb, Little lamb";
 
         b.iter(|| {
-            for ch in s.chars().rev() { black_box(ch) }
+            for ch in s.chars().rev() { black_box(ch); }
         });
     }
 

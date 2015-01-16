@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,8 +8,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Test that when you use ufcs form to invoke a trait method (on a
+// trait object) everything works fine.
+
+trait Foo {
+    fn test(&self) -> i32;
+}
+
+impl Foo for i32 {
+    fn test(&self) -> i32 { *self }
+}
+
 fn main() {
-    struct S(isize);
-    let s = S(0);
-    let x = *s; //~ ERROR single-field tuple-structs can no longer be dereferenced
+    let a: &Foo = &22_i32;
+    assert_eq!(Foo::test(a), 22);
 }

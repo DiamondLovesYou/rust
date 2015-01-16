@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! A growable list type, written `Vec<T>` but pronounced 'vector.'
+//! A growable list type with heap-allocated contents, written `Vec<T>` but pronounced 'vector.'
 //!
 //! Vectors have `O(1)` indexing, push (to the end) and pop (from the end).
 //!
@@ -1511,6 +1511,9 @@ pub struct IntoIter<T> {
     end: *const T
 }
 
+unsafe impl<T: Send> Send for IntoIter<T> { }
+unsafe impl<T: Sync> Sync for IntoIter<T> { }
+
 impl<T> IntoIter<T> {
     #[inline]
     /// Drops all items that have not yet been moved and returns the empty vector.
@@ -2199,7 +2202,7 @@ mod tests {
 
     #[test]
     fn test_map_in_place_zero_drop_count() {
-        use std::sync::atomic::{AtomicUint, Ordering, ATOMIC_UINT_INIT};
+        use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 
         #[derive(Clone, PartialEq, Show)]
         struct Nothing;
@@ -2213,7 +2216,7 @@ mod tests {
             }
         }
         const NUM_ELEMENTS: uint = 2;
-        static DROP_COUNTER: AtomicUint = ATOMIC_UINT_INIT;
+        static DROP_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
         let v = repeat(Nothing).take(NUM_ELEMENTS).collect::<Vec<_>>();
 

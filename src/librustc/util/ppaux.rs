@@ -542,7 +542,7 @@ pub fn parameterized<'tcx>(cx: &ctxt<'tcx>,
         0
     };
 
-    for t in tps[0..(tps.len() - num_defaults)].iter() {
+    for t in tps[..(tps.len() - num_defaults)].iter() {
         strs.push(ty_to_string(cx, *t))
     }
 
@@ -1430,7 +1430,7 @@ impl<'tcx> UserString<'tcx> for ty::ProjectionPredicate<'tcx> {
 impl<'tcx> Repr<'tcx> for ty::ProjectionTy<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
         format!("<{} as {}>::{}",
-                self.trait_ref.self_ty().repr(tcx),
+                self.trait_ref.substs.self_ty().repr(tcx),
                 self.trait_ref.repr(tcx),
                 self.item_name.repr(tcx))
     }
