@@ -115,7 +115,6 @@
 //!     }
 //! #   fn calc_span_tree(&self) -> Vec<(uint, uint)> { vec![] }
 //! }
-//! # fn main() { }
 //! ```
 //!
 //! ## Mutating implementations of `clone`
@@ -509,12 +508,13 @@ impl<'b, T> DerefMut for RefMut<'b, T> {
 ///
 /// ```rust
 /// use std::cell::UnsafeCell;
-/// use std::marker;
+/// use std::marker::Sync;
 ///
 /// struct NotThreadSafe<T> {
 ///     value: UnsafeCell<T>,
-///     marker: marker::NoSync
 /// }
+///
+/// unsafe impl<T> Sync for NotThreadSafe<T> {}
 /// ```
 ///
 /// **NOTE:** `UnsafeCell<T>` fields are public to allow static initializers. It

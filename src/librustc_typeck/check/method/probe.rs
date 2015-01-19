@@ -11,6 +11,7 @@
 use super::{MethodError,Ambiguity,NoMatch};
 use super::MethodIndex;
 use super::{CandidateSource,ImplSource,TraitSource};
+use super::suggest;
 
 use check;
 use check::{FnCtxt, NoPreference};
@@ -25,6 +26,7 @@ use middle::infer::InferCtxt;
 use syntax::ast;
 use syntax::codemap::{Span, DUMMY_SP};
 use std::collections::HashSet;
+use std::mem;
 use std::rc::Rc;
 use util::ppaux::Repr;
 
@@ -127,7 +129,7 @@ pub fn probe<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
     // take place in the `fcx.infcx().probe` below.
     let steps = match create_steps(fcx, span, self_ty) {
         Some(steps) => steps,
-        None => return Err(NoMatch(Vec::new())),
+        None => return Err(NoMatch(Vec::new(), Vec::new())),
     };
 
     // Create a list of simplified self types, if we can.
@@ -209,6 +211,13 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
             opt_simplified_steps: opt_simplified_steps,
             static_candidates: Vec::new(),
         }
+    }
+
+    fn reset(&mut self) {
+        self.inherent_candidates.clear();
+        self.extension_candidates.clear();
+        self.impl_dups.clear();
+        self.static_candidates.clear();
     }
 
     fn tcx(&self) -> &'a ty::ctxt<'tcx> {
@@ -442,6 +451,15 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
                 if duplicates.insert(trait_did) {
                     self.assemble_extension_candidates_for_trait(trait_did);
                 }
+            }
+        }
+    }
+
+    fn assemble_extension_candidates_for_all_traits(&mut self) {
+        let mut duplicates = HashSet::new();
+        for trait_info in suggest::all_traits(self.fcx.ccx) {
+            if duplicates.insert(trait_info.def_id) {
+                self.assemble_extension_candidates_for_trait(trait_info.def_id)
             }
         }
     }
@@ -704,18 +722,51 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
     // THE ACTUAL SEARCH
 
     fn pick(mut self) -> PickResult<'tcx> {
-        let steps = self.steps.clone();
-
-        for step in steps.iter() {
-            match self.pick_step(step) {
-                Some(r) => {
-                    return r;
-                }
-                None => { }
-            }
+        match self.pick_core() {
+            Some(r) => return r,
+            None => {}
         }
 
-        Err(NoMatch(self.static_candidates))
+        let static_candidates = mem::replace(&mut self.static_candidates, vec![]);
+
+        // things failed, so lets look at all traits, for diagnostic purposes now:
+        self.reset();
+
+        let span = self.span;
+        let tcx = self.tcx();
+
+        self.assemble_extension_candidates_for_all_traits();
+
+        let out_of_scope_traits = match self.pick_core() {
+            Some(Ok(p)) => vec![p.method_ty.container.id()],
+            Some(Err(Ambiguity(v))) => v.into_iter().map(|source| {
+                match source {
+                    TraitSource(id) => id,
+                    ImplSource(impl_id) => {
+                        match ty::trait_id_of_impl(tcx, impl_id) {
+                            Some(id) => id,
+                            None =>
+                                tcx.sess.span_bug(span,
+                                                  "found inherent method when looking at traits")
+                        }
+                    }
+                }
+            }).collect(),
+            Some(Err(NoMatch(_, others))) => {
+                assert!(others.is_empty());
+                vec![]
+            }
+            None => vec![],
+        };
+;
+        Err(NoMatch(static_candidates, out_of_scope_traits))
+    }
+
+    fn pick_core(&mut self) -> Option<PickResult<'tcx>> {
+        let steps = self.steps.clone();
+
+        // find the first step that works
+        steps.iter().filter_map(|step| self.pick_step(step)).next()
     }
 
     fn pick_step(&mut self, step: &CandidateStep<'tcx>) -> Option<PickResult<'tcx>> {

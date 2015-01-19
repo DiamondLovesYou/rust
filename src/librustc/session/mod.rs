@@ -176,6 +176,9 @@ impl Session {
     pub fn fileline_note(&self, sp: Span, msg: &str) {
         self.diagnostic().fileline_note(sp, msg)
     }
+    pub fn fileline_help(&self, sp: Span, msg: &str) {
+        self.diagnostic().fileline_help(sp, msg)
+    }
     pub fn note(&self, msg: &str) {
         self.diagnostic().handler().note(msg)
     }
@@ -457,7 +460,7 @@ pub fn build_session_(sopts: config::Options,
         local_crate_source_file: local_crate_source_file,
         working_dir: os::getcwd().unwrap(),
         lint_store: RefCell::new(lint::LintStore::new()),
-        lints: RefCell::new(NodeMap::new()),
+        lints: RefCell::new(NodeMap()),
         crate_types: RefCell::new(Vec::new()),
         crate_metadata: RefCell::new(Vec::new()),
         features: RefCell::new(feature_gate::Features::new()),

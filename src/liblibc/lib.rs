@@ -13,6 +13,7 @@
 #![cfg_attr(not(feature = "cargo-build"), unstable)]
 #![cfg_attr(not(feature = "cargo-build"), staged_api)]
 #![allow(unknown_features)] #![feature(int_uint)]
+#![allow(unstable)]
 #![no_std]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
@@ -2238,10 +2239,10 @@ pub mod consts {
             pub const IPPROTO_TCP: c_int = 6;
             pub const IPPROTO_IP: c_int = 0;
             pub const IPPROTO_IPV6: c_int = 41;
-            pub const IP_MULTICAST_TTL: c_int = 3;
-            pub const IP_MULTICAST_LOOP: c_int = 4;
-            pub const IP_ADD_MEMBERSHIP: c_int = 5;
-            pub const IP_DROP_MEMBERSHIP: c_int = 6;
+            pub const IP_MULTICAST_TTL: c_int = 10;
+            pub const IP_MULTICAST_LOOP: c_int = 11;
+            pub const IP_ADD_MEMBERSHIP: c_int = 12;
+            pub const IP_DROP_MEMBERSHIP: c_int = 13;
             pub const IPV6_ADD_MEMBERSHIP: c_int = 5;
             pub const IPV6_DROP_MEMBERSHIP: c_int = 6;
             pub const IP_TTL: c_int = 4;
@@ -4220,6 +4221,27 @@ pub mod funcs {
                 pub fn malloc(size: size_t) -> *mut c_void;
                 pub fn realloc(p: *mut c_void, size: size_t) -> *mut c_void;
                 pub fn free(p: *mut c_void);
+
+                /// Exits the running program in a possibly dangerous manner.
+                ///
+                /// # Unsafety
+                ///
+                /// While this forces your program to exit, it does so in a way that has
+                /// consequences. This will skip all unwinding code, which means that anything
+                /// relying on unwinding for cleanup (such as flushing and closing a buffer to a
+                /// file) may act in an unexpected way.
+                ///
+                /// # Examples
+                ///
+                /// ```no_run
+                /// extern crate libc;
+                ///
+                /// fn main() {
+                ///     unsafe {
+                ///         libc::exit(1);
+                ///     }
+                /// }
+                /// ```
                 pub fn exit(status: c_int) -> !;
                 pub fn _exit(status: c_int) -> !;
                 pub fn atexit(cb: extern fn()) -> c_int;

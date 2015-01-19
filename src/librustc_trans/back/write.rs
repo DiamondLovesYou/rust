@@ -704,12 +704,12 @@ pub fn run_passes(sess: &Session,
         };
         let mut paths: Vec<Path> = sess.opts.search_paths
             .iter(PathKind::Dependency)
-            .map(|p: &Path| p.clone() )
+            .map(|(p, _): (&Path, _)| p.clone() )
             .collect();
         paths.extend({
             sess.opts.search_paths
                 .iter(PathKind::Native)
-                .map(|p: &Path| p.clone() )
+                .map(|(p, _): (&Path, _)| p.clone() )
         });
         paths.push(native_dep_lib_path);
         paths.push(ports_lib_path);

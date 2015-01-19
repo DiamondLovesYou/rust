@@ -29,6 +29,7 @@
 #![feature(box_syntax)]
 #![feature(rustc_diagnostic_macros)]
 #![allow(unknown_features)] #![feature(int_uint)]
+#![allow(unstable)]
 
 extern crate arena;
 extern crate flate;
@@ -38,6 +39,7 @@ extern crate libc;
 extern crate rustc;
 extern crate rustc_back;
 extern crate rustc_borrowck;
+extern crate rustc_privacy;
 extern crate rustc_resolve;
 extern crate rustc_trans;
 extern crate rustc_typeck;

@@ -79,6 +79,7 @@ This API is completely unstable and subject to change.
 #![feature(rustc_diagnostic_macros)]
 #![allow(unknown_features)] #![feature(int_uint)]
 #![allow(non_camel_case_types)]
+#![allow(unstable)]
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;
@@ -108,6 +109,8 @@ use syntax::print::pprust::*;
 use syntax::{ast, ast_map, abi};
 use syntax::ast_util::local_def;
 
+use std::cell::RefCell;
+
 mod check;
 mod rscope;
 mod astconv;
@@ -123,6 +126,11 @@ struct TypeAndSubsts<'tcx> {
 struct CrateCtxt<'a, 'tcx: 'a> {
     // A mapping from method call sites to traits that have that method.
     trait_map: ty::TraitMap,
+    /// A vector of every trait accessible in the whole crate
+    /// (i.e. including those from subcrates). This is used only for
+    /// error reporting, and so is lazily initialised and generally
+    /// shouldn't taint the common path (hence the RefCell).
+    all_traits: RefCell<Option<check::method::AllTraitsVec>>,
     tcx: &'a ty::ctxt<'tcx>,
 }
 
@@ -320,6 +328,7 @@ pub fn check_crate(tcx: &ty::ctxt, trait_map: ty::TraitMap) {
     let time_passes = tcx.sess.time_passes();
     let ccx = CrateCtxt {
         trait_map: trait_map,
+        all_traits: RefCell::new(None),
         tcx: tcx
     };
 
