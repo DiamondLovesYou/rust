@@ -20,8 +20,7 @@ struct X { data: u32 }
 
 impl Something for X {
     fn yay<T: Str>(_:Option<X>, thing: &[T]) {
-//~^ ERROR in method `yay`, type parameter 0 requires bound `Str`, which is not required
-
+    //~^ ERROR the requirement `T : Str` appears on the impl method
     }
 }
 

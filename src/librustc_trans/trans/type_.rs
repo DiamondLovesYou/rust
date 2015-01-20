@@ -284,6 +284,13 @@ impl Type {
         }
     }
 
+    /// Return the number of elements in `self` if it is a LLVM vector type.
+    pub fn vector_length(&self) -> uint {
+        unsafe {
+            llvm::LLVMGetVectorSize(self.to_ref()) as uint
+        }
+    }
+
     pub fn array_length(&self) -> uint {
         unsafe {
             llvm::LLVMGetArrayLength(self.to_ref()) as uint
@@ -326,6 +333,13 @@ impl Type {
             _ => panic!("llvm_float_width called on a non-float type")
         }
     }
+
+    /// Retrieve the bit width of the integer type `self`.
+    pub fn int_width(&self) -> u64 {
+        unsafe {
+            llvm::LLVMGetIntTypeWidth(self.to_ref()) as u64
+        }
+    }
 }
 
 
@@ -338,7 +352,7 @@ pub struct TypeNames {
 impl TypeNames {
     pub fn new() -> TypeNames {
         TypeNames {
-            named_types: RefCell::new(FnvHashMap::new())
+            named_types: RefCell::new(FnvHashMap())
         }
     }
 

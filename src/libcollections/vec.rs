@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! A growable list type, written `Vec<T>` but pronounced 'vector.'
+//! A growable list type with heap-allocated contents, written `Vec<T>` but pronounced 'vector.'
 //!
 //! Vectors have `O(1)` indexing, push (to the end) and pop (from the end).
 //!
@@ -681,6 +681,43 @@ impl<T> Vec<T> {
         }
     }
 
+    /// Moves all the elements of `other` into `Self`, leaving `other` empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of elements in the vector overflows a `uint`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// let mut vec = vec![1, 2, 3];
+    /// let mut vec2 = vec![4, 5, 6];
+    /// vec.append(&mut vec2);
+    /// assert_eq!(vec, vec![1, 2, 3, 4, 5, 6]);
+    /// assert_eq!(vec2, vec![]);
+    /// ```
+    #[inline]
+    #[unstable = "new API, waiting for dust to settle"]
+    pub fn append(&mut self, other: &mut Self) {
+        if mem::size_of::<T>() == 0 {
+            // zero-size types consume no memory, so we can't rely on the
+            // address space running out
+            self.len = self.len.checked_add(other.len()).expect("length overflow");
+            unsafe { other.set_len(0) }
+            return;
+        }
+        self.reserve(other.len());
+        let len = self.len();
+        unsafe {
+            ptr::copy_nonoverlapping_memory(
+                self.get_unchecked_mut(len),
+                other.as_ptr(),
+                other.len());
+        }
+
+        self.len += other.len();
+        unsafe { other.set_len(0); }
+    }
+
     /// Creates a draining iterator that clears the `Vec` and iterates over
     /// the removed items from start to end.
     ///
@@ -1185,14 +1222,6 @@ impl<T:Clone> Clone for Vec<T> {
     }
 }
 
-#[cfg(stage0)]
-impl<S: hash::Writer, T: Hash<S>> Hash<S> for Vec<T> {
-    #[inline]
-    fn hash(&self, state: &mut S) {
-        self.as_slice().hash(state);
-    }
-}
-#[cfg(not(stage0))]
 impl<S: hash::Writer + hash::Hasher, T: Hash<S>> Hash<S> for Vec<T> {
     #[inline]
     fn hash(&self, state: &mut S) {
@@ -1510,6 +1539,9 @@ pub struct IntoIter<T> {
     ptr: *const T,
     end: *const T
 }
+
+unsafe impl<T: Send> Send for IntoIter<T> { }
+unsafe impl<T: Sync> Sync for IntoIter<T> { }
 
 impl<T> IntoIter<T> {
     #[inline]
@@ -2199,7 +2231,7 @@ mod tests {
 
     #[test]
     fn test_map_in_place_zero_drop_count() {
-        use std::sync::atomic::{AtomicUint, Ordering, ATOMIC_UINT_INIT};
+        use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 
         #[derive(Clone, PartialEq, Show)]
         struct Nothing;
@@ -2213,7 +2245,7 @@ mod tests {
             }
         }
         const NUM_ELEMENTS: uint = 2;
-        static DROP_COUNTER: AtomicUint = ATOMIC_UINT_INIT;
+        static DROP_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
         let v = repeat(Nothing).take(NUM_ELEMENTS).collect::<Vec<_>>();
 
@@ -2293,6 +2325,15 @@ mod tests {
         let xs = vec![1u, 2, 3];
         let ys = xs.into_boxed_slice();
         assert_eq!(ys.as_slice(), [1u, 2, 3]);
+    }
+
+    #[test]
+    fn test_append() {
+        let mut vec = vec![1, 2, 3];
+        let mut vec2 = vec![4, 5, 6];
+        vec.append(&mut vec2);
+        assert_eq!(vec, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(vec2, vec![]);
     }
 
     #[bench]

@@ -180,25 +180,6 @@ impl<'a> Arguments<'a> {
     /// unsafety, but will ignore invalid .
     #[doc(hidden)] #[inline]
     #[unstable = "implementation detail of the `format_args!` macro"]
-    #[cfg(stage0)] // SNAP 9e4e524
-    pub fn with_placeholders(pieces: &'a [&'a str],
-                             fmt: &'a [rt::Argument<'a>],
-                             args: &'a [Argument<'a>]) -> Arguments<'a> {
-        Arguments {
-            pieces: pieces,
-            fmt: Some(fmt),
-            args: args
-        }
-    }
-    /// This function is used to specify nonstandard formatting parameters.
-    /// The `pieces` array must be at least as long as `fmt` to construct
-    /// a valid Arguments structure. Also, any `Count` within `fmt` that is
-    /// `CountIsParam` or `CountIsNextParam` has to point to an argument
-    /// created with `argumentuint`. However, failing to do so doesn't cause
-    /// unsafety, but will ignore invalid .
-    #[doc(hidden)] #[inline]
-    #[unstable = "implementation detail of the `format_args!` macro"]
-    #[cfg(not(stage0))]
     pub fn with_placeholders(pieces: &'a [&'a str],
                              fmt: &'a [rt::Argument],
                              args: &'a [Argument<'a>]) -> Arguments<'a> {
@@ -226,10 +207,6 @@ pub struct Arguments<'a> {
     pieces: &'a [&'a str],
 
     // Placeholder specs, or `None` if all specs are default (as in "{}{}").
-    // SNAP 9e4e524
-    #[cfg(stage0)]
-    fmt: Option<&'a [rt::Argument<'a>]>,
-    #[cfg(not(stage0))]
     fmt: Option<&'a [rt::Argument]>,
 
     // Dynamic arguments for interpolation, to be interleaved with string
@@ -449,7 +426,7 @@ impl<'a> Formatter<'a> {
             for c in sign.into_iter() {
                 let mut b = [0; 4];
                 let n = c.encode_utf8(&mut b).unwrap_or(0);
-                let b = unsafe { str::from_utf8_unchecked(&b[0..n]) };
+                let b = unsafe { str::from_utf8_unchecked(&b[..n]) };
                 try!(f.buf.write_str(b));
             }
             if prefixed { f.buf.write_str(prefix) }
@@ -692,7 +669,7 @@ impl String for char {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let mut utf8 = [0u8; 4];
         let amt = self.encode_utf8(&mut utf8).unwrap_or(0);
-        let s: &str = unsafe { mem::transmute(&utf8[0..amt]) };
+        let s: &str = unsafe { mem::transmute(&utf8[..amt]) };
         String::fmt(s, f)
     }
 }

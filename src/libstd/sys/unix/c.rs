@@ -51,7 +51,9 @@ pub const FIONBIO: libc::c_ulong = 0x8004667e;
           all(target_os = "nacl", target_libc = "glibc")))]
 pub const FIONBIO: libc::c_ulong = 0x5421;
 #[cfg(all(target_os = "linux",
-          any(target_arch = "mips", target_arch = "mipsel")))]
+          any(target_arch = "mips",
+              target_arch = "mipsel",
+              target_arch = "powerpc")))]
 pub const FIONBIO: libc::c_ulong = 0x667e;
 
 #[cfg(any(target_os = "macos",
@@ -68,7 +70,9 @@ pub const FIOCLEX: libc::c_ulong = 0x20006601;
           all(target_os = "nacl", target_libc = "glibc")))]
 pub const FIOCLEX: libc::c_ulong = 0x5451;
 #[cfg(all(target_os = "linux",
-          any(target_arch = "mips", target_arch = "mipsel")))]
+          any(target_arch = "mips",
+              target_arch = "mipsel",
+              target_arch = "powerpc")))]
 pub const FIOCLEX: libc::c_ulong = 0x6601;
 
 #[cfg(any(target_os = "macos",
@@ -246,20 +250,22 @@ mod signal {
     unsafe impl ::marker::Sync for sigaction { }
 
     #[repr(C)]
-    #[cfg(any(all(stage0, target_word_size = "32"), all(not(stage0), target_pointer_width = "32")))]
+    #[cfg(target_pointer_width = "32")]
     pub struct sigset_t {
         __val: [libc::c_ulong; 32],
     }
 
     #[repr(C)]
-    #[cfg(any(all(stage0, target_word_size = "64"), all(not(stage0), target_pointer_width = "64")))]
+    #[cfg(target_pointer_width = "64")]
     pub struct sigset_t {
         __val: [libc::c_ulong; 16],
     }
 }
 
 #[cfg(all(target_os = "linux",
-          any(target_arch = "mips", target_arch = "mipsel")))]
+          any(target_arch = "mips",
+              target_arch = "mipsel",
+              target_arch = "powerpc")))]
 mod signal {
     use libc;
 

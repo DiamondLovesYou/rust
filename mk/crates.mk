@@ -52,9 +52,9 @@
 TARGET_CRATES := libc std flate arena term \
                  serialize getopts collections test rand \
                  log regex graphviz core rbml alloc \
-                 unicode
+                 unicode rustc_bitflags
 RUSTC_CRATES := rustc rustc_typeck rustc_borrowck rustc_resolve rustc_driver \
-                rustc_trans rustc_back rustc_llvm
+                rustc_trans rustc_back rustc_llvm rustc_privacy
 HOST_CRATES := syntax $(RUSTC_CRATES) rustdoc fmt_macros rust-pnacl-trans
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
 TOOLS := compiletest rustdoc rustc rustbook rust-pnacl-trans
@@ -64,22 +64,27 @@ DEPS_libc := core
 DEPS_unicode := core
 DEPS_alloc := core libc native:jemalloc
 DEPS_std := core libc rand alloc collections unicode \
-	native:rust_builtin native:backtrace native:rustrt_native
+	native:rust_builtin native:backtrace native:rustrt_native \
+	rustc_bitflags
 DEPS_graphviz := std
 DEPS_syntax := std term serialize log fmt_macros arena libc
 DEPS_rustc_driver := arena flate getopts graphviz libc rustc rustc_back rustc_borrowck \
-                     rustc_typeck rustc_resolve log syntax serialize rustc_llvm rustc_trans
+                     rustc_typeck rustc_resolve log syntax serialize rustc_llvm \
+		     rustc_trans rustc_privacy
+
 DEPS_rustc_trans := arena flate getopts graphviz libc rustc rustc_back \
 	                log syntax serialize rustc_llvm
 DEPS_rustc_typeck := rustc syntax
 DEPS_rustc_borrowck := rustc log graphviz syntax
 DEPS_rustc_resolve := rustc log syntax
+DEPS_rustc_privacy := rustc log syntax
 DEPS_rustc := syntax flate arena serialize getopts rbml \
               log graphviz rustc_llvm rustc_back
 DEPS_rustc_llvm := native:rustllvm libc std log
 DEPS_rustc_back := std syntax rustc_llvm flate log libc
 DEPS_rustdoc := rustc rustc_driver native:hoedown serialize getopts \
                 test
+DEPS_rustc_bitflags := core
 DEPS_rust-pnacl-trans := libc getopts log rustc_llvm
 DEPS_flate := std native:miniz
 DEPS_arena := std
@@ -114,6 +119,7 @@ ONLY_RLIB_alloc := 1
 ONLY_RLIB_rand := 1
 ONLY_RLIB_collections := 1
 ONLY_RLIB_unicode := 1
+ONLY_RLIB_rustc_bitflags := 1
 
 ################################################################################
 # You should not need to edit below this line
@@ -125,12 +131,13 @@ DOC_CRATES := $(filter-out rustc, \
               $(filter-out rustc_borrowck, \
               $(filter-out rustc_resolve, \
               $(filter-out rustc_driver, \
+              $(filter-out rustc_privacy, \
               $(filter-out log, \
               $(filter-out regex, \
               $(filter-out getopts, \
-              $(filter-out syntax, $(CRATES)))))))))))
+              $(filter-out syntax, $(CRATES))))))))))))
 COMPILER_DOC_CRATES := rustc rustc_trans rustc_borrowck rustc_resolve \
-                       rustc_typeck rustc_driver syntax
+                       rustc_typeck rustc_driver syntax rustc_privacy
 
 # This macro creates some simple definitions for each crate being built, just
 # some munging of all of the parameters above.

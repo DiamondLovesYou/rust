@@ -271,9 +271,9 @@ impl<'tcx> TypeMap<'tcx> {
     fn new() -> TypeMap<'tcx> {
         TypeMap {
             unique_id_interner: Interner::new(),
-            type_to_metadata: FnvHashMap::new(),
-            unique_id_to_metadata: FnvHashMap::new(),
-            type_to_unique_id: FnvHashMap::new(),
+            type_to_metadata: FnvHashMap(),
+            unique_id_to_metadata: FnvHashMap(),
+            type_to_unique_id: FnvHashMap(),
         }
     }
 
@@ -672,11 +672,11 @@ impl<'tcx> CrateDebugContext<'tcx> {
             llcontext: llcontext,
             builder: builder,
             current_debug_location: Cell::new(UnknownLocation),
-            created_files: RefCell::new(FnvHashMap::new()),
-            created_enum_disr_types: RefCell::new(DefIdMap::new()),
+            created_files: RefCell::new(FnvHashMap()),
+            created_enum_disr_types: RefCell::new(DefIdMap()),
             type_map: RefCell::new(TypeMap::new()),
-            namespace_map: RefCell::new(FnvHashMap::new()),
-            composite_types_completed: RefCell::new(FnvHashSet::new()),
+            namespace_map: RefCell::new(FnvHashMap()),
+            composite_types_completed: RefCell::new(FnvHashSet()),
         };
     }
 }
@@ -853,7 +853,9 @@ pub fn create_global_var_metadata(cx: &CrateContext,
 /// local in `bcx.fcx.lllocals`.
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_local_var_metadata(bcx: Block, local: &ast::Local) {
-    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() ||
+       fn_should_be_ignored(bcx.fcx) ||
+       bcx.sess().opts.debuginfo != FullDebugInfo  {
         return;
     }
 
@@ -897,7 +899,9 @@ pub fn create_captured_var_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                                 env_index: uint,
                                                 captured_by_ref: bool,
                                                 span: Span) {
-    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() ||
+       fn_should_be_ignored(bcx.fcx) ||
+       bcx.sess().opts.debuginfo != FullDebugInfo {
         return;
     }
 
@@ -961,7 +965,7 @@ pub fn create_captured_var_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     let variable_access = IndirectVariable {
         alloca: env_pointer,
-        address_operations: &address_operations[0..address_op_count]
+        address_operations: &address_operations[..address_op_count]
     };
 
     declare_local(bcx,
@@ -980,7 +984,9 @@ pub fn create_captured_var_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 pub fn create_match_binding_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                                  variable_ident: ast::Ident,
                                                  binding: BindingInfo<'tcx>) {
-    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() ||
+       fn_should_be_ignored(bcx.fcx) ||
+       bcx.sess().opts.debuginfo != FullDebugInfo {
         return;
     }
 
@@ -1020,7 +1026,9 @@ pub fn create_match_binding_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 /// argument in `bcx.fcx.lllocals`.
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_argument_metadata(bcx: Block, arg: &ast::Arg) {
-    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() ||
+       fn_should_be_ignored(bcx.fcx) ||
+       bcx.sess().opts.debuginfo != FullDebugInfo {
         return;
     }
 
@@ -1074,7 +1082,9 @@ pub fn create_argument_metadata(bcx: Block, arg: &ast::Arg) {
 /// loop variable in `bcx.fcx.lllocals`.
 /// Adds the created metadata nodes directly to the crate's IR.
 pub fn create_for_loop_var_metadata(bcx: Block, pat: &ast::Pat) {
-    if bcx.unreachable.get() || fn_should_be_ignored(bcx.fcx) {
+    if bcx.unreachable.get() ||
+       fn_should_be_ignored(bcx.fcx) ||
+       bcx.sess().opts.debuginfo != FullDebugInfo {
         return;
     }
 
@@ -1439,18 +1449,15 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         let mut signature = Vec::with_capacity(fn_decl.inputs.len() + 1);
 
         // Return type -- llvm::DIBuilder wants this at index 0
-        match fn_decl.output {
-            ast::Return(ref ret_ty) if ret_ty.node == ast::TyTup(vec![]) =>
-                signature.push(ptr::null_mut()),
-            _ => {
-                assert_type_for_node_id(cx, fn_ast_id, error_reporting_span);
-
-                let return_type = ty::node_id_to_type(cx.tcx(), fn_ast_id);
-                let return_type = monomorphize::apply_param_substs(cx.tcx(),
-                                                                   param_substs,
-                                                                   &return_type);
-                signature.push(type_metadata(cx, return_type, codemap::DUMMY_SP));
-            }
+        assert_type_for_node_id(cx, fn_ast_id, error_reporting_span);
+        let return_type = ty::node_id_to_type(cx.tcx(), fn_ast_id);
+        let return_type = monomorphize::apply_param_substs(cx.tcx(),
+                                                           param_substs,
+                                                           &return_type);
+        if ty::type_is_nil(return_type) {
+            signature.push(ptr::null_mut())
+        } else {
+            signature.push(type_metadata(cx, return_type, codemap::DUMMY_SP));
         }
 
         // Arguments types
@@ -3217,7 +3224,7 @@ fn create_scope_map(cx: &CrateContext,
                     fn_metadata: DISubprogram,
                     fn_ast_id: ast::NodeId)
                  -> NodeMap<DIScope> {
-    let mut scope_map = NodeMap::new();
+    let mut scope_map = NodeMap();
 
     let def_map = &cx.tcx().def_map;
 
@@ -3501,7 +3508,8 @@ fn create_scope_map(cx: &CrateContext,
             ast::ExprLit(_)   |
             ast::ExprBreak(_) |
             ast::ExprAgain(_) |
-            ast::ExprPath(_)  => {}
+            ast::ExprPath(_)  |
+            ast::ExprQPath(_) => {}
 
             ast::ExprCast(ref sub_exp, _)     |
             ast::ExprAddrOf(_, ref sub_exp)  |

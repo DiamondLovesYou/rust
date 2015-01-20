@@ -1,4 +1,4 @@
-% The Rust Compiler Plugins Guide
+% Compiler Plugins
 
 <div class="unstable-feature">
 
@@ -68,7 +68,7 @@ use rustc::plugin::Registry;
 fn expand_rn(cx: &mut ExtCtxt, sp: Span, args: &[TokenTree])
         -> Box<MacResult + 'static> {
 
-    static NUMERALS: &'static [(&'static str, uint)] = &[
+    static NUMERALS: &'static [(&'static str, u32)] = &[
         ("M", 1000), ("CM", 900), ("D", 500), ("CD", 400),
         ("C",  100), ("XC",  90), ("L",  50), ("XL",  40),
         ("X",   10), ("IX",   9), ("V",   5), ("IV",   4),
@@ -83,7 +83,7 @@ fn expand_rn(cx: &mut ExtCtxt, sp: Span, args: &[TokenTree])
     };
 
     let mut text = text.as_slice();
-    let mut total = 0u;
+    let mut total = 0;
     while !text.is_empty() {
         match NUMERALS.iter().find(|&&(rn, _)| text.starts_with(rn)) {
             Some(&(rn, val)) => {
@@ -118,7 +118,7 @@ fn main() {
 }
 ```
 
-The advantages over a simple `fn(&str) -> uint` are:
+The advantages over a simple `fn(&str) -> u32` are:
 
 * The (arbitrarily complex) conversion is done at compile time.
 * Input validation is also performed at compile time.
@@ -126,7 +126,7 @@ The advantages over a simple `fn(&str) -> uint` are:
   a way to define new literal syntax for any data type.
 
 In addition to procedural macros, you can define new
-[`deriving`](../reference.html#deriving)-like attributes and other kinds of
+[`derive`](../reference.html#derive)-like attributes and other kinds of
 extensions.  See
 [`Registry::register_syntax_extension`](../rustc/plugin/registry/struct.Registry.html#method.register_syntax_extension)
 and the [`SyntaxExtension`

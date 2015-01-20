@@ -168,7 +168,7 @@ impl String {
 
         if i > 0 {
             unsafe {
-                res.as_mut_vec().push_all(&v[0..i])
+                res.as_mut_vec().push_all(&v[..i])
             };
         }
 
@@ -830,15 +830,6 @@ impl fmt::Show for String {
 }
 
 #[unstable = "waiting on Hash stabilization"]
-#[cfg(stage0)]
-impl<H: hash::Writer> hash::Hash<H> for String {
-    #[inline]
-    fn hash(&self, hasher: &mut H) {
-        (**self).hash(hasher)
-    }
-}
-#[unstable = "waiting on Hash stabilization"]
-#[cfg(not(stage0))]
 impl<H: hash::Writer + hash::Hasher> hash::Hash<H> for String {
     #[inline]
     fn hash(&self, hasher: &mut H) {

@@ -83,16 +83,16 @@ pub type Callback = fn(msg: &(Any + Send), file: &'static str, line: uint);
 //
 // For more information, see below.
 const MAX_CALLBACKS: uint = 16;
-static CALLBACKS: [atomic::AtomicUint; MAX_CALLBACKS] =
-        [atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
-         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
-         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
-         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
-         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
-         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
-         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT,
-         atomic::ATOMIC_UINT_INIT, atomic::ATOMIC_UINT_INIT];
-static CALLBACK_CNT: atomic::AtomicUint = atomic::ATOMIC_UINT_INIT;
+static CALLBACKS: [atomic::AtomicUsize; MAX_CALLBACKS] =
+        [atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT,
+         atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT,
+         atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT,
+         atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT,
+         atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT,
+         atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT,
+         atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT,
+         atomic::ATOMIC_USIZE_INIT, atomic::ATOMIC_USIZE_INIT];
+static CALLBACK_CNT: atomic::AtomicUsize = atomic::ATOMIC_USIZE_INIT;
 
 thread_local! { static PANICKING: Cell<bool> = Cell::new(false) }
 
@@ -566,7 +566,7 @@ fn begin_unwind_inner(msg: Box<Any + Send>, file_line: &(&'static str, uint)) ->
     // MAX_CALLBACKS, so we're sure to clamp it as necessary.
     let callbacks = {
         let amt = CALLBACK_CNT.load(Ordering::SeqCst);
-        &CALLBACKS[0..cmp::min(amt, MAX_CALLBACKS)]
+        &CALLBACKS[..cmp::min(amt, MAX_CALLBACKS)]
     };
     for cb in callbacks.iter() {
         match cb.load(Ordering::SeqCst) {

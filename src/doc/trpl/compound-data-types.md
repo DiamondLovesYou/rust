@@ -51,7 +51,7 @@ arity and contained types.
 
 ```rust
 let mut x = (1, 2); // x: (i32, i32)
-let y = (2, 3);     // y: (i32, i32)
+let y = (2, 3); // y: (i32, i32)
 
 x = y;
 ```
@@ -156,7 +156,7 @@ These two will not be equal, even if they have the same values:
 ```{rust}
 # struct Color(i32, i32, i32);
 # struct Point(i32, i32, i32);
-let black  = Color(0, 0, 0);
+let black = Color(0, 0, 0);
 let origin = Point(0, 0, 0);
 ```
 
@@ -182,7 +182,7 @@ and with a struct, we have actual names.
 
 There _is_ one case when a tuple struct is very useful, though, and that's a
 tuple struct with only one element. We call this a *newtype*, because it lets
-you create a new type that's a synonym for another one:
+you create a new type that's similar to another one:
 
 ```{rust}
 struct Inches(i32);
@@ -194,7 +194,8 @@ println!("length is {} inches", integer_length);
 ```
 
 As you can see here, you can extract the inner integer type through a
-destructuring `let`.
+destructuring `let`, as we discussed previously in 'tuples.' In this case, the
+`let Inches(integer_length)` assigns `10` to `integer_length`.
 
 ## Enums
 
@@ -296,7 +297,7 @@ enum StringResult {
 }
 ```
 Where a `StringResult` is either a `StringResult::StringOK`, with the result of
-a computation, or an `StringResult::ErrorReason` with a `String` explaining
+a computation, or a `StringResult::ErrorReason` with a `String` explaining
 what caused the computation to fail. These kinds of `enum`s are actually very
 useful and are even part of the standard library.
 

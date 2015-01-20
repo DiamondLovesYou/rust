@@ -150,6 +150,7 @@ mod imp {
               all(target_os = "linux", target_arch = "aarch64"),
               all(target_os = "linux", target_arch = "mips"), // may not match
               all(target_os = "linux", target_arch = "mipsel"), // may not match
+              all(target_os = "linux", target_arch = "powerpc"), // may not match
               target_os = "android"))] // may not match
     mod signal {
         use libc;
@@ -182,14 +183,12 @@ mod imp {
             sa_restorer: *mut libc::c_void,
         }
 
-        #[cfg(any(all(stage0, target_word_size = "32"),
-                  all(not(stage0), target_pointer_width = "32")))]
+        #[cfg(target_pointer_width = "32")]
         #[repr(C)]
         pub struct sigset_t {
             __val: [libc::c_ulong; 32],
         }
-        #[cfg(any(all(stage0, target_word_size = "64"),
-                  all(not(stage0), target_pointer_width = "64")))]
+        #[cfg(target_pointer_width = "64")]
         #[repr(C)]
         pub struct sigset_t {
             __val: [libc::c_ulong; 16],

@@ -81,6 +81,9 @@ pub const unwinder_private_data_size: uint = 2;
 #[cfg(any(target_arch = "mips", target_arch = "mipsel"))]
 pub const unwinder_private_data_size: uint = 2;
 
+#[cfg(target_arch = "powerpc")]
+pub const unwinder_private_data_size: uint = 2;
+
 #[cfg(all(target_os = "nacl", not(target_arch = "arm")))]
 pub const unwinder_private_data_size: uint = 2;
 #[cfg(all(target_os = "nacl", target_arch = "arm"))]

@@ -934,15 +934,14 @@ unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -
 /// A `RefReader` is a struct implementing `Reader` which contains a reference
 /// to another reader. This is often useful when composing streams.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
-/// # fn main() {}
-/// # fn process_input<R: Reader>(r: R) {}
-/// # fn foo() {
 /// use std::io;
 /// use std::io::ByRefReader;
 /// use std::io::util::LimitReader;
+///
+/// fn process_input<R: Reader>(r: R) {}
 ///
 /// let mut stream = io::stdin();
 ///
@@ -953,8 +952,6 @@ unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -
 /// }
 ///
 /// // 'stream' is still available for use here
-///
-/// # }
 /// ```
 pub struct RefReader<'a, R:'a> {
     /// The underlying reader which this is referencing
@@ -1069,7 +1066,7 @@ pub trait Writer {
     fn write_char(&mut self, c: char) -> IoResult<()> {
         let mut buf = [0u8; 4];
         let n = c.encode_utf8(buf.as_mut_slice()).unwrap_or(0);
-        self.write(&buf[0..n])
+        self.write(&buf[..n])
     }
 
     /// Write the result of passing n through `int::to_str_bytes`.
@@ -1269,11 +1266,10 @@ impl<'a> Writer for &'a mut (Writer+'a) {
 /// # Example
 ///
 /// ```
-/// # fn main() {}
-/// # fn process_input<R: Reader>(r: R) {}
-/// # fn foo () {
 /// use std::io::util::TeeReader;
 /// use std::io::{stdin, ByRefWriter};
+///
+/// fn process_input<R: Reader>(r: R) {}
 ///
 /// let mut output = Vec::new();
 ///
@@ -1285,7 +1281,6 @@ impl<'a> Writer for &'a mut (Writer+'a) {
 /// }
 ///
 /// println!("input processed: {:?}", output);
-/// # }
 /// ```
 pub struct RefWriter<'a, W:'a> {
     /// The underlying writer which this is referencing
@@ -1454,7 +1449,7 @@ pub trait Buffer: Reader {
                 };
                 match available.iter().position(|&b| b == byte) {
                     Some(i) => {
-                        res.push_all(&available[0..(i + 1)]);
+                        res.push_all(&available[..(i + 1)]);
                         used = i + 1;
                         break
                     }
@@ -1493,7 +1488,7 @@ pub trait Buffer: Reader {
                 }
             }
         }
-        match str::from_utf8(&buf[0..width]).ok() {
+        match str::from_utf8(&buf[..width]).ok() {
             Some(s) => Ok(s.char_at(0)),
             None => Err(standard_error(InvalidInput))
         }
@@ -1705,19 +1700,19 @@ pub enum FileType {
 /// A structure used to describe metadata information about a file. This
 /// structure is created through the `stat` method on a `Path`.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```
-/// # use std::io::fs::PathExtensions;
-/// # fn main() {}
-/// # fn foo() {
+/// ```no_run
+/// # #![allow(unstable)]
+///
+/// use std::io::fs::PathExtensions;
+///
 /// let info = match Path::new("foo.txt").stat() {
 ///     Ok(stat) => stat,
 ///     Err(e) => panic!("couldn't read foo.txt: {}", e),
 /// };
 ///
 /// println!("byte size: {}", info.size);
-/// # }
 /// ```
 #[derive(Copy, Hash)]
 pub struct FileStat {

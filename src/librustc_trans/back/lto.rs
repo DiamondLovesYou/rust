@@ -183,8 +183,11 @@ pub fn run_passes<FA, FB>(sess: &session::Session,
 
             pre(pm);
 
+            let opt = sess.opts.cg.opt_level.unwrap_or(0) as libc::c_uint;
+
             if sess.opts.optimize != config::No {
                 let builder = llvm::LLVMPassManagerBuilderCreate();
+                llvm::LLVMPassManagerBuilderSetOptLevel(builder, opt);
                 llvm::LLVMPassManagerBuilderPopulateLTOPassManager
                     (builder,
                      pm,
@@ -211,7 +214,7 @@ pub fn run_passes<FA, FB>(sess: &session::Session,
 fn is_versioned_bytecode_format(bc: &[u8]) -> bool {
     let magic_id_byte_count = link::RLIB_BYTECODE_OBJECT_MAGIC.len();
     return bc.len() > magic_id_byte_count &&
-           &bc[0..magic_id_byte_count] == link::RLIB_BYTECODE_OBJECT_MAGIC;
+           &bc[..magic_id_byte_count] == link::RLIB_BYTECODE_OBJECT_MAGIC;
 }
 
 fn extract_bytecode_format_version(bc: &[u8]) -> u32 {

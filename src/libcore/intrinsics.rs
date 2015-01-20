@@ -46,7 +46,6 @@
 use f32;
 use f64;
 
-#[cfg(not(stage0))]
 use marker::Sized;
 
 pub type GlueFn = extern "Rust" fn(*const i8);
@@ -202,16 +201,16 @@ extern "rust-intrinsic" {
     pub fn pref_align_of<T>() -> uint;
 
     /// Get a static pointer to a type descriptor.
+    #[cfg(not(stage0))]
+    pub fn get_tydesc<T: ?Sized>() -> *const TyDesc;
+
+    #[cfg(stage0)]
     pub fn get_tydesc<T>() -> *const TyDesc;
 
     /// Gets an identifier which is globally unique to the specified type. This
     /// function will return the same value for a type regardless of whichever
     /// crate it is invoked in.
-    #[cfg(not(stage0))]
     pub fn type_id<T: ?Sized + 'static>() -> TypeId;
-
-    #[cfg(stage0)]
-    pub fn type_id<T: 'static>() -> TypeId;
 
     /// Create a value initialized to zero.
     ///
@@ -670,13 +669,7 @@ pub struct TypeId {
 
 impl TypeId {
     /// Returns the `TypeId` of the type this generic function has been instantiated with
-    #[cfg(not(stage0))]
     pub fn of<T: ?Sized + 'static>() -> TypeId {
-        unsafe { type_id::<T>() }
-    }
-
-    #[cfg(stage0)]
-    pub fn of<T: 'static>() -> TypeId {
         unsafe { type_id::<T>() }
     }
 

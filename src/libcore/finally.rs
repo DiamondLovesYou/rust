@@ -23,16 +23,18 @@
 //!
 //! use std::finally::Finally;
 //!
-//! # fn main() {
 //! (|&mut:| {
 //!     // ...
 //! }).finally(|| {
 //!     // this code is always run
 //! })
-//! # }
 //! ```
 
-#![unstable]
+#![deprecated = "It is unclear if this module is more robust than implementing \
+                 Drop on a custom type, and this module is being removed with no \
+                 replacement. Use a custom Drop implementation to regain existing \
+                 functionality."]
+#![allow(deprecated)]
 
 use ops::{Drop, FnMut, FnOnce};
 

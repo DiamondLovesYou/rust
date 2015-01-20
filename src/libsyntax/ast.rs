@@ -747,6 +747,8 @@ pub enum Expr_ {
     /// Variable reference, possibly containing `::` and/or
     /// type parameters, e.g. foo::bar::<baz>
     ExprPath(Path),
+    /// A "qualified path", e.g. `<Vec<T> as SomeTrait>::SomeType`
+    ExprQPath(P<QPath>),
 
     ExprAddrOf(Mutability, P<Expr>),
     ExprBreak(Option<Ident>),
@@ -771,12 +773,12 @@ pub enum Expr_ {
 ///
 ///     <Vec<T> as SomeTrait>::SomeAssociatedItem
 ///      ^~~~~     ^~~~~~~~~   ^~~~~~~~~~~~~~~~~~
-///      self_type  trait_name  item_name
+///      self_type  trait_name  item_path
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show)]
 pub struct QPath {
     pub self_type: P<Ty>,
     pub trait_ref: P<TraitRef>,
-    pub item_name: Ident, // FIXME(#20301) -- should use Name
+    pub item_path: PathSegment,
 }
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show, Copy)]
@@ -955,7 +957,7 @@ pub type Mac = Spanned<Mac_>;
 pub enum Mac_ {
     // NB: the additional ident for a macro_rules-style macro is actually
     // stored in the enclosing item. Oog.
-    MacInvocTT(Path, Vec<TokenTree> , SyntaxContext),   // new macro-invocation
+    MacInvocTT(Path, Vec<TokenTree>, SyntaxContext),   // new macro-invocation
 }
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show, Copy)]
@@ -1388,6 +1390,10 @@ pub enum FunctionRetTy {
     /// Functions with return type ! that always
     /// raise an error or exit (i.e. never return to the caller)
     NoReturn(Span),
+    /// Return type is not specified. Functions default to () and
+    /// closures default to inference. Span points to where return
+    /// type would be inserted.
+    DefaultReturn(Span),
     /// Everything else
     Return(P<Ty>),
 }
@@ -1396,6 +1402,7 @@ impl FunctionRetTy {
     pub fn span(&self) -> Span {
         match *self {
             NoReturn(span) => span,
+            DefaultReturn(span) => span,
             Return(ref ty) => ty.span
         }
     }
@@ -1526,6 +1533,19 @@ pub struct ViewItem {
     pub attrs: Vec<Attribute>,
     pub vis: Visibility,
     pub span: Span,
+}
+
+impl ViewItem {
+    pub fn id(&self) -> NodeId {
+        match self.node {
+            ViewItemExternCrate(_, _, id) => id,
+            ViewItemUse(ref vp) => match vp.node {
+                ViewPathSimple(_, _, id) => id,
+                ViewPathGlob(_, id) => id,
+                ViewPathList(_, _, id) => id,
+            }
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Show)]

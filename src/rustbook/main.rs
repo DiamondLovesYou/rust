@@ -9,6 +9,7 @@
 // except according to those terms.
 
 #![feature(slicing_syntax, box_syntax)]
+#![allow(unstable)]
 
 extern crate regex;
 
@@ -39,6 +40,7 @@ mod serve;
 mod test;
 
 mod css;
+mod javascript;
 
 #[cfg(not(test))] // thanks #12327
 fn main() {

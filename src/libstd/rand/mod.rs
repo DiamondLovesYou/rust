@@ -230,9 +230,9 @@ use rc::Rc;
 use result::Result::{Ok, Err};
 use vec::Vec;
 
-#[cfg(any(all(stage0, target_word_size = "32"), all(not(stage0), target_pointer_width = "32")))]
+#[cfg(target_pointer_width = "32")]
 use core_rand::IsaacRng as IsaacWordRng;
-#[cfg(any(all(stage0, target_word_size = "64"), all(not(stage0), target_pointer_width = "64")))]
+#[cfg(target_pointer_width = "64")]
 use core_rand::Isaac64Rng as IsaacWordRng;
 
 pub use core_rand::{Rand, Rng, SeedableRng, Open01, Closed01};
@@ -374,9 +374,13 @@ impl Rng for ThreadRng {
 /// `random()` can generate various types of random things, and so may require
 /// type hinting to generate the specific type you want.
 ///
+/// This function uses the thread local random number generator. This means
+/// that if you're calling `random()` in a loop, caching the generator can
+/// increase performance. An example is shown below.
+///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::rand;
 ///
 /// let x = rand::random();
@@ -387,6 +391,27 @@ impl Rng for ThreadRng {
 ///
 /// if rand::random() { // generates a boolean
 ///     println!("Better lucky than good!");
+/// }
+/// ```
+///
+/// Caching the thread local random number generator:
+///
+/// ```
+/// use std::rand;
+/// use std::rand::Rng;
+///
+/// let mut v = vec![1, 2, 3];
+///
+/// for x in v.iter_mut() {
+///     *x = rand::random()
+/// }
+///
+/// // would be faster as
+///
+/// let mut rng = rand::thread_rng();
+///
+/// for x in v.iter_mut() {
+///     *x = rng.gen();
 /// }
 /// ```
 #[inline]

@@ -186,7 +186,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
         if len <= 2 {
             return;
         }
-        let sub_paths = &sub_paths[0..(len-2)];
+        let sub_paths = &sub_paths[..(len-2)];
         for &(ref span, ref qualname) in sub_paths.iter() {
             self.fmt.sub_mod_ref_str(path.span,
                                      *span,
@@ -278,7 +278,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
         // The qualname for a method is the trait name or name of the struct in an impl in
         // which the method is declared in followed by the method's name.
         let mut qualname = match ty::impl_of_method(&self.analysis.ty_cx,
-                                                ast_util::local_def(method.id)) {
+                                                    ast_util::local_def(method.id)) {
             Some(impl_id) => match self.analysis.ty_cx.map.get(impl_id.node) {
                 NodeItem(item) => {
                     scope_id = item.id;
@@ -349,7 +349,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
             .and_then(|def_id| {
                 if match def_id {
                     ty::MethodTraitItemId(def_id) => {
-                        method.id != 0 && def_id.node == 0
+                        def_id.node != 0 && def_id != ast_util::local_def(method.id)
                     }
                     ty::TypeTraitItemId(_) => false,
                 } {
@@ -392,8 +392,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
     }
 
     fn process_trait_ref(&mut self,
-                         trait_ref: &ast::TraitRef,
-                         impl_id: Option<NodeId>) {
+                         trait_ref: &ast::TraitRef) {
         match self.lookup_type_ref(trait_ref.ref_id) {
             Some(id) => {
                 let sub_span = self.span.sub_span_for_type_name(trait_ref.path.span);
@@ -402,14 +401,6 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                                  sub_span,
                                  id,
                                  self.cur_scope);
-                match impl_id {
-                    Some(impl_id) => self.fmt.impl_str(trait_ref.path.span,
-                                                       sub_span,
-                                                       impl_id,
-                                                       id,
-                                                       self.cur_scope),
-                    None => (),
-                }
                 visit::walk_path(self, &trait_ref.path);
             },
             None => ()
@@ -652,7 +643,9 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                     trait_ref: &Option<ast::TraitRef>,
                     typ: &ast::Ty,
                     impl_items: &Vec<ast::ImplItem>) {
+        let trait_id = trait_ref.as_ref().and_then(|tr| self.lookup_type_ref(tr.ref_id));
         match typ.node {
+            // Common case impl for a struct or something basic.
             ast::TyPath(ref path, id) => {
                 match self.lookup_type_ref(id) {
                     Some(id) => {
@@ -665,17 +658,29 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                         self.fmt.impl_str(path.span,
                                           sub_span,
                                           item.id,
-                                          id,
+                                          Some(id),
+                                          trait_id,
                                           self.cur_scope);
                     },
                     None => ()
                 }
             },
-            _ => self.visit_ty(&*typ),
+            _ => {
+                // Less useful case, impl for a compound type.
+                self.visit_ty(&*typ);
+
+                let sub_span = self.span.sub_span_for_type_name(typ.span);
+                self.fmt.impl_str(typ.span,
+                                  sub_span,
+                                  item.id,
+                                  None,
+                                  trait_id,
+                                  self.cur_scope);
+            }
         }
 
         match *trait_ref {
-            Some(ref trait_ref) => self.process_trait_ref(trait_ref, Some(item.id)),
+            Some(ref trait_ref) => self.process_trait_ref(trait_ref),
             None => (),
         }
 
@@ -767,7 +772,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
                     span: Span,
                     path: &ast::Path,
                     ref_kind: Option<recorder::Row>) {
-        if generated_code(path.span) {
+        if generated_code(span) {
             return
         }
 
@@ -1076,7 +1081,7 @@ impl<'l, 'tcx, 'v> Visitor<'v> for DxrVisitor<'l, 'tcx> {
         for param in generics.ty_params.iter() {
             for bound in param.bounds.iter() {
                 if let ast::TraitTyParamBound(ref trait_ref, _) = *bound {
-                    self.process_trait_ref(&trait_ref.trait_ref, None);
+                    self.process_trait_ref(&trait_ref.trait_ref);
                 }
             }
             if let Some(ref ty) = param.default {
@@ -1307,8 +1312,14 @@ impl<'l, 'tcx, 'v> Visitor<'v> for DxrVisitor<'l, 'tcx> {
                 visit::walk_expr(self, ex);
             },
             ast::ExprPath(ref path) => {
-                self.process_path(ex.id, ex.span, path, None);
+                self.process_path(ex.id, path.span, path, None);
                 visit::walk_path(self, path);
+            }
+            ast::ExprQPath(ref qpath) => {
+                let mut path = qpath.trait_ref.path.clone();
+                path.segments.push(qpath.item_path.clone());
+                self.process_path(ex.id, ex.span, &path, None);
+                visit::walk_qpath(self, ex.span, &**qpath);
             }
             ast::ExprStruct(ref path, ref fields, ref base) =>
                 self.process_struct_lit(ex, path, fields, base),
@@ -1439,7 +1450,7 @@ impl<'l, 'tcx, 'v> Visitor<'v> for DxrVisitor<'l, 'tcx> {
                                           "")
                 }
                 def::DefVariant(..) => {
-                    paths_to_process.push((id, p.span, p.clone(), Some(ref_kind)))
+                    paths_to_process.push((id, p.clone(), Some(ref_kind)))
                 }
                 // FIXME(nrc) what are these doing here?
                 def::DefStatic(_, _) => {}
@@ -1448,8 +1459,8 @@ impl<'l, 'tcx, 'v> Visitor<'v> for DxrVisitor<'l, 'tcx> {
                             *def)
             }
         }
-        for &(id, span, ref path, ref_kind) in paths_to_process.iter() {
-            self.process_path(id, span, path, ref_kind);
+        for &(id, ref path, ref_kind) in paths_to_process.iter() {
+            self.process_path(id, path.span, path, ref_kind);
         }
         self.collecting = false;
         self.collected_paths.clear();

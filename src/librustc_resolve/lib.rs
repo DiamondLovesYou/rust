@@ -20,9 +20,11 @@
 #![feature(slicing_syntax)]
 #![feature(rustc_diagnostic_macros)]
 #![allow(unknown_features)] #![feature(int_uint)]
+#![allow(unstable)]
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;
+#[macro_use] #[no_link] extern crate rustc_bitflags;
 
 extern crate rustc;
 
@@ -61,7 +63,7 @@ use rustc::util::lev_distance::lev_distance;
 use syntax::ast::{Arm, BindByRef, BindByValue, BindingMode, Block, Crate, CrateNum};
 use syntax::ast::{DefId, Expr, ExprAgain, ExprBreak, ExprField};
 use syntax::ast::{ExprClosure, ExprForLoop, ExprLoop, ExprWhile, ExprMethodCall};
-use syntax::ast::{ExprPath, ExprStruct, FnDecl};
+use syntax::ast::{ExprPath, ExprQPath, ExprStruct, FnDecl};
 use syntax::ast::{ForeignItemFn, ForeignItemStatic, Generics};
 use syntax::ast::{Ident, ImplItem, Item, ItemConst, ItemEnum, ItemFn};
 use syntax::ast::{ItemForeignMod, ItemImpl, ItemMac, ItemMod, ItemStatic};
@@ -457,6 +459,7 @@ enum ModuleKind {
     TraitModuleKind,
     ImplModuleKind,
     EnumModuleKind,
+    TypeModuleKind,
     AnonymousModuleKind,
 }
 
@@ -520,7 +523,7 @@ impl Module {
             children: RefCell::new(HashMap::new()),
             imports: RefCell::new(Vec::new()),
             external_module_children: RefCell::new(HashMap::new()),
-            anonymous_children: RefCell::new(NodeMap::new()),
+            anonymous_children: RefCell::new(NodeMap()),
             import_resolutions: RefCell::new(HashMap::new()),
             glob_count: Cell::new(0),
             resolved_import_count: Cell::new(0),
@@ -940,8 +943,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
             graph_root: graph_root,
 
-            trait_item_map: FnvHashMap::new(),
-            structs: FnvHashMap::new(),
+            trait_item_map: FnvHashMap(),
+            structs: FnvHashMap(),
 
             unresolved_imports: 0,
 
@@ -958,16 +961,16 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
             primitive_type_table: PrimitiveTypeTable::new(),
 
-            def_map: RefCell::new(NodeMap::new()),
-            freevars: RefCell::new(NodeMap::new()),
-            freevars_seen: RefCell::new(NodeMap::new()),
-            capture_mode_map: NodeMap::new(),
-            export_map: NodeMap::new(),
-            trait_map: NodeMap::new(),
+            def_map: RefCell::new(NodeMap()),
+            freevars: RefCell::new(NodeMap()),
+            freevars_seen: RefCell::new(NodeMap()),
+            capture_mode_map: NodeMap(),
+            export_map: NodeMap(),
+            trait_map: NodeMap(),
             used_imports: HashSet::new(),
             used_crates: HashSet::new(),
-            external_exports: DefIdSet::new(),
-            last_private: NodeMap::new(),
+            external_exports: DefIdSet(),
+            last_private: NodeMap(),
 
             emit_errors: true,
             make_glob_map: make_glob_map == MakeGlobMap::Yes,
@@ -2081,7 +2084,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                             // idx +- 1 to account for the
                                             // colons on either side
                                             &mpath[(idx + 1)..],
-                                            &mpath[0..(idx - 1)]);
+                                            &mpath[..(idx - 1)]);
                         return Failed(Some((span, msg)));
                     },
                     None => {
@@ -2238,6 +2241,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         TraitModuleKind |
                         ImplModuleKind |
                         EnumModuleKind |
+                        TypeModuleKind |
                         AnonymousModuleKind => {
                             search_module = parent_module_node.upgrade().unwrap();
                         }
@@ -2335,6 +2339,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         TraitModuleKind |
                         ImplModuleKind |
                         EnumModuleKind |
+                        TypeModuleKind |
                         AnonymousModuleKind => module_ = new_module,
                     }
                 }
@@ -2351,6 +2356,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             TraitModuleKind |
             ImplModuleKind |
             EnumModuleKind |
+            TypeModuleKind |
             AnonymousModuleKind => {
                 match self.get_nearest_normal_module_parent(module_.clone()) {
                     None => module_,
@@ -2629,7 +2635,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                             let mut seen = self.freevars_seen.borrow_mut();
                             let seen = match seen.entry(function_id) {
                                 Occupied(v) => v.into_mut(),
-                                Vacant(v) => v.insert(NodeSet::new()),
+                                Vacant(v) => v.insert(NodeSet()),
                             };
                             if seen.contains(&node_id) {
                                 continue;
@@ -3169,7 +3175,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     TraitImplementation        => "implement",
                     TraitDerivation            => "derive",
                     TraitObject                => "reference",
-                    TraitQPath                 => "extract an associated type from",
+                    TraitQPath                 => "extract an associated item from",
                 };
 
                 let msg = format!("attempt to {} a nonexistent trait `{}`", usage_str, path_str);
@@ -3565,31 +3571,17 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     }
                 }
 
-                match result_def {
-                    None => {
-                        match self.resolve_path(ty.id, path, TypeNS, true) {
-                            Some(def) => {
-                                debug!("(resolving type) resolved `{:?}` to \
-                                        type {:?}",
-                                       token::get_ident(path.segments.last().unwrap() .identifier),
-                                       def);
-                                result_def = Some(def);
-                            }
-                            None => {
-                                result_def = None;
-                            }
-                        }
-                    }
-                    Some(_) => {}   // Continue.
+                if let None = result_def {
+                    result_def = self.resolve_path(ty.id, path, TypeNS, true);
                 }
 
                 match result_def {
                     Some(def) => {
                         // Write the result into the def map.
                         debug!("(resolving type) writing resolution for `{}` \
-                                (id {})",
+                                (id {}) = {:?}",
                                self.path_names_to_string(path),
-                               path_id);
+                               path_id, def);
                         self.record_def(path_id, def);
                     }
                     None => {
@@ -3609,6 +3601,12 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             TyQPath(ref qpath) => {
                 self.resolve_type(&*qpath.self_type);
                 self.resolve_trait_reference(ty.id, &*qpath.trait_ref, TraitQPath);
+                for ty in qpath.item_path.parameters.types().into_iter() {
+                    self.resolve_type(&**ty);
+                }
+                for binding in qpath.item_path.parameters.bindings().into_iter() {
+                    self.resolve_type(&*binding.ty);
+                }
             }
 
             TyPolyTraitRef(ref bounds) => {
@@ -4400,15 +4398,25 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             // The interpretation of paths depends on whether the path has
             // multiple elements in it or not.
 
-            ExprPath(ref path) => {
+            ExprPath(_) | ExprQPath(_) => {
+                let mut path_from_qpath;
+                let path = match expr.node {
+                    ExprPath(ref path) => path,
+                    ExprQPath(ref qpath) => {
+                        self.resolve_type(&*qpath.self_type);
+                        self.resolve_trait_reference(expr.id, &*qpath.trait_ref, TraitQPath);
+                        path_from_qpath = qpath.trait_ref.path.clone();
+                        path_from_qpath.segments.push(qpath.item_path.clone());
+                        &path_from_qpath
+                    }
+                    _ => unreachable!()
+                };
                 // This is a local path in the value namespace. Walk through
                 // scopes looking for it.
-
-                let path_name = self.path_names_to_string(path);
-
                 match self.resolve_path(expr.id, path, ValueNS, true) {
                     // Check if struct variant
                     Some((DefVariant(_, _, true), _)) => {
+                        let path_name = self.path_names_to_string(path);
                         self.resolve_error(expr.span,
                                 format!("`{}` is a struct variant name, but \
                                          this expression \
@@ -4423,7 +4431,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     Some(def) => {
                         // Write the result into the def map.
                         debug!("(resolving expr) resolved `{}`",
-                               path_name);
+                               self.path_names_to_string(path));
 
                         self.record_def(expr.id, def);
                     }
@@ -4432,6 +4440,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         // (The pattern matching def_tys where the id is in self.structs
                         // matches on regular structs while excluding tuple- and enum-like
                         // structs, which wouldn't result in this error.)
+                        let path_name = self.path_names_to_string(path);
                         match self.with_no_errors(|this|
                             this.resolve_path(expr.id, path, TypeNS, false)) {
                             Some((DefTy(struct_id, _), _))

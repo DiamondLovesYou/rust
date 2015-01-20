@@ -575,7 +575,7 @@ pub struct RawPointerDerive {
 impl RawPointerDerive {
     pub fn new() -> RawPointerDerive {
         RawPointerDerive {
-            checked_raw_pointers: NodeSet::new(),
+            checked_raw_pointers: NodeSet(),
         }
     }
 }
@@ -774,9 +774,8 @@ impl LintPass for UnusedResults {
                         warned |= check_must_use(cx, &it.attrs[], s.span);
                     }
                 } else {
-                    csearch::get_item_attrs(&cx.sess().cstore, did, |attrs| {
-                        warned |= check_must_use(cx, &attrs[], s.span);
-                    });
+                    let attrs = csearch::get_item_attrs(&cx.sess().cstore, did);
+                    warned |= check_must_use(cx, &attrs[], s.span);
                 }
             }
             _ => {}
@@ -1324,7 +1323,7 @@ impl UnusedMut {
         // collect all mutable pattern and group their NodeIDs by their Identifier to
         // avoid false warnings in match arms with multiple patterns
 
-        let mut mutables = FnvHashMap::new();
+        let mut mutables = FnvHashMap();
         for p in pats.iter() {
             pat_util::pat_bindings(&cx.tcx.def_map, &**p, |mode, id, _, path1| {
                 let ident = path1.node;
@@ -1732,7 +1731,7 @@ impl LintPass for Stability {
         let mut span = e.span;
 
         let id = match e.node {
-            ast::ExprPath(..) | ast::ExprStruct(..) => {
+            ast::ExprPath(..) | ast::ExprQPath(..) | ast::ExprStruct(..) => {
                 match cx.tcx.def_map.borrow().get(&e.id) {
                     Some(&def) => def.def_id(),
                     None => return

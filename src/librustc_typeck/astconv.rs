@@ -516,8 +516,15 @@ pub fn instantiate_poly_trait_ref<'tcx>(
 {
     let mut projections = Vec::new();
 
+    // the trait reference introduces a binding level here, so
+    // we need to shift the `rscope`. It'd be nice if we could
+    // do away with this rscope stuff and work this knowledge
+    // into resolve_lifetimes, as we do with non-omitted
+    // lifetimes. Oh well, not there yet.
+    let shifted_rscope = ShiftedRscope::new(rscope);
+
     let trait_ref =
-        instantiate_trait_ref(this, rscope, &ast_trait_ref.trait_ref,
+        instantiate_trait_ref(this, &shifted_rscope, &ast_trait_ref.trait_ref,
                               self_ty, Some(&mut projections));
 
     for projection in projections.into_iter() {
@@ -561,6 +568,29 @@ pub fn instantiate_trait_ref<'tcx>(
     }
 }
 
+fn object_path_to_poly_trait_ref<'a,'tcx>(
+    this: &AstConv<'tcx>,
+    rscope: &RegionScope,
+    trait_def_id: ast::DefId,
+    path: &ast::Path,
+    mut projections: &mut Vec<ty::PolyProjectionPredicate<'tcx>>)
+    -> ty::PolyTraitRef<'tcx>
+{
+    // we are introducing a binder here, so shift the
+    // anonymous regions depth to account for that
+    let shifted_rscope = ShiftedRscope::new(rscope);
+
+    let mut tmp = Vec::new();
+    let trait_ref = ty::Binder(ast_path_to_trait_ref(this,
+                                                     &shifted_rscope,
+                                                     trait_def_id,
+                                                     None,
+                                                     path,
+                                                     Some(&mut tmp)));
+    projections.extend(tmp.into_iter().map(ty::Binder));
+    trait_ref
+}
+
 fn ast_path_to_trait_ref<'a,'tcx>(
     this: &AstConv<'tcx>,
     rscope: &RegionScope,
@@ -572,13 +602,6 @@ fn ast_path_to_trait_ref<'a,'tcx>(
 {
     debug!("ast_path_to_trait_ref {:?}", path);
     let trait_def = this.get_trait_def(trait_def_id);
-
-    // the trait reference introduces a binding level here, so
-    // we need to shift the `rscope`. It'd be nice if we could
-    // do away with this rscope stuff and work this knowledge
-    // into resolve_lifetimes, as we do with non-omitted
-    // lifetimes. Oh well, not there yet.
-    let shifted_rscope = ShiftedRscope::new(rscope);
 
     let (regions, types, assoc_bindings) = match path.segments.last().unwrap().parameters {
         ast::AngleBracketedParameters(ref data) => {
@@ -595,7 +618,7 @@ fn ast_path_to_trait_ref<'a,'tcx>(
                             the crate attributes to enable");
             }
 
-            convert_angle_bracketed_parameters(this, &shifted_rscope, data)
+            convert_angle_bracketed_parameters(this, rscope, data)
         }
         ast::ParenthesizedParameters(ref data) => {
             // For now, require that parenthetical notation be used
@@ -616,7 +639,7 @@ fn ast_path_to_trait_ref<'a,'tcx>(
     };
 
     let substs = create_substs_for_ast_path(this,
-                                            &shifted_rscope,
+                                            rscope,
                                             path.span,
                                             &trait_def.generics,
                                             self_ty,
@@ -851,15 +874,11 @@ fn ast_ty_to_trait_ref<'tcx>(this: &AstConv<'tcx>,
             match this.tcx().def_map.borrow().get(&id) {
                 Some(&def::DefTrait(trait_def_id)) => {
                     let mut projection_bounds = Vec::new();
-                    let trait_ref = ty::Binder(ast_path_to_trait_ref(this,
-                                                                     rscope,
-                                                                     trait_def_id,
-                                                                     None,
-                                                                     path,
-                                                                     Some(&mut projection_bounds)));
-                    let projection_bounds = projection_bounds.into_iter()
-                                                             .map(ty::Binder)
-                                                             .collect();
+                    let trait_ref = object_path_to_poly_trait_ref(this,
+                                                                  rscope,
+                                                                  trait_def_id,
+                                                                  path,
+                                                                  &mut projection_bounds);
                     Ok((trait_ref, projection_bounds))
                 }
                 _ => {
@@ -1001,9 +1020,12 @@ fn qpath_to_ty<'tcx>(this: &AstConv<'tcx>,
 
     debug!("qpath_to_ty: trait_ref={}", trait_ref.repr(this.tcx()));
 
+    // `<T as Trait>::U<V>` shouldn't parse right now.
+    assert!(qpath.item_path.parameters.is_empty());
+
     return this.projected_ty(ast_ty.span,
                              trait_ref,
-                             qpath.item_name.name);
+                             qpath.item_path.identifier.name);
 }
 
 // Parses the programmer's textual representation of a type into our
@@ -1095,16 +1117,13 @@ pub fn ast_ty_to_ty<'tcx>(
                         // N.B. this case overlaps somewhat with
                         // TyObjectSum, see that fn for details
                         let mut projection_bounds = Vec::new();
-                        let trait_ref = ast_path_to_trait_ref(this,
-                                                              rscope,
-                                                              trait_def_id,
-                                                              None,
-                                                              path,
-                                                              Some(&mut projection_bounds));
-                        let trait_ref = ty::Binder(trait_ref);
-                        let projection_bounds = projection_bounds.into_iter()
-                                                                 .map(ty::Binder)
-                                                                 .collect();
+
+                        let trait_ref = object_path_to_poly_trait_ref(this,
+                                                                      rscope,
+                                                                      trait_def_id,
+                                                                      path,
+                                                                      &mut projection_bounds);
+
                         trait_ref_to_object_type(this, rscope, path.span,
                                                  trait_ref, projection_bounds, &[])
                     }
@@ -1340,7 +1359,8 @@ fn ty_of_method_or_bare_fn<'a, 'tcx>(this: &AstConv<'tcx>,
                                                               implied_output_region,
                                                               lifetimes_for_params,
                                                               &**output)),
-        ast::NoReturn(_) => ty::FnDiverging
+        ast::DefaultReturn(..) => ty::FnConverging(ty::mk_nil(this.tcx())),
+        ast::NoReturn(..) => ty::FnDiverging
     };
 
     (ty::BareFnTy {
@@ -1467,14 +1487,21 @@ pub fn ty_of_closure<'tcx>(
 
     let expected_ret_ty = expected_sig.map(|e| e.output);
 
+    let is_infer = match decl.output {
+        ast::Return(ref output) if output.node == ast::TyInfer => true,
+        ast::DefaultReturn(..) => true,
+        _ => false
+    };
+
     let output_ty = match decl.output {
-        ast::Return(ref output) if output.node == ast::TyInfer && expected_ret_ty.is_some() =>
+        _ if is_infer && expected_ret_ty.is_some() =>
             expected_ret_ty.unwrap(),
-        ast::Return(ref output) if output.node == ast::TyInfer =>
-            ty::FnConverging(this.ty_infer(output.span)),
+        _ if is_infer =>
+            ty::FnConverging(this.ty_infer(decl.output.span())),
         ast::Return(ref output) =>
             ty::FnConverging(ast_ty_to_ty(this, &rb, &**output)),
-        ast::NoReturn(_) => ty::FnDiverging
+        ast::DefaultReturn(..) => unreachable!(),
+        ast::NoReturn(..) => ty::FnDiverging
     };
 
     debug!("ty_of_closure: input_tys={}", input_tys.repr(this.tcx()));
@@ -1692,7 +1719,7 @@ pub fn partition_bounds<'a>(tcx: &ty::ctxt,
     let mut builtin_bounds = ty::empty_builtin_bounds();
     let mut region_bounds = Vec::new();
     let mut trait_bounds = Vec::new();
-    let mut trait_def_ids = DefIdMap::new();
+    let mut trait_def_ids = DefIdMap();
     for ast_bound in ast_bounds.iter() {
         match *ast_bound {
             ast::TraitTyParamBound(ref b, ast::TraitBoundModifier::None) => {

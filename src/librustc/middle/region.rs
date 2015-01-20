@@ -22,6 +22,8 @@ use util::nodemap::{FnvHashMap, FnvHashSet, NodeMap};
 use util::common::can_reach;
 
 use std::cell::RefCell;
+// NOTE(stage0) remove import after a snapshot
+#[cfg(stage0)]
 use std::hash::{Hash};
 use syntax::codemap::Span;
 use syntax::{ast, visit};
@@ -889,11 +891,11 @@ impl<'a, 'v> Visitor<'v> for RegionResolutionVisitor<'a> {
 
 pub fn resolve_crate(sess: &Session, krate: &ast::Crate) -> RegionMaps {
     let maps = RegionMaps {
-        scope_map: RefCell::new(FnvHashMap::new()),
-        var_map: RefCell::new(NodeMap::new()),
-        free_region_map: RefCell::new(FnvHashMap::new()),
-        rvalue_scopes: RefCell::new(NodeMap::new()),
-        terminating_scopes: RefCell::new(FnvHashSet::new()),
+        scope_map: RefCell::new(FnvHashMap()),
+        var_map: RefCell::new(NodeMap()),
+        free_region_map: RefCell::new(FnvHashMap()),
+        rvalue_scopes: RefCell::new(NodeMap()),
+        terminating_scopes: RefCell::new(FnvHashSet()),
     };
     {
         let mut visitor = RegionResolutionVisitor {

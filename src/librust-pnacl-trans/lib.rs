@@ -15,6 +15,7 @@
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
+#![allow(unstable)]
 
 extern crate getopts;
 extern crate libc;
@@ -246,6 +247,7 @@ pub fn main() {
                                      llvm_args.as_ptr());
     }
     let tm = unsafe {
+        let triple = format!("{}\0", triple);
         let triple_ptr = triple.as_ptr() as *const i8;
         let cpu_ptr = "generic\0".as_ptr() as *const i8;
         let features_ptr = "\0".as_ptr() as *const i8;
@@ -278,7 +280,7 @@ pub fn main() {
 
                 assert!(llvm::LLVMRustAddPass(pm, "combine-vector-instructions\0".as_ptr() as *const i8 ));
 
-                let out = format!("{}.o", i);
+                let out = format!("{}.o\0", i);
 
                 let success = llvm::LLVMRustWriteOutputFile(tm,
                                                             pm,

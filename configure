@@ -448,6 +448,10 @@ case $CFG_CPUTYPE in
         CFG_CPUTYPE=aarch64
         ;;
 
+    powerpc)
+        CFG_CPUTYPE=powerpc
+        ;;
+
     x86_64 | x86-64 | x64 | amd64)
         CFG_CPUTYPE=x86_64
         ;;
@@ -610,7 +614,7 @@ putvar CFG_RELEASE_CHANNEL
 # channel.
 # Basing CFG_BOOTSTRAP_KEY on CFG_BOOTSTRAP_KEY lets it get picked up
 # during a Makefile reconfig.
-CFG_BOOTSTRAP_KEY="${CFG_BOOTSTRAP_KEY-`date +%N`}"
+CFG_BOOTSTRAP_KEY="${CFG_BOOTSTRAP_KEY-`date +%H:%M:%S`}"
 putvar CFG_BOOTSTRAP_KEY
 
 step_msg "looking for build programs"
@@ -1049,7 +1053,7 @@ do
     make_dir $t/rt/jemalloc
     for i in                                          \
       isaac sync test \
-      arch/i386 arch/x86_64 arch/arm arch/aarch64 arch/mips
+      arch/i386 arch/x86_64 arch/arm arch/aarch64 arch/mips arch/powerpc
     do
       make_dir $t/rt/stage$s/$i
     done
@@ -1312,7 +1316,7 @@ do
     then
         msg "configuring LLVM for $gnu_t"
 
-        LLVM_TARGETS="--enable-targets=x86,x86_64,arm,aarch64,mips"
+        LLVM_TARGETS="--enable-targets=x86,x86_64,arm,aarch64,mips,powerpc"
         LLVM_BUILD="--build=$(to_gnu_triple $CFG_BUILD)"
         LLVM_HOST="--host=$gnu_t"
         LLVM_TARGET="--target=$gnu_t"

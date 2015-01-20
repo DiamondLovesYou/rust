@@ -44,7 +44,7 @@ use middle::subst;
 use middle::weak_lang_items;
 use middle::subst::{Subst, Substs};
 use middle::ty::{self, Ty, UnboxedClosureTyper};
-use session::config::{self, NoDebugInfo, FullDebugInfo};
+use session::config::{self, NoDebugInfo};
 use session::Session;
 use trans::_match;
 use trans::adt;
@@ -248,9 +248,8 @@ fn get_extern_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<'tcx>,
 
     let f = decl_rust_fn(ccx, fn_ty, name);
 
-    csearch::get_item_attrs(&ccx.sess().cstore, did, |attrs| {
-        set_llvm_fn_attrs(ccx, &attrs[], f)
-    });
+    let attrs = csearch::get_item_attrs(&ccx.sess().cstore, did);
+    set_llvm_fn_attrs(ccx, &attrs[], f);
 
     ccx.externs().borrow_mut().insert(name.to_string(), f);
     f
@@ -353,12 +352,11 @@ pub fn get_extern_const<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, did: ast::DefId,
         // don't do this then linker errors can be generated where the linker
         // complains that one object files has a thread local version of the
         // symbol and another one doesn't.
-        ty::each_attr(ccx.tcx(), did, |attr| {
+        for attr in ty::get_attrs(ccx.tcx(), did).iter() {
             if attr.check_name("thread_local") {
                 llvm::set_thread_local(c, true);
             }
-            true
-        });
+        }
         ccx.externs().borrow_mut().insert(name.to_string(), c);
         return c;
     }
@@ -546,15 +544,6 @@ pub fn get_res_dtor<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     }
 }
 
-// Structural comparison: a rather involved form of glue.
-pub fn maybe_name_value(cx: &CrateContext, v: ValueRef, s: &str) {
-    if cx.sess().opts.cg.save_temps {
-        let buf = CString::from_slice(s.as_bytes());
-        unsafe { llvm::LLVMSetValueName(v, buf.as_ptr()) }
-    }
-}
-
-
 // Used only for creating scalar comparison glue.
 #[derive(Copy)]
 pub enum scalar_type { nil_type, signed_int, unsigned_int, floating_point, }
@@ -702,9 +691,8 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
         let mut cx = cx;
 
         for (i, &arg) in variant.args.iter().enumerate() {
-            cx = (*f)(cx,
-                   adt::trans_field_ptr(cx, repr, av, variant.disr_val, i),
-                   arg.subst(tcx, substs));
+            let arg = monomorphize::apply_param_substs(tcx, substs, &arg);
+            cx = f(cx, adt::trans_field_ptr(cx, repr, av, variant.disr_val, i), arg);
         }
         return cx;
     }
@@ -847,26 +835,24 @@ pub fn cast_shift_rhs<F, G>(op: ast::BinOp,
     G: FnOnce(ValueRef, Type) -> ValueRef,
 {
     // Shifts may have any size int on the rhs
-    unsafe {
-        if ast_util::is_shift_binop(op) {
-            let mut rhs_llty = val_ty(rhs);
-            let mut lhs_llty = val_ty(lhs);
-            if rhs_llty.kind() == Vector { rhs_llty = rhs_llty.element_type() }
-            if lhs_llty.kind() == Vector { lhs_llty = lhs_llty.element_type() }
-            let rhs_sz = llvm::LLVMGetIntTypeWidth(rhs_llty.to_ref());
-            let lhs_sz = llvm::LLVMGetIntTypeWidth(lhs_llty.to_ref());
-            if lhs_sz < rhs_sz {
-                trunc(rhs, lhs_llty)
-            } else if lhs_sz > rhs_sz {
-                // FIXME (#1877: If shifting by negative
-                // values becomes not undefined then this is wrong.
-                zext(rhs, lhs_llty)
-            } else {
-                rhs
-            }
+    if ast_util::is_shift_binop(op) {
+        let mut rhs_llty = val_ty(rhs);
+        let mut lhs_llty = val_ty(lhs);
+        if rhs_llty.kind() == Vector { rhs_llty = rhs_llty.element_type() }
+        if lhs_llty.kind() == Vector { lhs_llty = lhs_llty.element_type() }
+        let rhs_sz = rhs_llty.int_width();
+        let lhs_sz = lhs_llty.int_width();
+        if lhs_sz < rhs_sz {
+            trunc(rhs, lhs_llty)
+        } else if lhs_sz > rhs_sz {
+            // FIXME (#1877: If shifting by negative
+            // values becomes not undefined then this is wrong.
+            zext(rhs, lhs_llty)
         } else {
             rhs
         }
+    } else {
+        rhs
     }
 }
 
@@ -1475,8 +1461,8 @@ pub fn new_fn_ctxt<'a, 'tcx>(ccx: &'a CrateContext<'a, 'tcx>,
           needs_ret_allocas: nested_returns,
           personality: Cell::new(None),
           caller_expects_out_pointer: uses_outptr,
-          lllocals: RefCell::new(NodeMap::new()),
-          llupvars: RefCell::new(NodeMap::new()),
+          lllocals: RefCell::new(NodeMap()),
+          llupvars: RefCell::new(NodeMap()),
           id: id,
           param_substs: param_substs,
           span: sp,
@@ -1629,9 +1615,8 @@ fn create_datums_for_fn_args_under_call_abi<'blk, 'tcx>(
     result
 }
 
-fn copy_args_to_allocas<'blk, 'tcx>(fcx: &FunctionContext<'blk, 'tcx>,
+fn copy_args_to_allocas<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                     arg_scope: cleanup::CustomScopeIndex,
-                                    bcx: Block<'blk, 'tcx>,
                                     args: &[ast::Arg],
                                     arg_datums: Vec<RvalueDatum<'tcx>>)
                                     -> Block<'blk, 'tcx> {
@@ -1652,10 +1637,7 @@ fn copy_args_to_allocas<'blk, 'tcx>(fcx: &FunctionContext<'blk, 'tcx>,
         // the event it's not truly needed.
 
         bcx = _match::store_arg(bcx, &*args[i].pat, arg_datum, arg_scope_id);
-
-        if fcx.ccx.sess().opts.debuginfo == FullDebugInfo {
-            debuginfo::create_argument_metadata(bcx, &args[i]);
-        }
+        debuginfo::create_argument_metadata(bcx, &args[i]);
     }
 
     bcx
@@ -1705,9 +1687,7 @@ fn copy_unboxed_closure_args_to_allocas<'blk, 'tcx>(
                                 tuple_element_datum,
                                 arg_scope_id);
 
-        if bcx.fcx.ccx.sess().opts.debuginfo == FullDebugInfo {
-            debuginfo::create_argument_metadata(bcx, &args[j]);
-        }
+        debuginfo::create_argument_metadata(bcx, &args[j]);
     }
 
     bcx
@@ -1880,9 +1860,8 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
 
     bcx = match closure_env.kind {
         closure::NotClosure | closure::BoxedClosure(..) => {
-            copy_args_to_allocas(&fcx,
+            copy_args_to_allocas(bcx,
                                  arg_scope,
-                                 bcx,
                                  &decl.inputs[],
                                  arg_datums)
         }

@@ -1,4 +1,4 @@
-% The Rust Ownership Guide
+% Ownership
 
 This guide presents Rust's ownership system. This is one of Rust's most unique
 and compelling features, with which Rust developers should become quite
@@ -81,7 +81,6 @@ therefore deallocates the memory for you. Here's the equivalent example in
 Rust:
 
 ```rust
-# use std::boxed::Box;
 {
     let x = Box::new(5);
 }
@@ -101,7 +100,6 @@ This is pretty straightforward, but what happens when we want to pass our box
 to a function? Let's look at some code:
 
 ```rust
-# use std::boxed::Box;
 fn main() {
     let x = Box::new(5);
 
@@ -117,7 +115,6 @@ This code works, but it's not ideal. For example, let's add one more line of
 code, where we print out the value of `x`:
 
 ```{rust,ignore}
-# use std::boxed::Box;
 fn main() {
     let x = Box::new(5);
 
@@ -151,7 +148,6 @@ To fix this, we can have `add_one` give ownership back when it's done with the
 box:
 
 ```rust
-# use std::boxed::Box;
 fn main() {
     let x = Box::new(5);
 
@@ -207,6 +203,26 @@ fn add_one(num: &mut i32) {
 This function borrows an `i32` from its caller, and then increments it. When
 the function is over, and `num` goes out of scope, the borrow is over.
 
+We have to change our `main` a bit too:
+
+```rust
+fn main() {
+    let mut x = 5;
+
+    add_one(&mut x);
+
+    println!("{}", x);
+}
+
+fn add_one(num: &mut i32) {
+    *num += 1;
+}
+```
+
+We don't need to assign the result of `add_one()` anymore, because it doesn't
+return anything anymore. This is because we're not passing ownership back,
+since we just borrow, not take ownership.
+
 # Lifetimes
 
 Lending out a reference to a resource that someone else owns can be
@@ -225,7 +241,7 @@ To fix this, we have to make sure that step four never happens after step
 three. The ownership system in Rust does this through a concept called
 *lifetimes*, which describe the scope that a reference is valid for.
 
-Let's look at that function which borrows an `i32` again:
+Remember the function that borrowed an `i32`? Let's look at it again.
 
 ```rust
 fn add_one(num: &i32) -> i32 {
@@ -310,7 +326,7 @@ valid for. For example:
 
 ```rust
 fn main() {
-    let y = &5;    // -+ y goes into scope
+    let y = &5;     // -+ y goes into scope
                     //  |
     // stuff        //  |
                     //  |
@@ -325,7 +341,7 @@ struct Foo<'a> {
 }
 
 fn main() {
-    let y = &5;          // -+ y goes into scope
+    let y = &5;           // -+ y goes into scope
     let f = Foo { x: y }; // -+ f goes into scope
     // stuff              //  |
                           //  |
@@ -344,7 +360,7 @@ fn main() {
     let x;                    // -+ x goes into scope
                               //  |
     {                         //  |
-        let y = &5;          // ---+ y goes into scope
+        let y = &5;           // ---+ y goes into scope
         let f = Foo { x: y }; // ---+ f goes into scope
         x = &f.x;             //  | | error here
     }                         // ---+ f and y go out of scope
@@ -402,7 +418,7 @@ struct Wheel {
 fn main() {
     let car = Car { name: "DeLorean".to_string() };
 
-    for _ in range(0u, 4) {
+    for _ in range(0, 4) {
         Wheel { size: 360, owner: car };
     }
 }
@@ -440,7 +456,7 @@ fn main() {
 
     let car_owner = Rc::new(car);
 
-    for _ in range(0u, 4) {
+    for _ in range(0, 4) {
         Wheel { size: 360, owner: car_owner.clone() };
     }
 }
@@ -501,31 +517,31 @@ Here are some examples of functions with elided lifetimes, and the version of
 what the elided lifetimes are expand to:
 
 ```{rust,ignore}
-fn print(s: &str);                                      // elided
-fn print<'a>(s: &'a str);                               // expanded
+fn print(s: &str); // elided
+fn print<'a>(s: &'a str); // expanded
 
-fn debug(lvl: u32, s: &str);                           // elided
-fn debug<'a>(lvl: u32, s: &'a str);                    // expanded
+fn debug(lvl: u32, s: &str); // elided
+fn debug<'a>(lvl: u32, s: &'a str); // expanded
 
 // In the preceeding example, `lvl` doesn't need a lifetime because it's not a
 // reference (`&`). Only things relating to references (such as a `struct`
 // which contains a reference) need lifetimes.
 
-fn substr(s: &str, until: u32) -> &str;                // elided
-fn substr<'a>(s: &'a str, until: u32) -> &'a str;      // expanded
+fn substr(s: &str, until: u32) -> &str; // elided
+fn substr<'a>(s: &'a str, until: u32) -> &'a str; // expanded
 
-fn get_str() -> &str;                                   // ILLEGAL, no inputs
+fn get_str() -> &str; // ILLEGAL, no inputs
 
-fn frob(s: &str, t: &str) -> &str;                      // ILLEGAL, two inputs
+fn frob(s: &str, t: &str) -> &str; // ILLEGAL, two inputs
 
-fn get_mut(&mut self) -> &mut T;                        // elided
-fn get_mut<'a>(&'a mut self) -> &'a mut T;              // expanded
+fn get_mut(&mut self) -> &mut T; // elided
+fn get_mut<'a>(&'a mut self) -> &'a mut T; // expanded
 
-fn args<T:ToCStr>(&mut self, args: &[T]) -> &mut Command                  // elided
+fn args<T:ToCStr>(&mut self, args: &[T]) -> &mut Command // elided
 fn args<'a, 'b, T:ToCStr>(&'a mut self, args: &'b [T]) -> &'a mut Command // expanded
 
-fn new(buf: &mut [u8]) -> BufWriter;                    // elided
-fn new<'a>(buf: &'a mut [u8]) -> BufWriter<'a>          // expanded
+fn new(buf: &mut [u8]) -> BufWriter; // elided
+fn new<'a>(buf: &'a mut [u8]) -> BufWriter<'a> // expanded
 ```
 
 # Related Resources
