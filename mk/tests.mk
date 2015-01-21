@@ -38,16 +38,14 @@ ifdef CHECK_IGNORED
   TESTARGS += --ignored
 endif
 
-TEST_BENCH =
 
 # Arguments to the cfail/rfail/rpass/bench tests
 ifdef CFG_VALGRIND
   CTEST_RUNTOOL = --runtool "$(CFG_VALGRIND)"
-  TEST_BENCH =
 endif
 
 ifdef PLEASE_BENCH
-  TEST_BENCH = --bench
+  TESTARGS += --bench
 endif
 
 # Arguments to the perf tests
@@ -1038,7 +1036,8 @@ $(3)/test/run-make/%-$(1)-T-$(2)-H-$(3).ok: \
 	    $$(LD_LIBRARY_PATH_ENV_NAME$(1)_T_$(2)_H_$(3)) \
 	    "$$(LD_LIBRARY_PATH_ENV_HOSTDIR$(1)_T_$(2)_H_$(3))" \
 	    "$$(LD_LIBRARY_PATH_ENV_TARGETDIR$(1)_T_$(2)_H_$(3))" \
-	    $(1)
+	    $(1) \
+	    $$(S)
 	@touch $$@
 else
 # FIXME #11094 - The above rule doesn't work right for multiple targets

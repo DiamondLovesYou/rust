@@ -48,6 +48,8 @@ use f64;
 
 use marker::Sized;
 
+#[cfg(stage0)] use any::TypeId;
+
 pub type GlueFn = extern "Rust" fn(*const i8);
 
 #[lang="ty_desc"]
@@ -210,6 +212,10 @@ extern "rust-intrinsic" {
     /// Gets an identifier which is globally unique to the specified type. This
     /// function will return the same value for a type regardless of whichever
     /// crate it is invoked in.
+    #[cfg(not(stage0))]
+    pub fn type_id<T: ?Sized + 'static>() -> u64;
+
+    #[cfg(stage0)]
     pub fn type_id<T: ?Sized + 'static>() -> TypeId;
 
     /// Create a value initialized to zero.
@@ -658,20 +664,3 @@ mul_with_overflow!{u8,  u8_mul_with_overflow }
 mul_with_overflow!{u16, u16_mul_with_overflow}
 mul_with_overflow!{u32, u32_mul_with_overflow}
 mul_with_overflow!{u64, u64_mul_with_overflow}
-
-/// `TypeId` represents a globally unique identifier for a type
-#[lang="type_id"] // This needs to be kept in lockstep with the code in trans/intrinsic.rs and
-                  // middle/lang_items.rs
-#[derive(Clone, Copy, PartialEq, Eq, Show)]
-pub struct TypeId {
-    t: u64,
-}
-
-impl TypeId {
-    /// Returns the `TypeId` of the type this generic function has been instantiated with
-    pub fn of<T: ?Sized + 'static>() -> TypeId {
-        unsafe { type_id::<T>() }
-    }
-
-    pub fn hash(&self) -> u64 { self.t }
-}

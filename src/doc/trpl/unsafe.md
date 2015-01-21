@@ -254,7 +254,7 @@ impl<T: Send> Drop for Unique<T> {
             // Copy the object out from the pointer onto the stack,
             // where it is covered by normal Rust destructor semantics
             // and cleans itself up, if necessary
-            ptr::read(self.ptr as *const T);
+            ptr::read(self.ptr);
 
             // clean-up our allocation
             free(self.ptr as *mut c_void)
@@ -447,7 +447,7 @@ in the same format as C:
 
 ```
 #![no_std]
-#![feature(lang_items)]
+#![feature(lang_items, start)]
 
 // Pull in the system libc library for what crt0.o likely requires
 extern crate libc;
@@ -475,7 +475,7 @@ compiler's name mangling too:
 ```ignore
 #![no_std]
 #![no_main]
-#![feature(lang_items)]
+#![feature(lang_items, start)]
 
 extern crate libc;
 
@@ -529,7 +529,7 @@ vectors provided from C, using idiomatic Rust practices.
 
 ```
 #![no_std]
-#![feature(lang_items)]
+#![feature(lang_items, start)]
 
 # extern crate libc;
 extern crate core;
@@ -653,7 +653,7 @@ sugar for dynamic allocations via `malloc` and `free`:
 
 ```
 #![no_std]
-#![feature(lang_items, box_syntax)]
+#![feature(lang_items, box_syntax, start)]
 
 extern crate libc;
 
@@ -703,10 +703,10 @@ Other features provided by lang items include:
   `deref`, and `add` respectively.
 - stack unwinding and general failure; the `eh_personality`, `fail`
   and `fail_bounds_checks` lang items.
-- the traits in `std::markers` used to indicate types of
+- the traits in `std::marker` used to indicate types of
   various kinds; lang items `send`, `sync` and `copy`.
 - the marker types and variance indicators found in
-  `std::markers`; lang items `covariant_type`,
+  `std::marker`; lang items `covariant_type`,
   `contravariant_lifetime`, `no_sync_bound`, etc.
 
 Lang items are loaded lazily by the compiler; e.g. if one never uses

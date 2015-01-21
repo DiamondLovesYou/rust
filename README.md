@@ -28,7 +28,6 @@ I may offer nightly downloads, however that isn't finished yet.
 1. Make sure you have installed the dependencies:
     * `g++` 4.7 or `clang++` 3.x
     * `python` 2.6 or later (but not 3.x)
-    * `perl` 5.0 or later
     * GNU `make` 3.81 or later
     * `curl`
     * `git`
