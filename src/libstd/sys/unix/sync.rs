@@ -27,11 +27,16 @@ extern {
     pub fn pthread_cond_wait(cond: *mut pthread_cond_t,
                              lock: *mut pthread_mutex_t) -> libc::c_int;
 
-    #[cfg_attr(target_libc = "newlib",
-               link_name = "pthread_cond_timedwait_abs")]
+    #[cfg(target_libc = "newlib")]
+    #[link_name = "pthread_cond_timedwait_abs"]
     pub fn pthread_cond_timedwait(cond: *mut pthread_cond_t,
-                              lock: *mut pthread_mutex_t,
-                              abstime: *const libc::timespec) -> libc::c_int;
+                                  lock: *mut pthread_mutex_t,
+                                  abstime: *const libc::timespec) -> libc::c_int;
+    #[cfg(not(target_libc = "newlib"))]
+    pub fn pthread_cond_timedwait(cond: *mut pthread_cond_t,
+                                  lock: *mut pthread_mutex_t,
+                                  abstime: *const libc::timespec) -> libc::c_int;
+
     pub fn pthread_cond_signal(cond: *mut pthread_cond_t) -> libc::c_int;
     pub fn pthread_cond_broadcast(cond: *mut pthread_cond_t) -> libc::c_int;
     pub fn pthread_cond_destroy(cond: *mut pthread_cond_t) -> libc::c_int;
