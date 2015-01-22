@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,9 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![crate_type = "lib"]
+fn main() {
+    let mut shrinker: Box<Iterator<Item=i32>> = Box::new(vec![1].into_iter());
+    println!("{:?}", shrinker.next());
+    for v in shrinker { assert!(false); }
 
-#[test]
-fn test_1() { }
-#[test]
-fn test_2() { }
+    let mut shrinker: &mut Iterator<Item=i32> = &mut vec![1].into_iter();
+    println!("{:?}", shrinker.next());
+    for v in shrinker { assert!(false); }
+}

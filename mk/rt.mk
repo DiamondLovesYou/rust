@@ -179,8 +179,8 @@ else ifeq ($(OSTYPE_$(1)), apple-ios)
   JEMALLOC_ARGS_$(1) := --disable-tls
 else ifeq ($(OSTYPE_$(1)), linux-androideabi)
   JEMALLOC_ARGS_$(1) := --disable-tls
-ifneq ($$(CFG_DISABLE_LIBUV_$(1)),1)
-endif
+else ifeq ($(OSTYPE_$(1)), linux-android)
+  JEMALLOC_ARGS_$(1) := --disable-tls
 endif
 
 ################################################################################

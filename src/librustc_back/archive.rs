@@ -109,7 +109,7 @@ impl<'a> Archive<'a> {
         let mut cmd = Command::new(ar);
 
         cmd.arg(args);
-
+    debug!("{:?}", cmd);
         match self.gold_plugin {
             Some(ref path) => {
                 cmd.args(&[format!("--plugin={}", path.display())]);
@@ -118,7 +118,6 @@ impl<'a> Archive<'a> {
         };
 
         cmd.args(paths);
-        debug!("{}", cmd);
 
         match cwd {
             Some(p) => {
@@ -132,7 +131,7 @@ impl<'a> Archive<'a> {
             Ok(prog) => {
                 let o = prog.wait_with_output().unwrap();
                 if !o.status.success() {
-                    self.handler.err(&format!("{} failed with: {}",
+                    self.handler.err(&format!("{:?} failed with: {}",
                                              cmd,
                                      o.status)[]);
                     self.handler.note(&format!("stdout ---\n{}",

@@ -31,7 +31,6 @@ extern crate log;
 
 use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
 use std::collections::{HashSet, HashMap};
-use std::fmt::Show;
 use std::io::fs::File;
 use std::io::process::{Command, InheritFd, ExitStatus};
 use std::os;
@@ -71,17 +70,17 @@ fn optgroups() -> Vec<OptGroup> {
                               legalization passes run on them", ""),
          optflag("", "all-raw", "All input bitcodes are of raw form"))
 }
-fn fatal<T: Show>(msg: T) -> ! {
-    println!("error: {:?}", msg);
+fn fatal<T: Str>(msg: T) -> ! {
+    println!("error: {}", msg.as_slice());
     os::set_exit_status(1);
     panic!("fatal error");
 }
 
-fn warn<T: Show>(msg: T) {
-    println!("warning: {:?}", msg);
+fn warn<T: Str>(msg: T) {
+    println!("warning: {:?}", msg.as_slice());
 }
 
-pub fn llvm_warn<T: Str + Show>(msg: T) {
+pub fn llvm_warn<T: Str>(msg: T) {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
         if cstr == ptr::null() {
@@ -89,7 +88,7 @@ pub fn llvm_warn<T: Str + Show>(msg: T) {
         } else {
             let err = ffi::c_str_to_bytes(&cstr);
             let err = String::from_utf8_lossy(err.as_slice()).to_string();
-            warn(format!("{:?}: {:?}",
+            warn(format!("{}: {}",
                          msg.as_slice(),
                          err.as_slice()));
         }
@@ -381,7 +380,7 @@ pub fn main() {
     cmd.args(nexe_link_args.as_slice());
     cmd.stdout(InheritFd(libc::STDOUT_FILENO));
     cmd.stderr(InheritFd(libc::STDERR_FILENO));
-    debug!("running linker: `{}`", cmd);
+    debug!("running linker: `{:?}`", cmd);
     match cmd.spawn() {
         Ok(mut process) => {
             match process.wait() {

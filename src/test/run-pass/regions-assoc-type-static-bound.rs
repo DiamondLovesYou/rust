@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,9 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Check that lint deprecation works
+// Test that the compiler considers the 'static bound declared in the
+// trait. Issue #20890.
 
-#[deny(unused_variable)] //~ warning: lint unused_variable has been renamed to unused_variables
-pub fn main() {
-    let x = 0u8; //~ error: unused variable:
+trait Foo { type Value: 'static; }
+
+fn require_static<T: 'static>() {}
+
+fn takes_foo<F: Foo>() {
+    require_static::<F::Value>()
 }
+
+fn main() { }

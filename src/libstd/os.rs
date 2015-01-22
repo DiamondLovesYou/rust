@@ -865,7 +865,7 @@ pub enum MapOption {
 impl Copy for MapOption {}
 
 /// Possible errors when creating a map.
-#[derive(Copy)]
+#[derive(Copy, Show)]
 pub enum MapError {
     /// # The following are POSIX-specific
     ///
@@ -910,7 +910,8 @@ pub enum MapError {
     ErrMapViewOfFile(uint)
 }
 
-impl fmt::Show for MapError {
+#[stable]
+impl fmt::Display for MapError {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
         let str = match *self {
             ErrFdNotAvail => "fd not available for reading or writing",
@@ -944,13 +945,6 @@ impl fmt::Show for MapError {
 
 impl Error for MapError {
     fn description(&self) -> &str { "memory map error" }
-    fn detail(&self) -> Option<String> { Some(format!("{:?}", self)) }
-}
-
-impl FromError<MapError> for Box<Error + Send> {
-    fn from_error(err: MapError) -> Box<Error + Send> {
-        box err
-    }
 }
 
 // Round up `from` to be divisible by `to`
