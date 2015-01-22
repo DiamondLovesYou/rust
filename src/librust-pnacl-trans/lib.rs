@@ -280,12 +280,13 @@ pub fn main() {
 
                 assert!(llvm::LLVMRustAddPass(pm, "combine-vector-instructions\0".as_ptr() as *const i8 ));
 
-                let out = format!("{}.o\0", i);
+                let out = format!("{}.o", i);
+                let out_cstr = format!("{}\0", out);
 
                 let success = llvm::LLVMRustWriteOutputFile(tm,
                                                             pm,
                                                             llmod,
-                                                            out.as_ptr() as *const i8,
+                                                            out_cstr.as_ptr() as *const i8,
                                                             llvm::ObjectFileType);
 
                 llvm::LLVMDisposePassManager(pm);
