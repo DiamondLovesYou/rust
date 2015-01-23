@@ -227,19 +227,45 @@ mod os {
 #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
 mod os {
     use libc;
+    use ptr;
 
     #[repr(C)]
-    pub type pthread_mutex_t = libc::c_int;
+    pub struct __nc_basic_thread_data;
+
     #[repr(C)]
-    pub type pthread_cond_t = libc::c_int;
+    pub struct pthread_mutex_t {
+        mutex_state: libc::c_int,
+        mutex_type: libc::c_int,
+        owner_thread_id: *mut __nc_basic_thread_data,
+        recursion_counter: libc::uint32_t,
+        _unused: libc::c_int,
+    }
+    #[repr(C)]
+    pub struct pthread_cond_t {
+        sequence_number: libc::c_int,
+        _unused: libc::c_int,
+    }
     #[repr(C)]
     pub struct pthread_rwlock_t {
         readers: libc::c_int,
         writers: libc::c_int,
     }
 
-    pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = 0 as pthread_mutex_t;
-    pub const PTHREAD_COND_INITIALIZER: pthread_cond_t = 0 as pthread_cond_t;
+    const NC_INVALID_HANDLE: libc::c_int = -1;
+    const NACL_PTHREAD_ILLEGAL_THREAD_ID: *mut __nc_basic_thread_data
+        = 0 as *mut __nc_basic_thread_data;
+
+    pub const PTHREAD_MUTEX_INITIALIZER: pthread_mutex_t = pthread_mutex_t {
+        mutex_state:       0,
+        mutex_type:        1,
+        owner_thread_id:   NACL_PTHREAD_ILLEGAL_THREAD_ID,
+        recursion_counter: 0,
+        _unused:           NC_INVALID_HANDLE,
+    };
+    pub const PTHREAD_COND_INITIALIZER: pthread_cond_t = pthread_cond_t {
+        sequence_number: 0,
+        _unused: NC_INVALID_HANDLE,
+    };
     pub const PTHREAD_RWLOCK_INITIALIZER: pthread_rwlock_t = pthread_rwlock_t {
         readers: 0,
         writers: 0,
