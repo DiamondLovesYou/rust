@@ -3552,8 +3552,16 @@ pub mod consts {
             pub const _SC_XOPEN_VERSION : c_int = 116;
             pub const _SC_XOPEN_XCU_VERSION : c_int = 117;
 
+            #[cfg(not(target_os = "nacl"))]
             pub const PTHREAD_CREATE_JOINABLE: c_int = 0;
+            #[cfg(not(target_os = "nacl"))]
             pub const PTHREAD_CREATE_DETACHED: c_int = 1;
+
+            // Yeah...
+            #[cfg(target_os = "nacl")]
+            pub const PTHREAD_CREATE_JOINABLE: c_int = 1;
+            #[cfg(target_os = "nacl")]
+            pub const PTHREAD_CREATE_DETACHED: c_int = 0;
 
             #[cfg(target_arch = "arm")]
             pub const PTHREAD_STACK_MIN: size_t = 4096;
