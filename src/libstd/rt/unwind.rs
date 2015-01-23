@@ -160,7 +160,7 @@ pub unsafe fn try<F: FnOnce()>(f: F) -> Result<(), Box<Any + Send>> {
     }
 }
 
-/// Test if the current thread is currently panicking.
+/// Determines whether the current thread is unwinding because of panic.
 pub fn panicking() -> bool {
     PANICKING.with(|s| s.get())
 }
