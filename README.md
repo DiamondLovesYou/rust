@@ -3,8 +3,8 @@
 This is a compiler for Rust, including standard libraries, tools and
 documentation. In contrast to
 [Rust proper](https://github.com/rust-lang/rust.git), this Rust can target
-PNaCl/NaCl platforms, including ```le32-unknown-nacl```,
-```x86_64-unknown-nacl```, ```i686-unknown-nacl```(WIP), and ```arm-unknown-nacl```(WIP).
+PNaCl/NaCl, including ```le32-unknown-nacl```, ```x86_64-unknown-nacl```,
+```i686-unknown-nacl```(WIP), and ```arm-unknown-nacl```(WIP).
 
 ## Quick Start
 
@@ -42,7 +42,7 @@ I may offer nightly downloads, however that isn't finished yet.
     Now that you have Rust's source code, you can configure and build it for
     PNaCl with (add `x86_64-unknown-nacl` if you'd like to target NaCl):
 
-        $ ./configure --target=le32-unknown-nacl --nacl-cross-path=path/to/pepper_37
+        $ ./configure --target=le32-unknown-nacl --nacl-cross-path=path/to/pepper_39
         $ make && make install
 
     > ***Note:*** You may need to use `sudo make install` if you do not normally have
@@ -51,18 +51,19 @@ I may offer nightly downloads, however that isn't finished yet.
     > options are also supported, pass `--help` for more information on them.
 
     When complete, `make install` will place several programs into
-    `/usr/local/bin`: `rustc`, the Rust compiler, and `rustdoc`, the
-    API-documentation tool.
+    `/usr/local/bin`: `rustc`, the Rust compiler, `rustdoc`, the
+    API-documentation tool, and `rust-pnacl-trans`, the PNaCl bitcode to NaCl
+    nexe translator (like `pnacl-trans`).
 3. Read [The Rust Programming Language][trpl].
 4. Compile with:
 
-        $ rustc --target=le32-unknown-nacl
+        $ NACL_SDK_ROOT=path/to/pepper rustc --target=le32-unknown-nacl
 
-to target PNaCl, or with:
+    to target PNaCl, or with:
 
-        $ rustc --target=x86_64-unknown-nacl
+        $ NACL_SDK_ROOT=path/to/pepper rustc --target=x86_64-unknown-nacl
 
-to target NaCl.
+    to target NaCl.
 
 4. Enjoy!
 
