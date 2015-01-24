@@ -224,7 +224,7 @@ mod os {
         reserved: [0 as *mut _; 4],
     };
 }
-#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+#[cfg(target_os = "nacl")]
 mod os {
     use libc;
     use ptr;

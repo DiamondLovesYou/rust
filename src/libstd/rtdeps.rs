@@ -43,6 +43,10 @@ extern {}
 #[link(name = "pthread")]
 extern {}
 
+#[cfg(target_os = "nacl")]
+#[link(name = "pthread")]
+extern {}
+
 #[cfg(target_os = "macos")]
 #[link(name = "System")]
 extern {}
@@ -50,4 +54,3 @@ extern {}
 #[cfg(target_os = "ios")]
 #[link(name = "System")]
 extern {}
-

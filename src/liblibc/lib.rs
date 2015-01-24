@@ -73,7 +73,7 @@
 //! one from Berkeley after the lawsuits died down and the CSRG dissolved.
 
 #![allow(bad_style, raw_pointer_derive)]
-#![allow(unused_imports)]
+#![cfg_attr(target_os = "nacl", allow(unused_imports))]
 
 #[cfg(feature = "cargo-build")] extern crate "std" as core;
 #[cfg(not(feature = "cargo-build"))] extern crate core;
@@ -152,7 +152,7 @@ pub use funcs::posix88::stdio::{fdopen, fileno, pclose, popen};
 pub use funcs::posix88::unistd::{access, chdir, close, dup, dup2};
 pub use funcs::posix88::unistd::{execv, execve, execvp, getcwd};
 pub use funcs::posix88::unistd::{isatty, lseek, pipe, read};
-#[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+#[cfg(not(target_os = "nacl"))]
 pub use funcs::posix88::unistd::getpid;
 pub use funcs::posix88::unistd::{rmdir, unlink, write};
 
@@ -191,16 +191,16 @@ pub use funcs::bsd43::{shutdown};
 #[cfg(unix)] pub use types::os::arch::posix01::{stat, utimbuf};
 #[cfg(unix)] pub use types::os::common::bsd44::{ifaddrs};
 #[cfg(unix)] pub use funcs::posix88::unistd::{sysconf, setgid, setuid, pread, pwrite};
-#[cfg(all(unix, not(target_os = "nacl"), not(target_libc = "newlib")))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 pub use funcs::posix88::unistd::setsid;
 #[cfg(unix)] pub use funcs::posix88::unistd::{getgid, getuid};
-#[cfg(all(unix, not(target_os = "nacl"), not(target_libc = "newlib")))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 pub use funcs::posix88::unistd::getsid;
 #[cfg(unix)] pub use funcs::posix88::unistd::{_PC_NAME_MAX, utime, nanosleep, link};
-#[cfg(all(unix, not(all(target_os = "nacl", target_libc = "newlib"))))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 pub use funcs::posix88::unistd::pathconf;
 #[cfg(unix)] pub use funcs::posix88::unistd::{chown};
-#[cfg(all(unix, not(all(target_os = "nacl", target_libc = "newlib"))))]
+#[cfg(all(unix, not(target_os = "nacl")))]
 pub use funcs::posix88::mman::mprotect;
 #[cfg(unix)] pub use funcs::posix88::mman::{mmap, munmap};
 #[cfg(unix)] pub use funcs::posix88::dirent::{opendir, readdir_r, closedir};
@@ -314,19 +314,27 @@ pub use consts::os::extra::{F_FULLFSYNC};
 pub use types::os::arch::extra::{mach_timebase_info};
 
 
-#[cfg(not(windows))]
+// On NaCl, these libraries are static. Thus it would be a Bad Idea to link them
+// in when creating a test crate.
+#[cfg(not(any(windows, all(target_os = "nacl", test))))]
 #[link(name = "c")]
 #[link(name = "m")]
 extern {}
 
-// I know, this is quite a few. However, practically all of these are needed for
-// any program targeting NaCl.
-#[cfg(target_os = "nacl")]
+// libnacl provides functions that require a trip through the IRT to work.
+// ie: _exit, mmap, nanosleep, etc. Anything that would otherwise require a trip
+// to the kernel.
+#[cfg(all(target_os = "nacl", not(feature = "cargo-build"), not(test)))]
 #[link(name = "nacl", kind = "static")]
-#[link(name = "pthread", kind = "static")]
 extern {}
-#[cfg(all(target_os = "nacl", target_arch = "le32"))]
-#[link(name = "c++", kind = "static")] // for __pnacl_eh_sjlj_*. I know, I know: :(
+
+// pnaclmm provides a number of functions that the toolchain's Clang emits calls
+// to when codegening atomic ops. All the functions within wrap various atomic
+// operations.
+// Yes, it could be linked by rustc explicitly, however by linking it here
+// instead we save a bit of time where bins are involved (by not running the
+// optimizations on the whole pnaclmm for each binary built).
+#[cfg(all(target_os = "nacl", not(feature = "cargo-build"), not(test)))]
 #[link(name = "pnaclmm", kind = "static")]
 extern {}
 
@@ -393,7 +401,10 @@ pub mod types {
                 use types::os::arch::c95::{c_char, c_ulong, size_t,
                                                  time_t, suseconds_t, c_long};
 
+                #[cfg(not(target_os = "nacl"))]
                 pub type pthread_t = c_ulong;
+                #[cfg(target_os = "nacl")]
+                pub type pthread_t = *mut c_void;
 
                 #[repr(C)]
                 #[derive(Copy)] pub struct glob_t {
@@ -3021,14 +3032,13 @@ pub mod consts {
 
             #[cfg(target_os = "android")]
             pub const PTHREAD_STACK_MIN: size_t = 8192;
-            #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+            #[cfg(target_os = "nacl")]
             pub const PTHREAD_STACK_MIN: size_t = 1024;
 
-            #[cfg(any(all(target_os = "linux",
-                          any(target_arch = "arm",
-                              target_arch = "x86",
-                              target_arch = "x86_64")),
-                      all(target_os = "nacl", target_libc = "glibc")))]
+            #[cfg(all(target_os = "linux",
+                      any(target_arch = "arm",
+                          target_arch = "x86",
+                          target_arch = "x86_64")))]
             pub const PTHREAD_STACK_MIN: size_t = 16384;
 
             #[cfg(all(target_os = "linux",
@@ -3200,8 +3210,7 @@ pub mod consts {
             pub const MAP_NONBLOCK : c_int = 0x020000;
             pub const MAP_STACK : c_int = 0x040000;
         }
-        #[cfg(any(target_os = "linux",
-                  all(target_os = "nacl", target_libc = "glibc")))]
+        #[cfg(target_os = "linux")]
         pub mod sysconf {
             use types::os::arch::c95::c_int;
 
@@ -3262,7 +3271,7 @@ pub mod consts {
             pub const _SC_XBS5_ILP32_OFFBIG : c_int = 126;
             pub const _SC_XBS5_LPBIG_OFFBIG : c_int = 128;
         }
-        #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+        #[cfg(target_os = "nacl")]
         pub mod sysconf {
             use types::os::arch::c95::c_int;
 
@@ -4539,7 +4548,7 @@ pub mod funcs {
 
             extern {
                 pub fn access(path: *const c_char, amode: c_int) -> c_int;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn alarm(seconds: c_uint) -> c_uint;
                 pub fn chdir(dir: *const c_char) -> c_int;
                 pub fn chown(path: *const c_char, uid: uid_t,
@@ -4555,23 +4564,23 @@ pub mod funcs {
                 pub fn execvp(c: *const c_char,
                               argv: *mut *const c_char) -> c_int;
                 pub fn fork() -> pid_t;
-                #[cfg(not(all(target_os = "nacl", target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn fpathconf(filedes: c_int, name: c_int) -> c_long;
                 pub fn getcwd(buf: *mut c_char, size: size_t) -> *mut c_char;
                 pub fn getegid() -> gid_t;
                 pub fn geteuid() -> uid_t;
                 pub fn getgid() -> gid_t ;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn getgroups(ngroups_max: c_int, groups: *mut gid_t)
                                  -> c_int;
                 pub fn getlogin() -> *mut c_char;
                 pub fn getopt(argc: c_int, argv: *mut *const c_char,
                               optstr: *const c_char) -> c_int;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn getpgrp() -> pid_t;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn getpid() -> pid_t;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn getppid() -> pid_t;
                 pub fn getuid() -> uid_t;
                 pub fn getsid(pid: pid_t) -> pid_t;
@@ -4579,18 +4588,18 @@ pub mod funcs {
                 pub fn link(src: *const c_char, dst: *const c_char) -> c_int;
                 pub fn lseek(fd: c_int, offset: off_t, whence: c_int)
                              -> off_t;
-                #[cfg(not(all(target_os = "nacl", target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn pathconf(path: *mut c_char, name: c_int) -> c_long;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn pause() -> c_int;
                 pub fn pipe(fds: *mut c_int) -> c_int;
                 pub fn read(fd: c_int, buf: *mut c_void, count: size_t)
                             -> ssize_t;
                 pub fn rmdir(path: *const c_char) -> c_int;
                 pub fn setgid(gid: gid_t) -> c_int;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn setpgid(pid: pid_t, pgid: pid_t) -> c_int;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn setsid() -> pid_t;
                 pub fn setuid(uid: uid_t) -> c_int;
                 pub fn sleep(secs: c_uint) -> c_uint;
@@ -4598,7 +4607,7 @@ pub mod funcs {
                 pub fn nanosleep(rqtp: *const timespec,
                                  rmtp: *mut timespec) -> c_int;
                 pub fn sysconf(name: c_int) -> c_long;
-                #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+                #[cfg(not(target_os = "nacl"))]
                 pub fn tcgetpgrp(fd: c_int) -> pid_t;
                 pub fn ttyname(fd: c_int) -> *mut c_char;
                 pub fn unlink(c: *const c_char) -> c_int;
@@ -4626,7 +4635,7 @@ pub mod funcs {
             use types::os::arch::c95::{size_t, c_int, c_char};
             use types::os::arch::posix88::{mode_t, off_t};
 
-            #[cfg(not(all(target_os = "nacl", target_libc = "newlib")))]
+            #[cfg(not(target_os = "nacl"))]
             extern {
                 pub fn mlock(addr: *const c_void, len: size_t) -> c_int;
                 pub fn munlock(addr: *const c_void, len: size_t) -> c_int;
@@ -4756,7 +4765,7 @@ pub mod funcs {
             use types::common::c95::{c_void};
             use types::os::arch::c95::{c_int, size_t};
 
-            #[cfg(all(not(target_os = "nacl"), not(target_libc = "newlib")))]
+            #[cfg(not(target_os = "nacl"))]
             extern {
                 pub fn posix_madvise(addr: *mut c_void,
                                      len: size_t,
@@ -4911,8 +4920,7 @@ pub mod funcs {
     }
 
 
-    #[cfg(any(target_os = "linux", target_os = "android",
-              all(target_os = "nacl", target_libc = "glibc")))]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     pub mod bsd44 {
         use types::common::c95::{c_void};
         use types::os::arch::c95::{c_uchar, c_int, size_t};
@@ -4927,7 +4935,7 @@ pub mod funcs {
         }
     }
 
-    #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+    #[cfg(target_os = "nacl")]
     pub mod bsd44 {
         use types::os::arch::c95::c_int;
         extern {
