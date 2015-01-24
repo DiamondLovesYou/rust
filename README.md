@@ -120,6 +120,21 @@ There is a lot more documentation in the [wiki].
 
 [wiki]: https://github.com/rust-lang/rust/wiki
 
+## PNaCl/NaCl Notes
+
+Some helpful projects:
+
+* [ppapi](https://github.com/DiamondLovesYou/rust-ppapi) - Rust idiomatic
+  bindings to Pepper. If you're using this fork, you likely also want this
+  crate.
+* [ppapi-tester](https://github.com/DiamondLovesYou/rust-ppapi) - Integration
+  test wrapper. Replaces tests at compile time with a wrapper which cross
+  compiles your real test to PNaCl, then runs it inside an independent Chrome
+  instance.
+* [pexe-runner](https://github.com/DiamondLovesYou/pexe-runner) (Linux only) -
+  Allows you to run your pexes like you would a regular binary, except under the
+  NaCl sandbox. Ie: ```./pexe-bitcode.pexe $ARGS```.
+
 ## Getting help and getting involved
 
 The Rust community congregates in a few places:
