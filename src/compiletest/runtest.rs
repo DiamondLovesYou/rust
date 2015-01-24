@@ -92,7 +92,7 @@ fn run_cfail_test(config: &Config, props: &TestProps, testfile: &Path) {
                       &proc_res);
     }
 
-    check_correct_failure_status(config, &proc_res);
+    check_correct_failure_status(&proc_res);
 
     if proc_res.status.success() {
         fatal("process did not return an error status");
@@ -132,18 +132,14 @@ fn run_rfail_test(config: &Config, props: &TestProps, testfile: &Path) {
     }
 
     let output_to_check = get_output(props, &proc_res);
-    check_correct_failure_status(config, &proc_res);
+    check_correct_failure_status(&proc_res);
     check_error_patterns(props, testfile, output_to_check.as_slice(), &proc_res);
 }
 
-fn check_correct_failure_status(config: &Config, proc_res: &ProcRes) {
-    let is_nacl = config.targeting_nacl();
+fn check_correct_failure_status(proc_res: &ProcRes) {
     // The value the rust runtime returns on failure
-    let expected_status: int = if !is_nacl { 101 } else { 245 };
-
-    // sel_ldr uses is own error code, ignoring ours.
-
-    if !proc_res.status.matches_exit_status(expected_status) {
+    static RUST_ERR: int = 101;
+    if !proc_res.status.matches_exit_status(RUST_ERR) {
         fatal_proc_rec(
             format!("failure produced the wrong error: {:?}",
                     proc_res.status).as_slice(),
