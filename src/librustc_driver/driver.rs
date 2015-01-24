@@ -523,6 +523,9 @@ pub fn phase_2_configure_and_expand(sess: &Session,
     time(time_passes, "checking that all macro invocations are gone", &krate, |krate|
          syntax::ext::expand::check_for_macros(&sess.parse_sess, krate));
 
+    time(time_passes, "checking for inline asm in case the target doesn't support it", &krate,
+         |krate| middle::check_pnacl_no_asm::check_crate(sess, krate) );
+
     Some(krate)
 }
 
