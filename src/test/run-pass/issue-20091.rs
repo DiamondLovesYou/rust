@@ -9,6 +9,7 @@
 // except according to those terms.
 
 // ignore-windows currently windows requires UTF-8 for spawning processes
+// ignore-nacl can't spawn processes
 
 use std::io::Command;
 use std::os;
