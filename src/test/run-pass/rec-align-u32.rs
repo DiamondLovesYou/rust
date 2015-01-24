@@ -42,7 +42,7 @@ mod m {
     pub fn size() -> uint { 8u }
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "le32"))]
 mod m {
     pub fn align() -> uint { 4u }
     pub fn size() -> uint { 8u }

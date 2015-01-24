@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-nacl: can't access host env vars.
+
 // This checks that RUST_TEST_TASKS not being 1, 2, ... is detected
 // properly.
 
