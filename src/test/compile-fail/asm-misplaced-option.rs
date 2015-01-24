@@ -9,6 +9,7 @@
 // except according to those terms.
 
 // ignore-android
+// ignore-pnacl
 
 #![feature(asm)]
 

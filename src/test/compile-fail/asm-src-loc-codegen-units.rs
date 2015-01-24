@@ -7,7 +7,8 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
+
+// ignore-pnacl
 // ignore-stage1 (#20184)
 // compile-flags: -C codegen-units=2
 // error-pattern: build without -C codegen-units for more exact errors
