@@ -1799,9 +1799,6 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                 "-a".to_string(),
                                 "-B".to_string(),
                                 irt_core.display().to_string());
-    if run_background {
-        unreachable!("TODO");
-    }
     sel_ldr_args.push(nexe_path.display().to_string());
 
     let ProcArgs {
