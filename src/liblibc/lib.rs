@@ -3008,8 +3008,16 @@ pub mod consts {
             pub const _SC_XOPEN_REALTIME : c_int = 130;
             pub const _SC_XOPEN_REALTIME_THREADS : c_int = 131;
 
+            #[cfg(not(target_os = "nacl"))]
             pub const PTHREAD_CREATE_JOINABLE: c_int = 0;
+            #[cfg(not(target_os = "nacl"))]
             pub const PTHREAD_CREATE_DETACHED: c_int = 1;
+
+            // Yeah...
+            #[cfg(target_os = "nacl")]
+            pub const PTHREAD_CREATE_JOINABLE: c_int = 1;
+            #[cfg(target_os = "nacl")]
+            pub const PTHREAD_CREATE_DETACHED: c_int = 0;
 
             #[cfg(target_os = "android")]
             pub const PTHREAD_STACK_MIN: size_t = 8192;
@@ -3552,24 +3560,11 @@ pub mod consts {
             pub const _SC_XOPEN_VERSION : c_int = 116;
             pub const _SC_XOPEN_XCU_VERSION : c_int = 117;
 
-            #[cfg(not(target_os = "nacl"))]
             pub const PTHREAD_CREATE_JOINABLE: c_int = 0;
-            #[cfg(not(target_os = "nacl"))]
             pub const PTHREAD_CREATE_DETACHED: c_int = 1;
-
-            // Yeah...
-            #[cfg(target_os = "nacl")]
-            pub const PTHREAD_CREATE_JOINABLE: c_int = 1;
-            #[cfg(target_os = "nacl")]
-            pub const PTHREAD_CREATE_DETACHED: c_int = 0;
 
             #[cfg(target_arch = "arm")]
             pub const PTHREAD_STACK_MIN: size_t = 4096;
-
-            #[cfg(all(target_os = "nacl", target_libc = "newlib"))]
-            pub const PTHREAD_STACK_MIN: size_t = 1024;
-            #[cfg(all(target_os = "nacl", target_libc = "glibc"))]
-            pub const PTHREAD_STACK_MIN: size_t = 16384;
 
             #[cfg(all(target_os = "freebsd",
                       any(target_arch = "mips",
@@ -3578,7 +3573,7 @@ pub mod consts {
                           target_arch = "x86_64")))]
             pub const PTHREAD_STACK_MIN: size_t = 2048;
 
-            #[cfg(any(target_os = "dragonfly", target_os = "nacl"))]
+            #[cfg(target_os = "dragonfly")]
             pub const PTHREAD_STACK_MIN: size_t = 1024;
 
             pub const CLOCK_REALTIME: c_int = 0;
