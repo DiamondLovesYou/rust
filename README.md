@@ -129,10 +129,9 @@ Some helpful projects:
   crate.
 * [ppapi-tester](https://github.com/DiamondLovesYou/rust-ppapi) - Integration
   test wrapper. Replaces tests at compile time with a wrapper which cross
-  compiles your real test to PNaCl, then runs it inside an independent Chrome
-  instance.
+  compiles your real test to PNaCl, then spawns Chrome to run it.
 * [pexe-runner](https://github.com/DiamondLovesYou/pexe-runner) (Linux only) -
-  Allows you to run your pexes like you would a regular binary, except under the
+  Allows you to run your pexes like you would a regular binary, except in a
   NaCl sandbox. Ie: ```./pexe-bitcode.pexe $ARGS```.
 
 ## Getting help and getting involved
