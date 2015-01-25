@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-pnacl
 // compile-flags: -C lto -C prefer-dynamic
 
 // error-pattern: cannot prefer dynamic linking

@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-pnacl: would-be illegal PNaCl IR.
+
 #![allow(warnings)]
 #![feature(intrinsics)]
 
@@ -27,5 +29,3 @@ unsafe fn g() -> isize {
 }
 
 fn main() {}
-
-

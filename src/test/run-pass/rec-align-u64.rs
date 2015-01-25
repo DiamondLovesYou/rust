@@ -39,9 +39,10 @@ struct Outer {
 #[cfg(any(target_os = "linux",
           target_os = "macos",
           target_os = "freebsd",
-          target_os = "dragonfly"))]
+          target_os = "dragonfly",
+          target_os = "nacl"))]
 mod m {
-    #[cfg(target_arch = "x86")]
+    #[cfg(any(target_arch = "x86", target_arch = "le32"))]
     pub mod m {
         pub fn align() -> uint { 4u }
         pub fn size() -> uint { 12u }
