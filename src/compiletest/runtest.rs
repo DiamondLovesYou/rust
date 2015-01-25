@@ -515,11 +515,11 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
             let gdb = format!("{}-nacl-gdb{}", arch_prefix, gdb_suffix());
 
-            let mut sel_ldr_process = match pnacl_exec_compiled_test(config,
-                                                                     props,
-                                                                     testfile,
-                                                                     props.exec_env.clone(),
-                                                                     true) {
+            let _sel_ldr_process = match pnacl_exec_compiled_test(config,
+                                                                  props,
+                                                                  testfile,
+                                                                  props.exec_env.clone(),
+                                                                  true) {
                 ProcResOrProcessResult::ProcResResult(_) => unreachable!(),
                 ProcResOrProcessResult::ProcessResult(p) => p,
             };
@@ -528,18 +528,60 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
             let pexe_path = make_absolute(&output_base_name(config, testfile))
                 .unwrap();
+            let pexe_path = if config.mode == DebugInfoGdb {
+                // The pexe wont have debugging info in it. We need the bc file rustc
+                // also generated.
+                pexe_path.with_extension("bc")
+            } else {
+                pexe_path
+            };
             let nexe_path =
                 // add an extension, don't replace it:
                 Path::new(format!("{}.nexe", pexe_path.display()));
 
             // write debugger script
-            let script_str = [
-                "set charset UTF-8".to_string(),
-                format!("file {}", nexe_path.display()),
-                "target remote :4014".to_string(),
-                cmds,
-                "quit\n".to_string()
-            ].connect("\n");
+            let rust_src_root = find_rust_src_root(config)
+                .expect("Could not find Rust source root");
+            let rust_pp_module_rel_path = Path::new("./src/etc");
+            let rust_pp_module_abs_path = rust_src_root.join(rust_pp_module_rel_path)
+                                                       .as_str()
+                                                       .unwrap()
+                                                       .to_string();
+            // write debugger script
+            let mut script_str = String::with_capacity(2048);
+
+            script_str.push_str("set charset UTF-8\n");
+            script_str.push_str("target remote :4014\n");
+
+
+            // Add the directory containing the pretty printers to
+            // GDB's script auto loading safe path
+            script_str.push_str(
+                format!("add-auto-load-safe-path {}\n",
+                        rust_pp_module_abs_path.replace("\\", "\\\\").as_slice())
+                    .as_slice());
+
+            // The following line actually doesn't have to do anything with
+            // pretty printing, it just tells GDB to print values on one line:
+            script_str.push_str("set print pretty off\n");
+
+            // Add the pretty printer directory to GDB's source-file search path
+            script_str.push_str(&format!("directory {}\n", rust_pp_module_abs_path)[]);
+
+            // Load the target executable
+            script_str.push_str(&format!("file {}\n",
+                                         nexe_path.as_str().unwrap().replace("\\", "\\\\"))[]);
+
+            // Add line breakpoints
+            for line in breakpoint_lines.iter() {
+                script_str.push_str(&format!("break '{}':{}\n",
+                                             testfile.filename_display(),
+                                             *line)[]);
+            }
+
+            script_str.push_str(cmds.as_slice());
+            script_str.push_str("quit\n");
+
             debug!("script_str = {}", script_str);
             dump_output_file(config,
                              testfile,
@@ -606,7 +648,6 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 stderr: err,
                 cmdline: cmdline
             };
-            sel_ldr_process.signal_kill().unwrap();
         }
 
         _=> {
@@ -1753,6 +1794,13 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
 
     let pexe_path = make_absolute(&output_base_name(config, testfile))
         .unwrap();
+    let pexe_path = if config.mode == DebugInfoGdb {
+        // The pexe wont have debugging info in it. We need the bc file rustc
+        // also generated.
+        pexe_path.with_extension("bc")
+    } else {
+        pexe_path
+    };
     let nexe_path =
         // add an extension, don't replace it:
         Path::new(format!("{}.nexe", pexe_path.display()));
