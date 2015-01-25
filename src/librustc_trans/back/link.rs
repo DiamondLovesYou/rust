@@ -1002,7 +1002,9 @@ pub fn link_pnacl_module(sess: &Session,
     sess.check_writeable_output(&out, "final output");
 
     if emit_stable_pexe {
-        if !unsafe { llvm::LLVMRustWritePNaClBitcode(llmod, out_cstr.as_ptr() as *const i8, false) } {
+        if !unsafe { llvm::LLVMRustWritePNaClBitcode(llmod,
+                                                     out_cstr.as_ptr() as *const i8,
+                                                     false) } {
             llvm_err(&sess.diagnostic().handler, "failed to write output file".to_string());
         }
     } else {

@@ -271,13 +271,19 @@ pub fn main() {
             unsafe {
                 let pm = llvm::LLVMCreatePassManager();
 
-                assert!(llvm::LLVMRustAddPass(pm, "add-pnacl-external-decls\0".as_ptr() as *const i8 ));
-                assert!(llvm::LLVMRustAddPass(pm, "resolve-pnacl-intrinsics\0".as_ptr() as *const i8 ));
+                assert!(llvm::LLVMRustAddPass(pm,
+                                              "add-pnacl-external-decls\0"
+                                                   .as_ptr() as *const i8));
+                assert!(llvm::LLVMRustAddPass(pm,
+                                              "resolve-pnacl-intrinsics\0"
+                                                   .as_ptr() as *const i8));
 
                 llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
                 llvm::LLVMRustAddLibraryInfo(pm, llmod, false);
 
-                assert!(llvm::LLVMRustAddPass(pm, "combine-vector-instructions\0".as_ptr() as *const i8 ));
+                assert!(llvm::LLVMRustAddPass(pm,
+                                              "combine-vector-instructions\0"
+                                                   .as_ptr() as *const i8));
 
                 let out = format!("{}.o", i);
                 let out_cstr = format!("{}\0", out);
