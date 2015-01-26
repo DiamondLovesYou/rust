@@ -30,10 +30,9 @@ use libc;
 #[cfg(all(target_os = "nacl", target_libc = "newlib", not(test)))]
 #[link(name = "nacl_io", kind = "static")] extern {}
 
-// PNaCl SJLJ EH needs libstdc++, but nacl_io needs libc++ :(.
+// Both nacl_io && PNaCl SJLJ EH need libc++.
 #[cfg(all(target_os = "nacl", not(test)))]
 #[link(name = "stdc++", kind = "static")]
-#[link(name = "c++", kind = "static")]
 extern {}
 
 #[cfg(any(target_os = "macos",
