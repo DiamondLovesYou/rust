@@ -175,21 +175,22 @@ macro_rules! thread_local {
 #[doc(hidden)]
 macro_rules! __thread_local_inner {
     (static $name:ident: $t:ty = $init:expr) => (
-        #[cfg_attr(all(any(target_os = "macos", target_os = "linux"),
+        #[cfg_attr(all(any(target_os = "macos", target_os = "linux", target_os = "nacl"),
                        not(target_arch = "aarch64")),
                    thread_local)]
         static $name: ::std::thread_local::__impl::KeyInner<$t> =
             __thread_local_inner!($init, $t);
     );
     (pub static $name:ident: $t:ty = $init:expr) => (
-        #[cfg_attr(all(any(target_os = "macos", target_os = "linux"),
+        #[cfg_attr(all(any(target_os = "macos", target_os = "linux", target_os = "nacl"),
                        not(target_arch = "aarch64")),
                    thread_local)]
         pub static $name: ::std::thread_local::__impl::KeyInner<$t> =
             __thread_local_inner!($init, $t);
     );
     ($init:expr, $t:ty) => ({
-        #[cfg(all(any(target_os = "macos", target_os = "linux"), not(target_arch = "aarch64")))]
+        #[cfg(all(any(target_os = "macos", target_os = "linux",
+                      target_os = "nacl"), not(target_arch = "aarch64")))]
         const _INIT: ::std::thread_local::__impl::KeyInner<$t> = {
             ::std::thread_local::__impl::KeyInner {
                 inner: ::std::cell::UnsafeCell { value: $init },
@@ -198,7 +199,8 @@ macro_rules! __thread_local_inner {
             }
         };
 
-        #[cfg(any(not(any(target_os = "macos", target_os = "linux")), target_arch = "aarch64"))]
+        #[cfg(any(not(any(target_os = "macos", target_os = "linux",
+                          target_os = "nacl")), target_arch = "aarch64"))]
         const _INIT: ::std::thread_local::__impl::KeyInner<$t> = {
             unsafe extern fn __destroy(ptr: *mut u8) {
                 ::std::thread_local::__impl::destroy_value::<$t>(ptr);
@@ -321,7 +323,8 @@ impl<T: 'static> Key<T> {
     pub fn destroyed(&'static self) -> bool { self.state() == State::Destroyed }
 }
 
-#[cfg(all(any(target_os = "macos", target_os = "linux"), not(target_arch = "aarch64")))]
+#[cfg(all(any(target_os = "macos", target_os = "linux",
+              target_os = "nacl"), not(target_arch = "aarch64")))]
 mod imp {
     use prelude::v1::*;
 
@@ -377,7 +380,7 @@ mod imp {
     // fallback implementation to use as well.
     //
     // Due to rust-lang/rust#18804, make sure this is not generic!
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "nacl"))]
     unsafe fn register_dtor(t: *mut u8, dtor: unsafe extern fn(*mut u8)) {
         use mem;
         use libc;
@@ -453,7 +456,8 @@ mod imp {
     }
 }
 
-#[cfg(any(not(any(target_os = "macos", target_os = "linux")), target_arch = "aarch64"))]
+#[cfg(any(not(any(target_os = "macos", target_os = "linux",
+                  target_os = "nacl")), target_arch = "aarch64"))]
 mod imp {
     use prelude::v1::*;
 
