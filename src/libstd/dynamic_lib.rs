@@ -135,7 +135,7 @@ impl DynamicLibrary {
     }
 }
 
-#[cfg(all(test, not(target_os = "ios")))]
+#[cfg(all(test, not(target_os = "ios"), not(target_os = "nacl")))]
 mod test {
     use super::*;
     use prelude::v1::*;
