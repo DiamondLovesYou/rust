@@ -32,7 +32,7 @@ use libc;
 
 // Both nacl_io && PNaCl SJLJ EH need libc++.
 #[cfg(all(target_os = "nacl", not(test)))]
-#[link(name = "stdc++", kind = "static")]
+#[link(name = "c++", kind = "static")]
 extern {}
 
 #[cfg(any(target_os = "macos",

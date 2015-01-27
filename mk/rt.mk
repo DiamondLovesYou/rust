@@ -60,7 +60,7 @@ NATIVE_DEPS_rustrt_native_$(1) := \
 			rust_try.ll
 
 ifeq ($(1),le32-unknown-nacl)
-NATIVE_DEPS_rustrt_native_$(1) += crtbegin.bc crti.bc sjlj_eh_redirect.bc
+NATIVE_DEPS_rustrt_native_$(1) += crtbegin.bc crti.bc
 endif
 
 NATIVE_DEPS_rust_test_helpers_$(1) := rust_test_helpers.c
