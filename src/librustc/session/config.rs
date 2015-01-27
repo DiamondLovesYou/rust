@@ -250,12 +250,36 @@ pub enum EntryFnType {
     EntryNone,
 }
 
-#[derive(Copy, PartialEq, PartialOrd, Clone, Ord, Eq, Hash, Show)]
+#[derive(Copy, PartialEq, PartialOrd, Clone, Ord, Eq, Hash)]
 pub enum CrateType {
     CrateTypeExecutable,
     CrateTypeDylib,
     CrateTypeRlib,
     CrateTypeStaticlib,
+}
+#[cfg(not(stage0))]
+impl fmt::Debug for CrateType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::CrateType::*;
+        match self {
+            &CrateTypeExecutable => write!(f, "bin"),
+            &CrateTypeDylib => write!(f, "dylib"),
+            &CrateTypeRlib => write!(f, "rlib"),
+            &CrateTypeStaticlib => write!(f, "staticlib"),
+        }
+    }
+}
+#[cfg(stage0)]
+impl fmt::Show for CrateType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::CrateType::*;
+        match self {
+            &CrateTypeExecutable => write!(f, "bin"),
+            &CrateTypeDylib => write!(f, "dylib"),
+            &CrateTypeRlib => write!(f, "rlib"),
+            &CrateTypeStaticlib => write!(f, "staticlib"),
+        }
+    }
 }
 
 
