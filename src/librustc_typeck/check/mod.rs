@@ -160,7 +160,7 @@ pub struct Inherited<'a, 'tcx: 'a> {
     adjustments: RefCell<NodeMap<ty::AutoAdjustment<'tcx>>>,
     method_map: MethodMap<'tcx>,
     upvar_borrow_map: RefCell<ty::UpvarBorrowMap>,
-    unboxed_closures: RefCell<DefIdMap<ty::UnboxedClosure<'tcx>>>,
+    closures: RefCell<DefIdMap<ty::Closure<'tcx>>>,
     object_cast_map: ObjectCastMap<'tcx>,
 
     // A mapping from each fn's id to its signature, with all bound
@@ -338,32 +338,29 @@ impl<'a, 'tcx> mc::Typer<'tcx> for FnCtxt<'a, 'tcx> {
     }
 }
 
-impl<'a, 'tcx> ty::UnboxedClosureTyper<'tcx> for FnCtxt<'a, 'tcx> {
+impl<'a, 'tcx> ty::ClosureTyper<'tcx> for FnCtxt<'a, 'tcx> {
     fn param_env<'b>(&'b self) -> &'b ty::ParameterEnvironment<'b,'tcx> {
         &self.inh.param_env
     }
 
-    fn unboxed_closure_kind(&self,
-                            def_id: ast::DefId)
-                            -> ty::UnboxedClosureKind
-    {
-        self.inh.unboxed_closures.borrow()[def_id].kind
+    fn closure_kind(&self, def_id: ast::DefId) -> ty::ClosureKind {
+        self.inh.closures.borrow()[def_id].kind
     }
 
-    fn unboxed_closure_type(&self,
-                            def_id: ast::DefId,
-                            substs: &subst::Substs<'tcx>)
-                            -> ty::ClosureTy<'tcx>
+    fn closure_type(&self,
+                    def_id: ast::DefId,
+                    substs: &subst::Substs<'tcx>)
+                    -> ty::ClosureTy<'tcx>
     {
-        self.inh.unboxed_closures.borrow()[def_id].closure_type.subst(self.tcx(), substs)
+        self.inh.closures.borrow()[def_id].closure_type.subst(self.tcx(), substs)
     }
 
-    fn unboxed_closure_upvars(&self,
-                              def_id: ast::DefId,
-                              substs: &Substs<'tcx>)
-                              -> Option<Vec<ty::UnboxedClosureUpvar<'tcx>>>
+    fn closure_upvars(&self,
+                      def_id: ast::DefId,
+                      substs: &Substs<'tcx>)
+                      -> Option<Vec<ty::ClosureUpvar<'tcx>>>
     {
-        ty::unboxed_closure_upvars(self, def_id, substs)
+        ty::closure_upvars(self, def_id, substs)
     }
 }
 
@@ -381,14 +378,14 @@ impl<'a, 'tcx> Inherited<'a, 'tcx> {
             method_map: RefCell::new(FnvHashMap()),
             object_cast_map: RefCell::new(NodeMap()),
             upvar_borrow_map: RefCell::new(FnvHashMap()),
-            unboxed_closures: RefCell::new(DefIdMap()),
+            closures: RefCell::new(DefIdMap()),
             fn_sig_map: RefCell::new(NodeMap()),
             fulfillment_cx: RefCell::new(traits::FulfillmentContext::new()),
         }
     }
 
     fn normalize_associated_types_in<T>(&self,
-                                        typer: &ty::UnboxedClosureTyper<'tcx>,
+                                        typer: &ty::ClosureTyper<'tcx>,
                                         span: Span,
                                         body_id: ast::NodeId,
                                         value: &T)
@@ -993,86 +990,65 @@ fn check_impl_items_against_trait<'a, 'tcx>(ccx: &CrateCtxt<'a, 'tcx>,
     }
 }
 
-fn check_cast(fcx: &FnCtxt,
-              cast_expr: &ast::Expr,
-              e: &ast::Expr,
-              t: &ast::Ty) {
-    let id = cast_expr.id;
-    let span = cast_expr.span;
-
-    // Find the type of `e`. Supply hints based on the type we are casting to,
-    // if appropriate.
-    let t_1 = fcx.to_ty(t);
-    let t_1 = structurally_resolved_type(fcx, span, t_1);
-
-    check_expr_with_expectation(fcx, e, ExpectCastableToType(t_1));
-
-    let t_e = fcx.expr_ty(e);
-
-    debug!("t_1={}", fcx.infcx().ty_to_string(t_1));
-    debug!("t_e={}", fcx.infcx().ty_to_string(t_e));
-
-    if ty::type_is_error(t_e) {
-        fcx.write_error(id);
-        return
-    }
-
-    if !fcx.type_is_known_to_be_sized(t_1, cast_expr.span) {
-        let tstr = fcx.infcx().ty_to_string(t_1);
-        fcx.type_error_message(span, |actual| {
-            format!("cast to unsized type: `{}` as `{}`", actual, tstr)
-        }, t_e, None);
-        match t_e.sty {
-            ty::ty_rptr(_, ty::mt { mutbl: mt, .. }) => {
-                let mtstr = match mt {
-                    ast::MutMutable => "mut ",
-                    ast::MutImmutable => ""
-                };
-                if ty::type_is_trait(t_1) {
-                    span_help!(fcx.tcx().sess, t.span, "did you mean `&{}{}`?", mtstr, tstr);
-                } else {
-                    span_help!(fcx.tcx().sess, span,
-                               "consider using an implicit coercion to `&{}{}` instead",
-                               mtstr, tstr);
-                }
-            }
-            ty::ty_uniq(..) => {
-                span_help!(fcx.tcx().sess, t.span, "did you mean `Box<{}>`?", tstr);
-            }
-            _ => {
-                span_help!(fcx.tcx().sess, e.span,
-                           "consider using a box or reference as appropriate");
+fn report_cast_to_unsized_type<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
+                                         span: Span,
+                                         t_span: Span,
+                                         e_span: Span,
+                                         t_1: Ty<'tcx>,
+                                         t_e: Ty<'tcx>,
+                                         id: ast::NodeId) {
+    let tstr = fcx.infcx().ty_to_string(t_1);
+    fcx.type_error_message(span, |actual| {
+        format!("cast to unsized type: `{}` as `{}`", actual, tstr)
+    }, t_e, None);
+    match t_e.sty {
+        ty::ty_rptr(_, ty::mt { mutbl: mt, .. }) => {
+            let mtstr = match mt {
+                ast::MutMutable => "mut ",
+                ast::MutImmutable => ""
+            };
+            if ty::type_is_trait(t_1) {
+                span_help!(fcx.tcx().sess, t_span, "did you mean `&{}{}`?", mtstr, tstr);
+            } else {
+                span_help!(fcx.tcx().sess, span,
+                           "consider using an implicit coercion to `&{}{}` instead",
+                           mtstr, tstr);
             }
         }
-        fcx.write_error(id);
-        return
+        ty::ty_uniq(..) => {
+            span_help!(fcx.tcx().sess, t_span, "did you mean `Box<{}>`?", tstr);
+        }
+        _ => {
+            span_help!(fcx.tcx().sess, e_span,
+                       "consider using a box or reference as appropriate");
+        }
     }
+    fcx.write_error(id);
+}
 
-    if ty::type_is_trait(t_1) {
-        // This will be looked up later on.
-        vtable::check_object_cast(fcx, cast_expr, e, t_1);
-        fcx.write_ty(id, t_1);
-        return
-    }
 
-    let t_1 = structurally_resolved_type(fcx, span, t_1);
-    let t_e = structurally_resolved_type(fcx, span, t_e);
-
-    if ty::type_is_nil(t_e) {
+fn check_cast_inner<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
+                              span: Span,
+                              t_1: Ty<'tcx>,
+                              t_e: Ty<'tcx>,
+                              e: &ast::Expr) {
+    fn cast_through_integer_err<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
+                                          span: Span,
+                                          t_1: Ty<'tcx>,
+                                          t_e: Ty<'tcx>) {
         fcx.type_error_message(span, |actual| {
-            format!("cast from nil: `{}` as `{}`",
-                    actual,
-                    fcx.infcx().ty_to_string(t_1))
-        }, t_e, None);
-    } else if ty::type_is_nil(t_1) {
-        fcx.type_error_message(span, |actual| {
-            format!("cast to nil: `{}` as `{}`",
+            format!("illegal cast; cast through an \
+                    integer first: `{}` as `{}`",
                     actual,
                     fcx.infcx().ty_to_string(t_1))
         }, t_e, None);
     }
 
     let t_e_is_bare_fn_item = ty::type_is_bare_fn_item(t_e);
+    let t_e_is_scalar = ty::type_is_scalar(t_e);
+    let t_e_is_integral = ty::type_is_integral(t_e);
+    let t_e_is_float = ty::type_is_floating_point(t_e);
+    let t_e_is_c_enum = ty::type_is_c_like_enum(fcx.tcx(), t_e);
 
     let t_1_is_scalar = ty::type_is_scalar(t_1);
     let t_1_is_char = ty::type_is_char(t_1);
@@ -1081,18 +1057,9 @@ fn check_cast(fcx: &FnCtxt,
 
     // casts to scalars other than `char` and `bare fn` are trivial
     let t_1_is_trivial = t_1_is_scalar && !t_1_is_char && !t_1_is_bare_fn;
+
     if t_e_is_bare_fn_item && t_1_is_bare_fn {
         demand::coerce(fcx, e.span, t_1, &*e);
-    } else if ty::type_is_c_like_enum(fcx.tcx(), t_e) && t_1_is_trivial {
-        if t_1_is_float || ty::type_is_unsafe_ptr(t_1) {
-            fcx.type_error_message(span, |actual| {
-                format!("illegal cast; cast through an \
-                         integer first: `{}` as `{}`",
-                        actual,
-                        fcx.infcx().ty_to_string(t_1))
-            }, t_e, None);
-        }
-        // casts from C-like enums are allowed
     } else if t_1_is_char {
         let t_e = fcx.infcx().shallow_resolve(t_e);
         if t_e.sty != ty::ty_uint(ast::TyU8) {
@@ -1104,6 +1071,16 @@ fn check_cast(fcx: &FnCtxt,
     } else if t_1.sty == ty::ty_bool {
         span_err!(fcx.tcx().sess, span, E0054,
             "cannot cast as `bool`, compare with zero instead");
+    } else if t_1_is_float && (t_e_is_scalar || t_e_is_c_enum) && !(
+        t_e_is_integral || t_e_is_float || t_e.sty == ty::ty_bool) {
+        // Casts to float must go through an integer or boolean
+        cast_through_integer_err(fcx, span, t_1, t_e)
+    } else if t_e_is_c_enum && t_1_is_trivial {
+        if ty::type_is_unsafe_ptr(t_1) {
+            // ... and likewise with C enum -> *T
+            cast_through_integer_err(fcx, span, t_1, t_e)
+        }
+        // casts from C-like enums are allowed
     } else if ty::type_is_region_ptr(t_e) && ty::type_is_unsafe_ptr(t_1) {
         fn types_compatible<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>, sp: Span,
                                       t1: Ty<'tcx>, t2: Ty<'tcx>) -> bool {
@@ -1145,7 +1122,7 @@ fn check_cast(fcx: &FnCtxt,
                 demand::coerce(fcx, e.span, t_1, &*e);
             }
         }
-    } else if !(ty::type_is_scalar(t_e) && t_1_is_trivial) {
+    } else if !(t_e_is_scalar && t_1_is_trivial) {
         /*
         If more type combinations should be supported than are
         supported here, then file an enhancement issue and
@@ -1156,15 +1133,49 @@ fn check_cast(fcx: &FnCtxt,
                     actual,
                     fcx.infcx().ty_to_string(t_1))
         }, t_e, None);
-    } else if ty::type_is_unsafe_ptr(t_e) && t_1_is_float {
-        fcx.type_error_message(span, |actual| {
-            format!("cannot cast from pointer to float directly: `{}` as `{}`; cast through an \
-                     integer first",
-                    actual,
-                    fcx.infcx().ty_to_string(t_1))
-        }, t_e, None);
+    }
+}
+
+fn check_cast(fcx: &FnCtxt,
+              cast_expr: &ast::Expr,
+              e: &ast::Expr,
+              t: &ast::Ty) {
+    let id = cast_expr.id;
+    let span = cast_expr.span;
+
+    // Find the type of `e`. Supply hints based on the type we are casting to,
+    // if appropriate.
+    let t_1 = fcx.to_ty(t);
+    let t_1 = structurally_resolved_type(fcx, span, t_1);
+
+    check_expr_with_expectation(fcx, e, ExpectCastableToType(t_1));
+
+    let t_e = fcx.expr_ty(e);
+
+    debug!("t_1={}", fcx.infcx().ty_to_string(t_1));
+    debug!("t_e={}", fcx.infcx().ty_to_string(t_e));
+
+    if ty::type_is_error(t_e) {
+        fcx.write_error(id);
+        return
     }
 
+    if !fcx.type_is_known_to_be_sized(t_1, cast_expr.span) {
+        report_cast_to_unsized_type(fcx, span, t.span, e.span, t_1, t_e, id);
+        return
+    }
+
+    if ty::type_is_trait(t_1) {
+        // This will be looked up later on.
+        vtable::check_object_cast(fcx, cast_expr, e, t_1);
+        fcx.write_ty(id, t_1);
+        return
+    }
+
+    let t_1 = structurally_resolved_type(fcx, span, t_1);
+    let t_e = structurally_resolved_type(fcx, span, t_e);
+
+    check_cast_inner(fcx, span, t_1, t_e, e);
     fcx.write_ty(id, t_1);
 }
 
@@ -1635,6 +1646,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
     {
         let raw_ty = self.expr_ty(expr);
         let raw_ty = self.infcx().shallow_resolve(raw_ty);
+        let resolve_ty = |&: ty: Ty<'tcx>| self.infcx().resolve_type_vars_if_possible(&ty);
         ty::adjust_ty(self.tcx(),
                       expr.span,
                       expr.id,
@@ -1642,7 +1654,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                       adjustment,
                       |method_call| self.inh.method_map.borrow()
                                                        .get(&method_call)
-                                                       .map(|method| method.ty))
+                                                       .map(|method| resolve_ty(method.ty)))
     }
 
     pub fn node_ty(&self, id: ast::NodeId) -> Ty<'tcx> {
@@ -2859,7 +2871,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
         let lhs_t = structurally_resolved_type(fcx, lhs.span,
                                                fcx.expr_ty(&*lhs));
 
-        if ty::type_is_integral(lhs_t) && ast_util::is_shift_binop(op) {
+        if ty::type_is_integral(lhs_t) && ast_util::is_shift_binop(op.node) {
             // Shift is a special case: rhs must be uint, no matter what lhs is
             check_expr(fcx, &**rhs);
             let rhs_ty = fcx.expr_ty(&**rhs);
@@ -2887,7 +2899,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
             demand::suptype(fcx, expr.span, tvar, lhs_t);
             check_expr_has_type(fcx, &**rhs, tvar);
 
-            let result_t = match op {
+            let result_t = match op.node {
                 ast::BiEq | ast::BiNe | ast::BiLt | ast::BiLe | ast::BiGe |
                 ast::BiGt => {
                     if ty::type_is_simd(tcx, lhs_t) {
@@ -2898,7 +2910,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                              operation `{}` not \
                                              supported for floating \
                                              point SIMD vector `{}`",
-                                            ast_util::binop_to_string(op),
+                                            ast_util::binop_to_string(op.node),
                                             actual)
                                 },
                                 lhs_t,
@@ -2919,7 +2931,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
             return;
         }
 
-        if op == ast::BiOr || op == ast::BiAnd {
+        if op.node == ast::BiOr || op.node == ast::BiAnd {
             // This is an error; one of the operands must have the wrong
             // type
             fcx.write_error(expr.id);
@@ -2928,7 +2940,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                    |actual| {
                     format!("binary operation `{}` cannot be applied \
                              to type `{}`",
-                            ast_util::binop_to_string(op),
+                            ast_util::binop_to_string(op.node),
                             actual)
                 },
                 lhs_t,
@@ -2945,7 +2957,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                                  operation `{}=` \
                                                  cannot be applied to \
                                                  type `{}`",
-                                                ast_util::binop_to_string(op),
+                                                ast_util::binop_to_string(op.node),
                                                 actual)
                                    },
                                    lhs_t,
@@ -2968,7 +2980,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                                   rhs: &P<ast::Expr>) -> Ty<'tcx> {
         let tcx = fcx.ccx.tcx;
         let lang = &tcx.lang_items;
-        let (name, trait_did) = match op {
+        let (name, trait_did) = match op.node {
             ast::BiAdd => ("add", lang.add_trait()),
             ast::BiSub => ("sub", lang.sub_trait()),
             ast::BiMul => ("mul", lang.mul_trait()),
@@ -2994,10 +3006,10 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                          trait_did, lhs_expr, Some(rhs), || {
             fcx.type_error_message(ex.span, |actual| {
                 format!("binary operation `{}` cannot be applied to type `{}`",
-                        ast_util::binop_to_string(op),
+                        ast_util::binop_to_string(op.node),
                         actual)
             }, lhs_resolved_t, None)
-        }, if ast_util::is_by_value_binop(op) { AutorefArgs::No } else { AutorefArgs::Yes })
+        }, if ast_util::is_by_value_binop(op.node) { AutorefArgs::No } else { AutorefArgs::Yes })
     }
 
     fn check_user_unop<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
@@ -4624,7 +4636,7 @@ pub fn type_scheme_for_def<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                                      defn: def::Def)
                                      -> TypeScheme<'tcx> {
     match defn {
-      def::DefLocal(nid) | def::DefUpvar(nid, _, _) => {
+      def::DefLocal(nid) | def::DefUpvar(nid, _) => {
           let typ = fcx.local_ty(sp, nid);
           return no_params(typ);
       }

@@ -15,8 +15,8 @@ use collections::HashMap;
 use collections::hash_map::Hasher;
 use ffi::CString;
 use hash::Hash;
-use io::process::{ProcessExit, ExitStatus, ExitSignal};
-use io::{self, IoResult, IoError, EndOfFile};
+use old_io::process::{ProcessExit, ExitStatus, ExitSignal};
+use old_io::{self, IoResult, IoError, EndOfFile};
 use libc::{self, pid_t, c_void, c_int};
 use mem;
 use os;
@@ -35,7 +35,7 @@ helper_init! { static HELPER: Helper<Req> }
 #[cfg(target_os = "nacl")]
 fn permission_denied() -> IoError {
     IoError {
-        kind: io::PermissionDenied,
+        kind: old_io::PermissionDenied,
         desc: "(P)NaCl is sandboxed and thus can't create processes",
         detail: Some("NaCl doesn't allow separate processes".to_string()),
     }

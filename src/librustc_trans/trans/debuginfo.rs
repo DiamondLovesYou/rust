@@ -197,17 +197,17 @@ use metadata::csearch;
 use middle::subst::{self, Substs};
 use trans::{self, adt, machine, type_of};
 use trans::common::{self, NodeIdAndSpan, CrateContext, FunctionContext, Block,
-                    C_bytes, C_i32, C_i64, NormalizingUnboxedClosureTyper};
+                    C_bytes, C_i32, C_i64, NormalizingClosureTyper};
 use trans::_match::{BindingInfo, TrByCopy, TrByMove, TrByRef};
 use trans::monomorphize;
 use trans::type_::Type;
-use middle::ty::{self, Ty, UnboxedClosureTyper};
+use middle::ty::{self, Ty, ClosureTyper};
 use middle::pat_util;
 use session::config::{self, FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
 use util::nodemap::{DefIdMap, NodeMap, FnvHashMap, FnvHashSet};
 use util::ppaux;
 
-use libc::c_uint;
+use libc::{c_uint, c_longlong};
 use std::ffi::CString;
 use std::cell::{Cell, RefCell};
 use std::ptr;
@@ -472,9 +472,9 @@ impl<'tcx> TypeMap<'tcx> {
                     }
                 }
             },
-            ty::ty_unboxed_closure(def_id, _, substs) => {
-                let typer = NormalizingUnboxedClosureTyper::new(cx.tcx());
-                let closure_ty = typer.unboxed_closure_type(def_id, substs);
+            ty::ty_closure(def_id, _, substs) => {
+                let typer = NormalizingClosureTyper::new(cx.tcx());
+                let closure_ty = typer.closure_type(def_id, substs);
                 self.get_unique_type_id_of_closure_type(cx,
                                                         closure_ty,
                                                         &mut unique_type_id);
@@ -2763,7 +2763,7 @@ fn create_struct_stub(cx: &CrateContext,
 fn fixed_vec_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                 unique_type_id: UniqueTypeId,
                                 element_type: Ty<'tcx>,
-                                len: uint,
+                                len: Option<u64>,
                                 span: Span)
                                 -> MetadataCreationResult {
     let element_type_metadata = type_metadata(cx, element_type, span);
@@ -2773,18 +2773,20 @@ fn fixed_vec_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     let element_llvm_type = type_of::type_of(cx, element_type);
     let (element_type_size, element_type_align) = size_and_align_of(cx, element_llvm_type);
 
+    let (array_size_in_bytes, upper_bound) = match len {
+        Some(len) => (element_type_size * len, len as c_longlong),
+        None => (0, -1)
+    };
+
     let subrange = unsafe {
-        llvm::LLVMDIBuilderGetOrCreateSubrange(
-            DIB(cx),
-            0,
-            len as i64)
+        llvm::LLVMDIBuilderGetOrCreateSubrange(DIB(cx), 0, upper_bound)
     };
 
     let subscripts = create_DIArray(DIB(cx), &[subrange]);
     let metadata = unsafe {
         llvm::LLVMDIBuilderCreateArrayType(
             DIB(cx),
-            bytes_to_bits(element_type_size * (len as u64)),
+            bytes_to_bits(array_size_in_bytes),
             bytes_to_bits(element_type_align),
             element_type_metadata,
             subscripts)
@@ -2990,12 +2992,12 @@ fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_enum(def_id, _) => {
             prepare_enum_metadata(cx, t, def_id, unique_type_id, usage_site_span).finalize(cx)
         }
-        ty::ty_vec(typ, Some(len)) => {
-            fixed_vec_metadata(cx, unique_type_id, typ, len, usage_site_span)
+        ty::ty_vec(typ, len) => {
+            fixed_vec_metadata(cx, unique_type_id, typ, len.map(|x| x as u64), usage_site_span)
         }
-        // FIXME Can we do better than this for unsized vec/str fields?
-        ty::ty_vec(typ, None) => fixed_vec_metadata(cx, unique_type_id, typ, 0, usage_site_span),
-        ty::ty_str => fixed_vec_metadata(cx, unique_type_id, cx.tcx().types.i8, 0, usage_site_span),
+        ty::ty_str => {
+            fixed_vec_metadata(cx, unique_type_id, cx.tcx().types.i8, None, usage_site_span)
+        }
         ty::ty_trait(..) => {
             MetadataCreationResult::new(
                         trait_pointer_metadata(cx, t, None, unique_type_id),
@@ -3032,9 +3034,9 @@ fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_bare_fn(_, ref barefnty) => {
             subroutine_type_metadata(cx, unique_type_id, &barefnty.sig, usage_site_span)
         }
-        ty::ty_unboxed_closure(def_id, _, substs) => {
-            let typer = NormalizingUnboxedClosureTyper::new(cx.tcx());
-            let sig = typer.unboxed_closure_type(def_id, substs).sig;
+        ty::ty_closure(def_id, _, substs) => {
+            let typer = NormalizingClosureTyper::new(cx.tcx());
+            let sig = typer.closure_type(def_id, substs).sig;
             subroutine_type_metadata(cx, unique_type_id, &sig, usage_site_span)
         }
         ty::ty_struct(def_id, substs) => {
@@ -3885,7 +3887,7 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 }
             }
         },
-        ty::ty_unboxed_closure(..) => {
+        ty::ty_closure(..) => {
             output.push_str("closure");
         }
         ty::ty_err |

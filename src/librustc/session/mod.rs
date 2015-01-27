@@ -16,8 +16,6 @@ use metadata::filesearch;
 use session::search_paths::PathKind;
 use util::nodemap::NodeMap;
 
-use regex::Regex;
-
 use syntax::ast::NodeId;
 use syntax::codemap::Span;
 use syntax::diagnostic::{self, Emitter};
@@ -307,11 +305,11 @@ impl Session {
 
     // Emits a fatal error if path is not writeable.
     pub fn check_writeable_output(&self, path: &Path, name: &str) {
-        use std::io;
-        use std::io::fs::PathExtensions;
+        use std::old_io;
+        use std::old_io::fs::PathExtensions;
         let is_writeable = match path.stat() {
             Err(..) => true,
-            Ok(m) => m.perm & io::USER_WRITE == io::USER_WRITE
+            Ok(m) => m.perm & old_io::USER_WRITE == old_io::USER_WRITE
         };
         if !is_writeable {
             self.fatal(format!("`{}` file `{}` is not writeable -- check it's permissions.",
@@ -322,7 +320,7 @@ impl Session {
     // checks if we're saving temps or if we're emitting the specified type.
     // If neither, the file is unlinked from the filesystem.
     pub fn remove_temp(&self, path: &Path, t: OutputType) {
-        use std::io::fs;
+        use std::old_io::fs;
         if self.opts.cg.save_temps ||
             self.opts.output_types.contains(&t) {
             return;
@@ -367,50 +365,54 @@ fn split_msg_into_multilines(msg: &str) -> Option<String> {
         !msg.contains("structure constructor specifies a structure of type") {
             return None
     }
-
-    let first  = Regex::new(r"[( ]expected").unwrap();
-    let second = Regex::new(r" found").unwrap();
-    let third  = Regex::new(
-        r"\((values differ|lifetime|cyclic type of infinite size)").unwrap();
+    let first = msg.match_indices("expected").filter(|s| {
+        s.0 > 0 && (msg.char_at_reverse(s.0) == ' ' ||
+                    msg.char_at_reverse(s.0) == '(')
+    }).map(|(a, b)| (a - 1, b));
+    let second = msg.match_indices("found").filter(|s| {
+        msg.char_at_reverse(s.0) == ' '
+    }).map(|(a, b)| (a - 1, b));
 
     let mut new_msg = String::new();
     let mut head = 0u;
 
     // Insert `\n` before expected and found.
-    for (pos1, pos2) in first.find_iter(msg).zip(
-        second.find_iter(msg)) {
+    for (pos1, pos2) in first.zip(second) {
         new_msg = new_msg +
-            // A `(` may be preceded by a space and it should be trimmed
-            msg[head..pos1.0].trim_right() + // prefix
-            "\n" +                           // insert before first
-            &msg[pos1.0..pos1.1] +           // insert what first matched
-            &msg[pos1.1..pos2.0] +           // between matches
-            "\n   " +                        // insert before second
-            //           123
-            // `expected` is 3 char longer than `found`. To align the types, `found` gets
-            // 3 spaces prepended.
-            &msg[pos2.0..pos2.1];            // insert what second matched
+        // A `(` may be preceded by a space and it should be trimmed
+                  msg[head..pos1.0].trim_right() + // prefix
+                  "\n" +                           // insert before first
+                  &msg[pos1.0..pos1.1] +           // insert what first matched
+                  &msg[pos1.1..pos2.0] +           // between matches
+                  "\n   " +                        // insert before second
+        //           123
+        // `expected` is 3 char longer than `found`. To align the types,
+        // `found` gets 3 spaces prepended.
+                  &msg[pos2.0..pos2.1];            // insert what second matched
 
         head = pos2.1;
     }
 
     let mut tail = &msg[head..];
+    let third = tail.find_str("(values differ")
+                   .or(tail.find_str("(lifetime"))
+                   .or(tail.find_str("(cyclic type of infinite size"));
     // Insert `\n` before any remaining messages which match.
-    for pos in third.find_iter(tail).take(1) {
-        // The end of the message may just be wrapped in `()` without `expected`/`found`.
-        // Push this also to a new line and add the final tail after.
+    if let Some(pos) = third {
+        // The end of the message may just be wrapped in `()` without
+        // `expected`/`found`.  Push this also to a new line and add the
+        // final tail after.
         new_msg = new_msg +
-            // `(` is usually preceded by a space and should be trimmed.
-            tail[..pos.0].trim_right() + // prefix
-            "\n" +                       // insert before paren
-            &tail[pos.0..];              // append the tail
+        // `(` is usually preceded by a space and should be trimmed.
+                  tail[..pos].trim_right() + // prefix
+                  "\n" +                     // insert before paren
+                  &tail[pos..];              // append the tail
 
         tail = "";
     }
 
     new_msg.push_str(tail);
-
-    return Some(new_msg)
+    return Some(new_msg);
 }
 
 pub fn build_session(sopts: config::Options,

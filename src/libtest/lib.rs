@@ -38,7 +38,6 @@
 #![allow(unstable)]
 
 extern crate getopts;
-extern crate regex;
 extern crate serialize;
 extern crate "serialize" as rustc_serialize;
 extern crate term;
@@ -53,8 +52,7 @@ use self::OutputLocation::*;
 
 use stats::Stats;
 use getopts::{OptGroup, optflag, optopt};
-use regex::Regex;
-use serialize::{json, Decodable, Encodable};
+use serialize::Encodable;
 use term::Terminal;
 use term::color::{Color, RED, YELLOW, GREEN, CYAN};
 
@@ -62,10 +60,9 @@ use std::any::Any;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::fs::PathExtensions;
-use std::io::stdio::StdWriter;
-use std::io::{File, ChanReader, ChanWriter};
-use std::io;
+use std::old_io::stdio::StdWriter;
+use std::old_io::{File, ChanReader, ChanWriter};
+use std::old_io;
 use std::iter::repeat;
 use std::num::{Float, Int};
 use std::os;
@@ -280,7 +277,7 @@ pub enum ColorConfig {
 }
 
 pub struct TestOpts {
-    pub filter: Option<Regex>,
+    pub filter: Option<String>,
     pub run_ignored: bool,
     pub run_tests: bool,
     pub run_benchmarks: bool,
@@ -394,11 +391,7 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
     if matches.opt_present("h") { usage(args[0].as_slice()); return None; }
 
     let filter = if matches.free.len() > 0 {
-        let s = matches.free[0].as_slice();
-        match Regex::new(s) {
-            Ok(re) => Some(re),
-            Err(e) => return Some(Err(format!("could not parse /{}/: {:?}", s, e)))
-        }
+        Some(matches.free[0].clone())
     } else {
         None
     };
@@ -523,9 +516,6 @@ struct ConsoleTestState<T> {
     log_out: Option<File>,
     out: OutputLocation<T>,
     use_color: bool,
-    show_boxplot: bool,
-    boxplot_width: uint,
-    show_all_stats: bool,
     total: uint,
     passed: uint,
     failed: uint,
@@ -538,13 +528,13 @@ struct ConsoleTestState<T> {
 
 impl<T: Writer> ConsoleTestState<T> {
     pub fn new(opts: &TestOpts,
-               _: Option<T>) -> io::IoResult<ConsoleTestState<StdWriter>> {
+               _: Option<T>) -> old_io::IoResult<ConsoleTestState<StdWriter>> {
         let log_out = match opts.logfile {
             Some(ref path) => Some(try!(File::create(path))),
             None => None
         };
         let out = match term::stdout() {
-            None => Raw(io::stdio::stdout_raw()),
+            None => Raw(old_io::stdio::stdout_raw()),
             Some(t) => Pretty(t)
         };
 
@@ -552,9 +542,6 @@ impl<T: Writer> ConsoleTestState<T> {
             out: out,
             log_out: log_out,
             use_color: use_color(opts),
-            show_boxplot: opts.show_boxplot,
-            boxplot_width: opts.boxplot_width,
-            show_all_stats: opts.show_all_stats,
             total: 0u,
             passed: 0u,
             failed: 0u,
@@ -566,97 +553,77 @@ impl<T: Writer> ConsoleTestState<T> {
         })
     }
 
-    pub fn write_ok(&mut self) -> io::IoResult<()> {
+    pub fn write_ok(&mut self) -> old_io::IoResult<()> {
         self.write_pretty("ok", term::color::GREEN)
     }
 
-    pub fn write_failed(&mut self) -> io::IoResult<()> {
+    pub fn write_failed(&mut self) -> old_io::IoResult<()> {
         self.write_pretty("FAILED", term::color::RED)
     }
 
-    pub fn write_ignored(&mut self) -> io::IoResult<()> {
+    pub fn write_ignored(&mut self) -> old_io::IoResult<()> {
         self.write_pretty("ignored", term::color::YELLOW)
     }
 
-    pub fn write_metric(&mut self) -> io::IoResult<()> {
+    pub fn write_metric(&mut self) -> old_io::IoResult<()> {
         self.write_pretty("metric", term::color::CYAN)
     }
 
-    pub fn write_bench(&mut self) -> io::IoResult<()> {
+    pub fn write_bench(&mut self) -> old_io::IoResult<()> {
         self.write_pretty("bench", term::color::CYAN)
     }
 
     pub fn write_pretty(&mut self,
                         word: &str,
-                        color: term::color::Color) -> io::IoResult<()> {
+                        color: term::color::Color) -> old_io::IoResult<()> {
         match self.out {
             Pretty(ref mut term) => {
                 if self.use_color {
                     try!(term.fg(color));
                 }
-                try!(term.write(word.as_bytes()));
+                try!(term.write_all(word.as_bytes()));
                 if self.use_color {
                     try!(term.reset());
                 }
                 Ok(())
             }
-            Raw(ref mut stdout) => stdout.write(word.as_bytes())
+            Raw(ref mut stdout) => stdout.write_all(word.as_bytes())
         }
     }
 
-    pub fn write_plain(&mut self, s: &str) -> io::IoResult<()> {
+    pub fn write_plain(&mut self, s: &str) -> old_io::IoResult<()> {
         match self.out {
-            Pretty(ref mut term) => term.write(s.as_bytes()),
-            Raw(ref mut stdout) => stdout.write(s.as_bytes())
+            Pretty(ref mut term) => term.write_all(s.as_bytes()),
+            Raw(ref mut stdout) => stdout.write_all(s.as_bytes())
         }
     }
 
-    pub fn write_run_start(&mut self, len: uint) -> io::IoResult<()> {
+    pub fn write_run_start(&mut self, len: uint) -> old_io::IoResult<()> {
         self.total = len;
         let noun = if len != 1 { "tests" } else { "test" };
         self.write_plain(format!("\nrunning {} {}\n", len, noun).as_slice())
     }
 
     pub fn write_test_start(&mut self, test: &TestDesc,
-                            align: NamePadding) -> io::IoResult<()> {
+                            align: NamePadding) -> old_io::IoResult<()> {
         let name = test.padded_name(self.max_name_len, align);
         self.write_plain(format!("test {} ... ", name).as_slice())
     }
 
-    pub fn write_result(&mut self, result: &TestResult) -> io::IoResult<()> {
+    pub fn write_result(&mut self, result: &TestResult) -> old_io::IoResult<()> {
         try!(match *result {
             TrOk => self.write_ok(),
             TrFailed => self.write_failed(),
             TrIgnored => self.write_ignored(),
             TrMetrics(ref mm) => {
                 try!(self.write_metric());
-                self.write_plain(format!(": {}", fmt_metrics(mm)).as_slice())
+                self.write_plain(format!(": {}", mm.fmt_metrics()).as_slice())
             }
             TrBench(ref bs) => {
                 try!(self.write_bench());
 
-                if self.show_boxplot {
-                    let mut wr = Vec::new();
-
-                    try!(stats::write_boxplot(&mut wr, &bs.ns_iter_summ, self.boxplot_width));
-
-                    let s = String::from_utf8(wr).unwrap();
-
-                    try!(self.write_plain(format!(": {}", s).as_slice()));
-                }
-
-                if self.show_all_stats {
-                    let mut wr = Vec::new();
-
-                    try!(stats::write_5_number_summary(&mut wr, &bs.ns_iter_summ));
-
-                    let s = String::from_utf8(wr).unwrap();
-
-                    try!(self.write_plain(format!(": {}", s).as_slice()));
-                } else {
-                    try!(self.write_plain(format!(": {}",
-                                                  fmt_bench_samples(bs)).as_slice()));
-                }
+                try!(self.write_plain(format!(": {}",
+                                              fmt_bench_samples(bs)).as_slice()));
 
                 Ok(())
             }
@@ -665,7 +632,7 @@ impl<T: Writer> ConsoleTestState<T> {
     }
 
     pub fn write_log(&mut self, test: &TestDesc,
-                     result: &TestResult) -> io::IoResult<()> {
+                     result: &TestResult) -> old_io::IoResult<()> {
         match self.log_out {
             None => Ok(()),
             Some(ref mut o) => {
@@ -673,15 +640,15 @@ impl<T: Writer> ConsoleTestState<T> {
                         TrOk => "ok".to_string(),
                         TrFailed => "failed".to_string(),
                         TrIgnored => "ignored".to_string(),
-                        TrMetrics(ref mm) => fmt_metrics(mm),
+                        TrMetrics(ref mm) => mm.fmt_metrics(),
                         TrBench(ref bs) => fmt_bench_samples(bs)
                     }, test.name.as_slice());
-                o.write(s.as_bytes())
+                o.write_all(s.as_bytes())
             }
         }
     }
 
-    pub fn write_failures(&mut self) -> io::IoResult<()> {
+    pub fn write_failures(&mut self) -> old_io::IoResult<()> {
         try!(self.write_plain("\nfailures:\n"));
         let mut failures = Vec::new();
         let mut fail_out = String::new();
@@ -709,33 +676,13 @@ impl<T: Writer> ConsoleTestState<T> {
         Ok(())
     }
 
-    pub fn write_run_finish(&mut self,
-                            ratchet_metrics: &Option<Path>,
-                            ratchet_pct: Option<f64>) -> io::IoResult<bool> {
+    pub fn write_run_finish(&mut self) -> old_io::IoResult<bool> {
         assert!(self.passed + self.failed + self.ignored + self.measured == self.total);
 
-        let ratchet_success = match *ratchet_metrics {
-            None => true,
-            Some(ref pth) => {
-                try!(self.write_plain(format!("\nusing metrics ratchet: {:?}\n",
-                                              pth.display()).as_slice()));
-                match ratchet_pct {
-                    None => (),
-                    Some(pct) =>
-                        try!(self.write_plain(format!("with noise-tolerance \
-                                                         forced to: {}%\n",
-                                                        pct).as_slice()))
-                }
-                true
-            }
-        };
-
-        let test_success = self.failed == 0u;
-        if !test_success {
+        let success = self.failed == 0u;
+        if !success {
             try!(self.write_failures());
         }
-
-        let success = ratchet_success && test_success;
 
         try!(self.write_plain("\ntest result: "));
         if success {
@@ -749,15 +696,6 @@ impl<T: Writer> ConsoleTestState<T> {
         try!(self.write_plain(s.as_slice()));
         return Ok(success);
     }
-}
-
-pub fn fmt_metrics(mm: &MetricMap) -> String {
-    let MetricMap(ref mm) = *mm;
-    let v : Vec<String> = mm.iter()
-        .map(|(k,v)| format!("{}: {} (+/- {})", *k,
-                             v.value as f64, v.noise as f64))
-        .collect();
-    v.connect(", ")
 }
 
 pub fn fmt_bench_samples(bs: &BenchSamples) -> String {
@@ -774,9 +712,10 @@ pub fn fmt_bench_samples(bs: &BenchSamples) -> String {
 }
 
 // A simple console test runner
-pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn> ) -> io::IoResult<bool> {
+pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn> ) -> old_io::IoResult<bool> {
 
-    fn callback<T: Writer>(event: &TestEvent, st: &mut ConsoleTestState<T>) -> io::IoResult<()> {
+    fn callback<T: Writer>(event: &TestEvent,
+                           st: &mut ConsoleTestState<T>) -> old_io::IoResult<()> {
         match (*event).clone() {
             TeFiltered(ref filtered_tests) => st.write_run_start(filtered_tests.len()),
             TeWait(ref test, padding) => st.write_test_start(test, padding),
@@ -830,15 +769,7 @@ pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn> ) -> io::IoR
         None => {}
     }
     try!(run_tests(opts, tests, |x| callback(&x, &mut st)));
-    match opts.save_metrics {
-        None => (),
-        Some(ref pth) => {
-            try!(st.metrics.save(pth));
-            try!(st.write_plain(format!("\nmetrics saved to: {:?}",
-                                          pth.display()).as_slice()));
-        }
-    }
-    return st.write_run_finish(&opts.ratchet_metrics, opts.ratchet_noise_percent);
+    return st.write_run_finish();
 }
 
 #[test]
@@ -859,9 +790,6 @@ fn should_sort_failures_before_printing_them() {
         log_out: None,
         out: Raw(Vec::new()),
         use_color: false,
-        show_boxplot: false,
-        boxplot_width: 0,
-        show_all_stats: false,
         total: 0u,
         passed: 0u,
         failed: 0u,
@@ -885,7 +813,7 @@ fn should_sort_failures_before_printing_them() {
 
 fn use_color(opts: &TestOpts) -> bool {
     match opts.color {
-        AutoColor => get_concurrency() == 1 && io::stdout().get_ref().isatty(),
+        AutoColor => get_concurrency() == 1 && old_io::stdout().get_ref().isatty(),
         AlwaysColor => true,
         NeverColor => false,
     }
@@ -903,8 +831,8 @@ pub type MonitorMsg = (TestDesc, TestResult, Vec<u8> );
 
 fn run_tests<F>(opts: &TestOpts,
                 tests: Vec<TestDescAndFn> ,
-                mut callback: F) -> io::IoResult<()> where
-    F: FnMut(TestEvent) -> io::IoResult<()>,
+                mut callback: F) -> old_io::IoResult<()> where
+    F: FnMut(TestEvent) -> old_io::IoResult<()>,
 {
     let filtered_tests = filter_tests(opts, tests);
     let filtered_descs = filtered_tests.iter()
@@ -985,9 +913,10 @@ pub fn filter_tests(opts: &TestOpts, tests: Vec<TestDescAndFn>) -> Vec<TestDescA
     // Remove tests that don't match the test filter
     filtered = match opts.filter {
         None => filtered,
-        Some(ref re) => {
-            filtered.into_iter()
-                .filter(|test| re.is_match(test.desc.name.as_slice())).collect()
+        Some(ref filter) => {
+            filtered.into_iter().filter(|test| {
+                test.desc.name.as_slice().contains(&filter[])
+            }).collect()
         }
     };
 
@@ -1114,30 +1043,6 @@ impl MetricMap {
         MetricMap(BTreeMap::new())
     }
 
-    /// Load MetricDiff from a file.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if the path does not exist or the path does not
-    /// contain a valid metric map.
-    pub fn load(p: &Path) -> MetricMap {
-        assert!(p.exists());
-        let mut f = File::open(p).unwrap();
-        let value = json::from_reader(&mut f as &mut io::Reader).unwrap();
-        let mut decoder = json::Decoder::new(value);
-        MetricMap(match Decodable::decode(&mut decoder) {
-            Ok(t) => t,
-            Err(e) => panic!("failure decoding JSON: {:?}", e)
-        })
-    }
-
-    /// Write MetricDiff to a file.
-    pub fn save(&self, p: &Path) -> io::IoResult<()> {
-        let mut file = try!(File::create(p));
-        let MetricMap(ref map) = *self;
-        write!(&mut file, "{}", json::as_json(map))
-    }
-
     /// Insert a named `value` (+/- `noise`) metric into the map. The value
     /// must be non-negative. The `noise` indicates the uncertainty of the
     /// metric, which doubles as the "noise range" of acceptable
@@ -1158,6 +1063,15 @@ impl MetricMap {
         };
         let MetricMap(ref mut map) = *self;
         map.insert(name.to_string(), m);
+    }
+
+    pub fn fmt_metrics(&self) -> String {
+        let MetricMap(ref mm) = *self;
+        let v : Vec<String> = mm.iter()
+            .map(|(k,v)| format!("{}: {} (+/- {})", *k,
+                                 v.value as f64, v.noise as f64))
+            .collect();
+        v.connect(", ")
     }
 }
 
@@ -1308,7 +1222,7 @@ mod tests {
                TestDesc, TestDescAndFn, TestOpts, run_test,
                Metric, MetricMap,
                StaticTestName, DynTestName, DynTestFn, ShouldFail};
-    use std::io::TempDir;
+    use std::old_io::TempDir;
     use std::thunk::Thunk;
     use std::sync::mpsc::channel;
 
@@ -1415,16 +1329,6 @@ mod tests {
     }
 
     #[test]
-    fn first_free_arg_should_be_a_filter() {
-        let args = vec!("progname".to_string(), "some_regex_filter".to_string());
-        let opts = match parse_opts(args.as_slice()) {
-            Some(Ok(o)) => o,
-            _ => panic!("Malformed arg in first_free_arg_should_be_a_filter")
-        };
-        assert!(opts.filter.expect("should've found filter").is_match("some_regex_filter"))
-    }
-
-    #[test]
     fn parse_ignored_flag() {
         let args = vec!("progname".to_string(),
                         "filter".to_string(),
@@ -1517,37 +1421,6 @@ mod tests {
 
         for (a, b) in expected.iter().zip(filtered.iter()) {
             assert!(*a == b.desc.name.to_string());
-        }
-    }
-
-    #[test]
-    pub fn filter_tests_regex() {
-        let mut opts = TestOpts::new();
-        opts.filter = Some(::regex::Regex::new("a.*b.+c").unwrap());
-
-        let mut names = ["yes::abXc", "yes::aXXXbXXXXc",
-                         "no::XYZ", "no::abc"];
-        names.sort();
-
-        fn test_fn() {}
-        let tests = names.iter().map(|name| {
-            TestDescAndFn {
-                desc: TestDesc {
-                    name: DynTestName(name.to_string()),
-                    ignore: false,
-                    should_fail: ShouldFail::No,
-                },
-                testfn: DynTestFn(Thunk::new(test_fn))
-            }
-        }).collect();
-        let filtered = filter_tests(&opts, tests);
-
-        let expected: Vec<&str> =
-            names.iter().map(|&s| s).filter(|name| name.starts_with("yes")).collect();
-
-        assert_eq!(filtered.len(), expected.len());
-        for (test, expected_name) in filtered.iter().zip(expected.iter()) {
-            assert_eq!(test.desc.name.as_slice(), *expected_name);
         }
     }
 

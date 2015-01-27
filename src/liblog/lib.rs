@@ -123,11 +123,11 @@
 //!
 //! # Filtering results
 //!
-//! A RUST_LOG directive may include a regex filter. The syntax is to append `/`
-//! followed by a regex. Each message is checked against the regex, and is only
-//! logged if it matches. Note that the matching is done after formatting the log
-//! string but before adding any logging meta-data. There is a single filter for all
-//! modules.
+//! A RUST_LOG directive may include a string filter. The syntax is to append
+//! `/` followed by a string. Each message is checked against the string and is
+//! only logged if it contains the string. Note that the matching is done after
+//! formatting the log string but before adding any logging meta-data. There is
+//! a single filter for all modules.
 //!
 //! Some examples:
 //!
@@ -172,20 +172,16 @@
 #![allow(unstable)]
 #![deny(missing_docs)]
 
-extern crate regex;
-
 use std::cell::RefCell;
 use std::fmt;
-use std::io::LineBufferedWriter;
-use std::io;
+use std::old_io::LineBufferedWriter;
+use std::old_io;
 use std::mem;
 use std::os;
 use std::ptr;
 use std::rt;
 use std::slice;
 use std::sync::{Once, ONCE_INIT};
-
-use regex::Regex;
 
 use directive::LOG_LEVEL_NAMES;
 
@@ -209,8 +205,8 @@ static mut LOG_LEVEL: u32 = MAX_LOG_LEVEL;
 static mut DIRECTIVES: *const Vec<directive::LogDirective> =
     0 as *const Vec<directive::LogDirective>;
 
-/// Optional regex filter.
-static mut FILTER: *const Regex = 0 as *const _;
+/// Optional filter.
+static mut FILTER: *const String = 0 as *const _;
 
 /// Debug log level
 pub const DEBUG: u32 = 4;
@@ -236,7 +232,7 @@ pub trait Logger {
 }
 
 struct DefaultLogger {
-    handle: LineBufferedWriter<io::stdio::StdWriter>,
+    handle: LineBufferedWriter<old_io::stdio::StdWriter>,
 }
 
 /// Wraps the log level with fmt implementations.
@@ -288,7 +284,7 @@ pub fn log(level: u32, loc: &'static LogLocation, args: fmt::Arguments) {
     // Test the literal string from args against the current filter, if there
     // is one.
     match unsafe { FILTER.as_ref() } {
-        Some(filter) if !filter.is_match(&args.to_string()[]) => return,
+        Some(filter) if !args.to_string().contains(&filter[]) => return,
         _ => {}
     }
 
@@ -298,7 +294,7 @@ pub fn log(level: u32, loc: &'static LogLocation, args: fmt::Arguments) {
     let mut logger = LOCAL_LOGGER.with(|s| {
         s.borrow_mut().take()
     }).unwrap_or_else(|| {
-        box DefaultLogger { handle: io::stderr() } as Box<Logger + Send>
+        box DefaultLogger { handle: old_io::stderr() } as Box<Logger + Send>
     });
     logger.log(&LogRecord {
         level: LogLevel(level),
@@ -435,8 +431,8 @@ fn init() {
             DIRECTIVES = ptr::null();
 
             if !FILTER.is_null() {
-                let _filter: Box<Regex> = mem::transmute(FILTER);
-                FILTER = ptr::null();
+                let _filter: Box<String> = mem::transmute(FILTER);
+                FILTER = 0 as *const _;
             }
         });
     }

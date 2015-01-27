@@ -23,8 +23,8 @@ use syntax::diagnostic;
 use syntax::diagnostic::{Emitter, Handler, Level, mk_handler};
 
 use std::ffi::{self, CString};
-use std::io::Command;
-use std::io::fs;
+use std::old_io::Command;
+use std::old_io::fs;
 use std::iter::Unfold;
 use std::ptr;
 use std::str;
@@ -342,30 +342,36 @@ struct HandlerFreeVars<'a> {
     cgcx: &'a CodegenContext<'a>,
 }
 
+unsafe extern "C" fn report_inline_asm<'a, 'b>(cgcx: &'a CodegenContext<'a>,
+                                           msg: &'b str,
+                                           cookie: c_uint) {
+    use syntax::codemap::ExpnId;
+
+    match cgcx.lto_ctxt {
+        Some((sess, _)) => {
+            sess.codemap().with_expn_info(ExpnId::from_llvm_cookie(cookie), |info| match info {
+                Some(ei) => sess.span_err(ei.call_site, msg),
+                None     => sess.err(msg),
+            });
+        }
+
+        None => {
+            cgcx.handler.err(msg);
+            cgcx.handler.note("build without -C codegen-units for more exact errors");
+        }
+    }
+}
+
 unsafe extern "C" fn inline_asm_handler(diag: SMDiagnosticRef,
                                         user: *const c_void,
                                         cookie: c_uint) {
-    use syntax::codemap::ExpnId;
-
     let HandlerFreeVars { cgcx, .. }
         = *mem::transmute::<_, *const HandlerFreeVars>(user);
 
     let msg = llvm::build_string(|s| llvm::LLVMWriteSMDiagnosticToString(diag, s))
         .expect("non-UTF8 SMDiagnostic");
 
-    match cgcx.lto_ctxt {
-        Some((sess, _)) => {
-            sess.codemap().with_expn_info(ExpnId::from_llvm_cookie(cookie), |info| match info {
-                Some(ei) => sess.span_err(ei.call_site, &msg[]),
-                None     => sess.err(&msg[]),
-            });
-        }
-
-        None => {
-            cgcx.handler.err(&msg[]);
-            cgcx.handler.note("build without -C codegen-units for more exact errors");
-        }
-    }
+    report_inline_asm(cgcx, &msg[], cookie);
 }
 
 unsafe extern "C" fn diagnostic_handler(info: DiagnosticInfoRef, user: *mut c_void) {
@@ -373,6 +379,12 @@ unsafe extern "C" fn diagnostic_handler(info: DiagnosticInfoRef, user: *mut c_vo
         = *mem::transmute::<_, *const HandlerFreeVars>(user);
 
     match llvm::diagnostic::Diagnostic::unpack(info) {
+        llvm::diagnostic::InlineAsm(inline) => {
+            report_inline_asm(cgcx,
+                              llvm::twine_to_string(inline.message).as_slice(),
+                              inline.cookie);
+        }
+
         llvm::diagnostic::Optimization(opt) => {
             let pass_name = str::from_utf8(ffi::c_str_to_bytes(&opt.pass_name))
                                 .ok()
@@ -413,10 +425,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
     let fv = &fv as *const HandlerFreeVars as *mut c_void;
 
     llvm::LLVMSetInlineAsmDiagnosticHandler(llcx, inline_asm_handler, fv);
-
-    if !cgcx.remark.is_empty() {
-        llvm::LLVMContextSetDiagnosticHandler(llcx, diagnostic_handler, fv);
-    }
+    llvm::LLVMContextSetDiagnosticHandler(llcx, diagnostic_handler, fv);
 
     if config.emit_no_opt_bc {
         let ext = format!("{}.no-opt.bc", name_extra);
@@ -738,7 +747,7 @@ pub fn run_passes(sess: &Session,
 
     fn search_for_native(paths: &Vec<Path>,
                          name: &String) -> Option<Path> {
-        use std::io::fs::stat;
+        use std::old_io::fs::stat;
         let name_path = Path::new(format!("lib{}.a", name));
         debug!(">> searching for native lib `{}` starting", name);
         let found = paths.iter().find(|dir| {
@@ -914,9 +923,9 @@ pub fn run_passes(sess: &Session,
             println!("{:?}", &cmd);
         }
 
-        cmd.stdin(::std::io::process::Ignored)
-           .stdout(::std::io::process::InheritFd(1))
-           .stderr(::std::io::process::InheritFd(2));
+        cmd.stdin(::std::old_io::process::Ignored)
+           .stdout(::std::old_io::process::InheritFd(1))
+           .stderr(::std::old_io::process::InheritFd(2));
         match cmd.status() {
             Ok(status) => {
                 if !status.success() {

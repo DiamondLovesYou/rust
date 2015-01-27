@@ -211,6 +211,7 @@ impl LintStore {
                      UnusedAllocation,
                      MissingCopyImplementations,
                      UnstableFeatures,
+                     UnconditionalRecursion,
         );
 
         add_builtin_with_new!(sess,
@@ -218,6 +219,7 @@ impl LintStore {
                               RawPointerDerive,
                               MissingDoc,
                               Stability,
+                              MissingDebugImplementations,
         );
 
         add_lint_group!(sess, "bad_style",

@@ -23,14 +23,14 @@ use util;
 
 #[cfg(target_os = "windows")]
 use std::ascii::AsciiExt;
-use std::io::File;
-use std::io::fs::PathExtensions;
-use std::io::fs;
-use std::io::net::tcp;
-use std::io::process::{ProcessExit, Process};
-use std::io::process;
-use std::io::timer;
-use std::io;
+use std::old_io::File;
+use std::old_io::fs::PathExtensions;
+use std::old_io::fs;
+use std::old_io::net::tcp;
+use std::old_io::process::{ProcessExit, Process};
+use std::old_io::process;
+use std::old_io::timer;
+use std::old_io;
 use std::os;
 use std::iter::repeat;
 use std::str;
@@ -99,7 +99,7 @@ fn run_cfail_test(config: &Config, props: &TestProps, testfile: &Path) {
     }
 
     let output_to_check = get_output(props, &proc_res);
-    let expected_errors = errors::load_errors(&config.cfail_regex, testfile);
+    let expected_errors = errors::load_errors(testfile);
     if !expected_errors.is_empty() {
         if !props.error_patterns.is_empty() {
             fatal("both error pattern and expected errors specified");
@@ -769,7 +769,7 @@ fn find_rust_src_root(config: &Config) -> Option<Path> {
 }
 
 fn run_debuginfo_lldb_test(config: &Config, props: &TestProps, testfile: &Path) {
-    use std::io::process::{Command, ProcessOutput};
+    use std::old_io::process::{Command, ProcessOutput};
 
     if config.lldb_python_dir.is_none() {
         fatal("Can't run LLDB test because LLDB's python path is not set.");
@@ -914,7 +914,7 @@ struct DebuggerCommands {
 
 fn parse_debugger_commands(file_path: &Path, debugger_prefix: &str)
                            -> DebuggerCommands {
-    use std::io::{BufferedReader, File};
+    use std::old_io::{BufferedReader, File};
 
     let command_directive = format!("{}-command", debugger_prefix);
     let check_directive = format!("{}-check", debugger_prefix);
@@ -1384,7 +1384,7 @@ fn compose_and_run_compiler(
 
 fn ensure_dir(path: &Path) {
     if path.is_dir() { return; }
-    fs::mkdir(path, io::USER_RWX).unwrap();
+    fs::mkdir(path, old_io::USER_RWX).unwrap();
 }
 
 fn compose_and_run(config: &Config, testfile: &Path,
@@ -1561,7 +1561,7 @@ fn dump_output(config: &Config, testfile: &Path, out: &str, err: &str) {
 fn dump_output_file(config: &Config, testfile: &Path,
                     out: &str, extension: &str) {
     let outfile = make_out_name(config, testfile, extension);
-    File::create(&outfile).write(out.as_bytes()).unwrap();
+    File::create(&outfile).write_all(out.as_bytes()).unwrap();
 }
 
 fn make_out_name(config: &Config, testfile: &Path, extension: &str) -> Path {

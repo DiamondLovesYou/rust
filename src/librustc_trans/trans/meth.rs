@@ -120,7 +120,7 @@ pub fn trans_method_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     match origin {
         ty::MethodStatic(did) |
-        ty::MethodStaticUnboxedClosure(did) => {
+        ty::MethodStaticClosure(did) => {
             Callee {
                 bcx: bcx,
                 data: Fn(callee::trans_fn_ref(bcx.ccx(),
@@ -132,7 +132,8 @@ pub fn trans_method_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
         ty::MethodTypeParam(ty::MethodParam {
             ref trait_ref,
-            method_num
+            method_num,
+            impl_def_id: _
         }) => {
             let trait_ref = ty::Binder(bcx.monomorphize(trait_ref));
             let span = bcx.tcx().map.span(method_call.expr_id);
@@ -364,7 +365,7 @@ fn trans_monomorphized_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
             Callee { bcx: bcx, data: Fn(llfn) }
         }
-        traits::VtableUnboxedClosure(closure_def_id, substs) => {
+        traits::VtableClosure(closure_def_id, substs) => {
             // The substitutions should have no type parameters remaining
             // after passing through fulfill_obligation
             let llfn = trans_fn_ref_with_substs(bcx.ccx(),
@@ -726,7 +727,7 @@ pub fn get_vtable<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                     nested: _ }) => {
                 emit_vtable_methods(bcx, id, substs).into_iter()
             }
-            traits::VtableUnboxedClosure(closure_def_id, substs) => {
+            traits::VtableClosure(closure_def_id, substs) => {
                 let llfn = trans_fn_ref_with_substs(
                     bcx.ccx(),
                     closure_def_id,

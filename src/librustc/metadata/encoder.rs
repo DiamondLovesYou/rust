@@ -122,7 +122,7 @@ fn encode_trait_ref<'a, 'tcx>(rbml_w: &mut Encoder,
 // Item info table encoding
 fn encode_family(rbml_w: &mut Encoder, c: char) {
     rbml_w.start_tag(tag_items_data_item_family);
-    rbml_w.writer.write(&[c as u8]);
+    rbml_w.writer.write_all(&[c as u8]);
     rbml_w.end_tag();
 }
 
@@ -149,7 +149,7 @@ fn encode_bounds_and_type<'a, 'tcx>(rbml_w: &mut Encoder,
 fn encode_variant_id(rbml_w: &mut Encoder, vid: DefId) {
     rbml_w.start_tag(tag_items_data_item_variant);
     let s = def_to_string(vid);
-    rbml_w.writer.write(s.as_bytes());
+    rbml_w.writer.write_all(s.as_bytes());
     rbml_w.end_tag();
 
     rbml_w.start_tag(tag_mod_child);
@@ -259,7 +259,7 @@ fn encode_symbol(ecx: &EncodeContext,
     match ecx.item_symbols.borrow().get(&id) {
         Some(x) => {
             debug!("encode_symbol(id={}, str={})", id, *x);
-            rbml_w.writer.write(x.as_bytes());
+            rbml_w.writer.write_all(x.as_bytes());
         }
         None => {
             ecx.diag.handler().bug(
@@ -274,14 +274,14 @@ fn encode_disr_val(_: &EncodeContext,
                    disr_val: ty::Disr) {
     rbml_w.start_tag(tag_disr_val);
     let s = disr_val.to_string();
-    rbml_w.writer.write(s.as_bytes());
+    rbml_w.writer.write_all(s.as_bytes());
     rbml_w.end_tag();
 }
 
 fn encode_parent_item(rbml_w: &mut Encoder, id: DefId) {
     rbml_w.start_tag(tag_items_data_parent_item);
     let s = def_to_string(id);
-    rbml_w.writer.write(s.as_bytes());
+    rbml_w.writer.write_all(s.as_bytes());
     rbml_w.end_tag();
 }
 
@@ -299,7 +299,7 @@ fn encode_struct_fields(rbml_w: &mut Encoder,
         encode_def_id(rbml_w, f.id);
         rbml_w.start_tag(tag_item_field_origin);
         let s = def_to_string(origin);
-        rbml_w.writer.write(s.as_bytes());
+        rbml_w.writer.write_all(s.as_bytes());
         rbml_w.end_tag();
         rbml_w.end_tag();
     }
@@ -618,13 +618,12 @@ fn encode_visibility(rbml_w: &mut Encoder, visibility: ast::Visibility) {
     rbml_w.end_tag();
 }
 
-fn encode_unboxed_closure_kind(rbml_w: &mut Encoder,
-                               kind: ty::UnboxedClosureKind) {
-    rbml_w.start_tag(tag_unboxed_closure_kind);
+fn encode_closure_kind(rbml_w: &mut Encoder, kind: ty::ClosureKind) {
+    rbml_w.start_tag(tag_closure_kind);
     let ch = match kind {
-        ty::FnUnboxedClosureKind => 'f',
-        ty::FnMutUnboxedClosureKind => 'm',
-        ty::FnOnceUnboxedClosureKind => 'o',
+        ty::FnClosureKind => 'f',
+        ty::FnMutClosureKind => 'm',
+        ty::FnOnceClosureKind => 'o',
     };
     rbml_w.wr_str(&ch.to_string()[]);
     rbml_w.end_tag();
@@ -637,17 +636,17 @@ fn encode_explicit_self(rbml_w: &mut Encoder,
     // Encode the base self type.
     match *explicit_self {
         ty::StaticExplicitSelfCategory => {
-            rbml_w.writer.write(&[ 's' as u8 ]);
+            rbml_w.writer.write_all(&[ 's' as u8 ]);
         }
         ty::ByValueExplicitSelfCategory => {
-            rbml_w.writer.write(&[ 'v' as u8 ]);
+            rbml_w.writer.write_all(&[ 'v' as u8 ]);
         }
         ty::ByBoxExplicitSelfCategory => {
-            rbml_w.writer.write(&[ '~' as u8 ]);
+            rbml_w.writer.write_all(&[ '~' as u8 ]);
         }
         ty::ByReferenceExplicitSelfCategory(_, m) => {
             // FIXME(#4846) encode custom lifetime
-            rbml_w.writer.write(&['&' as u8]);
+            rbml_w.writer.write_all(&['&' as u8]);
             encode_mutability(rbml_w, m);
         }
     }
@@ -657,21 +656,21 @@ fn encode_explicit_self(rbml_w: &mut Encoder,
     fn encode_mutability(rbml_w: &mut Encoder,
                          m: ast::Mutability) {
         match m {
-            ast::MutImmutable => { rbml_w.writer.write(&[ 'i' as u8 ]); }
-            ast::MutMutable => { rbml_w.writer.write(&[ 'm' as u8 ]); }
+            ast::MutImmutable => { rbml_w.writer.write_all(&[ 'i' as u8 ]); }
+            ast::MutMutable => { rbml_w.writer.write_all(&[ 'm' as u8 ]); }
         }
     }
 }
 
 fn encode_item_sort(rbml_w: &mut Encoder, sort: char) {
     rbml_w.start_tag(tag_item_trait_item_sort);
-    rbml_w.writer.write(&[ sort as u8 ]);
+    rbml_w.writer.write_all(&[ sort as u8 ]);
     rbml_w.end_tag();
 }
 
 fn encode_parent_sort(rbml_w: &mut Encoder, sort: char) {
     rbml_w.start_tag(tag_item_trait_parent_sort);
-    rbml_w.writer.write(&[ sort as u8 ]);
+    rbml_w.writer.write_all(&[ sort as u8 ]);
     rbml_w.end_tag();
 }
 
@@ -680,7 +679,7 @@ fn encode_provided_source(rbml_w: &mut Encoder,
     for source in source_opt.iter() {
         rbml_w.start_tag(tag_item_method_provided_source);
         let s = def_to_string(*source);
-        rbml_w.writer.write(s.as_bytes());
+        rbml_w.writer.write_all(s.as_bytes());
         rbml_w.end_tag();
     }
 }
@@ -927,7 +926,7 @@ fn encode_method_argument_names(rbml_w: &mut Encoder,
         rbml_w.start_tag(tag_method_argument_name);
         if let ast::PatIdent(_, ref path1, _) = arg.pat.node {
             let name = token::get_ident(path1.node);
-            rbml_w.writer.write(name.get().as_bytes());
+            rbml_w.writer.write_all(name.get().as_bytes());
         }
         rbml_w.end_tag();
     }
@@ -1647,7 +1646,7 @@ fn encode_meta_item(rbml_w: &mut Encoder, mi: &ast::MetaItem) {
       ast::MetaWord(ref name) => {
         rbml_w.start_tag(tag_meta_item_word);
         rbml_w.start_tag(tag_meta_item_name);
-        rbml_w.writer.write(name.get().as_bytes());
+        rbml_w.writer.write_all(name.get().as_bytes());
         rbml_w.end_tag();
         rbml_w.end_tag();
       }
@@ -1656,10 +1655,10 @@ fn encode_meta_item(rbml_w: &mut Encoder, mi: &ast::MetaItem) {
           ast::LitStr(ref value, _) => {
             rbml_w.start_tag(tag_meta_item_name_value);
             rbml_w.start_tag(tag_meta_item_name);
-            rbml_w.writer.write(name.get().as_bytes());
+            rbml_w.writer.write_all(name.get().as_bytes());
             rbml_w.end_tag();
             rbml_w.start_tag(tag_meta_item_value);
-            rbml_w.writer.write(value.get().as_bytes());
+            rbml_w.writer.write_all(value.get().as_bytes());
             rbml_w.end_tag();
             rbml_w.end_tag();
           }
@@ -1669,7 +1668,7 @@ fn encode_meta_item(rbml_w: &mut Encoder, mi: &ast::MetaItem) {
       ast::MetaList(ref name, ref items) => {
         rbml_w.start_tag(tag_meta_item_list);
         rbml_w.start_tag(tag_meta_item_name);
-        rbml_w.writer.write(name.get().as_bytes());
+        rbml_w.writer.write_all(name.get().as_bytes());
         rbml_w.end_tag();
         for inner_item in items.iter() {
             encode_meta_item(rbml_w, &**inner_item);
@@ -1801,7 +1800,7 @@ fn encode_native_libraries(ecx: &EncodeContext, rbml_w: &mut Encoder) {
                 rbml_w.end_tag();
 
                 rbml_w.start_tag(tag_native_libraries_name);
-                rbml_w.writer.write(lib.as_bytes());
+                rbml_w.writer.write_all(lib.as_bytes());
                 rbml_w.end_tag();
 
                 rbml_w.end_tag();
@@ -1838,24 +1837,19 @@ fn encode_macro_defs(rbml_w: &mut Encoder,
     rbml_w.end_tag();
 }
 
-fn encode_unboxed_closures<'a>(
-                           ecx: &'a EncodeContext,
-                           rbml_w: &'a mut Encoder) {
-    rbml_w.start_tag(tag_unboxed_closures);
-    for (unboxed_closure_id, unboxed_closure) in ecx.tcx
-                                                    .unboxed_closures
-                                                    .borrow()
-                                                    .iter() {
-        if unboxed_closure_id.krate != ast::LOCAL_CRATE {
+fn encode_closures<'a>(ecx: &'a EncodeContext, rbml_w: &'a mut Encoder) {
+    rbml_w.start_tag(tag_closures);
+    for (closure_id, closure) in ecx.tcx.closures.borrow().iter() {
+        if closure_id.krate != ast::LOCAL_CRATE {
             continue
         }
 
-        rbml_w.start_tag(tag_unboxed_closure);
-        encode_def_id(rbml_w, *unboxed_closure_id);
-        rbml_w.start_tag(tag_unboxed_closure_type);
-        write_closure_type(ecx, rbml_w, &unboxed_closure.closure_type);
+        rbml_w.start_tag(tag_closure);
+        encode_def_id(rbml_w, *closure_id);
+        rbml_w.start_tag(tag_closure_type);
+        write_closure_type(ecx, rbml_w, &closure.closure_type);
         rbml_w.end_tag();
-        encode_unboxed_closure_kind(rbml_w, unboxed_closure.kind);
+        encode_closure_kind(rbml_w, closure.kind);
         rbml_w.end_tag();
     }
     rbml_w.end_tag();
@@ -1981,29 +1975,29 @@ fn encode_crate_dep(rbml_w: &mut Encoder,
                     dep: decoder::CrateDep) {
     rbml_w.start_tag(tag_crate_dep);
     rbml_w.start_tag(tag_crate_dep_crate_name);
-    rbml_w.writer.write(dep.name.as_bytes());
+    rbml_w.writer.write_all(dep.name.as_bytes());
     rbml_w.end_tag();
     rbml_w.start_tag(tag_crate_dep_hash);
-    rbml_w.writer.write(dep.hash.as_str().as_bytes());
+    rbml_w.writer.write_all(dep.hash.as_str().as_bytes());
     rbml_w.end_tag();
     rbml_w.end_tag();
 }
 
 fn encode_hash(rbml_w: &mut Encoder, hash: &Svh) {
     rbml_w.start_tag(tag_crate_hash);
-    rbml_w.writer.write(hash.as_str().as_bytes());
+    rbml_w.writer.write_all(hash.as_str().as_bytes());
     rbml_w.end_tag();
 }
 
 fn encode_crate_name(rbml_w: &mut Encoder, crate_name: &str) {
     rbml_w.start_tag(tag_crate_crate_name);
-    rbml_w.writer.write(crate_name.as_bytes());
+    rbml_w.writer.write_all(crate_name.as_bytes());
     rbml_w.end_tag();
 }
 
 fn encode_crate_triple(rbml_w: &mut Encoder, triple: &str) {
     rbml_w.start_tag(tag_crate_triple);
-    rbml_w.writer.write(triple.as_bytes());
+    rbml_w.writer.write_all(triple.as_bytes());
     rbml_w.end_tag();
 }
 
@@ -2017,7 +2011,7 @@ fn encode_dylib_dependency_formats(rbml_w: &mut Encoder, ecx: &EncodeContext) {
                     cstore::RequireStatic => "s",
                 })).to_string())
             }).collect::<Vec<String>>();
-            rbml_w.writer.write(s.connect(",").as_bytes());
+            rbml_w.writer.write_all(s.connect(",").as_bytes());
         }
         None => {}
     }
@@ -2069,7 +2063,7 @@ fn encode_metadata_inner(wr: &mut SeekableMemWriter,
         native_lib_bytes: u64,
         plugin_registrar_fn_bytes: u64,
         macro_defs_bytes: u64,
-        unboxed_closure_bytes: u64,
+        closure_bytes: u64,
         impl_bytes: u64,
         misc_bytes: u64,
         item_bytes: u64,
@@ -2084,7 +2078,7 @@ fn encode_metadata_inner(wr: &mut SeekableMemWriter,
         native_lib_bytes: 0,
         plugin_registrar_fn_bytes: 0,
         macro_defs_bytes: 0,
-        unboxed_closure_bytes: 0,
+        closure_bytes: 0,
         impl_bytes: 0,
         misc_bytes: 0,
         item_bytes: 0,
@@ -2154,10 +2148,10 @@ fn encode_metadata_inner(wr: &mut SeekableMemWriter,
     encode_macro_defs(&mut rbml_w, krate);
     stats.macro_defs_bytes = rbml_w.writer.tell().unwrap() - i;
 
-    // Encode the types of all unboxed closures in this crate.
+    // Encode the types of all closures in this crate.
     i = rbml_w.writer.tell().unwrap();
-    encode_unboxed_closures(&ecx, &mut rbml_w);
-    stats.unboxed_closure_bytes = rbml_w.writer.tell().unwrap() - i;
+    encode_closures(&ecx, &mut rbml_w);
+    stats.closure_bytes = rbml_w.writer.tell().unwrap() - i;
 
     // Encode the def IDs of impls, for coherence checking.
     i = rbml_w.writer.tell().unwrap();
@@ -2199,7 +2193,7 @@ fn encode_metadata_inner(wr: &mut SeekableMemWriter,
         println!("          native bytes: {}", stats.native_lib_bytes);
         println!("plugin registrar bytes: {}", stats.plugin_registrar_fn_bytes);
         println!("       macro def bytes: {}", stats.macro_defs_bytes);
-        println!(" unboxed closure bytes: {}", stats.unboxed_closure_bytes);
+        println!("         closure bytes: {}", stats.closure_bytes);
         println!("            impl bytes: {}", stats.impl_bytes);
         println!("            misc bytes: {}", stats.misc_bytes);
         println!("            item bytes: {}", stats.item_bytes);

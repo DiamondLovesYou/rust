@@ -40,7 +40,7 @@ pub fn log_enabled() -> bool {
 
 #[cfg(target_os = "nacl")]
 mod imp {
-    use io::{IoResult, Writer};
+    use old_io::{IoResult, Writer};
     use result::Result::Ok;
     pub fn write(_w: &mut Writer) -> IoResult<()> { Ok(()) }
 }

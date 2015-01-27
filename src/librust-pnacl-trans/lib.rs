@@ -31,8 +31,8 @@ extern crate log;
 
 use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
 use std::collections::{HashSet, HashMap};
-use std::io::fs::File;
-use std::io::process::{Command, InheritFd, ExitStatus};
+use std::old_io::fs::File;
+use std::old_io::process::{Command, InheritFd, ExitStatus};
 use std::os;
 use std::ptr;
 use std::ffi;
@@ -370,7 +370,7 @@ pub fn main() {
         .join_many(&["bin", "le32-nacl-ld.gold"]);
 
     fn cleanup_objs(m: &Matches, objs: Vec<String>) {
-        use std::io::fs::unlink;
+        use std::old_io::fs::unlink;
 
         if m.opt_present("save-temps") {
             return;

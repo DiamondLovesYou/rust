@@ -10,7 +10,7 @@
 
 // ignore-nacl
 
-use std::io::{process, Command};
+use std::old_io::{process, Command};
 use std::os;
 
 fn main() {

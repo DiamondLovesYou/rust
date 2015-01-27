@@ -18,7 +18,7 @@
 //! ```rust,ignore
 //! #![feature(globs)]
 //!
-//! use std::io::fs::File;
+//! use std::old_io::fs::File;
 //! use std::os::unix::prelude::*;
 //!
 //! fn main() {
@@ -31,10 +31,13 @@
 
 #![unstable]
 
-use sys_common::AsInner;
+use vec::Vec;
+use sys::os_str::Buf;
+use sys_common::{AsInner, IntoInner, FromInner};
+use ffi::{OsStr, OsString};
 use libc;
 
-use io;
+use old_io;
 
 /// Raw file descriptors.
 pub type Fd = libc::c_int;
@@ -45,57 +48,87 @@ pub trait AsRawFd {
     fn as_raw_fd(&self) -> Fd;
 }
 
-impl AsRawFd for io::fs::File {
+impl AsRawFd for old_io::fs::File {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::pipe::PipeStream {
+impl AsRawFd for old_io::pipe::PipeStream {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::net::pipe::UnixStream {
+impl AsRawFd for old_io::net::pipe::UnixStream {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::net::pipe::UnixListener {
+impl AsRawFd for old_io::net::pipe::UnixListener {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::net::pipe::UnixAcceptor {
+impl AsRawFd for old_io::net::pipe::UnixAcceptor {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::net::tcp::TcpStream {
+impl AsRawFd for old_io::net::tcp::TcpStream {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::net::tcp::TcpListener {
+impl AsRawFd for old_io::net::tcp::TcpListener {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::net::tcp::TcpAcceptor {
+impl AsRawFd for old_io::net::tcp::TcpAcceptor {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
     }
 }
 
-impl AsRawFd for io::net::udp::UdpSocket {
+impl AsRawFd for old_io::net::udp::UdpSocket {
     fn as_raw_fd(&self) -> Fd {
         self.as_inner().fd()
+    }
+}
+
+// Unix-specific extensions to `OsString`.
+pub trait OsStringExt {
+    /// Create an `OsString` from a byte vector.
+    fn from_vec(vec: Vec<u8>) -> Self;
+
+    /// Yield the underlying byte vector of this `OsString`.
+    fn into_vec(self) -> Vec<u8>;
+}
+
+impl OsStringExt for OsString {
+    fn from_vec(vec: Vec<u8>) -> OsString {
+        FromInner::from_inner(Buf { inner: vec })
+    }
+
+    fn into_vec(self) -> Vec<u8> {
+        self.into_inner().inner
+    }
+}
+
+// Unix-specific extensions to `OsStr`.
+pub trait OsStrExt {
+    fn as_byte_slice(&self) -> &[u8];
+}
+
+impl OsStrExt for OsStr {
+    fn as_byte_slice(&self) -> &[u8] {
+        &self.as_inner().inner
     }
 }
 

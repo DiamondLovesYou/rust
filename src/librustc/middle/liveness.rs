@@ -114,11 +114,11 @@ use middle::mem_categorization::Typer;
 use middle::pat_util;
 use middle::region::CodeExtent;
 use middle::ty;
-use middle::ty::UnboxedClosureTyper;
+use middle::ty::ClosureTyper;
 use lint;
 use util::nodemap::NodeMap;
 
-use std::{fmt, io, uint};
+use std::{fmt, old_io, uint};
 use std::rc::Rc;
 use std::iter::repeat;
 use syntax::ast::{self, NodeId, Expr};
@@ -504,7 +504,7 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
         ir.add_live_node_for_node(expr.id, ExprNode(expr.span));
         visit::walk_expr(ir, expr);
       }
-      ast::ExprBinary(op, _, _) if ast_util::lazy_binop(op) => {
+      ast::ExprBinary(op, _, _) if ast_util::lazy_binop(op.node) => {
         ir.add_live_node_for_node(expr.id, ExprNode(expr.span));
         visit::walk_expr(ir, expr);
       }
@@ -693,10 +693,10 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
     }
 
     fn write_vars<F>(&self,
-                     wr: &mut io::Writer,
+                     wr: &mut old_io::Writer,
                      ln: LiveNode,
                      mut test: F)
-                     -> io::IoResult<()> where
+                     -> old_io::IoResult<()> where
         F: FnMut(uint) -> LiveNode,
     {
         let node_base_idx = self.idx(ln, Variable(0));
@@ -740,7 +740,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
     fn ln_str(&self, ln: LiveNode) -> String {
         let mut wr = Vec::new();
         {
-            let wr = &mut wr as &mut io::Writer;
+            let wr = &mut wr as &mut old_io::Writer;
             write!(wr, "[ln({:?}) of kind {:?} reads", ln.get(), self.ir.lnk(ln));
             self.write_vars(wr, ln, |idx| self.users[idx].reader);
             write!(wr, "  writes");
@@ -1177,7 +1177,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
             self.propagate_through_exprs(&exprs[], succ)
           }
 
-          ast::ExprBinary(op, ref l, ref r) if ast_util::lazy_binop(op) => {
+          ast::ExprBinary(op, ref l, ref r) if ast_util::lazy_binop(op.node) => {
             let r_succ = self.propagate_through_expr(&**r, succ);
 
             let ln = self.live_node(expr.id, expr.span);
@@ -1519,8 +1519,8 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
     fn fn_ret(&self, id: NodeId) -> ty::PolyFnOutput<'tcx> {
         let fn_ty = ty::node_id_to_type(self.ir.tcx, id);
         match fn_ty.sty {
-            ty::ty_unboxed_closure(closure_def_id, _, substs) =>
-                self.ir.tcx.unboxed_closure_type(closure_def_id, substs).sig.output(),
+            ty::ty_closure(closure_def_id, _, substs) =>
+                self.ir.tcx.closure_type(closure_def_id, substs).sig.output(),
             _ =>
                 ty::ty_fn_ret(fn_ty),
         }

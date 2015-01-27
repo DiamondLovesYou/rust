@@ -33,7 +33,7 @@ use middle::def;
 use middle::ty::{self, Ty};
 
 use std::cell::Cell;
-use std::io::{self, File, fs};
+use std::old_io::{self, File, fs};
 use std::os;
 
 use syntax::ast_util::{self, PostExpansionMethod};
@@ -920,7 +920,7 @@ impl <'l, 'tcx> DxrVisitor<'l, 'tcx> {
         let method_callee = &(*method_map)[ty::MethodCall::expr(ex.id)];
         let (def_id, decl_id) = match method_callee.origin {
             ty::MethodStatic(def_id) |
-            ty::MethodStaticUnboxedClosure(def_id) => {
+            ty::MethodStaticClosure(def_id) => {
                 // method invoked on an object with a concrete type (not a static method)
                 let decl_id =
                     match ty::trait_item_of_item(&self.analysis.ty_cx,
@@ -1532,7 +1532,7 @@ pub fn process_crate(sess: &Session,
         },
     };
 
-    match fs::mkdir_recursive(&root_path, io::USER_RWX) {
+    match fs::mkdir_recursive(&root_path, old_io::USER_RWX) {
         Err(e) => sess.err(&format!("Could not create directory {}: {}",
                            root_path.display(), e)[]),
         _ => (),

@@ -243,6 +243,9 @@ pub trait Show {
 /// Format trait for the `:?` format. Useful for debugging, most all types
 /// should implement this.
 #[unstable = "I/O and core have yet to be reconciled"]
+#[rustc_on_unimplemented = "`{Self}` cannot be formatted using `:?`; if it is defined in your \
+                            crate, add `#[derive(Debug)]` or manually implement it"]
+#[lang = "debug_trait"]
 pub trait Debug {
     /// Formats the value using the given formatter.
     fn fmt(&self, &mut Formatter) -> Result;
@@ -266,6 +269,8 @@ pub trait String {
 /// When a value can be semantically expressed as a String, this trait may be
 /// used. It corresponds to the default format, `{}`.
 #[unstable = "I/O and core have yet to be reconciled"]
+#[rustc_on_unimplemented = "`{Self}` cannot be formatted with the default formatter; try using \
+                            `:?` instead if you are using a format string"]
 pub trait Display {
     /// Formats the value using the given formatter.
     fn fmt(&self, &mut Formatter) -> Result;
@@ -560,8 +565,8 @@ impl<'a> Formatter<'a> {
         };
 
         let (pre_pad, post_pad) = match align {
-            rt::AlignLeft => (0u, padding),
-            rt::AlignRight | rt::AlignUnknown => (padding, 0u),
+            rt::AlignLeft => (0, padding),
+            rt::AlignRight | rt::AlignUnknown => (padding, 0),
             rt::AlignCenter => (padding / 2, (padding + 1) / 2),
         };
 
@@ -846,7 +851,7 @@ macro_rules! tuple {
             fn fmt(&self, f: &mut Formatter) -> Result {
                 try!(write!(f, "("));
                 let ($(ref $name,)*) = *self;
-                let mut n = 0i;
+                let mut n = 0;
                 $(
                     if n > 0 {
                         try!(write!(f, ", "));

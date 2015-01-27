@@ -28,9 +28,9 @@ use util::ppaux;
 use util::sha2::{Digest, Sha256};
 
 use std::ffi;
-use std::io::fs::PathExtensions;
-use std::io::{fs, TempDir, Command};
-use std::io;
+use std::old_io::fs::PathExtensions;
+use std::old_io::{fs, TempDir, Command};
+use std::old_io;
 use std::mem;
 use std::ptr;
 use std::str;
@@ -461,7 +461,7 @@ pub fn invalid_output_for_target(sess: &Session,
 fn is_writeable(p: &Path) -> bool {
     match p.stat() {
         Err(..) => true,
-        Ok(m) => m.perm & io::USER_WRITE == io::USER_WRITE
+        Ok(m) => m.perm & old_io::USER_WRITE == old_io::USER_WRITE
     }
 }
 
@@ -604,8 +604,9 @@ fn link_pnacl_rlib(sess: &Session,
     debug!("adding metadata to archive");
     let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
     let metadata = tmpdir.path().join(METADATA_FILENAME);
-    match fs::File::create(&metadata).write(trans.metadata
-                                                 .as_slice()) {
+    match fs::File::create(&metadata)
+        .write_all(trans.metadata
+                   .as_slice()) {
         Ok(..) => {}
         Err(e) => {
             sess.fatal(format!("failed to write {}: {}",
@@ -708,7 +709,7 @@ pub fn link_pnacl_module(sess: &Session,
     // This function should not be called on non-exe outputs.
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
-    use std::io::{File, USER_EXEC};
+    use std::old_io::{File, USER_EXEC};
     use std::os;
     use back::write;
     use back::write::llvm_err;
@@ -1097,8 +1098,7 @@ fn link_rlib<'a>(sess: &'a Session,
             // the same filename for metadata (stomping over one another)
             let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
             let metadata = tmpdir.path().join(METADATA_FILENAME);
-            match fs::File::create(&metadata).write(&trans.metadata
-                                                    []) {
+            match fs::File::create(&metadata).write_all(&trans.metadata[]) {
                 Ok(..) => {}
                 Err(e) => {
                     sess.err(&format!("failed to write {}: {}",
@@ -1182,13 +1182,13 @@ fn link_rlib<'a>(sess: &'a Session,
 
 fn write_rlib_bytecode_object_v1<T: Writer>(writer: &mut T,
                                             bc_data_deflated: &[u8])
-                                         -> ::std::io::IoResult<()> {
+                                         -> ::std::old_io::IoResult<()> {
     let bc_data_deflated_size: u64 = bc_data_deflated.len() as u64;
 
-    try! { writer.write(RLIB_BYTECODE_OBJECT_MAGIC) };
+    try! { writer.write_all(RLIB_BYTECODE_OBJECT_MAGIC) };
     try! { writer.write_le_u32(1) };
     try! { writer.write_le_u64(bc_data_deflated_size) };
-    try! { writer.write(&bc_data_deflated[]) };
+    try! { writer.write_all(&bc_data_deflated[]) };
 
     let number_of_bytes_written_so_far =
         RLIB_BYTECODE_OBJECT_MAGIC.len() +                // magic id
@@ -1712,7 +1712,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
                 // Fix up permissions of the copy, as fs::copy() preserves
                 // permissions, but the original file may have been installed
                 // by a package manager and may be read-only.
-                match fs::chmod(&dst, io::USER_READ | io::USER_WRITE) {
+                match fs::chmod(&dst, old_io::USER_READ | old_io::USER_WRITE) {
                     Ok(..) => {}
                     Err(e) => {
                         sess.err(&format!("failed to chmod {} when preparing \

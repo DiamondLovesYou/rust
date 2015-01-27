@@ -1098,11 +1098,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             tvec::trans_fixed_vstore(bcx, expr, dest)
         }
         ast::ExprClosure(_, _, ref decl, ref body) => {
-            // Check the side-table to see whether this is an unboxed
-            // closure or an older, legacy style closure. Store this
-            // into a variable to ensure the the RefCell-lock is
-            // released before we recurse.
-            closure::trans_unboxed_closure(bcx, &**decl, &**body, expr.id, dest)
+            closure::trans_closure_expr(bcx, &**decl, &**body, expr.id, dest)
         }
         ast::ExprCall(ref f, ref args) => {
             if bcx.tcx().is_method_call(expr.id) {
@@ -1132,7 +1128,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             let rhs_datum = unpack_datum!(bcx, trans(bcx, &**rhs));
             trans_overloaded_op(bcx, expr, MethodCall::expr(expr.id), lhs,
                                 vec![(rhs_datum, rhs.id)], Some(dest),
-                                !ast_util::is_by_value_binop(op)).bcx
+                                !ast_util::is_by_value_binop(op.node)).bcx
         }
         ast::ExprUnary(op, ref subexpr) => {
             // if not overloaded, would be RvalueDatumExpr
@@ -1263,7 +1259,7 @@ pub fn trans_local_var<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let _icx = push_ctxt("trans_local_var");
 
     match def {
-        def::DefUpvar(nid, _, _) => {
+        def::DefUpvar(nid, _) => {
             // Can't move upvars, so this is never a ZeroMemLastUse.
             let local_ty = node_id_type(bcx, nid);
             match bcx.fcx.llupvars.borrow().get(&nid) {
@@ -1676,7 +1672,7 @@ fn trans_eager_binop<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let binop_debug_loc = binop_expr.debug_loc();
 
     let mut bcx = bcx;
-    let val = match op {
+    let val = match op.node {
       ast::BiAdd => {
         if is_float {
             FAdd(bcx, lhs, rhs, binop_debug_loc)
@@ -1739,7 +1735,7 @@ fn trans_eager_binop<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
       }
       ast::BiEq | ast::BiNe | ast::BiLt | ast::BiGe | ast::BiLe | ast::BiGt => {
         if ty::type_is_scalar(rhs_t) {
-            unpack_result!(bcx, base::compare_scalar_types(bcx, lhs, rhs, rhs_t, op))
+            unpack_result!(bcx, base::compare_scalar_types(bcx, lhs, rhs, rhs_t, op.node))
         } else if is_simd {
             base::compare_simd_types(bcx, lhs, rhs, intype, ty::simd_size(tcx, lhs_t), op)
         } else {
@@ -1811,7 +1807,7 @@ fn trans_binary<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     // if overloaded, would be RvalueDpsExpr
     assert!(!ccx.tcx().method_map.borrow().contains_key(&MethodCall::expr(expr.id)));
 
-    match op {
+    match op.node {
         ast::BiAnd => {
             trans_lazy_binop(bcx, expr, lazy_and, lhs, rhs)
         }
