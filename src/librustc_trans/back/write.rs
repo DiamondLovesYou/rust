@@ -853,6 +853,9 @@ pub fn run_passes(sess: &Session,
     // Produce final compile outputs.
 
     if sess.targeting_pnacl() {
+        unsafe {
+            llvm::LLVMRustDisposeTargetMachine(tm);
+        }
         return;
     }
 
