@@ -798,6 +798,7 @@ pub fn run_passes(sess: &Session,
                             llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
                         }
                         let llmod = unsafe {
+                            let name = format!("{}\0", name.as_slice());
                             llvm::LLVMRustParseBitcode(llctx,
                                                        name.as_ptr() as *const i8,
                                                        bc.as_ptr() as *const libc::c_void,

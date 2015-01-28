@@ -734,8 +734,9 @@ pub fn link_pnacl_module(sess: &Session,
                 Some(llmod)
             },
             None => unsafe {
+                let cname = format!("{}\0", name);
                 let llmod = llvm::LLVMRustParseBitcode(ctxt,
-                                                       name.as_ptr() as *const i8,
+                                                       cname.as_ptr() as *const i8,
                                                        bc.as_ptr() as *const libc::c_void,
                                                        bc.len() as libc::size_t);
                 if llmod == ptr::null_mut() {
@@ -942,9 +943,10 @@ pub fn link_pnacl_module(sess: &Session,
     if sess.opts.output_types.iter().any(|&i| i == OutputTypeLlvmAssembly) {
         // emit ir
         let p = outputs.path(OutputTypeLlvmAssembly).display().to_string();
+        let cp = format!("{}\0", p);
         unsafe {
             let pm = llvm::LLVMCreatePassManager();
-            llvm::LLVMRustPrintModule(pm, llmod, p.as_ptr() as *const i8);
+            llvm::LLVMRustPrintModule(pm, llmod, cp.as_ptr() as *const i8);
             llvm::LLVMDisposePassManager(pm);
         }
     }
@@ -952,8 +954,9 @@ pub fn link_pnacl_module(sess: &Session,
     let force_non_stable_output = os::getenv("RUSTC_FORCE_NON_STABLE_BC_EMISSION").is_some();
     if force_non_stable_output || sess.opts.debuginfo != config::NoDebugInfo {
         // emit bc for translation into nexe w/ debugging info.
-        let out = outputs.with_extension("bc").display().to_string();
-        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr() as *const i8) };
+        let out = outputs.with_extension("debug.pexe").display().to_string();
+        let cout = format!("{}\0", out);
+        unsafe { llvm::LLVMWriteBitcodeToFile(llmod, cout.as_ptr() as *const i8) };
     }
 
     let emit_stable_pexe = true; // always emit stable bitcode.
