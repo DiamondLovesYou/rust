@@ -635,10 +635,6 @@ pub fn link_outputs_for_pnacl(sess: &Session,
                               crate_name: &str) {
     use super::write;
 
-    // We use separate paths for PNaCl targets so we can save LLVM
-    // attributes in our module. Otherwise, we'd have to discard them
-    // for 'assembly' (llmod -> .o bitcode using pnacl-clang).
-
     write::run_passes(sess, trans,
                       sess.opts.output_types.as_slice(),
                       outputs);
@@ -994,14 +990,6 @@ pub fn link_pnacl_module(sess: &Session,
         }
     };
     let out_cstr = format!("{}\0", out.display().to_string());
-
-    if emit_stable_pexe {
-        if sess.opts.cg.save_temps {
-            let out = outputs.with_extension("final.bc");
-            let out = format!("{}\0", out.display().to_string());
-            unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr() as *const i8) };
-        }
-    }
 
     sess.check_writeable_output(&out, "final output");
 
