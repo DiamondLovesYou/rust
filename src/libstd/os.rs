@@ -24,7 +24,7 @@
 //! which OS the user is on -- they should be given the opportunity to write
 //! OS-ignorant code by default.
 
-#![unstable]
+#![unstable(feature = "os")]
 
 #![allow(missing_docs)]
 #![allow(non_snake_case)]
@@ -825,6 +825,8 @@ pub struct MemoryMap {
 }
 
 /// Type of memory map
+#[allow(raw_pointer_derive)]
+#[derive(Copy)]
 pub enum MemoryMapKind {
     /// Virtual memory map. Usually used to change the permissions of a given
     /// chunk of memory.  Corresponds to `VirtualAlloc` on Windows.
@@ -835,9 +837,9 @@ pub enum MemoryMapKind {
     MapVirtual
 }
 
-impl Copy for MemoryMapKind {}
-
 /// Options the memory map is created with
+#[allow(raw_pointer_derive)]
+#[derive(Copy)]
 pub enum MapOption {
     /// The memory should be readable
     MapReadable,
@@ -863,8 +865,6 @@ pub enum MapOption {
     /// (the exact values used) and ignored on Windows.
     MapNonStandardFlags(c_int),
 }
-
-impl Copy for MapOption {}
 
 /// Possible errors when creating a map.
 #[derive(Copy, Show)]
@@ -912,7 +912,7 @@ pub enum MapError {
     ErrMapViewOfFile(uint)
 }
 
-#[stable]
+#[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Display for MapError {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
         let str = match *self {

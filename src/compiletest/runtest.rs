@@ -1786,7 +1786,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                             testfile: &Path, env: Vec<(String, String)>,
                             run_background: bool) -> ProcResOrProcessResult {
     use std::os::make_absolute;
-    use std::io::process::{ExitStatus, ExitSignal};
+    use std::old_io::process::{ExitStatus, ExitSignal};
 
     let cross_path = config.nacl_cross_path
         .clone()

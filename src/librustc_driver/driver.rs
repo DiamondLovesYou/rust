@@ -100,6 +100,7 @@ pub fn compile_input(sess: Session,
                                                                  &id[]));
 
         let mut forest = ast_map::Forest::new(expanded_crate);
+        let arenas = ty::CtxtArenas::new();
         let ast_map = assign_node_ids_and_map(&sess, &mut forest);
 
         write_out_deps(&sess, input, &outputs, &id[]);
@@ -111,7 +112,6 @@ pub fn compile_input(sess: Session,
                                                                      &ast_map,
                                                                      &id[]));
 
-        let arenas = ty::CtxtArenas::new();
         let analysis = phase_3_run_analysis_passes(sess,
                                                    ast_map,
                                                    &arenas,
@@ -397,16 +397,10 @@ pub fn phase_2_configure_and_expand(sess: &Session,
     // baz! should not use this definition unless foo is enabled.
 
     time(time_passes, "gated macro checking", (), |_| {
-        let (features, unknown_features) =
+        let features =
             syntax::feature_gate::check_crate_macros(sess.codemap(),
                                                      &sess.parse_sess.span_diagnostic,
                                                      &krate);
-        for uf in unknown_features.iter() {
-            sess.add_lint(lint::builtin::UNKNOWN_FEATURES,
-                          ast::CRATE_NODE_ID,
-                          *uf,
-                          "unknown feature".to_string());
-        }
 
         // these need to be set "early" so that expansion sees `quote` if enabled.
         *sess.features.borrow_mut() = features;
@@ -499,9 +493,11 @@ pub fn phase_2_configure_and_expand(sess: &Session,
 
     // Needs to go *after* expansion to be able to check the results of macro expansion.
     time(time_passes, "complete gated feature checking", (), |_| {
-        syntax::feature_gate::check_crate(sess.codemap(),
+        let features =
+            syntax::feature_gate::check_crate(sess.codemap(),
                                           &sess.parse_sess.span_diagnostic,
                                           &krate);
+        *sess.features.borrow_mut() = features;
         sess.abort_if_errors();
     });
 
@@ -609,7 +605,7 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
          middle::check_loop::check_crate(&sess, krate));
 
     let stability_index = time(time_passes, "stability index", (), |_|
-                               stability::Index::build(krate));
+                               stability::Index::build(&sess, krate));
 
     time(time_passes, "static item recursion checking", (), |_|
          middle::check_static_recursion::check_crate(&sess, krate, &def_map, &ast_map));
@@ -678,8 +674,19 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
                                   &reachable_map)
     });
 
+    let ref lib_features_used =
+        time(time_passes, "stability checking", (), |_|
+             stability::check_unstable_api_usage(&ty_cx));
+
+    time(time_passes, "unused feature checking", (), |_|
+         stability::check_unused_features(
+             &ty_cx.sess, lib_features_used));
+
     time(time_passes, "lint checking", (), |_|
          lint::check_crate(&ty_cx, &exported_items));
+
+    // The above three passes generate errors w/o aborting
+    ty_cx.sess.abort_if_errors();
 
     ty::CrateAnalysis {
         export_map: export_map,

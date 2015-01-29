@@ -10,7 +10,6 @@
 
 //! Bindings for executing child processes
 
-#![allow(unstable)]
 #![allow(non_upper_case_globals)]
 
 pub use self::StdioContainer::*;
@@ -502,7 +501,7 @@ pub enum ProcessExit {
     ExitSignal(int),
 }
 
-#[stable]
+#[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Display for ProcessExit {
     /// Format a ProcessExit enum, to nicely present the information.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -653,7 +652,6 @@ impl Process {
     /// # Example
     ///
     /// ```no_run
-    /// # #![allow(unstable)]
     /// use std::old_io::{Command, IoResult};
     /// use std::old_io::process::ProcessExit;
     ///
@@ -681,7 +679,8 @@ impl Process {
     ///     p.wait()
     /// }
     /// ```
-    #[unstable = "the type of the timeout is likely to change"]
+    #[unstable(feature = "io",
+               reason = "the type of the timeout is likely to change")]
     pub fn set_timeout(&mut self, timeout_ms: Option<u64>) {
         self.deadline = timeout_ms.map(|i| i + sys::timer::now()).unwrap_or(0);
     }
@@ -1079,13 +1078,13 @@ mod tests {
     #[test]
     fn test_override_env() {
         use os;
-        let mut new_env = vec![("RUN_TEST_NEW_ENV", "123")];
 
         // In some build environments (such as chrooted Nix builds), `env` can
         // only be found in the explicitly-provided PATH env variable, not in
         // default places such as /bin or /usr/bin. So we need to pass through
         // PATH to our sub-process.
         let path_val: String;
+        let mut new_env = vec![("RUN_TEST_NEW_ENV", "123")];
         match os::getenv("PATH") {
             None => {}
             Some(val) => {

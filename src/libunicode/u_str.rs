@@ -30,7 +30,7 @@ use u_char::CharExt as UCharExt; // conflicts with core::prelude::CharExt
 use tables::grapheme::GraphemeCat;
 
 /// An iterator over the words of a string, separated by a sequence of whitespace
-#[stable]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub struct Words<'a> {
     inner: Filter<&'a str, Split<'a, fn(char) -> bool>, fn(&&str) -> bool>,
 }
@@ -410,15 +410,13 @@ pub struct Utf16Items<'a> {
     iter: slice::Iter<'a, u16>
 }
 /// The possibilities for values decoded from a `u16` stream.
-#[derive(PartialEq, Eq, Clone, Show)]
+#[derive(Copy, PartialEq, Eq, Clone, Show)]
 pub enum Utf16Item {
     /// A valid codepoint.
     ScalarValue(char),
     /// An invalid surrogate without its pair.
     LoneSurrogate(u16)
 }
-
-impl Copy for Utf16Item {}
 
 impl Utf16Item {
     /// Convert `self` to a `char`, taking `LoneSurrogate`s to the
