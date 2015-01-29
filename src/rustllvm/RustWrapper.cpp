@@ -1015,6 +1015,14 @@ LLVMRustWritePNaClBitcode(LLVMModuleRef M,
   return true;
 }
 
+/// isNaClBitcode - Return true if the given bytes are the magic bytes for
+/// PNaCl bitcode wire format. Does not take ownership of Buffer. Placed here so
+/// tools don't need to depend on extra components.
+static bool isNaClBitcode(const MemoryBuffer *Buffer) {
+  return isNaClBitcode((const unsigned char *)Buffer->getBufferStart(),
+                       (const unsigned char *)Buffer->getBufferEnd());
+}
+
 extern "C" LLVMModuleRef
 LLVMRustParseBitcode(LLVMContextRef ctxt, const char* name, const void* bc, size_t len) {
   MemoryBuffer* buf = MemoryBuffer::getMemBuffer(StringRef(static_cast<const char*>(bc),
@@ -1022,28 +1030,24 @@ LLVMRustParseBitcode(LLVMContextRef ctxt, const char* name, const void* bc, size
                                                  name,
                                                  false);
 
-  Module *Mod = nullptr;
-  std::string ErrMsg;
+  LLVMModuleRef Mod = wrap(static_cast<Module*>(nullptr));
+  ErrorOr<Module *> Src(nullptr);
   if (isNaClBitcode(buf)) {
-    Mod = NaClParseBitcodeFile(buf, *unwrap(ctxt),
-                               &ErrMsg, false);
+    Src = NaClParseBitcodeFile(buf, *unwrap(ctxt),
+                               nullptr, false);
 
   } else {
-    ErrorOr<Module *> Src = llvm::parseBitcodeFile(buf, *unwrap(ctxt));
-    if (!Src) {
-      ErrMsg = Src.getError().message();
-    } else {
-      Mod = Src.get();
-    }
+    Src = llvm::parseBitcodeFile(buf, *unwrap(ctxt));
+  }
+
+  if (!Src) {
+    LLVMRustSetLastError(Src.getError().message().c_str());
+  } else {
+    Mod = wrap(Src.get());
   }
 
   delete buf;
-  if (!Mod) {
-    LLVMRustSetLastError(ErrMsg.c_str());
-    return NULL;
-  } else {
-    return wrap(Mod);
-  }
+  return Mod;
 }
 extern "C" void
 LLVMRustStripDebugInfo(LLVMModuleRef M) {
