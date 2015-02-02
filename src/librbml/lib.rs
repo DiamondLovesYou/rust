@@ -17,7 +17,6 @@
 
 #![crate_name = "rbml"]
 #![unstable(feature = "rustc_private")]
-#![feature(staged_api)]
 #![staged_api]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
@@ -25,13 +24,14 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
-#![allow(unknown_features)]
-#![feature(slicing_syntax)]
-#![allow(unknown_features)] #![feature(int_uint)]
+
 #![feature(collections)]
 #![feature(core)]
+#![feature(int_uint)]
 #![feature(io)]
 #![feature(rustc_private)]
+#![feature(slicing_syntax)]
+#![feature(staged_api)]
 
 extern crate serialize;
 #[macro_use] extern crate log;
@@ -77,7 +77,7 @@ pub struct TaggedDoc<'a> {
     pub doc: Doc<'a>,
 }
 
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 pub enum EbmlEncoderTag {
     EsUint,     // 0
     EsU64,      // 1
@@ -111,7 +111,7 @@ pub enum EbmlEncoderTag {
     EsLabel, // Used only when debugging
 }
 
-#[derive(Show)]
+#[derive(Debug)]
 pub enum Error {
     IntTooBig(uint),
     Expected(String),
@@ -1184,7 +1184,7 @@ mod bench {
 
     #[bench]
     pub fn vuint_at_A_aligned(b: &mut Bencher) {
-        let data = range(0, 4*100).map(|i| {
+        let data = (0i32..4*100).map(|i| {
             match i % 2 {
               0 => 0x80u8,
               _ => i as u8,
@@ -1202,7 +1202,7 @@ mod bench {
 
     #[bench]
     pub fn vuint_at_A_unaligned(b: &mut Bencher) {
-        let data = range(0, 4*100+1).map(|i| {
+        let data = (0i32..4*100+1).map(|i| {
             match i % 2 {
               1 => 0x80u8,
               _ => i as u8
@@ -1220,7 +1220,7 @@ mod bench {
 
     #[bench]
     pub fn vuint_at_D_aligned(b: &mut Bencher) {
-        let data = range(0, 4*100).map(|i| {
+        let data = (0i32..4*100).map(|i| {
             match i % 4 {
               0 => 0x10u8,
               3 => i as u8,
@@ -1239,7 +1239,7 @@ mod bench {
 
     #[bench]
     pub fn vuint_at_D_unaligned(b: &mut Bencher) {
-        let data = range(0, 4*100+1).map(|i| {
+        let data = (0i32..4*100+1).map(|i| {
             match i % 4 {
               1 => 0x10u8,
               0 => i as u8,

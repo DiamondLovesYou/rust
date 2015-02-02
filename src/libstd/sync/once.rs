@@ -134,7 +134,7 @@ mod test {
     #[test]
     fn smoke_once() {
         static O: Once = ONCE_INIT;
-        let mut a = 0i;
+        let mut a = 0;
         O.call_once(|| a += 1);
         assert_eq!(a, 1);
         O.call_once(|| a += 1);
@@ -147,10 +147,10 @@ mod test {
         static mut run: bool = false;
 
         let (tx, rx) = channel();
-        for _ in range(0u, 10) {
+        for _ in 0u..10 {
             let tx = tx.clone();
             Thread::spawn(move|| {
-                for _ in range(0u, 4) { Thread::yield_now() }
+                for _ in 0u..4 { Thread::yield_now() }
                 unsafe {
                     O.call_once(|| {
                         assert!(!run);
@@ -170,7 +170,7 @@ mod test {
             assert!(run);
         }
 
-        for _ in range(0u, 10) {
+        for _ in 0u..10 {
             rx.recv().unwrap();
         }
     }

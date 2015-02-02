@@ -9,7 +9,6 @@
 // except according to those terms.
 
 #![crate_name = "rustc_bitflags"]
-#![allow(unknown_features)]
 #![feature(staged_api)]
 #![staged_api]
 #![crate_type = "rlib"]
@@ -73,7 +72,7 @@
 ///     }
 /// }
 ///
-/// impl fmt::Show for Flags {
+/// impl fmt::Debug for Flags {
 ///     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 ///         write!(f, "hi!")
 ///     }

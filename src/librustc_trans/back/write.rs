@@ -913,7 +913,7 @@ pub fn run_passes(sess: &Session,
         cmd.args(&sess.target.target.options.pre_link_args[]);
         cmd.arg("-nostdlib");
 
-        for index in range(0, trans.modules.len()) {
+        for index in 0..trans.modules.len() {
             cmd.arg(crate_output.with_extension(&format!("{}.o", index)[]));
         }
 
@@ -1023,7 +1023,7 @@ pub fn run_passes(sess: &Session,
         let keep_numbered_bitcode = needs_crate_bitcode ||
                 (user_wants_bitcode && sess.opts.cg.codegen_units > 1);
 
-        for i in range(0, trans.modules.len()) {
+        for i in 0..trans.modules.len() {
             if modules_config.emit_obj {
                 let ext = format!("{}.o", i);
                 remove(sess, &crate_output.with_extension(&ext[]));
@@ -1105,7 +1105,7 @@ fn run_work_multithreaded(sess: &Session,
     let mut diag_emitter = SharedEmitter::new();
     let mut futures = Vec::with_capacity(num_workers);
 
-    for i in range(0, num_workers) {
+    for i in 0..num_workers {
         let work_items_arc = work_items_arc.clone();
         let diag_emitter = diag_emitter.clone();
         let remark = sess.opts.cg.remark.clone();
@@ -1217,6 +1217,9 @@ unsafe fn configure_llvm(sess: &Session) {
         if vectorize_slp  { add("-vectorize-slp");   }
         if sess.time_llvm_passes() { add("-time-passes"); }
         if sess.print_llvm_passes() { add("-debug-pass=Structure"); }
+
+        // FIXME #21627 disable faulty FastISel on AArch64 (even for -O0)
+        if sess.target.target.arch.as_slice() == "aarch64" { add("-fast-isel=0"); }
 
         for arg in sess.opts.cg.llvm_args.iter() {
             add(&(*arg)[]);

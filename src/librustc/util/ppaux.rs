@@ -100,6 +100,7 @@ pub fn explain_region_and_span(cx: &ctxt, region: ty::Region)
               ast::ExprMethodCall(..) => "method call",
               ast::ExprMatch(_, _, ast::MatchSource::IfLetDesugar { .. }) => "if let",
               ast::ExprMatch(_, _, ast::MatchSource::WhileLetDesugar) =>  "while let",
+              ast::ExprMatch(_, _, ast::MatchSource::ForLoopDesugar) =>  "for",
               ast::ExprMatch(..) => "match",
               _ => "expression",
           },
@@ -1289,6 +1290,15 @@ impl<'tcx> Repr<'tcx> for ty::UpvarBorrow {
         format!("UpvarBorrow({}, {})",
                 self.kind.repr(tcx),
                 self.region.repr(tcx))
+    }
+}
+
+impl<'tcx> Repr<'tcx> for ty::UpvarCapture {
+    fn repr(&self, tcx: &ctxt) -> String {
+        match *self {
+            ty::UpvarCapture::ByValue => format!("ByValue"),
+            ty::UpvarCapture::ByRef(ref data) => format!("ByRef({})", data.repr(tcx)),
+        }
     }
 }
 

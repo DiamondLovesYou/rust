@@ -135,8 +135,6 @@ enum LoopKind<'a> {
     LoopLoop,
     /// A `while` loop, with the given expression as condition.
     WhileLoop(&'a Expr),
-    /// A `for` loop, with the given pattern to bind.
-    ForLoop(&'a ast::Pat),
 }
 
 #[derive(Copy, PartialEq)]
@@ -159,7 +157,7 @@ impl Clone for LiveNode {
     }
 }
 
-#[derive(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Debug)]
 enum LiveNodeKind {
     FreeVarNode(Span),
     ExprNode(Span),
@@ -245,13 +243,13 @@ struct CaptureInfo {
     var_nid: NodeId
 }
 
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 struct LocalInfo {
     id: NodeId,
     ident: ast::Ident
 }
 
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 enum VarKind {
     Arg(NodeId, ast::Ident),
     Local(LocalInfo),
@@ -490,19 +488,8 @@ fn visit_expr(ir: &mut IrMaps, expr: &Expr) {
       ast::ExprWhileLet(..) => {
           ir.tcx.sess.span_bug(expr.span, "non-desugared ExprWhileLet");
       }
-      ast::ExprForLoop(ref pat, _, _, _) => {
-        pat_util::pat_bindings(&ir.tcx.def_map, &**pat, |bm, p_id, sp, path1| {
-            debug!("adding local variable {} from for loop with bm {:?}",
-                   p_id, bm);
-            let name = path1.node;
-            ir.add_live_node_for_node(p_id, VarDefNode(sp));
-            ir.add_variable(Local(LocalInfo {
-                id: p_id,
-                ident: name
-            }));
-        });
-        ir.add_live_node_for_node(expr.id, ExprNode(expr.span));
-        visit::walk_expr(ir, expr);
+      ast::ExprForLoop(..) => {
+          ir.tcx.sess.span_bug(expr.span, "non-desugared ExprForLoop");
       }
       ast::ExprBinary(op, _, _) if ast_util::lazy_binop(op.node) => {
         ir.add_live_node_for_node(expr.id, ExprNode(expr.span));
@@ -687,7 +674,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
     {
         let node_base_idx = self.idx(ln, Variable(0u));
         let succ_base_idx = self.idx(succ_ln, Variable(0u));
-        for var_idx in range(0u, self.ir.num_vars) {
+        for var_idx in 0u..self.ir.num_vars {
             op(self, node_base_idx + var_idx, succ_base_idx + var_idx);
         }
     }
@@ -700,7 +687,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
         F: FnMut(uint) -> LiveNode,
     {
         let node_base_idx = self.idx(ln, Variable(0));
-        for var_idx in range(0u, self.ir.num_vars) {
+        for var_idx in 0u..self.ir.num_vars {
             let idx = node_base_idx + var_idx;
             if test(idx).is_valid() {
                 try!(write!(wr, " {:?}", Variable(var_idx)));
@@ -860,7 +847,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
         // hack to skip the loop unless debug! is enabled:
         debug!("^^ liveness computation results for body {} (entry={:?})",
                {
-                   for ln_idx in range(0u, self.ir.num_live_nodes) {
+                   for ln_idx in 0u..self.ir.num_live_nodes {
                        debug!("{:?}", self.ln_str(LiveNode(ln_idx)));
                    }
                    body.id
@@ -1034,9 +1021,8 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
               self.ir.tcx.sess.span_bug(expr.span, "non-desugared ExprWhileLet");
           }
 
-          ast::ExprForLoop(ref pat, ref head, ref blk, _) => {
-            let ln = self.propagate_through_loop(expr, ForLoop(&**pat), &**blk, succ);
-            self.propagate_through_expr(&**head, ln)
+          ast::ExprForLoop(..) => {
+              self.ir.tcx.sess.span_bug(expr.span, "non-desugared ExprForLoop");
           }
 
           // Note that labels have been resolved, so we don't need to look
@@ -1373,7 +1359,6 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
 
         let cond_ln = match kind {
             LoopLoop => ln,
-            ForLoop(ref pat) => self.define_bindings_in_pat(*pat, ln),
             WhileLoop(ref cond) => self.propagate_through_expr(&**cond, ln),
         };
         let body_ln = self.with_loop_nodes(expr.id, succ, ln, |this| {
@@ -1386,9 +1371,6 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
 
             let new_cond_ln = match kind {
                 LoopLoop => ln,
-                ForLoop(ref pat) => {
-                    self.define_bindings_in_pat(*pat, ln)
-                }
                 WhileLoop(ref cond) => {
                     self.propagate_through_expr(&**cond, ln)
                 }
@@ -1476,14 +1458,6 @@ fn check_expr(this: &mut Liveness, expr: &Expr) {
         visit::walk_expr(this, expr);
       }
 
-      ast::ExprForLoop(ref pat, _, _, _) => {
-        this.pat_bindings(&**pat, |this, ln, var, sp, id| {
-            this.warn_about_unused(sp, id, ln, var);
-        });
-
-        visit::walk_expr(this, expr);
-      }
-
       // no correctness conditions related to liveness
       ast::ExprCall(..) | ast::ExprMethodCall(..) | ast::ExprIf(..) |
       ast::ExprMatch(..) | ast::ExprWhile(..) | ast::ExprLoop(..) |
@@ -1502,6 +1476,9 @@ fn check_expr(this: &mut Liveness, expr: &Expr) {
       }
       ast::ExprWhileLet(..) => {
         this.ir.tcx.sess.span_bug(expr.span, "non-desugared ExprWhileLet");
+      }
+      ast::ExprForLoop(..) => {
+        this.ir.tcx.sess.span_bug(expr.span, "non-desugared ExprForLoop");
       }
     }
 }

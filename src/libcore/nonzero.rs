@@ -11,12 +11,14 @@
 //! Exposes the NonZero lang item which provides optimization hints.
 
 use ops::Deref;
+use ptr::Unique;
 
 /// Unsafe trait to indicate what types are usable with the NonZero struct
 pub unsafe trait Zeroable {}
 
 unsafe impl<T> Zeroable for *const T {}
 unsafe impl<T> Zeroable for *mut T {}
+unsafe impl<T> Zeroable for Unique<T> { }
 unsafe impl Zeroable for int {}
 unsafe impl Zeroable for uint {}
 unsafe impl Zeroable for i8 {}
@@ -31,7 +33,7 @@ unsafe impl Zeroable for u64 {}
 /// A wrapper type for raw pointers and integers that will never be
 /// NULL or 0 that might allow certain optimizations.
 #[lang="non_zero"]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Show, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
 #[unstable(feature = "core")]
 pub struct NonZero<T: Zeroable>(T);
 

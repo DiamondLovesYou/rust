@@ -227,7 +227,7 @@ use syntax::codemap::Span;
 use syntax::fold::Folder;
 use syntax::ptr::P;
 
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 struct ConstantExpr<'a>(&'a ast::Expr);
 
 impl<'a> ConstantExpr<'a> {
@@ -242,7 +242,7 @@ impl<'a> ConstantExpr<'a> {
 }
 
 // An option identifying a branch (either a literal, an enum variant or a range)
-#[derive(Show)]
+#[derive(Debug)]
 enum Opt<'a, 'tcx> {
     ConstantValue(ConstantExpr<'a>),
     ConstantRange(ConstantExpr<'a>, ConstantExpr<'a>),
@@ -606,7 +606,7 @@ fn extract_variant_args<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                     val: ValueRef)
                                     -> ExtractedBlock<'blk, 'tcx> {
     let _icx = push_ctxt("match::extract_variant_args");
-    let args = range(0, adt::num_args(repr, disr_val)).map(|i| {
+    let args = (0..adt::num_args(repr, disr_val)).map(|i| {
         adt::trans_field_ptr(bcx, repr, val, disr_val, i)
     }).collect();
 
@@ -653,8 +653,8 @@ fn extract_vec_elems<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let vec_datum = match_datum(val, left_ty);
     let (base, len) = vec_datum.get_vec_base_and_len(bcx);
     let mut elems = vec![];
-    elems.extend(range(0, before).map(|i| GEPi(bcx, base, &[i])));
-    elems.extend(range(0, after).rev().map(|i| {
+    elems.extend((0..before).map(|i| GEPi(bcx, base, &[i])));
+    elems.extend((0..after).rev().map(|i| {
         InBoundsGEP(bcx, base, &[
             Sub(bcx, len, C_uint(bcx.ccx(), i + 1), DebugLoc::None)
         ])
@@ -768,7 +768,7 @@ fn pick_column_to_specialize(def_map: &DefMap, m: &[Match]) -> Option<uint> {
         })
     };
 
-    range(0, m[0].pats.len())
+    (0..m[0].pats.len())
         .filter(column_contains_any_nonwild_patterns)
         .map(|col| (col, column_score(m, col)))
         .max_by(|&(_, score)| score)
@@ -1005,7 +1005,7 @@ fn compile_submatch_continue<'a, 'p, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     let adt_vals = if any_irrefutable_adt_pat(bcx.tcx(), m, col) {
         let repr = adt::represent_type(bcx.ccx(), left_ty);
         let arg_count = adt::num_args(&*repr, 0);
-        let field_vals: Vec<ValueRef> = std::iter::range(0, arg_count).map(|ix|
+        let field_vals: Vec<ValueRef> = (0..arg_count).map(|ix|
             adt::trans_field_ptr(bcx, &*repr, val, 0, ix)
         ).collect();
         Some(field_vals)
@@ -1078,7 +1078,7 @@ fn compile_submatch_continue<'a, 'p, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     let sw = if kind == Switch {
         build::Switch(bcx, test_val, else_cx.llbb, opts.len())
     } else {
-        C_int(ccx, 0i) // Placeholder for when not using a switch
+        C_int(ccx, 0) // Placeholder for when not using a switch
     };
 
     let defaults = enter_default(else_cx, dm, m, col, val);
@@ -1535,31 +1535,6 @@ pub fn store_arg<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
             bind_irrefutable_pat(bcx, pat, arg.val, arg_scope)
         }
     }
-}
-
-/// Generates code for the pattern binding in a `for` loop like
-/// `for <pat> in <expr> { ... }`.
-pub fn store_for_loop_binding<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
-                                          pat: &ast::Pat,
-                                          llvalue: ValueRef,
-                                          body_scope: cleanup::ScopeId)
-                                          -> Block<'blk, 'tcx> {
-    let _icx = push_ctxt("match::store_for_loop_binding");
-
-    if simple_identifier(&*pat).is_some() &&
-       bcx.sess().opts.debuginfo != FullDebugInfo {
-        // Generate nicer LLVM for the common case of a `for` loop pattern
-        // like `for x in blahblah { ... }`.
-        let binding_type = node_id_type(bcx, pat.id);
-        bcx.fcx.lllocals.borrow_mut().insert(pat.id,
-                                             Datum::new(llvalue,
-                                                        binding_type,
-                                                        Lvalue));
-        return bcx
-    }
-
-    // General path. Copy out the values that are used in the pattern.
-    bind_irrefutable_pat(bcx, pat, llvalue, body_scope)
 }
 
 fn mk_binding_alloca<'blk, 'tcx, A, F>(bcx: Block<'blk, 'tcx>,

@@ -55,7 +55,7 @@ fn parse_opts(argv: Vec<String> ) -> Config {
     let opts = vec!(getopts::optflag("", "stress", ""));
 
     let argv = argv.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let opt_args = argv.slice(1, argv.len());
+    let opt_args = &argv[1..argv.len()];
 
     match getopts::getopts(opt_args, opts.as_slice()) {
       Ok(ref m) => {
@@ -66,9 +66,9 @@ fn parse_opts(argv: Vec<String> ) -> Config {
 }
 
 fn stress_task(id: int) {
-    let mut i = 0i;
+    let mut i = 0;
     loop {
-        let n = 15i;
+        let n = 15;
         assert_eq!(fib(n), fib(n));
         i += 1;
         println!("{}: Completed {} iterations", id, i);
@@ -77,7 +77,7 @@ fn stress_task(id: int) {
 
 fn stress(num_tasks: int) {
     let mut results = Vec::new();
-    for i in range(0, num_tasks) {
+    for i in 0..num_tasks {
         results.push(Thread::scoped(move|| {
             stress_task(i);
         }));
@@ -106,8 +106,8 @@ fn main() {
 
         let num_trials = 10;
 
-        for n in range(1, max + 1) {
-            for _ in range(0u, num_trials) {
+        for n in 1..max + 1 {
+            for _ in 0u..num_trials {
                 let mut fibn = None;
                 let dur = Duration::span(|| fibn = Some(fib(n)));
                 let fibn = fibn.unwrap();

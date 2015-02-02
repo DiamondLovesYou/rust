@@ -47,7 +47,7 @@ use sys_common;
 ///     match socket.recv_from(&mut buf) {
 ///         Ok((amt, src)) => {
 ///             // Send a reply to the socket we received data from
-///             let buf = buf.slice_to_mut(amt);
+///             let buf = &mut buf[..amt];
 ///             buf.reverse();
 ///             socket.send_to(buf, src);
 ///         }
@@ -448,7 +448,7 @@ mod test {
         let _b = UdpSocket::bind(addr2).unwrap();
 
         a.set_write_timeout(Some(1000));
-        for _ in range(0u, 100) {
+        for _ in 0u..100 {
             match a.send_to(&[0;4*1024], addr2) {
                 Ok(()) | Err(IoError { kind: ShortWrite(..), .. }) => {},
                 Err(IoError { kind: TimedOut, .. }) => break,

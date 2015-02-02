@@ -401,7 +401,7 @@ pub fn char_lit(lit: &str) -> (char, isize) {
     let msg2 = &msg[];
 
     fn esc(len: usize, lit: &str) -> Option<(char, isize)> {
-        num::from_str_radix(&lit[2..len], 16)
+        num::from_str_radix(&lit[2..len], 16).ok()
         .and_then(char::from_u32)
         .map(|x| (x, len as isize))
     }
@@ -410,7 +410,7 @@ pub fn char_lit(lit: &str) -> (char, isize) {
         if lit.as_bytes()[2] == b'{' {
             let idx = lit.find('}').expect(msg2);
             let subslice = &lit[3..idx];
-            num::from_str_radix(subslice, 16)
+            num::from_str_radix(subslice, 16).ok()
                 .and_then(char::from_u32)
                 .map(|x| (x, subslice.chars().count() as isize + 4))
         } else {
@@ -472,7 +472,7 @@ pub fn str_lit(lit: &str) -> String {
                         } else {
                             // otherwise, a normal escape
                             let (c, n) = char_lit(&lit[i..]);
-                            for _ in range(0, n - 1) { // we don't need to move past the first \
+                            for _ in 0..n - 1 { // we don't need to move past the first \
                                 chars.next();
                             }
                             res.push(c);
@@ -583,7 +583,7 @@ pub fn byte_lit(lit: &str) -> (u8, usize) {
             b'\'' => b'\'',
             b'0' => b'\0',
             _ => {
-                match ::std::num::from_str_radix::<u64>(&lit[2..4], 16) {
+                match ::std::num::from_str_radix::<u64>(&lit[2..4], 16).ok() {
                     Some(c) =>
                         if c > 0xFF {
                             panic!(err(2))
@@ -635,7 +635,7 @@ pub fn binary_lit(lit: &str) -> Rc<Vec<u8>> {
                         // otherwise, a normal escape
                         let (c, n) = byte_lit(&lit[i..]);
                         // we don't need to move past the first \
-                        for _ in range(0, n - 1) {
+                        for _ in 0..n - 1 {
                             chars.next();
                         }
                         res.push(c);
@@ -732,7 +732,7 @@ pub fn integer_lit(s: &str, suffix: Option<&str>, sd: &SpanHandler, sp: Span) ->
     debug!("integer_lit: the type is {:?}, base {:?}, the new string is {:?}, the original \
            string was {:?}, the original suffix was {:?}", ty, base, s, orig, suffix);
 
-    let res: u64 = match ::std::num::from_str_radix(s, base) {
+    let res: u64 = match ::std::num::from_str_radix(s, base).ok() {
         Some(r) => r,
         None => { sd.span_err(sp, "int literal is too large"); 0 }
     };
@@ -854,7 +854,7 @@ mod test {
     #[test]
     fn string_to_tts_1 () {
         let tts = string_to_tts("fn a (b : i32) { b; }".to_string());
-        assert_eq!(json::encode(&tts),
+        assert_eq!(json::encode(&tts).unwrap(),
         "[\
     {\
         \"variant\":\"TtToken\",\

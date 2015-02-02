@@ -52,7 +52,7 @@ pub trait Reader {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Show)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TokenAndSpan {
     pub tok: token::Token,
     pub sp: Span,
@@ -613,7 +613,7 @@ impl<'a> StringReader<'a> {
         // find the integer representing the name
         self.scan_digits(base);
         let encoded_name : u32 = self.with_str_from(start_bpos, |s| {
-            num::from_str_radix(s, 10).unwrap_or_else(|| {
+            num::from_str_radix(s, 10).ok().unwrap_or_else(|| {
                 panic!("expected digits representing a name, got {:?}, {}, range [{:?},{:?}]",
                       s, whence, start_bpos, self.last_pos);
             })
@@ -631,7 +631,7 @@ impl<'a> StringReader<'a> {
         let start_bpos = self.last_pos;
         self.scan_digits(base);
         let encoded_ctxt : ast::SyntaxContext = self.with_str_from(start_bpos, |s| {
-            num::from_str_radix(s, 10).unwrap_or_else(|| {
+            num::from_str_radix(s, 10).ok().unwrap_or_else(|| {
                 panic!("expected digits representing a ctxt, got {:?}, {}", s, whence);
             })
         });
@@ -732,7 +732,7 @@ impl<'a> StringReader<'a> {
         let start_bpos = self.last_pos;
         let mut accum_int = 0;
 
-        for _ in range(0, n_digits) {
+        for _ in 0..n_digits {
             if self.is_eof() {
                 let last_bpos = self.last_pos;
                 self.fatal_span_(start_bpos, last_bpos, "unterminated numeric character escape");
@@ -1217,7 +1217,7 @@ impl<'a> StringReader<'a> {
                 }
                 //if self.curr_is('"') {
                     //content_end_bpos = self.last_pos;
-                    //for _ in range(0, hash_count) {
+                    //for _ in 0..hash_count {
                         //self.bump();
                         //if !self.curr_is('#') {
                             //continue 'outer;
@@ -1225,7 +1225,7 @@ impl<'a> StringReader<'a> {
                 match c {
                     '"' => {
                         content_end_bpos = self.last_pos;
-                        for _ in range(0, hash_count) {
+                        for _ in 0..hash_count {
                             self.bump();
                             if !self.curr_is('#') {
                                 continue 'outer;
@@ -1402,7 +1402,7 @@ impl<'a> StringReader<'a> {
                 },
                 Some('"') => {
                     content_end_bpos = self.last_pos;
-                    for _ in range(0, hash_count) {
+                    for _ in 0..hash_count {
                         self.bump();
                         if !self.curr_is('#') {
                             continue 'outer;

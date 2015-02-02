@@ -25,25 +25,27 @@
 
 #![crate_name = "test"]
 #![unstable(feature = "test")]
-#![feature(staged_api)]
 #![staged_api]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
-#![allow(unknown_features)]
+
+#![cfg_attr(not(stage0), allow(unused_mut))] // NOTE: remove after stage0 snap
+
 #![feature(asm, slicing_syntax)]
 #![feature(box_syntax)]
-#![allow(unknown_features)] #![feature(int_uint)]
 #![feature(collections)]
 #![feature(core)]
+#![feature(hash)]
+#![feature(int_uint)]
 #![feature(io)]
 #![feature(os)]
 #![feature(path)]
 #![feature(rustc_private)]
+#![feature(staged_api)]
 #![feature(std_misc)]
-#![feature(hash)]
 
 extern crate getopts;
 extern crate serialize;
@@ -74,7 +76,6 @@ use std::old_io;
 use std::iter::repeat;
 use std::num::{Float, Int};
 use std::os;
-use std::str::FromStr;
 use std::sync::mpsc::{channel, Sender};
 use std::thread::{self, Thread};
 use std::thunk::{Thunk, Invoke};
@@ -97,7 +98,7 @@ pub mod stats;
 // colons. This way if some test runner wants to arrange the tests
 // hierarchically it may.
 
-#[derive(Clone, PartialEq, Eq, Hash, Show)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum TestName {
     StaticTestName(&'static str),
     DynTestName(String)
@@ -198,7 +199,7 @@ pub struct Bencher {
     pub bytes: u64,
 }
 
-#[derive(Copy, Clone, Show, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ShouldFail {
     No,
     Yes(Option<&'static str>)
@@ -206,7 +207,7 @@ pub enum ShouldFail {
 
 // The definition of a single test. A test runner will run a list of
 // these.
-#[derive(Clone, Show, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestDesc {
     pub name: TestName,
     pub ignore: bool,
@@ -215,13 +216,13 @@ pub struct TestDesc {
 
 unsafe impl Send for TestDesc {}
 
-#[derive(Show)]
+#[derive(Debug)]
 pub struct TestDescAndFn {
     pub desc: TestDesc,
     pub testfn: TestFn,
 }
 
-#[derive(Clone, RustcEncodable, RustcDecodable, PartialEq, Show, Copy)]
+#[derive(Clone, RustcEncodable, RustcDecodable, PartialEq, Debug, Copy)]
 pub struct Metric {
     value: f64,
     noise: f64
@@ -389,6 +390,8 @@ Test Attributes:
 
 // Parses command line arguments into test options
 pub fn parse_opts(args: &[String]) -> Option<OptRes> {
+    use std::str::FromStr;
+
     let args_ = args.tail();
     let matches =
         match getopts::getopts(args_.as_slice(), optgroups().as_slice()) {
@@ -445,8 +448,8 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
     let boxplot_width = match matches.opt_str("boxplot-width") {
         Some(width) => {
             match FromStr::from_str(width.as_slice()) {
-                Some(width) => width,
-                None => {
+                Ok(width) => width,
+                Err(_) => {
                     return Some(Err(format!("argument for --boxplot-width must be a uint")));
                 }
             }
@@ -481,8 +484,8 @@ pub fn opt_shard(maybestr: Option<String>) -> Option<(uint,uint)> {
         None => None,
         Some(s) => {
             let mut it = s.split('.');
-            match (it.next().and_then(|s| s.parse::<uint>()),
-                   it.next().and_then(|s| s.parse::<uint>()),
+            match (it.next().and_then(|s| s.parse::<uint>().ok()),
+                   it.next().and_then(|s| s.parse::<uint>().ok()),
                    it.next()) {
                 (Some(a), Some(b), None) => {
                     if a <= 0 || a > b {
@@ -903,7 +906,7 @@ fn get_concurrency() -> uint {
     use std::rt;
     match os::getenv("RUST_TEST_TASKS") {
         Some(s) => {
-            let opt_n: Option<uint> = FromStr::from_str(s.as_slice());
+            let opt_n: Option<uint> = s.parse().ok();
             match opt_n {
                 Some(n) if n > 0 => n,
                 _ => panic!("RUST_TEST_TASKS is `{}`, should be a positive integer.", s)
@@ -1110,7 +1113,7 @@ impl Bencher {
     pub fn iter<T, F>(&mut self, mut inner: F) where F: FnMut() -> T {
         self.dur = Duration::span(|| {
             let k = self.iterations;
-            for _ in range(0u64, k) {
+            for _ in 0u64..k {
                 black_box(inner());
             }
         });
@@ -1228,9 +1231,8 @@ pub mod bench {
 mod tests {
     use test::{TrFailed, TrIgnored, TrOk, filter_tests, parse_opts,
                TestDesc, TestDescAndFn, TestOpts, run_test,
-               Metric, MetricMap,
+               MetricMap,
                StaticTestName, DynTestName, DynTestFn, ShouldFail};
-    use std::old_io::TempDir;
     use std::thunk::Thunk;
     use std::sync::mpsc::channel;
 

@@ -130,7 +130,7 @@ pub fn decode_inlined_item<'tcx>(cdata: &cstore::crate_metadata,
         debug!("> Decoding inlined fn: {:?}::?",
         {
             // Do an Option dance to use the path after it is moved below.
-            let s = ast_map::path_to_string(ast_map::Values(path.iter()));
+            let s = ast_map::path_to_string(path.iter().cloned());
             path_as_str = Some(s);
             path_as_str.as_ref().map(|x| &x[])
         });
@@ -518,10 +518,6 @@ fn encode_freevar_entry(rbml_w: &mut Encoder, fv: &ty::Freevar) {
     (*fv).encode(rbml_w).unwrap();
 }
 
-fn encode_capture_mode(rbml_w: &mut Encoder, cm: ast::CaptureClause) {
-    cm.encode(rbml_w).unwrap();
-}
-
 trait rbml_decoder_helper {
     fn read_freevar_entry(&mut self, dcx: &DecodeContext)
                           -> ty::Freevar;
@@ -555,6 +551,15 @@ impl tr for ty::UpvarBorrow {
         ty::UpvarBorrow {
             kind: self.kind,
             region: self.region.tr(dcx)
+        }
+    }
+}
+
+impl tr for ty::UpvarCapture {
+    fn tr(&self, dcx: &DecodeContext) -> ty::UpvarCapture {
+        match *self {
+            ty::UpvarCapture::ByValue => ty::UpvarCapture::ByValue,
+            ty::UpvarCapture::ByRef(ref data) => ty::UpvarCapture::ByRef(data.tr(dcx)),
         }
     }
 }
@@ -1210,34 +1215,20 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
         });
 
         for freevar in fv.iter() {
-            match tcx.capture_mode(id) {
-                ast::CaptureByRef => {
-                    rbml_w.tag(c::tag_table_upvar_borrow_map, |rbml_w| {
-                        rbml_w.id(id);
-                        rbml_w.tag(c::tag_table_val, |rbml_w| {
-                            let var_id = freevar.def.def_id().node;
-                            let upvar_id = ty::UpvarId {
-                                var_id: var_id,
-                                closure_expr_id: id
-                            };
-                            let upvar_borrow = tcx.upvar_borrow_map.borrow()[upvar_id].clone();
-                            var_id.encode(rbml_w);
-                            upvar_borrow.encode(rbml_w);
-                        })
-                    })
-                }
-                _ => {}
-            }
-        }
-    }
-
-    for &cm in tcx.capture_modes.borrow().get(&id).iter() {
-        rbml_w.tag(c::tag_table_capture_modes, |rbml_w| {
-            rbml_w.id(id);
-            rbml_w.tag(c::tag_table_val, |rbml_w| {
-                encode_capture_mode(rbml_w, *cm);
+            rbml_w.tag(c::tag_table_upvar_capture_map, |rbml_w| {
+                rbml_w.id(id);
+                rbml_w.tag(c::tag_table_val, |rbml_w| {
+                    let var_id = freevar.def.def_id().node;
+                    let upvar_id = ty::UpvarId {
+                        var_id: var_id,
+                        closure_expr_id: id
+                    };
+                    let upvar_capture = tcx.upvar_capture_map.borrow()[upvar_id].clone();
+                    var_id.encode(rbml_w);
+                    upvar_capture.encode(rbml_w);
+                })
             })
-        })
+        }
     }
 
     let lid = ast::DefId { krate: ast::LOCAL_CRATE, node: id };
@@ -1293,7 +1284,7 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
             }
             ty::AdjustDerefRef(ref adj) => {
                 assert!(!ty::adjust_is_object(adjustment));
-                for autoderef in range(0, adj.autoderefs) {
+                for autoderef in 0..adj.autoderefs {
                     let method_call = MethodCall::autoderef(id, autoderef);
                     for &method in tcx.method_map.borrow().get(&method_call).iter() {
                         rbml_w.tag(c::tag_table_method_map, |rbml_w| {
@@ -1529,7 +1520,7 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
 
         fn type_string(doc: rbml::Doc) -> String {
             let mut str = String::new();
-            for i in range(doc.start, doc.end) {
+            for i in doc.start..doc.end {
                 str.push(doc.data[i] as char);
             }
             str
@@ -1911,21 +1902,14 @@ fn decode_side_tables(dcx: &DecodeContext,
                         }).unwrap().into_iter().collect();
                         dcx.tcx.freevars.borrow_mut().insert(id, fv_info);
                     }
-                    c::tag_table_upvar_borrow_map => {
+                    c::tag_table_upvar_capture_map => {
                         let var_id: ast::NodeId = Decodable::decode(val_dsr).unwrap();
                         let upvar_id = ty::UpvarId {
                             var_id: dcx.tr_id(var_id),
                             closure_expr_id: id
                         };
-                        let ub: ty::UpvarBorrow = Decodable::decode(val_dsr).unwrap();
-                        dcx.tcx.upvar_borrow_map.borrow_mut().insert(upvar_id, ub.tr(dcx));
-                    }
-                    c::tag_table_capture_modes => {
-                        let capture_mode = val_dsr.read_capture_mode();
-                        dcx.tcx
-                           .capture_modes
-                           .borrow_mut()
-                           .insert(id, capture_mode);
+                        let ub: ty::UpvarCapture = Decodable::decode(val_dsr).unwrap();
+                        dcx.tcx.upvar_capture_map.borrow_mut().insert(upvar_id, ub.tr(dcx));
                     }
                     c::tag_table_tcache => {
                         let type_scheme = val_dsr.read_type_scheme(dcx);

@@ -1348,7 +1348,7 @@ impl<'a> Item<'a> {
             };
             Some(format!("{root}{path}/{file}?gotosrc={goto}",
                          root = root,
-                         path = path.slice_to(path.len() - 1).connect("/"),
+                         path = path[..path.len() - 1].connect("/"),
                          file = item_path(self.item),
                          goto = self.item.def_id.node))
         }
@@ -1500,7 +1500,7 @@ fn item_module(w: &mut fmt::Formatter, cx: &Context,
                item: &clean::Item, items: &[clean::Item]) -> fmt::Result {
     try!(document(w, item));
 
-    let mut indices = range(0, items.len()).filter(|i| {
+    let mut indices = (0..items.len()).filter(|i| {
         !cx.ignore_private_item(&items[*i])
     }).collect::<Vec<uint>>();
 
@@ -1793,7 +1793,7 @@ fn item_trait(w: &mut fmt::Formatter, cx: &Context, it: &clean::Item,
                     cx.current.connect("/")
                 } else {
                     let path = &cache.external_paths[it.def_id];
-                    path.slice_to(path.len() - 1).connect("/")
+                    path[..path.len() - 1].connect("/")
                 },
                 ty = shortty(it).to_static_str(),
                 name = *it.name.as_ref().unwrap()));
@@ -1942,7 +1942,7 @@ fn item_enum(w: &mut fmt::Formatter, it: &clean::Item,
                 clean::VariantItem(ref var) => {
                     match var.kind {
                         clean::StructVariant(ref s) => {
-                            let mut fields = s.fields.iter().filter(|f| {
+                            let fields = s.fields.iter().filter(|f| {
                                 match f.inner {
                                     clean::StructFieldItem(ref t) => match *t {
                                         clean::HiddenStructField => false,
@@ -2197,9 +2197,7 @@ impl<'a> fmt::Display for Sidebar<'a> {
                 try!(write!(fmt, "::<wbr>"));
             }
             try!(write!(fmt, "<a href='{}index.html'>{}</a>",
-                          cx.root_path
-                            .as_slice()
-                            .slice_to((cx.current.len() - i - 1) * 3),
+                          &cx.root_path[..(cx.current.len() - i - 1) * 3],
                           *name));
         }
         try!(write!(fmt, "</p>"));
@@ -2253,7 +2251,7 @@ impl<'a> fmt::Display for Source<'a> {
             tmp /= 10;
         }
         try!(write!(fmt, "<pre class=\"line-numbers\">"));
-        for i in range(1, lines + 1) {
+        for i in 1..lines + 1 {
             try!(write!(fmt, "<span id=\"{0}\">{0:1$}</span>\n", i, cols));
         }
         try!(write!(fmt, "</pre>"));

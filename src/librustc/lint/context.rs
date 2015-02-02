@@ -213,6 +213,7 @@ impl LintStore {
                      UnstableFeatures,
                      Stability,
                      UnconditionalRecursion,
+                     PrivateNoMangleFns,
         );
 
         add_builtin_with_new!(sess,
@@ -540,7 +541,7 @@ impl<'a, 'tcx> Context<'a, 'tcx> {
         run_lints!(self, exit_lint_attrs, attrs);
 
         // rollback
-        for _ in range(0, pushed) {
+        for _ in 0..pushed {
             let (lint, lvlsrc) = self.level_stack.pop().unwrap();
             self.lints.set_level(lint, lvlsrc);
         }

@@ -10,7 +10,6 @@
 
 #![crate_name = "rustc_resolve"]
 #![unstable(feature = "rustc_private")]
-#![feature(staged_api)]
 #![staged_api]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
@@ -18,15 +17,16 @@
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![feature(slicing_syntax)]
-#![feature(rustc_diagnostic_macros)]
-#![allow(unknown_features)] #![feature(int_uint)]
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(rustc_private)]
-#![feature(std_misc)]
 #![feature(hash)]
+#![feature(int_uint)]
+#![feature(rustc_diagnostic_macros)]
+#![feature(rustc_private)]
+#![feature(slicing_syntax)]
+#![feature(staged_api)]
+#![feature(std_misc)]
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;
@@ -62,13 +62,13 @@ use rustc::middle::lang_items::LanguageItems;
 use rustc::middle::pat_util::pat_bindings;
 use rustc::middle::privacy::*;
 use rustc::middle::subst::{ParamSpace, FnSpace, TypeSpace};
-use rustc::middle::ty::{CaptureModeMap, Freevar, FreevarMap, TraitMap, GlobMap};
+use rustc::middle::ty::{Freevar, FreevarMap, TraitMap, GlobMap};
 use rustc::util::nodemap::{NodeMap, NodeSet, DefIdSet, FnvHashMap};
 use rustc::util::lev_distance::lev_distance;
 
 use syntax::ast::{Arm, BindByRef, BindByValue, BindingMode, Block, Crate, CrateNum};
 use syntax::ast::{DefId, Expr, ExprAgain, ExprBreak, ExprField};
-use syntax::ast::{ExprClosure, ExprForLoop, ExprLoop, ExprWhile, ExprMethodCall};
+use syntax::ast::{ExprClosure, ExprLoop, ExprWhile, ExprMethodCall};
 use syntax::ast::{ExprPath, ExprQPath, ExprStruct, FnDecl};
 use syntax::ast::{ForeignItemFn, ForeignItemStatic, Generics};
 use syntax::ast::{Ident, ImplItem, Item, ItemConst, ItemEnum, ItemExternCrate};
@@ -127,7 +127,7 @@ enum PatternBindingMode {
     ArgumentIrrefutableMode,
 }
 
-#[derive(Copy, PartialEq, Eq, Hash, Show)]
+#[derive(Copy, PartialEq, Eq, Hash, Debug)]
 enum Namespace {
     TypeNS,
     ValueNS
@@ -193,7 +193,7 @@ impl<'a, 'v, 'tcx> Visitor<'v> for Resolver<'a, 'tcx> {
 }
 
 /// Contains data for specific types of import directives.
-#[derive(Copy,Show)]
+#[derive(Copy,Debug)]
 enum ImportDirectiveSubclass {
     SingleImport(Name /* target */, Name /* source */),
     GlobImport
@@ -242,7 +242,7 @@ enum TypeParameters<'a> {
 
 // The rib kind controls the translation of local
 // definitions (`DefLocal`) to upvars (`DefUpvar`).
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 enum RibKind {
     // No translation needs to be applied.
     NormalRibKind,
@@ -266,7 +266,7 @@ enum RibKind {
 }
 
 // Methods can be required or provided. RequiredMethod methods only occur in traits.
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 enum MethodSort {
     RequiredMethod,
     ProvidedMethod(NodeId)
@@ -301,7 +301,7 @@ enum BareIdentifierPatternResolution {
 }
 
 /// One local scope.
-#[derive(Show)]
+#[derive(Debug)]
 struct Rib {
     bindings: HashMap<Name, DefLike>,
     kind: RibKind,
@@ -317,14 +317,14 @@ impl Rib {
 }
 
 /// Whether an import can be shadowed by another import.
-#[derive(Show,PartialEq,Clone,Copy)]
+#[derive(Debug,PartialEq,Clone,Copy)]
 enum Shadowable {
     Always,
     Never
 }
 
 /// One import directive.
-#[derive(Show)]
+#[derive(Debug)]
 struct ImportDirective {
     module_path: Vec<Name>,
     subclass: ImportDirectiveSubclass,
@@ -354,7 +354,7 @@ impl ImportDirective {
 }
 
 /// The item that an import resolves to.
-#[derive(Clone,Show)]
+#[derive(Clone,Debug)]
 struct Target {
     target_module: Rc<Module>,
     bindings: Rc<NameBindings>,
@@ -375,7 +375,7 @@ impl Target {
 }
 
 /// An ImportResolution represents a particular `use` directive.
-#[derive(Show)]
+#[derive(Debug)]
 struct ImportResolution {
     /// Whether this resolution came from a `use` or a `pub use`. Note that this
     /// should *not* be used whenever resolution is being performed, this is
@@ -455,7 +455,7 @@ impl ImportResolution {
 }
 
 /// The link from a module up to its nearest parent node.
-#[derive(Clone,Show)]
+#[derive(Clone,Debug)]
 enum ParentLink {
     NoParentLink,
     ModuleParentLink(Weak<Module>, Name),
@@ -463,7 +463,7 @@ enum ParentLink {
 }
 
 /// The type of module this is.
-#[derive(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Debug)]
 enum ModuleKind {
     NormalModuleKind,
     TraitModuleKind,
@@ -556,7 +556,7 @@ impl fmt::Debug for Module {
 }
 
 bitflags! {
-    #[derive(Show)]
+    #[derive(Debug)]
     flags DefModifiers: u8 {
         const PUBLIC            = 0b0000_0001,
         const IMPORTABLE        = 0b0000_0010,
@@ -564,7 +564,7 @@ bitflags! {
 }
 
 // Records a possibly-private type definition.
-#[derive(Clone,Show)]
+#[derive(Clone,Debug)]
 struct TypeNsDef {
     modifiers: DefModifiers, // see note in ImportResolution about how to use this
     module_def: Option<Rc<Module>>,
@@ -573,7 +573,7 @@ struct TypeNsDef {
 }
 
 // Records a possibly-private value definition.
-#[derive(Clone, Copy, Show)]
+#[derive(Clone, Copy, Debug)]
 struct ValueNsDef {
     modifiers: DefModifiers, // see note in ImportResolution about how to use this
     def: Def,
@@ -582,7 +582,7 @@ struct ValueNsDef {
 
 // Records the definitions (at most one for each namespace) that a name is
 // bound to.
-#[derive(Show)]
+#[derive(Debug)]
 struct NameBindings {
     type_def: RefCell<Option<TypeNsDef>>,   //< Meaning in type namespace.
     value_def: RefCell<Option<ValueNsDef>>, //< Meaning in value namespace.
@@ -900,7 +900,6 @@ struct Resolver<'a, 'tcx:'a> {
     def_map: DefMap,
     freevars: RefCell<FreevarMap>,
     freevars_seen: RefCell<NodeMap<NodeSet>>,
-    capture_mode_map: CaptureModeMap,
     export_map: ExportMap,
     trait_map: TraitMap,
     external_exports: ExternalExports,
@@ -974,7 +973,6 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             def_map: RefCell::new(NodeMap()),
             freevars: RefCell::new(NodeMap()),
             freevars_seen: RefCell::new(NodeMap()),
-            capture_mode_map: NodeMap(),
             export_map: NodeMap(),
             trait_map: NodeMap(),
             used_imports: HashSet::new(),
@@ -4523,8 +4521,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 visit::walk_expr(self, expr);
             }
 
-            ExprClosure(capture_clause, _, ref fn_decl, ref block) => {
-                self.capture_mode_map.insert(expr.id, capture_clause);
+            ExprClosure(_, _, ref fn_decl, ref block) => {
                 self.resolve_function(ClosureRibKind(expr.id),
                                       Some(&**fn_decl), NoTypeParameters,
                                       &**block);
@@ -4560,39 +4557,6 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
                     visit::walk_expr(this, expr);
                 })
-            }
-
-            ExprForLoop(ref pattern, ref head, ref body, optional_label) => {
-                self.resolve_expr(&**head);
-
-                self.value_ribs.push(Rib::new(NormalRibKind));
-
-                self.resolve_pattern(&**pattern,
-                                     LocalIrrefutableMode,
-                                     &mut HashMap::new());
-
-                match optional_label {
-                    None => {}
-                    Some(label) => {
-                        self.label_ribs
-                            .push(Rib::new(NormalRibKind));
-                        let def_like = DlDef(DefLabel(expr.id));
-
-                        {
-                            let rib = self.label_ribs.last_mut().unwrap();
-                            let renamed = mtwt::resolve(label);
-                            rib.bindings.insert(renamed, def_like);
-                        }
-                    }
-                }
-
-                self.resolve_block(&**body);
-
-                if optional_label.is_some() {
-                    drop(self.label_ribs.pop())
-                }
-
-                self.value_ribs.pop();
             }
 
             ExprBreak(Some(label)) | ExprAgain(Some(label)) => {
@@ -4835,7 +4799,6 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 pub struct CrateMap {
     pub def_map: DefMap,
     pub freevars: RefCell<FreevarMap>,
-    pub capture_mode_map: RefCell<CaptureModeMap>,
     pub export_map: ExportMap,
     pub trait_map: TraitMap,
     pub external_exports: ExternalExports,
@@ -4875,7 +4838,6 @@ pub fn resolve_crate<'a, 'tcx>(session: &'a Session,
     CrateMap {
         def_map: resolver.def_map,
         freevars: resolver.freevars,
-        capture_mode_map: RefCell::new(resolver.capture_mode_map),
         export_map: resolver.export_map,
         trait_map: resolver.trait_map,
         external_exports: resolver.external_exports,

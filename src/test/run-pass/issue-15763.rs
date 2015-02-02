@@ -11,7 +11,7 @@
 #![allow(unknown_features)]
 #![feature(box_syntax)]
 
-#[derive(PartialEq, Show)]
+#[derive(PartialEq, Debug)]
 struct Bar {
     x: int
 }
@@ -21,7 +21,7 @@ impl Drop for Bar {
     }
 }
 
-#[derive(PartialEq, Show)]
+#[derive(PartialEq, Debug)]
 struct Foo {
     x: Bar,
     a: int
@@ -87,12 +87,12 @@ fn main() {
     assert_eq!(cc().unwrap(), 3);
     assert_eq!(dd().unwrap(), 3);
 
-    let i = box 32i as Box<A>;
+    let i = box 32 as Box<A>;
     assert_eq!(i.aaa(), 3);
-    let i = box 32i as Box<A>;
+    let i = box 32 as Box<A>;
     assert_eq!(i.bbb(), 3);
-    let i = box 32i as Box<A>;
+    let i = box 32 as Box<A>;
     assert_eq!(i.ccc().unwrap(), 3);
-    let i = box 32i as Box<A>;
+    let i = box 32 as Box<A>;
     assert_eq!(i.ddd().unwrap(), 3);
 }

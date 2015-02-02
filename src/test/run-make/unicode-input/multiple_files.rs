@@ -43,11 +43,11 @@ fn main() {
             .write_str("mod unicode_input_multiple_files_chars;");
     }
 
-    for _ in range(0u, 100) {
+    for _ in 0u..100 {
         {
             let randoms = tmpdir.join("unicode_input_multiple_files_chars.rs");
             let mut w = File::create(&randoms).unwrap();
-            for _ in range(0u, 30) {
+            for _ in 0u..30 {
                 let _ = w.write_char(random_char());
             }
         }
@@ -65,6 +65,6 @@ fn main() {
 
         // positive test so that this test will be updated when the
         // compiler changes.
-        assert!(err.as_slice().contains("expected item, found"))
+        assert!(err.contains("expected item, found"))
     }
 }

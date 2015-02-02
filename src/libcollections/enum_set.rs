@@ -16,7 +16,7 @@
 use core::prelude::*;
 use core::fmt;
 use core::num::Int;
-use core::iter::FromIterator;
+use core::iter::{FromIterator, IntoIterator};
 use core::ops::{Sub, BitOr, BitAnd, BitXor};
 
 // FIXME(contentions): implement union family of methods? (general design may be wrong here)
@@ -31,6 +31,7 @@ pub struct EnumSet<E> {
 
 impl<E> Copy for EnumSet<E> {}
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<E:CLike + fmt::Debug> fmt::Debug for EnumSet<E> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(fmt, "EnumSet {{"));
@@ -256,6 +257,14 @@ impl<E:CLike> FromIterator<E> for EnumSet<E> {
     }
 }
 
+impl<'a, E> IntoIterator for &'a EnumSet<E> where E: CLike {
+    type Iter = Iter<E>;
+
+    fn into_iter(self) -> Iter<E> {
+        self.iter()
+    }
+}
+
 impl<E:CLike> Extend<E> for EnumSet<E> {
     fn extend<I: Iterator<Item=E>>(&mut self, mut iterator: I) {
         for element in iterator {
@@ -272,7 +281,7 @@ mod test {
 
     use super::{EnumSet, CLike};
 
-    #[derive(Copy, PartialEq, Show)]
+    #[derive(Copy, PartialEq, Debug)]
     #[repr(uint)]
     enum Foo {
         A, B, C

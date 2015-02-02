@@ -936,11 +936,11 @@ mod test {
         {
             let mut read_stream = File::open_mode(filename, Open, Read);
             {
-                let read_buf = read_mem.slice_mut(0, 4);
+                let read_buf = &mut read_mem[0..4];
                 check!(read_stream.read(read_buf));
             }
             {
-                let read_buf = read_mem.slice_mut(4, 8);
+                let read_buf = &mut read_mem[4..8];
                 check!(read_stream.read(read_buf));
             }
         }
@@ -971,7 +971,7 @@ mod test {
         }
         check!(unlink(filename));
         let read_str = str::from_utf8(&read_mem).unwrap();
-        assert_eq!(read_str, message.slice(4, 8));
+        assert_eq!(read_str, &message[4..8]);
         assert_eq!(tell_pos_pre_read, set_cursor);
         assert_eq!(tell_pos_post_read, message.len() as u64);
     }
@@ -981,7 +981,7 @@ mod test {
         let initial_msg =   "food-is-yummy";
         let overwrite_msg =    "-the-bar!!";
         let final_msg =     "foo-the-bar!!";
-        let seek_idx = 3i;
+        let seek_idx = 3;
         let mut read_mem = [0; 13];
         let tmpdir = tmpdir();
         let filename = &tmpdir.join("file_rt_io_file_test_seek_and_write.txt");
@@ -1101,10 +1101,10 @@ mod test {
         let dir = &tmpdir.join("di_readdir");
         check!(mkdir(dir, old_io::USER_RWX));
         let prefix = "foo";
-        for n in range(0i,3) {
+        for n in 0is..3 {
             let f = dir.join(format!("{}.txt", n));
             let mut w = check!(File::create(&f));
-            let msg_str = format!("{}{}", prefix, n.to_string());
+            let msg_str = format!("{}{}", prefix, n);
             let msg = msg_str.as_bytes();
             check!(w.write(msg));
         }

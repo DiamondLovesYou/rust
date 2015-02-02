@@ -24,7 +24,7 @@ use std::ops::{Drop, FnMut, FnOnce};
 
 #[inline(never)]
 fn foo() {
-    let _v = vec![1i, 2, 3];
+    let _v = vec![1, 2, 3];
     if os::getenv("IS_TEST").is_some() {
         panic!()
     }
@@ -80,10 +80,10 @@ fn runtest(me: &str) {
     assert!(!out.status.success());
     let s = str::from_utf8(out.error.as_slice()).unwrap();
     let mut i = 0;
-    for _ in range(0i, 2) {
-        i += s.slice_from(i + 10).find_str("stack backtrace").unwrap() + 10;
+    for _ in 0..2 {
+        i += s[i + 10..].find_str("stack backtrace").unwrap() + 10;
     }
-    assert!(s.slice_from(i + 10).find_str("stack backtrace").is_none(),
+    assert!(s[i + 10..].find_str("stack backtrace").is_none(),
             "bad output4: {}", s);
 }
 

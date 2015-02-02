@@ -25,7 +25,9 @@ use iter::{AdditiveIterator, Extend};
 use iter::{Iterator, IteratorExt, Map, repeat};
 use mem;
 use option::Option::{self, Some, None};
+#[cfg(stage0)]
 use ops::FullRange;
+use result::Result::{self, Ok, Err};
 use slice::{SliceExt, SliceConcatExt};
 use str::{SplitTerminator, FromStr, StrExt};
 use string::{String, ToString};
@@ -114,10 +116,18 @@ impl Ord for Path {
 }
 
 impl FromStr for Path {
-    fn from_str(s: &str) -> Option<Path> {
-        Path::new_opt(s)
+    type Err = ParsePathError;
+    fn from_str(s: &str) -> Result<Path, ParsePathError> {
+        match Path::new_opt(s) {
+            Some(p) => Ok(p),
+            None => Err(ParsePathError),
+        }
     }
 }
+
+/// Value indicating that a path could not be parsed from a string.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct ParsePathError;
 
 impl<S: hash::Writer + hash::Hasher> hash::Hash<S> for Path {
     #[cfg(not(test))]
@@ -556,7 +566,7 @@ impl GenericPath for Path {
                     }
                     (Some(a), Some(_)) => {
                         comps.push("..");
-                        for _ in itb {
+                        for _ in itb.by_ref() {
                             comps.push("..");
                         }
                         comps.push(a);
@@ -959,7 +969,7 @@ pub fn is_sep_byte_verbatim(u: &u8) -> bool {
 }
 
 /// Prefix types for Path
-#[derive(Copy, PartialEq, Clone, Show)]
+#[derive(Copy, PartialEq, Clone, Debug)]
 pub enum PathPrefix {
     /// Prefix `\\?\`, uint is the length of the following component
     VerbatimPrefix(uint),

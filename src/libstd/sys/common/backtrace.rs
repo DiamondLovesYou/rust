@@ -54,7 +54,7 @@ pub fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
         let mut chars = inner.chars();
         while valid {
             let mut i = 0;
-            for c in chars {
+            for c in chars.by_ref() {
                 if c.is_numeric() {
                     i = i * 10 + c as uint - '0' as uint;
                 } else {
@@ -94,7 +94,7 @@ pub fn demangle(writer: &mut Writer, s: &str) -> IoResult<()> {
                         ($($pat:expr, => $demangled:expr),*) => ({
                             $(if rest.starts_with($pat) {
                                 try!(writer.write_str($demangled));
-                                rest = rest.slice_from($pat.len());
+                                rest = &rest[$pat.len()..];
                               } else)*
                             {
                                 try!(writer.write_str(rest));

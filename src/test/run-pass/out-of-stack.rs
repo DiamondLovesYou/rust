@@ -22,7 +22,7 @@ use std::os;
 pub fn black_box<T>(dummy: T) { unsafe { asm!("" : : "r"(&dummy)) } }
 
 fn silent_recurse() {
-    let buf = [0i; 1000];
+    let buf = [0; 1000];
     black_box(buf);
     silent_recurse();
 }
@@ -44,11 +44,11 @@ fn main() {
         let silent = Command::new(args[0].as_slice()).arg("silent").output().unwrap();
         assert!(!silent.status.success());
         let error = String::from_utf8_lossy(silent.error.as_slice());
-        assert!(error.as_slice().contains("has overflowed its stack"));
+        assert!(error.contains("has overflowed its stack"));
 
         let loud = Command::new(args[0].as_slice()).arg("loud").output().unwrap();
         assert!(!loud.status.success());
         let error = String::from_utf8_lossy(silent.error.as_slice());
-        assert!(error.as_slice().contains("has overflowed its stack"));
+        assert!(error.contains("has overflowed its stack"));
     }
 }

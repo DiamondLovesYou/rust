@@ -43,7 +43,7 @@ use syntax::parse::token;
 // def-id will depend on where it originated from.  Therefore, the conversion
 // function is given an indicator of the source of the def-id.  See
 // astencode.rs for more information.
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 pub enum DefIdSource {
     // Identifies a struct, trait, enum, etc.
     NominalType,
@@ -132,7 +132,7 @@ pub fn parse_state_from_data<'a, 'tcx>(data: &'a [u8], crate_num: ast::CrateNum,
 fn data_log_string(data: &[u8], pos: uint) -> String {
     let mut buf = String::new();
     buf.push_str("<<");
-    for i in range(pos, data.len()) {
+    for i in pos..data.len() {
         let c = data[i];
         if c > 0x20 && c <= 0x7F {
             buf.push(c as char);
@@ -717,12 +717,16 @@ pub fn parse_def_id(buf: &[u8]) -> ast::DefId {
     let crate_part = &buf[0u..colon_idx];
     let def_part = &buf[colon_idx + 1u..len];
 
-    let crate_num = match str::from_utf8(crate_part).ok().and_then(|s| s.parse::<uint>()) {
+    let crate_num = match str::from_utf8(crate_part).ok().and_then(|s| {
+        s.parse::<uint>().ok()
+    }) {
        Some(cn) => cn as ast::CrateNum,
        None => panic!("internal error: parse_def_id: crate number expected, found {:?}",
                      crate_part)
     };
-    let def_num = match str::from_utf8(def_part).ok().and_then(|s| s.parse::<uint>()) {
+    let def_num = match str::from_utf8(def_part).ok().and_then(|s| {
+        s.parse::<uint>().ok()
+    }) {
        Some(dn) => dn as ast::NodeId,
        None => panic!("internal error: parse_def_id: id expected, found {:?}",
                      def_part)

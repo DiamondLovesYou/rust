@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[derive(Show,PartialEq,Clone)]
+#[derive(Debug,PartialEq,Clone)]
 struct Foo<T> {
     bar: T,
     baz: T
@@ -16,8 +16,8 @@ struct Foo<T> {
 
 pub fn main() {
     let foo = Foo {
-        bar: 0i,
-        baz: 1i
+        bar: 0,
+        baz: 1
     };
 
     let foo_ = foo.clone();

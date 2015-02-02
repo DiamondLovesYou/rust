@@ -14,7 +14,7 @@ use super::{CandidateSource,ImplSource,TraitSource};
 use super::suggest;
 
 use check;
-use check::{FnCtxt, NoPreference};
+use check::{FnCtxt, NoPreference, UnresolvedTypeAction};
 use middle::fast_reject;
 use middle::subst;
 use middle::subst::Subst;
@@ -73,7 +73,7 @@ pub struct Pick<'tcx> {
     pub kind: PickKind<'tcx>,
 }
 
-#[derive(Clone,Show)]
+#[derive(Clone,Debug)]
 pub enum PickKind<'tcx> {
     InherentImplPick(/* Impl */ ast::DefId),
     ObjectPick(/* Trait */ ast::DefId, /* method_num */ uint, /* real_index */ uint),
@@ -88,7 +88,7 @@ pub type PickResult<'tcx> = Result<Pick<'tcx>, MethodError>;
 // difference is that it doesn't embed any regions or other
 // specifics. The "confirmation" step recreates those details as
 // needed.
-#[derive(Clone,Show)]
+#[derive(Clone,Debug)]
 pub enum PickAdjustment {
     // Indicates that the source expression should be autoderef'd N times
     //
@@ -169,16 +169,19 @@ fn create_steps<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
                           -> Option<Vec<CandidateStep<'tcx>>> {
     let mut steps = Vec::new();
 
-    let (fully_dereferenced_ty, dereferences, _) =
-        check::autoderef(
-            fcx, span, self_ty, None, NoPreference,
-            |t, d| {
-                let adjustment = AutoDeref(d);
-                steps.push(CandidateStep { self_ty: t, adjustment: adjustment });
-                None::<()> // keep iterating until we can't anymore
-            });
+    let (final_ty, dereferences, _) = check::autoderef(fcx,
+                                                       span,
+                                                       self_ty,
+                                                       None,
+                                                       UnresolvedTypeAction::Error,
+                                                       NoPreference,
+                                                       |t, d| {
+        let adjustment = AutoDeref(d);
+        steps.push(CandidateStep { self_ty: t, adjustment: adjustment });
+        None::<()> // keep iterating until we can't anymore
+    });
 
-    match fully_dereferenced_ty.sty {
+    match final_ty.sty {
         ty::ty_vec(elem_ty, Some(len)) => {
             steps.push(CandidateStep {
                 self_ty: ty::mk_vec(fcx.tcx(), elem_ty, None),

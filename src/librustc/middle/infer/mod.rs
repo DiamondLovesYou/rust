@@ -33,12 +33,10 @@ use std::rc::Rc;
 use syntax::ast;
 use syntax::codemap;
 use syntax::codemap::Span;
-use util::common::indent;
 use util::nodemap::FnvHashMap;
 use util::ppaux::{ty_to_string};
 use util::ppaux::{Repr, UserString};
 
-use self::coercion::Coerce;
 use self::combine::{Combine, Combineable, CombineFields};
 use self::region_inference::{RegionVarBindings, RegionSnapshot};
 use self::equate::Equate;
@@ -47,7 +45,6 @@ use self::lub::Lub;
 use self::unify::{UnificationTable, InferCtxtMethodsForSimplyUnifiableTypes};
 use self::error_reporting::ErrorReporting;
 
-pub mod coercion;
 pub mod combine;
 pub mod doc;
 pub mod equate;
@@ -68,7 +65,6 @@ pub type Bound<T> = Option<T>;
 pub type cres<'tcx, T> = Result<T,ty::type_err<'tcx>>; // "combine result"
 pub type ures<'tcx> = cres<'tcx, ()>; // "unify result"
 pub type fres<T> = Result<T, fixup_err>; // "fixup result"
-pub type CoerceResult<'tcx> = cres<'tcx, Option<ty::AutoAdjustment<'tcx>>>;
 
 pub struct InferCtxt<'a, 'tcx: 'a> {
     pub tcx: &'a ty::ctxt<'tcx>,
@@ -95,7 +91,7 @@ pub type SkolemizationMap = FnvHashMap<ty::BoundRegion,ty::Region>;
 /// Why did we require that the two types be related?
 ///
 /// See `error_reporting.rs` for more details
-#[derive(Clone, Copy, Show)]
+#[derive(Clone, Copy, Debug)]
 pub enum TypeOrigin {
     // Not yet categorized in a better way
     Misc(Span),
@@ -133,7 +129,7 @@ pub enum TypeOrigin {
 }
 
 /// See `error_reporting.rs` for more details
-#[derive(Clone, Show)]
+#[derive(Clone, Debug)]
 pub enum ValuePairs<'tcx> {
     Types(ty::expected_found<Ty<'tcx>>),
     TraitRefs(ty::expected_found<Rc<ty::TraitRef<'tcx>>>),
@@ -144,7 +140,7 @@ pub enum ValuePairs<'tcx> {
 /// encounter an error or subtyping constraint.
 ///
 /// See `error_reporting.rs` for more details.
-#[derive(Clone, Show)]
+#[derive(Clone, Debug)]
 pub struct TypeTrace<'tcx> {
     origin: TypeOrigin,
     values: ValuePairs<'tcx>,
@@ -153,7 +149,7 @@ pub struct TypeTrace<'tcx> {
 /// The origin of a `r1 <= r2` constraint.
 ///
 /// See `error_reporting.rs` for more details
-#[derive(Clone, Show)]
+#[derive(Clone, Debug)]
 pub enum SubregionOrigin<'tcx> {
     // Arose from a subtyping relation
     Subtype(TypeTrace<'tcx>),
@@ -222,7 +218,7 @@ pub enum SubregionOrigin<'tcx> {
 }
 
 /// Times when we replace late-bound regions with variables:
-#[derive(Clone, Copy, Show)]
+#[derive(Clone, Copy, Debug)]
 pub enum LateBoundRegionConversionTime {
     /// when a fn is called
     FnCall,
@@ -237,7 +233,7 @@ pub enum LateBoundRegionConversionTime {
 /// Reasons to create a region inference variable
 ///
 /// See `error_reporting.rs` for more details
-#[derive(Clone, Show)]
+#[derive(Clone, Debug)]
 pub enum RegionVariableOrigin<'tcx> {
     // Region variables created for ill-categorized reasons,
     // mostly indicates places in need of refactoring
@@ -270,7 +266,7 @@ pub enum RegionVariableOrigin<'tcx> {
     BoundRegionInCoherence(ast::Name),
 }
 
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 pub enum fixup_err {
     unresolved_int_ty(IntVid),
     unresolved_float_ty(FloatVid),
@@ -407,24 +403,6 @@ fn expected_found<T>(a_is_expected: bool,
     } else {
         ty::expected_found {expected: b, found: a}
     }
-}
-
-pub fn mk_coercety<'a, 'tcx>(cx: &InferCtxt<'a, 'tcx>,
-                             a_is_expected: bool,
-                             origin: TypeOrigin,
-                             a: Ty<'tcx>,
-                             b: Ty<'tcx>)
-                             -> CoerceResult<'tcx> {
-    debug!("mk_coercety({} -> {})", a.repr(cx.tcx), b.repr(cx.tcx));
-    indent(|| {
-        cx.commit_if_ok(|| {
-            let trace = TypeTrace {
-                origin: origin,
-                values: Types(expected_found(a_is_expected, a, b))
-            };
-            Coerce(cx.combine_fields(a_is_expected, trace)).tys(a, b)
-        })
-    })
 }
 
 trait then<'tcx> {
@@ -689,10 +667,7 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
     {
         debug!("sub_types({} <: {})", a.repr(self.tcx), b.repr(self.tcx));
         self.commit_if_ok(|| {
-            let trace = TypeTrace {
-                origin: origin,
-                values: Types(expected_found(a_is_expected, a, b))
-            };
+            let trace = TypeTrace::types(origin, a_is_expected, a, b);
             self.sub(a_is_expected, trace).tys(a, b).to_ures()
         })
     }
@@ -705,10 +680,7 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
                     -> ures<'tcx>
     {
         self.commit_if_ok(|| {
-            let trace = TypeTrace {
-                origin: origin,
-                values: Types(expected_found(a_is_expected, a, b))
-            };
+            let trace = TypeTrace::types(origin, a_is_expected, a, b);
             self.equate(a_is_expected, trace).tys(a, b).to_ures()
         })
     }
@@ -828,7 +800,7 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
     }
 
     pub fn next_ty_vars(&self, n: uint) -> Vec<Ty<'tcx>> {
-        range(0, n).map(|_i| self.next_ty_var()).collect()
+        (0..n).map(|_i| self.next_ty_var()).collect()
     }
 
     pub fn next_int_var_id(&self) -> IntVid {
@@ -1116,6 +1088,17 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
 impl<'tcx> TypeTrace<'tcx> {
     pub fn span(&self) -> Span {
         self.origin.span()
+    }
+
+    pub fn types(origin: TypeOrigin,
+                 a_is_expected: bool,
+                 a: Ty<'tcx>,
+                 b: Ty<'tcx>)
+                 -> TypeTrace<'tcx> {
+        TypeTrace {
+            origin: origin,
+            values: Types(expected_found(a_is_expected, a, b))
+        }
     }
 
     pub fn dummy(tcx: &ty::ctxt<'tcx>) -> TypeTrace<'tcx> {

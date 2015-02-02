@@ -40,7 +40,6 @@ use llvm;
 use serialize::hex::ToHex;
 use syntax::ast;
 use syntax::ast_map::{PathElem, PathElems, PathName};
-use syntax::ast_map;
 use syntax::attr::AttrMetaMethods;
 use syntax::codemap::Span;
 use syntax::parse::token;
@@ -371,7 +370,7 @@ pub fn mangle_internal_name_by_type_and_seq<'a, 'tcx>(ccx: &CrateContext<'a, 'tc
     let path = [PathName(token::intern(&s[])),
                 gensym_name(name)];
     let hash = get_symbol_hash(ccx, t);
-    mangle(ast_map::Values(path.iter()), Some(&hash[]))
+    mangle(path.iter().cloned(), Some(&hash[]))
 }
 
 pub fn mangle_internal_name_by_path_and_seq(path: PathElems, flav: &str) -> String {
@@ -1104,7 +1103,7 @@ fn link_rlib<'a>(sess: &'a Session,
             // For LTO purposes, the bytecode of this library is also inserted
             // into the archive.  If codegen_units > 1, we insert each of the
             // bitcode files.
-            for i in range(0, sess.opts.cg.codegen_units) {
+            for i in 0..sess.opts.cg.codegen_units {
                 // Note that we make sure that the bytecode filename in the
                 // archive is never exactly 16 bytes long by adding a 16 byte
                 // extension to it. This is to work around a bug in LLDB that

@@ -10,7 +10,6 @@
 
 #![crate_name = "rustdoc"]
 #![unstable(feature = "rustdoc")]
-#![feature(staged_api)]
 #![staged_api]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
@@ -18,20 +17,22 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
-#![feature(slicing_syntax)]
+
 #![feature(box_syntax)]
-#![allow(unknown_features)] #![feature(int_uint)]
 #![feature(collections)]
 #![feature(core)]
+#![feature(hash)]
+#![feature(int_uint)]
 #![feature(io)]
 #![feature(libc)]
 #![feature(os)]
 #![feature(path)]
 #![feature(rustc_private)]
+#![feature(slicing_syntax)]
+#![feature(staged_api)]
 #![feature(std_misc)]
 #![feature(test)]
 #![feature(unicode)]
-#![feature(hash)]
 
 extern crate arena;
 extern crate getopts;
@@ -229,7 +230,7 @@ pub fn main_args(args: &[String]) -> int {
 
     let test_args = matches.opt_strs("test-args");
     let test_args: Vec<String> = test_args.iter()
-                                          .flat_map(|s| s.as_slice().words())
+                                          .flat_map(|s| s.words())
                                           .map(|s| s.to_string())
                                           .collect();
 

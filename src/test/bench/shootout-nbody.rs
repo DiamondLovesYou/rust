@@ -102,7 +102,7 @@ struct Planet {
 }
 
 fn advance(bodies: &mut [Planet;N_BODIES], dt: f64, steps: int) {
-    for _ in range(0, steps) {
+    for _ in 0..steps {
         let mut b_slice = bodies.as_mut_slice();
         loop {
             let bi = match shift_mut_ref(&mut b_slice) {
@@ -173,8 +173,8 @@ fn main() {
     let n = if std::os::getenv("RUST_BENCH").is_some() {
         5000000
     } else {
-        std::os::args().as_slice().get(1)
-            .and_then(|arg| arg.parse())
+        std::os::args().get(1)
+            .and_then(|arg| arg.parse().ok())
             .unwrap_or(1000)
     };
     let mut bodies = BODIES;

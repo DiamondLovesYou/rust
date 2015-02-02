@@ -29,6 +29,7 @@ body {
     font-size: 16px;
     background: none repeat scroll 0% 0% #FFF;
     box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
 }
 
 #page-wrapper {
@@ -40,12 +41,14 @@ body {
     bottom: 0px;
     box-sizing: border-box;
     background: none repeat scroll 0% 0% #FFF;
+    -webkit-overflow-scrolling: touch;
 }
 
 #page {
     margin-left: auto;
     margin-right:auto;
     max-width: 750px;
+    padding-bottom: 50px;
 }
 
 .chapter {
@@ -121,6 +124,14 @@ body {
     height: 2px;
     margin: 2px 0 3px;
     padding: 0;
+}
+
+.left {
+    float: left;
+}
+
+.right {
+    float: right;
 }
 
 "#;

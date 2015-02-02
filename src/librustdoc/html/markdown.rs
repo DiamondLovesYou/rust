@@ -395,7 +395,7 @@ pub fn find_testable_code(doc: &str, tests: &mut ::test::Collector) {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Show)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 struct LangString {
     should_fail: bool,
     no_run: bool,
@@ -420,7 +420,7 @@ impl LangString {
         let mut seen_other_tags = false;
         let mut data = LangString::all_false();
 
-        let mut tokens = string.split(|&: c: char|
+        let tokens = string.split(|&: c: char|
             !(c == '_' || c == '-' || c.is_alphanumeric())
         );
 

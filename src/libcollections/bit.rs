@@ -66,9 +66,9 @@
 //! };
 //!
 //! // Simple primality tests below our max bound
-//! let print_primes = 20;
+//! let print_primes = 20u;
 //! print!("The primes below {} are: ", print_primes);
-//! for x in range(0, print_primes) {
+//! for x in 0..print_primes {
 //!     if primes.contains(&x) {
 //!         print!("{} ", x);
 //!     }
@@ -89,7 +89,7 @@ use core::fmt;
 use core::hash;
 use core::iter::RandomAccessIterator;
 use core::iter::{Chain, Enumerate, Repeat, Skip, Take, repeat, Cloned};
-use core::iter::{self, FromIterator};
+use core::iter::{self, FromIterator, IntoIterator};
 use core::num::Int;
 use core::ops::Index;
 use core::slice;
@@ -104,7 +104,7 @@ type MatchWords<'a> = Chain<Enumerate<Blocks<'a>>, Skip<Take<Enumerate<Repeat<u3
 
 fn reverse_bits(byte: u8) -> u8 {
     let mut result = 0;
-    for i in range(0, u8::BITS) {
+    for i in 0..u8::BITS {
         result |= ((byte >> i) & 1) << (u8::BITS - 1 - i);
     }
     result
@@ -320,7 +320,7 @@ impl Bitv {
 
         bitv.nbits = len;
 
-        for i in range(0, complete_words) {
+        for i in 0..complete_words {
             bitv.storage.push(
                 ((reverse_bits(bytes[i * 4 + 0]) as u32) << 0) |
                 ((reverse_bits(bytes[i * 4 + 1]) as u32) << 8) |
@@ -353,7 +353,7 @@ impl Bitv {
     /// ```
     pub fn from_fn<F>(len: uint, mut f: F) -> Bitv where F: FnMut(uint) -> bool {
         let mut bitv = Bitv::from_elem(len, false);
-        for i in range(0u, len) {
+        for i in 0u..len {
             bitv.set(i, f(i));
         }
         bitv
@@ -660,7 +660,7 @@ impl Bitv {
 
         let len = self.nbits/8 +
                   if self.nbits % 8 == 0 { 0 } else { 1 };
-        range(0, len).map(|i|
+        (0..len).map(|i|
             bit(self, i, 0) |
             bit(self, i, 1) |
             bit(self, i, 2) |
@@ -830,7 +830,7 @@ impl Bitv {
 
         // Fill in words after the old tail word
         let stop_idx = cmp::min(self.storage.len(), new_nblocks);
-        for idx in range(old_last_word + 1, stop_idx) {
+        for idx in old_last_word + 1..stop_idx {
             self.storage[idx] = full_value;
         }
 
@@ -1067,6 +1067,14 @@ impl<'a> RandomAccessIterator for Iter<'a> {
         } else {
             Some(self.bitv[index])
         }
+    }
+}
+
+impl<'a> IntoIterator for &'a Bitv {
+    type Iter = Iter<'a>;
+
+    fn into_iter(self) -> Iter<'a> {
+        self.iter()
     }
 }
 
@@ -1730,6 +1738,7 @@ impl BitvSet {
     }
 }
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Debug for BitvSet {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(fmt, "BitvSet {{"));
@@ -1873,6 +1882,13 @@ impl<'a> Iterator for SymmetricDifference<'a> {
     #[inline] fn size_hint(&self) -> (uint, Option<uint>) { self.0.size_hint() }
 }
 
+impl<'a> IntoIterator for &'a BitvSet {
+    type Iter = SetIter<'a>;
+
+    fn into_iter(self) -> SetIter<'a> {
+        self.iter()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -2232,12 +2248,12 @@ mod tests {
     #[test]
     fn test_equal_sneaky_big() {
         let mut a = Bitv::from_elem(100, false);
-        for i in range(0u, 100) {
+        for i in 0u..100 {
             a.set(i, true);
         }
 
         let mut b = Bitv::from_elem(100, true);
-        for i in range(0u, 100) {
+        for i in 0u..100 {
             b.set(i, true);
         }
 
@@ -2283,7 +2299,7 @@ mod tests {
 
         assert_eq!(bitv.iter().collect::<Vec<bool>>(), bools);
 
-        let long = range(0, 10000).map(|i| i % 2 == 0).collect::<Vec<_>>();
+        let long = (0i32..10000).map(|i| i % 2 == 0).collect::<Vec<_>>();
         let bitv: Bitv = long.iter().map(|n| *n).collect();
         assert_eq!(bitv.iter().collect::<Vec<bool>>(), long)
     }
@@ -2526,7 +2542,7 @@ mod bitv_bench {
         let mut r = rng();
         let mut bitv = 0 as uint;
         b.iter(|| {
-            for _ in range(0u, 100) {
+            for _ in 0u..100 {
                 bitv |= 1 << ((r.next_u32() as uint) % u32::BITS);
             }
             black_box(&bitv);
@@ -2538,7 +2554,7 @@ mod bitv_bench {
         let mut r = rng();
         let mut bitv = Bitv::from_elem(BENCH_BITS, false);
         b.iter(|| {
-            for _ in range(0u, 100) {
+            for _ in 0u..100 {
                 bitv.set((r.next_u32() as uint) % BENCH_BITS, true);
             }
             black_box(&bitv);
@@ -2550,7 +2566,7 @@ mod bitv_bench {
         let mut r = rng();
         let mut bitv = Bitv::from_elem(BENCH_BITS, false);
         b.iter(|| {
-            for _ in range(0u, 100) {
+            for _ in 0u..100 {
                 bitv.set((r.next_u32() as uint) % BENCH_BITS, r.gen());
             }
             black_box(&bitv);
@@ -2562,7 +2578,7 @@ mod bitv_bench {
         let mut r = rng();
         let mut bitv = Bitv::from_elem(u32::BITS, false);
         b.iter(|| {
-            for _ in range(0u, 100) {
+            for _ in 0u..100 {
                 bitv.set((r.next_u32() as uint) % u32::BITS, true);
             }
             black_box(&bitv);
@@ -2583,7 +2599,7 @@ mod bitv_bench {
         let bitv = Bitv::from_elem(u32::BITS, false);
         b.iter(|| {
             let mut sum = 0u;
-            for _ in range(0u, 10) {
+            for _ in 0u..10 {
                 for pres in bitv.iter() {
                     sum += pres as uint;
                 }
@@ -2647,7 +2663,7 @@ mod bitv_set_test {
         let idxs: Vec<uint> = bitv.iter().collect();
         assert_eq!(idxs, vec![0, 2, 3]);
 
-        let long: BitvSet = range(0u, 10000).filter(|&n| n % 2 == 0).collect();
+        let long: BitvSet = (0u..10000).filter(|&n| n % 2 == 0).collect();
         let real = range_step(0, 10000, 2).collect::<Vec<uint>>();
 
         let idxs: Vec<uint> = long.iter().collect();
@@ -3021,7 +3037,7 @@ mod bitv_set_bench {
         let mut r = rng();
         let mut bitv = BitvSet::new();
         b.iter(|| {
-            for _ in range(0u, 100) {
+            for _ in 0u..100 {
                 bitv.insert((r.next_u32() as uint) % u32::BITS);
             }
             black_box(&bitv);
@@ -3033,7 +3049,7 @@ mod bitv_set_bench {
         let mut r = rng();
         let mut bitv = BitvSet::new();
         b.iter(|| {
-            for _ in range(0u, 100) {
+            for _ in 0u..100 {
                 bitv.insert((r.next_u32() as uint) % BENCH_BITS);
             }
             black_box(&bitv);

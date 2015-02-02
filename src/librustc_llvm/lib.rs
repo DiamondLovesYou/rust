@@ -15,7 +15,6 @@
 
 #![crate_name = "rustc_llvm"]
 #![unstable(feature = "rustc_private")]
-#![feature(staged_api)]
 #![staged_api]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
@@ -23,17 +22,18 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![allow(unknown_features)]
-#![feature(link_args)]
 #![feature(box_syntax)]
 #![feature(slicing_syntax)]
-#![allow(unknown_features)] #![feature(int_uint)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(libc)]
-#![feature(path)]
-#![feature(std_misc)]
 #![feature(hash)]
+#![feature(int_uint)]
+#![feature(libc)]
+#![feature(link_args)]
+#![feature(path)]
+#![feature(staged_api)]
+#![feature(std_misc)]
+#![feature(rustc_private)]
 
 extern crate libc;
 #[macro_use] #[no_link] extern crate rustc_bitflags;
@@ -120,7 +120,7 @@ pub enum Linkage {
 }
 
 #[repr(C)]
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 pub enum DiagnosticSeverity {
     Error,
     Warning,
@@ -317,7 +317,7 @@ pub enum RealPredicate {
 
 // The LLVM TypeKind type - must stay in sync with the def of
 // LLVMTypeKind in llvm/include/llvm-c/Core.h
-#[derive(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Debug)]
 #[repr(C)]
 pub enum TypeKind {
     Void      = 0,

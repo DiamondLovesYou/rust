@@ -247,7 +247,7 @@ impl Process {
                 if !setup(err_fd, libc::STDERR_FILENO) { fail(&mut output) }
 
                 // close all other fds
-                for fd in range(3, getdtablesize()).rev() {
+                for fd in (3..getdtablesize()).rev() {
                     if fd != output.fd() {
                         let _ = close(fd as c_int);
                     }
@@ -538,7 +538,7 @@ impl Process {
         // which will wake up the other end at some point, so we just allow this
         // signal to be coalesced with the pending signals on the pipe.
         extern fn sigchld_handler(_signum: libc::c_int) {
-            let msg = 1i;
+            let msg = 1;
             match unsafe {
                 libc::write(WRITE_FD, &msg as *const _ as *const libc::c_void, 1)
             } {

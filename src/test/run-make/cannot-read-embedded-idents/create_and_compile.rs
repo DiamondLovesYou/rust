@@ -23,7 +23,7 @@ fn main() {
     let main_file = tmpdir.join("broken.rs");
     let _ = File::create(&main_file).unwrap()
         .write_str("pub fn main() {
-                   let \x00name_0,ctxt_0\x00 = 3i;
+                   let \x00name_0,ctxt_0\x00 = 3;
                    println!(\"{}\", \x00name_0,ctxt_0\x00);
         }");
 
@@ -40,5 +40,5 @@ fn main() {
 
     // positive test so that this test will be updated when the
     // compiler changes.
-    assert!(err.as_slice().contains("unknown start of token"))
+    assert!(err.contains("unknown start of token"))
 }

@@ -163,7 +163,7 @@ use slice;
 // which basically means it must be `Option`.
 
 /// The `Option` type.
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Show, Hash)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub enum Option<T> {
     /// No value
@@ -728,8 +728,8 @@ impl<T: Default> Option<T> {
     /// ```
     /// let good_year_from_input = "1909";
     /// let bad_year_from_input = "190blarg";
-    /// let good_year = good_year_from_input.parse().unwrap_or_default();
-    /// let bad_year = bad_year_from_input.parse().unwrap_or_default();
+    /// let good_year = good_year_from_input.parse().ok().unwrap_or_default();
+    /// let bad_year = bad_year_from_input.parse().ok().unwrap_or_default();
     ///
     /// assert_eq!(1909, good_year);
     /// assert_eq!(0, bad_year);

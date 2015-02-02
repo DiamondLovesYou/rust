@@ -570,7 +570,6 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
     let resolve::CrateMap {
         def_map,
         freevars,
-        capture_mode_map,
         export_map,
         trait_map,
         external_exports,
@@ -616,7 +615,6 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
                             named_region_map,
                             ast_map,
                             freevars,
-                            capture_mode_map,
                             region_map,
                             lang_items,
                             stability_index);
@@ -896,7 +894,7 @@ pub fn collect_crate_types(session: &Session,
         let res = !link::invalid_output_for_target(session, *crate_type);
 
         if !res {
-            session.warn(&format!("dropping unsupported crate type `{:?}` \
+            session.warn(&format!("dropping unsupported crate type `{}` \
                                    for target `{}`",
                                  *crate_type, session.opts.target_triple)[]);
         }

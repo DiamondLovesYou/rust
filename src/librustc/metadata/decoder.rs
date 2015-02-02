@@ -223,7 +223,7 @@ fn each_reexport<F>(d: rbml::Doc, f: F) -> bool where
 fn variant_disr_val(d: rbml::Doc) -> Option<ty::Disr> {
     reader::maybe_get_doc(d, tag_disr_val).and_then(|val_doc| {
         reader::with_doc_data(val_doc, |data| {
-            str::from_utf8(data).ok().and_then(|s| s.parse())
+            str::from_utf8(data).ok().and_then(|s| s.parse().ok())
         })
     })
 }
@@ -371,6 +371,11 @@ fn parse_unsafety(item_doc: rbml::Doc) -> ast::Unsafety {
     }
 }
 
+fn parse_paren_sugar(item_doc: rbml::Doc) -> bool {
+    let paren_sugar_doc = reader::get_doc(item_doc, tag_paren_sugar);
+    reader::doc_as_u8(paren_sugar_doc) != 0
+}
+
 fn parse_polarity(item_doc: rbml::Doc) -> ast::ImplPolarity {
     let polarity_doc = reader::get_doc(item_doc, tag_polarity);
     if reader::doc_as_u8(polarity_doc) != 0 {
@@ -400,8 +405,10 @@ pub fn get_trait_def<'tcx>(cdata: Cmd,
     let bounds = trait_def_bounds(item_doc, tcx, cdata);
     let unsafety = parse_unsafety(item_doc);
     let associated_type_names = parse_associated_type_names(item_doc);
+    let paren_sugar = parse_paren_sugar(item_doc);
 
     ty::TraitDef {
+        paren_sugar: paren_sugar,
         unsafety: unsafety,
         generics: generics,
         bounds: bounds,
@@ -493,7 +500,7 @@ pub fn get_symbol(data: &[u8], id: ast::NodeId) -> String {
 }
 
 // Something that a name can resolve to.
-#[derive(Copy, Clone, Show)]
+#[derive(Copy, Clone, Debug)]
 pub enum DefLike {
     DlDef(def::Def),
     DlImpl(ast::DefId),
@@ -693,23 +700,23 @@ pub type DecodeInlinedItem<'a> =
 
 pub fn maybe_get_item_ast<'tcx>(cdata: Cmd, tcx: &ty::ctxt<'tcx>, id: ast::NodeId,
                                 mut decode_inlined_item: DecodeInlinedItem)
-                                -> csearch::found_ast<'tcx> {
+                                -> csearch::FoundAst<'tcx> {
     debug!("Looking up item: {}", id);
     let item_doc = lookup_item(id, cdata.data());
     let path = item_path(item_doc).init().to_vec();
     match decode_inlined_item(cdata, tcx, path, item_doc) {
-        Ok(ii) => csearch::found(ii),
+        Ok(ii) => csearch::FoundAst::Found(ii),
         Err(path) => {
             match item_parent_item(item_doc) {
                 Some(did) => {
                     let did = translate_def_id(cdata, did);
                     let parent_item = lookup_item(did.node, cdata.data());
                     match decode_inlined_item(cdata, tcx, path, parent_item) {
-                        Ok(ii) => csearch::found_parent(did, ii),
-                        Err(_) => csearch::not_found
+                        Ok(ii) => csearch::FoundAst::FoundParent(did, ii),
+                        Err(_) => csearch::FoundAst::NotFound
                     }
                 }
-                None => csearch::not_found
+                None => csearch::FoundAst::NotFound
             }
         }
     }

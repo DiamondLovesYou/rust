@@ -94,7 +94,7 @@ $ pacman -S base-devel
         $ make && make install
 
 [repo]: https://github.com/rust-lang/rust
-[tarball]: https://static.rust-lang.org/dist/rust-nightly.tar.gz
+[tarball]: https://static.rust-lang.org/dist/rustc-nightly-src.tar.gz
 [trpl]: http://doc.rust-lang.org/book/index.html
 
 ## Notes
@@ -138,13 +138,15 @@ Some helpful projects:
 
 The Rust community congregates in a few places:
 
-* [StackOverflow] - Get help here.
-* [/r/rust] - General discussion.
-* [discuss.rust-lang.org] - For development of the Rust language itself.
+* [StackOverflow] - Direct questions about using the language here.
+* [users.rust-lang.org] - General discussion, broader questions.
+* [internals.rust-lang.org] - For development of the Rust language itself.
+* [/r/rust] - News and general discussion.
 
 [StackOverflow]: http://stackoverflow.com/questions/tagged/rust
 [/r/rust]: http://reddit.com/r/rust
-[discuss.rust-lang.org]: http://discuss.rust-lang.org/
+[users.rust-lang.org]: http://users.rust-lang.org/
+[internals.rust-lang.org]: http://internals.rust-lang.org/
 
 ## License
 

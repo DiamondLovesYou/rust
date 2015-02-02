@@ -60,7 +60,7 @@ use sys_common::mutex as sys;
 /// let data = Arc::new(Mutex::new(0));
 ///
 /// let (tx, rx) = channel();
-/// for _ in range(0u, 10) {
+/// for _ in 0u..10 {
 ///     let (data, tx) = (data.clone(), tx.clone());
 ///     Thread::spawn(move || {
 ///         // The shared static can only be accessed once the lock is held.
@@ -371,7 +371,7 @@ mod test {
         static K: uint = 3;
 
         fn inc() {
-            for _ in range(0, J) {
+            for _ in 0..J {
                 unsafe {
                     let _g = M.lock().unwrap();
                     CNT += 1;
@@ -380,7 +380,7 @@ mod test {
         }
 
         let (tx, rx) = channel();
-        for _ in range(0, K) {
+        for _ in 0..K {
             let tx2 = tx.clone();
             Thread::spawn(move|| { inc(); tx2.send(()).unwrap(); });
             let tx2 = tx.clone();
@@ -388,7 +388,7 @@ mod test {
         }
 
         drop(tx);
-        for _ in range(0, 2 * K) {
+        for _ in 0..2 * K {
             rx.recv().unwrap();
         }
         assert_eq!(unsafe {CNT}, J * K * 2);
@@ -428,7 +428,7 @@ mod test {
 
     #[test]
     fn test_arc_condvar_poison() {
-        let packet = Packet(Arc::new((Mutex::new(1i), Condvar::new())));
+        let packet = Packet(Arc::new((Mutex::new(1), Condvar::new())));
         let packet2 = Packet(packet.0.clone());
         let (tx, rx) = channel();
 
@@ -457,7 +457,7 @@ mod test {
 
     #[test]
     fn test_mutex_arc_poison() {
-        let arc = Arc::new(Mutex::new(1i));
+        let arc = Arc::new(Mutex::new(1));
         let arc2 = arc.clone();
         let _ = Thread::scoped(move|| {
             let lock = arc2.lock().unwrap();
@@ -470,7 +470,7 @@ mod test {
     fn test_mutex_arc_nested() {
         // Tests nested mutexes and access
         // to underlying data.
-        let arc = Arc::new(Mutex::new(1i));
+        let arc = Arc::new(Mutex::new(1));
         let arc2 = Arc::new(Mutex::new(arc));
         let (tx, rx) = channel();
         let _t = Thread::spawn(move|| {
@@ -484,7 +484,7 @@ mod test {
 
     #[test]
     fn test_mutex_arc_access_in_unwind() {
-        let arc = Arc::new(Mutex::new(1i));
+        let arc = Arc::new(Mutex::new(1));
         let arc2 = arc.clone();
         let _ = Thread::scoped(move|| -> () {
             struct Unwinder {

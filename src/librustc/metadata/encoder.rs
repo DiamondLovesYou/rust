@@ -1317,6 +1317,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         encode_item_variances(rbml_w, ecx, item.id);
         let trait_def = ty::lookup_trait_def(tcx, def_id);
         encode_unsafety(rbml_w, trait_def.unsafety);
+        encode_paren_sugar(rbml_w, trait_def.paren_sugar);
         encode_associated_type_names(rbml_w, trait_def.associated_type_names.as_slice());
         encode_generics(rbml_w, ecx, &trait_def.generics, tag_item_generics);
         encode_trait_ref(rbml_w, ecx, &*trait_def.trait_ref, tag_item_trait_ref);
@@ -1577,7 +1578,7 @@ fn encode_info_for_items(ecx: &EncodeContext,
                         &krate.module,
                         &[],
                         ast::CRATE_NODE_ID,
-                        ast_map::Values([].iter()).chain(None),
+                        [].iter().cloned().chain(None),
                         syntax::parse::token::special_idents::invalid,
                         ast::Public);
 
@@ -1598,7 +1599,7 @@ fn encode_index<T, F>(rbml_w: &mut Encoder, index: Vec<entry<T>>, mut write_fn: 
     F: FnMut(&mut SeekableMemWriter, &T),
     T: Hash<SipHasher>,
 {
-    let mut buckets: Vec<Vec<entry<T>>> = range(0, 256u16).map(|_| Vec::new()).collect();
+    let mut buckets: Vec<Vec<entry<T>>> = (0..256u16).map(|_| Vec::new()).collect();
     for elt in index.into_iter() {
         let mut s = SipHasher::new();
         elt.val.hash(&mut s);
@@ -1695,6 +1696,11 @@ fn encode_unsafety(rbml_w: &mut Encoder, unsafety: ast::Unsafety) {
         ast::Unsafety::Unsafe => 1,
     };
     rbml_w.wr_tagged_u8(tag_unsafety, byte);
+}
+
+fn encode_paren_sugar(rbml_w: &mut Encoder, paren_sugar: bool) {
+    let byte: u8 = if paren_sugar {1} else {0};
+    rbml_w.wr_tagged_u8(tag_paren_sugar, byte);
 }
 
 fn encode_associated_type_names(rbml_w: &mut Encoder, names: &[ast::Name]) {
@@ -1949,7 +1955,7 @@ fn encode_misc_info(ecx: &EncodeContext,
     }
 
     // Encode reexports for the root module.
-    encode_reexports(ecx, rbml_w, 0, ast_map::Values([].iter()).chain(None));
+    encode_reexports(ecx, rbml_w, 0, [].iter().cloned().chain(None));
 
     rbml_w.end_tag();
     rbml_w.end_tag();

@@ -11,14 +11,14 @@
 // no-pretty-expanded FIXME #15189
 
 pub fn main() {
-    let x = vec!(1i, 2i, 3i);
-    let mut y = 0i;
+    let x = vec!(1, 2, 3);
+    let mut y = 0;
     for i in x.iter() { println!("{}", *i); y += *i; }
     println!("{}", y);
     assert_eq!(y, 6);
     let s = "hello there".to_string();
     let mut i: int = 0;
-    for c in s.as_slice().bytes() {
+    for c in s.bytes() {
         if i == 0 { assert!((c == 'h' as u8)); }
         if i == 1 { assert!((c == 'e' as u8)); }
         if i == 2 { assert!((c == 'l' as u8)); }

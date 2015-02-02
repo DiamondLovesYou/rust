@@ -16,17 +16,17 @@
 
 #![crate_name = "flate"]
 #![unstable(feature = "rustc_private")]
-#![feature(staged_api)]
 #![staged_api]
-#![allow(unknown_features)] #![feature(int_uint)]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
-#![feature(hash)]
+
 #![feature(core)]
+#![feature(int_uint)]
 #![feature(libc)]
+#![feature(staged_api)]
 
 #[cfg(test)] #[macro_use] extern crate log;
 
@@ -138,14 +138,14 @@ mod tests {
     fn test_flate_round_trip() {
         let mut r = rand::thread_rng();
         let mut words = vec!();
-        for _ in range(0u, 20) {
+        for _ in 0u..20 {
             let range = r.gen_range(1u, 10);
             let v = r.gen_iter::<u8>().take(range).collect::<Vec<u8>>();
             words.push(v);
         }
-        for _ in range(0u, 20) {
+        for _ in 0u..20 {
             let mut input = vec![];
-            for _ in range(0u, 2000) {
+            for _ in 0u..2000 {
                 input.push_all(r.choose(words.as_slice()).unwrap().as_slice());
             }
             debug!("de/inflate of {} bytes of random word-sequences",

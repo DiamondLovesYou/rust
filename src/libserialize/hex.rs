@@ -61,7 +61,7 @@ pub trait FromHex {
 }
 
 /// Errors that can occur when decoding a hex encoded string
-#[derive(Copy, Show)]
+#[derive(Copy, Debug)]
 pub enum FromHexError {
     /// The input contained a character not part of the hex format
     InvalidHexCharacter(char, uint),
@@ -107,7 +107,7 @@ impl FromHex for str {
     /// fn main () {
     ///     let hello_str = "Hello, World".as_bytes().to_hex();
     ///     println!("{}", hello_str);
-    ///     let bytes = hello_str.as_slice().from_hex().unwrap();
+    ///     let bytes = hello_str.from_hex().unwrap();
     ///     println!("{:?}", bytes);
     ///     let result_str = String::from_utf8(bytes).unwrap();
     ///     println!("{}", result_str);
@@ -116,7 +116,7 @@ impl FromHex for str {
     fn from_hex(&self) -> Result<Vec<u8>, FromHexError> {
         // This may be an overestimate if there is any whitespace
         let mut b = Vec::with_capacity(self.len() / 2);
-        let mut modulus = 0i;
+        let mut modulus = 0;
         let mut buf = 0u8;
 
         for (idx, byte) in self.bytes().enumerate() {
@@ -185,14 +185,14 @@ mod tests {
 
     #[test]
     pub fn test_to_hex_all_bytes() {
-        for i in range(0u, 256) {
+        for i in 0u..256 {
             assert_eq!([i as u8].to_hex(), format!("{:02x}", i as uint));
         }
     }
 
     #[test]
     pub fn test_from_hex_all_bytes() {
-        for i in range(0u, 256) {
+        for i in 0u..256 {
             let ii: &[u8] = &[i as u8];
             assert_eq!(format!("{:02x}", i as uint).from_hex()
                                                    .unwrap(),

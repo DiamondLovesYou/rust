@@ -420,9 +420,15 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         let tcx = bcx.tcx();
 
         let datum_ty = datum.ty;
-        // Arrange cleanup
-        let lval = unpack_datum!(bcx,
-                                 datum.to_lvalue_datum(bcx, "unsize_unique_vec", expr.id));
+
+        debug!("unsize_unique_vec expr.id={} datum_ty={} len={}",
+               expr.id, datum_ty.repr(tcx), len);
+
+        // We do not arrange cleanup ourselves; if we already are an
+        // L-value, then cleanup will have already been scheduled (and
+        // the `datum.store_to` call below will emit code to zero the
+        // drop flag when moving out of the L-value). If we are an R-value,
+        // then we do not need to schedule cleanup.
 
         let ll_len = C_uint(bcx.ccx(), len);
         let unit_ty = ty::sequence_element_type(tcx, ty::type_content(datum_ty));
@@ -433,7 +439,7 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         let base = PointerCast(bcx,
                                base,
                                type_of::type_of(bcx.ccx(), datum_ty).ptr_to());
-        bcx = lval.store_to(bcx, base);
+        bcx = datum.store_to(bcx, base);
 
         Store(bcx, ll_len, get_len(bcx, scratch.val));
         DatumBlock::new(bcx, scratch.to_expr_datum())
@@ -455,21 +461,19 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         };
         let result_ty = ty::mk_uniq(tcx, ty::unsize_ty(tcx, unboxed_ty, k, expr.span));
 
-        let lval = unpack_datum!(bcx,
-                                 datum.to_lvalue_datum(bcx, "unsize_unique_expr", expr.id));
+        // We do not arrange cleanup ourselves; if we already are an
+        // L-value, then cleanup will have already been scheduled (and
+        // the `datum.store_to` call below will emit code to zero the
+        // drop flag when moving out of the L-value). If we are an R-value,
+        // then we do not need to schedule cleanup.
 
         let scratch = rvalue_scratch_datum(bcx, result_ty, "__uniq_fat_ptr");
         let llbox_ty = type_of::type_of(bcx.ccx(), datum_ty);
         let base = PointerCast(bcx, get_dataptr(bcx, scratch.val), llbox_ty.ptr_to());
-        bcx = lval.store_to(bcx, base);
+        bcx = datum.store_to(bcx, base);
 
         let info = unsized_info(bcx, k, expr.id, unboxed_ty, |t| ty::mk_uniq(tcx, t));
         Store(bcx, info, get_len(bcx, scratch.val));
-
-        let scratch = unpack_datum!(bcx,
-                                    scratch.to_expr_datum().to_lvalue_datum(bcx,
-                                                                            "fresh_uniq_fat_ptr",
-                                                                            expr.id));
 
         DatumBlock::new(bcx, scratch.to_expr_datum())
     }
@@ -923,13 +927,6 @@ fn trans_rvalue_stmt_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         ast::ExprWhile(ref cond, ref body, _) => {
             controlflow::trans_while(bcx, expr, &**cond, &**body)
         }
-        ast::ExprForLoop(ref pat, ref head, ref body, _) => {
-            controlflow::trans_for(bcx,
-                                   expr_info(expr),
-                                   &**pat,
-                                   &**head,
-                                   &**body)
-        }
         ast::ExprLoop(ref body, _) => {
             controlflow::trans_loop(bcx, expr, &**body)
         }
@@ -1050,8 +1047,8 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                     (tcx.lang_items.range_to_struct(), fields, vec![node_id_type(bcx, end.id)])
                 }
                 _ => {
-                    // Desugar to FullRange
-                    (tcx.lang_items.full_range_struct(), vec![], vec![])
+                    // Desugar to RangeFull
+                    (tcx.lang_items.range_full_struct(), vec![], vec![])
                 }
             };
 
@@ -1924,7 +1921,7 @@ fn float_cast(bcx: Block,
     } else { llsrc };
 }
 
-#[derive(Copy, PartialEq, Show)]
+#[derive(Copy, PartialEq, Debug)]
 pub enum cast_kind {
     cast_pointer,
     cast_integral,
@@ -2117,7 +2114,7 @@ fn deref_multiple<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                               -> DatumBlock<'blk, 'tcx, Expr> {
     let mut bcx = bcx;
     let mut datum = datum;
-    for i in range(0, times) {
+    for i in 0..times {
         let method_call = MethodCall::autoderef(expr.id, i);
         datum = unpack_datum!(bcx, deref_once(bcx, expr, datum, method_call));
     }

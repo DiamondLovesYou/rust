@@ -10,16 +10,16 @@
 
 #[test]
 fn test_bool_from_str() {
-    assert_eq!("true".parse(), Some(true));
-    assert_eq!("false".parse(), Some(false));
-    assert_eq!("not even a boolean".parse::<bool>(), None);
+    assert_eq!("true".parse().ok(), Some(true));
+    assert_eq!("false".parse().ok(), Some(false));
+    assert_eq!("not even a boolean".parse::<bool>().ok(), None);
 }
 
 fn check_contains_all_substrings(s: &str) {
     assert!(s.contains(""));
-    for i in range(0, s.len()) {
+    for i in 0..s.len() {
         for j in range(i+1, s.len() + 1) {
-            assert!(s.contains(s.slice(i, j)));
+            assert!(s.contains(&s[i..j]));
         }
     }
 }

@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#[cfg(not(test))]
 use core::ptr::PtrExt;
 
 // FIXME: #13996: mark the `allocate` and `reallocate` return value as `noalias`
@@ -403,7 +404,7 @@ mod test {
     #[bench]
     fn alloc_owned_small(b: &mut Bencher) {
         b.iter(|| {
-            box 10i
+            box 10
         })
     }
 }

@@ -19,6 +19,7 @@ use iter::{AdditiveIterator, Extend};
 use iter::{Iterator, IteratorExt, Map};
 use marker::Sized;
 use option::Option::{self, Some, None};
+use result::Result::{self, Ok, Err};
 use slice::{AsSlice, Split, SliceExt, SliceConcatExt};
 use str::{self, FromStr, StrExt};
 use vec::Vec;
@@ -86,10 +87,18 @@ impl Ord for Path {
 }
 
 impl FromStr for Path {
-    fn from_str(s: &str) -> Option<Path> {
-        Path::new_opt(s)
+    type Err = ParsePathError;
+    fn from_str(s: &str) -> Result<Path, ParsePathError> {
+        match Path::new_opt(s) {
+            Some(p) => Ok(p),
+            None => Err(ParsePathError),
+        }
     }
 }
+
+/// Valuelue indicating that a path could not be parsed from a string.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct ParsePathError;
 
 impl<S: hash::Writer + hash::Hasher> hash::Hash<S> for Path {
     #[inline]
@@ -109,7 +118,7 @@ impl GenericPathUnsafe for Path {
     unsafe fn new_unchecked<T: BytesContainer>(path: T) -> Path {
         let path = Path::normalize(path.container_as_bytes());
         assert!(!path.is_empty());
-        let idx = path.as_slice().rposition_elem(&SEP_BYTE);
+        let idx = path.rposition_elem(&SEP_BYTE);
         Path{ repr: path, sepidx: idx }
     }
 
@@ -290,7 +299,7 @@ impl GenericPath for Path {
                     }
                 }
             }
-            Some(Path::new(comps.as_slice().connect(&SEP_BYTE)))
+            Some(Path::new(comps.connect(&SEP_BYTE)))
         }
     }
 

@@ -149,7 +149,7 @@ pub fn is_test_ignored(config: &Config, testfile: &Path) -> bool {
     }
     fn ignore_stage(config: &Config) -> String {
         format!("ignore-{}",
-                config.stage_id.as_slice().split('-').next().unwrap())
+                config.stage_id.split('-').next().unwrap())
     }
     fn ignore_gdb(config: &Config, line: &str) -> bool {
         if config.mode != common::DebugInfoGdb {
@@ -232,11 +232,11 @@ fn iter_header<F>(testfile: &Path, mut it: F) -> bool where
         // module or function. This doesn't seem to be an optimization
         // with a warm page cache. Maybe with a cold one.
         let ln = ln.unwrap();
-        if ln.as_slice().starts_with("fn") ||
-                ln.as_slice().starts_with("mod") {
+        if ln.starts_with("fn") ||
+                ln.starts_with("mod") {
             return true;
         } else {
-            if !(it(ln.as_slice().trim())) {
+            if !(it(ln.trim())) {
                 return false;
             }
         }
@@ -353,8 +353,8 @@ pub fn gdb_version_to_int(version_string: &str) -> int {
         panic!("{}", error_string);
     }
 
-    let major: int = components[0].parse().expect(error_string);
-    let minor: int = components[1].parse().expect(error_string);
+    let major: int = components[0].parse().ok().expect(error_string);
+    let minor: int = components[1].parse().ok().expect(error_string);
 
     return major * 1000 + minor;
 }
@@ -364,6 +364,6 @@ pub fn lldb_version_to_int(version_string: &str) -> int {
         "Encountered LLDB version string with unexpected format: {}",
         version_string);
     let error_string = error_string.as_slice();
-    let major: int = version_string.parse().expect(error_string);
+    let major: int = version_string.parse().ok().expect(error_string);
     return major;
 }

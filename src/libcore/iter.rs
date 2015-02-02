@@ -101,8 +101,6 @@ pub trait Iterator {
     fn size_hint(&self) -> (usize, Option<usize>) { (0, None) }
 }
 
-// FIXME(#21363) remove `old_impl_check` when bug is fixed
-#[old_impl_check]
 impl<'a, T> Iterator for &'a mut (Iterator<Item=T> + 'a) {
     type Item = T;
 
@@ -122,6 +120,22 @@ impl<'a, T> Iterator for &'a mut (Iterator<Item=T> + 'a) {
 pub trait FromIterator<A> {
     /// Build a container with elements from an external iterator.
     fn from_iter<T: Iterator<Item=A>>(iterator: T) -> Self;
+}
+
+/// Conversion into an `Iterator`
+pub trait IntoIterator {
+    type Iter: Iterator;
+
+    /// Consumes `Self` and returns an iterator over it
+    fn into_iter(self) -> Self::Iter;
+}
+
+impl<I> IntoIterator for I where I: Iterator {
+    type Iter = I;
+
+    fn into_iter(self) -> I {
+        self
+    }
 }
 
 /// A type growable from an `Iterator` implementation
@@ -180,7 +194,7 @@ pub trait IteratorExt: Iterator + Sized {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn nth(&mut self, mut n: usize) -> Option<Self::Item> {
-        for x in *self {
+        for x in self.by_ref() {
             if n == 0 { return Some(x) }
             n -= 1;
         }
@@ -477,7 +491,7 @@ pub trait IteratorExt: Iterator + Sized {
     /// fn process<U: Iterator<Item=isize>>(it: U) -> isize {
     ///     let mut it = it.fuse();
     ///     let mut sum = 0;
-    ///     for x in it {
+    ///     for x in it.by_ref() {
     ///         if x > 5 {
     ///             break;
     ///         }
@@ -645,7 +659,7 @@ pub trait IteratorExt: Iterator + Sized {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn any<F>(&mut self, mut f: F) -> bool where F: FnMut(Self::Item) -> bool {
-        for x in *self { if f(x) { return true; } }
+        for x in self.by_ref() { if f(x) { return true; } }
         false
     }
 
@@ -665,7 +679,7 @@ pub trait IteratorExt: Iterator + Sized {
     fn find<P>(&mut self, mut predicate: P) -> Option<Self::Item> where
         P: FnMut(&Self::Item) -> bool,
     {
-        for x in *self {
+        for x in self.by_ref() {
             if predicate(&x) { return Some(x) }
         }
         None
@@ -688,7 +702,7 @@ pub trait IteratorExt: Iterator + Sized {
         P: FnMut(Self::Item) -> bool,
     {
         let mut i = 0;
-        for x in *self {
+        for x in self.by_ref() {
             if predicate(x) {
                 return Some(i);
             }
@@ -717,7 +731,7 @@ pub trait IteratorExt: Iterator + Sized {
         Self: ExactSizeIterator + DoubleEndedIterator
     {
         let len = self.len();
-        for i in range(0, len).rev() {
+        for i in (0..len).rev() {
             if predicate(self.next_back().expect("rposition: incorrect ExactSizeIterator")) {
                 return Some(i);
             }
@@ -1226,7 +1240,7 @@ impl_multiplicative! { f32,  1.0 }
 impl_multiplicative! { f64,  1.0 }
 
 /// `MinMaxResult` is an enum returned by `min_max`. See `IteratorOrdExt::min_max` for more detail.
-#[derive(Clone, PartialEq, Show)]
+#[derive(Clone, PartialEq, Debug)]
 #[unstable(feature = "core",
            reason = "unclear whether such a fine-grained result is widely useful")]
 pub enum MinMaxResult<T> {
@@ -1314,7 +1328,7 @@ impl<T, D, I> ExactSizeIterator for Cloned<I> where
 {}
 
 /// An iterator that repeats endlessly
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Cycle<I> {
@@ -1509,9 +1523,9 @@ impl<T, U, A, B> DoubleEndedIterator for Zip<A, B> where
         if a_sz != b_sz {
             // Adjust a, b to equal length
             if a_sz > b_sz {
-                for _ in range(0, a_sz - b_sz) { self.a.next_back(); }
+                for _ in 0..a_sz - b_sz { self.a.next_back(); }
             } else {
-                for _ in range(0, b_sz - a_sz) { self.b.next_back(); }
+                for _ in 0..b_sz - a_sz { self.b.next_back(); }
             }
         }
         match (self.a.next_back(), self.b.next_back()) {
@@ -1649,7 +1663,7 @@ impl<A, I, P> Iterator for Filter<A, I, P> where I: Iterator<Item=A>, P: FnMut(&
 
     #[inline]
     fn next(&mut self) -> Option<A> {
-        for x in self.iter {
+        for x in self.iter.by_ref() {
             if (self.predicate)(&x) {
                 return Some(x);
             } else {
@@ -1713,7 +1727,7 @@ impl<A, B, I, F> Iterator for FilterMap<A, B, I, F> where
 
     #[inline]
     fn next(&mut self) -> Option<B> {
-        for x in self.iter {
+        for x in self.iter.by_ref() {
             match (self.f)(x) {
                 Some(y) => return Some(y),
                 None => ()
@@ -1812,7 +1826,6 @@ impl<I> RandomAccessIterator for Enumerate<I> where I: RandomAccessIterator {
 /// An iterator with a `peek()` that returns an optional reference to the next element.
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 #[stable(feature = "rust1", since = "1.0.0")]
-#[derive(Copy)]
 pub struct Peekable<T, I> where I: Iterator<Item=T> {
     iter: I,
     peeked: Option<T>,
@@ -1899,7 +1912,7 @@ impl<A, I, P> Iterator for SkipWhile<A, I, P> where I: Iterator<Item=A>, P: FnMu
 
     #[inline]
     fn next(&mut self) -> Option<A> {
-        for x in self.iter {
+        for x in self.iter.by_ref() {
             if self.flag || !(self.predicate)(&x) {
                 self.flag = true;
                 return Some(x);
@@ -2192,7 +2205,7 @@ impl<A, B, I, U, F> Iterator for FlatMap<A, B, I, U, F> where
     fn next(&mut self) -> Option<B> {
         loop {
             for inner in self.frontiter.iter_mut() {
-                for x in *inner {
+                for x in inner.by_ref() {
                     return Some(x)
                 }
             }
@@ -2486,7 +2499,7 @@ impl<A, St, F> Iterator for Unfold<A, St, F> where F: FnMut(&mut St) -> Option<A
 
 /// An infinite iterator starting at `start` and advancing by `step` with each
 /// iteration
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[unstable(feature = "core",
            reason = "may be renamed or replaced by range notation adapaters")]
 pub struct Counter<A> {
@@ -2522,7 +2535,7 @@ impl<A: Add<Output=A> + Clone> Iterator for Counter<A> {
 }
 
 /// An iterator over the range [start, stop)
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[unstable(feature = "core",
            reason = "will be replaced by range notation")]
 pub struct Range<A> {

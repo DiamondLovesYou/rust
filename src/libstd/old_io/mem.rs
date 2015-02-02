@@ -647,7 +647,7 @@ mod test {
         assert!(r.read_at_least(buf.len(), &mut buf).is_ok());
         let b: &[_] = &[1, 2, 3];
         assert_eq!(buf, b);
-        assert!(r.read_at_least(0, buf.slice_to_mut(0)).is_ok());
+        assert!(r.read_at_least(0, &mut buf[..0]).is_ok());
         assert_eq!(buf, b);
         assert!(r.read_at_least(buf.len(), &mut buf).is_ok());
         let b: &[_] = &[4, 5, 6];
@@ -663,7 +663,7 @@ mod test {
         b.bytes = (times * len) as u64;
         b.iter(|| {
             let mut wr = MemWriter::new();
-            for _ in range(0, times) {
+            for _ in 0..times {
                 wr.write(src.as_slice()).unwrap();
             }
 
@@ -719,7 +719,7 @@ mod test {
             let buf = [5 as u8; 100].to_vec();
             {
                 let mut rdr = MemReader::new(buf);
-                for _i in range(0u, 10) {
+                for _i in 0u..10 {
                     let mut buf = [0 as u8; 10];
                     rdr.read(&mut buf).unwrap();
                     assert_eq!(buf.as_slice(), [5; 10].as_slice());
@@ -734,7 +734,7 @@ mod test {
             let mut buf = [0 as u8; 100];
             {
                 let mut wr = BufWriter::new(&mut buf);
-                for _i in range(0u, 10) {
+                for _i in 0u..10 {
                     wr.write(&[5; 10]).unwrap();
                 }
             }
@@ -748,7 +748,7 @@ mod test {
             let buf = [5 as u8; 100];
             {
                 let mut rdr = BufReader::new(&buf);
-                for _i in range(0u, 10) {
+                for _i in 0u..10 {
                     let mut buf = [0 as u8; 10];
                     rdr.read(&mut buf).unwrap();
                     assert_eq!(buf, [5; 10]);

@@ -30,7 +30,7 @@
 //! defined and used like so:
 //!
 //! ```
-//! #[derive(Show)]
+//! #[derive(Debug)]
 //! enum Version { Version1, Version2 }
 //!
 //! fn parse_version(header: &[u8]) -> Result<Version, &'static str> {
@@ -229,7 +229,7 @@
 use self::Result::{Ok, Err};
 
 use clone::Clone;
-use fmt::Debug;
+use fmt;
 use iter::{Iterator, IteratorExt, DoubleEndedIterator, FromIterator, ExactSizeIterator};
 use ops::{FnMut, FnOnce};
 use option::Option::{self, None, Some};
@@ -239,7 +239,7 @@ use slice;
 /// `Result` is a type that represents either success (`Ok`) or failure (`Err`).
 ///
 /// See the [`std::result`](index.html) module documentation for details.
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Show, Hash)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 #[must_use]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub enum Result<T, E> {
@@ -455,7 +455,7 @@ impl<T, E> Result<T, E> {
     ///     let line: IoResult<String> = buffer.read_line();
     ///     // Convert the string line to a number using `map` and `from_str`
     ///     let val: IoResult<int> = line.map(|line| {
-    ///         line.as_slice().trim_right().parse::<int>().unwrap_or(0)
+    ///         line.trim_right().parse::<int>().unwrap_or(0)
     ///     });
     ///     // Add the value if there were no errors, otherwise add 0
     ///     sum += val.ok().unwrap_or(0);
@@ -715,7 +715,7 @@ impl<T, E> Result<T, E> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T, E: Debug> Result<T, E> {
+impl<T, E: fmt::Debug> Result<T, E> {
     /// Unwraps a result, yielding the content of an `Ok`.
     ///
     /// # Panics
@@ -746,7 +746,7 @@ impl<T, E: Debug> Result<T, E> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: Debug, E> Result<T, E> {
+impl<T: fmt::Debug, E> Result<T, E> {
     /// Unwraps a result, yielding the content of an `Err`.
     ///
     /// # Panics

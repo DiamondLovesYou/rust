@@ -623,7 +623,7 @@ pub fn compare_simd_types<'blk, 'tcx>(
                     size: uint,
                     op: ast::BinOp)
                     -> ValueRef {
-    match t.sty {
+    let cmp = match t.sty {
         ty::ty_float(_) => {
             // The comparison operators for floating point vectors are challenging.
             // LLVM outputs a `< size x i1 >`, but if we perform a sign extension
@@ -632,25 +632,32 @@ pub fn compare_simd_types<'blk, 'tcx>(
             cx.sess().bug("compare_simd_types: comparison operators \
                            not supported for floating point SIMD types")
         },
-        ty::ty_uint(_) | ty::ty_int(_) => {
-            let cmp = match op.node {
-                ast::BiEq => llvm::IntEQ,
-                ast::BiNe => llvm::IntNE,
-                ast::BiLt => llvm::IntSLT,
-                ast::BiLe => llvm::IntSLE,
-                ast::BiGt => llvm::IntSGT,
-                ast::BiGe => llvm::IntSGE,
-                _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
-            };
-            let return_ty = Type::vector(&type_of(cx.ccx(), t), size as u64);
-            // LLVM outputs an `< size x i1 >`, so we need to perform a sign extension
-            // to get the correctly sized type. This will compile to a single instruction
-            // once the IR is converted to assembly if the SIMD instruction is supported
-            // by the target architecture.
-            SExt(cx, ICmp(cx, cmp, lhs, rhs), return_ty)
+        ty::ty_uint(_) => match op.node {
+            ast::BiEq => llvm::IntEQ,
+            ast::BiNe => llvm::IntNE,
+            ast::BiLt => llvm::IntULT,
+            ast::BiLe => llvm::IntULE,
+            ast::BiGt => llvm::IntUGT,
+            ast::BiGe => llvm::IntUGE,
+            _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
+        },
+        ty::ty_int(_) => match op.node {
+            ast::BiEq => llvm::IntEQ,
+            ast::BiNe => llvm::IntNE,
+            ast::BiLt => llvm::IntSLT,
+            ast::BiLe => llvm::IntSLE,
+            ast::BiGt => llvm::IntSGT,
+            ast::BiGe => llvm::IntSGE,
+            _ => cx.sess().bug("compare_simd_types: must be a comparison operator"),
         },
         _ => cx.sess().bug("compare_simd_types: invalid SIMD type"),
-    }
+    };
+    let return_ty = Type::vector(&type_of(cx.ccx(), t), size as u64);
+    // LLVM outputs an `< size x i1 >`, so we need to perform a sign extension
+    // to get the correctly sized type. This will compile to a single instruction
+    // once the IR is converted to assembly if the SIMD instruction is supported
+    // by the target architecture.
+    SExt(cx, ICmp(cx, cmp, lhs, rhs), return_ty)
 }
 
 // Iterates through the elements of a structural type.
@@ -1651,7 +1658,7 @@ fn copy_closure_args_to_allocas<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                                      wasn't a tuple?!")
         }
     };
-    for j in range(0, args.len()) {
+    for j in 0..args.len() {
         let tuple_element_type = untupled_arg_types[j];
         let tuple_element_datum =
             tuple_datum.get_element(bcx,
@@ -1775,7 +1782,7 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                    _attributes: &[ast::Attribute],
                                    output_type: ty::FnOutput<'tcx>,
                                    abi: Abi,
-                                   closure_env: closure::ClosureEnv<'b, 'tcx>) {
+                                   closure_env: closure::ClosureEnv<'b>) {
     ccx.stats().n_closures.set(ccx.stats().n_closures.get() + 1);
 
     let _icx = push_ctxt("trans_closure");
@@ -1784,12 +1791,17 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     debug!("trans_closure(..., param_substs={})",
            param_substs.repr(ccx.tcx()));
 
+    let has_env = match closure_env {
+        closure::ClosureEnv::Closure(_) => true,
+        closure::ClosureEnv::NotClosure => false,
+    };
+
     let (arena, fcx): (TypedArena<_>, FunctionContext);
     arena = TypedArena::new();
     fcx = new_fn_ctxt(ccx,
                       llfndecl,
                       fn_ast_id,
-                      closure_env.kind != closure::NotClosure,
+                      has_env,
                       output_type,
                       param_substs,
                       Some(body.span),
@@ -1808,13 +1820,13 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         decl.inputs.iter()
                    .map(|arg| node_id_type(bcx, arg.id))
                    .collect::<Vec<_>>();
-    let monomorphized_arg_types = match closure_env.kind {
-        closure::NotClosure => {
+    let monomorphized_arg_types = match closure_env {
+        closure::ClosureEnv::NotClosure => {
             monomorphized_arg_types
         }
 
         // Tuple up closure argument types for the "rust-call" ABI.
-        closure::Closure(..) => {
+        closure::ClosureEnv::Closure(_) => {
             vec![ty::mk_tup(ccx.tcx(), monomorphized_arg_types)]
         }
     };
@@ -1835,14 +1847,14 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
             &monomorphized_arg_types[])
     };
 
-    bcx = match closure_env.kind {
-        closure::NotClosure => {
+    bcx = match closure_env {
+        closure::ClosureEnv::NotClosure => {
             copy_args_to_allocas(bcx,
                                  arg_scope,
                                  &decl.inputs[],
                                  arg_datums)
         }
-        closure::Closure(..) => {
+        closure::ClosureEnv::Closure(_) => {
             copy_closure_args_to_allocas(
                 bcx,
                 arg_scope,
@@ -1932,7 +1944,7 @@ pub fn trans_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                   attrs,
                   output_type,
                   abi,
-                  closure::ClosureEnv::new(&[], closure::NotClosure));
+                  closure::ClosureEnv::NotClosure);
 }
 
 pub fn trans_enum_variant<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,

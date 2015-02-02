@@ -21,7 +21,6 @@
 
 #![crate_name = "arena"]
 #![unstable(feature = "rustc_private")]
-#![feature(staged_api)]
 #![staged_api]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
@@ -29,16 +28,14 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![allow(unknown_features)]
-#![feature(unsafe_destructor)]
-#![feature(unboxed_closures)]
-#![feature(box_syntax)]
-#![allow(unknown_features)] #![feature(int_uint)]
-#![allow(missing_docs)]
 #![feature(alloc)]
+#![feature(box_syntax)]
 #![feature(core)]
+#![feature(int_uint)]
+#![feature(staged_api)]
+#![feature(unboxed_closures)]
+#![feature(unsafe_destructor)]
 #![cfg_attr(test, feature(test))]
-#![cfg_attr(test, feature(collections))]
 
 extern crate alloc;
 
@@ -311,7 +308,7 @@ impl Arena {
 #[test]
 fn test_arena_destructors() {
     let arena = Arena::new();
-    for i in range(0u, 10) {
+    for i in 0u..10 {
         // Arena allocate something with drop glue to make sure it
         // doesn't leak.
         arena.alloc(|| Rc::new(i));
@@ -340,7 +337,7 @@ fn test_arena_alloc_nested() {
 fn test_arena_destructors_fail() {
     let arena = Arena::new();
     // Put some stuff in the arena.
-    for i in range(0u, 10) {
+    for i in 0u..10 {
         // Arena allocate something with drop glue to make sure it
         // doesn't leak.
         arena.alloc(|| { Rc::new(i) });
@@ -410,7 +407,7 @@ impl<T> TypedArenaChunk<T> {
         // Destroy all the allocated objects.
         if intrinsics::needs_drop::<T>() {
             let mut start = self.start();
-            for _ in range(0, len) {
+            for _ in 0..len {
                 ptr::read(start as *const T); // run the destructor on the pointer
                 start = start.offset(mem::size_of::<T>() as int)
             }
@@ -530,7 +527,7 @@ mod tests {
     #[test]
     pub fn test_copy() {
         let arena = TypedArena::new();
-        for _ in range(0u, 100000) {
+        for _ in 0u..100000 {
             arena.alloc(Point {
                 x: 1,
                 y: 2,
@@ -585,7 +582,7 @@ mod tests {
     #[test]
     pub fn test_noncopy() {
         let arena = TypedArena::new();
-        for _ in range(0u, 100000) {
+        for _ in 0u..100000 {
             arena.alloc(Noncopy {
                 string: "hello world".to_string(),
                 array: vec!( 1, 2, 3, 4, 5 ),

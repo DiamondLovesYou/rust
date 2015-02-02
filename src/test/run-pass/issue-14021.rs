@@ -15,12 +15,12 @@ extern crate serialize;
 use serialize::{Encodable, Decodable};
 use serialize::json;
 
-#[derive(Encodable, Decodable, PartialEq, Show)]
+#[derive(Encodable, Decodable, PartialEq, Debug)]
 struct UnitLikeStruct;
 
 pub fn main() {
     let obj = UnitLikeStruct;
-    let json_str: String = json::encode(&obj);
+    let json_str: String = json::encode(&obj).unwrap();
 
     let json_object = json::from_str(json_str.as_slice());
     let mut decoder = json::Decoder::new(json_object.unwrap());

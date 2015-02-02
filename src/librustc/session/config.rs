@@ -257,20 +257,7 @@ pub enum CrateType {
     CrateTypeRlib,
     CrateTypeStaticlib,
 }
-#[cfg(not(stage0))]
 impl fmt::Debug for CrateType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::CrateType::*;
-        match self {
-            &CrateTypeExecutable => write!(f, "bin"),
-            &CrateTypeDylib => write!(f, "dylib"),
-            &CrateTypeRlib => write!(f, "rlib"),
-            &CrateTypeStaticlib => write!(f, "staticlib"),
-        }
-    }
-}
-#[cfg(stage0)]
-impl fmt::Show for CrateType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::CrateType::*;
         match self {
@@ -358,8 +345,8 @@ macro_rules! options {
                 break;
             }
             if !found {
-                early_error(&format!("unknown codegen option: `{}`",
-                                    key)[]);
+                early_error(&format!("unknown {} option: `{}`",
+                                    $outputname, key)[]);
             }
         }
         return op;
@@ -448,7 +435,7 @@ macro_rules! options {
         }
 
         fn parse_uint(slot: &mut uint, v: Option<&str>) -> bool {
-            match v.and_then(|s| s.parse()) {
+            match v.and_then(|s| s.parse().ok()) {
                 Some(i) => { *slot = i; true },
                 None => false
             }
@@ -456,7 +443,7 @@ macro_rules! options {
 
         fn parse_opt_uint(slot: &mut Option<uint>, v: Option<&str>) -> bool {
             match v {
-                Some(s) => { *slot = s.parse(); slot.is_some() }
+                Some(s) => { *slot = s.parse().ok(); slot.is_some() }
                 None => { *slot = None; true }
             }
         }
@@ -703,7 +690,7 @@ pub fn optgroups() -> Vec<getopts::OptGroup> {
         .collect()
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Show)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum OptionStability { Stable, Unstable }
 
 #[derive(Clone, PartialEq, Eq)]

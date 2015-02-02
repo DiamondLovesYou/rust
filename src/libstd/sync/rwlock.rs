@@ -41,7 +41,7 @@ use sys_common::rwlock as sys;
 /// ```
 /// use std::sync::RwLock;
 ///
-/// let lock = RwLock::new(5i);
+/// let lock = RwLock::new(5);
 ///
 /// // many reader locks can be held at once
 /// {
@@ -416,11 +416,11 @@ mod tests {
         static M: uint = 1000;
 
         let (tx, rx) = channel::<()>();
-        for _ in range(0, N) {
+        for _ in 0..N {
             let tx = tx.clone();
             Thread::spawn(move|| {
                 let mut rng = rand::thread_rng();
-                for _ in range(0, M) {
+                for _ in 0..M {
                     if rng.gen_weighted_bool(N) {
                         drop(R.write().unwrap());
                     } else {
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_rw_arc_poison_wr() {
-        let arc = Arc::new(RwLock::new(1i));
+        let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
         let _: Result<uint, _> = Thread::scoped(move|| {
             let _lock = arc2.write().unwrap();
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_rw_arc_poison_ww() {
-        let arc = Arc::new(RwLock::new(1i));
+        let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
         let _: Result<uint, _> = Thread::scoped(move|| {
             let _lock = arc2.write().unwrap();
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_rw_arc_no_poison_rr() {
-        let arc = Arc::new(RwLock::new(1i));
+        let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
         let _: Result<uint, _> = Thread::scoped(move|| {
             let _lock = arc2.read().unwrap();
@@ -470,7 +470,7 @@ mod tests {
     }
     #[test]
     fn test_rw_arc_no_poison_rw() {
-        let arc = Arc::new(RwLock::new(1i));
+        let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
         let _: Result<uint, _> = Thread::scoped(move|| {
             let _lock = arc2.read().unwrap();
@@ -482,13 +482,13 @@ mod tests {
 
     #[test]
     fn test_rw_arc() {
-        let arc = Arc::new(RwLock::new(0i));
+        let arc = Arc::new(RwLock::new(0));
         let arc2 = arc.clone();
         let (tx, rx) = channel();
 
         Thread::spawn(move|| {
             let mut lock = arc2.write().unwrap();
-            for _ in range(0u, 10) {
+            for _ in 0u..10 {
                 let tmp = *lock;
                 *lock = -1;
                 Thread::yield_now();
@@ -499,7 +499,7 @@ mod tests {
 
         // Readers try to catch the writer in the act
         let mut children = Vec::new();
-        for _ in range(0u, 5) {
+        for _ in 0u..5 {
             let arc3 = arc.clone();
             children.push(Thread::scoped(move|| {
                 let lock = arc3.read().unwrap();
@@ -520,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_rw_arc_access_in_unwind() {
-        let arc = Arc::new(RwLock::new(1i));
+        let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
         let _ = Thread::scoped(move|| -> () {
             struct Unwinder {
