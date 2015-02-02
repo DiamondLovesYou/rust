@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,13 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// aux-build:coherence-lib.rs
+// Test that we are able to infer a suitable kind for this closure
+// that is just called (`FnMut`).
 
-extern crate "coherence-lib" as lib;
-use lib::Remote1;
+use std::mem;
 
-pub struct BigInt;
-
-impl Remote1<BigInt> for Vec<isize> { } //~ ERROR E0117
-
-fn main() { }
+fn main() {
+    let mut counter: Vec<i32> = Vec::new();
+    let tick = || mem::drop(counter);
+    tick();
+    tick(); //~ ERROR use of moved value: `tick`
+}
