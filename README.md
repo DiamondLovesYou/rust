@@ -34,7 +34,7 @@ I may offer nightly downloads, however that isn't finished yet.
     * `pepper_39` or newer from the [NaCl SDK](https://developer.chrome.com/native-client).
 2. Download and build Rust:
 
-    Or to build from the [repo] do:
+    Currently, this fork don't offer prebuilt nightlies, so one has to build from source:
 
         $ git clone https://github.com/DiamondLovesYou/rust.git
         $ cd rust
