@@ -279,7 +279,7 @@ pub fn trait_ref_for_builtin_bound<'tcx>(
             }))
         }
         Err(e) => {
-            tcx.sess.err(e.as_slice());
+            tcx.sess.err(&e);
             Err(ErrorReported)
         }
     }
@@ -343,7 +343,7 @@ pub fn get_vtable_index_of_object_method<'tcx>(tcx: &ty::ctxt<'tcx>,
         }
 
         let trait_items = ty::trait_items(tcx, bound_ref.def_id());
-        for trait_item in trait_items.iter() {
+        for trait_item in &**trait_items {
             match *trait_item {
                 ty::MethodTraitItem(_) => method_count += 1,
                 ty::TypeTraitItem(_) => {}

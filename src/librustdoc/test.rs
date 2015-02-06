@@ -13,7 +13,7 @@ use std::sync::mpsc::channel;
 use std::dynamic_lib::DynamicLibrary;
 use std::old_io::{Command, TempDir};
 use std::old_io;
-use std::os;
+use std::env;
 use std::str;
 use std::thread::Thread;
 use std::thunk::Thunk;
@@ -49,7 +49,7 @@ pub fn run(input: &str,
     let input = config::Input::File(input_path.clone());
 
     let sessopts = config::Options {
-        maybe_sysroot: Some(os::self_exe_path().unwrap().dir_path()),
+        maybe_sysroot: Some(env::current_exe().unwrap().dir_path().dir_path()),
         search_paths: libs.clone(),
         crate_types: vec!(config::CrateTypeDylib),
         externs: externs.clone(),
@@ -68,7 +68,7 @@ pub fn run(input: &str,
 
     let mut cfg = config::build_configuration(&sess);
     cfg.extend(cfgs.into_iter().map(|cfg_| {
-        let cfg_ = token::intern_and_get_ident(cfg_.as_slice());
+        let cfg_ = token::intern_and_get_ident(&cfg_);
         P(dummy_spanned(ast::MetaWord(cfg_)))
     }));
     let krate = driver::phase_1_parse_input(&sess, cfg, &input);
@@ -105,7 +105,7 @@ pub fn run(input: &str,
 
     test_args.insert(0, "rustdoctest".to_string());
 
-    testing::test_main(test_args.as_slice(),
+    testing::test_main(&test_args,
                        collector.tests.into_iter().collect());
     0
 }
@@ -119,7 +119,7 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
     let input = config::Input::Str(test.to_string());
 
     let sessopts = config::Options {
-        maybe_sysroot: Some(os::self_exe_path().unwrap().dir_path()),
+        maybe_sysroot: Some(env::current_exe().unwrap().dir_path().dir_path()),
         search_paths: libs,
         crate_types: vec!(config::CrateTypeExecutable),
         output_types: vec!(config::OutputTypeExe),
@@ -148,7 +148,7 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
     let w1 = old_io::ChanWriter::new(tx);
     let w2 = w1.clone();
     let old = old_io::stdio::set_stderr(box w1);
-    Thread::spawn(move |:| {
+    Thread::spawn(move || {
         let mut p = old_io::ChanReader::new(rx);
         let mut err = match old {
             Some(old) => {
@@ -194,9 +194,9 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
     let newpath = {
         let mut path = DynamicLibrary::search_path();
         path.insert(0, libdir.clone());
-        DynamicLibrary::create_path(path.as_slice())
+        DynamicLibrary::create_path(&path)
     };
-    cmd.env(DynamicLibrary::envvar(), newpath.as_slice());
+    cmd.env(DynamicLibrary::envvar(), newpath);
 
     match cmd.output() {
         Err(e) => panic!("couldn't run the test: {}{}", e,
@@ -208,7 +208,7 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
                 panic!("test executable succeeded when it should have failed");
             } else if !should_fail && !out.status.success() {
                 panic!("test executable failed:\n{:?}",
-                      str::from_utf8(out.error.as_slice()));
+                      str::from_utf8(&out.error));
             }
         }
     }
@@ -228,8 +228,8 @@ pub fn maketest(s: &str, cratename: Option<&str>, lints: bool, dont_insert_main:
         match cratename {
             Some(cratename) => {
                 if s.contains(cratename) {
-                    prog.push_str(format!("extern crate {};\n",
-                                          cratename).as_slice());
+                    prog.push_str(&format!("extern crate {};\n",
+                                           cratename));
                 }
             }
             None => {}
@@ -239,7 +239,7 @@ pub fn maketest(s: &str, cratename: Option<&str>, lints: bool, dont_insert_main:
         prog.push_str(s);
     } else {
         prog.push_str("fn main() {\n    ");
-        prog.push_str(s.replace("\n", "\n    ").as_slice());
+        prog.push_str(&s.replace("\n", "\n    "));
         prog.push_str("\n}");
     }
 
@@ -275,7 +275,7 @@ impl Collector {
     pub fn add_test(&mut self, test: String,
                     should_fail: bool, no_run: bool, should_ignore: bool, as_test_harness: bool) {
         let name = if self.use_headers {
-            let s = self.current_header.as_ref().map(|s| s.as_slice()).unwrap_or("");
+            let s = self.current_header.as_ref().map(|s| &**s).unwrap_or("");
             format!("{}_{}", s, self.cnt)
         } else {
             format!("{}_{}", self.names.connect("::"), self.cnt)
@@ -292,8 +292,8 @@ impl Collector {
                 should_fail: testing::ShouldFail::No, // compiler failures are test failures
             },
             testfn: testing::DynTestFn(Thunk::new(move|| {
-                runtest(test.as_slice(),
-                        cratename.as_slice(),
+                runtest(&test,
+                        &cratename,
                         libs,
                         externs,
                         should_fail,

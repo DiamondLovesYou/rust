@@ -28,6 +28,10 @@
 #![feature(staged_api)]
 #![staged_api]
 #![feature(core)]
+#![deprecated(reason = "use the crates.io `rand` library instead",
+              since = "1.0.0-alpha")]
+
+#![allow(deprecated)]
 
 #[macro_use]
 extern crate core;
@@ -154,7 +158,7 @@ pub trait Rng : Sized {
         // optimisations are on.
         let mut count = 0;
         let mut num = 0;
-        for byte in dest.iter_mut() {
+        for byte in dest {
             if count == 0 {
                 // we could micro-optimise here by generating a u32 if
                 // we only need a few more bytes to fill the vector
@@ -222,7 +226,7 @@ pub trait Rng : Sized {
     /// use std::rand::{thread_rng, Rng};
     ///
     /// let mut rng = thread_rng();
-    /// let n: uint = rng.gen_range(0u, 10);
+    /// let n: uint = rng.gen_range(0, 10);
     /// println!("{}", n);
     /// let m: f64 = rng.gen_range(-40.0f64, 1.3e5f64);
     /// println!("{}", m);
@@ -278,7 +282,7 @@ pub trait Rng : Sized {
         if values.is_empty() {
             None
         } else {
-            Some(&values[self.gen_range(0u, values.len())])
+            Some(&values[self.gen_range(0, values.len())])
         }
     }
 
@@ -298,11 +302,11 @@ pub trait Rng : Sized {
     /// ```
     fn shuffle<T>(&mut self, values: &mut [T]) {
         let mut i = values.len();
-        while i >= 2u {
+        while i >= 2 {
             // invariant: elements with index >= i have been locked in place.
-            i -= 1u;
+            i -= 1;
             // lock element i in place.
-            values.swap(i, self.gen_range(0u, i + 1u));
+            values.swap(i, self.gen_range(0, i + 1));
         }
     }
 }
@@ -500,6 +504,7 @@ mod std {
     pub use core::marker;
     // for-loops
     pub use core::iter;
+    pub use core::ops; // slicing syntax
 }
 
 #[cfg(test)]

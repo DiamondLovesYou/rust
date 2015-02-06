@@ -478,7 +478,7 @@ impl<'a> DoubleEndedIterator for CharIndices<'a> {
 /// Created with `StrExt::bytes`
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(Clone)]
-pub struct Bytes<'a>(Map<&'a u8, u8, slice::Iter<'a, u8>, BytesDeref>);
+pub struct Bytes<'a>(Map<slice::Iter<'a, u8>, BytesDeref>);
 delegate_iter!{exact u8 : Bytes<'a>}
 
 /// A temporary fn new type that ensures that the `Bytes` iterator
@@ -526,7 +526,7 @@ pub struct Lines<'a> {
 /// An iterator over the lines of a string, separated by either `\n` or (`\r\n`).
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct LinesAny<'a> {
-    inner: Map<&'a str, &'a str, Lines<'a>, fn(&str) -> &str>,
+    inner: Map<Lines<'a>, fn(&str) -> &str>,
 }
 
 impl<'a, Sep> CharSplits<'a, Sep> {
@@ -1266,16 +1266,6 @@ mod traits {
         }
     }
 
-    #[cfg(stage0)]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    impl ops::Index<ops::FullRange> for str {
-        type Output = str;
-        #[inline]
-        fn index(&self, _index: &ops::FullRange) -> &str {
-            self
-        }
-    }
-    #[cfg(not(stage0))]
     #[stable(feature = "rust1", since = "1.0.0")]
     impl ops::Index<ops::RangeFull> for str {
         type Output = str;
@@ -1528,11 +1518,11 @@ impl StrExt for str {
 
     #[inline]
     fn trim_matches<P: CharEq>(&self, mut pat: P) -> &str {
-        let cur = match self.find(|&mut: c: char| !pat.matches(c)) {
+        let cur = match self.find(|c: char| !pat.matches(c)) {
             None => "",
             Some(i) => unsafe { self.slice_unchecked(i, self.len()) }
         };
-        match cur.rfind(|&mut: c: char| !pat.matches(c)) {
+        match cur.rfind(|c: char| !pat.matches(c)) {
             None => "",
             Some(i) => {
                 let right = cur.char_range_at(i).next;
@@ -1543,7 +1533,7 @@ impl StrExt for str {
 
     #[inline]
     fn trim_left_matches<P: CharEq>(&self, mut pat: P) -> &str {
-        match self.find(|&mut: c: char| !pat.matches(c)) {
+        match self.find(|c: char| !pat.matches(c)) {
             None => "",
             Some(first) => unsafe { self.slice_unchecked(first, self.len()) }
         }
@@ -1551,7 +1541,7 @@ impl StrExt for str {
 
     #[inline]
     fn trim_right_matches<P: CharEq>(&self, mut pat: P) -> &str {
-        match self.rfind(|&mut: c: char| !pat.matches(c)) {
+        match self.rfind(|c: char| !pat.matches(c)) {
             None => "",
             Some(last) => {
                 let next = self.char_range_at(last).next;

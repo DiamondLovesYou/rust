@@ -40,7 +40,7 @@ fn read_u32_be(input: &[u8]) -> u32 {
 /// Read a vector of bytes into a vector of u32s. The values are read in big-endian format.
 fn read_u32v_be(dst: &mut[u32], input: &[u8]) {
     assert!(dst.len() * 4 == input.len());
-    let mut pos = 0u;
+    let mut pos = 0;
     for chunk in input.chunks(4) {
         dst[pos] = read_u32_be(chunk);
         pos += 1;
@@ -259,7 +259,7 @@ pub trait Digest {
     /// newly allocated vec of bytes.
     fn result_bytes(&mut self) -> Vec<u8> {
         let mut buf: Vec<u8> = repeat(0u8).take((self.output_bits()+7)/8).collect();
-        self.result(buf.as_mut_slice());
+        self.result(&mut buf);
         buf
     }
 
@@ -366,7 +366,7 @@ impl Engine256State {
 
         // Putting the message schedule inside the same loop as the round calculations allows for
         // the compiler to generate better code.
-        for t in range_step(0u, 48, 8) {
+        for t in range_step(0, 48, 8) {
             schedule_round!(t + 16);
             schedule_round!(t + 17);
             schedule_round!(t + 18);
@@ -386,7 +386,7 @@ impl Engine256State {
             sha2_round!(b, c, d, e, f, g, h, a, K32, t + 7);
         }
 
-        for t in range_step(48u, 64, 8) {
+        for t in range_step(48, 64, 8) {
             sha2_round!(a, b, c, d, e, f, g, h, K32, t);
             sha2_round!(h, a, b, c, d, e, f, g, K32, t + 1);
             sha2_round!(g, h, a, b, c, d, e, f, K32, t + 2);
@@ -528,6 +528,7 @@ static H256: [u32; 8] = [
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
     extern crate rand;
 
     use self::rand::Rng;
@@ -557,20 +558,20 @@ mod tests {
 
     fn test_hash<D: Digest>(sh: &mut D, tests: &[Test]) {
         // Test that it works when accepting the message all at once
-        for t in tests.iter() {
+        for t in tests {
             sh.reset();
-            sh.input_str(t.input.as_slice());
+            sh.input_str(&t.input);
             let out_str = sh.result_str();
             assert!(out_str == t.output_str);
         }
 
         // Test that it works when accepting the message in pieces
-        for t in tests.iter() {
+        for t in tests {
             sh.reset();
             let len = t.input.len();
             let mut left = len;
-            while left > 0u {
-                let take = (left + 1u) / 2u;
+            while left > 0 {
+                let take = (left + 1) / 2;
                 sh.input_str(&t.input[len - left..take + len - left]);
                 left = left - take;
             }
@@ -605,7 +606,7 @@ mod tests {
 
         let mut sh = box Sha256::new();
 
-        test_hash(&mut *sh, tests.as_slice());
+        test_hash(&mut *sh, &tests);
     }
 
     /// Feed 1,000,000 'a's into the digest with varying input sizes and check that the result is
@@ -629,7 +630,7 @@ mod tests {
         let result_str = digest.result_str();
         let result_bytes = digest.result_bytes();
 
-        assert_eq!(expected, result_str.as_slice());
+        assert_eq!(expected, result_str);
 
         let expected_vec: Vec<u8> = expected.from_hex()
                                             .unwrap()

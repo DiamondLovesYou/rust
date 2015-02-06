@@ -120,7 +120,7 @@ impl LanguageItems {
             (self.fn_once_trait(), ty::FnOnceClosureKind),
             ];
 
-        for &(opt_def_id, kind) in def_id_kinds.iter() {
+        for &(opt_def_id, kind) in &def_id_kinds {
             if Some(id) == opt_def_id {
                 return Some(kind);
             }
@@ -147,7 +147,7 @@ struct LanguageItemCollector<'a> {
 
 impl<'a, 'v> Visitor<'v> for LanguageItemCollector<'a> {
     fn visit_item(&mut self, item: &ast::Item) {
-        match extract(item.attrs.as_slice()) {
+        match extract(&item.attrs) {
             Some(value) => {
                 let item_index = self.item_refs.get(value.get()).map(|x| *x);
 
@@ -217,7 +217,7 @@ impl<'a> LanguageItemCollector<'a> {
 }
 
 pub fn extract(attrs: &[ast::Attribute]) -> Option<InternedString> {
-    for attribute in attrs.iter() {
+    for attribute in attrs {
         match attribute.value_str() {
             Some(ref value) if attribute.check_name("lang") => {
                 return Some(value.clone());

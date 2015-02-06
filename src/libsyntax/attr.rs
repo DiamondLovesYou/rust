@@ -338,7 +338,7 @@ pub fn cfg_matches(diagnostic: &SpanHandler, cfgs: &[P<MetaItem>], cfg: &ast::Me
             !cfg_matches(diagnostic, cfgs, &*mis[0])
         }
         ast::MetaList(ref pred, _) => {
-            diagnostic.span_err(cfg.span, format!("invalid predicate `{}`", pred).as_slice());
+            diagnostic.span_err(cfg.span, &format!("invalid predicate `{}`", pred));
             false
         },
         ast::MetaWord(_) | ast::MetaNameValue(..) => contains(cfgs, cfg),
@@ -373,7 +373,7 @@ impl fmt::Display for StabilityLevel {
 fn find_stability_generic<'a,
                               AM: AttrMetaMethods,
                               I: Iterator<Item=&'a AM>>
-                             (diagnostic: &SpanHandler, mut attrs: I, item_sp: Span)
+                             (diagnostic: &SpanHandler, attrs: I, item_sp: Span)
                              -> (Option<Stability>, Vec<&'a AM>) {
 
     let mut stab: Option<Stability> = None;
@@ -394,7 +394,7 @@ fn find_stability_generic<'a,
                 let mut feature = None;
                 let mut since = None;
                 let mut reason = None;
-                for meta in metas.iter() {
+                for meta in metas {
                     if meta.name().get() == "feature" {
                         match meta.value_str() {
                             Some(v) => feature = Some(v),
@@ -490,13 +490,13 @@ fn find_stability_generic<'a,
 pub fn find_stability(diagnostic: &SpanHandler, attrs: &[Attribute],
                       item_sp: Span) -> Option<Stability> {
     let (s, used) = find_stability_generic(diagnostic, attrs.iter(), item_sp);
-    for used in used.into_iter() { mark_used(used) }
+    for used in used { mark_used(used) }
     return s;
 }
 
 pub fn require_unique_names(diagnostic: &SpanHandler, metas: &[P<MetaItem>]) {
     let mut set = HashSet::new();
-    for meta in metas.iter() {
+    for meta in metas {
         let name = meta.name();
 
         if !set.insert(name.clone()) {
@@ -518,7 +518,7 @@ pub fn find_repr_attrs(diagnostic: &SpanHandler, attr: &Attribute) -> Vec<ReprAt
     match attr.node.value.node {
         ast::MetaList(ref s, ref items) if *s == "repr" => {
             mark_used(attr);
-            for item in items.iter() {
+            for item in items {
                 match item.node {
                     ast::MetaWord(ref word) => {
                         let hint = match word.get() {

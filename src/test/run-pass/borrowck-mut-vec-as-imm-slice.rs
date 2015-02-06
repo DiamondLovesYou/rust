@@ -11,12 +11,12 @@
 
 fn want_slice(v: &[int]) -> int {
     let mut sum = 0;
-    for i in v.iter() { sum += *i; }
+    for i in v { sum += *i; }
     sum
 }
 
 fn has_mut_vec(v: Vec<int> ) -> int {
-    want_slice(v.as_slice())
+    want_slice(&v)
 }
 
 pub fn main() {

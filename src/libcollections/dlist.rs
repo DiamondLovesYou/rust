@@ -856,7 +856,7 @@ impl<'a, T> IntoIterator for &'a mut DList<T> {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<A> Extend<A> for DList<A> {
-    fn extend<T: Iterator<Item=A>>(&mut self, mut iterator: T) {
+    fn extend<T: Iterator<Item=A>>(&mut self, iterator: T) {
         for elt in iterator { self.push_back(elt); }
     }
 }
@@ -917,7 +917,7 @@ impl<A: fmt::Debug> fmt::Debug for DList<A> {
 impl<S: Writer + Hasher, A: Hash<S>> Hash<S> for DList<A> {
     fn hash(&self, state: &mut S) {
         self.len().hash(state);
-        for elt in self.iter() {
+        for elt in self {
             elt.hash(state);
         }
     }
@@ -1054,14 +1054,14 @@ mod tests {
         // Non-empty to non-empty
         let v = vec![1,2,3,4,5];
         let u = vec![9,8,1,2,3,4,5];
-        let mut m = list_from(v.as_slice());
-        let mut n = list_from(u.as_slice());
+        let mut m = list_from(&v);
+        let mut n = list_from(&u);
         m.append(&mut n);
         check_links(&m);
         let mut sum = v;
-        sum.push_all(u.as_slice());
+        sum.push_all(&u);
         assert_eq!(sum.len(), m.len());
-        for elt in sum.into_iter() {
+        for elt in sum {
             assert_eq!(m.pop_front(), Some(elt))
         }
         assert_eq!(n.len(), 0);
@@ -1090,7 +1090,7 @@ mod tests {
         // not singleton, forwards
         {
             let u = vec![1,2,3,4,5];
-            let mut m = list_from(u.as_slice());
+            let mut m = list_from(&u);
             let mut n = m.split_off(2);
             assert_eq!(m.len(), 2);
             assert_eq!(n.len(), 3);
@@ -1104,7 +1104,7 @@ mod tests {
         // not singleton, backwards
         {
             let u = vec![1,2,3,4,5];
-            let mut m = list_from(u.as_slice());
+            let mut m = list_from(&u);
             let mut n = m.split_off(4);
             assert_eq!(m.len(), 4);
             assert_eq!(n.len(), 1);

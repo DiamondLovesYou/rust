@@ -352,7 +352,7 @@ pub fn trans_native_call<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     }
 
     arg_idx += 1;
-    for arg_ty in fn_type.arg_tys.iter() {
+    for arg_ty in &fn_type.arg_tys {
         if arg_ty.is_ignore() {
             continue;
         }
@@ -431,7 +431,7 @@ pub fn trans_native_call<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 // ABIs are handled at all correctly.
 fn gate_simd_ffi(tcx: &ty::ctxt, decl: &ast::FnDecl, ty: &ty::BareFnTy) {
     if !tcx.sess.features.borrow().simd_ffi {
-        let check = |&: ast_ty: &ast::Ty, ty: ty::Ty| {
+        let check = |ast_ty: &ast::Ty, ty: ty::Ty| {
             if ty::type_is_simd(tcx, ty) {
                 tcx.sess.span_err(ast_ty.span,
                               &format!("use of SIMD type `{}` in FFI is highly experimental and \
@@ -453,7 +453,7 @@ fn gate_simd_ffi(tcx: &ty::ctxt, decl: &ast::FnDecl, ty: &ty::BareFnTy) {
 
 pub fn trans_foreign_mod(ccx: &CrateContext, foreign_mod: &ast::ForeignMod) {
     let _icx = push_ctxt("foreign::trans_foreign_mod");
-    for foreign_item in foreign_mod.items.iter() {
+    for foreign_item in &foreign_mod.items {
         let lname = link_name(&**foreign_item);
 
         if let ast::ForeignItemFn(ref decl, _) = foreign_item.node {
@@ -649,7 +649,7 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         // Array for the arguments we will pass to the rust function.
         let mut llrust_args = Vec::new();
         let mut next_foreign_arg_counter: c_uint = 0;
-        let mut next_foreign_arg = |&mut : pad: bool| -> c_uint {
+        let mut next_foreign_arg = |pad: bool| -> c_uint {
             next_foreign_arg_counter += if pad {
                 2
             } else {
@@ -788,7 +788,7 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         debug!("calling llrustfn = {}, t = {}",
                ccx.tn().val_to_string(llrustfn), t.repr(ccx.tcx()));
         let attributes = base::get_fn_llvm_attributes(ccx, t);
-        let llrust_ret_val = builder.call(llrustfn, llrust_args.as_slice(), Some(attributes));
+        let llrust_ret_val = builder.call(llrustfn, &llrust_args, Some(attributes));
 
         // Get the return value where the foreign fn expects it.
         let llforeign_ret_ty = match tys.fn_ty.ret_ty.cast {
@@ -898,7 +898,7 @@ fn foreign_types_for_fn_ty<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         _ => ccx.sess().bug("foreign_types_for_fn_ty called on non-function type")
     };
     let fn_sig = ty::erase_late_bound_regions(ccx.tcx(), fn_sig);
-    let llsig = foreign_signature(ccx, &fn_sig, fn_sig.inputs.as_slice());
+    let llsig = foreign_signature(ccx, &fn_sig, &fn_sig.inputs);
     let fn_ty = cabi::compute_abi_info(ccx,
                                        &llsig.llarg_tys[],
                                        llsig.llret_ty,
@@ -911,7 +911,7 @@ fn foreign_types_for_fn_ty<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
            ty.repr(ccx.tcx()),
            ccx.tn().types_to_str(&llsig.llarg_tys[]),
            ccx.tn().type_to_string(llsig.llret_ty),
-           ccx.tn().types_to_str(fn_ty.arg_tys.iter().map(|t| t.ty).collect::<Vec<_>>().as_slice()),
+           ccx.tn().types_to_str(&fn_ty.arg_tys.iter().map(|t| t.ty).collect::<Vec<_>>()),
            ccx.tn().type_to_string(fn_ty.ret_ty.ty),
            llsig.ret_def);
 
@@ -936,7 +936,7 @@ fn lltype_for_fn_from_foreign_types(ccx: &CrateContext, tys: &ForeignTypes) -> T
         }
     };
 
-    for &arg_ty in tys.fn_ty.arg_tys.iter() {
+    for &arg_ty in &tys.fn_ty.arg_tys {
         if arg_ty.is_ignore() {
             continue;
         }
@@ -959,7 +959,7 @@ fn lltype_for_fn_from_foreign_types(ccx: &CrateContext, tys: &ForeignTypes) -> T
     }
 
     if tys.fn_sig.variadic {
-        Type::variadic_func(llargument_tys.as_slice(), &llreturn_ty)
+        Type::variadic_func(&llargument_tys, &llreturn_ty)
     } else {
         Type::func(&llargument_tys[], &llreturn_ty)
     }
@@ -987,7 +987,7 @@ fn add_argument_attributes(tys: &ForeignTypes,
 
     i += 1;
 
-    for &arg_ty in tys.fn_ty.arg_tys.iter() {
+    for &arg_ty in &tys.fn_ty.arg_tys {
         if arg_ty.is_ignore() {
             continue;
         }

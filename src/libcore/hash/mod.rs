@@ -123,7 +123,7 @@ macro_rules! impl_hash {
                 let a: [u8; ::$ty::BYTES] = unsafe {
                     mem::transmute((*self as $uty).to_le() as $ty)
                 };
-                state.write(a.as_slice())
+                state.write(&a)
             }
         }
     }
@@ -205,7 +205,7 @@ impl<S: Writer + Hasher, T: Hash<S>> Hash<S> for [T] {
     #[inline]
     fn hash(&self, state: &mut S) {
         self.len().hash(state);
-        for elt in self.iter() {
+        for elt in self {
             elt.hash(state);
         }
     }

@@ -51,7 +51,7 @@ fn runtest(me: &str) {
     let p = template.clone().arg("fail").env("RUST_BACKTRACE", "1").spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
-    let s = str::from_utf8(out.error.as_slice()).unwrap();
+    let s = str::from_utf8(&out.error).unwrap();
     assert!(s.contains("stack backtrace") && s.contains("foo::h"),
             "bad output: {}", s);
 
@@ -59,7 +59,7 @@ fn runtest(me: &str) {
     let p = template.clone().arg("fail").spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
-    let s = str::from_utf8(out.error.as_slice()).unwrap();
+    let s = str::from_utf8(&out.error).unwrap();
     assert!(!s.contains("stack backtrace") && !s.contains("foo::h"),
             "bad output2: {}", s);
 
@@ -67,7 +67,7 @@ fn runtest(me: &str) {
     let p = template.clone().arg("double-fail").spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
-    let s = str::from_utf8(out.error.as_slice()).unwrap();
+    let s = str::from_utf8(&out.error).unwrap();
     // loosened the following from double::h to double:: due to
     // spurious failures on mac, 32bit, optimized
     assert!(s.contains("stack backtrace") && s.contains("double::"),
@@ -78,7 +78,7 @@ fn runtest(me: &str) {
                                 .env("RUST_BACKTRACE", "1").spawn().unwrap();
     let out = p.wait_with_output().unwrap();
     assert!(!out.status.success());
-    let s = str::from_utf8(out.error.as_slice()).unwrap();
+    let s = str::from_utf8(&out.error).unwrap();
     let mut i = 0;
     for _ in 0..2 {
         i += s[i + 10..].find_str("stack backtrace").unwrap() + 10;
@@ -89,12 +89,12 @@ fn runtest(me: &str) {
 
 fn main() {
     let args = os::args();
-    let args = args.as_slice();
-    if args.len() >= 2 && args[1].as_slice() == "fail" {
+    let args = args;
+    if args.len() >= 2 && args[1] == "fail" {
         foo();
-    } else if args.len() >= 2 && args[1].as_slice() == "double-fail" {
+    } else if args.len() >= 2 && args[1] == "double-fail" {
         double();
     } else {
-        runtest(args[0].as_slice());
+        runtest(&args[0]);
     }
 }

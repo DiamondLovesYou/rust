@@ -61,11 +61,6 @@ use core::clone::Clone;
 use core::iter::AdditiveIterator;
 use core::iter::{Iterator, IteratorExt};
 use core::ops::Index;
-#[cfg(stage0)]
-use core::ops::FullRange as RangeFull;
-#[cfg(stage0)]
-use core::ops::FullRange;
-#[cfg(not(stage0))]
 use core::ops::RangeFull;
 use core::option::Option::{self, Some, None};
 use core::result::Result;
@@ -104,7 +99,7 @@ impl<S: Str> SliceConcatExt<str, String> for [S] {
         let len = s.iter().map(|s| s.as_slice().len()).sum();
         let mut result = String::with_capacity(len);
 
-        for s in s.iter() {
+        for s in s {
             result.push_str(s.as_slice())
         }
 
@@ -130,7 +125,7 @@ impl<S: Str> SliceConcatExt<str, String> for [S] {
         let mut result = String::with_capacity(len);
         let mut first = true;
 
-        for s in s.iter() {
+        for s in s {
             if first {
                 first = false;
             } else {
@@ -204,11 +199,11 @@ impl<'a> Iterator for Decompositions<'a> {
                 let buffer = &mut self.buffer;
                 let sorted = &mut self.sorted;
                 {
-                    let callback = |&mut: d| {
+                    let callback = |d| {
                         let class =
                             unicode::char::canonical_combining_class(d);
                         if class == 0 && !*sorted {
-                            canonical_sort(buffer.as_mut_slice());
+                            canonical_sort(buffer);
                             *sorted = true;
                         }
                         buffer.push((d, class));
@@ -229,7 +224,7 @@ impl<'a> Iterator for Decompositions<'a> {
         }
 
         if !self.sorted {
-            canonical_sort(self.buffer.as_mut_slice());
+            canonical_sort(&mut self.buffer);
             self.sorted = true;
         }
 
@@ -597,7 +592,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// let v: Vec<&str> = "Mary had a little lamb".split(' ').collect();
     /// assert_eq!(v, vec!["Mary", "had", "a", "little", "lamb"]);
     ///
-    /// let v: Vec<&str> = "abc1def2ghi".split(|&: c: char| c.is_numeric()).collect();
+    /// let v: Vec<&str> = "abc1def2ghi".split(|c: char| c.is_numeric()).collect();
     /// assert_eq!(v, vec!["abc", "def", "ghi"]);
     ///
     /// let v: Vec<&str> = "lionXXtigerXleopard".split('X').collect();
@@ -621,7 +616,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// let v: Vec<&str> = "Mary had a little lambda".splitn(2, ' ').collect();
     /// assert_eq!(v, vec!["Mary", "had", "a little lambda"]);
     ///
-    /// let v: Vec<&str> = "abc1def2ghi".splitn(1, |&: c: char| c.is_numeric()).collect();
+    /// let v: Vec<&str> = "abc1def2ghi".splitn(1, |c: char| c.is_numeric()).collect();
     /// assert_eq!(v, vec!["abc", "def2ghi"]);
     ///
     /// let v: Vec<&str> = "lionXXtigerXleopard".splitn(2, 'X').collect();
@@ -656,7 +651,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// let v: Vec<&str> = "Mary had a little lamb".split(' ').rev().collect();
     /// assert_eq!(v, vec!["lamb", "little", "a", "had", "Mary"]);
     ///
-    /// let v: Vec<&str> = "abc1def2ghi".split(|&: c: char| c.is_numeric()).rev().collect();
+    /// let v: Vec<&str> = "abc1def2ghi".split(|c: char| c.is_numeric()).rev().collect();
     /// assert_eq!(v, vec!["ghi", "def", "abc"]);
     ///
     /// let v: Vec<&str> = "lionXXtigerXleopard".split('X').rev().collect();
@@ -677,7 +672,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// let v: Vec<&str> = "Mary had a little lamb".rsplitn(2, ' ').collect();
     /// assert_eq!(v, vec!["lamb", "little", "Mary had a"]);
     ///
-    /// let v: Vec<&str> = "abc1def2ghi".rsplitn(1, |&: c: char| c.is_numeric()).collect();
+    /// let v: Vec<&str> = "abc1def2ghi".rsplitn(1, |c: char| c.is_numeric()).collect();
     /// assert_eq!(v, vec!["ghi", "abc1def"]);
     ///
     /// let v: Vec<&str> = "lionXXtigerXleopard".rsplitn(2, 'X').collect();
@@ -858,7 +853,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// assert_eq!("11foo1bar11".trim_matches('1'), "foo1bar");
     /// let x: &[_] = &['1', '2'];
     /// assert_eq!("12foo1bar12".trim_matches(x), "foo1bar");
-    /// assert_eq!("123foo1bar123".trim_matches(|&: c: char| c.is_numeric()), "foo1bar");
+    /// assert_eq!("123foo1bar123".trim_matches(|c: char| c.is_numeric()), "foo1bar");
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     fn trim_matches<P: CharEq>(&self, pat: P) -> &str {
@@ -878,7 +873,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// assert_eq!("11foo1bar11".trim_left_matches('1'), "foo1bar11");
     /// let x: &[_] = &['1', '2'];
     /// assert_eq!("12foo1bar12".trim_left_matches(x), "foo1bar12");
-    /// assert_eq!("123foo1bar123".trim_left_matches(|&: c: char| c.is_numeric()), "foo1bar123");
+    /// assert_eq!("123foo1bar123".trim_left_matches(|c: char| c.is_numeric()), "foo1bar123");
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     fn trim_left_matches<P: CharEq>(&self, pat: P) -> &str {
@@ -898,7 +893,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// assert_eq!("11foo1bar11".trim_right_matches('1'), "11foo1bar");
     /// let x: &[_] = &['1', '2'];
     /// assert_eq!("12foo1bar12".trim_right_matches(x), "12foo1bar");
-    /// assert_eq!("123foo1bar123".trim_right_matches(|&: c: char| c.is_numeric()), "123foo1bar");
+    /// assert_eq!("123foo1bar123".trim_right_matches(|c: char| c.is_numeric()), "123foo1bar");
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     fn trim_right_matches<P: CharEq>(&self, pat: P) -> &str {
@@ -1071,7 +1066,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// assert_eq!(s.find('é'), Some(14));
     ///
     /// // the first space
-    /// assert_eq!(s.find(|&: c: char| c.is_whitespace()), Some(5));
+    /// assert_eq!(s.find(|c: char| c.is_whitespace()), Some(5));
     ///
     /// // neither are found
     /// let x: &[_] = &['1', '2'];
@@ -1099,7 +1094,7 @@ pub trait StrExt: Index<RangeFull, Output = str> {
     /// assert_eq!(s.rfind('é'), Some(14));
     ///
     /// // the second space
-    /// assert_eq!(s.rfind(|&: c: char| c.is_whitespace()), Some(12));
+    /// assert_eq!(s.rfind(|c: char| c.is_whitespace()), Some(12));
     ///
     /// // searches for an occurrence of either `1` or `2`, but neither are found
     /// let x: &[_] = &['1', '2'];
@@ -1392,21 +1387,21 @@ mod tests {
     #[test]
     fn test_find() {
         assert_eq!("hello".find('l'), Some(2u));
-        assert_eq!("hello".find(|&: c:char| c == 'o'), Some(4u));
+        assert_eq!("hello".find(|c:char| c == 'o'), Some(4u));
         assert!("hello".find('x').is_none());
-        assert!("hello".find(|&: c:char| c == 'x').is_none());
+        assert!("hello".find(|c:char| c == 'x').is_none());
         assert_eq!("ประเทศไทย中华Việt Nam".find('华'), Some(30u));
-        assert_eq!("ประเทศไทย中华Việt Nam".find(|&: c: char| c == '华'), Some(30u));
+        assert_eq!("ประเทศไทย中华Việt Nam".find(|c: char| c == '华'), Some(30u));
     }
 
     #[test]
     fn test_rfind() {
         assert_eq!("hello".rfind('l'), Some(3u));
-        assert_eq!("hello".rfind(|&: c:char| c == 'o'), Some(4u));
+        assert_eq!("hello".rfind(|c:char| c == 'o'), Some(4u));
         assert!("hello".rfind('x').is_none());
-        assert!("hello".rfind(|&: c:char| c == 'x').is_none());
+        assert!("hello".rfind(|c:char| c == 'x').is_none());
         assert_eq!("ประเทศไทย中华Việt Nam".rfind('华'), Some(30u));
-        assert_eq!("ประเทศไทย中华Việt Nam".rfind(|&: c: char| c == '华'), Some(30u));
+        assert_eq!("ประเทศไทย中华Việt Nam".rfind(|c: char| c == '华'), Some(30u));
     }
 
     #[test]
@@ -1485,7 +1480,7 @@ mod tests {
     fn test_concat_for_different_types() {
         test_concat!("ab", vec![s("a"), s("b")]);
         test_concat!("ab", vec!["a", "b"]);
-        test_concat!("ab", vec!["a", "b"].as_slice());
+        test_concat!("ab", vec!["a", "b"]);
         test_concat!("ab", vec![s("a"), s("b")]);
     }
 
@@ -1511,9 +1506,9 @@ mod tests {
     fn test_connect_for_different_types() {
         test_connect!("a-b", ["a", "b"], "-");
         let hyphen = "-".to_string();
-        test_connect!("a-b", [s("a"), s("b")], hyphen.as_slice());
-        test_connect!("a-b", vec!["a", "b"], hyphen.as_slice());
-        test_connect!("a-b", vec!["a", "b"].as_slice(), "-");
+        test_connect!("a-b", [s("a"), s("b")], &*hyphen);
+        test_connect!("a-b", vec!["a", "b"], &*hyphen);
+        test_connect!("a-b", &*vec!["a", "b"], "-");
         test_connect!("a-b", vec![s("a"), s("b")], "-");
     }
 
@@ -1728,7 +1723,7 @@ mod tests {
         assert_eq!("11foo1bar11".trim_left_matches('1'), "foo1bar11");
         let chars: &[char] = &['1', '2'];
         assert_eq!("12foo1bar12".trim_left_matches(chars), "foo1bar12");
-        assert_eq!("123foo1bar123".trim_left_matches(|&: c: char| c.is_numeric()), "foo1bar123");
+        assert_eq!("123foo1bar123".trim_left_matches(|c: char| c.is_numeric()), "foo1bar123");
     }
 
     #[test]
@@ -1743,7 +1738,7 @@ mod tests {
         assert_eq!("11foo1bar11".trim_right_matches('1'), "11foo1bar");
         let chars: &[char] = &['1', '2'];
         assert_eq!("12foo1bar12".trim_right_matches(chars), "12foo1bar");
-        assert_eq!("123foo1bar123".trim_right_matches(|&: c: char| c.is_numeric()), "123foo1bar");
+        assert_eq!("123foo1bar123".trim_right_matches(|c: char| c.is_numeric()), "123foo1bar");
     }
 
     #[test]
@@ -1758,7 +1753,7 @@ mod tests {
         assert_eq!("11foo1bar11".trim_matches('1'), "foo1bar");
         let chars: &[char] = &['1', '2'];
         assert_eq!("12foo1bar12".trim_matches(chars), "foo1bar");
-        assert_eq!("123foo1bar123".trim_matches(|&: c: char| c.is_numeric()), "foo1bar");
+        assert_eq!("123foo1bar123".trim_matches(|c: char| c.is_numeric()), "foo1bar");
     }
 
     #[test]
@@ -1965,7 +1960,7 @@ mod tests {
         let s1: String = String::from_str("All mimsy were the borogoves");
 
         let v: Vec<u8> = s1.as_bytes().to_vec();
-        let s2: String = String::from_str(from_utf8(v.as_slice()).unwrap());
+        let s2: String = String::from_str(from_utf8(&v).unwrap());
         let mut i: uint = 0u;
         let n1: uint = s1.len();
         let n2: uint = v.len();
@@ -2010,7 +2005,7 @@ mod tests {
         let s = "ศไทย中华Việt Nam";
         let v = vec!['ศ','ไ','ท','ย','中','华','V','i','ệ','t',' ','N','a','m'];
         let mut pos = 0;
-        for ch in v.iter() {
+        for ch in &v {
             assert!(s.char_at(pos) == *ch);
             pos += ch.to_string().len();
         }
@@ -2227,14 +2222,14 @@ mod tests {
         let split: Vec<&str> = data.splitn(3, ' ').collect();
         assert_eq!(split, vec!["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
 
-        let split: Vec<&str> = data.splitn(3, |&: c: char| c == ' ').collect();
+        let split: Vec<&str> = data.splitn(3, |c: char| c == ' ').collect();
         assert_eq!(split, vec!["\nMäry", "häd", "ä", "little lämb\nLittle lämb\n"]);
 
         // Unicode
         let split: Vec<&str> = data.splitn(3, 'ä').collect();
         assert_eq!(split, vec!["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
 
-        let split: Vec<&str> = data.splitn(3, |&: c: char| c == 'ä').collect();
+        let split: Vec<&str> = data.splitn(3, |c: char| c == 'ä').collect();
         assert_eq!(split, vec!["\nM", "ry h", "d ", " little lämb\nLittle lämb\n"]);
     }
 
@@ -2708,7 +2703,7 @@ mod tests {
             &["\u{378}\u{308}\u{903}"], &["\u{378}\u{308}", "\u{903}"]),
         ];
 
-        for &(s, g) in test_same.iter() {
+        for &(s, g) in &test_same[] {
             // test forward iterator
             assert!(order::equals(s.graphemes(true), g.iter().map(|&x| x)));
             assert!(order::equals(s.graphemes(false), g.iter().map(|&x| x)));
@@ -2718,7 +2713,7 @@ mod tests {
             assert!(order::equals(s.graphemes(false).rev(), g.iter().rev().map(|&x| x)));
         }
 
-        for &(s, gt, gf) in test_diff.iter() {
+        for &(s, gt, gf) in &test_diff {
             // test forward iterator
             assert!(order::equals(s.graphemes(true), gt.iter().map(|&x| x)));
             assert!(order::equals(s.graphemes(false), gf.iter().map(|&x| x)));
@@ -2796,11 +2791,11 @@ mod tests {
 
         let s = String::from_str("01234");
         assert_eq!(5, sum_len(&["012", "", "34"]));
-        assert_eq!(5, sum_len(&[String::from_str("01").as_slice(),
-                                String::from_str("2").as_slice(),
-                                String::from_str("34").as_slice(),
-                                String::from_str("").as_slice()]));
-        assert_eq!(5, sum_len(&[s.as_slice()]));
+        assert_eq!(5, sum_len(&[&String::from_str("01"),
+                                &String::from_str("2"),
+                                &String::from_str("34"),
+                                &String::from_str("")]));
+        assert_eq!(5, sum_len(&[&s]));
     }
 
     #[test]
@@ -2945,7 +2940,7 @@ mod bench {
         let s = "Mary had a little lamb, Little lamb, little-lamb.";
         let len = s.split(' ').count();
 
-        b.iter(|| assert_eq!(s.split(|&: c: char| c == ' ').count(), len));
+        b.iter(|| assert_eq!(s.split(|c: char| c == ' ').count(), len));
     }
 
     #[bench]

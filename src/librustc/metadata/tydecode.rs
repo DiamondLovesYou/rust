@@ -249,7 +249,7 @@ fn parse_vec_per_param_space<'a, 'tcx, T, F>(st: &mut PState<'a, 'tcx>,
     F: FnMut(&mut PState<'a, 'tcx>) -> T,
 {
     let mut r = VecPerParamSpace::empty();
-    for &space in subst::ParamSpace::all().iter() {
+    for &space in &subst::ParamSpace::all() {
         assert_eq!(next(st), '[');
         while peek(st) != ']' {
             r.push(space, f(st));
@@ -555,7 +555,7 @@ fn parse_ty_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F) -> Ty<'tcx> w
       'P' => {
           assert_eq!(next(st), '[');
           let trait_ref = parse_trait_ref_(st, conv);
-          let name = token::intern(parse_str(st, ']').as_slice());
+          let name = token::intern(&parse_str(st, ']'));
           return ty::mk_projection(tcx, trait_ref, name);
       }
       'e' => {
@@ -781,7 +781,7 @@ fn parse_projection_predicate_<'a,'tcx, F>(
     ty::ProjectionPredicate {
         projection_ty: ty::ProjectionTy {
             trait_ref: parse_trait_ref_(st, conv),
-            item_name: token::str_to_ident(parse_str(st, '|').as_slice()).name,
+            item_name: token::str_to_ident(&parse_str(st, '|')).name,
         },
         ty: parse_ty_(st, conv),
     }

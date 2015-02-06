@@ -92,7 +92,7 @@ pub fn get_simple_intrinsic(ccx: &CrateContext, item: &ast::ForeignItem) -> Opti
 /// the only intrinsic that needs such verification is `transmute`.
 pub fn check_intrinsics(ccx: &CrateContext) {
     let mut last_failing_id = None;
-    for transmute_restriction in ccx.tcx().transmute_restrictions.borrow().iter() {
+    for transmute_restriction in &*ccx.tcx().transmute_restrictions.borrow() {
         // Sometimes, a single call to transmute will push multiple
         // type pairs to test in order to exhaustively test the
         // possibility around a type parameter. If one of those fails,
@@ -118,25 +118,25 @@ pub fn check_intrinsics(ccx: &CrateContext) {
             if transmute_restriction.original_from != transmute_restriction.substituted_from {
                 ccx.sess().span_err(
                     transmute_restriction.span,
-                    format!("transmute called on types with potentially different sizes: \
-                             {} (could be {} bit{}) to {} (could be {} bit{})",
-                            ty_to_string(ccx.tcx(), transmute_restriction.original_from),
-                            from_type_size as uint,
-                            if from_type_size == 1 {""} else {"s"},
-                            ty_to_string(ccx.tcx(), transmute_restriction.original_to),
-                            to_type_size as uint,
-                            if to_type_size == 1 {""} else {"s"}).as_slice());
+                    &format!("transmute called on types with potentially different sizes: \
+                              {} (could be {} bit{}) to {} (could be {} bit{})",
+                             ty_to_string(ccx.tcx(), transmute_restriction.original_from),
+                             from_type_size as uint,
+                             if from_type_size == 1 {""} else {"s"},
+                             ty_to_string(ccx.tcx(), transmute_restriction.original_to),
+                             to_type_size as uint,
+                             if to_type_size == 1 {""} else {"s"}));
             } else {
                 ccx.sess().span_err(
                     transmute_restriction.span,
-                    format!("transmute called on types with different sizes: \
-                             {} ({} bit{}) to {} ({} bit{})",
-                            ty_to_string(ccx.tcx(), transmute_restriction.original_from),
-                            from_type_size as uint,
-                            if from_type_size == 1 {""} else {"s"},
-                            ty_to_string(ccx.tcx(), transmute_restriction.original_to),
-                            to_type_size as uint,
-                            if to_type_size == 1 {""} else {"s"}).as_slice());
+                    &format!("transmute called on types with different sizes: \
+                              {} ({} bit{}) to {} ({} bit{})",
+                             ty_to_string(ccx.tcx(), transmute_restriction.original_from),
+                             from_type_size as uint,
+                             if from_type_size == 1 {""} else {"s"},
+                             ty_to_string(ccx.tcx(), transmute_restriction.original_to),
+                             to_type_size as uint,
+                             if to_type_size == 1 {""} else {"s"}));
             }
         }
     }
@@ -183,7 +183,7 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                 // This should be caught by the intrinsicck pass
                 assert_eq!(in_type_size, out_type_size);
 
-                let nonpointer_nonaggregate = |&: llkind: TypeKind| -> bool {
+                let nonpointer_nonaggregate = |llkind: TypeKind| -> bool {
                     use llvm::TypeKind::*;
                     match llkind {
                         Half | Float | Double | X86_FP80 | FP128 |
@@ -243,7 +243,8 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                     dest
                 };
 
-                fcx.pop_custom_cleanup_scope(cleanup_scope);
+                fcx.scopes.borrow_mut().last_mut().unwrap().drop_non_lifetime_clean();
+                fcx.pop_and_trans_custom_cleanup_scope(bcx, cleanup_scope);
 
                 return match dest {
                     expr::SaveIn(d) => Result::new(bcx, d),
@@ -268,7 +269,7 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                              false,
                              RustIntrinsic);
 
-    fcx.pop_custom_cleanup_scope(cleanup_scope);
+    fcx.scopes.borrow_mut().last_mut().unwrap().drop_non_lifetime_clean();
 
     let call_debug_location = DebugLoc::At(call_info.id, call_info.span);
 
@@ -276,9 +277,11 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     if name.get() == "abort" {
         let llfn = ccx.get_intrinsic(&("llvm.trap"));
         Call(bcx, llfn, &[], None, call_debug_location);
+        fcx.pop_and_trans_custom_cleanup_scope(bcx, cleanup_scope);
         Unreachable(bcx);
         return Result::new(bcx, C_undef(Type::nil(ccx).ptr_to()));
     } else if name.get() == "unreachable" {
+        fcx.pop_and_trans_custom_cleanup_scope(bcx, cleanup_scope);
         Unreachable(bcx);
         return Result::new(bcx, C_nil(ccx));
     }
@@ -306,7 +309,7 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     let simple = get_simple_intrinsic(ccx, &*foreign_item);
     let llval = match (simple, name.get()) {
         (Some(llfn), _) => {
-            Call(bcx, llfn, llargs.as_slice(), None, call_debug_location)
+            Call(bcx, llfn, &llargs, None, call_debug_location)
         }
         (_, "breakpoint") => {
             let llfn = ccx.get_intrinsic(&("llvm.debugtrap"));
@@ -764,6 +767,8 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
         }
         expr::SaveIn(_) => {}
     }
+
+    fcx.pop_and_trans_custom_cleanup_scope(bcx, cleanup_scope);
 
     Result::new(bcx, llresult)
 }

@@ -87,15 +87,15 @@ pub fn parse_pretty(sess: &Session,
         ("flowgraph,unlabelled", true)    => PpmFlowGraph(PpFlowGraphMode::UnlabelledEdges),
         _ => {
             if extended {
-                sess.fatal(format!(
+                sess.fatal(&format!(
                     "argument to `xpretty` must be one of `normal`, \
                      `expanded`, `flowgraph[,unlabelled]=<nodeid>`, `typed`, `identified`, \
-                     `expanded,identified`, or `everybody_loops`; got {}", name).as_slice());
+                     `expanded,identified`, or `everybody_loops`; got {}", name));
             } else {
-                sess.fatal(format!(
+                sess.fatal(&format!(
                     "argument to `pretty` must be one of `normal`, \
                      `expanded`, `typed`, `identified`, \
-                     or `expanded,identified`; got {}", name).as_slice());
+                     or `expanded,identified`; got {}", name));
             }
         }
     };
@@ -388,7 +388,7 @@ impl UserIdentifiedItem {
     }
 
     fn to_one_node_id(self, user_option: &str, sess: &Session, map: &ast_map::Map) -> ast::NodeId {
-        let fail_because = |&: is_wrong_because| -> ast::NodeId {
+        let fail_because = |is_wrong_because| -> ast::NodeId {
             let message =
                 format!("{} needs NodeId (int) or unique \
                          path suffix (b::c::d); got {}, which {}",
@@ -399,7 +399,7 @@ impl UserIdentifiedItem {
         };
 
         let mut saw_node = ast::DUMMY_NODE_ID;
-        let mut seen = 0u;
+        let mut seen = 0;
         for node in self.all_matching_node_ids(map) {
             saw_node = node;
             seen += 1;
@@ -517,7 +517,7 @@ pub fn pretty_print_input(sess: Session,
         krate
     };
 
-    let id = link::find_crate_name(Some(&sess), krate.attrs.as_slice(), input);
+    let id = link::find_crate_name(Some(&sess), &krate.attrs, input);
 
     let is_expanded = needs_expansion(&ppm);
     let compute_ast_map = needs_ast_map(&ppm, &opt_uii);

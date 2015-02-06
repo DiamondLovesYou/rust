@@ -265,9 +265,9 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             // Use the minimum integer type we figured out above
             let fields : Vec<_> = cases.iter().map(|c| {
                 let mut ftys = vec!(ty_of_inttype(cx.tcx(), min_ity));
-                ftys.push_all(c.tys.as_slice());
+                ftys.push_all(&c.tys);
                 if dtor { ftys.push(cx.tcx().types.bool); }
-                mk_struct(cx, ftys.as_slice(), false, t)
+                mk_struct(cx, &ftys, false, t)
             }).collect();
 
 
@@ -283,9 +283,9 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             // This check is needed to avoid increasing the size of types when
             // the alignment of the first field is smaller than the overall
             // alignment of the type.
-            let (_, align) = union_size_and_align(fields.as_slice());
+            let (_, align) = union_size_and_align(&fields);
             let mut use_align = true;
-            for st in fields.iter() {
+            for st in &fields {
                 // Get the first non-zero-sized field
                 let field = st.fields.iter().skip(1).filter(|ty| {
                     let t = type_of::sizing_type_of(cx, **ty);
@@ -519,7 +519,7 @@ fn range_to_inttype(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> IntTyp
             cx.tcx().sess.bug("range_to_inttype: found ReprPacked on an enum");
         }
     }
-    for &ity in attempts.iter() {
+    for &ity in attempts {
         if bounds_usable(cx, ity, bounds) {
             return ity;
         }
@@ -563,7 +563,7 @@ fn ensure_struct_fits_in_address_space<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                                  packed: bool,
                                                  scapegoat: Ty<'tcx>) {
     let mut offset = 0;
-    for &llty in fields.iter() {
+    for &llty in fields {
         // Invariant: offset < ccx.obj_size_bound() <= 1<<61
         if !packed {
             let type_align = machine::llalign_of_min(ccx, llty);
@@ -1112,7 +1112,7 @@ fn compute_struct_field_offsets<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     let mut offsets = vec!();
 
     let mut offset = 0;
-    for &ty in st.fields.iter() {
+    for &ty in &st.fields {
         let llty = type_of::sizing_type_of(ccx, ty);
         if !st.packed {
             let type_align = type_of::align_of(ccx, ty);

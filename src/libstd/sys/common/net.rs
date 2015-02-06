@@ -1,4 +1,4 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -554,7 +554,7 @@ pub fn await(fds: &[sock_t], deadline: Option<u64>,
              status: SocketStatus) -> IoResult<()> {
     let mut set: c::fd_set = unsafe { mem::zeroed() };
     let mut max = 0;
-    for &fd in fds.iter() {
+    for &fd in fds {
         c::fd_set(&mut set, fd);
         max = cmp::max(max, fd + 1);
     }
@@ -694,10 +694,16 @@ impl TcpStream {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_KEEPIDLE,
                    seconds as libc::c_int)
     }
+    #[cfg(target_os = "openbsd")]
+    fn set_tcp_keepalive(&mut self, seconds: uint) -> IoResult<()> {
+        setsockopt(self.fd(), libc::IPPROTO_TCP, libc::SO_KEEPALIVE,
+                   seconds as libc::c_int)
+    }
     #[cfg(not(any(target_os = "macos",
                   target_os = "ios",
                   target_os = "freebsd",
-                  target_os = "dragonfly")))]
+                  target_os = "dragonfly",
+                  target_os = "openbsd")))]
     fn set_tcp_keepalive(&mut self, _seconds: uint) -> IoResult<()> {
         Ok(())
     }
@@ -717,8 +723,8 @@ impl TcpStream {
 
     pub fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
         let fd = self.fd();
-        let dolock = |&:| self.lock_nonblocking();
-        let doread = |&mut: nb| unsafe {
+        let dolock = || self.lock_nonblocking();
+        let doread = |nb| unsafe {
             let flags = if nb {c::MSG_DONTWAIT} else {0};
             libc::recv(fd,
                        buf.as_mut_ptr() as *mut libc::c_void,
@@ -730,8 +736,8 @@ impl TcpStream {
 
     pub fn write(&mut self, buf: &[u8]) -> IoResult<()> {
         let fd = self.fd();
-        let dolock = |&:| self.lock_nonblocking();
-        let dowrite = |&: nb: bool, buf: *const u8, len: uint| unsafe {
+        let dolock = || self.lock_nonblocking();
+        let dowrite = |nb: bool, buf: *const u8, len: uint| unsafe {
             let flags = if nb {c::MSG_DONTWAIT} else {0};
             libc::send(fd,
                        buf as *const _,
@@ -865,7 +871,7 @@ impl UdpSocket {
         let mut addrlen: libc::socklen_t =
                 mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
 
-        let dolock = |&:| self.lock_nonblocking();
+        let dolock = || self.lock_nonblocking();
         let n = try!(read(fd, self.read_deadline, dolock, |nb| unsafe {
             let flags = if nb {c::MSG_DONTWAIT} else {0};
             libc::recvfrom(fd,
@@ -886,8 +892,8 @@ impl UdpSocket {
         let dstp = &storage as *const _ as *const libc::sockaddr;
 
         let fd = self.fd();
-        let dolock = |&: | self.lock_nonblocking();
-        let dowrite = |&mut: nb, buf: *const u8, len: uint| unsafe {
+        let dolock = || self.lock_nonblocking();
+        let dowrite = |nb, buf: *const u8, len: uint| unsafe {
             let flags = if nb {c::MSG_DONTWAIT} else {0};
             libc::sendto(fd,
                          buf as *const libc::c_void,

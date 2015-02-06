@@ -34,29 +34,32 @@ use self::MemoryMapKind::*;
 use self::MapOption::*;
 use self::MapError::*;
 
+use boxed::Box;
 use clone::Clone;
+use env;
 use error::{FromError, Error};
+use ffi::{OsString, OsStr};
 use fmt;
-use old_io::{IoResult, IoError};
 use iter::{Iterator, IteratorExt};
-use marker::{Copy, Send};
 use libc::{c_void, c_int, c_char};
 use libc;
-use boxed::Box;
+use marker::{Copy, Send};
+use old_io::{IoResult, IoError};
 use ops::{Drop, FnOnce};
-use option::Option;
 use option::Option::{Some, None};
-use path::{Path, GenericPath, BytesContainer};
-use sys;
-use sys::os as os_imp;
+use option::Option;
+use old_path::{Path, GenericPath, BytesContainer};
 use ptr::PtrExt;
 use ptr;
-use result::Result;
 use result::Result::{Err, Ok};
+use result::Result;
 use slice::{AsSlice, SliceExt};
 use str::{Str, StrExt};
+use str;
 use string::{String, ToString};
 use sync::atomic::{AtomicIsize, ATOMIC_ISIZE_INIT, Ordering};
+use sys::os as os_imp;
+use sys;
 use vec::Vec;
 
 #[cfg(unix)] use ffi::{self, CString};
@@ -97,23 +100,10 @@ pub const TMPBUF_SZ : uint = 1000u;
 /// let current_working_directory = os::getcwd().unwrap();
 /// println!("The current directory is {:?}", current_working_directory.display());
 /// ```
+#[deprecated(since = "1.0.0", reason = "renamed to std::env::current_dir")]
+#[unstable(feature = "os")]
 pub fn getcwd() -> IoResult<Path> {
-    sys::os::getcwd()
-}
-
-/*
-Accessing environment variables is not generally threadsafe.
-Serialize access through a global lock.
-*/
-fn with_env_lock<T, F>(f: F) -> T where
-    F: FnOnce() -> T,
-{
-    use sync::{StaticMutex, MUTEX_INIT};
-
-    static LOCK: StaticMutex = MUTEX_INIT;
-
-    let _guard = LOCK.lock();
-    f()
+    env::current_dir()
 }
 
 /// Returns a vector of (variable, value) pairs, for all the environment
@@ -132,37 +122,22 @@ fn with_env_lock<T, F>(f: F) -> T where
 ///     println!("'{}': '{}'", key, value );
 /// }
 /// ```
+#[deprecated(since = "1.0.0", reason = "use env::vars instead")]
+#[unstable(feature = "os")]
 pub fn env() -> Vec<(String,String)> {
-    env_as_bytes().into_iter().map(|(k,v)| {
-        let k = String::from_utf8_lossy(k.as_slice()).into_owned();
-        let v = String::from_utf8_lossy(v.as_slice()).into_owned();
-        (k,v)
+    env::vars().map(|(k, v)| {
+        (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned())
     }).collect()
 }
 
 /// Returns a vector of (variable, value) byte-vector pairs for all the
 /// environment variables of the current process.
-pub fn env_as_bytes() -> Vec<(Vec<u8>,Vec<u8>)> {
-    unsafe {
-        fn env_convert(input: Vec<Vec<u8>>) -> Vec<(Vec<u8>, Vec<u8>)> {
-            let mut pairs = Vec::new();
-            for p in input.iter() {
-                let mut it = p.splitn(1, |b| *b == b'=');
-                let key = it.next().unwrap().to_vec();
-                let default: &[u8] = &[];
-                let val = it.next().unwrap_or(default).to_vec();
-                pairs.push((key, val));
-            }
-            pairs
-        }
-        with_env_lock(|| {
-            let unparsed_environ = sys::os::get_env_pairs();
-            env_convert(unparsed_environ)
-        })
-    }
+#[deprecated(since = "1.0.0", reason = "use env::vars instead")]
+#[unstable(feature = "os")]
+pub fn env_as_bytes() -> Vec<(Vec<u8>, Vec<u8>)> {
+    env::vars().map(|(k, v)| (byteify(k), byteify(v))).collect()
 }
 
-#[cfg(unix)]
 /// Fetches the environment variable `n` from the current process, returning
 /// None if the variable isn't set.
 ///
@@ -184,61 +159,40 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>,Vec<u8>)> {
 ///     None => println!("{} is not defined in the environment.", key)
 /// }
 /// ```
+#[deprecated(since = "1.0.0", reason = "use env::var or env::var_string instead")]
+#[unstable(feature = "os")]
 pub fn getenv(n: &str) -> Option<String> {
-    getenv_as_bytes(n).map(|v| String::from_utf8_lossy(v.as_slice()).into_owned())
+    env::var_string(n).ok()
 }
 
-#[cfg(all(unix, not(target_os = "nacl")))]
+#[cfg(not(target_os = "nacl"))]
 /// Fetches the environment variable `n` byte vector from the current process,
 /// returning None if the variable isn't set.
 ///
 /// # Panics
 ///
 /// Panics if `n` has any interior NULs.
+#[deprecated(since = "1.0.0", reason = "use env::var instead")]
+#[unstable(feature = "os")]
 pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
-    unsafe {
-        with_env_lock(|| {
-            let s = CString::from_slice(n.as_bytes());
-            let s = libc::getenv(s.as_ptr()) as *const _;
-            if s.is_null() {
-                None
-            } else {
-                Some(ffi::c_str_to_bytes(&s).to_vec())
-            }
-        })
-    }
+    env::var(n).map(byteify)
 }
 
-#[cfg(all(unix, target_os = "nacl"))]
+#[cfg(target_os = "nacl")]
 /// Fetches the environment variable `n` byte vector from the current process,
 /// returning None if the variable isn't set.
 ///
-/// # Failure
+/// # Panics
 ///
-/// Fails if `n` has any interior NULs.
+/// Pancis if `n` has any interior NULs.
+#[deprecated(since = "1.0.0", reason = "use env::var instead")]
+#[unstable(feature = "os")]
 pub fn getenv_as_bytes(_: &str) -> Option<Vec<u8>> { None }
 
-#[cfg(windows)]
-/// Fetches the environment variable `n` from the current process, returning
-/// None if the variable isn't set.
-pub fn getenv(n: &str) -> Option<String> {
-    unsafe {
-        with_env_lock(|| {
-            use sys::os::fill_utf16_buf_and_decode;
-            let mut n: Vec<u16> = n.utf16_units().collect();
-            n.push(0);
-            fill_utf16_buf_and_decode(|buf, sz| {
-                libc::GetEnvironmentVariableW(n.as_ptr(), buf, sz)
-            })
-        })
-    }
 }
-
 #[cfg(windows)]
-/// Fetches the environment variable `n` byte vector from the current process,
-/// returning None if the variable isn't set.
-pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
-    getenv(n).map(|s| s.into_bytes())
+fn byteify(s: OsString) -> Vec<u8> {
+    s.to_string_lossy().as_bytes().to_vec()
 }
 
 /// Sets the environment variable `n` to the value `v` for the currently running
@@ -256,68 +210,30 @@ pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
 ///     None => println!("{} is not defined in the environment.", key)
 /// }
 /// ```
+#[deprecated(since = "1.0.0", reason = "renamed to env::set_var")]
+#[unstable(feature = "os")]
 pub fn setenv<T: BytesContainer>(n: &str, v: T) {
     #[cfg(unix)]
     fn _setenv(n: &str, v: &[u8]) {
-        unsafe {
-            with_env_lock(|| {
-                let k = CString::from_slice(n.as_bytes());
-                let v = CString::from_slice(v);
-                if libc::funcs::posix01::unistd::setenv(k.as_ptr(),
-                                                        v.as_ptr(), 1) != 0 {
-                    panic!(IoError::last_error());
-                }
-            })
-        }
+        use os::unix::*;
+        let v: OsString = OsStringExt::from_vec(v.to_vec());
+        env::set_var(n, &v)
     }
 
     #[cfg(windows)]
     fn _setenv(n: &str, v: &[u8]) {
-        let mut n: Vec<u16> = n.utf16_units().collect();
-        n.push(0);
-        let mut v: Vec<u16> = ::str::from_utf8(v).unwrap().utf16_units().collect();
-        v.push(0);
-
-        unsafe {
-            with_env_lock(|| {
-                if libc::SetEnvironmentVariableW(n.as_ptr(), v.as_ptr()) == 0 {
-                    panic!(IoError::last_error());
-                }
-            })
-        }
+        let v = str::from_utf8(v).unwrap();
+        env::set_var(n, v)
     }
 
     _setenv(n, v.container_as_bytes())
 }
 
 /// Remove a variable from the environment entirely.
+#[deprecated(since = "1.0.0", reason = "renamed to env::remove_var")]
+#[unstable(feature = "os")]
 pub fn unsetenv(n: &str) {
-    #[cfg(unix)]
-    fn _unsetenv(n: &str) {
-        unsafe {
-            with_env_lock(|| {
-                let nbuf = CString::from_slice(n.as_bytes());
-                if libc::funcs::posix01::unistd::unsetenv(nbuf.as_ptr()) != 0 {
-                    panic!(IoError::last_error());
-                }
-            })
-        }
-    }
-
-    #[cfg(windows)]
-    fn _unsetenv(n: &str) {
-        let mut n: Vec<u16> = n.utf16_units().collect();
-        n.push(0);
-        unsafe {
-            with_env_lock(|| {
-                if libc::SetEnvironmentVariableW(n.as_ptr(), ptr::null()) == 0 {
-                    panic!(IoError::last_error());
-                }
-            })
-        }
-    }
-
-    _unsetenv(n)
+    env::remove_var(n)
 }
 
 /// Parses input according to platform conventions for the `PATH`
@@ -337,8 +253,12 @@ pub fn unsetenv(n: &str) {
 ///     None => println!("{} is not defined in the environment.", key)
 /// }
 /// ```
+#[deprecated(since = "1.0.0", reason = "renamed to env::split_paths")]
+#[unstable(feature = "os")]
 pub fn split_paths<T: BytesContainer>(unparsed: T) -> Vec<Path> {
-    sys::os::split_paths(unparsed.container_as_bytes())
+    let b = unparsed.container_as_bytes();
+    let s = str::from_utf8(b).unwrap();
+    env::split_paths(s).collect()
 }
 
 /// Joins a collection of `Path`s appropriately for the `PATH`
@@ -355,15 +275,21 @@ pub fn split_paths<T: BytesContainer>(unparsed: T) -> Vec<Path> {
 ///
 /// ```rust
 /// use std::os;
-/// use std::path::Path;
+/// use std::old_path::Path;
 ///
 /// let key = "PATH";
 /// let mut paths = os::getenv_as_bytes(key).map_or(Vec::new(), os::split_paths);
 /// paths.push(Path::new("/home/xyz/bin"));
 /// os::setenv(key, os::join_paths(paths.as_slice()).unwrap());
 /// ```
+#[deprecated(since = "1.0.0", reason = "renamed to env::join_paths")]
+#[unstable(feature = "os")]
 pub fn join_paths<T: BytesContainer>(paths: &[T]) -> Result<Vec<u8>, &'static str> {
-    sys::os::join_paths(paths)
+    env::join_paths(paths.iter().map(|s| {
+        str::from_utf8(s.container_as_bytes()).unwrap()
+    })).map(|s| {
+        s.to_string_lossy().into_owned().into_bytes()
+    }).map_err(|_| "failed to join paths")
 }
 
 /// A low-level OS in-memory pipe.
@@ -397,6 +323,8 @@ pub unsafe fn pipe() -> IoResult<Pipe> {
 /// Returns the proper dll filename for the given basename of a file
 /// as a String.
 #[cfg(not(target_os="ios"))]
+#[deprecated(since = "1.0.0", reason = "this function will be removed, use the constants directly")]
+#[unstable(feature = "os")]
 pub fn dll_filename(base: &str) -> String {
     format!("{}{}{}", consts::DLL_PREFIX, base, consts::DLL_SUFFIX)
 }
@@ -414,8 +342,10 @@ pub fn dll_filename(base: &str) -> String {
 ///     None => println!("Unable to get the path of this executable!")
 /// };
 /// ```
+#[deprecated(since = "1.0.0", reason = "renamed to env::current_exe")]
+#[unstable(feature = "os")]
 pub fn self_exe_name() -> Option<Path> {
-    sys::os::load_self().and_then(Path::new_opt)
+    env::current_exe().ok()
 }
 
 /// Optionally returns the filesystem path to the current executable which is
@@ -433,8 +363,10 @@ pub fn self_exe_name() -> Option<Path> {
 ///     None => println!("Impossible to fetch the path of this executable.")
 /// };
 /// ```
+#[deprecated(since = "1.0.0", reason = "use env::current_exe + dir_path/pop")]
+#[unstable(feature = "os")]
 pub fn self_exe_path() -> Option<Path> {
-    self_exe_name().map(|mut p| { p.pop(); p })
+    env::current_exe().ok().map(|mut p| { p.pop(); p })
 }
 
 /// Optionally returns the path to the current user's home directory if known.
@@ -461,6 +393,9 @@ pub fn self_exe_path() -> Option<Path> {
 ///     None => println!("Impossible to get your home dir!")
 /// }
 /// ```
+#[deprecated(since = "1.0.0", reason = "renamed to env::home_dir")]
+#[allow(deprecated)]
+#[unstable(feature = "os")]
 pub fn homedir() -> Option<Path> {
     #[inline]
     #[cfg(unix)]
@@ -496,6 +431,9 @@ pub fn homedir() -> Option<Path> {
 /// On Windows, returns the value of, in order, the 'TMP', 'TEMP',
 /// 'USERPROFILE' environment variable  if any are set and not the empty
 /// string. Otherwise, tmpdir returns the path to the Windows directory.
+#[deprecated(since = "1.0.0", reason = "renamed to env::temp_dir")]
+#[allow(deprecated)]
+#[unstable(feature = "os")]
 pub fn tmpdir() -> Path {
     return lookup();
 
@@ -540,7 +478,7 @@ pub fn tmpdir() -> Path {
 /// # Example
 /// ```rust
 /// use std::os;
-/// use std::path::Path;
+/// use std::old_path::Path;
 ///
 /// // Assume we're in a path like /home/someuser
 /// let rel_path = Path::new("..");
@@ -551,11 +489,13 @@ pub fn tmpdir() -> Path {
 // NB: this is here rather than in path because it is a form of environment
 // querying; what it does depends on the process working directory, not just
 // the input paths.
+#[deprecated(since = "1.0.0", reason = "use env::current_dir + .join directly")]
+#[unstable(feature = "os")]
 pub fn make_absolute(p: &Path) -> IoResult<Path> {
     if p.is_absolute() {
         Ok(p.clone())
     } else {
-        getcwd().map(|mut cwd| {
+        env::current_dir().map(|mut cwd| {
             cwd.push(p);
             cwd
         })
@@ -568,12 +508,14 @@ pub fn make_absolute(p: &Path) -> IoResult<Path> {
 /// # Example
 /// ```rust
 /// use std::os;
-/// use std::path::Path;
+/// use std::old_path::Path;
 ///
 /// let root = Path::new("/");
 /// assert!(os::change_dir(&root).is_ok());
 /// println!("Successfully changed working directory to {}!", root.display());
 /// ```
+#[deprecated(since = "1.0.0", reason = "renamed to env::set_current_dir")]
+#[unstable(feature = "os")]
 pub fn change_dir(p: &Path) -> IoResult<()> {
     return sys::os::chdir(p);
 }
@@ -601,8 +543,6 @@ pub fn last_os_error() -> String {
     error_string(errno() as uint)
 }
 
-static EXIT_STATUS: AtomicIsize = ATOMIC_ISIZE_INIT;
-
 /// Sets the process exit code
 ///
 /// Sets the exit code returned by the process if all supervised tasks
@@ -611,14 +551,18 @@ static EXIT_STATUS: AtomicIsize = ATOMIC_ISIZE_INIT;
 /// ignored and the process exits with the default panic status.
 ///
 /// Note that this is not synchronized against modifications of other threads.
+#[deprecated(since = "1.0.0", reason = "renamed to env::set_exit_status")]
+#[unstable(feature = "os")]
 pub fn set_exit_status(code: int) {
-    EXIT_STATUS.store(code, Ordering::SeqCst)
+    env::set_exit_status(code as i32)
 }
 
 /// Fetches the process's current exit code. This defaults to 0 and can change
 /// by calling `set_exit_status`.
+#[deprecated(since = "1.0.0", reason = "renamed to env::get_exit_status")]
+#[unstable(feature = "os")]
 pub fn get_exit_status() -> int {
-    EXIT_STATUS.load(Ordering::SeqCst)
+    env::get_exit_status() as isize
 }
 
 #[cfg(target_os = "macos")]
@@ -703,6 +647,7 @@ fn real_args_as_bytes() -> Vec<Vec<u8>> {
           target_os = "android",
           target_os = "freebsd",
           target_os = "dragonfly",
+          target_os = "openbsd",
           target_os = "nacl"))]
 fn real_args_as_bytes() -> Vec<Vec<u8>> {
     use rt;
@@ -713,7 +658,7 @@ fn real_args_as_bytes() -> Vec<Vec<u8>> {
 fn real_args() -> Vec<String> {
     real_args_as_bytes().into_iter()
                         .map(|v| {
-                            String::from_utf8_lossy(v.as_slice()).into_owned()
+                            String::from_utf8_lossy(&v).into_owned()
                         }).collect()
 }
 
@@ -736,7 +681,7 @@ fn real_args() -> Vec<String> {
         // Push it onto the list.
         let ptr = ptr as *const u16;
         let buf = slice::from_raw_buf(&ptr, len);
-        let opt_s = String::from_utf16(sys::os::truncate_utf16_at_nul(buf));
+        let opt_s = String::from_utf16(sys::truncate_utf16_at_nul(buf));
         opt_s.ok().expect("CommandLineToArgvW returned invalid UTF-16")
     }).collect();
 
@@ -787,12 +732,16 @@ extern "system" {
 ///     println!("{}", argument);
 /// }
 /// ```
+#[deprecated(since = "1.0.0", reason = "use env::args instead")]
+#[unstable(feature = "os")]
 pub fn args() -> Vec<String> {
     real_args()
 }
 
 /// Returns the arguments which this program was started with (normally passed
 /// via the command line) as byte vectors.
+#[deprecated(since = "1.0.0", reason = "use env::args_raw instead")]
+#[unstable(feature = "os")]
 pub fn args_as_bytes() -> Vec<Vec<u8>> {
     real_args_as_bytes()
 }
@@ -800,11 +749,13 @@ pub fn args_as_bytes() -> Vec<Vec<u8>> {
 #[cfg(target_os = "macos")]
 extern {
     // These functions are in crt_externs.h.
-    pub fn _NSGetArgc() -> *mut c_int;
-    pub fn _NSGetArgv() -> *mut *mut *mut c_char;
+    fn _NSGetArgc() -> *mut c_int;
+    fn _NSGetArgv() -> *mut *mut *mut c_char;
 }
 
 /// Returns the page size of the current architecture in bytes.
+#[deprecated(since = "1.0.0", reason = "renamed to env::page_size")]
+#[unstable(feature = "os")]
 pub fn page_size() -> uint {
     sys::os::page_size()
 }
@@ -980,9 +931,9 @@ impl MemoryMap {
         let mut fd = -1;
         let mut offset = 0;
         let mut custom_flags = false;
-        let len = round_up(min_len, page_size());
+        let len = round_up(min_len, env::page_size());
 
-        for &o in options.iter() {
+        for &o in options {
             match o {
                 MapReadable => { prot |= libc::PROT_READ; },
                 MapWritable => { prot |= libc::PROT_WRITE; },
@@ -1030,7 +981,7 @@ impl MemoryMap {
     /// Granularity that the offset or address must be for `MapOffset` and
     /// `MapAddr` respectively.
     pub fn granularity() -> uint {
-        page_size()
+        env::page_size()
     }
 }
 
@@ -1059,9 +1010,9 @@ impl MemoryMap {
         let mut executable = false;
         let mut handle: HANDLE = libc::INVALID_HANDLE_VALUE;
         let mut offset: uint = 0;
-        let len = round_up(min_len, page_size());
+        let len = round_up(min_len, env::page_size());
 
-        for &o in options.iter() {
+        for &o in options {
             match o {
                 MapReadable => { readable = true; },
                 MapWritable => { writable = true; },
@@ -1194,6 +1145,8 @@ impl MemoryMap {
 }
 
 #[cfg(target_os = "linux")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1225,6 +1178,8 @@ pub mod consts {
 }
 
 #[cfg(target_os = "macos")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1256,6 +1211,8 @@ pub mod consts {
 }
 
 #[cfg(target_os = "ios")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1275,6 +1232,8 @@ pub mod consts {
 }
 
 #[cfg(target_os = "freebsd")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1306,6 +1265,8 @@ pub mod consts {
 }
 
 #[cfg(target_os = "dragonfly")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1336,7 +1297,40 @@ pub mod consts {
     pub const EXE_EXTENSION: &'static str = "";
 }
 
+#[cfg(target_os = "openbsd")]
+pub mod consts {
+    pub use os::arch_consts::ARCH;
+
+    pub const FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `openbsd`.
+    pub const SYSNAME: &'static str = "openbsd";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub const DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub const DLL_SUFFIX: &'static str = ".so";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub const DLL_EXTENSION: &'static str = "so";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, the empty string.
+    pub const EXE_SUFFIX: &'static str = "";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, the empty string.
+    pub const EXE_EXTENSION: &'static str = "";
+}
+
 #[cfg(target_os = "android")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1428,6 +1422,8 @@ pub mod consts {
 }
 
 #[cfg(target_os = "windows")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 
@@ -1499,6 +1495,8 @@ mod arch_consts {
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)] // rand
+
     use prelude::v1::*;
 
     use iter::repeat;
@@ -1517,7 +1515,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let n = format!("TEST{}", rng.gen_ascii_chars().take(10u)
                                      .collect::<String>());
-        assert!(getenv(n.as_slice()).is_none());
+        assert!(getenv(&n).is_none());
         n
     }
 
@@ -1529,27 +1527,27 @@ mod tests {
     #[test]
     fn test_setenv() {
         let n = make_rand_name();
-        setenv(n.as_slice(), "VALUE");
-        assert_eq!(getenv(n.as_slice()), Some("VALUE".to_string()));
+        setenv(&n, "VALUE");
+        assert_eq!(getenv(&n), Some("VALUE".to_string()));
     }
 
     #[test]
     fn test_unsetenv() {
         let n = make_rand_name();
-        setenv(n.as_slice(), "VALUE");
-        unsetenv(n.as_slice());
-        assert_eq!(getenv(n.as_slice()), None);
+        setenv(&n, "VALUE");
+        unsetenv(&n);
+        assert_eq!(getenv(&n), None);
     }
 
     #[test]
     #[ignore]
     fn test_setenv_overwrite() {
         let n = make_rand_name();
-        setenv(n.as_slice(), "1");
-        setenv(n.as_slice(), "2");
-        assert_eq!(getenv(n.as_slice()), Some("2".to_string()));
-        setenv(n.as_slice(), "");
-        assert_eq!(getenv(n.as_slice()), Some("".to_string()));
+        setenv(&n, "1");
+        setenv(&n, "2");
+        assert_eq!(getenv(&n), Some("2".to_string()));
+        setenv(&n, "");
+        assert_eq!(getenv(&n), Some("".to_string()));
     }
 
     // Windows GetEnvironmentVariable requires some extra work to make sure
@@ -1564,9 +1562,9 @@ mod tests {
             i += 1;
         }
         let n = make_rand_name();
-        setenv(n.as_slice(), s.as_slice());
+        setenv(&n, &s);
         debug!("{}", s.clone());
-        assert_eq!(getenv(n.as_slice()), Some(s));
+        assert_eq!(getenv(&n), Some(s));
     }
 
     #[test]
@@ -1596,10 +1594,10 @@ mod tests {
     fn test_env_getenv() {
         let e = env();
         assert!(e.len() > 0u);
-        for p in e.iter() {
+        for p in &e {
             let (n, v) = (*p).clone();
             debug!("{}", n);
-            let v2 = getenv(n.as_slice());
+            let v2 = getenv(&n);
             // MingW seems to set some funky environment variables like
             // "=C:=C:\MinGW\msys\1.0\bin" and "!::=::\" that are returned
             // from env() but not visible from getenv().
@@ -1611,10 +1609,10 @@ mod tests {
     fn test_env_set_get_huge() {
         let n = make_rand_name();
         let s = repeat("x").take(10000).collect::<String>();
-        setenv(n.as_slice(), s.as_slice());
-        assert_eq!(getenv(n.as_slice()), Some(s));
-        unsetenv(n.as_slice());
-        assert_eq!(getenv(n.as_slice()), None);
+        setenv(&n, &s);
+        assert_eq!(getenv(&n), Some(s));
+        unsetenv(&n);
+        assert_eq!(getenv(&n), None);
     }
 
     #[test]
@@ -1622,7 +1620,7 @@ mod tests {
         let n = make_rand_name();
 
         let mut e = env();
-        setenv(n.as_slice(), "VALUE");
+        setenv(&n, "VALUE");
         assert!(!e.contains(&(n.clone(), "VALUE".to_string())));
 
         e = env();
@@ -1651,8 +1649,8 @@ mod tests {
         setenv("HOME", "");
         assert!(os::homedir().is_none());
 
-        for s in oldhome.iter() {
-            setenv("HOME", s.as_slice());
+        if let Some(s) = oldhome {
+            setenv("HOME", s);
         }
     }
 
@@ -1680,11 +1678,11 @@ mod tests {
         setenv("USERPROFILE", "/home/PaloAlto");
         assert!(os::homedir() == Some(Path::new("/home/MountainView")));
 
-        for s in oldhome.iter() {
-            setenv("HOME", s.as_slice());
+        if let Some(s) = oldhome {
+            setenv("HOME", &s);
         }
-        for s in olduserprofile.iter() {
-            setenv("USERPROFILE", s.as_slice());
+        if let Some(s) = olduserprofile {
+            setenv("USERPROFILE", &s);
         }
     }
 

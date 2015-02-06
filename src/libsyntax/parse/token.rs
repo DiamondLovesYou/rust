@@ -25,7 +25,7 @@ use serialize::{Decodable, Decoder, Encodable, Encoder};
 use std::fmt;
 use std::mem;
 use std::ops::Deref;
-use std::path::BytesContainer;
+use std::old_path::BytesContainer;
 use std::rc::Rc;
 
 #[allow(non_camel_case_types)]
@@ -456,7 +456,7 @@ macro_rules! declare_special_idents_and_keywords {(
         pub use self::Keyword::*;
         use ast;
 
-        #[derive(Copy)]
+        #[derive(Copy, Clone, PartialEq, Eq)]
         pub enum Keyword {
             $( $sk_variant, )*
             $( $rk_variant, )*

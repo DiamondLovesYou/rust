@@ -40,6 +40,7 @@ struct Outer {
           target_os = "macos",
           target_os = "freebsd",
           target_os = "dragonfly",
+          target_os = "openbsd",
           target_os = "nacl"))]
 mod m {
     #[cfg(any(target_arch = "x86", target_arch = "le32"))]

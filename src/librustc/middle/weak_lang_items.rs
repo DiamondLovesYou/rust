@@ -78,15 +78,15 @@ fn verify(sess: &Session, items: &lang_items::LanguageItems) {
 
     let mut missing = HashSet::new();
     sess.cstore.iter_crate_data(|cnum, _| {
-        for item in csearch::get_missing_lang_items(&sess.cstore, cnum).iter() {
+        for item in &csearch::get_missing_lang_items(&sess.cstore, cnum) {
             missing.insert(*item);
         }
     });
 
     $(
         if missing.contains(&lang_items::$item) && items.$name().is_none() {
-            sess.err(format!("language item required, but not found: `{}`",
-                             stringify!($name)).as_slice());
+            sess.err(&format!("language item required, but not found: `{}`",
+                              stringify!($name)));
 
         }
     )*
@@ -108,7 +108,7 @@ impl<'a> Context<'a> {
 
 impl<'a, 'v> Visitor<'v> for Context<'a> {
     fn visit_foreign_item(&mut self, i: &ast::ForeignItem) {
-        match lang_items::extract(i.attrs.as_slice()) {
+        match lang_items::extract(&i.attrs) {
             None => {}
             Some(lang_item) => self.register(lang_item.get(), i.span),
         }

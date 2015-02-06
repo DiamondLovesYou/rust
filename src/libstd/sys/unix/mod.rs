@@ -18,10 +18,11 @@
 use prelude::v1::*;
 
 use ffi;
-use old_io::{self, IoResult, IoError};
+use io::ErrorKind;
 use libc;
 use num::{Int, SignedInt};
 use num;
+use old_io::{self, IoResult, IoError};
 use str;
 use sys_common::mkerr_libc;
 
@@ -133,6 +134,35 @@ pub fn decode_error_detailed(errno: i32) -> IoError {
     err
 }
 
+pub fn decode_error_kind(errno: i32) -> ErrorKind {
+    match errno as libc::c_int {
+        libc::ECONNREFUSED => ErrorKind::ConnectionRefused,
+        libc::ECONNRESET => ErrorKind::ConnectionReset,
+        libc::EPERM | libc::EACCES => ErrorKind::PermissionDenied,
+        libc::EPIPE => ErrorKind::BrokenPipe,
+        libc::ENOTCONN => ErrorKind::NotConnected,
+        libc::ECONNABORTED => ErrorKind::ConnectionAborted,
+        libc::EADDRNOTAVAIL => ErrorKind::ConnectionRefused,
+        libc::EADDRINUSE => ErrorKind::ConnectionRefused,
+        libc::ENOENT => ErrorKind::FileNotFound,
+        libc::EISDIR => ErrorKind::InvalidInput,
+        libc::EINTR => ErrorKind::Interrupted,
+        libc::EINVAL => ErrorKind::InvalidInput,
+        libc::ENOTTY => ErrorKind::MismatchedFileTypeForOperation,
+        libc::ETIMEDOUT => ErrorKind::TimedOut,
+        libc::ECANCELED => ErrorKind::TimedOut,
+        libc::consts::os::posix88::EEXIST => ErrorKind::PathAlreadyExists,
+
+        // These two constants can have the same value on some systems,
+        // but different values on others, so we can't use a match
+        // clause
+        x if x == libc::EAGAIN || x == libc::EWOULDBLOCK =>
+            ErrorKind::ResourceUnavailable,
+
+        _ => ErrorKind::Other,
+    }
+}
+
 #[inline]
 pub fn retry<T, F> (mut f: F) -> T where
     T: SignedInt,
@@ -141,7 +171,7 @@ pub fn retry<T, F> (mut f: F) -> T where
     let one: T = Int::one();
     loop {
         let n = f();
-        if n == -one && os::errno() == libc::EINTR as int { }
+        if n == -one && os::errno() == libc::EINTR as i32 { }
         else { return n }
     }
 }
@@ -155,7 +185,7 @@ pub fn ms_to_timeval(ms: u64) -> libc::timeval {
 
 pub fn wouldblock() -> bool {
     let err = os::errno();
-    err == libc::EWOULDBLOCK as int || err == libc::EAGAIN as int
+    err == libc::EWOULDBLOCK as i32 || err == libc::EAGAIN as i32
 }
 
 #[cfg(target_libc = "newlib")]

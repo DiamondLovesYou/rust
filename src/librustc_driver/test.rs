@@ -56,7 +56,7 @@ fn remove_message(e: &mut ExpectErrorEmitter, msg: &str, lvl: Level) {
     }
 
     debug!("Error: {}", msg);
-    match e.messages.iter().position(|m| msg.contains(m.as_slice())) {
+    match e.messages.iter().position(|m| msg.contains(m)) {
         Some(i) => {
             e.messages.remove(i);
         }
@@ -125,7 +125,6 @@ fn test_env<F>(source_string: &str,
         resolve::resolve_crate(&sess, &ast_map, &lang_items, krate, resolve::MakeGlobMap::No);
     let named_region_map = resolve_lifetime::krate(&sess, krate, &def_map);
     let region_map = region::resolve_crate(&sess, krate);
-    let stability_index = stability::Index::build(&sess, krate);
     let tcx = ty::mk_ctxt(sess,
                           &arenas,
                           def_map,
@@ -134,7 +133,7 @@ fn test_env<F>(source_string: &str,
                           freevars,
                           region_map,
                           lang_items,
-                          stability_index);
+                          stability::Index::new(krate));
     let infcx = infer::new_infer_ctxt(&tcx);
     body(Env { infcx: &infcx });
     infcx.resolve_regions_and_report_errors(ast::CRATE_NODE_ID);
@@ -147,7 +146,7 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
     }
 
     pub fn create_region_hierarchy(&self, rh: &RH) {
-        for child_rh in rh.sub.iter() {
+        for child_rh in rh.sub {
             self.create_region_hierarchy(child_rh);
             self.infcx.tcx.region_maps.record_encl_scope(
                 CodeExtent::from_node_id(child_rh.id),
@@ -181,7 +180,7 @@ impl<'a, 'tcx> Env<'a, 'tcx> {
                       names: &[String])
                       -> Option<ast::NodeId> {
             assert!(idx < names.len());
-            for item in m.items.iter() {
+            for item in &m.items {
                 if item.ident.user_string(this.infcx.tcx) == names[idx] {
                     return search(this, &**item, idx+1, names);
                 }

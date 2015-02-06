@@ -548,7 +548,7 @@ pub fn render_opts<'a, N:Clone+'a, E:Clone+'a, G:Labeller<'a,N,E>+GraphWalk<'a,N
               options: &[RenderOption]) -> old_io::IoResult<()>
 {
     fn writeln<W:Writer>(w: &mut W, arg: &[&str]) -> old_io::IoResult<()> {
-        for &s in arg.iter() { try!(w.write_str(s)); }
+        for &s in arg { try!(w.write_str(s)); }
         w.write_char('\n')
     }
 
@@ -557,7 +557,7 @@ pub fn render_opts<'a, N:Clone+'a, E:Clone+'a, G:Labeller<'a,N,E>+GraphWalk<'a,N
     }
 
     try!(writeln(w, &["digraph ", g.graph_id().as_slice(), " {"]));
-    for n in g.nodes().iter() {
+    for n in &*g.nodes() {
         try!(indent(w));
         let id = g.node_id(n);
         if options.contains(&RenderOption::NoNodeLabels) {
@@ -565,11 +565,11 @@ pub fn render_opts<'a, N:Clone+'a, E:Clone+'a, G:Labeller<'a,N,E>+GraphWalk<'a,N
         } else {
             let escaped = g.node_label(n).escape();
             try!(writeln(w, &[id.as_slice(),
-                              "[label=\"", escaped.as_slice(), "\"];"]));
+                              "[label=\"", &escaped, "\"];"]));
         }
     }
 
-    for e in g.edges().iter() {
+    for e in &*g.edges() {
         let escaped_label = g.edge_label(e).escape();
         try!(indent(w));
         let source = g.source(e);
@@ -582,7 +582,7 @@ pub fn render_opts<'a, N:Clone+'a, E:Clone+'a, G:Labeller<'a,N,E>+GraphWalk<'a,N
         } else {
             try!(writeln(w, &[source_id.as_slice(),
                               " -> ", target_id.as_slice(),
-                              "[label=\"", escaped_label.as_slice(), "\"];"]));
+                              "[label=\"", &escaped_label, "\"];"]));
         }
     }
 
@@ -715,7 +715,7 @@ mod tests {
 
     impl<'a> GraphWalk<'a, Node, &'a Edge> for LabelledGraph {
         fn nodes(&'a self) -> Nodes<'a,Node> {
-            (0u..self.node_labels.len()).collect()
+            (0..self.node_labels.len()).collect()
         }
         fn edges(&'a self) -> Edges<'a,&'a Edge> {
             self.edges.iter().collect()
@@ -746,7 +746,7 @@ mod tests {
     fn test_input(g: LabelledGraph) -> IoResult<String> {
         let mut writer = Vec::new();
         render(&g, &mut writer).unwrap();
-        (&mut writer.as_slice()).read_to_string()
+        (&mut &*writer).read_to_string()
     }
 
     // All of the tests use raw-strings as the format for the expected outputs,
@@ -858,7 +858,7 @@ r#"digraph hasse_diagram {
                  edge(1, 3, ";"),    edge(2, 3, ";"   )));
 
         render(&g, &mut writer).unwrap();
-        let r = (&mut writer.as_slice()).read_to_string();
+        let r = (&mut &*writer).read_to_string();
 
         assert_eq!(r.unwrap(),
 r#"digraph syntax_tree {

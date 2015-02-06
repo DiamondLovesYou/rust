@@ -24,7 +24,7 @@ use option::Option;
 use option::Option::{Some, None};
 use ptr::PtrExt;
 use result::Result::{Ok, Err};
-use slice::{SliceExt, AsSlice};
+use slice::SliceExt;
 
 /// An iterator that reads a single byte on each iteration,
 /// until `.read_byte()` returns `EndOfFile`.
@@ -101,7 +101,7 @@ pub fn u64_to_le_bytes<T, F>(n: u64, size: uint, f: F) -> T where
             n >>= 8;
             i -= 1u;
         }
-        f(bytes.as_slice())
+        f(&bytes)
       }
     }
 }
@@ -140,7 +140,7 @@ pub fn u64_to_be_bytes<T, F>(n: u64, size: uint, f: F) -> T where
             bytes.push((n >> shift) as u8);
             i -= 1u;
         }
-        f(bytes.as_slice())
+        f(&bytes)
       }
     }
 }
@@ -406,12 +406,12 @@ mod test {
         let uints = [0, 1, 2, 42, 10_123, 100_123_456, ::u64::MAX];
 
         let mut writer = Vec::new();
-        for i in uints.iter() {
+        for i in &uints {
             writer.write_le_u64(*i).unwrap();
         }
 
         let mut reader = MemReader::new(writer);
-        for i in uints.iter() {
+        for i in &uints {
             assert!(reader.read_le_u64().unwrap() == *i);
         }
     }
@@ -422,12 +422,12 @@ mod test {
         let uints = [0, 1, 2, 42, 10_123, 100_123_456, ::u64::MAX];
 
         let mut writer = Vec::new();
-        for i in uints.iter() {
+        for i in &uints {
             writer.write_be_u64(*i).unwrap();
         }
 
         let mut reader = MemReader::new(writer);
-        for i in uints.iter() {
+        for i in &uints {
             assert!(reader.read_be_u64().unwrap() == *i);
         }
     }
@@ -437,12 +437,12 @@ mod test {
         let ints = [::i32::MIN, -123456, -42, -5, 0, 1, ::i32::MAX];
 
         let mut writer = Vec::new();
-        for i in ints.iter() {
+        for i in &ints {
             writer.write_be_i32(*i).unwrap();
         }
 
         let mut reader = MemReader::new(writer);
-        for i in ints.iter() {
+        for i in &ints {
             // this tests that the sign extension is working
             // (comparing the values as i32 would not test this)
             assert!(reader.read_be_int_n(4).unwrap() == *i as i64);
@@ -455,7 +455,7 @@ mod test {
         let buf = vec![0x41, 0x02, 0x00, 0x00];
 
         let mut writer = Vec::new();
-        writer.write(buf.as_slice()).unwrap();
+        writer.write(&buf).unwrap();
 
         let mut reader = MemReader::new(writer);
         let f = reader.read_be_f32().unwrap();
@@ -523,7 +523,7 @@ mod bench {
             $b.iter(|| {
                 let mut i = $start_index;
                 while i < data.len() {
-                    sum += u64_from_be_bytes(data.as_slice(), i, $size);
+                    sum += u64_from_be_bytes(&data, i, $size);
                     i += $stride;
                 }
             });

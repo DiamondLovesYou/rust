@@ -24,7 +24,7 @@ reference to a trait. So, for example, if there is a generic function like:
 
 and then a call to that function:
 
-    let v: Vec<int> = clone_slice([1, 2, 3].as_slice())
+    let v: Vec<int> = clone_slice([1, 2, 3])
 
 it is the job of trait resolution to figure out (in which case)
 whether there exists an impl of `int : Clone`
@@ -35,7 +35,7 @@ provide an impl. To see what I mean, consider the body of `clone_slice`:
 
     fn clone_slice<T:Clone>(x: &[T]) -> Vec<T> {
         let mut v = Vec::new();
-        for e in x.iter() {
+        for e in &x {
             v.push((*e).clone()); // (*)
         }
     }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2014-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -20,7 +20,7 @@ use old_io::{self, IoResult, IoError, EndOfFile};
 use libc::{self, pid_t, c_void, c_int};
 use mem;
 use os;
-use path::BytesContainer;
+use old_path::BytesContainer;
 use ptr;
 use sync::mpsc::{channel, Sender, Receiver};
 use sys::fs::FileDesc;
@@ -95,18 +95,6 @@ impl Process {
             }
         }
 
-        #[cfg(target_os = "macos")]
-        unsafe fn set_environ(envp: *const c_void) {
-            extern { fn _NSGetEnviron() -> *mut *const c_void; }
-
-            *_NSGetEnviron() = envp;
-        }
-        #[cfg(not(target_os = "macos"))]
-        unsafe fn set_environ(envp: *const c_void) {
-            extern { static mut environ: *const c_void; }
-            environ = envp;
-        }
-
         unsafe fn set_cloexec(fd: c_int) {
             let ret = c::ioctl(fd, c::FIOCLEX);
             assert_eq!(ret, 0);
@@ -119,8 +107,8 @@ impl Process {
             mem::transmute::<&ProcessConfig<K,V>,&'static ProcessConfig<K,V>>(cfg)
         };
 
-        with_envp(cfg.env(), move|: envp: *const c_void| {
-            with_argv(cfg.program(), cfg.args(), move|: argv: *const *const libc::c_char| unsafe {
+        with_envp(cfg.env(), move|envp: *const c_void| {
+            with_argv(cfg.program(), cfg.args(), move|argv: *const *const libc::c_char| unsafe {
                 let (input, mut output) = try!(sys::os::pipe());
 
                 // We may use this in the child, so perform allocations before the
@@ -220,7 +208,7 @@ impl Process {
                 // up /dev/null into that file descriptor. Otherwise, the first file
                 // descriptor opened up in the child would be numbered as one of the
                 // stdio file descriptors, which is likely to wreak havoc.
-                let setup = |&: src: Option<P>, dst: c_int| {
+                let setup = |src: Option<P>, dst: c_int| {
                     let src = match src {
                         None => {
                             let flags = if dst == libc::STDIN_FILENO {
@@ -292,7 +280,7 @@ impl Process {
                     fail(&mut output);
                 }
                 if !envp.is_null() {
-                    set_environ(envp);
+                    *sys::os::environ() = envp as *const _;
                 }
                 let _ = execvp(*argv, argv as *mut _);
                 fail(&mut output);
@@ -605,7 +593,7 @@ fn with_envp<K,V,T,F>(env: Option<&HashMap<K, V>>,
         Some(env) => {
             let mut tmps = Vec::with_capacity(env.len());
 
-            for pair in env.iter() {
+            for pair in env {
                 let mut kv = Vec::new();
                 kv.push_all(pair.0.container_as_bytes());
                 kv.push('=' as u8);
@@ -639,7 +627,8 @@ fn translate_status(status: c_int) -> ProcessExit {
     #[cfg(any(target_os = "macos",
               target_os = "ios",
               target_os = "freebsd",
-              target_os = "dragonfly"))]
+              target_os = "dragonfly",
+              target_os = "openbsd"))]
     mod imp {
         pub fn WIFEXITED(status: i32) -> bool { (status & 0x7f) == 0 }
         pub fn WEXITSTATUS(status: i32) -> i32 { status >> 8 }

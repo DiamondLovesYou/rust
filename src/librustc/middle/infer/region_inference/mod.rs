@@ -667,7 +667,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
                                     a, b);
                             }
                             VerifyGenericBound(_, _, a, ref bs) => {
-                                for &b in bs.iter() {
+                                for &b in bs {
                                     consider_adding_bidirectional_edges(
                                         &mut result_set, r,
                                         a, b);
@@ -973,8 +973,8 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
         debug!("----() End constraint listing {:?}---", self.dump_constraints());
         graphviz::maybe_print_constraints_for(self, subject);
 
-        self.expansion(var_data.as_mut_slice());
-        self.contraction(var_data.as_mut_slice());
+        self.expansion(&mut var_data);
+        self.contraction(&mut var_data);
         let values =
             self.extract_values_and_collect_conflicts(&var_data[],
                                                       errors);
@@ -1200,7 +1200,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
                                       errors: &mut Vec<RegionResolutionError<'tcx>>)
     {
         let mut reg_reg_dups = FnvHashSet();
-        for verify in self.verifys.borrow().iter() {
+        for verify in &*self.verifys.borrow() {
             match *verify {
                 VerifyRegSubReg(ref origin, sub, sup) => {
                     if self.is_subregion_of(sub, sup) {
@@ -1303,12 +1303,12 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
                     match var_data[idx].classification {
                         Expanding => {
                             self.collect_error_for_expanding_node(
-                                graph, var_data, dup_vec.as_mut_slice(),
+                                graph, var_data, &mut dup_vec,
                                 node_vid, errors);
                         }
                         Contracting => {
                             self.collect_error_for_contracting_node(
-                                graph, var_data, dup_vec.as_mut_slice(),
+                                graph, var_data, &mut dup_vec,
                                 node_vid, errors);
                         }
                     }
@@ -1333,7 +1333,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
         }
         let dummy_idx = graph.add_node(());
 
-        for (constraint, _) in constraints.iter() {
+        for (constraint, _) in &*constraints {
             match *constraint {
                 ConstrainVarSubVar(a_id, b_id) => {
                     graph.add_edge(NodeIndex(a_id.index as uint),
@@ -1393,8 +1393,8 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
         lower_bounds.sort_by(|a, b| { free_regions_first(a, b) });
         upper_bounds.sort_by(|a, b| { free_regions_first(a, b) });
 
-        for lower_bound in lower_bounds.iter() {
-            for upper_bound in upper_bounds.iter() {
+        for lower_bound in &lower_bounds {
+            for upper_bound in &upper_bounds {
                 if !self.is_subregion_of(lower_bound.region,
                                          upper_bound.region) {
                     errors.push(SubSupConflict(
@@ -1435,8 +1435,8 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
             return;
         }
 
-        for upper_bound_1 in upper_bounds.iter() {
-            for upper_bound_2 in upper_bounds.iter() {
+        for upper_bound_1 in &upper_bounds {
+            for upper_bound_2 in &upper_bounds {
                 match self.glb_concrete_regions(upper_bound_1.region,
                                                 upper_bound_2.region) {
                   Ok(_) => {}
@@ -1554,7 +1554,7 @@ impl<'a, 'tcx> RegionVarBindings<'a, 'tcx> {
             changed = false;
             iteration += 1;
             debug!("---- {} Iteration {}{}", "#", tag, iteration);
-            for (constraint, _) in self.constraints.borrow().iter() {
+            for (constraint, _) in &*self.constraints.borrow() {
                 let edge_changed = body(constraint);
                 if edge_changed {
                     debug!("Updated due to constraint {}",

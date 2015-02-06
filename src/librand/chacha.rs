@@ -194,7 +194,7 @@ impl<'a> SeedableRng<&'a [u32]> for ChaChaRng {
 impl Rand for ChaChaRng {
     fn rand<R: Rng>(other: &mut R) -> ChaChaRng {
         let mut key : [u32; KEY_WORDS] = [0; KEY_WORDS];
-        for word in key.iter_mut() {
+        for word in &mut key {
             *word = other.gen();
         }
         SeedableRng::from_seed(key.as_slice())
@@ -213,8 +213,8 @@ mod test {
     #[test]
     fn test_rng_rand_seeded() {
         let s = ::test::rng().gen_iter::<u32>().take(8).collect::<Vec<u32>>();
-        let mut ra: ChaChaRng = SeedableRng::from_seed(s.as_slice());
-        let mut rb: ChaChaRng = SeedableRng::from_seed(s.as_slice());
+        let mut ra: ChaChaRng = SeedableRng::from_seed(&*s);
+        let mut rb: ChaChaRng = SeedableRng::from_seed(&*s);
         assert!(order::equals(ra.gen_ascii_chars().take(100),
                               rb.gen_ascii_chars().take(100)));
     }
@@ -231,10 +231,10 @@ mod test {
     #[test]
     fn test_rng_reseed() {
         let s = ::test::rng().gen_iter::<u32>().take(8).collect::<Vec<u32>>();
-        let mut r: ChaChaRng = SeedableRng::from_seed(s.as_slice());
+        let mut r: ChaChaRng = SeedableRng::from_seed(&*s);
         let string1: String = r.gen_ascii_chars().take(100).collect();
 
-        r.reseed(s.as_slice());
+        r.reseed(&s);
 
         let string2: String = r.gen_ascii_chars().take(100).collect();
         assert_eq!(string1, string2);
@@ -268,9 +268,9 @@ mod test {
         // Store the 17*i-th 32-bit word,
         // i.e., the i-th word of the i-th 16-word block
         let mut v : Vec<u32> = Vec::new();
-        for _ in 0u..16 {
+        for _ in 0..16 {
             v.push(ra.next_u32());
-            for _ in 0u..16 {
+            for _ in 0..16 {
                 ra.next_u32();
             }
         }
@@ -287,7 +287,7 @@ mod test {
         let seed : &[_] = &[0u32; 8];
         let mut rng: ChaChaRng = SeedableRng::from_seed(seed);
         let mut clone = rng.clone();
-        for _ in 0u..16 {
+        for _ in 0..16 {
             assert_eq!(rng.next_u64(), clone.next_u64());
         }
     }

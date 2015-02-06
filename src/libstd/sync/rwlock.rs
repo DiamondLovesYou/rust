@@ -383,6 +383,8 @@ impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)] // rand
+
     use prelude::v1::*;
 
     use rand::{self, Rng};
@@ -508,7 +510,7 @@ mod tests {
         }
 
         // Wait for children to pass their asserts
-        for r in children.into_iter() {
+        for r in children {
             assert!(r.join().is_ok());
         }
 

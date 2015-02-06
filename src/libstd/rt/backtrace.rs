@@ -14,7 +14,7 @@
 
 use prelude::v1::*;
 
-use os;
+use env;
 use sync::atomic::{self, Ordering};
 
 pub use sys::backtrace::write;
@@ -29,7 +29,7 @@ pub fn log_enabled() -> bool {
         _ => {}
     }
 
-    let val = match os::getenv("RUST_BACKTRACE") {
+    let val = match env::var("RUST_BACKTRACE") {
         Some(..) => 2,
         None => 1,
     };
@@ -65,22 +65,22 @@ mod test {
 
     #[test]
     fn demangle_dollars() {
-        t!("_ZN4$UP$E", "Box");
-        t!("_ZN8$UP$testE", "Boxtest");
-        t!("_ZN8$UP$test4foobE", "Boxtest::foob");
-        t!("_ZN10$u{20}test4foobE", " test::foob");
+        t!("_ZN4$RP$E", ")");
+        t!("_ZN8$RF$testE", "&test");
+        t!("_ZN8$BP$test4foobE", "*test::foob");
+        t!("_ZN9$u20$test4foobE", " test::foob");
     }
 
     #[test]
     fn demangle_many_dollars() {
-        t!("_ZN14test$u{20}test4foobE", "test test::foob");
-        t!("_ZN12test$UP$test4foobE", "testBoxtest::foob");
+        t!("_ZN13test$u20$test4foobE", "test test::foob");
+        t!("_ZN12test$BP$test4foobE", "test*test::foob");
     }
 
     #[test]
     fn demangle_windows() {
         t!("ZN4testE", "test");
-        t!("ZN14test$u{20}test4foobE", "test test::foob");
-        t!("ZN12test$UP$test4foobE", "testBoxtest::foob");
+        t!("ZN13test$u20$test4foobE", "test test::foob");
+        t!("ZN12test$RF$test4foobE", "test&test::foob");
     }
 }

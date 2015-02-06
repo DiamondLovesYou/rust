@@ -382,7 +382,7 @@ impl<T> Vec<T> {
     pub fn into_boxed_slice(mut self) -> Box<[T]> {
         self.shrink_to_fit();
         unsafe {
-            let xs: Box<[T]> = mem::transmute(self.as_mut_slice());
+            let xs: Box<[T]> = mem::transmute(&mut *self);
             mem::forget(self);
             xs
         }
@@ -604,7 +604,7 @@ impl<T> Vec<T> {
         let len = self.len();
         let mut del = 0u;
         {
-            let v = self.as_mut_slice();
+            let v = &mut **self;
 
             for i in 0u..len {
                 if !f(&v[i]) {
@@ -1246,7 +1246,7 @@ unsafe fn dealloc<T>(ptr: *mut T, len: uint) {
 
 #[unstable(feature = "collections")]
 impl<T:Clone> Clone for Vec<T> {
-    fn clone(&self) -> Vec<T> { ::slice::SliceExt::to_vec(self.as_slice()) }
+    fn clone(&self) -> Vec<T> { ::slice::SliceExt::to_vec(&**self) }
 
     fn clone_from(&mut self, other: &Vec<T>) {
         // drop anything in self that will not be overwritten
@@ -1269,7 +1269,7 @@ impl<T:Clone> Clone for Vec<T> {
 impl<S: hash::Writer + hash::Hasher, T: Hash<S>> Hash<S> for Vec<T> {
     #[inline]
     fn hash(&self, state: &mut S) {
-        self.as_slice().hash(state);
+        Hash::hash(&**self, state)
     }
 }
 
@@ -1279,7 +1279,8 @@ impl<T> Index<uint> for Vec<T> {
 
     #[inline]
     fn index<'a>(&'a self, index: &uint) -> &'a T {
-        &self.as_slice()[*index]
+        // NB built-in indexing via `&[T]`
+        &(**self)[*index]
     }
 }
 
@@ -1289,7 +1290,8 @@ impl<T> IndexMut<uint> for Vec<T> {
 
     #[inline]
     fn index_mut<'a>(&'a mut self, index: &uint) -> &'a mut T {
-        &mut self.as_mut_slice()[*index]
+        // NB built-in indexing via `&mut [T]`
+        &mut (**self)[*index]
     }
 }
 
@@ -1299,7 +1301,7 @@ impl<T> ops::Index<ops::Range<uint>> for Vec<T> {
     type Output = [T];
     #[inline]
     fn index(&self, index: &ops::Range<uint>) -> &[T] {
-        self.as_slice().index(index)
+        Index::index(&**self, index)
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1307,7 +1309,7 @@ impl<T> ops::Index<ops::RangeTo<uint>> for Vec<T> {
     type Output = [T];
     #[inline]
     fn index(&self, index: &ops::RangeTo<uint>) -> &[T] {
-        self.as_slice().index(index)
+        Index::index(&**self, index)
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1315,19 +1317,9 @@ impl<T> ops::Index<ops::RangeFrom<uint>> for Vec<T> {
     type Output = [T];
     #[inline]
     fn index(&self, index: &ops::RangeFrom<uint>) -> &[T] {
-        self.as_slice().index(index)
+        Index::index(&**self, index)
     }
 }
-#[cfg(stage0)]
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<T> ops::Index<ops::FullRange> for Vec<T> {
-    type Output = [T];
-    #[inline]
-    fn index(&self, _index: &ops::FullRange) -> &[T] {
-        self.as_slice()
-    }
-}
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ops::Index<ops::RangeFull> for Vec<T> {
     type Output = [T];
@@ -1342,7 +1334,7 @@ impl<T> ops::IndexMut<ops::Range<uint>> for Vec<T> {
     type Output = [T];
     #[inline]
     fn index_mut(&mut self, index: &ops::Range<uint>) -> &mut [T] {
-        self.as_mut_slice().index_mut(index)
+        IndexMut::index_mut(&mut **self, index)
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1350,7 +1342,7 @@ impl<T> ops::IndexMut<ops::RangeTo<uint>> for Vec<T> {
     type Output = [T];
     #[inline]
     fn index_mut(&mut self, index: &ops::RangeTo<uint>) -> &mut [T] {
-        self.as_mut_slice().index_mut(index)
+        IndexMut::index_mut(&mut **self, index)
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1358,19 +1350,9 @@ impl<T> ops::IndexMut<ops::RangeFrom<uint>> for Vec<T> {
     type Output = [T];
     #[inline]
     fn index_mut(&mut self, index: &ops::RangeFrom<uint>) -> &mut [T] {
-        self.as_mut_slice().index_mut(index)
+        IndexMut::index_mut(&mut **self, index)
     }
 }
-#[cfg(stage0)]
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<T> ops::IndexMut<ops::FullRange> for Vec<T> {
-    type Output = [T];
-    #[inline]
-    fn index_mut(&mut self, _index: &ops::FullRange) -> &mut [T] {
-        self.as_mut_slice()
-    }
-}
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ops::IndexMut<ops::RangeFull> for Vec<T> {
     type Output = [T];
@@ -1395,7 +1377,7 @@ impl<T> ops::DerefMut for Vec<T> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> FromIterator<T> for Vec<T> {
     #[inline]
-    fn from_iter<I:Iterator<Item=T>>(mut iterator: I) -> Vec<T> {
+    fn from_iter<I:Iterator<Item=T>>(iterator: I) -> Vec<T> {
         let (lower, _) = iterator.size_hint();
         let mut vector = Vec::with_capacity(lower);
         for element in iterator {
@@ -1432,7 +1414,7 @@ impl<'a, T> IntoIterator for &'a mut Vec<T> {
 #[unstable(feature = "collections", reason = "waiting on Extend stability")]
 impl<T> Extend<T> for Vec<T> {
     #[inline]
-    fn extend<I: Iterator<Item=T>>(&mut self, mut iterator: I) {
+    fn extend<I: Iterator<Item=T>>(&mut self, iterator: I) {
         let (lower, _) = iterator.size_hint();
         self.reserve(lower);
         for element in iterator {
@@ -1509,7 +1491,7 @@ impl_eq_for_cowvec! { &'b mut [B] }
 impl<T: PartialOrd> PartialOrd for Vec<T> {
     #[inline]
     fn partial_cmp(&self, other: &Vec<T>) -> Option<Ordering> {
-        self.as_slice().partial_cmp(other.as_slice())
+        PartialOrd::partial_cmp(&**self, &**other)
     }
 }
 
@@ -1520,7 +1502,7 @@ impl<T: Eq> Eq for Vec<T> {}
 impl<T: Ord> Ord for Vec<T> {
     #[inline]
     fn cmp(&self, other: &Vec<T>) -> Ordering {
-        self.as_slice().cmp(other.as_slice())
+        Ord::cmp(&**self, &**other)
     }
 }
 
@@ -1567,7 +1549,7 @@ impl<T> Drop for Vec<T> {
         // zeroed (when moving out, because of #[unsafe_no_drop_flag]).
         if self.cap != 0 {
             unsafe {
-                for x in self.iter() {
+                for x in &*self {
                     ptr::read(x);
                 }
                 dealloc(*self.ptr, self.cap)
@@ -1587,7 +1569,7 @@ impl<T> Default for Vec<T> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: fmt::Debug> fmt::Debug for Vec<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self.as_slice(), f)
+        fmt::Debug::fmt(&**self, f)
     }
 }
 
@@ -1934,8 +1916,6 @@ mod tests {
     use prelude::*;
     use core::mem::size_of;
     use core::iter::repeat;
-    #[cfg(stage0)]
-    use core::ops::FullRange;
     use test::Bencher;
     use super::as_vec;
 
@@ -1953,7 +1933,7 @@ mod tests {
     #[test]
     fn test_as_vec() {
         let xs = [1u8, 2u8, 3u8];
-        assert_eq!(as_vec(&xs).as_slice(), xs);
+        assert_eq!(&**as_vec(&xs), xs);
     }
 
     #[test]
@@ -2044,7 +2024,7 @@ mod tests {
         {
             let slice = &mut values[2 ..];
             assert!(slice == [3, 4, 5]);
-            for p in slice.iter_mut() {
+            for p in slice {
                 *p += 2;
             }
         }
@@ -2058,7 +2038,7 @@ mod tests {
         {
             let slice = &mut values[.. 2];
             assert!(slice == [1, 2]);
-            for p in slice.iter_mut() {
+            for p in slice {
                 *p += 1;
             }
         }
@@ -2075,7 +2055,7 @@ mod tests {
                 let left: &[_] = left;
                 assert!(&left[..left.len()] == &[1, 2][]);
             }
-            for p in left.iter_mut() {
+            for p in left {
                 *p += 1;
             }
 
@@ -2083,7 +2063,7 @@ mod tests {
                 let right: &[_] = right;
                 assert!(&right[..right.len()] == &[3, 4, 5][]);
             }
-            for p in right.iter_mut() {
+            for p in right {
                 *p += 2;
             }
         }
@@ -2151,7 +2131,7 @@ mod tests {
         v.push(());
         assert_eq!(v.iter().count(), 2);
 
-        for &() in v.iter() {}
+        for &() in &v {}
 
         assert_eq!(v.iter_mut().count(), 2);
         v.push(());
@@ -2159,7 +2139,7 @@ mod tests {
         v.push(());
         assert_eq!(v.iter_mut().count(), 4);
 
-        for &mut () in v.iter_mut() {}
+        for &mut () in &mut v {}
         unsafe { v.set_len(0); }
         assert_eq!(v.iter_mut().count(), 0);
     }
@@ -2355,7 +2335,7 @@ mod tests {
     fn test_move_items() {
         let vec = vec![1, 2, 3];
         let mut vec2 : Vec<i32> = vec![];
-        for i in vec.into_iter() {
+        for i in vec {
             vec2.push(i);
         }
         assert!(vec2 == vec![1, 2, 3]);
@@ -2375,7 +2355,7 @@ mod tests {
     fn test_move_items_zero_sized() {
         let vec = vec![(), (), ()];
         let mut vec2 : Vec<()> = vec![];
-        for i in vec.into_iter() {
+        for i in vec {
             vec2.push(i);
         }
         assert!(vec2 == vec![(), (), ()]);
@@ -2418,7 +2398,7 @@ mod tests {
     fn test_into_boxed_slice() {
         let xs = vec![1u, 2, 3];
         let ys = xs.into_boxed_slice();
-        assert_eq!(ys.as_slice(), [1u, 2, 3]);
+        assert_eq!(ys, [1u, 2, 3]);
     }
 
     #[test]
@@ -2658,7 +2638,7 @@ mod tests {
 
         b.iter(|| {
             let mut dst = dst.clone();
-            dst.push_all(src.as_slice());
+            dst.push_all(&src);
             assert_eq!(dst.len(), dst_len + src_len);
             assert!(dst.iter().enumerate().all(|(i, x)| i == *x));
         });

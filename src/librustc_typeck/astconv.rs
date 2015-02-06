@@ -272,7 +272,7 @@ pub fn ast_path_substs_for_ty<'tcx>(
         }
     };
 
-    prohibit_projections(this.tcx(), assoc_bindings.as_slice());
+    prohibit_projections(this.tcx(), &assoc_bindings);
 
     create_substs_for_ast_path(this,
                                rscope,
@@ -373,7 +373,7 @@ fn create_substs_for_ast_path<'tcx>(
         }
     }
 
-    for param in ty_param_defs[supplied_ty_param_count..].iter() {
+    for param in &ty_param_defs[supplied_ty_param_count..] {
         match param.default {
             Some(default) => {
                 // This is a default type parameter.
@@ -537,7 +537,7 @@ pub fn instantiate_poly_trait_ref<'tcx>(
         instantiate_trait_ref(this, &shifted_rscope, &ast_trait_ref.trait_ref,
                               self_ty, Some(&mut projections));
 
-    for projection in projections.into_iter() {
+    for projection in projections {
         poly_projections.push(ty::Binder(projection));
     }
 
@@ -656,10 +656,10 @@ fn ast_path_to_trait_ref<'a,'tcx>(
 
     match projections {
         None => {
-            prohibit_projections(this.tcx(), assoc_bindings.as_slice());
+            prohibit_projections(this.tcx(), &assoc_bindings);
         }
         Some(ref mut v) => {
-            for binding in assoc_bindings.iter() {
+            for binding in &assoc_bindings {
                 match ast_type_binding_to_projection_predicate(this, trait_ref.clone(),
                                                                self_ty, binding) {
                     Ok(pp) => { v.push(pp); }
@@ -733,7 +733,7 @@ fn ast_type_binding_to_projection_predicate<'tcx>(
     // If converting for an object type, then remove the dummy-ty from `Self` now.
     // Yuckety yuck.
     if self_ty.is_none() {
-        for candidate in candidates.iter_mut() {
+        for candidate in &mut candidates {
             let mut dummy_substs = candidate.0.substs.clone();
             assert!(dummy_substs.self_ty() == Some(dummy_self_ty));
             dummy_substs.types.pop(SelfSpace);
@@ -960,7 +960,7 @@ fn associated_path_def_to_ty<'tcx>(this: &AstConv<'tcx>,
 
         // FIXME(#20300) -- search where clauses, not bounds
         suitable_bounds =
-            traits::transitive_bounds(tcx, ty_param_def.bounds.trait_bounds.as_slice())
+            traits::transitive_bounds(tcx, &ty_param_def.bounds.trait_bounds)
             .filter(|b| trait_defines_associated_type_named(this, b.def_id(), assoc_name))
             .collect();
     }
@@ -979,7 +979,7 @@ fn associated_path_def_to_ty<'tcx>(this: &AstConv<'tcx>,
                                   token::get_name(assoc_name),
                                   token::get_name(ty_param_name));
 
-        for suitable_bound in suitable_bounds.iter() {
+        for suitable_bound in &suitable_bounds {
             span_note!(this.tcx().sess, ast_ty.span,
                        "associated type `{}` could derive from `{}`",
                        token::get_name(ty_param_name),
@@ -1595,11 +1595,11 @@ pub fn conv_existential_bounds_from_partitioned_bounds<'tcx>(
     let region_bound = compute_region_bound(this,
                                             rscope,
                                             span,
-                                            region_bounds.as_slice(),
+                                            &region_bounds,
                                             principal_trait_ref,
                                             builtin_bounds);
 
-    ty::sort_bounds_list(projection_bounds.as_mut_slice());
+    ty::sort_bounds_list(&mut projection_bounds);
 
     ty::ExistentialBounds {
         region_bound: region_bound,
@@ -1710,7 +1710,7 @@ pub fn partition_bounds<'a>(tcx: &ty::ctxt,
     let mut region_bounds = Vec::new();
     let mut trait_bounds = Vec::new();
     let mut trait_def_ids = DefIdMap();
-    for ast_bound in ast_bounds.iter() {
+    for ast_bound in ast_bounds {
         match *ast_bound {
             ast::TraitTyParamBound(ref b, ast::TraitBoundModifier::None) => {
                 match ::lookup_def_tcx(tcx, b.trait_ref.path.span, b.trait_ref.ref_id) {

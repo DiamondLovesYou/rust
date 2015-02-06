@@ -30,9 +30,10 @@ use rustc_privacy;
 
 use serialize::json;
 
-use std::old_io;
+use std::env;
+use std::ffi::OsString;
 use std::old_io::fs;
-use std::os;
+use std::old_io;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::attr;
@@ -220,7 +221,7 @@ impl<'a> PhaseController<'a> {
     pub fn basic() -> PhaseController<'a> {
         PhaseController {
             stop: false,
-            callback: box |&: _| {},
+            callback: box |_| {},
         }
     }
 }
@@ -356,7 +357,7 @@ pub fn phase_1_parse_input(sess: &Session, cfg: ast::CrateConfig, input: &Input)
     }
 
     if let Some(ref s) = sess.opts.show_span {
-        syntax::show_span::run(sess.diagnostic(), s.as_slice(), &krate);
+        syntax::show_span::run(sess.diagnostic(), s, &krate);
     }
 
     krate
@@ -431,7 +432,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                 diagnostics::plugin::expand_build_diagnostic_array);
         }
 
-        for registrar in registrars.into_iter() {
+        for registrar in registrars {
             registry.args_hidden = Some(registrar.args);
             (registrar.fun)(&mut registry);
         }
@@ -441,11 +442,11 @@ pub fn phase_2_configure_and_expand(sess: &Session,
 
     {
         let mut ls = sess.lint_store.borrow_mut();
-        for pass in lint_passes.into_iter() {
+        for pass in lint_passes {
             ls.register_pass(Some(sess), true, pass);
         }
 
-        for (name, to) in lint_groups.into_iter() {
+        for (name, to) in lint_groups {
             ls.register_group(Some(sess), true, name, to);
         }
     }
@@ -467,12 +468,12 @@ pub fn phase_2_configure_and_expand(sess: &Session,
             // dependent dlls. Note that this uses cfg!(windows) as opposed to
             // targ_cfg because syntax extensions are always loaded for the host
             // compiler, not for the target.
-            let mut _old_path = String::new();
+            let mut _old_path = OsString::from_str("");
             if cfg!(windows) {
-                _old_path = os::getenv("PATH").unwrap_or(_old_path);
+                _old_path = env::var("PATH").unwrap_or(_old_path);
                 let mut new_path = sess.host_filesearch(PathKind::All).get_dylib_search_paths();
-                new_path.extend(os::split_paths(&_old_path[]).into_iter());
-                os::setenv("PATH", os::join_paths(&new_path[]).unwrap());
+                new_path.extend(env::split_paths(&_old_path));
+                env::set_var("PATH", &env::join_paths(new_path.iter()).unwrap());
             }
             let cfg = syntax::ext::expand::ExpansionConfig {
                 crate_name: crate_name.to_string(),
@@ -485,7 +486,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                                               syntax_exts,
                                               krate);
             if cfg!(windows) {
-                os::setenv("PATH", _old_path);
+                env::set_var("PATH", &_old_path);
             }
             ret
         }
@@ -603,9 +604,6 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
     time(time_passes, "loop checking", (), |_|
          middle::check_loop::check_crate(&sess, krate));
 
-    let stability_index = time(time_passes, "stability index", (), |_|
-                               stability::Index::build(&sess, krate));
-
     time(time_passes, "static item recursion checking", (), |_|
          middle::check_static_recursion::check_crate(&sess, krate, &def_map, &ast_map));
 
@@ -617,7 +615,7 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
                             freevars,
                             region_map,
                             lang_items,
-                            stability_index);
+                            stability::Index::new(krate));
 
     // passes are timed inside typeck
     typeck::check_crate(&ty_cx, trait_map);
@@ -636,6 +634,10 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
     let (exported_items, public_items) =
             time(time_passes, "privacy checking", maps, |(a, b)|
                  rustc_privacy::check_crate(&ty_cx, &export_map, a, b));
+
+    // Do not move this check past lint
+    time(time_passes, "stability index", (), |_|
+         ty_cx.stability.borrow_mut().build(&ty_cx.sess, krate, &public_items));
 
     time(time_passes, "intrinsic checking", (), |_|
          middle::intrinsicck::check_crate(&ty_cx));
@@ -745,10 +747,10 @@ pub fn phase_5_run_llvm_passes(sess: &Session,
 pub fn phase_6_link_output(sess: &Session,
                            trans: &trans::CrateTranslation,
                            outputs: &OutputFilenames) {
-    let old_path = os::getenv("PATH").unwrap_or_else(||String::new());
+    let old_path = env::var("PATH").unwrap_or(OsString::from_str(""));
     let mut new_path = sess.host_filesearch(PathKind::All).get_tools_search_paths();
-    new_path.extend(os::split_paths(&old_path[]).into_iter());
-    os::setenv("PATH", os::join_paths(&new_path[]).unwrap());
+    new_path.extend(env::split_paths(&old_path));
+    env::set_var("PATH", &env::join_paths(new_path.iter()).unwrap());
 
     time(sess.time_passes(), "linking", (), |_|
          link::link_binary(sess,
@@ -756,7 +758,7 @@ pub fn phase_6_link_output(sess: &Session,
                            outputs,
                            &trans.link.crate_name[]));
 
-    os::setenv("PATH", old_path);
+    env::set_var("PATH", &old_path);
 }
 
 fn escape_dep_filename(filename: &str) -> String {
@@ -771,11 +773,11 @@ fn write_out_deps(sess: &Session,
                   id: &str) {
 
     let mut out_filenames = Vec::new();
-    for output_type in sess.opts.output_types.iter() {
+    for output_type in &sess.opts.output_types {
         let file = outputs.path(*output_type);
         match *output_type {
             config::OutputTypeExe => {
-                for output in sess.crate_types.borrow().iter() {
+                for output in &*sess.crate_types.borrow() {
                     if sess.targeting_pnacl() && *output == config::CrateTypeDylib {
                         continue;
                     }
@@ -806,7 +808,7 @@ fn write_out_deps(sess: &Session,
         _ => return,
     };
 
-    let result = (|&:| -> old_io::IoResult<()> {
+    let result = (|| -> old_io::IoResult<()> {
         // Build a list of files used to compile the output and
         // write Makefile-compatible dependency rules
         let files: Vec<String> = sess.codemap().files.borrow()
@@ -814,7 +816,7 @@ fn write_out_deps(sess: &Session,
                                    .map(|fmap| escape_dep_filename(&fmap.name[]))
                                    .collect();
         let mut file = try!(old_io::File::create(&deps_filename));
-        for path in out_filenames.iter() {
+        for path in &out_filenames {
             try!(write!(&mut file as &mut Writer,
                           "{}: {}\n\n", path.display(), files.connect(" ")));
         }

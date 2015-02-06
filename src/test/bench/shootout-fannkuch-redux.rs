@@ -171,7 +171,7 @@ fn fannkuch(n: i32) -> (i32, i32) {
 
     let mut checksum = 0;
     let mut maxflips = 0;
-    for fut in futures.into_iter() {
+    for fut in futures {
         let (cs, mf) = fut.join().ok().unwrap();
         checksum += cs;
         maxflips = cmp::max(maxflips, mf);
@@ -180,7 +180,7 @@ fn fannkuch(n: i32) -> (i32, i32) {
 }
 
 fn main() {
-    let n = std::os::args().as_slice()
+    let n = std::os::args()
         .get(1)
         .and_then(|arg| arg.parse().ok())
         .unwrap_or(2i32);

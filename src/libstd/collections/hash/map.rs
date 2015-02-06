@@ -20,7 +20,7 @@ use cmp::{max, Eq, PartialEq};
 use default::Default;
 use fmt::{self, Debug};
 use hash::{self, Hash, SipHasher};
-use iter::{self, Iterator, ExactSizeIterator, IteratorExt, FromIterator, Extend, Map};
+use iter::{self, Iterator, ExactSizeIterator, IntoIterator, IteratorExt, FromIterator, Extend, Map};
 use marker::Sized;
 use mem::{self, replace};
 use num::{Int, UnsignedInt};
@@ -46,6 +46,7 @@ use super::table::BucketState::{
 use super::state::HashState;
 
 const INITIAL_LOG2_CAP: uint = 5;
+#[unstable(feature = "std_misc")]
 pub const INITIAL_CAPACITY: uint = 1 << INITIAL_LOG2_CAP; // 2^5
 
 /// The default behavior of HashMap implements a load factor of 90.9%.
@@ -1300,18 +1301,13 @@ pub struct IterMut<'a, K: 'a, V: 'a> {
 /// HashMap move iterator.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct IntoIter<K, V> {
-    inner: iter::Map<
-        (SafeHash, K, V),
-        (K, V),
-        table::IntoIter<K, V>,
-        fn((SafeHash, K, V)) -> (K, V),
-    >
+    inner: iter::Map<table::IntoIter<K, V>, fn((SafeHash, K, V)) -> (K, V)>
 }
 
 /// HashMap keys iterator.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Keys<'a, K: 'a, V: 'a> {
-    inner: Map<(&'a K, &'a V), &'a K, Iter<'a, K, V>, fn((&'a K, &'a V)) -> &'a K>
+    inner: Map<Iter<'a, K, V>, fn((&'a K, &'a V)) -> &'a K>
 }
 
 // FIXME(#19839) Remove in favor of `#[derive(Clone)]`
@@ -1326,7 +1322,7 @@ impl<'a, K, V> Clone for Keys<'a, K, V> {
 /// HashMap values iterator.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Values<'a, K: 'a, V: 'a> {
-    inner: Map<(&'a K, &'a V), &'a V, Iter<'a, K, V>, fn((&'a K, &'a V)) -> &'a V>
+    inner: Map<Iter<'a, K, V>, fn((&'a K, &'a V)) -> &'a V>
 }
 
 // FIXME(#19839) Remove in favor of `#[derive(Clone)]`
@@ -1342,12 +1338,7 @@ impl<'a, K, V> Clone for Values<'a, K, V> {
 #[unstable(feature = "std_misc",
            reason = "matches collection reform specification, waiting for dust to settle")]
 pub struct Drain<'a, K: 'a, V: 'a> {
-    inner: iter::Map<
-        (SafeHash, K, V),
-        (K, V),
-        table::Drain<'a, K, V>,
-        fn((SafeHash, K, V)) -> (K, V),
-    >
+    inner: iter::Map<table::Drain<'a, K, V>, fn((SafeHash, K, V)) -> (K, V)>
 }
 
 /// A view into a single occupied location in a HashMap.
@@ -1383,6 +1374,42 @@ enum VacantEntryState<K, V, M> {
     NeqElem(FullBucket<K, V, M>, uint),
     /// The index is genuinely vacant.
     NoElem(EmptyBucket<K, V, M>),
+}
+
+impl<'a, K, V, S, H> IntoIterator for &'a HashMap<K, V, S>
+    where K: Eq + Hash<H>,
+          S: HashState<Hasher=H>,
+          H: hash::Hasher<Output=u64>
+{
+    type Iter = Iter<'a, K, V>;
+
+    fn into_iter(self) -> Iter<'a, K, V> {
+        self.iter()
+    }
+}
+
+impl<'a, K, V, S, H> IntoIterator for &'a mut HashMap<K, V, S>
+    where K: Eq + Hash<H>,
+          S: HashState<Hasher=H>,
+          H: hash::Hasher<Output=u64>
+{
+    type Iter = IterMut<'a, K, V>;
+
+    fn into_iter(mut self) -> IterMut<'a, K, V> {
+        self.iter_mut()
+    }
+}
+
+impl<K, V, S, H> IntoIterator for HashMap<K, V, S>
+    where K: Eq + Hash<H>,
+          S: HashState<Hasher=H>,
+          H: hash::Hasher<Output=u64>
+{
+    type Iter = IntoIter<K, V>;
+
+    fn into_iter(self) -> IntoIter<K, V> {
+        self.into_iter()
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1539,7 +1566,7 @@ impl<K, V, S, H> Extend<(K, V)> for HashMap<K, V, S>
           S: HashState<Hasher=H>,
           H: hash::Hasher<Output=u64>
 {
-    fn extend<T: Iterator<Item=(K, V)>>(&mut self, mut iter: T) {
+    fn extend<T: Iterator<Item=(K, V)>>(&mut self, iter: T) {
         for (k, v) in iter {
             self.insert(k, v);
         }
@@ -1566,6 +1593,7 @@ pub struct RandomState {
 impl RandomState {
     /// Construct a new `RandomState` that is initialized with random keys.
     #[inline]
+    #[allow(deprecated)]
     pub fn new() -> RandomState {
         let mut r = rand::thread_rng();
         RandomState { k0: r.gen(), k1: r.gen() }
@@ -1596,6 +1624,8 @@ impl Default for RandomState {
 /// typically declare an ability to explicitly hash into this particular type,
 /// but rather in a `H: hash::Writer` type parameter.
 #[allow(missing_copy_implementations)]
+#[unstable(feature = "std_misc",
+           reason = "hashing an hash maps may be altered")]
 pub struct Hasher { inner: SipHasher }
 
 impl hash::Writer for Hasher {
@@ -1941,7 +1971,7 @@ mod test_map {
 
         let mut observed: u32 = 0;
 
-        for (k, v) in m.iter() {
+        for (k, v) in &m {
             assert_eq!(*v, *k * 2);
             observed |= 1 << *k;
         }
@@ -2131,7 +2161,7 @@ mod test_map {
 
         let map: HashMap<int, int> = xs.iter().map(|&x| x).collect();
 
-        for &(k, v) in xs.iter() {
+        for &(k, v) in &xs {
             assert_eq!(map.get(&k), Some(&v));
         }
     }

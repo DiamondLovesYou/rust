@@ -197,7 +197,7 @@ use metadata::csearch;
 use middle::subst::{self, Substs};
 use trans::{self, adt, machine, type_of};
 use trans::common::{self, NodeIdAndSpan, CrateContext, FunctionContext, Block,
-                    C_bytes, C_i32, C_i64, NormalizingClosureTyper};
+                    C_bytes, NormalizingClosureTyper};
 use trans::_match::{BindingInfo, TrByCopy, TrByMove, TrByRef};
 use trans::monomorphize;
 use trans::type_::Type;
@@ -375,7 +375,7 @@ impl<'tcx> TypeMap<'tcx> {
             },
             ty::ty_tup(ref component_types) => {
                 unique_type_id.push_str("tuple ");
-                for &component_type in component_types.iter() {
+                for &component_type in component_types {
                     let component_type_id =
                         self.get_unique_type_id_of_type(cx, component_type);
                     let component_type_id =
@@ -447,7 +447,7 @@ impl<'tcx> TypeMap<'tcx> {
 
                 let sig = ty::erase_late_bound_regions(cx.tcx(), sig);
 
-                for &parameter_type in sig.inputs.iter() {
+                for &parameter_type in &sig.inputs {
                     let parameter_type_id =
                         self.get_unique_type_id_of_type(cx, parameter_type);
                     let parameter_type_id =
@@ -533,7 +533,7 @@ impl<'tcx> TypeMap<'tcx> {
             if tps.len() > 0 {
                 output.push('<');
 
-                for &type_parameter in tps.iter() {
+                for &type_parameter in tps {
                     let param_type_id =
                         type_map.get_unique_type_id_of_type(cx, type_parameter);
                     let param_type_id =
@@ -563,7 +563,7 @@ impl<'tcx> TypeMap<'tcx> {
 
         let sig = ty::erase_late_bound_regions(cx.tcx(), sig);
 
-        for &parameter_type in sig.inputs.iter() {
+        for &parameter_type in &sig.inputs {
             let parameter_type_id =
                 self.get_unique_type_id_of_type(cx, parameter_type);
             let parameter_type_id =
@@ -702,7 +702,7 @@ enum VariableAccess<'a> {
     DirectVariable { alloca: ValueRef },
     // The llptr given is an alloca containing the start of some pointer chain
     // leading to the variable's content.
-    IndirectVariable { alloca: ValueRef, address_operations: &'a [ValueRef] }
+    IndirectVariable { alloca: ValueRef, address_operations: &'a [i64] }
 }
 
 enum VariableKind {
@@ -927,10 +927,10 @@ pub fn create_captured_var_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                                               env_index);
 
     let address_operations = unsafe {
-        [llvm::LLVMDIBuilderCreateOpDeref(Type::i64(cx).to_ref()),
-         llvm::LLVMDIBuilderCreateOpPlus(Type::i64(cx).to_ref()),
-         C_i64(cx, byte_offset_of_var_in_env as i64),
-         llvm::LLVMDIBuilderCreateOpDeref(Type::i64(cx).to_ref())]
+        [llvm::LLVMDIBuilderCreateOpDeref(),
+         llvm::LLVMDIBuilderCreateOpPlus(),
+         byte_offset_of_var_in_env as i64,
+         llvm::LLVMDIBuilderCreateOpDeref()]
     };
 
     let address_op_count = if captured_by_ref {
@@ -968,7 +968,7 @@ pub fn create_match_binding_metadata<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     let scope_metadata = scope_metadata(bcx.fcx, binding.id, binding.span);
     let aops = unsafe {
-        [llvm::LLVMDIBuilderCreateOpDeref(bcx.ccx().int_type().to_ref())]
+        [llvm::LLVMDIBuilderCreateOpDeref()]
     };
     // Regardless of the actual type (`T`) we're always passed the stack slot (alloca)
     // for the binding. For ByRef bindings that's a `T*` but for ByMove bindings we
@@ -1245,7 +1245,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
     let (ident, fn_decl, generics, top_level_block, span, has_path) = match fnitem {
         ast_map::NodeItem(ref item) => {
-            if contains_nodebug_attribute(item.attrs.as_slice()) {
+            if contains_nodebug_attribute(&item.attrs) {
                 return FunctionDebugContext::FunctionWithoutDebugInfo;
             }
 
@@ -1262,7 +1262,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ast_map::NodeImplItem(ref item) => {
             match **item {
                 ast::MethodImplItem(ref method) => {
-                    if contains_nodebug_attribute(method.attrs.as_slice()) {
+                    if contains_nodebug_attribute(&method.attrs) {
                         return FunctionDebugContext::FunctionWithoutDebugInfo;
                     }
 
@@ -1282,7 +1282,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         }
         ast_map::NodeExpr(ref expr) => {
             match expr.node {
-                ast::ExprClosure(_, _, ref fn_decl, ref top_level_block) => {
+                ast::ExprClosure(_, ref fn_decl, ref top_level_block) => {
                     let name = format!("fn{}", token::gensym("fn"));
                     let name = token::str_to_ident(&name[]);
                     (name, &**fn_decl,
@@ -1301,7 +1301,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ast_map::NodeTraitItem(ref trait_method) => {
             match **trait_method {
                 ast::ProvidedMethod(ref method) => {
-                    if contains_nodebug_attribute(method.attrs.as_slice()) {
+                    if contains_nodebug_attribute(&method.attrs) {
                         return FunctionDebugContext::FunctionWithoutDebugInfo;
                     }
 
@@ -1398,7 +1398,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     };
 
     let scope_map = create_scope_map(cx,
-                                     fn_decl.inputs.as_slice(),
+                                     &fn_decl.inputs,
                                      &*top_level_block,
                                      fn_metadata,
                                      fn_ast_id);
@@ -1439,7 +1439,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         }
 
         // Arguments types
-        for arg in fn_decl.inputs.iter() {
+        for arg in &fn_decl.inputs {
             assert_type_for_node_id(cx, arg.pat.id, arg.pat.span);
             let arg_type = ty::node_id_to_type(cx.tcx(), arg.pat.id);
             let arg_type = monomorphize::apply_param_substs(cx.tcx(),
@@ -1589,7 +1589,7 @@ fn compile_unit_metadata(cx: &CrateContext) -> DIDescriptor {
                     Some(ref p) if p.is_relative() => {
                         // prepend "./" if necessary
                         let dotdot = b"..";
-                        let prefix: &[u8] = &[dotdot[0], ::std::path::SEP_BYTE];
+                        let prefix: &[u8] = &[dotdot[0], ::std::old_path::SEP_BYTE];
                         let mut path_bytes = p.as_vec().to_vec();
 
                         if &path_bytes[..2] != prefix &&
@@ -1656,11 +1656,11 @@ fn declare_local<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     };
 
     let name = CString::from_slice(name.get().as_bytes());
-    let (var_alloca, var_metadata) = match variable_access {
-        DirectVariable { alloca } => (
-            alloca,
-            unsafe {
-                llvm::LLVMDIBuilderCreateLocalVariable(
+    match (variable_access, [].as_slice()) {
+        (DirectVariable { alloca }, address_operations) |
+        (IndirectVariable {alloca, address_operations}, _) => {
+            let metadata = unsafe {
+                llvm::LLVMDIBuilderCreateVariable(
                     DIB(cx),
                     dwarf_tag,
                     scope_metadata,
@@ -1670,38 +1670,25 @@ fn declare_local<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                     type_metadata,
                     cx.sess().opts.optimize != config::No,
                     0,
-                    argument_index)
-            }
-        ),
-        IndirectVariable { alloca, address_operations } => (
-            alloca,
-            unsafe {
-                llvm::LLVMDIBuilderCreateComplexVariable(
-                    DIB(cx),
-                    dwarf_tag,
-                    scope_metadata,
-                    name.as_ptr(),
-                    file_metadata,
-                    loc.line as c_uint,
-                    type_metadata,
                     address_operations.as_ptr(),
                     address_operations.len() as c_uint,
                     argument_index)
-            }
-        )
-    };
-
-    set_debug_location(cx, InternalDebugLocation::new(scope_metadata,
+            };
+            set_debug_location(cx, InternalDebugLocation::new(scope_metadata,
                                                       loc.line,
                                                       loc.col.to_usize()));
-    unsafe {
-        let instr = llvm::LLVMDIBuilderInsertDeclareAtEnd(
-            DIB(cx),
-            var_alloca,
-            var_metadata,
-            bcx.llbb);
+            unsafe {
+                let instr = llvm::LLVMDIBuilderInsertDeclareAtEnd(
+                    DIB(cx),
+                    alloca,
+                    metadata,
+                    address_operations.as_ptr(),
+                    address_operations.len() as c_uint,
+                    bcx.llbb);
 
-        llvm::LLVMSetInstDebugLocation(trans::build::B(bcx).llbuilder, instr);
+                llvm::LLVMSetInstDebugLocation(trans::build::B(bcx).llbuilder, instr);
+            }
+        }
     }
 
     match variable_kind {
@@ -2049,7 +2036,7 @@ fn prepare_struct_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
     // The `Ty` values returned by `ty::struct_fields` can still contain
     // `ty_projection` variants, so normalize those away.
-    for field in fields.iter_mut() {
+    for field in &mut fields {
         field.mt.ty = monomorphize::normalize_associated_type(cx.tcx(), &field.mt.ty);
     }
 
@@ -2465,7 +2452,7 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         })
         .collect();
 
-    let discriminant_type_metadata = |&: inttype| {
+    let discriminant_type_metadata = |inttype| {
         // We can reuse the type of the discriminant for all monomorphized
         // instances of an enum because it doesn't depend on any type parameters.
         // The def_id, uniquely identifying the enum's polytype acts as key in
@@ -2495,7 +2482,7 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                         UNKNOWN_LINE_NUMBER,
                         bytes_to_bits(discriminant_size),
                         bytes_to_bits(discriminant_align),
-                        create_DIArray(DIB(cx), enumerators_metadata.as_slice()),
+                        create_DIArray(DIB(cx), &enumerators_metadata),
                         discriminant_base_type_metadata)
                 };
 
@@ -2673,7 +2660,7 @@ fn set_members_of_composite_type(cx: &CrateContext,
 
     unsafe {
         let type_array = create_DIArray(DIB(cx), &member_metadata[]);
-        llvm::LLVMDICompositeTypeSetTypeArray(composite_type_metadata, type_array);
+        llvm::LLVMDICompositeTypeSetTypeArray(DIB(cx), composite_type_metadata, type_array);
     }
 }
 
@@ -2837,7 +2824,7 @@ fn subroutine_type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     });
 
     // regular arguments
-    for &argument_type in signature.inputs.iter() {
+    for &argument_type in &signature.inputs {
         signature_metadata.push(type_metadata(cx, argument_type, span));
     }
 
@@ -3107,12 +3094,14 @@ fn set_debug_location(cx: &CrateContext, debug_location: InternalDebugLocation) 
             // Always set the column to zero like Clang and GCC
             let col = UNKNOWN_COLUMN_NUMBER;
             debug!("setting debug location to {} {}", line, col);
-            let elements = [C_i32(cx, line as i32), C_i32(cx, col as i32),
-                            scope, ptr::null_mut()];
+
             unsafe {
-                metadata_node = llvm::LLVMMDNodeInContext(debug_context(cx).llcontext,
-                                                          elements.as_ptr(),
-                                                          elements.len() as c_uint);
+                metadata_node = llvm::LLVMDIBuilderCreateDebugLocation(
+                    debug_context(cx).llcontext,
+                    line as c_uint,
+                    col as c_uint,
+                    scope,
+                    ptr::null_mut());
             }
         }
         UnknownLocation => {
@@ -3225,7 +3214,7 @@ fn create_scope_map(cx: &CrateContext,
 
     // Push argument identifiers onto the stack so arguments integrate nicely
     // with variable shadowing.
-    for arg in args.iter() {
+    for arg in args {
         pat_util::pat_bindings(def_map, &*arg.pat, |_, node_id, _, path1| {
             scope_stack.push(ScopeStackEntry { scope_metadata: fn_metadata,
                                                ident: Some(path1.node) });
@@ -3291,7 +3280,7 @@ fn create_scope_map(cx: &CrateContext,
         scope_map.insert(block.id, scope_stack.last().unwrap().scope_metadata);
 
         // The interesting things here are statements and the concluding expression.
-        for statement in block.stmts.iter() {
+        for statement in &block.stmts {
             scope_map.insert(ast_util::stmt_id(&**statement),
                              scope_stack.last().unwrap().scope_metadata);
 
@@ -3305,7 +3294,7 @@ fn create_scope_map(cx: &CrateContext,
             }
         }
 
-        for exp in block.expr.iter() {
+        if let Some(ref exp) = block.expr {
             walk_expr(cx, &**exp, scope_stack, scope_map);
         }
     }
@@ -3320,7 +3309,7 @@ fn create_scope_map(cx: &CrateContext,
 
                 walk_pattern(cx, &*local.pat, scope_stack, scope_map);
 
-                for exp in local.init.iter() {
+                if let Some(ref exp) = local.init {
                     walk_expr(cx, &**exp, scope_stack, scope_map);
                 }
             }
@@ -3406,7 +3395,7 @@ fn create_scope_map(cx: &CrateContext,
 
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for sub_pat in sub_pat_opt.iter() {
+                if let Some(ref sub_pat) = *sub_pat_opt {
                     walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
             }
@@ -3418,8 +3407,8 @@ fn create_scope_map(cx: &CrateContext,
             ast::PatEnum(_, ref sub_pats_opt) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for sub_pats in sub_pats_opt.iter() {
-                    for p in sub_pats.iter() {
+                if let Some(ref sub_pats) = *sub_pats_opt {
+                    for p in sub_pats {
                         walk_pattern(cx, &**p, scope_stack, scope_map);
                     }
                 }
@@ -3439,7 +3428,7 @@ fn create_scope_map(cx: &CrateContext,
             ast::PatTup(ref sub_pats) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for sub_pat in sub_pats.iter() {
+                for sub_pat in sub_pats {
                     walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
             }
@@ -3463,15 +3452,15 @@ fn create_scope_map(cx: &CrateContext,
             ast::PatVec(ref front_sub_pats, ref middle_sub_pats, ref back_sub_pats) => {
                 scope_map.insert(pat.id, scope_stack.last().unwrap().scope_metadata);
 
-                for sub_pat in front_sub_pats.iter() {
+                for sub_pat in front_sub_pats {
                     walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
 
-                for sub_pat in middle_sub_pats.iter() {
+                if let Some(ref sub_pat) = *middle_sub_pats {
                     walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
 
-                for sub_pat in back_sub_pats.iter() {
+                for sub_pat in back_sub_pats {
                     walk_pattern(cx, &**sub_pat, scope_stack, scope_map);
                 }
             }
@@ -3533,7 +3522,7 @@ fn create_scope_map(cx: &CrateContext,
 
             ast::ExprVec(ref init_expressions) |
             ast::ExprTup(ref init_expressions) => {
-                for ie in init_expressions.iter() {
+                for ie in init_expressions {
                     walk_expr(cx, &**ie, scope_stack, scope_map);
                 }
             }
@@ -3605,13 +3594,13 @@ fn create_scope_map(cx: &CrateContext,
                 })
             }
 
-            ast::ExprClosure(_, _, ref decl, ref block) => {
+            ast::ExprClosure(_, ref decl, ref block) => {
                 with_new_scope(cx,
                                block.span,
                                scope_stack,
                                scope_map,
                                |cx, scope_stack, scope_map| {
-                    for &ast::Arg { pat: ref pattern, .. } in decl.inputs.iter() {
+                    for &ast::Arg { pat: ref pattern, .. } in &decl.inputs {
                         walk_pattern(cx, &**pattern, scope_stack, scope_map);
                     }
 
@@ -3622,13 +3611,13 @@ fn create_scope_map(cx: &CrateContext,
             ast::ExprCall(ref fn_exp, ref args) => {
                 walk_expr(cx, &**fn_exp, scope_stack, scope_map);
 
-                for arg_exp in args.iter() {
+                for arg_exp in args {
                     walk_expr(cx, &**arg_exp, scope_stack, scope_map);
                 }
             }
 
             ast::ExprMethodCall(_, _, ref args) => {
-                for arg_exp in args.iter() {
+                for arg_exp in args {
                     walk_expr(cx, &**arg_exp, scope_stack, scope_map);
                 }
             }
@@ -3641,7 +3630,7 @@ fn create_scope_map(cx: &CrateContext,
                 // walk only one pattern per arm, as they all must contain the
                 // same binding names.
 
-                for arm_ref in arms.iter() {
+                for arm_ref in arms {
                     let arm_span = arm_ref.pats[0].span;
 
                     with_new_scope(cx,
@@ -3649,11 +3638,11 @@ fn create_scope_map(cx: &CrateContext,
                                    scope_stack,
                                    scope_map,
                                    |cx, scope_stack, scope_map| {
-                        for pat in arm_ref.pats.iter() {
+                        for pat in &arm_ref.pats {
                             walk_pattern(cx, &**pat, scope_stack, scope_map);
                         }
 
-                        for guard_exp in arm_ref.guard.iter() {
+                        if let Some(ref guard_exp) = arm_ref.guard {
                             walk_expr(cx, &**guard_exp, scope_stack, scope_map)
                         }
 
@@ -3663,7 +3652,7 @@ fn create_scope_map(cx: &CrateContext,
             }
 
             ast::ExprStruct(_, ref fields, ref base_exp) => {
-                for &ast::Field { expr: ref exp, .. } in fields.iter() {
+                for &ast::Field { expr: ref exp, .. } in fields {
                     walk_expr(cx, &**exp, scope_stack, scope_map);
                 }
 
@@ -3677,11 +3666,11 @@ fn create_scope_map(cx: &CrateContext,
                                                 ref outputs,
                                                 .. }) => {
                 // inputs, outputs: Vec<(String, P<Expr>)>
-                for &(_, ref exp) in inputs.iter() {
+                for &(_, ref exp) in inputs {
                     walk_expr(cx, &**exp, scope_stack, scope_map);
                 }
 
-                for &(_, ref exp, _) in outputs.iter() {
+                for &(_, ref exp, _) in outputs {
                     walk_expr(cx, &**exp, scope_stack, scope_map);
                 }
             }
@@ -3736,7 +3725,7 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         },
         ty::ty_tup(ref component_types) => {
             output.push('(');
-            for &component_type in component_types.iter() {
+            for &component_type in component_types {
                 push_debuginfo_type_name(cx, component_type, true, output);
                 output.push_str(", ");
             }
@@ -3774,7 +3763,7 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
             match optional_length {
                 Some(len) => {
-                    output.push_str(format!("; {}", len).as_slice());
+                    output.push_str(&format!("; {}", len));
                 }
                 None => { /* nothing to do */ }
             };
@@ -3801,7 +3790,7 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
             let sig = ty::erase_late_bound_regions(cx.tcx(), sig);
             if sig.inputs.len() > 0 {
-                for &parameter_type in sig.inputs.iter() {
+                for &parameter_type in &sig.inputs {
                     push_debuginfo_type_name(cx, parameter_type, true, output);
                     output.push_str(", ");
                 }
@@ -3847,7 +3836,7 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                       def_id: ast::DefId,
                       qualified: bool,
                       output: &mut String) {
-        ty::with_path(cx.tcx(), def_id, |mut path| {
+        ty::with_path(cx.tcx(), def_id, |path| {
             if qualified {
                 if def_id.krate == ast::LOCAL_CRATE {
                     output.push_str(crate_root_namespace(cx));
@@ -4080,11 +4069,10 @@ fn get_or_insert_gdb_debug_scripts_section_global(ccx: &CrateContext)
 
 fn needs_gdb_debug_scripts_section(ccx: &CrateContext) -> bool {
     let omit_gdb_pretty_printer_section =
-        attr::contains_name(ccx.tcx()
-                               .map
-                               .krate()
-                               .attrs
-                               .as_slice(),
+        attr::contains_name(&ccx.tcx()
+                                .map
+                                .krate()
+                                .attrs,
                             "omit_gdb_pretty_printer_section");
 
     !omit_gdb_pretty_printer_section &&

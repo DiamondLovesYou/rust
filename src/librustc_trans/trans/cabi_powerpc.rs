@@ -154,7 +154,7 @@ fn coerce_to_int(ccx: &CrateContext, size: uint) -> Vec<Type> {
 
 fn struct_ty(ccx: &CrateContext, ty: Type) -> Type {
     let size = ty_size(ty) * 8;
-    Type::struct_(ccx, coerce_to_int(ccx, size).as_slice(), false)
+    Type::struct_(ccx, &coerce_to_int(ccx, size), false)
 }
 
 pub fn compute_abi_info(ccx: &CrateContext,
@@ -171,7 +171,7 @@ pub fn compute_abi_info(ccx: &CrateContext,
     let mut arg_tys = Vec::new();
     let mut offset = if sret { 4 } else { 0 };
 
-    for aty in atys.iter() {
+    for aty in atys {
         let ty = classify_arg_ty(ccx, *aty, &mut offset);
         arg_tys.push(ty);
     };

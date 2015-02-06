@@ -289,7 +289,7 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>, e: &ast::Expr)
 // the bool returned is whether this expression can be inlined into other crates
 // if it's assigned to a static.
 fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
-    let map_list = |&: exprs: &[P<ast::Expr>]| {
+    let map_list = |exprs: &[P<ast::Expr>]| {
         exprs.iter().map(|e| const_expr(cx, &**e).0)
              .fold(Vec::new(), |mut l, val| { l.push(val); l })
     };
@@ -582,7 +582,7 @@ fn const_expr_unadjusted(cx: &CrateContext, e: &ast::Expr) -> ValueRef {
               })
           }
           ast::ExprVec(ref es) => {
-            const_vec(cx, e, es.as_slice()).0
+            const_vec(cx, e, es).0
           }
           ast::ExprRepeat(ref elem, ref count) => {
             let vec_ty = ty::expr_ty(cx.tcx(), e);

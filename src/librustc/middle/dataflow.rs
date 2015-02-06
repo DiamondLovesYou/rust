@@ -310,7 +310,7 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
             Entry => on_entry,
             Exit => {
                 let mut t = on_entry.to_vec();
-                self.apply_gen_kill(cfgidx, t.as_mut_slice());
+                self.apply_gen_kill(cfgidx, &mut t);
                 temp_bits = t;
                 &temp_bits[]
             }
@@ -399,13 +399,13 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
             let mut orig_kills = self.kills[start.. end].to_vec();
 
             let mut changed = false;
-            for &node_id in edge.data.exiting_scopes.iter() {
+            for &node_id in &edge.data.exiting_scopes {
                 let opt_cfg_idx = self.nodeid_to_index.get(&node_id).map(|&i|i);
                 match opt_cfg_idx {
                     Some(cfg_idx) => {
                         let (start, end) = self.compute_id_range(cfg_idx);
                         let kills = &self.kills[start.. end];
-                        if bitwise(orig_kills.as_mut_slice(), kills, &Union) {
+                        if bitwise(&mut orig_kills, kills, &Union) {
                             changed = true;
                         }
                     }
@@ -450,8 +450,8 @@ impl<'a, 'tcx, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, 'tcx, O> {
             let mut temp: Vec<_> = repeat(0).take(words_per_id).collect();
             while propcx.changed {
                 propcx.changed = false;
-                propcx.reset(temp.as_mut_slice());
-                propcx.walk_cfg(cfg, temp.as_mut_slice());
+                propcx.reset(&mut temp);
+                propcx.walk_cfg(cfg, &mut temp);
             }
         }
 
@@ -501,7 +501,7 @@ impl<'a, 'b, 'tcx, O:DataFlowOperator> PropagationContext<'a, 'b, 'tcx, O> {
 
     fn reset(&mut self, bits: &mut [uint]) {
         let e = if self.dfcx.oper.initial_value() {uint::MAX} else {0};
-        for b in bits.iter_mut() {
+        for b in bits {
             *b = e;
         }
     }
@@ -550,7 +550,7 @@ fn bits_to_string(words: &[uint]) -> String {
 
     // Note: this is a little endian printout of bytes.
 
-    for &word in words.iter() {
+    for &word in words {
         let mut v = word;
         for _ in 0..uint::BYTES {
             result.push(sep);

@@ -18,10 +18,6 @@
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use ops::{Drop, Fn, FnMut, FnOnce};
 
-#[cfg(stage0)]
-#[unstable(feature = "std_misc")]
-#[doc(no_inline)] pub use ops::FullRange;
-
 // Reexported functions
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use mem::drop;
@@ -60,7 +56,7 @@
 #[doc(no_inline)] pub use vec::Vec;
 
 // NB: remove when path reform lands
-#[doc(no_inline)] pub use path::{Path, GenericPath};
+#[doc(no_inline)] pub use old_path::{Path, GenericPath};
 // NB: remove when I/O reform lands
 #[doc(no_inline)] pub use old_io::{Buffer, Writer, Reader, Seek, BufferPrelude};
 // NB: remove when range syntax lands

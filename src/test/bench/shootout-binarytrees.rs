@@ -85,7 +85,7 @@ fn inner(depth: i32, iterations: i32) -> String {
 
 fn main() {
     let args = std::os::args();
-    let args = args.as_slice();
+    let args = args;
     let n = if std::os::getenv("RUST_BENCH").is_some() {
         17
     } else if args.len() <= 1u {
@@ -114,7 +114,7 @@ fn main() {
         Thread::scoped(move || inner(depth, iterations))
     }).collect::<Vec<_>>();
 
-    for message in messages.into_iter() {
+    for message in messages {
         println!("{}", message.join().ok().unwrap());
     }
 

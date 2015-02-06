@@ -312,13 +312,13 @@ macro_rules! options {
     pub fn $buildfn(matches: &getopts::Matches) -> $struct_name
     {
         let mut op = $defaultfn();
-        for option in matches.opt_strs($prefix).into_iter() {
+        for option in matches.opt_strs($prefix) {
             let mut iter = option.splitn(1, '=');
             let key = iter.next().unwrap();
             let value = iter.next();
             let option_to_lookup = key.replace("-", "_");
             let mut found = false;
-            for &(candidate, setter, opt_type_desc, _) in $stat.iter() {
+            for &(candidate, setter, opt_type_desc, _) in $stat {
                 if option_to_lookup != candidate { continue }
                 if !setter(&mut op, value) {
                     match (value, opt_type_desc) {
@@ -656,7 +656,7 @@ pub fn build_target_config(opts: &Options, sp: &SpanHandler) -> Config {
     let target = match Target::search(&opts.target_triple[]) {
         Ok(t) => t,
         Err(e) => {
-            sp.handler().fatal((format!("Error loading target specification: {}", e)).as_slice());
+            sp.handler().fatal(&format!("Error loading target specification: {}", e));
     }
     };
 
@@ -756,7 +756,8 @@ pub fn rustc_short_optgroups() -> Vec<RustcOptGroup> {
     vec![
         opt::flag("h", "help", "Display this message"),
         opt::multi("", "cfg", "Configure the compilation environment", "SPEC"),
-        opt::multi("L", "",   "Add a directory to the library search path", "PATH"),
+        opt::multi("L", "",   "Add a directory to the library search path",
+                   "[KIND=]PATH"),
         opt::multi("l", "",   "Link the generated crate(s) to the specified native
                              library NAME. The optional KIND can be one of,
                              static, dylib, or framework. If omitted, dylib is
@@ -848,8 +849,8 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     let mut lint_opts = vec!();
     let mut describe_lints = false;
 
-    for &level in [lint::Allow, lint::Warn, lint::Deny, lint::Forbid].iter() {
-        for lint_name in matches.opt_strs(level.as_str()).into_iter() {
+    for &level in &[lint::Allow, lint::Warn, lint::Deny, lint::Forbid] {
+        for lint_name in matches.opt_strs(level.as_str()) {
             if lint_name == "help" {
                 describe_lints = true;
             } else {
@@ -871,9 +872,9 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     let mut output_types = Vec::new();
     if !debugging_opts.parse_only && !no_trans {
         let unparsed_output_types = matches.opt_strs("emit");
-        for unparsed_output_type in unparsed_output_types.iter() {
+        for unparsed_output_type in &unparsed_output_types {
             for part in unparsed_output_type.split(',') {
-                let output_type = match part.as_slice() {
+                let output_type = match part {
                     "asm" => OutputTypeAssembly,
                     "llvm-ir" => OutputTypeLlvmAssembly,
                     "llvm-bc" => OutputTypeBitcode,
@@ -914,9 +915,9 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                 Some(2) => Default,
                 Some(3) => Aggressive,
                 Some(arg) => {
-                    early_error(format!("optimization level needs to be \
-                                         between 0-3 (instead was `{}`)",
-                                        arg).as_slice());
+                    early_error(&format!("optimization level needs to be \
+                                          between 0-3 (instead was `{}`)",
+                                         arg));
                 }
             }
         }
@@ -933,15 +934,15 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
             Some(1) => LimitedDebugInfo,
             Some(2) => FullDebugInfo,
             Some(arg) => {
-                early_error(format!("debug info level needs to be between \
-                                     0-2 (instead was `{}`)",
-                                    arg).as_slice());
+                early_error(&format!("debug info level needs to be between \
+                                      0-2 (instead was `{}`)",
+                                     arg));
             }
         }
     };
 
     let mut search_paths = SearchPaths::new();
-    for s in matches.opt_strs("L").iter() {
+    for s in &matches.opt_strs("L") {
         search_paths.add_path(&s[]);
     }
 
@@ -954,9 +955,9 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
                 "framework" => cstore::NativeFramework,
                 "static" => cstore::NativeStatic,
                 s => {
-                    early_error(format!("unknown library kind `{}`, expected \
-                                         one of dylib, framework, or static",
-                                        s).as_slice());
+                    early_error(&format!("unknown library kind `{}`, expected \
+                                          one of dylib, framework, or static",
+                                         s));
                 }
             };
             return (name.to_string(), kind)
@@ -985,12 +986,12 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     let write_dependency_info = (output_types.contains(&OutputTypeDepInfo), None);
 
     let prints = matches.opt_strs("print").into_iter().map(|s| {
-        match s.as_slice() {
+        match &*s {
             "crate-name" => PrintRequest::CrateName,
             "file-names" => PrintRequest::FileNames,
             "sysroot" => PrintRequest::Sysroot,
             req => {
-                early_error(format!("unknown print request `{}`", req).as_slice())
+                early_error(&format!("unknown print request `{}`", req))
             }
         }
     }).collect::<Vec<_>>();
@@ -1015,7 +1016,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     };
 
     let mut externs = HashMap::new();
-    for arg in matches.opt_strs("extern").iter() {
+    for arg in &matches.opt_strs("extern") {
         let mut parts = arg.splitn(1, '=');
         let name = match parts.next() {
             Some(s) => s,
@@ -1067,7 +1068,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 pub fn parse_crate_types_from_list(list_list: Vec<String>) -> Result<Vec<CrateType>, String> {
 
     let mut crate_types: Vec<CrateType> = Vec::new();
-    for unparsed_crate_type in list_list.iter() {
+    for unparsed_crate_type in &list_list {
         for part in unparsed_crate_type.split(',') {
             let new_part = match part {
                 "lib"       => default_lib_output(),

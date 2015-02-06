@@ -163,7 +163,7 @@ pub fn can_reach<T, S>(edges_map: &HashMap<T, Vec<T>, S>, source: T,
     while i < queue.len() {
         match edges_map.get(&queue[i]) {
             Some(edges) => {
-                for target in edges.iter() {
+                for target in edges {
                     if *target == destination {
                         return true;
                     }
@@ -187,8 +187,8 @@ pub fn can_reach<T, S>(edges_map: &HashMap<T, Vec<T>, S>, source: T,
 /// ```
 /// pub fn memoized<T: Clone, U: Clone, M: MutableMap<T, U>>(
 ///    cache: &RefCell<M>,
-///    f: &|&: T| -> U
-/// ) -> impl |&: T| -> U {
+///    f: &|T| -> U
+/// ) -> impl |T| -> U {
 /// ```
 /// but currently it is not possible.
 ///

@@ -194,7 +194,8 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 // a different region or mutability, but we don't care here. It might
                 // also be just in case we need to unsize. But if there are no nested
                 // adjustments then it should be a no-op).
-                Some(ty::AutoPtr(_, _, None)) if adj.autoderefs == 1 => {
+                Some(ty::AutoPtr(_, _, None)) |
+                Some(ty::AutoUnsafe(_, None)) if adj.autoderefs == 1 => {
                     match datum.ty.sty {
                         // Don't skip a conversion from Box<T> to &T, etc.
                         ty::ty_rptr(..) => {
@@ -349,7 +350,7 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         debug!("dest_ty={}", unsized_ty.repr(bcx.tcx()));
         // Closures for extracting and manipulating the data and payload parts of
         // the fat pointer.
-        let info = |: bcx, _val| unsized_info(bcx,
+        let info = |bcx, _val| unsized_info(bcx,
                                               k,
                                               expr.id,
                                               datum_ty,
@@ -381,8 +382,8 @@ fn apply_adjustments<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                -> DatumBlock<'blk, 'tcx, Expr> {
         let tcx = bcx.tcx();
         let dest_ty = ty::close_type(tcx, datum.ty);
-        let base = |: bcx, val| Load(bcx, get_dataptr(bcx, val));
-        let len = |: bcx, val| Load(bcx, get_len(bcx, val));
+        let base = |bcx, val| Load(bcx, get_dataptr(bcx, val));
+        let len = |bcx, val| Load(bcx, get_len(bcx, val));
         into_fat_ptr(bcx, expr, datum, dest_ty, base, len)
     }
 
@@ -1055,7 +1056,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             if let Some(did) = did {
                 let substs = Substs::new_type(ty_params, vec![]);
                 trans_struct(bcx,
-                             fields.as_slice(),
+                             &fields,
                              None,
                              expr.span,
                              expr.id,
@@ -1094,7 +1095,7 @@ fn trans_rvalue_dps_unadjusted<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         ast::ExprVec(..) | ast::ExprRepeat(..) => {
             tvec::trans_fixed_vstore(bcx, expr, dest)
         }
-        ast::ExprClosure(_, _, ref decl, ref body) => {
+        ast::ExprClosure(_, ref decl, ref body) => {
             closure::trans_closure_expr(bcx, &**decl, &**body, expr.id, dest)
         }
         ast::ExprCall(ref f, ref args) => {
@@ -1397,7 +1398,7 @@ fn trans_struct<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         trans_adt(bcx,
                   ty,
                   discr,
-                  numbered_fields.as_slice(),
+                  &numbered_fields,
                   optbase,
                   dest,
                   DebugLoc::At(expr_id, expr_span))
@@ -1451,7 +1452,7 @@ pub fn trans_adt<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     let custom_cleanup_scope = fcx.push_custom_cleanup_scope();
 
     // First we trans the base, if we have one, to the dest
-    for base in optbase.iter() {
+    if let Some(base) = optbase {
         assert_eq!(discr, 0);
 
         match ty::expr_kind(bcx.tcx(), &*base.expr) {
@@ -1461,7 +1462,7 @@ pub fn trans_adt<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
             ty::RvalueStmtExpr => bcx.tcx().sess.bug("unexpected expr kind for struct base expr"),
             _ => {
                 let base_datum = unpack_datum!(bcx, trans_to_lvalue(bcx, &*base.expr, "base"));
-                for &(i, t) in base.fields.iter() {
+                for &(i, t) in &base.fields {
                     let datum = base_datum.get_element(
                             bcx, t, |srcval| adt::trans_field_ptr(bcx, &*repr, srcval, discr, i));
                     assert!(type_is_sized(bcx.tcx(), datum.ty));
@@ -1485,7 +1486,7 @@ pub fn trans_adt<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
         // (i.e. avoid GEPi and `store`s to an alloca) .
         let mut vec_val = C_undef(llty);
 
-        for &(i, ref e) in fields.iter() {
+        for &(i, ref e) in fields {
             let block_datum = trans(bcx, &**e);
             bcx = block_datum.bcx;
             let position = C_uint(bcx.ccx(), i);
@@ -1495,7 +1496,7 @@ pub fn trans_adt<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
         Store(bcx, vec_val, addr);
     } else {
         // Now, we just overwrite the fields we've explicitly specified
-        for &(i, ref e) in fields.iter() {
+        for &(i, ref e) in fields {
             let dest = adt::trans_field_ptr(bcx, &*repr, addr, discr, i);
             let e_ty = expr_ty_adjusted(bcx, &**e);
             bcx = trans_into(bcx, &**e, SaveIn(dest));

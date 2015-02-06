@@ -130,6 +130,7 @@ pub fn inflate_bytes_zlib(bytes: &[u8]) -> Option<Bytes> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
     use super::{inflate_bytes, deflate_bytes};
     use std::rand;
     use std::rand::Rng;
@@ -138,32 +139,32 @@ mod tests {
     fn test_flate_round_trip() {
         let mut r = rand::thread_rng();
         let mut words = vec!();
-        for _ in 0u..20 {
-            let range = r.gen_range(1u, 10);
+        for _ in 0..20 {
+            let range = r.gen_range(1, 10);
             let v = r.gen_iter::<u8>().take(range).collect::<Vec<u8>>();
             words.push(v);
         }
-        for _ in 0u..20 {
+        for _ in 0..20 {
             let mut input = vec![];
-            for _ in 0u..2000 {
-                input.push_all(r.choose(words.as_slice()).unwrap().as_slice());
+            for _ in 0..2000 {
+                input.push_all(r.choose(&words).unwrap());
             }
             debug!("de/inflate of {} bytes of random word-sequences",
                    input.len());
-            let cmp = deflate_bytes(input.as_slice()).expect("deflation failed");
-            let out = inflate_bytes(cmp.as_slice()).expect("inflation failed");
+            let cmp = deflate_bytes(&input).expect("deflation failed");
+            let out = inflate_bytes(&cmp).expect("inflation failed");
             debug!("{} bytes deflated to {} ({:.1}% size)",
                    input.len(), cmp.len(),
                    100.0 * ((cmp.len() as f64) / (input.len() as f64)));
-            assert_eq!(input, out.as_slice());
+            assert_eq!(&*input, &*out);
         }
     }
 
     #[test]
     fn test_zlib_flate() {
         let bytes = vec!(1, 2, 3, 4, 5);
-        let deflated = deflate_bytes(bytes.as_slice()).expect("deflation failed");
-        let inflated = inflate_bytes(deflated.as_slice()).expect("inflation failed");
-        assert_eq!(inflated.as_slice(), bytes);
+        let deflated = deflate_bytes(&bytes).expect("deflation failed");
+        let inflated = inflate_bytes(&deflated).expect("inflation failed");
+        assert_eq!(&*inflated, &*bytes);
     }
 }

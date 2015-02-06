@@ -79,7 +79,7 @@ impl Svh {
         //        avoid collisions.
         let mut state = SipHasher::new();
 
-        for data in metadata.iter() {
+        for data in metadata {
             data.hash(&mut state);
         }
 
@@ -97,13 +97,13 @@ impl Svh {
         //
         // We hash only the MetaItems instead of the entire Attribute
         // to avoid hashing the AttrId
-        for attr in krate.attrs.iter() {
+        for attr in &krate.attrs {
             attr.node.value.hash(&mut state);
         }
 
         let hash = state.finish();
         return Svh {
-            hash: range_step(0u, 64u, 4u).map(|i| hex(hash >> i)).collect()
+            hash: range_step(0, 64, 4).map(|i| hex(hash >> i)).collect()
         };
 
         fn hex(b: u64) -> char {

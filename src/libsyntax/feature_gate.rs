@@ -119,6 +119,9 @@ static KNOWN_FEATURES: &'static [(&'static str, &'static str, Status)] = &[
 
     // Allows use of #[staged_api]
     ("staged_api", "1.0.0", Active),
+
+    // Allows using items which are missing stability attributes
+    ("unmarked_api", "1.0.0", Active)
 ];
 
 enum Status {
@@ -145,6 +148,7 @@ pub struct Features {
     pub quote: bool,
     pub old_orphan_check: bool,
     pub simd_ffi: bool,
+    pub unmarked_api: bool,
     pub lib_features: Vec<(InternedString, Span)>
 }
 
@@ -157,6 +161,7 @@ impl Features {
             quote: false,
             old_orphan_check: false,
             simd_ffi: false,
+            unmarked_api: false,
             lib_features: Vec::new()
         }
     }
@@ -253,7 +258,7 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
     }
 
     fn visit_item(&mut self, i: &ast::Item) {
-        for attr in i.attrs.iter() {
+        for attr in &i.attrs {
             if attr.name() == "thread_local" {
                 self.gate_feature("thread_local", i.span,
                                   "`#[thread_local]` is an experimental feature, and does not \
@@ -333,7 +338,7 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
                     _ => {}
                 }
 
-                if attr::contains_name(i.attrs.as_slice(),
+                if attr::contains_name(&i.attrs,
                                        "unsafe_destructor") {
                     self.gate_feature("unsafe_destructor",
                                       i.span,
@@ -371,7 +376,7 @@ impl<'a, 'v> Visitor<'v> for PostExpansionVisitor<'a> {
                                and not portable across platforms")
         }
 
-        let links_to_llvm = match attr::first_attr_value_str_by_name(i.attrs.as_slice(),
+        let links_to_llvm = match attr::first_attr_value_str_by_name(&i.attrs,
                                                                      "link_name") {
             Some(val) => val.get().starts_with("llvm."),
             _ => false
@@ -508,7 +513,7 @@ fn check_crate_inner<F>(cm: &CodeMap, span_handler: &SpanHandler, krate: &ast::C
 
     let mut unknown_features = Vec::new();
 
-    for attr in krate.attrs.iter() {
+    for attr in &krate.attrs {
         if !attr.check_name("feature") {
             continue
         }
@@ -519,7 +524,7 @@ fn check_crate_inner<F>(cm: &CodeMap, span_handler: &SpanHandler, krate: &ast::C
                                                   expected #![feature(...)]");
             }
             Some(list) => {
-                for mi in list.iter() {
+                for mi in list {
                     let name = match mi.node {
                         ast::MetaWord(ref word) => (*word).clone(),
                         _ => {
@@ -566,6 +571,7 @@ fn check_crate_inner<F>(cm: &CodeMap, span_handler: &SpanHandler, krate: &ast::C
         quote: cx.has_feature("quote"),
         old_orphan_check: cx.has_feature("old_orphan_check"),
         simd_ffi: cx.has_feature("simd_ffi"),
+        unmarked_api: cx.has_feature("unmarked_api"),
         lib_features: unknown_features
     }
 }

@@ -23,7 +23,7 @@ fn add_target_env(cmd: &mut Command, lib_path: &str, aux_path: Option<&str>) {
 
     // Add the new dylib search path var
     let var = DynamicLibrary::envvar();
-    let newpath = DynamicLibrary::create_path(path.as_slice());
+    let newpath = DynamicLibrary::create_path(&path);
     let newpath = String::from_utf8(newpath).unwrap();
     cmd.env(var.to_string(), newpath);
 }
@@ -40,13 +40,13 @@ pub fn run(lib_path: &str,
     let mut cmd = Command::new(prog);
     cmd.args(args);
     add_target_env(&mut cmd, lib_path, aux_path);
-    for (key, val) in env.into_iter() {
+    for (key, val) in env {
         cmd.env(key, val);
     }
 
     match cmd.spawn() {
         Ok(mut process) => {
-            for input in input.iter() {
+            if let Some(input) = input {
                 process.stdin.as_mut().unwrap().write_all(input.as_bytes()).unwrap();
             }
             let ProcessOutput { status, output, error } =
@@ -72,13 +72,13 @@ pub fn run_background(lib_path: &str,
     let mut cmd = Command::new(prog);
     cmd.args(args);
     add_target_env(&mut cmd, lib_path, aux_path);
-    for (key, val) in env.into_iter() {
+    for (key, val) in env {
         cmd.env(key, val);
     }
 
     match cmd.spawn() {
         Ok(mut process) => {
-            for input in input.iter() {
+            if let Some(input) = input {
                 process.stdin.as_mut().unwrap().write_all(input.as_bytes()).unwrap();
             }
 

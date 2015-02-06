@@ -38,10 +38,10 @@ use distributions::{Sample, IndependentSample};
 /// use std::rand::distributions::{IndependentSample, Range};
 ///
 /// fn main() {
-///     let between = Range::new(10u, 10000u);
+///     let between = Range::new(10, 10000);
 ///     let mut rng = std::rand::thread_rng();
 ///     let mut sum = 0;
-///     for _ in 0u..1000 {
+///     for _ in 0..1000 {
 ///         sum += between.ind_sample(&mut rng);
 ///     }
 ///     println!("{}", sum);
@@ -188,9 +188,9 @@ mod tests {
                    let v: &[($ty, $ty)] = &[(0, 10),
                                             (10, 127),
                                             (Int::min_value(), Int::max_value())];
-                   for &(low, high) in v.iter() {
+                   for &(low, high) in v {
                         let mut sampler: Range<$ty> = Range::new(low, high);
-                        for _ in 0u..1000 {
+                        for _ in 0..1000 {
                             let v = sampler.sample(&mut rng);
                             assert!(low <= v && v < high);
                             let v = sampler.ind_sample(&mut rng);
@@ -214,9 +214,9 @@ mod tests {
                                             (-1e35, -1e25),
                                             (1e-35, 1e-25),
                                             (-1e35, 1e35)];
-                   for &(low, high) in v.iter() {
+                   for &(low, high) in v {
                         let mut sampler: Range<$ty> = Range::new(low, high);
-                        for _ in 0u..1000 {
+                        for _ in 0..1000 {
                             let v = sampler.sample(&mut rng);
                             assert!(low <= v && v < high);
                             let v = sampler.ind_sample(&mut rng);

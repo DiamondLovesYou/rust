@@ -59,7 +59,7 @@ pub fn each_child_of_item<F>(cstore: &cstore::CStore,
     F: FnMut(decoder::DefLike, ast::Name, ast::Visibility),
 {
     let crate_data = cstore.get_crate_data(def_id.krate);
-    let get_crate_data = |&mut: cnum| {
+    let get_crate_data = |cnum| {
         cstore.get_crate_data(cnum)
     };
     decoder::each_child_of_item(cstore.intr.clone(),
@@ -76,7 +76,7 @@ pub fn each_top_level_item_of_crate<F>(cstore: &cstore::CStore,
     F: FnMut(decoder::DefLike, ast::Name, ast::Visibility),
 {
     let crate_data = cstore.get_crate_data(cnum);
-    let get_crate_data = |&mut: cnum| {
+    let get_crate_data = |cnum| {
         cstore.get_crate_data(cnum)
     };
     decoder::each_top_level_item_of_crate(cstore.intr.clone(),
@@ -93,7 +93,7 @@ pub fn get_item_path(tcx: &ty::ctxt, def: ast::DefId) -> Vec<ast_map::PathElem> 
     // FIXME #1920: This path is not always correct if the crate is not linked
     // into the root namespace.
     let mut r = vec![ast_map::PathMod(token::intern(&cdata.name[]))];
-    r.push_all(path.as_slice());
+    r.push_all(&path);
     r
 }
 
@@ -382,7 +382,7 @@ pub fn get_stability(cstore: &cstore::CStore,
 pub fn is_staged_api(cstore: &cstore::CStore, def: ast::DefId) -> bool {
     let cdata = cstore.get_crate_data(def.krate);
     let attrs = decoder::get_crate_attributes(cdata.data());
-    for attr in attrs.iter() {
+    for attr in &attrs {
         if attr.name().get() == "staged_api" {
             match attr.node.value.node { ast::MetaWord(_) => return true, _ => (/*pass*/) }
         }

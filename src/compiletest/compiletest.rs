@@ -22,6 +22,7 @@
 #![feature(std_misc)]
 #![feature(test)]
 #![feature(unicode)]
+#![feature(env)]
 
 #![deny(warnings)]
 
@@ -31,7 +32,7 @@ extern crate getopts;
 #[macro_use]
 extern crate log;
 
-use std::os;
+use std::env;
 use std::old_io;
 use std::old_io::fs;
 use std::thunk::Thunk;
@@ -48,7 +49,7 @@ pub mod common;
 pub mod errors;
 
 pub fn main() {
-    let args = os::args();
+    let args = env::args().map(|s| s.into_string().unwrap()).collect();;
     let config = parse_config(args);
 
     if config.valgrind_path.is_none() && config.force_valgrind {
@@ -102,22 +103,22 @@ pub fn parse_config(args: Vec<String> ) -> Config {
     assert!(!args.is_empty());
     let argv0 = args[0].clone();
     let args_ = args.tail();
-    if args[1].as_slice() == "-h" || args[1].as_slice() == "--help" {
+    if args[1] == "-h" || args[1] == "--help" {
         let message = format!("Usage: {} [OPTIONS] [TESTNAME...]", argv0);
-        println!("{}", getopts::usage(message.as_slice(), groups.as_slice()));
+        println!("{}", getopts::usage(&message, &groups));
         println!("");
         panic!()
     }
 
     let matches =
-        &match getopts::getopts(args_.as_slice(), groups.as_slice()) {
+        &match getopts::getopts(args_, &groups) {
           Ok(m) => m,
           Err(f) => panic!("{:?}", f)
         };
 
     if matches.opt_present("h") || matches.opt_present("help") {
         let message = format!("Usage: {} [OPTIONS]  [TESTNAME...]", argv0);
-        println!("{}", getopts::usage(message.as_slice(), groups.as_slice()));
+        println!("{}", getopts::usage(&message, &groups));
         println!("");
         panic!()
     }
@@ -168,9 +169,9 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         adb_test_dir: opt_str2(matches.opt_str("adb-test-dir")),
         adb_device_status:
             "arm-linux-androideabi" ==
-                opt_str2(matches.opt_str("target")).as_slice() &&
+                opt_str2(matches.opt_str("target")) &&
             "(none)" !=
-                opt_str2(matches.opt_str("adb-test-dir")).as_slice() &&
+                opt_str2(matches.opt_str("adb-test-dir")) &&
             !opt_str2(matches.opt_str("adb-test-dir")).is_empty(),
         lldb_python_dir: matches.opt_str("lldb-python-dir"),
         test_shard: test::opt_shard(matches.opt_str("test-shard")),
@@ -218,7 +219,7 @@ pub fn log_config(config: &Config) {
 pub fn opt_str<'a>(maybestr: &'a Option<String>) -> &'a str {
     match *maybestr {
         None => "(none)",
-        Some(ref s) => s.as_slice(),
+        Some(ref s) => s,
     }
 }
 
@@ -230,7 +231,7 @@ pub fn opt_str2(maybestr: Option<String>) -> String {
 }
 
 pub fn run_tests(config: &Config) {
-    if config.target.as_slice() == "arm-linux-androideabi" {
+    if config.target == "arm-linux-androideabi" {
         match config.mode {
             DebugInfoGdb => {
                 println!("arm-linux-androideabi debug-info \
@@ -242,7 +243,7 @@ pub fn run_tests(config: &Config) {
         //arm-linux-androideabi debug-info test uses remote debugger
         //so, we test 1 task at once.
         // also trying to isolate problems with adb_run_wrapper.sh ilooping
-        os::setenv("RUST_TEST_TASKS","1");
+        env::set_var("RUST_TEST_TASKS","1");
     }
 
     if config.targeting_nacl() && config.mode == DebugInfoGdb {
@@ -254,7 +255,7 @@ pub fn run_tests(config: &Config) {
             // Some older versions of LLDB seem to have problems with multiple
             // instances running in parallel, so only run one test task at a
             // time.
-            os::setenv("RUST_TEST_TASKS", "1");
+            env::set_var("RUST_TEST_TASKS", "1");
         }
         _ => { /* proceed */ }
     }
@@ -267,7 +268,7 @@ pub fn run_tests(config: &Config) {
     old_io::test::raise_fd_limit();
     // Prevent issue #21352 UAC blocking .exe containing 'patch' etc. on Windows
     // If #11207 is resolved (adding manifest to .exe) this becomes unnecessary
-    os::setenv("__COMPAT_LAYER", "RunAsInvoker");
+    env::set_var("__COMPAT_LAYER", "RunAsInvoker");
     let res = test::run_tests_console(&opts, tests.into_iter().collect());
     match res {
         Ok(true) => {}
@@ -305,7 +306,7 @@ pub fn make_tests(config: &Config) -> Vec<test::TestDescAndFn> {
            config.src_base.display());
     let mut tests = Vec::new();
     let dirs = fs::readdir(&config.src_base).unwrap();
-    for file in dirs.iter() {
+    for file in &dirs {
         let file = file.clone();
         debug!("inspecting file {:?}", file.display());
         if is_test(config, &file) {
@@ -333,14 +334,14 @@ pub fn is_test(config: &Config, testfile: &Path) -> bool {
 
     let mut valid = false;
 
-    for ext in valid_extensions.iter() {
-        if name.ends_with(ext.as_slice()) {
+    for ext in &valid_extensions {
+        if name.ends_with(ext) {
             valid = true;
         }
     }
 
-    for pre in invalid_prefixes.iter() {
-        if name.starts_with(pre.as_slice()) {
+    for pre in &invalid_prefixes {
+        if name.starts_with(pre) {
             valid = false;
         }
     }
@@ -387,7 +388,7 @@ pub fn make_metrics_test_closure(config: &Config, testfile: &Path) -> test::Test
     let config = (*config).clone();
     // FIXME (#9639): This needs to handle non-utf8 paths
     let testfile = testfile.as_str().unwrap().to_string();
-    test::DynMetricFn(box move |: mm: &mut test::MetricMap| {
+    test::DynMetricFn(box move |mm: &mut test::MetricMap| {
         runtest::run_metrics(config, testfile, mm)
     })
 }

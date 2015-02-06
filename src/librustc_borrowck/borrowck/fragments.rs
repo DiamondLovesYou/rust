@@ -43,7 +43,7 @@ enum Fragment {
 
 impl Fragment {
     fn loan_path_repr<'tcx>(&self, move_data: &MoveData<'tcx>, tcx: &ty::ctxt<'tcx>) -> String {
-        let repr = |&: mpi| move_data.path_loan_path(mpi).repr(tcx);
+        let repr = |mpi| move_data.path_loan_path(mpi).repr(tcx);
         match *self {
             Just(mpi) => repr(mpi),
             AllButOneFrom(mpi) => format!("$(allbutone {})", repr(mpi)),
@@ -53,7 +53,7 @@ impl Fragment {
     fn loan_path_user_string<'tcx>(&self,
                                    move_data: &MoveData<'tcx>,
                                    tcx: &ty::ctxt<'tcx>) -> String {
-        let user_string = |&: mpi| move_data.path_loan_path(mpi).user_string(tcx);
+        let user_string = |mpi| move_data.path_loan_path(mpi).user_string(tcx);
         match *self {
             Just(mpi) => user_string(mpi),
             AllButOneFrom(mpi) => format!("$(allbutone {})", user_string(mpi)),
@@ -139,9 +139,9 @@ pub fn instrument_move_fragments<'tcx>(this: &MoveData<'tcx>,
 
     if !span_err && !print { return; }
 
-    let instrument_all_paths = |&: kind, vec_rc: &Vec<MovePathIndex>| {
+    let instrument_all_paths = |kind, vec_rc: &Vec<MovePathIndex>| {
         for (i, mpi) in vec_rc.iter().enumerate() {
-            let render = |&:| this.path_loan_path(*mpi).user_string(tcx);
+            let render = || this.path_loan_path(*mpi).user_string(tcx);
             if span_err {
                 tcx.sess.span_err(sp, &format!("{}: `{}`", kind, render())[]);
             }
@@ -151,9 +151,9 @@ pub fn instrument_move_fragments<'tcx>(this: &MoveData<'tcx>,
         }
     };
 
-    let instrument_all_fragments = |&: kind, vec_rc: &Vec<Fragment>| {
+    let instrument_all_fragments = |kind, vec_rc: &Vec<Fragment>| {
         for (i, f) in vec_rc.iter().enumerate() {
-            let render = |&:| f.loan_path_user_string(this, tcx);
+            let render = || f.loan_path_user_string(this, tcx);
             if span_err {
                 tcx.sess.span_err(sp, &format!("{}: `{}`", kind, render())[]);
             }
@@ -186,11 +186,11 @@ pub fn fixup_fragment_sets<'tcx>(this: &MoveData<'tcx>, tcx: &ty::ctxt<'tcx>) {
     let mut moved = mem::replace(&mut fragments.moved_leaf_paths, vec![]);
     let mut assigned = mem::replace(&mut fragments.assigned_leaf_paths, vec![]);
 
-    let path_lps = |&: mpis: &[MovePathIndex]| -> Vec<String> {
+    let path_lps = |mpis: &[MovePathIndex]| -> Vec<String> {
         mpis.iter().map(|mpi| this.path_loan_path(*mpi).repr(tcx)).collect()
     };
 
-    let frag_lps = |&: fs: &[Fragment]| -> Vec<String> {
+    let frag_lps = |fs: &[Fragment]| -> Vec<String> {
         fs.iter().map(|f| f.loan_path_repr(this, tcx)).collect()
     };
 
@@ -204,14 +204,14 @@ pub fn fixup_fragment_sets<'tcx>(this: &MoveData<'tcx>, tcx: &ty::ctxt<'tcx>) {
     debug!("fragments 1 assigned: {:?}", path_lps(&assigned[]));
 
     // Second, build parents from the moved and assigned.
-    for m in moved.iter() {
+    for m in &moved {
         let mut p = this.path_parent(*m);
         while p != InvalidMovePathIndex {
             parents.push(p);
             p = this.path_parent(p);
         }
     }
-    for a in assigned.iter() {
+    for a in &assigned {
         let mut p = this.path_parent(*a);
         while p != InvalidMovePathIndex {
             parents.push(p);
@@ -231,15 +231,15 @@ pub fn fixup_fragment_sets<'tcx>(this: &MoveData<'tcx>, tcx: &ty::ctxt<'tcx>) {
     debug!("fragments 3 assigned: {:?}", path_lps(&assigned[]));
 
     // Fourth, build the leftover from the moved, assigned, and parents.
-    for m in moved.iter() {
+    for m in &moved {
         let lp = this.path_loan_path(*m);
         add_fragment_siblings(this, tcx, &mut unmoved, lp, None);
     }
-    for a in assigned.iter() {
+    for a in &assigned {
         let lp = this.path_loan_path(*a);
         add_fragment_siblings(this, tcx, &mut unmoved, lp, None);
     }
-    for p in parents.iter() {
+    for p in &parents {
         let lp = this.path_loan_path(*p);
         add_fragment_siblings(this, tcx, &mut unmoved, lp, None);
     }
@@ -343,7 +343,7 @@ fn add_fragment_siblings_for_extension<'tcx>(this: &MoveData<'tcx>,
                                                                         Rc<LoanPath<'tcx>>)>) {
     let parent_ty = parent_lp.to_type();
 
-    let mut add_fragment_sibling_local = |&mut : field_name, variant_did| {
+    let mut add_fragment_sibling_local = |field_name, variant_did| {
         add_fragment_sibling_core(
             this, tcx, gathered_fragments, parent_lp.clone(), mc, field_name, origin_lp,
             variant_did);
@@ -369,7 +369,7 @@ fn add_fragment_siblings_for_extension<'tcx>(this: &MoveData<'tcx>,
             let fields = ty::lookup_struct_fields(tcx, def_id);
             match *origin_field_name {
                 mc::NamedField(ast_name) => {
-                    for f in fields.iter() {
+                    for f in &fields {
                         if f.name == ast_name {
                             continue;
                         }
@@ -407,7 +407,7 @@ fn add_fragment_siblings_for_extension<'tcx>(this: &MoveData<'tcx>,
             match *origin_field_name {
                 mc::NamedField(ast_name) => {
                     let variant_arg_names = variant_info.arg_names.as_ref().unwrap();
-                    for variant_arg_ident in variant_arg_names.iter() {
+                    for variant_arg_ident in variant_arg_names {
                         if variant_arg_ident.name == ast_name {
                             continue;
                         }

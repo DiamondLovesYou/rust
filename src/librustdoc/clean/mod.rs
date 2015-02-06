@@ -48,8 +48,7 @@ use rustc::middle::stability;
 
 use std::rc::Rc;
 use std::u32;
-use std::str::Str as StrTrait; // Conflicts with Str variant
-use std::path::Path as FsPath; // Conflicts with Path struct
+use std::old_path::Path as FsPath; // Conflicts with Path struct
 
 use core::DocContext;
 use doctree;
@@ -136,7 +135,7 @@ impl<'a, 'tcx> Clean<Crate> for visit_ast::RustdocVisitor<'a, 'tcx> {
 
         // Figure out the name of this crate
         let input = &cx.input;
-        let name = link::find_crate_name(None, self.attrs.as_slice(), input);
+        let name = link::find_crate_name(None, &self.attrs, input);
 
         // Clean the crate, translating the entire libsyntax AST to one that is
         // understood by rustdoc.
@@ -166,12 +165,12 @@ impl<'a, 'tcx> Clean<Crate> for visit_ast::RustdocVisitor<'a, 'tcx> {
                 _ => unreachable!(),
             };
             let mut tmp = Vec::new();
-            for child in m.items.iter_mut() {
+            for child in &mut m.items {
                 match child.inner {
                     ModuleItem(..) => {}
                     _ => continue,
                 }
-                let prim = match PrimitiveType::find(child.attrs.as_slice()) {
+                let prim = match PrimitiveType::find(&child.attrs) {
                     Some(prim) => prim,
                     None => continue,
                 };
@@ -223,7 +222,7 @@ impl Clean<ExternalCrate> for cstore::crate_metadata {
                     _ => return
                 };
                 let attrs = inline::load_attrs(cx, tcx, did);
-                PrimitiveType::find(attrs.as_slice()).map(|prim| primitives.push(prim));
+                PrimitiveType::find(&attrs).map(|prim| primitives.push(prim));
             })
         });
         ExternalCrate {
@@ -254,10 +253,10 @@ impl Item {
     /// Finds the `doc` attribute as a List and returns the list of attributes
     /// nested inside.
     pub fn doc_list<'a>(&'a self) -> Option<&'a [Attribute]> {
-        for attr in self.attrs.iter() {
+        for attr in &self.attrs {
             match *attr {
                 List(ref x, ref list) if "doc" == *x => {
-                    return Some(list.as_slice());
+                    return Some(list);
                 }
                 _ => {}
             }
@@ -268,10 +267,10 @@ impl Item {
     /// Finds the `doc` attribute as a NameValue and returns the corresponding
     /// value found.
     pub fn doc_value<'a>(&'a self) -> Option<&'a str> {
-        for attr in self.attrs.iter() {
+        for attr in &self.attrs {
             match *attr {
                 NameValue(ref x, ref v) if "doc" == *x => {
-                    return Some(v.as_slice());
+                    return Some(v);
                 }
                 _ => {}
             }
@@ -281,8 +280,8 @@ impl Item {
 
     pub fn is_hidden_from_doc(&self) -> bool {
         match self.doc_list() {
-            Some(ref l) => {
-                for innerattr in l.iter() {
+            Some(l) => {
+                for innerattr in l {
                     match *innerattr {
                         Word(ref s) if "hidden" == *s => {
                             return true
@@ -355,21 +354,21 @@ impl Clean<Item> for doctree::Module {
         } else {
             "".to_string()
         };
-        let items: Vec<Item> =
-                   self.extern_crates.iter().map(|x| x.clean(cx))
-            .chain(self.imports.iter().flat_map(|x| x.clean(cx).into_iter()))
-            .chain(self.structs.iter().map(|x| x.clean(cx)))
-            .chain(self.enums.iter().map(|x| x.clean(cx)))
-            .chain(self.fns.iter().map(|x| x.clean(cx)))
-            .chain(self.foreigns.iter().flat_map(|x| x.clean(cx).into_iter()))
-            .chain(self.mods.iter().map(|x| x.clean(cx)))
-            .chain(self.typedefs.iter().map(|x| x.clean(cx)))
-            .chain(self.statics.iter().map(|x| x.clean(cx)))
-            .chain(self.constants.iter().map(|x| x.clean(cx)))
-            .chain(self.traits.iter().map(|x| x.clean(cx)))
-            .chain(self.impls.iter().map(|x| x.clean(cx)))
-            .chain(self.macros.iter().map(|x| x.clean(cx)))
-            .collect();
+
+        let mut items: Vec<Item> = vec![];
+        items.extend(self.extern_crates.iter().map(|x| x.clean(cx)));
+        items.extend(self.imports.iter().flat_map(|x| x.clean(cx).into_iter()));
+        items.extend(self.structs.iter().map(|x| x.clean(cx)));
+        items.extend(self.enums.iter().map(|x| x.clean(cx)));
+        items.extend(self.fns.iter().map(|x| x.clean(cx)));
+        items.extend(self.foreigns.iter().flat_map(|x| x.clean(cx).into_iter()));
+        items.extend(self.mods.iter().map(|x| x.clean(cx)));
+        items.extend(self.typedefs.iter().map(|x| x.clean(cx)));
+        items.extend(self.statics.iter().map(|x| x.clean(cx)));
+        items.extend(self.constants.iter().map(|x| x.clean(cx)));
+        items.extend(self.traits.iter().map(|x| x.clean(cx)));
+        items.extend(self.impls.iter().map(|x| x.clean(cx)));
+        items.extend(self.macros.iter().map(|x| x.clean(cx)));
 
         // determine if we should display the inner contents or
         // the outer `mod` item for the source code.
@@ -433,7 +432,7 @@ impl attr::AttrMetaMethods for Attribute {
     fn name(&self) -> InternedString {
         match *self {
             Word(ref n) | List(ref n, _) | NameValue(ref n, _) => {
-                token::intern_and_get_ident(n.as_slice())
+                token::intern_and_get_ident(n)
             }
         }
     }
@@ -441,7 +440,7 @@ impl attr::AttrMetaMethods for Attribute {
     fn value_str(&self) -> Option<InternedString> {
         match *self {
             NameValue(_, ref v) => {
-                Some(token::intern_and_get_ident(v.as_slice()))
+                Some(token::intern_and_get_ident(v))
             }
             _ => None,
         }
@@ -508,12 +507,12 @@ impl<'tcx> Clean<(Vec<TyParamBound>, Vec<TypeBinding>)> for ty::ExistentialBound
     fn clean(&self, cx: &DocContext) -> (Vec<TyParamBound>, Vec<TypeBinding>) {
         let mut tp_bounds = vec![];
         self.region_bound.clean(cx).map(|b| tp_bounds.push(RegionBound(b)));
-        for bb in self.builtin_bounds.iter() {
+        for bb in &self.builtin_bounds {
             tp_bounds.push(bb.clean(cx));
         }
 
         let mut bindings = vec![];
-        for &ty::Binder(ref pb) in self.projection_bounds.iter() {
+        for &ty::Binder(ref pb) in &self.projection_bounds {
             bindings.push(TypeBinding {
                 name: pb.projection_ty.item_name.clean(cx),
                 ty: pb.ty.clean(cx)
@@ -626,7 +625,7 @@ impl<'tcx> Clean<TyParamBound> for ty::TraitRef<'tcx> {
         let fqn = csearch::get_item_path(tcx, self.def_id);
         let fqn = fqn.into_iter().map(|i| i.to_string())
                      .collect::<Vec<String>>();
-        let path = external_path(cx, fqn.last().unwrap().as_slice(),
+        let path = external_path(cx, fqn.last().unwrap(),
                                  Some(self.def_id), vec![], self.substs);
         cx.external_paths.borrow_mut().as_mut().unwrap().insert(self.def_id,
                                                             (fqn, TypeTrait));
@@ -636,10 +635,10 @@ impl<'tcx> Clean<TyParamBound> for ty::TraitRef<'tcx> {
 
         // collect any late bound regions
         let mut late_bounds = vec![];
-        for &ty_s in self.substs.types.get_slice(ParamSpace::TypeSpace).iter() {
+        for &ty_s in self.substs.types.get_slice(ParamSpace::TypeSpace) {
             use rustc::middle::ty::{Region, sty};
             if let sty::ty_tup(ref ts) = ty_s.sty {
-                for &ty_s in ts.iter() {
+                for &ty_s in ts {
                     if let sty::ty_rptr(ref reg, _) = ty_s.sty {
                         if let &Region::ReLateBound(_, _) = *reg {
                             debug!("  hit an ReLateBound {:?}", reg);
@@ -662,7 +661,7 @@ impl<'tcx> Clean<TyParamBound> for ty::TraitRef<'tcx> {
 impl<'tcx> Clean<Vec<TyParamBound>> for ty::ParamBounds<'tcx> {
     fn clean(&self, cx: &DocContext) -> Vec<TyParamBound> {
         let mut v = Vec::new();
-        for t in self.trait_bounds.iter() {
+        for t in &self.trait_bounds {
             v.push(t.clean(cx));
         }
         for r in self.region_bounds.iter().filter_map(|r| r.clean(cx)) {
@@ -690,7 +689,7 @@ pub struct Lifetime(String);
 impl Lifetime {
     pub fn get_ref<'a>(&'a self) -> &'a str {
         let Lifetime(ref s) = *self;
-        let s: &'a str = s.as_slice();
+        let s: &'a str = s;
         return s;
     }
 
@@ -872,7 +871,7 @@ impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>, subst::ParamSpace) {
                     Some(did) => did,
                     None => return false
                 };
-                for bound in bounds.iter() {
+                for bound in bounds {
                     if let TyParamBound::TraitBound(PolyTrait {
                         trait_: Type::ResolvedPath { did, .. }, ..
                     }, TBM::None) = *bound {
@@ -915,7 +914,7 @@ impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>, subst::ParamSpace) {
         }).collect::<Vec<_>>();
         // Finally, run through the type parameters again and insert a ?Sized unbound for
         // any we didn't find to be Sized.
-        for tp in stripped_typarams.iter() {
+        for tp in &stripped_typarams {
             if !sized_params.contains(&tp.name) {
                 let mut sized_bound = ty::BuiltinBound::BoundSized.clean(cx);
                 if let TyParamBound::TraitBound(_, ref mut tbm) = sized_bound {
@@ -952,7 +951,7 @@ impl Clean<Item> for ast::Method {
     fn clean(&self, cx: &DocContext) -> Item {
         let all_inputs = &self.pe_fn_decl().inputs;
         let inputs = match self.pe_explicit_self().node {
-            ast::SelfStatic => all_inputs.as_slice(),
+            ast::SelfStatic => &**all_inputs,
             _ => &all_inputs[1..]
         };
         let decl = FnDecl {
@@ -990,7 +989,7 @@ pub struct TyMethod {
 impl Clean<Item> for ast::TypeMethod {
     fn clean(&self, cx: &DocContext) -> Item {
         let inputs = match self.explicit_self.node {
-            ast::SelfStatic => self.decl.inputs.as_slice(),
+            ast::SelfStatic => &*self.decl.inputs,
             _ => &self.decl.inputs[1..]
         };
         let decl = FnDecl {
@@ -1104,7 +1103,7 @@ impl<'a, 'tcx> Clean<FnDecl> for (ast::DefId, &'a ty::PolyFnSig<'tcx>) {
         } else {
             Vec::new().into_iter()
         }.peekable();
-        if names.peek().map(|s| s.as_slice()) == Some("self") {
+        if names.peek().map(|s| &**s) == Some("self") {
             let _ = names.next();
         }
         FnDecl {
@@ -1397,7 +1396,7 @@ pub enum TypeKind {
 
 impl PrimitiveType {
     fn from_str(s: &str) -> Option<PrimitiveType> {
-        match s.as_slice() {
+        match s {
             "isize" | "int" => Some(Isize),
             "i8" => Some(I8),
             "i16" => Some(I16),
@@ -1420,15 +1419,15 @@ impl PrimitiveType {
     }
 
     fn find(attrs: &[Attribute]) -> Option<PrimitiveType> {
-        for attr in attrs.iter() {
+        for attr in attrs {
             let list = match *attr {
                 List(ref k, ref l) if *k == "doc" => l,
                 _ => continue,
             };
-            for sub_attr in list.iter() {
+            for sub_attr in list {
                 let value = match *sub_attr {
                     NameValue(ref k, ref v)
-                        if *k == "primitive" => v.as_slice(),
+                        if *k == "primitive" => v,
                     _ => continue,
                 };
                 match PrimitiveType::from_str(value) {
@@ -1567,7 +1566,7 @@ impl<'tcx> Clean<Type> for ty::Ty<'tcx> {
                     ty::ty_struct(..) => TypeStruct,
                     _ => TypeEnum,
                 };
-                let path = external_path(cx, fqn.last().unwrap().to_string().as_slice(),
+                let path = external_path(cx, &fqn.last().unwrap().to_string(),
                                          None, vec![], substs);
                 cx.external_paths.borrow_mut().as_mut().unwrap().insert(did, (fqn, kind));
                 ResolvedPath {
@@ -1581,7 +1580,7 @@ impl<'tcx> Clean<Type> for ty::Ty<'tcx> {
                 let fqn = csearch::get_item_path(cx.tcx(), did);
                 let fqn: Vec<_> = fqn.into_iter().map(|i| i.to_string()).collect();
                 let (typarams, bindings) = bounds.clean(cx);
-                let path = external_path(cx, fqn.last().unwrap().to_string().as_slice(),
+                let path = external_path(cx, &fqn.last().unwrap().to_string(),
                                          Some(did), bindings, principal.substs());
                 cx.external_paths.borrow_mut().as_mut().unwrap().insert(did, (fqn, TypeTrait));
                 ResolvedPath {
@@ -1780,7 +1779,7 @@ impl Clean<Item> for doctree::Variant {
 impl<'tcx> Clean<Item> for ty::VariantInfo<'tcx> {
     fn clean(&self, cx: &DocContext) -> Item {
         // use syntax::parse::token::special_idents::unnamed_field;
-        let kind = match self.arg_names.as_ref().map(|s| s.as_slice()) {
+        let kind = match self.arg_names.as_ref().map(|s| &**s) {
             None | Some([]) if self.args.len() == 0 => CLikeVariant,
             None | Some([]) => {
                 TupleVariant(self.args.clean(cx))
@@ -2132,7 +2131,7 @@ impl Clean<Item> for doctree::Impl {
                             TypeImplItem(i) => i,
                         }
                     }).collect(),
-                derived: detect_derived(self.attrs.as_slice()),
+                derived: detect_derived(&self.attrs),
                 polarity: Some(self.polarity.clean(cx)),
             }),
         }
@@ -2175,7 +2174,7 @@ impl Clean<Vec<Item>> for doctree::Import {
                 let mut ret = vec![];
                 let remaining = if !denied {
                     let mut remaining = vec![];
-                    for path in list.iter() {
+                    for path in list {
                         match inline::try_inline(cx, path.node.id(), None) {
                             Some(items) => {
                                 ret.extend(items.into_iter());

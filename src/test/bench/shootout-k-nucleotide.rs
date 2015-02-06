@@ -261,16 +261,16 @@ fn print_frequencies(frequencies: &Table, frame: uint) {
     for entry in frequencies.iter() {
         vector.push((entry.count, entry.code));
     }
-    vector.as_mut_slice().sort();
+    vector.sort();
 
     let mut total_count = 0;
-    for &(count, _) in vector.iter() {
+    for &(count, _) in &vector {
         total_count += count;
     }
 
     for &(count, key) in vector.iter().rev() {
         println!("{} {:.3}",
-                 key.unpack(frame).as_slice(),
+                 key.unpack(frame),
                  (count as f32 * 100.0) / (total_count as f32));
     }
     println!("");
@@ -301,14 +301,14 @@ fn main() {
 
     let nb_freqs: Vec<_> = (1u..3).map(|i| {
         let input = input.clone();
-        (i, Thread::scoped(move|| generate_frequencies(input.as_slice(), i)))
+        (i, Thread::scoped(move|| generate_frequencies(&input, i)))
     }).collect();
     let occ_freqs: Vec<_> = OCCURRENCES.iter().map(|&occ| {
         let input = input.clone();
-        Thread::scoped(move|| generate_frequencies(input.as_slice(), occ.len()))
+        Thread::scoped(move|| generate_frequencies(&input, occ.len()))
     }).collect();
 
-    for (i, freq) in nb_freqs.into_iter() {
+    for (i, freq) in nb_freqs {
         print_frequencies(&freq.join().ok().unwrap(), i);
     }
     for (&occ, freq) in OCCURRENCES.iter().zip(occ_freqs.into_iter()) {

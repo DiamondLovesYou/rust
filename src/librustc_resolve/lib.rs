@@ -997,7 +997,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
     /// Resolves all imports for the crate. This method performs the fixed-
     /// point iteration.
     fn resolve_imports(&mut self) {
-        let mut i = 0u;
+        let mut i = 0;
         let mut prev_unresolved_imports = 0;
         loop {
             debug!("(resolving imports) iteration {}, {} imports left",
@@ -1031,7 +1031,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         self.current_module = orig_module;
 
         build_reduced_graph::populate_module_if_necessary(self, &module_);
-        for (_, child_node) in module_.children.borrow().iter() {
+        for (_, child_node) in &*module_.children.borrow() {
             match child_node.get_module_if_available() {
                 None => {
                     // Nothing to do.
@@ -1042,7 +1042,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
         }
 
-        for (_, child_module) in module_.anonymous_children.borrow().iter() {
+        for (_, child_module) in &*module_.anonymous_children.borrow() {
             self.resolve_imports_for_module_subtree(child_module.clone());
         }
     }
@@ -1087,7 +1087,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
     fn names_to_string(&self, names: &[Name]) -> String {
         let mut first = true;
         let mut result = String::new();
-        for name in names.iter() {
+        for name in names {
             if first {
                 first = false
             } else {
@@ -1475,7 +1475,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let mut import_resolutions = module_.import_resolutions.borrow_mut();
         let import_resolution = &mut (*import_resolutions)[target];
         {
-            let mut check_and_write_import = |&mut: namespace, result: &_, used_public: &mut bool| {
+            let mut check_and_write_import = |namespace, result: &_, used_public: &mut bool| {
                 let namespace_name = match namespace {
                     TypeNS => "type",
                     ValueNS => "value",
@@ -1596,7 +1596,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         // Add all resolved imports from the containing module.
         let import_resolutions = containing_module.import_resolutions.borrow();
-        for (ident, target_import_resolution) in import_resolutions.iter() {
+        for (ident, target_import_resolution) in &*import_resolutions {
             debug!("(resolving glob import) writing module resolution \
                     {} into `{}`",
                    token::get_name(*ident),
@@ -1657,7 +1657,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         // Add all children from the containing module.
         build_reduced_graph::populate_module_if_necessary(self, &containing_module);
 
-        for (&name, name_bindings) in containing_module.children.borrow().iter() {
+        for (&name, name_bindings) in &*containing_module.children.borrow() {
             self.merge_import_resolution(module_,
                                          containing_module.clone(),
                                          import_directive,
@@ -1667,7 +1667,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         }
 
         // Add external module children from the containing module.
-        for (&name, module) in containing_module.external_module_children.borrow().iter() {
+        for (&name, module) in &*containing_module.external_module_children.borrow() {
             let name_bindings =
                 Rc::new(Resolver::create_name_bindings_from_module(module.clone()));
             self.merge_import_resolution(module_,
@@ -1714,7 +1714,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         // Merge the child item into the import resolution.
         {
-            let mut merge_child_item = |&mut : namespace| {
+            let mut merge_child_item = |namespace| {
                 if name_bindings.defined_in_namespace_with(namespace, IMPORTABLE | PUBLIC) {
                     let namespace_name = match namespace {
                         TypeNS => "type",
@@ -1726,7 +1726,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                            in this module",
                                           namespace_name,
                                           token::get_name(name).get());
-                        span_err!(self.session, import_directive.span, E0251, "{}", msg.as_slice());
+                        span_err!(self.session, import_directive.span, E0251, "{}", msg);
                     } else {
                         let target = Target::new(containing_module.clone(),
                                                  name_bindings.clone(),
@@ -2519,7 +2519,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         // Descend into children and anonymous children.
         build_reduced_graph::populate_module_if_necessary(self, &module_);
 
-        for (_, child_node) in module_.children.borrow().iter() {
+        for (_, child_node) in &*module_.children.borrow() {
             match child_node.get_module_if_available() {
                 None => {
                     // Continue.
@@ -2530,7 +2530,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
         }
 
-        for (_, module_) in module_.anonymous_children.borrow().iter() {
+        for (_, module_) in &*module_.anonymous_children.borrow() {
             self.report_unresolved_imports(module_.clone());
         }
     }
@@ -2609,7 +2609,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             DlDef(d @ DefLocal(_)) => {
                 let node_id = d.def_id().node;
                 let mut def = d;
-                for rib in ribs.iter() {
+                for rib in ribs {
                     match rib.kind {
                         NormalRibKind => {
                             // Nothing to do. Continue.
@@ -2680,7 +2680,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
             DlDef(def @ DefTyParam(..)) |
             DlDef(def @ DefSelfTy(..)) => {
-                for rib in ribs.iter() {
+                for rib in ribs {
                     match rib.kind {
                         NormalRibKind | ClosureRibKind(..) => {
                             // Nothing to do. Continue.
@@ -2795,8 +2795,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             // enum item: resolve all the variants' discrs,
             // then resolve the ty params
             ItemEnum(ref enum_def, ref generics) => {
-                for variant in (*enum_def).variants.iter() {
-                    for dis_expr in variant.node.disr_expr.iter() {
+                for variant in &(*enum_def).variants {
+                    if let Some(ref dis_expr) = variant.node.disr_expr {
                         // resolve the discriminator expr
                         // as a constant
                         self.with_constant_rib(|this| {
@@ -2863,7 +2863,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     this.resolve_type_parameter_bounds(item.id, bounds,
                                                        TraitDerivation);
 
-                    for trait_item in (*trait_items).iter() {
+                    for trait_item in &(*trait_items) {
                         // Create a new rib for the trait_item-specific type
                         // parameters.
                         //
@@ -2885,7 +2885,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                 this.resolve_where_clause(&ty_m.generics
                                                                .where_clause);
 
-                                for argument in ty_m.decl.inputs.iter() {
+                                for argument in &ty_m.decl.inputs {
                                     this.resolve_type(&*argument.ty);
                                 }
 
@@ -2929,7 +2929,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
             ItemForeignMod(ref foreign_module) => {
                 self.with_scope(Some(name), |this| {
-                    for foreign_item in foreign_module.items.iter() {
+                    for foreign_item in &foreign_module.items {
                         match foreign_item.node {
                             ForeignItemFn(_, ref generics) => {
                                 this.with_type_parameter_rib(
@@ -3075,7 +3075,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 }
                 Some(declaration) => {
                     let mut bindings_list = HashMap::new();
-                    for argument in declaration.inputs.iter() {
+                    for argument in &declaration.inputs {
                         this.resolve_pattern(&*argument.pat,
                                              ArgumentIrrefutableMode,
                                              &mut bindings_list);
@@ -3103,14 +3103,14 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
     fn resolve_type_parameters(&mut self,
                                type_parameters: &OwnedSlice<TyParam>) {
-        for type_parameter in type_parameters.iter() {
+        for type_parameter in &**type_parameters {
             self.resolve_type_parameter(type_parameter);
         }
     }
 
     fn resolve_type_parameter(&mut self,
                               type_parameter: &TyParam) {
-        for bound in type_parameter.bounds.iter() {
+        for bound in &*type_parameter.bounds {
             self.resolve_type_parameter_bound(type_parameter.id, bound,
                                               TraitBoundingTypeParameter);
         }
@@ -3124,7 +3124,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                      id: NodeId,
                                      type_parameter_bounds: &OwnedSlice<TyParamBound>,
                                      reference_type: TraitReferenceType) {
-        for type_parameter_bound in type_parameter_bounds.iter() {
+        for type_parameter_bound in &**type_parameter_bounds {
             self.resolve_type_parameter_bound(id, type_parameter_bound,
                                               reference_type);
         }
@@ -3193,12 +3193,12 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
     }
 
     fn resolve_where_clause(&mut self, where_clause: &ast::WhereClause) {
-        for predicate in where_clause.predicates.iter() {
+        for predicate in &where_clause.predicates {
             match predicate {
                 &ast::WherePredicate::BoundPredicate(ref bound_pred) => {
                     self.resolve_type(&*bound_pred.bounded_ty);
 
-                    for bound in bound_pred.bounds.iter() {
+                    for bound in &*bound_pred.bounds {
                         self.resolve_type_parameter_bound(bound_pred.bounded_ty.id, bound,
                                                           TraitBoundingTypeParameter);
                     }
@@ -3236,7 +3236,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             this.resolve_where_clause(&generics.where_clause);
 
             // Resolve fields.
-            for field in fields.iter() {
+            for field in fields {
                 this.resolve_type(&*field.node.ty);
             }
         });
@@ -3320,7 +3320,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 this.resolve_type(self_type);
 
                 this.with_current_self_type(self_type, |this| {
-                    for impl_item in impl_items.iter() {
+                    for impl_item in impl_items {
                         match *impl_item {
                             MethodImplItem(ref method) => {
                                 // If this is a trait impl, ensure the method
@@ -3375,7 +3375,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
     fn check_trait_item(&self, name: Name, span: Span) {
         // If there is a TraitRef in scope for an impl, then the method must be in the trait.
-        for &(did, ref trait_ref) in self.current_trait_ref.iter() {
+        if let Some((did, ref trait_ref)) = self.current_trait_ref {
             if self.trait_item_map.get(&(name, did)).is_none() {
                 let path_str = self.path_names_to_string(&trait_ref.path);
                 self.resolve_error(span,
@@ -3442,7 +3442,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         for (i, p) in arm.pats.iter().enumerate() {
             let map_i = self.binding_mode_map(&**p);
 
-            for (&key, &binding_0) in map_0.iter() {
+            for (&key, &binding_0) in &map_0 {
                 match map_i.get(&key) {
                   None => {
                     self.resolve_error(
@@ -3465,7 +3465,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 }
             }
 
-            for (&key, &binding) in map_i.iter() {
+            for (&key, &binding) in &map_i {
                 if !map_0.contains_key(&key) {
                     self.resolve_error(
                         binding.span,
@@ -3482,7 +3482,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         self.value_ribs.push(Rib::new(NormalRibKind));
 
         let mut bindings_list = HashMap::new();
-        for pattern in arm.pats.iter() {
+        for pattern in &arm.pats {
             self.resolve_pattern(&**pattern, RefutableMode, &mut bindings_list);
         }
 
@@ -3513,7 +3513,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         // Check for imports appearing after non-item statements.
         let mut found_non_item = false;
-        for statement in block.stmts.iter() {
+        for statement in &block.stmts {
             if let ast::StmtDecl(ref declaration, _) = statement.node {
                 if let ast::DeclItem(ref i) = declaration.node {
                     match i.node {
@@ -3607,10 +3607,10 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             TyQPath(ref qpath) => {
                 self.resolve_type(&*qpath.self_type);
                 self.resolve_trait_reference(ty.id, &*qpath.trait_ref, TraitQPath);
-                for ty in qpath.item_path.parameters.types().into_iter() {
+                for ty in qpath.item_path.parameters.types() {
                     self.resolve_type(&**ty);
                 }
-                for binding in qpath.item_path.parameters.bindings().into_iter() {
+                for binding in qpath.item_path.parameters.bindings() {
                     self.resolve_type(&*binding.ty);
                 }
             }
@@ -3756,15 +3756,14 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         }
                         Some(_) => {
                             self.resolve_error(path.span,
-                                format!("`{}` is not an enum variant, struct or const",
+                                &format!("`{}` is not an enum variant, struct or const",
                                     token::get_ident(
-                                        path.segments.last().unwrap().identifier)).as_slice());
+                                        path.segments.last().unwrap().identifier)));
                         }
                         None => {
                             self.resolve_error(path.span,
-                                format!("unresolved enum variant, struct or const `{}`",
-                                    token::get_ident(
-                                        path.segments.last().unwrap().identifier)).as_slice());
+                                &format!("unresolved enum variant, struct or const `{}`",
+                                    token::get_ident(path.segments.last().unwrap().identifier)));
                         }
                     }
 
@@ -4061,7 +4060,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     Some((span, msg)) => (span, msg),
                     None => {
                         let msg = format!("Use of undeclared type or module `{}`",
-                                          self.names_to_string(module_path.as_slice()));
+                                          self.names_to_string(&module_path));
                         (path.span, msg)
                     }
                 };
@@ -4163,7 +4162,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let search_result = match namespace {
             ValueNS => {
                 let renamed = mtwt::resolve(ident);
-                self.search_ribs(self.value_ribs.as_slice(), renamed, span)
+                self.search_ribs(&self.value_ribs, renamed, span)
             }
             TypeNS => {
                 let name = ident.name;
@@ -4365,7 +4364,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let mut values: Vec<uint> = Vec::new();
 
         for rib in this.value_ribs.iter().rev() {
-            for (&k, _) in rib.bindings.iter() {
+            for (&k, _) in &rib.bindings {
                 maybes.push(token::get_name(k));
                 values.push(uint::MAX);
             }
@@ -4424,15 +4423,15 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     Some((DefVariant(_, _, true), _)) => {
                         let path_name = self.path_names_to_string(path);
                         self.resolve_error(expr.span,
-                                format!("`{}` is a struct variant name, but \
-                                         this expression \
-                                         uses it like a function name",
-                                        path_name).as_slice());
+                                &format!("`{}` is a struct variant name, but \
+                                          this expression \
+                                          uses it like a function name",
+                                         path_name));
 
                         self.session.span_help(expr.span,
-                            format!("Did you mean to write: \
-                                    `{} {{ /* fields */ }}`?",
-                                    path_name).as_slice());
+                            &format!("Did you mean to write: \
+                                     `{} {{ /* fields */ }}`?",
+                                     path_name));
                     }
                     Some(def) => {
                         // Write the result into the def map.
@@ -4452,15 +4451,15 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                             Some((DefTy(struct_id, _), _))
                               if self.structs.contains_key(&struct_id) => {
                                 self.resolve_error(expr.span,
-                                        format!("`{}` is a structure name, but \
-                                                 this expression \
-                                                 uses it like a function name",
-                                                path_name).as_slice());
+                                        &format!("`{}` is a structure name, but \
+                                                  this expression \
+                                                  uses it like a function name",
+                                                 path_name));
 
                                 self.session.span_help(expr.span,
-                                    format!("Did you mean to write: \
-                                            `{} {{ /* fields */ }}`?",
-                                            path_name).as_slice());
+                                    &format!("Did you mean to write: \
+                                             `{} {{ /* fields */ }}`?",
+                                             path_name));
 
                             }
                             _ => {
@@ -4489,7 +4488,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                         NoSuggestion => {
                                             // limit search to 5 to reduce the number
                                             // of stupid suggestions
-                                            self.find_best_match_for_name(path_name.as_slice(), 5)
+                                            self.find_best_match_for_name(&path_name, 5)
                                                                 .map_or("".to_string(),
                                                                         |x| format!("`{}`", x))
                                         }
@@ -4509,9 +4508,9 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
                                     self.resolve_error(
                                         expr.span,
-                                        format!("unresolved name `{}`{}",
-                                                path_name,
-                                                msg).as_slice());
+                                        &format!("unresolved name `{}`{}",
+                                                 path_name,
+                                                 msg));
                                 }
                             }
                         }
@@ -4521,7 +4520,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 visit::walk_expr(self, expr);
             }
 
-            ExprClosure(_, _, ref fn_decl, ref block) => {
+            ExprClosure(_, ref fn_decl, ref block) => {
                 self.resolve_function(ClosureRibKind(expr.id),
                                       Some(&**fn_decl), NoTypeParameters,
                                       &**block);
@@ -4640,7 +4639,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             build_reduced_graph::populate_module_if_necessary(self, &search_module);
 
             {
-                for (_, child_names) in search_module.children.borrow().iter() {
+                for (_, child_names) in &*search_module.children.borrow() {
                     let def = match child_names.def_for_namespace(TypeNS) {
                         Some(def) => def,
                         None => continue
@@ -4656,7 +4655,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
 
             // Look for imports.
-            for (_, import) in search_module.import_resolutions.borrow().iter() {
+            for (_, import) in &*search_module.import_resolutions.borrow() {
                 let target = match import.target_for_namespace(TypeNS) {
                     None => continue,
                     Some(target) => target,
@@ -4766,13 +4765,13 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         debug!("Children:");
         build_reduced_graph::populate_module_if_necessary(self, &module_);
-        for (&name, _) in module_.children.borrow().iter() {
+        for (&name, _) in &*module_.children.borrow() {
             debug!("* {}", token::get_name(name));
         }
 
         debug!("Import resolutions:");
         let import_resolutions = module_.import_resolutions.borrow();
-        for (&name, import_resolution) in import_resolutions.iter() {
+        for (&name, import_resolution) in &*import_resolutions {
             let value_repr;
             match import_resolution.target_for_namespace(ValueNS) {
                 None => { value_repr = "".to_string(); }

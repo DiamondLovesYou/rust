@@ -156,7 +156,6 @@ use ops::{Drop, FnOnce};
 use option::Option::{self, Some, None};
 use result::Result::{Err, Ok};
 use sync::{Mutex, Condvar, Arc};
-use str::Str;
 use string::String;
 use rt::{self, unwind};
 use old_io::{Writer, stdio};
@@ -246,7 +245,7 @@ impl Builder {
     {
         let my_packet = Packet(Arc::new(UnsafeCell::new(None)));
         let their_packet = Packet(my_packet.0.clone());
-        let (native, thread) = self.spawn_inner(Thunk::new(f), Thunk::with_arg(move |: ret| unsafe {
+        let (native, thread) = self.spawn_inner(Thunk::new(f), Thunk::with_arg(move |ret| unsafe {
             *their_packet.0.get() = Some(ret);
         }));
 
@@ -273,7 +272,7 @@ impl Builder {
         // because by the time that this function is executing we've already
         // consumed at least a little bit of stack (we don't know the exact byte
         // address at which our stack started).
-        let main = move |:| {
+        let main = move || {
             let something_around_the_top_of_the_stack = 1;
             let addr = &something_around_the_top_of_the_stack as *const int;
             let my_stack_top = addr as uint;
@@ -289,7 +288,7 @@ impl Builder {
 
             let mut output = None;
             let f: Thunk<(), T> = if stdout.is_some() || stderr.is_some() {
-                Thunk::new(move |:| {
+                Thunk::new(move || {
                     let _ = stdout.map(stdio::set_stdout);
                     let _ = stderr.map(stdio::set_stderr);
                     f.invoke(())
@@ -452,7 +451,7 @@ impl Thread {
     /// Get the thread's name.
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn name(&self) -> Option<&str> {
-        self.inner.name.as_ref().map(|s| s.as_slice())
+        self.inner.name.as_ref().map(|s| &**s)
     }
 }
 
@@ -574,7 +573,7 @@ mod test {
     fn test_join_success() {
         match Thread::scoped(move|| -> String {
             "Success!".to_string()
-        }).join().as_ref().map(|s| s.as_slice()) {
+        }).join().as_ref().map(|s| &**s) {
             result::Result::Ok("Success!") => (),
             _ => panic!()
         }

@@ -27,7 +27,7 @@ use util::ppaux::Repr;
 
 use std::collections::hash_map::Entry::Vacant;
 use std::old_io::{self, File};
-use std::os;
+use std::env;
 use std::sync::atomic::{AtomicBool, Ordering, ATOMIC_BOOL_INIT};
 use syntax::ast;
 
@@ -59,19 +59,19 @@ pub fn maybe_print_constraints_for<'a, 'tcx>(region_vars: &RegionVarBindings<'a,
     }
 
     let requested_node : Option<ast::NodeId> =
-        os::getenv("RUST_REGION_GRAPH_NODE").and_then(|s| s.parse().ok());
+        env::var_string("RUST_REGION_GRAPH_NODE").ok().and_then(|s| s.parse().ok());
 
     if requested_node.is_some() && requested_node != Some(subject_node) {
         return;
     }
 
-    let requested_output = os::getenv("RUST_REGION_GRAPH");
+    let requested_output = env::var_string("RUST_REGION_GRAPH").ok();
     debug!("requested_output: {:?} requested_node: {:?}",
            requested_output, requested_node);
 
     let output_path = {
         let output_template = match requested_output {
-            Some(ref s) if s.as_slice() == "help" => {
+            Some(ref s) if &**s == "help" => {
                 static PRINTED_YET: AtomicBool = ATOMIC_BOOL_INIT;
                 if !PRINTED_YET.load(Ordering::SeqCst) {
                     print_help_message();
@@ -92,7 +92,7 @@ pub fn maybe_print_constraints_for<'a, 'tcx>(region_vars: &RegionVarBindings<'a,
             let mut new_str = String::new();
             for c in output_template.chars() {
                 if c == '%' {
-                    new_str.push_str(subject_node.to_string().as_slice());
+                    new_str.push_str(&subject_node.to_string());
                 } else {
                     new_str.push(c);
                 }
@@ -104,11 +104,11 @@ pub fn maybe_print_constraints_for<'a, 'tcx>(region_vars: &RegionVarBindings<'a,
     };
 
     let constraints = &*region_vars.constraints.borrow();
-    match dump_region_constraints_to(tcx, constraints, output_path.as_slice()) {
+    match dump_region_constraints_to(tcx, constraints, &output_path) {
         Ok(()) => {}
         Err(e) => {
             let msg = format!("io error dumping region constraints: {}", e);
-            region_vars.tcx.sess.err(msg.as_slice())
+            region_vars.tcx.sess.err(&msg)
         }
     }
 }
@@ -135,7 +135,7 @@ impl<'a, 'tcx> ConstraintGraph<'a, 'tcx> {
         let mut i = 0;
         let mut node_ids = FnvHashMap();
         {
-            let mut add_node = |&mut : node| {
+            let mut add_node = |node| {
                 if let Vacant(e) = node_ids.entry(node) {
                     e.insert(i);
                     i += 1;
@@ -157,7 +157,7 @@ impl<'a, 'tcx> ConstraintGraph<'a, 'tcx> {
 
 impl<'a, 'tcx> dot::Labeller<'a, Node, Edge> for ConstraintGraph<'a, 'tcx> {
     fn graph_id(&self) -> dot::Id {
-        dot::Id::new(self.graph_name.as_slice()).ok().unwrap()
+        dot::Id::new(&*self.graph_name).ok().unwrap()
     }
     fn node_id(&self, n: &Node) -> dot::Id {
         dot::Id::new(format!("node_{}", self.node_ids.get(n).unwrap())).ok().unwrap()

@@ -307,7 +307,7 @@ impl<'a, 'b> Context<'a, 'b> {
 
     fn trans_count(&self, c: parse::Count) -> P<ast::Expr> {
         let sp = self.fmtsp;
-        let count = |: c, arg| {
+        let count = |c, arg| {
             let mut path = Context::rtpath(self.ecx, "Count");
             path.push(self.ecx.ident_of(c));
             match arg {
@@ -353,7 +353,7 @@ impl<'a, 'b> Context<'a, 'b> {
             parse::NextArgument(ref arg) => {
                 // Translate the position
                 let pos = {
-                    let pos = |: c, arg| {
+                    let pos = |c, arg| {
                         let mut path = Context::rtpath(self.ecx, "Position");
                         path.push(self.ecx.ident_of(c));
                         match arg {
@@ -404,7 +404,7 @@ impl<'a, 'b> Context<'a, 'b> {
 
                 // Translate the format
                 let fill = self.ecx.expr_lit(sp, ast::LitChar(fill));
-                let align = |:name| {
+                let align = |name| {
                     let mut p = Context::rtpath(self.ecx, "Alignment");
                     p.push(self.ecx.ident_of(name));
                     self.ecx.path_global(sp, p)
@@ -499,7 +499,7 @@ impl<'a, 'b> Context<'a, 'b> {
                                             self.ecx.expr_ident(e.span, name)));
             heads.push(self.ecx.expr_addr_of(e.span, e));
         }
-        for name in self.name_ordering.iter() {
+        for name in &self.name_ordering {
             let e = match self.names.remove(name) {
                 Some(e) => e,
                 None => continue
@@ -706,7 +706,7 @@ pub fn expand_preparsed_format_args(ecx: &mut ExtCtxt, sp: Span,
             cx.ecx.span_err(cx.args[i].span, "argument never used");
         }
     }
-    for (name, e) in cx.names.iter() {
+    for (name, e) in &cx.names {
         if !cx.name_types.contains_key(name) {
             cx.ecx.span_err(e.span, "named argument never used");
         }

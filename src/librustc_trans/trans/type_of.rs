@@ -88,7 +88,7 @@ pub fn untuple_arguments_if_necessary<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     match inputs[inputs.len() - 1].sty {
         ty::ty_tup(ref tupled_arguments) => {
             debug!("untuple_arguments_if_necessary(): untupling arguments");
-            for &tupled_argument in tupled_arguments.iter() {
+            for &tupled_argument in tupled_arguments {
                 result.push(tupled_argument);
             }
         }
@@ -117,7 +117,7 @@ pub fn type_of_rust_fn<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     let mut atys: Vec<Type> = Vec::new();
 
     // First, munge the inputs, if this has the `rust-call` ABI.
-    let inputs = untuple_arguments_if_necessary(cx, sig.inputs.as_slice(), abi);
+    let inputs = untuple_arguments_if_necessary(cx, &sig.inputs, abi);
 
     // Arg 0: Output pointer.
     // (if the output type is non-immediate)

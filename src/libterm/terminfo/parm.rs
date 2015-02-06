@@ -109,7 +109,7 @@ pub fn expand(cap: &[u8], params: &[Param], vars: &mut Variables)
         *dst = (*src).clone();
     }
 
-    for &c in cap.iter() {
+    for &c in cap {
         let cur = c as char;
         let mut old_state = state;
         match state {
@@ -257,7 +257,7 @@ pub fn expand(cap: &[u8], params: &[Param], vars: &mut Variables)
                         let flags = Flags::new();
                         let res = format(stack.pop().unwrap(), FormatOp::from_char(cur), flags);
                         if res.is_err() { return res }
-                        output.push_all(res.unwrap().as_slice())
+                        output.push_all(&res.unwrap())
                     } else { return Err("stack is empty".to_string()) },
                     ':'|'#'|' '|'.'|'0'...'9' => {
                         let mut flags = Flags::new();
@@ -355,7 +355,7 @@ pub fn expand(cap: &[u8], params: &[Param], vars: &mut Variables)
                     (_,'d')|(_,'o')|(_,'x')|(_,'X')|(_,'s') => if stack.len() > 0 {
                         let res = format(stack.pop().unwrap(), FormatOp::from_char(cur), *flags);
                         if res.is_err() { return res }
-                        output.push_all(res.unwrap().as_slice());
+                        output.push_all(&res.unwrap());
                         // will cause state to go to Nothing
                         old_state = FormatPattern(*flags, *fstate);
                     } else { return Err("stack is empty".to_string()) },
@@ -609,11 +609,11 @@ mod test {
         {
             let mut u8v: Vec<_> = fmt.bytes().collect();
             u8v.extend(cap.as_bytes().iter().map(|&b| b));
-            expand(u8v.as_slice(), params, vars)
+            expand(&u8v, params, vars)
         }
 
         let caps = ["%d", "%c", "%s", "%Pa", "%l", "%!", "%~"];
-        for &cap in caps.iter() {
+        for &cap in &caps {
             let res = get_res("", cap, &[], vars);
             assert!(res.is_err(),
                     "Op {} succeeded incorrectly with 0 stack entries", cap);
@@ -627,7 +627,7 @@ mod test {
                     "Op {} failed with 1 stack entry: {}", cap, res.err().unwrap());
         }
         let caps = ["%+", "%-", "%*", "%/", "%m", "%&", "%|", "%A", "%O"];
-        for &cap in caps.iter() {
+        for &cap in &caps {
             let res = expand(cap.as_bytes(), &[], vars);
             assert!(res.is_err(),
                     "Binop {} succeeded incorrectly with 0 stack entries", cap);
@@ -648,7 +648,7 @@ mod test {
     #[test]
     fn test_comparison_ops() {
         let v = [('<', [1u8, 0u8, 0u8]), ('=', [0u8, 1u8, 0u8]), ('>', [0u8, 0u8, 1u8])];
-        for &(op, bs) in v.iter() {
+        for &(op, bs) in &v {
             let s = format!("%{{1}}%{{2}}%{}%d", op);
             let res = expand(s.as_bytes(), &[], &mut Variables::new());
             assert!(res.is_ok(), res.err().unwrap());

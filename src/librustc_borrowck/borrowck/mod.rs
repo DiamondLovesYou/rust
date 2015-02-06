@@ -324,7 +324,7 @@ pub fn closure_to_block(closure_id: ast::NodeId,
                         tcx: &ty::ctxt) -> ast::NodeId {
     match tcx.map.get(closure_id) {
         ast_map::NodeExpr(expr) => match expr.node {
-            ast::ExprClosure(_, _, _, ref block) => {
+            ast::ExprClosure(_, _, ref block) => {
                 block.id
             }
             _ => {
@@ -422,7 +422,7 @@ pub fn opt_loan_path<'tcx>(cmt: &mc::cmt<'tcx>) -> Option<Rc<LoanPath<'tcx>>> {
     //! which allows it to share common loan path pieces as it
     //! traverses the CMT.
 
-    let new_lp = |&: v: LoanPathKind<'tcx>| Rc::new(LoanPath::new(v, cmt.ty));
+    let new_lp = |v: LoanPathKind<'tcx>| Rc::new(LoanPath::new(v, cmt.ty));
 
     match cmt.cat {
         mc::cat_rvalue(..) |
@@ -798,8 +798,8 @@ impl<'a, 'tcx> BorrowckCtxt<'a, 'tcx> {
             }
             mc::AliasableClosure(id) => {
                 self.tcx.sess.span_err(span,
-                                       format!("{} in a captured outer \
-                                               variable in an `Fn` closure", prefix).as_slice());
+                                       &format!("{} in a captured outer \
+                                                variable in an `Fn` closure", prefix));
                 if let BorrowViolation(euv::ClosureCapture(_)) = kind {
                     // The aliasability violation with closure captures can
                     // happen for nested closures, so we know the enclosing

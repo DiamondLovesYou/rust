@@ -115,7 +115,7 @@ pub fn with_insn_ctxt<F>(blk: F) where
     F: FnOnce(&[&'static str]),
 {
     TASK_LOCAL_INSN_KEY.with(move |slot| {
-        slot.borrow().as_ref().map(move |s| blk(s.as_slice()));
+        slot.borrow().as_ref().map(move |s| blk(s));
     })
 }
 
@@ -350,7 +350,7 @@ pub fn get_extern_const<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, did: ast::DefId,
         // don't do this then linker errors can be generated where the linker
         // complains that one object files has a thread local version of the
         // symbol and another one doesn't.
-        for attr in ty::get_attrs(ccx.tcx(), did).iter() {
+        for attr in &*ty::get_attrs(ccx.tcx(), did) {
             if attr.check_name("thread_local") {
                 llvm::set_thread_local(c, true);
             }
@@ -442,7 +442,7 @@ pub fn set_llvm_fn_attrs(ccx: &CrateContext, attrs: &[ast::Attribute], llfn: Val
         InlineNone   => { /* fallthrough */ }
     }
 
-    for attr in attrs.iter() {
+    for attr in attrs {
         let mut used = true;
         match attr.name().get() {
             "no_stack_check" => unset_split_stack(llfn),
@@ -540,7 +540,7 @@ pub fn compare_scalar_types<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                                         t: Ty<'tcx>,
                                         op: ast::BinOp_)
                                         -> Result<'blk, 'tcx> {
-    let f = |&: a| Result::new(cx, compare_scalar_values(cx, lhs, rhs, a, op));
+    let f = |a| Result::new(cx, compare_scalar_values(cx, lhs, rhs, a, op));
 
     match t.sty {
         ty::ty_tup(ref tys) if tys.is_empty() => f(nil_type),
@@ -765,7 +765,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
                                         n_variants);
                   let next_cx = fcx.new_temp_block("enum-iter-next");
 
-                  for variant in (*variants).iter() {
+                  for variant in &(*variants) {
                       let variant_cx =
                           fcx.new_temp_block(
                               &format!("enum-iter-variant-{}",
@@ -970,7 +970,7 @@ pub fn invoke<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
     if need_invoke(bcx) {
         debug!("invoking {} at {:?}", bcx.val_to_string(llfn), bcx.llbb);
-        for &llarg in llargs.iter() {
+        for &llarg in llargs {
             debug!("arg: {}", bcx.val_to_string(llarg));
         }
         let normal_bcx = bcx.fcx.new_temp_block("normal-return");
@@ -986,7 +986,7 @@ pub fn invoke<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         return (llresult, normal_bcx);
     } else {
         debug!("calling {} at {:?}", bcx.val_to_string(llfn), bcx.llbb);
-        for &llarg in llargs.iter() {
+        for &llarg in llargs {
             debug!("arg: {}", bcx.val_to_string(llarg));
         }
 
@@ -1033,6 +1033,8 @@ pub fn load_ty<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
         // for this leads to bad optimizations, so its arg type is an appropriately sized integer
         // and we have to convert it
         Load(cx, BitCast(cx, ptr, type_of::arg_type_of(cx.ccx(), t).ptr_to()))
+    } else if ty::type_is_region_ptr(t) || ty::type_is_unique(t) {
+        LoadNonNull(cx, ptr)
     } else if ty::type_is_char(t) {
         // a char is a Unicode codepoint, and so takes values from 0
         // to 0x10FFFF inclusive only.
@@ -1340,7 +1342,7 @@ fn build_cfg(tcx: &ty::ctxt, id: ast::NodeId) -> (ast::NodeId, Option<cfg::CFG>)
         }
         Some(ast_map::NodeExpr(e)) => {
             match e.node {
-                ast::ExprClosure(_, _, _, ref blk) => {
+                ast::ExprClosure(_, _, ref blk) => {
                     blk
                 }
                 _ => tcx.sess.bug("unexpected expr variant in has_nested_returns")
@@ -1352,8 +1354,8 @@ fn build_cfg(tcx: &ty::ctxt, id: ast::NodeId) -> (ast::NodeId, Option<cfg::CFG>)
         // glue, shims, etc
         None if id == ast::DUMMY_NODE_ID => return (ast::DUMMY_NODE_ID, None),
 
-        _ => tcx.sess.bug(format!("unexpected variant in has_nested_returns: {}",
-                                  tcx.map.path_to_string(id)).as_slice())
+        _ => tcx.sess.bug(&format!("unexpected variant in has_nested_returns: {}",
+                                   tcx.map.path_to_string(id)))
     };
 
     (blk.id, Some(cfg::CFG::new(tcx, &**blk)))
@@ -1830,7 +1832,7 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
             vec![ty::mk_tup(ccx.tcx(), monomorphized_arg_types)]
         }
     };
-    for monomorphized_arg_type in monomorphized_arg_types.iter() {
+    for monomorphized_arg_type in &monomorphized_arg_types {
         debug!("trans_closure: monomorphized_arg_type: {}",
                ty_to_string(ccx.tcx(), *monomorphized_arg_type));
     }
@@ -1908,7 +1910,7 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     // This somewhat improves single-stepping experience in debugger.
     unsafe {
         let llreturn = fcx.llreturn.get();
-        for &llreturn in llreturn.iter() {
+        if let Some(llreturn) = llreturn {
             llvm::LLVMMoveBasicBlockAfter(llreturn, bcx.llbb);
         }
     }
@@ -2019,7 +2021,11 @@ pub fn trans_named_tuple_constructor<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     let bcx = match dest {
         expr::SaveIn(_) => bcx,
         expr::Ignore => {
-            glue::drop_ty(bcx, llresult, result_ty, debug_loc)
+            let bcx = glue::drop_ty(bcx, llresult, result_ty, debug_loc);
+            if !type_is_zero_size(ccx, result_ty) {
+                call_lifetime_end(bcx, llresult);
+            }
+            bcx
         }
     };
 
@@ -2109,7 +2115,7 @@ fn enum_variant_size_lint(ccx: &CrateContext, enum_def: &ast::EnumDef, sp: Span,
     let avar = adt::represent_type(ccx, ty);
     match *avar {
         adt::General(_, ref variants, _) => {
-            for var in variants.iter() {
+            for var in variants {
                 let mut size = 0;
                 for field in var.fields.iter().skip(1) {
                     // skip the discriminant
@@ -2241,7 +2247,7 @@ pub fn update_linkage(ccx: &CrateContext,
     if let Some(id) = id {
         let item = ccx.tcx().map.get(id);
         if let ast_map::NodeItem(i) = item {
-            if let Some(name) = attr::first_attr_value_str_by_name(i.attrs.as_slice(), "linkage") {
+            if let Some(name) = attr::first_attr_value_str_by_name(&i.attrs, "linkage") {
                 if let Some(linkage) = llvm_linkage_by_name(name.get()) {
                     llvm::SetLinkage(llval, linkage);
                 } else {
@@ -2382,7 +2388,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
 // and control visibility.
 pub fn trans_mod(ccx: &CrateContext, m: &ast::Mod) {
     let _icx = push_ctxt("trans_mod");
-    for item in m.items.iter() {
+    for item in &m.items {
         trans_item(ccx, &**item);
     }
 }
@@ -2751,7 +2757,7 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
     let val = match item {
         ast_map::NodeItem(i) => {
             let ty = ty::node_id_to_type(ccx.tcx(), i.id);
-            let sym = |&:| exported_name(ccx, id, ty, &i.attrs[]);
+            let sym = || exported_name(ccx, id, ty, &i.attrs[]);
 
             let v = match i.node {
                 ast::ItemStatic(_, _, ref expr) => {
@@ -2981,10 +2987,10 @@ pub fn write_metadata(cx: &SharedCrateContext, krate: &ast::Crate) -> Vec<u8> {
     let encode_parms = crate_ctxt_to_encode_parms(cx, encode_inlined_item);
     let metadata = encoder::encode_metadata(encode_parms, krate);
     let mut compressed = encoder::metadata_encoding_version.to_vec();
-    compressed.push_all(match flate::deflate_bytes(metadata.as_slice()) {
+    compressed.push_all(&match flate::deflate_bytes(&metadata) {
         Some(compressed) => compressed,
         None => cx.sess().fatal("failed to compress metadata"),
-    }.as_slice());
+    });
     let llmeta = C_bytes_in_context(cx.metadata_llcx(), &compressed[]);
     let llconst = C_struct_in_context(cx.metadata_llcx(), &[llmeta], false);
     let name = format!("rust_metadata_{}_{}",
@@ -3010,14 +3016,14 @@ fn internalize_symbols(cx: &SharedCrateContext, reachable: &HashSet<String>) {
     unsafe {
         let mut declared = HashSet::new();
 
-        let iter_globals = |&: llmod| {
+        let iter_globals = |llmod| {
             ValueIter {
                 cur: llvm::LLVMGetFirstGlobal(llmod),
                 step: llvm::LLVMGetNextGlobal,
             }
         };
 
-        let iter_functions = |&: llmod| {
+        let iter_functions = |llmod| {
             ValueIter {
                 cur: llvm::LLVMGetFirstFunction(llmod),
                 step: llvm::LLVMGetNextFunction,
@@ -3056,7 +3062,7 @@ fn internalize_symbols(cx: &SharedCrateContext, reachable: &HashSet<String>) {
                 let name = ffi::c_str_to_bytes(&llvm::LLVMGetValueName(val))
                                .to_vec();
                 if !declared.contains(&name) &&
-                   !reachable.contains(str::from_utf8(name.as_slice()).unwrap()) {
+                   !reachable.contains(str::from_utf8(&name).unwrap()) {
                     llvm::SetLinkage(val, llvm::InternalLinkage);
                 }
             }
@@ -3161,7 +3167,7 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
         stats.fn_stats.borrow_mut().sort_by(|&(_, insns_a), &(_, insns_b)| {
             insns_b.cmp(&insns_a)
         });
-        for tuple in stats.fn_stats.borrow().iter() {
+        for tuple in &*stats.fn_stats.borrow() {
             match *tuple {
                 (ref name, insns) => {
                     println!("{} insns, {}", insns, *name);
@@ -3170,7 +3176,7 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
         }
     }
     if shared_ccx.sess().count_llvm_insns() {
-        for (k, v) in shared_ccx.stats().llvm_insns.borrow().iter() {
+        for (k, v) in &*shared_ccx.stats().llvm_insns.borrow() {
             println!("{:7} {}", *v, *k);
         }
     }

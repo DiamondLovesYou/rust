@@ -24,7 +24,7 @@ struct RegistrarFinder {
 impl<'v> Visitor<'v> for RegistrarFinder {
     fn visit_item(&mut self, item: &ast::Item) {
         if let ast::ItemFn(..) = item.node {
-            if attr::contains_name(item.attrs.as_slice(),
+            if attr::contains_name(&item.attrs,
                                    "plugin_registrar") {
                 self.registrars.push((item.id, item.span));
             }
@@ -48,7 +48,7 @@ pub fn find_plugin_registrar(diagnostic: &diagnostic::SpanHandler,
         },
         _ => {
             diagnostic.handler().err("multiple plugin registration functions found");
-            for &(_, span) in finder.registrars.iter() {
+            for &(_, span) in &finder.registrars {
                 diagnostic.span_note(span, "one is here");
             }
             diagnostic.handler().abort_if_errors();

@@ -47,8 +47,8 @@ use std::thread::Thread;
 
 fn print_complements() {
     let all = [Blue, Red, Yellow];
-    for aa in all.iter() {
-        for bb in all.iter() {
+    for aa in &all {
+        for bb in &all {
             println!("{:?} + {:?} -> {:?}", *aa, *bb, transform(*aa, *bb));
         }
     }
@@ -80,9 +80,9 @@ struct CreatureInfo {
 
 fn show_color_list(set: Vec<Color>) -> String {
     let mut out = String::new();
-    for col in set.iter() {
+    for col in &set {
         out.push(' ');
-        out.push_str(format!("{:?}", col).as_slice());
+        out.push_str(&format!("{:?}", col));
     }
     out
 }
@@ -230,7 +230,7 @@ fn main() {
     let nn = if std::os::getenv("RUST_BENCH").is_some() {
         200000
     } else {
-        std::os::args().as_slice()
+        std::os::args()
                        .get(1)
                        .and_then(|arg| arg.parse().ok())
                        .unwrap_or(600u)

@@ -126,7 +126,7 @@ impl String {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn from_utf8(vec: Vec<u8>) -> Result<String, FromUtf8Error> {
-        match str::from_utf8(vec.as_slice()) {
+        match str::from_utf8(&vec) {
             Ok(..) => Ok(String { vec: vec }),
             Err(e) => Err(FromUtf8Error { bytes: vec, error: e })
         }
@@ -489,7 +489,7 @@ impl String {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn as_bytes<'a>(&'a self) -> &'a [u8] {
-        self.vec.as_slice()
+        &self.vec
     }
 
     /// Shortens a string to the specified length.
@@ -729,7 +729,7 @@ impl<'a> FromIterator<&'a str> for String {
 #[unstable(feature = "collections",
            reason = "waiting on Extend stabilization")]
 impl Extend<char> for String {
-    fn extend<I:Iterator<Item=char>>(&mut self, mut iterator: I) {
+    fn extend<I:Iterator<Item=char>>(&mut self, iterator: I) {
         let (lower_bound, _) = iterator.size_hint();
         self.reserve(lower_bound);
         for ch in iterator {
@@ -741,7 +741,7 @@ impl Extend<char> for String {
 #[unstable(feature = "collections",
            reason = "waiting on Extend stabilization")]
 impl<'a> Extend<&'a str> for String {
-    fn extend<I: Iterator<Item=&'a str>>(&mut self, mut iterator: I) {
+    fn extend<I: Iterator<Item=&'a str>>(&mut self, iterator: I) {
         // A guess that at least one byte per iterator element will be needed.
         let (lower_bound, _) = iterator.size_hint();
         self.reserve(lower_bound);
@@ -804,7 +804,7 @@ impl Str for String {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     fn as_slice<'a>(&'a self) -> &'a str {
-        unsafe { mem::transmute(self.vec.as_slice()) }
+        unsafe { mem::transmute(&*self.vec) }
     }
 }
 
@@ -877,22 +877,12 @@ impl ops::Index<ops::RangeFrom<uint>> for String {
         &self[][*index]
     }
 }
-#[cfg(stage0)]
-#[stable(feature = "rust1", since = "1.0.0")]
-impl ops::Index<ops::FullRange> for String {
-    type Output = str;
-    #[inline]
-    fn index(&self, _index: &ops::FullRange) -> &str {
-        unsafe { mem::transmute(self.vec.as_slice()) }
-    }
-}
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl ops::Index<ops::RangeFull> for String {
     type Output = str;
     #[inline]
     fn index(&self, _index: &ops::RangeFull) -> &str {
-        unsafe { mem::transmute(self.vec.as_slice()) }
+        unsafe { mem::transmute(&*self.vec) }
     }
 }
 
@@ -990,7 +980,7 @@ pub type CowString<'a> = Cow<'a, String, str>;
 impl<'a> Str for CowString<'a> {
     #[inline]
     fn as_slice<'b>(&'b self) -> &'b str {
-        (**self).as_slice()
+        &**self
     }
 }
 
@@ -1011,19 +1001,17 @@ mod tests {
     use str::Utf8Error;
     use core::iter::repeat;
     use super::{as_string, CowString};
-    #[cfg(stage0)]
-    use core::ops::FullRange;
 
     #[test]
     fn test_as_string() {
         let x = "foo";
-        assert_eq!(x, as_string(x).as_slice());
+        assert_eq!(x, &**as_string(x));
     }
 
     #[test]
     fn test_from_str() {
       let owned: Option<::std::string::String> = "string".parse().ok();
-      assert_eq!(owned.as_ref().map(|s| s.as_slice()), Some("string"));
+      assert_eq!(owned.as_ref().map(|s| &**s), Some("string"));
     }
 
     #[test]
@@ -1130,18 +1118,18 @@ mod tests {
              (String::from_str("\u{20000}"),
               vec![0xD840, 0xDC00])];
 
-        for p in pairs.iter() {
+        for p in &pairs {
             let (s, u) = (*p).clone();
             let s_as_utf16 = s.utf16_units().collect::<Vec<u16>>();
-            let u_as_string = String::from_utf16(u.as_slice()).unwrap();
+            let u_as_string = String::from_utf16(&u).unwrap();
 
-            assert!(::unicode::str::is_utf16(u.as_slice()));
+            assert!(::unicode::str::is_utf16(&u));
             assert_eq!(s_as_utf16, u);
 
             assert_eq!(u_as_string, s);
-            assert_eq!(String::from_utf16_lossy(u.as_slice()), s);
+            assert_eq!(String::from_utf16_lossy(&u), s);
 
-            assert_eq!(String::from_utf16(s_as_utf16.as_slice()).unwrap(), s);
+            assert_eq!(String::from_utf16(&s_as_utf16).unwrap(), s);
             assert_eq!(u_as_string.utf16_units().collect::<Vec<u16>>(), u);
         }
     }
@@ -1431,7 +1419,7 @@ mod tests {
     fn from_utf8_lossy_100_invalid(b: &mut Bencher) {
         let s = repeat(0xf5u8).take(100).collect::<Vec<_>>();
         b.iter(|| {
-            let _ = String::from_utf8_lossy(s.as_slice());
+            let _ = String::from_utf8_lossy(&s);
         });
     }
 

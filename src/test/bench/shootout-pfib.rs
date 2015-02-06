@@ -57,7 +57,7 @@ fn parse_opts(argv: Vec<String> ) -> Config {
     let argv = argv.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     let opt_args = &argv[1..argv.len()];
 
-    match getopts::getopts(opt_args, opts.as_slice()) {
+    match getopts::getopts(opt_args, &opts) {
       Ok(ref m) => {
           return Config {stress: m.opt_present("stress")}
       }
@@ -82,7 +82,7 @@ fn stress(num_tasks: int) {
             stress_task(i);
         }));
     }
-    for r in results.into_iter() {
+    for r in results {
         let _ = r.join();
     }
 }

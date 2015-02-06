@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,18 +8,24 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// This file was auto-generated using 'src/etc/generate-deriving-span-tests.py'
+use prelude::v1::*;
 
-extern crate rand;
+use libc::{self, HANDLE};
 
+pub struct Handle(HANDLE);
 
-struct Error;
+unsafe impl Send for Handle {}
+unsafe impl Sync for Handle {}
 
-#[derive(Rand)]
-enum Enum {
-   A {
-     x: Error //~ ERROR
-   }
+impl Handle {
+    pub fn new(handle: HANDLE) -> Handle {
+        Handle(handle)
+    }
 }
 
-fn main() {}
+impl Drop for Handle {
+    fn drop(&mut self) {
+        unsafe { let _ = libc::CloseHandle(self.0); }
+    }
+}
+

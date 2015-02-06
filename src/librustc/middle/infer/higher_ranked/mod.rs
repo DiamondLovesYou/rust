@@ -133,7 +133,7 @@ impl<'tcx,C> HigherRankedRelations<'tcx> for C
                     self.tcx(),
                     &result0,
                     |r, debruijn| generalize_region(self.infcx(), span, snapshot, debruijn,
-                                                    new_vars.as_slice(), &a_map, r));
+                                                    &new_vars, &a_map, r));
 
             debug!("lub({},{}) = {}",
                    a.repr(self.tcx()),
@@ -176,7 +176,7 @@ impl<'tcx,C> HigherRankedRelations<'tcx> for C
             // in both A and B.  Replace the variable with the "first"
             // bound region from A that we find it to be associated
             // with.
-            for (a_br, a_r) in a_map.iter() {
+            for (a_br, a_r) in a_map {
                 if tainted.iter().any(|x| x == a_r) {
                     debug!("generalize_region(r0={:?}): \
                             replacing with {:?}, tainted={:?}",
@@ -227,8 +227,8 @@ impl<'tcx,C> HigherRankedRelations<'tcx> for C
                     self.tcx(),
                     &result0,
                     |r, debruijn| generalize_region(self.infcx(), span, snapshot, debruijn,
-                                                    new_vars.as_slice(),
-                                                    &a_map, a_vars.as_slice(), b_vars.as_slice(),
+                                                    &new_vars,
+                                                    &a_map, &a_vars, &b_vars,
                                                     r));
 
             debug!("glb({},{}) = {}",
@@ -258,7 +258,7 @@ impl<'tcx,C> HigherRankedRelations<'tcx> for C
             let mut a_r = None;
             let mut b_r = None;
             let mut only_new_vars = true;
-            for r in tainted.iter() {
+            for r in &tainted {
                 if is_var_in_set(a_vars, *r) {
                     if a_r.is_some() {
                         return fresh_bound_variable(infcx, debruijn);
@@ -315,7 +315,7 @@ impl<'tcx,C> HigherRankedRelations<'tcx> for C
                       a_map: &FnvHashMap<ty::BoundRegion, ty::Region>,
                       r: ty::Region) -> ty::Region
         {
-            for (a_br, a_r) in a_map.iter() {
+            for (a_br, a_r) in a_map {
                 if *a_r == r {
                     return ty::ReLateBound(ty::DebruijnIndex::new(1), *a_br);
                 }
@@ -497,9 +497,9 @@ pub fn leak_check<'a,'tcx>(infcx: &InferCtxt<'a,'tcx>,
            skol_map.repr(infcx.tcx));
 
     let new_vars = infcx.region_vars_confined_to_snapshot(snapshot);
-    for (&skol_br, &skol) in skol_map.iter() {
+    for (&skol_br, &skol) in skol_map {
         let tainted = infcx.tainted_regions(snapshot, skol);
-        for &tainted_region in tainted.iter() {
+        for &tainted_region in &tainted {
             // Each skolemized should only be relatable to itself
             // or new variables:
             match tainted_region {

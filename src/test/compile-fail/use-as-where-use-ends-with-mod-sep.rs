@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,5 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(lang_items, overloaded_calls, unboxed_closures)]
-
-fn c<F:Fn(isize, isize) -> isize>(f: F) -> isize {
-    f(5, 6)
-}
-
-fn main() {
-    let z: isize = 7;
-    assert_eq!(c(|&mut: x: isize, y| x + y + z), 10);
-    //~^ ERROR not implemented
-    //~| ERROR not implemented
-}
-
+use std::any:: as foo; //~ ERROR expected identifier, found keyword `as`
+//~^ ERROR: expected one of `::`, `;`, or `as`, found `foo`

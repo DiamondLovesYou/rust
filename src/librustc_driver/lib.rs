@@ -26,6 +26,7 @@
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
+#![feature(env)]
 #![feature(int_uint)]
 #![feature(io)]
 #![feature(libc)]
@@ -74,7 +75,7 @@ use rustc::util::common::time;
 use std::cmp::Ordering::Equal;
 use std::old_io;
 use std::iter::repeat;
-use std::os;
+use std::env;
 use std::sync::mpsc::channel;
 use std::thread;
 
@@ -92,7 +93,7 @@ pub mod driver;
 pub mod pretty;
 
 pub fn run(args: Vec<String>) -> int {
-    monitor(move |:| run_compiler(args.as_slice()));
+    monitor(move || run_compiler(&args));
     0
 }
 
@@ -125,7 +126,7 @@ fn run_compiler(args: &[String]) {
     let odir = matches.opt_str("out-dir").map(|o| Path::new(o));
     let ofile = matches.opt_str("o").map(|o| Path::new(o));
     let (input, input_file_path) = match matches.free.len() {
-        0u => {
+        0 => {
             if sopts.describe_lints {
                 let mut ls = lint::LintStore::new();
                 ls.register_builtin(None);
@@ -138,7 +139,7 @@ fn run_compiler(args: &[String]) {
             }
             early_error("no input filename given");
         }
-        1u => {
+        1 => {
             let ifile = &matches.free[0][];
             if ifile == "-" {
                 let contents = old_io::stdin().read_to_end().unwrap();
@@ -164,7 +165,7 @@ fn run_compiler(args: &[String]) {
     let pretty = if sess.opts.debugging_opts.unstable_options {
         matches.opt_default("pretty", "normal").map(|a| {
             // stable pretty-print variants only
-            pretty::parse_pretty(&sess, a.as_slice(), false)
+            pretty::parse_pretty(&sess, &a, false)
         })
     } else {
         None
@@ -173,7 +174,7 @@ fn run_compiler(args: &[String]) {
         sess.unstable_options() {
             matches.opt_str("xpretty").map(|a| {
                 // extended with unstable pretty-print variants
-                pretty::parse_pretty(&sess, a.as_slice(), true)
+                pretty::parse_pretty(&sess, &a, true)
             })
         } else {
             pretty
@@ -252,7 +253,7 @@ pub fn get_unstable_features_setting() -> UnstableFeatures {
     // subverting the unstable features lints
     let bootstrap_secret_key = option_env!("CFG_BOOTSTRAP_KEY");
     // The matching key to the above, only known by the build system
-    let bootstrap_provided_key = os::getenv("RUSTC_BOOTSTRAP_KEY");
+    let bootstrap_provided_key = env::var_string("RUSTC_BOOTSTRAP_KEY").ok();
     match (disable_unstable_features, bootstrap_secret_key, bootstrap_provided_key) {
         (_, Some(ref s), Some(ref p)) if s == p => UnstableFeatures::Cheat,
         (true, _, _) => UnstableFeatures::Disallow,
@@ -312,7 +313,7 @@ Additional help:
     -C help             Print codegen options
     -W help             Print 'lint' options and default settings
     -Z help             Print internal options for debugging rustc{}\n",
-              getopts::usage(message.as_slice(), groups.as_slice()),
+              getopts::usage(&message, &groups),
               extra_help);
 }
 
@@ -361,7 +362,7 @@ Available lint options:
     let max_name_len = plugin.iter().chain(builtin.iter())
         .map(|&s| s.name.width(true))
         .max().unwrap_or(0);
-    let padded = |&: x: &str| {
+    let padded = |x: &str| {
         let mut s = repeat(" ").take(max_name_len - x.chars().count())
                                .collect::<String>();
         s.push_str(x);
@@ -372,8 +373,8 @@ Available lint options:
     println!("    {}  {:7.7}  {}", padded("name"), "default", "meaning");
     println!("    {}  {:7.7}  {}", padded("----"), "-------", "-------");
 
-    let print_lints = |&: lints: Vec<&Lint>| {
-        for lint in lints.into_iter() {
+    let print_lints = |lints: Vec<&Lint>| {
+        for lint in lints {
             let name = lint.name_lower().replace("_", "-");
             println!("    {}  {:7.7}  {}",
                      padded(&name[]), lint.default_level.as_str(), lint.desc);
@@ -388,7 +389,7 @@ Available lint options:
     let max_name_len = plugin_groups.iter().chain(builtin_groups.iter())
         .map(|&(s, _)| s.width(true))
         .max().unwrap_or(0);
-    let padded = |&: x: &str| {
+    let padded = |x: &str| {
         let mut s = repeat(" ").take(max_name_len - x.chars().count())
                                .collect::<String>();
         s.push_str(x);
@@ -399,8 +400,8 @@ Available lint options:
     println!("    {}  {}", padded("name"), "sub-lints");
     println!("    {}  {}", padded("----"), "---------");
 
-    let print_lint_groups = |&: lints: Vec<(&'static str, Vec<lint::LintId>)>| {
-        for (name, to) in lints.into_iter() {
+    let print_lint_groups = |lints: Vec<(&'static str, Vec<lint::LintId>)>| {
+        for (name, to) in lints {
             let name = name.chars().map(|x| x.to_lowercase())
                            .collect::<String>().replace("_", "-");
             let desc = to.into_iter().map(|x| x.as_str().replace("_", "-"))
@@ -435,7 +436,7 @@ Available lint options:
 
 fn describe_debug_flags() {
     println!("\nAvailable debug options:\n");
-    for &(name, _, opt_type_desc, desc) in config::DB_OPTIONS.iter() {
+    for &(name, _, opt_type_desc, desc) in config::DB_OPTIONS {
         let (width, extra) = match opt_type_desc {
             Some(..) => (21, "=val"),
             None => (25, "")
@@ -447,7 +448,7 @@ fn describe_debug_flags() {
 
 fn describe_codegen_flags() {
     println!("\nAvailable codegen options:\n");
-    for &(name, _, opt_type_desc, desc) in config::CG_OPTIONS.iter() {
+    for &(name, _, opt_type_desc, desc) in config::CG_OPTIONS {
         let (width, extra) = match opt_type_desc {
             Some(..) => (21, "=val"),
             None => (25, "")
@@ -480,20 +481,20 @@ pub fn handle_options(mut args: Vec<String>) -> Option<getopts::Matches> {
                 // unstable ones.
                 let all_groups : Vec<getopts::OptGroup>
                     = config::rustc_optgroups().into_iter().map(|x|x.opt_group).collect();
-                match getopts::getopts(args.as_slice(), all_groups.as_slice()) {
+                match getopts::getopts(&args, &all_groups) {
                     Ok(m_unstable) => {
                         let r = m_unstable.opt_strs("Z");
                         let include_unstable_options = r.iter().any(|x| *x == "unstable-options");
                         if include_unstable_options {
                             m_unstable
                         } else {
-                            early_error(f_stable_attempt.to_string().as_slice());
+                            early_error(&f_stable_attempt.to_string());
                         }
                     }
                     Err(_) => {
                         // ignore the error from the unstable attempt; just
                         // pass the error we got from the first try.
-                        early_error(f_stable_attempt.to_string().as_slice());
+                        early_error(&f_stable_attempt.to_string());
                     }
                 }
             }
@@ -542,7 +543,7 @@ fn print_crate_info(sess: &Session,
     if sess.opts.prints.len() == 0 { return false }
 
     let attrs = input.map(|input| parse_crate_attrs(sess, input));
-    for req in sess.opts.prints.iter() {
+    for req in &sess.opts.prints {
         match *req {
             PrintRequest::Sysroot => println!("{}", sess.sysroot().display()),
             PrintRequest::FileNames |
@@ -551,13 +552,13 @@ fn print_crate_info(sess: &Session,
                     Some(input) => input,
                     None => early_error("no input file provided"),
                 };
-                let attrs = attrs.as_ref().unwrap().as_slice();
+                let attrs = attrs.as_ref().unwrap();
                 let t_outputs = driver::build_output_filenames(input,
                                                                odir,
                                                                ofile,
                                                                attrs,
                                                                sess);
-                let id = link::find_crate_name(Some(sess), attrs.as_slice(),
+                let id = link::find_crate_name(Some(sess), attrs,
                                                input);
                 if *req == PrintRequest::CrateName {
                     println!("{}", id);
@@ -566,9 +567,9 @@ fn print_crate_info(sess: &Session,
                 let crate_types = driver::collect_crate_types(sess, attrs);
                 let metadata = driver::collect_crate_metadata(sess, attrs);
                 *sess.crate_metadata.borrow_mut() = metadata;
-                for &style in crate_types.iter() {
+                for &style in &crate_types {
                     let fname = link::filename_for_input(sess, style,
-                                                         id.as_slice(),
+                                                         &id,
                                                          &t_outputs.with_extension(""));
                     println!("{}", fname.filename_display());
                 }
@@ -618,7 +619,7 @@ pub fn monitor<F:FnOnce()+Send>(f: F) {
 
     // FIXME: Hacks on hacks. If the env is trying to override the stack size
     // then *don't* set it explicitly.
-    if os::getenv("RUST_MIN_STACK").is_none() {
+    if env::var("RUST_MIN_STACK").is_none() {
         cfg = cfg.stack_size(STACK_SIZE);
     }
 
@@ -645,7 +646,7 @@ pub fn monitor<F:FnOnce()+Send>(f: F) {
                             BUG_REPORT_URL),
                     "run with `RUST_BACKTRACE=1` for a backtrace".to_string(),
                 ];
-                for note in xs.iter() {
+                for note in &xs {
                     emitter.emit(None, &note[], None, diagnostic::Note)
                 }
 
@@ -682,8 +683,8 @@ pub fn diagnostics_registry() -> diagnostics::registry::Registry {
 }
 
 pub fn main() {
-    let args = std::os::args();
-    let result = run(args);
-    std::os::set_exit_status(result);
+    let args = env::args().map(|s| s.into_string().unwrap());
+    let result = run(args.collect());
+    std::env::set_exit_status(result as i32);
 }
 

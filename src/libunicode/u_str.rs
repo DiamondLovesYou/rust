@@ -32,7 +32,7 @@ use tables::grapheme::GraphemeCat;
 /// An iterator over the words of a string, separated by a sequence of whitespace
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Words<'a> {
-    inner: Filter<&'a str, Split<'a, fn(char) -> bool>, fn(&&str) -> bool>,
+    inner: Filter<Split<'a, fn(char) -> bool>, fn(&&str) -> bool>,
 }
 
 /// Methods for Unicode string slices
@@ -89,12 +89,12 @@ impl UnicodeStr for str {
 
     #[inline]
     fn trim_left(&self) -> &str {
-        self.trim_left_matches(|&: c: char| c.is_whitespace())
+        self.trim_left_matches(|c: char| c.is_whitespace())
     }
 
     #[inline]
     fn trim_right(&self) -> &str {
-        self.trim_right_matches(|&: c: char| c.is_whitespace())
+        self.trim_right_matches(|c: char| c.is_whitespace())
     }
 }
 
@@ -153,7 +153,7 @@ impl<'a> Iterator for Graphemes<'a> {
     #[inline]
     fn size_hint(&self) -> (uint, Option<uint>) {
         let slen = self.string.len();
-        (cmp::min(slen, 1u), Some(slen))
+        (cmp::min(slen, 1), Some(slen))
     }
 
     #[inline]
@@ -527,7 +527,7 @@ impl<I> Iterator for Utf16Encoder<I> where I: Iterator<Item=char> {
 
         let mut buf = [0u16; 2];
         self.chars.next().map(|ch| {
-            let n = CharExt::encode_utf16(ch, buf.as_mut_slice()).unwrap_or(0);
+            let n = CharExt::encode_utf16(ch, &mut buf).unwrap_or(0);
             if n == 2 { self.extra = buf[1]; }
             buf[0]
         })

@@ -872,7 +872,7 @@ macro_rules! sty_debug_print {
                 $(let mut $variant = total;)*
 
 
-                for (_, t) in tcx.interner.borrow().iter() {
+                for (_, t) in &*tcx.interner.borrow() {
                     let variant = match t.sty {
                         ty::ty_bool | ty::ty_char | ty::ty_int(..) | ty::ty_uint(..) |
                             ty::ty_float(..) | ty::ty_str => continue,
@@ -2579,7 +2579,7 @@ impl FlagComputation {
             &ty_trait(box TyTrait { ref principal, ref bounds }) => {
                 let mut computation = FlagComputation::new();
                 computation.add_substs(principal.0.substs);
-                for projection_bound in bounds.projection_bounds.iter() {
+                for projection_bound in &bounds.projection_bounds {
                     let mut proj_computation = FlagComputation::new();
                     proj_computation.add_projection_predicate(&projection_bound.0);
                     computation.add_bound_computation(&proj_computation);
@@ -2618,7 +2618,7 @@ impl FlagComputation {
     }
 
     fn add_tys(&mut self, tys: &[Ty]) {
-        for &ty in tys.iter() {
+        for &ty in tys {
             self.add_ty(ty);
         }
     }
@@ -2793,7 +2793,7 @@ pub fn mk_trait<'tcx>(cx: &ctxt<'tcx>,
                       bounds: ExistentialBounds<'tcx>)
                       -> Ty<'tcx>
 {
-    assert!(bound_list_is_sorted(bounds.projection_bounds.as_slice()));
+    assert!(bound_list_is_sorted(&bounds.projection_bounds));
 
     let inner = box TyTrait {
         principal: principal,
@@ -3099,10 +3099,7 @@ pub fn type_is_unsafe_ptr(ty: Ty) -> bool {
 
 pub fn type_is_unique(ty: Ty) -> bool {
     match ty.sty {
-        ty_uniq(_) => match ty.sty {
-            ty_trait(..) => false,
-            _ => true
-        },
+        ty_uniq(_) => true,
         _ => false
     }
 }
@@ -3409,8 +3406,8 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
                 // FIXME(#14449): `borrowed_contents` below assumes `&mut` closure.
                 let param_env = ty::empty_parameter_environment(cx);
                 let upvars = closure_upvars(&param_env, did, substs).unwrap();
-                TypeContents::union(upvars.as_slice(),
-                                    |f| tc_ty(cx, f.ty, cache))
+                TypeContents::union(&upvars,
+                                    |f| tc_ty(cx, &f.ty, cache))
                     | borrowed_contents(*r, MutMutable)
             }
 
@@ -3530,7 +3527,7 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
         // make no assumptions (other than that it cannot have an
         // in-scope type parameter within, which makes no sense).
         let mut tc = TC::All - TC::InteriorParam;
-        for bound in bounds.builtin_bounds.iter() {
+        for bound in &bounds.builtin_bounds {
             tc = tc - match bound {
                 BoundSync | BoundSend | BoundCopy => TC::None,
                 BoundSized => TC::Nonsized,
@@ -3675,8 +3672,7 @@ pub fn is_instantiable<'tcx>(cx: &ctxt<'tcx>, r_ty: Ty<'tcx>) -> bool {
             ty_closure(..) => {
                 // this check is run on type definitions, so we don't expect to see
                 // inference by-products or closure types
-                cx.sess.bug(format!("requires check invoked on inapplicable type: {:?}",
-                                    ty).as_slice())
+                cx.sess.bug(&format!("requires check invoked on inapplicable type: {:?}", ty))
             }
 
             ty_tup(ref ts) => {
@@ -3769,8 +3765,7 @@ pub fn is_type_representable<'tcx>(cx: &ctxt<'tcx>, sp: Span, ty: Ty<'tcx>)
             ty_closure(..) => {
                 // this check is run on type definitions, so we don't expect
                 // to see closure types
-                cx.sess.bug(format!("requires check invoked on inapplicable type: {:?}",
-                                    ty).as_slice())
+                cx.sess.bug(&format!("requires check invoked on inapplicable type: {:?}", ty))
             }
             _ => Representable,
         }
@@ -4644,7 +4639,7 @@ pub fn stmt_node_id(s: &ast::Stmt) -> ast::NodeId {
 pub fn field_idx_strict(tcx: &ctxt, name: ast::Name, fields: &[field])
                      -> uint {
     let mut i = 0;
-    for f in fields.iter() { if f.name == name { return i; } i += 1; }
+    for f in fields { if f.name == name { return i; } i += 1; }
     tcx.sess.bug(&format!(
         "no field named `{}` found in the list of fields `{:?}`",
         token::get_name(name),
@@ -5468,25 +5463,25 @@ pub fn predicates<'tcx>(
 {
     let mut vec = Vec::new();
 
-    for builtin_bound in bounds.builtin_bounds.iter() {
+    for builtin_bound in &bounds.builtin_bounds {
         match traits::trait_ref_for_builtin_bound(tcx, builtin_bound, param_ty) {
             Ok(trait_ref) => { vec.push(trait_ref.as_predicate()); }
             Err(ErrorReported) => { }
         }
     }
 
-    for &region_bound in bounds.region_bounds.iter() {
+    for &region_bound in &bounds.region_bounds {
         // account for the binder being introduced below; no need to shift `param_ty`
         // because, at present at least, it can only refer to early-bound regions
         let region_bound = ty_fold::shift_region(region_bound, 1);
         vec.push(ty::Binder(ty::OutlivesPredicate(param_ty, region_bound)).as_predicate());
     }
 
-    for bound_trait_ref in bounds.trait_bounds.iter() {
+    for bound_trait_ref in &bounds.trait_bounds {
         vec.push(bound_trait_ref.as_predicate());
     }
 
-    for projection in bounds.projection_bounds.iter() {
+    for projection in &bounds.projection_bounds {
         vec.push(projection.as_predicate());
     }
 
@@ -5931,17 +5926,17 @@ pub fn populate_implementations_for_type_if_necessary(tcx: &ctxt,
 
         // Record the trait->implementation mappings, if applicable.
         let associated_traits = csearch::get_impl_trait(tcx, impl_def_id);
-        for trait_ref in associated_traits.iter() {
+        if let Some(ref trait_ref) = associated_traits {
             record_trait_implementation(tcx, trait_ref.def_id, impl_def_id);
         }
 
         // For any methods that use a default implementation, add them to
         // the map. This is a bit unfortunate.
-        for impl_item_def_id in impl_items.iter() {
+        for impl_item_def_id in &impl_items {
             let method_def_id = impl_item_def_id.def_id();
             match impl_or_trait_item(tcx, method_def_id) {
                 MethodTraitItem(method) => {
-                    for &source in method.provided_source.iter() {
+                    if let Some(source) = method.provided_source {
                         tcx.provided_method_sources
                            .borrow_mut()
                            .insert(method_def_id, source);
@@ -5985,11 +5980,11 @@ pub fn populate_implementations_for_trait_if_necessary(
 
         // For any methods that use a default implementation, add them to
         // the map. This is a bit unfortunate.
-        for impl_item_def_id in impl_items.iter() {
+        for impl_item_def_id in &impl_items {
             let method_def_id = impl_item_def_id.def_id();
             match impl_or_trait_item(tcx, method_def_id) {
                 MethodTraitItem(method) => {
-                    for &source in method.provided_source.iter() {
+                    if let Some(source) = method.provided_source {
                         tcx.provided_method_sources
                            .borrow_mut()
                            .insert(method_def_id, source);
@@ -6090,7 +6085,7 @@ pub fn hash_crate_independent<'tcx>(tcx: &ctxt<'tcx>, ty: Ty<'tcx>, svh: &Svh) -
         macro_rules! byte { ($b:expr) => { ($b as u8).hash(state) } }
         macro_rules! hash { ($e:expr) => { $e.hash(state) }  }
 
-        let region = |&: state: &mut SipHasher, r: Region| {
+        let region = |state: &mut SipHasher, r: Region| {
             match r {
                 ReStatic => {}
                 ReLateBound(db, BrAnon(i)) => {
@@ -6107,7 +6102,7 @@ pub fn hash_crate_independent<'tcx>(tcx: &ctxt<'tcx>, ty: Ty<'tcx>, svh: &Svh) -
                 }
             }
         };
-        let did = |&: state: &mut SipHasher, did: DefId| {
+        let did = |state: &mut SipHasher, did: DefId| {
             let h = if ast_util::is_local(did) {
                 svh.clone()
             } else {
@@ -6116,12 +6111,12 @@ pub fn hash_crate_independent<'tcx>(tcx: &ctxt<'tcx>, ty: Ty<'tcx>, svh: &Svh) -
             h.as_str().hash(state);
             did.node.hash(state);
         };
-        let mt = |&: state: &mut SipHasher, mt: mt| {
+        let mt = |state: &mut SipHasher, mt: mt| {
             mt.mutbl.hash(state);
         };
-        let fn_sig = |&: state: &mut SipHasher, sig: &Binder<FnSig<'tcx>>| {
+        let fn_sig = |state: &mut SipHasher, sig: &Binder<FnSig<'tcx>>| {
             let sig = anonymize_late_bound_regions(tcx, sig).0;
-            for a in sig.inputs.iter() { helper(tcx, *a, svh, state); }
+            for a in &sig.inputs { helper(tcx, *a, svh, state); }
             if let ty::FnConverging(output) = sig.output {
                 helper(tcx, output, svh, state);
             }
@@ -6270,7 +6265,7 @@ pub fn construct_free_substs<'a,'tcx>(
                           free_id: ast::NodeId,
                           region_params: &[RegionParameterDef])
     {
-        for r in region_params.iter() {
+        for r in region_params {
             regions.push(r.space, ty::free_region_from_def(free_id, r));
         }
     }
@@ -6278,7 +6273,7 @@ pub fn construct_free_substs<'a,'tcx>(
     fn push_types_from_defs<'tcx>(tcx: &ty::ctxt<'tcx>,
                                   types: &mut VecPerParamSpace<Ty<'tcx>>,
                                   defs: &[TypeParameterDef<'tcx>]) {
-        for def in defs.iter() {
+        for def in defs {
             debug!("construct_parameter_environment(): push_types_from_defs: def={:?}",
                    def.repr(tcx));
             let ty = ty::mk_param_from_def(tcx, def);
@@ -6351,7 +6346,7 @@ pub fn construct_parameter_environment<'a,'tcx>(
     fn record_region_bounds<'tcx>(tcx: &ty::ctxt<'tcx>, predicates: &[ty::Predicate<'tcx>]) {
         debug!("record_region_bounds(predicates={:?})", predicates.repr(tcx));
 
-        for predicate in predicates.iter() {
+        for predicate in predicates {
             match *predicate {
                 Predicate::Projection(..) |
                 Predicate::Trait(..) |
@@ -6368,9 +6363,9 @@ pub fn construct_parameter_environment<'a,'tcx>(
                         _ => {
                             // All named regions are instantiated with free regions.
                             tcx.sess.bug(
-                                format!("record_region_bounds: non free region: {} / {}",
-                                        r_a.repr(tcx),
-                                        r_b.repr(tcx)).as_slice());
+                                &format!("record_region_bounds: non free region: {} / {}",
+                                         r_a.repr(tcx),
+                                         r_b.repr(tcx)));
                         }
                     }
                 }
@@ -6870,7 +6865,7 @@ pub fn can_type_implement_copy<'a,'tcx>(param_env: &ParameterEnvironment<'a, 'tc
     let did = match self_type.sty {
         ty::ty_struct(struct_did, substs) => {
             let fields = ty::struct_fields(tcx, struct_did, substs);
-            for field in fields.iter() {
+            for field in &fields {
                 if type_moves_by_default(param_env, span, field.mt.ty) {
                     return Err(FieldDoesNotImplementCopy(field.name))
                 }
@@ -6879,8 +6874,8 @@ pub fn can_type_implement_copy<'a,'tcx>(param_env: &ParameterEnvironment<'a, 'tc
         }
         ty::ty_enum(enum_did, substs) => {
             let enum_variants = ty::enum_variants(tcx, enum_did);
-            for variant in enum_variants.iter() {
-                for variant_arg_type in variant.args.iter() {
+            for variant in &*enum_variants {
+                for variant_arg_type in &variant.args {
                     let substd_arg_type =
                         variant_arg_type.subst(tcx, substs);
                     if type_moves_by_default(param_env, span, substd_arg_type) {

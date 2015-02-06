@@ -283,9 +283,9 @@ fn main() {
     let fixed_size_vec2 = ([0u, 1u, 2u], 0i16);
 
     let vec1 = vec![0u, 2u, 3u];
-    let slice1 = vec1.as_slice();
+    let slice1 = &*vec1;
     let vec2 = vec![Mod1::Variant2_2(Struct1)];
-    let slice2 = vec2.as_slice();
+    let slice2 = &*vec2;
 
     // Trait Objects
     let box_trait = (box 0) as Box<Trait1>;
@@ -322,8 +322,8 @@ fn main() {
     // how that maps to rustc's internal representation of these forms.
     // Once closures have reached their 1.0 form, the tests below should
     // probably be expanded.
-    let closure1 = (|&: x:isize| {}, 0u);
-    let closure2 = (|&: x:i8, y: f32| { (x as f32) + y }, 0u);
+    let closure1 = (|x:isize| {}, 0u);
+    let closure2 = (|x:i8, y: f32| { (x as f32) + y }, 0u);
 
     zzz(); // #break
 }

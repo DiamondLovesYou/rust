@@ -80,37 +80,23 @@ pub fn poly_project_and_unify_type<'cx,'tcx>(
            obligation.repr(selcx.tcx()));
 
     let infcx = selcx.infcx();
-    let result = infcx.try(|snapshot| {
+    infcx.try(|snapshot| {
         let (skol_predicate, skol_map) =
             infcx.skolemize_late_bound_regions(&obligation.predicate, snapshot);
 
         let skol_obligation = obligation.with(skol_predicate);
         match project_and_unify_type(selcx, &skol_obligation) {
-            Ok(Some(obligations)) => {
+            Ok(result) => {
                 match infcx.leak_check(&skol_map, snapshot) {
-                    Ok(()) => Ok(infcx.plug_leaks(skol_map, snapshot, &obligations)),
-                    Err(e) => Err(Some(MismatchedProjectionTypes { err: e })),
+                    Ok(()) => Ok(infcx.plug_leaks(skol_map, snapshot, &result)),
+                    Err(e) => Err(MismatchedProjectionTypes { err: e }),
                 }
             }
-            Ok(None) => {
-                // Signal ambiguity using Err just so that infcx.try()
-                // rolls back the snapshot. We adapt below.
-                Err(None)
-            }
             Err(e) => {
-                Err(Some(e))
+                Err(e)
             }
         }
-    });
-
-    // Above, we use Err(None) to signal ambiguity so that the
-    // snapshot will be rolled back. But here, we want to translate to
-    // Ok(None). Kind of weird.
-    match result {
-        Ok(obligations) => Ok(Some(obligations)),
-        Err(None) => Ok(None),
-        Err(Some(e)) => Err(e),
-    }
+    })
 }
 
 /// Evaluates constraints of the form:
@@ -132,7 +118,10 @@ fn project_and_unify_type<'cx,'tcx>(
                                             obligation.cause.clone(),
                                             obligation.recursion_depth) {
             Some(n) => n,
-            None => { return Ok(None); }
+            None => {
+                consider_unification_despite_ambiguity(selcx, obligation);
+                return Ok(None);
+            }
         };
 
     debug!("project_and_unify_type: normalized_ty={} obligations={}",
@@ -144,6 +133,50 @@ fn project_and_unify_type<'cx,'tcx>(
     match infer::mk_eqty(infcx, true, origin, normalized_ty, obligation.predicate.ty) {
         Ok(()) => Ok(Some(obligations)),
         Err(err) => Err(MismatchedProjectionTypes { err: err }),
+    }
+}
+
+fn consider_unification_despite_ambiguity<'cx,'tcx>(selcx: &mut SelectionContext<'cx,'tcx>,
+                                                    obligation: &ProjectionObligation<'tcx>) {
+    debug!("consider_unification_despite_ambiguity(obligation={})",
+           obligation.repr(selcx.tcx()));
+
+    let def_id = obligation.predicate.projection_ty.trait_ref.def_id;
+    match selcx.tcx().lang_items.fn_trait_kind(def_id) {
+        Some(_) => { }
+        None => { return; }
+    }
+
+    let infcx = selcx.infcx();
+    let self_ty = obligation.predicate.projection_ty.trait_ref.self_ty();
+    let self_ty = infcx.shallow_resolve(self_ty);
+    debug!("consider_unification_despite_ambiguity: self_ty.sty={:?}",
+           self_ty.sty);
+    match self_ty.sty {
+        ty::ty_closure(closure_def_id, _, substs) => {
+            let closure_typer = selcx.closure_typer();
+            let closure_type = closure_typer.closure_type(closure_def_id, substs);
+            let ty::Binder((_, ret_type)) =
+                util::closure_trait_ref_and_return_type(infcx.tcx,
+                                                        def_id,
+                                                        self_ty,
+                                                        &closure_type.sig,
+                                                        util::TupleArgumentsFlag::No);
+            let (ret_type, _) =
+                infcx.replace_late_bound_regions_with_fresh_var(
+                    obligation.cause.span,
+                    infer::AssocTypeProjection(obligation.predicate.projection_ty.item_name),
+                    &ty::Binder(ret_type));
+            debug!("consider_unification_despite_ambiguity: ret_type={:?}",
+                   ret_type.repr(selcx.tcx()));
+            let origin = infer::RelateOutputImplTypes(obligation.cause.span);
+            let obligation_ty = obligation.predicate.ty;
+            match infer::mk_eqty(infcx, true, origin, obligation_ty, ret_type) {
+                Ok(()) => { }
+                Err(_) => { /* ignore errors */ }
+            }
+        }
+        _ => { }
     }
 }
 
@@ -572,8 +605,8 @@ fn assemble_candidates_from_object_type<'cx,'tcx>(
         _ => {
             selcx.tcx().sess.span_bug(
                 obligation.cause.span,
-                format!("assemble_candidates_from_object_type called with non-object: {}",
-                        object_ty.repr(selcx.tcx())).as_slice());
+                &format!("assemble_candidates_from_object_type called with non-object: {}",
+                         object_ty.repr(selcx.tcx())));
         }
     };
     let projection_bounds = data.projection_bounds_with_self_ty(selcx.tcx(), object_ty);
@@ -660,8 +693,8 @@ fn assemble_candidates_from_impls<'cx,'tcx>(
             // These traits have no associated types.
             selcx.tcx().sess.span_bug(
                 obligation.cause.span,
-                format!("Cannot project an associated type from `{}`",
-                        vtable.repr(selcx.tcx())).as_slice());
+                &format!("Cannot project an associated type from `{}`",
+                         vtable.repr(selcx.tcx())));
         }
     }
 
@@ -780,10 +813,10 @@ fn confirm_param_env_candidate<'cx,'tcx>(
         Err(e) => {
             selcx.tcx().sess.span_bug(
                 obligation.cause.span,
-                format!("Failed to unify `{}` and `{}` in projection: {}",
-                        obligation.repr(selcx.tcx()),
-                        projection.repr(selcx.tcx()),
-                        ty::type_err_to_str(selcx.tcx(), &e)).as_slice());
+                &format!("Failed to unify `{}` and `{}` in projection: {}",
+                         obligation.repr(selcx.tcx()),
+                         projection.repr(selcx.tcx()),
+                         ty::type_err_to_str(selcx.tcx(), &e)));
         }
     }
 
@@ -802,7 +835,7 @@ fn confirm_impl_candidate<'cx,'tcx>(
 
     let impl_items = &impl_items_map[impl_vtable.impl_def_id];
     let mut impl_ty = None;
-    for impl_item in impl_items.iter() {
+    for impl_item in impl_items {
         let assoc_type = match impl_or_trait_items_map[impl_item.def_id()] {
             ty::TypeTraitItem(ref assoc_type) => assoc_type.clone(),
             ty::MethodTraitItem(..) => { continue; }

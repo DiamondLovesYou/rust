@@ -233,9 +233,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
     //    is `Vec<Foo>:Iterable<Bar>`, but the impl specifies
     //    `impl<T> Iterable<T> for Vec<T>`, than an error would result.
 
-    /// Evaluates whether the obligation can be satisfied. Returns an indication of whether the
-    /// obligation can be satisfied and, if so, by what means. Never affects surrounding typing
-    /// environment.
+    /// Attempts to satisfy the obligation. If successful, this will affect the surrounding
+    /// type environment by performing unification.
     pub fn select(&mut self, obligation: &TraitObligation<'tcx>)
                   -> SelectionResult<'tcx, Selection<'tcx>> {
         debug!("select({})", obligation.repr(self.tcx()));
@@ -243,8 +242,65 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
         let stack = self.push_stack(None, obligation);
         match try!(self.candidate_from_obligation(&stack)) {
-            None => Ok(None),
+            None => {
+                self.consider_unification_despite_ambiguity(obligation);
+                Ok(None)
+            }
             Some(candidate) => Ok(Some(try!(self.confirm_candidate(obligation, candidate)))),
+        }
+    }
+
+    /// In the particular case of unboxed closure obligations, we can
+    /// sometimes do some amount of unification for the
+    /// argument/return types even though we can't yet fully match obligation.
+    /// The particular case we are interesting in is an obligation of the form:
+    ///
+    ///    C : FnFoo<A>
+    ///
+    /// where `C` is an unboxed closure type and `FnFoo` is one of the
+    /// `Fn` traits. Because we know that users cannot write impls for closure types
+    /// themselves, the only way that `C : FnFoo` can fail to match is under two
+    /// conditions:
+    ///
+    /// 1. The closure kind for `C` is not yet known, because inference isn't complete.
+    /// 2. The closure kind for `C` *is* known, but doesn't match what is needed.
+    ///    For example, `C` may be a `FnOnce` closure, but a `Fn` closure is needed.
+    ///
+    /// In either case, we always know what argument types are
+    /// expected by `C`, no matter what kind of `Fn` trait it
+    /// eventually matches. So we can go ahead and unify the argument
+    /// types, even though the end result is ambiguous.
+    ///
+    /// Note that this is safe *even if* the trait would never be
+    /// matched (case 2 above). After all, in that case, an error will
+    /// result, so it kind of doesn't matter what we do --- unifying
+    /// the argument types can only be helpful to the user, because
+    /// once they patch up the kind of closure that is expected, the
+    /// argment types won't really change.
+    fn consider_unification_despite_ambiguity(&mut self, obligation: &TraitObligation<'tcx>) {
+        // Is this a `C : FnFoo(...)` trait reference for some trait binding `FnFoo`?
+        match self.tcx().lang_items.fn_trait_kind(obligation.predicate.0.def_id()) {
+            Some(_) => { }
+            None => { return; }
+        }
+
+        // Is the self-type a closure type? We ignore bindings here
+        // because if it is a closure type, it must be a closure type from
+        // within this current fn, and hence none of the higher-ranked
+        // lifetimes can appear inside the self-type.
+        let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
+        let (closure_def_id, substs) = match self_ty.sty {
+            ty::ty_closure(id, _, ref substs) => (id, substs.clone()),
+            _ => { return; }
+        };
+        assert!(!substs.has_escaping_regions());
+
+        let closure_trait_ref = self.closure_trait_ref(obligation, closure_def_id, substs);
+        match self.confirm_poly_trait_refs(obligation.cause.clone(),
+                                           obligation.predicate.to_poly_trait_ref(),
+                                           closure_trait_ref) {
+            Ok(()) => { }
+            Err(_) => { /* Silently ignore errors. */ }
         }
     }
 
@@ -295,7 +351,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
     fn evaluate_predicates_recursively<'a,'o,I>(&mut self,
                                                 stack: Option<&TraitObligationStack<'o, 'tcx>>,
-                                                mut predicates: I)
+                                                predicates: I)
                                                 -> EvaluationResult<'tcx>
         where I : Iterator<Item=&'a PredicateObligation<'tcx>>, 'tcx:'a
     {
@@ -877,9 +933,9 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             _ => {
                 self.tcx().sess.span_bug(
                     obligation.cause.span,
-                    format!("match_projection_obligation_against_bounds_from_trait() called \
-                             but self-ty not a projection: {}",
-                            skol_trait_predicate.trait_ref.self_ty().repr(self.tcx())).as_slice());
+                    &format!("match_projection_obligation_against_bounds_from_trait() called \
+                              but self-ty not a projection: {}",
+                             skol_trait_predicate.trait_ref.self_ty().repr(self.tcx())));
             }
         };
         debug!("match_projection_obligation_against_bounds_from_trait: \
@@ -1003,7 +1059,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                                    candidates: &mut SelectionCandidateSet<'tcx>)
                                    -> Result<(),SelectionError<'tcx>>
     {
-        let kind = match self.fn_family_trait_kind(obligation.predicate.0.def_id()) {
+        let kind = match self.tcx().lang_items.fn_trait_kind(obligation.predicate.0.def_id()) {
             Some(k) => k,
             None => { return Ok(()); }
         };
@@ -1089,7 +1145,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         debug!("assemble_candidates_from_impls(self_ty={})", self_ty.repr(self.tcx()));
 
         let all_impls = self.all_impls(obligation.predicate.def_id());
-        for &impl_def_id in all_impls.iter() {
+        for &impl_def_id in &all_impls {
             self.infcx.probe(|snapshot| {
                 let (skol_obligation_trait_pred, skol_map) =
                     self.infcx().skolemize_late_bound_regions(&obligation.predicate, snapshot);
@@ -1731,9 +1787,9 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             Ok(obligations) => obligations,
             Err(()) => {
                 self.tcx().sess.bug(
-                    format!("Where clause `{}` was applicable to `{}` but now is not",
-                            param.repr(self.tcx()),
-                            obligation.repr(self.tcx())).as_slice());
+                    &format!("Where clause `{}` was applicable to `{}` but now is not",
+                             param.repr(self.tcx()),
+                             obligation.repr(self.tcx())));
             }
         }
     }
@@ -1897,9 +1953,9 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             Some(r) => r,
             None => {
                 self.tcx().sess.span_bug(obligation.cause.span,
-                                         format!("unable to upcast from {} to {}",
-                                                 poly_trait_ref.repr(self.tcx()),
-                                                 obligation_def_id.repr(self.tcx())).as_slice());
+                                         &format!("unable to upcast from {} to {}",
+                                                  poly_trait_ref.repr(self.tcx()),
+                                                  obligation_def_id.repr(self.tcx())));
             }
         };
 
@@ -2301,22 +2357,6 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                                           &normalized_bounds.value);
         impl_obligations.extend(TypeSpace, normalized_bounds.obligations.into_iter());
         impl_obligations
-    }
-
-    fn fn_family_trait_kind(&self,
-                            trait_def_id: ast::DefId)
-                            -> Option<ty::ClosureKind>
-    {
-        let tcx = self.tcx();
-        if Some(trait_def_id) == tcx.lang_items.fn_trait() {
-            Some(ty::FnClosureKind)
-        } else if Some(trait_def_id) == tcx.lang_items.fn_mut_trait() {
-            Some(ty::FnMutClosureKind)
-        } else if Some(trait_def_id) == tcx.lang_items.fn_once_trait() {
-            Some(ty::FnOnceClosureKind)
-        } else {
-            None
-        }
     }
 
     #[allow(unused_comparisons)]
