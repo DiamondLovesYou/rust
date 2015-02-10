@@ -189,7 +189,12 @@ pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
 #[unstable(feature = "os")]
 pub fn getenv_as_bytes(_: &str) -> Option<Vec<u8>> { None }
 
+#[cfg(unix)]
+fn byteify(s: OsString) -> Vec<u8> {
+    use os::unix::*;
+    s.into_vec()
 }
+
 #[cfg(windows)]
 fn byteify(s: OsString) -> Vec<u8> {
     s.to_string_lossy().as_bytes().to_vec()
