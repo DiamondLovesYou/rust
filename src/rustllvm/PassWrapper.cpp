@@ -288,7 +288,12 @@ LLVMRustAddPrinterPass(LLVMPassManagerRef PMR,
   PassManager *PM = unwrap<PassManager>(PMR);
   std::string ErrorInfo;
 
-#if LLVM_VERSION_MINOR >= 4
+#if LLVM_VERSION_MINOR >= 6
+  std::error_code EC;
+  raw_fd_ostream* OS = new raw_fd_ostream(path, EC, sys::fs::F_None);
+  if (EC)
+    ErrorInfo = EC.message();
+#elif LLVM_VERSION_MINOR >= 4
   raw_fd_ostream* OS = new raw_fd_ostream(path, ErrorInfo, sys::fs::F_None);
 #else
   raw_fd_ostream* OS = new raw_fd_ostream(path, ErrorInfo, raw_fd_ostream::F_Binary);

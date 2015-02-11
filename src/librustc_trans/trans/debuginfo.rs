@@ -1655,7 +1655,7 @@ fn declare_local<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         CapturedVariable => (0, DW_TAG_auto_variable)
     };
 
-    let name = CString::from_slice(name.get().as_bytes());
+    let name = CString::from_slice(name.as_bytes());
     match (variable_access, [].as_slice()) {
         (DirectVariable { alloca }, address_operations) |
         (IndirectVariable {alloca, address_operations}, _) => {

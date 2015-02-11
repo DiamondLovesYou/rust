@@ -1959,6 +1959,9 @@ extern {
 
     pub fn LLVMDIBuilderCreateOpPlus() -> i64;
 
+    pub fn LLVMDIBuilderCreateExpression(Builder: DIBuilderRef,
+                                         AddrOps: *const ValueRef,
+                                         AddrOpsCount: c_uint) -> ValueRef;
     pub fn LLVMDIBuilderCreateNameSpace(Builder: DIBuilderRef,
                                         Scope: DIScope,
                                         Name: *const c_char,
