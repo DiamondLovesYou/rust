@@ -85,7 +85,7 @@ pub fn error_string(errno: i32) -> String {
         fn strerror_r(errnum: c_int, buf: *mut c_char,
                       buflen: libc::size_t) -> c_int;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "nacl")))]
     extern {
         fn strerror_r(errnum: c_int, buf: *mut c_char,
                       buflen: libc::size_t) -> c_int;
@@ -343,7 +343,8 @@ pub fn args() -> Args {
 #[cfg(any(target_os = "linux",
           target_os = "android",
           target_os = "freebsd",
-          target_os = "dragonfly"))]
+          target_os = "dragonfly",
+          target_os = "nacl"))]
 pub fn args() -> Args {
     use rt;
     let bytes = rt::args::clone().unwrap_or(Vec::new());
@@ -466,10 +467,12 @@ pub fn home_dir() -> Option<Path> {
     });
 
     #[cfg(any(target_os = "android",
-              target_os = "ios"))]
+              target_os = "ios",
+              target_os = "nacl"))]
     unsafe fn fallback() -> Option<OsString> { None }
     #[cfg(not(any(target_os = "android",
-                  target_os = "ios")))]
+                  target_os = "ios",
+                  target_os = "nacl")))]
     unsafe fn fallback() -> Option<OsString> {
         let mut amt = match libc::sysconf(c::_SC_GETPW_R_SIZE_MAX) {
             n if n < 0 => 512 as usize,

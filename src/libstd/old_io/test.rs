@@ -30,7 +30,7 @@ fn next_test_unix_socket() -> String {
 
     #[cfg(not(target_os = "nacl"))]
     fn getpid() -> libc::pid_t { unsafe { libc::getpid() as libc::pid_t } }
-    #[cfg(target_os = "nacl")]
+    #[cfg(target_os = "nacl")] #[allow(deprecated)]
     fn getpid() -> libc::pid_t {
         use rand::random;
         random()

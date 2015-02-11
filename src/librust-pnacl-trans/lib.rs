@@ -15,7 +15,7 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
 
-#![feature(rustc_private, os, libc, std_misc, collections, core, path, io)]
+#![feature(rustc_private, os, libc, std_misc, collections, core, path, io, env)]
 
 extern crate getopts;
 extern crate libc;
@@ -33,7 +33,7 @@ use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
 use std::collections::{HashSet, HashMap};
 use std::old_io::fs::File;
 use std::old_io::process::{Command, InheritFd, ExitStatus};
-use std::os;
+use std::env;
 use std::ptr;
 use std::ffi;
 
@@ -72,7 +72,7 @@ fn optgroups() -> Vec<OptGroup> {
 }
 fn fatal<T: Str>(msg: T) -> ! {
     println!("error: {}", msg.as_slice());
-    os::set_exit_status(1);
+    env::set_exit_status(1);
     panic!("fatal error");
 }
 
@@ -96,7 +96,9 @@ pub fn llvm_warn<T: Str>(msg: T) {
 }
 
 pub fn main() {
-    let args: Vec<String> = os::args();
+    let args: Vec<String> = env::args()
+        .map(|arg| arg.into_string().unwrap() )
+        .collect();
     let opts = optgroups();
 
     let matches = match getopts(args.tail(), opts.as_slice()) {
@@ -135,8 +137,9 @@ pub fn main() {
         }
     };
     let cross_path = matches.opt_str("cross-path").unwrap();
-    let cross_path = os::make_absolute(&Path::new(cross_path))
-        .unwrap();
+    let cross_path = env::current_dir()
+        .unwrap()
+        .join(cross_path);
     let all_raw = matches.opt_present("all-raw");
     let mut input: Vec<(String, bool)> = matches.free
         .iter()
@@ -206,7 +209,7 @@ pub fn main() {
     unsafe {
         let mut llvm_args = Vec::new();
         {
-            let mut add = |&mut : arg: &str| {
+            let mut add = |arg: &str| {
                 llvm_args.push(arg.as_ptr() as *const i8);
                 debug!("adding llvm arg: `{}`", arg);
             };
@@ -391,10 +394,10 @@ pub fn main() {
         Ok(mut process) => {
             match process.wait() {
                 Ok(ExitStatus(status)) => {
-                    os::set_exit_status(status);
+                    env::set_exit_status(status as i32);
                 }
                 Ok(_) => {
-                    os::set_exit_status(1);
+                    env::set_exit_status(1);
                 }
                 Err(e) => {
                     cleanup_objs(&matches, obj_input);

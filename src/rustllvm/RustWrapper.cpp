@@ -22,6 +22,12 @@
 #include "llvm/Support/CallSite.h"
 #endif
 
+#if LLVM_VERSION_MINOR < 6
+namespace llvm {
+  typedef Value Metadata;
+}
+#endif
+
 //===----------------------------------------------------------------------===
 //
 // This file defines alternate interfaces to core functions that are more
@@ -467,8 +473,10 @@ extern "C" LLVMMetadataRef LLVMDIBuilderCreateVariable(
 #if LLVM_VERSION_MINOR < 6
     if (AddrOpsCount > 0) {
         SmallVector<llvm::Value *, 16> addr_ops;
+        // Hack to get the context without modifying the fn sig.
+        auto &VMContext = Builder->createNullPtrType()->getContext();
         llvm::Type *Int64Ty = Type::getInt64Ty(VMContext);
-        for (int i = 0; i < AddrOpsCount; ++i)
+        for (unsigned i = 0; i < AddrOpsCount; ++i)
             addr_ops.push_back(ConstantInt::get(Int64Ty, AddrOps[i]));
 
         return wrap(Builder->createComplexVariable(
@@ -689,11 +697,11 @@ extern "C" void LLVMDICompositeTypeSetTypeArray(
     LLVMMetadataRef CompositeType,
     LLVMMetadataRef TypeArray)
 {
-#if LLVM_VERSION_MINOR >= 5
+#if LLVM_VERSION_MINOR >= 6
     DICompositeType tmp = unwrapDI<DICompositeType>(CompositeType);
     Builder->replaceArrays(tmp, unwrapDI<DIArray>(TypeArray));
 #else
-    unwrapDI<DICompositeType>(CompositeType).setTypeArray(unwrapDI<DIArray>(TypeArray));
+    unwrapDI<DICompositeType>(CompositeType).setArrays(unwrapDI<DIArray>(TypeArray));
 #endif
 }
 

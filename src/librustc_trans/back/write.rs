@@ -691,16 +691,20 @@ pub fn run_passes(sess: &Session,
         linked
     }
     fn pnacl_lib_paths(sess: &Session) -> Vec<Path> {
-        use std::os;
+        fn make_absolute(p: &Path) -> ::std::old_io::IoResult<Path> {
+            use std::env;
+            env::current_dir()
+                .map(|cwd| cwd.join(p) )
+        }
         use rustc::session::search_paths::PathKind;
         let native_dep_lib_path = {
-            os::make_absolute(&sess.pnacl_toolchain()
+            make_absolute(&sess.pnacl_toolchain()
                               .join("le32-nacl")
                               .join("lib"))
                 .unwrap()
         };
         let ports_lib_path = {
-            os::make_absolute(&sess.expect_cross_path()
+            make_absolute(&sess.expect_cross_path()
                               .join("lib")
                               .join("pnacl")
                               .join(if sess.opts.optimize == config::No {

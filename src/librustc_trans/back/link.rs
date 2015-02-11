@@ -708,7 +708,7 @@ pub fn link_pnacl_module(sess: &Session,
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
     use std::old_io::{File, USER_EXEC};
-    use std::os;
+    use std::env;
     use back::write;
     use back::write::llvm_err;
     use session::config::OutputTypeLlvmAssembly;
@@ -949,7 +949,7 @@ pub fn link_pnacl_module(sess: &Session,
         }
     }
 
-    let force_non_stable_output = os::getenv("RUSTC_FORCE_NON_STABLE_BC_EMISSION").is_some();
+    let force_non_stable_output = env::var("RUSTC_FORCE_NON_STABLE_BC_EMISSION").is_some();
     if force_non_stable_output || sess.opts.debuginfo != config::NoDebugInfo {
         // emit bc for translation into nexe w/ debugging info.
         let out = outputs.with_extension("debug.pexe").display().to_string();

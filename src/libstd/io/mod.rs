@@ -83,10 +83,14 @@ fn with_end_to_cap<F>(v: &mut Vec<u8>, f: F) -> Result<usize>
 
     // Semi-hack used to prevent LLVM from retaining any assumptions about
     // `dummy` over this function call
+    #[cfg(not(all(target_os = "nacl", target_arch = "le32")))]
     unsafe fn black_box<T>(mut dummy: T) -> T {
         asm!("" :: "r"(&mut dummy) : "memory");
         dummy
     }
+    #[cfg(all(target_os = "nacl", target_arch = "le32"))]
+    #[inline(never)]
+    unsafe fn black_box<T>(dummy: T) -> T { dummy }
 }
 
 // A few methods below (read_to_string, read_line) will append data into a

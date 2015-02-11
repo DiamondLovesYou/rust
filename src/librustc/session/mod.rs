@@ -276,7 +276,7 @@ impl Session {
 
     pub fn expect_cross_path(&self) -> Path {
         let cross_path = self.opts.cg.cross_path.clone();
-        match cross_path.or_else(|| os::getenv("NACL_SDK_ROOT") ) {
+        match cross_path.or_else(|| env::var_string("NACL_SDK_ROOT").ok() ) {
             None => self.fatal("need cross path (-C cross-path, or via NACL_SDK_ROOT) \
                                 for this target"),
             Some(p) => Path::new(p),
@@ -351,7 +351,7 @@ impl Session {
                                    config::host_triple().to_string(),
                                    "lib".to_string(),
                                    format!("LLVMgold{}",
-                                           os::consts::DLL_SUFFIX)])
+                                           env::consts::DLL_SUFFIX)])
     }
 }
 
