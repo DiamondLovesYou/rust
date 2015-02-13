@@ -967,11 +967,13 @@ pub fn link_pnacl_module(sess: &Session,
             let pm = llvm::LLVMCreatePassManager();
 
             let ap = |&: s: &'static str| {
-                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8));
+                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8),
+                        "failed to add pass `{}`", s.slice(0, s.len() - 1));
             };
 
             // Strip unsupported metadata:
             ap("strip-metadata\0");
+            ap("strip-module-flags\0");
             ap("nacl-strip-attributes\0");
 
             if !sess.no_verify() {
