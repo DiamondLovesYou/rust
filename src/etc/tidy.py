@@ -97,6 +97,7 @@ try:
             'src/rustllvm',
             'src/rt/valgrind',
             'src/rt/msvc',
+            'src/nacl-binutils',
             'src/rust-installer'
         }
 

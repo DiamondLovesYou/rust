@@ -9,7 +9,8 @@
 // except according to those terms.
 
 #![crate_type = "bin"]
-
+#![allow(unknown_features)]
+#![feature(slicing_syntax, unboxed_closures)]
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
@@ -18,7 +19,6 @@
 #![feature(os)]
 #![feature(path)]
 #![feature(rustc_private)]
-#![feature(slicing_syntax, unboxed_closures)]
 #![feature(std_misc)]
 #![feature(test)]
 #![feature(unicode)]
@@ -247,7 +247,7 @@ pub fn run_tests(config: &Config) {
     }
 
     if config.targeting_nacl() && config.mode == DebugInfoGdb {
-        os::setenv("RUST_TEST_TASKS","1");
+        env::set_var("RUST_TEST_TASKS","1");
     }
 
     match config.mode {
