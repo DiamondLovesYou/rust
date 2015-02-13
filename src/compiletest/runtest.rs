@@ -501,7 +501,14 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
         _ if config.targeting_nacl() => {
             use std::os::consts::ARCH;
-            use std::os::make_absolute;
+            #[cfg(stage0)] use std::os::make_absolute;
+
+            #[cfg(not(stage0))]
+            fn make_absolute(p: &Path) -> ::std::old_io::IoResult<Path> {
+                use std::env;
+                env::current_dir()
+                    .map(|cwd| cwd.join(p) )
+            }
 
             let arch_prefix = match ARCH {
                 "x86" => "i686",
@@ -1778,8 +1785,15 @@ enum ProcResOrProcessResult {
 fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                             testfile: &Path, env: Vec<(String, String)>,
                             run_background: bool) -> ProcResOrProcessResult {
-    use std::os::make_absolute;
+    #[cfg(stage0)] use std::os::make_absolute;
     use std::old_io::process::{ExitStatus, ExitSignal};
+
+    #[cfg(not(stage0))]
+    fn make_absolute(p: &Path) -> ::std::old_io::IoResult<Path> {
+        use std::env;
+        env::current_dir()
+            .map(|cwd| cwd.join(p) )
+    }
 
     let cross_path = config.nacl_cross_path
         .clone()
