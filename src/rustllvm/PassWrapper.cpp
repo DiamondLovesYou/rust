@@ -56,6 +56,7 @@ LLVMInitializePasses() {
   initializeExpandCtorsPass(Registry);
   initializeExpandGetElementPtrPass(Registry);
   initializeExpandIndirectBrPass(Registry);
+  initializeExpandLargeIntegersPass(Registry);
   initializeExpandShuffleVectorPass(Registry);
   initializeExpandSmallArgumentsPass(Registry);
   initializeExpandStructRegsPass(Registry);

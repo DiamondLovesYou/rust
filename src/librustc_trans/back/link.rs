@@ -883,7 +883,8 @@ pub fn link_pnacl_module(sess: &Session,
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
 
             let ap = |&: s: &'static str| {
-                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8));
+                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8),
+                        "failed to add pass `{}`", s.slice(0, s.len() - 1));
             };
 
             ap("pnacl-sjlj-eh\0");
@@ -912,6 +913,7 @@ pub fn link_pnacl_module(sess: &Session,
             ap("constmerge\0");
             ap("flatten-globals\0");
             ap("expand-constant-expr\0");
+            ap("nacl-expand-ints\0");
             ap("nacl-promote-ints\0");
             ap("expand-getelementptr\0");
             ap("nacl-rewrite-atomics\0");
@@ -919,8 +921,7 @@ pub fn link_pnacl_module(sess: &Session,
             ap("remove-asm-memory\0");
             ap("simplify-allocas\0");
             ap("replace-ptrs-with-ints\0");
-            ap("combine-noop-casts\0");
-            ap("expand-constant-expr\0");
+            ap("expand-struct-regs\0");
             ap("strip-dead-prototypes\0");
             ap("die\0");
             ap("dce\0");
