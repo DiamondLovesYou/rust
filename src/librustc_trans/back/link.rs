@@ -858,7 +858,8 @@ pub fn link_pnacl_module(sess: &Session,
 
     // Internalize everything.
     unsafe {
-        let reachable = vec!("_start\0".as_ptr());
+        let reachable = vec!("_start\0".as_ptr(),
+                             "__pnacl_eh_stack\0".as_ptr());
         llvm::LLVMRustRunRestrictionPass(llmod,
                                          reachable.as_ptr() as *const *const libc::c_char,
                                          reachable.len() as libc::size_t);
