@@ -88,7 +88,7 @@ $$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO): $$(LLVM_CONFIG_$
 	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(call CFG_LIB_NAME_$(2),LTO) $$@
 $$(TROOT$(1)_T_$(2)_H_$(2))/lib/LLVMgold.so: $$(LLVM_CONFIG_$(2)) \
 	$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO)
-	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(subst lib,,$$(call CFG_LIB_NAME_$(3),LLVMgold)) $$@
+	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(subst lib,,$$(call CFG_LIB_NAME_$(2),LLVMgold)) $$@
 endif
 
 endef
