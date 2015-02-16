@@ -401,7 +401,7 @@ ifeq ($(1),0)
 HSREQ$(1)_H_$(3) = $$(HBIN$(1)_H_$(3))/rustc$$(X_$(3))
 else
 HSREQ$(1)_H_$(3) = \
-	$$(TROOT$(1)_T_$(3)_H_$(3))/lib/LLVMgold.$$(if $$(findstring 1,$$(CFG_WINDOWSY_$(3))),dll,so) \
+	$$(TROOT$(1)_T_$(3)_H_$(3))/lib/$$(subst lib,,$$(call CFG_LIB_NAME_$(3),LLVMgold)) \
 	$$(HBIN$(1)_H_$(3))/rustc$$(X_$(3)) \
 	$$(MKFILE_DEPS) \
 	tmp/install-debugger-scripts$(1)_H_$(3)-$$(call TRIPLE_TO_DEBUGGER_SCRIPT_SETTING,$(3)).done
