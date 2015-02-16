@@ -525,7 +525,7 @@ opt verify-install 1 "verify installed binaries work"
 opt dist-host-only 0 "only install bins for the host architecture"
 opt inject-std-version 1 "inject the current compiler version of libstd into programs"
 opt jemalloc 1 "build liballoc with jemalloc"
-valopt nacl-cross-path  "" "NaCl Pepper sdk path (should be something like \"nacl_sdk/pepper_[0-9]+/\")"
+valopt nacl-cross-path  "" "NaCl Pepper sdk path (should be something like \"nacl_sdk/pepper_[0-9]+/\"). Must be absolute!"
 valopt emscripten-cross-path "" "Emscripten checkout path (should point to where emcc lives)"
 
 valopt localstatedir "/var/lib" "local state directory"
@@ -970,9 +970,6 @@ do
 	    then
 		err "I need the NaCl SDK path! (use --nacl-cross-path)"
 	    fi
-
-	    # use an absolute path.
-	    CFG_NACL_CROSS_PATH=`readlink -m $CFG_NACL_CROSS_PATH`
 
 	    # quick and dirty check for cross existence
 	    case $CFG_OSTYPE in
