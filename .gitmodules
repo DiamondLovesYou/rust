@@ -17,4 +17,5 @@
         branch = pnacl/2.34/master
 [submodule "src/llvm"]
 	path = src/llvm
-	url = https://chromium.googlesource.com/native_client/pnacl-llvm
+	url = git@github.com:DiamondLovesYou/llvm.git
+        branch = merge_36
