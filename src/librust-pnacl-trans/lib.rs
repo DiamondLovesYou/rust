@@ -285,7 +285,7 @@ pub fn main() {
                 llvm::LLVMRustAddLibraryInfo(pm, llmod, false);
 
                 assert!(llvm::LLVMRustAddPass(pm,
-                                              "combine-vector-instructions\0"
+                                              "backend-canonicalize\0"
                                                    .as_ptr() as *const i8));
 
                 let out = format!("{}.o", i);

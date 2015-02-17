@@ -745,6 +745,7 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
                 // HACK(eddyb) dummy output type, shouln't affect anything.
                 let f = base::decl_cdecl_fn(ccx, name, Type::func(&[], &$ret),
                                             ty::mk_nil(ccx.tcx()));
+                if ccx.sess().targeting_pnacl() { llvm::SetUnnamedAddr(f, false); }
                 ccx.intrinsics().borrow_mut().insert(name, f);
                 return Some(f);
             } else if is_key { return None; }
@@ -759,6 +760,7 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
                  let f = base::decl_cdecl_fn(ccx, name,
                                              Type::func(&[$($arg),*], &$ret),
                                              ty::mk_nil(ccx.tcx()));
+                 if ccx.sess().targeting_pnacl() { llvm::SetUnnamedAddr(f, false); }
                  ccx.intrinsics().borrow_mut().insert(name, f);
                  return Some(f);
              } else if is_key { return None; }

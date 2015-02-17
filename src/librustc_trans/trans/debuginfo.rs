@@ -1655,7 +1655,7 @@ fn declare_local<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         CapturedVariable => (0, DW_TAG_auto_variable)
     };
 
-    let name = CString::from_slice(name.get().as_bytes());
+    let name = CString::from_slice(name.as_bytes());
     match (variable_access, [].as_slice()) {
         (DirectVariable { alloca }, address_operations) |
         (IndirectVariable {alloca, address_operations}, _) => {
@@ -4016,14 +4016,24 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
 /// Inserts a side-effect free instruction sequence that makes sure that the
 /// .debug_gdb_scripts global is referenced, so it isn't removed by the linker.
 pub fn insert_reference_to_gdb_debug_scripts_section_global(ccx: &CrateContext) {
+    use trans::common::C_i32;
     if needs_gdb_debug_scripts_section(ccx) {
         let empty = CString::from_slice(b"");
         let gdb_debug_scripts_section_global =
             get_or_insert_gdb_debug_scripts_section_global(ccx);
         unsafe {
+            // PNaCl's -nacl-rewrite-atomics can't rewrite loading directly from
+            // gdb_debug_scripts_section_global.
+            let indices = [C_i32(ccx, 0), C_i32(ccx, 0)];
+            let element =
+                llvm::LLVMBuildInBoundsGEP(ccx.raw_builder(),
+                                           gdb_debug_scripts_section_global,
+                                           indices.as_ptr(),
+                                           indices.len() as c_uint,
+                                           empty.as_ptr());
             let volative_load_instruction =
                 llvm::LLVMBuildLoad(ccx.raw_builder(),
-                                    gdb_debug_scripts_section_global,
+                                    element,
                                     empty.as_ptr());
             llvm::LLVMSetVolatile(volative_load_instruction, llvm::True);
         }

@@ -89,13 +89,8 @@ extern "C" LLVMExecutionEngineRef LLVMBuildExecutionEngine(
     options.NoFramePointerElim = true;
 
     ExecutionEngine *ee =
-    #if LLVM_VERSION_MINOR <= 5
-        EngineBuilder(unwrap(mod))
+      EngineBuilder(std::unique_ptr<Module>(unwrap(mod)))
             .setMCJITMemoryManager(unwrap(mref))
-    #else
-        EngineBuilder(std::unique_ptr<Module>(unwrap(mod)))
-            .setMCJITMemoryManager(std::unique_ptr<RustJITMemoryManager>(unwrap(mref)))
-    #endif
             .setEngineKind(EngineKind::JIT)
             .setErrorStr(&error_str)
             .setTargetOptions(options)

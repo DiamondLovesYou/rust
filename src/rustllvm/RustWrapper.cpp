@@ -312,7 +312,7 @@ extern "C" LLVMMetadataRef LLVMDIBuilderCreateSubroutineType(
     LLVMMetadataRef ParameterTypes) {
     return wrap(Builder->createSubroutineType(
         unwrapDI<DIFile>(File),
-#if LLVM_VERSION_MINOR >= 5
+#if LLVM_VERSION_MINOR >= 6
         unwrapDI<DITypeArray>(ParameterTypes)));
 #else
         unwrapDI<DIArray>(ParameterTypes)));
@@ -531,8 +531,19 @@ extern "C" LLVMMetadataRef LLVMDIBuilderGetOrCreateArray(
     DIBuilderRef Builder,
     LLVMMetadataRef* Ptr,
     unsigned Count) {
+#if false
+  // This is upstream:
     return wrap(Builder->getOrCreateArray(
         ArrayRef<Metadata*>(unwrap(Ptr), Count)));
+#else
+    std::vector<Value*> Vals;
+    Vals.reserve(Count);
+    for(unsigned I = 0; I < Count; ++I) {
+      Metadata **P = unwrap(Ptr) + I;
+      Vals.push_back(cast_or_null<Value>(*P));
+    }
+    return wrap(Builder->getOrCreateArray(Vals));
+#endif
 }
 
 extern "C" LLVMValueRef LLVMDIBuilderInsertDeclareAtEnd(
@@ -697,7 +708,7 @@ extern "C" void LLVMDICompositeTypeSetTypeArray(
     LLVMMetadataRef CompositeType,
     LLVMMetadataRef TypeArray)
 {
-#if LLVM_VERSION_MINOR >= 6
+#if LLVM_VERSION_MINOR >= 5 && false
     DICompositeType tmp = unwrapDI<DICompositeType>(CompositeType);
     Builder->replaceArrays(tmp, unwrapDI<DIArray>(TypeArray));
 #else
@@ -719,10 +730,10 @@ extern "C" LLVMValueRef LLVMDIBuilderCreateDebugLocation(
                                        unwrapDI<MDNode*>(Scope),
                                        unwrapDI<MDNode*>(InlinedAt));
 
-#if LLVM_VERSION_MINOR >= 6
+#if LLVM_VERSION_MINOR >= 6 && false
     return wrap(MetadataAsValue::get(context, debug_loc.getAsMDNode(context)));
 #else
-    return wrap(debug_loc.getAsMDNode(context));
+    return wrap(cast_or_null<Value>(debug_loc.getAsMDNode(context)));
 #endif
 }
 
@@ -817,15 +828,22 @@ LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
 
 extern "C" bool
 LLVMRustLinkInModule(LLVMModuleRef dest, LLVMModuleRef src) {
-  Module* Dest = unwrap(dest);
+  Module* Dst = unwrap(dest);
   Module* Src  = unwrap(src);
+
   std::string Err;
-  if(Linker::LinkModules(Dest, Src, Linker::DestroySource, &Err)) {
-    LLVMRustSetLastError(Err.c_str());
-    return false;
-  } else {
-    return true;
+
+#if LLVM_VERSION_MINOR >= 6
+  raw_string_ostream Stream(Err);
+  DiagnosticPrinterRawOStream DP(Stream);
+  if (Linker::LinkModules(Dst, Src, [&](const DiagnosticInfo &DI) { DI.print(DP); })) {
+#else
+  if (Linker::LinkModules(Dst, Src, Linker::DestroySource, &Err)) {
+#endif
+      LLVMRustSetLastError(Err.c_str());
+      return false;
   }
+  return true;
 }
 
 #if LLVM_VERSION_MINOR >= 5
@@ -912,28 +930,34 @@ LLVMRustArchiveReadSection(Archive *ar, char *name, size_t *size) {
     return NULL;
 }
 extern "C" void
-LLVMRustArchiveReadAllChildren(Archive *ar,
+LLVMRustArchiveReadAllChildren(
+#if LLVM_VERSION_MINOR >= 6
+                               OwningBinary<Archive> *ob,
+#else
+                               Archive *ar,
+#endif
                                void (*callback)(const char* name,   size_t name_len,
                                                 const char* buffer, size_t buffer_len,
                                                 void* userdata),
                                void* userdata) {
 #if LLVM_VERSION_MINOR >= 5
-    Archive::child_iterator I   = ar->child_begin(),
-                            End = ar->child_end();
+  Archive *ar = ob->getBinary();
+  Archive::child_iterator I   = ar->child_begin(),
+    End = ar->child_end();
 #else
-    Archive::child_iterator I   = ar->begin_children(),
-                            End = ar->end_children();
+  Archive::child_iterator I   = ar->begin_children(),
+    End = ar->end_children();
 #endif
-    assert(callback != NULL);
-    for (; I != End; ++I) {
-      ErrorOr<StringRef> name_or_error = I->getName();
-      if (name_or_error.getError()) continue;
-      StringRef buffer = I->getBuffer();
-      StringRef sect_name = name_or_error.get();
-      (*callback)(sect_name.data(), sect_name.size(),
-                  buffer.data(),    buffer.size(),
-                  userdata);
-    }
+  assert(callback != NULL);
+  for (; I != End; ++I) {
+    ErrorOr<StringRef> name_or_error = I->getName();
+    if (name_or_error.getError()) continue;
+    StringRef buffer = I->getBuffer();
+    StringRef sect_name = name_or_error.get();
+    (*callback)(sect_name.data(), sect_name.size(),
+                buffer.data(),    buffer.size(),
+                userdata);
+  }
 }
 
 extern "C" void
@@ -1001,7 +1025,12 @@ LLVMRustWritePNaClBitcode(LLVMModuleRef M,
                           const char* Path,
                           const bool AcceptSupportedOnly) {
   std::string ErrorInfo;
-#if LLVM_VERSION_MINOR >= 4
+#if LLVM_VERSION_MINOR >= 6
+  std::error_code EC;
+  raw_fd_ostream OS(Path, EC, sys::fs::F_None);
+  if (EC)
+    ErrorInfo = EC.message();
+#elif LLVM_VERSION_MINOR >= 4
   raw_fd_ostream OS(Path, ErrorInfo, sys::fs::F_None);
 #else
   raw_fd_ostream OS(Path, ErrorInfo, raw_fd_ostream::F_Binary);
@@ -1015,35 +1044,39 @@ LLVMRustWritePNaClBitcode(LLVMModuleRef M,
   return true;
 }
 
+/// isNaClBitcode - Return true if the given bytes are the magic bytes for
+/// PNaCl bitcode wire format. Does not take ownership of Buffer. Placed here so
+/// tools don't need to depend on extra components.
+static bool isNaClBitcode(const MemoryBuffer *Buffer) {
+  return isNaClBitcode((const unsigned char *)Buffer->getBufferStart(),
+                       (const unsigned char *)Buffer->getBufferEnd());
+}
+
 extern "C" LLVMModuleRef
 LLVMRustParseBitcode(LLVMContextRef ctxt, const char* name, const void* bc, size_t len) {
-  MemoryBuffer* buf = MemoryBuffer::getMemBuffer(StringRef(static_cast<const char*>(bc),
-                                                           len),
-                                                 name,
-                                                 false);
+  std::unique_ptr<MemoryBuffer> buf =
+    MemoryBuffer::getMemBuffer(StringRef(static_cast<const char*>(bc),
+                                         len),
+                               name,
+                               false);
 
-  Module *Mod = nullptr;
-  std::string ErrMsg;
-  if (isNaClBitcode(buf)) {
-    Mod = NaClParseBitcodeFile(buf, *unwrap(ctxt),
-                               &ErrMsg, false);
+  LLVMModuleRef Mod = wrap(static_cast<Module*>(nullptr));
+  ErrorOr<Module *> Src(nullptr);
+  if (isNaClBitcode(buf.get())) {
+    Src = NaClParseBitcodeFile(buf->getMemBufferRef(), *unwrap(ctxt),
+                               nullptr, false);
 
   } else {
-    ErrorOr<Module *> Src = llvm::parseBitcodeFile(buf, *unwrap(ctxt));
-    if (!Src) {
-      ErrMsg = Src.getError().message();
-    } else {
-      Mod = Src.get();
-    }
+    Src = llvm::parseBitcodeFile(buf->getMemBufferRef(), *unwrap(ctxt));
   }
 
-  delete buf;
-  if (!Mod) {
-    LLVMRustSetLastError(ErrMsg.c_str());
-    return NULL;
+  if (!Src) {
+    LLVMRustSetLastError(Src.getError().message().c_str());
   } else {
-    return wrap(Mod);
+    Mod = wrap(Src.get());
   }
+
+  return Mod;
 }
 extern "C" void
 LLVMRustStripDebugInfo(LLVMModuleRef M) {

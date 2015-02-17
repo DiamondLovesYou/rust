@@ -858,7 +858,8 @@ pub fn link_pnacl_module(sess: &Session,
 
     // Internalize everything.
     unsafe {
-        let reachable = vec!("_start\0".as_ptr());
+        let reachable = vec!("_start\0".as_ptr(),
+                             "__pnacl_eh_stack\0".as_ptr());
         llvm::LLVMRustRunRestrictionPass(llmod,
                                          reachable.as_ptr() as *const *const libc::c_char,
                                          reachable.len() as libc::size_t);
@@ -883,7 +884,8 @@ pub fn link_pnacl_module(sess: &Session,
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
 
             let ap = |&: s: &'static str| {
-                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8));
+                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8),
+                        "failed to add pass `{}`", s.slice(0, s.len() - 1));
             };
 
             ap("pnacl-sjlj-eh\0");
@@ -912,6 +914,7 @@ pub fn link_pnacl_module(sess: &Session,
             ap("constmerge\0");
             ap("flatten-globals\0");
             ap("expand-constant-expr\0");
+            ap("nacl-expand-ints\0");
             ap("nacl-promote-ints\0");
             ap("expand-getelementptr\0");
             ap("nacl-rewrite-atomics\0");
@@ -919,8 +922,7 @@ pub fn link_pnacl_module(sess: &Session,
             ap("remove-asm-memory\0");
             ap("simplify-allocas\0");
             ap("replace-ptrs-with-ints\0");
-            ap("combine-noop-casts\0");
-            ap("expand-constant-expr\0");
+            ap("expand-struct-regs\0");
             ap("strip-dead-prototypes\0");
             ap("die\0");
             ap("dce\0");
@@ -966,11 +968,13 @@ pub fn link_pnacl_module(sess: &Session,
             let pm = llvm::LLVMCreatePassManager();
 
             let ap = |&: s: &'static str| {
-                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8));
+                assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8),
+                        "failed to add pass `{}`", s.slice(0, s.len() - 1));
             };
 
             // Strip unsupported metadata:
             ap("strip-metadata\0");
+            ap("strip-module-flags\0");
             ap("nacl-strip-attributes\0");
 
             if !sess.no_verify() {
