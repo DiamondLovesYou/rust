@@ -293,7 +293,7 @@ struct Foo<'a> {
 }
 
 fn main() {
-    let y = &5; // this is the same as `let _y = 5; let y = &_y;
+    let y = &5; // this is the same as `let _y = 5; let y = &_y;`
     let f = Foo { x: y };
 
     println!("{}", f.x);
@@ -418,7 +418,7 @@ struct Wheel {
 fn main() {
     let car = Car { name: "DeLorean".to_string() };
 
-    for _ in range(0, 4) {
+    for _ in 0..4 {
         Wheel { size: 360, owner: car };
     }
 }
@@ -456,7 +456,7 @@ fn main() {
 
     let car_owner = Rc::new(car);
 
-    for _ in range(0, 4) {
+    for _ in 0..4 {
         Wheel { size: 360, owner: car_owner.clone() };
     }
 }
@@ -523,7 +523,7 @@ fn print<'a>(s: &'a str); // expanded
 fn debug(lvl: u32, s: &str); // elided
 fn debug<'a>(lvl: u32, s: &'a str); // expanded
 
-// In the preceeding example, `lvl` doesn't need a lifetime because it's not a
+// In the preceding example, `lvl` doesn't need a lifetime because it's not a
 // reference (`&`). Only things relating to references (such as a `struct`
 // which contains a reference) need lifetimes.
 

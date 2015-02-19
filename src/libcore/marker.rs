@@ -32,7 +32,17 @@ use clone::Clone;
            reason = "will be overhauled with new lifetime rules; see RFC 458")]
 #[lang="send"]
 #[rustc_on_unimplemented = "`{Self}` cannot be sent between threads safely"]
+#[cfg(stage0)]
 pub unsafe trait Send: 'static {
+    // empty.
+}
+/// Types able to be transferred across thread boundaries.
+#[unstable(feature = "core",
+           reason = "will be overhauled with new lifetime rules; see RFC 458")]
+#[lang="send"]
+#[rustc_on_unimplemented = "`{Self}` cannot be sent between threads safely"]
+#[cfg(not(stage0))]
+pub unsafe trait Send {
     // empty.
 }
 
@@ -202,6 +212,24 @@ pub unsafe trait Sync {
     // Empty
 }
 
+/// A marker type that indicates to the compiler that the instances
+/// of the type itself owns instances of the type parameter `T`.
+///
+/// This is used to indicate that one or more instances of the type
+/// `T` could be dropped when instances of the type itself is dropped,
+/// though that may not be apparent from the other structure of the
+/// type itself. For example, the type may hold a `*mut T`, which the
+/// compiler does not automatically treat as owned.
+#[unstable(feature = "core",
+           reason = "Newly added to deal with scoping and destructor changes")]
+#[lang="phantom_data"]
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct PhantomData<T: ?Sized>;
+
+impl<T: ?Sized> Copy for PhantomData<T> {}
+impl<T: ?Sized> Clone for PhantomData<T> {
+    fn clone(&self) -> PhantomData<T> { *self }
+}
 
 /// A marker type whose type parameter `T` is considered to be
 /// covariant with respect to the type itself. This is (typically)
@@ -311,16 +339,17 @@ impl<T: ?Sized> Clone for ContravariantType<T> {
 ///
 /// # Example
 ///
-/// The Cell type is an example which uses unsafe code to achieve
-/// "interior" mutability:
+/// The Cell type is an example of an `InvariantType` which uses unsafe
+/// code to achieve "interior" mutability:
 ///
 /// ```
 /// struct Cell<T> { value: T }
 /// ```
 ///
-/// The type system would infer that `value` is only read here and
-/// never written, but in fact `Cell` uses unsafe code to achieve
-/// interior mutability.
+/// The type system would infer that `value` is only read here
+/// and never written, but in fact `Cell` uses unsafe code to achieve
+/// interior mutability. In order to get correct behavior, the
+/// `InvariantType` marker must be applied.
 #[unstable(feature = "core",
            reason = "likely to change with new variance strategy")]
 #[lang="invariant_type"]
@@ -396,7 +425,6 @@ pub struct InvariantLifetime<'a>;
            reason = "likely to change with new variance strategy")]
 #[lang="no_copy_bound"]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(missing_copy_implementations)]
 pub struct NoCopy;
 
 /// A type which is considered managed by the GC. This is typically
@@ -405,5 +433,12 @@ pub struct NoCopy;
            reason = "likely to change with new variance strategy")]
 #[lang="managed_bound"]
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(missing_copy_implementations)]
 pub struct Managed;
+
+#[cfg(not(stage0))]
+mod impls {
+    use super::{Send, Sync, Sized};
+
+    unsafe impl<'a, T: Sync + ?Sized> Send for &'a T {}
+    unsafe impl<'a, T: Send + ?Sized> Send for &'a mut T {}
+}

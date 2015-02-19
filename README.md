@@ -8,20 +8,14 @@ PNaCl/NaCl, including ```le32-unknown-nacl```, ```x86_64-unknown-nacl```,
 
 ## Quick Start
 
-1. Download a [binary installer][installer] for your platform.
-2. Read [The Rust Programming Language][trpl].
-3. Enjoy!
-
+Read ["Installing Rust"][install] from [The Book][trpl].
 If you'd like to cross compile to a (P)NaCl target, you'll need to build from
 source. I (Richard Diamond) am working on creating some build infrastructure so
 I may offer nightly downloads, however that isn't finished yet.
 
-> ***Note:*** Windows users can read the detailed
-> [using Rust on Windows][win-wiki] notes on the wiki.
 
-[installer]: http://www.rust-lang.org/install.html
+[install]: http://doc.rust-lang.org/book/installing-rust.html
 [trpl]: http://doc.rust-lang.org/book/index.html
-[win-wiki]: https://github.com/rust-lang/rust/wiki/Using-Rust-on-Windows
 
 ## Building from Source
 
@@ -54,7 +48,6 @@ I may offer nightly downloads, however that isn't finished yet.
     `/usr/local/bin`: `rustc`, the Rust compiler, `rustdoc`, the
     API-documentation tool, and `rust-pnacl-trans`, the PNaCl bitcode to NaCl
     nexe translator (like `pnacl-trans`).
-3. Read [The Rust Programming Language][trpl].
 4. Compile with:
 
         $ NACL_SDK_ROOT=path/to/pepper rustc --target=le32-unknown-nacl
@@ -65,7 +58,6 @@ I may offer nightly downloads, however that isn't finished yet.
 
     to target NaCl.
 
-4. Enjoy!
 
 ### Building on Windows
 
@@ -95,7 +87,6 @@ $ pacman -S base-devel
 
 [repo]: https://github.com/rust-lang/rust
 [tarball]: https://static.rust-lang.org/dist/rustc-nightly-src.tar.gz
-[trpl]: http://doc.rust-lang.org/book/index.html
 
 ## Notes
 
@@ -134,19 +125,21 @@ Some helpful projects:
   Allows you to run your pexes like you would a regular binary, except in a
   NaCl sandbox. Ie: ```./pexe-bitcode.pexe $ARGS```.
 
-## Getting help and getting involved
+## Getting help
 
 The Rust community congregates in a few places:
 
 * [StackOverflow] - Direct questions about using the language here.
 * [users.rust-lang.org] - General discussion, broader questions.
-* [internals.rust-lang.org] - For development of the Rust language itself.
 * [/r/rust] - News and general discussion.
 
 [StackOverflow]: http://stackoverflow.com/questions/tagged/rust
 [/r/rust]: http://reddit.com/r/rust
 [users.rust-lang.org]: http://users.rust-lang.org/
-[internals.rust-lang.org]: http://internals.rust-lang.org/
+
+## Contributing
+
+To contribute to Rust, please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

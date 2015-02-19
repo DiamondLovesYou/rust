@@ -13,7 +13,7 @@
 
 trait Foo : Send { }
 
-impl <'a> Foo for &'a mut () { }
-//~^ ERROR declared lifetime bound not satisfied
+impl Foo for std::rc::Rc<i8> { }
+//~^ ERROR the trait `core::marker::Send` is not implemented
 
 fn main() { }

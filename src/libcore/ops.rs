@@ -37,8 +37,8 @@
 //!
 //! #[derive(Debug)]
 //! struct Point {
-//!     x: int,
-//!     y: int
+//!     x: i32,
+//!     y: i32
 //! }
 //!
 //! impl Add for Point {
@@ -206,7 +206,7 @@ macro_rules! add_impl {
     )*)
 }
 
-add_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
+add_impl! { usize u8 u16 u32 u64 isize i8 i16 i32 i64 f32 f64 }
 
 /// The `Sub` trait is used to specify the functionality of `-`.
 ///
@@ -259,7 +259,7 @@ macro_rules! sub_impl {
     )*)
 }
 
-sub_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
+sub_impl! { usize u8 u16 u32 u64 isize i8 i16 i32 i64 f32 f64 }
 
 /// The `Mul` trait is used to specify the functionality of `*`.
 ///
@@ -312,7 +312,7 @@ macro_rules! mul_impl {
     )*)
 }
 
-mul_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
+mul_impl! { usize u8 u16 u32 u64 isize i8 i16 i32 i64 f32 f64 }
 
 /// The `Div` trait is used to specify the functionality of `/`.
 ///
@@ -365,7 +365,7 @@ macro_rules! div_impl {
     )*)
 }
 
-div_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 f32 f64 }
+div_impl! { usize u8 u16 u32 u64 isize i8 i16 i32 i64 f32 f64 }
 
 /// The `Rem` trait is used to specify the functionality of `%`.
 ///
@@ -435,7 +435,7 @@ macro_rules! rem_float_impl {
     }
 }
 
-rem_impl! { uint u8 u16 u32 u64 int i8 i16 i32 i64 }
+rem_impl! { usize u8 u16 u32 u64 isize i8 i16 i32 i64 }
 rem_float_impl! { f32, fmodf }
 rem_float_impl! { f64, fmod }
 
@@ -506,9 +506,9 @@ macro_rules! neg_uint_impl {
     }
 }
 
-neg_impl! { int i8 i16 i32 i64 f32 f64 }
+neg_impl! { isize i8 i16 i32 i64 f32 f64 }
 
-neg_uint_impl! { uint, int }
+neg_uint_impl! { usize, isize }
 neg_uint_impl! { u8, i8 }
 neg_uint_impl! { u16, i16 }
 neg_uint_impl! { u32, i32 }
@@ -566,7 +566,7 @@ macro_rules! not_impl {
     )*)
 }
 
-not_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
+not_impl! { bool usize u8 u16 u32 u64 isize i8 i16 i32 i64 }
 
 /// The `BitAnd` trait is used to specify the functionality of `&`.
 ///
@@ -619,7 +619,7 @@ macro_rules! bitand_impl {
     )*)
 }
 
-bitand_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
+bitand_impl! { bool usize u8 u16 u32 u64 isize i8 i16 i32 i64 }
 
 /// The `BitOr` trait is used to specify the functionality of `|`.
 ///
@@ -672,7 +672,7 @@ macro_rules! bitor_impl {
     )*)
 }
 
-bitor_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
+bitor_impl! { bool usize u8 u16 u32 u64 isize i8 i16 i32 i64 }
 
 /// The `BitXor` trait is used to specify the functionality of `^`.
 ///
@@ -725,7 +725,7 @@ macro_rules! bitxor_impl {
     )*)
 }
 
-bitxor_impl! { bool uint u8 u16 u32 u64 int i8 i16 i32 i64 }
+bitxor_impl! { bool usize u8 u16 u32 u64 isize i8 i16 i32 i64 }
 
 /// The `Shl` trait is used to specify the functionality of `<<`.
 ///
@@ -897,14 +897,14 @@ shr_impl_all! { u8 u16 u32 u64 usize i8 i16 i32 i64 isize }
 /// }
 /// ```
 #[lang="index"]
-#[rustc_on_unimplemented = "the type `{Self}` cannot be indexed by `{Index}`"]
+#[rustc_on_unimplemented = "the type `{Self}` cannot be indexed by `{Idx}`"]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub trait Index<Index: ?Sized> {
+pub trait Index<Idx: ?Sized> {
     type Output: ?Sized;
 
     /// The method for the indexing (`Foo[Bar]`) operation
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn index<'a>(&'a self, index: &Index) -> &'a Self::Output;
+    fn index<'a>(&'a self, index: &Idx) -> &'a Self::Output;
 }
 
 /// The `IndexMut` trait is used to specify the functionality of indexing
@@ -916,15 +916,21 @@ pub trait Index<Index: ?Sized> {
 /// calling `index_mut`, and therefore, `main` prints `Indexing!`.
 ///
 /// ```
-/// use std::ops::IndexMut;
+/// use std::ops::{Index, IndexMut};
 ///
 /// #[derive(Copy)]
 /// struct Foo;
 /// struct Bar;
 ///
-/// impl IndexMut<Bar> for Foo {
+/// impl Index<Bar> for Foo {
 ///     type Output = Foo;
 ///
+///     fn index<'a>(&'a self, _index: &Bar) -> &'a Foo {
+///         self
+///     }
+/// }
+///
+/// impl IndexMut<Bar> for Foo {
 ///     fn index_mut<'a>(&'a mut self, _index: &Bar) -> &'a mut Foo {
 ///         println!("Indexing!");
 ///         self
@@ -936,14 +942,12 @@ pub trait Index<Index: ?Sized> {
 /// }
 /// ```
 #[lang="index_mut"]
-#[rustc_on_unimplemented = "the type `{Self}` cannot be mutably indexed by `{Index}`"]
+#[rustc_on_unimplemented = "the type `{Self}` cannot be mutably indexed by `{Idx}`"]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub trait IndexMut<Index: ?Sized> {
-    type Output: ?Sized;
-
+pub trait IndexMut<Idx: ?Sized>: Index<Idx> {
     /// The method for the indexing (`Foo[Bar]`) operation
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn index_mut<'a>(&'a mut self, index: &Index) -> &'a mut Self::Output;
+    fn index_mut<'a>(&'a mut self, index: &Idx) -> &'a mut Self::Output;
 }
 
 /// An unbounded range.
@@ -1115,8 +1119,7 @@ impl<'a, T: ?Sized> DerefMut for &'a mut T {
 
 /// A version of the call operator that takes an immutable receiver.
 #[lang="fn"]
-#[unstable(feature = "core",
-           reason = "uncertain about variadic generics, input versus associated types")]
+#[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_paren_sugar]
 pub trait Fn<Args> {
     type Output;
@@ -1127,8 +1130,7 @@ pub trait Fn<Args> {
 
 /// A version of the call operator that takes a mutable receiver.
 #[lang="fn_mut"]
-#[unstable(feature = "core",
-           reason = "uncertain about variadic generics, input versus associated types")]
+#[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_paren_sugar]
 pub trait FnMut<Args> {
     type Output;
@@ -1139,8 +1141,7 @@ pub trait FnMut<Args> {
 
 /// A version of the call operator that takes a by-value receiver.
 #[lang="fn_once"]
-#[unstable(feature = "core",
-           reason = "uncertain about variadic generics, input versus associated types")]
+#[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_paren_sugar]
 pub trait FnOnce<Args> {
     type Output;

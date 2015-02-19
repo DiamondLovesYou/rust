@@ -19,13 +19,12 @@ use rustc::middle::dataflow::DataFlowContext;
 use rustc::middle::dataflow::BitwiseOperator;
 use rustc::middle::dataflow::DataFlowOperator;
 use rustc::middle::expr_use_visitor as euv;
-use rustc::middle::mem_categorization as mc;
 use rustc::middle::ty;
 use rustc::util::nodemap::{FnvHashMap, NodeSet};
 use rustc::util::ppaux::Repr;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::uint;
+use std::usize;
 use syntax::ast;
 use syntax::ast_util;
 use syntax::codemap::Span;
@@ -93,7 +92,7 @@ impl Clone for MovePathIndex {
 
 #[allow(non_upper_case_globals)]
 static InvalidMovePathIndex: MovePathIndex =
-    MovePathIndex(uint::MAX);
+    MovePathIndex(usize::MAX);
 
 /// Index into `MoveData.moves`, used like a pointer
 #[derive(Copy, PartialEq)]
@@ -107,7 +106,7 @@ impl MoveIndex {
 
 #[allow(non_upper_case_globals)]
 static InvalidMoveIndex: MoveIndex =
-    MoveIndex(uint::MAX);
+    MoveIndex(usize::MAX);
 
 pub struct MovePath<'tcx> {
     /// Loan path corresponding to this move path
@@ -193,9 +192,13 @@ fn loan_path_is_precise(loan_path: &LoanPath) -> bool {
         LpVar(_) | LpUpvar(_) => {
             true
         }
-        LpExtend(_, _, LpInterior(mc::InteriorElement(_))) => {
-            // Paths involving element accesses do not refer to a unique
+        LpExtend(_, _, LpInterior(InteriorKind::InteriorElement(..))) => {
+            // Paths involving element accesses a[i] do not refer to a unique
             // location, as there is no accurate tracking of the indices.
+            //
+            // (Paths involving element accesses via slice pattern bindings
+            // can in principle be tracked precisely, but that is future
+            // work. For now, continue claiming that they are imprecise.)
             false
         }
         LpDowncast(ref lp_base, _) |

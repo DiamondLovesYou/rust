@@ -18,6 +18,7 @@ use trans::base;
 use trans::build::*;
 use trans::cabi;
 use trans::common::*;
+use trans::debuginfo::DebugLoc;
 use trans::machine;
 use trans::monomorphize;
 use trans::type_::Type;
@@ -118,7 +119,7 @@ pub fn register_static(ccx: &CrateContext,
         // static and call it a day. Some linkages (like weak) will make it such
         // that the static actually has a null value.
         Some(name) => {
-            let linkage = match llvm_linkage_by_name(name.get()) {
+            let linkage = match llvm_linkage_by_name(&name) {
                 Some(linkage) => linkage,
                 None => {
                     ccx.sess().span_fatal(foreign_item.span,
@@ -134,7 +135,7 @@ pub fn register_static(ccx: &CrateContext,
             };
             unsafe {
                 // Declare a symbol `foo` with the desired linkage.
-                let buf = CString::from_slice(ident.get().as_bytes());
+                let buf = CString::from_slice(ident.as_bytes());
                 let g1 = llvm::LLVMAddGlobal(ccx.llmod(), llty2.to_ref(),
                                              buf.as_ptr());
                 llvm::SetLinkage(g1, linkage);
@@ -146,7 +147,7 @@ pub fn register_static(ccx: &CrateContext,
                 // `extern_with_linkage_foo` will instead be initialized to
                 // zero.
                 let mut real_name = "_rust_extern_with_linkage_".to_string();
-                real_name.push_str(ident.get());
+                real_name.push_str(&ident);
                 let real_name = CString::from_vec(real_name.into_bytes());
                 let g2 = llvm::LLVMAddGlobal(ccx.llmod(), llty.to_ref(),
                                              real_name.as_ptr());
@@ -157,7 +158,7 @@ pub fn register_static(ccx: &CrateContext,
         }
         None => unsafe {
             // Generate an external declaration.
-            let buf = CString::from_slice(ident.get().as_bytes());
+            let buf = CString::from_slice(ident.as_bytes());
             llvm::LLVMAddGlobal(ccx.llmod(), llty.to_ref(), buf.as_ptr())
         }
     }
@@ -218,7 +219,8 @@ pub fn trans_native_call<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                      llfn: ValueRef,
                                      llretptr: ValueRef,
                                      llargs_rust: &[ValueRef],
-                                     passed_arg_tys: Vec<Ty<'tcx>>)
+                                     passed_arg_tys: Vec<Ty<'tcx>>,
+                                     call_debug_loc: DebugLoc)
                                      -> Block<'blk, 'tcx>
 {
     let ccx = bcx.ccx();
@@ -370,7 +372,8 @@ pub fn trans_native_call<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                         llfn,
                                         &llargs_foreign[],
                                         cc,
-                                        Some(attrs));
+                                        Some(attrs),
+                                        call_debug_loc);
 
     // If the function we just called does not use an outpointer,
     // store the result into the rust outpointer. Cast the outpointer
@@ -468,7 +471,7 @@ pub fn trans_foreign_mod(ccx: &CrateContext, foreign_mod: &ast::ForeignMod) {
                     }
 
                     register_foreign_item_fn(ccx, abi, ty,
-                                             &lname.get()[]);
+                                             &lname);
                     // Unlike for other items, we shouldn't call
                     // `base::update_linkage` here.  Foreign items have
                     // special linkage requirements, which are handled
@@ -478,7 +481,7 @@ pub fn trans_foreign_mod(ccx: &CrateContext, foreign_mod: &ast::ForeignMod) {
         }
 
         ccx.item_symbols().borrow_mut().insert(foreign_item.id,
-                                             lname.get().to_string());
+                                             lname.to_string());
     }
 }
 
@@ -554,7 +557,7 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                                 body: &ast::Block,
                                                 attrs: &[ast::Attribute],
                                                 llwrapfn: ValueRef,
-                                                param_substs: &Substs<'tcx>,
+                                                param_substs: &'tcx Substs<'tcx>,
                                                 id: ast::NodeId,
                                                 hash: Option<&str>) {
     let _icx = push_ctxt("foreign::build_foreign_fn");
@@ -574,7 +577,7 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     fn build_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                decl: &ast::FnDecl,
                                body: &ast::Block,
-                               param_substs: &Substs<'tcx>,
+                               param_substs: &'tcx Substs<'tcx>,
                                attrs: &[ast::Attribute],
                                id: ast::NodeId,
                                hash: Option<&str>)
@@ -667,14 +670,19 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
             }
         };
 
+        let rustfn_ty = Type::from_ref(llvm::LLVMTypeOf(llrustfn)).element_type();
+        let mut rust_param_tys = rustfn_ty.func_params().into_iter();
         // Push Rust return pointer, using null if it will be unused.
         let rust_uses_outptr = match tys.fn_sig.output {
             ty::FnConverging(ret_ty) => type_of::return_uses_outptr(ccx, ret_ty),
             ty::FnDiverging => false
         };
         let return_alloca: Option<ValueRef>;
-        let llrust_ret_ty = tys.llsig.llret_ty;
-        let llrust_retptr_ty = llrust_ret_ty.ptr_to();
+        let llrust_ret_ty = if rust_uses_outptr {
+            rust_param_tys.next().expect("Missing return type!").element_type()
+        } else {
+            rustfn_ty.return_type()
+        };
         if rust_uses_outptr {
             // Rust expects to use an outpointer. If the foreign fn
             // also uses an outpointer, we can reuse it, but the types
@@ -686,7 +694,7 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                     debug!("out pointer, foreign={}",
                            ccx.tn().val_to_string(llforeign_outptr));
                     let llrust_retptr =
-                        builder.bitcast(llforeign_outptr, llrust_retptr_ty);
+                        builder.bitcast(llforeign_outptr, llrust_ret_ty.ptr_to());
                     debug!("out pointer, foreign={} (casted)",
                            ccx.tn().val_to_string(llrust_retptr));
                     llrust_args.push(llrust_retptr);
@@ -718,8 +726,13 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         // a pointer and Rust does not or vice versa.
         for i in 0..tys.fn_sig.inputs.len() {
             let rust_ty = tys.fn_sig.inputs[i];
-            let llrust_ty = tys.llsig.llarg_tys[i];
             let rust_indirect = type_of::arg_is_indirect(ccx, rust_ty);
+            let llty = rust_param_tys.next().expect("Not enough parameter types!");
+            let llrust_ty = if rust_indirect {
+                llty.element_type()
+            } else {
+                llty
+            };
             let llforeign_arg_ty = tys.fn_ty.arg_tys[i];
             let foreign_indirect = llforeign_arg_ty.is_indirect();
 
@@ -835,7 +848,7 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                 // Foreign ABI requires an out pointer, but Rust doesn't.
                 // Store Rust return value.
                 let llforeign_outptr_casted =
-                    builder.bitcast(llforeign_outptr, llrust_retptr_ty);
+                    builder.bitcast(llforeign_outptr, llrust_ret_ty.ptr_to());
                 builder.store(llrust_ret_val, llforeign_outptr_casted);
                 builder.ret_void();
             }

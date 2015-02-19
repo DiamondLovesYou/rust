@@ -19,11 +19,13 @@ use fmt;
 use iter;
 use libc::{self, c_int, c_char, c_void};
 use mem;
+use io;
 use old_io::{IoResult, IoError, fs};
 use ptr;
 use slice;
 use str;
 use sys::c;
+use sys::fd;
 use sys::fs::FileDesc;
 use vec;
 
@@ -47,13 +49,9 @@ pub fn errno() -> i32 {
     }
 
     #[cfg(target_os = "openbsd")]
-    fn errno_location() -> *const c_int {
-        extern {
-            fn __errno() -> *const c_int;
-        }
-        unsafe {
-            __errno()
-        }
+    unsafe fn errno_location() -> *const c_int {
+        extern { fn __errno() -> *const c_int; }
+        __errno()
     }
 
     #[cfg(any(target_os = "linux", target_os = "android",
@@ -132,7 +130,7 @@ pub struct SplitPaths<'a> {
 
 pub fn split_paths<'a>(unparsed: &'a OsStr) -> SplitPaths<'a> {
     fn is_colon(b: &u8) -> bool { *b == b':' }
-    let unparsed = unparsed.as_byte_slice();
+    let unparsed = unparsed.as_bytes();
     SplitPaths {
         iter: unparsed.split(is_colon as fn(&u8) -> bool)
                       .map(Path::new as fn(&'a [u8]) ->  Path)
@@ -155,7 +153,7 @@ pub fn join_paths<I, T>(paths: I) -> Result<OsString, JoinPathsError>
     let sep = b':';
 
     for (i, path) in paths.enumerate() {
-        let path = path.as_os_str().as_byte_slice();
+        let path = path.as_os_str().as_bytes();
         if i > 0 { joined.push(sep) }
         if path.contains(&sep) {
             return Err(JoinPathsError)
@@ -207,23 +205,23 @@ pub fn current_exe() -> IoResult<Path> {
 }
 
 #[cfg(target_os = "openbsd")]
-pub fn load_self() -> Option<Vec<u8>> {
+pub fn current_exe() -> IoResult<Path> {
     use sync::{StaticMutex, MUTEX_INIT};
 
     static LOCK: StaticMutex = MUTEX_INIT;
 
     extern {
-        fn rust_load_self() -> *const c_char;
+        fn rust_current_exe() -> *const c_char;
     }
 
     let _guard = LOCK.lock();
 
     unsafe {
-        let v = rust_load_self();
+        let v = rust_current_exe();
         if v.is_null() {
-            None
+            Err(IoError::last_error())
         } else {
-            Some(ffi::c_str_to_bytes(&v).to_vec())
+            Ok(Path::new(ffi::c_str_to_bytes(&v).to_vec()))
         }
     }
 }
@@ -257,6 +255,10 @@ impl Iterator for Args {
     type Item = OsString;
     fn next(&mut self) -> Option<OsString> { self.iter.next() }
     fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
+}
+
+impl ExactSizeIterator for Args {
+    fn len(&self) -> usize { self.iter.len() }
 }
 
 /// Returns the command line arguments
@@ -344,6 +346,7 @@ pub fn args() -> Args {
           target_os = "android",
           target_os = "freebsd",
           target_os = "dragonfly",
+          target_os = "openbsd",
           target_os = "nacl"))]
 pub fn args() -> Args {
     use rt;
@@ -405,7 +408,7 @@ pub fn env() -> Env {
 
 pub fn getenv(k: &OsStr) -> Option<OsString> {
     unsafe {
-        let s = CString::from_slice(k.as_byte_slice());
+        let s = CString::from_slice(k.as_bytes());
         let s = libc::getenv(s.as_ptr()) as *const _;
         if s.is_null() {
             None
@@ -417,8 +420,8 @@ pub fn getenv(k: &OsStr) -> Option<OsString> {
 
 pub fn setenv(k: &OsStr, v: &OsStr) {
     unsafe {
-        let k = CString::from_slice(k.as_byte_slice());
-        let v = CString::from_slice(v.as_byte_slice());
+        let k = CString::from_slice(k.as_bytes());
+        let v = CString::from_slice(v.as_bytes());
         if libc::funcs::posix01::unistd::setenv(k.as_ptr(), v.as_ptr(), 1) != 0 {
             panic!("failed setenv: {}", IoError::last_error());
         }
@@ -427,7 +430,7 @@ pub fn setenv(k: &OsStr, v: &OsStr) {
 
 pub fn unsetenv(n: &OsStr) {
     unsafe {
-        let nbuf = CString::from_slice(n.as_byte_slice());
+        let nbuf = CString::from_slice(n.as_bytes());
         if libc::funcs::posix01::unistd::unsetenv(nbuf.as_ptr()) != 0 {
             panic!("failed unsetenv: {}", IoError::last_error());
         }

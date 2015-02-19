@@ -73,11 +73,19 @@ pub fn make_drop_glue_unboxed<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             let unit_size = llsize_of_alloc(ccx, llty);
             if unit_size != 0 {
                 let len = get_len(bcx, vptr);
-                let not_empty = ICmp(bcx, llvm::IntNE, len, C_uint(ccx, 0us));
+                let not_empty = ICmp(bcx,
+                                     llvm::IntNE,
+                                     len,
+                                     C_uint(ccx, 0us),
+                                     DebugLoc::None);
                 with_cond(bcx, not_empty, |bcx| {
                     let llalign = C_uint(ccx, machine::llalign_of_min(ccx, llty));
                     let size = Mul(bcx, C_uint(ccx, unit_size), len, DebugLoc::None);
-                    glue::trans_exchange_free_dyn(bcx, dataptr, size, llalign)
+                    glue::trans_exchange_free_dyn(bcx,
+                                                  dataptr,
+                                                  size,
+                                                  llalign,
+                                                  DebugLoc::None)
                 })
             } else {
                 bcx
@@ -209,7 +217,7 @@ pub fn trans_lit_str<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     match dest {
         Ignore => bcx,
         SaveIn(lldest) => {
-            let bytes = str_lit.get().len();
+            let bytes = str_lit.len();
             let llbytes = C_uint(bcx.ccx(), bytes);
             let llcstr = C_cstr(bcx.ccx(), str_lit, false);
             let llcstr = consts::ptrcast(llcstr, Type::i8p(bcx.ccx()));
@@ -242,7 +250,7 @@ pub fn write_content<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                     match dest {
                         Ignore => return bcx,
                         SaveIn(lldest) => {
-                            let bytes = s.get().len();
+                            let bytes = s.len();
                             let llbytes = C_uint(bcx.ccx(), bytes);
                             let llcstr = C_cstr(bcx.ccx(), (*s).clone(), false);
                             base::call_memcpy(bcx,
@@ -301,8 +309,6 @@ pub fn write_content<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                                     |set_bcx, lleltptr, _| {
                                                         elem.shallow_copy(set_bcx, lleltptr)
                                                     });
-
-                            elem.add_clean_if_rvalue(bcx, element.id);
                             bcx
                         }
                     }
@@ -343,7 +349,7 @@ pub fn elements_required(bcx: Block, content_expr: &ast::Expr) -> uint {
     match content_expr.node {
         ast::ExprLit(ref lit) => {
             match lit.node {
-                ast::LitStr(ref s, _) => s.get().len(),
+                ast::LitStr(ref s, _) => s.len(),
                 _ => {
                     bcx.tcx().sess.span_bug(content_expr.span,
                                             "unexpected evec content")
@@ -439,7 +445,7 @@ pub fn iter_vec_loop<'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
     { // i < count
         let lhs = Load(cond_bcx, loop_counter);
         let rhs = count;
-        let cond_val = ICmp(cond_bcx, llvm::IntULT, lhs, rhs);
+        let cond_val = ICmp(cond_bcx, llvm::IntULT, lhs, rhs, DebugLoc::None);
 
         CondBr(cond_bcx, cond_val, body_bcx.llbb, next_bcx.llbb, DebugLoc::None);
     }
@@ -493,7 +499,7 @@ pub fn iter_vec_raw<'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
         let data_ptr =
             Phi(header_bcx, val_ty(data_ptr), &[data_ptr], &[bcx.llbb]);
         let not_yet_at_end =
-            ICmp(header_bcx, llvm::IntULT, data_ptr, data_end_ptr);
+            ICmp(header_bcx, llvm::IntULT, data_ptr, data_end_ptr, DebugLoc::None);
         let body_bcx = fcx.new_temp_block("iter_vec_loop_body");
         let next_bcx = fcx.new_temp_block("iter_vec_next");
         CondBr(header_bcx, not_yet_at_end, body_bcx.llbb, next_bcx.llbb, DebugLoc::None);

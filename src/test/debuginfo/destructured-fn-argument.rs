@@ -8,7 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-android: FIXME(#10381)
 // min-lldb-version: 310
 
 // compile-flags:-g
@@ -311,6 +310,7 @@
 // lldb-command:continue
 
 #![allow(unused_variables)]
+#![feature(box_patterns)]
 #![feature(box_syntax)]
 #![omit_gdb_pretty_printer_section]
 

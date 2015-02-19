@@ -112,7 +112,7 @@ use self::VarKind::*;
 use middle::def::*;
 use middle::mem_categorization::Typer;
 use middle::pat_util;
-use middle::region::CodeExtent;
+use middle::region;
 use middle::ty;
 use middle::ty::ClosureTyper;
 use lint;
@@ -333,7 +333,7 @@ impl<'a, 'tcx> IrMaps<'a, 'tcx> {
     fn variable_name(&self, var: Variable) -> String {
         match self.var_kinds[var.get()] {
             Local(LocalInfo { ident: nm, .. }) | Arg(_, nm) => {
-                token::get_ident(nm).get().to_string()
+                token::get_ident(nm).to_string()
             },
             ImplicitRet => "<implicit-ret>".to_string(),
             CleanExit => "<clean-exit>".to_string()
@@ -1514,7 +1514,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
         let fn_ret =
             ty::liberate_late_bound_regions(
                 self.ir.tcx,
-                CodeExtent::from_node_id(body.id),
+                region::DestructionScopeData::new(body.id),
                 &self.fn_ret(id));
 
         match fn_ret {

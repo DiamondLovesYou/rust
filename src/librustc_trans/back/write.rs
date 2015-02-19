@@ -854,6 +854,11 @@ pub fn run_passes(sess: &Session,
     }
 
     // Produce final compile outputs.
+    let copy_gracefully = |from: &Path, to: &Path| {
+        if let Err(e) = fs::copy(from, to) {
+            sess.err(&format!("could not copy {:?} to {:?}: {}", from, to, e));
+        }
+    };
 
     if sess.targeting_pnacl() {
         unsafe {
@@ -867,8 +872,7 @@ pub fn run_passes(sess: &Session,
         if sess.opts.cg.codegen_units == 1 {
             // 1) Only one codegen unit.  In this case it's no difficulty
             //    to copy `foo.0.x` to `foo.x`.
-            fs::copy(&crate_output.with_extension(ext),
-                     &crate_output.path(output_type)).unwrap();
+            copy_gracefully(&crate_output.with_extension(ext), &crate_output.path(output_type));
             if !sess.opts.cg.save_temps && !keep_numbered {
                 // The user just wants `foo.x`, not `foo.0.x`.
                 remove(sess, &crate_output.with_extension(ext));
@@ -890,8 +894,7 @@ pub fn run_passes(sess: &Session,
     let link_obj = |output_path: &Path| {
         // Running `ld -r` on a single input is kind of pointless.
         if sess.opts.cg.codegen_units == 1 {
-            fs::copy(&crate_output.with_extension("0.o"),
-                     output_path).unwrap();
+            copy_gracefully(&crate_output.with_extension("0.o"), output_path);
             // Leave the .0.o file around, to mimic the behavior of the normal
             // code path.
             return;
@@ -1144,7 +1147,7 @@ fn run_work_multithreaded(sess: &Session,
             }
 
             tx.take().unwrap().send(()).unwrap();
-        });
+        }).unwrap();
     }
 
     let mut panicked = false;

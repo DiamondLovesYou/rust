@@ -18,22 +18,23 @@
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 
+#![feature(box_patterns)]
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
 #![feature(env)]
 #![feature(hash)]
 #![feature(int_uint)]
-#![feature(io)]
+#![feature(old_io)]
 #![feature(libc)]
 #![feature(os)]
-#![feature(path)]
+#![feature(old_path)]
 #![feature(rustc_private)]
-#![feature(slicing_syntax)]
 #![feature(staged_api)]
 #![feature(std_misc)]
 #![feature(test)]
 #![feature(unicode)]
+#![feature(str_words)]
 
 extern crate arena;
 extern crate getopts;
@@ -55,6 +56,7 @@ use std::env;
 use std::old_io::File;
 use std::old_io;
 use std::rc::Rc;
+use std::sync::mpsc::channel;
 use externalfiles::ExternalHtml;
 use serialize::Decodable;
 use serialize::json::{self, Json};
@@ -121,12 +123,12 @@ struct Output {
 }
 
 pub fn main() {
-    static STACK_SIZE: uint = 32000000; // 32MB
+    const STACK_SIZE: usize = 32000000; // 32MB
     let res = std::thread::Builder::new().stack_size(STACK_SIZE).scoped(move || {
-        let s = env::args().map(|s| s.into_string().unwrap());
-        main_args(&s.collect::<Vec<_>>())
-    }).join();
-    env::set_exit_status(res.ok().unwrap() as i32);
+        let s = env::args().collect::<Vec<_>>();
+        main_args(&s)
+    }).unwrap().join();
+    env::set_exit_status(res as i32);
 }
 
 pub fn opts() -> Vec<getopts::OptGroup> {
@@ -365,12 +367,14 @@ fn rust_input(cratefile: &str, externs: core::Externs, matches: &getopts::Matche
     let cr = Path::new(cratefile);
     info!("starting to run rustc");
 
-    let (mut krate, analysis) = std::thread::Thread::scoped(move || {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
         use rustc::session::config::Input;
 
         let cr = cr;
-        core::run_core(paths, cfgs, externs, Input::File(cr), triple)
+        tx.send(core::run_core(paths, cfgs, externs, Input::File(cr), triple)).unwrap();
     }).join().map_err(|_| "rustc failed").unwrap();
+    let (mut krate, analysis) = rx.recv().unwrap();
     info!("finished with rustc");
     let mut analysis = Some(analysis);
     ANALYSISKEY.with(|s| {

@@ -26,7 +26,7 @@
 //! a `pub fn new()`.
 use self::MethodContext::*;
 
-use metadata::csearch;
+use metadata::{csearch, decoder};
 use middle::def::*;
 use middle::subst::Substs;
 use middle::ty::{self, Ty};
@@ -47,6 +47,7 @@ use syntax::{abi, ast, ast_map};
 use syntax::ast_util::is_shift_binop;
 use syntax::attr::{self, AttrMetaMethods};
 use syntax::codemap::{self, Span};
+use syntax::feature_gate::{KNOWN_ATTRIBUTES, AttributeType};
 use syntax::parse::token;
 use syntax::ast::{TyIs, TyUs, TyI8, TyU8, TyI16, TyU16, TyI32, TyU32, TyI64, TyU64};
 use syntax::ast_util;
@@ -199,7 +200,7 @@ impl LintPass for TypeLimits {
                             if let ast::LitInt(shift, _) = lit.node { shift >= bits }
                             else { false }
                         } else {
-                            match eval_const_expr_partial(cx.tcx, &**r) {
+                            match eval_const_expr_partial(cx.tcx, &**r, Some(cx.tcx.types.uint)) {
                                 Ok(const_int(shift)) => { shift as u64 >= bits },
                                 Ok(const_uint(shift)) => { shift >= bits },
                                 _ => { false }
@@ -318,8 +319,8 @@ impl LintPass for TypeLimits {
 
         fn float_ty_range(float_ty: ast::FloatTy) -> (f64, f64) {
             match float_ty {
-                ast::TyF32  => (f32::MIN_VALUE as f64, f32::MAX_VALUE as f64),
-                ast::TyF64  => (f64::MIN_VALUE,        f64::MAX_VALUE)
+                ast::TyF32  => (f32::MIN as f64, f32::MAX as f64),
+                ast::TyF64  => (f64::MIN,        f64::MAX)
             }
         }
 
@@ -640,66 +641,19 @@ impl LintPass for UnusedAttributes {
     }
 
     fn check_attribute(&mut self, cx: &Context, attr: &ast::Attribute) {
-        static ATTRIBUTE_WHITELIST: &'static [&'static str] = &[
-            // FIXME: #14408 whitelist docs since rustdoc looks at them
-            "doc",
-
-            // FIXME: #14406 these are processed in trans, which happens after the
-            // lint pass
-            "cold",
-            "export_name",
-            "inline",
-            "link",
-            "link_name",
-            "link_section",
-            "linkage",
-            "no_builtins",
-            "no_mangle",
-            "no_split_stack",
-            "no_stack_check",
-            "packed",
-            "static_assert",
-            "thread_local",
-            "no_debug",
-            "omit_gdb_pretty_printer_section",
-            "unsafe_no_drop_flag",
-
-            // used in resolve
-            "prelude_import",
-
-            // FIXME: #14407 these are only looked at on-demand so we can't
-            // guarantee they'll have already been checked
-            "deprecated",
-            "must_use",
-            "stable",
-            "unstable",
-            "rustc_on_unimplemented",
-
-            // FIXME: #19470 this shouldn't be needed forever
-            "old_orphan_check",
-            "old_impl_check",
-            "rustc_paren_sugar", // FIXME: #18101 temporary unboxed closure hack
-        ];
-
-        static CRATE_ATTRS: &'static [&'static str] = &[
-            "crate_name",
-            "crate_type",
-            "feature",
-            "no_start",
-            "no_main",
-            "no_std",
-            "no_builtins",
-        ];
-
-        for &name in ATTRIBUTE_WHITELIST {
-            if attr.check_name(name) {
-                break;
+        for &(ref name, ty) in KNOWN_ATTRIBUTES {
+            match ty {
+                AttributeType::Whitelisted
+                | AttributeType::Gated(_, _) if attr.check_name(name) => {
+                    break;
+                },
+                _ => ()
             }
         }
 
         if !attr::is_used(attr) {
             cx.span_lint(UNUSED_ATTRIBUTES, attr.span, "unused attribute");
-            if CRATE_ATTRS.contains(&attr.name().get()) {
+            if KNOWN_ATTRIBUTES.contains(&(&attr.name()[], AttributeType::CrateLevel)) {
                 let msg = match attr.node.style {
                     ast::AttrOuter => "crate-level attribute should be an inner \
                                        attribute: add an exclamation mark: #![foo]",
@@ -801,10 +755,10 @@ impl LintPass for UnusedResults {
                         None => {}
                         Some(s) => {
                             msg.push_str(": ");
-                            msg.push_str(s.get());
+                            msg.push_str(&s);
                         }
                     }
-                    cx.span_lint(UNUSED_MUST_USE, sp, &msg[]);
+                    cx.span_lint(UNUSED_MUST_USE, sp, &msg);
                     return true;
                 }
             }
@@ -826,8 +780,8 @@ impl NonCamelCaseTypes {
     fn check_case(&self, cx: &Context, sort: &str, ident: ast::Ident, span: Span) {
         fn is_camel_case(ident: ast::Ident) -> bool {
             let ident = token::get_ident(ident);
-            if ident.get().is_empty() { return true; }
-            let ident = ident.get().trim_matches('_');
+            if ident.is_empty() { return true; }
+            let ident = ident.trim_matches('_');
 
             // start with a non-lowercase letter rather than non-uppercase
             // ones (some scripts don't have a concept of upper/lowercase)
@@ -844,7 +798,7 @@ impl NonCamelCaseTypes {
         let s = token::get_ident(ident);
 
         if !is_camel_case(ident) {
-            let c = to_camel_case(s.get());
+            let c = to_camel_case(&s);
             let m = if c.is_empty() {
                 format!("{} `{}` should have a camel case name such as `CamelCase`", sort, s)
             } else {
@@ -977,8 +931,8 @@ impl NonSnakeCase {
     fn check_snake_case(&self, cx: &Context, sort: &str, ident: ast::Ident, span: Span) {
         fn is_snake_case(ident: ast::Ident) -> bool {
             let ident = token::get_ident(ident);
-            if ident.get().is_empty() { return true; }
-            let ident = ident.get().trim_left_matches('\'');
+            if ident.is_empty() { return true; }
+            let ident = ident.trim_left_matches('\'');
             let ident = ident.trim_matches('_');
 
             let mut allow_underscore = true;
@@ -996,8 +950,8 @@ impl NonSnakeCase {
         let s = token::get_ident(ident);
 
         if !is_snake_case(ident) {
-            let sc = NonSnakeCase::to_snake_case(s.get());
-            if sc != s.get() {
+            let sc = NonSnakeCase::to_snake_case(&s);
+            if sc != &s[] {
                 cx.span_lint(NON_SNAKE_CASE, span,
                     &*format!("{} `{}` should have a snake case name such as `{}`",
                             sort, s, sc));
@@ -1077,10 +1031,10 @@ impl NonUpperCaseGlobals {
     fn check_upper_case(cx: &Context, sort: &str, ident: ast::Ident, span: Span) {
         let s = token::get_ident(ident);
 
-        if s.get().chars().any(|c| c.is_lowercase()) {
-            let uc: String = NonSnakeCase::to_snake_case(s.get()).chars()
+        if s.chars().any(|c| c.is_lowercase()) {
+            let uc: String = NonSnakeCase::to_snake_case(&s).chars()
                                            .map(|c| c.to_uppercase()).collect();
-            if uc != s.get() {
+            if uc != &s[] {
                 cx.span_lint(NON_UPPER_CASE_GLOBALS, span,
                     &format!("{} `{}` should have an upper case name such as `{}`",
                              sort, s, uc));
@@ -1241,7 +1195,7 @@ impl LintPass for UnusedImportBraces {
                             match items[0].node {
                                 ast::PathListIdent {ref name, ..} => {
                                     let m = format!("braces around {} is unnecessary",
-                                                    token::get_ident(*name).get());
+                                                    &token::get_ident(*name));
                                     cx.span_lint(UNUSED_IMPORT_BRACES, item.span,
                                                  &m[]);
                                 },
@@ -1358,7 +1312,7 @@ impl UnusedMut {
             pat_util::pat_bindings(&cx.tcx.def_map, &**p, |mode, id, _, path1| {
                 let ident = path1.node;
                 if let ast::BindByValue(ast::MutMutable) = mode {
-                    if !token::get_ident(ident).get().starts_with("_") {
+                    if !token::get_ident(ident).starts_with("_") {
                         match mutables.entry(ident.name.usize()) {
                             Vacant(entry) => { entry.insert(vec![id]); },
                             Occupied(mut entry) => { entry.get_mut().push(id); },
@@ -1760,12 +1714,17 @@ impl LintPass for Stability {
     }
 
     fn check_item(&mut self, cx: &Context, item: &ast::Item) {
-        stability::check_item(cx.tcx, item,
+        stability::check_item(cx.tcx, item, false,
                               &mut |id, sp, stab| self.lint(cx, id, sp, stab));
     }
 
     fn check_expr(&mut self, cx: &Context, e: &ast::Expr) {
         stability::check_expr(cx.tcx, e,
+                              &mut |id, sp, stab| self.lint(cx, id, sp, stab));
+    }
+
+    fn check_path(&mut self, cx: &Context, path: &ast::Path, id: ast::NodeId) {
+        stability::check_path(cx.tcx, path, id,
                               &mut |id, sp, stab| self.lint(cx, id, sp, stab));
     }
 }
@@ -1959,6 +1918,48 @@ impl LintPass for UnconditionalRecursion {
 }
 
 declare_lint! {
+    PLUGIN_AS_LIBRARY,
+    Warn,
+    "compiler plugin used as ordinary library in non-plugin crate"
+}
+
+#[derive(Copy)]
+pub struct PluginAsLibrary;
+
+impl LintPass for PluginAsLibrary {
+    fn get_lints(&self) -> LintArray {
+        lint_array![PLUGIN_AS_LIBRARY]
+    }
+
+    fn check_item(&mut self, cx: &Context, it: &ast::Item) {
+        if cx.sess().plugin_registrar_fn.get().is_some() {
+            // We're compiling a plugin; it's fine to link other plugins.
+            return;
+        }
+
+        match it.node {
+            ast::ItemExternCrate(..) => (),
+            _ => return,
+        };
+
+        let md = match cx.sess().cstore.find_extern_mod_stmt_cnum(it.id) {
+            Some(cnum) => cx.sess().cstore.get_crate_data(cnum),
+            None => {
+                // Probably means we aren't linking the crate for some reason.
+                //
+                // Not sure if / when this could happen.
+                return;
+            }
+        };
+
+        if decoder::get_plugin_registrar_fn(md.data()).is_some() {
+            cx.span_lint(PLUGIN_AS_LIBRARY, it.span,
+                "compiler plugin used as an ordinary library");
+        }
+    }
+}
+
+declare_lint! {
     pub UNUSED_IMPORTS,
     Warn,
     "imports that are never used"
@@ -2019,6 +2020,12 @@ declare_lint! {
 }
 
 declare_lint! {
+    pub STABLE_FEATURES,
+    Warn,
+    "stable features found in #[feature] directive"
+}
+
+declare_lint! {
     pub UNKNOWN_CRATE_TYPES,
     Deny,
     "unknown crate type found in #[crate_type] directive"
@@ -2038,7 +2045,7 @@ declare_lint! {
 
 declare_lint! {
     pub MISSING_COPY_IMPLEMENTATIONS,
-    Warn,
+    Allow,
     "detects potentially-forgotten implementations of `Copy`"
 }
 
@@ -2060,6 +2067,7 @@ impl LintPass for HardwiredLints {
             UNREACHABLE_CODE,
             WARNINGS,
             UNUSED_FEATURES,
+            STABLE_FEATURES,
             UNKNOWN_CRATE_TYPES,
             VARIANT_SIZE_DIFFERENCES,
             FAT_PTR_TRANSMUTES
@@ -2073,12 +2081,26 @@ declare_lint! {
     "functions marked #[no_mangle] should be exported"
 }
 
-#[derive(Copy)]
-pub struct PrivateNoMangleFns;
+declare_lint! {
+    PRIVATE_NO_MANGLE_STATICS,
+    Warn,
+    "statics marked #[no_mangle] should be exported"
+}
 
-impl LintPass for PrivateNoMangleFns {
+declare_lint! {
+    NO_MANGLE_CONST_ITEMS,
+    Deny,
+    "const items will not have their symbols exported"
+}
+
+#[derive(Copy)]
+pub struct InvalidNoMangleItems;
+
+impl LintPass for InvalidNoMangleItems {
     fn get_lints(&self) -> LintArray {
-        lint_array!(PRIVATE_NO_MANGLE_FNS)
+        lint_array!(PRIVATE_NO_MANGLE_FNS,
+                    PRIVATE_NO_MANGLE_STATICS,
+                    NO_MANGLE_CONST_ITEMS)
     }
 
     fn check_item(&mut self, cx: &Context, it: &ast::Item) {
@@ -2091,6 +2113,23 @@ impl LintPass for PrivateNoMangleFns {
                     cx.span_lint(PRIVATE_NO_MANGLE_FNS, it.span, &msg);
                 }
             },
+            ast::ItemStatic(..) => {
+                if attr::contains_name(it.attrs.as_slice(), "no_mangle") &&
+                       !cx.exported_items.contains(&it.id) {
+                    let msg = format!("static {} is marked #[no_mangle], but not exported",
+                                      it.ident);
+                    cx.span_lint(PRIVATE_NO_MANGLE_STATICS, it.span, msg.as_slice());
+                }
+            },
+            ast::ItemConst(..) => {
+                if attr::contains_name(it.attrs.as_slice(), "no_mangle") {
+                    // Const items do not refer to a particular location in memory, and therefore
+                    // don't have anything to attach a symbol to
+                    let msg = "const items should never be #[no_mangle], consider instead using \
+                        `pub static`";
+                    cx.span_lint(NO_MANGLE_CONST_ITEMS, it.span, msg);
+                }
+            }
             _ => {},
         }
     }

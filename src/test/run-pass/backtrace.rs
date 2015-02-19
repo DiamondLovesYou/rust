@@ -17,7 +17,7 @@
 #![feature(unsafe_destructor)]
 
 
-use std::os;
+use std::env;
 use std::old_io::process::Command;
 use std::str;
 use std::ops::{Drop, FnMut, FnOnce};
@@ -25,7 +25,7 @@ use std::ops::{Drop, FnMut, FnOnce};
 #[inline(never)]
 fn foo() {
     let _v = vec![1, 2, 3];
-    if os::getenv("IS_TEST").is_some() {
+    if env::var_os("IS_TEST").is_some() {
         panic!()
     }
 }
@@ -88,8 +88,7 @@ fn runtest(me: &str) {
 }
 
 fn main() {
-    let args = os::args();
-    let args = args;
+    let args: Vec<String> = env::args().collect();
     if args.len() >= 2 && args[1] == "fail" {
         foo();
     } else if args.len() >= 2 && args[1] == "double-fail" {

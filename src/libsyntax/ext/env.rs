@@ -30,11 +30,11 @@ pub fn expand_option_env<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenT
         Some(v) => v
     };
 
-    let e = match env::var_string(&var[]) {
+    let e = match env::var(&var[]) {
       Err(..) => {
           cx.expr_path(cx.path_all(sp,
                                    true,
-                                   vec!(cx.ident_of("std"),
+                                   vec!(cx.ident_of_std("core"),
                                         cx.ident_of("option"),
                                         cx.ident_of("Option"),
                                         cx.ident_of("None")),
@@ -50,7 +50,7 @@ pub fn expand_option_env<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenT
       }
       Ok(s) => {
           cx.expr_call_global(sp,
-                              vec!(cx.ident_of("std"),
+                              vec!(cx.ident_of_std("core"),
                                    cx.ident_of("option"),
                                    cx.ident_of("Option"),
                                    cx.ident_of("Some")),
@@ -101,12 +101,12 @@ pub fn expand_env<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
         }
     }
 
-    let e = match env::var_string(var.get()) {
-        Err(..) => {
-            cx.span_err(sp, msg.get());
+    let e = match env::var(&var[]) {
+        Err(_) => {
+            cx.span_err(sp, &msg);
             cx.expr_usize(sp, 0)
         }
-        Ok(s) => cx.expr_str(sp, token::intern_and_get_ident(&s[]))
+        Ok(s) => cx.expr_str(sp, token::intern_and_get_ident(&s))
     };
     MacExpr::new(e)
 }

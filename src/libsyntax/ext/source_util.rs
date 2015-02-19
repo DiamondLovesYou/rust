@@ -73,7 +73,7 @@ pub fn expand_mod(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
     base::check_zero_tts(cx, sp, tts, "module_path!");
     let string = cx.mod_path()
                    .iter()
-                   .map(|x| token::get_ident(*x).get().to_string())
+                   .map(|x| token::get_ident(*x).to_string())
                    .collect::<Vec<String>>()
                    .connect("::");
     base::MacExpr::new(cx.expr_str(
@@ -111,10 +111,14 @@ pub fn expand_include<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree
         fn make_items(mut self: Box<ExpandResult<'a>>)
                       -> Option<SmallVector<P<ast::Item>>> {
             let mut ret = SmallVector::zero();
-            loop {
+            while self.p.token != token::Eof {
                 match self.p.parse_item_with_outer_attributes() {
                     Some(item) => ret.push(item),
-                    None => break
+                    None => self.p.span_fatal(
+                        self.p.span,
+                        &format!("expected item, found `{}`",
+                                 self.p.this_token_to_string())[]
+                    )
                 }
             }
             Some(ret)

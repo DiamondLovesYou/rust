@@ -1,6 +1,4 @@
-# **This is a work in progress**
-
-% The Rust Grammar
+% Grammar
 
 # Introduction
 
@@ -157,7 +155,7 @@ token : simple_token | ident | literal | symbol | whitespace token ;
 
 |          |          |          |          |        |
 |----------|----------|----------|----------|--------|
-| abstract | alignof  | as       | be       | box    |
+| abstract | alignof  | as       | become   | box    |
 | break    | const    | continue | crate    | do     |
 | else     | enum     | extern   | false    | final  |
 | fn       | for      | if       | impl     | in     |
@@ -570,7 +568,7 @@ binop_expr : expr binop expr ;
 The precedence of Rust binary operators is ordered as follows, going from
 strong to weak:
 
-```
+```text
 * / %
 as
 + -

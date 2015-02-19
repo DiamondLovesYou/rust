@@ -50,6 +50,7 @@ use externalfiles::ExternalHtml;
 
 use serialize::json;
 use serialize::json::ToJson;
+use syntax::abi;
 use syntax::ast;
 use syntax::ast_util;
 use rustc::util::nodemap::NodeSet;
@@ -1809,14 +1810,21 @@ fn assoc_type(w: &mut fmt::Formatter, it: &clean::Item,
 }
 
 fn render_method(w: &mut fmt::Formatter, meth: &clean::Item) -> fmt::Result {
-    fn method(w: &mut fmt::Formatter, it: &clean::Item, unsafety: ast::Unsafety,
-           g: &clean::Generics, selfty: &clean::SelfTy,
-           d: &clean::FnDecl) -> fmt::Result {
-        write!(w, "{}fn <a href='#{ty}.{name}' class='fnname'>{name}</a>\
+    fn method(w: &mut fmt::Formatter, it: &clean::Item,
+              unsafety: ast::Unsafety, abi: abi::Abi,
+              g: &clean::Generics, selfty: &clean::SelfTy,
+              d: &clean::FnDecl) -> fmt::Result {
+        use syntax::abi::Abi;
+
+        write!(w, "{}{}fn <a href='#{ty}.{name}' class='fnname'>{name}</a>\
                    {generics}{decl}{where_clause}",
                match unsafety {
                    ast::Unsafety::Unsafe => "unsafe ",
                    _ => "",
+               },
+               match abi {
+                   Abi::Rust => String::new(),
+                   a => format!("extern {} ", a.to_string())
                },
                ty = shortty(it),
                name = it.name.as_ref().unwrap(),
@@ -1826,10 +1834,10 @@ fn render_method(w: &mut fmt::Formatter, meth: &clean::Item) -> fmt::Result {
     }
     match meth.inner {
         clean::TyMethodItem(ref m) => {
-            method(w, meth, m.unsafety, &m.generics, &m.self_, &m.decl)
+            method(w, meth, m.unsafety, m.abi, &m.generics, &m.self_, &m.decl)
         }
         clean::MethodItem(ref m) => {
-            method(w, meth, m.unsafety, &m.generics, &m.self_, &m.decl)
+            method(w, meth, m.unsafety, m.abi, &m.generics, &m.self_, &m.decl)
         }
         clean::AssociatedTypeItem(ref typ) => {
             assoc_type(w, meth, typ)
@@ -1841,6 +1849,7 @@ fn render_method(w: &mut fmt::Formatter, meth: &clean::Item) -> fmt::Result {
 fn item_struct(w: &mut fmt::Formatter, it: &clean::Item,
                s: &clean::Struct) -> fmt::Result {
     try!(write!(w, "<pre class='rust struct'>"));
+    try!(render_attributes(w, it));
     try!(render_struct(w,
                        it,
                        Some(&s.generics),
@@ -1877,7 +1886,9 @@ fn item_struct(w: &mut fmt::Formatter, it: &clean::Item,
 
 fn item_enum(w: &mut fmt::Formatter, it: &clean::Item,
              e: &clean::Enum) -> fmt::Result {
-    try!(write!(w, "<pre class='rust enum'>{}enum {}{}{}",
+    try!(write!(w, "<pre class='rust enum'>"));
+    try!(render_attributes(w, it));
+    try!(write!(w, "{}enum {}{}{}",
                   VisSpace(it.visibility),
                   it.name.as_ref().unwrap(),
                   e.generics,
@@ -1971,6 +1982,21 @@ fn item_enum(w: &mut fmt::Formatter, it: &clean::Item,
 
     }
     try!(render_methods(w, it));
+    Ok(())
+}
+
+fn render_attributes(w: &mut fmt::Formatter, it: &clean::Item) -> fmt::Result {
+    for attr in &it.attrs {
+        match *attr {
+            clean::Word(ref s) if *s == "must_use" => {
+                try!(write!(w, "#[{}]\n", s));
+            }
+            clean::NameValue(ref k, ref v) if *k == "must_use" => {
+                try!(write!(w, "#[{} = \"{}\"]\n", k, v));
+            }
+            _ => ()
+        }
+    }
     Ok(())
 }
 

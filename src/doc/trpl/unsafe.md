@@ -308,7 +308,7 @@ crate to allow) and of course requires an `unsafe` block.
 ## Assembly template
 
 The `assembly template` is the only required parameter and must be a
-literal string (i.e `""`)
+literal string (i.e. `""`)
 
 ```
 #![feature(asm)]
@@ -412,7 +412,7 @@ memory, `memory` should also be specified.
 ## Options
 
 The last section, `options` is specific to Rust. The format is comma
-separated literal strings (i.e `:"foo", "bar", "baz"`). It's used to
+separated literal strings (i.e. `:"foo", "bar", "baz"`). It's used to
 specify some extra info about the inline assembly:
 
 Current valid options are:
@@ -420,7 +420,7 @@ Current valid options are:
 1. *volatile* - specifying this is analogous to
    `__asm__ __volatile__ (...)` in gcc/clang.
 2. *alignstack* - certain instructions expect the stack to be
-   aligned a certain way (i.e SSE) and specifying this indicates to
+   aligned a certain way (i.e. SSE) and specifying this indicates to
    the compiler to insert its usual stack alignment code
 3. *intel* - use intel syntax instead of the default AT&T.
 
@@ -433,6 +433,7 @@ attribute attached to the crate.
 ```ignore
 // a minimal library
 #![crate_type="lib"]
+#![feature(no_std)]
 #![no_std]
 # // fn main() {} tricked you, rustdoc!
 ```
@@ -446,8 +447,8 @@ The function marked `#[start]` is passed the command line parameters
 in the same format as C:
 
 ```
+#![feature(lang_items, start, no_std)]
 #![no_std]
-#![feature(lang_items, start)]
 
 // Pull in the system libc library for what crt0.o likely requires
 extern crate libc;
@@ -473,6 +474,7 @@ correct ABI and the correct name, which requires overriding the
 compiler's name mangling too:
 
 ```ignore
+#![feature(no_std)]
 #![no_std]
 #![no_main]
 #![feature(lang_items, start)]
@@ -528,8 +530,8 @@ As an example, here is a program that will calculate the dot product of two
 vectors provided from C, using idiomatic Rust practices.
 
 ```
+#![feature(lang_items, start, no_std)]
 #![no_std]
-#![feature(lang_items, start)]
 
 # extern crate libc;
 extern crate core;
@@ -576,10 +578,6 @@ extern fn panic_fmt(args: &core::fmt::Arguments,
 #[lang = "eh_personality"] extern fn eh_personality() {}
 # #[start] fn start(argc: isize, argv: *const *const u8) -> isize { 0 }
 # fn main() {}
-# mod std {  // for-loops
-#     pub use core::iter;
-#     pub use core::option;
-# }
 ```
 
 Note that there is one extra lang item here which differs from the examples
@@ -648,16 +646,16 @@ The `rustc` compiler has certain pluggable operations, that is,
 functionality that isn't hard-coded into the language, but is
 implemented in libraries, with a special marker to tell the compiler
 it exists. The marker is the attribute `#[lang="..."]` and there are
-various different values of `...`, i.e. various different "lang
-items".
+various different values of `...`, i.e. various different 'lang
+items'.
 
 For example, `Box` pointers require two lang items, one for allocation
 and one for deallocation. A freestanding program that uses the `Box`
 sugar for dynamic allocations via `malloc` and `free`:
 
 ```
+#![feature(lang_items, box_syntax, start, no_std)]
 #![no_std]
-#![feature(lang_items, box_syntax, start)]
 
 extern crate libc;
 

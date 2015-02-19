@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -78,12 +78,12 @@
 //! use std::cell::RefCell;
 //!
 //! struct Graph {
-//!     edges: Vec<(uint, uint)>,
-//!     span_tree_cache: RefCell<Option<Vec<(uint, uint)>>>
+//!     edges: Vec<(i32, i32)>,
+//!     span_tree_cache: RefCell<Option<Vec<(i32, i32)>>>
 //! }
 //!
 //! impl Graph {
-//!     fn minimum_spanning_tree(&self) -> Vec<(uint, uint)> {
+//!     fn minimum_spanning_tree(&self) -> Vec<(i32, i32)> {
 //!         // Create a new scope to contain the lifetime of the
 //!         // dynamic borrow
 //!         {
@@ -104,7 +104,7 @@
 //!         // This is the major hazard of using `RefCell`.
 //!         self.minimum_spanning_tree()
 //!     }
-//! #   fn calc_span_tree(&self) -> Vec<(uint, uint)> { vec![] }
+//! #   fn calc_span_tree(&self) -> Vec<(i32, i32)> { vec![] }
 //! }
 //! ```
 //!
@@ -125,7 +125,7 @@
 //!
 //! struct RcBox<T> {
 //!     value: T,
-//!     refcount: Cell<uint>
+//!     refcount: Cell<usize>
 //! }
 //!
 //! impl<T> Clone for Rc<T> {
@@ -151,7 +151,7 @@ use option::Option::{None, Some};
 
 /// A mutable memory location that admits only `Copy` data.
 ///
-/// See the [module-level documentation](../index.html) for more.
+/// See the [module-level documentation](index.html) for more.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Cell<T> {
     value: UnsafeCell<T>,
@@ -259,7 +259,7 @@ impl<T:PartialEq + Copy> PartialEq for Cell<T> {
 
 /// A mutable memory location with dynamically checked borrow rules
 ///
-/// See the [module-level documentation](../index.html) for more.
+/// See the [module-level documentation](index.html) for more.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct RefCell<T> {
     value: UnsafeCell<T>,
@@ -279,8 +279,8 @@ pub enum BorrowState {
 }
 
 // Values [1, MAX-1] represent the number of `Ref` active
-// (will not outgrow its range since `uint` is the size of the address space)
-type BorrowFlag = uint;
+// (will not outgrow its range since `usize` is the size of the address space)
+type BorrowFlag = usize;
 const UNUSED: BorrowFlag = 0;
 const WRITING: BorrowFlag = -1;
 
@@ -375,9 +375,9 @@ impl<T> RefCell<T> {
     ///
     /// ```
     /// use std::cell::RefCell;
-    /// use std::thread::Thread;
+    /// use std::thread;
     ///
-    /// let result = Thread::scoped(move || {
+    /// let result = thread::spawn(move || {
     ///    let c = RefCell::new(5);
     ///    let m = c.borrow_mut();
     ///
@@ -436,9 +436,9 @@ impl<T> RefCell<T> {
     ///
     /// ```
     /// use std::cell::RefCell;
-    /// use std::thread::Thread;
+    /// use std::thread;
     ///
-    /// let result = Thread::scoped(move || {
+    /// let result = thread::spawn(move || {
     ///    let c = RefCell::new(5);
     ///    let m = c.borrow_mut();
     ///
@@ -534,7 +534,7 @@ impl<'b> Clone for BorrowRef<'b> {
 /// Wraps a borrowed reference to a value in a `RefCell` box.
 /// A wrapper type for an immutably borrowed value from a `RefCell<T>`.
 ///
-/// See the [module-level documentation](../index.html) for more.
+/// See the [module-level documentation](index.html) for more.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Ref<'b, T:'b> {
     // FIXME #12808: strange name to try to avoid interfering with
@@ -595,7 +595,7 @@ impl<'b> BorrowRefMut<'b> {
 
 /// A wrapper type for a mutably borrowed value from a `RefCell<T>`.
 ///
-/// See the [module-level documentation](../index.html) for more.
+/// See the [module-level documentation](index.html) for more.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct RefMut<'b, T:'b> {
     // FIXME #12808: strange name to try to avoid interfering with
@@ -649,7 +649,7 @@ impl<'b, T> DerefMut for RefMut<'b, T> {
 ///
 /// **NOTE:** `UnsafeCell<T>`'s fields are public to allow static initializers. It is not
 /// recommended to access its fields directly, `get` should be used instead.
-#[lang="unsafe"]
+#[lang="unsafe_cell"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct UnsafeCell<T> {
     /// Wrapped value

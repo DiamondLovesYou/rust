@@ -323,7 +323,7 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 mk_struct(cx, &ftys[], false, t)
             }).collect();
 
-            ensure_enum_fits_in_address_space(cx, ity, &fields[], t);
+            ensure_enum_fits_in_address_space(cx, &fields[], t);
 
             General(ity, fields, dtor)
         }
@@ -582,20 +582,14 @@ fn ensure_struct_fits_in_address_space<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
 
 fn union_size_and_align(sts: &[Struct]) -> (machine::llsize, machine::llalign) {
     let size = sts.iter().map(|st| st.size).max().unwrap();
-    let most_aligned = sts.iter().max_by(|st| st.align).unwrap();
-    (size, most_aligned.align)
+    let align = sts.iter().map(|st| st.align).max().unwrap();
+    (roundup(size, align), align)
 }
 
 fn ensure_enum_fits_in_address_space<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
-                                               discr: IntType,
                                                fields: &[Struct],
                                                scapegoat: Ty<'tcx>) {
-    let discr_size = machine::llsize_of_alloc(ccx, ll_inttype(ccx, discr));
-    let (field_size, field_align) = union_size_and_align(fields);
-
-    // field_align < 1<<32, discr_size <= 8, field_size < OBJ_SIZE_BOUND <= 1<<61
-    // so the sum is less than 1<<62 (and can't overflow).
-    let total_size = roundup(discr_size, field_align) + field_size;
+    let (total_size, _) = union_size_and_align(fields);
 
     if total_size >= ccx.obj_size_bound() {
         ccx.report_overbig_object(scapegoat);
@@ -677,7 +671,8 @@ fn generic_type_of<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             };
             let discr_ty = ll_inttype(cx, ity);
             let discr_size = machine::llsize_of_alloc(cx, discr_ty);
-            let align_units = (size + align_s - 1) / align_s - 1;
+            assert_eq!(size % align_s, 0);
+            let align_units = size / align_s - 1;
             let fill_ty = match align_s {
                 1 => Type::array(&Type::i8(cx), align_units),
                 2 => Type::array(&Type::i16(cx), align_units),
@@ -766,7 +761,7 @@ pub fn trans_get_discr<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, r: &Repr<'tcx>,
         RawNullablePointer { nndiscr, nnty, .. } =>  {
             let cmp = if nndiscr == 0 { IntEQ } else { IntNE };
             let llptrty = type_of::sizing_type_of(bcx.ccx(), nnty);
-            val = ICmp(bcx, cmp, Load(bcx, scrutinee), C_null(llptrty));
+            val = ICmp(bcx, cmp, Load(bcx, scrutinee), C_null(llptrty), DebugLoc::None);
             signed = false;
         }
         StructWrappedNullablePointer { nndiscr, ref discrfield, .. } => {
@@ -785,7 +780,7 @@ fn struct_wrapped_nullable_bitdiscr(bcx: Block, nndiscr: Disr, discrfield: &Disc
     let llptrptr = GEPi(bcx, scrutinee, &discrfield[]);
     let llptr = Load(bcx, llptrptr);
     let cmp = if nndiscr == 0 { IntEQ } else { IntNE };
-    ICmp(bcx, cmp, llptr, C_null(val_ty(llptr)))
+    ICmp(bcx, cmp, llptr, C_null(val_ty(llptr)), DebugLoc::None)
 }
 
 /// Helper for cases where the discriminant is simply loaded.
@@ -1064,7 +1059,7 @@ pub fn trans_const<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, r: &Repr<'tcx>, discr
         }
         General(ity, ref cases, _) => {
             let case = &cases[discr as uint];
-            let max_sz = cases.iter().map(|x| x.size).max().unwrap();
+            let (max_sz, _) = union_size_and_align(&cases[]);
             let lldiscr = C_integral(ll_inttype(ccx, ity), discr as u64, true);
             let mut f = vec![lldiscr];
             f.push_all(vals);

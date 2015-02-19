@@ -12,10 +12,10 @@
 use std::old_io::process;
 use std::old_io::Command;
 use std::old_io;
-use std::os;
+use std::env;
 
 fn main() {
-    let args = os::args();
+    let args: Vec<String> = env::args().collect();
     if args.len() > 1 && args[1] == "child" {
         return child()
     }
@@ -27,11 +27,12 @@ fn main() {
 fn child() {
     old_io::stdout().write_line("foo").unwrap();
     old_io::stderr().write_line("bar").unwrap();
-    assert_eq!(old_io::stdin().lock().read_line().err().unwrap().kind, old_io::EndOfFile);
+    let mut stdin = old_io::stdin();
+    assert_eq!(stdin.lock().read_line().err().unwrap().kind, old_io::EndOfFile);
 }
 
 fn test() {
-    let args = os::args();
+    let args: Vec<String> = env::args().collect();
     let mut p = Command::new(&args[0]).arg("child")
                                      .stdin(process::Ignored)
                                      .stdout(process::Ignored)

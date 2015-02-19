@@ -50,7 +50,8 @@
 //!     ```rust
 //!     use std::old_io as io;
 //!
-//!     for line in io::stdin().lock().lines() {
+//!     let mut stdin = io::stdin();
+//!     for line in stdin.lock().lines() {
 //!         print!("{}", line.unwrap());
 //!     }
 //!     ```
@@ -123,7 +124,7 @@
 //!     # #![allow(dead_code)]
 //!     use std::old_io::{TcpListener, TcpStream};
 //!     use std::old_io::{Acceptor, Listener};
-//!     use std::thread::Thread;
+//!     use std::thread;
 //!
 //!     let listener = TcpListener::bind("127.0.0.1:80");
 //!
@@ -139,7 +140,7 @@
 //!         match stream {
 //!             Err(e) => { /* connection failed */ }
 //!             Ok(stream) => {
-//!                 Thread::spawn(move|| {
+//!                 thread::spawn(move|| {
 //!                     // connection succeeded
 //!                     handle_client(stream)
 //!                 });
@@ -237,7 +238,7 @@
 //! concerned with error handling; instead its caller is responsible for
 //! responding to errors that may occur while attempting to read the numbers.
 
-#![unstable(feature = "io")]
+#![unstable(feature = "old_io")]
 #![deny(unused_must_use)]
 
 pub use self::SeekStyle::*;
@@ -249,7 +250,7 @@ use char::CharExt;
 use default::Default;
 use error::Error;
 use fmt;
-use int;
+use isize;
 use iter::{Iterator, IteratorExt};
 use marker::Sized;
 use mem::transmute;
@@ -265,7 +266,7 @@ use slice::SliceExt;
 use str::StrExt;
 use str;
 use string::String;
-use uint;
+use usize;
 use unicode;
 use vec::Vec;
 
@@ -337,7 +338,7 @@ impl IoError {
     /// If `detail` is `true`, the `detail` field of the `IoError`
     /// struct is filled with an allocated string describing the error
     /// in more detail, retrieved from the operating system.
-    pub fn from_errno(errno: uint, detail: bool) -> IoError {
+    pub fn from_errno(errno: i32, detail: bool) -> IoError {
         let mut err = sys::decode_error(errno as i32);
         if detail && err.kind == OtherIoError {
             err.detail = Some(os::error_string(errno).chars()
@@ -353,7 +354,7 @@ impl IoError {
     /// operating system) between the call(s) for which errors are
     /// being checked and the call of this function.
     pub fn last_error() -> IoError {
-        IoError::from_errno(os::errno() as uint, true)
+        IoError::from_errno(os::errno(), true)
     }
 }
 
@@ -711,28 +712,28 @@ pub trait Reader {
     ///
     /// The number of bytes returned is system-dependent.
     fn read_le_uint(&mut self) -> IoResult<uint> {
-        self.read_le_uint_n(uint::BYTES).map(|i| i as uint)
+        self.read_le_uint_n(usize::BYTES).map(|i| i as uint)
     }
 
     /// Reads a little-endian integer.
     ///
     /// The number of bytes returned is system-dependent.
     fn read_le_int(&mut self) -> IoResult<int> {
-        self.read_le_int_n(int::BYTES).map(|i| i as int)
+        self.read_le_int_n(isize::BYTES).map(|i| i as int)
     }
 
     /// Reads a big-endian unsigned integer.
     ///
     /// The number of bytes returned is system-dependent.
     fn read_be_uint(&mut self) -> IoResult<uint> {
-        self.read_be_uint_n(uint::BYTES).map(|i| i as uint)
+        self.read_be_uint_n(usize::BYTES).map(|i| i as uint)
     }
 
     /// Reads a big-endian integer.
     ///
     /// The number of bytes returned is system-dependent.
     fn read_be_int(&mut self) -> IoResult<int> {
-        self.read_be_int_n(int::BYTES).map(|i| i as int)
+        self.read_be_int_n(isize::BYTES).map(|i| i as int)
     }
 
     /// Reads a big-endian `u64`.
@@ -1022,14 +1023,14 @@ pub trait Writer {
     ///
     /// This function will return any I/O error reported while formatting.
     fn write_fmt(&mut self, fmt: fmt::Arguments) -> IoResult<()> {
-        // Create a shim which translates a Writer to a fmt::Writer and saves
+        // Create a shim which translates a Writer to a fmt::Write and saves
         // off I/O errors. instead of discarding them
         struct Adaptor<'a, T: ?Sized +'a> {
             inner: &'a mut T,
             error: IoResult<()>,
         }
 
-        impl<'a, T: ?Sized + Writer> fmt::Writer for Adaptor<'a, T> {
+        impl<'a, T: ?Sized + Writer> fmt::Write for Adaptor<'a, T> {
             fn write_str(&mut self, s: &str) -> fmt::Result {
                 match self.inner.write_all(s.as_bytes()) {
                     Ok(()) => Ok(()),
@@ -1095,25 +1096,25 @@ pub trait Writer {
     /// Write a little-endian uint (number of bytes depends on system).
     #[inline]
     fn write_le_uint(&mut self, n: uint) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, uint::BYTES, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, usize::BYTES, |v| self.write_all(v))
     }
 
     /// Write a little-endian int (number of bytes depends on system).
     #[inline]
     fn write_le_int(&mut self, n: int) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, int::BYTES, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, isize::BYTES, |v| self.write_all(v))
     }
 
     /// Write a big-endian uint (number of bytes depends on system).
     #[inline]
     fn write_be_uint(&mut self, n: uint) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, uint::BYTES, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, usize::BYTES, |v| self.write_all(v))
     }
 
     /// Write a big-endian int (number of bytes depends on system).
     #[inline]
     fn write_be_int(&mut self, n: int) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, int::BYTES, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, isize::BYTES, |v| self.write_all(v))
     }
 
     /// Write a big-endian u64 (8 bytes).
@@ -1843,7 +1844,7 @@ mod tests {
     use self::BadReaderBehavior::*;
     use super::{IoResult, Reader, MemReader, NoProgress, InvalidInput, Writer};
     use prelude::v1::{Ok, Vec, Buffer, SliceExt};
-    use uint;
+    use usize;
 
     #[derive(Clone, PartialEq, Debug)]
     enum BadReaderBehavior {
@@ -1890,24 +1891,24 @@ mod tests {
     #[test]
     fn test_read_at_least() {
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
-                                   vec![GoodBehavior(uint::MAX)]);
+                                   vec![GoodBehavior(usize::MAX)]);
         let buf = &mut [0u8; 5];
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
         assert!(r.read_exact(5).unwrap().len() == 5); // read_exact uses read_at_least
         assert!(r.read_at_least(0, buf).is_ok());
 
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
-                                   vec![BadBehavior(50), GoodBehavior(uint::MAX)]);
+                                   vec![BadBehavior(50), GoodBehavior(usize::MAX)]);
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
 
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
                                    vec![BadBehavior(1), GoodBehavior(1),
-                                        BadBehavior(50), GoodBehavior(uint::MAX)]);
+                                        BadBehavior(50), GoodBehavior(usize::MAX)]);
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
 
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
-                                   vec![BadBehavior(uint::MAX)]);
+                                   vec![BadBehavior(usize::MAX)]);
         assert_eq!(r.read_at_least(1, buf).unwrap_err().kind, NoProgress);
 
         let mut r = MemReader::new(b"hello, world!".to_vec());
@@ -1918,23 +1919,23 @@ mod tests {
     #[test]
     fn test_push_at_least() {
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
-                                   vec![GoodBehavior(uint::MAX)]);
+                                   vec![GoodBehavior(usize::MAX)]);
         let mut buf = Vec::new();
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
         assert!(r.push_at_least(0, 5, &mut buf).is_ok());
 
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
-                                   vec![BadBehavior(50), GoodBehavior(uint::MAX)]);
+                                   vec![BadBehavior(50), GoodBehavior(usize::MAX)]);
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
 
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
                                    vec![BadBehavior(1), GoodBehavior(1),
-                                        BadBehavior(50), GoodBehavior(uint::MAX)]);
+                                        BadBehavior(50), GoodBehavior(usize::MAX)]);
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
         assert!(r.push_at_least(1, 5, &mut buf).unwrap() >= 1);
 
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
-                                   vec![BadBehavior(uint::MAX)]);
+                                   vec![BadBehavior(usize::MAX)]);
         assert_eq!(r.push_at_least(1, 5, &mut buf).unwrap_err().kind, NoProgress);
 
         let mut r = MemReader::new(b"hello, world!".to_vec());

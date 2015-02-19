@@ -13,6 +13,7 @@
 
 use session::Session;
 use lint;
+use middle::def;
 use middle::ty;
 use middle::privacy::PublicItems;
 use metadata::csearch;
@@ -180,7 +181,7 @@ impl Index {
     pub fn new(krate: &Crate) -> Index {
         let mut staged_api = false;
         for attr in &krate.attrs {
-            if attr.name().get() == "staged_api" {
+            if &attr.name()[] == "staged_api" {
                 match attr.node.value.node {
                     ast::MetaWord(_) => {
                         attr::mark_used(attr);
@@ -201,8 +202,9 @@ impl Index {
 /// Cross-references the feature names of unstable APIs with enabled
 /// features and possibly prints errors. Returns a list of all
 /// features used.
-pub fn check_unstable_api_usage(tcx: &ty::ctxt) -> FnvHashSet<InternedString> {
-    let ref active_lib_features = tcx.sess.features.borrow().lib_features;
+pub fn check_unstable_api_usage(tcx: &ty::ctxt)
+                                -> FnvHashMap<InternedString, attr::StabilityLevel> {
+    let ref active_lib_features = tcx.sess.features.borrow().declared_lib_features;
 
     // Put the active features into a map for quick lookup
     let active_features = active_lib_features.iter().map(|&(ref s, _)| s.clone()).collect();
@@ -210,7 +212,7 @@ pub fn check_unstable_api_usage(tcx: &ty::ctxt) -> FnvHashSet<InternedString> {
     let mut checker = Checker {
         tcx: tcx,
         active_features: active_features,
-        used_features: FnvHashSet()
+        used_features: FnvHashMap()
     };
 
     let krate = tcx.map.krate();
@@ -223,7 +225,7 @@ pub fn check_unstable_api_usage(tcx: &ty::ctxt) -> FnvHashSet<InternedString> {
 struct Checker<'a, 'tcx: 'a> {
     tcx: &'a ty::ctxt<'tcx>,
     active_features: FnvHashSet<InternedString>,
-    used_features: FnvHashSet<InternedString>
+    used_features: FnvHashMap<InternedString, attr::StabilityLevel>
 }
 
 impl<'a, 'tcx> Checker<'a, 'tcx> {
@@ -234,20 +236,22 @@ impl<'a, 'tcx> Checker<'a, 'tcx> {
 
         match *stab {
             Some(Stability { level: attr::Unstable, ref feature, ref reason, .. }) => {
-                self.used_features.insert(feature.clone());
+                self.used_features.insert(feature.clone(), attr::Unstable);
 
                 if !self.active_features.contains(feature) {
                     let msg = match *reason {
                         Some(ref r) => format!("use of unstable library feature '{}': {}",
-                                               feature.get(), r.get()),
-                        None => format!("use of unstable library feature '{}'", feature.get())
+                                               &feature, &r),
+                        None => format!("use of unstable library feature '{}'", &feature)
                     };
 
                     emit_feature_warn(&self.tcx.sess.parse_sess.span_diagnostic,
-                                      feature.get(), span, &msg[]);
+                                      &feature, span, &msg);
                 }
             }
-            Some(..) => {
+            Some(Stability { level, ref feature, .. }) => {
+                self.used_features.insert(feature.clone(), level);
+
                 // Stable APIs are always ok to call and deprecated APIs are
                 // handled by a lint.
             }
@@ -257,12 +261,12 @@ impl<'a, 'tcx> Checker<'a, 'tcx> {
                 if self.tcx.sess.features.borrow().unmarked_api {
                     self.tcx.sess.span_warn(span, "use of unmarked library feature");
                     self.tcx.sess.span_note(span, "this is either a bug in the library you are \
-                                                   using and a bug in the compiler - please \
+                                                   using or a bug in the compiler - please \
                                                    report it in both places");
                 } else {
                     self.tcx.sess.span_err(span, "use of unmarked library feature");
                     self.tcx.sess.span_note(span, "this is either a bug in the library you are \
-                                                   using and a bug in the compiler - please \
+                                                   using or a bug in the compiler - please \
                                                    report it in both places");
                     self.tcx.sess.span_note(span, "use #![feature(unmarked_api)] in the \
                                                    crate attributes to override this");
@@ -274,7 +278,12 @@ impl<'a, 'tcx> Checker<'a, 'tcx> {
 
 impl<'a, 'v, 'tcx> Visitor<'v> for Checker<'a, 'tcx> {
     fn visit_item(&mut self, item: &ast::Item) {
-        check_item(self.tcx, item,
+        // When compiling with --test we don't enforce stability on the
+        // compiler-generated test module, demarcated with `DUMMY_SP` plus the
+        // name `__test`
+        if item.span == DUMMY_SP && item.ident.as_str() == "__test" { return }
+
+        check_item(self.tcx, item, true,
                    &mut |id, sp, stab| self.check(id, sp, stab));
         visit::walk_item(self, item);
     }
@@ -284,10 +293,16 @@ impl<'a, 'v, 'tcx> Visitor<'v> for Checker<'a, 'tcx> {
                    &mut |id, sp, stab| self.check(id, sp, stab));
         visit::walk_expr(self, ex);
     }
+
+    fn visit_path(&mut self, path: &ast::Path, id: ast::NodeId) {
+        check_path(self.tcx, path, id,
+                   &mut |id, sp, stab| self.check(id, sp, stab));
+        visit::walk_path(self, path)
+    }
 }
 
 /// Helper for discovering nodes to check for stability
-pub fn check_item(tcx: &ty::ctxt, item: &ast::Item,
+pub fn check_item(tcx: &ty::ctxt, item: &ast::Item, warn_about_defns: bool,
                   cb: &mut FnMut(ast::DefId, Span, &Option<Stability>)) {
     match item.node {
         ast::ItemExternCrate(_) => {
@@ -301,18 +316,35 @@ pub fn check_item(tcx: &ty::ctxt, item: &ast::Item,
             let id = ast::DefId { krate: cnum, node: ast::CRATE_NODE_ID };
             maybe_do_stability_check(tcx, id, item.span, cb);
         }
-        ast::ItemTrait(_, _, ref supertraits, _) => {
-            for t in &**supertraits {
-                if let ast::TraitTyParamBound(ref t, _) = *t {
-                    let id = ty::trait_ref_to_def_id(tcx, &t.trait_ref);
-                    maybe_do_stability_check(tcx, id, t.trait_ref.path.span, cb);
+
+        // For implementations of traits, check the stability of each item
+        // individually as it's possible to have a stable trait with unstable
+        // items.
+        ast::ItemImpl(_, _, _, Some(ref t), _, ref impl_items) => {
+            let trait_did = tcx.def_map.borrow()[t.ref_id].def_id();
+            let trait_items = ty::trait_items(tcx, trait_did);
+
+            for impl_item in impl_items {
+                let (ident, span) = match *impl_item {
+                    ast::MethodImplItem(ref method) => {
+                        (match method.node {
+                            ast::MethDecl(ident, _, _, _, _, _, _, _) => ident,
+                            ast::MethMac(..) => unreachable!(),
+                        }, method.span)
+                    }
+                    ast::TypeImplItem(ref typedef) => {
+                        (typedef.ident, typedef.span)
+                    }
+                };
+                let item = trait_items.iter().find(|item| {
+                    item.name() == ident.name
+                }).unwrap();
+                if warn_about_defns {
+                    maybe_do_stability_check(tcx, item.def_id(), span, cb);
                 }
             }
         }
-        ast::ItemImpl(_, _, _, Some(ref t), _, _) => {
-            let id = ty::trait_ref_to_def_id(tcx, t);
-            maybe_do_stability_check(tcx, id, t.path.span, cb);
-        }
+
         _ => (/* pass */)
     }
 }
@@ -322,15 +354,8 @@ pub fn check_expr(tcx: &ty::ctxt, e: &ast::Expr,
                   cb: &mut FnMut(ast::DefId, Span, &Option<Stability>)) {
     if is_internal(tcx, e.span) { return; }
 
-    let mut span = e.span;
-
+    let span;
     let id = match e.node {
-        ast::ExprPath(..) | ast::ExprQPath(..) | ast::ExprStruct(..) => {
-            match tcx.def_map.borrow().get(&e.id) {
-                Some(&def) => def.def_id(),
-                None => return
-            }
-        }
         ast::ExprMethodCall(i, _, _) => {
             span = i.span;
             let method_call = ty::MethodCall::expr(e.id);
@@ -364,6 +389,16 @@ pub fn check_expr(tcx: &ty::ctxt, e: &ast::Expr,
     };
 
     maybe_do_stability_check(tcx, id, span, cb);
+}
+
+pub fn check_path(tcx: &ty::ctxt, path: &ast::Path, id: ast::NodeId,
+                  cb: &mut FnMut(ast::DefId, Span, &Option<Stability>)) {
+    let did = match tcx.def_map.borrow().get(&id) {
+        Some(&def::DefPrimTy(..)) => return,
+        Some(def) => def.def_id(),
+        None => return
+    };
+    maybe_do_stability_check(tcx, did, path.span, cb)
 }
 
 fn maybe_do_stability_check(tcx: &ty::ctxt, id: ast::DefId, span: Span,
@@ -433,17 +468,37 @@ pub fn lookup(tcx: &ty::ctxt, id: DefId) -> Option<Stability> {
 /// Given the list of enabled features that were not language features (i.e. that
 /// were expected to be library features), and the list of features used from
 /// libraries, identify activated features that don't exist and error about them.
-pub fn check_unused_features(sess: &Session,
-                             used_lib_features: &FnvHashSet<InternedString>) {
-    let ref lib_features = sess.features.borrow().lib_features;
-    let mut active_lib_features: FnvHashMap<InternedString, Span>
-        = lib_features.clone().into_iter().collect();
+pub fn check_unused_or_stable_features(sess: &Session,
+                                       lib_features_used: &FnvHashMap<InternedString,
+                                                                      attr::StabilityLevel>) {
+    let ref declared_lib_features = sess.features.borrow().declared_lib_features;
+    let mut remaining_lib_features: FnvHashMap<InternedString, Span>
+        = declared_lib_features.clone().into_iter().collect();
 
-    for used_feature in used_lib_features {
-        active_lib_features.remove(used_feature);
+    let stable_msg = "this feature is stable. attribute no longer needed";
+
+    for &span in sess.features.borrow().declared_stable_lang_features.iter() {
+        sess.add_lint(lint::builtin::STABLE_FEATURES,
+                      ast::CRATE_NODE_ID,
+                      span,
+                      stable_msg.to_string());
     }
 
-    for (_, &span) in &active_lib_features {
+    for (used_lib_feature, level) in lib_features_used.iter() {
+        match remaining_lib_features.remove(used_lib_feature) {
+            Some(span) => {
+                if *level == attr::Stable {
+                    sess.add_lint(lint::builtin::STABLE_FEATURES,
+                                  ast::CRATE_NODE_ID,
+                                  span,
+                                  stable_msg.to_string());
+                }
+            }
+            None => ( /* used but undeclared, handled during the previous ast visit */ )
+        }
+    }
+
+    for (_, &span) in remaining_lib_features.iter() {
         sess.add_lint(lint::builtin::UNUSED_FEATURES,
                       ast::CRATE_NODE_ID,
                       span,

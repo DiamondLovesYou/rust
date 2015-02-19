@@ -15,14 +15,14 @@ use sync::{Mutex, Condvar};
 ///
 /// ```rust
 /// use std::sync::{Arc, Barrier};
-/// use std::thread::Thread;
+/// use std::thread;
 ///
 /// let barrier = Arc::new(Barrier::new(10));
 /// for _ in 0u..10 {
 ///     let c = barrier.clone();
 ///     // The same messages will be printed together.
 ///     // You will NOT see any interleaving.
-///     Thread::spawn(move|| {
+///     thread::spawn(move|| {
 ///         println!("before wait");
 ///         c.wait();
 ///         println!("after wait");
@@ -46,7 +46,6 @@ struct BarrierState {
 ///
 /// Currently this opaque structure only has one method, `.is_leader()`. Only
 /// one thread will receive a result that will return `true` from this function.
-#[allow(missing_copy_implementations)]
 pub struct BarrierWaitResult(bool);
 
 impl Barrier {
@@ -112,7 +111,7 @@ mod tests {
 
     use sync::{Arc, Barrier};
     use sync::mpsc::{channel, TryRecvError};
-    use thread::Thread;
+    use thread;
 
     #[test]
     fn test_barrier() {
@@ -124,7 +123,7 @@ mod tests {
         for _ in 0u..N - 1 {
             let c = barrier.clone();
             let tx = tx.clone();
-            Thread::spawn(move|| {
+            thread::spawn(move|| {
                 tx.send(c.wait().is_leader()).unwrap();
             });
         }

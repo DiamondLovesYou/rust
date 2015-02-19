@@ -12,11 +12,11 @@
 // ignore-nacl can't spawn processes
 
 use std::old_io::Command;
-use std::os;
+use std::env;
 
 fn main() {
-    if os::args().len() == 1 {
-        assert!(Command::new(os::self_exe_name().unwrap()).arg(b"\xff")
+    if env::args().len() == 1 {
+        assert!(Command::new(env::current_exe().unwrap()).arg(b"\xff")
                         .status().unwrap().success())
     }
 }

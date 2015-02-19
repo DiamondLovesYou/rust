@@ -105,8 +105,8 @@ fn lang_start(main: *const u8, argc: int, argv: *const *const u8) -> int {
         //
         // Hence, we set SIGPIPE to ignore when the program starts up in order
         // to prevent this problem.
-    #[cfg(any(windows, target_os = "nacl"))] fn ignore_sigpipe() {}
-    #[cfg(all(unix, not(target_os = "nacl")))] fn ignore_sigpipe() {
+        #[cfg(any(windows, target_os = "nacl"))] fn ignore_sigpipe() {}
+        #[cfg(all(unix, not(target_os = "nacl")))] fn ignore_sigpipe() {
             use libc;
             use libc::funcs::posix01::signal::signal;
             unsafe {
@@ -148,7 +148,7 @@ fn lang_start(main: *const u8, argc: int, argv: *const *const u8) -> int {
 ///
 /// It is forbidden for procedures to register more `at_exit` handlers when they
 /// are running, and doing so will lead to a process abort.
-pub fn at_exit<F:FnOnce()+Send>(f: F) {
+pub fn at_exit<F:FnOnce()+Send+'static>(f: F) {
     at_exit_imp::push(Thunk::new(f));
 }
 

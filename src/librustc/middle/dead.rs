@@ -234,7 +234,7 @@ impl<'a, 'tcx> MarkSymbolVisitor<'a, 'tcx> {
             ast_map::NodeImplItem(impl_item) => {
                 match *impl_item {
                     ast::MethodImplItem(ref method) => {
-                        visit::walk_block(self, method.pe_body());
+                        visit::walk_method_helper(self, method);
                     }
                     ast::TypeImplItem(_) => {}
                 }
@@ -321,7 +321,7 @@ fn has_allow_dead_code_or_lang_attr(attrs: &[ast::Attribute]) -> bool {
     for attr in lint::gather_attrs(attrs) {
         match attr {
             Ok((ref name, lint::Allow, _))
-                if name.get() == dead_code => return true,
+                if &name[] == dead_code => return true,
             _ => (),
         }
     }

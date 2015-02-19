@@ -24,7 +24,6 @@
 #![feature(int_uint)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
-#![feature(slicing_syntax)]
 #![feature(staged_api)]
 #![feature(std_misc)]
 
@@ -101,7 +100,7 @@ use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::mem::replace;
 use std::rc::{Rc, Weak};
-use std::uint;
+use std::usize;
 
 // NB: This module needs to be declared first so diagnostics are
 // registered before they are used.
@@ -1093,7 +1092,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             } else {
                 result.push_str("::")
             }
-            result.push_str(token::get_name(*name).get());
+            result.push_str(&token::get_name(*name));
         };
         result
     }
@@ -1111,7 +1110,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                         -> String {
         match subclass {
             SingleImport(_, source) => {
-                token::get_name(source).get().to_string()
+                token::get_name(source).to_string()
             }
             GlobImport => "*".to_string()
         }
@@ -1708,7 +1707,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         debug!("(resolving glob import) writing resolution `{}` in `{}` \
                to `{}`",
-               token::get_name(name).get(),
+               &token::get_name(name),
                self.module_to_string(&*containing_module),
                self.module_to_string(module_));
 
@@ -1725,7 +1724,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         let msg = format!("a {} named `{}` has already been imported \
                                            in this module",
                                           namespace_name,
-                                          token::get_name(name).get());
+                                          &token::get_name(name));
                         span_err!(self.session, import_directive.span, E0251, "{}", msg);
                     } else {
                         let target = Target::new(containing_module.clone(),
@@ -1757,7 +1756,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                     name: Name,
                                     namespace: Namespace) {
         debug!("check_for_conflicting_import: {}; target exists: {}",
-               token::get_name(name).get(),
+               &token::get_name(name),
                target.is_some());
 
         match *target {
@@ -1768,7 +1767,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                     TypeNS => "type",
                                     ValueNS => "value",
                                   },
-                                  token::get_name(name).get());
+                                  &token::get_name(name));
                 span_err!(self.session, import_span, E0252, "{}", &msg[]);
             }
             Some(_) | None => {}
@@ -1804,7 +1803,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     let msg = format!("import `{0}` conflicts with imported \
                                        crate in this module \
                                        (maybe you meant `use {0}::*`?)",
-                                      token::get_name(name).get());
+                                      &token::get_name(name));
                     span_err!(self.session, import_span, E0254, "{}", &msg[]);
                 }
                 Some(_) | None => {}
@@ -1826,7 +1825,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 if let Some(ref value) = *name_bindings.value_def.borrow() {
                     let msg = format!("import `{}` conflicts with value \
                                        in this module",
-                                      token::get_name(name).get());
+                                      &token::get_name(name));
                     span_err!(self.session, import_span, E0255, "{}", &msg[]);
                     if let Some(span) = value.value_span {
                         self.session.span_note(span,
@@ -1844,7 +1843,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                         None => {
                             let msg = format!("import `{}` conflicts with type in \
                                                this module",
-                                              token::get_name(name).get());
+                                              &token::get_name(name));
                             span_err!(self.session, import_span, E0256, "{}", &msg[]);
                             if let Some(span) = ty.type_span {
                                 self.session.span_note(span,
@@ -1866,7 +1865,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                 _ => {
                                     let msg = format!("import `{}` conflicts with existing \
                                                        submodule",
-                                                      token::get_name(name).get());
+                                                      &token::get_name(name));
                                     span_err!(self.session, import_span, E0258, "{}", &msg[]);
                                     if let Some(span) = ty.type_span {
                                         self.session.span_note(span,
@@ -1892,7 +1891,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 span_err!(self.session, span, E0259,
                           "an external crate named `{}` has already \
                                    been imported into this module",
-                                  token::get_name(name).get());
+                                  &token::get_name(name));
         }
     }
 
@@ -1906,7 +1905,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                           "the name `{}` conflicts with an external \
                                    crate that has been imported into this \
                                    module",
-                                  token::get_name(name).get());
+                                  &token::get_name(name));
         }
     }
 
@@ -1955,7 +1954,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                     let module_name = self.module_to_string(&*search_module);
                     let mut span = span;
                     let msg = if "???" == &module_name[] {
-                        span.hi = span.lo + Pos::from_usize(segment_name.get().len());
+                        span.hi = span.lo + Pos::from_usize(segment_name.len());
 
                         match search_parent_externals(name,
                                                      &self.current_module) {
@@ -2196,7 +2195,9 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         // Search for external modules.
         if namespace == TypeNS {
-            if let Some(module) = module_.external_module_children.borrow().get(&name).cloned() {
+            // FIXME (21114): In principle unclear `child` *has* to be lifted.
+            let child = module_.external_module_children.borrow().get(&name).cloned();
+            if let Some(module) = child {
                 let name_bindings =
                     Rc::new(Resolver::create_name_bindings_from_module(module));
                 debug!("lower name bindings succeeded");
@@ -2368,11 +2369,11 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let mut containing_module;
         let mut i;
         let first_module_path_string = token::get_name(module_path[0]);
-        if "self" == first_module_path_string.get() {
+        if "self" == &first_module_path_string[] {
             containing_module =
                 self.get_nearest_normal_module_parent_or_self(module_);
             i = 1;
-        } else if "super" == first_module_path_string.get() {
+        } else if "super" == &first_module_path_string[] {
             containing_module =
                 self.get_nearest_normal_module_parent_or_self(module_);
             i = 0;  // We'll handle `super` below.
@@ -2383,7 +2384,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         // Now loop through all the `super`s we find.
         while i < module_path.len() {
             let string = token::get_name(module_path[i]);
-            if "super" != string.get() {
+            if "super" != &string[] {
                 break
             }
             debug!("(resolving module prefix) resolving `super` at {}",
@@ -2417,7 +2418,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                               allow_private_imports: bool)
                               -> ResolveResult<(Target, bool)> {
         debug!("(resolving name in module) resolving `{}` in `{}`",
-               token::get_name(name).get(),
+               &token::get_name(name),
                self.module_to_string(&*module_));
 
         // First, check the direct children of the module.
@@ -2481,7 +2482,9 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         // Finally, search through external children.
         if namespace == TypeNS {
-            if let Some(module) = module_.external_module_children.borrow().get(&name).cloned() {
+            // FIXME (21114): In principle unclear `child` *has* to be lifted.
+            let child = module_.external_module_children.borrow().get(&name).cloned();
+            if let Some(module) = child {
                 let name_bindings =
                     Rc::new(Resolver::create_name_bindings_from_module(module));
                 return Success((Target::new(module_,
@@ -2493,7 +2496,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         // We're out of luck.
         debug!("(resolving name in module) failed to resolve `{}`",
-               token::get_name(name).get());
+               &token::get_name(name));
         return Failed(None);
     }
 
@@ -2784,6 +2787,13 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         visit::walk_crate(self, krate);
     }
 
+    fn check_if_primitive_type_name(&self, name: Name, span: Span) {
+        if let Some(_) = self.primitive_type_table.primitive_types.get(&name) {
+            span_err!(self.session, span, E0317,
+                "user-defined types or type parameters cannot shadow the primitive types");
+        }
+    }
+
     fn resolve_item(&mut self, item: &Item) {
         let name = item.ident.name;
 
@@ -2795,6 +2805,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             // enum item: resolve all the variants' discrs,
             // then resolve the ty params
             ItemEnum(ref enum_def, ref generics) => {
+                self.check_if_primitive_type_name(name, item.span);
+
                 for variant in &(*enum_def).variants {
                     if let Some(ref dis_expr) = variant.node.disr_expr {
                         // resolve the discriminator expr
@@ -2820,6 +2832,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
 
             ItemTy(_, ref generics) => {
+                self.check_if_primitive_type_name(name, item.span);
+
                 self.with_type_parameter_rib(HasTypeParameters(generics,
                                                                TypeSpace,
                                                                item.id,
@@ -2843,6 +2857,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
 
             ItemTrait(_, ref generics, ref bounds, ref trait_items) => {
+                self.check_if_primitive_type_name(name, item.span);
+
                 // Create a new rib for the self type.
                 let mut self_type_rib = Rib::new(ItemRibKind);
 
@@ -2915,6 +2931,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
             }
 
             ItemStruct(ref struct_def, ref generics) => {
+                self.check_if_primitive_type_name(name, item.span);
+
                 self.resolve_struct(item.id,
                                     generics,
                                     &struct_def.fields[]);
@@ -2968,7 +2986,19 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 });
             }
 
-            ItemExternCrate(_) | ItemUse(_) | ItemMac(..) => {
+            ItemUse(ref view_path) => {
+                // check for imports shadowing primitive types
+                if let ast::ViewPathSimple(ident, _) = view_path.node {
+                    match self.def_map.borrow().get(&item.id) {
+                        Some(&DefTy(..)) | Some(&DefStruct(..)) | Some(&DefTrait(..)) | None => {
+                            self.check_if_primitive_type_name(ident.name, item.span);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            ItemExternCrate(_) | ItemMac(..) => {
                 // do nothing, these are just around to be encoded
             }
         }
@@ -3110,6 +3140,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
     fn resolve_type_parameter(&mut self,
                               type_parameter: &TyParam) {
+        self.check_if_primitive_type_name(type_parameter.ident.name, type_parameter.span);
         for bound in &*type_parameter.bounds {
             self.resolve_type_parameter_bound(type_parameter.id, bound,
                                               TraitBoundingTypeParameter);
@@ -4366,13 +4397,13 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         for rib in this.value_ribs.iter().rev() {
             for (&k, _) in &rib.bindings {
                 maybes.push(token::get_name(k));
-                values.push(uint::MAX);
+                values.push(usize::MAX);
             }
         }
 
         let mut smallest = 0;
         for (i, other) in maybes.iter().enumerate() {
-            values[i] = lev_distance(name, other.get());
+            values[i] = lev_distance(name, &other);
 
             if values[i] <= values[smallest] {
                 smallest = i;
@@ -4380,12 +4411,12 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         }
 
         if values.len() > 0 &&
-            values[smallest] != uint::MAX &&
+            values[smallest] != usize::MAX &&
             values[smallest] < name.len() + 2 &&
             values[smallest] <= max_distance &&
-            name != maybes[smallest].get() {
+            name != &maybes[smallest][] {
 
-            Some(maybes[smallest].get().to_string())
+            Some(maybes[smallest].to_string())
 
         } else {
             None
@@ -4475,7 +4506,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                     false // Stop advancing
                                 });
 
-                                if method_scope && token::get_name(self.self_name).get()
+                                if method_scope && &token::get_name(self.self_name)[]
                                                                    == path_name {
                                         self.resolve_error(
                                             expr.span,

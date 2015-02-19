@@ -170,10 +170,10 @@ fn offset_momentum(bodies: &mut [Planet;N_BODIES]) {
 }
 
 fn main() {
-    let n = if std::os::getenv("RUST_BENCH").is_some() {
+    let n = if std::env::var_os("RUST_BENCH").is_some() {
         5000000
     } else {
-        std::os::args().get(1)
+        std::env::args().nth(1)
             .and_then(|arg| arg.parse().ok())
             .unwrap_or(1000)
     };

@@ -21,7 +21,6 @@ use parse::token::InternedString;
 use parse::token;
 use ptr::P;
 
-
 // Transitional reexports so qquote can find the paths it is looking for
 mod syntax {
     pub use ext;
@@ -40,6 +39,18 @@ pub trait AstBuilder {
                 types: Vec<P<ast::Ty>>,
                 bindings: Vec<P<ast::TypeBinding>> )
         -> ast::Path;
+
+    fn qpath(&self, self_type: P<ast::Ty>,
+             trait_ref: P<ast::TraitRef>,
+             ident: ast::Ident )
+        -> P<ast::QPath>;
+    fn qpath_all(&self, self_type: P<ast::Ty>,
+                trait_ref: P<ast::TraitRef>,
+                ident: ast::Ident,
+                lifetimes: Vec<ast::Lifetime>,
+                types: Vec<P<ast::Ty>>,
+                bindings: Vec<P<ast::TypeBinding>> )
+        -> P<ast::QPath>;
 
     // types
     fn ty_mt(&self, ty: P<ast::Ty>, mutbl: ast::Mutability) -> ast::MutTy;
@@ -71,7 +82,7 @@ pub trait AstBuilder {
                default: Option<P<ast::Ty>>) -> ast::TyParam;
 
     fn trait_ref(&self, path: ast::Path) -> ast::TraitRef;
-    fn poly_trait_ref(&self, path: ast::Path) -> ast::PolyTraitRef;
+    fn poly_trait_ref(&self, span: Span, path: ast::Path) -> ast::PolyTraitRef;
     fn typarambound(&self, path: ast::Path) -> ast::TyParamBound;
     fn lifetime(&self, span: Span, ident: ast::Name) -> ast::Lifetime;
     fn lifetime_def(&self,
@@ -103,6 +114,7 @@ pub trait AstBuilder {
     // expressions
     fn expr(&self, span: Span, node: ast::Expr_) -> P<ast::Expr>;
     fn expr_path(&self, path: ast::Path) -> P<ast::Expr>;
+    fn expr_qpath(&self, span: Span, qpath: P<ast::QPath>) -> P<ast::Expr>;
     fn expr_ident(&self, span: Span, id: ast::Ident) -> P<ast::Expr>;
 
     fn expr_self(&self, span: Span) -> P<ast::Expr>;
@@ -331,6 +343,44 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         }
     }
 
+    /// Constructs a qualified path.
+    ///
+    /// Constructs a path like `<self_type as trait_ref>::ident`.
+    fn qpath(&self,
+             self_type: P<ast::Ty>,
+             trait_ref: P<ast::TraitRef>,
+             ident: ast::Ident)
+             -> P<ast::QPath> {
+        self.qpath_all(self_type, trait_ref, ident, Vec::new(), Vec::new(), Vec::new())
+    }
+
+    /// Constructs a qualified path.
+    ///
+    /// Constructs a path like `<self_type as trait_ref>::ident<a, T, A=Bar>`.
+    fn qpath_all(&self,
+                 self_type: P<ast::Ty>,
+                 trait_ref: P<ast::TraitRef>,
+                 ident: ast::Ident,
+                 lifetimes: Vec<ast::Lifetime>,
+                 types: Vec<P<ast::Ty>>,
+                 bindings: Vec<P<ast::TypeBinding>> )
+                 -> P<ast::QPath> {
+        let segment = ast::PathSegment {
+            identifier: ident,
+            parameters: ast::AngleBracketedParameters(ast::AngleBracketedParameterData {
+                lifetimes: lifetimes,
+                types: OwnedSlice::from_vec(types),
+                bindings: OwnedSlice::from_vec(bindings),
+            })
+        };
+
+        P(ast::QPath {
+            self_type: self_type,
+            trait_ref: trait_ref,
+            item_path: segment,
+        })
+    }
+
     fn ty_mt(&self, ty: P<ast::Ty>, mutbl: ast::Mutability) -> ast::MutTy {
         ast::MutTy {
             ty: ty,
@@ -387,7 +437,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
             self.path_all(DUMMY_SP,
                           true,
                           vec!(
-                              self.ident_of("std"),
+                              self.ident_of_std("core"),
                               self.ident_of("option"),
                               self.ident_of("Option")
                           ),
@@ -443,15 +493,16 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         }
     }
 
-    fn poly_trait_ref(&self, path: ast::Path) -> ast::PolyTraitRef {
+    fn poly_trait_ref(&self, span: Span, path: ast::Path) -> ast::PolyTraitRef {
         ast::PolyTraitRef {
             bound_lifetimes: Vec::new(),
-            trait_ref: self.trait_ref(path)
+            trait_ref: self.trait_ref(path),
+            span: span,
         }
     }
 
     fn typarambound(&self, path: ast::Path) -> ast::TyParamBound {
-        ast::TraitTyParamBound(self.poly_trait_ref(path), ast::TraitBoundModifier::None)
+        ast::TraitTyParamBound(self.poly_trait_ref(path.span, path), ast::TraitBoundModifier::None)
     }
 
     fn lifetime(&self, span: Span, name: ast::Name) -> ast::Lifetime {
@@ -554,6 +605,11 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         self.expr(path.span, ast::ExprPath(path))
     }
 
+    /// Constructs a QPath expression.
+    fn expr_qpath(&self, span: Span, qpath: P<ast::QPath>) -> P<ast::Expr> {
+        self.expr(span, ast::ExprQPath(qpath))
+    }
+
     fn expr_ident(&self, span: Span, id: ast::Ident) -> P<ast::Expr> {
         self.expr_path(self.path_ident(span, id))
     }
@@ -576,7 +632,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
     fn expr_field_access(&self, sp: Span, expr: P<ast::Expr>, ident: ast::Ident) -> P<ast::Expr> {
         let field_name = token::get_ident(ident);
         let field_span = Span {
-            lo: sp.lo - Pos::from_usize(field_name.get().len()),
+            lo: sp.lo - Pos::from_usize(field_name.len()),
             hi: sp.hi,
             expn_id: sp.expn_id,
         };
@@ -657,7 +713,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
     }
     fn expr_vec_ng(&self, sp: Span) -> P<ast::Expr> {
         self.expr_call_global(sp,
-                              vec!(self.ident_of("std"),
+                              vec!(self.ident_of_std("collections"),
                                    self.ident_of("vec"),
                                    self.ident_of("Vec"),
                                    self.ident_of("new")),
@@ -677,7 +733,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn expr_some(&self, sp: Span, expr: P<ast::Expr>) -> P<ast::Expr> {
         let some = vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("option"),
             self.ident_of("Option"),
             self.ident_of("Some"));
@@ -686,7 +742,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn expr_none(&self, sp: Span) -> P<ast::Expr> {
         let none = self.path_global(sp, vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("option"),
             self.ident_of("Option"),
             self.ident_of("None")));
@@ -713,7 +769,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         self.expr_call_global(
             span,
             vec!(
-                self.ident_of("std"),
+                self.ident_of_std("core"),
                 self.ident_of("rt"),
                 self.ident_of("begin_unwind")),
             vec!(
@@ -729,7 +785,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn expr_ok(&self, sp: Span, expr: P<ast::Expr>) -> P<ast::Expr> {
         let ok = vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("result"),
             self.ident_of("Result"),
             self.ident_of("Ok"));
@@ -738,7 +794,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn expr_err(&self, sp: Span, expr: P<ast::Expr>) -> P<ast::Expr> {
         let err = vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("result"),
             self.ident_of("Result"),
             self.ident_of("Err"));
@@ -746,10 +802,20 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
     }
 
     fn expr_try(&self, sp: Span, head: P<ast::Expr>) -> P<ast::Expr> {
-        let ok = self.ident_of("Ok");
-        let ok_path = self.path_ident(sp, ok);
-        let err = self.ident_of("Err");
-        let err_path = self.path_ident(sp, err);
+        let ok = vec![
+            self.ident_of_std("core"),
+            self.ident_of("result"),
+            self.ident_of("Result"),
+            self.ident_of("Ok")
+        ];
+        let ok_path = self.path_global(sp, ok);
+        let err = vec![
+            self.ident_of_std("core"),
+            self.ident_of("result"),
+            self.ident_of("Result"),
+            self.ident_of("Err")
+        ];
+        let err_path = self.path_global(sp, err);
 
         let binding_variable = self.ident_of("__try_var");
         let binding_pat = self.pat_ident(sp, binding_variable);
@@ -759,8 +825,9 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
         let ok_pat = self.pat_enum(sp, ok_path, vec!(binding_pat.clone()));
 
         // Err(__try_var)  (pattern and expression resp.)
-        let err_pat = self.pat_enum(sp, err_path, vec!(binding_pat));
-        let err_inner_expr = self.expr_call_ident(sp, err, vec!(binding_expr.clone()));
+        let err_pat = self.pat_enum(sp, err_path.clone(), vec!(binding_pat));
+        let err_inner_expr = self.expr_call(sp, self.expr_path(err_path),
+                                            vec!(binding_expr.clone()));
         // return Err(__try_var)
         let err_expr = self.expr(sp, ast::ExprRet(Some(err_inner_expr)));
 
@@ -809,7 +876,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn pat_some(&self, span: Span, pat: P<ast::Pat>) -> P<ast::Pat> {
         let some = vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("option"),
             self.ident_of("Option"),
             self.ident_of("Some"));
@@ -819,7 +886,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn pat_none(&self, span: Span) -> P<ast::Pat> {
         let some = vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("option"),
             self.ident_of("Option"),
             self.ident_of("None"));
@@ -829,7 +896,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn pat_ok(&self, span: Span, pat: P<ast::Pat>) -> P<ast::Pat> {
         let some = vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("result"),
             self.ident_of("Result"),
             self.ident_of("Ok"));
@@ -839,7 +906,7 @@ impl<'a> AstBuilder for ExtCtxt<'a> {
 
     fn pat_err(&self, span: Span, pat: P<ast::Pat>) -> P<ast::Pat> {
         let some = vec!(
-            self.ident_of("std"),
+            self.ident_of_std("core"),
             self.ident_of("result"),
             self.ident_of("Result"),
             self.ident_of("Err"));

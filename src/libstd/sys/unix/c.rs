@@ -91,8 +91,11 @@ pub const WNOHANG: libc::c_int = 1;
 #[cfg(target_os = "linux")]
 pub const _SC_GETPW_R_SIZE_MAX: libc::c_int = 70;
 #[cfg(any(target_os = "macos",
-          target_os = "freebsd"))]
+          target_os = "freebsd",
+          target_os = "dragonfly"))]
 pub const _SC_GETPW_R_SIZE_MAX: libc::c_int = 71;
+#[cfg(target_os = "openbsd")]
+pub const _SC_GETPW_R_SIZE_MAX: libc::c_int = 101;
 #[cfg(target_os = "android")]
 pub const _SC_GETPW_R_SIZE_MAX: libc::c_int = 0x0048;
 
@@ -122,7 +125,9 @@ pub struct passwd {
 
 #[repr(C)]
 #[cfg(any(target_os = "macos",
-          target_os = "freebsd"))]
+          target_os = "freebsd",
+          target_os = "dragonfly",
+          target_os = "openbsd"))]
 pub struct passwd {
     pub pw_name: *mut libc::c_char,
     pub pw_passwd: *mut libc::c_char,
@@ -180,6 +185,10 @@ extern {
                       buf: *mut libc::c_char,
                       buflen: libc::size_t,
                       result: *mut *mut passwd) -> libc::c_int;
+
+    pub fn utimes(filename: *const libc::c_char,
+                  times: *const libc::timeval) -> libc::c_int;
+    pub fn gai_strerror(errcode: libc::c_int) -> *const libc::c_char;
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -203,21 +212,20 @@ mod select {
           target_os = "linux",
           target_os = "nacl"))]
 mod select {
-    #![allow(dead_code)]
-    use uint;
+    use usize;
     use libc;
 
-    pub const FD_SETSIZE: uint = 1024;
+    pub const FD_SETSIZE: usize = 1024;
 
     #[repr(C)]
     pub struct fd_set {
         // FIXME: shouldn't this be a c_ulong?
-        fds_bits: [libc::uintptr_t; (FD_SETSIZE / uint::BITS)]
+        fds_bits: [libc::uintptr_t; (FD_SETSIZE / usize::BITS)]
     }
 
     pub fn fd_set(set: &mut fd_set, fd: i32) {
         let fd = fd as uint;
-        set.fds_bits[fd / uint::BITS] |= 1 << (fd % uint::BITS);
+        set.fds_bits[fd / usize::BITS] |= 1 << (fd % usize::BITS);
     }
 }
 

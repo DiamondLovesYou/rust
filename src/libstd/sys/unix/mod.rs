@@ -18,7 +18,7 @@
 use prelude::v1::*;
 
 use ffi;
-use io::ErrorKind;
+use io::{self, ErrorKind};
 use libc;
 use num::{Int, SignedInt};
 use num;
@@ -39,15 +39,20 @@ macro_rules! helper_init { (static $name:ident: Helper<$m:ty>) => (
 
 pub mod backtrace;
 pub mod c;
-pub mod ext;
 pub mod condvar;
-pub mod fs;
+pub mod ext;
+pub mod fd;
+pub mod fs;  // support for std::old_io
+pub mod fs2; // support for std::fs
 pub mod helper_signal;
 pub mod mutex;
+pub mod net;
 pub mod os;
 pub mod os_str;
 pub mod pipe;
+pub mod pipe2;
 pub mod process;
+pub mod process2;
 pub mod rwlock;
 pub mod stack_overflow;
 pub mod sync;
@@ -173,6 +178,26 @@ pub fn retry<T, F> (mut f: F) -> T where
         let n = f();
         if n == -one && os::errno() == libc::EINTR as i32 { }
         else { return n }
+    }
+}
+
+pub fn cvt<T: SignedInt>(t: T) -> io::Result<T> {
+    let one: T = Int::one();
+    if t == -one {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(t)
+    }
+}
+
+pub fn cvt_r<T, F>(mut f: F) -> io::Result<T>
+    where T: SignedInt, F: FnMut() -> T
+{
+    loop {
+        match cvt(f()) {
+            Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
+            other => return other,
+        }
     }
 }
 

@@ -24,6 +24,7 @@ pub mod condvar;
 pub mod helper_thread;
 pub mod mutex;
 pub mod net;
+pub mod net2;
 pub mod rwlock;
 pub mod stack;
 pub mod thread;
@@ -95,20 +96,30 @@ pub fn keep_going<F>(data: &[u8], mut f: F) -> i64 where
 }
 
 /// A trait for viewing representations from std types
+#[doc(hidden)]
 pub trait AsInner<Inner: ?Sized> {
     fn as_inner(&self) -> &Inner;
 }
 
+/// A trait for viewing representations from std types
+#[doc(hidden)]
+pub trait AsInnerMut<Inner: ?Sized> {
+    fn as_inner_mut(&mut self) -> &mut Inner;
+}
+
 /// A trait for extracting representations from std types
+#[doc(hidden)]
 pub trait IntoInner<Inner> {
     fn into_inner(self) -> Inner;
 }
 
 /// A trait for creating std types from internal representations
+#[doc(hidden)]
 pub trait FromInner<Inner> {
     fn from_inner(inner: Inner) -> Self;
 }
 
+#[doc(hidden)]
 pub trait ProcessConfig<K: BytesContainer, V: BytesContainer> {
     fn program(&self) -> &CString;
     fn args(&self) -> &[CString];

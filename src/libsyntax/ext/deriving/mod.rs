@@ -18,6 +18,34 @@ use ext::base::ExtCtxt;
 use codemap::Span;
 use ptr::P;
 
+macro_rules! pathvec {
+    ($($x:ident)::+) => (
+        vec![ $( stringify!($x) ),+ ]
+    )
+}
+
+macro_rules! path {
+    ($($x:tt)*) => (
+        ::ext::deriving::generic::ty::Path::new( pathvec!( $($x)* ) )
+    )
+}
+
+macro_rules! pathvec_std {
+    ($cx:expr, $first:ident :: $($rest:ident)::+) => (
+        if $cx.use_std {
+            pathvec!(std :: $($rest)::+)
+        } else {
+            pathvec!($first :: $($rest)::+)
+        }
+    )
+}
+
+macro_rules! path_std {
+    ($($x:tt)*) => (
+        ::ext::deriving::generic::ty::Path::new( pathvec_std!( $($x)* ) )
+    )
+}
+
 pub mod bounds;
 pub mod clone;
 pub mod encodable;
@@ -44,7 +72,7 @@ pub fn expand_deprecated_deriving(cx: &mut ExtCtxt,
                                   span: Span,
                                   _: &MetaItem,
                                   _: &Item,
-                                  _: Box<FnMut(P<Item>)>) {
+                                  _: &mut FnMut(P<Item>)) {
     cx.span_err(span, "`deriving` has been renamed to `derive`");
 }
 
@@ -52,7 +80,7 @@ pub fn expand_meta_derive(cx: &mut ExtCtxt,
                           _span: Span,
                           mitem: &MetaItem,
                           item: &Item,
-                          mut push: Box<FnMut(P<Item>)>) {
+                          push: &mut FnMut(P<Item>)) {
     match mitem.node {
         MetaNameValue(_, ref l) => {
             cx.span_err(l.span, "unexpected value in `derive`");
@@ -74,7 +102,7 @@ pub fn expand_meta_derive(cx: &mut ExtCtxt,
                                                    |i| push(i)))
                         }
 
-                        match tname.get() {
+                        match &tname[] {
                             "Clone" => expand!(clone::expand_deriving_clone),
 
                             "Hash" => expand!(hash::expand_deriving_hash),

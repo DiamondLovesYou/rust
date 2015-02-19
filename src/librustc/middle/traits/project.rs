@@ -54,6 +54,7 @@ pub struct MismatchedProjectionTypes<'tcx> {
     pub err: ty::type_err<'tcx>
 }
 
+#[derive(PartialEq, Eq)]
 enum ProjectionTyCandidate<'tcx> {
     ParamEnv(ty::PolyProjectionPredicate<'tcx>),
     Impl(VtableImplData<'tcx, PredicateObligation<'tcx>>),
@@ -481,6 +482,25 @@ fn project_type<'cx,'tcx>(
 
     // We probably need some winnowing logic similar to select here.
 
+    // Drop duplicates.
+    //
+    // Note: `candidates.vec` seems to be on the critical path of the
+    // compiler. Replacing it with an hash set was also tried, which would
+    // render the following dedup unnecessary. It led to cleaner code but
+    // prolonged compiling time of `librustc` from 5m30s to 6m in one test, or
+    // ~9% performance lost.
+    if candidates.vec.len() > 1 {
+        let mut i = 0;
+        while i < candidates.vec.len() {
+            let has_dup = (0..i).any(|j| candidates.vec[i] == candidates.vec[j]);
+            if has_dup {
+                candidates.vec.swap_remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     if candidates.ambiguous || candidates.vec.len() > 1 {
         return Err(ProjectionTyError::TooManyCandidates);
     }
@@ -541,8 +561,8 @@ fn assemble_candidates_from_trait_def<'cx,'tcx>(
     };
 
     // If so, extract what we know from the trait and try to come up with a good answer.
-    let trait_def = ty::lookup_trait_def(selcx.tcx(), trait_ref.def_id);
-    let bounds = trait_def.generics.to_bounds(selcx.tcx(), trait_ref.substs);
+    let trait_predicates = ty::lookup_predicates(selcx.tcx(), trait_ref.def_id);
+    let bounds = trait_predicates.instantiate(selcx.tcx(), trait_ref.substs);
     assemble_candidates_from_predicates(selcx, obligation, obligation_trait_ref,
                                         candidate_set, bounds.predicates.into_vec());
 }

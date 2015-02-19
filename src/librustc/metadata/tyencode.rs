@@ -251,7 +251,7 @@ pub fn enc_region(w: &mut SeekableMemWriter, cx: &ctxt, r: ty::Region) {
         }
         ty::ReFree(ref fr) => {
             mywrite!(w, "f[");
-            enc_scope(w, cx, fr.scope);
+            enc_destruction_scope_data(w, fr.scope);
             mywrite!(w, "|");
             enc_bound_region(w, cx, fr.bound_region);
             mywrite!(w, "]");
@@ -279,7 +279,13 @@ fn enc_scope(w: &mut SeekableMemWriter, _cx: &ctxt, scope: region::CodeExtent) {
         region::CodeExtent::Misc(node_id) => mywrite!(w, "M{}", node_id),
         region::CodeExtent::Remainder(region::BlockRemainder {
             block: b, first_statement_index: i }) => mywrite!(w, "B{}{}", b, i),
+        region::CodeExtent::DestructionScope(node_id) => mywrite!(w, "D{}", node_id),
     }
+}
+
+fn enc_destruction_scope_data(w: &mut SeekableMemWriter,
+                              d: region::DestructionScopeData) {
+    mywrite!(w, "{}", d.node_id);
 }
 
 fn enc_bound_region(w: &mut SeekableMemWriter, cx: &ctxt, br: ty::BoundRegion) {
@@ -408,6 +414,21 @@ pub fn enc_type_param_def<'a, 'tcx>(w: &mut SeekableMemWriter, cx: &ctxt<'a, 'tc
              v.space.to_uint(), v.index);
     enc_bounds(w, cx, &v.bounds);
     enc_opt(w, v.default, |w, t| enc_ty(w, cx, t));
+    enc_object_lifetime_default(w, cx, v.object_lifetime_default);
+}
+
+fn enc_object_lifetime_default<'a, 'tcx>(w: &mut SeekableMemWriter,
+                                         cx: &ctxt<'a, 'tcx>,
+                                         default: Option<ty::ObjectLifetimeDefault>)
+{
+    match default {
+        None => mywrite!(w, "n"),
+        Some(ty::ObjectLifetimeDefault::Ambiguous) => mywrite!(w, "a"),
+        Some(ty::ObjectLifetimeDefault::Specific(r)) => {
+            mywrite!(w, "s");
+            enc_region(w, cx, r);
+        }
+    }
 }
 
 pub fn enc_predicate<'a, 'tcx>(w: &mut SeekableMemWriter,

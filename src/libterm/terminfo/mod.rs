@@ -72,7 +72,7 @@ pub struct TerminfoTerminal<T> {
     ti: Box<TermInfo>
 }
 
-impl<T: Writer+Send> Terminal<T> for TerminfoTerminal<T> {
+impl<T: Writer+Send+'static> Terminal<T> for TerminfoTerminal<T> {
     fn fg(&mut self, color: color::Color) -> IoResult<bool> {
         let color = self.dim_if_necessary(color);
         if self.num_colors > color {
@@ -164,15 +164,15 @@ impl<T: Writer+Send> Terminal<T> for TerminfoTerminal<T> {
     fn get_mut<'a>(&'a mut self) -> &'a mut T { &mut self.out }
 }
 
-impl<T: Writer+Send> UnwrappableTerminal<T> for TerminfoTerminal<T> {
+impl<T: Writer+Send+'static> UnwrappableTerminal<T> for TerminfoTerminal<T> {
     fn unwrap(self) -> T { self.out }
 }
 
-impl<T: Writer+Send> TerminfoTerminal<T> {
+impl<T: Writer+Send+'static> TerminfoTerminal<T> {
     /// Returns `None` whenever the terminal cannot be created for some
     /// reason.
     pub fn new(out: T) -> Option<Box<Terminal<T>+Send+'static>> {
-        let term = match env::var_string("TERM") {
+        let term = match env::var("TERM") {
             Ok(t) => t,
             Err(..) => {
                 debug!("TERM environment variable not defined");
@@ -182,7 +182,7 @@ impl<T: Writer+Send> TerminfoTerminal<T> {
 
         let entry = open(&term[]);
         if entry.is_err() {
-            if env::var_string("MSYSCON").ok().map_or(false, |s| {
+            if env::var("MSYSCON").ok().map_or(false, |s| {
                     "mintty.exe" == s
                 }) {
                 // msys terminal
@@ -229,4 +229,3 @@ impl<T: Writer> Writer for TerminfoTerminal<T> {
         self.out.flush()
     }
 }
-

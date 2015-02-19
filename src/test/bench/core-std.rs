@@ -16,7 +16,7 @@
 use std::old_io::File;
 use std::iter::repeat;
 use std::mem::swap;
-use std::os;
+use std::env;
 use std::rand::Rng;
 use std::rand;
 use std::str;
@@ -24,8 +24,7 @@ use std::time::Duration;
 use std::vec;
 
 fn main() {
-    let argv = os::args();
-    let _tests = &argv[1..argv.len()];
+    let argv: Vec<String> = env::args().collect();
 
     macro_rules! bench {
         ($id:ident) =>
@@ -46,7 +45,7 @@ fn main() {
 fn maybe_run_test<F>(argv: &[String], name: String, test: F) where F: FnOnce() {
     let mut run_test = false;
 
-    if os::getenv("RUST_BENCH").is_some() {
+    if env::var_os("RUST_BENCH").is_some() {
         run_test = true
     } else if argv.len() > 0 {
         run_test = argv.iter().any(|x| x == &"all".to_string()) || argv.iter().any(|x| x == &name)

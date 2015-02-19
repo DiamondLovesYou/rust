@@ -525,6 +525,7 @@ opt verify-install 1 "verify installed binaries work"
 opt dist-host-only 0 "only install bins for the host architecture"
 opt inject-std-version 1 "inject the current compiler version of libstd into programs"
 opt jemalloc 1 "build liballoc with jemalloc"
+opt llvm-version-check 1 "don't check if the LLVM version is supported, build anyway"
 valopt nacl-cross-path  "" "NaCl Pepper sdk path (should be something like \"nacl_sdk/pepper_[0-9]+/\"). Must be absolute!"
 valopt emscripten-cross-path "" "Emscripten checkout path (should point to where emcc lives)"
 
@@ -655,9 +656,7 @@ probe CFG_GRUN             grun
 probe CFG_FLEX             flex
 probe CFG_BISON            bison
 probe CFG_PANDOC           pandoc
-probe CFG_PDFLATEX         pdflatex
 probe CFG_XELATEX          xelatex
-probe CFG_LUALATEX         lualatex
 probe CFG_GDB              gdb
 probe CFG_LLDB             lldb
 
@@ -800,7 +799,7 @@ then
     putvar CFG_ENABLE_CLANG
 fi
 
-if [ ! -z "$CFG_LLVM_ROOT" -a -e "$CFG_LLVM_ROOT/bin/llvm-config" ]
+if [ ! -z "$CFG_LLVM_ROOT" -a -z "$CFG_DISABLE_LLVM_VERSION_CHECK" -a -e "$CFG_LLVM_ROOT/bin/llvm-config" ]
 then
     step_msg "using custom LLVM at $CFG_LLVM_ROOT"
 
@@ -1464,7 +1463,8 @@ do
 done
 
 # Munge any paths that appear in config.mk back to posix-y
-sed -i.bak -e 's@ \([a-zA-Z]\):[/\\]@ /\1/@g;' config.tmp
+cp config.tmp config.tmp.bak
+sed -e 's@ \([a-zA-Z]\):[/\\]@ /\1/@g;' <config.tmp.bak >config.tmp
 rm -f config.tmp.bak
 
 msg

@@ -173,7 +173,7 @@ pub fn find_crate_name(sess: Option<&Session>,
     if let Some(sess) = sess {
         if let Some(ref s) = sess.opts.crate_name {
             if let Some((attr, ref name)) = attr_crate_name {
-                if *s != name.get() {
+                if *s != &name[] {
                     let msg = format!("--crate-name and #[crate_name] are \
                                        required to match, but `{}` != `{}`",
                                       s, name);
@@ -185,7 +185,7 @@ pub fn find_crate_name(sess: Option<&Session>,
     }
 
     if let Some((attr, s)) = attr_crate_name {
-        return validate(s.get().to_string(), Some(attr.span));
+        return validate(s.to_string(), Some(attr.span));
     }
     if let Input::File(ref path) = *input {
         if let Some(s) = path.filestem_str() {
@@ -325,7 +325,7 @@ pub fn mangle<PI: Iterator<Item=PathElem>>(path: PI,
 
     // First, connect each component with <len, name> pairs.
     for e in path {
-        push(&mut n, &token::get_name(e.name()).get()[])
+        push(&mut n, &token::get_name(e.name()))
     }
 
     match hash {
@@ -553,8 +553,8 @@ pub fn check_outputs(sess: &Session,
 }
 
 fn pnacl_host_tool(sess: &Session, tool: &str) -> Path {
-    use std::os;
-    let tool = format!("le32-nacl-{}{}", tool, os::consts::EXE_SUFFIX);
+    use std::env::consts;
+    let tool = format!("le32-nacl-{}{}", tool, consts::EXE_SUFFIX);
     sess.pnacl_toolchain()
         .join("bin")
         .join(tool)
@@ -951,7 +951,10 @@ pub fn link_pnacl_module(sess: &Session,
         }
     }
 
-    let force_non_stable_output = env::var("RUSTC_FORCE_NON_STABLE_BC_EMISSION").is_some();
+    let force_non_stable_output = {
+        let t = env::var("RUSTC_FORCE_NON_STABLE_BC_EMISSION").ok();
+        t != None || t.as_ref().map(|v| &v[] ) != Some("0")
+    };
     if force_non_stable_output || sess.opts.debuginfo != config::NoDebugInfo {
         // emit bc for translation into nexe w/ debugging info.
         let out = outputs.with_extension("debug.pexe").display().to_string();

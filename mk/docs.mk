@@ -25,9 +25,9 @@
 # L10N_LANGS are the languages for which the docs have been
 # translated.
 ######################################################################
-DOCS := index intro tutorial complement-bugreport \
+DOCS := index intro tutorial \
     complement-lang-faq complement-design-faq complement-project-faq \
-    rustdoc reference
+    rustdoc reference grammar
 
 # Legacy guides, preserved for a while to reduce the number of 404s
 DOCS += guide-crates guide-error-handling guide-ffi guide-macros guide \
@@ -73,7 +73,7 @@ RUSTBOOK = $(RPATH_VAR2_T_$(CFG_BUILD)_H_$(CFG_BUILD)) $(RUSTBOOK_EXE)
 
 D := $(S)src/doc
 
-DOC_TARGETS := trpl
+DOC_TARGETS := trpl style
 COMPILER_DOC_TARGETS :=
 DOC_L10N_TARGETS :=
 
@@ -85,26 +85,15 @@ else
 HTML_DEPS :=
 endif
 
-# Check for the various external utilities for the EPUB/PDF docs:
+# Check for xelatex
 
-ifeq ($(CFG_LUALATEX),)
-  $(info cfg: no lualatex found, deferring to xelatex)
-  ifeq ($(CFG_XELATEX),)
-    $(info cfg: no xelatex found, deferring to pdflatex)
-    ifeq ($(CFG_PDFLATEX),)
-      $(info cfg: no pdflatex found, disabling LaTeX docs)
-      NO_PDF_DOCS = 1
-	else
-      CFG_LATEX := $(CFG_PDFLATEX)
-    endif
-  else
+ifneq ($(CFG_XELATEX),)
     CFG_LATEX := $(CFG_XELATEX)
     XELATEX = 1
-  endif
-else
-  CFG_LATEX := $(CFG_LUALATEX)
+  else
+    $(info cfg: no xelatex found, disabling LaTeX docs)
+    NO_PDF_DOCS = 1
 endif
-
 
 ifeq ($(CFG_PANDOC),)
 $(info cfg: no pandoc found, omitting PDF and EPUB docs)
@@ -140,21 +129,21 @@ doc/:
 HTML_DEPS += doc/rust.css
 doc/rust.css: $(D)/rust.css | doc/
 	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
+	$(Q)cp -PRp $< $@ 2> /dev/null
 
 HTML_DEPS += doc/favicon.inc
 doc/favicon.inc: $(D)/favicon.inc | doc/
 	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
+	$(Q)cp -PRp $< $@ 2> /dev/null
 
 doc/full-toc.inc: $(D)/full-toc.inc | doc/
 	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
+	$(Q)cp -PRp $< $@ 2> /dev/null
 
 HTML_DEPS += doc/footer.inc
 doc/footer.inc: $(D)/footer.inc | doc/
 	@$(call E, cp: $@)
-	$(Q)cp -a $< $@ 2> /dev/null
+	$(Q)cp -PRp $< $@ 2> /dev/null
 
 # The (english) documentation for each doc item.
 
@@ -286,3 +275,9 @@ trpl: doc/book/index.html
 doc/book/index.html: $(RUSTBOOK_EXE) $(wildcard $(S)/src/doc/trpl/*.md) | doc/
 	$(Q)rm -rf doc/book
 	$(Q)$(RUSTBOOK) build $(S)src/doc/trpl doc/book
+
+style: doc/style/index.html
+
+doc/style/index.html: $(RUSTBOOK_EXE) $(wildcard $(S)/src/doc/style/*.md) | doc/
+	$(Q)rm -rf doc/style
+	$(Q)$(RUSTBOOK) build $(S)src/doc/style doc/style

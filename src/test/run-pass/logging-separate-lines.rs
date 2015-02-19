@@ -8,7 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-android
 // ignore-windows
 // exec-env:RUST_LOG=debug
 
@@ -16,12 +15,11 @@
 extern crate log;
 
 use std::old_io::Command;
-use std::os;
+use std::env;
 use std::str;
 
 fn main() {
-    let args = os::args();
-    let args = args;
+    let args: Vec<String> = env::args().collect();
     if args.len() > 1 && args[1] == "child" {
         debug!("foo");
         debug!("bar");

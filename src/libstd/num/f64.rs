@@ -29,6 +29,7 @@ use core::num;
 pub use core::f64::{RADIX, MANTISSA_DIGITS, DIGITS, EPSILON, MIN_VALUE};
 pub use core::f64::{MIN_POS_VALUE, MAX_VALUE, MIN_EXP, MAX_EXP, MIN_10_EXP};
 pub use core::f64::{MAX_10_EXP, NAN, INFINITY, NEG_INFINITY};
+pub use core::f64::{MIN, MIN_POSITIVE, MAX};
 pub use core::f64::consts;
 
 #[allow(dead_code)]
@@ -183,7 +184,7 @@ impl Float for f64 {
     #[inline]
     fn exp(self) -> f64 { num::Float::exp(self) }
     #[inline]
-    fn exp2(self) -> f64 { num::Float::exp(self) }
+    fn exp2(self) -> f64 { num::Float::exp2(self) }
     #[inline]
     fn ln(self) -> f64 { num::Float::ln(self) }
     #[inline]
@@ -378,7 +379,7 @@ impl Float for f64 {
 #[unstable(feature = "std_misc", reason = "may be removed or relocated")]
 pub fn to_string(num: f64) -> String {
     let (r, _) = strconv::float_to_str_common(
-        num, 10u, true, SignNeg, DigAll, ExpNone, false);
+        num, 10, true, SignNeg, DigAll, ExpNone, false);
     r
 }
 
@@ -391,7 +392,7 @@ pub fn to_string(num: f64) -> String {
 #[unstable(feature = "std_misc", reason = "may be removed or relocated")]
 pub fn to_str_hex(num: f64) -> String {
     let (r, _) = strconv::float_to_str_common(
-        num, 16u, true, SignNeg, DigAll, ExpNone, false);
+        num, 16, true, SignNeg, DigAll, ExpNone, false);
     r
 }
 
@@ -404,7 +405,7 @@ pub fn to_str_hex(num: f64) -> String {
 /// * radix - The base to use
 #[inline]
 #[unstable(feature = "std_misc", reason = "may be removed or relocated")]
-pub fn to_str_radix_special(num: f64, rdx: uint) -> (String, bool) {
+pub fn to_str_radix_special(num: f64, rdx: u32) -> (String, bool) {
     strconv::float_to_str_common(num, rdx, true, SignNeg, DigAll, ExpNone, false)
 }
 
@@ -419,7 +420,7 @@ pub fn to_str_radix_special(num: f64, rdx: uint) -> (String, bool) {
 #[unstable(feature = "std_misc", reason = "may be removed or relocated")]
 pub fn to_str_exact(num: f64, dig: uint) -> String {
     let (r, _) = strconv::float_to_str_common(
-        num, 10u, true, SignNeg, DigExact(dig), ExpNone, false);
+        num, 10, true, SignNeg, DigExact(dig), ExpNone, false);
     r
 }
 
@@ -434,7 +435,7 @@ pub fn to_str_exact(num: f64, dig: uint) -> String {
 #[unstable(feature = "std_misc", reason = "may be removed or relocated")]
 pub fn to_str_digits(num: f64, dig: uint) -> String {
     let (r, _) = strconv::float_to_str_common(
-        num, 10u, true, SignNeg, DigMax(dig), ExpNone, false);
+        num, 10, true, SignNeg, DigMax(dig), ExpNone, false);
     r
 }
 
@@ -450,7 +451,7 @@ pub fn to_str_digits(num: f64, dig: uint) -> String {
 #[unstable(feature = "std_misc", reason = "may be removed or relocated")]
 pub fn to_str_exp_exact(num: f64, dig: uint, upper: bool) -> String {
     let (r, _) = strconv::float_to_str_common(
-        num, 10u, true, SignNeg, DigExact(dig), ExpDec, upper);
+        num, 10, true, SignNeg, DigExact(dig), ExpDec, upper);
     r
 }
 
@@ -466,7 +467,7 @@ pub fn to_str_exp_exact(num: f64, dig: uint, upper: bool) -> String {
 #[unstable(feature = "std_misc", reason = "may be removed or relocated")]
 pub fn to_str_exp_digits(num: f64, dig: uint, upper: bool) -> String {
     let (r, _) = strconv::float_to_str_common(
-        num, 10u, true, SignNeg, DigMax(dig), ExpDec, upper);
+        num, 10, true, SignNeg, DigMax(dig), ExpDec, upper);
     r
 }
 
@@ -561,6 +562,33 @@ mod tests {
         assert_approx_eq!((-1.3f64).fract(), -0.3f64);
         assert_approx_eq!((-1.5f64).fract(), -0.5f64);
         assert_approx_eq!((-1.7f64).fract(), -0.7f64);
+    }
+
+    #[test]
+    fn test_exp() {
+        assert_eq!(1.0, 0.0f64.exp());
+        assert_approx_eq!(2.718282, 1.0f64.exp());
+        assert_approx_eq!(148.413159, 5.0f64.exp());
+
+        let inf: f64 = Float::infinity();
+        let neg_inf: f64 = Float::neg_infinity();
+        let nan: f64 = Float::nan();
+        assert_eq!(inf, inf.exp());
+        assert_eq!(0.0, neg_inf.exp());
+        assert!(nan.exp().is_nan());
+    }
+
+    #[test]
+    fn test_exp2() {
+        assert_eq!(32.0, 5.0f64.exp2());
+        assert_eq!(1.0, 0.0f64.exp2());
+
+        let inf: f64 = Float::infinity();
+        let neg_inf: f64 = Float::neg_infinity();
+        let nan: f64 = Float::nan();
+        assert_eq!(inf, inf.exp2());
+        assert_eq!(0.0, neg_inf.exp2());
+        assert!(nan.exp2().is_nan());
     }
 
     #[test]

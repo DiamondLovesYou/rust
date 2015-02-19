@@ -125,17 +125,17 @@ pub fn getcwd() -> IoResult<Path> {
 #[deprecated(since = "1.0.0", reason = "use env::vars instead")]
 #[unstable(feature = "os")]
 pub fn env() -> Vec<(String,String)> {
-    env::vars().map(|(k, v)| {
+    env::vars_os().map(|(k, v)| {
         (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned())
     }).collect()
 }
 
 /// Returns a vector of (variable, value) byte-vector pairs for all the
 /// environment variables of the current process.
-#[deprecated(since = "1.0.0", reason = "use env::vars instead")]
+#[deprecated(since = "1.0.0", reason = "use env::vars_os instead")]
 #[unstable(feature = "os")]
 pub fn env_as_bytes() -> Vec<(Vec<u8>, Vec<u8>)> {
-    env::vars().map(|(k, v)| (byteify(k), byteify(v))).collect()
+    env::vars_os().map(|(k, v)| (byteify(k), byteify(v))).collect()
 }
 
 /// Fetches the environment variable `n` from the current process, returning
@@ -159,10 +159,10 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>, Vec<u8>)> {
 ///     None => println!("{} is not defined in the environment.", key)
 /// }
 /// ```
-#[deprecated(since = "1.0.0", reason = "use env::var or env::var_string instead")]
+#[deprecated(since = "1.0.0", reason = "use env::var instead")]
 #[unstable(feature = "os")]
 pub fn getenv(n: &str) -> Option<String> {
-    env::var_string(n).ok()
+    env::var(n).ok()
 }
 
 #[cfg(not(target_os = "nacl"))]
@@ -172,10 +172,10 @@ pub fn getenv(n: &str) -> Option<String> {
 /// # Panics
 ///
 /// Panics if `n` has any interior NULs.
-#[deprecated(since = "1.0.0", reason = "use env::var instead")]
+#[deprecated(since = "1.0.0", reason = "use env::var_os instead")]
 #[unstable(feature = "os")]
 pub fn getenv_as_bytes(n: &str) -> Option<Vec<u8>> {
-    env::var(n).map(byteify)
+    env::var_os(n).map(byteify)
 }
 
 #[cfg(target_os = "nacl")]
@@ -330,6 +330,7 @@ pub unsafe fn pipe() -> IoResult<Pipe> {
 #[cfg(not(target_os="ios"))]
 #[deprecated(since = "1.0.0", reason = "this function will be removed, use the constants directly")]
 #[unstable(feature = "os")]
+#[allow(deprecated)]
 pub fn dll_filename(base: &str) -> String {
     format!("{}{}{}", consts::DLL_PREFIX, base, consts::DLL_SUFFIX)
 }
@@ -526,8 +527,8 @@ pub fn change_dir(p: &Path) -> IoResult<()> {
 }
 
 /// Returns the platform-specific value of errno
-pub fn errno() -> uint {
-    sys::os::errno() as uint
+pub fn errno() -> i32 {
+    sys::os::errno() as i32
 }
 
 /// Return the string corresponding to an `errno()` value of `errnum`.
@@ -537,15 +538,15 @@ pub fn errno() -> uint {
 /// use std::os;
 ///
 /// // Same as println!("{}", last_os_error());
-/// println!("{}", os::error_string(os::errno() as uint));
+/// println!("{}", os::error_string(os::errno() as i32));
 /// ```
-pub fn error_string(errnum: uint) -> String {
-    return sys::os::error_string(errnum as i32);
+pub fn error_string(errnum: i32) -> String {
+    return sys::os::error_string(errnum);
 }
 
 /// Get a string representing the platform-dependent last error
 pub fn last_os_error() -> String {
-    error_string(errno() as uint)
+    error_string(errno())
 }
 
 /// Sets the process exit code
@@ -685,7 +686,7 @@ fn real_args() -> Vec<String> {
 
         // Push it onto the list.
         let ptr = ptr as *const u16;
-        let buf = slice::from_raw_buf(&ptr, len);
+        let buf = slice::from_raw_parts(ptr, len);
         let opt_s = String::from_utf16(sys::truncate_utf16_at_nul(buf));
         opt_s.ok().expect("CommandLineToArgvW returned invalid UTF-16")
     }).collect();
@@ -737,7 +738,7 @@ extern "system" {
 ///     println!("{}", argument);
 /// }
 /// ```
-#[deprecated(since = "1.0.0", reason = "use env::args instead")]
+#[deprecated(since = "1.0.0", reason = "use std::env::args() instead")]
 #[unstable(feature = "os")]
 pub fn args() -> Vec<String> {
     real_args()
@@ -745,7 +746,7 @@ pub fn args() -> Vec<String> {
 
 /// Returns the arguments which this program was started with (normally passed
 /// via the command line) as byte vectors.
-#[deprecated(since = "1.0.0", reason = "use env::args_raw instead")]
+#[deprecated(since = "1.0.0", reason = "use env::args_os instead")]
 #[unstable(feature = "os")]
 pub fn args_as_bytes() -> Vec<Vec<u8>> {
     real_args_as_bytes()
@@ -773,7 +774,6 @@ pub fn page_size() -> uint {
 ///
 /// The memory map is released (unmapped) when the destructor is run, so don't
 /// let it leave scope by accident if you want it to stick around.
-#[allow(missing_copy_implementations)]
 pub struct MemoryMap {
     data: *mut u8,
     len: uint,
@@ -859,13 +859,13 @@ pub enum MapError {
     ErrAlreadyExists,
     /// Unrecognized error from `VirtualAlloc`. The inner value is the return
     /// value of GetLastError.
-    ErrVirtualAlloc(uint),
+    ErrVirtualAlloc(i32),
     /// Unrecognized error from `CreateFileMapping`. The inner value is the
     /// return value of `GetLastError`.
-    ErrCreateFileMappingW(uint),
+    ErrCreateFileMappingW(i32),
     /// Unrecognized error from `MapViewOfFile`. The inner value is the return
     /// value of `GetLastError`.
-    ErrMapViewOfFile(uint)
+    ErrMapViewOfFile(i32)
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1303,6 +1303,8 @@ pub mod consts {
 }
 
 #[cfg(target_os = "openbsd")]
+#[deprecated(since = "1.0.0", reason = "renamed to env::consts")]
+#[unstable(feature = "os")]
 pub mod consts {
     pub use os::arch_consts::ARCH;
 

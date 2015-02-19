@@ -35,14 +35,14 @@ use std::env;
 use std::iter::repeat;
 use std::str;
 use std::string::String;
-use std::thread::Thread;
+use std::thread;
 use std::time::Duration;
 use test::MetricMap;
 
 pub fn run(config: Config, testfile: String) {
     match &*config.target {
 
-        "arm-linux-androideabi" => {
+        "arm-linux-androideabi" | "aarch64-linux-android" => {
             if !config.adb_device_status {
                 panic!("android device not available");
             }
@@ -382,17 +382,26 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
     let debugger_run_result;
     match &*config.target {
-        "arm-linux-androideabi" => {
+        "arm-linux-androideabi" | "aarch64-linux-android" => {
 
-            cmds = cmds.replace("run", "continue").to_string();
+            cmds = cmds.replace("run", "continue");
 
             // write debugger script
-            let script_str = ["set charset UTF-8".to_string(),
-                              format!("file {}", exe_file.as_str().unwrap()
-                                                         .to_string()),
-                              "target remote :5039".to_string(),
-                              cmds,
-                              "quit".to_string()].connect("\n");
+            let mut script_str = String::with_capacity(2048);
+            script_str.push_str("set charset UTF-8\n");
+            script_str.push_str(&format!("file {}\n", exe_file.as_str().unwrap()));
+            script_str.push_str("target remote :5039\n");
+            script_str.push_str(&format!("set solib-search-path \
+                                         ./{}/stage2/lib/rustlib/{}/lib/\n",
+                                         config.host, config.target));
+            for line in breakpoint_lines.iter() {
+                script_str.push_str(&format!("break {:?}:{}\n",
+                                             testfile.filename_display(),
+                                             *line)[]);
+            }
+            script_str.push_str(&cmds);
+            script_str.push_str("quit\n");
+
             debug!("script_str = {}", script_str);
             dump_output_file(config,
                              testfile,
@@ -425,8 +434,10 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 .expect(&format!("failed to exec `{:?}`", config.adb_path));
 
             let adb_arg = format!("export LD_LIBRARY_PATH={}; \
-                                   gdbserver :5039 {}/{}",
+                                   gdbserver{} :5039 {}/{}",
                                   config.adb_test_dir.clone(),
+                                  if config.target.contains("aarch64")
+                                  {"64"} else {""},
                                   config.adb_test_dir.clone(),
                                   str::from_utf8(
                                       exe_file.filename()
@@ -447,7 +458,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             loop {
                 //waiting 1 second for gdbserver start
                 timer::sleep(Duration::milliseconds(1000));
-                let result = Thread::scoped(move || {
+                let result = thread::spawn(move || {
                     tcp::TcpStream::connect("127.0.0.1:5039").unwrap();
                 }).join();
                 if result.is_err() {
@@ -470,7 +481,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                      format!("-command={}", debugger_script.as_str().unwrap()));
 
             let mut gdb_path = tool_path;
-            gdb_path.push_str("/bin/arm-linux-androideabi-gdb");
+            gdb_path.push_str(&format!("/bin/{}-gdb", config.target));
             let procsrv::Result {
                 out,
                 err,
@@ -484,7 +495,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 .expect(&format!("failed to exec `{:?}`", gdb_path));
             let cmdline = {
                 let cmdline = make_cmdline("",
-                                           "arm-linux-androideabi-gdb",
+                                           &format!("{}-gdb", config.target),
                                            &debugger_opts);
                 logv(config, format!("executing {}", cmdline));
                 cmdline
@@ -496,14 +507,13 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 stderr: err,
                 cmdline: cmdline
             };
-            process.signal_kill().unwrap();
+            if process.signal_kill().is_err() {
+                println!("Adb process is already finished.");
+            }
         }
 
         _ if config.targeting_nacl() => {
-            use std::os::consts::ARCH;
-            #[cfg(stage0)] use std::os::make_absolute;
-
-            #[cfg(not(stage0))]
+            use std::env::consts::ARCH;
             fn make_absolute(p: &Path) -> ::std::old_io::IoResult<Path> {
                 use std::env;
                 env::current_dir()
@@ -563,9 +573,8 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             // Add the directory containing the pretty printers to
             // GDB's script auto loading safe path
             script_str.push_str(
-                format!("add-auto-load-safe-path {}\n",
-                        rust_pp_module_abs_path.replace("\\", "\\\\").as_slice())
-                    .as_slice());
+                &format!("add-auto-load-safe-path {}\n",
+                         rust_pp_module_abs_path.replace("\\", "\\\\"))[]);
 
             // The following line actually doesn't have to do anything with
             // pretty printing, it just tells GDB to print values on one line:
@@ -585,13 +594,13 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                                              *line)[]);
             }
 
-            script_str.push_str(cmds.as_slice());
+            script_str.push_str(&cmds[]);
             script_str.push_str("quit\n");
 
             debug!("script_str = {}", script_str);
             dump_output_file(config,
                              testfile,
-                             script_str.as_slice(),
+                             &script_str[],
                              "debugger.script");
 
             let cross_path = config.nacl_cross_path
@@ -634,16 +643,16 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 err,
                 status
             } = procsrv::run("",
-                             format!("{}", gdb_path.display()).as_slice(),
+                             &format!("{}", gdb_path.display())[],
                              None,
-                             debugger_opts.as_slice(),
+                             &debugger_opts[],
                              vec!(("".to_string(), "".to_string())),
                              None)
-                .expect(format!("failed to exec `{}`", gdb_path.display()).as_slice());
+                .expect(&format!("failed to exec `{}`", gdb_path.display())[]);
             let cmdline = {
                 let cmdline = make_cmdline("",
-                                           gdb.as_slice(),
-                                           debugger_opts.as_slice());
+                                           &gdb[],
+                                           &debugger_opts[]);
                 logv(config, format!("executing {}", cmdline));
                 cmdline
             };
@@ -1292,7 +1301,7 @@ fn exec_compiled_test(config: &Config, props: &TestProps,
 
     match &*config.target {
 
-        "arm-linux-androideabi" => {
+        "arm-linux-androideabi" | "aarch64-linux-android" => {
             _arm_exec_compiled_test(config, props, testfile, env)
         }
 
@@ -1367,7 +1376,7 @@ fn compose_and_run_compiler(
         }
 
         match &*config.target {
-            "arm-linux-androideabi" => {
+            "arm-linux-androideabi"  | "aarch64-linux-android" => {
                 _arm_push_aux_shared_library(config, testfile);
             }
             _ => {}
@@ -1666,7 +1675,7 @@ fn _arm_exec_compiled_test(config: &Config,
     for (key, val) in env {
         runargs.push(format!("{}={}", key, val));
     }
-    runargs.push(format!("{}/adb_run_wrapper.sh", config.adb_test_dir));
+    runargs.push(format!("{}/../adb_run_wrapper.sh", config.adb_test_dir));
     runargs.push(format!("{}", config.adb_test_dir));
     runargs.push(format!("{}", prog_short));
 
@@ -1762,7 +1771,7 @@ fn _arm_push_aux_shared_library(config: &Config, testfile: &Path) {
                                             file.as_str()
                                                 .unwrap()
                                                 .to_string(),
-                                            config.adb_test_dir.to_string()
+                                            config.adb_test_dir.to_string(),
                                            ],
                                            vec!(("".to_string(),
                                                  "".to_string())),
@@ -1785,10 +1794,7 @@ enum ProcResOrProcessResult {
 fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                             testfile: &Path, env: Vec<(String, String)>,
                             run_background: bool) -> ProcResOrProcessResult {
-    #[cfg(stage0)] use std::os::make_absolute;
     use std::old_io::process::{ExitStatus, ExitSignal};
-
-    #[cfg(not(stage0))]
     fn make_absolute(p: &Path) -> ::std::old_io::IoResult<Path> {
         use std::env;
         env::current_dir()
@@ -1829,7 +1835,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     };
     match program_output(config,
                          testfile,
-                         config.compile_lib_path.as_slice(),
+                         &config.compile_lib_path[],
                          pnacl_trans.display().to_string(),
                          None,
                          pnacl_trans_args,
@@ -1868,12 +1874,12 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let sel_ldr_dsp = nacl_helper_bootstrap.display().to_string();
 
     let mut process = procsrv::run_background("",
-                                              sel_ldr_dsp.as_slice(),
+                                              &sel_ldr_dsp[],
                                               None,
-                                              sel_ldr_args.as_slice(),
+                                              &sel_ldr_args[],
                                               env,
                                               None)
-        .expect(format!("failed to exec `{}`", sel_ldr_dsp).as_slice());
+        .expect(&format!("failed to exec `{}`", sel_ldr_dsp)[]);
 
     if !run_background {
         process.set_timeout(Some(10_000));
@@ -1892,8 +1898,8 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
-                                          sel_ldr_dsp.as_slice(),
-                                          sel_ldr_args.as_slice()),
+                                          &sel_ldr_dsp[],
+                                          &sel_ldr_args[]),
                 });
             }
             Err(..) => {}
@@ -1921,8 +1927,8 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                               .read_to_end()
                                               .unwrap()).unwrap(),
                     cmdline: make_cmdline("",
-                                          sel_ldr_dsp.as_slice(),
-                                          sel_ldr_args.as_slice()),
+                                          &sel_ldr_dsp[],
+                                          &sel_ldr_args[]),
                 });
             }
             Err(..) => {}
@@ -1944,8 +1950,8 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                                       .read_to_end()
                                       .unwrap()).unwrap(),
             cmdline: make_cmdline("",
-                                  sel_ldr_dsp.as_slice(),
-                                  sel_ldr_args.as_slice()),
+                                  &sel_ldr_dsp[],
+                                  &sel_ldr_args[]),
         });
     } else {
         return ProcResOrProcessResult::ProcessResult(process);

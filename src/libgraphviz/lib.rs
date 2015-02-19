@@ -273,12 +273,10 @@
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
-#![feature(slicing_syntax)]
 #![feature(int_uint)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(io)]
-#![feature(path)]
+#![feature(old_io)]
 
 use self::LabelText::*;
 
@@ -286,8 +284,6 @@ use std::borrow::IntoCow;
 use std::old_io;
 use std::string::CowString;
 use std::vec::CowVec;
-
-pub mod maybe_owned_vec;
 
 /// The text for a graphviz label on a node or edge.
 pub enum LabelText<'a> {

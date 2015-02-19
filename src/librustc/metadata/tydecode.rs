@@ -349,7 +349,7 @@ fn parse_region_<F>(st: &mut PState, conv: &mut F) -> ty::Region where
       }
       'f' => {
         assert_eq!(next(st), '[');
-        let scope = parse_scope(st);
+        let scope = parse_destruction_scope_data(st);
         assert_eq!(next(st), '|');
         let br = parse_bound_region_(st, conv);
         assert_eq!(next(st), ']');
@@ -377,6 +377,10 @@ fn parse_scope(st: &mut PState) -> region::CodeExtent {
             let node_id = parse_uint(st) as ast::NodeId;
             region::CodeExtent::Misc(node_id)
         }
+        'D' => {
+            let node_id = parse_uint(st) as ast::NodeId;
+            region::CodeExtent::DestructionScope(node_id)
+        }
         'B' => {
             let node_id = parse_uint(st) as ast::NodeId;
             let first_stmt_index = parse_uint(st);
@@ -387,6 +391,11 @@ fn parse_scope(st: &mut PState) -> region::CodeExtent {
         }
         _ => panic!("parse_scope: bad input")
     }
+}
+
+fn parse_destruction_scope_data(st: &mut PState) -> region::DestructionScopeData {
+    let node_id = parse_uint(st) as ast::NodeId;
+    region::DestructionScopeData::new(node_id)
 }
 
 fn parse_opt<'a, 'tcx, T, F>(st: &mut PState<'a, 'tcx>, f: F) -> Option<T> where
@@ -815,6 +824,7 @@ fn parse_type_param_def_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F)
     assert_eq!(next(st), '|');
     let bounds = parse_bounds_(st, conv);
     let default = parse_opt(st, |st| parse_ty_(st, conv));
+    let object_lifetime_default = parse_object_lifetime_default(st, conv);
 
     ty::TypeParameterDef {
         name: name,
@@ -822,7 +832,24 @@ fn parse_type_param_def_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F)
         space: space,
         index: index,
         bounds: bounds,
-        default: default
+        default: default,
+        object_lifetime_default: object_lifetime_default,
+    }
+}
+
+fn parse_object_lifetime_default<'a,'tcx, F>(st: &mut PState<'a,'tcx>,
+                                             conv: &mut F)
+                                             -> Option<ty::ObjectLifetimeDefault>
+    where F: FnMut(DefIdSource, ast::DefId) -> ast::DefId,
+{
+    match next(st) {
+        'n' => None,
+        'a' => Some(ty::ObjectLifetimeDefault::Ambiguous),
+        's' => {
+            let region = parse_region_(st, conv);
+            Some(ty::ObjectLifetimeDefault::Specific(region))
+        }
+        _ => panic!("parse_object_lifetime_default: bad input")
     }
 }
 

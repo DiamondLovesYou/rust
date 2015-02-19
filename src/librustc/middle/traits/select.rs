@@ -20,7 +20,7 @@ use self::EvaluationResult::*;
 use super::{DerivedObligationCause};
 use super::{project};
 use super::project::Normalized;
-use super::{PredicateObligation, Obligation, TraitObligation, ObligationCause};
+use super::{PredicateObligation, TraitObligation, ObligationCause};
 use super::{ObligationCauseCode, BuiltinDerivedObligation};
 use super::{SelectionError, Unimplemented, Overflow, OutputTypeParameterMismatch};
 use super::{Selection};
@@ -34,7 +34,7 @@ use super::{util};
 use middle::fast_reject;
 use middle::mem_categorization::Typer;
 use middle::subst::{Subst, Substs, TypeSpace, VecPerParamSpace};
-use middle::ty::{self, AsPredicate, RegionEscape, ToPolyTraitRef, Ty};
+use middle::ty::{self, RegionEscape, ToPolyTraitRef, Ty};
 use middle::infer;
 use middle::infer::{InferCtxt, TypeFreshener};
 use middle::ty_fold::TypeFoldable;
@@ -705,14 +705,17 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         Ok(Some(candidate))
     }
 
-    fn pick_candidate_cache(&self,
-                            cache_fresh_trait_pred: &ty::PolyTraitPredicate<'tcx>)
-                            -> &SelectionCache<'tcx>
-    {
-        // High-level idea: we have to decide whether to consult the
-        // cache that is specific to this scope, or to consult the
-        // global cache. We want the cache that is specific to this
-        // scope whenever where clauses might affect the result.
+    fn pick_candidate_cache(&self) -> &SelectionCache<'tcx> {
+        // If there are any where-clauses in scope, then we always use
+        // a cache local to this particular scope. Otherwise, we
+        // switch to a global cache. We used to try and draw
+        // finer-grained distinctions, but that led to a serious of
+        // annoying and weird bugs like #22019 and #18290. This simple
+        // rule seems to be pretty clearly safe and also still retains
+        // a very high hit rate (~95% when compiling rustc).
+        if !self.param_env().caller_bounds.is_empty() {
+            return &self.param_env().selection_cache;
+        }
 
         // Avoid using the master cache during coherence and just rely
         // on the local cache. This effectively disables caching
@@ -725,28 +728,6 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             return &self.param_env().selection_cache;
         }
 
-        // If the trait refers to any parameters in scope, then use
-        // the cache of the param-environment.
-        if
-            cache_fresh_trait_pred.0.input_types().iter().any(
-                |&t| ty::type_has_self(t) || ty::type_has_params(t))
-        {
-            return &self.param_env().selection_cache;
-        }
-
-        // If the trait refers to unbound type variables, and there
-        // are where clauses in scope, then use the local environment.
-        // If there are no where clauses in scope, which is a very
-        // common case, then we can use the global environment.
-        // See the discussion in doc.rs for more details.
-        if
-            !self.param_env().caller_bounds.is_empty() &&
-            cache_fresh_trait_pred.0.input_types().iter().any(
-                |&t| ty::type_has_ty_infer(t))
-        {
-            return &self.param_env().selection_cache;
-        }
-
         // Otherwise, we can use the global cache.
         &self.tcx().selection_cache
     }
@@ -755,7 +736,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                              cache_fresh_trait_pred: &ty::PolyTraitPredicate<'tcx>)
                              -> Option<SelectionResult<'tcx, SelectionCandidate<'tcx>>>
     {
-        let cache = self.pick_candidate_cache(cache_fresh_trait_pred);
+        let cache = self.pick_candidate_cache();
         let hashmap = cache.hashmap.borrow();
         hashmap.get(&cache_fresh_trait_pred.0.trait_ref).map(|c| (*c).clone())
     }
@@ -764,7 +745,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                               cache_fresh_trait_pred: ty::PolyTraitPredicate<'tcx>,
                               candidate: SelectionResult<'tcx, SelectionCandidate<'tcx>>)
     {
-        let cache = self.pick_candidate_cache(&cache_fresh_trait_pred);
+        let cache = self.pick_candidate_cache();
         let mut hashmap = cache.hashmap.borrow_mut();
         hashmap.insert(cache_fresh_trait_pred.0.trait_ref.clone(), candidate);
     }
@@ -775,7 +756,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                                      -> bool
     {
         // In general, it's a good idea to cache results, even
-        // ambigious ones, to save us some trouble later. But we have
+        // ambiguous ones, to save us some trouble later. But we have
         // to be careful not to cache results that could be
         // invalidated later by advances in inference. Normally, this
         // is not an issue, because any inference variables whose
@@ -942,8 +923,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 projection_trait_ref={}",
                projection_trait_ref.repr(self.tcx()));
 
-        let trait_def = ty::lookup_trait_def(self.tcx(), projection_trait_ref.def_id);
-        let bounds = trait_def.generics.to_bounds(self.tcx(), projection_trait_ref.substs);
+        let trait_predicates = ty::lookup_predicates(self.tcx(), projection_trait_ref.def_id);
+        let bounds = trait_predicates.instantiate(self.tcx(), projection_trait_ref.substs);
         debug!("match_projection_obligation_against_bounds_from_trait: \
                 bounds={}",
                bounds.repr(self.tcx()));
@@ -1273,7 +1254,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
     ///
     /// - The impl is conditional, in which case we may not have winnowed it out
     ///   because we don't know if the conditions apply, but the where clause is basically
-    ///   telling us taht there is some impl, though not necessarily the one we see.
+    ///   telling us that there is some impl, though not necessarily the one we see.
     ///
     /// In both cases we prefer to take the where clause, which is
     /// essentially harmless.  See issue #18453 for more details of
@@ -1334,25 +1315,6 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 // where both the projection bounds for `Self::A` and
                 // the where clauses are in scope.
                 true
-            }
-            (&ParamCandidate(ref bound1), &ParamCandidate(ref bound2)) => {
-                self.infcx.probe(|_| {
-                    let bound1 =
-                        project::normalize_with_depth(self,
-                                                      stack.obligation.cause.clone(),
-                                                      stack.obligation.recursion_depth+1,
-                                                      bound1);
-                    let bound2 =
-                        project::normalize_with_depth(self,
-                                                      stack.obligation.cause.clone(),
-                                                      stack.obligation.recursion_depth+1,
-                                                      bound2);
-                    let origin =
-                        infer::RelateOutputImplTypes(stack.obligation.cause.span);
-                    self.infcx
-                        .sub_poly_trait_refs(false, origin, bound1.value, bound2.value)
-                        .is_ok()
-                })
             }
             _ => {
                 false
@@ -1497,22 +1459,6 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
                     ty::BoundSync |
                     ty::BoundSend => {
-                        // Note: technically, a region pointer is only
-                        // sendable if it has lifetime
-                        // `'static`. However, we don't take regions
-                        // into account when doing trait matching:
-                        // instead, when we decide that `T : Send`, we
-                        // will register a separate constraint with
-                        // the region inferencer that `T : 'static`
-                        // holds as well (because the trait `Send`
-                        // requires it). This will ensure that there
-                        // is no borrowed data in `T` (or else report
-                        // an inference error). The reason we do it
-                        // this way is that we do not yet *know* what
-                        // lifetime the borrowed reference has, since
-                        // we haven't finished running inference -- in
-                        // other words, there's a kind of
-                        // chicken-and-egg problem.
                         Ok(If(vec![referent_ty]))
                     }
                 }
@@ -1585,6 +1531,14 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 // implicitly copyable
                 if bound == ty::BoundCopy {
                     return Ok(ParameterBuiltin);
+                }
+
+                // Upvars are always local variables or references to
+                // local variables, and local variables cannot be
+                // unsized, so the closure struct as a whole must be
+                // Sized.
+                if bound == ty::BoundSized {
+                    return Ok(If(Vec::new()));
                 }
 
                 match self.closure_typer.closure_upvars(def_id, substs) {
@@ -1684,7 +1638,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 ty::BoundSync => {
                     if
                         Some(def_id) == tcx.lang_items.managed_bound() ||
-                        Some(def_id) == tcx.lang_items.unsafe_type()
+                        Some(def_id) == tcx.lang_items.unsafe_cell_type()
                     {
                         return Err(Unimplemented)
                     }
@@ -1847,20 +1801,10 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 }
             })
         }).collect::<Result<_, _>>();
-        let mut obligations = match obligations {
+        let obligations = match obligations {
             Ok(o) => o,
             Err(ErrorReported) => Vec::new()
         };
-
-        // as a special case, `Send` requires `'static`
-        if bound == ty::BoundSend {
-            obligations.push(Obligation {
-                cause: obligation.cause.clone(),
-                recursion_depth: obligation.recursion_depth+1,
-                predicate: ty::Binder(ty::OutlivesPredicate(obligation.self_ty(),
-                                                            ty::ReStatic)).as_predicate(),
-            });
-        }
 
         let obligations = VecPerParamSpace::new(obligations, Vec::new(), Vec::new());
 
@@ -2344,8 +2288,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                         snapshot: &infer::CombinedSnapshot)
                         -> VecPerParamSpace<PredicateObligation<'tcx>>
     {
-        let impl_generics = ty::lookup_item_type(self.tcx(), impl_def_id).generics;
-        let bounds = impl_generics.to_bounds(self.tcx(), impl_substs);
+        let impl_bounds = ty::lookup_predicates(self.tcx(), impl_def_id);
+        let bounds = impl_bounds.instantiate(self.tcx(), impl_substs);
         let normalized_bounds =
             project::normalize_with_depth(self, cause.clone(), recursion_depth, &bounds);
         let normalized_bounds =

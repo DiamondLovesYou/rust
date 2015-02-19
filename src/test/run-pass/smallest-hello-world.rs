@@ -8,12 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-android
-
 // Smallest "hello world" with a libc runtime
 
+#![feature(intrinsics, lang_items, start, no_std)]
 #![no_std]
-#![feature(intrinsics, lang_items, start)]
 
 extern crate libc;
 
@@ -34,3 +32,6 @@ fn main(_: int, _: *const *const u8) -> int {
     return 0;
 }
 
+#[cfg(target_os = "android")]
+#[link(name="gcc")]
+extern { }

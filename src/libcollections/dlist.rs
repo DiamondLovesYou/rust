@@ -35,7 +35,7 @@ use core::ptr;
 /// A doubly-linked list.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct DList<T> {
-    length: uint,
+    length: usize,
     list_head: Link<T>,
     list_tail: Rawlink<Node<T>>,
 }
@@ -61,7 +61,7 @@ struct Node<T> {
 pub struct Iter<'a, T:'a> {
     head: &'a Link<T>,
     tail: Rawlink<Node<T>>,
-    nelem: uint,
+    nelem: usize,
 }
 
 // FIXME #19839: deriving is too aggressive on the bounds (T doesn't need to be Clone).
@@ -82,7 +82,7 @@ pub struct IterMut<'a, T:'a> {
     list: &'a mut DList<T>,
     head: Rawlink<Node<T>>,
     tail: Rawlink<Node<T>>,
-    nelem: uint,
+    nelem: usize,
 }
 
 /// An iterator over mutable references to the items of a `DList`.
@@ -345,7 +345,7 @@ impl<T> DList<T> {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn len(&self) -> uint {
+    pub fn len(&self) -> usize {
         self.length
     }
 
@@ -560,7 +560,12 @@ impl<T> DList<T> {
     /// Splits the list into two at the given index. Returns everything after the given index,
     /// including the index.
     ///
+    /// # Panics
+    ///
+    /// Panics if `at > len`.
+    ///
     /// This operation should compute in O(n) time.
+    ///
     /// # Examples
     ///
     /// ```
@@ -578,11 +583,13 @@ impl<T> DList<T> {
     /// assert_eq!(splitted.pop_front(), None);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn split_off(&mut self, at: uint) -> DList<T> {
+    pub fn split_off(&mut self, at: usize) -> DList<T> {
         let len = self.len();
-        assert!(at < len, "Cannot split off at a nonexistent index");
+        assert!(at <= len, "Cannot split off at a nonexistent index");
         if at == 0 {
             return mem::replace(self, DList::new());
+        } else if at == len {
+            return DList::new();
         }
 
         // Below, we iterate towards the `i-1`th node, either from the start or the end,
@@ -659,7 +666,7 @@ impl<'a, A> Iterator for Iter<'a, A> {
     }
 
     #[inline]
-    fn size_hint(&self) -> (uint, Option<uint>) {
+    fn size_hint(&self) -> (usize, Option<usize>) {
         (self.nelem, Some(self.nelem))
     }
 }
@@ -701,7 +708,7 @@ impl<'a, A> Iterator for IterMut<'a, A> {
     }
 
     #[inline]
-    fn size_hint(&self) -> (uint, Option<uint>) {
+    fn size_hint(&self) -> (usize, Option<usize>) {
         (self.nelem, Some(self.nelem))
     }
 }
@@ -756,7 +763,7 @@ impl<'a, A> IterMut<'a, A> {
     /// ```
     /// use std::collections::DList;
     ///
-    /// let mut list: DList<int> = vec![1, 3, 4].into_iter().collect();
+    /// let mut list: DList<_> = vec![1, 3, 4].into_iter().collect();
     ///
     /// {
     ///     let mut it = list.iter_mut();
@@ -765,7 +772,7 @@ impl<'a, A> IterMut<'a, A> {
     ///     it.insert_next(2);
     /// }
     /// {
-    ///     let vec: Vec<int> = list.into_iter().collect();
+    ///     let vec: Vec<_> = list.into_iter().collect();
     ///     assert_eq!(vec, vec![1, 2, 3, 4]);
     /// }
     /// ```
@@ -783,7 +790,7 @@ impl<'a, A> IterMut<'a, A> {
     /// ```
     /// use std::collections::DList;
     ///
-    /// let mut list: DList<int> = vec![1, 2, 3].into_iter().collect();
+    /// let mut list: DList<_> = vec![1, 2, 3].into_iter().collect();
     ///
     /// let mut it = list.iter_mut();
     /// assert_eq!(it.next().unwrap(), &1);
@@ -810,7 +817,7 @@ impl<A> Iterator for IntoIter<A> {
     fn next(&mut self) -> Option<A> { self.list.pop_front() }
 
     #[inline]
-    fn size_hint(&self) -> (uint, Option<uint>) {
+    fn size_hint(&self) -> (usize, Option<usize>) {
         (self.list.length, Some(self.list.length))
     }
 }
@@ -830,16 +837,20 @@ impl<A> FromIterator<A> for DList<A> {
     }
 }
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T> IntoIterator for DList<T> {
-    type Iter = IntoIter<T>;
+    type Item = T;
+    type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> IntoIter<T> {
         self.into_iter()
     }
 }
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T> IntoIterator for &'a DList<T> {
-    type Iter = Iter<'a, T>;
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
 
     fn into_iter(self) -> Iter<'a, T> {
         self.iter()
@@ -847,7 +858,8 @@ impl<'a, T> IntoIterator for &'a DList<T> {
 }
 
 impl<'a, T> IntoIterator for &'a mut DList<T> {
-    type Iter = IterMut<'a, T>;
+    type Item = &'a mut T;
+    type IntoIter = IterMut<'a, T>;
 
     fn into_iter(mut self) -> IterMut<'a, T> {
         self.iter_mut()
@@ -928,18 +940,18 @@ mod tests {
     use prelude::*;
     use std::rand;
     use std::hash::{self, SipHasher};
-    use std::thread::Thread;
+    use std::thread;
     use test::Bencher;
     use test;
 
     use super::{DList, Node};
 
     pub fn check_links<T>(list: &DList<T>) {
-        let mut len = 0u;
+        let mut len = 0;
         let mut last_ptr: Option<&Node<T>> = None;
         let mut node_ptr: &Node<T>;
         match list.list_head {
-            None => { assert_eq!(0u, list.length); return }
+            None => { assert_eq!(0, list.length); return }
             Some(ref node) => node_ptr = &**node,
         }
         loop {
@@ -968,7 +980,7 @@ mod tests {
 
     #[test]
     fn test_basic() {
-        let mut m: DList<Box<int>> = DList::new();
+        let mut m = DList::new();
         assert_eq!(m.pop_front(), None);
         assert_eq!(m.pop_back(), None);
         assert_eq!(m.pop_front(), None);
@@ -1007,7 +1019,7 @@ mod tests {
     }
 
     #[cfg(test)]
-    fn generate_test() -> DList<int> {
+    fn generate_test() -> DList<i32> {
         list_from(&[0,1,2,3,4,5,6])
     }
 
@@ -1020,7 +1032,7 @@ mod tests {
     fn test_append() {
         // Empty to empty
         {
-            let mut m: DList<int> = DList::new();
+            let mut m = DList::<i32>::new();
             let mut n = DList::new();
             m.append(&mut n);
             check_links(&m);
@@ -1116,13 +1128,25 @@ mod tests {
             }
         }
 
+        // no-op on the last index
+        {
+            let mut m = DList::new();
+            m.push_back(1);
+
+            let p = m.split_off(1);
+            assert_eq!(m.len(), 1);
+            assert_eq!(p.len(), 0);
+            assert_eq!(m.back(), Some(&1));
+            assert_eq!(m.front(), Some(&1));
+        }
+
     }
 
     #[test]
     fn test_iterator() {
         let m = generate_test();
         for (i, elt) in m.iter().enumerate() {
-            assert_eq!(i as int, *elt);
+            assert_eq!(i as i32, *elt);
         }
         let mut n = DList::new();
         assert_eq!(n.iter().next(), None);
@@ -1170,7 +1194,7 @@ mod tests {
     fn test_rev_iter() {
         let m = generate_test();
         for (i, elt) in m.iter().rev().enumerate() {
-            assert_eq!((6 - i) as int, *elt);
+            assert_eq!((6 - i) as i32, *elt);
         }
         let mut n = DList::new();
         assert_eq!(n.iter().rev().next(), None);
@@ -1187,7 +1211,7 @@ mod tests {
         let mut m = generate_test();
         let mut len = m.len();
         for (i, elt) in m.iter_mut().enumerate() {
-            assert_eq!(i as int, *elt);
+            assert_eq!(i as i32, *elt);
             len -= 1;
         }
         assert_eq!(len, 0);
@@ -1245,14 +1269,14 @@ mod tests {
         }
         check_links(&m);
         assert_eq!(m.len(), 3 + len * 2);
-        assert_eq!(m.into_iter().collect::<Vec<int>>(), vec![-2,0,1,2,3,4,5,6,7,8,9,0,1]);
+        assert_eq!(m.into_iter().collect::<Vec<_>>(), vec![-2,0,1,2,3,4,5,6,7,8,9,0,1]);
     }
 
     #[test]
     fn test_mut_rev_iter() {
         let mut m = generate_test();
         for (i, elt) in m.iter_mut().rev().enumerate() {
-            assert_eq!((6-i) as int, *elt);
+            assert_eq!((6 - i) as i32, *elt);
         }
         let mut n = DList::new();
         assert!(n.iter_mut().rev().next().is_none());
@@ -1265,16 +1289,16 @@ mod tests {
     #[test]
     fn test_send() {
         let n = list_from(&[1,2,3]);
-        Thread::scoped(move || {
+        thread::spawn(move || {
             check_links(&n);
             let a: &[_] = &[&1,&2,&3];
-            assert_eq!(a, n.iter().collect::<Vec<&int>>());
+            assert_eq!(a, n.iter().collect::<Vec<_>>());
         }).join().ok().unwrap();
     }
 
     #[test]
     fn test_eq() {
-        let mut n: DList<u8> = list_from(&[]);
+        let mut n = list_from(&[]);
         let mut m = list_from(&[]);
         assert!(n == m);
         n.push_front(1);
@@ -1307,7 +1331,7 @@ mod tests {
 
     #[test]
     fn test_ord() {
-        let n: DList<int> = list_from(&[]);
+        let n = list_from(&[]);
         let m = list_from(&[1,2,3]);
         assert!(n < m);
         assert!(m > n);
@@ -1349,7 +1373,7 @@ mod tests {
 
     #[test]
     fn test_fuzz() {
-        for _ in 0u..25 {
+        for _ in 0..25 {
             fuzz_test(3);
             fuzz_test(16);
             fuzz_test(189);
@@ -1358,18 +1382,16 @@ mod tests {
 
     #[test]
     fn test_show() {
-        let list: DList<i32> = (0..10).collect();
+        let list: DList<_> = (0..10).collect();
         assert_eq!(format!("{:?}", list), "DList [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]");
 
-        let list: DList<&str> = vec!["just", "one", "test", "more"].iter()
-                                                                   .map(|&s| s)
-                                                                   .collect();
+        let list: DList<_> = vec!["just", "one", "test", "more"].iter().cloned().collect();
         assert_eq!(format!("{:?}", list), "DList [\"just\", \"one\", \"test\", \"more\"]");
     }
 
     #[cfg(test)]
-    fn fuzz_test(sz: int) {
-        let mut m: DList<int> = DList::new();
+    fn fuzz_test(sz: i32) {
+        let mut m: DList<_> = DList::new();
         let mut v = vec![];
         for i in 0..sz {
             check_links(&m);
@@ -1398,7 +1420,7 @@ mod tests {
 
         check_links(&m);
 
-        let mut i = 0u;
+        let mut i = 0;
         for (a, &b) in m.into_iter().zip(v.iter()) {
             i += 1;
             assert_eq!(a, b);
@@ -1410,13 +1432,13 @@ mod tests {
     fn bench_collect_into(b: &mut test::Bencher) {
         let v = &[0; 64];
         b.iter(|| {
-            let _: DList<int> = v.iter().map(|x| *x).collect();
+            let _: DList<_> = v.iter().cloned().collect();
         })
     }
 
     #[bench]
     fn bench_push_front(b: &mut test::Bencher) {
-        let mut m: DList<int> = DList::new();
+        let mut m: DList<_> = DList::new();
         b.iter(|| {
             m.push_front(0);
         })
@@ -1424,7 +1446,7 @@ mod tests {
 
     #[bench]
     fn bench_push_back(b: &mut test::Bencher) {
-        let mut m: DList<int> = DList::new();
+        let mut m: DList<_> = DList::new();
         b.iter(|| {
             m.push_back(0);
         })
@@ -1432,7 +1454,7 @@ mod tests {
 
     #[bench]
     fn bench_push_back_pop_back(b: &mut test::Bencher) {
-        let mut m: DList<int> = DList::new();
+        let mut m: DList<_> = DList::new();
         b.iter(|| {
             m.push_back(0);
             m.pop_back();
@@ -1441,7 +1463,7 @@ mod tests {
 
     #[bench]
     fn bench_push_front_pop_front(b: &mut test::Bencher) {
-        let mut m: DList<int> = DList::new();
+        let mut m: DList<_> = DList::new();
         b.iter(|| {
             m.push_front(0);
             m.pop_front();
@@ -1451,7 +1473,7 @@ mod tests {
     #[bench]
     fn bench_iter(b: &mut test::Bencher) {
         let v = &[0; 128];
-        let m: DList<int> = v.iter().map(|&x|x).collect();
+        let m: DList<_> = v.iter().cloned().collect();
         b.iter(|| {
             assert!(m.iter().count() == 128);
         })
@@ -1459,7 +1481,7 @@ mod tests {
     #[bench]
     fn bench_iter_mut(b: &mut test::Bencher) {
         let v = &[0; 128];
-        let mut m: DList<int> = v.iter().map(|&x|x).collect();
+        let mut m: DList<_> = v.iter().cloned().collect();
         b.iter(|| {
             assert!(m.iter_mut().count() == 128);
         })
@@ -1467,7 +1489,7 @@ mod tests {
     #[bench]
     fn bench_iter_rev(b: &mut test::Bencher) {
         let v = &[0; 128];
-        let m: DList<int> = v.iter().map(|&x|x).collect();
+        let m: DList<_> = v.iter().cloned().collect();
         b.iter(|| {
             assert!(m.iter().rev().count() == 128);
         })
@@ -1475,7 +1497,7 @@ mod tests {
     #[bench]
     fn bench_iter_mut_rev(b: &mut test::Bencher) {
         let v = &[0; 128];
-        let mut m: DList<int> = v.iter().map(|&x|x).collect();
+        let mut m: DList<_> = v.iter().cloned().collect();
         b.iter(|| {
             assert!(m.iter_mut().rev().count() == 128);
         })

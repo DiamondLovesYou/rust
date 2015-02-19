@@ -29,9 +29,8 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
+#![feature(no_std)]
 #![no_std]
-#![feature(slicing_syntax)]
-#![feature(int_uint)]
 #![feature(core)]
 
 extern crate core;
@@ -59,8 +58,9 @@ mod u_str;
 /// As such, only values in the ranges \[0x0,0xD7FF\] and \[0xE000,0x10FFFF\]
 /// (inclusive) are allowed. A `char` can always be safely cast to a `u32`;
 /// however the converse is not always true due to the above range limits
-/// and, as such, should be performed via the `from_u32` function..
+/// and, as such, should be performed via the `from_u32` function.
 #[stable(feature = "rust1", since = "1.0.0")]
+#[doc(primitive = "char")]
 pub mod char {
     pub use core::char::{MAX, from_u32, from_digit};
 
@@ -76,15 +76,4 @@ pub mod str {
     pub use u_str::{UnicodeStr, Words, Graphemes, GraphemeIndices};
     pub use u_str::{utf8_char_width, is_utf16, Utf16Items, Utf16Item};
     pub use u_str::{utf16_items, Utf16Encoder};
-}
-
-// this lets us use #[derive(..)]
-mod std {
-    pub use core::clone;
-    pub use core::cmp;
-    pub use core::fmt;
-    pub use core::marker;
-    // for-loops
-    pub use core::iter;
-    pub use core::option;
 }

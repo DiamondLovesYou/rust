@@ -98,12 +98,10 @@ mod cross_crate {
         // Eventually, we will want to lint the contents of the
         // macro in the module *defining* it. Also, stability levels
         // on macros themselves are not yet linted.
-        macro_test!();
         macro_test_arg!(deprecated_text()); //~ ERROR use of deprecated item: text
         macro_test_arg!(deprecated_unstable_text()); //~ ERROR use of deprecated item: text
         //~^ WARNING use of unstable library feature
         macro_test_arg!(macro_test_arg!(deprecated_text())); //~ ERROR use of deprecated item: text
-        macro_test_arg_nested!(deprecated_text);
     }
 
     fn test_method_param<F: Trait>(foo: F) {
@@ -135,11 +133,16 @@ mod cross_crate {
     impl UnstableTrait for S { } //~ WARNING use of unstable library feature
 
     trait LocalTrait : UnstableTrait { } //~ WARNING use of unstable library feature
+
+    impl Trait for S {
+        fn trait_stable(&self) {}
+        fn trait_unstable(&self) {} //~ WARNING use of unstable library feature
+    }
 }
 
 mod inheritance {
     extern crate inherited_stability; //~ WARNING: use of unstable library feature
-    use self::inherited_stability::*;
+    use self::inherited_stability::*; //~ WARNING: use of unstable library feature
 
     fn test_inheritance() {
         unstable(); //~ WARNING use of unstable library feature

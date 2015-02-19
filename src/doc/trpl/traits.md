@@ -270,51 +270,98 @@ not, because both the trait and the type aren't in our crate.
 
 One last thing about traits: generic functions with a trait bound use
 *monomorphization* (*mono*: one, *morph*: form), so they are statically
-dispatched. What's that mean? Well, let's take a look at `print_area` again:
+dispatched. What's that mean? Check out the chapter on [static and dynamic
+dispatch](static-and-dynamic-dispatch.html) for more.
 
-```{rust,ignore}
-fn print_area<T: HasArea>(shape: T) {
-    println!("This shape has an area of {}", shape.area());
-}
+## Where clause
 
-fn main() {
-    let c = Circle { ... };
+Writing functions with only a few generic types and a small number of trait
+bounds isn't too bad, but as the number increases, the syntax gets increasingly
+awkward:
 
-    let s = Square { ... };
+```
+use std::fmt::Debug;
 
-    print_area(c);
-    print_area(s);
+fn foo<T: Clone, K: Clone + Debug>(x: T, y: K) {
+    x.clone();
+    y.clone();
+    println!("{:?}", y);
 }
 ```
 
-When we use this trait with `Circle` and `Square`, Rust ends up generating
-two different functions with the concrete type, and replacing the call sites with
-calls to the concrete implementations. In other words, you get something like
-this:
+The name of the function is on the far left, and the parameter list is on the
+far right. The bounds are getting in the way.
 
-```{rust,ignore}
-fn __print_area_circle(shape: Circle) {
-    println!("This shape has an area of {}", shape.area());
+Rust has a solution, and it's called a '`where` clause':
+
+```
+use std::fmt::Debug;
+
+fn foo<T: Clone, K: Clone + Debug>(x: T, y: K) {
+    x.clone();
+    y.clone();
+    println!("{:?}", y);
 }
 
-fn __print_area_square(shape: Square) {
-    println!("This shape has an area of {}", shape.area());
+fn bar<T, K>(x: T, y: K) where T: Clone, K: Clone + Debug {
+    x.clone();
+    y.clone();
+    println!("{:?}", y);
 }
 
 fn main() {
-    let c = Circle { ... };
-
-    let s = Square { ... };
-
-    __print_area_circle(c);
-    __print_area_square(s);
+    foo("Hello", "world");
+    bar("Hello", "workd");
 }
 ```
 
-The names don't actually change to this, it's just for illustration. But
-as you can see, there's no overhead of deciding which version to call here,
-hence *statically dispatched*. The downside is that we have two copies of
-the same function, so our binary is a little bit larger.
+`foo()` uses the syntax we showed earlier, and `bar()` uses a `where` clause.
+All you need to do is leave off the bounds when defining your type parameters,
+and then add `where` after the parameter list. For longer lists, whitespace can
+be added:
+
+```
+use std::fmt::Debug;
+
+fn bar<T, K>(x: T, y: K)
+    where T: Clone,
+          K: Clone + Debug {
+
+    x.clone();
+    y.clone();
+    println!("{:?}", y);
+}
+```
+
+This flexibility can add clarity in complex situations.
+
+`where` is also more powerful than the simpler syntax. For example:
+
+```
+trait ConvertTo<Output> {
+    fn convert(&self) -> Output;
+}
+
+impl ConvertTo<i64> for i32 {
+    fn convert(&self) -> i64 { *self as i64 }
+}
+
+// can be called with T == i32
+fn normal<T: ConvertTo<i64>>(x: &T) -> i64 {
+    x.convert()
+}
+
+// can be called with T == i64
+fn inverse<T>() -> T
+        // this is using ConvertTo as if it were "ConvertFrom<i32>"
+        where i32: ConvertTo<T> {
+    1i32.convert()
+}
+```
+
+This shows off the additional feature of `where` clauses: they allow bounds
+where the left-hand side is an arbitrary type (`i32` in this case), not just a
+plain type parameter (like `T`).
 
 ## Our `inverse` Example
 

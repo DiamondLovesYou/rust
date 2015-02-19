@@ -149,7 +149,7 @@ impl<'a, 'v> Visitor<'v> for LanguageItemCollector<'a> {
     fn visit_item(&mut self, item: &ast::Item) {
         match extract(&item.attrs) {
             Some(value) => {
-                let item_index = self.item_refs.get(value.get()).map(|x| *x);
+                let item_index = self.item_refs.get(&value[]).map(|x| *x);
 
                 match item_index {
                     Some(item_index) => {
@@ -271,7 +271,7 @@ lets_do_this! {
     RangeToStructLangItem,           "range_to",                range_to_struct;
     RangeFullStructLangItem,         "range_full",              range_full_struct;
 
-    UnsafeTypeLangItem,              "unsafe",                  unsafe_type;
+    UnsafeCellTypeLangItem,          "unsafe_cell",             unsafe_cell_type;
 
     DerefTraitLangItem,              "deref",                   deref_trait;
     DerefMutTraitLangItem,           "deref_mut",               deref_mut_trait;
@@ -311,6 +311,8 @@ lets_do_this! {
 
     ExchangeHeapLangItem,            "exchange_heap",           exchange_heap;
     OwnedBoxLangItem,                "owned_box",               owned_box;
+
+    PhantomDataItem,                 "phantom_data",            phantom_data;
 
     CovariantTypeItem,               "covariant_type",          covariant_type;
     ContravariantTypeItem,           "contravariant_type",      contravariant_type;

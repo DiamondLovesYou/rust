@@ -15,7 +15,8 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
 
-#![feature(rustc_private, os, libc, std_misc, collections, core, path, io, env)]
+#![feature(rustc_private, os, libc, std_misc, collections, core, env,
+           old_path, old_io)]
 
 extern crate getopts;
 extern crate libc;
@@ -96,9 +97,7 @@ pub fn llvm_warn<T: Str>(msg: T) {
 }
 
 pub fn main() {
-    let args: Vec<String> = env::args()
-        .map(|arg| arg.into_string().unwrap() )
-        .collect();
+    let args: Vec<String> = env::args().collect();
     let opts = optgroups();
 
     let matches = match getopts(args.tail(), opts.as_slice()) {

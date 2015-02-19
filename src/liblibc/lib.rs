@@ -15,7 +15,7 @@
 #![cfg_attr(not(feature = "cargo-build"), feature(staged_api))]
 #![cfg_attr(not(feature = "cargo-build"), staged_api)]
 #![cfg_attr(not(feature = "cargo-build"), feature(core))]
-#![feature(int_uint)]
+#![feature(no_std)]
 #![no_std]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
@@ -363,15 +363,12 @@ pub mod types {
             /// variants, because the compiler complains about the repr attribute
             /// otherwise.
             #[repr(u8)]
-            #[allow(missing_copy_implementations)]
             pub enum c_void {
                 __variant1,
                 __variant2,
             }
 
-            #[allow(missing_copy_implementations)]
             pub enum FILE {}
-            #[allow(missing_copy_implementations)]
             pub enum fpos_t {}
         }
         pub mod c99 {
@@ -385,9 +382,7 @@ pub mod types {
             pub type uint64_t = u64;
         }
         pub mod posix88 {
-            #[allow(missing_copy_implementations)]
             pub enum DIR {}
-            #[allow(missing_copy_implementations)]
             pub enum dirent_t {}
         }
         pub mod posix01 {}
@@ -1952,7 +1947,7 @@ pub mod types {
                 #[repr(C)]
                 #[derive(Copy)] pub struct WSAPROTOCOLCHAIN {
                     pub ChainLen: c_int,
-                    pub ChainEntries: [DWORD; MAX_PROTOCOL_CHAIN as uint],
+                    pub ChainEntries: [DWORD; MAX_PROTOCOL_CHAIN as usize],
                 }
 
                 pub type LPWSAPROTOCOLCHAIN = *mut WSAPROTOCOLCHAIN;
@@ -1978,7 +1973,7 @@ pub mod types {
                     pub iSecurityScheme: c_int,
                     pub dwMessageSize: DWORD,
                     pub dwProviderReserved: DWORD,
-                    pub szProtocol: [u8; (WSAPROTOCOL_LEN as uint) + 1us],
+                    pub szProtocol: [u8; WSAPROTOCOL_LEN as usize + 1us],
                 }
 
                 pub type LPWSAPROTOCOL_INFO = *mut WSAPROTOCOL_INFO;
@@ -2053,7 +2048,7 @@ pub mod types {
                 use types::common::c95::{c_void};
                 use types::os::arch::c95::{c_char, c_int, c_uint};
 
-                pub type socklen_t = c_int;
+                pub type socklen_t = u32;
                 pub type sa_family_t = u8;
                 pub type in_port_t = u16;
                 pub type in_addr_t = u32;
@@ -2162,8 +2157,8 @@ pub mod types {
                 pub type c_double = f64;
                 pub type size_t = u32;
                 pub type ptrdiff_t = i32;
-                pub type clock_t = u32;
-                pub type time_t = i32;
+                pub type clock_t = c_ulong;
+                pub type time_t = c_long;
                 pub type suseconds_t = i32;
                 pub type wchar_t = i32;
             }
@@ -2176,6 +2171,8 @@ pub mod types {
                 pub type uintmax_t = u64;
             }
             pub mod posix88 {
+                use types::os::arch::c95::c_long;
+
                 pub type off_t = i64;
                 pub type dev_t = i32;
                 pub type ino_t = u64;
@@ -2184,7 +2181,7 @@ pub mod types {
                 pub type gid_t = u32;
                 pub type useconds_t = u32;
                 pub type mode_t = u16;
-                pub type ssize_t = i32;
+                pub type ssize_t = c_long;
             }
             pub mod posix01 {
                 use types::common::c99::{int32_t, int64_t, uint32_t};
@@ -2193,8 +2190,8 @@ pub mod types {
                                                      mode_t, off_t, uid_t};
 
                 pub type nlink_t = u16;
-                pub type blksize_t = i64;
-                pub type blkcnt_t = i32;
+                pub type blksize_t = i32;
+                pub type blkcnt_t = i64;
 
                 #[repr(C)]
                 #[derive(Copy)] pub struct stat {
@@ -2265,8 +2262,8 @@ pub mod types {
                 pub type c_double = f64;
                 pub type size_t = u64;
                 pub type ptrdiff_t = i64;
-                pub type clock_t = u64;
-                pub type time_t = i64;
+                pub type clock_t = c_ulong;
+                pub type time_t = c_long;
                 pub type suseconds_t = i32;
                 pub type wchar_t = i32;
             }
@@ -2279,6 +2276,8 @@ pub mod types {
                 pub type uintmax_t = u64;
             }
             pub mod posix88 {
+                use types::os::arch::c95::c_long;
+
                 pub type off_t = i64;
                 pub type dev_t = i32;
                 pub type ino_t = u64;
@@ -2287,7 +2286,7 @@ pub mod types {
                 pub type gid_t = u32;
                 pub type useconds_t = u32;
                 pub type mode_t = u16;
-                pub type ssize_t = i64;
+                pub type ssize_t = c_long;
             }
             pub mod posix01 {
                 use types::common::c99::{int32_t, int64_t};
@@ -2297,8 +2296,8 @@ pub mod types {
                 use types::os::arch::posix88::{mode_t, off_t, uid_t};
 
                 pub type nlink_t = u16;
-                pub type blksize_t = i64;
-                pub type blkcnt_t = i32;
+                pub type blksize_t = i32;
+                pub type blkcnt_t = i64;
 
                 #[repr(C)]
                 #[derive(Copy)] pub struct stat {
@@ -2505,6 +2504,7 @@ pub mod consts {
             pub const SHUT_RDWR: c_int = 2;
         }
         pub mod extra {
+            use SOCKET;
             use types::os::arch::c95::{c_int, c_long};
             use types::os::arch::extra::{WORD, DWORD, BOOL, HANDLE};
 
@@ -2711,7 +2711,7 @@ pub mod consts {
 
             pub const MAX_PROTOCOL_CHAIN: DWORD = 7;
             pub const WSAPROTOCOL_LEN: DWORD = 255;
-            pub const INVALID_SOCKET: DWORD = !0;
+            pub const INVALID_SOCKET: SOCKET = !0;
 
             pub const DETACHED_PROCESS: DWORD = 0x00000008;
             pub const CREATE_NEW_PROCESS_GROUP: DWORD = 0x00000200;
@@ -5560,6 +5560,7 @@ pub mod funcs {
         use types::os::arch::c95::{c_uchar, c_int, size_t};
 
         extern {
+            #[cfg(not(all(target_os = "android", target_arch = "aarch64")))]
             pub fn getdtablesize() -> c_int;
             pub fn ioctl(d: c_int, request: c_int, ...) -> c_int;
             pub fn madvise(addr: *mut c_void, len: size_t, advice: c_int)
@@ -5827,9 +5828,3 @@ pub mod funcs {
 pub fn issue_14344_workaround() {} // FIXME #14344 force linkage to happen correctly
 
 #[test] fn work_on_windows() { } // FIXME #10872 needed for a happy windows
-
-#[doc(hidden)]
-#[cfg(not(test))]
-mod std {
-    pub use core::marker;
-}

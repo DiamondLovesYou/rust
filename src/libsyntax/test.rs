@@ -436,40 +436,28 @@ fn mk_main(cx: &mut TestCtxt) -> P<ast::Item> {
     let sp = ignored_span(cx, DUMMY_SP);
     let ecx = &cx.ext_cx;
 
-    // std::slice::AsSlice
-    let as_slice_path = ecx.path(sp, vec![token::str_to_ident("std"),
-                                          token::str_to_ident("slice"),
-                                          token::str_to_ident("AsSlice")]);
     // test::test_main_static
     let test_main_path = ecx.path(sp, vec![token::str_to_ident("test"),
                                            token::str_to_ident("test_main_static")]);
-    // ::std::os::args
+    // ::std::env::args
     let os_args_path = ecx.path_global(sp, vec![token::str_to_ident("std"),
-                                                token::str_to_ident("os"),
+                                                token::str_to_ident("env"),
                                                 token::str_to_ident("args")]);
-    // use std::slice::AsSlice
-    let as_slice_path = P(nospan(ast::ViewPathSimple(token::str_to_ident("AsSlice"),
-                                                     as_slice_path)));
-    let use_as_slice = ecx.item_use(sp, ast::Inherited, as_slice_path);
-    let use_as_slice = ecx.stmt_item(sp, use_as_slice);
-    // ::std::os::args()
+    // ::std::env::args()
     let os_args_path_expr = ecx.expr_path(os_args_path);
     let call_os_args = ecx.expr_call(sp, os_args_path_expr, vec![]);
-    // ::std::os::args().as_slice()
-    let call_as_slice = ecx.expr_method_call(sp, call_os_args,
-                                             token::str_to_ident("as_slice"), vec![]);
     // test::test_main_static(...)
     let test_main_path_expr = ecx.expr_path(test_main_path);
     let tests_ident_expr = ecx.expr_ident(sp, token::str_to_ident("TESTS"));
     let call_test_main = ecx.expr_call(sp, test_main_path_expr,
-                                       vec![call_as_slice, tests_ident_expr]);
+                                       vec![call_os_args, tests_ident_expr]);
     let call_test_main = ecx.stmt_expr(call_test_main);
     // #![main]
     let main_meta = ecx.meta_word(sp, token::intern_and_get_ident("main"));
     let main_attr = ecx.attribute(sp, main_meta);
     // pub fn main() { ... }
     let main_ret_ty = ecx.ty(sp, ast::TyTup(vec![]));
-    let main_body = ecx.block_all(sp, vec![use_as_slice, call_test_main], None);
+    let main_body = ecx.block_all(sp, vec![call_test_main], None);
     let main = ast::ItemFn(ecx.fn_decl(vec![], main_ret_ty),
                            ast::Unsafety::Normal, ::abi::Rust, empty_generics(), main_body);
     let main = P(ast::Item {
@@ -512,7 +500,7 @@ fn mk_test_module(cx: &mut TestCtxt) -> (P<ast::Item>, Option<P<ast::Item>>) {
     });
     let reexport = cx.reexport_test_harness_main.as_ref().map(|s| {
         // building `use <ident> = __test::main`
-        let reexport_ident = token::str_to_ident(s.get());
+        let reexport_ident = token::str_to_ident(&s);
 
         let use_path =
             nospan(ast::ViewPathSimple(reexport_ident,
@@ -575,7 +563,7 @@ fn mk_tests(cx: &TestCtxt) -> P<ast::Item> {
 
 fn is_test_crate(krate: &ast::Crate) -> bool {
     match attr::find_crate_name(&krate.attrs[]) {
-        Some(ref s) if "test" == &s.get()[] => true,
+        Some(ref s) if "test" == &s[] => true,
         _ => false
     }
 }

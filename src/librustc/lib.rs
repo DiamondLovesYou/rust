@@ -23,19 +23,20 @@
       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
+#![feature(box_patterns)]
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
 #![feature(hash)]
 #![feature(int_uint)]
-#![feature(io)]
+#![feature(old_io)]
 #![feature(libc)]
 #![feature(env)]
-#![feature(path)]
+#![feature(old_path)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
-#![feature(slicing_syntax, unsafe_destructor)]
+#![feature(unsafe_destructor)]
 #![feature(staged_api)]
 #![feature(std_misc)]
 #![feature(unicode)]
@@ -91,7 +92,6 @@ pub mod middle {
     pub mod check_match;
     pub mod check_rvalues;
     pub mod check_pnacl_no_asm;
-    pub mod check_static;
     pub mod const_eval;
     pub mod dataflow;
     pub mod dead;

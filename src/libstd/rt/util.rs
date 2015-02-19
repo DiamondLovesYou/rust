@@ -52,7 +52,7 @@ pub fn min_stack() -> uint {
         0 => {}
         n => return n - 1,
     }
-    let amt = env::var_string("RUST_MIN_STACK").ok().and_then(|s| s.parse().ok());
+    let amt = env::var("RUST_MIN_STACK").ok().and_then(|s| s.parse().ok());
     let amt = amt.unwrap_or(2 * 1024 * 1024);
     // 0 is our sentinel value, so ensure that we'll never see 0 after
     // initialization has run
@@ -63,7 +63,7 @@ pub fn min_stack() -> uint {
 /// Get's the number of scheduler threads requested by the environment
 /// either `RUST_THREADS` or `num_cpus`.
 pub fn default_sched_threads() -> uint {
-    match env::var_string("RUST_THREADS") {
+    match env::var("RUST_THREADS") {
         Ok(nstr) => {
             let opt_n: Option<uint> = nstr.parse().ok();
             match opt_n {
@@ -88,7 +88,6 @@ pub fn default_sched_threads() -> uint {
 pub const ENFORCE_SANITY: bool = true || !cfg!(rtopt) || cfg!(rtdebug) ||
                                   cfg!(rtassert);
 
-#[allow(missing_copy_implementations)]
 pub struct Stdio(libc::c_int);
 
 #[allow(non_upper_case_globals)]
@@ -111,7 +110,7 @@ impl Stdio {
     }
 }
 
-impl fmt::Writer for Stdio {
+impl fmt::Write for Stdio {
     fn write_str(&mut self, data: &str) -> fmt::Result {
         self.write_bytes(data.as_bytes());
         Ok(()) // yes, we're lying
@@ -123,13 +122,13 @@ pub fn dumb_print(args: fmt::Arguments) {
 }
 
 pub fn abort(args: fmt::Arguments) -> ! {
-    use fmt::Writer;
+    use fmt::Write;
 
     struct BufWriter<'a> {
         buf: &'a mut [u8],
         pos: uint,
     }
-    impl<'a> fmt::Writer for BufWriter<'a> {
+    impl<'a> fmt::Write for BufWriter<'a> {
         fn write_str(&mut self, bytes: &str) -> fmt::Result {
             let left = &mut self.buf[self.pos..];
             let to_write = &bytes.as_bytes()[..cmp::min(bytes.len(), left.len())];
@@ -150,7 +149,7 @@ pub fn abort(args: fmt::Arguments) -> ! {
 }
 
 pub unsafe fn report_overflow() {
-    use thread::Thread;
+    use thread;
 
     // See the message below for why this is not emitted to the
     // ^ Where did the message below go?
@@ -160,5 +159,5 @@ pub unsafe fn report_overflow() {
     // and the FFI call needs 2MB of stack when we just ran out.
 
     rterrln!("\nthread '{}' has overflowed its stack",
-             Thread::current().name().unwrap_or("<unknown>"));
+             thread::current().name().unwrap_or("<unknown>"));
 }

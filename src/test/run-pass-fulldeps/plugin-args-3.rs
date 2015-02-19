@@ -12,11 +12,8 @@
 // ignore-stage1
 
 #![feature(plugin)]
-
-#[no_link]
-#[plugin(hello(there), how(are="you"))]
-extern crate plugin_args;
+#![plugin(plugin_args(hello(there), how(are="you")))]
 
 fn main() {
-    assert_eq!(plugin_args!(), "#[plugin(hello(there), how(are = \"you\"))]");
+    assert_eq!(plugin_args!(), "hello(there), how(are = \"you\")");
 }

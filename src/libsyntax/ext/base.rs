@@ -35,18 +35,18 @@ pub trait ItemDecorator {
               sp: Span,
               meta_item: &ast::MetaItem,
               item: &ast::Item,
-              push: Box<FnMut(P<ast::Item>)>);
+              push: &mut FnMut(P<ast::Item>));
 }
 
 impl<F> ItemDecorator for F
-    where F : Fn(&mut ExtCtxt, Span, &ast::MetaItem, &ast::Item, Box<FnMut(P<ast::Item>)>)
+    where F : Fn(&mut ExtCtxt, Span, &ast::MetaItem, &ast::Item, &mut FnMut(P<ast::Item>))
 {
     fn expand(&self,
               ecx: &mut ExtCtxt,
               sp: Span,
               meta_item: &ast::MetaItem,
               item: &ast::Item,
-              push: Box<FnMut(P<ast::Item>)>) {
+              push: &mut FnMut(P<ast::Item>)) {
         (*self)(ecx, sp, meta_item, item, push)
     }
 }
@@ -439,7 +439,8 @@ impl BlockInfo {
 
 /// The base map of methods for expanding syntax extension
 /// AST nodes into full ASTs
-fn initial_syntax_expander_table(ecfg: &expand::ExpansionConfig) -> SyntaxEnv {
+fn initial_syntax_expander_table<'feat>(ecfg: &expand::ExpansionConfig<'feat>)
+                                        -> SyntaxEnv {
     // utility function to simplify creating NormalTT syntax extensions
     fn builtin_normal_expander(f: MacroExpanderFn) -> SyntaxExtension {
         NormalTT(box f, None)
@@ -470,7 +471,7 @@ fn initial_syntax_expander_table(ecfg: &expand::ExpansionConfig) -> SyntaxEnv {
     syntax_expanders.insert(intern("deriving"),
                             Decorator(box ext::deriving::expand_deprecated_deriving));
 
-    if ecfg.enable_quotes {
+    if ecfg.enable_quotes() {
         // Quasi-quoting expanders
         syntax_expanders.insert(intern("quote_tokens"),
                            builtin_normal_expander(
@@ -528,8 +529,6 @@ fn initial_syntax_expander_table(ecfg: &expand::ExpansionConfig) -> SyntaxEnv {
     syntax_expanders.insert(intern("cfg"),
                             builtin_normal_expander(
                                     ext::cfg::expand_cfg));
-    syntax_expanders.insert(intern("cfg_attr"),
-                            Modifier(box ext::cfg_attr::expand));
     syntax_expanders.insert(intern("trace_macros"),
                             builtin_normal_expander(
                                     ext::trace_macros::expand_trace_macros));
@@ -543,7 +542,8 @@ pub struct ExtCtxt<'a> {
     pub parse_sess: &'a parse::ParseSess,
     pub cfg: ast::CrateConfig,
     pub backtrace: ExpnId,
-    pub ecfg: expand::ExpansionConfig,
+    pub ecfg: expand::ExpansionConfig<'a>,
+    pub use_std: bool,
 
     pub mod_path: Vec<ast::Ident> ,
     pub trace_mac: bool,
@@ -555,7 +555,7 @@ pub struct ExtCtxt<'a> {
 
 impl<'a> ExtCtxt<'a> {
     pub fn new(parse_sess: &'a parse::ParseSess, cfg: ast::CrateConfig,
-               ecfg: expand::ExpansionConfig) -> ExtCtxt<'a> {
+               ecfg: expand::ExpansionConfig<'a>) -> ExtCtxt<'a> {
         let env = initial_syntax_expander_table(&ecfg);
         ExtCtxt {
             parse_sess: parse_sess,
@@ -563,6 +563,7 @@ impl<'a> ExtCtxt<'a> {
             backtrace: NO_EXPANSION,
             mod_path: Vec::new(),
             ecfg: ecfg,
+            use_std: true,
             trace_mac: false,
             exported_macros: Vec::new(),
             syntax_env: env,
@@ -737,6 +738,9 @@ impl<'a> ExtCtxt<'a> {
     pub fn ident_of(&self, st: &str) -> ast::Ident {
         str_to_ident(st)
     }
+    pub fn ident_of_std(&self, st: &str) -> ast::Ident {
+        self.ident_of(if self.use_std { "std" } else { st })
+    }
     pub fn name_of(&self, st: &str) -> ast::Name {
         token::intern(st)
     }
@@ -790,7 +794,7 @@ pub fn get_single_str_from_tts(cx: &mut ExtCtxt,
         cx.span_err(sp, &format!("{} takes 1 argument", name)[]);
     }
     expr_to_string(cx, ret, "argument must be a string literal").map(|(s, _)| {
-        s.get().to_string()
+        s.to_string()
     })
 }
 

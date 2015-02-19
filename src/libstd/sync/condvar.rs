@@ -16,7 +16,7 @@ use sys::time::SteadyTime;
 use sys_common::condvar as sys;
 use sys_common::mutex as sys_mutex;
 use time::Duration;
-use sync::{mutex, MutexGuard};
+use sync::{mutex, MutexGuard, PoisonError};
 
 /// A Condition Variable
 ///
@@ -38,13 +38,13 @@ use sync::{mutex, MutexGuard};
 ///
 /// ```
 /// use std::sync::{Arc, Mutex, Condvar};
-/// use std::thread::Thread;
+/// use std::thread;
 ///
 /// let pair = Arc::new((Mutex::new(false), Condvar::new()));
 /// let pair2 = pair.clone();
 ///
 /// // Inside of our lock, spawn a new thread, and then wait for it to start
-/// Thread::spawn(move|| {
+/// thread::spawn(move|| {
 ///     let &(ref lock, ref cvar) = &*pair2;
 ///     let mut started = lock.lock().unwrap();
 ///     *started = true;
@@ -228,7 +228,7 @@ impl StaticCondvar {
             mutex::guard_poison(&guard).get()
         };
         if poisoned {
-            Err(poison::new_poison_error(guard))
+            Err(PoisonError::new(guard))
         } else {
             Ok(guard)
         }
@@ -249,7 +249,7 @@ impl StaticCondvar {
             (mutex::guard_poison(&guard).get(), success)
         };
         if poisoned {
-            Err(poison::new_poison_error((guard, success)))
+            Err(PoisonError::new((guard, success)))
         } else {
             Ok((guard, success))
         }
@@ -276,7 +276,7 @@ impl StaticCondvar {
         while !f(guard_result
                     .as_mut()
                     .map(|g| &mut **g)
-                    .map_err(|e| poison::new_poison_error(&mut **e.get_mut()))) {
+                    .map_err(|e| PoisonError::new(&mut **e.get_mut()))) {
             let now = SteadyTime::now();
             let consumed = &now - &start;
             let guard = guard_result.unwrap_or_else(|e| e.into_inner());
@@ -284,7 +284,7 @@ impl StaticCondvar {
                 Ok((new_guard, no_timeout)) => (Ok(new_guard), no_timeout),
                 Err(err) => {
                     let (new_guard, no_timeout) = err.into_inner();
-                    (Err(poison::new_poison_error(new_guard)), no_timeout)
+                    (Err(PoisonError::new(new_guard)), no_timeout)
                 }
             };
             guard_result = new_guard_result;
@@ -292,7 +292,7 @@ impl StaticCondvar {
                 let result = f(guard_result
                                     .as_mut()
                                     .map(|g| &mut **g)
-                                    .map_err(|e| poison::new_poison_error(&mut **e.get_mut())));
+                                    .map_err(|e| PoisonError::new(&mut **e.get_mut())));
                 return poison::map_result(guard_result, |g| (g, result));
             }
         }
@@ -353,7 +353,7 @@ mod tests {
     use sync::mpsc::channel;
     use sync::{StaticMutex, MUTEX_INIT, Condvar, Mutex, Arc};
     use sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
-    use thread::Thread;
+    use thread;
     use time::Duration;
 
     #[test]
@@ -377,7 +377,7 @@ mod tests {
         static M: StaticMutex = MUTEX_INIT;
 
         let g = M.lock().unwrap();
-        let _t = Thread::spawn(move|| {
+        let _t = thread::spawn(move|| {
             let _g = M.lock().unwrap();
             C.notify_one();
         });
@@ -395,7 +395,7 @@ mod tests {
         for _ in 0..N {
             let data = data.clone();
             let tx = tx.clone();
-            Thread::spawn(move|| {
+            thread::spawn(move|| {
                 let &(ref lock, ref cond) = &*data;
                 let mut cnt = lock.lock().unwrap();
                 *cnt += 1;
@@ -431,7 +431,7 @@ mod tests {
         let (g, _no_timeout) = C.wait_timeout(g, Duration::nanoseconds(1000)).unwrap();
         // spurious wakeups mean this isn't necessarily true
         // assert!(!no_timeout);
-        let _t = Thread::spawn(move || {
+        let _t = thread::spawn(move || {
             let _g = M.lock().unwrap();
             C.notify_one();
         });
@@ -452,7 +452,7 @@ mod tests {
         assert!(!success);
 
         let (tx, rx) = channel();
-        let _t = Thread::scoped(move || {
+        let _t = thread::spawn(move || {
             rx.recv().unwrap();
             let g = M.lock().unwrap();
             S.store(1, Ordering::SeqCst);
@@ -492,7 +492,7 @@ mod tests {
         static C: StaticCondvar = CONDVAR_INIT;
 
         let mut g = M1.lock().unwrap();
-        let _t = Thread::spawn(move|| {
+        let _t = thread::spawn(move|| {
             let _g = M1.lock().unwrap();
             C.notify_one();
         });

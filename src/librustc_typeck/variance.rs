@@ -192,7 +192,7 @@ use self::VarianceTerm::*;
 use self::ParamKind::*;
 
 use arena;
-use arena::Arena;
+use arena::TypedArena;
 use middle::resolve_lifetime as rl;
 use middle::subst;
 use middle::subst::{ParamSpace, FnSpace, TypeSpace, SelfSpace, VecPerParamSpace};
@@ -210,7 +210,7 @@ use util::ppaux::Repr;
 
 pub fn infer_variance(tcx: &ty::ctxt) {
     let krate = tcx.map.krate();
-    let mut arena = arena::Arena::new();
+    let mut arena = arena::TypedArena::new();
     let terms_cx = determine_parameters_to_be_inferred(tcx, &mut arena, krate);
     let constraints_cx = add_constraints_from_crate(terms_cx, krate);
     solve_constraints(constraints_cx);
@@ -254,7 +254,7 @@ impl<'a> fmt::Debug for VarianceTerm<'a> {
 
 struct TermsContext<'a, 'tcx: 'a> {
     tcx: &'a ty::ctxt<'tcx>,
-    arena: &'a Arena,
+    arena: &'a TypedArena<VarianceTerm<'a>>,
 
     empty_variances: Rc<ty::ItemVariances>,
 
@@ -282,7 +282,7 @@ struct InferredInfo<'a> {
 }
 
 fn determine_parameters_to_be_inferred<'a, 'tcx>(tcx: &'a ty::ctxt<'tcx>,
-                                                 arena: &'a mut Arena,
+                                                 arena: &'a mut TypedArena<VarianceTerm<'a>>,
                                                  krate: &ast::Crate)
                                                  -> TermsContext<'a, 'tcx> {
     let mut terms_cx = TermsContext {
@@ -312,7 +312,7 @@ impl<'a, 'tcx> TermsContext<'a, 'tcx> {
                     index: uint,
                     param_id: ast::NodeId) {
         let inf_index = InferredIndex(self.inferred_infos.len());
-        let term = self.arena.alloc(|| InferredTerm(inf_index));
+        let term = self.arena.alloc(InferredTerm(inf_index));
         self.inferred_infos.push(InferredInfo { item_id: item_id,
                                                 kind: kind,
                                                 space: space,
@@ -412,7 +412,7 @@ struct ConstraintContext<'a, 'tcx: 'a> {
     invariant_lang_items: [Option<ast::DefId>; 2],
     covariant_lang_items: [Option<ast::DefId>; 2],
     contravariant_lang_items: [Option<ast::DefId>; 2],
-    unsafe_lang_item: Option<ast::DefId>,
+    unsafe_cell_lang_item: Option<ast::DefId>,
 
     // These are pointers to common `ConstantTerm` instances
     covariant: VarianceTermPtr<'a>,
@@ -453,19 +453,19 @@ fn add_constraints_from_crate<'a, 'tcx>(terms_cx: TermsContext<'a, 'tcx>,
     invariant_lang_items[RegionParam as uint] =
         terms_cx.tcx.lang_items.invariant_lifetime();
 
-    let unsafe_lang_item = terms_cx.tcx.lang_items.unsafe_type();
+    let unsafe_cell_lang_item = terms_cx.tcx.lang_items.unsafe_cell_type();
 
-    let covariant = terms_cx.arena.alloc(|| ConstantTerm(ty::Covariant));
-    let contravariant = terms_cx.arena.alloc(|| ConstantTerm(ty::Contravariant));
-    let invariant = terms_cx.arena.alloc(|| ConstantTerm(ty::Invariant));
-    let bivariant = terms_cx.arena.alloc(|| ConstantTerm(ty::Bivariant));
+    let covariant = terms_cx.arena.alloc(ConstantTerm(ty::Covariant));
+    let contravariant = terms_cx.arena.alloc(ConstantTerm(ty::Contravariant));
+    let invariant = terms_cx.arena.alloc(ConstantTerm(ty::Invariant));
+    let bivariant = terms_cx.arena.alloc(ConstantTerm(ty::Bivariant));
     let mut constraint_cx = ConstraintContext {
         terms_cx: terms_cx,
 
         invariant_lang_items: invariant_lang_items,
         covariant_lang_items: covariant_lang_items,
         contravariant_lang_items: contravariant_lang_items,
-        unsafe_lang_item: unsafe_lang_item,
+        unsafe_cell_lang_item: unsafe_cell_lang_item,
 
         covariant: covariant,
         contravariant: contravariant,
@@ -654,7 +654,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
             self.covariant
         } else if self.contravariant_lang_items[kind as uint] == Some(item_def_id) {
             self.contravariant
-        } else if kind == TypeParam && Some(item_def_id) == self.unsafe_lang_item {
+        } else if kind == TypeParam && Some(item_def_id) == self.unsafe_cell_lang_item {
             self.invariant
         } else if param_def_id.krate == ast::LOCAL_CRATE {
             // Parameter on an item defined within current crate:
@@ -719,7 +719,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
             }
 
             _ => {
-                &*self.terms_cx.arena.alloc(|| TransformTerm(v1, v2))
+                &*self.terms_cx.arena.alloc(TransformTerm(v1, v2))
             }
         }
     }

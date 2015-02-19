@@ -32,7 +32,6 @@ pub use self::CandidateSource::*;
 pub use self::suggest::{report_error, AllTraitsVec};
 
 mod confirm;
-mod doc;
 mod probe;
 mod suggest;
 
@@ -221,7 +220,7 @@ pub fn lookup_in_trait_adjusted<'a, 'tcx>(fcx: &FnCtxt<'a, 'tcx>,
     //
     // Note that as the method comes from a trait, it should not have
     // any late-bound regions appearing in its bounds.
-    let method_bounds = fcx.instantiate_bounds(span, trait_ref.substs, &method_ty.generics);
+    let method_bounds = fcx.instantiate_bounds(span, trait_ref.substs, &method_ty.predicates);
     assert!(!method_bounds.has_escaping_regions());
     fcx.add_obligations_for_parameters(
         traits::ObligationCause::misc(span, fcx.body_id),

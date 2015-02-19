@@ -13,7 +13,7 @@ use prelude::v1::*;
 use cell::UnsafeCell;
 use error::{Error, FromError};
 use fmt;
-use thread::Thread;
+use thread;
 
 pub struct Flag { failed: UnsafeCell<bool> }
 pub const FLAG_INIT: Flag = Flag { failed: UnsafeCell { value: false } };
@@ -21,9 +21,9 @@ pub const FLAG_INIT: Flag = Flag { failed: UnsafeCell { value: false } };
 impl Flag {
     #[inline]
     pub fn borrow(&self) -> LockResult<Guard> {
-        let ret = Guard { panicking: Thread::panicking() };
+        let ret = Guard { panicking: thread::panicking() };
         if unsafe { *self.failed.get() } {
-            Err(new_poison_error(ret))
+            Err(PoisonError::new(ret))
         } else {
             Ok(ret)
         }
@@ -31,7 +31,7 @@ impl Flag {
 
     #[inline]
     pub fn done(&self, guard: &Guard) {
-        if !guard.panicking && Thread::panicking() {
+        if !guard.panicking && thread::panicking() {
             unsafe { *self.failed.get() = true; }
         }
     }
@@ -42,7 +42,6 @@ impl Flag {
     }
 }
 
-#[allow(missing_copy_implementations)]
 pub struct Guard {
     panicking: bool,
 }
@@ -111,6 +110,12 @@ impl<T> Error for PoisonError<T> {
 }
 
 impl<T> PoisonError<T> {
+    /// Create a `PoisonError`.
+    #[unstable(feature = "std_misc")]
+    pub fn new(guard: T) -> PoisonError<T> {
+        PoisonError { guard: guard }
+    }
+
     /// Consumes this error indicating that a lock is poisoned, returning the
     /// underlying guard to allow access regardless.
     #[unstable(feature = "std_misc")]
@@ -172,15 +177,11 @@ impl<T> Error for TryLockError<T> {
     }
 }
 
-pub fn new_poison_error<T>(guard: T) -> PoisonError<T> {
-    PoisonError { guard: guard }
-}
-
 pub fn map_result<T, U, F>(result: LockResult<T>, f: F)
                            -> LockResult<U>
                            where F: FnOnce(T) -> U {
     match result {
         Ok(t) => Ok(f(t)),
-        Err(PoisonError { guard }) => Err(new_poison_error(f(guard)))
+        Err(PoisonError { guard }) => Err(PoisonError::new(f(guard)))
     }
 }

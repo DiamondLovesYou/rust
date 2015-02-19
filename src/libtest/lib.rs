@@ -32,15 +32,15 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![feature(asm, slicing_syntax)]
+#![feature(asm)]
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
 #![feature(env)]
 #![feature(hash)]
 #![feature(int_uint)]
-#![feature(io)]
-#![feature(path)]
+#![feature(old_io)]
+#![feature(old_path)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
 #![feature(std_misc)]
@@ -75,7 +75,7 @@ use std::iter::repeat;
 use std::num::{Float, Int};
 use std::env;
 use std::sync::mpsc::{channel, Sender};
-use std::thread::{self, Thread};
+use std::thread;
 use std::thunk::{Thunk, Invoke};
 use std::time::Duration;
 
@@ -154,7 +154,7 @@ pub enum TestFn {
     StaticTestFn(fn()),
     StaticBenchFn(fn(&mut Bencher)),
     StaticMetricFn(fn(&mut MetricMap)),
-    DynTestFn(Thunk),
+    DynTestFn(Thunk<'static>),
     DynMetricFn(Box<for<'a> Invoke<&'a mut MetricMap>+'static>),
     DynBenchFn(Box<TDynBenchFn+'static>)
 }
@@ -265,7 +265,8 @@ pub fn test_main(args: &[String], tests: Vec<TestDescAndFn> ) {
 // a ~[TestDescAndFn] is used in order to effect ownership-transfer
 // semantics into parallel test runners, which in turn requires a ~[]
 // rather than a &[].
-pub fn test_main_static(args: &[String], tests: &[TestDescAndFn]) {
+pub fn test_main_static(args: env::Args, tests: &[TestDescAndFn]) {
+    let args = args.collect::<Vec<_>>();
     let owned_tests = tests.iter().map(|t| {
         match t.testfn {
             StaticTestFn(f) => TestDescAndFn { testfn: StaticTestFn(f), desc: t.desc.clone() },
@@ -273,7 +274,7 @@ pub fn test_main_static(args: &[String], tests: &[TestDescAndFn]) {
             _ => panic!("non-static tests passed to test::test_main_static")
         }
     }).collect();
-    test_main(args, owned_tests)
+    test_main(&args, owned_tests)
 }
 
 #[derive(Copy)]
@@ -428,7 +429,7 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
 
     let mut nocapture = matches.opt_present("nocapture");
     if !nocapture {
-        nocapture = env::var("RUST_TEST_NOCAPTURE").is_some();
+        nocapture = env::var("RUST_TEST_NOCAPTURE").is_ok();
     }
 
     let color = match matches.opt_str("color").as_ref().map(|s| &**s) {
@@ -898,7 +899,7 @@ fn run_tests<F>(opts: &TestOpts,
 
 fn get_concurrency() -> uint {
     use std::rt;
-    match env::var_string("RUST_TEST_TASKS") {
+    match env::var("RUST_TEST_TASKS") {
         Ok(s) => {
             let opt_n: Option<uint> = s.parse().ok();
             match opt_n {
@@ -975,8 +976,8 @@ pub fn run_test(opts: &TestOpts,
     fn run_test_inner(desc: TestDesc,
                       monitor_ch: Sender<MonitorMsg>,
                       nocapture: bool,
-                      testfn: Thunk) {
-        Thread::spawn(move || {
+                      testfn: Thunk<'static>) {
+        thread::spawn(move || {
             let (tx, rx) = channel();
             let mut reader = ChanReader::new(rx);
             let stdout = ChanWriter::new(tx.clone());
@@ -992,7 +993,7 @@ pub fn run_test(opts: &TestOpts,
                 cfg = cfg.stderr(box stderr as Box<Writer + Send>);
             }
 
-            let result_guard = cfg.scoped(move || { testfn.invoke(()) });
+            let result_guard = cfg.spawn(move || { testfn.invoke(()) }).unwrap();
             let stdout = reader.read_to_end().unwrap().into_iter().collect();
             let test_result = calc_result(&desc, result_guard.join());
             monitor_ch.send((desc.clone(), test_result, stdout)).unwrap();

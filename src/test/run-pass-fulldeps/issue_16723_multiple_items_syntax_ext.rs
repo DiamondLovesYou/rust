@@ -9,11 +9,9 @@
 // except according to those terms.
 
 // ignore-stage1
-// ignore-android
 // aux-build:issue_16723_multiple_items_syntax_ext.rs
 #![feature(plugin)]
-
-#[plugin] #[no_link] extern crate issue_16723_multiple_items_syntax_ext;
+#![plugin(issue_16723_multiple_items_syntax_ext)]
 
 multiple_items!();
 

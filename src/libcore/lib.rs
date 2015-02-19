@@ -56,6 +56,7 @@
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 
+#![feature(no_std)]
 #![no_std]
 #![allow(raw_pointer_derive)]
 #![deny(missing_docs)]
@@ -63,9 +64,10 @@
 #![feature(int_uint)]
 #![feature(intrinsics, lang_items)]
 #![feature(on_unimplemented)]
-#![feature(simd, unsafe_destructor, slicing_syntax)]
+#![feature(simd, unsafe_destructor)]
 #![feature(staged_api)]
 #![feature(unboxed_closures)]
+#![feature(rustc_attrs)]
 
 #[macro_use]
 mod macros;
@@ -140,6 +142,10 @@ pub mod hash;
 pub mod fmt;
 pub mod error;
 
+#[doc(primitive = "bool")]
+mod bool {
+}
+
 // note: does not need to be public
 mod tuple;
 mod array;
@@ -148,17 +154,16 @@ mod array;
 mod core {
     pub use panicking;
     pub use fmt;
+    pub use clone;
+    pub use cmp;
+    pub use hash;
+    pub use marker;
+    pub use option;
+    pub use iter;
 }
 
 #[doc(hidden)]
 mod std {
-    pub use clone;
-    pub use cmp;
-    pub use fmt;
-    pub use hash;
-    pub use marker;
+    // range syntax
     pub use ops;
-    pub use option;
-    // for-loops
-    pub use iter;
 }

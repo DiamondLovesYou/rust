@@ -15,20 +15,17 @@ use std::old_io::{Command, TempDir};
 use std::old_io;
 use std::env;
 use std::str;
-use std::thread::Thread;
+use std::thread;
 use std::thunk::Thunk;
 
 use std::collections::{HashSet, HashMap};
 use testing;
 use rustc::session::{self, config};
+use rustc::session::config::get_unstable_features_setting;
 use rustc::session::search_paths::{SearchPaths, PathKind};
-use rustc_driver::get_unstable_features_setting;
-use rustc_driver::driver;
-use syntax::ast;
-use syntax::codemap::{CodeMap, dummy_spanned};
+use rustc_driver::{driver, Compilation};
+use syntax::codemap::CodeMap;
 use syntax::diagnostic;
-use syntax::parse::token;
-use syntax::ptr::P;
 
 use core;
 use clean;
@@ -67,10 +64,7 @@ pub fn run(input: &str,
                                       span_diagnostic_handler);
 
     let mut cfg = config::build_configuration(&sess);
-    cfg.extend(cfgs.into_iter().map(|cfg_| {
-        let cfg_ = token::intern_and_get_ident(&cfg_);
-        P(dummy_spanned(ast::MetaWord(cfg_)))
-    }));
+    cfg.extend(config::parse_cfgspecs(cfgs).into_iter());
     let krate = driver::phase_1_parse_input(&sess, cfg, &input);
     let krate = driver::phase_2_configure_and_expand(&sess, krate,
                                                      "rustdoc-test", None)
@@ -148,7 +142,7 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
     let w1 = old_io::ChanWriter::new(tx);
     let w2 = w1.clone();
     let old = old_io::stdio::set_stderr(box w1);
-    Thread::spawn(move || {
+    thread::spawn(move || {
         let mut p = old_io::ChanReader::new(rx);
         let mut err = match old {
             Some(old) => {
@@ -178,7 +172,7 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
     let libdir = sess.target_filesearch(PathKind::All).get_lib_path();
     let mut control = driver::CompileController::basic();
     if no_run {
-        control.after_analysis.stop = true;
+        control.after_analysis.stop = Compilation::Stop;
     }
     driver::compile_input(sess, cfg, &input, &out, &None, None, control);
 

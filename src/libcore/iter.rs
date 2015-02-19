@@ -67,7 +67,7 @@ use num::{ToPrimitive, Int};
 use ops::{Add, Deref, FnMut};
 use option::Option;
 use option::Option::{Some, None};
-use std::marker::Sized;
+use marker::Sized;
 use usize;
 
 /// An interface for dealing with "external iterators". These types of iterators
@@ -119,15 +119,23 @@ pub trait FromIterator<A> {
 }
 
 /// Conversion into an `Iterator`
+#[stable(feature = "rust1", since = "1.0.0")]
 pub trait IntoIterator {
-    type Iter: Iterator;
+    #[stable(feature = "rust1", since = "1.0.0")]
+    type Item;
+
+    #[stable(feature = "rust1", since = "1.0.0")]
+    type IntoIter: Iterator<Item=Self::Item>;
 
     /// Consumes `Self` and returns an iterator over it
-    fn into_iter(self) -> Self::Iter;
+    #[stable(feature = "rust1", since = "1.0.0")]
+    fn into_iter(self) -> Self::IntoIter;
 }
 
-impl<I> IntoIterator for I where I: Iterator {
-    type Iter = I;
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<I: Iterator> IntoIterator for I {
+    type Item = I::Item;
+    type IntoIter = I;
 
     fn into_iter(self) -> I {
         self
@@ -260,7 +268,7 @@ pub trait IteratorExt: Iterator + Sized {
     }
 
     /// Creates an iterator that applies the predicate to each element returned
-    /// by this iterator. The only elements that will be yieled are those that
+    /// by this iterator. The only elements that will be yielded are those that
     /// make the predicate evaluate to `true`.
     ///
     /// # Examples
@@ -967,10 +975,9 @@ pub trait IteratorExt: Iterator + Sized {
     /// Creates an iterator that clones the elements it yields. Useful for converting an
     /// Iterator<&T> to an Iterator<T>.
     #[unstable(feature = "core", reason = "recent addition")]
-    fn cloned<T, D>(self) -> Cloned<Self> where
-        Self: Iterator<Item=D>,
-        D: Deref<Target=T>,
-        T: Clone,
+    fn cloned(self) -> Cloned<Self> where
+        Self::Item: Deref,
+        <Self::Item as Deref>::Output: Clone,
     {
         Cloned { it: self }
     }
@@ -1055,6 +1062,7 @@ pub trait RandomAccessIterator: Iterator {
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait ExactSizeIterator: Iterator {
     #[inline]
+    #[stable(feature = "rust1", since = "1.0.0")]
     /// Return the exact length of the iterator.
     fn len(&self) -> usize {
         let (lower, upper) = self.size_hint();
@@ -2348,7 +2356,7 @@ impl<A, St, F> Iterator for Unfold<St, F> where F: FnMut(&mut St) -> Option<A> {
 /// iteration
 #[derive(Clone)]
 #[unstable(feature = "core",
-           reason = "may be renamed or replaced by range notation adapaters")]
+           reason = "may be renamed or replaced by range notation adapters")]
 pub struct Counter<A> {
     /// The current state the counter is at (next value to be yielded)
     state: A,
@@ -2359,7 +2367,7 @@ pub struct Counter<A> {
 /// Creates a new counter with the specified start/step
 #[inline]
 #[unstable(feature = "core",
-           reason = "may be renamed or replaced by range notation adapaters")]
+           reason = "may be renamed or replaced by range notation adapters")]
 pub fn count<A>(start: A, step: A) -> Counter<A> {
     Counter{state: start, step: step}
 }
@@ -2646,13 +2654,7 @@ impl<A: Int> Iterator for RangeStepInclusive<A> {
 macro_rules! range_exact_iter_impl {
     ($($t:ty)*) => ($(
         #[stable(feature = "rust1", since = "1.0.0")]
-        impl ExactSizeIterator for ::ops::Range<$t> {
-            #[inline]
-            fn len(&self) -> usize {
-                debug_assert!(self.end >= self.start);
-                (self.end - self.start) as usize
-            }
-        }
+        impl ExactSizeIterator for ::ops::Range<$t> { }
     )*)
 }
 
@@ -2673,15 +2675,18 @@ impl<A: Int> Iterator for ::ops::Range<A> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        debug_assert!(self.end >= self.start);
-        let hint = (self.end - self.start).to_uint();
-        (hint.unwrap_or(0), hint)
+        if self.start >= self.end {
+            (0, Some(0))
+        } else {
+            let length = (self.end - self.start).to_uint();
+            (length.unwrap_or(0), length)
+        }
     }
 }
 
+// Ranges of u64 and i64 are excluded because they cannot guarantee having
+// a length <= usize::MAX, which is required by ExactSizeIterator.
 range_exact_iter_impl!(usize u8 u16 u32 isize i8 i16 i32);
-#[cfg(target_pointer_width = "64")]
-range_exact_iter_impl!(u64 i64);
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<A: Int> DoubleEndedIterator for ::ops::Range<A> {

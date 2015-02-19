@@ -23,7 +23,7 @@ pub use self::Failure::*;
 use core::prelude::*;
 
 use core::cmp;
-use core::int;
+use core::isize;
 
 use sync::atomic::{AtomicUsize, AtomicIsize, AtomicBool, Ordering};
 use sync::mpsc::blocking::{self, SignalToken};
@@ -31,19 +31,19 @@ use sync::mpsc::mpsc_queue as mpsc;
 use sync::mpsc::select::StartResult::*;
 use sync::mpsc::select::StartResult;
 use sync::{Mutex, MutexGuard};
-use thread::Thread;
+use thread;
 
-const DISCONNECTED: int = int::MIN;
-const FUDGE: int = 1024;
+const DISCONNECTED: isize = isize::MIN;
+const FUDGE: isize = 1024;
 #[cfg(test)]
-const MAX_STEALS: int = 5;
+const MAX_STEALS: isize = 5;
 #[cfg(not(test))]
-const MAX_STEALS: int = 1 << 20;
+const MAX_STEALS: isize = 1 << 20;
 
 pub struct Packet<T> {
     queue: mpsc::Queue<T>,
     cnt: AtomicIsize, // How many items are on this channel
-    steals: int, // How many times has a port received without blocking?
+    steals: isize, // How many times has a port received without blocking?
     to_wake: AtomicUsize, // SignalToken for wake up
 
     // The number of channels which are currently using this packet.
@@ -64,7 +64,7 @@ pub enum Failure {
     Disconnected,
 }
 
-impl<T: Send> Packet<T> {
+impl<T: Send + 'static> Packet<T> {
     // Creation of a packet *must* be followed by a call to postinit_lock
     // and later by inherit_blocker
     pub fn new() -> Packet<T> {
@@ -194,7 +194,7 @@ impl<T: Send> Packet<T> {
                             match self.queue.pop() {
                                 mpsc::Data(..) => {}
                                 mpsc::Empty => break,
-                                mpsc::Inconsistent => Thread::yield_now(),
+                                mpsc::Inconsistent => thread::yield_now(),
                             }
                         }
                         // maybe we're done, if we're not the last ones
@@ -283,7 +283,7 @@ impl<T: Send> Packet<T> {
             mpsc::Inconsistent => {
                 let data;
                 loop {
-                    Thread::yield_now();
+                    thread::yield_now();
                     match self.queue.pop() {
                         mpsc::Data(t) => { data = t; break }
                         mpsc::Empty => panic!("inconsistent => empty"),
@@ -460,7 +460,7 @@ impl<T: Send> Packet<T> {
                 drop(self.take_to_wake());
             } else {
                 while self.to_wake.load(Ordering::SeqCst) != 0 {
-                    Thread::yield_now();
+                    thread::yield_now();
                 }
             }
             // if the number of steals is -1, it was the pre-emptive -1 steal
@@ -474,7 +474,7 @@ impl<T: Send> Packet<T> {
 }
 
 #[unsafe_destructor]
-impl<T: Send> Drop for Packet<T> {
+impl<T: Send + 'static> Drop for Packet<T> {
     fn drop(&mut self) {
         // Note that this load is not only an assert for correctness about
         // disconnection, but also a proper fence before the read of

@@ -32,6 +32,12 @@ pub use sys_common::ProcessConfig;
 
 helper_init! { static HELPER: Helper<Req> }
 
+/// Unix-specific extensions to the Command builder
+pub struct CommandExt {
+    uid: Option<u32>,
+    gid: Option<u32>,
+}
+
 #[cfg(target_os = "nacl")]
 fn permission_denied() -> IoError {
     IoError {
@@ -87,12 +93,20 @@ impl Process {
               K: BytesContainer + Eq + Hash<Hasher>, V: BytesContainer
     {
         use libc::funcs::posix88::unistd::{fork, dup2, close, chdir, execvp};
-        use libc::funcs::bsd44::getdtablesize;
 
         mod rustrt {
             extern {
                 pub fn rust_unset_sigprocmask();
             }
+        }
+
+        #[cfg(all(target_os = "android", target_arch = "aarch64"))]
+        unsafe fn getdtablesize() -> c_int {
+            libc::sysconf(libc::consts::os::sysconf::_SC_OPEN_MAX) as c_int
+        }
+        #[cfg(not(all(target_os = "android", target_arch = "aarch64")))]
+        unsafe fn getdtablesize() -> c_int {
+            libc::funcs::bsd44::getdtablesize()
         }
 
         unsafe fn set_cloexec(fd: c_int) {
@@ -417,7 +431,7 @@ impl Process {
                 match unsafe { c::select(max, &mut set, ptr::null_mut(),
                                          ptr::null_mut(), p) } {
                     // interrupted, retry
-                    -1 if os::errno() == libc::EINTR as uint => continue,
+                    -1 if os::errno() == libc::EINTR as i32 => continue,
 
                     // We read something, break out and process
                     1 | 2 => {}

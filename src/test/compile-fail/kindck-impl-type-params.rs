@@ -17,7 +17,7 @@ struct S<T>;
 
 trait Gettable<T> {}
 
-impl<T: Send + Copy> Gettable<T> for S<T> {}
+impl<T: Send + Copy + 'static> Gettable<T> for S<T> {}
 
 fn f<T>(val: T) {
     let t: S<T> = S;
@@ -36,7 +36,7 @@ fn g<T>(val: T) {
 fn foo<'a>() {
     let t: S<&'a isize> = S;
     let a = &t as &Gettable<&'a isize>;
-    //~^ ERROR declared lifetime bound not satisfied
+    //~^ ERROR the type `&'a isize` does not fulfill the required lifetime
 }
 
 fn foo2<'a>() {

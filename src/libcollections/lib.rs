@@ -24,16 +24,18 @@
 
 #![feature(alloc)]
 #![feature(box_syntax)]
+#![feature(box_patterns)]
 #![feature(core)]
 #![feature(hash)]
-#![feature(int_uint)]
 #![feature(staged_api)]
 #![feature(unboxed_closures)]
 #![feature(unicode)]
-#![feature(unsafe_destructor, slicing_syntax)]
-#![cfg_attr(test, feature(test))]
+#![feature(unsafe_destructor)]
+#![feature(unsafe_no_drop_flag)]
+#![cfg_attr(test, feature(rand, rustc_private, test))]
 #![cfg_attr(test, allow(deprecated))] // rand
 
+#![feature(no_std)]
 #![no_std]
 
 #[macro_use]
@@ -64,11 +66,14 @@ pub use alloc::boxed;
 #[macro_use]
 mod macros;
 
+#[cfg(test)] #[macro_use] mod bench;
+
 pub mod binary_heap;
 mod bit;
 mod btree;
 pub mod dlist;
 pub mod enum_set;
+pub mod fmt;
 pub mod ring_buf;
 pub mod slice;
 pub mod str;
@@ -100,23 +105,13 @@ pub mod btree_set {
 }
 
 
-#[cfg(test)] mod bench;
-
 // FIXME(#14344) this shouldn't be necessary
 #[doc(hidden)]
 pub fn fixme_14344_be_sure_to_link_to_collections() {}
 
 #[cfg(not(test))]
 mod std {
-    pub use core::fmt;      // necessary for panic!()
-    pub use core::option;   // necessary for panic!()
-    pub use core::clone;    // derive(Clone)
-    pub use core::cmp;      // derive(Eq, Ord, etc.)
-    pub use core::marker;   // derive(Copy)
-    pub use core::hash;     // derive(Hash)
     pub use core::ops;      // RangeFull
-    // for-loops
-    pub use core::iter;
 }
 
 #[cfg(test)]

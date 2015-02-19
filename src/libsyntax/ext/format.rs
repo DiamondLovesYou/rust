@@ -118,7 +118,8 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
                 }
             };
             let interned_name = token::get_ident(ident);
-            let name = interned_name.get();
+            let name = &interned_name[];
+
             p.expect(&token::Eq);
             let e = p.parse_expr();
             match names.get(name) {
@@ -301,7 +302,7 @@ impl<'a, 'b> Context<'a, 'b> {
     }
 
     fn rtpath(ecx: &ExtCtxt, s: &str) -> Vec<ast::Ident> {
-        vec![ecx.ident_of("std"), ecx.ident_of("fmt"), ecx.ident_of("rt"),
+        vec![ecx.ident_of_std("core"), ecx.ident_of("fmt"), ecx.ident_of("rt"),
              ecx.ident_of("v1"), ecx.ident_of(s)]
     }
 
@@ -575,7 +576,7 @@ impl<'a, 'b> Context<'a, 'b> {
         };
 
         self.ecx.expr_call_global(self.fmtsp, vec!(
-                self.ecx.ident_of("std"),
+                self.ecx.ident_of_std("core"),
                 self.ecx.ident_of("fmt"),
                 self.ecx.ident_of("Arguments"),
                 self.ecx.ident_of(fn_name)), fn_args)
@@ -606,7 +607,7 @@ impl<'a, 'b> Context<'a, 'b> {
             }
             Unsigned => {
                 return ecx.expr_call_global(sp, vec![
-                        ecx.ident_of("std"),
+                        ecx.ident_of_std("core"),
                         ecx.ident_of("fmt"),
                         ecx.ident_of("ArgumentV1"),
                         ecx.ident_of("from_uint")], vec![arg])
@@ -614,12 +615,12 @@ impl<'a, 'b> Context<'a, 'b> {
         };
 
         let format_fn = ecx.path_global(sp, vec![
-                ecx.ident_of("std"),
+                ecx.ident_of_std("core"),
                 ecx.ident_of("fmt"),
                 ecx.ident_of(trait_),
                 ecx.ident_of("fmt")]);
         ecx.expr_call_global(sp, vec![
-                ecx.ident_of("std"),
+                ecx.ident_of_std("core"),
                 ecx.ident_of("fmt"),
                 ecx.ident_of("ArgumentV1"),
                 ecx.ident_of("new")], vec![arg, ecx.expr_path(format_fn)])
@@ -672,7 +673,8 @@ pub fn expand_preparsed_format_args(ecx: &mut ExtCtxt, sp: Span,
         None => return DummyResult::raw_expr(sp)
     };
 
-    let mut parser = parse::Parser::new(fmt.get());
+    let mut parser = parse::Parser::new(&fmt);
+
     loop {
         match parser.next() {
             Some(piece) => {

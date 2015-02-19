@@ -27,6 +27,7 @@ pub use self::FunctionRetTy::*;
 pub use self::TraitMethod::*;
 
 use syntax;
+use syntax::abi;
 use syntax::ast;
 use syntax::ast_util;
 use syntax::ast_util::PostExpansionMethod;
@@ -410,12 +411,12 @@ pub enum Attribute {
 impl Clean<Attribute> for ast::MetaItem {
     fn clean(&self, cx: &DocContext) -> Attribute {
         match self.node {
-            ast::MetaWord(ref s) => Word(s.get().to_string()),
+            ast::MetaWord(ref s) => Word(s.to_string()),
             ast::MetaList(ref s, ref l) => {
-                List(s.get().to_string(), l.clean(cx))
+                List(s.to_string(), l.clean(cx))
             }
             ast::MetaNameValue(ref s, ref v) => {
-                NameValue(s.get().to_string(), lit_to_string(v))
+                NameValue(s.to_string(), lit_to_string(v))
             }
         }
     }
@@ -700,19 +701,19 @@ impl Lifetime {
 
 impl Clean<Lifetime> for ast::Lifetime {
     fn clean(&self, _: &DocContext) -> Lifetime {
-        Lifetime(token::get_name(self.name).get().to_string())
+        Lifetime(token::get_name(self.name).to_string())
     }
 }
 
 impl Clean<Lifetime> for ast::LifetimeDef {
     fn clean(&self, _: &DocContext) -> Lifetime {
-        Lifetime(token::get_name(self.lifetime.name).get().to_string())
+        Lifetime(token::get_name(self.lifetime.name).to_string())
     }
 }
 
 impl Clean<Lifetime> for ty::RegionParameterDef {
     fn clean(&self, _: &DocContext) -> Lifetime {
-        Lifetime(token::get_name(self.name).get().to_string())
+        Lifetime(token::get_name(self.name).to_string())
     }
 }
 
@@ -721,7 +722,7 @@ impl Clean<Option<Lifetime>> for ty::Region {
         match *self {
             ty::ReStatic => Some(Lifetime::statik()),
             ty::ReLateBound(_, ty::BrNamed(_, name)) =>
-                Some(Lifetime(token::get_name(name).get().to_string())),
+                Some(Lifetime(token::get_name(name).to_string())),
             ty::ReEarlyBound(_, _, _, name) => Some(Lifetime(name.clean(cx))),
 
             ty::ReLateBound(..) |
@@ -859,7 +860,9 @@ impl Clean<Generics> for ast::Generics {
     }
 }
 
-impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>, subst::ParamSpace) {
+impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>,
+                                    &'a ty::GenericPredicates<'tcx>,
+                                    subst::ParamSpace) {
     fn clean(&self, cx: &DocContext) -> Generics {
         use std::collections::HashSet;
         use syntax::ast::TraitBoundModifier as TBM;
@@ -884,7 +887,8 @@ impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>, subst::ParamSpace) {
             false
         }
 
-        let (gens, space) = *self;
+        let (gens, preds, space) = *self;
+
         // Bounds in the type_params and lifetimes fields are repeated in the predicates
         // field (see rustc_typeck::collect::ty_generics), so remove them.
         let stripped_typarams = gens.types.get_slice(space).iter().map(|tp| {
@@ -898,7 +902,8 @@ impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>, subst::ParamSpace) {
             srp.clean(cx)
         }).collect::<Vec<_>>();
 
-        let where_predicates = gens.predicates.get_slice(space).to_vec().clean(cx);
+        let where_predicates = preds.predicates.get_slice(space).to_vec().clean(cx);
+
         // Type parameters have a Sized bound by default unless removed with ?Sized.
         // Scan through the predicates and mark any type parameter with a Sized
         // bound, removing the bounds as we find them.
@@ -912,6 +917,7 @@ impl<'a, 'tcx> Clean<Generics> for (&'a ty::Generics<'tcx>, subst::ParamSpace) {
             }
             Some(pred)
         }).collect::<Vec<_>>();
+
         // Finally, run through the type parameters again and insert a ?Sized unbound for
         // any we didn't find to be Sized.
         for tp in &stripped_typarams {
@@ -945,6 +951,7 @@ pub struct Method {
     pub self_: SelfTy,
     pub unsafety: ast::Unsafety,
     pub decl: FnDecl,
+    pub abi: abi::Abi
 }
 
 impl Clean<Item> for ast::Method {
@@ -973,6 +980,7 @@ impl Clean<Item> for ast::Method {
                 self_: self.pe_explicit_self().node.clean(cx),
                 unsafety: self.pe_unsafety().clone(),
                 decl: decl,
+                abi: self.pe_abi()
             }),
         }
     }
@@ -984,6 +992,7 @@ pub struct TyMethod {
     pub decl: FnDecl,
     pub generics: Generics,
     pub self_: SelfTy,
+    pub abi: abi::Abi
 }
 
 impl Clean<Item> for ast::TypeMethod {
@@ -1011,6 +1020,7 @@ impl Clean<Item> for ast::TypeMethod {
                 decl: decl,
                 self_: self.explicit_self.node.clean(cx),
                 generics: self.generics.clean(cx),
+                abi: self.abi
             }),
         }
     }
@@ -1298,9 +1308,10 @@ impl<'tcx> Clean<Item> for ty::Method<'tcx> {
             source: Span::empty(),
             inner: TyMethodItem(TyMethod {
                 unsafety: self.fty.unsafety,
-                generics: (&self.generics, subst::FnSpace).clean(cx),
+                generics: (&self.generics, &self.predicates, subst::FnSpace).clean(cx),
                 self_: self_,
                 decl: (self.def_id, &sig).clean(cx),
+                abi: self.fty.abi
             })
         }
     }
@@ -1953,20 +1964,20 @@ fn path_to_string(p: &ast::Path) -> String {
         } else {
             first = false;
         }
-        s.push_str(i.get());
+        s.push_str(&i);
     }
     s
 }
 
 impl Clean<String> for ast::Ident {
     fn clean(&self, _: &DocContext) -> String {
-        token::get_ident(*self).get().to_string()
+        token::get_ident(*self).to_string()
     }
 }
 
 impl Clean<String> for ast::Name {
     fn clean(&self, _: &DocContext) -> String {
-        token::get_name(*self).get().to_string()
+        token::get_name(*self).to_string()
     }
 }
 
@@ -2158,7 +2169,7 @@ impl Clean<Vec<Item>> for doctree::Import {
         // forcefully don't inline if this is not public or if the
         // #[doc(no_inline)] attribute is present.
         let denied = self.vis != ast::Public || self.attrs.iter().any(|a| {
-            a.name().get() == "doc" && match a.meta_item_list() {
+            &a.name()[] == "doc" && match a.meta_item_list() {
                 Some(l) => attr::contains_name(l, "no_inline"),
                 None => false,
             }
@@ -2301,8 +2312,8 @@ impl ToSource for syntax::codemap::Span {
     fn to_src(&self, cx: &DocContext) -> String {
         debug!("converting span {:?} to snippet", self.clean(cx));
         let sn = match cx.sess().codemap().span_to_snippet(*self) {
-            Some(x) => x.to_string(),
-            None    => "".to_string()
+            Ok(x) => x.to_string(),
+            Err(_) => "".to_string()
         };
         debug!("got snippet {}", sn);
         sn
@@ -2311,7 +2322,7 @@ impl ToSource for syntax::codemap::Span {
 
 fn lit_to_string(lit: &ast::Lit) -> String {
     match lit.node {
-        ast::LitStr(ref st, _) => st.get().to_string(),
+        ast::LitStr(ref st, _) => st.to_string(),
         ast::LitBinary(ref data) => format!("{:?}", data),
         ast::LitByte(b) => {
             let mut res = String::from_str("b'");
@@ -2323,8 +2334,8 @@ fn lit_to_string(lit: &ast::Lit) -> String {
         },
         ast::LitChar(c) => format!("'{}'", c),
         ast::LitInt(i, _t) => i.to_string(),
-        ast::LitFloat(ref f, _t) => f.get().to_string(),
-        ast::LitFloatUnsuffixed(ref f) => f.get().to_string(),
+        ast::LitFloat(ref f, _t) => f.to_string(),
+        ast::LitFloatUnsuffixed(ref f) => f.to_string(),
         ast::LitBool(b) => b.to_string(),
     }
 }
@@ -2336,7 +2347,7 @@ fn name_from_pat(p: &ast::Pat) -> String {
     match p.node {
         PatWild(PatWildSingle) => "_".to_string(),
         PatWild(PatWildMulti) => "..".to_string(),
-        PatIdent(_, ref p, _) => token::get_ident(p.node).get().to_string(),
+        PatIdent(_, ref p, _) => token::get_ident(p.node).to_string(),
         PatEnum(ref p, _) => path_to_string(p),
         PatStruct(ref name, ref fields, etc) => {
             format!("{} {{ {}{} }}", path_to_string(name),
@@ -2479,6 +2490,7 @@ pub struct Stability {
     pub level: attr::StabilityLevel,
     pub feature: String,
     pub since: String,
+    pub deprecated_since: String,
     pub reason: String
 }
 
@@ -2486,11 +2498,13 @@ impl Clean<Stability> for attr::Stability {
     fn clean(&self, _: &DocContext) -> Stability {
         Stability {
             level: self.level,
-            feature: self.feature.get().to_string(),
+            feature: self.feature.to_string(),
             since: self.since.as_ref().map_or("".to_string(),
-                                              |interned| interned.get().to_string()),
+                                              |interned| interned.to_string()),
+            deprecated_since: self.deprecated_since.as_ref().map_or("".to_string(),
+                                                                    |istr| istr.to_string()),
             reason: self.reason.as_ref().map_or("".to_string(),
-                                                |interned| interned.get().to_string()),
+                                                |interned| interned.to_string()),
         }
     }
 }
@@ -2554,12 +2568,12 @@ impl Clean<Item> for ast::Typedef {
     }
 }
 
-impl<'a> Clean<Typedef> for (ty::TypeScheme<'a>, ParamSpace) {
+impl<'a> Clean<Typedef> for (ty::TypeScheme<'a>, ty::GenericPredicates<'a>, ParamSpace) {
     fn clean(&self, cx: &DocContext) -> Typedef {
-        let (ref ty_scheme, ps) = *self;
+        let (ref ty_scheme, ref predicates, ps) = *self;
         Typedef {
             type_: ty_scheme.ty.clean(cx),
-            generics: (&ty_scheme.generics, ps).clean(cx)
+            generics: (&ty_scheme.generics, predicates, ps).clean(cx)
         }
     }
 }

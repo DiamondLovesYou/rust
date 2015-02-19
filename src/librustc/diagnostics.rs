@@ -14,9 +14,9 @@ register_long_diagnostics! {
     E0001: r##"
     This error suggests that the expression arm corresponding to the noted pattern
     will never be reached as for all possible values of the expression being matched,
-    one of the preceeding patterns will match.
+    one of the preceding patterns will match.
 
-    This means that perhaps some of the preceeding patterns are too general, this
+    This means that perhaps some of the preceding patterns are too general, this
     one is too specific or the ordering is incorrect.
 "##,
 
@@ -59,6 +59,7 @@ register_diagnostics! {
     E0010,
     E0011,
     E0012,
+    E0013,
     E0014,
     E0015,
     E0016,
@@ -126,7 +127,8 @@ register_diagnostics! {
     E0312, // lifetime of reference outlives lifetime of borrowed content
     E0313, // lifetime of borrowed pointer outlives lifetime of captured variable
     E0314, // closure outlives stack frame
-    E0315 // cannot invoke closure outside of its lifetime
+    E0315, // cannot invoke closure outside of its lifetime
+    E0316 // nested quantification of lifetimes
 }
 
 __build_diagnostic_array! { DIAGNOSTICS }

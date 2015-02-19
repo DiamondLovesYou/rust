@@ -40,7 +40,7 @@
 //! }
 //!
 //! struct Gadget {
-//!     id: int,
+//!     id: i32,
 //!     owner: Rc<Owner>
 //!     // ...other fields
 //! }
@@ -99,7 +99,7 @@
 //! }
 //!
 //! struct Gadget {
-//!     id: int,
+//!     id: i32,
 //!     owner: Rc<Owner>
 //!     // ...other fields
 //! }
@@ -166,13 +166,13 @@ use heap::deallocate;
 
 struct RcBox<T> {
     value: T,
-    strong: Cell<uint>,
-    weak: Cell<uint>
+    strong: Cell<usize>,
+    weak: Cell<usize>
 }
 
-/// An immutable reference-counted pointer type.
+/// A reference-counted pointer type over an immutable value.
 ///
-/// See the [module level documentation](../index.html) for more details.
+/// See the [module level documentation](./index.html) for more details.
 #[unsafe_no_drop_flag]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Rc<T> {
@@ -233,12 +233,12 @@ impl<T> Rc<T> {
 /// Get the number of weak references to this value.
 #[inline]
 #[unstable(feature = "alloc")]
-pub fn weak_count<T>(this: &Rc<T>) -> uint { this.weak() - 1 }
+pub fn weak_count<T>(this: &Rc<T>) -> usize { this.weak() - 1 }
 
 /// Get the number of strong references to this value.
 #[inline]
 #[unstable(feature = "alloc")]
-pub fn strong_count<T>(this: &Rc<T>) -> uint { this.strong() }
+pub fn strong_count<T>(this: &Rc<T>) -> usize { this.strong() }
 
 /// Returns true if there are no other `Rc` or `Weak<T>` values that share the same inner value.
 ///
@@ -383,7 +383,7 @@ impl<T> Drop for Rc<T> {
     ///
     ///     // stuff
     ///
-    ///     drop(five); // explict drop
+    ///     drop(five); // explicit drop
     /// }
     /// {
     ///     let five = Rc::new(5);
@@ -447,7 +447,7 @@ impl<T: Default> Default for Rc<T> {
     /// use std::rc::Rc;
     /// use std::default::Default;
     ///
-    /// let x: Rc<int> = Default::default();
+    /// let x: Rc<i32> = Default::default();
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -624,7 +624,7 @@ impl<T: fmt::Debug> fmt::Debug for Rc<T> {
 ///
 /// Weak references do not count when determining if the inner value should be dropped.
 ///
-/// See the [module level documentation](../index.html) for more.
+/// See the [module level documentation](./index.html) for more.
 #[unsafe_no_drop_flag]
 #[unstable(feature = "alloc",
            reason = "Weak pointers may not belong in this module.")]
@@ -688,7 +688,7 @@ impl<T> Drop for Weak<T> {
     ///
     ///     // stuff
     ///
-    ///     drop(weak_five); // explict drop
+    ///     drop(weak_five); // explicit drop
     /// }
     /// {
     ///     let five = Rc::new(5);
@@ -750,7 +750,7 @@ trait RcBoxPtr<T> {
     fn inner(&self) -> &RcBox<T>;
 
     #[inline]
-    fn strong(&self) -> uint { self.inner().strong.get() }
+    fn strong(&self) -> usize { self.inner().strong.get() }
 
     #[inline]
     fn inc_strong(&self) { self.inner().strong.set(self.strong() + 1); }
@@ -759,7 +759,7 @@ trait RcBoxPtr<T> {
     fn dec_strong(&self) { self.inner().strong.set(self.strong() - 1); }
 
     #[inline]
-    fn weak(&self) -> uint { self.inner().weak.get() }
+    fn weak(&self) -> usize { self.inner().weak.get() }
 
     #[inline]
     fn inc_weak(&self) { self.inner().weak.set(self.weak() + 1); }
@@ -776,9 +776,7 @@ impl<T> RcBoxPtr<T> for Rc<T> {
             // the contract anyway.
             // This allows the null check to be elided in the destructor if we
             // manipulated the reference count in the same function.
-            if cfg!(not(stage0)) { // NOTE remove cfg after next snapshot
-                assume(!self._ptr.is_null());
-            }
+            assume(!self._ptr.is_null());
             &(**self._ptr)
         }
     }
@@ -792,9 +790,7 @@ impl<T> RcBoxPtr<T> for Weak<T> {
             // the contract anyway.
             // This allows the null check to be elided in the destructor if we
             // manipulated the reference count in the same function.
-            if cfg!(not(stage0)) { // NOTE remove cfg after next snapshot
-                assume(!self._ptr.is_null());
-            }
+            assume(!self._ptr.is_null());
             &(**self._ptr)
         }
     }

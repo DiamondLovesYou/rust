@@ -237,6 +237,17 @@ impl<T: Send + Sync> RwLock<T> {
             Err(TryLockError::WouldBlock)
         }
     }
+
+    /// Determine whether the lock is poisoned.
+    ///
+    /// If another thread is active, the lock can still become poisoned at any
+    /// time.  You should not trust a `false` value for program correctness
+    /// without additional synchronization.
+    #[inline]
+    #[unstable(feature = "std_misc")]
+    pub fn is_poisoned(&self) -> bool {
+        self.inner.poison.get()
+    }
 }
 
 #[unsafe_destructor]
@@ -389,7 +400,7 @@ mod tests {
 
     use rand::{self, Rng};
     use sync::mpsc::channel;
-    use thread::Thread;
+    use thread;
     use sync::{Arc, RwLock, StaticRwLock, RW_LOCK_INIT};
 
     #[test]
@@ -414,13 +425,13 @@ mod tests {
     #[test]
     fn frob() {
         static R: StaticRwLock = RW_LOCK_INIT;
-        static N: uint = 10;
-        static M: uint = 1000;
+        static N: usize = 10;
+        static M: usize = 1000;
 
         let (tx, rx) = channel::<()>();
         for _ in 0..N {
             let tx = tx.clone();
-            Thread::spawn(move|| {
+            thread::spawn(move|| {
                 let mut rng = rand::thread_rng();
                 for _ in 0..M {
                     if rng.gen_weighted_bool(N) {
@@ -441,7 +452,7 @@ mod tests {
     fn test_rw_arc_poison_wr() {
         let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
-        let _: Result<uint, _> = Thread::scoped(move|| {
+        let _: Result<(), _> = thread::spawn(move|| {
             let _lock = arc2.write().unwrap();
             panic!();
         }).join();
@@ -451,19 +462,21 @@ mod tests {
     #[test]
     fn test_rw_arc_poison_ww() {
         let arc = Arc::new(RwLock::new(1));
+        assert!(!arc.is_poisoned());
         let arc2 = arc.clone();
-        let _: Result<uint, _> = Thread::scoped(move|| {
+        let _: Result<(), _> = thread::spawn(move|| {
             let _lock = arc2.write().unwrap();
             panic!();
         }).join();
         assert!(arc.write().is_err());
+        assert!(arc.is_poisoned());
     }
 
     #[test]
     fn test_rw_arc_no_poison_rr() {
         let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
-        let _: Result<uint, _> = Thread::scoped(move|| {
+        let _: Result<(), _> = thread::spawn(move|| {
             let _lock = arc2.read().unwrap();
             panic!();
         }).join();
@@ -474,7 +487,7 @@ mod tests {
     fn test_rw_arc_no_poison_rw() {
         let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
-        let _: Result<uint, _> = Thread::scoped(move|| {
+        let _: Result<(), _> = thread::spawn(move|| {
             let _lock = arc2.read().unwrap();
             panic!()
         }).join();
@@ -488,12 +501,12 @@ mod tests {
         let arc2 = arc.clone();
         let (tx, rx) = channel();
 
-        Thread::spawn(move|| {
+        thread::spawn(move|| {
             let mut lock = arc2.write().unwrap();
             for _ in 0u..10 {
                 let tmp = *lock;
                 *lock = -1;
-                Thread::yield_now();
+                thread::yield_now();
                 *lock = tmp + 1;
             }
             tx.send(()).unwrap();
@@ -503,7 +516,7 @@ mod tests {
         let mut children = Vec::new();
         for _ in 0u..5 {
             let arc3 = arc.clone();
-            children.push(Thread::scoped(move|| {
+            children.push(thread::spawn(move|| {
                 let lock = arc3.read().unwrap();
                 assert!(*lock >= 0);
             }));
@@ -524,7 +537,7 @@ mod tests {
     fn test_rw_arc_access_in_unwind() {
         let arc = Arc::new(RwLock::new(1));
         let arc2 = arc.clone();
-        let _ = Thread::scoped(move|| -> () {
+        let _ = thread::spawn(move|| -> () {
             struct Unwinder {
                 i: Arc<RwLock<int>>,
             }

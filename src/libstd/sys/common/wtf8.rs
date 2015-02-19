@@ -27,6 +27,7 @@ use core::char::{encode_utf8_raw, encode_utf16_raw};
 use core::str::{char_range_at_raw, next_code_point};
 use core::raw::Slice as RawSlice;
 
+use ascii::*;
 use borrow::Cow;
 use cmp;
 use fmt;
@@ -38,6 +39,7 @@ use ops;
 use slice;
 use str;
 use string::{String, CowString};
+use sys_common::AsInner;
 use unicode::str::{Utf16Item, utf16_items};
 use vec::Vec;
 
@@ -84,7 +86,7 @@ impl CodePoint {
 
     /// Create a new `CodePoint` from a `char`.
     ///
-    /// Since all Unicode scalar values are code points, this always succeds.
+    /// Since all Unicode scalar values are code points, this always succeeds.
     #[inline]
     pub fn from_char(value: char) -> CodePoint {
         CodePoint { value: value as u32 }
@@ -382,6 +384,10 @@ impl Extend<CodePoint> for Wtf8Buf {
 /// if they’re not in a surrogate pair.
 pub struct Wtf8 {
     bytes: [u8]
+}
+
+impl AsInner<[u8]> for Wtf8 {
+    fn as_inner(&self) -> &[u8] { &self.bytes }
 }
 
 // FIXME: https://github.com/rust-lang/rust/issues/18805
@@ -809,6 +815,26 @@ impl<'a, S: Writer + Hasher> Hash<S> for Wtf8 {
         state.write(&self.bytes);
         0xfeu8.hash(state)
     }
+}
+
+impl AsciiExt for Wtf8 {
+    type Owned = Wtf8Buf;
+
+    fn is_ascii(&self) -> bool {
+        self.bytes.is_ascii()
+    }
+    fn to_ascii_uppercase(&self) -> Wtf8Buf {
+        Wtf8Buf { bytes: self.bytes.to_ascii_uppercase() }
+    }
+    fn to_ascii_lowercase(&self) -> Wtf8Buf {
+        Wtf8Buf { bytes: self.bytes.to_ascii_lowercase() }
+    }
+    fn eq_ignore_ascii_case(&self, other: &Wtf8) -> bool {
+        self.bytes.eq_ignore_ascii_case(&other.bytes)
+    }
+
+    fn make_ascii_uppercase(&mut self) { self.bytes.make_ascii_uppercase() }
+    fn make_ascii_lowercase(&mut self) { self.bytes.make_ascii_lowercase() }
 }
 
 #[cfg(test)]

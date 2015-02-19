@@ -23,6 +23,7 @@ use metadata::tydecode;
 use metadata::tydecode::{DefIdSource, NominalType, TypeWithId, TypeParameter};
 use metadata::tydecode::{RegionParameter, ClosureSource};
 use metadata::tyencode;
+use middle::check_const::ConstQualif;
 use middle::mem_categorization::Typer;
 use middle::subst;
 use middle::subst::VecPerParamSpace;
@@ -38,6 +39,7 @@ use syntax::ptr::P;
 use syntax;
 
 use std::old_io::Seek;
+use std::num::FromPrimitive;
 use std::rc::Rc;
 
 use rbml::io::SeekableMemWriter;
@@ -499,6 +501,12 @@ impl tr for region::CodeExtent {
     }
 }
 
+impl tr for region::DestructionScopeData {
+    fn tr(&self, dcx: &DecodeContext) -> region::DestructionScopeData {
+        region::DestructionScopeData { node_id: dcx.tr_id(self.node_id) }
+    }
+}
+
 impl tr for ty::BoundRegion {
     fn tr(&self, dcx: &DecodeContext) -> ty::BoundRegion {
         match *self {
@@ -945,11 +953,6 @@ impl<'a, 'tcx> rbml_writer_helpers<'tcx> for Encoder<'a> {
                         Ok(encode_vec_per_param_space(
                             this, &type_scheme.generics.regions,
                             |this, def| def.encode(this).unwrap()))
-                    });
-                    this.emit_struct_field("predicates", 2, |this| {
-                        Ok(encode_vec_per_param_space(
-                            this, &type_scheme.generics.predicates,
-                            |this, def| this.emit_predicate(ecx, def)))
                     })
                 })
             });
@@ -1304,6 +1307,15 @@ fn encode_side_tables_for_id(ecx: &e::EncodeContext,
             })
         })
     }
+
+    for &qualif in tcx.const_qualif_map.borrow().get(&id).iter() {
+        rbml_w.tag(c::tag_table_const_qualif, |rbml_w| {
+            rbml_w.id(id);
+            rbml_w.tag(c::tag_table_val, |rbml_w| {
+                qualif.encode(rbml_w).unwrap()
+            })
+        })
+    }
 }
 
 trait doc_decoder_helpers {
@@ -1568,7 +1580,7 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
 
     fn read_type_scheme<'b, 'c>(&mut self, dcx: &DecodeContext<'b, 'c, 'tcx>)
                                 -> ty::TypeScheme<'tcx> {
-        self.read_struct("TypeScheme", 2, |this| {
+        self.read_struct("TypeScheme", 3, |this| {
             Ok(ty::TypeScheme {
                 generics: this.read_struct_field("generics", 0, |this| {
                     this.read_struct("Generics", 2, |this| {
@@ -1583,12 +1595,6 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
                             this.read_struct_field("regions", 1, |this| {
                                 Ok(this.read_vec_per_param_space(
                                     |this| Decodable::decode(this).unwrap()))
-                            }).unwrap(),
-
-                            predicates:
-                            this.read_struct_field("predicates", 2, |this| {
-                                Ok(this.read_vec_per_param_space(
-                                    |this| this.read_predicate(dcx)))
                             }).unwrap(),
                         })
                     })
@@ -1841,8 +1847,8 @@ fn decode_side_tables(dcx: &DecodeContext,
         debug!(">> Side table document with tag 0x{:x} \
                 found for id {} (orig {})",
                tag, id, id0);
-
-        match c::astencode_tag::from_uint(tag) {
+        let decoded_tag: Option<c::astencode_tag> = FromPrimitive::from_uint(tag);
+        match decoded_tag {
             None => {
                 dcx.tcx.sess.bug(
                     &format!("unknown tag found in side tables: {:x}",
@@ -1923,6 +1929,10 @@ fn decode_side_tables(dcx: &DecodeContext,
                             val_dsr.read_closure_kind(dcx);
                         dcx.tcx.closure_kinds.borrow_mut().insert(ast_util::local_def(id),
                                                                   closure_kind);
+                    }
+                    c::tag_table_const_qualif => {
+                        let qualif: ConstQualif = Decodable::decode(val_dsr).unwrap();
+                        dcx.tcx.const_qualif_map.borrow_mut().insert(id, qualif);
                     }
                     _ => {
                         dcx.tcx.sess.bug(

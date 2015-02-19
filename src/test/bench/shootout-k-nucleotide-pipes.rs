@@ -22,8 +22,9 @@ use std::mem::replace;
 use std::num::Float;
 use std::option;
 use std::os;
+use std::env;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread::Thread;
+use std::thread;
 
 fn f64_cmp(x: f64, y: f64) -> Ordering {
     // arbitrarily decide that NaNs are larger than everything.
@@ -148,7 +149,7 @@ fn make_sequence_processor(sz: uint,
 fn main() {
     use std::old_io::{stdio, MemReader, BufferedReader};
 
-    let rdr = if os::getenv("RUST_BENCH").is_some() {
+    let rdr = if env::var_os("RUST_BENCH").is_some() {
         let foo = include_bytes!("shootout-k-nucleotide.data");
         box MemReader::new(foo.to_vec()) as Box<Reader>
     } else {
@@ -171,7 +172,7 @@ fn main() {
 
         let (to_child, from_parent) = channel();
 
-        Thread::spawn(move|| {
+        thread::spawn(move|| {
             make_sequence_processor(sz, &from_parent, &to_parent_);
         });
 

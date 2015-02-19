@@ -111,7 +111,7 @@
 #![feature(core)]
 #![feature(hash)]
 #![feature(int_uint)]
-#![feature(lang_items, unsafe_destructor)]
+#![feature(lang_items)]
 #![feature(libc)]
 #![feature(linkage, thread_local, asm)]
 #![feature(old_impl_check)]
@@ -120,10 +120,13 @@
 #![feature(staged_api)]
 #![feature(unboxed_closures)]
 #![feature(unicode)]
+#![feature(unsafe_destructor)]
+#![feature(unsafe_no_drop_flag)]
 #![feature(macro_reexport)]
 #![cfg_attr(test, feature(test))]
 
 // Don't link to std. We are std.
+#![feature(no_std)]
 #![no_std]
 
 #![deny(missing_docs)]
@@ -137,7 +140,7 @@
 extern crate core;
 
 #[macro_use]
-#[macro_reexport(vec)]
+#[macro_reexport(vec, format)]
 extern crate "collections" as core_collections;
 
 #[allow(deprecated)] extern crate "rand" as core_rand;
@@ -163,6 +166,7 @@ pub use core::cell;
 pub use core::clone;
 #[cfg(not(test))] pub use core::cmp;
 pub use core::default;
+#[allow(deprecated)]
 pub use core::finally;
 pub use core::hash;
 pub use core::intrinsics;
@@ -180,6 +184,7 @@ pub use core::error;
 #[cfg(not(test))] pub use alloc::boxed;
 pub use alloc::rc;
 
+pub use core_collections::fmt;
 pub use core_collections::slice;
 pub use core_collections::str;
 pub use core_collections::string;
@@ -245,13 +250,15 @@ pub mod thread_local;
 
 pub mod dynamic_lib;
 pub mod ffi;
-pub mod fmt;
 pub mod old_io;
 pub mod io;
+pub mod fs;
+pub mod net;
 pub mod os;
 pub mod env;
 pub mod path;
 pub mod old_path;
+pub mod process;
 pub mod rand;
 pub mod time;
 
@@ -272,7 +279,7 @@ pub mod sync;
 #[path = "sys/common/mod.rs"] mod sys_common;
 
 pub mod rt;
-mod failure;
+mod panicking;
 
 // Documentation for primitive types
 
@@ -285,12 +292,6 @@ mod tuple;
 // can be resolved within libstd.
 #[doc(hidden)]
 mod std {
-    // mods used for deriving
-    pub use clone;
-    pub use cmp;
-    pub use hash;
-    pub use default;
-
     pub use sync; // used for select!()
     pub use error; // used for try!()
     pub use fmt; // used for any formatting strings
@@ -303,14 +304,12 @@ mod std {
     pub use marker;  // used for tls!
     pub use ops; // used for bitflags!
 
-    // The test runner calls ::std::os::args() but really wants realstd
-    #[cfg(test)] pub use realstd::os as os;
+    // The test runner calls ::std::env::args() but really wants realstd
+    #[cfg(test)] pub use realstd::env as env;
     // The test runner requires std::slice::Vector, so re-export std::slice just for it.
     //
     // It is also used in vec![]
     pub use slice;
 
     pub use boxed; // used for vec![]
-    // for-loops
-    pub use iter;
 }

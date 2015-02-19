@@ -35,14 +35,14 @@
 //!
 //! ```
 //! use std::sync::Arc;
-//! use std::thread::Thread;
+//! use std::thread;
 //!
 //! let five = Arc::new(5);
 //!
 //! for _ in 0..10 {
 //!     let five = five.clone();
 //!
-//!     Thread::spawn(move || {
+//!     thread::spawn(move || {
 //!         println!("{:?}", five);
 //!     });
 //! }
@@ -52,14 +52,14 @@
 //!
 //! ```
 //! use std::sync::{Arc, Mutex};
-//! use std::thread::Thread;
+//! use std::thread;
 //!
 //! let five = Arc::new(Mutex::new(5));
 //!
 //! for _ in 0..10 {
 //!     let five = five.clone();
 //!
-//!     Thread::spawn(move || {
+//!     thread::spawn(move || {
 //!         let mut number = five.lock().unwrap();
 //!
 //!         *number += 1;
@@ -95,7 +95,7 @@ use heap::deallocate;
 ///
 /// ```rust
 /// use std::sync::Arc;
-/// use std::thread::Thread;
+/// use std::thread;
 ///
 /// fn main() {
 ///     let numbers: Vec<_> = (0..100u32).map(|i| i as f32).collect();
@@ -104,7 +104,7 @@ use heap::deallocate;
 ///     for _ in 0..10 {
 ///         let child_numbers = shared_numbers.clone();
 ///
-///         Thread::spawn(move || {
+///         thread::spawn(move || {
 ///             let local_numbers = child_numbers.as_slice();
 ///
 ///             // Work with the local numbers
@@ -206,12 +206,12 @@ impl<T> Arc<T> {
 /// Get the number of weak references to this value.
 #[inline]
 #[unstable(feature = "alloc")]
-pub fn weak_count<T>(this: &Arc<T>) -> uint { this.inner().weak.load(SeqCst) - 1 }
+pub fn weak_count<T>(this: &Arc<T>) -> usize { this.inner().weak.load(SeqCst) - 1 }
 
 /// Get the number of strong references to this value.
 #[inline]
 #[unstable(feature = "alloc")]
-pub fn strong_count<T>(this: &Arc<T>) -> uint { this.inner().strong.load(SeqCst) }
+pub fn strong_count<T>(this: &Arc<T>) -> usize { this.inner().strong.load(SeqCst) }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for Arc<T> {
@@ -311,7 +311,7 @@ impl<T: Sync + Send> Drop for Arc<T> {
     ///
     ///     // stuff
     ///
-    ///     drop(five); // explict drop
+    ///     drop(five); // explicit drop
     /// }
     /// {
     ///     let five = Arc::new(5);
@@ -441,7 +441,7 @@ impl<T: Sync + Send> Drop for Weak<T> {
     ///
     ///     // stuff
     ///
-    ///     drop(weak_five); // explict drop
+    ///     drop(weak_five); // explicit drop
     /// }
     /// {
     ///     let five = Arc::new(5);
@@ -621,7 +621,7 @@ mod tests {
     use std::option::Option::{Some, None};
     use std::sync::atomic;
     use std::sync::atomic::Ordering::{Acquire, SeqCst};
-    use std::thread::Thread;
+    use std::thread;
     use std::vec::Vec;
     use super::{Arc, Weak, weak_count, strong_count};
     use std::sync::Mutex;
@@ -648,8 +648,8 @@ mod tests {
 
         let (tx, rx) = channel();
 
-        let _t = Thread::spawn(move || {
-            let arc_v: Arc<Vec<int>> = rx.recv().unwrap();
+        let _t = thread::spawn(move || {
+            let arc_v: Arc<Vec<i32>> = rx.recv().unwrap();
             assert_eq!((*arc_v)[3], 4);
         });
 
@@ -818,5 +818,5 @@ mod tests {
 
     // Make sure deriving works with Arc<T>
     #[derive(Eq, Ord, PartialEq, PartialOrd, Clone, Debug, Default)]
-    struct Foo { inner: Arc<int> }
+    struct Foo { inner: Arc<i32> }
 }

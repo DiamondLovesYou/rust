@@ -30,7 +30,7 @@ use self::StdSource::*;
 use boxed::Box;
 use cell::RefCell;
 use clone::Clone;
-use failure::LOCAL_STDERR;
+use panicking::LOCAL_STDERR;
 use fmt;
 use old_io::{Reader, Writer, IoResult, IoError, OtherIoError, Buffer,
          standard_error, EndOfFile, LineBufferedWriter, BufferedReader};
@@ -48,7 +48,7 @@ use str::StrExt;
 use string::String;
 use sys::{fs, tty};
 use sync::{Arc, Mutex, MutexGuard, Once, ONCE_INIT};
-use uint;
+use usize;
 use vec::Vec;
 
 // And so begins the tale of acquiring a uv handle to a stdio stream on all
@@ -143,7 +143,8 @@ impl StdinReader {
     /// ```rust
     /// use std::old_io;
     ///
-    /// for line in old_io::stdin().lock().lines() {
+    /// let mut stdin = old_io::stdin();
+    /// for line in stdin.lock().lines() {
     ///     println!("{}", line.unwrap());
     /// }
     /// ```
@@ -383,12 +384,14 @@ pub fn println(s: &str) {
 
 /// Similar to `print`, but takes a `fmt::Arguments` structure to be compatible
 /// with the `format_args!` macro.
+#[stable(feature = "rust1", since = "1.0.0")]
 pub fn print_args(fmt: fmt::Arguments) {
     with_task_stdout(|io| write!(io, "{}", fmt))
 }
 
 /// Similar to `println`, but takes a `fmt::Arguments` structure to be
 /// compatible with the `format_args!` macro.
+#[stable(feature = "rust1", since = "1.0.0")]
 pub fn println_args(fmt: fmt::Arguments) {
     with_task_stdout(|io| writeln!(io, "{}", fmt))
 }
@@ -510,7 +513,7 @@ impl Writer for StdWriter {
         //
         // [1]: https://tahoe-lafs.org/trac/tahoe-lafs/ticket/1232
         // [2]: http://www.mail-archive.com/log4net-dev@logging.apache.org/msg00661.html
-        let max_size = if cfg!(windows) {8192} else {uint::MAX};
+        let max_size = if cfg!(windows) {8192} else {usize::MAX};
         for chunk in buf.chunks(max_size) {
             try!(match self.inner {
                 TTY(ref mut tty) => tty.write(chunk),
@@ -527,7 +530,7 @@ mod tests {
 
     use super::*;
     use sync::mpsc::channel;
-    use thread::Thread;
+    use thread;
 
     #[test]
     fn smoke() {
@@ -543,7 +546,7 @@ mod tests {
 
         let (tx, rx) = channel();
         let (mut r, w) = (ChanReader::new(rx), ChanWriter::new(tx));
-        let _t = Thread::spawn(move|| {
+        let _t = thread::spawn(move|| {
             set_stdout(box w);
             println!("hello!");
         });
@@ -556,7 +559,7 @@ mod tests {
 
         let (tx, rx) = channel();
         let (mut r, w) = (ChanReader::new(rx), ChanWriter::new(tx));
-        let _t = Thread::spawn(move || -> () {
+        let _t = thread::spawn(move || -> () {
             set_stderr(box w);
             panic!("my special message");
         });

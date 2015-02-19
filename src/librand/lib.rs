@@ -23,6 +23,7 @@
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![feature(int_uint)]
+#![feature(no_std)]
 #![no_std]
 #![unstable(feature = "rand")]
 #![feature(staged_api)]
@@ -387,7 +388,6 @@ pub trait SeedableRng<Seed>: Rng {
 /// [1]: Marsaglia, George (July 2003). ["Xorshift
 /// RNGs"](http://www.jstatsoft.org/v08/i14/paper). *Journal of
 /// Statistical Software*. Vol. 8 (Issue 14).
-#[allow(missing_copy_implementations)]
 #[derive(Clone)]
 pub struct XorShiftRng {
     x: u32,
@@ -496,16 +496,6 @@ pub struct Open01<F>(pub F);
 /// println!("f32 from [0,1]: {}", val);
 /// ```
 pub struct Closed01<F>(pub F);
-
-#[cfg(not(test))]
-mod std {
-    pub use core::{option, fmt}; // panic!()
-    pub use core::clone; // derive Clone
-    pub use core::marker;
-    // for-loops
-    pub use core::iter;
-    pub use core::ops; // slicing syntax
-}
 
 #[cfg(test)]
 mod test {

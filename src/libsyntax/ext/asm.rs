@@ -18,6 +18,7 @@ use codemap;
 use codemap::Span;
 use ext::base;
 use ext::base::*;
+use feature_gate;
 use parse::token::InternedString;
 use parse::token;
 use ptr::P;
@@ -48,6 +49,12 @@ static OPTIONS: &'static [&'static str] = &["volatile", "alignstack", "intel"];
 
 pub fn expand_asm<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
                        -> Box<base::MacResult+'cx> {
+    if !cx.ecfg.enable_asm() {
+        feature_gate::emit_feature_err(
+            &cx.parse_sess.span_diagnostic, "asm", sp, feature_gate::EXPLAIN_ASM);
+        return DummyResult::expr(sp);
+    }
+
     let mut p = cx.new_parser_from_tts(tts);
     let mut asm = InternedString::new("");
     let mut asm_str_style = None;
@@ -102,7 +109,7 @@ pub fn expand_asm<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
                     // It's the opposite of '=&' which means that the memory
                     // cannot be shared with any other operand (usually when
                     // a register is clobbered early.)
-                    let output = match constraint.get().slice_shift_char() {
+                    let output = match constraint.slice_shift_char() {
                         Some(('=', _)) => None,
                         Some(('+', operand)) => {
                             Some(token::intern_and_get_ident(&format!(
@@ -129,9 +136,9 @@ pub fn expand_asm<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
 
                     let (constraint, _str_style) = p.parse_str();
 
-                    if constraint.get().starts_with("=") {
+                    if constraint.starts_with("=") {
                         cx.span_err(p.last_span, "input operand constraint contains '='");
-                    } else if constraint.get().starts_with("+") {
+                    } else if constraint.starts_with("+") {
                         cx.span_err(p.last_span, "input operand constraint contains '+'");
                     }
 
@@ -213,7 +220,7 @@ pub fn expand_asm<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
     MacExpr::new(P(ast::Expr {
         id: ast::DUMMY_NODE_ID,
         node: ast::ExprInlineAsm(ast::InlineAsm {
-            asm: token::intern_and_get_ident(asm.get()),
+            asm: token::intern_and_get_ident(&asm),
             asm_str_style: asm_str_style.unwrap(),
             outputs: outputs,
             inputs: inputs,

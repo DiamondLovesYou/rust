@@ -71,12 +71,46 @@ static ENV_LOCK: StaticMutex = MUTEX_INIT;
 
 /// An iterator over a snapshot of the environment variables of this process.
 ///
-/// This iterator is created through `std::env::vars()` and yields `(OsString,
-/// OsString)` pairs.
-pub struct Vars { inner: os_imp::Env }
+/// This iterator is created through `std::env::vars()` and yields `(String,
+/// String)` pairs.
+pub struct Vars { inner: VarsOs }
 
-/// Returns an iterator of (variable, value) pairs, for all the environment
-/// variables of the current process.
+/// An iterator over a snapshot of the environment variables of this process.
+///
+/// This iterator is created through `std::env::vars_os()` and yields
+/// `(OsString, OsString)` pairs.
+pub struct VarsOs { inner: os_imp::Env }
+
+/// Returns an iterator of (variable, value) pairs of strings, for all the
+/// environment variables of the current process.
+///
+/// The returned iterator contains a snapshot of the process's environment
+/// variables at the time of this invocation, modifications to environment
+/// variables afterwards will not be reflected in the returned iterator.
+///
+/// # Panics
+///
+/// While iterating, the returned iterator will panic if any key or value in the
+/// environment is not valid unicode. If this is not desired, consider using the
+/// `env::vars_os` function.
+///
+/// # Example
+///
+/// ```rust
+/// use std::env;
+///
+/// // We will iterate through the references to the element returned by
+/// // env::vars();
+/// for (key, value) in env::vars() {
+///     println!("{}: {}", key, value);
+/// }
+/// ```
+pub fn vars() -> Vars {
+    Vars { inner: vars_os() }
+}
+
+/// Returns an iterator of (variable, value) pairs of OS strings, for all the
+/// environment variables of the current process.
 ///
 /// The returned iterator contains a snapshot of the process's environment
 /// variables at the time of this invocation, modifications to environment
@@ -88,39 +122,30 @@ pub struct Vars { inner: os_imp::Env }
 /// use std::env;
 ///
 /// // We will iterate through the references to the element returned by
-/// // env::vars();
-/// for (key, value) in env::vars() {
+/// // env::vars_os();
+/// for (key, value) in env::vars_os() {
 ///     println!("{:?}: {:?}", key, value);
 /// }
 /// ```
-pub fn vars() -> Vars {
+pub fn vars_os() -> VarsOs {
     let _g = ENV_LOCK.lock();
-    Vars { inner: os_imp::env() }
+    VarsOs { inner: os_imp::env() }
 }
 
 impl Iterator for Vars {
-    type Item = (OsString, OsString);
-    fn next(&mut self) -> Option<(OsString, OsString)> { self.inner.next() }
+    type Item = (String, String);
+    fn next(&mut self) -> Option<(String, String)> {
+        self.inner.next().map(|(a, b)| {
+            (a.into_string().unwrap(), b.into_string().unwrap())
+        })
+    }
     fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
 }
 
-/// Fetches the environment variable `key` from the current process, returning
-/// None if the variable isn't set.
-///
-/// # Example
-///
-/// ```rust
-/// use std::env;
-///
-/// let key = "HOME";
-/// match env::var(key) {
-///     Some(val) => println!("{}: {:?}", key, val),
-///     None => println!("{} is not defined in the environment.", key)
-/// }
-/// ```
-pub fn var<K: ?Sized>(key: &K) -> Option<OsString> where K: AsOsStr {
-    let _g = ENV_LOCK.lock();
-    os_imp::getenv(key.as_os_str())
+impl Iterator for VarsOs {
+    type Item = (OsString, OsString);
+    fn next(&mut self) -> Option<(OsString, OsString)> { self.inner.next() }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
 }
 
 /// Fetches the environment variable `key` from the current process.
@@ -135,16 +160,35 @@ pub fn var<K: ?Sized>(key: &K) -> Option<OsString> where K: AsOsStr {
 /// use std::env;
 ///
 /// let key = "HOME";
-/// match env::var_string(key) {
+/// match env::var(key) {
 ///     Ok(val) => println!("{}: {:?}", key, val),
 ///     Err(e) => println!("couldn't interpret {}: {}", key, e),
 /// }
 /// ```
-pub fn var_string<K: ?Sized>(key: &K) -> Result<String, VarError> where K: AsOsStr {
-    match var(key) {
+pub fn var<K: ?Sized>(key: &K) -> Result<String, VarError> where K: AsOsStr {
+    match var_os(key) {
         Some(s) => s.into_string().map_err(VarError::NotUnicode),
         None => Err(VarError::NotPresent)
     }
+}
+
+/// Fetches the environment variable `key` from the current process, returning
+/// None if the variable isn't set.
+///
+/// # Example
+///
+/// ```rust
+/// use std::env;
+///
+/// let key = "HOME";
+/// match env::var_os(key) {
+///     Some(val) => println!("{}: {:?}", key, val),
+///     None => println!("{} is not defined in the environment.", key)
+/// }
+/// ```
+pub fn var_os<K: ?Sized>(key: &K) -> Option<OsString> where K: AsOsStr {
+    let _g = ENV_LOCK.lock();
+    os_imp::getenv(key.as_os_str())
 }
 
 /// Possible errors from the `env::var` method.
@@ -190,7 +234,7 @@ impl Error for VarError {
 ///
 /// let key = "KEY";
 /// env::set_var(key, "VALUE");
-/// assert_eq!(env::var_string(key), Ok("VALUE".to_string()));
+/// assert_eq!(env::var(key), Ok("VALUE".to_string()));
 /// ```
 pub fn set_var<K: ?Sized, V: ?Sized>(k: &K, v: &V)
     where K: AsOsStr, V: AsOsStr
@@ -222,7 +266,7 @@ pub struct SplitPaths<'a> { inner: os_imp::SplitPaths<'a> }
 /// use std::env;
 ///
 /// let key = "PATH";
-/// match env::var(key) {
+/// match env::var_os(key) {
 ///     Some(paths) => {
 ///         for path in env::split_paths(&paths) {
 ///             println!("'{}'", path.display());
@@ -262,7 +306,7 @@ pub struct JoinPathsError {
 /// ```rust
 /// use std::env;
 ///
-/// if let Some(path) = env::var("PATH") {
+/// if let Some(path) = env::var_os("PATH") {
 ///     let mut paths = env::split_paths(&path).collect::<Vec<_>>();
 ///     paths.push(Path::new("/home/xyz/bin"));
 ///     let new_path = env::join_paths(paths.iter()).unwrap();
@@ -337,7 +381,7 @@ pub fn temp_dir() -> Path {
 ///
 /// # Errors
 ///
-/// Acquring the path to the current executable is a platform-specific operation
+/// Acquiring the path to the current executable is a platform-specific operation
 /// that can fail for a good number of reasons. Some errors can include, but not
 /// be limited to filesystem operations failing or general syscall failures.
 ///
@@ -376,11 +420,44 @@ pub fn get_exit_status() -> i32 {
     EXIT_STATUS.load(Ordering::SeqCst) as i32
 }
 
-/// An iterator over the arguments of a process, yielding an `OsString` value
+/// An iterator over the arguments of a process, yielding an `String` value
 /// for each argument.
 ///
 /// This structure is created through the `std::env::args` method.
-pub struct Args { inner: os_imp::Args }
+pub struct Args { inner: ArgsOs }
+
+/// An iterator over the arguments of a process, yielding an `OsString` value
+/// for each argument.
+///
+/// This structure is created through the `std::env::args_os` method.
+pub struct ArgsOs { inner: os_imp::Args }
+
+/// Returns the arguments which this program was started with (normally passed
+/// via the command line).
+///
+/// The first element is traditionally the path to the executable, but it can be
+/// set to arbitrary text, and it may not even exist, so this property should
+/// not be relied upon for security purposes.
+///
+/// # Panics
+///
+/// The returned iterator will panic during iteration if any argument to the
+/// process is not valid unicode. If this is not desired it is recommended to
+/// use the `args_os` function instead.
+///
+/// # Example
+///
+/// ```rust
+/// use std::env;
+///
+/// // Prints each argument on a separate line
+/// for argument in env::args() {
+///     println!("{}", argument);
+/// }
+/// ```
+pub fn args() -> Args {
+    Args { inner: args_os() }
+}
 
 /// Returns the arguments which this program was started with (normally passed
 /// via the command line).
@@ -395,18 +472,34 @@ pub struct Args { inner: os_imp::Args }
 /// use std::env;
 ///
 /// // Prints each argument on a separate line
-/// for argument in env::args() {
+/// for argument in env::args_os() {
 ///     println!("{:?}", argument);
 /// }
 /// ```
-pub fn args() -> Args {
-    Args { inner: os_imp::args() }
+pub fn args_os() -> ArgsOs {
+    ArgsOs { inner: os_imp::args() }
 }
 
 impl Iterator for Args {
+    type Item = String;
+    fn next(&mut self) -> Option<String> {
+        self.inner.next().map(|s| s.into_string().unwrap())
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
+}
+
+impl ExactSizeIterator for Args {
+    fn len(&self) -> usize { self.inner.len() }
+}
+
+impl Iterator for ArgsOs {
     type Item = OsString;
     fn next(&mut self) -> Option<OsString> { self.inner.next() }
     fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
+}
+
+impl ExactSizeIterator for ArgsOs {
+    fn len(&self) -> usize { self.inner.len() }
 }
 
 /// Returns the page size of the current architecture in bytes.
@@ -563,6 +656,38 @@ pub mod consts {
 }
 
 /// Constants associated with the current target
+#[cfg(target_os = "openbsd")]
+pub mod consts {
+    pub use super::arch_consts::ARCH;
+
+    pub const FAMILY: &'static str = "unix";
+
+    /// A string describing the specific operating system in use: in this
+    /// case, `dragonfly`.
+    pub const OS: &'static str = "openbsd";
+
+    /// Specifies the filename prefix used for shared libraries on this
+    /// platform: in this case, `lib`.
+    pub const DLL_PREFIX: &'static str = "lib";
+
+    /// Specifies the filename suffix used for shared libraries on this
+    /// platform: in this case, `.so`.
+    pub const DLL_SUFFIX: &'static str = ".so";
+
+    /// Specifies the file extension used for shared libraries on this
+    /// platform that goes after the dot: in this case, `so`.
+    pub const DLL_EXTENSION: &'static str = "so";
+
+    /// Specifies the filename suffix used for executable binaries on this
+    /// platform: in this case, the empty string.
+    pub const EXE_SUFFIX: &'static str = "";
+
+    /// Specifies the file extension, if any, used for executable binaries
+    /// on this platform: in this case, the empty string.
+    pub const EXE_EXTENSION: &'static str = "";
+}
+
+/// Constants associated with the current target
 #[cfg(target_os = "android")]
 pub mod consts {
     pub use super::arch_consts::ARCH;
@@ -674,7 +799,7 @@ mod tests {
         let n = format!("TEST{}", rng.gen_ascii_chars().take(10)
                                      .collect::<String>());
         let n = OsString::from_string(n);
-        assert!(var(&n).is_none());
+        assert!(var_os(&n).is_none());
         n
     }
 
@@ -686,7 +811,7 @@ mod tests {
     fn test_set_var() {
         let n = make_rand_name();
         set_var(&n, "VALUE");
-        eq(var(&n), Some("VALUE"));
+        eq(var_os(&n), Some("VALUE"));
     }
 
     #[test]
@@ -694,7 +819,7 @@ mod tests {
         let n = make_rand_name();
         set_var(&n, "VALUE");
         remove_var(&n);
-        eq(var(&n), None);
+        eq(var_os(&n), None);
     }
 
     #[test]
@@ -702,9 +827,9 @@ mod tests {
         let n = make_rand_name();
         set_var(&n, "1");
         set_var(&n, "2");
-        eq(var(&n), Some("2"));
+        eq(var_os(&n), Some("2"));
         set_var(&n, "");
-        eq(var(&n), Some(""));
+        eq(var_os(&n), Some(""));
     }
 
     #[test]
@@ -717,7 +842,7 @@ mod tests {
         }
         let n = make_rand_name();
         set_var(&n, s.as_slice());
-        eq(var(&n), Some(s.as_slice()));
+        eq(var_os(&n), Some(s.as_slice()));
     }
 
     #[test]
@@ -735,22 +860,22 @@ mod tests {
         let n = make_rand_name();
         let s = repeat("x").take(10000).collect::<String>();
         set_var(&n, &s);
-        eq(var(&n), Some(s.as_slice()));
+        eq(var_os(&n), Some(s.as_slice()));
         remove_var(&n);
-        eq(var(&n), None);
+        eq(var_os(&n), None);
     }
 
     #[test]
     fn test_env_set_var() {
         let n = make_rand_name();
 
-        let mut e = vars();
+        let mut e = vars_os();
         set_var(&n, "VALUE");
         assert!(!e.any(|(k, v)| {
             &*k == &*n && &*v == "VALUE"
         }));
 
-        assert!(vars().any(|(k, v)| {
+        assert!(vars_os().any(|(k, v)| {
             &*k == &*n && &*v == "VALUE"
         }));
     }

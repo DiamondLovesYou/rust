@@ -65,15 +65,18 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
+#![feature(no_std)]
 #![no_std]
 #![feature(lang_items, unsafe_destructor)]
 #![feature(box_syntax)]
 #![feature(optin_builtin_traits)]
-#![feature(int_uint)]
 #![feature(unboxed_closures)]
+#![feature(unsafe_no_drop_flag)]
 #![feature(core)]
 #![feature(hash)]
-#![feature(libc)]
+#![cfg_attr(all(not(feature = "external_funcs"), not(feature = "external_crate")),
+            feature(libc))]
+
 
 #[macro_use]
 extern crate core;
@@ -123,10 +126,3 @@ pub fn oom() -> ! {
 //                optimize it out).
 #[doc(hidden)]
 pub fn fixme_14344_be_sure_to_link_to_collections() {}
-
-#[cfg(not(test))]
-#[doc(hidden)]
-mod std {
-    pub use core::fmt;
-    pub use core::option;
-}

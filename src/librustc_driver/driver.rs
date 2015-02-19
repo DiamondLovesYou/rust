@@ -1,4 +1,4 @@
-// Copyright 2012-2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -12,11 +12,11 @@ use rustc::session::Session;
 use rustc::session::config::{self, Input, OutputFilenames};
 use rustc::session::search_paths::PathKind;
 use rustc::lint;
+use rustc::metadata;
 use rustc::metadata::creader::CrateReader;
 use rustc::middle::{stability, ty, reachable};
 use rustc::middle::dependency_format;
 use rustc::middle;
-use rustc::plugin::load::Plugins;
 use rustc::plugin::registry::Registry;
 use rustc::plugin;
 use rustc::util::common::time;
@@ -27,6 +27,7 @@ use rustc_trans::back::write;
 use rustc_trans::trans;
 use rustc_typeck as typeck;
 use rustc_privacy;
+use super::Compilation;
 
 use serialize::json;
 
@@ -55,7 +56,7 @@ pub fn compile_input(sess: Session,
             let state = $make_state;
             (control.$point.callback)(state);
         }
-        if control.$point.stop {
+        if control.$point.stop == Compilation::Stop {
             return;
         }
     })}
@@ -178,7 +179,7 @@ pub fn source_name(input: &Input) -> String {
 /// CompileController is used to customise compilation, it allows compilation to
 /// be stopped and/or to call arbitrary code at various points in compilation.
 /// It also allows for various flags to be set to influence what information gets
-/// colelcted during compilation.
+/// collected during compilation.
 ///
 /// This is a somewhat higher level controller than a Session - the Session
 /// controls what happens in each phase, whereas the CompileController controls
@@ -213,14 +214,14 @@ impl<'a> CompileController<'a> {
 }
 
 pub struct PhaseController<'a> {
-    pub stop: bool,
+    pub stop: Compilation,
     pub callback: Box<Fn(CompileState) -> () + 'a>,
 }
 
 impl<'a> PhaseController<'a> {
     pub fn basic() -> PhaseController<'a> {
         PhaseController {
-            stop: false,
+            stop: Compilation::Continue,
             callback: box |_| {},
         }
     }
@@ -415,10 +416,12 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                  syntax::std_inject::maybe_inject_crates_ref(krate,
                                                              sess.opts.alt_std_name.clone()));
 
+    let macros = time(time_passes, "macro loading", (), |_|
+        metadata::macro_import::read_macro_defs(sess, &krate));
+
     let mut addl_plugins = Some(addl_plugins);
-    let Plugins { macros, registrars }
-        = time(time_passes, "plugin loading", (), |_|
-               plugin::load::load_plugins(sess, &krate, addl_plugins.take().unwrap()));
+    let registrars = time(time_passes, "plugin loading", (), |_|
+        plugin::load::load_plugins(sess, &krate, addl_plugins.take().unwrap()));
 
     let mut registry = Registry::new(sess, &krate);
 
@@ -470,14 +473,15 @@ pub fn phase_2_configure_and_expand(sess: &Session,
             // compiler, not for the target.
             let mut _old_path = OsString::from_str("");
             if cfg!(windows) {
-                _old_path = env::var("PATH").unwrap_or(_old_path);
+                _old_path = env::var_os("PATH").unwrap_or(_old_path);
                 let mut new_path = sess.host_filesearch(PathKind::All).get_dylib_search_paths();
                 new_path.extend(env::split_paths(&_old_path));
                 env::set_var("PATH", &env::join_paths(new_path.iter()).unwrap());
             }
+            let features = sess.features.borrow();
             let cfg = syntax::ext::expand::ExpansionConfig {
                 crate_name: crate_name.to_string(),
-                enable_quotes: sess.features.borrow().quote,
+                features: Some(&features),
                 recursion_limit: sess.recursion_limit.get(),
             };
             let ret = syntax::ext::expand::expand_crate(&sess.parse_sess,
@@ -620,13 +624,6 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
     // passes are timed inside typeck
     typeck::check_crate(&ty_cx, trait_map);
 
-    time(time_passes, "check static items", (), |_|
-         middle::check_static::check_crate(&ty_cx));
-
-    // These next two const passes can probably be merged
-    time(time_passes, "const marking", (), |_|
-         middle::const_eval::process_crate(&ty_cx));
-
     time(time_passes, "const checking", (), |_|
          middle::check_const::check_crate(&ty_cx));
 
@@ -678,8 +675,8 @@ pub fn phase_3_run_analysis_passes<'tcx>(sess: Session,
         time(time_passes, "stability checking", (), |_|
              stability::check_unstable_api_usage(&ty_cx));
 
-    time(time_passes, "unused feature checking", (), |_|
-         stability::check_unused_features(
+    time(time_passes, "unused lib feature checking", (), |_|
+         stability::check_unused_or_stable_features(
              &ty_cx.sess, lib_features_used));
 
     time(time_passes, "lint checking", (), |_|
@@ -747,7 +744,7 @@ pub fn phase_5_run_llvm_passes(sess: &Session,
 pub fn phase_6_link_output(sess: &Session,
                            trans: &trans::CrateTranslation,
                            outputs: &OutputFilenames) {
-    let old_path = env::var("PATH").unwrap_or(OsString::from_str(""));
+    let old_path = env::var_os("PATH").unwrap_or(OsString::from_str(""));
     let mut new_path = sess.host_filesearch(PathKind::All).get_tools_search_paths();
     new_path.extend(env::split_paths(&old_path));
     env::set_var("PATH", &env::join_paths(new_path.iter()).unwrap());
@@ -928,7 +925,7 @@ pub fn build_output_filenames(input: &Input,
 
             // If a crate name is present, we use it as the link name
             let stem = sess.opts.crate_name.clone().or_else(|| {
-                attr::find_crate_name(attrs).map(|n| n.get().to_string())
+                attr::find_crate_name(attrs).map(|n| n.to_string())
             }).unwrap_or(input.filestem());
 
             OutputFilenames {

@@ -736,7 +736,9 @@ pub fn finalize(cx: &CrateContext) {
         // instruct LLVM to emit an older version of dwarf, however,
         // for OS X to understand. For more info see #11352
         // This can be overridden using --llvm-opts -dwarf-version,N.
-        if cx.sess().target.target.options.is_like_osx {
+        // Android has the same issue (#22398)
+        if cx.sess().target.target.options.is_like_osx ||
+           cx.sess().target.target.options.is_like_android {
             llvm::LLVMRustAddModuleFlag(cx.llmod(),
                                         "Dwarf Version\0".as_ptr() as *const _,
                                         2)
@@ -801,7 +803,7 @@ pub fn create_global_var_metadata(cx: &CrateContext,
     let variable_type = ty::node_id_to_type(cx.tcx(), node_id);
     let type_metadata = type_metadata(cx, variable_type, span);
     let namespace_node = namespace_for_item(cx, ast_util::local_def(node_id));
-    let var_name = token::get_ident(ident).get().to_string();
+    let var_name = token::get_ident(ident).to_string();
     let linkage_name =
         namespace_node.mangled_name_of_contained_item(&var_name[]);
     let var_scope = namespace_node.scope;
@@ -1093,7 +1095,7 @@ pub fn get_cleanup_debug_loc_for_ast_node<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         // bodies), in which case we also just want to return the span of the
         // whole expression.
         let code_snippet = cx.sess().codemap().span_to_snippet(node_span);
-        if let Some(code_snippet) = code_snippet {
+        if let Ok(code_snippet) = code_snippet {
             let bytes = code_snippet.as_bytes();
 
             if bytes.len() > 0 && &bytes[bytes.len()-1..] == b"}" {
@@ -1112,7 +1114,7 @@ pub fn get_cleanup_debug_loc_for_ast_node<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum DebugLoc {
     At(ast::NodeId, Span),
     None
@@ -1349,7 +1351,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
     // Get_template_parameters() will append a `<...>` clause to the function
     // name if necessary.
-    let mut function_name = String::from_str(token::get_ident(ident).get());
+    let mut function_name = String::from_str(&token::get_ident(ident));
     let template_parameters = get_template_parameters(cx,
                                                       generics,
                                                       param_substs,
@@ -1498,7 +1500,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 let ident = special_idents::type_self;
 
                 let ident = token::get_ident(ident);
-                let name = CString::from_slice(ident.get().as_bytes());
+                let name = CString::from_slice(ident.as_bytes());
                 let param_metadata = unsafe {
                     llvm::LLVMDIBuilderCreateTemplateTypeParameter(
                         DIB(cx),
@@ -1532,7 +1534,7 @@ pub fn create_function_debug_context<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             if cx.sess().opts.debuginfo == FullDebugInfo {
                 let actual_type_metadata = type_metadata(cx, actual_type, codemap::DUMMY_SP);
                 let ident = token::get_ident(ident);
-                let name = CString::from_slice(ident.get().as_bytes());
+                let name = CString::from_slice(ident.as_bytes());
                 let param_metadata = unsafe {
                     llvm::LLVMDIBuilderCreateTemplateTypeParameter(
                         DIB(cx),
@@ -1992,7 +1994,7 @@ impl<'tcx> StructMemberDescriptionFactory<'tcx> {
             let name = if field.name == special_idents::unnamed_field.name {
                 "".to_string()
             } else {
-                token::get_name(field.name).get().to_string()
+                token::get_name(field.name).to_string()
             };
 
             let offset = if self.is_simd {
@@ -2222,7 +2224,7 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                 // MemberDescription of the struct's single field.
                 let sole_struct_member_description = MemberDescription {
                     name: match non_null_variant.arg_names {
-                        Some(ref names) => token::get_ident(names[0]).get().to_string(),
+                        Some(ref names) => token::get_ident(names[0]).to_string(),
                         None => "".to_string()
                     },
                     llvm_type: non_null_llvm_type,
@@ -2236,13 +2238,13 @@ impl<'tcx> EnumMemberDescriptionFactory<'tcx> {
                                                       .get_unique_type_id_of_enum_variant(
                                                           cx,
                                                           self.enum_type,
-                                                          non_null_variant_name.get());
+                                                          &non_null_variant_name);
 
                 // Now we can create the metadata of the artificial struct
                 let artificial_struct_metadata =
                     composite_type_metadata(cx,
                                             artificial_struct_llvm_type,
-                                            non_null_variant_name.get(),
+                                            &non_null_variant_name,
                                             unique_type_id,
                                             &[sole_struct_member_description],
                                             self.containing_scope,
@@ -2372,7 +2374,7 @@ fn describe_enum_variant<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     // Could do some consistency checks here: size, align, field count, discr type
 
     let variant_name = token::get_name(variant_info.name);
-    let variant_name = variant_name.get();
+    let variant_name = &variant_name;
     let unique_type_id = debug_context(cx).type_map
                                           .borrow_mut()
                                           .get_unique_type_id_of_enum_variant(
@@ -2391,7 +2393,7 @@ fn describe_enum_variant<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         Some(ref names) => {
             names.iter()
                  .map(|ident| {
-                     token::get_ident(*ident).get().to_string()
+                     token::get_ident(*ident).to_string()
                  }).collect()
         }
         None => variant_info.args.iter().map(|_| "".to_string()).collect()
@@ -2442,7 +2444,7 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         .iter()
         .map(|v| {
             let token = token::get_name(v.name);
-            let name = CString::from_slice(token.get().as_bytes());
+            let name = CString::from_slice(token.as_bytes());
             unsafe {
                 llvm::LLVMDIBuilderCreateEnumerator(
                     DIB(cx),
@@ -2472,7 +2474,7 @@ fn prepare_enum_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                                   codemap::DUMMY_SP);
                 let discriminant_name = get_enum_discriminant_name(cx, enum_def_id);
 
-                let name = CString::from_slice(discriminant_name.get().as_bytes());
+                let name = CString::from_slice(discriminant_name.as_bytes());
                 let discriminant_type_metadata = unsafe {
                     llvm::LLVMDIBuilderCreateEnumerationType(
                         DIB(cx),
@@ -3125,7 +3127,7 @@ fn contains_nodebug_attribute(attributes: &[ast::Attribute]) -> bool {
     attributes.iter().any(|attr| {
         let meta_item: &ast::MetaItem = &*attr.node.value;
         match meta_item.node {
-            ast::MetaWord(ref value) => value.get() == "no_debug",
+            ast::MetaWord(ref value) => &value[] == "no_debug",
             _ => false
         }
     })
@@ -3846,7 +3848,7 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 let mut path_element_count = 0;
                 for path_element in path {
                     let name = token::get_name(path_element.name());
-                    output.push_str(name.get());
+                    output.push_str(&name);
                     output.push_str("::");
                     path_element_count += 1;
                 }
@@ -3861,7 +3863,7 @@ fn push_debuginfo_type_name<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 let name = token::get_name(path.last()
                                                .expect("debuginfo: Empty item path?")
                                                .name());
-                output.push_str(name.get());
+                output.push_str(&name);
             }
         });
     }
@@ -3911,8 +3913,8 @@ impl NamespaceTreeNode {
                 None => {}
             }
             let string = token::get_name(node.name);
-            output.push_str(&format!("{}", string.get().len())[]);
-            output.push_str(string.get());
+            output.push_str(&format!("{}", string.len())[]);
+            output.push_str(&string);
         }
 
         let mut name = String::from_str("_ZN");
@@ -3969,7 +3971,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
                     };
                     let namespace_name = token::get_name(name);
                     let namespace_name = CString::from_slice(namespace_name
-                                                                .get().as_bytes());
+                                                                .as_bytes());
                     let scope = unsafe {
                         llvm::LLVMDIBuilderCreateNameSpace(
                             DIB(cx),
